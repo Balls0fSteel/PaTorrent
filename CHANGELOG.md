@@ -2,6 +2,33 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_161111_1792073471: `lt-swarm interop`: LibreTorrent downloads from qBittorrent, Transmission and Deluge
+
+This closes Phase 2: the reverse direction of the interop exit criterion is now verified and repeatable.
+
+### Added
+- `lt-swarm interop [--clients qbittorrent,transmission,deluge] [--mb N] [--qbittorrent PATH] [--wsl-distro NAME] [--keep]` (`tools/swarm/src/interop.rs`). It generates a 3-file torrent (default 40 MiB, 256 KiB pieces, odd file sizes so pieces straddle files) and runs each client as a seed with a throwaway configuration: DHT, LSD, PeX and port mapping off, everything else (encryption, uTP) at its defaults. Then an in-process LibreTorrent session downloads from it and the files are compared byte for byte. Output is `key=value` lines plus a summary, like the other subcommands.
+  - qBittorrent: the installed app with a temporary `--profile` (legal notice accepted, peer-country lookup off in its ini), `--save-path`, `--skip-dialog`. The user's own profile is never touched.
+  - Transmission (`transmission-cli -M -U -v`, `settings.json` in a temp config dir) and Deluge (`deluged -d` with a temp `core.conf`, the torrent added through `deluge-console`): in the WSL distro on Windows (`wsl.exe -e sh -c`, not through the login shell), directly with `sh` elsewhere. Their data is copied into `/tmp/lt-interop-<pid>/<client>` first.
+  - Readiness needs no client API: a probe connects, handshakes and counts the pieces in the client's `bitfield` and `have` messages, and the download starts once the client has them all. The probe also reports the client's peer-ID prefix.
+  - `LT_INTEROP_TRACE=1` prints download progress every 200 ms.
+
+### Verified (this machine, Windows 11 plus the Debian 13 WSL distro)
+- 40 MiB, 160 pieces, from each client: files byte-identical, payload exactly the torrent size, no failed or redundant bytes.
+
+  | Client (peer-ID) | Time | First data after |
+  |---|---|---|
+  | qBittorrent 5.2.4 (`-qB5240-`) | 0.20 s | under 0.2 s |
+  | Transmission 4.1.0-beta.2 (`-TR410B-`) | 9.72 s | 9.6 s |
+  | Deluge 2.2.0 (`-DE220s-`) | 0.41 s | 0.2 s |
+- No client process and no temp directory is left behind on Windows or in WSL.
+- `cargo clippy -p lt-swarm --all-targets -- -D warnings` and `cargo fmt --check` pass.
+
+### Issues encountered
+- Transmission took 9.7 s on every run, with no data for the first 9.6 s and then the whole torrent in one burst. Delaying our connect by 4 s made data start 4 s sooner after connecting, so the wait runs on a timer from Transmission's start, not from our connection. That fits Transmission's periodic (10 s) rechoke, which unchokes new interested peers only on its next pass. It is not an engine stall. `-U` (no upload limit) made no difference and stays in the command.
+- The first cleanup command never removed the WSL temp directory. `pkill -f <dir>` also matched the cleanup shell's own command line, which contained the same path, so the shell was killed before `rm` ran. The pattern is now written as `[/]tmp/...` and the `rm` path is built from a variable.
+- `wsl.exe` prints a warning about an unknown key `wsl2.pageReporting` in the user's `.wslconfig`. It is harmless and was left alone.
+
 ## 2026-10-15_160110_1792072870: Partly downloaded pieces survive a restart
 
 ### Added

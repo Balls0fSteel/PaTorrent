@@ -27,6 +27,6 @@ The libtorrent submodule is reference material only and is not needed to build.
 |---|---|
 | `libretorrent` | Windows GUI skeleton. Run `libretorrent --demo 10000` to load 10,000 simulated torrents. |
 | `libretorrent-nox` | Command-line client: `libretorrent-nox add file.torrent --save DIR [--seed]`, `libretorrent-nox run` to resume saved torrents |
-| `lt-swarm` | Benchmarks: `lt-swarm loopback`, `lt-swarm load --count 10000`, `lt-swarm scale --torrents 100000`, or `lt-swarm gen --out corpus` then `lt-swarm parse corpus` |
+| `lt-swarm` | Benchmarks: `lt-swarm loopback`, `lt-swarm load --count 10000`, `lt-swarm scale --torrents 100000`, or `lt-swarm gen --out corpus` then `lt-swarm parse corpus`. Interop: `lt-swarm interop` downloads from qBittorrent, Transmission and Deluge (setup: PLAN.md Q10) |
 
 LibreTorrent is not affiliated with µTorrent or BitTorrent, Inc. It uses none of their code, artwork or trademarks.

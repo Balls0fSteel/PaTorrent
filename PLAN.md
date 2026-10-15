@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_160110_1792072870
+Last updated: 2026-10-15_161111_1792073471
 
 ## Vision
 
@@ -24,7 +24,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Stage:** Phase 2 (minimum viable engine) is built. It downloads and seeds real torrents from `libretorrent-nox`. All four exit criteria are met: qBittorrent 5.2.4, Transmission 4.1.0 and Deluge 2.2.0 each downloaded a test torrent from `libretorrent-nox` with identical files. Remaining Phase 2 follow-ups are in Next steps.
+- **Stage:** Phase 2 (minimum viable engine) is built. It downloads and seeds real torrents from `libretorrent-nox`. All four exit criteria are met, and Phase 2 is closed: qBittorrent 5.2.4, Transmission 4.1.0 and Deluge 2.2.0 each downloaded a test torrent from `libretorrent-nox` with identical files, and LibreTorrent downloads from all three (`lt-swarm interop`, repeatable). Partly downloaded pieces survive a restart. Remaining smaller follow-ups are in Known TODOs.
 - Phase 2 results (release build, this dev machine):
 
   | What | Result |
@@ -138,13 +138,14 @@ Each phase ends with something runnable and measured against the targets in ARCH
 - [x] HTTP client: parser, chunked encoding, redirects. gzip is not needed (we request identity encoding). OS TLS: done (`core::net::tls`).
 - [x] `store`: resume.db + metadata.pack, libtorrent fast-resume field names, metadata loaded only for running torrents
 - [x] Dev CLI: `libretorrent-nox add <file> --save DIR [--seed]`, `run`, rate limits, per-user state directory, progress lines
-- [x] Tests: unit tests for every module (libtorrent vectors for BEP 6 allowed-fast, BEP 40, sliding averages), plus `tests/swarm.rs`: loopback downloads through a direct connection, an HTTP tracker and a UDP tracker, and a restart without recheck
+- [x] Tests: unit tests for every module (libtorrent vectors for BEP 6 allowed-fast, BEP 40, sliding averages), plus `tests/swarm.rs`: loopback downloads through a direct connection, an HTTP tracker and a UDP tracker, a restart without recheck, and a restart that keeps partly downloaded pieces
 - **Exit criteria:**
   - [x] Downloads a public Linux ISO from its trackers (Debian 13.7.0 netinst, checksum verified).
   - [x] Seeds to qBittorrent, Transmission and Deluge.
     - [x] qBittorrent 5.2.4 (libtorrent 2.0.x): downloaded a 3-file, 38.7 MiB torrent from `libretorrent-nox` over loopback, all files SHA-256 identical, exactly the torrent size downloaded (2026-10-15).
     - [x] Transmission 4.1.0-beta.2 (`transmission-cli`) and Deluge 2.2.0 (`deluged` + `deluge-console`, libtorrent 2.0.x) in the Debian 13 WSL distro, across the WSL NAT to nox on Windows: the same torrent, all files SHA-256 identical; nox sent exactly one copy to each (2026-10-15).
-  - [x] Restart resumes without a recheck.
+  - [x] Downloads from qBittorrent, Transmission and Deluge (reverse direction): `lt-swarm interop` (2026-10-15). 40 MiB, 3 files, files byte-identical, no failed or redundant bytes from any of them. qBittorrent 5.2.4 in 0.2 s and Deluge 2.2.0 in 0.4 s; Transmission 4.1.0-beta.2 in 9.7 s, of which 9.6 s is waiting for its periodic (10 s) rechoke to unchoke us.
+  - [x] Restart resumes without a recheck, including partly downloaded pieces (libtorrent `unfinished`).
   - [x] 1,000 synthetic torrents load in under 0.5 s (12 ms).
 
 ### Phase 3: Win32 GUI MVP (the µTorrent 2.2.1 main window)
@@ -210,13 +211,12 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 ## Next steps
 
-1. Close Phase 2:
-   1. Interop, reverse direction: LibreTorrent downloading from qBittorrent, Transmission and Deluge is untested (the clients are installed in the Debian WSL distro now). Add a scripted interop run to `lt-swarm` so this can be repeated.
-   2. ~~Run the OpenSSL TLS backend on Linux and FreeBSD.~~ Done: CI links and tests it against the system OpenSSL on Linux (run 38738279981) and FreeBSD's base libssl (run 38736854046).
-   3. ~~Save partially downloaded pieces in resume data (`unfinished`).~~ Done (CHANGELOG 2026-10-15_160110).
-2. Phase 3: the µTorrent 2.2.1 main window on top of the real engine.
-3. Phase 4 early pick: `ut_metadata`, so magnet links work (they are rejected with a clear message today).
-4. Keep CI green on Windows, Linux and FreeBSD (CI now also reports `lt-swarm load` and `loopback`).
+1. Phase 3: the µTorrent 2.2.1 main window on top of the real engine.
+2. Phase 4 early pick: `ut_metadata`, so magnet links work (they are rejected with a clear message today).
+3. Keep CI green on Windows, Linux and FreeBSD (CI now also reports `lt-swarm load` and `loopback`).
+4. Rerun `lt-swarm interop` after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI.
+
+Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on Linux (CI run 38738279981) and FreeBSD (run 38736854046); partial pieces in resume data (CHANGELOG 2026-10-15_160110); reverse-direction interop scripted as `lt-swarm interop` (CHANGELOG 2026-10-15_161111).
 
 ## Open questions
 
@@ -224,7 +224,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 - **Q2. Name.** "LibreTorrent" is already a well-known GPL-3 Android torrent client (proninyaroslav/libretorrent). libtorrent already identifies peer-ID `LR` as that app, so peers and trackers would confuse the two. Keep the name, or rename before the first release?
 - **Q3–Q7.** Resolved, see D9–D13.
 - **Q9. Coverage-guided fuzzing.** cargo-fuzz needs a nightly Rust toolchain plus the cargo-fuzz tool, and neither is installed. Install them (`rustup toolchain install nightly` then `cargo install cargo-fuzz`) and add a fuzz CI job? The stable mutation tests cover the basics until then.
-- **Q10. Interop testing setup.** Answered: qBittorrent runs as the installed app with a throwaway `--profile`; Transmission and Deluge run in the Debian WSL distro (`transmission-cli`, `deluged`, `deluge-console` installed 2026-10-15; the `deluged` system service the package enabled was stopped and disabled).
+- **Q10. Interop testing setup.** Answered: qBittorrent runs as the installed app with a throwaway `--profile`; Transmission and Deluge run in the Debian WSL distro (`transmission-cli`, `deluged`, `deluge-console` installed 2026-10-15; the `deluged` system service the package enabled was stopped and disabled). `lt-swarm interop` scripts all three.
 - **Q8. Peer-ID prefix (blocked on Q2).** `LR` is taken: libtorrent's `identify_client.cpp` maps it to the Android LibreTorrent. The code uses a provisional `-LB0100-` (`LB` appears in neither libtorrent's table nor the common BEP20 lists). Pick the final two-letter code together with the final name.
 
 ## Future improvements
@@ -244,6 +244,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - certificate revocation is not checked; SChannel would fetch CRLs synchronously on the engine thread. SChannel may still fetch a missing intermediate certificate (AIA) synchronously; move the handshake off the reactor if that ever shows up as a stall.
   - no macOS backend (Secure Transport / Network.framework) yet; non-Windows, non-Unix targets fail HTTPS announces with a clear message.
   - web seeds over HTTPS (Phase 5) can reuse `TlsStream` as is.
+- `lt-swarm interop` is verified only on Windows (the qBittorrent app plus WSL). On Linux it runs `transmission-cli` and `deluged` directly and expects `qbittorrent-nox` via `--qbittorrent`; untested. rTorrent and µTorrent 2.2.1 are not in it yet (Continuous: interop matrix).
 - Peers that only connect and get dropped (seed to seed) are not logged; a `peer_disconnected`-style alert category would help debugging swarms. `remove_peer` already has the close reason and throws it away; connect failures in `connect_peers_for` are not reported either.
 - libtorrent tests not ported yet because they need later pieces:
   - `create_torrent` (Phase 5): mutable_torrents, make_magnet_uri v1/v2/hybrid

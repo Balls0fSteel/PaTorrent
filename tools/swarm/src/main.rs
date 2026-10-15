@@ -7,13 +7,13 @@
 //! * `loopback`: the real engine, a seed and a downloader in this process over 127.0.0.1:
 //!   throughput and CPU time per byte.
 //! * `load`: the real engine's cold start with N saved torrents.
-//!
-//! A later phase adds `interop` (scripted transfers against other clients).
+//! * `interop`: the real engine downloading from qBittorrent, Transmission and Deluge.
 //!
 //! Output is `key=value` lines (machine readable, used by CI) followed by a human summary.
 
 mod corpus;
 mod engine;
+mod interop;
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -29,6 +29,8 @@ USAGE:
     lt-swarm parse DIR
     lt-swarm loopback [--mb N] [--piece-kib N]
     lt-swarm load [--count N]
+    lt-swarm interop [--clients qbittorrent,transmission,deluge] [--mb N]
+                     [--qbittorrent PATH] [--wsl-distro NAME] [--keep]
 ";
 
 fn main() -> ExitCode {
@@ -84,6 +86,34 @@ fn main() -> ExitCode {
                 _ => return usage("load: expected --count N"),
             };
             engine::load(count, rss_bytes)
+        }
+        Some("interop") => {
+            let mut opts = interop::Options::default();
+            let mut it = args[1..].iter();
+            while let Some(a) = it.next() {
+                if a == "--keep" {
+                    opts.keep = true;
+                    continue;
+                }
+                let Some(v) = it.next() else { return usage(&format!("{a} needs a value")) };
+                match a.as_str() {
+                    "--clients" => {
+                        let parsed: Option<Vec<_>> = v.split(',').map(interop::Client::parse).collect();
+                        match parsed {
+                            Some(c) if !c.is_empty() => opts.clients = c,
+                            _ => return usage("--clients: expected qbittorrent, transmission or deluge"),
+                        }
+                    }
+                    "--mb" => match v.parse() {
+                        Ok(n) => opts.mb = n,
+                        Err(_) => return usage("--mb: not a number"),
+                    },
+                    "--qbittorrent" => opts.qbittorrent = v.into(),
+                    "--wsl-distro" => opts.wsl_distro = v.clone(),
+                    _ => return usage(&format!("unknown option {a}")),
+                }
+            }
+            interop::run(&opts)
         }
         Some("parse") => match args.get(1) {
             Some(dir) => corpus::parse(std::path::Path::new(dir), rss_bytes),

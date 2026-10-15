@@ -436,7 +436,7 @@ impl Engine {
     pub(super) fn snub(&mut self, slot: usize) {
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
         p.snubbed = true;
-        let reqs: Vec<Request> = p.requests.drain(..).collect();
+        let reqs: Vec<Request> = std::mem::take(&mut p.requests);
         for r in &reqs {
             let start = r.block * BLOCK_SIZE;
             let len =

@@ -2,6 +2,17 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_144716_1792068436: CI after the first push of Phase 2 and HTTPS
+
+### Verified
+- FreeBSD CI (run 38736854046): passed. The OpenSSL TLS backend links against the base system's libssl and its unit tests pass (ClientHello with SNI, IP literal, plaintext-server failure).
+
+### Fixed
+- clippy `drain_collect` (new in CI's Rust 1.99, not in the local 1.90): `engine/wire.rs` snub now uses `std::mem::take`. This failed the Linux and Windows CI jobs (run 38736854243) before the tests ran.
+
+### Issues encountered
+- Local clippy (Rust 1.90) cannot see lints that are new in CI's stable toolchain; `rustup update` would close the gap (left to the user).
+
 ## 2026-10-15_144002_1792068002: HTTPS trackers through the OS TLS library
 
 ### Added

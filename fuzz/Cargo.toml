@@ -1,0 +1,63 @@
+# Coverage-guided fuzz targets (cargo-fuzz, nightly only). Run from the repository root:
+#   cargo +nightly fuzz run <target>
+# Its own workspace, so stable builds of the main workspace never see it.
+[package]
+name = "libretorrent-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+libretorrent-core = { path = "../crates/core", features = ["fuzzing"] }
+
+[workspace]
+members = ["."]
+
+[profile.release]
+debug = 1
+
+[[bin]]
+name = "bdecode"
+path = "fuzz_targets/bdecode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "torrent_info"
+path = "fuzz_targets/torrent_info.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "magnet"
+path = "fuzz_targets/magnet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "peer_wire"
+path = "fuzz_targets/peer_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "tracker_response"
+path = "fuzz_targets/tracker_response.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "http_response"
+path = "fuzz_targets/http_response.rs"
+test = false
+doc = false
+bench = false

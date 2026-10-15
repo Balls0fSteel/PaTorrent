@@ -2,6 +2,31 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_180656_1792080416: Coverage-guided fuzzing (Q9); license and name answers recorded
+
+### Added
+- `fuzz/`: cargo-fuzz crate (its own workspace) with six targets: `bdecode` (plus partial decode and the printer), `torrent_info`, `magnet` (parse, write, re-parse), `peer_wire` (handshake, BEP 10 extension handshake, message stream), `tracker_response` (announce, scrape, compact v4/v6 peers) and `http_response` (responses, URL parsing, redirects).
+- `libretorrent-core` feature `fuzzing`: a hidden `fuzzing` module re-exports the crate-private wire, tracker and HTTP parsers. Off in every normal build.
+- `fuzz.bat <target> [seconds]`: runs a target on Windows. It finds Visual Studio's ASan runtime DLL with vswhere and seeds `bdecode` / `torrent_info` with the 103 test torrents.
+- `.github/workflows/fuzz.yml`: one Linux job per target on nightly. Runs 120 s on pushes to main that touch `crates/core` or `fuzz`, 1,800 s weekly, or a chosen time by hand. The corpus is kept in the Actions cache (minimized after each run); crash inputs are uploaded as artifacts.
+- CI `fmt` job also checks the fuzz crate. `.gitignore`: `/fuzz/target`.
+
+### Tooling
+- Installed the nightly toolchain (`rustup toolchain install nightly --profile minimal`) and cargo-fuzz 0.13.2. `cargo install cargo-fuzz` failed on the pinned default toolchain 1.90.0 (a dependency needs rustc 1.91), so it was built with `cargo +stable install cargo-fuzz --locked`. rustup's self-update failed with "Access is denied" on `rustup-init.exe` (harmless; rustup stays at 1.29.0).
+
+### Issues
+- `cargo fuzz build -s none` does not link with MSVC (unresolved `__start___sancov_pcs`). The default ASan build links, but the exe needs `clang_rt.asan_dynamic-x86_64.dll` on PATH (exit 0xc0000135 otherwise); `fuzz.bat` handles this. A first `for /f` in `fuzz.bat` lost the quotes around the vswhere path and found nothing; fixed by running it through `call`.
+
+### Verified
+- Unseeded 30 s runs, no findings: bdecode 231k execs, torrent_info 2.43M, magnet 1.51M, peer_wire 3.13M, tracker_response 1.22M, http_response 727k. Seeded 60 s runs through `fuzz.bat`: torrent_info 837k execs (2,852 coverage edges), bdecode 176k, no findings.
+- `cargo fmt --check` (workspace and fuzz crate) and `cargo clippy -D warnings` (workspace, core with `fuzzing`, fuzz crate) pass.
+
+### Decisions recorded (PLAN.md)
+- D14: fuzzing setup as above.
+- Q1: the owner wants their own name as author and a non-commercial license; PolyForm Noncommercial 1.0.0 is proposed; the copyright holder name and the consequences of not being open source are still to confirm.
+- Q2: rename before the first release. Shortlist with free peer-ID codes: Ferrite (`FE`), Patina (`PA`), Oxbit (`OX`), Rivet (`RV`).
+- Q8: peer-ID spoofing was asked about. It is not built, and the concerns are written down.
+
 ## 2026-10-15_174803_1792079283: Build and run scripts
 
 ### Added

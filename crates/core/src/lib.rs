@@ -54,3 +54,12 @@ pub use version::{PEER_ID_PREFIX, USER_AGENT, VERSION};
 
 #[cfg(feature = "mock")]
 pub use mock::MockConfig;
+
+/// Internal parsers re-exported for the cargo-fuzz targets in `fuzz/`. Not a stable API.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub mod fuzzing {
+    pub use crate::proto::http::{Url, parse_response, resolve_redirect};
+    pub use crate::proto::peer_wire::{decode, decode_ext_handshake, decode_handshake, identify_client};
+    pub use crate::proto::tracker::{parse_announce_response, parse_compact_peers, parse_scrape_response};
+}

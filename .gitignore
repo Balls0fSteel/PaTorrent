@@ -14,6 +14,7 @@
 # Fuzzing
 /fuzz/artifacts
 /fuzz/corpus
+/fuzz/target
 
 # Editors and OS
 /.vs

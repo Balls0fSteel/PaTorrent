@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_174803_1792079283
+Last updated: 2026-10-15_180656_1792080416
 
 ## Vision
 
@@ -60,6 +60,7 @@ Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the reco
 | D11 (Q5) | The Linux/BSD GUI uses GTK 4 via gtk4-rs. | Maintained bindings. Memory can be trimmed with the Cairo renderer if needed. |
 | D12 (Q6) | Windows 10+ x64 only, on stable Rust. ARM64 Windows comes later as an extra CI target. No Windows 7/8.1, no 32-bit. | No nightly/`build-std`; tier-1 target. |
 | D13 (Q7) | Strict µTorrent 2.2.1 look by default: classic list view, 2.2.1 layout, menus and toolbar order. Allowed modern necessities: per-monitor DPI scaling and long paths. An optional dark mode may come later, never as the default. | Faithful clone first. |
+| D14 (Q9) | Coverage-guided fuzzing with cargo-fuzz on nightly, in a separate `fuzz/` workspace. The internal parsers reach it through the `fuzzing` feature of `libretorrent-core` (hidden module `fuzzing`). CI fuzzes each target on Linux: 2 min per push to main that touches the engine, 30 min weekly. | Nightly stays out of the product build (D12 still holds). Linux CI needs no ASan setup. |
 
 ## Roadmap
 
@@ -100,8 +101,8 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - all 103 `test_torrents/` fixtures copied
 - [x] Robustness: deterministic mutation tests on stable Rust (about 15k corrupted torrents and 5k magnets per run). They found and fixed a latent libtorrent partial-tree bug.
 - [x] `lt-swarm gen` / `parse`: synthetic corpus and metadata parse benchmark (also in the CI job summary)
+- [x] Coverage-guided fuzz targets (cargo-fuzz, Q9 → D14): `bdecode`, `torrent_info`, `magnet`, `peer_wire`, `tracker_response`, `http_response` in `fuzz/`; `fuzz.bat` locally, `.github/workflows/fuzz.yml` in CI
 - [ ] Moved:
-  - coverage-guided fuzz targets: need nightly + cargo-fuzz (Q9)
   - OS CSPRNG and sliding average: Phase 2, where they are first used
   - ARMv8 SHA paths: later, with ARM64 CI
 
@@ -223,12 +224,17 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 
 ## Open questions
 
-- **Q1. License** for LibreTorrent itself. libtorrent's BSD-3 allows any choice: GPL-3.0-or-later (copyleft, like qBittorrent) or MIT / BSD-3 (permissive, like libtorrent).
-- **Q2. Name.** "LibreTorrent" is already a well-known GPL-3 Android torrent client (proninyaroslav/libretorrent). libtorrent already identifies peer-ID `LR` as that app, so peers and trackers would confuse the two. Keep the name, or rename before the first release?
+- **Q1. License.** Answered 2026-10-15 in part: the owner wants their own name as author and a license that **forbids commercial use**. Proposed: PolyForm Noncommercial 1.0.0 (written for software; the dependencies are BSD-3, MIT, Apache-2.0 and zlib-style, so all allow it). Consequence to confirm: a non-commercial license is source-available, not open source or "libre" (OSI / FSF), so Debian, Fedora, F-Droid and similar will not package it, and outside contributors need to accept the same terms. Still needed: the exact copyright holder name (git user `TheDuke`, site name `DukeCorp1996`, GitHub `Balls0fSteel`).
+- **Q2. Name.** Answered 2026-10-15: rename before the first release; "BitTorrent" need not be in the name; a Rust angle is welcome. Shortlist (checked against libtorrent's `identify_client.cpp`, the BEP 20 list on wiki.theory.org and a web search, no torrent client found by these names):
+  - **Ferrite**, peer ID `FE`. Iron oxide, i.e. rust; also the magnet material (pulls in peers).
+  - **Patina**, peer ID `PA`. The good kind of oxidation; fits a faithful re-creation of a 2010 classic.
+  - **Oxbit**, peer ID `OX`. Oxide + bit; short, unusual.
+  - **Rivet**, peer ID `RV`. Small, strong, holds metal together. An old PHP tracker was called RivetTracker.
+  Avoid: anything "Rust…torrent" (rqbit, rustTorrent and Torrust already occupy that space) and "Libre…" (not accurate under a non-commercial license).
 - **Q3–Q7.** Resolved, see D9–D13.
-- **Q9. Coverage-guided fuzzing.** cargo-fuzz needs a nightly Rust toolchain plus the cargo-fuzz tool, and neither is installed. Install them (`rustup toolchain install nightly` then `cargo install cargo-fuzz`) and add a fuzz CI job? The stable mutation tests cover the basics until then.
+- **Q9.** Resolved, see D14.
 - **Q10. Interop testing setup.** Answered: qBittorrent runs as the installed app with a throwaway `--profile`; Transmission and Deluge run in the Debian WSL distro (`transmission-cli`, `deluged`, `deluge-console` installed 2026-10-15; the `deluged` system service the package enabled was stopped and disabled). `lt-swarm interop` scripts all three.
-- **Q8. Peer-ID prefix (blocked on Q2).** `LR` is taken: libtorrent's `identify_client.cpp` maps it to the Android LibreTorrent. The code uses a provisional `-LB0100-` (`LB` appears in neither libtorrent's table nor the common BEP20 lists). Pick the final two-letter code together with the final name.
+- **Q8. Peer-ID prefix (blocked on Q2).** `LR` is taken: libtorrent's `identify_client.cpp` maps it to the Android LibreTorrent. The code uses a provisional `-LB0100-` (`LB` appears in neither libtorrent's table nor the common BEP20 lists). Pick the final two-letter code together with the final name. The owner also asked (2026-10-15) about **spoofing well-known clients' peer IDs** until the new client is trusted. Not built; open for discussion: trackers that whitelist clients check the peer ID together with the HTTP `User-Agent`, the BEP 10 `v` field, the `key` and announce-parameter order and reserved-bit flags, so a borrowed ID with this engine's fingerprint is what gets accounts banned, and it misreports the client to other people's trackers. The route to acceptance is the own code: a PR adding it to libtorrent's `identify_client.cpp`, the wiki.theory.org BEP 20 list and webtorrent's `bittorrent-peerid`, then asking trackers to whitelist it.
 
 ## Future improvements
 
@@ -240,7 +246,9 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 
 ## Known TODOs
 
-- Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
+- Q1 (license holder name and the non-commercial consequences) and Q2 (pick from the shortlist; it decides the peer-ID code for Q8) are waiting on the owner. Both must be settled before the first public release. The rename touches crate names, binaries, `%APPDATA%\LibreTorrent`, window classes, the single-instance mutex, `version.rs` (`PEER_ID_PREFIX`, `USER_AGENT`) and the repository URL.
+- Fuzzing on Windows needs Visual Studio's AddressSanitizer runtime (`clang_rt.asan_dynamic-x86_64.dll`); `fuzz.bat` finds it with vswhere. A build without a sanitizer (`-s none`) does not link on MSVC (libFuzzer's PC table uses ELF section symbols). The default toolchain here is pinned to 1.90.0, and cargo-fuzz 0.13 needs 1.91+, so it was installed with `cargo +stable install cargo-fuzz --locked`.
+- Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), DHT messages, uTP headers, `ut_metadata`, resume data and the nox HTTP API (docs/PORTING.md rule 8).
 - Licensing compliance (checked 2026-10-15_174600_1792079160):
   - when a new libtorrent module (or bundled code such as puff or ed25519) is ported, add it to THIRD-PARTY-NOTICES.md's "Ported so far" list and give each file the origin and copyright header.
   - the nox Web API (D10) must be written from qBittorrent's published WebAPI docs only. qBittorrent is GPL-2.0-or-later; do not copy its source or Web UI assets unless Q1 picks a compatible license and the notices are added.

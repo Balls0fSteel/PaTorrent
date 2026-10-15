@@ -10,6 +10,8 @@ publish.workspace = true
 [features]
 # Simulated engine behind the real API, for frontend development and scale tests.
 mock = []
+# Exposes the internal wire, tracker and HTTP parsers to the cargo-fuzz targets in `fuzz/`.
+fuzzing = []
 
 [dependencies]
 mio.workspace = true

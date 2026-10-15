@@ -23,6 +23,7 @@ jobs:
         with:
           components: rustfmt
       - run: cargo fmt --all --check
+      - run: cargo fmt --manifest-path fuzz/Cargo.toml --check
 
   test:
     name: test (${{ matrix.os }})

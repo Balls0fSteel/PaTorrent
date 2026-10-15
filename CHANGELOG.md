@@ -2,6 +2,16 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_115117_1792057877: CI fixes for Phase 1
+
+### Fixed
+- MSRV 1.85: SSE4.2 CRC32C intrinsics need an explicit `unsafe` block before Rust 1.87. It is now wrapped and marked `#[allow(unused_unsafe)]`, so newer compilers stay warning-free.
+- clippy `byte_char_slices` (new in CI's stable clippy, Rust 1.99): two test loops now use byte strings.
+
+### Issues encountered
+- This machine runs Rust 1.90, while CI uses the latest stable (1.99). Newer clippy lints show up in CI first. Running `rustup update` locally would close the gap; that is left to the user.
+- First Phase 1 CI run: FreeBSD passed, including the non-Windows filename rules; Linux and Windows clippy and the MSRV check failed on the items above.
+
 ## 2026-10-15_114351_1792057431: Phase 1, primitives
 
 ### Added (ported from libtorrent-rasterbar 2.0.11, with its tests)

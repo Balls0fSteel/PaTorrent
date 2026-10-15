@@ -76,16 +76,21 @@ fn crc32c_portable(data: &[u8]) -> u32 {
 #[target_feature(enable = "sse4.2")]
 unsafe fn crc32c_sse42(data: &[u8]) -> u32 {
     use std::arch::x86_64::{_mm_crc32_u8, _mm_crc32_u64};
-    let mut crc = 0xFFFF_FFFFu64;
-    let mut words = data.chunks_exact(8);
-    for w in &mut words {
-        crc = _mm_crc32_u64(crc, u64::from_le_bytes(w.try_into().expect("8-byte chunk")));
+    // The intrinsics are safe to call here from Rust 1.87 on; the block keeps the 1.85 MSRV
+    // building. SAFETY: SSE4.2 is enabled for this function.
+    #[allow(unused_unsafe)]
+    unsafe {
+        let mut crc = 0xFFFF_FFFFu64;
+        let mut words = data.chunks_exact(8);
+        for w in &mut words {
+            crc = _mm_crc32_u64(crc, u64::from_le_bytes(w.try_into().expect("8-byte chunk")));
+        }
+        let mut crc = crc as u32;
+        for &b in words.remainder() {
+            crc = _mm_crc32_u8(crc, b);
+        }
+        crc ^ 0xFFFF_FFFF
     }
-    let mut crc = crc as u32;
-    for &b in words.remainder() {
-        crc = _mm_crc32_u8(crc, b);
-    }
-    crc ^ 0xFFFF_FFFF
 }
 
 #[cfg(test)]

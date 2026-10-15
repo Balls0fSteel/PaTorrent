@@ -1593,10 +1593,10 @@ mod tests {
     fn file_index_for_root() {
         let mut fs = FileStorage::new();
         fs.set_piece_length(0x8000);
-        for d in [b'1', b'2', b'3', b'4'] {
+        for d in *b"1234" {
             add_v2(&mut fs, &format!("test/{}", d - b'1'), 0x8000, &[d; 32]);
         }
-        for (i, d) in [b'1', b'2', b'3', b'4'].into_iter().enumerate() {
+        for (i, d) in (*b"1234").into_iter().enumerate() {
             assert_eq!(fs.file_index_for_root(&Sha256Hash([d; 32])), Some(i));
         }
         assert_eq!(fs.file_index_for_root(&Sha256Hash([b'5'; 32])), None);

@@ -4,15 +4,14 @@
 use std::fmt;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum Error {
     /// libtorrent `errors::duplicate_torrent`.
     DuplicateTorrent,
     /// libtorrent `errors::invalid_torrent_handle`: the torrent is gone.
     InvalidTorrentHandle,
-    /// The `.torrent` file could not be parsed.
-    InvalidTorrentFile(String),
-    /// The magnet link could not be parsed.
-    InvalidMagnet(String),
+    /// The `.torrent` file or magnet link was rejected.
+    Metainfo(crate::metainfo::MetainfoError),
     /// Resume data could not be parsed or does not match the torrent.
     InvalidResumeData(String),
     /// An OS-level I/O failure.
@@ -28,8 +27,7 @@ impl fmt::Display for Error {
         match self {
             Error::DuplicateTorrent => f.write_str("the torrent is already in the list"),
             Error::InvalidTorrentHandle => f.write_str("invalid torrent handle"),
-            Error::InvalidTorrentFile(m) => write!(f, "invalid torrent file: {m}"),
-            Error::InvalidMagnet(m) => write!(f, "invalid magnet link: {m}"),
+            Error::Metainfo(e) => write!(f, "{e}"),
             Error::InvalidResumeData(m) => write!(f, "invalid resume data: {m}"),
             Error::Io { message, .. } => f.write_str(message),
             Error::SessionClosed => f.write_str("the session has been shut down"),

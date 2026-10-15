@@ -16,6 +16,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use crate::alert::{Alert, Protocol};
 use crate::error::Error;
+use crate::metainfo::{TorrentInfo, parse_magnet_uri};
 use crate::params::{
     AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags, TorrentSource,
 };
@@ -93,6 +94,8 @@ pub(crate) fn run(rx: mpsc::Receiver<Command>, shared: Arc<Shared>, settings: Se
 
 struct Torrent {
     st: TorrentStatus,
+    /// Real metadata, for torrents added from .torrent files.
+    ti: Option<Arc<TorrentInfo>>,
     /// Drives every lazily generated detail (files, trackers, peers, piece order).
     seed: u64,
     max_rate: u32,
@@ -360,7 +363,7 @@ impl Mock {
             TorrentSource::TorrentFile(b) | TorrentSource::Resume(b) => parse_torrent_file(b),
             TorrentSource::Magnet(uri) => parse_magnet(uri),
             TorrentSource::InfoHash(ih) => {
-                Ok(Parsed { info_hashes: *ih, name: None, total: None, trackers: Vec::new() })
+                Ok(Parsed { info_hashes: *ih, name: None, trackers: Vec::new(), ti: None })
             }
         };
         let display = p.name.clone().unwrap_or_else(|| match &p.source {
@@ -396,8 +399,8 @@ impl Mock {
             ..TorrentStatus::default()
         };
         let mut metadata_ticks = 0;
-        match parsed.total {
-            Some(total) => set_metadata(&mut st, total),
+        match &parsed.ti {
+            Some(ti) => set_metadata_from(&mut st, ti),
             None => {
                 st.state = TorrentState::DownloadingMetadata;
                 metadata_ticks = METADATA_TICKS;
@@ -407,6 +410,7 @@ impl Mock {
         extra_trackers.extend(p.trackers.iter().cloned());
         let t = Torrent {
             st,
+            ti: parsed.ti,
             seed,
             max_rate,
             have: None,
@@ -475,6 +479,7 @@ impl Mock {
         let done_bytes = st.total_wanted_done as f64;
         self.insert(Torrent {
             st,
+            ti: None,
             seed,
             max_rate,
             have: None,
@@ -774,6 +779,14 @@ fn set_metadata(st: &mut TorrentStatus, total: u64) {
     st.pieces_total = total.div_ceil(st.piece_length as u64) as u32;
 }
 
+fn set_metadata_from(st: &mut TorrentStatus, ti: &TorrentInfo) {
+    st.has_metadata = true;
+    st.total = ti.total_size();
+    st.total_wanted = ti.total_size();
+    st.piece_length = ti.piece_length();
+    st.pieces_total = ti.num_pieces();
+}
+
 fn mark_complete(st: &mut TorrentStatus) {
     st.total_wanted_done = st.total_wanted;
     st.total_done = st.total_wanted;
@@ -863,6 +876,28 @@ fn files_for(t: &Torrent) -> Vec<FileEntry> {
     let st = &t.st;
     if !st.has_metadata {
         return Vec::new();
+    }
+    let prio = |i: usize| t.file_prio.as_ref().and_then(|p| p.get(i).copied()).unwrap_or_default();
+    if let Some(ti) = &t.ti {
+        let fs = ti.files();
+        return (0..fs.num_files())
+            .map(|i| {
+                let first = fs.map_file(i, 0, 0).piece;
+                let last = fs
+                    .map_file(i, fs.file_size(i).saturating_sub(1), 0)
+                    .piece
+                    .min(fs.num_pieces().saturating_sub(1));
+                FileEntry {
+                    path: fs.file_path(i, ""),
+                    size: fs.file_size(i),
+                    offset: fs.file_offset(i),
+                    first_piece: first.min(last),
+                    last_piece: last,
+                    pad_file: fs.pad_file_at(i),
+                    priority: prio(i),
+                }
+            })
+            .collect();
     }
     let mut rng = Rng::new(t.seed ^ 0xf11e);
     let n = if rng.chance(0.4) { 1 } else { 2 + rng.below(7) as usize };
@@ -999,98 +1034,34 @@ fn peers_for(t: &Torrent) -> Vec<PeerInfo> {
         .collect()
 }
 
-// --- source parsing (just enough to be useful; the real parsers arrive in Phase 1) ---
+// --- source parsing: the real metadata parsers ---
 
 struct Parsed {
     info_hashes: InfoHashes,
     name: Option<String>,
-    total: Option<u64>,
     trackers: Vec<String>,
+    /// Present for .torrent files: the real file layout.
+    ti: Option<Arc<TorrentInfo>>,
 }
 
 fn parse_torrent_file(b: &[u8]) -> Result<Parsed, Error> {
-    if b.first() != Some(&b'd') || b.last() != Some(&b'e') {
-        return Err(Error::InvalidTorrentFile("not a bencoded dictionary".to_owned()));
-    }
-    let name = find_bstring(b, b"4:name").map(|s| String::from_utf8_lossy(s).into_owned());
-    let total: u64 = find_all_ints(b, b"6:lengthi").sum();
-    let mut hash = [0u8; 20];
-    for (i, chunk) in hash.chunks_mut(8).enumerate() {
-        let h = fnv1a(b, i as u64).to_le_bytes();
-        chunk.copy_from_slice(&h[..chunk.len()]);
-    }
-    let trackers = find_bstring(b, b"8:announce").map(|s| String::from_utf8_lossy(s).into_owned());
+    let ti = TorrentInfo::from_bytes(b)?;
     Ok(Parsed {
-        info_hashes: InfoHashes::v1(Sha1Hash(hash)),
-        name,
-        total: Some(if total == 0 { 700 << 20 } else { total }),
-        trackers: trackers.into_iter().collect(),
+        info_hashes: ti.info_hashes(),
+        name: Some(ti.name().to_owned()),
+        trackers: ti.trackers().iter().map(|t| t.url.clone()).collect(),
+        ti: Some(Arc::new(ti)),
     })
 }
 
 fn parse_magnet(uri: &str) -> Result<Parsed, Error> {
-    let query = uri
-        .strip_prefix("magnet:?")
-        .ok_or_else(|| Error::InvalidMagnet("missing \"magnet:?\" prefix".to_owned()))?;
-    let mut hash = None;
-    let mut name = None;
-    let mut trackers = Vec::new();
-    for pair in query.split('&') {
-        let (k, v) = pair.split_once('=').unwrap_or((pair, ""));
-        match k {
-            "xt" => {
-                if let Some(hex) = v.strip_prefix("urn:btih:") {
-                    hash = Sha1Hash::from_hex(hex);
-                }
-            }
-            "dn" => name = Some(percent_decode(v)),
-            "tr" => trackers.push(percent_decode(v)),
-            _ => {}
-        }
-    }
-    let hash = hash.ok_or_else(|| Error::InvalidMagnet("no hex urn:btih info-hash".to_owned()))?;
-    Ok(Parsed { info_hashes: InfoHashes::v1(hash), name, total: None, trackers })
-}
-
-fn find_bstring<'a>(b: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
-    let at = b.windows(key.len()).position(|w| w == key)? + key.len();
-    let colon = b[at..].iter().position(|&c| c == b':')? + at;
-    let len: usize = std::str::from_utf8(&b[at..colon]).ok()?.parse().ok()?;
-    b.get(colon + 1..colon + 1 + len)
-}
-
-fn find_all_ints<'a>(b: &'a [u8], key: &'a [u8]) -> impl Iterator<Item = u64> + 'a {
-    let mut from = 0;
-    std::iter::from_fn(move || {
-        let at = b[from..].windows(key.len()).position(|w| w == key)? + from + key.len();
-        let end = b[at..].iter().position(|&c| c == b'e')? + at;
-        from = end;
-        std::str::from_utf8(&b[at..end]).ok()?.parse().ok()
+    let m = parse_magnet_uri(uri)?;
+    Ok(Parsed {
+        info_hashes: m.info_hashes,
+        name: (!m.name.is_empty()).then_some(m.name),
+        trackers: m.trackers,
+        ti: None,
     })
-}
-
-fn percent_decode(s: &str) -> String {
-    let b = s.as_bytes();
-    let mut out = Vec::with_capacity(b.len());
-    let mut i = 0;
-    while i < b.len() {
-        match b[i] {
-            b'+' => out.push(b' '),
-            b'%' if i + 2 < b.len() => {
-                let mut v = [0u8; 1];
-                let pair = std::str::from_utf8(&b[i + 1..i + 3]).unwrap_or("");
-                if crate::util::hex::decode_into(pair, &mut v) {
-                    out.push(v[0]);
-                    i += 2;
-                } else {
-                    out.push(b'%');
-                }
-            }
-            c => out.push(c),
-        }
-        i += 1;
-    }
-    String::from_utf8_lossy(&out).into_owned()
 }
 
 // --- numbers ---
@@ -1166,15 +1137,6 @@ fn synthetic_name(rng: &mut Rng, i: usize) -> String {
 
 fn now_unix() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
-}
-
-fn fnv1a(b: &[u8], salt: u64) -> u64 {
-    let mut h = 0xcbf2_9ce4_8422_2325u64 ^ salt.wrapping_mul(0x100_0000_01b3);
-    for &c in b {
-        h ^= c as u64;
-        h = h.wrapping_mul(0x100_0000_01b3);
-    }
-    mix(h)
 }
 
 /// splitmix64 finaliser.
@@ -1272,11 +1234,11 @@ mod tests {
         let h = s.handle();
         h.add_torrent(AddTorrentParams::new(TorrentSource::Magnet("http://nope".into()), "/dl"));
         wait_for(&h, |a| {
-            matches!(a, Alert::AddTorrentFailed { error: Error::InvalidMagnet(_), .. }).then_some(())
+            matches!(a, Alert::AddTorrentFailed { error: Error::Metainfo(_), .. }).then_some(())
         });
         h.add_torrent(AddTorrentParams::new(TorrentSource::TorrentFile(b"garbage".to_vec()), "/dl"));
         wait_for(&h, |a| {
-            matches!(a, Alert::AddTorrentFailed { error: Error::InvalidTorrentFile(_), .. }).then_some(())
+            matches!(a, Alert::AddTorrentFailed { error: Error::Metainfo(_), .. }).then_some(())
         });
     }
 
@@ -1371,6 +1333,7 @@ mod tests {
         };
         let mut t = Torrent {
             st,
+            ti: None,
             seed: 42,
             max_rate: 1,
             have: None,
@@ -1391,12 +1354,5 @@ mod tests {
         let pl = t.st.piece_length as u64;
         let done: u64 = files.iter().map(|f| file_done(f, &full, pl, t.st.total)).sum();
         assert_eq!(done, t.st.total);
-    }
-
-    #[test]
-    fn percent_decoding() {
-        assert_eq!(percent_decode("a+b%20c%2F"), "a b c/");
-        assert_eq!(percent_decode("100%"), "100%");
-        assert_eq!(percent_decode("%zz"), "%zz");
     }
 }

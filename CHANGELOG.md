@@ -2,6 +2,59 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_114351_1792057431: Phase 1, primitives
+
+### Added (ported from libtorrent-rasterbar 2.0.11, with its tests)
+- **`core::bencode`**
+  - zero-copy decoder: 8-byte tokens, libtorrent error codes and positions, partial trees, soft-error checks, `print_entry`
+  - `Entry` owned value with canonical encoder and `to_string`
+  - tests: all of test_bdecode, test_bencoding
+- **`core::crypto`**
+  - SHA-1 (Steve Reid) and SHA-256 (LibTomCrypt): portable ports, plus x86-64 SHA-NI paths selected at runtime
+  - CRC32C: SSE4.2 plus table, one-shot and incremental
+  - tests: RFC and NIST vectors through both SHA paths, random cross-checks, and the 1 GiB vector (release-only)
+- **Digest arithmetic on `Sha1Hash` / `Sha256Hash`** (xor/and/or/not, shifts, leading zeros), with test_sha1_hash.
+- **`core::util`**
+  - UTF-8 codepoints and `verify_encoding` (test_utf8)
+  - string helpers, escaping, base32, `maybe_url_encode`, `parse_url_components` (test_string parts)
+  - path helpers; a non-crypto RNG
+- **`core::metainfo`**
+  - `FileStorage`: compact entries, names borrowed from the info section, path index, `map_block`/`map_file`, symlink sanitising, canonicalize, v2 piece math (test_file_storage)
+  - `TorrentInfo`: v1 plus v2/hybrid parsing, piece layers, name sanitising, duplicate-name resolution, trackers, web seeds, DHT nodes (test_torrent_info, all 103 fixtures)
+  - magnet parse/build (test_magnet)
+  - `MetainfoError` with libtorrent's messages
+- **`tests/robustness.rs`**: deterministic mutation testing of bdecode, TorrentInfo and magnets on stable Rust (about 15k corrupted torrents and 5k magnets per run).
+- **`lt-swarm gen` / `lt-swarm parse`**: synthetic `.torrent` corpus and metadata parse/memory benchmark. CI runs it and reports it in the job summary, plus the release-only slow tests.
+
+### Changed
+- The simulated engine parses `.torrent` files and magnets with the real parsers and shows real file trees.
+- `Error::InvalidTorrentFile` / `InvalidMagnet` were replaced by `Error::Metainfo(MetainfoError)`.
+- `.gitattributes`: `*.torrent binary`, so fixtures are never line-ending converted.
+
+### Fixed
+- **Latent libtorrent bug.** After a parse error, the containers that bdecode closes while unwinding linked to their own end token. `has_soft_error` then read keys out of bounds; the mutation test caught it on its first run. Unwound containers now link past their end token, which also keeps the partial tree structurally valid. A regression test is added.
+- **Hybrid torrents without v1 piece hashes.** Our mutation tests also showed that a `meta version 2` torrent with a v1 file list but no `pieces` was accepted. It claimed a v1 info-hash it could never verify. It is now rejected with `torrent_missing_pieces` (libtorrent accepts it); the divergence is recorded in PORTING.md and covered by a unit test.
+
+### Performance (release build, this machine)
+- SHA-1 with SHA-NI: 1 GiB in 0.37 s (about 2.9 GB/s).
+- Metadata parsing, 10,000 synthetic torrents (211 MB, 134k files): 207 ms, about 21 µs each. Skipping libtorrent's always-computed SHA-256 for v1 torrents brought this down from 308 ms.
+- A fully parsed torrent holds about 25 KB (243 MB for 10,000 held, 7 MB once dropped). This confirms the lazy-metadata design (D5).
+
+### Decisions and divergences
+- Recorded in docs/PORTING.md: `/` path separator everywhere, iterator-based bdecode lookups, valid partial trees, no SHA-256 for v1, hashed directory index, strict btih hex.
+- libtorrent's tests feed C strings, so their embedded NULs end the input early. Ours see every byte; NUL bytes are dropped, as libtorrent's own filter does.
+- `TorrentInfo::piece_layer()` returns the root hash for single-piece v2 files, as libtorrent does.
+
+### Issues encountered
+- `gen` is a reserved keyword in edition 2024; the corpus generator function is named `generate` (the CLI command is still `gen`).
+- Shell heredocs mangled inline Python escapes a few times; edit scripts now go through files.
+- Coverage-guided fuzzing (cargo-fuzz) needs a nightly toolchain that is not installed. Asked the user (PLAN.md Q9) rather than working around it.
+
+### Verified
+- Windows: `cargo clippy --workspace --all-targets -D warnings` clean, `cargo fmt --check` clean.
+- `cargo test --workspace`: 204 tests pass (194 core unit, 3 robustness, 7 frontend), plus 1 release-only test.
+- Long local mutation run: 3 seeds x 4000 rounds x 103 fixtures (about 1.2 million corrupted torrents) in release mode. No panics, no invariant violations. Longer runs use `LT_FUZZ_ROUNDS` / `LT_FUZZ_SEED`.
+
 ## 2026-10-15_104714_1792054034: Phase 0, foundations
 
 ### Added

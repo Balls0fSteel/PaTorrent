@@ -1,13 +1,15 @@
 //! `lt-swarm`: scale, interop and swarm benchmarks (docs/ARCHITECTURE.md, "Performance targets").
 //!
-//! Phase 0 ships the `scale` benchmark against the simulated engine. It measures what the real
-//! engine must later beat with real data: time to load N torrents, time to the first full status
-//! update, size of incremental updates, and process memory. Later phases add:
-//! * `swarm`: in-process loopback swarm (seeders + leechers) for throughput and CPU per byte;
-//! * `interop`: scripted transfers against other clients;
-//! * `gen`: synthetic `.torrent` corpus for real-engine scale tests (needs Phase 1 bencode).
+//! * `scale`: the engine API against the simulated engine: time to load N torrents, time to the
+//!   first full status update, size of incremental updates, and process memory.
+//! * `gen` / `parse`: a synthetic `.torrent` corpus, and how fast and how big parsed metadata is.
+//!
+//! Later phases add `swarm` (in-process loopback swarm for throughput and CPU per byte) and
+//! `interop` (scripted transfers against other clients).
 //!
 //! Output is `key=value` lines (machine readable, used by CI) followed by a human summary.
+
+mod corpus;
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -19,6 +21,8 @@ lt-swarm: LibreTorrent benchmarks
 
 USAGE:
     lt-swarm scale [--torrents N] [--active FRACTION] [--seconds N]
+    lt-swarm gen --out DIR [--count N] [--seed N]
+    lt-swarm parse DIR
 ";
 
 fn main() -> ExitCode {
@@ -31,11 +35,47 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Some("gen") => {
+            let (mut count, mut out, mut seed) = (1000usize, None, 1u64);
+            let mut it = args[1..].iter();
+            while let Some(a) = it.next() {
+                let Some(v) = it.next() else { return usage(&format!("{a} needs a value")) };
+                match a.as_str() {
+                    "--count" => match v.parse() {
+                        Ok(n) => count = n,
+                        Err(_) => return usage("--count: not a number"),
+                    },
+                    "--seed" => match v.parse() {
+                        Ok(n) => seed = n,
+                        Err(_) => return usage("--seed: not a number"),
+                    },
+                    "--out" => out = Some(std::path::PathBuf::from(v)),
+                    _ => return usage(&format!("unknown option {a}")),
+                }
+            }
+            match out {
+                Some(out) => corpus::generate(count, &out, seed),
+                None => usage("gen: --out is required"),
+            }
+        }
+        Some("parse") => match args.get(1) {
+            Some(dir) => corpus::parse(std::path::Path::new(dir), rss_bytes),
+            None => usage("parse: directory missing"),
+        },
         _ => {
             print!("{USAGE}");
             ExitCode::from(2)
         }
     }
+}
+
+fn usage(e: &str) -> ExitCode {
+    eprintln!(
+        "error: {e}
+
+{USAGE}"
+    );
+    ExitCode::from(2)
 }
 
 fn parse_scale(args: &[String]) -> Result<(usize, f64, u64), String> {

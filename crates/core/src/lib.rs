@@ -15,8 +15,11 @@
 //! [`Session::start_mock`]). The real network engine replaces it in Phase 2 without API changes.
 
 mod alert;
+pub mod bencode;
+pub mod crypto;
 mod error;
 mod flags;
+pub mod metainfo;
 mod params;
 mod session;
 mod settings;

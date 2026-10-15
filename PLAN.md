@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_104714_1792054034
+Last updated: 2026-10-15_114351_1792057431
 
 ## Vision
 
@@ -24,8 +24,22 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Stage:** Phase 0 (foundations) done; Phase 1 (primitives) is next.
-- Working today, on the simulated engine:
+- **Stage:** Phase 1 (primitives) done; Phase 2 (the real engine) is next.
+- Phase 1 delivered the metadata layer, ported from libtorrent with its tests:
+  - bencode: zero-copy decoder and `Entry` encoder
+  - SHA-1/SHA-256 (portable + SHA-NI) and CRC32C (SSE4.2)
+  - UTF-8, URL and path utilities
+  - `FileStorage`, `TorrentInfo` (v1, v2 and hybrid parsing) and magnet links
+
+  The simulated engine now uses the real parsers, so real `.torrent` files and magnets show real names, sizes and file trees.
+- Phase 1 measurements (release build, this dev machine):
+
+  | What | Result |
+  |---|---|
+  | SHA-1 with SHA-NI | 1 GiB in 0.37 s (about 2.9 GB/s) |
+  | Parsing 10,000 synthetic `.torrent` files (211 MB, 134k files) | 207 ms total, 21 µs each, about 1 GB/s |
+  | Memory per fully parsed torrent | about 25 KB (mostly piece hashes): 243 MB for 10,000 held, 7 MB once dropped. This is why only active torrents keep metadata (D5). |
+- Working since Phase 0, on the simulated engine:
   - the engine API (`Session`, handles, bounded alert queue, dirty-only status updates)
   - the shared `frontend` crate
   - a Win32 skeleton window
@@ -89,14 +103,22 @@ Each phase ends with something runnable and measured against the targets in ARCH
 - [x] `libretorrent-nox` Phase 0 CLI (`add`, `demo`)
 
 ### Phase 1: Primitives (pure code, fully tested)
-- [ ] `bencode`: zero-copy bdecode (token array like `bdecode_node`), encoder, `Entry`
-- [ ] `crypto::hash`: SHA-1 and SHA-256 (portable plus SHA-NI, runtime-detected), CRC32C (SSE4.2), OS CSPRNG
-- [ ] `util`: hex, percent escaping, UTF-8 and path sanitising, `parse_url`, bitfield, sliding average
-- [ ] `metainfo` v1:
-  - `file_storage`, `torrent_info` (pad files, BEP47 attributes, symlinks)
-  - `info_hash`
-  - magnet URIs (BEP9, BEP53 `so=`)
-- [ ] Port Phase 1 tests and `test_torrents/` fixtures. Add fuzz targets for bdecode, torrent_info and magnet.
+- [x] `bencode`: zero-copy bdecode (8-byte token array like `bdecode_node`), encoder, `Entry`, `print_entry`, soft-error checks
+- [x] `crypto`: SHA-1 and SHA-256 (portable ports plus SHA-NI, runtime-detected), CRC32C (SSE4.2 plus table, incremental)
+- [x] `util`: hex, percent escaping, base32, UTF-8 codepoints and `verify_encoding`, `parse_url_components`, path helpers, non-crypto RNG
+- [x] `metainfo`:
+  - `FileStorage` (pad files, BEP47 attributes, symlink sanitising, `map_block` / `map_file`, canonicalize, v2 piece math)
+  - `TorrentInfo`: v1, plus v2 / hybrid parsing, piece layers, duplicate-name resolution, web seeds, DHT nodes, similar / collections
+  - info-hashes; magnet URIs (BEP9, BEP53 `so=`, `x.pe`, `dht`) with `make_magnet_uri`
+- [x] Ported tests:
+  - libtorrent tests: test_bdecode, test_bencoding, test_hasher, test_sha1_hash, test_crc32, test_utf8, test_string (relevant parts), test_file_storage, test_torrent_info (non-session parts), test_magnet (non-session parts)
+  - all 103 `test_torrents/` fixtures copied
+- [x] Robustness: deterministic mutation tests on stable Rust (about 15k corrupted torrents and 5k magnets per run). They found and fixed a latent libtorrent partial-tree bug.
+- [x] `lt-swarm gen` / `parse`: synthetic corpus and metadata parse benchmark (also in the CI job summary)
+- [ ] Moved:
+  - coverage-guided fuzz targets: need nightly + cargo-fuzz (Q9)
+  - OS CSPRNG and sliding average: Phase 2, where they are first used
+  - ARMv8 SHA paths: later, with ARM64 CI
 
 ### Phase 2: Minimum viable engine (TCP, v1, trackers)
 - [ ] Reactor: mio poll loop, hierarchical timer wheel, waker, resolver thread with cache, TCP listen/connect, UDP sockets
@@ -193,17 +215,26 @@ Each phase ends with something runnable and measured against the targets in ARCH
 - Fuzzing; an interop matrix against qBittorrent, Transmission, Deluge, rTorrent and µTorrent 2.2.1
 - Parser security review before each release
 
-## Next steps (after approval)
+## Next steps
 
-1. Phase 1: `bencode` first (everything else depends on it), then SHA-1/SHA-256 (+ SHA-NI), then `metainfo` v1 and magnets. Port the matching libtorrent tests alongside.
-2. In parallel with Phase 1/2: build the µTorrent 2.2.1 main window (Phase 3 UI work) against the mock engine.
-3. Keep CI green on Windows, Linux and FreeBSD. The first run passed on all three.
+1. Phase 2, in dependency order:
+   1. reactor (mio loop, timers, waker, resolver)
+   2. session core (settings table, alerts, counters, tick, torrent lists)
+   3. disk subsystem (pread storage, write cache, hashing, file pool)
+   4. peer wire protocol, piece picker, peer list, choker
+   5. HTTP/UDP trackers
+   6. resume store
+
+   Goal: download and seed a real torrent from the nox CLI.
+2. In parallel: build the µTorrent 2.2.1 main window (Phase 3 UI work) against the mock engine, which now shows real metadata.
+3. Keep CI green on Windows, Linux and FreeBSD.
 
 ## Open questions
 
 - **Q1. License** for LibreTorrent itself. libtorrent's BSD-3 allows any choice: GPL-3.0-or-later (copyleft, like qBittorrent) or MIT / BSD-3 (permissive, like libtorrent).
 - **Q2. Name.** "LibreTorrent" is already a well-known GPL-3 Android torrent client (proninyaroslav/libretorrent). libtorrent already identifies peer-ID `LR` as that app, so peers and trackers would confuse the two. Keep the name, or rename before the first release?
 - **Q3–Q7.** Resolved, see D9–D13.
+- **Q9. Coverage-guided fuzzing.** cargo-fuzz needs a nightly Rust toolchain plus the cargo-fuzz tool, and neither is installed. Install them (`rustup toolchain install nightly` then `cargo install cargo-fuzz`) and add a fuzz CI job? The stable mutation tests cover the basics until then.
 - **Q8. Peer-ID prefix (blocked on Q2).** `LR` is taken: libtorrent's `identify_client.cpp` maps it to the Android LibreTorrent. The code uses a provisional `-LB0100-` (`LB` appears in neither libtorrent's table nor the common BEP20 lists). Pick the final two-letter code together with the final name.
 
 ## Future improvements
@@ -218,6 +249,9 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 - Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
 - `core`'s `mock` feature is on by default; turn it off by default when the real engine lands (Phase 2).
+- libtorrent tests not ported yet because they need later pieces:
+  - `create_torrent` (Phase 5): mutable_torrents, make_magnet_uri v1/v2/hybrid
+  - session plus resume data (Phase 2): the write_torrent_file round trips, preserve_* magnet tests
 - Windows `SegmentHeap` (manifest `heapType`) might lower RAM use. Benchmark it with `lt-swarm` before enabling.
 - CI minutes: the repo is private, and Windows runners bill at 2×. FreeBSD runs only on main and weekly for that reason.
 - The vcpkg cache from the abandoned approach (about 2 GB under `%LOCALAPPDATA%\vcpkg`) can be deleted by the user if no other project uses it.

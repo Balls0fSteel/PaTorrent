@@ -2,7 +2,11 @@
 
 LibreTorrent's engine is a Rust port of libtorrent-rasterbar 2.0.11. Ported code is a derivative work of the projects below and remains under their terms. This file ships with every LibreTorrent binary distribution.
 
-Status: the Phase 0 code contains no ported code yet. These notices are in place so that every module ported from Phase 1 onwards is already covered.
+Ported so far:
+- `crates/core/src/bencode`, `crypto` (SHA-1, SHA-256, CRC32C), `util`, `metainfo`, and the digest operations in `types.rs`
+- libtorrent's test torrents in `crates/core/tests/fixtures/torrents`
+
+Each source file names its origin in a header comment.
 
 ---
 

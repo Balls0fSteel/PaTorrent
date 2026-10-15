@@ -86,6 +86,8 @@ Line counts are libtorrent `.cpp` lines in 2.0.11; headers add roughly 50 % on t
 
 ## Test porting map
 
+Status after Phase 1: the Phase 1 row is ported, except tests that need `create_torrent` (Phase 5) or a running session (Phase 2); PLAN.md "Known TODOs" lists them.
+
 libtorrent `test/` has about 150 files and about 50k lines. Ported alongside each module:
 
 | Phase | libtorrent tests |
@@ -98,7 +100,7 @@ libtorrent `test/` has about 150 files and about 50k lines. Ported alongside eac
 
 ## Deliberate divergences
 
-Record each one here with the reason. Proposed so far (pending plan approval):
+Record each one here with the reason.
 
 | Area | libtorrent 2.0.11 | LibreTorrent | Why |
 |---|---|---|---|
@@ -106,3 +108,10 @@ Record each one here with the reason. Proposed so far (pending plan approval):
 | Persistence | left to the client (qBittorrent: two files per torrent) | `core::store`: one resume DB + one metadata pack | startup time and file count at 10k+ torrents |
 | Inactive torrents | `torrent_info` (incl. piece hashes) stays in memory | info dict loaded lazily on start, dropped when stopped | per-torrent RAM at scale |
 | Ownership | `shared_ptr` / `weak_ptr` graph | slab + generational ids | no refcount traffic, no lifetime cycles, Rust-friendly |
+| Path separator (Phase 1) | native separator (`\` on Windows) inside `file_storage` | always `/` internally; converted at the disk layer | identical behaviour, tests and resume data on every OS. Windows-only filename rules still apply only on Windows. |
+| bdecode lookups (Phase 1) | `bdecode_node` caches the last `list_at` / `dict_at` position in mutable fields | `Node` is a plain `Copy` handle; loops use `list_iter` / `dict_iter` | no interior mutability; O(1) per step either way |
+| bdecode partial trees (Phase 1) | after a parse error, unwound containers' `next_item` points at their own end token | it points past the end token, as for normally closed containers | libtorrent's `has_soft_error` reads out of bounds on such trees (found by our mutation tests) |
+| v1 info-hash (Phase 1) | always computes SHA-256 of the info section, then discards it for v1 torrents | SHA-256 only when `meta version` is 2 | about a third faster metadata parsing; same results |
+| `file_storage` paths (Phase 1) | linear search of the directory table per file | most-recent check plus hash index | avoids quadratic loading of hostile torrents with many directories |
+| Hybrid without v1 pieces (Phase 1) | a `meta version 2` torrent with a v1 file list but no `pieces` is accepted, claims a v1 hash, and every v1 hash check later fails | rejected with `torrent_missing_pieces` | a torrent that can never verify v1 data should not load (found by our mutation tests) |
+| Magnet btih (Phase 1) | a 40-character btih with non-hex characters is silently accepted (garbage hash) | rejected with `invalid_info_hash` | correctness |

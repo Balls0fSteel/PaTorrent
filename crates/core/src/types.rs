@@ -1,8 +1,13 @@
 //! Identity types shared across the engine API.
 //!
 //! `Sha1Hash` / `Sha256Hash` / `InfoHashes` correspond to libtorrent's `sha1_hash`, `sha256_hash`
-//! and `info_hash_t`. The full `digest32` arithmetic (xor, shifts, leading-zero count for DHT
-//! distances) is ported with `sha1_hash.cpp` in Phase 1.
+//! and `info_hash_t`.
+//!
+//! Digest arithmetic ported from libtorrent-rasterbar 2.0.11: include/libtorrent/sha1_hash.hpp,
+//! src/sha1_hash.cpp, src/ffs.cpp (count_leading_zeros). Copyright (c) 2003-2020, Arvid Norberg
+//! and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
+//! Changes: stored as big-endian byte arrays instead of network-order `u32` words, so ordering
+//! is plain lexicographic comparison and shifts work byte-wise with the same results.
 
 use std::fmt;
 
@@ -62,6 +67,87 @@ macro_rules! digest {
                 let mut out = [0u8; $len];
                 crate::util::hex::decode_into(s, &mut out).then_some($name(out))
             }
+
+            /// The first `LEN` bytes of `s`, if it is long enough.
+            pub fn from_slice(s: &[u8]) -> Option<$name> {
+                s.get(..$len).map(|b| $name(b.try_into().expect("length checked")))
+            }
+
+            /// All bits set (libtorrent `digest32::max()`).
+            pub const fn max() -> $name {
+                $name([0xff; $len])
+            }
+
+            pub fn clear(&mut self) {
+                self.0 = [0; $len];
+            }
+
+            /// Number of leading zero bits, `8 * LEN` for zero (DHT distance buckets).
+            pub fn count_leading_zeroes(&self) -> u32 {
+                match self.0.iter().position(|&b| b != 0) {
+                    Some(i) => i as u32 * 8 + self.0[i].leading_zeros(),
+                    None => $len * 8,
+                }
+            }
+
+            pub fn as_bytes(&self) -> &[u8; $len] {
+                &self.0
+            }
+        }
+
+        impl std::ops::BitXor for $name {
+            type Output = $name;
+            fn bitxor(mut self, o: $name) -> $name {
+                self ^= o;
+                self
+            }
+        }
+
+        impl std::ops::BitXorAssign for $name {
+            fn bitxor_assign(&mut self, o: $name) {
+                self.0.iter_mut().zip(o.0).for_each(|(a, b)| *a ^= b);
+            }
+        }
+
+        impl std::ops::BitAnd for $name {
+            type Output = $name;
+            fn bitand(mut self, o: $name) -> $name {
+                self &= o;
+                self
+            }
+        }
+
+        impl std::ops::BitAndAssign for $name {
+            fn bitand_assign(&mut self, o: $name) {
+                self.0.iter_mut().zip(o.0).for_each(|(a, b)| *a &= b);
+            }
+        }
+
+        impl std::ops::BitOrAssign for $name {
+            fn bitor_assign(&mut self, o: $name) {
+                self.0.iter_mut().zip(o.0).for_each(|(a, b)| *a |= b);
+            }
+        }
+
+        impl std::ops::Not for $name {
+            type Output = $name;
+            fn not(mut self) -> $name {
+                self.0.iter_mut().for_each(|a| *a = !*a);
+                self
+            }
+        }
+
+        /// Shift toward the most significant bit (byte 0).
+        impl std::ops::ShlAssign<usize> for $name {
+            fn shl_assign(&mut self, n: usize) {
+                shift_left(&mut self.0, n);
+            }
+        }
+
+        impl std::ops::ShrAssign<usize> for $name {
+            fn shr_assign(&mut self, n: usize) {
+                shift_right(&mut self.0, n);
+            }
         }
 
         impl fmt::Debug for $name {
@@ -88,6 +174,42 @@ digest!(
     Sha256Hash,
     32
 );
+
+/// Big-endian multi-byte shift by `n` bits toward byte 0 (libtorrent `bits_shift_left`).
+fn shift_left(b: &mut [u8], n: usize) {
+    let (bytes, bits) = (n / 8, n % 8);
+    let len = b.len();
+    if bytes >= len {
+        b.fill(0);
+        return;
+    }
+    b.copy_within(bytes.., 0);
+    b[len - bytes..].fill(0);
+    if bits > 0 {
+        for i in 0..len {
+            let carry = if i + 1 < len { b[i + 1] >> (8 - bits) } else { 0 };
+            b[i] = (b[i] << bits) | carry;
+        }
+    }
+}
+
+/// Big-endian multi-byte shift by `n` bits away from byte 0 (libtorrent `bits_shift_right`).
+fn shift_right(b: &mut [u8], n: usize) {
+    let (bytes, bits) = (n / 8, n % 8);
+    let len = b.len();
+    if bytes >= len {
+        b.fill(0);
+        return;
+    }
+    b.copy_within(..len - bytes, bytes);
+    b[..bytes].fill(0);
+    if bits > 0 {
+        for i in (0..len).rev() {
+            let carry = if i > 0 { b[i - 1] << (8 - bits) } else { 0 };
+            b[i] = (b[i] >> bits) | carry;
+        }
+    }
+}
 
 /// The v1 and/or v2 info-hash of a torrent (libtorrent `info_hash_t`). Hybrid torrents have both.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Default, Debug)]
@@ -153,6 +275,108 @@ mod tests {
         assert!(Sha1Hash::from_hex("dd82").is_none());
         assert!(Sha1Hash::from_hex("zz8255ecdc7ca55fb0bbf81323d87062db1f6d1c").is_none());
         assert!(Sha1Hash::default().is_zero());
+    }
+
+    fn to_hash(s: &str) -> Sha1Hash {
+        Sha1Hash::from_hex(s).unwrap()
+    }
+
+    /// Ported from libtorrent-rasterbar 2.0.11 test/test_sha1_hash.cpp.
+    #[test]
+    fn sha1_hash_ops() {
+        let mut h1 = Sha1Hash::default();
+        let mut h2 = Sha1Hash::default();
+        assert!(h1 == h2 && h1 >= h2 && h1.is_zero());
+        h1 = to_hash("0123456789012345678901234567890123456789");
+        h2 = to_hash("0113456789012345678901234567890123456789");
+        assert!(h2 < h1);
+        h2.clear();
+        assert!(h2.is_zero());
+
+        h2 = to_hash("ffffffffff0000000000ffffffffff0000000000");
+        h1 = to_hash("fffff00000fffff00000fffff00000fffff00000");
+        h1 &= h2;
+        assert_eq!(h1, to_hash("fffff000000000000000fffff000000000000000"));
+
+        h1 = to_hash("fffff00000fffff00000fffff00000fffff00000");
+        h1 |= h2;
+        assert_eq!(h1, to_hash("fffffffffffffff00000fffffffffffffff00000"));
+        h2 = to_hash("0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f");
+        h1 ^= h2;
+        assert_eq!(h1, to_hash("f0f0f0f0f0f0f0ff0f0ff0f0f0f0f0f0f0ff0f0f"));
+        assert_ne!(h1, h2);
+
+        assert_eq!(
+            Sha1Hash::from_slice(b"                    ").unwrap(),
+            to_hash("2020202020202020202020202020202020202020")
+        );
+        assert!(Sha1Hash::from_slice(b"short").is_none());
+
+        h1 = to_hash("ffffffffff0000000000ffffffffff0000000000");
+        h1 <<= 12;
+        assert_eq!(h1, to_hash("fffffff0000000000ffffffffff0000000000000"));
+        h1 >>= 12;
+        assert_eq!(h1, to_hash("000fffffff0000000000ffffffffff0000000000"));
+
+        h1 = to_hash("7000000000000000000000000000000000000000");
+        h1 <<= 1;
+        assert_eq!(h1, to_hash("e000000000000000000000000000000000000000"));
+        h1 = to_hash("0000000000000000000000000000000000000007");
+        h1 <<= 1;
+        assert_eq!(h1, to_hash("000000000000000000000000000000000000000e"));
+        h1 = to_hash("0000000000000000000000000000000000000007");
+        h1 >>= 1;
+        assert_eq!(h1, to_hash("0000000000000000000000000000000000000003"));
+        h1 = to_hash("7000000000000000000000000000000000000000");
+        h1 >>= 1;
+        assert_eq!(h1, to_hash("3800000000000000000000000000000000000000"));
+
+        h1 = to_hash("7000000000000000000000000000000000000000");
+        h1 >>= 32;
+        assert_eq!(h1, to_hash("0000000070000000000000000000000000000000"));
+        h1 >>= 33;
+        assert_eq!(h1, to_hash("0000000000000000380000000000000000000000"));
+        h1 <<= 33;
+        assert_eq!(h1, to_hash("0000000070000000000000000000000000000000"));
+        h1 <<= 200;
+        assert!(h1.is_zero());
+
+        assert_eq!(!Sha1Hash::default(), Sha1Hash::max());
+        assert_eq!(h2 ^ h2, Sha1Hash::default());
+        assert_eq!(Sha1Hash::max() & h2, h2);
+    }
+
+    /// Ported from libtorrent-rasterbar 2.0.11 test/test_sha1_hash.cpp.
+    #[test]
+    fn count_leading_zeroes() {
+        let tests = [
+            ("ffffffffffffffffffffffffffffffffffffffff", 0),
+            ("0000000000000000000000000000000000000000", 160),
+            ("fff0000000000000000000000000000000000000", 0),
+            ("7ff0000000000000000000000000000000000000", 1),
+            ("3ff0000000000000000000000000000000000000", 2),
+            ("1ff0000000000000000000000000000000000000", 3),
+            ("0ff0000000000000000000000000000000000000", 4),
+            ("07f0000000000000000000000000000000000000", 5),
+            ("03f0000000000000000000000000000000000000", 6),
+            ("01f0000000000000000000000000000000000000", 7),
+            ("00f0000000000000000000000000000000000000", 8),
+            ("0070000000000000000000000000000000000000", 9),
+            ("0030000000000000000000000000000000000000", 10),
+            ("0010000000000000000000000000000000000000", 11),
+            ("0000000ffff00000000000000000000000000000", 28),
+            ("00000007fff00000000000000000000000000000", 29),
+            ("00000003fff00000000000000000000000000000", 30),
+            ("00000001fff00000000000000000000000000000", 31),
+            ("00000000fff00000000000000000000000000000", 32),
+            ("000000007ff00000000000000000000000000000", 33),
+            ("000000003ff00000000000000000000000000000", 34),
+            ("000000001ff00000000000000000000000000000", 35),
+        ];
+        for (hex, n) in tests {
+            assert_eq!(to_hash(hex).count_leading_zeroes(), n, "{hex}");
+        }
+        assert_eq!(Sha256Hash::default().count_leading_zeroes(), 256);
     }
 
     #[test]

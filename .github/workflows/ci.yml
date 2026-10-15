@@ -56,6 +56,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --workspace
+      - name: Slow tests (release)
+        run: cargo test --release -p libretorrent-core -- --ignored
       - name: Size, dependency and scale report
         shell: pwsh
         run: |
@@ -65,6 +67,9 @@ jobs:
           $lines += (cargo tree -e normal --workspace --prefix none --target x86_64-pc-windows-msvc | ForEach-Object { $_ -replace ' \(\*\)$', '' } | Where-Object { $_ } | Sort-Object -Unique)
           $lines += @('```', '', '## Scale benchmark (simulated engine)', '', '```text')
           $lines += (& ./target/release/lt-swarm.exe scale --torrents 10000 --seconds 3)
+          $lines += @('```', '', '## Metadata parse benchmark (5,000 synthetic .torrent files)', '', '```text')
+          & ./target/release/lt-swarm.exe gen --count 5000 --out corpus | Out-Null
+          $lines += (& ./target/release/lt-swarm.exe parse corpus)
           $lines += '```'
           $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v7

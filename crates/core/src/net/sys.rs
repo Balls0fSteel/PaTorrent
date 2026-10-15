@@ -360,7 +360,8 @@ mod imp {
     }
 
     unsafe extern "C" {
-        fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
+        #[link_name = "socket"]
+        fn c_socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
         #[link_name = "bind"]
         fn c_bind(fd: c_int, addr: *const c_void, len: u32) -> c_int;
         #[link_name = "setsockopt"]
@@ -373,7 +374,7 @@ mod imp {
     pub fn socket(v4: bool) -> io::Result<UdpSocket> {
         let af = if v4 { super::AF_INET } else { super::AF_INET6 } as c_int;
         // SAFETY: plain socket creation
-        let fd = unsafe { socket(af, SOCK_DGRAM | SOCK_CLOEXEC, 0) };
+        let fd = unsafe { c_socket(af, SOCK_DGRAM | SOCK_CLOEXEC, 0) };
         if fd < 0 {
             return Err(io::Error::last_os_error());
         }

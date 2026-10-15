@@ -2,6 +2,14 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_235803_1792101483: Unix build fix for net::sys
+
+### Fixed
+- Linux and FreeBSD builds failed since the LSD commit (6770eac): the hand-declared C `socket` in `net::sys` had the same name as the module's own `socket` wrapper. The declaration is now `c_socket` (`link_name = "socket"`).
+
+### Verified
+- `cargo clippy -p patorrent-core -p patorrent-nox -p lt-swarm --all-targets --target x86_64-unknown-linux-gnu` and `--target x86_64-unknown-freebsd` with `-D warnings`: clean (the targets are now installed for the 1.90.0 toolchain, so Unix code can be checked on this machine). The previous commit gives 5 errors there, as in CI. Tests on Linux and FreeBSD run in CI only.
+
 ## 2026-10-15_235250_1792101170: CI clippy fix (sort_by_key)
 
 ### Fixed

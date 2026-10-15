@@ -454,7 +454,7 @@ impl RoutingTable {
         if b.live_nodes.len() >= limit {
             return;
         }
-        b.replacements.sort_by(|l, r| (!l.verified, l.rtt).cmp(&(!r.verified, r.rtt)));
+        b.replacements.sort_by_key(|n| (!n.verified, n.rtt));
         while b.live_nodes.len() < limit {
             let Some(j) = b.replacements.iter().position(NodeEntry::pinged) else { break };
             let n = b.replacements.remove(j);
@@ -978,7 +978,7 @@ mod tests {
             let id = crate::dht::node_id::generate_random_id();
             let temp = table.find_node(&id, false, bucket_size * 2);
             assert_eq!(temp.len(), (bucket_size * 2).min(nodes.len()));
-            nodes.sort_by(|a, b| (a.id ^ id).cmp(&(b.id ^ id)));
+            nodes.sort_by_key(|e| e.id ^ id);
             let expected: i32 = nodes[..temp.len()].iter().map(|e| distance_exp(&e.id, &id)).sum();
             let hits: i32 = temp.iter().map(|e| distance_exp(&e.id, &id)).sum();
             assert_eq!(expected, hits);

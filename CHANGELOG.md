@@ -2,6 +2,11 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_235250_1792101170: CI clippy fix (sort_by_key)
+
+### Fixed
+- CI has been red since commit 24af0c6: the CI runner's newer clippy (stable) flags `sort_by` with a key comparison as `unnecessary_sort_by` in `dht/routing_table.rs` (replacement ordering and a test). Both now use `sort_by_key`; the order is the same (both sorts are stable). The local toolchain is pinned to 1.90.0, whose clippy does not have the lint, and the `stable` toolchain here has no clippy component, so this was checked by CI only.
+
 ## 2026-10-15_234806_1792100886: Local service discovery (LSD, BEP 14)
 
 ### Added

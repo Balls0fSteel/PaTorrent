@@ -13,16 +13,16 @@ use std::mem::{size_of, zeroed};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
-use libretorrent_core::{
+use patorrent_core::{
     AddTorrentParams, Alert, MockConfig, QueueMove, RemoveFlags, Session, SessionHandle, SessionParams,
     SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
 };
-use libretorrent_frontend::columns::Column;
-use libretorrent_frontend::detail::PRIORITIES;
-use libretorrent_frontend::model::{Filter, TorrentList};
-use libretorrent_frontend::prefs::Prefs;
-use libretorrent_frontend::status::Category;
-use libretorrent_frontend::{actions, fmt};
+use patorrent_frontend::columns::Column;
+use patorrent_frontend::detail::PRIORITIES;
+use patorrent_frontend::model::{Filter, TorrentList};
+use patorrent_frontend::prefs::Prefs;
+use patorrent_frontend::status::Category;
+use patorrent_frontend::{actions, fmt};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -52,8 +52,8 @@ const WM_APP_TRAY: u32 = WM_APP + 2;
 const WM_APP_URL: u32 = WM_APP + 3;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
-pub const MAIN_CLASS: PCWSTR = w!("LibreTorrentMainWnd");
-const PANEL_CLASS: PCWSTR = w!("LibreTorrentPanel");
+pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
+const PANEL_CLASS: PCWSTR = w!("PaTorrentPanel");
 const TIMER_REFRESH: usize = 1;
 
 const IDC_TOOLBAR: usize = 10;
@@ -203,14 +203,14 @@ fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
     APP.with(|a| a.try_borrow_mut().ok().and_then(|mut a| a.as_mut().map(f)))
 }
 
-/// Where settings and state live: beside the exe when `libretorrent.ini` is there (portable,
-/// like µTorrent's `settings.dat`), else `%APPDATA%\LibreTorrent`.
+/// Where settings and state live: beside the exe when `patorrent.ini` is there (portable,
+/// like µTorrent's `settings.dat`), else `%APPDATA%\PaTorrent`.
 pub fn data_dir() -> PathBuf {
     let exe_dir = exe_path().parent().map(Path::to_path_buf).unwrap_or_default();
-    if exe_dir.join("libretorrent.ini").exists() {
+    if exe_dir.join("patorrent.ini").exists() {
         return exe_dir;
     }
-    std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("LibreTorrent")).unwrap_or(exe_dir)
+    std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("PaTorrent")).unwrap_or(exe_dir)
 }
 
 fn downloads_folder() -> String {
@@ -283,7 +283,7 @@ pub fn run(args: Args) -> i32 {
     }
     fmt::set_utc_offset(utc_offset());
     let dir = data_dir();
-    let prefs = Prefs::load(dir.join("libretorrent.ini"));
+    let prefs = Prefs::load(dir.join("patorrent.ini"));
 
     let session = match args.demo {
         Some(n) => Session::start_mock(
@@ -324,7 +324,7 @@ pub fn run(args: Args) -> i32 {
         let hwnd = CreateWindowExW(
             WS_EX_ACCEPTFILES,
             MAIN_CLASS,
-            w!("LibreTorrent"),
+            w!("PaTorrent"),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -382,7 +382,7 @@ unsafe fn main_menu() -> HMENU {
         append(options, cmd::CLOSE_TO_TRAY, "Close to Tra&y");
         append(options, cmd::MIN_TO_TRAY, "&Minimize to Tray");
         let help = CreatePopupMenu();
-        append(help, cmd::ABOUT, "&About LibreTorrent");
+        append(help, cmd::ABOUT, "&About PaTorrent");
         submenu(bar, file, "&File");
         submenu(bar, options, "&Options");
         submenu(bar, help, "&Help");
@@ -561,7 +561,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         }
         send(tabs, TCM_SETCURSEL, page.index(), 0);
         DragAcceptFiles(hwnd, 1);
-        tray::add(hwnd, icon_small, WM_APP_TRAY, "LibreTorrent");
+        tray::add(hwnd, icon_small, WM_APP_TRAY, "PaTorrent");
         // Accept forwarded arguments and dropped files from less privileged processes too.
         ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, null_mut());
         update_visibility(hwnd);
@@ -709,7 +709,7 @@ unsafe fn rebuild_columns() {
             .iter()
             .filter(|(_, w)| *w > 0)
             .map(|&(c, w)| {
-                (c.title(), scale(w, a.dpi), c.align() == libretorrent_frontend::columns::Align::Right)
+                (c.title(), scale(w, a.dpi), c.align() == patorrent_frontend::columns::Align::Right)
             })
             .collect();
         let sort = a.list.sort().and_then(|(c, d)| Some((a.shown.iter().position(|&s| s == c)?, d)));
@@ -1316,7 +1316,7 @@ unsafe fn update_status_bar() {
             format!("U: {} T: {}", fmt::speed_always(s.upload_rate), fmt::size(s.sent_payload_bytes)),
         ];
         let tip = format!(
-            "LibreTorrent\nD: {} U: {}",
+            "PaTorrent\nD: {} U: {}",
             fmt::speed_always(s.download_rate),
             fmt::speed_always(s.upload_rate)
         );
@@ -1508,7 +1508,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             m if m != 0 && Some(m) == with_app(|a| a.taskbar_created) => {
                 // Explorer restarted: the tray icon is gone.
                 if let Some(icon) = with_app(|a| a.icon_small) {
-                    tray::add(hwnd, icon, WM_APP_TRAY, "LibreTorrent");
+                    tray::add(hwnd, icon, WM_APP_TRAY, "PaTorrent");
                 }
                 0
             }
@@ -1605,7 +1605,7 @@ unsafe fn tray_menu(hwnd: HWND) {
     unsafe {
         let menu = CreatePopupMenu();
         let visible = IsWindowVisible(hwnd) != 0;
-        append(menu, cmd::TRAY_TOGGLE, if visible { "&Hide LibreTorrent" } else { "&Show LibreTorrent" });
+        append(menu, cmd::TRAY_TOGGLE, if visible { "&Hide PaTorrent" } else { "&Show PaTorrent" });
         separator(menu);
         append(menu, cmd::ADD, "&Add Torrent...");
         append(menu, cmd::ADD_URL, "Add Torrent from &URL...");
@@ -1824,10 +1824,12 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             cmd::ABOUT => dialogs::info(
                 hwnd,
                 &format!(
-                    "LibreTorrent {VERSION}\n\nA libre re-creation of µTorrent 2.2.1, built on a Rust port of \
-                     libtorrent-rasterbar 2.0.11.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid \
-                     Norberg and contributors, BSD-3-Clause. License texts: THIRD-PARTY-NOTICES.md, or \
-                     run libretorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, \
+                    "PaTorrent (PatinaTorrent) {VERSION}\n\nA re-creation of µTorrent 2.2.1, built on a Rust \
+                     port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for \
+                     noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted \
+                     libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, \
+                     BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or \
+                     run patorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, \
                      µTorrent or BitTorrent, Inc.\n\nSettings: {}",
                     with_app(|a| a.prefs.path().map(|p| p.display().to_string()))
                         .flatten()
@@ -2093,7 +2095,7 @@ fn download_url(hwnd: HWND, url: String) {
         use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
         static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
         let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp = std::env::temp_dir().join(format!("libretorrent-{}-{n}.torrent", std::process::id()));
+        let tmp = std::env::temp_dir().join(format!("patorrent-{}-{n}.torrent", std::process::id()));
         let data = unsafe {
             CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32);
             let (u, f) = (wide(&url), wide(&tmp.to_string_lossy()));

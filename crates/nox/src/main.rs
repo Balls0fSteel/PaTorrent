@@ -1,4 +1,4 @@
-//! `libretorrent-nox`: the headless LibreTorrent daemon (PLAN.md Phase 6).
+//! `patorrent-nox`: the headless PaTorrent daemon (PLAN.md Phase 6).
 //!
 //! Phase 2: a command-line client on the real engine. `add` downloads `.torrent` files and,
 //! with `--seed`, keeps seeding; `run` resumes everything saved in the state directory. State
@@ -12,24 +12,25 @@ use std::process::ExitCode;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use libretorrent_core::{
+use patorrent_core::{
     AddTorrentParams, Alert, MockConfig, Session, SessionParams, SessionStats, Settings, TorrentFlags,
     TorrentId, TorrentSource, TorrentStatus, VERSION,
 };
-use libretorrent_frontend::{fmt, status};
+use patorrent_frontend::{fmt, status};
 
-/// The third-party license texts, built into the binary so a copied-out executable still carries
-/// them (BSD-3-Clause clause 2).
+/// PaTorrent's own license and the third-party license texts, built into the binary so a
+/// copied-out executable still carries them (PolyForm "Notices", BSD-3-Clause clause 2).
+const LICENSE: &str = include_str!("../../../LICENSE.md");
 const NOTICES: &str = include_str!("../../../THIRD-PARTY-NOTICES.md");
 
 const USAGE: &str = "\
-libretorrent-nox: headless LibreTorrent
+patorrent-nox: headless PaTorrent
 
 USAGE:
-    libretorrent-nox add <file.torrent>... [--save DIR] [OPTIONS]
-    libretorrent-nox run [OPTIONS]
-    libretorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
-    libretorrent-nox --version | --help | --license
+    patorrent-nox add <file.torrent>... [--save DIR] [OPTIONS]
+    patorrent-nox run [OPTIONS]
+    patorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
+    patorrent-nox --version | --help | --license
 
 COMMANDS:
     add     Add torrents, download them, and exit when they finish (keep seeding with --seed).
@@ -117,11 +118,11 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         "-V" | "--version" => {
-            println!("libretorrent-nox {VERSION}");
+            println!("patorrent-nox {VERSION}");
             return ExitCode::SUCCESS;
         }
         "--license" => {
-            print!("{NOTICES}");
+            print!("{LICENSE}\n\n{NOTICES}");
             return ExitCode::SUCCESS;
         }
         "add" => parse(rest).and_then(|o| {
@@ -146,16 +147,16 @@ enum Mode {
     Run,
 }
 
-/// Per-user state directory: `%APPDATA%\LibreTorrent\nox` on Windows, `$XDG_DATA_HOME/libretorrent/nox`
+/// Per-user state directory: `%APPDATA%\PaTorrent\nox` on Windows, `$XDG_DATA_HOME/patorrent/nox`
 /// (or `~/.local/share/...`) elsewhere.
 fn default_state_dir() -> Option<PathBuf> {
     if cfg!(windows) {
-        std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("LibreTorrent").join("nox"))
+        std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("PaTorrent").join("nox"))
     } else {
         std::env::var_os("XDG_DATA_HOME")
             .map(PathBuf::from)
             .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
-            .map(|d| d.join("libretorrent").join("nox"))
+            .map(|d| d.join("patorrent").join("nox"))
     }
 }
 

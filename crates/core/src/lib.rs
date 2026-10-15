@@ -1,4 +1,4 @@
-//! LibreTorrent's BitTorrent engine.
+//! PaTorrent's BitTorrent engine.
 //!
 //! This crate is a Rust port of libtorrent-rasterbar 2.0.11 (see `docs/PORTING.md`). The public
 //! surface mirrors libtorrent's `session_handle` / `torrent_handle` / alert model:

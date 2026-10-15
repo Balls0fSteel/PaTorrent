@@ -2,6 +2,30 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_201238_1792087958: Renamed to PaTorrent; PolyForm Noncommercial license (D15–D17)
+
+### Decisions
+- D15: license PolyForm Noncommercial 1.0.0, copyright DukeCorp1996.
+- D16: name PaTorrent (long name PatinaTorrent), peer-ID prefix `-PA0100-`.
+- D17: no peer-ID spoofing.
+- Entries below this one keep the old name LibreTorrent, as it was at the time.
+
+### Added
+- `LICENSE.md`: `Required Notice: Copyright 2026 DukeCorp1996 (https://dukecorp1996.x35.in/)`, then the PolyForm Noncommercial 1.0.0 text verbatim from github.com/polyformproject/polyform-licenses at tag 1.0.0 (sha256 of the text `c0ea4a89…fabbe5`).
+- `license = "PolyForm-Noncommercial-1.0.0"` and `authors = ["DukeCorp1996"]` in the workspace and every crate (the fuzz crate included).
+- README "License" section. The About box names PatinaTorrent, the copyright and the license. `patorrent-nox --license` prints LICENSE.md, then THIRD-PARTY-NOTICES.md. `build.bat` and the CI release artifact ship LICENSE.md.
+
+### Changed (rename)
+- Crates `patorrent-core`, `patorrent-frontend`, `patorrent-nox` and `patorrent` (Windows GUI, `patorrent.exe`). The fuzz crate is `patorrent-fuzz`. The manifest file is `crates/win32/res/patorrent.exe.manifest`.
+- Run time: `%APPDATA%\PaTorrent`, portable `patorrent.ini`, `$XDG_*/patorrent`, single-instance mutex `Local\PaTorrent-…`, window classes, tray tip, dialog titles, resume DB `file-format` = `patorrent resume db`. No old `%APPDATA%\LibreTorrent` existed on this machine, so no migration code was added.
+- Wire identity: peer ID `-PA0100-`, `User-Agent: PaTorrent/0.1.0`, BEP 10 `v` = `PaTorrent 0.1.0`. In our peer table `PA` = PaTorrent, and `LR` now maps to the Android LibreTorrent (as in libtorrent) instead of the old provisional `LB`.
+- "libre" wording removed from README, PLAN and the About box (not accurate under a noncommercial license). PORTING.md and THIRD-PARTY-NOTICES.md updated.
+- Not changed: the GitHub URL `Balls0fSteel/LibreTorrent` (PLAN.md Q11: the owner renames the repo first), the local folder name and the `lt-swarm` tool name (it means libtorrent swarm).
+
+### Verified
+- `cargo fmt --check` (workspace and fuzz), `cargo clippy --workspace --all-targets -D warnings` and `cargo test --workspace` (236 core unit tests plus the integration suites) pass. `cargo +nightly fuzz build` builds. `build.bat` fills `dist\` with patorrent.exe (1.39 MB), patorrent-nox.exe (1.19 MB), lt-swarm.exe, LICENSE.md and THIRD-PARTY-NOTICES.md. `patorrent-nox --version` and `--license` give the expected output.
+- Not verified: the renamed GUI window on screen (computer use stays blocked for this app).
+
 ## 2026-10-15_180656_1792080416: Coverage-guided fuzzing (Q9); license and name answers recorded
 
 ### Added

@@ -1,5 +1,5 @@
 @echo off
-rem Builds LibreTorrent (release) and copies the programs into dist\.
+rem Builds PaTorrent (release) and copies the programs into dist\.
 rem   build.bat          release build (small, optimized; takes about a minute)
 rem   build.bat debug    debug build (faster to compile; the GUI gets a console window)
 
@@ -19,7 +19,7 @@ if /i "%~1"=="debug" (
     set FLAGS=
 )
 
-echo Building LibreTorrent (%PROFILE%)...
+echo Building PaTorrent (%PROFILE%)...
 cargo build %FLAGS% --workspace
 if errorlevel 1 (
     echo.
@@ -28,13 +28,14 @@ if errorlevel 1 (
 )
 
 if not exist dist mkdir dist
-for %%f in (libretorrent.exe libretorrent-nox.exe lt-swarm.exe) do (
+for %%f in (patorrent.exe patorrent-nox.exe lt-swarm.exe) do (
     copy /y "target\%PROFILE%\%%f" dist\ >nul
     if errorlevel 1 (
-        echo Could not copy %%f to dist\. Is LibreTorrent still running? Exit it and try again.
+        echo Could not copy %%f to dist\. Is PaTorrent still running? Exit it and try again.
         exit /b 1
     )
 )
+copy /y LICENSE.md dist\ >nul
 copy /y THIRD-PARTY-NOTICES.md dist\ >nul
 
 echo.

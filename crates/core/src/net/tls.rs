@@ -1,4 +1,4 @@
-// LibreTorrent's own OS glue, not ported: libtorrent wraps sockets in Boost.Asio's ssl::stream on
+// PaTorrent's own OS glue, not ported: libtorrent wraps sockets in Boost.Asio's ssl::stream on
 // top of a bundled or linked OpenSSL. We use the TLS library the OS ships instead (PLAN.md D9):
 // SChannel on Windows, the system OpenSSL / LibreSSL on Unix.
 

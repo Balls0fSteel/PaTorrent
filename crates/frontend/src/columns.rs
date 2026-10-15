@@ -3,7 +3,7 @@
 
 use std::cmp::Ordering;
 
-use libretorrent_core::TorrentStatus;
+use patorrent_core::TorrentStatus;
 
 use crate::fmt;
 use crate::status::status_text;
@@ -219,7 +219,7 @@ impl Column {
             Column::DownSpeed => fmt::speed(st.download_payload_rate),
             Column::UpSpeed => fmt::speed(st.upload_payload_rate),
             Column::Eta => {
-                if st.is_finished || st.flags.contains(libretorrent_core::TorrentFlags::PAUSED) {
+                if st.is_finished || st.flags.contains(patorrent_core::TorrentFlags::PAUSED) {
                     String::new()
                 } else {
                     fmt::eta(st.eta())

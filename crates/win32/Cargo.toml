@@ -1,19 +1,21 @@
 [package]
-name = "libretorrent"
-description = "LibreTorrent for Windows: a native Win32 client in the spirit of µTorrent 2.2.1."
+name = "patorrent"
+description = "PaTorrent for Windows: a native Win32 client in the spirit of µTorrent 2.2.1."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+license.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "libretorrent"
+name = "patorrent"
 path = "src/main.rs"
 
 [dependencies]
-libretorrent-core = { workspace = true, features = ["mock"] }
-libretorrent-frontend.workspace = true
+patorrent-core = { workspace = true, features = ["mock"] }
+patorrent-frontend.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [

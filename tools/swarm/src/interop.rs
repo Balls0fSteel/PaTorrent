@@ -1,10 +1,10 @@
-//! `interop`: LibreTorrent downloads a test torrent from other clients (PLAN.md Phase 2 exit
+//! `interop`: PaTorrent downloads a test torrent from other clients (PLAN.md Phase 2 exit
 //! criteria, reverse direction).
 //!
 //! For each client: generate a 3-file torrent with pseudo-random contents, start the client as a
 //! seed of that data with a throwaway configuration (DHT, LSD, PeX and port mapping off, everything
 //! else at its defaults), wait until a BitTorrent handshake shows it has every piece, then let an
-//! in-process LibreTorrent session download from it and compare the files byte for byte.
+//! in-process PaTorrent session download from it and compare the files byte for byte.
 //!
 //! * qBittorrent: the installed app with a temporary `--profile` (Windows; elsewhere point
 //!   `--qbittorrent` at `qbittorrent-nox`).
@@ -20,9 +20,9 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
-use libretorrent_core::bencode::Entry;
-use libretorrent_core::crypto::Sha1;
-use libretorrent_core::{
+use patorrent_core::bencode::Entry;
+use patorrent_core::crypto::Sha1;
+use patorrent_core::{
     AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId,
     TorrentSource, TorrentState, TorrentStatus,
 };
@@ -563,7 +563,7 @@ pub fn run(opts: &Options) -> ExitCode {
         }
     }
     println!();
-    println!("LibreTorrent downloading {} MiB ({} pieces) from:", f.total >> 20, f.num_pieces);
+    println!("PaTorrent downloading {} MiB ({} pieces) from:", f.total >> 20, f.num_pieces);
     for line in &summary {
         println!("  {line}");
     }

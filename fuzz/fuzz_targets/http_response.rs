@@ -2,7 +2,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use libretorrent_core::fuzzing::{Url, parse_response, resolve_redirect};
+use patorrent_core::fuzzing::{Url, parse_response, resolve_redirect};
 
 fuzz_target!(|data: &[u8]| {
     let _ = parse_response(data, false);

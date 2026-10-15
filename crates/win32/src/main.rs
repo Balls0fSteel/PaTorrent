@@ -1,4 +1,4 @@
-//! LibreTorrent for Windows: a native Win32 client in the spirit of µTorrent 2.2.1.
+//! PaTorrent for Windows: a native Win32 client in the spirit of µTorrent 2.2.1.
 //!
 //! Phase 3: the µTorrent 2.2.1 main window on the real engine. One instance runs per user;
 //! starting another forwards its arguments (`.torrent` paths, `magnet:` links, URLs) to the
@@ -59,7 +59,7 @@ mod instance {
             .chars()
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect();
-        let name = wide(&format!(r"Local\LibreTorrent-{key}"));
+        let name = wide(&format!(r"Local\PaTorrent-{key}"));
         unsafe {
             // Leaked on purpose: the mutex lives as long as the process.
             let m = CreateMutexW(null(), 0, name.as_ptr());
@@ -112,8 +112,6 @@ mod instance {
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!(
-        "libretorrent is the Windows GUI; use libretorrent-nox (or libretorrent-gtk) on this platform."
-    );
+    eprintln!("patorrent is the Windows GUI; use patorrent-nox (or patorrent-gtk) on this platform.");
     std::process::exit(1);
 }

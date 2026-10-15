@@ -1,10 +1,12 @@
 [package]
-name = "libretorrent-core"
-description = "LibreTorrent's BitTorrent engine: a Rust port of libtorrent-rasterbar 2.0.11."
+name = "patorrent-core"
+description = "PaTorrent's BitTorrent engine: a Rust port of libtorrent-rasterbar 2.0.11."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+license.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [features]

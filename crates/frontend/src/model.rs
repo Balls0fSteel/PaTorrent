@@ -2,11 +2,11 @@
 //! by a category and sorted by a column. Frontends draw [`TorrentList::view`] in a virtual list
 //! and keep their selection as torrent ids, so rows can move under it.
 //!
-//! [`Alert::StateUpdate`]: libretorrent_core::Alert::StateUpdate
+//! [`Alert::StateUpdate`]: patorrent_core::Alert::StateUpdate
 
 use std::collections::{HashMap, HashSet};
 
-use libretorrent_core::{TorrentId, TorrentStatus};
+use patorrent_core::{TorrentId, TorrentStatus};
 
 use crate::columns::{Column, RowExtra, natural_cmp};
 use crate::status::Category;
@@ -255,7 +255,7 @@ mod tests {
 
     #[test]
     fn user_pause_shows_in_status() {
-        use libretorrent_core::TorrentFlags;
+        use patorrent_core::TorrentFlags;
         let mut l = TorrentList::new();
         let mut s = st(1, "x", 0, false);
         s.flags = TorrentFlags::PAUSED;

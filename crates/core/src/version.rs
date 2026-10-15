@@ -1,15 +1,15 @@
-/// LibreTorrent version, from Cargo.
+/// PaTorrent version, from Cargo.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 /// Default HTTP `User-Agent` for trackers and web seeds (libtorrent setting `user_agent`).
-pub const USER_AGENT: &str = concat!("LibreTorrent/", env!("CARGO_PKG_VERSION"));
+pub const USER_AGENT: &str = concat!("PaTorrent/", env!("CARGO_PKG_VERSION"));
 
 /// Azureus-style peer-ID prefix (libtorrent setting `peer_fingerprint`).
 ///
-/// PROVISIONAL: `LR` is already mapped to the Android "LibreTorrent" client in libtorrent's
-/// `identify_client.cpp`, so `LB` is used until the final name and code are chosen (PLAN.md Q2/Q8).
+/// `PA` is PaTorrent's own code (PLAN.md D16). It is free in libtorrent's `identify_client.cpp` and the
+/// BEP 20 list; `LR` there is the unrelated Android LibreTorrent.
 /// The four version characters must be kept in sync with the crate version.
-pub const PEER_ID_PREFIX: &str = "-LB0100-";
+pub const PEER_ID_PREFIX: &str = "-PA0100-";
 
 #[cfg(test)]
 mod tests {

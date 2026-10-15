@@ -18,10 +18,10 @@ mod interop;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use libretorrent_core::{Alert, MockConfig, Session, Settings};
+use patorrent_core::{Alert, MockConfig, Session, Settings};
 
 const USAGE: &str = "\
-lt-swarm: LibreTorrent benchmarks
+lt-swarm: PaTorrent benchmarks
 
 USAGE:
     lt-swarm scale [--torrents N] [--active FRACTION] [--seconds N]

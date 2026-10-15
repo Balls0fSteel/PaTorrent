@@ -5,8 +5,8 @@
 //! This is a deterministic stand-in until coverage-guided fuzz targets run in CI (cargo-fuzz needs
 //! a nightly toolchain; see PLAN.md).
 
-use libretorrent_core::bencode::{Entry, bdecode, bdecode_partial, print_entry};
-use libretorrent_core::metainfo::{TorrentInfo, make_magnet_uri, parse_magnet_uri};
+use patorrent_core::bencode::{Entry, bdecode, bdecode_partial, print_entry};
+use patorrent_core::metainfo::{TorrentInfo, make_magnet_uri, parse_magnet_uri};
 
 struct Rng(u64);
 

@@ -9,38 +9,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce5d3ddc6d3fa000eb1536d85e147bfe31aacaba692ed6a876f95cb7c855be78"
 
 [[package]]
-name = "libretorrent"
-version = "0.1.0"
-dependencies = [
- "libretorrent-core",
- "libretorrent-frontend",
- "windows-sys",
-]
-
-[[package]]
-name = "libretorrent-core"
-version = "0.1.0"
-dependencies = [
- "mio",
- "windows-sys",
-]
-
-[[package]]
-name = "libretorrent-frontend"
-version = "0.1.0"
-dependencies = [
- "libretorrent-core",
-]
-
-[[package]]
-name = "libretorrent-nox"
-version = "0.1.0"
-dependencies = [
- "libretorrent-core",
- "libretorrent-frontend",
-]
-
-[[package]]
 name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -50,7 +18,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 name = "lt-swarm"
 version = "0.1.0"
 dependencies = [
- "libretorrent-core",
+ "patorrent-core",
  "windows-sys",
 ]
 
@@ -64,6 +32,38 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys",
+]
+
+[[package]]
+name = "patorrent"
+version = "0.1.0"
+dependencies = [
+ "patorrent-core",
+ "patorrent-frontend",
+ "windows-sys",
+]
+
+[[package]]
+name = "patorrent-core"
+version = "0.1.0"
+dependencies = [
+ "mio",
+ "windows-sys",
+]
+
+[[package]]
+name = "patorrent-frontend"
+version = "0.1.0"
+dependencies = [
+ "patorrent-core",
+]
+
+[[package]]
+name = "patorrent-nox"
+version = "0.1.0"
+dependencies = [
+ "patorrent-core",
+ "patorrent-frontend",
 ]
 
 [[package]]

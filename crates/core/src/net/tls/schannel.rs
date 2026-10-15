@@ -1,4 +1,4 @@
-// LibreTorrent's own OS glue, not ported (libtorrent uses OpenSSL through Boost.Asio).
+// PaTorrent's own OS glue, not ported (libtorrent uses OpenSSL through Boost.Asio).
 
 //! TLS client sessions on SChannel (SSPI), Windows' TLS library.
 //!

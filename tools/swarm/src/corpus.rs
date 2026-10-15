@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use libretorrent_core::bencode::Entry;
-use libretorrent_core::metainfo::TorrentInfo;
+use patorrent_core::bencode::Entry;
+use patorrent_core::metainfo::TorrentInfo;
 
 pub(crate) struct Rng(u64);
 

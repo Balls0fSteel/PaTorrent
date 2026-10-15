@@ -1,6 +1,6 @@
 # Porting libtorrent-rasterbar to Rust
 
-LibreTorrent's engine (`crates/core`) is a Rust port of **libtorrent-rasterbar 2.0.11** (git tag `v2.0.11`, the current stable release). libtorrent is the *reference*, not a dependency: nothing from it is compiled or linked into LibreTorrent. We read its code, port the behaviour, and port its tests.
+PaTorrent's engine (`crates/core`) is a Rust port of **libtorrent-rasterbar 2.0.11** (git tag `v2.0.11`, the current stable release). libtorrent is the *reference*, not a dependency: nothing from it is compiled or linked into PaTorrent. We read its code, port the behaviour, and port its tests.
 
 ## Licensing and attribution
 
@@ -20,7 +20,7 @@ LibreTorrent's engine (`crates/core`) is a Rust port of **libtorrent-rasterbar 2
   // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
   // Changes: <one line: what is structurally different from the original>
   ```
-- LibreTorrent's own license is still undecided (PLAN.md Q1). BSD-3 is compatible with any choice.
+- PaTorrent's own code is under the PolyForm Noncommercial License 1.0.0 (LICENSE.md, PLAN.md D15). BSD-3 allows that for derived code as long as libtorrent's notice and license text stay with it.
 - µTorrent is proprietary. We re-create its *look and behaviour* from observation only. We use none of its binaries, icons, bitmaps, strings or trademarks, and do not reference its name inside the program.
 
 ## Porting rules
@@ -102,7 +102,7 @@ libtorrent `test/` has about 150 files and about 50k lines. Ported alongside eac
 
 Record each one here with the reason.
 
-| Area | libtorrent 2.0.11 | LibreTorrent | Why |
+| Area | libtorrent 2.0.11 | PaTorrent | Why |
 |---|---|---|---|
 | Disk backend | mmap by default; `posix_disk_io` runs I/O on the network thread | pread/pwrite on the disk thread pool. Blocks are written through and hashed in order as they arrive (a small reorder cache holds early blocks), so finished pieces are never read back | memory accounting and performance on Windows and network drives; scale |
 | Persistence | left to the client (qBittorrent: two files per torrent) | `core::store`: one resume DB + one metadata pack | startup time and file count at 10k+ torrents |

@@ -314,7 +314,7 @@ mod tests {
     fn req() -> AnnounceRequest {
         AnnounceRequest {
             info_hash: Sha1Hash([0x12; 20]),
-            peer_id: *b"-LB0100-abcdefghijkl",
+            peer_id: *b"-PA0100-abcdefghijkl",
             port: 6881,
             uploaded: 1,
             downloaded: 2,
@@ -333,7 +333,7 @@ mod tests {
         assert_eq!(
             u,
             "http://t.org/announce?info_hash=%12%12%12%12%12%12%12%12%12%12%12%12%12%12%12%12%12%12%12%12\
-             &peer_id=-LB0100-abcdefghijkl&port=6881&uploaded=1&downloaded=2&left=3&corrupt=0&key=00ABCDEF\
+             &peer_id=-PA0100-abcdefghijkl&port=6881&uploaded=1&downloaded=2&left=3&corrupt=0&key=00ABCDEF\
              &event=started&numwant=200&compact=1&no_peer_id=1"
         );
         assert!(

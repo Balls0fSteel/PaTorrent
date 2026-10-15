@@ -10,7 +10,7 @@
 //! Pause and Stop are the same in the engine. The frontend records which one the user chose
 //! (see [`crate::status::status_text`]).
 
-use libretorrent_core::{TorrentFlags, TorrentHandle};
+use patorrent_core::{TorrentFlags, TorrentHandle};
 
 pub fn start(t: &TorrentHandle) {
     t.set_flags(TorrentFlags::AUTO_MANAGED);
@@ -31,7 +31,7 @@ pub fn stop(t: &TorrentHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use libretorrent_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
+    use patorrent_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
     use std::time::{Duration, Instant};
 
     #[test]

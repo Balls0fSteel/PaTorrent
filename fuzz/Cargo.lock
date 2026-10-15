@@ -70,22 +70,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "libretorrent-core"
-version = "0.1.0"
-dependencies = [
- "mio",
- "windows-sys",
-]
-
-[[package]]
-name = "libretorrent-fuzz"
-version = "0.0.0"
-dependencies = [
- "libfuzzer-sys",
- "libretorrent-core",
-]
-
-[[package]]
 name = "log"
 version = "0.4.34"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -101,6 +85,22 @@ dependencies = [
  "log",
  "wasi",
  "windows-sys",
+]
+
+[[package]]
+name = "patorrent-core"
+version = "0.1.0"
+dependencies = [
+ "mio",
+ "windows-sys",
+]
+
+[[package]]
+name = "patorrent-fuzz"
+version = "0.0.0"
+dependencies = [
+ "libfuzzer-sys",
+ "patorrent-core",
 ]
 
 [[package]]

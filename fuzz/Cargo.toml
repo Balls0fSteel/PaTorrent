@@ -2,17 +2,19 @@
 #   cargo +nightly fuzz run <target>
 # Its own workspace, so stable builds of the main workspace never see it.
 [package]
-name = "libretorrent-fuzz"
+name = "patorrent-fuzz"
 version = "0.0.0"
 edition = "2024"
 publish = false
+license = "PolyForm-Noncommercial-1.0.0"
+authors = ["DukeCorp1996"]
 
 [package.metadata]
 cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-libretorrent-core = { path = "../crates/core", features = ["fuzzing"] }
+patorrent-core = { path = "../crates/core", features = ["fuzzing"] }
 
 [workspace]
 members = ["."]

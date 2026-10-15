@@ -24,7 +24,7 @@ use crate::resume::ResumeData;
 const RESUME_DB: &str = "resume.db";
 const METADATA_PACK: &str = "metadata.pack";
 const PACK_MAGIC: &[u8; 4] = b"LTI1";
-const DB_FORMAT: &str = "libretorrent resume db";
+const DB_FORMAT: &str = "patorrent resume db";
 
 /// Location of an info dictionary in the pack.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

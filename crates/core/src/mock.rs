@@ -51,7 +51,7 @@ impl Default for MockConfig {
             active_fraction: 0.02,
             seed: 0x5eed_1e55,
             max_rate: 4 << 20,
-            save_path: std::env::temp_dir().join("libretorrent-mock").to_string_lossy().into_owned(),
+            save_path: std::env::temp_dir().join("patorrent-mock").to_string_lossy().into_owned(),
         }
     }
 }
@@ -983,7 +983,7 @@ fn peers_for(t: &Torrent) -> Vec<PeerInfo> {
         "qBittorrent 5.0.2",
         "Deluge 2.1.1",
         "BiglyBT 3.6.0",
-        "LibreTorrent 0.1.0",
+        "PaTorrent 0.1.0",
     ];
     let st = &t.st;
     let n = st.num_peers as usize;

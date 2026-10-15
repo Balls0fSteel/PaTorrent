@@ -1,4 +1,4 @@
-//! UI-agnostic client logic shared by every LibreTorrent frontend (Win32, GTK, nox).
+//! UI-agnostic client logic shared by every PaTorrent frontend (Win32, GTK, nox).
 //!
 //! Anything that decides *what* the user sees or *what* a user action means lives here, so the
 //! frontends only decide *how* it is drawn:

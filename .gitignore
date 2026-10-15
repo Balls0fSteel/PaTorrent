@@ -7,8 +7,8 @@
 *.log
 *.tmp
 
-# Settings and state from running LibreTorrent portable in the repo folder
-/libretorrent.ini
+# Settings and state from running PaTorrent portable in the repo folder
+/patorrent.ini
 /state
 
 # Fuzzing

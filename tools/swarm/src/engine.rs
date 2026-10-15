@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use libretorrent_core::bencode::Entry;
-use libretorrent_core::crypto::Sha1;
-use libretorrent_core::{
+use patorrent_core::bencode::Entry;
+use patorrent_core::crypto::Sha1;
+use patorrent_core::{
     AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentSource,
     TorrentState,
 };

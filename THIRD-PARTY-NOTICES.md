@@ -1,6 +1,6 @@
 # Third-party notices
 
-LibreTorrent's engine is a Rust port of libtorrent-rasterbar 2.0.11. Ported code is a derivative work of the projects below and remains under their terms. This file ships with every LibreTorrent binary distribution.
+PaTorrent's engine is a Rust port of libtorrent-rasterbar 2.0.11. Ported code is a derivative work of the projects below and remains under their terms. This file ships with every PaTorrent binary distribution.
 
 Ported so far:
 - `crates/core/src/bencode`, `crypto` (SHA-1, SHA-256, CRC32C), `util`, `metainfo`, and the digest operations in `types.rs`
@@ -9,7 +9,7 @@ Ported so far:
 
 Each source file names its origin in a header comment.
 
-LibreTorrent is not affiliated with or endorsed by libtorrent, its authors, or any other project named here. `libretorrent-nox --license` prints this file.
+PaTorrent is not affiliated with or endorsed by libtorrent, its authors, or any other project named here. `patorrent-nox --license` prints this file after PaTorrent's own LICENSE.md.
 
 ---
 
@@ -51,7 +51,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ## puff (inflate)
 
-Ported via libtorrent `src/puff.cpp` / `include/libtorrent/puff.hpp`. LibreTorrent's port is an altered version.
+Ported via libtorrent `src/puff.cpp` / `include/libtorrent/puff.hpp`. PaTorrent's port is an altered version.
 
 ```
 Copyright (C) 2002, 2003 Mark Adler, all rights reserved
@@ -79,7 +79,7 @@ Mark Adler    madler@alumni.caltech.edu
 
 ## ed25519
 
-Ported via libtorrent `src/ed25519/`. LibreTorrent's port is an altered version.
+Ported via libtorrent `src/ed25519/`. PaTorrent's port is an altered version.
 
 ```
 Copyright (c) 2015 Orson Peters <orsonpeters@gmail.com>
@@ -136,4 +136,4 @@ This table is kept current with every dependency change (dependency policy: docs
 
 ## System libraries used at run time
 
-HTTPS trackers use the operating system's TLS library, which is linked dynamically and not shipped with LibreTorrent: SChannel (`secur32.dll`) on Windows, and the system OpenSSL (`libssl`, `libcrypto`; Apache-2.0 from 3.0, the OpenSSL/SSLeay license before) or LibreSSL on Linux and BSD.
+HTTPS trackers use the operating system's TLS library, which is linked dynamically and not shipped with PaTorrent: SChannel (`secur32.dll`) on Windows, and the system OpenSSL (`libssl`, `libcrypto`; Apache-2.0 from 3.0, the OpenSSL/SSLeay license before) or LibreSSL on Linux and BSD.

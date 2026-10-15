@@ -2,7 +2,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use libretorrent_core::bencode::{bdecode, bdecode_partial, print_entry};
+use patorrent_core::bencode::{bdecode, bdecode_partial, print_entry};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(d) = bdecode(data)

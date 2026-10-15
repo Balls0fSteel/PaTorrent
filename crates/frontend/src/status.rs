@@ -4,7 +4,7 @@
 //! `AUTO_MANAGED`. µTorrent distinguishes them, so frontends track the user's intent
 //! (`user_paused`) and pass it in. It will be persisted with the torrent in `core::store` (Phase 2).
 
-use libretorrent_core::{TorrentFlags, TorrentState, TorrentStatus};
+use patorrent_core::{TorrentFlags, TorrentState, TorrentStatus};
 
 use crate::fmt;
 

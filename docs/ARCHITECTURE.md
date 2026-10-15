@@ -1,4 +1,4 @@
-# LibreTorrent architecture
+# PaTorrent architecture
 
 Status: **in implementation**. Phases 0-2 are built as described here (one mio network thread, disk thread pool, resolver threads, slab ownership, store); PLAN.md tracks progress and open decisions, and docs/PORTING.md lists where the code departs from libtorrent.
 
@@ -14,7 +14,7 @@ Status: **in implementation**. Phases 0-2 are built as described here (one mio n
 
 ```
  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────────────────┐
- │ libretorrent     │  │ libretorrent-gtk │  │ libretorrent-nox          │
+ │ patorrent     │  │ patorrent-gtk │  │ patorrent-nox          │
  │ Win32 GUI        │  │ GTK GUI          │  │ headless daemon           │
  │ (windows-sys)    │  │ (Linux / BSD)    │  │ HTTP API + Web UI         │
  └────────┬─────────┘  └────────┬─────────┘  └─────────────┬─────────────┘
@@ -39,11 +39,11 @@ Crates are compile-time and test boundaries only. Each executable statically lin
 
 ```
 crates/
-  core/       libretorrent-core      engine library (the libtorrent port)
-  frontend/   libretorrent-frontend  UI-agnostic client logic shared by all frontends
-  win32/      libretorrent           Windows GUI executable
-  nox/        libretorrent-nox       headless daemon (starts life as the dev/test CLI)
-  gtk/        libretorrent-gtk       Linux/BSD GUI executable
+  core/       patorrent-core      engine library (the libtorrent port)
+  frontend/   patorrent-frontend  UI-agnostic client logic shared by all frontends
+  win32/      patorrent           Windows GUI executable
+  nox/        patorrent-nox       headless daemon (starts life as the dev/test CLI)
+  gtk/        patorrent-gtk       Linux/BSD GUI executable
 tools/
   swarm/      loopback swarm, interop and scale benchmarks
 third_party/
@@ -179,8 +179,8 @@ h.pop_alerts(&mut alerts);
   - `dht.dat`: DHT node id and routing table.
 - **Frontend settings:** `settings.ini`, human-editable.
 - **Locations:**
-  - Windows: portable mode when `settings.ini` sits next to the executable (like µTorrent), otherwise `%APPDATA%\LibreTorrent`.
-  - Unix: `$XDG_CONFIG_HOME/libretorrent` and `$XDG_DATA_HOME/libretorrent`.
+  - Windows: portable mode when `settings.ini` sits next to the executable (like µTorrent), otherwise `%APPDATA%\PaTorrent`.
+  - Unix: `$XDG_CONFIG_HOME/patorrent` and `$XDG_DATA_HOME/patorrent`.
 
 ## Frontends
 

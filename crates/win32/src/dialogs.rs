@@ -65,7 +65,7 @@ pub fn confirm(owner: HWND, text: &str) -> bool {
 }
 
 fn message(owner: HWND, text: &str, flags: u32) -> i32 {
-    let (t, c) = (wide(text), wide("LibreTorrent"));
+    let (t, c) = (wide(text), wide("PaTorrent"));
     unsafe { MessageBoxW(owner, t.as_ptr(), c.as_ptr(), flags) }
 }
 

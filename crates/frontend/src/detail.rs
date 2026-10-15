@@ -1,7 +1,7 @@
 //! The detail tabs' tables (Trackers, Peers, Files) in µTorrent 2.2.1's layout: column titles,
 //! default widths and cell text.
 
-use libretorrent_core::{
+use patorrent_core::{
     AnnounceEntry, DownloadPriority, FileEntry, PeerFlags, PeerInfo, PeerSource, TrackerStatus,
 };
 

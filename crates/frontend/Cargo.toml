@@ -1,17 +1,19 @@
 [package]
-name = "libretorrent-frontend"
-description = "UI-agnostic client logic shared by LibreTorrent's Win32, GTK and headless frontends."
+name = "patorrent-frontend"
+description = "UI-agnostic client logic shared by PaTorrent's Win32, GTK and headless frontends."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 repository.workspace = true
+license.workspace = true
+authors.workspace = true
 publish.workspace = true
 
 [dependencies]
-libretorrent-core.workspace = true
+patorrent-core.workspace = true
 
 [dev-dependencies]
-libretorrent-core = { workspace = true, features = ["mock"] }
+patorrent-core = { workspace = true, features = ["mock"] }
 
 [lints]
 workspace = true

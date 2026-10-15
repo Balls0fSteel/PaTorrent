@@ -394,9 +394,10 @@ pub fn identify_client(peer_id: &[u8; 20]) -> String {
         (b"BI", "BiglyBT"),
         (b"DE", "Deluge"),
         (b"KT", "KTorrent"),
-        (b"LB", "LibreTorrent"),
+        (b"LR", "LibreTorrent"),
         (b"LT", "libtorrent"),
         (b"lt", "libTorrent"),
+        (b"PA", "PaTorrent"),
         (b"qB", "qBittorrent"),
         (b"TR", "Transmission"),
         (b"UT", "\u{b5}Torrent"),
@@ -515,7 +516,7 @@ mod tests {
     fn extension_handshake() {
         let b = encode_ext_handshake(
             &[("ut_metadata", 2), ("ut_pex", 1)],
-            "LibreTorrent 0.1.0",
+            "PaTorrent 0.1.0",
             Some(6881),
             500,
             false,
@@ -524,7 +525,7 @@ mod tests {
         let h = decode_ext_handshake(&b).unwrap();
         assert_eq!(h.message_id("ut_metadata"), Some(2));
         assert_eq!(h.message_id("lt_donthave"), None);
-        assert_eq!(h.client.as_deref(), Some("LibreTorrent 0.1.0"));
+        assert_eq!(h.client.as_deref(), Some("PaTorrent 0.1.0"));
         assert_eq!((h.listen_port, h.reqq), (Some(6881), Some(500)));
         assert_eq!(h.your_ip, Some("1.2.3.4".parse().unwrap()));
         assert!(decode_ext_handshake(b"li1ee").is_none());
@@ -532,10 +533,10 @@ mod tests {
 
     #[test]
     fn peer_ids() {
-        let id = generate_peer_id("-LB0100-");
-        assert_eq!(&id[..8], b"-LB0100-");
+        let id = generate_peer_id("-PA0100-");
+        assert_eq!(&id[..8], b"-PA0100-");
         assert!(id[8..].iter().all(|c| c.is_ascii_graphic()));
-        assert_eq!(identify_client(&id), "LibreTorrent 0.1.0");
+        assert_eq!(identify_client(&id), "PaTorrent 0.1.0");
         assert_eq!(identify_client(b"-qB4650-abcdefghijkl"), "qBittorrent 4.6.5");
         assert_eq!(identify_client(b"-TR4060-abcdefghijkl"), "Transmission 4.0.6");
         assert_eq!(identify_client(b"M7-4-3--abcdefghijkl"), "Mainline");

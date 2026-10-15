@@ -206,7 +206,7 @@ impl Engine {
         if p.supports_extensions {
             let ext = peer_wire::encode_ext_handshake(
                 &[],
-                &format!("LibreTorrent {}", crate::VERSION),
+                &format!("PaTorrent {}", crate::VERSION),
                 (listen_port != 0).then_some(listen_port),
                 reqq,
                 count == have.len() && count > 0,

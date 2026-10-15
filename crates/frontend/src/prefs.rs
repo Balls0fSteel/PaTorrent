@@ -37,7 +37,7 @@ impl Prefs {
     }
 
     pub fn to_text(&self) -> String {
-        let mut s = String::from("# LibreTorrent preferences\n");
+        let mut s = String::from("# PaTorrent preferences\n");
         for (k, v) in &self.values {
             s.push_str(k);
             s.push('=');

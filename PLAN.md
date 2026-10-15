@@ -1,10 +1,10 @@
-# LibreTorrent plan
+# PaTorrent plan
 
-Last updated: 2026-10-15_180656_1792080416
+Last updated: 2026-10-15_201238_1792087958
 
 ## Vision
 
-A libre, lean re-creation of µTorrent 2.2.1:
+A lean re-creation of µTorrent 2.2.1:
 
 - native look and feel
 - small single-file binaries
@@ -14,9 +14,9 @@ The BitTorrent engine is our own Rust port of **libtorrent-rasterbar 2.0.11**, u
 
 | Binary | Platform | Role |
 |---|---|---|
-| `libretorrent` | Windows | Win32 GUI (first) |
-| `libretorrent-nox` | all | headless daemon with HTTP API and Web UI, like qbittorrent-nox |
-| `libretorrent-gtk` | Linux / BSD | GTK GUI |
+| `patorrent` | Windows | Win32 GUI (first) |
+| `patorrent-nox` | all | headless daemon with HTTP API and Web UI, like qbittorrent-nox |
+| `patorrent-gtk` | Linux / BSD | GTK GUI |
 
 Where it sits: qBittorrent's modular libtorrent-plus-frontend split, with µTorrent's footprint and loadability.
 
@@ -24,19 +24,19 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Stage:** Phase 3 (Win32 GUI MVP) is in progress. `libretorrent.exe` now shows the µTorrent 2.2.1 main window on the real engine: menu, runtime-drawn toolbar, category tree, virtual torrent list, the seven detail tabs, status bar, tray, context menus, single instance and persisted layout. Every Phase 3 item is implemented, and the scale gate passes. The phase stays open until a person has checked the window visually (computer use is blocked by policy for this app, so nothing visual is verified yet) and a download has run through the GUI. Phase 2 (minimum viable engine) is closed; its results follow.
-- Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `libretorrent.exe` is 1.36 MB.
+- **Stage:** Phase 3 (Win32 GUI MVP) is in progress. `patorrent.exe` now shows the µTorrent 2.2.1 main window on the real engine: menu, runtime-drawn toolbar, category tree, virtual torrent list, the seven detail tabs, status bar, tray, context menus, single instance and persisted layout. Every Phase 3 item is implemented, and the scale gate passes. The phase stays open until a person has checked the window visually (computer use is blocked by policy for this app, so nothing visual is verified yet) and a download has run through the GUI. Phase 2 (minimum viable engine) is closed; its results follow.
+- Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `patorrent.exe` is 1.36 MB.
 - Phase 2 results (release build, this dev machine):
 
   | What | Result |
   |---|---|
   | Debian 13.7.0 netinst ISO (792 MB) from `bttracker.debian.org` | downloaded in 7–9 s (peaks around 90–140 MB/s from 30–40 peers); SHA-512 identical to Debian's published sum |
-  | Restart with `libretorrent-nox run` | restored as a seed after resume verification (file sizes), no hashing |
+  | Restart with `patorrent-nox run` | restored as a seed after resume verification (file sizes), no hashing |
   | Cold start with saved torrents (`lt-swarm load`) | 1,000 in 12 ms; 10,000 in 109 ms at 45 MB RSS (store: 7.8 MB resume.db + 215 MB metadata pack, read lazily) |
   | Loopback transfer, one seed and one downloader in one process (`lt-swarm loopback`, 512 MiB) | 0.47 s, about 1.15 GB/s (9 Gbit/s), 2.5 ns of CPU per byte (both sides, hashing included) |
   | Seed check of 512 MiB | 0.30 s |
 
-  Exe sizes: `libretorrent-nox.exe` 1.16 MB, `libretorrent.exe` 530 KB (it links the engine's dependencies now), `lt-swarm.exe` 1.16 MB.
+  Exe sizes: `patorrent-nox.exe` 1.16 MB, `patorrent.exe` 530 KB (it links the engine's dependencies now), `lt-swarm.exe` 1.16 MB.
 - Earlier phases: the metadata layer (Phase 1: bencode, SHA-1/SHA-256 with SHA-NI, CRC32C, `TorrentInfo`, magnets) and the engine API with the simulated engine (Phase 0), which the Win32 skeleton and `lt-swarm scale` still use.
 - Phase 1 measurements: SHA-1 with SHA-NI hashes 1 GiB in 0.37 s; 10,000 synthetic `.torrent` files parse in 207 ms; a fully parsed torrent holds about 25 KB, which is why stopped torrents keep no metadata (D5).
 - Simulated-engine scale numbers (Phase 0): 10,000 torrents give a first full status update in 11 ms; 100,000 in 104 ms.
@@ -60,7 +60,10 @@ Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the reco
 | D11 (Q5) | The Linux/BSD GUI uses GTK 4 via gtk4-rs. | Maintained bindings. Memory can be trimmed with the Cairo renderer if needed. |
 | D12 (Q6) | Windows 10+ x64 only, on stable Rust. ARM64 Windows comes later as an extra CI target. No Windows 7/8.1, no 32-bit. | No nightly/`build-std`; tier-1 target. |
 | D13 (Q7) | Strict µTorrent 2.2.1 look by default: classic list view, 2.2.1 layout, menus and toolbar order. Allowed modern necessities: per-monitor DPI scaling and long paths. An optional dark mode may come later, never as the default. | Faithful clone first. |
-| D14 (Q9) | Coverage-guided fuzzing with cargo-fuzz on nightly, in a separate `fuzz/` workspace. The internal parsers reach it through the `fuzzing` feature of `libretorrent-core` (hidden module `fuzzing`). CI fuzzes each target on Linux: 2 min per push to main that touches the engine, 30 min weekly. | Nightly stays out of the product build (D12 still holds). Linux CI needs no ASan setup. |
+| D14 (Q9) | Coverage-guided fuzzing with cargo-fuzz on nightly, in a separate `fuzz/` workspace. The internal parsers reach it through the `fuzzing` feature of `patorrent-core` (hidden module `fuzzing`). CI fuzzes each target on Linux: 2 min per push to main that touches the engine, 30 min weekly. | Nightly stays out of the product build (D12 still holds). Linux CI needs no ASan setup. |
+| D15 (Q1) | License: **PolyForm Noncommercial 1.0.0**, copyright **DukeCorp1996** (`LICENSE.md` with a `Required Notice:` line, SPDX `PolyForm-Noncommercial-1.0.0` in every manifest). Ported libtorrent code also keeps its BSD-3 notice. `LICENSE.md` ships in `dist\` and the CI artifact, `patorrent-nox --license` prints it, and the About box names it. | The owner wants no commercial use and their own name as author. Accepted consequence: source-available, not OSI open source, so no Debian/Fedora/F-Droid packaging. |
+| D16 (Q2, Q8) | Name: **PaTorrent** (long name **PatinaTorrent**; a patina is the good kind of rust). Peer-ID prefix `-PA0100-`, User-Agent `PaTorrent/<version>`, BEP 10 `v` = `PaTorrent <version>`. Crates `patorrent-core` / `-frontend` / `-nox`, binary `patorrent.exe`, `%APPDATA%\PaTorrent`, `patorrent.ini`. `LR` stays mapped to the Android LibreTorrent in our peer table. | "LibreTorrent" was taken (Android, peer ID `LR`) and "libre" is wrong under D15. The owner turned down Ferrite (`Fe` reads badly) and Oxbit. `PA` is free in libtorrent's table and the BEP 20 list. |
+| D17 (Q8) | No peer-ID spoofing. PaTorrent always reports itself. | A borrowed ID with this engine's fingerprint gets accounts banned on private trackers and misreports the client. |
 
 ## Roadmap
 
@@ -86,7 +89,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - manifest embedded via linker args: ComCtl v6, PerMonitorV2, long paths, UTF-8 code page
   - alert notify → `PostMessageW`, DPI-aware font, status bar
 - [x] `frontend` crate: µTorrent formatting, status strings and categories, Start / Force Start / Stop actions
-- [x] `libretorrent-nox` Phase 0 CLI (`add`, `demo`)
+- [x] `patorrent-nox` Phase 0 CLI (`add`, `demo`)
 
 ### Phase 1: Primitives (pure code, fully tested)
 - [x] `bencode`: zero-copy bdecode (8-byte token array like `bdecode_node`), encoder, `Entry`, `print_entry`, soft-error checks
@@ -139,12 +142,12 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - [ ] batched UDP scrapes: the packet format supports 74 hashes; the engine still scrapes one torrent per request
 - [x] HTTP client: parser, chunked encoding, redirects. gzip is not needed (we request identity encoding). OS TLS: done (`core::net::tls`).
 - [x] `store`: resume.db + metadata.pack, libtorrent fast-resume field names, metadata loaded only for running torrents
-- [x] Dev CLI: `libretorrent-nox add <file> --save DIR [--seed]`, `run`, rate limits, per-user state directory, progress lines
+- [x] Dev CLI: `patorrent-nox add <file> --save DIR [--seed]`, `run`, rate limits, per-user state directory, progress lines
 - [x] Tests: unit tests for every module (libtorrent vectors for BEP 6 allowed-fast, BEP 40, sliding averages), plus `tests/swarm.rs`: loopback downloads through a direct connection, an HTTP tracker and a UDP tracker, a restart without recheck, and a restart that keeps partly downloaded pieces
 - **Exit criteria:**
   - [x] Downloads a public Linux ISO from its trackers (Debian 13.7.0 netinst, checksum verified).
   - [x] Seeds to qBittorrent, Transmission and Deluge.
-    - [x] qBittorrent 5.2.4 (libtorrent 2.0.x): downloaded a 3-file, 38.7 MiB torrent from `libretorrent-nox` over loopback, all files SHA-256 identical, exactly the torrent size downloaded (2026-10-15).
+    - [x] qBittorrent 5.2.4 (libtorrent 2.0.x): downloaded a 3-file, 38.7 MiB torrent from `patorrent-nox` over loopback, all files SHA-256 identical, exactly the torrent size downloaded (2026-10-15).
     - [x] Transmission 4.1.0-beta.2 (`transmission-cli`) and Deluge 2.2.0 (`deluged` + `deluge-console`, libtorrent 2.0.x) in the Debian 13 WSL distro, across the WSL NAT to nox on Windows: the same torrent, all files SHA-256 identical; nox sent exactly one copy to each (2026-10-15).
   - [x] Downloads from qBittorrent, Transmission and Deluge (reverse direction): `lt-swarm interop` (2026-10-15). 40 MiB, 3 files, files byte-identical, no failed or redundant bytes from any of them. qBittorrent 5.2.4 in 0.2 s and Deluge 2.2.0 in 0.4 s; Transmission 4.1.0-beta.2 in 9.7 s, of which 9.6 s is waiting for its periodic (10 s) rechoke to unchoke us.
   - [x] Restart resumes without a recheck, including partly downloaded pieces (libtorrent `unfinished`).
@@ -193,7 +196,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). An item is ticked only onc
   - move storage
 - [ ] Localisation infrastructure (string tables)
 
-### Phase 6: Headless `libretorrent-nox`
+### Phase 6: Headless `patorrent-nox`
 - [ ] Daemon: Unix daemon / systemd unit, optional Windows service, signal handling, XDG paths
 - [ ] Embedded HTTP/1.1 server on the core reactor; optional TLS; authentication, CSRF and host-header protections
 - [ ] API (see Q4) with incremental diff updates
@@ -224,17 +227,10 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 
 ## Open questions
 
-- **Q1. License.** Answered 2026-10-15 in part: the owner wants their own name as author and a license that **forbids commercial use**. Proposed: PolyForm Noncommercial 1.0.0 (written for software; the dependencies are BSD-3, MIT, Apache-2.0 and zlib-style, so all allow it). Consequence to confirm: a non-commercial license is source-available, not open source or "libre" (OSI / FSF), so Debian, Fedora, F-Droid and similar will not package it, and outside contributors need to accept the same terms. Still needed: the exact copyright holder name (git user `TheDuke`, site name `DukeCorp1996`, GitHub `Balls0fSteel`).
-- **Q2. Name.** Answered 2026-10-15: rename before the first release; "BitTorrent" need not be in the name; a Rust angle is welcome. Shortlist (checked against libtorrent's `identify_client.cpp`, the BEP 20 list on wiki.theory.org and a web search, no torrent client found by these names):
-  - **Ferrite**, peer ID `FE`. Iron oxide, i.e. rust; also the magnet material (pulls in peers).
-  - **Patina**, peer ID `PA`. The good kind of oxidation; fits a faithful re-creation of a 2010 classic.
-  - **Oxbit**, peer ID `OX`. Oxide + bit; short, unusual.
-  - **Rivet**, peer ID `RV`. Small, strong, holds metal together. An old PHP tracker was called RivetTracker.
-  Avoid: anything "Rust…torrent" (rqbit, rustTorrent and Torrust already occupy that space) and "Libre…" (not accurate under a non-commercial license).
+- **Q1, Q2, Q8, Q9.** Resolved, see D14–D17.
 - **Q3–Q7.** Resolved, see D9–D13.
-- **Q9.** Resolved, see D14.
+- **Q11. GitHub repository name.** The repository is still `Balls0fSteel/LibreTorrent` (the `repository` field in Cargo.toml and the README clone URL point there). Rename it to `PaTorrent` on GitHub (Settings → General; GitHub redirects the old URL), then update both places. The local folder name `libretorrent` can change at the same time.
 - **Q10. Interop testing setup.** Answered: qBittorrent runs as the installed app with a throwaway `--profile`; Transmission and Deluge run in the Debian WSL distro (`transmission-cli`, `deluged`, `deluge-console` installed 2026-10-15; the `deluged` system service the package enabled was stopped and disabled). `lt-swarm interop` scripts all three.
-- **Q8. Peer-ID prefix (blocked on Q2).** `LR` is taken: libtorrent's `identify_client.cpp` maps it to the Android LibreTorrent. The code uses a provisional `-LB0100-` (`LB` appears in neither libtorrent's table nor the common BEP20 lists). Pick the final two-letter code together with the final name. The owner also asked (2026-10-15) about **spoofing well-known clients' peer IDs** until the new client is trusted. Not built; open for discussion: trackers that whitelist clients check the peer ID together with the HTTP `User-Agent`, the BEP 10 `v` field, the `key` and announce-parameter order and reserved-bit flags, so a borrowed ID with this engine's fingerprint is what gets accounts banned, and it misreports the client to other people's trackers. The route to acceptance is the own code: a PR adding it to libtorrent's `identify_client.cpp`, the wiki.theory.org BEP 20 list and webtorrent's `bittorrent-peerid`, then asking trackers to whitelist it.
 
 ## Future improvements
 
@@ -246,12 +242,16 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 
 ## Known TODOs
 
-- Q1 (license holder name and the non-commercial consequences) and Q2 (pick from the shortlist; it decides the peer-ID code for Q8) are waiting on the owner. Both must be settled before the first public release. The rename touches crate names, binaries, `%APPDATA%\LibreTorrent`, window classes, the single-instance mutex, `version.rs` (`PEER_ID_PREFIX`, `USER_AGENT`) and the repository URL.
+- Getting `PA` recognized (D16, D17), at the first public release:
+  - a PR to libtorrent adding `{"PA", "PaTorrent"}` to `src/identify_client.cpp`, so qBittorrent, Deluge and other libtorrent clients show the name in their peer lists
+  - the same for webtorrent's `bittorrent-peerid` and Transmission's `clients.cc`, and an entry on the wiki.theory.org BEP 20 list
+  - for private trackers: behave well (honest upload/download stats, announce intervals respected, no ratio tricks), keep `User-Agent`, peer ID and BEP 10 `v` consistent across versions, and publish a stable release with changelog. Tracker staff usually want a tagged release they can test. Expect a long wait, and some will never whitelist a new client.
+- Peer-ID version characters: `-PA0100-` encodes 0.1.0. Bump `PEER_ID_PREFIX` together with the crate version (a test enforces it).
 - Fuzzing on Windows needs Visual Studio's AddressSanitizer runtime (`clang_rt.asan_dynamic-x86_64.dll`); `fuzz.bat` finds it with vswhere. A build without a sanitizer (`-s none`) does not link on MSVC (libFuzzer's PC table uses ELF section symbols). The default toolchain here is pinned to 1.90.0, and cargo-fuzz 0.13 needs 1.91+, so it was installed with `cargo +stable install cargo-fuzz --locked`.
 - Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), DHT messages, uTP headers, `ut_metadata`, resume data and the nox HTTP API (docs/PORTING.md rule 8).
 - Licensing compliance (checked 2026-10-15_174600_1792079160):
   - when a new libtorrent module (or bundled code such as puff or ed25519) is ported, add it to THIRD-PARTY-NOTICES.md's "Ported so far" list and give each file the origin and copyright header.
-  - the nox Web API (D10) must be written from qBittorrent's published WebAPI docs only. qBittorrent is GPL-2.0-or-later; do not copy its source or Web UI assets unless Q1 picks a compatible license and the notices are added.
+  - the nox Web API (D10) must be written from qBittorrent's published WebAPI docs only. qBittorrent is GPL-2.0-or-later, which is incompatible with D15's noncommercial license: never copy its source or Web UI assets.
   - the Win32 GUI's About box points to THIRD-PARTY-NOTICES.md but does not show the texts. A Help > Third-Party Notices window would keep them with a GUI exe copied out on its own (nox has `--license`).
 - Win32 GUI (Phase 3 follow-ups):
   - empty-session working set is 19.9 MB against the 12 MB target (private bytes 4.5 MB). Most of it is shared system DLLs; loading urlmon and parts of shell32 only when needed may help.

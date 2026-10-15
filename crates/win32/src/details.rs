@@ -4,9 +4,9 @@
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use libretorrent_core::{AnnounceEntry, Bitfield, FileEntry, PeerInfo, TorrentId, TorrentStatus};
-use libretorrent_frontend::detail::{self, ColumnDef};
-use libretorrent_frontend::{columns::RowExtra, fmt, status::status_text};
+use patorrent_core::{AnnounceEntry, Bitfield, FileEntry, PeerInfo, TorrentId, TorrentStatus};
+use patorrent_frontend::detail::{self, ColumnDef};
+use patorrent_frontend::{columns::RowExtra, fmt, status::status_text};
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, RECT};
 use windows_sys::Win32::Graphics::Gdi::{

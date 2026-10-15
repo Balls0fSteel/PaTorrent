@@ -61,7 +61,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --workspace
       - name: Slow tests (release)
-        run: cargo test --release -p libretorrent-core -- --ignored
+        run: cargo test --release -p patorrent-core -- --ignored
       - name: Size, dependency and scale report
         shell: pwsh
         run: |
@@ -82,9 +82,10 @@ jobs:
           $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
       - uses: actions/upload-artifact@v7
         with:
-          name: libretorrent-windows-x64
+          name: patorrent-windows-x64
           path: |
-            target/release/libretorrent.exe
-            target/release/libretorrent-nox.exe
+            target/release/patorrent.exe
+            target/release/patorrent-nox.exe
+            LICENSE.md
             THIRD-PARTY-NOTICES.md
           retention-days: 14

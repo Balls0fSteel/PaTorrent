@@ -3,7 +3,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use libretorrent_core::fuzzing::{decode, decode_ext_handshake, decode_handshake, identify_client};
+use patorrent_core::fuzzing::{decode, decode_ext_handshake, decode_handshake, identify_client};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(h) = decode_handshake(data) {

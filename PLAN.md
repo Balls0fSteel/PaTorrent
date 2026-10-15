@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_143016_1792067416
+Last updated: 2026-10-15_143444_1792067684
 
 ## Vision
 
@@ -24,7 +24,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Stage:** Phase 2 (minimum viable engine) is built. It downloads and seeds real torrents from `libretorrent-nox`. Three of the four exit criteria are met, and the fourth half: seeding to qBittorrent 5.2.4 is verified; Transmission and Deluge are not tested yet (see Next steps).
+- **Stage:** Phase 2 (minimum viable engine) is built. It downloads and seeds real torrents from `libretorrent-nox`. All four exit criteria are met: qBittorrent 5.2.4, Transmission 4.1.0 and Deluge 2.2.0 each downloaded a test torrent from `libretorrent-nox` with identical files. Remaining Phase 2 follow-ups are in Next steps.
 - Phase 2 results (release build, this dev machine):
 
   | What | Result |
@@ -141,9 +141,9 @@ Each phase ends with something runnable and measured against the targets in ARCH
 - [x] Tests: unit tests for every module (libtorrent vectors for BEP 6 allowed-fast, BEP 40, sliding averages), plus `tests/swarm.rs`: loopback downloads through a direct connection, an HTTP tracker and a UDP tracker, and a restart without recheck
 - **Exit criteria:**
   - [x] Downloads a public Linux ISO from its trackers (Debian 13.7.0 netinst, checksum verified).
-  - [ ] Seeds to qBittorrent, Transmission and Deluge.
+  - [x] Seeds to qBittorrent, Transmission and Deluge.
     - [x] qBittorrent 5.2.4 (libtorrent 2.0.x): downloaded a 3-file, 38.7 MiB torrent from `libretorrent-nox` over loopback, all files SHA-256 identical, exactly the torrent size downloaded (2026-10-15).
-    - [ ] Transmission, Deluge: untested.
+    - [x] Transmission 4.1.0-beta.2 (`transmission-cli`) and Deluge 2.2.0 (`deluged` + `deluge-console`, libtorrent 2.0.x) in the Debian 13 WSL distro, across the WSL NAT to nox on Windows: the same torrent, all files SHA-256 identical; nox sent exactly one copy to each (2026-10-15).
   - [x] Restart resumes without a recheck.
   - [x] 1,000 synthetic torrents load in under 0.5 s (12 ms).
 
@@ -211,7 +211,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 ## Next steps
 
 1. Close Phase 2:
-   1. Interop: qBittorrent is done. Transmission and Deluge are still to test (for example in the Debian WSL distro; see Q10). The reverse direction (LibreTorrent downloading from qBittorrent) is untested too.
+   1. Interop, reverse direction: LibreTorrent downloading from qBittorrent, Transmission and Deluge is untested (the clients are installed in the Debian WSL distro now). Add a scripted interop run to `lt-swarm` so this can be repeated.
    2. HTTPS trackers through the OS TLS layer (D9): SChannel on Windows, OpenSSL / LibreSSL on Unix. Ubuntu's and many other public trackers are HTTPS-only.
    3. Save partially downloaded pieces in resume data (`unfinished`), so a restart does not drop them.
 2. Phase 3: the µTorrent 2.2.1 main window on top of the real engine.
@@ -224,7 +224,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 - **Q2. Name.** "LibreTorrent" is already a well-known GPL-3 Android torrent client (proninyaroslav/libretorrent). libtorrent already identifies peer-ID `LR` as that app, so peers and trackers would confuse the two. Keep the name, or rename before the first release?
 - **Q3–Q7.** Resolved, see D9–D13.
 - **Q9. Coverage-guided fuzzing.** cargo-fuzz needs a nightly Rust toolchain plus the cargo-fuzz tool, and neither is installed. Install them (`rustup toolchain install nightly` then `cargo install cargo-fuzz`) and add a fuzz CI job? The stable mutation tests cover the basics until then.
-- **Q10. Interop testing setup.** qBittorrent was tested with the installed app and a throwaway `--profile` (answered). For Transmission and Deluge: install `transmission-cli` and `deluged deluge-console` in the Debian WSL distro? Needs your go-ahead (system packages).
+- **Q10. Interop testing setup.** Answered: qBittorrent runs as the installed app with a throwaway `--profile`; Transmission and Deluge run in the Debian WSL distro (`transmission-cli`, `deluged`, `deluge-console` installed 2026-10-15; the `deluged` system service the package enabled was stopped and disabled).
 - **Q8. Peer-ID prefix (blocked on Q2).** `LR` is taken: libtorrent's `identify_client.cpp` maps it to the Android LibreTorrent. The code uses a provisional `-LB0100-` (`LB` appears in neither libtorrent's table nor the common BEP20 lists). Pick the final two-letter code together with the final name.
 
 ## Future improvements

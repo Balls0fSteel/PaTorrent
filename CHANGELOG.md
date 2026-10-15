@@ -2,6 +2,29 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_143444_1792067684: Interop: Transmission and Deluge download from libretorrent-nox
+
+With this, all four Phase 2 exit criteria are met.
+
+### Setup
+- Installed in the Debian 13 WSL distro, with the user's approval: `transmission-cli` 4.1.0~beta2 and `deluged` / `deluge-console` 2.2.0.
+- The Debian package enabled and started a system `deluged` service. It was stopped and disabled after the test (`sudo systemctl enable --now deluged` brings it back). The packages stay installed.
+- Neither CLI can be told about a peer directly, so a tiny HTTP tracker in WSL handed out the nox seed's address. The clients got a copy of the torrent with that announce URL (same info-hash).
+- nox (from commit f3fbefa) seeded on Windows port 17882; the WSL clients reached it through the WSL NAT at 172.18.112.1. Both clients ran with temporary config directories, default encryption settings, and DHT / LSD / port mapping off.
+
+### Verified
+- **Transmission 4.1.0-beta.2** downloaded the 3-file, 38.7 MiB test torrent in about 3 s; all files SHA-256 identical to the originals.
+- **Deluge 2.2.0** (libtorrent 2.0.x) downloaded the same torrent in about 5 s from adding it; all files SHA-256 identical.
+- nox's upload counter shows exactly one copy per client (38.7 MB, then 77.4 MB in total), each to one incoming peer.
+
+### Issues encountered
+- The `transmission-cli` log looked like a failure (it ends at "Progress: 0.0%"). It is cut off mid-line: stdout is block-buffered when redirected, so its final status lines were never written. The files and nox's counters show the transfer completed.
+- `deluge-console` 2.2.0 prints an `AttributeError: 'ConsoleUI' object has no attribute 'started_deferred'` traceback on this Python version; the commands still run. Its `info` showed "Downloaded: 0 B" after finishing although the files were written; a console display quirk.
+- An inline `wsl.exe bash -c` command lost its variables between Git Bash and WSL; nothing was damaged (an empty `rm -rf`), and WSL commands moved to script files.
+
+### Cleanup
+- The tracker, the private deluged and the nox seed were stopped; `/tmp/lt-interop` in WSL and the Windows test data were deleted.
+
 ## 2026-10-15_143016_1792067416: Interop: qBittorrent downloads from libretorrent-nox
 
 ### Verified

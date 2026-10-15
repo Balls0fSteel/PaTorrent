@@ -23,9 +23,19 @@ cargo build --release
 
 The libtorrent submodule is reference material only and is not needed to build.
 
+On Windows, three scripts in the repository root do the same with a double-click:
+
+| Script | What it does |
+|---|---|
+| `build.bat` | Release build of everything, copied into `dist\` (`build.bat debug` for a debug build) |
+| `run.bat` | Starts `dist\libretorrent.exe` (building first if needed); arguments are passed on |
+| `run-demo.bat` | Starts the window on the simulated engine with 2,000 fake torrents (`run-demo.bat 10000` for more) |
+
+Settings and torrents go to `%APPDATA%\LibreTorrent`. An empty `libretorrent.ini` beside the exe keeps them in that folder instead (portable mode).
+
 | Binary | What it is today |
 |---|---|
-| `libretorrent` | Windows GUI skeleton. Run `libretorrent --demo 10000` to load 10,000 simulated torrents. |
+| `libretorrent` | Windows GUI: the µTorrent 2.2.1 main window on the real engine (Phase 3, in progress). `libretorrent --demo 10000` loads 10,000 simulated torrents instead. |
 | `libretorrent-nox` | Command-line client: `libretorrent-nox add file.torrent --save DIR [--seed]`, `libretorrent-nox run` to resume saved torrents |
 | `lt-swarm` | Benchmarks: `lt-swarm loopback`, `lt-swarm load --count 10000`, `lt-swarm scale --torrents 100000`, or `lt-swarm gen --out corpus` then `lt-swarm parse corpus`. Interop: `lt-swarm interop` downloads from qBittorrent, Transmission and Deluge (setup: PLAN.md Q10) |
 

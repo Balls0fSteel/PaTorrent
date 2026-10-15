@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_174803_1792079283: Build and run scripts
+
+### Added
+- `build.bat` (release build of the workspace, copied into `dist\` with THIRD-PARTY-NOTICES.md; `build.bat debug` for a debug build), `run.bat` (starts `dist\libretorrent.exe`, building first if needed, passing arguments on) and `run-demo.bat` (the simulated engine with 2,000 torrents, or a given count). README describes them.
+- `.gitignore`: `/dist`, `*.tmp`, a portable `libretorrent.ini` and `state\` in the repository root, Visual Studio and JetBrains folders, Windows thumbnail files and `.claude/settings.local.json`. `.gitattributes`: `.bat` files keep CRLF line endings, which `cmd` needs.
+
+### Verified
+- `build.bat` builds and fills `dist\` (libretorrent.exe 1.36 MB, libretorrent-nox.exe 1.16 MB, lt-swarm.exe 1.30 MB). `run-demo.bat 500` started `dist\libretorrent.exe` with 500 rows; it exited cleanly through File → Exit. `git status` stays clean with `dist\` filled.
+
 ## 2026-10-15_174600_1792079160: Affiliation disclaimer and license compliance check
 
 ### Changed

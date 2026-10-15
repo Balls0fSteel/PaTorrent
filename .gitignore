@@ -1,5 +1,24 @@
+# Build output
 /target
+/dist
 *.pdb
+
+# Logs and temporary files
 *.log
+*.tmp
+
+# Settings and state from running LibreTorrent portable in the repo folder
+/libretorrent.ini
+/state
+
+# Fuzzing
 /fuzz/artifacts
 /fuzz/corpus
+
+# Editors and OS
+/.vs
+/.idea
+*.swp
+Thumbs.db
+Desktop.ini
+.claude/settings.local.json

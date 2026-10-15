@@ -2,6 +2,18 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_173755_1792078675: CI failures on the Phase 3 push: an engine overflow, a tight test, a new lint
+
+CI run 38761101805 and FreeBSD run 38761101723 (on 1c626c1) failed for three unrelated reasons.
+
+### Fixed
+- Engine crash (FreeBSD: `attempt to add with overflow` in `PeerConn::write_some`). Without an upload limit the write quota is `usize::MAX`, and `spos + (max - total)` overflowed whenever an earlier write had left bytes unsent. Debug builds panicked. Release builds wrapped, sliced out of range and aborted the process (`panic = "abort"`). The bug is older than Phase 3. It needs a partial write followed by an unlimited one, which loopback rarely produces on Windows or Linux. The sum now saturates. Test: `engine::peer::tests::unlimited_write_after_a_partial_one` (fails without the fix).
+- `swarm::partial_pieces_survive_a_restart` timed out on the Linux runner ("the leech did not ask for enough blocks"). The scripted peer ignores most requests, and unanswered requests fill the leech's pipeline: 4 deep at first, 1 once the peer counts as snubbed. With four partial pieces to collect, a slow runner could sit on them past the 30 s deadline. The test now collects two partial pieces; everything after that is measured relative to what was sent. On a timeout it prints every (piece, offset) the leech asked for. Passed 12 of 12 locally before the change and 6 of 6 after, so this is a reasoned fix, not a reproduced one.
+- clippy `collapsible_match` (new in CI's Rust 1.99, not in the local 1.90) in the GUI's Open Containing Folder action.
+
+### Verified
+- `cargo test --workspace` (236 core unit tests), `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` pass locally.
+
 ## 2026-10-15_172326_1792077806: Phase 3 started: the µTorrent 2.2.1 main window on the real engine
 
 ### Added

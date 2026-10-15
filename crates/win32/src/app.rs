@@ -2003,13 +2003,11 @@ unsafe fn torrent_action(hwnd: HWND, id: u16) {
                 cmd::DOWN => t.queue_position(QueueMove::Down),
                 cmd::QUEUE_TOP => t.queue_position(QueueMove::Top),
                 cmd::QUEUE_BOTTOM => t.queue_position(QueueMove::Bottom),
-                cmd::OPEN_FOLDER => {
-                    if folder.is_none() {
-                        folder = a
-                            .list
-                            .get(tid)
-                            .map(|st| Path::new(&st.save_path).join(&st.name).to_string_lossy().into_owned());
-                    }
+                cmd::OPEN_FOLDER if folder.is_none() => {
+                    folder = a
+                        .list
+                        .get(tid)
+                        .map(|st| Path::new(&st.save_path).join(&st.name).to_string_lossy().into_owned());
                 }
                 _ => {}
             }

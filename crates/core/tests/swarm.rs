@@ -395,11 +395,13 @@ fn download_through_a_udp_tracker_then_resume_without_recheck() {
 
 /// A scripted peer that has everything but answers only some requests: every block of the first
 /// piece asked for, then block 0 of the next `partial` pieces. Returns the bytes it sent once the
-/// connection closes; `quota` turns true when it has sent all it will send.
+/// connection closes; `quota` turns true when it has sent all it will send. `requests` logs every
+/// (piece, offset) asked for, for the failure message.
 fn stingy_peer(
     f: &Fixture,
     partial: usize,
     quota: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    requests: std::sync::Arc<std::sync::Mutex<Vec<(u32, u32)>>>,
 ) -> (u16, std::thread::JoinHandle<u64>) {
     use std::io::{Read, Write};
     use std::sync::atomic::Ordering;
@@ -444,6 +446,7 @@ fn stingy_peer(
             }
             let field = |i: usize| u32::from_be_bytes(msg[1 + 4 * i..5 + 4 * i].try_into().unwrap());
             let (piece, begin, length) = (field(0), field(1), field(2));
+            requests.lock().unwrap().push((piece, begin));
             let full_piece = *full.get_or_insert(piece);
             let serve = if piece == full_piece {
                 true
@@ -481,7 +484,11 @@ fn partial_pieces_survive_a_restart() {
     let dir = temp_dir("leech-partial");
     let state = temp_dir("state-partial");
     let quota = Arc::new(AtomicBool::new(false));
-    let (peer_port, peer) = stingy_peer(&f, 4, quota.clone());
+    let requests = Arc::new(std::sync::Mutex::new(Vec::new()));
+    // Two partial pieces, not more: requests the peer never answers fill the leech's pipeline
+    // (4 deep at first, 1 once snubbed), and with four partials a slow CI runner sat on them
+    // past the deadline (CI run 38761101805).
+    let (peer_port, peer) = stingy_peer(&f, 2, quota.clone(), requests.clone());
     let done_before = {
         let leech = start(Some(state.clone()));
         let mut w = Watch::new(leech.handle());
@@ -490,7 +497,11 @@ fn partial_pieces_survive_a_restart() {
         leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], peer_port)));
         let deadline = Instant::now() + Duration::from_secs(30);
         while !quota.load(Ordering::SeqCst) {
-            assert!(Instant::now() < deadline, "the leech did not ask for enough blocks");
+            assert!(
+                Instant::now() < deadline,
+                "the leech did not ask for enough blocks; it asked for (piece, offset): {:?}",
+                requests.lock().unwrap()
+            );
             std::thread::sleep(Duration::from_millis(20));
         }
         // Wait until every block sent is on disk (counted in total_done), then stop.

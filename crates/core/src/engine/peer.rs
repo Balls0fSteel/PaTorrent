@@ -241,7 +241,8 @@ impl PeerConn {
         let mut total = 0;
         let mut would_block = false;
         while self.spos < self.send.len() && total < max {
-            let end = self.send.len().min(self.spos + (max - total));
+            // `max` is `usize::MAX` without a rate limit: saturate rather than overflow.
+            let end = self.send.len().min(self.spos.saturating_add(max - total));
             match self.sock.write(&self.send[self.spos..end]) {
                 Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "connection closed")),
                 Ok(n) => {
@@ -287,5 +288,31 @@ impl PeerConn {
         let want = (rate * queue_time as u64 / block as u64) as usize;
         let peer_max = self.ext.as_ref().and_then(|e| e.reqq).map_or(250, |q| q as usize);
         want.clamp(4, max.min(peer_max).max(1))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A rate-limited write leaves bytes behind; the next, unlimited write (`usize::MAX`) used to
+    /// overflow `spos + max` (debug: panic; release: an out-of-range slice and an abort). Seen on
+    /// the FreeBSD CI runner, where loopback writes block more often.
+    #[test]
+    fn unlimited_write_after_a_partial_one() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let out = std::net::TcpStream::connect(addr).unwrap();
+        let (mut remote, _) = l.accept().unwrap();
+        out.set_nonblocking(true).unwrap();
+        let sock = TcpStream::from_std(out);
+        let mut p = PeerConn::new(1, sock, addr, true, PeerSource::TRACKER, Instant::now());
+        p.send.extend_from_slice(&[7u8; 100]);
+        assert_eq!(p.write_some(10).unwrap().0, 10);
+        assert_eq!(p.send_buffer_len(), 90);
+        assert_eq!(p.write_some(usize::MAX).unwrap().0, 90);
+        let mut got = [0u8; 100];
+        remote.read_exact(&mut got).unwrap();
+        assert!(got.iter().all(|&b| b == 7));
     }
 }

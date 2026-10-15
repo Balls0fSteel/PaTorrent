@@ -61,7 +61,10 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 ### Issues encountered
 - A first draft of the queue test asserted on the very first status update, which comes before auto-management has run for that batch. The test now waits for the queue to settle; updates are eventually consistent, as in libtorrent.
 - A visual check of the Win32 window was not possible: a fullscreen application was in the foreground, and the screen capture got that instead. The capture was deleted immediately and not retried.
-- Not yet verified: CI on GitHub (first run happens on this push), the Linux-only `rss_bytes` path, the MSRV 1.85 build, and FreeBSD.
+- First GitHub run of a8bde92 is green on all jobs:
+  - CI: fmt, test (Windows), test (Linux), MSRV 1.85, release-windows with its artifact
+  - FreeBSD VM tests: 1m42s
+- Follow-up: bumped `actions/checkout` and `actions/upload-artifact` from v4 to v7. v4 runs on the deprecated Node 20 runtime, which GitHub flagged.
 
 ## 2026-10-15_100350_1792051430: Planning baseline
 

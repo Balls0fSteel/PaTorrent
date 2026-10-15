@@ -197,7 +197,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 1. Phase 1: `bencode` first (everything else depends on it), then SHA-1/SHA-256 (+ SHA-NI), then `metainfo` v1 and magnets. Port the matching libtorrent tests alongside.
 2. In parallel with Phase 1/2: build the µTorrent 2.2.1 main window (Phase 3 UI work) against the mock engine.
-3. Check the first CI run on GitHub, Windows, Linux and FreeBSD, and fix any platform-only breakage.
+3. Keep CI green on Windows, Linux and FreeBSD. The first run passed on all three.
 
 ## Open questions
 

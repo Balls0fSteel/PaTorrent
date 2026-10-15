@@ -2,6 +2,42 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_172326_1792077806: Phase 3 started: the µTorrent 2.2.1 main window on the real engine
+
+### Added
+- `libretorrent.exe` now runs the real engine (state in `state\`, preferences in `libretorrent.ini`). It is portable when `libretorrent.ini` sits beside the exe, like µTorrent's `settings.dat`; otherwise it uses `%APPDATA%\LibreTorrent`. `--demo N` still runs the simulated engine.
+- Main window (`crates/win32`):
+  - menu (File, Options, Help) and accelerators (Ctrl+O, Ctrl+U, Ctrl+A, Del, Shift+Del)
+  - toolbar with original icons drawn at run time (`icons.rs`: vector shapes, 4×4 supersampling, premultiplied alpha, separate disabled set; no image files, sharp at any DPI)
+  - category tree with counts (Torrents: Downloading, Completed, Active, Inactive; Labels: No Label plus each label)
+  - virtual torrent list (`LVS_OWNERDATA`) with 24 columns, a progress bar in the Done cell, header-click sorting with arrows, a column chooser on the header's context menu, drag-to-reorder, and the selection kept on the same torrents across re-sorts
+  - detail tabs: General (download and availability bars, transfer and general fields), Trackers, Peers (µTorrent flags), Pieces (piece map shaded by availability), Files (priority menu), Speed (600 s graph), Logger
+  - status bar (network state, DHT nodes, D/U rate and totals) and draggable splitters
+  - layout persisted: window placement, splitters, visible panes, column order, widths and visibility, sort, current tab
+- Adding torrents: Open dialog (multi-select), drag and drop, command line, Add from URL dialog (prefilled from the clipboard; `http(s)` fetched with the OS downloader on a worker thread, `magnet:` passed to the engine). Single instance per settings folder: a second start forwards its arguments with `WM_COPYDATA` and exits.
+- Torrent context menu: Open Containing Folder, Force Start, Start, Pause, Stop, queue moves (up, down, top, bottom), Remove, Remove And Delete Data (both confirmed), Force Re-Check, Update Tracker, per-torrent download and upload limits, labels (new, remove, pick). Labels and Paused-versus-Stopped are kept in `libretorrent.ini` per info-hash.
+- Tray icon: show or hide on click, a menu (add, start all, stop all, exit), rates in the tooltip, a balloon when a download completes, re-added when Explorer restarts. Close to tray (on by default) and Minimize to tray (off) are under Options.
+- `frontend` crate: `columns` (titles, widths, cell text, sort order, natural name sort), `model::TorrentList` (row cache, category and label filters, sorting, change counter), `detail` (Trackers/Peers/Files tables), `prefs` (key=value file, values verbatim), `fmt::date_time`.
+- `lt-swarm load --keep DIR` leaves the generated state in place (used to open 10,000 torrents in the GUI).
+
+### Fixed
+- Engine: a `StateUpdate` dropped because the alert queue was full lost its torrents for good. `post_torrent_updates` reports only changed torrents and had already cleared their flags, so nothing brought them back. Dropped updates now mark their torrents changed again. Found with 10,000 saved torrents in the GUI: the restore alerts filled the queue and the list stayed empty. Test: `swarm::dropped_state_updates_are_reported_again` (fails without the fix).
+- GUI: alerts queued before the notify callback was registered never triggered it (it fires on empty → non-empty only). The window now drains the queue once at startup.
+- Preferences: the first file format escaped backslashes, so hand-written Windows paths lost them (`C:\Users` read back as `C:Users`). Values are now stored verbatim.
+
+### Verified (release build, this machine)
+- Scale gate, 10,000 saved (stopped) torrents on the real engine, three runs: window in 35–242 ms, all 10,000 rows listed in 209–404 ms (target ≤ 2 s), 60–61 MB working set (target ≤ 150 MB), idle CPU 0.08–0.10 % of a core over 60 s (target < 1 %). The first measurement showed 0.6–1.3 %: every second re-sorted all rows and repainted the list and detail panel even when nothing changed. Empty updates no longer mark the list dirty, and the tree, list, panel and status bar repaint only on change.
+- Empty session: 19.9 MB working set, 4.5 MB private. The ≤ 12 MB RSS target is not met as a working set, mostly shared system DLLs (shell32, comctl32, urlmon); see PLAN.md.
+- Simulated engine with 10,000 torrents (2 % active): 38 MB.
+- Single instance: a second start with a `.torrent` path handed it over in 25 ms and exited; the running window listed it. A torrent added in one run was restored in the next.
+- Selecting a torrent filled the Files tab from the real engine. File → Exit saves `libretorrent.ini` and the engine state and exits in about 65 ms with 10,000 torrents.
+- `libretorrent.exe` release: 1.36 MB (target ≤ 4 MB).
+- `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` pass.
+
+### Not verified
+- Nothing visual. Computer use is blocked by policy for this app, so the checks above went through process statistics and Win32 queries (child windows, row counts, selection), not screenshots. Icons, the Done bars, the painted tabs, menus, dialogs, drag and drop, the tray and DPI changes still need a look by a person.
+- No download through the GUI yet. The engine path is the same as nox's, which is tested.
+
 ## 2026-10-15_164712_1792075632: CI green on the Phase 2 closing commits
 
 ### Verified

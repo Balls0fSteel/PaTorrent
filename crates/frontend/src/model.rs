@@ -35,6 +35,7 @@ pub struct TorrentList {
     filter: Filter,
     sort: Option<(Column, bool)>,
     dirty: bool,
+    generation: u64,
 }
 
 impl TorrentList {
@@ -46,8 +47,15 @@ impl TorrentList {
     pub fn update(&mut self, statuses: impl IntoIterator<Item = TorrentStatus>) {
         for st in statuses {
             self.rows.insert(st.id, st);
+            self.dirty = true;
+            self.generation += 1;
         }
-        self.dirty = true;
+    }
+
+    /// Changes whenever the rows, labels or pause marks change (not filter or sort), so
+    /// frontends can skip recounting categories when nothing happened.
+    pub fn generation(&self) -> u64 {
+        self.generation
     }
 
     pub fn remove(&mut self, id: TorrentId) {
@@ -55,6 +63,7 @@ impl TorrentList {
         self.paused.remove(&id);
         self.labels.remove(&id);
         self.dirty = true;
+        self.generation += 1;
     }
 
     pub fn get(&self, id: TorrentId) -> Option<&TorrentStatus> {
@@ -76,6 +85,7 @@ impl TorrentList {
             self.paused.remove(&id);
         }
         self.dirty = true;
+        self.generation += 1;
     }
 
     /// Sets or (with an empty string) clears a torrent's label.
@@ -86,6 +96,7 @@ impl TorrentList {
             self.labels.insert(id, label.to_owned());
         }
         self.dirty = true;
+        self.generation += 1;
     }
 
     /// Every label in use with its torrent count, sorted by name.
@@ -205,6 +216,9 @@ mod tests {
         l.update([st(1, "b ep10", 0, false), st(2, "b ep2", 50, false), st(3, "a", 10, true)]);
         assert!(l.refresh());
         assert!(!l.refresh(), "nothing changed");
+        let g = l.generation();
+        l.update([]);
+        assert!(!l.refresh() && l.generation() == g, "an empty update changes nothing");
         assert_eq!(l.view().len(), 3);
 
         l.toggle_sort(Column::Name);

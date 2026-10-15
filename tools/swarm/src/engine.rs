@@ -153,8 +153,17 @@ pub fn loopback(mb: usize, piece_kib: usize, cpu: fn() -> Option<Duration>) -> E
     ExitCode::SUCCESS
 }
 
-pub fn load(count: usize, rss: fn() -> Option<u64>) -> ExitCode {
-    let state = temp_dir("load-state");
+/// With `keep`, the state is written there and left in place (for example, to open the same
+/// 10,000 torrents in the GUI).
+pub fn load(count: usize, keep: Option<PathBuf>, rss: fn() -> Option<u64>) -> ExitCode {
+    let state = match &keep {
+        Some(d) => {
+            let _ = std::fs::remove_dir_all(d);
+            std::fs::create_dir_all(d).expect("state dir");
+            d.clone()
+        }
+        None => temp_dir("load-state"),
+    };
     let save = temp_dir("load-data");
     {
         let s = Session::start(SessionParams { settings: settings(), state_dir: Some(state.clone()) })
@@ -204,8 +213,10 @@ pub fn load(count: usize, rss: fn() -> Option<u64>) -> ExitCode {
     let first_update = t0.elapsed();
     let rss1 = rss();
     s.shutdown();
-    let _ = std::fs::remove_dir_all(&state);
-    let _ = std::fs::remove_dir_all(&save);
+    if keep.is_none() {
+        let _ = std::fs::remove_dir_all(&state);
+        let _ = std::fs::remove_dir_all(&save);
+    }
     if ok.is_none() {
         eprintln!("only {restored} of {count} torrents restored");
         return ExitCode::FAILURE;

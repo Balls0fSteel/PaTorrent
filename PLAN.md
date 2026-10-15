@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_161111_1792073471
+Last updated: 2026-10-15_172326_1792077806
 
 ## Vision
 
@@ -24,7 +24,8 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Stage:** Phase 2 (minimum viable engine) is built. It downloads and seeds real torrents from `libretorrent-nox`. All four exit criteria are met, and Phase 2 is closed: qBittorrent 5.2.4, Transmission 4.1.0 and Deluge 2.2.0 each downloaded a test torrent from `libretorrent-nox` with identical files, and LibreTorrent downloads from all three (`lt-swarm interop`, repeatable). Partly downloaded pieces survive a restart. Remaining smaller follow-ups are in Known TODOs.
+- **Stage:** Phase 3 (Win32 GUI MVP) is in progress. `libretorrent.exe` now shows the µTorrent 2.2.1 main window on the real engine: menu, runtime-drawn toolbar, category tree, virtual torrent list, the seven detail tabs, status bar, tray, context menus, single instance and persisted layout. Every Phase 3 item is implemented, and the scale gate passes. The phase stays open until a person has checked the window visually (computer use is blocked by policy for this app, so nothing visual is verified yet) and a download has run through the GUI. Phase 2 (minimum viable engine) is closed; its results follow.
+- Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `libretorrent.exe` is 1.36 MB.
 - Phase 2 results (release build, this dev machine):
 
   | What | Result |
@@ -149,22 +150,24 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - [x] 1,000 synthetic torrents load in under 0.5 s (12 ms).
 
 ### Phase 3: Win32 GUI MVP (the µTorrent 2.2.1 main window)
-- [ ] Main window parts:
+Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). An item is ticked only once it has also been checked on screen; until then it is marked *built*.
+- [ ] Main window parts (*built*):
   - menu and toolbar (original runtime-drawn icons)
-  - category tree with counts
-  - virtual torrent list: all 2.2.1 columns, in-cell progress bar, sorting, column chooser, persisted layout
+  - category tree with counts (labels included)
+  - virtual torrent list: 24 columns (the 2.2.1 set as far as known, from memory; check against a real 2.2.1), in-cell progress bar, sorting, column chooser, persisted layout
   - detail tabs: General, Trackers, Peers, Pieces, Files, Speed, Logger
-  - status bar: DHT nodes, D/U rate and totals, network indicator
+  - status bar: DHT nodes, D/U rate and totals, network indicator (text only so far)
   - splitters
-- [ ] Adding torrents: Open dialog, drag and drop, command line, magnet/URL dialog. Single instance that forwards arguments.
-- [ ] Context menus:
+- [ ] Adding torrents (*built*): Open dialog, drag and drop, command line, magnet/URL dialog. Single instance that forwards arguments (verified).
+- [ ] Context menus (*built*):
   - Start, Pause, Stop, Force Start
   - Remove, Remove and delete data
   - Force Re-check, Update Tracker
   - queue moves, bandwidth, labels
-- [ ] Tray icon, minimize/close to tray, completion balloon
-- [ ] Per-monitor DPI v2, ComCtl v6 manifest via linker args (no resource compiler needed)
-- [ ] Scale gate: 10,000-torrent profile meets the RAM, startup and idle-CPU targets
+- [ ] Tray icon, minimize/close to tray, completion balloon (*built*)
+- [x] Per-monitor DPI v2, ComCtl v6 manifest via linker args (no resource compiler needed). `WM_DPICHANGED` rescales fonts, icons and columns (not yet tried on a second monitor).
+- [x] Scale gate: 10,000-torrent profile meets the startup (0.2–0.4 s), RAM (60 MB) and idle-CPU (0.1 %) targets.
+- [ ] Visual check by a person, then a real download through the GUI.
 
 ### Phase 4: Discovery and connectivity
 - [ ] DHT: BEP5, BEP32 (IPv6), BEP42 (node id security), BEP43 (read-only); bootstrap; state persistence
@@ -211,9 +214,9 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 ## Next steps
 
-1. Phase 3: the µTorrent 2.2.1 main window on top of the real engine.
-2. Phase 4 early pick: `ut_metadata`, so magnet links work (they are rejected with a clear message today).
-3. Keep CI green on Windows, Linux and FreeBSD (CI now also reports `lt-swarm load` and `loopback`).
+1. Phase 3: a person checks the main window on screen (icons, Done bars, General/Pieces/Speed panels, menus, dialogs, drag and drop, tray, a DPI change) and downloads a torrent through it. Fix what that turns up, then close the phase.
+2. Phase 4 early pick: `ut_metadata`, so magnet links work (they are rejected with a clear message today; the GUI shows that message).
+3. Keep CI green on Windows, Linux and FreeBSD.
 4. Rerun `lt-swarm interop` after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI.
 
 Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on Linux (CI run 38738279981) and FreeBSD (run 38736854046); partial pieces in resume data (CHANGELOG 2026-10-15_160110); reverse-direction interop scripted as `lt-swarm interop` (CHANGELOG 2026-10-15_161111).
@@ -238,6 +241,14 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 ## Known TODOs
 
 - Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
+- Win32 GUI (Phase 3 follow-ups):
+  - empty-session working set is 19.9 MB against the 12 MB target (private bytes 4.5 MB). Most of it is shared system DLLs; loading urlmon and parts of shell32 only when needed may help.
+  - the status bar's network indicator is text; µTorrent shows a colored icon.
+  - the Pieces tab draws a piece map; µTorrent 2.2.1 lists the pieces in progress (Phase 5 has "pieces map and list").
+  - restored torrents each log "added" at startup (10,000 lines with a big library); µTorrent does not log restores.
+  - Pause does not toggle back to running as µTorrent's does; Start resumes.
+  - double-click opens the folder for finished torrents and the General tab otherwise; the Properties dialog comes with Phase 5.
+  - Create New Torrent and Preferences are greyed out until Phase 5.
 - Phase 2 follow-ups: batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
 - ~~Flaky on CI: `swarm::download_through_an_http_tracker`~~. Fixed 2026-10-15: the test's `wait()` dropped the alerts behind a match, so `TorrentFinished` was lost when it arrived in the same batch as `TrackerReply`. Not an engine stall (CHANGELOG 2026-10-15_153331).
 - TLS (`core::net::tls`):

@@ -6,7 +6,7 @@
 //!
 //! * `loopback`: the real engine, a seed and a downloader in this process over 127.0.0.1:
 //!   throughput and CPU time per byte.
-//! * `load`: the real engine's cold start with N saved torrents.
+//! * `load`: the real engine's cold start with N saved torrents (`--keep DIR` leaves the state there).
 //! * `interop`: the real engine downloading from qBittorrent, Transmission and Deluge.
 //!
 //! Output is `key=value` lines (machine readable, used by CI) followed by a human summary.
@@ -28,7 +28,7 @@ USAGE:
     lt-swarm gen --out DIR [--count N] [--seed N]
     lt-swarm parse DIR
     lt-swarm loopback [--mb N] [--piece-kib N]
-    lt-swarm load [--count N]
+    lt-swarm load [--count N] [--keep DIR]
     lt-swarm interop [--clients qbittorrent,transmission,deluge] [--mb N]
                      [--qbittorrent PATH] [--wsl-distro NAME] [--keep]
 ";
@@ -80,12 +80,18 @@ fn main() -> ExitCode {
             engine::loopback(mb.max(1), piece.clamp(16, 16 * 1024), cpu_time)
         }
         Some("load") => {
-            let count = match (args.get(1).map(String::as_str), args.get(2).and_then(|v| v.parse().ok())) {
-                (None, _) => 1000,
-                (Some("--count"), Some(n)) => n,
-                _ => return usage("load: expected --count N"),
-            };
-            engine::load(count, rss_bytes)
+            let (mut count, mut keep) = (1000, None);
+            for pair in args[1..].chunks(2) {
+                match (pair[0].as_str(), pair.get(1)) {
+                    ("--count", Some(n)) => match n.parse() {
+                        Ok(n) => count = n,
+                        Err(_) => return usage("--count: not a number"),
+                    },
+                    ("--keep", Some(d)) => keep = Some(std::path::PathBuf::from(d)),
+                    _ => return usage("load: expected --count N and --keep DIR"),
+                }
+            }
+            engine::load(count, keep, rss_bytes)
         }
         Some("interop") => {
             let mut opts = interop::Options::default();

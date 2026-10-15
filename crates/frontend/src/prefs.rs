@@ -1,4 +1,4 @@
-//! Frontend preferences in a small `key=value` text file (window layout, columns, default save
+//! Frontend preferences in a small `key=value` text file (values verbatim, one per line) (window layout, columns, default save
 //! folder). Unknown keys are kept, so older and newer builds can share one file. The engine's
 //! own settings join with the Preferences dialog (Phase 5).
 
@@ -41,7 +41,9 @@ impl Prefs {
         for (k, v) in &self.values {
             s.push_str(k);
             s.push('=');
-            s.push_str(&v.replace('\\', "\\\\").replace('\n', "\\n"));
+            // Verbatim, so Windows paths stay readable and hand-editable. Line breaks cannot
+            // be represented and become spaces.
+            s.push_str(&v.replace(['\r', '\n'], " "));
             s.push('\n');
         }
         s
@@ -65,6 +67,10 @@ impl Prefs {
 
     pub fn set(&mut self, key: &str, value: impl ToString) {
         self.values.insert(key.to_owned(), value.to_string());
+    }
+
+    pub fn remove(&mut self, key: &str) {
+        self.values.remove(key);
     }
 
     pub fn set_bool(&mut self, key: &str, value: bool) {
@@ -128,27 +134,10 @@ fn parse(text: &str) -> BTreeMap<String, String> {
             continue;
         }
         if let Some((k, v)) = line.split_once('=') {
-            m.insert(k.trim().to_owned(), unescape(v));
+            m.insert(k.trim().to_owned(), v.to_owned());
         }
     }
     m
-}
-
-fn unescape(v: &str) -> String {
-    let mut out = String::with_capacity(v.len());
-    let mut it = v.chars();
-    while let Some(c) = it.next() {
-        if c == '\\' {
-            match it.next() {
-                Some('n') => out.push('\n'),
-                Some(o) => out.push(o),
-                None => out.push('\\'),
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
 }
 
 #[cfg(test)]
@@ -164,7 +153,10 @@ mod tests {
         p.set("w", 640);
         let q = Prefs { path: None, values: parse(&p.to_text()) };
         assert_eq!(q.get("save_path"), Some(r"C:\Users\x\Downloads"));
-        assert_eq!(q.get("multi"), Some("a\nb"));
+        assert_eq!(q.get("multi"), Some("a b"));
+        // Hand-written files use single backslashes, including before letters like `n`.
+        let hand = parse(r"dir=\\server\new\x");
+        assert_eq!(hand.get("dir").map(String::as_str), Some(r"\\server\new\x"));
         assert!(q.get_bool("tray", false));
         assert_eq!(q.get_i32("w"), Some(640));
     }

@@ -2,6 +2,11 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_174445_1792079085: CI green on the Phase 3 commits
+
+### Verified
+- CI run 38762048688 on 4171eaa: all jobs pass (fmt, MSRV, tests on Linux and Windows, release-windows). FreeBSD run 38762048759 passes, including the swarm test that hit the write-quota overflow before.
+
 ## 2026-10-15_173755_1792078675: CI failures on the Phase 3 push: an engine overflow, a tight test, a new lint
 
 CI run 38761101805 and FreeBSD run 38761101723 (on 1c626c1) failed for three unrelated reasons.

@@ -429,7 +429,7 @@ impl PiecePicker {
         self.downloading.values().map(|d| d.count(|b| b == BlockState::Finished)).sum()
     }
 
-    #[cfg(debug_assertions)]
+    #[cfg(any(debug_assertions, test))]
     #[allow(dead_code)]
     pub fn check_invariant(&self) {
         for (&p, d) in &self.downloading {

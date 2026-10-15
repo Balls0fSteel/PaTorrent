@@ -9,6 +9,10 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 
 ### Fixed
 - clippy `drain_collect` (new in CI's Rust 1.99, not in the local 1.90): `engine/wire.rs` snub now uses `std::mem::take`. This failed the Linux and Windows CI jobs (run 38736854243) before the tests ran.
+- Release-only test build: the picker test calls `check_invariant`, which existed only with `debug_assertions`, so `cargo test --release -- --ignored` (the release-windows CI job, run 38738279981) did not compile. It now also exists under `cfg(test)`.
+
+### Verified (run 38738279981)
+- Linux CI passed: clippy, and `cargo test --workspace` with the OpenSSL backend linked against the runner's system OpenSSL. Windows tests, MSRV, fmt and FreeBSD passed too.
 
 ### Issues encountered
 - Local clippy (Rust 1.90) cannot see lints that are new in CI's stable toolchain; `rustup update` would close the gap (left to the user).

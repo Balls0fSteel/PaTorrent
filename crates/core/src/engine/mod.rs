@@ -10,6 +10,7 @@
 
 //! The real network engine (PLAN.md Phase 2).
 
+mod metadata;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
 pub(crate) mod picker;
@@ -30,7 +31,7 @@ use mio::{Events, Interest, Poll, Token, Waker};
 use crate::alert::{Alert, Protocol};
 use crate::disk::{BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction};
 use crate::error::Error;
-use crate::metainfo::{LoadLimits, TorrentInfo, parse_magnet_uri};
+use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, parse_magnet_uri};
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::{Bucket, parse_listen_interfaces};
 use crate::params::{
@@ -950,11 +951,7 @@ impl Engine {
                     Err(e) => return fail(self, fallback_name, e),
                 };
                 let Some(info) = r.info.clone() else {
-                    return fail(
-                        self,
-                        r.name,
-                        Error::Unsupported("resume data without metadata (needs ut_metadata, Phase 4)"),
-                    );
+                    return fail(self, r.name, Error::Unsupported("resume data without the info dictionary"));
                 };
                 let ti = match TorrentInfo::from_info_section(&info, LoadLimits::default()) {
                     Ok(ti) => ti,
@@ -969,21 +966,7 @@ impl Engine {
                 resume = Some(r);
                 (ti, tr)
             }
-            TorrentSource::Magnet(uri) => {
-                let name = parse_magnet_uri(uri).map(|m| m.name).unwrap_or_default();
-                return fail(
-                    self,
-                    name,
-                    Error::Unsupported("magnet links (metadata download arrives in Phase 4)"),
-                );
-            }
-            TorrentSource::InfoHash(_) => {
-                return fail(
-                    self,
-                    fallback_name,
-                    Error::Unsupported("adding by info-hash (metadata download arrives in Phase 4)"),
-                );
-            }
+            TorrentSource::Magnet(_) | TorrentSource::InfoHash(_) => return self.add_magnet(p),
         };
         if ti.v2() && !ti.v1() {
             return fail(
@@ -1061,6 +1044,84 @@ impl Engine {
         self.update_running(id);
     }
 
+    /// A magnet link or a bare info-hash: the torrent starts without metadata and fetches it
+    /// from its peers (BEP 9) when it runs.
+    fn add_magnet(&mut self, p: AddTorrentParams) {
+        let fallback_name = p.name.clone().unwrap_or_default();
+        let m = match &p.source {
+            TorrentSource::Magnet(uri) => match parse_magnet_uri(uri) {
+                Ok(m) => m,
+                Err(e) => {
+                    return self.alert(Alert::AddTorrentFailed { name: fallback_name, error: e.into() });
+                }
+            },
+            TorrentSource::InfoHash(ih) => MagnetUri { info_hashes: *ih, ..MagnetUri::default() },
+            _ => unreachable!("only magnets and info-hashes come here"),
+        };
+        let info_hashes = m.info_hashes;
+        let user_named = p.name.as_deref().is_some_and(|n| !n.is_empty());
+        let name = if user_named {
+            fallback_name
+        } else if !m.name.is_empty() {
+            m.name.clone()
+        } else {
+            info_hashes.key_hex()
+        };
+        if !info_hashes.has_v1() {
+            let error = Error::Unsupported("v2-only torrents (PLAN.md Phase 8)");
+            return self.alert(Alert::AddTorrentFailed { name, error });
+        }
+        if let Some(&existing) = self.by_hash.get(&info_hashes.best_v1_compatible()) {
+            if p.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR) {
+                return self.alert(Alert::AddTorrentFailed { name, error: Error::DuplicateTorrent });
+            }
+            let name = self.torrent_ref(existing).map(|t| t.name.clone()).unwrap_or_default();
+            self.alert(Alert::TorrentAdded { id: existing, info_hashes, name });
+            return;
+        }
+        let mut flags = p.flags;
+        flags.remove(TorrentFlags::DUPLICATE_IS_ERROR);
+        if m.default_dont_download {
+            flags.insert(TorrentFlags::DEFAULT_DONT_DOWNLOAD);
+        }
+        let mut t = Torrent::new(TorrentId::default(), info_hashes, name, p.save_path.clone(), flags);
+        t.user_named = user_named;
+        for (i, url) in m.trackers.iter().enumerate() {
+            t.add_tracker(url, m.tracker_tiers.get(i).copied().unwrap_or(0));
+        }
+        for (i, url) in p.trackers.iter().enumerate() {
+            t.add_tracker(url, p.tracker_tiers.get(i).copied().unwrap_or(0));
+        }
+        // File priorities apply once the file list is known (the caller's win over `so=`).
+        let n = m.file_priorities.len().max(p.file_priorities.len());
+        t.file_priority = (0..n)
+            .map(|i| p.file_priorities.get(i).or(m.file_priorities.get(i)).map_or(4, |d| d.0.min(7)))
+            .collect();
+        for addr in &m.peers {
+            t.peer_list.add(*addr, PeerSource::RESUME_DATA, None, usize::MAX);
+        }
+        t.download_limit.set_limit(p.download_limit);
+        t.upload_limit.set_limit(p.upload_limit);
+        t.max_connections = p.max_connections;
+        t.max_uploads = p.max_uploads;
+        t.state = TorrentState::DownloadingMetadata;
+        let name = t.name.clone();
+        let key = t.key.clone();
+        let rec = t.resume_data();
+        let id = self.insert_torrent(t);
+        if let Some(store) = self.store.as_mut() {
+            if let Err(e) = store.put(&key, &rec, None) {
+                self.out.push(Alert::Log { id: Some(id), message: format!("cannot save the torrent: {e}") });
+            }
+            self.store_flush_due.get_or_insert(Instant::now() + STORE_FLUSH_DELAY);
+        }
+        if let Some(t) = self.torrent(id) {
+            t.resume_dirty = false;
+        }
+        self.alert(Alert::TorrentAdded { id, info_hashes, name });
+        self.update_running(id);
+    }
+
     /// Restores a torrent saved in the store (metadata stays in the pack until it starts).
     fn restore(&mut self, r: ResumeData) {
         let mut t = Torrent::new(
@@ -1080,7 +1141,9 @@ impl Engine {
         }
         apply_resume(&mut t, &r);
         let has_meta = self.store.as_ref().is_some_and(|s| s.has_metadata(&t.key));
-        if !has_meta || t.num_pieces == 0 || t.piece_length == 0 {
+        if !has_meta && t.num_pieces == 0 {
+            // A magnet still waiting for its metadata.
+        } else if !has_meta || t.num_pieces == 0 || t.piece_length == 0 {
             // Records from before metadata was stored, or a damaged pack: load it now.
             let key = t.key.clone();
             match self.load_info(&key) {
@@ -1146,6 +1209,10 @@ impl Engine {
                     self.deleting.insert(storage.id, (id, t.info_hashes));
                     self.disk.async_fence(&storage, FenceAction::Delete);
                 }
+                // A magnet without metadata never wrote anything.
+                None if !t.has_metadata() => {
+                    self.alert(Alert::TorrentDeleted { id, info_hashes: t.info_hashes })
+                }
                 None => self.alert(Alert::TorrentDeleteFailed {
                     id,
                     info_hashes: t.info_hashes,
@@ -1190,7 +1257,7 @@ impl Engine {
     fn update_running(&mut self, id: TorrentId) {
         let Some(t) = self.torrent_ref(id) else { return };
         let want = self.is_running(t);
-        let running = t.storage.is_some();
+        let running = t.is_active();
         if want && !running {
             self.start_torrent(id);
         } else if !want && running {
@@ -1200,24 +1267,41 @@ impl Engine {
 
     fn start_torrent(&mut self, id: TorrentId) {
         if !self.ensure_metadata(id) {
-            if let Some(t) = self.torrent(id) {
+            let Some(t) = self.torrent(id) else { return };
+            t.status_dirty = true;
+            if t.has_metadata() {
                 t.error = Some("metadata missing from the session store".into());
-                t.status_dirty = true;
+                return;
             }
+            // A magnet: fetch the info dictionary from peers first (BEP 9).
+            t.fetch = Some(crate::proto::ut_metadata::MetadataFetch::new());
+            t.started_at = Some(Instant::now());
+            self.set_state(id, TorrentState::DownloadingMetadata);
+            self.connect_peers_for(id, 10);
             return;
         }
         let t = self.torrent(id).expect("exists");
         let ti = t.ti.clone().expect("loaded");
         let save_path = t.save_path.clone();
+        let peer_slots = t.peers.clone();
         let storage = self.disk.new_storage(save_path, ti.clone());
         self.storages.insert(storage.id, id);
-        let t = self.torrent(id).expect("exists");
         let mut picker = PiecePicker::new(
             ti.num_pieces(),
             ti.piece_length(),
             ti.piece_size(ti.num_pieces().saturating_sub(1)),
             BLOCK_SIZE,
         );
+        // Peers that stayed connected while the metadata was fetched count toward availability.
+        for slot in peer_slots {
+            let Some(p) = self.peers.get(slot).filter(|p| p.state == PeerState::Active) else { continue };
+            if p.peer_seed {
+                picker.inc_seed();
+            } else if p.peer_has.len() == ti.num_pieces() as usize {
+                picker.inc_refcount_bitfield(&p.peer_has);
+            }
+        }
+        let t = self.torrent(id).expect("exists");
         for (i, &p) in piece_priorities(&ti, &t.file_priority).iter().enumerate() {
             picker.set_piece_priority(i as u32, p);
         }
@@ -1284,6 +1368,7 @@ impl Engine {
             }
             tr.reset();
         }
+        t.fetch = None;
         if let Some(storage) = t.storage.take() {
             self.disk.async_fence(&storage, FenceAction::Release);
         }
@@ -1366,6 +1451,8 @@ impl Engine {
                 let t = self.torrent(id).expect("exists");
                 t.checked = true;
                 t.checked_pieces = t.num_pieces;
+                // Peers kept from the metadata download may be interesting now.
+                t.interest_dirty = true;
                 t.resume_dirty = true;
                 t.status_dirty = true;
                 let finished = t.is_finished();
@@ -1794,7 +1881,7 @@ impl Engine {
         let mut running = Vec::new();
         for id in self.torrent_ids() {
             let t = self.torrent_ref(id).expect("listed");
-            if t.storage.is_some() {
+            if t.is_active() {
                 running.push(id);
             }
         }
@@ -1878,6 +1965,7 @@ impl Engine {
                     if !p.requests.is_empty() && now.duration_since(p.last_piece) > PIECE_TIMEOUT {
                         self.snub(slot);
                     }
+                    self.metadata_tick(slot, now);
                     if !checking {
                         if interest_dirty {
                             self.update_interest(slot);
@@ -1954,7 +2042,7 @@ impl Engine {
         let global_limit = self.settings.connections_limit;
         let now = Instant::now();
         let Some(t) = self.torrent_ref(id) else { return 0 };
-        if t.storage.is_none() || t.checking || t.error.is_some() {
+        if !t.is_active() || t.checking || t.error.is_some() {
             return 0;
         }
         let per_torrent = t.max_connections.map_or(usize::MAX, |m| m as usize);
@@ -2011,7 +2099,7 @@ impl Engine {
                 continue;
             }
             let Some(t) = p.torrent.and_then(|id| self.torrent_ref(id)) else { continue };
-            if !p.peer_interested || t.checking || !self.is_running(t) {
+            if !p.peer_interested || t.checking || t.picker.is_none() || !self.is_running(t) {
                 others.push(slot);
                 continue;
             }
@@ -2086,6 +2174,14 @@ impl Engine {
     /// Unchokes an interested peer right away when a slot is free (libtorrent does this on
     /// `interested` instead of waiting for the next choker run).
     pub(super) fn maybe_unchoke(&mut self, slot: usize) {
+        // Nothing to offer while the metadata or the file check is still pending.
+        let ready = self
+            .peer_and_torrent(slot)
+            .and_then(|(_, t)| t)
+            .is_some_and(|t| t.picker.is_some() && !t.checking);
+        if !ready {
+            return;
+        }
         let limit = self.settings.unchoke_slots_limit;
         let unchoked = self.peers.iter().filter(|(_, p)| !p.am_choking).count();
         if limit < 0 || unchoked < limit as usize {
@@ -2165,7 +2261,7 @@ impl Engine {
         for s in &self.slots {
             if let Some(t) = &s.torrent {
                 st.num_torrents += 1;
-                if t.storage.is_some() {
+                if t.is_active() {
                     if t.is_finished() { st.num_seeding += 1 } else { st.num_downloading += 1 }
                 }
             }

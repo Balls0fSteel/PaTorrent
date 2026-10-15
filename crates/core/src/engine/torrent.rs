@@ -18,6 +18,7 @@ use crate::metainfo::TorrentInfo;
 use crate::metainfo::file_storage::FileFlags;
 use crate::net::Bucket;
 use crate::params::{DownloadPriority, TorrentFlags};
+use crate::proto::ut_metadata::MetadataFetch;
 use crate::resume::ResumeData;
 use crate::status::{FileEntry, TorrentState, TorrentStatus};
 use crate::types::{InfoHashes, TorrentId};
@@ -41,6 +42,10 @@ pub(crate) struct Torrent {
     pub error: Option<String>,
 
     pub storage: Option<Arc<Storage>>,
+    /// Running without metadata (a magnet): the info dictionary being fetched from peers.
+    pub fetch: Option<MetadataFetch>,
+    /// The name came from the user; metadata does not replace it.
+    pub user_named: bool,
     pub picker: Option<PiecePicker>,
     /// Pieces we have while there is no picker (stopped, or before the check finished).
     pub have: Option<Bitfield>,
@@ -107,6 +112,8 @@ impl Torrent {
             state: TorrentState::CheckingResumeData,
             error: None,
             storage: None,
+            fetch: None,
+            user_named: false,
             picker: None,
             have: None,
             unfinished: Vec::new(),
@@ -164,6 +171,16 @@ impl Torrent {
         }
         let pos = self.trackers.iter().position(|t| t.tier > tier).unwrap_or(self.trackers.len());
         self.trackers.insert(pos, TrackerEntry::new(url.to_owned(), tier));
+    }
+
+    /// The info dictionary is known (it may still be in the store rather than loaded).
+    pub fn has_metadata(&self) -> bool {
+        self.num_pieces > 0
+    }
+
+    /// Started: checking or transferring, or fetching metadata.
+    pub fn is_active(&self) -> bool {
+        self.storage.is_some() || self.fetch.is_some()
     }
 
     pub fn is_paused(&self) -> bool {
@@ -249,13 +266,19 @@ impl Torrent {
         (wanted, done)
     }
 
-    /// The bytes we still need, for tracker `left`.
+    /// The bytes we still need, for tracker `left`. Without metadata the size is unknown;
+    /// libtorrent then reports 16 KiB, so trackers don't take us for a seed.
     pub fn bytes_left(&self) -> u64 {
+        if !self.has_metadata() {
+            return 16 * 1024;
+        }
         self.total_size.saturating_sub(self.total_done())
     }
 
     pub fn settled_state(&self) -> TorrentState {
-        if self.is_seed() {
+        if !self.has_metadata() {
+            TorrentState::DownloadingMetadata
+        } else if self.is_seed() {
             TorrentState::Seeding
         } else if self.is_finished() {
             TorrentState::Finished
@@ -274,7 +297,11 @@ impl Torrent {
         let (wanted, wanted_done) = self.wanted();
         let total_done = self.total_done();
         let finished = self.is_finished();
-        let progress_ppm = if self.checking || self.state == TorrentState::CheckingFiles {
+        let progress_ppm = if let Some(f) = &self.fetch {
+            // libtorrent reports the metadata download as progress in this state.
+            let (have, total) = f.progress();
+            ppm(have as u64, total as u64)
+        } else if self.checking || self.state == TorrentState::CheckingFiles {
             ppm(self.checked_pieces as u64, self.num_pieces as u64)
         } else if finished {
             1_000_000
@@ -295,7 +322,7 @@ impl Torrent {
             state: self.state,
             flags: self.flags,
             error: self.error.clone().unwrap_or_default(),
-            has_metadata: self.num_pieces > 0,
+            has_metadata: self.has_metadata(),
             is_finished: finished,
             is_seeding: self.is_seed(),
             moving_storage: false,

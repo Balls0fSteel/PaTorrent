@@ -1,6 +1,7 @@
 //! Loopback swarm tests for the real engine: a seeding session and a downloading session on
 //! 127.0.0.1, connected directly, through an HTTP tracker and through a UDP tracker; plus a
-//! restart that resumes without rechecking, and one that keeps partly downloaded pieces.
+//! restart that resumes without rechecking, and one that keeps partly downloaded pieces; magnet
+//! links that fetch their metadata from the seed (BEP 9).
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -36,6 +37,12 @@ fn rand_u32() -> u32 {
 }
 
 fn fixture(announce: Option<&str>) -> Fixture {
+    fixture_padded(announce, 0)
+}
+
+/// `padding` bytes of an unknown key make the info dictionary that much bigger (unknown keys
+/// are kept and hashed), so the metadata spans several 16 KiB ut_metadata blocks.
+fn fixture_padded(announce: Option<&str>, padding: usize) -> Fixture {
     let sizes =
         [("alpha.bin", 300_000usize), ("sub/beta.bin", 1_000_000), ("sub/gamma.txt", 12_345), ("empty", 0)];
     let mut all = Vec::new();
@@ -69,6 +76,9 @@ fn fixture(announce: Option<&str>) -> Fixture {
     *info.key("name") = Entry::Bytes(b"swarm-test".to_vec());
     *info.key("piece length") = Entry::Int(PIECE as i64);
     *info.key("pieces") = Entry::Bytes(pieces);
+    if padding > 0 {
+        *info.key("x-padding") = Entry::Bytes((0..padding).map(|i| (i % 251) as u8).collect());
+    }
     let info_hash = Sha1::digest(&info.bencode()).0;
     let mut t = Entry::new_dict();
     if let Some(a) = announce {
@@ -539,14 +549,111 @@ fn partial_pieces_survive_a_restart() {
     }
 }
 
+fn hex(b: &[u8]) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+fn add_magnet(w: &mut Watch, uri: String, dir: &Path) -> TorrentId {
+    let mut p = AddTorrentParams::new(TorrentSource::Magnet(uri), dir.to_string_lossy());
+    p.flags = TorrentFlags::empty();
+    w.h.add_torrent(p);
+    wait(w, 5, "add magnet", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        Alert::AddTorrentFailed { error, .. } => panic!("add failed: {error}"),
+        _ => None,
+    })
+}
+
 #[test]
-fn magnets_and_garbage_are_rejected_cleanly() {
+fn magnet_fetches_metadata_from_the_seed_then_downloads() {
+    // About 40 KB of metadata: three ut_metadata blocks.
+    let f = fixture_padded(None, 40_000);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech-magnet");
+    let state = temp_dir("state-magnet");
+    {
+        let leech = start(Some(state.clone()));
+        let mut w = Watch::new(leech.handle());
+        let uri = format!("magnet:?xt=urn:btih:{}&dn=from+the+link&x.pe=127.0.0.1:{port}", hex(&f.info_hash));
+        let id = add_magnet(&mut w, uri, &dir);
+        let st = wait(&mut w, 10, "metadata state", |a| status_of(a, id));
+        assert_eq!(st.state, TorrentState::DownloadingMetadata);
+        assert_eq!(st.name, "from the link");
+        assert!(!st.has_metadata);
+        wait(&mut w, 30, "metadata", |a| {
+            matches!(a, Alert::MetadataReceived { id: i } if *i == id).then_some(())
+        });
+        wait(&mut w, 60, "finished", |a| {
+            matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(())
+        });
+        let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+        assert_eq!(st.name, "swarm-test", "the real name replaces the link's display name");
+        assert_eq!(st.total_done, st.total);
+        assert_eq!(st.total_failed_bytes, 0);
+        leech.shutdown();
+    }
+    assert_files(&f, &dir);
+
+    // The fetched metadata was stored: after a restart the torrent is a seed at once, with the
+    // seed gone.
+    seed.shutdown();
+    let leech = start(Some(state.clone()));
+    let mut w = Watch::new(leech.handle());
+    let id = wait(&mut w, 5, "restore", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+    assert!(st.has_metadata);
+    assert_eq!(st.name, "swarm-test");
+    leech.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(state);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn magnet_without_peers_survives_a_restart_then_downloads() {
+    let f = fixture(None);
+    let dir = temp_dir("leech-magnet2");
+    let state = temp_dir("state-magnet2");
+    let uri = format!("magnet:?xt=urn:btih:{}", hex(&f.info_hash));
+    {
+        let leech = start(Some(state.clone()));
+        let mut w = Watch::new(leech.handle());
+        let id = add_magnet(&mut w, uri, &dir);
+        let st = wait_state(&mut w, id, TorrentState::DownloadingMetadata, 10);
+        assert_eq!(st.name, hex(&f.info_hash), "without dn= the info-hash is the name");
+        leech.shutdown();
+    }
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let leech = start(Some(state.clone()));
+    let mut w = Watch::new(leech.handle());
+    let id = wait(&mut w, 5, "restore", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    wait_state(&mut w, id, TorrentState::DownloadingMetadata, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+    assert_eq!(st.name, "swarm-test");
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(state);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn bad_magnets_and_garbage_are_rejected_cleanly() {
     let s = start(None);
     let mut w = Watch::new(s.handle());
     let h = s.handle();
     h.add_torrent(AddTorrentParams::new(TorrentSource::TorrentFile(b"garbage".to_vec()), "."));
     h.add_torrent(AddTorrentParams::new(
-        TorrentSource::Magnet("magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=x".into()),
+        TorrentSource::Magnet("magnet:?xt=urn:btih:not-a-hash&dn=x".into()),
         ".",
     ));
     let mut failures = 0;

@@ -15,6 +15,7 @@ use crate::alert::Alert;
 use crate::disk::BLOCK_SIZE;
 use crate::error::Error;
 use crate::proto::peer_wire::{self, HandshakeError, Message, msg};
+use crate::proto::ut_metadata;
 use crate::util::bitfield::Bitfield;
 
 /// Largest block a peer may request from us (libtorrent rejects anything above 16 KiB too,
@@ -23,6 +24,10 @@ const MAX_REQUEST: u32 = 128 * 1024;
 
 /// libtorrent `allowed_fast_set_size` default.
 const ALLOWED_FAST_SET_SIZE: usize = 5;
+
+/// libtorrent `max_piece_count` default: `have` messages beyond this are ignored while the
+/// piece count is unknown.
+const MAX_PIECE_COUNT: u32 = 0x20_0000;
 
 enum Owned {
     KeepAlive,
@@ -121,9 +126,8 @@ impl Engine {
                 self.peers.get_mut(slot).expect("exists").close("unknown torrent", true);
                 return false;
             };
-            let accept = self
-                .torrent_ref(id)
-                .is_some_and(|t| t.storage.is_some() && !t.checking && self.is_running(t));
+            let accept =
+                self.torrent_ref(id).is_some_and(|t| t.is_active() && !t.checking && self.is_running(t));
             let addr = self.peers.get(slot).expect("exists").addr;
             let duplicate = self.torrent_ref(id).is_some_and(|t| {
                 t.peers.iter().any(|&s| {
@@ -204,13 +208,19 @@ impl Engine {
             }
         }
         if p.supports_extensions {
+            // ut_metadata is left out for private torrents (libtorrent adds no plugin for them).
+            let private = t.ti.as_ref().is_some_and(|ti| ti.is_private());
+            let messages: &[(&str, u8)] =
+                if private { &[] } else { &[(ut_metadata::NAME, ut_metadata::OUR_ID)] };
+            let metadata_size = t.ti.as_ref().filter(|_| !private).map(|ti| ti.info_section().len());
             let ext = peer_wire::encode_ext_handshake(
-                &[],
+                messages,
                 &format!("PaTorrent {}", crate::VERSION),
                 (listen_port != 0).then_some(listen_port),
                 reqq,
                 count == have.len() && count > 0,
                 Some(p.addr.ip()),
+                metadata_size,
             );
             peer_wire::encode_extended(p.out(), 0, &ext);
         }
@@ -254,6 +264,17 @@ impl Engine {
                 let close_redundant = self.settings.close_redundant_connections;
                 let (p, t) = self.peer_and_torrent(slot).expect("exists");
                 let Some(t) = t else { return };
+                if !t.has_metadata() {
+                    // libtorrent `incoming_have` without metadata: grow the map to fit.
+                    if i < MAX_PIECE_COUNT && !p.peer_seed {
+                        if i as usize >= p.peer_has.len() {
+                            p.peer_has.resize(i as usize + 1, false);
+                        }
+                        p.peer_has.set(i as usize, true);
+                        p.got_bitfield = true;
+                    }
+                    return;
+                }
                 if i >= t.num_pieces {
                     p.close(format!("have for invalid piece {i}"), true);
                     return;
@@ -281,6 +302,12 @@ impl Engine {
                 let Some(t) = t else { return };
                 if p.got_bitfield {
                     p.close("bitfield after other messages", true);
+                    return;
+                }
+                if !t.has_metadata() {
+                    // Kept at its wire length until the piece count is known.
+                    p.peer_has = Bitfield::from_bytes(&bytes, bytes.len() * 8).expect("exact length");
+                    p.got_bitfield = true;
                     return;
                 }
                 let Some(bf) = Bitfield::from_bytes(&bytes, t.num_pieces as usize) else {
@@ -345,9 +372,14 @@ impl Engine {
                 if id == 0 {
                     let p = self.peers.get_mut(slot).expect("exists");
                     match peer_wire::decode_ext_handshake(&payload) {
-                        Some(h) => p.ext = Some(h),
+                        Some(h) => {
+                            p.ext = Some(h);
+                            self.on_metadata_handshake(slot);
+                        }
                         None => p.close("invalid extension handshake", true),
                     }
+                } else if id == ut_metadata::OUR_ID {
+                    self.on_metadata_message(slot, &payload);
                 }
             }
         }

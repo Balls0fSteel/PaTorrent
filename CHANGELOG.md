@@ -2,6 +2,29 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_204502_1792089902: Magnet links (ut_metadata, BEP 9)
+
+### Added
+- `core::proto::ut_metadata`: the BEP 9 message codec (request / data / reject; 17 KiB message limit), `MetadataFetch` (libtorrent `ut_metadata_plugin`: block selection by fewest requests, at most one request per block every 3 s to a live peer, size limits, SHA-1 / SHA-256 verification incl. a v2 hash truncated to 20 bytes) and `PeerMetadata` (libtorrent `ut_metadata_peer_plugin`: two requests in flight, a 60 s pause after a reject, 20-70 s after bad data, 5 min more when a single-block download failed).
+- `core::engine::metadata`: the engine side. Magnets and `TorrentSource::InfoHash` are added without metadata (name from `dn=`, else the info-hash; trackers from `tr=`, peers from `x.pe`, `so=` priorities applied once the file list is known) and run in the "Downloading metadata" state: they announce (`left` = 16 KiB, as libtorrent), connect to peers and fetch the info dictionary. Progress in that state is the metadata progress. When it is complete and matches the info-hash, it is stored in the metadata pack, `MetadataReceived` is posted, peers' piece maps (collected at wire length) get their real size, and the torrent checks and downloads with the same peers.
+- We advertise `ut_metadata` (id 2) and `metadata_size` in the extension handshake and serve metadata blocks (libtorrent's 160 KiB send-buffer limit, queued requests beyond it). Private torrents neither advertise nor serve it.
+- `Alert::MetadataFailed` and `Error::MismatchingInfoHash`. Metadata that matches the hash but does not parse stops the torrent with an error, as libtorrent does.
+- Setting `max_metadata_size` (libtorrent default 30 MiB). `Bitfield::resize`. `encode_ext_handshake` takes `metadata_size`.
+- Fuzz target `ut_metadata` (decoder plus a fetch fed with whatever the input claims), also in `fuzz.yml`.
+- nox prints metadata received / failed.
+
+### Changed
+- A magnet waiting for metadata is saved and restored as such (no "metadata missing" error); removing one with "delete files" reports success.
+- No unchoking for torrents without a piece picker (metadata or file check pending).
+- PORTING.md: a deliberate divergence in how the metadata size is learned (see the table).
+
+### Verified
+- Unit tests for the codec, the fetcher and the peer back-off; swarm tests: a magnet with 40 KB of metadata (three blocks) fetches it from a seed, downloads, and is a seed after a restart without the seed; a magnet with no peers survives a restart in "Downloading metadata", then completes after a peer is added.
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test --workspace` (245 core unit tests plus integration suites). `fuzz.bat ut_metadata 60`: 886,718 runs, no crash.
+- Real swarm: `patorrent-nox add "magnet:?xt=urn:btih:7acf8fb5...&tr=http://bttracker.debian.org:6969/announce"` (Debian 13.7.0 netinst, 60 KB of metadata in four blocks): metadata within a second of the first peer, the 792 MB ISO in 9 s from 40 peers. Adding Debian's own `.torrent` with the same save folder then checked every piece and went straight to Seeding with nothing downloaded.
+- Release sizes: `patorrent.exe` 1.42 MB, `patorrent-nox.exe` 1.22 MB.
+- Not verified: a magnet in the GUI on screen.
+
 ## 2026-10-15_203223_1792089143: PatinaTorrent icon candidates and state icon family
 
 ### Added

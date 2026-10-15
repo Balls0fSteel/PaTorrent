@@ -95,6 +95,8 @@ pub struct Settings {
     pub send_buffer_watermark: u32,
     /// Disconnect peers when both sides are seeds (or neither side wants anything).
     pub close_redundant_connections: bool,
+    /// Largest info dictionary accepted from peers (ut_metadata), in bytes.
+    pub max_metadata_size: i32,
 
     pub alert_queue_size: usize,
     /// Milliseconds between session ticks.
@@ -161,6 +163,7 @@ impl Default for Settings {
             optimistic_unchoke_interval: 30,
             send_buffer_watermark: 500 * 1024,
             close_redundant_connections: true,
+            max_metadata_size: 3 * 1024 * 10240,
             alert_queue_size: 2000,
             tick_interval: 500,
             aio_threads: 10,

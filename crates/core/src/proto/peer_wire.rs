@@ -304,13 +304,14 @@ pub struct ExtHandshake {
 }
 
 impl ExtHandshake {
-    #[allow(dead_code)] // for ut_metadata / ut_pex (Phase 4)
     pub fn message_id(&self, name: &str) -> Option<u8> {
         self.messages.iter().find(|(n, _)| n == name).map(|&(_, id)| id).filter(|&id| id != 0)
     }
 }
 
-/// libtorrent `bt_peer_connection::write_extensions`.
+/// libtorrent `bt_peer_connection::write_extensions`, plus the plugins' `add_handshake`
+/// (`metadata_size` from ut_metadata).
+#[allow(clippy::too_many_arguments)]
 pub fn encode_ext_handshake(
     messages: &[(&str, u8)],
     client: &str,
@@ -318,6 +319,7 @@ pub fn encode_ext_handshake(
     reqq: u32,
     upload_only: bool,
     your_ip: Option<std::net::IpAddr>,
+    metadata_size: Option<usize>,
 ) -> Vec<u8> {
     let mut d = Entry::new_dict();
     let mut m = Entry::new_dict();
@@ -332,6 +334,9 @@ pub fn encode_ext_handshake(
     }
     if upload_only {
         *d.key("upload_only") = Entry::Int(1);
+    }
+    if let Some(n) = metadata_size {
+        *d.key("metadata_size") = Entry::Int(n as i64);
     }
     match your_ip {
         Some(std::net::IpAddr::V4(ip)) => *d.key("yourip") = Entry::Bytes(ip.octets().to_vec()),
@@ -521,8 +526,10 @@ mod tests {
             500,
             false,
             Some("1.2.3.4".parse().unwrap()),
+            Some(31_337),
         );
         let h = decode_ext_handshake(&b).unwrap();
+        assert_eq!(h.metadata_size, Some(31_337));
         assert_eq!(h.message_id("ut_metadata"), Some(2));
         assert_eq!(h.message_id("lt_donthave"), None);
         assert_eq!(h.client.as_deref(), Some("PaTorrent 0.1.0"));

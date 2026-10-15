@@ -79,6 +79,11 @@ pub enum Alert {
     MetadataReceived {
         id: TorrentId,
     },
+    /// Metadata from peers did not match the info-hash, or could not be parsed.
+    MetadataFailed {
+        id: TorrentId,
+        error: Error,
+    },
     TorrentError {
         id: TorrentId,
         error: Error,
@@ -205,6 +210,7 @@ impl Alert {
             | TrackerError { .. }
             | StateUpdate(_) => AlertPriority::High,
             MetadataReceived { .. }
+            | MetadataFailed { .. }
             | TrackerReply { .. }
             | TrackerWarning { .. }
             | PortmapSucceeded { .. }
@@ -228,6 +234,7 @@ impl Alert {
             | TorrentChecked { id }
             | TorrentFinished { id }
             | MetadataReceived { id }
+            | MetadataFailed { id, .. }
             | TorrentError { id, .. }
             | FileError { id, .. }
             | TrackerReply { id, .. }
@@ -262,6 +269,7 @@ impl Alert {
             TorrentChecked { .. } => write!(s, "checked"),
             TorrentFinished { .. } => write!(s, "finished downloading"),
             MetadataReceived { .. } => write!(s, "metadata received"),
+            MetadataFailed { error, .. } => write!(s, "metadata failed: {error}"),
             TorrentError { error, .. } => write!(s, "error: {error}"),
             FileError { file, error, .. } => write!(s, "file error ({file}): {error}"),
             TrackerReply { url, num_peers, .. } => write!(s, "{url}: received {num_peers} peers"),

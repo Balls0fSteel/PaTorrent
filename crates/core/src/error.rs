@@ -8,6 +8,8 @@ use std::fmt;
 pub enum Error {
     /// libtorrent `errors::duplicate_torrent`.
     DuplicateTorrent,
+    /// libtorrent `errors::mismatching_info_hash`: metadata from peers has the wrong hash.
+    MismatchingInfoHash,
     /// libtorrent `errors::invalid_torrent_handle`: the torrent is gone.
     InvalidTorrentHandle,
     /// The `.torrent` file or magnet link was rejected.
@@ -26,6 +28,7 @@ impl fmt::Display for Error {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Error::DuplicateTorrent => f.write_str("the torrent is already in the list"),
+            Error::MismatchingInfoHash => f.write_str("mismatching info-hash"),
             Error::InvalidTorrentHandle => f.write_str("invalid torrent handle"),
             Error::Metainfo(e) => write!(f, "{e}"),
             Error::InvalidResumeData(m) => write!(f, "invalid resume data: {m}"),

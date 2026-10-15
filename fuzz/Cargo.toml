@@ -63,3 +63,10 @@ path = "fuzz_targets/http_response.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ut_metadata"
+path = "fuzz_targets/ut_metadata.rs"
+test = false
+doc = false
+bench = false

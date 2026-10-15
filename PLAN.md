@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-15_203223_1792089143
+Last updated: 2026-10-15_204502_1792089902
 
 ## Vision
 
@@ -26,7 +26,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 - **PatinaTorrent icon candidates (2026-10-15_203223_1792089143):** three original teal/copper application directions (Verdigris, Exchange, Foundry), transparent PNGs and multi-size Windows ICOs, plus 30 editable state SVGs with PNG exports, exact state mapping and an interactive review gallery in `assets/patina-icons/`. Completed transparency/rendering, ICO frame, state-coverage and desktop/mobile gallery checks. Next: choose a brand direction, then integrate its app/tray icon and the state family into the runtime-drawn Win32 UI. The candidates are not yet connected to the application.
 
-- **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Next is Phase 4, starting with `ut_metadata` so magnet links work. Phase 2 (minimum viable engine) is closed too; its results follow.
+- **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Phase 4 has started: magnet links work (`ut_metadata`, BEP 9; CHANGELOG 2026-10-15_204502_1792089902). A magnet of the Debian 13.7.0 netinst ISO with only `xt` and `tr` got its metadata within a second and the whole 792 MB in 9 s. Phase 2 (minimum viable engine) is closed too; its results follow.
 - Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `patorrent.exe` is 1.36 MB.
 - Phase 2 results (release build, this dev machine):
 
@@ -106,7 +106,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - all 103 `test_torrents/` fixtures copied
 - [x] Robustness: deterministic mutation tests on stable Rust (about 15k corrupted torrents and 5k magnets per run). They found and fixed a latent libtorrent partial-tree bug.
 - [x] `lt-swarm gen` / `parse`: synthetic corpus and metadata parse benchmark (also in the CI job summary)
-- [x] Coverage-guided fuzz targets (cargo-fuzz, Q9 → D14): `bdecode`, `torrent_info`, `magnet`, `peer_wire`, `tracker_response`, `http_response` in `fuzz/`; `fuzz.bat` locally, `.github/workflows/fuzz.yml` in CI
+- [x] Coverage-guided fuzz targets (cargo-fuzz, Q9 → D14): `bdecode`, `torrent_info`, `magnet`, `peer_wire`, `tracker_response`, `http_response`, `ut_metadata` in `fuzz/`; `fuzz.bat` locally, `.github/workflows/fuzz.yml` in CI
 - [ ] Moved:
   - OS CSPRNG and sliding average: Phase 2, where they are first used
   - ARMv8 SHA paths: later, with ARM64 CI
@@ -177,7 +177,9 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 
 ### Phase 4: Discovery and connectivity
 - [ ] DHT: BEP5, BEP32 (IPv6), BEP42 (node id security), BEP43 (read-only); bootstrap; state persistence
-- [ ] Extensions: ut_metadata (magnets), ut_pex, lt_donthave (BEP54), smart-ban
+- [ ] Extensions:
+  - [x] ut_metadata (BEP 9): magnets and bare info-hashes fetch the info dictionary from peers, then check and download as usual with their peers kept; we serve metadata to others (not for private torrents). A magnet waiting for metadata is saved and restored. Verified with Debian's swarm (2026-10-15)
+  - [ ] ut_pex, lt_donthave (BEP54), smart-ban
 - [ ] LSD (BEP14); UPnP IGD and NAT-PMP port mapping
 - [ ] MSE/PE encryption with µTorrent-style policies (disabled / enabled / forced, allow legacy)
 - [ ] uTP (BEP29) with LEDBAT, and µTorrent-2.x-like TCP/uTP preference
@@ -220,8 +222,8 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 
 ## Next steps
 
-1. Phase 4 early pick: `ut_metadata` (BEP 9), so magnet links work (they are rejected with a clear message today). Magnets still need trackers in the `tr=` list until DHT lands.
-2. Then the rest of Phase 4: DHT, PEX, LSD, UPnP/NAT-PMP, MSE/PE, uTP.
+1. Try a magnet link in the GUI (Add Torrent from URL, or a `magnet:` link on the command line): the row should show "Downloading metadata" with a growing percentage, then turn into a normal download.
+2. Phase 4 next: DHT (BEP 5), so trackerless magnets find peers; magnets need a working `tr=` tracker or `x.pe` peer until then. Then PEX, LSD, UPnP/NAT-PMP, MSE/PE, uTP.
 3. Keep CI green on Windows, Linux and FreeBSD.
 4. Rerun `lt-swarm interop` after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI.
 
@@ -250,7 +252,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - for private trackers: behave well (honest upload/download stats, announce intervals respected, no ratio tricks), keep `User-Agent`, peer ID and BEP 10 `v` consistent across versions, and publish a stable release with changelog. Tracker staff usually want a tagged release they can test. Expect a long wait, and some will never whitelist a new client.
 - Peer-ID version characters: `-PA0100-` encodes 0.1.0. Bump `PEER_ID_PREFIX` together with the crate version (a test enforces it).
 - Fuzzing on Windows needs Visual Studio's AddressSanitizer runtime (`clang_rt.asan_dynamic-x86_64.dll`); `fuzz.bat` finds it with vswhere. A build without a sanitizer (`-s none`) does not link on MSVC (libFuzzer's PC table uses ELF section symbols). The default toolchain here is pinned to 1.90.0, and cargo-fuzz 0.13 needs 1.91+, so it was installed with `cargo +stable install cargo-fuzz --locked`. In CI, cargo-fuzz from `taiki-e/install-action` is a musl build that defaults to the musl target, so `fuzz.yml` passes `--target x86_64-unknown-linux-gnu`.
-- Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), DHT messages, uTP headers, `ut_metadata`, resume data and the nox HTTP API (docs/PORTING.md rule 8).
+- Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), DHT messages, uTP headers, resume data and the nox HTTP API (docs/PORTING.md rule 8).
 - Licensing compliance (checked 2026-10-15_174600_1792079160):
   - when a new libtorrent module (or bundled code such as puff or ed25519) is ported, add it to THIRD-PARTY-NOTICES.md's "Ported so far" list and give each file the origin and copyright header.
   - the nox Web API (D10) must be written from qBittorrent's published WebAPI docs only. qBittorrent is GPL-2.0-or-later, which is incompatible with D15's noncommercial license: never copy its source or Web UI assets.
@@ -263,6 +265,12 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - Pause does not toggle back to running as µTorrent's does; Start resumes.
   - double-click opens the folder for finished torrents and the General tab otherwise; the Properties dialog comes with Phase 5.
   - Create New Torrent and Preferences are greyed out until Phase 5.
+- Magnets (ut_metadata) follow-ups:
+  - partly fetched metadata is dropped when the torrent stops; it starts over on the next start (metadata is small, so this costs little).
+  - a magnet's `so=` "don't download the rest" (DEFAULT_DONT_DOWNLOAD) is not saved; after a restart before the metadata arrives, unlisted files default to normal priority.
+  - `TorrentSource::Resume` without an embedded info dictionary is still rejected; it could take the magnet path.
+  - a name the user gave a magnet is kept only until a restart before the metadata arrives; then the torrent's real name is used.
+  - the GUI shows a magnet's size as 0 B until the metadata arrives; µTorrent leaves the cell empty.
 - Phase 2 follow-ups: batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
 - ~~Flaky on CI: `swarm::download_through_an_http_tracker`~~. Fixed 2026-10-15: the test's `wait()` dropped the alerts behind a match, so `TorrentFinished` was lost when it arrived in the same batch as `TrackerReply`. Not an engine stall (CHANGELOG 2026-10-15_153331).
 - TLS (`core::net::tls`):

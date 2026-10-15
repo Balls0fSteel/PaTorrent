@@ -29,6 +29,19 @@ impl Bitfield {
         Some(bf)
     }
 
+    /// Grows or shrinks to `len` bits; new bits get `value` (libtorrent `bitfield::resize`).
+    pub fn resize(&mut self, len: usize, value: bool) {
+        let old = self.len;
+        self.bytes.resize(len.div_ceil(8), if value { 0xff } else { 0 });
+        self.len = len;
+        if value {
+            for i in old..len.min(old.div_ceil(8) * 8) {
+                self.set(i, true);
+            }
+        }
+        self.clear_trailing_bits();
+    }
+
     pub fn set_all(&mut self, value: bool) {
         self.bytes.fill(if value { 0xff } else { 0 });
         self.clear_trailing_bits();
@@ -121,5 +134,20 @@ mod tests {
         assert!(half.is_subset_of(&bf) && !bf.is_subset_of(&half));
         half.set_all(true);
         assert_eq!(half, bf);
+    }
+
+    #[test]
+    fn resize_keeps_bits_and_fills_new_ones() {
+        let mut bf = Bitfield::new(3, false);
+        bf.set(1, true);
+        bf.resize(12, true);
+        assert_eq!(bf.as_bytes(), &[0x5f, 0xf0]);
+        bf.resize(2, false);
+        assert_eq!((bf.len(), bf.as_bytes()), (2, &[0x40][..]));
+        bf.resize(9, false);
+        assert_eq!(bf.as_bytes(), &[0x40, 0x00]);
+        let mut empty = Bitfield::default();
+        empty.resize(5, true);
+        assert!(empty.all_set() && empty.len() == 5);
     }
 }

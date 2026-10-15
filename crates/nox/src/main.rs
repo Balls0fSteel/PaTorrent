@@ -276,7 +276,11 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 {
                     println!("* {}", a.message())
                 }
-                Alert::ListenSucceeded { .. } | Alert::Log { .. } | Alert::AlertsDropped { .. } => {
+                Alert::ListenSucceeded { .. }
+                | Alert::Log { .. }
+                | Alert::AlertsDropped { .. }
+                | Alert::MetadataReceived { .. }
+                | Alert::MetadataFailed { .. } => {
                     println!("* {}", a.message())
                 }
                 Alert::StateChanged { .. } if o.verbose => println!("* {}", a.message()),

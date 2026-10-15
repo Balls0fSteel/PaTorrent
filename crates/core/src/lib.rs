@@ -62,4 +62,8 @@ pub mod fuzzing {
     pub use crate::proto::http::{Url, parse_response, resolve_redirect};
     pub use crate::proto::peer_wire::{decode, decode_ext_handshake, decode_handshake, identify_client};
     pub use crate::proto::tracker::{parse_announce_response, parse_compact_peers, parse_scrape_response};
+    pub use crate::proto::ut_metadata::{
+        Message as UtMetadataMessage, MetadataFetch, Received as UtMetadataReceived,
+        decode as decode_ut_metadata,
+    };
 }

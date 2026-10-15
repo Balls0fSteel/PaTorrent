@@ -1825,7 +1825,10 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 hwnd,
                 &format!(
                     "LibreTorrent {VERSION}\n\nA libre re-creation of µTorrent 2.2.1, built on a Rust port of \
-                     libtorrent-rasterbar 2.0.11.\n\nSettings: {}",
+                     libtorrent-rasterbar 2.0.11.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid \
+                     Norberg and contributors, BSD-3-Clause. License texts: THIRD-PARTY-NOTICES.md, or \
+                     run libretorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, \
+                     µTorrent or BitTorrent, Inc.\n\nSettings: {}",
                     with_app(|a| a.prefs.path().map(|p| p.display().to_string()))
                         .flatten()
                         .unwrap_or_default()

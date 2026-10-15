@@ -241,6 +241,10 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 ## Known TODOs
 
 - Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
+- Licensing compliance (checked 2026-10-15_174600_1792079160):
+  - when a new libtorrent module (or bundled code such as puff or ed25519) is ported, add it to THIRD-PARTY-NOTICES.md's "Ported so far" list and give each file the origin and copyright header.
+  - the nox Web API (D10) must be written from qBittorrent's published WebAPI docs only. qBittorrent is GPL-2.0-or-later; do not copy its source or Web UI assets unless Q1 picks a compatible license and the notices are added.
+  - the Win32 GUI's About box points to THIRD-PARTY-NOTICES.md but does not show the texts. A Help > Third-Party Notices window would keep them with a GUI exe copied out on its own (nox has `--license`).
 - Win32 GUI (Phase 3 follow-ups):
   - empty-session working set is 19.9 MB against the 12 MB target (private bytes 4.5 MB). Most of it is shared system DLLs; loading urlmon and parts of shell32 only when needed may help.
   - the status bar's network indicator is text; µTorrent shows a colored icon.

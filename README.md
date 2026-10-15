@@ -29,4 +29,12 @@ The libtorrent submodule is reference material only and is not needed to build.
 | `libretorrent-nox` | Command-line client: `libretorrent-nox add file.torrent --save DIR [--seed]`, `libretorrent-nox run` to resume saved torrents |
 | `lt-swarm` | Benchmarks: `lt-swarm loopback`, `lt-swarm load --count 10000`, `lt-swarm scale --torrents 100000`, or `lt-swarm gen --out corpus` then `lt-swarm parse corpus`. Interop: `lt-swarm interop` downloads from qBittorrent, Transmission and Deluge (setup: PLAN.md Q10) |
 
-LibreTorrent is not affiliated with µTorrent or BitTorrent, Inc. It uses none of their code, artwork or trademarks.
+## Third-party code and affiliation
+
+LibreTorrent is an independent project. It is not affiliated with, endorsed by or sponsored by any of the projects below or their authors.
+
+- **libtorrent-rasterbar** (Arvid Norberg and contributors). The engine is a port of libtorrent 2.0.11, so it is a derivative work and that code stays under libtorrent's BSD-3-Clause license. Every ported source file names its origin and carries libtorrent's copyright notice. [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) has the full license texts (libtorrent and the code bundled with it: puff, ed25519, SHA-1, SHA-256). It ships with every binary distribution, and `libretorrent-nox --license` prints it. As BSD-3-Clause requires, the names of libtorrent and its authors are not used to endorse or promote LibreTorrent.
+- **qBittorrent.** LibreTorrent contains no qBittorrent code, artwork or Web UI. The `nox` Web API will follow qBittorrent's published WebAPI documentation so that existing tools can talk to it; it will not copy qBittorrent's (GPL) source. The name appears only to describe compatibility, interop tests and peer-client identification.
+- **µTorrent / BitTorrent, Inc.** LibreTorrent recreates the µTorrent 2.2.1 look and behaviour but uses none of their code, artwork or trademarks.
+
+Other product names are trademarks of their owners and are used only to identify those products.

@@ -2,6 +2,21 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_174600_1792079160: Affiliation disclaimer and license compliance check
+
+### Changed
+- README: a "Third-party code and affiliation" section. LibreTorrent is not affiliated with or endorsed by libtorrent, qBittorrent, µTorrent or BitTorrent, Inc. It says how the libtorrent port is licensed and that qBittorrent's name is used only for compatibility, interop tests and peer identification.
+- THIRD-PARTY-NOTICES.md: the same disclaimer for libtorrent.
+- `libretorrent-nox --license` prints THIRD-PARTY-NOTICES.md, which is built into the binary, so an executable copied out of the release folder still carries the BSD-3-Clause notice.
+- GUI About box: libtorrent's copyright line, where to find the license texts, and the disclaimer.
+
+### Compliance review
+- libtorrent (BSD-3-Clause): source files keep the copyright notice (every ported file has an origin and copyright header). Binary releases reproduce it (the CI release artifact includes THIRD-PARTY-NOTICES.md, nox now embeds it). No endorsement is implied (new disclaimer). Code bundled with libtorrent and listed in its LICENSE: puff and ed25519 (zlib-style; not ported yet, notices already present), SHA-1 and SHA-256 (public domain, ported, credited). The Python bindings (Boost license) and `route.h` (APSL/BSD-4) are not ported and must not be without adding their terms.
+- qBittorrent (GPL-2.0-or-later): no code, artwork or Web UI is used. The repo mentions it only in docs, the interop tool (which runs the user's installed copy) and the peer-ID table. Rule for D10 recorded in PLAN.md.
+
+### Verified
+- `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` pass; `libretorrent-nox --license` prints the notices.
+
 ## 2026-10-15_174445_1792079085: CI green on the Phase 3 commits
 
 ### Verified

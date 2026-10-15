@@ -9,6 +9,8 @@ Ported so far:
 
 Each source file names its origin in a header comment.
 
+LibreTorrent is not affiliated with or endorsed by libtorrent, its authors, or any other project named here. `libretorrent-nox --license` prints this file.
+
 ---
 
 ## libtorrent-rasterbar

@@ -18,6 +18,10 @@ use libretorrent_core::{
 };
 use libretorrent_frontend::{fmt, status};
 
+/// The third-party license texts, built into the binary so a copied-out executable still carries
+/// them (BSD-3-Clause clause 2).
+const NOTICES: &str = include_str!("../../../THIRD-PARTY-NOTICES.md");
+
 const USAGE: &str = "\
 libretorrent-nox: headless LibreTorrent
 
@@ -25,7 +29,7 @@ USAGE:
     libretorrent-nox add <file.torrent>... [--save DIR] [OPTIONS]
     libretorrent-nox run [OPTIONS]
     libretorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
-    libretorrent-nox --version | --help
+    libretorrent-nox --version | --help | --license
 
 COMMANDS:
     add     Add torrents, download them, and exit when they finish (keep seeding with --seed).
@@ -114,6 +118,10 @@ fn main() -> ExitCode {
         }
         "-V" | "--version" => {
             println!("libretorrent-nox {VERSION}");
+            return ExitCode::SUCCESS;
+        }
+        "--license" => {
+            print!("{NOTICES}");
             return ExitCode::SUCCESS;
         }
         "add" => parse(rest).and_then(|o| {

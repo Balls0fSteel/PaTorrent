@@ -2,6 +2,19 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_203223_1792089143: PatinaTorrent icon candidates and state icon family
+
+### Added
+- `assets/patina-icons/`: three original teal-enamel/copper application icon directions, **Verdigris** (P/download monogram, recommended), **Exchange** (peer-to-peer arrows), and **Foundry** (copper gear/download badge). Transparent 1254 px PNG masters, PNG exports at 16/20/24/32/48/64/128/256/512 px and Windows ICOs with eight frames from 16 to 256 px. Masters were generated with the built-in image_gen tool; the exact prompts are saved.
+- Thirty original editable 16-grid state SVGs: 18 current torrent variants, four tracker states, two network states, a wanted-files-complete detail, four optional future states and a force-start overlay. PNG exports at 16/20/24/32/48/64 px. The manifest records state conditions and precedence, including the distinction between core Finished and frontend Finished.
+- Local interactive gallery with light/dark previews, actual-size proofs, category/size controls and download links; application and state comparison sheets; optional Node/sharp export helper and validation summary. No application code or default icon changed.
+
+### Verified
+- All 207 exported PNGs contain visible content with transparent corners. All 24 embedded ICO frames decode with the expected dimensions. Thirty SVG sources have accessible metadata and no external resources; every manifest state matches its source and exported PNGs.
+- Inspected both comparison sheets at small and large sizes. The complete state family was checked against the actual frontend precedence. Refined the optional allocation badge for 16 px readability.
+- Gallery: all images load, no script errors, candidate selection, tracker filtering, theme toggle and size-dependent PNG links work. No horizontal overflow at 1440 px or 390 px widths.
+- Asset-only addition; application tests/build were not rerun. Raster app candidates use resampled small sizes rather than separately hand-hinted pixel artwork.
+
 ## 2026-10-15_202933_1792088973: Phase 3 closed
 
 ### Verified

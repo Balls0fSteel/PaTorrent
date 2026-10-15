@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Tracker: working</title>
+  <desc id="desc">Tracker globe and success check.</desc>
+  <circle cx="6.5" cy="6.5" r="4.5" fill="none" stroke="#147D72" stroke-width="1.5"/><path d="M2 6.5h9M6.5 2c-2.4 2.2-2.4 6.8 0 9M6.5 2c2.4 2.2 2.4 6.8 0 9" fill="none" stroke="#147D72" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/><path d="m8.5 12 2 2 4-5" fill="none" stroke="#147D72" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

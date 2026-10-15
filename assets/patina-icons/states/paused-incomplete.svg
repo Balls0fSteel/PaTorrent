@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Paused (incomplete)</title>
+  <desc id="desc">Two pause bars with an unfilled baseline; no completion check.</desc>
+  <rect x="3" y="2" width="3" height="11" fill="#6D7882"/><rect x="9" y="2" width="3" height="11" fill="#6D7882"/><path d="M2 15h11" fill="none" stroke="#6D7882" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

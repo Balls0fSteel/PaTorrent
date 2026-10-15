@@ -1,0 +1,58 @@
+{
+  "name": "PatinaTorrent icon candidates",
+  "version": 1,
+  "generation": "App candidates generated with the built-in image_gen tool. State SVGs drawn directly as original vectors.",
+  "recommendation": "01-verdigris",
+  "candidates": [
+    {
+      "id": "01-verdigris",
+      "name": "Verdigris",
+      "description": "An ivory P ending in a download arrow, set in teal enamel with a copper rim.",
+      "source": "candidates/01-verdigris.png"
+    },
+    {
+      "id": "02-exchange",
+      "name": "Exchange",
+      "description": "Two broad ribbon arrows express download and upload on a patina teal tile.",
+      "source": "candidates/02-exchange.png"
+    },
+    {
+      "id": "03-foundry",
+      "name": "Foundry",
+      "description": "A copper gear surrounds a bold download arrow, giving the app an industrial Rust character.",
+      "source": "candidates/03-foundry.png"
+    }
+  ],
+  "appPngSizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256,
+    512
+  ],
+  "appIcoSizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256
+  ],
+  "statePngSizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64
+  ],
+  "states": "states/manifest.json",
+  "prompts": "prompts.json",
+  "preview": "review.html"
+}

@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Finished</title>
+  <desc id="desc">Neutral completion check in a ring; transfer is stopped.</desc>
+  <circle cx="8" cy="8" r="6" fill="none" stroke="#6D7882" stroke-width="1.5"/><path d="m4.5 8 2.5 2.5 4.5-5" fill="none" stroke="#6D7882" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

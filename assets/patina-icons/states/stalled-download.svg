@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Stalled download</title>
+  <desc id="desc">Interrupted down arrow above a blocking bar.</desc>
+  <path d="M7 1h2v2H7zm0 4h2v3h3l-4 4-4-4h3z" fill="#AD700A"/><rect x="2" y="13" width="12" height="2" fill="#AD700A"/>
+</svg>

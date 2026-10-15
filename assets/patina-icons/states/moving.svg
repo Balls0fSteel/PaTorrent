@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Moving</title>
+  <desc id="desc">Folder with a rightward move arrow.</desc>
+  <path d="M1 3h6l2 2h6v2H1z" fill="#6D7882"/><path d="M1.75 7v7.25h12.5V12" fill="none" stroke="#6D7882" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M5 8h6V6l4 4-4 4v-2H5z" fill="#147D72"/>
+</svg>

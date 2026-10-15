@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Downloading</title>
+  <desc id="desc">Down arrow entering a tray.</desc>
+  <g transform="translate(0 0)"><path d="M7 1h2v6h3l-4 5-4-5h3z" fill="#147D72"/></g><path d="M2 11h2v2h8v-2h2v4H2z" fill="#147D72"/>
+</svg>

@@ -1,0 +1,278 @@
+{
+  "name": "PatinaTorrent state icons",
+  "version": 1,
+  "grid": 16,
+  "background": "transparent",
+  "palette": {
+    "teal": "#147D72",
+    "blue": "#3978BE",
+    "amber": "#AD700A",
+    "gray": "#6D7882",
+    "red": "#C8443D"
+  },
+  "sources": [
+    "crates/core/src/status.rs",
+    "crates/frontend/src/status.rs",
+    "crates/frontend/src/detail.rs",
+    "crates/win32/src/app.rs"
+  ],
+  "notes": [
+    "Original vector assets; no application integration or copied upstream artwork.",
+    "Status precedence: error, moving, checking or queued checking, paused/queued/stopped, active metadata, active seeding/downloading.",
+    "CheckingResumeData and CheckingFiles share frontend text but have separate assets. Their queued variants also stay distinct.",
+    "Paused is split by is_finished. Stopped complete is the current Finished text; core TorrentState::Finished is a different concept (wanted pieces done with skipped files).",
+    "Optional icons are design assets only: no current stalled, no-peers, idle-seed, or allocating status is inferred by existing frontend code.",
+    "No incoming connections only means no successful incoming connection has been observed; it does not prove the port is blocked.",
+    "Render at 16 px or integer multiples where possible. Outline icons use 1.5 px strokes; filled arrows and pause/stop shapes have integral boundaries."
+  ],
+  "core_state_mapping": {
+    "CheckingFiles": "checking-files.svg",
+    "DownloadingMetadata": "downloading-metadata.svg",
+    "Downloading": "downloading.svg",
+    "Finished": "wanted-complete.svg",
+    "Seeding": "seeding.svg",
+    "CheckingResumeData": "checking-resume-data.svg"
+  },
+  "icons": [
+    {
+      "id": "downloading",
+      "label": "Downloading",
+      "group": "torrent",
+      "source": "error.is_empty(), !moving_storage, state is not CheckingFiles/CheckingResumeData/DownloadingMetadata, !PAUSED, !is_finished, AUTO_MANAGED",
+      "meaning": "Down arrow entering a tray.",
+      "filename": "downloading.svg"
+    },
+    {
+      "id": "force-downloading",
+      "label": "[F] Downloading",
+      "group": "torrent",
+      "source": "Downloading without AUTO_MANAGED",
+      "meaning": "Download arrow with an amber force-start bolt.",
+      "filename": "force-downloading.svg"
+    },
+    {
+      "id": "seeding",
+      "label": "Seeding",
+      "group": "torrent",
+      "source": "active and is_finished, AUTO_MANAGED",
+      "meaning": "Up arrow leaving a tray.",
+      "filename": "seeding.svg"
+    },
+    {
+      "id": "force-seeding",
+      "label": "[F] Seeding",
+      "group": "torrent",
+      "source": "Seeding without AUTO_MANAGED",
+      "meaning": "Upload arrow with an amber force-start bolt.",
+      "filename": "force-seeding.svg"
+    },
+    {
+      "id": "downloading-metadata",
+      "label": "Downloading metadata",
+      "group": "torrent",
+      "source": "TorrentState::DownloadingMetadata, active, AUTO_MANAGED",
+      "meaning": "Metadata document with a download arrow; distinct from payload transfer.",
+      "filename": "downloading-metadata.svg"
+    },
+    {
+      "id": "force-downloading-metadata",
+      "label": "[F] Downloading metadata",
+      "group": "torrent",
+      "source": "TorrentState::DownloadingMetadata, active, no AUTO_MANAGED",
+      "meaning": "Metadata document with the force-start bolt.",
+      "filename": "force-downloading-metadata.svg"
+    },
+    {
+      "id": "checking-files",
+      "label": "Checking files",
+      "group": "torrent",
+      "source": "TorrentState::CheckingFiles, unless PAUSED and AUTO_MANAGED",
+      "meaning": "Magnifier and check mark for hashing existing payload files.",
+      "filename": "checking-files.svg"
+    },
+    {
+      "id": "checking-resume-data",
+      "label": "Checking resume data",
+      "group": "torrent",
+      "source": "TorrentState::CheckingResumeData, unless PAUSED and AUTO_MANAGED",
+      "meaning": "Saved-data outline with check mark for validating fast-resume data.",
+      "filename": "checking-resume-data.svg"
+    },
+    {
+      "id": "queued-checking",
+      "label": "Queued for checking (files)",
+      "group": "torrent",
+      "source": "CheckingFiles with PAUSED and AUTO_MANAGED",
+      "meaning": "Queue lines and magnifier.",
+      "filename": "queued-checking.svg"
+    },
+    {
+      "id": "queued-resume-checking",
+      "label": "Queued for checking (resume data)",
+      "group": "torrent",
+      "source": "CheckingResumeData with PAUSED and AUTO_MANAGED",
+      "meaning": "Queue lines and saved-data outline.",
+      "filename": "queued-resume-checking.svg"
+    },
+    {
+      "id": "queued-download",
+      "label": "Queued",
+      "group": "torrent",
+      "source": "PAUSED and AUTO_MANAGED, !is_finished",
+      "meaning": "Queue lines and down arrow.",
+      "filename": "queued-download.svg"
+    },
+    {
+      "id": "queued-seed",
+      "label": "Queued Seed",
+      "group": "torrent",
+      "source": "PAUSED and AUTO_MANAGED, is_finished",
+      "meaning": "Amber queue lines and blue up arrow.",
+      "filename": "queued-seed.svg"
+    },
+    {
+      "id": "paused-incomplete",
+      "label": "Paused (incomplete)",
+      "group": "torrent",
+      "source": "PAUSED, !AUTO_MANAGED, user_paused, !is_finished",
+      "meaning": "Two pause bars with an unfilled baseline; no completion check.",
+      "filename": "paused-incomplete.svg"
+    },
+    {
+      "id": "paused-complete",
+      "label": "Paused (complete)",
+      "group": "torrent",
+      "source": "PAUSED, !AUTO_MANAGED, user_paused, is_finished",
+      "meaning": "Pause bars and a blue completion check.",
+      "filename": "paused-complete.svg"
+    },
+    {
+      "id": "stopped-incomplete",
+      "label": "Stopped",
+      "group": "torrent",
+      "source": "PAUSED, !AUTO_MANAGED, !user_paused, !is_finished",
+      "meaning": "Stop square with an unfilled baseline.",
+      "filename": "stopped-incomplete.svg"
+    },
+    {
+      "id": "stopped-complete",
+      "label": "Finished",
+      "group": "torrent",
+      "source": "PAUSED, !AUTO_MANAGED, !user_paused, is_finished",
+      "meaning": "Neutral completion check in a ring; transfer is stopped.",
+      "filename": "stopped-complete.svg"
+    },
+    {
+      "id": "wanted-complete",
+      "label": "Wanted files complete",
+      "group": "core-detail",
+      "source": "TorrentState::Finished: all wanted pieces complete, some files skipped",
+      "meaning": "Open completion ring, check, and small skipped-file tile. Supplemental core detail; current status text calls an active finished torrent Seeding.",
+      "filename": "wanted-complete.svg"
+    },
+    {
+      "id": "moving",
+      "label": "Moving",
+      "group": "torrent",
+      "source": "moving_storage, after error precedence",
+      "meaning": "Folder with a rightward move arrow.",
+      "filename": "moving.svg"
+    },
+    {
+      "id": "error",
+      "label": "Error",
+      "group": "torrent",
+      "source": "!error.is_empty(), highest precedence",
+      "meaning": "Red octagon and exclamation mark.",
+      "filename": "error.svg"
+    },
+    {
+      "id": "stalled-download",
+      "label": "Stalled download",
+      "group": "optional",
+      "source": "No current frontend label; future policy must use a sustained interval, active and incomplete with no payload transfer",
+      "meaning": "Interrupted down arrow above a blocking bar.",
+      "filename": "stalled-download.svg"
+    },
+    {
+      "id": "stalled-seed",
+      "label": "Idle seed",
+      "group": "optional",
+      "source": "No current frontend label; active finished torrent with no upload, if product chooses to distinguish it",
+      "meaning": "Interrupted up arrow and a neutral baseline. Idle seeding is not an error.",
+      "filename": "stalled-seed.svg"
+    },
+    {
+      "id": "no-peers",
+      "label": "No peers",
+      "group": "optional",
+      "source": "No current frontend label; candidate condition num_peers == 0, only after an appropriate discovery interval",
+      "meaning": "Disconnected network nodes with an amber slash.",
+      "filename": "no-peers.svg"
+    },
+    {
+      "id": "allocating",
+      "label": "Allocating space",
+      "group": "optional",
+      "source": "Not present in current TorrentState or frontend status text; reserved for a future disk allocation task",
+      "meaning": "Storage outline with a plus for reserving disk space.",
+      "filename": "allocating.svg"
+    },
+    {
+      "id": "tracker-not-contacted",
+      "label": "Tracker: not contacted",
+      "group": "tracker",
+      "source": "TrackerStatus::NotContacted (current detail text is blank)",
+      "meaning": "Gray tracker globe with a hollow waiting indicator.",
+      "filename": "tracker-not-contacted.svg"
+    },
+    {
+      "id": "tracker-working",
+      "label": "Tracker: working",
+      "group": "tracker",
+      "source": "TrackerStatus::Working",
+      "meaning": "Tracker globe and success check.",
+      "filename": "tracker-working.svg"
+    },
+    {
+      "id": "tracker-updating",
+      "label": "Tracker: updating",
+      "group": "tracker",
+      "source": "TrackerStatus::Updating",
+      "meaning": "Tracker globe and a refresh arrow.",
+      "filename": "tracker-updating.svg"
+    },
+    {
+      "id": "tracker-error",
+      "label": "Tracker: error",
+      "group": "tracker",
+      "source": "TrackerStatus::Error",
+      "meaning": "Tracker globe with a red exclamation mark.",
+      "filename": "tracker-error.svg"
+    },
+    {
+      "id": "network-ok",
+      "label": "Network OK",
+      "group": "network",
+      "source": "SessionStats::has_incoming_connections == true",
+      "meaning": "Connected network nodes and a success check.",
+      "filename": "network-ok.svg"
+    },
+    {
+      "id": "network-no-incoming",
+      "label": "No incoming connections",
+      "group": "network",
+      "source": "SessionStats::has_incoming_connections == false",
+      "meaning": "Network nodes and a blocked incoming arrow. Amber denotes unconfirmed reachability, not a fatal error.",
+      "filename": "network-no-incoming.svg"
+    },
+    {
+      "id": "overlay-force",
+      "label": "Force-start overlay",
+      "group": "overlay",
+      "source": "Optional badge for a custom status combination without AUTO_MANAGED",
+      "meaning": "Amber lightning badge at upper right. Already included in the three force-start SVGs.",
+      "filename": "overlay-force.svg"
+    }
+  ]
+}

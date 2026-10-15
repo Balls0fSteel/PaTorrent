@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Force-start overlay</title>
+  <desc id="desc">Amber lightning badge at upper right. Already included in the three force-start SVGs.</desc>
+  <path d="M12 1h3l-2 3h2l-4 5 1-4h-2z" fill="#AD700A"/>
+</svg>

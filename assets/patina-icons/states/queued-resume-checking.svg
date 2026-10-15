@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Queued for checking (resume data)</title>
+  <desc id="desc">Queue lines and saved-data outline.</desc>
+  <path d="M1 2h5v2H1zm0 4h5v2H1zm0 4h3v2H1z" fill="#AD700A"/><path d="M8 2h5l1 1v11H8zM10 2v3h2V2M10 10h2" fill="none" stroke="#AD700A" stroke-width="1.25" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

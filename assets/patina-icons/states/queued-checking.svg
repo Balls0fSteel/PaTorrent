@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Queued for checking (files)</title>
+  <desc id="desc">Queue lines and magnifier.</desc>
+  <path d="M1 2h5v2H1zm0 4h5v2H1zm0 4h3v2H1z" fill="#AD700A"/><circle cx="10" cy="7" r="3.25" fill="none" stroke="#AD700A" stroke-width="1.5"/><path d="m12.4 9.4 2.1 3.1" fill="none" stroke="#AD700A" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

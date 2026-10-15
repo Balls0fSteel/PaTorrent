@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Queued</title>
+  <desc id="desc">Queue lines and down arrow.</desc>
+  <path d="M1 3h6v2H1zm0 4h6v2H1zm0 4h4v2H1z" fill="#AD700A"/><path d="M10 3h2v6h3l-4 5-4-5h3z" fill="#AD700A"/>
+</svg>

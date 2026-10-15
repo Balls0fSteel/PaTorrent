@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-15_202933_1792088973
+Last updated: 2026-10-15_203223_1792089143
 
 ## Vision
 
@@ -23,6 +23,8 @@ Where it sits: qBittorrent's modular libtorrent-plus-frontend split, with µTorr
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy) and [docs/PORTING.md](docs/PORTING.md) (libtorrent → Rust module map and porting rules).
 
 ## Current status
+
+- **PatinaTorrent icon candidates (2026-10-15_203223_1792089143):** three original teal/copper application directions (Verdigris, Exchange, Foundry), transparent PNGs and multi-size Windows ICOs, plus 30 editable state SVGs with PNG exports, exact state mapping and an interactive review gallery in `assets/patina-icons/`. Completed transparency/rendering, ICO frame, state-coverage and desktop/mobile gallery checks. Next: choose a brand direction, then integrate its app/tray icon and the state family into the runtime-drawn Win32 UI. The candidates are not yet connected to the application.
 
 - **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Next is Phase 4, starting with `ut_metadata` so magnet links work. Phase 2 (minimum viable engine) is closed too; its results follow.
 - Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `patorrent.exe` is 1.36 MB.

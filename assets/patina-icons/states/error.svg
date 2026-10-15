@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Error</title>
+  <desc id="desc">Red octagon and exclamation mark.</desc>
+  <path d="M5 1h6l4 4v6l-4 4H5l-4-4V5z" fill="#C8443D"/><rect x="7" y="4" width="2" height="5" rx="0.5" fill="#FFFFFF"/><rect x="7" y="11" width="2" height="2" rx="0.5" fill="#FFFFFF"/>
+</svg>

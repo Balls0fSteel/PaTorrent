@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Allocating space</title>
+  <desc id="desc">Storage outline with a clear plus badge in an open corner for reserving disk space.</desc>
+  <path d="M2 2h10l2 2v3M2 2v12h4M5 2v4h5V2M4 10h1" fill="none" stroke="#AD700A" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/><path d="M10 8h2v2h3v2h-3v3h-2v-3H7v-2h3z" fill="#AD700A"/>
+</svg>

@@ -1,0 +1,57 @@
+{
+  "candidates": [
+    {
+      "id": "01-verdigris",
+      "masterSize": 1254,
+      "alpha": true,
+      "icoFrames": 8
+    },
+    {
+      "id": "02-exchange",
+      "masterSize": 1254,
+      "alpha": true,
+      "icoFrames": 8
+    },
+    {
+      "id": "03-foundry",
+      "masterSize": 1254,
+      "alpha": true,
+      "icoFrames": 8
+    }
+  ],
+  "stateIcons": 30,
+  "appPngSizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256,
+    512
+  ],
+  "appIcoSizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64,
+    128,
+    256
+  ],
+  "statePngSizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64
+  ],
+  "checks": [
+    "All app and state PNGs have visible content and transparent corners.",
+    "Every ICO has eight independently decoded PNG frames.",
+    "Every state SVG uses a 16-unit view box and accessible title/description, without scripts or external resources."
+  ]
+}

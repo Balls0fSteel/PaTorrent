@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-labelledby="title desc">
+  <title id="title">Queued Seed</title>
+  <desc id="desc">Amber queue lines and blue up arrow.</desc>
+  <path d="M1 3h6v2H1zm0 4h6v2H1zm0 4h4v2H1z" fill="#AD700A"/><path d="m11 2 4 5h-3v7h-2V7H7z" fill="#3978BE"/>
+</svg>

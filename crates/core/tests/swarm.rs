@@ -2,6 +2,7 @@
 //! 127.0.0.1, connected directly, through an HTTP tracker and through a UDP tracker; plus a
 //! restart that resumes without rechecking.
 
+use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
@@ -105,38 +106,58 @@ fn start(state_dir: Option<PathBuf>) -> Session {
     Session::start(SessionParams { settings: settings(), state_dir }).expect("session starts")
 }
 
-/// Pops alerts until `f` returns `Some`, failing after `secs`.
-fn wait<T>(h: &SessionHandle, secs: u64, what: &str, mut f: impl FnMut(&Alert) -> Option<T>) -> T {
+/// A session handle plus the alerts popped but not looked at yet. `pop_alerts` hands over
+/// everything queued, so a wait that stops at one alert must keep the rest for the next wait:
+/// on a slow test thread (a loaded CI runner) `TorrentFinished` can arrive in the same batch as
+/// `TrackerReply`, and dropping it made the HTTP tracker test time out after a finished download.
+struct Watch {
+    h: SessionHandle,
+    backlog: VecDeque<Alert>,
+}
+
+impl Watch {
+    fn new(h: SessionHandle) -> Watch {
+        Watch { h, backlog: VecDeque::new() }
+    }
+}
+
+/// Takes alerts in order until `f` returns `Some`, failing after `secs`. The alerts behind the
+/// matching one stay queued.
+fn wait<T>(w: &mut Watch, secs: u64, what: &str, mut f: impl FnMut(&Alert) -> Option<T>) -> T {
     let deadline = Instant::now() + Duration::from_secs(secs);
     let mut alerts = Vec::new();
     let mut seen = Vec::new();
-    while Instant::now() < deadline {
-        h.post_torrent_updates();
-        std::thread::sleep(Duration::from_millis(30));
-        h.pop_alerts(&mut alerts);
-        for a in &alerts {
+    loop {
+        while let Some(a) = w.backlog.pop_front() {
             if !matches!(a, Alert::StateUpdate(_)) {
                 seen.push(a.message());
             }
-            if let Some(v) = f(a) {
+            if let Some(v) = f(&a) {
                 return v;
             }
         }
+        if Instant::now() >= deadline {
+            break;
+        }
+        w.h.post_torrent_updates();
+        std::thread::sleep(Duration::from_millis(30));
+        w.h.pop_alerts(&mut alerts);
+        w.backlog.extend(alerts.drain(..));
     }
     panic!("timed out waiting for {what}; alerts: {seen:#?}");
 }
 
-fn listen_port(h: &SessionHandle) -> u16 {
+fn listen_port(h: &mut Watch) -> u16 {
     wait(h, 5, "listen", |a| match a {
         Alert::ListenSucceeded { address, .. } => Some(address.port()),
         _ => None,
     })
 }
 
-fn add(h: &SessionHandle, f: &Fixture, dir: &Path) -> TorrentId {
+fn add(h: &mut Watch, f: &Fixture, dir: &Path) -> TorrentId {
     let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
     p.flags = TorrentFlags::empty();
-    h.add_torrent(p);
+    h.h.add_torrent(p);
     wait(h, 5, "add", |a| match a {
         Alert::TorrentAdded { id, .. } => Some(*id),
         Alert::AddTorrentFailed { error, .. } => panic!("add failed: {error}"),
@@ -151,7 +172,7 @@ fn status_of(a: &Alert, id: TorrentId) -> Option<TorrentStatus> {
     }
 }
 
-fn wait_state(h: &SessionHandle, id: TorrentId, state: TorrentState, secs: u64) -> TorrentStatus {
+fn wait_state(h: &mut Watch, id: TorrentId, state: TorrentState, secs: u64) -> TorrentStatus {
     wait(h, secs, &format!("{state:?}"), |a| {
         status_of(a, id).filter(|s| s.state == state && s.error.is_empty())
     })
@@ -161,9 +182,10 @@ fn seeder(f: &Fixture) -> (Session, PathBuf, u16, TorrentId) {
     let dir = temp_dir("seed");
     write_files(f, &dir);
     let s = start(None);
-    let port = listen_port(&s.handle());
-    let id = add(&s.handle(), f, &dir);
-    let st = wait_state(&s.handle(), id, TorrentState::Seeding, 20);
+    let mut w = Watch::new(s.handle());
+    let port = listen_port(&mut w);
+    let id = add(&mut w, f, &dir);
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 20);
     assert_eq!(st.total_done, st.total);
     (s, dir, port, id)
 }
@@ -174,13 +196,12 @@ fn download_from_a_directly_connected_seed() {
     let (seed, seed_dir, port, _) = seeder(&f);
     let dir = temp_dir("leech");
     let leech = start(None);
-    let id = add(&leech.handle(), &f, &dir);
-    wait_state(&leech.handle(), id, TorrentState::Downloading, 10);
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
     leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
-    wait(&leech.handle(), 60, "finished", |a| {
-        matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(())
-    });
-    let st = wait_state(&leech.handle(), id, TorrentState::Seeding, 10);
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
     assert_eq!(st.total_wanted_done, st.total_wanted);
     assert_eq!(st.total_failed_bytes, 0);
     leech.shutdown();
@@ -254,23 +275,22 @@ fn download_through_an_http_tracker() {
     let (url, tracker) = http_tracker(plain.info_hash, SocketAddr::from(([127, 0, 0, 1], port)));
     let dir = temp_dir("leech-http");
     let leech = start(None);
+    let mut w = Watch::new(leech.handle());
     let mut p =
         AddTorrentParams::new(TorrentSource::TorrentFile(plain.torrent.clone()), dir.to_string_lossy());
     p.flags = TorrentFlags::empty();
     p.trackers = vec![url];
     leech.handle().add_torrent(p);
-    let id = wait(&leech.handle(), 5, "add", |a| match a {
+    let id = wait(&mut w, 5, "add", |a| match a {
         Alert::TorrentAdded { id, .. } => Some(*id),
         _ => None,
     });
-    wait(&leech.handle(), 10, "tracker reply", |a| match a {
+    wait(&mut w, 10, "tracker reply", |a| match a {
         Alert::TrackerReply { num_peers, .. } => Some(*num_peers),
         Alert::TrackerError { message, .. } => panic!("tracker error: {message}"),
         _ => None,
     });
-    wait(&leech.handle(), 60, "finished", |a| {
-        matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(())
-    });
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
     assert_eq!(tracker.join().unwrap(), 1);
     leech.shutdown();
     seed.shutdown();
@@ -327,16 +347,17 @@ fn download_through_a_udp_tracker_then_resume_without_recheck() {
     let state = temp_dir("state");
     {
         let leech = start(Some(state.clone()));
+        let mut w = Watch::new(leech.handle());
         let mut p =
             AddTorrentParams::new(TorrentSource::TorrentFile(plain.torrent.clone()), dir.to_string_lossy());
         p.flags = TorrentFlags::AUTO_MANAGED;
         p.trackers = vec![url];
         leech.handle().add_torrent(p);
-        let id = wait(&leech.handle(), 5, "add", |a| match a {
+        let id = wait(&mut w, 5, "add", |a| match a {
             Alert::TorrentAdded { id, .. } => Some(*id),
             _ => None,
         });
-        wait(&leech.handle(), 60, "finished", |a| {
+        wait(&mut w, 60, "finished", |a| {
             matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(())
         });
         assert_eq!(tracker.join().unwrap(), 1);
@@ -348,13 +369,13 @@ fn download_through_a_udp_tracker_then_resume_without_recheck() {
     // Restart from the store: the torrent comes back as a seed after resume verification,
     // without a full recheck.
     let leech = start(Some(state.clone()));
-    let h = leech.handle();
-    let id = wait(&h, 5, "restore", |a| match a {
+    let mut w = Watch::new(leech.handle());
+    let id = wait(&mut w, 5, "restore", |a| match a {
         Alert::TorrentAdded { id, .. } => Some(*id),
         _ => None,
     });
     let mut rechecked = false;
-    let st = wait(&h, 10, "seeding after restart", |a| {
+    let st = wait(&mut w, 10, "seeding after restart", |a| {
         if let Alert::Log { message, .. } = a {
             rechecked |= message.contains("rechecked");
         }
@@ -375,6 +396,7 @@ fn download_through_a_udp_tracker_then_resume_without_recheck() {
 #[test]
 fn magnets_and_garbage_are_rejected_cleanly() {
     let s = start(None);
+    let mut w = Watch::new(s.handle());
     let h = s.handle();
     h.add_torrent(AddTorrentParams::new(TorrentSource::TorrentFile(b"garbage".to_vec()), "."));
     h.add_torrent(AddTorrentParams::new(
@@ -382,7 +404,7 @@ fn magnets_and_garbage_are_rejected_cleanly() {
         ".",
     ));
     let mut failures = 0;
-    wait(&h, 5, "two failures", |a| {
+    wait(&mut w, 5, "two failures", |a| {
         if matches!(a, Alert::AddTorrentFailed { .. }) {
             failures += 1;
         }

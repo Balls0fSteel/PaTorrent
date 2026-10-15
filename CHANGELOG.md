@@ -2,6 +2,19 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_153331_1792071211: Flaky HTTP tracker swarm test: root cause and fix
+
+### Fixed
+- `swarm::download_through_an_http_tracker` (one failure on the Windows runner, CI run 38740694714) was a bug in the test harness, not in the engine. `wait()` popped every queued alert, returned at the first match and dropped the rest of that batch. When the test thread was slow (a loaded runner), the leech had already downloaded the torrent by the time the thread popped `TrackerReply`, so `TorrentFinished` was in the same batch and was discarded. The "finished" wait then saw only what came after: the "completed" announce (`on_finished` makes it due at once) failing against the one-shot tracker, which had exited, and its retry 17.5 s later. Those are exactly the two "failed to connect to tracker" errors in the CI log. Because of the tracker backoff, a stalled download that never finished could not have produced that pair in this order; a finished one does.
+- The swarm tests now wait through a `Watch` (session handle plus a backlog): alerts behind the matching one stay queued for the next wait.
+
+### Verified
+- Reproduced the CI signature exactly by sleeping 5 s before the "tracker reply" wait (a simulated slow test thread): timeout with only the tracker errors. With the fix, the same delay passes.
+- 12 concurrent runs of the swarm test binary (CPU load): all pass. `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` pass.
+
+### Notes
+- Peer path, reviewed while looking for the stall: a failed outgoing connect waits `min_reconnect_time × (failcount + 1)` (120 s after the first failure) before a retry, as in libtorrent. This did not cause this failure. A loopback test that depends on a single seed would stall on such a failure, though, so it is worth keeping in mind. Peer disconnect reasons are still dropped in `remove_peer` (see PLAN.md Known TODOs).
+
 ## 2026-10-15_152239_1792070559: CI fully green
 
 ### Verified

@@ -68,4 +68,5 @@ pub mod fuzzing {
         Message as UtMetadataMessage, MetadataFetch, Received as UtMetadataReceived,
         decode as decode_ut_metadata,
     };
+    pub use crate::proto::ut_pex::{PeerPex, TorrentPex, encode_full as encode_ut_pex_full};
 }

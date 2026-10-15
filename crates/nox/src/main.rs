@@ -13,8 +13,8 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use patorrent_core::{
-    AddTorrentParams, Alert, MockConfig, Session, SessionParams, SessionStats, Settings, TorrentFlags,
-    TorrentId, TorrentSource, TorrentStatus, VERSION,
+    AddTorrentParams, Alert, MockConfig, PeerFlags, PeerInfo, PeerSource, Session, SessionParams,
+    SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus, VERSION,
 };
 use patorrent_frontend::{fmt, status};
 
@@ -46,7 +46,8 @@ OPTIONS:
     --port N          Listen port (default 6881)
     --dl-limit KIB    Download limit in KiB/s (0 = unlimited)
     --ul-limit KIB    Upload limit in KiB/s (0 = unlimited)
-    --verbose         Print tracker and peer events
+    --verbose         Print tracker and peer events, and every 10 s where the connected
+                      peers came from
 
 Type q and Enter to stop cleanly (state is saved on the way out).
 ";
@@ -234,12 +235,19 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
     let mut finished_at: Option<Instant> = None;
     let deadline = o.seconds.map(|s| started + Duration::from_secs(s));
     let mut next_report = Instant::now();
+    let mut next_peer_report = Instant::now() + PEER_REPORT_INTERVAL;
     loop {
         let now = Instant::now();
         if now >= next_report {
             h.post_torrent_updates();
             h.post_session_stats();
             next_report = now + Duration::from_secs(1);
+        }
+        if o.verbose && now >= next_peer_report {
+            for &id in &added {
+                h.torrent(id).post_peer_info();
+            }
+            next_peer_report = now + PEER_REPORT_INTERVAL;
         }
         let _ = wake_rx.recv_timeout(next_report.saturating_duration_since(Instant::now()));
         h.pop_alerts(&mut alerts);
@@ -288,6 +296,10 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                     println!("* {}", a.message())
                 }
                 Alert::StateChanged { .. } if o.verbose => println!("* {}", a.message()),
+                Alert::PeerInfo { id, ref peers } => {
+                    let name = rows.get(&id).map_or(String::new(), |r| r.name.clone());
+                    println!("* {name}: {}", peer_sources(peers));
+                }
                 _ => {}
             }
         }
@@ -402,4 +414,27 @@ fn report(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, t: Dur
 
 fn truncate(s: &str, max: usize) -> String {
     if s.chars().count() <= max { s.to_owned() } else { s.chars().take(max - 1).chain(['…']).collect() }
+}
+
+/// How often `--verbose` reports where the connected peers came from.
+const PEER_REPORT_INTERVAL: Duration = Duration::from_secs(10);
+
+/// "12 peers (8 connected): tracker 9/6, dht 4/2, pex 3/3, incoming 2/2": per source, all
+/// connections and those past the handshake (a peer can count under several sources).
+fn peer_sources(peers: &[PeerInfo]) -> String {
+    let up =
+        |p: &&PeerInfo| !p.flags.contains(PeerFlags::CONNECTING) && !p.flags.contains(PeerFlags::HANDSHAKE);
+    let count = |s: PeerSource| {
+        let all = peers.iter().filter(|p| p.source.contains(s));
+        format!("{}/{}", all.clone().count(), all.filter(up).count())
+    };
+    format!(
+        "{} peers ({} connected): tracker {}, dht {}, pex {}, incoming {}",
+        peers.len(),
+        peers.iter().filter(up).count(),
+        count(PeerSource::TRACKER),
+        count(PeerSource::DHT),
+        count(PeerSource::PEX),
+        count(PeerSource::INCOMING)
+    )
 }

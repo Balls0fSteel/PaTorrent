@@ -1,8 +1,9 @@
 //! Loopback swarm tests for the real engine: a seeding session and a downloading session on
 //! 127.0.0.1, connected directly, through an HTTP tracker and through a UDP tracker; plus a
 //! restart that resumes without rechecking, and one that keeps partly downloaded pieces; magnet
-//! links that fetch their metadata from the seed (BEP 9), and a trackerless magnet that finds its
-//! seed through a third session's DHT.
+//! links that fetch their metadata from the seed (BEP 9), a trackerless magnet that finds its
+//! seed through a third session's DHT, and a leech that learns about another through the
+//! seed's peer exchange (BEP 11).
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -12,8 +13,8 @@ use std::time::{Duration, Instant};
 use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
 use patorrent_core::{
-    AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId,
-    TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, PeerSource, Session, SessionHandle, SessionParams, Settings, TorrentFlags,
+    TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const PIECE: usize = 32 * 1024;
@@ -774,4 +775,62 @@ fn dropped_state_updates_are_reported_again() {
     s.shutdown();
     let _ = std::fs::remove_dir_all(&dir);
     assert_eq!(seen.len(), N, "torrents from the dropped update never came back");
+}
+
+#[test]
+fn a_leech_finds_another_through_the_seeds_peer_exchange() {
+    // A and B want nothing, so neither finishes a download and drops its peers mid-test. A
+    // connects to the seed; B connects only to the seed and must learn A's listen address from
+    // the seed's ut_pex message.
+    let f = fixture(None);
+    let (seed, seed_dir, seed_port, _) = seeder(&f);
+    let seed_addr = SocketAddr::from(([127, 0, 0, 1], seed_port));
+
+    let a_dir = temp_dir("pex-a");
+    let a = start(None);
+    let mut aw = Watch::new(a.handle());
+    let a_port = listen_port(&mut aw);
+    let a_id = add_wanting_nothing(&mut aw, &f, &a_dir);
+    a.handle().torrent(a_id).connect_peer(seed_addr);
+
+    let b_dir = temp_dir("pex-b");
+    let b = start(None);
+    let mut bw = Watch::new(b.handle());
+    let b_id = add_wanting_nothing(&mut bw, &f, &b_dir);
+    // Give the seed a moment to finish A's handshake, so B's first PEX list includes it.
+    std::thread::sleep(Duration::from_millis(500));
+    b.handle().torrent(b_id).connect_peer(seed_addr);
+
+    let a_addr = SocketAddr::from(([127, 0, 0, 1], a_port));
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let found = loop {
+        b.handle().torrent(b_id).post_peer_info();
+        let peers = wait(&mut bw, 5, "peer info", |al| match al {
+            Alert::PeerInfo { id, peers } if *id == b_id => Some(peers.clone()),
+            _ => None,
+        });
+        if let Some(p) = peers.iter().find(|p| p.ip == a_addr) {
+            break p.clone();
+        }
+        assert!(Instant::now() < deadline, "B never connected to A; peers: {peers:#?}");
+        std::thread::sleep(Duration::from_millis(200));
+    };
+    assert!(found.source.contains(PeerSource::PEX), "learned through PEX: {:?}", found.source);
+    b.shutdown();
+    a.shutdown();
+    seed.shutdown();
+    for d in [a_dir, b_dir, seed_dir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+fn add_wanting_nothing(w: &mut Watch, f: &Fixture, dir: &Path) -> TorrentId {
+    let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
+    p.flags = TorrentFlags::DEFAULT_DONT_DOWNLOAD;
+    w.h.add_torrent(p);
+    wait(w, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        Alert::AddTorrentFailed { error, .. } => panic!("add failed: {error}"),
+        _ => None,
+    })
 }

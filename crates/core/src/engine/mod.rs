@@ -14,6 +14,7 @@ mod dht;
 mod metadata;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
+mod pex;
 pub(crate) mod picker;
 pub(crate) mod torrent;
 pub(crate) mod tracker;
@@ -2002,6 +2003,7 @@ impl Engine {
                 _ => {}
             }
         }
+        self.pex_tick(id, now);
         // Announce.
         let all_tiers = settings.announce_to_all_tiers;
         let all_trackers = settings.announce_to_all_trackers;

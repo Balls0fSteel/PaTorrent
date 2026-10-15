@@ -16,6 +16,7 @@ use crate::disk::BLOCK_SIZE;
 use crate::error::Error;
 use crate::proto::peer_wire::{self, HandshakeError, Message, msg};
 use crate::proto::ut_metadata;
+use crate::proto::ut_pex;
 use crate::util::bitfield::Bitfield;
 
 /// Largest block a peer may request from us (libtorrent rejects anything above 16 KiB too,
@@ -208,10 +209,14 @@ impl Engine {
             }
         }
         if p.supports_extensions {
-            // ut_metadata is left out for private torrents (libtorrent adds no plugin for them).
+            // ut_metadata and ut_pex are left out for private torrents (libtorrent adds no
+            // plugins for them).
             let private = t.ti.as_ref().is_some_and(|ti| ti.is_private());
-            let messages: &[(&str, u8)] =
-                if private { &[] } else { &[(ut_metadata::NAME, ut_metadata::OUR_ID)] };
+            let messages: &[(&str, u8)] = if private {
+                &[]
+            } else {
+                &[(ut_pex::NAME, ut_pex::OUR_ID), (ut_metadata::NAME, ut_metadata::OUR_ID)]
+            };
             let metadata_size = t.ti.as_ref().filter(|_| !private).map(|ti| ti.info_section().len());
             let ext = peer_wire::encode_ext_handshake(
                 messages,
@@ -375,11 +380,14 @@ impl Engine {
                         Some(h) => {
                             p.ext = Some(h);
                             self.on_metadata_handshake(slot);
+                            self.on_pex_handshake(slot);
                         }
                         None => p.close("invalid extension handshake", true),
                     }
                 } else if id == ut_metadata::OUR_ID {
                     self.on_metadata_message(slot, &payload);
+                } else if id == ut_pex::OUR_ID {
+                    self.on_pex_message(slot, &payload);
                 }
             }
         }

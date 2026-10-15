@@ -15,6 +15,7 @@ use mio::net::TcpStream;
 
 use crate::proto::peer_wire::ExtHandshake;
 use crate::proto::ut_metadata::PeerMetadata;
+use crate::proto::ut_pex::PeerPex;
 use crate::status::PeerSource;
 use crate::types::TorrentId;
 use crate::util::bitfield::Bitfield;
@@ -71,6 +72,8 @@ pub(crate) struct PeerConn {
     pub ext: Option<ExtHandshake>,
     /// BEP 9 metadata exchange with this peer.
     pub meta: PeerMetadata,
+    /// BEP 11 peer exchange with this peer.
+    pub pex: PeerPex,
 
     pub requests: Vec<Request>,
     /// Requests from the peer not yet read from disk.
@@ -145,6 +148,7 @@ impl PeerConn {
             client: String::new(),
             ext: None,
             meta: PeerMetadata::default(),
+            pex: PeerPex::default(),
             requests: Vec::new(),
             upload_queue: VecDeque::new(),
             reads_in_flight: HashSet::new(),

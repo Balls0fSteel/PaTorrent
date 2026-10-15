@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-15_211826_1792091906
+Last updated: 2026-10-15_221714_1792095434
 
 ## Vision
 
@@ -26,7 +26,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 - **PatinaTorrent icon candidates (2026-10-15_203223_1792089143):** three original teal/copper application directions (Verdigris, Exchange, Foundry), transparent PNGs and multi-size Windows ICOs, plus 30 editable state SVGs with PNG exports, exact state mapping and an interactive review gallery in `assets/patina-icons/`. Completed transparency/rendering, ICO frame, state-coverage and desktop/mobile gallery checks. Next: choose a brand direction, then integrate its app/tray icon and the state family into the runtime-drawn Win32 UI. The candidates are not yet connected to the application.
 
-- **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Phase 4 has started: magnet links work (`ut_metadata`, BEP 9; CHANGELOG 2026-10-15_204502_1792089902), and the mainline DHT (BEP 5/32/42/43, `core::dht`; CHANGELOG 2026-10-15_211826_1792091906) finds peers for magnets without trackers: the Debian 13.7.0 netinst magnet with only `xt` bootstrapped from `dht.libtorrent.org` in 2 s, had DHT peers at 4 s, its metadata at 5 s and the whole 792 MB at 13 s. Phase 2 (minimum viable engine) is closed too; its results follow.
+- **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Phase 4 has started: magnet links work (`ut_metadata`, BEP 9; CHANGELOG 2026-10-15_204502_1792089902), and the mainline DHT (BEP 5/32/42/43, `core::dht`; CHANGELOG 2026-10-15_211826_1792091906) finds peers for magnets without trackers: the Debian 13.7.0 netinst magnet with only `xt` bootstrapped from `dht.libtorrent.org` in 2 s, had DHT peers at 4 s, its metadata at 5 s and the whole 792 MB at 13 s. Peer exchange (`ut_pex`, BEP 11; CHANGELOG 2026-10-15_221714_1792095434) brought about 70 candidate peers within 10 s of the Debian magnet's first connections. Phase 2 (minimum viable engine) is closed too; its results follow.
 - Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `patorrent.exe` is 1.36 MB.
 - Phase 2 results (release build, this dev machine):
 
@@ -179,7 +179,8 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [x] DHT: BEP5, BEP32 (IPv6), BEP42 (node id security), BEP43 (read-only); bootstrap; state persistence (2026-10-15). `core::dht` ports libtorrent's routing table, rpc manager, get_peers / announce / bootstrap lookups (plus the obfuscated variant), peer storage with scrape filters, DoS blocker, node ids and `dht_state`; the engine runs it on UDP sockets on the listen port, feeds peers to running torrents (`PeerSource::DHT`), announces running torrents and shows the node count in the status bar. Ported tests: `test_dht` (all but the BEP 44 / 51 / signing ones), `test_dos_blocker`, `test_bloom_filter`, `test_ip_voter`, most of `test_dht_storage`. Fuzz target `dht_message`. Verified with Debian's swarm and no trackers
 - [ ] Extensions:
   - [x] ut_metadata (BEP 9): magnets and bare info-hashes fetch the info dictionary from peers, then check and download as usual with their peers kept; we serve metadata to others (not for private torrents). A magnet waiting for metadata is saved and restored. Verified with Debian's swarm (2026-10-15)
-  - [ ] ut_pex, lt_donthave (BEP54), smart-ban
+  - [x] ut_pex (BEP 11): we send each peer the full list, then a diff once a minute (up to 100 added, seeds flagged) and take peers from theirs (50 per connection and family, flood limit, local addresses only from local peers); not for private torrents or with `disable_pex`. Verified with Debian's swarm (2026-10-15_221714_1792095434)
+  - [ ] lt_donthave (BEP54), smart-ban
 - [ ] LSD (BEP14); UPnP IGD and NAT-PMP port mapping
 - [ ] MSE/PE encryption with µTorrent-style policies (disabled / enabled / forced, allow legacy)
 - [ ] uTP (BEP29) with LEDBAT, and µTorrent-2.x-like TCP/uTP preference
@@ -223,7 +224,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 ## Next steps
 
 1. Try a magnet link in the GUI (Add Torrent from URL, or a `magnet:` link on the command line): the row should show "Downloading metadata" with a growing percentage, then turn into a normal download.
-2. Phase 4 next: PEX (ut_pex), LSD, UPnP/NAT-PMP, MSE/PE, uTP. The DHT is done; try a trackerless magnet in the GUI and watch "DHT: N nodes" in the status bar.
+2. Phase 4 next: LSD, UPnP/NAT-PMP, MSE/PE, uTP (then lt_donthave and smart-ban). The DHT and PEX are done; try a trackerless magnet in the GUI and watch "DHT: N nodes" in the status bar. `patorrent-nox add ... --verbose` prints where connected peers came from every 10 s.
 3. Keep CI green on Windows, Linux and FreeBSD.
 4. Rerun `lt-swarm interop` after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI.
 
@@ -252,7 +253,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - for private trackers: behave well (honest upload/download stats, announce intervals respected, no ratio tricks), keep `User-Agent`, peer ID and BEP 10 `v` consistent across versions, and publish a stable release with changelog. Tracker staff usually want a tagged release they can test. Expect a long wait, and some will never whitelist a new client.
 - Peer-ID version characters: `-PA0100-` encodes 0.1.0. Bump `PEER_ID_PREFIX` together with the crate version (a test enforces it).
 - Fuzzing on Windows needs Visual Studio's AddressSanitizer runtime (`clang_rt.asan_dynamic-x86_64.dll`); `fuzz.bat` finds it with vswhere. A build without a sanitizer (`-s none`) does not link on MSVC (libFuzzer's PC table uses ELF section symbols). The default toolchain here is pinned to 1.90.0, and cargo-fuzz 0.13 needs 1.91+, so it was installed with `cargo +stable install cargo-fuzz --locked`. In CI, cargo-fuzz from `taiki-e/install-action` is a musl build that defaults to the musl target, so `fuzz.yml` passes `--target x86_64-unknown-linux-gnu`.
-- Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), uTP headers, resume data and the nox HTTP API (docs/PORTING.md rule 8). DHT messages: done (`dht_message`).
+- Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), uTP headers, resume data and the nox HTTP API (docs/PORTING.md rule 8). DHT messages: done (`dht_message`); ut_pex: done (`ut_pex`).
 - DHT follow-ups (Phase 4 DHT is in, CHANGELOG 2026-10-15_211826_1792091906):
   - BEP 44 items (`get` / `put`, ed25519) and BEP 51 `sample_infohashes` are Phase 8; until then such queries get a `find_node`-style answer. Not ported yet: the matching `test_dht` tests (put/get/mutable/immutable, signing_test1-3, sample_infohashes), `test_direct_dht` and the item parts of `test_dht_storage`.
   - Linux: `[::]` is dual-stack, so the IPv6 DHT socket fails to bind after `0.0.0.0` and the DHT runs IPv4 only. Setting `IPV6_V6ONLY` needs a raw `setsockopt` (no libc crate under D4); the TCP listener has the same limitation. Windows sockets are v6-only by default, so both families run there.
@@ -272,6 +273,11 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - Pause does not toggle back to running as µTorrent's does; Start resumes.
   - double-click opens the folder for finished torrents and the General tab otherwise; the Properties dialog comes with Phase 5.
   - Create New Torrent and Preferences are greyed out until Phase 5.
+- PEX follow-ups (CHANGELOG 2026-10-15_221714_1792095434):
+  - flags we send: only `seed`. Encryption, uTP and holepunch bits follow MSE/PE, uTP and BEP 55. Received flags other than `seed` are dropped (no `pe_support` / `supports_utp` in the peer list yet).
+  - the GUI has no PEX switch until the Phase 5 Preferences dialog; `TorrentFlags::DISABLE_PEX` works per torrent.
+  - `lt-swarm interop` runs the other clients with PeX off; a PEX interop case (three clients in one swarm) would check that they accept our messages. In the real Debian swarm no peer dropped us after our PEX messages.
+- Connection slots (seen in the PEX run, not caused by it): in the rate-limited Debian run about 180 of the 200 `connections_limit` slots were outgoing connects still pending (15 s timeout), and none of the ~170 DHT-sourced attempts completed, while tracker peers did (20 of the 21 connected peers). Find out whether DHT peers in a busy swarm are just stale or whether something is wrong with them, and whether pending connects should count against the limit the way they do now.
 - Magnets (ut_metadata) follow-ups:
   - partly fetched metadata is dropped when the torrent stops; it starts over on the next start (metadata is small, so this costs little).
   - a magnet's `so=` "don't download the rest" (DEFAULT_DONT_DOWNLOAD) is not saved; after a restart before the metadata arrives, unlisted files default to normal priority.

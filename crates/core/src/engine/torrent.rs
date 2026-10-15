@@ -19,6 +19,7 @@ use crate::metainfo::file_storage::FileFlags;
 use crate::net::Bucket;
 use crate::params::{DownloadPriority, TorrentFlags};
 use crate::proto::ut_metadata::MetadataFetch;
+use crate::proto::ut_pex::TorrentPex;
 use crate::resume::ResumeData;
 use crate::status::{FileEntry, TorrentState, TorrentStatus};
 use crate::types::{InfoHashes, TorrentId};
@@ -44,6 +45,8 @@ pub(crate) struct Torrent {
     pub storage: Option<Arc<Storage>>,
     /// Running without metadata (a magnet): the info dictionary being fetched from peers.
     pub fetch: Option<MetadataFetch>,
+    /// BEP 11: the peer diff sent to every peer once a minute.
+    pub pex: TorrentPex,
     /// The name came from the user; metadata does not replace it.
     pub user_named: bool,
     pub picker: Option<PiecePicker>,
@@ -113,6 +116,7 @@ impl Torrent {
             error: None,
             storage: None,
             fetch: None,
+            pex: TorrentPex::default(),
             user_named: false,
             picker: None,
             have: None,

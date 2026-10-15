@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [bdecode, torrent_info, magnet, peer_wire, tracker_response, http_response, ut_metadata, dht_message]
+        target: [bdecode, torrent_info, magnet, peer_wire, tracker_response, http_response, ut_metadata, ut_pex, dht_message]
     runs-on: ubuntu-latest
     env:
       # taiki-e/install-action ships a musl-built cargo-fuzz, which defaults to

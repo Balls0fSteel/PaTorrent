@@ -72,6 +72,13 @@ doc = false
 bench = false
 
 [[bin]]
+name = "ut_pex"
+path = "fuzz_targets/ut_pex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
 name = "dht_message"
 path = "fuzz_targets/dht_message.rs"
 test = false

@@ -2,6 +2,29 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_221714_1792095434: Peer exchange (ut_pex, BEP 11)
+
+### Added
+- `core::proto::ut_pex`, a port of libtorrent's `ut_pex.cpp`: `TorrentPex` (the torrent plugin: once a minute, a diff of the peers added and dropped since the last one, at most 100 added, IPv4 and IPv6, seeds flagged), `PeerPex` (the peer plugin: the full list first, then the diff, once a minute while the torrent has other peers; incoming messages limited to 500 KiB and six per minute, peers remembered per connection up to `max_pex_peers` per family, dropped entries forgotten, local addresses taken only from local peers, the internal `lt_v2` flag cleared) and `encode_full`.
+- `core::engine::pex`: we advertise `ut_pex` (id 1) in the extension handshake and run the ticks with the other per-torrent work. The list we send holds connected peers whose listen port we know: the address we connected to, or an incoming peer's handshake `p`. Peers we receive go into the peer list as `PeerSource::PEX` (a seed flag marks an unconnected entry as a seed) and are connected through the usual pacing. Off for private torrents (also for a magnet whose metadata turns out private) and with `TorrentFlags::DISABLE_PEX`.
+- Setting `max_pex_peers` (libtorrent default 50).
+- nox `--verbose` prints, every 10 s, the connected peers per source (all / past the handshake).
+- Fuzz target `ut_pex` (peer state fed with several messages, then our diff and full list must decode), also in `fuzz.yml`.
+
+### Changed
+- PORTING.md: deliberate divergences for the diff's addresses and cap, and for connect boost, the DHT ping and private magnets. THIRD-PARTY-NOTICES.md lists ut_pex as ported.
+
+### Verified
+- Unit tests: the exact bencoded full list and its round trip, the 100-entry cap, filters and caps on receive, flooding, diffs over several rounds (added, dropped, unchanged, overflow into the next diff), the peer tick (full, then diffs, never alone).
+- Swarm test `a_leech_finds_another_through_the_seeds_peer_exchange`: two sessions that want nothing connect to a seed; one connects to the other at its listen port, with source PEX.
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test --workspace` (322 core unit tests plus integration suites). `fuzz.bat ut_pex 60`: 204,793 runs, no crash.
+- `lt-swarm interop` (qBittorrent 5.2.4, Transmission 4.1.0-beta.2, Deluge 2.2.0, PeX off on their side): all ok, files identical, no failed or redundant bytes. So advertising ut_pex did not upset their handshakes.
+- Real swarm: the Debian 13.7.0 netinst magnet with its tracker, limited to 6 MB/s for 75 s: about 70 PEX candidates by 10 s (1–10 of them among the 21–29 connected peers) and another 22 in the next diffs about a minute later. No peer dropped us after our PEX messages (the connected count held steady).
+- Not verified: PEX in the GUI on screen; that other clients act on the peers we send them.
+
+### Issues seen
+- In the same run, about 180 of the 200 connection slots were pending outgoing connects, and none of the ~170 DHT-sourced attempts completed. That predates PEX; it is recorded in PLAN.md (Known TODOs) for a look.
+
 ## 2026-10-15_211826_1792091906: Mainline DHT (BEP 5, 32, 42, 43)
 
 ### Added

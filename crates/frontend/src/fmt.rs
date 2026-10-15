@@ -79,9 +79,48 @@ pub fn availability(copies: Option<f32>) -> String {
     copies.map(|c| format!("{c:.3}")).unwrap_or_default()
 }
 
+static UTC_OFFSET: std::sync::atomic::AtomicI32 = std::sync::atomic::AtomicI32::new(0);
+
+/// Sets the local time zone's offset from UTC in seconds, used by [`date_time`]. Frontends set
+/// it from the OS at startup (the frontend crate has no time-zone database).
+pub fn set_utc_offset(secs: i32) {
+    UTC_OFFSET.store(secs, std::sync::atomic::Ordering::Relaxed);
+}
+
+/// `2026-10-15 16:47:12` in local time; empty for 0 (never / unknown).
+pub fn date_time(unix: i64) -> String {
+    if unix <= 0 {
+        return String::new();
+    }
+    let t = unix + UTC_OFFSET.load(std::sync::atomic::Ordering::Relaxed) as i64;
+    let (days, secs) = (t.div_euclid(86_400), t.rem_euclid(86_400));
+    let (y, m, d) = civil_from_days(days);
+    format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}", secs / 3600, secs % 3600 / 60, secs % 60)
+}
+
+/// Days since 1970-01-01 to a proleptic Gregorian date (Howard Hinnant's algorithm).
+fn civil_from_days(z: i64) -> (i64, u32, u32) {
+    let z = z + 719_468;
+    let era = z.div_euclid(146_097);
+    let doe = z.rem_euclid(146_097);
+    let yoe = (doe - doe / 1460 + doe / 36_524 - doe / 146_096) / 365;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = (doy - (153 * mp + 2) / 5 + 1) as u32;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 } as u32;
+    (yoe + era * 400 + i64::from(m <= 2), m, d)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn dates() {
+        assert_eq!(date_time(0), "");
+        assert_eq!(date_time(1_792_075_632), "2026-10-15 14:47:12");
+        assert_eq!(date_time(951_782_400), "2000-02-29 00:00:00");
+    }
 
     #[test]
     fn sizes() {

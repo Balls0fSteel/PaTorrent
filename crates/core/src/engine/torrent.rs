@@ -44,6 +44,9 @@ pub(crate) struct Torrent {
     pub picker: Option<PiecePicker>,
     /// Pieces we have while there is no picker (stopped, or before the check finished).
     pub have: Option<Bitfield>,
+    /// Partial pieces while there is no picker: (piece, finished blocks), from resume data or
+    /// saved when the torrent stopped. Restored into the picker once resume data is verified.
+    pub unfinished: Vec<(u32, Bitfield)>,
     /// True once `have` was verified this session (by a check or by resume verification).
     pub checked: bool,
     pub checking: bool,
@@ -106,6 +109,7 @@ impl Torrent {
             storage: None,
             picker: None,
             have: None,
+            unfinished: Vec::new(),
             checked: false,
             checking: false,
             checked_pieces: 0,
@@ -210,8 +214,12 @@ impl Torrent {
         if self.num_pieces > 0 && have.get(self.num_pieces as usize - 1) {
             done = done - self.piece_length as u64 + self.piece_size(self.num_pieces - 1);
         }
-        if let Some(p) = &self.picker {
-            done += p.partial_finished_blocks() as u64 * BLOCK_SIZE as u64;
+        match &self.picker {
+            Some(p) => done += p.partial_finished_blocks() as u64 * BLOCK_SIZE as u64,
+            None => {
+                let blocks: usize = self.unfinished.iter().map(|(_, b)| b.count()).sum();
+                done += blocks as u64 * BLOCK_SIZE as u64;
+            }
         }
         done.min(self.total_size)
     }
@@ -356,6 +364,12 @@ impl Torrent {
             save_path: self.save_path.clone(),
             // Only verified pieces are written, so a crash never makes us trust unchecked data.
             pieces: if self.checked || self.picker.is_none() { self.have_bits().cloned() } else { None },
+            unfinished: match &self.picker {
+                Some(p) if self.checked => p.unfinished_pieces(),
+                Some(_) => Vec::new(),
+                None if self.have.is_some() => self.unfinished.clone(),
+                None => Vec::new(),
+            },
             total_uploaded: self.prev_uploaded + self.stat.upload_payload.total,
             total_downloaded: self.prev_downloaded + self.stat.download_payload.total,
             active_time: self.active_secs as u64,

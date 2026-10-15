@@ -5,7 +5,9 @@
 // the same thread (piece % threads), so per-piece hash state needs no locks; a fence is a job
 // broadcast to every thread whose last finisher runs the fenced action. Blocks are hashed as
 // they are written, in order, so a completed piece is never read back unless its blocks arrived
-// out of order and did not fit in the small reorder cache.
+// out of order and did not fit in the small reorder cache. Blocks restored from resume data
+// (`unfinished`) are on disk but not in any hash state, so they are read back as the cursor
+// reaches them.
 
 //! Disk I/O: a thread pool doing file reads, writes, piece hashing and file checking for the
 //! network thread.
@@ -70,6 +72,7 @@ pub(crate) enum CheckMode {
 enum Job {
     Write { storage: Arc<Storage>, piece: u32, offset: u32, data: Vec<u8> },
     Read { storage: Arc<Storage>, piece: u32, offset: u32, length: u32, cookie: u64 },
+    Restore { storage: Arc<Storage>, piece: u32, blocks: Vec<bool> },
     Check { storage: Arc<Storage>, mode: CheckMode },
     Fence { storage: Arc<Storage>, fence: Arc<Fence> },
     Shutdown,
@@ -221,6 +224,13 @@ impl DiskIo {
         });
     }
 
+    /// Tells the piece's hash state that `blocks` are already on disk (restored from resume
+    /// data). Must be queued before any write to the piece. A piece that is complete this way is
+    /// hashed at once and answered by [`Completion::Hashed`].
+    pub fn async_restore_partial(&self, storage: &Arc<Storage>, piece: u32, blocks: Vec<bool>) {
+        let _ = self.thread_for(piece).send(Job::Restore { storage: storage.clone(), piece, blocks });
+    }
+
     pub fn async_check(&self, storage: &Arc<Storage>, mode: CheckMode) {
         let _ = self.hasher.send(Job::Check { storage: storage.clone(), mode });
     }
@@ -261,6 +271,21 @@ struct PartialHash {
     received: Vec<bool>,
     /// Blocks written ahead of the cursor, kept to avoid reading them back.
     cached: HashMap<u32, Vec<u8>>,
+    /// Blocks restored from resume data. A read error on one of them fails the piece (the data
+    /// is downloaded again) instead of failing the torrent.
+    restored: Vec<bool>,
+}
+
+impl PartialHash {
+    fn new(num_blocks: u32) -> PartialHash {
+        PartialHash {
+            hasher: Sha1::new(),
+            cursor: 0,
+            received: vec![false; num_blocks as usize],
+            cached: HashMap::new(),
+            restored: vec![false; num_blocks as usize],
+        }
+    }
 }
 
 fn disk_thread(rx: mpsc::Receiver<Job>, ctx: Ctx) {
@@ -283,6 +308,25 @@ fn disk_thread(rx: mpsc::Receiver<Job>, ctx: Ctx) {
                     Err(e) => {
                         drop_partial(&mut partial, &mut cached_bytes, storage.id, piece);
                         ctx.send(Completion::Write { storage: storage.id, piece, offset, error: Some(e) });
+                    }
+                }
+            }
+            Job::Restore { storage, piece, blocks } => {
+                let n = storage.info.piece_size(piece).div_ceil(BLOCK_SIZE);
+                let state = partial.entry((storage.id, piece)).or_insert_with(|| PartialHash::new(n));
+                for (b, &on_disk) in blocks.iter().enumerate().take(n as usize) {
+                    if on_disk && !state.received[b] {
+                        state.received[b] = true;
+                        state.restored[b] = true;
+                    }
+                }
+                match advance_hash(&storage, &ctx, &mut partial, &mut cached_bytes, piece) {
+                    Ok(Some(passed)) => ctx.send(Completion::Hashed { storage: storage.id, piece, passed }),
+                    Ok(None) => {}
+                    Err(_) => {
+                        // Only possible if writes were queued before the restore: fail the piece.
+                        drop_partial(&mut partial, &mut cached_bytes, storage.id, piece);
+                        ctx.send(Completion::Hashed { storage: storage.id, piece, passed: false });
                     }
                 }
             }
@@ -346,12 +390,7 @@ fn write_block(
     let piece_size = storage.info.piece_size(piece);
     let num_blocks = piece_size.div_ceil(BLOCK_SIZE);
     let block = offset / BLOCK_SIZE;
-    let state = partial.entry((storage.id, piece)).or_insert_with(|| PartialHash {
-        hasher: Sha1::new(),
-        cursor: 0,
-        received: vec![false; num_blocks as usize],
-        cached: HashMap::new(),
-    });
+    let state = partial.entry((storage.id, piece)).or_insert_with(|| PartialHash::new(num_blocks));
     if block >= num_blocks || state.received[block as usize] {
         // Out of range or a duplicate (end-game): nothing new to write.
         return Ok(None);
@@ -379,7 +418,22 @@ fn write_block(
         *cached_bytes += data.len();
         state.cached.insert(block, data);
     }
-    // Catch up on blocks that arrived early.
+    advance_hash(storage, ctx, partial, cached_bytes, piece)
+}
+
+/// Feeds the hasher every received block from the cursor on, reading back blocks that are not
+/// cached. Returns `Some(passed)` once the whole piece has been hashed; the state is dropped then.
+fn advance_hash(
+    storage: &Storage,
+    ctx: &Ctx,
+    partial: &mut HashMap<(u64, u32), PartialHash>,
+    cached_bytes: &mut usize,
+    piece: u32,
+) -> Result<Option<bool>, (String, Error)> {
+    let fs = storage.info.files();
+    let piece_size = storage.info.piece_size(piece);
+    let num_blocks = piece_size.div_ceil(BLOCK_SIZE);
+    let Some(state) = partial.get_mut(&(storage.id, piece)) else { return Ok(None) };
     while state.cursor < num_blocks && state.received[state.cursor as usize] {
         let b = state.cursor;
         match state.cached.remove(&b) {
@@ -389,9 +443,19 @@ fn write_block(
             }
             None => {
                 let len = (piece_size - b * BLOCK_SIZE).min(BLOCK_SIZE);
-                let buf = read_block(storage, &ctx.pool, piece, b * BLOCK_SIZE, len)
-                    .map_err(|e| (fs.file_path(fs.file_index_at_piece(piece), &storage.save_path), e))?;
-                state.hasher.update(&buf);
+                match read_block(storage, &ctx.pool, piece, b * BLOCK_SIZE, len) {
+                    Ok(buf) => {
+                        state.hasher.update(&buf);
+                    }
+                    Err(_) if state.restored[b as usize] => {
+                        // The resume data promised a block the files do not hold.
+                        drop_partial(partial, cached_bytes, storage.id, piece);
+                        return Ok(Some(false));
+                    }
+                    Err(e) => {
+                        return Err((fs.file_path(fs.file_index_at_piece(piece), &storage.save_path), e));
+                    }
+                }
             }
         }
         state.cursor += 1;
@@ -714,6 +778,54 @@ pub(crate) mod tests {
         assert!(matches!(next(&r.rx), Completion::Fenced { action: FenceAction::Delete, error: None, .. }));
         assert!(!r.dir.join("test").exists(), "files and empty directories are gone");
         assert!(r.dir.exists(), "the save path stays");
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
+    fn restored_blocks_are_read_back_for_the_hash() {
+        // One piece of 4 blocks, one of 2.
+        let r = rig("disk-restore", &[("f", 6 * BLOCK_SIZE as usize)], 4 * BLOCK_SIZE);
+        let all = torrent_bytes(&r.contents);
+        let block = |p: u32, b: u32| {
+            let start = (p * 4 + b) as usize * BLOCK_SIZE as usize;
+            all[start..start + BLOCK_SIZE as usize].to_vec()
+        };
+        let hashed = |rx: &mpsc::Receiver<Completion>| loop {
+            if let Completion::Hashed { piece, passed, .. } = next(rx) {
+                break (piece, passed);
+            }
+        };
+        // A previous session wrote blocks 0 and 2 of piece 0, then stopped.
+        let old = Arc::new(Storage::new(50, r.storage.save_path.clone(), r.storage.info.clone()));
+        r.disk.async_write(&old, 0, 0, block(0, 0));
+        r.disk.async_write(&old, 0, 2 * BLOCK_SIZE, block(0, 2));
+        r.disk.async_fence(&old, FenceAction::Release);
+        while !matches!(next(&r.rx), Completion::Fenced { .. }) {}
+
+        // This session restores them and downloads the other two, last block first.
+        r.disk.async_restore_partial(&r.storage, 0, vec![true, false, true, false]);
+        r.disk.async_write(&r.storage, 0, 3 * BLOCK_SIZE, block(0, 3));
+        r.disk.async_write(&r.storage, 0, BLOCK_SIZE, block(0, 1));
+        assert_eq!(hashed(&r.rx), (0, true));
+
+        // A piece that was complete but not hashed at shutdown is hashed on restore.
+        r.disk.async_write(&old, 1, 0, block(1, 0));
+        r.disk.async_write(&old, 1, BLOCK_SIZE, block(1, 1));
+        r.disk.async_fence(&old, FenceAction::Release);
+        while !matches!(next(&r.rx), Completion::Fenced { .. }) {}
+        r.disk.async_restore_partial(&r.storage, 1, vec![true, true]);
+        assert_eq!(hashed(&r.rx), (1, true));
+
+        // A restored block the file does not hold fails the piece instead of the torrent.
+        r.disk.async_fence(&r.storage, FenceAction::Release);
+        while !matches!(next(&r.rx), Completion::Fenced { .. }) {}
+        std::fs::OpenOptions::new().write(true).open(r.dir.join("test/f")).unwrap().set_len(100).unwrap();
+        let fresh = Arc::new(Storage::new(51, r.storage.save_path.clone(), r.storage.info.clone()));
+        r.disk.async_restore_partial(&fresh, 0, vec![true, true, false, false]);
+        r.disk.async_write(&fresh, 0, 2 * BLOCK_SIZE, block(0, 2));
+        r.disk.async_write(&fresh, 0, 3 * BLOCK_SIZE, block(0, 3));
+        assert_eq!(hashed(&r.rx), (0, false));
         drop(r.disk);
         let _ = std::fs::remove_dir_all(&r.dir);
     }

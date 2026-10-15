@@ -22,6 +22,8 @@ pub(crate) struct ResumeData {
     pub save_path: String,
     /// Pieces we have; `None` if unknown (the files must be checked).
     pub pieces: Option<Bitfield>,
+    /// Partly downloaded pieces: piece index and its finished blocks (libtorrent `unfinished`).
+    pub unfinished: Vec<(u32, Bitfield)>,
     pub total_uploaded: u64,
     pub total_downloaded: u64,
     pub active_time: u64,
@@ -66,6 +68,20 @@ impl ResumeData {
         *e.key("save_path") = s(&self.save_path);
         if let Some(p) = &self.pieces {
             *e.key("pieces") = Entry::Bytes(p.iter().map(u8::from).collect());
+        }
+        if !self.unfinished.is_empty() {
+            // libtorrent's layout: the bitmask is the block bitfield's bytes, MSB first.
+            *e.key("unfinished") = Entry::List(
+                self.unfinished
+                    .iter()
+                    .map(|(piece, blocks)| {
+                        let mut d = Entry::new_dict();
+                        *d.key("piece") = int(*piece as i64);
+                        *d.key("bitmask") = Entry::Bytes(blocks.as_bytes().to_vec());
+                        d
+                    })
+                    .collect(),
+            );
         }
         *e.key("total_uploaded") = int(self.total_uploaded as i64);
         *e.key("total_downloaded") = int(self.total_downloaded as i64);
@@ -181,6 +197,20 @@ impl ResumeData {
             }
             r.pieces = Some(bf);
         }
+        if let Some(l) = root.dict_find_list("unfinished") {
+            for e in l.list_iter().filter(|e| e.is_dict()) {
+                let Some(piece) =
+                    e.dict_find_int_value("piece").filter(|&p| (0..=u32::MAX as i64).contains(&p))
+                else {
+                    continue;
+                };
+                let Some(mask) = e.dict_find_string_value("bitmask").filter(|m| !m.is_empty()) else {
+                    continue;
+                };
+                let blocks = Bitfield::from_bytes(mask, mask.len() * 8).expect("length matches");
+                r.unfinished.push((piece as u32, blocks));
+            }
+        }
         if let Some(l) = root.dict_find_list("file_priority") {
             r.file_priority =
                 l.list_iter().map(|n| n.try_int_value().unwrap_or(4).clamp(0, 7) as u8).collect();
@@ -224,6 +254,7 @@ mod tests {
             name: "name".into(),
             save_path: "C:/dl".into(),
             pieces: Some(pieces),
+            unfinished: vec![(4, Bitfield::from_bytes(&[0b1010_0000, 0x01], 16).unwrap())],
             total_uploaded: 10,
             total_downloaded: 20,
             active_time: 30,
@@ -248,6 +279,20 @@ mod tests {
         let root = doc.root().unwrap();
         assert_eq!(root.dict_find_string_value("pieces").unwrap(), &[0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
         assert_eq!(root.dict_find_int_value("max_uploads"), Some(-1));
+        let u = root.dict_find_list("unfinished").unwrap().list_at(0).unwrap();
+        assert_eq!(u.dict_find_int_value("piece"), Some(4));
+        assert_eq!(u.dict_find_string_value("bitmask").unwrap(), &[0b1010_0000, 0x01]);
+
+        // Malformed `unfinished` entries are skipped, as libtorrent does.
+        let mut e = r.to_entry();
+        let mut bad = Entry::new_dict();
+        *bad.key("piece") = Entry::Int(-1);
+        *bad.key("bitmask") = Entry::Bytes(vec![0xff]);
+        let mut empty = Entry::new_dict();
+        *empty.key("piece") = Entry::Int(2);
+        *empty.key("bitmask") = Entry::Bytes(Vec::new());
+        e.key("unfinished").list_mut().extend([bad, empty, Entry::Int(3)]);
+        assert_eq!(ResumeData::decode(&e.bencode()).unwrap().unfinished, r.unfinished);
 
         assert!(ResumeData::decode(b"d11:file-format3:fooe").is_err());
         assert!(ResumeData::decode(b"d11:file-format22:libtorrent resume filee").is_err(), "no info-hash");

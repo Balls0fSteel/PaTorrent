@@ -2,6 +2,22 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_160110_1792072870: Partly downloaded pieces survive a restart
+
+### Added
+- Resume data now carries libtorrent's `unfinished` list: for each partial piece, `piece` and a `bitmask` of finished blocks (MSB first, the block bitfield's bytes, as `write_resume_data.cpp` writes it). Malformed entries are skipped, as `read_resume_data.cpp` does.
+- Saving: blocks in the `Finished` state (on disk) are recorded when the torrent stops and in every resume save while it runs. Blocks still being written are left out. While a torrent is stopped its partial pieces stay on `Torrent::unfinished` and count towards `total_done`.
+- Restoring follows `torrent::on_resume_data_checked`: the blocks go back into the picker only when the resume data matched the files. A full check (no resume data, `force_recheck`, or resume data that failed) drops them.
+- Disk: the new `async_restore_partial` job tells the piece's hash state which blocks are already on disk. They are read back when the in-order hash cursor reaches them. A piece that was complete but not yet hashed at shutdown is hashed at once. A restored block the files no longer hold fails the piece, which is downloaded again, rather than failing the torrent.
+
+### Verified
+- Unit tests: resume round trip including `unfinished` and malformed entries, picker save/restore, and the disk restore paths (blocks around restored ones, a piece complete on restore, a truncated file).
+- `swarm::partial_pieces_survive_a_restart`: a scripted peer sends one whole piece plus block 0 of four other pieces. After a restart the leech reports the same `total_done` (96 KiB) without a recheck, finishes from a real seed with no failed hash, and downloads only the missing bytes. With the restore disabled the test fails (32 KiB done after the restart).
+- `cargo test --workspace`, `cargo clippy --workspace --all-targets -- -D warnings` and `cargo fmt --check` pass.
+
+### Notes
+- As in libtorrent, partial blocks are saved only with the periodic or final resume save (`resume_dirty` is set when a piece passes and when the torrent stops), not after each block. After a crash, blocks written since the last save are downloaded again.
+
 ## 2026-10-15_153331_1792071211: Flaky HTTP tracker swarm test: root cause and fix
 
 ### Fixed

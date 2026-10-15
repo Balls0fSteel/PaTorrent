@@ -408,20 +408,55 @@ impl PiecePicker {
         self.order_built = None;
     }
 
-    /// Forgets all partial pieces (when the torrent stops and its disk state is released).
-    /// Returns the pieces that had blocks on disk.
-    pub fn clear_downloading(&mut self) -> Vec<u32> {
-        let touched = self
+    /// Partial pieces with at least one block on disk, as (piece, finished blocks), for resume
+    /// data (libtorrent `write_resume_data`'s `unfinished_pieces`). Blocks still being written
+    /// are left out: they are not known to be on disk.
+    pub fn unfinished_pieces(&self) -> Vec<(u32, Bitfield)> {
+        let mut out: Vec<(u32, Bitfield)> = self
             .downloading
             .iter()
-            .filter(|(_, d)| {
-                d.blocks.iter().any(|&b| matches!(b, BlockState::Writing | BlockState::Finished))
+            .filter(|(_, d)| d.blocks.contains(&BlockState::Finished))
+            .map(|(&p, d)| {
+                let mut bits = Bitfield::new(self.blocks_per_piece as usize, false);
+                for (b, &s) in d.blocks.iter().enumerate() {
+                    bits.set(b, s == BlockState::Finished);
+                }
+                (p, bits)
             })
-            .map(|(&p, _)| p)
             .collect();
+        out.sort_unstable_by_key(|&(p, _)| p);
+        out
+    }
+
+    /// Marks blocks found in resume data as finished (libtorrent `mark_as_finished` from
+    /// `torrent::on_resume_data_checked`). Returns the blocks restored, or `None` if there was
+    /// nothing to restore (the piece is out of range, already had, or no bit was set).
+    pub fn restore_partial(&mut self, piece: u32, blocks: &Bitfield) -> Option<Vec<bool>> {
+        if piece >= self.num_pieces() || self.have_piece(piece) {
+            return None;
+        }
+        let n = self.blocks_in_piece(piece) as usize;
+        let mask: Vec<bool> = (0..n).map(|b| b < blocks.len() && blocks.get(b)).collect();
+        if !mask.contains(&true) {
+            return None;
+        }
+        let d = self
+            .downloading
+            .entry(piece)
+            .or_insert_with(|| Downloading { blocks: vec![BlockState::Free; n] });
+        for (s, &done) in d.blocks.iter_mut().zip(&mask) {
+            if done {
+                *s = BlockState::Finished;
+            }
+        }
+        self.order_dirty = true;
+        Some(mask)
+    }
+
+    /// Forgets all partial pieces (when the torrent stops and its disk state is released).
+    pub fn clear_downloading(&mut self) {
         self.downloading.clear();
         self.order_dirty = true;
-        touched
     }
 
     /// Bytes of finished blocks in partial pieces (for `total_done`).
@@ -538,6 +573,36 @@ mod tests {
         assert!(p.pick(&all, true, 5, |_, _| false).is_empty(), "capped at two peers");
         p.abort_download(0, 0);
         assert!(p.pick(&all, true, 5, |piece, block| (piece, block) == (0, 0)).is_empty());
+    }
+
+    #[test]
+    fn unfinished_pieces_round_trip() {
+        let mut p = picker(3);
+        let all = bits("111");
+        assert_eq!(p.pick(&all, true, 3, |_, _| false).len(), 3);
+        for (piece, block) in [(0, 1), (1, 0)] {
+            assert!(p.mark_as_writing(piece, block));
+        }
+        p.mark_as_finished(0, 1);
+        // Requested and still-writing blocks are not on disk yet.
+        let saved = p.unfinished_pieces();
+        assert_eq!(saved.len(), 1);
+        assert_eq!(saved[0].0, 0);
+        assert_eq!(saved[0].1.iter().collect::<Vec<_>>(), [false, true]);
+
+        let mut q = picker(3);
+        q.piece_passed(1);
+        assert_eq!(q.restore_partial(0, &saved[0].1), Some(vec![false, true]));
+        assert_eq!(q.block_state(0, 1), BlockState::Finished);
+        // Pieces we have, out of range, or without a bit set are ignored. The last piece has one
+        // block, so a two-bit mask is cut to its size.
+        assert_eq!(q.restore_partial(1, &bits("11")), None);
+        assert_eq!(q.restore_partial(7, &bits("11")), None);
+        assert_eq!(q.restore_partial(2, &bits("01")), None);
+        assert_eq!(q.restore_partial(2, &bits("11")), Some(vec![true]));
+        assert_eq!(q.partial_finished_blocks(), 2);
+        assert_eq!(q.pick(&all, true, 9, |_, _| false), [(0, 0)], "only the missing block");
+        q.check_invariant();
     }
 
     #[test]

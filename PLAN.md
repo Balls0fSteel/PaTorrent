@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_144002_1792068002
+Last updated: 2026-10-15_160110_1792072870
 
 ## Vision
 
@@ -212,8 +212,8 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 1. Close Phase 2:
    1. Interop, reverse direction: LibreTorrent downloading from qBittorrent, Transmission and Deluge is untested (the clients are installed in the Debian WSL distro now). Add a scripted interop run to `lt-swarm` so this can be repeated.
-   2. Run the OpenSSL TLS backend on Linux and FreeBSD. It only type-checks on Windows so far: CI covers it on the next push, or install Rust in the Debian WSL distro (it already has `libssl-dev`) to test locally.
-   3. Save partially downloaded pieces in resume data (`unfinished`), so a restart does not drop them.
+   2. ~~Run the OpenSSL TLS backend on Linux and FreeBSD.~~ Done: CI links and tests it against the system OpenSSL on Linux (run 38738279981) and FreeBSD's base libssl (run 38736854046).
+   3. ~~Save partially downloaded pieces in resume data (`unfinished`).~~ Done (CHANGELOG 2026-10-15_160110).
 2. Phase 3: the µTorrent 2.2.1 main window on top of the real engine.
 3. Phase 4 early pick: `ut_metadata`, so magnet links work (they are rejected with a clear message today).
 4. Keep CI green on Windows, Linux and FreeBSD (CI now also reports `lt-swarm load` and `loopback`).
@@ -238,7 +238,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 ## Known TODOs
 
 - Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
-- Phase 2 follow-ups: `unfinished` pieces in resume data, batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
+- Phase 2 follow-ups: batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
 - ~~Flaky on CI: `swarm::download_through_an_http_tracker`~~. Fixed 2026-10-15: the test's `wait()` dropped the alerts behind a match, so `TorrentFinished` was lost when it arrived in the same batch as `TrackerReply`. Not an engine stall (CHANGELOG 2026-10-15_153331).
 - TLS (`core::net::tls`):
   - certificate revocation is not checked; SChannel would fetch CRLs synchronously on the engine thread. SChannel may still fetch a missing intermediate certificate (AIA) synchronously; move the handshake off the reactor if that ever shows up as a stall.

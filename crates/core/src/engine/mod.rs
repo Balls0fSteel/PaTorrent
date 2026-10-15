@@ -1210,6 +1210,10 @@ impl Engine {
             Some(have) if have.len() == ti.num_pieces() as usize => CheckMode::Resume(have),
             _ => CheckMode::Full,
         };
+        if matches!(mode, CheckMode::Full) {
+            // A full check finds only whole pieces; partial blocks are not trusted.
+            t.unfinished.clear();
+        }
         t.picker = Some(picker);
         t.storage = Some(storage.clone());
         t.checking = true;
@@ -1269,11 +1273,11 @@ impl Engine {
         }
         let t = self.torrent(id).expect("exists");
         if let Some(mut p) = t.picker.take() {
-            let touched = p.clear_downloading();
-            let _ = touched;
             if t.checked || !t.checking {
                 t.have = Some(p.have().clone());
+                t.unfinished = p.unfinished_pieces();
             }
+            p.clear_downloading();
         }
         t.checking = false;
         t.started_at = None;
@@ -1298,6 +1302,7 @@ impl Engine {
     fn force_recheck(&mut self, id: TorrentId) {
         let Some(t) = self.torrent(id) else { return };
         t.have = None;
+        t.unfinished.clear();
         t.checked = false;
         t.resume_dirty = true;
         if t.storage.is_some() {
@@ -1323,9 +1328,26 @@ impl Engine {
             }
             Ok(res) => {
                 let was_finished_before = t.completed_time != 0;
+                let unfinished = std::mem::take(&mut t.unfinished);
+                let mut restored = Vec::new();
                 if let Some(p) = t.picker.as_mut() {
                     p.set_have(&res.have);
+                    // libtorrent `on_resume_data_checked`: partial pieces are kept only when
+                    // the resume data matched the files.
+                    if !res.resume_failed {
+                        for (piece, blocks) in &unfinished {
+                            if let Some(mask) = p.restore_partial(*piece, blocks) {
+                                restored.push((*piece, mask));
+                            }
+                        }
+                    }
                 }
+                if let Some(storage) = t.storage.clone() {
+                    for (piece, mask) in restored {
+                        self.disk.async_restore_partial(&storage, piece, mask);
+                    }
+                }
+                let t = self.torrent(id).expect("exists");
                 t.checked = true;
                 t.checked_pieces = t.num_pieces;
                 t.resume_dirty = true;
@@ -2188,6 +2210,7 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
     if let Some(p) = &r.pieces {
         if t.num_pieces == 0 || p.len() == t.num_pieces as usize {
             t.have = Some(p.clone());
+            t.unfinished = r.unfinished.clone();
         }
     }
     t.prev_uploaded = r.total_uploaded;

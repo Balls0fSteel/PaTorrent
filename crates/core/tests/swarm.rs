@@ -1,6 +1,6 @@
 //! Loopback swarm tests for the real engine: a seeding session and a downloading session on
 //! 127.0.0.1, connected directly, through an HTTP tracker and through a UDP tracker; plus a
-//! restart that resumes without rechecking.
+//! restart that resumes without rechecking, and one that keeps partly downloaded pieces.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -391,6 +391,141 @@ fn download_through_a_udp_tracker_then_resume_without_recheck() {
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(state);
     let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+/// A scripted peer that has everything but answers only some requests: every block of the first
+/// piece asked for, then block 0 of the next `partial` pieces. Returns the bytes it sent once the
+/// connection closes; `quota` turns true when it has sent all it will send.
+fn stingy_peer(
+    f: &Fixture,
+    partial: usize,
+    quota: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> (u16, std::thread::JoinHandle<u64>) {
+    use std::io::{Read, Write};
+    use std::sync::atomic::Ordering;
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let all: Vec<u8> = f.files.iter().flat_map(|(_, d)| d.iter().copied()).collect();
+    let info_hash = f.info_hash;
+    let h = std::thread::spawn(move || {
+        let (mut c, _) = l.accept().unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut hs = [0u8; 68];
+        c.read_exact(&mut hs).unwrap();
+        assert_eq!(&hs[28..48], &info_hash);
+        let mut out = vec![19u8];
+        out.extend_from_slice(b"BitTorrent protocol");
+        out.extend_from_slice(&[0; 8]);
+        out.extend_from_slice(&info_hash);
+        out.extend_from_slice(b"-XX0001-stingypeer00");
+        let num_pieces = all.len().div_ceil(PIECE);
+        let mut bits = vec![0u8; num_pieces.div_ceil(8)];
+        for i in 0..num_pieces {
+            bits[i / 8] |= 0x80 >> (i % 8);
+        }
+        out.extend_from_slice(&(bits.len() as u32 + 1).to_be_bytes());
+        out.push(5);
+        out.extend_from_slice(&bits);
+        out.extend_from_slice(&[0, 0, 0, 1, 1]); // unchoke
+        c.write_all(&out).unwrap();
+
+        let (mut full, mut partial_sent, mut sent) = (None, 0, 0u64);
+        loop {
+            let mut len = [0u8; 4];
+            if c.read_exact(&mut len).is_err() {
+                return sent;
+            }
+            let mut msg = vec![0u8; u32::from_be_bytes(len) as usize];
+            if c.read_exact(&mut msg).is_err() {
+                return sent;
+            }
+            if msg.first() != Some(&6) {
+                continue;
+            }
+            let field = |i: usize| u32::from_be_bytes(msg[1 + 4 * i..5 + 4 * i].try_into().unwrap());
+            let (piece, begin, length) = (field(0), field(1), field(2));
+            let full_piece = *full.get_or_insert(piece);
+            let serve = if piece == full_piece {
+                true
+            } else if begin == 0 && partial_sent < partial {
+                partial_sent += 1;
+                true
+            } else {
+                false
+            };
+            if serve {
+                let start = piece as usize * PIECE + begin as usize;
+                let mut out = (9 + length).to_be_bytes().to_vec();
+                out.push(7);
+                out.extend_from_slice(&piece.to_be_bytes());
+                out.extend_from_slice(&begin.to_be_bytes());
+                out.extend_from_slice(&all[start..start + length as usize]);
+                c.write_all(&out).unwrap();
+                sent += length as u64;
+            }
+            let full_done = sent - partial_sent as u64 * 16384
+                >= PIECE.min(all.len() - full_piece as usize * PIECE) as u64;
+            if partial_sent == partial && full_done {
+                quota.store(true, Ordering::SeqCst);
+            }
+        }
+    });
+    (port, h)
+}
+
+#[test]
+fn partial_pieces_survive_a_restart() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let f = fixture(None);
+    let dir = temp_dir("leech-partial");
+    let state = temp_dir("state-partial");
+    let quota = Arc::new(AtomicBool::new(false));
+    let (peer_port, peer) = stingy_peer(&f, 4, quota.clone());
+    let done_before = {
+        let leech = start(Some(state.clone()));
+        let mut w = Watch::new(leech.handle());
+        let id = add(&mut w, &f, &dir);
+        wait_state(&mut w, id, TorrentState::Downloading, 10);
+        leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], peer_port)));
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while !quota.load(Ordering::SeqCst) {
+            assert!(Instant::now() < deadline, "the leech did not ask for enough blocks");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        // Wait until every block sent is on disk (counted in total_done), then stop.
+        let st = wait(&mut w, 10, "blocks on disk", |a| {
+            status_of(a, id).filter(|s| s.total_done > 0 && s.total_done == s.total_payload_download)
+        });
+        assert_eq!(st.num_pieces, 1, "one whole piece, the rest partial");
+        leech.shutdown();
+        st.total_done
+    };
+    let sent = peer.join().unwrap();
+    assert_eq!(done_before, sent);
+
+    // Restart: the partial blocks come back without a recheck and are not downloaded again.
+    let (seed, seed_dir, seed_port, _) = seeder(&f);
+    let leech = start(Some(state.clone()));
+    let mut w = Watch::new(leech.handle());
+    let id = wait(&mut w, 5, "restore", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    let st = wait_state(&mut w, id, TorrentState::Downloading, 10);
+    assert_eq!(st.total_done, done_before, "restored blocks count as done");
+    assert_eq!(st.num_pieces, 1);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], seed_port)));
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+    assert_eq!(st.total_failed_bytes, 0, "restored blocks hashed correctly");
+    assert_eq!(st.total_payload_download + st.total_redundant_bytes, st.total - done_before);
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    for d in [dir, state, seed_dir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
 }
 
 #[test]

@@ -2,6 +2,12 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_202147_1792088507: Fix the Fuzz CI workflow (musl target)
+
+### Fixed
+- Every Fuzz job failed at compile time with "sanitizer is incompatible with statically linked libc" and "can't find crate for `core`" for `x86_64-unknown-linux-musl`. `taiki-e/install-action` installs a prebuilt cargo-fuzz built for musl, and cargo-fuzz defaults `--target` to the triple it was built for. ASan needs glibc, so `fuzz.yml` now passes `--target x86_64-unknown-linux-gnu` to `cargo fuzz run` and `cargo fuzz cmin`.
+- CI and FreeBSD were already green on the latest commit; the earlier CI run was cancelled by the newer push, not failed.
+
 ## 2026-10-15_201640_1792088200: GitHub repository renamed to PaTorrent (Q11)
 
 ### Changed

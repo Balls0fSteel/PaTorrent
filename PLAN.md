@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-15_201640_1792088200
+Last updated: 2026-10-15_202147_1792088507
 
 ## Vision
 
@@ -247,7 +247,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - the same for webtorrent's `bittorrent-peerid` and Transmission's `clients.cc`, and an entry on the wiki.theory.org BEP 20 list
   - for private trackers: behave well (honest upload/download stats, announce intervals respected, no ratio tricks), keep `User-Agent`, peer ID and BEP 10 `v` consistent across versions, and publish a stable release with changelog. Tracker staff usually want a tagged release they can test. Expect a long wait, and some will never whitelist a new client.
 - Peer-ID version characters: `-PA0100-` encodes 0.1.0. Bump `PEER_ID_PREFIX` together with the crate version (a test enforces it).
-- Fuzzing on Windows needs Visual Studio's AddressSanitizer runtime (`clang_rt.asan_dynamic-x86_64.dll`); `fuzz.bat` finds it with vswhere. A build without a sanitizer (`-s none`) does not link on MSVC (libFuzzer's PC table uses ELF section symbols). The default toolchain here is pinned to 1.90.0, and cargo-fuzz 0.13 needs 1.91+, so it was installed with `cargo +stable install cargo-fuzz --locked`.
+- Fuzzing on Windows needs Visual Studio's AddressSanitizer runtime (`clang_rt.asan_dynamic-x86_64.dll`); `fuzz.bat` finds it with vswhere. A build without a sanitizer (`-s none`) does not link on MSVC (libFuzzer's PC table uses ELF section symbols). The default toolchain here is pinned to 1.90.0, and cargo-fuzz 0.13 needs 1.91+, so it was installed with `cargo +stable install cargo-fuzz --locked`. In CI, cargo-fuzz from `taiki-e/install-action` is a musl build that defaults to the musl target, so `fuzz.yml` passes `--target x86_64-unknown-linux-gnu`.
 - Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), DHT messages, uTP headers, `ut_metadata`, resume data and the nox HTTP API (docs/PORTING.md rule 8).
 - Licensing compliance (checked 2026-10-15_174600_1792079160):
   - when a new libtorrent module (or bundled code such as puff or ed25519) is ported, add it to THIRD-PARTY-NOTICES.md's "Ported so far" list and give each file the origin and copyright header.

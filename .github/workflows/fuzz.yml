@@ -30,6 +30,9 @@ jobs:
         target: [bdecode, torrent_info, magnet, peer_wire, tracker_response, http_response]
     runs-on: ubuntu-latest
     env:
+      # taiki-e/install-action ships a musl-built cargo-fuzz, which defaults to
+      # building for musl; ASan needs glibc, so name the target explicitly.
+      FUZZ_TARGET_TRIPLE: x86_64-unknown-linux-gnu
       SECONDS_PER_TARGET: ${{ inputs.seconds || (github.event_name == 'schedule' && '1800') || '120' }}
     steps:
       - uses: actions/checkout@v7
@@ -53,10 +56,10 @@ jobs:
         run: |
           mkdir -p fuzz/corpus/${{ matrix.target }}
           cp crates/core/tests/fixtures/torrents/*.torrent fuzz/corpus/${{ matrix.target }}/
-      - run: cargo fuzz run ${{ matrix.target }} -- -max_total_time=${{ env.SECONDS_PER_TARGET }}
+      - run: cargo fuzz run --target $FUZZ_TARGET_TRIPLE ${{ matrix.target }} -- -max_total_time=${{ env.SECONDS_PER_TARGET }}
       - name: Minimize corpus
         if: success()
-        run: cargo fuzz cmin ${{ matrix.target }}
+        run: cargo fuzz cmin --target $FUZZ_TARGET_TRIPLE ${{ matrix.target }}
       - name: Save corpus
         if: success()
         uses: actions/cache/save@v4

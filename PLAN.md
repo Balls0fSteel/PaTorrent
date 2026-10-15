@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_143444_1792067684
+Last updated: 2026-10-15_144002_1792068002
 
 ## Vision
 
@@ -54,7 +54,7 @@ Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the reco
 | D6 | Targets: Windows 10+ x64 (Rust's tier-1 baseline), Linux x86_64/aarch64, FreeBSD/OpenBSD. | Rust dropped pre-Windows-10 support from its tier-1 targets in 1.78. |
 | D7 | Windows: static CRT, single `.exe`, portable mode (settings beside the exe), like µTorrent. | No installer or runtime needed. |
 | D8 | Port libtorrent's tests with each module. Fuzz every parser. Deterministic swarm simulator. | Correctness without libtorrent's simulator. |
-| D9 (Q3) | TLS is OS-native: SChannel on Windows, system OpenSSL / LibreSSL on Unix, behind a thin trait. | Almost no added binary size; the OS patches TLS. |
+| D9 (Q3) | TLS is OS-native: SChannel on Windows, system OpenSSL / LibreSSL on Unix, behind a thin trait. | Almost no added binary size; the OS patches TLS. Built in `core::net::tls` with no new crates: SChannel through more `windows-sys` features, OpenSSL through hand-written declarations of a dozen stable functions, so Unix builds link the system `libssl` / `libcrypto` (Linux needs `libssl-dev` to build; FreeBSD has it in base). |
 | D10 (Q4) | nox exposes a qBittorrent WebAPI v2-compatible subset (incremental `sync/maindata`). | Works with Sonarr, Radarr, Prowlarr and mobile apps. |
 | D11 (Q5) | The Linux/BSD GUI uses GTK 4 via gtk4-rs. | Maintained bindings. Memory can be trimmed with the Cairo renderer if needed. |
 | D12 (Q6) | Windows 10+ x64 only, on stable Rust. ARM64 Windows comes later as an extra CI target. No Windows 7/8.1, no 32-bit. | No nightly/`build-std`; tier-1 target. |
@@ -133,9 +133,9 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - HTTP announce and scrape (BEP 3/23/24/48), redirects, chunked bodies
   - UDP (BEP 15) with connection-id cache and retransmits
   - tiers (BEP 12), backoff, `stopped` / `completed` events
-  - [ ] HTTPS: needs the OS TLS layer (D9), see Next steps
+  - [x] HTTPS through the OS TLS layer (D9, `core::net::tls`): SChannel (TLS 1.2 and 1.3) on Windows, OpenSSL / LibreSSL on Unix; certificate and host-name checks on, SNI. Verified against Ubuntu's IPv4 and IPv6 HTTPS trackers
   - [ ] batched UDP scrapes: the packet format supports 74 hashes; the engine still scrapes one torrent per request
-- [x] HTTP client: parser, chunked encoding, redirects. gzip is not needed (we request identity encoding). OS TLS: open.
+- [x] HTTP client: parser, chunked encoding, redirects. gzip is not needed (we request identity encoding). OS TLS: done (`core::net::tls`).
 - [x] `store`: resume.db + metadata.pack, libtorrent fast-resume field names, metadata loaded only for running torrents
 - [x] Dev CLI: `libretorrent-nox add <file> --save DIR [--seed]`, `run`, rate limits, per-user state directory, progress lines
 - [x] Tests: unit tests for every module (libtorrent vectors for BEP 6 allowed-fast, BEP 40, sliding averages), plus `tests/swarm.rs`: loopback downloads through a direct connection, an HTTP tracker and a UDP tracker, and a restart without recheck
@@ -212,7 +212,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 1. Close Phase 2:
    1. Interop, reverse direction: LibreTorrent downloading from qBittorrent, Transmission and Deluge is untested (the clients are installed in the Debian WSL distro now). Add a scripted interop run to `lt-swarm` so this can be repeated.
-   2. HTTPS trackers through the OS TLS layer (D9): SChannel on Windows, OpenSSL / LibreSSL on Unix. Ubuntu's and many other public trackers are HTTPS-only.
+   2. Run the OpenSSL TLS backend on Linux and FreeBSD. It only type-checks on Windows so far: CI covers it on the next push, or install Rust in the Debian WSL distro (it already has `libssl-dev`) to test locally.
    3. Save partially downloaded pieces in resume data (`unfinished`), so a restart does not drop them.
 2. Phase 3: the µTorrent 2.2.1 main window on top of the real engine.
 3. Phase 4 early pick: `ut_metadata`, so magnet links work (they are rejected with a clear message today).
@@ -238,7 +238,11 @@ Each phase ends with something runnable and measured against the targets in ARCH
 ## Known TODOs
 
 - Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
-- Phase 2 follow-ups: HTTPS trackers (OS TLS), `unfinished` pieces in resume data, batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
+- Phase 2 follow-ups: `unfinished` pieces in resume data, batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
+- TLS (`core::net::tls`):
+  - certificate revocation is not checked; SChannel would fetch CRLs synchronously on the engine thread. SChannel may still fetch a missing intermediate certificate (AIA) synchronously; move the handshake off the reactor if that ever shows up as a stall.
+  - no macOS backend (Secure Transport / Network.framework) yet; non-Windows, non-Unix targets fail HTTPS announces with a clear message.
+  - web seeds over HTTPS (Phase 5) can reuse `TlsStream` as is.
 - Peers that only connect and get dropped (seed to seed) are not logged; a `peer_disconnected`-style alert category would help debugging swarms.
 - libtorrent tests not ported yet because they need later pieces:
   - `create_torrent` (Phase 5): mutable_torrents, make_magnet_uri v1/v2/hybrid

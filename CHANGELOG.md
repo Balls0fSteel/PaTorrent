@@ -2,6 +2,31 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_144002_1792068002: HTTPS trackers through the OS TLS library
+
+### Added
+- **`core::net::tls`** (LibreTorrent's own OS glue; libtorrent uses OpenSSL through Boost.Asio, PLAN.md D9):
+  - `TlsSession`, a sans-IO client session trait (ciphertext in, plaintext out, outgoing ciphertext buffer), and `TlsStream`, which runs a session over a non-blocking socket behind plain `Read` / `Write`. The handshake is driven by mio readiness: writes return `WouldBlock` until it is done.
+  - SChannel backend (Windows): `SCH_CREDENTIALS` for TLS 1.3 with a fallback to `SCHANNEL_CRED` (TLS 1.2) on older Windows; automatic chain and host-name validation against the Windows trust store; SNI through the target name; TLS 1.3 post-handshake messages (session tickets arrive as `SEC_I_RENEGOTIATE`) go back through `InitializeSecurityContextW`. One process-wide credentials handle, so SChannel can resume sessions.
+  - OpenSSL / LibreSSL backend (Unix): memory BIOs, `SSL_VERIFY_PEER` with the default trust store, `SSL_set1_host` (or the IP address for literals), SNI for host names. Declared by hand against the API common to OpenSSL 1.1.1, 3.x and LibreSSL.
+- HTTP trackers: `https://` announces, scrapes and redirects now work; the connection is a plain or TLS stream between the socket and the unchanged HTTP code (`engine/tracker.rs`).
+- Tests: `TlsStream` over a fake non-blocking socket with a stand-in session (handshake, partial writes, close_notify, EOF during the handshake); the OS backend's ClientHello (SNI present, absent for IP literals) and failure against a plaintext server. Live tests behind `--ignored` and `LT_NETWORK_TESTS=1`: HTTPS GETs to Ubuntu (TLS 1.2) and Cloudflare (TLS 1.3), and rejection of a wrong host name, an expired, a self-signed and an untrusted-root certificate (badssl.com).
+
+### Changed
+- No new crates. `windows-sys` gains the `Win32_Security_Authentication_Identity`, `Win32_Security_Credentials` and `Win32_Security_Cryptography` features in the engine. Unix builds link the system `libssl` and `libcrypto`; Linux CI installs `libssl-dev`. THIRD-PARTY-NOTICES.md lists the system TLS libraries.
+
+### Verified
+- `libretorrent-nox add ubuntu-24.04.5-live-server-amd64.iso.torrent` (and the 26.04 desktop torrent): both `https://torrent.ubuntu.com/announce` and `https://ipv6.torrent.ubuntu.com/announce` answered, and the peer they returned sent data. Their answer holds one peer even with `numwant=200`; curl gets the same 6-byte peer list, so that is the tracker, not our parser.
+- Live tests on Windows 11: Ubuntu negotiated TLS 1.2, Cloudflare TLS 1.3 including the session-ticket renegotiation path; the four bad certificates failed with readable messages (wrong host name, expired, not trusted).
+- `cargo test --workspace` (233 core unit tests, 6 of them new; 3 robustness, 4 swarm, 7 frontend) and `cargo clippy --workspace --all-targets -D warnings` pass on Windows; `cargo fmt --check` is clean.
+
+### Not verified / open
+- The OpenSSL backend type-checks and passes clippy on Windows (compiled with a temporary cfg, not linked), but it has not been linked or run on Linux or FreeBSD: no Rust toolchain in WSL, and CI runs on push. See PLAN.md Next steps.
+- Revocation is not checked (see PLAN.md Known TODOs).
+
+### Issues encountered
+- A shell command with a stray `cat >` waited on stdin until the tool timeout; it was stopped before running anything.
+
 ## 2026-10-15_143444_1792067684: Interop: Transmission and Deluge download from libretorrent-nox
 
 With this, all four Phase 2 exit criteria are met.

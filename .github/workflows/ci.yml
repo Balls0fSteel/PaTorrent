@@ -37,6 +37,9 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
+      # The engine links the system OpenSSL for HTTPS trackers (PLAN.md D9).
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 

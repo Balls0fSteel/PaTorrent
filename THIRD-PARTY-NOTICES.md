@@ -131,3 +131,7 @@ SHA-256. Adapted from LibTomCrypt. This code is Public Domain
 | `windows-link` (pulled in by `windows-sys`) | same | MIT OR Apache-2.0 |
 
 This table is kept current with every dependency change (dependency policy: docs/ARCHITECTURE.md).
+
+## System libraries used at run time
+
+HTTPS trackers use the operating system's TLS library, which is linked dynamically and not shipped with LibreTorrent: SChannel (`secur32.dll`) on Windows, and the system OpenSSL (`libssl`, `libcrypto`; Apache-2.0 from 3.0, the OpenSSL/SSLeay license before) or LibreSSL on Linux and BSD.

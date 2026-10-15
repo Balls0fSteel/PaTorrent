@@ -1,6 +1,7 @@
-//! Platform networking helpers: resolver, listen-interface parsing, bandwidth buckets.
+//! Platform networking helpers: resolver, OS TLS, listen-interface parsing, bandwidth buckets.
 
 pub(crate) mod resolver;
+pub(crate) mod tls;
 
 use std::net::SocketAddr;
 

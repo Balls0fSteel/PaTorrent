@@ -4,7 +4,7 @@
 // Changes: request state machines driven by mio events and the session tick instead of asio
 // callbacks. UDP trackers are reached from one ephemeral socket per address family (libtorrent
 // shares the listen socket); connection ids are cached per endpoint for 60 s, as BEP 15 allows.
-// HTTPS trackers wait for the OS TLS layer (PLAN.md) and fail with a clear message.
+// HTTPS trackers go through the OS TLS layer (net::tls) between the socket and the HTTP bytes.
 
 //! Tracker requests and per-torrent tracker state.
 
@@ -18,6 +18,7 @@ use mio::{Interest, Registry, Token};
 
 use super::Slab;
 use crate::net::resolver::{Resolved, Resolver};
+use crate::net::tls::{self, TlsStream};
 use crate::proto::http::{self, ParseError, Url};
 use crate::proto::tracker::{
     self, AnnounceRequest, AnnounceResponse, Event, ScrapeEntry, UdpResponse, announce_url, scrape_url,
@@ -178,11 +179,51 @@ pub(crate) enum TrackerOutcome {
     Failed(String),
 }
 
+/// A tracker connection: plain TCP, or TLS over TCP for `https://`.
+enum Stream {
+    Plain(TcpStream),
+    Tls(Box<TlsStream<TcpStream>>),
+}
+
+impl Stream {
+    fn tcp(&mut self) -> &mut TcpStream {
+        match self {
+            Stream::Plain(s) => s,
+            Stream::Tls(s) => s.get_mut(),
+        }
+    }
+}
+
+impl Read for Stream {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Stream::Plain(s) => s.read(buf),
+            Stream::Tls(s) => s.read(buf),
+        }
+    }
+}
+
+impl Write for Stream {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Stream::Plain(s) => s.write(buf),
+            Stream::Tls(s) => s.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Stream::Plain(s) => s.flush(),
+            Stream::Tls(s) => s.flush(),
+        }
+    }
+}
+
 struct HttpConn {
     job: TrackerJob,
     url: Url,
     addrs: Vec<SocketAddr>,
-    stream: Option<TcpStream>,
+    stream: Option<Stream>,
     connected: bool,
     request: Vec<u8>,
     written: usize,
@@ -271,7 +312,7 @@ impl TrackerManager {
         let lower = job.url.to_ascii_lowercase();
         if lower.starts_with("udp://") {
             self.start_udp(job, resolver, now);
-        } else if lower.starts_with("http://") {
+        } else if lower.starts_with("http://") || lower.starts_with("https://") {
             let url = match &job.kind {
                 JobKind::Announce(r) => Some(announce_url(&job.url, r)),
                 JobKind::Scrape(ih) => scrape_url(&job.url, &[*ih]),
@@ -280,8 +321,6 @@ impl TrackerManager {
                 Some(url) => self.start_http(job, url, 0, resolver, registry, now),
                 None => self.fail(job, "invalid tracker URL"),
             }
-        } else if lower.starts_with("https://") {
-            self.fail(job, "HTTPS trackers are not supported yet")
         } else {
             self.fail(job, "unsupported tracker protocol")
         }
@@ -305,9 +344,6 @@ impl TrackerManager {
         registry: &Registry,
         now: Instant,
     ) {
-        if url.scheme != "http" {
-            return self.fail(job, "HTTPS trackers are not supported yet");
-        }
         let request = http::get_request(&url, &self.user_agent);
         let host = url.host.clone();
         let port = url.port;
@@ -335,7 +371,7 @@ impl TrackerManager {
     fn http_connect_next(&mut self, slot: usize, registry: &Registry) {
         let Some(c) = self.http.get_mut(slot) else { return };
         if let Some(mut s) = c.stream.take() {
-            let _ = registry.deregister(&mut s);
+            let _ = registry.deregister(s.tcp());
         }
         while let Some(addr) = c.addrs.pop() {
             if let Ok(mut s) = TcpStream::connect(addr) {
@@ -343,7 +379,20 @@ impl TrackerManager {
                     .register(&mut s, Token(HTTP_TOKEN_BASE + slot), Interest::READABLE | Interest::WRITABLE)
                     .is_ok()
                 {
-                    c.stream = Some(s);
+                    // A fresh TLS session per address: the ClientHello waits in it until the
+                    // TCP connection is up.
+                    c.stream = Some(if c.url.scheme == "https" {
+                        match tls::client(&c.url.host) {
+                            Ok(t) => Stream::Tls(Box::new(TlsStream::new(s, t))),
+                            Err(e) => {
+                                let _ = registry.deregister(&mut s);
+                                let c = self.http.remove(slot).expect("present");
+                                return self.fail(c.job, e.to_string());
+                            }
+                        }
+                    } else {
+                        Stream::Plain(s)
+                    });
                     c.connected = false;
                     c.written = 0;
                     c.buf.clear();
@@ -360,7 +409,8 @@ impl TrackerManager {
         let Some(c) = self.http.get_mut(slot) else { return };
         let Some(s) = c.stream.as_mut() else { return };
         if !c.connected {
-            match (s.take_error(), s.peer_addr()) {
+            let tcp = s.tcp();
+            match (tcp.take_error(), tcp.peer_addr()) {
                 (Ok(None), Ok(_)) => c.connected = true,
                 (Ok(None), Err(e)) if e.kind() == io::ErrorKind::NotConnected => return,
                 _ => return self.http_connect_next(slot, registry),
@@ -416,7 +466,7 @@ impl TrackerManager {
     ) {
         let Some(mut c) = self.http.remove(slot) else { return };
         if let Some(mut s) = c.stream.take() {
-            let _ = registry.deregister(&mut s);
+            let _ = registry.deregister(s.tcp());
         }
         let resp = match result {
             Ok(r) => r,
@@ -626,7 +676,7 @@ impl TrackerManager {
         for slot in expired {
             if let Some(mut c) = self.http.remove(slot) {
                 if let Some(mut s) = c.stream.take() {
-                    let _ = registry.deregister(&mut s);
+                    let _ = registry.deregister(s.tcp());
                 }
                 self.fail(c.job, "timed out");
             }

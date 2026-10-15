@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
 use patorrent_core::{
-    AddTorrentParams, Alert, PeerSource, Session, SessionHandle, SessionParams, Settings, TorrentFlags,
-    TorrentId, TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, PeerFlags, PeerSource, Session, SessionHandle, SessionParams, Settings,
+    TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const PIECE: usize = 32 * 1024;
@@ -820,6 +820,55 @@ fn a_leech_finds_another_through_the_seeds_peer_exchange() {
     a.shutdown();
     seed.shutdown();
     for d in [a_dir, b_dir, seed_dir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+#[test]
+fn a_new_peer_gets_download_quota_while_another_saturates_the_limit() {
+    // The leech downloads from seed A at a 20 kB/s limit, so A's socket always has more data
+    // than a tick's quota. Seed B, connected later, must still get quota to read its handshake
+    // (it used to sit in the handshake until it timed out, as the real-swarm DHT and PEX peers
+    // did, because A was served first and took everything).
+    let f = fixture(None);
+    let (seed_a, a_dir, a_port, _) = seeder(&f);
+    let (seed_b, b_dir, b_port, _) = seeder(&f);
+    let dir = temp_dir("limited");
+    let leech = Session::start(SessionParams {
+        settings: Settings { download_rate_limit: 20_000, ..settings() },
+        state_dir: None,
+    })
+    .expect("session starts");
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], a_port)));
+    wait(&mut w, 10, "payload from A", |a| {
+        status_of(a, id).filter(|s| s.total_payload_download > 64 * 1024).map(|_| ())
+    });
+
+    let b_addr = SocketAddr::from(([127, 0, 0, 1], b_port));
+    leech.handle().torrent(id).connect_peer(b_addr);
+    let deadline = Instant::now() + Duration::from_secs(8);
+    loop {
+        leech.handle().torrent(id).post_peer_info();
+        let peers = wait(&mut w, 5, "peer info", |al| match al {
+            Alert::PeerInfo { id: i, peers } if *i == id => Some(peers.clone()),
+            _ => None,
+        });
+        let b = peers.iter().find(|p| p.ip == b_addr);
+        if b.is_some_and(|p| {
+            !p.flags.contains(PeerFlags::CONNECTING) && !p.flags.contains(PeerFlags::HANDSHAKE)
+        }) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "B never got past the handshake; peers: {peers:#?}");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    leech.shutdown();
+    seed_a.shutdown();
+    seed_b.shutdown();
+    for d in [dir, a_dir, b_dir] {
         let _ = std::fs::remove_dir_all(d);
     }
 }

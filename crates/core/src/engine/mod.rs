@@ -619,6 +619,11 @@ impl Engine {
     }
 
     fn do_read(&mut self, slot: usize) {
+        self.do_read_capped(slot, usize::MAX);
+    }
+
+    /// Reads at most `share` bytes: the peer's share when several wait for quota.
+    fn do_read_capped(&mut self, slot: usize, mut share: usize) {
         loop {
             let backlogged = self.disk_backlogged();
             let session_quota = self.download_bucket.available();
@@ -626,7 +631,7 @@ impl Engine {
             if p.closing.is_some() || p.state == PeerState::Connecting {
                 return;
             }
-            let quota = session_quota.min(t.map_or(usize::MAX, |t| t.download_limit.available()));
+            let quota = session_quota.min(t.map_or(usize::MAX, |t| t.download_limit.available())).min(share);
             let quota = if backlogged && p.state == PeerState::Active { 0 } else { quota };
             if quota == 0 {
                 p.read_blocked = true;
@@ -646,6 +651,7 @@ impl Engine {
                     (0, false)
                 }
             };
+            share = share.saturating_sub(n);
             if n > 0 {
                 p.last_receive = Instant::now();
                 self.download_bucket.consume(n);
@@ -669,12 +675,18 @@ impl Engine {
     }
 
     pub(super) fn flush_peer(&mut self, slot: usize) {
+        self.flush_peer_capped(slot, usize::MAX);
+    }
+
+    /// Writes at most `share` bytes: the peer's share when several wait for quota.
+    fn flush_peer_capped(&mut self, slot: usize, share: usize) {
         let session_quota = self.upload_bucket.available();
         let Some((p, t)) = self.peer_and_torrent(slot) else { return };
         if p.closing.is_some() || p.state == PeerState::Connecting || p.send_buffer_len() == 0 {
             return;
         }
-        let quota = session_quota.min(t.as_ref().map_or(usize::MAX, |t| t.upload_limit.available()));
+        let quota =
+            session_quota.min(t.as_ref().map_or(usize::MAX, |t| t.upload_limit.available())).min(share);
         if quota == 0 {
             p.write_blocked = true;
             return;
@@ -727,20 +739,43 @@ impl Engine {
                 t.upload_limit.refill(dt);
             }
         }
-        let blocked: Vec<(usize, bool, bool)> = self
-            .peers
-            .iter()
-            .filter(|(_, p)| p.read_blocked || p.send_buffer_len() > 0)
-            .map(|(i, p)| (i, p.read_blocked, p.send_buffer_len() > 0))
-            .collect();
-        for (slot, read, write) in blocked {
-            if write {
-                self.flush_peer(slot);
-            }
-            if read {
-                self.do_read(slot);
-            }
+        let writes: Vec<usize> =
+            self.peers.iter().filter(|(_, p)| p.send_buffer_len() > 0).map(|(i, _)| i).collect();
+        for (slot, share) in self.quota_shares(&writes, false) {
+            self.flush_peer_capped(slot, share);
         }
+        let reads: Vec<usize> = self.peers.iter().filter(|(_, p)| p.read_blocked).map(|(i, _)| i).collect();
+        for (slot, share) in self.quota_shares(&reads, true) {
+            self.do_read_capped(slot, share);
+        }
+    }
+
+    /// libtorrent `bandwidth_manager::update_quotas` / `bw_request::assign_bandwidth`: the
+    /// quota of each channel (the session's and each torrent's) is split evenly over the peers
+    /// waiting for it (every peer has priority 1). Serving them in slot order with all the quota
+    /// let the first, busy peers take everything, and a new peer never read its handshake.
+    fn quota_shares(&self, slots: &[usize], download: bool) -> Vec<(usize, usize)> {
+        fn share(available: usize, waiting: usize) -> usize {
+            if available == usize::MAX { usize::MAX } else { available / waiting.max(1) }
+        }
+        let mut per_torrent: HashMap<TorrentId, usize> = HashMap::new();
+        for id in slots.iter().filter_map(|&s| self.peers.get(s).and_then(|p| p.torrent)) {
+            *per_torrent.entry(id).or_default() += 1;
+        }
+        let session = if download { &self.download_bucket } else { &self.upload_bucket };
+        let session_share = share(session.available(), slots.len());
+        slots
+            .iter()
+            .map(|&slot| {
+                let id = self.peers.get(slot).and_then(|p| p.torrent);
+                let torrent_share =
+                    id.and_then(|id| self.torrent_ref(id).map(|t| (id, t))).map_or(usize::MAX, |(id, t)| {
+                        let bucket = if download { &t.download_limit } else { &t.upload_limit };
+                        share(bucket.available(), per_torrent[&id])
+                    });
+                (slot, session_share.min(torrent_share))
+            })
+            .collect()
     }
 
     /// Removes peers marked for closing.
@@ -1724,8 +1759,8 @@ impl Engine {
                 if !self.disk_backlogged() {
                     let blocked: Vec<usize> =
                         self.peers.iter().filter(|(_, p)| p.read_blocked).map(|(i, _)| i).collect();
-                    for slot in blocked {
-                        self.do_read(slot);
+                    for (slot, share) in self.quota_shares(&blocked, true) {
+                        self.do_read_capped(slot, share);
                     }
                 }
             }

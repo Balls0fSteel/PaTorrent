@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_230633_1792098393: Rate limits no longer starve new peers of their handshake
+
+### Fixed
+- With a download limit set, peers that connected after the first ones never got past the handshake. The 100 ms bandwidth tick handed the refilled quota to read-blocked peers in slot order, up to 256 KiB each, so the first, busy peers took all of it every tick. A new peer's handshake sat in its socket until the 10 s handshake timeout. This was the "none of the DHT peers connect" seen in the PEX run: DHT and PEX peers arrive after the tracker peers have the low slots. Now each tick splits every channel's quota (the session's and each torrent's) evenly over the peers waiting for it, as libtorrent's `bandwidth_manager::update_quotas` / `bw_request::assign_bandwidth` do (`quota_shares`). The same applies to writes and to peers resumed after the disk queue drains.
+
+### Diagnosis
+- DHT peers were never the problem. `get_peers` `values` decoding (the mainline single-string format and the list format), `read_endpoint` and the engine's `normalize` (IPv4-mapped senders) match libtorrent, and peers go into the list of their own family. A dump of the peer states in the old build showed most DHT attempts stuck in `CONNECTING` (unreachable peers, normal for DHT). About 50 DHT and 49 PEX peers had connected over TCP but stayed in `HANDSHAKE`, and so did 15 tracker peers.
+- Pending connects count against `connections_limit` as in libtorrent: `session_impl::num_connections()` is `m_connections.size()` and `torrent::want_peers` checks `num_peers()`, both including half-open connections. That was left as it is.
+
+### Verified
+- New swarm test `a_new_peer_gets_download_quota_while_another_saturates_the_limit`: a leech limited to 20 kB/s downloads from seed A, then seed B must get past the handshake within 8 s. It failed before the fix (B stayed in `HANDSHAKE`) and passes now.
+- Real swarm, the same command as the PEX run (Debian 13.7.0 magnet with its tracker, `--dl-limit 6000`, 75 s): at 70 s, 150 of 198 peers connected (tracker 34/34, DHT 90/56, PEX 81/67), against 19 connected (DHT 0, PEX 0) with the old build. Download held at the 5.8 MB/s limit. Only 2 peers were still in the handshake; the rest pending were TCP connects to unreachable peers.
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test --workspace`.
+
+### Changed
+- PORTING.md: a deliberate-divergence row for how bandwidth is handed out (token buckets plus an even split, instead of libtorrent's request queue and peer classes).
+
 ## 2026-10-15_221714_1792095434: Peer exchange (ut_pex, BEP 11)
 
 ### Added

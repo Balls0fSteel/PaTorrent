@@ -80,6 +80,8 @@ pub struct Settings {
     pub dht_block_timeout: i32,
     pub dht_block_ratelimit: i32,
     pub enable_lsd: bool,
+    /// Seconds in which every running torrent is announced once on the local network (BEP 14).
+    pub local_service_announce_interval: u32,
     pub enable_upnp: bool,
     pub enable_natpmp: bool,
     pub enable_incoming_tcp: bool,
@@ -176,6 +178,7 @@ impl Default for Settings {
             dht_block_timeout: 5 * 60,
             dht_block_ratelimit: 5,
             enable_lsd: true,
+            local_service_announce_interval: 5 * 60,
             enable_upnp: true,
             enable_natpmp: true,
             enable_incoming_tcp: true,

@@ -2,8 +2,9 @@
 //! 127.0.0.1, connected directly, through an HTTP tracker and through a UDP tracker; plus a
 //! restart that resumes without rechecking, and one that keeps partly downloaded pieces; magnet
 //! links that fetch their metadata from the seed (BEP 9), a trackerless magnet that finds its
-//! seed through a third session's DHT, and a leech that learns about another through the
-//! seed's peer exchange (BEP 11).
+//! seed through a third session's DHT, a leech that learns about another through the seed's
+//! peer exchange (BEP 11), and two sessions that find each other through local service
+//! discovery (BEP 14).
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -110,8 +111,10 @@ fn settings() -> Settings {
         listen_interfaces: "127.0.0.1:0".into(),
         tick_interval: 100,
         aio_threads: 2,
-        // loopback tests stay off the internet
+        // loopback tests stay off the internet, and off the LAN: with LSD, sessions of tests
+        // running in parallel on one fixture would find each other
         enable_dht: false,
+        enable_lsd: false,
         ..Settings::default()
     }
 }
@@ -882,4 +885,95 @@ fn add_wanting_nothing(w: &mut Watch, f: &Fixture, dir: &Path) -> TorrentId {
         Alert::AddTorrentFailed { error, .. } => panic!("add failed: {error}"),
         _ => None,
     })
+}
+
+#[test]
+fn a_leech_finds_the_seed_through_local_service_discovery() {
+    // No tracker, no DHT and no connect_peer: the two sessions must find each other through
+    // their BEP 14 multicast announces on the loopback interface.
+    let lsd = || {
+        Session::start(SessionParams {
+            settings: Settings { enable_lsd: true, ..settings() },
+            state_dir: None,
+        })
+        .expect("session starts")
+    };
+    // an info-hash of its own, so no other test's session takes part
+    let f = fixture_padded(None, 77);
+    let seed_dir = temp_dir("lsd-seed");
+    write_files(&f, &seed_dir);
+    let seed = lsd();
+    let mut sw = Watch::new(seed.handle());
+    let seed_id = add(&mut sw, &f, &seed_dir);
+    wait_state(&mut sw, seed_id, TorrentState::Seeding, 20);
+
+    let dir = temp_dir("lsd-leech");
+    let leech = lsd();
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    let mut leech_heard_seed = false;
+    wait(&mut w, 60, "finished", |a| match a {
+        Alert::LsdPeer { id: i, .. } if *i == id => {
+            leech_heard_seed = true;
+            None
+        }
+        Alert::TorrentFinished { id: i } if *i == id => Some(()),
+        _ => None,
+    });
+    if !leech_heard_seed {
+        // the seed heard the leech's announce and connected to it
+        wait(&mut sw, 5, "LSD peer on the seed", |a| {
+            matches!(a, Alert::LsdPeer { id, .. } if *id == seed_id).then_some(())
+        });
+    }
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn a_second_connection_to_the_same_peer_is_closed() {
+    // The seed listens on every IPv4 address; the leech reaches it at two loopback addresses.
+    // Both handshakes carry the seed's peer-id, so one connection must go (libtorrent
+    // `duplicate_peer_id`), and both ends must agree on which.
+    let f = fixture(None);
+    let seed_dir = temp_dir("dup-seed");
+    write_files(&f, &seed_dir);
+    let seed = Session::start(SessionParams {
+        settings: Settings { listen_interfaces: "0.0.0.0:0".into(), ..settings() },
+        state_dir: None,
+    })
+    .expect("session starts");
+    let mut sw = Watch::new(seed.handle());
+    let port = listen_port(&mut sw);
+    let seed_id = add_wanting_nothing(&mut sw, &f, &seed_dir);
+    wait_state(&mut sw, seed_id, TorrentState::Seeding, 20);
+    let dir = temp_dir("dup-leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let id = add_wanting_nothing(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Finished, 10);
+    // (FreeBSD answers only on 127.0.0.1; the test then sees a single connection anyway)
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 2], port)));
+    std::thread::sleep(Duration::from_secs(2));
+    let connected = |w: &mut Watch, s: &Session, id: TorrentId| {
+        s.handle().torrent(id).post_peer_info();
+        let peers = wait(w, 5, "peer info", |a| match a {
+            Alert::PeerInfo { id: i, peers } if *i == id => Some(peers.clone()),
+            _ => None,
+        });
+        peers
+            .into_iter()
+            .filter(|p| !p.flags.intersects(PeerFlags::CONNECTING | PeerFlags::HANDSHAKE))
+            .count()
+    };
+    assert_eq!(connected(&mut w, &leech, id), 1, "leech side");
+    assert_eq!(connected(&mut sw, &seed, seed_id), 1, "seed side");
+    leech.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
 }

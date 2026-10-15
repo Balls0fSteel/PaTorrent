@@ -84,3 +84,10 @@ path = "fuzz_targets/dht_message.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "lsd"
+path = "fuzz_targets/lsd.rs"
+test = false
+doc = false
+bench = false

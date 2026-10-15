@@ -276,13 +276,17 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                     let name = rows.get(&id).map_or(String::new(), |r| r.name.clone());
                     println!("* {name}: finished downloading");
                 }
-                Alert::TorrentError { .. } | Alert::FileError { .. } | Alert::ListenFailed { .. } => {
+                Alert::TorrentError { .. }
+                | Alert::FileError { .. }
+                | Alert::ListenFailed { .. }
+                | Alert::LsdError { .. } => {
                     eprintln!("! {}", a.message())
                 }
                 Alert::TrackerError { .. }
                 | Alert::TrackerWarning { .. }
                 | Alert::TrackerReply { .. }
                 | Alert::DhtReply { .. }
+                | Alert::LsdPeer { .. }
                     if o.verbose =>
                 {
                     println!("* {}", a.message())
@@ -429,12 +433,13 @@ fn peer_sources(peers: &[PeerInfo]) -> String {
         format!("{}/{}", all.clone().count(), all.filter(up).count())
     };
     format!(
-        "{} peers ({} connected): tracker {}, dht {}, pex {}, incoming {}",
+        "{} peers ({} connected): tracker {}, dht {}, pex {}, lsd {}, incoming {}",
         peers.len(),
         peers.iter().filter(up).count(),
         count(PeerSource::TRACKER),
         count(PeerSource::DHT),
         count(PeerSource::PEX),
+        count(PeerSource::LSD),
         count(PeerSource::INCOMING)
     )
 }

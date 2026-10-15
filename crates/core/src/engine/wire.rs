@@ -170,6 +170,28 @@ impl Engine {
             t.peer_list.ban(&p.addr);
             return false;
         }
+        // libtorrent `bt_peer_connection::on_receive` (read_peer_id): another connection to
+        // the same peer, reached at another of its addresses (LSD finds a multi-homed host on
+        // each of them). The greater peer-id is the one allowed to initiate, so both ends close
+        // the same connection.
+        let (pid, outgoing, others) = (h.peer_id, p.outgoing, t.peers.clone());
+        let dup = others.into_iter().find(|&s| {
+            s != slot
+                && self
+                    .peers
+                    .get(s)
+                    .is_some_and(|o| o.state == PeerState::Active && o.closing.is_none() && o.peer_id == pid)
+        });
+        if let Some(other) = dup {
+            if (pid < our_id) == outgoing {
+                self.peers.get_mut(other).expect("exists").close("duplicate peer-id", false);
+            } else {
+                self.peers.get_mut(slot).expect("exists").close("duplicate peer-id", false);
+                return false;
+            }
+        }
+        let (p, t) = self.peer_and_torrent(slot).expect("exists");
+        let t = t.expect("checked");
         p.consume(peer_wire::HANDSHAKE_LEN);
         p.peer_id = h.peer_id;
         p.client = peer_wire::identify_client(&h.peer_id);

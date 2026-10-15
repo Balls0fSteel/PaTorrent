@@ -4,7 +4,7 @@ PaTorrent's engine is a Rust port of libtorrent-rasterbar 2.0.11. Ported code is
 
 Ported so far:
 - `crates/core/src/bencode`, `crypto` (SHA-1, SHA-256, CRC32C), `util`, `metainfo`, and the digest operations in `types.rs`
-- `crates/core/src/disk`, `engine` (session, torrent, peer connection, piece picker, peer list, choker, trackers, DHT glue), `net` (incl. the external-IP voter), `proto` (peer wire, HTTP, tracker protocols, ut_metadata, ut_pex) and `resume`
+- `crates/core/src/disk`, `engine` (session, torrent, peer connection, piece picker, peer list, choker, trackers, DHT and LSD glue), `net` (incl. the external-IP voter and `enum_net` helpers), `proto` (peer wire, HTTP, tracker protocols, ut_metadata, ut_pex, LSD) and `resume`
 - `crates/core/src/dht` (libtorrent's `kademlia/*`: node, routing table, rpc manager, lookups, storage, DoS blocker, node ids, DHT state) and `util/bloom_filter.rs`
 - libtorrent's test torrents in `crates/core/tests/fixtures/torrents`
 

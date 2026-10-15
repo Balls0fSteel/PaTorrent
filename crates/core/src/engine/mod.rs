@@ -11,6 +11,7 @@
 //! The real network engine (PLAN.md Phase 2).
 
 mod dht;
+mod lsd;
 mod metadata;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
@@ -179,6 +180,7 @@ pub(crate) struct Engine {
     last_auto_manage: Instant,
     store_flush_due: Option<Instant>,
     dht: dht::DhtSession,
+    lsd: lsd::LsdSession,
 }
 
 /// The network thread's entry point.
@@ -204,6 +206,9 @@ pub(crate) fn run(
         if let Some(d) = e.dht.deadline() {
             next = next.min(d);
         }
+        if let Some(d) = e.lsd.deadline() {
+            next = next.min(d);
+        }
         let timeout = next.saturating_duration_since(now);
         if let Err(err) = e.poll.poll(&mut events, Some(timeout)) {
             if err.kind() != io::ErrorKind::Interrupted {
@@ -224,6 +229,7 @@ pub(crate) fn run(
         e.flush_peers();
         let now = Instant::now();
         e.dht_service(now);
+        e.lsd_service(now);
         if e.bandwidth_tick_needed() && now >= e.last_bandwidth + BANDWIDTH_TICK {
             e.bandwidth_tick(now);
         }
@@ -301,6 +307,7 @@ impl Engine {
             last_auto_manage: now,
             store_flush_due: None,
             dht: dht::DhtSession::new(now),
+            lsd: lsd::LsdSession::new(),
             settings,
         }
     }
@@ -309,6 +316,7 @@ impl Engine {
 
     fn start(&mut self, state_dir: Option<PathBuf>) {
         self.open_listen_sockets();
+        self.start_lsd(Instant::now());
         self.start_dht(state_dir.as_deref());
         if let Some(dir) = state_dir {
             match Store::open(&dir) {
@@ -511,6 +519,9 @@ impl Engine {
             _ if token == UDP6_TOKEN => self.trackers.on_udp_readable(true, Instant::now()),
             _ if token == dht::DHT4_TOKEN => self.on_dht_readable(true),
             _ if token == dht::DHT6_TOKEN => self.on_dht_readable(false),
+            t if (lsd::LSD_TOKEN_BASE..lsd::LSD_TOKEN_BASE + lsd::MAX_LSD_SOCKETS).contains(&t) => {
+                self.on_lsd_readable(t - lsd::LSD_TOKEN_BASE)
+            }
             t if t >= HTTP_TOKEN_BASE => {
                 self.trackers.on_http_event(token, &self.resolver, self.poll.registry(), Instant::now())
             }
@@ -958,9 +969,18 @@ impl Engine {
         let queue_changed = s.active_downloads != self.settings.active_downloads
             || s.active_seeds != self.settings.active_seeds
             || s.active_limit != self.settings.active_limit;
+        let lsd_changed = s.enable_lsd != self.settings.enable_lsd;
         self.settings = s;
         if queue_changed {
             self.needs_auto_manage = true;
+        }
+        // libtorrent `update_lsd`
+        if lsd_changed {
+            if self.settings.enable_lsd {
+                self.start_lsd(Instant::now());
+            } else {
+                self.stop_lsd();
+            }
         }
     }
 
@@ -1335,6 +1355,7 @@ impl Engine {
             self.set_state(id, TorrentState::DownloadingMetadata);
             self.connect_peers_for(id, 10);
             self.prioritize_dht(id);
+            self.lsd_announce(id, Instant::now());
             return;
         }
         let t = self.torrent(id).expect("exists");
@@ -1536,6 +1557,7 @@ impl Engine {
                 self.needs_auto_manage = true;
                 self.connect_peers_for(id, 10);
                 self.prioritize_dht(id);
+                self.lsd_announce(id, Instant::now());
             }
         }
     }

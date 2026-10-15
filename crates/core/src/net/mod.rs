@@ -1,7 +1,10 @@
-//! Platform networking helpers: resolver, OS TLS, listen-interface parsing, bandwidth buckets.
+//! Platform networking helpers: resolver, OS TLS, interface enumeration and raw socket options,
+//! listen-interface parsing, bandwidth buckets.
 
+pub(crate) mod enum_net;
 pub(crate) mod ip_voter;
 pub(crate) mod resolver;
+pub(crate) mod sys;
 pub(crate) mod tls;
 
 use std::net::SocketAddr;

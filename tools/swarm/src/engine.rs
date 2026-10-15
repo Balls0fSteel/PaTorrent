@@ -30,6 +30,7 @@ fn settings() -> Settings {
         listen_interfaces: "127.0.0.1:0".into(),
         alert_queue_size: 1 << 20,
         enable_dht: false,
+        enable_lsd: false,
         ..Settings::default()
     }
 }

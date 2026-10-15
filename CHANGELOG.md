@@ -2,6 +2,35 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_234806_1792100886: Local service discovery (LSD, BEP 14)
+
+### Added
+- `core::proto::lsd`: the BT-SEARCH packet as libtorrent's `render_lsd_packet` writes it (one info-hash, our cookie in hex), and a parser with the request-header rules of libtorrent's `http_parser` that `lsd::on_announce` relies on (method `bt-search` in any case, a blank or colon-less line ends the header, `strtol` for `Port` and `cookie`, port 1–65534, several `Infohash` headers, 40 hex digits and non-zero).
+- `core::engine::lsd`, a port of `lsd.cpp` with the session and torrent parts: the wildcard listen addresses expand into every up, preferred local address (libtorrent `expand_unspecified_address`); one socket per interface and family, bound to port 6771 with address reuse (shared with other clients), in the group `239.192.152.143` / `ff15::efc0:988f` on that interface, hop limit 32, loopback on. A torrent announces when it starts (a magnet) or finishes checking, three sends at 0, 2 and 6 s, then in a round-robin over the running torrents within `local_service_announce_interval` (libtorrent default 5 min). Datagrams from outside the interface's subnets and our own (cookie) are ignored; peers go into the peer list as `PeerSource::LSD` and are connected at once. Never for private torrents, nor with `TorrentFlags::DISABLE_LSD`. `Settings::enable_lsd` (on by default, as in libtorrent) starts and stops it at runtime.
+- `core::net::enum_net` (`IpInterface`, `match_addr_mask`, `build_netmask`, with libtorrent's `test_enum_net` cases) and `core::net::sys`: UDP sockets with options set before `bind` (address reuse, plus `SO_REUSEPORT` on the BSDs, v6-only), the outgoing multicast interface and IPv6 hop limit, and the local interface list (`GetAdaptersAddresses` on Windows; `getifaddrs` on Unix, declared by hand under D4 with each OS's constants and `sockaddr` layout).
+- Alerts `LsdPeer { id, address }` and `LsdError { address, error }`; setting `local_service_announce_interval`.
+- nox: `--verbose` prints LSD peers, the 10 s peer summary counts `lsd`, LSD errors go to stderr.
+- Fuzz target `lsd` (parse, then our own announce for each hash must parse back to it), also in `fuzz.yml`.
+
+### Fixed
+- A peer reached at two of its addresses stayed connected twice. Ported libtorrent's duplicate peer-id rule (`bt_peer_connection`, `read_peer_id`): when a handshake carries the peer-id of another connection of the torrent, the connection initiated by the side with the smaller peer-id is closed, so both ends close the same one. LSD made this visible: two clients on one machine found each other on all 14 local interfaces and held 28 connections.
+
+### Changed
+- The loopback swarm tests, `lt-swarm` and its interop runs switch LSD off, so tests running in parallel on one fixture cannot find each other.
+- PORTING.md: deliberate divergences for LSD sockets (one per interface and family, IPv6 by interface index), resends and pacing (one session-wide resend timer, running torrents only) and interface changes (read once). THIRD-PARTY-NOTICES.md lists LSD and the `enum_net` helpers as ported.
+
+### Verified
+- Unit tests: packet rendering and round trip, several and malformed `Infohash` headers, every rejected packet kind, C `strtol` behaviour, sockaddr encoding round trip, two reusable sockets on one port, the interface list holds loopback, endpoint expansion and grouping from listen addresses, the subnet filter with IPv6 scopes, netmasks and `match_addr_mask`.
+- Swarm test `a_leech_finds_the_seed_through_local_service_discovery`: no tracker, DHT or `connect_peer`; the leech finishes the download from peers found through LSD on loopback (Windows: 0.2 s).
+- Swarm test `a_second_connection_to_the_same_peer_is_closed`: the leech connects to a seed listening on `0.0.0.0` at 127.0.0.1 and 127.0.0.2; one connection stays on each side. Without the fix the leech kept two.
+- Two `patorrent-nox` processes (ports 46881 and 46991, wildcard listen addresses) on this machine: both opened LSD on 14 interfaces (IPv4 and IPv6, including loopback and link-local), shared port 6771, found each other on every interface within a second, no LSD errors, and ended with one connection (source LSD on one side, incoming on the other).
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test --workspace`. `fuzz.bat lsd 60`: 941,718 runs, no crash.
+- `lt-swarm interop` after the handshake change: qBittorrent 5.2.4 0.12 s, Transmission 4.1.0-beta.2 9.7 s (its 10 s rechoke), Deluge 2.2.0 0.38 s; all ok, no failed or redundant bytes.
+- Not verified: Linux and FreeBSD (CI will run the swarm test there), a second machine on a real LAN, LSD in the GUI on screen.
+
+### Issues seen
+- `dht::routing_table::tests::routing_table_v6` failed in some full test runs (13 active buckets, the test accepts 11 or 12). It fails on the previous commit too (1 in 15 runs there, 3 in 15 here: random draws). Recorded in PLAN.md (Known TODOs).
+
 ## 2026-10-15_230633_1792098393: Rate limits no longer starve new peers of their handshake
 
 ### Fixed

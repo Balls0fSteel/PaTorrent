@@ -147,6 +147,16 @@ pub enum Alert {
     },
     /// The DHT finished its startup bootstrap (libtorrent `dht_bootstrap_alert`).
     DhtBootstrap,
+    /// A local peer announced a torrent we have (libtorrent `lsd_peer_alert`).
+    LsdPeer {
+        id: TorrentId,
+        address: SocketAddr,
+    },
+    /// Local service discovery failed on an interface (libtorrent `lsd_error_alert`).
+    LsdError {
+        address: IpAddr,
+        error: Error,
+    },
 
     // Replies to `post_*` requests
     /// Torrents whose status changed since the previous `post_torrent_updates()`.
@@ -225,6 +235,8 @@ impl Alert {
             | ExternalIp { .. }
             | DhtReply { .. }
             | DhtBootstrap
+            | LsdPeer { .. }
+            | LsdError { .. }
             | Log { .. } => AlertPriority::Normal,
         }
     }
@@ -248,6 +260,7 @@ impl Alert {
             | FileError { id, .. }
             | TrackerReply { id, .. }
             | DhtReply { id, .. }
+            | LsdPeer { id, .. }
             | TrackerWarning { id, .. }
             | TrackerError { id, .. }
             | ScrapeReply { id, .. }
@@ -301,6 +314,8 @@ impl Alert {
             ExternalIp { ip } => write!(s, "external IP: {ip}"),
             DhtReply { num_peers, .. } => write!(s, "DHT: received {num_peers} peers"),
             DhtBootstrap => write!(s, "DHT bootstrapped"),
+            LsdPeer { address, .. } => write!(s, "LSD: local peer {address}"),
+            LsdError { address, error } => write!(s, "LSD failed on {address}: {error}"),
             StateUpdate(v) => write!(s, "state update for {} torrents", v.len()),
             SessionStats(_) => write!(s, "session stats"),
             PeerInfo { peers, .. } => write!(s, "{} peers", peers.len()),

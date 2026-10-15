@@ -4,6 +4,7 @@ LibreTorrent's engine is a Rust port of libtorrent-rasterbar 2.0.11. Ported code
 
 Ported so far:
 - `crates/core/src/bencode`, `crypto` (SHA-1, SHA-256, CRC32C), `util`, `metainfo`, and the digest operations in `types.rs`
+- `crates/core/src/disk`, `engine` (session, torrent, peer connection, piece picker, peer list, choker, trackers), `net`, `proto` (peer wire, HTTP, tracker protocols) and `resume`
 - libtorrent's test torrents in `crates/core/tests/fixtures/torrents`
 
 Each source file names its origin in a header comment.
@@ -123,7 +124,10 @@ SHA-256. Adapted from LibTomCrypt. This code is Public Domain
 
 | Crate | Used by | License |
 |---|---|---|
-| `windows-sys` | Win32 GUI, `lt-swarm` (Windows only) | MIT OR Apache-2.0 |
+| `mio` | engine (all binaries): the network event loop (PLAN.md D2) | MIT |
+| `log` (pulled in by `mio`) | same | MIT OR Apache-2.0 |
+| `libc` (pulled in by `mio`) | same (Unix only) | MIT OR Apache-2.0 |
+| `windows-sys` | engine (sparse files, and mio on Windows), Win32 GUI, `lt-swarm` (Windows only) | MIT OR Apache-2.0 |
 | `windows-link` (pulled in by `windows-sys`) | same | MIT OR Apache-2.0 |
 
 This table is kept current with every dependency change (dependency policy: docs/ARCHITECTURE.md).

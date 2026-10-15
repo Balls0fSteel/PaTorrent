@@ -47,6 +47,10 @@ pub struct Settings {
     pub auto_manage_interval: u32,
 
     pub connections_limit: i32,
+    /// New outgoing connection attempts per second.
+    pub connection_speed: i32,
+    /// Ports tried after the configured one when it is busy.
+    pub max_retry_port_bind: u32,
     pub unchoke_slots_limit: i32,
     pub max_peerlist_size: i32,
     pub max_paused_peerlist_size: i32,
@@ -67,8 +71,30 @@ pub struct Settings {
 
     /// Seconds.
     pub stop_tracker_timeout: u32,
+    pub tracker_completion_timeout: u32,
+    pub tracker_receive_timeout: u32,
+    /// Smallest re-announce interval we honour, in seconds.
+    pub min_announce_interval: u32,
+    pub num_want: u32,
+    /// Announce to one tracker in every tier (true), or only to the first working one.
+    pub announce_to_all_tiers: bool,
+    /// Announce to every tracker in a tier, not just the first working one.
+    pub announce_to_all_trackers: bool,
     pub request_timeout: u32,
     pub peer_timeout: u32,
+    pub peer_connect_timeout: u32,
+    pub handshake_timeout: u32,
+    /// Seconds of requests to keep queued per peer, at its current rate.
+    pub request_queue_time: u32,
+    pub max_out_request_queue: i32,
+    pub max_allowed_in_request_queue: i32,
+    /// Seconds between choker runs / optimistic unchoke rotations.
+    pub unchoke_interval: u32,
+    pub optimistic_unchoke_interval: u32,
+    /// Bytes queued in a peer's send buffer before more disk reads are issued for it.
+    pub send_buffer_watermark: u32,
+    /// Disconnect peers when both sides are seeds (or neither side wants anything).
+    pub close_redundant_connections: bool,
 
     pub alert_queue_size: usize,
     /// Milliseconds between session ticks.
@@ -98,6 +124,8 @@ impl Default for Settings {
             dont_count_slow_torrents: true,
             auto_manage_interval: 30,
             connections_limit: 200,
+            connection_speed: 30,
+            max_retry_port_bind: 10,
             unchoke_slots_limit: 8,
             max_peerlist_size: 3000,
             max_paused_peerlist_size: 1000,
@@ -114,8 +142,25 @@ impl Default for Settings {
             allowed_enc_level: EncLevel::Both,
             prefer_rc4: false,
             stop_tracker_timeout: 5,
+            tracker_completion_timeout: 30,
+            tracker_receive_timeout: 10,
+            min_announce_interval: 300,
+            num_want: 200,
+            // libtorrent defaults to false for both; qBittorrent and µTorrent announce to every
+            // tier, which finds more peers on multi-tier public torrents.
+            announce_to_all_tiers: true,
+            announce_to_all_trackers: false,
             request_timeout: 60,
             peer_timeout: 120,
+            peer_connect_timeout: 15,
+            handshake_timeout: 10,
+            request_queue_time: 3,
+            max_out_request_queue: 500,
+            max_allowed_in_request_queue: 500,
+            unchoke_interval: 15,
+            optimistic_unchoke_interval: 30,
+            send_buffer_watermark: 500 * 1024,
+            close_redundant_connections: true,
             alert_queue_size: 2000,
             tick_interval: 500,
             aio_threads: 10,

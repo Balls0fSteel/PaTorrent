@@ -10,5 +10,8 @@ publish.workspace = true
 [dependencies]
 libretorrent-core.workspace = true
 
+[dev-dependencies]
+libretorrent-core = { workspace = true, features = ["mock"] }
+
 [lints]
 workspace = true

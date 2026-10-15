@@ -11,10 +11,10 @@ use std::time::Instant;
 use libretorrent_core::bencode::Entry;
 use libretorrent_core::metainfo::TorrentInfo;
 
-struct Rng(u64);
+pub(crate) struct Rng(u64);
 
 impl Rng {
-    fn new(seed: u64) -> Rng {
+    pub(crate) fn new(seed: u64) -> Rng {
         Rng(seed.wrapping_mul(0x9e37_79b9_7f4a_7c15) | 1)
     }
 
@@ -77,7 +77,7 @@ pub fn generate(count: usize, out: &Path, seed: u64) -> ExitCode {
     ExitCode::SUCCESS
 }
 
-fn synthetic_torrent(rng: &mut Rng, i: usize) -> Vec<u8> {
+pub(crate) fn synthetic_torrent(rng: &mut Rng, i: usize) -> Vec<u8> {
     // sizes from 10 MB to 20 GB, log-uniform; ~1500 pieces like common creators
     let total = (10e6f64.ln() + (20e9f64.ln() - 10e6f64.ln()) * rng.unit()).exp() as u64;
     let piece_length = (total / 1500).next_power_of_two().clamp(16 << 10, 16 << 20);

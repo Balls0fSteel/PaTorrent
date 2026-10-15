@@ -1,6 +1,6 @@
 # LibreTorrent architecture
 
-Status: **proposed** (planning stage, nothing implemented yet). Open decisions live in [PLAN.md](../PLAN.md#open-questions).
+Status: **in implementation**. Phases 0-2 are built as described here (one mio network thread, disk thread pool, resolver threads, slab ownership, store); PLAN.md tracks progress and open decisions, and docs/PORTING.md lists where the code departs from libtorrent.
 
 ## Goals, in priority order
 

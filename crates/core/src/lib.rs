@@ -11,19 +11,27 @@
 //! * [`SessionHandle::post_torrent_updates`] reports only torrents whose status changed since the
 //!   previous call. This is what keeps frontends cheap with thousands of torrents loaded.
 //!
-//! Status (Phase 0): the API is defined and backed by a simulated engine (`mock` feature,
-//! [`Session::start_mock`]). The real network engine replaces it in Phase 2 without API changes.
+//! Status (Phase 2): [`Session::start`] runs the real engine: TCP peers (BEP 3, 6, 10), HTTP and
+//! UDP trackers, pread disk I/O with incremental hashing, and a persistent store. The simulated
+//! engine stays available behind the `mock` feature ([`Session::start_mock`]) for frontend and
+//! scale work.
 
 mod alert;
 pub mod bencode;
 pub mod crypto;
+mod disk;
+mod engine;
 mod error;
 mod flags;
 pub mod metainfo;
+mod net;
 mod params;
+mod proto;
+mod resume;
 mod session;
 mod settings;
 mod status;
+mod store;
 mod types;
 pub mod util;
 mod version;
@@ -34,7 +42,7 @@ mod mock;
 pub use alert::{Alert, AlertPriority, AlertQueue};
 pub use error::Error;
 pub use params::{AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags, TorrentSource};
-pub use session::{Session, SessionHandle, TorrentHandle};
+pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
 pub use settings::{EncLevel, EncPolicy, Settings};
 pub use status::{
     AnnounceEntry, FileEntry, PeerFlags, PeerInfo, PeerSource, SessionStats, TorrentState, TorrentStatus,

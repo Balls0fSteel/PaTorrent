@@ -12,7 +12,7 @@ name = "libretorrent"
 path = "src/main.rs"
 
 [dependencies]
-libretorrent-core.workspace = true
+libretorrent-core = { workspace = true, features = ["mock"] }
 libretorrent-frontend.workspace = true
 
 [target.'cfg(windows)'.dependencies]

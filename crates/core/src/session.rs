@@ -37,6 +37,7 @@ pub(crate) enum Command {
     SetDownloadLimit(TorrentId, u32),
     SetUploadLimit(TorrentId, u32),
     MoveStorage(TorrentId, String),
+    ConnectPeer(TorrentId, std::net::SocketAddr),
     PostTorrentUpdates,
     PostSessionStats,
     PostPeerInfo(TorrentId),
@@ -58,6 +59,14 @@ pub(crate) struct Shared {
     pub(crate) alerts: AlertQueue,
 }
 
+/// How to start a [`Session`] (libtorrent `session_params`).
+#[derive(Clone, Debug, Default)]
+pub struct SessionParams {
+    pub settings: Settings,
+    /// Directory for `resume.db` and `metadata.pack`; `None` keeps nothing between runs.
+    pub state_dir: Option<std::path::PathBuf>,
+}
+
 /// Owns the engine thread. Dropping it shuts the engine down and waits for it, like
 /// libtorrent's `session` destructor.
 pub struct Session {
@@ -66,6 +75,22 @@ pub struct Session {
 }
 
 impl Session {
+    /// Starts the BitTorrent engine on its own network thread. With `state_dir`, torrents and
+    /// their progress are saved there and restored on the next start.
+    pub fn start(params: SessionParams) -> Result<Session, crate::Error> {
+        let poll = mio::Poll::new()?;
+        let waker = Arc::new(mio::Waker::new(poll.registry(), crate::engine::WAKER_TOKEN)?);
+        let wake = waker.clone();
+        let state_dir = params.state_dir;
+        Ok(Session::spawn(
+            params.settings,
+            Box::new(move || {
+                let _ = wake.wake();
+            }),
+            move |rx, shared, settings| crate::engine::run(poll, waker, rx, shared, settings, state_dir),
+        ))
+    }
+
     /// Starts a simulated engine behind the real API (see [`crate::MockConfig`]).
     #[cfg(feature = "mock")]
     pub fn start_mock(settings: Settings, config: crate::MockConfig) -> Session {
@@ -74,7 +99,6 @@ impl Session {
         })
     }
 
-    #[cfg_attr(not(feature = "mock"), allow(dead_code))]
     fn spawn(
         settings: Settings,
         wake: Box<dyn Fn() + Send + Sync>,
@@ -239,6 +263,11 @@ impl TorrentHandle {
 
     pub fn set_upload_limit(&self, limit: u32) {
         self.session.send(Command::SetUploadLimit(self.id, limit));
+    }
+
+    /// Adds `addr` to the torrent's peer list and connects to it (libtorrent `connect_peer`).
+    pub fn connect_peer(&self, addr: std::net::SocketAddr) {
+        self.session.send(Command::ConnectPeer(self.id, addr));
     }
 
     pub fn move_storage(&self, save_path: impl Into<String>) {

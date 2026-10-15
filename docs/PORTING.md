@@ -104,7 +104,7 @@ Record each one here with the reason.
 
 | Area | libtorrent 2.0.11 | LibreTorrent | Why |
 |---|---|---|---|
-| Disk backend | mmap by default; `posix_disk_io` runs I/O on the network thread | pread/pwrite on the disk thread pool with our own write-back cache | memory accounting and performance on Windows and network drives; scale |
+| Disk backend | mmap by default; `posix_disk_io` runs I/O on the network thread | pread/pwrite on the disk thread pool. Blocks are written through and hashed in order as they arrive (a small reorder cache holds early blocks), so finished pieces are never read back | memory accounting and performance on Windows and network drives; scale |
 | Persistence | left to the client (qBittorrent: two files per torrent) | `core::store`: one resume DB + one metadata pack | startup time and file count at 10k+ torrents |
 | Inactive torrents | `torrent_info` (incl. piece hashes) stays in memory | info dict loaded lazily on start, dropped when stopped | per-torrent RAM at scale |
 | Ownership | `shared_ptr` / `weak_ptr` graph | slab + generational ids | no refcount traffic, no lifetime cycles, Rust-friendly |
@@ -115,3 +115,12 @@ Record each one here with the reason.
 | `file_storage` paths (Phase 1) | linear search of the directory table per file | most-recent check plus hash index | avoids quadratic loading of hostile torrents with many directories |
 | Hybrid without v1 pieces (Phase 1) | a `meta version 2` torrent with a v1 file list but no `pieces` is accepted, claims a v1 hash, and every v1 hash check later fails | rejected with `torrent_missing_pieces` | a torrent that can never verify v1 data should not load (found by our mutation tests) |
 | Magnet btih (Phase 1) | a 40-character btih with non-hex characters is silently accepted (garbage hash) | rejected with `invalid_info_hash` | correctness |
+| Disk job routing (Phase 2) | jobs go to any thread of the pool; partial-piece hash state is shared under locks | every job for a piece runs on thread `piece % threads`, so the hash state needs no lock; fences are broadcast jobs whose last finisher runs the action | simpler, lock-free hashing |
+| Checking queue (Phase 2) | `active_checking` torrents check at once, the rest queue in the session | checks run one at a time, FIFO, on a dedicated hashing thread | same effect with `active_checking = 1` (the default) |
+| Resume verification (Phase 2) | compares file sizes and modification times | file sizes only (every file holding a claimed piece must reach that far) | mtimes differ across copy tools and file systems; sizes catch truncation |
+| Unfinished pieces (Phase 2) | saved in resume data (`unfinished`) and re-hashed on load | not saved yet: partial pieces are downloaded again after a restart | small cost (at most one piece per peer); follow-up in PLAN.md |
+| Piece picker (Phase 2) | pieces sit in a vector bucketed by priority and availability, moved on every HAVE | per-piece counters plus a pick order rebuilt lazily, at most every 500 ms while availability changes | far less code; ordering can lag by one rebuild, which only affects which of two equally rare pieces goes first |
+| Announce policy (Phase 2) | `announce_to_all_tiers` = false | true (the libtorrent setting, with qBittorrent's and µTorrent's behaviour as default) | more peers on multi-tier public torrents |
+| Seed choking (Phase 2) | `seed_choking_algorithm` = round robin | fastest upload (one of libtorrent's options) | simple and effective; round robin can follow with the full choker port |
+| UDP trackers (Phase 2) | share the listen socket | one ephemeral UDP socket per address family | uTP will own the listen socket (Phase 4); trackers don't need it |
+| Persistence writes (Phase 2) | n/a (client side) | `resume.db` is rewritten atomically, debounced (2 s after adds, every 30 s for progress); the metadata pack is appended at once | bulk adds rewrite once instead of once per torrent. An append-only record log (ARCHITECTURE.md) follows if the rewrite shows up in profiles |

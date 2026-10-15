@@ -2,6 +2,54 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_124018_1792060818: Phase 2, the real engine
+
+### Added (ported from libtorrent-rasterbar 2.0.11 unless noted)
+- **`core::disk`**: pread/pwrite storage on a thread pool plus a checking thread. Jobs for a piece always run on the same thread, so incremental SHA-1 hashing needs no locks; blocks are hashed in order as they are written (early blocks wait in a reorder cache), so finished pieces are never read back. Fences (release, delete files and empty directories), full checks, resume verification by file size, an LRU file-handle pool, sparse files on Windows, and back-pressure on peers when writes queue up.
+- **`core::proto`** (sans-IO codecs):
+  - peer wire: handshake, BEP 3 messages, BEP 6 (with the allowed-fast set generator), BEP 10 extension handshake, peer-id generation and client identification
+  - HTTP/1.1 response parsing with chunked bodies and redirects
+  - tracker announce/scrape URLs and responses (BEP 3/23/24/48) and BEP 15 UDP packets
+- **`core::engine`**:
+  - the session loop on mio: listen sockets, outgoing connections with pacing, a 500 ms tick over running torrents only, bandwidth buckets, queueing and auto-management, session pause
+  - torrents: check → download → seed, pause/resume/force start, remove with or without data, file priorities, sequential download, force recheck, rate limits
+  - peers: request pipelining sized by download rate, end-game with cancels, snubbing, timeouts, keep-alives, upload serving with disk reads capped by the send watermark
+  - piece picker (rarest first, priorities, partial pieces first, sequential), peer list with BEP 40 ranks, a fixed-slot rate-based choker with an optimistic slot
+  - trackers: HTTP and UDP state machines on the reactor, tiers, backoff, `started`/`completed`/`stopped` events, connection-id cache, scrapes when announces carry no counts
+- **`core::net`**: resolver threads with a cache; listen-interface parsing; token buckets.
+- **`core::resume`** and **`core::store`** (new): libtorrent fast-resume records in one `resume.db` plus an append-only `metadata.pack`; metadata is loaded only when a torrent starts.
+- **`util::stat`**: `sliding_average` (with libtorrent's tests) and transfer-rate channels.
+- **API**: `Session::start(SessionParams { settings, state_dir })`, `TorrentHandle::connect_peer`, new settings (connection pacing, tracker timeouts and policy, peer timeouts, request queue, choker intervals, send watermark).
+- **`libretorrent-nox`** on the real engine: `add <file> --save DIR [--seed]`, `run` (resume saved torrents), `--state`, `--port`, rate limits, `q` to quit cleanly.
+- **`lt-swarm loopback`** and **`lt-swarm load`** benchmarks, also in the CI job summary.
+- **Tests**: unit tests for every new module (BEP 6 and BEP 40 reference vectors, libtorrent's sliding-average tests) and `tests/swarm.rs` (loopback downloads through a direct connection, an HTTP tracker and a UDP tracker, then a restart that resumes without rechecking).
+
+### Changed
+- `mio` (and through it `log`, plus `libc` on Unix) is now an engine dependency, as planned in D2/D4; `windows-sys` is used by the engine for sparse files. THIRD-PARTY-NOTICES.md lists them.
+- The `mock` feature is off by default; the Win32 GUI, `lt-swarm` and nox's `demo` command enable it explicitly.
+- Magnet links and bare info-hashes are rejected with a clear message until `ut_metadata` lands; v2-only torrents until Phase 8.
+
+### Verified
+- **Real download**: Debian 13.7.0 netinst (792 MB) from `bttracker.debian.org` with `libretorrent-nox add`: 7–9 s, 30–40 peers, SHA-512 identical to Debian's `SHA512SUMS`. Done twice; the second run on the final code.
+- **Restart**: `libretorrent-nox run` restored the torrent as a seed after resume verification (no hashing).
+- **Benchmarks** (release, this machine): 1,000 saved torrents restore in 12 ms and 10,000 in 109 ms (45 MB RSS); 512 MiB over loopback in 0.47 s (about 1.15 GB/s, 2.5 ns CPU per byte).
+- `cargo test --workspace`: 241 tests pass (227 core unit, 3 robustness, 4 swarm, 7 frontend) plus 1 release-only test. `cargo clippy --workspace --all-targets -D warnings` and `cargo fmt --check` are clean. The core crate alone (without `mock`) also builds and passes.
+
+### Not verified / open
+- Seeding to qBittorrent, Transmission and Deluge (exit criterion). A 60-second public seeding run uploaded nothing: Debian's swarm is almost all seeds (seed-to-seed connections are closed by design) and the inbound port is probably firewalled on this machine. qBittorrent is installed here but was not launched, to avoid touching the user's desktop profile; PLAN.md Q10 asks how to set up interop testing.
+- HTTPS trackers (needs the OS TLS layer), saving partial pieces in resume data, batched UDP scrapes.
+- MSRV 1.85 is not checked locally (only Rust 1.90 is installed); CI checks it.
+
+### Fixed during development
+- `file_piece_range_inclusive` returns an exclusive end (it includes partly covered pieces); a unit test caught that file priorities spilled into the next piece.
+- The allowed-fast list a peer sent us was first used to decide what *we* serve while choking; there are now separate lists, and we send our own BEP 6 set.
+- Bulk adds rewrote `resume.db` once per torrent (quadratic; 10,000 adds timed out). Store writes are now debounced.
+- A first BEP 40 version used a guessed mask scheme; it was replaced by a straight port and libtorrent's test vectors.
+
+### Issues encountered
+- Shell heredocs mangled some multi-line edit scripts again; edits now go through script files.
+- Rust 2024 reserves `gen`; renamed a local.
+
 ## 2026-10-15_115117_1792057877: CI fixes for Phase 1
 
 ### Fixed

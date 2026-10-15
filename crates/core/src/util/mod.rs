@@ -5,5 +5,6 @@ pub mod bitfield;
 pub mod hex;
 pub mod path;
 pub mod random;
+pub mod stat;
 pub mod string;
 pub mod utf8;

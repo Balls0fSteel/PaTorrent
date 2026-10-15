@@ -4,12 +4,16 @@
 //!   first full status update, size of incremental updates, and process memory.
 //! * `gen` / `parse`: a synthetic `.torrent` corpus, and how fast and how big parsed metadata is.
 //!
-//! Later phases add `swarm` (in-process loopback swarm for throughput and CPU per byte) and
-//! `interop` (scripted transfers against other clients).
+//! * `loopback`: the real engine, a seed and a downloader in this process over 127.0.0.1:
+//!   throughput and CPU time per byte.
+//! * `load`: the real engine's cold start with N saved torrents.
+//!
+//! A later phase adds `interop` (scripted transfers against other clients).
 //!
 //! Output is `key=value` lines (machine readable, used by CI) followed by a human summary.
 
 mod corpus;
+mod engine;
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -23,6 +27,8 @@ USAGE:
     lt-swarm scale [--torrents N] [--active FRACTION] [--seconds N]
     lt-swarm gen --out DIR [--count N] [--seed N]
     lt-swarm parse DIR
+    lt-swarm loopback [--mb N] [--piece-kib N]
+    lt-swarm load [--count N]
 ";
 
 fn main() -> ExitCode {
@@ -57,6 +63,27 @@ fn main() -> ExitCode {
                 Some(out) => corpus::generate(count, &out, seed),
                 None => usage("gen: --out is required"),
             }
+        }
+        Some("loopback") => {
+            let (mut mb, mut piece) = (256usize, 256usize);
+            let mut it = args[1..].iter();
+            while let Some(a) = it.next() {
+                let v = it.next().and_then(|v| v.parse().ok());
+                match (a.as_str(), v) {
+                    ("--mb", Some(v)) => mb = v,
+                    ("--piece-kib", Some(v)) => piece = v,
+                    _ => return usage(&format!("bad option {a}")),
+                }
+            }
+            engine::loopback(mb.max(1), piece.clamp(16, 16 * 1024), cpu_time)
+        }
+        Some("load") => {
+            let count = match (args.get(1).map(String::as_str), args.get(2).and_then(|v| v.parse().ok())) {
+                (None, _) => 1000,
+                (Some("--count"), Some(n)) => n,
+                _ => return usage("load: expected --count N"),
+            };
+            engine::load(count, rss_bytes)
         }
         Some("parse") => match args.get(1) {
             Some(dir) => corpus::parse(std::path::Path::new(dir), rss_bytes),
@@ -173,6 +200,34 @@ fn scale(n: usize, active: f64, secs: u64) -> ExitCode {
         mb(rss_steady),
     );
     ExitCode::SUCCESS
+}
+
+/// User + kernel CPU time of this process.
+#[cfg(windows)]
+fn cpu_time() -> Option<Duration> {
+    use windows_sys::Win32::Foundation::FILETIME;
+    use windows_sys::Win32::System::Threading::{GetCurrentProcess, GetProcessTimes};
+    let z = FILETIME { dwLowDateTime: 0, dwHighDateTime: 0 };
+    let (mut a, mut b, mut k, mut u) = (z, z, z, z);
+    // SAFETY: valid pseudo-handle and out-pointers to live stack values.
+    let ok = unsafe { GetProcessTimes(GetCurrentProcess(), &mut a, &mut b, &mut k, &mut u) } != 0;
+    let t = |f: FILETIME| ((f.dwHighDateTime as u64) << 32 | f.dwLowDateTime as u64) * 100;
+    ok.then(|| Duration::from_nanos(t(k) + t(u)))
+}
+
+#[cfg(target_os = "linux")]
+fn cpu_time() -> Option<Duration> {
+    // Fields 14 and 15 of /proc/self/stat: utime and stime in clock ticks (100 Hz on Linux).
+    let stat = std::fs::read_to_string("/proc/self/stat").ok()?;
+    let rest = &stat[stat.rfind(')')? + 2..];
+    let f: Vec<&str> = rest.split(' ').collect();
+    let ticks: u64 = f.get(11)?.parse::<u64>().ok()? + f.get(12)?.parse::<u64>().ok()?;
+    Some(Duration::from_millis(ticks * 10))
+}
+
+#[cfg(not(any(windows, target_os = "linux")))]
+fn cpu_time() -> Option<Duration> {
+    None
 }
 
 /// Resident set size of this process, where the platform makes it cheap to read.

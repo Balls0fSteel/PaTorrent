@@ -296,6 +296,8 @@ impl Mock {
                     self.out.push(Alert::Log { id: Some(id), message: format!("storage moved to {path}") });
                 }
             }
+            // The simulated swarm has no real peers to connect to.
+            Command::ConnectPeer(..) => {}
             Command::PostTorrentUpdates => {
                 let mut changed = Vec::new();
                 for t in self.slots.iter_mut().filter_map(|s| s.torrent.as_mut()) {

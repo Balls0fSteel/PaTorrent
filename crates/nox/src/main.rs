@@ -1,56 +1,99 @@
 //! `libretorrent-nox`: the headless LibreTorrent daemon (PLAN.md Phase 6).
 //!
-//! Phase 0: a command-line driver for the engine API, running on the simulated engine. It
-//! exercises the same calls the daemon will use (add, alert notify, dirty-only status updates,
-//! session stats). Arguments are parsed by hand to keep the dependency list empty.
+//! Phase 2: a command-line client on the real engine. `add` downloads `.torrent` files and,
+//! with `--seed`, keeps seeding; `run` resumes everything saved in the state directory. State
+//! (resume.db + metadata.pack) persists between runs, so a restart resumes without a recheck.
+//! `demo` still drives the simulated engine for scale experiments. Arguments are parsed by hand
+//! to keep the dependency list empty.
 
 use std::collections::HashMap;
+use std::path::PathBuf;
 use std::process::ExitCode;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use libretorrent_core::{
-    AddTorrentParams, Alert, MockConfig, Session, SessionStats, Settings, TorrentId, TorrentSource,
-    TorrentStatus, VERSION,
+    AddTorrentParams, Alert, MockConfig, Session, SessionParams, SessionStats, Settings, TorrentFlags,
+    TorrentId, TorrentSource, TorrentStatus, VERSION,
 };
 use libretorrent_frontend::{fmt, status};
 
 const USAGE: &str = "\
-libretorrent-nox: headless LibreTorrent (Phase 0: simulated engine)
+libretorrent-nox: headless LibreTorrent
 
 USAGE:
-    libretorrent-nox add <magnet-uri | file.torrent>... [--save DIR] [--seconds N]
+    libretorrent-nox add <file.torrent>... [--save DIR] [OPTIONS]
+    libretorrent-nox run [OPTIONS]
     libretorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
     libretorrent-nox --version | --help
 
 COMMANDS:
-    add     Add torrents and print their progress once per second until they finish
-            (or --seconds elapse).
-    demo    Load N synthetic torrents and print session totals once per second.
+    add     Add torrents, download them, and exit when they finish (keep seeding with --seed).
+    run     Resume every torrent saved in the state directory and keep running.
+    demo    Load N synthetic torrents on the simulated engine and print session totals.
+
+OPTIONS:
+    --save DIR        Download directory (default: current directory)
+    --state DIR       Session state directory (default: per-user data directory)
+    --no-state        Do not load or save any session state
+    --seed            After downloading, keep seeding until stopped
+    --seconds N       Stop after N seconds
+    --port N          Listen port (default 6881)
+    --dl-limit KIB    Download limit in KiB/s (0 = unlimited)
+    --ul-limit KIB    Upload limit in KiB/s (0 = unlimited)
+    --verbose         Print tracker and peer events
+
+Type q and Enter to stop cleanly (state is saved on the way out).
 ";
 
 struct Opts {
     save: String,
+    state: Option<PathBuf>,
+    no_state: bool,
+    seed: bool,
     seconds: Option<u64>,
+    port: Option<u16>,
+    dl_limit: u32,
+    ul_limit: u32,
+    verbose: bool,
     torrents: usize,
     active: f64,
     sources: Vec<String>,
 }
 
 fn parse(args: &[String]) -> Result<Opts, String> {
-    let mut o = Opts { save: ".".into(), seconds: None, torrents: 1000, active: 0.02, sources: Vec::new() };
+    let mut o = Opts {
+        save: ".".into(),
+        state: None,
+        no_state: false,
+        seed: false,
+        seconds: None,
+        port: None,
+        dl_limit: 0,
+        ul_limit: 0,
+        verbose: false,
+        torrents: 1000,
+        active: 0.02,
+        sources: Vec::new(),
+    };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = |name: &str| it.next().cloned().ok_or_else(|| format!("{name} needs a value"));
+        fn num<T: std::str::FromStr>(name: &str, v: String) -> Result<T, String> {
+            v.parse().map_err(|_| format!("{name}: not a number"))
+        }
         match a.as_str() {
             "--save" => o.save = value("--save")?,
-            "--seconds" => {
-                o.seconds = Some(value("--seconds")?.parse().map_err(|_| "--seconds: not a number")?)
-            }
-            "--torrents" => {
-                o.torrents = value("--torrents")?.parse().map_err(|_| "--torrents: not a number")?
-            }
-            "--active" => o.active = value("--active")?.parse().map_err(|_| "--active: not a number")?,
+            "--state" => o.state = Some(value("--state")?.into()),
+            "--no-state" => o.no_state = true,
+            "--seed" => o.seed = true,
+            "--verbose" | "-v" => o.verbose = true,
+            "--seconds" => o.seconds = Some(num("--seconds", value("--seconds")?)?),
+            "--port" => o.port = Some(num("--port", value("--port")?)?),
+            "--dl-limit" => o.dl_limit = num::<u32>("--dl-limit", value("--dl-limit")?)?.saturating_mul(1024),
+            "--ul-limit" => o.ul_limit = num::<u32>("--ul-limit", value("--ul-limit")?)?.saturating_mul(1024),
+            "--torrents" => o.torrents = num("--torrents", value("--torrents")?)?,
+            "--active" => o.active = num("--active", value("--active")?)?,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s => o.sources.push(s.to_owned()),
         }
@@ -74,9 +117,10 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         "add" => parse(rest).and_then(|o| {
-            if o.sources.is_empty() { Err("add: nothing to add".into()) } else { Ok(run(o, false)) }
+            if o.sources.is_empty() { Err("add: nothing to add".into()) } else { Ok(run(o, Mode::Add)) }
         }),
-        "demo" => parse(rest).map(|o| run(o, true)),
+        "run" => parse(rest).map(|o| run(o, Mode::Run)),
+        "demo" => parse(rest).map(demo),
         other => Err(format!("unknown command {other:?}")),
     };
     match result {
@@ -88,23 +132,66 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(o: Opts, demo: bool) -> ExitCode {
-    let config = MockConfig {
-        initial_torrents: if demo { o.torrents } else { 0 },
-        active_fraction: o.active,
-        save_path: o.save.clone(),
-        ..MockConfig::default()
-    };
-    let started = Instant::now();
-    let session = Session::start_mock(Settings::default(), config);
-    let h = session.handle();
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Mode {
+    Add,
+    Run,
+}
 
-    // The engine thread calls this when alerts become available; we just wake our loop.
+/// Per-user state directory: `%APPDATA%\LibreTorrent\nox` on Windows, `$XDG_DATA_HOME/libretorrent/nox`
+/// (or `~/.local/share/...`) elsewhere.
+fn default_state_dir() -> Option<PathBuf> {
+    if cfg!(windows) {
+        std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("LibreTorrent").join("nox"))
+    } else {
+        std::env::var_os("XDG_DATA_HOME")
+            .map(PathBuf::from)
+            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
+            .map(|d| d.join("libretorrent").join("nox"))
+    }
+}
+
+/// Lines typed on stdin ("q" quits).
+fn stdin_lines() -> mpsc::Receiver<String> {
+    let (tx, rx) = mpsc::channel();
+    std::thread::spawn(move || {
+        let mut line = String::new();
+        while std::io::stdin().read_line(&mut line).is_ok_and(|n| n > 0) {
+            if tx.send(line.trim().to_owned()).is_err() {
+                break;
+            }
+            line.clear();
+        }
+    });
+    rx
+}
+
+fn run(o: Opts, mode: Mode) -> ExitCode {
+    let state_dir = if o.no_state { None } else { o.state.clone().or_else(default_state_dir) };
+    let mut settings =
+        Settings { download_rate_limit: o.dl_limit, upload_rate_limit: o.ul_limit, ..Settings::default() };
+    if let Some(p) = o.port {
+        settings.listen_interfaces = format!("0.0.0.0:{p},[::]:{p}");
+    }
+    let session = match Session::start(SessionParams { settings, state_dir: state_dir.clone() }) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: cannot start the engine: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    if let Some(d) = &state_dir {
+        println!("* state: {}", d.display());
+    }
+    let h = session.handle();
     let (wake_tx, wake_rx) = mpsc::channel::<()>();
     h.set_alert_notify(move || {
         let _ = wake_tx.send(());
     });
 
+    let save =
+        std::fs::canonicalize(&o.save).map(|p| p.to_string_lossy().into_owned()).unwrap_or(o.save.clone());
+    let save = save.strip_prefix(r"\\?\").map(str::to_owned).unwrap_or(save);
     let mut pending = 0usize;
     for src in &o.sources {
         let source = if src.starts_with("magnet:") {
@@ -118,18 +205,24 @@ fn run(o: Opts, demo: bool) -> ExitCode {
                 }
             }
         };
-        h.add_torrent(AddTorrentParams::new(source, o.save.clone()));
+        let mut p = AddTorrentParams::new(source, save.clone());
+        // Started right away, outside the queue (µTorrent's "Force Start").
+        p.flags = TorrentFlags::empty();
+        h.add_torrent(p);
         pending += 1;
     }
-    if !demo && pending == 0 {
+    if mode == Mode::Add && pending == 0 {
         return ExitCode::FAILURE;
     }
 
+    let input = stdin_lines();
+    let started = Instant::now();
     let mut rows: HashMap<TorrentId, TorrentStatus> = HashMap::new();
+    let mut added: Vec<TorrentId> = Vec::new();
     let mut stats = SessionStats::default();
     let mut alerts = Vec::new();
     let mut failed = 0usize;
-    let mut first_full_update: Option<Duration> = None;
+    let mut finished_at: Option<Instant> = None;
     let deadline = o.seconds.map(|s| started + Duration::from_secs(s));
     let mut next_report = Instant::now();
     loop {
@@ -141,16 +234,13 @@ fn run(o: Opts, demo: bool) -> ExitCode {
         }
         let _ = wake_rx.recv_timeout(next_report.saturating_duration_since(Instant::now()));
         h.pop_alerts(&mut alerts);
-        let mut updated = None;
+        let mut updated = false;
         for a in alerts.drain(..) {
             match a {
                 Alert::StateUpdate(v) => {
-                    updated = Some(v.len());
+                    updated = true;
                     for st in v {
                         rows.insert(st.id, st);
-                    }
-                    if demo && first_full_update.is_none() && rows.len() >= o.torrents {
-                        first_full_update = Some(started.elapsed());
                     }
                 }
                 Alert::SessionStats(s) => stats = s,
@@ -158,27 +248,95 @@ fn run(o: Opts, demo: bool) -> ExitCode {
                     failed += 1;
                     eprintln!("! {}", a.message());
                 }
+                Alert::TorrentAdded { id, ref name, .. } => {
+                    added.push(id);
+                    println!("* {name}: added");
+                }
                 Alert::TorrentRemoved { id, .. } => {
                     rows.remove(&id);
                 }
-                Alert::TorrentAdded { .. }
-                | Alert::TorrentFinished { .. }
-                | Alert::MetadataReceived { .. }
-                | Alert::Log { .. }
-                | Alert::AlertsDropped { .. }
-                | Alert::ListenSucceeded { .. } => println!("* {}", a.message()),
+                Alert::TorrentFinished { id } => {
+                    let name = rows.get(&id).map_or(String::new(), |r| r.name.clone());
+                    println!("* {name}: finished downloading");
+                }
+                Alert::TorrentError { .. } | Alert::FileError { .. } | Alert::ListenFailed { .. } => {
+                    eprintln!("! {}", a.message())
+                }
+                Alert::TrackerError { .. } | Alert::TrackerWarning { .. } | Alert::TrackerReply { .. }
+                    if o.verbose =>
+                {
+                    println!("* {}", a.message())
+                }
+                Alert::ListenSucceeded { .. } | Alert::Log { .. } | Alert::AlertsDropped { .. } => {
+                    println!("* {}", a.message())
+                }
+                Alert::StateChanged { .. } if o.verbose => println!("* {}", a.message()),
                 _ => {}
             }
         }
-        if let Some(n) = updated {
-            report(&rows, &stats, n, started.elapsed(), demo);
+        if updated {
+            report(&rows, &stats, started.elapsed());
         }
-        let all_done = !demo && rows.len() + failed >= pending && rows.values().all(|st| st.is_finished);
-        if all_done || deadline.is_some_and(|d| Instant::now() >= d) {
+        let quit = matches!(input.try_recv().as_deref(), Ok("q" | "quit"));
+        let mine_done = mode == Mode::Add
+            && added.len() + failed >= pending
+            && added.iter().all(|id| rows.get(id).is_some_and(|st| st.is_finished && st.error.is_empty()));
+        if mine_done && finished_at.is_none() {
+            finished_at = Some(Instant::now());
+            if o.seed {
+                println!("* download complete; seeding (q + Enter to stop)");
+            }
+        }
+        if quit || (mine_done && !o.seed) || deadline.is_some_and(|d| Instant::now() >= d) {
             break;
         }
     }
+    println!("* shutting down");
     h.clear_alert_notify();
+    session.shutdown();
+    if failed > 0 || (mode == Mode::Add && finished_at.is_none() && o.seconds.is_none()) {
+        ExitCode::FAILURE
+    } else {
+        ExitCode::SUCCESS
+    }
+}
+
+fn demo(o: Opts) -> ExitCode {
+    let config = MockConfig {
+        initial_torrents: o.torrents,
+        active_fraction: o.active,
+        save_path: o.save.clone(),
+        ..MockConfig::default()
+    };
+    let started = Instant::now();
+    let session = Session::start_mock(Settings::default(), config);
+    let h = session.handle();
+    let mut rows: HashMap<TorrentId, TorrentStatus> = HashMap::new();
+    let mut stats = SessionStats::default();
+    let mut alerts = Vec::new();
+    let mut first_full_update = None;
+    let deadline = started + Duration::from_secs(o.seconds.unwrap_or(5));
+    while Instant::now() < deadline {
+        h.post_torrent_updates();
+        h.post_session_stats();
+        std::thread::sleep(Duration::from_secs(1));
+        h.pop_alerts(&mut alerts);
+        for a in alerts.drain(..) {
+            match a {
+                Alert::StateUpdate(v) => {
+                    for st in v {
+                        rows.insert(st.id, st);
+                    }
+                    if first_full_update.is_none() && rows.len() >= o.torrents {
+                        first_full_update = Some(started.elapsed());
+                    }
+                }
+                Alert::SessionStats(s) => stats = s,
+                _ => {}
+            }
+        }
+        print_totals(&rows, &stats, started.elapsed());
+    }
     if let Some(t) = first_full_update {
         println!(
             "first full status update for {} torrents after {:.0} ms",
@@ -187,41 +345,38 @@ fn run(o: Opts, demo: bool) -> ExitCode {
         );
     }
     session.shutdown();
-    if failed > 0 { ExitCode::FAILURE } else { ExitCode::SUCCESS }
+    ExitCode::SUCCESS
 }
 
-fn report(
-    rows: &HashMap<TorrentId, TorrentStatus>,
-    stats: &SessionStats,
-    updated: usize,
-    t: Duration,
-    demo: bool,
-) {
+fn print_totals(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, t: Duration) {
     println!(
-        "[{:>4}s] {} torrents ({} updated) | D: {} T: {} | U: {} T: {} | DHT: {} nodes | {} peers",
+        "[{:>4}s] {} torrents | D: {} T: {} | U: {} T: {} | {} peers{}",
         t.as_secs(),
         rows.len(),
-        updated,
         fmt::speed_always(stats.download_rate),
         fmt::size(stats.recv_payload_bytes),
         fmt::speed_always(stats.upload_rate),
         fmt::size(stats.sent_payload_bytes),
-        stats.dht_nodes,
         stats.num_peers_connected,
+        if stats.has_incoming_connections { " | incoming OK" } else { "" },
     );
-    if demo {
-        return;
-    }
+}
+
+fn report(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, t: Duration) {
+    print_totals(rows, stats, t);
     let mut v: Vec<&TorrentStatus> = rows.values().collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
     for st in v {
         println!(
-            "         {:<40} {:>8} {:>9}  {:<22} {:>11}  ETA {}",
+            "         {:<40} {:>8} {:>7}  {:<20} D {:>10} U {:>10}  {:>3}({}) peers  ETA {}",
             truncate(&st.name, 40),
             fmt::size(st.total_wanted),
             fmt::percent(st.progress_ppm),
-            status::status_text(st, false),
+            truncate(&status::status_text(st, false), 20),
             fmt::speed(st.download_payload_rate),
+            fmt::speed(st.upload_payload_rate),
+            st.num_peers,
+            st.list_peers,
             fmt::eta(st.eta()),
         );
     }

@@ -18,6 +18,31 @@ impl Bitfield {
         bf
     }
 
+    /// Builds a bitfield from wire-format bytes. Returns `None` if `bytes` is not exactly
+    /// `ceil(len / 8)` long. Spare trailing bits are cleared (libtorrent ignores them too).
+    pub fn from_bytes(bytes: &[u8], len: usize) -> Option<Bitfield> {
+        if bytes.len() != len.div_ceil(8) {
+            return None;
+        }
+        let mut bf = Bitfield { bytes: bytes.to_vec(), len };
+        bf.clear_trailing_bits();
+        Some(bf)
+    }
+
+    pub fn set_all(&mut self, value: bool) {
+        self.bytes.fill(if value { 0xff } else { 0 });
+        self.clear_trailing_bits();
+    }
+
+    /// True if every bit set in `self` is also set in `other`.
+    pub fn is_subset_of(&self, other: &Bitfield) -> bool {
+        self.len == other.len && self.bytes.iter().zip(&other.bytes).all(|(a, b)| a & !b == 0)
+    }
+
+    pub fn none_set(&self) -> bool {
+        self.bytes.iter().all(|&b| b == 0)
+    }
+
     pub fn len(&self) -> usize {
         self.len
     }
@@ -83,5 +108,18 @@ mod tests {
         assert_eq!(full.as_bytes(), &[0xff, 0xc0]);
         assert!(full.all_set());
         assert!(Bitfield::new(0, true).all_set());
+    }
+
+    #[test]
+    fn from_bytes_and_subsets() {
+        assert!(Bitfield::from_bytes(&[0xff], 9).is_none());
+        let bf = Bitfield::from_bytes(&[0xff, 0xff], 9).unwrap();
+        assert_eq!(bf.as_bytes(), &[0xff, 0x80], "spare bits are cleared");
+        let mut half = Bitfield::new(9, false);
+        assert!(half.none_set() && half.is_subset_of(&bf));
+        half.set(3, true);
+        assert!(half.is_subset_of(&bf) && !bf.is_subset_of(&half));
+        half.set_all(true);
+        assert_eq!(half, bf);
     }
 }

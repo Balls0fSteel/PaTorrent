@@ -9,9 +9,13 @@ publish.workspace = true
 
 [features]
 # Simulated engine behind the real API, for frontend development and scale tests.
-# On by default only until the real network engine lands (PLAN.md Phase 2).
-default = ["mock"]
 mock = []
+
+[dependencies]
+mio.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_IO", "Win32_System_Ioctl"] }
 
 [lints]
 workspace = true

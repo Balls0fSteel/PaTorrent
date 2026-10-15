@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_114351_1792057431
+Last updated: 2026-10-15_124018_1792060818
 
 ## Vision
 
@@ -24,37 +24,21 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Stage:** Phase 1 (primitives) done; Phase 2 (the real engine) is next.
-- Phase 1 delivered the metadata layer, ported from libtorrent with its tests:
-  - bencode: zero-copy decoder and `Entry` encoder
-  - SHA-1/SHA-256 (portable + SHA-NI) and CRC32C (SSE4.2)
-  - UTF-8, URL and path utilities
-  - `FileStorage`, `TorrentInfo` (v1, v2 and hybrid parsing) and magnet links
-
-  The simulated engine now uses the real parsers, so real `.torrent` files and magnets show real names, sizes and file trees.
-- Phase 1 measurements (release build, this dev machine):
+- **Stage:** Phase 2 (minimum viable engine) is built. It downloads and seeds real torrents from `libretorrent-nox`. Three of the four exit criteria are met; seeding to qBittorrent, Transmission and Deluge is not verified yet (see Next steps).
+- Phase 2 results (release build, this dev machine):
 
   | What | Result |
   |---|---|
-  | SHA-1 with SHA-NI | 1 GiB in 0.37 s (about 2.9 GB/s) |
-  | Parsing 10,000 synthetic `.torrent` files (211 MB, 134k files) | 207 ms total, 21 µs each, about 1 GB/s |
-  | Memory per fully parsed torrent | about 25 KB (mostly piece hashes): 243 MB for 10,000 held, 7 MB once dropped. This is why only active torrents keep metadata (D5). |
-- Working since Phase 0, on the simulated engine:
-  - the engine API (`Session`, handles, bounded alert queue, dirty-only status updates)
-  - the shared `frontend` crate
-  - a Win32 skeleton window
-  - the `libretorrent-nox` CLI driver
-  - the `lt-swarm scale` benchmark
-- Measured on the simulated engine (release build, this dev machine). This covers the API and update path only; the real engine will add its own cost:
+  | Debian 13.7.0 netinst ISO (792 MB) from `bttracker.debian.org` | downloaded in 7–9 s (peaks around 90–140 MB/s from 30–40 peers); SHA-512 identical to Debian's published sum |
+  | Restart with `libretorrent-nox run` | restored as a seed after resume verification (file sizes), no hashing |
+  | Cold start with saved torrents (`lt-swarm load`) | 1,000 in 12 ms; 10,000 in 109 ms at 45 MB RSS (store: 7.8 MB resume.db + 215 MB metadata pack, read lazily) |
+  | Loopback transfer, one seed and one downloader in one process (`lt-swarm loopback`, 512 MiB) | 0.47 s, about 1.15 GB/s (9 Gbit/s), 2.5 ns of CPU per byte (both sides, hashing included) |
+  | Seed check of 512 MiB | 0.30 s |
 
-  | Torrents loaded | First full status update | RSS loaded / steady | Updates after that |
-  |---|---|---|---|
-  | 10,000 | 11 ms | 16 / 12 MB | ~220 changed torrents per second |
-  | 100,000 | 104 ms | 122 / 73 MB | ~500 changed torrents per second |
-
-  Exe sizes: `libretorrent.exe` 392 KB, `libretorrent-nox.exe` 455 KB. Static CRT; imports only OS DLLs.
-- libtorrent 2.0.11 has been surveyed: 165 `.cpp` files, about 105k lines of source, about 55k lines of headers, about 50k lines of tests. Subsystem sizes are in PORTING.md.
-- The earlier scaffolding that linked libtorrent via vcpkg and a C ABI bridge was removed after the direction was clarified (see CHANGELOG).
+  Exe sizes: `libretorrent-nox.exe` 1.16 MB, `libretorrent.exe` 530 KB (it links the engine's dependencies now), `lt-swarm.exe` 1.16 MB.
+- Earlier phases: the metadata layer (Phase 1: bencode, SHA-1/SHA-256 with SHA-NI, CRC32C, `TorrentInfo`, magnets) and the engine API with the simulated engine (Phase 0), which the Win32 skeleton and `lt-swarm scale` still use.
+- Phase 1 measurements: SHA-1 with SHA-NI hashes 1 GiB in 0.37 s; 10,000 synthetic `.torrent` files parse in 207 ms; a fully parsed torrent holds about 25 KB, which is why stopped torrents keep no metadata (D5).
+- Simulated-engine scale numbers (Phase 0): 10,000 torrents give a first full status update in 11 ms; 100,000 in 104 ms.
 
 ## Decisions
 
@@ -121,38 +105,45 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - ARMv8 SHA paths: later, with ARM64 CI
 
 ### Phase 2: Minimum viable engine (TCP, v1, trackers)
-- [ ] Reactor: mio poll loop, hierarchical timer wheel, waker, resolver thread with cache, TCP listen/connect, UDP sockets
-- [ ] Session core:
-  - settings (libtorrent names and defaults)
+- [x] Reactor:
+  - one mio poll loop with a waker; command, disk and resolver channels drained per wake-up
+  - resolver threads with a 20-minute cache
+  - TCP listen (port retry, dual-stack aware) and connect; UDP sockets for trackers
+  - [ ] hierarchical timer wheel: not needed so far. Deadlines are checked in the 500 ms tick (as libtorrent's `second_tick` does for peers); revisit if profiles show the tick
+- [x] Session core:
+  - settings (libtorrent names and defaults for everything the engine reads; the string-keyed table comes with the Advanced preferences, Phase 5)
   - bounded alert queue with notify callback
-  - stats counters
-  - 500 ms session tick
-  - per-state torrent lists
+  - session stats (subset; full counter table later)
+  - 500 ms tick over running torrents only
   - queueing and auto-management
-  - global rate limits
-- [ ] Disk:
-  - thread pool, job fences, block buffer pool
-  - pread storage, write-back cache, incremental piece hashing
+  - global and per-torrent rate limits (token buckets, 100 ms refill)
+- [x] Disk:
+  - thread pool, fences (release, delete), per-piece thread affinity
+  - pread/pwrite storage, incremental in-order hashing with a reorder cache, disk-queue back-pressure on peers
   - full check and resume verification
-  - LRU file-handle pool, sparse files and preallocation
-- [ ] Torrent: state machine (check → download → seed), start/stop/pause/force-start, remove (with or without data), file priorities, sequential mode
-- [ ] Peer wire:
-  - handshake, BEP3 messages
-  - BEP6 fast extension, BEP10 extension protocol
-  - request pipelining, end-game, snubbing, timeouts, keep-alives
-- [ ] Piece picker (rarest-first, partial pieces, priorities), peer list (BEP40 priorities), choker (rate-based download, round-robin seeding)
-- [ ] Trackers:
-  - HTTP(S) announce and scrape (BEP3/23/24/48)
-  - UDP (BEP15) with connection-id cache and batched scrape
-  - tiers (BEP12)
-- [ ] HTTP client: parser, chunked encoding, gzip (puff), redirects, OS TLS
-- [ ] `store`: resume DB and metadata pack, libtorrent-compatible fastresume fields, lazy info-dict loading
-- [ ] Dev CLI (the seed of `nox`): `libretorrent-nox add <file|magnet> --save <dir>` with a progress line
+  - LRU file-handle pool, sparse files on Windows
+  - [ ] block buffer pool and preallocation: later (plain `Vec` buffers so far; sparse files make preallocation optional)
+- [x] Torrent: check → download → seed; start / stop / pause / force start; remove with or without data; file priorities; sequential mode; force recheck
+- [x] Peer wire:
+  - handshake, BEP 3 messages
+  - BEP 6 fast extension (have all / none, reject, allowed fast both ways), BEP 10 extension handshake
+  - request pipelining sized by rate, end-game with cancels, snubbing, timeouts, keep-alives
+- [x] Piece picker (rarest-first, priorities, partial pieces first, sequential), peer list (BEP 40 ranks, fail counts, eviction), choker (fixed slots, rate-based, optimistic unchoke)
+- [x] Trackers:
+  - HTTP announce and scrape (BEP 3/23/24/48), redirects, chunked bodies
+  - UDP (BEP 15) with connection-id cache and retransmits
+  - tiers (BEP 12), backoff, `stopped` / `completed` events
+  - [ ] HTTPS: needs the OS TLS layer (D9), see Next steps
+  - [ ] batched UDP scrapes: the packet format supports 74 hashes; the engine still scrapes one torrent per request
+- [x] HTTP client: parser, chunked encoding, redirects. gzip is not needed (we request identity encoding). OS TLS: open.
+- [x] `store`: resume.db + metadata.pack, libtorrent fast-resume field names, metadata loaded only for running torrents
+- [x] Dev CLI: `libretorrent-nox add <file> --save DIR [--seed]`, `run`, rate limits, per-user state directory, progress lines
+- [x] Tests: unit tests for every module (libtorrent vectors for BEP 6 allowed-fast, BEP 40, sliding averages), plus `tests/swarm.rs`: loopback downloads through a direct connection, an HTTP tracker and a UDP tracker, and a restart without recheck
 - **Exit criteria:**
-  - Downloads a public Linux ISO from its trackers.
-  - Seeds to qBittorrent, Transmission and Deluge.
-  - Restart resumes without a recheck.
-  - 1,000 synthetic torrents load in under 0.5 s.
+  - [x] Downloads a public Linux ISO from its trackers (Debian 13.7.0 netinst, checksum verified).
+  - [ ] Seeds to qBittorrent, Transmission and Deluge. Seeding works between two LibreTorrent sessions; other clients are untested.
+  - [x] Restart resumes without a recheck.
+  - [x] 1,000 synthetic torrents load in under 0.5 s (12 ms).
 
 ### Phase 3: Win32 GUI MVP (the µTorrent 2.2.1 main window)
 - [ ] Main window parts:
@@ -217,17 +208,13 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 ## Next steps
 
-1. Phase 2, in dependency order:
-   1. reactor (mio loop, timers, waker, resolver)
-   2. session core (settings table, alerts, counters, tick, torrent lists)
-   3. disk subsystem (pread storage, write cache, hashing, file pool)
-   4. peer wire protocol, piece picker, peer list, choker
-   5. HTTP/UDP trackers
-   6. resume store
-
-   Goal: download and seed a real torrent from the nox CLI.
-2. In parallel: build the µTorrent 2.2.1 main window (Phase 3 UI work) against the mock engine, which now shows real metadata.
-3. Keep CI green on Windows, Linux and FreeBSD.
+1. Close Phase 2:
+   1. Interop: seed to qBittorrent, Transmission and Deluge. qBittorrent is installed on this machine and could run with a throwaway profile (`--profile=<temp dir>`), or the clients can run in WSL; see Q10.
+   2. HTTPS trackers through the OS TLS layer (D9): SChannel on Windows, OpenSSL / LibreSSL on Unix. Ubuntu's and many other public trackers are HTTPS-only.
+   3. Save partially downloaded pieces in resume data (`unfinished`), so a restart does not drop them.
+2. Phase 3: the µTorrent 2.2.1 main window on top of the real engine.
+3. Phase 4 early pick: `ut_metadata`, so magnet links work (they are rejected with a clear message today).
+4. Keep CI green on Windows, Linux and FreeBSD (CI now also reports `lt-swarm load` and `loopback`).
 
 ## Open questions
 
@@ -235,6 +222,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 - **Q2. Name.** "LibreTorrent" is already a well-known GPL-3 Android torrent client (proninyaroslav/libretorrent). libtorrent already identifies peer-ID `LR` as that app, so peers and trackers would confuse the two. Keep the name, or rename before the first release?
 - **Q3–Q7.** Resolved, see D9–D13.
 - **Q9. Coverage-guided fuzzing.** cargo-fuzz needs a nightly Rust toolchain plus the cargo-fuzz tool, and neither is installed. Install them (`rustup toolchain install nightly` then `cargo install cargo-fuzz`) and add a fuzz CI job? The stable mutation tests cover the basics until then.
+- **Q10. Interop testing setup.** To verify seeding to other clients: run the installed qBittorrent with a separate throwaway profile, or install qbittorrent-nox, transmission-cli and deluged in the Debian WSL distro (`sudo apt install qbittorrent-nox transmission-cli deluged deluge-console`)? Either needs your go-ahead.
 - **Q8. Peer-ID prefix (blocked on Q2).** `LR` is taken: libtorrent's `identify_client.cpp` maps it to the Android LibreTorrent. The code uses a provisional `-LB0100-` (`LB` appears in neither libtorrent's table nor the common BEP20 lists). Pick the final two-letter code together with the final name.
 
 ## Future improvements
@@ -248,7 +236,8 @@ Each phase ends with something runnable and measured against the targets in ARCH
 ## Known TODOs
 
 - Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
-- `core`'s `mock` feature is on by default; turn it off by default when the real engine lands (Phase 2).
+- Phase 2 follow-ups: HTTPS trackers (OS TLS), `unfinished` pieces in resume data, batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
+- Peers that only connect and get dropped (seed to seed) are not logged; a `peer_disconnected`-style alert category would help debugging swarms.
 - libtorrent tests not ported yet because they need later pieces:
   - `create_torrent` (Phase 5): mutable_torrents, make_magnet_uri v1/v2/hybrid
   - session plus resume data (Phase 2): the write_torrent_file round trips, preserve_* magnet tests

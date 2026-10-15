@@ -1,0 +1,495 @@
+// Ported from libtorrent-rasterbar 2.0.11: src/torrent.cpp (state, file priorities, progress,
+// status, resume data), src/torrent_status.cpp, src/file_progress.cpp
+// Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
+// Changes: plain data plus helpers; the engine drives transitions. Metadata, the piece picker
+// and storage exist only while the torrent runs (PLAN.md D5); a stopped torrent keeps its piece
+// bitfield and the summary fields needed for listing.
+
+//! One torrent's state.
+
+use std::sync::Arc;
+use std::time::Instant;
+
+use super::peer_list::PeerList;
+use super::picker::PiecePicker;
+use super::tracker::TrackerEntry;
+use crate::disk::{BLOCK_SIZE, Storage};
+use crate::metainfo::TorrentInfo;
+use crate::metainfo::file_storage::FileFlags;
+use crate::net::Bucket;
+use crate::params::{DownloadPriority, TorrentFlags};
+use crate::resume::ResumeData;
+use crate::status::{FileEntry, TorrentState, TorrentStatus};
+use crate::types::{InfoHashes, TorrentId};
+use crate::util::bitfield::Bitfield;
+use crate::util::stat::Stat;
+
+pub(crate) struct Torrent {
+    pub id: TorrentId,
+    pub info_hashes: InfoHashes,
+    /// Store key: the info-hash in hex.
+    pub key: String,
+    pub name: String,
+    pub save_path: String,
+    /// Loaded while running (or when requested); `None` for stopped torrents.
+    pub ti: Option<Arc<TorrentInfo>>,
+    pub total_size: u64,
+    pub num_pieces: u32,
+    pub piece_length: u32,
+    pub flags: TorrentFlags,
+    pub state: TorrentState,
+    pub error: Option<String>,
+
+    pub storage: Option<Arc<Storage>>,
+    pub picker: Option<PiecePicker>,
+    /// Pieces we have while there is no picker (stopped, or before the check finished).
+    pub have: Option<Bitfield>,
+    /// True once `have` was verified this session (by a check or by resume verification).
+    pub checked: bool,
+    pub checking: bool,
+    pub checked_pieces: u32,
+    pub file_priority: Vec<u8>,
+
+    pub peers: Vec<usize>,
+    pub peer_list: PeerList,
+    pub trackers: Vec<TrackerEntry>,
+
+    pub stat: Stat,
+    /// All-time totals from earlier sessions.
+    pub prev_uploaded: u64,
+    pub prev_downloaded: u64,
+    pub failed_bytes: u64,
+    pub redundant_bytes: u64,
+    pub added_time: i64,
+    pub completed_time: i64,
+    pub active_secs: f64,
+    pub finished_secs: f64,
+    pub seeding_secs: f64,
+    pub queue_position: Option<u32>,
+    pub download_limit: Bucket,
+    pub upload_limit: Bucket,
+    pub max_connections: Option<u32>,
+    pub max_uploads: Option<u32>,
+    pub num_complete: Option<u32>,
+    pub num_incomplete: Option<u32>,
+
+    pub status_dirty: bool,
+    pub resume_dirty: bool,
+    /// Our piece set changed: recheck interest in every peer on the next tick.
+    pub interest_dirty: bool,
+    /// Downloaded payload in this session (decides the tracker `completed` event).
+    pub downloaded_in_session: bool,
+    pub started_at: Option<Instant>,
+}
+
+impl Torrent {
+    pub fn new(
+        id: TorrentId,
+        info_hashes: InfoHashes,
+        name: String,
+        save_path: String,
+        flags: TorrentFlags,
+    ) -> Torrent {
+        Torrent {
+            id,
+            info_hashes,
+            key: info_hashes.key_hex(),
+            name,
+            save_path,
+            ti: None,
+            total_size: 0,
+            num_pieces: 0,
+            piece_length: 0,
+            flags,
+            state: TorrentState::CheckingResumeData,
+            error: None,
+            storage: None,
+            picker: None,
+            have: None,
+            checked: false,
+            checking: false,
+            checked_pieces: 0,
+            file_priority: Vec::new(),
+            peers: Vec::new(),
+            peer_list: PeerList::default(),
+            trackers: Vec::new(),
+            stat: Stat::default(),
+            prev_uploaded: 0,
+            prev_downloaded: 0,
+            failed_bytes: 0,
+            redundant_bytes: 0,
+            added_time: crate::util::stat::now_unix(),
+            completed_time: 0,
+            active_secs: 0.0,
+            finished_secs: 0.0,
+            seeding_secs: 0.0,
+            queue_position: None,
+            download_limit: Bucket::new(0),
+            upload_limit: Bucket::new(0),
+            max_connections: None,
+            max_uploads: None,
+            num_complete: None,
+            num_incomplete: None,
+            status_dirty: true,
+            resume_dirty: true,
+            interest_dirty: false,
+            downloaded_in_session: false,
+            started_at: None,
+        }
+    }
+
+    pub fn set_metadata(&mut self, ti: Arc<TorrentInfo>) {
+        self.total_size = ti.total_size();
+        self.num_pieces = ti.num_pieces();
+        self.piece_length = ti.piece_length();
+        if self.name.is_empty() {
+            self.name = ti.name().to_owned();
+        }
+        let n = ti.num_files();
+        if self.file_priority.len() != n {
+            self.file_priority.resize(n, DownloadPriority::NORMAL.0);
+        }
+        self.ti = Some(ti);
+    }
+
+    /// Adds trackers, keeping the list sorted by tier and free of duplicates.
+    pub fn add_tracker(&mut self, url: &str, tier: u32) {
+        let url = url.trim();
+        if url.is_empty() || self.trackers.iter().any(|t| t.url == url) {
+            return;
+        }
+        let pos = self.trackers.iter().position(|t| t.tier > tier).unwrap_or(self.trackers.len());
+        self.trackers.insert(pos, TrackerEntry::new(url.to_owned(), tier));
+    }
+
+    pub fn is_paused(&self) -> bool {
+        self.flags.contains(TorrentFlags::PAUSED)
+    }
+
+    pub fn have_bits(&self) -> Option<&Bitfield> {
+        self.picker.as_ref().map(|p| p.have()).or(self.have.as_ref())
+    }
+
+    pub fn num_have(&self) -> u32 {
+        self.have_bits().map_or(0, |b| b.count() as u32)
+    }
+
+    pub fn is_seed(&self) -> bool {
+        self.num_pieces > 0 && self.num_have() == self.num_pieces
+    }
+
+    /// Every wanted piece is done (libtorrent `is_finished`).
+    pub fn is_finished(&self) -> bool {
+        match (&self.picker, self.have_bits(), &self.ti) {
+            (Some(p), _, _) => p.is_finished(),
+            (None, Some(have), Some(ti)) => {
+                let prio = piece_priorities(ti, &self.file_priority);
+                (0..have.len()).all(|i| prio[i] == 0 || have.get(i))
+            }
+            (None, Some(have), None) => {
+                // Without metadata we can only tell for "download everything".
+                have.all_set()
+                    || (self.file_priority.iter().all(|&p| p == 0) && !self.file_priority.is_empty())
+            }
+            (None, None, _) => false,
+        }
+    }
+
+    pub fn piece_size(&self, piece: u32) -> u64 {
+        if piece + 1 == self.num_pieces {
+            self.total_size - self.piece_length as u64 * (self.num_pieces as u64 - 1)
+        } else {
+            self.piece_length as u64
+        }
+    }
+
+    /// Bytes on disk and verified, plus finished blocks of partial pieces.
+    pub fn total_done(&self) -> u64 {
+        let Some(have) = self.have_bits() else { return 0 };
+        let mut done = have.count() as u64 * self.piece_length as u64;
+        if self.num_pieces > 0 && have.get(self.num_pieces as usize - 1) {
+            done = done - self.piece_length as u64 + self.piece_size(self.num_pieces - 1);
+        }
+        if let Some(p) = &self.picker {
+            done += p.partial_finished_blocks() as u64 * BLOCK_SIZE as u64;
+        }
+        done.min(self.total_size)
+    }
+
+    /// (wanted bytes, wanted bytes done), at piece granularity.
+    pub fn wanted(&self) -> (u64, u64) {
+        let Some(ti) = &self.ti else {
+            let done = self.total_done();
+            return (self.total_size, done);
+        };
+        let prio = match &self.picker {
+            Some(p) => (0..self.num_pieces).map(|i| p.piece_priority(i)).collect(),
+            None => piece_priorities(ti, &self.file_priority),
+        };
+        let have = self.have_bits();
+        let mut wanted = 0;
+        let mut done = 0;
+        for i in 0..self.num_pieces {
+            if prio[i as usize] > 0 {
+                let size = self.piece_size(i);
+                wanted += size;
+                if have.is_some_and(|h| h.get(i as usize)) {
+                    done += size;
+                }
+            }
+        }
+        (wanted, done)
+    }
+
+    /// The bytes we still need, for tracker `left`.
+    pub fn bytes_left(&self) -> u64 {
+        self.total_size.saturating_sub(self.total_done())
+    }
+
+    pub fn settled_state(&self) -> TorrentState {
+        if self.is_seed() {
+            TorrentState::Seeding
+        } else if self.is_finished() {
+            TorrentState::Finished
+        } else {
+            TorrentState::Downloading
+        }
+    }
+
+    pub fn status(
+        &self,
+        num_peers: u32,
+        num_seeds: u32,
+        rates: (u32, u32, u32, u32),
+        now: Instant,
+    ) -> TorrentStatus {
+        let (wanted, wanted_done) = self.wanted();
+        let total_done = self.total_done();
+        let finished = self.is_finished();
+        let progress_ppm = if self.checking || self.state == TorrentState::CheckingFiles {
+            ppm(self.checked_pieces as u64, self.num_pieces as u64)
+        } else if finished {
+            1_000_000
+        } else {
+            ppm(wanted_done, wanted)
+        };
+        let next_announce = self
+            .trackers
+            .iter()
+            .filter_map(|t| t.next_announce)
+            .min()
+            .map(|t| t.saturating_duration_since(now).as_secs() as u32);
+        TorrentStatus {
+            id: self.id,
+            info_hashes: self.info_hashes,
+            name: self.name.clone(),
+            save_path: self.save_path.clone(),
+            state: self.state,
+            flags: self.flags,
+            error: self.error.clone().unwrap_or_default(),
+            has_metadata: self.num_pieces > 0,
+            is_finished: finished,
+            is_seeding: self.is_seed(),
+            moving_storage: false,
+            progress_ppm,
+            queue_position: self.queue_position,
+            download_rate: rates.0,
+            upload_rate: rates.1,
+            download_payload_rate: rates.2,
+            upload_payload_rate: rates.3,
+            num_seeds,
+            num_peers,
+            list_seeds: self.peer_list.num_seeds() as u32,
+            list_peers: self.peer_list.len() as u32,
+            num_complete: self.num_complete,
+            num_incomplete: self.num_incomplete,
+            num_connections: num_peers,
+            distributed_copies: self.picker.as_ref().map(|p| p.distributed_copies()),
+            total_download: self.stat.total_download(),
+            total_upload: self.stat.total_upload(),
+            total_payload_download: self.stat.download_payload.total,
+            total_payload_upload: self.stat.upload_payload.total,
+            total_failed_bytes: self.failed_bytes,
+            total_redundant_bytes: self.redundant_bytes,
+            all_time_download: self.prev_downloaded + self.stat.download_payload.total,
+            all_time_upload: self.prev_uploaded + self.stat.upload_payload.total,
+            total: self.total_size,
+            total_done,
+            total_wanted: wanted,
+            total_wanted_done: wanted_done,
+            num_pieces: self.num_have(),
+            pieces_total: self.num_pieces,
+            piece_length: self.piece_length,
+            added_time: self.added_time,
+            completed_time: self.completed_time,
+            last_seen_complete: 0,
+            active_duration: self.active_secs as u64,
+            finished_duration: self.finished_secs as u64,
+            seeding_duration: self.seeding_secs as u64,
+            current_tracker: self
+                .trackers
+                .iter()
+                .find(|t| t.working)
+                .map(|t| t.url.clone())
+                .unwrap_or_default(),
+            next_announce,
+            download_limit: self.download_limit.limit,
+            upload_limit: self.upload_limit.limit,
+        }
+    }
+
+    pub fn resume_data(&self) -> ResumeData {
+        let mut trackers: Vec<Vec<String>> = Vec::new();
+        for t in &self.trackers {
+            match trackers.last_mut() {
+                Some(tier)
+                    if self.trackers.iter().find(|x| x.url == tier[0]).is_some_and(|x| x.tier == t.tier) =>
+                {
+                    tier.push(t.url.clone())
+                }
+                _ => trackers.push(vec![t.url.clone()]),
+            }
+        }
+        ResumeData {
+            info_hashes: self.info_hashes,
+            name: self.name.clone(),
+            save_path: self.save_path.clone(),
+            // Only verified pieces are written, so a crash never makes us trust unchecked data.
+            pieces: if self.checked || self.picker.is_none() { self.have_bits().cloned() } else { None },
+            total_uploaded: self.prev_uploaded + self.stat.upload_payload.total,
+            total_downloaded: self.prev_downloaded + self.stat.download_payload.total,
+            active_time: self.active_secs as u64,
+            finished_time: self.finished_secs as u64,
+            seeding_time: self.seeding_secs as u64,
+            added_time: self.added_time,
+            completed_time: self.completed_time,
+            paused: self.is_paused(),
+            auto_managed: self.flags.contains(TorrentFlags::AUTO_MANAGED),
+            sequential_download: self.flags.contains(TorrentFlags::SEQUENTIAL_DOWNLOAD),
+            file_priority: self.file_priority.clone(),
+            trackers,
+            peers: self.peer_list.resume_peers(100),
+            upload_rate_limit: self.upload_limit.limit,
+            download_rate_limit: self.download_limit.limit,
+            max_connections: self.max_connections,
+            max_uploads: self.max_uploads,
+            queue_position: self.queue_position,
+            total_size: self.total_size,
+            num_pieces: self.num_pieces,
+            piece_length: self.piece_length,
+            info: None,
+        }
+    }
+
+    pub fn file_entries(&self) -> Vec<FileEntry> {
+        let Some(ti) = &self.ti else { return Vec::new() };
+        let fs = ti.files();
+        (0..fs.num_files())
+            .map(|f| {
+                let (first, end) = crate::metainfo::file_storage::file_piece_range_inclusive(fs, f);
+                let last = end.saturating_sub(1).max(first);
+                FileEntry {
+                    path: fs.file_path(f, ""),
+                    size: fs.file_size(f),
+                    offset: fs.file_offset(f),
+                    first_piece: first,
+                    last_piece: last,
+                    pad_file: fs.pad_file_at(f),
+                    priority: DownloadPriority(self.file_priority.get(f).copied().unwrap_or(4)),
+                }
+            })
+            .collect()
+    }
+
+    /// Completed bytes per file, at piece granularity (libtorrent `file_progress` with
+    /// `piece_granularity`).
+    pub fn file_progress(&self) -> Vec<u64> {
+        let (Some(ti), Some(have)) = (&self.ti, self.have_bits()) else { return Vec::new() };
+        let fs = ti.files();
+        let mut out = vec![0u64; fs.num_files()];
+        for p in (0..have.len()).filter(|&p| have.get(p)) {
+            for s in fs.map_block(p as u32, 0, ti.piece_size(p as u32) as u64) {
+                out[s.file_index] += s.size;
+            }
+        }
+        out
+    }
+}
+
+/// libtorrent `torrent::update_piece_priorities`: a piece gets the highest priority of the
+/// files it overlaps (pad files don't count).
+pub(crate) fn piece_priorities(ti: &TorrentInfo, file_priority: &[u8]) -> Vec<u8> {
+    let fs = ti.files();
+    let mut prio = vec![0u8; ti.num_pieces() as usize];
+    for f in 0..fs.num_files() {
+        if fs.file_size(f) == 0 || fs.file_flags(f).contains(FileFlags::PAD_FILE) {
+            continue;
+        }
+        let p = file_priority.get(f).copied().unwrap_or(4);
+        if p == 0 {
+            continue;
+        }
+        // libtorrent's "inclusive" range includes partially covered pieces; `end` is exclusive.
+        let (first, end) = crate::metainfo::file_storage::file_piece_range_inclusive(fs, f);
+        for piece in first..end.min(ti.num_pieces()) {
+            prio[piece as usize] = prio[piece as usize].max(p);
+        }
+    }
+    prio
+}
+
+fn ppm(done: u64, total: u64) -> u32 {
+    if total == 0 { 0 } else { (done as u128 * 1_000_000 / total as u128).min(1_000_000) as u32 }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::disk::tests::make_torrent;
+
+    #[test]
+    fn priorities_progress_and_resume() {
+        // Pieces of 16 KiB: file a covers pieces 0-1, b covers 1-3, c covers 3.
+        let (bytes, _) = make_torrent(&[("a", 20_000), ("b", 30_000), ("c", 10_000)], 16 * 1024);
+        let ti = Arc::new(TorrentInfo::from_bytes(&bytes).unwrap());
+        assert_eq!(ti.num_pieces(), 4);
+        assert_eq!(piece_priorities(&ti, &[4, 0, 0]), [4, 4, 0, 0]);
+        assert_eq!(piece_priorities(&ti, &[0, 0, 7]), [0, 0, 0, 7]);
+        assert_eq!(piece_priorities(&ti, &[1, 7, 0]), [1, 7, 7, 7]);
+
+        let mut t = Torrent::new(
+            TorrentId::default(),
+            ti.info_hashes(),
+            String::new(),
+            "/x".into(),
+            TorrentFlags::DEFAULT,
+        );
+        t.set_metadata(ti.clone());
+        assert_eq!(t.name, "test");
+        assert_eq!(t.file_priority, [4, 4, 4]);
+        let mut have = Bitfield::new(4, false);
+        have.set(0, true);
+        have.set(3, true);
+        t.have = Some(have);
+        assert_eq!(t.total_done(), 16384 + (60_000 - 3 * 16384));
+        assert!(!t.is_finished());
+        t.file_priority = vec![4, 0, 0];
+        assert!(!t.is_finished(), "piece 1 is still wanted");
+        t.file_priority = vec![0, 0, 4];
+        assert!(t.is_finished());
+        assert_eq!(t.settled_state(), TorrentState::Finished);
+        // Piece 3 (49152..60000) holds the last 848 bytes of b and all of c.
+        assert_eq!(t.file_progress(), [16384, 848, 10_000]);
+
+        t.add_tracker("udp://b", 1);
+        t.add_tracker("udp://a", 0);
+        t.add_tracker("udp://c", 1);
+        t.add_tracker("udp://a", 5);
+        let r = t.resume_data();
+        assert_eq!(
+            r.trackers,
+            [vec!["udp://a".to_owned()], vec!["udp://b".to_owned(), "udp://c".to_owned()]]
+        );
+        assert_eq!(r.pieces.unwrap().count(), 2);
+    }
+}

@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_143016_1792067416: Interop: qBittorrent downloads from libretorrent-nox
+
+### Verified
+- qBittorrent 5.2.4 (the installed app, started with a throwaway `--profile` in a temp directory, so the user's own profile was never touched) downloaded a 3-file, 38.7 MiB test torrent (256 KiB pieces) from `libretorrent-nox add ... --seed` over loopback.
+  - qBittorrent's settings were mostly defaults: DHT, PeX, LSD and port forwarding off so it only saw our seed; encryption left at its default ("allow").
+  - qBittorrent connected to nox (nox reported an incoming connection) and finished about 7 s after the peer was added through its Web API. The finished download is `stalledUP` at 100 %; downloaded bytes equal the torrent size (no hash failures or waste).
+  - All three files are SHA-256 identical to the originals.
+- Exe tested: `libretorrent-nox` built from commit f3fbefa.
+
+### Issues encountered
+- qBittorrent 5.x refuses to start its Web UI without credentials, even with localhost authentication bypassed. The temp profile got a random throwaway login (PBKDF2 hash only, the password was never stored).
+- qBittorrent downloaded its IP geolocation database (db-ip.com) on first start of the fresh profile; harmless, but noted.
+- Not measured: why the transfer took about 7 s to start. A likely cause is qBittorrent trying an encrypted or uTP connection first, which nox does not support until Phase 4, before falling back to plain TCP; not confirmed.
+
+### Cleanup
+- The test qBittorrent instance (the PID we started) and the nox seed were stopped; the temp profile and test data were deleted. No other qBittorrent was running.
+
 ## 2026-10-15_124018_1792060818: Phase 2, the real engine
 
 ### Added (ported from libtorrent-rasterbar 2.0.11 unless noted)

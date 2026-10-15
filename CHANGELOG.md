@@ -2,6 +2,14 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_152239_1792070559: CI fully green
+
+### Verified
+- CI run 38740694714 on 16572af: all jobs pass (Linux and Windows tests, MSRV, fmt, release-windows with the slow tests and the size report) after a rerun of the failed Windows job. FreeBSD (run 38740694536) passes.
+
+### Issues encountered
+- Flaky test: `swarm::download_through_an_http_tracker` failed once on the Windows runner. The tracker reply arrived (the later "failed to connect to tracker" errors are re-announces after the test's one-shot tracker had exited), but the download did not finish within 60 s. It passed on the rerun, on the previous CI run, and 15 of 15 times locally. It is in the peer path, not the tracker code; PLAN.md Known TODOs tracks it.
+
 ## 2026-10-15_144716_1792068436: CI after the first push of Phase 2 and HTTPS
 
 ### Verified

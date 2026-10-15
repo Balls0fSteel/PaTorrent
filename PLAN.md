@@ -239,6 +239,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 - Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
 - Phase 2 follow-ups: `unfinished` pieces in resume data, batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
+- Flaky on CI (once, Windows runner, 2026-10-15): `swarm::download_through_an_http_tracker` got the tracker reply but did not finish in 60 s. Not reproduced locally (15 of 15). Find out why the leech stalls on a loaded machine (connection to the seed, choking, or request timeouts).
 - TLS (`core::net::tls`):
   - certificate revocation is not checked; SChannel would fetch CRLs synchronously on the engine thread. SChannel may still fetch a missing intermediate certificate (AIA) synchronously; move the handshake off the reactor if that ever shows up as a stall.
   - no macOS backend (Secure Transport / Network.framework) yet; non-Windows, non-Unix targets fail HTTPS announces with a clear message.

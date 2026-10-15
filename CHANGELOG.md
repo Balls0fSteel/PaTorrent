@@ -2,6 +2,12 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_202933_1792088973: Phase 3 closed
+
+### Verified
+- The owner ran `patorrent.exe` (via `run.bat`): the main window works, a torrent was added and downloaded through the GUI. All Phase 3 items are ticked in PLAN.md. The known GUI follow-ups (working set, network icon, Pause toggle, restore log lines) stay in Known TODOs.
+- Still untried: a DPI change across two monitors.
+
 ## 2026-10-15_202147_1792088507: Fix the Fuzz CI workflow (musl target)
 
 ### Fixed

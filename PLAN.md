@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-15_202147_1792088507
+Last updated: 2026-10-15_202933_1792088973
 
 ## Vision
 
@@ -24,7 +24,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Stage:** Phase 3 (Win32 GUI MVP) is in progress. `patorrent.exe` now shows the µTorrent 2.2.1 main window on the real engine: menu, runtime-drawn toolbar, category tree, virtual torrent list, the seven detail tabs, status bar, tray, context menus, single instance and persisted layout. Every Phase 3 item is implemented, and the scale gate passes. The phase stays open until a person has checked the window visually (computer use is blocked by policy for this app, so nothing visual is verified yet) and a download has run through the GUI. Phase 2 (minimum viable engine) is closed; its results follow.
+- **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Next is Phase 4, starting with `ut_metadata` so magnet links work. Phase 2 (minimum viable engine) is closed too; its results follow.
 - Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `patorrent.exe` is 1.36 MB.
 - Phase 2 results (release build, this dev machine):
 
@@ -154,24 +154,24 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - [x] 1,000 synthetic torrents load in under 0.5 s (12 ms).
 
 ### Phase 3: Win32 GUI MVP (the µTorrent 2.2.1 main window)
-Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). An item is ticked only once it has also been checked on screen; until then it is marked *built*.
-- [ ] Main window parts (*built*):
+Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the owner 2026-10-15 (window, adding a torrent, a download through the GUI).
+- [x] Main window parts:
   - menu and toolbar (original runtime-drawn icons)
   - category tree with counts (labels included)
   - virtual torrent list: 24 columns (the 2.2.1 set as far as known, from memory; check against a real 2.2.1), in-cell progress bar, sorting, column chooser, persisted layout
   - detail tabs: General, Trackers, Peers, Pieces, Files, Speed, Logger
   - status bar: DHT nodes, D/U rate and totals, network indicator (text only so far)
   - splitters
-- [ ] Adding torrents (*built*): Open dialog, drag and drop, command line, magnet/URL dialog. Single instance that forwards arguments (verified).
-- [ ] Context menus (*built*):
+- [x] Adding torrents: Open dialog, drag and drop, command line, magnet/URL dialog. Single instance that forwards arguments (verified).
+- [x] Context menus:
   - Start, Pause, Stop, Force Start
   - Remove, Remove and delete data
   - Force Re-check, Update Tracker
   - queue moves, bandwidth, labels
-- [ ] Tray icon, minimize/close to tray, completion balloon (*built*)
+- [x] Tray icon, minimize/close to tray, completion balloon
 - [x] Per-monitor DPI v2, ComCtl v6 manifest via linker args (no resource compiler needed). `WM_DPICHANGED` rescales fonts, icons and columns (not yet tried on a second monitor).
 - [x] Scale gate: 10,000-torrent profile meets the startup (0.2–0.4 s), RAM (60 MB) and idle-CPU (0.1 %) targets.
-- [ ] Visual check by a person, then a real download through the GUI.
+- [x] Visual check by a person, then a real download through the GUI (2026-10-15).
 
 ### Phase 4: Discovery and connectivity
 - [ ] DHT: BEP5, BEP32 (IPv6), BEP42 (node id security), BEP43 (read-only); bootstrap; state persistence
@@ -218,8 +218,8 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). An item is ticked only onc
 
 ## Next steps
 
-1. Phase 3: a person checks the main window on screen (icons, Done bars, General/Pieces/Speed panels, menus, dialogs, drag and drop, tray, a DPI change) and downloads a torrent through it. Fix what that turns up, then close the phase.
-2. Phase 4 early pick: `ut_metadata`, so magnet links work (they are rejected with a clear message today; the GUI shows that message).
+1. Phase 4 early pick: `ut_metadata` (BEP 9), so magnet links work (they are rejected with a clear message today). Magnets still need trackers in the `tr=` list until DHT lands.
+2. Then the rest of Phase 4: DHT, PEX, LSD, UPnP/NAT-PMP, MSE/PE, uTP.
 3. Keep CI green on Windows, Linux and FreeBSD.
 4. Rerun `lt-swarm interop` after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI.
 

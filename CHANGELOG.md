@@ -2,6 +2,11 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_164712_1792075632: CI green on the Phase 2 closing commits
+
+### Verified
+- CI run 38749949289 on abfc698: all jobs pass on the first try (fmt, MSRV, tests on Linux and Windows, release-windows). That covers the new partial-pieces swarm test and the swarm-test fix from efb4944, whose first CI run this was. FreeBSD run 38749949308 passes.
+
 ## 2026-10-15_161111_1792073471: `lt-swarm interop`: LibreTorrent downloads from qBittorrent, Transmission and Deluge
 
 This closes Phase 2: the reverse direction of the interop exit criterion is now verified and repeatable.

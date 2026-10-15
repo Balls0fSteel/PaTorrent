@@ -450,8 +450,24 @@ impl Engine {
     }
 
     fn flush_alerts(&mut self) {
-        for a in self.out.drain(..) {
-            self.shared.alerts.post(a);
+        let mut out = std::mem::take(&mut self.out);
+        let mut lost = Vec::new();
+        for a in out.drain(..) {
+            // A dropped state update must not lose its torrents: `post_torrent_updates` reports
+            // only changed torrents, so mark them changed again for the next request.
+            let ids: Vec<TorrentId> = match &a {
+                Alert::StateUpdate(v) => v.iter().map(|st| st.id).collect(),
+                _ => Vec::new(),
+            };
+            if !self.shared.alerts.post(a) {
+                lost.extend(ids);
+            }
+        }
+        self.out = out;
+        for id in lost {
+            if let Some(t) = self.torrent(id) {
+                t.status_dirty = true;
+            }
         }
     }
 

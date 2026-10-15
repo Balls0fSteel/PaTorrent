@@ -547,3 +547,50 @@ fn magnets_and_garbage_are_rejected_cleanly() {
     });
     s.shutdown();
 }
+
+/// A full alert queue drops the `StateUpdate`; its torrents must show up in a later update
+/// (they only appear in updates while marked changed). Seen first in the GUI with 10,000 saved
+/// torrents: the restore alerts filled the queue and the list stayed empty.
+#[test]
+fn dropped_state_updates_are_reported_again() {
+    const N: usize = 20;
+    let settings = Settings { alert_queue_size: 2, ..settings() };
+    let s = Session::start(SessionParams { settings, state_dir: None }).expect("session starts");
+    let h = s.handle();
+    let dir = temp_dir("dropped-updates");
+    for i in 0..N {
+        let mut info = Entry::new_dict();
+        *info.key("length") = Entry::Int(1000);
+        *info.key("name") = Entry::Bytes(format!("t{i}").into_bytes());
+        *info.key("piece length") = Entry::Int(PIECE as i64);
+        *info.key("pieces") = Entry::Bytes(Sha1::digest(&[0u8; 1000]).0.to_vec());
+        let mut t = Entry::new_dict();
+        *t.key("info") = info;
+        let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(t.bencode()), dir.to_string_lossy());
+        p.flags = TorrentFlags::PAUSED;
+        h.add_torrent(p);
+    }
+    // Nobody pops alerts: the add alerts fill the queue, so this update is dropped.
+    std::thread::sleep(Duration::from_millis(500));
+    h.post_torrent_updates();
+    std::thread::sleep(Duration::from_millis(500));
+    let mut alerts = Vec::new();
+    h.pop_alerts(&mut alerts);
+    assert!(matches!(alerts.first(), Some(Alert::AlertsDropped { .. })), "the queue should have overflowed");
+
+    let mut seen = std::collections::HashSet::new();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while seen.len() < N && Instant::now() < deadline {
+        h.post_torrent_updates();
+        std::thread::sleep(Duration::from_millis(100));
+        h.pop_alerts(&mut alerts);
+        for a in &alerts {
+            if let Alert::StateUpdate(v) = a {
+                seen.extend(v.iter().map(|st| st.id));
+            }
+        }
+    }
+    s.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+    assert_eq!(seen.len(), N, "torrents from the dropped update never came back");
+}

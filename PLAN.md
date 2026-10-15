@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-15_201238_1792087958
+Last updated: 2026-10-15_201640_1792088200
 
 ## Vision
 
@@ -229,7 +229,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 
 - **Q1, Q2, Q8, Q9.** Resolved, see D14–D17.
 - **Q3–Q7.** Resolved, see D9–D13.
-- **Q11. GitHub repository name.** The repository is still `Balls0fSteel/LibreTorrent` (the `repository` field in Cargo.toml and the README clone URL point there). Rename it to `PaTorrent` on GitHub (Settings → General; GitHub redirects the old URL), then update both places. The local folder name `libretorrent` can change at the same time.
+- **Q11. GitHub repository name.** Resolved 2026-10-15: renamed to `Balls0fSteel/PaTorrent` (GitHub redirects the old URL); Cargo.toml, the README and the `origin` remote point there. The local folder is still `libretorrent`; renaming it is optional and best done with no editor or session open in it.
 - **Q10. Interop testing setup.** Answered: qBittorrent runs as the installed app with a throwaway `--profile`; Transmission and Deluge run in the Debian WSL distro (`transmission-cli`, `deluged`, `deluge-console` installed 2026-10-15; the `deluged` system service the package enabled was stopped and disabled). `lt-swarm interop` scripts all three.
 
 ## Future improvements

@@ -17,7 +17,7 @@
 Requires Rust 1.85+. On Windows you also need the MSVC build tools (Visual Studio 2022+ "Desktop development with C++"). No other dependencies.
 
 ```bash
-git clone --recurse-submodules https://github.com/Balls0fSteel/LibreTorrent.git
+git clone --recurse-submodules https://github.com/Balls0fSteel/PaTorrent.git
 cargo build --release
 ```
 

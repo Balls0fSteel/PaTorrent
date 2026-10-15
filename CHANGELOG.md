@@ -2,6 +2,12 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_201640_1792088200: GitHub repository renamed to PaTorrent (Q11)
+
+### Changed
+- `gh repo rename PaTorrent`: the repository is now `Balls0fSteel/PaTorrent` (private). GitHub redirects the old `LibreTorrent` URL, and gh switched the `origin` remote to the new URL.
+- The `repository` field in Cargo.toml and the README clone URL use the new name.
+
 ## 2026-10-15_201238_1792087958: Renamed to PaTorrent; PolyForm Noncommercial license (D15–D17)
 
 ### Decisions

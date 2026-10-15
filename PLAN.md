@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-15_204502_1792089902
+Last updated: 2026-10-15_211826_1792091906
 
 ## Vision
 
@@ -26,7 +26,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 - **PatinaTorrent icon candidates (2026-10-15_203223_1792089143):** three original teal/copper application directions (Verdigris, Exchange, Foundry), transparent PNGs and multi-size Windows ICOs, plus 30 editable state SVGs with PNG exports, exact state mapping and an interactive review gallery in `assets/patina-icons/`. Completed transparency/rendering, ICO frame, state-coverage and desktop/mobile gallery checks. Next: choose a brand direction, then integrate its app/tray icon and the state family into the runtime-drawn Win32 UI. The candidates are not yet connected to the application.
 
-- **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Phase 4 has started: magnet links work (`ut_metadata`, BEP 9; CHANGELOG 2026-10-15_204502_1792089902). A magnet of the Debian 13.7.0 netinst ISO with only `xt` and `tr` got its metadata within a second and the whole 792 MB in 9 s. Phase 2 (minimum viable engine) is closed too; its results follow.
+- **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Phase 4 has started: magnet links work (`ut_metadata`, BEP 9; CHANGELOG 2026-10-15_204502_1792089902), and the mainline DHT (BEP 5/32/42/43, `core::dht`; CHANGELOG 2026-10-15_211826_1792091906) finds peers for magnets without trackers: the Debian 13.7.0 netinst magnet with only `xt` bootstrapped from `dht.libtorrent.org` in 2 s, had DHT peers at 4 s, its metadata at 5 s and the whole 792 MB at 13 s. Phase 2 (minimum viable engine) is closed too; its results follow.
 - Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `patorrent.exe` is 1.36 MB.
 - Phase 2 results (release build, this dev machine):
 
@@ -176,7 +176,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [x] Visual check by a person, then a real download through the GUI (2026-10-15).
 
 ### Phase 4: Discovery and connectivity
-- [ ] DHT: BEP5, BEP32 (IPv6), BEP42 (node id security), BEP43 (read-only); bootstrap; state persistence
+- [x] DHT: BEP5, BEP32 (IPv6), BEP42 (node id security), BEP43 (read-only); bootstrap; state persistence (2026-10-15). `core::dht` ports libtorrent's routing table, rpc manager, get_peers / announce / bootstrap lookups (plus the obfuscated variant), peer storage with scrape filters, DoS blocker, node ids and `dht_state`; the engine runs it on UDP sockets on the listen port, feeds peers to running torrents (`PeerSource::DHT`), announces running torrents and shows the node count in the status bar. Ported tests: `test_dht` (all but the BEP 44 / 51 / signing ones), `test_dos_blocker`, `test_bloom_filter`, `test_ip_voter`, most of `test_dht_storage`. Fuzz target `dht_message`. Verified with Debian's swarm and no trackers
 - [ ] Extensions:
   - [x] ut_metadata (BEP 9): magnets and bare info-hashes fetch the info dictionary from peers, then check and download as usual with their peers kept; we serve metadata to others (not for private torrents). A magnet waiting for metadata is saved and restored. Verified with Debian's swarm (2026-10-15)
   - [ ] ut_pex, lt_donthave (BEP54), smart-ban
@@ -223,7 +223,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 ## Next steps
 
 1. Try a magnet link in the GUI (Add Torrent from URL, or a `magnet:` link on the command line): the row should show "Downloading metadata" with a growing percentage, then turn into a normal download.
-2. Phase 4 next: DHT (BEP 5), so trackerless magnets find peers; magnets need a working `tr=` tracker or `x.pe` peer until then. Then PEX, LSD, UPnP/NAT-PMP, MSE/PE, uTP.
+2. Phase 4 next: PEX (ut_pex), LSD, UPnP/NAT-PMP, MSE/PE, uTP. The DHT is done; try a trackerless magnet in the GUI and watch "DHT: N nodes" in the status bar.
 3. Keep CI green on Windows, Linux and FreeBSD.
 4. Rerun `lt-swarm interop` after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI.
 
@@ -252,7 +252,14 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - for private trackers: behave well (honest upload/download stats, announce intervals respected, no ratio tricks), keep `User-Agent`, peer ID and BEP 10 `v` consistent across versions, and publish a stable release with changelog. Tracker staff usually want a tagged release they can test. Expect a long wait, and some will never whitelist a new client.
 - Peer-ID version characters: `-PA0100-` encodes 0.1.0. Bump `PEER_ID_PREFIX` together with the crate version (a test enforces it).
 - Fuzzing on Windows needs Visual Studio's AddressSanitizer runtime (`clang_rt.asan_dynamic-x86_64.dll`); `fuzz.bat` finds it with vswhere. A build without a sanitizer (`-s none`) does not link on MSVC (libFuzzer's PC table uses ELF section symbols). The default toolchain here is pinned to 1.90.0, and cargo-fuzz 0.13 needs 1.91+, so it was installed with `cargo +stable install cargo-fuzz --locked`. In CI, cargo-fuzz from `taiki-e/install-action` is a musl build that defaults to the musl target, so `fuzz.yml` passes `--target x86_64-unknown-linux-gnu`.
-- Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), DHT messages, uTP headers, resume data and the nox HTTP API (docs/PORTING.md rule 8).
+- Fuzz targets still to add as the code lands: UDP tracker responses (no public parser yet), uTP headers, resume data and the nox HTTP API (docs/PORTING.md rule 8). DHT messages: done (`dht_message`).
+- DHT follow-ups (Phase 4 DHT is in, CHANGELOG 2026-10-15_211826_1792091906):
+  - BEP 44 items (`get` / `put`, ed25519) and BEP 51 `sample_infohashes` are Phase 8; until then such queries get a `find_node`-style answer. Not ported yet: the matching `test_dht` tests (put/get/mutable/immutable, signing_test1-3, sample_infohashes), `test_direct_dht` and the item parts of `test_dht_storage`.
+  - Linux: `[::]` is dual-stack, so the IPv6 DHT socket fails to bind after `0.0.0.0` and the DHT runs IPv4 only. Setting `IPV6_V6ONLY` needs a raw `setsockopt` (no libc crate under D4); the TCP listener has the same limitation. Windows sockets are v6-only by default, so both families run there.
+  - external-IP voting lives in the DHT (DHT replies only). `core::net::env` should own one `IpVoter` fed by trackers, peers and the DHT, as libtorrent's listen socket does; the DHT then follows it.
+  - the default bootstrap list is libtorrent's (`dht.libtorrent.org:25401` only). qBittorrent adds `router.bittorrent.com:6881`, `router.utorrent.com:6881`, `dht.transmissionbt.com:6881`; worth it if that one host is ever down. A deliberate settings change, so it goes in docs/SETTINGS.md.
+  - the GUI has no DHT preferences (enable, read-only) until the Phase 5 Preferences dialog; `Settings` carries them.
+  - DHT nodes in `.torrent` files (`nodes`) are not added yet; magnet `dht=` nodes are (IP literals only, host names are skipped).
 - Licensing compliance (checked 2026-10-15_174600_1792079160):
   - when a new libtorrent module (or bundled code such as puff or ed25519) is ported, add it to THIRD-PARTY-NOTICES.md's "Ported so far" list and give each file the origin and copyright header.
   - the nox Web API (D10) must be written from qBittorrent's published WebAPI docs only. qBittorrent is GPL-2.0-or-later, which is incompatible with D15's noncommercial license: never copy its source or Web UI assets.

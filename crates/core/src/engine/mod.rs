@@ -10,6 +10,7 @@
 
 //! The real network engine (PLAN.md Phase 2).
 
+mod dht;
 mod metadata;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
@@ -176,6 +177,7 @@ pub(crate) struct Engine {
     last_save: Instant,
     last_auto_manage: Instant,
     store_flush_due: Option<Instant>,
+    dht: dht::DhtSession,
 }
 
 /// The network thread's entry point.
@@ -198,6 +200,9 @@ pub(crate) fn run(
         if e.bandwidth_tick_needed() {
             next = next.min(e.last_bandwidth + BANDWIDTH_TICK);
         }
+        if let Some(d) = e.dht.deadline() {
+            next = next.min(d);
+        }
         let timeout = next.saturating_duration_since(now);
         if let Err(err) = e.poll.poll(&mut events, Some(timeout)) {
             if err.kind() != io::ErrorKind::Interrupted {
@@ -217,6 +222,7 @@ pub(crate) fn run(
         e.drain_completions();
         e.flush_peers();
         let now = Instant::now();
+        e.dht_service(now);
         if e.bandwidth_tick_needed() && now >= e.last_bandwidth + BANDWIDTH_TICK {
             e.bandwidth_tick(now);
         }
@@ -293,6 +299,7 @@ impl Engine {
             last_save: now,
             last_auto_manage: now,
             store_flush_due: None,
+            dht: dht::DhtSession::new(now),
             settings,
         }
     }
@@ -301,6 +308,7 @@ impl Engine {
 
     fn start(&mut self, state_dir: Option<PathBuf>) {
         self.open_listen_sockets();
+        self.start_dht(state_dir.as_deref());
         if let Some(dir) = state_dir {
             match Store::open(&dir) {
                 Ok((store, records, errors)) => {
@@ -386,6 +394,7 @@ impl Engine {
     }
 
     fn shutdown(&mut self, events: &mut Events) {
+        self.save_dht_state();
         let ids: Vec<TorrentId> = self.torrent_ids();
         for id in ids {
             self.stop_torrent(id, true);
@@ -400,6 +409,9 @@ impl Engine {
                 self.on_event(ev.token(), true, ev.is_writable());
             }
             while let Ok(r) = self.resolve_rx.try_recv() {
+                if r.cookie & dht::DHT_COOKIE != 0 {
+                    continue;
+                }
                 self.trackers.on_resolved(r, self.poll.registry(), Instant::now());
             }
             self.trackers.tick(self.poll.registry(), Instant::now());
@@ -496,6 +508,8 @@ impl Engine {
             }
             _ if token == UDP4_TOKEN => self.trackers.on_udp_readable(false, Instant::now()),
             _ if token == UDP6_TOKEN => self.trackers.on_udp_readable(true, Instant::now()),
+            _ if token == dht::DHT4_TOKEN => self.on_dht_readable(true),
+            _ if token == dht::DHT6_TOKEN => self.on_dht_readable(false),
             t if t >= HTTP_TOKEN_BASE => {
                 self.trackers.on_http_event(token, &self.resolver, self.poll.registry(), Instant::now())
             }
@@ -902,6 +916,9 @@ impl Engine {
         self.upload_bucket.set_limit(s.upload_rate_limit);
         self.disk.set_file_pool_size(s.file_pool_size as usize);
         self.trackers.set_options(&s.user_agent, s.tracker_completion_timeout);
+        if let Some(t) = self.dht.tracker.as_mut() {
+            t.set_settings(crate::dht::DhtSettings::from(&s));
+        }
         let queue_changed = s.active_downloads != self.settings.active_downloads
             || s.active_seeds != self.settings.active_seeds
             || s.active_limit != self.settings.active_limit;
@@ -1100,6 +1117,9 @@ impl Engine {
         for addr in &m.peers {
             t.peer_list.add(*addr, PeerSource::RESUME_DATA, None, usize::MAX);
         }
+        for (host, port) in &m.dht_nodes {
+            self.add_dht_node(host, *port);
+        }
         t.download_limit.set_limit(p.download_limit);
         t.upload_limit.set_limit(p.upload_limit);
         t.max_connections = p.max_connections;
@@ -1278,6 +1298,7 @@ impl Engine {
             t.started_at = Some(Instant::now());
             self.set_state(id, TorrentState::DownloadingMetadata);
             self.connect_peers_for(id, 10);
+            self.prioritize_dht(id);
             return;
         }
         let t = self.torrent(id).expect("exists");
@@ -1478,6 +1499,7 @@ impl Engine {
                 }
                 self.needs_auto_manage = true;
                 self.connect_peers_for(id, 10);
+                self.prioritize_dht(id);
             }
         }
     }
@@ -1657,6 +1679,10 @@ impl Engine {
         }
         let now = Instant::now();
         while let Ok(r) = self.resolve_rx.try_recv() {
+            if r.cookie & dht::DHT_COOKIE != 0 {
+                self.on_dht_resolved(r);
+                continue;
+            }
             self.trackers.on_resolved(r, self.poll.registry(), now);
         }
         self.apply_tracker_results();
@@ -2062,19 +2088,23 @@ impl Engine {
             if finished && t_is_seed(self.torrent_ref(id), &addr) {
                 continue;
             }
+            let source = self
+                .torrent_ref(id)
+                .and_then(|t| t.peer_list.get(&addr))
+                .map_or(PeerSource::TRACKER, |p| p.source);
             match TcpStream::connect(addr) {
                 Ok(sock) => {
-                    if let Some(slot) = self.add_peer_conn(sock, addr, true, PeerSource::TRACKER, Some(id)) {
+                    if let Some(slot) = self.add_peer_conn(sock, addr, true, source, Some(id)) {
                         let pid = self.peers.get(slot).expect("added").id;
                         let t = self.torrent(id).expect("exists");
                         t.peers.push(slot);
-                        t.peer_list.connecting(addr, pid, PeerSource::TRACKER, now);
+                        t.peer_list.connecting(addr, pid, source, now);
                         made += 1;
                     }
                 }
                 Err(_) => {
                     let t = self.torrent(id).expect("exists");
-                    t.peer_list.connecting(addr, 0, PeerSource::TRACKER, now);
+                    t.peer_list.connecting(addr, 0, source, now);
                     t.peer_list.disconnected(&addr, true, false);
                 }
             }
@@ -2256,6 +2286,7 @@ impl Engine {
             upload_rate: self.stat.upload_payload.rate(),
             has_incoming_connections: self.has_incoming,
             disk_write_queue: (self.disk.queued_write_bytes() / BLOCK_SIZE as u64) as u32,
+            dht_nodes: self.dht.num_nodes(),
             ..SessionStats::default()
         };
         for s in &self.slots {

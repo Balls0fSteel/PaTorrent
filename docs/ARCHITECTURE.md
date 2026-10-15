@@ -176,7 +176,7 @@ h.pop_alerts(&mut alerts);
 - **Store** (`core::store`, optional but used by every frontend):
   - `resume.db`: one bencoded record per torrent. Records carry the libtorrent fastresume fields plus frontend metadata such as label and "paused vs stopped". It is written incrementally (dirty records appended, compacted when the garbage ratio exceeds a threshold), with atomic replace on compaction.
   - `metadata.pack`: append-only, indexed by info-hash, holding raw info dictionaries. Read lazily.
-  - `dht.dat`: DHT node id and routing table.
+  - `dht_state.dat`: DHT node ids and the routing table's nodes (libtorrent `dht_state` format), written by the engine on shutdown and every 30 minutes, read at startup to bootstrap.
 - **Frontend settings:** `settings.ini`, human-editable.
 - **Locations:**
   - Windows: portable mode when `settings.ini` sits next to the executable (like µTorrent), otherwise `%APPDATA%\PaTorrent`.

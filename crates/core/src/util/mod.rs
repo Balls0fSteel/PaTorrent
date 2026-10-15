@@ -2,6 +2,7 @@
 //! `string_util.cpp`, `escape_string.cpp`, `parse_url.cpp` and `path.cpp` (docs/PORTING.md).
 
 pub mod bitfield;
+pub mod bloom_filter;
 pub mod hex;
 pub mod path;
 pub mod random;

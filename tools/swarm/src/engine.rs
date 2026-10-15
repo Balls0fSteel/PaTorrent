@@ -26,7 +26,12 @@ fn temp_dir(name: &str) -> PathBuf {
 
 fn settings() -> Settings {
     // A queue large enough that bulk adds lose no alerts.
-    Settings { listen_interfaces: "127.0.0.1:0".into(), alert_queue_size: 1 << 20, ..Settings::default() }
+    Settings {
+        listen_interfaces: "127.0.0.1:0".into(),
+        alert_queue_size: 1 << 20,
+        enable_dht: false,
+        ..Settings::default()
+    }
 }
 
 /// Pops alerts until `f` returns `Some`, or `None` after `limit`.

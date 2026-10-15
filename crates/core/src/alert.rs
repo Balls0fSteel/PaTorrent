@@ -140,6 +140,13 @@ pub enum Alert {
     ExternalIp {
         ip: IpAddr,
     },
+    /// A DHT lookup for a torrent returned peers (libtorrent `dht_reply_alert`).
+    DhtReply {
+        id: TorrentId,
+        num_peers: u32,
+    },
+    /// The DHT finished its startup bootstrap (libtorrent `dht_bootstrap_alert`).
+    DhtBootstrap,
 
     // Replies to `post_*` requests
     /// Torrents whose status changed since the previous `post_torrent_updates()`.
@@ -216,6 +223,8 @@ impl Alert {
             | PortmapSucceeded { .. }
             | PortmapFailed { .. }
             | ExternalIp { .. }
+            | DhtReply { .. }
+            | DhtBootstrap
             | Log { .. } => AlertPriority::Normal,
         }
     }
@@ -238,6 +247,7 @@ impl Alert {
             | TorrentError { id, .. }
             | FileError { id, .. }
             | TrackerReply { id, .. }
+            | DhtReply { id, .. }
             | TrackerWarning { id, .. }
             | TrackerError { id, .. }
             | ScrapeReply { id, .. }
@@ -289,6 +299,8 @@ impl Alert {
             }
             PortmapFailed { transport, message } => write!(s, "{transport:?}: mapping failed: {message}"),
             ExternalIp { ip } => write!(s, "external IP: {ip}"),
+            DhtReply { num_peers, .. } => write!(s, "DHT: received {num_peers} peers"),
+            DhtBootstrap => write!(s, "DHT bootstrapped"),
             StateUpdate(v) => write!(s, "state update for {} torrents", v.len()),
             SessionStats(_) => write!(s, "session stats"),
             PeerInfo { peers, .. } => write!(s, "{} peers", peers.len()),

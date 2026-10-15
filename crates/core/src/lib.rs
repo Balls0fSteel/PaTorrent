@@ -19,6 +19,7 @@
 mod alert;
 pub mod bencode;
 pub mod crypto;
+mod dht;
 mod disk;
 mod engine;
 mod error;
@@ -59,6 +60,7 @@ pub use mock::MockConfig;
 #[cfg(feature = "fuzzing")]
 #[doc(hidden)]
 pub mod fuzzing {
+    pub use crate::dht::{DhtSettings, DhtState, DhtTracker};
     pub use crate::proto::http::{Url, parse_response, resolve_redirect};
     pub use crate::proto::peer_wire::{decode, decode_ext_handshake, decode_handshake, identify_client};
     pub use crate::proto::tracker::{parse_announce_response, parse_compact_peers, parse_scrape_response};

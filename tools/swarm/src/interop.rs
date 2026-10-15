@@ -432,7 +432,8 @@ struct Transfer {
 }
 
 fn download(f: &Fixture, from: SocketAddr, dir: &Path) -> Result<Transfer, String> {
-    let settings = Settings { listen_interfaces: "127.0.0.1:0".into(), ..Settings::default() };
+    let settings =
+        Settings { listen_interfaces: "127.0.0.1:0".into(), enable_dht: false, ..Settings::default() };
     let session = Session::start(SessionParams { settings, state_dir: None }).map_err(|e| e.to_string())?;
     let h = session.handle();
     let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());

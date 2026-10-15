@@ -1,7 +1,8 @@
 //! Loopback swarm tests for the real engine: a seeding session and a downloading session on
 //! 127.0.0.1, connected directly, through an HTTP tracker and through a UDP tracker; plus a
 //! restart that resumes without rechecking, and one that keeps partly downloaded pieces; magnet
-//! links that fetch their metadata from the seed (BEP 9).
+//! links that fetch their metadata from the seed (BEP 9), and a trackerless magnet that finds its
+//! seed through a third session's DHT.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -108,6 +109,8 @@ fn settings() -> Settings {
         listen_interfaces: "127.0.0.1:0".into(),
         tick_interval: 100,
         aio_threads: 2,
+        // loopback tests stay off the internet
+        enable_dht: false,
         ..Settings::default()
     }
 }
@@ -609,6 +612,66 @@ fn magnet_fetches_metadata_from_the_seed_then_downloads() {
     leech.shutdown();
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(state);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+/// A session whose DHT bootstraps from `router` (no router: a DHT of its own).
+fn start_dht(router: Option<u16>) -> (Session, Watch, u16) {
+    let settings = Settings {
+        enable_dht: true,
+        dht_bootstrap_nodes: router.map_or(String::new(), |p| format!("127.0.0.1:{p}")),
+        // re-announce every 2 s, so a lookup that ran before the seed announced comes back soon
+        dht_announce_interval: 2,
+        ..settings()
+    };
+    let s = Session::start(SessionParams { settings, state_dir: None }).expect("session starts");
+    let mut w = Watch::new(s.handle());
+    let port = listen_port(&mut w);
+    // the DHT's UDP socket shares the TCP listen port
+    wait(&mut w, 5, "DHT socket", |a| match a {
+        Alert::ListenSucceeded { address, protocol } if format!("{protocol:?}") == "Udp" => {
+            assert_eq!(address.port(), port);
+            Some(())
+        }
+        _ => None,
+    });
+    (s, w, port)
+}
+
+#[test]
+fn trackerless_magnet_finds_its_seed_through_the_dht() {
+    // a bootstrap node, a seed announcing to it, and a magnet with nothing but the info-hash
+    let f = fixture(None);
+    let (router, _rw, router_port) = start_dht(None);
+    let seed_dir = temp_dir("dht-seed");
+    write_files(&f, &seed_dir);
+    let (seed, mut sw, _) = start_dht(Some(router_port));
+    let sid = add(&mut sw, &f, &seed_dir);
+    wait_state(&mut sw, sid, TorrentState::Seeding, 20);
+
+    let dir = temp_dir("dht-leech");
+    let (leech, mut w, _) = start_dht(Some(router_port));
+    let id = add_magnet(&mut w, format!("magnet:?xt=urn:btih:{}", hex(&f.info_hash)), &dir);
+    let n = wait(&mut w, 30, "DHT peers", |a| match a {
+        Alert::DhtReply { id: i, num_peers } if *i == id => Some(*num_peers),
+        _ => None,
+    });
+    assert!(n >= 1);
+    wait(&mut w, 30, "metadata", |a| {
+        matches!(a, Alert::MetadataReceived { id: i } if *i == id).then_some(())
+    });
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    leech.handle().post_session_stats();
+    let st = wait(&mut w, 5, "stats", |a| match a {
+        Alert::SessionStats(s) => Some(*s),
+        _ => None,
+    });
+    assert!(st.dht_nodes >= 1, "the router answered, so it is in the routing table");
+    leech.shutdown();
+    assert_files(&f, &dir);
+    seed.shutdown();
+    router.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 

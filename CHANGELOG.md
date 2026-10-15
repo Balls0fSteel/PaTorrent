@@ -2,6 +2,32 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-15_211826_1792091906: Mainline DHT (BEP 5, 32, 42, 43)
+
+### Added
+- `core::dht`, a port of libtorrent's `kademlia/*` as sans-IO state machines:
+  - `routing_table`: k-buckets with replacement caches, extended top buckets, prefix-spread replacement (`classify_prefix`, `replace_node_impl`), one entry per IP and per /24 (/64) per bucket, BEP 42 preference for splitting, `next_refresh`, `find_node`, `update_node_id`.
+  - `node`: the rpc manager (2-byte transaction ids, 1 s short timeout that widens the branch factor, 15 s timeout), the traversal algorithm (sorted results, 100-result cap, aggressive lookups, search-IP restriction), `get_peers` / `announce` (announce_peer to the 8 closest nodes with write tokens), obfuscated lookups (`dht_privacy_lookups`), bootstrap, the 5 s refresh tick, and query handling (`ping`, `find_node`, `get_peers` with scrape bloom filters, `announce_peer` with rotating 4-byte write tokens, `want` lists across families, BEP 42 `ip` key, BEP 43 read-only).
+  - `storage` (announced peers, 45 min expiry, limits), `dos_blocker`, `node_id` (BEP 42 ids, secret ids, prefix masks), `msg` (`verify_message`, compact nodes), `state` (`dht_state`), and `DhtTracker` (one node per address family, upload quota, write-key rotation, external-IP votes that move the node to a BEP 42 id).
+  - Observers and lookups live in slabs owned by the node instead of libtorrent's shared_ptr graph; an observer is freed once it is neither a lookup result nor an outstanding request.
+- `net::ip_voter` (libtorrent `ip_voter`, `is_local`, `hash_address`), `util::bloom_filter`, `util::random::crypto_random_bytes` (BCryptGenRandom / `/dev/urandom`, for write-token secrets and random ids).
+- Engine (`engine/dht.rs`): UDP sockets for IPv4 and IPv6 on the TCP listen port (`ListenSucceeded` with `Protocol::Udp`), bootstrap routers from `Settings::dht_bootstrap_nodes` resolved on the resolver threads (the DHT starts once they are resolved, as libtorrent), `dht_state.dat` beside `resume.db` (read at startup, written on shutdown and every 30 min), announces paced over running torrents with new torrents first (libtorrent `prioritize_dht` / `on_dht_announce`), peers added with `PeerSource::DHT` (not for private torrents), magnet `dht=` nodes pinged, `SessionStats::dht_nodes`.
+- Alerts `DhtReply { id, num_peers }` and `DhtBootstrap`. `Settings` gains libtorrent's `dht_*` settings with their defaults.
+- Outgoing connections keep the source the peer list knows (DHT peers no longer show as tracker peers).
+- nox: the totals line shows "DHT: N nodes"; `--verbose` prints DHT replies.
+- Fuzz target `dht_message` (whole tracker: blocker, queries, replies to our own bootstrap, lookups), also in `fuzz.yml`.
+
+### Changed
+- Loopback swarm tests and `lt-swarm` run with the DHT off.
+- PORTING.md: deliberate divergences for DHT sockets, announce pacing, the announce port, BEP 44/51 queries, ICMP errors and the external-IP vote. ARCHITECTURE.md: `dht_state.dat`.
+
+### Verified
+- Ported tests: `test_dht` (ping, invalid messages, get_peers/announce, scrape v4/v6, id enforcement v4/v6, routing table v4/v6 incl. the BEP 42 vectors, bootstrap, `want`, short nodes, get_peers v4/v6, traversal_done, dual stack, node_set_id, read-only node, error messages, unsorted results, routing table uniform/balance/extended/set_id/for_each, verify_message, node-id distribution, distance and prefix vectors, compare_ip_cidr, dht_state, node_entry ordering, mostly_verified, classify_prefix, replace_node_impl, all_in_same_bucket, rate limits), `test_dos_blocker`, `test_bloom_filter`, `test_ip_voter`, and `test_dht_storage`'s peer tests; plus timeouts, refresh and obfuscated-lookup tests. The BEP 44 / 51 / signing tests wait for Phase 8.
+- Swarm test `trackerless_magnet_finds_its_seed_through_the_dht`: three loopback sessions (a bootstrap node, a seed announcing to it, a magnet with only `xt`) — the magnet gets DHT peers, the metadata and the files.
+- `cargo fmt --check`, `cargo clippy --workspace --all-targets -D warnings`, `cargo test --workspace` (317 core unit tests plus integration suites). `fuzz.bat dht_message 120`: 393,856 runs, no crash.
+- Real swarm, twice with a fresh state directory: `patorrent-nox add "magnet:?xt=urn:btih:7acf8fb590b2060dd9c3146ef770169d593433b0"` (Debian 13.7.0 netinst, no `tr=`): 11–14 DHT nodes after 1–3 s, DHT peers at 4 s, metadata at 4–5 s, the 792 MB ISO finished at 13 s (every piece hash-checked). `dht_state.dat` was written; a restart with it had 41 nodes after 1 s and 106 after 39 s.
+- Not verified: the GUI's "DHT: N nodes" on screen; IPv6 DHT traffic on a network with IPv6 (this machine's runs used IPv4 nodes); Linux and FreeBSD (CI will run the unit and swarm tests).
+
 ## 2026-10-15_204502_1792089902: Magnet links (ut_metadata, BEP 9)
 
 ### Added

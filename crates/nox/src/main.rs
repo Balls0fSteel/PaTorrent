@@ -271,7 +271,10 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 Alert::TorrentError { .. } | Alert::FileError { .. } | Alert::ListenFailed { .. } => {
                     eprintln!("! {}", a.message())
                 }
-                Alert::TrackerError { .. } | Alert::TrackerWarning { .. } | Alert::TrackerReply { .. }
+                Alert::TrackerError { .. }
+                | Alert::TrackerWarning { .. }
+                | Alert::TrackerReply { .. }
+                | Alert::DhtReply { .. }
                     if o.verbose =>
                 {
                     println!("* {}", a.message())
@@ -279,6 +282,7 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 Alert::ListenSucceeded { .. }
                 | Alert::Log { .. }
                 | Alert::AlertsDropped { .. }
+                | Alert::DhtBootstrap
                 | Alert::MetadataReceived { .. }
                 | Alert::MetadataFailed { .. } => {
                     println!("* {}", a.message())
@@ -363,7 +367,7 @@ fn demo(o: Opts) -> ExitCode {
 
 fn print_totals(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, t: Duration) {
     println!(
-        "[{:>4}s] {} torrents | D: {} T: {} | U: {} T: {} | {} peers{}",
+        "[{:>4}s] {} torrents | D: {} T: {} | U: {} T: {} | {} peers | DHT: {} nodes{}",
         t.as_secs(),
         rows.len(),
         fmt::speed_always(stats.download_rate),
@@ -371,6 +375,7 @@ fn print_totals(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, 
         fmt::speed_always(stats.upload_rate),
         fmt::size(stats.sent_payload_bytes),
         stats.num_peers_connected,
+        stats.dht_nodes,
         if stats.has_incoming_connections { " | incoming OK" } else { "" },
     );
 }

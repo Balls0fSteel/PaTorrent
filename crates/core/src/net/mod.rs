@@ -1,5 +1,6 @@
 //! Platform networking helpers: resolver, OS TLS, listen-interface parsing, bandwidth buckets.
 
+pub(crate) mod ip_voter;
 pub(crate) mod resolver;
 pub(crate) mod tls;
 

@@ -51,6 +51,39 @@ pub fn shuffle<T>(v: &mut [T]) {
     }
 }
 
+/// Fills `buf` from the OS cryptographic RNG (libtorrent `aux::crypto_random_bytes`):
+/// `BCryptGenRandom` on Windows, `/dev/urandom` elsewhere. Used for DHT write-token secrets.
+/// Falls back to the non-cryptographic generator only if the OS source fails.
+pub fn crypto_random_bytes(buf: &mut [u8]) {
+    if !os_random(buf) {
+        for chunk in buf.chunks_mut(8) {
+            let r = random_u64().to_le_bytes();
+            chunk.copy_from_slice(&r[..chunk.len()]);
+        }
+    }
+}
+
+#[cfg(windows)]
+fn os_random(buf: &mut [u8]) -> bool {
+    use windows_sys::Win32::Security::Cryptography::{BCRYPT_USE_SYSTEM_PREFERRED_RNG, BCryptGenRandom};
+    // SAFETY: `buf` is a valid writable slice of the given length; a null algorithm handle is
+    // allowed together with BCRYPT_USE_SYSTEM_PREFERRED_RNG.
+    unsafe {
+        BCryptGenRandom(
+            std::ptr::null_mut(),
+            buf.as_mut_ptr(),
+            buf.len() as u32,
+            BCRYPT_USE_SYSTEM_PREFERRED_RNG,
+        ) == 0
+    }
+}
+
+#[cfg(not(windows))]
+fn os_random(buf: &mut [u8]) -> bool {
+    use std::io::Read;
+    std::fs::File::open("/dev/urandom").and_then(|mut f| f.read_exact(buf)).is_ok()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -1,6 +1,6 @@
 # LibreTorrent plan
 
-Last updated: 2026-10-15_100103_1792051263
+Last updated: 2026-10-15_104714_1792054034
 
 ## Vision
 
@@ -24,11 +24,27 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Stage:** planning. No code yet; this plan is awaiting approval.
+- **Stage:** Phase 0 (foundations) done; Phase 1 (primitives) is next.
+- Working today, on the simulated engine:
+  - the engine API (`Session`, handles, bounded alert queue, dirty-only status updates)
+  - the shared `frontend` crate
+  - a Win32 skeleton window
+  - the `libretorrent-nox` CLI driver
+  - the `lt-swarm scale` benchmark
+- Measured on the simulated engine (release build, this dev machine). This covers the API and update path only; the real engine will add its own cost:
+
+  | Torrents loaded | First full status update | RSS loaded / steady | Updates after that |
+  |---|---|---|---|
+  | 10,000 | 11 ms | 16 / 12 MB | ~220 changed torrents per second |
+  | 100,000 | 104 ms | 122 / 73 MB | ~500 changed torrents per second |
+
+  Exe sizes: `libretorrent.exe` 392 KB, `libretorrent-nox.exe` 455 KB. Static CRT; imports only OS DLLs.
 - libtorrent 2.0.11 has been surveyed: 165 `.cpp` files, about 105k lines of source, about 55k lines of headers, about 50k lines of tests. Subsystem sizes are in PORTING.md.
 - The earlier scaffolding that linked libtorrent via vcpkg and a C ABI bridge was removed after the direction was clarified (see CHANGELOG).
 
-## Proposed decisions (confirm or override)
+## Decisions
+
+Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the recommended options).
 
 | # | Decision | Rationale |
 |---|---|---|
@@ -40,22 +56,37 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 | D6 | Targets: Windows 10+ x64 (Rust's tier-1 baseline), Linux x86_64/aarch64, FreeBSD/OpenBSD. | Rust dropped pre-Windows-10 support from its tier-1 targets in 1.78. |
 | D7 | Windows: static CRT, single `.exe`, portable mode (settings beside the exe), like µTorrent. | No installer or runtime needed. |
 | D8 | Port libtorrent's tests with each module. Fuzz every parser. Deterministic swarm simulator. | Correctness without libtorrent's simulator. |
+| D9 (Q3) | TLS is OS-native: SChannel on Windows, system OpenSSL / LibreSSL on Unix, behind a thin trait. | Almost no added binary size; the OS patches TLS. |
+| D10 (Q4) | nox exposes a qBittorrent WebAPI v2-compatible subset (incremental `sync/maindata`). | Works with Sonarr, Radarr, Prowlarr and mobile apps. |
+| D11 (Q5) | The Linux/BSD GUI uses GTK 4 via gtk4-rs. | Maintained bindings. Memory can be trimmed with the Cairo renderer if needed. |
+| D12 (Q6) | Windows 10+ x64 only, on stable Rust. ARM64 Windows comes later as an extra CI target. No Windows 7/8.1, no 32-bit. | No nightly/`build-std`; tier-1 target. |
+| D13 (Q7) | Strict µTorrent 2.2.1 look by default: classic list view, 2.2.1 layout, menus and toolbar order. Allowed modern necessities: per-monitor DPI scaling and long paths. An optional dark mode may come later, never as the default. | Faithful clone first. |
 
 ## Roadmap
 
 Each phase ends with something runnable and measured against the targets in ARCHITECTURE.md.
 
 ### Phase 0: Foundations
-- [ ] Cargo workspace:
-  - crates: `core`, `frontend`, `win32`, `nox`
+- [x] Cargo workspace:
+  - crates: `core`, `frontend`, `win32`, `nox`, plus `tools/swarm`
   - edition 2024
   - release profile: LTO, `codegen-units=1`, `panic=abort`, strip
   - static CRT on Windows
-- [ ] `third_party/libtorrent` submodule pinned to `v2.0.11`, reference only (never built)
-- [ ] `THIRD-PARTY-NOTICES.md`: libtorrent BSD-3, Steve Reid sha1 (PD), LibTomCrypt sha256 (PD), orlp ed25519 (zlib), puff (zlib)
-- [ ] CI on GitHub Actions (Windows + Linux; FreeBSD via a VM action): build, test, clippy, rustfmt, exe-size report
-- [ ] Engine public API types (`Session`, `SessionHandle`, `TorrentHandle`, `Alert`, `TorrentStatus`) with a mock implementation, so GUI work can proceed in parallel
-- [ ] `tools/swarm` skeleton: loopback swarm runner, plus a synthetic-torrent generator for scale tests
+- [x] `third_party/libtorrent` submodule pinned to `v2.0.11`, reference only (never built)
+- [x] `THIRD-PARTY-NOTICES.md`: libtorrent BSD-3, Steve Reid sha1 (PD), LibTomCrypt sha256 (PD), orlp ed25519 (zlib), puff (zlib)
+- [x] CI on GitHub Actions:
+  - `ci.yml`: rustfmt; clippy + tests on Windows and Linux; MSRV 1.85 check; Windows release build with exe-size, dependency and scale report
+  - `freebsd.yml`: VM test run on main, weekly, and on demand
+- [x] Engine public API (`Session`, `SessionHandle`, `TorrentHandle`, `Alert`, `TorrentStatus`, `Settings`, `AddTorrentParams`) with libtorrent semantics:
+  - bounded alert queue with priorities and a notify callback
+  - async `post_*` queries
+  - `mock` engine with queueing, magnets and rate limits that scales to 100k synthetic torrents
+- [x] `tools/swarm`: `scale` benchmark (load time, update sizes, RSS). The loopback swarm runner moves to Phase 2 (needs the real engine); the `.torrent` corpus generator moves to Phase 1 (needs bencode).
+- [x] Win32 skeleton:
+  - manifest embedded via linker args: ComCtl v6, PerMonitorV2, long paths, UTF-8 code page
+  - alert notify → `PostMessageW`, DPI-aware font, status bar
+- [x] `frontend` crate: µTorrent formatting, status strings and categories, Start / Force Start / Stop actions
+- [x] `libretorrent-nox` Phase 0 CLI (`add`, `demo`)
 
 ### Phase 1: Primitives (pure code, fully tested)
 - [ ] `bencode`: zero-copy bdecode (token array like `bdecode_node`), encoder, `Entry`
@@ -164,20 +195,16 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 ## Next steps (after approval)
 
-1. Phase 0: workspace, notices, CI, libtorrent submodule, engine API types plus mock.
-2. Phase 1: start with `bencode` (everything else depends on it), then hashing, then `metainfo`.
-3. In parallel with Phase 1/2: build the Win32 main-window shell against the mock engine.
+1. Phase 1: `bencode` first (everything else depends on it), then SHA-1/SHA-256 (+ SHA-NI), then `metainfo` v1 and magnets. Port the matching libtorrent tests alongside.
+2. In parallel with Phase 1/2: build the µTorrent 2.2.1 main window (Phase 3 UI work) against the mock engine.
+3. Check the first CI run on GitHub, Windows, Linux and FreeBSD, and fix any platform-only breakage.
 
 ## Open questions
 
 - **Q1. License** for LibreTorrent itself. libtorrent's BSD-3 allows any choice: GPL-3.0-or-later (copyleft, like qBittorrent) or MIT / BSD-3 (permissive, like libtorrent).
-- **Q2. Name.** "LibreTorrent" is already a well-known GPL-3 Android torrent client (proninyaroslav/libretorrent). Keep it, or rename before the first release?
-- **Q3. TLS backend.** *Recommended:* OS-native (SChannel on Windows, system OpenSSL / LibreSSL on Unix) through a thin trait, which adds almost no binary size. *Alternative:* rustls, which is pure Rust and behaves the same everywhere but adds about 1–2 MB and several crates.
-- **Q4. nox API.** *Recommended:* a qBittorrent WebAPI v2-compatible subset (Sonarr, Radarr, Prowlarr and mobile apps already speak it). *Alternative or addition:* µTorrent WebUI API compatibility, or only our own API.
-- **Q5. GTK version.** *Recommended:* GTK 4 via gtk4-rs (maintained). GTK 3 is lighter at runtime, but its Rust bindings have been archived since 2024, so we'd write our own FFI.
-- **Q6. Older Windows.** Windows 7/8.1 needs Rust's tier-3 `x86_64-win7-windows-msvc` target (nightly with `build-std`). Do we want that, and/or 32-bit or ARM64 Windows builds?
-- **Q7. Look.** Strict µTorrent 2.2.1 look (classic list view, 2.2.1 toolbar and menus), or allow small modern touches such as a dark mode?
-- **Q8. Peer-ID prefix.** Proposed: `-LR0100-`. It must be checked against known client codes (BEP20 list, libtorrent's `identify_client.cpp`) for collisions.
+- **Q2. Name.** "LibreTorrent" is already a well-known GPL-3 Android torrent client (proninyaroslav/libretorrent). libtorrent already identifies peer-ID `LR` as that app, so peers and trackers would confuse the two. Keep the name, or rename before the first release?
+- **Q3–Q7.** Resolved, see D9–D13.
+- **Q8. Peer-ID prefix (blocked on Q2).** `LR` is taken: libtorrent's `identify_client.cpp` maps it to the Android LibreTorrent. The code uses a provisional `-LB0100-` (`LB` appears in neither libtorrent's table nor the common BEP20 lists). Pick the final two-letter code together with the final name.
 
 ## Future improvements
 
@@ -189,5 +216,8 @@ Each phase ends with something runnable and measured against the targets in ARCH
 
 ## Known TODOs
 
-- Get answers to Q1–Q8 before Phase 0 locks in licensing, naming and the TLS approach.
+- Q1 (license) and Q2 (name, which decides the peer-ID code for Q8) are still open. Both must be settled before the first public release.
+- `core`'s `mock` feature is on by default; turn it off by default when the real engine lands (Phase 2).
+- Windows `SegmentHeap` (manifest `heapType`) might lower RAM use. Benchmark it with `lt-swarm` before enabling.
+- CI minutes: the repo is private, and Windows runners bill at 2×. FreeBSD runs only on main and weekly for that reason.
 - The vcpkg cache from the abandoned approach (about 2 GB under `%LOCALAPPDATA%\vcpkg`) can be deleted by the user if no other project uses it.

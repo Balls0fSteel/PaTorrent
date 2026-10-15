@@ -1,0 +1,15 @@
+[package]
+name = "libretorrent-nox"
+description = "Headless LibreTorrent daemon (in Phase 0: a command-line driver for the engine API)."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+libretorrent-core.workspace = true
+libretorrent-frontend.workspace = true
+
+[lints]
+workspace = true

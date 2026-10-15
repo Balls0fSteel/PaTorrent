@@ -1,0 +1,29 @@
+[package]
+name = "libretorrent"
+description = "LibreTorrent for Windows: a native Win32 client in the spirit of µTorrent 2.2.1."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[[bin]]
+name = "libretorrent"
+path = "src/main.rs"
+
+[dependencies]
+libretorrent-core.workspace = true
+libretorrent-frontend.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_Controls",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[lints]
+workspace = true

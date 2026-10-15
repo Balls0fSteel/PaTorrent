@@ -1,0 +1,6 @@
+# Static CRT on Windows: every executable is a single self-contained file (PLAN.md D7).
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
+
+[target.aarch64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]

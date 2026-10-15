@@ -10,6 +10,23 @@ A lean, libre BitTorrent client in the spirit of µTorrent 2.2.1: tiny, fast, na
   - low RAM and CPU use
   - instant UI with 10,000+ torrents
 
-**Status:** planning. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
+**Status:** Phase 0 (foundations) is complete. The engine API runs on a simulated engine while the real libtorrent port proceeds (Phase 1: primitives). See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
+
+## Building
+
+Requires Rust 1.85+. On Windows you also need the MSVC build tools (Visual Studio 2022+ "Desktop development with C++"). No other dependencies.
+
+```bash
+git clone --recurse-submodules https://github.com/Balls0fSteel/LibreTorrent.git
+cargo build --release
+```
+
+The libtorrent submodule is reference material only and is not needed to build.
+
+| Binary | What it is today |
+|---|---|
+| `libretorrent` | Windows GUI skeleton. Run `libretorrent --demo 10000` to load 10,000 simulated torrents. |
+| `libretorrent-nox` | CLI driver: `libretorrent-nox add <magnet>` or `libretorrent-nox demo --torrents 10000` |
+| `lt-swarm` | Benchmarks: `lt-swarm scale --torrents 100000` |
 
 LibreTorrent is not affiliated with µTorrent or BitTorrent, Inc. It uses none of their code, artwork or trademarks.

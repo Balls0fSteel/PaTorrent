@@ -1,0 +1,272 @@
+//! Session and handles (libtorrent `session`, `session_handle`, `torrent_handle`).
+//!
+//! Handles never touch engine state. They send [`Command`]s over a channel and wake the engine
+//! thread; results come back as alerts. This is libtorrent's model (`async_call` + alerts) and is
+//! what lets the engine own all torrent state on one thread without locks.
+
+use std::sync::{Arc, mpsc};
+use std::thread::JoinHandle;
+
+use crate::alert::{Alert, AlertQueue};
+use crate::params::{AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags};
+use crate::settings::Settings;
+use crate::types::TorrentId;
+
+/// Requests from handles to the engine thread.
+#[derive(Debug)]
+pub(crate) enum Command {
+    AddTorrent(Box<AddTorrentParams>),
+    RemoveTorrent(TorrentId, RemoveFlags),
+    Pause(TorrentId),
+    Resume(TorrentId),
+    /// libtorrent `set_flags(flags, mask)`: bits in `mask` are set to their value in `flags`.
+    SetFlags {
+        id: TorrentId,
+        flags: TorrentFlags,
+        mask: TorrentFlags,
+    },
+    Queue(TorrentId, QueueMove),
+    ForceRecheck(TorrentId),
+    ForceReannounce(TorrentId),
+    SetFilePriority {
+        id: TorrentId,
+        file: u32,
+        priority: DownloadPriority,
+    },
+    PrioritizeFiles(TorrentId, Vec<DownloadPriority>),
+    SetDownloadLimit(TorrentId, u32),
+    SetUploadLimit(TorrentId, u32),
+    MoveStorage(TorrentId, String),
+    PostTorrentUpdates,
+    PostSessionStats,
+    PostPeerInfo(TorrentId),
+    PostFileList(TorrentId),
+    PostFileProgress(TorrentId),
+    PostTrackers(TorrentId),
+    PostPieceInfo(TorrentId),
+    ApplySettings(Box<Settings>),
+    PauseSession,
+    ResumeSession,
+    Shutdown,
+}
+
+/// State shared between handles and the engine thread.
+pub(crate) struct Shared {
+    tx: mpsc::Sender<Command>,
+    /// Wakes the engine thread after a command is queued (a `mio::Waker` for the real engine).
+    wake: Box<dyn Fn() + Send + Sync>,
+    pub(crate) alerts: AlertQueue,
+}
+
+/// Owns the engine thread. Dropping it shuts the engine down and waits for it, like
+/// libtorrent's `session` destructor.
+pub struct Session {
+    handle: SessionHandle,
+    thread: Option<JoinHandle<()>>,
+}
+
+impl Session {
+    /// Starts a simulated engine behind the real API (see [`crate::MockConfig`]).
+    #[cfg(feature = "mock")]
+    pub fn start_mock(settings: Settings, config: crate::MockConfig) -> Session {
+        Session::spawn(settings, Box::new(|| {}), move |rx, shared, settings| {
+            crate::mock::run(rx, shared, settings, config)
+        })
+    }
+
+    #[cfg_attr(not(feature = "mock"), allow(dead_code))]
+    fn spawn(
+        settings: Settings,
+        wake: Box<dyn Fn() + Send + Sync>,
+        engine: impl FnOnce(mpsc::Receiver<Command>, Arc<Shared>, Settings) + Send + 'static,
+    ) -> Session {
+        let (tx, rx) = mpsc::channel();
+        let shared = Arc::new(Shared { tx, wake, alerts: AlertQueue::new(settings.alert_queue_size) });
+        let engine_shared = shared.clone();
+        let thread = std::thread::Builder::new()
+            .name("lt-network".into())
+            .spawn(move || engine(rx, engine_shared, settings))
+            .expect("failed to spawn the network thread");
+        Session { handle: SessionHandle { shared }, thread: Some(thread) }
+    }
+
+    pub fn handle(&self) -> SessionHandle {
+        self.handle.clone()
+    }
+
+    /// Stops the engine and waits for it to finish (also done on drop).
+    pub fn shutdown(mut self) {
+        self.stop();
+    }
+
+    fn stop(&mut self) {
+        if let Some(thread) = self.thread.take() {
+            self.handle.send(Command::Shutdown);
+            let _ = thread.join();
+        }
+    }
+}
+
+impl Drop for Session {
+    fn drop(&mut self) {
+        self.stop();
+    }
+}
+
+/// Cheap, cloneable, thread-safe handle to a [`Session`]. Calls are asynchronous; after the
+/// session has shut down they are silently ignored (alerts stop arriving).
+#[derive(Clone)]
+pub struct SessionHandle {
+    shared: Arc<Shared>,
+}
+
+impl SessionHandle {
+    fn send(&self, cmd: Command) {
+        if self.shared.tx.send(cmd).is_ok() {
+            (self.shared.wake)();
+        }
+    }
+
+    /// Asynchronously adds a torrent. Answered by [`Alert::TorrentAdded`] or
+    /// [`Alert::AddTorrentFailed`].
+    pub fn add_torrent(&self, params: AddTorrentParams) {
+        self.send(Command::AddTorrent(Box::new(params)));
+    }
+
+    /// Answered by [`Alert::TorrentRemoved`] (and [`Alert::TorrentDeleted`] /
+    /// [`Alert::TorrentDeleteFailed`] when deleting files).
+    pub fn remove_torrent(&self, id: TorrentId, flags: RemoveFlags) {
+        self.send(Command::RemoveTorrent(id, flags));
+    }
+
+    pub fn torrent(&self, id: TorrentId) -> TorrentHandle {
+        TorrentHandle { id, session: self.clone() }
+    }
+
+    /// Requests an [`Alert::StateUpdate`] with every torrent whose status changed since the last
+    /// request. Frontends call this once per refresh (µTorrent refreshes once a second).
+    pub fn post_torrent_updates(&self) {
+        self.send(Command::PostTorrentUpdates);
+    }
+
+    /// Requests an [`Alert::SessionStats`].
+    pub fn post_session_stats(&self) {
+        self.send(Command::PostSessionStats);
+    }
+
+    pub fn apply_settings(&self, settings: Settings) {
+        self.shared.alerts.set_limit(settings.alert_queue_size);
+        self.send(Command::ApplySettings(Box::new(settings)));
+    }
+
+    /// Pauses every torrent without changing their own paused/auto-managed flags.
+    pub fn pause(&self) {
+        self.send(Command::PauseSession);
+    }
+
+    pub fn resume(&self) {
+        self.send(Command::ResumeSession);
+    }
+
+    /// See [`AlertQueue::set_notify`].
+    pub fn set_alert_notify(&self, f: impl Fn() + Send + Sync + 'static) {
+        self.shared.alerts.set_notify(Some(Arc::new(f)));
+    }
+
+    pub fn clear_alert_notify(&self) {
+        self.shared.alerts.set_notify(None);
+    }
+
+    /// Takes all pending alerts (see [`AlertQueue::pop_all`]).
+    pub fn pop_alerts(&self, out: &mut Vec<Alert>) {
+        self.shared.alerts.pop_all(out);
+    }
+}
+
+/// Handle to one torrent (libtorrent `torrent_handle`). Commands to a removed torrent are
+/// ignored.
+#[derive(Clone)]
+pub struct TorrentHandle {
+    id: TorrentId,
+    session: SessionHandle,
+}
+
+impl TorrentHandle {
+    pub fn id(&self) -> TorrentId {
+        self.id
+    }
+
+    pub fn pause(&self) {
+        self.session.send(Command::Pause(self.id));
+    }
+
+    pub fn resume(&self) {
+        self.session.send(Command::Resume(self.id));
+    }
+
+    pub fn set_flags(&self, flags: TorrentFlags) {
+        self.session.send(Command::SetFlags { id: self.id, flags, mask: flags });
+    }
+
+    pub fn unset_flags(&self, flags: TorrentFlags) {
+        self.session.send(Command::SetFlags { id: self.id, flags: TorrentFlags::empty(), mask: flags });
+    }
+
+    pub fn queue_position(&self, m: QueueMove) {
+        self.session.send(Command::Queue(self.id, m));
+    }
+
+    pub fn force_recheck(&self) {
+        self.session.send(Command::ForceRecheck(self.id));
+    }
+
+    pub fn force_reannounce(&self) {
+        self.session.send(Command::ForceReannounce(self.id));
+    }
+
+    pub fn set_file_priority(&self, file: u32, priority: DownloadPriority) {
+        self.session.send(Command::SetFilePriority { id: self.id, file, priority });
+    }
+
+    pub fn prioritize_files(&self, priorities: Vec<DownloadPriority>) {
+        self.session.send(Command::PrioritizeFiles(self.id, priorities));
+    }
+
+    /// Bytes per second; 0 = unlimited.
+    pub fn set_download_limit(&self, limit: u32) {
+        self.session.send(Command::SetDownloadLimit(self.id, limit));
+    }
+
+    pub fn set_upload_limit(&self, limit: u32) {
+        self.session.send(Command::SetUploadLimit(self.id, limit));
+    }
+
+    pub fn move_storage(&self, save_path: impl Into<String>) {
+        self.session.send(Command::MoveStorage(self.id, save_path.into()));
+    }
+
+    /// Answered by [`Alert::PeerInfo`].
+    pub fn post_peer_info(&self) {
+        self.session.send(Command::PostPeerInfo(self.id));
+    }
+
+    /// Answered by [`Alert::FileList`].
+    pub fn post_file_list(&self) {
+        self.session.send(Command::PostFileList(self.id));
+    }
+
+    /// Answered by [`Alert::FileProgress`].
+    pub fn post_file_progress(&self) {
+        self.session.send(Command::PostFileProgress(self.id));
+    }
+
+    /// Answered by [`Alert::TrackerList`].
+    pub fn post_trackers(&self) {
+        self.session.send(Command::PostTrackers(self.id));
+    }
+
+    /// Answered by [`Alert::PieceInfo`].
+    pub fn post_piece_info(&self) {
+        self.session.send(Command::PostPieceInfo(self.id));
+    }
+}

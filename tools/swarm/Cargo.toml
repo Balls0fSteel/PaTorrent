@@ -1,0 +1,17 @@
+[package]
+name = "lt-swarm"
+description = "Scale, interop and swarm benchmarks for LibreTorrent."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+libretorrent-core.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }
+
+[lints]
+workspace = true

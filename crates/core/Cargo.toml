@@ -1,0 +1,17 @@
+[package]
+name = "libretorrent-core"
+description = "LibreTorrent's BitTorrent engine: a Rust port of libtorrent-rasterbar 2.0.11."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[features]
+# Simulated engine behind the real API, for frontend development and scale tests.
+# On by default only until the real network engine lands (PLAN.md Phase 2).
+default = ["mock"]
+mock = []
+
+[lints]
+workspace = true

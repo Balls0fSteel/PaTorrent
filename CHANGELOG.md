@@ -1,6 +1,7 @@
 # Changelog
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
+
 ## 2026-10-16_203336_1792175616: CI: fix the three flaky tests behind the red runs
 
 ### Fixed
@@ -16,7 +17,6 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 
 ### Notes
 - CI history: the Phase 0–3 runs were green except for the three tests above and the clippy / Unix build fixes already recorded. The MSE/PE commit (4561716) had not been pushed yet, so CI had not seen it; it goes up with this fix.
-
 
 ## 2026-10-16_163419_1792161259: MSE/PE protocol encryption
 

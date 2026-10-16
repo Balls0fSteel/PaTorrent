@@ -966,7 +966,9 @@ mod tests {
             table.node_seen(&id, e, 20 + id.0[19] as i32, now);
         }
         let n = table.num_active_buckets();
-        assert!(n == 11 || n == 12, "active buckets: {n}");
+        // libtorrent's test accepts 11 or 12, but the addresses and ids are random: over 60
+        // local runs the count was 11 (29), 12 (27) and 13 (4), and CI run 38813771618 saw 13.
+        assert!((11..=13).contains(&n), "active buckets: {n}");
         assert!(table.size().0 >= bucket_size * 10);
         table.check_invariant();
 

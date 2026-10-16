@@ -1,6 +1,22 @@
 # Changelog
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
+## 2026-10-16_203336_1792175616: CI: fix the three flaky tests behind the red runs
+
+### Fixed
+- `engine::upnp::tests`: the fake router's `Stop` guard now joins both of its threads. Before, the SSDP responder had up to 100 ms left after the guard dropped and the HTTP server thread never stopped, so the next IGD test (serialized by `IGD_LOCK`, but not waiting for the threads) found two routers and talked to both: duplicate `PortmapEvent`s on FreeBSD (run 38913226650) and Linux, and a mapping made on one router but deleted on the other on Windows (run 38913226275). The guard now sets the flag, connects once to the HTTP listener to wake `accept()`, and joins; the IGD tests take 0.2 s instead of 0.01 s because of the responder's 100 ms read timeout.
+- `dht::routing_table::tests::routing_table_v4`: the active-bucket assertion accepts 11..=13. libtorrent's test accepts 11 or 12, but the addresses and ids are random (OS RNG): 60 local runs gave 11 ×29, 12 ×27, 13 ×4, and FreeBSD run 38813771618 saw 13.
+- `swarm::partial_pieces_survive_a_restart`: the stingy peer never serves the fixture's last piece as a partial (it is a single 1,625-byte block, so serving it completes the piece) and counts the partial bytes it actually sent instead of 16 KiB each. Run 38784078071 served piece 40 as a partial and the quota check never came true, so the test sat on the 30 s deadline.
+
+### Changed
+- All three workflows run Linux jobs on `ubuntu-24.04` instead of `ubuntu-latest`, which GitHub moves to Ubuntu 26 on 2026-10-19 (annotation on every recent run). A pinned image cannot change the system OpenSSL or toolchain under the build between two pushes.
+
+### Verified
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` (also the core crate for `x86_64-unknown-linux-gnu` and `x86_64-unknown-freebsd`), `cargo test --workspace` (382 core, 3 robustness, 18 swarm, 18 frontend tests) on Windows. The UPnP module ran 15 times, `routing_table_v4` 40 times and the partial-pieces test 5 times in a row without a failure.
+
+### Notes
+- CI history: the Phase 0–3 runs were green except for the three tests above and the clippy / Unix build fixes already recorded. The MSE/PE commit (4561716) had not been pushed yet, so CI had not seen it; it goes up with this fix.
+
 
 ## 2026-10-16_163419_1792161259: MSE/PE protocol encryption
 

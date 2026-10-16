@@ -452,7 +452,8 @@ fn stingy_peer(
         out.extend_from_slice(&[0, 0, 0, 1, 1]); // unchoke
         c.write_all(&out).unwrap();
 
-        let (mut full, mut partial_sent, mut sent) = (None, 0, 0u64);
+        let num_pieces = all.len().div_ceil(PIECE);
+        let (mut full, mut partial_sent, mut partial_bytes, mut sent) = (None, 0, 0u64, 0u64);
         loop {
             let mut len = [0u8; 4];
             if c.read_exact(&mut len).is_err() {
@@ -469,15 +470,16 @@ fn stingy_peer(
             let (piece, begin, length) = (field(0), field(1), field(2));
             requests.lock().unwrap().push((piece, begin));
             let full_piece = *full.get_or_insert(piece);
-            let serve = if piece == full_piece {
-                true
-            } else if begin == 0 && partial_sent < partial {
-                partial_sent += 1;
-                true
-            } else {
-                false
-            };
-            if serve {
+            // A partial piece gets its first block only. The last piece of the fixture is a
+            // single short block, so serving it would complete it: it is never a partial (CI
+            // run 38784078071 served it, and the 16 KiB-per-partial arithmetic never added up).
+            let is_full = piece == full_piece;
+            let is_partial = !is_full
+                && begin == 0
+                && partial_sent < partial
+                && piece as usize + 1 < num_pieces
+                && length as usize == 16384;
+            if is_full || is_partial {
                 let start = piece as usize * PIECE + begin as usize;
                 let mut out = (9 + length).to_be_bytes().to_vec();
                 out.push(7);
@@ -486,9 +488,12 @@ fn stingy_peer(
                 out.extend_from_slice(&all[start..start + length as usize]);
                 c.write_all(&out).unwrap();
                 sent += length as u64;
+                if is_partial {
+                    partial_sent += 1;
+                    partial_bytes += length as u64;
+                }
             }
-            let full_done = sent - partial_sent as u64 * 16384
-                >= PIECE.min(all.len() - full_piece as usize * PIECE) as u64;
+            let full_done = sent - partial_bytes >= PIECE.min(all.len() - full_piece as usize * PIECE) as u64;
             if partial_sent == partial && full_done {
                 quota.store(true, Ordering::SeqCst);
             }

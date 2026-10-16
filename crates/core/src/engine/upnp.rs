@@ -1196,12 +1196,24 @@ s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body>\
     /// What the fake router saw: one entry per SOAP action, with the external port asked.
     type Seen = Arc<Mutex<Vec<(String, u16)>>>;
 
-    /// Stops the fake router's SSDP responder when dropped, so it cannot answer a later test.
-    struct Stop(Arc<std::sync::atomic::AtomicBool>);
+    /// Stops the fake router when dropped and waits for both of its threads, so it cannot
+    /// answer a later test's search. (Before it joined, a responder with up to 100 ms left and
+    /// an HTTP server that never stopped made the next test find two routers: CI runs
+    /// 38913226275 and 38913226650.)
+    struct Stop {
+        flag: Arc<std::sync::atomic::AtomicBool>,
+        http_port: u16,
+        threads: Vec<std::thread::JoinHandle<()>>,
+    }
 
     impl Drop for Stop {
         fn drop(&mut self) {
-            self.0.store(true, std::sync::atomic::Ordering::Relaxed);
+            self.flag.store(true, std::sync::atomic::Ordering::Relaxed);
+            // wake the HTTP thread out of accept(); it sees the flag and exits
+            let _ = std::net::TcpStream::connect((Ipv4Addr::LOCALHOST, self.http_port));
+            for t in self.threads.drain(..) {
+                let _ = t.join();
+            }
         }
     }
 
@@ -1216,10 +1228,15 @@ s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body>\
         let http = TcpListener::bind("127.0.0.1:0").unwrap();
         let port = http.local_addr().unwrap().port();
         let seen2 = seen.clone();
-        std::thread::spawn(move || {
+        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let stopped = stop.clone();
+        let http_thread = std::thread::spawn(move || {
             let conflicted = Mutex::new(Vec::<u16>::new());
             for stream in http.incoming() {
                 let Ok(mut stream) = stream else { break };
+                if stopped.load(std::sync::atomic::Ordering::Relaxed) {
+                    break;
+                }
                 let mut reader = io::BufReader::new(stream.try_clone().unwrap());
                 let mut line = String::new();
                 reader.read_line(&mut line).unwrap();
@@ -1279,9 +1296,8 @@ s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body>\
         let ssdp =
             sys::udp_socket(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), upnp::SSDP_PORT), true).unwrap();
         ssdp.join_multicast_v4(&upnp::SSDP_MULTICAST, &Ipv4Addr::LOCALHOST).unwrap();
-        let stop = Arc::new(std::sync::atomic::AtomicBool::new(false));
         let stopped = stop.clone();
-        std::thread::spawn(move || {
+        let ssdp_thread = std::thread::spawn(move || {
             let responder = ssdp;
             let mut buf = [0u8; 1500];
             responder.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
@@ -1298,7 +1314,7 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
                 let _ = responder.send_to(msg.as_bytes(), from);
             }
         });
-        (seen, Stop(stop))
+        (seen, Stop { flag: stop, http_port: port, threads: vec![http_thread, ssdp_thread] })
     }
 
     struct Harness {

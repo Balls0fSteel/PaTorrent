@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-16_163419_1792161259
+Last updated: 2026-10-16_203336_1792175616
 
 ## Vision
 
@@ -227,7 +227,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 
 1. Try a magnet link in the GUI (Add Torrent from URL, or a `magnet:` link on the command line): the row should show "Downloading metadata" with a growing percentage, then turn into a normal download.
 2. Phase 4 next: uTP (then lt_donthave and smart-ban). The DHT, PEX, LSD, port mapping and MSE/PE are done; try a trackerless magnet in the GUI and watch "DHT: N nodes" in the status bar. `patorrent-nox run --no-state --seconds 20 --verbose` shows the mappers at work (`NatPmp:` / `Upnp:` lines); `add ... --verbose` prints where connected peers came from every 10 s.
-3. Keep CI green on Windows, Linux and FreeBSD.
+3. Keep CI green on Windows, Linux and FreeBSD. The three flaky tests that made the 2026-10-15/16 runs red (UPnP fake router outliving its test, random DHT bucket count, the stingy peer's last-piece arithmetic) are fixed (CHANGELOG 2026-10-16_203336_1792175616); if a run goes red now, it is a real failure.
 4. Rerun `lt-swarm interop` (and `lt-swarm interop --encryption forced`) after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI. On 2026-10-16 WSL2 refused to start on this machine ("Virtual Machine Platform" / virtualization off), so only the qBittorrent case ran; rerun the Transmission and Deluge cases, plain and encrypted, once WSL is back.
 
 Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on Linux (CI run 38738279981) and FreeBSD (run 38736854046); partial pieces in resume data (CHANGELOG 2026-10-15_160110); reverse-direction interop scripted as `lt-swarm interop` (CHANGELOG 2026-10-15_161111).
@@ -313,6 +313,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - a name the user gave a magnet is kept only until a restart before the metadata arrives; then the torrent's real name is used.
   - the GUI shows a magnet's size as 0 B until the metadata arrives; µTorrent leaves the cell empty.
 - Phase 2 follow-ups: batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
+- ~~Flaky on CI: `engine::upnp::tests::maps_and_unmaps_on_a_loopback_igd`, `dht::routing_table::tests::routing_table_v4`, `swarm::partial_pieces_survive_a_restart`~~. Fixed 2026-10-16_203336_1792175616: the fake IGD's threads are joined when the guard drops; the bucket count accepts 13 (random ids); the stingy peer skips the short last piece and counts real bytes (CHANGELOG 2026-10-16_203336_1792175616). Linux CI jobs are pinned to `ubuntu-24.04`; bump the pin on purpose, not by `ubuntu-latest` moving.
 - ~~Flaky on CI: `swarm::download_through_an_http_tracker`~~. Fixed 2026-10-15: the test's `wait()` dropped the alerts behind a match, so `TorrentFinished` was lost when it arrived in the same batch as `TrackerReply`. Not an engine stall (CHANGELOG 2026-10-15_153331).
 - TLS (`core::net::tls`):
   - certificate revocation is not checked; SChannel would fetch CRLs synchronously on the engine thread. SChannel may still fetch a missing intermediate certificate (AIA) synchronously; move the handshake off the reactor if that ever shows up as a stall.

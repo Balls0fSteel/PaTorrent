@@ -324,14 +324,7 @@ impl Engine {
     /// and the DHT's UDP port, with the same external port numbers.
     fn remap_ports(&mut self, mi: usize, transport: usize, now: Instant) {
         let tcp_port = self.listen_port;
-        let udp_port = self
-            .dht
-            .socks
-            .iter()
-            .find(|(v4, _)| *v4)
-            .and_then(|(_, s)| s.local_addr().ok())
-            .map(|a| a.port())
-            .unwrap_or(0);
+        let udp_port = self.udp.iter().find(|u| u.v4).map_or(0, |u| u.local.port());
         let registry = self.poll.registry();
         let m = &mut self.portmap.mappers[mi];
         for (proto, port, handle) in

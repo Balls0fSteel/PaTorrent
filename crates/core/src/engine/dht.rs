@@ -3,42 +3,34 @@
 // save_state "dht state"), src/torrent.cpp (should_announce_dht, dht_announce,
 // on_dht_announce_response)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
-// Changes: one UDP socket per address family on the listen port, polled by the reactor. The
-// announce round-robin covers running torrents only (libtorrent spreads the interval over every
-// loaded torrent). The DHT state is saved to `dht_state.dat` beside the session store.
+// Changes: the DHT runs on the engine's UDP listen sockets (one per address family, shared with
+// uTP); the engine's UDP dispatch hands it the bencoded datagrams. The announce round-robin
+// covers running torrents only (libtorrent spreads the interval over every loaded torrent).
+// The DHT state is saved to `dht_state.dat` beside the session store.
 
 //! The engine side of the DHT: sockets, bootstrap, announces and peers for torrents.
 
 use std::collections::VecDeque;
-use std::io;
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use mio::net::UdpSocket;
-use mio::{Interest, Token};
-
 use super::Engine;
-use crate::alert::{Alert, Protocol};
+use crate::alert::Alert;
 use crate::bencode::bdecode;
 use crate::dht::{AnnounceArgs, DhtEvent, DhtSettings, DhtState, DhtTracker, read_dht_state, save_dht_state};
 use crate::net::resolver::Resolved;
 use crate::status::PeerSource;
 use crate::types::TorrentId;
 
-pub(crate) const DHT4_TOKEN: Token = Token(11);
-pub(crate) const DHT6_TOKEN: Token = Token(12);
 /// Resolver cookies of DHT bootstrap lookups carry this bit (tracker cookies count up from 1).
 pub(crate) const DHT_COOKIE: u64 = 1 << 63;
 const STATE_FILE: &str = "dht_state.dat";
 const SAVE_INTERVAL: Duration = Duration::from_secs(30 * 60);
-/// Largest UDP datagram we read.
-const RECV_BUFFER: usize = 1500 * 2;
 
 /// The DHT's part of the engine.
 pub(super) struct DhtSession {
     pub tracker: Option<DhtTracker>,
-    pub(super) socks: Vec<(bool, UdpSocket)>,
     pending_routers: usize,
     routers: Vec<SocketAddr>,
     /// Nodes from magnet links, added once the DHT runs (libtorrent `m_dht_nodes`).
@@ -51,14 +43,12 @@ pub(super) struct DhtSession {
     next_torrent: usize,
     next_announce: Option<Instant>,
     last_save: Instant,
-    buf: Vec<u8>,
 }
 
 impl DhtSession {
     pub fn new(now: Instant) -> DhtSession {
         DhtSession {
             tracker: None,
-            socks: Vec::new(),
             pending_routers: 0,
             routers: Vec::new(),
             pending_nodes: Vec::new(),
@@ -69,7 +59,6 @@ impl DhtSession {
             next_torrent: 0,
             next_announce: None,
             last_save: now,
-            buf: vec![0; RECV_BUFFER],
         }
     }
 
@@ -109,49 +98,16 @@ fn load_state(path: &Path) -> DhtState {
 }
 
 impl Engine {
-    /// Opens the DHT sockets and resolves the bootstrap routers; the DHT starts once they are
-    /// resolved (libtorrent `start_dht` waits for `m_outstanding_router_lookups`).
+    /// Resolves the bootstrap routers; the DHT starts once they are resolved (libtorrent
+    /// `start_dht` waits for `m_outstanding_router_lookups`). It runs on the UDP listen
+    /// sockets the engine opened beside the TCP listeners.
     pub(super) fn start_dht(&mut self, state_dir: Option<&Path>) {
         if !self.settings.enable_dht {
             return;
         }
         let now = Instant::now();
-        // the DHT shares the TCP listen port (libtorrent's UDP listen socket)
-        let port = self.listen_port;
-        for (v4, token) in [(true, DHT4_TOKEN), (false, DHT6_TOKEN)] {
-            let ip = if v4 { "0.0.0.0" } else { "[::]" };
-            let bind = |p: u16| UdpSocket::bind(format!("{ip}:{p}").parse().expect("valid address"));
-            let sock = match bind(port) {
-                Ok(s) => Ok(s),
-                // the port is taken for UDP: any port works for the DHT
-                Err(_) if port != 0 => bind(0),
-                Err(e) => Err(e),
-            };
-            match sock {
-                Ok(mut s) => {
-                    if let Err(e) = self.poll.registry().register(&mut s, token, Interest::READABLE) {
-                        self.alert(Alert::Log { id: None, message: format!("DHT: register failed: {e}") });
-                        continue;
-                    }
-                    if let Ok(local) = s.local_addr() {
-                        self.alert(Alert::ListenSucceeded { address: local, protocol: Protocol::Udp });
-                    }
-                    self.dht.socks.push((v4, s));
-                }
-                Err(e) => {
-                    // no IPv6 here, or (Linux) [::] is dual-stack and 0.0.0.0 has the port
-                    let v6_dual = !v4 && e.kind() == io::ErrorKind::AddrInUse;
-                    if !v6_dual {
-                        self.alert(Alert::ListenFailed {
-                            address: format!("{ip}:{port}"),
-                            protocol: Protocol::Udp,
-                            error: e.into(),
-                        });
-                    }
-                }
-            }
-        }
-        if self.dht.socks.is_empty() {
+        if self.udp.is_empty() {
+            self.alert(Alert::Log { id: None, message: "DHT: no UDP listen socket, not started".into() });
             return;
         }
         let path = state_dir.map(|d| d.join(STATE_FILE));
@@ -200,8 +156,8 @@ impl Engine {
     fn really_start_dht(&mut self, now: Instant) {
         let state = self.dht.state.take().unwrap_or_default();
         let mut t = DhtTracker::new(DhtSettings::from(&self.settings), state, now);
-        for (v4, _) in &self.dht.socks {
-            t.new_socket(*v4, now);
+        for u in &self.udp {
+            t.new_socket(u.v4, now);
         }
         for r in &self.dht.routers {
             t.add_router_node(*r);
@@ -229,28 +185,6 @@ impl Engine {
         self.dht_service(now);
     }
 
-    /// Reads datagrams from a DHT socket.
-    pub(super) fn on_dht_readable(&mut self, v4: bool) {
-        let now = Instant::now();
-        loop {
-            let Some((_, sock)) = self.dht.socks.iter().find(|(f, _)| *f == v4) else { return };
-            let (n, from) = match sock.recv_from(&mut self.dht.buf) {
-                Ok(r) => r,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
-                // Windows reports ICMP port-unreachable as a receive error (without the address)
-                Err(e) if e.kind() == io::ErrorKind::ConnectionReset => continue,
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
-                Err(_) => break,
-            };
-            let from = normalize(from);
-            if let Some(t) = self.dht.tracker.as_mut() {
-                let buf = &self.dht.buf[..n];
-                t.incoming_packet(from.is_ipv4(), from, buf, now);
-            }
-        }
-        self.dht_service(now);
-    }
-
     /// Runs DHT timers and announces, delivers events and sends queued packets.
     pub(super) fn dht_service(&mut self, now: Instant) {
         let Some(t) = self.dht.tracker.as_mut() else { return };
@@ -274,9 +208,9 @@ impl Engine {
     fn dht_flush(&mut self) {
         let Some(t) = self.dht.tracker.as_mut() else { return };
         for p in t.take_outgoing() {
-            let Some((_, sock)) = self.dht.socks.iter().find(|(v4, _)| *v4 == p.v4_socket) else { continue };
+            let Some(u) = self.udp.iter().find(|u| u.v4 == p.v4_socket) else { continue };
             // a full socket buffer drops the datagram, as UDP would anyway
-            let _ = sock.send_to(&p.data, p.to);
+            let _ = u.sock.send_to(&p.data, p.to);
         }
     }
 
@@ -393,13 +327,15 @@ impl Engine {
         !t.ti.as_ref().is_some_and(|ti| ti.is_private())
     }
 
-    /// libtorrent `torrent::dht_announce`. The TCP listen port is announced explicitly (no
-    /// `implied_port`): without uTP, peers must reach the TCP port.
+    /// libtorrent `torrent::dht_announce`. With incoming uTP on, `implied_port` asks the node
+    /// to store the source port of our packet, which is the right one behind a NAT; the TCP
+    /// listener shares that port.
     fn dht_announce(&mut self, id: TorrentId, now: Instant) {
         if !self.should_announce_dht(id) {
             return;
         }
         let port = self.listen_port;
+        let implied_port = self.settings.enable_incoming_utp;
         let Some(t) = self.torrent_ref(id) else { return };
         let ih = t.info_hashes.best_v1_compatible();
         let seed = t.is_seed();
@@ -408,7 +344,7 @@ impl Engine {
             // nothing to announce: just look for peers
             tracker.get_peers(ih, now);
         } else {
-            tracker.announce(ih, AnnounceArgs { port, seed, implied_port: false }, now);
+            tracker.announce(ih, AnnounceArgs { port, seed, implied_port }, now);
         }
     }
 
@@ -422,17 +358,6 @@ impl Engine {
         if let Err(e) = res {
             self.out.push(Alert::Log { id: None, message: format!("cannot save the DHT state: {e}") });
         }
-    }
-}
-
-/// IPv4-mapped IPv6 senders are IPv4 nodes.
-fn normalize(a: SocketAddr) -> SocketAddr {
-    match a {
-        SocketAddr::V6(v6) => match v6.ip().to_ipv4_mapped() {
-            Some(v4) => SocketAddr::new(v4.into(), v6.port()),
-            None => a,
-        },
-        SocketAddr::V4(_) => a,
     }
 }
 

@@ -387,7 +387,7 @@ fn demo(o: Opts) -> ExitCode {
 
 fn print_totals(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, t: Duration) {
     println!(
-        "[{:>4}s] {} torrents | D: {} T: {} | U: {} T: {} | {} peers | DHT: {} nodes{}",
+        "[{:>4}s] {} torrents | D: {} T: {} | U: {} T: {} | {} peers | DHT: {} nodes | uTP: {} sockets{}{}",
         t.as_secs(),
         rows.len(),
         fmt::speed_always(stats.download_rate),
@@ -396,6 +396,12 @@ fn print_totals(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, 
         fmt::size(stats.sent_payload_bytes),
         stats.num_peers_connected,
         stats.dht_nodes,
+        stats.utp_sockets,
+        if stats.utp_packet_loss + stats.utp_timeouts > 0 {
+            format!(" ({} lost, {} timeouts)", stats.utp_packet_loss, stats.utp_timeouts)
+        } else {
+            String::new()
+        },
         if stats.has_incoming_connections { " | incoming OK" } else { "" },
     );
 }
@@ -427,8 +433,9 @@ fn truncate(s: &str, max: usize) -> String {
 /// How often `--verbose` reports where the connected peers came from.
 const PEER_REPORT_INTERVAL: Duration = Duration::from_secs(10);
 
-/// "12 peers (8 connected): tracker 9/6, dht 4/2, pex 3/3, incoming 2/2": per source, all
-/// connections and those past the handshake (a peer can count under several sources).
+/// "12 peers (8 connected, 5 over uTP): tracker 9/6, dht 4/2, pex 3/3, incoming 2/2": per
+/// source, all connections and those past the handshake (a peer can count under several
+/// sources).
 fn peer_sources(peers: &[PeerInfo]) -> String {
     let up =
         |p: &&PeerInfo| !p.flags.contains(PeerFlags::CONNECTING) && !p.flags.contains(PeerFlags::HANDSHAKE);
@@ -437,9 +444,10 @@ fn peer_sources(peers: &[PeerInfo]) -> String {
         format!("{}/{}", all.clone().count(), all.filter(up).count())
     };
     format!(
-        "{} peers ({} connected): tracker {}, dht {}, pex {}, lsd {}, incoming {}",
+        "{} peers ({} connected, {} over uTP): tracker {}, dht {}, pex {}, lsd {}, incoming {}",
         peers.len(),
         peers.iter().filter(up).count(),
+        peers.iter().filter(up).filter(|p| p.flags.contains(PeerFlags::UTP_SOCKET)).count(),
         count(PeerSource::TRACKER),
         count(PeerSource::DHT),
         count(PeerSource::PEX),

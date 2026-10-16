@@ -112,3 +112,10 @@ path = "fuzz_targets/pe_handshake.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "utp"
+path = "fuzz_targets/utp.rs"
+test = false
+doc = false
+bench = false

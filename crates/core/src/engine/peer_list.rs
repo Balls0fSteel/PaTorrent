@@ -32,6 +32,12 @@ pub(crate) struct KnownPeer {
     /// Try an encrypted handshake first (libtorrent `torrent_peer::pe_support`): set by a PEX
     /// `e` flag or a completed encrypted handshake, toggled as `EncPolicy::Enabled` alternates.
     pub pe_support: bool,
+    /// We think this peer supports uTP (libtorrent `torrent_peer::supports_utp`): assumed at
+    /// first, set by a PEX `utp` flag, cleared when a uTP connect fails or succeeds (then
+    /// `confirmed_supports_utp` says so).
+    pub supports_utp: bool,
+    /// We have been connected to this peer over uTP at least once.
+    pub confirmed_supports_utp: bool,
     /// BEP 40 rank against our external address (higher connects first).
     rank: u32,
 }
@@ -90,6 +96,8 @@ impl PeerList {
             seed: false,
             banned: false,
             pe_support: false,
+            supports_utp: true,
+            confirmed_supports_utp: false,
             rank,
         });
         true
@@ -150,6 +158,8 @@ impl PeerList {
                 seed: false,
                 banned: false,
                 pe_support: false,
+                supports_utp: true,
+                confirmed_supports_utp: false,
                 rank: 0,
             });
         }
@@ -184,6 +194,39 @@ impl PeerList {
     pub fn set_pe_support(&mut self, addr: &SocketAddr, pe_support: bool) {
         if let Some(p) = self.get_mut(addr) {
             p.pe_support = pe_support;
+        }
+    }
+
+    /// Whether to try uTP with this peer (libtorrent `torrent::connect_to_peer`): assumed
+    /// until a uTP connect failed, or known once one succeeded.
+    pub fn wants_utp(&self, addr: &SocketAddr) -> bool {
+        self.get(addr).is_none_or(|p| p.supports_utp || p.confirmed_supports_utp)
+    }
+
+    /// A uTP connect failed (libtorrent `on_connection_failed`): never assume uTP again.
+    /// Returns whether it was assumed, i.e. whether a TCP retry is due.
+    pub fn utp_failed(&mut self, addr: &SocketAddr) -> bool {
+        match self.get_mut(addr) {
+            Some(p) if p.supports_utp => {
+                p.supports_utp = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A uTP connection to this peer was established (libtorrent `on_connection_complete`).
+    pub fn utp_confirmed(&mut self, addr: &SocketAddr) {
+        if let Some(p) = self.get_mut(addr) {
+            p.confirmed_supports_utp = true;
+            p.supports_utp = false;
+        }
+    }
+
+    /// A PEX message flagged this peer as a uTP peer.
+    pub fn set_supports_utp(&mut self, addr: &SocketAddr) {
+        if let Some(p) = self.get_mut(addr) {
+            p.supports_utp = true;
         }
     }
 

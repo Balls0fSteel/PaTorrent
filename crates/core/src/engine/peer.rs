@@ -1,10 +1,11 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/peer_connection.cpp (connection state, request
 // queue, timeouts, statistics), src/receive_buffer.cpp, src/chained_buffer.cpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
-// Changes: one struct owning a mio socket plus flat receive and send buffers; the message
-// handling that needs the torrent lives in `engine::wire` as methods on the engine. RC4 is
-// applied to the receive buffer as bytes arrive and to the send buffer as bytes leave
-// (libtorrent's `encryption_handler` barriers reduce to one "encrypted from here" position).
+// Changes: one struct owning its transport (a mio TCP socket, or a uTP socket of the engine's
+// manager) plus flat receive and send buffers; the message handling that needs the torrent
+// lives in `engine::wire` as methods on the engine. RC4 is applied to the receive buffer as
+// bytes arrive and to the send buffer as bytes leave (libtorrent's `encryption_handler`
+// barriers reduce to one "encrypted from here" position).
 
 //! One BitTorrent peer connection.
 
@@ -24,6 +25,20 @@ use crate::status::PeerSource;
 use crate::types::{Sha1Hash, TorrentId};
 use crate::util::bitfield::Bitfield;
 use crate::util::stat::Stat;
+use crate::utp::{self, SockId, UtpIo, UtpManager};
+
+/// What carries the connection (libtorrent `socket_type`: `tcp::socket` or `utp_stream`).
+pub(crate) enum Transport {
+    Tcp(TcpStream),
+    /// A socket of the engine's `UtpManager`.
+    Utp(SockId),
+}
+
+impl Transport {
+    pub fn is_utp(&self) -> bool {
+        matches!(self, Transport::Utp(_))
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum PeerState {
@@ -43,7 +58,7 @@ pub(crate) struct Request {
 
 pub(crate) struct PeerConn {
     pub id: u64,
-    pub sock: TcpStream,
+    pub sock: Transport,
     pub addr: SocketAddr,
     pub outgoing: bool,
     pub source: PeerSource,
@@ -133,7 +148,7 @@ pub(crate) enum ReadOutcome {
 impl PeerConn {
     pub fn new(
         id: u64,
-        sock: TcpStream,
+        sock: Transport,
         addr: SocketAddr,
         outgoing: bool,
         source: PeerSource,
@@ -214,18 +229,45 @@ impl PeerConn {
     }
 
     /// Reads at most `max` bytes from the socket into the receive buffer.
-    pub fn read_some(&mut self, max: usize) -> ReadOutcome {
+    pub fn read_some(&mut self, max: usize, utp: &mut UtpManager) -> ReadOutcome {
         const CHUNK: usize = 64 * 1024;
         if self.rpos > 0 && self.rpos * 2 > self.recv.len() {
             self.recv.drain(..self.rpos);
             self.rpos = 0;
         }
         let mut total = 0;
+        if let Transport::Utp(id) = self.sock {
+            // the uTP socket hands over what it holds; "closed" is its FIN, read in order
+            while total < max {
+                let start = self.recv.len();
+                match utp.read_some(id, &mut self.recv, max - total) {
+                    utp::ReadOutcome::Data(n) => {
+                        if let Some(rc4) = &mut self.rc4 {
+                            rc4.decrypt(&mut self.recv[start..]);
+                        }
+                        total += n;
+                    }
+                    utp::ReadOutcome::WouldBlock => return ReadOutcome::WouldBlock(total),
+                    utp::ReadOutcome::Eof => {
+                        return if total > 0 { ReadOutcome::Data(total) } else { ReadOutcome::Closed };
+                    }
+                    utp::ReadOutcome::Error(e) => {
+                        return if total > 0 {
+                            ReadOutcome::Data(total)
+                        } else {
+                            ReadOutcome::Error(io::Error::other(e.to_string()))
+                        };
+                    }
+                }
+            }
+            return ReadOutcome::Data(total);
+        }
         while total < max {
             let want = (max - total).min(CHUNK);
             let start = self.recv.len();
             self.recv.resize(start + want, 0);
-            match self.sock.read(&mut self.recv[start..]) {
+            let Transport::Tcp(sock) = &mut self.sock else { unreachable!("uTP handled above") };
+            match sock.read(&mut self.recv[start..]) {
                 Ok(0) => {
                     self.recv.truncate(start);
                     return if total > 0 { ReadOutcome::Data(total) } else { ReadOutcome::Closed };
@@ -301,26 +343,49 @@ impl PeerConn {
     }
 
     /// Writes up to `max` buffered bytes. Returns (raw bytes, payload bytes) written and
-    /// whether the socket would block. Errors close the connection.
-    pub fn write_some(&mut self, max: usize) -> io::Result<(usize, usize, bool)> {
+    /// whether the socket would block (for uTP: the congestion window is full). Errors close
+    /// the connection.
+    pub fn write_some(
+        &mut self,
+        max: usize,
+        utp: &mut UtpManager,
+        io: &mut dyn UtpIo,
+        now: Instant,
+    ) -> io::Result<(usize, usize, bool)> {
         self.encrypt_pending();
         let mut total = 0;
         let mut would_block = false;
-        while self.spos < self.send.len() && total < max {
-            // `max` is `usize::MAX` without a rate limit: saturate rather than overflow.
-            let end = self.send.len().min(self.spos.saturating_add(max - total));
-            match self.sock.write(&self.send[self.spos..end]) {
-                Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "connection closed")),
-                Ok(n) => {
+        match &mut self.sock {
+            Transport::Utp(id) => {
+                // `max` is `usize::MAX` without a rate limit: saturate rather than overflow.
+                let end = self.send.len().min(self.spos.saturating_add(max));
+                if self.spos < end {
+                    let offered = end - self.spos;
+                    let n = utp
+                        .write_some(*id, &self.send[self.spos..end], io, now)
+                        .map_err(|e| io::Error::other(e.to_string()))?;
                     self.spos += n;
                     total += n;
+                    would_block = n < offered;
                 }
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
-                    would_block = true;
-                    break;
+            }
+            Transport::Tcp(sock) => {
+                while self.spos < self.send.len() && total < max {
+                    let end = self.send.len().min(self.spos.saturating_add(max - total));
+                    match sock.write(&self.send[self.spos..end]) {
+                        Ok(0) => return Err(io::Error::new(io::ErrorKind::WriteZero, "connection closed")),
+                        Ok(n) => {
+                            self.spos += n;
+                            total += n;
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::WouldBlock => {
+                            would_block = true;
+                            break;
+                        }
+                        Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+                        Err(e) => return Err(e),
+                    }
                 }
-                Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
-                Err(e) => return Err(e),
             }
         }
         let sent_pos = self.send_base + self.spos as u64;
@@ -372,12 +437,20 @@ mod tests {
         let out = std::net::TcpStream::connect(addr).unwrap();
         let (mut remote, _) = l.accept().unwrap();
         out.set_nonblocking(true).unwrap();
-        let sock = TcpStream::from_std(out);
-        let mut p = PeerConn::new(1, sock, addr, true, PeerSource::TRACKER, Instant::now());
+        let sock = Transport::Tcp(TcpStream::from_std(out));
+        let now = Instant::now();
+        let mut p = PeerConn::new(1, sock, addr, true, PeerSource::TRACKER, now);
+        let mut utp = UtpManager::new(crate::utp::UtpSettings::default(), now);
+        struct NoIo;
+        impl UtpIo for NoIo {
+            fn send(&mut self, _: SocketAddr, _: &[u8], _: bool) -> utp::SendOutcome {
+                utp::SendOutcome::Failed(io::ErrorKind::Unsupported)
+            }
+        }
         p.send.extend_from_slice(&[7u8; 100]);
-        assert_eq!(p.write_some(10).unwrap().0, 10);
+        assert_eq!(p.write_some(10, &mut utp, &mut NoIo, now).unwrap().0, 10);
         assert_eq!(p.send_buffer_len(), 90);
-        assert_eq!(p.write_some(usize::MAX).unwrap().0, 90);
+        assert_eq!(p.write_some(usize::MAX, &mut utp, &mut NoIo, now).unwrap().0, 90);
         let mut got = [0u8; 100];
         remote.read_exact(&mut got).unwrap();
         assert!(got.iter().all(|&b| b == 7));

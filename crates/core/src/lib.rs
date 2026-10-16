@@ -35,6 +35,7 @@ mod status;
 mod store;
 mod types;
 pub mod util;
+mod utp;
 mod version;
 
 #[cfg(feature = "mock")]
@@ -76,4 +77,8 @@ pub mod fuzzing {
     };
     pub use crate::proto::ut_pex::{PeerPex, TorrentPex, encode_full as encode_ut_pex_full};
     pub use crate::proto::xml::{Token as XmlToken, parse as parse_xml};
+    pub use crate::utp::{
+        ReadOutcome as UtpReadOutcome, SendOutcome as UtpSendOutcome, State as UtpState, UtpIo, UtpManager,
+        UtpSettings,
+    };
 }

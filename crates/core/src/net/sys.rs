@@ -8,6 +8,10 @@
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+#[cfg(unix)]
+pub(crate) use std::os::fd::AsRawFd as RawSock;
+#[cfg(windows)]
+pub(crate) use std::os::windows::io::AsRawSocket as RawSock;
 
 use super::enum_net::{IpInterface, IpRoute, build_netmask};
 
@@ -109,6 +113,21 @@ pub(crate) fn set_multicast_hops_v6(s: &UdpSocket, hops: u32) -> io::Result<()> 
     imp::setsockopt(s, IPPROTO_IPV6, IPV6_MULTICAST_HOPS, &hops.to_ne_bytes())
 }
 
+/// Sets or clears the DF (don't fragment) bit on an IPv4 UDP socket's datagrams (libtorrent's
+/// `dont_fragment` option: `IP_DONTFRAGMENT`, `IP_MTU_DISCOVER` or `IP_DONTFRAG`). uTP sets it
+/// around each MTU probe. A no-op where the OS has no such option (OpenBSD, NetBSD, DragonFly):
+/// probes are then fragmented on the way instead of dropped, and the search stops at the
+/// interface MTU.
+pub(crate) fn set_dont_fragment(s: &impl RawSock, on: bool) -> io::Result<()> {
+    match DONT_FRAGMENT {
+        Some((name, on_value, off_value)) => {
+            let v: i32 = if on { on_value } else { off_value };
+            imp::setsockopt(s, IPPROTO_IP, name, &v.to_ne_bytes())
+        }
+        None => Ok(()),
+    }
+}
+
 /// A UDP socket bound to `addr`. With `reuse` other sockets (other clients on this machine)
 /// may bind the same port, as multicast listeners must. IPv6 sockets are v6-only.
 pub(crate) fn udp_socket(addr: SocketAddr, reuse: bool) -> io::Result<UdpSocket> {
@@ -156,6 +175,8 @@ mod windows_consts {
     pub const IPV6_MULTICAST_IF: i32 = ws::IPV6_MULTICAST_IF;
     pub const IPV6_MULTICAST_HOPS: i32 = ws::IPV6_MULTICAST_HOPS;
     pub const IPV6_V6ONLY: i32 = ws::IPV6_V6ONLY;
+    /// (option, value when on, value when off)
+    pub const DONT_FRAGMENT: Option<(i32, i32, i32)> = Some((ws::IP_DONTFRAGMENT, 1, 0));
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -170,6 +191,8 @@ mod unix_consts {
     pub const IPV6_V6ONLY: i32 = 26;
     pub const SOCK_CLOEXEC: i32 = 0x80000;
     pub const IFF_MULTICAST: u32 = 0x1000;
+    /// `IP_MTU_DISCOVER` with `IP_PMTUDISC_DO` / `IP_PMTUDISC_DONT`
+    pub const DONT_FRAGMENT: Option<(i32, i32, i32)> = Some((10, 2, 0));
 }
 
 #[cfg(any(
@@ -201,6 +224,13 @@ mod unix_consts {
     #[cfg(target_vendor = "apple")]
     pub const SOCK_CLOEXEC: i32 = 0;
     pub const IFF_MULTICAST: u32 = 0x8000;
+    /// `IP_DONTFRAG`
+    #[cfg(target_os = "freebsd")]
+    pub const DONT_FRAGMENT: Option<(i32, i32, i32)> = Some((67, 1, 0));
+    #[cfg(target_vendor = "apple")]
+    pub const DONT_FRAGMENT: Option<(i32, i32, i32)> = Some((28, 1, 0));
+    #[cfg(any(target_os = "dragonfly", target_os = "openbsd", target_os = "netbsd"))]
+    pub const DONT_FRAGMENT: Option<(i32, i32, i32)> = None;
 }
 
 #[cfg(unix)]
@@ -295,7 +325,7 @@ mod imp {
         Ok(unsafe { UdpSocket::from_raw_socket(s as RawSocket) })
     }
 
-    pub fn setsockopt(s: &UdpSocket, level: i32, name: i32, value: &[u8]) -> io::Result<()> {
+    pub fn setsockopt(s: &impl AsRawSocket, level: i32, name: i32, value: &[u8]) -> io::Result<()> {
         // SAFETY: `value` is valid for its length
         let r = unsafe {
             ws::setsockopt(s.as_raw_socket() as ws::SOCKET, level, name, value.as_ptr(), value.len() as i32)
@@ -627,7 +657,7 @@ mod imp {
         Ok(unsafe { UdpSocket::from_raw_fd(fd) })
     }
 
-    pub fn setsockopt(s: &UdpSocket, level: i32, name: i32, value: &[u8]) -> io::Result<()> {
+    pub fn setsockopt(s: &impl AsRawFd, level: i32, name: i32, value: &[u8]) -> io::Result<()> {
         // SAFETY: `value` is valid for its length
         let r =
             unsafe { c_setsockopt(s.as_raw_fd(), level, name, value.as_ptr().cast(), value.len() as u32) };

@@ -92,6 +92,23 @@ pub struct Settings {
     pub enable_outgoing_tcp: bool,
     pub enable_incoming_utp: bool,
     pub enable_outgoing_utp: bool,
+    /// uTP's target one-way delay, in milliseconds (LEDBAT).
+    pub utp_target_delay: i32,
+    /// Bytes the uTP congestion window grows per RTT when the delay is zero.
+    pub utp_gain_factor: i32,
+    /// Shortest uTP socket timeout, in milliseconds.
+    pub utp_min_timeout: i32,
+    /// SYN packets sent (and timed out) before an outgoing uTP connect is given up.
+    pub utp_syn_resends: i32,
+    pub utp_fin_resends: i32,
+    /// Times a packet is sent (and timed out) before the connection is dropped.
+    pub utp_num_resends: i32,
+    /// Timeout of the first SYN, in milliseconds; doubles per timed-out packet in a row.
+    pub utp_connect_timeout: i32,
+    /// Percent of the congestion window kept when a packet is lost.
+    pub utp_loss_multiplier: i32,
+    /// Milliseconds between window cuts on loss.
+    pub utp_cwnd_reduce_timer: i32,
 
     pub out_enc_policy: EncPolicy,
     pub in_enc_policy: EncPolicy,
@@ -191,6 +208,15 @@ impl Default for Settings {
             enable_outgoing_tcp: true,
             enable_incoming_utp: true,
             enable_outgoing_utp: true,
+            utp_target_delay: 100,
+            utp_gain_factor: 3000,
+            utp_min_timeout: 500,
+            utp_syn_resends: 2,
+            utp_fin_resends: 2,
+            utp_num_resends: 3,
+            utp_connect_timeout: 3000,
+            utp_loss_multiplier: 50,
+            utp_cwnd_reduce_timer: 100,
             out_enc_policy: EncPolicy::Enabled,
             in_enc_policy: EncPolicy::Enabled,
             allowed_enc_level: EncLevel::Both,

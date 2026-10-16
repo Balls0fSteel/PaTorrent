@@ -48,6 +48,9 @@ fn advertised(p: &PeerConn) -> Option<(SocketAddr, u8)> {
     if p.encrypted {
         fl |= flags::ENCRYPTION; // libtorrent `supports_encryption()`: the peer did MSE/PE
     }
+    if p.sock.is_utp() {
+        fl |= flags::UTP; // libtorrent `is_utp(p->get_socket())`
+    }
     Some((addr, fl))
 }
 
@@ -87,6 +90,10 @@ impl Engine {
             // libtorrent `peer_list::update_peer`: try encryption first with this peer.
             if fl & flags::ENCRYPTION != 0 {
                 t.peer_list.set_pe_support(&addr, true);
+            }
+            // a positive flag only: its absence says nothing
+            if fl & flags::UTP != 0 {
+                t.peer_list.set_supports_utp(&addr);
             }
             t.status_dirty = true;
         }

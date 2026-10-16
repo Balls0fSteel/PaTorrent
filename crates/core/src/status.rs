@@ -147,6 +147,14 @@ pub struct SessionStats {
     pub has_incoming_connections: bool,
     pub disk_read_queue: u32,
     pub disk_write_queue: u32,
+    /// uTP sockets alive, connected ones included (libtorrent `utp_stats`).
+    pub utp_sockets: u32,
+    pub utp_packets_in: u64,
+    pub utp_packets_out: u64,
+    /// Packets found lost (fast retransmits and timeouts).
+    pub utp_packet_loss: u64,
+    pub utp_timeouts: u64,
+    pub utp_resends: u64,
 }
 
 bit_flags! {

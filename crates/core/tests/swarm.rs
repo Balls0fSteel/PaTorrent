@@ -4,8 +4,9 @@
 //! links that fetch their metadata from the seed (BEP 9), a trackerless magnet that finds its
 //! seed through a third session's DHT, a leech that learns about another through the seed's
 //! peer exchange (BEP 11), and two sessions that find each other through local service
-//! discovery (BEP 14); and the MSE/PE policy matrix: forced, enabled and disabled encryption on
-//! either side.
+//! discovery (BEP 14); the MSE/PE policy matrix: forced, enabled and disabled encryption on
+//! either side; and uTP (BEP 29): the default preference for it, uTP-only sessions, the fall
+//! back to TCP when the other end has no uTP, and encryption over uTP.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -1147,4 +1148,94 @@ fn forced_and_disabled_peers_never_connect() {
         let _ = std::fs::remove_dir_all(dir);
         let _ = std::fs::remove_dir_all(seed_dir);
     }
+}
+
+// --- uTP (BEP 29) ----------------------------------------------------------------------------
+
+fn tcp_only(s: &mut Settings) {
+    s.enable_incoming_utp = false;
+    s.enable_outgoing_utp = false;
+}
+
+fn utp_only(s: &mut Settings) {
+    s.enable_incoming_tcp = false;
+    s.enable_outgoing_tcp = false;
+}
+
+fn forced_rc4_over_utp(s: &mut Settings) {
+    forced_rc4(s);
+    utp_only(s);
+}
+
+/// A leech that gives up on a uTP connect after a second instead of three.
+fn quick_utp_connect(s: &mut Settings) {
+    s.utp_connect_timeout = 1000;
+}
+
+#[test]
+fn the_default_settings_connect_over_utp() {
+    // libtorrent assumes every peer supports uTP until a uTP connect to it fails, so with both
+    // transports on the first attempt is uTP (`torrent_peer::supports_utp` starts true).
+    let (leech_view, seed_view) = encrypted_download(|_| {}, |_| {});
+    assert!(leech_view.contains(PeerFlags::UTP_SOCKET), "{leech_view:?}");
+    assert!(seed_view.contains(PeerFlags::UTP_SOCKET), "{seed_view:?}");
+}
+
+#[test]
+fn utp_only_sessions_download_over_utp() {
+    // libtorrent test_utp.cpp: TCP off on both sides, in and out
+    let (leech_view, seed_view) = encrypted_download(utp_only, utp_only);
+    assert!(leech_view.contains(PeerFlags::UTP_SOCKET), "{leech_view:?}");
+    assert!(seed_view.contains(PeerFlags::UTP_SOCKET), "{seed_view:?}");
+}
+
+#[test]
+fn a_leech_falls_back_to_tcp_when_the_seed_has_no_utp() {
+    // The seed has no UDP socket at all (no DHT, no uTP): the leech's SYN gets no answer, the
+    // uTP connect times out after `utp_connect_timeout`, the peer is marked as not supporting
+    // uTP and reconnected over TCP at once (libtorrent `on_connection_failed`).
+    let (leech_view, seed_view) = encrypted_download(tcp_only, quick_utp_connect);
+    assert!(!leech_view.contains(PeerFlags::UTP_SOCKET), "{leech_view:?}");
+    assert!(!seed_view.contains(PeerFlags::UTP_SOCKET), "{seed_view:?}");
+}
+
+#[test]
+fn a_tcp_only_leech_reaches_a_utp_seed_over_tcp() {
+    let (leech_view, seed_view) = encrypted_download(|_| {}, tcp_only);
+    assert!(!leech_view.contains(PeerFlags::UTP_SOCKET), "{leech_view:?}");
+    assert!(!seed_view.contains(PeerFlags::UTP_SOCKET), "{seed_view:?}");
+}
+
+#[test]
+fn encryption_works_over_utp() {
+    let (leech_view, seed_view) = encrypted_download(forced_rc4_over_utp, forced_rc4_over_utp);
+    assert!(leech_view.contains(PeerFlags::UTP_SOCKET | PeerFlags::RC4_ENCRYPTED), "{leech_view:?}");
+    assert!(seed_view.contains(PeerFlags::UTP_SOCKET | PeerFlags::RC4_ENCRYPTED), "{seed_view:?}");
+}
+
+#[test]
+fn utp_only_and_tcp_only_sessions_never_connect() {
+    let f = fixture(None);
+    let seed_dir = temp_dir("noutp-seed");
+    write_files(&f, &seed_dir);
+    let (seed, mut sw, port) = start_with(tcp_only);
+    let seed_id = add(&mut sw, &f, &seed_dir);
+    wait_state(&mut sw, seed_id, TorrentState::Seeding, 20);
+    let dir = temp_dir("noutp-leech");
+    let (leech, mut w, _) = start_with(|s| {
+        utp_only(s);
+        quick_utp_connect(s);
+    });
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(connected_peer_flags(&mut w, id).is_empty(), "leech connected");
+    assert!(connected_peer_flags(&mut sw, seed_id).is_empty(), "seed connected");
+    let st = wait_state(&mut w, id, TorrentState::Downloading, 5);
+    assert_eq!(st.total_done, 0);
+    leech.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
 }

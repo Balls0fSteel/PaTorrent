@@ -279,7 +279,8 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 Alert::TorrentError { .. }
                 | Alert::FileError { .. }
                 | Alert::ListenFailed { .. }
-                | Alert::LsdError { .. } => {
+                | Alert::LsdError { .. }
+                | Alert::PortmapFailed { .. } => {
                     eprintln!("! {}", a.message())
                 }
                 Alert::TrackerError { .. }
@@ -287,6 +288,7 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 | Alert::TrackerReply { .. }
                 | Alert::DhtReply { .. }
                 | Alert::LsdPeer { .. }
+                | Alert::PortmapLog { .. }
                     if o.verbose =>
                 {
                     println!("* {}", a.message())
@@ -296,7 +298,9 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 | Alert::AlertsDropped { .. }
                 | Alert::DhtBootstrap
                 | Alert::MetadataReceived { .. }
-                | Alert::MetadataFailed { .. } => {
+                | Alert::MetadataFailed { .. }
+                | Alert::PortmapSucceeded { .. }
+                | Alert::ExternalIp { .. } => {
                     println!("* {}", a.message())
                 }
                 Alert::StateChanged { .. } if o.verbose => println!("* {}", a.message()),

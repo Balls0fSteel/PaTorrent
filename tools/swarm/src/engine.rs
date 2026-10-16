@@ -31,6 +31,8 @@ fn settings() -> Settings {
         alert_queue_size: 1 << 20,
         enable_dht: false,
         enable_lsd: false,
+        enable_upnp: false,
+        enable_natpmp: false,
         ..Settings::default()
     }
 }

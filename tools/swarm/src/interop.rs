@@ -436,6 +436,8 @@ fn download(f: &Fixture, from: SocketAddr, dir: &Path) -> Result<Transfer, Strin
         listen_interfaces: "127.0.0.1:0".into(),
         enable_dht: false,
         enable_lsd: false,
+        enable_upnp: false,
+        enable_natpmp: false,
         ..Settings::default()
     };
     let session = Session::start(SessionParams { settings, state_dir: None }).map_err(|e| e.to_string())?;

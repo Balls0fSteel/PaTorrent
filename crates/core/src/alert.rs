@@ -137,6 +137,12 @@ pub enum Alert {
         transport: PortmapTransport,
         message: String,
     },
+    /// What the port mappers are doing (libtorrent `portmap_log_alert`): chatty, for debugging
+    /// a router that does not map.
+    PortmapLog {
+        transport: PortmapTransport,
+        message: String,
+    },
     ExternalIp {
         ip: IpAddr,
     },
@@ -232,6 +238,7 @@ impl Alert {
             | TrackerWarning { .. }
             | PortmapSucceeded { .. }
             | PortmapFailed { .. }
+            | PortmapLog { .. }
             | ExternalIp { .. }
             | DhtReply { .. }
             | DhtBootstrap
@@ -311,6 +318,7 @@ impl Alert {
                 write!(s, "{transport:?}: mapped {protocol:?} port {external_port}")
             }
             PortmapFailed { transport, message } => write!(s, "{transport:?}: mapping failed: {message}"),
+            PortmapLog { transport, message } => write!(s, "{transport:?}: {message}"),
             ExternalIp { ip } => write!(s, "external IP: {ip}"),
             DhtReply { num_peers, .. } => write!(s, "DHT: received {num_peers} peers"),
             DhtBootstrap => write!(s, "DHT bootstrapped"),

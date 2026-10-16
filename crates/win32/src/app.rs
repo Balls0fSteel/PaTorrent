@@ -1262,6 +1262,9 @@ unsafe fn on_alerts(hwnd: HWND) {
                 | Alert::FileList { .. }
                 | Alert::FileProgress { .. }
                 | Alert::PieceInfo { .. } => {}
+                // the mappers' step-by-step chatter (SOAP bodies included) stays out of the
+                // logger; the mapped ports, failures and the external address still show
+                Alert::PortmapLog { .. } => {}
                 other => {
                     let name = other.torrent().and_then(|id| a.list.get(id)).map(|st| st.name.clone());
                     let line = match name {

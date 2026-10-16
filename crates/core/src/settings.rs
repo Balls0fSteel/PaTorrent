@@ -84,6 +84,10 @@ pub struct Settings {
     pub local_service_announce_interval: u32,
     pub enable_upnp: bool,
     pub enable_natpmp: bool,
+    /// Only take UPnP replies from the listen address's own subnet (libtorrent default: off).
+    pub upnp_ignore_nonrouters: bool,
+    /// Seconds a UPnP mapping is leased for; 0 asks for a permanent one.
+    pub upnp_lease_duration: u32,
     pub enable_incoming_tcp: bool,
     pub enable_outgoing_tcp: bool,
     pub enable_incoming_utp: bool,
@@ -181,6 +185,8 @@ impl Default for Settings {
             local_service_announce_interval: 5 * 60,
             enable_upnp: true,
             enable_natpmp: true,
+            upnp_ignore_nonrouters: false,
+            upnp_lease_duration: 3600,
             enable_incoming_tcp: true,
             enable_outgoing_tcp: true,
             enable_incoming_utp: true,

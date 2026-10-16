@@ -63,11 +63,16 @@ pub mod fuzzing {
     pub use crate::dht::{DhtSettings, DhtState, DhtTracker};
     pub use crate::proto::http::{Url, parse_response, resolve_redirect};
     pub use crate::proto::lsd::{parse as parse_lsd, render as render_lsd};
+    pub use crate::proto::natpmp::parse_response as parse_natpmp_response;
     pub use crate::proto::peer_wire::{decode, decode_ext_handshake, decode_handshake, identify_client};
     pub use crate::proto::tracker::{parse_announce_response, parse_compact_peers, parse_scrape_response};
+    pub use crate::proto::upnp::{
+        parse_device_description, parse_error_code, parse_external_address, parse_ssdp,
+    };
     pub use crate::proto::ut_metadata::{
         Message as UtMetadataMessage, MetadataFetch, Received as UtMetadataReceived,
         decode as decode_ut_metadata,
     };
     pub use crate::proto::ut_pex::{PeerPex, TorrentPex, encode_full as encode_ut_pex_full};
+    pub use crate::proto::xml::{Token as XmlToken, parse as parse_xml};
 }

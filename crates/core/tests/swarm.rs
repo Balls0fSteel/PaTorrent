@@ -115,6 +115,9 @@ fn settings() -> Settings {
         // running in parallel on one fixture would find each other
         enable_dht: false,
         enable_lsd: false,
+        // and off the router: loopback sessions have no ports to forward
+        enable_upnp: false,
+        enable_natpmp: false,
         ..Settings::default()
     }
 }
@@ -784,7 +787,9 @@ fn dropped_state_updates_are_reported_again() {
 fn a_leech_finds_another_through_the_seeds_peer_exchange() {
     // A and B want nothing, so neither finishes a download and drops its peers mid-test. A
     // connects to the seed; B connects only to the seed and must learn A's listen address from
-    // the seed's ut_pex message.
+    // the seed's ut_pex message. A has PEX off: were it to learn B's address too, the two would
+    // race to connect each other and the duplicate-connection rule could keep A's connection,
+    // which B sees as incoming (a coin flip on the peer ids).
     let f = fixture(None);
     let (seed, seed_dir, seed_port, _) = seeder(&f);
     let seed_addr = SocketAddr::from(([127, 0, 0, 1], seed_port));
@@ -793,7 +798,8 @@ fn a_leech_finds_another_through_the_seeds_peer_exchange() {
     let a = start(None);
     let mut aw = Watch::new(a.handle());
     let a_port = listen_port(&mut aw);
-    let a_id = add_wanting_nothing(&mut aw, &f, &a_dir);
+    let a_id =
+        add_with_flags(&mut aw, &f, &a_dir, TorrentFlags::DEFAULT_DONT_DOWNLOAD | TorrentFlags::DISABLE_PEX);
     a.handle().torrent(a_id).connect_peer(seed_addr);
 
     let b_dir = temp_dir("pex-b");
@@ -877,8 +883,12 @@ fn a_new_peer_gets_download_quota_while_another_saturates_the_limit() {
 }
 
 fn add_wanting_nothing(w: &mut Watch, f: &Fixture, dir: &Path) -> TorrentId {
+    add_with_flags(w, f, dir, TorrentFlags::DEFAULT_DONT_DOWNLOAD)
+}
+
+fn add_with_flags(w: &mut Watch, f: &Fixture, dir: &Path, flags: TorrentFlags) -> TorrentId {
     let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
-    p.flags = TorrentFlags::DEFAULT_DONT_DOWNLOAD;
+    p.flags = flags;
     w.h.add_torrent(p);
     wait(w, 5, "add", |a| match a {
         Alert::TorrentAdded { id, .. } => Some(*id),

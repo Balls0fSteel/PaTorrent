@@ -26,6 +26,39 @@ pub(crate) struct IpInterface {
     pub preferred: bool,
 }
 
+/// One entry of the routing table (libtorrent `ip_route`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct IpRoute {
+    pub destination: IpAddr,
+    pub netmask: IpAddr,
+    /// Unspecified for routes to directly connected networks.
+    pub gateway: IpAddr,
+    /// The preferred source address, where the OS says (libtorrent `source_hint`).
+    pub source_hint: Option<IpAddr>,
+    /// The interface the route leaves through, as `IpInterface::index` numbers it.
+    pub index: u32,
+}
+
+/// libtorrent `get_gateway`: the default route's gateway for an interface address, if the
+/// interface has one. Local IPv6 addresses never reach the internet.
+pub(crate) fn get_gateway(iface: &IpInterface, routes: &[IpRoute]) -> Option<IpAddr> {
+    if iface.addr.is_ipv6() && crate::net::ip_voter::is_local(&iface.addr) {
+        return None;
+    }
+    routes
+        .iter()
+        .find(|r| {
+            r.destination.is_unspecified()
+                && r.destination.is_ipv4() == iface.addr.is_ipv4()
+                && !r.gateway.is_unspecified()
+                // in case there are multiple networks on the same networking device, the
+                // source hint may be the only thing telling them apart
+                && r.source_hint.is_none_or(|s| s == iface.addr)
+                && r.index == iface.index
+        })
+        .map(|r| r.gateway)
+}
+
 /// libtorrent `build_netmask`: a mask with the top `bits` set.
 pub(crate) fn build_netmask(bits: u32, v4: bool) -> IpAddr {
     if v4 {
@@ -69,6 +102,44 @@ mod tests {
         // mixed families never match
         assert!(!match_addr_mask(ip("10.0.1.3"), ip("::1"), ip("255.255.0.0")));
         assert!(!match_addr_mask(ip("10.0.1.3"), ip("10.0.1.3"), ip("ffff::")));
+    }
+
+    #[test]
+    fn gateway_of_an_interface() {
+        let route = |dst: &str, gw: &str, index: u32, hint: Option<&str>| IpRoute {
+            destination: ip(dst),
+            netmask: ip(if dst.contains(':') { "::" } else { "0.0.0.0" }),
+            gateway: ip(gw),
+            source_hint: hint.map(ip),
+            index,
+        };
+        let routes = [
+            route("192.168.1.0", "0.0.0.0", 7, None),
+            route("0.0.0.0", "192.168.1.1", 7, None),
+            route("0.0.0.0", "10.0.0.1", 9, Some("10.0.0.2")),
+            route("::", "fe80::1", 7, None),
+        ];
+        let iface = |addr: &str, index: u32| IpInterface {
+            addr: ip(addr),
+            netmask: ip("255.255.255.0"),
+            scope_id: 0,
+            index,
+            name: String::new(),
+            up: true,
+            loopback: false,
+            multicast: true,
+            preferred: true,
+        };
+        assert_eq!(get_gateway(&iface("192.168.1.5", 7), &routes), Some(ip("192.168.1.1")));
+        assert_eq!(get_gateway(&iface("192.168.1.5", 8), &routes), None, "another interface");
+        assert_eq!(get_gateway(&iface("10.0.0.2", 9), &routes), Some(ip("10.0.0.1")));
+        assert_eq!(
+            get_gateway(&iface("10.0.0.3", 9), &routes),
+            None,
+            "the source hint names another address"
+        );
+        assert_eq!(get_gateway(&iface("2001:db8::5", 7), &routes), Some(ip("fe80::1")));
+        assert_eq!(get_gateway(&iface("fe80::5", 7), &routes), None, "local IPv6 addresses never route out");
     }
 
     #[test]

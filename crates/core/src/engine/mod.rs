@@ -13,12 +13,15 @@
 mod dht;
 mod lsd;
 mod metadata;
+mod natpmp;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
 mod pex;
 pub(crate) mod picker;
+mod portmap;
 pub(crate) mod torrent;
 pub(crate) mod tracker;
+mod upnp;
 mod wire;
 
 use std::collections::HashMap;
@@ -181,6 +184,7 @@ pub(crate) struct Engine {
     store_flush_due: Option<Instant>,
     dht: dht::DhtSession,
     lsd: lsd::LsdSession,
+    portmap: portmap::PortmapSession,
 }
 
 /// The network thread's entry point.
@@ -209,6 +213,9 @@ pub(crate) fn run(
         if let Some(d) = e.lsd.deadline() {
             next = next.min(d);
         }
+        if let Some(d) = e.portmap.deadline() {
+            next = next.min(d);
+        }
         let timeout = next.saturating_duration_since(now);
         if let Err(err) = e.poll.poll(&mut events, Some(timeout)) {
             if err.kind() != io::ErrorKind::Interrupted {
@@ -230,6 +237,7 @@ pub(crate) fn run(
         let now = Instant::now();
         e.dht_service(now);
         e.lsd_service(now);
+        e.portmap_service(now);
         if e.bandwidth_tick_needed() && now >= e.last_bandwidth + BANDWIDTH_TICK {
             e.bandwidth_tick(now);
         }
@@ -308,6 +316,7 @@ impl Engine {
             store_flush_due: None,
             dht: dht::DhtSession::new(now),
             lsd: lsd::LsdSession::new(),
+            portmap: portmap::PortmapSession::new(),
             settings,
         }
     }
@@ -318,6 +327,8 @@ impl Engine {
         self.open_listen_sockets();
         self.start_lsd(Instant::now());
         self.start_dht(state_dir.as_deref());
+        // after the DHT, whose UDP port the mappers forward too
+        self.start_portmap();
         if let Some(dir) = state_dir {
             match Store::open(&dir) {
                 Ok((store, records, errors)) => {
@@ -410,13 +421,17 @@ impl Engine {
         }
         self.reap_peers();
         self.save_resume(true);
-        // Give "stopped" announces a few seconds (libtorrent `stop_tracker_timeout`).
+        // the router forgets our ports (libtorrent `session_impl::abort` closes the mappers)
+        self.close_portmap();
+        // Give "stopped" announces and UPnP's delete requests a few seconds (libtorrent
+        // `stop_tracker_timeout`).
         let deadline = Instant::now() + Duration::from_secs(self.settings.stop_tracker_timeout as u64);
-        while self.trackers.pending() > 0 && Instant::now() < deadline {
+        while (self.trackers.pending() > 0 || self.portmap.pending()) && Instant::now() < deadline {
             let _ = self.poll.poll(events, Some(Duration::from_millis(100)));
             for ev in events.iter() {
                 self.on_event(ev.token(), true, ev.is_writable());
             }
+            self.portmap_service(Instant::now());
             while let Ok(r) = self.resolve_rx.try_recv() {
                 if r.cookie & dht::DHT_COOKIE != 0 {
                     continue;
@@ -522,6 +537,7 @@ impl Engine {
             t if (lsd::LSD_TOKEN_BASE..lsd::LSD_TOKEN_BASE + lsd::MAX_LSD_SOCKETS).contains(&t) => {
                 self.on_lsd_readable(t - lsd::LSD_TOKEN_BASE)
             }
+            t if t >= portmap::UPNP_HTTP_TOKEN_BASE => self.on_portmap_event(t),
             t if t >= HTTP_TOKEN_BASE => {
                 self.trackers.on_http_event(token, &self.resolver, self.poll.registry(), Instant::now())
             }
@@ -970,6 +986,8 @@ impl Engine {
             || s.active_seeds != self.settings.active_seeds
             || s.active_limit != self.settings.active_limit;
         let lsd_changed = s.enable_lsd != self.settings.enable_lsd;
+        let natpmp_changed = s.enable_natpmp != self.settings.enable_natpmp;
+        let upnp_changed = s.enable_upnp != self.settings.enable_upnp;
         self.settings = s;
         if queue_changed {
             self.needs_auto_manage = true;
@@ -982,6 +1000,17 @@ impl Engine {
                 self.stop_lsd();
             }
         }
+        // libtorrent `update_natpmp` / `update_upnp`
+        if natpmp_changed && !self.settings.enable_natpmp {
+            self.stop_natpmp();
+        }
+        if upnp_changed && !self.settings.enable_upnp {
+            self.stop_upnp();
+        }
+        if (natpmp_changed && self.settings.enable_natpmp) || (upnp_changed && self.settings.enable_upnp) {
+            self.start_portmap();
+        }
+        self.update_upnp_settings();
     }
 
     // --- Adding and removing ------------------------------------------------------------------

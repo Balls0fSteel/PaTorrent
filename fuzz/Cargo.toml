@@ -91,3 +91,17 @@ path = "fuzz_targets/lsd.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "upnp"
+path = "fuzz_targets/upnp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "natpmp"
+path = "fuzz_targets/natpmp.rs"
+test = false
+doc = false
+bench = false

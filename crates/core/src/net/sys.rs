@@ -2,14 +2,14 @@
 // enum_net.cpp platform code).
 
 //! Socket calls that std and mio do not offer: options set before `bind` (address reuse,
-//! v6-only), the outgoing multicast interface and hop limit, and the list of local interface
-//! addresses. Windows goes through `windows-sys`; Unix functions are declared here by hand
-//! (D4: no libc crate), with the constants of each supported OS.
+//! v6-only), the outgoing multicast interface and hop limit, the list of local interface
+//! addresses and the routing table. Windows goes through `windows-sys`; Unix functions are
+//! declared here by hand (D4: no libc crate), with the constants of each supported OS.
 
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
 
-use super::enum_net::{IpInterface, build_netmask};
+use super::enum_net::{IpInterface, IpRoute, build_netmask};
 
 /// A `sockaddr_in` / `sockaddr_in6`, built and read byte by byte so one layout serves every OS.
 #[repr(C, align(8))]
@@ -133,6 +133,13 @@ pub(crate) fn interfaces() -> io::Result<Vec<IpInterface>> {
     imp::interfaces()
 }
 
+/// The routing table (libtorrent `enum_routes`): `GetIpForwardTable2` on Windows, `/proc/net`
+/// on Linux, a `PF_ROUTE` sysctl dump on FreeBSD and OpenBSD. Elsewhere `Unsupported`, and
+/// NAT-PMP (which needs the gateway) stays off.
+pub(crate) fn routes() -> io::Result<Vec<IpRoute>> {
+    imp::routes()
+}
+
 const IPPROTO_IP: i32 = 0;
 const IPPROTO_IPV6: i32 = 41;
 
@@ -208,13 +215,49 @@ mod imp {
 
     use windows_sys::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_NO_DATA, NO_ERROR};
     use windows_sys::Win32::NetworkManagement::IpHelper::{
-        GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST, GetAdaptersAddresses,
-        IF_TYPE_SOFTWARE_LOOPBACK, IP_ADAPTER_ADDRESSES_LH, IP_ADAPTER_NO_MULTICAST,
+        FreeMibTable, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST,
+        GetAdaptersAddresses, GetIpForwardTable2, IF_TYPE_SOFTWARE_LOOPBACK, IP_ADAPTER_ADDRESSES_LH,
+        IP_ADAPTER_NO_MULTICAST, MIB_IPFORWARD_TABLE2,
     };
     use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
     use windows_sys::Win32::Networking::WinSock as ws;
 
-    use super::{IpInterface, SockaddrBuf, build_netmask, decode_sockaddr};
+    use super::{IpInterface, IpRoute, SockaddrBuf, build_netmask, decode_sockaddr};
+
+    pub fn routes() -> io::Result<Vec<IpRoute>> {
+        let mut table: *mut MIB_IPFORWARD_TABLE2 = std::ptr::null_mut();
+        // SAFETY: `table` is a valid out pointer; the table is freed below
+        let r = unsafe { GetIpForwardTable2(ws::AF_UNSPEC, &mut table) };
+        if r != NO_ERROR || table.is_null() {
+            return Err(io::Error::from_raw_os_error(r as i32));
+        }
+        let mut out = Vec::new();
+        // SAFETY: `NumEntries` rows follow the header in the one allocation Windows returned;
+        // `SOCKADDR_INET` has the `sockaddr_in` / `sockaddr_in6` layout `decode_sockaddr` reads
+        unsafe {
+            let n = (*table).NumEntries as usize;
+            let rows = (*table).Table.as_ptr();
+            for i in 0..n {
+                let row = &*rows.add(i);
+                let gateway = decode_sockaddr((&raw const row.NextHop).cast::<u8>(), None);
+                let dest = decode_sockaddr((&raw const row.DestinationPrefix.Prefix).cast::<u8>(), None);
+                if let (Some((gateway, _)), Some((destination, _))) = (gateway, dest) {
+                    out.push(IpRoute {
+                        destination,
+                        netmask: build_netmask(
+                            row.DestinationPrefix.PrefixLength as u32,
+                            destination.is_ipv4(),
+                        ),
+                        gateway,
+                        source_hint: None,
+                        index: row.InterfaceIndex,
+                    });
+                }
+            }
+            FreeMibTable(table.cast());
+        }
+        Ok(out)
+    }
 
     fn last_error() -> io::Error {
         // SAFETY: no preconditions
@@ -342,10 +385,203 @@ mod imp {
     use std::os::fd::{AsRawFd, FromRawFd};
 
     use super::{
-        IFF_MULTICAST, IpInterface, SOCK_CLOEXEC, SockaddrBuf, build_netmask, decode_sockaddr, family_of,
+        IFF_MULTICAST, IpInterface, IpRoute, SOCK_CLOEXEC, SockaddrBuf, build_netmask, decode_sockaddr,
+        family_of,
     };
 
     const SOCK_DGRAM: c_int = 2;
+
+    /// Linux `/proc/net/route` and `/proc/net/ipv6_route`: no netlink needed (libtorrent uses
+    /// `RTM_GETROUTE`; the files carry the same table).
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    pub fn routes() -> io::Result<Vec<IpRoute>> {
+        use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+        const RTF_UP: u32 = 1;
+        const RTF_GATEWAY: u32 = 2;
+        let index_of = |name: &str| -> u32 {
+            let Ok(c) = std::ffi::CString::new(name) else { return 0 };
+            // SAFETY: a NUL-terminated name
+            unsafe { if_nametoindex(c.as_ptr()) }
+        };
+        let mut out = Vec::new();
+        let v4 = std::fs::read_to_string("/proc/net/route")?;
+        for line in v4.lines().skip(1) {
+            let f: Vec<&str> = line.split_whitespace().collect();
+            if f.len() < 8 {
+                continue;
+            }
+            let hex = |s: &str| u32::from_str_radix(s, 16);
+            let (Ok(dst), Ok(gw), Ok(flags), Ok(mask)) = (hex(f[1]), hex(f[2]), hex(f[3]), hex(f[7])) else {
+                continue;
+            };
+            if flags & RTF_UP == 0 {
+                continue;
+            }
+            // the kernel prints each address as a host-order integer of its network-order bytes
+            let ip = |v: u32| IpAddr::V4(Ipv4Addr::from(v.to_ne_bytes()));
+            out.push(IpRoute {
+                destination: ip(dst),
+                netmask: ip(mask),
+                gateway: ip(if flags & RTF_GATEWAY != 0 { gw } else { 0 }),
+                source_hint: None,
+                index: index_of(f[0]),
+            });
+        }
+        if let Ok(v6) = std::fs::read_to_string("/proc/net/ipv6_route") {
+            for line in v6.lines() {
+                let f: Vec<&str> = line.split_whitespace().collect();
+                if f.len() < 10 {
+                    continue;
+                }
+                let hex128 = |s: &str| u128::from_str_radix(s, 16);
+                let (Ok(dst), Ok(plen), Ok(gw), Ok(flags)) = (
+                    hex128(f[0]),
+                    u32::from_str_radix(f[1], 16),
+                    hex128(f[4]),
+                    u32::from_str_radix(f[8], 16),
+                ) else {
+                    continue;
+                };
+                if flags & RTF_UP == 0 {
+                    continue;
+                }
+                out.push(IpRoute {
+                    destination: Ipv6Addr::from(dst).into(),
+                    netmask: build_netmask(plen, false),
+                    gateway: Ipv6Addr::from(if flags & RTF_GATEWAY != 0 { gw } else { 0 }).into(),
+                    source_hint: None,
+                    index: index_of(f[9]),
+                });
+            }
+        }
+        Ok(out)
+    }
+
+    /// A `NET_RT_DUMP` sysctl, parsed as libtorrent's `parse_route` does: each `rt_msghdr` is
+    /// followed by the sockaddrs its `rtm_addrs` bits name, each rounded up to a `long`.
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
+    pub fn routes() -> io::Result<Vec<IpRoute>> {
+        const CTL_NET: c_int = 4;
+        const PF_ROUTE: c_int = 17;
+        const NET_RT_DUMP: c_int = 1;
+        #[cfg(target_os = "freebsd")]
+        let mib = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_DUMP, 0];
+        // OpenBSD takes the routing table id as a seventh element
+        #[cfg(target_os = "openbsd")]
+        let mib = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_DUMP, 0, 0];
+        let mut needed: usize = 0;
+        // SAFETY: a size query; `needed` is a valid out pointer
+        if unsafe {
+            sysctl(mib.as_ptr(), mib.len() as c_uint, std::ptr::null_mut(), &mut needed, std::ptr::null(), 0)
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        if needed == 0 {
+            return Ok(Vec::new());
+        }
+        let mut buf = vec![0u8; needed];
+        // SAFETY: `buf` holds `needed` writable bytes
+        if unsafe {
+            sysctl(
+                mib.as_ptr(),
+                mib.len() as c_uint,
+                buf.as_mut_ptr().cast(),
+                &mut needed,
+                std::ptr::null(),
+                0,
+            )
+        } < 0
+        {
+            return Err(io::Error::last_os_error());
+        }
+        buf.truncate(needed);
+        Ok(parse_rt_dump(&buf))
+    }
+
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
+    fn parse_rt_dump(buf: &[u8]) -> Vec<IpRoute> {
+        const RTM_VERSION: u8 = 5;
+        const RTM_ADD: u8 = 1;
+        const RTM_GET: u8 = 4;
+        const RTAX_DST: usize = 0;
+        const RTAX_GATEWAY: usize = 1;
+        const RTAX_NETMASK: usize = 2;
+        const RTAX_IFA: usize = 5;
+        const RTAX_MAX: usize = 8;
+        let long = std::mem::size_of::<usize>();
+        let roundup = |a: usize| if a > 0 { 1 + ((a - 1) | (long - 1)) } else { long };
+        let u16_at = |m: &[u8], o: usize| u16::from_ne_bytes([m[o], m[o + 1]]);
+        let i32_at = |m: &[u8], o: usize| i32::from_ne_bytes([m[o], m[o + 1], m[o + 2], m[o + 3]]);
+        let mut out = Vec::new();
+        let mut off = 0;
+        while off + 20 <= buf.len() {
+            let msglen = u16_at(buf, off) as usize;
+            if msglen < 20 || off + msglen > buf.len() {
+                break;
+            }
+            let m = &buf[off..off + msglen];
+            off += msglen;
+            if m[2] != RTM_VERSION || (m[3] != RTM_ADD && m[3] != RTM_GET) {
+                continue;
+            }
+            // FreeBSD: rtm_index at 4, rtm_addrs at 12, then rt_metrics (14 longs) after
+            // rtm_inits (a long at 32). OpenBSD: rtm_hdrlen at 4 says where the sockaddrs start.
+            #[cfg(target_os = "freebsd")]
+            let (hdrlen, index, addrs) = (32 + 15 * long, u16_at(m, 4) as u32, i32_at(m, 12));
+            #[cfg(target_os = "openbsd")]
+            let (hdrlen, index, addrs) = (u16_at(m, 4) as usize, u16_at(m, 6) as u32, i32_at(m, 12));
+            if hdrlen > m.len() {
+                continue;
+            }
+            let mut sas: [Option<SockaddrBuf>; RTAX_MAX] = Default::default();
+            let mut sa_off = hdrlen;
+            for (i, slot) in sas.iter_mut().enumerate() {
+                if addrs & (1 << i) == 0 {
+                    continue;
+                }
+                if sa_off >= m.len() {
+                    break;
+                }
+                let sa_len = m[sa_off] as usize;
+                let mut sa = SockaddrBuf([0; 28]);
+                let take = sa_len.min(28).min(m.len() - sa_off);
+                sa.0[..take].copy_from_slice(&m[sa_off..sa_off + take]);
+                *slot = Some(sa);
+                sa_off += roundup(sa_len);
+            }
+            // SAFETY: 28-byte buffers
+            let decode = |sa: &Option<SockaddrBuf>, fam: Option<u16>| {
+                sa.as_ref().and_then(|s| unsafe { decode_sockaddr(s.0.as_ptr(), fam) }).map(|(a, _)| a)
+            };
+            // a route needs all three; a link-layer gateway (a directly connected network)
+            // has no IP family and is skipped, as in libtorrent
+            let (Some(gateway), Some(destination)) =
+                (decode(&sas[RTAX_GATEWAY], None), decode(&sas[RTAX_DST], None))
+            else {
+                continue;
+            };
+            let Some(netmask) = decode(&sas[RTAX_NETMASK], Some(family_of(&destination))) else { continue };
+            out.push(IpRoute {
+                destination,
+                netmask,
+                gateway,
+                source_hint: decode(&sas[RTAX_IFA], None),
+                index,
+            });
+        }
+        out
+    }
+
+    #[cfg(not(any(
+        target_os = "linux",
+        target_os = "android",
+        target_os = "freebsd",
+        target_os = "openbsd"
+    )))]
+    pub fn routes() -> io::Result<Vec<IpRoute>> {
+        Err(io::Error::new(io::ErrorKind::Unsupported, "route enumeration is not implemented on this OS"))
+    }
     const IFF_UP: c_uint = 0x1;
     const IFF_LOOPBACK: c_uint = 0x8;
 
@@ -369,6 +605,15 @@ mod imp {
         fn getifaddrs(out: *mut *mut IfAddrs) -> c_int;
         fn freeifaddrs(ifa: *mut IfAddrs);
         fn if_nametoindex(name: *const c_char) -> c_uint;
+        #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
+        fn sysctl(
+            name: *const c_int,
+            namelen: c_uint,
+            oldp: *mut c_void,
+            oldlenp: *mut usize,
+            newp: *const c_void,
+            newlen: usize,
+        ) -> c_int;
     }
 
     pub fn socket(v4: bool) -> io::Result<UdpSocket> {
@@ -472,5 +717,24 @@ mod tests {
     fn local_interfaces_are_listed() {
         let ifs = interfaces().unwrap();
         assert!(ifs.iter().any(|i| i.addr == IpAddr::V4(Ipv4Addr::LOCALHOST) && i.loopback), "{ifs:?}");
+    }
+
+    #[test]
+    fn routes_are_listed() {
+        match routes() {
+            Ok(routes) => {
+                // every route's interface is one we list, and the masks fit their families
+                let ifs = interfaces().unwrap();
+                for r in &routes {
+                    assert_eq!(r.destination.is_ipv4(), r.netmask.is_ipv4(), "{r:?}");
+                    assert_eq!(r.destination.is_ipv4(), r.gateway.is_ipv4(), "{r:?}");
+                    assert!(ifs.iter().any(|i| i.index == r.index) || r.index == 0, "{r:?} not in {ifs:?}");
+                }
+                if cfg!(any(windows, target_os = "linux")) {
+                    assert!(!routes.is_empty());
+                }
+            }
+            Err(e) => assert_eq!(e.kind(), io::ErrorKind::Unsupported, "{e}"),
+        }
     }
 }

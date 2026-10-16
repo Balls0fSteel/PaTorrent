@@ -38,7 +38,7 @@ const RECV_BUFFER: usize = 1500 * 2;
 /// The DHT's part of the engine.
 pub(super) struct DhtSession {
     pub tracker: Option<DhtTracker>,
-    socks: Vec<(bool, UdpSocket)>,
+    pub(super) socks: Vec<(bool, UdpSocket)>,
     pending_routers: usize,
     routers: Vec<SocketAddr>,
     /// Nodes from magnet links, added once the DHT runs (libtorrent `m_dht_nodes`).

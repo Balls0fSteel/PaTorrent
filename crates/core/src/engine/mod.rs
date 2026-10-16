@@ -14,6 +14,7 @@ mod dht;
 mod lsd;
 mod metadata;
 mod natpmp;
+mod pe;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
 mod pex;
@@ -35,6 +36,7 @@ use mio::net::{TcpListener, TcpStream};
 use mio::{Events, Interest, Poll, Token, Waker};
 
 use crate::alert::{Alert, Protocol};
+use crate::crypto::mse;
 use crate::disk::{BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction};
 use crate::error::Error;
 use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, parse_magnet_uri};
@@ -144,6 +146,9 @@ pub(crate) struct Engine {
     slots: Vec<TorrentSlot>,
     free_slots: Vec<u32>,
     by_hash: HashMap<Sha1Hash, TorrentId>,
+    /// `SHA-1("req2", info-hash)` of every torrent, which incoming encrypted handshakes name
+    /// (libtorrent `torrent_list::find_obfuscated`).
+    by_obfuscated: HashMap<Sha1Hash, Sha1Hash>,
     /// Download queue: unfinished torrents in queue order.
     queue: Vec<TorrentId>,
     /// Storage id → torrent, until the storage is released.
@@ -283,6 +288,7 @@ impl Engine {
             slots: Vec::new(),
             free_slots: Vec::new(),
             by_hash: HashMap::new(),
+            by_obfuscated: HashMap::new(),
             queue: Vec::new(),
             storages: HashMap::new(),
             deleting: HashMap::new(),
@@ -614,7 +620,7 @@ impl Engine {
                     p.state = PeerState::Handshake;
                     p.connected_at = Instant::now();
                     p.last_receive = p.connected_at;
-                    self.send_handshake(slot);
+                    self.start_outgoing_handshake(slot);
                 }
                 (Ok(None), Err(e)) if e.kind() == io::ErrorKind::NotConnected => return,
                 (Ok(Some(e)), _) | (Err(e), _) | (_, Err(e)) => {
@@ -633,11 +639,14 @@ impl Engine {
         }
     }
 
+    /// Writes our plain BitTorrent handshake (libtorrent `write_handshake`); encrypted when the
+    /// connection's RC4 stream is on.
     pub(super) fn send_handshake(&mut self, slot: usize) {
         let peer_id = self.peer_id;
         let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
         let ih = t.info_hashes.best_v1_compatible();
         peer_wire::encode_handshake(p.out(), &ih, &peer_id);
+        p.sent_handshake = true;
         self.to_flush.push(slot);
     }
 
@@ -834,7 +843,7 @@ impl Engine {
             }
         }
         let seed = p.is_seed();
-        t.peer_list.disconnected(&p.addr, failed && p.state != PeerState::Active, seed);
+        t.peer_list.disconnected(&p.addr, failed && p.state != PeerState::Active, seed, p.fast_reconnect);
         t.status_dirty = true;
         let _ = reason;
     }
@@ -1027,7 +1036,9 @@ impl Engine {
         slot.generation += 1;
         let id = TorrentId::new(index, slot.generation);
         t.id = id;
-        self.by_hash.insert(t.info_hashes.best_v1_compatible(), id);
+        let ih = t.info_hashes.best_v1_compatible();
+        self.by_hash.insert(ih, id);
+        self.by_obfuscated.insert(mse::stream_key_hash(&ih), ih);
         if !t.is_finished() {
             t.queue_position = Some(self.queue.len() as u32);
             self.queue.push(id);
@@ -1297,7 +1308,9 @@ impl Engine {
         let slot = &mut self.slots[id.index() as usize];
         let t = slot.torrent.take().expect("checked");
         self.free_slots.push(id.index());
-        self.by_hash.remove(&t.info_hashes.best_v1_compatible());
+        let ih = t.info_hashes.best_v1_compatible();
+        self.by_hash.remove(&ih);
+        self.by_obfuscated.remove(&mse::stream_key_hash(&ih));
         if let Some(pos) = self.queue.iter().position(|&q| q == id) {
             self.queue.remove(pos);
             self.renumber_queue(pos);
@@ -2193,7 +2206,7 @@ impl Engine {
                 Err(_) => {
                     let t = self.torrent(id).expect("exists");
                     t.peer_list.connecting(addr, 0, source, now);
-                    t.peer_list.disconnected(&addr, true, false);
+                    t.peer_list.disconnected(&addr, true, false, false);
                 }
             }
         }
@@ -2408,6 +2421,8 @@ impl Engine {
             flags.set(PeerFlags::OPTIMISTIC_UNCHOKE, p.optimistic);
             flags.set(PeerFlags::SNUBBED, p.snubbed);
             flags.set(PeerFlags::ENDGAME_MODE, endgame && p.am_interested);
+            flags.set(PeerFlags::RC4_ENCRYPTED, p.rc4.is_some());
+            flags.set(PeerFlags::PLAINTEXT_ENCRYPTED, p.encrypted && p.rc4.is_none());
             let have = if p.is_seed() { num_pieces } else { p.peer_has.count() as u32 };
             peers.push(PeerInfo {
                 ip: p.addr,

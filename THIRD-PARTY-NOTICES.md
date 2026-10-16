@@ -3,8 +3,8 @@
 PaTorrent's engine is a Rust port of libtorrent-rasterbar 2.0.11. Ported code is a derivative work of the projects below and remains under their terms. This file ships with every PaTorrent binary distribution.
 
 Ported so far:
-- `crates/core/src/bencode`, `crypto` (SHA-1, SHA-256, CRC32C), `util`, `metainfo`, and the digest operations in `types.rs`
-- `crates/core/src/disk`, `engine` (session, torrent, peer connection, piece picker, peer list, choker, trackers, DHT and LSD glue, the UPnP and NAT-PMP / PCP port mappers), `net` (incl. the external-IP voter and the `enum_net` interface, route and gateway helpers), `proto` (peer wire, HTTP, tracker protocols, ut_metadata, ut_pex, LSD, UPnP, NAT-PMP / PCP, the XML scanner) and `resume`
+- `crates/core/src/bencode`, `crypto` (SHA-1, SHA-256, CRC32C, the MSE/PE RC4 and Diffie-Hellman primitives of `pe_crypto`), `util`, `metainfo`, and the digest operations in `types.rs`
+- `crates/core/src/disk`, `engine` (session, torrent, peer connection incl. the encrypted handshake glue, piece picker, peer list, choker, trackers, DHT and LSD glue, the UPnP and NAT-PMP / PCP port mappers), `net` (incl. the external-IP voter and the `enum_net` interface, route and gateway helpers), `proto` (peer wire, the MSE/PE encrypted handshake, HTTP, tracker protocols, ut_metadata, ut_pex, LSD, UPnP, NAT-PMP / PCP, the XML scanner) and `resume`
 - `crates/core/src/dht` (libtorrent's `kademlia/*`: node, routing table, rpc manager, lookups, storage, DoS blocker, node ids, DHT state) and `util/bloom_filter.rs`
 - libtorrent's test torrents in `crates/core/tests/fixtures/torrents`
 

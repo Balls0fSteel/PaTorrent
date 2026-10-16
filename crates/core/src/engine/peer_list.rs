@@ -29,6 +29,9 @@ pub(crate) struct KnownPeer {
     pub last_connected: Option<Instant>,
     pub seed: bool,
     pub banned: bool,
+    /// Try an encrypted handshake first (libtorrent `torrent_peer::pe_support`): set by a PEX
+    /// `e` flag or a completed encrypted handshake, toggled as `EncPolicy::Enabled` alternates.
+    pub pe_support: bool,
     /// BEP 40 rank against our external address (higher connects first).
     rank: u32,
 }
@@ -86,6 +89,7 @@ impl PeerList {
             last_connected: None,
             seed: false,
             banned: false,
+            pe_support: false,
             rank,
         });
         true
@@ -145,6 +149,7 @@ impl PeerList {
                 last_connected: None,
                 seed: false,
                 banned: false,
+                pe_support: false,
                 rank: 0,
             });
         }
@@ -154,8 +159,10 @@ impl PeerList {
     }
 
     /// The connection closed. `failed` counts against the peer (could not connect, protocol
-    /// error); a clean disconnect resets its fail count.
-    pub fn disconnected(&mut self, addr: &SocketAddr, failed: bool, seed: bool) {
+    /// error); a clean disconnect resets its fail count. With `fast_reconnect` (an encrypted
+    /// attempt the peer closed on us, libtorrent `connection_closed`) a clean close also forgets
+    /// the connect time, so the peer is a candidate again at once, for the plaintext retry.
+    pub fn disconnected(&mut self, addr: &SocketAddr, failed: bool, seed: bool, fast_reconnect: bool) {
         if let Some(p) = self.get_mut(addr) {
             p.connection = None;
             p.seed |= seed;
@@ -163,7 +170,20 @@ impl PeerList {
                 p.failcount = p.failcount.saturating_add(1);
             } else {
                 p.failcount = 0;
+                if fast_reconnect {
+                    p.last_connected = None;
+                }
             }
+        }
+    }
+
+    pub fn pe_support(&self, addr: &SocketAddr) -> bool {
+        self.get(addr).is_some_and(|p| p.pe_support)
+    }
+
+    pub fn set_pe_support(&mut self, addr: &SocketAddr, pe_support: bool) {
+        if let Some(p) = self.get_mut(addr) {
+            p.pe_support = pe_support;
         }
     }
 
@@ -324,7 +344,7 @@ mod tests {
 
         pl.connecting(a, 1, PeerSource::TRACKER, now);
         assert_eq!(pl.connect_candidates(5, now), [b]);
-        pl.disconnected(&a, true, false);
+        pl.disconnected(&a, true, false, false);
         assert_eq!(pl.connect_candidates(5, now), [b], "reconnects wait");
         assert_eq!(pl.connect_candidates(5, now + Duration::from_secs(121)), [b, a], "failed peers last");
 

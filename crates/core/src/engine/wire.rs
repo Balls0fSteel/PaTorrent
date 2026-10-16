@@ -3,7 +3,8 @@
 // incoming_have, update_interest, send_block_requests, snub handling), src/request_blocks.cpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: handlers are engine methods taking a peer slot; messages are copied out of the
-// receive buffer once (piece payloads go straight to the disk job).
+// receive buffer once (piece payloads go straight to the disk job). The encrypted handshake
+// (`read_pe_*`) runs in `engine::pe` before the plain one.
 
 //! Peer wire message handling.
 
@@ -14,9 +15,11 @@ use super::peer::{PeerState, Request};
 use crate::alert::Alert;
 use crate::disk::BLOCK_SIZE;
 use crate::error::Error;
+use crate::proto::pe_handshake::PeHandshake;
 use crate::proto::peer_wire::{self, HandshakeError, Message, msg};
 use crate::proto::ut_metadata;
 use crate::proto::ut_pex;
+use crate::settings::EncPolicy;
 use crate::util::bitfield::Bitfield;
 
 /// Largest block a peer may request from us (libtorrent rejects anything above 16 KiB too,
@@ -85,7 +88,9 @@ impl Engine {
             match p.state {
                 PeerState::Connecting => return payload,
                 PeerState::Handshake => {
-                    if !self.on_handshake(slot) {
+                    let progressed =
+                        if p.pe.is_some() { self.on_pe_receive(slot) } else { self.on_handshake(slot) };
+                    if !progressed {
                         return payload;
                     }
                 }
@@ -109,9 +114,12 @@ impl Engine {
         }
     }
 
-    /// Returns true when the handshake completed and more messages may follow.
+    /// Returns true when the handshake completed (or an encrypted one starts) and the buffer
+    /// should be looked at again.
     fn on_handshake(&mut self, slot: usize) -> bool {
         let our_id = self.peer_id;
+        let (in_policy, out_policy) = (self.settings.in_enc_policy, self.settings.out_enc_policy);
+        let (level, prefer_rc4) = (self.settings.allowed_enc_level, self.settings.prefer_rc4);
         let p = self.peers.get_mut(slot).expect("caller checked");
         if p.torrent.is_none() {
             // Incoming: pick the torrent by its info-hash as soon as it arrives.
@@ -119,33 +127,36 @@ impl Engine {
                 Ok((_, ih)) => ih,
                 Err(HandshakeError::Incomplete) => return false,
                 Err(HandshakeError::BadProtocol) => {
-                    p.close("not a BitTorrent handshake (encrypted connections arrive in Phase 4)", true);
-                    return false;
+                    // libtorrent `read_protocol_identifier`: not the protocol string, so try it
+                    // as an encrypted handshake, unless that cannot be (we initiated, or it is
+                    // already inside one) or `in_enc_policy` forbids it.
+                    if p.outgoing || p.encrypted {
+                        p.close("not a BitTorrent handshake", true);
+                        return false;
+                    }
+                    if in_policy == EncPolicy::Disabled {
+                        p.close("no incoming encrypted connections allowed", false);
+                        return false;
+                    }
+                    p.pe = Some(Box::new(PeHandshake::incoming(level, prefer_rc4)));
+                    return true;
                 }
             };
+            if in_policy == EncPolicy::Forced && !p.encrypted {
+                p.close("no incoming plaintext connections allowed", false);
+                return false;
+            }
             let Some(&id) = self.by_hash.get(&ih) else {
                 self.peers.get_mut(slot).expect("exists").close("unknown torrent", true);
                 return false;
             };
-            let accept =
-                self.torrent_ref(id).is_some_and(|t| t.is_active() && !t.checking && self.is_running(t));
-            let addr = self.peers.get(slot).expect("exists").addr;
-            let duplicate = self.torrent_ref(id).is_some_and(|t| {
-                t.peers.iter().any(|&s| {
-                    self.peers
-                        .get(s)
-                        .is_some_and(|o| o.addr.ip() == addr.ip() && o.addr.port() == addr.port())
-                })
-            });
-            if !accept || duplicate {
-                self.peers.get_mut(slot).expect("exists").close("torrent not accepting peers", false);
+            if !self.attach_incoming(slot, id) {
                 return false;
             }
-            let pid = self.peers.get(slot).expect("exists").id;
-            self.peers.get_mut(slot).expect("exists").torrent = Some(id);
-            let t = self.torrent(id).expect("exists");
-            t.peers.push(slot);
-            t.peer_list.connecting(addr, pid, crate::status::PeerSource::INCOMING, Instant::now());
+        }
+        // An incoming connection answers once its torrent is known (after the encrypted
+        // handshake, if any, so the answer goes out under the agreed cipher).
+        if !self.peers.get(slot).expect("exists").sent_handshake {
             self.send_handshake(slot);
         }
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
@@ -198,8 +209,15 @@ impl Engine {
         p.supports_fast = h.reserved.supports_fast();
         p.supports_extensions = h.reserved.supports_extensions();
         p.state = PeerState::Active;
+        // The handshake is what the fast retry was for; a later close waits as usual.
+        p.fast_reconnect = false;
         p.peer_has = Bitfield::new(t.num_pieces as usize, false);
         p.last_receive = Instant::now();
+        // A plain handshake succeeded under `Enabled`: next time, start plain again
+        // (libtorrent `read_peer_id` toggles `pe_support` back).
+        if p.outgoing && !p.encrypted && out_policy == EncPolicy::Enabled {
+            t.peer_list.set_pe_support(&p.addr, false);
+        }
         if !p.outgoing {
             self.has_incoming = true;
         }

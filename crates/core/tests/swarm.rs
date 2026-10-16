@@ -4,7 +4,8 @@
 //! links that fetch their metadata from the seed (BEP 9), a trackerless magnet that finds its
 //! seed through a third session's DHT, a leech that learns about another through the seed's
 //! peer exchange (BEP 11), and two sessions that find each other through local service
-//! discovery (BEP 14).
+//! discovery (BEP 14); and the MSE/PE policy matrix: forced, enabled and disabled encryption on
+//! either side.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -14,8 +15,8 @@ use std::time::{Duration, Instant};
 use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
 use patorrent_core::{
-    AddTorrentParams, Alert, PeerFlags, PeerSource, Session, SessionHandle, SessionParams, Settings,
-    TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, EncLevel, EncPolicy, PeerFlags, PeerSource, Session, SessionHandle,
+    SessionParams, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const PIECE: usize = 32 * 1024;
@@ -986,4 +987,159 @@ fn a_second_connection_to_the_same_peer_is_closed() {
     seed.shutdown();
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+// --- MSE/PE protocol encryption ------------------------------------------------------------------
+
+fn start_with(f: impl FnOnce(&mut Settings)) -> (Session, Watch, u16) {
+    let mut settings = settings();
+    f(&mut settings);
+    let s = Session::start(SessionParams { settings, state_dir: None }).expect("session starts");
+    let mut w = Watch::new(s.handle());
+    let port = listen_port(&mut w);
+    (s, w, port)
+}
+
+fn forced_rc4(s: &mut Settings) {
+    s.out_enc_policy = EncPolicy::Forced;
+    s.in_enc_policy = EncPolicy::Forced;
+    s.allowed_enc_level = EncLevel::Rc4;
+}
+
+fn forced_any(s: &mut Settings) {
+    s.out_enc_policy = EncPolicy::Forced;
+    s.in_enc_policy = EncPolicy::Forced;
+}
+
+fn disabled(s: &mut Settings) {
+    s.out_enc_policy = EncPolicy::Disabled;
+    s.in_enc_policy = EncPolicy::Disabled;
+}
+
+/// The flags of the torrent's connected (past the handshake) peers.
+fn connected_peer_flags(w: &mut Watch, id: TorrentId) -> Vec<PeerFlags> {
+    w.h.torrent(id).post_peer_info();
+    let peers = wait(w, 5, "peer info", |a| match a {
+        Alert::PeerInfo { id: i, peers } if *i == id => Some(peers.clone()),
+        _ => None,
+    });
+    peers
+        .into_iter()
+        .filter(|p| !p.flags.intersects(PeerFlags::CONNECTING | PeerFlags::HANDSHAKE))
+        .map(|p| p.flags)
+        .collect()
+}
+
+/// A seed and a leech with the given settings; the leech connects to the seed and must finish.
+/// Returns the leech's view of the seed connection and the seed's view of the leech.
+fn encrypted_download(
+    seed_settings: fn(&mut Settings),
+    leech_settings: fn(&mut Settings),
+) -> (PeerFlags, PeerFlags) {
+    let f = fixture(None);
+    let seed_dir = temp_dir("enc-seed");
+    write_files(&f, &seed_dir);
+    let (seed, mut sw, port) = start_with(seed_settings);
+    let seed_id = add(&mut sw, &f, &seed_dir);
+    wait_state(&mut sw, seed_id, TorrentState::Seeding, 20);
+    let dir = temp_dir("enc-leech");
+    // Slow enough that the connection can be looked at while it lasts.
+    let (leech, mut w, _) = start_with(|s| {
+        leech_settings(s);
+        s.download_rate_limit = 300_000;
+    });
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    // Both views of the connection while it lasts: once the leech is a seed too, the
+    // connection is redundant and closed.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let (mut leech_view, mut seed_view) = (Vec::new(), Vec::new());
+    while Instant::now() < deadline && (leech_view.is_empty() || seed_view.is_empty()) {
+        if leech_view.is_empty() {
+            leech_view = connected_peer_flags(&mut w, id);
+        }
+        if seed_view.is_empty() {
+            seed_view = connected_peer_flags(&mut sw, seed_id);
+        }
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    assert_eq!(leech_view.len(), 1, "leech side: {leech_view:?}");
+    assert_eq!(seed_view.len(), 1, "seed side: {seed_view:?}");
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+    assert_eq!(st.total_failed_bytes, 0);
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+    (leech_view[0], seed_view[0])
+}
+
+#[test]
+fn forced_encryption_on_both_sides_downloads_over_rc4() {
+    let (leech_view, seed_view) = encrypted_download(forced_rc4, forced_rc4);
+    assert!(leech_view.contains(PeerFlags::RC4_ENCRYPTED), "{leech_view:?}");
+    assert!(seed_view.contains(PeerFlags::RC4_ENCRYPTED), "{seed_view:?}");
+}
+
+#[test]
+fn forced_encryption_with_both_levels_allowed_agrees_on_a_plaintext_stream() {
+    // Both offer plaintext and RC4; without `prefer_rc4` the responder keeps the lower bit, so
+    // the handshake is encrypted and the payload is not (libtorrent `plaintext_encrypted`).
+    let (leech_view, seed_view) = encrypted_download(forced_any, forced_any);
+    assert!(leech_view.contains(PeerFlags::PLAINTEXT_ENCRYPTED), "{leech_view:?}");
+    assert!(!leech_view.contains(PeerFlags::RC4_ENCRYPTED), "{leech_view:?}");
+    assert!(seed_view.contains(PeerFlags::PLAINTEXT_ENCRYPTED), "{seed_view:?}");
+}
+
+#[test]
+fn an_enabled_leech_retries_with_encryption_when_a_forced_seed_refuses_plaintext() {
+    // `Enabled` (the default) tries plaintext first with a peer it knows nothing about; the
+    // seed closes that connection ("no incoming plaintext connections allowed"), and the leech
+    // reconnects at once with the encrypted handshake (libtorrent's `pe_support` toggle and
+    // `fast_reconnect`).
+    let (leech_view, seed_view) = encrypted_download(forced_rc4, |_| {});
+    assert!(leech_view.contains(PeerFlags::RC4_ENCRYPTED), "{leech_view:?}");
+    assert!(seed_view.contains(PeerFlags::RC4_ENCRYPTED), "{seed_view:?}");
+}
+
+#[test]
+fn enabled_peers_talk_plaintext_with_a_disabled_peer_in_either_direction() {
+    let plain =
+        |flags: PeerFlags| !flags.intersects(PeerFlags::RC4_ENCRYPTED | PeerFlags::PLAINTEXT_ENCRYPTED);
+    let (leech_view, seed_view) = encrypted_download(disabled, |_| {});
+    assert!(plain(leech_view) && plain(seed_view), "{leech_view:?} {seed_view:?}");
+    let (leech_view, seed_view) = encrypted_download(|_| {}, disabled);
+    assert!(plain(leech_view) && plain(seed_view), "{leech_view:?} {seed_view:?}");
+}
+
+#[test]
+fn forced_and_disabled_peers_never_connect() {
+    for (seed_settings, leech_settings, what) in [
+        (disabled as fn(&mut Settings), forced_rc4 as fn(&mut Settings), "forced leech, disabled seed"),
+        (forced_rc4, disabled, "disabled leech, forced seed"),
+    ] {
+        let f = fixture(None);
+        let seed_dir = temp_dir("noenc-seed");
+        write_files(&f, &seed_dir);
+        let (seed, mut sw, port) = start_with(seed_settings);
+        let seed_id = add(&mut sw, &f, &seed_dir);
+        wait_state(&mut sw, seed_id, TorrentState::Seeding, 20);
+        let dir = temp_dir("noenc-leech");
+        let (leech, mut w, _) = start_with(leech_settings);
+        let id = add(&mut w, &f, &dir);
+        wait_state(&mut w, id, TorrentState::Downloading, 10);
+        leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+        std::thread::sleep(Duration::from_secs(3));
+        assert!(connected_peer_flags(&mut w, id).is_empty(), "{what}: leech connected");
+        assert!(connected_peer_flags(&mut sw, seed_id).is_empty(), "{what}: seed connected");
+        let st = wait_state(&mut w, id, TorrentState::Downloading, 5);
+        assert_eq!(st.total_done, 0, "{what}");
+        leech.shutdown();
+        seed.shutdown();
+        let _ = std::fs::remove_dir_all(dir);
+        let _ = std::fs::remove_dir_all(seed_dir);
+    }
 }

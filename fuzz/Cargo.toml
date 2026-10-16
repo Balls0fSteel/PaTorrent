@@ -105,3 +105,10 @@ path = "fuzz_targets/natpmp.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "pe_handshake"
+path = "fuzz_targets/pe_handshake.rs"
+test = false
+doc = false
+bench = false

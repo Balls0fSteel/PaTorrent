@@ -2,7 +2,9 @@
 // queue, timeouts, statistics), src/receive_buffer.cpp, src/chained_buffer.cpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: one struct owning a mio socket plus flat receive and send buffers; the message
-// handling that needs the torrent lives in `engine::wire` as methods on the engine.
+// handling that needs the torrent lives in `engine::wire` as methods on the engine. RC4 is
+// applied to the receive buffer as bytes arrive and to the send buffer as bytes leave
+// (libtorrent's `encryption_handler` barriers reduce to one "encrypted from here" position).
 
 //! One BitTorrent peer connection.
 
@@ -13,11 +15,13 @@ use std::time::Instant;
 
 use mio::net::TcpStream;
 
+use crate::crypto::mse::Rc4Handler;
+use crate::proto::pe_handshake::{PeError, PeHandshake, PeStep};
 use crate::proto::peer_wire::ExtHandshake;
 use crate::proto::ut_metadata::PeerMetadata;
 use crate::proto::ut_pex::PeerPex;
 use crate::status::PeerSource;
-use crate::types::TorrentId;
+use crate::types::{Sha1Hash, TorrentId};
 use crate::util::bitfield::Bitfield;
 use crate::util::stat::Stat;
 
@@ -45,11 +49,25 @@ pub(crate) struct PeerConn {
     pub source: PeerSource,
     pub torrent: Option<TorrentId>,
     pub state: PeerState,
+    /// The MSE/PE handshake in progress (`None`: plaintext, or already past it).
+    pub pe: Option<Box<PeHandshake>>,
+    /// The encrypted handshake completed (libtorrent `m_encrypted`), with RC4 or plaintext after.
+    pub encrypted: bool,
+    /// RC4 over the payload stream, both directions (libtorrent `m_rc4_encrypted`).
+    pub rc4: Option<Box<Rc4Handler>>,
+    /// We wrote our plain BitTorrent handshake (libtorrent `m_sent_handshake`).
+    pub sent_handshake: bool,
+    /// An encrypted attempt under `EncPolicy::Enabled`: if it fails, the peer is retried at once
+    /// in plaintext (libtorrent `fast_reconnect`).
+    pub fast_reconnect: bool,
 
     recv: Vec<u8>,
     rpos: usize,
     send: Vec<u8>,
     spos: usize,
+    /// `send[..enc_pos]` is final (plaintext, or encrypted already); the rest is encrypted
+    /// before it leaves when `rc4` is on.
+    enc_pos: usize,
     /// Stream offset of `send[0]` (bytes ever queued before it).
     send_base: u64,
     /// Stream offset where each queued piece payload ends, with its size, so upload payload is
@@ -129,10 +147,16 @@ impl PeerConn {
             source,
             torrent: None,
             state: if outgoing { PeerState::Connecting } else { PeerState::Handshake },
+            pe: None,
+            encrypted: false,
+            rc4: None,
+            sent_handshake: false,
+            fast_reconnect: false,
             recv: Vec::new(),
             rpos: 0,
             send: Vec::new(),
             spos: 0,
+            enc_pos: 0,
             send_base: 0,
             payload_marks: VecDeque::new(),
             am_choking: true,
@@ -208,6 +232,9 @@ impl PeerConn {
                 }
                 Ok(n) => {
                     self.recv.truncate(start + n);
+                    if let Some(rc4) = &mut self.rc4 {
+                        rc4.decrypt(&mut self.recv[start..]);
+                    }
                     total += n;
                     if n < want {
                         // Short read: probably drained. mio requires reading until WouldBlock,
@@ -243,9 +270,40 @@ impl PeerConn {
         self.send.len() - self.spos
     }
 
+    /// Advances the encrypted handshake with what the receive buffer holds (libtorrent's
+    /// `read_pe_*` states). `find` maps an obfuscated stream-key hash to one of our info-hashes.
+    pub fn pe_step(
+        &mut self,
+        find: &mut dyn FnMut(&Sha1Hash) -> Option<Sha1Hash>,
+    ) -> Result<PeStep, PeError> {
+        let hs = self.pe.as_mut().expect("in the encrypted handshake");
+        let (consumed, step) = hs.feed(&mut self.recv[self.rpos..], &mut self.send, find)?;
+        // Whatever the handshake wrote is final: plaintext, or encrypted by it already.
+        self.enc_pos = self.send.len();
+        self.consume(consumed);
+        if let PeStep::Done { rc4 } = step {
+            // libtorrent `init_bt_handshake`: from here on the stream is RC4 or plaintext.
+            let hs = self.pe.take().expect("checked");
+            self.encrypted = true;
+            if rc4 {
+                self.rc4 = hs.into_rc4().map(Box::new);
+            }
+        }
+        Ok(step)
+    }
+
+    /// Encrypts what was queued since the last write, when the stream is RC4.
+    fn encrypt_pending(&mut self) {
+        if let Some(rc4) = &mut self.rc4 {
+            rc4.encrypt(&mut self.send[self.enc_pos..]);
+        }
+        self.enc_pos = self.send.len();
+    }
+
     /// Writes up to `max` buffered bytes. Returns (raw bytes, payload bytes) written and
     /// whether the socket would block. Errors close the connection.
     pub fn write_some(&mut self, max: usize) -> io::Result<(usize, usize, bool)> {
+        self.encrypt_pending();
         let mut total = 0;
         let mut would_block = false;
         while self.spos < self.send.len() && total < max {
@@ -277,6 +335,7 @@ impl PeerConn {
         if self.spos == self.send.len() || (self.spos > 64 * 1024 && self.spos * 2 > self.send.len()) {
             self.send_base += self.spos as u64;
             self.send.drain(..self.spos);
+            self.enc_pos -= self.spos;
             self.spos = 0;
         }
         self.write_blocked = would_block;

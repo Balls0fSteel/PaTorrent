@@ -11,6 +11,7 @@ PaTorrent's engine (`crates/core`) is a Rust port of **libtorrent-rasterbar 2.0.
   |---|---|---|
   | `src/sha1.cpp` | Steve Reid | public domain |
   | `src/sha256.cpp` | LibTomCrypt | public domain |
+  | `src/pe_crypto.cpp` (`rc4_init`, `rc4_encrypt`) | LibTomCrypt | public domain |
   | `src/ed25519/*` | Orson Peters | zlib. Altered versions must be marked as altered. |
   | `src/puff.cpp` | Mark Adler | zlib-style |
 - Every ported Rust file starts with a provenance header:
@@ -141,4 +142,7 @@ Record each one here with the reason.
 | UPnP unmap result (Phase 4) | a `DeletePortMapping` reply with status 200 and no `<errorCode>` is reported with `error_code(-1, upnp_category())`, which is an error ("unknown UPnP error (-1)") | reported as a success (port 0) | `-1` is the parser's "no error code" marker, not an error |
 | UPnP log (Phase 4) | `portmap_log_alert` for every step, including the full SOAP bodies | `Alert::PortmapLog` for the steps and the SOAP replies; the request bodies are logged only for SOAP calls | the same debugging value with less noise |
 | Routing table (Phase 4) | netlink on Linux, `sysctl(NET_RT_DUMP)` on the BSDs and macOS, `GetIpForwardTable2` on Windows | `/proc/net/route` and `/proc/net/ipv6_route` on Linux, `sysctl` on FreeBSD and OpenBSD, `GetIpForwardTable2` on Windows; `Unsupported` elsewhere (NAT-PMP stays off there) | no netlink without libc; the files carry the same table |
+| MSE xor mask (Phase 4) | `dh_key_exchange::compute_secret` hashes `HASH("req3", S)` over an `export_bits` buffer that is not right-aligned, so when the shared secret has a leading zero byte (one exchange in 256) the responder's mask is wrong and the incoming handshake fails with `invalid_info_hash`; the initiator side (`write_pe3_sync`) uses the padded `export_key` | both sides hash the fixed-width 96-byte `S` | the MSE specification's `S` is 96 bytes; libtorrent's own initiator sends it that way |
+| MSE fast reconnect (Phase 4) | under `pe_enabled`, only the encrypted attempt sets `fast_reconnect`; a cleanly closed plaintext attempt is retried at once anyway, because `peer_list` waits `min_reconnect_time * failcount` and the failcount is 0 | both attempts set `fast_reconnect`, which clears the peer's connect time | our peer list waits `min_reconnect_time` even after a clean close (less hammering), so the alternation needs the flag both ways |
+| MSE secret exponent (Phase 4) | `aux::random_bytes` (mt19937) | `crypto_random_bytes` (the OS RNG) | the key material should not come from a predictable generator |
 | Persistence writes (Phase 2) | n/a (client side) | `resume.db` is rewritten atomically, debounced (2 s after adds, every 30 s for progress); the metadata pack is appended at once | bulk adds rewrite once instead of once per torrent. An append-only record log (ARCHITECTURE.md) follows if the rewrite shows up in profiles |

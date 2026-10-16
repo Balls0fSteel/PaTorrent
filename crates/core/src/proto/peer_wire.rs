@@ -79,7 +79,8 @@ pub fn encode_handshake(out: &mut Vec<u8>, info_hash: &Sha1Hash, peer_id: &[u8; 
 pub enum HandshakeError {
     /// Fewer bytes than needed so far.
     Incomplete,
-    /// Not the BitTorrent protocol (or encrypted, which Phase 4 adds).
+    /// Not the BitTorrent protocol string: garbage, or the start of an encrypted handshake
+    /// (`proto::pe_handshake`).
     BadProtocol,
 }
 

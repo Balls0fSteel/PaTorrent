@@ -13,6 +13,10 @@
 //!
 //! Readiness is client-agnostic: the probe connects, handshakes and counts the pieces in the
 //! client's `bitfield` and `have` messages, so no client needs a control API.
+//!
+//! `--encryption forced|enabled|disabled` sets the MSE/PE policy on both sides (`forced` means
+//! RC4 only, as the clients' "require encryption" does); the probe then handshakes encrypted too,
+//! and the result lines report what the connection used.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -22,9 +26,11 @@ use std::time::{Duration, Instant};
 
 use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
+use patorrent_core::crypto::mse::Rc4Handler;
+use patorrent_core::fuzzing::{PeHandshake, PeStep};
 use patorrent_core::{
-    AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId,
-    TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, EncLevel, EncPolicy, PeerFlags, Session, SessionHandle, SessionParams, Settings,
+    Sha1Hash, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const NAME: &str = "lt-interop";
@@ -60,12 +66,45 @@ impl Client {
     }
 }
 
+/// The MSE/PE policy for both sides of a run (`None`: every client's default).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Encryption {
+    /// RC4 required: qBittorrent "Require encryption", Transmission "required", Deluge forced / RC4.
+    Forced,
+    /// Encrypted and plain connections (the libtorrent default on both sides).
+    Enabled,
+    Disabled,
+}
+
+impl Encryption {
+    pub fn parse(s: &str) -> Option<Encryption> {
+        match s {
+            "forced" => Some(Encryption::Forced),
+            "enabled" => Some(Encryption::Enabled),
+            "disabled" => Some(Encryption::Disabled),
+            _ => None,
+        }
+    }
+
+    fn apply(self, s: &mut Settings) {
+        let (policy, level) = match self {
+            Encryption::Forced => (EncPolicy::Forced, EncLevel::Rc4),
+            Encryption::Enabled => (EncPolicy::Enabled, EncLevel::Both),
+            Encryption::Disabled => (EncPolicy::Disabled, EncLevel::Both),
+        };
+        s.out_enc_policy = policy;
+        s.in_enc_policy = policy;
+        s.allowed_enc_level = level;
+    }
+}
+
 pub struct Options {
     pub clients: Vec<Client>,
     pub mb: usize,
     pub qbittorrent: PathBuf,
     pub wsl_distro: String,
     pub keep: bool,
+    pub encryption: Option<Encryption>,
 }
 
 impl Default for Options {
@@ -80,6 +119,7 @@ impl Default for Options {
             },
             wsl_distro: "Debian".into(),
             keep: false,
+            encryption: None,
         }
     }
 }
@@ -234,10 +274,17 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
             let profile = f.work.join("qbt-profile");
             let config = profile.join("qBittorrent").join("config");
             std::fs::create_dir_all(&config).map_err(|e| e.to_string())?;
+            // qBittorrent: 0 prefer, 1 require, 2 disable.
+            let encryption = match opts.encryption {
+                None => String::new(),
+                Some(Encryption::Enabled) => "Session\\Encryption=0\r\n".into(),
+                Some(Encryption::Forced) => "Session\\Encryption=1\r\n".into(),
+                Some(Encryption::Disabled) => "Session\\Encryption=2\r\n".into(),
+            };
             let ini = format!(
                 "[LegalNotice]\r\nAccepted=true\r\n\r\n\
                  [BitTorrent]\r\nSession\\Port={port}\r\nSession\\DHTEnabled=false\r\n\
-                 Session\\LSDEnabled=false\r\nSession\\PeXEnabled=false\r\n\
+                 Session\\LSDEnabled=false\r\nSession\\PeXEnabled=false\r\n{encryption}\
                  Session\\AddTorrentStopped=false\r\n\r\n\
                  [Network]\r\nPortForwardingEnabled=false\r\n\r\n\
                  [Preferences]\r\nConnection\\ResolvePeerCountries=false\r\nGeneral\\NoSplashScreen=true\r\n"
@@ -263,10 +310,25 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
             let prepare = format!(
                 "set -e; rm -rf {dir}; mkdir -p {dir}/cfg; cp -r {src}/seed/{NAME} {dir}/; cp {src}/{NAME}.torrent {dir}/"
             );
+            // Transmission: 0 plaintext preferred, 1 encryption preferred, 2 required. Deluge:
+            // libtorrent's own values (policy 0 forced, 1 enabled, 2 disabled; level 1 RC4, 2 both).
+            let (tr_enc, de_policy, de_level) = match opts.encryption {
+                None => (String::new(), String::new(), String::new()),
+                Some(Encryption::Forced) => (", \"encryption\": 2".into(), "0".into(), "1".into()),
+                Some(Encryption::Enabled) => (", \"encryption\": 1".into(), "1".into(), "2".into()),
+                Some(Encryption::Disabled) => (", \"encryption\": 0".into(), "2".into(), "2".into()),
+            };
+            let de_enc = if de_policy.is_empty() {
+                String::new()
+            } else {
+                format!(
+                    ", \"enc_in_policy\": {de_policy}, \"enc_out_policy\": {de_policy}, \"enc_level\": {de_level}"
+                )
+            };
             let run = if client == Client::Transmission {
                 format!(
                     "printf '%s' '{{\"dht-enabled\": false, \"lpd-enabled\": false, \"pex-enabled\": false, \
-                     \"port-forwarding-enabled\": false, \"rpc-enabled\": false, \"peer-port\": {port}}}' \
+                     \"port-forwarding-enabled\": false, \"rpc-enabled\": false, \"peer-port\": {port}{tr_enc}}}' \
                      > {dir}/cfg/settings.json; \
                      transmission-cli --version 2>&1 | head -1; \
                      exec stdbuf -oL timeout 900 transmission-cli -g {dir}/cfg -w {dir} -p {port} -M -U -v {dir}/{NAME}.torrent"
@@ -276,7 +338,7 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
                 format!(
                     "printf '%s' '{{\"file\": 1, \"format\": 1}}{{\"listen_ports\": [{port}, {port}], \
                      \"random_port\": false, \"dht\": false, \"lsd\": false, \"upnp\": false, \"natpmp\": false, \
-                     \"utpex\": false, \"daemon_port\": {daemon}, \"allow_remote\": false, \
+                     \"utpex\": false, \"daemon_port\": {daemon}, \"allow_remote\": false{de_enc}, \
                      \"new_release_check\": false, \"download_location\": \"{dir}\", \"add_paused\": false}}' \
                      > {dir}/cfg/core.conf; \
                      deluged --version 2>&1 | head -2; \
@@ -327,19 +389,84 @@ fn stop_seed(mut s: Seed, opts: &Options) {
 
 // --- Readiness probe ----------------------------------------------------------------------------
 
+/// A probe connection: buffered reads, decrypted once an MSE/PE handshake chose RC4.
+struct Probe {
+    sock: TcpStream,
+    buf: Vec<u8>,
+    rc4: Option<Rc4Handler>,
+}
+
+impl Probe {
+    /// Reads more from the socket into the buffer.
+    fn fill(&mut self) -> std::io::Result<()> {
+        let mut chunk = [0u8; 16 * 1024];
+        let n = self.sock.read(&mut chunk)?;
+        if n == 0 {
+            return Err(std::io::ErrorKind::UnexpectedEof.into());
+        }
+        if let Some(rc4) = &mut self.rc4 {
+            rc4.decrypt(&mut chunk[..n]);
+        }
+        self.buf.extend_from_slice(&chunk[..n]);
+        Ok(())
+    }
+
+    fn read_exact(&mut self, n: usize) -> std::io::Result<Vec<u8>> {
+        while self.buf.len() < n {
+            self.fill()?;
+        }
+        Ok(self.buf.drain(..n).collect())
+    }
+
+    /// The MSE/PE handshake as initiator (RC4 only, like the clients' "require encryption"),
+    /// carrying `hs` as the initial payload; afterwards the stream is RC4.
+    fn encrypted_handshake(&mut self, info_hash: Sha1Hash, hs: Vec<u8>) -> std::io::Result<()> {
+        let mut out = Vec::new();
+        let mut pe = PeHandshake::outgoing(info_hash, hs, EncLevel::Rc4, false, &mut out);
+        self.sock.write_all(&out)?;
+        let mut none = |_: &Sha1Hash| None;
+        loop {
+            out.clear();
+            let (consumed, step) =
+                pe.feed(&mut self.buf, &mut out, &mut none).map_err(std::io::Error::other)?;
+            self.buf.drain(..consumed);
+            self.sock.write_all(&out)?;
+            match step {
+                PeStep::Wait => self.fill()?,
+                PeStep::Done { rc4 } => {
+                    if rc4 {
+                        self.rc4 = pe.into_rc4();
+                    }
+                    return Ok(());
+                }
+                PeStep::Continue | PeStep::Torrent(_) => {}
+            }
+        }
+    }
+}
+
 /// Handshakes with `addr` and counts the pieces it announces. Returns the remote peer-id and
 /// whether it has all `num_pieces`.
-fn probe(addr: SocketAddr, info_hash: &[u8; 20], num_pieces: usize) -> std::io::Result<([u8; 20], bool)> {
-    let mut s = TcpStream::connect_timeout(&addr, Duration::from_secs(2))?;
-    s.set_read_timeout(Some(Duration::from_millis(1500)))?;
+fn probe(
+    addr: SocketAddr,
+    info_hash: &[u8; 20],
+    num_pieces: usize,
+    encrypted: bool,
+) -> std::io::Result<([u8; 20], bool)> {
+    let sock = TcpStream::connect_timeout(&addr, Duration::from_secs(2))?;
+    sock.set_read_timeout(Some(Duration::from_millis(1500)))?;
+    let mut s = Probe { sock, buf: Vec::new(), rc4: None };
     let mut hs = vec![19u8];
     hs.extend_from_slice(b"BitTorrent protocol");
     hs.extend_from_slice(&[0; 8]);
     hs.extend_from_slice(info_hash);
     hs.extend_from_slice(b"-LS0001-interopprobe");
-    s.write_all(&hs)?;
-    let mut reply = [0u8; 68];
-    s.read_exact(&mut reply)?;
+    if encrypted {
+        s.encrypted_handshake(Sha1Hash(*info_hash), hs)?;
+    } else {
+        s.sock.write_all(&hs)?;
+    }
+    let reply = s.read_exact(68)?;
     if &reply[28..48] != info_hash {
         return Err(std::io::Error::other("wrong info-hash in the reply"));
     }
@@ -347,18 +474,12 @@ fn probe(addr: SocketAddr, info_hash: &[u8; 20], num_pieces: usize) -> std::io::
     let mut have = vec![false; num_pieces];
     let deadline = Instant::now() + Duration::from_millis(1500);
     while Instant::now() < deadline && have.iter().any(|h| !h) {
-        let mut len = [0u8; 4];
-        if s.read_exact(&mut len).is_err() {
-            break;
-        }
-        let n = u32::from_be_bytes(len) as usize;
+        let Ok(len) = s.read_exact(4) else { break };
+        let n = u32::from_be_bytes(len[..4].try_into().expect("4 bytes")) as usize;
         if n > 1 << 20 {
             break;
         }
-        let mut msg = vec![0u8; n];
-        if s.read_exact(&mut msg).is_err() {
-            break;
-        }
+        let Ok(msg) = s.read_exact(n) else { break };
         match msg.first() {
             Some(5) => {
                 for (i, h) in have.iter_mut().enumerate() {
@@ -377,14 +498,15 @@ fn probe(addr: SocketAddr, info_hash: &[u8; 20], num_pieces: usize) -> std::io::
     Ok((peer_id, have.iter().all(|&h| h)))
 }
 
-fn wait_until_seeding(seed: &mut Seed, f: &Fixture) -> Result<[u8; 20], String> {
+fn wait_until_seeding(seed: &mut Seed, f: &Fixture, opts: &Options) -> Result<[u8; 20], String> {
     let deadline = Instant::now() + SEED_READY_LIMIT;
     let mut last = String::from("no answer");
+    let encrypted = opts.encryption == Some(Encryption::Forced);
     while Instant::now() < deadline {
         if let Ok(Some(status)) = seed.child.try_wait() {
             return Err(format!("the client exited ({status}); see {}", seed.log.display()));
         }
-        match probe(seed.addr, &f.info_hash, f.num_pieces) {
+        match probe(seed.addr, &f.info_hash, f.num_pieces, encrypted) {
             Ok((id, true)) => return Ok(id),
             Ok((_, false)) => last = "connected, not seeding yet".into(),
             Err(e) => last = e.to_string(),
@@ -429,10 +551,23 @@ struct Transfer {
     /// unchoke only on their periodic rechoke: Transmission's runs every 10 s.
     first_data: Option<Duration>,
     status: TorrentStatus,
+    /// What the connection to the seed used: `rc4`, `plaintext` (an encrypted handshake, plain
+    /// payload) or `none`.
+    encryption: &'static str,
 }
 
-fn download(f: &Fixture, from: SocketAddr, dir: &Path) -> Result<Transfer, String> {
-    let settings = Settings {
+fn encryption_name(flags: PeerFlags) -> &'static str {
+    if flags.contains(PeerFlags::RC4_ENCRYPTED) {
+        "rc4"
+    } else if flags.contains(PeerFlags::PLAINTEXT_ENCRYPTED) {
+        "plaintext"
+    } else {
+        "none"
+    }
+}
+
+fn download(f: &Fixture, from: SocketAddr, dir: &Path, opts: &Options) -> Result<Transfer, String> {
+    let mut settings = Settings {
         listen_interfaces: "127.0.0.1:0".into(),
         enable_dht: false,
         enable_lsd: false,
@@ -440,6 +575,9 @@ fn download(f: &Fixture, from: SocketAddr, dir: &Path) -> Result<Transfer, Strin
         enable_natpmp: false,
         ..Settings::default()
     };
+    if let Some(e) = opts.encryption {
+        e.apply(&mut settings);
+    }
     let session = Session::start(SessionParams { settings, state_dir: None }).map_err(|e| e.to_string())?;
     let h = session.handle();
     let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
@@ -459,14 +597,26 @@ fn download(f: &Fixture, from: SocketAddr, dir: &Path) -> Result<Transfer, Strin
     // LT_INTEROP_TRACE=1 prints progress about every 200 ms, to see where a transfer stalls.
     let trace = std::env::var_os("LT_INTEROP_TRACE").is_some();
     let mut first_data = None;
+    let mut encryption = None;
     let finished = wait(&h, DOWNLOAD_LIMIT, |a| match a {
         Alert::TorrentFinished { id: i } if *i == id => Some(()),
         Alert::TorrentError { error, .. } => {
             errors.push(error.to_string());
             None
         }
+        Alert::PeerInfo { id: i, peers } if *i == id => {
+            if let Some(p) =
+                peers.iter().find(|p| !p.flags.intersects(PeerFlags::CONNECTING | PeerFlags::HANDSHAKE))
+            {
+                encryption = Some(encryption_name(p.flags));
+            }
+            None
+        }
         _ => {
             let st = status(a, id)?;
+            if encryption.is_none() {
+                h.torrent(id).post_peer_info();
+            }
             if st.total_done > 0 && first_data.is_none() {
                 first_data = Some(t0.elapsed());
             }
@@ -494,7 +644,7 @@ fn download(f: &Fixture, from: SocketAddr, dir: &Path) -> Result<Transfer, Strin
             if errors.is_empty() { String::new() } else { format!(", errors: {errors:?}") }
         ));
     }
-    Ok(Transfer { elapsed, first_data, status: st })
+    Ok(Transfer { elapsed, first_data, status: st, encryption: encryption.unwrap_or("unknown") })
 }
 
 fn same_files(f: &Fixture, dir: &Path) -> Result<(), String> {
@@ -516,9 +666,9 @@ fn peer_id_text(id: &[u8; 20]) -> String {
 
 fn run_one(client: Client, f: &Fixture, opts: &Options) -> Result<(String, Transfer), String> {
     let mut seed = start_seed(client, f, opts)?;
-    let result = wait_until_seeding(&mut seed, f).and_then(|peer_id| {
+    let result = wait_until_seeding(&mut seed, f, opts).and_then(|peer_id| {
         let dir = f.work.join(format!("leech-{}", client.key()));
-        let t = download(f, seed.addr, &dir)?;
+        let t = download(f, seed.addr, &dir, opts)?;
         same_files(f, &dir)?;
         Ok((peer_id_text(&peer_id), t))
     });
@@ -538,6 +688,9 @@ pub fn run(opts: &Options) -> ExitCode {
     };
     println!("torrent_bytes={}", f.total);
     println!("torrent_pieces={}", f.num_pieces);
+    if let Some(e) = opts.encryption {
+        println!("encryption_policy={}", format!("{e:?}").to_lowercase());
+    }
     let mut summary = Vec::new();
     let mut failed = false;
     for &client in &opts.clients {
@@ -551,15 +704,17 @@ pub fn run(opts: &Options) -> ExitCode {
                 if let Some(d) = t.first_data {
                     println!("{k}_first_data_ms={}", d.as_millis());
                 }
+                println!("{k}_encryption={}", t.encryption);
                 println!("{k}_payload_bytes={}", st.total_payload_download);
                 println!("{k}_failed_bytes={}", st.total_failed_bytes);
                 println!("{k}_redundant_bytes={}", st.total_redundant_bytes);
                 let first = t.first_data.map_or("-".into(), |d| format!("{:.1} s", d.as_secs_f64()));
                 summary.push(format!(
-                    "{k:<13} ok   {peer_id}  {:>6.2} s (first data after {first}), failed {} B, redundant {} B",
+                    "{k:<13} ok   {peer_id}  {:>6.2} s (first data after {first}), failed {} B, redundant {} B, encryption {}",
                     t.elapsed.as_secs_f64(),
                     st.total_failed_bytes,
-                    st.total_redundant_bytes
+                    st.total_redundant_bytes,
+                    t.encryption
                 ));
             }
             Err(e) => {

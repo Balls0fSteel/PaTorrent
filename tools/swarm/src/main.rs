@@ -30,6 +30,7 @@ USAGE:
     lt-swarm loopback [--mb N] [--piece-kib N]
     lt-swarm load [--count N] [--keep DIR]
     lt-swarm interop [--clients qbittorrent,transmission,deluge] [--mb N]
+                     [--encryption forced|enabled|disabled]
                      [--qbittorrent PATH] [--wsl-distro NAME] [--keep]
 ";
 
@@ -116,6 +117,10 @@ fn main() -> ExitCode {
                     },
                     "--qbittorrent" => opts.qbittorrent = v.into(),
                     "--wsl-distro" => opts.wsl_distro = v.clone(),
+                    "--encryption" => match interop::Encryption::parse(v) {
+                        Some(e) => opts.encryption = Some(e),
+                        None => return usage("--encryption: expected forced, enabled or disabled"),
+                    },
                     _ => return usage(&format!("unknown option {a}")),
                 }
             }

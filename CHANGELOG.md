@@ -2,6 +2,30 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-16_163419_1792161259: MSE/PE protocol encryption
+
+### Added
+- `core::crypto::mse`, a port of `pe_crypto.cpp` / `pe_crypto.hpp`: RC4 (libTomCrypt's `rc4_init` / `rc4_encrypt`) and `rc4_handler` with the first 1024 keystream bytes of each direction discarded; `dh_key_exchange` (the 768-bit MSE prime, generator 2) on a fixed-width `U768` with a Montgomery multiplier (CIOS, `R = 2^768`) instead of boost::multiprecision; the derived keys `HASH("req1", S)`, `HASH("req2", SKEY)`, `HASH("req3", S)` and `keyA` / `keyB` (`init_pe_rc4_handler`). The secret exponent comes from `crypto_random_bytes`.
+- `core::proto::pe_handshake`: the encrypted handshake as a sans-IO state machine (`PeHandshake::feed`), both sides, with libtorrent's states and limits: 96-byte keys with 0..=512 bytes of padding, the sync-hash / verification-constant search over at most 512 bytes, `crypto_provide` / `crypto_select` with `allowed_enc_level` and `prefer_rc4` (most or least significant bit), pads up to 512, `len(IA)` up to 68, the IA always RC4 and decrypted in place. The responder reports the torrent it found as a step, so the engine can accept or refuse it.
+- `core::engine::pe`: `out_enc_policy` decides how an outgoing connection starts (`Forced`: encrypted; `Disabled`: plain; `Enabled`: plain first, then encrypted, alternating per peer through `KnownPeer::pe_support`, with `fast_reconnect` so the other kind is tried at once); an incoming connection whose first bytes are not the protocol string becomes an encrypted handshake unless `in_enc_policy` is `Disabled`, and a plain one is refused under `Forced`. Incoming encrypted connections find their torrent through `Engine::by_obfuscated` (`SHA-1("req2", info-hash)`, libtorrent `find_obfuscated`). `PeerConn` decrypts the receive buffer as bytes arrive and encrypts the send buffer as bytes leave once RC4 is on; the handshake timeout and the duplicate peer-id rule apply unchanged.
+- ut_pex: we send the `e` flag for peers that completed an encrypted handshake and set `pe_support` for peers received with it (libtorrent `send_peer` / `update_peer`).
+- Peer info: `RC4_ENCRYPTED` / `PLAINTEXT_ENCRYPTED` are set (the GUI already showed `E` / `e`).
+- `lt-swarm interop --encryption forced|enabled|disabled`: sets our policy and the clients' (qBittorrent `Session\Encryption`, Transmission `encryption`, Deluge `enc_*`), the readiness probe handshakes encrypted when forced, and the result lines carry `<client>_encryption=rc4|plaintext|none`. `lt-swarm` enables the core's `fuzzing` feature for the handshake machine.
+- Fuzz target `pe_handshake` (raw bytes into either side, plus a real exchange with the input choosing chunk sizes and corrupting bytes), in `fuzz/Cargo.toml` and the `fuzz.yml` matrix.
+- Tests: `test_pe_crypto` (`diffie_hellman`, `rc4` with `test_enc_handler`), RC4 known answers (Wikipedia's vectors), exponentiation known answers (`2^767`, `2^768 mod p = 2^768 - p`, Fermat, a key at or above the prime), fixed-width key export; handshake tests over the level matrix with 1-, 7-, 100-byte and whole deliveries, refusals (incompatible levels, unknown torrent, 512 bytes without a sync hash). Swarm tests: forced on both sides over RC4; forced with both levels (encrypted handshake, plaintext stream); an `Enabled` leech refused in plaintext by a `Forced` seed retries encrypted; `Enabled` and `Disabled` talk plaintext either way; `Forced` and `Disabled` never connect, either way.
+
+### Changed
+- `PeerList::disconnected` takes `fast_reconnect`; `KnownPeer::pe_support` (default false, as libtorrent 2.0.11's `torrent_peer`).
+- `HandshakeError::BadProtocol` now means "garbage or the start of an encrypted handshake"; the "Phase 4" close reason is gone.
+
+### Verified
+- `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings` (also `--target x86_64-unknown-linux-gnu` and `x86_64-unknown-freebsd` for the core crate) and `cargo test --workspace` on Windows: 382 core unit tests, 18 swarm tests (5 new), all green. `fuzz.bat pe_handshake 30`: 8303 runs in 31 s (each run does two Diffie-Hellman exchanges under ASan), 163 corpus entries, no crashes.
+- `lt-swarm interop --clients qbittorrent --encryption forced` (qBittorrent 5.2.4 set to "Require encryption"): the readiness probe handshook encrypted, and PaTorrent downloaded the 40 MiB (160 pieces) over RC4 (`qbittorrent_encryption=rc4`) in 1.61 s, first data after 0.2 s, 0 failed and 0 redundant bytes, files byte-identical. Without the option and with `--encryption enabled` (both sides "prefer"), the connection is plaintext (`pe_support` starts false, so the first attempt is plain and qBittorrent accepts it): 0.51 s, 0 failed bytes.
+
+### Notes
+- Divergences recorded in docs/PORTING.md: the xor mask is hashed over the padded 96-byte secret (libtorrent's responder uses an unpadded export and fails one incoming encrypted handshake in 256); `fast_reconnect` for both attempts of the `Enabled` alternation (our peer list waits `min_reconnect_time` after a clean close, libtorrent's does not); the OS RNG for the secret exponent.
+- WSL2 would not start on this machine today ("Virtual Machine Platform" / virtualization off), so the Transmission and Deluge interop cases did not run; PLAN.md keeps them as a TODO.
+
 ## 2026-10-16_155608_1792158968: Port mapping (UPnP IGD, NAT-PMP / PCP)
 
 ### Added

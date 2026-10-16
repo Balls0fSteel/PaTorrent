@@ -44,7 +44,11 @@ fn advertised(p: &PeerConn) -> Option<(SocketAddr, u8)> {
         let port = p.ext.as_ref()?.listen_port.filter(|&port| port != 0)?;
         SocketAddr::new(p.addr.ip(), port)
     };
-    Some((addr, if p.peer_seed { flags::SEED } else { 0 }))
+    let mut fl = if p.peer_seed { flags::SEED } else { 0 };
+    if p.encrypted {
+        fl |= flags::ENCRYPTION; // libtorrent `supports_encryption()`: the peer did MSE/PE
+    }
+    Some((addr, fl))
 }
 
 impl Engine {
@@ -79,6 +83,10 @@ impl Engine {
             // A connected peer already told us whether it is a seed.
             if fl & flags::SEED != 0 && t.peer_list.get(&addr).is_some_and(|k| k.connection.is_none()) {
                 t.peer_list.set_seed(&addr, true);
+            }
+            // libtorrent `peer_list::update_peer`: try encryption first with this peer.
+            if fl & flags::ENCRYPTION != 0 {
+                t.peer_list.set_pe_support(&addr, true);
             }
             t.status_dirty = true;
         }

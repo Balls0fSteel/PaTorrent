@@ -7,6 +7,7 @@
 
 mod block;
 pub mod crc32c;
+pub mod mse;
 pub mod sha1;
 pub mod sha256;
 

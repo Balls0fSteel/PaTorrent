@@ -29,8 +29,8 @@ pub const INTERVAL: Duration = Duration::from_secs(60);
 /// A peer may send at most this many messages per [`INTERVAL`].
 const FLOOD_WINDOW: usize = 6;
 
-/// `added.f` flag bits (libtorrent `pex_flags_t`). We set only `SEED` until MSE, uTP and
-/// holepunching exist.
+/// `added.f` flag bits (libtorrent `pex_flags_t`). We set `SEED` and `ENCRYPTION`; `UTP` and
+/// `HOLEPUNCH` follow uTP and BEP 55.
 #[allow(dead_code)]
 pub mod flags {
     pub const ENCRYPTION: u8 = 0x01;

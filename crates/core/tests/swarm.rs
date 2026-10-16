@@ -5,8 +5,10 @@
 //! seed through a third session's DHT, a leech that learns about another through the seed's
 //! peer exchange (BEP 11), and two sessions that find each other through local service
 //! discovery (BEP 14); the MSE/PE policy matrix: forced, enabled and disabled encryption on
-//! either side; and uTP (BEP 29): the default preference for it, uTP-only sessions, the fall
-//! back to TCP when the other end has no uTP, and encryption over uTP.
+//! either side; uTP (BEP 29): the default preference for it, uTP-only sessions, the fall
+//! back to TCP when the other end has no uTP, and encryption over uTP; a peer taking back a
+//! piece with `lt_donthave` (BEP 54); and a peer banned by smart-ban for a bad block while the
+//! seed that sent the rest of the piece is kept.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -26,6 +28,7 @@ struct Fixture {
     torrent: Vec<u8>,
     files: Vec<(String, Vec<u8>)>,
     info_hash: [u8; 20],
+    piece_len: usize,
 }
 
 fn temp_dir(name: &str) -> PathBuf {
@@ -48,6 +51,10 @@ fn fixture(announce: Option<&str>) -> Fixture {
 /// `padding` bytes of an unknown key make the info dictionary that much bigger (unknown keys
 /// are kept and hashed), so the metadata spans several 16 KiB ut_metadata blocks.
 fn fixture_padded(announce: Option<&str>, padding: usize) -> Fixture {
+    fixture_with(announce, padding, PIECE)
+}
+
+fn fixture_with(announce: Option<&str>, padding: usize, piece_len: usize) -> Fixture {
     let sizes =
         [("alpha.bin", 300_000usize), ("sub/beta.bin", 1_000_000), ("sub/gamma.txt", 12_345), ("empty", 0)];
     let mut all = Vec::new();
@@ -66,7 +73,7 @@ fn fixture_padded(announce: Option<&str>, padding: usize) -> Fixture {
         files.push((name.to_string(), data));
     }
     let mut pieces = Vec::new();
-    for c in all.chunks(PIECE) {
+    for c in all.chunks(piece_len) {
         pieces.extend_from_slice(&Sha1::digest(c).0);
     }
     let mut info = Entry::new_dict();
@@ -79,7 +86,7 @@ fn fixture_padded(announce: Option<&str>, padding: usize) -> Fixture {
     }
     *info.key("files") = list;
     *info.key("name") = Entry::Bytes(b"swarm-test".to_vec());
-    *info.key("piece length") = Entry::Int(PIECE as i64);
+    *info.key("piece length") = Entry::Int(piece_len as i64);
     *info.key("pieces") = Entry::Bytes(pieces);
     if padding > 0 {
         *info.key("x-padding") = Entry::Bytes((0..padding).map(|i| (i % 251) as u8).collect());
@@ -90,7 +97,7 @@ fn fixture_padded(announce: Option<&str>, padding: usize) -> Fixture {
         *t.key("announce") = Entry::Bytes(a.as_bytes().to_vec());
     }
     *t.key("info") = info;
-    Fixture { torrent: t.bencode(), files, info_hash }
+    Fixture { torrent: t.bencode(), files, info_hash, piece_len }
 }
 
 fn write_files(f: &Fixture, dir: &Path) {
@@ -1236,6 +1243,233 @@ fn utp_only_and_tcp_only_sessions_never_connect() {
     assert_eq!(st.total_done, 0);
     leech.shutdown();
     seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+/// The reply to a BitTorrent handshake from a scripted peer: `reserved` bits, our info-hash
+/// and a made-up peer id.
+fn scripted_handshake(info_hash: &[u8; 20], reserved: [u8; 8], peer_id: &[u8; 20]) -> Vec<u8> {
+    let mut out = vec![19u8];
+    out.extend_from_slice(b"BitTorrent protocol");
+    out.extend_from_slice(&reserved);
+    out.extend_from_slice(info_hash);
+    out.extend_from_slice(peer_id);
+    out
+}
+
+/// One length-prefixed message, or `None` once the connection is gone.
+fn read_message(c: &mut std::net::TcpStream) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut len = [0u8; 4];
+    c.read_exact(&mut len).ok()?;
+    let mut msg = vec![0u8; u32::from_be_bytes(len) as usize];
+    c.read_exact(&mut msg).ok()?;
+    Some(msg)
+}
+
+/// libtorrent test_fast_extension.cpp `dont_have`: a scripted peer claims everything with
+/// HAVE_ALL, reads our extension handshake for the `lt_donthave` id, and takes piece 3 back
+/// once `go` fires. It stays connected until the leech closes.
+fn dont_have_peer(f: &Fixture, go: std::sync::mpsc::Receiver<()>) -> (u16, std::thread::JoinHandle<()>) {
+    use std::io::{Read, Write};
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let info_hash = f.info_hash;
+    let h = std::thread::spawn(move || {
+        let (mut c, _) = l.accept().unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut hs = [0u8; 68];
+        c.read_exact(&mut hs).unwrap();
+        assert_eq!(&hs[28..48], &info_hash);
+        assert!(hs[25] & 0x10 != 0, "the leech offers extensions");
+        let mut reserved = [0u8; 8];
+        reserved[5] |= 0x10; // BEP 10
+        reserved[7] |= 0x04; // BEP 6
+        let mut out = scripted_handshake(&info_hash, reserved, b"-XX0001-donthavepeer");
+        out.extend_from_slice(&[0, 0, 0, 1, 0x0e]); // have_all
+        c.write_all(&out).unwrap();
+        // Our extension handshake names lt_donthave.
+        let id = loop {
+            let msg = read_message(&mut c).expect("extension handshake before the close");
+            if msg.len() > 2 && msg[0] == 20 && msg[1] == 0 {
+                let doc = patorrent_core::bencode::bdecode(&msg[2..]).unwrap();
+                let m = doc.root().unwrap().dict_find_dict("m").expect("m");
+                break m.dict_find_int_value("lt_donthave").expect("lt_donthave") as u8;
+            }
+        };
+        assert_ne!(id, 0);
+        go.recv().unwrap();
+        c.write_all(&[0, 0, 0, 6, 20, id, 0, 0, 0, 3]).unwrap();
+        while read_message(&mut c).is_some() {}
+    });
+    (port, h)
+}
+
+fn peer_info(w: &mut Watch, id: TorrentId) -> Vec<patorrent_core::PeerInfo> {
+    w.h.torrent(id).post_peer_info();
+    wait(w, 5, "peer info", |a| match a {
+        Alert::PeerInfo { id: i, peers } if *i == id => Some(peers.clone()),
+        _ => None,
+    })
+}
+
+#[test]
+fn a_peer_takes_a_piece_back_with_dont_have() {
+    let f = fixture(None);
+    let num_pieces = f.files.iter().map(|(_, d)| d.len()).sum::<usize>().div_ceil(PIECE) as u32;
+    let dir = temp_dir("donthave");
+    let (go_tx, go_rx) = std::sync::mpsc::channel();
+    let (port, peer) = dont_have_peer(&f, go_rx);
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    // at this point, the peer should be considered a seed
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let peers = peer_info(&mut w, id);
+        if peers.iter().any(|p| p.flags.contains(PeerFlags::SEED)) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the peer never became a seed: {peers:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    go_tx.send(()).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let expected = (num_pieces as u64 - 1) * 1_000_000 / num_pieces as u64;
+    let p = loop {
+        let peers = peer_info(&mut w, id);
+        assert_eq!(peers.len(), 1, "{peers:?}");
+        if !peers[0].flags.contains(PeerFlags::SEED) {
+            break peers.into_iter().next().unwrap();
+        }
+        assert!(Instant::now() < deadline, "the peer is still a seed: {peers:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(p.progress_ppm as u64, expected, "all pieces but one");
+    assert!(p.flags.contains(PeerFlags::INTERESTING), "still worth talking to");
+    // The picker's availability follows: piece 3 is gone, the rest is still there.
+    w.h.torrent(id).post_piece_info();
+    let availability = wait(&mut w, 5, "piece info", |a| match a {
+        Alert::PieceInfo { id: i, availability, .. } if *i == id => Some(availability.clone()),
+        _ => None,
+    });
+    assert_eq!(availability.len(), num_pieces as usize);
+    assert_eq!(availability[3], 0);
+    assert!(availability.iter().enumerate().all(|(i, &a)| i == 3 || a == 1), "{availability:?}");
+    leech.shutdown();
+    peer.join().unwrap();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A scripted peer that has every piece but the last and answers its first `bad_blocks`
+/// requests with corrupted data, then chokes and answers nothing more; `served` turns true once
+/// the bad blocks are out. Returns the number of blocks it sent once the connection closes.
+/// The last piece of the fixture is a single short block: claiming it would make this peer the
+/// only sender of a whole piece one time in six (the picker's random tie-break), which is the
+/// sole-sender ban of `penalize_peers`, not smart_ban's.
+fn corrupting_peer(
+    f: &Fixture,
+    bad_blocks: usize,
+    served: std::sync::Arc<std::sync::atomic::AtomicBool>,
+) -> (u16, std::thread::JoinHandle<usize>) {
+    use std::io::{Read, Write};
+    use std::sync::atomic::Ordering;
+    let l = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let all: Vec<u8> = f.files.iter().flat_map(|(_, d)| d.iter().copied()).collect();
+    let (info_hash, piece_len) = (f.info_hash, f.piece_len);
+    let h = std::thread::spawn(move || {
+        let (mut c, _) = l.accept().unwrap();
+        c.set_read_timeout(Some(Duration::from_secs(60))).unwrap();
+        let mut hs = [0u8; 68];
+        c.read_exact(&mut hs).unwrap();
+        assert_eq!(&hs[28..48], &info_hash);
+        let mut out = scripted_handshake(&info_hash, [0; 8], b"-XX0001-corruptpeer0");
+        let num_pieces = all.len().div_ceil(piece_len);
+        let mut bits = vec![0u8; num_pieces.div_ceil(8)];
+        for i in 0..num_pieces - 1 {
+            bits[i / 8] |= 0x80 >> (i % 8);
+        }
+        out.extend_from_slice(&(bits.len() as u32 + 1).to_be_bytes());
+        out.push(5);
+        out.extend_from_slice(&bits);
+        out.extend_from_slice(&[0, 0, 0, 1, 1]); // unchoke
+        c.write_all(&out).unwrap();
+        let mut sent = 0;
+        while let Some(msg) = read_message(&mut c) {
+            if msg.first() != Some(&6) || sent >= bad_blocks {
+                continue;
+            }
+            let field = |i: usize| u32::from_be_bytes(msg[1 + 4 * i..5 + 4 * i].try_into().unwrap());
+            let (piece, begin, length) = (field(0), field(1), field(2));
+            let start = piece as usize * piece_len + begin as usize;
+            let mut out = (9 + length).to_be_bytes().to_vec();
+            out.push(7);
+            out.extend_from_slice(&piece.to_be_bytes());
+            out.extend_from_slice(&begin.to_be_bytes());
+            out.extend(all[start..start + length as usize].iter().map(|b| !b));
+            sent += 1;
+            if sent == bad_blocks {
+                out.extend_from_slice(&[0, 0, 0, 1, 0]); // choke: nothing more from here
+            }
+            c.write_all(&out).unwrap();
+            if sent == bad_blocks {
+                served.store(true, Ordering::SeqCst);
+            }
+        }
+        sent
+    });
+    (port, h)
+}
+
+/// libtorrent's smart_ban has no unit test; this is its scenario on loopback. A bad peer sends
+/// two corrupted blocks of a 16-block piece and chokes; the seed sends the other fourteen, the
+/// piece fails, and both are only suspects (trust points, parole). The seed then downloads the
+/// piece again by itself, it passes, and the blocks recorded at the failure are compared: the
+/// bad peer's differ, so it is banned; the seed's match, so it is kept and finishes the job.
+#[test]
+fn smart_ban_bans_the_sender_of_a_bad_block_and_keeps_the_seed() {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    let f = fixture_with(None, 0, 256 * 1024);
+    let dir = temp_dir("smartban-leech");
+    let served = Arc::new(AtomicBool::new(false));
+    let (bad_port, bad) = corrupting_peer(&f, 2, served.clone());
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], bad_port)));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !served.load(Ordering::SeqCst) {
+        assert!(Instant::now() < deadline, "the bad peer was never asked for two blocks");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    let (seed, seed_dir, seed_port, _) = seeder(&f);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], seed_port)));
+    let bad_addr = SocketAddr::from(([127, 0, 0, 1], bad_port));
+    let mut banned = Vec::new();
+    let mut finished = false;
+    wait(&mut w, 60, "finished with the bad peer banned", |a| {
+        match a {
+            Alert::PeerBanned { id: i, addr, peer_id } if *i == id => banned.push((*addr, *peer_id)),
+            Alert::TorrentFinished { id: i } if *i == id => finished = true,
+            _ => {}
+        }
+        (finished && !banned.is_empty()).then_some(())
+    });
+    assert_eq!(banned.len(), 1, "{banned:?}");
+    assert_eq!(banned[0].0, bad_addr);
+    assert_eq!(&banned[0].1[..8], b"-XX0001-", "banned while connected");
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+    assert_eq!(st.total_failed_bytes, f.piece_len as u64, "the one piece with the bad blocks");
+    assert_eq!(bad.join().unwrap(), 2);
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(seed_dir);
 }

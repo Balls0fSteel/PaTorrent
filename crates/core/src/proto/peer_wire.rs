@@ -1,11 +1,11 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/bt_peer_connection.cpp (message framing,
-// handshake, BEP 6 fast extension, BEP 10 extension handshake), src/identify_client.cpp (subset),
-// src/generate_peer_id.cpp
+// handshake, BEP 6 fast extension, BEP 10 extension handshake, the BEP 54 `lt_donthave`
+// message), src/identify_client.cpp (subset), src/generate_peer_id.cpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: a sans-IO codec. `decode` borrows messages straight out of the receive buffer and
 // `encode_*` append to a send buffer; the connection logic lives in `engine::peer`.
 
-//! BitTorrent peer wire protocol (BEP 3, BEP 6, BEP 10).
+//! BitTorrent peer wire protocol (BEP 3, BEP 6, BEP 10, BEP 54).
 
 use crate::bencode::{Entry, bdecode};
 use crate::types::Sha1Hash;
@@ -36,6 +36,15 @@ pub mod msg {
     pub const ALLOWED_FAST: u8 = 0x11;
     // BEP 10
     pub const EXTENDED: u8 = 20;
+}
+
+/// BEP 54 `lt_donthave`: a peer takes back a piece it announced (libtorrent
+/// `bt_peer_connection::dont_have_msg`, a built-in extension named in every extension
+/// handshake, private torrents included).
+pub mod lt_donthave {
+    pub const NAME: &str = "lt_donthave";
+    /// The extended message id we hand out for it.
+    pub const OUR_ID: u8 = 7;
 }
 
 /// Reserved-bit flags from the handshake.
@@ -285,6 +294,18 @@ pub fn encode_extended(out: &mut Vec<u8>, ext_id: u8, payload: &[u8]) {
     out.extend_from_slice(payload);
 }
 
+/// libtorrent `bt_peer_connection::write_dont_have`: an extended message carrying the piece
+/// index, under the id the peer gave us for `lt_donthave`.
+pub fn encode_dont_have(out: &mut Vec<u8>, ext_id: u8, piece: u32) {
+    encode_extended(out, ext_id, &piece.to_be_bytes());
+}
+
+/// The payload of an incoming `lt_donthave` message. libtorrent ignores any size but 4 bytes
+/// (a 6-byte packet), so `None` means "ignore", not "disconnect".
+pub fn decode_dont_have(payload: &[u8]) -> Option<u32> {
+    (payload.len() == 4).then(|| be32(payload))
+}
+
 /// What we learn from a BEP 10 extension handshake.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExtHandshake {
@@ -516,6 +537,31 @@ mod tests {
         assert_eq!(decode(&[0, 0, 0, 5, 4, 0]).unwrap(), None, "partial message");
         assert_eq!(decode(&[0, 0, 0, 2, 4, 0]), Err(WireError::BadLength { id: 4, len: 2 }));
         assert_eq!(decode(&[0, 0x10, 0, 0]), Err(WireError::TooLarge(0x100000)));
+    }
+
+    // libtorrent test_fast_extension.cpp `dont_have`: the message is a 6-byte extended packet
+    // with the piece index; the handshake names `lt_donthave`.
+    #[test]
+    fn dont_have_round_trip() {
+        let mut out = Vec::new();
+        encode_dont_have(&mut out, 9, 3);
+        assert_eq!(out, [0, 0, 0, 6, msg::EXTENDED, 9, 0, 0, 0, 3]);
+        let (m, n) = decode(&out).unwrap().unwrap();
+        assert_eq!(n, out.len());
+        let Message::Extended { id: 9, payload } = m else { panic!("{m:?}") };
+        assert_eq!(decode_dont_have(payload), Some(3));
+        assert_eq!(decode_dont_have(&[0, 0, 3]), None, "wrong size is ignored");
+        assert_eq!(decode_dont_have(&[0, 0, 0, 3, 0]), None);
+        let b = encode_ext_handshake(
+            &[(lt_donthave::NAME, lt_donthave::OUR_ID)],
+            "x",
+            None,
+            1,
+            false,
+            None,
+            None,
+        );
+        assert_eq!(decode_ext_handshake(&b).unwrap().message_id("lt_donthave"), Some(7));
     }
 
     #[test]

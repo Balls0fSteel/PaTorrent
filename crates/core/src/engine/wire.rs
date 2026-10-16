@@ -1,6 +1,8 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/bt_peer_connection.cpp (on_* message handlers,
-// write_bitfield, write_extensions), src/peer_connection.cpp (incoming_request, incoming_piece,
-// incoming_have, update_interest, send_block_requests, snub handling), src/request_blocks.cpp
+// write_bitfield, write_extensions, write_dont_have, the lt_donthave branch of on_extended),
+// src/peer_connection.cpp (incoming_request, incoming_piece, incoming_have, incoming_dont_have,
+// update_interest, send_block_requests, snub handling, the read error of
+// on_disk_read_complete), src/request_blocks.cpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: handlers are engine methods taking a peer slot; messages are copied out of the
 // receive buffer once (piece payloads go straight to the disk job). The encrypted handshake
@@ -16,7 +18,7 @@ use crate::alert::Alert;
 use crate::disk::BLOCK_SIZE;
 use crate::error::Error;
 use crate::proto::pe_handshake::PeHandshake;
-use crate::proto::peer_wire::{self, HandshakeError, Message, msg};
+use crate::proto::peer_wire::{self, HandshakeError, Message, lt_donthave, msg};
 use crate::proto::ut_metadata;
 use crate::proto::ut_pex;
 use crate::settings::EncPolicy;
@@ -249,17 +251,17 @@ impl Engine {
             }
         }
         if p.supports_extensions {
-            // ut_metadata and ut_pex are left out for private torrents (libtorrent adds no
-            // plugins for them).
+            // lt_donthave is built in; ut_metadata and ut_pex are left out for private
+            // torrents (libtorrent adds no plugins for them).
             let private = t.ti.as_ref().is_some_and(|ti| ti.is_private());
-            let messages: &[(&str, u8)] = if private {
-                &[]
-            } else {
-                &[(ut_pex::NAME, ut_pex::OUR_ID), (ut_metadata::NAME, ut_metadata::OUR_ID)]
-            };
+            let mut messages = vec![(lt_donthave::NAME, lt_donthave::OUR_ID)];
+            if !private {
+                messages.push((ut_pex::NAME, ut_pex::OUR_ID));
+                messages.push((ut_metadata::NAME, ut_metadata::OUR_ID));
+            }
             let metadata_size = t.ti.as_ref().filter(|_| !private).map(|ti| ti.info_section().len());
             let ext = peer_wire::encode_ext_handshake(
-                messages,
+                &messages,
                 &format!("PaTorrent {}", crate::VERSION),
                 (listen_port != 0).then_some(listen_port),
                 reqq,
@@ -428,9 +430,55 @@ impl Engine {
                     self.on_metadata_message(slot, &payload);
                 } else if id == ut_pex::OUR_ID {
                     self.on_pex_message(slot, &payload);
+                } else if id == lt_donthave::OUR_ID {
+                    if let Some(piece) = peer_wire::decode_dont_have(&payload) {
+                        self.on_dont_have(slot, piece);
+                    }
                 }
             }
         }
+    }
+
+    /// libtorrent `peer_connection::incoming_dont_have`: the peer takes back a piece it
+    /// announced.
+    fn on_dont_have(&mut self, slot: usize, piece: u32) {
+        let (p, t) = self.peer_and_torrent(slot).expect("exists");
+        let Some(t) = t else { return };
+        // an invalid piece index, or no metadata yet to size the map: ignored
+        if !t.has_metadata() || piece >= t.num_pieces || piece as usize >= p.peer_has.len() {
+            return;
+        }
+        if !p.peer_has.get(piece as usize) {
+            return; // redundant DONT_HAVE
+        }
+        let was_seed = p.peer_seed;
+        p.peer_has.set(piece as usize, false);
+        p.peer_seed = false;
+        if let Some(pk) = t.picker.as_mut() {
+            if was_seed {
+                // counted as a seed until now: count its remaining pieces one by one instead
+                pk.dec_seed();
+                pk.inc_refcount_bitfield(&p.peer_has);
+            } else {
+                pk.dec_refcount(piece);
+            }
+        }
+        if was_seed {
+            t.peer_list.set_seed(&p.addr, false);
+        }
+        self.update_interest(slot);
+    }
+
+    /// libtorrent `bt_peer_connection::write_dont_have`: tells a peer that supports
+    /// `lt_donthave` that a piece we announced is gone.
+    pub(super) fn write_dont_have(&mut self, slot: usize, piece: u32) {
+        let Some(p) = self.peers.get_mut(slot) else { return };
+        if p.state != PeerState::Active || !p.supports_extensions {
+            return;
+        }
+        let Some(id) = p.ext.as_ref().and_then(|e| e.message_id(lt_donthave::NAME)) else { return };
+        peer_wire::encode_dont_have(p.out(), id, piece);
+        self.to_flush.push(slot);
     }
 
     /// The peer told us its full piece set.
@@ -489,14 +537,18 @@ impl Engine {
         {
             return;
         }
-        let Some(picker) = t.picker.as_mut() else { return };
+        if t.picker.is_none() {
+            return;
+        }
         let desired = p.desired_queue(queue_time, max_queue, BLOCK_SIZE);
         if p.requests.len() >= desired {
             return;
         }
         let want = desired - p.requests.len();
+        let on_parole = t.peer_list.get(&p.addr).is_some_and(|k| k.trust.on_parole);
+        let Some(picker) = t.picker.as_mut() else { return };
         let requests = &p.requests;
-        let picks = picker.pick(&p.peer_has, p.peer_seed, want, |piece, block| {
+        let picks = picker.pick(&p.peer_has, p.peer_seed, want, p.addr, on_parole, |piece, block| {
             requests.iter().any(|r| r.piece == piece && r.block == block)
         });
         if picks.is_empty() {
@@ -583,6 +635,9 @@ impl Engine {
         offset: u32,
         result: Result<Vec<u8>, Error>,
     ) {
+        if cookie & super::smart_ban::SMART_BAN_COOKIE != 0 {
+            return self.on_smart_ban_read(storage, cookie, piece, offset, result);
+        }
         let Some(slot) = self.peer_by_id(cookie) else { return };
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
         let Some(t) = t else { return };
@@ -592,10 +647,23 @@ impl Engine {
         let data = match result {
             Ok(d) => d,
             Err(e) => {
-                let key = (piece, offset, 0);
-                let _ = key;
-                p.reads_in_flight.retain(|&(pc, st, _)| (pc, st) != (piece, offset));
+                // libtorrent `on_disk_read_complete`: the peer learns we cannot serve the
+                // piece after all, and the request is rejected.
+                let rejects: Vec<(u32, u32, u32)> = p
+                    .reads_in_flight
+                    .iter()
+                    .copied()
+                    .filter(|&(pc, st, _)| (pc, st) == (piece, offset))
+                    .collect();
+                for r in &rejects {
+                    p.reads_in_flight.remove(r);
+                    if p.supports_fast {
+                        peer_wire::encode_block_msg(p.out(), msg::REJECT, r.0, r.1, r.2);
+                    }
+                }
                 let id = t.id;
+                self.write_dont_have(slot, piece);
+                self.to_flush.push(slot);
                 self.alert(Alert::Log {
                     id: Some(id),
                     message: format!("read failed for piece {piece}: {e}"),
@@ -635,12 +703,13 @@ impl Engine {
         p.last_piece = now;
         p.snubbed = false;
         self.stat.received(len, 0);
-        let (_, t) = self.peer_and_torrent(slot).expect("exists");
+        let (p, t) = self.peer_and_torrent(slot).expect("exists");
         let t = t.expect("checked");
+        let addr = p.addr;
         let Some(picker) = t.picker.as_mut() else { return };
         let mut write = None;
         let mut others = Vec::new();
-        if !picker.mark_as_writing(piece, block) {
+        if !picker.mark_as_writing(piece, block, addr) {
             t.redundant_bytes += len;
         } else if let Some(storage) = t.storage.clone() {
             t.downloaded_in_session = true;

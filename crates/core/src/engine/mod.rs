@@ -22,6 +22,7 @@ pub(crate) mod peer_list;
 mod pex;
 pub(crate) mod picker;
 mod portmap;
+mod smart_ban;
 pub(crate) mod torrent;
 pub(crate) mod tracker;
 mod upnp;
@@ -828,7 +829,8 @@ impl Engine {
             let _ = s.set_nodelay(true);
         }
         let generation = self.next_peer_gen;
-        self.next_peer_gen = self.next_peer_gen.wrapping_add(1).max(1);
+        // The top bit of a connection id stays clear: the disk read cookies of smart_ban use it.
+        self.next_peer_gen = (self.next_peer_gen.wrapping_add(1) & 0x7fff_ffff).max(1);
         let now = Instant::now();
         let slot = self.peers.insert(PeerConn::new(0, sock, addr, outgoing, source, now));
         let p = self.peers.get_mut(slot).expect("just inserted");
@@ -2141,15 +2143,27 @@ impl Engine {
                 if passed {
                     self.piece_passed(id, piece);
                 } else {
-                    let size = t.piece_size(piece);
-                    t.failed_bytes += size;
-                    if let Some(p) = t.picker.as_mut() {
-                        p.piece_failed(piece);
+                    // libtorrent `torrent::piece_failed`: who sent each block (for blame),
+                    // then restore the piece. A piece we had announced (libtorrent's
+                    // predictive pieces) is taken back with DONT_HAVE.
+                    let (downloaders, announced) = match t.picker.as_mut() {
+                        Some(p) => {
+                            let d = p.get_downloaders(piece);
+                            let announced = p.have_piece(piece);
+                            p.we_dont_have(piece);
+                            p.piece_failed(piece);
+                            (d, announced)
+                        }
+                        None => (Vec::new(), false),
+                    };
+                    if announced {
+                        self.lost_piece(id, piece);
                     }
                     self.alert(Alert::Log {
                         id: Some(id),
                         message: format!("piece {piece} failed the hash check"),
                     });
+                    self.on_piece_failed(id, piece, downloaders);
                 }
             }
             Completion::Read { storage, cookie, piece, offset, result } => {
@@ -2188,6 +2202,7 @@ impl Engine {
     fn piece_passed(&mut self, id: TorrentId, piece: u32) {
         let Some(t) = self.torrent(id) else { return };
         let Some(p) = t.picker.as_mut() else { return };
+        let downloaders = p.get_downloaders(piece);
         p.piece_passed(piece);
         t.interest_dirty = true;
         t.resume_dirty = true;
@@ -2200,8 +2215,31 @@ impl Engine {
                 self.to_flush.push(slot);
             }
         }
+        self.on_piece_pass(id, piece, downloaders);
         if finished {
             self.on_finished(id);
+        }
+    }
+
+    /// A piece we announced is gone (libtorrent `piece_failed` on a predictive piece): every
+    /// peer gets a DONT_HAVE, and its outstanding requests for the piece are rejected.
+    fn lost_piece(&mut self, id: TorrentId, piece: u32) {
+        let Some(t) = self.torrent(id) else { return };
+        t.interest_dirty = true;
+        t.resume_dirty = true;
+        t.status_dirty = true;
+        for slot in t.peers.clone() {
+            let Some(p) = self.peers.get_mut(slot).filter(|p| p.state == PeerState::Active) else { continue };
+            let queued: Vec<(u32, u32, u32)> =
+                p.upload_queue.iter().copied().filter(|r| r.0 == piece).collect();
+            p.upload_queue.retain(|r| r.0 != piece);
+            if p.supports_fast {
+                for r in queued {
+                    peer_wire::encode_block_msg(p.out(), msg::REJECT, r.0, r.1, r.2);
+                }
+            }
+            self.write_dont_have(slot, piece);
+            self.to_flush.push(slot);
         }
     }
 
@@ -2756,6 +2794,8 @@ impl Engine {
             flags.set(PeerFlags::RC4_ENCRYPTED, p.rc4.is_some());
             flags.set(PeerFlags::PLAINTEXT_ENCRYPTED, p.encrypted && p.rc4.is_none());
             flags.set(PeerFlags::UTP_SOCKET, p.sock.is_utp());
+            let trust = Self::trust_of(Some(t), &p.addr);
+            flags.set(PeerFlags::ON_PAROLE, trust.on_parole);
             let have = if p.is_seed() { num_pieces } else { p.peer_has.count() as u32 };
             peers.push(PeerInfo {
                 ip: p.addr,
@@ -2769,7 +2809,7 @@ impl Engine {
                 total_upload: p.stat.upload_payload.total,
                 download_queue_length: p.requests.len() as u32,
                 upload_queue_length: (p.upload_queue.len() + p.reads_in_flight.len()) as u32,
-                num_hashfails: p.hashfails,
+                num_hashfails: trust.hashfails as u32,
                 is_web_seed: false,
             });
         }

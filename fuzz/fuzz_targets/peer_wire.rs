@@ -3,7 +3,9 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{decode, decode_ext_handshake, decode_handshake, identify_client};
+use patorrent_core::fuzzing::{
+    PeerWireMessage, decode, decode_dont_have, decode_ext_handshake, decode_handshake, identify_client,
+};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(h) = decode_handshake(data) {
@@ -11,8 +13,11 @@ fuzz_target!(|data: &[u8]| {
     }
     let _ = decode_ext_handshake(data);
     let mut buf = data;
-    while let Ok(Some((_, used))) = decode(buf) {
+    while let Ok(Some((m, used))) = decode(buf) {
         assert!(used > 0 && used <= buf.len());
+        if let PeerWireMessage::Extended { payload, .. } = m {
+            let _ = decode_dont_have(payload);
+        }
         buf = &buf[used..];
     }
 });

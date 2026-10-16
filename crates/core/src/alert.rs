@@ -163,6 +163,14 @@ pub enum Alert {
         address: IpAddr,
         error: Error,
     },
+    /// A peer was banned for sending bad data (libtorrent `peer_ban_alert`): it is never
+    /// connected again while the torrent is loaded. `peer_id` is all zeros when the peer was
+    /// not connected at the time.
+    PeerBanned {
+        id: TorrentId,
+        addr: SocketAddr,
+        peer_id: [u8; 20],
+    },
 
     // Replies to `post_*` requests
     /// Torrents whose status changed since the previous `post_torrent_updates()`.
@@ -244,6 +252,7 @@ impl Alert {
             | DhtBootstrap
             | LsdPeer { .. }
             | LsdError { .. }
+            | PeerBanned { .. }
             | Log { .. } => AlertPriority::Normal,
         }
     }
@@ -268,6 +277,7 @@ impl Alert {
             | TrackerReply { id, .. }
             | DhtReply { id, .. }
             | LsdPeer { id, .. }
+            | PeerBanned { id, .. }
             | TrackerWarning { id, .. }
             | TrackerError { id, .. }
             | ScrapeReply { id, .. }
@@ -324,6 +334,7 @@ impl Alert {
             DhtBootstrap => write!(s, "DHT bootstrapped"),
             LsdPeer { address, .. } => write!(s, "LSD: local peer {address}"),
             LsdError { address, error } => write!(s, "LSD failed on {address}: {error}"),
+            PeerBanned { addr, .. } => write!(s, "peer {addr} banned"),
             StateUpdate(v) => write!(s, "state update for {} torrents", v.len()),
             SessionStats(_) => write!(s, "session stats"),
             PeerInfo { peers, .. } => write!(s, "{} peers", peers.len()),

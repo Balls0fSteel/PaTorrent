@@ -12,6 +12,7 @@ use std::time::Instant;
 
 use super::peer_list::PeerList;
 use super::picker::PiecePicker;
+use super::smart_ban::SmartBan;
 use super::tracker::TrackerEntry;
 use crate::disk::{BLOCK_SIZE, Storage};
 use crate::metainfo::TorrentInfo;
@@ -47,6 +48,8 @@ pub(crate) struct Torrent {
     pub fetch: Option<MetadataFetch>,
     /// BEP 11: the peer diff sent to every peer once a minute.
     pub pex: TorrentPex,
+    /// Block hashes of failed pieces per peer, for banning the senders of bad blocks.
+    pub smart_ban: SmartBan,
     /// The name came from the user; metadata does not replace it.
     pub user_named: bool,
     pub picker: Option<PiecePicker>,
@@ -117,6 +120,7 @@ impl Torrent {
             storage: None,
             fetch: None,
             pex: TorrentPex::default(),
+            smart_ban: SmartBan::default(),
             user_named: false,
             picker: None,
             have: None,

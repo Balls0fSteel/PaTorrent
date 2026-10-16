@@ -127,7 +127,6 @@ pub(crate) struct PeerConn {
     pub last_optimistic: Option<Instant>,
     pub optimistic: bool,
     pub snubbed: bool,
-    pub hashfails: u32,
     /// Stopped reading for lack of quota or disk space; retried by the bandwidth tick.
     pub read_blocked: bool,
     /// Bytes are waiting in the send buffer and the socket said WouldBlock.
@@ -202,7 +201,6 @@ impl PeerConn {
             last_optimistic: None,
             optimistic: false,
             snubbed: false,
-            hashfails: 0,
             read_blocked: false,
             write_blocked: false,
             closing: None,

@@ -127,6 +127,10 @@ pub struct Settings {
     /// Announce to every tracker in a tier, not just the first working one.
     pub announce_to_all_trackers: bool,
     pub request_timeout: u32,
+    /// A peer that sent part of a piece that failed its hash check may only download whole
+    /// pieces by itself until one of them passes, so the next failure is clearly its own
+    /// (libtorrent `use_parole_mode`).
+    pub use_parole_mode: bool,
     pub peer_timeout: u32,
     pub peer_connect_timeout: u32,
     pub handshake_timeout: u32,
@@ -231,6 +235,7 @@ impl Default for Settings {
             announce_to_all_tiers: true,
             announce_to_all_trackers: false,
             request_timeout: 60,
+            use_parole_mode: true,
             peer_timeout: 120,
             peer_connect_timeout: 15,
             handshake_timeout: 10,

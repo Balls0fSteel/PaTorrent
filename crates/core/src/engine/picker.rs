@@ -4,12 +4,15 @@
 // availability and moves pieces between buckets on each HAVE. This version keeps per-piece
 // counters plus a pick order (priority, then rarest, then random) that is rebuilt lazily, at most
 // once per `REBUILD_INTERVAL` while availability churns. Partial pieces are kept in a map with
-// per-block states, as libtorrent's `downloading_piece`. Same picking policy: partial pieces
-// first, then rarest-first by priority (or in order when sequential), then end-game.
+// per-block states, as libtorrent's `downloading_piece` (each block remembers the peer it was
+// requested from or written by, libtorrent `block_info::peer`, by address). Same picking policy:
+// partial pieces first, then rarest-first by priority (or in order when sequential), then
+// end-game; a peer on parole only takes blocks of pieces it downloads alone.
 
 //! Which blocks to request from which peer.
 
 use std::collections::HashMap;
+use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use crate::util::bitfield::Bitfield;
@@ -35,11 +38,24 @@ pub(crate) enum BlockState {
 #[derive(Debug)]
 struct Downloading {
     blocks: Vec<BlockState>,
+    /// The peer each block was last requested from or received from (libtorrent
+    /// `block_info::peer`); `None` for blocks restored from resume data.
+    peers: Vec<Option<SocketAddr>>,
 }
 
 impl Downloading {
+    fn new(blocks: usize) -> Downloading {
+        Downloading { blocks: vec![BlockState::Free; blocks], peers: vec![None; blocks] }
+    }
+
     fn count(&self, s: impl Fn(BlockState) -> bool) -> usize {
         self.blocks.iter().filter(|&&b| s(b)).count()
+    }
+
+    /// No block of this piece came from, or is requested from, another peer (libtorrent's
+    /// `exclusive` pieces, the only ones a peer on parole may download).
+    fn exclusive_to(&self, peer: SocketAddr) -> bool {
+        self.blocks.iter().zip(&self.peers).all(|(&b, &p)| b == BlockState::Free || p == Some(peer))
     }
 }
 
@@ -172,6 +188,12 @@ impl PiecePicker {
         self.order_dirty = true;
     }
 
+    pub fn dec_refcount(&mut self, piece: u32) {
+        let a = &mut self.availability[piece as usize];
+        *a = a.saturating_sub(1);
+        self.order_dirty = true;
+    }
+
     pub fn dec_refcount_bitfield(&mut self, bits: &Bitfield) {
         for (i, a) in self.availability.iter_mut().enumerate() {
             if bits.get(i) {
@@ -227,14 +249,19 @@ impl PiecePicker {
     }
 
     /// libtorrent `piece_picker::pick_pieces` + `request_a_block`. Picks up to `num_blocks`
-    /// blocks from pieces the peer has and marks them requested. `already_requested(piece,
-    /// block)` tells whether this peer already has the block in its queue (only consulted in
-    /// end-game, where blocks are requested from several peers).
+    /// blocks from pieces the peer has and marks them requested from `peer`.
+    /// `already_requested(piece, block)` tells whether this peer already has the block in its
+    /// queue (only consulted in end-game, where blocks are requested from several peers). A
+    /// peer `on_parole` (it sent part of a piece that failed) only gets pieces no other peer
+    /// has touched, so a second failure pins the blame on it (libtorrent's `on_parole` picker
+    /// option), and never joins the end-game.
     pub fn pick(
         &mut self,
         peer_has: &Bitfield,
         peer_is_seed: bool,
         num_blocks: usize,
+        peer: SocketAddr,
+        on_parole: bool,
         already_requested: impl Fn(u32, u32) -> bool,
     ) -> Vec<(u32, u32)> {
         let mut out = Vec::new();
@@ -247,13 +274,15 @@ impl PiecePicker {
         let mut partial: Vec<(u32, usize)> = self
             .downloading
             .iter()
-            .filter(|(p, _)| self.priority[**p as usize] > 0 && has(**p))
+            .filter(|(p, d)| {
+                self.priority[**p as usize] > 0 && has(**p) && (!on_parole || d.exclusive_to(peer))
+            })
             .map(|(p, d)| (*p, d.count(|b| b == BlockState::Free)))
             .filter(|&(_, free)| free > 0)
             .collect();
         partial.sort_by_key(|&(p, free)| (free, p));
         for (piece, _) in partial {
-            self.take_free_blocks(piece, num_blocks, &mut out);
+            self.take_free_blocks(piece, num_blocks, peer, &mut out);
             if out.len() >= num_blocks {
                 return out;
             }
@@ -269,10 +298,10 @@ impl PiecePicker {
                 continue;
             }
             let n = self.blocks_in_piece(piece);
-            self.downloading.insert(piece, Downloading { blocks: vec![BlockState::Free; n as usize] });
-            self.take_free_blocks(piece, num_blocks, &mut out);
+            self.downloading.insert(piece, Downloading::new(n as usize));
+            self.take_free_blocks(piece, num_blocks, peer, &mut out);
         }
-        if !out.is_empty() {
+        if !out.is_empty() || on_parole {
             return out;
         }
 
@@ -296,6 +325,7 @@ impl PiecePicker {
             if let Some(d) = self.downloading.get_mut(&piece) {
                 if let BlockState::Requested(n) = d.blocks[b as usize] {
                     d.blocks[b as usize] = BlockState::Requested(n + 1);
+                    d.peers[b as usize] = Some(peer);
                     out.push((piece, b));
                 }
             }
@@ -303,16 +333,33 @@ impl PiecePicker {
         out
     }
 
-    fn take_free_blocks(&mut self, piece: u32, num_blocks: usize, out: &mut Vec<(u32, u32)>) {
+    fn take_free_blocks(
+        &mut self,
+        piece: u32,
+        num_blocks: usize,
+        peer: SocketAddr,
+        out: &mut Vec<(u32, u32)>,
+    ) {
         let Some(d) = self.downloading.get_mut(&piece) else { return };
-        for (b, s) in d.blocks.iter_mut().enumerate() {
+        for (b, (s, p)) in d.blocks.iter_mut().zip(&mut d.peers).enumerate() {
             if out.len() >= num_blocks {
                 break;
             }
             if *s == BlockState::Free {
                 *s = BlockState::Requested(1);
+                *p = Some(peer);
                 out.push((piece, b as u32));
             }
+        }
+    }
+
+    /// The peer each block of a partial piece came from (libtorrent `get_downloaders`): one
+    /// entry per block, `None` where nobody is known (an open piece, or blocks restored from
+    /// resume data).
+    pub fn get_downloaders(&self, piece: u32) -> Vec<Option<SocketAddr>> {
+        match self.downloading.get(&piece) {
+            Some(d) => d.peers.clone(),
+            None => vec![None; self.blocks_in_piece(piece) as usize],
         }
     }
 
@@ -349,20 +396,18 @@ impl PiecePicker {
         }
     }
 
-    /// The block arrived. Returns false if it is not wanted any more (already writing or done):
-    /// the data is redundant and must be dropped.
-    pub fn mark_as_writing(&mut self, piece: u32, block: u32) -> bool {
+    /// The block arrived from `peer`. Returns false if it is not wanted any more (already
+    /// writing or done): the data is redundant and must be dropped.
+    pub fn mark_as_writing(&mut self, piece: u32, block: u32, peer: SocketAddr) -> bool {
         if self.have_piece(piece) {
             return false;
         }
         let n = self.blocks_in_piece(piece);
-        let d = self
-            .downloading
-            .entry(piece)
-            .or_insert_with(|| Downloading { blocks: vec![BlockState::Free; n as usize] });
+        let d = self.downloading.entry(piece).or_insert_with(|| Downloading::new(n as usize));
         match d.blocks.get_mut(block as usize) {
             Some(s @ (BlockState::Free | BlockState::Requested(_))) => {
                 *s = BlockState::Writing;
+                d.peers[block as usize] = Some(peer);
                 true
             }
             _ => false,
@@ -397,6 +442,16 @@ impl PiecePicker {
     pub fn piece_failed(&mut self, piece: u32) {
         self.downloading.remove(&piece);
         self.order_dirty = true;
+    }
+
+    /// A piece we had is gone (libtorrent `we_dont_have`): it is wanted again.
+    pub fn we_dont_have(&mut self, piece: u32) {
+        if self.have.get(piece as usize) {
+            self.have.set(piece as usize, false);
+            self.downloading.remove(&piece);
+            self.order_dirty = true;
+            self.order_built = None;
+        }
     }
 
     /// Replaces our piece set wholesale (after checking files) and forgets partial pieces.
@@ -440,10 +495,7 @@ impl PiecePicker {
         if !mask.contains(&true) {
             return None;
         }
-        let d = self
-            .downloading
-            .entry(piece)
-            .or_insert_with(|| Downloading { blocks: vec![BlockState::Free; n] });
+        let d = self.downloading.entry(piece).or_insert_with(|| Downloading::new(n));
         for (s, &done) in d.blocks.iter_mut().zip(&mask) {
             if done {
                 *s = BlockState::Finished;
@@ -470,6 +522,7 @@ impl PiecePicker {
         for (&p, d) in &self.downloading {
             assert!(!self.have.get(p as usize), "piece {p} is both had and downloading");
             assert_eq!(d.blocks.len() as u32, self.blocks_in_piece(p));
+            assert_eq!(d.peers.len(), d.blocks.len());
         }
     }
 }
@@ -479,6 +532,8 @@ mod tests {
     use super::*;
 
     const B: u32 = 16 * 1024;
+    const A: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1)), 6881);
+    const C: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 2)), 6881);
 
     fn bits(s: &str) -> Bitfield {
         let mut bf = Bitfield::new(s.len(), false);
@@ -501,10 +556,10 @@ mod tests {
         p.inc_refcount_bitfield(&bits("0100"));
         // Availability: 2 3 1 2. Piece 2 is rarest.
         let all = bits("1111");
-        let picked = p.pick(&all, false, 2, |_, _| false);
+        let picked = p.pick(&all, false, 2, A, false, |_, _| false);
         assert_eq!(picked, [(2, 0), (2, 1)]);
         // Next: pieces 0 and 3 (availability 2), then 1.
-        let picked = p.pick(&all, false, 4, |_, _| false);
+        let picked = p.pick(&all, false, 4, A, false, |_, _| false);
         let pieces: Vec<u32> = picked.iter().map(|b| b.0).collect();
         assert!(pieces[..3].iter().all(|&x| x == 0 || x == 3), "{picked:?}");
         assert_eq!(picked.len(), 4);
@@ -517,37 +572,37 @@ mod tests {
         let all = bits("111111");
         p.set_piece_priority(0, 0);
         p.set_piece_priority(4, 7);
-        assert_eq!(p.pick(&all, false, 1, |_, _| false), [(4, 0)], "highest priority first");
+        assert_eq!(p.pick(&all, false, 1, A, false, |_, _| false), [(4, 0)], "highest priority first");
         // The partial piece is finished before anything new starts.
-        assert_eq!(p.pick(&all, false, 1, |_, _| false), [(4, 1)]);
+        assert_eq!(p.pick(&all, false, 1, A, false, |_, _| false), [(4, 1)]);
 
         let mut p = picker(6);
         p.set_sequential(true);
         p.set_piece_priority(0, 0);
-        let picked = p.pick(&all, true, 5, |_, _| false);
+        let picked = p.pick(&all, true, 5, A, false, |_, _| false);
         assert_eq!(picked, [(1, 0), (1, 1), (2, 0), (2, 1), (3, 0)]);
         // Only pieces the peer has.
         let mut p = picker(6);
-        assert_eq!(p.pick(&bits("000010"), false, 9, |_, _| false), [(4, 0), (4, 1)]);
-        assert!(p.pick(&bits("000000"), false, 9, |_, _| false).is_empty());
+        assert_eq!(p.pick(&bits("000010"), false, 9, A, false, |_, _| false), [(4, 0), (4, 1)]);
+        assert!(p.pick(&bits("000000"), false, 9, A, false, |_, _| false).is_empty());
     }
 
     #[test]
     fn block_lifecycle_and_hash_failure() {
         let mut p = picker(2);
         let all = bits("11");
-        let picked = p.pick(&all, true, 3, |_, _| false);
+        let picked = p.pick(&all, true, 3, A, false, |_, _| false);
         assert_eq!(picked.len(), 3);
         assert!(p.in_endgame());
         // A rejected block becomes free again.
         p.abort_download(1, 0);
         assert_eq!(p.block_state(1, 0), BlockState::Free);
         assert!(!p.in_endgame());
-        assert_eq!(p.pick(&all, true, 3, |_, _| false), [(1, 0)]);
+        assert_eq!(p.pick(&all, true, 3, A, false, |_, _| false), [(1, 0)]);
 
         for (piece, block) in [(0, 0), (0, 1), (1, 0)] {
-            assert!(p.mark_as_writing(piece, block));
-            assert!(!p.mark_as_writing(piece, block), "duplicates are redundant");
+            assert!(p.mark_as_writing(piece, block, A));
+            assert!(!p.mark_as_writing(piece, block, A), "duplicates are redundant");
             p.mark_as_finished(piece, block);
         }
         p.piece_failed(0);
@@ -555,7 +610,7 @@ mod tests {
         p.piece_passed(1);
         assert!(p.have_piece(1) && !p.is_finished());
         assert_eq!(p.wanted_progress(), (1, 2));
-        assert_eq!(p.pick(&all, true, 9, |_, _| false), [(0, 0), (0, 1)]);
+        assert_eq!(p.pick(&all, true, 9, A, false, |_, _| false), [(0, 0), (0, 1)]);
         p.piece_passed(0);
         assert!(p.is_finished() && p.have().all_set());
         assert!(!p.is_interesting(&all, true));
@@ -566,22 +621,22 @@ mod tests {
         let mut p = picker(1);
         let all = bits("1");
         // One block total; peer A has it requested.
-        assert_eq!(p.pick(&all, true, 5, |_, _| false), [(0, 0)]);
+        assert_eq!(p.pick(&all, true, 5, A, false, |_, _| false), [(0, 0)]);
         // Peer B gets the same block in end-game, peer A does not get it twice.
-        assert_eq!(p.pick(&all, true, 5, |_, _| false), [(0, 0)]);
+        assert_eq!(p.pick(&all, true, 5, A, false, |_, _| false), [(0, 0)]);
         assert_eq!(p.block_state(0, 0), BlockState::Requested(2));
-        assert!(p.pick(&all, true, 5, |_, _| false).is_empty(), "capped at two peers");
+        assert!(p.pick(&all, true, 5, A, false, |_, _| false).is_empty(), "capped at two peers");
         p.abort_download(0, 0);
-        assert!(p.pick(&all, true, 5, |piece, block| (piece, block) == (0, 0)).is_empty());
+        assert!(p.pick(&all, true, 5, A, false, |piece, block| (piece, block) == (0, 0)).is_empty());
     }
 
     #[test]
     fn unfinished_pieces_round_trip() {
         let mut p = picker(3);
         let all = bits("111");
-        assert_eq!(p.pick(&all, true, 3, |_, _| false).len(), 3);
+        assert_eq!(p.pick(&all, true, 3, A, false, |_, _| false).len(), 3);
         for (piece, block) in [(0, 1), (1, 0)] {
-            assert!(p.mark_as_writing(piece, block));
+            assert!(p.mark_as_writing(piece, block, A));
         }
         p.mark_as_finished(0, 1);
         // Requested and still-writing blocks are not on disk yet.
@@ -601,8 +656,55 @@ mod tests {
         assert_eq!(q.restore_partial(2, &bits("01")), None);
         assert_eq!(q.restore_partial(2, &bits("11")), Some(vec![true]));
         assert_eq!(q.partial_finished_blocks(), 2);
-        assert_eq!(q.pick(&all, true, 9, |_, _| false), [(0, 0)], "only the missing block");
+        assert_eq!(q.pick(&all, true, 9, A, false, |_, _| false), [(0, 0)], "only the missing block");
         q.check_invariant();
+    }
+
+    // libtorrent test_piece_picker.cpp `we_dont_have`: pieces taken back are picked again.
+    #[test]
+    fn we_dont_have() {
+        let mut p = picker(4);
+        let all = bits("1111");
+        for i in 0..4 {
+            p.piece_passed(i);
+        }
+        assert!(p.is_finished());
+        p.we_dont_have(1);
+        p.we_dont_have(2);
+        assert!(!p.have_piece(1) && !p.have_piece(2) && p.have_piece(0));
+        let picked = p.pick(&all, true, 9, A, false, |_, _| false);
+        assert_eq!(picked.len(), 4, "{picked:?}");
+        assert!(picked.iter().all(|&(piece, _)| piece == 1 || piece == 2), "{picked:?}");
+        p.check_invariant();
+    }
+
+    // The downloader of each block is remembered for blame (libtorrent `get_downloaders`), and
+    // a peer on parole only takes pieces nobody else has touched.
+    #[test]
+    fn downloaders_and_parole() {
+        let mut p = picker(3);
+        // The two-block pieces only (the last piece has one block).
+        let all = bits("110");
+        assert_eq!(p.pick(&all, false, 1, A, false, |_, _| false).len(), 1);
+        let piece = p.downloading.keys().next().copied().unwrap();
+        assert_eq!(p.get_downloaders(piece), [Some(A), None]);
+        // C fills the partial piece; its block is attributed to it once written.
+        assert_eq!(p.pick(&all, false, 1, C, false, |_, _| false), [(piece, 1)]);
+        assert!(p.mark_as_writing(piece, 1, C));
+        assert_eq!(p.get_downloaders(piece), [Some(A), Some(C)]);
+        assert_eq!(p.get_downloaders(if piece == 0 { 1 } else { 0 }), [None, None], "open piece");
+        // On parole, A may not join C's piece, only start a fresh one; and no end-game.
+        p.piece_failed(piece);
+        assert_eq!(p.pick(&all, false, 1, C, false, |_, _| false).len(), 1);
+        let cs = p.downloading.keys().next().copied().unwrap();
+        let picked = p.pick(&all, false, 1, A, true, |_, _| false);
+        assert_eq!(picked.len(), 1);
+        assert_ne!(picked[0].0, cs);
+        let mut q = picker(1);
+        assert_eq!(q.pick(&bits("1"), true, 1, C, false, |_, _| false), [(0, 0)]);
+        assert!(q.pick(&bits("1"), true, 1, A, true, |_, _| false).is_empty(), "parole: no end-game");
+        assert_eq!(q.pick(&bits("1"), true, 1, A, false, |_, _| false), [(0, 0)]);
+        p.check_invariant();
     }
 
     #[test]
@@ -616,6 +718,10 @@ mod tests {
         p.dec_refcount_bitfield(&bits("1100"));
         p.dec_seed();
         assert_eq!(p.distributed_copies(), 0.0);
+        p.inc_refcount(2);
+        assert_eq!(p.availability(2), 1);
+        p.dec_refcount(2);
+        assert_eq!(p.availability(2), 0);
         assert!(p.is_interesting(&bits("0001"), false));
         assert!(!p.is_interesting(&bits("0000"), false));
     }

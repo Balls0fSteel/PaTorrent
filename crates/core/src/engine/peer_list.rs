@@ -1,5 +1,5 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/peer_list.cpp, src/torrent_peer.cpp
-// (peer_priority / BEP 40)
+// (peer_priority / BEP 40, the trust points and hash-fail fields)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: a Vec plus an address index instead of a sorted vector of pooled `torrent_peer`
 // pointers. Connect candidates are chosen by a scan with libtorrent's ordering (fewest failures,
@@ -11,6 +11,7 @@ use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
+use super::smart_ban::Trust;
 use crate::crypto::crc32c::Crc32c;
 use crate::status::PeerSource;
 
@@ -29,6 +30,9 @@ pub(crate) struct KnownPeer {
     pub last_connected: Option<Instant>,
     pub seed: bool,
     pub banned: bool,
+    /// Hash failures, trust points and parole (libtorrent `torrent_peer::trust_points`,
+    /// `hashfails`, `on_parole`).
+    pub trust: Trust,
     /// Try an encrypted handshake first (libtorrent `torrent_peer::pe_support`): set by a PEX
     /// `e` flag or a completed encrypted handshake, toggled as `EncPolicy::Enabled` alternates.
     pub pe_support: bool,
@@ -61,7 +65,7 @@ impl PeerList {
         self.index.get(addr).map(|&i| &self.peers[i])
     }
 
-    fn get_mut(&mut self, addr: &SocketAddr) -> Option<&mut KnownPeer> {
+    pub fn get_mut(&mut self, addr: &SocketAddr) -> Option<&mut KnownPeer> {
         self.index.get(addr).map(|&i| &mut self.peers[i])
     }
 
@@ -95,6 +99,7 @@ impl PeerList {
             last_connected: None,
             seed: false,
             banned: false,
+            trust: Trust::default(),
             pe_support: false,
             supports_utp: true,
             confirmed_supports_utp: false,
@@ -157,6 +162,7 @@ impl PeerList {
                 last_connected: None,
                 seed: false,
                 banned: false,
+                trust: Trust::default(),
                 pe_support: false,
                 supports_utp: true,
                 confirmed_supports_utp: false,

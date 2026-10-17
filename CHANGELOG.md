@@ -2,6 +2,25 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_161604_1792246564: Phase 5 merge (Preferences, proxies, super seeding, part files)
+
+Four features built in parallel on their own branches and merged into main: `claude/part-files-b92a97`, `claude/super-seeding-362b23`, `claude/proxies-c663c9`, `claude/preferences-99a764` (their entries follow).
+
+### Added
+- The Preferences Connection page's Proxy Server box is live (it was a disabled placeholder on the Preferences branch): Type ((none), Socks4, Socks5, HTTP), Proxy and Port, Authentication (picks `socks5_pw` / `http_pw`; SOCKS4 sends the user name as its user id), Username, Password (masked), "Resolve hostnames through proxy" (`proxy_hostnames`), "Use proxy for peer-to-peer connections" and "Use proxy for tracker connections". A proxy type without an address or port is refused on its page.
+- `patorrent_frontend::settings` rows for the ten proxy settings; `proxy_type` uses libtorrent's `proxy_type_t` numbers (0 none .. 5 http_pw) through `proxy_to_int` / `proxy_from_int`.
+- Tests: `the_proxy_box_sets_the_proxy_settings` (apply, ini round trip, shown back) and `a_proxy_needs_an_address`.
+
+### Issues
+- Merge conflicts: PLAN.md, CHANGELOG.md, docs/PORTING.md, THIRD-PARTY-NOTICES.md (each branch extended the same lines; combined), `fuzz.yml` and `fuzz/Cargo.toml` (`part_file` and `proxy` targets side by side), `engine/wire.rs` (super seeding moved the piece set into `write_bitfield`, proxies replaced `listen_port` with `announce_port()`; both kept).
+- `settings::tests::every_field_has_a_row` failed after the proxies merge, as the Preferences branch predicted: the proxy fields had no rows. Fixed with the rows above.
+- The unrelated old branch `claude/beautiful-curran-74d92d` (fixed DHT test addresses) is still unmerged; main fixed the same flake by widening the bucket-count range.
+
+### Verified
+- `cargo fmt --all --check`, `cargo +stable fmt --all --check`, `cargo +stable fmt --manifest-path fuzz/Cargo.toml --check`; `cargo clippy --workspace --all-targets -- -D warnings` (1.90.0 and stable) on Windows, and for core / frontend / nox with `--target x86_64-unknown-linux-gnu` and `x86_64-unknown-freebsd`.
+- `cargo test --workspace --no-fail-fast` on the merged main: Windows 545 core (3 ignored), Ubuntu 26.04.1 and FreeBSD 15.1 546 core; swarm 34, web seed 12, proxy 9, frontend 37 and all other suites green on all three.
+- Not verified: the Preferences dialog and the Initial Seeding menu item by hand; real proxy servers.
+
 ## 2026-10-17_160554_1792245954: proxies (SOCKS4/4a, SOCKS5, HTTP) in the engine and nox
 
 Branch `claude/proxies-c663c9` (Phase 5).

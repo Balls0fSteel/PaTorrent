@@ -201,11 +201,36 @@ fn get_peers_announce() {
     assert_eq!(error_text(&r), "invalid token");
 }
 
+/// The `i`-th of a fixed sequence of scattered public addresses. The scrape
+/// test's Bloom filter estimate depends on the addresses; libtorrent draws
+/// random ones and misses its +-3 tolerance about once in 300 runs.
+fn scattered_addr(i: u64, v6: bool) -> IpAddr {
+    let mix = |mut z: u64| {
+        z = z.wrapping_add(0x9E37_79B9_7F4A_7C15);
+        z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+        z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+        z ^ (z >> 31)
+    };
+    let mut n = i * 1000;
+    loop {
+        let ip = if v6 {
+            IpAddr::V6(std::net::Ipv6Addr::from((u128::from(mix(n)) << 64) | u128::from(mix(!n))))
+        } else {
+            IpAddr::V4(std::net::Ipv4Addr::from(mix(n) as u32))
+        };
+        if !crate::net::ip_voter::is_local(&ip) && !ip.is_unspecified() && !ip.is_multicast() {
+            return ip;
+        }
+        n += 1;
+    }
+}
+
 fn test_scrape(rand_addr: fn() -> IpAddr) {
     let mut t = Setup::new(SocketAddr::new(rand_addr(), 20));
+    let v6 = t.source.is_ipv6();
     // 50 downloaders and 50 seeds announce
     for i in 0..100 {
-        t.source = SocketAddr::new(rand_addr(), 6000);
+        t.source = SocketAddr::new(scattered_addr(i, v6), 6000);
         let src = t.source;
         let r = t.request("get_peers", src, with(args(), "info_hash", "01010101010101010101"), "10").unwrap();
         let k = verify_message(r.root().unwrap(), &PEER1_DESC).unwrap();

@@ -2,6 +2,22 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_165701_1792249021: merge of move storage, the Add New Torrent dialog and the nox Web UI server
+
+Three features built in parallel on their own branches and merged into main: `claude/move-storage-2c300f`, `claude/add-dialog-d82bc0`, `claude/nox-webapi-73059f` (their entries follow).
+
+### Fixed
+- `dht::node::tests::scrape_v6` failed once on FreeBSD after the merge (`downloaders 46.00749`, tolerance +-3). Not caused by the merge: the test announces 100 random addresses, and the Bloom filter estimate misses the tolerance about once in 300 runs (1 failure in 300 local runs of both scrape tests); libtorrent's `test_scrape` draws random addresses too. The announcing addresses are now a fixed scattered sequence (`scattered_addr`), so the estimate is the same every run.
+
+### Issues
+- Merge conflicts in PLAN.md and CHANGELOG.md only (each branch edited the same Phase 5 / Next steps lines; combined). `crates/nox/src/main.rs` (move storage's `--move-on-complete` and the Web UI options) merged cleanly.
+- The Add New Torrent branch's PLAN note "Next candidates: move storage" was rewritten to "wiring move storage into the GUI", since move storage is in.
+
+### Verified
+- `cargo fmt --all --check`, `cargo +stable fmt --all --check`, `cargo +stable fmt --manifest-path fuzz/Cargo.toml --check`; `cargo clippy --workspace --all-targets -- -D warnings` on 1.90.0 and stable.
+- `cargo test --workspace --no-fail-fast` on the merged main: Windows 554 core (3 ignored), win32 20, frontend 45, move_storage 8, swarm 34, web seed 12, proxy 9, nox suites and all others green; Ubuntu 26.04.1 all green (555 core); FreeBSD 15.1 all green except the `scrape_v6` flake above, and the DHT tests pass there with the fix.
+- Not verified: the new GUI dialog and the Web UI page by hand, real WebAPI clients (Sonarr, Radarr), a move across Windows drive letters.
+
 ## 2026-10-17_164324_1792248204: Phase 6 starts: the nox Web UI server and a qBittorrent WebAPI v2 subset
 
 Branch `claude/nox-webapi-73059f`. Written from qBittorrent's published WebAPI documentation ("WebUI API (qBittorrent 5.0)" on its wiki) only; no qBittorrent source or Web UI asset was read or copied (PLAN.md Known TODOs, licensing note; D10).

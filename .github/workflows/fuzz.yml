@@ -5,7 +5,7 @@ name: Fuzz
 on:
   push:
     branches: [main]
-    paths: ["crates/core/**", "fuzz/**", ".github/workflows/fuzz.yml"]
+    paths: ["crates/core/**", "crates/nox/**", "fuzz/**", ".github/workflows/fuzz.yml"]
   schedule:
     - cron: "17 3 * * 1" # weekly, Monday 03:17 UTC: a longer run
   workflow_dispatch:
@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [bdecode, torrent_info, magnet, peer_wire, tracker_response, http_response, ut_metadata, ut_pex, dht_message, lsd, upnp, natpmp, pe_handshake, utp, ip_filter, web_seed, part_file, proxy]
+        target: [bdecode, torrent_info, magnet, peer_wire, tracker_response, http_response, ut_metadata, ut_pex, dht_message, lsd, upnp, natpmp, pe_handshake, utp, ip_filter, web_seed, part_file, proxy, nox_http]
     runs-on: ubuntu-24.04
     env:
       # taiki-e/install-action ships a musl-built cargo-fuzz, which defaults to

@@ -36,7 +36,7 @@ Settings and torrents go to `%APPDATA%\PaTorrent`. An empty `patorrent.ini` besi
 | Binary | What it is today |
 |---|---|
 | `patorrent` | Windows GUI: the µTorrent 2.2.1 main window on the real engine (Phase 3, in progress). `patorrent --demo 10000` loads 10,000 simulated torrents instead. |
-| `patorrent-nox` | Command-line client: `patorrent-nox add file.torrent --save DIR [--seed]`, `patorrent-nox run` to resume saved torrents |
+| `patorrent-nox` | Command-line client: `patorrent-nox add file.torrent --save DIR [--seed]`, `patorrent-nox run` to resume saved torrents, `patorrent-nox run --webui 8080 --webui-pass PASS` for the Web UI and a qBittorrent-compatible WebAPI subset |
 | `lt-swarm` | Benchmarks: `lt-swarm loopback`, `lt-swarm load --count 10000`, `lt-swarm scale --torrents 100000`, or `lt-swarm gen --out corpus` then `lt-swarm parse corpus`. Interop: `lt-swarm interop` downloads from qBittorrent, Transmission and Deluge (setup: PLAN.md Q10) |
 
 ## License
@@ -52,7 +52,7 @@ Code ported from libtorrent remains available under libtorrent's BSD-3-Clause li
 PaTorrent is an independent project. It is not affiliated with, endorsed by or sponsored by any of the projects below or their authors.
 
 - **libtorrent-rasterbar** (Arvid Norberg and contributors). The engine is a port of libtorrent 2.0.11, so it is a derivative work and that code stays under libtorrent's BSD-3-Clause license. Every ported source file names its origin and carries libtorrent's copyright notice. [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md) has the full license texts (libtorrent and the code bundled with it: puff, ed25519, SHA-1, SHA-256). It ships with every binary distribution next to LICENSE.md, and `patorrent-nox --license` prints both. As BSD-3-Clause requires, the names of libtorrent and its authors are not used to endorse or promote PaTorrent.
-- **qBittorrent.** PaTorrent contains no qBittorrent code, artwork or Web UI. The `nox` Web API will follow qBittorrent's published WebAPI documentation so that existing tools can talk to it; it will not copy qBittorrent's (GPL) source. The name appears only to describe compatibility, interop tests and peer-client identification.
+- **qBittorrent.** PaTorrent contains no qBittorrent code, artwork or Web UI. The `nox` Web API follows qBittorrent's published WebAPI documentation so that existing tools can talk to it; it does not copy qBittorrent's (GPL) source, and its small Web UI page is our own. The name appears only to describe compatibility, interop tests and peer-client identification.
 - **µTorrent / BitTorrent, Inc.** PaTorrent recreates the µTorrent 2.2.1 look and behaviour but uses none of their code, artwork or trademarks.
 
 Other product names are trademarks of their owners and are used only to identify those products.

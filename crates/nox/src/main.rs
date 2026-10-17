@@ -20,6 +20,7 @@ use patorrent_core::{
     VERSION,
 };
 use patorrent_frontend::{fmt, status};
+use patorrent_nox::webui;
 
 /// PaTorrent's own license and the third-party license texts, built into the binary so a
 /// copied-out executable still carries them (PolyForm "Notices", BSD-3-Clause clause 2).
@@ -83,6 +84,12 @@ OPTIONS:
                       (socks5 only) uTP and the DHT go through it; nothing incoming is accepted
     --verbose         Print tracker and peer events, and every 10 s where the connected
                       peers came from
+    --webui [ADDR:]PORT  Serve the Web UI and qBittorrent-compatible WebAPI (ADDR defaults to
+                      127.0.0.1; `run --webui 8080`)
+    --webui-user NAME --webui-pass PASS
+                      Web UI login (default user admin); the password is stored as a salted
+                      PBKDF2 hash in the state directory. Without one, a temporary password
+                      is printed at start
 
 Type q and Enter to stop cleanly (state is saved on the way out).
 ";
@@ -102,6 +109,9 @@ struct Opts {
     ip_filter: Option<PathBuf>,
     proxy: Option<Proxy>,
     verbose: bool,
+    webui: Option<std::net::SocketAddr>,
+    webui_user: Option<String>,
+    webui_pass: Option<String>,
     torrents: usize,
     active: f64,
     sources: Vec<String>,
@@ -123,6 +133,9 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         ip_filter: None,
         proxy: None,
         verbose: false,
+        webui: None,
+        webui_user: None,
+        webui_pass: None,
         torrents: 1000,
         active: 0.02,
         sources: Vec::new(),
@@ -151,6 +164,9 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--ul-limit" => o.ul_limit = num::<u32>("--ul-limit", value("--ul-limit")?)?.saturating_mul(1024),
             "--ip-filter" => o.ip_filter = Some(value("--ip-filter")?.into()),
             "--proxy" => o.proxy = Some(parse_proxy(&value("--proxy")?)?),
+            "--webui" => o.webui = Some(webui::parse_addr(&value("--webui")?)?),
+            "--webui-user" => o.webui_user = Some(value("--webui-user")?),
+            "--webui-pass" => o.webui_pass = Some(value("--webui-pass")?),
             "--torrents" => o.torrents = num("--torrents", value("--torrents")?)?,
             "--active" => o.active = num("--active", value("--active")?)?,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
@@ -293,13 +309,14 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         settings.proxy_password = p.pass.clone();
         println!("* proxy: {:?} {}:{}", p.kind, p.host, p.port);
     }
-    let session = match Session::start(SessionParams { settings, state_dir: state_dir.clone() }) {
-        Ok(s) => s,
-        Err(e) => {
-            eprintln!("error: cannot start the engine: {e}");
-            return ExitCode::FAILURE;
-        }
-    };
+    let session =
+        match Session::start(SessionParams { settings: settings.clone(), state_dir: state_dir.clone() }) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("error: cannot start the engine: {e}");
+                return ExitCode::FAILURE;
+            }
+        };
     if let Some(d) = &state_dir {
         println!("* state: {}", d.display());
     }
@@ -355,6 +372,13 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
     if mode == Mode::Add && pending == 0 {
         return ExitCode::FAILURE;
     }
+    let web = match o.webui.map(|addr| start_webui(&o, addr, &h, settings, state_dir.clone(), &save)) {
+        Some(Err(e)) => {
+            eprintln!("error: cannot start the Web UI: {e}");
+            return ExitCode::FAILURE;
+        }
+        w => w.and_then(Result::ok),
+    };
 
     let mut move_completed = o.move_on_complete.as_ref().map(|d| {
         let d = std::path::absolute(d).map_or(d.clone(), |p| p.to_string_lossy().into_owned());
@@ -389,6 +413,9 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         }
         let _ = wake_rx.recv_timeout(next_report.saturating_duration_since(Instant::now()));
         h.pop_alerts(&mut alerts);
+        if let Some(w) = &web {
+            w.on_alerts(&alerts);
+        }
         let mut updated = false;
         for a in alerts.drain(..) {
             if let Some(id) = move_completed.as_mut().and_then(|m| m.on_alert(&a, &h)) {
@@ -476,11 +503,13 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 println!("* download complete; seeding (q + Enter to stop)");
             }
         }
+        let quit = quit || web.as_ref().is_some_and(|w| w.shutdown_requested());
         if quit || (mine_done && !o.seed) || deadline.is_some_and(|d| Instant::now() >= d) {
             break;
         }
     }
     println!("* shutting down");
+    drop(web);
     h.clear_alert_notify();
     session.shutdown();
     if failed > 0 || (mode == Mode::Add && finished_at.is_none() && o.seconds.is_none()) {
@@ -488,6 +517,28 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
     } else {
         ExitCode::SUCCESS
     }
+}
+
+fn start_webui(
+    o: &Opts,
+    addr: std::net::SocketAddr,
+    h: &patorrent_core::SessionHandle,
+    settings: Settings,
+    state_dir: Option<PathBuf>,
+    save: &str,
+) -> std::io::Result<webui::WebUi> {
+    let mut c = webui::Config::new(addr, settings, save);
+    c.username = o.webui_user.clone().unwrap_or(c.username);
+    c.password = o.webui_pass.clone();
+    c.state_dir = state_dir;
+    let w = webui::WebUi::start(h.clone(), c)?;
+    println!("* Web UI: http://{}/", w.local_addr());
+    if let Some(p) = w.temporary_password() {
+        println!(
+            "* Web UI: no password set; temporary password for this run: {p} (set one with --webui-pass)"
+        );
+    }
+    Ok(w)
 }
 
 fn demo(o: Opts) -> ExitCode {

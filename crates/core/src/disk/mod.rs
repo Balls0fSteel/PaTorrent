@@ -498,6 +498,9 @@ fn read_into(
             if read_at(&file, &mut buf[pos..pos + n], slice.offset)? != n {
                 return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "file too short").into());
             }
+        } else {
+            // pad files read as zeros (the buffer may hold an earlier piece)
+            buf[pos..pos + n].fill(0);
         }
         pos += n;
     }

@@ -1,4 +1,4 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/magnet_uri.cpp
+// Ported from libtorrent-rasterbar 2.0.11: src/magnet_uri.cpp (parse_magnet_uri, make_magnet_uri)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: parses into `MagnetUri` instead of `add_torrent_params`; a 40-character btih with
 // non-hex characters is rejected (libtorrent ignores the from_hex failure and keeps garbage).
@@ -8,6 +8,7 @@
 use std::net::SocketAddr;
 
 use super::error::MetainfoError;
+use super::torrent_info::{TorrentInfo, WebSeedKind};
 use crate::params::DownloadPriority;
 use crate::types::{InfoHashes, Sha1Hash, Sha256Hash};
 use crate::util::string::{base32decode, escape_string, split_string, string_equal_no_case, unescape_string};
@@ -155,6 +156,31 @@ fn atoi(s: &str) -> i64 {
         .fold(0i64, |acc, d| acc.saturating_mul(10).saturating_add((d - b'0') as i64))
 }
 
+impl MagnetUri {
+    /// What libtorrent's `make_magnet_uri(torrent_info)` puts in a link: the info-hashes, the
+    /// name, every tracker and the BEP 19 web seeds.
+    pub fn from_torrent_info(ti: &TorrentInfo) -> MagnetUri {
+        MagnetUri {
+            info_hashes: ti.info_hashes(),
+            name: ti.name().to_owned(),
+            trackers: ti.trackers().iter().map(|t| t.url.clone()).collect(),
+            tracker_tiers: ti.trackers().iter().map(|t| t.tier as u32).collect(),
+            url_seeds: ti
+                .web_seeds()
+                .iter()
+                .filter(|s| s.kind == WebSeedKind::UrlSeed)
+                .map(|s| s.url.clone())
+                .collect(),
+            ..MagnetUri::default()
+        }
+    }
+}
+
+/// libtorrent `make_magnet_uri(torrent_info)`.
+pub fn make_magnet_uri_from_info(ti: &TorrentInfo) -> String {
+    make_magnet_uri(&MagnetUri::from_torrent_info(ti))
+}
+
 /// libtorrent `make_magnet_uri(add_torrent_params)`. Empty if there is no info-hash.
 pub fn make_magnet_uri(m: &MagnetUri) -> String {
     let mut ret = String::from("magnet:?");
@@ -227,7 +253,7 @@ pub fn make_magnet_uri(m: &MagnetUri) -> String {
 #[cfg(test)]
 mod tests {
     //! Ported from libtorrent-rasterbar 2.0.11 test/test_magnet.cpp (the parts that do not need a
-    //! session or create_torrent).
+    //! session).
     use super::*;
 
     const CD: &str = "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd";
@@ -411,6 +437,82 @@ mod tests {
         let mut m = with_v1();
         m.url_seeds = vec!["http://foo.com/bar".into()];
         assert!(make_magnet_uri(&m).contains("&ws=http%3a%2f%2ffoo.com%2fbar"));
+    }
+
+    fn bencode_torrent(extra: Vec<(&str, crate::bencode::Entry)>) -> TorrentInfo {
+        use crate::bencode::Entry;
+        let mut info = Entry::new_dict();
+        *info.key("pieces") = "aaaaaaaaaaaaaaaaaaaa".into();
+        *info.key("name") = "slightly shorter name, it's kind of sad that people started the trend of incorrectly encoding the regular name field and then adding another one with correct encoding".into();
+        *info.key("name.utf-8") = "this is a long ass name in order to try to make make_magnet_uri overflow and hopefully crash. Although, by the time you read this that particular bug should have been fixed".into();
+        *info.key("piece length") = Entry::Int(16 * 1024);
+        *info.key("length") = Entry::Int(3245);
+        let mut torrent = Entry::new_dict();
+        *torrent.key("info") = info;
+        for (k, v) in extra {
+            *torrent.key(k) = v;
+        }
+        TorrentInfo::from_bytes(&torrent.bencode()).unwrap()
+    }
+
+    #[test]
+    fn make_magnet_uri_torrent_info() {
+        use crate::bencode::Entry;
+        let urls = [
+            "http://bigtorrent.org:2710/announce",
+            "http://bt.careland.com.cn:6969/announce",
+            "http://bt.e-burg.org:2710/announce",
+            "http://bttrack.9you.com/announce",
+            "http://coppersurfer.tk:6969/announce",
+            "http://erdgeist.org/arts/software/opentracker/announce",
+            "http://exodus.desync.com/announce",
+            "http://fr33dom.h33t.com:3310/announce",
+            "http://genesis.1337x.org:1337/announce",
+            "http://inferno.demonoid.me:3390/announce",
+            "http://inferno.demonoid.ph:3390/announce",
+            "http://ipv6.tracker.harry.lu/announce",
+            "http://lnxroot.com:6969/announce",
+            "http://nemesis.1337x.org/announce",
+            "http://puto.me:6969/announce",
+            "http://sline.net:2710/announce",
+            "http://tracker.beeimg.com:6969/announce",
+            "http://tracker.ccc.de/announce",
+            "http://tracker.coppersurfer.tk/announce",
+            "http://tracker.coppersurfer.tk:6969/announce",
+            "http://tracker.cpleft.com:2710/announce",
+            "http://tracker.istole.it/announce",
+            "http://tracker.kamyu.net/announce",
+            "http://tracker.novalayer.org:6969/announce",
+            "http://tracker.torrent.to:2710/announce",
+            "http://tracker.torrentbay.to:6969/announce",
+            "udp://tracker.openbittorrent.com:80",
+            "udp://tracker.publicbt.com:80",
+        ];
+        let tier = Entry::List(urls.iter().map(|&u| Entry::from(u)).collect());
+        let ti = bencode_torrent(vec![("announce-list", Entry::List(vec![tier]))]);
+        assert_eq!(ti.trackers().len(), urls.len());
+        let magnet = make_magnet_uri_from_info(&ti);
+        let back = parse(&magnet);
+        // the parser shuffles trackers within a tier
+        let mut got = back.trackers.clone();
+        got.sort();
+        assert_eq!(got, urls);
+        assert_eq!(back.info_hashes, ti.info_hashes());
+        assert_eq!(back.name, ti.name());
+        assert!(magnet.starts_with(&format!("magnet:?xt=urn:btih:{}&dn=", ti.info_hash().to_hex())));
+
+        // make_magnet_uri2: url-list becomes ws=, httpseeds are left out
+        let ti = bencode_torrent(vec![
+            ("url-list", "http://foo.com/bar".into()),
+            ("httpseeds", "http://http.seed/".into()),
+        ]);
+        let magnet = make_magnet_uri_from_info(&ti);
+        assert!(magnet.contains("&ws=http%3a%2f%2ffoo.com%2fbar"));
+        assert!(!magnet.contains("http.seed"));
+
+        // make_magnet_uri_v1
+        assert!(magnet.contains("xt=urn:btih:"));
+        assert!(!magnet.contains("xt=urn:btmh:1220"));
     }
 
     #[test]

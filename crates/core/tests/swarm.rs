@@ -7,8 +7,9 @@
 //! discovery (BEP 14); the MSE/PE policy matrix: forced, enabled and disabled encryption on
 //! either side; uTP (BEP 29): the default preference for it, uTP-only sessions, the fall
 //! back to TCP when the other end has no uTP, and encryption over uTP; a peer taking back a
-//! piece with `lt_donthave` (BEP 54); and a peer banned by smart-ban for a bad block while the
-//! seed that sent the rest of the piece is kept.
+//! piece with `lt_donthave` (BEP 54); a torrent made by `create_torrent` (with pad files); and a
+//! peer banned by smart-ban for a bad block while the seed that sent the rest of the piece is
+//! kept.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -1467,6 +1468,56 @@ fn smart_ban_bans_the_sender_of_a_bad_block_and_keeps_the_seed() {
     let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
     assert_eq!(st.total_failed_bytes, f.piece_len as u64, "the one piece with the bad blocks");
     assert_eq!(bad.join().unwrap(), 2);
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+/// A torrent made by `create_torrent` from files on disk (pad files included) is seeded from
+/// those files and downloads byte for byte.
+#[test]
+fn a_created_torrent_seeds_and_downloads() {
+    use patorrent_core::metainfo::{
+        CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, set_piece_hashes,
+    };
+
+    let mut f = fixture(None);
+    let seed_dir = temp_dir("create-seed");
+    write_files(&f, &seed_dir);
+    let mut fs = FileStorage::new();
+    add_files(&mut fs, &seed_dir.join("swarm-test"), &mut |_| true, CreateFlags::empty()).unwrap();
+    let mut t = CreateTorrent::new(fs, 0, CreateFlags::CANONICAL_FILES).unwrap();
+    t.set_creator("swarm test");
+    set_piece_hashes(&mut t, &seed_dir, &mut |_| true).unwrap();
+    f.torrent = t.generate_buf().unwrap();
+    let ti = TorrentInfo::from_bytes(&f.torrent).unwrap();
+    assert!((0..ti.num_files()).any(|i| ti.files().pad_file_at(i)));
+    assert_eq!(
+        ti.num_files() - (0..ti.num_files()).filter(|&i| ti.files().pad_file_at(i)).count(),
+        f.files.len()
+    );
+    f.info_hash = ti.info_hash().0;
+    f.piece_len = ti.piece_length() as usize;
+
+    let seed = start(None);
+    let mut sw = Watch::new(seed.handle());
+    let port = listen_port(&mut sw);
+    let sid = add(&mut sw, &f, &seed_dir);
+    let st = wait_state(&mut sw, sid, TorrentState::Seeding, 20);
+    assert_eq!(st.total_done, st.total);
+
+    let dir = temp_dir("create-leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+    assert_eq!(st.total_wanted_done, st.total_wanted);
+    assert_eq!(st.total_failed_bytes, 0);
     leech.shutdown();
     seed.shutdown();
     assert_files(&f, &dir);

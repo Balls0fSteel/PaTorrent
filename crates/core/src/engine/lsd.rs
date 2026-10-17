@@ -8,7 +8,8 @@
 // IPv6 socket joins the group on that interface's index rather than the address's scope id
 // (0 for global addresses, which means "any"). One session-wide resend timer stands in for
 // the per-socket ones, which all fired together anyway. The announce round-robin covers
-// running torrents only, as the DHT's does. Interfaces are read once, when LSD starts.
+// running torrents only, as the DHT's does. After a network change the sockets are reopened
+// when the set of interfaces they would cover changed (libtorrent: per listen socket).
 
 //! Local service discovery (BEP 14): multicast announces of running torrents to the local
 //! network, and peers from other clients' announces.
@@ -38,6 +39,8 @@ const SENDS_PER_ANNOUNCE: u32 = 3;
 
 struct LsdSocket {
     sock: UdpSocket,
+    /// The interface's index.
+    index: u32,
     v4: bool,
     /// The address shown in alerts.
     local: IpAddr,
@@ -134,6 +137,7 @@ fn lsd_endpoints(listen: &[IpAddr], ifs: &[IpInterface]) -> Vec<Endpoint> {
                     up: true,
                     loopback: ip.is_loopback(),
                     multicast: true,
+                    pointopoint: false,
                     preferred: true,
                 }),
             }
@@ -181,17 +185,22 @@ fn in_network(nets: &[(IpAddr, IpAddr, u32)], from: SocketAddr) -> bool {
 }
 
 impl Engine {
+    /// The listen addresses LSD covers: the bound listen sockets' (a wildcard stands for
+    /// every address of its family).
+    fn lsd_listen_addresses(&self) -> Vec<IpAddr> {
+        self.listeners.iter().map(|l| l.local.ip()).collect()
+    }
+
     /// libtorrent `start_lsd`: one socket per interface the listen sockets cover.
     pub(super) fn start_lsd(&mut self, now: Instant) {
         if !self.settings.enable_lsd || !self.lsd.socks.is_empty() {
             return;
         }
-        let listen: Vec<IpAddr> =
-            self.listeners.iter().filter_map(|l| l.local_addr().ok()).map(|a| a.ip()).collect();
+        let listen = self.lsd_listen_addresses();
         if listen.is_empty() {
             return;
         }
-        let ifs = match sys::interfaces() {
+        let ifs = match self.net_interfaces() {
             Ok(ifs) => ifs,
             Err(e) => {
                 self.alert(Alert::Log {
@@ -210,9 +219,14 @@ impl Engine {
                 Ok(s)
             });
             match res {
-                Ok(sock) => {
-                    self.lsd.socks.push(LsdSocket { sock, v4: ep.v4, local, nets: ep.nets, disabled: false })
-                }
+                Ok(sock) => self.lsd.socks.push(LsdSocket {
+                    sock,
+                    index: ep.index,
+                    v4: ep.v4,
+                    local,
+                    nets: ep.nets,
+                    disabled: false,
+                }),
                 Err(e) => self.alert(Alert::LsdError { address: local, error: e.into() }),
             }
         }
@@ -232,6 +246,29 @@ impl Engine {
         for id in running {
             self.lsd_announce(id, now);
         }
+    }
+
+    /// After a network change or a listen-socket reopen (libtorrent `update_lsd`, which runs
+    /// per listen socket): when the interfaces LSD would cover differ from the ones it has
+    /// sockets on, the sockets are reopened, and the running torrents announce at once.
+    pub(super) fn update_lsd(&mut self, ifs: &[IpInterface], now: Instant) {
+        if !self.settings.enable_lsd {
+            return;
+        }
+        let mut want = lsd_endpoints(&self.lsd_listen_addresses(), ifs);
+        want.truncate(MAX_LSD_SOCKETS);
+        let have: Vec<Endpoint> = self
+            .lsd
+            .socks
+            .iter()
+            .map(|s| Endpoint { index: s.index, v4: s.v4, nets: s.nets.clone() })
+            .collect();
+        // a socket that failed to open is retried on the next change
+        if want == have {
+            return;
+        }
+        self.stop_lsd();
+        self.start_lsd(now);
     }
 
     /// libtorrent `stop_lsd`.
@@ -387,6 +424,7 @@ mod tests {
             up: true,
             loopback,
             multicast: !loopback,
+            pointopoint: false,
             preferred: true,
         }
     }

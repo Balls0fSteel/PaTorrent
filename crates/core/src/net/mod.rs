@@ -1,26 +1,14 @@
 //! Platform networking helpers: resolver, OS TLS, interface enumeration and raw socket options,
-//! listen-interface parsing, bandwidth buckets.
+//! listen-interface parsing and expansion, network-change notifications, bandwidth buckets.
 
 pub(crate) mod enum_net;
 pub(crate) mod ip_filter;
+pub(crate) mod ip_notifier;
 pub(crate) mod ip_voter;
+pub(crate) mod listen;
 pub(crate) mod resolver;
 pub(crate) mod sys;
 pub(crate) mod tls;
-
-use std::net::SocketAddr;
-
-/// Parses libtorrent's `listen_interfaces` (`"0.0.0.0:6881,[::]:6881"`). Entries that are not
-/// `ip:port` (interface names, which libtorrent also accepts) are skipped for now.
-pub(crate) fn parse_listen_interfaces(s: &str) -> Vec<SocketAddr> {
-    s.split(',')
-        .map(str::trim)
-        .filter_map(|e| {
-            let e = e.trim_end_matches('s'); // "s" suffix marks SSL listen sockets
-            e.parse::<SocketAddr>().ok()
-        })
-        .collect()
-}
 
 /// A token bucket (libtorrent `bandwidth_channel`): `limit` bytes per second, refilled in small
 /// steps; 0 means unlimited.
@@ -63,18 +51,6 @@ impl Bucket {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn listen_interfaces() {
-        assert_eq!(
-            parse_listen_interfaces("0.0.0.0:6881, [::]:6881,eth0:5,127.0.0.1:0s"),
-            [
-                "0.0.0.0:6881".parse::<SocketAddr>().unwrap(),
-                "[::]:6881".parse().unwrap(),
-                "127.0.0.1:0".parse().unwrap()
-            ]
-        );
-    }
 
     #[test]
     fn bucket() {

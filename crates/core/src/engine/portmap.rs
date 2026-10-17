@@ -2,15 +2,17 @@
 // stop_natpmp, stop_upnp, remap_ports / map_port, on_port_mapping, update_upnp,
 // update_natpmp), include/libtorrent/aux_/portmap.hpp (portmap_action, portmap_callback)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
-// Changes: libtorrent runs one mapper pair per listen socket; here a wildcard listen address
-// is expanded into the IPv4 interfaces that have a default route (UPnP alone on every
-// multicast-capable one where the routing table cannot be read). A mapper that is being
-// closed stays in a `closing` list until its delete requests are answered.
+// Changes: libtorrent runs one mapper pair per listen socket; here a mapper pair runs per
+// address of libtorrent's expanded listen list that reaches the internet (the engine binds a
+// wildcard socket and expands it only for this, LSD and change handling; see engine::listen).
+// NAT-PMP needs a default gateway; IPv6 addresses get NAT-PMP / PCP only, as in libtorrent. A
+// network change closes and starts only the mappers whose interface or gateway changed. A
+// mapper that is being closed stays in a `closing` list until its delete requests are answered.
 
 //! Port forwarding through the router: a NAT-PMP / PCP and a UPnP mapper per interface, each
 //! asked to forward the TCP listen port and the DHT's UDP port.
 
-use std::net::{IpAddr, Ipv4Addr};
+use std::net::{IpAddr, SocketAddr, SocketAddrV6};
 use std::time::Instant;
 
 use mio::Token;
@@ -19,8 +21,7 @@ use super::Engine;
 use super::natpmp::NatPmp;
 use super::upnp::{Upnp, UpnpSettings};
 use crate::alert::{Alert, PortmapTransport, Protocol};
-use crate::net::enum_net::{IpInterface, get_gateway};
-use crate::net::sys;
+use crate::net::enum_net::{IpInterface, get_gateway, is_link_local};
 use crate::proto::natpmp;
 
 /// Reactor tokens of the mappers' UDP sockets, never reused within a session.
@@ -131,23 +132,23 @@ impl Engine {
         }
     }
 
-    /// The interfaces to map ports on: the IPv4 interfaces the listen sockets cover that lead
-    /// to the internet (a default route through them; every multicast-capable one when the
-    /// routing table cannot be read), never loopback.
+    /// The interfaces to map ports on (libtorrent starts a NAT-PMP and a UPnP mapper per listen
+    /// socket): the expanded listen endpoints that reach the internet (not `LOCAL_NETWORK`),
+    /// never loopback, and IPv6 ones only with a global address (NAT-PMP / PCP; UPnP is IPv4
+    /// only). Each comes with its default gateway, if the routing table names one.
     fn portmap_interfaces(&mut self) -> Vec<(IpInterface, Option<IpAddr>)> {
-        let listen: Vec<Ipv4Addr> = self
-            .listeners
+        let endpoints: Vec<IpAddr> = self
+            .network
+            .expanded
             .iter()
-            .filter_map(|l| l.local_addr().ok())
-            .filter_map(|a| match a.ip() {
-                IpAddr::V4(v4) => Some(v4),
-                IpAddr::V6(_) => None,
-            })
+            .filter(|e| !e.is_local_network() && !e.ssl)
+            .map(|e| e.addr)
+            .filter(|a| a.is_ipv4() || !crate::net::ip_voter::is_local(a))
             .collect();
-        if listen.is_empty() {
+        if endpoints.is_empty() {
             return Vec::new();
         }
-        let ifs = match sys::interfaces() {
+        let ifs = match self.net_interfaces() {
             Ok(ifs) => ifs,
             Err(e) => {
                 self.alert(Alert::Log {
@@ -157,7 +158,7 @@ impl Engine {
                 return Vec::new();
             }
         };
-        let routes = match sys::routes() {
+        let routes = match self.net_routes() {
             Ok(r) => Some(r),
             Err(e) => {
                 self.alert(Alert::Log {
@@ -168,29 +169,13 @@ impl Engine {
             }
         };
         let mut out: Vec<(IpInterface, Option<IpAddr>)> = Vec::new();
-        let mut add = |ifc: &IpInterface, wildcard: bool| {
-            if ifc.loopback || !ifc.addr.is_ipv4() || out.iter().any(|(i, _)| i.addr == ifc.addr) {
-                return;
+        for addr in endpoints {
+            let Some(ifc) = ifs.iter().find(|i| i.addr == addr) else { continue };
+            if ifc.loopback || out.iter().any(|(i, _)| i.addr == addr) {
+                continue;
             }
             let gateway = routes.as_ref().and_then(|r| get_gateway(ifc, r));
-            // a wildcard listen address stands for the interfaces that reach the internet
-            let internet = match &routes {
-                Some(_) => gateway.is_some(),
-                None => ifc.multicast,
-            };
-            if wildcard && !internet {
-                return;
-            }
             out.push((ifc.clone(), gateway));
-        };
-        for ip in listen {
-            if ip.is_unspecified() {
-                for ifc in ifs.iter().filter(|i| i.up && i.preferred) {
-                    add(ifc, true);
-                }
-            } else if let Some(ifc) = ifs.iter().find(|i| i.addr == IpAddr::V4(ip)) {
-                add(ifc, false);
-            }
         }
         out
     }
@@ -198,30 +183,91 @@ impl Engine {
     /// libtorrent `reopen_listen_sockets`' mapper part: mappers for the listen interfaces, then
     /// the transports the settings enable.
     pub(super) fn start_portmap(&mut self) {
+        self.update_portmap(false);
+    }
+
+    /// Brings the mappers in line with the listen interfaces after a change: mappers of
+    /// interfaces (or gateways) that went away are closed, new ones start, the others keep
+    /// their mappings (libtorrent closes the mappers of removed listen sockets and starts them
+    /// on new ones). With `remap`, every mapping is asked for again (the listen port moved).
+    pub(super) fn update_portmap(&mut self, remap: bool) {
         if !self.settings.enable_natpmp && !self.settings.enable_upnp {
             return;
         }
-        if self.portmap.mappers.is_empty() {
-            for (iface, gateway) in self.portmap_interfaces() {
-                let natpmp_token = self.portmap.udp_token();
-                let upnp_tokens = (self.portmap.udp_token(), self.portmap.udp_token());
-                self.portmap.mappers.push(Mapper {
-                    iface,
-                    gateway,
-                    natpmp: None,
-                    natpmp_token,
-                    upnp: None,
-                    upnp_tokens,
-                    tcp: [None; 2],
-                    udp: [None; 2],
-                });
+        let want = self.portmap_interfaces();
+        let now = Instant::now();
+        let mut i = 0;
+        while i < self.portmap.mappers.len() {
+            let m = &self.portmap.mappers[i];
+            let wanted = want
+                .iter()
+                .any(|(ifc, gw)| ifc.addr == m.iface.addr && ifc.index == m.iface.index && *gw == m.gateway);
+            if wanted {
+                i += 1;
+                continue;
             }
+            let mut m = self.portmap.mappers.remove(i);
+            let message = format!("port mapping: closing the mappers on {}", m.iface.addr);
+            self.alert(Alert::Log { id: None, message });
+            self.close_mapper(&mut m, now);
+        }
+        for (iface, gateway) in want {
+            if self.portmap.mappers.iter().any(|m| m.iface.addr == iface.addr && m.iface.index == iface.index)
+            {
+                continue;
+            }
+            let natpmp_token = self.portmap.udp_token();
+            let upnp_tokens = (self.portmap.udp_token(), self.portmap.udp_token());
+            self.portmap.mappers.push(Mapper {
+                iface,
+                gateway,
+                natpmp: None,
+                natpmp_token,
+                upnp: None,
+                upnp_tokens,
+                tcp: [None; 2],
+                udp: [None; 2],
+            });
         }
         if self.settings.enable_natpmp {
             self.start_natpmp();
         }
         if self.settings.enable_upnp {
             self.start_upnp();
+        }
+        if remap {
+            for mi in 0..self.portmap.mappers.len() {
+                self.remap_ports(mi, NATPMP, now);
+                self.remap_ports(mi, UPNP, now);
+            }
+        }
+        self.drain_portmap();
+    }
+
+    /// Closes both mappers of an interface: their delete requests go out (UPnP's mapper lives
+    /// on until they are answered).
+    fn close_mapper(&mut self, m: &mut Mapper, now: Instant) {
+        m.tcp = [None; 2];
+        m.udp = [None; 2];
+        if let Some(mut n) = m.natpmp.take() {
+            n.close(now);
+            self.out.extend(
+                n.log
+                    .drain(..)
+                    .map(|message| Alert::PortmapLog { transport: PortmapTransport::NatPmp, message }),
+            );
+        }
+        if let Some(mut u) = m.upnp.take() {
+            u.close(self.poll.registry(), now);
+            if u.pending() {
+                self.portmap.closing.push(u);
+            } else {
+                self.out.extend(
+                    u.log
+                        .drain(..)
+                        .map(|message| Alert::PortmapLog { transport: PortmapTransport::Upnp, message }),
+                );
+            }
         }
     }
 
@@ -239,8 +285,15 @@ impl Engine {
                 continue;
             };
             let m = &mut self.portmap.mappers[mi];
+            // an IPv6 default gateway is a link-local address on this interface
+            let nat_endpoint = match gateway {
+                IpAddr::V6(g) if is_link_local(&gateway) => {
+                    SocketAddr::V6(SocketAddrV6::new(g, natpmp::PORT, 0, m.iface.index))
+                }
+                _ => SocketAddr::new(gateway, natpmp::PORT),
+            };
             let mut n = NatPmp::new();
-            n.start(self.poll.registry(), Token(m.natpmp_token), m.iface.addr, gateway, natpmp::PORT, now);
+            n.start(self.poll.registry(), Token(m.natpmp_token), m.iface.addr, nat_endpoint, now);
             m.natpmp = Some(n);
             self.remap_ports(mi, NATPMP, now);
         }
@@ -320,10 +373,16 @@ impl Engine {
     }
 
     /// libtorrent `remap_ports` / `map_port` for one mapper and transport: the TCP listen port
-    /// and the DHT's UDP port, with the same external port numbers.
+    /// and the UDP port (uTP and the DHT) of the mapper's family, with the same external port
+    /// numbers.
     fn remap_ports(&mut self, mi: usize, transport: usize, now: Instant) {
-        let tcp_port = self.listen_port;
-        let udp_port = self.udp.iter().find(|u| u.v4).map_or(0, |u| u.local.port());
+        let v4 = self.portmap.mappers[mi].iface.addr.is_ipv4();
+        let tcp_port = if self.listeners.iter().any(|l| l.tcp.is_some() && l.local.is_ipv4() == v4) {
+            self.listen_port
+        } else {
+            0
+        };
+        let udp_port = self.udp.iter().find(|u| u.v4 == v4).map_or(0, |u| u.local.port());
         let registry = self.poll.registry();
         let m = &mut self.portmap.mappers[mi];
         for (proto, port, handle) in

@@ -243,6 +243,12 @@ impl SessionVoter {
         SessionVoter { voters: [IpVoter::new(now), IpVoter::new(now)] }
     }
 
+    /// Forgets a family's votes, as libtorrent does when the listen socket holding them closes
+    /// (the engine calls this when the internet-facing addresses of the family change).
+    pub fn reset(&mut self, v4: bool, now: Instant) {
+        self.voters[!v4 as usize] = IpVoter::new(now);
+    }
+
     /// The voted external address of a family.
     pub fn external_address(&self, v4: bool) -> Option<IpAddr> {
         self.voters[!v4 as usize].external_address()
@@ -431,6 +437,20 @@ pub(crate) mod tests {
         assert_eq!(sv.cast_vote(a4, source::PEER, rand_v4(), now), None);
         // an IPv6 source can't vote on our IPv4 address
         assert_eq!(sv.cast_vote(v4("53.3.3.3"), source::PEER, rand_v6(), now), None);
+    }
+
+    #[test]
+    fn session_voter_reset_forgets_one_family() {
+        let now = Instant::now();
+        let mut sv = SessionVoter::new(now);
+        let (a4, a6): (IpAddr, IpAddr) = ("51.1.1.1".parse().unwrap(), "2f80::1".parse().unwrap());
+        sv.cast_vote(a4, source::TRACKER, rand_v4(), now);
+        sv.cast_vote(a6, source::TRACKER, rand_v6(), now);
+        sv.reset(true, now);
+        assert_eq!(sv.external_address(true), None);
+        assert_eq!(sv.external_address(false), Some(a6));
+        // the next vote decides at once again
+        assert_eq!(sv.cast_vote(v4("52.2.2.2"), source::PEER, rand_v4(), now), Some(v4("52.2.2.2")));
     }
 
     #[test]

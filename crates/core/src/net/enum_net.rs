@@ -1,9 +1,11 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/enum_net.cpp (ip_interface, match_addr_mask,
-// build_netmask), test/test_enum_net.cpp
+// build_netmask, get_gateway, has_internet_route, has_any_internet_route), src/ip_helpers.cpp
+// (is_global, is_link_local), test/test_enum_net.cpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: the platform enumeration lives in `net::sys` (GetAdaptersAddresses, getifaddrs; no
 // netlink). An interface entry keeps its IPv6 scope id beside the address, since `IpAddr` has
-// none, and the interface index as well as its name.
+// none, and the interface index as well as its name. Routes name their interface by index, so
+// `has_internet_route` takes an index where libtorrent takes a device name.
 
 //! Local interface addresses and subnet matching.
 
@@ -22,6 +24,8 @@ pub(crate) struct IpInterface {
     pub up: bool,
     pub loopback: bool,
     pub multicast: bool,
+    /// A point-to-point link (PPP, many VPN tunnels: libtorrent `if_flags::pointopoint`).
+    pub pointopoint: bool,
     /// Not deprecated, tentative or a failed duplicate (always true where the OS doesn't say).
     pub preferred: bool,
 }
@@ -57,6 +61,42 @@ pub(crate) fn get_gateway(iface: &IpInterface, routes: &[IpRoute]) -> Option<IpA
                 && r.index == iface.index
         })
         .map(|r| r.gateway)
+}
+
+/// libtorrent `aux::is_global`: an IPv6 address in 2000::/3, or an IPv4 address that is not
+/// multicast, unspecified or local (`ip_voter::is_local`).
+pub(crate) fn is_global(a: &IpAddr) -> bool {
+    match a {
+        IpAddr::V6(a6) => (a6.octets()[0] & 0xe0) == 0x20,
+        IpAddr::V4(a4) => !(a4.is_multicast() || a4.is_unspecified() || crate::net::ip_voter::is_local(a)),
+    }
+}
+
+/// libtorrent `aux::is_link_local`: fe80::/10 and link-local multicast, or 169.254.0.0/16.
+pub(crate) fn is_link_local(a: &IpAddr) -> bool {
+    match a {
+        IpAddr::V6(a6) => {
+            let b = a6.octets();
+            (a6.segments()[0] & 0xffc0) == 0xfe80 || (b[0] == 0xff && (b[1] & 0x0f) == 0x02)
+        }
+        IpAddr::V4(a4) => (u32::from(*a4) & 0xffff_0000) == 0xa9fe_0000,
+    }
+}
+
+/// libtorrent `has_any_internet_route`: whether any route leads to a global address (or is a
+/// default route).
+pub(crate) fn has_any_internet_route(routes: &[IpRoute]) -> bool {
+    routes.iter().any(|r| r.destination.is_unspecified() || is_global(&r.destination))
+}
+
+/// libtorrent `has_internet_route`: whether a route of family `v4` to a global address (or a
+/// default route) leaves through the interface with index `index`.
+pub(crate) fn has_internet_route(index: u32, v4: bool, routes: &[IpRoute]) -> bool {
+    routes.iter().any(|r| {
+        r.destination.is_ipv4() == v4
+            && r.index == index
+            && (r.destination.is_unspecified() || is_global(&r.destination))
+    })
 }
 
 /// libtorrent `build_netmask`: a mask with the top `bits` set.
@@ -128,6 +168,7 @@ mod tests {
             up: true,
             loopback: false,
             multicast: true,
+            pointopoint: false,
             preferred: true,
         };
         assert_eq!(get_gateway(&iface("192.168.1.5", 7), &routes), Some(ip("192.168.1.1")));
@@ -140,6 +181,66 @@ mod tests {
         );
         assert_eq!(get_gateway(&iface("2001:db8::5", 7), &routes), Some(ip("fe80::1")));
         assert_eq!(get_gateway(&iface("fe80::5", 7), &routes), None, "local IPv6 addresses never route out");
+    }
+
+    fn rt(dst: &str, index: u32, gw: &str, mask: &str) -> IpRoute {
+        IpRoute { destination: ip(dst), netmask: ip(mask), gateway: ip(gw), source_hint: None, index }
+    }
+
+    #[test]
+    fn has_internet_route_cases() {
+        // libtorrent's devices by index: eth0 1, eth1 2, lo 3, tun0 4, tun1 5, eth2 6
+        let routes = [
+            rt("0.0.0.0", 1, "192.168.0.1", "255.255.0.0"),
+            rt("0.0.0.0", 2, "0.0.0.0", "255.0.0.0"),
+            rt("127.0.0.0", 3, "0.0.0.0", "255.0.0.0"),
+            rt("0.0.0.0", 4, "0.0.0.0", "128.0.0.0"),
+            rt("128.0.0.0", 4, "0.0.0.0", "128.0.0.0"),
+            rt("1.2.3.4", 5, "0.0.0.0", "255.255.0.0"),
+            rt("2000:5678::1", 5, "::", "f::"),
+        ];
+        assert!(has_internet_route(1, true, &routes));
+        assert!(!has_internet_route(1, false, &routes));
+        assert!(has_internet_route(2, true, &routes));
+        assert!(!has_internet_route(2, false, &routes));
+        assert!(!has_internet_route(3, true, &routes));
+        assert!(!has_internet_route(3, false, &routes));
+        assert!(!has_internet_route(6, true, &routes));
+        assert!(!has_internet_route(6, false, &routes));
+        assert!(has_internet_route(4, true, &routes));
+        assert!(!has_internet_route(4, false, &routes));
+        assert!(has_internet_route(5, true, &routes));
+        assert!(has_internet_route(5, false, &routes));
+        assert!(has_any_internet_route(&routes));
+        assert!(!has_any_internet_route(&[rt("127.0.0.0", 3, "0.0.0.0", "255.0.0.0")]));
+        assert!(!has_any_internet_route(&[]));
+    }
+
+    #[test]
+    fn global_and_link_local() {
+        for a in ["1.2.3.4", "2001:db8::1", "2601:646:c600:a3::1"] {
+            assert!(is_global(&ip(a)), "{a}");
+        }
+        for a in [
+            "192.168.1.2",
+            "10.0.0.1",
+            "127.0.0.1",
+            "169.254.1.2",
+            "0.0.0.0",
+            "224.0.0.1",
+            "fe80::1",
+            "fc00::1",
+            "::1",
+            "::",
+        ] {
+            assert!(!is_global(&ip(a)), "{a}");
+        }
+        for a in ["169.254.1.2", "fe80::d250:99ff:fe0c:9b74", "ff02::1"] {
+            assert!(is_link_local(&ip(a)), "{a}");
+        }
+        for a in ["192.168.1.2", "127.0.0.1", "2001:db8::1", "fec0::1", "::1"] {
+            assert!(!is_link_local(&ip(a)), "{a}");
+        }
     }
 
     #[test]

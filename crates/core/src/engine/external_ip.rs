@@ -41,10 +41,17 @@ impl Engine {
     }
 
     /// Recomputes `external_ip` (libtorrent `session_impl::external_address`) from the votes
-    /// and the listen addresses.
+    /// and the listen addresses: the bound ones first, then the addresses a wildcard stands
+    /// for (libtorrent's expanded listen sockets; loopback and link-local ones say nothing
+    /// about where a LAN peer sees us).
     pub(super) fn update_external_ip(&mut self) {
-        let listen: Vec<IpAddr> =
-            self.listeners.iter().filter_map(|l| l.local_addr().ok()).map(|a| a.ip()).collect();
+        let expanded = self
+            .network
+            .expanded
+            .iter()
+            .map(|e| e.addr)
+            .filter(|a| !a.is_loopback() && !crate::net::enum_net::is_link_local(a));
+        let listen: Vec<IpAddr> = self.listeners.iter().map(|l| l.local.ip()).chain(expanded).collect();
         self.external_ip = self.ip_voter.external_ip(listen);
     }
 }

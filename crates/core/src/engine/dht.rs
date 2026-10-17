@@ -43,6 +43,9 @@ pub(super) struct DhtSession {
     next_torrent: usize,
     next_announce: Option<Instant>,
     last_save: Instant,
+    /// The DHT is on but had no UDP socket to run on: it starts (with this state directory)
+    /// when a listen socket brings one.
+    waiting_for_socket: Option<Option<PathBuf>>,
 }
 
 impl DhtSession {
@@ -59,6 +62,7 @@ impl DhtSession {
             next_torrent: 0,
             next_announce: None,
             last_save: now,
+            waiting_for_socket: None,
         }
     }
 
@@ -108,6 +112,7 @@ impl Engine {
         let now = Instant::now();
         if self.udp.is_empty() {
             self.alert(Alert::Log { id: None, message: "DHT: no UDP listen socket, not started".into() });
+            self.dht.waiting_for_socket = Some(state_dir.map(Path::to_path_buf));
             return;
         }
         let path = state_dir.map(|d| d.join(STATE_FILE));
@@ -125,6 +130,41 @@ impl Engine {
         }
         if self.dht.pending_routers == 0 {
             self.really_start_dht(now);
+        }
+    }
+
+    /// A UDP listen socket of this family opened after startup (libtorrent `dht->new_socket`
+    /// for a new listen socket): the DHT runs a node on it, or starts if it was waiting for a
+    /// socket.
+    pub(super) fn dht_socket_opened(&mut self, v4: bool) {
+        if !self.settings.enable_dht {
+            return;
+        }
+        if let Some(dir) = self.dht.waiting_for_socket.take() {
+            self.start_dht(dir.as_deref());
+            return;
+        }
+        let external = self.ip_voter.external_address(v4);
+        if let Some(t) = self.dht.tracker.as_mut() {
+            t.new_socket(v4, external, Instant::now());
+        }
+    }
+
+    /// After a network change that touched the internet-facing addresses: every running
+    /// torrent announces again (libtorrent's new listen sockets announce on their own).
+    pub(super) fn dht_reannounce_all(&mut self) {
+        if self.dht.tracker.is_none() {
+            return;
+        }
+        let running: Vec<TorrentId> = self
+            .torrent_ids()
+            .into_iter()
+            .filter(|&id| self.torrent_ref(id).is_some_and(|t| t.is_active()))
+            .collect();
+        for id in running {
+            if !self.dht.prioritized.contains(&id) {
+                self.dht.prioritized.push_back(id);
+            }
         }
     }
 

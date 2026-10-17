@@ -67,6 +67,8 @@ OPTIONS:
     --seed            After downloading, keep seeding until stopped
     --seconds N       Stop after N seconds
     --port N          Listen port (default 6881)
+    --listen LIST     Listen interfaces, as libtorrent's listen_interfaces: IP:PORT,
+                      [IPv6]:PORT or DEVICE:PORT, comma-separated (overrides --port)
     --dl-limit KIB    Download limit in KiB/s (0 = unlimited)
     --ul-limit KIB    Upload limit in KiB/s (0 = unlimited)
     --ip-filter FILE  Block the address ranges in FILE (ipfilter.dat or P2P format)
@@ -83,6 +85,7 @@ struct Opts {
     seed: bool,
     seconds: Option<u64>,
     port: Option<u16>,
+    listen: Option<String>,
     dl_limit: u32,
     ul_limit: u32,
     ip_filter: Option<PathBuf>,
@@ -100,6 +103,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         seed: false,
         seconds: None,
         port: None,
+        listen: None,
         dl_limit: 0,
         ul_limit: 0,
         ip_filter: None,
@@ -122,6 +126,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--verbose" | "-v" => o.verbose = true,
             "--seconds" => o.seconds = Some(num("--seconds", value("--seconds")?)?),
             "--port" => o.port = Some(num("--port", value("--port")?)?),
+            "--listen" => o.listen = Some(value("--listen")?),
             "--dl-limit" => o.dl_limit = num::<u32>("--dl-limit", value("--dl-limit")?)?.saturating_mul(1024),
             "--ul-limit" => o.ul_limit = num::<u32>("--ul-limit", value("--ul-limit")?)?.saturating_mul(1024),
             "--ip-filter" => o.ip_filter = Some(value("--ip-filter")?.into()),
@@ -210,6 +215,9 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         Settings { download_rate_limit: o.dl_limit, upload_rate_limit: o.ul_limit, ..Settings::default() };
     if let Some(p) = o.port {
         settings.listen_interfaces = format!("0.0.0.0:{p},[::]:{p}");
+    }
+    if let Some(l) = &o.listen {
+        settings.listen_interfaces = l.clone();
     }
     let session = match Session::start(SessionParams { settings, state_dir: state_dir.clone() }) {
         Ok(s) => s,

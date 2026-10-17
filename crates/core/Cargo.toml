@@ -19,6 +19,10 @@ fuzzing = []
 [dependencies]
 mio.workspace = true
 
+# `SourceFd`: the network-change notifier's netlink / PF_ROUTE socket on the reactor
+[target.'cfg(unix)'.dependencies]
+mio = { workspace = true, features = ["os-ext"] }
+
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",

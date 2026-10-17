@@ -12,7 +12,10 @@
 // the peer list). A web seed blocked by the IP filter waits `urlseed_wait_retry` before the
 // next try (libtorrent retries, and posts the alert, every second); a 503 or 429 answer does
 // not mark the file as missing on that server (libtorrent stops asking it for that file); an
-// empty file a server lacks does not take the piece it sits in away from that server.
+// empty file a server lacks does not take the piece it sits in away from that server. Through a
+// proxy (libtorrent `connect_to_url_seed`'s proxy branches): an HTTP proxy is asked for plain
+// `http://` seeds directly; otherwise a tunnel is made to the seed, by name when the proxy
+// resolves names. A seed reached by name has a placeholder address (`100::/64`) for blame.
 
 //! Web seeds (BEP 19 `url-list` and BEP 17 `httpseeds`): HTTP servers that hold the torrent's
 //! files and act as seeds.
@@ -25,6 +28,7 @@ use std::time::{Duration, Instant};
 use mio::net::TcpStream;
 use mio::{Interest, Token};
 
+use super::proxy::Tunnel;
 use super::smart_ban::Trust;
 use super::torrent::Torrent;
 use super::{Engine, Slab};
@@ -36,6 +40,7 @@ use crate::net::resolver::Resolved;
 use crate::net::tls::{self, TlsStream};
 use crate::params::TorrentFlags;
 use crate::proto::peer_wire::{self, msg};
+use crate::proto::proxy::Target;
 use crate::proto::web_peer::{Restart, WebEvent, WebPeer};
 use crate::status::{PeerFlags, PeerInfo, PeerSource};
 use crate::types::TorrentId;
@@ -277,6 +282,8 @@ pub(crate) struct WebConn {
     https: bool,
     stream: Stream,
     connecting: bool,
+    /// The proxy handshake, after the TCP connect and before anything else.
+    tunnel: Option<Tunnel>,
     proto: WebPeer,
     /// The pieces this server has, unless `all`.
     have: Bitfield,
@@ -480,8 +487,27 @@ impl Engine {
             return self.url_seed_alert(id, &url, message);
         }
         if let Some(&addr) = w.endpoints.first() {
-            return self.connect_web_seed(id, seed, addr, now);
+            return self.connect_web_seed(id, seed, addr, None, now);
         }
+        // through a proxy that is asked for the URL or resolves names, nothing is resolved here
+        if let Some(cfg) = self.proxy.for_peers() {
+            let target = Target::new(&parts.host, port);
+            if cfg.plain_http(proto == "https") || cfg.resolves_names() || matches!(target, Target::Addr(_)) {
+                return match target {
+                    Target::Addr(a) => self.connect_web_seed(id, seed, a, None, now),
+                    name => self.connect_web_seed(
+                        id,
+                        seed,
+                        Self::proxied_placeholder(seed, port),
+                        Some(name),
+                        now,
+                    ),
+                };
+            }
+        }
+        let Some(t) = self.torrent(id) else { return };
+        let Some(i) = t.web_seeds.index_of(seed) else { return };
+        let w = &mut t.web_seeds.list[i];
         w.resolving = true;
         self.web.next_cookie += 1;
         let cookie = WEB_COOKIE | self.web.next_cookie;
@@ -549,16 +575,36 @@ impl Engine {
         if self.connections_full(id) {
             return;
         }
-        self.connect_web_seed(id, seed, addr, now);
+        self.connect_web_seed(id, seed, addr, None, now);
     }
 
-    /// libtorrent `torrent::connect_web_seed`.
-    fn connect_web_seed(&mut self, id: TorrentId, seed: u32, addr: SocketAddr, now: Instant) {
+    /// libtorrent `torrent::connect_web_seed`. `name` is the target a proxy resolves; `addr` is
+    /// then a placeholder.
+    fn connect_web_seed(
+        &mut self,
+        id: TorrentId,
+        seed: u32,
+        addr: SocketAddr,
+        name: Option<Target>,
+        now: Instant,
+    ) {
         let wait = Duration::from_secs(self.settings.urlseed_wait_retry as u64);
-        let ssrf = self.settings.ssrf_mitigation;
+        let ssrf = self.settings.ssrf_mitigation && name.is_none();
         let (user_agent, always_ua) =
             (self.settings.user_agent.clone(), self.settings.always_send_user_agent);
-        let blocked = self.filters.ip.is_blocked(addr.ip());
+        let blocked = name.is_none() && self.filters.ip.is_blocked(addr.ip());
+        let via = match self.peer_proxy() {
+            None => None,
+            Some(Ok(p)) => Some(p),
+            Some(Err(error)) => {
+                // the proxy's name is not resolved (yet)
+                let Some(t) = self.torrent(id) else { return };
+                let Some(i) = t.web_seeds.index_of(seed) else { return };
+                let retry = if error.is_some() { wait } else { Duration::from_secs(1) };
+                later(&mut t.web_seeds.list[i].retry, now + retry);
+                return;
+            }
+        };
         let running = self.torrent_ref(id).is_some_and(|t| self.is_running(t));
         let Some(t) = self.torrent(id) else { return };
         let Some(i) = t.web_seeds.index_of(seed) else { return };
@@ -597,7 +643,24 @@ impl Engine {
             }
         };
         let https = parts.protocol.eq_ignore_ascii_case("https");
-        let sock = match TcpStream::connect(addr) {
+        let mut tunnel = None;
+        let mut connect_to = addr;
+        if let Some((cfg, proxy_addr)) = &via {
+            connect_to = *proxy_addr;
+            if cfg.plain_http(https) {
+                proto.set_http_proxy(cfg.creds());
+            } else {
+                match cfg.tunnel(&name.clone().unwrap_or(Target::Addr(addr))) {
+                    Ok(hs) => tunnel = Some(Tunnel::new(hs)),
+                    Err(e) => {
+                        let t = self.torrent(id).expect("exists");
+                        t.web_seeds.list[i].disabled = true;
+                        return self.url_seed_alert(id, &url, format!("proxy: {e}"));
+                    }
+                }
+            }
+        }
+        let sock = match TcpStream::connect(connect_to) {
             Ok(s) => s,
             Err(e) => {
                 let t = self.torrent(id).expect("exists");
@@ -631,6 +694,7 @@ impl Engine {
             https,
             stream,
             connecting: true,
+            tunnel,
             proto,
             have: Bitfield::default(),
             all: false,
@@ -672,6 +736,23 @@ impl Engine {
                 (Ok(None), Err(e)) if e.kind() == io::ErrorKind::NotConnected => return,
                 (Ok(Some(e)), _) | (Err(e), _) | (_, Err(e)) => {
                     return self.remove_web_conn(slot, &format!("connect failed: {e}"), Close::ConnectFailed);
+                }
+            }
+            // through a proxy: its handshake on the bare socket, before TLS or a request
+            if let Some(t) = c.tunnel.as_mut() {
+                match t.drive(c.stream.tcp()) {
+                    Ok(None) => return,
+                    Ok(Some(_)) => c.tunnel = None,
+                    Err(e) => {
+                        let (id, url) = (c.torrent, c.proto.url().to_owned());
+                        self.proxy_connection_failed(&e);
+                        self.url_seed_alert(id, &url, e.to_string());
+                        return self.remove_web_conn(
+                            slot,
+                            &format!("connect failed: {e}"),
+                            Close::ConnectFailed,
+                        );
+                    }
                 }
             }
             self.web_on_connected(slot);

@@ -75,6 +75,8 @@ pub(crate) struct PeerConn {
     /// An encrypted attempt under `EncPolicy::Enabled`: if it fails, the peer is retried at once
     /// in plaintext (libtorrent `fast_reconnect`).
     pub fast_reconnect: bool,
+    /// An outgoing TCP connection through a proxy: its handshake, done before ours.
+    pub proxy: Option<Box<super::proxy::Tunnel>>,
 
     recv: Vec<u8>,
     rpos: usize,
@@ -166,6 +168,7 @@ impl PeerConn {
             rc4: None,
             sent_handshake: false,
             fast_reconnect: false,
+            proxy: None,
             recv: Vec::new(),
             rpos: 0,
             send: Vec::new(),

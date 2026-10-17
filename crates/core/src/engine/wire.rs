@@ -225,7 +225,7 @@ impl Engine {
         }
 
         // Our piece set (libtorrent `write_bitfield`), then the extension handshake.
-        let listen_port = self.listen_port;
+        let listen_port = self.announce_port();
         let reqq = self.settings.max_allowed_in_request_queue.max(1) as u32;
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
         let t = t.expect("checked");

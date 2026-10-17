@@ -23,6 +23,36 @@ pub enum EncLevel {
     Both,
 }
 
+/// The kind of proxy server (libtorrent `settings_pack::proxy_type_t`; I2P is not supported).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ProxyType {
+    /// No proxy: everything connects directly.
+    #[default]
+    None,
+    /// A SOCKS4 server; the user name is sent as the SOCKS4 user id. Host names go to it as
+    /// SOCKS4a when `proxy_hostnames` is set.
+    Socks4,
+    /// A SOCKS5 server without authentication (RFC 1928).
+    Socks5,
+    /// A SOCKS5 server with username / password authentication (RFC 1929).
+    Socks5Pw,
+    /// An HTTP proxy: plain `http://` tracker and web seed requests are sent to it as proxy
+    /// requests, everything else through `CONNECT`.
+    Http,
+    /// An HTTP proxy with basic authentication.
+    HttpPw,
+}
+
+impl ProxyType {
+    pub fn is_socks5(self) -> bool {
+        matches!(self, ProxyType::Socks5 | ProxyType::Socks5Pw)
+    }
+
+    pub fn is_http(self) -> bool {
+        matches!(self, ProxyType::Http | ProxyType::HttpPw)
+    }
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub user_agent: String,
@@ -182,6 +212,29 @@ pub struct Settings {
     pub allow_idna: bool,
     /// Send the User-Agent on every web seed request, not just the first of a connection.
     pub always_send_user_agent: bool,
+
+    /// The proxy server (libtorrent `proxy_type`, `proxy_hostname`, `proxy_port`,
+    /// `proxy_username`, `proxy_password`).
+    pub proxy_type: ProxyType,
+    pub proxy_hostname: String,
+    pub proxy_port: u16,
+    pub proxy_username: String,
+    pub proxy_password: String,
+    /// Host names (trackers, web seeds) are resolved by the proxy instead of locally: SOCKS5
+    /// sends the name, SOCKS4 uses SOCKS4a. Plain HTTP proxy requests always carry the name.
+    pub proxy_hostnames: bool,
+    /// Peer and web seed connections go through the proxy. Incoming connections are then
+    /// refused, no TCP listen socket is opened, and LSD and port mapping are off (libtorrent's
+    /// "proxy" listen socket); uTP and the DHT need a SOCKS5 proxy's UDP associate.
+    pub proxy_peer_connections: bool,
+    /// Tracker connections (HTTP and UDP) go through the proxy.
+    pub proxy_tracker_connections: bool,
+    /// HTTP CONNECT names the host (`CONNECT tracker.example:443`, with a `Host` header) rather
+    /// than the address it resolved to locally. Not in libtorrent 2.0.11.
+    pub proxy_send_host_in_connect: bool,
+    /// The SOCKS5 UDP ASSOCIATE command names our UDP socket's address and port, so the proxy
+    /// can forward datagrams to us before we send any (wrong if there is a NAT in between).
+    pub socks5_udp_send_local_ep: bool,
 }
 
 impl Default for Settings {
@@ -290,6 +343,16 @@ impl Default for Settings {
             ssrf_mitigation: true,
             allow_idna: false,
             always_send_user_agent: false,
+            proxy_type: ProxyType::None,
+            proxy_hostname: String::new(),
+            proxy_port: 0,
+            proxy_username: String::new(),
+            proxy_password: String::new(),
+            proxy_hostnames: true,
+            proxy_peer_connections: true,
+            proxy_tracker_connections: true,
+            proxy_send_host_in_connect: false,
+            socks5_udp_send_local_ep: false,
         }
     }
 }

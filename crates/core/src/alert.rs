@@ -41,6 +41,15 @@ pub enum BlockReason {
     PortFilter,
 }
 
+/// What failed when the proxy did (libtorrent `operation_t`, the values `socks5_alert` uses).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum ProxyOperation {
+    HostnameLookup,
+    Connect,
+    Handshake,
+    SockRead,
+}
+
 #[derive(Clone, Debug)]
 pub enum Alert {
     // Torrent lifecycle
@@ -186,6 +195,15 @@ pub enum Alert {
         addr: SocketAddr,
         reason: BlockReason,
     },
+    /// The proxy failed (libtorrent `socks5_alert`, also for HTTP and SOCKS4 proxies): its name
+    /// did not resolve, the SOCKS5 UDP associate could not be made or was lost, or it refused a
+    /// connection for a reason of its own (authentication, protocol). `proxy` is
+    /// `scheme://host:port`.
+    Proxy {
+        proxy: String,
+        operation: ProxyOperation,
+        error: String,
+    },
     /// A web seed failed: an HTTP error, a broken response, a failed lookup or connect, or a
     /// URL that cannot be used (libtorrent `url_seed_alert`).
     UrlSeed {
@@ -285,6 +303,7 @@ impl Alert {
             | PeerBanned { .. }
             | PeerBlocked { .. }
             | UrlSeed { .. }
+            | Proxy { .. }
             | Log { .. } => AlertPriority::Normal,
         }
     }
@@ -371,6 +390,9 @@ impl Alert {
             PeerBanned { addr, .. } => write!(s, "peer {addr} banned"),
             PeerBlocked { addr, reason, .. } => write!(s, "peer {addr} blocked ({reason:?})"),
             UrlSeed { url, message, .. } => write!(s, "web seed {url}: {message}"),
+            Proxy { proxy, operation, error } => {
+                write!(s, "proxy error. op: {operation:?} ec: {error} ep: {proxy}")
+            }
             WebSeeds { url_seeds, http_seeds, .. } => {
                 write!(s, "{} web seeds", url_seeds.len() + http_seeds.len())
             }

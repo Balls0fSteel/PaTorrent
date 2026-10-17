@@ -26,6 +26,7 @@ pub(crate) mod peer_list;
 mod pex;
 pub(crate) mod picker;
 mod portmap;
+mod proxy;
 mod smart_ban;
 pub(crate) mod torrent;
 pub(crate) mod tracker;
@@ -154,6 +155,8 @@ pub(super) struct UdpListen {
     pub v4: bool,
     pub sock: UdpSocket,
     pub local: SocketAddr,
+    /// How datagrams go while a proxy is set.
+    pub proxy: proxy::UdpProxy,
 }
 
 /// The uTP manager's way out: the UDP listen socket of the destination's family (libtorrent
@@ -164,6 +167,21 @@ struct UdpIo<'a> {
 
 impl UtpIo for UdpIo<'_> {
     fn send(&mut self, to: SocketAddr, data: &[u8], dont_fragment: bool) -> SendOutcome {
+        match proxy::udp_route(proxy::udp_policy(self.socks), self.socks, proxy::UdpKind::Peer) {
+            proxy::UdpRoute::Direct => {}
+            proxy::UdpRoute::Relay(i, relay) => {
+                let target = crate::proto::proxy::Target::Addr(to);
+                return match proxy::send_relayed(&self.socks[i], relay, &target, data, dont_fragment) {
+                    Ok(_) => SendOutcome::Sent,
+                    Err(e) if e.kind() == io::ErrorKind::WouldBlock => SendOutcome::WouldBlock,
+                    Err(e) if is_message_size(&e) => SendOutcome::MessageSize,
+                    Err(e) => SendOutcome::Failed(e.kind()),
+                };
+            }
+            // the associate is still being made: as if the datagram was lost
+            proxy::UdpRoute::Drop => return SendOutcome::Sent,
+            proxy::UdpRoute::Refuse => return SendOutcome::Failed(io::ErrorKind::PermissionDenied),
+        }
         let Some(u) = self.socks.iter().find(|u| u.v4 == to.is_ipv4()) else {
             return SendOutcome::Failed(io::ErrorKind::AddrNotAvailable);
         };
@@ -273,6 +291,8 @@ pub(crate) struct Engine {
     network: listen::NetworkState,
     /// Web seed connections (BEP 19 / BEP 17).
     web: web_seed::WebConns,
+    /// The proxy server and its SOCKS5 UDP associate.
+    proxy: proxy::ProxyState,
 }
 
 /// The network thread's entry point.
@@ -307,6 +327,9 @@ pub(crate) fn run(
         if let Some(d) = e.network.deadline() {
             next = next.min(d);
         }
+        if let Some(d) = e.proxy.deadline() {
+            next = next.min(d);
+        }
         let timeout = next.saturating_duration_since(now);
         if let Err(err) = e.poll.poll(&mut events, Some(timeout)) {
             if err.kind() != io::ErrorKind::Interrupted {
@@ -330,6 +353,8 @@ pub(crate) fn run(
         e.lsd_service(now);
         e.portmap_service(now);
         e.network_service(now);
+        e.proxy_service(now);
+        e.flush_tracker_udp();
         if e.bandwidth_tick_needed() && now >= e.last_bandwidth + BANDWIDTH_TICK {
             e.bandwidth_tick(now);
         }
@@ -418,6 +443,7 @@ impl Engine {
             filters: ip_filter::Filters::default(),
             network,
             web: web_seed::WebConns::default(),
+            proxy: proxy::ProxyState::default(),
             settings,
         }
     }
@@ -426,6 +452,7 @@ impl Engine {
 
     fn start(&mut self, state_dir: Option<PathBuf>) {
         let now = Instant::now();
+        self.update_proxy(now);
         self.open_listen_sockets();
         self.start_ip_notifier(now);
         self.update_external_ip();
@@ -483,6 +510,7 @@ impl Engine {
                 self.on_event(ev.token(), true, ev.is_writable());
             }
             self.portmap_service(Instant::now());
+            self.flush_tracker_udp();
             while let Ok(r) = self.resolve_rx.try_recv() {
                 if r.cookie & dht::DHT_COOKIE != 0 {
                     continue;
@@ -597,6 +625,7 @@ impl Engine {
         match token.0 {
             0 => {}
             _ if token == listen::IP_NOTIFIER_TOKEN => self.on_ip_notifier_readable(),
+            _ if token == proxy::PROXY_UDP_TOKEN => self.on_proxy_udp_event(),
             t if (listen::LISTEN_TOKEN_BASE..PEER_TOKEN_BASE).contains(&t) => self.on_accept(token),
             _ if token == UDP4_TOKEN => self.trackers.on_udp_readable(false, Instant::now()),
             _ if token == UDP6_TOKEN => self.trackers.on_udp_readable(true, Instant::now()),
@@ -640,7 +669,12 @@ impl Engine {
             if limit >= 0 && self.peers.len() >= limit as usize {
                 continue; // dropped: closes the socket
             }
-            if !self.settings.enable_incoming_tcp || self.session_paused || self.incoming_blocked(addr) {
+            // libtorrent: with a proxy, peers are only accepted through it, never directly
+            if !self.settings.enable_incoming_tcp
+                || self.session_paused
+                || self.proxy.for_peers().is_some()
+                || self.incoming_blocked(addr)
+            {
                 continue;
             }
             self.add_peer_conn(Transport::Tcp(sock), addr, false, PeerSource::INCOMING, None);
@@ -662,15 +696,33 @@ impl Engine {
                 }
                 Err(_) => break,
             };
-            let from = normalize_addr(from);
-            let buf = &self.udp_buf[..n];
+            let mut from = normalize_addr(from);
+            let mut buf = &self.udp_buf[..n];
+            let mut node_v4 = v4;
+            // libtorrent `udp_socket::read`: through a proxy, only the relay's datagrams count
+            match proxy::udp_incoming(&self.udp[index].proxy, from, buf) {
+                proxy::UdpIn::Direct => {}
+                proxy::UdpIn::Drop => continue,
+                proxy::UdpIn::Proxied(src, data) => {
+                    let addr = match src {
+                        crate::proto::proxy::UdpSource::Addr(a) => Some(normalize_addr(a)),
+                        crate::proto::proxy::UdpSource::Host(..) => None,
+                    };
+                    if self.trackers.on_proxied_packet(addr, data, now) {
+                        continue;
+                    }
+                    let Some(addr) = addr else { continue };
+                    (from, buf, node_v4) = (addr, data, addr.is_ipv4());
+                }
+            }
+            let n = buf.len();
             let mut io = UdpIo { socks: &self.udp };
             if self.utp.incoming_packet(from, buf, &mut io, now) {
                 continue;
             }
             if let Some(t) = self.dht.tracker.as_mut() {
                 if n > 20 && buf[0] == b'd' && buf[n - 1] == b'e' {
-                    t.incoming_packet(v4, from, buf, now);
+                    t.incoming_packet(node_v4, from, buf, now);
                 }
             }
         }
@@ -764,9 +816,21 @@ impl Engine {
             if !(readable || writable) {
                 return;
             }
-            match &p.sock {
+            match &mut p.sock {
                 Transport::Tcp(sock) => match (sock.take_error(), sock.peer_addr()) {
-                    (Ok(None), Ok(_)) => {}
+                    (Ok(None), Ok(_)) => {
+                        // through a proxy: its handshake first
+                        if let Some(t) = p.proxy.as_mut() {
+                            match t.drive(sock) {
+                                Ok(None) => return,
+                                Ok(Some(_)) => p.proxy = None,
+                                Err(e) => {
+                                    p.close(format!("connect failed: {e}"), true);
+                                    return self.proxy_connection_failed(&e);
+                                }
+                            }
+                        }
+                    }
                     (Ok(None), Err(e)) if e.kind() == io::ErrorKind::NotConnected => return,
                     (Ok(Some(e)), _) | (Err(e), _) | (_, Err(e)) => {
                         p.close(format!("connect failed: {e}"), true);
@@ -1204,6 +1268,7 @@ impl Engine {
         let upnp_changed = s.enable_upnp != self.settings.enable_upnp;
         let listen_changed = listen::listen_settings_changed(&self.settings, &s);
         self.settings = s;
+        self.update_proxy(Instant::now());
         if let Some(close_all) = listen_changed {
             self.on_listen_settings_changed(close_all);
         }
@@ -1681,7 +1746,7 @@ impl Engine {
         let keep_metadata = self.store.is_none();
         let peer_id = self.peer_id;
         let key = self.tracker_key;
-        let port = self.listen_port;
+        let port = self.tracker_port();
         let filter = self.tracker_filter(id);
         let Some(t) = self.torrent(id) else { return };
         let peers = t.peers.clone();
@@ -2015,6 +2080,10 @@ impl Engine {
             }
             if r.cookie & web_seed::WEB_COOKIE != 0 {
                 self.on_web_resolved(r);
+                continue;
+            }
+            if r.cookie & proxy::PROXY_COOKIE != 0 {
+                self.on_proxy_resolved(r);
                 continue;
             }
             self.trackers.on_resolved(r, self.poll.registry(), now);
@@ -2391,7 +2460,7 @@ impl Engine {
 
     fn announce(&mut self, id: TorrentId, index: usize, now: Instant) {
         let (peer_id, key, port, num_want) =
-            (self.peer_id, self.tracker_key, self.listen_port, self.settings.num_want);
+            (self.peer_id, self.tracker_key, self.tracker_port(), self.settings.num_want);
         let filter = self.tracker_filter(id);
         let Some(t) = self.torrent(id) else { return };
         let finished = t.is_finished();
@@ -2480,7 +2549,17 @@ impl Engine {
             return false;
         }
         let (out_tcp, out_utp) = (self.settings.enable_outgoing_tcp, self.settings.enable_outgoing_utp);
-        let have_udp = self.udp.iter().any(|u| u.v4 == addr.is_ipv4());
+        // through a proxy: TCP to the proxy once its address is known; uTP only if it carries UDP
+        let via = match self.peer_proxy() {
+            None => None,
+            Some(Ok(p)) => Some(p),
+            Some(Err(_)) => return false,
+        };
+        let have_udp = match proxy::udp_route(proxy::udp_policy(&self.udp), &self.udp, proxy::UdpKind::Peer) {
+            proxy::UdpRoute::Direct => self.udp.iter().any(|u| u.v4 == addr.is_ipv4()),
+            proxy::UdpRoute::Relay(..) | proxy::UdpRoute::Drop => true,
+            proxy::UdpRoute::Refuse => false,
+        };
         let Some(t) = self.torrent_ref(id) else { return false };
         let source = t.peer_list.get(&addr).map_or(PeerSource::TRACKER, |p| p.source);
         let utp = out_utp && have_udp && (!out_tcp || t.peer_list.wants_utp(&addr));
@@ -2488,17 +2567,29 @@ impl Engine {
             // libtorrent: "discarding peer: TCP connections disabled"
             return false;
         }
+        let mut tunnel = None;
         let transport = if utp {
             let mut io = UdpIo { socks: &self.udp };
             // the user handle is the peer slot, set once it is known
             Ok(Transport::Utp(self.utp.connect(addr, 0, &mut io, now)))
+        } else if let Some((cfg, proxy_addr)) = via {
+            let target = crate::proto::proxy::Target::Addr(addr);
+            cfg.tunnel(&target)
+                .map_err(io::Error::other)
+                .and_then(|hs| {
+                    tunnel = Some(Box::new(proxy::Tunnel::new(hs)));
+                    TcpStream::connect(proxy_addr)
+                })
+                .map(Transport::Tcp)
         } else {
             TcpStream::connect(addr).map(Transport::Tcp)
         };
         match transport {
             Ok(tr) => match self.add_peer_conn(tr, addr, true, source, Some(id)) {
                 Some(slot) => {
-                    let pid = self.peers.get(slot).expect("added").id;
+                    let p = self.peers.get_mut(slot).expect("added");
+                    p.proxy = tunnel;
+                    let pid = p.id;
                     let t = self.torrent(id).expect("exists");
                     t.peers.push(slot);
                     t.peer_list.connecting(addr, pid, source, now);

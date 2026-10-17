@@ -5,6 +5,9 @@
 // callbacks. UDP trackers are reached from one ephemeral socket per address family (libtorrent
 // shares the listen socket); connection ids are cached per endpoint for 60 s, as BEP 15 allows.
 // HTTPS trackers go through the OS TLS layer (net::tls) between the socket and the HTTP bytes.
+// Through a proxy (libtorrent `http_connection` with `proxy_settings`, `udp_tracker_connection`
+// on a proxied `udp_socket`): HTTP requests wait while the proxy's name resolves; UDP tracker
+// datagrams are queued for the engine to send through the SOCKS5 associate on its listen socket.
 
 //! Tracker requests and per-torrent tracker state.
 
@@ -18,10 +21,12 @@ use mio::net::{TcpStream, UdpSocket};
 use mio::{Interest, Registry, Token};
 
 use super::Slab;
+use super::proxy::{ProxyConfig, Tunnel};
 use crate::net::ip_filter::IpFilter;
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::tls::{self, TlsStream};
 use crate::proto::http::{self, ParseError, Url};
+use crate::proto::proxy::Target;
 use crate::proto::tracker::{
     self, AnnounceRequest, AnnounceResponse, Event, ScrapeEntry, UdpResponse, announce_url, scrape_url,
 };
@@ -242,7 +247,11 @@ impl Write for Stream {
 struct HttpConn {
     job: TrackerJob,
     url: Url,
+    /// A target the proxy resolves (or, for a plain HTTP proxy request, names in the URL).
+    name: Option<Target>,
     addrs: Vec<SocketAddr>,
+    /// The proxy handshake, once connected to the proxy.
+    tunnel: Option<Tunnel>,
     /// The address being connected to.
     ip: Option<IpAddr>,
     stream: Option<Stream>,
@@ -264,7 +273,10 @@ enum UdpStage {
 struct UdpTxn {
     job: TrackerJob,
     port: u16,
+    /// The tracker's address, sent to directly.
     ep: Option<SocketAddr>,
+    /// Where datagrams go: the address, or through a proxy, maybe a host name.
+    target: Option<Target>,
     stage: UdpStage,
     attempts: u32,
     deadline: Instant,
@@ -276,12 +288,29 @@ enum Waiting {
     Udp(u32),
 }
 
+/// The proxy trackers go through.
+struct TrackerProxy {
+    cfg: ProxyConfig,
+    /// Unknown while its name resolves.
+    addr: Option<SocketAddr>,
+    /// Its name failed to resolve.
+    error: Option<String>,
+}
+
 pub(crate) struct TrackerManager {
     http: Slab<HttpConn>,
     udp4: Option<UdpSocket>,
     udp6: Option<UdpSocket>,
     txns: HashMap<u32, UdpTxn>,
-    connection_ids: HashMap<SocketAddr, (u64, Instant)>,
+    connection_ids: HashMap<Target, (u64, Instant)>,
+    proxy: Option<TrackerProxy>,
+    /// HTTP requests waiting for the proxy's address.
+    parked: Vec<TrackerJob>,
+    /// UDP trackers go through the proxy: datagrams wait in `proxied_out` for the engine.
+    udp_proxied: bool,
+    /// ... but the proxy carries no UDP.
+    udp_refused: bool,
+    proxied_out: Vec<(Target, Vec<u8>)>,
     waiting: HashMap<u64, Waiting>,
     next_cookie: u64,
     results: Vec<(TrackerJob, TrackerOutcome)>,
@@ -303,6 +332,11 @@ impl TrackerManager {
             udp6: bind("[::]:0", UDP6_TOKEN),
             txns: HashMap::new(),
             connection_ids: HashMap::new(),
+            proxy: None,
+            parked: Vec::new(),
+            udp_proxied: false,
+            udp_refused: false,
+            proxied_out: Vec::new(),
             waiting: HashMap::new(),
             next_cookie: 1,
             results: Vec::new(),
@@ -319,7 +353,38 @@ impl TrackerManager {
 
     /// Requests in flight.
     pub fn pending(&self) -> usize {
-        self.http.len() + self.txns.len()
+        self.http.len() + self.txns.len() + self.parked.len()
+    }
+
+    /// The proxy for tracker connections changed or its name resolved. Requests that waited for
+    /// it go on (or fail, if its name did not resolve).
+    pub fn set_proxy(
+        &mut self,
+        cfg: Option<ProxyConfig>,
+        addr: Option<SocketAddr>,
+        error: Option<String>,
+        resolver: &Resolver,
+        registry: &Registry,
+        now: Instant,
+    ) {
+        self.proxy = cfg.map(|cfg| TrackerProxy { cfg, addr, error });
+        for job in std::mem::take(&mut self.parked) {
+            self.start(job, resolver, registry, now);
+        }
+    }
+
+    /// UDP trackers go through the proxy (`refused`: which carries no UDP).
+    pub fn set_udp_proxied(&mut self, proxied: bool, refused: bool) {
+        self.udp_proxied = proxied;
+        self.udp_refused = refused;
+        if !proxied {
+            self.proxied_out.clear();
+        }
+    }
+
+    /// Datagrams to send through the proxy.
+    pub fn take_proxied_out(&mut self) -> Vec<(Target, Vec<u8>)> {
+        std::mem::take(&mut self.proxied_out)
     }
 
     pub fn take_results(&mut self) -> Vec<(TrackerJob, TrackerOutcome)> {
@@ -335,6 +400,16 @@ impl TrackerManager {
         if lower.starts_with("udp://") {
             self.start_udp(job, resolver, now);
         } else if lower.starts_with("http://") || lower.starts_with("https://") {
+            if let Some(p) = &self.proxy {
+                if let Some(e) = &p.error {
+                    let e = format!("proxy: {e}");
+                    return self.fail(job, e);
+                }
+                if p.addr.is_none() {
+                    self.parked.push(job);
+                    return;
+                }
+            }
             let url = match &job.kind {
                 JobKind::Announce(r) => Some(announce_url(&job.url, r)),
                 JobKind::Scrape(ih) => scrape_url(&job.url, &[*ih]),
@@ -366,11 +441,31 @@ impl TrackerManager {
         registry: &Registry,
         now: Instant,
     ) {
-        let request = http::get_request(&url, &self.user_agent);
+        // through a proxy: an HTTP proxy is asked for plain http:// URLs directly; otherwise a
+        // tunnel to the target, named or resolved here first
+        let mut request = http::get_request(&url, &self.user_agent);
+        let mut name = None;
+        if let Some(p) = &self.proxy {
+            let t = Target::new(&url.host, url.port);
+            if p.cfg.plain_http(url.scheme == "https") {
+                request = http::proxy_get_request(&url, &self.user_agent, p.cfg.creds());
+                name = Some(t);
+            } else if matches!(t, Target::Addr(_)) || p.cfg.resolves_names() {
+                name = Some(t);
+            }
+        }
+        if let Some(Target::Addr(a)) = &name {
+            if job.filter.as_ref().is_some_and(|f| f.is_blocked(a.ip())) {
+                return self.fail(job, BANNED_BY_IP_FILTER);
+            }
+        }
         let host = url.host.clone();
+        let named = name.is_some();
         let slot = self.http.insert(HttpConn {
             job,
             url,
+            name,
+            tunnel: None,
             addrs: Vec::new(),
             ip: None,
             stream: None,
@@ -381,6 +476,9 @@ impl TrackerManager {
             deadline: now + self.completion_timeout,
             redirects,
         });
+        if named {
+            return self.http_connect_next(slot, registry);
+        }
         let cookie = self.cookie(Waiting::Http(slot));
         if let Some(ips) = resolver.resolve(&host, cookie) {
             self.waiting.remove(&cookie);
@@ -406,7 +504,33 @@ impl TrackerManager {
         if let Some(mut s) = c.stream.take() {
             let _ = registry.deregister(s.tcp());
         }
-        while let Some(addr) = c.addrs.pop() {
+        let proxy = self.proxy.as_ref().map(|p| (&p.cfg, p.addr));
+        loop {
+            // the address to connect to, and what to ask a proxy for
+            let (addr, target) = match (c.name.take(), proxy) {
+                (Some(t), Some((_, Some(proxy)))) => (proxy, t),
+                (None, Some((_, Some(proxy)))) => match c.addrs.pop() {
+                    Some(a) => (proxy, Target::Addr(a)),
+                    None => break,
+                },
+                (None, None) => match c.addrs.pop() {
+                    Some(a) => (a, Target::Addr(a)),
+                    None => break,
+                },
+                _ => break,
+            };
+            c.tunnel = None;
+            if let Some((cfg, _)) = proxy {
+                if !cfg.plain_http(c.url.scheme == "https") {
+                    match cfg.tunnel(&target) {
+                        Ok(hs) => c.tunnel = Some(Tunnel::new(hs)),
+                        Err(e) => {
+                            let c = self.http.remove(slot).expect("present");
+                            return self.fail(c.job, format!("proxy: {e}"));
+                        }
+                    }
+                }
+            }
             if let Ok(mut s) = TcpStream::connect(addr) {
                 if registry
                     .register(&mut s, Token(HTTP_TOKEN_BASE + slot), Interest::READABLE | Interest::WRITABLE)
@@ -426,7 +550,9 @@ impl TrackerManager {
                     } else {
                         Stream::Plain(s)
                     });
-                    c.ip = Some(addr.ip());
+                    // a tracker reached through a proxy sees the proxy's address, not ours:
+                    // its `external ip` is no vote
+                    c.ip = if proxy.is_some() { None } else { Some(addr.ip()) };
                     c.connected = false;
                     c.written = 0;
                     c.buf.clear();
@@ -448,6 +574,14 @@ impl TrackerManager {
                 (Ok(None), Ok(_)) => c.connected = true,
                 (Ok(None), Err(e)) if e.kind() == io::ErrorKind::NotConnected => return,
                 _ => return self.http_connect_next(slot, registry),
+            }
+        }
+        // through a proxy: its handshake on the bare socket, before TLS or the request
+        if let Some(t) = c.tunnel.as_mut() {
+            match t.drive(s.tcp()) {
+                Ok(None) => return,
+                Ok(Some(_)) => c.tunnel = None,
+                Err(e) => return self.http_done(slot, Err(e.to_string()), resolver, registry, now),
             }
         }
         while c.written < c.request.len() {
@@ -550,6 +684,15 @@ impl TrackerManager {
             }
             _ => return self.fail(job, "invalid UDP tracker URL"),
         };
+        if self.udp_proxied && self.udp_refused {
+            // libtorrent `udp_socket::send`: `permission_denied` without a SOCKS5 associate
+            return self.fail(job, "Permission denied (UDP trackers need a SOCKS5 proxy)");
+        }
+        // a SOCKS5 proxy with `proxy_hostnames` resolves the name (libtorrent
+        // `udp_tracker_connection::start`)
+        let by_proxy = self.udp_proxied
+            && self.proxy.as_ref().is_some_and(|p| p.cfg.kind.is_socks5() && p.cfg.hostnames)
+            && matches!(Target::new(&host, port), Target::Host(..));
         let id = self.new_txn_id();
         self.txns.insert(
             id,
@@ -557,12 +700,16 @@ impl TrackerManager {
                 job,
                 port,
                 ep: None,
+                target: by_proxy.then(|| Target::Host(host.clone(), port)),
                 stage: UdpStage::Resolving,
                 attempts: 0,
                 deadline: now + self.completion_timeout,
                 connection_id: 0,
             },
         );
+        if by_proxy {
+            return self.udp_send(id, now);
+        }
         let cookie = self.cookie(Waiting::Udp(id));
         if let Some(ips) = resolver.resolve(&host, cookie) {
             self.waiting.remove(&cookie);
@@ -580,11 +727,15 @@ impl TrackerManager {
             return self.fail(t.job, BANNED_BY_IP_FILTER);
         }
         let ip = ips.iter().find(|ip| ip.is_ipv4()).or_else(|| ips.iter().find(|_| have6)).copied();
+        let ip = if self.udp_proxied { ips.first().copied() } else { ip };
         let Some(ip) = ip else {
             let t = self.txns.remove(&id).expect("present");
             return self.fail(t.job, "no usable tracker address");
         };
-        t.ep = Some(SocketAddr::new(ip, t.port));
+        let ep = SocketAddr::new(ip, t.port);
+        t.target = Some(Target::Addr(ep));
+        // replies through the proxy are matched by transaction id and source address alone
+        t.ep = (!self.udp_proxied).then_some(ep);
         self.udp_send(id, now);
     }
 
@@ -592,14 +743,14 @@ impl TrackerManager {
     /// connection id for the endpoint.
     fn udp_send(&mut self, id: u32, now: Instant) {
         let Some(mut t) = self.txns.remove(&id) else { return };
-        let ep = t.ep.expect("resolved");
+        let target = t.target.clone().expect("resolved");
         if t.attempts >= UDP_ATTEMPTS {
             return self.fail(t.job, "timed out");
         }
         let new_id = self.new_txn_id();
         let cached = self
             .connection_ids
-            .get(&ep)
+            .get(&target)
             .filter(|(_, at)| now.duration_since(*at) < UDP_CONNECTION_ID_LIFETIME);
         let packet = match cached {
             Some(&(cid, _)) => {
@@ -615,39 +766,64 @@ impl TrackerManager {
                 tracker::udp_connect(new_id)
             }
         };
-        let sock = if ep.is_ipv4() { self.udp4.as_ref() } else { self.udp6.as_ref() };
-        let Some(sock) = sock else {
-            return self.fail(t.job, "no UDP socket for the tracker's address family");
-        };
-        // Send errors (unreachable networks) are treated like a lost packet.
-        let _ = sock.send_to(&packet, ep);
+        if self.udp_proxied {
+            // the engine sends it through the proxy; until the associate is up it is lost
+            self.proxied_out.push((target, packet));
+        } else {
+            let ep = t.ep.expect("resolved");
+            let sock = if ep.is_ipv4() { self.udp4.as_ref() } else { self.udp6.as_ref() };
+            let Some(sock) = sock else {
+                return self.fail(t.job, "no UDP socket for the tracker's address family");
+            };
+            // Send errors (unreachable networks) are treated like a lost packet.
+            let _ = sock.send_to(&packet, ep);
+        }
         t.deadline = now + UDP_FIRST_TIMEOUT * 2u32.pow(t.attempts);
         t.attempts += 1;
         self.txns.insert(new_id, t);
     }
 
     pub fn on_udp_readable(&mut self, v6: bool, now: Instant) {
+        let mut buf = std::mem::take(&mut self.udp_buf);
         loop {
             let sock = if v6 { self.udp6.as_ref() } else { self.udp4.as_ref() };
-            let Some(sock) = sock else { return };
-            let (n, from) = match sock.recv_from(&mut self.udp_buf) {
+            let Some(sock) = sock else { break };
+            let (n, from) = match sock.recv_from(&mut buf) {
                 Ok(r) => r,
-                Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
+                Err(e) if e.kind() == io::ErrorKind::WouldBlock => break,
                 // Windows reports ICMP port-unreachable as a receive error; ignore it.
                 Err(_) => continue,
             };
-            let Some(resp) = tracker::udp_decode(&self.udp_buf[..n], v6) else { continue };
+            if !self.udp_proxied {
+                self.on_udp_packet(Some(from), &buf[..n], now);
+            }
+        }
+        self.udp_buf = buf;
+    }
+
+    /// A datagram the proxy relayed from `from` (`None`: from a host name). Whether it was a
+    /// UDP tracker's reply.
+    pub fn on_proxied_packet(&mut self, from: Option<SocketAddr>, data: &[u8], now: Instant) -> bool {
+        self.udp_proxied && self.on_udp_packet(from, data, now)
+    }
+
+    fn on_udp_packet(&mut self, from: Option<SocketAddr>, data: &[u8], now: Instant) -> bool {
+        {
+            let v6 = from.is_some_and(|f| f.is_ipv6());
+            let Some(resp) = tracker::udp_decode(data, v6) else { return false };
             let txn = match &resp {
                 UdpResponse::Connect { txn, .. }
                 | UdpResponse::Announce { txn, .. }
                 | UdpResponse::Scrape { txn, .. }
                 | UdpResponse::Error { txn, .. } => *txn,
             };
-            let Some(t) = self.txns.get(&txn) else { continue };
-            if t.ep != Some(from) {
-                continue;
+            let Some(t) = self.txns.get(&txn) else { return false };
+            let Some(ep) = t.target.clone() else { return false };
+            match (&ep, from) {
+                (Target::Addr(a), Some(f)) if *a != f => return false,
+                (Target::Addr(_), None) => return false,
+                _ => {}
             }
-            let ep = t.ep.expect("resolved");
             match resp {
                 UdpResponse::Connect { connection_id, .. } if t.stage == UdpStage::Connecting => {
                     self.connection_ids.insert(ep, (connection_id, now));
@@ -685,6 +861,7 @@ impl TrackerManager {
                 _ => {}
             }
         }
+        true
     }
 
     pub fn on_resolved(&mut self, r: Resolved, registry: &Registry, now: Instant) {

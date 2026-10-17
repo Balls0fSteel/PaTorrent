@@ -64,6 +64,23 @@ pub fn get_request(url: &Url, user_agent: &str) -> Vec<u8> {
     .into_bytes()
 }
 
+/// A `GET` request to an HTTP proxy for a plain `http://` URL (libtorrent `http_connection::get`
+/// with an HTTP proxy): the absolute URL as the target, basic authentication for the proxy.
+pub fn proxy_get_request(url: &Url, user_agent: &str, proxy_auth: Option<(&str, &str)>) -> Vec<u8> {
+    let mut r = format!("GET {}://{}{} HTTP/1.1\r\n", url.scheme, url.host_header(), url.path);
+    if let Some((user, pass)) = proxy_auth {
+        r.push_str("Proxy-Authorization: Basic ");
+        r.push_str(&crate::util::string::base64encode(format!("{user}:{pass}").as_bytes()));
+        r.push_str("\r\n");
+    }
+    r.push_str(&format!(
+        "Host: {}\r\nUser-Agent: {}\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n",
+        url.host_header(),
+        user_agent
+    ));
+    r.into_bytes()
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Response {
     pub status: u16,
@@ -203,6 +220,16 @@ mod tests {
         let req = String::from_utf8(get_request(&Url::parse("http://a.b/x").unwrap(), "UA/1")).unwrap();
         assert!(req.starts_with("GET /x HTTP/1.1\r\nHost: a.b\r\nUser-Agent: UA/1\r\n"));
         assert!(req.ends_with("\r\n\r\n"));
+        let u = Url::parse("http://a.b:8080/ann?k=1").unwrap();
+        let req = String::from_utf8(proxy_get_request(&u, "UA/1", Some(("Aladdin", "open sesame")))).unwrap();
+        assert_eq!(
+            req,
+            "GET http://a.b:8080/ann?k=1 HTTP/1.1\r\nProxy-Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\r\n\
+             Host: a.b:8080\r\nUser-Agent: UA/1\r\nAccept-Encoding: identity\r\nConnection: close\r\n\r\n"
+        );
+        let req =
+            String::from_utf8(proxy_get_request(&Url::parse("http://[::1]/a").unwrap(), "U", None)).unwrap();
+        assert!(req.starts_with("GET http://[::1]/a HTTP/1.1\r\nHost: [::1]\r\n"));
     }
 
     // In the spirit of libtorrent test_http_parser.cpp: content-length, chunked, EOF framing.

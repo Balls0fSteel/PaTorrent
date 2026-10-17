@@ -34,6 +34,8 @@ pub use socket::{ReadOutcome, State, UtpError, UtpSocket};
 pub(crate) const IPV4_HEADER: u16 = 20;
 pub(crate) const IPV6_HEADER: u16 = 40;
 pub(crate) const UDP_HEADER: u16 = 8;
+/// The SOCKS5 UDP header without its address (libtorrent `TORRENT_SOCKS5_HEADER`).
+pub(crate) const SOCKS5_HEADER: u16 = 6;
 pub(crate) const UTP_HEADER: u16 = 20;
 pub(crate) const ETHERNET_MTU: u16 = 1500;
 pub(crate) const TEREDO_MTU: u16 = 1280;
@@ -81,6 +83,8 @@ pub struct UtpSettings {
     pub cwnd_reduce_timer: i32,
     pub enable_incoming: bool,
     pub connections_limit: i32,
+    /// Datagrams go through a SOCKS5 proxy, whose UDP header takes room.
+    pub socks5: bool,
 }
 
 impl Default for UtpSettings {
@@ -97,6 +101,7 @@ impl Default for UtpSettings {
             cwnd_reduce_timer: 100,
             enable_incoming: true,
             connections_limit: 200,
+            socks5: false,
         }
     }
 }
@@ -115,6 +120,7 @@ impl From<&Settings> for UtpSettings {
             cwnd_reduce_timer: s.utp_cwnd_reduce_timer,
             enable_incoming: s.enable_incoming_utp,
             connections_limit: s.connections_limit,
+            socks5: s.proxy_type.is_socks5(),
         }
     }
 }
@@ -511,11 +517,17 @@ impl UtpManager {
         *self.restrict_mtu.iter().max().expect("three entries")
     }
 
-    /// libtorrent `mtu_for_dest` (no proxy): the UDP payload that fits one link-layer frame.
+    /// libtorrent `mtu_for_dest`: the UDP payload that fits one link-layer frame. Through a
+    /// SOCKS5 proxy (assumed to be reached over IPv4) its header and the address in it take room.
     pub fn mtu_for_dest(&self, addr: &IpAddr) -> u16 {
         let mut mtu = if is_teredo(addr) { TEREDO_MTU } else { ETHERNET_MTU };
         mtu -= UDP_HEADER;
-        mtu -= if addr.is_ipv4() { IPV4_HEADER } else { IPV6_HEADER };
+        if self.settings.socks5 {
+            mtu -= IPV4_HEADER + SOCKS5_HEADER;
+            mtu -= if addr.is_ipv4() { 4 } else { 16 };
+        } else {
+            mtu -= if addr.is_ipv4() { IPV4_HEADER } else { IPV6_HEADER };
+        }
         mtu.min(self.restricted_mtu())
     }
 

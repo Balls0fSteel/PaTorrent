@@ -36,10 +36,10 @@ Three features built in parallel on their own branches (`claude/create-torrent-8
 
 ### Issues
 - Merge: both test branches appended to `crates/core/tests/swarm.rs` (resolved by keeping both, header comment combined); `engine/mod.rs` conflicted only on the `mod` list. The tracker-reply block auto-merged: peers go through `add_peers`, then the tracker's `external ip` is voted.
-- The Linux and FreeBSD VMs accept only password logins, so no Unix test run this time (the Unix-only create_torrent symlink / attribute tests compile there but did not run). A key (`~/.ssh/patorrent_vm`) is ready to be installed on both.
+- The Linux and FreeBSD VMs accepted only password logins; the owner installed the key `~/.ssh/patorrent_vm` on both. Both VMs had no Rust: rustup with 1.90.0 was installed as user `x` on each (Ubuntu also got `build-essential`, `curl`, `pkg-config`, `libssl-dev` through apt). FreeBSD has no sudo or git (installing them needs root's password), so the source goes over as `git archive | ssh ... tar -x`.
 
 ### Verified
-- On the merged main: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings` on Windows, and `--target x86_64-unknown-linux-gnu` / `x86_64-unknown-freebsd` clean; `cargo test --workspace` on Windows: 468 core unit tests (3 ignored) and all integration / swarm tests pass.
+- On the merged main: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings` on Windows, and `--target x86_64-unknown-linux-gnu` / `x86_64-unknown-freebsd` clean; `cargo test --workspace` on Windows: 468 core unit tests (3 ignored) and all integration / swarm tests pass. Same on Ubuntu 26.04.1 (Linux 7.0) and FreeBSD 15.1-RELEASE VMs: 469 core unit tests (the Unix-only `create_torrent_symlink` and `v1_attributes` included) and all integration / swarm tests pass (2026-10-17_130950_1792235390).
 
 ## 2026-10-16_225433_1792184073: lt_donthave (BEP 54) and smart-ban
 

@@ -112,26 +112,25 @@ impl NatPmp {
         }
     }
 
-    /// libtorrent `natpmp::start`: a socket on the interface address, talking to `gateway`.
-    /// Assumes the server supports PCP and falls back to NAT-PMP if necessary.
+    /// libtorrent `natpmp::start`: a socket on the interface address, talking to the gateway
+    /// at `nat_endpoint` (an IPv6 gateway is link-local: the address carries the interface's
+    /// scope id). Assumes the server supports PCP and falls back to NAT-PMP if necessary.
     pub fn start(
         &mut self,
         registry: &Registry,
         token: Token,
         local: IpAddr,
-        gateway: IpAddr,
-        port: u16,
+        nat_endpoint: SocketAddr,
         now: Instant,
     ) {
         self.version = natpmp::VERSION_PCP;
         self.disabled = false;
         self.local = local;
-        let nat_endpoint = SocketAddr::new(gateway, port);
         if nat_endpoint == self.nat_endpoint && self.sock.is_some() {
             return;
         }
         self.nat_endpoint = nat_endpoint;
-        self.log.push(format!("found gateway at: {gateway}"));
+        self.log.push(format!("found gateway at: {}", nat_endpoint.ip()));
         let opened = UdpSocket::bind(SocketAddr::new(local, 0)).and_then(|mut s| {
             registry.register(&mut s, token, Interest::READABLE)?;
             Ok(s)
@@ -633,7 +632,7 @@ mod tests {
         let mut events = Events::with_capacity(16);
         let mut n = NatPmp::new();
         let now = Instant::now();
-        n.start(poll.registry(), Token(1), "127.0.0.1".parse().unwrap(), gw.ip(), gw.port(), now);
+        n.start(poll.registry(), Token(1), "127.0.0.1".parse().unwrap(), gw, now);
         assert!(n.is_open());
         let tcp = n.add_mapping(Protocol::Tcp, 6881, 6881, now).unwrap();
         let udp = n.add_mapping(Protocol::Udp, 6882, 6882, now).unwrap();
@@ -713,7 +712,7 @@ mod tests {
         let mut events = Events::with_capacity(16);
         let mut n = NatPmp::new();
         let mut now = Instant::now();
-        n.start(poll.registry(), Token(1), "127.0.0.1".parse().unwrap(), gw_addr.ip(), gw_addr.port(), now);
+        n.start(poll.registry(), Token(1), "127.0.0.1".parse().unwrap(), gw_addr, now);
         n.add_mapping(Protocol::Tcp, 1, 1, now).unwrap();
         // drive the clock through the resends without waiting for them
         let mut sends = 1;

@@ -6,15 +6,17 @@
 // peers live in slabs addressed by generational ids. Only running torrents are ticked. The
 // choker is libtorrent's fixed-slots choker with rate-based ranking (download rate from the
 // peer for downloading torrents, the `fastest_upload` seed policy for finished ones) plus one
-// optimistic slot. Each TCP listener has a UDP socket on the same port beside it, shared by uTP
-// and the DHT (libtorrent's `listen_socket_t`); uTP sockets are driven by the manager's ready
-// list instead of asio handlers.
+// optimistic slot. Each family's UDP listen socket sits beside a TCP listener on the same port,
+// shared by uTP and the DHT (libtorrent's `listen_socket_t`; see engine::listen for how listen
+// sockets follow `listen_interfaces` and network changes); uTP sockets are driven by the
+// manager's ready list instead of asio handlers.
 
 //! The real network engine (PLAN.md Phase 2).
 
 mod dht;
 mod external_ip;
 mod ip_filter;
+mod listen;
 mod lsd;
 mod metadata;
 mod natpmp;
@@ -37,17 +39,17 @@ use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
 
-use mio::net::{TcpListener, TcpStream, UdpSocket};
+use mio::net::{TcpStream, UdpSocket};
 use mio::{Events, Interest, Poll, Token, Waker};
 
-use crate::alert::{Alert, Protocol};
+use crate::alert::Alert;
 use crate::crypto::mse;
 use crate::disk::{BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction};
 use crate::error::Error;
 use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, parse_magnet_uri};
 use crate::net::ip_voter::{ExternalIp, SessionVoter, source};
 use crate::net::resolver::{Resolved, Resolver};
-use crate::net::{Bucket, parse_listen_interfaces, sys};
+use crate::net::{Bucket, sys};
 use crate::params::{
     AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags, TorrentSource,
 };
@@ -68,8 +70,6 @@ use torrent::{Torrent, piece_priorities};
 use tracker::{HTTP_TOKEN_BASE, JobKind, TrackerJob, TrackerManager, TrackerOutcome, UDP4_TOKEN, UDP6_TOKEN};
 
 pub(crate) const WAKER_TOKEN: Token = Token(0);
-const LISTEN_TOKEN_BASE: usize = 1;
-const MAX_LISTENERS: usize = 8;
 /// The UDP listen sockets (one per address family) that uTP and the DHT share.
 const UDP4_LISTEN_TOKEN: Token = Token(11);
 const UDP6_LISTEN_TOKEN: Token = Token(12);
@@ -228,7 +228,8 @@ pub(crate) struct Engine {
 
     peers: Slab<PeerConn>,
     next_peer_gen: u32,
-    listeners: Vec<TcpListener>,
+    /// The bound listen sockets (libtorrent `m_listen_sockets`).
+    listeners: Vec<listen::ListenSocket>,
     /// The UDP side of the listen sockets, at most one per address family.
     udp: Vec<UdpListen>,
     udp_buf: Vec<u8>,
@@ -268,6 +269,7 @@ pub(crate) struct Engine {
     lsd: lsd::LsdSession,
     portmap: portmap::PortmapSession,
     filters: ip_filter::Filters,
+    network: listen::NetworkState,
 }
 
 /// The network thread's entry point.
@@ -299,6 +301,9 @@ pub(crate) fn run(
         if let Some(d) = e.portmap.deadline() {
             next = next.min(d);
         }
+        if let Some(d) = e.network.deadline() {
+            next = next.min(d);
+        }
         let timeout = next.saturating_duration_since(now);
         if let Err(err) = e.poll.poll(&mut events, Some(timeout)) {
             if err.kind() != io::ErrorKind::Interrupted {
@@ -321,6 +326,7 @@ pub(crate) fn run(
         e.dht_service(now);
         e.lsd_service(now);
         e.portmap_service(now);
+        e.network_service(now);
         if e.bandwidth_tick_needed() && now >= e.last_bandwidth + BANDWIDTH_TICK {
             e.bandwidth_tick(now);
         }
@@ -354,6 +360,7 @@ impl Engine {
             wake.clone(),
         );
         let (res_tx, resolve_rx) = mpsc::channel();
+        let network = listen::NetworkState::new(wake.clone());
         let resolver = Resolver::new(res_tx, wake);
         let mut trackers = TrackerManager::new(poll.registry(), settings.user_agent.clone());
         trackers.set_options(&settings.user_agent, settings.tracker_completion_timeout);
@@ -406,6 +413,7 @@ impl Engine {
             lsd: lsd::LsdSession::new(),
             portmap: portmap::PortmapSession::new(),
             filters: ip_filter::Filters::default(),
+            network,
             settings,
         }
     }
@@ -413,7 +421,9 @@ impl Engine {
     // --- Startup and shutdown -----------------------------------------------------------------
 
     fn start(&mut self, state_dir: Option<PathBuf>) {
+        let now = Instant::now();
         self.open_listen_sockets();
+        self.start_ip_notifier(now);
         self.update_external_ip();
         self.start_lsd(Instant::now());
         self.start_dht(state_dir.as_deref());
@@ -449,140 +459,8 @@ impl Engine {
         }
     }
 
-    /// Opens the TCP listeners and, beside each, the UDP socket on the same port that uTP and
-    /// the DHT share (libtorrent's `listen_socket_t` pair). The first interface picks the port:
-    /// when the configured one is busy for either protocol the next ones are tried
-    /// (`max_retry_port_bind`), and an ephemeral port is drawn again. The other interfaces
-    /// listen on that port.
-    fn open_listen_sockets(&mut self) {
-        let s = &self.settings;
-        let want_tcp = s.enable_incoming_tcp;
-        let want_udp = s.enable_dht || s.enable_incoming_utp || s.enable_outgoing_utp;
-        if !want_tcp && !want_udp {
-            return;
-        }
-        let retries = s.max_retry_port_bind as usize;
-        for addr in parse_listen_interfaces(&s.listen_interfaces).into_iter().take(MAX_LISTENERS) {
-            let first = self.listen_port == 0;
-            let configured = addr.port();
-            let tries = if !first {
-                1
-            } else if configured != 0 {
-                retries + 1
-            } else {
-                retries.min(3) + 1
-            };
-            let v4 = addr.is_ipv4();
-            let mut last_err: Option<(Protocol, io::Error)> = None;
-            let mut bound = false;
-            for i in 0..tries {
-                let port = if !first {
-                    self.listen_port
-                } else if configured != 0 {
-                    configured.wrapping_add(i as u16)
-                } else {
-                    0
-                };
-                let a = SocketAddr::new(addr.ip(), port);
-                // TCP first: with port 0 it is the one that picks the port
-                let tcp = match want_tcp.then(|| TcpListener::bind(a)) {
-                    Some(Ok(l)) => Some(l),
-                    Some(Err(e)) => {
-                        // Linux and BSD sockets bound to [::] are dual-stack by default, so
-                        // after 0.0.0.0 the IPv6 wildcard reports "in use" while IPv6 is in
-                        // fact served already; its UDP socket (v6-only) is still wanted.
-                        let dual_stack = !first
-                            && addr.is_ipv6()
-                            && addr.ip().is_unspecified()
-                            && e.kind() == io::ErrorKind::AddrInUse;
-                        if !dual_stack {
-                            last_err = Some((Protocol::Tcp, e));
-                            continue;
-                        }
-                        None
-                    }
-                    None => None,
-                };
-                let port = tcp.as_ref().and_then(|l| l.local_addr().ok()).map_or(port, |l| l.port());
-                // at most one UDP socket per family (the DHT runs one node per family)
-                let udp = if want_udp && !self.udp.iter().any(|u| u.v4 == v4) {
-                    match sys::udp_socket(SocketAddr::new(addr.ip(), port), false) {
-                        Ok(u) => Some(u),
-                        Err(e) => {
-                            last_err = Some((Protocol::Udp, e));
-                            // free for TCP but taken for UDP: the next port, for both
-                            if first && i + 1 < tries {
-                                continue;
-                            }
-                            None
-                        }
-                    }
-                } else {
-                    None
-                };
-                if let Some(mut l) = tcp {
-                    let token = Token(LISTEN_TOKEN_BASE + self.listeners.len());
-                    match self.poll.registry().register(&mut l, token, Interest::READABLE) {
-                        Ok(()) => {
-                            let local = l.local_addr().unwrap_or(a);
-                            if self.listen_port == 0 {
-                                self.listen_port = local.port();
-                            }
-                            self.out.push(Alert::ListenSucceeded { address: local, protocol: Protocol::Tcp });
-                            self.listeners.push(l);
-                            bound = true;
-                        }
-                        Err(e) => last_err = Some((Protocol::Tcp, e)),
-                    }
-                }
-                if let Some(u) = udp {
-                    let token = if v4 { UDP4_LISTEN_TOKEN } else { UDP6_LISTEN_TOKEN };
-                    let res = u.set_nonblocking(true).and_then(|()| {
-                        let mut u = UdpSocket::from_std(u);
-                        self.poll.registry().register(
-                            &mut u,
-                            token,
-                            Interest::READABLE | Interest::WRITABLE,
-                        )?;
-                        Ok(u)
-                    });
-                    match res {
-                        Ok(u) => {
-                            let local = u.local_addr().unwrap_or(SocketAddr::new(addr.ip(), port));
-                            if self.listen_port == 0 {
-                                self.listen_port = local.port();
-                            }
-                            self.out.push(Alert::ListenSucceeded { address: local, protocol: Protocol::Udp });
-                            self.udp.push(UdpListen { v4, sock: u, local });
-                            bound = true;
-                        }
-                        Err(e) => last_err = Some((Protocol::Udp, e)),
-                    }
-                }
-                if bound || (!want_tcp && !want_udp) {
-                    break;
-                }
-            }
-            if let Some((protocol, e)) = last_err {
-                // a failure of one protocol is reported even when the other one bound
-                if !bound || protocol == Protocol::Udp {
-                    self.out.push(Alert::ListenFailed {
-                        address: addr.to_string(),
-                        protocol,
-                        error: e.into(),
-                    });
-                }
-            } else if !bound && !self.udp.iter().any(|u| u.v4 == v4) {
-                self.out.push(Alert::ListenFailed {
-                    address: addr.to_string(),
-                    protocol: Protocol::Tcp,
-                    error: Error::Unsupported("listen"),
-                });
-            }
-        }
-    }
-
     fn shutdown(&mut self, events: &mut Events) {
+        self.stop_ip_notifier();
         self.save_dht_state();
         let ids: Vec<TorrentId> = self.torrent_ids();
         for id in ids {
@@ -714,9 +592,8 @@ impl Engine {
     fn on_event(&mut self, token: Token, readable: bool, writable: bool) {
         match token.0 {
             0 => {}
-            t if (LISTEN_TOKEN_BASE..LISTEN_TOKEN_BASE + MAX_LISTENERS).contains(&t) => {
-                self.on_accept(t - LISTEN_TOKEN_BASE)
-            }
+            _ if token == listen::IP_NOTIFIER_TOKEN => self.on_ip_notifier_readable(),
+            t if (listen::LISTEN_TOKEN_BASE..PEER_TOKEN_BASE).contains(&t) => self.on_accept(token),
             _ if token == UDP4_TOKEN => self.trackers.on_udp_readable(false, Instant::now()),
             _ if token == UDP6_TOKEN => self.trackers.on_udp_readable(true, Instant::now()),
             _ if token == UDP4_LISTEN_TOKEN || token == UDP6_LISTEN_TOKEN => {
@@ -739,9 +616,12 @@ impl Engine {
         }
     }
 
-    fn on_accept(&mut self, index: usize) {
+    fn on_accept(&mut self, token: Token) {
         loop {
-            let Some(l) = self.listeners.get(index) else { return };
+            let Some(l) = self.listeners.iter().find(|l| l.token == token).and_then(|l| l.tcp.as_ref())
+            else {
+                return;
+            };
             let (sock, addr) = match l.accept() {
                 Ok(v) => v,
                 Err(e) if e.kind() == io::ErrorKind::WouldBlock => return,
@@ -1287,6 +1167,12 @@ impl Engine {
             }
             Command::SetIpFilter(f) => self.set_ip_filter(f),
             Command::SetPortFilter(f) => self.set_port_filter(f),
+            Command::ReopenNetworkSockets => self.on_ip_change(Instant::now(), true),
+            #[cfg(test)]
+            Command::SetFakeNetwork(net) => {
+                self.network.fake = net;
+                self.on_ip_change(Instant::now(), false);
+            }
             Command::Shutdown => {}
         }
     }
@@ -1306,7 +1192,11 @@ impl Engine {
         let lsd_changed = s.enable_lsd != self.settings.enable_lsd;
         let natpmp_changed = s.enable_natpmp != self.settings.enable_natpmp;
         let upnp_changed = s.enable_upnp != self.settings.enable_upnp;
+        let listen_changed = listen::listen_settings_changed(&self.settings, &s);
         self.settings = s;
+        if let Some(close_all) = listen_changed {
+            self.on_listen_settings_changed(close_all);
+        }
         if queue_changed {
             self.needs_auto_manage = true;
         }

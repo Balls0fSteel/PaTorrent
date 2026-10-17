@@ -2,12 +2,12 @@
 // enum_net.cpp platform code).
 
 //! Socket calls that std and mio do not offer: options set before `bind` (address reuse,
-//! v6-only), the outgoing multicast interface and hop limit, the list of local interface
+//! v6-only, for UDP sockets and TCP listeners), the outgoing multicast interface and hop limit, the list of local interface
 //! addresses and the routing table. Windows goes through `windows-sys`; Unix functions are
 //! declared here by hand (D4: no libc crate), with the constants of each supported OS.
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, UdpSocket};
 #[cfg(unix)]
 pub(crate) use std::os::fd::AsRawFd as RawSock;
 #[cfg(windows)]
@@ -147,6 +147,28 @@ pub(crate) fn udp_socket(addr: SocketAddr, reuse: bool) -> io::Result<UdpSocket>
     Ok(s)
 }
 
+/// The backlog of a TCP listener (mio's `TcpListener::bind` uses the same).
+const LISTEN_BACKLOG: i32 = 1024;
+
+/// A TCP listener bound to `addr`. IPv6 listeners are v6-only: Linux and the BSDs make a
+/// socket on `[::]` dual-stack by default, so `[::]:port` would collide with `0.0.0.0:port`
+/// (libtorrent sets `v6only` on its listen sockets too). Address reuse is set on Unix, as std
+/// and mio do (a restarted session binds while old connections linger in TIME_WAIT), never on
+/// Windows, where it would let another process take the port.
+pub(crate) fn tcp_listener(addr: SocketAddr) -> io::Result<TcpListener> {
+    let s = imp::tcp_socket(addr.is_ipv4())?;
+    if cfg!(unix) {
+        imp::setsockopt(&s, SOL_SOCKET, SO_REUSEADDR, &1i32.to_ne_bytes())?;
+    }
+    if addr.is_ipv6() {
+        imp::setsockopt(&s, IPPROTO_IPV6, IPV6_V6ONLY, &1i32.to_ne_bytes())?;
+    }
+    let (sa, len) = encode_sockaddr(addr);
+    imp::bind(&s, &sa, len)?;
+    imp::listen(&s, LISTEN_BACKLOG)?;
+    Ok(s)
+}
+
 /// Every IP address of every local interface (libtorrent `enum_net_interfaces`).
 pub(crate) fn interfaces() -> io::Result<Vec<IpInterface>> {
     imp::interfaces()
@@ -239,15 +261,15 @@ use unix_consts::*;
 #[cfg(windows)]
 mod imp {
     use std::io;
-    use std::net::UdpSocket;
+    use std::net::{TcpListener, UdpSocket};
     use std::os::windows::io::{AsRawSocket, FromRawSocket, RawSocket};
     use std::sync::Once;
 
     use windows_sys::Win32::Foundation::{ERROR_BUFFER_OVERFLOW, ERROR_NO_DATA, NO_ERROR};
     use windows_sys::Win32::NetworkManagement::IpHelper::{
         FreeMibTable, GAA_FLAG_SKIP_ANYCAST, GAA_FLAG_SKIP_DNS_SERVER, GAA_FLAG_SKIP_MULTICAST,
-        GetAdaptersAddresses, GetIpForwardTable2, IF_TYPE_SOFTWARE_LOOPBACK, IP_ADAPTER_ADDRESSES_LH,
-        IP_ADAPTER_NO_MULTICAST, MIB_IPFORWARD_TABLE2,
+        GetAdaptersAddresses, GetIpForwardTable2, IF_TYPE_PPP, IF_TYPE_SOFTWARE_LOOPBACK,
+        IP_ADAPTER_ADDRESSES_LH, IP_ADAPTER_NO_MULTICAST, MIB_IPFORWARD_TABLE2,
     };
     use windows_sys::Win32::NetworkManagement::Ndis::IfOperStatusUp;
     use windows_sys::Win32::Networking::WinSock as ws;
@@ -325,6 +347,33 @@ mod imp {
         Ok(unsafe { UdpSocket::from_raw_socket(s as RawSocket) })
     }
 
+    pub fn tcp_socket(v4: bool) -> io::Result<TcpListener> {
+        startup();
+        let af = if v4 { ws::AF_INET } else { ws::AF_INET6 } as i32;
+        // SAFETY: plain socket creation with the flags std uses
+        let s = unsafe {
+            ws::WSASocketW(
+                af,
+                ws::SOCK_STREAM,
+                ws::IPPROTO_TCP,
+                std::ptr::null(),
+                0,
+                ws::WSA_FLAG_OVERLAPPED | ws::WSA_FLAG_NO_HANDLE_INHERIT,
+            )
+        };
+        if s == ws::INVALID_SOCKET {
+            return Err(last_error());
+        }
+        // SAFETY: `s` is a fresh socket we own
+        Ok(unsafe { TcpListener::from_raw_socket(s as RawSocket) })
+    }
+
+    pub fn listen(s: &impl AsRawSocket, backlog: i32) -> io::Result<()> {
+        // SAFETY: a socket we own
+        let r = unsafe { ws::listen(s.as_raw_socket() as ws::SOCKET, backlog) };
+        if r == 0 { Ok(()) } else { Err(last_error()) }
+    }
+
     pub fn setsockopt(s: &impl AsRawSocket, level: i32, name: i32, value: &[u8]) -> io::Result<()> {
         // SAFETY: `value` is valid for its length
         let r = unsafe {
@@ -333,7 +382,7 @@ mod imp {
         if r == 0 { Ok(()) } else { Err(last_error()) }
     }
 
-    pub(super) fn bind(s: &UdpSocket, sa: &SockaddrBuf, len: usize) -> io::Result<()> {
+    pub(super) fn bind(s: &impl AsRawSocket, sa: &SockaddrBuf, len: usize) -> io::Result<()> {
         // SAFETY: `sa` holds a sockaddr of `len` bytes
         let r = unsafe { ws::bind(s.as_raw_socket() as ws::SOCKET, sa.0.as_ptr().cast(), len as i32) };
         if r == 0 { Ok(()) } else { Err(last_error()) }
@@ -375,6 +424,8 @@ mod imp {
             };
             let up = ad.OperStatus == IfOperStatusUp;
             let loopback = ad.IfType == IF_TYPE_SOFTWARE_LOOPBACK;
+            // libtorrent: IF_TYPE_PPP is the point-to-point type
+            let pointopoint = ad.IfType == IF_TYPE_PPP;
             // SAFETY: plain integers in unions
             let (multicast, index4) = unsafe {
                 (ad.Anonymous2.Flags & IP_ADAPTER_NO_MULTICAST == 0, ad.Anonymous1.Anonymous.IfIndex)
@@ -396,6 +447,7 @@ mod imp {
                         up,
                         loopback,
                         multicast,
+                        pointopoint,
                         preferred: ua.DadState == ws::IpDadStatePreferred,
                     });
                 }
@@ -411,7 +463,7 @@ mod imp {
 mod imp {
     use std::ffi::{CStr, c_char, c_int, c_uint, c_void};
     use std::io;
-    use std::net::UdpSocket;
+    use std::net::{TcpListener, UdpSocket};
     use std::os::fd::{AsRawFd, FromRawFd};
 
     use super::{
@@ -419,6 +471,7 @@ mod imp {
         family_of,
     };
 
+    const SOCK_STREAM: c_int = 1;
     const SOCK_DGRAM: c_int = 2;
 
     /// Linux `/proc/net/route` and `/proc/net/ipv6_route`: no netlink needed (libtorrent uses
@@ -614,6 +667,7 @@ mod imp {
     }
     const IFF_UP: c_uint = 0x1;
     const IFF_LOOPBACK: c_uint = 0x8;
+    const IFF_POINTOPOINT: c_uint = 0x10;
 
     /// The leading fields of `struct ifaddrs`, the same on Linux, the BSDs and macOS.
     #[repr(C)]
@@ -630,6 +684,8 @@ mod imp {
         fn c_socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
         #[link_name = "bind"]
         fn c_bind(fd: c_int, addr: *const c_void, len: u32) -> c_int;
+        #[link_name = "listen"]
+        fn c_listen(fd: c_int, backlog: c_int) -> c_int;
         #[link_name = "setsockopt"]
         fn c_setsockopt(fd: c_int, level: c_int, name: c_int, value: *const c_void, len: u32) -> c_int;
         fn getifaddrs(out: *mut *mut IfAddrs) -> c_int;
@@ -657,6 +713,23 @@ mod imp {
         Ok(unsafe { UdpSocket::from_raw_fd(fd) })
     }
 
+    pub fn tcp_socket(v4: bool) -> io::Result<TcpListener> {
+        let af = if v4 { super::AF_INET } else { super::AF_INET6 } as c_int;
+        // SAFETY: plain socket creation
+        let fd = unsafe { c_socket(af, SOCK_STREAM | SOCK_CLOEXEC, 0) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fd` is a fresh socket we own
+        Ok(unsafe { TcpListener::from_raw_fd(fd) })
+    }
+
+    pub fn listen(s: &impl AsRawFd, backlog: i32) -> io::Result<()> {
+        // SAFETY: a socket we own
+        let r = unsafe { c_listen(s.as_raw_fd(), backlog) };
+        if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+    }
+
     pub fn setsockopt(s: &impl AsRawFd, level: i32, name: i32, value: &[u8]) -> io::Result<()> {
         // SAFETY: `value` is valid for its length
         let r =
@@ -664,7 +737,7 @@ mod imp {
         if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
     }
 
-    pub(super) fn bind(s: &UdpSocket, sa: &SockaddrBuf, len: usize) -> io::Result<()> {
+    pub(super) fn bind(s: &impl AsRawFd, sa: &SockaddrBuf, len: usize) -> io::Result<()> {
         // SAFETY: `sa` holds a sockaddr of `len` bytes
         let r = unsafe { c_bind(s.as_raw_fd(), sa.0.as_ptr().cast(), len as u32) };
         if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
@@ -706,6 +779,7 @@ mod imp {
                 up: ifa.flags & IFF_UP != 0,
                 loopback: ifa.flags & IFF_LOOPBACK != 0,
                 multicast: ifa.flags & IFF_MULTICAST != 0,
+                pointopoint: ifa.flags & IFF_POINTOPOINT != 0,
                 // getifaddrs does not say whether an IPv6 address is deprecated or tentative
                 preferred: true,
             });
@@ -741,6 +815,29 @@ mod tests {
         let b = udp_socket(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port), true).unwrap();
         assert_eq!(b.local_addr().unwrap().port(), port);
         set_multicast_if_v4(&b, Ipv4Addr::LOCALHOST).unwrap();
+    }
+
+    #[test]
+    fn tcp_listeners_of_both_families_share_a_port() {
+        let v4 = tcp_listener("0.0.0.0:0".parse().unwrap()).unwrap();
+        let port = v4.local_addr().unwrap().port();
+        // v6-only: the IPv6 wildcard on the same port does not collide (it does on Linux
+        // without IPV6_V6ONLY)
+        match tcp_listener(SocketAddr::new(Ipv6Addr::UNSPECIFIED.into(), port)) {
+            Ok(v6) => {
+                assert_eq!(v6.local_addr().unwrap().port(), port);
+                // an IPv4 client reaches the IPv4 listener, not the IPv6 one
+                let _c =
+                    std::net::TcpStream::connect(SocketAddr::new(Ipv4Addr::LOCALHOST.into(), port)).unwrap();
+                v4.accept().unwrap();
+            }
+            // a host without IPv6
+            Err(e) => assert_eq!(e.kind(), io::ErrorKind::AddrNotAvailable, "{e}"),
+        }
+        assert_eq!(
+            tcp_listener(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port)).unwrap_err().kind(),
+            io::ErrorKind::AddrInUse
+        );
     }
 
     #[test]

@@ -51,6 +51,12 @@ pub(crate) enum Command {
     SetPortFilter(PortFilter),
     PauseSession,
     ResumeSession,
+    /// libtorrent `reopen_network_sockets`.
+    ReopenNetworkSockets,
+    /// Tests: the engine sees these interfaces and routes instead of the OS's (`None`: the
+    /// OS's again) and reacts as to a network change.
+    #[cfg(test)]
+    SetFakeNetwork(Option<(Vec<crate::net::enum_net::IpInterface>, Vec<crate::net::enum_net::IpRoute>)>),
     Shutdown,
 }
 
@@ -206,6 +212,24 @@ impl SessionHandle {
     /// blocked port are not added to any torrent.
     pub fn set_port_filter(&self, filter: PortFilter) {
         self.send(Command::SetPortFilter(filter));
+    }
+
+    /// Reads the network interfaces again and reopens the listen sockets, LSD and the port
+    /// mappers to match, asking the routers for every port mapping again (libtorrent
+    /// `reopen_network_sockets` with `reopen_map_ports`). The session does this by itself when
+    /// the OS reports a network change; this is for when the caller knows better (a VPN came
+    /// up through some other channel).
+    pub fn reopen_network_sockets(&self) {
+        self.send(Command::ReopenNetworkSockets);
+    }
+
+    /// Tests: pretend the OS reports these interfaces and routes (`None`: the real ones).
+    #[cfg(test)]
+    pub(crate) fn set_fake_network(
+        &self,
+        net: Option<(Vec<crate::net::enum_net::IpInterface>, Vec<crate::net::enum_net::IpRoute>)>,
+    ) {
+        self.send(Command::SetFakeNetwork(net));
     }
 
     /// Pauses every torrent without changing their own paused/auto-managed flags.

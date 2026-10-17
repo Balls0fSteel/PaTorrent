@@ -20,6 +20,8 @@ mod dialogs;
 #[cfg(windows)]
 mod icons;
 #[cfg(windows)]
+mod preferences;
+#[cfg(windows)]
 mod tray;
 #[cfg(windows)]
 mod util;

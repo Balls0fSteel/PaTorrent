@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-17_140012_1792238412
+Last updated: 2026-10-17_155028_1792245028
 
 ## Vision
 
@@ -192,6 +192,8 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 
 ### Phase 5: µTorrent 2.2.1 feature parity
 - [ ] Preferences, with all 2.2.1 pages: General, UI Settings, Directories, Connection, Bandwidth, BitTorrent, Queueing, Scheduler, Web UI, Advanced (raw settings table), Disk Cache
+  - [x] the Win32 dialog (2026-10-17_155028_1792245028): Options > Preferences / Ctrl+P / toolbar, every page in the tree, OK / Cancel / Apply without a restart, patorrent.ini persistence, IP filter (enable, path, Reload); `patorrent_frontend::settings` is the string-keyed table (every `Settings` field by libtorrent name, plus `bt.transp_disposition`) and `patorrent_frontend::options` the toolkit-independent model for GTK
+  - [ ] placeholders still disabled: Scheduler, Web UI (Phase 6), Proxy Server box (proxies branch), language, file association / autostart, move completed downloads / .torrent folders (needs move storage), seeding goal
 - [ ] Add-torrent dialog: save folder, file tree with priorities, label, skip hash check, start/stop
 - [ ] Create New Torrent: piece-size auto, trackers, web seeds, private flag, progress
   - [x] engine and nox, v1 (2026-10-17_114537_1792230337): `core::metainfo::create_torrent` (libtorrent `create_torrent`, `add_files`, `set_piece_hashes`), `make_magnet_uri_from_info`, `patorrent-nox create`
@@ -200,7 +202,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [ ] Labels; RSS feeds and RSS Downloader (filters, episode tracking); weekly scheduler; per-torrent bandwidth allocation and limits; auto-shutdown; move-on-complete; auto-load folder; `.torrent` and `magnet:` association
 - [ ] Speed graph, pieces map and list, availability bar
 - [ ] Network features:
-  - [x] IP filter (`ipfilter.dat`, PeerGuardian P2P) and port filter in the engine and nox (2026-10-17_114537_1792230337); the GUI setting comes with Preferences
+  - [x] IP filter (`ipfilter.dat`, PeerGuardian P2P) and port filter in the engine and nox (2026-10-17_114537_1792230337); in the GUI Preferences (2026-10-17_155028_1792245028)
   - proxies (SOCKS4/5, HTTP)
   - [x] web seeds (BEP 19 `url-list` and magnet `ws=`, BEP 17 `httpseeds`) in the engine (2026-10-17_140012_1792238412)
   - super-seeding
@@ -273,13 +275,19 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - one UDP socket per family: with several device-bound addresses of a family, uTP and the DHT use only one; wildcards are never split into per-address sockets / DHT nodes (BEP 45 multi-homing).
   - with nothing bound (device-only setup while the device is gone) trackers still get the old port; uTP connections on a closed UDP socket are not moved and time out.
   - SSL listen entries (`...s`) are refused with `ListenFailed` (no SSL torrents).
+- Preferences follow-ups (CHANGELOG 2026-10-17_155028_1792245028):
+  - click through the dialog by hand once (only the hidden-dialog tests have run): every page, OK / Cancel / Apply, Ctrl+P, the toolbar button, Browse, Reload with a real `ipfilter.dat`, the Advanced list at 150 % DPI.
+  - `settings::tests::every_field_has_a_row` fails when a `Settings` field has no row in `patorrent_frontend::settings::TABLE`: the proxy, super-seeding and part-file branches must add rows for their new fields (and the proxy branch replaces the disabled Proxy Server box on the Connection page, `ID_PROXY_TYPE` and the stubs after it).
+  - "Maximum connected peers per torrent" and "upload slots per torrent" apply to torrents added afterwards (`AddTorrentParams::max_connections` / `max_uploads`); there is no `TorrentHandle` setter for running torrents yet, and both default to no limit (µTorrent: 50 and 4).
+  - `aio_threads` and `hashing_threads` are read at session start only (the Disk Cache page says so); `apply_settings` does not resize the pools.
+  - placeholders listed under Phase 5; the Advanced page has no per-setting help text (µTorrent had none either).
+  - the dialog procedures hold a `&mut State` across calls that send notifications back into the same procedure (tree and list view), as `create.rs` does; a `RefCell` like `app.rs`'s `with_app` would be stricter.
 - Create dialog follow-ups (CHANGELOG 2026-10-17_140012_1792238412): click through it by hand once; possible extras libtorrent supports but µTorrent lacked (source tag, pad files, DHT nodes).
 - Create torrent follow-ups (CHANGELOG 2026-10-17_114537_1792230337):
   - v2 and hybrid creation (BEP 52): `set_hash2`, piece layers, file tree; then the rest of `test_create_torrent.cpp` and `make_magnet_uri` v2 / hybrid.
   - `test_torrent_info.rs`'s `resolve_duplicates` comment says it waits for create_torrent; it could now build its torrents with `CreateTorrent`.
 - IP filter follow-ups (CHANGELOG 2026-10-17_114537_1792230337):
-  - GUI: Preferences "IP filter" (enable, file path, reload), loading `ipfilter.dat` from the settings directory like µTorrent; `Alert::PeerBlocked` in the Logger tab.
-  - persist the filter file path in settings and reload on start (nox takes it per run only).
+  - ~~GUI: Preferences "IP filter" (enable, file path, reload), loading `ipfilter.dat` from the settings directory like µTorrent~~ and ~~persist the path and reload on start~~: done in the Preferences dialog (2026-10-17_155028_1792245028). Still open: `Alert::PeerBlocked` in the Logger tab; nox takes the filter per run only.
   - `get_ip_filter` / `export_filter` on the session API if the GUI needs to show the rules.
   - other `peer_blocked_alert` reasons (`privileged_ports`, `utp_disabled`, `tcp_disabled`, `invalid_local_interface`, `ssrf_mitigation`) are not ported; the peer-class filter waits for peer classes.
   - gzip-compressed block lists (`.gz`, common for P2P lists) are not read.
@@ -295,10 +303,10 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - a peer blocked by its congestion window sets `write_blocked`, which makes the 100 ms bandwidth tick run while any such peer has data queued (the uTP ready list wakes it anyway when the window opens). Fine so far; worth a look if idle CPU with many uTP peers shows it.
   - `PeerInfo` has no send / receive delay fields (libtorrent `utp_stream::send_delay` / `recv_delay`); the socket tracks them.
   - the shutdown does not wait for uTP FINs to be acknowledged (libtorrent drops them too, "uTP connections cannot be closed gracefully" once the UDP socket closes).
-  - the Phase 5 Preferences page maps µTorrent's `bt.transp_disposition` bits (1 outgoing TCP, 2 outgoing uTP, 4 incoming TCP, 8 incoming uTP) onto the four `enable_*` settings; the `utp_*` tuning belongs on the Advanced page.
+  - ~~the Phase 5 Preferences page maps µTorrent's `bt.transp_disposition` bits~~: done (2026-10-17_155028_1792245028): the BitTorrent page's uTP box sets both uTP directions, Advanced has `bt.transp_disposition` and the `utp_*` tuning.
   - `lt-swarm interop` has not run with uTP against qBittorrent / Transmission / Deluge yet (WSL2 is down on this machine, see Next steps 4); qBittorrent alone can be tried with TCP disabled on our side.
 - MSE/PE follow-ups (CHANGELOG 2026-10-16_163419_1792161259):
-  - the Phase 5 Preferences page maps µTorrent's three settings onto `out_enc_policy` / `in_enc_policy` as noted under Phase 4; `allowed_enc_level` and `prefer_rc4` belong on the Advanced page.
+  - ~~the Phase 5 Preferences page maps µTorrent's encryption settings~~: done (2026-10-17_155028_1792245028) as noted under Phase 4; `allowed_enc_level` and `prefer_rc4` are on the Advanced page.
   - the DHT and the trackers do not yet learn `pe_support` for peers (libtorrent takes it from ut_pex only, as we do); nothing is persisted about it.
   - `peer_connection::fast_reconnect` exists only for this alternation; a general reconnect policy (libtorrent's `min_reconnect_time * failcount` after any close) is still the stricter `min_reconnect_time * (failcount + 1)` here.
   - interop with Transmission and Deluge under `--encryption forced` is untested (WSL2 was down on 2026-10-16); rTorrent and µTorrent 2.2.1 as before.
@@ -306,7 +314,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - BEP 44 items (`get` / `put`, ed25519) and BEP 51 `sample_infohashes` are Phase 8; until then such queries get a `find_node`-style answer. Not ported yet: the matching `test_dht` tests (put/get/mutable/immutable, signing_test1-3, sample_infohashes), `test_direct_dht` and the item parts of `test_dht_storage`.
   - ~~Linux: `[::]` is dual-stack, so the IPv6 DHT socket fails to bind after `0.0.0.0` and the DHT runs IPv4 only.~~ The DHT now runs on the engine's UDP listen sockets, opened with `IPV6_V6ONLY` through `net::sys` (2026-10-16_220720_1792181240), so both families run on Linux too. The TCP listener still has the dual-stack limitation (IPv6 is served by the v4 socket there).
   - the default bootstrap list is libtorrent's (`dht.libtorrent.org:25401` only). qBittorrent adds `router.bittorrent.com:6881`, `router.utorrent.com:6881`, `dht.transmissionbt.com:6881`; worth it if that one host is ever down. A deliberate settings change, so it goes in docs/SETTINGS.md.
-  - the GUI has no DHT preferences (enable, read-only) until the Phase 5 Preferences dialog; `Settings` carries them.
+  - ~~the GUI has no DHT preferences~~: "Enable DHT Network" on the BitTorrent page, the rest on Advanced (2026-10-17_155028_1792245028). Turning DHT off or on through `apply_settings` at run time was not checked against a live DHT.
   - DHT nodes in `.torrent` files (`nodes`) are not added yet; magnet `dht=` nodes are (IP literals only, host names are skipped).
 - Licensing compliance (checked 2026-10-15_174600_1792079160):
   - when a new libtorrent module (or bundled code such as puff or ed25519) is ported, add it to THIRD-PARTY-NOTICES.md's "Ported so far" list and give each file the origin and copyright header.
@@ -319,15 +327,15 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - restored torrents each log "added" at startup (10,000 lines with a big library); µTorrent does not log restores.
   - Pause does not toggle back to running as µTorrent's does; Start resumes.
   - double-click opens the folder for finished torrents and the General tab otherwise; the Properties dialog comes with Phase 5.
-  - Preferences is greyed out until Phase 5. Create New Torrent is in (2026-10-17_140012_1792238412) but has not been clicked through by hand yet: Add directory, Save as, progress, Cancel, Start seeding.
+  - Preferences is in (2026-10-17_155028_1792245028) but has not been clicked through by hand yet (see the Preferences follow-ups). Create New Torrent is in (2026-10-17_140012_1792238412) but has not been clicked through by hand yet: Add directory, Save as, progress, Cancel, Start seeding.
 - PEX follow-ups (CHANGELOG 2026-10-15_221714_1792095434):
   - flags we send: `seed`, `e` (encryption) and `utp` (the peer is connected over uTP). The holepunch bit follows BEP 55. Received `e` sets the peer's `pe_support`, `utp` its `supports_utp`; `holepunch` is dropped.
-  - the GUI has no PEX switch until the Phase 5 Preferences dialog; `TorrentFlags::DISABLE_PEX` works per torrent.
+  - ~~the GUI has no PEX switch~~: "Enable Peer Exchange" sets / clears `TorrentFlags::DISABLE_PEX` on every torrent and on new ones (2026-10-17_155028_1792245028).
   - `lt-swarm interop` runs the other clients with PeX off; a PEX interop case (three clients in one swarm) would check that they accept our messages. In the real Debian swarm no peer dropped us after our PEX messages.
 - Port-mapping follow-ups (CHANGELOG 2026-10-16_155608_1792158968):
   - the routing table is read on Windows, Linux, FreeBSD and OpenBSD. Elsewhere (macOS, NetBSD, DragonFly) `net::sys::routes` is `Unsupported`: NAT-PMP stays off and UPnP runs on every multicast-capable interface. The FreeBSD `rt_msghdr` layout assumes 64-bit `long`; the `routes_are_listed` unit test checks it in CI (FreeBSD runs on main and weekly). OpenBSD is not in CI.
   - UPnP device URLs with a host name instead of an IP literal disable that device (libtorrent resolves them). Not seen on any router so far.
-  - the GUI has no UPnP / NAT-PMP preferences until the Phase 5 Preferences dialog; `Settings` carries them. The status bar's network indicator is still text; µTorrent's turns green once a port is mapped, a natural use of the state icons once they are integrated.
+  - ~~the GUI has no UPnP / NAT-PMP preferences~~: on the Connection page (2026-10-17_155028_1792245028). The status bar's network indicator is still text; µTorrent's turns green once a port is mapped, a natural use of the state icons once they are integrated.
   - `patorrent-nox` does not print the alerts of the shutdown (the mapping deletions): `Session::shutdown` joins the engine thread before the last alerts are popped. The deletions were verified by asking the router instead.
   - with the mappers on, the swarm tests, `lt-swarm` and `interop` would forward loopback sessions' ports on the real router; they switch both off (`enable_upnp: false`, `enable_natpmp: false`).
 - LSD follow-ups (CHANGELOG 2026-10-15_234806_1792100886):
@@ -335,7 +343,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - only the v1 (or truncated v2) info-hash is announced; libtorrent also announces the truncated v2 hash of hybrid torrents (Phase 8).
   - `active_lsd_limit` (and the DHT / tracker limits) is not enforced: every running torrent announces.
   - Linux and FreeBSD are covered by CI only (the swarm test multicasts on loopback); not tried on a real LAN with another machine. Linux `lo` has no `IFF_MULTICAST`; if the CI swarm test fails there, the loopback join needs a look.
-  - the GUI has no LSD switch until the Phase 5 Preferences dialog; `Settings::enable_lsd` and `TorrentFlags::DISABLE_LSD` work.
+  - ~~the GUI has no LSD switch~~: "Enable Local Peer Discovery" on the BitTorrent page (2026-10-17_155028_1792245028).
 - ~~Connection slots: DHT peers never connected in the rate-limited Debian run~~. Fixed 2026-10-15 (CHANGELOG 2026-10-15_230633_1792098393): the bandwidth tick served read-blocked peers in slot order with all the quota, so new peers never read their handshake. DHT decoding was fine, and counting pending connects against `connections_limit` matches libtorrent. Left over:
   - peer turnover (libtorrent `peer_turnover` / `peer_turnover_cutoff`: at 90 % of the limit, drop the slowest 4 % every unchoke interval) is not ported. With 150 of 200 slots connected it isn't needed yet, but a full limit then stays full of whoever got in first.
   - a readable peer still reads all the quota left between ticks (libtorrent queues it once the channel runs short, `need_queueing`). Fine as long as the tick's even split keeps every waiting peer moving.
@@ -345,7 +353,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - `TorrentSource::Resume` without an embedded info dictionary is still rejected; it could take the magnet path.
   - a name the user gave a magnet is kept only until a restart before the metadata arrives; then the torrent's real name is used.
   - the GUI shows a magnet's size as 0 B until the metadata arrives; µTorrent leaves the cell empty.
-- Phase 2 follow-ups: batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the string-keyed settings table, the full session counter table.
+- Phase 2 follow-ups: batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the full session counter table. (The string-keyed settings table is `patorrent_frontend::settings`, 2026-10-17_155028_1792245028.)
 - ~~Flaky on CI: `engine::upnp::tests::maps_and_unmaps_on_a_loopback_igd`, `dht::routing_table::tests::routing_table_v4`, `swarm::partial_pieces_survive_a_restart`~~. Fixed 2026-10-16_203336_1792175616: the fake IGD's threads are joined when the guard drops; the bucket count accepts 13 (random ids); the stingy peer skips the short last piece and counts real bytes (CHANGELOG 2026-10-16_203336_1792175616). Linux CI jobs are pinned to `ubuntu-24.04`; bump the pin on purpose, not by `ubuntu-latest` moving.
 - ~~Flaky on CI: `swarm::download_through_an_http_tracker`~~. Fixed 2026-10-15: the test's `wait()` dropped the alerts behind a match, so `TorrentFinished` was lost when it arrived in the same batch as `TrackerReply`. Not an engine stall (CHANGELOG 2026-10-15_153331).
 - TLS (`core::net::tls`):

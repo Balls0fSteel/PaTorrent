@@ -2,6 +2,26 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_155028_1792245028: Win32 Preferences dialog and the string-keyed settings table
+
+### Added
+- Options > Preferences (Ctrl+P, and the toolbar button) is enabled: µTorrent 2.2.1's layout, a tree of pages (General, UI Settings, Directories, Connection, Bandwidth, BitTorrent, Queueing, Scheduler, Web UI, Advanced with Disk Cache under it) beside the page, OK / Cancel / Apply. OK and Apply store everything in patorrent.ini and apply it at once through `SessionHandle::apply_settings`; the settings are loaded at startup.
+- Pages: UI Settings (confirm deletes, tray balloons, close / minimize to tray, add torrents stopped); Directories (download folder with Browse); Connection (listen port, Random port, randomize each start, UPnP, NAT-PMP, a disabled Proxy Server placeholder); Bandwidth (global rates in kB/s, global connections, peers and upload slots per new torrent, global upload slots); BitTorrent (DHT, LSD, PEX, uTP, encryption "Outgoing" + "Allow incoming legacy connections", IP filter enable / path / Browse / Reload); Queueing (active torrents, downloads, seeds, slow torrents); Disk Cache (disk write queue, open files, I/O and hashing threads); Advanced (filter, name / value list with `*` on changed values, a value field or True / False, Set, Reset). General, Scheduler and Web UI are disabled placeholders.
+- `patorrent_frontend::settings`: every `Settings` field by its libtorrent name (bool / int with range / string; the encryption enums as libtorrent's numbers), plus µTorrent's `bt.transp_disposition`; `load` / `store` keep the non-default ones as `lt.<name>` lines (the old `net.port` key is read once and replaced by `lt.listen_interfaces`); `listen_port` / `set_listen_port`, `set_encryption` / `allow_legacy_incoming`, `transp_disposition` helpers.
+- `patorrent_frontend::options`: `Options` (engine settings plus `GuiOptions`: folders, tray, per-torrent defaults, IP filter path), loaded from and stored to the preferences, `apply_to_new` for torrents being added, `random_port`.
+- IP filter in the GUI: loaded at startup when enabled (from `ipfilter.path`, or `ipfilter.dat` in the settings folder like µTorrent), reloaded on Apply when the switch or path changed and by "Reload"; results go to the Logger tab.
+- Tests: frontend `settings::tests` (every field has a row, every row round-trips, parsing and ranges, transport bits, listen ports, encryption, ini round trip) and `options::tests`; win32 `preferences::tests` (the dialog built hidden: every page and control, page switching, values in and out, Apply hands over the right `Settings`, invalid values refused without half-applying, untouched rounded values survive, the Advanced table and the pages follow each other, Reload, Random port).
+
+### Decisions
+- Page controls write back only what the user changed, so a value set on Advanced that a page shows rounded (a rate that is not a whole kB/s) is not clobbered by Apply.
+- "Allow incoming legacy connections" off sets `in_enc_policy = Forced`; "Outgoing: Forced" pairs with RC4 only (`allowed_enc_level`), anything else with both, as noted under Phase 4.
+- The uTP box sets both uTP directions; single transports are `bt.transp_disposition` on Advanced.
+- Per-torrent peer and upload-slot limits default to no limit (the engine's behaviour so far) and apply to torrents added afterwards.
+- A `Settings` field without a row in the table fails `every_field_has_a_row`, so branches adding settings (proxies, super-seeding, part files) must add rows.
+
+### Not verified
+- The dialog has not been clicked through by hand; only the hidden-dialog tests ran. Turning DHT, LSD or the port mappers off and on at run time relies on the engine's `apply_settings` and was not watched on a live network.
+
 ## 2026-10-17_153322_1792244002: CI fix for stable clippy and rustfmt
 
 ### Fixed

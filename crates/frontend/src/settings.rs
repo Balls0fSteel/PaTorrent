@@ -173,10 +173,15 @@ pub const TRANSP_IN_UTP: u32 = 8;
 
 /// The four `enable_*` transport switches as µTorrent's `bt.transp_disposition` bits.
 pub fn transp_disposition(s: &Settings) -> u32 {
-    (s.enable_outgoing_tcp as u32) * TRANSP_OUT_TCP
-        | (s.enable_outgoing_utp as u32) * TRANSP_OUT_UTP
-        | (s.enable_incoming_tcp as u32) * TRANSP_IN_TCP
-        | (s.enable_incoming_utp as u32) * TRANSP_IN_UTP
+    [
+        (s.enable_outgoing_tcp, TRANSP_OUT_TCP),
+        (s.enable_outgoing_utp, TRANSP_OUT_UTP),
+        (s.enable_incoming_tcp, TRANSP_IN_TCP),
+        (s.enable_incoming_utp, TRANSP_IN_UTP),
+    ]
+    .into_iter()
+    .filter(|&(on, _)| on)
+    .fold(0, |bits, (_, bit)| bits | bit)
 }
 
 pub fn set_transp_disposition(s: &mut Settings, bits: u32) {
@@ -383,7 +388,7 @@ pub fn set_listen_port(s: &mut Settings, port: u16) {
         .filter(|e| !e.is_empty())
         .map(|e| match e.rsplit_once(':') {
             // `[::1]` alone has colons but no port
-            Some((addr, rest)) if !addr.is_empty() && !(addr.starts_with('[') && !addr.ends_with(']')) => {
+            Some((addr, rest)) if !addr.is_empty() && (!addr.starts_with('[') || addr.ends_with(']')) => {
                 let flags: String = rest.chars().skip_while(char::is_ascii_digit).collect();
                 format!("{addr}:{port}{flags}")
             }

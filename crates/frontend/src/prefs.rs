@@ -1,6 +1,6 @@
 //! Frontend preferences in a small `key=value` text file (values verbatim, one per line) (window layout, columns, default save
 //! folder). Unknown keys are kept, so older and newer builds can share one file. The engine's
-//! own settings join with the Preferences dialog (Phase 5).
+//! own settings are kept here too, as `lt.<name>` lines (see [`crate::settings`]).
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};

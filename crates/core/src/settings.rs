@@ -1,8 +1,9 @@
 //! Session settings: the subset of libtorrent's `settings_pack` the API needs so far.
 //!
 //! Names and defaults follow libtorrent 2.0.11 `settings_pack.cpp`, except identity strings.
-//! Phase 2 ports the full name table (string-keyed get/set, which also backs the µTorrent-style
-//! "Advanced" preferences page) and `docs/SETTINGS.md` records every deliberate change.
+//! The string-keyed table (get/set by libtorrent name, behind the µTorrent-style "Advanced"
+//! preferences page) is `patorrent_frontend::settings`: a new field needs a row there too.
+//! `docs/SETTINGS.md` records every deliberate change.
 
 /// Protocol-encryption policy (libtorrent `settings_pack::enc_policy`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]

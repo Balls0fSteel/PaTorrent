@@ -203,7 +203,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                         }
                     }
                     ID_ADD_DIR => {
-                        if let Some(p) = pick_folder(dlg) {
+                        if let Some(p) = pick_folder(dlg, "Select a directory to create the torrent from") {
                             set_text(item(dlg, ID_SOURCE), &p);
                         }
                     }
@@ -393,7 +393,7 @@ unsafe fn finished(dlg: HWND, st: &mut State, result: Result<Created, String>) {
 }
 
 /// "Add file".
-unsafe fn pick_file(owner: HWND) -> Option<String> {
+pub(crate) unsafe fn pick_file(owner: HWND) -> Option<String> {
     let filter = wide("All Files (*.*)\0*.*\0");
     let title = wide("Select a file");
     let mut buf = vec![0u16; 32 * 1024];
@@ -414,8 +414,8 @@ unsafe fn pick_file(owner: HWND) -> Option<String> {
 }
 
 /// "Add directory": the shell's folder browser.
-unsafe fn pick_folder(owner: HWND) -> Option<String> {
-    let title = wide("Select a directory to create the torrent from");
+pub(crate) unsafe fn pick_folder(owner: HWND, title: &str) -> Option<String> {
+    let title = wide(title);
     unsafe {
         // BIF_NEWDIALOGSTYLE needs an apartment on this thread
         let com = CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32) >= 0;

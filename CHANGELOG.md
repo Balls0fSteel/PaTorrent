@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_203617_1792262177: Web UI design decided (D18, docs/WEBUI.md)
+
+### Decided
+- The Web UI is our own, not qBittorrent's: the µTorrent 2.2.1 main window in a browser (toolbar, category tree, the 24-column list, the seven detail tabs, status bar, context menu, Add dialog, Preferences pages), with push updates, a 10,000-torrent gate, keyboard operation and a phone layout. Design in `docs/WEBUI.md`, decision D18 in PLAN.md.
+- Two APIs over one cache: a native `/pa/...` API designed from what the page needs (one WebSocket down for state, JSON `POST`s up for commands), and the existing qBittorrent WebAPI subset (D10) kept as a compatibility shim for Sonarr, Radarr, Prowlarr and the mobile remotes. The shim translates from the same cache and calls the same command functions; it never shapes a native feature.
+- The page is a thin terminal of `patorrent-frontend`: the server runs the filtered, sorted `frontend::model::TorrentList` per client and sends formatted cells (`frontend::columns`, `fmt`, `status`, `detail`) for the visible window only. Parity with the Win32 window comes from sharing that code; the page never holds the whole list, so traffic and memory are bounded by the window, which is what makes a phone work too.
+- No framework, no build step, no dependencies: one HTML, one CSS, one JS file embedded in the binary, under 200 KB; the server side stays `std` only. Dark mode by `prefers-color-scheme` on the web page (D13's strict look binds the desktop only).
+- The GUIs' remote mode (Phase 6 optional item) will be a separate binary stream of `TorrentStatus` records from the same cache, not a variation of the page protocol.
+- Not chased: µTorrent's `/gui/?list=1` token API (no live clients), qBittorrent's Web UI look, multi-user.
+
+### Changed
+- PLAN.md: D18 added, D10 reworded as the shim, the binary table and the Phase 6 list carry the eight slices (WebSocket, session protocol, page, detail tabs, commands and Add, Preferences, phone, Phase 5 features), next step 4 points at slice 1.
+- docs/ARCHITECTURE.md: the nox line points at WEBUI.md.
+
+### Issues
+- None; documentation only, no code changed.
+
 ## 2026-10-17_200844_1792260524: rename_file, renamed files at add time, Web API renameFile / renameFolder
 
 ### Added

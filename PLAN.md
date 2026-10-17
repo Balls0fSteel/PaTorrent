@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-17_200844_1792260524
+Last updated: 2026-10-17_203617_1792262177
 
 ## Vision
 
@@ -15,12 +15,12 @@ The BitTorrent engine is our own Rust port of **libtorrent-rasterbar 2.0.11**, u
 | Binary | Platform | Role |
 |---|---|---|
 | `patorrent` | Windows | Win32 GUI (first) |
-| `patorrent-nox` | all | headless daemon with HTTP API and Web UI, like qbittorrent-nox |
+| `patorrent-nox` | all | headless daemon with a native push API and Web UI ([docs/WEBUI.md](docs/WEBUI.md)), plus a qBittorrent WebAPI shim for Sonarr / Radarr and the mobile remotes |
 | `patorrent-gtk` | Linux / BSD | GTK GUI |
 
 Where it sits: qBittorrent's modular libtorrent-plus-frontend split, with µTorrent's footprint and loadability.
 
-Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy) and [docs/PORTING.md](docs/PORTING.md) (libtorrent → Rust module map and porting rules).
+Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy), [docs/PORTING.md](docs/PORTING.md) (libtorrent → Rust module map and porting rules) and [docs/WEBUI.md](docs/WEBUI.md) (the Web UI and nox's native API).
 
 ## Current status
 
@@ -58,7 +58,7 @@ Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the reco
 | D7 | Windows: static CRT, single `.exe`, portable mode (settings beside the exe), like µTorrent. | No installer or runtime needed. |
 | D8 | Port libtorrent's tests with each module. Fuzz every parser. Deterministic swarm simulator. | Correctness without libtorrent's simulator. |
 | D9 (Q3) | TLS is OS-native: SChannel on Windows, system OpenSSL / LibreSSL on Unix, behind a thin trait. | Almost no added binary size; the OS patches TLS. Built in `core::net::tls` with no new crates: SChannel through more `windows-sys` features, OpenSSL through hand-written declarations of a dozen stable functions, so Unix builds link the system `libssl` / `libcrypto` (Linux needs `libssl-dev` to build; FreeBSD has it in base). |
-| D10 (Q4) | nox exposes a qBittorrent WebAPI v2-compatible subset (incremental `sync/maindata`). | Works with Sonarr, Radarr, Prowlarr and mobile apps. |
+| D10 (Q4) | nox exposes a qBittorrent WebAPI v2-compatible subset (incremental `sync/maindata`). Since D18 it is a compatibility shim beside the native API, translating from the same cache; it never shapes a native feature. | Works with Sonarr, Radarr, Prowlarr and mobile apps. |
 | D11 (Q5) | The Linux/BSD GUI uses GTK 4 via gtk4-rs. | Maintained bindings. Memory can be trimmed with the Cairo renderer if needed. |
 | D12 (Q6) | Windows 10+ x64 only, on stable Rust. ARM64 Windows comes later as an extra CI target. No Windows 7/8.1, no 32-bit. | No nightly/`build-std`; tier-1 target. |
 | D13 (Q7) | Strict µTorrent 2.2.1 look by default: classic list view, 2.2.1 layout, menus and toolbar order. Allowed modern necessities: per-monitor DPI scaling and long paths. An optional dark mode may come later, never as the default. | Faithful clone first. |
@@ -66,6 +66,7 @@ Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the reco
 | D15 (Q1) | License: **PolyForm Noncommercial 1.0.0**, copyright **DukeCorp1996** (`LICENSE.md` with a `Required Notice:` line, SPDX `PolyForm-Noncommercial-1.0.0` in every manifest). Ported libtorrent code also keeps its BSD-3 notice. `LICENSE.md` ships in `dist\` and the CI artifact, `patorrent-nox --license` prints it, and the About box names it. | The owner wants no commercial use and their own name as author. Accepted consequence: source-available, not OSI open source, so no Debian/Fedora/F-Droid packaging. |
 | D16 (Q2, Q8) | Name: **PaTorrent** (long name **PatinaTorrent**; a patina is the good kind of rust). Peer-ID prefix `-PA0100-`, User-Agent `PaTorrent/<version>`, BEP 10 `v` = `PaTorrent <version>`. Crates `patorrent-core` / `-frontend` / `-nox`, binary `patorrent.exe`, `%APPDATA%\PaTorrent`, `patorrent.ini`. `LR` stays mapped to the Android LibreTorrent in our peer table. | "LibreTorrent" was taken (Android, peer ID `LR`) and "libre" is wrong under D15. The owner turned down Ferrite (`Fe` reads badly) and Oxbit. `PA` is free in libtorrent's table and the BEP 20 list. |
 | D17 (Q8) | No peer-ID spoofing. PaTorrent always reports itself. | A borrowed ID with this engine's fingerprint gets accounts banned on private trackers and misreports the client. |
+| D18 | The Web UI is our own, not qBittorrent's: the µTorrent 2.2.1 main window in a browser, driven by a native push API (`/pa/ws` WebSocket down, JSON `POST`s up) designed from what the page needs. The page is a thin terminal of `patorrent-frontend`: the server runs the filtered, sorted `TorrentList` per client and sends formatted cells for the visible window only. No framework, no build step, embedded. The qBittorrent subset (D10) stays as a shim. Design: [docs/WEBUI.md](docs/WEBUI.md). | Parity with the desktop for free (one `frontend` decides what is shown), 10,000 torrents without the page holding them, works on a phone, keeps the Sonarr / Radarr ecosystem at no design cost. Decided with the owner 2026-10-17. |
 
 ## Roadmap
 
@@ -215,13 +216,22 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [ ] Localisation infrastructure (string tables)
 
 ### Phase 6: Headless `patorrent-nox`
+Design: [docs/WEBUI.md](docs/WEBUI.md) (D18, decided 2026-10-17_203617_1792262177).
 - [ ] Daemon: Unix daemon / systemd unit, optional Windows service, signal handling, XDG paths
 - [x] Embedded HTTP/1.1 server (std threads beside the engine, not on its reactor; CHANGELOG 2026-10-17_164324_1792248204); authentication (SID cookie, PBKDF2 password hash, failed-login ban), CSRF and host-header protections
   - [ ] optional TLS
-- [x] API (D10) with incremental `sync/maindata` diffs: the qBittorrent WebAPI 2.11.2 subset in CHANGELOG 2026-10-17_164324_1792248204
+- [x] Compat API (D10, a shim since D18) with incremental `sync/maindata` diffs: the qBittorrent WebAPI 2.11.2 subset in CHANGELOG 2026-10-17_164324_1792248204
   - [ ] still missing: tags, RSS, search, logs, peers (`sync/torrentPeers`), move / setLocation (`TorrentHandle::move_storage` exists now); `renameFile` / `renameFolder` are in (2026-10-17_200844_1792260524), trackers editing, queue positions, share limits, automatic torrent management, cookies
-- [x] Small dependency-free Web UI, embedded in the binary: a first page (login, list, add by link, start / stop / remove)
-  - [ ] details panes, file priorities, preferences, drag-and-drop .torrent upload
+- [x] Small dependency-free Web UI, embedded in the binary: a first page (login, list, add by link, start / stop / remove), polling the compat API; to be replaced by the native page below
+- [ ] Native API and Web UI (D18, docs/WEBUI.md), in slices:
+  - [ ] 1. WebSocket in the HTTP server (RFC 6455 handshake, frames, ping / pong, close, `Origin` check), per-client wake-up from the alert loop
+  - [ ] 2. session protocol: `view` subscriptions on a per-client `frontend::model::TorrentList`, `hello` / `rows` / `tick` with counts and the status bar, cells from `frontend::columns`
+  - [ ] 3. the page: 2.2.1 layout, virtual list, category tree, status bar, context menu, keyboard, selection; the 10,000-torrent gate measured
+  - [ ] 4. detail tabs (General, Trackers, Peers, Pieces, Files, Speed, Logger); `post_peers` added to the cache and `sync/torrentPeers` to the shim
+  - [ ] 5. commands and the Add dialog (upload, magnet, two-step add with the file tree, Remove and delete data); the shim's handlers moved onto the shared functions
+  - [ ] 6. Preferences generated from `frontend::options`
+  - [ ] 7. phone layout; long-poll fallback only if a deployment needs it
+  - [ ] 8. with Phase 5: labels, RSS, scheduler, per-torrent limits; the GUIs' remote mode on its own binary stream
 - [ ] Optional: either GUI can remote-control a nox instance
 
 ### Phase 7: GTK GUI (Linux / BSD)
@@ -242,7 +252,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 1. Try a magnet link in the GUI (Add Torrent from URL, or a `magnet:` link on the command line): the row should show "Downloading metadata" with a growing percentage, then turn into a normal download.
 2. Phase 5 continues (2026-10-17_161604_1792246564: Preferences, proxies, super-seeding and part files are in). Click through Preferences by hand once (every page, OK / Cancel / Apply, the Proxy box, the Advanced list) and Advanced > Initial Seeding. The Add New Torrent dialog is in (2026-10-17_163655_1792247815): open a multi-file `.torrent`, uncheck a folder, set a priority from the right-click menu, pick a label and a recent Save In folder, OK, then check the Files tab and that the skipped files stay off disk. Move storage is wired into the GUI (2026-10-17_193944_1792258784): set Preferences > Directories "Move completed downloads to", let a small torrent finish and watch it go "Moving" then land there (Logger tab); right-click > Advanced > Set Download Location... on a seed, once to another folder on the same drive and once to another drive letter. Next candidates: labels and the scheduler. `patorrent-nox --proxy socks5://host:1080` and `add ... --super-seed` exercise the new engine features. `patorrent-nox run --no-state --seconds 20 --verbose` shows the mappers at work (`NatPmp:` / `Upnp:` lines); `--listen LIST` takes a `listen_interfaces` string; `add ... --verbose` prints where connected peers came from every 10 s.
 3. Keep CI green on Windows, Linux and FreeBSD. The three flaky tests that made the 2026-10-15/16 runs red (UPnP fake router outliving its test, random DHT bucket count, the stingy peer's last-piece arithmetic) are fixed (CHANGELOG 2026-10-16_203336_1792175616); if a run goes red now, it is a real failure.
-4. Try the Web UI (CHANGELOG 2026-10-17_164324_1792248204): `patorrent-nox run --webui 8080 --webui-pass <password>` and open http://127.0.0.1:8080/, then point Sonarr or Radarr (qBittorrent download client, host 127.0.0.1, port 8080) and a qBittorrent mobile app at it. Their requests will show which missing endpoints matter first. Use `--webui 0.0.0.0:8080` plus `web_ui_domain_list` for a LAN host name.
+4. Web UI: build docs/WEBUI.md slice 1 (WebSocket) and slice 2 (the session protocol), then slice 3 (the page) and measure the 10,000-torrent gate. The current page (`patorrent-nox run --webui 8080 --webui-pass <password>`, http://127.0.0.1:8080/) keeps working on the compat API until slice 3 replaces it. Sonarr / Radarr (qBittorrent download client, host 127.0.0.1, port 8080) and a qBittorrent mobile app still show which shim endpoints matter. Use `--webui 0.0.0.0:8080` plus `web_ui_domain_list` for a LAN host name.
 5. Rerun `lt-swarm interop` (and `lt-swarm interop --encryption forced`) after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI. On 2026-10-16 WSL2 refused to start on this machine ("Virtual Machine Platform" / virtualization off), so only the qBittorrent case ran; rerun the Transmission and Deluge cases, plain and encrypted, once WSL is back.
 
 Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on Linux (CI run 38738279981) and FreeBSD (run 38736854046); partial pieces in resume data (CHANGELOG 2026-10-15_160110); reverse-direction interop scripted as `lt-swarm interop` (CHANGELOG 2026-10-15_161111).

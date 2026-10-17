@@ -1523,8 +1523,15 @@ impl Engine {
         if self.torrent_ref(id).is_none() {
             return;
         }
-        let delete = flags.contains(RemoveFlags::DELETE_FILES);
-        if delete {
+        // libtorrent `delete_files` / `delete_partfile`; deleting the files takes the part file.
+        let delete = if flags.contains(RemoveFlags::DELETE_FILES) {
+            Some(FenceAction::Delete)
+        } else if flags.contains(RemoveFlags::DELETE_PARTFILE) {
+            Some(FenceAction::DeletePartFile)
+        } else {
+            None
+        };
+        if delete.is_some() {
             self.ensure_metadata(id);
         }
         self.stop_torrent(id, true);
@@ -1544,12 +1551,12 @@ impl Engine {
             self.store_flush_due.get_or_insert(Instant::now() + STORE_FLUSH_DELAY);
         }
         self.alert(Alert::TorrentRemoved { id, info_hashes: t.info_hashes });
-        if delete {
+        if let Some(action) = delete {
             match t.ti.clone() {
                 Some(ti) => {
-                    let storage = self.disk.new_storage(t.save_path.clone(), ti);
+                    let storage = self.disk.new_storage(t.save_path.clone(), ti, Vec::new());
                     self.deleting.insert(storage.id, (id, t.info_hashes));
-                    self.disk.async_fence(&storage, FenceAction::Delete);
+                    self.disk.async_fence(&storage, action);
                 }
                 // A magnet without metadata never wrote anything.
                 None if !t.has_metadata() => {
@@ -1631,7 +1638,8 @@ impl Engine {
         let ti = t.ti.clone().expect("loaded");
         let save_path = t.save_path.clone();
         let peer_slots = t.peers.clone();
-        let storage = self.disk.new_storage(save_path, ti.clone());
+        let file_priority = t.file_priority.clone();
+        let storage = self.disk.new_storage(save_path, ti.clone(), file_priority);
         self.storages.insert(storage.id, id);
         let mut picker = PiecePicker::new(
             ti.num_pieces(),
@@ -1846,6 +1854,12 @@ impl Engine {
                 p.set_piece_priority(i as u32, pr);
             }
         }
+        // The storage moves data in or out of the part file (libtorrent `prioritize_files`).
+        if let Some(storage) = t.storage.clone() {
+            let prios = t.file_priority.clone();
+            self.disk.async_set_file_priority(&storage, prios);
+        }
+        let t = self.torrent(id).expect("exists");
         let finished = t.is_finished();
         if t.checking || t.storage.is_none() {
             if finished != was_finished {
@@ -2121,9 +2135,24 @@ impl Engine {
                     self.on_checked(id, result);
                 }
             }
+            Completion::FilePriority { storage, error: Some((file, error)) } => {
+                // libtorrent `on_file_priority`: a failed move out of the part file stops the
+                // torrent with the error.
+                let Some(&id) = self.storages.get(&storage) else { return };
+                if let Some(t) =
+                    self.torrent(id).filter(|t| t.storage.as_ref().is_some_and(|s| s.id == storage))
+                {
+                    t.error = Some(format!("{file}: {error}"));
+                    t.status_dirty = true;
+                    self.alert(Alert::FileError { id, file, error: error.clone() });
+                    self.alert(Alert::TorrentError { id, error });
+                    self.update_running(id);
+                }
+            }
+            Completion::FilePriority { error: None, .. } => {}
             Completion::Fenced { storage, action, error } => {
                 self.storages.remove(&storage);
-                if action == FenceAction::Delete {
+                if action != FenceAction::Release {
                     if let Some((id, info_hashes)) = self.deleting.remove(&storage) {
                         match error {
                             None => self.alert(Alert::TorrentDeleted { id, info_hashes }),

@@ -2,6 +2,26 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_160022_1792245622: part files for skipped files (Phase 5)
+
+Branch `claude/part-files-b92a97`.
+
+### Added
+- `core::disk::part_file`, ported from libtorrent 2.0.11 `part_file.cpp` / `posix_part_file.cpp`: libtorrent's on-disk format (big-endian piece count, piece size and one `i32` slot per piece in a header rounded up to 1 KiB; slot `s` at `header + s * piece_size`). Created on the first write, read / write / `export_file` / `free_piece` / `flush_metadata` (deletes the file once it holds no piece) / `move_partfile`. `SlotMap` is the I/O-free slot map, fuzzed on its own.
+- Storage (libtorrent `posix_storage`): files with priority 0 that are not on disk keep their blocks in `.<info-hash>.parts` in the save path and are never created (no zero-length or sparse placeholder, empty skipped files included). Reads, hashing, the full check and resume verification read through the part file. A file whose priority leaves 0 gets its blocks exported into it; one set to 0 that already exists keeps using the file (libtorrent's behaviour). Pieces no skipped file still overlaps are freed, so the part file disappears once nothing is skipped. A file unskipped while the torrent was stopped (no storage) is exported when the storage starts.
+- `DiskIo::async_set_file_priority` (libtorrent's fence job): a barrier sent to every disk thread; each parks the storage's later jobs until the last thread has applied the change, then `Job::Unblock` replays them. Other torrents' jobs are not held up. `Completion::FilePriority`; an export error stops the torrent with `FileError` / `TorrentError` (libtorrent `on_file_priority`). The engine sends it from `set_file_priorities`; `new_storage` takes the file priorities.
+- `RemoveFlags::DELETE_PARTFILE` (libtorrent `delete_partfile`) now deletes the part file (`FenceAction::DeletePartFile`, answered by `TorrentDeleted`); `DELETE_FILES` deletes it with the files.
+- Tests: `test_part_file.cpp` (`part_file`; `posix_part_file` is the same code here), header format and parsing, slot reuse and trimming, export of boundary pieces, the registry; storage: a skipped middle file stays absent, the boundary pieces pass, a recheck and resume data find them, a restart keeps the part file, unskipping exports the blocks with the file's pieces queued right behind the change, re-skipping an existing file, delete with data / part file only, resume data that claims a piece the part file lacks, unskip while stopped, and the barrier's parking order; loopback swarm `a_skipped_file_stays_in_the_part_file_until_it_is_unskipped` (download with a file skipped, restart, recheck, unskip from a second seed, `DELETE_PARTFILE`).
+- Fuzz target `part_file` (header parse with the torrent's and the header's own counts, slot map invariants, round trip, allocations and frees), in the `fuzz.yml` matrix.
+
+### Decisions
+- No storage flag to turn part files off: libtorrent 2.0.11 has none either (only `storage_mode_t` allocate / sparse); part files are always used for priority-0 files.
+- Divergences in docs/PORTING.md: lowest-free-slot reuse and trailing slots cut off, duplicate header slots ignored; boundary pieces freed after an unskip; resume data must find claimed pieces in the part file (libtorrent exempts skipped files); the priority barrier; the open handle kept until release and live part files shared by path between the old and new storage of a restarted torrent (an old storage's late release must not write back a stale slot map).
+
+### Issues
+- The fuzzer's first run found a wrong invariant in the new target: a slot map with free slots at the end reads back trimmed (the header cannot record them; `flush_metadata` trims before writing). The check now compares with the trimmed map.
+- After a restart, a finished leech closes its connection to a seed as redundant and then waits `min_reconnect_time` (60 s) to reconnect after an unskip, as libtorrent does; the swarm test unskips against a second seed. Noted in PLAN.md Known TODOs.
+
 ## 2026-10-17_153322_1792244002: CI fix for stable clippy and rustfmt
 
 ### Fixed

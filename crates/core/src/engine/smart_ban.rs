@@ -212,9 +212,14 @@ impl Engine {
         let mut banned = Vec::new();
         for addr in peers {
             let Some(t) = self.torrent(id) else { return };
-            if let Some(p) = t.peer_list.get_mut(&addr) {
-                if p.trust.failed(known_bad_peer, use_parole_mode) {
-                    banned.push(addr);
+            match t.peer_list.get_mut(&addr) {
+                Some(p) => {
+                    if p.trust.failed(known_bad_peer, use_parole_mode) {
+                        banned.push(addr);
+                    }
+                }
+                None => {
+                    self.web_seed_hash_failed(id, piece, addr, known_bad_peer, use_parole_mode);
                 }
             }
         }
@@ -228,11 +233,13 @@ impl Engine {
     pub(super) fn on_piece_pass(&mut self, id: TorrentId, piece: u32, downloaders: Vec<Option<SocketAddr>>) {
         let Some(t) = self.torrent(id) else { return };
         let peers: HashSet<SocketAddr> = downloaders.iter().flatten().copied().collect();
-        for addr in peers {
-            if let Some(p) = t.peer_list.get_mut(&addr) {
+        for addr in &peers {
+            if let Some(p) = t.peer_list.get_mut(addr) {
                 p.trust.passed();
             }
         }
+        self.web_seeds_passed(id, &peers);
+        let Some(t) = self.torrent(id) else { return };
         let reads = t.smart_ban.on_piece_pass(piece);
         if let Some(storage) = t.storage.clone().filter(|_| !reads.is_empty()) {
             let size = t.piece_size(piece);

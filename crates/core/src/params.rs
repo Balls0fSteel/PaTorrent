@@ -104,6 +104,10 @@ pub struct AddTorrentParams {
     pub trackers: Vec<String>,
     pub tracker_tiers: Vec<u32>,
     pub file_priorities: Vec<DownloadPriority>,
+    /// Web seeds besides the torrent's own (libtorrent `url_seeds` / `http_seeds`): BEP 19
+    /// and BEP 17 URLs.
+    pub url_seeds: Vec<String>,
+    pub http_seeds: Vec<String>,
     /// Bytes per second; 0 = unlimited.
     pub download_limit: u32,
     pub upload_limit: u32,
@@ -121,6 +125,8 @@ impl AddTorrentParams {
             trackers: Vec::new(),
             tracker_tiers: Vec::new(),
             file_priorities: Vec::new(),
+            url_seeds: Vec::new(),
+            http_seeds: Vec::new(),
             download_limit: 0,
             upload_limit: 0,
             max_connections: None,

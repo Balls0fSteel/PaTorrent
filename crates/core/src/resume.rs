@@ -38,6 +38,10 @@ pub(crate) struct ResumeData {
     /// Tracker URLs per tier.
     pub trackers: Vec<Vec<String>>,
     pub peers: Vec<SocketAddr>,
+    /// BEP 19 and BEP 17 web seeds (libtorrent `url-list` / `httpseeds`): they live outside the
+    /// info dictionary, so the metadata store does not keep them.
+    pub url_seeds: Vec<String>,
+    pub http_seeds: Vec<String>,
     pub upload_rate_limit: u32,
     pub download_rate_limit: u32,
     pub max_connections: Option<u32>,
@@ -119,6 +123,8 @@ impl ResumeData {
         if !v6.is_empty() {
             *e.key("peers6") = Entry::Bytes(v6);
         }
+        *e.key("url-list") = Entry::List(self.url_seeds.iter().map(|u| s(u)).collect());
+        *e.key("httpseeds") = Entry::List(self.http_seeds.iter().map(|u| s(u)).collect());
         *e.key("upload_rate_limit") = int(self.upload_rate_limit as i64);
         *e.key("download_rate_limit") = int(self.download_rate_limit as i64);
         *e.key("max_connections") = int(self.max_connections.map_or(-1, |v| v as i64));
@@ -224,6 +230,13 @@ impl ResumeData {
                 }
             }
         }
+        let strings = |k: &str| -> Vec<String> {
+            root.dict_find_list(k)
+                .map(|l| l.list_iter().filter_map(|u| u.str_value().map(str::to_owned)).collect())
+                .unwrap_or_default()
+        };
+        r.url_seeds = strings("url-list");
+        r.http_seeds = strings("httpseeds");
         if let Some(p) = root.dict_find_string_value("peers") {
             parse_compact_peers(p, false, &mut r.peers);
         }
@@ -264,6 +277,8 @@ mod tests {
             file_priority: vec![4, 0, 7],
             trackers: vec![vec!["http://a/announce".into()], vec!["udp://b:1".into(), "udp://c:2".into()]],
             peers: vec!["1.2.3.4:5".parse().unwrap(), "[::1]:6".parse().unwrap()],
+            url_seeds: vec!["http://w/a/".into(), "https://w/b".into()],
+            http_seeds: vec!["http://h/seed".into()],
             upload_rate_limit: 1000,
             max_connections: Some(50),
             queue_position: Some(3),

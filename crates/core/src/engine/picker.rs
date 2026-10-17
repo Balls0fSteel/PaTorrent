@@ -333,6 +333,84 @@ impl PiecePicker {
         out
     }
 
+    /// `pick` for web seeds (libtorrent `pick_pieces` with `prefer_contiguous_blocks`): new
+    /// pieces are taken whole, and each one grows into a run of neighbouring free pieces
+    /// (libtorrent `expand_piece`: within the aligned window of `contiguous` pieces around it),
+    /// so the blocks make long HTTP range requests. Runs stop growing once `num_blocks` are
+    /// picked (libtorrent claims the whole window and sends it as the queue allows). Partial
+    /// pieces come first and end-game last, as in `pick`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn pick_contiguous(
+        &mut self,
+        peer_has: &Bitfield,
+        peer_is_seed: bool,
+        num_blocks: usize,
+        contiguous: u32,
+        peer: SocketAddr,
+        on_parole: bool,
+        already_requested: impl Fn(u32, u32) -> bool,
+    ) -> Vec<(u32, u32)> {
+        let mut out = Vec::new();
+        if num_blocks == 0 {
+            return out;
+        }
+        let has = |p: u32| peer_is_seed || peer_has.get(p as usize);
+        let partial: Vec<u32> = self
+            .downloading
+            .iter()
+            .filter(|(p, d)| {
+                self.priority[**p as usize] > 0
+                    && has(**p)
+                    && (!on_parole || d.exclusive_to(peer))
+                    && d.count(|b| b == BlockState::Free) > 0
+            })
+            .map(|(p, _)| *p)
+            .collect();
+        let mut partial = partial;
+        partial.sort_unstable();
+        for piece in partial {
+            self.take_free_blocks(piece, usize::MAX, peer, &mut out);
+            if out.len() >= num_blocks {
+                return out;
+            }
+        }
+        self.rebuild_order();
+        let window = contiguous.max(1);
+        let free = |pk: &PiecePicker, p: u32| pk.wants(p) && !pk.downloading.contains_key(&p) && has(p);
+        let mut i = 0;
+        while i < self.order.len() && out.len() < num_blocks {
+            let piece = self.order[i];
+            i += 1;
+            if !free(self, piece) {
+                continue;
+            }
+            let lo_bound = piece - piece % window;
+            let hi_bound = lo_bound.saturating_add(window).min(self.num_pieces());
+            // grow forwards first, then backwards, a whole piece at a time
+            let mut next = piece;
+            while next < hi_bound && free(self, next) && out.len() < num_blocks {
+                self.take_new_piece(next, peer, &mut out);
+                next += 1;
+            }
+            let mut prev = piece;
+            while prev > lo_bound && free(self, prev - 1) && out.len() < num_blocks {
+                prev -= 1;
+                self.take_new_piece(prev, peer, &mut out);
+            }
+        }
+        if !out.is_empty() || on_parole {
+            return out;
+        }
+        // nothing new: the end-game of `pick` (its first two steps find nothing either)
+        self.pick(peer_has, peer_is_seed, num_blocks, peer, on_parole, already_requested)
+    }
+
+    fn take_new_piece(&mut self, piece: u32, peer: SocketAddr, out: &mut Vec<(u32, u32)>) {
+        let n = self.blocks_in_piece(piece);
+        self.downloading.insert(piece, Downloading::new(n as usize));
+        self.take_free_blocks(piece, usize::MAX, peer, out);
+    }
+
     fn take_free_blocks(
         &mut self,
         piece: u32,
@@ -546,6 +624,40 @@ mod tests {
     fn picker(n: u32) -> PiecePicker {
         // 2 blocks per piece, last piece 1 block.
         PiecePicker::new(n, 2 * B, B, B)
+    }
+
+    /// Web seeds take whole pieces in runs inside aligned windows (libtorrent `expand_piece`),
+    /// stopping once enough blocks are picked; partial pieces first, end-game last.
+    #[test]
+    fn contiguous_runs_for_web_seeds() {
+        let mut p = PiecePicker::new(16, 2 * B, 2 * B, B);
+        p.set_sequential(true);
+        let none = Bitfield::new(16, false);
+        // 5 blocks: pieces 0, 1 and 2 whole (runs grow a piece at a time)
+        let picked = p.pick_contiguous(&none, true, 5, 4, A, false, |_, _| false);
+        assert_eq!(picked, [(0, 0), (0, 1), (1, 0), (1, 1), (2, 0), (2, 1)]);
+        // piece 3 is the last of the window 0..4; the next run starts in the window 4..8
+        let picked = p.pick_contiguous(&none, true, 6, 4, A, false, |_, _| false);
+        assert_eq!(picked, [(3, 0), (3, 1), (4, 0), (4, 1), (5, 0), (5, 1)]);
+        // another peer touched piece 9: a run around it grows backwards to the window start
+        p.set_sequential(false);
+        p.inc_refcount_bitfield(&bits("1111111110111111"));
+        assert!(p.mark_as_writing(9, 0, C));
+        let picked = p.pick_contiguous(&none, true, 3, 4, A, false, |_, _| false);
+        assert_eq!(picked[0], (9, 1), "the partial piece first");
+        let mut pieces: Vec<u32> = picked[1..].iter().map(|b| b.0).collect();
+        pieces.dedup();
+        assert_eq!(pieces.len(), 1, "then one whole new piece: {picked:?}");
+        // a peer that has only some pieces
+        let mut p = PiecePicker::new(8, 2 * B, 2 * B, B);
+        p.set_sequential(true);
+        let picked = p.pick_contiguous(&bits("00110110"), false, 100, 8, A, false, |_, _| false);
+        let pieces: Vec<u32> = picked.iter().map(|b| b.0).collect();
+        assert_eq!(pieces, [2, 2, 3, 3, 5, 5, 6, 6]);
+        // nothing free: end-game asks for busy blocks
+        let picked = p.pick_contiguous(&bits("00110110"), false, 2, 8, C, false, |_, _| false);
+        assert_eq!(picked.len(), 2);
+        assert!(matches!(p.block_state(picked[0].0, picked[0].1), BlockState::Requested(2)));
     }
 
     #[test]

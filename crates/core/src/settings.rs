@@ -160,6 +160,28 @@ pub struct Settings {
     pub hashing_threads: u32,
     pub file_pool_size: u32,
     pub max_queued_disk_bytes: u32,
+    /// Web seeds (libtorrent's `urlseed_*` and web seed settings): BEP 17 requests in flight
+    /// per connection (we also cap BEP 19 request runs by it).
+    pub urlseed_pipeline_size: i32,
+    /// Seconds without data before a web seed connection is closed.
+    pub urlseed_timeout: u32,
+    /// Seconds before a failed web seed is tried again.
+    pub urlseed_wait_retry: u32,
+    /// Largest HTTP range request to a web seed.
+    pub urlseed_max_request_bytes: i32,
+    /// Seconds before a web seed whose host name did not resolve is tried again.
+    pub web_seed_name_lookup_retry: u32,
+    /// Web seeds connected at once per torrent (0: 100).
+    pub max_web_seed_connections: i32,
+    /// A web seed that sends corrupt data may be banned, as a peer would be.
+    pub ban_web_seeds: bool,
+    /// Web seeds on the local network may not use query strings, and redirects from the
+    /// internet may not lead to the local network (libtorrent `ssrf_mitigation`).
+    pub ssrf_mitigation: bool,
+    /// Allow international domain names (`xn--`) in web seed URLs.
+    pub allow_idna: bool,
+    /// Send the User-Agent on every web seed request, not just the first of a connection.
+    pub always_send_user_agent: bool,
 }
 
 impl Default for Settings {
@@ -258,6 +280,16 @@ impl Default for Settings {
             hashing_threads: 1,
             file_pool_size: 40,
             max_queued_disk_bytes: 1024 * 1024,
+            urlseed_pipeline_size: 5,
+            urlseed_timeout: 20,
+            urlseed_wait_retry: 30,
+            urlseed_max_request_bytes: 16 * 1024 * 1024,
+            web_seed_name_lookup_retry: 1800,
+            max_web_seed_connections: 3,
+            ban_web_seeds: true,
+            ssrf_mitigation: true,
+            allow_idna: false,
+            always_send_user_agent: false,
         }
     }
 }

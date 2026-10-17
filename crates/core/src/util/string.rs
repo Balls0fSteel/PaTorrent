@@ -121,6 +121,24 @@ pub fn maybe_url_encode(url: &str) -> String {
     msg
 }
 
+/// RFC 4648 base64 with padding (libtorrent `base64encode`), for HTTP basic authentication.
+pub fn base64encode(s: &[u8]) -> String {
+    const ALPHABET: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(s.len().div_ceil(3) * 4);
+    for c in s.chunks(3) {
+        let b = [c[0], c.get(1).copied().unwrap_or(0), c.get(2).copied().unwrap_or(0)];
+        let n = (b[0] as u32) << 16 | (b[1] as u32) << 8 | b[2] as u32;
+        for i in 0..4 {
+            if i <= c.len() {
+                out.push(ALPHABET[(n >> (18 - 6 * i) & 63) as usize] as char);
+            } else {
+                out.push('=');
+            }
+        }
+    }
+    out
+}
+
 /// RFC 4648 base32 decoding, case-insensitive, tolerating missing padding and '1' for 'I'
 /// (libtorrent `base32decode`). `None` on invalid characters.
 pub fn base32decode(s: &[u8]) -> Option<Vec<u8>> {
@@ -254,6 +272,21 @@ mod tests {
         assert!(string_begins_no_case(b"foo", b"foobar"));
         assert!(!string_begins_no_case(b"foobar", b"F00"));
         assert!(!string_begins_no_case(b"foobar", b"foo"));
+    }
+
+    #[test]
+    fn base64() {
+        for (s, want) in [
+            ("", ""),
+            ("f", "Zg=="),
+            ("fo", "Zm8="),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg=="),
+            ("fooba", "Zm9vYmE="),
+            ("foobar", "Zm9vYmFy"),
+        ] {
+            assert_eq!(base64encode(s.as_bytes()), want);
+        }
     }
 
     #[test]

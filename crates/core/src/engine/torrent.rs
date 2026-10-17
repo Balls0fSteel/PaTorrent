@@ -14,9 +14,10 @@ use super::peer_list::PeerList;
 use super::picker::PiecePicker;
 use super::smart_ban::SmartBan;
 use super::tracker::TrackerEntry;
+use super::web_seed::WebSeeds;
 use crate::disk::{BLOCK_SIZE, Storage};
-use crate::metainfo::TorrentInfo;
 use crate::metainfo::file_storage::FileFlags;
+use crate::metainfo::{TorrentInfo, WebSeedKind};
 use crate::net::Bucket;
 use crate::params::{DownloadPriority, TorrentFlags};
 use crate::proto::ut_metadata::MetadataFetch;
@@ -67,6 +68,8 @@ pub(crate) struct Torrent {
     pub peers: Vec<usize>,
     pub peer_list: PeerList,
     pub trackers: Vec<TrackerEntry>,
+    /// BEP 19 / BEP 17 web seeds.
+    pub web_seeds: WebSeeds,
 
     pub stat: Stat,
     /// All-time totals from earlier sessions.
@@ -132,6 +135,7 @@ impl Torrent {
             peers: Vec::new(),
             peer_list: PeerList::default(),
             trackers: Vec::new(),
+            web_seeds: WebSeeds::default(),
             stat: Stat::default(),
             prev_uploaded: 0,
             prev_downloaded: 0,
@@ -418,6 +422,8 @@ impl Torrent {
             file_priority: self.file_priority.clone(),
             trackers,
             peers: self.peer_list.resume_peers(100),
+            url_seeds: self.web_seeds.resume_urls(WebSeedKind::UrlSeed),
+            http_seeds: self.web_seeds.resume_urls(WebSeedKind::HttpSeed),
             upload_rate_limit: self.upload_limit.limit,
             download_rate_limit: self.download_limit.limit,
             max_connections: self.max_connections,

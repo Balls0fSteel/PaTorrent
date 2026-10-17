@@ -39,6 +39,9 @@ pub(crate) enum Command {
     SetUploadLimit(TorrentId, u32),
     MoveStorage(TorrentId, String),
     ConnectPeer(TorrentId, std::net::SocketAddr),
+    AddWebSeed(TorrentId, String, crate::metainfo::WebSeedKind),
+    RemoveWebSeed(TorrentId, String, crate::metainfo::WebSeedKind),
+    PostWebSeeds(TorrentId),
     PostTorrentUpdates,
     PostSessionStats,
     PostPeerInfo(TorrentId),
@@ -293,6 +296,35 @@ impl TorrentHandle {
     /// Adds `addr` to the torrent's peer list and connects to it (libtorrent `connect_peer`).
     pub fn connect_peer(&self, addr: std::net::SocketAddr) {
         self.session.send(Command::ConnectPeer(self.id, addr));
+    }
+
+    /// Adds a BEP 19 web seed (libtorrent `add_url_seed`). Web seeds from the torrent file
+    /// and added ones are saved with the torrent.
+    pub fn add_url_seed(&self, url: impl Into<String>) {
+        self.session.send(Command::AddWebSeed(self.id, url.into(), crate::metainfo::WebSeedKind::UrlSeed));
+    }
+
+    /// libtorrent `remove_url_seed`: a connection to it is closed.
+    pub fn remove_url_seed(&self, url: impl Into<String>) {
+        self.session.send(Command::RemoveWebSeed(self.id, url.into(), crate::metainfo::WebSeedKind::UrlSeed));
+    }
+
+    /// Adds a BEP 17 (Hoffman style) HTTP seed (libtorrent `add_http_seed`).
+    pub fn add_http_seed(&self, url: impl Into<String>) {
+        self.session.send(Command::AddWebSeed(self.id, url.into(), crate::metainfo::WebSeedKind::HttpSeed));
+    }
+
+    pub fn remove_http_seed(&self, url: impl Into<String>) {
+        self.session.send(Command::RemoveWebSeed(
+            self.id,
+            url.into(),
+            crate::metainfo::WebSeedKind::HttpSeed,
+        ));
+    }
+
+    /// Answered by [`Alert::WebSeeds`].
+    pub fn post_web_seeds(&self) {
+        self.session.send(Command::PostWebSeeds(self.id));
     }
 
     pub fn move_storage(&self, save_path: impl Into<String>) {

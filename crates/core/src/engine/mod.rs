@@ -13,6 +13,7 @@
 //! The real network engine (PLAN.md Phase 2).
 
 mod dht;
+mod external_ip;
 mod ip_filter;
 mod lsd;
 mod metadata;
@@ -31,7 +32,7 @@ mod wire;
 
 use std::collections::HashMap;
 use std::io;
-use std::net::{IpAddr, SocketAddr};
+use std::net::SocketAddr;
 use std::path::PathBuf;
 use std::sync::{Arc, mpsc};
 use std::time::{Duration, Instant};
@@ -44,6 +45,7 @@ use crate::crypto::mse;
 use crate::disk::{BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction};
 use crate::error::Error;
 use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, parse_magnet_uri};
+use crate::net::ip_voter::{ExternalIp, SessionVoter, source};
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::{Bucket, parse_listen_interfaces, sys};
 use crate::params::{
@@ -248,7 +250,10 @@ pub(crate) struct Engine {
     has_incoming: bool,
     download_bucket: Bucket,
     upload_bucket: Bucket,
-    external_ip: Option<IpAddr>,
+    /// The session's external-address votes, one voter per family.
+    ip_voter: SessionVoter,
+    /// The voted addresses plus the listen addresses (libtorrent `external_address()`).
+    external_ip: ExternalIp,
     needs_auto_manage: bool,
     connect_budget: f64,
 
@@ -386,7 +391,8 @@ impl Engine {
             has_incoming: false,
             download_bucket: Bucket::new(settings.download_rate_limit),
             upload_bucket: Bucket::new(settings.upload_rate_limit),
-            external_ip: None,
+            ip_voter: SessionVoter::new(now),
+            external_ip: ExternalIp::default(),
             needs_auto_manage: true,
             connect_budget: 0.0,
             last_tick: now,
@@ -408,6 +414,7 @@ impl Engine {
 
     fn start(&mut self, state_dir: Option<PathBuf>) {
         self.open_listen_sockets();
+        self.update_external_ip();
         self.start_lsd(Instant::now());
         self.start_dht(state_dir.as_deref());
         // after the DHT, whose UDP port the mappers forward too
@@ -1513,7 +1520,7 @@ impl Engine {
             .map(|i| p.file_priorities.get(i).or(m.file_priorities.get(i)).map_or(4, |d| d.0.min(7)))
             .collect();
         for addr in &m.peers {
-            t.peer_list.add(*addr, PeerSource::RESUME_DATA, None, usize::MAX);
+            t.peer_list.add(*addr, PeerSource::RESUME_DATA, ExternalIp::default(), usize::MAX);
         }
         for (host, port) in &m.dht_nodes {
             self.add_dht_node(host, *port);
@@ -2262,7 +2269,7 @@ impl Engine {
             let Some(tr) = t.trackers.get_mut(index).filter(|tr| tr.url == job.url) else { continue };
             let url = tr.url.clone();
             match outcome {
-                TrackerOutcome::Announce(r) => {
+                TrackerOutcome::Announce(r, tracker_ip) => {
                     tr.updating = false;
                     tr.fails = 0;
                     tr.working = true;
@@ -2292,11 +2299,11 @@ impl Engine {
                     if let Some(w) = r.warning {
                         self.alert(Alert::TrackerWarning { id, url: url.clone(), message: w });
                     }
-                    if let Some(ip) = r.external_ip {
-                        if self.external_ip != Some(ip) {
-                            self.external_ip = Some(ip);
-                            self.alert(Alert::ExternalIp { ip });
-                        }
+                    // libtorrent `tracker_response`: the tracker's `external ip` is its vote
+                    if let (Some(ip), Some(from)) =
+                        (r.external_ip, tracker_ip.filter(|a| !a.is_unspecified()))
+                    {
+                        self.set_external_address(ip, source::TRACKER, from);
                     }
                     let needs_scrape = r.complete.is_none() && r.incomplete.is_none();
                     self.alert(Alert::TrackerReply { id, url: url.clone(), num_peers });
@@ -2862,7 +2869,7 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
         t.file_priority.resize(n, DownloadPriority::NORMAL.0);
     }
     for p in &r.peers {
-        t.peer_list.add(*p, PeerSource::RESUME_DATA, None, usize::MAX);
+        t.peer_list.add(*p, PeerSource::RESUME_DATA, ExternalIp::default(), usize::MAX);
     }
     t.download_limit.set_limit(r.download_rate_limit);
     t.upload_limit.set_limit(r.upload_rate_limit);

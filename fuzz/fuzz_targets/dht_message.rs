@@ -14,8 +14,8 @@ fuzz_target!(|data: &[u8]| {
     let router: SocketAddr = "8.8.8.8:6881".parse().unwrap();
     let settings = DhtSettings { block_ratelimit: 1000, ..DhtSettings::default() };
     let mut dht = DhtTracker::new(settings, DhtState::default(), now);
-    dht.new_socket(true, now);
-    dht.new_socket(false, now);
+    dht.new_socket(true, None, now);
+    dht.new_socket(false, None, now);
     dht.add_router_node(router);
     dht.start(now);
     // the transaction id of our bootstrap query, so replies can match it
@@ -42,7 +42,7 @@ fuzz_target!(|data: &[u8]| {
         dht.incoming_packet(from.is_ipv4(), from, &body, now);
         now += Duration::from_millis(300);
         dht.poll(now);
-        let _ = dht.take_events(now);
+        let _ = dht.take_events();
         let _ = dht.take_outgoing();
     }
     let _ = dht.state();

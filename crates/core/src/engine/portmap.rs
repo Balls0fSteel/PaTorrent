@@ -20,7 +20,6 @@ use super::natpmp::NatPmp;
 use super::upnp::{Upnp, UpnpSettings};
 use crate::alert::{Alert, PortmapTransport, Protocol};
 use crate::net::enum_net::{IpInterface, get_gateway};
-use crate::net::ip_voter::is_local;
 use crate::net::sys;
 use crate::proto::natpmp;
 
@@ -434,13 +433,15 @@ impl Engine {
             self.alert(Alert::PortmapFailed { transport: t, message });
             return;
         }
-        // the router's idea of our external address (libtorrent casts a `source_router` vote;
-        // trackers see the real public address, so theirs wins when it comes)
-        if let Some(ip) = e.external_ip.filter(|ip| !ip.is_unspecified() && !is_local(ip)) {
-            if self.external_ip.is_none() {
-                self.external_ip = Some(ip);
-                self.alert(Alert::ExternalIp { ip });
-            }
+        // the router's idea of our external address is a `source_router` vote, attributed to
+        // the unspecified address as libtorrent does (so all routers count as one voter)
+        if let Some(ip) = e.external_ip.filter(|ip| !ip.is_unspecified()) {
+            let anyone = if ip.is_ipv4() {
+                IpAddr::V4(std::net::Ipv4Addr::UNSPECIFIED)
+            } else {
+                IpAddr::V6(std::net::Ipv6Addr::UNSPECIFIED)
+            };
+            self.set_external_address(ip, crate::net::ip_voter::source::ROUTER, anyone);
         }
         if e.external_port == 0 {
             // a deleted mapping

@@ -192,7 +192,9 @@ const BANNED_BY_IP_FILTER: &str = "banned by IP filter";
 
 #[derive(Debug)]
 pub(crate) enum TrackerOutcome {
-    Announce(AnnounceResponse),
+    /// The reply and the tracker address it came from (libtorrent `tracker_response`'s
+    /// `tracker_ip`), to whom the reply's `external ip` vote is attributed.
+    Announce(AnnounceResponse, Option<IpAddr>),
     Scrape(ScrapeEntry),
     Failed(String),
 }
@@ -241,6 +243,8 @@ struct HttpConn {
     job: TrackerJob,
     url: Url,
     addrs: Vec<SocketAddr>,
+    /// The address being connected to.
+    ip: Option<IpAddr>,
     stream: Option<Stream>,
     connected: bool,
     request: Vec<u8>,
@@ -368,6 +372,7 @@ impl TrackerManager {
             job,
             url,
             addrs: Vec::new(),
+            ip: None,
             stream: None,
             connected: false,
             request,
@@ -421,6 +426,7 @@ impl TrackerManager {
                     } else {
                         Stream::Plain(s)
                     });
+                    c.ip = Some(addr.ip());
                     c.connected = false;
                     c.written = 0;
                     c.buf.clear();
@@ -518,7 +524,7 @@ impl TrackerManager {
         }
         let outcome = match &c.job.kind {
             JobKind::Announce(_) => {
-                tracker::parse_announce_response(&resp.body).map(TrackerOutcome::Announce)
+                tracker::parse_announce_response(&resp.body).map(|r| TrackerOutcome::Announce(r, c.ip))
             }
             JobKind::Scrape(ih) => tracker::parse_scrape_response(&resp.body, ih).map(TrackerOutcome::Scrape),
         };
@@ -661,7 +667,8 @@ impl TrackerManager {
                         incomplete: Some(leechers),
                         ..Default::default()
                     };
-                    self.results.push((t.job, TrackerOutcome::Announce(r)));
+                    let ip = t.ep.map(|e| e.ip());
+                    self.results.push((t.job, TrackerOutcome::Announce(r, ip)));
                 }
                 UdpResponse::Scrape { entries, .. } if t.stage == UdpStage::Requesting => {
                     let t = self.txns.remove(&txn).expect("present");

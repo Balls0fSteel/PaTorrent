@@ -21,6 +21,12 @@ Branch `claude/part-files-b92a97`.
 ### Issues
 - The fuzzer's first run found a wrong invariant in the new target: a slot map with free slots at the end reads back trimmed (the header cannot record them; `flush_metadata` trims before writing). The check now compares with the trimmed map.
 - After a restart, a finished leech closes its connection to a seed as redundant and then waits `min_reconnect_time` (60 s) to reconnect after an unskip, as libtorrent does; the swarm test unskips against a second seed. Noted in PLAN.md Known TODOs.
+- Not done: the Win32 "Remove" (without data) still passes no flags, so it leaves the `.parts` file (PLAN.md Known TODOs); `move_partfile` is ported but unused until move storage. Not verified: interop with a real client while a file is skipped (`lt-swarm interop` was not rerun).
+
+### Verified
+- `cargo fmt --all --check`, `cargo +stable fmt --all --check`, `cargo +stable fmt --manifest-path fuzz/Cargo.toml --check`; `cargo clippy --workspace --all-targets -- -D warnings` for Windows, `x86_64-unknown-linux-gnu` and `x86_64-unknown-freebsd`; `cargo +stable clippy --workspace --all-targets -- -D warnings` (1.97.1).
+- `cargo test --workspace --no-fail-fast` on Windows (530 core, 3 ignored; swarm 34), Ubuntu 26.04.1 and FreeBSD 15.1 (531 core each; swarm 34, web seed 12, all other suites passing).
+- `fuzz.bat part_file 120`: 458,586 runs, no findings (after the fix under Issues).
 
 ## 2026-10-17_153322_1792244002: CI fix for stable clippy and rustfmt
 

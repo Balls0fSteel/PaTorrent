@@ -186,18 +186,6 @@ impl UtpSocket {
     pub fn mtu(&self) -> u16 {
         self.mtu
     }
-
-    pub fn mtu_floor(&self) -> u16 {
-        self.mtu_floor
-    }
-
-    pub fn bytes_in_flight(&self) -> i32 {
-        self.bytes_in_flight
-    }
-
-    pub fn in_slow_start(&self) -> bool {
-        self.slow_start
-    }
 }
 
 impl UtpSocket {

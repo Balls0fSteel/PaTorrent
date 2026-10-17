@@ -25,6 +25,7 @@ mod engine;
 mod error;
 mod flags;
 pub mod metainfo;
+mod move_completed;
 mod net;
 mod params;
 mod proto;
@@ -41,10 +42,13 @@ mod version;
 #[cfg(feature = "mock")]
 mod mock;
 
-pub use alert::{Alert, AlertPriority, AlertQueue, BlockReason, ProxyOperation};
+pub use alert::{Alert, AlertPriority, AlertQueue, BlockReason, FileOperation, ProxyOperation};
 pub use error::Error;
+pub use move_completed::{MoveCompleted, same_dir};
 pub use net::ip_filter::{IpFilter, IpFilterLoad, IpRange, PortFilter};
-pub use params::{AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags, TorrentSource};
+pub use params::{
+    AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags, TorrentSource,
+};
 pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
 pub use settings::{EncLevel, EncPolicy, ProxyType, Settings};
 pub use status::{

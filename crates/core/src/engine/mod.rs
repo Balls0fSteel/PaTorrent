@@ -45,16 +45,18 @@ use std::time::{Duration, Instant};
 use mio::net::{TcpStream, UdpSocket};
 use mio::{Events, Interest, Poll, Token, Waker};
 
-use crate::alert::Alert;
+use crate::alert::{Alert, FileOperation};
 use crate::crypto::mse;
-use crate::disk::{BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction};
+use crate::disk::{
+    BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction, MoveError, MoveStatus,
+};
 use crate::error::Error;
 use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, WebSeedKind, parse_magnet_uri};
 use crate::net::ip_voter::{ExternalIp, SessionVoter, source};
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::{Bucket, sys};
 use crate::params::{
-    AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags, TorrentSource,
+    AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags, TorrentSource,
 };
 use crate::proto::peer_wire::{self, msg};
 use crate::proto::tracker::Event;
@@ -499,6 +501,17 @@ impl Engine {
             self.stop_torrent(id, true);
         }
         self.reap_peers();
+        // A move in flight changes the save path saved below: wait for it (the disk threads
+        // finish it anyway).
+        while self.slots.iter().any(|s| s.torrent.as_ref().is_some_and(|t| t.moves_pending > 0)) {
+            match self.disk_rx.recv_timeout(Duration::from_millis(100)) {
+                Ok(Completion::Moved { storage, status, save_path, error }) => {
+                    self.on_storage_moved(storage, status, save_path, error, false)
+                }
+                Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            }
+        }
         self.save_resume(true);
         // the router forgets our ports (libtorrent `session_impl::abort` closes the mappers)
         self.close_portmap();
@@ -1176,10 +1189,7 @@ impl Engine {
                     t.status_dirty = true;
                 }
             }
-            Command::MoveStorage(id, path) => self.alert(Alert::Log {
-                id: Some(id),
-                message: format!("cannot move storage to {path}: not supported yet (PLAN.md Phase 5)"),
-            }),
+            Command::MoveStorage(id, path, flags) => self.move_storage(id, path, flags),
             Command::ConnectPeer(id, addr) => {
                 if self.add_peer(id, addr, PeerSource::RESUME_DATA) {
                     self.connect_peers_for(id, usize::MAX);
@@ -1600,6 +1610,8 @@ impl Engine {
         if delete.is_some() {
             self.ensure_metadata(id);
         }
+        // A storage still moving files: deleting (or releasing) waits behind the move on it.
+        let moving = self.torrent(id).and_then(|t| t.moving.take());
         self.stop_torrent(id, true);
         self.reap_peers();
         let slot = &mut self.slots[id.index() as usize];
@@ -1617,7 +1629,16 @@ impl Engine {
             self.store_flush_due.get_or_insert(Instant::now() + STORE_FLUSH_DELAY);
         }
         self.alert(Alert::TorrentRemoved { id, info_hashes: t.info_hashes });
-        if let Some(action) = delete {
+        if let Some((storage, temporary)) = &moving {
+            match delete {
+                Some(action) => {
+                    self.deleting.insert(storage.id, (id, t.info_hashes));
+                    self.disk.async_fence(storage, action);
+                }
+                None if *temporary => self.disk.async_fence(storage, FenceAction::Release),
+                None => {}
+            }
+        } else if let Some(action) = delete {
             match t.ti.clone() {
                 Some(ti) => {
                     let storage = self.disk.new_storage(t.save_path.clone(), ti, Vec::new());
@@ -1638,6 +1659,111 @@ impl Engine {
         self.needs_auto_manage = true;
     }
 
+    // --- Moving storage -----------------------------------------------------------------------
+
+    /// libtorrent `torrent::move_storage`. A running torrent's storage moves its files behind
+    /// the jobs already queued, holding later ones back. A stopped torrent gets a storage just
+    /// for the move (libtorrent keeps its storage while paused, so the files move as well).
+    fn move_storage(&mut self, id: TorrentId, path: String, flags: MoveFlags) {
+        let Some(t) = self.torrent(id) else { return };
+        let storage = match (&t.storage, &t.moving) {
+            (Some(s), _) => Some((s.clone(), false)),
+            (None, Some(m)) => Some(m.clone()),
+            (None, None) => None,
+        };
+        if let Some((storage, temporary)) = storage {
+            t.moving = Some((storage.clone(), temporary));
+            t.moves_pending += 1;
+            t.status_dirty = true;
+            self.disk.async_move_storage(&storage, path, flags);
+            return;
+        }
+        // Without metadata nothing is on disk yet: just use the new path.
+        if !t.has_metadata() {
+            let new = crate::disk::complete(&path);
+            let old = std::mem::replace(&mut t.save_path, new.clone());
+            t.resume_dirty = true;
+            t.status_dirty = true;
+            self.alert(Alert::StorageMoved { id, old, new });
+            return;
+        }
+        if !self.ensure_metadata(id) {
+            let error = Error::Unsupported("moving files without metadata");
+            self.alert(Alert::StorageMovedFailed {
+                id,
+                error,
+                file: String::new(),
+                operation: FileOperation::Unknown,
+            });
+            return;
+        }
+        let t = self.torrent(id).expect("exists");
+        let (save_path, ti, prio) =
+            (t.save_path.clone(), t.ti.clone().expect("loaded"), t.file_priority.clone());
+        let storage = self.disk.new_storage(save_path, ti, prio);
+        self.storages.insert(storage.id, id);
+        let t = self.torrent(id).expect("exists");
+        t.moving = Some((storage.clone(), true));
+        t.moves_pending += 1;
+        t.status_dirty = true;
+        self.disk.async_move_storage(&storage, path, flags);
+    }
+
+    /// libtorrent `torrent::on_storage_moved`. `resume` starts a torrent whose start waited
+    /// for the move (not while shutting down).
+    fn on_storage_moved(
+        &mut self,
+        storage: u64,
+        status: MoveStatus,
+        save_path: String,
+        error: Option<MoveError>,
+        resume: bool,
+    ) {
+        let Some(&id) = self.storages.get(&storage) else { return };
+        let keep_metadata = self.store.is_none();
+        let Some(t) = self.torrent(id) else { return };
+        t.moves_pending = t.moves_pending.saturating_sub(1);
+        t.status_dirty = true;
+        let mut release = None;
+        if t.moves_pending == 0 {
+            if let Some((s, true)) = t.moving.take() {
+                release = Some(s);
+            }
+        }
+        match status {
+            MoveStatus::NoError | MoveStatus::NeedFullCheck => {
+                let old = std::mem::replace(&mut t.save_path, save_path.clone());
+                t.resume_dirty = true;
+                self.alert(Alert::StorageMoved { id, old, new: save_path });
+            }
+            MoveStatus::FileExist | MoveStatus::FatalDiskError => {
+                let e = error.unwrap_or(MoveError {
+                    file: String::new(),
+                    operation: FileOperation::Unknown,
+                    error: Error::Unsupported("move failed"),
+                });
+                self.alert(Alert::StorageMovedFailed {
+                    id,
+                    error: e.error,
+                    file: e.file,
+                    operation: e.operation,
+                });
+            }
+        }
+        if let Some(s) = release {
+            self.disk.async_fence(&s, FenceAction::Release);
+            let t = self.torrent(id).expect("exists");
+            if !keep_metadata && !t.is_active() {
+                t.ti = None;
+            }
+        }
+        if status == MoveStatus::NeedFullCheck {
+            self.force_recheck(id);
+        }
+        if resume {
+            self.update_running(id);
+        }
+    }
     // --- Running, pausing, checking -----------------------------------------------------------
 
     fn set_flags(&mut self, id: TorrentId, flags: TorrentFlags, mask: TorrentFlags) {
@@ -1697,6 +1823,10 @@ impl Engine {
     }
 
     fn start_torrent(&mut self, id: TorrentId) {
+        // A new storage would see the files mid-move: start once the move is done.
+        if self.torrent_ref(id).is_some_and(|t| t.moves_pending > 0) {
+            return;
+        }
         if !self.ensure_metadata(id) {
             let Some(t) = self.torrent(id) else { return };
             t.status_dirty = true;
@@ -2237,6 +2367,9 @@ impl Engine {
                 }
             }
             Completion::FilePriority { error: None, .. } => {}
+            Completion::Moved { storage, status, save_path, error } => {
+                self.on_storage_moved(storage, status, save_path, error, true)
+            }
             Completion::Fenced { storage, action, error } => {
                 self.storages.remove(&storage);
                 if action != FenceAction::Release {

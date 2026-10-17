@@ -367,8 +367,7 @@ impl PartFile {
     }
 
     /// Moves the file to `dir` (libtorrent `move_partfile`): a rename, or a copy and delete
-    /// across file systems. For moving storage (PLAN.md Phase 5).
-    #[allow(dead_code)]
+    /// across file systems.
     pub fn move_partfile(&self, dir: &Path) -> io::Result<()> {
         self.flush_metadata()?;
         let mut inner = self.lock();
@@ -460,6 +459,14 @@ impl PartFiles {
     /// The live part file at `path`, if any.
     pub fn get(&self, path: &Path) -> Option<Arc<PartFile>> {
         self.open.lock().unwrap_or_else(|e| e.into_inner()).get(path).and_then(Weak::upgrade)
+    }
+
+    /// The part file at `old` was moved to `new`.
+    pub fn rekey(&self, old: &Path, new: &Path) {
+        let mut open = self.open.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(pf) = open.remove(old) {
+            open.insert(new.to_path_buf(), pf);
+        }
     }
 }
 

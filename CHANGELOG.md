@@ -2,6 +2,35 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_163533_1792247733: move storage (Phase 5)
+
+Branch `claude/move-storage-2c300f`.
+
+### Added
+- `TorrentHandle::move_storage(path, MoveFlags)`, ported from libtorrent 2.0.11 `torrent::move_storage` / `on_storage_moved`, `posix_storage::move_storage` and `aux::move_storage` (`storage_utils.cpp`, with `move_file`): every file is renamed, or copied and deleted when the rename fails across volumes (EXDEV / `ERROR_NOT_SAME_DEVICE`); a missing file is skipped; on an error the renamed files go back. Then the part file follows (`PartFile::move_partfile`, now used) and the `PartFiles` registry is rekeyed, the sources of copied files are deleted and the directories left empty are removed (never the old save path itself, never a directory with other files in it).
+- `MoveFlags` (libtorrent `move_flags_t`): `AlwaysReplaceFiles` (default), `FailIfExist`, `DontReplace` (keeps destination files, then rechecks), `ResetSavePath` (moves nothing, rechecks), `ResetSavePathUnchecked`.
+- `Alert::StorageMoved { id, old, new }` and `Alert::StorageMovedFailed { id, error, file, operation }` (libtorrent `storage_moved_alert` / `storage_moved_failed_alert`, critical priority), `FileOperation` (libtorrent `operation_t`: file_stat, mkdir, file_rename, file_copy, partfile_move). `TorrentStatus::moving_storage` is set while a move is pending (the frontend already shows "Moving").
+- Disk: `DiskIo::async_move_storage`, a barrier like the file priority change (libtorrent's fence job): the storage's later jobs wait on every disk thread, so a running torrent keeps downloading and seeding around the move and its queued writes land at the new place. `Storage`'s save path became mutable (`RwLock`), changed only by the move; open files are released first (Windows cannot rename open files).
+- Engine: a running torrent moves through its storage. A stopped torrent gets a storage just for the move (libtorrent keeps a paused torrent's storage, so its files move too), released afterwards. A magnet without metadata just takes the new path. The new save path goes into the status and the resume data. A start waits for a pending move; removing with data deletes through the moving storage, at the destination; `NeedFullCheck` forces a recheck; shutdown waits for moves in flight so the saved path matches the files.
+- `patorrent_core::MoveCompleted` (and `same_dir`): µTorrent's "Move completed downloads", client side as in qBittorrent: fed every alert, it calls `move_storage` on `TorrentFinished`, optionally only for torrents in one folder ("Only move from the default download directory"). Settings-free; frontends own the folder.
+- `patorrent-nox add|run ... --move-on-complete DIR`: finished torrents move to DIR; `add` exits once the moves are done. Verified by hand: a complete torrent added with `--move-on-complete` moved and exited 0, its emptied folder removed.
+- Tests: `test_storage.cpp`'s move cases (`move_storage_to_self`, `move_storage_into_self`, `move_storage_reset` for both reset flags, `dont_move_intermingled_files`), plus `FailIfExist` / `DontReplace` / overwrite, a rolled-back failure (a directory where a file must go), the part file and registry following a running move with a write queued behind it, a stopped storage's part file; `tests/move_storage.rs`: both ends moving mid-transfer (`test_transfer.cpp`'s `move_storage`), a seed moved while seeding and while stopped whose new path survives a restart and then seeds, a skipped file's part file following the move then unskipped, `FailIfExist` / `DontReplace` against a file at the destination, a magnet without metadata (`test_torrent.cpp`'s `test_move_storage_no_metadata`), stop + move + start and move + remove-with-data issued back to back, `MoveCompleted`, and a move from the temp directory into the target directory (another file system on both VMs: tmpfs on Ubuntu, a separate ZFS dataset on FreeBSD, so the copy path runs there); nox `--move-on-complete` parsing.
+
+### Decisions (docs/PORTING.md "Deliberate divergences")
+- The move is a per-storage barrier, and stopped torrents get a storage for the move (they keep none here, D5).
+- A rollback moves back only the files this move renamed (libtorrent also "moves back" a destination file kept by `dont_replace`); errors name the path in the way (the destination file for `FailIfExist`, the new save path for mkdir, the part file's path).
+- No `Settings` field: "Move completed downloads" stays with the frontend (`MoveCompleted`), so the settings table needs no new row.
+
+### Merge notes (for the coordinator)
+- `engine/mod.rs`: imports (`FileOperation`, `MoveError`, `MoveStatus`, `MoveFlags`), `shutdown` (wait for moves), `handle` (`Command::MoveStorage` arm), new `move_storage` / `on_storage_moved` before "Running, pausing, checking", `remove_torrent` (moving storage taken before `stop_torrent`), `start_torrent` (early return while moving), `on_disk` (`Completion::Moved` arm). `engine/torrent.rs`: `moving`, `moves_pending`. `disk/mod.rs`: `Barrier` now carries a `BarrierAction`.
+- `Command::MoveStorage` and `TorrentHandle::move_storage` gained a `MoveFlags` argument; nothing else called them (the mock now posts `StorageMoved`).
+- `crates/nox/src/main.rs`: one option (`--move-on-complete`), its usage lines, and a few lines in `run`'s alert loop.
+
+### Verified
+- `cargo fmt --all --check`, `cargo +stable fmt --all --check`, `cargo +stable fmt --manifest-path fuzz/Cargo.toml --check`; `cargo clippy --workspace --all-targets -- -D warnings` (1.90.0 and stable) on Windows, and for core / nox / frontend with `--target x86_64-unknown-linux-gnu` and `x86_64-unknown-freebsd`.
+- `cargo test --workspace --no-fail-fast` on Windows (554 core unit tests, 3 ignored; `move_storage` 8, swarm 34, web seed 12, proxy 9, super seed 4, frontend 37, nox 2), Ubuntu 26.04.1 and FreeBSD 15.1 (555 core each; `move_storage` 8 and every other suite passing). On both VMs the temporary directory is another file system than the target directory (tmpfs; a separate ZFS dataset), so the copy-and-delete path ran.
+- Not verified: a move across real volumes on Windows (another drive letter); the Win32 GUI (untouched).
+
 ## 2026-10-17_161604_1792246564: Phase 5 merge (Preferences, proxies, super seeding, part files)
 
 Four features built in parallel on their own branches and merged into main: `claude/part-files-b92a97`, `claude/super-seeding-362b23`, `claude/proxies-c663c9`, `claude/preferences-99a764` (their entries follow).

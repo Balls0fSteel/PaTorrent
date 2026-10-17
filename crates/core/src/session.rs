@@ -9,7 +9,7 @@ use std::thread::JoinHandle;
 
 use crate::alert::{Alert, AlertQueue};
 use crate::net::ip_filter::{IpFilter, PortFilter};
-use crate::params::{AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags};
+use crate::params::{AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags};
 use crate::settings::Settings;
 use crate::types::TorrentId;
 
@@ -37,7 +37,7 @@ pub(crate) enum Command {
     PrioritizeFiles(TorrentId, Vec<DownloadPriority>),
     SetDownloadLimit(TorrentId, u32),
     SetUploadLimit(TorrentId, u32),
-    MoveStorage(TorrentId, String),
+    MoveStorage(TorrentId, String, MoveFlags),
     ConnectPeer(TorrentId, std::net::SocketAddr),
     AddWebSeed(TorrentId, String, crate::metainfo::WebSeedKind),
     RemoveWebSeed(TorrentId, String, crate::metainfo::WebSeedKind),
@@ -351,8 +351,13 @@ impl TorrentHandle {
         self.session.send(Command::PostWebSeeds(self.id));
     }
 
-    pub fn move_storage(&self, save_path: impl Into<String>) {
-        self.session.send(Command::MoveStorage(self.id, save_path.into()));
+    /// Moves the torrent's files to `save_path` (libtorrent `move_storage`). A running torrent's
+    /// disk jobs wait behind the move; a stopped torrent's files are moved too. Answered by
+    /// [`Alert::StorageMoved`](crate::Alert::StorageMoved) or
+    /// [`Alert::StorageMovedFailed`](crate::Alert::StorageMovedFailed); the part file of skipped
+    /// files moves with them and empty directories left behind are removed.
+    pub fn move_storage(&self, save_path: impl Into<String>, flags: MoveFlags) {
+        self.session.send(Command::MoveStorage(self.id, save_path.into(), flags));
     }
 
     /// Answered by [`Alert::PeerInfo`].

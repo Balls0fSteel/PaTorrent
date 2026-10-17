@@ -50,6 +50,18 @@ pub enum ProxyOperation {
     SockRead,
 }
 
+/// The file system operation that failed (libtorrent `operation_t`, the values the storage
+/// uses).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum FileOperation {
+    Unknown,
+    FileStat,
+    Mkdir,
+    FileRename,
+    FileCopy,
+    PartfileMove,
+}
+
 #[derive(Clone, Debug)]
 pub enum Alert {
     // Torrent lifecycle
@@ -74,6 +86,22 @@ pub enum Alert {
         id: TorrentId,
         info_hashes: InfoHashes,
         error: Error,
+    },
+    /// `move_storage` finished: the torrent's save path is now `new` (libtorrent
+    /// `storage_moved_alert`).
+    StorageMoved {
+        id: TorrentId,
+        old: String,
+        new: String,
+    },
+    /// `move_storage` failed; the save path is unchanged and moved files were moved back
+    /// (libtorrent `storage_moved_failed_alert`). `file` is the path the error is about, empty
+    /// if none.
+    StorageMovedFailed {
+        id: TorrentId,
+        error: Error,
+        file: String,
+        operation: FileOperation,
     },
     StateChanged {
         id: TorrentId,
@@ -268,6 +296,8 @@ impl Alert {
             | TorrentRemoved { .. }
             | TorrentDeleted { .. }
             | TorrentDeleteFailed { .. }
+            | StorageMoved { .. }
+            | StorageMovedFailed { .. }
             | ScrapeReply { .. }
             | ListenSucceeded { .. }
             | ListenFailed { .. }
@@ -316,6 +346,8 @@ impl Alert {
             | TorrentRemoved { id, .. }
             | TorrentDeleted { id, .. }
             | TorrentDeleteFailed { id, .. }
+            | StorageMoved { id, .. }
+            | StorageMovedFailed { id, .. }
             | StateChanged { id, .. }
             | TorrentPaused { id }
             | TorrentResumed { id }
@@ -355,6 +387,10 @@ impl Alert {
             TorrentDeleted { info_hashes, .. } => write!(s, "{}: files deleted", info_hashes.key_hex()),
             TorrentDeleteFailed { info_hashes, error, .. } => {
                 write!(s, "{}: failed to delete files: {error}", info_hashes.key_hex())
+            }
+            StorageMoved { old, new, .. } => write!(s, "storage moved from \"{old}\" to \"{new}\""),
+            StorageMovedFailed { error, file, operation, .. } => {
+                write!(s, "storage move failed. {operation:?} ({file}): {error}")
             }
             StateChanged { state, prev_state, .. } => write!(s, "state changed: {prev_state:?} -> {state:?}"),
             TorrentPaused { .. } => write!(s, "paused"),

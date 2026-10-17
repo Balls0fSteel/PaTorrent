@@ -2,6 +2,14 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_153322_1792244002: CI fix for stable clippy and rustfmt
+
+### Fixed
+- CI run 39032057727 failed on stable Rust 1.97.1 (local checks use the pinned 1.90.0): `clippy::unnecessary_sort_by` twice in `engine/listen.rs` (now `sort_by_key`), `clippy::assertions_on_constants` in the `ip_notifier` start-up test (now a `cfg!` branch that panics), and rustfmt in `fuzz/fuzz_targets/web_seed.rs`. FreeBSD and Fuzz workflows had passed.
+
+### Issues
+- Local checks with the pinned toolchain miss lints that CI's stable clippy has. The stable toolchain here now has clippy and rustfmt: before pushing, also run `cargo +stable clippy --workspace --all-targets -- -D warnings`, `cargo +stable fmt --all --check` and `cargo +stable fmt --manifest-path fuzz/Cargo.toml --check`. Stable has no Linux / FreeBSD targets installed, so Unix-only code is checked against stable by CI only.
+
 ## 2026-10-17_140012_1792238412: web seeds, network-change handling, Win32 Create New Torrent dialog
 
 Three features built in parallel on their own branches (`claude/web-seeds-1fbca0`, `claude/network-change-221b8e`, `claude/create-dialog-2e5433`) and merged into main, plus `claude/relaxed-kirch-0df13a` (unused uTP test accessors removed).

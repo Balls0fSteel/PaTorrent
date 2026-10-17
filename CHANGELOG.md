@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_224511_1792269911: merge of Web UI slice 4
+
+Branch `claude/intelligent-blackwell-06ca46` merged into main without conflicts (its entry 2026-10-17_224011_1792269611 follows).
+
+### Verified
+- On main after the merge: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace --no-fail-fast` on Windows: 761 passed, 0 failed, 3 ignored.
+- The tabs by hand in the Chromium pane against `patorrent-nox run --no-state --mock-library 200 --active 0.1 --webui 8089` (release build of the branch): General, Trackers, Peers, Pieces, Files, Speed and Logger on a downloading torrent, the pane empty with nothing focused.
+- Not rerun on the Ubuntu and FreeBSD VMs. This slice touched `crates/core` (`Alert::PieceInfo::downloading`, `PiecePicker::downloading_pieces`, the mock) besides nox, so the next VM run is due before the next engine work.
+
 ## 2026-10-17_224011_1792269611: Web UI slice 4: the detail tabs
 
 ### Added

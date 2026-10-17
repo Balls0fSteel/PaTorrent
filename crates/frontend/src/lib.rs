@@ -10,6 +10,8 @@
 //! * [`detail`]: the Trackers, Peers and Files tabs' columns and cell text.
 //! * [`model`]: the filtered, sorted torrent list behind a virtual list view.
 //! * [`prefs`]: a small `key=value` preferences file for layout and frontend options.
+//! * [`settings`]: the engine settings by libtorrent name (the Advanced preferences table).
+//! * [`options`]: what the Preferences dialog edits, loaded from and stored to the preferences.
 
 pub mod actions;
 pub mod columns;
@@ -17,5 +19,7 @@ pub mod create;
 pub mod detail;
 pub mod fmt;
 pub mod model;
+pub mod options;
 pub mod prefs;
+pub mod settings;
 pub mod status;

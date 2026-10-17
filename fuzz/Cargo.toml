@@ -15,6 +15,7 @@ cargo-fuzz = true
 [dependencies]
 libfuzzer-sys = "0.4"
 patorrent-core = { path = "../crates/core", features = ["fuzzing"] }
+patorrent-nox = { path = "../crates/nox" }
 
 [workspace]
 members = ["."]
@@ -144,6 +145,13 @@ bench = false
 [[bin]]
 name = "proxy"
 path = "fuzz_targets/proxy.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "nox_http"
+path = "fuzz_targets/nox_http.rs"
 test = false
 doc = false
 bench = false

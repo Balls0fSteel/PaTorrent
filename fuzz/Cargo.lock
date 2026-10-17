@@ -96,11 +96,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "patorrent-frontend"
+version = "0.1.0"
+dependencies = [
+ "patorrent-core",
+]
+
+[[package]]
 name = "patorrent-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "patorrent-core",
+ "patorrent-nox",
+]
+
+[[package]]
+name = "patorrent-nox"
+version = "0.1.0"
+dependencies = [
+ "patorrent-core",
+ "patorrent-frontend",
 ]
 
 [[package]]

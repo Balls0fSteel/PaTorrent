@@ -3,34 +3,9 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>PaTorrent</title>
-<style>
-:root { --bg: #f6f7f5; --fg: #1d2421; --muted: #5f6b66; --line: #d5dbd8; --accent: #2f7d6d; --bar: #e3e8e5; }
-@media (prefers-color-scheme: dark) {
-  :root { --bg: #161b19; --fg: #e3e8e5; --muted: #9aa5a0; --line: #2c3532; --accent: #4fb39d; --bar: #26302c; }
-}
-* { box-sizing: border-box; }
-body { margin: 0; font: 14px/1.4 system-ui, sans-serif; background: var(--bg); color: var(--fg); }
-header { display: flex; gap: 12px; align-items: center; padding: 10px 16px; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
-header h1 { font-size: 16px; margin: 0 auto 0 0; }
-main { padding: 12px 16px; }
-input, button { font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 4px 8px; }
-button { cursor: pointer; }
-button:hover { border-color: var(--accent); }
-#login { max-width: 320px; margin: 15vh auto; display: grid; gap: 8px; }
-#login p { color: #c0392b; min-height: 1.4em; margin: 0; }
-.wrap { overflow-x: auto; }
-table { border-collapse: collapse; width: 100%; min-width: 720px; }
-th, td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
-th { color: var(--muted); font-weight: 600; }
-td.num { text-align: right; font-variant-numeric: tabular-nums; }
-td.name { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
-.bar { width: 90px; height: 8px; background: var(--bar); border-radius: 4px; overflow: hidden; display: inline-block; vertical-align: middle; }
-.bar i { display: block; height: 100%; background: var(--accent); }
-#status { color: var(--muted); }
-#add { display: flex; gap: 6px; flex: 1 1 320px; }
-#add input { flex: 1; min-width: 0; }
-</style>
+<link rel="stylesheet" href="style.css">
 </head>
 <body>
 <form id="login" hidden>
@@ -41,18 +16,60 @@ td.name { max-width: 40vw; overflow: hidden; text-overflow: ellipsis; }
   <p id="login-error"></p>
 </form>
 <div id="app" hidden>
-  <header>
-    <h1>PaTorrent</h1>
-    <form id="add"><input name="urls" placeholder="Magnet link or http:// URL"><button>Add</button></form>
-    <span id="status"></span>
-    <button id="logout" type="button">Log out</button>
-  </header>
-  <main class="wrap">
-    <table>
-      <thead><tr><th>Name</th><th>Size</th><th>Done</th><th>Status</th><th>Down</th><th>Up</th><th>Seeds</th><th>Peers</th><th>ETA</th><th></th></tr></thead>
-      <tbody id="rows"></tbody>
-    </table>
-  </main>
+  <div id="toolbar" role="toolbar">
+    <button type="button" id="tb-add" title="Add Torrent">Add Torrent</button>
+    <button type="button" id="tb-add-url" title="Add Torrent from URL">Add URL</button>
+    <span class="sep"></span>
+    <button type="button" id="tb-remove" data-cmd="remove" title="Remove">Remove</button>
+    <span class="sep"></span>
+    <button type="button" id="tb-start" data-cmd="start" title="Start">Start</button>
+    <button type="button" id="tb-pause" data-cmd="pause" title="Pause">Pause</button>
+    <button type="button" id="tb-stop" data-cmd="stop" title="Stop">Stop</button>
+    <span class="sep"></span>
+    <button type="button" id="tb-up" data-cmd="queue_up" title="Move Up Queue" disabled>Up</button>
+    <button type="button" id="tb-down" data-cmd="queue_down" title="Move Down Queue" disabled>Down</button>
+    <span class="sep"></span>
+    <button type="button" id="tb-prefs" title="Preferences" disabled>Preferences</button>
+    <span class="grow"></span>
+    <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search torrents">
+    <button type="button" id="logout" title="Log out">Log out</button>
+    <input id="file" type="file" accept=".torrent,application/x-bittorrent" multiple hidden>
+  </div>
+  <div id="main">
+    <nav id="tree" aria-label="Categories"></nav>
+    <div id="split-v" class="splitter v" role="separator" aria-orientation="vertical"></div>
+    <div id="right">
+      <div id="list">
+        <div id="hdr" class="hdr"><div id="hdr-row" class="hrow"></div></div>
+        <div id="body" class="body" tabindex="0" role="grid" aria-label="Torrents" aria-multiselectable="true">
+          <div id="spacer"></div>
+        </div>
+      </div>
+      <div id="split-h" class="splitter h" role="separator" aria-orientation="horizontal"></div>
+      <div id="detail">
+        <div id="tabs" role="tablist">
+          <button type="button" role="tab" data-tab="general" class="on">General</button>
+          <button type="button" role="tab" data-tab="trackers">Trackers</button>
+          <button type="button" role="tab" data-tab="peers">Peers</button>
+          <button type="button" role="tab" data-tab="pieces">Pieces</button>
+          <button type="button" role="tab" data-tab="files">Files</button>
+          <button type="button" role="tab" data-tab="speed">Speed</button>
+          <button type="button" role="tab" data-tab="logger">Logger</button>
+        </div>
+        <div id="tab-body" role="tabpanel"></div>
+      </div>
+    </div>
+  </div>
+  <div id="statusbar">
+    <span id="st-conn"></span>
+    <span id="st-dht"></span>
+    <span id="st-down"></span>
+    <span id="st-up"></span>
+    <span class="grow"></span>
+    <span id="st-sel"></span>
+  </div>
+  <div id="menu" class="menu" role="menu" hidden></div>
+  <div id="gate" hidden></div>
 </div>
 <script src="app.js"></script>
 </body>

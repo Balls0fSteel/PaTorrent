@@ -1,0 +1,326 @@
+/* PaTorrent Web UI: the 2.2.1 main window. Light by default, dark by prefers-color-scheme.
+   The shell is flex and grid with custom properties; the only fixed pixel sizes are the row
+   height (which app.js reads as ROW_H) and the splitter thickness. */
+:root {
+  --bg: #ffffff;
+  --bg2: #f3f3f3;
+  --fg: #000000;
+  --muted: #6d6d6d;
+  --line: #d9d9d9;
+  --accent: #0a64c8;
+  --sel: #cce4ff;
+  --sel-fg: #000000;
+  --sel-blur: #e5e5e5;
+  --focus: #3d7fd6;
+  --hdr: #fafafa;
+  --bar-bg: #e6e6e6;
+  --bar-dl: #3c86e0;
+  --bar-seed: #44a35a;
+  --bar-stop: #a8a8a8;
+  --bar-err: #d14b4b;
+  --bar-check: #d6a400;
+  --err: #c0392b;
+  --menu-bg: #ffffff;
+  --shadow: rgba(0, 0, 0, 0.2);
+  --row-h: 22px;
+  --tree-w: 180px;
+  --detail-h: 180px;
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1e1f22;
+    --bg2: #26282c;
+    --fg: #e4e4e4;
+    --muted: #9a9a9a;
+    --line: #3a3d42;
+    --accent: #5aa0f0;
+    --sel: #2d4f7a;
+    --sel-fg: #ffffff;
+    --sel-blur: #33363b;
+    --focus: #6fa6ea;
+    --hdr: #25272b;
+    --bar-bg: #3a3d42;
+    --bar-dl: #4b8fe0;
+    --bar-seed: #4caf64;
+    --bar-stop: #6b6b6b;
+    --bar-err: #d9605f;
+    --bar-check: #d7b141;
+    --err: #ff7b72;
+    --menu-bg: #2a2c30;
+    --shadow: rgba(0, 0, 0, 0.6);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  font: 12px/1.3 "Segoe UI", system-ui, -apple-system, sans-serif;
+  background: var(--bg);
+  color: var(--fg);
+  overflow: hidden;
+}
+button, input {
+  font: inherit;
+  color: inherit;
+  background: var(--bg2);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 3px 8px;
+}
+button { cursor: pointer; }
+button:hover:not(:disabled) { border-color: var(--accent); }
+button:disabled { opacity: 0.45; cursor: default; }
+input:focus-visible, button:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+
+/* login */
+#login { max-width: 320px; margin: 15vh auto; display: grid; gap: 8px; padding: 0 16px; }
+#login[hidden] { display: none; }
+#login h1 { font-size: 16px; margin: 0 0 8px; }
+#login input { background: var(--bg); padding: 6px 8px; }
+#login p { color: var(--err); min-height: 1.4em; margin: 0; }
+
+/* shell */
+#app { display: flex; flex-direction: column; height: 100%; }
+#app[hidden] { display: none; }
+#toolbar {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 6px;
+  border-bottom: 1px solid var(--line);
+  background: var(--bg2);
+  flex-wrap: wrap;
+}
+#toolbar .sep { width: 1px; height: 18px; background: var(--line); margin: 0 3px; }
+.grow { flex: 1 1 0; min-width: 0; }
+#search { min-width: 8em; width: 14em; max-width: 40%; background: var(--bg); }
+#main {
+  flex: 1 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: minmax(0, var(--tree-w)) 5px minmax(0, 1fr);
+}
+#right {
+  min-width: 0;
+  min-height: 0;
+  display: grid;
+  grid-template-rows: minmax(0, 1fr) 5px minmax(0, var(--detail-h));
+}
+.splitter { background: var(--bg2); }
+.splitter.v { cursor: col-resize; border-left: 1px solid var(--line); border-right: 1px solid var(--line); }
+.splitter.h { cursor: row-resize; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+.splitter:hover, .splitter.drag { background: var(--accent); }
+body.drag-v { cursor: col-resize; user-select: none; }
+body.drag-h { cursor: row-resize; user-select: none; }
+body.drag-col { cursor: grabbing; user-select: none; }
+body.drag-size { cursor: col-resize; user-select: none; }
+
+/* category tree */
+#tree { overflow: auto; padding: 4px 0; user-select: none; }
+#tree .group { padding: 4px 8px 2px; color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+#tree .item {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  line-height: var(--row-h);
+  height: var(--row-h);
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#tree .item:hover { background: var(--bg2); }
+#tree .item.on { background: var(--sel); color: var(--sel-fg); }
+#tree .item .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+#tree .item.on .n { color: inherit; }
+#tree .empty { padding: 0 16px; color: var(--muted); font-style: italic; line-height: var(--row-h); }
+
+/* torrent list */
+#list { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
+.hdr {
+  height: var(--row-h);
+  background: var(--hdr);
+  border-bottom: 1px solid var(--line);
+  flex: none;
+  overflow: hidden;
+  user-select: none;
+  position: relative;
+}
+.hrow {
+  display: grid;
+  grid-template-columns: var(--cols);
+  width: var(--cols-w);
+  min-width: 100%;
+  height: var(--row-h);
+}
+.hdr .hc {
+  position: relative;
+  padding: 0 6px;
+  line-height: calc(var(--row-h) - 1px);
+  border-right: 1px solid var(--line);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: default;
+}
+.hdr .hc.r { text-align: right; padding-right: 14px; }
+.hdr .hc:hover { background: var(--bg2); }
+.hdr .hc.sort::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  margin-top: -2px;
+  border: 4px solid transparent;
+  border-top-color: var(--muted);
+  border-bottom: 0;
+}
+.hdr .hc.sort.asc::after { border-top: 0; border-bottom: 4px solid var(--muted); margin-top: -3px; }
+.hdr .hc .rs { position: absolute; top: 0; right: -4px; width: 8px; height: 100%; cursor: col-resize; }
+.hdr .hc.drop-before::before, .hdr .hc.drop-after::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--accent);
+}
+.hdr .hc.drop-before::before { left: 0; }
+.hdr .hc.drop-after::before { right: 0; }
+.hdr .hc.dragging { opacity: 0.4; }
+#ghost {
+  position: fixed;
+  pointer-events: none;
+  padding: 0 6px;
+  line-height: var(--row-h);
+  background: var(--bg2);
+  border: 1px solid var(--accent);
+  z-index: 50;
+  opacity: 0.9;
+}
+.body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: auto;
+  position: relative;
+  outline: none;
+  contain: strict;
+}
+#spacer { position: relative; width: var(--cols-w); min-width: 100%; }
+.row {
+  position: absolute;
+  left: 0;
+  width: var(--cols-w);
+  min-width: 100%;
+  height: var(--row-h);
+  display: grid;
+  grid-template-columns: var(--cols);
+  line-height: var(--row-h);
+  white-space: nowrap;
+  cursor: default;
+  contain: layout style;
+}
+.row[hidden] { display: none; }
+.row.sel { background: var(--sel-blur); }
+.body:focus .row.sel, .body:focus-within .row.sel { background: var(--sel); color: var(--sel-fg); }
+.row.cur { outline: 1px dotted var(--focus); outline-offset: -1px; }
+.row .cell { padding: 0 6px; overflow: hidden; text-overflow: ellipsis; }
+.row .cell.r { text-align: right; font-variant-numeric: tabular-nums; }
+.row.st-paused, .row.st-stopped, .row.st-finished, .row.st-queued { color: var(--muted); }
+.body:focus .row.sel.st-paused, .body:focus .row.sel.st-stopped, .body:focus .row.sel.st-finished, .body:focus .row.sel.st-queued { color: var(--sel-fg); }
+.row.st-error { color: var(--err); }
+.row .cell.done { position: relative; padding: 0 6px; }
+.row .bar {
+  position: absolute;
+  left: 3px;
+  right: 3px;
+  top: 4px;
+  bottom: 4px;
+  background: var(--bar-bg);
+  border: 1px solid var(--line);
+  border-radius: 2px;
+  overflow: hidden;
+}
+.row .bar i { display: block; height: 100%; width: 0; background: var(--bar-dl); }
+.row.st-seeding .bar i, .row.st-finished .bar i { background: var(--bar-seed); }
+.row.st-paused .bar i, .row.st-stopped .bar i, .row.st-queued .bar i { background: var(--bar-stop); }
+.row.st-error .bar i { background: var(--bar-err); }
+.row.st-checking .bar i, .row.st-metadata .bar i, .row.st-moving .bar i { background: var(--bar-check); }
+.row .cell.done span { position: relative; display: block; text-align: center; font-size: 11px; }
+.body .empty { position: absolute; left: 0; right: 0; top: 24px; text-align: center; color: var(--muted); }
+
+/* detail tabs */
+#detail { display: flex; flex-direction: column; min-height: 0; min-width: 0; }
+#tabs { display: flex; gap: 0; border-bottom: 1px solid var(--line); background: var(--bg2); flex: none; overflow-x: auto; }
+#tabs button {
+  border: 0;
+  border-right: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  padding: 3px 12px;
+  color: var(--muted);
+}
+#tabs button.on { background: var(--bg); color: var(--fg); }
+#tab-body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 6px 8px; color: var(--muted); }
+
+/* status bar */
+#statusbar {
+  display: flex;
+  gap: 0;
+  border-top: 1px solid var(--line);
+  background: var(--bg2);
+  line-height: 20px;
+  font-variant-numeric: tabular-nums;
+  overflow: hidden;
+  white-space: nowrap;
+}
+#statusbar > span { padding: 0 8px; border-right: 1px solid var(--line); }
+#statusbar > span:empty { display: none; }
+#statusbar > .grow { border: 0; }
+#st-conn.bad { color: var(--err); }
+
+/* menus */
+.menu {
+  position: fixed;
+  z-index: 100;
+  min-width: 180px;
+  background: var(--menu-bg);
+  border: 1px solid var(--line);
+  box-shadow: 2px 2px 6px var(--shadow);
+  padding: 2px;
+  user-select: none;
+}
+.menu[hidden] { display: none; }
+.menu .mi {
+  position: relative;
+  padding: 3px 24px 3px 26px;
+  white-space: nowrap;
+  cursor: default;
+}
+.menu .mi:hover:not(.dis), .menu .mi.open { background: var(--sel); color: var(--sel-fg); }
+.menu .mi.dis { color: var(--muted); }
+.menu .mi.chk::before { content: "\2713"; position: absolute; left: 8px; }
+.menu .mi.sub::after { content: ""; position: absolute; right: 8px; top: 50%; margin-top: -4px; border: 4px solid transparent; border-left-color: currentColor; border-right: 0; }
+.menu .ms { height: 1px; background: var(--line); margin: 3px 2px; }
+
+/* gate panel (#gate in the URL): measurements of the page itself */
+#gate {
+  position: fixed;
+  right: 8px;
+  bottom: 28px;
+  background: var(--menu-bg);
+  border: 1px solid var(--line);
+  padding: 6px 8px;
+  font: 11px/1.4 ui-monospace, Consolas, monospace;
+  white-space: pre;
+  z-index: 90;
+  opacity: 0.92;
+}
+#gate[hidden] { display: none; }
+
+@media (max-width: 767px) {
+  /* slice 7 brings the phone layout; until then the tree just gets narrower */
+  :root { --tree-w: 120px; }
+}

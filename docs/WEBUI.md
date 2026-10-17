@@ -214,6 +214,10 @@ engine, Firefox and Chromium:
 | Server CPU per client per tick | proportional to the window, after one sort per client per tick when the sort key changed; the sort of 10,000 by name or speed is under 2 ms in `frontend::model` |
 | `patorrent-nox` size growth for the whole Web UI | under 300 KB |
 
+Measured with slice 3 (CHANGELOG 2026-10-17_220311_1792267391): all within budget in Chrome and
+Firefox. The page measures itself with `#gate` in its URL (a panel and the window title); the
+daemon loads the profile with `run --no-state --mock-library 10000 --active 0`.
+
 ## Slices
 
 In order; each is a CHANGELOG entry and lands green on the three CI platforms.

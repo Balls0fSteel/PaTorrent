@@ -336,6 +336,86 @@ fn login_logout_and_versions() {
 }
 
 #[test]
+fn static_files_have_their_headers_and_no_inline_code() {
+    let t = Harness::start("static");
+    let files = [
+        ("/", "text/html; charset=UTF-8"),
+        ("/style.css", "text/css; charset=UTF-8"),
+        ("/app.js", "text/javascript; charset=UTF-8"),
+    ];
+    let mut total = 0;
+    for (path, content_type) in files {
+        // no login needed: the files hold no data
+        let r = t.req("GET", path, &[], Body::None);
+        assert_eq!(r.status, 200, "{path}");
+        assert_eq!(r.header("content-type"), Some(content_type), "{path}");
+        assert_eq!(r.header("x-content-type-options"), Some("nosniff"), "{path}");
+        assert_eq!(r.header("x-frame-options"), Some("SAMEORIGIN"), "{path}");
+        assert_eq!(r.header("referrer-policy"), Some("no-referrer"), "{path}");
+        assert_eq!(r.header("cache-control"), Some("no-cache"), "{path}");
+        assert_eq!(
+            r.headers.iter().filter(|(n, _)| n.eq_ignore_ascii_case("cache-control")).count(),
+            1,
+            "{path}: one Cache-Control"
+        );
+        let etag = r.header("etag").unwrap_or_else(|| panic!("{path}: no ETag")).to_owned();
+        assert!(etag.starts_with('"') && etag.ends_with('"') && etag.len() > 10, "{path}: {etag}");
+        assert!(!r.body.is_empty());
+        total += r.body.len();
+        // the browser's revalidation
+        let again = t.req("GET", path, &[("If-None-Match", &etag)], Body::None);
+        assert_eq!(again.status, 304, "{path}");
+        assert!(again.body.is_empty(), "{path}");
+        assert_eq!(again.header("etag"), Some(etag.as_str()), "{path}");
+        let other = t.req("GET", path, &[("If-None-Match", "\"nope\", W/\"x\"")], Body::None);
+        assert_eq!(other.status, 200, "{path}");
+        // HEAD: the same head (Content-Length of the body included) and nothing after it
+        let mut s = TcpStream::connect(t.addr).unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        s.write_all(&raw_request(&t.host(), "HEAD", path, &[], Body::None, true)).unwrap();
+        let mut out = Vec::new();
+        s.read_to_end(&mut out).unwrap();
+        let text = String::from_utf8_lossy(&out);
+        assert!(text.starts_with("HTTP/1.1 200 OK\r\n"), "{path}: {text}");
+        assert!(text.ends_with("\r\n\r\n"), "{path}: a body after a HEAD");
+        assert!(text.contains(&format!("ETag: {etag}\r\n")), "{path}: {text}");
+        assert!(text.contains(&format!("Content-Length: {}\r\n", r.body.len())), "{path}: {text}");
+        assert_eq!(t.req("POST", path, &[], Body::Form("")).status, 405, "{path}");
+    }
+    assert!(total < 200 * 1024, "the three files are {total} bytes; the budget is 200 KB");
+    let page = t.req("GET", "/", &[], Body::None);
+    let csp = page.header("content-security-policy").expect("a CSP on the page");
+    assert!(csp.starts_with("default-src 'self'") && !csp.contains("unsafe"), "{csp}");
+    assert_eq!(t.req("GET", "/index.html", &[], Body::None).header("etag"), page.header("etag"));
+    for other in ["/style.css", "/app.js"] {
+        assert!(t.req("GET", other, &[], Body::None).header("content-security-policy").is_none(), "{other}");
+    }
+    // the HTML: no inline script or style anywhere, and only our own two files referenced
+    let html = page.text();
+    assert!(html.contains("<title>PaTorrent</title>"));
+    let lower = html.to_ascii_lowercase();
+    assert!(!lower.contains("<style"), "an inline <style> element");
+    assert!(!lower.contains(" style=\""), "an inline style attribute");
+    assert!(!lower.contains("javascript:"), "a javascript: URL");
+    for (at, _) in lower.match_indices("<script") {
+        let tag = &lower[at..at + lower[at..].find('>').unwrap()];
+        assert!(tag.contains("src=\"app.js\""), "an inline <script>: {tag}");
+        assert!(lower[at..].trim_start_matches(tag).starts_with("></script>"), "a <script> with content");
+    }
+    for (at, _) in lower.match_indices(" on") {
+        // onclick="..." and friends
+        let rest = &lower[at + 3..];
+        let name: String = rest.chars().take_while(|c| c.is_ascii_alphabetic()).collect();
+        assert!(!rest[name.len()..].starts_with("=\""), "an inline event handler on{name}");
+    }
+    assert!(lower.contains("<link rel=\"stylesheet\" href=\"style.css\">"));
+    assert!(
+        !lower.contains("http://") && !lower.contains("https://"),
+        "the page loads nothing from elsewhere"
+    );
+}
+
+#[test]
 fn failed_logins_get_the_address_banned() {
     let t = Harness::start("ban");
     for _ in 0..5 {

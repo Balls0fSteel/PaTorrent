@@ -114,6 +114,9 @@ struct Opts {
     webui_pass: Option<String>,
     torrents: usize,
     active: f64,
+    /// `run --mock-library N` (undocumented): the simulated engine with N synthetic torrents
+    /// instead of the real one, to measure the Web UI against the 10,000-torrent profile.
+    mock_library: usize,
     sources: Vec<String>,
 }
 
@@ -138,6 +141,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         webui_pass: None,
         torrents: 1000,
         active: 0.02,
+        mock_library: 0,
         sources: Vec::new(),
     };
     let mut it = args.iter();
@@ -169,6 +173,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--webui-pass" => o.webui_pass = Some(value("--webui-pass")?),
             "--torrents" => o.torrents = num("--torrents", value("--torrents")?)?,
             "--active" => o.active = num("--active", value("--active")?)?,
+            "--mock-library" => o.mock_library = num("--mock-library", value("--mock-library")?)?,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s => o.sources.push(s.to_owned()),
         }
@@ -309,14 +314,35 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         settings.proxy_password = p.pass.clone();
         println!("* proxy: {:?} {}:{}", p.kind, p.host, p.port);
     }
-    let session =
+    let session = if o.mock_library > 0 {
+        // the Web UI's scale profile: nothing auto-managed runs, only the --active fraction
+        // (force-started) moves data, as in the nox webui tests
+        settings.active_downloads = 0;
+        settings.active_seeds = 0;
+        settings.active_limit = 0;
+        println!(
+            "* simulated engine with {} synthetic torrents, {:.1} % of them active",
+            o.mock_library,
+            o.active * 100.0
+        );
+        Session::start_mock(
+            settings.clone(),
+            MockConfig {
+                initial_torrents: o.mock_library,
+                active_fraction: o.active,
+                save_path: o.save.clone(),
+                ..MockConfig::default()
+            },
+        )
+    } else {
         match Session::start(SessionParams { settings: settings.clone(), state_dir: state_dir.clone() }) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("error: cannot start the engine: {e}");
                 return ExitCode::FAILURE;
             }
-        };
+        }
+    };
     if let Some(d) = &state_dir {
         println!("* state: {}", d.display());
     }

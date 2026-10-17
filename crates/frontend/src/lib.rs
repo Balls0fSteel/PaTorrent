@@ -5,6 +5,7 @@
 //!
 //! * [`fmt`]: µTorrent-style number formatting (sizes, speeds, ETA, ratio, percent).
 //! * [`status`]: status text ("[F] Downloading", "Queued Seed", ...) and category filters.
+//! * [`add`]: the Add New Torrent dialog's file tree, choices and recent save folders.
 //! * [`actions`]: µTorrent's Start / Force Start / Pause / Stop on top of libtorrent's flags.
 //! * [`columns`]: the torrent list's columns (titles, widths, cell text, sort order).
 //! * [`detail`]: the Trackers, Peers and Files tabs' columns and cell text.
@@ -14,6 +15,7 @@
 //! * [`options`]: what the Preferences dialog edits, loaded from and stored to the preferences.
 
 pub mod actions;
+pub mod add;
 pub mod columns;
 pub mod create;
 pub mod detail;

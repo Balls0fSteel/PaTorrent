@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-17_163533_1792247733
+Last updated: 2026-10-17_163655_1792247815
 
 ## Vision
 
@@ -195,7 +195,9 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
   - [x] the Win32 dialog (2026-10-17_155028_1792245028): Options > Preferences / Ctrl+P / toolbar, every page in the tree, OK / Cancel / Apply without a restart, patorrent.ini persistence, IP filter (enable, path, Reload); `patorrent_frontend::settings` is the string-keyed table (every `Settings` field by libtorrent name, plus `bt.transp_disposition`) and `patorrent_frontend::options` the toolkit-independent model for GTK
   - [x] the Proxy Server box on the Connection page (type, host, port, authentication, resolve names through the proxy, peer and tracker connections) (2026-10-17_161604_1792246564)
   - [ ] placeholders still disabled: Scheduler, Web UI (Phase 6), language, file association / autostart, move completed downloads / .torrent folders, seeding goal. "Move completed downloads" (and "Only move from the default download directory") can now be wired to `patorrent_core::MoveCompleted` (2026-10-17_163533_1792247733); it needs no `Settings` field, the folder lives in patorrent.ini
-- [ ] Add-torrent dialog: save folder, file tree with priorities, label, skip hash check, start/stop
+- [x] Add-torrent dialog: save folder, file tree with priorities, label, skip hash check, start/stop (2026-10-17_163655_1792247815): µTorrent 2.2.1's Add New Torrent for `.torrent` files from File > Add Torrent, drag and drop, the command line, a second instance's arguments and Add Torrent from URL (http/https); Save In with the recent folders (`add.recent_dirs`), Name, Torrent Contents (name, comment, size with free disk space, date), a virtual file tree with check boxes and priorities, Select All / None, Skip hash check, Start torrent, Add to top of queue, Label; Preferences > UI Settings "Show a window that displays the files inside the torrent" (`ui.show_add_dialog`). Model in `patorrent_frontend::add`
+  - [ ] magnets: still added directly (no file list before the metadata arrives). Showing the dialog once metadata is known needs either an engine "fetch metadata only" add (libtorrent: add paused with `stop_when_ready` / qBittorrent's metadata-download session) plus a way to apply the save path afterwards (move storage), or a GUI-side wait on `MetadataReceived` with `prioritize_files` and `move_storage`
+  - [ ] Name renames only the list entry: the engine keeps the torrent's own folder name on disk. A real rename needs an engine API (libtorrent `add_torrent_params::renamed_files` or `torrent_handle::rename_file`); not in `crates/core` yet
 - [ ] Create New Torrent: piece-size auto, trackers, web seeds, private flag, progress
   - [x] engine and nox, v1 (2026-10-17_114537_1792230337): `core::metainfo::create_torrent` (libtorrent `create_torrent`, `add_files`, `set_piece_hashes`), `make_magnet_uri_from_info`, `patorrent-nox create`
   - [x] the Win32 dialog (2026-10-17_140012_1792238412): File > Create New Torrent / Ctrl+N, µTorrent 2.2.1 layout, hashing on a worker thread, Start seeding
@@ -234,7 +236,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 ## Next steps
 
 1. Try a magnet link in the GUI (Add Torrent from URL, or a `magnet:` link on the command line): the row should show "Downloading metadata" with a growing percentage, then turn into a normal download.
-2. Phase 5 continues (2026-10-17_161604_1792246564: Preferences, proxies, super-seeding and part files are in). Click through Preferences by hand once (every page, OK / Cancel / Apply, the Proxy box, the Advanced list) and Advanced > Initial Seeding. Next candidates: the Add-torrent dialog (file tree with priorities, which part files now make cheap), wiring move storage into the GUI ("Move completed downloads", Set Download Location), labels and the scheduler. `patorrent-nox --proxy socks5://host:1080` and `add ... --super-seed` exercise the new engine features. `patorrent-nox run --no-state --seconds 20 --verbose` shows the mappers at work (`NatPmp:` / `Upnp:` lines); `--listen LIST` takes a `listen_interfaces` string; `add ... --verbose` prints where connected peers came from every 10 s.
+2. Phase 5 continues (2026-10-17_161604_1792246564: Preferences, proxies, super-seeding and part files are in). Click through Preferences by hand once (every page, OK / Cancel / Apply, the Proxy box, the Advanced list) and Advanced > Initial Seeding. The Add New Torrent dialog is in (2026-10-17_163655_1792247815): open a multi-file `.torrent`, uncheck a folder, set a priority from the right-click menu, pick a label and a recent Save In folder, OK, then check the Files tab and that the skipped files stay off disk. Next candidates: wiring move storage into the GUI ("Move completed downloads", Set Download Location), labels and the scheduler. `patorrent-nox --proxy socks5://host:1080` and `add ... --super-seed` exercise the new engine features. `patorrent-nox run --no-state --seconds 20 --verbose` shows the mappers at work (`NatPmp:` / `Upnp:` lines); `--listen LIST` takes a `listen_interfaces` string; `add ... --verbose` prints where connected peers came from every 10 s.
 3. Keep CI green on Windows, Linux and FreeBSD. The three flaky tests that made the 2026-10-15/16 runs red (UPnP fake router outliving its test, random DHT bucket count, the stingy peer's last-piece arithmetic) are fixed (CHANGELOG 2026-10-16_203336_1792175616); if a run goes red now, it is a real failure.
 4. Rerun `lt-swarm interop` (and `lt-swarm interop --encryption forced`) after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI. On 2026-10-16 WSL2 refused to start on this machine ("Virtual Machine Platform" / virtualization off), so only the qBittorrent case ran; rerun the Transmission and Deluge cases, plain and encrypted, once WSL is back.
 
@@ -261,6 +263,10 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - a PR to libtorrent adding `{"PA", "PaTorrent"}` to `src/identify_client.cpp`, so qBittorrent, Deluge and other libtorrent clients show the name in their peer lists
   - the same for webtorrent's `bittorrent-peerid` and Transmission's `clients.cc`, and an entry on the wiki.theory.org BEP 20 list
   - for private trackers: behave well (honest upload/download stats, announce intervals respected, no ratio tricks), keep `User-Agent`, peer ID and BEP 10 `v` consistent across versions, and publish a stable release with changelog. Tracker staff usually want a tagged release they can test. Expect a long wait, and some will never whitelist a new client.
+- Add New Torrent dialog (2026-10-17_163655_1792247815):
+  - a label chosen in the dialog is stored as `torrent.<info-hash>.label` before the engine adds the torrent; if the add then fails, the line stays in `patorrent.ini` (harmless, reused if the torrent is added again).
+  - µTorrent 2.2.1 also had "Don't show this again" and per-torrent "Advanced" (sequential download, initial seeding) in the dialog; not built.
+  - adding a `.torrent` already in the list shows "already in the torrent list" instead of merging its trackers (µTorrent asks whether to load the new trackers).
 - Part files (CHANGELOG 2026-10-17_160022_1792245622):
   - the Win32 "Remove" (without data) passes `RemoveFlags::empty()`, so a removed torrent with skipped files leaves its `.<info-hash>.parts` behind; qBittorrent passes `delete_partfile` there. Decide when the remove dialog is next touched.
   - ~~moving storage should call `PartFile::move_partfile` and rekey the `PartFiles` registry~~: done (2026-10-17_163533_1792247733).

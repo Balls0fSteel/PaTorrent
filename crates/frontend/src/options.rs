@@ -23,6 +23,9 @@ pub struct GuiOptions {
     pub balloons: bool,
     /// Add torrents stopped instead of queued (`ui.add_stopped`).
     pub add_stopped: bool,
+    /// Show the Add New Torrent dialog for `.torrent` files (`ui.show_add_dialog`; µTorrent's
+    /// "Show a window that displays the files inside the torrent").
+    pub show_add_dialog: bool,
     /// Pick a new listen port at every start (`net.random_port`).
     pub random_port: bool,
     /// Peer exchange for every torrent (`bt.pex`); off sets `DISABLE_PEX` on each one.
@@ -52,6 +55,7 @@ impl GuiOptions {
             minimize_to_tray: prefs.get_bool("ui.minimize_to_tray", false),
             balloons: prefs.get_bool("ui.balloons", true),
             add_stopped: prefs.get_bool("ui.add_stopped", false),
+            show_add_dialog: prefs.get_bool("ui.show_add_dialog", true),
             random_port: prefs.get_bool("net.random_port", false),
             pex: prefs.get_bool("bt.pex", true),
             max_peers_per_torrent: u32_of("bt.max_peers"),
@@ -68,6 +72,7 @@ impl GuiOptions {
         prefs.set_bool("ui.minimize_to_tray", self.minimize_to_tray);
         prefs.set_bool("ui.balloons", self.balloons);
         prefs.set_bool("ui.add_stopped", self.add_stopped);
+        prefs.set_bool("ui.show_add_dialog", self.show_add_dialog);
         prefs.set_bool("net.random_port", self.random_port);
         prefs.set_bool("bt.pex", self.pex);
         prefs.set("bt.max_peers", self.max_peers_per_torrent);
@@ -144,7 +149,7 @@ mod tests {
         assert_eq!(o.settings, Settings::default());
         assert_eq!(o.gui.download_dir, r"C:\Downloads");
         assert!(o.gui.confirm_delete && o.gui.close_to_tray && !o.gui.minimize_to_tray && o.gui.pex);
-        assert!(!o.gui.ip_filter);
+        assert!(!o.gui.ip_filter && o.gui.show_add_dialog);
         assert_eq!(o.gui.ip_filter_file(Path::new("S")), Path::new("S").join("ipfilter.dat"));
 
         let mut changed = o.clone();
@@ -157,6 +162,7 @@ mod tests {
             minimize_to_tray: true,
             balloons: false,
             add_stopped: true,
+            show_add_dialog: false,
             random_port: true,
             pex: false,
             max_peers_per_torrent: 50,

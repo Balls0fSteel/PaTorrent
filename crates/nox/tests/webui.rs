@@ -2,7 +2,9 @@
 //! client. Login and logout, the failed-login ban, CSRF and Host checks, adding torrents
 //! (multipart file, magnet), `torrents/info`, `sync/maindata` diffs by rid, stop / start,
 //! categories, delete, preferences, and the connection handling (keep-alive, pipelining,
-//! `Expect: 100-continue`, size limits).
+//! `Expect: 100-continue`, size limits). Then the native API: the WebSocket upgrade and
+//! frames with a raw socket client, and the session protocol (`hello`, `view` / `rows`,
+//! `tick` diffs, `idle`) against the real engine and the 10,000-torrent mock profile.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -14,7 +16,7 @@ use std::time::{Duration, Instant};
 
 use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
-use patorrent_core::{Session, SessionParams, Settings};
+use patorrent_core::{MockConfig, Session, SessionParams, Settings};
 use patorrent_nox::webui::json::{self, Json};
 use patorrent_nox::webui::{Config, STATE_FILE, WebUi};
 
@@ -70,8 +72,8 @@ impl Harness {
         Harness::start_in(temp_dir(name), Some(PASS))
     }
 
-    fn start_in(dir: PathBuf, password: Option<&str>) -> Harness {
-        let settings = Settings {
+    fn settings() -> Settings {
+        Settings {
             listen_interfaces: "127.0.0.1:0".into(),
             tick_interval: 100,
             aio_threads: 2,
@@ -80,8 +82,31 @@ impl Harness {
             enable_upnp: false,
             enable_natpmp: false,
             ..Settings::default()
-        };
+        }
+    }
+
+    fn start_in(dir: PathBuf, password: Option<&str>) -> Harness {
+        let settings = Harness::settings();
         let session = Session::start(SessionParams { settings: settings.clone(), state_dir: None }).unwrap();
+        Harness::with_session(dir, password, settings, session)
+    }
+
+    /// The simulated engine with `n` synthetic torrents, `active` of them force-started; the
+    /// rest are queued seeds or stopped, and with `limits` at zero nothing auto-managed runs,
+    /// so nothing changes after the first update.
+    fn start_mock(name: &str, n: usize, active: f64, limits: i32) -> Harness {
+        let settings = Settings {
+            active_downloads: limits,
+            active_seeds: limits,
+            active_limit: limits,
+            ..Harness::settings()
+        };
+        let config = MockConfig { initial_torrents: n, active_fraction: active, ..MockConfig::default() };
+        let session = Session::start_mock(settings.clone(), config);
+        Harness::with_session(temp_dir(name), Some(PASS), settings, session)
+    }
+
+    fn with_session(dir: PathBuf, password: Option<&str>, settings: Settings, session: Session) -> Harness {
         let h = session.handle();
         let mut c = Config::new("127.0.0.1:0".parse().unwrap(), settings, dir.join("dl").to_string_lossy());
         c.password = password.map(str::to_owned);
@@ -741,4 +766,630 @@ fn a_temporary_password_without_one_given() {
     let p = t.web.temporary_password().expect("a temporary password").to_owned();
     let r = t.req("POST", "/api/v2/auth/login", &[], Body::Form(&format!("username=admin&password={p}")));
     assert_eq!(r.text(), "Ok.");
+}
+
+// ---------------------------------------------------------------------------------------------
+// The native API: WebSocket and session protocol
+
+/// The RFC 6455 section 1.3 example key and its accept value.
+const WS_KEY: &str = "dGhlIHNhbXBsZSBub25jZQ==";
+const WS_ACCEPT: &str = "s3pPLMBiTxaQ9kYGzzhZRbK+xOo=";
+
+/// A raw WebSocket client: masked frames out, server frames in.
+struct Ws {
+    s: TcpStream,
+    buf: Vec<u8>,
+}
+
+/// Sends the upgrade request and returns the response head (status, headers) and the socket.
+fn ws_upgrade(t: &Harness, headers: &[(&str, &str)]) -> (Resp, TcpStream, Vec<u8>) {
+    let mut s = TcpStream::connect(t.addr).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+    let mut r = format!(
+        "GET /pa/ws HTTP/1.1\r\nHost: {}\r\nUpgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Key: {WS_KEY}\r\n",
+        t.host()
+    );
+    for (n, v) in headers {
+        r.push_str(&format!("{n}: {v}\r\n"));
+    }
+    r.push_str("\r\n");
+    s.write_all(r.as_bytes()).unwrap();
+    let mut out = Vec::new();
+    let mut chunk = [0u8; 4096];
+    let end = loop {
+        if let Some(p) = out.windows(4).position(|w| w == b"\r\n\r\n") {
+            break p + 4;
+        }
+        let n = s.read(&mut chunk).unwrap();
+        assert!(n > 0, "closed before a response head: {}", String::from_utf8_lossy(&out));
+        out.extend_from_slice(&chunk[..n]);
+    };
+    let head = String::from_utf8_lossy(&out[..end]).into_owned();
+    let mut lines = head.split("\r\n");
+    let status = lines.next().unwrap().split(' ').nth(1).unwrap().parse().unwrap();
+    let headers: Vec<(String, String)> = lines
+        .filter_map(|l| l.split_once(':'))
+        .map(|(n, v)| (n.trim().to_owned(), v.trim().to_owned()))
+        .collect();
+    let len: usize = headers
+        .iter()
+        .find(|(n, _)| n.eq_ignore_ascii_case("content-length"))
+        .map_or(0, |(_, v)| v.parse().unwrap());
+    let mut body = out[end..].to_vec();
+    if status != 101 {
+        while body.len() < len {
+            let n = s.read(&mut chunk).unwrap();
+            assert!(n > 0);
+            body.extend_from_slice(&chunk[..n]);
+        }
+        return (Resp { status, headers, body }, s, Vec::new());
+    }
+    (Resp { status, headers, body: Vec::new() }, s, body)
+}
+
+impl Ws {
+    /// Upgrades with the session cookie and a same-origin `Origin`, and reads the `hello`.
+    fn connect(t: &Harness, sid: &str) -> (Ws, Json) {
+        let origin = format!("http://{}", t.host());
+        let (r, s, rest) =
+            ws_upgrade(t, &[("Cookie", sid), ("Origin", &origin), ("Sec-WebSocket-Version", "13")]);
+        assert_eq!(r.status, 101, "{}", r.text());
+        assert_eq!(r.header("sec-websocket-accept"), Some(WS_ACCEPT));
+        assert_eq!(r.header("upgrade").map(str::to_ascii_lowercase).as_deref(), Some("websocket"));
+        let mut ws = Ws { s, buf: rest };
+        let hello = ws.recv_json();
+        assert_eq!(hello.get("t").and_then(Json::as_str), Some("hello"));
+        (ws, hello)
+    }
+
+    fn send_frame(&mut self, fin: bool, opcode: u8, payload: &[u8], masked: bool) {
+        let mask = [0x12u8, 0x34, 0x56, 0x78];
+        let mut out = vec![(if fin { 0x80 } else { 0 }) | opcode];
+        let m = if masked { 0x80 } else { 0 };
+        let len = payload.len();
+        if len < 126 {
+            out.push(m | len as u8);
+        } else if len <= u16::MAX as usize {
+            out.push(m | 126);
+            out.extend_from_slice(&(len as u16).to_be_bytes());
+        } else {
+            out.push(m | 127);
+            out.extend_from_slice(&(len as u64).to_be_bytes());
+        }
+        if masked {
+            out.extend_from_slice(&mask);
+            out.extend(payload.iter().enumerate().map(|(i, &b)| b ^ mask[i % 4]));
+        } else {
+            out.extend_from_slice(payload);
+        }
+        self.s.write_all(&out).unwrap();
+    }
+
+    fn send_text(&mut self, text: &str) {
+        self.send_frame(true, 1, text.as_bytes(), true);
+    }
+
+    /// The next server frame: (opcode, payload); `None` on a clean EOF.
+    fn recv_frame(&mut self) -> Option<(u8, Vec<u8>)> {
+        let mut chunk = [0u8; 65536];
+        loop {
+            if self.buf.len() >= 2 {
+                let b0 = self.buf[0];
+                assert!(b0 & 0x80 != 0, "fragmented server frames are not expected");
+                assert_eq!(self.buf[1] & 0x80, 0, "server frames must not be masked");
+                let (len, at) = match self.buf[1] & 0x7f {
+                    n @ 0..=125 => (n as usize, 2),
+                    126 if self.buf.len() >= 4 => {
+                        (u16::from_be_bytes([self.buf[2], self.buf[3]]) as usize, 4)
+                    }
+                    127 if self.buf.len() >= 10 => {
+                        (u64::from_be_bytes(self.buf[2..10].try_into().unwrap()) as usize, 10)
+                    }
+                    _ => (usize::MAX, 0),
+                };
+                if at > 0 && self.buf.len() >= at + len {
+                    let payload = self.buf[at..at + len].to_vec();
+                    self.buf.drain(..at + len);
+                    return Some((b0 & 0x0f, payload));
+                }
+            }
+            match self.s.read(&mut chunk) {
+                Ok(0) => return None,
+                Ok(n) => self.buf.extend_from_slice(&chunk[..n]),
+                Err(e) => panic!("read: {e}"),
+            }
+        }
+    }
+
+    /// The next text frame as JSON (pings are answered on the way).
+    fn recv_json(&mut self) -> Json {
+        loop {
+            match self.recv_frame() {
+                Some((1, payload)) => {
+                    let text = String::from_utf8(payload).unwrap();
+                    return json::parse(&text).unwrap_or_else(|e| panic!("{e}: {text}"));
+                }
+                Some((9, payload)) => self.send_frame(true, 10, &payload, true),
+                Some((op, payload)) => panic!("unexpected frame {op}: {payload:?}"),
+                None => panic!("closed while waiting for a message"),
+            }
+        }
+    }
+
+    /// The next text frame and its size on the wire (the payload length).
+    fn recv_sized(&mut self) -> (Json, usize) {
+        loop {
+            match self.recv_frame() {
+                Some((1, payload)) => {
+                    let n = payload.len();
+                    let text = String::from_utf8(payload).unwrap();
+                    return (json::parse(&text).unwrap_or_else(|e| panic!("{e}: {text}")), n);
+                }
+                Some((9, payload)) => self.send_frame(true, 10, &payload, true),
+                Some((op, _)) => panic!("unexpected frame {op}"),
+                None => panic!("closed while waiting for a message"),
+            }
+        }
+    }
+
+    /// Ticks until `f` accepts one; panics after 20 s.
+    fn tick_until(&mut self, what: &str, mut f: impl FnMut(&Json) -> bool) -> Json {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let m = self.recv_json();
+            if m.get("t").and_then(Json::as_str) == Some("tick") && f(&m) {
+                return m;
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}; last: {}", m.to_json());
+        }
+    }
+
+    /// Asserts that no frame arrives for `d`.
+    fn expect_silence(&mut self, d: Duration) {
+        self.s.set_read_timeout(Some(d)).unwrap();
+        let mut chunk = [0u8; 64];
+        let r = self.s.read(&mut chunk);
+        self.s.set_read_timeout(Some(Duration::from_secs(20))).unwrap();
+        match r {
+            Ok(n) => panic!("{n} bytes arrived while idle: {:?}", &chunk[..n]),
+            Err(e) if matches!(e.kind(), std::io::ErrorKind::WouldBlock | std::io::ErrorKind::TimedOut) => {}
+            Err(e) => panic!("read: {e}"),
+        }
+        assert!(self.buf.is_empty(), "buffered: {:?}", self.buf);
+    }
+}
+
+fn ids_of(m: &Json) -> Vec<String> {
+    match m.get("ids") {
+        Some(Json::Arr(v)) => v.iter().map(|x| s(Some(x)).to_owned()).collect(),
+        _ => Vec::new(),
+    }
+}
+
+fn cells_of(m: &Json) -> Vec<String> {
+    m.get("cells").map(|c| c.entries().iter().map(|(k, _)| k.clone()).collect()).unwrap_or_default()
+}
+
+#[test]
+fn websocket_handshake_and_frames() {
+    let t = Harness::start("ws");
+    let sid = t.login();
+    let (mut ws, hello) = Ws::connect(&t, &sid);
+    // hello: the 24 columns with ids, titles and widths, the categories, no labels yet
+    let Some(Json::Arr(cols)) = hello.get("columns") else { panic!("{}", hello.to_json()) };
+    assert_eq!(cols.len(), 24);
+    assert_eq!(s(cols[0].get("id")), "name");
+    assert_eq!(s(cols[0].get("title")), "Name");
+    assert_eq!(cols[0].get("width").and_then(Json::as_i64), Some(220));
+    assert_eq!(s(cols[0].get("align")), "left");
+    assert_eq!(s(cols[7].get("id")), "down_speed");
+    assert_eq!(s(cols[7].get("align")), "right");
+    assert!(!s(hello.get("version")).is_empty());
+    let Some(Json::Arr(cats)) = hello.get("categories") else { panic!() };
+    assert_eq!(cats.len(), 5);
+    assert_eq!(s(cats[0].get("id")), "all");
+    assert_eq!(hello.get("labels"), Some(&Json::Arr(vec![])));
+
+    // a masked text frame round trip: a subscription answered with rows
+    ws.send_text(r#"{"t":"view","columns":["name"],"window":[0,10]}"#);
+    let rows = ws.recv_json();
+    assert_eq!(s(rows.get("t")), "rows");
+    assert_eq!(rows.get("total"), Some(&Json::Int(0)));
+    // a fragmented message is assembled
+    let msg = br#"{"t":"nothing"}"#;
+    ws.send_frame(false, 1, &msg[..5], true);
+    ws.send_frame(true, 0, &msg[5..], true);
+    let err = ws.recv_json();
+    assert_eq!(s(err.get("t")), "error");
+    assert!(s(err.get("msg")).contains("nothing"), "{}", err.to_json());
+    ws.send_text("not json");
+    assert_eq!(s(ws.recv_json().get("t")), "error");
+
+    // ping answered with pong, payload echoed
+    ws.send_frame(true, 9, b"are you there", true);
+    assert_eq!(ws.recv_frame(), Some((10, b"are you there".to_vec())));
+
+    // a 16-bit length frame
+    let long = format!(r#"{{"t":"view","filter":{{"search":"{}"}},"columns":["name"]}}"#, "x".repeat(300));
+    ws.send_text(&long);
+    assert_eq!(s(ws.recv_json().get("t")), "rows");
+
+    // the close handshake: our 1000 is echoed, then the socket ends
+    ws.send_frame(true, 8, &[0x03, 0xe8, b'b', b'y', b'e'], true);
+    let close = loop {
+        match ws.recv_frame() {
+            Some((8, p)) => break p,
+            Some((1, _)) => continue, // a tick that was on its way
+            other => panic!("expected a close frame, got {other:?}"),
+        }
+    };
+    assert_eq!(&close[..2], &[0x03, 0xe8]);
+    assert_eq!(ws.recv_frame(), None);
+
+    // an unmasked client frame is a protocol error: close 1002
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_frame(true, 1, br#"{"t":"idle"}"#, false);
+    let close = loop {
+        match ws.recv_frame() {
+            Some((8, p)) => break p,
+            Some((1, _)) => continue,
+            other => panic!("expected a close frame, got {other:?}"),
+        }
+    };
+    assert_eq!(u16::from_be_bytes([close[0], close[1]]), 1002);
+    // a binary message: close 1003
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_frame(true, 2, b"\x00\x01", true);
+    let close = loop {
+        match ws.recv_frame() {
+            Some((8, p)) => break p,
+            Some((1, _)) => continue,
+            other => panic!("expected a close frame, got {other:?}"),
+        }
+    };
+    assert_eq!(u16::from_be_bytes([close[0], close[1]]), 1003);
+    // a message over the limit: close 1009
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_frame(true, 1, &vec![b' '; 65 * 1024], true);
+    let close = loop {
+        match ws.recv_frame() {
+            Some((8, p)) => break p,
+            Some((1, _)) => continue,
+            other => panic!("expected a close frame, got {other:?}"),
+        }
+    };
+    assert_eq!(u16::from_be_bytes([close[0], close[1]]), 1009);
+}
+
+#[test]
+fn websocket_upgrade_is_refused_without_origin_or_session() {
+    let t = Harness::start("ws-refuse");
+    let sid = t.login();
+    let origin = format!("http://{}", t.host());
+    // a bad Origin: 403
+    let (r, _, _) = ws_upgrade(
+        &t,
+        &[("Cookie", &sid), ("Origin", "http://evil.example"), ("Sec-WebSocket-Version", "13")],
+    );
+    assert_eq!(r.status, 403, "{}", r.text());
+    let (r, _, _) = ws_upgrade(&t, &[("Cookie", &sid), ("Origin", "null"), ("Sec-WebSocket-Version", "13")]);
+    assert_eq!(r.status, 403);
+    // no session: 403
+    let (r, _, _) = ws_upgrade(&t, &[("Origin", &origin), ("Sec-WebSocket-Version", "13")]);
+    assert_eq!(r.status, 403);
+    let (r, _, _) =
+        ws_upgrade(&t, &[("Cookie", "SID=forged"), ("Origin", &origin), ("Sec-WebSocket-Version", "13")]);
+    assert_eq!(r.status, 403);
+    // a wrong version: 426 naming ours
+    let (r, _, _) = ws_upgrade(&t, &[("Cookie", &sid), ("Origin", &origin), ("Sec-WebSocket-Version", "8")]);
+    assert_eq!(r.status, 426);
+    assert_eq!(r.header("sec-websocket-version"), Some("13"));
+    // a plain GET of the path: 400
+    let plain = t.req("GET", "/pa/ws", &[("Cookie", &sid)], Body::None);
+    assert_eq!(plain.status, 400);
+    // no Origin at all (a script): accepted, like the CSRF rule for requests
+    let (r, _, _) = ws_upgrade(&t, &[("Cookie", &sid), ("Sec-WebSocket-Version", "13")]);
+    assert_eq!(r.status, 101);
+    // a logged-out session ends the socket
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_text(r#"{"t":"view","columns":["name"]}"#);
+    assert_eq!(s(ws.recv_json().get("t")), "rows");
+    assert_eq!(t.post(&sid, "/api/v2/auth/logout", "").status, 200);
+    let close = loop {
+        match ws.recv_frame() {
+            Some((8, p)) => break p,
+            Some((1, _)) => continue,
+            other => panic!("expected a close frame, got {other:?}"),
+        }
+    };
+    assert_eq!(u16::from_be_bytes([close[0], close[1]]), 1008);
+}
+
+#[test]
+fn native_view_rows_and_tick_diffs() {
+    let t = Harness::start("native");
+    let sid = t.login();
+    let (bytes, hash) = torrent();
+    let (body, boundary) = multipart(&[("paused", "false")], &bytes);
+    let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+    assert_eq!(r.status, 200);
+    let magnet_hash = "0123456789abcdef0123456789abcdef01234567";
+    let urls = enc(&format!("magnet:?xt=urn:btih:{magnet_hash}&dn=from+a+magnet"));
+    assert_eq!(t.post(&sid, "/api/v2/torrents/add", &format!("urls={urls}&stopped=true")).status, 200);
+    // past the initial check, so the Status cell reads Downloading
+    t.wait_for(&sid, &hash, "the added torrent", |x| {
+        s(x.get("name")) == "webui-test" && matches!(s(x.get("state")), "downloading" | "stalledDL")
+    });
+    t.wait_for(&sid, magnet_hash, "the magnet", |x| s(x.get("state")) == "pausedDL");
+
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_text(
+        r#"{"t":"view","filter":{"category":"all","label":null,"search":""},"sort":["name",false],
+"columns":["name","size","done","status","down_speed","save_as"],"window":[0,60]}"#,
+    );
+    let rows = ws.recv_json();
+    assert_eq!(s(rows.get("t")), "rows");
+    assert_eq!(rows.get("total"), Some(&Json::Int(2)));
+    assert_eq!(rows.get("first"), Some(&Json::Int(0)));
+    assert_eq!(ids_of(&rows), [magnet_hash.to_owned(), hash.clone()], "sorted by name");
+    let cell = rows.get("cells").unwrap().get(&hash).expect("the torrent's cells");
+    let Some(Json::Arr(c)) = cell.get("c") else { panic!("{}", cell.to_json()) };
+    assert_eq!(s(Some(&c[0])), "webui-test");
+    assert_eq!(s(Some(&c[1])), "48.8 kB");
+    assert_eq!(s(Some(&c[2])), "0.0 %");
+    assert!(s(Some(&c[3])).contains("Downloading"), "{}", c[3].to_json());
+    assert_eq!(s(Some(&c[4])), "", "idle speed cells are blank");
+    assert!(s(Some(&c[5])).ends_with("dl"), "{}", c[5].to_json());
+    assert_eq!(cell.get("done"), Some(&Json::Int(0)));
+    assert_eq!(s(cell.get("state")), "downloading");
+    assert!(cell.get("v").and_then(Json::as_i64).is_some());
+    let magnet = rows.get("cells").unwrap().get(magnet_hash).unwrap();
+    assert_eq!(s(magnet.get("state")), "stopped");
+    let Some(Json::Arr(mc)) = magnet.get("c") else { panic!() };
+    assert_eq!(s(Some(&mc[3])), "Stopped");
+
+    // ticks come once per status tick with counts and the status bar
+    let tick = ws.tick_until("a tick", |_| true);
+    let counts = tick.get("counts").unwrap();
+    assert_eq!(counts.get("all"), Some(&Json::Int(2)));
+    assert_eq!(counts.get("downloading"), Some(&Json::Int(2)));
+    assert_eq!(counts.get("completed"), Some(&Json::Int(0)));
+    let status = tick.get("status").unwrap();
+    assert_eq!(s(status.get("down")), "0.0 kB/s");
+    assert_eq!(s(status.get("down_total")), "0 B");
+    assert!(status.get("dht").and_then(Json::as_i64).is_some());
+    assert!(tick.get("ids").is_none(), "the order did not move: {}", tick.to_json());
+
+    // a status change: a tick carrying that row, and never the unchanged magnet
+    assert_eq!(t.post(&sid, "/api/v2/torrents/stop", &format!("hashes={hash}")).status, 200);
+    let tick = ws.tick_until("the stopped row", |m| {
+        let cells = cells_of(m);
+        assert!(!cells.iter().any(|c| c == magnet_hash), "the unchanged row was sent: {}", m.to_json());
+        m.get("cells").and_then(|c| c.get(&hash)).is_some_and(|c| s(c.get("state")) == "stopped")
+    });
+    let c = tick.get("cells").unwrap().get(&hash).unwrap();
+    let Some(Json::Arr(c)) = c.get("c") else { panic!() };
+    assert_eq!(s(Some(&c[3])), "Stopped");
+
+    // a column change re-sends the window with the new cells
+    ws.send_text(r#"{"t":"view","sort":["name",false],"columns":["status","name"],"window":[1,1]}"#);
+    let rows = ws.recv_json();
+    assert_eq!(s(rows.get("t")), "rows");
+    assert_eq!(rows.get("first"), Some(&Json::Int(1)));
+    assert_eq!(ids_of(&rows), std::slice::from_ref(&hash));
+    let Some(Json::Arr(c)) = rows.get("cells").unwrap().get(&hash).unwrap().get("c") else { panic!() };
+    assert_eq!(c.len(), 2);
+    assert_eq!(s(Some(&c[1])), "webui-test");
+
+    // the category filter and a search narrow the view
+    ws.send_text(r#"{"t":"view","filter":{"category":"completed"},"columns":["name"]}"#);
+    let rows = ws.recv_json();
+    assert_eq!(rows.get("total"), Some(&Json::Int(0)));
+    ws.send_text(r#"{"t":"view","filter":{"search":"MAGNET"},"columns":["name"]}"#);
+    let rows = ws.recv_json();
+    assert_eq!(rows.get("total"), Some(&Json::Int(1)));
+    assert_eq!(ids_of(&rows), [magnet_hash.to_owned()]);
+    ws.send_text(r#"{"t":"view","filter":{"category":"nope"},"columns":["name"]}"#);
+    assert_eq!(s(ws.recv_json().get("t")), "error");
+
+    // a label set through the shim's categories shows in the Label column and in hello
+    assert_eq!(t.post(&sid, "/api/v2/torrents/createCategory", "category=linux").status, 200);
+    assert_eq!(
+        t.post(&sid, "/api/v2/torrents/setCategory", &format!("hashes={hash}&category=linux")).status,
+        200
+    );
+    ws.send_text(r#"{"t":"view","filter":{"label":"linux"},"columns":["name","label"]}"#);
+    let rows = ws.recv_json();
+    assert_eq!(ids_of(&rows), std::slice::from_ref(&hash));
+    let Some(Json::Arr(c)) = rows.get("cells").unwrap().get(&hash).unwrap().get("c") else { panic!() };
+    assert_eq!(s(Some(&c[1])), "linux");
+    let (_, hello) = Ws::connect(&t, &sid);
+    assert_eq!(hello.get("labels"), Some(&Json::Arr(vec!["linux".into()])));
+
+    // the detail subscription is accepted (content comes with slice 4), idle stops the ticks
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"peers"}}"#));
+    ws.send_text(r#"{"t":"idle"}"#);
+    // ticks already on the wire may still arrive; after a moment there must be none
+    std::thread::sleep(Duration::from_millis(200));
+    ws.s.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+    let mut chunk = [0u8; 65536];
+    loop {
+        match ws.s.read(&mut chunk) {
+            Ok(0) => panic!("closed"),
+            Ok(_) => continue,
+            Err(_) => break,
+        }
+    }
+    ws.buf.clear();
+    ws.expect_silence(Duration::from_millis(400));
+    // a view after idle answers with rows and the ticks resume
+    ws.send_text(r#"{"t":"view","columns":["name"]}"#);
+    assert_eq!(s(ws.recv_json().get("t")), "rows");
+    ws.tick_until("ticks after idle", |_| true);
+
+    // a removal leaves the view
+    assert_eq!(
+        t.post(&sid, "/api/v2/torrents/delete", &format!("hashes={hash}&deleteFiles=false")).status,
+        200
+    );
+    ws.tick_until("the total after removal", |m| m.get("total") == Some(&Json::Int(1)));
+}
+
+#[test]
+fn native_sort_by_speed_resends_the_order_when_it_moves() {
+    // 40 synthetic torrents, all force-started: their rates random-walk every tick
+    let t = Harness::start_mock("native-sort", 40, 1.0, -1);
+    let sid = t.login();
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_text(
+        r#"{"t":"view","sort":["down_speed",true],"columns":["name","down_speed"],"window":[0,10]}"#,
+    );
+    let rows = loop {
+        let m = ws.recv_json();
+        if s(m.get("t")) == "rows" && m.get("total") == Some(&Json::Int(40)) {
+            break m;
+        }
+        if s(m.get("t")) == "rows" {
+            // the first update had not landed yet: ask again once it has (ticks pass by)
+            std::thread::sleep(Duration::from_millis(50));
+            ws.send_text(
+                r#"{"t":"view","sort":["down_speed",true],"columns":["name","down_speed"],"window":[0,10]}"#,
+            );
+        }
+    };
+    let mut order = ids_of(&rows);
+    assert_eq!(order.len(), 10);
+    let mut moved = 0;
+    let mut stayed = 0;
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while moved < 3 && Instant::now() < deadline {
+        let tick = ws.tick_until("a tick", |_| true);
+        let ids = ids_of(&tick);
+        if ids.is_empty() {
+            stayed += 1;
+            continue;
+        }
+        assert_ne!(ids, order, "ids sent although the order stayed: {}", tick.to_json());
+        assert_eq!(ids.len(), 10);
+        // rows new to the window come with their cells; the rest only when they changed
+        for id in &ids {
+            if !order.contains(id) {
+                assert!(
+                    cells_of(&tick).contains(id),
+                    "a row new to the window without cells: {}",
+                    tick.to_json()
+                );
+            }
+        }
+        order = ids;
+        moved += 1;
+    }
+    assert_eq!(moved, 3, "the order by speed never moved ({stayed} ticks without ids)");
+    // sorted by name, the order never moves
+    ws.send_text(r#"{"t":"view","sort":["name",false],"columns":["name","down_speed"],"window":[0,10]}"#);
+    assert_eq!(s(ws.recv_json().get("t")), "rows");
+    for _ in 0..5 {
+        let tick = ws.tick_until("a tick", |_| true);
+        assert!(tick.get("ids").is_none(), "{}", tick.to_json());
+    }
+}
+
+#[test]
+fn native_idle_client_gets_nothing() {
+    let t = Harness::start_mock("native-idle", 10, 1.0, -1);
+    let sid = t.login();
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    // without a view: nothing either
+    ws.expect_silence(Duration::from_millis(300));
+    ws.send_text(r#"{"t":"view","columns":["name","down_speed"],"window":[0,10]}"#);
+    assert_eq!(s(ws.recv_json().get("t")), "rows");
+    ws.tick_until("a tick", |_| true);
+    ws.send_text(r#"{"t":"idle"}"#);
+    // drain what was in flight, then two ticks' worth of silence (the harness ticks every 50 ms)
+    ws.s.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+    let mut chunk = [0u8; 65536];
+    while ws.s.read(&mut chunk).is_ok_and(|n| n > 0) {}
+    ws.buf.clear();
+    ws.expect_silence(Duration::from_millis(500));
+}
+
+#[test]
+fn native_ten_thousand_torrent_profile_fits_the_budgets() {
+    // The desktop's scale profile: 10,000 synthetic torrents, nothing running.
+    let t = Harness::start_mock("native-10k", 10_000, 0.0, 0);
+    let sid = t.login();
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    let all: Vec<&str> = vec![
+        "name",
+        "queue_position",
+        "size",
+        "done",
+        "status",
+        "seeds",
+        "peers",
+        "down_speed",
+        "up_speed",
+        "eta",
+        "uploaded",
+        "downloaded",
+        "ratio",
+        "availability",
+        "label",
+        "added_on",
+        "completed_on",
+        "tracker",
+        "down_limit",
+        "up_limit",
+        "remaining",
+        "seeds_peers",
+        "save_as",
+        "wasted",
+    ];
+    let cols: Vec<String> = all.iter().map(|c| format!("\"{c}\"")).collect();
+    let view = format!(
+        r#"{{"t":"view","filter":{{"category":"all"}},"sort":["name",false],"columns":[{}],"window":[0,60]}}"#,
+        cols.join(",")
+    );
+    let deadline = Instant::now() + Duration::from_secs(60);
+    ws.send_text(&view);
+    let (rows, size) = loop {
+        let (m, n) = ws.recv_sized();
+        let total = m.get("total").and_then(Json::as_i64).unwrap_or(0);
+        if s(m.get("t")) == "rows" && total == 10_000 {
+            break (m, n);
+        }
+        assert!(Instant::now() < deadline, "the 10,000 torrents never arrived: {total}");
+        if s(m.get("t")) == "rows" {
+            // the first update had not landed yet: ask again once it has
+            std::thread::sleep(Duration::from_millis(100));
+            ws.send_text(&view);
+        }
+    };
+    let ids = ids_of(&rows);
+    assert_eq!(ids.len(), 60);
+    assert_eq!(rows.get("cells").unwrap().entries().len(), 60);
+    let Some(Json::Arr(c)) = rows.get("cells").unwrap().get(&ids[0]).unwrap().get("c") else { panic!() };
+    assert_eq!(c.len(), 24);
+    eprintln!("10,000 torrents: rows message with 60 rows and 24 columns: {size} bytes");
+    assert!(size < 30 * 1024, "a 60-row, 24-column rows message is {size} bytes");
+    // a tick with nothing changed: no ids, no cells, under 1 KB
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let (tick, size) = loop {
+        let (m, n) = ws.recv_sized();
+        assert_eq!(s(m.get("t")), "tick");
+        if m.get("cells").is_none() && m.get("ids").is_none() {
+            break (m, n);
+        }
+        assert!(Instant::now() < deadline, "every tick carried changes: {}", m.to_json());
+    };
+    assert_eq!(tick.get("counts").unwrap().get("all"), Some(&Json::Int(10_000)));
+    eprintln!("10,000 torrents: idle tick: {size} bytes");
+    assert!(size < 1024, "an idle tick is {size} bytes: {}", tick.to_json());
+    // scrolling to the end: the window clamps
+    let view = view.replace("\"window\":[0,60]", "\"window\":[9970,60]");
+    ws.send_text(&view);
+    let (rows, _) = ws.recv_sized();
+    assert_eq!(s(rows.get("t")), "rows");
+    assert_eq!(rows.get("first"), Some(&Json::Int(9970)));
+    assert_eq!(ids_of(&rows).len(), 30);
 }

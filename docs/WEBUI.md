@@ -238,8 +238,10 @@ In order; each is a CHANGELOG entry and lands green on the three CI platforms.
 
 ## Open points
 
-- Whether the WebSocket thread reads and writes on one thread with a short read timeout or uses
-  a second thread per socket. Decide in slice 1 by what the tests make simplest.
+- ~~Whether the WebSocket thread reads and writes on one thread with a short read timeout or uses
+  a second thread per socket.~~ Decided in slice 1 (CHANGELOG 2026-10-17_210452_1792263892): one
+  thread per socket, a 50 ms read timeout, and the cache's tick counter checked after every read
+  or timeout; no second thread, no Condvar wait.
 - A phone's long-press context menu versus a visible per-row menu button. Decide in slice 7
   with the page in hand.
 - Compression: none for now (no dependencies, and the window-bounded messages are small). If a

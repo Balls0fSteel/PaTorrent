@@ -1,19 +1,24 @@
-//! The Web UI server (PLAN.md Phase 6, D10): an embedded HTTP/1.1 server with a subset of the
-//! qBittorrent WebAPI v2, written from qBittorrent's published WebAPI documentation only.
+//! The Web UI server (PLAN.md Phase 6, D18): an embedded HTTP/1.1 server with the native push
+//! API (`/pa/ws`, a WebSocket carrying the session protocol of `docs/WEBUI.md`) and, as a
+//! compatibility shim (D10), a subset of the qBittorrent WebAPI v2 written from qBittorrent's
+//! published WebAPI documentation only.
 //!
-//! Threads: one acceptor, one thread per connection (at most [`MAX_CONNECTIONS`]). They never
-//! touch the engine directly. The owner of the session's alert queue (nox's main loop) hands
-//! every batch of alerts to [`WebUi::on_alerts`], which keeps a cache of torrent status, session
-//! stats and replies to `post_*` requests; requests read that cache and post commands through
-//! the [`SessionHandle`].
+//! Threads: one acceptor, one thread per connection (at most [`MAX_CONNECTIONS`]); a WebSocket
+//! keeps its connection thread. They never touch the engine directly. The owner of the
+//! session's alert queue (nox's main loop) hands every batch of alerts to [`WebUi::on_alerts`],
+//! which keeps a cache of torrent status, session stats and replies to `post_*` requests and
+//! counts a status tick per batch; requests read that cache and post commands through the
+//! [`SessionHandle`], WebSocket threads send what changed since their last tick.
 
 mod api;
 pub mod auth;
 mod fetch;
 pub mod http;
 pub mod json;
+pub mod native;
 mod server;
 pub mod torrent;
+pub mod ws;
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, SocketAddr};
@@ -168,6 +173,11 @@ pub(crate) struct State {
     pub sessions: HashMap<String, ClientSession>,
     pub bans: BanList,
     pub shutdown: bool,
+    /// Status ticks so far: one per alert batch that carried a state update or session stats.
+    /// WebSocket threads send a `tick` when it moved past the one they last sent.
+    pub tick: u64,
+    /// Torrents removed so far, so a client's list only scans for removals when there were any.
+    pub removals: u64,
 }
 
 pub(crate) struct Shared {
@@ -341,6 +351,8 @@ impl WebUi {
                 sessions: HashMap::new(),
                 bans: BanList::default(),
                 shutdown: false,
+                tick: 0,
+                removals: 0,
             }),
             replied: Condvar::new(),
             limits: config.limits,
@@ -378,6 +390,7 @@ impl WebUi {
     pub fn on_alerts(&self, alerts: &[Alert]) {
         let mut st = self.shared.lock();
         let mut replied = false;
+        let mut ticked = false;
         let now = unix_now();
         for a in alerts {
             match a {
@@ -385,6 +398,7 @@ impl WebUi {
                     for s in v {
                         st.update(s.clone(), now);
                     }
+                    ticked = true;
                 }
                 Alert::TorrentAdded { id, info_hashes, name } => {
                     if !st.torrents.contains_key(id) {
@@ -401,13 +415,17 @@ impl WebUi {
                     if let Some(e) = st.torrents.remove(id) {
                         st.by_hash.remove(&e.hash);
                         st.meta.remove(&e.hash);
+                        st.removals += 1;
                         if st.torrent_categories.remove(&e.hash).is_some() {
                             self.shared.save(&st);
                         }
                     }
                     st.replies.retain(|(t, _), _| t != id);
                 }
-                Alert::SessionStats(s) => st.stats = *s,
+                Alert::SessionStats(s) => {
+                    st.stats = *s;
+                    ticked = true;
+                }
                 Alert::FileList { id, files } => {
                     st.reply(*id, ReplyKind::Files, Reply::Files(files.clone()));
                     replied = true;
@@ -426,6 +444,9 @@ impl WebUi {
                 }
                 _ => {}
             }
+        }
+        if ticked {
+            st.tick += 1;
         }
         drop(st);
         if replied {
@@ -501,5 +522,47 @@ impl State {
 
     pub fn is_loopback_bypass(&self, ip: IpAddr) -> bool {
         self.prefs.bypass_local_auth && ip.is_loopback()
+    }
+
+    /// An empty cache for unit tests of the protocol code (no server, no engine).
+    #[cfg(test)]
+    pub(crate) fn for_tests() -> State {
+        State {
+            torrents: HashMap::new(),
+            by_hash: HashMap::new(),
+            next_version: 1,
+            stats: SessionStats::default(),
+            settings: Settings::default(),
+            prefs: Prefs {
+                save_path: String::new(),
+                dl_limit: 0,
+                up_limit: 0,
+                alt_dl_limit: 0,
+                alt_up_limit: 0,
+                alt_enabled: false,
+                start_paused: false,
+                bypass_local_auth: false,
+                csrf_protection: true,
+                host_header_validation: true,
+                domain_list: String::new(),
+                max_auth_fail_count: 5,
+                ban_duration: 3600,
+                session_timeout: 3600,
+            },
+            username: "admin".into(),
+            password: PasswordHash::new("x", 1),
+            categories: BTreeMap::new(),
+            categories_version: 1,
+            torrent_categories: HashMap::new(),
+            meta: HashMap::new(),
+            stored_prefs: Json::obj(),
+            replies: HashMap::new(),
+            serial: 0,
+            sessions: HashMap::new(),
+            bans: BanList::default(),
+            shutdown: false,
+            tick: 0,
+            removals: 0,
+        }
     }
 }

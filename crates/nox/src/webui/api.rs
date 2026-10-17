@@ -6,8 +6,10 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
+use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
+use patorrent_core::crypto::Sha1;
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
     AddTorrentParams, DownloadPriority, EncPolicy, ProxyType, RemoveFlags, TorrentFlags, TorrentId,
@@ -28,8 +30,47 @@ pub const WEBAPI_VERSION: &str = "2.11.2";
 /// Largest body accepted before a client has logged in (the login form).
 pub const UNAUTHENTICATED_BODY: usize = 64 * 1024;
 
-const PAGE: &str = include_str!("page.html");
-const SCRIPT: &str = include_str!("app.js");
+/// The Web UI page: three static files embedded in the binary (docs/WEBUI.md goal 3), served
+/// with an `ETag` (a SHA-1 of the body) so a reload after an upgrade fetches them once and a
+/// `Cache-Control: no-cache` so the browser revalidates every time.
+pub struct StaticFile {
+    pub path: &'static str,
+    pub content_type: &'static str,
+    pub body: &'static str,
+    etag: String,
+}
+
+static STATIC_FILES: LazyLock<[StaticFile; 3]> = LazyLock::new(|| {
+    let file = |path, content_type, body: &'static str| StaticFile {
+        path,
+        content_type,
+        body,
+        etag: format!("\"{}\"", Sha1::digest(body.as_bytes()).to_hex()),
+    };
+    [
+        file("/", "text/html; charset=UTF-8", include_str!("page.html")),
+        file("/style.css", "text/css; charset=UTF-8", include_str!("style.css")),
+        file("/app.js", "text/javascript; charset=UTF-8", include_str!("app.js")),
+    ]
+});
+
+/// The page sets `default-src 'self'`: no inline script or style, nothing from elsewhere.
+const PAGE_CSP: &str = "default-src 'self'; frame-ancestors 'self'; form-action 'self'";
+
+pub fn static_file(path: &str) -> Option<&'static StaticFile> {
+    let path = if path == "/index.html" { "/" } else { path };
+    STATIC_FILES.iter().find(|f| f.path == path)
+}
+
+/// A static file, or `304 Not Modified` when the client's `If-None-Match` names its ETag.
+fn serve_static(f: &'static StaticFile, head: &Head) -> Response {
+    let matches = head.header("if-none-match").is_some_and(|v| {
+        v.split(',').any(|t| t.trim().trim_start_matches("W/") == f.etag || t.trim() == "*")
+    });
+    let r = if matches { Response::new(304, "", "") } else { Response::new(200, f.content_type, f.body) };
+    let r = r.with_header("ETag", f.etag.clone()).with_header("Cache-Control", "no-cache");
+    if f.path == "/" { r.with_header("Content-Security-Policy", PAGE_CSP) } else { r }
+}
 
 /// A complete request.
 pub struct Request {
@@ -195,11 +236,20 @@ pub fn authorized(shared: &Shared, head: &Head, ip: IpAddr) -> bool {
     authenticate(&mut st, head, canonical(ip), Instant::now()).is_some()
 }
 
-pub(super) fn with_security_headers(r: Response) -> Response {
-    r.with_header("X-Frame-Options", "SAMEORIGIN")
-        .with_header("X-Content-Type-Options", "nosniff")
-        .with_header("Referrer-Policy", "same-origin")
-        .with_header("Cache-Control", "no-store")
+/// The headers every response carries (docs/WEBUI.md "Security"), unless the response set
+/// its own (the static files have their own `Cache-Control`).
+pub(super) fn with_security_headers(mut r: Response) -> Response {
+    for (name, value) in [
+        ("X-Frame-Options", "SAMEORIGIN"),
+        ("X-Content-Type-Options", "nosniff"),
+        ("Referrer-Policy", "no-referrer"),
+        ("Cache-Control", "no-store"),
+    ] {
+        if !r.headers.iter().any(|(n, _)| n.eq_ignore_ascii_case(name)) {
+            r = r.with_header(name, value);
+        }
+    }
+    r
 }
 
 /// The checks a `GET /pa/ws` upgrade must pass before the socket is switched: the ban list,
@@ -270,15 +320,11 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
     if !read && head.method != "POST" {
         return Response::text(405, "Method Not Allowed").with_header("Allow", "GET, HEAD, POST");
     }
-    match head.path.as_str() {
-        "/" | "/index.html" => {
-            return Response::new(200, "text/html; charset=UTF-8", PAGE).with_header(
-                "Content-Security-Policy",
-                "default-src 'self'; style-src 'self' 'unsafe-inline'; frame-ancestors 'self'; form-action 'self'",
-            );
+    if let Some(f) = static_file(&head.path) {
+        if !read {
+            return Response::text(405, "Method Not Allowed").with_header("Allow", "GET, HEAD");
         }
-        "/app.js" => return Response::new(200, "text/javascript; charset=UTF-8", SCRIPT),
-        _ => {}
+        return serve_static(f, head);
     }
     let Some(endpoint) = head.path.strip_prefix("/api/v2/") else {
         return Response::text(404, "Not Found");

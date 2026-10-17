@@ -684,6 +684,8 @@ impl Engine {
                 let _ = send_relayed(&self.udp[i], relay, &to, &data, false);
             }
         }
+        // the readiness edge that brought the reply may also have carried the proxy's close
+        self.on_proxy_udp_event();
     }
 
     fn udp_associate_failed(&mut self, op: ProxyOperation, error: String, retry: bool, now: Instant) {

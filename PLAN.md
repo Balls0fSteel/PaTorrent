@@ -201,7 +201,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [ ] Speed graph, pieces map and list, availability bar
 - [ ] Network features:
   - [x] IP filter (`ipfilter.dat`, PeerGuardian P2P) and port filter in the engine and nox (2026-10-17_114537_1792230337); the GUI setting comes with Preferences
-  - proxies (SOCKS4/5, HTTP)
+  - [x] proxies (SOCKS4/4a, SOCKS5 with password and UDP associate, HTTP CONNECT / plain HTTP proxy requests) in the engine and nox (2026-10-17_160554_1792245954); the GUI's Proxy box comes with Preferences
   - [x] web seeds (BEP 19 `url-list` and magnet `ws=`, BEP 17 `httpseeds`) in the engine (2026-10-17_140012_1792238412)
   - super-seeding
   - part files for skipped files
@@ -231,7 +231,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 ## Next steps
 
 1. Try a magnet link in the GUI (Add Torrent from URL, or a `magnet:` link on the command line): the row should show "Downloading metadata" with a growing percentage, then turn into a normal download.
-2. Phase 4 is done (2026-10-17_140012_1792238412). Phase 5 next: Preferences (it carries the settings the engine already has: IP filter, encryption, uTP, DHT / PEX / LSD, port mapping), then proxies, super-seeding, part files. `patorrent-nox run --no-state --seconds 20 --verbose` shows the mappers at work (`NatPmp:` / `Upnp:` lines); `--listen LIST` takes a `listen_interfaces` string; `add ... --verbose` prints where connected peers came from every 10 s.
+2. Phase 4 is done (2026-10-17_140012_1792238412). Phase 5 next: Preferences (it carries the settings the engine already has: IP filter, encryption, uTP, DHT / PEX / LSD, port mapping, and now the proxy), then super-seeding, part files. Proxies are in the engine (`patorrent-nox --proxy socks5://host:1080`). `patorrent-nox run --no-state --seconds 20 --verbose` shows the mappers at work (`NatPmp:` / `Upnp:` lines); `--listen LIST` takes a `listen_interfaces` string; `add ... --verbose` prints where connected peers came from every 10 s.
 3. Keep CI green on Windows, Linux and FreeBSD. The three flaky tests that made the 2026-10-15/16 runs red (UPnP fake router outliving its test, random DHT bucket count, the stingy peer's last-piece arithmetic) are fixed (CHANGELOG 2026-10-16_203336_1792175616); if a run goes red now, it is a real failure.
 4. Rerun `lt-swarm interop` (and `lt-swarm interop --encryption forced`) after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI. On 2026-10-16 WSL2 refused to start on this machine ("Virtual Machine Platform" / virtualization off), so only the qBittorrent case ran; rerun the Transmission and Deluge cases, plain and encrypted, once WSL is back.
 
@@ -268,6 +268,12 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - a loopback HTTPS web seed test.
   - the Win32 Peers tab should show web seed URLs (`PeerInfo.client` is the server's `Server` header).
   - as in libtorrent, a server known to have only some files claims no piece overlapping the others; with unaligned files and per-file redirects a boundary piece may have no web seed.
+- Proxy follow-ups (CHANGELOG 2026-10-17_160554_1792245954):
+  - the Win32 Preferences Connection page has a disabled "Proxy Server" box: wire it to the `proxy_*` settings (µTorrent 2.2.1 types None / SOCKS4 / SOCKS5 / HTTPS / HTTP: both HTTP kinds are `ProxyType::Http`, "Authentication" picks the `_pw` types; "Use proxy for hostname lookups" is `proxy_hostnames`, "Use proxy server for peer-to-peer connections" `proxy_peer_connections`). The frontend settings table needs a hand-written `Entry` for `ProxyType`
+  - not tried against real proxies (Dante, Squid, Tor, `ssh -D`, 3proxy); HTTPS trackers and web seeds through a tunnel (TLS over the tunnel) have no loopback test; IPv6 proxy addresses and an IPv6 relay are untested; incoming uTP through the relay is untested
+  - `proxy_send_host_in_connect` is not a libtorrent 2.0.11 setting; its meaning here (CONNECT names the host, plus a `Host` header) should be checked against the libtorrent version that has it
+  - nox `--proxy` sets the proxy only: `proxy_hostnames`, `proxy_peer_connections`, `proxy_tracker_connections` and `socks5_udp_send_local_ep` keep their defaults until the settings table is in nox
+  - not ported: I2P (`i2p_proxy`), `anonymous_mode`
 - Network-change follow-ups (CHANGELOG 2026-10-17_140012_1792238412):
   - no live test of the FreeBSD PF_ROUTE notifier (needs root on the VM) or of Windows notifications (needs an adapter added as admin); OpenBSD offsets untested; macOS / NetBSD / DragonFly use the 30 s re-read.
   - one UDP socket per family: with several device-bound addresses of a family, uTP and the DHT use only one; wildcards are never split into per-address sockets / DHT nodes (BEP 45 multi-homing).

@@ -770,7 +770,13 @@ impl TrackerManager {
             // the engine sends it through the proxy; until the associate is up it is lost
             self.proxied_out.push((target, packet));
         } else {
-            let ep = t.ep.expect("resolved");
+            // a transaction started through a proxy that has been turned off since goes direct
+            // if it knows the tracker's address
+            let ep = match (t.ep, &target) {
+                (Some(ep), _) => ep,
+                (None, Target::Addr(a)) => *t.ep.insert(*a),
+                (None, Target::Host(..)) => return self.fail(t.job, "the proxy was turned off"),
+            };
             let sock = if ep.is_ipv4() { self.udp4.as_ref() } else { self.udp6.as_ref() };
             let Some(sock) = sock else {
                 return self.fail(t.job, "no UDP socket for the tracker's address family");

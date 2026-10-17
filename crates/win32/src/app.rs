@@ -14,15 +14,16 @@ use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
 use patorrent_core::{
-    AddTorrentParams, Alert, MockConfig, QueueMove, RemoveFlags, Session, SessionHandle, SessionParams,
-    SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
+    AddTorrentParams, Alert, IpFilter, MockConfig, QueueMove, RemoveFlags, Session, SessionHandle,
+    SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
 };
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::PRIORITIES;
 use patorrent_frontend::model::{Filter, TorrentList};
+use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::status::Category;
-use patorrent_frontend::{actions, create, fmt};
+use patorrent_frontend::{actions, create, fmt, settings};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -284,7 +285,13 @@ pub fn run(args: Args) -> i32 {
     }
     fmt::set_utc_offset(utc_offset());
     let dir = data_dir();
-    let prefs = Prefs::load(dir.join("patorrent.ini"));
+    let mut prefs = Prefs::load(dir.join("patorrent.ini"));
+    let mut opts = Options::load(&prefs, &downloads_folder());
+    if opts.gui.random_port && args.demo.is_none() {
+        // µTorrent's "Randomize port each start" keeps the new port as the configured one
+        settings::set_listen_port(&mut opts.settings, options::random_port());
+        settings::store(&mut prefs, &opts.settings);
+    }
 
     let session = match args.demo {
         Some(n) => Session::start_mock(
@@ -292,10 +299,7 @@ pub fn run(args: Args) -> i32 {
             MockConfig { initial_torrents: n, active_fraction: 0.02, ..MockConfig::default() },
         ),
         None => {
-            let mut settings = Settings::default();
-            if let Some(port) = prefs.get_i32("net.port").filter(|p| (1..65536).contains(p)) {
-                settings.listen_interfaces = format!("0.0.0.0:{port},[::]:{port}");
-            }
+            let settings = opts.settings.clone();
             match Session::start(SessionParams { settings, state_dir: Some(dir.join("state")) }) {
                 Ok(s) => s,
                 Err(e) => {
@@ -340,6 +344,9 @@ pub fn run(args: Args) -> i32 {
             return 1;
         }
         init(hwnd, session, prefs);
+        if opts.gui.ip_filter && args.demo.is_none() {
+            with_app(|a| load_ip_filter(a, &opts.gui));
+        }
         restore_placement(hwnd);
         add_sources(hwnd, &args.sources);
 
@@ -347,6 +354,7 @@ pub fn run(args: Args) -> i32 {
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'O' as u16, cmd: cmd::ADD },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'U' as u16, cmd: cmd::ADD_URL },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'N' as u16, cmd: cmd::CREATE },
+            ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'P' as u16, cmd: cmd::PREFS },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'A' as u16, cmd: cmd::SELECT_ALL },
             ACCEL { fVirt: FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE },
             ACCEL { fVirt: FSHIFT | FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE_DATA },
@@ -374,7 +382,7 @@ unsafe fn main_menu() -> HMENU {
         separator(file);
         append(file, cmd::EXIT, "E&xit");
         let options = CreatePopupMenu();
-        append_flags(options, MF_GRAYED, cmd::PREFS, "&Preferences\tCtrl+P");
+        append(options, cmd::PREFS, "&Preferences\tCtrl+P");
         separator(options);
         append(options, cmd::SHOW_TOOLBAR, "Show &Toolbar");
         append(options, cmd::SHOW_DETAILS, "Show &Detailed Info");
@@ -1109,7 +1117,6 @@ unsafe fn update_toolbar() {
         for id in [cmd::REMOVE, cmd::START, cmd::PAUSE, cmd::STOP, cmd::UP, cmd::DOWN] {
             send(toolbar, TB_ENABLEBUTTON, id as usize, any as isize);
         }
-        send(toolbar, TB_ENABLEBUTTON, cmd::PREFS as usize, 0);
     }
 }
 
@@ -1298,6 +1305,9 @@ unsafe fn on_alerts(hwnd: HWND) {
             with_app(|a| {
                 let _ = a.prefs.save();
             });
+        }
+        if with_app(|a| a.prefs.get_bool("ui.balloons", true)) != Some(true) {
+            balloons.clear();
         }
         for name in balloons {
             tray::balloon(hwnd, "Download Complete", &name);
@@ -1825,6 +1835,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 }
             }
             cmd::CREATE => create_torrent(hwnd),
+            cmd::PREFS => show_preferences(hwnd),
             cmd::EXIT => {
                 with_app(|a| a.quitting = true);
                 DestroyWindow(hwnd);
@@ -2077,7 +2088,8 @@ unsafe fn remove_selected(hwnd: HWND, delete_data: bool) {
     } else {
         format!("Remove {what} from the list?\nDownloaded data stays on disk.")
     };
-    if !dialogs::confirm(hwnd, &question) {
+    let ask = with_app(|a| a.prefs.get_bool("ui.confirm_delete", true)).unwrap_or(true);
+    if ask && !dialogs::confirm(hwnd, &question) {
         return;
     }
     let flags = if delete_data { RemoveFlags::DELETE_FILES } else { RemoveFlags::empty() };
@@ -2112,10 +2124,79 @@ fn add_params(_hwnd: HWND, source: TorrentSource, name: Option<String>) {
     with_app(|a| {
         let mut p = AddTorrentParams::new(source, a.save_path.clone());
         p.name = name;
-        // Queued and auto-managed: µTorrent's Start.
+        // Queued and auto-managed: µTorrent's Start (unless Preferences says otherwise).
         p.flags = TorrentFlags::DEFAULT;
+        GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
         a.handle.add_torrent(p);
     });
+}
+
+/// Options → Preferences. OK and Apply store the options and apply them without a restart.
+unsafe fn show_preferences(hwnd: HWND) {
+    let Some(opts) = with_app(|a| Options::load(&a.prefs, &a.save_path)) else { return };
+    let dir = data_dir();
+    // the dialog runs its own message loop; the hooks borrow the app only while they run
+    let hooks = crate::preferences::Hooks {
+        apply: Box::new(|o: &Options| {
+            with_app(|a| apply_options(a, o));
+        }),
+        reload_ip_filter: Box::new(|path: &Path| {
+            with_app(|a| {
+                let r = a.handle.load_ip_filter(path).map_err(|e| e.to_string());
+                log_ip_filter(a, path, &r);
+                r
+            })
+            .unwrap_or_else(|| Err("not running".to_owned()))
+        }),
+    };
+    if crate::preferences::show(hwnd, opts, &dir, hooks) {
+        unsafe { update_menu(hwnd) };
+    }
+}
+
+/// Stores `o` and hands it to the engine and the window.
+fn apply_options(a: &mut App, o: &Options) {
+    let old = Options::load(&a.prefs, &a.save_path);
+    o.store(&mut a.prefs);
+    if let Err(e) = a.prefs.save() {
+        a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+    }
+    a.save_path = o.gui.download_dir.clone();
+    a.handle.apply_settings(o.settings.clone());
+    if o.gui.pex != old.gui.pex {
+        for id in a.list.ids() {
+            let t = a.handle.torrent(id);
+            if o.gui.pex {
+                t.unset_flags(TorrentFlags::DISABLE_PEX);
+            } else {
+                t.set_flags(TorrentFlags::DISABLE_PEX);
+            }
+        }
+    }
+    let dir = data_dir();
+    if (o.gui.ip_filter, o.gui.ip_filter_file(&dir)) != (old.gui.ip_filter, old.gui.ip_filter_file(&dir)) {
+        if o.gui.ip_filter {
+            load_ip_filter(a, &o.gui);
+        } else {
+            a.handle.set_ip_filter(IpFilter::new());
+            a.detail.push_log(format!("{} IP filter off", now_hms()));
+        }
+    }
+}
+
+/// Loads the configured block list (`ipfilter.dat` in the settings folder by default).
+fn load_ip_filter(a: &mut App, gui: &GuiOptions) {
+    let path = gui.ip_filter_file(&data_dir());
+    let r = a.handle.load_ip_filter(&path).map_err(|e| e.to_string());
+    log_ip_filter(a, &path, &r);
+}
+
+fn log_ip_filter(a: &mut App, path: &Path, r: &Result<usize, String>) {
+    let line = match r {
+        Ok(n) => format!("{} IP filter: {n} rules from {}", now_hms(), path.display()),
+        Err(e) => format!("{} IP filter: {}: {e}", now_hms(), path.display()),
+    };
+    a.detail.push_log(line);
 }
 
 /// File → Create New Torrent; with "Start seeding" the new torrent is added with the source's

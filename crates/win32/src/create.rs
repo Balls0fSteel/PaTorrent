@@ -20,7 +20,8 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
 use windows_sys::Win32::UI::Controls::{BST_CHECKED, BST_UNCHECKED, PBM_SETPOS, PBM_SETRANGE32, PBS_SMOOTH};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
 use windows_sys::Win32::UI::Shell::{
-    BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW, SHBrowseForFolderW, SHGetPathFromIDListW,
+    BFFM_INITIALIZED, BFFM_SETSELECTIONW, BIF_NEWDIALOGSTYLE, BIF_RETURNONLYFSDIRS, BROWSEINFOW,
+    SHBrowseForFolderW, SHGetPathFromIDListW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON, CB_ADDSTRING,
@@ -415,7 +416,19 @@ pub(crate) unsafe fn pick_file(owner: HWND) -> Option<String> {
 
 /// "Add directory": the shell's folder browser.
 pub(crate) unsafe fn pick_folder(owner: HWND, title: &str) -> Option<String> {
+    unsafe { pick_folder_at(owner, title, None) }
+}
+
+/// The shell's folder browser, opened on `start` when it is given.
+pub(crate) unsafe fn pick_folder_at(owner: HWND, title: &str, start: Option<&str>) -> Option<String> {
+    unsafe extern "system" fn select_start(hwnd: HWND, msg: u32, _: LPARAM, start: LPARAM) -> i32 {
+        if msg == BFFM_INITIALIZED && start != 0 {
+            unsafe { send(hwnd, BFFM_SETSELECTIONW, 1, start) };
+        }
+        0
+    }
     let title = wide(title);
+    let start = start.filter(|s| !s.trim().is_empty()).map(wide);
     unsafe {
         // BIF_NEWDIALOGSTYLE needs an apartment on this thread
         let com = CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32) >= 0;
@@ -423,6 +436,10 @@ pub(crate) unsafe fn pick_folder(owner: HWND, title: &str) -> Option<String> {
         bi.hwndOwner = owner;
         bi.lpszTitle = title.as_ptr();
         bi.ulFlags = BIF_RETURNONLYFSDIRS | BIF_NEWDIALOGSTYLE;
+        if let Some(start) = &start {
+            bi.lpfn = Some(select_start);
+            bi.lParam = start.as_ptr() as LPARAM;
+        }
         let pidl = SHBrowseForFolderW(&bi);
         let mut out = None;
         if !pidl.is_null() {

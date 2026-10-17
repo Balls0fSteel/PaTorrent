@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 
 use super::smart_ban::Trust;
 use crate::crypto::crc32c::Crc32c;
+use crate::net::ip_voter::ExternalIp;
 use crate::status::PeerSource;
 
 /// libtorrent `max_failcount` default.
@@ -75,7 +76,7 @@ impl PeerList {
         &mut self,
         addr: SocketAddr,
         source: PeerSource,
-        external_ip: Option<IpAddr>,
+        external_ip: ExternalIp,
         max_size: usize,
     ) -> bool {
         if addr.port() == 0 || addr.ip().is_unspecified() || addr.ip().is_multicast() {
@@ -88,8 +89,7 @@ impl PeerList {
         if self.peers.len() >= max_size && !self.evict_one() {
             return false;
         }
-        // libtorrent ranks against our external address with the peer's port family.
-        let rank = external_ip.map_or(0, |ip| peer_priority(SocketAddr::new(ip, 0), addr));
+        let rank = rank(&external_ip, addr);
         self.index.insert(addr, self.peers.len());
         self.peers.push(KnownPeer {
             addr,
@@ -263,6 +263,20 @@ impl PeerList {
     pub fn trim(&mut self, max: usize) {
         while self.peers.len() > max && self.evict_one() {}
     }
+
+    /// Our external address changed: rank every peer again (libtorrent `clear_peer_prio`,
+    /// which makes `torrent_peer::rank` recompute on next use).
+    pub fn clear_peer_prio(&mut self, external_ip: &ExternalIp) {
+        for p in &mut self.peers {
+            p.rank = rank(external_ip, p.addr);
+        }
+    }
+}
+
+/// libtorrent `torrent_peer::rank`: BEP 40 priority against the address the peer sees us at
+/// (0 while we don't know it).
+fn rank(external_ip: &ExternalIp, addr: SocketAddr) -> u32 {
+    external_ip.external_address(addr.ip()).map_or(0, |ip| peer_priority(SocketAddr::new(ip, 0), addr))
 }
 
 /// BEP 40 canonical peer priority (libtorrent `peer_priority`): CRC32-C of the two masked
@@ -384,11 +398,11 @@ mod tests {
         let now = Instant::now();
         let a: SocketAddr = "10.0.0.1:1".parse().unwrap();
         let b: SocketAddr = "10.0.0.2:1".parse().unwrap();
-        assert!(pl.add(a, PeerSource::TRACKER, None, 2));
-        assert!(pl.add(b, PeerSource::TRACKER, None, 2));
-        assert!(pl.add(a, PeerSource::PEX, None, 2), "duplicates merge sources");
+        assert!(pl.add(a, PeerSource::TRACKER, ExternalIp::default(), 2));
+        assert!(pl.add(b, PeerSource::TRACKER, ExternalIp::default(), 2));
+        assert!(pl.add(a, PeerSource::PEX, ExternalIp::default(), 2), "duplicates merge sources");
         assert!(pl.get(&a).unwrap().source.contains(PeerSource::PEX));
-        assert!(!pl.add("0.0.0.0:5".parse().unwrap(), PeerSource::TRACKER, None, 9));
+        assert!(!pl.add("0.0.0.0:5".parse().unwrap(), PeerSource::TRACKER, ExternalIp::default(), 9));
         assert_eq!(pl.connect_candidates(5, now).len(), 2);
 
         pl.connecting(a, 1, PeerSource::TRACKER, now);
@@ -399,7 +413,7 @@ mod tests {
 
         // Full list: the failed peer is evicted for a new one.
         let c: SocketAddr = "10.0.0.3:1".parse().unwrap();
-        assert!(pl.add(c, PeerSource::TRACKER, None, 2));
+        assert!(pl.add(c, PeerSource::TRACKER, ExternalIp::default(), 2));
         assert!(pl.get(&a).is_none() && pl.get(&b).is_some() && pl.get(&c).is_some());
         pl.ban(&b);
         assert_eq!(pl.connect_candidates(5, now), [c]);

@@ -420,7 +420,12 @@ impl Engine {
                     let p = self.peers.get_mut(slot).expect("exists");
                     match peer_wire::decode_ext_handshake(&payload) {
                         Some(h) => {
+                            // libtorrent `on_extended_handshake`: `yourip` is the peer's vote
+                            let vote = h.your_ip.map(|ip| (ip, p.addr.ip()));
                             p.ext = Some(h);
+                            if let Some((ip, from)) = vote {
+                                self.set_external_address(ip, crate::net::ip_voter::source::PEER, from);
+                            }
                             self.on_metadata_handshake(slot);
                             self.on_pex_handshake(slot);
                         }

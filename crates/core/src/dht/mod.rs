@@ -3,8 +3,8 @@
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: sans-IO. The tracker owns at most one node per address family (libtorrent has one
 // per listen socket); asio timers become deadlines checked by `poll`; packets queue in an outbox
-// the reactor sends from the UDP sockets; the external-IP vote lives here (libtorrent keeps it
-// on the listen socket).
+// the reactor sends from the UDP sockets; the nodes' external-address votes go to the engine's
+// session voter (libtorrent's listen socket), which calls `update_node_id` when it changes.
 
 //! The mainline DHT (BEP 5) with IPv6 (BEP 32), node-id security (BEP 42) and read-only mode
 //! (BEP 43).
@@ -22,7 +22,6 @@ use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use crate::bencode::{Entry, bdecode_with_limits};
-use crate::net::ip_voter::{IpVoter, source};
 use crate::types::Sha1Hash;
 use dos_blocker::DosBlocker;
 pub use node::{AnnounceArgs, DhtEvent, Msg, Node, SocketManager};
@@ -123,7 +122,6 @@ impl SocketManager for DhtIo {
 
 struct TrackerNode {
     node: Node,
-    voter: IpVoter,
     next_timeout: Instant,
 }
 
@@ -165,7 +163,9 @@ impl DhtTracker {
     }
 
     /// A UDP socket of this family is open: run a node on it (libtorrent `new_socket`).
-    pub fn new_socket(&mut self, is_v4: bool, now: Instant) {
+    /// `external` is the family's external address if the session knows it; the node id is
+    /// derived from it (BEP 42).
+    pub fn new_socket(&mut self, is_v4: bool, external: Option<IpAddr>, now: Instant) {
         if self.nodes.iter().any(|n| n.node.is_v4() == is_v4) {
             return;
         }
@@ -175,14 +175,13 @@ impl DhtTracker {
             .iter()
             .find(|(a, _)| a.is_ipv4() == is_v4)
             .map_or(NodeId::default(), |(_, id)| *id);
-        let node = Node::new(is_v4, nid, None, self.settings.clone());
+        let node = Node::new(is_v4, nid, external, self.settings.clone());
         if is_v4 {
             self.io.has_v4 = true;
         } else {
             self.io.has_v6 = true;
         }
-        let mut n =
-            TrackerNode { node, voter: IpVoter::new(now), next_timeout: now + Duration::from_secs(1) };
+        let mut n = TrackerNode { node, next_timeout: now + Duration::from_secs(1) };
         if self.running {
             n.node.bootstrap(&mut self.io, &[], false, now);
         }
@@ -260,7 +259,7 @@ impl DhtTracker {
             }
             self.next_key_refresh = now + KEY_REFRESH;
         }
-        self.collect_events(now);
+        self.collect_events();
         let mut next = self.next_refresh.min(self.next_key_refresh).min(self.next_storage_tick);
         for n in &self.nodes {
             next = next.min(n.next_timeout);
@@ -268,30 +267,24 @@ impl DhtTracker {
         next
     }
 
-    /// Moves node events out; external-address votes are handled here.
-    fn collect_events(&mut self, now: Instant) {
-        for i in 0..self.nodes.len() {
-            for ev in self.nodes[i].node.take_events() {
-                match ev {
-                    DhtEvent::ExternalAddress { ip, source } => {
-                        let n = &mut self.nodes[i];
-                        if n.voter.cast_vote(ip, source::DHT, source, now) {
-                            if let Some(ext) = n.voter.external_address() {
-                                // our address changed: maybe take a new BEP 42 id
-                                n.node.update_node_id(ext, now);
-                                self.events.push(DhtEvent::ExternalAddress { ip: ext, source });
-                            }
-                        }
-                    }
-                    ev => self.events.push(ev),
-                }
-            }
+    /// Moves node events out, external-address votes (`DhtEvent::ExternalAddress`) included.
+    fn collect_events(&mut self) {
+        for n in &mut self.nodes {
+            self.events.extend(n.node.take_events());
         }
     }
 
-    pub fn take_events(&mut self, now: Instant) -> Vec<DhtEvent> {
-        self.collect_events(now);
+    pub fn take_events(&mut self) -> Vec<DhtEvent> {
+        self.collect_events();
         std::mem::take(&mut self.events)
+    }
+
+    /// libtorrent `dht_tracker::update_node_id`: the session's external address of this family
+    /// changed, so the node takes a BEP 42 id for it unless its id already matches.
+    pub fn update_node_id(&mut self, is_v4: bool, external: IpAddr, now: Instant) {
+        for n in self.nodes.iter_mut().filter(|n| n.node.is_v4() == is_v4) {
+            n.node.update_node_id(external, now);
+        }
     }
 
     pub fn take_outgoing(&mut self) -> Vec<Outgoing> {
@@ -326,7 +319,7 @@ impl DhtTracker {
         let (me, rest) = b.split_first_mut().expect("index valid");
         let other = a.first_mut().or(rest.first_mut()).map(|n| &mut n.node);
         me.node.incoming(&mut self.io, &mut self.storage, &m, other, now);
-        self.collect_events(now);
+        self.collect_events();
         true
     }
 
@@ -426,12 +419,46 @@ mod tests {
     fn dark_internet_and_garbage() {
         let now = Instant::now();
         let mut t = DhtTracker::new(DhtSettings::default(), DhtState::default(), now);
-        t.new_socket(true, now);
+        t.new_socket(true, None, now);
         assert!(!t.incoming_packet(true, "1.2.3.4:5".parse().unwrap(), b"x", now));
         let ping = b"d1:ad2:id20:aaaaaaaaaaaaaaaaaaaae1:q4:ping1:t2:aa1:y1:qe";
         assert!(t.incoming_packet(true, "3.2.3.4:5".parse().unwrap(), ping, now));
         assert!(t.take_outgoing().is_empty(), "dark internet is ignored");
         assert!(t.incoming_packet(true, "8.2.3.4:5".parse().unwrap(), ping, now));
         assert_eq!(t.take_outgoing().len(), 1);
+    }
+
+    /// The nodes pass `ip` votes on to the session, and follow its external address.
+    #[test]
+    fn nodes_follow_the_session_external_address() {
+        use node_id::verify_id;
+        let now = Instant::now();
+        let ext: IpAddr = "51.1.1.1".parse().unwrap();
+        let mut t = DhtTracker::new(DhtSettings::default(), DhtState::default(), now);
+        t.new_socket(true, Some(ext), now);
+        t.new_socket(false, None, now);
+        assert!(verify_id(&t.nodes[0].node.nid(), &ext), "a known address gives a BEP 42 id");
+        let v6_id = t.nodes[1].node.nid();
+
+        // a ping carrying `ip` is a vote, handed to the session as it is
+        let mut q = b"d1:ad2:id20:aaaaaaaaaaaaaaaaaaaae2:ip6:".to_vec();
+        q.extend_from_slice(&[53, 3, 3, 3, 0x1a, 0xe1]);
+        q.extend_from_slice(b"1:q4:ping1:t2:aa1:y1:qe");
+        assert!(t.incoming_packet(true, "8.2.3.4:5".parse().unwrap(), &q, now));
+        let votes: Vec<_> = t
+            .take_events()
+            .into_iter()
+            .filter_map(|e| match e {
+                DhtEvent::ExternalAddress { ip, source } => Some((ip, source)),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(votes, [("53.3.3.3".parse().unwrap(), "8.2.3.4".parse().unwrap())]);
+        assert!(verify_id(&t.nodes[0].node.nid(), &ext), "one vote doesn't change the id");
+
+        let ext2: IpAddr = "53.3.3.3".parse().unwrap();
+        t.update_node_id(true, ext2, now);
+        assert!(verify_id(&t.nodes[0].node.nid(), &ext2));
+        assert_eq!(t.nodes[1].node.nid(), v6_id, "the IPv6 node keeps its id");
     }
 }

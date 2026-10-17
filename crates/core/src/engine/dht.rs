@@ -157,7 +157,7 @@ impl Engine {
         let state = self.dht.state.take().unwrap_or_default();
         let mut t = DhtTracker::new(DhtSettings::from(&self.settings), state, now);
         for u in &self.udp {
-            t.new_socket(u.v4, now);
+            t.new_socket(u.v4, self.ip_voter.external_address(u.v4), now);
         }
         for r in &self.dht.routers {
             t.add_router_node(*r);
@@ -195,7 +195,7 @@ impl Engine {
             self.on_dht_announce(now);
         }
         let Some(t) = self.dht.tracker.as_mut() else { return };
-        let events = t.take_events(now);
+        let events = t.take_events();
         for ev in events {
             self.on_dht_event(ev);
         }
@@ -233,11 +233,9 @@ impl Engine {
                 self.connect_peers_for(id, 10);
             }
             DhtEvent::Bootstrapped => self.alert(Alert::DhtBootstrap),
-            DhtEvent::ExternalAddress { ip, .. } => {
-                if self.external_ip.is_none() && ip.is_ipv4() {
-                    self.external_ip = Some(ip);
-                    self.alert(Alert::ExternalIp { ip });
-                }
+            // a node's `ip` vote (libtorrent `node::incoming` -> `set_external_address`)
+            DhtEvent::ExternalAddress { ip, source } => {
+                self.set_external_address(ip, crate::net::ip_voter::source::DHT, source)
             }
             DhtEvent::LookupDone { .. } => {}
         }

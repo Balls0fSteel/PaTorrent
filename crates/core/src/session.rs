@@ -8,6 +8,7 @@ use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 
 use crate::alert::{Alert, AlertQueue};
+use crate::net::ip_filter::{IpFilter, PortFilter};
 use crate::params::{AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags};
 use crate::settings::Settings;
 use crate::types::TorrentId;
@@ -46,6 +47,8 @@ pub(crate) enum Command {
     PostTrackers(TorrentId),
     PostPieceInfo(TorrentId),
     ApplySettings(Box<Settings>),
+    SetIpFilter(Arc<IpFilter>),
+    SetPortFilter(PortFilter),
     PauseSession,
     ResumeSession,
     Shutdown,
@@ -181,6 +184,28 @@ impl SessionHandle {
     pub fn apply_settings(&self, settings: Settings) {
         self.shared.alerts.set_limit(settings.alert_queue_size);
         self.send(Command::ApplySettings(Box::new(settings)));
+    }
+
+    /// Replaces the session's IP filter (libtorrent `set_ip_filter`). It applies to torrents
+    /// with [`TorrentFlags::APPLY_IP_FILTER`]: peers in blocked ranges are not added or
+    /// connected, connections to them are closed, and incoming connections from them are
+    /// refused, each with an [`Alert::PeerBlocked`].
+    pub fn set_ip_filter(&self, filter: IpFilter) {
+        self.send(Command::SetIpFilter(Arc::new(filter)));
+    }
+
+    /// Reads a block list (`ipfilter.dat` or P2P format, see [`IpFilter::parse`]) on the
+    /// calling thread and makes it the session's IP filter. Returns the number of blocking rules.
+    pub fn load_ip_filter(&self, path: impl AsRef<std::path::Path>) -> std::io::Result<usize> {
+        let l = IpFilter::load(path)?;
+        self.set_ip_filter(l.filter);
+        Ok(l.rules)
+    }
+
+    /// Replaces the session's port filter (libtorrent `set_port_filter`): peers listening on a
+    /// blocked port are not added to any torrent.
+    pub fn set_port_filter(&self, filter: PortFilter) {
+        self.send(Command::SetPortFilter(filter));
     }
 
     /// Pauses every torrent without changing their own paused/auto-managed flags.

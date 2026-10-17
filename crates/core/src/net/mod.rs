@@ -2,6 +2,7 @@
 //! listen-interface parsing, bandwidth buckets.
 
 pub(crate) mod enum_net;
+pub(crate) mod ip_filter;
 pub(crate) mod ip_voter;
 pub(crate) mod resolver;
 pub(crate) mod sys;

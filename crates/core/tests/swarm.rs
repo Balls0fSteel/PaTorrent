@@ -7,9 +7,11 @@
 //! discovery (BEP 14); the MSE/PE policy matrix: forced, enabled and disabled encryption on
 //! either side; uTP (BEP 29): the default preference for it, uTP-only sessions, the fall
 //! back to TCP when the other end has no uTP, and encryption over uTP; a peer taking back a
-//! piece with `lt_donthave` (BEP 54); a torrent made by `create_torrent` (with pad files); and a
+//! piece with `lt_donthave` (BEP 54); a torrent made by `create_torrent` (with pad files); a
 //! peer banned by smart-ban for a bad block while the seed that sent the rest of the piece is
-//! kept.
+//! kept; and the IP and port filters: blocked peers are never connected, refused when they
+//! connect, and dropped when a new filter blocks them, and blocked trackers are not announced
+//! to.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -19,8 +21,9 @@ use std::time::{Duration, Instant};
 use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
 use patorrent_core::{
-    AddTorrentParams, Alert, EncLevel, EncPolicy, PeerFlags, PeerSource, Session, SessionHandle,
-    SessionParams, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, BlockReason, EncLevel, EncPolicy, IpFilter, PeerFlags, PeerSource, PortFilter,
+    Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentState,
+    TorrentStatus,
 };
 
 const PIECE: usize = 32 * 1024;
@@ -1473,6 +1476,224 @@ fn smart_ban_bans_the_sender_of_a_bad_block_and_keeps_the_seed() {
     assert_files(&f, &dir);
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+// --- IP filter -------------------------------------------------------------------------------
+
+fn loopback_blocked() -> IpFilter {
+    let mut f = IpFilter::new();
+    f.add_rule([127, 0, 0, 0].into(), [127, 255, 255, 255].into(), IpFilter::BLOCKED);
+    f
+}
+
+fn blocked_alert(w: &mut Watch, what: &str, want: Option<TorrentId>, reason: BlockReason) -> SocketAddr {
+    wait(w, 10, what, |a| match a {
+        Alert::PeerBlocked { id, addr, reason: r } if *id == want && *r == reason => Some(*addr),
+        _ => None,
+    })
+}
+
+/// Every peer the session lists for the torrent, connecting or connected.
+fn all_peers(w: &mut Watch, id: TorrentId) -> usize {
+    w.h.torrent(id).post_peer_info();
+    wait(w, 5, "peer info", |a| match a {
+        Alert::PeerInfo { id: i, peers } if *i == id => Some(peers.len()),
+        _ => None,
+    })
+}
+
+fn add_with_tracker(w: &mut Watch, f: &Fixture, dir: &Path, url: String) -> TorrentId {
+    let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
+    p.flags = TorrentFlags::APPLY_IP_FILTER;
+    p.trackers = vec![url];
+    w.h.add_torrent(p);
+    wait(w, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    })
+}
+
+#[test]
+fn a_seed_in_a_blocked_range_is_never_connected() {
+    let f = fixture(None);
+    let (seed, seed_dir, port, seed_id) = seeder(&f);
+    let mut sw = Watch::new(seed.handle());
+    let dir = temp_dir("ipf-leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    leech.handle().set_ip_filter(loopback_blocked());
+    let id = add_with_flags(&mut w, &f, &dir, TorrentFlags::APPLY_IP_FILTER);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    let seed_addr = SocketAddr::from(([127, 0, 0, 1], port));
+    leech.handle().torrent(id).connect_peer(seed_addr);
+    assert_eq!(blocked_alert(&mut w, "blocked seed", Some(id), BlockReason::IpFilter), seed_addr);
+    // a second attempt is refused the same way
+    leech.handle().torrent(id).connect_peer(seed_addr);
+    blocked_alert(&mut w, "blocked again", Some(id), BlockReason::IpFilter);
+    std::thread::sleep(Duration::from_secs(2));
+    assert_eq!(all_peers(&mut w, id), 0, "no connection was even attempted");
+    assert_eq!(all_peers(&mut sw, seed_id), 0, "the seed never saw a connection");
+    leech.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn a_peer_on_a_blocked_port_is_never_connected() {
+    let f = fixture(None);
+    let (seed, seed_dir, port, seed_id) = seeder(&f);
+    let mut sw = Watch::new(seed.handle());
+    let dir = temp_dir("pf-leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let mut pf = PortFilter::new();
+    pf.add_rule(port, port, PortFilter::BLOCKED);
+    leech.handle().set_port_filter(pf);
+    // the port filter applies whether or not the torrent applies the IP filter
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    blocked_alert(&mut w, "blocked port", Some(id), BlockReason::PortFilter);
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(all_peers(&mut w, id), 0);
+    assert_eq!(all_peers(&mut sw, seed_id), 0);
+    leech.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn an_incoming_connection_from_a_blocked_address_is_refused() {
+    let f = fixture(None);
+    let seed_dir = temp_dir("ipf-in-seed");
+    write_files(&f, &seed_dir);
+    let (seed, mut sw, port) = start_with(|_| {});
+    seed.handle().set_ip_filter(loopback_blocked());
+    let seed_id = add_with_flags(&mut sw, &f, &seed_dir, TorrentFlags::APPLY_IP_FILTER);
+    wait_state(&mut sw, seed_id, TorrentState::Seeding, 20);
+
+    let dir = temp_dir("ipf-in-leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    // every torrent applies the filter, so the seed refuses before the handshake
+    let from = blocked_alert(&mut sw, "refused incoming", None, BlockReason::IpFilter);
+    assert!(from.ip().is_loopback());
+    std::thread::sleep(Duration::from_secs(2));
+    assert_eq!(all_peers(&mut sw, seed_id), 0);
+    leech.handle().post_torrent_updates();
+    let st = wait(&mut w, 5, "status", |a| status_of(a, id));
+    assert_eq!(st.total_done, 0, "nothing was downloaded");
+    leech.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn an_incoming_peer_is_refused_once_it_names_a_filtered_torrent() {
+    // The seed has a second torrent that ignores the filter, so a blocked address is let in
+    // until its handshake names the torrent that applies it (libtorrent `attach_peer`).
+    let f = fixture(None);
+    let other = fixture_padded(None, 3);
+    let seed_dir = temp_dir("ipf-attach-seed");
+    write_files(&f, &seed_dir);
+    let (seed, mut sw, port) = start_with(|_| {});
+    seed.handle().set_ip_filter(loopback_blocked());
+    let seed_id = add_with_flags(&mut sw, &f, &seed_dir, TorrentFlags::APPLY_IP_FILTER);
+    add_with_flags(&mut sw, &other, &seed_dir, TorrentFlags::empty());
+    wait_state(&mut sw, seed_id, TorrentState::Seeding, 20);
+
+    let dir = temp_dir("ipf-attach-leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    blocked_alert(&mut sw, "refused on attach", Some(seed_id), BlockReason::IpFilter);
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(all_peers(&mut sw, seed_id), 0);
+    leech.handle().post_torrent_updates();
+    let st = wait(&mut w, 5, "status", |a| status_of(a, id));
+    assert_eq!(st.total_done, 0, "nothing was downloaded");
+    leech.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn a_new_ip_filter_closes_existing_connections() {
+    // Two finished sessions that want nothing from each other stay connected (see
+    // `a_second_connection_to_the_same_peer_is_closed`) until the leech blocks the seed.
+    let f = fixture(None);
+    let seed_dir = temp_dir("ipf-close-seed");
+    write_files(&f, &seed_dir);
+    let (seed, mut sw, port) = start_with(|_| {});
+    let seed_id = add_wanting_nothing(&mut sw, &f, &seed_dir);
+    wait_state(&mut sw, seed_id, TorrentState::Seeding, 20);
+    let dir = temp_dir("ipf-close-leech");
+    let (leech, mut w, _) = start_with(|_| {});
+    let flags = TorrentFlags::DEFAULT_DONT_DOWNLOAD | TorrentFlags::APPLY_IP_FILTER;
+    let id = add_with_flags(&mut w, &f, &dir, flags);
+    wait_state(&mut w, id, TorrentState::Finished, 10);
+    let seed_addr = SocketAddr::from(([127, 0, 0, 1], port));
+    leech.handle().torrent(id).connect_peer(seed_addr);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while connected_peer_flags(&mut w, id).is_empty() {
+        assert!(Instant::now() < deadline, "the leech never connected");
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    leech.handle().set_ip_filter(loopback_blocked());
+    assert_eq!(blocked_alert(&mut w, "closed connection", Some(id), BlockReason::IpFilter), seed_addr);
+    std::thread::sleep(Duration::from_secs(1));
+    assert_eq!(all_peers(&mut w, id), 0);
+    // and it is not connected again
+    leech.handle().torrent(id).connect_peer(seed_addr);
+    blocked_alert(&mut w, "reconnect refused", Some(id), BlockReason::IpFilter);
+    leech.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn trackers_in_a_blocked_range_are_skipped_unless_exempt() {
+    let f = fixture(None);
+    // a tracker that must never be contacted: nothing accepts on it
+    let silent = TcpListener::bind("127.0.0.1:0").unwrap();
+    silent.set_nonblocking(true).unwrap();
+    let dir = temp_dir("ipf-tracker");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    leech.handle().set_ip_filter(loopback_blocked());
+    add_with_tracker(&mut w, &f, &dir, format!("http://{}/announce", silent.local_addr().unwrap()));
+    let message = wait(&mut w, 10, "tracker error", |a| match a {
+        Alert::TrackerError { message, .. } => Some(message.clone()),
+        Alert::TrackerReply { .. } => panic!("a blocked tracker was announced to"),
+        _ => None,
+    });
+    assert!(message.contains("IP filter"), "{message}");
+    assert!(silent.accept().is_err(), "the tracker was contacted");
+    leech.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+
+    // With `apply_ip_filter_to_trackers` off the tracker is asked, but the peer it hands out
+    // is still blocked.
+    let peer = SocketAddr::from(([127, 0, 0, 1], 7));
+    let (url, tracker) = http_tracker(f.info_hash, peer);
+    let dir = temp_dir("ipf-tracker-exempt");
+    let (leech, mut w, _) = start_with(|s| s.apply_ip_filter_to_trackers = false);
+    leech.handle().set_ip_filter(loopback_blocked());
+    let id = add_with_tracker(&mut w, &f, &dir, url);
+    assert_eq!(blocked_alert(&mut w, "tracker peer blocked", Some(id), BlockReason::IpFilter), peer);
+    assert_eq!(tracker.join().unwrap(), 1);
+    leech.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 /// A torrent made by `create_torrent` from files on disk (pad files included) is seeded from

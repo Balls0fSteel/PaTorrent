@@ -34,6 +34,13 @@ pub enum PortmapTransport {
     NatPmp,
 }
 
+/// Why a peer was refused (libtorrent `peer_blocked_alert::reason_t`, the reasons we have).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BlockReason {
+    IpFilter,
+    PortFilter,
+}
+
 #[derive(Clone, Debug)]
 pub enum Alert {
     // Torrent lifecycle
@@ -171,6 +178,14 @@ pub enum Alert {
         addr: SocketAddr,
         peer_id: [u8; 20],
     },
+    /// A peer was refused or disconnected by the IP or port filter (libtorrent
+    /// `peer_blocked_alert`). `id` is `None` for an incoming connection refused before it
+    /// named a torrent.
+    PeerBlocked {
+        id: Option<TorrentId>,
+        addr: SocketAddr,
+        reason: BlockReason,
+    },
 
     // Replies to `post_*` requests
     /// Torrents whose status changed since the previous `post_torrent_updates()`.
@@ -253,6 +268,7 @@ impl Alert {
             | LsdPeer { .. }
             | LsdError { .. }
             | PeerBanned { .. }
+            | PeerBlocked { .. }
             | Log { .. } => AlertPriority::Normal,
         }
     }
@@ -286,7 +302,7 @@ impl Alert {
             | FileProgress { id, .. }
             | TrackerList { id, .. }
             | PieceInfo { id, .. } => Some(id),
-            Log { id, .. } => id,
+            Log { id, .. } | PeerBlocked { id, .. } => id,
             _ => None,
         }
     }
@@ -335,6 +351,7 @@ impl Alert {
             LsdPeer { address, .. } => write!(s, "LSD: local peer {address}"),
             LsdError { address, error } => write!(s, "LSD failed on {address}: {error}"),
             PeerBanned { addr, .. } => write!(s, "peer {addr} banned"),
+            PeerBlocked { addr, reason, .. } => write!(s, "peer {addr} blocked ({reason:?})"),
             StateUpdate(v) => write!(s, "state update for {} torrents", v.len()),
             SessionStats(_) => write!(s, "session stats"),
             PeerInfo { peers, .. } => write!(s, "{} peers", peers.len()),

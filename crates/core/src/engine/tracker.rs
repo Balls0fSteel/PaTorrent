@@ -11,12 +11,14 @@
 use std::collections::HashMap;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use mio::net::{TcpStream, UdpSocket};
 use mio::{Interest, Registry, Token};
 
 use super::Slab;
+use crate::net::ip_filter::IpFilter;
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::tls::{self, TlsStream};
 use crate::proto::http::{self, ParseError, Url};
@@ -170,7 +172,23 @@ pub(crate) struct TrackerJob {
     pub tracker: Option<usize>,
     pub url: String,
     pub kind: JobKind,
+    /// Tracker addresses this filter blocks are not contacted (libtorrent
+    /// `tracker_request::filter`).
+    pub filter: Option<Arc<IpFilter>>,
 }
+
+impl TrackerJob {
+    /// Drops the addresses the job's filter blocks (libtorrent `on_filter` /
+    /// `udp_tracker_connection::start_announce`).
+    fn filter_ips(&self, ips: &mut Vec<IpAddr>) {
+        if let Some(f) = &self.filter {
+            ips.retain(|ip| !f.is_blocked(*ip));
+        }
+    }
+}
+
+/// libtorrent `errors::banned_by_ip_filter`.
+const BANNED_BY_IP_FILTER: &str = "banned by IP filter";
 
 #[derive(Debug)]
 pub(crate) enum TrackerOutcome {
@@ -346,7 +364,6 @@ impl TrackerManager {
     ) {
         let request = http::get_request(&url, &self.user_agent);
         let host = url.host.clone();
-        let port = url.port;
         let slot = self.http.insert(HttpConn {
             job,
             url,
@@ -362,10 +379,21 @@ impl TrackerManager {
         let cookie = self.cookie(Waiting::Http(slot));
         if let Some(ips) = resolver.resolve(&host, cookie) {
             self.waiting.remove(&cookie);
-            let c = self.http.get_mut(slot).expect("just inserted");
-            c.addrs = ips.into_iter().rev().map(|ip| SocketAddr::new(ip, port)).collect();
-            self.http_connect_next(slot, registry);
+            self.http_resolved(slot, ips, registry);
         }
+    }
+
+    fn http_resolved(&mut self, slot: usize, mut ips: Vec<IpAddr>, registry: &Registry) {
+        let Some(c) = self.http.get_mut(slot) else { return };
+        let any = !ips.is_empty();
+        c.job.filter_ips(&mut ips);
+        if any && ips.is_empty() {
+            let c = self.http.remove(slot).expect("present");
+            return self.fail(c.job, BANNED_BY_IP_FILTER);
+        }
+        let port = c.url.port;
+        c.addrs = ips.into_iter().rev().map(|ip| SocketAddr::new(ip, port)).collect();
+        self.http_connect_next(slot, registry);
     }
 
     fn http_connect_next(&mut self, slot: usize, registry: &Registry) {
@@ -536,9 +564,15 @@ impl TrackerManager {
         }
     }
 
-    fn udp_resolved(&mut self, id: u32, ips: Vec<IpAddr>, now: Instant) {
+    fn udp_resolved(&mut self, id: u32, mut ips: Vec<IpAddr>, now: Instant) {
         let have6 = self.udp6.is_some();
         let Some(t) = self.txns.get_mut(&id) else { return };
+        let any = !ips.is_empty();
+        t.job.filter_ips(&mut ips);
+        if any && ips.is_empty() {
+            let t = self.txns.remove(&id).expect("present");
+            return self.fail(t.job, BANNED_BY_IP_FILTER);
+        }
         let ip = ips.iter().find(|ip| ip.is_ipv4()).or_else(|| ips.iter().find(|_| have6)).copied();
         let Some(ip) = ip else {
             let t = self.txns.remove(&id).expect("present");
@@ -649,12 +683,7 @@ impl TrackerManager {
     pub fn on_resolved(&mut self, r: Resolved, registry: &Registry, now: Instant) {
         let Some(w) = self.waiting.remove(&r.cookie) else { return };
         match (w, r.result) {
-            (Waiting::Http(slot), Ok(ips)) => {
-                let Some(c) = self.http.get_mut(slot) else { return };
-                let port = c.url.port;
-                c.addrs = ips.into_iter().rev().map(|ip| SocketAddr::new(ip, port)).collect();
-                self.http_connect_next(slot, registry);
-            }
+            (Waiting::Http(slot), Ok(ips)) => self.http_resolved(slot, ips, registry),
             (Waiting::Http(slot), Err(e)) => {
                 if let Some(c) = self.http.remove(slot) {
                     self.fail(c.job, format!("{}: {e}", r.host));

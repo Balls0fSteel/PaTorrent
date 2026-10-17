@@ -134,6 +134,17 @@ impl PeerList {
         }
     }
 
+    /// Forgets every peer `f` picks (libtorrent `apply_ip_filter` / `apply_port_filter`).
+    /// Returns how many went. A connected peer's connection is the caller's to close.
+    pub fn remove_if(&mut self, f: impl Fn(&KnownPeer) -> bool) -> usize {
+        let before = self.peers.len();
+        self.peers.retain(|p| !f(p));
+        if self.peers.len() != before {
+            self.index = self.peers.iter().enumerate().map(|(i, p)| (p.addr, i)).collect();
+        }
+        before - self.peers.len()
+    }
+
     /// libtorrent `find_connect_candidates`: up to `n` peers to connect to now.
     pub fn connect_candidates(&self, n: usize, now: Instant) -> Vec<SocketAddr> {
         let mut c: Vec<&KnownPeer> = self

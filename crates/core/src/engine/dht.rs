@@ -218,17 +218,12 @@ impl Engine {
         match ev {
             DhtEvent::Peers { info_hash, peers } => {
                 let Some(&id) = self.by_hash.get(&info_hash) else { return };
-                let max = self.settings.max_peerlist_size.max(1) as usize;
-                let ext = self.external_ip;
                 let Some(t) = self.torrent(id) else { return };
                 // private torrents never take DHT peers (libtorrent on_dht_announce_response)
                 if !t.is_active() || t.ti.as_ref().is_some_and(|ti| ti.is_private()) || peers.is_empty() {
                     return;
                 }
-                for p in &peers {
-                    t.peer_list.add(*p, PeerSource::DHT, ext, max);
-                }
-                t.status_dirty = true;
+                self.add_peers(id, &peers, PeerSource::DHT);
                 self.alert(Alert::DhtReply { id, num_peers: peers.len() as u32 });
                 self.connect_peers_for(id, 10);
             }

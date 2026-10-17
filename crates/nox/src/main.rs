@@ -15,7 +15,7 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use patorrent_core::{
-    AddTorrentParams, Alert, MockConfig, PeerFlags, PeerInfo, PeerSource, Session, SessionParams,
+    AddTorrentParams, Alert, IpFilter, MockConfig, PeerFlags, PeerInfo, PeerSource, Session, SessionParams,
     SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus, VERSION,
 };
 use patorrent_frontend::{fmt, status};
@@ -69,6 +69,7 @@ OPTIONS:
     --port N          Listen port (default 6881)
     --dl-limit KIB    Download limit in KiB/s (0 = unlimited)
     --ul-limit KIB    Upload limit in KiB/s (0 = unlimited)
+    --ip-filter FILE  Block the address ranges in FILE (ipfilter.dat or P2P format)
     --verbose         Print tracker and peer events, and every 10 s where the connected
                       peers came from
 
@@ -84,6 +85,7 @@ struct Opts {
     port: Option<u16>,
     dl_limit: u32,
     ul_limit: u32,
+    ip_filter: Option<PathBuf>,
     verbose: bool,
     torrents: usize,
     active: f64,
@@ -100,6 +102,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         port: None,
         dl_limit: 0,
         ul_limit: 0,
+        ip_filter: None,
         verbose: false,
         torrents: 1000,
         active: 0.02,
@@ -121,6 +124,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--port" => o.port = Some(num("--port", value("--port")?)?),
             "--dl-limit" => o.dl_limit = num::<u32>("--dl-limit", value("--dl-limit")?)?.saturating_mul(1024),
             "--ul-limit" => o.ul_limit = num::<u32>("--ul-limit", value("--ul-limit")?)?.saturating_mul(1024),
+            "--ip-filter" => o.ip_filter = Some(value("--ip-filter")?.into()),
             "--torrents" => o.torrents = num("--torrents", value("--torrents")?)?,
             "--active" => o.active = num("--active", value("--active")?)?,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
@@ -218,6 +222,23 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         println!("* state: {}", d.display());
     }
     let h = session.handle();
+    if let Some(path) = &o.ip_filter {
+        match IpFilter::load(path) {
+            Ok(l) => {
+                println!(
+                    "* IP filter: {} rules from {} ({} lines skipped)",
+                    l.rules,
+                    path.display(),
+                    l.invalid
+                );
+                h.set_ip_filter(l.filter);
+            }
+            Err(e) => {
+                eprintln!("error: {}: {e}", path.display());
+                return ExitCode::FAILURE;
+            }
+        }
+    }
     let (wake_tx, wake_rx) = mpsc::channel::<()>();
     h.set_alert_notify(move || {
         let _ = wake_tx.send(());
@@ -241,7 +262,7 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         };
         let mut p = AddTorrentParams::new(source, save.clone());
         // Started right away, outside the queue (µTorrent's "Force Start").
-        p.flags = TorrentFlags::empty();
+        p.flags = TorrentFlags::APPLY_IP_FILTER;
         h.add_torrent(p);
         pending += 1;
     }
@@ -313,6 +334,7 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 | Alert::DhtReply { .. }
                 | Alert::LsdPeer { .. }
                 | Alert::PortmapLog { .. }
+                | Alert::PeerBlocked { .. }
                     if o.verbose =>
                 {
                     println!("* {}", a.message())

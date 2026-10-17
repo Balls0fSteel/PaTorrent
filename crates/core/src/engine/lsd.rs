@@ -361,15 +361,12 @@ impl Engine {
     /// libtorrent `session_impl::on_lsd_peer`.
     fn on_lsd_peer(&mut self, peer: SocketAddr, ih: Sha1Hash) {
         let Some(&id) = self.by_hash.get(&ih) else { return };
-        let max = self.settings.max_peerlist_size.max(1) as usize;
-        let ext = self.external_ip;
         let Some(t) = self.torrent(id) else { return };
         // no LSD peers for private torrents
         if !t.is_active() || t.ti.as_ref().is_some_and(|ti| ti.is_private()) {
             return;
         }
-        t.peer_list.add(peer, PeerSource::LSD, ext, max);
-        t.status_dirty = true;
+        self.add_peers(id, &[peer], PeerSource::LSD);
         self.alert(Alert::LsdPeer { id, address: peer });
         self.connect_peers_for(id, 10);
     }

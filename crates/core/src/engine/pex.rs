@@ -66,9 +66,8 @@ impl Engine {
     pub(super) fn on_pex_message(&mut self, slot: usize, payload: &[u8]) {
         let now = Instant::now();
         let max = self.settings.max_pex_peers.max(0) as usize;
-        let max_list = self.settings.max_peerlist_size.max(1) as usize;
-        let ext_ip = self.external_ip;
         let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
+        let id = t.id;
         if !pex_enabled(t) {
             return;
         }
@@ -80,9 +79,10 @@ impl Engine {
             }
         };
         for (addr, fl) in peers {
-            if !t.peer_list.add(addr, PeerSource::PEX, ext_ip, max_list) {
+            if !self.add_peer(id, addr, PeerSource::PEX) {
                 continue;
             }
+            let Some(t) = self.torrent(id) else { return };
             // A connected peer already told us whether it is a seed.
             if fl & flags::SEED != 0 && t.peer_list.get(&addr).is_some_and(|k| k.connection.is_none()) {
                 t.peer_list.set_seed(&addr, true);

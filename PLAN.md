@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-17_161604_1792246564
+Last updated: 2026-10-17_163533_1792247733
 
 ## Vision
 
@@ -194,7 +194,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [ ] Preferences, with all 2.2.1 pages: General, UI Settings, Directories, Connection, Bandwidth, BitTorrent, Queueing, Scheduler, Web UI, Advanced (raw settings table), Disk Cache
   - [x] the Win32 dialog (2026-10-17_155028_1792245028): Options > Preferences / Ctrl+P / toolbar, every page in the tree, OK / Cancel / Apply without a restart, patorrent.ini persistence, IP filter (enable, path, Reload); `patorrent_frontend::settings` is the string-keyed table (every `Settings` field by libtorrent name, plus `bt.transp_disposition`) and `patorrent_frontend::options` the toolkit-independent model for GTK
   - [x] the Proxy Server box on the Connection page (type, host, port, authentication, resolve names through the proxy, peer and tracker connections) (2026-10-17_161604_1792246564)
-  - [ ] placeholders still disabled: Scheduler, Web UI (Phase 6), language, file association / autostart, move completed downloads / .torrent folders (needs move storage), seeding goal
+  - [ ] placeholders still disabled: Scheduler, Web UI (Phase 6), language, file association / autostart, move completed downloads / .torrent folders, seeding goal. "Move completed downloads" (and "Only move from the default download directory") can now be wired to `patorrent_core::MoveCompleted` (2026-10-17_163533_1792247733); it needs no `Settings` field, the folder lives in patorrent.ini
 - [ ] Add-torrent dialog: save folder, file tree with priorities, label, skip hash check, start/stop
 - [ ] Create New Torrent: piece-size auto, trackers, web seeds, private flag, progress
   - [x] engine and nox, v1 (2026-10-17_114537_1792230337): `core::metainfo::create_torrent` (libtorrent `create_torrent`, `add_files`, `set_piece_hashes`), `make_magnet_uri_from_info`, `patorrent-nox create`
@@ -208,7 +208,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
   - [x] web seeds (BEP 19 `url-list` and magnet `ws=`, BEP 17 `httpseeds`) in the engine (2026-10-17_140012_1792238412)
   - [x] part files for skipped files (2026-10-17_160022_1792245622): libtorrent's `part_file` in `core::disk::part_file`; blocks of skipped files go to `.<info-hash>.parts` in the save path, unskipping moves them into the real file, `RemoveFlags::DELETE_PARTFILE` works
   - [x] super-seeding (BEP 16, µTorrent "initial seeding") in the engine, nox (`--super-seed`) and the Win32 context menu (Advanced > Initial Seeding) (2026-10-17_155425_1792245265)
-  - move storage
+  - [x] move storage (2026-10-17_163533_1792247733): `TorrentHandle::move_storage(path, MoveFlags)` with libtorrent's five modes, running or stopped, part file included, `Alert::StorageMoved` / `StorageMovedFailed`; `MoveCompleted` for "Move completed downloads"; `patorrent-nox ... --move-on-complete DIR`. Win32 still to wire: Preferences > Directories "Move completed downloads" and the context menu's Advanced > Set Download Location (µTorrent moves the files there)
 - [ ] Localisation infrastructure (string tables)
 
 ### Phase 6: Headless `patorrent-nox`
@@ -234,7 +234,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 ## Next steps
 
 1. Try a magnet link in the GUI (Add Torrent from URL, or a `magnet:` link on the command line): the row should show "Downloading metadata" with a growing percentage, then turn into a normal download.
-2. Phase 5 continues (2026-10-17_161604_1792246564: Preferences, proxies, super-seeding and part files are in). Click through Preferences by hand once (every page, OK / Cancel / Apply, the Proxy box, the Advanced list) and Advanced > Initial Seeding. Next candidates: the Add-torrent dialog (file tree with priorities, which part files now make cheap), move storage (unblocks "Move completed downloads" in Preferences), labels and the scheduler. `patorrent-nox --proxy socks5://host:1080` and `add ... --super-seed` exercise the new engine features. `patorrent-nox run --no-state --seconds 20 --verbose` shows the mappers at work (`NatPmp:` / `Upnp:` lines); `--listen LIST` takes a `listen_interfaces` string; `add ... --verbose` prints where connected peers came from every 10 s.
+2. Phase 5 continues (2026-10-17_161604_1792246564: Preferences, proxies, super-seeding and part files are in). Click through Preferences by hand once (every page, OK / Cancel / Apply, the Proxy box, the Advanced list) and Advanced > Initial Seeding. Next candidates: the Add-torrent dialog (file tree with priorities, which part files now make cheap), wiring move storage into the GUI ("Move completed downloads", Set Download Location), labels and the scheduler. `patorrent-nox --proxy socks5://host:1080` and `add ... --super-seed` exercise the new engine features. `patorrent-nox run --no-state --seconds 20 --verbose` shows the mappers at work (`NatPmp:` / `Upnp:` lines); `--listen LIST` takes a `listen_interfaces` string; `add ... --verbose` prints where connected peers came from every 10 s.
 3. Keep CI green on Windows, Linux and FreeBSD. The three flaky tests that made the 2026-10-15/16 runs red (UPnP fake router outliving its test, random DHT bucket count, the stingy peer's last-piece arithmetic) are fixed (CHANGELOG 2026-10-16_203336_1792175616); if a run goes red now, it is a real failure.
 4. Rerun `lt-swarm interop` (and `lt-swarm interop --encryption forced`) after engine changes that touch the peer wire, the picker or the disk. It needs the local client setup in Q10, so it does not run in CI. On 2026-10-16 WSL2 refused to start on this machine ("Virtual Machine Platform" / virtualization off), so only the qBittorrent case ran; rerun the Transmission and Deluge cases, plain and encrypted, once WSL is back.
 
@@ -263,7 +263,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - for private trackers: behave well (honest upload/download stats, announce intervals respected, no ratio tricks), keep `User-Agent`, peer ID and BEP 10 `v` consistent across versions, and publish a stable release with changelog. Tracker staff usually want a tagged release they can test. Expect a long wait, and some will never whitelist a new client.
 - Part files (CHANGELOG 2026-10-17_160022_1792245622):
   - the Win32 "Remove" (without data) passes `RemoveFlags::empty()`, so a removed torrent with skipped files leaves its `.<info-hash>.parts` behind; qBittorrent passes `delete_partfile` there. Decide when the remove dialog is next touched.
-  - moving storage (Phase 5) should call `PartFile::move_partfile` (ported, unused so far) and rekey the `PartFiles` registry.
+  - ~~moving storage should call `PartFile::move_partfile` and rekey the `PartFiles` registry~~: done (2026-10-17_163533_1792247733).
   - skipping a file that is already on disk keeps its blocks in the file, as libtorrent does ("move stuff into the part file: not implemented yet" in `posix_storage.cpp`).
   - after a restart, a finished torrent closes its connection to a seed as redundant and waits `min_reconnect_time` (60 s) before reconnecting once a file is unskipped; libtorrent behaves the same, but an unskip could reset the peer list's reconnect timers.
 - Peer-ID version characters: `-PA0100-` encodes 0.1.0. Bump `PEER_ID_PREFIX` together with the crate version (a test enforces it).
@@ -287,6 +287,11 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - one UDP socket per family: with several device-bound addresses of a family, uTP and the DHT use only one; wildcards are never split into per-address sockets / DHT nodes (BEP 45 multi-homing).
   - with nothing bound (device-only setup while the device is gone) trackers still get the old port; uTP connections on a closed UDP socket are not moved and time out.
   - SSL listen entries (`...s`) are refused with `ListenFailed` (no SSL torrents).
+- Move storage follow-ups (CHANGELOG 2026-10-17_163533_1792247733):
+  - Win32: Preferences > Directories "Move completed downloads" (+ "Only move from the default download directory") through `MoveCompleted`, and Advanced > Set Download Location (a folder picker, then `move_storage` with `AlwaysReplaceFiles`); the Logger tab could show `StorageMoved` / `StorageMovedFailed`. nox's Web API (Phase 6) has `setLocation` for the same call.
+  - a move across real volumes on Windows (another drive letter) has not been tried; the copy path is tested on the Linux and FreeBSD VMs only (tmpfs / ZFS dataset to the target directory).
+  - big cross-volume copies run on one disk thread and hold the torrent's other disk jobs back until they finish (libtorrent the same); shutdown waits for a move in flight.
+  - `rename_file` (libtorrent `torrent_handle::rename_file`, µTorrent's file rename in the Files tab) is not ported; it would be another `BarrierAction`.
 - Super-seeding follow-ups (CHANGELOG 2026-10-17_155425_1792245265):
   - the "[S] Seeding" status text follows µTorrent's "[F]" style; the exact µTorrent 2.2.1 string was not checked against the real client.
   - µTorrent's Advanced submenu has more items (Set Download Location, Update Tracker, Reset Bans, Clear Peer List...); only Initial Seeding is there so far.

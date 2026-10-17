@@ -52,6 +52,24 @@ bit_flags! {
     }
 }
 
+/// How [`TorrentHandle::move_storage`](crate::TorrentHandle::move_storage) treats files that
+/// already exist at the destination (libtorrent `move_flags_t`).
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug, Default)]
+pub enum MoveFlags {
+    /// Replace files at the destination.
+    #[default]
+    AlwaysReplaceFiles,
+    /// Fail, moving nothing, if any of the torrent's files exists at the destination. The check
+    /// comes before the move, so a file created in between is still replaced.
+    FailIfExist,
+    /// Keep files that exist at the destination instead of ours; the torrent is rechecked.
+    DontReplace,
+    /// Move nothing: just use the new save path and check the files there.
+    ResetSavePath,
+    /// Move nothing and check nothing: just use the new save path.
+    ResetSavePathUnchecked,
+}
+
 /// libtorrent `download_priority_t`: 0 = skip, 1 = low, 4 = normal (default), 7 = top.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Debug)]
 pub struct DownloadPriority(pub u8);

@@ -290,11 +290,11 @@ impl Mock {
                     t.dirty = true;
                 }
             }
-            Command::MoveStorage(id, path) => {
+            Command::MoveStorage(id, path, _) => {
                 if let Some(t) = self.get(id) {
-                    t.st.save_path = path.clone();
+                    let old = std::mem::replace(&mut t.st.save_path, path.clone());
                     t.dirty = true;
-                    self.out.push(Alert::Log { id: Some(id), message: format!("storage moved to {path}") });
+                    self.out.push(Alert::StorageMoved { id, old, new: path });
                 }
             }
             // The simulated swarm has no real peers to connect to.

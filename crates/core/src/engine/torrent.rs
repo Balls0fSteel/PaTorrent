@@ -45,6 +45,11 @@ pub(crate) struct Torrent {
     pub error: Option<String>,
 
     pub storage: Option<Arc<Storage>>,
+    /// The storage `move_storage` runs on while moves are pending (libtorrent
+    /// `m_moving_storage`), and whether it was made for the move because the torrent had none
+    /// (it is released when the last move is done).
+    pub moving: Option<(Arc<Storage>, bool)>,
+    pub moves_pending: u32,
     /// Running without metadata (a magnet): the info dictionary being fetched from peers.
     pub fetch: Option<MetadataFetch>,
     /// BEP 11: the peer diff sent to every peer once a minute.
@@ -121,6 +126,8 @@ impl Torrent {
             state: TorrentState::CheckingResumeData,
             error: None,
             storage: None,
+            moving: None,
+            moves_pending: 0,
             fetch: None,
             pex: TorrentPex::default(),
             smart_ban: SmartBan::default(),
@@ -344,7 +351,7 @@ impl Torrent {
             is_finished: finished,
             is_seeding: self.is_seed(),
             super_seeding: self.super_seeding(),
-            moving_storage: false,
+            moving_storage: self.moves_pending > 0,
             progress_ppm,
             queue_position: self.queue_position,
             download_rate: rates.0,

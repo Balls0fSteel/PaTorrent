@@ -15,8 +15,9 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MockConfig, PeerFlags, PeerInfo, PeerSource, ProxyType, Session,
-    SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus, VERSION,
+    AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, PeerFlags, PeerInfo, PeerSource, ProxyType,
+    Session, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus,
+    VERSION,
 };
 use patorrent_frontend::{fmt, status};
 
@@ -67,6 +68,9 @@ OPTIONS:
     --seed            After downloading, keep seeding until stopped
     --super-seed      Super seed (BEP 16, \"initial seeding\") torrents that are complete;
                       implies --seed
+    --move-on-complete DIR
+                      Move each torrent that finishes downloading into DIR (files and the
+                      part file of skipped files; empty folders left behind are removed)
     --seconds N       Stop after N seconds
     --port N          Listen port (default 6881)
     --listen LIST     Listen interfaces, as libtorrent's listen_interfaces: IP:PORT,
@@ -89,6 +93,7 @@ struct Opts {
     no_state: bool,
     seed: bool,
     super_seed: bool,
+    move_on_complete: Option<String>,
     seconds: Option<u64>,
     port: Option<u16>,
     listen: Option<String>,
@@ -109,6 +114,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         no_state: false,
         seed: false,
         super_seed: false,
+        move_on_complete: None,
         seconds: None,
         port: None,
         listen: None,
@@ -136,6 +142,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
                 o.super_seed = true;
                 o.seed = true;
             }
+            "--move-on-complete" => o.move_on_complete = Some(value("--move-on-complete")?),
             "--verbose" | "-v" => o.verbose = true,
             "--seconds" => o.seconds = Some(num("--seconds", value("--seconds")?)?),
             "--port" => o.port = Some(num("--port", value("--port")?)?),
@@ -349,6 +356,13 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         return ExitCode::FAILURE;
     }
 
+    let mut move_completed = o.move_on_complete.as_ref().map(|d| {
+        let d = std::path::absolute(d).map_or(d.clone(), |p| p.to_string_lossy().into_owned());
+        println!("* completed downloads move to {d}");
+        MoveCompleted::new(d)
+    });
+    // Torrents being moved; `add` waits for them before it exits.
+    let mut moving: std::collections::HashSet<TorrentId> = Default::default();
     let input = stdin_lines();
     let started = Instant::now();
     let mut rows: HashMap<TorrentId, TorrentStatus> = HashMap::new();
@@ -377,7 +391,18 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         h.pop_alerts(&mut alerts);
         let mut updated = false;
         for a in alerts.drain(..) {
+            if let Some(id) = move_completed.as_mut().and_then(|m| m.on_alert(&a, &h)) {
+                moving.insert(id);
+            }
             match a {
+                Alert::StorageMoved { id, .. } => {
+                    moving.remove(&id);
+                    println!("* {}", a.message());
+                }
+                Alert::StorageMovedFailed { id, .. } => {
+                    moving.remove(&id);
+                    eprintln!("! {}", a.message());
+                }
                 Alert::StateUpdate(v) => {
                     updated = true;
                     for st in v {
@@ -442,6 +467,7 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         }
         let quit = matches!(input.try_recv().as_deref(), Ok("q" | "quit"));
         let mine_done = mode == Mode::Add
+            && moving.is_empty()
             && added.len() + failed >= pending
             && added.iter().all(|id| rows.get(id).is_some_and(|st| st.is_finished && st.error.is_empty()));
         if mine_done && finished_at.is_none() {
@@ -588,6 +614,15 @@ mod tests {
 
     fn proxy(kind: ProxyType, host: &str, port: u16, user: &str, pass: &str) -> Proxy {
         Proxy { kind, host: host.into(), port, user: user.into(), pass: pass.into() }
+    }
+
+    #[test]
+    fn move_on_complete_takes_a_directory() {
+        let args: Vec<String> = ["a.torrent", "--move-on-complete", "done"].map(String::from).into();
+        let o = parse(&args).unwrap();
+        assert_eq!(o.move_on_complete.as_deref(), Some("done"));
+        assert_eq!(o.sources, ["a.torrent"]);
+        assert!(parse(&["--move-on-complete".to_owned()]).is_err());
     }
 
     #[test]

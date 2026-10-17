@@ -18,15 +18,17 @@ pub(crate) mod part_file;
 
 use std::collections::HashMap;
 use std::io;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
-use std::sync::{Arc, Mutex, MutexGuard, OnceLock, mpsc};
+use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock, mpsc};
 use std::thread::JoinHandle;
 
+use crate::alert::FileOperation;
 use crate::crypto::Sha1;
 use crate::error::Error;
 use crate::metainfo::TorrentInfo;
 use crate::metainfo::file_storage::FileFlags;
+use crate::params::MoveFlags;
 use crate::util::bitfield::Bitfield;
 use file_pool::{FilePool, read_at, write_at};
 use part_file::{PartFile, PartFiles};
@@ -42,7 +44,8 @@ pub(crate) struct Storage {
     /// Unique for the life of the process; a restarted torrent gets a new one, so completions
     /// for an older instance can be told apart.
     pub id: u64,
-    pub save_path: String,
+    /// Changed only by a move, which runs with no other job of the storage in flight.
+    save_path: RwLock<String>,
     pub info: Arc<TorrentInfo>,
     /// Set by the network thread to abandon queued and running work (checks, hashing).
     pub abort: AtomicBool,
@@ -70,11 +73,17 @@ impl Storage {
         let n = info.files().num_files();
         priority.resize(n.max(priority.len()), DEFAULT_PRIORITY);
         let files = Mutex::new(FileState { priority, use_partfile: vec![true; n], part: None });
+        let save_path = RwLock::new(save_path);
         Storage { id, save_path, info, abort: AtomicBool::new(false), files, part_files }
     }
 
+    pub fn save_path(&self) -> String {
+        self.save_path.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     fn file_path(&self, file: usize) -> PathBuf {
-        PathBuf::from(self.info.files().file_path(file, &self.save_path))
+        let save_path = self.save_path.read().unwrap_or_else(|e| e.into_inner());
+        PathBuf::from(self.info.files().file_path(file, &save_path))
     }
 
     fn skip_file(&self, file: usize) -> bool {
@@ -92,7 +101,7 @@ impl Storage {
     }
 
     fn part_file_path(&self) -> PathBuf {
-        PathBuf::from(&self.save_path).join(self.part_file_name())
+        PathBuf::from(self.save_path()).join(self.part_file_name())
     }
 
     /// libtorrent `need_partfile`: the part file object (the file itself is created lazily).
@@ -100,7 +109,7 @@ impl Storage {
         st.part
             .get_or_insert_with(|| {
                 self.part_files.get_or_open(
-                    std::path::Path::new(&self.save_path),
+                    std::path::Path::new(&self.save_path()),
                     &self.part_file_name(),
                     self.info.num_pieces(),
                     self.info.piece_length(),
@@ -189,12 +198,36 @@ impl Job {
     }
 }
 
-/// A file priority change, run by the last thread to reach it while the others hold back the
-/// storage's later jobs.
+/// A file priority change or a move, run by the last thread to reach it while the others hold
+/// back the storage's later jobs (libtorrent's fence jobs that keep the storage).
 struct Barrier {
     remaining: AtomicUsize,
     seq: u64,
-    priorities: Vec<u8>,
+    action: BarrierAction,
+}
+
+enum BarrierAction {
+    FilePriority(Vec<u8>),
+    Move { path: String, flags: MoveFlags },
+}
+
+/// libtorrent `status_t`, the values `move_storage` returns.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum MoveStatus {
+    NoError,
+    /// Moved (or not, for `ResetSavePath`), but the files must be checked at the new path.
+    NeedFullCheck,
+    /// `FailIfExist` found a file at the destination; nothing was moved.
+    FileExist,
+    FatalDiskError,
+}
+
+/// Why a move failed (libtorrent `storage_error`, with the file resolved to a path).
+#[derive(Clone, Debug)]
+pub(crate) struct MoveError {
+    pub file: String,
+    pub operation: FileOperation,
+    pub error: Error,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -259,6 +292,14 @@ pub(crate) enum Completion {
     FilePriority {
         storage: u64,
         error: Option<(String, Error)>,
+    },
+    /// Answer to [`DiskIo::async_move_storage`]: the storage's save path is now `save_path`
+    /// (unchanged on error).
+    Moved {
+        storage: u64,
+        status: MoveStatus,
+        save_path: String,
+        error: Option<MoveError>,
     },
 }
 
@@ -403,10 +444,20 @@ impl DiskIo {
     /// 0 gets its data moved out of the part file; one going to 0 starts using the part file if
     /// it does not exist. Answered by [`Completion::FilePriority`].
     pub fn async_set_file_priority(&mut self, storage: &Arc<Storage>, priorities: Vec<u8>) {
+        self.barrier(storage, BarrierAction::FilePriority(priorities));
+    }
+
+    /// Moves the storage's files to `path` after every job queued so far for `storage`, and
+    /// before any queued later (libtorrent `async_move_storage`, a fence job). Answered by
+    /// [`Completion::Moved`].
+    pub fn async_move_storage(&mut self, storage: &Arc<Storage>, path: String, flags: MoveFlags) {
+        self.barrier(storage, BarrierAction::Move { path, flags });
+    }
+
+    fn barrier(&mut self, storage: &Arc<Storage>, action: BarrierAction) {
         let seq = self.next_barrier;
         self.next_barrier += 1;
-        let barrier =
-            Arc::new(Barrier { remaining: AtomicUsize::new(self.threads.len() + 1), seq, priorities });
+        let barrier = Arc::new(Barrier { remaining: AtomicUsize::new(self.threads.len() + 1), seq, action });
         for tx in self.threads.iter().chain([&self.hasher]) {
             let _ = tx.send(Job::Barrier { storage: storage.clone(), barrier: barrier.clone() });
         }
@@ -557,8 +608,16 @@ impl Worker {
                     return;
                 }
                 // Every thread has passed it: nothing else of this storage is running.
-                let error = set_file_priority(&storage, ctx, &barrier.priorities).err();
-                ctx.send(Completion::FilePriority { storage: storage.id, error });
+                match &barrier.action {
+                    BarrierAction::FilePriority(priorities) => {
+                        let error = set_file_priority(&storage, ctx, priorities).err();
+                        ctx.send(Completion::FilePriority { storage: storage.id, error });
+                    }
+                    BarrierAction::Move { path, flags } => {
+                        let (status, save_path, error) = move_storage(&storage, ctx, path, *flags);
+                        ctx.send(Completion::Moved { storage: storage.id, status, save_path, error });
+                    }
+                }
                 for (i, tx) in ctx.queues.get().into_iter().flatten().enumerate() {
                     if i != ctx.index {
                         let _ = tx.send(Job::Unblock { storage: storage.id, seq: barrier.seq });
@@ -596,7 +655,7 @@ fn drop_partial(
 }
 
 fn io_error(storage: &Storage, file: usize, e: io::Error) -> (String, Error) {
-    (storage.info.files().file_path(file, &storage.save_path), Error::from(e))
+    (storage.file_path(file).to_string_lossy().into_owned(), Error::from(e))
 }
 
 /// Writes one block and advances the piece's hash. Returns `Some(passed)` once the whole piece
@@ -681,7 +740,8 @@ fn advance_hash(
                         return Ok(Some(false));
                     }
                     Err(e) => {
-                        return Err((fs.file_path(fs.file_index_at_piece(piece), &storage.save_path), e));
+                        let file = storage.file_path(fs.file_index_at_piece(piece));
+                        return Err((file.to_string_lossy().into_owned(), e));
                     }
                 }
             }
@@ -844,7 +904,7 @@ fn delete_files(storage: &Storage) -> Result<(), Error> {
     let fs = storage.info.files();
     let mut dirs = std::collections::BTreeSet::new();
     let mut first_error = None;
-    let save = PathBuf::from(&storage.save_path);
+    let save = PathBuf::from(storage.save_path());
     for f in 0..fs.num_files() {
         if fs.pad_file_at(f) {
             continue;
@@ -968,6 +1028,185 @@ fn export_unskipped(storage: &Storage, ctx: &Ctx) -> Result<(), (String, Error)>
         }
     }
     free_unneeded(storage, &st, &part)
+}
+
+/// libtorrent `complete`: `path` made absolute against the working directory.
+pub(crate) fn complete(path: &str) -> String {
+    let p = if path.is_empty() { "." } else { path };
+    std::path::absolute(p).map_or_else(|_| p.to_owned(), |a| a.to_string_lossy().into_owned())
+}
+
+/// libtorrent `move_file`: creates the destination's directory, then renames.
+fn move_file(old: &Path, new: &Path) -> Result<(), (FileOperation, io::Error)> {
+    std::fs::metadata(old).map_err(|e| (FileOperation::FileStat, e))?;
+    if let Some(parent) = new.parent().filter(|p| !p.as_os_str().is_empty()) {
+        std::fs::create_dir_all(parent).map_err(|e| (FileOperation::Mkdir, e))?;
+    }
+    if old == new {
+        return Ok(());
+    }
+    std::fs::rename(old, new).map_err(|e| (FileOperation::FileRename, e))
+}
+
+fn is_not_found<T>(r: io::Result<T>) -> bool {
+    matches!(r, Err(e) if e.kind() == io::ErrorKind::NotFound)
+}
+
+/// libtorrent `posix_storage::move_storage` and `aux::move_storage`: moves every file (rename,
+/// or copy and delete across volumes) and the part file to `dest`, rolls the renames back on
+/// an error, then removes the directories left empty. Runs with no other job of `storage` in
+/// flight. Returns the status, the save path now in use and the error, if any.
+fn move_storage(
+    storage: &Storage,
+    ctx: &Ctx,
+    dest: &str,
+    flags: MoveFlags,
+) -> (MoveStatus, String, Option<MoveError>) {
+    // Open files cannot be renamed on Windows (libtorrent `mmap_storage` releases them too).
+    ctx.pool.release(storage.id);
+    let fs = storage.info.files();
+    let save_path = storage.save_path();
+    let new_save_path = complete(dest);
+    let fail = |status, file: String, operation, e: io::Error| {
+        (status, save_path.clone(), Some(MoveError { file, operation, error: e.into() }))
+    };
+    let movable = |i: &usize| !fs.file_absolute_path(*i) && !fs.pad_file_at(*i);
+
+    if flags == MoveFlags::FailIfExist && !is_not_found(std::fs::metadata(&new_save_path)) {
+        // The directory exists: so may the files.
+        for i in (0..fs.num_files()).filter(movable) {
+            let path = fs.file_path(i, &new_save_path);
+            match std::fs::metadata(&path) {
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return fail(MoveStatus::FileExist, path, FileOperation::FileStat, e),
+                Ok(_) => {
+                    let e = io::Error::new(io::ErrorKind::AlreadyExists, "file already exists");
+                    return fail(MoveStatus::FileExist, path, FileOperation::FileStat, e);
+                }
+            }
+        }
+    }
+
+    match std::fs::metadata(&new_save_path) {
+        Ok(_) => {}
+        Err(e) if e.kind() == io::ErrorKind::NotFound => {
+            if let Err(e) = std::fs::create_dir_all(&new_save_path) {
+                return fail(MoveStatus::FatalDiskError, new_save_path.clone(), FileOperation::Mkdir, e);
+            }
+        }
+        Err(e) => {
+            return fail(MoveStatus::FatalDiskError, new_save_path.clone(), FileOperation::FileStat, e);
+        }
+    }
+
+    let set_save_path =
+        |p: &str| *storage.save_path.write().unwrap_or_else(|e| e.into_inner()) = p.to_owned();
+    match flags {
+        MoveFlags::ResetSavePath => {
+            set_save_path(&new_save_path);
+            return (MoveStatus::NeedFullCheck, new_save_path, None);
+        }
+        MoveFlags::ResetSavePathUnchecked => {
+            set_save_path(&new_save_path);
+            return (MoveStatus::NoError, new_save_path, None);
+        }
+        _ => {}
+    }
+
+    let mut status = MoveStatus::NoError;
+    // Files we renamed (rolled back on an error) and files we copied (their sources are deleted
+    // once everything is across).
+    let mut renamed = vec![false; fs.num_files()];
+    let mut copied = vec![false; fs.num_files()];
+    let mut error = None;
+    for i in (0..fs.num_files()).filter(movable) {
+        let old = PathBuf::from(fs.file_path(i, &save_path));
+        let new = PathBuf::from(fs.file_path(i, &new_save_path));
+        if flags == MoveFlags::DontReplace && new.exists() {
+            status = MoveStatus::NeedFullCheck;
+            continue;
+        }
+        match move_file(&old, &new) {
+            Ok(()) => renamed[i] = old != new,
+            // A file that is not there (not downloaded yet) is not a problem.
+            Err((_, e)) if e.kind() == io::ErrorKind::NotFound => {}
+            Err((op, e))
+                if matches!(e.kind(), io::ErrorKind::InvalidInput | io::ErrorKind::PermissionDenied) =>
+            {
+                error = Some((i, op, e));
+                break;
+            }
+            // Renaming across volumes fails (EXDEV, ERROR_NOT_SAME_DEVICE): copy instead.
+            Err(_) => match std::fs::copy(&old, &new) {
+                Ok(_) => copied[i] = true,
+                Err(e) => {
+                    error = Some((i, FileOperation::FileCopy, e));
+                    break;
+                }
+            },
+        }
+    }
+    let mut error = error.map(|(i, operation, e)| MoveError {
+        file: fs.file_path(i, &save_path),
+        operation,
+        error: e.into(),
+    });
+
+    if error.is_none() {
+        let mut st = storage.lock_files();
+        if st.part.is_none() && storage.part_file_path().exists() {
+            storage.need_partfile(&mut st);
+        }
+        if let Some(part) = st.part.clone() {
+            let old = storage.part_file_path();
+            let new_dir = Path::new(&new_save_path);
+            match part.move_partfile(new_dir) {
+                Ok(()) => storage.part_files.rekey(&old, &new_dir.join(storage.part_file_name())),
+                Err(e) => {
+                    error = Some(MoveError {
+                        file: old.to_string_lossy().into_owned(),
+                        operation: FileOperation::PartfileMove,
+                        error: e.into(),
+                    })
+                }
+            }
+        }
+    }
+
+    if let Some(error) = error {
+        // Roll back. libtorrent moves back every file before the failing one; only the ones
+        // renamed are moved here, so a destination file kept by `DontReplace` stays put.
+        for i in (0..fs.num_files()).rev().filter(|&i| renamed[i]) {
+            let new = PathBuf::from(fs.file_path(i, &new_save_path));
+            let _ = move_file(&new, Path::new(&fs.file_path(i, &save_path)));
+        }
+        return (MoveStatus::FatalDiskError, save_path, Some(error));
+    }
+    set_save_path(&new_save_path);
+
+    // Delete the sources of copied files, then the directories left empty (deepest first along
+    // each file's path, stopping at the first that is not empty, never the save path).
+    let mut subdirs = std::collections::BTreeSet::new();
+    for i in (0..fs.num_files()).filter(movable) {
+        let rel = PathBuf::from(fs.file_path(i, ""));
+        if let Some(parent) = rel.parent().filter(|p| !p.as_os_str().is_empty()) {
+            subdirs.insert(parent.to_path_buf());
+        }
+        if copied[i] {
+            let _ = std::fs::remove_file(fs.file_path(i, &save_path));
+        }
+    }
+    let root = Path::new(&save_path);
+    for sub in subdirs {
+        let mut dir = root.join(sub);
+        while dir != root && std::fs::remove_dir(&dir).is_ok() {
+            match dir.parent() {
+                Some(p) => dir = p.to_path_buf(),
+                None => break,
+            }
+        }
+    }
+    (status, new_save_path, None)
 }
 
 #[cfg(test)]
@@ -1126,7 +1365,7 @@ pub(crate) mod tests {
         r.disk.async_fence(&r.storage, FenceAction::Release);
         assert!(matches!(next(&r.rx), Completion::Fenced { action: FenceAction::Release, error: None, .. }));
         let storage2 =
-            Arc::new(Storage::new(99, r.storage.save_path.clone(), info.clone(), Vec::new(), Arc::default()));
+            Arc::new(Storage::new(99, r.storage.save_path(), info.clone(), Vec::new(), Arc::default()));
         r.disk.async_check(&storage2, CheckMode::Resume(have));
         match next(&r.rx) {
             Completion::Checked { result: Ok(res), .. } => {
@@ -1162,7 +1401,7 @@ pub(crate) mod tests {
         // A previous session wrote blocks 0 and 2 of piece 0, then stopped.
         let old = Arc::new(Storage::new(
             50,
-            r.storage.save_path.clone(),
+            r.storage.save_path(),
             r.storage.info.clone(),
             Vec::new(),
             Arc::default(),
@@ -1192,7 +1431,7 @@ pub(crate) mod tests {
         std::fs::OpenOptions::new().write(true).open(r.dir.join("test/f")).unwrap().set_len(100).unwrap();
         let fresh = Arc::new(Storage::new(
             51,
-            r.storage.save_path.clone(),
+            r.storage.save_path(),
             r.storage.info.clone(),
             Vec::new(),
             Arc::default(),
@@ -1259,7 +1498,7 @@ pub(crate) mod tests {
     fn a_skipped_file_lives_in_the_part_file_until_it_is_wanted() {
         let r = rig_with("disk-part", SKIP_MIDDLE, BLOCK_SIZE, vec![4, 0, 4]);
         let info = r.storage.info.clone();
-        let save = r.storage.save_path.clone();
+        let save = r.storage.save_path();
         let part = r.dir.join(format!(".{}.parts", info.info_hash().to_hex()));
         let b = r.dir.join("test/b");
         assert_eq!(info.num_pieces(), 8);
@@ -1350,7 +1589,7 @@ pub(crate) mod tests {
         assert_eq!(wanted(&res.have), [1, 2]);
 
         // Remove deleting the part file only, while the old storage still holds it.
-        let gone = r.disk.new_storage(r.storage.save_path.clone(), info.clone(), Vec::new());
+        let gone = r.disk.new_storage(r.storage.save_path(), info.clone(), Vec::new());
         r.disk.async_fence(&gone, FenceAction::DeletePartFile);
         assert!(matches!(
             next(&r.rx),
@@ -1362,7 +1601,7 @@ pub(crate) mod tests {
         // Remove with data.
         write_pieces(&r, &storage, &[2]);
         assert!(part.exists());
-        let gone = r.disk.new_storage(r.storage.save_path.clone(), info, Vec::new());
+        let gone = r.disk.new_storage(r.storage.save_path(), info, Vec::new());
         r.disk.async_fence(&gone, FenceAction::Delete);
         assert!(matches!(next(&r.rx), Completion::Fenced { action: FenceAction::Delete, error: None, .. }));
         assert!(!part.exists());
@@ -1389,9 +1628,14 @@ pub(crate) mod tests {
         };
         let mut w = Worker::default();
         let s = r.storage.clone();
-        let other =
-            Arc::new(Storage::new(77, s.save_path.clone(), s.info.clone(), Vec::new(), Arc::default()));
-        let barrier = |seq| Arc::new(Barrier { remaining: AtomicUsize::new(2), seq, priorities: vec![4] });
+        let other = Arc::new(Storage::new(77, s.save_path(), s.info.clone(), Vec::new(), Arc::default()));
+        let barrier = |seq| {
+            Arc::new(Barrier {
+                remaining: AtomicUsize::new(2),
+                seq,
+                action: BarrierAction::FilePriority(vec![4]),
+            })
+        };
         // Another thread has yet to reach barrier 1: this one parks the storage's jobs.
         w.handle(Job::Barrier { storage: s.clone(), barrier: barrier(1) }, &ctx);
         w.handle(Job::Write { storage: s.clone(), piece: 0, offset: 0, data: all[..16384].to_vec() }, &ctx);
@@ -1432,7 +1676,7 @@ pub(crate) mod tests {
         assert!(part.exists());
 
         // Started again with b wanted: its boundary blocks move into b before the check.
-        let s2 = r.disk.new_storage(r.storage.save_path.clone(), info, vec![4, 4, 4]);
+        let s2 = r.disk.new_storage(r.storage.save_path(), info, vec![4, 4, 4]);
         r.disk.async_check(&s2, CheckMode::Full);
         assert_eq!(wanted(&checked(&r.rx).have), [2, 5]);
         assert!(!part.exists());
@@ -1440,6 +1684,267 @@ pub(crate) mod tests {
         let all = torrent_bytes(&r.contents);
         assert_eq!(b[..49152 - 40_000], all[40_000..49152]);
         assert_eq!(b[81920 - 40_000..], all[81920..90_000]);
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    // test_storage.cpp `setup_torrent`: 0x8000, 0x8000, 0, 0, 0x8000 bytes in 16 KiB pieces.
+    const MOVE_FILES: &[(&str, usize)] = &[
+        ("test1.tmp", 0x8000),
+        ("folder1/test2.tmp", 0x8000),
+        ("folder2/test3.tmp", 0),
+        ("_folder3/test4.tmp", 0),
+        ("_folder3/subfolder/test5.tmp", 0x8000),
+    ];
+
+    /// A storage in `<dir>/save` with every piece written and the empty files created.
+    fn move_rig(name: &str, priorities: Vec<u8>) -> Rig {
+        let (bytes, contents) = make_torrent(MOVE_FILES, BLOCK_SIZE);
+        let info = Arc::new(TorrentInfo::from_bytes(&bytes).unwrap());
+        let dir = temp_dir(name);
+        let (tx, rx) = mpsc::channel();
+        let mut disk = DiskIo::new(3, 8, tx, Arc::new(|| {}));
+        let save = dir.join("save");
+        let storage = disk.new_storage(save.to_string_lossy().into_owned(), info, priorities);
+        let r = Rig { disk, rx, storage, dir, contents };
+        r.disk.async_check(&r.storage, CheckMode::Full);
+        checked(&r.rx);
+        let storage = r.storage.clone();
+        let wanted: Vec<u32> = (0..6).filter(|&p| r.storage.info.piece_size(p) > 0).collect();
+        write_pieces(&r, &storage, &wanted);
+        r
+    }
+
+    fn moved(rx: &mpsc::Receiver<Completion>) -> (MoveStatus, String, Option<MoveError>) {
+        loop {
+            match next(rx) {
+                Completion::Moved { status, save_path, error, .. } => break (status, save_path, error),
+                Completion::Write { error: None, .. } | Completion::Hashed { passed: true, .. } => {}
+                c => panic!("unexpected {c:?}"),
+            }
+        }
+    }
+
+    fn s(p: &Path) -> String {
+        p.to_string_lossy().into_owned()
+    }
+
+    #[test]
+    fn move_storage_to_another_directory() {
+        // test_storage.cpp `dont_move_intermingled_files`, plus the hash state kept across.
+        let mut r = move_rig("move", Vec::new());
+        let (old, new) = (r.dir.join("save"), r.dir.join("save2"));
+        std::fs::create_dir_all(old.join("test/_folder3/alien_folder1")).unwrap();
+        std::fs::write(old.join("test/alien1.tmp"), b"x").unwrap();
+        std::fs::write(old.join("test/folder1/alien2.tmp"), b"x").unwrap();
+
+        r.disk.async_move_storage(&r.storage, s(&new), MoveFlags::AlwaysReplaceFiles);
+        let (status, path, error) = moved(&r.rx);
+        assert_eq!((status, path.as_str()), (MoveStatus::NoError, s(&new).as_str()), "{error:?}");
+        assert_eq!(r.storage.save_path(), s(&new));
+        for (i, (name, _)) in MOVE_FILES.iter().enumerate() {
+            assert_eq!(std::fs::read(new.join("test").join(name)).unwrap(), r.contents[i], "{name}");
+            assert!(!old.join("test").join(name).exists(), "{name}");
+        }
+        // Intermingled files and directories stay; directories left empty go.
+        assert!(old.join("test/alien1.tmp").exists());
+        assert!(old.join("test/folder1/alien2.tmp").exists());
+        assert!(old.join("test/_folder3/alien_folder1").exists());
+        assert!(!new.join("test/alien1.tmp").exists());
+        assert!(!old.join("test/folder2").exists());
+        assert!(!old.join("test/_folder3/subfolder").exists());
+        assert!(old.exists(), "the old save path stays");
+
+        // Reads, writes and checks use the new path.
+        r.disk.async_read(&r.storage, 0, 0, 16, 3);
+        assert!(matches!(next(&r.rx), Completion::Read { cookie: 3, result: Ok(_), .. }));
+        r.disk.async_check(&r.storage, CheckMode::Full);
+        assert!(checked(&r.rx).have.all_set());
+        let storage = r.storage.clone();
+        r.disk.async_fence(&storage, FenceAction::Delete);
+        assert!(matches!(next(&r.rx), Completion::Fenced { error: None, .. }));
+        assert!(!new.join("test").exists());
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
+    fn move_storage_to_self() {
+        // test_storage.cpp `test_move_storage_to_self`: a no-op.
+        let mut r = move_rig("move-self", Vec::new());
+        let save = r.storage.save_path();
+        r.disk.async_move_storage(&r.storage, save.clone(), MoveFlags::AlwaysReplaceFiles);
+        let (status, path, error) = moved(&r.rx);
+        assert_eq!(status, MoveStatus::NoError, "{error:?}");
+        assert_eq!(path, save);
+        for (i, (name, _)) in MOVE_FILES.iter().enumerate() {
+            assert_eq!(std::fs::read(Path::new(&save).join("test").join(name)).unwrap(), r.contents[i]);
+        }
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
+    fn move_storage_into_self() {
+        // test_storage.cpp `test_move_storage_into_self`: into a folder of the torrent itself.
+        let mut r = move_rig("move-into", Vec::new());
+        let inner = r.dir.join("save/test/folder1");
+        r.disk.async_move_storage(&r.storage, s(&inner), MoveFlags::AlwaysReplaceFiles);
+        let (status, _, error) = moved(&r.rx);
+        assert_eq!(status, MoveStatus::NoError, "{error:?}");
+        assert_eq!(std::fs::read(inner.join("test/folder1/test2.tmp")).unwrap(), r.contents[1]);
+        assert!(inner.join("test/folder2/test3.tmp").exists());
+        assert!(inner.join("test/_folder3/test4.tmp").exists());
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
+    fn move_storage_reset() {
+        // test_storage.cpp `test_move_storage_reset`: the directory is made, nothing moves.
+        for (flags, want) in [
+            (MoveFlags::ResetSavePath, MoveStatus::NeedFullCheck),
+            (MoveFlags::ResetSavePathUnchecked, MoveStatus::NoError),
+        ] {
+            let mut r = move_rig("move-reset", Vec::new());
+            let new = r.dir.join("save2");
+            r.disk.async_move_storage(&r.storage, s(&new), flags);
+            let (status, path, error) = moved(&r.rx);
+            assert_eq!((status, path), (want, s(&new)), "{error:?}");
+            assert!(new.is_dir());
+            assert!(!new.join("test").exists());
+            assert!(r.dir.join("save/test/test1.tmp").exists());
+            assert_eq!(r.storage.save_path(), s(&new));
+            drop(r.disk);
+            let _ = std::fs::remove_dir_all(&r.dir);
+        }
+    }
+
+    #[test]
+    fn fail_if_exist_and_dont_replace() {
+        let mut r = move_rig("move-exist", Vec::new());
+        let (old, new) = (r.dir.join("save"), r.dir.join("save2"));
+        std::fs::create_dir_all(new.join("test/folder1")).unwrap();
+        std::fs::write(new.join("test/folder1/test2.tmp"), b"theirs").unwrap();
+
+        // FailIfExist moves nothing.
+        r.disk.async_move_storage(&r.storage, s(&new), MoveFlags::FailIfExist);
+        let (status, path, error) = moved(&r.rx);
+        assert_eq!((status, path), (MoveStatus::FileExist, s(&old)));
+        let error = error.unwrap();
+        assert_eq!(error.operation, FileOperation::FileStat);
+        assert!(error.file.ends_with("test2.tmp"), "{}", error.file);
+        assert!(old.join("test/test1.tmp").exists() && !new.join("test/test1.tmp").exists());
+        assert_eq!(r.storage.save_path(), s(&old));
+
+        // DontReplace keeps their file and asks for a recheck; ours is left behind.
+        r.disk.async_move_storage(&r.storage, s(&new), MoveFlags::DontReplace);
+        let (status, path, error) = moved(&r.rx);
+        assert_eq!((status, path), (MoveStatus::NeedFullCheck, s(&new)), "{error:?}");
+        assert_eq!(std::fs::read(new.join("test/folder1/test2.tmp")).unwrap(), b"theirs");
+        assert_eq!(std::fs::read(new.join("test/test1.tmp")).unwrap(), r.contents[0]);
+        assert!(old.join("test/folder1/test2.tmp").exists());
+        r.disk.async_check(&r.storage, CheckMode::Full);
+        let have = checked(&r.rx).have;
+        assert_eq!(wanted(&have), [0, 1, 4, 5], "test2.tmp's pieces fail");
+
+        // AlwaysReplaceFiles (the default) overwrites.
+        r.disk.async_move_storage(&r.storage, s(&old), MoveFlags::DontReplace);
+        moved(&r.rx);
+        r.disk.async_move_storage(&r.storage, s(&new), MoveFlags::AlwaysReplaceFiles);
+        assert_eq!(moved(&r.rx).0, MoveStatus::NoError);
+        assert_eq!(std::fs::read(new.join("test/folder1/test2.tmp")).unwrap(), r.contents[1]);
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
+    fn a_failed_move_is_rolled_back() {
+        let mut r = move_rig("move-fail", Vec::new());
+        let (old, new) = (r.dir.join("save"), r.dir.join("save2"));
+        // test5.tmp cannot go where a non-empty directory of that name is.
+        std::fs::create_dir_all(new.join("test/_folder3/subfolder/test5.tmp/x")).unwrap();
+        r.disk.async_move_storage(&r.storage, s(&new), MoveFlags::AlwaysReplaceFiles);
+        let (status, path, error) = moved(&r.rx);
+        assert_eq!((status, path), (MoveStatus::FatalDiskError, s(&old)));
+        let error = error.unwrap();
+        assert!(error.file.ends_with("test5.tmp"), "{}", error.file);
+        assert!(matches!(error.operation, FileOperation::FileRename | FileOperation::FileCopy));
+        for (i, (name, _)) in MOVE_FILES.iter().enumerate() {
+            assert_eq!(std::fs::read(old.join("test").join(name)).unwrap(), r.contents[i], "{name} back");
+        }
+        assert!(!new.join("test/test1.tmp").exists());
+        assert_eq!(r.storage.save_path(), s(&old));
+        r.disk.async_check(&r.storage, CheckMode::Full);
+        assert!(checked(&r.rx).have.all_set());
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
+    fn the_part_file_moves_with_the_files() {
+        // test2.tmp (pieces 2..=3) skipped: its pieces stay in the part file.
+        let (bytes, contents) = make_torrent(MOVE_FILES, BLOCK_SIZE);
+        let info = Arc::new(TorrentInfo::from_bytes(&bytes).unwrap());
+        let dir = temp_dir("move-part");
+        let (tx, rx) = mpsc::channel();
+        let mut disk = DiskIo::new(3, 8, tx, Arc::new(|| {}));
+        let (old, new) = (dir.join("save"), dir.join("save2"));
+        let prio = vec![4, 0, 4, 4, 4];
+        let storage = disk.new_storage(s(&old), info.clone(), prio.clone());
+        let mut r = Rig { disk, rx, storage: storage.clone(), dir, contents };
+        r.disk.async_check(&storage, CheckMode::Full);
+        checked(&r.rx);
+        write_pieces(&r, &storage, &[0, 1, 2, 3, 4, 5]);
+        let part = format!(".{}.parts", info.info_hash().to_hex());
+        assert!(old.join(&part).exists() && !old.join("test/folder1/test2.tmp").exists());
+
+        // Writes queued behind the move go to the new place.
+        r.disk.async_move_storage(&storage, s(&new), MoveFlags::AlwaysReplaceFiles);
+        let all = torrent_bytes(&r.contents);
+        r.disk.async_write(&storage, 0, 0, all[..BLOCK_SIZE as usize].to_vec());
+        let (status, _, error) = moved(&r.rx);
+        assert_eq!(status, MoveStatus::NoError, "{error:?}");
+        assert!(!old.join(&part).exists());
+        assert!(new.join(&part).exists());
+        assert!(!old.join("test").exists(), "every directory left empty is gone");
+        assert!(r.storage.part_files.get(&new.join(&part)).is_some(), "the registry follows");
+        assert!(r.storage.part_files.get(&old.join(&part)).is_none());
+        loop {
+            if let Completion::Hashed { piece: 0, passed, .. } = next(&r.rx) {
+                assert!(passed);
+                break;
+            }
+        }
+        r.disk.async_check(&storage, CheckMode::Full);
+        assert!(checked(&r.rx).have.all_set(), "the boundary pieces are read from the part file");
+
+        // Unskipping exports into the file at the new place.
+        r.disk.async_set_file_priority(&storage, vec![4; 5]);
+        assert!(matches!(next(&r.rx), Completion::FilePriority { error: None, .. }));
+        assert_eq!(std::fs::read(new.join("test/folder1/test2.tmp")).unwrap()[..16], r.contents[1][..16]);
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
+    fn a_stopped_torrents_part_file_moves_too() {
+        // No part file object is open (a fresh storage): the file on disk is moved anyway.
+        let mut r = move_rig("move-part-stopped", vec![4, 0, 4, 4, 4]);
+        let info = r.storage.info.clone();
+        let part = format!(".{}.parts", info.info_hash().to_hex());
+        let (old, new) = (r.dir.join("save"), r.dir.join("save2"));
+        let storage = r.storage.clone();
+        r.disk.async_fence(&storage, FenceAction::Release);
+        while !matches!(next(&r.rx), Completion::Fenced { .. }) {}
+        drop(storage);
+        r.storage = r.disk.new_storage(s(&old), info, vec![4, 0, 4, 4, 4]);
+        assert!(old.join(&part).exists());
+        r.disk.async_move_storage(&r.storage, s(&new), MoveFlags::AlwaysReplaceFiles);
+        assert_eq!(moved(&r.rx).0, MoveStatus::NoError);
+        assert!(new.join(&part).exists() && !old.join(&part).exists());
+        r.disk.async_check(&r.storage, CheckMode::Full);
+        assert!(checked(&r.rx).have.all_set());
         drop(r.disk);
         let _ = std::fs::remove_dir_all(&r.dir);
     }

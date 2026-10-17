@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_220857_1792267737: merge of Web UI slice 3
+
+Branch `claude/awesome-clarke-6d8110` merged into main without conflicts (its entry 2026-10-17_220311_1792267391 follows).
+
+### Verified
+- On main after the merge: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace --no-fail-fast` on Windows: 753 passed, 0 failed, 3 ignored.
+- The page by hand in the Chromium pane against `patorrent-nox run --no-state --mock-library 10000 --active 0.01 --webui 8089` (release build of the branch): login, the list with the 10,000 rows sorted by Down Speed and updating every second, a deep scroll through the virtual list, the Completed category filter (8,391 rows), the context menu on a row in the Win32 order with the queue moves and Set Download Location disabled as documented, the selection count in the status bar.
+- Not rerun on the Ubuntu and FreeBSD VMs: slices 1 to 3 changed `crates/nox` and `crates/frontend` only on Windows so far; the next VM run should cover them.
+
 ## 2026-10-17_220311_1792267391: Web UI slice 3: the page
 
 ### Added

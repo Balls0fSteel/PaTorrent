@@ -13,6 +13,7 @@ use std::mem::{size_of, zeroed};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
+use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::{
     AddTorrentParams, Alert, IpFilter, MockConfig, QueueMove, RemoveFlags, Session, SessionHandle,
     SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
@@ -23,7 +24,7 @@ use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::status::Category;
-use patorrent_frontend::{actions, create, fmt, settings};
+use patorrent_frontend::{actions, add, create, fmt, settings};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -51,6 +52,8 @@ pub const WM_APP_ALERTS: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
 /// A URL download finished; `lParam` is a `Box<UrlResult>`.
 const WM_APP_URL: u32 = WM_APP + 3;
+/// Arguments forwarded by a second instance are waiting in `App::pending_args`.
+const WM_APP_ARGS: u32 = WM_APP + 4;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
 pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
@@ -195,6 +198,10 @@ struct App {
     status_texts: Vec<String>,
     quitting: bool,
     taskbar_created: u32,
+    /// Arguments from a second instance, added once its `WM_COPYDATA` has returned.
+    pending_args: Vec<String>,
+    /// Torrents (by `InfoHashes::key_hex`) to move to the top of the queue once added.
+    queue_top: HashSet<String>,
 }
 
 thread_local! {
@@ -557,6 +564,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             status_texts: Vec::new(),
             quitting: false,
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
+            pending_args: Vec::new(),
+            queue_top: HashSet::new(),
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -1216,8 +1225,11 @@ unsafe fn on_alerts(hwnd: HWND) {
                     a.detail.push_speed(s.download_rate, s.upload_rate);
                     repaint_page |= a.page == Page::Speed;
                 }
-                Alert::TorrentAdded { ref name, .. } => {
+                Alert::TorrentAdded { id, info_hashes, ref name } => {
                     a.detail.push_log(format!("{} {name}: added", now_hms()));
+                    if a.queue_top.remove(&info_hashes.key_hex()) {
+                        a.handle.torrent(id).queue_position(QueueMove::Top);
+                    }
                     a.handle.post_torrent_updates();
                     lists_changed = true;
                 }
@@ -1382,9 +1394,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_APP_URL => {
                 let r = Box::from_raw(lparam as *mut UrlResult);
                 match r.data {
-                    Ok(bytes) => add_params(hwnd, TorrentSource::TorrentFile(bytes), None),
+                    Ok(bytes) => add_torrent_file(hwnd, bytes),
                     Err(e) => dialogs::error(hwnd, &format!("Could not download {}:\n{e}", r.url)),
                 }
+                0
+            }
+            WM_APP_ARGS => {
+                let args = with_app(|a| std::mem::take(&mut a.pending_args)).unwrap_or_default();
+                add_sources(hwnd, &args);
                 0
             }
             WM_COMMAND => {
@@ -1502,7 +1519,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let words = std::slice::from_raw_parts(cds.lpData as *const u16, cds.cbData as usize / 2);
                 let args = dialogs::split_nul(words);
                 show_window(hwnd);
-                add_sources(hwnd, &args);
+                // The sender waits for this message to return: the Add New Torrent dialog must
+                // not run inside it.
+                with_app(|a| a.pending_args.extend(args));
+                PostMessageW(hwnd, WM_APP_ARGS, 0, 0);
                 1
             }
             WM_CLOSE => {
@@ -2100,7 +2120,8 @@ unsafe fn remove_selected(hwnd: HWND, delete_data: bool) {
     });
 }
 
-/// Adds `.torrent` paths, `magnet:` links and `http(s)://` URLs.
+/// Adds `.torrent` paths, `magnet:` links and `http(s)://` URLs. Magnets are added directly:
+/// the Add New Torrent dialog needs the file list, which they only get from peers.
 unsafe fn add_sources(hwnd: HWND, sources: &[String]) {
     for s in sources {
         let s = s.trim().trim_matches('"');
@@ -2113,7 +2134,7 @@ unsafe fn add_sources(hwnd: HWND, sources: &[String]) {
             download_url(hwnd, s.to_owned());
         } else {
             match std::fs::read(s) {
-                Ok(bytes) => add_params(hwnd, TorrentSource::TorrentFile(bytes), None),
+                Ok(bytes) => add_torrent_file(hwnd, bytes),
                 Err(e) => dialogs::error(hwnd, &format!("Could not open {s}:\n{e}")),
             }
         }
@@ -2127,6 +2148,53 @@ fn add_params(_hwnd: HWND, source: TorrentSource, name: Option<String>) {
         // Queued and auto-managed: µTorrent's Start (unless Preferences says otherwise).
         p.flags = TorrentFlags::DEFAULT;
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+        a.handle.add_torrent(p);
+    });
+}
+
+/// A `.torrent`'s contents, through the Add New Torrent dialog unless Preferences turned it off
+/// (files the engine cannot read are handed to it anyway, so it reports why).
+fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
+    let Some((show, setup)) = with_app(|a| {
+        let gui = GuiOptions::load(&a.prefs, &a.save_path);
+        let setup = crate::add::Setup {
+            save_dirs: add::save_in_choices(&gui.download_dir, &add::recent_dirs(&a.prefs)),
+            labels: a.list.labels().into_iter().map(|(l, _)| l).collect(),
+            start: !gui.add_stopped,
+        };
+        (gui.show_add_dialog, setup)
+    }) else {
+        return;
+    };
+    let ti = match TorrentInfo::from_bytes(&bytes) {
+        Ok(ti) if show => ti,
+        _ => return add_params(hwnd, TorrentSource::TorrentFile(bytes), None),
+    };
+    let key = ti.info_hashes().key_hex();
+    let known =
+        with_app(|a| a.list.ids().any(|id| a.list.get(id).is_some_and(|s| s.info_hashes.key_hex() == key)));
+    if known == Some(true) {
+        dialogs::info(hwnd, &format!("\"{}\" is already in the torrent list.", ti.name()));
+        return;
+    }
+    // the dialog runs its own message loop; nothing is borrowed across it
+    let Some(choice) = crate::add::show(hwnd, &ti, setup) else { return };
+    with_app(|a| {
+        add::remember_dir(&mut a.prefs, &choice.save_path);
+        if !choice.label.is_empty() {
+            // picked up when the torrent first shows up in the list, like a restored label
+            a.prefs.set(&format!("torrent.{key}.label"), &choice.label);
+        }
+        if choice.top_of_queue {
+            a.queue_top.insert(key);
+        }
+        if let Err(e) = a.prefs.save() {
+            a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+        }
+        let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
+        p.flags = TorrentFlags::DEFAULT;
+        GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+        choice.apply_to(&mut p);
         a.handle.add_torrent(p);
     });
 }

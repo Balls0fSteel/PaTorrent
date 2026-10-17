@@ -2,6 +2,32 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_163655_1792247815: Win32 Add New Torrent dialog (Phase 5)
+
+Branch `claude/add-dialog-d82bc0`.
+
+### Added
+- `crates/win32/src/add.rs`: µTorrent 2.2.1's Add New Torrent dialog, built at runtime from a dialog template like Create and Preferences (dialog units, so it scales with the monitor's DPI). Save In (editable combo with the default download folder and the last 10 folders used, "..." browses), Name, Torrent Options (Skip hash check, Start torrent, Add to top of queue, Label: an editable combo with the labels in use), Torrent Contents (name, comment, "X of Y selected" with the volume's free space, creation date), the file tree, Select All / Select None, OK / Cancel. OK creates the save folder if it is missing.
+- The file tree is an owner-data list view over `FileTree`: only visible rows are materialized, so a 5,000-file torrent opens at once (tested). Folders are indented rows with the shell's folder icons (open / closed) and file icons by extension; double-click, Enter, Right / Left (or + / -) and a click on the icon open and close them, Left on a file jumps to its folder. Check boxes are themed state images drawn at the list's DPI with a third, mixed state for folders whose files differ; a click on the box or Space toggles the rows (a folder toggles every file below it, open or closed). Right-click: High / Normal / Low / Don't Download and Check / Uncheck for the selection; Priority shows "Mixed" for folders with different priorities.
+- `patorrent_frontend::add` (toolkit-independent, for GTK too): `FileTree` (tree from `TorrentInfo`, pad files left out and never downloaded, check / priority / expand state, folder summaries, `file_priorities()` with 0 for unchecked files, so part files keep them off disk), `AddChoice::apply_to` (save path, name, priorities, Start torrent = queued, off = µTorrent's Stop, Skip hash check = `SEED_MODE`), `recent_dirs` / `remember_dir` (`add.recent_dirs` in patorrent.ini), `save_in_choices`, `size_text`.
+- Preferences > UI Settings > When Adding Torrents: "Show a window that displays the files inside the torrent" (`GuiOptions::show_add_dialog`, `ui.show_add_dialog`, on by default). Off adds `.torrent` files directly as before.
+- The dialog opens for `.torrent` files from File > Add Torrent, drag and drop, the command line, arguments forwarded by a second instance, and Add Torrent from URL (http/https downloads). "Start torrent" starts checked unless "Don't start the download automatically" is on; the Preferences' per-torrent defaults (peer exchange, connection and upload slot limits) still apply.
+- Add to top of queue: the info-hash is remembered and the torrent is moved to the top when `TorrentAdded` arrives. Label: stored as the torrent's label line before the add, so the list shows it on first sight.
+- Tests: frontend `add::tests` (tree order, folder toggling and mixed state, priorities kept across uncheck / check, collapsing, 20,000 files, single- and multi-file torrents, `AddChoice` flags, recent folders); hidden-dialog tests in `win32::add::tests` (controls and contents, Space on files and folders through the list view's own `LVN_KEYDOWN`, Select All / None, Left / Right, OK's `AddChoice` with the created folder, 5,000 files) and `preferences::tests::the_add_dialog_switch_is_on_ui_settings`.
+- Screenshot: [docs/screenshots/add-new-torrent.png](docs/screenshots/add-new-torrent.png) (debug build, portable mode, a 10-file test torrent made with `patorrent-nox create`, captured with `PrintWindow`).
+
+### Decisions
+- Magnet links (and `.torrent` files the parser rejects) are still added directly: the dialog needs the file list. See PLAN.md Phase 5 for what showing it after the metadata arrives would take.
+- `WM_COPYDATA` from a second instance now queues the arguments and posts `WM_APP_ARGS` to itself: the sender waits for `WM_COPYDATA` to return, so a modal dialog must not run inside it.
+- A `.torrent` already in the list gets a message instead of the dialog.
+- Name sets `AddTorrentParams::name`, which the engine only uses as the list name: the folder on disk keeps the torrent's name (no rename API in the engine; noted in PLAN.md, `crates/core` untouched).
+- `windows-sys` feature `Win32_Storage_FileSystem` added (`SHGetFileInfoW`'s attributes, `GetDiskFreeSpaceExW`).
+
+### Verified
+- `cargo fmt --all --check`, `cargo +stable fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings` on 1.90.0 and stable (1.97.1); `cargo clippy -p patorrent-frontend --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`.
+- `cargo test --workspace --no-fail-fast` on Windows: win32 20 (6 new dialog tests, 1 new Preferences test), frontend 45 (8 new), core 545 (3 ignored) and every integration suite green.
+- By hand: `patorrent.exe <test.torrent>` in portable mode shows the dialog (screenshot above) with the tree, icons, check boxes and free space at 100 % scaling. Not verified by hand: OK through to a download, other DPI scales, magnets, the drag-and-drop and second-instance paths (covered only by code review: they share `add_sources`).
+
 ## 2026-10-17_161604_1792246564: Phase 5 merge (Preferences, proxies, super seeding, part files)
 
 Four features built in parallel on their own branches and merged into main: `claude/part-files-b92a97`, `claude/super-seeding-362b23`, `claude/proxies-c663c9`, `claude/preferences-99a764` (their entries follow).

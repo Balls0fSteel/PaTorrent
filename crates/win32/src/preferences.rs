@@ -73,6 +73,7 @@ const ID_BALLOONS: u16 = id(1, 2);
 const ID_CLOSE_TRAY: u16 = id(1, 3);
 const ID_MIN_TRAY: u16 = id(1, 4);
 const ID_ADD_STOPPED: u16 = id(1, 5);
+const ID_SHOW_ADD: u16 = id(1, 6);
 // Directories
 const ID_DL_DIR: u16 = id(2, 1);
 const ID_DL_BROWSE: u16 = id(2, 2);
@@ -188,6 +189,7 @@ static FIELDS: &[Field] = &[
     Field::Check { id: ID_CLOSE_TRAY, get: |o| o.gui.close_to_tray, set: |o, v| o.gui.close_to_tray = v },
     Field::Check { id: ID_MIN_TRAY, get: |o| o.gui.minimize_to_tray, set: |o, v| o.gui.minimize_to_tray = v },
     Field::Check { id: ID_ADD_STOPPED, get: |o| o.gui.add_stopped, set: |o, v| o.gui.add_stopped = v },
+    Field::Check { id: ID_SHOW_ADD, get: |o| o.gui.show_add_dialog, set: |o, v| o.gui.show_add_dialog = v },
     Field::Text { id: ID_DL_DIR, get: |o| o.gui.download_dir.clone(), set: |o, v| o.gui.download_dir = v },
     Field::Num {
         id: ID_PORT,
@@ -499,8 +501,15 @@ fn template() -> Vec<u16> {
     b.group([0, 52, W, 46], "System Tray");
     b.ctl(BUTTON, ID_CLOSE_TRAY, CHECK, [8, 66, 290, 10], "Close to tray");
     b.ctl(BUTTON, ID_MIN_TRAY, CHECK, [8, 80, 290, 10], "Minimize to tray");
-    b.group([0, 104, W, 32], "When Adding Torrents");
+    b.group([0, 104, W, 46], "When Adding Torrents");
     b.ctl(BUTTON, ID_ADD_STOPPED, CHECK, [8, 118, 290, 10], "Don't start the download automatically");
+    b.ctl(
+        BUTTON,
+        ID_SHOW_ADD,
+        CHECK,
+        [8, 132, 290, 10],
+        "Show a window that displays the files inside the torrent",
+    );
 
     b.page(2);
     b.group([0, 0, W, 84], "Location of Downloaded Files");
@@ -1340,6 +1349,24 @@ mod tests {
         let mut prefs = Prefs::default();
         o.store(&mut prefs);
         assert_eq!(Options::load(&prefs, "unused"), o);
+    }
+
+    #[test]
+    fn the_add_dialog_switch_is_on_ui_settings() {
+        let mut f = Fixture::new(defaults());
+        f.page(1);
+        unsafe {
+            assert!(shown(item(f.dlg, ID_SHOW_ADD)));
+            assert!(checked(f.dlg, ID_SHOW_ADD), "on by default, as in µTorrent");
+        }
+        f.check(ID_SHOW_ADD, false);
+        f.click(ID_APPLY);
+        let o = f.last_applied();
+        assert!(!o.gui.show_add_dialog);
+        let mut prefs = Prefs::default();
+        o.store(&mut prefs);
+        assert!(prefs.to_text().contains("ui.show_add_dialog=0"));
+        assert!(!Options::load(&prefs, "unused").gui.show_add_dialog);
     }
 
     #[test]

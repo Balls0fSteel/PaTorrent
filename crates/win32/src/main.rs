@@ -8,6 +8,8 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 #[cfg(windows)]
+mod add;
+#[cfg(windows)]
 mod app;
 #[cfg(windows)]
 mod controls;

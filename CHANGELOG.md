@@ -2,6 +2,45 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_114537_1792230337: Create New Torrent (v1), IP filter, session-wide external-IP voting
+
+Three features built in parallel on their own branches (`claude/create-torrent-8c3d6d`, `claude/ip-filter-8673bb`, `claude/external-ip-voting-26748b`) and merged into main.
+
+### Added: Create New Torrent (engine and nox, v1)
+- `core::metainfo::create_torrent`, ported from libtorrent 2.0.11 `create_torrent.cpp`: `CreateTorrent` (trackers with tiers, BEP 19 / BEP 17 seeds, DHT nodes, comment, creator, creation date, private flag, `source`, similar / collections / ssl-cert), libtorrent's automatic piece size and piece-size rules (v1: multiple of 16 KiB or a power of two, at most 128 MiB), the canonical layout with pad files (`CANONICAL_FILES`, `CANONICAL_FILES_NO_TAIL_PADDING`), BEP 47 attributes (hidden on Windows, executable and symlinks on Unix), and a verbatim copy of an existing v1 torrent. `add_files` walks a file or folder with a predicate; `set_piece_hashes` reads the files in order on the calling thread, hashes on up to four threads, reports progress per piece and can be cancelled from the callback.
+- `make_magnet_uri_from_info` (libtorrent `make_magnet_uri(torrent_info)`).
+- `patorrent-nox create <path> [-o OUT] [-t URL[,URL]]... [-w URL]... [--private] [--piece-size KIB] [--comment] [--source] ...` with a progress line and optional `--magnet`.
+- Tests: the v1 parts of `test_create_torrent.cpp` (auto piece size, piece size limits, round trips, every metadata field, the v1 padding / sorting byte-exact cases), the `make_magnet_uri` cases of `test_magnet.cpp`, hashing from real directories (cancel, shrunk / missing files, pad files as zeros, hidden attribute on Windows), and a loopback swarm test that seeds and downloads a created torrent with pad files.
+- Decisions: v2 / hybrid creation returns `V2Unsupported` until the merkle code (Phase 8); directory entries are added sorted by name (libtorrent uses `readdir` order); the nox default creator is `PaTorrent/<version>`.
+
+### Added: IP filter and port filter (Phase 5)
+- Ported libtorrent's `ip_filter` / `port_filter` (`core::net::ip_filter`) and how the session, torrents, the peer list and tracker connections apply them (`core::engine::ip_filter`).
+- `SessionHandle::set_ip_filter`, `load_ip_filter(path)` and `set_port_filter`. Peers from trackers, the DHT, PEX, LSD and `connect_peer` are rejected on add; every outgoing connect is checked again (this also covers resume-data peers); incoming connections from blocked addresses are refused at accept (TCP and uTP) unless some torrent ignores the filter, and again when the handshake names a filtered torrent. A new filter closes connections to newly blocked peers and forgets them. Each case posts the new `Alert::PeerBlocked { id, addr, reason }` (libtorrent `peer_blocked_alert`, reasons `IpFilter` / `PortFilter`).
+- Per-torrent `TorrentFlags::APPLY_IP_FILTER` semantics as in libtorrent; turning the flag on re-applies the filter.
+- New setting `apply_ip_filter_to_trackers` (default true): tracker addresses the filter blocks are dropped after DNS; if none are left the announce fails with "banned by IP filter".
+- Block-list parser for eMule / µTorrent `ipfilter.dat` (`first - last , level , description`, level <= 127 blocks, zero-padded octets, IPv6, lone addresses) and PeerGuardian P2P (`description:first-last`), skipping comments and counting invalid lines. New fuzz target `ip_filter` (1.5M executions locally with ASan, no findings; added to the fuzz workflow matrix).
+- nox: `--ip-filter FILE` on `add` / `run`. Torrents added by nox now carry `APPLY_IP_FILTER` (they were added with empty flags).
+- Tests: libtorrent's `test_ip_filter.cpp` ported (8 tests), plus parser, edge-of-range and a randomized model test; six loopback swarm tests (blocked seed never connected, blocked port, refused incoming, refused on attach, existing connection closed by a new filter, blocked and exempt trackers).
+- Decisions (docs/PORTING.md "Deliberate divergences"): IPv4-mapped IPv6 addresses are looked up in the IPv4 table; resume-data peers are filtered when picked for a connection rather than when loaded; the port filter does not touch incoming peers (their source port is ephemeral). The `non_filter_torrents` counter is replaced by a scan of the torrents done only when an incoming address is actually blocked.
+
+### Added: session-wide external-IP voting (Phase 4)
+- `net::ip_voter::SessionVoter` keeps one libtorrent `ip_voter` per address family (libtorrent has one per listen socket; we have one listener / UDP socket / DHT node per family). Votes come from trackers (`external ip`), peers (`yourip` in the BEP 10 handshake; we already sent ours), DHT nodes (`ip`) and the NAT-PMP / PCP / UPnP external address (all routers as one voter, attributed to the unspecified address as libtorrent does).
+- `engine::external_ip` ports `session_impl::set_external_address`: a change posts `Alert::ExternalIp`, re-ranks every torrent's peers (BEP 40, against the address each peer sees us at, so LAN peers rank against our LAN listen address) and gives the DHT node of that family a new BEP 42 id (`DhtTracker::update_node_id`). The DHT's private voter is gone; a node started after the address is known takes an id for it at once. The port-mapping rule "taken only while no address is known; trackers overwrite it" is replaced by the vote.
+- Tests: all five `test_ip_voter` cases were already in; new unit tests for the session voter and `external_ip`, the DHT handing votes up, and loopback engine tests (`tests/external_ip.rs`) where a tracker reply, a peer's `yourip` and a DHT ping set the address. Divergences in docs/PORTING.md: per-family voters; router votes post the alert and move the DHT id (libtorrent casts them directly on the voter); the alert carries the newly voted address.
+
+### Changed
+- `PeerList::add` takes an `ExternalIp` instead of `Option<IpAddr>`; `DhtTracker::new_socket(is_v4, external, now)` and `take_events()` changed signature. `apply_tracker_results` hands tracker peers to the filtering `add_peers`.
+
+### Fixed
+- The disk layer did not zero pad-file ranges when reading pieces, and the recheck reuses one buffer, so a torrent with pad files never checked as complete (found by the create-torrent swarm test).
+
+### Issues
+- Merge: both test branches appended to `crates/core/tests/swarm.rs` (resolved by keeping both, header comment combined); `engine/mod.rs` conflicted only on the `mod` list. The tracker-reply block auto-merged: peers go through `add_peers`, then the tracker's `external ip` is voted.
+- The Linux and FreeBSD VMs accept only password logins, so no Unix test run this time (the Unix-only create_torrent symlink / attribute tests compile there but did not run). A key (`~/.ssh/patorrent_vm`) is ready to be installed on both.
+
+### Verified
+- On the merged main: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings` on Windows, and `--target x86_64-unknown-linux-gnu` / `x86_64-unknown-freebsd` clean; `cargo test --workspace` on Windows: 468 core unit tests (3 ignored) and all integration / swarm tests pass.
+
 ## 2026-10-16_225433_1792184073: lt_donthave (BEP 54) and smart-ban
 
 ### Added

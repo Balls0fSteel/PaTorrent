@@ -131,6 +131,10 @@ pub struct AddTorrentParams {
     pub upload_limit: u32,
     pub max_connections: Option<u32>,
     pub max_uploads: Option<u32>,
+    /// Files to store under another name (libtorrent `renamed_files`): file index to a path
+    /// relative to the save path (or absolute), torrent folder included. Applied when the
+    /// metadata is known, so it works for magnets too.
+    pub renamed_files: std::collections::BTreeMap<u32, String>,
 }
 
 impl AddTorrentParams {
@@ -149,6 +153,7 @@ impl AddTorrentParams {
             upload_limit: 0,
             max_connections: None,
             max_uploads: None,
+            renamed_files: std::collections::BTreeMap::new(),
         }
     }
 }

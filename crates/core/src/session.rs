@@ -38,6 +38,7 @@ pub(crate) enum Command {
     SetDownloadLimit(TorrentId, u32),
     SetUploadLimit(TorrentId, u32),
     MoveStorage(TorrentId, String, MoveFlags),
+    RenameFile(TorrentId, u32, String),
     ConnectPeer(TorrentId, std::net::SocketAddr),
     AddWebSeed(TorrentId, String, crate::metainfo::WebSeedKind),
     RemoveWebSeed(TorrentId, String, crate::metainfo::WebSeedKind),
@@ -358,6 +359,16 @@ impl TorrentHandle {
     /// files moves with them and empty directories left behind are removed.
     pub fn move_storage(&self, save_path: impl Into<String>, flags: MoveFlags) {
         self.session.send(Command::MoveStorage(self.id, save_path.into(), flags));
+    }
+
+    /// Stores file `file` under `new_name` (libtorrent `rename_file`): a path relative to the
+    /// save path, torrent folder included (`"Folder/sub/name.ext"`), or an absolute path. A file
+    /// already on disk is renamed, missing directories are made; later downloads go to the new
+    /// path, and the name is kept across restarts. Answered by
+    /// [`Alert::FileRenamed`](crate::Alert::FileRenamed) or
+    /// [`Alert::FileRenameFailed`](crate::Alert::FileRenameFailed).
+    pub fn rename_file(&self, file: u32, new_name: impl Into<String>) {
+        self.session.send(Command::RenameFile(self.id, file, new_name.into()));
     }
 
     /// Answered by [`Alert::PeerInfo`].

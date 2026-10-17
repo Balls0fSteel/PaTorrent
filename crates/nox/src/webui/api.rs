@@ -277,6 +277,8 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             | "torrents/recheck"
             | "torrents/reannounce"
             | "torrents/filePrio"
+            | "torrents/renameFile"
+            | "torrents/renameFolder"
             | "torrents/setDownloadLimit"
             | "torrents/setUploadLimit"
             | "torrents/setForceStart"
@@ -421,6 +423,8 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             Response::ok()
         }
         "torrents/filePrio" => file_prio(shared, &p),
+        "torrents/renameFile" => rename(shared, &p, false),
+        "torrents/renameFolder" => rename(shared, &p, true),
         "torrents/setDownloadLimit" | "torrents/setUploadLimit" => {
             let Some(limit) = p.int("limit") else { return Response::text(400, "missing limit") };
             let limit = limit.clamp(0, u32::MAX as i64) as u32;
@@ -1214,6 +1218,72 @@ fn file_prio(shared: &Shared, p: &Params) -> Response {
     let h = shared.handle.torrent(id);
     for i in ids {
         h.set_file_priority(i, prio);
+    }
+    Response::ok()
+}
+
+/// A file path in the API's form: `/` separators, no leading or trailing ones.
+fn api_path(p: &str) -> String {
+    p.replace('\\', "/").trim_matches('/').to_owned()
+}
+
+/// qBittorrent's `Path::isValid` for a new name: relative, no empty, `.` or `..` parts, no
+/// characters Windows forbids.
+fn valid_new_path(p: &str) -> bool {
+    !p.is_empty()
+        && !p.contains(':')
+        && p.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
+        && !p.chars().any(|c| matches!(c, '<' | '>' | '"' | '|' | '?' | '*') || c.is_control())
+}
+
+/// `torrents/renameFile` (`oldPath` names one file) and `torrents/renameFolder` (every file
+/// under `oldPath`); paths as `torrents/files` names them, torrent folder included. The rename
+/// runs in the background, as in qBittorrent.
+fn rename(shared: &Shared, p: &Params, folder: bool) -> Response {
+    let (Some(old), Some(new)) = (p.get("oldPath"), p.get("newPath")) else {
+        return Response::text(400, "missing oldPath or newPath");
+    };
+    let absolute = new.starts_with(['/', '\\']);
+    let (old, new) = (api_path(old), api_path(new));
+    if absolute || !valid_new_path(&new) {
+        return Response::text(409, "invalid newPath");
+    }
+    let Some(id) = one(&shared.lock(), p) else { return not_found() };
+    let files = match shared.query(id, ReplyKind::Files, |h| h.torrent(id).post_file_list()) {
+        Some(Reply::Files(f)) if !f.is_empty() => f,
+        _ => return Response::text(409, "torrent metadata hasn't downloaded yet"),
+    };
+    let paths: Vec<String> = files.iter().map(|f| api_path(&f.path)).collect();
+    let mut todo = Vec::new();
+    for (i, path) in paths.iter().enumerate() {
+        let renamed = if !folder {
+            (*path == old).then(|| new.clone())
+        } else {
+            path.strip_prefix(&old)
+                .and_then(|rest| rest.strip_prefix('/'))
+                .map(|rest| format!("{new}/{rest}"))
+        };
+        if let Some(name) = renamed {
+            todo.push((i as u32, name));
+        }
+    }
+    if todo.is_empty() {
+        return Response::text(409, if folder { "no such folder" } else { "no such file" });
+    }
+    // The new names must not collide with files that keep theirs.
+    let moving: Vec<usize> = todo.iter().map(|&(i, _)| i as usize).collect();
+    let taken = |n: &str| {
+        paths.iter().enumerate().any(|(i, p)| {
+            !moving.contains(&i)
+                && (p == n || p.starts_with(&format!("{n}/")) || n.starts_with(&format!("{p}/")))
+        })
+    };
+    if todo.iter().any(|(_, n)| taken(n)) {
+        return Response::text(409, "newPath already in use");
+    }
+    let h = shared.handle.torrent(id);
+    for (i, name) in todo {
+        h.rename_file(i, name);
     }
     Response::ok()
 }

@@ -2,6 +2,31 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_200844_1792260524: rename_file, renamed files at add time, Web API renameFile / renameFolder
+
+### Added
+- `TorrentHandle::rename_file(file, new_name)` (libtorrent `torrent_handle::rename_file`): the name is relative to the save path, torrent folder included, or absolute. A disk barrier (`BarrierAction::Rename`, libtorrent's fence job) runs `posix_storage::rename_file`: if the file is on disk it is renamed (directories made, open handles released first for Windows); a file not downloaded yet only changes its name. The storage keeps the renamed layout beside the shared `TorrentInfo` (`Storage::mapped`, libtorrent `m_mapped_files`), so later reads, writes, checks, moves and deletes use the new paths; `move_storage` moves renamed relative files with the rest and leaves absolute ones.
+- A stopped torrent gets a storage just for the rename, shared with moves (`Torrent::moving`) and released when no move or rename is pending (`release_disk_op_storage`); `start_torrent` waits for pending renames as it does for moves, and shutdown waits for them too.
+- `Alert::FileRenamed { id, index, old_name, new_name }` and `Alert::FileRenameFailed { id, index, error }` (libtorrent `file_renamed_alert` / `file_rename_failed_alert`); errors for no metadata yet, an empty name, an index past the last file, and disk failures (also logged with the path).
+- `AddTorrentParams::renamed_files` (libtorrent `renamed_files`): applied whenever the metadata is loaded (`Torrent::apply_renames`), so it works for `.torrent` files, resume data and magnets; indices past the last file are ignored.
+- Resume data `mapped_files` in libtorrent's layout (one string per file up to the last renamed one, empty for the others), read back into `renamed_files`; renaming a file back to its metadata name drops the entry.
+- nox Web API `torrents/renameFile` and `torrents/renameFolder` (POST, `hash`, `oldPath`, `newPath` as `torrents/files` names them): 400 without the paths, 409 for an absolute or invalid new name (empty, `.`, `..`, `:` or Windows-forbidden characters), no such file or folder, no metadata, or a name another file of the torrent keeps. nox prints `FileRenamed` / `FileRenameFailed`.
+- Win32 Add New Torrent: the Name field now renames the torrent's folder, or a single-file torrent's file, on disk (`patorrent_frontend::add::renamed_root`, used by `AddChoice::apply_to`, which now takes the `TorrentInfo`); a name with a separator, `.` or `..` renames only the list entry as before. The Logger tab shows `FileRenamed` / `FileRenameFailed` and the Files tab refreshes.
+- `mock` engine answers `rename_file` with `FileRenamed`.
+
+### Tests
+- `disk::tests::rename_file_on_disk_then_read_and_move`: relative, absolute and out-of-folder renames, a read through the new name, a full check, a move taking renamed files along, a missing file renamed by name only, a directory that cannot be made, an index past the end.
+- `tests/rename_file.rs` (after libtorrent `test_torrent.cpp` `test_rename_file` / `test_rename_file_fastresume`): a seed renames while seeding and while stopped, the names survive a restart, resume verification finds the files under them and a leech downloads the torrent's own layout from them, then a rename back; a download into `renamed_files` set at add time (the folder renamed, one file moved, an index past the end ignored); a magnet without metadata refuses.
+- `resume::tests::round_trip` covers `mapped_files`; `add::tests` cover `renamed_root` and the choice; the nox `torrent_lifecycle_and_maindata_diffs` test covers both endpoints and their refusals.
+
+### Verified
+- `cargo fmt --all --check` (1.90 and stable), `cargo clippy --workspace --all-targets -- -D warnings` on 1.90.0 and stable, `cargo clippy -p patorrent-core -p patorrent-frontend -p patorrent-nox --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`.
+- `cargo test --workspace --no-fail-fast` on Windows: all green (core 555 with 3 ignored, rename_file 3, move_storage 8, swarm 34, webui 8, frontend 47, win32 21, the rest).
+
+### Issues
+- The Linux and FreeBSD VM runs did not happen: the auto-mode classifier refused the command that copies the tree to the VMs (it removes `~/patorrent` there first). Unix renames go through the same `std::fs::rename`; the Linux target only type-checked.
+- Not verified by hand: the Add dialog's Name on a real torrent.
+
 ## 2026-10-17_194329_1792259009: merge of the Win32 move storage wiring
 
 Branch `claude/gallant-archimedes-20a750` merged into main without conflicts (its entry follows).

@@ -430,6 +430,8 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                     moving.remove(&id);
                     eprintln!("! {}", a.message());
                 }
+                Alert::FileRenamed { .. } => println!("* {}", a.message()),
+                Alert::FileRenameFailed { .. } => eprintln!("! {}", a.message()),
                 Alert::StateUpdate(v) => {
                     updated = true;
                     for st in v {

@@ -503,10 +503,17 @@ impl Engine {
         self.reap_peers();
         // A move in flight changes the save path saved below: wait for it (the disk threads
         // finish it anyway).
-        while self.slots.iter().any(|s| s.torrent.as_ref().is_some_and(|t| t.moves_pending > 0)) {
+        while self
+            .slots
+            .iter()
+            .any(|s| s.torrent.as_ref().is_some_and(|t| t.moves_pending > 0 || t.renames_pending > 0))
+        {
             match self.disk_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(Completion::Moved { storage, status, save_path, error }) => {
                     self.on_storage_moved(storage, status, save_path, error, false)
+                }
+                Ok(Completion::Renamed { storage, file, name, error }) => {
+                    self.on_file_renamed(storage, file, name, error, false)
                 }
                 Ok(_) | Err(mpsc::RecvTimeoutError::Timeout) => {}
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -1190,6 +1197,7 @@ impl Engine {
                 }
             }
             Command::MoveStorage(id, path, flags) => self.move_storage(id, path, flags),
+            Command::RenameFile(id, file, name) => self.rename_file(id, file, name),
             Command::ConnectPeer(id, addr) => {
                 if self.add_peer(id, addr, PeerSource::RESUME_DATA) {
                     self.connect_peers_for(id, usize::MAX);
@@ -1405,6 +1413,7 @@ impl Engine {
         );
         let info_bytes = ti.info_section().to_vec();
         let ti = Arc::new(ti);
+        t.renamed_files = p.renamed_files.clone();
         t.set_metadata(ti.clone());
         if flags.contains(TorrentFlags::DEFAULT_DONT_DOWNLOAD) {
             t.file_priority.fill(0);
@@ -1493,6 +1502,7 @@ impl Engine {
         }
         let mut t = Torrent::new(TorrentId::default(), info_hashes, name, p.save_path.clone(), flags);
         t.user_named = user_named;
+        t.renamed_files = p.renamed_files.clone();
         for (i, url) in m.trackers.iter().enumerate() {
             t.add_tracker(url, m.tracker_tiers.get(i).copied().unwrap_or(0));
         }
@@ -1724,12 +1734,6 @@ impl Engine {
         let Some(t) = self.torrent(id) else { return };
         t.moves_pending = t.moves_pending.saturating_sub(1);
         t.status_dirty = true;
-        let mut release = None;
-        if t.moves_pending == 0 {
-            if let Some((s, true)) = t.moving.take() {
-                release = Some(s);
-            }
-        }
         match status {
             MoveStatus::NoError | MoveStatus::NeedFullCheck => {
                 let old = std::mem::replace(&mut t.save_path, save_path.clone());
@@ -1750,13 +1754,7 @@ impl Engine {
                 });
             }
         }
-        if let Some(s) = release {
-            self.disk.async_fence(&s, FenceAction::Release);
-            let t = self.torrent(id).expect("exists");
-            if !keep_metadata && !t.is_active() {
-                t.ti = None;
-            }
-        }
+        self.release_disk_op_storage(id, keep_metadata);
         if status == MoveStatus::NeedFullCheck {
             self.force_recheck(id);
         }
@@ -1764,6 +1762,93 @@ impl Engine {
             self.update_running(id);
         }
     }
+
+    /// Once no move or rename is pending: forgets the storage they ran on, and releases it if
+    /// it was made for them (a stopped torrent's).
+    fn release_disk_op_storage(&mut self, id: TorrentId, keep_metadata: bool) {
+        let Some(t) = self.torrent(id) else { return };
+        if t.moves_pending > 0 || t.renames_pending > 0 {
+            return;
+        }
+        if let Some((s, true)) = t.moving.take() {
+            if !keep_metadata && !t.is_active() {
+                t.ti = None;
+            }
+            self.disk.async_fence(&s, FenceAction::Release);
+        }
+    }
+
+    /// libtorrent `torrent::rename_file`. A running torrent's storage renames the file behind
+    /// the jobs already queued, holding later ones back; a stopped torrent gets a storage just
+    /// for it, as for a move.
+    fn rename_file(&mut self, id: TorrentId, file: u32, name: String) {
+        let fail = |e: &mut Engine, error| e.alert(Alert::FileRenameFailed { id, index: file, error });
+        let Some(t) = self.torrent_ref(id) else { return };
+        if !t.has_metadata() {
+            return fail(self, Error::Unsupported("renaming files before the metadata is known"));
+        }
+        if name.is_empty() {
+            let e = std::io::Error::new(std::io::ErrorKind::InvalidInput, "empty file name");
+            return fail(self, e.into());
+        }
+        if !self.ensure_metadata(id) {
+            return fail(self, Error::Unsupported("renaming files without metadata"));
+        }
+        let t = self.torrent(id).expect("exists");
+        let ti = t.ti.clone().expect("loaded");
+        if file as usize >= ti.num_files() {
+            let e = std::io::Error::new(std::io::ErrorKind::InvalidInput, "no such file in the torrent");
+            return fail(self, e.into());
+        }
+        let storage = match (&t.storage, &t.moving) {
+            (Some(s), _) | (None, Some((s, _))) => s.clone(),
+            (None, None) => {
+                let (save_path, prio) = (t.save_path.clone(), t.file_priority.clone());
+                let s = self.disk.new_storage(save_path, ti, prio);
+                self.storages.insert(s.id, id);
+                self.torrent(id).expect("exists").moving = Some((s.clone(), true));
+                s
+            }
+        };
+        self.torrent(id).expect("exists").renames_pending += 1;
+        self.disk.async_rename_file(&storage, file, name);
+    }
+
+    /// libtorrent `torrent::on_file_renamed`. `resume` starts a torrent whose start waited for
+    /// the rename (not while shutting down).
+    fn on_file_renamed(
+        &mut self,
+        storage: u64,
+        file: u32,
+        name: String,
+        error: Option<(String, Error)>,
+        resume: bool,
+    ) {
+        let Some(&id) = self.storages.get(&storage) else { return };
+        let keep_metadata = self.store.is_none();
+        let Some(t) = self.torrent(id) else { return };
+        t.renames_pending = t.renames_pending.saturating_sub(1);
+        match error {
+            None => {
+                let old_name =
+                    t.ti.as_ref().map(|ti| ti.files().file_path(file as usize, "")).unwrap_or_default();
+                t.file_renamed(file, &name);
+                t.resume_dirty = true;
+                t.status_dirty = true;
+                self.alert(Alert::FileRenamed { id, index: file, old_name, new_name: name });
+            }
+            Some((path, error)) => {
+                let message = format!("cannot rename \"{path}\": {error}");
+                self.out.push(Alert::Log { id: Some(id), message });
+                self.alert(Alert::FileRenameFailed { id, index: file, error });
+            }
+        }
+        self.release_disk_op_storage(id, keep_metadata);
+        if resume {
+            self.update_running(id);
+        }
+    }
+
     // --- Running, pausing, checking -----------------------------------------------------------
 
     fn set_flags(&mut self, id: TorrentId, flags: TorrentFlags, mask: TorrentFlags) {
@@ -1824,7 +1909,7 @@ impl Engine {
 
     fn start_torrent(&mut self, id: TorrentId) {
         // A new storage would see the files mid-move: start once the move is done.
-        if self.torrent_ref(id).is_some_and(|t| t.moves_pending > 0) {
+        if self.torrent_ref(id).is_some_and(|t| t.moves_pending > 0 || t.renames_pending > 0) {
             return;
         }
         if !self.ensure_metadata(id) {
@@ -2369,6 +2454,9 @@ impl Engine {
             Completion::FilePriority { error: None, .. } => {}
             Completion::Moved { storage, status, save_path, error } => {
                 self.on_storage_moved(storage, status, save_path, error, true)
+            }
+            Completion::Renamed { storage, file, name, error } => {
+                self.on_file_renamed(storage, file, name, error, true)
             }
             Completion::Fenced { storage, action, error } => {
                 self.storages.remove(&storage);
@@ -3076,4 +3164,6 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
     t.upload_limit.set_limit(r.upload_rate_limit);
     t.max_connections = r.max_connections;
     t.max_uploads = r.max_uploads;
+    t.renamed_files.extend(r.mapped_files.iter().map(|(&i, n)| (i, n.clone())));
+    t.apply_renames();
 }

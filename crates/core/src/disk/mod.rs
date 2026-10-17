@@ -9,6 +9,8 @@
 // (`unfinished`) are on disk but not in any hash state, so they are read back as the cursor
 // reaches them. File priority changes (libtorrent `set_file_priority`, a fence job) are a
 // barrier: every thread parks the storage's later jobs until the last one has run the change.
+// Renames (libtorrent `rename_file`, a fence job) are barriers too, and keep the renamed layout
+// beside the shared `TorrentInfo` as `posix_storage::m_mapped_files` does.
 
 //! Disk I/O: a thread pool doing file reads, writes, piece hashing and file checking for the
 //! network thread.
@@ -27,7 +29,7 @@ use crate::alert::FileOperation;
 use crate::crypto::Sha1;
 use crate::error::Error;
 use crate::metainfo::TorrentInfo;
-use crate::metainfo::file_storage::FileFlags;
+use crate::metainfo::file_storage::{FileFlags, FileStorage};
 use crate::params::MoveFlags;
 use crate::util::bitfield::Bitfield;
 use file_pool::{FilePool, read_at, write_at};
@@ -47,6 +49,10 @@ pub(crate) struct Storage {
     /// Changed only by a move, which runs with no other job of the storage in flight.
     save_path: RwLock<String>,
     pub info: Arc<TorrentInfo>,
+    /// `info`'s files with the renames done by this storage (libtorrent `m_mapped_files`);
+    /// `None` until a file is renamed. Changed only by a rename, which runs with no other job of
+    /// the storage in flight.
+    mapped: RwLock<Option<Arc<FileStorage>>>,
     /// Set by the network thread to abandon queued and running work (checks, hashing).
     pub abort: AtomicBool,
     files: Mutex<FileState>,
@@ -74,16 +80,25 @@ impl Storage {
         priority.resize(n.max(priority.len()), DEFAULT_PRIORITY);
         let files = Mutex::new(FileState { priority, use_partfile: vec![true; n], part: None });
         let save_path = RwLock::new(save_path);
-        Storage { id, save_path, info, abort: AtomicBool::new(false), files, part_files }
+        let mapped = RwLock::new(None);
+        Storage { id, save_path, info, mapped, abort: AtomicBool::new(false), files, part_files }
     }
 
     pub fn save_path(&self) -> String {
         self.save_path.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
+    /// The renamed layout, if a file was renamed (libtorrent `posix_storage::files()`).
+    fn mapped(&self) -> Option<Arc<FileStorage>> {
+        self.mapped.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
     fn file_path(&self, file: usize) -> PathBuf {
         let save_path = self.save_path.read().unwrap_or_else(|e| e.into_inner());
-        PathBuf::from(self.info.files().file_path(file, &save_path))
+        match &*self.mapped.read().unwrap_or_else(|e| e.into_inner()) {
+            Some(fs) => PathBuf::from(fs.file_path(file, &save_path)),
+            None => PathBuf::from(self.info.files().file_path(file, &save_path)),
+        }
     }
 
     fn skip_file(&self, file: usize) -> bool {
@@ -209,6 +224,7 @@ struct Barrier {
 enum BarrierAction {
     FilePriority(Vec<u8>),
     Move { path: String, flags: MoveFlags },
+    Rename { file: u32, name: String },
 }
 
 /// libtorrent `status_t`, the values `move_storage` returns.
@@ -300,6 +316,14 @@ pub(crate) enum Completion {
         status: MoveStatus,
         save_path: String,
         error: Option<MoveError>,
+    },
+    /// Answer to [`DiskIo::async_rename_file`]: file `file` is stored as `name` unless there
+    /// is an error (the path it is about, and the error).
+    Renamed {
+        storage: u64,
+        file: u32,
+        name: String,
+        error: Option<(String, Error)>,
     },
 }
 
@@ -452,6 +476,13 @@ impl DiskIo {
     /// [`Completion::Moved`].
     pub fn async_move_storage(&mut self, storage: &Arc<Storage>, path: String, flags: MoveFlags) {
         self.barrier(storage, BarrierAction::Move { path, flags });
+    }
+
+    /// Renames file `file` to `name` (relative to the save path, or absolute) after every job
+    /// queued so far for `storage`, and before any queued later (libtorrent `async_rename_file`,
+    /// a fence job). Answered by [`Completion::Renamed`].
+    pub fn async_rename_file(&mut self, storage: &Arc<Storage>, file: u32, name: String) {
+        self.barrier(storage, BarrierAction::Rename { file, name });
     }
 
     fn barrier(&mut self, storage: &Arc<Storage>, action: BarrierAction) {
@@ -616,6 +647,11 @@ impl Worker {
                     BarrierAction::Move { path, flags } => {
                         let (status, save_path, error) = move_storage(&storage, ctx, path, *flags);
                         ctx.send(Completion::Moved { storage: storage.id, status, save_path, error });
+                    }
+                    BarrierAction::Rename { file, name } => {
+                        let error = rename_file(&storage, ctx, *file as usize, name).err();
+                        let (file, name) = (*file, name.clone());
+                        ctx.send(Completion::Renamed { storage: storage.id, file, name, error });
                     }
                 }
                 for (i, tx) in ctx.queues.get().into_iter().flatten().enumerate() {
@@ -1052,6 +1088,46 @@ fn is_not_found<T>(r: io::Result<T>) -> bool {
     matches!(r, Err(e) if e.kind() == io::ErrorKind::NotFound)
 }
 
+/// libtorrent `posix_storage::rename_file`: renames the file if it is on disk (making the
+/// directories the new name lands in), then uses the new name for every later job. A file not
+/// downloaded yet only changes its name. Runs with no other job of `storage` in flight.
+fn rename_file(storage: &Storage, ctx: &Ctx, file: usize, name: &str) -> Result<(), (String, Error)> {
+    let fs = storage.info.files();
+    if file >= fs.num_files() {
+        let e = io::Error::new(io::ErrorKind::InvalidInput, "no such file in the torrent");
+        return Err((String::new(), e.into()));
+    }
+    let old = storage.file_path(file);
+    let fail = |path: &Path, e: io::Error| Err((path.to_string_lossy().into_owned(), Error::from(e)));
+    match old.try_exists() {
+        Ok(true) => {
+            let new = if crate::util::path::is_complete(name) {
+                PathBuf::from(name)
+            } else {
+                PathBuf::from(storage.save_path()).join(name)
+            };
+            if let Some(dir) = new.parent().filter(|d| !d.as_os_str().is_empty()) {
+                if let Err(e) = std::fs::create_dir_all(dir) {
+                    return fail(dir, e);
+                }
+            }
+            // Open files cannot be renamed on Windows.
+            ctx.pool.release(storage.id);
+            match std::fs::rename(&old, &new) {
+                Ok(()) => {}
+                Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) => return fail(&old, e),
+            }
+        }
+        Ok(false) => {}
+        Err(e) => return fail(&old, e),
+    }
+    let mut mapped = storage.mapped.write().unwrap_or_else(|e| e.into_inner());
+    let files = mapped.get_or_insert_with(|| Arc::new(fs.clone()));
+    Arc::make_mut(files).rename_file(file, name);
+    Ok(())
+}
+
 /// libtorrent `posix_storage::move_storage` and `aux::move_storage`: moves every file (rename,
 /// or copy and delete across volumes) and the part file to `dest`, rolls the renames back on
 /// an error, then removes the directories left empty. Runs with no other job of `storage` in
@@ -1064,7 +1140,8 @@ fn move_storage(
 ) -> (MoveStatus, String, Option<MoveError>) {
     // Open files cannot be renamed on Windows (libtorrent `mmap_storage` releases them too).
     ctx.pool.release(storage.id);
-    let fs = storage.info.files();
+    let mapped = storage.mapped();
+    let fs = mapped.as_deref().unwrap_or(storage.info.files());
     let save_path = storage.save_path();
     let new_save_path = complete(dest);
     let fail = |status, file: String, operation, e: io::Error| {
@@ -1727,6 +1804,72 @@ pub(crate) mod tests {
 
     fn s(p: &Path) -> String {
         p.to_string_lossy().into_owned()
+    }
+
+    fn renamed(rx: &mpsc::Receiver<Completion>) -> (u32, String, Option<(String, Error)>) {
+        loop {
+            match next(rx) {
+                Completion::Renamed { file, name, error, .. } => break (file, name, error),
+                Completion::Write { error: None, .. } | Completion::Hashed { passed: true, .. } => {}
+                c => panic!("unexpected {c:?}"),
+            }
+        }
+    }
+
+    #[test]
+    fn rename_file_on_disk_then_read_and_move() {
+        // test_torrent.cpp `test_rename_file` / test_storage.cpp's rename cases, on one storage.
+        let mut r = move_rig("rename", Vec::new());
+        let save = r.dir.join("save");
+        // A relative name lands under the save path, directories made; the file keeps its data.
+        r.disk.async_rename_file(&r.storage, 1, "test/renamed/two.tmp".into());
+        assert_eq!(renamed(&r.rx), (1, "test/renamed/two.tmp".into(), None));
+        assert!(!save.join("test/folder1/test2.tmp").exists());
+        assert_eq!(std::fs::read(save.join("test/renamed/two.tmp")).unwrap(), r.contents[1]);
+        // An absolute name, and a name outside the torrent's folder.
+        let abs = r.dir.join("elsewhere/one.tmp");
+        r.disk.async_rename_file(&r.storage, 0, s(&abs));
+        assert!(renamed(&r.rx).2.is_none());
+        assert_eq!(std::fs::read(&abs).unwrap(), r.contents[0]);
+        r.disk.async_rename_file(&r.storage, 4, "five.tmp".into());
+        assert!(renamed(&r.rx).2.is_none());
+        assert_eq!(std::fs::read(save.join("five.tmp")).unwrap(), r.contents[4]);
+
+        // Later jobs use the new names: file 1 starts at piece 2.
+        r.disk.async_read(&r.storage, 2, 0, BLOCK_SIZE, 1);
+        match next(&r.rx) {
+            Completion::Read { result: Ok(data), .. } => assert_eq!(data, r.contents[1][..16384]),
+            c => panic!("unexpected {c:?}"),
+        }
+        r.disk.async_check(&r.storage, CheckMode::Full);
+        assert!(checked(&r.rx).have.all_set());
+
+        // A move takes the renamed relative files along and leaves the absolute one.
+        let new = r.dir.join("save2");
+        r.disk.async_move_storage(&r.storage, s(&new), MoveFlags::AlwaysReplaceFiles);
+        assert_eq!(moved(&r.rx).0, MoveStatus::NoError);
+        assert_eq!(std::fs::read(new.join("test/renamed/two.tmp")).unwrap(), r.contents[1]);
+        assert_eq!(std::fs::read(new.join("five.tmp")).unwrap(), r.contents[4]);
+        assert_eq!(std::fs::read(&abs).unwrap(), r.contents[0]);
+        assert!(!save.join("test/renamed").exists(), "emptied directories are removed");
+
+        // A file that is not on disk only changes its name.
+        std::fs::remove_file(new.join("five.tmp")).unwrap();
+        r.disk.async_rename_file(&r.storage, 4, "test/later.tmp".into());
+        assert!(renamed(&r.rx).2.is_none());
+        assert!(!new.join("test/later.tmp").exists());
+
+        // A directory that cannot be made fails, and the name stays.
+        std::fs::write(new.join("blocker"), b"x").unwrap();
+        r.disk.async_rename_file(&r.storage, 1, "blocker/two.tmp".into());
+        let (_, _, error) = renamed(&r.rx);
+        let (path, _) = error.expect("an error");
+        assert!(path.ends_with("blocker"), "{path}");
+        assert_eq!(std::fs::read(new.join("test/renamed/two.tmp")).unwrap(), r.contents[1]);
+        r.disk.async_rename_file(&r.storage, 99, "x".into());
+        assert!(renamed(&r.rx).2.is_some());
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
     }
 
     #[test]

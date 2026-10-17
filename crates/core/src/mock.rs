@@ -290,6 +290,11 @@ impl Mock {
                     t.dirty = true;
                 }
             }
+            Command::RenameFile(id, index, new_name) => {
+                if self.get(id).is_some() {
+                    self.out.push(Alert::FileRenamed { id, index, old_name: String::new(), new_name });
+                }
+            }
             Command::MoveStorage(id, path, _) => {
                 if let Some(t) = self.get(id) {
                     let old = std::mem::replace(&mut t.st.save_path, path.clone());

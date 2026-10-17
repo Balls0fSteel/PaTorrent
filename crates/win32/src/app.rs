@@ -1280,6 +1280,14 @@ unsafe fn on_alerts(hwnd: HWND) {
                     a.handle.post_torrent_updates();
                     lists_changed = true;
                 }
+                Alert::FileRenamed { id, .. } | Alert::FileRenameFailed { id, .. } => {
+                    let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
+                    a.detail.push_log(format!("{} {name}: {}", now_hms(), alert.message()));
+                    if a.detail.id == Some(id) {
+                        a.handle.torrent(id).post_file_list();
+                    }
+                    lists_changed = true;
+                }
                 Alert::PeerInfo { id, peers } if a.detail.id == Some(id) => {
                     a.detail.peers = peers;
                     lists_changed = true;
@@ -2251,7 +2259,7 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
         let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
         p.flags = TorrentFlags::DEFAULT;
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
-        choice.apply_to(&mut p);
+        choice.apply_to(&ti, &mut p);
         a.handle.add_torrent(p);
     });
 }

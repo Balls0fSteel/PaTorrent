@@ -479,6 +479,38 @@ fn torrent_lifecycle_and_maindata_diffs() {
         std::thread::sleep(Duration::from_millis(50));
     }
 
+    // renameFile / renameFolder: refused names, then a file and the torrent's folder
+    let rename = |what: &str, old: &str, new: &str| {
+        let form = format!("hash={hash}&oldPath={}&newPath={}", enc(old), enc(new));
+        t.post(&sid, &format!("/api/v2/torrents/{what}"), &form).status
+    };
+    let names = || -> Vec<String> {
+        let Json::Arr(f) = t.get(&sid, &format!("/api/v2/torrents/files?hash={hash}")).json() else {
+            panic!()
+        };
+        f.iter().map(|x| s(x.get("name")).to_owned()).collect()
+    };
+    let wait_names = |want: [&str; 2]| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while names() != want {
+            assert!(Instant::now() < deadline, "rename not applied: {:?}", names());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+    assert_eq!(t.post(&sid, "/api/v2/torrents/renameFile", &format!("hash={hash}&oldPath=x")).status, 400);
+    assert_eq!(rename("renameFile", "webui-test/b.bin", "webui-test/../b.bin"), 409);
+    assert_eq!(rename("renameFile", "webui-test/b.bin", "/abs/b.bin"), 409);
+    assert_eq!(rename("renameFile", "webui-test/nope.bin", "webui-test/c.bin"), 409);
+    assert_eq!(rename("renameFile", "webui-test/b.bin", "webui-test/a.bin"), 409);
+    assert_eq!(t.get(&sid, &format!("/api/v2/torrents/renameFile?hash={hash}")).status, 405);
+    assert_eq!(rename("renameFile", "webui-test/b.bin", "webui-test/sub/b2.bin"), 200);
+    wait_names(["webui-test/a.bin", "webui-test/sub/b2.bin"]);
+    assert_eq!(rename("renameFolder", "webui-test/nope", "x"), 409);
+    assert_eq!(rename("renameFolder", "webui-test", "renamed-root"), 200);
+    wait_names(["renamed-root/a.bin", "renamed-root/sub/b2.bin"]);
+    assert_eq!(rename("renameFolder", "renamed-root/sub", "renamed-root/deeper/sub"), 200);
+    wait_names(["renamed-root/a.bin", "renamed-root/deeper/sub/b2.bin"]);
+
     // torrents/info parameters
     let all = t
         .get(&sid, "/api/v2/torrents/info?filter=all&category=tv&sort=name&reverse=true&limit=5&offset=0")

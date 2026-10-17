@@ -37,6 +37,8 @@ pub(crate) struct ResumeData {
     /// BEP 16 (libtorrent `super_seeding`).
     pub super_seeding: bool,
     pub file_priority: Vec<u8>,
+    /// Files stored under another name (libtorrent `mapped_files`).
+    pub mapped_files: std::collections::BTreeMap<u32, String>,
     /// Tracker URLs per tier.
     pub trackers: Vec<Vec<String>>,
     pub peers: Vec<SocketAddr>,
@@ -103,6 +105,12 @@ impl ResumeData {
         if !self.file_priority.is_empty() {
             *e.key("file_priority") =
                 Entry::List(self.file_priority.iter().map(|&p| int(p as i64)).collect());
+        }
+        if let Some(&last) = self.mapped_files.keys().next_back() {
+            // libtorrent `write_resume_data`: one string per file up to the last renamed one,
+            // empty for files keeping their name.
+            let list = (0..=last).map(|i| s(self.mapped_files.get(&i).map_or("", String::as_str))).collect();
+            *e.key("mapped_files") = Entry::List(list);
         }
         *e.key("trackers") = Entry::List(
             self.trackers.iter().map(|tier| Entry::List(tier.iter().map(|u| s(u)).collect())).collect(),
@@ -225,6 +233,13 @@ impl ResumeData {
             r.file_priority =
                 l.list_iter().map(|n| n.try_int_value().unwrap_or(4).clamp(0, 7) as u8).collect();
         }
+        if let Some(l) = root.dict_find_list("mapped_files") {
+            for (i, n) in l.list_iter().enumerate() {
+                if let Some(name) = n.str_value().filter(|n| !n.is_empty()) {
+                    r.mapped_files.insert(i as u32, name.to_owned());
+                }
+            }
+        }
         if let Some(l) = root.dict_find_list("trackers") {
             for tier in l.list_iter().filter(|t| t.is_list()) {
                 let urls: Vec<String> =
@@ -280,6 +295,7 @@ mod tests {
             auto_managed: true,
             super_seeding: true,
             file_priority: vec![4, 0, 7],
+            mapped_files: [(1, "x/renamed.bin".to_owned()), (3, "/abs/y".to_owned())].into(),
             trackers: vec![vec!["http://a/announce".into()], vec!["udp://b:1".into(), "udp://c:2".into()]],
             peers: vec!["1.2.3.4:5".parse().unwrap(), "[::1]:6".parse().unwrap()],
             url_seeds: vec!["http://w/a/".into(), "https://w/b".into()],
@@ -299,6 +315,10 @@ mod tests {
         let root = doc.root().unwrap();
         assert_eq!(root.dict_find_string_value("pieces").unwrap(), &[0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
         assert_eq!(root.dict_find_int_value("max_uploads"), Some(-1));
+        // libtorrent's layout: one string per file up to the last renamed one.
+        let mapped = root.dict_find_list("mapped_files").unwrap();
+        let names: Vec<_> = mapped.list_iter().map(|n| n.str_value().unwrap()).collect();
+        assert_eq!(names, ["", "x/renamed.bin", "", "/abs/y"]);
         let u = root.dict_find_list("unfinished").unwrap().list_at(0).unwrap();
         assert_eq!(u.dict_find_int_value("piece"), Some(4));
         assert_eq!(u.dict_find_string_value("bitmask").unwrap(), &[0b1010_0000, 0x01]);

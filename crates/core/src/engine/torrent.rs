@@ -7,6 +7,7 @@
 
 //! One torrent's state.
 
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -50,6 +51,11 @@ pub(crate) struct Torrent {
     /// (it is released when the last move is done).
     pub moving: Option<(Arc<Storage>, bool)>,
     pub moves_pending: u32,
+    /// `rename_file` calls on the disk thread; a stopped torrent's renames use `moving` too.
+    pub renames_pending: u32,
+    /// Files stored under another name (libtorrent `renamed_files` / `mapped_files`), applied to
+    /// `ti` whenever it is loaded.
+    pub renamed_files: BTreeMap<u32, String>,
     /// Running without metadata (a magnet): the info dictionary being fetched from peers.
     pub fetch: Option<MetadataFetch>,
     /// BEP 11: the peer diff sent to every peer once a minute.
@@ -128,6 +134,8 @@ impl Torrent {
             storage: None,
             moving: None,
             moves_pending: 0,
+            renames_pending: 0,
+            renamed_files: BTreeMap::new(),
             fetch: None,
             pex: TorrentPex::default(),
             smart_ban: SmartBan::default(),
@@ -180,6 +188,39 @@ impl Torrent {
             self.file_priority.resize(n, DownloadPriority::NORMAL.0);
         }
         self.ti = Some(ti);
+        self.apply_renames();
+    }
+
+    /// Gives `ti` the names in `renamed_files` (libtorrent `torrent::init`, "MAPPED FILES").
+    /// Indices past the last file are ignored.
+    pub fn apply_renames(&mut self) {
+        let Some(ti) = &mut self.ti else { return };
+        let n = ti.num_files();
+        let fs = ti.files();
+        let todo: Vec<_> = self
+            .renamed_files
+            .iter()
+            .filter(|&(&i, name)| (i as usize) < n && fs.file_path(i as usize, "") != *name)
+            .collect();
+        if todo.is_empty() {
+            return;
+        }
+        let ti = Arc::make_mut(ti);
+        for (&i, name) in todo {
+            ti.rename_file(i as usize, name);
+        }
+    }
+
+    /// File `file` is now stored as `name`: records it (dropping the entry when it is the
+    /// metadata's own name again) and renames it in `ti`.
+    pub fn file_renamed(&mut self, file: u32, name: &str) {
+        let Some(ti) = &mut self.ti else { return };
+        if ti.orig_files().file_path(file as usize, "") == name {
+            self.renamed_files.remove(&file);
+        } else {
+            self.renamed_files.insert(file, name.to_owned());
+        }
+        Arc::make_mut(ti).rename_file(file as usize, name);
     }
 
     /// Adds trackers, keeping the list sorted by tier and free of duplicates.
@@ -435,6 +476,7 @@ impl Torrent {
             sequential_download: self.flags.contains(TorrentFlags::SEQUENTIAL_DOWNLOAD),
             super_seeding: self.flags.contains(TorrentFlags::SUPER_SEEDING),
             file_priority: self.file_priority.clone(),
+            mapped_files: self.renamed_files.clone(),
             trackers,
             peers: self.peer_list.resume_peers(100),
             url_seeds: self.web_seeds.resume_urls(WebSeedKind::UrlSeed),

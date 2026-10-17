@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-17_194329_1792259009
+Last updated: 2026-10-17_200844_1792260524
 
 ## Vision
 
@@ -198,7 +198,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
   - [ ] placeholders still disabled: Scheduler, Web UI (Phase 6), language, file association / autostart, .torrent folders (store / auto-load), seeding goal
 - [x] Add-torrent dialog: save folder, file tree with priorities, label, skip hash check, start/stop (2026-10-17_163655_1792247815): µTorrent 2.2.1's Add New Torrent for `.torrent` files from File > Add Torrent, drag and drop, the command line, a second instance's arguments and Add Torrent from URL (http/https); Save In with the recent folders (`add.recent_dirs`), Name, Torrent Contents (name, comment, size with free disk space, date), a virtual file tree with check boxes and priorities, Select All / None, Skip hash check, Start torrent, Add to top of queue, Label; Preferences > UI Settings "Show a window that displays the files inside the torrent" (`ui.show_add_dialog`). Model in `patorrent_frontend::add`
   - [ ] magnets: still added directly (no file list before the metadata arrives). Showing the dialog once metadata is known needs either an engine "fetch metadata only" add (libtorrent: add paused with `stop_when_ready` / qBittorrent's metadata-download session) plus a way to apply the save path afterwards (move storage), or a GUI-side wait on `MetadataReceived` with `prioritize_files` and `move_storage`
-  - [ ] Name renames only the list entry: the engine keeps the torrent's own folder name on disk. A real rename needs an engine API (libtorrent `add_torrent_params::renamed_files` or `torrent_handle::rename_file`); not in `crates/core` yet
+  - [x] Name renames the torrent's folder (or its only file) on disk through `AddTorrentParams::renamed_files` (2026-10-17_200844_1792260524); `add::renamed_root` builds the renames, so GTK gets the same
 - [ ] Create New Torrent: piece-size auto, trackers, web seeds, private flag, progress
   - [x] engine and nox, v1 (2026-10-17_114537_1792230337): `core::metainfo::create_torrent` (libtorrent `create_torrent`, `add_files`, `set_piece_hashes`), `make_magnet_uri_from_info`, `patorrent-nox create`
   - [x] the Win32 dialog (2026-10-17_140012_1792238412): File > Create New Torrent / Ctrl+N, µTorrent 2.2.1 layout, hashing on a worker thread, Start seeding
@@ -219,7 +219,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [x] Embedded HTTP/1.1 server (std threads beside the engine, not on its reactor; CHANGELOG 2026-10-17_164324_1792248204); authentication (SID cookie, PBKDF2 password hash, failed-login ban), CSRF and host-header protections
   - [ ] optional TLS
 - [x] API (D10) with incremental `sync/maindata` diffs: the qBittorrent WebAPI 2.11.2 subset in CHANGELOG 2026-10-17_164324_1792248204
-  - [ ] still missing: tags, RSS, search, logs, peers (`sync/torrentPeers`), rename / move / setLocation (`TorrentHandle::move_storage` exists now), trackers editing, queue positions, share limits, automatic torrent management, cookies
+  - [ ] still missing: tags, RSS, search, logs, peers (`sync/torrentPeers`), move / setLocation (`TorrentHandle::move_storage` exists now); `renameFile` / `renameFolder` are in (2026-10-17_200844_1792260524), trackers editing, queue positions, share limits, automatic torrent management, cookies
 - [x] Small dependency-free Web UI, embedded in the binary: a first page (login, list, add by link, start / stop / remove)
   - [ ] details panes, file priorities, preferences, drag-and-drop .torrent upload
 - [ ] Optional: either GUI can remote-control a nox instance
@@ -305,13 +305,20 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - one UDP socket per family: with several device-bound addresses of a family, uTP and the DHT use only one; wildcards are never split into per-address sockets / DHT nodes (BEP 45 multi-homing).
   - with nothing bound (device-only setup while the device is gone) trackers still get the old port; uTP connections on a closed UDP socket are not moved and time out.
   - SSL listen entries (`...s`) are refused with `ListenFailed` (no SSL torrents).
+- Rename follow-ups (CHANGELOG 2026-10-17_200844_1792260524):
+  - not run on the Linux and FreeBSD VMs: the auto-mode classifier refused the remote copy (`rm -rf ~/patorrent` plus `tar` over ssh). Windows tests and the Linux-target clippy are green; run `cargo test --workspace` on both VMs.
+  - the Win32 Files tab has no Rename item (µTorrent 2.2.1 had none either; 3.x added one); `TorrentHandle::rename_file` is ready for it.
+  - renaming before the metadata is known fails (`FileRenameFailed`); `AddTorrentParams::renamed_files` does work for magnets, applied when the metadata arrives.
+  - a rename onto an existing file replaces it (`std::fs::rename`, as libtorrent's `rename`); nox's `renameFile` refuses names already used by the torrent, the engine does not check.
+  - `mapped_files` keeps names verbatim; a name with `\` on Windows is stored as given (FileStorage splits on `/` only), so frontends should pass `/` separators.
+  - `torrents/renameFile` / `renameFolder` answer 200 before the disk rename finishes (qBittorrent does too); a failure shows only in nox's console.
 - Move storage follow-ups (CHANGELOG 2026-10-17_163533_1792247733):
   - ~~Win32: Preferences > Directories "Move completed downloads" through `MoveCompleted`, Advanced > Set Download Location, `StorageMoved` / `StorageMovedFailed` in the Logger tab~~: done (2026-10-17_193944_1792258784), hidden-dialog tests only; not clicked through by hand. nox's Web API (Phase 6) still lacks `setLocation` for the same call.
-  - Win32 Set Download Location: µTorrent 2.2.1 showed a Save As box (file name included) for single-file torrents; ours is a folder picker for every torrent, so it cannot rename the file (needs `rename_file`). It is offered for running torrents too (the engine moves running torrents); greyed only while a selected torrent is already moving.
+  - Win32 Set Download Location: µTorrent 2.2.1 showed a Save As box (file name included) for single-file torrents; ours is a folder picker for every torrent, so it cannot rename the file (`rename_file` exists now; a Save As box for single-file torrents could move and rename together). It is offered for running torrents too (the engine moves running torrents); greyed only while a selected torrent is already moving.
   - "Move completed downloads" also moves a torrent that is added with its data already complete (the check posts `TorrentFinished`, as libtorrent's does); restored seeds are not moved. The move-on-complete folder is not offered as a Save In choice in the Add New Torrent dialog.
   - a move across real volumes on Windows (another drive letter) has not been tried; the copy path is tested on the Linux and FreeBSD VMs only (tmpfs / ZFS dataset to the target directory).
   - big cross-volume copies run on one disk thread and hold the torrent's other disk jobs back until they finish (libtorrent the same); shutdown waits for a move in flight.
-  - `rename_file` (libtorrent `torrent_handle::rename_file`, µTorrent's file rename in the Files tab) is not ported; it would be another `BarrierAction`.
+  - ~~`rename_file` is not ported~~: done (2026-10-17_200844_1792260524), see the rename follow-ups.
 - Super-seeding follow-ups (CHANGELOG 2026-10-17_155425_1792245265):
   - the "[S] Seeding" status text follows µTorrent's "[F]" style; the exact µTorrent 2.2.1 string was not checked against the real client.
   - µTorrent's Advanced submenu has more items (Set Destination Name, Reset Bans, Clear Peer List...); Set Download Location... (2026-10-17_193944_1792258784) and Initial Seeding are there so far.

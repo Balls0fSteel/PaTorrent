@@ -3,6 +3,8 @@
 //! many thousands of files open at once), the recent save folders, and what the user chose,
 //! turned into [`AddTorrentParams`]. Toolkit-independent, so the GTK dialog can share it.
 
+use std::collections::BTreeMap;
+
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::{AddTorrentParams, DownloadPriority, TorrentFlags};
 
@@ -409,10 +411,12 @@ pub struct AddChoice {
 }
 
 impl AddChoice {
-    /// Fills in the parts of `p` the dialog decides (after the Preferences' defaults).
-    pub fn apply_to(&self, p: &mut AddTorrentParams) {
+    /// Fills in the parts of `p` the dialog decides (after the Preferences' defaults). A new
+    /// name renames the torrent's folder (or its only file) on disk too.
+    pub fn apply_to(&self, ti: &TorrentInfo, p: &mut AddTorrentParams) {
         p.save_path = self.save_path.clone();
         p.name = self.name.clone();
+        p.renamed_files = self.name.as_deref().map(|n| renamed_root(ti, n)).unwrap_or_default();
         p.file_priorities = self.file_priorities.clone();
         if self.start {
             p.flags |= TorrentFlags::AUTO_MANAGED | TorrentFlags::PAUSED;
@@ -422,6 +426,29 @@ impl AddChoice {
         }
         p.flags.set(TorrentFlags::SEED_MODE, self.skip_hash_check);
     }
+}
+
+/// The Add New Torrent dialog's "Name" as file renames (libtorrent `renamed_files`): a
+/// multi-file torrent's folder, or a single-file torrent's file, stored under `name`. Empty
+/// when `name` is the torrent's own or cannot be one path component (a separator, `.`, `..`).
+pub fn renamed_root(ti: &TorrentInfo, name: &str) -> BTreeMap<u32, String> {
+    let fs = ti.files();
+    let (name, root) = (name.trim(), fs.name());
+    let mut out = BTreeMap::new();
+    if name.is_empty() || name == root || name == "." || name == ".." || name.contains(['/', '\\']) {
+        return out;
+    }
+    for i in 0..fs.num_files() {
+        let path = fs.file_path(i, "");
+        let renamed = match path.strip_prefix(root) {
+            Some("") => name.to_owned(),
+            Some(rest) if rest.starts_with('/') => format!("{name}{rest}"),
+            // absolute or outside the torrent's folder: nothing to rename
+            _ => continue,
+        };
+        out.insert(i as u32, renamed);
+    }
+    out
 }
 
 /// How many save folders the Save In list remembers.
@@ -624,17 +651,39 @@ mod tests {
             top_of_queue: true,
             label: "Linux".into(),
         };
-        c.apply_to(&mut params);
+        let multi = b"d4:infod5:filesld6:lengthi3e4:pathl1:x5:y.txteed6:lengthi4e4:pathl5:z.txteee4:name4:root12:piece lengthi16384e6:pieces20:aaaaaaaaaaaaaaaaaaaaee";
+        let ti = TorrentInfo::from_bytes(multi).unwrap();
+        c.apply_to(&ti, &mut params);
         assert_eq!(params.save_path, r"D:\in");
         assert_eq!(params.name.as_deref(), Some("New"));
+        let renamed: Vec<_> = params.renamed_files.values().map(String::as_str).collect();
+        assert_eq!(renamed, ["New/x/y.txt", "New/z.txt"]);
         assert_eq!(params.file_priorities, c.file_priorities);
         assert!(params.flags.contains(TorrentFlags::PAUSED | TorrentFlags::SEED_MODE));
         assert!(!params.flags.contains(TorrentFlags::AUTO_MANAGED));
         c.start = true;
         c.skip_hash_check = false;
-        c.apply_to(&mut params);
+        c.name = None;
+        c.apply_to(&ti, &mut params);
+        assert!(params.renamed_files.is_empty());
         assert!(params.flags.contains(TorrentFlags::DEFAULT));
         assert!(!params.flags.contains(TorrentFlags::SEED_MODE));
+    }
+
+    #[test]
+    fn a_new_name_renames_the_folder_or_the_file() {
+        let single =
+            b"d4:infod6:lengthi5e4:name5:a.iso12:piece lengthi16384e6:pieces20:aaaaaaaaaaaaaaaaaaaaee";
+        let ti = TorrentInfo::from_bytes(single).unwrap();
+        assert_eq!(renamed_root(&ti, " b.iso "), BTreeMap::from([(0, "b.iso".to_owned())]));
+        for same_or_bad in ["a.iso", "", "..", "x/y", r"x\y"] {
+            assert!(renamed_root(&ti, same_or_bad).is_empty(), "{same_or_bad}");
+        }
+        let multi = b"d4:infod5:filesld6:lengthi3e4:pathl1:x5:y.txteed6:lengthi4e4:pathl5:z.txteee4:name4:root12:piece lengthi16384e6:pieces20:aaaaaaaaaaaaaaaaaaaaee";
+        let ti = TorrentInfo::from_bytes(multi).unwrap();
+        let r = renamed_root(&ti, "Other");
+        assert_eq!(r, BTreeMap::from([(0, "Other/x/y.txt".to_owned()), (1, "Other/z.txt".to_owned())]));
+        assert!(renamed_root(&ti, "root").is_empty());
     }
 
     #[test]

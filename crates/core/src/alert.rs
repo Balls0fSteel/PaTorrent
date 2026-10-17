@@ -103,6 +103,20 @@ pub enum Alert {
         file: String,
         operation: FileOperation,
     },
+    /// `rename_file` finished: file `index` is now stored as `new_name` (libtorrent
+    /// `file_renamed_alert`). Both names are relative to the save path unless absolute.
+    FileRenamed {
+        id: TorrentId,
+        index: u32,
+        old_name: String,
+        new_name: String,
+    },
+    /// `rename_file` failed; the file keeps its name (libtorrent `file_rename_failed_alert`).
+    FileRenameFailed {
+        id: TorrentId,
+        index: u32,
+        error: Error,
+    },
     StateChanged {
         id: TorrentId,
         state: TorrentState,
@@ -298,6 +312,8 @@ impl Alert {
             | TorrentDeleteFailed { .. }
             | StorageMoved { .. }
             | StorageMovedFailed { .. }
+            | FileRenamed { .. }
+            | FileRenameFailed { .. }
             | ScrapeReply { .. }
             | ListenSucceeded { .. }
             | ListenFailed { .. }
@@ -348,6 +364,8 @@ impl Alert {
             | TorrentDeleteFailed { id, .. }
             | StorageMoved { id, .. }
             | StorageMovedFailed { id, .. }
+            | FileRenamed { id, .. }
+            | FileRenameFailed { id, .. }
             | StateChanged { id, .. }
             | TorrentPaused { id }
             | TorrentResumed { id }
@@ -392,6 +410,10 @@ impl Alert {
             StorageMovedFailed { error, file, operation, .. } => {
                 write!(s, "storage move failed. {operation:?} ({file}): {error}")
             }
+            FileRenamed { index, old_name, new_name, .. } => {
+                write!(s, "file {index} renamed from \"{old_name}\" to \"{new_name}\"")
+            }
+            FileRenameFailed { index, error, .. } => write!(s, "failed to rename file {index}: {error}"),
             StateChanged { state, prev_state, .. } => write!(s, "state changed: {prev_state:?} -> {state:?}"),
             TorrentPaused { .. } => write!(s, "paused"),
             TorrentResumed { .. } => write!(s, "resumed"),

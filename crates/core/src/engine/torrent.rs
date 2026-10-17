@@ -211,6 +211,12 @@ impl Torrent {
         self.num_pieces > 0 && self.num_have() == self.num_pieces
     }
 
+    /// BEP 16 super seeding is in effect: the flag is set and we are a checked seed
+    /// (libtorrent keeps `m_super_seeding` only for seeds, see `files_checked`).
+    pub fn super_seeding(&self) -> bool {
+        self.flags.contains(TorrentFlags::SUPER_SEEDING) && !self.checking && self.is_seed()
+    }
+
     /// Every wanted piece is done (libtorrent `is_finished`).
     pub fn is_finished(&self) -> bool {
         match (&self.picker, self.have_bits(), &self.ti) {
@@ -337,6 +343,7 @@ impl Torrent {
             has_metadata: self.has_metadata(),
             is_finished: finished,
             is_seeding: self.is_seed(),
+            super_seeding: self.super_seeding(),
             moving_storage: false,
             progress_ppm,
             queue_position: self.queue_position,
@@ -419,6 +426,7 @@ impl Torrent {
             paused: self.is_paused(),
             auto_managed: self.flags.contains(TorrentFlags::AUTO_MANAGED),
             sequential_download: self.flags.contains(TorrentFlags::SEQUENTIAL_DOWNLOAD),
+            super_seeding: self.flags.contains(TorrentFlags::SUPER_SEEDING),
             file_priority: self.file_priority.clone(),
             trackers,
             peers: self.peer_list.resume_peers(100),

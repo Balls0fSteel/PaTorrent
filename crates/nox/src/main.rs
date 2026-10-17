@@ -65,6 +65,8 @@ OPTIONS:
     --state DIR       Session state directory (default: per-user data directory)
     --no-state        Do not load or save any session state
     --seed            After downloading, keep seeding until stopped
+    --super-seed      Super seed (BEP 16, \"initial seeding\") torrents that are complete;
+                      implies --seed
     --seconds N       Stop after N seconds
     --port N          Listen port (default 6881)
     --listen LIST     Listen interfaces, as libtorrent's listen_interfaces: IP:PORT,
@@ -83,6 +85,7 @@ struct Opts {
     state: Option<PathBuf>,
     no_state: bool,
     seed: bool,
+    super_seed: bool,
     seconds: Option<u64>,
     port: Option<u16>,
     listen: Option<String>,
@@ -101,6 +104,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         state: None,
         no_state: false,
         seed: false,
+        super_seed: false,
         seconds: None,
         port: None,
         listen: None,
@@ -123,6 +127,10 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--state" => o.state = Some(value("--state")?.into()),
             "--no-state" => o.no_state = true,
             "--seed" => o.seed = true,
+            "--super-seed" => {
+                o.super_seed = true;
+                o.seed = true;
+            }
             "--verbose" | "-v" => o.verbose = true,
             "--seconds" => o.seconds = Some(num("--seconds", value("--seconds")?)?),
             "--port" => o.port = Some(num("--port", value("--port")?)?),
@@ -271,6 +279,10 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         let mut p = AddTorrentParams::new(source, save.clone());
         // Started right away, outside the queue (µTorrent's "Force Start").
         p.flags = TorrentFlags::APPLY_IP_FILTER;
+        if o.super_seed {
+            // dropped by the engine once the check finds the torrent incomplete
+            p.flags |= TorrentFlags::SUPER_SEEDING;
+        }
         h.add_torrent(p);
         pending += 1;
     }

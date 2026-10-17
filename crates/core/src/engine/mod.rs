@@ -27,6 +27,7 @@ mod pex;
 pub(crate) mod picker;
 mod portmap;
 mod smart_ban;
+mod super_seed;
 pub(crate) mod torrent;
 pub(crate) mod tracker;
 mod upnp;
@@ -1571,6 +1572,16 @@ impl Engine {
         let Some(t) = self.torrent(id) else { return };
         let old = t.flags;
         t.flags = (t.flags & !mask) | (flags & mask);
+        // Super seeding is for seeds only (µTorrent greys "Initial Seeding" out otherwise);
+        // without a known piece set the check waits for `on_checked`.
+        if t.flags.contains(TorrentFlags::SUPER_SEEDING)
+            && !old.contains(TorrentFlags::SUPER_SEEDING)
+            && t.have_bits().is_some()
+            && !t.checking
+            && !t.is_seed()
+        {
+            t.flags.remove(TorrentFlags::SUPER_SEEDING);
+        }
         let new = t.flags;
         if old == new {
             return;
@@ -1594,6 +1605,9 @@ impl Engine {
         }
         if !old.contains(TorrentFlags::APPLY_IP_FILTER) && new.contains(TorrentFlags::APPLY_IP_FILTER) {
             self.ip_filter_updated(id);
+        }
+        if old.contains(TorrentFlags::SUPER_SEEDING) && !new.contains(TorrentFlags::SUPER_SEEDING) {
+            self.superseed_end(id);
         }
         self.update_running(id);
     }
@@ -1801,6 +1815,10 @@ impl Engine {
                 let t = self.torrent(id).expect("exists");
                 t.checked = true;
                 t.checked_pieces = t.num_pieces;
+                // libtorrent `files_checked`: super seeding is turned off for a non-seed.
+                if t.flags.contains(TorrentFlags::SUPER_SEEDING) && !t.is_seed() {
+                    t.flags.remove(TorrentFlags::SUPER_SEEDING);
+                }
                 // Peers kept from the metadata download may be interesting now.
                 t.interest_dirty = true;
                 t.resume_dirty = true;
@@ -2160,6 +2178,8 @@ impl Engine {
     /// A piece we announced is gone (libtorrent `piece_failed` on a predictive piece): every
     /// peer gets a DONT_HAVE, and its outstanding requests for the piece are rejected.
     fn lost_piece(&mut self, id: TorrentId, piece: u32) {
+        // No longer a seed: super-seeded peers get our real piece set.
+        self.superseed_end(id);
         let Some(t) = self.torrent(id) else { return };
         t.interest_dirty = true;
         t.resume_dirty = true;
@@ -2365,6 +2385,7 @@ impl Engine {
                         self.snub(slot);
                     }
                     self.metadata_tick(slot, now);
+                    self.superseed_tick(slot, now);
                     if !checking {
                         if interest_dirty {
                             self.update_interest(slot);
@@ -2787,6 +2808,7 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
     flags.set(TorrentFlags::PAUSED, r.paused);
     flags.set(TorrentFlags::AUTO_MANAGED, r.auto_managed);
     flags.set(TorrentFlags::SEQUENTIAL_DOWNLOAD, r.sequential_download);
+    flags.set(TorrentFlags::SUPER_SEEDING, r.super_seeding);
     flags.insert(TorrentFlags::APPLY_IP_FILTER);
     t.flags = flags;
     if !r.file_priority.is_empty() {

@@ -227,6 +227,7 @@ impl Mock {
                 if let Some(t) = self.get(id) {
                     let was_paused = t.st.flags.contains(TorrentFlags::PAUSED);
                     t.st.flags = (t.st.flags & !mask) | (flags & mask);
+                    t.st.super_seeding = t.st.flags.contains(TorrentFlags::SUPER_SEEDING) && t.st.is_seeding;
                     t.dirty = true;
                     match (was_paused, t.st.flags.contains(TorrentFlags::PAUSED)) {
                         (false, true) => self.out.push(Alert::TorrentPaused { id }),

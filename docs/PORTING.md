@@ -67,6 +67,7 @@ Line counts are libtorrent `.cpp` lines in 2.0.11; headers add roughly 50 % on t
 | `core::net::proxy` | `socks5_stream`, `http_stream.hpp`, `proxy_base`, `proxy_settings` | 1.0k | 5 |
 | `core::net::ip_filter`, `core::engine::ip_filter` | `ip_filter` (+ `ipfilter.dat` and P2P block-list parser, new) | 0.3k | 5 |
 | `core::engine::web_seed`, `core::proto::{web_peer, http_parser}` | `web_peer_connection`, `http_seed_connection`, `web_connection_base`, the web seed parts of `torrent`, the response side of `http_parser` | 2.0k | 5 |
+| `core::engine::super_seed` | the super-seeding parts of `torrent` (`set_super_seeding`, `get_piece_to_super_seed`), `peer_connection` (`superseed_piece`, `incoming_have`, `incoming_request`, `second_tick`) and `bt_peer_connection::write_bitfield` | 0.3k | 5 |
 | `core::disk::part_file` | `part_file`, `posix_part_file` | 0.9k | 5 |
 | `core::metainfo::create_torrent` | `create_torrent` | 1.0k | 5 |
 | `core::crypto::ed25519` | `ed25519/*`, `kademlia/ed25519` | 3.7k | 8 |
@@ -168,3 +169,6 @@ Record each one here with the reason.
 | Web seed IP filter (Phase 5) | a seed whose address the filter blocks is tried (and a `peer_blocked_alert` posted) on every connect attempt, once a second | it waits `urlseed_wait_retry` before the next attempt | no alert flood |
 | Web seed partial files (Phase 5) | a server known to have only some files does not claim pieces overlapping the others; an empty file it lacks clears the piece it sits in | the same, except that empty files are skipped | an empty file has no bytes to serve; clearing its piece could leave a piece no server claims |
 | Web seed Host header (Phase 5) | `Host:` carries the bare host name | the port is added when it is not the scheme's default | HTTP/1.1 virtual hosts on other ports need it |
+| Super seeding switched on mid-run (Phase 5) | `set_super_seeding(true)` only sets the flag: peers that already have our HAVE_ALL / bitfield get every request outside their (empty) offers rejected | only peers that got the super-seeding handshake (`PeerConn::superseed`) are limited to their offers; earlier peers keep our full piece set | rejecting peers that were told we have everything stalls them until the 10 s re-offer |
+| Super seeding off / seeds only (Phase 5) | `set_super_seeding(false)` re-sends the piece set only to peers with an offer left; the flag can be set on a downloading torrent (cleared by the next `files_checked`) | every super-seeded peer gets HAVE_ALL / the bitfield; setting the flag on a checked non-seed is ignored, and losing a piece (`lost_piece`) ends the offers; `strict_super_seeding` (deprecated) is not ported | a downloading torrent would offer pieces it does not have |
+| Repeated piece sets (Phase 5) | a BITFIELD / HAVE_ALL / HAVE_NONE after another one replaces it (`peer_lost` first) | the same; PaTorrent used to close the connection | a super seed that stops sends HAVE_ALL after its HAVE_NONE |

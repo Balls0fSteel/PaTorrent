@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-17_140012_1792238412
+Last updated: 2026-10-17_155425_1792245265
 
 ## Vision
 
@@ -203,7 +203,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
   - [x] IP filter (`ipfilter.dat`, PeerGuardian P2P) and port filter in the engine and nox (2026-10-17_114537_1792230337); the GUI setting comes with Preferences
   - proxies (SOCKS4/5, HTTP)
   - [x] web seeds (BEP 19 `url-list` and magnet `ws=`, BEP 17 `httpseeds`) in the engine (2026-10-17_140012_1792238412)
-  - super-seeding
+  - [x] super-seeding (BEP 16, µTorrent "initial seeding") in the engine, nox (`--super-seed`) and the Win32 context menu (Advanced > Initial Seeding) (2026-10-17_155425_1792245265)
   - part files for skipped files
   - move storage
 - [ ] Localisation infrastructure (string tables)
@@ -273,6 +273,11 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - one UDP socket per family: with several device-bound addresses of a family, uTP and the DHT use only one; wildcards are never split into per-address sockets / DHT nodes (BEP 45 multi-homing).
   - with nothing bound (device-only setup while the device is gone) trackers still get the old port; uTP connections on a closed UDP socket are not moved and time out.
   - SSL listen entries (`...s`) are refused with `ListenFailed` (no SSL torrents).
+- Super-seeding follow-ups (CHANGELOG 2026-10-17_155425_1792245265):
+  - the "[S] Seeding" status text follows µTorrent's "[F]" style; the exact µTorrent 2.2.1 string was not checked against the real client.
+  - µTorrent's Advanced submenu has more items (Set Download Location, Update Tracker, Reset Bans, Clear Peer List...); only Initial Seeding is there so far.
+  - `lt-swarm interop` with a super seed against qBittorrent / Transmission / Deluge leeches has not run: they get HAVE_NONE then HAVE_ALL when it is switched off (libtorrent accepts that; others may not).
+  - libtorrent's deprecated `strict_super_seeding` (re-offer when any peer reports the offered piece) is not ported.
 - Create dialog follow-ups (CHANGELOG 2026-10-17_140012_1792238412): click through it by hand once; possible extras libtorrent supports but µTorrent lacked (source tag, pad files, DHT nodes).
 - Create torrent follow-ups (CHANGELOG 2026-10-17_114537_1792230337):
   - v2 and hybrid creation (BEP 52): `set_hash2`, piece layers, file tree; then the rest of `test_create_torrent.cpp` and `make_magnet_uri` v2 / hybrid.

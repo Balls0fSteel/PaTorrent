@@ -34,6 +34,8 @@ pub(crate) struct ResumeData {
     pub paused: bool,
     pub auto_managed: bool,
     pub sequential_download: bool,
+    /// BEP 16 (libtorrent `super_seeding`).
+    pub super_seeding: bool,
     pub file_priority: Vec<u8>,
     /// Tracker URLs per tier.
     pub trackers: Vec<Vec<String>>,
@@ -97,6 +99,7 @@ impl ResumeData {
         *e.key("paused") = int(self.paused as i64);
         *e.key("auto_managed") = int(self.auto_managed as i64);
         *e.key("sequential_download") = int(self.sequential_download as i64);
+        *e.key("super_seeding") = int(self.super_seeding as i64);
         if !self.file_priority.is_empty() {
             *e.key("file_priority") =
                 Entry::List(self.file_priority.iter().map(|&p| int(p as i64)).collect());
@@ -186,6 +189,7 @@ impl ResumeData {
             paused: int("paused") != 0,
             auto_managed: int("auto_managed") != 0,
             sequential_download: int("sequential_download") != 0,
+            super_seeding: int("super_seeding") != 0,
             upload_rate_limit: opt("upload_rate_limit").unwrap_or(0),
             download_rate_limit: opt("download_rate_limit").unwrap_or(0),
             max_connections: opt("max_connections"),
@@ -274,6 +278,7 @@ mod tests {
             added_time: 1_700_000_000,
             paused: true,
             auto_managed: true,
+            super_seeding: true,
             file_priority: vec![4, 0, 7],
             trackers: vec![vec!["http://a/announce".into()], vec!["udp://b:1".into(), "udp://c:2".into()]],
             peers: vec!["1.2.3.4:5".parse().unwrap(), "[::1]:6".parse().unwrap()],

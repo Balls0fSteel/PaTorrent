@@ -40,6 +40,8 @@ pub fn status_text(st: &TorrentStatus, user_paused: bool) -> String {
     }
     let what = match st.state {
         TorrentState::DownloadingMetadata => "Downloading metadata",
+        // µTorrent marks initial seeding (BEP 16 super seeding) with [S], like [F] for forced.
+        _ if st.super_seeding => "[S] Seeding",
         _ if st.is_finished => "Seeding",
         _ => "Downloading",
     };
@@ -107,6 +109,11 @@ mod tests {
         assert_eq!(status_text(&st(p, Downloading, false), false), "Stopped");
         assert_eq!(status_text(&st(p, Seeding, true), false), "Finished");
         assert_eq!(status_text(&st(am, DownloadingMetadata, false), false), "Downloading metadata");
+        let mut superseed = st(am, Seeding, true);
+        superseed.super_seeding = true;
+        assert_eq!(status_text(&superseed, false), "[S] Seeding");
+        superseed.flags = e;
+        assert_eq!(status_text(&superseed, false), "[F] [S] Seeding");
 
         let mut checking = st(e, CheckingFiles, false);
         checking.progress_ppm = 453_000;

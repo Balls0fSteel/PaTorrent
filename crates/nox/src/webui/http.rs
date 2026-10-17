@@ -14,12 +14,14 @@ pub struct Limits {
     pub max_head: usize,
     pub max_headers: usize,
     pub max_body: usize,
+    /// Largest WebSocket message a client may send (subscriptions are a few hundred bytes).
+    pub max_message: usize,
 }
 
 impl Default for Limits {
     fn default() -> Limits {
         // The body limit is the size of the largest .torrent qBittorrent accepts by default.
-        Limits { max_head: 16 * 1024, max_headers: 100, max_body: 100 * 1024 * 1024 }
+        Limits { max_head: 16 * 1024, max_headers: 100, max_body: 100 * 1024 * 1024, max_message: 64 * 1024 }
     }
 }
 
@@ -636,7 +638,7 @@ mod tests {
             assert!(matches!(head(bad), Err(HttpError::BadRequest(_))), "{bad:?}");
         }
         assert_eq!(head("GET / HTTP/2.0\r\n\r\n"), Err(HttpError::VersionNotSupported));
-        let limits = Limits { max_head: 64, max_headers: 2, max_body: 10 };
+        let limits = Limits { max_head: 64, max_headers: 2, max_body: 10, max_message: 10 };
         assert_eq!(parse_head(&[b'a'; 65], &limits), Err(HttpError::HeadTooLarge));
         assert_eq!(
             parse_head(b"GET / HTTP/1.1\r\nHost: a\r\nA: 1\r\nB: 2\r\n\r\n", &limits),

@@ -195,11 +195,49 @@ pub fn authorized(shared: &Shared, head: &Head, ip: IpAddr) -> bool {
     authenticate(&mut st, head, canonical(ip), Instant::now()).is_some()
 }
 
-fn with_security_headers(r: Response) -> Response {
+pub(super) fn with_security_headers(r: Response) -> Response {
     r.with_header("X-Frame-Options", "SAMEORIGIN")
         .with_header("X-Content-Type-Options", "nosniff")
         .with_header("Referrer-Policy", "same-origin")
         .with_header("Cache-Control", "no-store")
+}
+
+/// The checks a `GET /pa/ws` upgrade must pass before the socket is switched: the ban list,
+/// the `Host` header, `Origin` (the CSRF rule of [`csrf_ok`], refused with 403 here since a
+/// WebSocket is cross-origin by default in browsers), a valid session exactly like a request
+/// ([`authenticate`]), and the upgrade headers themselves. Returns the session key and the
+/// client's `Sec-WebSocket-Key`.
+pub(super) fn websocket_handshake(
+    shared: &Shared,
+    head: &Head,
+    ip: IpAddr,
+) -> Result<(String, String), Response> {
+    let ip = canonical(ip);
+    let now = Instant::now();
+    let mut st = shared.lock();
+    if st.bans.is_banned(ip, now) {
+        return Err(Response::text(
+            403,
+            "Your IP address has been banned after too many failed authentication attempts.",
+        ));
+    }
+    if st.prefs.host_header_validation && !host_allowed(head.header("host"), &st.prefs.domain_list) {
+        return Err(Response::text(400, "Bad Request: unexpected Host header"));
+    }
+    if st.prefs.csrf_protection && !csrf_ok(head) {
+        return Err(Response::text(403, "Forbidden: origin not allowed"));
+    }
+    let Some(key) = authenticate(&mut st, head, ip, now) else {
+        return Err(Response::text(403, "Forbidden"));
+    };
+    drop(st);
+    match super::ws::handshake_key(head) {
+        Ok(ws_key) => Ok((key, ws_key.to_owned())),
+        Err(e) => {
+            let r = Response::text(e.status(), e.message());
+            Err(if e.status() == 426 { r.with_header("Sec-WebSocket-Version", "13") } else { r })
+        }
+    }
 }
 
 /// Answers one request.

@@ -48,6 +48,37 @@ pub fn status_text(st: &TorrentStatus, user_paused: bool) -> String {
     if auto { what.to_owned() } else { format!("[F] {what}") }
 }
 
+/// A short, stable class for the row's state, with the same branches as [`status_text`]: for
+/// frontends that colour or style rows (the Web UI's CSS classes) rather than parse the text.
+/// One of `error`, `moving`, `checking`, `queued`, `paused`, `finished`, `stopped`, `metadata`,
+/// `seeding`, `downloading`.
+pub fn status_class(st: &TorrentStatus, user_paused: bool) -> &'static str {
+    if !st.error.is_empty() {
+        return "error";
+    }
+    if st.moving_storage {
+        return "moving";
+    }
+    let paused = st.flags.contains(TorrentFlags::PAUSED);
+    let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);
+    if matches!(st.state, TorrentState::CheckingFiles | TorrentState::CheckingResumeData) {
+        return if paused && auto { "queued" } else { "checking" };
+    }
+    if paused {
+        return match (auto, user_paused, st.is_finished) {
+            (true, _, _) => "queued",
+            (false, true, _) => "paused",
+            (false, false, true) => "finished",
+            (false, false, false) => "stopped",
+        };
+    }
+    match st.state {
+        TorrentState::DownloadingMetadata => "metadata",
+        _ if st.is_finished => "seeding",
+        _ => "downloading",
+    }
+}
+
 /// The fixed entries of µTorrent's category list. Labels and feeds join in Phase 5.
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Category {
@@ -123,6 +154,29 @@ mod tests {
         let mut err = st(am, Downloading, false);
         err.error = "disk full".into();
         assert_eq!(status_text(&err, false), "Error: disk full");
+    }
+
+    #[test]
+    fn status_classes_follow_the_text() {
+        let am = TorrentFlags::AUTO_MANAGED;
+        let p = TorrentFlags::PAUSED;
+        let e = TorrentFlags::empty();
+        use TorrentState::*;
+        assert_eq!(status_class(&st(am, Downloading, false), false), "downloading");
+        assert_eq!(status_class(&st(e, Seeding, true), false), "seeding");
+        assert_eq!(status_class(&st(am | p, Seeding, true), false), "queued");
+        assert_eq!(status_class(&st(p, Downloading, false), true), "paused");
+        assert_eq!(status_class(&st(p, Downloading, false), false), "stopped");
+        assert_eq!(status_class(&st(p, Seeding, true), false), "finished");
+        assert_eq!(status_class(&st(am, DownloadingMetadata, false), false), "metadata");
+        assert_eq!(status_class(&st(e, CheckingFiles, false), false), "checking");
+        assert_eq!(status_class(&st(am | p, CheckingFiles, false), false), "queued");
+        let mut err = st(am, Downloading, false);
+        err.error = "disk full".into();
+        assert_eq!(status_class(&err, false), "error");
+        err.error.clear();
+        err.moving_storage = true;
+        assert_eq!(status_class(&err, false), "moving");
     }
 
     #[test]

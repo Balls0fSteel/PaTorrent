@@ -93,7 +93,7 @@ pub fn clipboard_text(owner: HWND) -> Option<String> {
 const DS_SHELLFONT: u32 = 0x48;
 /// `GetWindowLongPtr` index of the dialog's user data (after the message result and the
 /// dialog procedure).
-const DWLP_USER: i32 = (2 * size_of::<usize>()) as i32;
+pub const DWLP_USER: i32 = (2 * size_of::<usize>()) as i32;
 
 const ID_EDIT: u16 = 100;
 const ID_PROMPT: u16 = 101;
@@ -154,70 +154,99 @@ unsafe extern "system" fn input_proc(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM
     }
 }
 
-/// `DLGTEMPLATE` + items, as the dialog manager reads them (UTF-16 words, items DWORD-aligned).
 fn input_template() -> Vec<u16> {
-    let mut t: Vec<u16> = Vec::new();
-    fn dword(t: &mut Vec<u16>, v: u32) {
-        t.push(v as u16);
-        t.push((v >> 16) as u16);
-    }
-    fn text(t: &mut Vec<u16>, s: &str) {
-        t.extend(s.encode_utf16());
-        t.push(0);
-    }
-    fn align(t: &mut Vec<u16>) {
-        if t.len() % 2 == 1 {
-            t.push(0);
-        }
-    }
-    let style = WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME as u32 | DS_CENTER as u32 | DS_SHELLFONT;
-    dword(&mut t, style);
-    dword(&mut t, 0);
-    t.push(4); // items
-    t.extend([0, 0, 280, 62].map(|v: i16| v as u16)); // x, y, cx, cy in dialog units
-    t.push(0); // no menu
-    t.push(0); // default class
-    text(&mut t, "");
-    t.push(8);
-    text(&mut t, "MS Shell Dlg");
+    let mut t = Template::new(280, 62);
+    t.item(STATIC, ID_PROMPT, WS_CHILD | WS_VISIBLE, [7, 7, 266, 9], "");
+    t.item(
+        EDIT,
+        ID_EDIT,
+        WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
+        [7, 19, 266, 13],
+        "",
+    );
+    t.item(
+        BUTTON,
+        IDOK as u16,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
+        [169, 40, 50, 14],
+        "OK",
+    );
+    t.item(
+        BUTTON,
+        IDCANCEL as u16,
+        WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
+        [223, 40, 50, 14],
+        "Cancel",
+    );
+    t.finish()
+}
 
-    // (class atom, id, style, x, y, cx, cy, text)
-    let items: [(u16, u16, u32, [i16; 4], &str); 4] = [
-        (0x0082, ID_PROMPT, WS_CHILD | WS_VISIBLE, [7, 7, 266, 9], ""),
-        (
-            0x0081,
-            ID_EDIT,
-            WS_CHILD | WS_VISIBLE | WS_BORDER | WS_TABSTOP | ES_AUTOHSCROLL as u32,
-            [7, 19, 266, 13],
-            "",
-        ),
-        (
-            0x0080,
-            IDOK as u16,
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
-            [169, 40, 50, 14],
-            "OK",
-        ),
-        (
-            0x0080,
-            IDCANCEL as u16,
-            WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
-            [223, 40, 50, 14],
-            "Cancel",
-        ),
-    ];
-    for (class, id, style, rect, label) in items {
-        align(&mut t);
-        dword(&mut t, style);
-        dword(&mut t, 0);
-        t.extend(rect.map(|v| v as u16));
-        t.push(id);
-        t.push(0xffff);
-        t.push(class);
-        text(&mut t, label);
-        t.push(0); // no creation data
+/// Predefined dialog control classes (atoms) and common-control classes by name.
+pub enum Class {
+    Atom(u16),
+    Name(&'static str),
+}
+pub const BUTTON: Class = Class::Atom(0x0080);
+pub const EDIT: Class = Class::Atom(0x0081);
+pub const STATIC: Class = Class::Atom(0x0082);
+pub const COMBOBOX: Class = Class::Atom(0x0085);
+
+/// `DLGTEMPLATE` + items, as the dialog manager reads them (UTF-16 words, items DWORD-aligned).
+/// Positions are dialog units; the dialog uses the shell font and is centred on its owner.
+pub struct Template {
+    t: Vec<u16>,
+    count_at: usize,
+}
+
+impl Template {
+    pub fn new(cx: i16, cy: i16) -> Template {
+        let mut t = Template { t: Vec::new(), count_at: 0 };
+        let style =
+            WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME as u32 | DS_CENTER as u32 | DS_SHELLFONT;
+        t.dword(style);
+        t.dword(0);
+        t.count_at = t.t.len();
+        t.t.push(0); // items, set by `item`
+        t.t.extend([0, 0, cx, cy].map(|v: i16| v as u16));
+        t.t.push(0); // no menu
+        t.t.push(0); // default class
+        t.text("");
+        t.t.push(8);
+        t.text("MS Shell Dlg");
+        t
     }
-    t
+
+    /// One control: class, id, style, [x, y, cx, cy] and its text.
+    pub fn item(&mut self, class: Class, id: u16, style: u32, rect: [i16; 4], label: &str) {
+        self.t[self.count_at] += 1;
+        if self.t.len() % 2 == 1 {
+            self.t.push(0);
+        }
+        self.dword(style);
+        self.dword(0);
+        self.t.extend(rect.map(|v| v as u16));
+        self.t.push(id);
+        match class {
+            Class::Atom(a) => self.t.extend([0xffff, a]),
+            Class::Name(n) => self.text(n),
+        }
+        self.text(label);
+        self.t.push(0); // no creation data
+    }
+
+    pub fn finish(self) -> Vec<u16> {
+        self.t
+    }
+
+    fn dword(&mut self, v: u32) {
+        self.t.push(v as u16);
+        self.t.push((v >> 16) as u16);
+    }
+
+    fn text(&mut self, s: &str) {
+        self.t.extend(s.encode_utf16());
+        self.t.push(0);
+    }
 }
 
 /// Reads a NUL-separated list (WM_COPYDATA payloads) into strings.

@@ -12,6 +12,8 @@ mod app;
 #[cfg(windows)]
 mod controls;
 #[cfg(windows)]
+mod create;
+#[cfg(windows)]
 mod details;
 #[cfg(windows)]
 mod dialogs;

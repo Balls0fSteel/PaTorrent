@@ -2,6 +2,14 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_212558_1792265158: merge of Web UI slices 1 and 2
+
+Branch `claude/vigilant-fermi-649e6d` merged into main without conflicts (its entry 2026-10-17_210452_1792263892 follows the design entry below).
+
+### Verified
+- On main after the merge: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace --no-fail-fast` on Windows: 752 passed, 0 failed, 3 ignored (webui 14).
+- Not rerun on the Ubuntu and FreeBSD VMs yet: `crates/nox` and `crates/frontend` changed (`webui/ws.rs`, `webui/native.rs`, `status::status_class`), so the next VM run should cover them.
+
 ## 2026-10-17_210452_1792263892: Web UI slices 1 and 2: WebSocket and the native session protocol
 
 ### Added

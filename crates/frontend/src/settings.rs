@@ -8,7 +8,7 @@
 //! that differ from the defaults as `lt.<name>=<value>` lines, so a later build's new defaults
 //! reach everything the user never changed.
 
-use patorrent_core::{EncLevel, EncPolicy, Settings};
+use patorrent_core::{EncLevel, EncPolicy, ProxyType, Settings};
 
 use crate::prefs::Prefs;
 
@@ -135,6 +135,30 @@ pub fn level_from_int(i: i64) -> EncLevel {
         1 => EncLevel::Plaintext,
         2 => EncLevel::Rc4,
         _ => EncLevel::Both,
+    }
+}
+
+/// libtorrent's `proxy_type_t` numbers (0 none, 1 socks4, 2 socks5, 3 socks5_pw, 4 http,
+/// 5 http_pw; 6 i2p_proxy is not supported and reads as none).
+pub fn proxy_to_int(p: ProxyType) -> i64 {
+    match p {
+        ProxyType::None => 0,
+        ProxyType::Socks4 => 1,
+        ProxyType::Socks5 => 2,
+        ProxyType::Socks5Pw => 3,
+        ProxyType::Http => 4,
+        ProxyType::HttpPw => 5,
+    }
+}
+
+pub fn proxy_from_int(i: i64) -> ProxyType {
+    match i {
+        1 => ProxyType::Socks4,
+        2 => ProxyType::Socks5,
+        3 => ProxyType::Socks5Pw,
+        4 => ProxyType::Http,
+        5 => ProxyType::HttpPw,
+        _ => ProxyType::None,
     }
 }
 
@@ -314,6 +338,21 @@ pub static TABLE: &[Entry] = &[
     entry!(ssrf_mitigation: bool),
     entry!(allow_idna: bool),
     entry!(always_send_user_agent: bool),
+    Entry {
+        name: "proxy_type",
+        kind: Kind::Int { min: 0, max: 5 },
+        get: |s| Value::Int(proxy_to_int(s.proxy_type)),
+        set: |s, v| s.proxy_type = proxy_from_int(int(v)),
+    },
+    entry!(proxy_hostname: str),
+    entry!(proxy_port: u16),
+    entry!(proxy_username: str),
+    entry!(proxy_password: str),
+    entry!(proxy_hostnames: bool),
+    entry!(proxy_peer_connections: bool),
+    entry!(proxy_tracker_connections: bool),
+    entry!(proxy_send_host_in_connect: bool),
+    entry!(socks5_udp_send_local_ep: bool),
     // µTorrent names for settings made of several libtorrent ones; not persisted (their parts are)
     Entry {
         name: "bt.transp_disposition",

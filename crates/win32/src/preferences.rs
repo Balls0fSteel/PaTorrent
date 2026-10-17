@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 use std::ptr::null;
 
-use patorrent_core::EncPolicy;
+use patorrent_core::{EncPolicy, ProxyType};
 use patorrent_frontend::options::{self, Options};
 use patorrent_frontend::settings::{self, Entry, Kind, Value};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
@@ -28,9 +28,10 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_GROUPBOX,
     BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBS_DROPDOWNLIST, DLGTEMPLATE,
-    DialogBoxIndirectParamW, EN_CHANGE, ES_AUTOHSCROLL, ES_NUMBER, EndDialog, GetDlgItem, GetWindowLongPtrW,
-    IDCANCEL, IDOK, MapDialogRect, SW_HIDE, SW_SHOW, SetWindowLongPtrW, SetWindowTextW, ShowWindow,
-    WM_COMMAND, WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD, WS_DISABLED, WS_GROUP, WS_TABSTOP, WS_VSCROLL,
+    DialogBoxIndirectParamW, EN_CHANGE, ES_AUTOHSCROLL, ES_NUMBER, ES_PASSWORD, EndDialog, GetDlgItem,
+    GetWindowLongPtrW, IDCANCEL, IDOK, MapDialogRect, SW_HIDE, SW_SHOW, SetWindowLongPtrW, SetWindowTextW,
+    ShowWindow, WM_COMMAND, WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD, WS_DISABLED, WS_GROUP, WS_TABSTOP,
+    WS_VSCROLL,
 };
 
 use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
@@ -82,6 +83,14 @@ const ID_RANDOMIZE: u16 = id(3, 3);
 const ID_UPNP: u16 = id(3, 4);
 const ID_NATPMP: u16 = id(3, 5);
 const ID_PROXY_TYPE: u16 = id(3, 6);
+const ID_PROXY_HOST: u16 = id(3, 7);
+const ID_PROXY_PORT: u16 = id(3, 8);
+const ID_PROXY_AUTH: u16 = id(3, 9);
+const ID_PROXY_USER: u16 = id(3, 10);
+const ID_PROXY_PASS: u16 = id(3, 11);
+const ID_PROXY_NAMES: u16 = id(3, 12);
+const ID_PROXY_PEERS: u16 = id(3, 13);
+const ID_PROXY_TRACKERS: u16 = id(3, 14);
 // Bandwidth
 const ID_UL_RATE: u16 = id(4, 1);
 const ID_DL_RATE: u16 = id(4, 2);
@@ -123,6 +132,33 @@ const ID_HASH_THREADS: u16 = id(10, 4);
 /// "Outgoing" encryption, in the combo's order.
 const ENC_OUT: [(&str, EncPolicy); 3] =
     [("Disabled", EncPolicy::Disabled), ("Enabled", EncPolicy::Enabled), ("Forced", EncPolicy::Forced)];
+
+/// The proxy "Type" combo, in µTorrent 2.2.1's order (its "HTTPS" entry, CONNECT for
+/// everything, is our HTTP type: plain `http://` requests go as proxy requests, the rest through
+/// CONNECT). "Authentication" picks the `_pw` variant; SOCKS4 sends the user name as its user id.
+const PROXY_TYPES: [&str; 4] = ["(none)", "Socks4", "Socks5", "HTTP"];
+
+fn proxy_to_ui(s: &patorrent_core::Settings) -> (usize, bool) {
+    match s.proxy_type {
+        ProxyType::None => (0, false),
+        ProxyType::Socks4 => (1, !s.proxy_username.is_empty()),
+        ProxyType::Socks5 => (2, false),
+        ProxyType::Socks5Pw => (2, true),
+        ProxyType::Http => (3, false),
+        ProxyType::HttpPw => (3, true),
+    }
+}
+
+fn proxy_from_ui(kind: usize, auth: bool) -> ProxyType {
+    match (kind, auth) {
+        (1, _) => ProxyType::Socks4,
+        (2, false) => ProxyType::Socks5,
+        (2, true) => ProxyType::Socks5Pw,
+        (3, false) => ProxyType::Http,
+        (3, true) => ProxyType::HttpPw,
+        _ => ProxyType::None,
+    }
+}
 
 /// A page control bound to one value of the options.
 enum Field {
@@ -166,6 +202,43 @@ static FIELDS: &[Field] = &[
         id: ID_NATPMP,
         get: |o| o.settings.enable_natpmp,
         set: |o, v| o.settings.enable_natpmp = v,
+    },
+    Field::Text {
+        id: ID_PROXY_HOST,
+        get: |o| o.settings.proxy_hostname.clone(),
+        set: |o, v| o.settings.proxy_hostname = v.trim().to_owned(),
+    },
+    Field::Num {
+        id: ID_PROXY_PORT,
+        min: 0,
+        max: 65535,
+        get: |o| Some(o.settings.proxy_port as i64),
+        set: |o, v| o.settings.proxy_port = v as u16,
+    },
+    Field::Text {
+        id: ID_PROXY_USER,
+        get: |o| o.settings.proxy_username.clone(),
+        set: |o, v| o.settings.proxy_username = v,
+    },
+    Field::Text {
+        id: ID_PROXY_PASS,
+        get: |o| o.settings.proxy_password.clone(),
+        set: |o, v| o.settings.proxy_password = v,
+    },
+    Field::Check {
+        id: ID_PROXY_NAMES,
+        get: |o| o.settings.proxy_hostnames,
+        set: |o, v| o.settings.proxy_hostnames = v,
+    },
+    Field::Check {
+        id: ID_PROXY_PEERS,
+        get: |o| o.settings.proxy_peer_connections,
+        set: |o, v| o.settings.proxy_peer_connections = v,
+    },
+    Field::Check {
+        id: ID_PROXY_TRACKERS,
+        get: |o| o.settings.proxy_tracker_connections,
+        set: |o, v| o.settings.proxy_tracker_connections = v,
     },
     Field::Num {
         id: ID_UL_RATE,
@@ -450,17 +523,21 @@ fn template() -> Vec<u16> {
     b.ctl(BUTTON, ID_RANDOMIZE, CHECK, [8, 32, 290, 10], "Randomize port each start");
     b.ctl(BUTTON, ID_UPNP, CHECK, [8, 46, 290, 10], "Enable UPnP port mapping");
     b.ctl(BUTTON, ID_NATPMP, CHECK, [8, 60, 290, 10], "Enable NAT-PMP port mapping");
-    // Placeholder for µTorrent's Proxy Server box. Proxies (SOCKS4/5, HTTP) are built on their
-    // own branch; once the engine has them, these controls get ids and Field rows like the rest.
-    b.group([0, 84, W, 78], "Proxy Server");
+    b.group([0, 84, W, 118], "Proxy Server");
     b.label([8, 98, 30, 9], "Type:");
-    b.ctl(COMBOBOX, ID_PROXY_TYPE, COMBO | OFF, [40, 96, 70, 60], "");
-    b.label([8, 116, 30, 9], "Proxy:");
-    b.stub(EDIT, LINE, [40, 114, 150, 13], "");
-    b.label([198, 116, 20, 9], "Port:");
-    b.stub(EDIT, NUMBER, [222, 114, 40, 13], "");
-    b.stub(BUTTON, CHECK, [8, 132, 290, 10], "Use proxy for peer-to-peer connections");
-    b.label([8, 147, 294, 9], "Proxy support is not available yet.");
+    b.ctl(COMBOBOX, ID_PROXY_TYPE, COMBO, [40, 96, 70, 60], "");
+    b.label([118, 98, 24, 9], "Proxy:");
+    b.ctl(EDIT, ID_PROXY_HOST, LINE, [144, 96, 100, 13], "");
+    b.label([250, 98, 18, 9], "Port:");
+    b.ctl(EDIT, ID_PROXY_PORT, NUMBER, [270, 96, 32, 13], "");
+    b.ctl(BUTTON, ID_PROXY_AUTH, CHECK, [8, 114, 290, 10], "Authentication");
+    b.label([8, 130, 40, 9], "Username:");
+    b.ctl(EDIT, ID_PROXY_USER, LINE, [50, 128, 90, 13], "");
+    b.label([150, 130, 40, 9], "Password:");
+    b.ctl(EDIT, ID_PROXY_PASS, LINE | ES_PASSWORD as u32, [192, 128, 110, 13], "");
+    b.ctl(BUTTON, ID_PROXY_NAMES, CHECK, [8, 146, 290, 10], "Resolve hostnames through proxy");
+    b.ctl(BUTTON, ID_PROXY_PEERS, CHECK, [8, 160, 290, 10], "Use proxy for peer-to-peer connections");
+    b.ctl(BUTTON, ID_PROXY_TRACKERS, CHECK, [8, 174, 290, 10], "Use proxy for tracker connections");
 
     b.page(4);
     b.group([0, 0, W, 32], "Global Upload Rate Limiting");
@@ -615,9 +692,10 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
         let lang = wide("English");
         send(item(dlg, ID_LANG), CB_ADDSTRING, 0, lang.as_ptr() as LPARAM);
         send(item(dlg, ID_LANG), CB_SETCURSEL, 0, 0);
-        let none = wide("(none)");
-        send(item(dlg, ID_PROXY_TYPE), CB_ADDSTRING, 0, none.as_ptr() as LPARAM);
-        send(item(dlg, ID_PROXY_TYPE), CB_SETCURSEL, 0, 0);
+        for label in PROXY_TYPES {
+            let w = wide(label);
+            send(item(dlg, ID_PROXY_TYPE), CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
+        }
         for (label, _) in ENC_OUT {
             let w = wide(label);
             send(item(dlg, ID_ENC_OUT), CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
@@ -717,6 +795,11 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         let legacy = settings::allow_legacy_incoming(&st.opts.settings);
         set_check(dlg, ID_ENC_LEGACY, legacy);
         st.shown.push((ID_ENC_LEGACY, legacy.to_string()));
+        let (kind, auth) = proxy_to_ui(&st.opts.settings);
+        send(item(dlg, ID_PROXY_TYPE), CB_SETCURSEL, kind, 0);
+        st.shown.push((ID_PROXY_TYPE, kind.to_string()));
+        set_check(dlg, ID_PROXY_AUTH, auth);
+        st.shown.push((ID_PROXY_AUTH, auth.to_string()));
         update_ip_filter_status(dlg, st, None);
     }
 }
@@ -757,6 +840,22 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
             || shown(ID_ENC_LEGACY) != Some(legacy.to_string().as_str())
         {
             settings::set_encryption(&mut o.settings, ENC_OUT[enc].1, legacy);
+        }
+        let kind =
+            (send(item(dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0).max(0) as usize).min(PROXY_TYPES.len() - 1);
+        let auth = checked(dlg, ID_PROXY_AUTH);
+        if shown(ID_PROXY_TYPE) != Some(kind.to_string().as_str())
+            || shown(ID_PROXY_AUTH) != Some(auth.to_string().as_str())
+        {
+            o.settings.proxy_type = proxy_from_ui(kind, auth);
+        }
+        if o.settings.proxy_type != ProxyType::None {
+            if o.settings.proxy_hostname.is_empty() {
+                return Err((ID_PROXY_HOST, "Please enter the proxy server's address.".to_owned()));
+            }
+            if o.settings.proxy_port == 0 {
+                return Err((ID_PROXY_PORT, "Please enter the proxy server's port.".to_owned()));
+            }
         }
         if o.gui.download_dir.trim().is_empty() {
             return Err((ID_DL_DIR, "Please choose a folder for new downloads.".to_owned()));
@@ -1132,16 +1231,20 @@ mod tests {
             for field in FIELDS {
                 assert!(!item(dlg, field.id()).is_null(), "field {}", field.id());
             }
-            for id in [ID_ENC_OUT, ID_ENC_LEGACY, ID_IPF_RELOAD, ID_ADV_LIST, ID_ADV_SET, ID_PROXY_TYPE] {
+            for id in [
+                ID_ENC_OUT,
+                ID_ENC_LEGACY,
+                ID_IPF_RELOAD,
+                ID_ADV_LIST,
+                ID_ADV_SET,
+                ID_PROXY_TYPE,
+                ID_PROXY_AUTH,
+            ] {
                 assert!(!item(dlg, id).is_null(), "control {id}");
             }
             assert_eq!(f.st.tree_items.len(), PAGES.len());
             assert_eq!(send(item(dlg, ID_ENC_OUT), CB_GETCOUNT, 0, 0), 3);
-            // the proxy box is a disabled placeholder
-            assert_eq!(
-                windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(item(dlg, ID_PROXY_TYPE)),
-                0
-            );
+            assert_eq!(send(item(dlg, ID_PROXY_TYPE), CB_GETCOUNT, 0, 0), PROXY_TYPES.len() as isize);
             // only the shown page's controls are visible
             for page in 0..PAGES.len() {
                 f.page(page);
@@ -1237,6 +1340,57 @@ mod tests {
         let mut prefs = Prefs::default();
         o.store(&mut prefs);
         assert_eq!(Options::load(&prefs, "unused"), o);
+    }
+
+    #[test]
+    fn the_proxy_box_sets_the_proxy_settings() {
+        let f = Fixture::new(defaults());
+        unsafe {
+            assert_eq!(send(item(f.dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0), 0);
+            send(item(f.dlg, ID_PROXY_TYPE), CB_SETCURSEL, 2, 0);
+        }
+        f.set(ID_PROXY_HOST, " proxy.example ");
+        f.set(ID_PROXY_PORT, "1080");
+        f.check(ID_PROXY_AUTH, true);
+        f.set(ID_PROXY_USER, "me");
+        f.set(ID_PROXY_PASS, "secret");
+        f.check(ID_PROXY_TRACKERS, false);
+        f.click(ID_APPLY);
+        let o = f.last_applied();
+        let s = &o.settings;
+        assert_eq!(s.proxy_type, ProxyType::Socks5Pw);
+        assert_eq!((s.proxy_hostname.as_str(), s.proxy_port), ("proxy.example", 1080));
+        assert_eq!((s.proxy_username.as_str(), s.proxy_password.as_str()), ("me", "secret"));
+        assert!(s.proxy_hostnames && s.proxy_peer_connections && !s.proxy_tracker_connections);
+        let mut prefs = Prefs::default();
+        o.store(&mut prefs);
+        assert_eq!(Options::load(&prefs, "unused"), o);
+
+        // shown back the same way
+        let g = Fixture::new(o.clone());
+        unsafe {
+            assert_eq!(send(item(g.dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0), 2);
+            assert!(checked(g.dlg, ID_PROXY_AUTH));
+        }
+        assert_eq!(g.text(ID_PROXY_PORT), "1080");
+        for (t, auth) in [(ProxyType::None, false), (ProxyType::Socks5, false), (ProxyType::HttpPw, true)] {
+            let mut s = Settings { proxy_type: t, ..Settings::default() };
+            assert_eq!(proxy_from_ui(proxy_to_ui(&s).0, auth), t);
+            s.proxy_username = "id".into();
+            assert_eq!(proxy_to_ui(&Settings { proxy_type: ProxyType::Socks4, ..s }), (1, true));
+        }
+    }
+
+    #[test]
+    fn a_proxy_needs_an_address() {
+        let mut f = Fixture::new(defaults());
+        unsafe { send(item(f.dlg, ID_PROXY_TYPE), CB_SETCURSEL, 3, 0) };
+        assert_eq!(unsafe { read_controls(f.dlg, &mut f.st) }.unwrap_err().0, ID_PROXY_HOST);
+        f.set(ID_PROXY_HOST, "10.0.0.1");
+        assert_eq!(unsafe { read_controls(f.dlg, &mut f.st) }.unwrap_err().0, ID_PROXY_PORT);
+        f.set(ID_PROXY_PORT, "3128");
+        unsafe { read_controls(f.dlg, &mut f.st) }.unwrap();
+        assert_eq!(f.st.opts.settings.proxy_type, ProxyType::Http);
     }
 
     #[test]

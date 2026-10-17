@@ -583,6 +583,14 @@ impl PiecePicker {
         Some(mask)
     }
 
+    /// The pieces with blocks requested, being written or finished, ascending (the Pieces tab's
+    /// "downloading" marks).
+    pub fn downloading_pieces(&self) -> Vec<u32> {
+        let mut out: Vec<u32> = self.downloading.keys().copied().collect();
+        out.sort_unstable();
+        out
+    }
+
     /// Forgets all partial pieces (when the torrent stops and its disk state is released).
     pub fn clear_downloading(&mut self) {
         self.downloading.clear();

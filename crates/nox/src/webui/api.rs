@@ -12,9 +12,10 @@ use std::time::{Duration, Instant};
 use patorrent_core::crypto::Sha1;
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
-    AddTorrentParams, DownloadPriority, EncPolicy, ProxyType, RemoveFlags, TorrentFlags, TorrentId,
-    TorrentSource, TrackerStatus, VERSION,
+    AddTorrentParams, DownloadPriority, EncPolicy, PeerFlags, PeerInfo, ProxyType, RemoveFlags, TorrentFlags,
+    TorrentId, TorrentSource, TrackerStatus, VERSION,
 };
+use patorrent_frontend::detail::peer_flags;
 
 use super::auth::{PasswordHash, constant_time_eq, random_hex};
 use super::http::{
@@ -223,7 +224,7 @@ fn authenticate(st: &mut State, head: &Head, ip: IpAddr, now: Instant) -> Option
         let key = "local".to_owned();
         st.sessions
             .entry(key.clone())
-            .or_insert(ClientSession { last_used: now, maindata: None })
+            .or_insert(ClientSession { last_used: now, maindata: None, peers: None })
             .last_used = now;
         return Some(key);
     }
@@ -457,6 +458,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             Response::ok()
         }
         "sync/maindata" => maindata(shared, &key, p.int("rid").unwrap_or(0)),
+        "sync/torrentPeers" => torrent_peers(shared, &key, &p),
         "torrents/info" => torrents_info(shared, &p),
         "torrents/count" => Response::text(200, shared.lock().torrents.len().to_string()),
         "torrents/properties" => properties(shared, &p),
@@ -621,7 +623,7 @@ fn login(shared: &Shared, p: &Params, ip: IpAddr, now: Instant) -> Response {
         }
     }
     let sid = random_hex(16);
-    st.sessions.insert(sid.clone(), ClientSession { last_used: now, maindata: None });
+    st.sessions.insert(sid.clone(), ClientSession { last_used: now, maindata: None, peers: None });
     Response::text(200, "Ok.")
         .with_header("Set-Cookie", format!("SID={sid}; HttpOnly; SameSite=Strict; path=/"))
 }
@@ -1045,6 +1047,101 @@ fn maindata(shared: &Shared, key: &str, rid: i64) -> Response {
     Response::json(&out)
 }
 
+/// What one client was last sent by `sync/torrentPeers`: the torrent and the peers by
+/// `ip:port`, each as its full field list, so the next call sends only what changed.
+pub struct PeersSnapshot {
+    rid: i64,
+    hash: String,
+    peers: HashMap<String, Json>,
+}
+
+/// One peer in `sync/torrentPeers`' documented shape (a subset of the fields: no country or
+/// relevance; `flags` are the µTorrent letters of the Peers tab, `connection` is `BT`, `uTP` or
+/// `Web`).
+fn peer_fields(p: &PeerInfo) -> Json {
+    let connection = if p.is_web_seed {
+        "Web"
+    } else if p.flags.contains(PeerFlags::UTP_SOCKET) {
+        "uTP"
+    } else {
+        "BT"
+    };
+    Json::obj()
+        .with("ip", p.ip.ip().to_string())
+        .with("port", p.ip.port() as i64)
+        .with("client", p.client.as_str())
+        .with("connection", connection)
+        .with("flags", peer_flags(p))
+        .with("flags_desc", "")
+        .with("country", "")
+        .with("country_code", "")
+        .with("progress", p.progress_ppm.min(1_000_000) as f64 / 1_000_000.0)
+        .with("dl_speed", p.down_speed)
+        .with("up_speed", p.up_speed)
+        .with("downloaded", p.total_download)
+        .with("uploaded", p.total_upload)
+        .with("relevance", 0.0f64)
+        .with("files", "")
+}
+
+/// `sync/torrentPeers`: the torrent's connected peers, a full list for `rid=0` (or a rid the
+/// server does not know, or another torrent than last time), else the changed fields per peer
+/// and `peers_removed`; `show_flags` is always true.
+fn torrent_peers(shared: &Shared, key: &str, p: &Params) -> Response {
+    let Some(id) = one(&shared.lock(), p) else { return not_found() };
+    let Some(Reply::Peers(list)) = shared.query(id, ReplyKind::Peers, |h| h.torrent(id).post_peer_info())
+    else {
+        return not_found();
+    };
+    let rid = p.int("rid").unwrap_or(0);
+    let mut guard = shared.lock();
+    let st = &mut *guard;
+    let hash = st.torrents[&id].hash.clone();
+    let old = st.sessions.get_mut(key).and_then(|s| s.peers.take());
+    let full = old.as_ref().is_none_or(|o| rid == 0 || o.rid != rid || o.hash != hash);
+    let new_rid = old.as_ref().map_or(0, |o| o.rid) + 1;
+    let mut old = if full { None } else { old };
+    let mut out = Json::obj().with("rid", new_rid);
+    if full {
+        out.set("full_update", true);
+    }
+    out.set("show_flags", true);
+    let mut peers = Json::obj();
+    let mut snap = HashMap::with_capacity(list.len());
+    for peer in &list {
+        let addr = peer.ip.to_string();
+        let now = peer_fields(peer);
+        match old.as_mut().and_then(|o| o.peers.remove(&addr)) {
+            Some(prev) => {
+                let mut diff = Json::obj();
+                for (name, v) in now.entries() {
+                    if prev.get(name) != Some(v) {
+                        diff.set(name, v.clone());
+                    }
+                }
+                if !diff.entries().is_empty() {
+                    peers.set(&addr, diff);
+                }
+            }
+            None => peers.set(&addr, now.clone()),
+        }
+        snap.insert(addr, now);
+    }
+    if full || !peers.entries().is_empty() {
+        out.set("peers", peers);
+    }
+    if let Some(o) = &old {
+        let removed: Vec<Json> = o.peers.keys().map(|a| Json::Str(a.clone())).collect();
+        if !removed.is_empty() {
+            out.set("peers_removed", Json::Arr(removed));
+        }
+    }
+    if let Some(s) = st.sessions.get_mut(key) {
+        s.peers = Some(PeersSnapshot { rid: new_rid, hash, peers: snap });
+    }
+    Response::json(&out)
+}
+
 fn cmp_json(a: &Json, b: &Json) -> std::cmp::Ordering {
     use std::cmp::Ordering;
     match (a.as_f64(), b.as_f64()) {
@@ -1232,7 +1329,7 @@ fn files(shared: &Shared, p: &Params) -> Response {
         _ => Vec::new(),
     };
     let avail = match shared.query(id, ReplyKind::Pieces, |h| h.torrent(id).post_piece_info()) {
-        Some(Reply::Pieces(_, a)) => a,
+        Some(Reply::Pieces(_, a, _)) => a,
         _ => Vec::new(),
     };
     let wanted: Option<Vec<usize>> =
@@ -1267,7 +1364,7 @@ fn files(shared: &Shared, p: &Params) -> Response {
 
 fn piece_states(shared: &Shared, p: &Params) -> Response {
     let Some(id) = one(&shared.lock(), p) else { return not_found() };
-    let Some(Reply::Pieces(have, _)) =
+    let Some(Reply::Pieces(have, _, _)) =
         shared.query(id, ReplyKind::Pieces, |h| h.torrent(id).post_piece_info())
     else {
         return not_found();

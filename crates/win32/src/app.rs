@@ -1304,7 +1304,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                     a.detail.file_done = done;
                     lists_changed = true;
                 }
-                Alert::PieceInfo { id, have, availability } if a.detail.id == Some(id) => {
+                Alert::PieceInfo { id, have, availability, .. } if a.detail.id == Some(id) => {
                     a.detail.have = Some(have);
                     a.detail.availability = availability;
                     repaint_page = true;

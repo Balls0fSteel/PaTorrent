@@ -20,7 +20,7 @@ mod server;
 pub mod torrent;
 pub mod ws;
 
-use std::collections::{BTreeMap, HashMap};
+use std::collections::{BTreeMap, HashMap, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -29,7 +29,7 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use patorrent_core::{
-    Alert, AnnounceEntry, Bitfield, FileEntry, SessionHandle, SessionStats, Settings, TorrentId,
+    Alert, AnnounceEntry, Bitfield, FileEntry, PeerInfo, SessionHandle, SessionStats, Settings, TorrentId,
     TorrentStatus,
 };
 
@@ -44,6 +44,12 @@ pub const MAX_SESSIONS: usize = 256;
 const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
 /// The name of the state file in the state directory.
 pub const STATE_FILE: &str = "webui.json";
+/// Log lines kept for the Logger tab (the alert loop's lines, session-wide and per torrent).
+pub const LOG_LINES: usize = 500;
+/// Speed samples kept per watched torrent: 10 minutes at the engine's one status tick a second.
+pub const SPEED_SAMPLES: usize = 600;
+/// A speed ring no client looked at for this many ticks is dropped.
+const SPEED_IDLE_TICKS: u64 = 600;
 
 /// How to start the Web UI.
 #[derive(Clone, Debug)]
@@ -114,6 +120,7 @@ pub(crate) struct Prefs {
 pub(crate) struct ClientSession {
     pub last_used: Instant,
     pub maindata: Option<api::Snapshot>,
+    pub peers: Option<api::PeersSnapshot>,
 }
 
 /// A cached torrent.
@@ -131,7 +138,9 @@ pub(crate) enum Reply {
     Files(Arc<[FileEntry]>),
     Progress(Vec<u64>),
     Trackers(Vec<AnnounceEntry>),
-    Pieces(Bitfield, Vec<u32>),
+    /// Our pieces, the availability per piece, the pieces being downloaded.
+    Pieces(Bitfield, Vec<u32>, Vec<u32>),
+    Peers(Vec<PeerInfo>),
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -140,6 +149,27 @@ pub(crate) enum ReplyKind {
     Progress,
     Trackers,
     Pieces,
+    Peers,
+}
+
+/// One Logger line: the alert's time, the torrent it concerns (none for session-wide ones) and
+/// the text, as `patorrent-nox` prints it.
+pub(crate) struct LogLine {
+    pub seq: u64,
+    pub time: i64,
+    pub torrent: Option<TorrentId>,
+    pub text: String,
+}
+
+/// The Speed tab's history of one torrent, sampled once per status tick while some client
+/// looks at it ([`State::watch_speed`]), and for [`SPEED_IDLE_TICKS`] after.
+pub(crate) struct SpeedRing {
+    /// (download, upload) payload bytes per second, oldest first.
+    pub samples: VecDeque<(u32, u32)>,
+    /// Samples pushed so far; the newest has this sequence number.
+    pub pushed: u64,
+    /// The tick a client last asked for it.
+    pub last_seen: u64,
 }
 
 /// Torrent metadata the engine status does not carry, for torrents added through the API.
@@ -178,6 +208,11 @@ pub(crate) struct State {
     pub tick: u64,
     /// Torrents removed so far, so a client's list only scans for removals when there were any.
     pub removals: u64,
+    /// The last [`LOG_LINES`] alert lines, oldest first.
+    pub log: VecDeque<LogLine>,
+    log_seq: u64,
+    /// Speed history per torrent some client is (or was lately) looking at.
+    pub speed: HashMap<TorrentId, SpeedRing>,
 }
 
 pub(crate) struct Shared {
@@ -353,6 +388,9 @@ impl WebUi {
                 shutdown: false,
                 tick: 0,
                 removals: 0,
+                log: VecDeque::new(),
+                log_seq: 0,
+                speed: HashMap::new(),
             }),
             replied: Condvar::new(),
             limits: config.limits,
@@ -438,15 +476,24 @@ impl WebUi {
                     st.reply(*id, ReplyKind::Trackers, Reply::Trackers(trackers.clone()));
                     replied = true;
                 }
-                Alert::PieceInfo { id, have, availability } => {
-                    st.reply(*id, ReplyKind::Pieces, Reply::Pieces(have.clone(), availability.clone()));
+                Alert::PieceInfo { id, have, availability, downloading } => {
+                    let r = Reply::Pieces(have.clone(), availability.clone(), downloading.clone());
+                    st.reply(*id, ReplyKind::Pieces, r);
+                    replied = true;
+                }
+                Alert::PeerInfo { id, peers } => {
+                    st.reply(*id, ReplyKind::Peers, Reply::Peers(peers.clone()));
                     replied = true;
                 }
                 _ => {}
             }
+            if logged(a) {
+                st.log_line(a, now);
+            }
         }
         if ticked {
             st.tick += 1;
+            st.sample_speeds();
         }
         drop(st);
         if replied {
@@ -475,7 +522,77 @@ impl Drop for WebUi {
     }
 }
 
+/// Whether the Logger tab shows an alert: everything but the replies to `post_*` requests
+/// (the Win32 Logger's rule) and the port mappers' step-by-step chatter.
+fn logged(a: &Alert) -> bool {
+    !matches!(
+        a,
+        Alert::StateUpdate(_)
+            | Alert::SessionStats(_)
+            | Alert::PeerInfo { .. }
+            | Alert::FileList { .. }
+            | Alert::FileProgress { .. }
+            | Alert::TrackerList { .. }
+            | Alert::PieceInfo { .. }
+            | Alert::WebSeeds { .. }
+            | Alert::PortmapLog { .. }
+    )
+}
+
 impl State {
+    /// Appends an alert's line to the Logger ring: `name: message` for a torrent's alert.
+    fn log_line(&mut self, a: &Alert, now: i64) {
+        let torrent = a.torrent();
+        let message = a.message();
+        let text = match torrent.and_then(|id| self.torrents.get(&id)) {
+            // some messages (added, failed to add) name the torrent themselves
+            Some(e) if !e.status.name.is_empty() && !message.starts_with(&e.status.name) => {
+                format!("{}: {message}", e.status.name)
+            }
+            _ => message,
+        };
+        self.push_log(torrent, text, now);
+    }
+
+    pub(crate) fn push_log(&mut self, torrent: Option<TorrentId>, text: String, time: i64) {
+        if self.log.len() == LOG_LINES {
+            self.log.pop_front();
+        }
+        self.log_seq += 1;
+        self.log.push_back(LogLine { seq: self.log_seq, time, torrent, text });
+    }
+
+    /// Starts (or keeps) the speed history of a torrent a client is looking at.
+    pub(crate) fn watch_speed(&mut self, id: TorrentId) -> &SpeedRing {
+        let tick = self.tick;
+        let ring = self.speed.entry(id).or_insert_with(|| SpeedRing {
+            samples: VecDeque::with_capacity(SPEED_SAMPLES),
+            pushed: 0,
+            last_seen: tick,
+        });
+        ring.last_seen = tick;
+        ring
+    }
+
+    /// Once per status tick: one sample per watched torrent, and the rings nobody asked for
+    /// in [`SPEED_IDLE_TICKS`] (or whose torrent is gone) dropped.
+    fn sample_speeds(&mut self) {
+        let tick = self.tick;
+        let torrents = &self.torrents;
+        self.speed.retain(|id, ring| {
+            let Some(e) = torrents.get(id) else { return false };
+            if tick.saturating_sub(ring.last_seen) > SPEED_IDLE_TICKS {
+                return false;
+            }
+            if ring.samples.len() == SPEED_SAMPLES {
+                ring.samples.pop_front();
+            }
+            ring.samples.push_back((e.status.download_payload_rate, e.status.upload_payload_rate));
+            ring.pushed += 1;
+            true
+        });
+    }
+
     fn update(&mut self, s: TorrentStatus, now: i64) {
         let version = self.next_version;
         self.next_version += 1;
@@ -503,7 +620,12 @@ impl State {
         }
     }
 
-    fn reply(&mut self, id: TorrentId, kind: ReplyKind, r: Reply) {
+    /// The cached answer to a `post_*` request, if the engine answered one.
+    pub(crate) fn cached(&self, id: TorrentId, kind: ReplyKind) -> Option<&Reply> {
+        self.replies.get(&(id, kind)).map(|(_, r)| r)
+    }
+
+    pub(crate) fn reply(&mut self, id: TorrentId, kind: ReplyKind, r: Reply) {
         self.serial += 1;
         self.replies.insert((id, kind), (self.serial, r));
         if self.replies.len() > 256 {
@@ -563,6 +685,9 @@ impl State {
             shutdown: false,
             tick: 0,
             removals: 0,
+            log: VecDeque::new(),
+            log_seq: 0,
+            speed: HashMap::new(),
         }
     }
 }

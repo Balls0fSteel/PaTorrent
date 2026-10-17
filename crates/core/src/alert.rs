@@ -275,11 +275,13 @@ pub enum Alert {
         id: TorrentId,
         trackers: Vec<AnnounceEntry>,
     },
-    /// Our pieces and the swarm's availability per piece.
+    /// Our pieces, the swarm's availability per piece, and the pieces being downloaded (with
+    /// at least one block requested or on disk), ascending.
     PieceInfo {
         id: TorrentId,
         have: Bitfield,
         availability: Vec<u32>,
+        downloading: Vec<u32>,
     },
     /// The torrent's web seeds, banned ones left out (libtorrent `url_seeds()` and
     /// `http_seeds()`).

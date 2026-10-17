@@ -263,7 +263,68 @@ body.drag-size { cursor: col-resize; user-select: none; }
   color: var(--muted);
 }
 #tabs button.on { background: var(--bg); color: var(--fg); }
-#tab-body { flex: 1 1 0; min-height: 0; overflow: auto; padding: 6px 8px; color: var(--muted); }
+#tab-body { flex: 1 1 0; min-height: 0; overflow: auto; position: relative; }
+
+/* detail tables (Trackers, Peers, Files) */
+.dt { border-collapse: collapse; table-layout: fixed; width: max-content; min-width: 100%; }
+.dt th, .dt td {
+  height: var(--row-h);
+  padding: 0 6px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  border-right: 1px solid var(--line);
+}
+.dt th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--hdr);
+  font-weight: normal;
+  text-align: left;
+  border-bottom: 1px solid var(--line);
+  user-select: none;
+  cursor: default;
+}
+.dt th:hover { background: var(--bg2); }
+.dt th.r, .dt td.r { text-align: right; font-variant-numeric: tabular-nums; }
+.dt th.r { padding-right: 14px; position: sticky; }
+.dt th.sort { position: sticky; }
+.dt th.sort::after {
+  content: "";
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  margin-top: -2px;
+  border: 4px solid transparent;
+  border-top-color: var(--muted);
+  border-bottom: 0;
+}
+.dt th.sort.asc::after { border-top: 0; border-bottom: 4px solid var(--muted); margin-top: -3px; }
+.dt tr.sel td { background: var(--sel); color: var(--sel-fg); }
+.dt tbody tr:not(.sel):hover td { background: var(--bg2); }
+
+/* General */
+.gen { padding: 6px 8px; }
+.gen .bar-row { display: grid; grid-template-columns: 105px minmax(0, 1fr) 70px; align-items: center; height: 20px; gap: 8px; }
+.gen .bar-row span { text-align: right; font-variant-numeric: tabular-nums; }
+.gen .pbar { height: 12px; background: var(--bar-bg); border: 1px solid var(--line); border-radius: 2px; overflow: hidden; }
+.gen .pbar i { display: block; height: 100%; width: 0; background: var(--bar-dl); }
+.gen .pbar.avail i { background: var(--bar-seed); }
+.gen h4 { margin: 10px 0 2px; font-size: 12px; font-weight: 600; border-bottom: 1px solid var(--line); }
+.gen .pairs { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 16px; }
+.gen .pair { display: grid; grid-template-columns: 105px minmax(0, 1fr); line-height: 18px; }
+.gen .pair b { font-weight: 600; white-space: nowrap; }
+.gen .pair span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Pieces, Speed */
+.pieces { padding: 6px 8px; }
+.pieces .ptext { margin-bottom: 4px; }
+.pieces canvas, .speed canvas { display: block; }
+.speed { height: 100%; padding: 6px 8px; box-sizing: border-box; }
+
+/* Logger */
+.log { font: 11px/1.45 ui-monospace, Consolas, monospace; padding: 4px 8px; white-space: pre-wrap; word-break: break-word; }
 
 /* status bar */
 #statusbar {
@@ -323,4 +384,5 @@ body.drag-size { cursor: col-resize; user-select: none; }
 @media (max-width: 767px) {
   /* slice 7 brings the phone layout; until then the tree just gets narrower */
   :root { --tree-w: 120px; }
+  .gen .pairs { grid-template-columns: minmax(0, 1fr); }
 }

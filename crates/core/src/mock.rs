@@ -363,7 +363,14 @@ impl Mock {
                     let mut rng = Rng::new(t.seed ^ 0xa7a1);
                     let base = (t.seed % 12) as u32;
                     let availability = (0..have.len()).map(|_| base + rng.below(8) as u32).collect();
-                    self.out.push(Alert::PieceInfo { id, have, availability });
+                    // a running download has a handful of partial pieces: the first few it lacks
+                    let running = !t.st.flags.contains(TorrentFlags::PAUSED) && !t.st.is_finished;
+                    let downloading: Vec<u32> = if running {
+                        (0..have.len()).filter(|&i| !have.get(i)).take(4).map(|i| i as u32).collect()
+                    } else {
+                        Vec::new()
+                    };
+                    self.out.push(Alert::PieceInfo { id, have, availability, downloading });
                 }
             }
             Command::ApplySettings(s) => {

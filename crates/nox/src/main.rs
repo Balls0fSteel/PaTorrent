@@ -15,8 +15,8 @@ use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MockConfig, PeerFlags, PeerInfo, PeerSource, Session, SessionParams,
-    SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus, VERSION,
+    AddTorrentParams, Alert, IpFilter, MockConfig, PeerFlags, PeerInfo, PeerSource, ProxyType, Session,
+    SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus, VERSION,
 };
 use patorrent_frontend::{fmt, status};
 
@@ -74,6 +74,9 @@ OPTIONS:
     --dl-limit KIB    Download limit in KiB/s (0 = unlimited)
     --ul-limit KIB    Upload limit in KiB/s (0 = unlimited)
     --ip-filter FILE  Block the address ranges in FILE (ipfilter.dat or P2P format)
+    --proxy URL       Connect through a proxy: TYPE://[USER:PASS@]HOST:PORT with TYPE socks4,
+                      socks5 or http (USER alone for socks4). Peers, web seeds, trackers and
+                      (socks5 only) uTP and the DHT go through it; nothing incoming is accepted
     --verbose         Print tracker and peer events, and every 10 s where the connected
                       peers came from
 
@@ -92,6 +95,7 @@ struct Opts {
     dl_limit: u32,
     ul_limit: u32,
     ip_filter: Option<PathBuf>,
+    proxy: Option<Proxy>,
     verbose: bool,
     torrents: usize,
     active: f64,
@@ -111,6 +115,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         dl_limit: 0,
         ul_limit: 0,
         ip_filter: None,
+        proxy: None,
         verbose: false,
         torrents: 1000,
         active: 0.02,
@@ -138,6 +143,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--dl-limit" => o.dl_limit = num::<u32>("--dl-limit", value("--dl-limit")?)?.saturating_mul(1024),
             "--ul-limit" => o.ul_limit = num::<u32>("--ul-limit", value("--ul-limit")?)?.saturating_mul(1024),
             "--ip-filter" => o.ip_filter = Some(value("--ip-filter")?.into()),
+            "--proxy" => o.proxy = Some(parse_proxy(&value("--proxy")?)?),
             "--torrents" => o.torrents = num("--torrents", value("--torrents")?)?,
             "--active" => o.active = num("--active", value("--active")?)?,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
@@ -145,6 +151,51 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         }
     }
     Ok(o)
+}
+
+/// A proxy from `--proxy`.
+#[derive(Debug, PartialEq)]
+struct Proxy {
+    kind: ProxyType,
+    host: String,
+    port: u16,
+    user: String,
+    pass: String,
+}
+
+/// Parses `TYPE://[USER[:PASS]@]HOST:PORT`. Credentials pick the `_pw` types (libtorrent
+/// `socks5_pw`, `http_pw`); SOCKS4 sends the user as its user id and has no password.
+fn parse_proxy(s: &str) -> Result<Proxy, String> {
+    let bad = |why: &str| format!("--proxy {s}: {why} (expected TYPE://[USER:PASS@]HOST:PORT)");
+    let (scheme, rest) = s.split_once("://").ok_or_else(|| bad("no type"))?;
+    let rest = rest.trim_end_matches('/');
+    let (auth, hostport) = match rest.rsplit_once('@') {
+        Some((a, h)) => (Some(a), h),
+        None => (None, rest),
+    };
+    let (user, pass) = match auth {
+        Some(a) => match a.split_once(':') {
+            Some((u, p)) => (u.to_owned(), Some(p.to_owned())),
+            None => (a.to_owned(), None),
+        },
+        None => (String::new(), None),
+    };
+    let kind = match (scheme.to_ascii_lowercase().as_str(), auth.is_some()) {
+        ("socks4" | "socks4a", _) if pass.is_some() => return Err(bad("SOCKS4 has no password")),
+        ("socks4" | "socks4a", _) => ProxyType::Socks4,
+        ("socks5" | "socks5h", false) => ProxyType::Socks5,
+        ("socks5" | "socks5h", true) => ProxyType::Socks5Pw,
+        ("http", false) => ProxyType::Http,
+        ("http", true) => ProxyType::HttpPw,
+        _ => return Err(bad("TYPE must be socks4, socks5 or http")),
+    };
+    let (host, port) = hostport.rsplit_once(':').ok_or_else(|| bad("no port"))?;
+    let port: u16 = port.parse().ok().filter(|&p| p != 0).ok_or_else(|| bad("invalid port"))?;
+    let host = host.strip_prefix('[').and_then(|h| h.strip_suffix(']')).unwrap_or(host);
+    if host.is_empty() {
+        return Err(bad("no host"));
+    }
+    Ok(Proxy { kind, host: host.to_owned(), port, user, pass: pass.unwrap_or_default() })
 }
 
 fn main() -> ExitCode {
@@ -226,6 +277,14 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
     }
     if let Some(l) = &o.listen {
         settings.listen_interfaces = l.clone();
+    }
+    if let Some(p) = &o.proxy {
+        settings.proxy_type = p.kind;
+        settings.proxy_hostname = p.host.clone();
+        settings.proxy_port = p.port;
+        settings.proxy_username = p.user.clone();
+        settings.proxy_password = p.pass.clone();
+        println!("* proxy: {:?} {}:{}", p.kind, p.host, p.port);
     }
     let session = match Session::start(SessionParams { settings, state_dir: state_dir.clone() }) {
         Ok(s) => s,
@@ -345,6 +404,7 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
                 | Alert::FileError { .. }
                 | Alert::ListenFailed { .. }
                 | Alert::LsdError { .. }
+                | Alert::Proxy { .. }
                 | Alert::PortmapFailed { .. } => {
                     eprintln!("! {}", a.message())
                 }
@@ -520,4 +580,34 @@ fn peer_sources(peers: &[PeerInfo]) -> String {
         count(PeerSource::LSD),
         count(PeerSource::INCOMING)
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn proxy(kind: ProxyType, host: &str, port: u16, user: &str, pass: &str) -> Proxy {
+        Proxy { kind, host: host.into(), port, user: user.into(), pass: pass.into() }
+    }
+
+    #[test]
+    fn proxy_urls() {
+        assert_eq!(
+            parse_proxy("socks5://127.0.0.1:1080"),
+            Ok(proxy(ProxyType::Socks5, "127.0.0.1", 1080, "", ""))
+        );
+        assert_eq!(
+            parse_proxy("socks5://al:p@ss:w@proxy.example:1080/"),
+            Ok(proxy(ProxyType::Socks5Pw, "proxy.example", 1080, "al", "p@ss:w"))
+        );
+        assert_eq!(
+            parse_proxy("SOCKS4://bob@[::1]:9050"),
+            Ok(proxy(ProxyType::Socks4, "::1", 9050, "bob", ""))
+        );
+        assert_eq!(parse_proxy("http://h:3128"), Ok(proxy(ProxyType::Http, "h", 3128, "", "")));
+        assert_eq!(parse_proxy("http://u:p@h:3128"), Ok(proxy(ProxyType::HttpPw, "h", 3128, "u", "p")));
+        for bad in ["h:1", "ftp://h:1", "socks5://h", "socks5://h:0", "socks5://:1", "socks4://u:p@h:1"] {
+            assert!(parse_proxy(bad).is_err(), "{bad}");
+        }
+    }
 }

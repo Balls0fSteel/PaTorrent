@@ -186,8 +186,12 @@ fn in_network(nets: &[(IpAddr, IpAddr, u32)], from: SocketAddr) -> bool {
 
 impl Engine {
     /// The listen addresses LSD covers: the bound listen sockets' (a wildcard stands for
-    /// every address of its family).
+    /// every address of its family). None while peers go through a proxy: libtorrent wants all
+    /// traffic to go through it.
     fn lsd_listen_addresses(&self) -> Vec<IpAddr> {
+        if self.proxy.for_peers().is_some() {
+            return Vec::new();
+        }
         self.listeners.iter().map(|l| l.local.ip()).collect()
     }
 

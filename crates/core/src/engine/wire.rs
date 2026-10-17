@@ -227,7 +227,7 @@ impl Engine {
 
         // Our piece set, then the extension handshake.
         self.write_bitfield(slot);
-        let listen_port = self.listen_port;
+        let listen_port = self.announce_port();
         let reqq = self.settings.max_allowed_in_request_queue.max(1) as u32;
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
         let t = t.expect("checked");

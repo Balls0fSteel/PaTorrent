@@ -2,6 +2,42 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_160554_1792245954: proxies (SOCKS4/4a, SOCKS5, HTTP) in the engine and nox
+
+Branch `claude/proxies-c663c9` (Phase 5).
+
+### Added
+- Ported libtorrent 2.0.11's proxy support: `socks5_stream`, `http_stream`, `proxy_base`, `proxy_settings`, `instantiate_connection`, the SOCKS5 UDP associate of `udp_socket`, the proxy listen socket and incoming refusal of `session_impl`, the web seed proxy branches of `torrent.cpp`, `utp_socket_manager::mtu_for_dest` with SOCKS5.
+- Settings with libtorrent's names and defaults: `proxy_type` (`ProxyType::None`, `Socks4`, `Socks5`, `Socks5Pw`, `Http`, `HttpPw`), `proxy_hostname`, `proxy_port`, `proxy_username`, `proxy_password`, `proxy_hostnames` (true), `proxy_peer_connections` (true), `proxy_tracker_connections` (true), `socks5_udp_send_local_ep` (false), plus `proxy_send_host_in_connect` (false; not a 2.0.11 setting).
+- `proto::proxy` (sans-IO): SOCKS4 / SOCKS4a CONNECT, SOCKS5 (RFC 1928) with RFC 1929 username / password, CONNECT and UDP ASSOCIATE, bind addresses of every type; HTTP CONNECT with basic authentication and an optional `Host` header; the SOCKS5 UDP header (`udp_wrap` / `udp_unwrap`). Each handshake says how many bytes it needs next, so nothing of the tunnelled stream is read. libtorrent's error codes and messages (`socks_error`, and the system errors SOCKS replies map to).
+- `engine::proxy`: the session's proxy (its name resolved once per settings change, retried 30 s after a failure), the tunnel driver on non-blocking sockets, UDP routing, and the SOCKS5 UDP associate (10 s connect timeout, libtorrent's `retry_connection` backoff of 5..125 s, no retry after an authentication or protocol refusal).
+- Through the proxy: outgoing TCP peer connections; HTTP and HTTPS trackers and web seeds (an HTTP proxy is asked for plain `http://` URLs directly, with `Proxy-Authorization`; everything else tunnels, TLS inside the tunnel); UDP trackers, the DHT and uTP through the SOCKS5 associate (uTP's MTU leaves room for the SOCKS5 header). With `proxy_hostnames`, tracker and web seed host names go to SOCKS5 / SOCKS4a proxies unresolved.
+- With peers proxied (libtorrent's "proxy" listen socket): no TCP listener, incoming TCP refused, one IPv4 UDP socket, no LSD and no port mapping, port 1 announced to trackers, no listen port in the extension handshake, DHT lookups without announces. Datagrams from anyone but the relay are dropped while everything is proxied.
+- `Alert::Proxy` (libtorrent `socks5_alert`): the proxy's name failing to resolve, the UDP associate failing or being lost, and (once a minute per error) peer and web seed connections the proxy refused for its own reasons; `ProxyOperation`. Tracker errors carry the proxy's error ("SOCKS authentication error").
+- `patorrent-nox --proxy TYPE://[USER:PASS@]HOST:PORT` (socks4 / socks5 / http; credentials pick the `_pw` types).
+- Tests: codec unit tests (SOCKS4 / 4a, SOCKS5 with and without a password and host names, every reply code and address type, HTTP CONNECT, UDP framing), tunnel and UDP routing tests, the HTTP proxy request format for trackers and web seeds, nox URL parsing; `tests/proxy.rs` with in-test SOCKS4, SOCKS5 (password, UDP associate relay) and HTTP proxies: downloads through each with no TCP listener, an HTTP proxy asked for a tracker and a web seed by absolute URL (port 1 announced), a tracker host name resolved by the SOCKS5 proxy, a wrong password (tracker error and `Alert::Proxy`), a UDP tracker through the associate (every datagram from the relay), the DHT's bootstrap query through the relay (`socks5_udp_send_local_ep`), and a uTP-only download through the relay.
+- Fuzz target `proxy` (replies of every handshake kind in arbitrary pieces, SOCKS5 datagrams): 1,384,692 runs in 121 s on Windows, no findings; in the `fuzz.yml` matrix.
+
+### Decisions (docs/PORTING.md "Deliberate divergences")
+- The proxy's host name is resolved once by the session; connections and HTTP tracker requests wait for it.
+- SOCKS4 gets host names as SOCKS4a with `proxy_hostnames` (libtorrent resolves locally for SOCKS4).
+- HTTP CONNECT names an address resolved locally, as libtorrent does, unless `proxy_send_host_in_connect`; an `https://` web seed through an HTTP proxy tunnels to the seed.
+- One UDP associate per session, on the UDP socket of the proxy's family; DHT and UDP tracker datagrams sent before it is up are held (64 at most), uTP datagrams are lost; a relay address of `0.0.0.0` means the proxy's address.
+- The proxy listen socket binds the first configured IPv4 address when there is one (libtorrent: `0.0.0.0`).
+- A tracker reached through a proxy casts no external-IP vote; a web seed reached by name gets a placeholder address in `100::/64` for blame.
+
+### Fixed (during the work)
+- A UDP tracker transaction started through a proxy that is then turned off no longer hits an `expect` in `udp_send`: it goes direct if it knows the tracker's address, and fails otherwise.
+
+### Issues
+- `proxy_send_host_in_connect` was asked for but is not in libtorrent 2.0.11; its meaning here is our reading (see PLAN.md Known TODOs).
+- Merge notes for the parallel branches are in the shared side-session notes (`proxies-branch.md`): the Preferences branch's `every_field_has_a_row` test needs rows for the ten new `Settings` fields (`ProxyType` needs a hand-written `Entry`); `engine/mod.rs` has small hunks in `run`, `start`, `on_event`, `on_accept`, `on_udp_readable`, `on_peer_event`, `apply_settings`, `drain_completions`, `announce`, `stop_torrent`, `connect_to_peer`; `fuzz.yml` / `fuzz/Cargo.toml` add `proxy` next to other branches' targets.
+
+### Verified
+- `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings` for Windows, `x86_64-unknown-linux-gnu` and `x86_64-unknown-freebsd`; `cargo +stable clippy --workspace --all-targets -- -D warnings`, `cargo +stable fmt --all --check`, `cargo +stable fmt --manifest-path fuzz/Cargo.toml --check`.
+- `cargo test --workspace --no-fail-fast` on Windows (532 core unit tests, 3 ignored), Ubuntu 26.04.1 and FreeBSD 15.1 (533 core), all integration tests passing, `tests/proxy.rs` 9 of 9 on each.
+- Not verified: real proxy servers, HTTPS through a tunnel, IPv6 proxies, incoming uTP through the relay, the GUI (untouched: the Preferences branch owns it).
+
 ## 2026-10-17_160022_1792245622: part files for skipped files (Phase 5)
 
 Branch `claude/part-files-b92a97`.

@@ -15,11 +15,12 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use super::Engine;
+use super::{Engine, proxy};
 use crate::alert::Alert;
 use crate::bencode::bdecode;
 use crate::dht::{AnnounceArgs, DhtEvent, DhtSettings, DhtState, DhtTracker, read_dht_state, save_dht_state};
 use crate::net::resolver::Resolved;
+use crate::proto::proxy::Target;
 use crate::status::PeerSource;
 use crate::types::TorrentId;
 
@@ -247,10 +248,26 @@ impl Engine {
 
     fn dht_flush(&mut self) {
         let Some(t) = self.dht.tracker.as_mut() else { return };
+        let route = proxy::udp_route(proxy::udp_policy(&self.udp), &self.udp, proxy::UdpKind::Dht);
+        let mut held = Vec::new();
         for p in t.take_outgoing() {
-            let Some(u) = self.udp.iter().find(|u| u.v4 == p.v4_socket) else { continue };
-            // a full socket buffer drops the datagram, as UDP would anyway
-            let _ = u.sock.send_to(&p.data, p.to);
+            // a full socket buffer drops the datagram, as UDP would anyway; so does a proxy that
+            // carries no UDP (yet)
+            match route {
+                proxy::UdpRoute::Direct => {
+                    let Some(u) = self.udp.iter().find(|u| u.v4 == p.v4_socket) else { continue };
+                    let _ = u.sock.send_to(&p.data, p.to);
+                }
+                proxy::UdpRoute::Relay(i, relay) => {
+                    let _ = proxy::send_relayed(&self.udp[i], relay, &Target::Addr(p.to), &p.data, false);
+                }
+                proxy::UdpRoute::Drop => held.push((Target::Addr(p.to), p.data)),
+                proxy::UdpRoute::Refuse => {}
+            }
+        }
+        // the associate is being made: sent once it is up
+        for (to, data) in held {
+            self.hold_udp(to, data);
         }
     }
 
@@ -367,7 +384,7 @@ impl Engine {
         if !self.should_announce_dht(id) {
             return;
         }
-        let port = self.listen_port;
+        let port = self.announce_port();
         let implied_port = self.settings.enable_incoming_utp;
         let Some(t) = self.torrent_ref(id) else { return };
         let ih = t.info_hashes.best_v1_compatible();

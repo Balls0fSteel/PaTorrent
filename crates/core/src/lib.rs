@@ -41,12 +41,12 @@ mod version;
 #[cfg(feature = "mock")]
 mod mock;
 
-pub use alert::{Alert, AlertPriority, AlertQueue, BlockReason};
+pub use alert::{Alert, AlertPriority, AlertQueue, BlockReason, ProxyOperation};
 pub use error::Error;
 pub use net::ip_filter::{IpFilter, IpFilterLoad, IpRange, PortFilter};
 pub use params::{AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags, TorrentSource};
 pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
-pub use settings::{EncLevel, EncPolicy, Settings};
+pub use settings::{EncLevel, EncPolicy, ProxyType, Settings};
 pub use status::{
     AnnounceEntry, FileEntry, PeerFlags, PeerInfo, PeerSource, SessionStats, TorrentState, TorrentStatus,
     TrackerStatus,
@@ -74,6 +74,9 @@ pub mod fuzzing {
     pub use crate::proto::peer_wire::{
         Message as PeerWireMessage, decode, decode_dont_have, decode_ext_handshake, decode_handshake,
         identify_client,
+    };
+    pub use crate::proto::proxy::{
+        Handshake as ProxyHandshake, Socks5Command, Step as ProxyStep, Target as ProxyTarget, udp_unwrap,
     };
     pub use crate::proto::tracker::{parse_announce_response, parse_compact_peers, parse_scrape_response};
     pub use crate::proto::upnp::{

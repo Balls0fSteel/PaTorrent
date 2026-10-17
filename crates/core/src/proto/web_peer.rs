@@ -97,6 +97,10 @@ pub struct WebPeer {
     /// BEP 17: the info-hash every request names.
     http_seed: Option<Sha1Hash>,
     first_request: bool,
+    /// `http://host[:port]`: the requests go to an HTTP proxy, with absolute URLs.
+    proxy_origin: Option<String>,
+    /// Basic credentials for the HTTP proxy.
+    proxy_auth: Option<String>,
 
     /// Block requests not answered yet, in order (libtorrent `m_requests`).
     requests: VecDeque<BlockRequest>,
@@ -173,6 +177,8 @@ impl WebPeer {
             single_file,
             http_seed,
             first_request: true,
+            proxy_origin: None,
+            proxy_auth: None,
             requests: VecDeque::new(),
             file_requests: VecDeque::new(),
             piece: Vec::new(),
@@ -229,6 +235,22 @@ impl WebPeer {
         self.done
     }
 
+    /// The requests go to an HTTP proxy (libtorrent `using_proxy`): absolute URLs, the
+    /// proxy's credentials, and keep-alive asked of the proxy too. Only for `http://` seeds;
+    /// `https://` ones tunnel through CONNECT.
+    pub fn set_http_proxy(&mut self, creds: Option<(&str, &str)>) {
+        self.proxy_origin = Some(format!("http://{}", self.host_header));
+        self.proxy_auth = creds.map(|(u, p)| base64encode(format!("{u}:{p}").as_bytes()));
+    }
+
+    /// The request target: the path, or the absolute URL for a proxy.
+    fn push_target(&self, request: &mut String, path: &str) {
+        if let Some(origin) = &self.proxy_origin {
+            request.push_str(origin);
+        }
+        request.push_str(path);
+    }
+
     /// libtorrent `add_headers`.
     fn add_headers(&self, request: &mut String) {
         request.push_str("Host: ");
@@ -244,13 +266,20 @@ impl WebPeer {
             request.push_str("\r\nAuthorization: Basic ");
             request.push_str(&self.basic_auth);
         }
+        if let Some(auth) = &self.proxy_auth {
+            request.push_str("\r\nProxy-Authorization: Basic ");
+            request.push_str(auth);
+        }
         for (k, v) in &self.extra_headers {
             request.push_str("\r\n");
             request.push_str(k);
             request.push_str(": ");
             request.push_str(v);
         }
-        if self.first_request {
+        if self.proxy_origin.is_some() {
+            request.push_str("\r\nProxy-Connection: keep-alive");
+        }
+        if self.first_request || self.proxy_origin.is_some() {
             request.push_str("\r\nConnection: keep-alive");
         }
     }
@@ -305,7 +334,7 @@ impl WebPeer {
             // libtorrent `http_seed_connection::write_request`: one request per piece (the
             // caller never lets a run cross into the next piece)
             request.push_str("GET ");
-            request.push_str(&self.path);
+            self.push_target(&mut request, &self.path);
             request.push_str("?info_hash=");
             request.push_str(&escape_string(&ih.0));
             request.push_str(&format!("&piece={piece}"));
@@ -352,7 +381,7 @@ impl WebPeer {
 
     fn push_get(&mut self, request: &mut String, path: &str, f: FileRequest) {
         request.push_str("GET ");
-        request.push_str(path);
+        self.push_target(request, path);
         request.push_str(" HTTP/1.1\r\n");
         self.add_headers(request);
         request.push_str(&format!("\r\nRange: bytes={}-{}\r\n\r\n", f.start, f.start + f.length - 1));
@@ -902,6 +931,23 @@ mod tests {
                 BlockRequest { piece: 2, start: 0, length: 16384 },
                 BlockRequest { piece: 2, start: 16384, length: 16384 }
             ]
+        );
+
+        // through an HTTP proxy (libtorrent `using_proxy`): absolute URLs, the proxy's
+        // credentials, keep-alive on every request
+        let mut p = url_peer("http://h.example:8000/f", "", &[], &fs, "UA", false).unwrap();
+        p.set_http_proxy(Some(("Aladdin", "open sesame")));
+        p.write_request(&fs, 0, 0, 16384, &HashMap::new(), &mut None);
+        p.write_request(&fs, 0, 16384, 16384, &HashMap::new(), &mut None);
+        let r = String::from_utf8(std::mem::take(p.out())).unwrap();
+        assert_eq!(
+            r,
+            "GET http://h.example:8000/f HTTP/1.1\r\nHost: h.example:8000\r\nUser-Agent: UA\r\n\
+             Proxy-Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\r\nProxy-Connection: keep-alive\r\n\
+             Connection: keep-alive\r\nRange: bytes=0-16383\r\n\r\n\
+             GET http://h.example:8000/f HTTP/1.1\r\nHost: h.example:8000\r\n\
+             Proxy-Authorization: Basic QWxhZGRpbjpvcGVuIHNlc2FtZQ==\r\nProxy-Connection: keep-alive\r\n\
+             Connection: keep-alive\r\nRange: bytes=16384-32767\r\n\r\n"
         );
     }
 

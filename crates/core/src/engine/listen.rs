@@ -16,20 +16,21 @@
 //! Listen sockets, and following network changes.
 
 use std::io;
-use std::net::{IpAddr, SocketAddr, SocketAddrV6};
+use std::net::{IpAddr, Ipv4Addr, SocketAddr, SocketAddrV6};
 use std::time::{Duration, Instant};
 
 use mio::net::{TcpListener, UdpSocket};
 use mio::{Interest, Token};
 
 use super::peer::Transport;
-use super::{Engine, UDP4_LISTEN_TOKEN, UDP6_LISTEN_TOKEN, UdpListen};
+use super::{Engine, UDP4_LISTEN_TOKEN, UDP6_LISTEN_TOKEN, UdpListen, proxy};
 use crate::alert::{Alert, Protocol};
 use crate::error::Error;
 use crate::net::enum_net::{IpInterface, IpRoute};
 use crate::net::ip_notifier::{IpNotifier, Wake};
 use crate::net::listen::{
-    ListenEndpoint, listen_plan, parse_listen_interfaces, partition_listen_sockets, print_listen_interfaces,
+    ListenEndpoint, ListenFlags, listen_plan, parse_listen_interfaces, partition_listen_sockets,
+    print_listen_interfaces,
 };
 use crate::net::sys;
 use crate::settings::Settings;
@@ -123,11 +124,16 @@ impl NetworkState {
 }
 
 /// Whether a settings change touches the listen sockets: `Some(true)` when they must all be
-/// reopened (TCP or UDP was switched on or off), `Some(false)` when `listen_interfaces`
-/// changed (libtorrent `update_listen_interfaces`).
+/// reopened (TCP or UDP was switched on or off, or peers started or stopped going through a
+/// proxy: libtorrent's `reopen_listen_port` on `proxy_type` / `proxy_peer_connections`),
+/// `Some(false)` when `listen_interfaces` changed (libtorrent `update_listen_interfaces`).
 pub(super) fn listen_settings_changed(old: &Settings, new: &Settings) -> Option<bool> {
     let wants = |s: &Settings| {
-        (s.enable_incoming_tcp, s.enable_dht || s.enable_incoming_utp || s.enable_outgoing_utp)
+        (
+            s.enable_incoming_tcp,
+            s.enable_dht || s.enable_incoming_utp || s.enable_outgoing_utp,
+            proxy::peer_mode(s),
+        )
     };
     if wants(old) != wants(new) {
         Some(true)
@@ -341,7 +347,24 @@ impl Engine {
                 });
             }
         }
-        let plan = listen_plan(&ifaces, ifs, routes);
+        let mut plan = listen_plan(&ifaces, ifs, routes);
+        let mut want_tcp = want_tcp;
+        if proxy::peer_mode(&self.settings) {
+            // libtorrent's "proxy" listen socket: peers come only through the proxy, so no TCP
+            // listener, no LSD and no port mapping; one IPv4 UDP socket on the first configured
+            // port (a random one if none) carries uTP and the DHT through a SOCKS5 associate. It
+            // binds the first configured IPv4 address if that is one (libtorrent: always 0.0.0.0)
+            let port =
+                ifaces.first().map_or(2000 + crate::util::random::random_below(63000) as u16, |i| i.port);
+            let addr = ifaces
+                .first()
+                .and_then(|i| i.device.parse::<Ipv4Addr>().ok())
+                .unwrap_or(Ipv4Addr::UNSPECIFIED);
+            let ep = ListenEndpoint::new(addr.into(), port, "", false, ListenFlags::empty());
+            plan.bind = vec![ep];
+            plan.expanded.clear();
+            want_tcp = false;
+        }
         self.network.expanded = plan.expanded;
         let mut all = if want_tcp || want_udp { plan.bind } else { Vec::new() };
         all.truncate(MAX_LISTEN_SOCKETS);
@@ -393,6 +416,7 @@ impl Engine {
             self.alert(Alert::Log { id: None, message: "giving up on binding listen sockets".into() });
         }
         self.update_external_ip();
+        self.proxy_udp_sockets_changed();
         for (fam, opened) in udp_opened.into_iter().enumerate() {
             if opened {
                 self.dht_socket_opened(fam == 0);
@@ -535,7 +559,8 @@ impl Engine {
         self.poll.registry().register(&mut u, token, Interest::READABLE | Interest::WRITABLE)?;
         let local = u.local_addr()?;
         self.out.push(Alert::ListenSucceeded { address: local, protocol: Protocol::Udp });
-        self.udp.push(UdpListen { v4, sock: u, local });
+        let proxy = self.udp_proxy_policy();
+        self.udp.push(UdpListen { v4, sock: u, local, proxy });
         Ok(local)
     }
 

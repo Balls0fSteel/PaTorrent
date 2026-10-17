@@ -74,6 +74,9 @@ pub mod fuzzing {
         Message as PeerWireMessage, decode, decode_dont_have, decode_ext_handshake, decode_handshake,
         identify_client,
     };
+    pub use crate::proto::proxy::{
+        Handshake as ProxyHandshake, Socks5Command, Step as ProxyStep, Target as ProxyTarget, udp_unwrap,
+    };
     pub use crate::proto::tracker::{parse_announce_response, parse_compact_peers, parse_scrape_response};
     pub use crate::proto::upnp::{
         parse_device_description, parse_error_code, parse_external_address, parse_ssdp,

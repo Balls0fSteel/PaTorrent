@@ -559,8 +559,7 @@ fn udp_tracker(peers: Vec<SocketAddr>) -> (u16, Arc<Mutex<Vec<SocketAddr>>>) {
     let s2 = sources.clone();
     std::thread::spawn(move || {
         let mut buf = [0u8; 2048];
-        loop {
-            let Ok((n, from)) = s.recv_from(&mut buf) else { break };
+        while let Ok((n, from)) = s.recv_from(&mut buf) {
             s2.lock().unwrap().push(from);
             if n < 16 {
                 continue;

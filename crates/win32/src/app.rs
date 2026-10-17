@@ -22,7 +22,7 @@ use patorrent_frontend::detail::PRIORITIES;
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::status::Category;
-use patorrent_frontend::{actions, fmt};
+use patorrent_frontend::{actions, create, fmt};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -345,6 +345,7 @@ pub fn run(args: Args) -> i32 {
         let accels = [
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'O' as u16, cmd: cmd::ADD },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'U' as u16, cmd: cmd::ADD_URL },
+            ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'N' as u16, cmd: cmd::CREATE },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'A' as u16, cmd: cmd::SELECT_ALL },
             ACCEL { fVirt: FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE },
             ACCEL { fVirt: FSHIFT | FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE_DATA },
@@ -368,7 +369,7 @@ unsafe fn main_menu() -> HMENU {
         let file = CreatePopupMenu();
         append(file, cmd::ADD, "&Add Torrent...\tCtrl+O");
         append(file, cmd::ADD_URL, "Add Torrent from &URL...\tCtrl+U");
-        append_flags(file, MF_GRAYED, cmd::CREATE, "&Create New Torrent...\tCtrl+N");
+        append(file, cmd::CREATE, "&Create New Torrent...\tCtrl+N");
         separator(file);
         append(file, cmd::EXIT, "E&xit");
         let options = CreatePopupMenu();
@@ -1107,9 +1108,7 @@ unsafe fn update_toolbar() {
         for id in [cmd::REMOVE, cmd::START, cmd::PAUSE, cmd::STOP, cmd::UP, cmd::DOWN] {
             send(toolbar, TB_ENABLEBUTTON, id as usize, any as isize);
         }
-        for id in [cmd::CREATE, cmd::PREFS] {
-            send(toolbar, TB_ENABLEBUTTON, id as usize, 0);
-        }
+        send(toolbar, TB_ENABLEBUTTON, cmd::PREFS as usize, 0);
     }
 }
 
@@ -1820,6 +1819,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                     }
                 }
             }
+            cmd::CREATE => create_torrent(hwnd),
             cmd::EXIT => {
                 with_app(|a| a.quitting = true);
                 DestroyWindow(hwnd);
@@ -2087,6 +2087,33 @@ fn add_params(_hwnd: HWND, source: TorrentSource, name: Option<String>) {
         p.flags = TorrentFlags::DEFAULT;
         a.handle.add_torrent(p);
     });
+}
+
+/// File → Create New Torrent; with "Start seeding" the new torrent is added with the source's
+/// folder as its save path (the files are checked, then it seeds).
+unsafe fn create_torrent(hwnd: HWND) {
+    let Some(mut r) = with_app(|a| crate::create::Remembered {
+        trackers: create::trackers_from_pref(a.prefs.get("create.trackers").unwrap_or_default()),
+        piece: a.prefs.get_i32("create.piece_size").unwrap_or(0).max(0) as usize,
+        seed: a.prefs.get_bool("create.seed", true),
+        private: a.prefs.get_bool("create.private", false),
+        preserve_order: a.prefs.get_bool("create.preserve_order", false),
+    }) else {
+        return;
+    };
+    // the dialog runs its own message loop; nothing is borrowed across it
+    let done = crate::create::show(hwnd, &mut r);
+    with_app(|a| {
+        a.prefs.set("create.trackers", create::trackers_to_pref(&r.trackers));
+        a.prefs.set("create.piece_size", r.piece);
+        a.prefs.set_bool("create.seed", r.seed);
+        a.prefs.set_bool("create.private", r.private);
+        a.prefs.set_bool("create.preserve_order", r.preserve_order);
+    });
+    let Some(done) = done else { return };
+    if let Some(save) = done.seed_from {
+        with_app(|a| a.handle.add_torrent(create::seed_params(done.created.bytes, &save)));
+    }
 }
 
 /// Fetches a `.torrent` over HTTP(S) on a worker thread with the OS downloader (urlmon), then

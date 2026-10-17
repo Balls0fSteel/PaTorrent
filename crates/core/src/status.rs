@@ -38,6 +38,9 @@ pub struct TorrentStatus {
     pub has_metadata: bool,
     pub is_finished: bool,
     pub is_seeding: bool,
+    /// BEP 16 super seeding (µTorrent "initial seeding") is in effect (libtorrent
+    /// `torrent_status::super_seeding`).
+    pub super_seeding: bool,
     pub moving_storage: bool,
 
     /// Progress of the current task (download or check), 0..=1_000_000.

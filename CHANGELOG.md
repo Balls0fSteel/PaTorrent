@@ -28,6 +28,29 @@ Branch `claude/part-files-b92a97`.
 - `cargo test --workspace --no-fail-fast` on Windows (530 core, 3 ignored; swarm 34), Ubuntu 26.04.1 and FreeBSD 15.1 (531 core each; swarm 34, web seed 12, all other suites passing).
 - `fuzz.bat part_file 120`: 458,586 runs, no findings (after the fix under Issues).
 
+## 2026-10-17_155425_1792245265: super seeding (BEP 16, µTorrent "initial seeding")
+
+Built on branch `claude/super-seeding-362b23` (Phase 5).
+
+### Added
+- `engine::super_seed`, ported from libtorrent 2.0.11 `torrent.cpp` (`set_super_seeding`, `get_piece_to_super_seed`, the check in `files_checked`), `peer_connection.cpp` (`superseed_piece`, the super-seeding branches of `incoming_have`, `incoming_request`, `second_tick`) and `bt_peer_connection::write_bitfield`.
+- Behaviour while `TorrentFlags::SUPER_SEEDING` is set on a checked seed: no bitfield / HAVE_ALL but HAVE_NONE (fast-extension peers) and two offered pieces per peer, picked by libtorrent's rule (rarest among connected peers, pieces offered to anyone avoided, random tie-break); a HAVE for an offered piece (also a redundant one) brings the next offer in its place; a peer not interested for 10 s gets another offer once a second; requests outside the offers are rejected (REJECT for fast peers, silently dropped otherwise); no allowed-fast set; `upload_only` is left out of the extension handshake. Switching it off sends HAVE_ALL / the bitfield to every super-seeded peer.
+- `write_bitfield` is its own method now (handshake and the end of super seeding).
+- The flag works through `set_flags` / `unset_flags` and `AddTorrentParams::flags`, and is saved in resume data as libtorrent's `super_seeding`. It is dropped when the check finds the torrent incomplete, ignored on a checked non-seed, and a seed that loses a piece ends the offers.
+- `TorrentStatus::super_seeding` (libtorrent `torrent_status::super_seeding`): in effect, not just flagged. The frontend status text shows "[S] Seeding" ("[F] [S] Seeding" when forced).
+- `patorrent-nox add ... --super-seed` (implies `--seed`).
+- Win32: torrent context menu Advanced > Initial Seeding, checked when every selected torrent super seeds, greyed unless all are seeds; it toggles the flag.
+- Tests: `super_seed::tests` (the piece choice: rarest, offered pieces avoided, random ties, seeds counted, nothing for a complete peer, unsized bitfields); `tests/super_seed.rs` (a super seed and two leeches that also trade with each other: both finish, the seed uploads 1.02-1.08 copies over 30 runs, the flag is dropped on a leech; a scripted peer: HAVE_NONE and two HAVEs instead of a bitfield, no allowed-fast, no `upload_only`, an un-offered request rejected, a HAVE bringing a new offer, the replaced offer rejected; switching off sends HAVE_ALL and un-offered pieces are served, and a new peer gets HAVE_ALL; a rate-limited leech keeps its connection through the switch and finishes); the resume round trip and the frontend status strings.
+
+### Changed
+- A BITFIELD / HAVE_ALL / HAVE_NONE after an earlier one replaces the peer's piece set (libtorrent `peer_lost` first) instead of closing the connection, so a super seed that stops can send HAVE_ALL after HAVE_NONE.
+
+### Decisions
+- Only peers that got the super-seeding handshake are limited to their offers: switching it on mid-run leaves connected peers with the full set (libtorrent would reject their requests). Recorded with the other divergences in docs/PORTING.md.
+
+### Issues
+- A loopback test flaked 3 times in 12 runs while being written: when the short last piece (6,713 bytes) was offered, the scripted peer asked for 16 KiB of it and got a correct REJECT. The test now requests the real block length.
+
 ## 2026-10-17_153322_1792244002: CI fix for stable clippy and rustfmt
 
 ### Fixed

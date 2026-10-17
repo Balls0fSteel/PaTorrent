@@ -2,7 +2,8 @@
 // write_bitfield, write_extensions, write_dont_have, the lt_donthave branch of on_extended),
 // src/peer_connection.cpp (incoming_request, incoming_piece, incoming_have, incoming_dont_have,
 // update_interest, send_block_requests, snub handling, the read error of
-// on_disk_read_complete), src/request_blocks.cpp
+// on_disk_read_complete, incoming_bitfield / incoming_have_all / incoming_have_none replacing an
+// earlier piece set), src/request_blocks.cpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: handlers are engine methods taking a peer slot; messages are copied out of the
 // receive buffer once (piece payloads go straight to the disk job). The encrypted handshake
@@ -224,22 +225,18 @@ impl Engine {
             self.has_incoming = true;
         }
 
-        // Our piece set (libtorrent `write_bitfield`), then the extension handshake.
+        // Our piece set, then the extension handshake.
+        self.write_bitfield(slot);
         let listen_port = self.listen_port;
         let reqq = self.settings.max_allowed_in_request_queue.max(1) as u32;
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
         let t = t.expect("checked");
         let have = t.picker.as_ref().map(|pk| pk.have().clone()).unwrap_or_default();
         let count = have.count();
-        if p.supports_fast && count == have.len() && count > 0 {
-            peer_wire::encode_simple(p.out(), msg::HAVE_ALL);
-        } else if p.supports_fast && count == 0 {
-            peer_wire::encode_simple(p.out(), msg::HAVE_NONE);
-        } else if count > 0 {
-            peer_wire::encode_bitfield(p.out(), have.as_bytes());
-        }
-        // BEP 6 allowed-fast set for IPv4 peers, limited to pieces we have.
-        if p.supports_fast && count > 0 {
+        let super_seeding = t.super_seeding();
+        // BEP 6 allowed-fast set for IPv4 peers, limited to pieces we have; none while super
+        // seeding (libtorrent `send_allowed_set`).
+        if p.supports_fast && count > 0 && !super_seeding {
             if let std::net::IpAddr::V4(ip) = p.addr.ip() {
                 let ih = t.info_hashes.best_v1_compatible();
                 for piece in peer_wire::allowed_fast_set(ip, &ih, t.num_pieces, ALLOWED_FAST_SET_SIZE) {
@@ -265,7 +262,8 @@ impl Engine {
                 &format!("PaTorrent {}", crate::VERSION),
                 (listen_port != 0).then_some(listen_port),
                 reqq,
-                count == have.len() && count > 0,
+                // a super seed is not upload-only: the peer would leave after one piece
+                count == have.len() && count > 0 && !super_seeding,
                 Some(p.addr.ip()),
                 metadata_size,
             );
@@ -304,7 +302,11 @@ impl Engine {
                 self.maybe_unchoke(slot);
             }
             Owned::NotInterested => {
-                self.peers.get_mut(slot).expect("exists").peer_interested = false;
+                let p = self.peers.get_mut(slot).expect("exists");
+                if p.peer_interested {
+                    p.became_uninterested = Instant::now();
+                }
+                p.peer_interested = false;
                 self.set_choke(slot, true, Instant::now());
             }
             Owned::Have(i) => {
@@ -326,31 +328,28 @@ impl Engine {
                     p.close(format!("have for invalid piece {i}"), true);
                     return;
                 }
-                if p.peer_seed || p.peer_has.get(i as usize) {
-                    return;
+                if !p.peer_seed && !p.peer_has.get(i as usize) {
+                    p.peer_has.set(i as usize, true);
+                    p.got_bitfield = true;
+                    let mut interesting = false;
+                    if let Some(pk) = t.picker.as_mut() {
+                        pk.inc_refcount(i);
+                        interesting = pk.wants(i);
+                    }
+                    if p.peer_has.all_set() && t.is_seed() && close_redundant {
+                        p.close("both sides are seeds", false);
+                        return;
+                    }
+                    if interesting && !p.am_interested {
+                        self.update_interest(slot);
+                    }
                 }
-                p.peer_has.set(i as usize, true);
-                p.got_bitfield = true;
-                let mut interesting = false;
-                if let Some(pk) = t.picker.as_mut() {
-                    pk.inc_refcount(i);
-                    interesting = pk.wants(i);
-                }
-                if p.peer_has.all_set() && t.is_seed() && close_redundant {
-                    p.close("both sides are seeds", false);
-                    return;
-                }
-                if interesting && !p.am_interested {
-                    self.update_interest(slot);
-                }
+                // Also for a redundant HAVE, as libtorrent.
+                self.superseed_on_have(slot, i);
             }
             Owned::Bitfield(bytes) => {
                 let (p, t) = self.peer_and_torrent(slot).expect("exists");
                 let Some(t) = t else { return };
-                if p.got_bitfield {
-                    p.close("bitfield after other messages", true);
-                    return;
-                }
                 if !t.has_metadata() {
                     // Kept at its wire length until the piece count is known.
                     p.peer_has = Bitfield::from_bytes(&bytes, bytes.len() * 8).expect("exact length");
@@ -362,26 +361,33 @@ impl Engine {
                     return;
                 };
                 p.got_bitfield = true;
+                self.forget_peer_pieces(slot);
                 self.set_peer_pieces(slot, bf, false);
             }
             Owned::HaveAll => {
                 let (p, t) = self.peer_and_torrent(slot).expect("exists");
                 let Some(t) = t else { return };
-                if !p.supports_fast || p.got_bitfield {
+                if !p.supports_fast {
                     p.close("unexpected have_all", true);
                     return;
                 }
                 p.got_bitfield = true;
                 let n = t.num_pieces as usize;
+                self.forget_peer_pieces(slot);
                 self.set_peer_pieces(slot, Bitfield::new(n, true), true);
             }
             Owned::HaveNone => {
                 let p = self.peers.get_mut(slot).expect("exists");
-                if !p.supports_fast || p.got_bitfield {
+                if !p.supports_fast {
                     p.close("unexpected have_none", true);
                     return;
                 }
+                let had = p.got_bitfield;
                 p.got_bitfield = true;
+                if had {
+                    self.forget_peer_pieces(slot);
+                    self.update_interest(slot);
+                }
             }
             Owned::Request(piece, start, length) => self.on_request(slot, piece, start, length),
             Owned::Piece(piece, start, data) => self.on_piece(slot, piece, start, data),
@@ -483,6 +489,57 @@ impl Engine {
         }
         let Some(id) = p.ext.as_ref().and_then(|e| e.message_id(lt_donthave::NAME)) else { return };
         peer_wire::encode_dont_have(p.out(), id, piece);
+        self.to_flush.push(slot);
+    }
+
+    /// A new BITFIELD / HAVE_ALL / HAVE_NONE replaces what the peer announced so far
+    /// (libtorrent `torrent::peer_lost` in `incoming_bitfield` and friends). A super seed
+    /// that stops sends one after its HAVE_NONE and offered HAVEs.
+    fn forget_peer_pieces(&mut self, slot: usize) {
+        let (p, t) = self.peer_and_torrent(slot).expect("exists");
+        let Some(t) = t else { return };
+        if let Some(pk) = t.picker.as_mut() {
+            if p.peer_seed {
+                pk.dec_seed();
+            } else if p.peer_has.len() == t.num_pieces as usize {
+                pk.dec_refcount_bitfield(&p.peer_has);
+            }
+        }
+        if p.peer_seed {
+            t.peer_list.set_seed(&p.addr, false);
+        }
+        p.peer_seed = false;
+        p.peer_has = Bitfield::new(t.num_pieces as usize, false);
+    }
+
+    /// libtorrent `bt_peer_connection::write_bitfield`: our piece set; while super seeding a
+    /// HAVE_NONE (to peers with the fast extension) and two offered pieces instead.
+    pub(super) fn write_bitfield(&mut self, slot: usize) {
+        let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
+        if t.super_seeding() {
+            if p.supports_fast {
+                peer_wire::encode_simple(p.out(), msg::HAVE_NONE);
+            }
+            p.superseed = Some(p.superseed.unwrap_or_default());
+            self.to_flush.push(slot);
+            // bootstrap super seeding with two HAVEs
+            for _ in 0..2 {
+                if let Some(piece) = self.superseed_pick(slot) {
+                    self.superseed_piece(slot, None, Some(piece));
+                }
+            }
+            return;
+        }
+        p.superseed = None;
+        let have = t.picker.as_ref().map(|pk| pk.have().clone()).unwrap_or_default();
+        let count = have.count();
+        if p.supports_fast && count == have.len() && count > 0 {
+            peer_wire::encode_simple(p.out(), msg::HAVE_ALL);
+        } else if p.supports_fast && count == 0 {
+            peer_wire::encode_simple(p.out(), msg::HAVE_NONE);
+        } else if count > 0 {
+            peer_wire::encode_bitfield(p.out(), have.as_bytes());
+        }
         self.to_flush.push(slot);
     }
 
@@ -594,6 +651,14 @@ impl Engine {
         let max_in = self.settings.max_allowed_in_request_queue.max(1) as usize;
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
         let Some(t) = t else { return };
+        // Super seeding: only the offered pieces (libtorrent `incoming_request`).
+        if p.superseed.is_some_and(|o| !o.contains(&Some(piece))) {
+            if p.supports_fast {
+                peer_wire::encode_block_msg(p.out(), msg::REJECT, piece, start, length);
+                self.to_flush.push(slot);
+            }
+            return;
+        }
         let valid = piece < t.num_pieces
             && length > 0
             && length <= MAX_REQUEST

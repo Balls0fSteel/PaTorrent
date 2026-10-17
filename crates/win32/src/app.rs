@@ -95,6 +95,7 @@ mod cmd {
     pub const MIN_TO_TRAY: u16 = 128;
     pub const QUEUE_TOP: u16 = 129;
     pub const QUEUE_BOTTOM: u16 = 130;
+    pub const SUPER_SEED: u16 = 131;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -1687,7 +1688,7 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
         if ids.is_empty() {
             return;
         }
-        let Some((labels, current_label, dl, ul, single_done)) = with_app(|a| {
+        let Some((labels, current_label, dl, ul, single_done, (seeds, super_seeding))) = with_app(|a| {
             let labels: Vec<String> = a.list.labels().into_iter().map(|(l, _)| l).collect();
             let first = a.list.get(ids[0]);
             let same = |f: &dyn Fn(TorrentId) -> String| {
@@ -1702,6 +1703,7 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
                 first.map_or(0, |s| s.download_limit),
                 first.map_or(0, |s| s.upload_limit),
                 ids.len() == 1 && first.is_some_and(|s| s.is_finished),
+                super_seed_state(a, &ids),
             )
         }) else {
             return;
@@ -1731,6 +1733,9 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
         append(menu, cmd::RECHECK, "Force Re-&Check");
         append(menu, cmd::REANNOUNCE, "&Update Tracker");
         separator(menu);
+        let adv = CreatePopupMenu();
+        append_flags(adv, checked(super_seeding) | grayed(!seeds), cmd::SUPER_SEED, "&Initial Seeding");
+        submenu(menu, adv, "Ad&vanced");
         let bw = CreatePopupMenu();
         let dl_menu = CreatePopupMenu();
         let ul_menu = CreatePopupMenu();
@@ -1920,6 +1925,22 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                     a.handle.post_torrent_updates();
                 });
             }
+            cmd::SUPER_SEED => {
+                let ids = selected_ids();
+                with_app(|a| {
+                    // µTorrent toggles: on for all unless every selected torrent has it.
+                    let (_, on) = super_seed_state(a, &ids);
+                    for tid in ids {
+                        let t = a.handle.torrent(tid);
+                        if on {
+                            t.unset_flags(TorrentFlags::SUPER_SEEDING);
+                        } else {
+                            t.set_flags(TorrentFlags::SUPER_SEEDING);
+                        }
+                    }
+                    a.handle.post_torrent_updates();
+                });
+            }
             cmd::START
             | cmd::FORCE_START
             | cmd::PAUSE
@@ -1934,6 +1955,14 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             _ => {}
         }
     }
+}
+
+/// (every torrent is a seed, every torrent is super seeding), for "Initial Seeding".
+fn super_seed_state(a: &App, ids: &[TorrentId]) -> (bool, bool) {
+    let all = |f: &dyn Fn(&patorrent_core::TorrentStatus) -> bool| {
+        ids.iter().all(|&id| a.list.get(id).is_some_and(f))
+    };
+    (all(&|s| s.is_seeding), all(&|s| s.super_seeding))
 }
 
 fn set_paused(a: &mut App, id: TorrentId, paused: bool) {

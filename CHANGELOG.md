@@ -23,8 +23,10 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 - `cargo fmt --all --check` (1.90 and stable), `cargo clippy --workspace --all-targets -- -D warnings` on 1.90.0 and stable, `cargo clippy -p patorrent-core -p patorrent-frontend -p patorrent-nox --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`.
 - `cargo test --workspace --no-fail-fast` on Windows: all green (core 555 with 3 ignored, rename_file 3, move_storage 8, swarm 34, webui 8, frontend 47, win32 21, the rest).
 
+- `cargo test --workspace --no-fail-fast` on the Ubuntu and FreeBSD VMs (commit 895f7d9, copied after the owner approved it): all green on both (core 556 with 3 ignored, rename_file 3, move_storage 8, swarm 34, webui 8, frontend 47, the rest).
+
 ### Issues
-- The Linux and FreeBSD VM runs did not happen: the auto-mode classifier refused the command that copies the tree to the VMs (it removes `~/patorrent` there first). Unix renames go through the same `std::fs::rename`; the Linux target only type-checked.
+- The first attempt to copy the tree to the VMs was refused by the auto-mode classifier (it removes `~/patorrent` there first); it ran once the owner approved it.
 - Not verified by hand: the Add dialog's Name on a real torrent.
 
 ## 2026-10-17_194329_1792259009: merge of the Win32 move storage wiring

@@ -306,7 +306,6 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - with nothing bound (device-only setup while the device is gone) trackers still get the old port; uTP connections on a closed UDP socket are not moved and time out.
   - SSL listen entries (`...s`) are refused with `ListenFailed` (no SSL torrents).
 - Rename follow-ups (CHANGELOG 2026-10-17_200844_1792260524):
-  - not run on the Linux and FreeBSD VMs: the auto-mode classifier refused the remote copy (`rm -rf ~/patorrent` plus `tar` over ssh). Windows tests and the Linux-target clippy are green; run `cargo test --workspace` on both VMs.
   - the Win32 Files tab has no Rename item (µTorrent 2.2.1 had none either; 3.x added one); `TorrentHandle::rename_file` is ready for it.
   - renaming before the metadata is known fails (`FileRenameFailed`); `AddTorrentParams::renamed_files` does work for magnets, applied when the metadata arrives.
   - a rename onto an existing file replaces it (`std::fs::rename`, as libtorrent's `rename`); nox's `renameFile` refuses names already used by the torrent, the engine does not check.

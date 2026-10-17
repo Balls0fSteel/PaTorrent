@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_194329_1792259009: merge of the Win32 move storage wiring
+
+Branch `claude/gallant-archimedes-20a750` merged into main without conflicts (its entry follows).
+
+### Verified
+- `cargo fmt --all --check`, `cargo +stable fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings` on 1.90.0 and stable; `cargo clippy -p patorrent-frontend --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`.
+- `cargo test --workspace --no-fail-fast` on Windows: 729 passed, 0 failed. Only `crates/win32` and `crates/frontend` changed, so the VMs were not rerun.
+- Not verified: the Preferences option and Set Download Location by hand.
+
 ## 2026-10-17_193944_1792258784: Win32: Move completed downloads and Set Download Location
 
 ### Added

@@ -1,7 +1,8 @@
 // PaTorrent's Web UI: the µTorrent 2.2.1 main window on the native session protocol
 // (docs/WEBUI.md). The page holds only the visible window of rows; the server runs the
-// filtered, sorted list and sends formatted cells. Commands still go to the compat shim
-// (api/v2/...) until slice 5 brings the native command endpoints.
+// filtered, sorted list and sends formatted cells, and the detail pane's tab content the
+// same way. Commands still go to the compat shim (api/v2/...) until slice 5 brings the
+// native command endpoints.
 "use strict";
 (() => {
   const ROW_H = 22; // must match --row-h in style.css (set below so they cannot drift)
@@ -52,7 +53,7 @@
   let anchor = -1; // selection anchor, an index in the view
   let cur = -1; // the focused row, an index in the view
   let pendingCur = -1; // a focus moved outside the window, applied when its row arrives
-  let detailTab = "general";
+  let detailTab = store.get("pa.tab", "general");
   let detailId = null;
   let labels = [];
   let pool = [];
@@ -262,11 +263,14 @@
         case "tick":
           onTick(m);
           break;
+        case "detail":
+          onDetail(m);
+          break;
         case "error":
           flash(m.msg || "error");
           break;
         default:
-          break; // detail and log come with slice 4
+          break;
       }
     };
     sock.onclose = () => {
@@ -322,6 +326,8 @@
     sentWindow = null;
     if (hidden) send({ t: "idle" });
     else sendView();
+    // a fresh socket: the server sends the tab whole again, into a fresh view
+    clearDetail();
     if (detailId) send({ t: "detail", id: detailId, tab: detailTab });
   }
 
@@ -561,9 +567,11 @@
     if (top < body.scrollTop) body.scrollTop = top;
     else if (top + ROW_H > body.scrollTop + body.clientHeight) body.scrollTop = top + ROW_H - body.clientHeight;
   }
+  /// Subscribes the detail pane to the focused row (null for none: the pane stays empty).
   function setDetail(id) {
     if (id === detailId) return;
     detailId = id;
+    clearDetail();
     send({ t: "detail", id, tab: detailTab });
   }
   function rowOf(target) {
@@ -577,7 +585,9 @@
       if (ev.button === 0 && (ev.target === spacer || ev.target === body)) {
         sel = new Set();
         selAll = false;
+        cur = -1;
         updateSelClasses();
+        setDetail(null);
       }
       return;
     }
@@ -940,8 +950,7 @@
         if (hashes === "all") sel = new Set();
         selAll = false;
         cur = -1;
-        detailId = null;
-        send({ t: "detail", id: null });
+        setDetail(null);
         updateSelClasses();
         break;
       }
@@ -1243,14 +1252,515 @@
     ev.stopPropagation();
   }
 
-  // ---- detail tabs (content with slice 4) -----------------------------------------------
+  // ---- detail tabs ---------------------------------------------------------------------
+  // One subscription at a time (the focused row and the active tab). The server sends the
+  // tab's whole content once, then only when it changed (Speed and Logger append). Each tab
+  // keeps its DOM between updates, so the scroll position, the sort and the selection stay.
+  const tabBody = $("tab-body");
+  let detailView = null; // {tab, id, ...} the DOM built for the current subscription
+  const tabSort = { trackers: [0, false], peers: [0, false], files: [0, false] };
+  const tabSel = { trackers: new Set(), peers: new Set(), files: new Set() };
+  const DOWN_COLOR = "#2aa52a";
+  const UP_COLOR = "#d23c3c";
+
+  function clearDetail() {
+    detailView = null;
+    tabBody.textContent = "";
+    tabBody.scrollTop = 0;
+  }
+  function onDetail(m) {
+    if (m.id !== detailId || m.tab !== detailTab) return; // a message for an old subscription
+    if (m.gone) {
+      clearDetail();
+      return;
+    }
+    if (!detailView || detailView.tab !== m.tab || detailView.id !== m.id) {
+      clearDetail();
+      detailView = buildTab(m.tab, m.id);
+      tabBody.appendChild(detailView.el);
+    }
+    detailView.update(m);
+  }
+  function buildTab(tab, id) {
+    switch (tab) {
+      case "general":
+        return generalView(tab, id);
+      case "trackers":
+      case "peers":
+      case "files":
+        return tableView(tab, id);
+      case "pieces":
+        return piecesView(tab, id);
+      case "speed":
+        return speedView(tab, id);
+      case "logger":
+        return loggerView(tab, id);
+      default:
+        return { tab, id, el: document.createElement("div"), update() {} };
+    }
+  }
+  function setTextIf(el, text) {
+    if (el.textContent !== text) el.textContent = text;
+  }
+
+  // General: the Downloaded and Availability bars, then the Transfer and General groups as
+  // two columns of label-value pairs.
+  function generalView(tab, id) {
+    const el = document.createElement("div");
+    el.className = "gen";
+    const bars = [];
+    const groups = [];
+    return {
+      tab,
+      id,
+      el,
+      update(m) {
+        (m.bars || []).forEach(([label, value, fill], i) => {
+          let b = bars[i];
+          if (!b) {
+            const row = document.createElement("div");
+            row.className = "bar-row";
+            const l = document.createElement("b");
+            const bar = document.createElement("div");
+            bar.className = "pbar" + (i === 1 ? " avail" : "");
+            bar.appendChild(document.createElement("i"));
+            const v = document.createElement("span");
+            row.append(l, bar, v);
+            el.appendChild(row);
+            b = bars[i] = { l, bar, v };
+          }
+          setTextIf(b.l, label);
+          setTextIf(b.v, value);
+          b.bar.firstChild.style.width = fill / 10 + "%";
+        });
+        (m.groups || []).forEach((g, gi) => {
+          let grp = groups[gi];
+          if (!grp) {
+            const h = document.createElement("h4");
+            const pairs = document.createElement("div");
+            pairs.className = "pairs";
+            el.append(h, pairs);
+            grp = groups[gi] = { h, pairs, rows: [] };
+          }
+          setTextIf(grp.h, g.title);
+          g.rows.forEach(([label, value], ri) => {
+            let r = grp.rows[ri];
+            if (!r) {
+              const p = document.createElement("div");
+              p.className = "pair";
+              const l = document.createElement("b");
+              const v = document.createElement("span");
+              p.append(l, v);
+              grp.pairs.appendChild(p);
+              r = grp.rows[ri] = { l, v };
+            }
+            setTextIf(r.l, label);
+            setTextIf(r.v, value);
+            if (r.v.title !== value) r.v.title = value;
+          });
+        });
+      },
+    };
+  }
+
+  // Trackers, Peers, Files: a table with the frontend's columns, sortable by header click
+  // (client-side; these lists are small), rows reconciled by key so nothing flickers.
+  function tableView(tab, id) {
+    const cols = (hello && hello.detail && hello.detail[tab]) || [];
+    const keyOf = tab === "files" ? (r) => String(r.i) : (r) => r.c[0];
+    const el = document.createElement("table");
+    el.className = "dt";
+    const colgroup = document.createElement("colgroup");
+    const thead = document.createElement("thead");
+    const hr = document.createElement("tr");
+    cols.forEach((c, i) => {
+      const col = document.createElement("col");
+      col.style.width = c.width + "px";
+      colgroup.appendChild(col);
+      const th = document.createElement("th");
+      th.textContent = c.title;
+      th.title = c.title;
+      if (c.right) th.className = "r";
+      th.dataset.i = i;
+      hr.appendChild(th);
+    });
+    thead.appendChild(hr);
+    const tbody = document.createElement("tbody");
+    el.append(colgroup, thead, tbody);
+    const byKey = new Map();
+    let rows = [];
+    const markSort = () => {
+      const [si, desc] = tabSort[tab];
+      for (const th of hr.children) {
+        const on = Number(th.dataset.i) === si;
+        th.classList.toggle("sort", on);
+        th.classList.toggle("desc", on && desc);
+        th.classList.toggle("asc", on && !desc);
+      }
+    };
+    const sorted = () => {
+      const [si, desc] = tabSort[tab];
+      const out = rows.slice();
+      out.sort((a, b) => {
+        const ka = a.k && a.k[si];
+        const kb = b.k && b.k[si];
+        let r;
+        if (typeof ka === "number" && typeof kb === "number") r = ka - kb;
+        else if (typeof ka === "number") r = 1; // numbers after blanks? no: blanks last
+        else if (typeof kb === "number") r = -1;
+        else r = (a.c[si] || "").localeCompare(b.c[si] || "", undefined, { numeric: true, sensitivity: "base" });
+        if (r === 0 && si !== 0) r = (a.c[0] || "").localeCompare(b.c[0] || "", undefined, { numeric: true });
+        return desc ? -r : r;
+      });
+      return out;
+    };
+    const render = () => {
+      const list = sorted();
+      const keep = new Set();
+      list.forEach((r, i) => {
+        const key = keyOf(r);
+        keep.add(key);
+        let tr = byKey.get(key);
+        if (!tr) {
+          tr = document.createElement("tr");
+          tr.dataset.key = key;
+          cols.forEach((c) => {
+            const td = document.createElement("td");
+            if (c.right) td.className = "r";
+            tr.appendChild(td);
+          });
+          byKey.set(key, tr);
+        }
+        r.c.forEach((text, j) => {
+          const td = tr.children[j];
+          if (td && td.textContent !== text) {
+            td.textContent = text;
+            if (j === 0) td.title = text;
+          }
+        });
+        tr.classList.toggle("sel", tabSel[tab].has(key));
+        if (tbody.children[i] !== tr) tbody.insertBefore(tr, tbody.children[i] || null);
+      });
+      for (const [key, tr] of byKey) {
+        if (!keep.has(key)) {
+          tr.remove();
+          byKey.delete(key);
+          tabSel[tab].delete(key);
+        }
+      }
+    };
+    thead.addEventListener("click", (ev) => {
+      const th = ev.target.closest("th");
+      if (!th) return;
+      const i = Number(th.dataset.i);
+      const [si, desc] = tabSort[tab];
+      tabSort[tab] = si === i ? [i, !desc] : [i, false];
+      markSort();
+      render();
+    });
+    let anchorKey = null;
+    tbody.addEventListener("pointerdown", (ev) => {
+      if (ev.button !== 0 && ev.button !== 2) return;
+      const tr = ev.target.closest("tr");
+      if (!tr) return;
+      const key = tr.dataset.key;
+      const sel = tabSel[tab];
+      if (ev.button === 2) {
+        if (!sel.has(key)) {
+          sel.clear();
+          sel.add(key);
+          anchorKey = key;
+        }
+      } else if (ev.ctrlKey || ev.metaKey) {
+        if (sel.has(key)) sel.delete(key);
+        else sel.add(key);
+        anchorKey = key;
+      } else if (ev.shiftKey && anchorKey !== null) {
+        const keys = [...tbody.children].map((r) => r.dataset.key);
+        const a = keys.indexOf(anchorKey);
+        const b = keys.indexOf(key);
+        sel.clear();
+        for (let i = Math.min(a, b); i <= Math.max(a, b); i++) sel.add(keys[i]);
+      } else {
+        sel.clear();
+        sel.add(key);
+        anchorKey = key;
+      }
+      for (const r of tbody.children) r.classList.toggle("sel", sel.has(r.dataset.key));
+    });
+    if (tab === "files") {
+      tbody.addEventListener("contextmenu", (ev) => {
+        ev.preventDefault();
+        const sel = tabSel[tab];
+        if (!sel.size) return;
+        const ids = [...sel].join("|");
+        const hash = id;
+        const prio = (p) => () => api("torrents/filePrio", { hash, id: ids, priority: String(p) }).catch(() => {});
+        openMenu(
+          [
+            { label: "High Priority", run: prio(7) },
+            { label: "Normal Priority", run: prio(1) },
+            { label: "Low Priority", dis: true, hint: "needs the native command (slice 5)" },
+            { label: "Don't Download", run: prio(0) },
+          ],
+          ev.clientX,
+          ev.clientY
+        );
+      });
+    }
+    markSort();
+    return {
+      tab,
+      id,
+      el,
+      update(m) {
+        rows = m.rows || [];
+        render();
+      },
+    };
+  }
+
+  // Pieces: one bar for the bitfield (blue = have, grey = missing, orange = being
+  // downloaded), each pixel column shaded by the share of its pieces we have.
+  function piecesView(tab, id) {
+    const el = document.createElement("div");
+    el.className = "pieces";
+    const text = document.createElement("div");
+    text.className = "ptext";
+    const canvas = document.createElement("canvas");
+    el.append(text, canvas);
+    let data = null;
+    const draw = () => {
+      if (!data) return;
+      const w = Math.max(10, el.clientWidth - 16);
+      const h = 24;
+      const dpr = window.devicePixelRatio || 1;
+      if (canvas.width !== Math.round(w * dpr)) canvas.width = Math.round(w * dpr);
+      if (canvas.height !== Math.round(h * dpr)) canvas.height = Math.round(h * dpr);
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const css = getComputedStyle(document.documentElement);
+      const bg = css.getPropertyValue("--bar-bg").trim() || "#e6e6e6";
+      const have = css.getPropertyValue("--bar-dl").trim() || "#3c86e0";
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, w, h);
+      const n = data.n;
+      if (n > 0) {
+        // prefix sums of the bitfield from the run lengths, so a column's share is O(1)
+        const runs = data.rle;
+        const bounds = []; // [start, end) of have-runs
+        let at = 0;
+        let v = false;
+        for (const len of runs) {
+          if (v) bounds.push([at, at + len]);
+          at += len;
+          v = !v;
+        }
+        const cols = Math.min(w, n);
+        const pw = w / cols;
+        let bi = 0;
+        for (let x = 0; x < cols; x++) {
+          const p0 = Math.floor((x * n) / cols);
+          const p1 = Math.max(p0 + 1, Math.floor(((x + 1) * n) / cols));
+          let had = 0;
+          while (bi > 0 && bounds[bi - 1][1] > p0) bi--;
+          for (let j = bi; j < bounds.length && bounds[j][0] < p1; j++) {
+            had += Math.max(0, Math.min(bounds[j][1], p1) - Math.max(bounds[j][0], p0));
+            if (bounds[j][1] <= p0) bi = j + 1;
+          }
+          const share = had / (p1 - p0);
+          if (share > 0) {
+            ctx.globalAlpha = 0.25 + 0.75 * share;
+            ctx.fillStyle = have;
+            ctx.fillRect(x * pw, 0, Math.ceil(pw), h);
+            ctx.globalAlpha = 1;
+          }
+        }
+        ctx.fillStyle = "#e8a000";
+        for (const p of data.downloading || []) {
+          const x = Math.floor((p * cols) / n);
+          ctx.fillRect(x * pw, h - 6, Math.max(2, Math.ceil(pw)), 6);
+        }
+      }
+      ctx.strokeStyle = css.getPropertyValue("--line").trim() || "#d9d9d9";
+      ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
+    };
+    new ResizeObserver(draw).observe(el);
+    return {
+      tab,
+      id,
+      el,
+      update(m) {
+        data = m;
+        const dl = (m.downloading || []).length;
+        setTextIf(text, `${m.n} pieces, ${m.have} done` + (dl ? `, ${dl} downloading` : "") + ".");
+        draw();
+      },
+    };
+  }
+
+  // Speed: the last 10 minutes of download and upload rates, newest at the right, on the
+  // axis the server scaled (1, 2 or 5 x 10^n kB/s) with its labels.
+  function speedView(tab, id) {
+    const el = document.createElement("div");
+    el.className = "speed";
+    const canvas = document.createElement("canvas");
+    el.appendChild(canvas);
+    let samples = [];
+    let keep = 600;
+    let scale = { top: 10240, labels: [] };
+    let legend = ["", ""];
+    const draw = () => {
+      const w = Math.max(40, el.clientWidth - 16);
+      const h = Math.max(60, el.clientHeight - 12);
+      const dpr = window.devicePixelRatio || 1;
+      if (canvas.width !== Math.round(w * dpr)) canvas.width = Math.round(w * dpr);
+      if (canvas.height !== Math.round(h * dpr)) canvas.height = Math.round(h * dpr);
+      canvas.style.width = w + "px";
+      canvas.style.height = h + "px";
+      const ctx = canvas.getContext("2d");
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      const css = getComputedStyle(document.documentElement);
+      const fg = css.getPropertyValue("--fg").trim() || "#000";
+      const muted = css.getPropertyValue("--muted").trim() || "#6d6d6d";
+      const line = css.getPropertyValue("--line").trim() || "#d9d9d9";
+      const bg = css.getPropertyValue("--bg").trim() || "#fff";
+      ctx.clearRect(0, 0, w, h);
+      ctx.font = "11px Segoe UI, system-ui, sans-serif";
+      ctx.textBaseline = "middle";
+      const left = 78;
+      const top = 22;
+      const bottom = h - 16;
+      const right = w - 4;
+      ctx.fillStyle = bg;
+      ctx.fillRect(left, top, right - left, bottom - top);
+      // horizontal grid at the quarters, labelled from the server's axis
+      ctx.strokeStyle = line;
+      ctx.lineWidth = 1;
+      for (let i = 0; i <= 4; i++) {
+        const y = Math.round(top + ((bottom - top) * i) / 4) + 0.5;
+        if (i > 0 && i < 4) {
+          ctx.beginPath();
+          ctx.moveTo(left, y);
+          ctx.lineTo(right, y);
+          ctx.stroke();
+        }
+        const label = i < 4 ? scale.labels[i] : "";
+        if (label) {
+          ctx.fillStyle = muted;
+          ctx.textAlign = "right";
+          ctx.fillText(label, left - 4, y);
+        }
+      }
+      // the time axis: one minute per division, 10 minutes across
+      const minutes = keep / 60;
+      ctx.textAlign = "center";
+      for (let m = 0; m <= minutes; m++) {
+        const x = Math.round(right - ((right - left) * m) / minutes) + 0.5;
+        if (m > 0 && m < minutes) {
+          ctx.strokeStyle = line;
+          ctx.beginPath();
+          ctx.moveTo(x, top);
+          ctx.lineTo(x, bottom);
+          ctx.stroke();
+        }
+        if (m % 5 === 0 || m === minutes) {
+          ctx.fillStyle = muted;
+          ctx.fillText(m === 0 ? "now" : m + " min", x, bottom + 8);
+        }
+      }
+      ctx.strokeStyle = muted;
+      ctx.strokeRect(left + 0.5, top + 0.5, right - left - 1, bottom - top - 1);
+      // the two lines, one sample per 1/keep of the width, newest at the right edge
+      const n = samples.length;
+      if (n >= 2) {
+        const step = (right - left - 2) / (keep - 1);
+        [0, 1].forEach((series) => {
+          ctx.strokeStyle = series === 0 ? DOWN_COLOR : UP_COLOR;
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          for (let i = 0; i < n; i++) {
+            const x = right - 1 - (n - 1 - i) * step;
+            const y = bottom - 1 - (Math.min(samples[i][series], scale.top) / scale.top) * (bottom - top - 2);
+            if (x < left + 1) continue;
+            if (i === 0 || x - step < left + 1) ctx.moveTo(x, y);
+            else ctx.lineTo(x, y);
+          }
+          ctx.stroke();
+        });
+      }
+      // legend
+      let x = left;
+      ctx.textAlign = "left";
+      [DOWN_COLOR, UP_COLOR].forEach((color, i) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(x, 6, 10, 10);
+        ctx.fillStyle = fg;
+        ctx.fillText(legend[i] || "", x + 14, 11);
+        x += 200;
+      });
+    };
+    new ResizeObserver(draw).observe(el);
+    return {
+      tab,
+      id,
+      el,
+      update(m) {
+        if (m.all) {
+          samples = m.samples || [];
+          if (m.keep) keep = m.keep;
+        } else if (m.samples) {
+          samples.push(...m.samples);
+          if (samples.length > keep) samples.splice(0, samples.length - keep);
+        }
+        if (m.scale) scale = m.scale;
+        if (m.legend) legend = m.legend;
+        draw();
+      },
+    };
+  }
+
+  // Logger: the alert lines for the torrent and the session, newest at the bottom; the view
+  // follows the tail unless the user scrolled up.
+  function loggerView(tab, id) {
+    const el = document.createElement("div");
+    el.className = "log";
+    const MAX = 500;
+    const hms = (t) => {
+      const d = new Date(t * 1000);
+      const p = (n) => String(n).padStart(2, "0");
+      return `[${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}]`;
+    };
+    return {
+      tab,
+      id,
+      el,
+      update(m) {
+        const atBottom = tabBody.scrollTop + tabBody.clientHeight >= tabBody.scrollHeight - 4;
+        if (m.all) el.textContent = "";
+        for (const [t, text] of m.lines || []) {
+          const d = document.createElement("div");
+          d.textContent = hms(t) + " " + text;
+          el.appendChild(d);
+        }
+        while (el.children.length > MAX) el.firstChild.remove();
+        if (m.all || atBottom) tabBody.scrollTop = tabBody.scrollHeight;
+      },
+    };
+  }
+
   $("tabs").addEventListener("click", (ev) => {
     const b = ev.target.closest("[data-tab]");
-    if (!b) return;
+    if (!b || b.dataset.tab === detailTab) return;
     detailTab = b.dataset.tab;
+    store.set("pa.tab", detailTab);
     for (const t of $("tabs").children) t.classList.toggle("on", t === b);
+    clearDetail();
     if (detailId) send({ t: "detail", id: detailId, tab: detailTab });
   });
+  for (const t of $("tabs").children) t.classList.toggle("on", t.dataset.tab === detailTab);
 
   // ---- toolbar: add --------------------------------------------------------------------
   $("tb-add").addEventListener("click", () => $("file").click());

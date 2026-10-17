@@ -1234,11 +1234,13 @@ impl Engine {
                 if let Some(t) = self.torrent_ref(id) {
                     let have =
                         t.have_bits().cloned().unwrap_or_else(|| Bitfield::new(t.num_pieces as usize, false));
-                    let availability = match &t.picker {
-                        Some(p) => (0..t.num_pieces).map(|i| p.availability(i)).collect(),
-                        None => vec![0; t.num_pieces as usize],
+                    let (availability, downloading) = match &t.picker {
+                        Some(p) => {
+                            ((0..t.num_pieces).map(|i| p.availability(i)).collect(), p.downloading_pieces())
+                        }
+                        None => (vec![0; t.num_pieces as usize], Vec::new()),
                     };
-                    self.alert(Alert::PieceInfo { id, have, availability });
+                    self.alert(Alert::PieceInfo { id, have, availability, downloading });
                 }
             }
             Command::ApplySettings(s) => self.apply_settings(*s),

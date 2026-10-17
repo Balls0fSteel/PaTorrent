@@ -278,10 +278,13 @@ fn websocket(mut stream: TcpStream, mut buf: Vec<u8>, shared: &Shared, key: &str
             pinged = false;
             match assembler.push(frame) {
                 Ok(Some(Message::Text(text))) => {
-                    let st = shared.lock();
-                    for reply in client.on_message(&text, &st) {
+                    let mut st = shared.lock();
+                    for reply in client.on_message(&text, &mut st) {
                         ws::write_text(&reply.to_json(), &mut out);
                     }
+                    drop(st);
+                    // the tab's engine replies, so the next tick has fresh content
+                    client.request_detail(&shared.handle);
                 }
                 Ok(Some(Message::Ping(payload))) => ws::write_frame(Opcode::Pong, &payload, &mut out),
                 Ok(Some(Message::Pong(_))) | Ok(None) => {}
@@ -323,9 +326,11 @@ fn websocket(mut stream: TcpStream, mut buf: Vec<u8>, shared: &Shared, key: &str
                         return;
                     }
                 }
-                if let Some(tick) = client.on_tick(&st) {
-                    ws::write_text(&tick.to_json(), &mut out);
+                for msg in client.on_tick(&mut st) {
+                    ws::write_text(&msg.to_json(), &mut out);
                 }
+                drop(st);
+                client.request_detail(&shared.handle);
             }
         }
         // liveness

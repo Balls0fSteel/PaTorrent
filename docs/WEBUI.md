@@ -143,6 +143,21 @@ every tick while subscribed:
 | Speed | a ring of the last 10 minutes of rates, kept server-side so a reconnect still has history | status ticks |
 | Logger | the alert log tail, as the Win32 Logger tab shows it | the alert loop |
 
+As built in slice 4: every message is `{"t":"detail","id":"<hash>","tab":"<tab>", ...}`; the
+WebSocket thread posts the tab's `post_*` requests after the subscription and on every tick,
+the alert loop fills the cache, and the next tick sends the tab when a hash of its content
+changed (nothing when it did not, nothing before the first reply lands). `hello` carries the
+three tables' column definitions (`detail.trackers` / `peers` / `files`: title, width, right).
+General: `bars` (Downloaded, Availability: label, text, fill in thousandths) and `groups`
+(Transfer, General: `[label, value]` pairs). Trackers / Peers / Files: `rows` of
+`{"c":[cells],"k":[sort keys]}` (a number per numeric column, null to sort by text), Files
+rows also with `i` (the engine's file index), `p` (progress in thousandths) and `prio`.
+Pieces: `n`, `have`, `rle` (alternating run lengths, a run of missing pieces first) and
+`downloading`. Speed: `samples` of `[down, up]` (the whole ring with `all` and `keep` on
+subscription, the new ones after), `scale` (`top` and four axis labels, when it changed) and
+`legend`. Logger: `lines` of `[unix time, text]` (`all` the first time). A torrent removed
+while subscribed gets one `{"gone":true}`; `{"t":"detail","id":null}` unsubscribes.
+
 ### Commands
 
 All `POST`, JSON body, `Content-Type: application/json`, CSRF-checked (Origin and the custom
@@ -231,7 +246,7 @@ In order; each is a CHANGELOG entry and lands green on the three CI platforms.
 3. **The page**: layout, virtual list, category tree, status bar, context menu, keyboard,
    selection. Replaces `page.html` / `app.js`. The 10,000-torrent gate measured and recorded.
 4. **Detail tabs**, with the `post_peers` reply added to the cache (and `sync/torrentPeers` to
-   the shim while there).
+   the shim while there). Landed: CHANGELOG 2026-10-17_224011_1792269611.
 5. **Commands and the Add dialog**: everything in the Win32 context menu, upload, magnet, the
    two-step add with the file tree, Remove and delete data. The shim's handlers moved onto the
    shared functions.

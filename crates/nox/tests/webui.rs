@@ -4,7 +4,9 @@
 //! categories, delete, preferences, and the connection handling (keep-alive, pipelining,
 //! `Expect: 100-continue`, size limits). Then the native API: the WebSocket upgrade and
 //! frames with a raw socket client, and the session protocol (`hello`, `view` / `rows`,
-//! `tick` diffs, `idle`) against the real engine and the 10,000-torrent mock profile.
+//! `tick` diffs, `idle`) against the real engine and the 10,000-torrent mock profile, and the
+//! detail tabs (`detail` subscriptions: General, Trackers, Files, Pieces, Speed, Peers) plus
+//! `sync/torrentPeers` through the shim.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -34,6 +36,12 @@ fn temp_dir(name: &str) -> PathBuf {
 
 /// A two-file torrent (no data on disk) and its info-hash.
 fn torrent() -> (Vec<u8>, String) {
+    torrent_with(None)
+}
+
+/// The same torrent with a tracker (another info-hash is not needed: the tracker is outside
+/// the info dictionary).
+fn torrent_with(tracker: Option<&str>) -> (Vec<u8>, String) {
     let piece = 16 * 1024;
     let sizes = [("a.bin", 40_000usize), ("b.bin", 10_000)];
     let total: usize = sizes.iter().map(|s| s.1).sum();
@@ -53,8 +61,13 @@ fn torrent() -> (Vec<u8>, String) {
     *info.key("pieces") = Entry::Bytes(pieces);
     let hash = Sha1::digest(&info.bencode()).to_hex();
     let mut t = Entry::new_dict();
+    if let Some(url) = tracker {
+        *t.key("announce") = Entry::Bytes(url.as_bytes().to_vec());
+    }
     *t.key("info") = info;
     *t.key("comment") = Entry::Bytes(b"made for a test".to_vec());
+    *t.key("created by") = Entry::Bytes(b"the test".to_vec());
+    *t.key("creation date") = Entry::Int(951_782_400);
     (t.bencode(), hash)
 }
 
@@ -1472,4 +1485,247 @@ fn native_ten_thousand_torrent_profile_fits_the_budgets() {
     assert_eq!(s(rows.get("t")), "rows");
     assert_eq!(rows.get("first"), Some(&Json::Int(9970)));
     assert_eq!(ids_of(&rows).len(), 30);
+}
+
+impl Ws {
+    /// Messages until a `detail` one for `tab` arrives (ticks pass by); panics after 20 s.
+    fn detail_until(&mut self, tab: &str) -> Json {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let m = self.recv_json();
+            if s(m.get("t")) == "detail" && s(m.get("tab")) == tab {
+                return m;
+            }
+            assert!(s(m.get("t")) != "error", "{}", m.to_json());
+            assert!(Instant::now() < deadline, "timed out waiting for the {tab} tab; last: {}", m.to_json());
+        }
+    }
+
+    /// After an unsubscribe: messages already in flight may be anything (at most `inflight` of
+    /// them), then `quiet` ticks in a row must come with no detail message between them.
+    fn expect_only_ticks(&mut self, inflight: usize, quiet: usize) {
+        let mut n = 0;
+        let mut ticks = 0;
+        while ticks < quiet {
+            let m = self.recv_json();
+            n += 1;
+            if s(m.get("t")) == "tick" {
+                ticks += 1;
+            } else {
+                assert!(n <= inflight, "message {n} after the unsubscribe: {}", m.to_json());
+                ticks = 0;
+            }
+        }
+    }
+}
+
+fn pairs_of(m: &Json, group: &str) -> Vec<(String, String)> {
+    let Some(Json::Arr(groups)) = m.get("groups") else { panic!("{}", m.to_json()) };
+    let g = groups.iter().find(|g| s(g.get("title")) == group).unwrap_or_else(|| panic!("{}", m.to_json()));
+    let Some(Json::Arr(rows)) = g.get("rows") else { panic!() };
+    rows.iter()
+        .map(|r| match r {
+            Json::Arr(v) => (s(v.first()).to_owned(), s(v.get(1)).to_owned()),
+            _ => panic!(),
+        })
+        .collect()
+}
+
+fn value_of(pairs: &[(String, String)], label: &str) -> String {
+    pairs.iter().find(|(l, _)| l == label).map(|(_, v)| v.clone()).unwrap_or_else(|| panic!("no {label}"))
+}
+
+fn detail_rows(m: &Json) -> Vec<Vec<String>> {
+    let Some(Json::Arr(rows)) = m.get("rows") else { panic!("no rows: {}", m.to_json()) };
+    rows.iter()
+        .map(|r| match r.get("c") {
+            Some(Json::Arr(c)) => c.iter().map(|x| s(Some(x)).to_owned()).collect(),
+            _ => panic!("{}", r.to_json()),
+        })
+        .collect()
+}
+
+#[test]
+fn native_detail_tabs_against_the_engine() {
+    let t = Harness::start("detail");
+    let sid = t.login();
+    // a tracker nothing listens on: the Trackers tab gets a row with an error status
+    let (bytes, hash) = torrent_with(Some("http://127.0.0.1:9/announce"));
+    let (body, boundary) = multipart(&[("paused", "false")], &bytes);
+    let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+    assert_eq!(r.status, 200);
+    t.wait_for(&sid, &hash, "the added torrent", |x| {
+        s(x.get("name")) == "webui-test" && matches!(s(x.get("state")), "downloading" | "stalledDL")
+    });
+    let (mut ws, hello) = Ws::connect(&t, &sid);
+    let defs = hello.get("detail").expect("the detail column definitions");
+    assert_eq!(defs.get("files").map(|v| matches!(v, Json::Arr(v) if v.len() == 7)), Some(true));
+    ws.send_text(r#"{"t":"view","columns":["name"],"window":[0,10]}"#);
+    assert_eq!(s(ws.recv_json().get("t")), "rows");
+
+    // General: at once, formatted by the frontend
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"general"}}"#));
+    let m = ws.detail_until("general");
+    assert_eq!(s(m.get("id")), hash);
+    let g = pairs_of(&m, "General");
+    assert_eq!(value_of(&g, "Total Size:"), "48.8 kB");
+    assert_eq!(value_of(&g, "Hash:"), hash.to_uppercase());
+    assert_eq!(value_of(&g, "Comment:"), "made for a test");
+    assert_eq!(value_of(&g, "Created By:"), "the test");
+    assert_eq!(value_of(&g, "Created On:"), "2000-02-29 00:00:00");
+    assert!(value_of(&g, "Pieces:").starts_with("4 x 16.0 kB"), "{}", value_of(&g, "Pieces:"));
+    assert!(value_of(&g, "Save As:").ends_with("dl"));
+    let tr = pairs_of(&m, "Transfer");
+    assert_eq!(value_of(&tr, "Download Speed:"), "0.0 kB/s");
+    assert_eq!(value_of(&tr, "Share Ratio:"), "0.000");
+    assert!(value_of(&tr, "Status:").starts_with("Downloading"), "{}", value_of(&tr, "Status:"));
+    let Some(Json::Arr(bars)) = m.get("bars") else { panic!() };
+    assert_eq!(bars[0], Json::Arr(vec!["Downloaded:".into(), "0.0 %".into(), 0i64.into()]));
+
+    // Trackers: the tracker's row, status from the engine's attempt
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"trackers"}}"#));
+    let m = ws.detail_until("trackers");
+    let rows = detail_rows(&m);
+    assert_eq!(rows.len(), 1, "{}", m.to_json());
+    assert_eq!(rows[0][0], "http://127.0.0.1:9/announce");
+    assert_eq!(rows[0].len(), 6);
+
+    // Files: both files, their sizes, done, percent, pieces, priority, and the engine index
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"files"}}"#));
+    let m = ws.detail_until("files");
+    let rows = detail_rows(&m);
+    assert_eq!(rows.len(), 2, "{}", m.to_json());
+    assert_eq!(rows[0], ["webui-test/a.bin", "39.1 kB", "0 B", "0.0 %", "3", "0", "Normal"]);
+    assert_eq!(rows[1][0], "webui-test/b.bin");
+    assert_eq!(rows[1][1], "9.77 kB");
+    let Some(Json::Arr(raw)) = m.get("rows") else { panic!() };
+    assert_eq!(raw[1].get("i"), Some(&Json::Int(1)));
+    assert_eq!(raw[1].get("p"), Some(&Json::Int(0)));
+    assert_eq!(raw[1].get("prio"), Some(&Json::Int(4)));
+    // a priority change through the shim shows in the next update
+    assert_eq!(
+        t.post(&sid, "/api/v2/torrents/filePrio", &format!("hash={hash}&id=1&priority=0")).status,
+        200
+    );
+    let m = ws.detail_until("files");
+    let rows = detail_rows(&m);
+    assert_eq!(rows[1][6], "Don't Download", "{}", m.to_json());
+
+    // Pieces: four pieces, none had, none downloading (no peers)
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"pieces"}}"#));
+    let m = ws.detail_until("pieces");
+    assert_eq!(m.get("n"), Some(&Json::Int(4)));
+    assert_eq!(m.get("have"), Some(&Json::Int(0)));
+    assert_eq!(m.get("rle"), Some(&Json::Arr(vec![Json::Int(4)])));
+    assert_eq!(m.get("downloading"), Some(&Json::Arr(vec![])));
+
+    // Speed: the ring whole (empty, with the axis), then one sample per tick
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"speed"}}"#));
+    let m = ws.detail_until("speed");
+    assert_eq!(m.get("all"), Some(&Json::Bool(true)));
+    assert_eq!(m.get("keep"), Some(&Json::Int(600)));
+    let scale = m.get("scale").expect("the axis");
+    assert_eq!(scale.get("top"), Some(&Json::Int(10 * 1024)));
+    assert_eq!(
+        s(scale.get("labels").and_then(|l| if let Json::Arr(v) = l { v.first() } else { None })),
+        "10.0 kB/s"
+    );
+    let m = ws.detail_until("speed");
+    assert_eq!(m.get("all"), None, "{}", m.to_json());
+    assert_eq!(m.get("samples"), Some(&Json::Arr(vec![Json::Arr(vec![Json::Int(0), Json::Int(0)])])));
+    assert_eq!(
+        m.get("legend"),
+        Some(&Json::Arr(vec!["Download: 0.0 kB/s".into(), "Upload: 0.0 kB/s".into()]))
+    );
+
+    // Logger: the session's lines (listening ...) and the torrent's (added), as [time, text]
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"logger"}}"#));
+    let m = ws.detail_until("logger");
+    assert_eq!(m.get("all"), Some(&Json::Bool(true)));
+    let Some(Json::Arr(lines)) = m.get("lines") else { panic!() };
+    let texts: Vec<&str> =
+        lines.iter().map(|l| if let Json::Arr(v) = l { s(v.get(1)) } else { "" }).collect();
+    assert!(texts.iter().any(|l| l.starts_with("listening on")), "{texts:?}");
+    assert!(texts.contains(&"webui-test: added"), "{texts:?}");
+    assert!(
+        lines.iter().all(|l| matches!(l, Json::Arr(v) if v[0].as_i64().is_some_and(|t| t > 1_700_000_000)))
+    );
+
+    // a switch back to General sends it once more, at once, and the Logger tab stops
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"general"}}"#));
+    let m = ws.detail_until("general");
+    assert!(m.get("groups").is_some());
+    // the unsubscribe: ticks keep coming, detail messages do not (the General tab would
+    // otherwise send one every second, as Time Elapsed moves)
+    ws.send_text(r#"{"t":"detail","id":null}"#);
+    ws.expect_only_ticks(3, 12);
+    // an unknown torrent: nothing (the pane stays empty), ticks go on
+    ws.send_text(r#"{"t":"detail","id":"0000000000000000000000000000000000000000","tab":"peers"}"#);
+    ws.expect_only_ticks(0, 6);
+    // removed while subscribed: said once
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"pieces"}}"#));
+    ws.detail_until("pieces");
+    assert_eq!(
+        t.post(&sid, "/api/v2/torrents/delete", &format!("hashes={hash}&deleteFiles=false")).status,
+        200
+    );
+    let m = ws.detail_until("pieces");
+    assert_eq!(m.get("gone"), Some(&Json::Bool(true)), "{}", m.to_json());
+}
+
+#[test]
+fn peers_tab_and_sync_torrent_peers_on_the_mock() {
+    // the simulated engine answers peer queries for its active torrents
+    let t = Harness::start_mock("peers", 20, 1.0, -1);
+    let sid = t.login();
+    // the torrent with the most connected peers, once the first status update landed
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let hash = loop {
+        let list = t.get(&sid, "/api/v2/torrents/info?sort=num_leechs&reverse=true&limit=1").json();
+        let Json::Arr(list) = list else { panic!() };
+        let connected = |k: &str| list.first().and_then(|x| x.get(k)).and_then(Json::as_i64).unwrap_or(0);
+        if connected("num_leechs") + connected("num_seeds") > 0 {
+            break s(list[0].get("hash")).to_owned();
+        }
+        assert!(Instant::now() < deadline, "no torrent with peers");
+        std::thread::sleep(Duration::from_millis(50));
+    };
+
+    // the shim: a full update at rid 0, then a diff with only changed fields
+    let p = t.get(&sid, &format!("/api/v2/sync/torrentPeers?hash={hash}&rid=0")).json();
+    assert_eq!(p.get("full_update"), Some(&Json::Bool(true)));
+    assert_eq!(p.get("show_flags"), Some(&Json::Bool(true)));
+    let rid = p.get("rid").and_then(Json::as_i64).unwrap();
+    let peers = p.get("peers").expect("peers");
+    assert!(!peers.entries().is_empty(), "{}", p.to_json());
+    let (addr, first) = &peers.entries()[0];
+    assert!(addr.contains(':'), "{addr}");
+    assert_eq!(
+        s(first.get("ip")).to_owned() + ":" + &first.get("port").and_then(Json::as_i64).unwrap().to_string(),
+        *addr
+    );
+    for f in ["client", "connection", "flags", "progress", "dl_speed", "up_speed", "downloaded", "uploaded"] {
+        assert!(first.get(f).is_some(), "{f} in {}", first.to_json());
+    }
+    let p2 = t.get(&sid, &format!("/api/v2/sync/torrentPeers?hash={hash}&rid={rid}")).json();
+    assert_eq!(p2.get("full_update"), None, "{}", p2.to_json());
+    assert!(p2.get("rid").and_then(Json::as_i64).unwrap() > rid);
+    if let Some(diff) = p2.get("peers").and_then(|p| p.get(addr)) {
+        assert!(diff.get("client").is_none(), "unchanged fields are not re-sent: {}", diff.to_json());
+    }
+    assert_eq!(t.get(&sid, "/api/v2/sync/torrentPeers?hash=00&rid=0").status, 404);
+
+    // the Peers tab: the frontend's nine columns with the µTorrent flag letters
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_text(&format!(r#"{{"t":"detail","id":"{hash}","tab":"peers"}}"#));
+    let m = ws.detail_until("peers");
+    let rows = detail_rows(&m);
+    assert!(!rows.is_empty(), "{}", m.to_json());
+    assert_eq!(rows[0].len(), 9);
+    assert!(rows.iter().any(|r| r[1].contains(' ')), "a client name: {rows:?}");
+    assert!(rows.iter().all(|r| r[2].chars().all(|c| "DdUuOSIEePHXL".contains(c))), "{rows:?}");
+    let Some(Json::Arr(raw)) = m.get("rows") else { panic!() };
+    assert!(
+        raw[0].get("k").is_some_and(|k| matches!(k, Json::Arr(v) if v.len() == 9 && v[3].as_i64().is_some()))
+    );
 }

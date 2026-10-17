@@ -119,3 +119,10 @@ path = "fuzz_targets/utp.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "ip_filter"
+path = "fuzz_targets/ip_filter.rs"
+test = false
+doc = false
+bench = false

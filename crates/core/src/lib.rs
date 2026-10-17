@@ -41,8 +41,9 @@ mod version;
 #[cfg(feature = "mock")]
 mod mock;
 
-pub use alert::{Alert, AlertPriority, AlertQueue};
+pub use alert::{Alert, AlertPriority, AlertQueue, BlockReason};
 pub use error::Error;
+pub use net::ip_filter::{IpFilter, IpFilterLoad, IpRange, PortFilter};
 pub use params::{AddTorrentParams, DownloadPriority, QueueMove, RemoveFlags, TorrentFlags, TorrentSource};
 pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
 pub use settings::{EncLevel, EncPolicy, Settings};

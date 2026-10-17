@@ -126,6 +126,9 @@ pub struct Settings {
     pub announce_to_all_tiers: bool,
     /// Announce to every tracker in a tier, not just the first working one.
     pub announce_to_all_trackers: bool,
+    /// The IP filter also keeps us from contacting trackers at blocked addresses (for
+    /// torrents it applies to).
+    pub apply_ip_filter_to_trackers: bool,
     pub request_timeout: u32,
     /// A peer that sent part of a piece that failed its hash check may only download whole
     /// pieces by itself until one of them passes, so the next failure is clearly its own
@@ -234,6 +237,7 @@ impl Default for Settings {
             // tier, which finds more peers on multi-tier public torrents.
             announce_to_all_tiers: true,
             announce_to_all_trackers: false,
+            apply_ip_filter_to_trackers: true,
             request_timeout: 60,
             use_parole_mode: true,
             peer_timeout: 120,

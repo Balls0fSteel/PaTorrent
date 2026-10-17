@@ -13,6 +13,7 @@
 //! The real network engine (PLAN.md Phase 2).
 
 mod dht;
+mod ip_filter;
 mod lsd;
 mod metadata;
 mod natpmp;
@@ -261,6 +262,7 @@ pub(crate) struct Engine {
     dht: dht::DhtSession,
     lsd: lsd::LsdSession,
     portmap: portmap::PortmapSession,
+    filters: ip_filter::Filters,
 }
 
 /// The network thread's entry point.
@@ -397,6 +399,7 @@ impl Engine {
             dht: dht::DhtSession::new(now),
             lsd: lsd::LsdSession::new(),
             portmap: portmap::PortmapSession::new(),
+            filters: ip_filter::Filters::default(),
             settings,
         }
     }
@@ -745,7 +748,7 @@ impl Engine {
             if limit >= 0 && self.peers.len() >= limit as usize {
                 continue; // dropped: closes the socket
             }
-            if !self.settings.enable_incoming_tcp || self.session_paused {
+            if !self.settings.enable_incoming_tcp || self.session_paused || self.incoming_blocked(addr) {
                 continue;
             }
             self.add_peer_conn(Transport::Tcp(sock), addr, false, PeerSource::INCOMING, None);
@@ -802,7 +805,8 @@ impl Engine {
             let limit = self.settings.connections_limit;
             let refuse = (limit >= 0 && self.peers.len() >= limit as usize)
                 || !self.settings.enable_incoming_utp
-                || self.session_paused;
+                || self.session_paused
+                || self.incoming_blocked(addr);
             if refuse {
                 let mut io = UdpIo { socks: &self.udp };
                 self.utp.detach(id, &mut io, now);
@@ -1218,10 +1222,7 @@ impl Engine {
                 message: format!("cannot move storage to {path}: not supported yet (PLAN.md Phase 5)"),
             }),
             Command::ConnectPeer(id, addr) => {
-                let max = self.settings.max_peerlist_size.max(1) as usize;
-                let ext = self.external_ip;
-                if let Some(t) = self.torrent(id) {
-                    t.peer_list.add(addr, PeerSource::RESUME_DATA, ext, max);
+                if self.add_peer(id, addr, PeerSource::RESUME_DATA) {
                     self.connect_peers_for(id, usize::MAX);
                 }
             }
@@ -1277,6 +1278,8 @@ impl Engine {
                     }
                 }
             }
+            Command::SetIpFilter(f) => self.set_ip_filter(f),
+            Command::SetPortFilter(f) => self.set_port_filter(f),
             Command::Shutdown => {}
         }
     }
@@ -1667,6 +1670,9 @@ impl Engine {
         if old.contains(TorrentFlags::AUTO_MANAGED) != new.contains(TorrentFlags::AUTO_MANAGED) {
             self.needs_auto_manage = true;
         }
+        if !old.contains(TorrentFlags::APPLY_IP_FILTER) && new.contains(TorrentFlags::APPLY_IP_FILTER) {
+            self.ip_filter_updated(id);
+        }
         self.update_running(id);
     }
 
@@ -1754,6 +1760,7 @@ impl Engine {
         let peer_id = self.peer_id;
         let key = self.tracker_key;
         let port = self.listen_port;
+        let filter = self.tracker_filter(id);
         let Some(t) = self.torrent(id) else { return };
         let peers = t.peers.clone();
         for slot in peers {
@@ -1783,6 +1790,7 @@ impl Engine {
                     tracker: None,
                     url: tr.url.clone(),
                     kind: JobKind::Announce(req),
+                    filter: filter.clone(),
                 });
             }
             tr.reset();
@@ -2246,11 +2254,9 @@ impl Engine {
     fn apply_tracker_results(&mut self) {
         let now = Instant::now();
         let min_interval = self.settings.min_announce_interval;
-        let max_peers = self.settings.max_peerlist_size.max(1) as usize;
         for (job, outcome) in self.trackers.take_results() {
             let Some(index) = job.tracker else { continue };
             let id = job.torrent;
-            let ext = self.external_ip;
             let Some(t) = self.torrent(id) else { continue };
             let ih = t.info_hashes.best_v1_compatible();
             let Some(tr) = t.trackers.get_mut(index).filter(|tr| tr.url == job.url) else { continue };
@@ -2281,14 +2287,7 @@ impl Engine {
                         t.num_complete = r.complete;
                         t.num_incomplete = r.incomplete;
                     }
-                    let mut added = 0;
-                    for addr in &r.peers {
-                        if t.peer_list.add(*addr, PeerSource::TRACKER, ext, max_peers) {
-                            added += 1;
-                        }
-                    }
-                    let _ = added;
-                    t.status_dirty = true;
+                    self.add_peers(id, &r.peers, PeerSource::TRACKER);
                     let num_peers = r.peers.len() as u32;
                     if let Some(w) = r.warning {
                         self.alert(Alert::TrackerWarning { id, url: url.clone(), message: w });
@@ -2302,8 +2301,13 @@ impl Engine {
                     let needs_scrape = r.complete.is_none() && r.incomplete.is_none();
                     self.alert(Alert::TrackerReply { id, url: url.clone(), num_peers });
                     if needs_scrape {
-                        let job =
-                            TrackerJob { torrent: id, tracker: Some(index), url, kind: JobKind::Scrape(ih) };
+                        let job = TrackerJob {
+                            torrent: id,
+                            tracker: Some(index),
+                            url,
+                            kind: JobKind::Scrape(ih),
+                            filter: self.tracker_filter(id),
+                        };
                         self.trackers.start(job, &self.resolver, self.poll.registry(), now);
                     }
                     self.connect_peers_for(id, 10);
@@ -2459,6 +2463,7 @@ impl Engine {
     fn announce(&mut self, id: TorrentId, index: usize, now: Instant) {
         let (peer_id, key, port, num_want) =
             (self.peer_id, self.tracker_key, self.listen_port, self.settings.num_want);
+        let filter = self.tracker_filter(id);
         let Some(t) = self.torrent(id) else { return };
         let finished = t.is_finished();
         let left = t.bytes_left();
@@ -2496,6 +2501,7 @@ impl Engine {
             tracker: Some(index),
             url: tr.url.clone(),
             kind: JobKind::Announce(req),
+            filter,
         };
         t.status_dirty = true;
         self.trackers.start(job, &self.resolver, self.poll.registry(), now);
@@ -2541,6 +2547,9 @@ impl Engine {
     /// a uTP connect to it fails), or when outgoing TCP is off; over TCP otherwise. Returns
     /// false if no attempt was made.
     fn connect_to_peer(&mut self, id: TorrentId, addr: SocketAddr, now: Instant) -> bool {
+        if self.outgoing_blocked(id, addr) {
+            return false;
+        }
         let (out_tcp, out_utp) = (self.settings.enable_outgoing_tcp, self.settings.enable_outgoing_utp);
         let have_udp = self.udp.iter().any(|u| u.v4 == addr.is_ipv4());
         let Some(t) = self.torrent_ref(id) else { return false };

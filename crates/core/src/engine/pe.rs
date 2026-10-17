@@ -109,6 +109,10 @@ impl Engine {
             self.peers.get_mut(slot).expect("exists").close("torrent not accepting peers", false);
             return false;
         }
+        if self.attach_blocked(id, addr) {
+            self.peers.get_mut(slot).expect("exists").close("blocked by the IP filter", false);
+            return false;
+        }
         self.peers.get_mut(slot).expect("exists").torrent = Some(id);
         let t = self.torrent(id).expect("exists");
         t.peers.push(slot);

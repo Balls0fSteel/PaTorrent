@@ -297,7 +297,7 @@ impl Mock {
                 }
             }
             // The simulated swarm has no real peers to connect to.
-            Command::ConnectPeer(..) => {}
+            Command::ConnectPeer(..) | Command::SetIpFilter(_) | Command::SetPortFilter(_) => {}
             Command::PostTorrentUpdates => {
                 let mut changed = Vec::new();
                 for t in self.slots.iter_mut().filter_map(|s| s.torrent.as_mut()) {

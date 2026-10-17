@@ -2,6 +2,49 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_140012_1792238412: web seeds, network-change handling, Win32 Create New Torrent dialog
+
+Three features built in parallel on their own branches (`claude/web-seeds-1fbca0`, `claude/network-change-221b8e`, `claude/create-dialog-2e5433`) and merged into main, plus `claude/relaxed-kirch-0df13a` (unused uTP test accessors removed).
+
+### Added: web seeds (BEP 19 `url-list`, BEP 17 `httpseeds`, Phase 5)
+- Ported libtorrent's `web_peer_connection`, `http_seed_connection`, `web_connection_base`, the web seed handling of `torrent.cpp` and the response side of `http_parser`. New modules: `proto::http_parser` (incremental response headers, `Content-Range`, chunk headers, `100 Continue`, `Connection: close`, `resolve_redirect_location`, `split_url`), `proto::web_peer` (sans-IO request and response handling), `engine::web_seed` (lifecycle, blame, peer info). New picker method `pick_contiguous` (libtorrent `expand_piece`).
+- Behaviour: range requests per file (pad files never requested, returned as zeros); a single-file URL may leave out the file name; per-file redirects create ephemeral seeds that have only the redirected files; keep-alive and pipelining (`urlseed_pipeline_size`), one request at a time to servers that close after each response; restart data for a block cut off mid-transfer; non-OK status retries after `Retry-After` / `urlseed_wait_retry`, DNS failures after `web_seed_name_lookup_retry`; `urlseed_timeout`, `max_web_seed_connections`, HTTPS through `net::tls`, IP and port filters, SSRF mitigation, IDNA ban; trust points and banning (a single-file seed that is the only sender of a bad piece is banned; a multi-file seed stops claiming the bad file's pieces); web seeds appear in the peer info and in the torrent's peer and seed counts.
+- API: `TorrentHandle::add_url_seed`, `remove_url_seed`, `add_http_seed`, `remove_http_seed`, `post_web_seeds`; `Alert::UrlSeed` and `Alert::WebSeeds`; `AddTorrentParams::url_seeds` / `http_seeds`; resume data `url-list` / `httpseeds` (the store keeps only the info dictionary, so seeds are saved there).
+- Settings, with libtorrent's defaults: `urlseed_pipeline_size`, `urlseed_timeout`, `urlseed_wait_retry`, `urlseed_max_request_bytes`, `web_seed_name_lookup_retry`, `max_web_seed_connections`, `ban_web_seeds`, `ssrf_mitigation`, `allow_idna`, `always_send_user_agent`. `util::string::base64encode` (basic auth in seed URLs).
+- Tests: unit tests after `test_http_parser` and the web seed suite's six torrent layouts (plain and chunked), BEP 17, request format, restart data and the picker; 12 loopback tests in `tests/web_seed.rs` (multi-file, single file, chunked, HTTP/1.0 close, per-file redirect, single-file redirect, 503 then success, BEP 17, peer list, corrupt seed banned while a good one completes, IP filter, saved / added / removed seeds). Fuzz target `web_seed` (665k runs, no findings; in the `fuzz.yml` matrix).
+- Deliberate divergences (docs/PORTING.md): web seed connections live in their own slab; requests stop at the rate-based queue instead of claiming 16 MiB windows; 503 / 429 don't mark the file missing on that server; a filtered seed waits `urlseed_wait_retry` before the next try; empty files don't clear pieces; the Host header carries a non-default port.
+
+### Added: network-change handling, `listen_interfaces` expansion, IPv6 port mapping (Phase 4)
+- `net::listen`, ported from libtorrent 2.0.11 `session_impl.cpp` / `string_util.cpp`: `parse_listen_interfaces` (device names, `[ipv6]:port`, `s` and `l` flags, malformed entries reported), `print_listen_interfaces`, `ListenEndpoint` / `ListenFlags`, `interface_to_endpoints`, `expand_unspecified_address`, `expand_devices`, `partition_listen_sockets`; plus our `remove_duplicates` and `listen_plan`. `enum_net` gained `is_global`, `is_link_local`, `has_internet_route`, `has_any_internet_route` and the `pointopoint` flag.
+- `engine::listen` (libtorrent `reopen_listen_sockets`, `setup_listener`, `update_listen_interfaces`, `on_ip_change`): listen sockets are reopened against the endpoint list; matching sockets stay, the rest close, new ones post `ListenSucceeded` / `ListenFailed` per TCP and UDP socket. Device names (`tun0:6881`) and specific addresses get their own sockets and follow their device; wildcards stay one socket pair per family. `listen_interfaces` and turning incoming TCP / UDP on or off apply without a restart; a device that comes back gets its old port.
+- `net::ip_notifier` (libtorrent `ip_notifier`): Linux netlink (link, address and route groups), FreeBSD / OpenBSD `PF_ROUTE`, Windows `NotifyIpInterfaceChange` / `NotifyUnicastIpAddressChange` / `NotifyRouteChange2`, elsewhere a 30 s re-read. A change is acted on after 1 s and only if interfaces or default routes changed: listen sockets reopen; LSD reopens if its interfaces changed; port mappers on vanished interfaces / gateways close, new ones start, unchanged ones keep their mappings; a family whose internet-facing address went away forgets its external-IP votes; running torrents re-announce to trackers and the DHT if internet-facing addresses or the port changed; TCP peers whose local address is gone are closed. The DHT starts late (or gains a node) when a family's first UDP socket appears after startup.
+- NAT-PMP / PCP on global IPv6 listen addresses (PCP to the link-local default gateway with the interface's scope id); mappers follow the expanded endpoints.
+- `SessionHandle::reopen_network_sockets()`; `patorrent-nox --listen LIST`.
+- Tests: all of `test_listen_socket.cpp`, the `parse_interface` / `split_string_quotes` cases of `test_string.cpp`, `has_internet_route` of `test_enum_net.cpp`, plan / dedup, notifier message filters and start-up, the dual-stack TCP listener, voter reset; session tests with simulated interfaces; `tests/network_change.rs`.
+- Decisions: wildcards are not split into per-address sockets (libtorrent does): one wildcard socket serves every address of its family; trackers, the DHT (one node per family), uTP and the voters keep their per-family design, and the expanded list drives everything interface-dependent. Voters reset when an internet-facing address is lost.
+
+### Added: Win32 Create New Torrent dialog
+- File > Create New Torrent (Ctrl+N) and the toolbar button are enabled. Layout after µTorrent 2.2.1: Select Source (path, "Add file", "Add directory"), Skip Files (`*` / `?` wildcards separated by `|` or `;`, case-insensitive per file and folder name), Torrent Properties (Trackers with blank lines between tiers, Web Seeds, Comment, Piece size "(auto detect)" and 16 kB..16 MB), Other ("Start seeding", "Private torrent", "Preserve file order"), "Create and save as..." and Close.
+- Hashing runs on a worker thread (`set_piece_hashes`) with a progress bar; Cancel / Esc / close stop it; errors go to a message box. "Start seeding" adds the torrent with the source's parent folder as save path (the engine checks, then seeds). Trackers, piece size and the checkboxes are remembered in patorrent.ini (`create.*`).
+- `patorrent_frontend::create` holds the toolkit-independent part for a later GTK dialog; `dialogs::Template` generalises the in-memory dialog template builder.
+- Tests: frontend `create::tests` (tiers, skip patterns, piece sizes, a folder with every field, single file, file order, cancel and errors, a loopback session seeding a created torrent); win32 `create::tests` (the dialog built hidden: controls, combo entries, remembered values, fields to a parsed .torrent, Cancel mid-hash).
+- Decisions: "Preserve file order" keeps each directory's listing order, unchecked sorts; the dialog is modal; no pad files (µTorrent 2.2.1 made none).
+
+### Changed
+- IPv6 TCP listeners are v6-only, so `0.0.0.0` and `[::]` share a port on Linux.
+- `NatPmp::start` takes the NAT endpoint; `IpInterface` has `pointopoint`.
+
+### Fixed
+- `dht::routing_table::tests::routing_table_v6` / `_v4`: the bucket count of 10,000 random nodes ranged 10..=13 over 600 local runs and hit 14 on the Ubuntu VM; the check now accepts 10..=14.
+- `utp/socket.rs`: three unused `#[cfg(test)]` accessors broke `clippy -p patorrent-core --all-targets` on Unix.
+
+### Issues
+- Merge conflicts: `THIRD-PARTY-NOTICES.md` (both branches extended the engine / proto line; combined), `engine/mod.rs` (new `network` and `web` fields side by side), `mock.rs` (both added ignored commands).
+- Not verified: the Create dialog by hand in the GUI (computer use is blocked for patorrent.exe; checked through a hidden-dialog test and a PrintWindow render); HTTPS web seeds against a real server; live network-change notifications on FreeBSD (no root on the VM) and Windows (no admin rights to add an adapter); OpenBSD paths.
+
+### Verified
+- On merged main: `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings` for Windows, `x86_64-unknown-linux-gnu`, `x86_64-unknown-freebsd`; `cargo test --workspace --no-fail-fast` on Windows (520 core, 3 ignored), Ubuntu 26.04.1 and FreeBSD 15.1 (521 core) with all integration, swarm, web seed and network-change tests passing. The network-change session also checked live change detection on Ubuntu with a dummy interface (`ip link add pt0 type dummy`: sockets opened, moved and closed, LSD 2 -> 3 interfaces).
+
 ## 2026-10-17_114537_1792230337: Create New Torrent (v1), IP filter, session-wide external-IP voting
 
 Three features built in parallel on their own branches (`claude/create-torrent-8c3d6d`, `claude/ip-filter-8673bb`, `claude/external-ip-voting-26748b`) and merged into main.

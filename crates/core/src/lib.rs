@@ -63,6 +63,7 @@ pub use mock::MockConfig;
 #[doc(hidden)]
 pub mod fuzzing {
     pub use crate::dht::{DhtSettings, DhtState, DhtTracker};
+    pub use crate::disk::part_file::SlotMap as PartFileSlotMap;
     pub use crate::proto::http::{Url, parse_response, resolve_redirect};
     pub use crate::proto::http_parser::{
         parse_chunk_header, parse_head as parse_http_head, resolve_redirect_location, split_url,

@@ -11,7 +11,7 @@
 //! peer banned by smart-ban for a bad block while the seed that sent the rest of the piece is
 //! kept; and the IP and port filters: blocked peers are never connected, refused when they
 //! connect, and dropped when a new filter blocks them, and blocked trackers are not announced
-//! to.
+//! to; and a skipped file kept in the part file across a restart and a recheck, then unskipped.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener, UdpSocket};
@@ -1744,4 +1744,86 @@ fn a_created_torrent_seeds_and_downloads() {
     assert_files(&f, &dir);
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn a_skipped_file_stays_in_the_part_file_until_it_is_unskipped() {
+    use patorrent_core::{DownloadPriority, RemoveFlags};
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech-skip");
+    let state = temp_dir("state-skip");
+    let beta = dir.join("swarm-test/sub/beta.bin");
+    let part = dir.join(format!(".{}.parts", hex(&f.info_hash)));
+    let seed_addr = SocketAddr::from(([127, 0, 0, 1], port));
+    {
+        let leech = start(Some(state.clone()));
+        let mut w = Watch::new(leech.handle());
+        let mut p =
+            AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
+        p.flags = TorrentFlags::empty();
+        // Skip the middle file: its first and last pieces are shared with alpha and gamma.
+        p.file_priorities = vec![DownloadPriority::NORMAL, DownloadPriority::DONT_DOWNLOAD];
+        leech.handle().add_torrent(p);
+        let id = wait(&mut w, 5, "add", |a| match a {
+            Alert::TorrentAdded { id, .. } => Some(*id),
+            _ => None,
+        });
+        wait_state(&mut w, id, TorrentState::Downloading, 10);
+        leech.handle().torrent(id).connect_peer(seed_addr);
+        let st = wait_state(&mut w, id, TorrentState::Finished, 60);
+        assert_eq!(st.total_wanted_done, st.total_wanted);
+        assert_eq!(st.total_failed_bytes, 0, "the boundary pieces pass their hash checks");
+        assert!(!beta.exists(), "the skipped file is not created");
+        assert!(part.exists(), "the boundary pieces' beta blocks are in the part file");
+        for (i, (name, data)) in f.files.iter().enumerate() {
+            if i != 1 {
+                assert!(std::fs::read(dir.join("swarm-test").join(name)).unwrap() == *data, "{name}");
+            }
+        }
+        leech.shutdown();
+    }
+
+    // Restart: still finished, nothing created; a recheck finds the boundary pieces again.
+    let leech = start(Some(state.clone()));
+    let mut w = Watch::new(leech.handle());
+    let id = wait(&mut w, 5, "restore", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    let st = wait_state(&mut w, id, TorrentState::Finished, 10);
+    let wanted = st.total_wanted;
+    assert_eq!(st.total_wanted_done, wanted);
+    leech.handle().torrent(id).force_recheck();
+    wait(&mut w, 20, "checked", |a| matches!(a, Alert::TorrentChecked { id: i } if *i == id).then_some(()));
+    let st = wait_state(&mut w, id, TorrentState::Finished, 20);
+    assert_eq!(st.total_wanted_done, wanted, "the recheck reads the part file");
+    assert!(!beta.exists());
+
+    // Unskip: the boundary blocks move into beta and the rest is downloaded. The restarted
+    // leech closed its connection to the first seed as redundant (finished, and the other end
+    // is a seed) and waits min_reconnect_time before trying it again, so use a second seed.
+    leech.handle().torrent(id).set_file_priority(1, DownloadPriority::NORMAL);
+    let (seed2, seed2_dir, port2, _) = seeder(&f);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port2)));
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 60);
+    assert_eq!(st.total_failed_bytes, 0);
+    assert_files(&f, &dir);
+    assert!(!part.exists(), "the part file is deleted once nothing is in it");
+
+    // Skip gamma again, which exists: it keeps its data, and removing with DELETE_PARTFILE
+    // leaves the downloaded files alone.
+    leech.handle().torrent(id).set_file_priority(2, DownloadPriority::DONT_DOWNLOAD);
+    wait_state(&mut w, id, TorrentState::Seeding, 10);
+    leech.handle().remove_torrent(id, RemoveFlags::DELETE_PARTFILE);
+    wait(&mut w, 10, "deleted", |a| {
+        matches!(a, Alert::TorrentDeleted { id: i, .. } if *i == id).then_some(())
+    });
+    leech.shutdown();
+    seed.shutdown();
+    seed2.shutdown();
+    assert_files(&f, &dir);
+    for d in [dir, state, seed_dir, seed2_dir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
 }

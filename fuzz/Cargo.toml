@@ -133,3 +133,10 @@ path = "fuzz_targets/web_seed.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "part_file"
+path = "fuzz_targets/part_file.rs"
+test = false
+doc = false
+bench = false

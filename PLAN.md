@@ -204,7 +204,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
   - proxies (SOCKS4/5, HTTP)
   - [x] web seeds (BEP 19 `url-list` and magnet `ws=`, BEP 17 `httpseeds`) in the engine (2026-10-17_140012_1792238412)
   - super-seeding
-  - part files for skipped files
+  - [x] part files for skipped files (2026-10-17_160022_1792245622): libtorrent's `part_file` in `core::disk::part_file`; blocks of skipped files go to `.<info-hash>.parts` in the save path, unskipping moves them into the real file, `RemoveFlags::DELETE_PARTFILE` works
   - move storage
 - [ ] Localisation infrastructure (string tables)
 
@@ -258,6 +258,11 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - a PR to libtorrent adding `{"PA", "PaTorrent"}` to `src/identify_client.cpp`, so qBittorrent, Deluge and other libtorrent clients show the name in their peer lists
   - the same for webtorrent's `bittorrent-peerid` and Transmission's `clients.cc`, and an entry on the wiki.theory.org BEP 20 list
   - for private trackers: behave well (honest upload/download stats, announce intervals respected, no ratio tricks), keep `User-Agent`, peer ID and BEP 10 `v` consistent across versions, and publish a stable release with changelog. Tracker staff usually want a tagged release they can test. Expect a long wait, and some will never whitelist a new client.
+- Part files (CHANGELOG 2026-10-17_160022_1792245622):
+  - the Win32 "Remove" (without data) passes `RemoveFlags::empty()`, so a removed torrent with skipped files leaves its `.<info-hash>.parts` behind; qBittorrent passes `delete_partfile` there. Decide when the remove dialog is next touched.
+  - moving storage (Phase 5) should call `PartFile::move_partfile` (ported, unused so far) and rekey the `PartFiles` registry.
+  - skipping a file that is already on disk keeps its blocks in the file, as libtorrent does ("move stuff into the part file: not implemented yet" in `posix_storage.cpp`).
+  - after a restart, a finished torrent closes its connection to a seed as redundant and waits `min_reconnect_time` (60 s) before reconnecting once a file is unskipped; libtorrent behaves the same, but an unskip could reset the peer list's reconnect timers.
 - Peer-ID version characters: `-PA0100-` encodes 0.1.0. Bump `PEER_ID_PREFIX` together with the crate version (a test enforces it).
 - CI lints with stable clippy (1.97.1 on 2026-10-17), newer than the pinned 1.90.0: run `cargo +stable clippy --workspace --all-targets -- -D warnings` and `cargo +stable fmt --all --check` plus `cargo +stable fmt --manifest-path fuzz/Cargo.toml --check` before pushing (CHANGELOG 2026-10-17_153322_1792244002).
 - Unix code can be type-checked and linted here: `cargo clippy --target x86_64-unknown-linux-gnu` (or `x86_64-unknown-freebsd`); both targets are installed for the 1.90.0 toolchain. Running the tests still needs CI.

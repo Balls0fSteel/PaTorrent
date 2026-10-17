@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use patorrent_core::{AddTorrentParams, Settings, TorrentFlags};
+use patorrent_core::{AddTorrentParams, MoveCompleted, Settings, TorrentFlags};
 
 use crate::prefs::Prefs;
 use crate::settings;
@@ -14,6 +14,14 @@ use crate::settings;
 pub struct GuiOptions {
     /// Where new downloads go (`dir.download`).
     pub download_dir: String,
+    /// Move finished downloads to `completed_dir` (`dir.move_completed`; µTorrent's "Move
+    /// completed downloads to").
+    pub move_completed: bool,
+    /// Where finished downloads go (`dir.completed`).
+    pub completed_dir: String,
+    /// Move only torrents saved in `download_dir` (`dir.move_only_default`; µTorrent's "Only
+    /// move from the default download directory", on by default as there).
+    pub move_only_default: bool,
     /// Ask before removing torrents (`ui.confirm_delete`).
     pub confirm_delete: bool,
     /// Close / minimize to the tray (`ui.close_to_tray`, `ui.minimize_to_tray`).
@@ -50,6 +58,9 @@ impl GuiOptions {
                 .filter(|d| !d.trim().is_empty())
                 .unwrap_or(default_download_dir)
                 .to_owned(),
+            move_completed: prefs.get_bool("dir.move_completed", false),
+            completed_dir: prefs.get("dir.completed").unwrap_or_default().to_owned(),
+            move_only_default: prefs.get_bool("dir.move_only_default", true),
             confirm_delete: prefs.get_bool("ui.confirm_delete", true),
             close_to_tray: prefs.get_bool("ui.close_to_tray", true),
             minimize_to_tray: prefs.get_bool("ui.minimize_to_tray", false),
@@ -67,6 +78,13 @@ impl GuiOptions {
 
     pub fn store(&self, prefs: &mut Prefs) {
         prefs.set("dir.download", &self.download_dir);
+        prefs.set_bool("dir.move_completed", self.move_completed);
+        if self.completed_dir.trim().is_empty() {
+            prefs.remove("dir.completed");
+        } else {
+            prefs.set("dir.completed", self.completed_dir.trim());
+        }
+        prefs.set_bool("dir.move_only_default", self.move_only_default);
         prefs.set_bool("ui.confirm_delete", self.confirm_delete);
         prefs.set_bool("ui.close_to_tray", self.close_to_tray);
         prefs.set_bool("ui.minimize_to_tray", self.minimize_to_tray);
@@ -90,6 +108,30 @@ impl GuiOptions {
         match self.ip_filter_path.trim() {
             "" => settings_dir.join("ipfilter.dat"),
             p => PathBuf::from(p),
+        }
+    }
+
+    /// "Move completed downloads" as the alert-loop helper, or `None` when it is off (or has no
+    /// folder).
+    pub fn move_completed(&self) -> Option<MoveCompleted> {
+        let dir = self.completed_dir.trim();
+        if !self.move_completed || dir.is_empty() {
+            return None;
+        }
+        let mut m = MoveCompleted::new(dir);
+        m.only_from = self.move_only_default.then(|| self.download_dir.clone());
+        Some(m)
+    }
+
+    /// Points a running [`MoveCompleted`] at these options, keeping the save paths it has
+    /// learned (a new one would move the next finished torrent before knowing where it is).
+    pub fn update_move_completed(&self, current: &mut Option<MoveCompleted>) {
+        match (current.as_mut(), self.move_completed()) {
+            (Some(m), Some(new)) => {
+                m.dir = new.dir;
+                m.only_from = new.only_from;
+            }
+            (_, new) => *current = new,
         }
     }
 
@@ -150,6 +192,8 @@ mod tests {
         assert_eq!(o.gui.download_dir, r"C:\Downloads");
         assert!(o.gui.confirm_delete && o.gui.close_to_tray && !o.gui.minimize_to_tray && o.gui.pex);
         assert!(!o.gui.ip_filter && o.gui.show_add_dialog);
+        assert!(!o.gui.move_completed && o.gui.move_only_default && o.gui.completed_dir.is_empty());
+        assert!(o.gui.move_completed().is_none());
         assert_eq!(o.gui.ip_filter_file(Path::new("S")), Path::new("S").join("ipfilter.dat"));
 
         let mut changed = o.clone();
@@ -157,6 +201,9 @@ mod tests {
         changed.settings.enable_lsd = false;
         changed.gui = GuiOptions {
             download_dir: r"D:\in".into(),
+            move_completed: true,
+            completed_dir: r"D:\done".into(),
+            move_only_default: false,
             confirm_delete: false,
             close_to_tray: false,
             minimize_to_tray: true,
@@ -183,6 +230,39 @@ mod tests {
         changed.gui.ip_filter_path = "  ".into();
         changed.store(&mut prefs);
         assert_eq!(prefs.get("ipfilter.path"), None);
+    }
+
+    #[test]
+    fn move_completed_follows_the_options() {
+        let mut g = GuiOptions::load(&Prefs::default(), r"C:\in");
+        g.move_completed = true;
+        assert!(g.move_completed().is_none(), "no folder, nothing to move to");
+        g.completed_dir = r" D:\done ".into();
+        let m = g.move_completed().unwrap();
+        assert_eq!(m.dir, r"D:\done");
+        assert_eq!(m.only_from.as_deref(), Some(r"C:\in"));
+        g.move_only_default = false;
+        assert_eq!(g.move_completed().unwrap().only_from, None);
+
+        let mut current = Some(m);
+        g.completed_dir = r"E:\finished".into();
+        g.update_move_completed(&mut current);
+        let m = current.as_ref().unwrap();
+        assert_eq!((m.dir.as_str(), m.only_from.as_deref()), (r"E:\finished", None));
+        g.move_completed = false;
+        g.update_move_completed(&mut current);
+        assert!(current.is_none());
+        g.move_completed = true;
+        g.update_move_completed(&mut current);
+        assert!(current.is_some());
+
+        let mut prefs = Prefs::default();
+        g.store(&mut prefs);
+        assert!(prefs.to_text().contains("dir.completed=E:\\finished\n"));
+        assert!(prefs.to_text().contains("dir.move_only_default=0\n"));
+        g.completed_dir = String::new();
+        g.store(&mut prefs);
+        assert_eq!(prefs.get("dir.completed"), None);
     }
 
     #[test]

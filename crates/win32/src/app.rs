@@ -15,8 +15,9 @@ use std::ptr::{null, null_mut};
 
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MockConfig, QueueMove, RemoveFlags, Session, SessionHandle,
-    SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
+    AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
+    SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
+    same_dir,
 };
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::PRIORITIES;
@@ -100,6 +101,7 @@ mod cmd {
     pub const QUEUE_TOP: u16 = 129;
     pub const QUEUE_BOTTOM: u16 = 130;
     pub const SUPER_SEED: u16 = 131;
+    pub const SET_LOCATION: u16 = 132;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -202,6 +204,8 @@ struct App {
     pending_args: Vec<String>,
     /// Torrents (by `InfoHashes::key_hex`) to move to the top of the queue once added.
     queue_top: HashSet<String>,
+    /// Preferences > Directories "Move completed downloads to", fed every alert.
+    move_completed: Option<MoveCompleted>,
 }
 
 thread_local! {
@@ -508,6 +512,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         });
 
         let save_path = prefs.get("dir.download").map(str::to_owned).unwrap_or_else(downloads_folder);
+        let move_completed = GuiOptions::load(&prefs, &save_path).move_completed();
         let mut list = TorrentList::new();
         list.set_sort(prefs.sort());
         let page =
@@ -566,6 +571,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
             pending_args: Vec::new(),
             queue_top: HashSet::new(),
+            move_completed,
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -1200,6 +1206,14 @@ unsafe fn on_alerts(hwnd: HWND) {
         let generation = a.list.generation();
         let mut repaint_page = false;
         for alert in alerts.drain(..) {
+            if let Some(m) = a.move_completed.as_mut()
+                && let Some(id) = m.on_alert(&alert, &a.handle)
+            {
+                let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
+                let dir = m.dir.clone();
+                a.detail.push_log(format!("{} {name}: moving the completed download to {dir}", now_hms()));
+                a.handle.post_torrent_updates();
+            }
             match alert {
                 Alert::StateUpdate(v) => {
                     for st in &v {
@@ -1253,6 +1267,17 @@ unsafe fn on_alerts(hwnd: HWND) {
                     if a.downloading.remove(&id) {
                         balloons.push(name);
                     }
+                    lists_changed = true;
+                }
+                Alert::StorageMoved { id, .. } | Alert::StorageMovedFailed { id, .. } => {
+                    let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
+                    a.detail.push_log(format!("{} {name}: {}", now_hms(), alert.message()));
+                    if let Alert::StorageMovedFailed { ref error, ref file, .. } = alert {
+                        let at = if file.is_empty() { String::new() } else { format!("\n{file}") };
+                        errors.push(format!("Could not move the files of {name}:\n{error}{at}"));
+                    }
+                    // the new save path (or the old one, after a failure) and the end of "Moving"
+                    a.handle.post_torrent_updates();
                     lists_changed = true;
                 }
                 Alert::PeerInfo { id, peers } if a.detail.id == Some(id) => {
@@ -1718,24 +1743,27 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
         if ids.is_empty() {
             return;
         }
-        let Some((labels, current_label, dl, ul, single_done, (seeds, super_seeding))) = with_app(|a| {
-            let labels: Vec<String> = a.list.labels().into_iter().map(|(l, _)| l).collect();
-            let first = a.list.get(ids[0]);
-            let same = |f: &dyn Fn(TorrentId) -> String| {
-                let v = f(ids[0]);
-                ids.iter().all(|&id| f(id) == v).then_some(v)
-            };
-            let label = same(&|id| a.list.extra(id).label.to_owned());
-            a.menu_labels = labels.clone();
-            (
-                labels,
-                label,
-                first.map_or(0, |s| s.download_limit),
-                first.map_or(0, |s| s.upload_limit),
-                ids.len() == 1 && first.is_some_and(|s| s.is_finished),
-                super_seed_state(a, &ids),
-            )
-        }) else {
+        let Some((labels, current_label, dl, ul, single_done, (seeds, super_seeding), moving)) =
+            with_app(|a| {
+                let labels: Vec<String> = a.list.labels().into_iter().map(|(l, _)| l).collect();
+                let first = a.list.get(ids[0]);
+                let same = |f: &dyn Fn(TorrentId) -> String| {
+                    let v = f(ids[0]);
+                    ids.iter().all(|&id| f(id) == v).then_some(v)
+                };
+                let label = same(&|id| a.list.extra(id).label.to_owned());
+                a.menu_labels = labels.clone();
+                (
+                    labels,
+                    label,
+                    first.map_or(0, |s| s.download_limit),
+                    first.map_or(0, |s| s.upload_limit),
+                    ids.len() == 1 && first.is_some_and(|s| s.is_finished),
+                    super_seed_state(a, &ids),
+                    ids.iter().any(|&id| a.list.get(id).is_some_and(|s| s.moving_storage)),
+                )
+            })
+        else {
             return;
         };
         let menu = CreatePopupMenu();
@@ -1764,6 +1792,7 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
         append(menu, cmd::REANNOUNCE, "&Update Tracker");
         separator(menu);
         let adv = CreatePopupMenu();
+        append_flags(adv, grayed(moving), cmd::SET_LOCATION, "Set &Download Location...");
         append_flags(adv, checked(super_seeding) | grayed(!seeds), cmd::SUPER_SEED, "&Initial Seeding");
         submenu(menu, adv, "Ad&vanced");
         let bw = CreatePopupMenu();
@@ -1956,6 +1985,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                     a.handle.post_torrent_updates();
                 });
             }
+            cmd::SET_LOCATION => set_download_location(hwnd),
             cmd::SUPER_SEED => {
                 let ids = selected_ids();
                 with_app(|a| {
@@ -1986,6 +2016,33 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             _ => {}
         }
     }
+}
+
+/// Advanced > Set Download Location: a folder, then the selected torrents' files move there
+/// (µTorrent 2.2.1 moves them; files already there are replaced, libtorrent's default).
+unsafe fn set_download_location(hwnd: HWND) {
+    let ids = selected_ids();
+    let Some(start) = with_app(|a| ids.first().and_then(|&id| a.list.get(id)).map(|st| st.save_path.clone()))
+    else {
+        return;
+    };
+    let title = "Select the new download location";
+    let Some(dir) = (unsafe { crate::create::pick_folder_at(hwnd, title, start.as_deref()) }) else {
+        return;
+    };
+    with_app(|a| {
+        for id in ids {
+            let Some(st) = a.list.get(id) else { continue };
+            if same_dir(&st.save_path, &dir) {
+                continue;
+            }
+            let name = st.name.clone();
+            a.handle.torrent(id).move_storage(dir.clone(), MoveFlags::AlwaysReplaceFiles);
+            a.detail.push_log(format!("{} {name}: moving to {dir}", now_hms()));
+        }
+        a.handle.post_torrent_updates();
+    });
+    unsafe { update_detail_lists() };
 }
 
 /// (every torrent is a seed, every torrent is super seeding), for "Initial Seeding".
@@ -2231,6 +2288,7 @@ fn apply_options(a: &mut App, o: &Options) {
     }
     a.save_path = o.gui.download_dir.clone();
     a.handle.apply_settings(o.settings.clone());
+    o.gui.update_move_completed(&mut a.move_completed);
     if o.gui.pex != old.gui.pex {
         for id in a.list.ids() {
             let t = a.handle.torrent(id);

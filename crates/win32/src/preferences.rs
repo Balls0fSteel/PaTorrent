@@ -24,7 +24,7 @@ use windows_sys::Win32::UI::Controls::{
     TVIF_TEXT, TVINSERTSTRUCTW, TVM_EXPAND, TVM_INSERTITEMW, TVM_SELECTITEM, TVN_SELCHANGEDW,
     TVS_DISABLEDRAGDROP, TVS_HASBUTTONS, TVS_HASLINES, TVS_LINESATROOT, TVS_SHOWSELALWAYS,
 };
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{GetFocus, SetFocus};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_GROUPBOX,
     BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBS_DROPDOWNLIST, DLGTEMPLATE,
@@ -77,6 +77,10 @@ const ID_SHOW_ADD: u16 = id(1, 6);
 // Directories
 const ID_DL_DIR: u16 = id(2, 1);
 const ID_DL_BROWSE: u16 = id(2, 2);
+const ID_MOVE: u16 = id(2, 3);
+const ID_MOVE_DIR: u16 = id(2, 4);
+const ID_MOVE_BROWSE: u16 = id(2, 5);
+const ID_MOVE_ONLY_DEFAULT: u16 = id(2, 6);
 // Connection
 const ID_PORT: u16 = id(3, 1);
 const ID_RANDOM_PORT: u16 = id(3, 2);
@@ -191,6 +195,17 @@ static FIELDS: &[Field] = &[
     Field::Check { id: ID_ADD_STOPPED, get: |o| o.gui.add_stopped, set: |o, v| o.gui.add_stopped = v },
     Field::Check { id: ID_SHOW_ADD, get: |o| o.gui.show_add_dialog, set: |o, v| o.gui.show_add_dialog = v },
     Field::Text { id: ID_DL_DIR, get: |o| o.gui.download_dir.clone(), set: |o, v| o.gui.download_dir = v },
+    Field::Check { id: ID_MOVE, get: |o| o.gui.move_completed, set: |o, v| o.gui.move_completed = v },
+    Field::Text {
+        id: ID_MOVE_DIR,
+        get: |o| o.gui.completed_dir.clone(),
+        set: |o, v| o.gui.completed_dir = v.trim().to_owned(),
+    },
+    Field::Check {
+        id: ID_MOVE_ONLY_DEFAULT,
+        get: |o| o.gui.move_only_default,
+        set: |o, v| o.gui.move_only_default = v,
+    },
     Field::Num {
         id: ID_PORT,
         min: 1,
@@ -512,17 +527,24 @@ fn template() -> Vec<u16> {
     );
 
     b.page(2);
-    b.group([0, 0, W, 84], "Location of Downloaded Files");
+    b.group([0, 0, W, 96], "Location of Downloaded Files");
     b.label([8, 14, 290, 9], "Put new downloads in:");
     b.ctl(EDIT, ID_DL_DIR, LINE, [8, 26, 272, 13], "");
     b.ctl(BUTTON, ID_DL_BROWSE, PUSH, [284, 26, 18, 13], "...");
-    b.stub(BUTTON, CHECK, [8, 46, 290, 10], "Move completed downloads to:");
-    b.stub(EDIT, LINE, [8, 59, 272, 13], "");
-    b.stub(BUTTON, PUSH, [284, 59, 18, 13], "...");
-    b.group([0, 90, W, 58], "Location of .torrents");
-    b.stub(BUTTON, CHECK, [8, 104, 290, 10], "Store .torrents in:");
-    b.stub(BUTTON, CHECK, [8, 118, 290, 10], "Automatically load .torrents from:");
-    b.label([8, 133, 294, 9], "Moving completed downloads needs move storage in the engine (not yet).");
+    b.ctl(BUTTON, ID_MOVE, CHECK, [8, 46, 290, 10], "Move completed downloads to:");
+    b.ctl(EDIT, ID_MOVE_DIR, LINE, [8, 59, 272, 13], "");
+    b.ctl(BUTTON, ID_MOVE_BROWSE, PUSH, [284, 59, 18, 13], "...");
+    b.ctl(
+        BUTTON,
+        ID_MOVE_ONLY_DEFAULT,
+        CHECK,
+        [8, 78, 290, 10],
+        "Only move from the default download directory",
+    );
+    b.group([0, 102, W, 58], "Location of .torrents");
+    b.stub(BUTTON, CHECK, [8, 116, 290, 10], "Store .torrents in:");
+    b.stub(BUTTON, CHECK, [8, 130, 290, 10], "Automatically load .torrents from:");
+    b.label([8, 145, 294, 9], "Storing and automatically loading .torrents are not available yet.");
 
     b.page(3);
     b.group([0, 0, W, 78], "Listening Port");
@@ -810,6 +832,17 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         set_check(dlg, ID_PROXY_AUTH, auth);
         st.shown.push((ID_PROXY_AUTH, auth.to_string()));
         update_ip_filter_status(dlg, st, None);
+        update_move_controls(dlg);
+    }
+}
+
+/// The folder and "Only move from ..." follow "Move completed downloads to", as in µTorrent.
+unsafe fn update_move_controls(dlg: HWND) {
+    unsafe {
+        let on = checked(dlg, ID_MOVE) as i32;
+        for id in [ID_MOVE_DIR, ID_MOVE_BROWSE, ID_MOVE_ONLY_DEFAULT] {
+            EnableWindow(item(dlg, id), on);
+        }
     }
 }
 
@@ -869,6 +902,9 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
         if o.gui.download_dir.trim().is_empty() {
             return Err((ID_DL_DIR, "Please choose a folder for new downloads.".to_owned()));
         }
+        if o.gui.move_completed && o.gui.completed_dir.is_empty() {
+            return Err((ID_MOVE_DIR, "Please choose a folder for completed downloads.".to_owned()));
+        }
         st.opts = o;
         Ok(())
     }
@@ -923,8 +959,18 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
                 apply(dlg, st);
             }
             ID_DL_BROWSE if code == BN_CLICKED => {
-                if let Some(p) = crate::create::pick_folder(dlg, "Select the folder for new downloads") {
+                let now = window_text(item(dlg, ID_DL_DIR));
+                let title = "Select the folder for new downloads";
+                if let Some(p) = crate::create::pick_folder_at(dlg, title, Some(&now)) {
                     set_text(item(dlg, ID_DL_DIR), &p);
+                }
+            }
+            ID_MOVE if code == BN_CLICKED => update_move_controls(dlg),
+            ID_MOVE_BROWSE if code == BN_CLICKED => {
+                let now = window_text(item(dlg, ID_MOVE_DIR));
+                let title = "Select the folder for completed downloads";
+                if let Some(p) = crate::create::pick_folder_at(dlg, title, Some(&now)) {
+                    set_text(item(dlg, ID_MOVE_DIR), &p);
                 }
             }
             ID_RANDOM_PORT if code == BN_CLICKED => {
@@ -1040,10 +1086,7 @@ unsafe fn show_value_controls(dlg: HWND, st: &mut State<'_>) {
             None => set_text(item(dlg, ID_ADV_VALUE), ""),
         }
         for id in [ID_ADV_VALUE, ID_ADV_SET, ID_ADV_RESET] {
-            windows_sys::Win32::UI::Input::KeyboardAndMouse::EnableWindow(
-                item(dlg, id),
-                entry.is_some() as i32,
-            );
+            EnableWindow(item(dlg, id), entry.is_some() as i32);
         }
     }
 }
@@ -1114,6 +1157,7 @@ mod tests {
         ICC_LISTVIEW_CLASSES, ICC_TREEVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx,
         LVM_GETITEMCOUNT, LVM_GETITEMTEXTW,
     };
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CB_GETCOUNT, CreateDialogIndirectParamW, DestroyWindow, GWL_STYLE, GetWindowLongW, SendMessageW,
         WS_VISIBLE,
@@ -1537,6 +1581,59 @@ mod tests {
         f.click(ID_IPF_RELOAD);
         assert_eq!(f.reloads.borrow().len(), 2, "no reload while the filter is off");
         assert!(f.applied.borrow().is_empty(), "Reload does not apply the rest");
+    }
+
+    #[test]
+    fn move_completed_downloads_on_directories() {
+        let mut f = Fixture::new(defaults());
+        f.page(2);
+        unsafe {
+            for id in [ID_MOVE, ID_MOVE_DIR, ID_MOVE_BROWSE, ID_MOVE_ONLY_DEFAULT] {
+                assert!(shown(item(f.dlg, id)), "control {id}");
+            }
+            assert!(!checked(f.dlg, ID_MOVE));
+            assert!(checked(f.dlg, ID_MOVE_ONLY_DEFAULT), "on by default, as in µTorrent");
+            assert_eq!(IsWindowEnabled(item(f.dlg, ID_MOVE_DIR)), 0, "greyed while off");
+            assert_eq!(IsWindowEnabled(item(f.dlg, ID_MOVE_ONLY_DEFAULT)), 0);
+        }
+        f.check(ID_MOVE, true);
+        f.click(ID_MOVE);
+        unsafe {
+            assert_ne!(IsWindowEnabled(item(f.dlg, ID_MOVE_DIR)), 0);
+            assert_ne!(IsWindowEnabled(item(f.dlg, ID_MOVE_BROWSE)), 0);
+        }
+        // on without a folder is refused on the Directories page
+        let err = unsafe { read_controls(f.dlg, &mut f.st) }.unwrap_err();
+        assert_eq!((err.0, page_of(err.0)), (ID_MOVE_DIR, Some(2)));
+
+        f.set(ID_MOVE_DIR, r" D:\Done ");
+        f.check(ID_MOVE_ONLY_DEFAULT, false);
+        f.click(ID_APPLY);
+        let o = f.last_applied();
+        assert!(o.gui.move_completed && !o.gui.move_only_default);
+        assert_eq!(o.gui.completed_dir, r"D:\Done");
+        let m = o.gui.move_completed().expect("a mover");
+        assert_eq!((m.dir.as_str(), m.only_from), (r"D:\Done", None));
+        let mut prefs = Prefs::default();
+        o.store(&mut prefs);
+        let text = prefs.to_text();
+        assert!(text.contains("dir.move_completed=1") && text.contains(r"dir.completed=D:\Done"));
+        assert_eq!(Options::load(&prefs, "unused"), o);
+
+        // shown back, enabled; turned off again it keeps the folder
+        let g = Fixture::new(o);
+        assert_eq!(g.text(ID_MOVE_DIR), r"D:\Done");
+        unsafe {
+            assert!(checked(g.dlg, ID_MOVE) && !checked(g.dlg, ID_MOVE_ONLY_DEFAULT));
+            assert_ne!(IsWindowEnabled(item(g.dlg, ID_MOVE_DIR)), 0);
+        }
+        g.check(ID_MOVE, false);
+        g.click(ID_MOVE);
+        g.click(ID_APPLY);
+        let o = g.last_applied();
+        assert!(!o.gui.move_completed && o.gui.move_completed().is_none());
+        assert_eq!(o.gui.completed_dir, r"D:\Done");
+        unsafe { assert_eq!(IsWindowEnabled(item(g.dlg, ID_MOVE_DIR)), 0) };
     }
 
     #[test]

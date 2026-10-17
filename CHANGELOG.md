@@ -2,6 +2,25 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-17_193944_1792258784: Win32: Move completed downloads and Set Download Location
+
+### Added
+- Preferences > Directories: "Move completed downloads to:" with its folder field and Browse button, and "Only move from the default download directory" (on by default, as in µTorrent), no longer disabled placeholders. The folder field, Browse and the second check box grey out while the first is off; switching it on with no folder is refused on the Directories page. Stored in patorrent.ini as `dir.move_completed`, `dir.completed`, `dir.move_only_default` (`patorrent_frontend::options::GuiOptions`, so GTK gets the same model).
+- `GuiOptions::move_completed()` builds the `patorrent_core::MoveCompleted` for the options (`only_from` = the default download folder when the second box is on); `update_move_completed` re-points a running one on Apply and keeps the save paths it has learned.
+- The Win32 alert loop feeds every alert to that `MoveCompleted`: a finished download is moved, logged ("moving the completed download to ..."), and shows "Moving" until `StorageMoved`.
+- Torrent context menu > Advanced > "Set Download Location...": a folder picker opened on the first selected torrent's save path, then `move_storage(dir, AlwaysReplaceFiles)` for every selected torrent not already there (µTorrent 2.2.1 moves the files). Greyed while a selected torrent is moving.
+- `StorageMoved` / `StorageMovedFailed` get their own Logger lines with the torrent's name and refresh the list (new save path, end of "Moving"); a failure also shows an error box with the error and the file.
+- The folder pickers (`create::pick_folder_at`) can open on a start folder; Preferences' two Browse buttons open on the folder in their field.
+- Tests: `options::tests::move_completed_follows_the_options` (the mover from the options, re-pointing, the ini keys), the round-trip test covers the three new options; hidden-dialog test `preferences::tests::move_completed_downloads_on_directories` (controls on the Directories page, greying, the empty-folder refusal, Apply, persistence, shown back).
+
+### Decisions
+- One folder picker for single- and multi-file torrents; µTorrent's Save As box for single-file torrents (rename while moving) needs `rename_file`, which is not ported.
+- Set Download Location is offered for running torrents as well, since the engine moves them; µTorrent's own greying rules were not checked against the real client.
+
+### Verified
+- `cargo fmt --all --check` (1.90 and stable), `cargo clippy --workspace --all-targets -- -D warnings` on 1.90.0 and stable, `cargo test --workspace --no-fail-fast` on Windows: all green (win32 21, frontend 46, core 554 with 3 ignored, move_storage 8, swarm 34, the rest).
+- Not verified: the dialog, the menu item, a real move and the error box by hand.
+
 ## 2026-10-17_165701_1792249021: merge of move storage, the Add New Torrent dialog and the nox Web UI server
 
 Three features built in parallel on their own branches and merged into main: `claude/move-storage-2c300f`, `claude/add-dialog-d82bc0`, `claude/nox-webapi-73059f` (their entries follow).

@@ -126,3 +126,10 @@ path = "fuzz_targets/ip_filter.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "web_seed"
+path = "fuzz_targets/web_seed.rs"
+test = false
+doc = false
+bench = false

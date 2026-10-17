@@ -300,9 +300,14 @@ impl Mock {
             Command::ConnectPeer(..)
             | Command::SetIpFilter(_)
             | Command::SetPortFilter(_)
-            | Command::ReopenNetworkSockets => {}
+            | Command::ReopenNetworkSockets
+            | Command::AddWebSeed(..)
+            | Command::RemoveWebSeed(..) => {}
             #[cfg(test)]
             Command::SetFakeNetwork(_) => {}
+            Command::PostWebSeeds(id) => {
+                self.out.push(Alert::WebSeeds { id, url_seeds: Vec::new(), http_seeds: Vec::new() })
+            }
             Command::PostTorrentUpdates => {
                 let mut changed = Vec::new();
                 for t in self.slots.iter_mut().filter_map(|s| s.torrent.as_mut()) {

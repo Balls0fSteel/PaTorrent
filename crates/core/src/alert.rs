@@ -186,6 +186,13 @@ pub enum Alert {
         addr: SocketAddr,
         reason: BlockReason,
     },
+    /// A web seed failed: an HTTP error, a broken response, a failed lookup or connect, or a
+    /// URL that cannot be used (libtorrent `url_seed_alert`).
+    UrlSeed {
+        id: TorrentId,
+        url: String,
+        message: String,
+    },
 
     // Replies to `post_*` requests
     /// Torrents whose status changed since the previous `post_torrent_updates()`.
@@ -213,6 +220,13 @@ pub enum Alert {
         id: TorrentId,
         have: Bitfield,
         availability: Vec<u32>,
+    },
+    /// The torrent's web seeds, banned ones left out (libtorrent `url_seeds()` and
+    /// `http_seeds()`).
+    WebSeeds {
+        id: TorrentId,
+        url_seeds: Vec<String>,
+        http_seeds: Vec<String>,
     },
 
     /// Free-form log line for the Logger tab (libtorrent `log_alert` / `torrent_log_alert`).
@@ -245,6 +259,7 @@ impl Alert {
             | FileProgress { .. }
             | TrackerList { .. }
             | PieceInfo { .. }
+            | WebSeeds { .. }
             | AlertsDropped { .. } => AlertPriority::Critical,
             StateChanged { .. }
             | TorrentPaused { .. }
@@ -269,6 +284,7 @@ impl Alert {
             | LsdError { .. }
             | PeerBanned { .. }
             | PeerBlocked { .. }
+            | UrlSeed { .. }
             | Log { .. } => AlertPriority::Normal,
         }
     }
@@ -301,7 +317,9 @@ impl Alert {
             | FileList { id, .. }
             | FileProgress { id, .. }
             | TrackerList { id, .. }
-            | PieceInfo { id, .. } => Some(id),
+            | PieceInfo { id, .. }
+            | UrlSeed { id, .. }
+            | WebSeeds { id, .. } => Some(id),
             Log { id, .. } | PeerBlocked { id, .. } => id,
             _ => None,
         }
@@ -352,6 +370,10 @@ impl Alert {
             LsdError { address, error } => write!(s, "LSD failed on {address}: {error}"),
             PeerBanned { addr, .. } => write!(s, "peer {addr} banned"),
             PeerBlocked { addr, reason, .. } => write!(s, "peer {addr} blocked ({reason:?})"),
+            UrlSeed { url, message, .. } => write!(s, "web seed {url}: {message}"),
+            WebSeeds { url_seeds, http_seeds, .. } => {
+                write!(s, "{} web seeds", url_seeds.len() + http_seeds.len())
+            }
             StateUpdate(v) => write!(s, "state update for {} torrents", v.len()),
             SessionStats(_) => write!(s, "session stats"),
             PeerInfo { peers, .. } => write!(s, "{} peers", peers.len()),

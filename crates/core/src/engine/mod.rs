@@ -30,6 +30,7 @@ mod smart_ban;
 pub(crate) mod torrent;
 pub(crate) mod tracker;
 mod upnp;
+mod web_seed;
 mod wire;
 
 use std::collections::HashMap;
@@ -46,7 +47,7 @@ use crate::alert::Alert;
 use crate::crypto::mse;
 use crate::disk::{BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction};
 use crate::error::Error;
-use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, parse_magnet_uri};
+use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, WebSeedKind, parse_magnet_uri};
 use crate::net::ip_voter::{ExternalIp, SessionVoter, source};
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::{Bucket, sys};
@@ -270,6 +271,8 @@ pub(crate) struct Engine {
     portmap: portmap::PortmapSession,
     filters: ip_filter::Filters,
     network: listen::NetworkState,
+    /// Web seed connections (BEP 19 / BEP 17).
+    web: web_seed::WebConns,
 }
 
 /// The network thread's entry point.
@@ -414,6 +417,7 @@ impl Engine {
             portmap: portmap::PortmapSession::new(),
             filters: ip_filter::Filters::default(),
             network,
+            web: web_seed::WebConns::default(),
             settings,
         }
     }
@@ -607,6 +611,7 @@ impl Engine {
             t if (lsd::LSD_TOKEN_BASE..lsd::LSD_TOKEN_BASE + lsd::MAX_LSD_SOCKETS).contains(&t) => {
                 self.on_lsd_readable(t - lsd::LSD_TOKEN_BASE)
             }
+            t if t >= web_seed::WEB_TOKEN_BASE => self.on_web_event(token),
             t if t >= portmap::UPNP_HTTP_TOKEN_BASE => self.on_portmap_event(t),
             t if t >= HTTP_TOKEN_BASE => {
                 self.trackers.on_http_event(token, &self.resolver, self.poll.registry(), Instant::now())
@@ -928,6 +933,7 @@ impl Engine {
         self.download_bucket.limit > 0
             || self.upload_bucket.limit > 0
             || self.peers.iter().any(|(_, p)| p.read_blocked || (p.write_blocked && p.send_buffer_len() > 0))
+            || self.web.any_read_blocked()
     }
 
     fn bandwidth_tick(&mut self, now: Instant) {
@@ -950,6 +956,7 @@ impl Engine {
         for (slot, share) in self.quota_shares(&reads, true) {
             self.do_read_capped(slot, share);
         }
+        self.web_unblock_reads();
     }
 
     /// libtorrent `bandwidth_manager::update_quotas` / `bw_request::assign_bandwidth`: the
@@ -1113,6 +1120,9 @@ impl Engine {
                     self.connect_peers_for(id, usize::MAX);
                 }
             }
+            Command::AddWebSeed(id, url, kind) => self.add_web_seed_cmd(id, url, kind),
+            Command::RemoveWebSeed(id, url, kind) => self.remove_web_seed_cmd(id, &url, kind),
+            Command::PostWebSeeds(id) => self.post_web_seeds(id),
             Command::PostTorrentUpdates => self.post_torrent_updates(),
             Command::PostSessionStats => self.post_session_stats(),
             Command::PostPeerInfo(id) => self.post_peer_info(id),
@@ -1329,6 +1339,15 @@ impl Engine {
         for (url, tier) in trackers {
             t.add_tracker(&url, tier);
         }
+        for ws in ti.web_seeds() {
+            t.web_seeds.add(&ws.url, ws.kind, &ws.auth, &ws.extra_headers, false, false);
+        }
+        if let Some(r) = &resume {
+            t.web_seeds.add_urls(&r.url_seeds, WebSeedKind::UrlSeed);
+            t.web_seeds.add_urls(&r.http_seeds, WebSeedKind::HttpSeed);
+        }
+        t.web_seeds.add_urls(&p.url_seeds, WebSeedKind::UrlSeed);
+        t.web_seeds.add_urls(&p.http_seeds, WebSeedKind::HttpSeed);
         t.download_limit.set_limit(p.download_limit);
         t.upload_limit.set_limit(p.upload_limit);
         t.max_connections = p.max_connections;
@@ -1404,6 +1423,10 @@ impl Engine {
         for (i, url) in p.trackers.iter().enumerate() {
             t.add_tracker(url, p.tracker_tiers.get(i).copied().unwrap_or(0));
         }
+        // BEP 19 `ws=`: used once the metadata is in
+        t.web_seeds.add_urls(&m.url_seeds, WebSeedKind::UrlSeed);
+        t.web_seeds.add_urls(&p.url_seeds, WebSeedKind::UrlSeed);
+        t.web_seeds.add_urls(&p.http_seeds, WebSeedKind::HttpSeed);
         // File priorities apply once the file list is known (the caller's win over `so=`).
         let n = m.file_priorities.len().max(p.file_priorities.len());
         t.file_priority = (0..n)
@@ -1454,6 +1477,8 @@ impl Engine {
                 t.add_tracker(u, tier as u32);
             }
         }
+        t.web_seeds.add_urls(&r.url_seeds, WebSeedKind::UrlSeed);
+        t.web_seeds.add_urls(&r.http_seeds, WebSeedKind::HttpSeed);
         apply_resume(&mut t, &r);
         let has_meta = self.store.as_ref().is_some_and(|s| s.has_metadata(&t.key));
         if !has_meta && t.num_pieces == 0 {
@@ -1665,6 +1690,7 @@ impl Engine {
                 p.close("torrent stopped", false);
             }
         }
+        self.close_web_seeds(id, "torrent stopped");
         let t = self.torrent(id).expect("exists");
         let mut jobs = Vec::new();
         for tr in &mut t.trackers {
@@ -1987,6 +2013,10 @@ impl Engine {
                 self.on_dht_resolved(r);
                 continue;
             }
+            if r.cookie & web_seed::WEB_COOKIE != 0 {
+                self.on_web_resolved(r);
+                continue;
+            }
             self.trackers.on_resolved(r, self.poll.registry(), now);
         }
         self.apply_tracker_results();
@@ -2030,6 +2060,7 @@ impl Engine {
                     for (slot, share) in self.quota_shares(&blocked, true) {
                         self.do_read_capped(slot, share);
                     }
+                    self.web_unblock_reads();
                 }
             }
             Completion::Hashed { storage, piece, passed } => {
@@ -2258,6 +2289,7 @@ impl Engine {
         for &id in &running {
             self.tick_torrent(id, now, dt);
         }
+        self.web_tick(now, dt, &running);
         // Connection pacing (libtorrent `connection_speed` per second, shared by torrents).
         self.connect_budget = (self.connect_budget + self.settings.connection_speed.max(0) as f64 * dt)
             .min(self.settings.connection_speed.max(1) as f64);
@@ -2635,6 +2667,9 @@ impl Engine {
                     }
                 }
             }
+            let (web_peers, web_seeds) = self.web.counts(t.id);
+            peers += web_peers;
+            seeds += web_seeds;
             rates.0 = t.stat.download_rate();
             rates.1 = t.stat.upload_rate();
             rates.2 = t.stat.download_payload.rate();
@@ -2719,6 +2754,7 @@ impl Engine {
                 is_web_seed: false,
             });
         }
+        peers.extend(self.web_peer_infos(id));
         self.alert(Alert::PeerInfo { id, peers });
     }
 }

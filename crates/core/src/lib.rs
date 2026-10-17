@@ -64,6 +64,9 @@ pub use mock::MockConfig;
 pub mod fuzzing {
     pub use crate::dht::{DhtSettings, DhtState, DhtTracker};
     pub use crate::proto::http::{Url, parse_response, resolve_redirect};
+    pub use crate::proto::http_parser::{
+        parse_chunk_header, parse_head as parse_http_head, resolve_redirect_location, split_url,
+    };
     pub use crate::proto::lsd::{parse as parse_lsd, render as render_lsd};
     pub use crate::proto::natpmp::parse_response as parse_natpmp_response;
     pub use crate::proto::pe_handshake::{PeError, PeHandshake, PeStep};
@@ -80,6 +83,7 @@ pub mod fuzzing {
         decode as decode_ut_metadata,
     };
     pub use crate::proto::ut_pex::{PeerPex, TorrentPex, encode_full as encode_ut_pex_full};
+    pub use crate::proto::web_peer::{WebEvent, WebPeer};
     pub use crate::proto::xml::{Token as XmlToken, parse as parse_xml};
     pub use crate::utp::{
         ReadOutcome as UtpReadOutcome, SendOutcome as UtpSendOutcome, State as UtpState, UtpIo, UtpManager,

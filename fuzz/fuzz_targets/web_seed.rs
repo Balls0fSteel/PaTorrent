@@ -18,9 +18,10 @@ fn storage(single: bool) -> FileStorage {
     if single {
         fs.add_file("one", 100_000, FileFlags::empty(), 0, "", None).unwrap();
     } else {
-        for (i, (size, pad)) in [(5u64, false), (16379, true), (20_000, false), (0, false), (12_388, true), (40_000, false)]
-            .into_iter()
-            .enumerate()
+        for (i, (size, pad)) in
+            [(5u64, false), (16379, true), (20_000, false), (0, false), (12_388, true), (40_000, false)]
+                .into_iter()
+                .enumerate()
         {
             let flags = if pad { FileFlags::PAD_FILE } else { FileFlags::empty() };
             fs.add_file(&format!("t/{i}"), size, flags, 0, "", None).unwrap();
@@ -41,7 +42,8 @@ fuzz_target!(|data: &[u8]| {
     let Some((&mode, rest)) = data.split_first() else { return };
     let fs = storage(mode & 1 != 0);
     let kind = if mode & 2 != 0 { WebSeedKind::HttpSeed } else { WebSeedKind::UrlSeed };
-    let mut p = WebPeer::new("http://a.example/x/", kind, Sha1Hash([1; 20]), "", &[], &fs, "f", false).unwrap();
+    let mut p =
+        WebPeer::new("http://a.example/x/", kind, Sha1Hash([1; 20]), "", &[], &fs, "f", false).unwrap();
     // requests: whole pieces from `mode >> 2`, each one piece long (BEP 17 needs that)
     let mut want = Vec::new();
     let first = (mode >> 2) as u32 % fs.num_pieces();

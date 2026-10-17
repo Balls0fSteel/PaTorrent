@@ -524,7 +524,9 @@ mod tests {
             }
             Err(e) => {
                 assert_eq!(e.kind(), io::ErrorKind::Unsupported, "{e}");
-                assert!(cfg!(not(any(windows, target_os = "linux", target_os = "freebsd"))));
+                if cfg!(any(windows, target_os = "linux", target_os = "freebsd")) {
+                    panic!("no notifier on a platform that has one: {e}");
+                }
             }
         }
     }

@@ -68,12 +68,11 @@ struct NetSnapshot {
 impl NetSnapshot {
     fn new(ifs: &[IpInterface], routes: &[IpRoute]) -> NetSnapshot {
         let mut ifs = ifs.to_vec();
-        ifs.sort_by(|a, b| (a.index, a.addr).cmp(&(b.index, b.addr)));
+        ifs.sort_by_key(|a| (a.index, a.addr));
         // only default routes matter (to the port mappers); the rest of the table churns
         let mut gateways: Vec<IpRoute> =
             routes.iter().filter(|r| r.destination.is_unspecified()).cloned().collect();
-        gateways
-            .sort_by(|a, b| (a.index, a.gateway, a.source_hint).cmp(&(b.index, b.gateway, b.source_hint)));
+        gateways.sort_by_key(|a| (a.index, a.gateway, a.source_hint));
         gateways.dedup();
         NetSnapshot { ifs, gateways }
     }

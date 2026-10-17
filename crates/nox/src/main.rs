@@ -6,6 +6,8 @@
 //! `demo` still drives the simulated engine for scale experiments. Arguments are parsed by hand
 //! to keep the dependency list empty.
 
+mod create;
+
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -30,12 +32,33 @@ USAGE:
     patorrent-nox add <file.torrent>... [--save DIR] [OPTIONS]
     patorrent-nox run [OPTIONS]
     patorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
+    patorrent-nox create <file or dir> [-o OUT] [CREATE OPTIONS]
     patorrent-nox --version | --help | --license
 
 COMMANDS:
     add     Add torrents, download them, and exit when they finish (keep seeding with --seed).
     run     Resume every torrent saved in the state directory and keep running.
     demo    Load N synthetic torrents on the simulated engine and print session totals.
+    create  Make a .torrent (v1) from a file or directory.
+
+CREATE OPTIONS:
+    -o, --output FILE     Where to write the torrent (default: <name>.torrent)
+    -t, --tracker URL     Tracker URL (repeatable; one tier each, or put several in one
+                          tier with commas: -t URL1,URL2)
+    -w, --web-seed URL    Web seed (BEP 19, repeatable)
+    --node HOST:PORT      DHT bootstrap node (repeatable)
+    --private             Set the private flag (no DHT, PEX or LSD)
+    --piece-size KIB      Piece size in KiB (default: automatic)
+    --comment TEXT        Comment
+    --source TEXT         info \"source\" (private trackers use it for cross-seeding)
+    --creator TEXT        \"created by\" (default: PaTorrent/<version>; \"\" to leave out)
+    --no-date             Leave out the creation date
+    --pad                 Align files to pieces with pad files (BEP 47)
+    --mtime               Store file modification times
+    --symlinks            Store symlinks as links instead of following them (Unix)
+    --no-attributes       Do not store hidden / executable attributes
+    --skip-hidden         Leave out files and folders whose names start with a dot
+    --magnet              Also print the magnet link
 
 OPTIONS:
     --save DIR        Download directory (default: current directory)
@@ -130,6 +153,7 @@ fn main() -> ExitCode {
             if o.sources.is_empty() { Err("add: nothing to add".into()) } else { Ok(run(o, Mode::Add)) }
         }),
         "run" => parse(rest).map(|o| run(o, Mode::Run)),
+        "create" => create::parse(rest).map(create::create),
         "demo" => parse(rest).map(demo),
         other => Err(format!("unknown command {other:?}")),
     };

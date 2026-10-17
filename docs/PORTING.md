@@ -68,7 +68,7 @@ Line counts are libtorrent `.cpp` lines in 2.0.11; headers add roughly 50 % on t
 | `core::ip_filter` | `ip_filter` (+ µTorrent `ipfilter.dat` parser, new) | 0.3k | 5 |
 | `core::peer::web` | `web_peer_connection`, `http_seed_connection`, `web_connection_base` | 2.0k | 5 |
 | `core::disk::part_file` | `part_file`, `posix_part_file` | 0.9k | 5 |
-| `core::metainfo::create` | `create_torrent` | 1.0k | 5 |
+| `core::metainfo::create_torrent` | `create_torrent` | 1.0k | 5 |
 | `core::crypto::ed25519` | `ed25519/*`, `kademlia/ed25519` | 3.7k | 8 |
 | `core::metainfo::v2` | `merkle`, `merkle_tree`, `hash_picker` | 2.0k | 8 |
 
@@ -154,3 +154,4 @@ Record each one here with the reason.
 | MSE fast reconnect (Phase 4) | under `pe_enabled`, only the encrypted attempt sets `fast_reconnect`; a cleanly closed plaintext attempt is retried at once anyway, because `peer_list` waits `min_reconnect_time * failcount` and the failcount is 0 | both attempts set `fast_reconnect`, which clears the peer's connect time | our peer list waits `min_reconnect_time` even after a clean close (less hammering), so the alternation needs the flag both ways |
 | MSE secret exponent (Phase 4) | `aux::random_bytes` (mt19937) | `crypto_random_bytes` (the OS RNG) | the key material should not come from a predictable generator |
 | Persistence writes (Phase 2) | n/a (client side) | `resume.db` is rewritten atomically, debounced (2 s after adds, every 30 s for progress); the metadata pack is appended at once | bulk adds rewrite once instead of once per torrent. An append-only record log (ARCHITECTURE.md) follows if the rewrite shows up in profiles |
+| Torrent creation (Phase 5) | hybrid v1 + v2 by default (`v1_only` / `v2_only` flags); hashing goes through the disk subsystem (`async_hash`, `hashing_threads`); `add_files` walks directories in `readdir` order | v1 only (`V2_ONLY` and `set_hash2` fail with a clear error; BEP 52 creation is a follow-up); the caller's thread reads the files in order and up to four threads hash; directory entries are added sorted by name; the progress callback can cancel; an optional info `source` key | v2 needs the merkle tree port (Phase 8); sequential reads suit spinning disks and network shares; sorted walks make the same folder give the same torrent on every OS |

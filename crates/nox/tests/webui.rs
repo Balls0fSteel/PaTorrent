@@ -2026,6 +2026,80 @@ fn native_commands_against_the_engine() {
 }
 
 #[test]
+fn shim_queue_moves_and_set_location() {
+    let t = Harness::start("shim-queue");
+    let sid = t.login();
+    let (a_bytes, a) = torrent_named("alpha", None);
+    let (b_bytes, b) = torrent_named("bravo", None);
+    let (c_bytes, c) = torrent_named("charlie", None);
+    for bytes in [&a_bytes, &b_bytes, &c_bytes] {
+        assert_eq!(t.pa_upload(&sid, "/pa/add", r#"{"start":true}"#, bytes).status, 204);
+    }
+    let prio = |h: &str, want: i64, what: &str| {
+        t.wait_for(&sid, h, what, |x| x.get("priority").and_then(Json::as_i64) == Some(want));
+    };
+    prio(&a, 1, "alpha first");
+    prio(&b, 2, "bravo second");
+    prio(&c, 3, "charlie third");
+
+    // topPrio / bottomPrio / increasePrio / decreasePrio, several hashes keep their order
+    assert_eq!(t.post(&sid, "/api/v2/torrents/topPrio", &format!("hashes={c}")).status, 200);
+    prio(&c, 1, "charlie to the top");
+    prio(&a, 2, "alpha below it");
+    prio(&b, 3, "bravo last");
+    assert_eq!(t.post(&sid, "/api/v2/torrents/increasePrio", &format!("hashes={a}|{b}")).status, 200);
+    prio(&a, 1, "alpha up");
+    prio(&b, 2, "bravo up");
+    prio(&c, 3, "charlie down");
+    assert_eq!(
+        t.post(&sid, "/api/v2/torrents/bottomPrio", &format!("hashes={}", a.to_uppercase())).status,
+        200
+    );
+    prio(&a, 3, "alpha to the bottom");
+    assert_eq!(t.post(&sid, "/api/v2/torrents/decreasePrio", &format!("hashes={b}")).status, 200);
+    prio(&b, 2, "bravo down");
+    prio(&c, 1, "charlie first again");
+    // all: the order stays (every torrent moves the same way)
+    assert_eq!(t.post(&sid, "/api/v2/torrents/topPrio", "hashes=all").status, 200);
+    prio(&c, 1, "charlie still first");
+    prio(&b, 2, "bravo still second");
+    prio(&a, 3, "alpha still last");
+    // POST only; an unknown hash is no error
+    assert_eq!(t.get(&sid, "/api/v2/torrents/topPrio?hashes=all").status, 405);
+    assert_eq!(
+        t.post(&sid, "/api/v2/torrents/topPrio", "hashes=0000000000000000000000000000000000000000").status,
+        200
+    );
+
+    // setLocation: creates the directory, moves the files
+    let moved = t.dir.join("moved").join("deeper");
+    let r = t.post(
+        &sid,
+        "/api/v2/torrents/setLocation",
+        &format!("hashes={a}|{b}&location={}", enc(&moved.to_string_lossy())),
+    );
+    assert_eq!((r.status, r.text().as_str()), (200, ""));
+    assert!(moved.is_dir());
+    for h in [&a, &b] {
+        t.wait_for(&sid, h, "moved", |x| s(x.get("save_path")).contains("deeper"));
+    }
+    let c_info = t.wait_for(&sid, &c, "charlie", |_| true);
+    assert!(!s(c_info.get("save_path")).contains("deeper"), "charlie stays: {}", c_info.to_json());
+    // an empty location is 400, a directory that cannot be created 409 (a file is in the way)
+    assert_eq!(t.post(&sid, "/api/v2/torrents/setLocation", &format!("hashes={c}&location=")).status, 400);
+    assert_eq!(t.post(&sid, "/api/v2/torrents/setLocation", &format!("hashes={c}&location=%20")).status, 400);
+    let blocker = t.dir.join("a-file");
+    std::fs::write(&blocker, b"x").unwrap();
+    let r = t.post(
+        &sid,
+        "/api/v2/torrents/setLocation",
+        &format!("hashes={c}&location={}", enc(&blocker.join("sub").to_string_lossy())),
+    );
+    assert_eq!(r.status, 409);
+    assert_eq!(t.get(&sid, &format!("/api/v2/torrents/setLocation?hashes={c}&location=x")).status, 405);
+}
+
+#[test]
 fn native_add_dialog_flow_and_magnet() {
     let t = Harness::start("native-add");
     let sid = t.login();

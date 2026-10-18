@@ -195,7 +195,9 @@ nothing is 404. The shim's `torrents/*` handlers call the same functions.
 | `/pa/session/shutdown` | | |
 
 The compat shim's `torrents/*` handlers call the same internal functions, so one implementation
-serves both.
+serves both. `torrents/setLocation` is Set Download Location (it creates the directory first:
+400 for an empty location, 403 / 409 when the directory cannot be created) and `topPrio`,
+`bottomPrio`, `increasePrio`, `decreasePrio` are `/pa/torrents/queue`'s top, bottom, up and down.
 
 ### Page layout
 
@@ -213,7 +215,8 @@ Phone (under 768 px): the category tree becomes a drawer behind a button, the de
 bottom sheet opened by a tap, the list collapses to Name over a progress bar with status, speeds
 and ETA, the context menu becomes a sheet behind a per-row actions button (a long press starts
 the multi-selection), the toolbar keeps Add, Start, Pause, Remove and a More menu with the
-rest and the sort.
+rest and the sort. The drawer, the sheets and the dialogs each hold a `history` entry while
+open, so the Android Back button closes the topmost one.
 
 Drag-and-drop of `.torrent` files and magnet text onto the window opens the Add dialog. The Add
 dialog is the 2.2.1 one: Save In, Name, the file tree with check boxes and priorities, Skip hash

@@ -2,6 +2,19 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_155612_1792331772: new Xubuntu test VM at 192.168.32.132 replaces the Ubuntu VM
+
+### Changed
+- The Linux test VM is now Xubuntu 26.04.1 at 192.168.32.132 (user `x`, passwordless sudo, 24 CPUs, 7.7 GiB, 492 GB disk); the Ubuntu VM at 192.168.32.128 is retired. The owner installed `openssh-server` and the `~/.ssh/patorrent_vm` key on the console; over SSH the VM then got `build-essential`, `curl`, `git`, `pkg-config`, `libssl-dev` through apt and rustup with the pinned 1.90.0 toolchain (minimal profile) as user `x`. The tree goes over as before: `git archive --prefix=patorrent/ HEAD | ssh -i ~/.ssh/patorrent_vm x@192.168.32.132 'tar -xf - -C ~'`.
+- PLAN.md's VM note points at the new address.
+
+### Verified
+- `cargo test --workspace --no-fail-fast` on the new VM, four runs of main at `ce0e3ce`: 755 tests, 3 ignored; one run all passed, the others had one or two timing failures (see below). Each failing test passed three times in a row when run alone.
+
+### Issues
+- Two tests are flaky under the full parallel run on a 24-CPU box: `engine::listen::session_tests::a_lost_internet_address_resets_the_votes_and_reannounces` (the `rx.recv_timeout(10 s)` for the second announce after the fake network change expired) and `websocket_handshake_and_frames` in `crates/nox/tests/webui.rs` (`recv_json` returned a periodic `tick` message where the test expected the `error` reply to the fragmented `{"t":"nothing"}` frame; the test does not skip ticks). Neither failed on the old 2- to 4-CPU VMs. Not fixed here; noted in PLAN.md.
+- The Transmission / Deluge interop clients (Q10) are still not installed on the Linux VM.
+
 ## 2026-10-18_102227_1792311747: merge of Web UI slice 6, verified on Windows and both VMs
 
 Branch `claude/cranky-antonelli-522710` merged into main; the only conflict was both sides adding a CHANGELOG entry at the top (both kept, the slice 6 entry first).

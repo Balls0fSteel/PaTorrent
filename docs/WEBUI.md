@@ -111,7 +111,7 @@ Server to client:
  "cells":{"<hash>":{"v":17,"c":["debian-13.7.0-amd64-netinst.iso","792 MB","100.0 %", ...],
                     "done":1000,"state":"seeding"}, ...}}
 {"t":"tick","total":10000,"ids":["<hash>", ...],"cells":{"<hash>":{...}},"counts":{"all":10000,"downloading":12,...},
- "status":{"dht":312,"down":"3.2 MB/s","up":"940 kB/s","down_total":"...","up_total":"..."}}
+ "labels":[["linux",3],["tv",0]],"no_label":9997,"status":{"dht":312,"down":"3.2 MB/s","up":"940 kB/s","down_total":"...","up_total":"..."}}
 {"t":"detail","id":"<hash>","tab":"peers","rows":[...]}
 {"t":"log","lines":[...]}
 {"t":"error","msg":"..."}
@@ -121,7 +121,9 @@ Server to client:
 (the engine's status interval, 1 s): the window's id order when it changed (the sort by speed
 moves rows; 60 hashes is nothing), the cells of rows whose `version` changed (the per-torrent
 `Entry::version` the compat `sync/maindata` already keeps), the category counts and the status
-bar. A row in the window that did not change is not sent. Cells are strings in the client's
+bar, plus `labels` (every label the daemon knows, from its category map and the torrents, with
+its torrent count, sorted by name) and `no_label` whenever either changed since this client's
+last tick; a fresh socket gets them with its first tick. A row in the window that did not change is not sent. Cells are strings in the client's
 column order; a column change re-sends the window.
 
 Ids are the info-hash in hex, as in the shim (`State::by_hash`); the slab `TorrentId` is not
@@ -267,7 +269,8 @@ In order; each is a CHANGELOG entry and lands green on the three CI platforms.
    2026-10-18_101527_1792311327.
 7. **Phone layout** pass, then the long-poll fallback if a deployment needs it. The phone
    layout landed: CHANGELOG 2026-10-18_230237_1792357357.
-8. Later, with Phase 5: labels in the tree and the Label column, RSS, the scheduler, per-torrent
+8. Later, with Phase 5: labels in the tree and the Label column (the tree's Labels branch with
+   "No Label" and live counts landed: CHANGELOG 2026-10-18_232431_1792358671), RSS, the scheduler, per-torrent
    limits; and the GUIs' remote mode on its own binary stream.
 
 ## Open points

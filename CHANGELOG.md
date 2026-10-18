@@ -2,6 +2,17 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_232431_1792358671: Web UI slice 8, labels in the tree
+
+### Added
+- The page's category tree shows the Labels branch as the Win32 tree does: "No Label" first, then every label, each with its torrent count, live. `webui/native.rs` (`Client::labels_update`) adds `labels` (`[[name, count], ...]`, sorted by name) and `no_label` to a `tick` whenever either changed since that client's last one; a fresh socket gets them with its first tick. The names are the daemon's category map plus any label in use, so a label created with no torrent yet stays listed with 0 (the map is persistent, qBittorrent's category semantics, unlike 2.2.1, which drops a label with its last torrent).
+- `app.js`: "No Label" filters on the empty label (`{"label": ""}`, which `parse_view` already took); the filter code now tells `null` (no label filter) from `""` (No Label). When the names change (another client, or the qBittorrent shim's `createCategory` / `removeCategories`) the tree is rebuilt; if the selected label went away the view falls back to all torrents, as the Win32 tree does.
+
+### Verified
+- `cargo test -p patorrent-nox`: all passed; the native protocol test now checks the tick's `labels` / `no_label`, that they are sent once, a label with no torrent, and the No Label filter. `cargo +stable fmt --all --check` and `clippy -p patorrent-nox --all-targets -D warnings` clean.
+- In the desktop app's browser pane against `run --no-state --mock-library 300 --active 0.1 --webui 18080`: the tree showed No Label 300; Label > New Label... on three rows made it No Label 297, linux 3 within a tick; No Label and linux filtered to 297 and 3 rows; `torrents/removeCategories` through the shim removed linux from the tree and moved the view back to Torrents (300).
+- Not checked at phone width (the drawer is the same tree element).
+
 ## 2026-10-18_230237_1792357357: Web UI slice 7, the phone layout
 
 ### Added

@@ -152,6 +152,8 @@ pub struct Client {
     /// The filtered, sorted view with the search applied.
     rows: Vec<TorrentId>,
     rows_stale: bool,
+    /// The label list and counts as last sent (`labels` and `no_label` in a tick).
+    labels_sent: Option<(Json, usize)>,
 }
 
 impl Default for Client {
@@ -173,6 +175,7 @@ impl Client {
             last_ids: Vec::new(),
             rows: Vec::new(),
             rows_stale: true,
+            labels_sent: None,
         }
     }
 
@@ -513,8 +516,31 @@ impl Client {
             out.set("cells", cells);
         }
         out.set("counts", self.counts());
+        if let Some((labels, no_label)) = self.labels_update(st) {
+            out.set("labels", labels);
+            out.set("no_label", no_label);
+        }
         out.set("status", status_bar(st));
         out
+    }
+
+    /// The Labels branch of the tree when it changed since the last tick: every label the
+    /// daemon knows (the category map, so a label stays listed while no torrent has it) with
+    /// its torrent count, sorted by name, and the count of torrents without a label.
+    fn labels_update(&mut self, st: &State) -> Option<(Json, usize)> {
+        let in_use = self.list.labels();
+        let mut names: Vec<&str> = st.categories.keys().map(String::as_str).collect();
+        names.extend(in_use.iter().map(|(l, _)| l.as_str()).filter(|l| !st.categories.contains_key(*l)));
+        names.sort_unstable();
+        let count = |l: &str| in_use.iter().find(|(x, _)| x == l).map_or(0, |x| x.1);
+        let labels = Json::Arr(names.iter().map(|&l| Json::Arr(vec![l.into(), count(l).into()])).collect());
+        let no_label = self.list.len() - in_use.iter().map(|x| x.1).sum::<usize>();
+        let now = (labels, no_label);
+        if self.labels_sent.as_ref() == Some(&now) {
+            return None;
+        }
+        self.labels_sent = Some(now.clone());
+        Some(now)
     }
 
     fn counts(&self) -> Json {
@@ -1002,6 +1028,18 @@ mod tests {
             t.get("cells").unwrap().get(&h1).unwrap().get("c"),
             Some(&Json::Arr(vec!["linux".into()]))
         );
+        // the tree's Labels branch: counts with the tick that changed them, then nothing
+        let pair = |l: &str, n: usize| Json::Arr(vec![l.into(), n.into()]);
+        assert_eq!(t.get("labels"), Some(&Json::Arr(vec![pair("linux", 1)])));
+        assert_eq!(t.get("no_label"), Some(&Json::from(2usize)));
+        assert!(c.on_tick(&mut st)[0].get("labels").is_none());
+        // a label from the category map with no torrent is listed with 0
+        st.categories.insert("tv".into(), String::new());
+        let t = c.on_tick(&mut st).remove(0);
+        assert_eq!(t.get("labels"), Some(&Json::Arr(vec![pair("linux", 1), pair("tv", 0)])));
+        // the "No Label" filter
+        let r = c.on_message(r#"{"t":"view","filter":{"label":""},"columns":["name"]}"#, &mut st);
+        assert_eq!(r[0].get("total"), Some(&Json::from(2i64)));
         // a search narrows the total
         let r = c.on_message(r#"{"t":"view","filter":{"search":"T1"},"columns":["name"]}"#, &mut st);
         assert_eq!(r[0].get("total"), Some(&Json::from(1i64)));

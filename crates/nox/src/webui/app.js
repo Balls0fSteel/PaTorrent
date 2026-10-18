@@ -69,6 +69,7 @@
   let detailTab = store.get("pa.tab", "general");
   let detailId = null;
   let labels = [];
+  let labelCounts = new Map(); // label ("" for none) to its torrent count
   let pool = [];
   let scrollRaf = 0;
   let hidden = document.hidden;
@@ -402,6 +403,7 @@
     backoff = 1000;
     setConn("");
     labels = m.labels || [];
+    labelCounts = new Map();
     confirmDelete = m.confirm_delete !== false;
     mergeColumns(m.columns);
     saveLayout();
@@ -422,7 +424,7 @@
     if (!hello) return;
     const [first, count] = neededWindow();
     sentWindow = [first, count];
-    const f = { category: filter.label ? "all" : filter.category || "all", label: filter.label || null, search };
+    const f = { category: filter.label != null ? "all" : filter.category || "all", label: filter.label ?? null, search };
     send({ t: "view", filter: f, sort, columns: viewColumns(), window: [first, count] });
   }
   function neededWindow() {
@@ -465,6 +467,7 @@
     }
     if (m.cells) for (const id in m.cells) cells.set(id, m.cells[id]);
     if (m.counts) updateCounts(m.counts);
+    if (m.labels) updateLabels(m.labels, m.no_label);
     if (m.status) updateStatus(m.status);
     if (m.ids || m.cells) {
       // keep only the window's cells
@@ -508,7 +511,7 @@
       if (!empty) {
         const e = document.createElement("div");
         e.className = "empty";
-        e.textContent = search || filter.label || filter.category !== "all" ? "No torrents match." : "No torrents. Add one with the toolbar.";
+        e.textContent = search || filter.label != null || filter.category !== "all" ? "No torrents match." : "No torrents. Add one with the toolbar.";
         body.appendChild(e);
       }
     } else if (empty) empty.remove();
@@ -1091,29 +1094,52 @@
     g.className = "group";
     g.textContent = "Labels";
     tree.appendChild(g);
-    if (labels.length === 0) {
-      const e = document.createElement("div");
-      e.className = "empty";
-      e.textContent = "No labels";
-      tree.appendChild(e);
-    }
-    for (const l of labels) {
+    // "No Label" first, as in the 2.2.1 tree; the counts come with the ticks
+    for (const l of ["", ...labels]) {
       const it = document.createElement("div");
       it.className = "item";
       it.dataset.label = l;
       const t = document.createElement("span");
       t.className = "t";
-      t.textContent = l;
-      t.title = l;
-      it.appendChild(t);
+      t.textContent = l || "No Label";
+      t.title = t.textContent;
+      const n = document.createElement("span");
+      n.className = "n";
+      n.textContent = labelCounts.has(l) ? String(labelCounts.get(l)) : "";
+      it.append(t, n);
       tree.appendChild(it);
     }
     markTree();
   }
   function markTree() {
     for (const it of $("tree").querySelectorAll(".item")) {
-      const on = filter.label ? it.dataset.label === filter.label : it.dataset.cat === filter.category;
+      const on = filter.label != null ? it.dataset.label === filter.label : it.dataset.cat === filter.category;
       it.classList.toggle("on", on);
+    }
+  }
+  /// The tick's Labels branch: the names when they changed (another client or the qBittorrent
+  /// shim may add or remove one), then every count.
+  function updateLabels(list, noLabel) {
+    labelCounts = new Map([["", noLabel], ...list]);
+    const names = list.map((x) => x[0]);
+    if (names.length !== labels.length || names.some((l, i) => l !== labels[i])) {
+      labels = names;
+      renderTree();
+      if (filter.label && !labels.includes(filter.label)) {
+        // the selected label went away: show everything
+        filter = { category: "all", label: null };
+        store.set("pa.filter", filter);
+        markTree();
+        body.scrollTop = 0;
+        sentWindow = null;
+        sendView();
+      }
+      return;
+    }
+    for (const it of $("tree").querySelectorAll(".item[data-label]")) {
+      const n = labelCounts.get(it.dataset.label);
+      const text = n === undefined ? "" : String(n);
+      if (it.lastChild.textContent !== text) it.lastChild.textContent = text;
     }
   }
   function updateCounts(counts) {
@@ -1127,7 +1153,10 @@
   $("tree").addEventListener("click", (ev) => {
     const it = ev.target.closest(".item");
     if (!it) return;
-    filter = it.dataset.label ? { category: "all", label: it.dataset.label } : { category: it.dataset.cat, label: null };
+    filter =
+      it.dataset.label !== undefined
+        ? { category: "all", label: it.dataset.label }
+        : { category: it.dataset.cat, label: null };
     store.set("pa.filter", filter);
     markTree();
     setDrawer(false);
@@ -1170,7 +1199,7 @@
   // ---- commands -------------------------------------------------------------------------
   /// The view's filter as the server sees it (the `view` subscription's).
   function viewFilter() {
-    return { category: filter.label ? "all" : filter.category || "all", label: filter.label || null, search };
+    return { category: filter.label != null ? "all" : filter.category || "all", label: filter.label ?? null, search };
   }
   /// The selection for a command body: with Ctrl+A, "all" with the view's filter, so the
   /// server acts on every matching torrent, not just the loaded window; else the ids.

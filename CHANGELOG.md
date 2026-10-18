@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_102227_1792311747: merge of Web UI slice 6, verified on Windows and both VMs
+
+Branch `claude/cranky-antonelli-522710` merged into main; the only conflict was both sides adding a CHANGELOG entry at the top (both kept, the slice 6 entry first).
+
+### Verified
+- On main after the merge, Windows: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace --no-fail-fast`: 775 passed, 0 failed, 3 ignored.
+- `cargo test --workspace --no-fail-fast` on the VMs (the tree shipped with `git archive | ssh ... tar -x`): Ubuntu 26.04.1, 755 passed, 0 failed; FreeBSD 15.1, 755 passed, 0 failed. This is the first VM run of slices 5 and 6 (the commands, the Add dialog, Preferences).
+- By hand in the Chromium pane on the branch's release build with a scratch state directory: Ctrl+P opened Preferences with the 2.2.1 page tree, Bandwidth took a 50 kB/s download limit on Apply with the dialog staying open and the status bar showing `[50.0 kB/s]`, the state file then held `lt.download_rate_limit = 51200` and no plain password, the Advanced filter narrowed the table to the `dht` rows, Escape cancelled (a first Escape inside the filter box only clears it, the browser's search-field behaviour).
+
 ## 2026-10-18_101527_1792311327: Web UI slice 6: Preferences generated from `frontend::options`
 
 ### Added

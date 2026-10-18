@@ -2,6 +2,11 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_090418_1792307058: Web UI slices 1 to 4 verified on the Ubuntu and FreeBSD VMs
+
+### Verified
+- `cargo test --workspace --no-fail-fast` on main at f54ca78 (the tree shipped with `git archive | ssh ... tar -x`): Ubuntu 26.04.1, 741 passed, 0 failed across 19 suites; FreeBSD 15.1, 741 passed, 0 failed across 19 suites. This covers the WebSocket, the native protocol, the page's static-file test and the detail tabs, and the engine's `Alert::PieceInfo::downloading`.
+
 ## 2026-10-17_224511_1792269911: merge of Web UI slice 4
 
 Branch `claude/intelligent-blackwell-06ca46` merged into main without conflicts (its entry 2026-10-17_224011_1792269611 follows).

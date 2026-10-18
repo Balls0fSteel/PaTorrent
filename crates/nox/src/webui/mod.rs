@@ -17,6 +17,7 @@ mod fetch;
 pub mod http;
 pub mod json;
 pub mod native;
+pub(crate) mod prefs;
 mod server;
 pub mod torrent;
 pub mod ws;
@@ -30,9 +31,10 @@ use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use patorrent_core::{
-    Alert, AnnounceEntry, Bitfield, FileEntry, PeerInfo, SessionHandle, SessionStats, Settings, TorrentId,
-    TorrentStatus,
+    Alert, AnnounceEntry, Bitfield, FileEntry, MoveCompleted, PeerInfo, SessionHandle, SessionStats,
+    Settings, TorrentId, TorrentStatus,
 };
+use patorrent_frontend::options::GuiOptions;
 
 use auth::{BanList, PasswordHash};
 use json::Json;
@@ -69,6 +71,12 @@ pub struct Config {
     pub settings: Settings,
     pub pbkdf2_iterations: u32,
     pub limits: http::Limits,
+    /// `--move-on-complete`: the Directories page's "Move completed downloads to" starts on
+    /// with this folder (the stored preferences win over it).
+    pub move_completed_dir: Option<String>,
+    /// `--ip-filter`: the block list the daemon loaded at start, so the BitTorrent page shows
+    /// it and the Web UI does not load it a second time.
+    pub ip_filter: Option<PathBuf>,
 }
 
 impl Config {
@@ -82,6 +90,8 @@ impl Config {
             settings,
             pbkdf2_iterations: auth::DEFAULT_ITERATIONS,
             limits: http::Limits::default(),
+            move_completed_dir: None,
+            ip_filter: None,
         }
     }
 }
@@ -95,9 +105,13 @@ pub fn parse_addr(s: &str) -> Result<SocketAddr, String> {
     s.parse().map_err(|_| format!("--webui {s}: expected [ADDR:]PORT"))
 }
 
-/// Preferences that live in the Web UI rather than in the engine's [`Settings`].
-#[derive(Clone, Debug)]
+/// Preferences that live in the Web UI rather than in the engine's [`Settings`]: the frontend's
+/// options nox has an equivalent for (`frontend::options::GuiOptions` without the tray and
+/// balloon ones), the global limits and the Web UI's own settings. One source of truth for
+/// `/pa/prefs` and the shim's `app/preferences`.
+#[derive(Clone, Debug, PartialEq)]
 pub(crate) struct Prefs {
+    /// Where new downloads go (`GuiOptions::download_dir`).
     pub save_path: String,
     /// Bytes per second, 0 = unlimited: the normal and the alternative global limits.
     pub dl_limit: u32,
@@ -105,7 +119,27 @@ pub(crate) struct Prefs {
     pub alt_dl_limit: u32,
     pub alt_up_limit: u32,
     pub alt_enabled: bool,
+    /// Add torrents stopped (`GuiOptions::add_stopped`).
     pub start_paused: bool,
+    /// Move finished downloads to `completed_dir` (Directories page).
+    pub move_completed: bool,
+    pub completed_dir: String,
+    pub move_only_default: bool,
+    /// The page asks before removing torrents.
+    pub confirm_delete: bool,
+    /// The page shows the Add New Torrent dialog for `.torrent` files (`GET /pa/add`'s
+    /// `show_dialog`).
+    pub show_add_dialog: bool,
+    /// A new listen port at every start.
+    pub random_port: bool,
+    /// Per-torrent defaults: peer exchange, connected peers and upload slots per new torrent
+    /// (0 = no limit).
+    pub pex: bool,
+    pub max_peers_per_torrent: u32,
+    pub upload_slots_per_torrent: u32,
+    /// The IP filter: on, and the block list (empty = `ipfilter.dat` in the state directory).
+    pub ip_filter: bool,
+    pub ip_filter_path: String,
     pub bypass_local_auth: bool,
     pub csrf_protection: bool,
     pub host_header_validation: bool,
@@ -115,6 +149,81 @@ pub(crate) struct Prefs {
     pub max_auth_fail_count: u32,
     pub ban_duration: u64,
     pub session_timeout: u64,
+}
+
+impl Prefs {
+    /// The defaults for a daemon saving to `save_path` with `settings`' limits.
+    pub fn defaults(save_path: &str, settings: &Settings) -> Prefs {
+        let gui = GuiOptions::load(&patorrent_frontend::prefs::Prefs::default(), save_path);
+        let mut p = Prefs {
+            save_path: save_path.to_owned(),
+            dl_limit: settings.download_rate_limit,
+            up_limit: settings.upload_rate_limit,
+            alt_dl_limit: 10 * 1024,
+            alt_up_limit: 10 * 1024,
+            alt_enabled: false,
+            start_paused: false,
+            move_completed: false,
+            completed_dir: String::new(),
+            move_only_default: true,
+            confirm_delete: true,
+            show_add_dialog: true,
+            random_port: false,
+            pex: true,
+            max_peers_per_torrent: 0,
+            upload_slots_per_torrent: 0,
+            ip_filter: false,
+            ip_filter_path: String::new(),
+            bypass_local_auth: false,
+            csrf_protection: true,
+            host_header_validation: true,
+            domain_list: String::new(),
+            max_auth_fail_count: 5,
+            ban_duration: 3600,
+            session_timeout: 3600,
+        };
+        p.set_gui(&gui);
+        p
+    }
+
+    /// The frontend's view of these preferences (the tray and balloon options at their
+    /// defaults), for `GuiOptions`' helpers and its preferences keys.
+    pub fn gui(&self) -> GuiOptions {
+        GuiOptions {
+            download_dir: self.save_path.clone(),
+            move_completed: self.move_completed,
+            completed_dir: self.completed_dir.clone(),
+            move_only_default: self.move_only_default,
+            confirm_delete: self.confirm_delete,
+            close_to_tray: true,
+            minimize_to_tray: false,
+            balloons: true,
+            add_stopped: self.start_paused,
+            show_add_dialog: self.show_add_dialog,
+            random_port: self.random_port,
+            pex: self.pex,
+            max_peers_per_torrent: self.max_peers_per_torrent,
+            upload_slots_per_torrent: self.upload_slots_per_torrent,
+            ip_filter: self.ip_filter,
+            ip_filter_path: self.ip_filter_path.clone(),
+        }
+    }
+
+    pub fn set_gui(&mut self, g: &GuiOptions) {
+        self.save_path = g.download_dir.clone();
+        self.move_completed = g.move_completed;
+        self.completed_dir = g.completed_dir.clone();
+        self.move_only_default = g.move_only_default;
+        self.confirm_delete = g.confirm_delete;
+        self.start_paused = g.add_stopped;
+        self.show_add_dialog = g.show_add_dialog;
+        self.random_port = g.random_port;
+        self.pex = g.pex;
+        self.max_peers_per_torrent = g.max_peers_per_torrent;
+        self.upload_slots_per_torrent = g.upload_slots_per_torrent;
+        self.ip_filter = g.ip_filter;
+        self.ip_filter_path = g.ip_filter_path.clone();
+    }
 }
 
 /// One logged-in client.
@@ -197,8 +306,18 @@ pub(crate) struct State {
     /// Torrent hash -> category.
     pub torrent_categories: HashMap<String, String>,
     pub meta: HashMap<String, Meta>,
-    /// Preferences set through `setPreferences`, re-applied on the next start.
-    pub stored_prefs: Json,
+    /// The stored preferences, as the frontend's preferences keys (what the Win32 client keeps
+    /// in `patorrent.ini`): the engine settings that differ from the defaults as `lt.<name>`,
+    /// the `GuiOptions` keys, the Web UI's own as `webui.<name>`, and the Add dialog's
+    /// recent folders (`add.recent_dirs`). Saved as the `options` object of the state file and
+    /// re-applied on the next start.
+    pub options: patorrent_frontend::prefs::Prefs,
+    /// The download folder the daemon was started with: the Directories page's default.
+    pub default_save_path: String,
+    /// The address the server is bound to (the Web UI page shows it).
+    pub listen_addr: SocketAddr,
+    /// Bumped when the folder options change, so the owner's `MoveCompleted` follows.
+    pub gui_version: u64,
     replies: HashMap<(TorrentId, ReplyKind), (u64, Reply)>,
     serial: u64,
     pub sessions: HashMap<String, ClientSession>,
@@ -220,8 +339,6 @@ pub(crate) struct State {
     /// Torrents (by hash) added with "Add to top of queue", moved there when the engine
     /// reports them added.
     pub pending_top: commands::PendingTop,
-    /// The Add dialog's remembered save folders (`frontend::add::recent_dirs`).
-    pub add_prefs: patorrent_frontend::prefs::Prefs,
 }
 
 pub(crate) struct Shared {
@@ -231,6 +348,9 @@ pub(crate) struct Shared {
     pub limits: http::Limits,
     pub iterations: u32,
     pub state_file: Option<PathBuf>,
+    /// Where `ipfilter.dat` is looked for when the IP filter has no path: the state directory,
+    /// else the working directory.
+    pub settings_dir: PathBuf,
 }
 
 pub fn unix_now() -> i64 {
@@ -279,16 +399,17 @@ impl Shared {
         let mut paused: Vec<&String> = st.user_paused.iter().collect();
         paused.sort();
         let paused: Vec<Json> = paused.into_iter().map(|h| Json::Str(h.clone())).collect();
-        let recent: Vec<Json> =
-            patorrent_frontend::add::recent_dirs(&st.add_prefs).into_iter().map(Json::Str).collect();
+        let mut options = Json::obj();
+        for (k, v) in st.options.entries() {
+            options.set(k, v);
+        }
         let doc = Json::obj()
             .with("username", st.username.as_str())
             .with("password", st.password.to_string())
-            .with("preferences", st.stored_prefs.clone())
+            .with("options", options)
             .with("categories", cats)
             .with("torrent_categories", tc)
-            .with("paused", Json::Arr(paused))
-            .with("recent_dirs", Json::Arr(recent));
+            .with("paused", Json::Arr(paused));
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -362,36 +483,33 @@ impl WebUi {
             Some(Json::Arr(v)) => v.iter().filter_map(Json::as_str).map(str::to_owned).collect(),
             _ => HashSet::new(),
         };
-        let mut add_prefs = patorrent_frontend::prefs::Prefs::default();
+        // the stored preferences (the frontend's keys), and the older `recent_dirs` list
+        let mut options = patorrent_frontend::prefs::Prefs::default();
+        for (k, v) in stored.get("options").map(Json::entries).unwrap_or_default() {
+            if let Some(v) = v.as_str() {
+                options.set(k, v);
+            }
+        }
         if let Some(Json::Arr(v)) = stored.get("recent_dirs") {
             // most recent first in the file; remember_dir puts each first, so go backwards
             for d in v.iter().rev().filter_map(Json::as_str) {
-                patorrent_frontend::add::remember_dir(&mut add_prefs, d);
+                patorrent_frontend::add::remember_dir(&mut options, d);
             }
         }
         let settings = config.settings.clone();
-        let prefs = Prefs {
-            save_path: config.save_path.clone(),
-            dl_limit: settings.download_rate_limit,
-            up_limit: settings.upload_rate_limit,
-            alt_dl_limit: 10 * 1024,
-            alt_up_limit: 10 * 1024,
-            alt_enabled: false,
-            start_paused: false,
-            bypass_local_auth: false,
-            csrf_protection: true,
-            host_header_validation: true,
-            domain_list: String::new(),
-            max_auth_fail_count: 5,
-            ban_duration: 3600,
-            session_timeout: 3600,
-        };
+        let mut prefs = Prefs::defaults(&config.save_path, &settings);
+        if let Some(d) = &config.move_completed_dir {
+            prefs.move_completed = true;
+            prefs.completed_dir = d.clone();
+            prefs.move_only_default = false;
+        }
+        if let Some(p) = &config.ip_filter {
+            prefs.ip_filter = true;
+            prefs.ip_filter_path = p.to_string_lossy().into_owned();
+        }
         let listener = std::net::TcpListener::bind(config.addr)?;
         let addr = listener.local_addr()?;
-        let stored_prefs = match stored.get("preferences") {
-            Some(p @ Json::Obj(_)) => p.clone(),
-            _ => Json::obj(),
-        };
+        let settings_dir = config.state_dir.clone().unwrap_or_else(|| PathBuf::from("."));
         let shared = Arc::new(Shared {
             handle,
             state: Mutex::new(State {
@@ -407,7 +525,10 @@ impl WebUi {
                 categories_version: 1,
                 torrent_categories,
                 meta: HashMap::new(),
-                stored_prefs: Json::obj(),
+                options,
+                default_save_path: config.save_path.clone(),
+                listen_addr: addr,
+                gui_version: 1,
                 replies: HashMap::new(),
                 serial: 0,
                 sessions: HashMap::new(),
@@ -420,17 +541,20 @@ impl WebUi {
                 speed: HashMap::new(),
                 user_paused,
                 pending_top: HashSet::new(),
-                add_prefs,
             }),
             replied: Condvar::new(),
             limits: config.limits,
             iterations: config.pbkdf2_iterations,
             state_file,
+            settings_dir,
         });
         {
             let mut st = shared.lock();
-            if !stored_prefs.entries().is_empty() {
-                api::apply_preferences(&shared, &mut st, &stored_prefs);
+            // what the Web UI's preferences changed before this start, re-applied; the
+            // `preferences` object of state files written before slice 6 holds the shim's keys
+            prefs::restore(&shared, &mut st, config.ip_filter.as_deref());
+            if let Some(legacy @ Json::Obj(_)) = stored.get("preferences") {
+                api::apply_preferences(&shared, &mut st, legacy);
             }
             // keeps the stored file current (a new password hash, a first start)
             shared.save(&st);
@@ -452,6 +576,19 @@ impl WebUi {
     /// True once a client called `app/shutdown`.
     pub fn shutdown_requested(&self) -> bool {
         self.shared.lock().shutdown
+    }
+
+    /// Points the owner's "Move completed downloads" helper at the Directories preferences
+    /// when they changed since the last call (`seen` is the caller's copy of the version).
+    /// Returns whether it changed anything.
+    pub fn sync_move_completed(&self, seen: &mut u64, current: &mut Option<MoveCompleted>) -> bool {
+        let st = self.shared.lock();
+        if st.gui_version == *seen {
+            return false;
+        }
+        *seen = st.gui_version;
+        st.prefs.gui().update_move_completed(current);
+        true
     }
 
     /// Feeds a batch of alerts popped from the session.
@@ -690,29 +827,17 @@ impl State {
             next_version: 1,
             stats: SessionStats::default(),
             settings: Settings::default(),
-            prefs: Prefs {
-                save_path: String::new(),
-                dl_limit: 0,
-                up_limit: 0,
-                alt_dl_limit: 0,
-                alt_up_limit: 0,
-                alt_enabled: false,
-                start_paused: false,
-                bypass_local_auth: false,
-                csrf_protection: true,
-                host_header_validation: true,
-                domain_list: String::new(),
-                max_auth_fail_count: 5,
-                ban_duration: 3600,
-                session_timeout: 3600,
-            },
+            prefs: Prefs { alt_dl_limit: 0, alt_up_limit: 0, ..Prefs::defaults("", &Settings::default()) },
             username: "admin".into(),
             password: PasswordHash::new("x", 1),
             categories: BTreeMap::new(),
             categories_version: 1,
             torrent_categories: HashMap::new(),
             meta: HashMap::new(),
-            stored_prefs: Json::obj(),
+            options: patorrent_frontend::prefs::Prefs::default(),
+            default_save_path: String::new(),
+            listen_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
+            gui_version: 1,
             replies: HashMap::new(),
             serial: 0,
             sessions: HashMap::new(),
@@ -725,7 +850,6 @@ impl State {
             speed: HashMap::new(),
             user_paused: HashSet::new(),
             pending_top: HashSet::new(),
-            add_prefs: patorrent_frontend::prefs::Prefs::default(),
         }
     }
 }

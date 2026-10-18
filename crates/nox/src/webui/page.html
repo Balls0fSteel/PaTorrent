@@ -29,7 +29,7 @@
     <button type="button" id="tb-up" data-cmd="queue_up" title="Move Up Queue">Up</button>
     <button type="button" id="tb-down" data-cmd="queue_down" title="Move Down Queue">Down</button>
     <span class="sep"></span>
-    <button type="button" id="tb-prefs" title="Preferences" disabled>Preferences</button>
+    <button type="button" id="tb-prefs" title="Preferences (Ctrl+P)">Preferences</button>
     <span class="grow"></span>
     <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search torrents">
     <button type="button" id="logout" title="Log out">Log out</button>
@@ -112,6 +112,21 @@
     <div class="add-ok">
       <button type="submit" id="add-ok">OK</button>
       <button type="button" id="add-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
+<dialog id="prefs" aria-labelledby="prefs-title">
+  <form id="prefs-form">
+    <h2 id="prefs-title">Preferences</h2>
+    <div class="prefs-cols">
+      <nav id="prefs-tree" role="tree" aria-label="Preference pages"></nav>
+      <div id="prefs-page"></div>
+    </div>
+    <div class="prefs-btns">
+      <span id="prefs-msg" role="status"></span>
+      <button type="submit" id="prefs-ok">OK</button>
+      <button type="button" id="prefs-cancel">Cancel</button>
+      <button type="button" id="prefs-apply">Apply</button>
     </div>
   </form>
 </dialog>

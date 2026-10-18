@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_094628_1792309588: merge of Web UI slice 5
+
+Branch `claude/festive-thompson-12b587` merged into main; the only conflict was both sides adding a CHANGELOG entry at the top (both kept, the slice 5 entry first).
+
+### Verified
+- On main after the merge: `cargo fmt --all --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace --no-fail-fast` on Windows: 769 passed, 0 failed, 3 ignored.
+- By hand in the Chromium pane on the branch's release build against the real engine: a `.torrent` dropped on the page opened the Add New Torrent dialog with its file tree; a folder unchecked (the size showing "4.30 MB of 6.39 MB selected"), High Priority from the file context menu, a label typed, OK; the torrent appeared with that size and label, the Files tab showing Don't Download / High / Normal; Pause, Stop and Start from the toolbar showed Paused, Stopped and Downloading; Low Priority from the Files tab's menu.
+- Not run on the Ubuntu and FreeBSD VMs (nox only; the next VM run covers it).
+
 ## 2026-10-18_093747_1792309067: Web UI slice 5: the native commands and the Add dialog
 
 ### Added

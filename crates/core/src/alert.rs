@@ -175,6 +175,14 @@ pub enum Alert {
         complete: u32,
         incomplete: u32,
     },
+    /// A scrape failed (libtorrent `scrape_failed_alert`). Unlike an announce failure it does
+    /// not count against the tracker: its status, failure count and next announce stay as they
+    /// were.
+    ScrapeFailed {
+        id: TorrentId,
+        url: String,
+        message: String,
+    },
 
     // Network
     ListenSucceeded {
@@ -317,6 +325,7 @@ impl Alert {
             | FileRenamed { .. }
             | FileRenameFailed { .. }
             | ScrapeReply { .. }
+            | ScrapeFailed { .. }
             | ListenSucceeded { .. }
             | ListenFailed { .. }
             | SessionStats(_)
@@ -384,6 +393,7 @@ impl Alert {
             | TrackerWarning { id, .. }
             | TrackerError { id, .. }
             | ScrapeReply { id, .. }
+            | ScrapeFailed { id, .. }
             | PeerInfo { id, .. }
             | FileList { id, .. }
             | FileProgress { id, .. }
@@ -433,6 +443,7 @@ impl Alert {
             ScrapeReply { url, complete, incomplete, .. } => {
                 write!(s, "{url}: scrape: {complete} seeds, {incomplete} peers")
             }
+            ScrapeFailed { url, message, .. } => write!(s, "{url}: scrape failed: {message}"),
             ListenSucceeded { address, protocol } => write!(s, "listening on {address} ({protocol:?})"),
             ListenFailed { address, protocol, error } => {
                 write!(s, "failed to listen on {address} ({protocol:?}): {error}")

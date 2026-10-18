@@ -778,6 +778,7 @@ mod session_tests {
     use crate::params::{AddTorrentParams, TorrentFlags, TorrentSource};
     use crate::session::{Session, SessionHandle, SessionParams};
     use crate::settings::Settings;
+    use crate::status::TrackerStatus;
 
     fn start(listen: &str) -> Session {
         let settings = Settings {
@@ -1023,6 +1024,10 @@ mod session_tests {
         let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(torrent(&url)), dir.to_string_lossy());
         p.flags = TorrentFlags::empty();
         h.add_torrent(p);
+        let id = wait(&h, 15, "the torrent", |a| match a {
+            Alert::TorrentAdded { id, .. } => Some(*id),
+            _ => None,
+        });
         let ip = wait(&h, 15, "external IP", |a| match a {
             Alert::ExternalIp { ip } => Some(*ip),
             _ => None,
@@ -1032,7 +1037,10 @@ mod session_tests {
         assert_eq!(announces.load(Ordering::SeqCst), 1);
 
         // the address changes (a new DHCP lease): the old votes are forgotten and the torrent
-        // announces again at once (its interval is 30 minutes)
+        // announces again at the next tick (its interval is 30 minutes). The reply above also
+        // started a scrape, which this tracker answers with an announce body: that scrape fails
+        // at about the same time as this change, and a failed scrape must leave the tracker's
+        // schedule alone, or the announce would wait out a retry backoff instead.
         h.set_fake_network(Some(net("198.51.100.8")));
         wait(&h, 5, "votes reset", log_containing("forgetting the IPv4 external address votes"));
         rx.recv_timeout(Duration::from_secs(10)).expect("a second announce after the change");
@@ -1042,6 +1050,20 @@ mod session_tests {
             _ => None,
         });
         assert_eq!(ip, IpAddr::from([203, 0, 113, 7]));
+        // the failed scrape was reported, and the tracker is still working with no failures
+        let m = wait(&h, 10, "the scrape failure", |a| match a {
+            Alert::ScrapeFailed { message, .. } => Some(message.clone()),
+            _ => None,
+        });
+        assert_eq!(m, "invalid scrape response");
+        h.torrent(id).post_trackers();
+        let trackers = wait(&h, 5, "the tracker list", |a| match a {
+            Alert::TrackerList { trackers, .. } => Some(trackers.clone()),
+            _ => None,
+        });
+        assert_eq!(trackers.len(), 1);
+        assert_eq!(trackers[0].fails, 0, "{trackers:?}");
+        assert_eq!(trackers[0].status, TrackerStatus::Working, "{trackers:?}");
 
         // a change that keeps the internet-facing address (a second, local-only interface)
         // neither resets nor announces

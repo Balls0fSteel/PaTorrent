@@ -368,6 +368,20 @@ fn s(v: Option<&Json>) -> &str {
     v.and_then(Json::as_str).unwrap_or("")
 }
 
+/// A text frame's payload as JSON.
+fn parse_text(payload: Vec<u8>) -> Json {
+    let text = String::from_utf8(payload).unwrap();
+    json::parse(&text).unwrap_or_else(|e| panic!("{e}: {text}"))
+}
+
+/// Whether a text frame's payload is a `tick` message.
+fn is_tick(payload: &[u8]) -> bool {
+    std::str::from_utf8(payload)
+        .ok()
+        .and_then(|t| json::parse(t).ok())
+        .is_some_and(|m| s(m.get("t")) == "tick")
+}
+
 #[test]
 fn login_logout_and_versions() {
     let t = Harness::start("login");
@@ -1047,14 +1061,38 @@ impl Ws {
         }
     }
 
-    /// The next text frame as JSON (pings are answered on the way).
-    fn recv_json(&mut self) -> Json {
+    /// The next server frame that is not a `tick`. Once a view is subscribed the status ticks
+    /// come on their own schedule, so a reply a test waits for may have one in front of it.
+    fn recv_frame_skipping_ticks(&mut self) -> Option<(u8, Vec<u8>)> {
+        loop {
+            let f = self.recv_frame();
+            if let Some((1, payload)) = &f {
+                if is_tick(payload) {
+                    continue;
+                }
+            }
+            return f;
+        }
+    }
+
+    /// The next text frame as JSON (pings are answered on the way), ticks included.
+    fn recv_message(&mut self) -> Json {
         loop {
             match self.recv_frame() {
-                Some((1, payload)) => {
-                    let text = String::from_utf8(payload).unwrap();
-                    return json::parse(&text).unwrap_or_else(|e| panic!("{e}: {text}"));
-                }
+                Some((1, payload)) => return parse_text(payload),
+                Some((9, payload)) => self.send_frame(true, 10, &payload, true),
+                Some((op, payload)) => panic!("unexpected frame {op}: {payload:?}"),
+                None => panic!("closed while waiting for a message"),
+            }
+        }
+    }
+
+    /// The next text frame as JSON that is not a `tick` (pings are answered on the way): the
+    /// reply to what was just sent.
+    fn recv_json(&mut self) -> Json {
+        loop {
+            match self.recv_frame_skipping_ticks() {
+                Some((1, payload)) => return parse_text(payload),
                 Some((9, payload)) => self.send_frame(true, 10, &payload, true),
                 Some((op, payload)) => panic!("unexpected frame {op}: {payload:?}"),
                 None => panic!("closed while waiting for a message"),
@@ -1082,7 +1120,7 @@ impl Ws {
     fn tick_until(&mut self, what: &str, mut f: impl FnMut(&Json) -> bool) -> Json {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
-            let m = self.recv_json();
+            let m = self.recv_message();
             if m.get("t").and_then(Json::as_str) == Some("tick") && f(&m) {
                 return m;
             }
@@ -1122,7 +1160,7 @@ fn cells_until(
                 return c.clone();
             }
         }
-        let m = ws.recv_json();
+        let m = ws.recv_message();
         assert!(s(m.get("t")) != "error", "{}", m.to_json());
         if let Some(cells) = m.get("cells") {
             for (h, cell) in cells.entries() {
@@ -1183,7 +1221,7 @@ fn websocket_handshake_and_frames() {
 
     // ping answered with pong, payload echoed
     ws.send_frame(true, 9, b"are you there", true);
-    assert_eq!(ws.recv_frame(), Some((10, b"are you there".to_vec())));
+    assert_eq!(ws.recv_frame_skipping_ticks(), Some((10, b"are you there".to_vec())));
 
     // a 16-bit length frame
     let long = format!(r#"{{"t":"view","filter":{{"search":"{}"}},"columns":["name"]}}"#, "x".repeat(300));
@@ -1590,7 +1628,7 @@ impl Ws {
         let mut n = 0;
         let mut ticks = 0;
         while ticks < quiet {
-            let m = self.recv_json();
+            let m = self.recv_message();
             n += 1;
             if s(m.get("t")) == "tick" {
                 ticks += 1;

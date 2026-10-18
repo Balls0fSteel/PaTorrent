@@ -2593,6 +2593,11 @@ impl Engine {
                         incomplete: s.incomplete,
                     });
                 }
+                // libtorrent `tracker_request_error`: a failed scrape is only reported; a
+                // failed announce puts the tracker into its retry backoff
+                TrackerOutcome::Failed(message) if matches!(job.kind, JobKind::Scrape(_)) => {
+                    self.alert(Alert::ScrapeFailed { id, url, message });
+                }
                 TrackerOutcome::Failed(message) => {
                     tr.failed(message.clone(), now);
                     let times_in_row = tr.fails;

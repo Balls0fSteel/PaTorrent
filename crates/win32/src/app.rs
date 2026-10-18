@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
 use patorrent_core::metainfo::TorrentInfo;
+use patorrent_core::util::time::{local_utc_offset, unix_now};
 use patorrent_core::{
     AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
     SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
@@ -24,6 +25,7 @@ use patorrent_frontend::detail::PRIORITIES;
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
+use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::status::Category;
 use patorrent_frontend::{actions, add, create, fmt, settings};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -206,6 +208,9 @@ struct App {
     queue_top: HashSet<String>,
     /// Preferences > Directories "Move completed downloads to", fed every alert.
     move_completed: Option<MoveCompleted>,
+    /// Preferences > Scheduler, and the mode it has put into effect.
+    schedule: Schedule,
+    scheduler: Scheduler,
 }
 
 thread_local! {
@@ -513,6 +518,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
 
         let save_path = prefs.get("dir.download").map(str::to_owned).unwrap_or_else(downloads_folder);
         let move_completed = GuiOptions::load(&prefs, &save_path).move_completed();
+        let schedule = Schedule::load(&prefs);
         let mut list = TorrentList::new();
         list.set_sort(prefs.sort());
         let page =
@@ -572,6 +578,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             pending_args: Vec::new(),
             queue_top: HashSet::new(),
             move_completed,
+            schedule,
+            scheduler: Scheduler::new(),
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -1191,8 +1199,53 @@ fn on_timer() {
     with_app(|a| {
         a.handle.post_torrent_updates();
         a.handle.post_session_stats();
+        run_scheduler(a, None);
     });
     request_detail();
+}
+
+/// Puts the scheduler's mode for this hour into effect. `applied`: the options just applied
+/// (their settings go to the engine through the scheduler, even if the mode stays).
+fn run_scheduler(a: &mut App, applied: Option<&Options>) {
+    let now = unix_now();
+    let offset = local_utc_offset(now);
+    if applied.is_none() && a.schedule.mode_at(now, offset) == a.scheduler.mode() {
+        return;
+    }
+    let loaded;
+    let o = match applied {
+        Some(o) => o,
+        None => {
+            loaded = Options::load(&a.prefs, &a.save_path);
+            &loaded
+        }
+    };
+    let old = a.scheduler.mode();
+    let Some(c) = a.scheduler.update(&a.schedule, &o.settings, now, offset, applied.is_some()) else {
+        return;
+    };
+    if let Some(s) = c.settings {
+        a.handle.apply_settings(s);
+    }
+    match c.pause_session {
+        Some(true) => a.handle.pause(),
+        Some(false) => a.handle.resume(),
+        None => {}
+    }
+    if let Some(on) = c.upload_mode {
+        for id in a.list.ids() {
+            let t = a.handle.torrent(id);
+            if on {
+                t.set_flags(TorrentFlags::UPLOAD_MODE);
+            } else {
+                t.unset_flags(TorrentFlags::UPLOAD_MODE);
+            }
+        }
+    }
+    if c.mode != old {
+        a.detail.push_log(format!("{} Scheduler: {}", now_hms(), c.mode.label()));
+        a.status_texts.clear();
+    }
 }
 
 unsafe fn on_alerts(hwnd: HWND) {
@@ -1218,6 +1271,12 @@ unsafe fn on_alerts(hwnd: HWND) {
                 Alert::StateUpdate(v) => {
                     for st in &v {
                         if a.known.insert(st.id) {
+                            // restored or added during Seeding only hours
+                            if a.scheduler.mode() == Mode::SeedOnly
+                                && !st.flags.contains(TorrentFlags::UPLOAD_MODE)
+                            {
+                                a.handle.torrent(st.id).set_flags(TorrentFlags::UPLOAD_MODE);
+                            }
                             // First sight: restore what only the frontend knows.
                             let key = st.info_hashes.key_hex();
                             if let Some(l) = a.prefs.get(&format!("torrent.{key}.label")) {
@@ -1367,8 +1426,12 @@ unsafe fn update_status_bar() {
     let Some((status, hwnd, parts, tip, changed)) = with_app(|a| {
         let s = &a.stats;
         let net = if s.has_incoming_connections { "Network OK" } else { "No incoming connections" };
+        let net = match a.scheduler.status_text() {
+            Some(sched) => format!("{net} | {sched}"),
+            None => net.to_owned(),
+        };
         let parts = [
-            net.to_owned(),
+            net,
             format!("DHT: {} nodes", s.dht_nodes),
             format!("D: {} T: {}", fmt::speed_always(s.download_rate), fmt::size(s.recv_payload_bytes)),
             format!("U: {} T: {}", fmt::speed_always(s.upload_rate), fmt::size(s.sent_payload_bytes)),
@@ -2213,6 +2276,7 @@ fn add_params(_hwnd: HWND, source: TorrentSource, name: Option<String>) {
         // Queued and auto-managed: µTorrent's Start (unless Preferences says otherwise).
         p.flags = TorrentFlags::DEFAULT;
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+        a.scheduler.apply_to_new(&mut p);
         a.handle.add_torrent(p);
     });
 }
@@ -2259,6 +2323,7 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
         let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
         p.flags = TorrentFlags::DEFAULT;
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+        a.scheduler.apply_to_new(&mut p);
         choice.apply_to(&ti, &mut p);
         a.handle.add_torrent(p);
     });
@@ -2295,7 +2360,8 @@ fn apply_options(a: &mut App, o: &Options) {
         a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
     }
     a.save_path = o.gui.download_dir.clone();
-    a.handle.apply_settings(o.settings.clone());
+    a.schedule = o.gui.schedule.clone();
+    run_scheduler(a, Some(o));
     o.gui.update_move_completed(&mut a.move_completed);
     if o.gui.pex != old.gui.pex {
         for id in a.list.ids() {

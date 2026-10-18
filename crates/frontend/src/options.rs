@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 use patorrent_core::{AddTorrentParams, MoveCompleted, Settings, TorrentFlags};
 
 use crate::prefs::Prefs;
+use crate::scheduler::Schedule;
 use crate::settings;
 
 /// The frontend's options (preferences file keys in brackets).
@@ -47,6 +48,8 @@ pub struct GuiOptions {
     /// The block list; empty = `ipfilter.dat` in the settings folder, like µTorrent
     /// (`ipfilter.path`).
     pub ip_filter_path: String,
+    /// Preferences > Scheduler (`sched.*`).
+    pub schedule: Schedule,
 }
 
 impl GuiOptions {
@@ -73,6 +76,7 @@ impl GuiOptions {
             upload_slots_per_torrent: u32_of("bt.upload_slots"),
             ip_filter: prefs.get_bool("ipfilter.enable", false),
             ip_filter_path: prefs.get("ipfilter.path").unwrap_or_default().to_owned(),
+            schedule: Schedule::load(prefs),
         }
     }
 
@@ -101,6 +105,7 @@ impl GuiOptions {
         } else {
             prefs.set("ipfilter.path", self.ip_filter_path.trim());
         }
+        self.schedule.store(prefs);
     }
 
     /// The block list to load: the configured path, or `ipfilter.dat` in `settings_dir`.
@@ -216,6 +221,7 @@ mod tests {
             upload_slots_per_torrent: 4,
             ip_filter: true,
             ip_filter_path: r"E:\lists\level1.p2p".into(),
+            schedule: crate::scheduler::Schedule { enabled: true, limited_up_kib: 25, ..Default::default() },
         };
         changed.store(&mut prefs);
         let text = prefs.to_text();

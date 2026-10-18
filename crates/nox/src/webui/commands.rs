@@ -581,12 +581,14 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
         Source::Torrent(bytes, ti) => {
             let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), save_path.as_str());
             defaults.apply_to_new(&mut p);
+            st.scheduler.apply_to_new(&mut p);
             choice.apply_to(&ti, &mut p);
             (p, Some(meta_of(&ti)))
         }
         Source::Magnet(m) => {
             let mut p = AddTorrentParams::new(TorrentSource::Magnet(m), save_path.as_str());
             defaults.apply_to_new(&mut p);
+            st.scheduler.apply_to_new(&mut p);
             // no metadata yet: the choice's flags and name, and no renames
             choice.apply_to(&TorrentInfo::default(), &mut p);
             p.renamed_files.clear();

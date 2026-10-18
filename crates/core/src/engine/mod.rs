@@ -1894,6 +1894,16 @@ impl Engine {
         if old.contains(TorrentFlags::SUPER_SEEDING) && !new.contains(TorrentFlags::SUPER_SEEDING) {
             self.superseed_end(id);
         }
+        // libtorrent `torrent::set_upload_mode`: tell every peer we are (not) interested.
+        if old.contains(TorrentFlags::UPLOAD_MODE) != new.contains(TorrentFlags::UPLOAD_MODE)
+            && let Some(t) = self.torrent_ref(id)
+        {
+            for slot in t.peers.clone() {
+                if self.peers.get(slot).is_some_and(|p| p.state == PeerState::Active) {
+                    self.update_interest(slot);
+                }
+            }
+        }
         self.update_running(id);
     }
 

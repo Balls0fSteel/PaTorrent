@@ -270,7 +270,8 @@ In order; each is a CHANGELOG entry and lands green on the three CI platforms.
 7. **Phone layout** pass, then the long-poll fallback if a deployment needs it. The phone
    layout landed: CHANGELOG 2026-10-18_230237_1792357357.
 8. Later, with Phase 5: labels in the tree and the Label column (the tree's Labels branch with
-   "No Label" and live counts landed: CHANGELOG 2026-10-18_232431_1792358671), RSS, the scheduler, per-torrent
+   "No Label" and live counts landed: CHANGELOG 2026-10-18_232431_1792358671), RSS, the scheduler
+   (landed: the Preferences > Scheduler page with its 7 x 24 table, CHANGELOG 2026-10-18_235124_1792360284), per-torrent
    limits; and the GUIs' remote mode on its own binary stream.
 
 ## Open points

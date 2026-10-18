@@ -18,6 +18,7 @@ use super::peer::{PeerState, Request};
 use crate::alert::Alert;
 use crate::disk::BLOCK_SIZE;
 use crate::error::Error;
+use crate::params::TorrentFlags;
 use crate::proto::pe_handshake::PeHandshake;
 use crate::proto::peer_wire::{self, HandshakeError, Message, lt_donthave, msg};
 use crate::proto::ut_metadata;
@@ -570,7 +571,9 @@ impl Engine {
     pub(super) fn update_interest(&mut self, slot: usize) {
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
         let Some(t) = t else { return };
+        // Upload mode never downloads (libtorrent `peer_connection::update_interest`).
         let interested = match t.picker.as_ref() {
+            Some(_) if t.flags.contains(TorrentFlags::UPLOAD_MODE) => false,
             Some(pk) if !t.checking => p.got_bitfield && pk.is_interesting(&p.peer_has, p.peer_seed),
             _ => false,
         };
@@ -595,6 +598,7 @@ impl Engine {
             || p.peer_choking
             || !p.am_interested
             || t.checking
+            || t.flags.contains(TorrentFlags::UPLOAD_MODE)
             || p.closing.is_some()
         {
             return;

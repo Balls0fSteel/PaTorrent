@@ -12,6 +12,7 @@ use std::ptr::null;
 
 use patorrent_core::{EncPolicy, ProxyType};
 use patorrent_frontend::options::{self, Options};
+use patorrent_frontend::scheduler::{self, Mode};
 use patorrent_frontend::settings::{self, Entry, Kind, Value};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -35,6 +36,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
+use crate::sched_grid;
 use crate::util::{hiword, loword, send, wide, window_text};
 
 /// The tree, in µTorrent 2.2.1's order; Disk Cache sits under Advanced.
@@ -121,6 +123,12 @@ const ID_ACTIVE_DL: u16 = id(6, 2);
 const ID_ACTIVE_SEEDS: u16 = id(6, 3);
 const ID_SLOW: u16 = id(6, 4);
 // Advanced
+const ID_SCHED: u16 = id(7, 1);
+const ID_SCHED_GRID: u16 = id(7, 2);
+const ID_SCHED_UL: u16 = id(7, 3);
+const ID_SCHED_DL: u16 = id(7, 4);
+const ID_SCHED_DHT: u16 = id(7, 5);
+
 const ID_ADV_FILTER: u16 = id(9, 1);
 const ID_ADV_LIST: u16 = id(9, 2);
 const ID_ADV_VALUE: u16 = id(9, 3);
@@ -184,6 +192,26 @@ const KB: i64 = 1024;
 const MAX_KB: i64 = u32::MAX as i64 / KB;
 
 static FIELDS: &[Field] = &[
+    Field::Check { id: ID_SCHED, get: |o| o.gui.schedule.enabled, set: |o, v| o.gui.schedule.enabled = v },
+    Field::Num {
+        id: ID_SCHED_UL,
+        min: 0,
+        max: MAX_KB,
+        get: |o| Some(o.gui.schedule.limited_up_kib as i64),
+        set: |o, v| o.gui.schedule.limited_up_kib = v as u32,
+    },
+    Field::Num {
+        id: ID_SCHED_DL,
+        min: 0,
+        max: MAX_KB,
+        get: |o| Some(o.gui.schedule.limited_down_kib as i64),
+        set: |o, v| o.gui.schedule.limited_down_kib = v as u32,
+    },
+    Field::Check {
+        id: ID_SCHED_DHT,
+        get: |o| o.gui.schedule.disable_dht,
+        set: |o, v| o.gui.schedule.disable_dht = v,
+    },
     Field::Check {
         id: ID_CONFIRM_DELETE,
         get: |o| o.gui.confirm_delete,
@@ -488,6 +516,8 @@ impl Builder {
 }
 
 fn template() -> Vec<u16> {
+    // the Scheduler page names the grid's class
+    sched_grid::register();
     let mut b = Builder { t: Template::new(431, 271), page: 0, next_label: 50 };
     let tree_style = TAB
         | WS_BORDER
@@ -616,9 +646,13 @@ fn template() -> Vec<u16> {
     b.label([8, 115, 294, 9], "Seeding goals are not available yet.");
 
     b.page(7);
-    b.stub(BUTTON, CHECK, [0, 0, 200, 10], "Enable Scheduler");
-    b.group([0, 16, W, 32], "Scheduler Settings");
-    b.label([8, 30, 294, 9], "The weekly scheduler is not available yet.");
+    b.ctl(BUTTON, ID_SCHED, CHECK, [0, 0, 200, 10], "Enable Scheduler");
+    b.group([0, 14, W, 132], "Scheduler Table");
+    b.ctl(Class::Name(crate::sched_grid::CLASS), ID_SCHED_GRID, C, [6, 25, W - 12, 117], "");
+    b.group([0, 152, W, 64], "Scheduler Settings");
+    b.number(165, ID_SCHED_UL, NUMBER, "Limited upload rate (kB/s): [0: unlimited]");
+    b.number(181, ID_SCHED_DL, NUMBER, "Limited download rate (kB/s): [0: unlimited]");
+    b.ctl(BUTTON, ID_SCHED_DHT, CHECK, [8, 199, 290, 10], "Disable DHT when turning off");
 
     b.page(8);
     b.stub(BUTTON, CHECK, [0, 0, 200, 10], "Enable Web UI");
@@ -831,9 +865,30 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         st.shown.push((ID_PROXY_TYPE, kind.to_string()));
         set_check(dlg, ID_PROXY_AUTH, auth);
         st.shown.push((ID_PROXY_AUTH, auth.to_string()));
+        let table = st.opts.gui.schedule.table;
+        send(item(dlg, ID_SCHED_GRID), sched_grid::SET, 0, &table as *const _ as LPARAM);
+        st.shown.push((ID_SCHED_GRID, st.opts.gui.schedule.table_text()));
         update_ip_filter_status(dlg, st, None);
         update_move_controls(dlg);
+        update_sched_controls(dlg);
     }
+}
+
+/// The table and the Limited rates follow "Enable Scheduler", as in µTorrent.
+unsafe fn update_sched_controls(dlg: HWND) {
+    unsafe {
+        let on = checked(dlg, ID_SCHED) as i32;
+        for id in [ID_SCHED_GRID, ID_SCHED_UL, ID_SCHED_DL, ID_SCHED_DHT] {
+            EnableWindow(item(dlg, id), on);
+        }
+    }
+}
+
+/// The scheduler table as edited.
+unsafe fn sched_table(dlg: HWND) -> [Mode; scheduler::CELLS] {
+    let mut table = [Mode::Full; scheduler::CELLS];
+    unsafe { send(item(dlg, ID_SCHED_GRID), sched_grid::GET, 0, &mut table as *mut _ as LPARAM) };
+    table
 }
 
 /// The folder and "Only move from ..." follow "Move completed downloads to", as in µTorrent.
@@ -882,6 +937,11 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
             || shown(ID_ENC_LEGACY) != Some(legacy.to_string().as_str())
         {
             settings::set_encryption(&mut o.settings, ENC_OUT[enc].1, legacy);
+        }
+        let table = sched_table(dlg);
+        let text: String = table.iter().map(|m| m.code()).collect();
+        if shown(ID_SCHED_GRID) != Some(text.as_str()) {
+            o.gui.schedule.table = table;
         }
         let kind =
             (send(item(dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0).max(0) as usize).min(PROXY_TYPES.len() - 1);
@@ -966,6 +1026,7 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
                 }
             }
             ID_MOVE if code == BN_CLICKED => update_move_controls(dlg),
+            ID_SCHED if code == BN_CLICKED => update_sched_controls(dlg),
             ID_MOVE_BROWSE if code == BN_CLICKED => {
                 let now = window_text(item(dlg, ID_MOVE_DIR));
                 let title = "Select the folder for completed downloads";
@@ -1644,5 +1705,57 @@ mod tests {
         assert!(port >= 10_000);
         f.click(ID_APPLY);
         assert_eq!(settings::listen_port(&f.last_applied().settings), Some(port));
+    }
+
+    #[test]
+    fn the_scheduler_page_edits_the_schedule() {
+        let mut opts = defaults();
+        opts.gui.schedule.set(2, 5, Mode::Off);
+        let mut f = Fixture::new(opts);
+        f.page(7);
+        let grid = unsafe { item(f.dlg, ID_SCHED_GRID) };
+        unsafe {
+            for id in [ID_SCHED, ID_SCHED_GRID, ID_SCHED_UL, ID_SCHED_DL, ID_SCHED_DHT] {
+                assert!(shown(item(f.dlg, id)), "control {id}");
+            }
+            assert!(!checked(f.dlg, ID_SCHED));
+            assert!(checked(f.dlg, ID_SCHED_DHT), "on by default, as in µTorrent");
+            assert_eq!(IsWindowEnabled(grid), 0, "greyed while off");
+            assert_eq!(sched_table(f.dlg)[2 * scheduler::HOURS + 5], Mode::Off);
+        }
+        f.check(ID_SCHED, true);
+        f.click(ID_SCHED);
+        unsafe { assert_ne!(IsWindowEnabled(grid), 0) };
+        // Monday 01:00 clicked once (Limited), then dragged over 02:00 and 03:00
+        let at = |day: usize, hour: usize| unsafe {
+            let mut rc: RECT = std::mem::zeroed();
+            windows_sys::Win32::UI::WindowsAndMessaging::GetClientRect(grid, &mut rc);
+            let l = crate::sched_grid::Layout::new(rc.right, rc.bottom);
+            let c = l.cell_rect(day, hour);
+            ((c.top + 2) << 16 | (c.left + 2)) as LPARAM
+        };
+        unsafe {
+            use windows_sys::Win32::UI::WindowsAndMessaging::{WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE};
+            SendMessageW(grid, WM_LBUTTONDOWN, 1, at(0, 1));
+            SendMessageW(grid, WM_MOUSEMOVE, 1, at(0, 2));
+            SendMessageW(grid, WM_MOUSEMOVE, 1, at(0, 3));
+            SendMessageW(grid, WM_LBUTTONUP, 0, at(0, 3));
+            SendMessageW(grid, WM_MOUSEMOVE, 0, at(0, 4));
+        }
+        f.set(ID_SCHED_UL, "20");
+        f.set(ID_SCHED_DL, "300");
+        f.check(ID_SCHED_DHT, false);
+        f.click(ID_APPLY);
+        let s = f.last_applied().gui.schedule;
+        assert!(s.enabled && !s.disable_dht);
+        assert_eq!((s.limited_up_kib, s.limited_down_kib), (20, 300));
+        let row: Vec<Mode> = (0..5).map(|h| s.get(0, h)).collect();
+        assert_eq!(row, [Mode::Full, Mode::Limited, Mode::Limited, Mode::Limited, Mode::Full]);
+        assert_eq!(s.get(2, 5), Mode::Off);
+        // an untouched grid keeps a table set elsewhere (the controls are rewritten on Apply)
+        f.st.opts.gui.schedule.set(6, 23, Mode::SeedOnly);
+        unsafe { write_controls(f.dlg, &mut f.st) };
+        f.click(ID_APPLY);
+        assert_eq!(f.last_applied().gui.schedule.get(6, 23), Mode::SeedOnly);
     }
 }

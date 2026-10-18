@@ -30,11 +30,13 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use patorrent_core::util::time::local_utc_offset;
 use patorrent_core::{
     Alert, AnnounceEntry, Bitfield, FileEntry, MoveCompleted, PeerInfo, SessionHandle, SessionStats,
-    Settings, TorrentId, TorrentStatus,
+    Settings, TorrentFlags, TorrentId, TorrentStatus,
 };
 use patorrent_frontend::options::GuiOptions;
+use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 
 use auth::{BanList, PasswordHash};
 use json::Json;
@@ -140,6 +142,8 @@ pub(crate) struct Prefs {
     /// The IP filter: on, and the block list (empty = `ipfilter.dat` in the state directory).
     pub ip_filter: bool,
     pub ip_filter_path: String,
+    /// Preferences > Scheduler (`GuiOptions::schedule`).
+    pub schedule: Schedule,
     pub bypass_local_auth: bool,
     pub csrf_protection: bool,
     pub host_header_validation: bool,
@@ -174,6 +178,7 @@ impl Prefs {
             upload_slots_per_torrent: 0,
             ip_filter: false,
             ip_filter_path: String::new(),
+            schedule: Schedule::default(),
             bypass_local_auth: false,
             csrf_protection: true,
             host_header_validation: true,
@@ -206,6 +211,7 @@ impl Prefs {
             upload_slots_per_torrent: self.upload_slots_per_torrent,
             ip_filter: self.ip_filter,
             ip_filter_path: self.ip_filter_path.clone(),
+            schedule: self.schedule.clone(),
         }
     }
 
@@ -223,6 +229,7 @@ impl Prefs {
         self.upload_slots_per_torrent = g.upload_slots_per_torrent;
         self.ip_filter = g.ip_filter;
         self.ip_filter_path = g.ip_filter_path.clone();
+        self.schedule = g.schedule.clone();
     }
 }
 
@@ -318,6 +325,8 @@ pub(crate) struct State {
     pub listen_addr: SocketAddr,
     /// Bumped when the folder options change, so the owner's `MoveCompleted` follows.
     pub gui_version: u64,
+    /// The weekly scheduler's mode in force (Preferences > Scheduler is `prefs.schedule`).
+    pub scheduler: Scheduler,
     replies: HashMap<(TorrentId, ReplyKind), (u64, Reply)>,
     serial: u64,
     pub sessions: HashMap<String, ClientSession>,
@@ -420,7 +429,8 @@ impl Shared {
         }
     }
 
-    /// Applies the global limits for the current alternative-speed mode.
+    /// Applies the global limits for the current alternative-speed mode, through the
+    /// scheduler (its Limited hours override them).
     pub fn apply_limits(&self, st: &mut State) {
         let (dl, up) = if st.prefs.alt_enabled {
             (st.prefs.alt_dl_limit, st.prefs.alt_up_limit)
@@ -429,7 +439,39 @@ impl Shared {
         };
         st.settings.download_rate_limit = dl;
         st.settings.upload_rate_limit = up;
-        self.handle.apply_settings(st.settings.clone());
+        self.run_scheduler(st, true);
+    }
+
+    /// Puts the scheduler's mode for this hour into effect; with `force` the settings are sent
+    /// even if the mode stays (they changed).
+    pub(crate) fn run_scheduler(&self, st: &mut State, force: bool) {
+        let now = unix_now();
+        let offset = local_utc_offset(now);
+        let old = st.scheduler.mode();
+        let Some(c) = st.scheduler.update(&st.prefs.schedule, &st.settings, now, offset, force) else {
+            return;
+        };
+        if let Some(s) = c.settings {
+            self.handle.apply_settings(s);
+        }
+        match c.pause_session {
+            Some(true) => self.handle.pause(),
+            Some(false) => self.handle.resume(),
+            None => {}
+        }
+        if let Some(on) = c.upload_mode {
+            for id in st.torrents.keys() {
+                let t = self.handle.torrent(*id);
+                if on {
+                    t.set_flags(TorrentFlags::UPLOAD_MODE);
+                } else {
+                    t.unset_flags(TorrentFlags::UPLOAD_MODE);
+                }
+            }
+        }
+        if c.mode != old {
+            st.push_log(None, format!("Scheduler: {}", c.mode.label()), now);
+        }
     }
 }
 
@@ -529,6 +571,7 @@ impl WebUi {
                 default_save_path: config.save_path.clone(),
                 listen_addr: addr,
                 gui_version: 1,
+                scheduler: Scheduler::new(),
                 replies: HashMap::new(),
                 serial: 0,
                 sessions: HashMap::new(),
@@ -615,6 +658,10 @@ impl WebUi {
                         };
                         st.update(s, now);
                     }
+                    // restored or added by anyone during Seeding only hours
+                    if st.scheduler.mode() == Mode::SeedOnly {
+                        self.shared.handle.torrent(*id).set_flags(TorrentFlags::UPLOAD_MODE);
+                    }
                     // "Add to top of queue" from the Add dialog, now that the id is known
                     if st.pending_top.remove(&torrent::hash_of(info_hashes)) {
                         self.shared.handle.torrent(*id).queue_position(patorrent_core::QueueMove::Top);
@@ -666,6 +713,7 @@ impl WebUi {
         if ticked {
             st.tick += 1;
             st.sample_speeds();
+            self.shared.run_scheduler(&mut st, false);
         }
         drop(st);
         if replied {
@@ -838,6 +886,7 @@ impl State {
             default_save_path: String::new(),
             listen_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
             gui_version: 1,
+            scheduler: Scheduler::new(),
             replies: HashMap::new(),
             serial: 0,
             sessions: HashMap::new(),

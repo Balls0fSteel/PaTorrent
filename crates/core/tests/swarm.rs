@@ -244,6 +244,32 @@ fn download_from_a_directly_connected_seed() {
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 
+#[test]
+fn upload_mode_downloads_nothing_until_it_is_switched_off() {
+    // The scheduler's "Seeding only": a connected leech in upload mode stays not interested.
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let id = add_with_flags(&mut w, &f, &dir, TorrentFlags::UPLOAD_MODE);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    wait(&mut w, 20, "a connected seed", |a| status_of(a, id).filter(|s| s.num_seeds > 0));
+    std::thread::sleep(Duration::from_secs(2));
+    w.backlog.clear();
+    let st = wait(&mut w, 5, "status", |a| status_of(a, id));
+    assert_eq!(st.total_done, 0);
+    assert!(st.flags.contains(TorrentFlags::UPLOAD_MODE));
+    leech.handle().torrent(id).unset_flags(TorrentFlags::UPLOAD_MODE);
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
 fn percent_decode(s: &str) -> Vec<u8> {
     let b = s.as_bytes();
     let mut out = Vec::new();

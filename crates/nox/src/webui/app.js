@@ -2645,6 +2645,7 @@
       b.dataset.action = it.action;
       return b;
     }
+    if (it.f && prefField(it.f).type === "schedule") return renderSchedule(it);
     const l = document.createElement("label");
     if (it.stub !== undefined) {
       // a placeholder until its feature exists, disabled as in the Win32 dialog
@@ -2751,7 +2752,113 @@
     for (const l of root.querySelectorAll("[data-enabled-by]")) {
       const on = !!prefValue(l.dataset.enabledBy);
       for (const c of l.querySelectorAll("input,select,button")) c.disabled = !on;
+      l.classList.toggle("disabled", !on);
     }
+  }
+
+  // The Scheduler table (frontend::scheduler): 7 days x 24 hours, one mode code per hour,
+  // Monday 00:00 first. A click (or tap) moves a cell to the next mode, a drag paints that mode.
+  const SCHED_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const SCHED_MODES = { 0: "Full speed", 2: "Limited", 1: "Turn off", 3: "Seeding only" };
+  const SCHED_NEXT = { 0: "2", 2: "1", 1: "3", 3: "0" };
+  function renderSchedule(it) {
+    const id = it.f;
+    const box = document.createElement("div");
+    box.className = "sched";
+    if (it.enabled_by) box.dataset.enabledBy = it.enabled_by;
+    const grid = document.createElement("div");
+    grid.className = "sched-grid";
+    grid.appendChild(document.createElement("span"));
+    for (let h = 0; h < 24; h++) {
+      const s = document.createElement("span");
+      s.className = "sched-h";
+      s.textContent = h % 3 === 0 ? h : "";
+      grid.appendChild(s);
+    }
+    const cells = [];
+    const table = () => String(prefValue(id));
+    for (let d = 0; d < 7; d++) {
+      const s = document.createElement("span");
+      s.className = "sched-d";
+      s.textContent = SCHED_DAYS[d];
+      grid.appendChild(s);
+      for (let h = 0; h < 24; h++) {
+        const c = document.createElement("span");
+        c.className = "sched-c";
+        c.dataset.i = d * 24 + h;
+        grid.appendChild(c);
+        cells.push(c);
+      }
+    }
+    const info = document.createElement("div");
+    info.className = "sched-info";
+    const legend = document.createElement("div");
+    legend.className = "sched-legend";
+    for (const code of ["0", "2", "1", "3"]) {
+      const s = document.createElement("span");
+      const sw = document.createElement("i");
+      sw.className = "m" + code;
+      s.appendChild(sw);
+      s.appendChild(document.createTextNode(SCHED_MODES[code]));
+      legend.appendChild(s);
+    }
+    const paint = () => {
+      const t = table();
+      cells.forEach((c, i) => (c.className = "sched-c m" + t[i]));
+    };
+    const describe = (i) => {
+      const t = table();
+      const d = Math.floor(i / 24), h = i % 24;
+      const two = (n) => String(n).padStart(2, "0");
+      info.textContent = `${SCHED_DAYS[d]} ${two(h)}:00 - ${two((h + 1) % 24)}:00: ${SCHED_MODES[t[i]]}`;
+    };
+    const setCell = (i, code) => {
+      const t = table();
+      if (t[i] === code) return;
+      prefSet(id, t.slice(0, i) + code + t.slice(i + 1));
+      paint();
+    };
+    let painting = null;
+    let last = null; // the cell the drag last painted
+    // every cell on the line from `last` to `i`, so a fast drag leaves no gaps
+    const paintTo = (i) => {
+      const d0 = Math.floor(last / 24), h0 = last % 24, d1 = Math.floor(i / 24), h1 = i % 24;
+      const n = Math.max(Math.abs(d1 - d0), Math.abs(h1 - h0));
+      for (let k = 1; k <= n; k++) {
+        setCell(Math.round(d0 + ((d1 - d0) * k) / n) * 24 + Math.round(h0 + ((h1 - h0) * k) / n), painting);
+      }
+      last = i;
+    };
+    const cellAt = (ev) => {
+      const el = document.elementFromPoint(ev.clientX, ev.clientY);
+      return el && el.classList.contains("sched-c") && grid.contains(el) ? Number(el.dataset.i) : null;
+    };
+    grid.addEventListener("pointerdown", (ev) => {
+      if (box.classList.contains("disabled") || ev.button !== 0) return;
+      const i = cellAt(ev);
+      if (i === null) return;
+      ev.preventDefault();
+      painting = SCHED_NEXT[table()[i]];
+      last = i;
+      setCell(i, painting);
+      describe(i);
+      grid.setPointerCapture(ev.pointerId);
+    });
+    grid.addEventListener("pointermove", (ev) => {
+      const i = cellAt(ev);
+      if (i === null) return;
+      if (painting !== null) paintTo(i);
+      describe(i);
+    });
+    const stop = () => (painting = null);
+    grid.addEventListener("pointerup", stop);
+    grid.addEventListener("pointercancel", stop);
+    grid.addEventListener("pointerleave", () => painting === null && (info.textContent = ""));
+    paint();
+    box.appendChild(grid);
+    box.appendChild(legend);
+    box.appendChild(info);
+    return box;
   }
   $("prefs-page").addEventListener("click", (ev) => {
     const b = ev.target.closest("button[data-action]");

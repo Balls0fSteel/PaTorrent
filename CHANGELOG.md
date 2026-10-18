@@ -2,6 +2,26 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_235124_1792360284: the weekly scheduler (Phase 5)
+
+### Added
+- µTorrent 2.2.1's weekly scheduler. `frontend::scheduler` holds the model, shared by both clients: a 7 × 24 table (Monday 00:00 first), each hour Full speed, Limited, Turn off or Seeding only; the Limited upload / download rates (kB/s, 0 = unlimited); and "Disable DHT when turning off" (on by default). These are stored as `sched.enable`, `sched.table` (168 mode codes: 0 full, 1 off, 2 limited, 3 seeding only), `sched.ul_rate`, `sched.dl_rate` and `sched.dis_dht`, and are part of `GuiOptions` (`GuiOptions::schedule`). `Scheduler::update` follows the clock and returns what changed (settings, session pause / resume, upload mode on or off) only when the hour's mode changes, or on every Apply.
+  - Full speed uses the configured settings. Limited replaces the global rate limits. Turn off pauses the session (`Session::pause`, which keeps each torrent's own state) and switches the DHT off when asked. Seeding only puts every torrent into upload mode.
+- Engine: `TorrentFlags::UPLOAD_MODE` is now honoured as libtorrent does it. A torrent in upload mode is never interested and requests no blocks; switching the flag sends INTERESTED / NOT_INTERESTED to every active peer at once. Before this, only the web seeds checked it. Resume data does not save it, so a restart starts every torrent in normal mode and the scheduler applies it again.
+- `core::util::time`: `unix_now` and `local_utc_offset` (`localtime_r`'s `tm_gmtoff` on Unix, `GetLocalTime` / `GetSystemTime` on Windows). The offset is asked of the OS each time, so a DST change is followed. nox needs this; it had no local time before.
+- Win32: the Preferences > Scheduler page is live (it was a placeholder). It has the Enable Scheduler box; the table as its own control (`sched_grid.rs`: a click moves a cell to the next mode, a drag paints that mode over the cells it crosses, including cells skipped by a fast drag; below the table, a legend and the hovered hour); the two Limited rates; and Disable DHT. The table and rates grey out while the scheduler is off. The app runs the scheduler on its one-second timer and on Apply, logs "Scheduler: <mode>" in the Logger tab, and shows "| Scheduler: ..." in the status bar's network part while the scheduler holds the session back. Torrents added or restored during Seeding only hours get upload mode too.
+- nox: the scheduler runs on the Web UI's status tick (so only with `--webui`, where the preferences live) and on every preferences commit. `apply_limits` now goes through it, so the alternative limits and the scheduler's Limited rates combine as expected. `/pa/prefs` has the five `sched.*` fields; the table is a new field type `schedule`, validated as 168 codes. The Scheduler page lays them out as the Win32 dialog does. The page (`app.js`) draws the table as a pointer-driven grid that works with mouse and touch (click or tap to cycle, drag to paint, with gaps filled), plus a legend and the hovered hour.
+
+### Verified
+- New tests: the engine swarm test `upload_mode_downloads_nothing_until_it_is_switched_off` (it fails without the engine change); `frontend::scheduler` unit tests (local day and hour across zones, table round trip and bad tables, the mode cycle, the settings per mode, transitions only at mode changes and on Apply); the Win32 hidden-dialog test `the_scheduler_page_edits_the_schedule` (a simulated click and drag, the rates, an untouched grid keeping its table) plus grid hit-testing and gap filling; the nox prefs test `the_scheduler_fields_edit_the_schedule`; and `util::time`.
+- `cargo test --workspace` passed on Windows; `cargo +stable clippy --workspace --all-targets -D warnings`, the same clippy for `x86_64-unknown-linux-gnu`, and `cargo +stable fmt --all --check` are clean.
+- In the desktop app's browser pane against `run --no-state --mock-library 50 --webui 8090`, at desktop width: the Scheduler page showed the greyed table; Enable, a click and a drag across Tue 01:00–04:00 painted Limited (the first try skipped Tue 03:00 on a fast drag, which led to the gap filling), and Apply stored the table (`GET /pa/prefs` read back `022220` for Tue 00:00–05:00).
+- Not checked: the Win32 page by hand; the effect of an actual hour change on a live session (the mock library does not show a session pause). The per-mode effects are covered by the unit and swarm tests.
+
+### Decided
+- Seeding only uses libtorrent's per-torrent upload mode on every torrent. A frontend-side list of torrents paused by the scheduler would have to survive restarts and clash with the user's own Pause; upload mode is not persisted and leaves finished torrents alone.
+- The qBittorrent shim's scheduler preferences (`scheduler_enabled`, `schedule_from_hour`, ...) are not mapped: qBittorrent's scheduler switches the alternative limits on a daily window, which does not fit the 2.2.1 table.
+
 ## 2026-10-18_232431_1792358671: Web UI slice 8, labels in the tree
 
 ### Added

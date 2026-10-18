@@ -13,6 +13,7 @@
 //! * [`prefs`]: a small `key=value` preferences file for layout and frontend options.
 //! * [`settings`]: the engine settings by libtorrent name (the Advanced preferences table).
 //! * [`options`]: what the Preferences dialog edits, loaded from and stored to the preferences.
+//! * [`scheduler`]: the weekly scheduler (table, modes, what to change when the hour turns).
 
 pub mod actions;
 pub mod add;
@@ -23,5 +24,6 @@ pub mod fmt;
 pub mod model;
 pub mod options;
 pub mod prefs;
+pub mod scheduler;
 pub mod settings;
 pub mod status;

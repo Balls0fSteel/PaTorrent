@@ -445,6 +445,20 @@ div.pg { border: 0; padding: 0 8px; }
 .pf-row .pf > span { flex: none; }
 .pf-row .pf.num { flex: none; }
 .pf-note { margin: 4px 0 0; color: var(--muted); }
+.sched { display: flex; flex-direction: column; gap: 6px; }
+.sched.disabled { opacity: 0.5; }
+.sched-grid { display: grid; grid-template-columns: 3em repeat(24, minmax(0, 1fr)); gap: 1px; touch-action: none; user-select: none; }
+.sched-h { font-size: 0.85em; color: var(--muted); text-align: left; }
+.sched-d { line-height: 18px; }
+.sched-c { height: 18px; border: 1px solid var(--line); cursor: pointer; }
+.sched.disabled .sched-c { cursor: default; }
+.m0 { background: #40b040; }
+.m2 { background: #a0e8a0; }
+.m1 { background: #ffffff; }
+.m3 { background: #60a0e0; }
+.sched-legend { display: flex; flex-wrap: wrap; gap: 4px 16px; }
+.sched-legend i { display: inline-block; width: 12px; height: 12px; border: 1px solid var(--line); margin-right: 5px; vertical-align: -2px; }
+.sched-info { min-height: 1.4em; color: var(--muted); }
 #prefs input.bad, #prefs select.bad { border-color: var(--err); outline: 1px solid var(--err); }
 .adv-bar .pf > span { flex: none; }
 .adv-list { min-height: 120px; overflow: auto; border: 1px solid var(--line); background: var(--bg); user-select: none; }

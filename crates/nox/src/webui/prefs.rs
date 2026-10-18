@@ -20,6 +20,7 @@ use std::path::Path;
 
 use patorrent_core::{IpFilter, ProxyType, Settings, TorrentFlags};
 use patorrent_frontend::options::{self, GuiOptions};
+use patorrent_frontend::scheduler;
 use patorrent_frontend::settings::{self, Entry, Kind as SettingKind, TABLE, Value};
 
 use super::auth::PasswordHash;
@@ -40,6 +41,8 @@ pub enum Kind {
     Enum(&'static [&'static str]),
     /// Write-only: the value read back is always empty, an empty value sent changes nothing.
     Password,
+    /// The scheduler's week: 168 `frontend::scheduler::Mode` codes, Monday 00:00 first.
+    Schedule,
 }
 
 impl Kind {
@@ -51,6 +54,7 @@ impl Kind {
             Kind::Folder => "folder",
             Kind::Enum(_) => "enum",
             Kind::Password => "password",
+            Kind::Schedule => "schedule",
         }
     }
 }
@@ -326,6 +330,40 @@ pub(crate) static FIELDS: &[Field] = &[
         .prefs
         .ip_filter_path =
         string(v).trim().to_owned()),
+    // Scheduler
+    field!(
+        "sched.enable",
+        "Enable Scheduler",
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.schedule.enabled),
+        |w, v| w.prefs.schedule.enabled = boolean(&v)
+    ),
+    field!("sched.table", "", Kind::Schedule, |w| Value::Str(w.prefs.schedule.table_text()), |w, v| {
+        if let Some(t) = scheduler::parse_table(&string(v)) {
+            w.prefs.schedule.table = t;
+        }
+    }),
+    field!(
+        "sched.ul_rate",
+        "Limited upload rate (kB/s): [0: unlimited]",
+        Kind::Int { min: 0, max: RATE_MAX / 1024 },
+        |w| Value::Int(w.prefs.schedule.limited_up_kib as i64),
+        |w, v| w.prefs.schedule.limited_up_kib = int(&v) as u32
+    ),
+    field!(
+        "sched.dl_rate",
+        "Limited download rate (kB/s): [0: unlimited]",
+        Kind::Int { min: 0, max: RATE_MAX / 1024 },
+        |w| Value::Int(w.prefs.schedule.limited_down_kib as i64),
+        |w, v| w.prefs.schedule.limited_down_kib = int(&v) as u32
+    ),
+    field!(
+        "sched.dis_dht",
+        "Disable DHT when turning off",
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.schedule.disable_dht),
+        |w, v| w.prefs.schedule.disable_dht = boolean(&v)
+    ),
     // Web UI
     Field {
         id: "webui.listen",
@@ -506,6 +544,13 @@ impl Def {
                     .ok_or_else(|| format!("\"{t}\" is not one of {}", options.join(", "))),
             },
             Kind::Text | Kind::Folder | Kind::Password => Ok(Value::Str(text.to_owned())),
+            Kind::Schedule => match scheduler::parse_table(t) {
+                Some(_) => Ok(Value::Str(t.to_owned())),
+                None => Err(format!(
+                    "expected {} hours, each 0 (full speed), 1 (turn off), 2 (limited) or 3 (seeding only)",
+                    scheduler::CELLS
+                )),
+            },
         }
     }
 }
@@ -729,8 +774,16 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
             "scheduler",
             "Scheduler",
             vec![
-                group(None, vec![stub("Enable Scheduler")]),
-                group(Some("Scheduler Settings"), vec![note("The weekly scheduler is not available yet.")]),
+                group(None, vec![f("sched.enable")]),
+                group(Some("Scheduler Table"), vec![enabled_by(f("sched.table"), "sched.enable")]),
+                group(
+                    Some("Scheduler Settings"),
+                    vec![
+                        enabled_by(f("sched.ul_rate"), "sched.enable"),
+                        enabled_by(f("sched.dl_rate"), "sched.enable"),
+                        enabled_by(f("sched.dis_dht"), "sched.enable"),
+                    ],
+                ),
             ],
         ),
         page(
@@ -925,7 +978,9 @@ pub(crate) fn commit(shared: &Shared, st: &mut State, changes: &[Change]) -> Res
     w.prefs.dl_limit = w.settings.download_rate_limit;
     w.prefs.up_limit = w.settings.upload_rate_limit;
     let limits = |p: &Prefs| (p.dl_limit, p.up_limit, p.alt_dl_limit, p.alt_up_limit, p.alt_enabled);
-    let engine_changed = w.settings != old.settings || limits(&w.prefs) != limits(&old.prefs);
+    let engine_changed = w.settings != old.settings
+        || limits(&w.prefs) != limits(&old.prefs)
+        || w.prefs.schedule != old.prefs.schedule;
     st.prefs = w.prefs.clone();
     st.settings = w.settings.clone();
     if engine_changed {
@@ -1160,7 +1215,7 @@ mod tests {
         sorted.sort();
         sorted.dedup();
         assert_eq!(sorted.len(), placed.len(), "a field placed twice");
-        // every non-setting field is on some page; the Scheduler page is a placeholder
+        // every non-setting field is on some page
         for f in FIELDS {
             assert!(placed.contains(&f.id.to_owned()), "{} is on no page", f.id);
         }
@@ -1252,5 +1307,37 @@ mod tests {
         // the model's values follow what is stored
         let w = Working::from_state(&st);
         assert_eq!(find("download_rate_limit").unwrap().get(&w), Value::Int(4096));
+    }
+
+    #[test]
+    fn the_scheduler_fields_edit_the_schedule() {
+        use patorrent_frontend::scheduler::{CELLS, Mode};
+        let st = state();
+        let mut table = "0".repeat(CELLS);
+        table.replace_range(9..10, "2");
+        table.replace_range(CELLS - 1.., "3");
+        let body = format!(
+            r#"{{"sched.enable":true,"sched.table":"{table}","sched.ul_rate":20,"sched.dl_rate":300,"sched.dis_dht":false}}"#
+        );
+        let w = edited(&st, &body).unwrap();
+        let s = &w.prefs.schedule;
+        assert!(s.enabled && !s.disable_dht);
+        assert_eq!((s.limited_up_kib, s.limited_down_kib), (20, 300));
+        assert_eq!((s.get(0, 9), s.get(6, 23), s.get(0, 0)), (Mode::Limited, Mode::SeedOnly, Mode::Full));
+        assert_eq!(find("sched.table").unwrap().get(&w), Value::Str(table));
+        assert_eq!(find("sched.table").unwrap().kind().name(), "schedule");
+
+        let bad = |body: &str| edited(&st, body).err().unwrap();
+        assert_eq!(bad(r#"{"sched.table":"0123"}"#).0, "sched.table");
+        assert!(bad(&format!(r#"{{"sched.table":"{}9"}}"#, "0".repeat(CELLS - 1))).1.contains("168 hours"));
+        assert!(bad(r#"{"sched.ul_rate":-1}"#).1.contains("outside"));
+
+        // stored as the frontend's keys, as the Win32 client stores them
+        let mut st = state();
+        st.prefs.schedule = w.prefs.schedule.clone();
+        store(&mut st, &[]);
+        assert_eq!(st.options.get("sched.enable"), Some("1"));
+        assert_eq!(st.options.get("sched.ul_rate"), Some("20"));
+        assert_eq!(st.options.get("sched.table").map(str::len), Some(CELLS));
     }
 }

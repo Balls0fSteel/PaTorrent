@@ -10,20 +10,20 @@ use std::sync::LazyLock;
 use std::time::{Duration, Instant};
 
 use patorrent_core::crypto::Sha1;
-use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
-    AddTorrentParams, DownloadPriority, EncPolicy, PeerFlags, PeerInfo, ProxyType, RemoveFlags, TorrentFlags,
-    TorrentId, TorrentSource, TrackerStatus, VERSION,
+    DownloadPriority, EncPolicy, PeerFlags, PeerInfo, ProxyType, TorrentFlags, TorrentId, TrackerStatus,
+    VERSION,
 };
 use patorrent_frontend::detail::peer_flags;
 
 use super::auth::{PasswordHash, constant_time_eq, random_hex};
+use super::commands::{self, AddOptions, Source};
 use super::http::{
     Head, Part, Response, cookie, multipart_boundary, parse_header_params, parse_multipart, parse_urlencoded,
 };
 use super::json::{self, Json};
 use super::torrent::{self, Extra};
-use super::{ClientSession, MAX_SESSIONS, Meta, Reply, ReplyKind, Shared, State, fetch};
+use super::{ClientSession, MAX_SESSIONS, Reply, ReplyKind, Shared, State};
 
 /// The qBittorrent release whose WebAPI (2.11.2) this implements; clients pick features by it.
 pub const COMPAT_VERSION: &str = "v5.0.0";
@@ -291,6 +291,10 @@ pub(super) fn websocket_handshake(
     }
 }
 
+fn json_error(status: u16, msg: &str) -> Response {
+    Response::new(status, "application/json", Json::obj().with("error", msg).to_json())
+}
+
 /// Answers one request.
 pub fn serve(shared: &Shared, req: &Request) -> Response {
     with_security_headers(serve_inner(shared, req))
@@ -317,6 +321,10 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
     if csrf && api && !csrf_ok(head) {
         return Response::text(401, "Unauthorized");
     }
+    let native = head.path.starts_with("/pa/");
+    if csrf && native && !csrf_ok(head) {
+        return json_error(403, "origin not allowed");
+    }
     let read = matches!(head.method.as_str(), "GET" | "HEAD");
     if !read && head.method != "POST" {
         return Response::text(405, "Method Not Allowed").with_header("Allow", "GET, HEAD, POST");
@@ -326,6 +334,13 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             return Response::text(405, "Method Not Allowed").with_header("Allow", "GET, HEAD");
         }
         return serve_static(f, head);
+    }
+    if let Some(endpoint) = head.path.strip_prefix("/pa/") {
+        // the native commands (docs/WEBUI.md "Commands"): JSON in, 204 or {"error"} out
+        if authenticate(&mut shared.lock(), head, ip, now).is_none() {
+            return json_error(403, "forbidden");
+        }
+        return commands::serve(shared, endpoint, req);
     }
     let Some(endpoint) = head.path.strip_prefix("/api/v2/") else {
         return Response::text(404, "Not Found");
@@ -466,46 +481,42 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
         "torrents/files" => files(shared, &p),
         "torrents/pieceStates" => piece_states(shared, &p),
         "torrents/add" => add(shared, &p),
-        "torrents/stop" | "torrents/pause" => for_each(shared, &p, |h| {
-            h.unset_flags(TorrentFlags::AUTO_MANAGED);
-            h.pause();
-        }),
-        "torrents/start" | "torrents/resume" => for_each(shared, &p, |h| {
-            h.set_flags(TorrentFlags::AUTO_MANAGED);
-            h.resume();
-        }),
+        // the torrent commands share their implementation with the native API (commands.rs);
+        // qBittorrent's stop and pause are both µTorrent's Stop
+        "torrents/stop" | "torrents/pause" => {
+            // (the guard must be gone before the command takes the lock itself)
+            let ids = selected(&shared.lock(), &p);
+            commands::stop(shared, &ids);
+            Response::ok()
+        }
+        "torrents/start" | "torrents/resume" => {
+            let ids = selected(&shared.lock(), &p);
+            commands::start(shared, &ids);
+            Response::ok()
+        }
         "torrents/setForceStart" => {
-            let force = p.flag("value");
-            for_each(shared, &p, |h| {
-                if force {
-                    h.unset_flags(TorrentFlags::AUTO_MANAGED);
-                    h.resume();
-                } else {
-                    h.set_flags(TorrentFlags::AUTO_MANAGED);
-                }
-            })
+            let ids = selected(&shared.lock(), &p);
+            if p.flag("value") {
+                commands::force_start(shared, &ids);
+            } else {
+                commands::unforce(shared, &ids);
+            }
+            Response::ok()
         }
         "torrents/setSuperSeeding" => {
-            let on = p.flag("value");
-            for_each(shared, &p, |h| {
-                if on {
-                    h.set_flags(TorrentFlags::SUPER_SEEDING)
-                } else {
-                    h.unset_flags(TorrentFlags::SUPER_SEEDING)
-                }
-            })
+            commands::super_seed(shared, &selected(&shared.lock(), &p), p.flag("value"));
+            Response::ok()
         }
-        "torrents/recheck" => for_each(shared, &p, |h| h.force_recheck()),
-        "torrents/reannounce" => for_each(shared, &p, |h| h.force_reannounce()),
+        "torrents/recheck" => {
+            commands::recheck(shared, &selected(&shared.lock(), &p));
+            Response::ok()
+        }
+        "torrents/reannounce" => {
+            commands::reannounce(shared, &selected(&shared.lock(), &p));
+            Response::ok()
+        }
         "torrents/delete" => {
-            let mut flags = RemoveFlags::DELETE_PARTFILE;
-            if p.flag("deleteFiles") {
-                flags |= RemoveFlags::DELETE_FILES;
-            }
-            let ids = selected(&shared.lock(), &p);
-            for id in ids {
-                shared.handle.remove_torrent(id, flags);
-            }
+            commands::remove(shared, &selected(&shared.lock(), &p), p.flag("deleteFiles"));
             Response::ok()
         }
         "torrents/filePrio" => file_prio(shared, &p),
@@ -513,13 +524,14 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
         "torrents/renameFolder" => rename(shared, &p, true),
         "torrents/setDownloadLimit" | "torrents/setUploadLimit" => {
             let Some(limit) = p.int("limit") else { return Response::text(400, "missing limit") };
-            let limit = limit.clamp(0, u32::MAX as i64) as u32;
-            let down = endpoint == "torrents/setDownloadLimit";
-            for_each(
-                shared,
-                &p,
-                |h| if down { h.set_download_limit(limit) } else { h.set_upload_limit(limit) },
-            )
+            let limit = Some(limit.clamp(0, u32::MAX as i64) as u32);
+            let ids = selected(&shared.lock(), &p);
+            if endpoint == "torrents/setDownloadLimit" {
+                commands::limits(shared, &ids, limit, None);
+            } else {
+                commands::limits(shared, &ids, None, limit);
+            }
+            Response::ok()
         }
         "torrents/downloadLimit" | "torrents/uploadLimit" => {
             let st = shared.lock();
@@ -579,21 +591,17 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
         }
         "torrents/setCategory" => {
             let cat = p.get("category").unwrap_or("").trim().to_owned();
-            let mut st = shared.lock();
-            if !cat.is_empty() && !st.categories.contains_key(&cat) {
-                return Response::text(409, "category does not exist");
-            }
-            for id in selected(&st, &p) {
-                let hash = st.torrents[&id].hash.clone();
-                if cat.is_empty() {
-                    st.torrent_categories.remove(&hash);
-                } else {
-                    st.torrent_categories.insert(hash.clone(), cat.clone());
+            let ids = {
+                let st = shared.lock();
+                if !cat.is_empty() && !st.categories.contains_key(&cat) {
+                    return Response::text(409, "category does not exist");
                 }
-                st.touch(&hash);
+                selected(&st, &p)
+            };
+            match commands::label(shared, &ids, &cat) {
+                Ok(()) => Response::ok(),
+                Err(e) => Response::text(e.status, e.msg),
             }
-            shared.save(&st);
-            Response::ok()
         }
         "torrents/tags" => Response::json(&Json::Arr(Vec::new())),
         _ => Response::text(404, "Not Found"),
@@ -629,11 +637,7 @@ fn login(shared: &Shared, p: &Params, ip: IpAddr, now: Instant) -> Response {
 }
 
 fn valid_category(name: &str) -> bool {
-    !name.starts_with('/')
-        && !name.ends_with('/')
-        && !name.contains("//")
-        && !name.contains('\\')
-        && name.chars().all(|c| !c.is_control())
+    commands::valid_label(name)
 }
 
 fn categories_json(cats: &BTreeMap<String, String>) -> Json {
@@ -651,14 +655,6 @@ fn selected(st: &State, p: &Params) -> Vec<TorrentId> {
         return st.torrents.keys().copied().collect();
     }
     hashes.split('|').filter_map(|h| st.by_hash.get(&h.trim().to_ascii_lowercase()).copied()).collect()
-}
-
-fn for_each(shared: &Shared, p: &Params, f: impl Fn(&patorrent_core::TorrentHandle)) -> Response {
-    let ids = selected(&shared.lock(), p);
-    for id in ids {
-        f(&shared.handle.torrent(id));
-    }
-    Response::ok()
 }
 
 fn one(st: &State, p: &Params) -> Option<TorrentId> {
@@ -1373,6 +1369,7 @@ fn piece_states(shared: &Shared, p: &Params) -> Response {
     Response::json(&Json::Arr(v))
 }
 
+/// `torrents/filePrio`: the API's priorities (0, 1, 6, 7) onto the shared file command.
 fn file_prio(shared: &Shared, p: &Params) -> Response {
     let prio = match p.int("priority") {
         Some(0) => DownloadPriority::DONT_DOWNLOAD,
@@ -1381,40 +1378,18 @@ fn file_prio(shared: &Shared, p: &Params) -> Response {
         Some(7) => DownloadPriority::TOP,
         _ => return Response::text(400, "invalid priority"),
     };
-    let mut ids = Vec::new();
+    let mut prios = Vec::new();
     for s in p.get("id").unwrap_or("").split('|') {
         match s.trim().parse::<u32>() {
-            Ok(i) => ids.push(i),
+            Ok(i) => prios.push((i, prio)),
             Err(_) => return Response::text(400, "file id is not an integer"),
         }
     }
     let Some(id) = one(&shared.lock(), p) else { return not_found() };
-    let files = match shared.query(id, ReplyKind::Files, |h| h.torrent(id).post_file_list()) {
-        Some(Reply::Files(f)) if !f.is_empty() => f,
-        _ => return Response::text(409, "torrent metadata hasn't downloaded yet"),
-    };
-    if ids.iter().any(|&i| i as usize >= files.len()) {
-        return Response::text(409, "file id not found");
+    match commands::files(shared, id, &prios) {
+        Ok(()) => Response::ok(),
+        Err(e) => Response::text(e.status, e.msg),
     }
-    let h = shared.handle.torrent(id);
-    for i in ids {
-        h.set_file_priority(i, prio);
-    }
-    Response::ok()
-}
-
-/// A file path in the API's form: `/` separators, no leading or trailing ones.
-fn api_path(p: &str) -> String {
-    p.replace('\\', "/").trim_matches('/').to_owned()
-}
-
-/// qBittorrent's `Path::isValid` for a new name: relative, no empty, `.` or `..` parts, no
-/// characters Windows forbids.
-fn valid_new_path(p: &str) -> bool {
-    !p.is_empty()
-        && !p.contains(':')
-        && p.split('/').all(|c| !c.is_empty() && c != "." && c != "..")
-        && !p.chars().any(|c| matches!(c, '<' | '>' | '"' | '|' | '?' | '*') || c.is_control())
 }
 
 /// `torrents/renameFile` (`oldPath` names one file) and `torrents/renameFolder` (every file
@@ -1424,104 +1399,27 @@ fn rename(shared: &Shared, p: &Params, folder: bool) -> Response {
     let (Some(old), Some(new)) = (p.get("oldPath"), p.get("newPath")) else {
         return Response::text(400, "missing oldPath or newPath");
     };
-    let absolute = new.starts_with(['/', '\\']);
-    let (old, new) = (api_path(old), api_path(new));
-    if absolute || !valid_new_path(&new) {
-        return Response::text(409, "invalid newPath");
-    }
     let Some(id) = one(&shared.lock(), p) else { return not_found() };
-    let files = match shared.query(id, ReplyKind::Files, |h| h.torrent(id).post_file_list()) {
-        Some(Reply::Files(f)) if !f.is_empty() => f,
-        _ => return Response::text(409, "torrent metadata hasn't downloaded yet"),
-    };
-    let paths: Vec<String> = files.iter().map(|f| api_path(&f.path)).collect();
-    let mut todo = Vec::new();
-    for (i, path) in paths.iter().enumerate() {
-        let renamed = if !folder {
-            (*path == old).then(|| new.clone())
-        } else {
-            path.strip_prefix(&old)
-                .and_then(|rest| rest.strip_prefix('/'))
-                .map(|rest| format!("{new}/{rest}"))
-        };
-        if let Some(name) = renamed {
-            todo.push((i as u32, name));
-        }
+    match commands::rename(shared, id, old, new, Some(folder)) {
+        Ok(()) => Response::ok(),
+        Err(e) => Response::text(e.status, e.msg.replace("new path", "newPath")),
     }
-    if todo.is_empty() {
-        return Response::text(409, if folder { "no such folder" } else { "no such file" });
-    }
-    // The new names must not collide with files that keep theirs.
-    let moving: Vec<usize> = todo.iter().map(|&(i, _)| i as usize).collect();
-    let taken = |n: &str| {
-        paths.iter().enumerate().any(|(i, p)| {
-            !moving.contains(&i)
-                && (p == n || p.starts_with(&format!("{n}/")) || n.starts_with(&format!("{p}/")))
-        })
-    };
-    if todo.iter().any(|(_, n)| taken(n)) {
-        return Response::text(409, "newPath already in use");
-    }
-    let h = shared.handle.torrent(id);
-    for (i, name) in todo {
-        h.rename_file(i, name);
-    }
-    Response::ok()
 }
 
-/// A bare info-hash (40 hex or 32 base32 characters) as a magnet link.
-fn bare_hash_magnet(s: &str) -> Option<String> {
-    let hex = s.len() == 40 && s.bytes().all(|c| c.is_ascii_hexdigit());
-    let b32 = s.len() == 32 && s.bytes().all(|c| c.is_ascii_alphabetic() || (b'2'..=b'7').contains(&c));
-    (hex || b32).then(|| format!("magnet:?xt=urn:btih:{s}"))
-}
-
+/// `torrents/add`: every URL (magnet, bare hash, `http://`) and uploaded file, with the
+/// documented parameters mapped onto the Add dialog's options; one failure among several
+/// sources does not stop the rest, as in qBittorrent.
 fn add(shared: &Shared, p: &Params) -> Response {
-    let mut sources: Vec<(TorrentSource, String, Option<Meta>)> = Vec::new();
+    let mut sources: Vec<Source> = Vec::new();
     let mut invalid_file = false;
-    let mut failures = 0;
     for url in p.get("urls").unwrap_or("").split('\n').map(str::trim).filter(|u| !u.is_empty()) {
-        let magnet = if url.starts_with("magnet:") { Some(url.to_owned()) } else { bare_hash_magnet(url) };
-        if let Some(m) = magnet {
-            match parse_magnet_uri(&m) {
-                Ok(parsed) => {
-                    sources.push((TorrentSource::Magnet(m), torrent::hash_of(&parsed.info_hashes), None))
-                }
-                Err(_) => failures += 1,
-            }
-            continue;
-        }
-        match fetch::fetch(url) {
-            Ok(fetch::Fetched::Torrent(bytes)) => match TorrentInfo::from_bytes(&bytes) {
-                Ok(ti) => {
-                    let meta = meta_of(&ti);
-                    sources.push((
-                        TorrentSource::TorrentFile(bytes),
-                        torrent::hash_of(&ti.info_hashes()),
-                        Some(meta),
-                    ))
-                }
-                Err(_) => failures += 1,
-            },
-            Ok(fetch::Fetched::Magnet(m)) => match parse_magnet_uri(&m) {
-                Ok(parsed) => {
-                    sources.push((TorrentSource::Magnet(m), torrent::hash_of(&parsed.info_hashes), None))
-                }
-                Err(_) => failures += 1,
-            },
-            Err(_) => failures += 1,
+        if let Ok(s) = Source::from_url(url) {
+            sources.push(s);
         }
     }
     for f in &p.files {
-        match TorrentInfo::from_bytes(&f.data) {
-            Ok(ti) => {
-                let meta = meta_of(&ti);
-                sources.push((
-                    TorrentSource::TorrentFile(f.data.clone()),
-                    torrent::hash_of(&ti.info_hashes()),
-                    Some(meta),
-                ))
-            }
+        match Source::from_torrent_bytes(f.data.clone()) {
+            Ok(s) => sources.push(s),
             Err(_) => invalid_file = true,
         }
     }
@@ -1529,60 +1427,30 @@ fn add(shared: &Shared, p: &Params) -> Response {
         return if invalid_file {
             Response::text(415, "Torrent file is not valid.")
         } else {
-            let _ = failures;
             Response::text(200, "Fails.")
         };
     }
-    let mut st = shared.lock();
-    let save_path =
-        p.get("savepath").filter(|s| !s.trim().is_empty()).map_or(st.prefs.save_path.clone(), str::to_owned);
-    let category = p.get("category").map(str::trim).unwrap_or("").to_owned();
-    if !category.is_empty() && !st.categories.contains_key(&category) && valid_category(&category) {
-        st.categories.insert(category.clone(), String::new());
-        st.categories_version += 1;
-    }
-    let category_ok = !category.is_empty() && st.categories.contains_key(&category);
-    let paused = match (p.get("stopped").or(p.get("paused")), st.prefs.start_paused) {
-        (Some(v), _) => v.eq_ignore_ascii_case("true"),
-        (None, d) => d,
-    };
-    let mut flags = TorrentFlags::APPLY_IP_FILTER | TorrentFlags::NEED_SAVE_RESUME;
-    flags |= if paused { TorrentFlags::PAUSED } else { TorrentFlags::AUTO_MANAGED };
-    if p.flag("skip_checking") {
-        flags |= TorrentFlags::SEED_MODE;
-    }
-    if p.flag("sequentialDownload") {
-        flags |= TorrentFlags::SEQUENTIAL_DOWNLOAD;
-    }
+    let category = p.get("category").map(str::trim).unwrap_or("");
+    let start = p.get("stopped").or(p.get("paused")).map(|v| !v.eq_ignore_ascii_case("true"));
     let lim = |name: &str| p.int(name).map_or(0, |v| v.clamp(0, u32::MAX as i64) as u32);
-    for (source, hash, meta) in sources {
-        let mut params = AddTorrentParams::new(source, save_path.clone());
-        params.flags = flags;
-        params.name = p.get("rename").filter(|r| !r.is_empty()).map(str::to_owned);
-        params.download_limit = lim("dlLimit");
-        params.upload_limit = lim("upLimit");
-        if category_ok {
-            st.torrent_categories.insert(hash.clone(), category.clone());
-            st.touch(&hash);
+    let o = AddOptions {
+        save: p.get("savepath").map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned),
+        name: p.get("rename").map(str::trim).filter(|r| !r.is_empty()).map(str::to_owned),
+        label: if valid_category(category) { category.to_owned() } else { String::new() },
+        start,
+        skip_check: p.flag("skip_checking"),
+        top: false,
+        priorities: Default::default(),
+        sequential: p.flag("sequentialDownload"),
+        download_limit: lim("dlLimit"),
+        upload_limit: lim("upLimit"),
+    };
+    for source in sources {
+        if let Err(e) = commands::add(shared, source, &o) {
+            return Response::text(e.status, e.msg);
         }
-        if let Some(m) = meta {
-            st.meta.insert(hash, m);
-        }
-        shared.handle.add_torrent(params);
     }
-    shared.save(&st);
-    // Ask for the new torrents' status now rather than at the next refresh.
-    shared.handle.post_torrent_updates();
     Response::text(200, "Ok.")
-}
-
-fn meta_of(ti: &TorrentInfo) -> Meta {
-    Meta {
-        comment: ti.comment().to_owned(),
-        created_by: ti.creator().to_owned(),
-        creation_date: ti.creation_date(),
-        private: ti.is_private(),
-    }
 }
 
 #[cfg(test)]
@@ -1635,11 +1503,6 @@ mod tests {
         assert!(wildcard_match("*.lan", "nas.lan"));
         assert!(wildcard_match("n?s.*", "nas.lan"));
         assert!(!wildcard_match("*.lan", "nas.lan.evil"));
-        assert_eq!(
-            bare_hash_magnet(&"a".repeat(40)),
-            Some(format!("magnet:?xt=urn:btih:{}", "a".repeat(40)))
-        );
-        assert_eq!(bare_hash_magnet("xyz"), None);
         assert!(valid_category("tv/hd") && !valid_category("/tv") && !valid_category("a//b"));
     }
 }

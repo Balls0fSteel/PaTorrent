@@ -1,14 +1,22 @@
 // PaTorrent's Web UI: the µTorrent 2.2.1 main window on the native session protocol
 // (docs/WEBUI.md). The page holds only the visible window of rows; the server runs the
 // filtered, sorted list and sends formatted cells, and the detail pane's tab content the
-// same way. Commands still go to the compat shim (api/v2/...) until slice 5 brings the
-// native command endpoints.
+// same way. Commands are POSTs to the native endpoints (pa/...) with JSON bodies; the compat
+// shim (api/v2/...) is used only for the login and for reads the native API has no need of
+// yet (the context menu's check marks).
 "use strict";
 (() => {
   const ROW_H = 22; // must match --row-h in style.css (set below so they cannot drift)
   const OVERSCAN = 10;
   const MAX_WINDOW = 200;
   const LIMITS = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]; // kB/s, 0 = unlimited
+  // frontend::detail::PRIORITIES: the menu's order and the engine's values
+  const PRIORITIES = [
+    ["High Priority", 7],
+    ["Normal Priority", 4],
+    ["Low Priority", 1],
+    ["Don't Download", 0],
+  ];
   const GATE = location.hash === "#gate";
   const $ = (id) => document.getElementById(id);
 
@@ -121,7 +129,45 @@
       `(changed ${gate.tickChanged}) | hidden ${gate.hiddenMsgs} msgs/${gate.hiddenSecs.toFixed(0)} s | total ${total}`;
   }
 
-  // ---- shim calls ----------------------------------------------------------------------
+  // ---- the native commands (docs/WEBUI.md "Commands") --------------------------------------
+  // A JSON POST with the CSRF header; 204 on success, else {"error"} shown in the status bar.
+  // `body` may be a FormData (the uploads) instead of an object.
+  async function pa(path, body) {
+    const opts = { method: body === undefined ? "GET" : "POST", credentials: "same-origin", headers: { "X-Requested-With": "PaTorrent" } };
+    if (body instanceof FormData) opts.body = body;
+    else if (body !== undefined) {
+      opts.headers["Content-Type"] = "application/json";
+      opts.body = JSON.stringify(body);
+    }
+    const r = await fetch("pa/" + path, opts);
+    if (r.status === 403) {
+      let msg = "";
+      try {
+        msg = (await r.json()).error || "";
+      } catch (e) {
+        /* no body */
+      }
+      if (msg === "forbidden") {
+        showLogin();
+        throw new Error("forbidden");
+      }
+      flash(path + ": " + (msg || "forbidden"));
+      throw new Error(path + ": " + msg);
+    }
+    if (!r.ok) {
+      let msg = "";
+      try {
+        msg = (await r.json()).error || "";
+      } catch (e) {
+        /* no body */
+      }
+      flash(path + ": " + (msg || "HTTP " + r.status));
+      throw new Error(path + ": HTTP " + r.status);
+    }
+    return r.status === 204 ? null : r.json();
+  }
+
+  // ---- shim calls (login, and reads) ------------------------------------------------------
   async function api(path, form, raw) {
     const opts = { method: form ? "POST" : "GET", credentials: "same-origin" };
     if (form) opts.body = form instanceof FormData ? form : new URLSearchParams(form);
@@ -515,10 +561,7 @@
     const n = selAll ? total : sel.size;
     $("st-sel").textContent = n ? n + " selected" : "";
     const none = n === 0;
-    for (const b of document.querySelectorAll("#toolbar [data-cmd]")) {
-      if (b.dataset.cmd.startsWith("queue")) continue; // the shim has no queue moves yet
-      b.disabled = none;
-    }
+    for (const b of document.querySelectorAll("#toolbar [data-cmd]")) b.disabled = none;
   }
   function selectRange(a, b) {
     const lo = Math.min(a, b);
@@ -893,17 +936,16 @@
     } else if (ev.key === "Enter") body.focus();
   });
 
-  // ---- commands (the compat shim, until slice 5) ----------------------------------------
-  function unfiltered() {
-    return !filter.label && (filter.category || "all") === "all" && !search;
+  // ---- commands -------------------------------------------------------------------------
+  /// The view's filter as the server sees it (the `view` subscription's).
+  function viewFilter() {
+    return { category: filter.label ? "all" : filter.category || "all", label: filter.label || null, search };
   }
-  /// The `hashes` parameter for the selection: "all" when everything in an unfiltered view
-  /// is selected, else the selected ids (with Ctrl+A under a filter, the window's ids).
-  function selectedHashes() {
-    if (selAll && unfiltered()) return "all";
-    const set = new Set(sel);
-    if (selAll) for (const id of ids) set.add(id);
-    return set.size ? [...set].join("|") : null;
+  /// The selection for a command body: with Ctrl+A, "all" with the view's filter, so the
+  /// server acts on every matching torrent, not just the loaded window; else the ids.
+  function selection() {
+    if (selAll) return { all: true, filter: viewFilter() };
+    return sel.size ? { ids: [...sel] } : null;
   }
   function selectedCount() {
     return selAll ? total : sel.size;
@@ -918,23 +960,17 @@
     return selectedCount() + " torrents";
   }
   async function command(name, arg) {
-    const hashes = selectedHashes();
-    if (!hashes) return;
-    const form = { hashes };
+    const body = selection();
+    if (!body) return;
     let path;
     switch (name) {
       case "start":
-        path = "torrents/start";
-        break;
       case "force_start":
-        path = "torrents/setForceStart";
-        form.value = "true";
-        break;
       case "pause":
-        path = "torrents/pause";
-        break;
       case "stop":
-        path = "torrents/stop";
+      case "recheck":
+      case "reannounce":
+        path = "torrents/" + name.replace("_", "-");
         break;
       case "remove":
       case "remove_data": {
@@ -944,62 +980,65 @@
           ? "Remove " + what + " and delete the downloaded data?"
           : "Remove " + what + "? The downloaded files are kept.";
         if (!confirm(msg)) return;
-        path = "torrents/delete";
-        form.deleteFiles = data ? "true" : "false";
-        if (hashes !== "all") for (const id of hashes.split("|")) sel.delete(id);
-        if (hashes === "all") sel = new Set();
+        path = "torrents/remove";
+        body.data = data;
+        sel = new Set();
         selAll = false;
         cur = -1;
         setDetail(null);
         updateSelClasses();
         break;
       }
-      case "recheck":
-        path = "torrents/recheck";
-        break;
-      case "reannounce":
-        path = "torrents/reannounce";
+      case "queue_up":
+      case "queue_down":
+      case "queue_top":
+      case "queue_bottom":
+        path = "torrents/queue";
+        body.move = name.slice(6);
         break;
       case "superseed":
-        path = "torrents/setSuperSeeding";
-        form.value = arg ? "true" : "false";
+        path = "torrents/super-seed";
+        body.on = !!arg;
         break;
       case "dl_limit":
-        path = "torrents/setDownloadLimit";
-        form.limit = String(arg * 1024);
+        path = "torrents/limits";
+        body.down = arg * 1024;
         break;
       case "ul_limit":
-        path = "torrents/setUploadLimit";
-        form.limit = String(arg * 1024);
+        path = "torrents/limits";
+        body.up = arg * 1024;
         break;
       case "label":
-        path = "torrents/setCategory";
-        form.category = arg || "";
+        path = "torrents/label";
+        body.label = arg || "";
         break;
       case "label_new": {
         const l = prompt("New label:");
         if (!l || !l.trim()) return;
-        const name = l.trim();
-        try {
-          if (!labels.includes(name)) {
-            await api("torrents/createCategory", { category: name, savePath: "" });
-            labels.push(name);
-            labels.sort();
-            renderTree();
-          }
-          await api("torrents/setCategory", { hashes, category: name });
-        } catch (e) {
-          /* shown by api() */
+        const label = l.trim();
+        path = "torrents/label";
+        body.label = label;
+        if (!labels.includes(label)) {
+          labels.push(label);
+          labels.sort();
+          renderTree();
         }
-        return;
+        break;
+      }
+      case "location": {
+        const dir = prompt("Set Download Location\n\nMove the selected torrents' files to this folder on the server:");
+        if (!dir || !dir.trim()) return;
+        path = "torrents/location";
+        body.path = dir.trim();
+        break;
       }
       default:
         return;
     }
     try {
-      await api(path, form);
+      await pa(path, body);
     } catch (e) {
-      /* shown by api() */
+      /* shown by pa() */
     }
   }
   document.querySelectorAll("#toolbar [data-cmd]").forEach((b) => {
@@ -1019,10 +1058,10 @@
       { label: "Pause", run: () => command("pause") },
       { label: "Stop", run: () => command("stop") },
       "-",
-      { label: "Move Up Queue", ...dis("slice 5") },
-      { label: "Move Down Queue", ...dis("slice 5") },
-      { label: "Move to Top of Queue", ...dis("slice 5") },
-      { label: "Move to Bottom of Queue", ...dis("slice 5") },
+      { label: "Move Up Queue", run: () => command("queue_up") },
+      { label: "Move Down Queue", run: () => command("queue_down") },
+      { label: "Move to Top of Queue", run: () => command("queue_top") },
+      { label: "Move to Bottom of Queue", run: () => command("queue_bottom") },
       "-",
       { label: "Remove", run: () => command("remove") },
       { label: "Remove And", sub: [{ label: "Delete Data", run: () => command("remove_data") }] },
@@ -1033,7 +1072,7 @@
       {
         label: "Advanced",
         sub: [
-          { label: "Set Download Location...", ...dis("slice 5") },
+          { label: "Set Download Location...", run: () => command("location") },
           { label: "Initial Seeding", key: "superseed", run: (it) => command("superseed", !it.chk) },
         ],
       },
@@ -1065,10 +1104,10 @@
     }));
   }
   /// Check marks need the torrents' current limits, label and super-seeding flag, which the
-  /// cells do not carry: one shim call, applied while the menu is still open.
+  /// cells do not carry: one shim read (`torrents/info`), applied while the menu is still open.
   async function fillChecks(items) {
-    const hashes = selectedHashes();
-    if (!hashes || hashes === "all" || hashes.split("|").length > 100) return;
+    if (selAll || sel.size === 0 || sel.size > 100) return;
+    const hashes = [...sel].join("|");
     let info;
     try {
       info = JSON.parse(await api("torrents/info?hashes=" + encodeURIComponent(hashes)));
@@ -1111,9 +1150,17 @@
 
   // ---- menus ---------------------------------------------------------------------------
   const menus = []; // open menu elements, root first
+  /// Where menus live: inside the Add dialog while it is open (a modal dialog's top layer
+  /// covers the page and makes the rest of it inert), else the body.
+  function menuHost() {
+    const dlg = document.getElementById("add");
+    return dlg && dlg.open ? dlg : document.body;
+  }
   function openMenu(items, x, y) {
     closeMenu();
     const root = $("menu");
+    const host = menuHost();
+    if (root.parentNode !== host) host.appendChild(root);
     buildMenu(root, items);
     showMenuAt(root, x, y);
     menus.push(root);
@@ -1178,7 +1225,7 @@
   function openSub(parent, mi, items) {
     closeSubsOf(parent);
     const sub = document.createElement("div");
-    document.body.appendChild(sub);
+    menuHost().appendChild(sub);
     buildMenu(sub, items);
     const r = mi.getBoundingClientRect();
     let x = r.right - 2;
@@ -1493,16 +1540,13 @@
         ev.preventDefault();
         const sel = tabSel[tab];
         if (!sel.size) return;
-        const ids = [...sel].join("|");
-        const hash = id;
-        const prio = (p) => () => api("torrents/filePrio", { hash, id: ids, priority: String(p) }).catch(() => {});
+        const prio = (p) => () => {
+          const priorities = {};
+          for (const i of sel) priorities[i] = p;
+          pa("torrents/files", { id, priorities }).catch(() => {});
+        };
         openMenu(
-          [
-            { label: "High Priority", run: prio(7) },
-            { label: "Normal Priority", run: prio(1) },
-            { label: "Low Priority", dis: true, hint: "needs the native command (slice 5)" },
-            { label: "Don't Download", run: prio(0) },
-          ],
+          PRIORITIES.map(([label, p]) => ({ label, run: prio(p) })),
           ev.clientX,
           ev.clientY
         );
@@ -1762,30 +1806,421 @@
   });
   for (const t of $("tabs").children) t.classList.toggle("on", t.dataset.tab === detailTab);
 
-  // ---- toolbar: add --------------------------------------------------------------------
+  // ---- adding: the Add New Torrent dialog --------------------------------------------------
+  // A .torrent (the Add Torrent button, a drop) is parsed by the server first (pa/torrent-info)
+  // and shown in the 2.2.1 dialog: Save In, Name, the file tree with check boxes and
+  // priorities, Skip hash check, Start torrent, Add to top of queue, Label; OK uploads it with
+  // the choices (pa/add). A magnet or URL (Add URL, a drop, a paste) adds directly for now.
+  const addDlg = $("add");
+  const addQueue = []; // files waiting for their turn in the dialog
+  let addState = null; // {file, info, nodes, roots, files: [node per file index]}
+
+  /// frontend::fmt::size: binary units, three significant digits, "kB".
+  function fmtSize(bytes) {
+    if (bytes < 1024) return bytes + " B";
+    const units = ["B", "kB", "MB", "GB", "TB", "PB"];
+    let v = bytes;
+    let u = 0;
+    while (v >= 999.5 && u + 1 < units.length) {
+      v /= 1024;
+      u++;
+    }
+    const d = v >= 99.95 ? 0 : v >= 9.995 ? 1 : 2;
+    return v.toFixed(d) + " " + units[u];
+  }
+  function priorityText(p) {
+    return p === 0 ? "Don't Download" : p <= 3 ? "Low" : p === 4 ? "Normal" : "High";
+  }
+
   $("tb-add").addEventListener("click", () => $("file").click());
-  $("file").addEventListener("change", async (ev) => {
+  $("file").addEventListener("change", (ev) => {
     const files = [...ev.target.files];
     ev.target.value = "";
-    if (!files.length) return;
-    const fd = new FormData();
-    for (const f of files) fd.append("torrents", f, f.name);
-    try {
-      const text = await api("torrents/add", fd);
-      if (text !== "Ok.") flash("Add: " + text);
-    } catch (e) {
-      /* shown */
-    }
+    queueTorrents(files);
   });
-  $("tb-add-url").addEventListener("click", async () => {
+  $("tb-add-url").addEventListener("click", () => {
     const url = prompt("Add Torrent from URL\n\nPlease enter the location of the torrent you want to open (a URL or a magnet link):");
     if (!url || !url.trim()) return;
+    addUrl(url.trim());
+  });
+  function addUrl(url) {
+    pa("add", { url }).catch(() => {});
+  }
+  function queueTorrents(files) {
+    for (const f of files) addQueue.push(f);
+    if (!addDlg.open) nextAdd();
+  }
+  async function nextAdd() {
+    const file = addQueue.shift();
+    if (!file) return;
+    const fd = new FormData();
+    fd.append("torrent", file, file.name);
+    let info;
     try {
-      const text = await api("torrents/add", { urls: url.trim() });
-      if (text !== "Ok.") flash("Add: " + text);
+      info = await pa("torrent-info", fd);
     } catch (e) {
-      /* shown */
+      nextAdd();
+      return;
     }
+    let setup = { save_in: [""], labels, start: true, show_dialog: true };
+    try {
+      setup = await pa("add");
+    } catch (e) {
+      /* the defaults */
+    }
+    if (setup.show_dialog === false) {
+      // the server's preference: no dialog, the defaults
+      const out = new FormData();
+      out.append("torrent", file, file.name);
+      out.append("options", JSON.stringify({}));
+      pa("add", out).catch(() => {});
+      nextAdd();
+      return;
+    }
+    openAddDialog(file, info, setup);
+  }
+
+  // drag-and-drop of .torrent files and magnet text, and a pasted magnet
+  document.addEventListener("dragover", (ev) => {
+    ev.preventDefault();
+    ev.dataTransfer.dropEffect = "copy";
+  });
+  document.addEventListener("drop", (ev) => {
+    ev.preventDefault();
+    const files = [...(ev.dataTransfer.files || [])].filter((f) => /\.torrent$/i.test(f.name) || f.type === "application/x-bittorrent");
+    if (files.length) {
+      queueTorrents(files);
+      return;
+    }
+    const text = (ev.dataTransfer.getData("text/uri-list") || ev.dataTransfer.getData("text/plain") || "").trim();
+    if (/^magnet:/i.test(text) || /^https?:\/\//i.test(text)) addUrl(text);
+  });
+  document.addEventListener("paste", (ev) => {
+    const t = ev.target;
+    if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.isContentEditable)) return;
+    const text = (ev.clipboardData.getData("text/plain") || "").trim();
+    if (/^magnet:/i.test(text)) {
+      ev.preventDefault();
+      addUrl(text);
+    }
+  });
+
+  // the file tree: folders before the files of their parent, as the torrent lists them
+  function buildTree(files) {
+    const nodes = [];
+    const roots = [];
+    const byFile = [];
+    const dirs = new Map(); // parent index + "/" + name -> node index
+    for (const f of files) {
+      const parts = f.path.split("/").filter((x) => x);
+      let parent = -1;
+      for (let d = 0; d < parts.length - 1; d++) {
+        const key = parent + "/" + parts[d];
+        let n = dirs.get(key);
+        if (n === undefined) {
+          n = nodes.length;
+          nodes.push({ name: parts[d], depth: d, parent, dir: true, children: [], expanded: true });
+          (parent < 0 ? roots : nodes[parent].children).push(n);
+          dirs.set(key, n);
+        }
+        parent = n;
+      }
+      const n = nodes.length;
+      nodes.push({ name: parts[parts.length - 1] || f.path, depth: parts.length - 1, parent, dir: false, i: f.i, size: f.size, wanted: true, prio: 4 });
+      (parent < 0 ? roots : nodes[parent].children).push(n);
+      byFile.push(n);
+    }
+    return { nodes, roots, byFile };
+  }
+  /// Folder summaries: files, wanted, size, the one priority of the wanted files (or null).
+  function summarize(tree) {
+    const { nodes } = tree;
+    for (let n = nodes.length - 1; n >= 0; n--) {
+      const node = nodes[n];
+      if (node.dir) {
+        let files = 0;
+        let wanted = 0;
+        let size = 0;
+        let prio = null;
+        let mixed = false;
+        for (const c of node.children) {
+          const ch = nodes[c];
+          files += ch.dir ? ch.files : 1;
+          const w = ch.dir ? ch.wanted : ch.wanted ? 1 : 0;
+          wanted += w;
+          size += ch.dir ? ch.size : ch.size;
+          if (w > 0) {
+            const p = ch.dir ? ch.prio : ch.prio;
+            if (ch.dir && ch.mixed) mixed = true;
+            else if (prio === null) prio = p;
+            else if (prio !== p) mixed = true;
+          }
+        }
+        node.files = files;
+        node.wanted = wanted;
+        node.size = size;
+        node.prio = prio;
+        node.mixed = mixed;
+      }
+    }
+  }
+  function filesOf(tree, n, out) {
+    const node = tree.nodes[n];
+    if (node.dir) for (const c of node.children) filesOf(tree, c, out);
+    else out.push(node);
+    return out;
+  }
+  function visibleRows(tree) {
+    const rows = [];
+    const walk = (n) => {
+      rows.push(n);
+      const node = tree.nodes[n];
+      if (node.dir && node.expanded) for (const c of node.children) walk(c);
+    };
+    for (const r of tree.roots) walk(r);
+    return rows;
+  }
+
+  function openAddDialog(file, info, setup) {
+    const tree = buildTree(info.files || []);
+    summarize(tree);
+    addState = { file, info, tree, sel: new Set(), anchor: -1 };
+    const dirs = $("add-dirs");
+    dirs.textContent = "";
+    for (const d of setup.save_in || []) {
+      const o = document.createElement("option");
+      o.value = d;
+      dirs.appendChild(o);
+    }
+    $("add-save").value = (setup.save_in || [""])[0] || "";
+    const ls = $("add-labels");
+    ls.textContent = "";
+    for (const l of setup.labels || labels) {
+      const o = document.createElement("option");
+      o.value = l;
+      ls.appendChild(o);
+    }
+    $("add-label").value = "";
+    $("add-name").value = info.name || "";
+    $("add-skip").checked = false;
+    $("add-start").checked = setup.start !== false;
+    $("add-top").checked = false;
+    setText("add-t-name", info.name || "");
+    setText("add-t-comment", info.comment || "");
+    setText("add-t-date", info.date_text || "");
+    renderAddFiles();
+    addDlg.showModal();
+    $("add-ok").focus();
+  }
+  function closeAddDialog() {
+    if (addDlg.open) addDlg.close();
+    addState = null;
+    $("add-files").textContent = "";
+    nextAdd();
+  }
+  /// The rows: a check box, the name indented by depth with a toggle for folders, the size,
+  /// the priority; folders show Mixed when their files differ. Rebuilt whole: the dialog is
+  /// modal and the tree small compared with the list.
+  function renderAddFiles() {
+    const st = addState;
+    if (!st) return;
+    const { tree } = st;
+    const el = $("add-files");
+    el.textContent = "";
+    const table = document.createElement("table");
+    table.className = "dt af";
+    const thead = document.createElement("thead");
+    const hr = document.createElement("tr");
+    for (const [title, cls] of [["", "c"], ["Name", ""], ["Size", "r"], ["Priority", ""]]) {
+      const th = document.createElement("th");
+      th.textContent = title;
+      if (cls) th.className = cls;
+      hr.appendChild(th);
+    }
+    thead.appendChild(hr);
+    const tbody = document.createElement("tbody");
+    for (const n of visibleRows(tree)) {
+      const node = tree.nodes[n];
+      const tr = document.createElement("tr");
+      tr.dataset.n = n;
+      if (st.sel.has(n)) tr.className = "sel";
+      const tdc = document.createElement("td");
+      tdc.className = "c";
+      const cb = document.createElement("input");
+      cb.type = "checkbox";
+      cb.tabIndex = -1;
+      if (node.dir) {
+        cb.checked = node.wanted > 0 && node.wanted === node.files;
+        cb.indeterminate = node.wanted > 0 && node.wanted < node.files;
+      } else cb.checked = node.wanted;
+      tdc.appendChild(cb);
+      const tdn = document.createElement("td");
+      tdn.className = "n";
+      tdn.style.paddingLeft = 6 + node.depth * 16 + "px";
+      if (node.dir) {
+        const tg = document.createElement("span");
+        tg.className = "tg";
+        tg.textContent = node.expanded ? "▾" : "▸";
+        tdn.appendChild(tg);
+      } else {
+        const sp = document.createElement("span");
+        sp.className = "tg";
+        tdn.appendChild(sp);
+      }
+      tdn.appendChild(document.createTextNode(node.name));
+      tdn.title = node.name;
+      const tds = document.createElement("td");
+      tds.className = "r";
+      tds.textContent = fmtSize(node.size);
+      const tdp = document.createElement("td");
+      tdp.textContent = node.dir ? (node.wanted === 0 ? "Don't Download" : node.mixed || node.wanted < node.files ? "Mixed" : priorityText(node.prio)) : priorityText(node.wanted ? node.prio : 0);
+      tr.append(tdc, tdn, tds, tdp);
+      tbody.appendChild(tr);
+    }
+    table.append(thead, tbody);
+    el.appendChild(table);
+    updateAddSize();
+  }
+  function updateAddSize() {
+    const { tree, info } = addState;
+    let sel = 0;
+    for (const node of tree.nodes) if (!node.dir && node.wanted) sel += node.size;
+    const all = info.size || 0;
+    setText("add-t-size", sel === all ? fmtSize(all) : fmtSize(sel) + " of " + fmtSize(all) + " selected");
+  }
+  function setChecks(nodesIdx, on) {
+    const { tree } = addState;
+    for (const n of nodesIdx) for (const f of filesOf(tree, n, [])) f.wanted = on;
+    summarize(tree);
+    renderAddFiles();
+  }
+  function setPriority(nodesIdx, p) {
+    const { tree } = addState;
+    for (const n of nodesIdx) {
+      for (const f of filesOf(tree, n, [])) {
+        if (p === 0) f.wanted = false;
+        else {
+          f.wanted = true;
+          f.prio = p;
+        }
+      }
+    }
+    summarize(tree);
+    renderAddFiles();
+  }
+  $("add-files").addEventListener("click", (ev) => {
+    const tr = ev.target.closest("tr[data-n]");
+    if (!tr || !addState) return;
+    const n = Number(tr.dataset.n);
+    const node = addState.tree.nodes[n];
+    if (ev.target.tagName === "INPUT") {
+      // the check box: a row fully on turns off, anything else turns on; with the row
+      // selected among others, all of them follow
+      const rows = addState.sel.has(n) ? [...addState.sel] : [n];
+      const on = node.dir ? !(node.wanted === node.files) : !node.wanted;
+      setChecks(rows, on);
+      return;
+    }
+    if (ev.target.classList.contains("tg") && node.dir) {
+      node.expanded = !node.expanded;
+      renderAddFiles();
+      return;
+    }
+    const st = addState;
+    if (ev.ctrlKey || ev.metaKey) {
+      if (st.sel.has(n)) st.sel.delete(n);
+      else st.sel.add(n);
+      st.anchor = n;
+    } else if (ev.shiftKey && st.anchor >= 0) {
+      const rows = visibleRows(st.tree);
+      const a = rows.indexOf(st.anchor);
+      const b = rows.indexOf(n);
+      st.sel = new Set(rows.slice(Math.min(a, b), Math.max(a, b) + 1));
+    } else {
+      st.sel = new Set([n]);
+      st.anchor = n;
+    }
+    for (const r of $("add-files").querySelectorAll("tr[data-n]")) r.classList.toggle("sel", st.sel.has(Number(r.dataset.n)));
+  });
+  $("add-files").addEventListener("dblclick", (ev) => {
+    const tr = ev.target.closest("tr[data-n]");
+    if (!tr || !addState || ev.target.tagName === "INPUT") return;
+    const node = addState.tree.nodes[Number(tr.dataset.n)];
+    if (node.dir) {
+      node.expanded = !node.expanded;
+      renderAddFiles();
+    }
+  });
+  $("add-files").addEventListener("contextmenu", (ev) => {
+    ev.preventDefault();
+    const tr = ev.target.closest("tr[data-n]");
+    if (!tr || !addState) return;
+    const n = Number(tr.dataset.n);
+    const st = addState;
+    if (!st.sel.has(n)) {
+      st.sel = new Set([n]);
+      st.anchor = n;
+      for (const r of $("add-files").querySelectorAll("tr[data-n]")) r.classList.toggle("sel", st.sel.has(Number(r.dataset.n)));
+    }
+    const rows = [...st.sel];
+    openMenu(
+      [
+        ...PRIORITIES.map(([label, p]) => ({ label, run: () => setPriority(rows, p) })),
+        "-",
+        { label: "Check", run: () => setChecks(rows, true) },
+        { label: "Uncheck", run: () => setChecks(rows, false) },
+      ],
+      ev.clientX,
+      ev.clientY
+    );
+  });
+  $("add-all").addEventListener("click", () => addState && setChecks(addState.tree.roots, true));
+  $("add-none").addEventListener("click", () => addState && setChecks(addState.tree.roots, false));
+  $("add-cancel").addEventListener("click", closeAddDialog);
+  addDlg.addEventListener("cancel", (ev) => {
+    ev.preventDefault();
+    closeAddDialog();
+  });
+  $("add-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const st = addState;
+    if (!st) return;
+    const save = $("add-save").value.trim();
+    if (!save) {
+      $("add-save").focus();
+      flash("Please choose the folder to save the torrent in.");
+      return;
+    }
+    const options = {
+      save,
+      label: $("add-label").value.trim(),
+      start: $("add-start").checked,
+      skip_check: $("add-skip").checked,
+      top: $("add-top").checked,
+      priorities: {},
+    };
+    const name = $("add-name").value.trim();
+    if (name && name !== st.info.name) options.name = name;
+    for (const node of st.tree.nodes) {
+      if (node.dir) continue;
+      const p = node.wanted ? node.prio : 0;
+      if (p !== 4) options.priorities[node.i] = p;
+    }
+    const fd = new FormData();
+    fd.append("torrent", st.file, st.file.name);
+    fd.append("options", JSON.stringify(options));
+    try {
+      await pa("add", fd);
+    } catch (e) {
+      return; // shown; the dialog stays so the choice is not lost
+    }
+    if (options.label && !labels.includes(options.label)) {
+      // a new label: the tree learns it now rather than at the next hello
+      labels.push(options.label);
+      labels.sort();
+      renderTree();
+    }
+    closeAddDialog();
   });
 
   // ---- splitters -----------------------------------------------------------------------

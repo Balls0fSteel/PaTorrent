@@ -6,7 +6,9 @@
 //! frames with a raw socket client, and the session protocol (`hello`, `view` / `rows`,
 //! `tick` diffs, `idle`) against the real engine and the 10,000-torrent mock profile, and the
 //! detail tabs (`detail` subscriptions: General, Trackers, Files, Pieces, Speed, Peers) plus
-//! `sync/torrentPeers` through the shim.
+//! `sync/torrentPeers` through the shim, and the native commands (`POST /pa/...`: start /
+//! pause / stop in the cells, queue moves, limits, labels, "all" under a filter, remove with
+//! data, the two-step add with the file tree, a magnet, the session limits, CSRF).
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -42,6 +44,11 @@ fn torrent() -> (Vec<u8>, String) {
 /// The same torrent with a tracker (another info-hash is not needed: the tracker is outside
 /// the info dictionary).
 fn torrent_with(tracker: Option<&str>) -> (Vec<u8>, String) {
+    torrent_named("webui-test", tracker)
+}
+
+/// The two-file torrent under another name (so another info-hash).
+fn torrent_named(name: &str, tracker: Option<&str>) -> (Vec<u8>, String) {
     let piece = 16 * 1024;
     let sizes = [("a.bin", 40_000usize), ("b.bin", 10_000)];
     let total: usize = sizes.iter().map(|s| s.1).sum();
@@ -56,7 +63,7 @@ fn torrent_with(tracker: Option<&str>) -> (Vec<u8>, String) {
         list.list_mut().push(f);
     }
     *info.key("files") = list;
-    *info.key("name") = Entry::Bytes(b"webui-test".to_vec());
+    *info.key("name") = Entry::Bytes(name.as_bytes().to_vec());
     *info.key("piece length") = Entry::Int(piece as i64);
     *info.key("pieces") = Entry::Bytes(pieces);
     let hash = Sha1::digest(&info.bencode()).to_hex();
@@ -179,10 +186,47 @@ impl Harness {
         self.req("POST", path, &[("Cookie", sid)], Body::Form(form))
     }
 
+    /// A native command: a JSON body with the CSRF header and a same-origin `Origin`.
+    fn pa(&self, sid: &str, path: &str, body: &str) -> Resp {
+        let origin = format!("http://{}", self.host());
+        self.req(
+            "POST",
+            path,
+            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "PaTorrent")],
+            Body::Json(body),
+        )
+    }
+
+    /// A native upload (`/pa/add`, `/pa/torrent-info`): the torrent as the `torrent` part and
+    /// the options JSON as the `options` part.
+    fn pa_upload(&self, sid: &str, path: &str, options: &str, torrent: &[u8]) -> Resp {
+        let (body, boundary) = multipart_named(&[("options", options)], "torrent", torrent);
+        let origin = format!("http://{}", self.host());
+        self.req(
+            "POST",
+            path,
+            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "PaTorrent")],
+            Body::Multipart(&body, boundary),
+        )
+    }
+
     fn maindata(&self, sid: &str, rid: i64) -> Json {
         let r = self.get(sid, &format!("/api/v2/sync/maindata?rid={rid}"));
         assert_eq!(r.status, 200);
         r.json()
+    }
+
+    /// Polls `torrents/info` until the torrent is gone.
+    fn wait_for_gone(&self, sid: &str, hash: &str) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            let list = self.get(sid, &format!("/api/v2/torrents/info?hashes={hash}")).json();
+            if matches!(&list, Json::Arr(v) if v.is_empty()) {
+                return;
+            }
+            assert!(Instant::now() < deadline, "{hash} still listed: {}", list.to_json());
+            std::thread::sleep(Duration::from_millis(50));
+        }
     }
 
     /// Polls `torrents/info` until `f` holds for the torrent.
@@ -219,6 +263,7 @@ impl Drop for Harness {
 enum Body<'a> {
     None,
     Form(&'a str),
+    Json(&'a str),
     Multipart(&'a [u8], &'a str),
 }
 
@@ -242,6 +287,10 @@ fn raw_request(
         Body::Form(f) => {
             r.push_str("Content-Type: application/x-www-form-urlencoded\r\n");
             f.as_bytes()
+        }
+        Body::Json(j) => {
+            r.push_str("Content-Type: application/json\r\n");
+            j.as_bytes()
         }
         Body::Multipart(b, boundary) => {
             r.push_str(&format!("Content-Type: multipart/form-data; boundary={boundary}\r\n"));
@@ -292,6 +341,10 @@ fn parse_response(buf: &[u8]) -> (Resp, usize) {
 }
 
 fn multipart(fields: &[(&str, &str)], torrent: &[u8]) -> (Vec<u8>, &'static str) {
+    multipart_named(fields, "torrents", torrent)
+}
+
+fn multipart_named(fields: &[(&str, &str)], file_part: &str, torrent: &[u8]) -> (Vec<u8>, &'static str) {
     let b = "----noxtestboundary";
     let mut out = Vec::new();
     for (n, v) in fields {
@@ -301,7 +354,7 @@ fn multipart(fields: &[(&str, &str)], torrent: &[u8]) -> (Vec<u8>, &'static str)
     }
     out.extend_from_slice(
         format!(
-            "--{b}\r\nContent-Disposition: form-data; name=\"torrents\"; filename=\"t.torrent\"\r\n\
+            "--{b}\r\nContent-Disposition: form-data; name=\"{file_part}\"; filename=\"t.torrent\"\r\n\
 Content-Type: application/x-bittorrent\r\n\r\n"
         )
         .as_bytes(),
@@ -1052,6 +1105,36 @@ impl Ws {
     }
 }
 
+/// Reads ticks (and rows) until the cells for `hash` satisfy `f`; the cells are the view's
+/// columns in order. Cells arrive only when a row changed, so the last ones seen are kept.
+fn cells_until(
+    ws: &mut Ws,
+    seen: &mut std::collections::HashMap<String, Vec<String>>,
+    hash: &str,
+    what: &str,
+    f: impl Fn(&[String], &str) -> bool,
+) -> Vec<String> {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        if let Some(c) = seen.get(hash) {
+            let state = seen.get(&format!("{hash}:state")).map_or("", |v| v[0].as_str()).to_owned();
+            if f(c, &state) {
+                return c.clone();
+            }
+        }
+        let m = ws.recv_json();
+        assert!(s(m.get("t")) != "error", "{}", m.to_json());
+        if let Some(cells) = m.get("cells") {
+            for (h, cell) in cells.entries() {
+                let Some(Json::Arr(c)) = cell.get("c") else { continue };
+                seen.insert(h.clone(), c.iter().map(|x| s(Some(x)).to_owned()).collect());
+                seen.insert(format!("{h}:state"), vec![s(cell.get("state")).to_owned()]);
+            }
+        }
+        assert!(Instant::now() < deadline, "timed out waiting for {what}; cells: {:?}", seen.get(hash));
+    }
+}
+
 fn ids_of(m: &Json) -> Vec<String> {
     match m.get("ids") {
         Some(Json::Arr(v)) => v.iter().map(|x| s(Some(x)).to_owned()).collect(),
@@ -1728,4 +1811,364 @@ fn peers_tab_and_sync_torrent_peers_on_the_mock() {
     assert!(
         raw[0].get("k").is_some_and(|k| matches!(k, Json::Arr(v) if v.len() == 9 && v[3].as_i64().is_some()))
     );
+}
+
+#[test]
+fn native_commands_against_the_engine() {
+    let t = Harness::start("commands");
+    let sid = t.login();
+    let (a_bytes, a) = torrent_named("alpha", None);
+    let (b_bytes, b) = torrent_named("bravo", None);
+    let (c_bytes, c) = torrent_named("charlie", None);
+    // data on disk for bravo, so "remove with data" has something to delete
+    let bravo_dir = t.dir.join("dl").join("bravo");
+    std::fs::create_dir_all(&bravo_dir).unwrap();
+    std::fs::write(bravo_dir.join("a.bin"), vec![1u8; 40_000]).unwrap();
+    for bytes in [&a_bytes, &b_bytes, &c_bytes] {
+        let r = t.pa_upload(&sid, "/pa/add", r#"{"start":true}"#, bytes);
+        assert_eq!((r.status, r.text().as_str()), (204, ""));
+    }
+    for h in [&a, &b, &c] {
+        t.wait_for(&sid, h, "the added torrent", |x| {
+            x.get("priority").is_some_and(|q| q.as_i64().unwrap_or(0) >= 1)
+        });
+    }
+
+    // the cells of a view sorted by name: name, status, #, Down Limit, Up Limit, Label
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_text(r#"{"t":"view","sort":["name",false],"columns":["name","status","queue_position","down_limit","up_limit","label"],"window":[0,10]}"#);
+    let rows = ws.recv_json();
+    assert_eq!(s(rows.get("t")), "rows");
+    assert_eq!(ids_of(&rows), [a.clone(), b.clone(), c.clone()]);
+    let mut seen = std::collections::HashMap::new();
+    for (h, cell) in rows.get("cells").unwrap().entries() {
+        let Some(Json::Arr(cc)) = cell.get("c") else { panic!() };
+        seen.insert(h.clone(), cc.iter().map(|x| s(Some(x)).to_owned()).collect::<Vec<_>>());
+        seen.insert(format!("{h}:state"), vec![s(cell.get("state")).to_owned()]);
+    }
+    let a_cells = cells_until(&mut ws, &mut seen, &a, "alpha running", |c, _| {
+        c[1] == "Downloading" || c[1] == "Queued"
+    });
+    assert_eq!(a_cells[2], "1", "queue positions follow the add order: {a_cells:?}");
+
+    // Pause shows as Paused (the user-paused record), Stop as Stopped, Start runs again
+    let r = t.pa(&sid, "/pa/torrents/pause", &format!(r#"{{"ids":["{a}"]}}"#));
+    assert_eq!((r.status, r.text().as_str()), (204, ""));
+    cells_until(&mut ws, &mut seen, &a, "Paused", |c, state| c[1] == "Paused" && state == "paused");
+    assert_eq!(
+        t.pa(&sid, "/pa/torrents/stop", &format!(r#"{{"ids":["{}"]}}"#, a.to_uppercase())).status,
+        204
+    );
+    cells_until(&mut ws, &mut seen, &a, "Stopped", |c, state| c[1] == "Stopped" && state == "stopped");
+    assert_eq!(t.pa(&sid, "/pa/torrents/start", &format!(r#"{{"ids":["{a}"]}}"#)).status, 204);
+    cells_until(&mut ws, &mut seen, &a, "running again", |c, state| {
+        c[1] != "Stopped" && c[1] != "Paused" && state != "stopped"
+    });
+    // the shim's stop is µTorrent's Stop too, and clears a Pause
+    assert_eq!(t.pa(&sid, "/pa/torrents/pause", &format!(r#"{{"ids":["{a}"]}}"#)).status, 204);
+    cells_until(&mut ws, &mut seen, &a, "Paused", |c, _| c[1] == "Paused");
+    assert_eq!(t.post(&sid, "/api/v2/torrents/stop", &format!("hashes={a}")).status, 200);
+    cells_until(&mut ws, &mut seen, &a, "Stopped by the shim", |c, _| c[1] == "Stopped");
+    assert_eq!(t.pa(&sid, "/pa/torrents/force-start", &format!(r#"{{"ids":["{a}"]}}"#)).status, 204);
+    cells_until(&mut ws, &mut seen, &a, "[F]", |c, _| c[1].starts_with("[F] "));
+    assert_eq!(t.pa(&sid, "/pa/torrents/start", &format!(r#"{{"ids":["{a}"]}}"#)).status, 204);
+    cells_until(&mut ws, &mut seen, &a, "back in the queue", |c, _| !c[1].starts_with("[F]"));
+
+    // queue moves on three torrents: charlie to the top, then bravo down below it
+    assert_eq!(t.pa(&sid, "/pa/torrents/queue", &format!(r#"{{"ids":["{c}"],"move":"top"}}"#)).status, 204);
+    cells_until(&mut ws, &mut seen, &c, "charlie first", |c, _| c[2] == "1");
+    cells_until(&mut ws, &mut seen, &a, "alpha second", |c, _| c[2] == "2");
+    cells_until(&mut ws, &mut seen, &b, "bravo third", |c, _| c[2] == "3");
+    assert_eq!(
+        t.pa(&sid, "/pa/torrents/queue", &format!(r#"{{"ids":["{a}","{b}"],"move":"up"}}"#)).status,
+        204
+    );
+    cells_until(&mut ws, &mut seen, &a, "alpha first", |c, _| c[2] == "1");
+    cells_until(&mut ws, &mut seen, &b, "bravo second", |c, _| c[2] == "2");
+    cells_until(&mut ws, &mut seen, &c, "charlie last", |c, _| c[2] == "3");
+    assert_eq!(
+        t.pa(&sid, "/pa/torrents/queue", &format!(r#"{{"ids":["{a}"],"move":"bottom"}}"#)).status,
+        204
+    );
+    cells_until(&mut ws, &mut seen, &a, "alpha last", |c, _| c[2] == "3");
+    assert_eq!(
+        t.pa(&sid, "/pa/torrents/queue", &format!(r#"{{"ids":["{a}"],"move":"sideways"}}"#)).status,
+        400
+    );
+
+    // limits read back in the cells (and through the shim)
+    assert_eq!(
+        t.pa(&sid, "/pa/torrents/limits", &format!(r#"{{"ids":["{a}"],"down":2048,"up":1024}}"#)).status,
+        204
+    );
+    cells_until(&mut ws, &mut seen, &a, "limits", |c, _| c[3] == "2.0 kB/s" && c[4] == "1.0 kB/s");
+    assert_eq!(
+        t.post(&sid, "/api/v2/torrents/uploadLimit", &format!("hashes={a}")).json().get(&a),
+        Some(&Json::Int(1024))
+    );
+    assert_eq!(t.pa(&sid, "/pa/torrents/limits", &format!(r#"{{"ids":["{a}"],"down":0}}"#)).status, 204);
+    cells_until(&mut ws, &mut seen, &a, "unlimited down", |c, _| c[3].is_empty() && c[4] == "1.0 kB/s");
+    assert_eq!(t.pa(&sid, "/pa/torrents/limits", &format!(r#"{{"ids":["{a}"]}}"#)).status, 400);
+    assert_eq!(t.pa(&sid, "/pa/torrents/limits", &format!(r#"{{"ids":["{a}"],"down":-5}}"#)).status, 400);
+
+    // a label (created on the fly) in the cell and the shim's categories
+    assert_eq!(t.pa(&sid, "/pa/torrents/label", &format!(r#"{{"ids":["{a}"],"label":"tv"}}"#)).status, 204);
+    cells_until(&mut ws, &mut seen, &a, "label", |c, _| c[5] == "tv");
+    assert!(t.get(&sid, "/api/v2/torrents/categories").json().get("tv").is_some());
+    assert_eq!(t.pa(&sid, "/pa/torrents/label", &format!(r#"{{"ids":["{a}"],"label":"/bad"}}"#)).status, 400);
+
+    // "all" with the view's filter: only the labelled torrent stops
+    assert_eq!(
+        t.pa(
+            &sid,
+            "/pa/torrents/stop",
+            r#"{"all":true,"filter":{"category":"all","label":"tv","search":""}}"#
+        )
+        .status,
+        204
+    );
+    cells_until(&mut ws, &mut seen, &a, "alpha stopped by the filter", |c, _| c[1] == "Stopped");
+    let b_cells = cells_until(&mut ws, &mut seen, &b, "bravo", |_, _| true);
+    assert_ne!(b_cells[1], "Stopped", "bravo has no label: {b_cells:?}");
+    // a search that matches nothing is fine; every torrent otherwise
+    assert_eq!(t.pa(&sid, "/pa/torrents/stop", r#"{"all":true,"filter":{"search":"zzz"}}"#).status, 204);
+    assert_eq!(t.pa(&sid, "/pa/torrents/pause", r#"{"all":true,"filter":{"search":"ARL"}}"#).status, 204);
+    cells_until(&mut ws, &mut seen, &c, "charlie paused by the search", |c, _| c[1] == "Paused");
+    assert_eq!(t.pa(&sid, "/pa/torrents/start", r#"{"all":true}"#).status, 204);
+    cells_until(&mut ws, &mut seen, &c, "charlie running", |c, _| c[1] != "Paused");
+    cells_until(&mut ws, &mut seen, &a, "alpha running", |c, _| c[1] != "Stopped");
+
+    // super seeding, recheck, reannounce, location: accepted
+    assert_eq!(t.pa(&sid, "/pa/torrents/super-seed", &format!(r#"{{"ids":["{a}"],"on":true}}"#)).status, 204);
+    assert_eq!(t.pa(&sid, "/pa/torrents/recheck", &format!(r#"{{"ids":["{a}"]}}"#)).status, 204);
+    assert_eq!(t.pa(&sid, "/pa/torrents/reannounce", &format!(r#"{{"ids":["{a}"]}}"#)).status, 204);
+    let moved = t.dir.join("moved").to_string_lossy().replace('\\', "\\\\");
+    assert_eq!(
+        t.pa(&sid, "/pa/torrents/location", &format!(r#"{{"ids":["{c}"],"path":"{moved}"}}"#)).status,
+        204
+    );
+    t.wait_for(&sid, &c, "charlie moved", |x| s(x.get("save_path")).contains("moved"));
+    assert_eq!(t.pa(&sid, "/pa/torrents/location", &format!(r#"{{"ids":["{c}"],"path":" "}}"#)).status, 400);
+
+    // errors: an unknown id, a missing command, a body that is not JSON
+    let r = t.pa(&sid, "/pa/torrents/start", r#"{"ids":["0000000000000000000000000000000000000000"]}"#);
+    assert_eq!(r.status, 404);
+    assert_eq!(r.header("content-type"), Some("application/json"));
+    assert_eq!(s(r.json().get("error")), "no such torrent");
+    assert_eq!(t.pa(&sid, "/pa/torrents/explode", &format!(r#"{{"ids":["{a}"]}}"#)).status, 404);
+    assert_eq!(t.pa(&sid, "/pa/torrents/start", "nope").status, 400);
+    assert_eq!(t.pa(&sid, "/pa/torrents/start", "{}").status, 400);
+    assert_eq!(
+        t.req(
+            "POST",
+            "/pa/torrents/start",
+            &[("Cookie", &sid), ("X-Requested-With", "PaTorrent")],
+            Body::Form("ids=x")
+        )
+        .status,
+        415
+    );
+    assert_eq!(t.get(&sid, "/pa/torrents/start").status, 405);
+
+    // remove with data: bravo's files go
+    assert!(bravo_dir.join("a.bin").exists());
+    assert_eq!(t.pa(&sid, "/pa/torrents/remove", &format!(r#"{{"ids":["{b}"],"data":true}}"#)).status, 204);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while bravo_dir.join("a.bin").exists() {
+        assert!(Instant::now() < deadline, "bravo's data was not deleted");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    t.wait_for_gone(&sid, &b);
+    assert_eq!(
+        t.pa(&sid, "/pa/torrents/remove", &format!(r#"{{"ids":["{a}","{c}"],"data":false}}"#)).status,
+        204
+    );
+    t.wait_for_gone(&sid, &a);
+    t.wait_for_gone(&sid, &c);
+}
+
+#[test]
+fn native_add_dialog_flow_and_magnet() {
+    let t = Harness::start("native-add");
+    let sid = t.login();
+    let (bytes, hash) = torrent();
+
+    // step one: the Add dialog's Torrent Contents, nothing added
+    let r = t.pa_upload(&sid, "/pa/torrent-info", "{}", &bytes);
+    assert_eq!(r.status, 200, "{}", r.text());
+    let info = r.json();
+    assert_eq!(s(info.get("name")), "webui-test");
+    assert_eq!(s(info.get("comment")), "made for a test");
+    assert_eq!(s(info.get("created_by")), "the test");
+    assert_eq!(info.get("size"), Some(&Json::Int(50_000)));
+    assert_eq!(s(info.get("size_text")), "48.8 kB");
+    assert_eq!(info.get("date"), Some(&Json::Int(951_782_400)));
+    assert_eq!(s(info.get("date_text")), "2000-02-29 00:00:00");
+    assert_eq!(s(info.get("hash")), hash);
+    let Some(Json::Arr(files)) = info.get("files") else { panic!("{}", info.to_json()) };
+    assert_eq!(files.len(), 2);
+    assert_eq!(
+        (files[0].get("i"), s(files[0].get("path")), files[0].get("size")),
+        (Some(&Json::Int(0)), "a.bin", Some(&Json::Int(40_000)))
+    );
+    assert_eq!((s(files[1].get("path")), s(files[1].get("text"))), ("b.bin", "9.77 kB"));
+    assert_eq!(t.get(&sid, "/api/v2/torrents/info").json(), Json::Arr(vec![]), "torrent-info adds nothing");
+    let r = t.pa_upload(&sid, "/pa/torrent-info", "{}", b"not a torrent");
+    assert_eq!(r.status, 415);
+
+    // the dialog's defaults: the Save In list and the labels
+    let setup = t.get(&sid, "/pa/add").json();
+    let Some(Json::Arr(dirs)) = setup.get("save_in") else { panic!("{}", setup.to_json()) };
+    assert_eq!(dirs.len(), 1);
+    assert!(s(dirs.first()).ends_with("dl"));
+    assert_eq!(setup.get("labels"), Some(&Json::Arr(vec![])));
+    assert_eq!(setup.get("start"), Some(&Json::Bool(true)));
+
+    // step two: add with a new name, one file off, a label, stopped, into another folder
+    let save = t.dir.join("elsewhere").to_string_lossy().replace('\\', "\\\\");
+    let options = format!(
+        r#"{{"save":"{save}","name":"renamed","label":"iso","start":false,"skip_check":false,"top":true,"priorities":{{"1":0,"0":7}}}}"#
+    );
+    let r = t.pa_upload(&sid, "/pa/add", &options, &bytes);
+    assert_eq!((r.status, r.text().as_str()), (204, ""));
+    // stopped: paused outside the queue (a torrent file waits in checkingResumeData until it
+    // is started, as in libtorrent; a magnet has nothing to check and is pausedDL)
+    let info = t.wait_for(&sid, &hash, "the added torrent", |x| {
+        matches!(s(x.get("state")), "pausedDL" | "checkingResumeData") && s(x.get("category")) == "iso"
+    });
+    assert_eq!(info.get("force_start"), Some(&Json::Bool(false)));
+    assert!(s(info.get("save_path")).contains("elsewhere"), "{}", info.to_json());
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let Json::Arr(f) = t.get(&sid, &format!("/api/v2/torrents/files?hash={hash}")).json() else {
+            panic!()
+        };
+        let names: Vec<&str> = f.iter().map(|x| s(x.get("name"))).collect();
+        let prios: Vec<i64> =
+            f.iter().map(|x| x.get("priority").and_then(Json::as_i64).unwrap_or(-1)).collect();
+        if names == ["renamed/a.bin", "renamed/b.bin"] && prios == [7, 0] {
+            break;
+        }
+        assert!(Instant::now() < deadline, "renamed root and priorities not applied: {names:?} {prios:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    // the folder is remembered first in the Save In list
+    let setup = t.get(&sid, "/pa/add").json();
+    let Some(Json::Arr(dirs)) = setup.get("save_in") else { panic!() };
+    assert_eq!(dirs.len(), 2);
+    assert!(s(dirs.get(1)).contains("elsewhere"), "{}", setup.to_json());
+    assert_eq!(setup.get("labels"), Some(&Json::Arr(vec!["iso".into()])));
+    // the same torrent again is refused by the engine, not the API; a wrong priority index is
+    let r = t.pa_upload(&sid, "/pa/add", r#"{"priorities":{"7":1}}"#, &bytes);
+    assert_eq!(r.status, 400);
+    assert_eq!(t.pa_upload(&sid, "/pa/add", r#"{"start":"maybe"}"#, &bytes).status, 400);
+    assert_eq!(t.pa_upload(&sid, "/pa/add", "{}", b"junk").status, 415);
+
+    // a magnet through the JSON body, stopped
+    let magnet_hash = "0123456789abcdef0123456789abcdef01234567";
+    let body = format!(
+        r#"{{"url":"magnet:?xt=urn:btih:{magnet_hash}&dn=from+a+magnet","start":false,"label":"iso"}}"#
+    );
+    let r = t.pa(&sid, "/pa/add", &body);
+    assert_eq!((r.status, r.text().as_str()), (204, ""));
+    let info = t.wait_for(&sid, magnet_hash, "the magnet", |x| s(x.get("state")) == "pausedDL");
+    assert_eq!(s(info.get("name")), "from a magnet");
+    assert_eq!(s(info.get("category")), "iso");
+    let r = t.pa(&sid, "/pa/add", r#"{"url":"magnet:?xt=bad"}"#);
+    assert_eq!(r.status, 400);
+    assert_eq!(s(r.json().get("error")), "invalid magnet link");
+    assert_eq!(t.pa(&sid, "/pa/add", r#"{}"#).status, 400);
+    assert_eq!(t.post(&sid, "/api/v2/torrents/count", "").text(), "2");
+
+    // the session limits, read back natively and through the shim
+    assert_eq!(t.pa(&sid, "/pa/session/limits", r#"{"down":4096,"up":2048}"#).status, 204);
+    let l = t.get(&sid, "/pa/session/limits").json();
+    assert_eq!(
+        (l.get("down"), l.get("up"), l.get("alt")),
+        (Some(&Json::Int(4096)), Some(&Json::Int(2048)), Some(&Json::Bool(false)))
+    );
+    assert_eq!(t.get(&sid, "/api/v2/transfer/downloadLimit").text(), "4096");
+    assert_eq!(t.pa(&sid, "/pa/session/limits", r#"{"alt":true,"down":512}"#).status, 204);
+    let l = t.get(&sid, "/pa/session/limits").json();
+    assert_eq!(
+        (l.get("alt"), l.get("alt_down"), l.get("down")),
+        (Some(&Json::Bool(true)), Some(&Json::Int(512)), Some(&Json::Int(4096)))
+    );
+    assert_eq!(t.get(&sid, "/api/v2/transfer/speedLimitsMode").text(), "1");
+    assert_eq!(t.get(&sid, "/api/v2/transfer/downloadLimit").text(), "512");
+    assert_eq!(t.pa(&sid, "/pa/session/limits", r#"{"down":"lots"}"#).status, 400);
+
+    // shutdown
+    assert!(!t.web.shutdown_requested());
+    assert_eq!(t.pa(&sid, "/pa/session/shutdown", "").status, 204);
+    assert!(t.web.shutdown_requested());
+}
+
+#[test]
+fn native_commands_are_csrf_checked() {
+    let t = Harness::start("native-csrf");
+    let sid = t.login();
+    let host = t.host();
+    let origin = format!("http://{host}");
+    // the custom header is required, with a same-origin Origin when one is sent
+    let r = t.req(
+        "POST",
+        "/pa/torrents/start",
+        &[("Cookie", &sid), ("Origin", &origin)],
+        Body::Json(r#"{"all":true}"#),
+    );
+    assert_eq!(r.status, 403, "{}", r.text());
+    assert!(s(r.json().get("error")).contains("X-Requested-With"), "{}", r.text());
+    let r = t.req(
+        "POST",
+        "/pa/torrents/start",
+        &[("Cookie", &sid), ("Origin", "http://evil.example"), ("X-Requested-With", "PaTorrent")],
+        Body::Json(r#"{"all":true}"#),
+    );
+    assert_eq!(r.status, 403);
+    assert_eq!(s(r.json().get("error")), "origin not allowed");
+    let r = t.req(
+        "POST",
+        "/pa/torrents/start",
+        &[("Cookie", &sid), ("Origin", "null"), ("X-Requested-With", "PaTorrent")],
+        Body::Json(r#"{"all":true}"#),
+    );
+    assert_eq!(r.status, 403);
+    // no session: forbidden before anything is parsed
+    let r = t.req(
+        "POST",
+        "/pa/torrents/start",
+        &[("X-Requested-With", "PaTorrent")],
+        Body::Json(r#"{"all":true}"#),
+    );
+    assert_eq!(r.status, 403);
+    assert_eq!(s(r.json().get("error")), "forbidden");
+    assert_eq!(t.req("GET", "/pa/session/limits", &[], Body::None).status, 403);
+    // the real thing passes, header case and all
+    let r = t.req(
+        "POST",
+        "/pa/torrents/start",
+        &[("Cookie", &sid), ("Origin", &origin), ("x-requested-with", "patorrent")],
+        Body::Json(r#"{"all":true}"#),
+    );
+    assert_eq!(r.status, 204, "{}", r.text());
+    // and without any Origin (curl) the header alone does
+    assert_eq!(
+        t.req(
+            "POST",
+            "/pa/torrents/start",
+            &[("Cookie", &sid), ("X-Requested-With", "PaTorrent")],
+            Body::Json(r#"{"all":true}"#)
+        )
+        .status,
+        204
+    );
+    // the shim's rule is unchanged: Origin alone, 401 when wrong
+    let r = t.req(
+        "POST",
+        "/api/v2/torrents/stop",
+        &[("Cookie", &sid), ("Origin", "http://evil.example")],
+        Body::Form("hashes=all"),
+    );
+    assert_eq!(r.status, 401);
 }

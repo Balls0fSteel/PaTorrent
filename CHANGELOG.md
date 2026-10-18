@@ -2,6 +2,37 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_230237_1792357357: Web UI slice 7, the phone layout
+
+### Added
+- The page's phone layout (docs/WEBUI.md slice 7), under 768 px. `app.js` switches on the same media query as `style.css`, live when a phone rotates or a window is resized: the row height, the subscribed columns and the place of the detail all change, and the view is sent again.
+  - The list: no header, one 60 px row per torrent: Name, then the progress bar with its percentage, then status, down / up speed and ETA. `PHONE_COLS` is a fixed 6-column subscription in place of the header's columns; with the 10,000-torrent profile the first `rows` is 6.6 KB for 34 rows. No horizontal scroll.
+  - The category tree is a drawer behind the toolbar's menu button; picking a category closes it.
+  - A tap opens the torrent's detail tabs as a bottom sheet with the name and a close button on top. The phone subscribes to the detail only while the sheet is open.
+  - Each row has a visible actions button that opens the context menu as a bottom sheet. A submenu replaces the sheet's items, with a back item first. On the phone the menu drops "Open Containing Folder" and starts with "Details".
+  - A long press (450 ms; a 10 px move or a scroll cancels it) starts the selection mode: round check marks on the rows, a tap toggles a row, the toolbar's Start / Pause / Remove act on the selection, and Done ends it (Done takes Add's place while it shows).
+  - The toolbar keeps the menu button, Add, Remove, Start, Pause and a More menu: Add Torrent from URL, Stop, Move Up / Down Queue, Select All, Sort By, Sort Descending, Preferences, Log Out. More also holds the sort that the header gives the desktop. The search box gets its own line.
+  - The Add New Torrent and Preferences dialogs fill the screen. Toolbar buttons, tree items and menu items are finger-sized. A scrim behind the drawer and the sheets closes them on a tap, and Escape closes them too.
+
+### Decided
+- docs/WEBUI.md's open point, a long-press context menu or a visible per-row menu button: the button. A long press is the multi-selection, as in phone apps generally. A visible button is easy to find and does not race the browser's own long-press handling. On the phone a touch's `contextmenu` is ignored; a mouse right-click still opens the menu sheet.
+
+### Issues
+- At first the phone row showed no speeds: the native protocol's column ids are `down_speed` / `up_speed` (`webui/native.rs` `column_id`), not the `frontend::columns` layout keys `dlspeed` / `ulspeed`. Fixed before the commit.
+- The first desktop check after the change showed every toolbar button at full width: the new `.dt` visibility class collided with the detail tables' existing `.dt` (`min-width: 100%`). Renamed to `only-desk` / `only-phone`.
+
+### Verified
+- In the desktop app's browser pane against `patorrent-nox run --no-state --mock-library 300 --active 0.1 --webui 18080`, at 375 x 812 and 360 x 740:
+  - the list, the drawer and a category
+  - a tap to the detail sheet
+  - the actions sheet, into Bandwidth Allocation > Set Download Limit (check mark on Unlimited) and back
+  - a long press with touch pointer events into the selection mode, toggles, Done
+  - the More menu, and Preferences full screen
+- At desktop width the 2.2.1 layout is unchanged, and a live switch desktop > phone > desktop keeps the selection and brings the detail pane back.
+- The 10,000-torrent profile at phone size: first `rows` 6,661 B (34 rows, 6 columns); ticks with changes 440 B to 2 KB.
+- Not yet tried on a real phone.
+- `cargo test -p patorrent-nox`: 72 passed. This includes the static-file test (no inline script or style; the three files are 138 KB of the 200 KB budget). No Rust changed.
+
 ## 2026-10-18_182203_1792340523: merge of the scrape-backoff fix and the two deflaked tests
 
 Branch `claude/eager-proskuriakova-7ccee3` (commit `4c9fa62`) fast-forwarded onto main; no conflicts.

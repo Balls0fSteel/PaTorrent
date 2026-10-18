@@ -208,8 +208,10 @@ Shift and Ctrl, arrows, Home / End, Ctrl+A; Delete removes, Space pauses, the co
 right-click and the Menu key lists what the Win32 context menu lists, in its order.
 
 Phone (under 768 px): the category tree becomes a drawer behind a button, the detail pane a
-bottom sheet, the list collapses to Name over a progress bar with speeds and ETA, the context
-menu becomes a long-press sheet, the toolbar keeps Add, Start, Pause, Remove.
+bottom sheet opened by a tap, the list collapses to Name over a progress bar with status, speeds
+and ETA, the context menu becomes a sheet behind a per-row actions button (a long press starts
+the multi-selection), the toolbar keeps Add, Start, Pause, Remove and a More menu with the
+rest and the sort.
 
 Drag-and-drop of `.torrent` files and magnet text onto the window opens the Add dialog. The Add
 dialog is the 2.2.1 one: Save In, Name, the file tree with check boxes and priorities, Skip hash
@@ -263,7 +265,8 @@ In order; each is a CHANGELOG entry and lands green on the three CI platforms.
    shared functions. Landed: CHANGELOG 2026-10-18 (slice 5).
 6. **Preferences** generated from `frontend::options`, the 2.2.1 pages. Landed: CHANGELOG
    2026-10-18_101527_1792311327.
-7. **Phone layout** pass, then the long-poll fallback if a deployment needs it.
+7. **Phone layout** pass, then the long-poll fallback if a deployment needs it. The phone
+   layout landed: CHANGELOG 2026-10-18_230237_1792357357.
 8. Later, with Phase 5: labels in the tree and the Label column, RSS, the scheduler, per-torrent
    limits; and the GUIs' remote mode on its own binary stream.
 
@@ -273,7 +276,7 @@ In order; each is a CHANGELOG entry and lands green on the three CI platforms.
   a second thread per socket.~~ Decided in slice 1 (CHANGELOG 2026-10-17_210452_1792263892): one
   thread per socket, a 50 ms read timeout, and the cache's tick counter checked after every read
   or timeout; no second thread, no Condvar wait.
-- A phone's long-press context menu versus a visible per-row menu button. Decide in slice 7
-  with the page in hand.
+- ~~A phone's long-press context menu versus a visible per-row menu button.~~ Decided in slice 7
+  (CHANGELOG 2026-10-18_230237_1792357357): the button; a long press starts the multi-selection.
 - Compression: none for now (no dependencies, and the window-bounded messages are small). If a
   real remote link wants it, `permessage-deflate` needs an inflater and deflater of our own.

@@ -17,22 +17,25 @@
 </form>
 <div id="app" hidden>
   <div id="toolbar" role="toolbar">
-    <button type="button" id="tb-add" title="Add Torrent">Add Torrent</button>
-    <button type="button" id="tb-add-url" title="Add Torrent from URL">Add URL</button>
-    <span class="sep"></span>
+    <button type="button" id="tb-menu" class="only-phone" title="Categories" aria-label="Categories" aria-expanded="false">&#9776;</button>
+    <button type="button" id="tb-add" title="Add Torrent"><span class="only-desk">Add Torrent</span><span class="only-phone">Add</span></button>
+    <button type="button" id="tb-add-url" class="only-desk" title="Add Torrent from URL">Add URL</button>
+    <span class="sep only-desk"></span>
     <button type="button" id="tb-remove" data-cmd="remove" title="Remove">Remove</button>
-    <span class="sep"></span>
+    <span class="sep only-desk"></span>
     <button type="button" id="tb-start" data-cmd="start" title="Start">Start</button>
     <button type="button" id="tb-pause" data-cmd="pause" title="Pause">Pause</button>
-    <button type="button" id="tb-stop" data-cmd="stop" title="Stop">Stop</button>
-    <span class="sep"></span>
-    <button type="button" id="tb-up" data-cmd="queue_up" title="Move Up Queue">Up</button>
-    <button type="button" id="tb-down" data-cmd="queue_down" title="Move Down Queue">Down</button>
-    <span class="sep"></span>
-    <button type="button" id="tb-prefs" title="Preferences (Ctrl+P)">Preferences</button>
+    <button type="button" id="tb-stop" class="only-desk" data-cmd="stop" title="Stop">Stop</button>
+    <span class="sep only-desk"></span>
+    <button type="button" id="tb-up" class="only-desk" data-cmd="queue_up" title="Move Up Queue">Up</button>
+    <button type="button" id="tb-down" class="only-desk" data-cmd="queue_down" title="Move Down Queue">Down</button>
+    <span class="sep only-desk"></span>
+    <button type="button" id="tb-prefs" class="only-desk" title="Preferences (Ctrl+P)">Preferences</button>
     <span class="grow"></span>
+    <button type="button" id="tb-seldone" class="only-phone" title="End the selection" hidden>Done</button>
+    <button type="button" id="tb-more" class="only-phone" title="More" aria-label="More">&#8943;</button>
     <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search torrents">
-    <button type="button" id="logout" title="Log out">Log out</button>
+    <button type="button" id="logout" class="only-desk" title="Log out">Log out</button>
     <input id="file" type="file" accept=".torrent,application/x-bittorrent" multiple hidden>
   </div>
   <div id="main">
@@ -47,6 +50,10 @@
       </div>
       <div id="split-h" class="splitter h" role="separator" aria-orientation="horizontal"></div>
       <div id="detail">
+        <div id="sheet-head" class="only-phone">
+          <span id="sheet-title"></span>
+          <button type="button" id="sheet-close" title="Close" aria-label="Close details">&#10005;</button>
+        </div>
         <div id="tabs" role="tablist">
           <button type="button" role="tab" data-tab="general" class="on">General</button>
           <button type="button" role="tab" data-tab="trackers">Trackers</button>
@@ -68,6 +75,7 @@
     <span class="grow"></span>
     <span id="st-sel"></span>
   </div>
+  <div id="scrim" hidden></div>
   <div id="menu" class="menu" role="menu" hidden></div>
   <div id="gate" hidden></div>
 </div>

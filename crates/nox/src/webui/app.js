@@ -7,6 +7,11 @@
 "use strict";
 (() => {
   const ROW_H = 22; // must match --row-h in style.css (set below so they cannot drift)
+  const PHONE_ROW_H = 60; // a phone row's height, --phone-row-h (set below too)
+  // the phone list's cells: Name over the progress bar, then status, speeds and ETA
+  const PHONE_COLS = ["name", "done", "status", "down_speed", "up_speed", "eta"];
+  const PHONE = matchMedia("(max-width: 767px)"); // the same query as style.css
+  const LONG_PRESS_MS = 450;
   const OVERSCAN = 10;
   const MAX_WINDOW = 200;
   const LIMITS = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]; // kB/s, 0 = unlimited
@@ -67,6 +72,10 @@
   let pool = [];
   let scrollRaf = 0;
   let hidden = document.hidden;
+  let phone = PHONE.matches;
+  let rowH = phone ? PHONE_ROW_H : ROW_H;
+  let selecting = false; // the phone's selection mode: a tap toggles a row
+  let sheetOpen = false; // the phone's detail sheet
 
   const list = $("list");
   const body = $("body");
@@ -117,7 +126,7 @@
     const since = gate.tPaint ? (gate.tPaint - (gate.tLogin || gate.tStart)).toFixed(0) + " ms" : "…";
     el.textContent =
       `${gate.tLogin ? "login" : "load"} to first painted list: ${since}\n` +
-      `first rows: ${gate.rowsBytes} B (${ids.length} rows, ${visibleColumns().length} cols)\n` +
+      `first rows: ${gate.rowsBytes} B (${ids.length} rows, ${viewColumns().length} cols)\n` +
       `ticks: ${gate.ticks}, last ${gate.tickBytes} B, idle min/max ${gate.tickMin === Infinity ? "-" : gate.tickMin}/${gate.tickMax} B, with changes ${gate.tickChanged}\n` +
       `messages while hidden: ${gate.hiddenMsgs} over ${gate.hiddenSecs.toFixed(0)} s hidden\n` +
       `total ${total}, window [${winFirst}, ${ids.length}]
@@ -205,6 +214,11 @@
     const hiddenSet = new Set(layout.hidden || []);
     return layout.order.filter((id) => colById.has(id) && !hiddenSet.has(id));
   }
+  /// The columns the view subscribes to: the header's on the desktop, a fixed set on a phone.
+  function viewColumns() {
+    if (!hello) return [];
+    return phone ? PHONE_COLS.filter((id) => colById.has(id)) : visibleColumns();
+  }
   function widthOf(id) {
     const w = layout.widths[id];
     return typeof w === "number" && w >= 20 ? w : colById.get(id).width;
@@ -249,7 +263,7 @@
     }
     if (resubscribe) {
       colsGen++;
-      for (const el of pool) buildCells(el, cols);
+      for (const el of pool) buildCells(el, viewColumns());
       sentWindow = null;
       sendView();
     }
@@ -257,6 +271,27 @@
   }
   function buildCells(row, cols) {
     row.textContent = "";
+    row.classList.toggle("prow", phone);
+    row._gen = colsGen;
+    row._id = null;
+    if (phone) {
+      // Name / the bar with the percentage / status, speeds and ETA; the actions button
+      const name = document.createElement("div");
+      name.className = "pn";
+      const bar = document.createElement("div");
+      bar.className = "bar";
+      bar.append(document.createElement("i"), document.createElement("span"));
+      const info = document.createElement("div");
+      info.className = "pi";
+      const mb = document.createElement("button");
+      mb.type = "button";
+      mb.className = "mb";
+      mb.tabIndex = -1;
+      mb.setAttribute("aria-label", "Actions");
+      mb.textContent = "⋯";
+      row.append(name, bar, info, mb);
+      return;
+    }
     for (const id of cols) {
       const c = colById.get(id);
       const cell = document.createElement("div");
@@ -372,7 +407,7 @@
     saveLayout();
     renderTree();
     applyColumns(false);
-    for (const el of pool) buildCells(el, visibleColumns());
+    for (const el of pool) buildCells(el, viewColumns());
     sentWindow = null;
     if (hidden) send({ t: "idle" });
     else sendView();
@@ -388,11 +423,11 @@
     const [first, count] = neededWindow();
     sentWindow = [first, count];
     const f = { category: filter.label ? "all" : filter.category || "all", label: filter.label || null, search };
-    send({ t: "view", filter: f, sort, columns: visibleColumns(), window: [first, count] });
+    send({ t: "view", filter: f, sort, columns: viewColumns(), window: [first, count] });
   }
   function neededWindow() {
-    const visFirst = Math.floor(body.scrollTop / ROW_H);
-    const visCount = Math.ceil(body.clientHeight / ROW_H) + 1;
+    const visFirst = Math.floor(body.scrollTop / rowH);
+    const visCount = Math.ceil(body.clientHeight / rowH) + 1;
     const first = Math.max(0, visFirst - OVERSCAN);
     const count = Math.min(MAX_WINDOW, visCount + 2 * OVERSCAN);
     return [first, count];
@@ -400,8 +435,8 @@
   function windowCovers(first, count) {
     if (!sentWindow) return false;
     const [sf, sc] = sentWindow;
-    const visFirst = Math.floor(body.scrollTop / ROW_H);
-    const visLast = visFirst + Math.ceil(body.clientHeight / ROW_H);
+    const visFirst = Math.floor(body.scrollTop / rowH);
+    const visLast = visFirst + Math.ceil(body.clientHeight / rowH);
     const margin = Math.floor(OVERSCAN / 2);
     const lo = sf === 0 ? 0 : sf + margin;
     const hi = sf + sc - margin;
@@ -467,7 +502,7 @@
     queueScroll();
   }
   function updateSpacer() {
-    spacer.style.height = total * ROW_H + "px";
+    spacer.style.height = total * rowH + "px";
     const empty = body.querySelector(".empty");
     if (total === 0 && hello) {
       if (!empty) {
@@ -481,7 +516,7 @@
 
   // ---- the virtual list ----------------------------------------------------------------
   function render() {
-    const cols = visibleColumns();
+    const cols = viewColumns();
     while (pool.length < ids.length) {
       const el = document.createElement("div");
       el.className = "row";
@@ -501,7 +536,7 @@
       const index = winFirst + i;
       const c = cells.get(id);
       if (el.hidden) el.hidden = false;
-      const top = index * ROW_H + "px";
+      const top = index * rowH + "px";
       if (el._top !== top) {
         el.style.top = top;
         el._top = top;
@@ -521,6 +556,27 @@
       if (el._state) el.classList.remove("st-" + el._state);
       el.classList.add("st-" + c.state);
       el._state = c.state;
+    }
+    if (phone) {
+      const at = (id) => c.c[cols.indexOf(id)] || "";
+      const [name, bar, info] = el.children;
+      const set = (node, text) => {
+        if (node.textContent !== text) node.textContent = text;
+      };
+      set(name, at("name"));
+      name.title = at("name");
+      bar.firstChild.style.width = c.done / 10 + "%";
+      set(bar.lastChild, at("done"));
+      const down = at("down_speed");
+      const up = at("up_speed");
+      const eta = at("eta");
+      const parts = [at("status")];
+      // speeds are empty at zero, like the desktop columns
+      if (down) parts.push("↓ " + down);
+      if (up) parts.push("↑ " + up);
+      if (eta && eta !== "∞") parts.push(eta);
+      set(info, parts.filter(Boolean).join(" · "));
+      return;
     }
     for (let j = 0; j < cols.length; j++) {
       const cell = el.children[j];
@@ -566,6 +622,9 @@
     $("st-sel").textContent = n ? n + " selected" : "";
     const none = n === 0;
     for (const b of document.querySelectorAll("#toolbar [data-cmd]")) b.disabled = none;
+    if (selecting && none) selecting = false;
+    document.body.classList.toggle("selecting", selecting);
+    $("tb-seldone").hidden = !selecting;
   }
   function selectRange(a, b) {
     const lo = Math.min(a, b);
@@ -607,12 +666,13 @@
     }
     ensureVisible(index);
     updateSelClasses();
-    setDetail(id);
+    // a phone subscribes to the detail only while its sheet is open
+    if (!phone || sheetOpen) setDetail(id);
   }
   function ensureVisible(index) {
-    const top = index * ROW_H;
+    const top = index * rowH;
     if (top < body.scrollTop) body.scrollTop = top;
-    else if (top + ROW_H > body.scrollTop + body.clientHeight) body.scrollTop = top + ROW_H - body.clientHeight;
+    else if (top + rowH > body.scrollTop + body.clientHeight) body.scrollTop = top + rowH - body.clientHeight;
   }
   /// Subscribes the detail pane to the focused row (null for none: the pane stays empty).
   function setDetail(id) {
@@ -626,6 +686,11 @@
     return el && !el.hidden && el._id ? el : null;
   }
   body.addEventListener("pointerdown", (ev) => {
+    lastPointer = ev.pointerType;
+    if (phone) {
+      phoneDown(ev);
+      return;
+    }
     if (ev.button !== 0 && ev.button !== 2) return;
     const el = rowOf(ev.target);
     if (!el) {
@@ -651,13 +716,16 @@
   });
   body.addEventListener("contextmenu", (ev) => {
     ev.preventDefault();
+    // a touch's long press is ours (selection mode), not the browser's context menu
+    if (phone && lastPointer !== "mouse") return;
     const el = rowOf(ev.target);
+    if (phone && el && !isSel(el._id)) focusRow(el._index, "set");
     if (!el && sel.size === 0 && !selAll) return;
     openTorrentMenu(ev.clientX, ev.clientY);
   });
   body.addEventListener("keydown", (ev) => {
     if (ev.target !== body) return;
-    const page = Math.max(1, Math.floor(body.clientHeight / ROW_H) - 1);
+    const page = Math.max(1, Math.floor(body.clientHeight / rowH) - 1);
     const mode = ev.shiftKey ? "range" : ev.ctrlKey || ev.metaKey ? "focus" : "set";
     const from = cur < 0 ? (ev.key === "ArrowUp" || ev.key === "End" || ev.key === "PageUp" ? total : -1) : cur;
     let handled = true;
@@ -717,6 +785,160 @@
     const r = (el || body).getBoundingClientRect();
     openTorrentMenu(r.left + 40, el ? r.bottom : r.top + 20);
   }
+
+  // ---- the phone: tap, long press, the drawer and the sheets ---------------------------
+  // A tap opens the torrent's detail sheet; a long press starts the selection mode, where a
+  // tap toggles a row and the toolbar acts on the selection; the row's ⋯ button opens the
+  // context menu as a sheet (a visible button rather than a long-press menu: a long press is
+  // the selection, as in phone apps generally). The decision docs/WEBUI.md left to slice 7.
+  let lastPointer = "mouse";
+  let press = null; // the row press in progress: {el, x, y, mb, long, timer}
+  let drawerOpen = false;
+  function phoneDown(ev) {
+    cancelPress();
+    if (ev.button !== 0) return;
+    const el = rowOf(ev.target);
+    if (!el) return;
+    const p = { el, x: ev.clientX, y: ev.clientY, mb: !!ev.target.closest(".mb"), long: false, timer: 0 };
+    p.timer = setTimeout(() => {
+      p.long = true;
+      if (p.mb || !el._id) return;
+      if (!isSel(el._id)) focusRow(el._index, selecting ? "add" : "set");
+      selecting = true;
+      updateSelClasses();
+      if (navigator.vibrate) navigator.vibrate(15);
+    }, LONG_PRESS_MS);
+    press = p;
+  }
+  function cancelPress() {
+    if (press) clearTimeout(press.timer);
+    press = null;
+  }
+  body.addEventListener("pointermove", (ev) => {
+    if (press && Math.hypot(ev.clientX - press.x, ev.clientY - press.y) > 10) cancelPress();
+  });
+  body.addEventListener("pointercancel", cancelPress); // the browser took the touch to scroll
+  body.addEventListener("pointerup", () => {
+    const p = press;
+    cancelPress();
+    if (!p || p.long || !phone || !p.el._id || p.el.hidden) return;
+    const index = p.el._index;
+    if (p.mb) {
+      if (!isSel(p.el._id)) focusRow(index, selecting ? "add" : "set");
+      openTorrentMenu(0, 0);
+    } else if (selecting) focusRow(index, "add");
+    else {
+      focusRow(index, "set");
+      openSheet();
+    }
+  });
+
+  function syncScrim() {
+    $("scrim").hidden = !(phone && (drawerOpen || sheetOpen || (menus.length && $("menu").classList.contains("sheet"))));
+  }
+  function openSheet() {
+    const id = idAt(cur);
+    if (!id) return;
+    sheetOpen = true;
+    document.body.classList.add("sheet");
+    const c = cells.get(id);
+    const nameAt = viewColumns().indexOf("name");
+    $("sheet-title").textContent = c && nameAt >= 0 ? c.c[nameAt] : "";
+    setDetail(id);
+    syncScrim();
+  }
+  function closeSheet() {
+    if (!sheetOpen) return;
+    sheetOpen = false;
+    document.body.classList.remove("sheet");
+    if (phone) setDetail(null);
+    syncScrim();
+  }
+  function setDrawer(open) {
+    drawerOpen = open && phone;
+    document.body.classList.toggle("drawer", drawerOpen);
+    $("tb-menu").setAttribute("aria-expanded", String(drawerOpen));
+    syncScrim();
+  }
+  $("tb-menu").addEventListener("click", () => setDrawer(!drawerOpen));
+  $("sheet-close").addEventListener("click", closeSheet);
+  $("scrim").addEventListener("click", () => {
+    setDrawer(false);
+    closeSheet();
+  });
+  $("tb-seldone").addEventListener("click", () => {
+    selecting = false;
+    sel = new Set();
+    selAll = false;
+    cur = -1;
+    updateSelClasses();
+  });
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key !== "Escape" || !phone || menus.length) return;
+    if (drawerOpen) setDrawer(false);
+    else if (sheetOpen) closeSheet();
+  });
+  /// The toolbar's ⋯: what the phone toolbar has no room for, and the sort the header gives
+  /// the desktop.
+  $("tb-more").addEventListener("click", (ev) => {
+    if (!hello) return;
+    const none = selectedCount() === 0;
+    const sortBy = hello.columns.map((c) => ({
+      label: c.title,
+      chk: sort[0] === c.id,
+      run: () => setSort([c.id, sort[0] === c.id ? sort[1] : !!c.desc]),
+    }));
+    const r = ev.currentTarget.getBoundingClientRect();
+    openMenu(
+      [
+        { label: "Add Torrent from URL...", run: () => $("tb-add-url").click() },
+        "-",
+        { label: "Stop", dis: none, run: () => command("stop") },
+        { label: "Move Up Queue", dis: none, run: () => command("queue_up") },
+        { label: "Move Down Queue", dis: none, run: () => command("queue_down") },
+        "-",
+        {
+          label: "Select All",
+          dis: total === 0,
+          run: () => {
+            selAll = true;
+            selecting = true;
+            for (const id of ids) sel.add(id);
+            updateSelClasses();
+          },
+        },
+        { label: "Sort By", sub: sortBy },
+        { label: "Sort Descending", chk: !!sort[1], run: () => setSort([sort[0], !sort[1]]) },
+        "-",
+        { label: "Preferences", run: () => $("tb-prefs").click() },
+        { label: "Log Out", run: () => $("logout").click() },
+      ],
+      r.left,
+      r.bottom
+    );
+  });
+  /// Switching between the phone and desktop layouts (a rotation, a resized window): the row
+  /// height, the subscribed columns and where the detail lives all change.
+  PHONE.addEventListener("change", () => {
+    phone = PHONE.matches;
+    rowH = phone ? PHONE_ROW_H : ROW_H;
+    closeMenu();
+    setDrawer(false);
+    sheetOpen = false;
+    document.body.classList.remove("sheet");
+    selecting = false;
+    syncScrim();
+    colsGen++;
+    cells = new Map(); // indexed by the old column list; the new view refills them
+    if (!hello) return;
+    setDetail(phone ? null : idAt(cur));
+    updateSpacer();
+    render();
+    updateSelStatus();
+    if (cur >= 0) ensureVisible(cur);
+    sentWindow = null;
+    sendView();
+  });
 
   // ---- header: sort, reorder, resize, chooser -------------------------------------------
   const hdr = $("hdr");
@@ -792,7 +1014,10 @@
   });
   function clickSort(id) {
     const c = colById.get(id);
-    sort = sort && sort[0] === id ? [id, !sort[1]] : [id, !!c.desc];
+    setSort(sort && sort[0] === id ? [id, !sort[1]] : [id, !!c.desc]);
+  }
+  function setSort(s) {
+    sort = s;
     store.set("pa.sort", sort);
     applyColumns(false);
     sentWindow = null;
@@ -905,6 +1130,7 @@
     filter = it.dataset.label ? { category: "all", label: it.dataset.label } : { category: it.dataset.cat, label: null };
     store.set("pa.filter", filter);
     markTree();
+    setDrawer(false);
     body.scrollTop = 0;
     sentWindow = null;
     sendView();
@@ -959,7 +1185,7 @@
     if (selectedCount() === 1 && !selAll) {
       const id = [...sel][0];
       const c = cells.get(id);
-      const nameAt = visibleColumns().indexOf("name");
+      const nameAt = viewColumns().indexOf("name");
       if (c && nameAt >= 0) return c.c[nameAt];
     }
     return selectedCount() + " torrents";
@@ -990,6 +1216,7 @@
         sel = new Set();
         selAll = false;
         cur = -1;
+        closeSheet();
         setDetail(null);
         updateSelClasses();
         break;
@@ -1098,6 +1325,10 @@
         ],
       },
     ];
+    // the phone's sheet: no folder to open on a phone; the detail sheet first (a tap opens it
+    // too, but not in selection mode)
+    if (phone) items.splice(0, 2);
+    if (phone && n === 1 && !selAll) items.unshift({ label: "Details", run: openSheet }, "-");
     openMenu(items, x, y);
     fillChecks(items);
   }
@@ -1169,6 +1400,7 @@
     buildMenu(root, items);
     showMenuAt(root, x, y);
     menus.push(root);
+    syncScrim();
     setTimeout(() => {
       document.addEventListener("pointerdown", onDocPointer, true);
       document.addEventListener("keydown", onMenuKey, true);
@@ -1178,7 +1410,8 @@
   function buildMenu(el, items) {
     el.textContent = "";
     el.hidden = false;
-    el.className = "menu";
+    // a phone's menu is a sheet from the bottom, and a submenu replaces it (with a way back)
+    el.className = "menu" + (phone ? " sheet" : "");
     el.setAttribute("role", "menu");
     el._items = items;
     for (const it of items) {
@@ -1189,13 +1422,14 @@
         continue;
       }
       const mi = document.createElement("div");
-      mi.className = "mi" + (it.dis ? " dis" : "") + (it.chk ? " chk" : "") + (it.sub ? " sub" : "");
+      mi.className = "mi" + (it.dis ? " dis" : "") + (it.chk ? " chk" : "") + (it.sub ? " sub" : "") + (it.back ? " back" : "");
       mi.setAttribute("role", "menuitem");
       mi.textContent = it.label;
       if (it.hint) mi.title = it.hint;
       it.el = mi;
       mi._item = it;
       mi.addEventListener("pointerenter", () => {
+        if (phone) return; // a touch has no hover: a tap opens the submenu
         highlight(el, mi);
         if (it.sub && !it.dis) openSub(el, mi, it.sub);
         else closeSubsOf(el);
@@ -1203,6 +1437,14 @@
       mi.addEventListener("click", (ev) => {
         ev.stopPropagation();
         if (it.dis) return;
+        if (it.back) {
+          buildMenu(el, it.back);
+          return;
+        }
+        if (it.sub && phone) {
+          buildMenu(el, [{ label: "‹ " + it.label, back: el._items }, "-", ...it.sub]);
+          return;
+        }
         if (it.sub) {
           openSub(el, mi, it.sub);
           return;
@@ -1253,6 +1495,7 @@
     }
     document.removeEventListener("pointerdown", onDocPointer, true);
     document.removeEventListener("keydown", onMenuKey, true);
+    syncScrim();
   }
   function onDocPointer(ev) {
     if (!ev.target.closest(".menu")) closeMenu();
@@ -2753,6 +2996,7 @@
   if (saved.tree) document.documentElement.style.setProperty("--tree-w", saved.tree + "px");
   if (saved.detail) document.documentElement.style.setProperty("--detail-h", saved.detail + "px");
   document.documentElement.style.setProperty("--row-h", ROW_H + "px");
+  document.documentElement.style.setProperty("--phone-row-h", PHONE_ROW_H + "px");
   function splitter(el, vertical) {
     el.addEventListener("pointerdown", (ev) => {
       ev.preventDefault();

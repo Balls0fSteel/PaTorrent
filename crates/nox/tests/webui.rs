@@ -2172,3 +2172,187 @@ fn native_commands_are_csrf_checked() {
     );
     assert_eq!(r.status, 401);
 }
+
+// ---------------------------------------------------------------------------------------------
+// Preferences (slice 6): GET / POST /pa/prefs
+
+#[test]
+fn native_prefs_model_and_partial_post() {
+    let t = Harness::start("prefs-native");
+    let sid = t.login();
+    assert_eq!(t.req("GET", "/pa/prefs", &[], Body::None).status, 403);
+    let r = t.get(&sid, "/pa/prefs");
+    assert_eq!(r.status, 200);
+    let m = r.json();
+    let Some(Json::Arr(pages)) = m.get("pages") else { panic!("{}", m.to_json()) };
+    let ids: Vec<&str> = pages.iter().map(|p| s(p.get("id"))).collect();
+    assert_eq!(
+        ids,
+        [
+            "general",
+            "ui",
+            "directories",
+            "connection",
+            "bandwidth",
+            "bittorrent",
+            "queueing",
+            "scheduler",
+            "webui",
+            "advanced",
+            "diskcache"
+        ]
+    );
+    let fields = m.get("fields").expect("fields");
+    let Some(Json::Arr(advanced)) = m.get("advanced") else { panic!() };
+    assert!(advanced.len() > 100);
+    for id in advanced {
+        assert!(fields.get(id.as_str().unwrap()).is_some(), "{} has no field", id.to_json());
+    }
+    let field = |id: &str| fields.get(id).unwrap_or_else(|| panic!("no field {id}")).clone();
+    // the harness starts with DHT off; the default is on
+    assert_eq!(field("enable_dht").get("value"), Some(&Json::Bool(false)));
+    assert_eq!(field("enable_dht").get("default"), Some(&Json::Bool(true)));
+    assert_eq!(s(field("enable_dht").get("label")), "Enable DHT Network");
+    assert_eq!(s(field("enable_dht").get("type")), "bool");
+    assert_eq!(s(field("webui.listen").get("value")), t.host());
+    assert_eq!(field("webui.listen").get("readonly"), Some(&Json::Bool(true)));
+    assert_eq!(s(field("dir.download").get("value")), t.dir.join("dl").to_string_lossy());
+    assert_eq!(s(field("webui.password").get("type")), "password");
+    assert_eq!(s(field("webui.password").get("value")), "");
+    assert_eq!(
+        field("proxy_kind").get("options").map(|o| matches!(o, Json::Arr(v) if v.len() == 4)),
+        Some(true)
+    );
+    assert_eq!(field("connections_limit").get("min").and_then(Json::as_i64), Some(i32::MIN as i64));
+
+    // bad fields: the first one is named
+    let bad = |body: &str| {
+        let r = t.pa(&sid, "/pa/prefs", body);
+        assert_eq!(r.status, 400, "{body}: {}", r.text());
+        s(r.json().get("error")).to_owned()
+    };
+    assert_eq!(bad(r#"{"connections_limit":"lots"}"#), "connections_limit: \"lots\" is not a number");
+    assert_eq!(bad(r#"{"enable_dht":false,"nope":1}"#), "nope: unknown preference");
+    assert_eq!(bad(r#"{"webui.listen":"x"}"#), "webui.listen: read-only");
+    assert_eq!(bad(r#"{"listen_port":70000}"#), "listen_port: 70000 is outside 1..65535");
+    assert_eq!(bad(r#"{"proxy_kind":2}"#), "proxy_hostname: Please enter the proxy server's address.");
+    let ipf = bad(r#"{"ipfilter.enable":true,"ipfilter.path":"/no/such/list.dat"}"#);
+    assert!(ipf.starts_with("ipfilter.path: "), "{ipf}");
+    // nothing of a refused body is applied
+    let m = t.get(&sid, "/pa/prefs").json();
+    assert_eq!(m.get("fields").unwrap().get("enable_dht").unwrap().get("value"), Some(&Json::Bool(false)));
+
+    // a valid partial change: applied at once, seen natively and through the shim, persisted
+    let elsewhere = t.dir.join("elsewhere");
+    let body = format!(
+        r#"{{"connections_limit":77,"download_rate_limit":51200,"dir.download":"{}","webui.domain_list":"*.example","webui.password":"new-pass","ui.show_add_dialog":false,"bt.max_peers":50,"alt_up_limit":2048}}"#,
+        elsewhere.to_string_lossy().replace('\\', "\\\\")
+    );
+    let r = t.pa(&sid, "/pa/prefs", &body);
+    assert_eq!(r.status, 204, "{}", r.text());
+    let m = t.get(&sid, "/pa/prefs").json();
+    let fields = m.get("fields").unwrap();
+    let value = |id: &str| fields.get(id).unwrap().get("value").cloned().unwrap();
+    assert_eq!(value("connections_limit"), Json::Int(77));
+    assert_eq!(value("download_rate_limit"), Json::Int(51200));
+    assert_eq!(value("bt.max_peers"), Json::Int(50));
+    assert_eq!(value("alt_up_limit"), Json::Int(2048));
+    assert_eq!(value("ui.show_add_dialog"), Json::Bool(false));
+    let p = t.get(&sid, "/api/v2/app/preferences").json();
+    assert_eq!(p.get("max_connec").and_then(Json::as_i64), Some(77));
+    assert_eq!(p.get("dl_limit").and_then(Json::as_i64), Some(50));
+    assert_eq!(p.get("alt_up_limit").and_then(Json::as_i64), Some(2));
+    assert_eq!(s(p.get("save_path")), elsewhere.to_string_lossy());
+    assert_eq!(s(p.get("web_ui_domain_list")), "*.example");
+    assert_eq!(t.get(&sid, "/api/v2/transfer/downloadLimit").text(), "51200");
+    assert_eq!(t.get(&sid, "/pa/add").json().get("show_dialog"), Some(&Json::Bool(false)));
+    let file = std::fs::read_to_string(t.dir.join("state").join(STATE_FILE)).unwrap();
+    assert!(file.contains(r#""lt.connections_limit":"77""#), "{file}");
+    assert!(file.contains(r#""ui.show_add_dialog":"0""#), "{file}");
+    assert!(file.contains(r#""webui.domain_list":"*.example""#), "{file}");
+    assert!(!file.contains("new-pass") && !file.contains("ui.close_to_tray"), "{file}");
+
+    // the domain list took effect for the next request
+    let mut sock = TcpStream::connect(t.addr).unwrap();
+    let req = format!(
+        "GET /api/v2/app/version HTTP/1.1\r\nHost: rebind.example:{}\r\nCookie: {sid}\r\nConnection: close\r\n\r\n",
+        t.addr.port()
+    );
+    sock.write_all(req.as_bytes()).unwrap();
+    let mut out = Vec::new();
+    sock.read_to_end(&mut out).unwrap();
+    assert_eq!(parse_response(&out).0.status, 200);
+
+    // the password changed: the old one fails, the new one logs in
+    let r = t.req("POST", "/api/v2/auth/login", &[], Body::Form(&format!("username=admin&password={PASS}")));
+    assert_eq!(r.text(), "Fails.");
+    let r = t.req("POST", "/api/v2/auth/login", &[], Body::Form("username=admin&password=new-pass"));
+    assert_eq!(r.text(), "Ok.");
+
+    // the shim's setPreferences lands on the same state (and clamps as before)
+    let set = r#"{"max_connec":-5,"encryption":1,"web_ui_domain_list":""}"#;
+    assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &format!("json={}", enc(set))).status, 200);
+    let m = t.get(&sid, "/pa/prefs").json();
+    let fields = m.get("fields").unwrap();
+    let value = |id: &str| fields.get(id).unwrap().get("value").cloned().unwrap();
+    assert_eq!(value("connections_limit"), Json::Int(-1));
+    assert_eq!(value("enc_out"), Json::Int(2), "Forced");
+    assert_eq!(value("enc_legacy"), Json::Bool(false));
+    assert_eq!(value("webui.domain_list"), Json::Str(String::new()));
+    // an empty body changes nothing and is fine
+    assert_eq!(t.pa(&sid, "/pa/prefs", "{}").status, 204);
+}
+
+#[test]
+fn native_prefs_survive_a_restart() {
+    let dir = temp_dir("prefs-restart");
+    // a state file from before slice 6: the shim's keys under `preferences`, migrated once
+    let state = dir.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    std::fs::write(state.join(STATE_FILE), r#"{"preferences":{"dl_limit":100,"no_such":1}}"#).unwrap();
+    let port = 47123i64;
+    let download = dir.join("restart-dl");
+    {
+        let t = Harness::start_in(dir.clone(), Some(PASS));
+        let sid = t.login();
+        assert_eq!(t.get(&sid, "/api/v2/transfer/downloadLimit").text(), "102400");
+        let file = std::fs::read_to_string(state.join(STATE_FILE)).unwrap();
+        assert!(
+            !file.contains("preferences") && file.contains(r#""lt.download_rate_limit":"102400""#),
+            "{file}"
+        );
+
+        let body = format!(
+            r#"{{"listen_port":{port},"dir.download":"{}","enable_lsd":true,"webui.session_timeout":120}}"#,
+            download.to_string_lossy().replace('\\', "\\\\")
+        );
+        let r = t.pa(&sid, "/pa/prefs", &body);
+        assert_eq!(r.status, 204, "{}", r.text());
+        let p = t.get(&sid, "/api/v2/app/preferences").json();
+        assert_eq!(p.get("listen_port").and_then(Json::as_i64), Some(port));
+        assert_eq!(s(p.get("save_path")), download.to_string_lossy());
+        assert_eq!(p.get("lsd"), Some(&Json::Bool(true)));
+        let m = t.get(&sid, "/pa/prefs").json();
+        let li = m.get("fields").unwrap().get("listen_interfaces").unwrap().get("value").cloned();
+        assert_eq!(li, Some(Json::Str(format!("127.0.0.1:{port}"))));
+        // keep the directory for the second run: the harness removes this one instead
+        let mut t = t;
+        t.dir = temp_dir("prefs-restart-scratch");
+    }
+    let t = Harness::start_in(dir, None);
+    let sid = t.login();
+    let m = t.get(&sid, "/pa/prefs").json();
+    let fields = m.get("fields").unwrap();
+    let value = |id: &str| fields.get(id).unwrap().get("value").cloned().unwrap();
+    assert_eq!(value("listen_port"), Json::Int(port));
+    assert_eq!(value("dir.download"), Json::Str(download.to_string_lossy().into_owned()));
+    assert_eq!(value("enable_lsd"), Json::Bool(true));
+    assert_eq!(value("webui.session_timeout"), Json::Int(120));
+    assert_eq!(value("download_rate_limit"), Json::Int(102400));
+    // the harness's own settings that were never stored are kept (DHT off)
+    assert_eq!(value("enable_dht"), Json::Bool(false));
+    let p = t.get(&sid, "/api/v2/app/preferences").json();
+    assert_eq!(p.get("listen_port").and_then(Json::as_i64), Some(port));
+    assert_eq!(s(p.get("save_path")), download.to_string_lossy());
+    assert_eq!(t.get(&sid, "/api/v2/transfer/downloadLimit").text(), "102400");
+}

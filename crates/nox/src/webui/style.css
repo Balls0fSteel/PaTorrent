@@ -404,6 +404,72 @@ body.drag-size { cursor: col-resize; user-select: none; }
   .add-cols { grid-template-columns: minmax(0, 1fr); }
 }
 
+/* the Preferences dialog (the 2.2.1 layout: the page tree left, the page right, OK / Cancel / Apply);
+   never taller than the viewport, the page scrolls inside */
+#prefs {
+  width: min(860px, calc(100vw - 32px));
+  height: min(600px, calc(100vh - 32px));
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 2px 2px 10px var(--shadow);
+}
+#prefs::backdrop { background: rgba(0, 0, 0, 0.35); }
+#prefs h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+#prefs-form { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+#prefs select { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; }
+.prefs-cols { display: grid; grid-template-columns: 150px minmax(0, 1fr); gap: 10px; flex: 1 1 auto; min-height: 0; }
+#prefs-tree { border: 1px solid var(--line); background: var(--bg); overflow: auto; padding: 2px 0; user-select: none; }
+#prefs-tree .pt { padding: 3px 8px; cursor: default; white-space: nowrap; }
+#prefs-tree .pt.sub { padding-left: 24px; }
+#prefs-tree .pt.on { background: var(--sel); color: var(--sel-fg); }
+#prefs-tree .pt:hover:not(.on) { background: var(--bg2); }
+#prefs-tree:focus-visible { outline: 2px solid var(--focus); }
+#prefs-page { overflow: auto; min-height: 0; padding-right: 4px; display: flex; flex-direction: column; gap: 8px; align-content: start; }
+#prefs-page.adv { overflow: hidden; }
+#prefs-page > * { flex: none; }
+#prefs-page.adv > .adv-list { flex: 1 1 auto; }
+.pg { border: 1px solid var(--line); border-radius: 3px; padding: 4px 8px 8px; margin: 0; min-width: 0; }
+div.pg { border: 0; padding: 0 8px; }
+.pg legend { padding: 0 4px; }
+.pf { display: flex; align-items: center; gap: 6px; line-height: 22px; min-width: 0; }
+.pf.chk { display: block; }
+.pf > span { flex: 1 1 auto; }
+.pf.num input { width: 7em; text-align: right; flex: none; }
+.pf.txt input { flex: 1 1 auto; min-width: 4em; }
+.pf input[type="text"], .pf input[type="password"], .pf input[type="search"], .pf input[type="number"] { background: var(--bg); }
+.pf input[readonly] { color: var(--muted); }
+.pf-row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.pf-row .pf { flex: 1 1 auto; }
+.pf-row .pf > span { flex: none; }
+.pf-row .pf.num { flex: none; }
+.pf-note { margin: 4px 0 0; color: var(--muted); }
+#prefs input.bad, #prefs select.bad { border-color: var(--err); outline: 1px solid var(--err); }
+.adv-bar .pf > span { flex: none; }
+.adv-list { min-height: 120px; overflow: auto; border: 1px solid var(--line); background: var(--bg); user-select: none; }
+.adv { width: 100%; border-collapse: collapse; table-layout: fixed; }
+.adv th { position: sticky; top: 0; background: var(--hdr); text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.adv td { padding: 1px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.adv th:first-child, .adv td.n { width: 58%; }
+.adv tr.changed td { font-weight: 700; }
+.adv tr.sel td { background: var(--sel); color: var(--sel-fg); }
+.adv tbody tr:not(.sel):hover td { background: var(--bg2); }
+.adv-edit { display: flex; gap: 6px; align-items: center; }
+.adv-edit input[type="text"] { flex: 1; background: var(--bg); min-width: 4em; }
+.adv-edit .radios { flex: 1; }
+.adv-edit .radios[hidden], .adv-edit input[hidden] { display: none; }
+.adv-edit .radios label { margin-right: 12px; }
+.prefs-btns { display: flex; justify-content: flex-end; gap: 6px; align-items: center; }
+.prefs-btns button { min-width: 72px; }
+#prefs-msg { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#prefs-msg.bad { color: var(--err); }
+@media (max-width: 700px) {
+  .prefs-cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  #prefs-tree { display: flex; overflow-x: auto; }
+  #prefs-tree .pt.sub { padding-left: 8px; }
+}
+
 /* gate panel (#gate in the URL): measurements of the page itself */
 #gate {
   position: fixed;

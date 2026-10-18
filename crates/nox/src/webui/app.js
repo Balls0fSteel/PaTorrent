@@ -162,7 +162,10 @@
         /* no body */
       }
       flash(path + ": " + (msg || "HTTP " + r.status));
-      throw new Error(path + ": HTTP " + r.status);
+      const err = new Error(path + ": HTTP " + r.status);
+      err.msg = msg; // the server's {"error"} text, for a dialog that shows it in place
+      err.status = r.status;
+      throw err;
     }
     return r.status === 204 ? null : r.json();
   }
@@ -364,6 +367,7 @@
     backoff = 1000;
     setConn("");
     labels = m.labels || [];
+    confirmDelete = m.confirm_delete !== false;
     mergeColumns(m.columns);
     saveLayout();
     renderTree();
@@ -909,8 +913,9 @@
   // ---- status bar ----------------------------------------------------------------------
   function updateStatus(s) {
     setText("st-dht", "DHT: " + s.dht + " nodes");
-    setText("st-down", "D: " + s.down + " T: " + s.down_total);
-    setText("st-up", "U: " + s.up + " T: " + s.up_total);
+    // the global limit in brackets while one is set
+    setText("st-down", "D: " + s.down + (s.down_limit ? " [" + s.down_limit + "]" : "") + " T: " + s.down_total);
+    setText("st-up", "U: " + s.up + (s.up_limit ? " [" + s.up_limit + "]" : "") + " T: " + s.up_total);
   }
   function setText(id, text) {
     const el = $(id);
@@ -979,7 +984,7 @@
         const msg = data
           ? "Remove " + what + " and delete the downloaded data?"
           : "Remove " + what + "? The downloaded files are kept.";
-        if (!confirm(msg)) return;
+        if (confirmDelete && !confirm(msg)) return;
         path = "torrents/remove";
         body.data = data;
         sel = new Set();
@@ -2221,6 +2226,526 @@
       renderTree();
     }
     closeAddDialog();
+  });
+
+  // ---- Preferences (docs/WEBUI.md slice 6) -------------------------------------------------
+  // The dialog is generated from GET pa/prefs: `pages` (the 2.2.1 tree, each page its groups of
+  // items), `fields` (id -> label, type, value, default, range, options) and `advanced` (every
+  // engine setting's id). A field needs no code here, only a place on a page. Edits are kept per
+  // field; Apply and OK send only the changed ones (POST pa/prefs), Cancel discards them.
+  const prefsDlg = $("prefs");
+  let prefsModel = null;
+  let prefsEdits = new Map(); // id -> the value to send
+  let prefsRanges = new Map(); // id -> [min, max, scale] of the control that made the edit
+  let prefsPageId = store.get("pa.prefsPage", "general");
+  let advFilter = "";
+  let advSel = null; // the selected Advanced row's id
+  let adv = null; // the Advanced page's elements while it is shown
+  let confirmDelete = true;
+
+  function prefField(id) {
+    return prefsModel.fields[id];
+  }
+  function prefValue(id) {
+    return prefsEdits.has(id) ? prefsEdits.get(id) : prefField(id).value;
+  }
+  function prefSet(id, v) {
+    const f = prefField(id);
+    if (f.type === "password" ? v === "" : v === f.value) prefsEdits.delete(id);
+    else prefsEdits.set(id, v);
+  }
+  function prefIsDefault(id) {
+    return prefValue(id) === prefField(id).default;
+  }
+  function setPrefsMsg(text, bad) {
+    const el = $("prefs-msg");
+    el.textContent = text;
+    el.classList.toggle("bad", !!bad);
+  }
+
+  async function openPrefs() {
+    if (prefsDlg.open || $("app").hidden) return;
+    let m;
+    try {
+      m = await pa("prefs");
+    } catch (e) {
+      return;
+    }
+    prefsModel = m;
+    prefsEdits = new Map();
+    prefsRanges = new Map();
+    advSel = null;
+    advFilter = "";
+    setPrefsMsg("");
+    buildPrefsTree();
+    showPrefsPage(prefsPageId);
+    prefsDlg.showModal();
+    $("prefs-tree").querySelector(".on").focus();
+  }
+  function closePrefs() {
+    if (prefsDlg.open) prefsDlg.close();
+    prefsEdits = new Map();
+    adv = null;
+    body.focus();
+  }
+
+  // the tree
+  function buildPrefsTree() {
+    const tree = $("prefs-tree");
+    tree.textContent = "";
+    for (const p of prefsModel.pages) {
+      const it = document.createElement("div");
+      it.className = "pt" + (p.under ? " sub" : "");
+      it.setAttribute("role", "treeitem");
+      it.tabIndex = -1;
+      it.dataset.page = p.id;
+      it.textContent = p.title;
+      tree.appendChild(it);
+    }
+  }
+  function markPrefsTree() {
+    for (const it of $("prefs-tree").children) {
+      const on = it.dataset.page === prefsPageId;
+      it.classList.toggle("on", on);
+      it.tabIndex = on ? 0 : -1;
+      it.setAttribute("aria-selected", on);
+    }
+  }
+  $("prefs-tree").addEventListener("click", (ev) => {
+    const it = ev.target.closest(".pt");
+    if (it) showPrefsPage(it.dataset.page);
+  });
+  $("prefs-tree").addEventListener("keydown", (ev) => {
+    const pages = prefsModel.pages;
+    const i = pages.findIndex((p) => p.id === prefsPageId);
+    let j = i;
+    if (ev.key === "ArrowDown") j = Math.min(pages.length - 1, i + 1);
+    else if (ev.key === "ArrowUp") j = Math.max(0, i - 1);
+    else if (ev.key === "Home") j = 0;
+    else if (ev.key === "End") j = pages.length - 1;
+    else return;
+    ev.preventDefault();
+    showPrefsPage(pages[j].id);
+    $("prefs-tree").children[j].focus();
+  });
+
+  // a page, from its groups of items
+  function showPrefsPage(id) {
+    const page = prefsModel.pages.find((p) => p.id === id) || prefsModel.pages[0];
+    prefsPageId = page.id;
+    store.set("pa.prefsPage", page.id);
+    markPrefsTree();
+    const el = $("prefs-page");
+    el.textContent = "";
+    el.classList.toggle("adv", !!page.advanced);
+    adv = null;
+    if (page.advanced) renderAdvanced(el);
+    for (const g of page.groups) {
+      const box = document.createElement(g.title ? "fieldset" : "div");
+      box.className = "pg";
+      if (g.title) {
+        const lg = document.createElement("legend");
+        lg.textContent = g.title;
+        box.appendChild(lg);
+      }
+      for (const it of g.items) box.appendChild(renderItem(it));
+      el.appendChild(box);
+    }
+    updateEnabled(el);
+  }
+  function renderItem(it) {
+    if (it.row) {
+      const r = document.createElement("div");
+      r.className = "pf-row";
+      for (const sub of it.row) r.appendChild(renderItem(sub));
+      return r;
+    }
+    if (it.note !== undefined) {
+      const p = document.createElement("p");
+      p.className = "pf-note";
+      p.textContent = it.note;
+      return p;
+    }
+    if (it.button) {
+      const b = document.createElement("button");
+      b.type = "button";
+      b.textContent = it.button;
+      b.dataset.action = it.action;
+      return b;
+    }
+    const l = document.createElement("label");
+    if (it.stub !== undefined) {
+      // a placeholder until its feature exists, disabled as in the Win32 dialog
+      const inp = document.createElement("input");
+      inp.disabled = true;
+      if (it.text !== undefined) {
+        l.className = "pf txt";
+        const sp = document.createElement("span");
+        sp.textContent = it.stub;
+        l.appendChild(sp);
+        inp.type = "text";
+        inp.value = it.text;
+        l.appendChild(inp);
+      } else {
+        l.className = "pf chk";
+        inp.type = "checkbox";
+        inp.checked = !!it.on;
+        l.appendChild(inp);
+        l.appendChild(document.createTextNode(" " + it.stub));
+      }
+      return l;
+    }
+    const f = prefField(it.f);
+    const v = prefValue(it.f);
+    let inp;
+    if (f.type === "bool") {
+      l.className = "pf chk";
+      inp = document.createElement("input");
+      inp.type = "checkbox";
+      inp.checked = !!v;
+      l.appendChild(inp);
+      l.appendChild(document.createTextNode(" " + f.label));
+    } else {
+      l.className = "pf " + (f.type === "int" ? "num" : f.type === "enum" ? "sel" : "txt");
+      if (f.label) {
+        const sp = document.createElement("span");
+        sp.textContent = f.label;
+        l.appendChild(sp);
+      }
+      if (f.type === "enum") {
+        inp = document.createElement("select");
+        f.options.forEach((o, i) => {
+          const op = document.createElement("option");
+          op.value = i;
+          op.textContent = o;
+          inp.appendChild(op);
+        });
+        inp.value = v;
+      } else {
+        inp = document.createElement("input");
+        if (f.type === "int") {
+          // kB/s on the page, bytes on the wire; a value that is not a whole kB shows rounded and
+          // is kept unless the field is edited
+          const scale = it.kb ? 1024 : 1;
+          const min = it.min !== undefined ? it.min : f.min;
+          const max = it.max !== undefined ? it.max : f.max;
+          inp.type = "number";
+          inp.step = 1;
+          inp.min = Math.ceil(min / scale);
+          inp.max = Math.floor(max / scale);
+          inp.dataset.min = min;
+          inp.dataset.max = max;
+          inp.dataset.scale = scale;
+          inp.value = Math.trunc(v / scale);
+        } else {
+          inp.type = f.type === "password" || it.secret ? "password" : "text";
+          inp.value = v;
+          inp.autocomplete = f.type === "password" ? "new-password" : "off";
+          if (f.type === "password") inp.placeholder = "(unchanged)";
+        }
+        if (f.readonly) inp.readOnly = true;
+      }
+      l.appendChild(inp);
+    }
+    inp.dataset.id = it.f;
+    if (it.enabled_by) l.dataset.enabledBy = it.enabled_by;
+    return l;
+  }
+  /// A control's value as the server takes it; an int that is not a whole number comes back as
+  /// the text, for the range check to refuse.
+  function readControl(inp) {
+    const f = prefField(inp.dataset.id);
+    if (f.type === "bool") return inp.checked;
+    if (f.type === "enum") return Number(inp.value);
+    if (f.type === "int") {
+      const t = inp.value.trim();
+      if (!/^-?\d+$/.test(t)) return t;
+      return Number(t) * Number(inp.dataset.scale || 1);
+    }
+    return inp.value;
+  }
+  $("prefs-page").addEventListener("input", (ev) => {
+    const inp = ev.target;
+    if (!inp.dataset.id) return;
+    inp.classList.remove("bad");
+    prefSet(inp.dataset.id, readControl(inp));
+    if (inp.dataset.min !== undefined) {
+      prefsRanges.set(inp.dataset.id, [Number(inp.dataset.min), Number(inp.dataset.max), Number(inp.dataset.scale)]);
+    }
+    updateEnabled($("prefs-page"));
+  });
+  /// "Move completed downloads to" and the like gate the controls under them, as in µTorrent.
+  function updateEnabled(root) {
+    for (const l of root.querySelectorAll("[data-enabled-by]")) {
+      const on = !!prefValue(l.dataset.enabledBy);
+      for (const c of l.querySelectorAll("input,select,button")) c.disabled = !on;
+    }
+  }
+  $("prefs-page").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button[data-action]");
+    if (!b) return;
+    if (b.dataset.action === "random_port") {
+      // frontend::options::random_port's range
+      const inp = $("prefs-page").querySelector('[data-id="listen_port"]');
+      if (!inp) return;
+      inp.value = 10000 + Math.floor(Math.random() * 55001);
+      inp.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  });
+
+  // the Advanced page: the full settings table, a filter, a value editor, Set / Reset
+  function renderAdvanced(el) {
+    const bar = document.createElement("div");
+    bar.className = "adv-bar";
+    const lab = document.createElement("label");
+    lab.className = "pf txt";
+    const sp = document.createElement("span");
+    sp.textContent = "Filter:";
+    const filt = document.createElement("input");
+    filt.type = "search";
+    filt.id = "adv-filter";
+    filt.autocomplete = "off";
+    filt.value = advFilter;
+    lab.appendChild(sp);
+    lab.appendChild(filt);
+    bar.appendChild(lab);
+    el.appendChild(bar);
+
+    const list = document.createElement("div");
+    list.className = "adv-list";
+    const table = document.createElement("table");
+    table.className = "adv";
+    const thead = document.createElement("thead");
+    const hr = document.createElement("tr");
+    for (const t of ["Name", "Value"]) {
+      const th = document.createElement("th");
+      th.textContent = t;
+      hr.appendChild(th);
+    }
+    thead.appendChild(hr);
+    table.appendChild(thead);
+    const tbody = document.createElement("tbody");
+    table.appendChild(tbody);
+    list.appendChild(table);
+    el.appendChild(list);
+
+    const ed = document.createElement("div");
+    ed.className = "adv-edit";
+    const vl = document.createElement("span");
+    vl.textContent = "Value:";
+    const value = document.createElement("input");
+    value.type = "text";
+    value.id = "adv-value";
+    value.autocomplete = "off";
+    const radios = document.createElement("span");
+    radios.className = "radios";
+    const mk = (text, val) => {
+      const l = document.createElement("label");
+      const r = document.createElement("input");
+      r.type = "radio";
+      r.name = "adv-bool";
+      r.value = val;
+      l.appendChild(r);
+      l.appendChild(document.createTextNode(" " + text));
+      radios.appendChild(l);
+      return r;
+    };
+    const rTrue = mk("True", "true");
+    const rFalse = mk("False", "false");
+    const set = document.createElement("button");
+    set.type = "button";
+    set.textContent = "Set";
+    const reset = document.createElement("button");
+    reset.type = "button";
+    reset.textContent = "Reset";
+    ed.append(vl, value, radios, set, reset);
+    el.appendChild(ed);
+
+    adv = { tbody, value, radios, rTrue, rFalse, set, reset };
+    filt.addEventListener("input", () => {
+      advFilter = filt.value.trim().toLowerCase();
+      fillAdvanced();
+    });
+    tbody.addEventListener("click", (ev) => {
+      const tr = ev.target.closest("tr[data-id]");
+      if (!tr) return;
+      advSel = tr.dataset.id;
+      for (const r of tbody.children) r.classList.toggle("sel", r.dataset.id === advSel);
+      showAdvEditor();
+    });
+    tbody.addEventListener("dblclick", (ev) => {
+      if (ev.target.closest("tr[data-id]")) adv.value.hidden ? adv.rTrue.focus() : adv.value.focus();
+    });
+    set.addEventListener("click", () => advSet(false));
+    reset.addEventListener("click", () => advSet(true));
+    fillAdvanced();
+  }
+  /// The rows matching the filter, sorted by name, changed values in bold (2.2.1's `*`).
+  function fillAdvanced() {
+    if (!adv) return;
+    const { tbody } = adv;
+    tbody.textContent = "";
+    const ids = prefsModel.advanced.filter((id) => id.includes(advFilter)).sort();
+    for (const id of ids) {
+      const tr = document.createElement("tr");
+      tr.dataset.id = id;
+      if (!prefIsDefault(id)) tr.classList.add("changed");
+      if (id === advSel) tr.classList.add("sel");
+      const n = document.createElement("td");
+      n.className = "n";
+      n.textContent = id;
+      const v = document.createElement("td");
+      v.textContent = String(prefValue(id));
+      tr.append(n, v);
+      tbody.appendChild(tr);
+    }
+    if (advSel && !ids.includes(advSel)) advSel = null;
+    showAdvEditor();
+  }
+  /// The value field for the selected row: True / False for switches, a text field otherwise.
+  function showAdvEditor() {
+    if (!adv) return;
+    const f = advSel ? prefField(advSel) : null;
+    const isBool = !!f && f.type === "bool";
+    adv.value.hidden = isBool;
+    adv.radios.hidden = !isBool;
+    adv.value.classList.remove("bad");
+    if (f) {
+      const v = prefValue(advSel);
+      if (isBool) {
+        adv.rTrue.checked = v === true;
+        adv.rFalse.checked = v !== true;
+      } else adv.value.value = String(v);
+    } else adv.value.value = "";
+    for (const c of [adv.value, adv.rTrue, adv.rFalse, adv.set, adv.reset]) c.disabled = !f;
+  }
+  /// "Set" (or "Reset" to the default) for the selected row.
+  function advSet(reset) {
+    if (!adv || !advSel) return;
+    const f = prefField(advSel);
+    let v;
+    if (reset) v = f.default;
+    else if (f.type === "bool") v = adv.rTrue.checked;
+    else {
+      const t = adv.value.value;
+      if (f.type === "int") {
+        if (!/^-?\d+$/.test(t.trim()) || Number(t) < f.min || Number(t) > f.max) {
+          adv.value.classList.add("bad");
+          adv.value.focus();
+          setPrefsMsg(advSel + ": please enter a number from " + f.min + " to " + f.max + ".", true);
+          return;
+        }
+        v = Number(t);
+      } else v = t;
+    }
+    prefSet(advSel, v);
+    prefsRanges.set(advSel, [f.min, f.max, 1]);
+    setPrefsMsg("");
+    fillAdvanced();
+  }
+
+  // Apply / OK / Cancel and the errors
+  /// The page of a field, for an error: the one that shows it, else Advanced.
+  function pageOfPref(id) {
+    const has = (items) => items.some((it) => it.f === id || (it.row && has(it.row)));
+    const p = prefsModel.pages.find((p) => p.groups.some((g) => has(g.items)));
+    if (p) return p.id;
+    return prefsModel.advanced.includes(id) ? prefsModel.pages.find((p) => p.advanced).id : null;
+  }
+  function showPrefError(id, msg) {
+    const pg = pageOfPref(id);
+    if (pg) showPrefsPage(pg);
+    const inp = $("prefs-page").querySelector('[data-id="' + id + '"]');
+    if (inp) {
+      inp.classList.add("bad");
+      inp.focus();
+    } else if (adv && prefsModel.advanced.includes(id)) {
+      advSel = id;
+      fillAdvanced();
+      adv.value.classList.add("bad");
+      const tr = adv.tbody.querySelector(".sel");
+      if (tr) tr.scrollIntoView({ block: "nearest" });
+    }
+    setPrefsMsg(msg, true);
+  }
+  /// The Win32 dialog's range check on the fields edited here, before anything is sent.
+  function validatePrefs() {
+    for (const [id, v] of prefsEdits) {
+      const f = prefField(id);
+      if (f.type !== "int") continue;
+      const [min, max, scale] = prefsRanges.get(id) || [f.min, f.max, 1];
+      if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) {
+        return [id, "Please enter a number from " + Math.ceil(min / scale) + " to " + Math.floor(max / scale) + "."];
+      }
+    }
+    return null;
+  }
+  async function applyPrefs(close) {
+    const bad = validatePrefs();
+    if (bad) {
+      showPrefError(bad[0], bad[1]);
+      return;
+    }
+    if (prefsEdits.size) {
+      try {
+        await pa("prefs", Object.fromEntries(prefsEdits));
+      } catch (e) {
+        // {"error": "<field>: <why>"} names the first bad field
+        const m = /^([^\s:]+): ([\s\S]*)$/.exec(e.msg || "");
+        if (m && prefField(m[1])) showPrefError(m[1], e.msg);
+        else setPrefsMsg(e.msg || "The preferences could not be applied.", true);
+        return;
+      }
+      if (prefsEdits.has("ui.confirm_delete")) confirmDelete = !!prefsEdits.get("ui.confirm_delete");
+      prefsEdits = new Map();
+      if (close) {
+        closePrefs();
+        return;
+      }
+      // the composites (the port in listen_interfaces, the proxy type) read back exactly
+      try {
+        prefsModel = await pa("prefs");
+      } catch (e) {
+        /* the dialog keeps what it has */
+      }
+      showPrefsPage(prefsPageId);
+      setPrefsMsg("Applied.");
+      return;
+    }
+    if (close) closePrefs();
+  }
+  $("prefs-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    applyPrefs(true);
+  });
+  $("prefs-form").addEventListener("keydown", (ev) => {
+    if (ev.key !== "Enter") return;
+    if (ev.ctrlKey || ev.metaKey) {
+      ev.preventDefault();
+      applyPrefs(true);
+      return;
+    }
+    const t = ev.target;
+    if (t.id === "adv-value") {
+      // Enter in the Advanced value field sets the value instead of closing
+      ev.preventDefault();
+      advSet(false);
+    } else if (t.tagName === "INPUT" || t.tagName === "SELECT") {
+      ev.preventDefault(); // Enter in a field applies nothing, as 2.2.1
+    }
+  });
+  $("prefs-apply").addEventListener("click", () => applyPrefs(false));
+  $("prefs-cancel").addEventListener("click", closePrefs);
+  prefsDlg.addEventListener("cancel", (ev) => {
+    ev.preventDefault(); // Escape
+    closePrefs();
+  });
+  $("tb-prefs").addEventListener("click", openPrefs);
+  document.addEventListener("keydown", (ev) => {
+    if (!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || ev.altKey || ev.key.toLowerCase() !== "p") return;
+    if ($("app").hidden || addDlg.open) return;
+    ev.preventDefault();
+    if (!prefsDlg.open) openPrefs();
   });
 
   // ---- splitters -----------------------------------------------------------------------

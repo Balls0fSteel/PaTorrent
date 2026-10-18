@@ -224,6 +224,7 @@ impl Client {
             .with("categories", Json::Arr(categories))
             .with("labels", Json::Arr(labels))
             .with("detail", detail)
+            .with("confirm_delete", st.prefs.confirm_delete)
     }
 
     /// Handles one client message; the replies to send back, in order.
@@ -776,6 +777,9 @@ fn status_bar(st: &State) -> Json {
         .with("up", fmt::speed_always(s.upload_rate))
         .with("down_total", fmt::size(s.recv_payload_bytes))
         .with("up_total", fmt::size(s.sent_payload_bytes))
+        // the global limits in force (empty when unlimited), shown in brackets
+        .with("down_limit", fmt::speed(st.settings.download_rate_limit))
+        .with("up_limit", fmt::speed(st.settings.upload_rate_limit))
 }
 
 fn error(msg: &str) -> Json {

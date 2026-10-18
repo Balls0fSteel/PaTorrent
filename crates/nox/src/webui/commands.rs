@@ -27,7 +27,7 @@ use super::http::{Head, Part, Response, multipart_boundary, parse_header_params,
 use super::json::{self, Json};
 use super::native::category_from_id;
 use super::torrent::hash_of;
-use super::{Meta, Reply, ReplyKind, Shared, State, fetch};
+use super::{Meta, Reply, ReplyKind, Shared, State, fetch, prefs};
 
 /// The header every native command must carry (a browser cannot send a custom header
 /// cross-site without a CORS preflight, which the server never grants): `X-Requested-With:
@@ -575,14 +575,18 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
         top_of_queue: o.top,
         label: label.to_owned(),
     };
+    // the Preferences' per-torrent defaults first, then the dialog's choices, as the Win32 add does
+    let defaults = st.prefs.gui();
     let (params, meta) = match source {
         Source::Torrent(bytes, ti) => {
             let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), save_path.as_str());
+            defaults.apply_to_new(&mut p);
             choice.apply_to(&ti, &mut p);
             (p, Some(meta_of(&ti)))
         }
         Source::Magnet(m) => {
             let mut p = AddTorrentParams::new(TorrentSource::Magnet(m), save_path.as_str());
+            defaults.apply_to_new(&mut p);
             // no metadata yet: the choice's flags and name, and no renames
             choice.apply_to(&TorrentInfo::default(), &mut p);
             p.renamed_files.clear();
@@ -609,7 +613,7 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
     if choice.top_of_queue {
         st.pending_top.insert(hash.clone());
     }
-    add::remember_dir(&mut st.add_prefs, &save_path);
+    add::remember_dir(&mut st.options, &save_path);
     shared.save(&st);
     drop(st);
     shared.handle.add_torrent(params);
@@ -629,7 +633,7 @@ pub fn meta_of(ti: &TorrentInfo) -> Meta {
 
 /// The Save In list: the default download folder, then the recent ones.
 pub fn save_in(st: &State) -> Vec<String> {
-    add::save_in_choices(&st.prefs.save_path, &add::recent_dirs(&st.add_prefs))
+    add::save_in_choices(&st.prefs.save_path, &add::recent_dirs(&st.options))
 }
 
 /// `/pa/torrent-info`: the Add dialog's Torrent Contents for a `.torrent` without adding it:
@@ -798,8 +802,12 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Respons
                         .with("save_in", Json::Arr(dirs))
                         .with("labels", Json::Arr(labels))
                         .with("start", !st.prefs.start_paused)
-                        .with("show_dialog", true),
+                        .with("show_dialog", st.prefs.show_add_dialog),
                 ))
+            }
+            "prefs" => {
+                let st = shared.lock();
+                Ok(Response::json(&prefs::model(shared, &st)))
             }
             _ => Err(err(405, "POST only")),
         };
@@ -844,6 +852,15 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Respons
         }
         "session/shutdown" => {
             shared.lock().shutdown = true;
+            Ok(no_content())
+        }
+        "prefs" => {
+            // a partial object of ids to values; 400 names the first bad field
+            let body = json_body(req)?;
+            let changes = prefs::parse(&body).map_err(|(field, why)| err(400, format!("{field}: {why}")))?;
+            let mut st = shared.lock();
+            prefs::commit(shared, &mut st, &changes)
+                .map_err(|(field, why)| err(400, format!("{field}: {why}")))?;
             Ok(no_content())
         }
         _ => {

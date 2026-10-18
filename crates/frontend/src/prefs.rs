@@ -53,6 +53,11 @@ impl Prefs {
         self.values.get(key).map(String::as_str)
     }
 
+    /// Every key and value, sorted by key.
+    pub fn entries(&self) -> impl Iterator<Item = (&str, &str)> {
+        self.values.iter().map(|(k, v)| (k.as_str(), v.as_str()))
+    }
+
     pub fn get_i32(&self, key: &str) -> Option<i32> {
         self.get(key)?.trim().parse().ok()
     }

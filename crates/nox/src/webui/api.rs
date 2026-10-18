@@ -16,14 +16,14 @@ use patorrent_core::{
 };
 use patorrent_frontend::detail::peer_flags;
 
-use super::auth::{PasswordHash, constant_time_eq, random_hex};
+use super::auth::{constant_time_eq, random_hex};
 use super::commands::{self, AddOptions, Source};
 use super::http::{
     Head, Part, Response, cookie, multipart_boundary, parse_header_params, parse_multipart, parse_urlencoded,
 };
 use super::json::{self, Json};
 use super::torrent::{self, Extra};
-use super::{ClientSession, MAX_SESSIONS, Reply, ReplyKind, Shared, State};
+use super::{ClientSession, MAX_SESSIONS, Reply, ReplyKind, Shared, State, prefs};
 
 /// The qBittorrent release whose WebAPI (2.11.2) this implements; clients pick features by it.
 pub const COMPAT_VERSION: &str = "v5.0.0";
@@ -713,7 +713,7 @@ fn preferences(st: &State, shared: &Shared) -> Json {
         .with("max_connec", s.connections_limit)
         .with("max_uploads", s.unchoke_slots_limit)
         .with("dht", s.enable_dht)
-        .with("pex", true)
+        .with("pex", p.pex)
         .with("lsd", s.enable_lsd)
         .with(
             "encryption",
@@ -743,85 +743,46 @@ fn preferences(st: &State, shared: &Shared) -> Json {
         .with("web_ui_session_timeout", p.session_timeout)
 }
 
-/// Keys never written to the state file (secrets; the password is stored as a hash instead).
-const NOT_STORED: [&str; 3] = ["web_ui_password", "proxy_password", "web_ui_username"];
-
-/// Applies the `setPreferences` keys we support (unknown keys are ignored) and remembers them
-/// for the next start.
+/// Applies the `setPreferences` keys we support (unknown keys are ignored) by mapping each onto
+/// the native Preferences ids (`prefs.rs`) and committing them together; a key that does not
+/// parse is skipped, and when the set fails the Win32 dialog's cross-field checks (a proxy type
+/// without a host), each change is tried on its own. Stored like every other preference.
 pub(crate) fn apply_preferences(shared: &Shared, st: &mut State, v: &Json) {
-    let mut settings_changed = false;
-    let mut limits_changed = false;
-    let kib =
-        |j: &Json| j.as_i64().map(|k| if k <= 0 { 0 } else { (k.min(u32::MAX as i64 / 1024) * 1024) as u32 });
+    let kib = |j: &Json| {
+        j.as_i64().map(|k| Json::from(if k <= 0 { 0 } else { k.min(u32::MAX as i64 / 1024) * 1024 }))
+    };
+    let clamp = |j: &Json, lo: i64, hi: i64| j.as_i64().map(|n| Json::from(n.clamp(lo, hi)));
+    let mut changes = Vec::new();
     for (key, val) in v.entries() {
-        let s = &mut st.settings;
-        let accepted = match key.as_str() {
-            "save_path" => val.as_str().map(|p| st.prefs.save_path = p.to_owned()).is_some(),
-            "start_paused_enabled" => val.as_bool().map(|b| st.prefs.start_paused = b).is_some(),
-            "dl_limit" => {
-                kib(val).map(|b| st.prefs.dl_limit = b).is_some() && {
-                    limits_changed = true;
-                    true
-                }
+        let one = |id: &'static str, j: Option<Json>| j.map(|j| vec![(id, j)]).unwrap_or_default();
+        let mapped: Vec<(&str, Json)> = match key.as_str() {
+            "save_path" => one("dir.download", Some(val.clone())),
+            "start_paused_enabled" => one("ui.add_stopped", Some(val.clone())),
+            "dl_limit" => one("download_rate_limit", kib(val)),
+            "up_limit" => one("upload_rate_limit", kib(val)),
+            "alt_dl_limit" => one("alt_dl_limit", kib(val)),
+            "alt_up_limit" => one("alt_up_limit", kib(val)),
+            "listen_port" => one("listen_port", Some(val.clone())),
+            "upnp" => vec![("enable_upnp", val.clone()), ("enable_natpmp", val.clone())],
+            "max_connec" => one("connections_limit", clamp(val, -1, i32::MAX as i64)),
+            "max_uploads" => one("unchoke_slots_limit", clamp(val, -1, i32::MAX as i64)),
+            "dht" => one("enable_dht", Some(val.clone())),
+            "lsd" => one("enable_lsd", Some(val.clone())),
+            "encryption" => {
+                // libtorrent's policy numbers: 0 forced, 1 enabled, 2 disabled
+                let policy = match val.as_i64() {
+                    Some(0) => Some(1),
+                    Some(1) => Some(0),
+                    Some(2) => Some(2),
+                    _ => None,
+                };
+                policy
+                    .map(|p| vec![("out_enc_policy", Json::from(p)), ("in_enc_policy", Json::from(p))])
+                    .unwrap_or_default()
             }
-            "up_limit" => {
-                kib(val).map(|b| st.prefs.up_limit = b).is_some() && {
-                    limits_changed = true;
-                    true
-                }
-            }
-            "alt_dl_limit" => {
-                kib(val).map(|b| st.prefs.alt_dl_limit = b).is_some() && {
-                    limits_changed = true;
-                    true
-                }
-            }
-            "alt_up_limit" => {
-                kib(val).map(|b| st.prefs.alt_up_limit = b).is_some() && {
-                    limits_changed = true;
-                    true
-                }
-            }
-            "listen_port" => match val.as_i64() {
-                Some(port @ 0..=65535) => {
-                    s.listen_interfaces = format!("0.0.0.0:{port},[::]:{port}");
-                    true
-                }
-                _ => false,
-            },
-            "upnp" => val.as_bool().map(|b| (s.enable_upnp, s.enable_natpmp) = (b, b)).is_some(),
-            "max_connec" => {
-                val.as_i64().map(|n| s.connections_limit = n.clamp(-1, i32::MAX as i64) as i32).is_some()
-            }
-            "max_uploads" => {
-                val.as_i64().map(|n| s.unchoke_slots_limit = n.clamp(-1, i32::MAX as i64) as i32).is_some()
-            }
-            "dht" => val.as_bool().map(|b| s.enable_dht = b).is_some(),
-            "lsd" => val.as_bool().map(|b| s.enable_lsd = b).is_some(),
-            "encryption" => match val.as_i64() {
-                Some(0) => {
-                    (s.out_enc_policy, s.in_enc_policy) = (EncPolicy::Enabled, EncPolicy::Enabled);
-                    true
-                }
-                Some(1) => {
-                    (s.out_enc_policy, s.in_enc_policy) = (EncPolicy::Forced, EncPolicy::Forced);
-                    true
-                }
-                Some(2) => {
-                    (s.out_enc_policy, s.in_enc_policy) = (EncPolicy::Disabled, EncPolicy::Disabled);
-                    true
-                }
-                _ => false,
-            },
-            "max_active_downloads" => {
-                val.as_i64().map(|n| s.active_downloads = n.clamp(-1, i32::MAX as i64) as i32).is_some()
-            }
-            "max_active_torrents" => {
-                val.as_i64().map(|n| s.active_limit = n.clamp(-1, i32::MAX as i64) as i32).is_some()
-            }
-            "max_active_uploads" => {
-                val.as_i64().map(|n| s.active_seeds = n.clamp(-1, i32::MAX as i64) as i32).is_some()
-            }
+            "max_active_downloads" => one("active_downloads", clamp(val, -1, i32::MAX as i64)),
+            "max_active_torrents" => one("active_limit", clamp(val, -1, i32::MAX as i64)),
+            "max_active_uploads" => one("active_seeds", clamp(val, -1, i32::MAX as i64)),
             "proxy_type" => {
                 let t = match val.as_i64() {
                     Some(-1 | 0) => Some(ProxyType::None),
@@ -832,80 +793,37 @@ pub(crate) fn apply_preferences(shared: &Shared, st: &mut State, v: &Json) {
                     Some(5) => Some(ProxyType::Socks4),
                     _ => None,
                 };
-                t.map(|t| s.proxy_type = t).is_some()
+                one("proxy_type", t.map(|t| Json::from(patorrent_frontend::settings::proxy_to_int(t))))
             }
-            "proxy_ip" => val.as_str().map(|h| s.proxy_hostname = h.to_owned()).is_some(),
-            "proxy_port" => match val.as_i64() {
-                Some(port @ 0..=65535) => {
-                    s.proxy_port = port as u16;
-                    true
-                }
-                _ => false,
-            },
-            "proxy_username" => val.as_str().map(|u| s.proxy_username = u.to_owned()).is_some(),
-            "proxy_password" => val.as_str().map(|u| s.proxy_password = u.to_owned()).is_some(),
-            "proxy_peer_connections" => val.as_bool().map(|b| s.proxy_peer_connections = b).is_some(),
-            "web_ui_username" => match val.as_str() {
-                Some(u) if !u.is_empty() => {
-                    st.username = u.to_owned();
-                    true
-                }
-                _ => false,
-            },
-            "web_ui_password" => match val.as_str() {
-                Some(pw) if !pw.is_empty() => {
-                    st.password = PasswordHash::new(pw, shared.iterations);
-                    true
-                }
-                _ => false,
-            },
-            "bypass_local_auth" => val.as_bool().map(|b| st.prefs.bypass_local_auth = b).is_some(),
-            "web_ui_csrf_protection_enabled" => val.as_bool().map(|b| st.prefs.csrf_protection = b).is_some(),
-            "web_ui_host_header_validation_enabled" => {
-                val.as_bool().map(|b| st.prefs.host_header_validation = b).is_some()
-            }
-            "web_ui_domain_list" => val.as_str().map(|d| st.prefs.domain_list = d.to_owned()).is_some(),
-            "web_ui_max_auth_fail_count" => {
-                val.as_i64().map(|n| st.prefs.max_auth_fail_count = n.clamp(0, 1000) as u32).is_some()
-            }
-            "web_ui_ban_duration" => {
-                val.as_i64().map(|n| st.prefs.ban_duration = n.clamp(1, 86_400 * 365) as u64).is_some()
-            }
-            "web_ui_session_timeout" => {
-                val.as_i64().map(|n| st.prefs.session_timeout = n.clamp(1, 86_400 * 365) as u64).is_some()
-            }
-            _ => false,
+            "proxy_ip" => one("proxy_hostname", Some(val.clone())),
+            "proxy_port" => one("proxy_port", Some(val.clone())),
+            "proxy_username" => one("proxy_username", Some(val.clone())),
+            "proxy_password" => one("proxy_password", Some(val.clone())),
+            "proxy_peer_connections" => one("proxy_peer_connections", Some(val.clone())),
+            "web_ui_username" => one("webui.username", Some(val.clone())),
+            "web_ui_password" => one("webui.password", Some(val.clone())),
+            "bypass_local_auth" => one("webui.bypass_local_auth", Some(val.clone())),
+            "web_ui_csrf_protection_enabled" => one("webui.csrf", Some(val.clone())),
+            "web_ui_host_header_validation_enabled" => one("webui.host_header_validation", Some(val.clone())),
+            "web_ui_domain_list" => one("webui.domain_list", Some(val.clone())),
+            "web_ui_max_auth_fail_count" => one("webui.max_auth_fail_count", clamp(val, 0, 1000)),
+            "web_ui_ban_duration" => one("webui.ban_duration", clamp(val, 1, 86_400 * 365)),
+            "web_ui_session_timeout" => one("webui.session_timeout", clamp(val, 1, 86_400 * 365)),
+            _ => Vec::new(),
         };
-        let is_setting = !matches!(
-            key.as_str(),
-            "save_path"
-                | "start_paused_enabled"
-                | "dl_limit"
-                | "up_limit"
-                | "alt_dl_limit"
-                | "alt_up_limit"
-                | "web_ui_username"
-                | "web_ui_password"
-                | "bypass_local_auth"
-                | "web_ui_csrf_protection_enabled"
-                | "web_ui_host_header_validation_enabled"
-                | "web_ui_domain_list"
-                | "web_ui_max_auth_fail_count"
-                | "web_ui_ban_duration"
-                | "web_ui_session_timeout"
-        );
-        if accepted {
-            settings_changed |= is_setting;
-            if !NOT_STORED.contains(&key.as_str()) {
-                st.stored_prefs.set(key, val.clone());
+        for (id, j) in mapped {
+            if let Ok(c) = prefs::parse_one(id, &j) {
+                changes.push(c);
             }
         }
     }
-    if limits_changed {
-        // also sends any other changed setting
-        shared.apply_limits(st);
-    } else if settings_changed {
-        shared.handle.apply_settings(st.settings.clone());
+    if changes.is_empty() {
+        return;
+    }
+    if prefs::commit(shared, st, &changes).is_err() {
+        for c in changes {
+            let _ = prefs::commit(shared, st, &[c]);
+        }
     }
 }
 

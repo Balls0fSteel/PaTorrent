@@ -398,19 +398,25 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
     if mode == Mode::Add && pending == 0 {
         return ExitCode::FAILURE;
     }
-    let web = match o.webui.map(|addr| start_webui(&o, addr, &h, settings, state_dir.clone(), &save)) {
-        Some(Err(e)) => {
-            eprintln!("error: cannot start the Web UI: {e}");
-            return ExitCode::FAILURE;
-        }
-        w => w.and_then(Result::ok),
-    };
+    let move_dir = o
+        .move_on_complete
+        .as_ref()
+        .map(|d| std::path::absolute(d).map_or(d.clone(), |p| p.to_string_lossy().into_owned()));
+    let web =
+        match o.webui.map(|addr| start_webui(&o, addr, &h, settings, state_dir.clone(), &save, &move_dir)) {
+            Some(Err(e)) => {
+                eprintln!("error: cannot start the Web UI: {e}");
+                return ExitCode::FAILURE;
+            }
+            w => w.and_then(Result::ok),
+        };
 
-    let mut move_completed = o.move_on_complete.as_ref().map(|d| {
-        let d = std::path::absolute(d).map_or(d.clone(), |p| p.to_string_lossy().into_owned());
+    let mut move_completed = move_dir.map(|d| {
         println!("* completed downloads move to {d}");
         MoveCompleted::new(d)
     });
+    // the Web UI's Directories preferences take over "Move completed downloads" when it runs
+    let mut gui_seen = 0u64;
     // Torrents being moved; `add` waits for them before it exits.
     let mut moving: std::collections::HashSet<TorrentId> = Default::default();
     let input = stdin_lines();
@@ -441,6 +447,12 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         h.pop_alerts(&mut alerts);
         if let Some(w) = &web {
             w.on_alerts(&alerts);
+            if w.sync_move_completed(&mut gui_seen, &mut move_completed) && gui_seen > 1 {
+                match &move_completed {
+                    Some(m) => println!("* completed downloads move to {}", m.dir),
+                    None => println!("* completed downloads stay where they are"),
+                }
+            }
         }
         let mut updated = false;
         for a in alerts.drain(..) {
@@ -554,11 +566,14 @@ fn start_webui(
     settings: Settings,
     state_dir: Option<PathBuf>,
     save: &str,
+    move_dir: &Option<String>,
 ) -> std::io::Result<webui::WebUi> {
     let mut c = webui::Config::new(addr, settings, save);
     c.username = o.webui_user.clone().unwrap_or(c.username);
     c.password = o.webui_pass.clone();
     c.state_dir = state_dir;
+    c.move_completed_dir = move_dir.clone();
+    c.ip_filter = o.ip_filter.clone();
     let w = webui::WebUi::start(h.clone(), c)?;
     println!("* Web UI: http://{}/", w.local_addr());
     if let Some(p) = w.temporary_password() {

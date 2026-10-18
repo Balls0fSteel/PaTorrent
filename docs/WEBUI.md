@@ -163,21 +163,32 @@ while subscribed gets one `{"gone":true}`; `{"t":"detail","id":null}` unsubscrib
 All `POST`, JSON body, `Content-Type: application/json`, CSRF-checked (Origin and the custom
 header), answered `204`, or `4xx` with `{"error":"..."}`.
 
+As built in slice 5 (`webui/commands.rs`): every `POST /pa/...` must carry
+`X-Requested-With: PaTorrent` (403 `{"error":"missing X-Requested-With: PaTorrent header"}`
+without it; a browser cannot send a custom header cross-site without a CORS preflight, which
+the server never grants) and pass the shim's `Origin` / `Referer` rule (403
+`{"error":"origin not allowed"}`); a request without an `Origin` (curl) passes on the header
+alone. A body naming torrents carries `"ids": [hashes]` or instead `"all": true` with the
+client's view filter (`"filter": {"category": ..., "label": ..., "search": ...}`, the same
+shape as the `view` subscription), applied server-side, so Ctrl+A under a filter acts on
+every matching torrent, not the loaded window. Unknown ids are skipped; a body whose ids name
+nothing is 404. The shim's `torrents/*` handlers call the same functions.
+
 | Endpoint | Body | Does |
 |---|---|---|
 | `/pa/torrents/start`, `force-start`, `pause`, `stop` | `{"ids":[...]}` | `frontend::actions` |
 | `/pa/torrents/recheck`, `reannounce` | `{"ids":[...]}` | |
 | `/pa/torrents/remove` | `{"ids":[...],"data":false}` | Remove / Remove and delete data |
-| `/pa/torrents/queue` | `{"ids":[...],"move":"up"\|"down"\|"top"\|"bottom"}` | queue positions |
-| `/pa/torrents/limits` | `{"ids":[...],"down":0,"up":0}` | bytes per second, 0 unlimited |
-| `/pa/torrents/label` | `{"ids":[...],"label":"..."}` | |
+| `/pa/torrents/queue` | `{"ids":[...],"move":"up"\|"down"\|"top"\|"bottom"}` | queue positions (several torrents keep their relative order) |
+| `/pa/torrents/limits` | `{"ids":[...],"down":0,"up":0}` (either optional) | bytes per second, 0 unlimited |
+| `/pa/torrents/label` | `{"ids":[...],"label":"..."}` | a new label is created; empty removes it |
 | `/pa/torrents/location` | `{"ids":[...],"path":"..."}` | `move_storage` (Set Download Location) |
 | `/pa/torrents/super-seed` | `{"ids":[...],"on":true}` | Initial Seeding |
 | `/pa/torrents/files` | `{"id":"...","priorities":{"<index>":0..7}}` | file priorities |
-| `/pa/torrents/rename` | `{"id":"...","old":"...","new":"..."}` | files and folders |
-| `/pa/add` | `multipart/form-data`: `.torrent` files, or JSON `{"url":"magnet:...","save":"...","label":"...","start":true,"skip_check":false,"priorities":{...}}` | the Add dialog's choices (`frontend::add::AddChoice`) |
-| `/pa/torrent-info` | a `.torrent` upload | parses it and returns the Add dialog's file tree without adding (two-step add) |
-| `/pa/session/limits` | `{"down":0,"up":0,"alt":false}` | global and alternative limits |
+| `/pa/torrents/rename` | `{"id":"...","old":"...","new":"...","folder":bool}` | files and folders (`folder` optional: a file when `old` names one, else a folder) |
+| `/pa/add` | `multipart/form-data`: `.torrent` files as `torrent` parts plus an `options` part holding the JSON below, or JSON `{"url":"magnet:...","save":"...","name":"...","label":"...","start":true,"skip_check":false,"top":false,"priorities":{"<index>":0..7}}` (`url` also takes a bare info-hash or an `http://` link to a torrent) | the Add dialog's choices (`frontend::add::AddChoice`); `GET /pa/add` gives the dialog its defaults: `save_in` (the default folder, then the recent ones), `labels`, `start`, `show_dialog` |
+| `/pa/torrent-info` | a `.torrent` upload (a `torrent` part) | parses it and returns the Add dialog's Torrent Contents without adding (two-step add): `name`, `comment`, `created_by`, `size` / `size_text`, `date` / `date_text`, `private`, `hash`, `files` of `{"i": engine index, "path": below the torrent's folder, "size", "text"}` (pad files left out) |
+| `/pa/session/limits` | `{"down":0,"up":0,"alt":false,"alt_down":0,"alt_up":0}`, each optional: `alt` switches the alternative limits, `down` / `up` set the mode then in force; `GET` reads them back | global and alternative limits |
 | `/pa/prefs` (`GET`, `POST`) | the `frontend::options` model as JSON, grouped by 2.2.1 page | Preferences |
 | `/pa/session/shutdown` | | |
 
@@ -203,7 +214,7 @@ menu becomes a long-press sheet, the toolbar keeps Add, Start, Pause, Remove.
 Drag-and-drop of `.torrent` files and magnet text onto the window opens the Add dialog. The Add
 dialog is the 2.2.1 one: Save In, Name, the file tree with check boxes and priorities, Skip hash
 check, Start torrent, Label. A magnet shows the dialog once metadata arrives (the same open
-question as the Win32 dialog, PLAN.md Phase 5).
+question as the Win32 dialog, PLAN.md Phase 5); until then a magnet or URL adds directly.
 
 ### Security
 
@@ -249,7 +260,7 @@ In order; each is a CHANGELOG entry and lands green on the three CI platforms.
    the shim while there). Landed: CHANGELOG 2026-10-17_224011_1792269611.
 5. **Commands and the Add dialog**: everything in the Win32 context menu, upload, magnet, the
    two-step add with the file tree, Remove and delete data. The shim's handlers moved onto the
-   shared functions.
+   shared functions. Landed: CHANGELOG 2026-10-18 (slice 5).
 6. **Preferences** generated from `frontend::options`, the 2.2.1 pages.
 7. **Phone layout** pass, then the long-poll fallback if a deployment needs it.
 8. Later, with Phase 5: labels in the tree and the Label column, RSS, the scheduler, per-torrent

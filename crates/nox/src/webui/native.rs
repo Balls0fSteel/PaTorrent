@@ -71,7 +71,7 @@ fn category_id(c: Category) -> &'static str {
     }
 }
 
-fn category_from_id(id: &str) -> Option<Category> {
+pub(crate) fn category_from_id(id: &str) -> Option<Category> {
     Category::ALL.into_iter().find(|c| category_id(*c) == id)
 }
 
@@ -423,6 +423,7 @@ impl Client {
                 if e.version >= self.synced {
                     self.list.update(std::iter::once(e.status.clone()));
                     self.list.set_label(*id, st.torrent_categories.get(&e.hash).map_or("", String::as_str));
+                    self.list.set_user_paused(*id, st.user_paused.contains(&e.hash));
                 }
             }
             self.synced = st.next_version;

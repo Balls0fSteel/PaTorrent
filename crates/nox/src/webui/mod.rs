@@ -12,6 +12,7 @@
 
 mod api;
 pub mod auth;
+pub(crate) mod commands;
 mod fetch;
 pub mod http;
 pub mod json;
@@ -20,7 +21,7 @@ mod server;
 pub mod torrent;
 pub mod ws;
 
-use std::collections::{BTreeMap, HashMap, VecDeque};
+use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -213,6 +214,14 @@ pub(crate) struct State {
     log_seq: u64,
     /// Speed history per torrent some client is (or was lately) looking at.
     pub speed: HashMap<TorrentId, SpeedRing>,
+    /// Torrents (by hash) the user paused rather than stopped, so the cells say "Paused"
+    /// (`frontend::status`); kept in the state file.
+    pub user_paused: HashSet<String>,
+    /// Torrents (by hash) added with "Add to top of queue", moved there when the engine
+    /// reports them added.
+    pub pending_top: commands::PendingTop,
+    /// The Add dialog's remembered save folders (`frontend::add::recent_dirs`).
+    pub add_prefs: patorrent_frontend::prefs::Prefs,
 }
 
 pub(crate) struct Shared {
@@ -267,12 +276,19 @@ impl Shared {
         for (hash, name) in assigned {
             tc.set(hash, name.as_str());
         }
+        let mut paused: Vec<&String> = st.user_paused.iter().collect();
+        paused.sort();
+        let paused: Vec<Json> = paused.into_iter().map(|h| Json::Str(h.clone())).collect();
+        let recent: Vec<Json> =
+            patorrent_frontend::add::recent_dirs(&st.add_prefs).into_iter().map(Json::Str).collect();
         let doc = Json::obj()
             .with("username", st.username.as_str())
             .with("password", st.password.to_string())
             .with("preferences", st.stored_prefs.clone())
             .with("categories", cats)
-            .with("torrent_categories", tc);
+            .with("torrent_categories", tc)
+            .with("paused", Json::Arr(paused))
+            .with("recent_dirs", Json::Arr(recent));
         if let Some(dir) = path.parent() {
             let _ = std::fs::create_dir_all(dir);
         }
@@ -342,6 +358,17 @@ impl WebUi {
                 torrent_categories.insert(hash.clone(), name.to_owned());
             }
         }
+        let user_paused: HashSet<String> = match stored.get("paused") {
+            Some(Json::Arr(v)) => v.iter().filter_map(Json::as_str).map(str::to_owned).collect(),
+            _ => HashSet::new(),
+        };
+        let mut add_prefs = patorrent_frontend::prefs::Prefs::default();
+        if let Some(Json::Arr(v)) = stored.get("recent_dirs") {
+            // most recent first in the file; remember_dir puts each first, so go backwards
+            for d in v.iter().rev().filter_map(Json::as_str) {
+                patorrent_frontend::add::remember_dir(&mut add_prefs, d);
+            }
+        }
         let settings = config.settings.clone();
         let prefs = Prefs {
             save_path: config.save_path.clone(),
@@ -391,6 +418,9 @@ impl WebUi {
                 log: VecDeque::new(),
                 log_seq: 0,
                 speed: HashMap::new(),
+                user_paused,
+                pending_top: HashSet::new(),
+                add_prefs,
             }),
             replied: Condvar::new(),
             limits: config.limits,
@@ -448,13 +478,18 @@ impl WebUi {
                         };
                         st.update(s, now);
                     }
+                    // "Add to top of queue" from the Add dialog, now that the id is known
+                    if st.pending_top.remove(&torrent::hash_of(info_hashes)) {
+                        self.shared.handle.torrent(*id).queue_position(patorrent_core::QueueMove::Top);
+                    }
                 }
                 Alert::TorrentRemoved { id, .. } => {
                     if let Some(e) = st.torrents.remove(id) {
                         st.by_hash.remove(&e.hash);
                         st.meta.remove(&e.hash);
                         st.removals += 1;
-                        if st.torrent_categories.remove(&e.hash).is_some() {
+                        let forget = st.torrent_categories.remove(&e.hash).is_some();
+                        if st.user_paused.remove(&e.hash) | forget {
                             self.shared.save(&st);
                         }
                     }
@@ -688,6 +723,9 @@ impl State {
             log: VecDeque::new(),
             log_seq: 0,
             speed: HashMap::new(),
+            user_paused: HashSet::new(),
+            pending_top: HashSet::new(),
+            add_prefs: patorrent_frontend::prefs::Prefs::default(),
         }
     }
 }

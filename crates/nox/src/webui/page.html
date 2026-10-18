@@ -26,8 +26,8 @@
     <button type="button" id="tb-pause" data-cmd="pause" title="Pause">Pause</button>
     <button type="button" id="tb-stop" data-cmd="stop" title="Stop">Stop</button>
     <span class="sep"></span>
-    <button type="button" id="tb-up" data-cmd="queue_up" title="Move Up Queue" disabled>Up</button>
-    <button type="button" id="tb-down" data-cmd="queue_down" title="Move Down Queue" disabled>Down</button>
+    <button type="button" id="tb-up" data-cmd="queue_up" title="Move Up Queue">Up</button>
+    <button type="button" id="tb-down" data-cmd="queue_down" title="Move Down Queue">Down</button>
     <span class="sep"></span>
     <button type="button" id="tb-prefs" title="Preferences" disabled>Preferences</button>
     <span class="grow"></span>
@@ -71,6 +71,50 @@
   <div id="menu" class="menu" role="menu" hidden></div>
   <div id="gate" hidden></div>
 </div>
+<dialog id="add" aria-labelledby="add-title">
+  <form id="add-form">
+    <h2 id="add-title">Add New Torrent</h2>
+    <div class="add-cols">
+      <div class="add-left">
+        <fieldset>
+          <legend>Save In</legend>
+          <input id="add-save" list="add-dirs" autocomplete="off" aria-label="Save in">
+          <datalist id="add-dirs"></datalist>
+        </fieldset>
+        <fieldset>
+          <legend>Name</legend>
+          <input id="add-name" autocomplete="off" aria-label="Name">
+        </fieldset>
+        <fieldset>
+          <legend>Torrent Options</legend>
+          <label><input type="checkbox" id="add-skip"> Skip hash check</label>
+          <label><input type="checkbox" id="add-start" checked> Start torrent</label>
+          <label><input type="checkbox" id="add-top"> Add to top of queue</label>
+          <label class="lbl">Label: <input id="add-label" list="add-labels" autocomplete="off"></label>
+          <datalist id="add-labels"></datalist>
+        </fieldset>
+      </div>
+      <fieldset class="add-right">
+        <legend>Torrent Contents</legend>
+        <div class="add-info">
+          <b>Name:</b><span id="add-t-name"></span>
+          <b>Comment:</b><span id="add-t-comment"></span>
+          <b>Size:</b><span id="add-t-size"></span>
+          <b>Date:</b><span id="add-t-date"></span>
+        </div>
+        <div id="add-files" role="tree"></div>
+        <div class="add-btns">
+          <button type="button" id="add-all">Select All</button>
+          <button type="button" id="add-none">Select None</button>
+        </div>
+      </fieldset>
+    </div>
+    <div class="add-ok">
+      <button type="submit" id="add-ok">OK</button>
+      <button type="button" id="add-cancel">Cancel</button>
+    </div>
+  </form>
+</dialog>
 <script src="app.js"></script>
 </body>
 </html>

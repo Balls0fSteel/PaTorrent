@@ -2,6 +2,20 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_233807_1792359487: the shim's setLocation and queue moves; Back closes the phone's sheets
+
+### Added
+- The qBittorrent shim (`webui/api.rs`) gets `torrents/setLocation` (`hashes`, `location`) and `torrents/topPrio` / `bottomPrio` / `increasePrio` / `decreasePrio` (`hashes`, `all` allowed), POST only, as adapters onto `commands.rs`: the queue moves are `/pa/torrents/queue`'s top / bottom / up / down (several torrents keep their relative order); `setLocation` is the native Set Download Location. Following the WebAPI documentation, `setLocation` creates the directory first: 400 for an empty location, 403 when creating it is refused (`PermissionDenied`), 409 when it fails otherwise (a file in the way). An unknown hash is no error, as in the other shim commands. docs/WEBUI.md names them.
+- `app.js`: on the phone the drawer, the detail sheet, the menu sheets (actions and More) and the Add / Preferences dialogs each hold a `history` entry while open (`layerOpened` / `layerClosed`, a stack of close functions), and a `popstate` closes the topmost layers down to the entry's depth (`{paLayer: n}`). A layer the page closes (its close button, the scrim, Escape, a menu item, Cancel) gives its entry back with `history.go`, a turn later, so a close followed by an open (More > Preferences, the next file's Add dialog) costs no entry. The desktop pushes nothing, and switching to the desktop layout drops the entries; entries left over from a reload are dropped at start.
+
+### Issues
+- The first `topPrio` handler deadlocked: `commands::queue(shared, &selected(&shared.lock(), &p), m)` keeps the lock guard alive for the whole statement, and `queue` locks again. The ids are now taken in their own statement, as the other shim handlers already note.
+
+### Verified
+- `cargo test -p patorrent-nox`: 73 passed, including the new `shim_queue_moves_and_set_location` (each move against the `priority` field, `all`, 405 on GET, the directory created and two of three torrents moved, 400 for an empty or blank location, 409 below a file). `cargo +stable clippy --workspace --all-targets -- -D warnings` and `cargo +stable fmt --all --check` clean.
+- In the desktop app's browser pane against `run --no-state --mock-library 200 --webui 8080` at 375 x 812, with `history.back()` standing in for the Back button: a tap opens the detail sheet (depth 1) and back closes it; five open / close-button cycles leave the history at depth 0; the actions sheet, the drawer (back and scrim), the sheet with the More menu over it (two backs close them in order), More > Preferences (one entry) with back and with Cancel all end at depth 0. At desktop width a context menu and Preferences push nothing, and a phone-to-desktop switch with the sheet open drops its entry.
+- Not tried on a real Android phone (Chrome there routes Back to a modal dialog's close watcher first; the dialog's `close` event then gives the entry back the same way).
+
 ## 2026-10-18_232431_1792358671: Web UI slice 8, labels in the tree
 
 ### Added

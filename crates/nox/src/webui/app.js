@@ -836,6 +836,44 @@
     }
   });
 
+  // ---- the phone's back button: one history entry per open layer ------------------------
+  // The drawer, the detail sheet, the menu sheet and the dialogs each hold a history entry
+  // while they are open on the phone, and Back (a popstate) closes the topmost. A layer the
+  // page closes gives its entry back with history.go, a turn later, so a close followed by an
+  // open (a menu replacing a menu, the next file's Add dialog) leaves the history as it was.
+  let layers = []; // the open layers' close functions, the topmost last
+  let backDepth = (history.state && history.state.paLayer) || 0; // our entries in the history
+  let backGoing = false; // a history.go of ours whose popstate has not come yet
+  let backTimer = 0;
+  function layerOpened(close) {
+    if (!phone || layers.includes(close)) return;
+    layers.push(close);
+    syncBack();
+  }
+  function layerClosed(close) {
+    const at = layers.indexOf(close);
+    if (at < 0) return;
+    layers.splice(at, 1);
+    if (!backTimer) backTimer = setTimeout(syncBack);
+  }
+  function syncBack() {
+    clearTimeout(backTimer);
+    backTimer = 0;
+    if (backGoing) return; // its popstate syncs again
+    while (backDepth < layers.length) history.pushState({ paLayer: ++backDepth }, "");
+    if (backDepth > layers.length) {
+      backGoing = true;
+      history.go(layers.length - backDepth);
+    }
+  }
+  window.addEventListener("popstate", (ev) => {
+    backDepth = (ev.state && ev.state.paLayer) || 0;
+    if (backGoing) backGoing = false;
+    else while (layers.length > backDepth) layers.pop()();
+    syncBack();
+  });
+  syncBack(); // entries left from before a reload
+
   function syncScrim() {
     $("scrim").hidden = !(phone && (drawerOpen || sheetOpen || (menus.length && $("menu").classList.contains("sheet"))));
   }
@@ -844,6 +882,7 @@
     if (!id) return;
     sheetOpen = true;
     document.body.classList.add("sheet");
+    layerOpened(closeSheet);
     const c = cells.get(id);
     const nameAt = viewColumns().indexOf("name");
     $("sheet-title").textContent = c && nameAt >= 0 ? c.c[nameAt] : "";
@@ -854,12 +893,16 @@
     if (!sheetOpen) return;
     sheetOpen = false;
     document.body.classList.remove("sheet");
+    layerClosed(closeSheet);
     if (phone) setDetail(null);
     syncScrim();
   }
+  const closeDrawer = () => setDrawer(false);
   function setDrawer(open) {
     drawerOpen = open && phone;
     document.body.classList.toggle("drawer", drawerOpen);
+    if (drawerOpen) layerOpened(closeDrawer);
+    else layerClosed(closeDrawer);
     $("tb-menu").setAttribute("aria-expanded", String(drawerOpen));
     syncScrim();
   }
@@ -924,6 +967,10 @@
   /// height, the subscribed columns and where the detail lives all change.
   PHONE.addEventListener("change", () => {
     phone = PHONE.matches;
+    if (!phone) {
+      layers = []; // the desktop keeps no history entries
+      syncBack();
+    }
     rowH = phone ? PHONE_ROW_H : ROW_H;
     closeMenu();
     setDrawer(false);
@@ -1429,6 +1476,7 @@
     buildMenu(root, items);
     showMenuAt(root, x, y);
     menus.push(root);
+    layerOpened(closeMenu);
     syncScrim();
     setTimeout(() => {
       document.addEventListener("pointerdown", onDocPointer, true);
@@ -1524,6 +1572,7 @@
     }
     document.removeEventListener("pointerdown", onDocPointer, true);
     document.removeEventListener("keydown", onMenuKey, true);
+    layerClosed(closeMenu);
     syncScrim();
   }
   function onDocPointer(ev) {
@@ -2287,6 +2336,7 @@
     setText("add-t-date", info.date_text || "");
     renderAddFiles();
     addDlg.showModal();
+    layerOpened(closeAddDialog);
     $("add-ok").focus();
   }
   function closeAddDialog() {
@@ -2454,6 +2504,7 @@
   $("add-all").addEventListener("click", () => addState && setChecks(addState.tree.roots, true));
   $("add-none").addEventListener("click", () => addState && setChecks(addState.tree.roots, false));
   $("add-cancel").addEventListener("click", closeAddDialog);
+  addDlg.addEventListener("close", () => layerClosed(closeAddDialog));
   addDlg.addEventListener("cancel", (ev) => {
     ev.preventDefault();
     closeAddDialog();
@@ -2552,6 +2603,7 @@
     buildPrefsTree();
     showPrefsPage(prefsPageId);
     prefsDlg.showModal();
+    layerOpened(closePrefs);
     $("prefs-tree").querySelector(".on").focus();
   }
   function closePrefs() {
@@ -3008,6 +3060,7 @@
   });
   $("prefs-apply").addEventListener("click", () => applyPrefs(false));
   $("prefs-cancel").addEventListener("click", closePrefs);
+  prefsDlg.addEventListener("close", () => layerClosed(closePrefs));
   prefsDlg.addEventListener("cancel", (ev) => {
     ev.preventDefault(); // Escape
     closePrefs();

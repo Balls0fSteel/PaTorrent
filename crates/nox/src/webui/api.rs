@@ -11,8 +11,8 @@ use std::time::{Duration, Instant};
 
 use patorrent_core::crypto::Sha1;
 use patorrent_core::{
-    DownloadPriority, EncPolicy, PeerFlags, PeerInfo, ProxyType, TorrentFlags, TorrentId, TrackerStatus,
-    VERSION,
+    DownloadPriority, EncPolicy, PeerFlags, PeerInfo, ProxyType, QueueMove, TorrentFlags, TorrentId,
+    TrackerStatus, VERSION,
 };
 use patorrent_frontend::detail::peer_flags;
 
@@ -387,6 +387,11 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             | "torrents/createCategory"
             | "torrents/editCategory"
             | "torrents/removeCategories"
+            | "torrents/setLocation"
+            | "torrents/topPrio"
+            | "torrents/bottomPrio"
+            | "torrents/increasePrio"
+            | "torrents/decreasePrio"
     );
     if post_only && read {
         return Response::text(405, "Method Not Allowed").with_header("Allow", "POST");
@@ -519,6 +524,18 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             commands::remove(shared, &selected(&shared.lock(), &p), p.flag("deleteFiles"));
             Response::ok()
         }
+        "torrents/setLocation" => set_location(shared, &p),
+        "torrents/topPrio" | "torrents/bottomPrio" | "torrents/increasePrio" | "torrents/decreasePrio" => {
+            let m = match endpoint {
+                "torrents/topPrio" => QueueMove::Top,
+                "torrents/bottomPrio" => QueueMove::Bottom,
+                "torrents/increasePrio" => QueueMove::Up,
+                _ => QueueMove::Down,
+            };
+            let ids = selected(&shared.lock(), &p); // (the guard goes before queue locks)
+            commands::queue(shared, &ids, m);
+            Response::ok()
+        }
         "torrents/filePrio" => file_prio(shared, &p),
         "torrents/renameFile" => rename(shared, &p, false),
         "torrents/renameFolder" => rename(shared, &p, true),
@@ -646,6 +663,28 @@ fn categories_json(cats: &BTreeMap<String, String>) -> Json {
         out.set(name, Json::obj().with("name", name.as_str()).with("savePath", path.as_str()));
     }
     out
+}
+
+/// `setLocation`: 400 for an empty location, the directory is created first as the documentation
+/// describes (403 when that is refused, 409 when it fails otherwise), then the move is the
+/// native Set Download Location.
+fn set_location(shared: &Shared, p: &Params) -> Response {
+    let dir = p.get("location").unwrap_or("").trim();
+    if dir.is_empty() {
+        return Response::text(400, "Save path is empty");
+    }
+    if let Err(e) = std::fs::create_dir_all(dir) {
+        return if e.kind() == std::io::ErrorKind::PermissionDenied {
+            Response::text(403, "Cannot write to directory")
+        } else {
+            Response::text(409, "Cannot create directory")
+        };
+    }
+    let ids = selected(&shared.lock(), p);
+    match commands::location(shared, &ids, dir) {
+        Ok(()) => Response::ok(),
+        Err(e) => Response::text(e.status, e.msg),
+    }
 }
 
 /// Torrents named by `hashes` (`|`-separated, or `all`), in no particular order.

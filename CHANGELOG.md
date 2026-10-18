@@ -2,6 +2,13 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-18_182203_1792340523: merge of the scrape-backoff fix and the two deflaked tests
+
+Branch `claude/eager-proskuriakova-7ccee3` (commit `4c9fa62`) fast-forwarded onto main; no conflicts.
+
+### Verified
+- On main after the merge, Windows: `cargo test --workspace --no-fail-fast`: 775 passed, 0 failed, 3 ignored. The merged commit is the one the branch ran four times clean on the Xubuntu VM (entry below), so the VM run was not repeated.
+
 ## 2026-10-18_161548_1792332948: a failed scrape no longer puts a tracker into its retry backoff; the two tests flaky under the 24-CPU run
 
 ### Fixed

@@ -108,6 +108,13 @@ fn start() -> Session {
         enable_lsd: false,
         enable_upnp: false,
         enable_natpmp: false,
+        // TCP only: under load, loopback UDP drops datagrams (a full socket receive buffer),
+        // and every lost uTP window stalls a connection for at least the 500 ms minimum
+        // timeout. A stalled link between the two leeches leaves them to the seed, which then
+        // hands out a good part of a second copy: right for super seeding, but not what the
+        // upload bound below measures.
+        enable_incoming_utp: false,
+        enable_outgoing_utp: false,
         ..Settings::default()
     };
     Session::start(SessionParams { settings, state_dir: None }).expect("session starts")
@@ -233,9 +240,19 @@ fn two_leeches_finish_while_the_super_seed_uploads_about_one_copy() {
     let mut b = leech(&f, "leech-b", TorrentFlags::empty(), 0);
     // and setting it on a downloading torrent does nothing
     b.w.h.torrent(b.id).set_flags(TorrentFlags::SUPER_SEEDING);
+    // The leeches know each other before the seed hands out its first piece, so that every
+    // piece can go on to the other leech from the start.
+    a.w.h.torrent(a.id).connect_peer(local(b.port));
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let connected = |peers: Vec<PeerInfo>| {
+        peers.iter().any(|p| !p.flags.intersects(PeerFlags::CONNECTING | PeerFlags::HANDSHAKE))
+    };
+    while !connected(peer_info(&mut a.w, a.id)) {
+        assert!(Instant::now() < deadline, "the leeches never connected");
+        std::thread::sleep(Duration::from_millis(20));
+    }
     a.w.h.torrent(a.id).connect_peer(local(seed.port));
     b.w.h.torrent(b.id).connect_peer(local(seed.port));
-    a.w.h.torrent(a.id).connect_peer(local(b.port));
     finished(&mut a, 90);
     finished(&mut b, 90);
     assert_files(&f, &a.dir);

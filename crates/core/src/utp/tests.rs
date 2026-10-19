@@ -26,6 +26,8 @@ struct Net {
     blocked: bool,
     /// Sends larger than this report `MessageSize` (0: never).
     max_datagram: usize,
+    /// Everything this side sends is lost.
+    drop_from: Option<SocketAddr>,
 }
 
 impl Net {
@@ -38,6 +40,7 @@ impl Net {
             sent: 0,
             blocked: false,
             max_datagram: 0,
+            drop_from: None,
         }
     }
 }
@@ -59,7 +62,9 @@ impl UtpIo for NetIo<'_> {
         }
         self.net.sent += 1;
         self.net.counter += 1;
-        if self.net.drop_every > 0 && self.net.counter % self.net.drop_every == 0 {
+        if self.net.drop_every > 0 && self.net.counter % self.net.drop_every == 0
+            || self.net.drop_from == Some(self.from)
+        {
             self.net.dropped += 1;
             return SendOutcome::Sent;
         }
@@ -433,6 +438,39 @@ fn a_dead_peer_times_out_mid_transfer() {
     assert_eq!(sim.a.get(sa).unwrap().error(), Some(UtpError::TimedOut));
     // utp_num_resends (3) timeouts, each doubling: 0.5, 1.5, 2.5, 4.5 s; well under two minutes
     assert!(sim.a.counters().timeout >= 3);
+}
+
+#[test]
+fn a_window_lost_whole_is_resent_while_the_peer_keeps_sending() {
+    let mut sim = Sim::new();
+    let (sa, sb) = sim.connect();
+    // open the window
+    sim.transfer(addr(A), sa, sb, &payload(100_000), 10_000);
+    // A's next packets are lost, all of them (as when the receiver's UDP buffer overflows),
+    // and nothing follows that would bring duplicate ACKs
+    sim.net.drop_from = Some(addr(A));
+    let data = payload(10_000);
+    assert_eq!(sim.write(addr(A), sa, &data), data.len(), "all of it in flight");
+    sim.step();
+    sim.net.drop_from = None;
+    // B has nothing to ACK, but goes on sending a small message every 100 ms (HAVEs, say).
+    // Those must not keep pushing A's retransmission timer out.
+    let (mut got, mut at_a) = (Vec::new(), Vec::new());
+    for round in 0..400 {
+        if round % 20 == 0 {
+            sim.write(addr(B), sb, b"have");
+        }
+        sim.step();
+        assert!(matches!(sim.read_all(addr(B), sb, &mut got), ReadOutcome::WouldBlock));
+        assert!(matches!(sim.read_all(addr(A), sa, &mut at_a), ReadOutcome::WouldBlock));
+        if got.len() == data.len() {
+            break;
+        }
+    }
+    assert!(got.len() == data.len(), "{} of {} bytes after 2 s", got.len(), data.len());
+    assert_eq!(got, data);
+    assert!(sim.a.counters().timeout >= 1, "{:?}", sim.a.counters());
+    assert_eq!(sim.a.get(sa).unwrap().state(), State::Connected);
 }
 
 #[test]

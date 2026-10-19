@@ -28,6 +28,7 @@ use patorrent_core::{
     Session, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus,
     VERSION,
 };
+use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Step, When};
 use patorrent_frontend::{fmt, status};
 use patorrent_nox::webui;
 
@@ -90,6 +91,10 @@ OPTIONS:
                       Move each torrent that finishes downloading into DIR (files and the
                       part file of skipped files; empty folders left behind are removed)
     --seconds N       Stop after N seconds
+    --exit-when-done downloads|all
+                      Exit (state saved) once nothing is downloading any more, or with all
+                      nothing seeding either, after something has been (the GUI's Options >
+                      Auto Shutdown > Quit When Downloads / Everything Complete)
     --port N          Listen port (default 6881)
     --listen LIST     Listen interfaces, as libtorrent's listen_interfaces: IP:PORT,
                       [IPv6]:PORT or DEVICE:PORT, comma-separated (overrides --port)
@@ -147,6 +152,7 @@ struct Opts {
     super_seed: bool,
     move_on_complete: Option<String>,
     seconds: Option<u64>,
+    exit_when_done: Option<When>,
     port: Option<u16>,
     listen: Option<String>,
     dl_limit: u32,
@@ -176,6 +182,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         super_seed: false,
         move_on_complete: None,
         seconds: None,
+        exit_when_done: None,
         port: None,
         listen: None,
         dl_limit: 0,
@@ -213,6 +220,13 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--move-on-complete" => o.move_on_complete = Some(value("--move-on-complete")?),
             "--verbose" | "-v" => o.verbose = true,
             "--seconds" => o.seconds = Some(num("--seconds", value("--seconds")?)?),
+            "--exit-when-done" => {
+                o.exit_when_done = Some(match value("--exit-when-done")?.as_str() {
+                    "downloads" => When::Downloads,
+                    "all" => When::Everything,
+                    v => return Err(format!("--exit-when-done {v}: expected downloads or all")),
+                })
+            }
             "--port" => o.port = Some(num("--port", value("--port")?)?),
             "--listen" => o.listen = Some(value("--listen")?),
             "--dl-limit" => o.dl_limit = num::<u32>("--dl-limit", value("--dl-limit")?)?.saturating_mul(1024),
@@ -594,6 +608,10 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     let mut failed = 0usize;
     let mut finished_at: Option<Instant> = None;
     let deadline = o.seconds.map(|s| started + Duration::from_secs(s));
+    // a few seconds' grace: a torrent added just now, or a move about to start, calls it off
+    let mut exit_when_done = AutoShutdown::new(Duration::from_secs(5));
+    exit_when_done
+        .set_mode(o.exit_when_done.map(|w| auto_shutdown::Mode::new(auto_shutdown::Action::Quit, w)));
     let mut next_report = Instant::now();
     let mut next_peer_report = Instant::now() + PEER_REPORT_INTERVAL;
     loop {
@@ -718,7 +736,21 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             println!("* {name} received (again to quit at once, without saving)");
         }
         let quit = quit || ev.stop.is_some();
-        if quit || (mine_done && !o.seed) || deadline.is_some_and(|d| Instant::now() >= d) {
+        let busy =
+            o.exit_when_done.is_some_and(|w| !moving.is_empty() || auto_shutdown::any_busy(w, rows.values()));
+        let all_done = match exit_when_done.update(busy, Instant::now()) {
+            Step::Start(secs) => {
+                println!("* --exit-when-done: done, exiting in {secs} s");
+                false
+            }
+            Step::Abort => {
+                println!("* --exit-when-done: new work, not exiting yet");
+                false
+            }
+            Step::Act(_) => true,
+            Step::Wait | Step::Tick(_) => false,
+        };
+        if quit || all_done || (mine_done && !o.seed) || deadline.is_some_and(|d| Instant::now() >= d) {
             break;
         }
     }
@@ -956,6 +988,17 @@ mod tests {
             [cwd.join("a.torrent").to_string_lossy().into_owned(), "magnet:?xt=urn:btih:x".into()]
         );
         assert_eq!(o.state, None);
+    }
+
+    #[test]
+    fn exit_when_done_takes_downloads_or_all() {
+        let o = parse(&args(&["--exit-when-done", "downloads"])).unwrap();
+        assert_eq!(o.exit_when_done, Some(When::Downloads));
+        let o = parse(&args(&["--exit-when-done", "all"])).unwrap();
+        assert_eq!(o.exit_when_done, Some(When::Everything));
+        assert_eq!(parse(&args(&[])).unwrap().exit_when_done, None);
+        assert!(parse(&args(&["--exit-when-done", "seeds"])).is_err());
+        assert!(parse(&args(&["--exit-when-done"])).is_err());
     }
 
     #[test]

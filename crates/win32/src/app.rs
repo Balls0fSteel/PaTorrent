@@ -20,6 +20,7 @@ use patorrent_core::{
     RemoveFlags, Session, SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId,
     TorrentSource, VERSION, same_dir,
 };
+use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::PRIORITIES;
 use patorrent_frontend::model::{Filter, TorrentList};
@@ -51,6 +52,7 @@ use crate::controls;
 use crate::details::{Detail, Page, PaintCtx};
 use crate::dialogs;
 use crate::icons::{self, Icon};
+use crate::shutdown::{self, Outcome, Power};
 use crate::tray;
 use crate::util::{child, copy_to, exe_path, point_from_lparam, scale, send, unscale, wide};
 
@@ -60,6 +62,8 @@ const WM_APP_TRAY: u32 = WM_APP + 2;
 const WM_APP_URL: u32 = WM_APP + 3;
 /// Arguments forwarded by a second instance are waiting in `App::pending_args`.
 const WM_APP_ARGS: u32 = WM_APP + 4;
+/// Auto Shutdown: the work is done, show the countdown; `wParam` = seconds.
+const WM_APP_COUNTDOWN: u32 = WM_APP + 5;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
 pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
@@ -113,6 +117,8 @@ mod cmd {
     pub const UL_LIMIT_BASE: u16 = 2100;
     pub const COLUMN_BASE: u16 = 3000;
     pub const FILE_PRIO_BASE: u16 = 3100;
+    /// Options > Auto Shutdown, by `auto_shutdown::AutoMode::MENU` index.
+    pub const AUTO_SHUTDOWN_BASE: u16 = 3200;
 }
 
 /// Bandwidth menu presets in kB/s; 0 = unlimited.
@@ -222,6 +228,10 @@ struct App {
     autoload: Poller,
     /// Preferences > Queueing "Seeding Goal", checked on every status update.
     seeding_goal: SeedingGoal,
+    /// Options > Auto Shutdown (this run only), checked on the timer.
+    auto_shutdown: AutoShutdown,
+    /// Standby or hibernation waiting for the engine's `ResumeDataSaved`.
+    suspend_pending: Option<Power>,
 }
 
 thread_local! {
@@ -396,6 +406,12 @@ pub fn run(args: Args) -> i32 {
         }
         DestroyAcceleratorTable(haccel);
     }
+    // Auto Shutdown's Shut Down, once the session has saved its state and stopped
+    if let Some(p) = shutdown::take_after_exit()
+        && let Err(e) = shutdown::perform(p)
+    {
+        dialogs::error(null_mut(), &e);
+    }
     0
 }
 
@@ -415,6 +431,17 @@ unsafe fn main_menu() -> HMENU {
         append(options, cmd::SHOW_DETAILS, "Show &Detailed Info");
         append(options, cmd::SHOW_STATUS, "Show &Status Bar");
         append(options, cmd::SHOW_TREE, "Show &Category List");
+        separator(options);
+        let auto = CreatePopupMenu();
+        for (i, &m) in AutoMode::MENU.iter().enumerate() {
+            let off = m.is_some_and(|m| !shutdown::available(m.action));
+            append_flags(auto, grayed(off), cmd::AUTO_SHUTDOWN_BASE + i as u16, AutoMode::label(m));
+            // Disabled | the client | the computer
+            if i == 0 || i == 2 {
+                separator(auto);
+            }
+        }
+        submenu(options, auto, "&Auto Shutdown");
         separator(options);
         append(options, cmd::CLOSE_TO_TRAY, "Close to Tra&y");
         append(options, cmd::MIN_TO_TRAY, "&Minimize to Tray");
@@ -597,6 +624,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             torrent_files: TorrentFiles::new(),
             autoload: Poller::new(),
             seeding_goal,
+            auto_shutdown: AutoShutdown::default(),
+            suspend_pending: None,
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -925,7 +954,18 @@ unsafe fn update_menu(hwnd: HWND) {
         for (id, on) in states {
             CheckMenuItem(menu, id as u32, MF_BYCOMMAND | if on { MF_CHECKED } else { MF_UNCHECKED });
         }
+        if let Some(mode) = with_app(|a| a.auto_shutdown.mode()) {
+            check_auto_shutdown(menu, mode);
+        }
     }
+}
+
+/// The radio mark on the Auto Shutdown item of `mode`.
+unsafe fn check_auto_shutdown(menu: HMENU, mode: Option<AutoMode>) {
+    let i = AutoMode::MENU.iter().position(|&m| m == mode).unwrap_or(0) as u32;
+    let first = cmd::AUTO_SHUTDOWN_BASE as u32;
+    let last = first + AutoMode::MENU.len() as u32 - 1;
+    unsafe { CheckMenuRadioItem(menu, first, last, first + i, MF_BYCOMMAND) };
 }
 
 /// Category tree: Torrents with its four categories, then Labels.
@@ -1213,13 +1253,96 @@ fn invalidate_page() {
 }
 
 fn on_timer() {
-    with_app(|a| {
+    let step = with_app(|a| {
         a.handle.post_torrent_updates();
         a.handle.post_session_stats();
         run_scheduler(a, None);
         autoload(a);
+        let list = &a.list;
+        let step = a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), std::time::Instant::now());
+        (a.hwnd, step)
     });
     request_detail();
+    if let Some((hwnd, step)) = step {
+        unsafe { auto_shutdown_step(hwnd, step) };
+    }
+}
+
+/// Options > Auto Shutdown: the timer's step. The countdown opens from its own message, not
+/// inside the timer; it closes when time is up (its opener then acts) or new work comes.
+unsafe fn auto_shutdown_step(hwnd: HWND, step: Step) {
+    match step {
+        Step::Wait => {}
+        Step::Start(secs) => unsafe {
+            PostMessageW(hwnd, WM_APP_COUNTDOWN, secs as usize, 0);
+        },
+        Step::Tick(secs) => shutdown::tick(secs),
+        Step::Abort => {
+            shutdown::close(Outcome::Aborted);
+            log_line("Auto Shutdown: new work, the countdown is off until it is done");
+        }
+        Step::Act(_) if shutdown::is_open() => shutdown::close(Outcome::TimeUp),
+        Step::Act(action) => unsafe { auto_shutdown_act(hwnd, action) },
+    }
+}
+
+/// `WM_APP_COUNTDOWN`: the countdown dialog, then what it ended with.
+unsafe fn auto_shutdown_countdown(hwnd: HWND, secs: u32) {
+    let Some(Some(mode)) = with_app(|a| a.auto_shutdown.mode().filter(|_| a.auto_shutdown.counting_down()))
+    else {
+        return;
+    };
+    if shutdown::is_open() {
+        return;
+    }
+    log_line(&format!("Auto Shutdown: done, {} in {secs} s", auto_shutdown_what(mode.action)));
+    match shutdown::countdown(hwnd, mode, secs) {
+        Outcome::Cancelled => {
+            with_app(|a| a.auto_shutdown.set_mode(None));
+            log_line("Auto Shutdown: cancelled, now Disabled");
+            unsafe { update_menu(hwnd) };
+        }
+        Outcome::Aborted => {}
+        Outcome::TimeUp => unsafe { auto_shutdown_act(hwnd, mode.action) },
+    }
+}
+
+fn auto_shutdown_what(action: auto_shutdown::Action) -> &'static str {
+    match action {
+        auto_shutdown::Action::Quit => "quitting",
+        auto_shutdown::Action::Standby => "standby",
+        auto_shutdown::Action::Hibernate => "hibernating",
+        auto_shutdown::Action::ShutDown => "shutting down",
+    }
+}
+
+/// Quit as File > Exit does (state saved on the way out); Shut Down after that; Standby and
+/// Hibernate once the engine has written the resume data (`ResumeDataSaved` in `on_alerts`).
+unsafe fn auto_shutdown_act(hwnd: HWND, action: auto_shutdown::Action) {
+    log_line(&format!("Auto Shutdown: {}", auto_shutdown_what(action)));
+    unsafe { update_menu(hwnd) };
+    match Power::of(action) {
+        Some(p @ (Power::Standby | Power::Hibernate)) => {
+            with_app(|a| {
+                if let Err(e) = a.prefs.save() {
+                    a.detail.push_log(format!("{} cannot save preferences: {e}", now_hms()));
+                }
+                a.suspend_pending = Some(p);
+                a.handle.save_resume_data();
+            });
+        }
+        p => {
+            if let Some(p) = p {
+                shutdown::after_exit(p);
+            }
+            with_app(|a| a.quitting = true);
+            unsafe { DestroyWindow(hwnd) };
+        }
+    }
+}
+
+fn log_line(text: &str) {
+    with_app(|a| a.detail.push_log(format!("{} {text}", now_hms())));
 }
 
 /// Preferences > Directories "Automatically load .torrents from": the new files in the folder
@@ -1307,6 +1430,7 @@ fn run_scheduler(a: &mut App, applied: Option<&Options>) {
 unsafe fn on_alerts(hwnd: HWND) {
     let mut errors: Vec<String> = Vec::new();
     let mut balloons: Vec<String> = Vec::new();
+    let mut suspend = None;
     let Some((lists_changed, removed_any, repaint_page)) = with_app(|a| {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
@@ -1358,6 +1482,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                     a.detail.push_speed(s.download_rate, s.upload_rate);
                     repaint_page |= a.page == Page::Speed;
                 }
+                Alert::ResumeDataSaved => suspend = a.suspend_pending.take(),
                 Alert::TorrentAdded { id, info_hashes, ref name } => {
                     a.detail.push_log(format!("{} {name}: added", now_hms()));
                     if a.queue_top.remove(&info_hashes.key_hex()) {
@@ -1480,6 +1605,13 @@ unsafe fn on_alerts(hwnd: HWND) {
         for e in errors {
             dialogs::error(hwnd, &e);
         }
+        // Auto Shutdown's Standby / Hibernate; returns once the computer is awake again
+        if let Some(p) = suspend
+            && let Err(e) = shutdown::perform(p)
+        {
+            log_line(&format!("Auto Shutdown: {}", e.replace('\n', " ")));
+            dialogs::error(hwnd, &e);
+        }
     }
 }
 
@@ -1554,6 +1686,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     Ok(bytes) => add_torrent_file(hwnd, bytes),
                     Err(e) => dialogs::error(hwnd, &format!("Could not download {}:\n{e}", r.url)),
                 }
+                0
+            }
+            WM_APP_COUNTDOWN => {
+                auto_shutdown_countdown(hwnd, wparam as u32);
                 0
             }
             WM_APP_ARGS => {
@@ -2018,6 +2154,14 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 }
             }
             cmd::CREATE => create_torrent(hwnd),
+            id if (cmd::AUTO_SHUTDOWN_BASE..cmd::AUTO_SHUTDOWN_BASE + AutoMode::MENU.len() as u16)
+                .contains(&id) =>
+            {
+                let mode = AutoMode::MENU[(id - cmd::AUTO_SHUTDOWN_BASE) as usize];
+                with_app(|a| a.auto_shutdown.set_mode(mode));
+                log_line(&format!("Auto Shutdown: {}", AutoMode::label(mode).replace('&', "")));
+                update_menu(hwnd);
+            }
             cmd::PREFS => show_preferences(hwnd),
             cmd::EXIT => {
                 with_app(|a| a.quitting = true);
@@ -2845,6 +2989,34 @@ unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpara
                 0
             }
             _ => DefWindowProcW(hwnd, msg, wparam, lparam),
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_auto_shutdown_submenu_carries_one_radio_mark() {
+        unsafe {
+            let bar = main_menu();
+            let id = |i: usize| (cmd::AUTO_SHUTDOWN_BASE + i as u16) as u32;
+            let checked = |i: usize| GetMenuState(bar, id(i), MF_BYCOMMAND) & MF_CHECKED != 0;
+            for i in 0..AutoMode::MENU.len() {
+                assert_ne!(GetMenuState(bar, id(i), MF_BYCOMMAND), u32::MAX, "item {i} is in the menu");
+            }
+            for pick in [7, 1, 0] {
+                check_auto_shutdown(bar, AutoMode::MENU[pick]);
+                let marks: Vec<usize> = (0..AutoMode::MENU.len()).filter(|&i| checked(i)).collect();
+                assert_eq!(marks, [pick]);
+                let mut mii: MENUITEMINFOW = zeroed();
+                mii.cbSize = size_of::<MENUITEMINFOW>() as u32;
+                mii.fMask = MIIM_FTYPE;
+                GetMenuItemInfoW(bar, id(pick), 0, &mut mii);
+                assert_ne!(mii.fType & MFT_RADIOCHECK, 0, "a radio mark, not a check mark");
+            }
+            DestroyMenu(bar);
         }
     }
 }

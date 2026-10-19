@@ -368,6 +368,7 @@ impl Mock {
                 s.num_torrents = self.by_hash.len() as u32;
                 self.out.push(Alert::SessionStats(s));
             }
+            Command::SaveResumeData => self.out.push(Alert::ResumeDataSaved),
             Command::PostPeerInfo(id) => {
                 if let Some(t) = self.get(id) {
                     let peers = peers_for(t);

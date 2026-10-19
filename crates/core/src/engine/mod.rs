@@ -1238,6 +1238,10 @@ impl Engine {
             Command::PostWebSeeds(id) => self.post_web_seeds(id),
             Command::PostTorrentUpdates => self.post_torrent_updates(),
             Command::PostSessionStats => self.post_session_stats(),
+            Command::SaveResumeData => {
+                self.save_resume(true);
+                self.alert(Alert::ResumeDataSaved);
+            }
             Command::PostPeerInfo(id) => self.post_peer_info(id),
             Command::PostFileList(id) => {
                 self.ensure_metadata(id);

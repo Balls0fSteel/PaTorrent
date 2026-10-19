@@ -16,9 +16,16 @@ patorrent-frontend.workspace = true
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [
     "Win32_Foundation",
+    "Win32_Security",
+    "Win32_Security_Authorization",
     "Win32_Storage_FileSystem",
     "Win32_System_Console",
+    "Win32_System_Services",
 ] }
+
+# the service tests split command lines with Windows's own parser
+[target.'cfg(windows)'.dev-dependencies]
+windows-sys = { workspace = true, features = ["Win32_UI_Shell"] }
 
 [lints]
 workspace = true

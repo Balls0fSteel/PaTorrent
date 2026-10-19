@@ -11,8 +11,9 @@
 //! - Windows: `SetConsoleCtrlHandler` takes Ctrl+C, Ctrl+Break, closing the console window,
 //!   logoff and system shutdown. For the last three Windows ends the process when the handler
 //!   returns, so the handler waits until the loop has shut the session down ([`finished`]).
-//!   (A Windows service, a follow-up, would have to ignore logoff: it is sent to services for
-//!   every user who logs off.)
+//!   As a Windows service (`service`) the SCM's controls take the same path
+//!   ([`service_control`]), and logoff is ignored: it is sent to services for every user who
+//!   logs off.
 //!
 //! A second Ctrl+C / SIGINT / SIGTERM while the first one's shutdown is still running ends the
 //! process at once, without saving.
@@ -36,7 +37,8 @@ const SIGINT_BIT: u32 = 1 << 0;
 #[cfg(unix)]
 const SIGTERM_BIT: u32 = 1 << 1;
 #[cfg(windows)]
-const STOP_NAMES: [&str; 5] = ["Ctrl+C", "Ctrl+Break", "console closed", "logoff", "system shutdown"];
+const STOP_NAMES: [&str; 6] =
+    ["Ctrl+C", "Ctrl+Break", "console closed", "logoff", "system shutdown", "service stop"];
 #[cfg(windows)]
 const CTRL_C_BIT: u32 = 1 << 0;
 #[cfg(windows)]
@@ -47,6 +49,8 @@ const CLOSE_BIT: u32 = 1 << 2;
 const LOGOFF_BIT: u32 = 1 << 3;
 #[cfg(windows)]
 const SHUTDOWN_BIT: u32 = 1 << 4;
+#[cfg(windows)]
+const SERVICE_STOP_BIT: u32 = 1 << 5;
 const RELOAD_BIT: u32 = 1 << 31;
 
 /// Requests not taken yet.
@@ -71,6 +75,37 @@ pub fn take() -> Events {
 /// waiting for that may return (and Windows then ends the process).
 pub fn finished() {
     imp::finished();
+}
+
+/// A Windows service control (`service`).
+#[cfg(windows)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceControl {
+    /// SERVICE_CONTROL_STOP
+    Stop,
+    /// SERVICE_CONTROL_SHUTDOWN / PRESHUTDOWN
+    Shutdown,
+    /// SERVICE_CONTROL_PARAMCHANGE: the reload SIGHUP does
+    ParamChange,
+}
+
+/// Passes a service control to the alert loop as a console event would. A second stop does not
+/// end the process at once: the SCM sends no second one while the service stops.
+#[cfg(windows)]
+pub fn service_control(c: ServiceControl) {
+    let bit = match c {
+        ServiceControl::Stop => SERVICE_STOP_BIT,
+        ServiceControl::Shutdown => SHUTDOWN_BIT,
+        ServiceControl::ParamChange => RELOAD_BIT,
+    };
+    PENDING.fetch_or(bit, Ordering::SeqCst);
+    imp::wake();
+}
+
+/// The process is a Windows service: logoff events are ignored from now on.
+#[cfg(windows)]
+pub fn set_service() {
+    imp::SERVICE.store(true, Ordering::SeqCst);
 }
 
 /// Counts a stop request; true for the second and later ones.
@@ -229,7 +264,7 @@ mod imp {
 #[cfg(windows)]
 mod imp {
     use std::io;
-    use std::sync::atomic::Ordering;
+    use std::sync::atomic::{AtomicBool, Ordering};
     use std::sync::{Condvar, Mutex, OnceLock};
     use std::time::Duration;
 
@@ -242,6 +277,8 @@ mod imp {
     use super::{CLOSE_BIT, CTRL_BREAK_BIT, CTRL_C_BIT, LOGOFF_BIT, PENDING, SHUTDOWN_BIT, second_stop};
 
     static WAKE: OnceLock<Box<dyn Fn() + Send + Sync>> = OnceLock::new();
+    /// [`super::set_service`]
+    pub(super) static SERVICE: AtomicBool = AtomicBool::new(false);
     /// Set by [`finished`]; close / logoff / shutdown handlers wait for it.
     static DONE: (Mutex<bool>, Condvar) = (Mutex::new(false), Condvar::new());
     /// Longest a close / logoff / shutdown handler holds Windows off; it ends the process
@@ -257,6 +294,11 @@ mod imp {
             CTRL_SHUTDOWN_EVENT => SHUTDOWN_BIT,
             _ => return 0,
         };
+        if kind == CTRL_LOGOFF_EVENT && SERVICE.load(Ordering::SeqCst) {
+            // some user logged off; a service runs on. Handled, so the default handler does not
+            // end the process
+            return 1;
+        }
         let interactive = matches!(kind, CTRL_C_EVENT | CTRL_BREAK_EVENT);
         if second_stop() && interactive {
             // the default handler: ExitProcess
@@ -284,7 +326,7 @@ mod imp {
         Ok(())
     }
 
-    fn wake() {
+    pub(super) fn wake() {
         if let Some(w) = WAKE.get() {
             w();
         }
@@ -319,5 +361,12 @@ mod tests {
         assert_eq!(take(), Events::default());
         PENDING.fetch_or(CTRL_BREAK_BIT, Ordering::SeqCst);
         assert_eq!(take().stop, Some("Ctrl+Break"));
+        // the service controls take the same path (no wake-up installed in the tests)
+        service_control(ServiceControl::ParamChange);
+        assert_eq!(take(), Events { stop: None, reload: true });
+        service_control(ServiceControl::Stop);
+        assert_eq!(take().stop, Some("service stop"));
+        service_control(ServiceControl::Shutdown);
+        assert_eq!(take().stop, Some("system shutdown"));
     }
 }

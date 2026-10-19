@@ -436,9 +436,7 @@ pub fn run(args: Args) -> i32 {
         DestroyAcceleratorTable(haccel);
     }
     // Auto Shutdown's Shut Down, once the session has saved its state and stopped
-    if let Some(p) = shutdown::take_after_exit()
-        && let Err(e) = shutdown::perform(p)
-    {
+    if let Some(Err(e)) = shutdown::take_after_exit().map(shutdown::perform) {
         dialogs::error(null_mut(), &e);
     }
     0
@@ -1493,11 +1491,12 @@ unsafe fn on_alerts(hwnd: HWND) {
         let generation = a.list.generation();
         let mut repaint_page = false;
         for alert in alerts.drain(..) {
-            if let Some(m) = a.move_completed.as_mut()
-                && let Some(id) = m.on_alert(&alert, &a.handle)
+            if let Some((id, dir)) = a
+                .move_completed
+                .as_mut()
+                .and_then(|m| m.on_alert(&alert, &a.handle).map(|id| (id, m.dir.clone())))
             {
                 let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
-                let dir = m.dir.clone();
                 a.detail.push_log(format!("{} {name}: moving the completed download to {dir}", now_hms()));
                 a.handle.post_torrent_updates();
             }
@@ -1660,9 +1659,7 @@ unsafe fn on_alerts(hwnd: HWND) {
             dialogs::error(hwnd, &e);
         }
         // Auto Shutdown's Standby / Hibernate; returns once the computer is awake again
-        if let Some(p) = suspend
-            && let Err(e) = shutdown::perform(p)
-        {
+        if let Some(Err(e)) = suspend.map(shutdown::perform) {
             log_line(&format!("Auto Shutdown: {}", e.replace('\n', " ")));
             dialogs::error(hwnd, &e);
         }

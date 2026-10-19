@@ -183,12 +183,10 @@ impl Changes {
         }
         let mut set = TorrentFlags::empty();
         let mut unset = TorrentFlags::empty();
-        for (on, flag) in [(self.super_seeding, TorrentFlags::SUPER_SEEDING)] {
-            match on {
-                Some(true) => set |= flag,
-                Some(false) => unset |= flag,
-                None => {}
-            }
+        match self.super_seeding {
+            Some(true) => set |= TorrentFlags::SUPER_SEEDING,
+            Some(false) => unset |= TorrentFlags::SUPER_SEEDING,
+            None => {}
         }
         // the switches are "disable" flags in the engine
         for (on, flag) in [(self.dht, TorrentFlags::DISABLE_DHT), (self.pex, TorrentFlags::DISABLE_PEX)] {

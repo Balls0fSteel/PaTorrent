@@ -2,6 +2,18 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_105727_1792400247: CI fix for MSRV 1.85 and stable clippy
+
+### Fixed
+- CI run 39225424904 failed in two jobs (FreeBSD passed). `msrv` (Rust 1.85): a let-chain (`if … && let Some(t) = …`) in `engine/mod.rs`'s upload-mode handling; let-chains are stable only from 1.88. Now a nested `if let`. The three let-chains in `win32/src/app.rs` (Auto Shutdown on exit and on suspend, move-completed alerts) were rewritten too (`Option::map` / `and_then`): the MSRV job runs on Linux and never builds them, but the workspace declares `rust-version = "1.85"`.
+- `test` on Windows and Linux (stable clippy 1.99): `clippy::single_element_loop` in `frontend/src/properties.rs` (the super-seeding flag loop over one pair, now a plain `match`).
+
+### Verified
+- Windows: `cargo +stable fmt --all --check`, `cargo fmt --all --check`, fuzz fmt check, `cargo +stable clippy --workspace --all-targets -- -D warnings` (1.97), Linux-target clippy, `cargo test --workspace`: 902 passed, 0 failed.
+
+### Issues
+- No 1.85 toolchain is installed here, so the MSRV check runs only in CI; local clippy on 1.90 and stable accepts let-chains (edition 2024). Grep for `&& let ` before pushing. Local stable (1.97) also lags CI's (1.99).
+
 ## 2026-10-19_104021_1792399221: uTP no longer stalls after losing a whole window; super-seed test deflaked
 
 ### Fixed

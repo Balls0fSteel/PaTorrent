@@ -1,16 +1,23 @@
 # PaTorrent
 
+> [!WARNING]
+> **Pre-alpha. Not ready for use.**
+>
+> PaTorrent is under heavy development. There are no releases, nothing is stable, settings and saved state may change or break between commits, and features are missing or only half tested. Do not use it for torrents you care about, and do not use it on private trackers: its client ID is not whitelisted anywhere yet.
+>
+> Feedback and bug reports are welcome; packages, release builds and support are not available yet.
+
 **PaTorrent** (long name **PatinaTorrent**) is a lean BitTorrent client in the spirit of µTorrent 2.2.1: tiny, fast, native, and comfortable with thousands of torrents. A patina is the good kind of rust.
 
 - **Engine:** our own Rust port of [libtorrent-rasterbar](https://github.com/arvidn/libtorrent) 2.0.11. libtorrent's code is the reference; nothing is linked.
-- **Frontends:** a native Win32 GUI (first), a headless daemon `patorrent-nox` with a Web UI, and a GTK GUI for Linux/BSD.
+- **Frontends:** a native Win32 GUI (first), a headless daemon `patorrent-nox` with a Web UI, and a GTK 4 GUI for Linux, BSD and macOS.
 - **Goals:**
   - single self-contained executables
   - minimal dependencies
   - low RAM and CPU use
-  - instant UI with 10,000+ torrents
+  - 100,000 torrents on a modest PC, with an instant UI
 
-**Status:** Phase 2 is built: the real engine downloads and seeds `.torrent` files over TCP with HTTP and UDP trackers, and resumes after a restart without rechecking. Magnet links, DHT, encryption, uTP and HTTPS trackers come next. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
+**Status:** pre-alpha, working toward 1.0 (see "Road to 1.0" in [PLAN.md](PLAN.md)). The engine downloads and seeds over TCP and uTP, with HTTP, HTTPS and UDP trackers, magnet links, DHT, peer exchange, local peer discovery, encryption, web seeds, proxies, UPnP / NAT-PMP and IP filters. The Win32 GUI has the µTorrent 2.2.1 main window, Preferences, the Add and Create dialogs, RSS and the scheduler; `patorrent-nox` runs headless with its own Web UI and a qBittorrent-compatible API. Not there yet: the GTK GUI, BitTorrent v2 torrents, translations, release packages. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
 
 ## Building
 

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-19_230332_1792443812
+Last updated: 2026-10-19_230536_1792443936
 
 ## Vision
 
@@ -70,8 +70,10 @@ Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the reco
 | D19 | **1.0 scope** (owner, 2026-10-19_230101_1792443661): the Win32 GUI, the GTK GUI (Phase 7) and nox; BitTorrent v2 and hybrid torrents (Phase 8, BEP 52: adding, downloading, seeding, creating; BEP 44 / 51 / 55 stay after 1.0 unless they come cheap); localisation; the Web UI over HTTPS and the GUIs' remote mode (Phase 6). | The owner wants a complete client at 1.0, not a Windows-only preview. |
 | D20 | **Translations**: every user-visible string goes through string tables (one per language, shared by the three frontends), translated in full by Claude from the English table; English is the source and the fallback. | No translator community yet; whole-table machine translation is good enough to start and is redone when strings change. |
 | D21 | **Scale before size** (2026-10-19_230101_1792443661): the 1.0 gate is 100,000 torrents loaded on a low-end PC ("µTorrent on a potato"), with idle CPU and responsiveness the measure. The empty-session working set of about 20 MB is accepted; memory is optimised later, and only where a measurement shows it is worth it (the 12 MB target is dropped). | The point of the project is lean and very powerful at scale, not a few MB at zero torrents. |
-| D22 | **Distribution** (2026-10-19_230101_1792443661): Windows as the portable `.exe` (D7, a zip with LICENSE.md and the notices); Linux as AppImage and Flatpak, plus plain binary tarballs; no distro packages (D15 is not free software, and distro packages lag). macOS release built in CI without a Mac (GitHub-hosted macOS runners, as qBittorrent does), see Q12–Q14. | Self-contained packages we control and update on our own schedule. |
+| D22 | **Distribution** (2026-10-19_230101_1792443661): Windows as the portable `.exe` (D7, a zip with LICENSE.md and the notices); Linux as AppImage and Flatpak, plus plain binary tarballs; no distro packages (D15 is not free software, and distro packages lag). macOS release built in CI without a Mac (GitHub-hosted macOS runners, as qBittorrent does), see D23 and D25. | Self-contained packages we control and update on our own schedule. |
 | D23 (Q12) | **macOS GUI** (owner, 2026-10-19_230332_1792443812): the Phase 7 GTK 4 GUI, built for macOS too, in an `.app` bundling GTK and its libraries (x86_64 and arm64, ad-hoc signed). Mac-specific pieces: the menu bar through `GtkApplication`'s menubar (macOS shows it as the global menu), an `NSStatusItem` tray in place of StatusNotifierItem, `.torrent` / `magnet:` registration through the bundle's `Info.plist`, Login Items for autostart. | One GUI for Linux, BSD and macOS; GTK 4 looks good on macOS and the frontend model is shared already. |
+| D24 (Q13) | **Languages** (owner, 2026-10-19_230536_1792443936): a broad first set, about the size of µTorrent 2.2.1's: Arabic, Bulgarian, Catalan, Chinese (Simplified and Traditional), Croatian, Czech, Danish, Dutch, Finnish, French, German, Greek, Hebrew, Hungarian, Indonesian, Italian, Japanese, Korean, Norwegian Bokmål, Persian, Polish, Portuguese (Brazil and Portugal), Romanian, Russian, Serbian, Slovak, Spanish, Swedish, Thai, Turkish, Ukrainian, Vietnamese. Translated from our English table (D20). µTorrent's own `.lng` files are not copied or vendored: they belong to BitTorrent Inc. and their translators, and D15 needs text we can license (as with qBittorrent's GPL Web UI). Arabic, Hebrew and Persian need right-to-left layouts (`WS_EX_LAYOUTRTL` on Win32, GTK's text direction, `dir="rtl"` in the page). | Wide reach from the start; the cost of a language is a table, not a translator. |
+| D25 (Q14) | **Public repository** (owner, 2026-10-19_230536_1792443936), still under PolyForm Noncommercial (D15), with a pre-alpha "not ready for use" warning at the top of the README until a release says otherwise. | Free CI (macOS runners included), Flathub builds from the public source, and early feedback. |
 
 ## Roadmap
 
@@ -300,8 +302,8 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 
 **Packaging (D22):**
 6. Windows: a release zip (`patorrent.exe`, `patorrent-nox.exe`, LICENSE.md, THIRD-PARTY-NOTICES.md) built by a tagged-release workflow.
-7. Linux: AppImage (GUI and nox, bundling OpenSSL 3), Flatpak (GNOME runtime; Flathub accepts non-free apps with a `LicenseRef` license, but builds from a public source or a published tarball, see Q14), binary tarballs (x86_64 and aarch64).
-8. macOS (D23, Q13–Q14): the GTK GUI (item 2) built for macOS, plus a Security.framework TLS backend (the TLS layer picks OpenSSL for every Unix today, and macOS has no linkable OpenSSL), the routing table through `PF_ROUTE` sysctl (as on FreeBSD; NAT-PMP is off on macOS now), a macOS CI job running the tests, then the release `.app` (GTK bundled) / `.dmg` for x86_64 and arm64, ad-hoc signed. Nobody here has a Mac: CI builds and runs the tests, the owner judges screenshots from the runner.
+7. Linux: AppImage (GUI and nox, bundling OpenSSL 3), Flatpak (GNOME runtime; Flathub accepts non-free apps with a `LicenseRef` license and builds from the public source, D25), binary tarballs (x86_64 and aarch64).
+8. macOS (D23): the GTK GUI (item 2) built for macOS, plus a Security.framework TLS backend (the TLS layer picks OpenSSL for every Unix today, and macOS has no linkable OpenSSL), the routing table through `PF_ROUTE` sysctl (as on FreeBSD; NAT-PMP is off on macOS now), a macOS CI job running the tests, then the release `.app` (GTK bundled) / `.dmg` for x86_64 and arm64, ad-hoc signed. Nobody here has a Mac: CI builds and runs the tests, the owner judges screenshots from the runner.
 
 **Before tagging 1.0:**
 9. Hand click-throughs of everything built but only tested hidden or through messages: Preferences, Create New Torrent, Torrent Properties, RSS Downloader, Auto Shutdown (`PATORRENT_POWER_DRY_RUN=1`), Windows Integration on the real registry, the magnet Add dialog with a real magnet. Fix what they turn up.
@@ -321,8 +323,8 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 - **Q3–Q7.** Resolved, see D9–D13.
 - **Q11. GitHub repository name.** Resolved 2026-10-15: renamed to `Balls0fSteel/PaTorrent` (GitHub redirects the old URL); Cargo.toml, the README and the `origin` remote point there. The local folder is still `libretorrent`; renaming it is optional and best done with no editor or session open in it.
 - **Q12. macOS GUI.** Resolved 2026-10-19_230332_1792443812: the GTK 4 GUI (D23).
-- **Q13. Which languages** for the first translated tables (2026-10-19_230101_1792443661)?
-- **Q14. Repository visibility** (2026-10-19_230101_1792443661). The repo is private: GitHub bills macOS runner minutes at 10× (Windows 2×), and Flathub builds from a source it can fetch. Making the source public (still PolyForm Noncommercial, D15) makes CI free and Flathub straightforward; staying private means macOS builds only on release tags and Flathub from published tarballs.
+- **Q13. Which languages.** Resolved 2026-10-19_230536_1792443936: D24.
+- **Q14. Repository visibility.** Resolved 2026-10-19_230536_1792443936: public, with a pre-alpha warning at the top of the README (D25).
 - **Q10. Interop testing setup.** Answered: qBittorrent runs as the installed app with a throwaway `--profile`; Transmission and Deluge run in the Debian WSL distro (`transmission-cli`, `deluged`, `deluge-console` installed 2026-10-15; the `deluged` system service the package enabled was stopped and disabled). `lt-swarm interop` scripts all three; `--encryption forced|enabled|disabled` sets the clients' encryption settings too (qBittorrent `Session\Encryption`, Transmission `encryption`, Deluge `enc_in_policy` / `enc_out_policy` / `enc_level`).
 
 ## Future improvements
@@ -543,5 +545,5 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
   - `create_torrent`: mutable_torrents and the v2 / hybrid cases (v2_only, hybrid*, piece_layer, pieces_root_empty_file, v2_path_conflict, make_magnet_uri v2 / hybrid) wait for v2 creation (Phase 8); the v1 parts are ported
   - session plus resume data (Phase 2): the write_torrent_file round trips, preserve_* magnet tests
 - Windows `SegmentHeap` (manifest `heapType`) might lower RAM use. Benchmark it with `lt-swarm` before enabling.
-- CI minutes: the repo is private, and Windows runners bill at 2×. FreeBSD runs only on main and weekly for that reason.
+- CI minutes: the repo was private (Windows runners billed at 2×), so FreeBSD runs only on main and weekly. Public since 2026-10-19_230536_1792443936 (D25): Actions minutes are free, so FreeBSD (and a macOS job) can run on every push.
 - The vcpkg cache from the abandoned approach (about 2 GB under `%LOCALAPPDATA%\vcpkg`) can be deleted by the user if no other project uses it.

@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_230536_1792443936: Languages chosen; the repository goes public
+
+### Decisions
+- Q13 resolved as D24: a broad first set of 34 languages, translated from our English table. µTorrent 2.2.1's language files are not copied (not ours to license under D15).
+- Q14 resolved as D25: the repository goes public, still PolyForm Noncommercial.
+
+### Changed
+- README: a pre-alpha "not ready for use" warning at the top; the status paragraph brought up to date (it still described Phase 2); the goals and frontends follow D19 to D23.
+
 ## 2026-10-19_230101_1792443661: 1.0 scope decided
 
 ### Decisions

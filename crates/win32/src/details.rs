@@ -1,11 +1,13 @@
 //! The detail tabs under the torrent list: General, Trackers, Peers, Pieces, Files, Speed and
 //! Logger. List tabs are owner-data list views; General, Pieces and Speed are painted panels.
+//! The Pieces panel paints the piece map and holds a list view of the pieces being downloaded
+//! under it (µTorrent 2.2.1's Pieces list), its Blocks column drawn by [`block_bar`].
 
 use std::collections::VecDeque;
 use std::sync::Arc;
 
-use patorrent_core::{AnnounceEntry, Bitfield, FileEntry, PeerInfo, TorrentId, TorrentStatus};
-use patorrent_frontend::detail::{self, ColumnDef};
+use patorrent_core::{AnnounceEntry, Bitfield, FileEntry, PartialPiece, PeerInfo, TorrentId, TorrentStatus};
+use patorrent_frontend::detail::{self, BlockKind, ColumnDef};
 use patorrent_frontend::{columns::RowExtra, fmt, status::status_text};
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, RECT};
@@ -82,6 +84,8 @@ pub struct Detail {
     pub file_done: Vec<u64>,
     pub have: Option<Bitfield>,
     pub availability: Vec<u32>,
+    /// The pieces being downloaded, ascending (the Pieces list).
+    pub partial: Vec<PartialPiece>,
     pub log: VecDeque<String>,
     /// (download, upload) payload bytes per second, oldest first.
     pub speed: VecDeque<(u32, u32)>,
@@ -99,6 +103,7 @@ impl Detail {
             self.file_done.clear();
             self.have = None;
             self.availability.clear();
+            self.partial.clear();
         }
     }
 
@@ -125,6 +130,7 @@ impl Detail {
         match page {
             Page::Trackers => self.trackers.len(),
             Page::Peers => self.peers.len(),
+            Page::Pieces => self.partial.len(),
             Page::Files => self.file_rows.len(),
             Page::Logger => self.log.len(),
             _ => 0,
@@ -135,6 +141,7 @@ impl Detail {
         match page {
             Page::Trackers => self.trackers.get(row).map(|t| detail::tracker_cell(t, col)),
             Page::Peers => self.peers.get(row).map(|p| detail::peer_cell(p, col)),
+            Page::Pieces => self.partial.get(row).map(|p| detail::piece_cell(p, col)),
             Page::Files => self.file_rows.get(row).and_then(|&i| {
                 let f = &self.files.as_ref()?[i];
                 Some(detail::file_cell(f, self.file_done.get(i).copied(), col))
@@ -157,6 +164,7 @@ fn rgb(c: u32) -> COLORREF {
 
 const BAR_BLUE: u32 = 0x3c78d8;
 const BAR_GREEN: u32 = 0x4bb543;
+const BLOCK_REQUESTED: u32 = 0xe8a000;
 const DOWN_COLOR: u32 = 0x2aa52a;
 const UP_COLOR: u32 = 0xd23c3c;
 
@@ -416,6 +424,53 @@ unsafe fn hint(c: &PaintCtx<'_>, s: &str) {
     }
 }
 
+/// Metrics of the piece map: (padding, square, gap, header line).
+fn map_metrics(dpi: u32) -> (i32, i32, i32, i32) {
+    (scale(8, dpi), scale(9, dpi), scale(1, dpi).max(1), scale(22, dpi))
+}
+
+/// Height of the piece map at the top of the Pieces page `w` by `h` pixels: the header line
+/// plus the rows of squares the pieces need, at most two fifths of the page (the pieces list
+/// takes the rest).
+pub fn piece_map_height(d: &Detail, w: i32, h: i32, dpi: u32) -> i32 {
+    let (pad, cell, gap, header) = map_metrics(dpi);
+    let n = d.have.as_ref().map_or(0, |b| b.len());
+    if n == 0 {
+        return scale(26, dpi).min(h.max(0));
+    }
+    let cols = ((w - 2 * pad) / (cell + gap)).max(1) as usize;
+    let rows = n.div_ceil(cols) as i32;
+    let need = header + rows * (cell + gap) + pad;
+    let cap = (h * 2 / 5).max(header + cell + gap + pad);
+    need.min(cap).min(h.max(0))
+}
+
+/// The Blocks cell of a Pieces list row: the blocks left to right, blue on disk, green being
+/// written, orange requested, white free, in a grey frame.
+pub unsafe fn block_bar(hdc: HDC, rc: &RECT, p: &PartialPiece) {
+    let n = p.blocks.len() as i64;
+    let w = (rc.right - rc.left - 2) as i64;
+    if n == 0 || w <= 0 {
+        return;
+    }
+    unsafe {
+        fill(hdc, rc, 0xffffff);
+        for (kind, start, len) in detail::block_runs(p) {
+            let color = match kind {
+                BlockKind::Free => continue,
+                BlockKind::Requested => BLOCK_REQUESTED,
+                BlockKind::Writing => BAR_GREEN,
+                BlockKind::Finished => BAR_BLUE,
+            };
+            let x0 = rc.left + 1 + (start as i64 * w / n) as i32;
+            // at least a pixel, so one requested block among a thousand still shows
+            let x1 = (rc.left + 1 + ((start + len) as i64 * w / n) as i32).max(x0 + 1);
+            fill(hdc, &RECT { left: x0, top: rc.top + 1, right: x1, bottom: rc.bottom - 1 }, color);
+        }
+        FrameRect(hdc, rc, GetSysColorBrush(COLOR_BTNSHADOW));
+    }
+}
+
 unsafe fn pieces(c: &PaintCtx<'_>) {
     let d = c.detail;
     let Some(have) = &d.have else {
@@ -427,11 +482,10 @@ unsafe fn pieces(c: &PaintCtx<'_>) {
     if n == 0 {
         return;
     }
-    let pad = c.s(8);
-    let cell = c.s(9);
-    let gap = c.s(1).max(1);
+    let (pad, cell, gap, header) = map_metrics(c.dpi);
     let cols = ((c.rc.right - c.rc.left - 2 * pad) / (cell + gap)).max(1) as usize;
-    let header = c.s(22);
+    // the pieces list covers the rest of the page
+    let bottom = c.rc.top + piece_map_height(d, c.rc.right - c.rc.left, c.rc.bottom - c.rc.top, c.dpi);
     unsafe {
         let r = RECT {
             left: c.rc.left + pad,
@@ -439,9 +493,19 @@ unsafe fn pieces(c: &PaintCtx<'_>) {
             right: c.rc.right - pad,
             bottom: c.rc.top + header,
         };
-        let s = format!("{} pieces, {} done. Darker squares are pieces more peers have.", n, have.count());
+        let dl = match d.partial.len() {
+            0 => String::new(),
+            k => format!(", {k} downloading (orange)"),
+        };
+        let s =
+            format!("{} pieces, {} done{dl}. Darker squares are pieces more peers have.", n, have.count());
         text(c.hdc, &s, &r, DT_LEFT | DT_END_ELLIPSIS);
-        let max_rows = ((c.rc.bottom - c.rc.top - header - pad) / (cell + gap)).max(0) as usize;
+        let rows_in = |h: i32| (h / (cell + gap)).max(0) as usize;
+        let mut max_rows = rows_in(bottom - c.rc.top - header - pad);
+        if n > cols * max_rows {
+            // leave a line for "... more"
+            max_rows = rows_in(bottom - c.rc.top - header - pad - c.s(18));
+        }
         let shown = n.min(cols * max_rows);
         for i in 0..shown {
             let x = c.rc.left + pad + ((i % cols) as i32) * (cell + gap);
@@ -449,6 +513,8 @@ unsafe fn pieces(c: &PaintCtx<'_>) {
             let rc = RECT { left: x, top: y, right: x + cell, bottom: y + cell };
             let color = if have.get(i) {
                 BAR_BLUE
+            } else if d.partial.binary_search_by_key(&(i as u32), |p| p.piece).is_ok() {
+                BLOCK_REQUESTED
             } else {
                 match d.availability.get(i).copied().unwrap_or(0) {
                     0 => 0xffffff,
@@ -461,8 +527,8 @@ unsafe fn pieces(c: &PaintCtx<'_>) {
             FrameRect(c.hdc, &rc, GetSysColorBrush(COLOR_BTNSHADOW));
         }
         if shown < n {
-            let y = c.rc.bottom - c.s(18);
-            let r = RECT { left: c.rc.left + pad, top: y, right: c.rc.right - pad, bottom: c.rc.bottom };
+            let y = bottom - c.s(18);
+            let r = RECT { left: c.rc.left + pad, top: y, right: c.rc.right - pad, bottom };
             text(c.hdc, &format!("... {} more", n - shown), &r, DT_RIGHT);
         }
     }
@@ -570,5 +636,47 @@ unsafe fn speed(c: &PaintCtx<'_>) {
             SelectObject(c.hdc, old);
             DeleteObject(pen);
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use patorrent_core::BlockState;
+
+    #[test]
+    fn the_piece_map_leaves_the_rest_of_the_page_to_the_list() {
+        let mut d = Detail::default();
+        // before the first reply: one hint line
+        assert_eq!(piece_map_height(&d, 500, 300, 96), 26);
+        // 10 pieces fit on one row of 49 squares: header, a row, padding
+        d.have = Some(Bitfield::new(10, false));
+        assert_eq!(piece_map_height(&d, 500, 300, 96), 22 + 10 + 8);
+        // 5,000 pieces would need 103 rows: two fifths of the page
+        d.have = Some(Bitfield::new(5000, false));
+        assert_eq!(piece_map_height(&d, 500, 300, 96), 120);
+        // a very short page still shows the header and a row, never more than the page
+        assert_eq!(piece_map_height(&d, 500, 50, 96), 40);
+        assert_eq!(piece_map_height(&d, 500, 30, 96), 30);
+        // twice the size at 192 DPI
+        d.have = Some(Bitfield::new(10, false));
+        assert_eq!(piece_map_height(&d, 1000, 600, 192), 80);
+    }
+
+    #[test]
+    fn the_pieces_rows_follow_the_selected_torrent() {
+        let mut d = Detail::default();
+        d.select(Some(TorrentId::from_raw(1)));
+        d.partial = vec![PartialPiece {
+            piece: 12,
+            size: 32 * 1024,
+            blocks: vec![BlockState::Finished, BlockState::Requested(1)],
+        }];
+        assert_eq!(d.rows(Page::Pieces), 1);
+        assert!(!Page::Pieces.is_list(), "a painted panel holding its own list");
+        let cells: Vec<String> = (0..5).map(|c| d.cell(Page::Pieces, 0, c)).collect();
+        assert_eq!(cells, ["12", "32.0 kB", "2", "", "1"]);
+        d.select(Some(TorrentId::from_raw(2)));
+        assert_eq!(d.rows(Page::Pieces), 0);
     }
 }

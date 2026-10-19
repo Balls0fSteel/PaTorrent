@@ -56,8 +56,8 @@ pub use proto::xml;
 pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
 pub use settings::{EncLevel, EncPolicy, ProxyType, Settings};
 pub use status::{
-    AnnounceEntry, FileEntry, PeerFlags, PeerInfo, PeerSource, SessionStats, TorrentState, TorrentStatus,
-    TrackerStatus,
+    AnnounceEntry, BlockState, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource, SessionStats,
+    TorrentState, TorrentStatus, TrackerStatus,
 };
 pub use types::{InfoHashes, Sha1Hash, Sha256Hash, TorrentId};
 pub use util::bitfield::Bitfield;

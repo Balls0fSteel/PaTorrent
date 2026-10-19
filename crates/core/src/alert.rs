@@ -10,7 +10,9 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::error::Error;
-use crate::status::{AnnounceEntry, FileEntry, PeerInfo, SessionStats, TorrentState, TorrentStatus};
+use crate::status::{
+    AnnounceEntry, FileEntry, PartialPiece, PeerInfo, SessionStats, TorrentState, TorrentStatus,
+};
 use crate::types::{InfoHashes, TorrentId};
 use crate::util::bitfield::Bitfield;
 
@@ -288,12 +290,12 @@ pub enum Alert {
         trackers: Vec<AnnounceEntry>,
     },
     /// Our pieces, the swarm's availability per piece, and the pieces being downloaded (with
-    /// at least one block requested or on disk), ascending.
+    /// at least one block requested or on disk) with their blocks, ascending.
     PieceInfo {
         id: TorrentId,
         have: Bitfield,
         availability: Vec<u32>,
-        downloading: Vec<u32>,
+        downloading: Vec<PartialPiece>,
     },
     /// The torrent's web seeds, banned ones left out (libtorrent `url_seeds()` and
     /// `http_seeds()`).

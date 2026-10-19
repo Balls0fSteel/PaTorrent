@@ -1369,12 +1369,18 @@ fn files(shared: &Shared, p: &Params) -> Response {
 
 fn piece_states(shared: &Shared, p: &Params) -> Response {
     let Some(id) = one(&shared.lock(), p) else { return not_found() };
-    let Some(Reply::Pieces(have, _, _)) =
+    let Some(Reply::Pieces(have, _, downloading)) =
         shared.query(id, ReplyKind::Pieces, |h| h.torrent(id).post_piece_info())
     else {
         return not_found();
     };
-    let v: Vec<Json> = (0..have.len()).map(|i| Json::Int(if have.get(i) { 2 } else { 0 })).collect();
+    // 0 missing, 1 being downloaded, 2 had
+    let mut v: Vec<Json> = (0..have.len()).map(|i| Json::Int(if have.get(i) { 2 } else { 0 })).collect();
+    for p in downloading {
+        if let Some(s) = v.get_mut(p.piece as usize) {
+            *s = Json::Int(1);
+        }
+    }
     Response::json(&Json::Arr(v))
 }
 

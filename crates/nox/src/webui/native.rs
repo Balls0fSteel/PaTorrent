@@ -222,6 +222,7 @@ impl Client {
         let detail = Json::obj()
             .with("trackers", defs(&detail::TRACKER_COLUMNS))
             .with("peers", defs(&detail::PEER_COLUMNS))
+            .with("pieces", defs(&detail::PIECE_COLUMNS))
             .with("files", defs(&detail::FILE_COLUMNS));
         Json::obj()
             .with("t", "hello")
@@ -702,7 +703,8 @@ fn peers(e: &Entry, st: &State, msg: &mut Json) -> bool {
 }
 
 /// The piece bitfield run-length encoded as alternating run lengths, a run of missing pieces
-/// first (possibly empty), plus the pieces being downloaded.
+/// first (possibly empty), plus the pieces being downloaded: their indices for the bar and the
+/// list's rows, each with its blocks as one letter per block (`detail::BlockKind::letter`).
 fn pieces(e: &Entry, st: &State, msg: &mut Json) -> bool {
     let Some(Reply::Pieces(have, _, downloading)) = st.cached(e.status.id, ReplyKind::Pieces) else {
         return false;
@@ -723,7 +725,23 @@ fn pieces(e: &Entry, st: &State, msg: &mut Json) -> bool {
     msg.set("n", have.len());
     msg.set("have", have.count());
     msg.set("rle", Json::Arr(runs));
-    msg.set("downloading", Json::Arr(downloading.iter().map(|&p| Json::from(p)).collect()));
+    msg.set("downloading", Json::Arr(downloading.iter().map(|p| Json::from(p.piece)).collect()));
+    let rows: Vec<Json> = downloading
+        .iter()
+        .map(|p| {
+            let cells = (0..detail::PIECE_COLUMNS.len()).map(|c| detail::piece_cell(p, c)).collect();
+            let keys = vec![
+                p.piece.into(),
+                p.size.into(),
+                p.blocks.len().into(),
+                p.finished().into(),
+                p.finished().into(),
+            ];
+            let blocks: String = p.blocks.iter().map(|&b| detail::block_kind(b).letter()).collect();
+            row(cells, keys).with("b", blocks)
+        })
+        .collect();
+    msg.set("rows", Json::Arr(rows));
     true
 }
 
@@ -863,7 +881,19 @@ fn parse_view(msg: &Json) -> Result<View, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::{TorrentFlags, TorrentStatus};
+    use patorrent_core::{BlockState, PartialPiece, TorrentFlags, TorrentStatus};
+
+    /// A partial piece of `blocks` blocks, the first `done` on disk, the next one requested.
+    fn partial(piece: u32, blocks: usize, done: usize) -> PartialPiece {
+        let blocks = (0..blocks)
+            .map(|b| match b {
+                b if b < done => BlockState::Finished,
+                b if b == done => BlockState::Requested(1),
+                _ => BlockState::Free,
+            })
+            .collect();
+        PartialPiece { piece, size: 2_000_000, blocks }
+    }
 
     #[test]
     fn column_ids_are_unique_and_snake_case() {
@@ -1167,7 +1197,11 @@ mod tests {
         let mut have = Bitfield::new(8, false);
         have.set(1, true);
         have.set(2, true);
-        st.reply(id, ReplyKind::Pieces, Reply::Pieces(have, vec![1; 8], vec![0, 3]));
+        st.reply(
+            id,
+            ReplyKind::Pieces,
+            Reply::Pieces(have, vec![1; 8], vec![partial(0, 4, 1), partial(3, 4, 3)]),
+        );
         st.reply(
             id,
             ReplyKind::Peers,
@@ -1368,12 +1402,22 @@ mod tests {
         assert_eq!(m.get("have"), Some(&Json::from(2usize)));
         assert_eq!(m.get("rle"), Some(&Json::Arr(vec![1usize.into(), 2usize.into(), 5usize.into()])));
         assert_eq!(m.get("downloading"), Some(&Json::Arr(vec![0u32.into(), 3u32.into()])));
+        // the list: the frontend's cells, sort keys and one letter per block
+        assert_eq!(rows_of(m), [["0", "1.91 MB", "4", "", "1"], ["3", "1.91 MB", "4", "", "3"]]);
+        let Some(Json::Arr(rows)) = m.get("rows") else { panic!() };
+        assert_eq!(rows[0].get("b"), Some(&Json::from("fr--")));
+        assert_eq!(rows[1].get("b"), Some(&Json::from("fffr")));
         assert!(c.on_tick(&mut st).is_empty());
         let mut all = patorrent_core::Bitfield::new(8, true);
         all.set(7, false);
-        st.reply(TorrentId::from_raw(7), ReplyKind::Pieces, Reply::Pieces(all, vec![1; 8], vec![7]));
+        st.reply(
+            TorrentId::from_raw(7),
+            ReplyKind::Pieces,
+            Reply::Pieces(all, vec![1; 8], vec![partial(7, 3, 0)]),
+        );
         let r = c.on_tick(&mut st);
         assert_eq!(r[0].get("rle"), Some(&Json::Arr(vec![0usize.into(), 7usize.into(), 1usize.into()])));
+        assert_eq!(rows_of(&r[0]), [["7", "1.91 MB", "3", "", "0"]]);
     }
 
     #[test]

@@ -140,7 +140,7 @@ every tick while subscribed:
 | General | the 2.2.1 Transfer / General fields as label–value pairs, formatted | `frontend::detail`, `fmt` |
 | Trackers | rows with `detail`'s tracker columns | `post_trackers` reply cache |
 | Peers | rows with `detail`'s peer columns, flags included | a `post_peers` reply (new, `sync/torrentPeers` for the shim too) |
-| Pieces | the piece bitfield run-length encoded plus the downloading pieces | `post_pieces` |
+| Pieces | the piece bitfield run-length encoded plus the downloading pieces with their blocks | `post_pieces` |
 | Files | the file tree with priority and progress | `post_files` + `post_progress` |
 | Speed | a ring of the last 10 minutes of rates, kept server-side so a reconnect still has history | status ticks |
 | Logger | the alert log tail, as the Win32 Logger tab shows it | the alert loop |
@@ -149,13 +149,16 @@ As built in slice 4: every message is `{"t":"detail","id":"<hash>","tab":"<tab>"
 WebSocket thread posts the tab's `post_*` requests after the subscription and on every tick,
 the alert loop fills the cache, and the next tick sends the tab when a hash of its content
 changed (nothing when it did not, nothing before the first reply lands). `hello` carries the
-three tables' column definitions (`detail.trackers` / `peers` / `files`: title, width, right).
+four tables' column definitions (`detail.trackers` / `peers` / `pieces` / `files`: title, width,
+right).
 General: `bars` (Downloaded, Availability: label, text, fill in thousandths) and `groups`
 (Transfer, General: `[label, value]` pairs). Trackers / Peers / Files: `rows` of
 `{"c":[cells],"k":[sort keys]}` (a number per numeric column, null to sort by text), Files
 rows also with `i` (the engine's file index), `p` (progress in thousandths) and `prio`.
-Pieces: `n`, `have`, `rle` (alternating run lengths, a run of missing pieces first) and
-`downloading`. Speed: `samples` of `[down, up]` (the whole ring with `all` and `keep` on
+Pieces: `n`, `have`, `rle` (alternating run lengths, a run of missing pieces first),
+`downloading` (the partial pieces' indices, for the bar) and `rows` for the list under the bar,
+one per partial piece in the table format above plus `b`, its blocks as one letter each (`f`
+on disk, `w` being written, `r` requested, `-` free), drawn in the Blocks column. Speed: `samples` of `[down, up]` (the whole ring with `all` and `keep` on
 subscription, the new ones after), `scale` (`top` and four axis labels, when it changed) and
 `legend`. Logger: `lines` of `[unix time, text]` (`all` the first time). A torrent removed
 while subscribed gets one `{"gone":true}`; `{"t":"detail","id":null}` unsubscribes.

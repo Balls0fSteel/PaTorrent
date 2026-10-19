@@ -1269,9 +1269,10 @@ impl Engine {
                     let have =
                         t.have_bits().cloned().unwrap_or_else(|| Bitfield::new(t.num_pieces as usize, false));
                     let (availability, downloading) = match &t.picker {
-                        Some(p) => {
-                            ((0..t.num_pieces).map(|i| p.availability(i)).collect(), p.downloading_pieces())
-                        }
+                        Some(p) => (
+                            (0..t.num_pieces).map(|i| p.availability(i)).collect(),
+                            p.partial_pieces(|i| t.piece_size(i) as u32),
+                        ),
                         None => (vec![0; t.num_pieces as usize], Vec::new()),
                     };
                     self.alert(Alert::PieceInfo { id, have, availability, downloading });

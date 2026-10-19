@@ -226,6 +226,47 @@ pub struct PeerInfo {
     pub is_web_seed: bool,
 }
 
+/// The state of one block of a piece being downloaded (libtorrent `block_info::block_state_t`).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BlockState {
+    /// Not requested from anyone.
+    Free,
+    /// Requested from this many peers (more than one only in end-game).
+    Requested(u8),
+    /// Received and handed to the disk.
+    Writing,
+    /// On disk.
+    Finished,
+}
+
+/// A piece with blocks requested, being written or on disk, but not yet passed its hash check
+/// (libtorrent `partial_piece_info`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PartialPiece {
+    pub piece: u32,
+    /// Bytes in the piece (the last piece may be shorter).
+    pub size: u32,
+    /// One entry per block, in order.
+    pub blocks: Vec<BlockState>,
+}
+
+impl PartialPiece {
+    /// Blocks on disk (libtorrent `finished`).
+    pub fn finished(&self) -> usize {
+        self.blocks.iter().filter(|&&b| b == BlockState::Finished).count()
+    }
+
+    /// Blocks received and waiting for the disk (libtorrent `writing`).
+    pub fn writing(&self) -> usize {
+        self.blocks.iter().filter(|&&b| b == BlockState::Writing).count()
+    }
+
+    /// Blocks requested and not received yet (libtorrent `requested`).
+    pub fn requested(&self) -> usize {
+        self.blocks.iter().filter(|b| matches!(b, BlockState::Requested(_))).count()
+    }
+}
+
 /// Tracker state as µTorrent's Trackers tab shows it.
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum TrackerStatus {

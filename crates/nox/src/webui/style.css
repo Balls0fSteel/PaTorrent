@@ -19,6 +19,7 @@
   --bar-stop: #a8a8a8;
   --bar-err: #d14b4b;
   --bar-check: #d6a400;
+  --blk-req: #e8a000;
   --err: #c0392b;
   --menu-bg: #ffffff;
   --shadow: rgba(0, 0, 0, 0.2);
@@ -46,6 +47,7 @@
     --bar-stop: #6b6b6b;
     --bar-err: #d9605f;
     --bar-check: #d7b141;
+    --blk-req: #d99a1e;
     --err: #ff7b72;
     --menu-bg: #2a2c30;
     --shadow: rgba(0, 0, 0, 0.6);
@@ -319,6 +321,13 @@ body.drag-size { cursor: col-resize; user-select: none; }
 
 /* Pieces, Speed */
 .pieces { padding: 6px 8px; }
+.pieces-tab .dt { margin-top: 2px; }
+.dt td .blk {
+  display: block;
+  height: 10px;
+  background-color: var(--bar-bg);
+  border: 1px solid var(--line);
+}
 .pieces .ptext { margin-bottom: 4px; }
 .pieces canvas, .speed canvas { display: block; }
 .speed { height: 100%; padding: 6px 8px; box-sizing: border-box; }

@@ -1,8 +1,9 @@
-//! The detail tabs' tables (Trackers, Peers, Files) in µTorrent 2.2.1's layout: column titles,
-//! default widths and cell text.
+//! The detail tabs' tables (Trackers, Peers, Pieces, Files) in µTorrent 2.2.1's layout: column
+//! titles, default widths and cell text.
 
 use patorrent_core::{
-    AnnounceEntry, DownloadPriority, FileEntry, PeerFlags, PeerInfo, PeerSource, TrackerStatus,
+    AnnounceEntry, BlockState, DownloadPriority, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource,
+    TrackerStatus,
 };
 
 use crate::fmt;
@@ -111,6 +112,72 @@ pub fn peer_flags(p: &PeerInfo) -> String {
     s
 }
 
+/// The Pieces tab's list of pieces being downloaded. The Blocks cell is drawn, not text: one
+/// mark per block, coloured by [`block_kind`].
+pub const PIECE_COLUMNS: [ColumnDef; 5] = [
+    ("#", 60, true),
+    ("Size", 75, true),
+    ("# of Blocks", 75, true),
+    ("Blocks", 320, false),
+    ("Completed", 75, true),
+];
+
+/// The Blocks column's index in [`PIECE_COLUMNS`].
+pub const PIECE_BLOCKS_COLUMN: usize = 3;
+
+pub fn piece_cell(p: &PartialPiece, col: usize) -> String {
+    match col {
+        0 => p.piece.to_string(),
+        1 => fmt::size(p.size as u64),
+        2 => p.blocks.len().to_string(),
+        4 => p.finished().to_string(),
+        _ => String::new(),
+    }
+}
+
+/// How the Blocks cell shows a block, in drawing order from empty to done.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum BlockKind {
+    Free,
+    Requested,
+    Writing,
+    Finished,
+}
+
+impl BlockKind {
+    /// One letter per kind, for the Web UI's block strings.
+    pub fn letter(self) -> char {
+        match self {
+            BlockKind::Free => '-',
+            BlockKind::Requested => 'r',
+            BlockKind::Writing => 'w',
+            BlockKind::Finished => 'f',
+        }
+    }
+}
+
+pub fn block_kind(b: BlockState) -> BlockKind {
+    match b {
+        BlockState::Free => BlockKind::Free,
+        BlockState::Requested(_) => BlockKind::Requested,
+        BlockState::Writing => BlockKind::Writing,
+        BlockState::Finished => BlockKind::Finished,
+    }
+}
+
+/// The blocks as runs of one kind: (kind, first block, count), in order.
+pub fn block_runs(p: &PartialPiece) -> Vec<(BlockKind, usize, usize)> {
+    let mut runs: Vec<(BlockKind, usize, usize)> = Vec::new();
+    for (i, &b) in p.blocks.iter().enumerate() {
+        let k = block_kind(b);
+        match runs.last_mut() {
+            Some((last, _, n)) if *last == k => *n += 1,
+            _ => runs.push((k, i, 1)),
+        }
+    }
+    runs
+}
+
 pub const FILE_COLUMNS: [ColumnDef; 7] = [
     ("Name", 300, false),
     ("Size", 75, true),
@@ -193,6 +260,36 @@ mod tests {
         assert_eq!(peer_flags(&p), "dE");
         assert_eq!(peer_cell(&p, 3), "50.0");
         assert_eq!(peer_cell(&p, 6), "3 | 0");
+    }
+
+    #[test]
+    fn piece_rows_and_block_runs() {
+        let p = PartialPiece {
+            piece: 41,
+            size: 4 * 16 * 1024,
+            blocks: vec![
+                BlockState::Finished,
+                BlockState::Finished,
+                BlockState::Writing,
+                BlockState::Requested(2),
+                BlockState::Free,
+            ],
+        };
+        let cells: Vec<String> = (0..PIECE_COLUMNS.len()).map(|c| piece_cell(&p, c)).collect();
+        assert_eq!(cells, ["41", "64.0 kB", "5", "", "2"]);
+        assert_eq!(PIECE_COLUMNS[PIECE_BLOCKS_COLUMN].0, "Blocks");
+        assert_eq!(
+            block_runs(&p),
+            [
+                (BlockKind::Finished, 0, 2),
+                (BlockKind::Writing, 2, 1),
+                (BlockKind::Requested, 3, 1),
+                (BlockKind::Free, 4, 1)
+            ]
+        );
+        let letters: String = p.blocks.iter().map(|&b| block_kind(b).letter()).collect();
+        assert_eq!(letters, "ffwr-");
+        assert!(block_runs(&PartialPiece { piece: 0, size: 0, blocks: Vec::new() }).is_empty());
     }
 
     #[test]

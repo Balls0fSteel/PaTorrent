@@ -33,8 +33,8 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use patorrent_core::util::time::local_utc_offset;
 use patorrent_core::{
-    Alert, AnnounceEntry, Bitfield, FileEntry, MoveCompleted, PeerInfo, SessionHandle, SessionStats,
-    Settings, TorrentFlags, TorrentId, TorrentStatus,
+    Alert, AnnounceEntry, Bitfield, FileEntry, MoveCompleted, PartialPiece, PeerInfo, SessionHandle,
+    SessionStats, Settings, TorrentFlags, TorrentId, TorrentStatus,
 };
 use patorrent_frontend::fmt;
 use patorrent_frontend::options::GuiOptions;
@@ -276,8 +276,8 @@ pub(crate) enum Reply {
     Files(Arc<[FileEntry]>),
     Progress(Vec<u64>),
     Trackers(Vec<AnnounceEntry>),
-    /// Our pieces, the availability per piece, the pieces being downloaded.
-    Pieces(Bitfield, Vec<u32>, Vec<u32>),
+    /// Our pieces, the availability per piece, the pieces being downloaded with their blocks.
+    Pieces(Bitfield, Vec<u32>, Vec<PartialPiece>),
     Peers(Vec<PeerInfo>),
 }
 

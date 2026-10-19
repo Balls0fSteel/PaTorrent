@@ -15,6 +15,7 @@ use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
+use crate::status::PartialPiece;
 use crate::util::bitfield::Bitfield;
 use crate::util::random::shuffle;
 
@@ -24,16 +25,7 @@ const REBUILD_INTERVAL: Duration = Duration::from_millis(500);
 /// how many peers may be asked for the same block at once.
 const MAX_ENDGAME_REQUESTS: u8 = 2;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum BlockState {
-    Free,
-    /// Requested from this many peers.
-    Requested(u8),
-    /// Received and handed to the disk.
-    Writing,
-    /// On disk.
-    Finished,
-}
+pub(crate) use crate::status::BlockState;
 
 #[derive(Debug)]
 struct Downloading {
@@ -583,11 +575,15 @@ impl PiecePicker {
         Some(mask)
     }
 
-    /// The pieces with blocks requested, being written or finished, ascending (the Pieces tab's
-    /// "downloading" marks).
-    pub fn downloading_pieces(&self) -> Vec<u32> {
-        let mut out: Vec<u32> = self.downloading.keys().copied().collect();
-        out.sort_unstable();
+    /// The partial pieces with their block states, ascending (libtorrent `get_download_queue`);
+    /// `size` gives a piece's length in bytes.
+    pub fn partial_pieces(&self, size: impl Fn(u32) -> u32) -> Vec<PartialPiece> {
+        let mut out: Vec<PartialPiece> = self
+            .downloading
+            .iter()
+            .map(|(&piece, d)| PartialPiece { piece, size: size(piece), blocks: d.blocks.clone() })
+            .collect();
+        out.sort_unstable_by_key(|p| p.piece);
         out
     }
 
@@ -734,6 +730,37 @@ mod tests {
         p.piece_passed(0);
         assert!(p.is_finished() && p.have().all_set());
         assert!(!p.is_interesting(&all, true));
+    }
+
+    /// The download queue as the Pieces tab lists it (libtorrent `get_download_queue`).
+    #[test]
+    fn partial_pieces_with_block_states() {
+        let mut p = picker(3);
+        let all = bits("111");
+        let size = |i: u32| if i == 2 { B } else { 2 * B };
+        assert!(p.partial_pieces(size).is_empty());
+        assert_eq!(p.pick(&all, true, 5, A, false, |_, _| false).len(), 5);
+        assert!(p.mark_as_writing(2, 0, A));
+        p.mark_as_finished(2, 0);
+        assert!(p.mark_as_writing(0, 1, A));
+        // end-game: a second peer asks for a block already requested
+        assert_eq!(p.pick(&all, true, 1, C, false, |_, _| false), [(0, 0)]);
+        let q = p.partial_pieces(size);
+        let rows: Vec<(u32, u32, &[BlockState])> =
+            q.iter().map(|x| (x.piece, x.size, &x.blocks[..])).collect();
+        assert_eq!(
+            rows,
+            [
+                (0, 2 * B, &[BlockState::Requested(2), BlockState::Writing][..]),
+                (1, 2 * B, &[BlockState::Requested(1), BlockState::Requested(1)][..]),
+                (2, B, &[BlockState::Finished][..]),
+            ]
+        );
+        assert_eq!((q[0].requested(), q[0].writing(), q[0].finished()), (1, 1, 0));
+        assert_eq!(q[2].finished(), 1);
+        // a passed piece leaves the queue
+        p.piece_passed(2);
+        assert_eq!(p.partial_pieces(size).iter().map(|x| x.piece).collect::<Vec<_>>(), [0, 1]);
     }
 
     #[test]

@@ -23,8 +23,8 @@ use crate::params::{
 use crate::session::{Command, Shared};
 use crate::settings::Settings;
 use crate::status::{
-    AnnounceEntry, FileEntry, PeerFlags, PeerInfo, PeerSource, SessionStats, TorrentState, TorrentStatus,
-    TrackerStatus,
+    AnnounceEntry, BlockState, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource, SessionStats,
+    TorrentState, TorrentStatus, TrackerStatus,
 };
 use crate::types::{InfoHashes, Sha1Hash, TorrentId};
 use crate::util::bitfield::Bitfield;
@@ -405,8 +405,12 @@ impl Mock {
                     let availability = (0..have.len()).map(|_| base + rng.below(8) as u32).collect();
                     // a running download has a handful of partial pieces: the first few it lacks
                     let running = !t.st.flags.contains(TorrentFlags::PAUSED) && !t.st.is_finished;
-                    let downloading: Vec<u32> = if running {
-                        (0..have.len()).filter(|&i| !have.get(i)).take(4).map(|i| i as u32).collect()
+                    let downloading: Vec<PartialPiece> = if running {
+                        (0..have.len())
+                            .filter(|&i| !have.get(i))
+                            .take(4)
+                            .map(|i| mock_partial(t, i as u32, have.len() as u32, rng.below(1000) as u32))
+                            .collect()
                     } else {
                         Vec::new()
                     };
@@ -993,6 +997,24 @@ fn files_for(t: &Torrent) -> Vec<FileEntry> {
         offset += size;
     }
     files
+}
+
+/// A partial piece of a simulated download: about `permille` of its blocks on disk, the
+/// next few being written and requested, the rest free.
+fn mock_partial(t: &Torrent, piece: u32, num_pieces: u32, permille: u32) -> PartialPiece {
+    let pl = t.st.piece_length.max(1) as u64;
+    let size = if piece + 1 == num_pieces { t.st.total - pl * piece as u64 } else { pl } as u32;
+    let n = size.div_ceil(16 * 1024).max(1) as usize;
+    let done = n * permille as usize / 1000;
+    let blocks = (0..n)
+        .map(|b| match b {
+            b if b < done => BlockState::Finished,
+            b if b < done + 2 => BlockState::Writing,
+            b if b < done + 10 => BlockState::Requested(1),
+            _ => BlockState::Free,
+        })
+        .collect();
+    PartialPiece { piece, size, blocks }
 }
 
 fn file_done(f: &FileEntry, have: &Bitfield, piece_length: u64, total: u64) -> u64 {

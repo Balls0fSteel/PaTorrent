@@ -2,6 +2,28 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_213029_1792438229: The Pieces tab lists the pieces being downloaded
+
+### Added
+- **Pieces list** (Phase 5's "pieces map and list"): under the piece map, µTorrent 2.2.1's list of the pieces in progress with the columns #, Size, # of Blocks, Blocks and Completed. The Blocks cell is drawn: one mark per block, blue on disk, green being written, orange requested, empty free. Partial pieces are orange in the map too, and the map's header line counts them.
+- Engine: `PartialPiece` (piece, size, one `BlockState` per block; `finished()` / `writing()` / `requested()`) and the public `BlockState` (`Free`, `Requested(peers)`, `Writing`, `Finished`), after libtorrent's `partial_piece_info` / `block_info`. `Alert::PieceInfo::downloading` carries them in place of bare piece indices; `PiecePicker::partial_pieces` (libtorrent `get_download_queue`) replaces `downloading_pieces`, and the picker uses the public `BlockState`. The mock engine reports a few partial pieces for running downloads.
+- `frontend::detail`: `PIECE_COLUMNS`, `piece_cell`, `PIECE_BLOCKS_COLUMN`, `BlockKind` with `block_kind` and `block_runs` (runs of one kind for drawing), so the GUIs share the columns and the cell texts.
+- Win32: the Pieces panel holds an owner-data list view (`IDC_PIECE_LIST`) below the map. The map takes the height its rows need, at most two fifths of the page (`details::piece_map_height`); the list takes the rest and moves when the map's height changes. The panel forwards the list's notifications to the main window, which answers `LVN_GETDISPINFOW` from `Detail::partial` and draws the Blocks column in `NM_CUSTOMDRAW` (`details::block_bar`). Panels are `WS_CLIPCHILDREN` now. A map too tall for its share leaves a line for "... N more".
+- Web UI: `hello.detail.pieces` has the columns; the Pieces message adds `rows` (cells, sort keys and `b`, the blocks as one letter each). The page's Pieces tab is the bar plus a sortable, selectable table (the Trackers / Peers / Files table, with the Blocks column drawn as a CSS gradient with a hard stop per run); new colour token `--blk-req`. docs/WEBUI.md updated.
+- The qBittorrent shim's `torrents/pieceStates` reports 1 ("downloading") for partial pieces, where it reported 0 before.
+
+### Decisions
+- The map stays above the list rather than being replaced by it: µTorrent 2.2.1's Pieces tab is a list only, but the map is the only place showing the swarm's per-piece availability. The column set is from memory (see PLAN.md Known TODOs).
+- Partial pieces are sent whole on each update (one letter per block, up to 1,024 for a 16 MiB piece); the Web UI sends the tab only when its content hash changes.
+
+### Verified
+- New tests: `picker::tests::partial_pieces_with_block_states` (requested, end-game double request, writing, finished, a passed piece leaving the queue), `detail::tests::piece_rows_and_block_runs`, win32 `details::tests` (the map's height in each case, at 96 and 192 DPI; the Pieces rows following the selection), nox `pieces_run_length_and_downloading` extended with the rows and block letters.
+- Windows: `cargo test --workspace` 916 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`, Linux-target clippy, `cargo fmt --all --check`.
+- On screen: the Win32 GUI with `--demo 40` from a portable copy (`ui.tab=Pieces`), a started download showing four rows with their Blocks bars and the orange marks in the map; the Web UI with `run --mock-library 40` in the built-in browser, desktop (dark) and the phone sheet (light), no console errors besides the pre-login 403.
+
+### Issues
+- Not checked against a real swarm in the GUI (the mock's partial pieces only); the engine path is covered by the picker test.
+
 ## 2026-10-19_204739_1792435659: Windows integration: .torrent and magnet: association, autostart
 
 ### Added

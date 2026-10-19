@@ -23,7 +23,7 @@ use patorrent_core::{
 };
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
-use patorrent_frontend::detail::PRIORITIES;
+use patorrent_frontend::detail::{self, PRIORITIES};
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
@@ -82,6 +82,8 @@ const IDC_LIST: usize = 12;
 const IDC_TABS: usize = 13;
 const IDC_STATUS: usize = 14;
 const IDC_PAGE: usize = 20;
+/// The pieces list inside the Pieces panel.
+const IDC_PIECE_LIST: usize = 30;
 /// Tree item parameters from here on are the Feeds branch (`App::feed_tree` index).
 const FEED_PARAM: usize = 1_000_000;
 
@@ -189,6 +191,8 @@ struct App {
     tabs: HWND,
     status: HWND,
     pages: [HWND; 7],
+    /// The Pieces panel's list of pieces being downloaded (a child of the panel).
+    piece_list: HWND,
 
     show_toolbar: bool,
     show_details: bool,
@@ -576,11 +580,20 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             pages[i] = if page.is_list() {
                 controls::create_report(hwnd, IDC_PAGE + i, false)
             } else {
-                let p = child(hwnd, PANEL_CLASS, "", WS_CHILD | WS_CLIPSIBLINGS, 0, IDC_PAGE + i);
+                let p = child(
+                    hwnd,
+                    PANEL_CLASS,
+                    "",
+                    WS_CHILD | WS_CLIPSIBLINGS | WS_CLIPCHILDREN,
+                    0,
+                    IDC_PAGE + i,
+                );
                 SetWindowLongPtrW(p, GWLP_USERDATA, i as isize);
                 p
             };
         }
+        let piece_list = controls::create_report(pages[Page::Pieces.index()], IDC_PIECE_LIST, false);
+        ShowWindow(piece_list, SW_SHOW);
         let status = child(hwnd, STATUSCLASSNAMEW, "", WS_CHILD | SBARS_SIZEGRIP, 0, IDC_STATUS);
 
         let handle = session.handle();
@@ -636,6 +649,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             tabs,
             status,
             pages,
+            piece_list,
             split_tree: zeroed(),
             split_details: zeroed(),
             drag: None,
@@ -687,6 +701,9 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
                 controls::set_columns(pages[page.index()], &cols);
             }
         }
+        let cols: Vec<(&str, i32, bool)> =
+            detail::PIECE_COLUMNS.iter().map(|&(t, w, r)| (t, scale(w, dpi), r)).collect();
+        controls::set_columns(piece_list, &cols);
         send(tabs, TCM_SETCURSEL, page.index(), 0);
         DragAcceptFiles(hwnd, 1);
         tray::add(hwnd, icon_small, WM_APP_TRAY, "PaTorrent");
@@ -834,7 +851,7 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
         }
         rebuild_columns();
         // Detail list columns scale too.
-        let pages = with_app(|a| a.pages).unwrap_or_default();
+        let (pages, piece_list) = with_app(|a| (a.pages, a.piece_list)).unwrap_or_default();
         for page in Page::ALL {
             if page.is_list() {
                 let lv = pages[page.index()];
@@ -845,6 +862,9 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
                     send(lv, LVM_SETCOLUMNWIDTH, i, scale(base, dpi) as isize);
                 }
             }
+        }
+        for (i, &(_, base, _)) in detail::PIECE_COLUMNS.iter().enumerate() {
+            send(piece_list, LVM_SETCOLUMNWIDTH, i, scale(base, dpi) as isize);
         }
         layout(hwnd);
     }
@@ -1323,14 +1343,17 @@ fn request_detail() {
 unsafe fn update_detail_lists() {
     unsafe {
         let Some(items) = with_app(|a| {
-            Page::ALL
+            let mut items: Vec<_> = Page::ALL
                 .iter()
                 .filter(|p| p.is_list())
                 .map(|&p| (a.pages[p.index()], a.detail.rows(p), p == Page::Logger))
-                .collect::<Vec<_>>()
+                .collect();
+            items.push((a.piece_list, a.detail.rows(Page::Pieces), false));
+            items
         }) else {
             return;
         };
+        place_piece_list();
         for (lv, n, is_log) in items {
             let before = send(lv, LVM_GETITEMCOUNT, 0, 0) as usize;
             controls::set_count(lv, n);
@@ -1338,6 +1361,32 @@ unsafe fn update_detail_lists() {
                 send(lv, LVM_ENSUREVISIBLE, n.saturating_sub(1), 0);
             }
             InvalidateRect(lv, null(), 0);
+        }
+    }
+}
+
+/// Puts the pieces list under the Pieces panel's piece map, which takes the height
+/// [`crate::details::piece_map_height`] gives it.
+unsafe fn place_piece_list() {
+    unsafe {
+        let Some((panel, lv, top)) = with_app(|a| {
+            let panel = a.pages[Page::Pieces.index()];
+            let mut rc: RECT = zeroed();
+            GetClientRect(panel, &mut rc);
+            (panel, a.piece_list, crate::details::piece_map_height(&a.detail, rc.right, rc.bottom, a.dpi))
+        }) else {
+            return;
+        };
+        let mut rc: RECT = zeroed();
+        GetClientRect(panel, &mut rc);
+        let mut now: RECT = zeroed();
+        GetWindowRect(lv, &mut now);
+        let mut corner = POINT { x: now.left, y: now.top };
+        ScreenToClient(panel, &mut corner);
+        let (w, h) = (rc.right, (rc.bottom - top).max(0));
+        if corner.x != 0 || corner.y != top || now.right - now.left != w || now.bottom - now.top != h {
+            MoveWindow(lv, 0, top, w, h, 1);
+            InvalidateRect(panel, null(), 0);
         }
     }
 }
@@ -1647,10 +1696,12 @@ unsafe fn on_alerts(hwnd: HWND) {
                     a.detail.file_done = done;
                     lists_changed = true;
                 }
-                Alert::PieceInfo { id, have, availability, .. } if a.detail.id == Some(id) => {
+                Alert::PieceInfo { id, have, availability, downloading } if a.detail.id == Some(id) => {
                     a.detail.have = Some(have);
                     a.detail.availability = availability;
+                    a.detail.partial = downloading;
                     repaint_page = true;
+                    lists_changed = true;
                 }
                 Alert::PeerInfo { .. }
                 | Alert::TrackerList { .. }
@@ -3412,6 +3463,18 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 }
                 0
             }
+            (IDC_PIECE_LIST, LVN_GETDISPINFOW) => {
+                let di = &mut *(nm as *mut NMLVDISPINFOW);
+                if di.item.mask & LVIF_TEXT != 0 {
+                    let text = with_app(|a| {
+                        a.detail.cell(Page::Pieces, di.item.iItem as usize, di.item.iSubItem as usize)
+                    })
+                    .unwrap_or_default();
+                    copy_to(di.item.pszText, di.item.cchTextMax, &text);
+                }
+                0
+            }
+            (IDC_PIECE_LIST, NM_CUSTOMDRAW) => pieces_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW)),
             (i, LVN_GETDISPINFOW) if (IDC_PAGE..IDC_PAGE + Page::ALL.len()).contains(&i) => {
                 let page = Page::ALL[i - IDC_PAGE];
                 let di = &mut *(nm as *mut NMLVDISPINFOW);
@@ -3522,10 +3585,56 @@ unsafe fn list_custom_draw(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
     }
 }
 
+/// Draws the pieces list's Blocks column (see [`crate::details::block_bar`]).
+unsafe fn pieces_custom_draw(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
+    const ITEM_SUB_PRE: u32 = CDDS_ITEMPREPAINT | CDDS_SUBITEM;
+    const ITEM_SUB_POST: u32 = CDDS_ITEMPOSTPAINT | CDDS_SUBITEM;
+    unsafe {
+        match cd.nmcd.dwDrawStage {
+            CDDS_PREPAINT => CDRF_NOTIFYITEMDRAW as LRESULT,
+            CDDS_ITEMPREPAINT => CDRF_NOTIFYSUBITEMDRAW as LRESULT,
+            ITEM_SUB_PRE if cd.iSubItem as usize == detail::PIECE_BLOCKS_COLUMN => {
+                CDRF_NOTIFYPOSTPAINT as LRESULT
+            }
+            ITEM_SUB_POST => {
+                let row = cd.nmcd.dwItemSpec;
+                with_app(|a| {
+                    let Some(p) = a.detail.partial.get(row) else { return };
+                    let cell = controls::cell_rect(a.piece_list, row, detail::PIECE_BLOCKS_COLUMN);
+                    let m = scale(3, a.dpi).max(1);
+                    let bar = RECT {
+                        left: cell.left + m,
+                        top: cell.top + m,
+                        right: cell.right - m,
+                        bottom: cell.bottom - m,
+                    };
+                    if bar.right > bar.left + 2 && bar.bottom > bar.top + 2 {
+                        crate::details::block_bar(cd.nmcd.hdc, &bar, p);
+                    }
+                });
+                CDRF_DODEFAULT as LRESULT
+            }
+            _ => CDRF_DODEFAULT as LRESULT,
+        }
+    }
+}
+
 unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
     unsafe {
         match msg {
             WM_ERASEBKGND => 1,
+            // the Pieces panel's list: placed under the map, its notifications handled with the
+            // main window's
+            WM_SIZE => {
+                if with_app(|a| a.pages[Page::Pieces.index()] == hwnd) == Some(true) {
+                    place_piece_list();
+                }
+                0
+            }
+            WM_NOTIFY => match with_app(|a| a.hwnd) {
+                Some(main) => on_notify(main, lparam as *const NMHDR),
+                None => 0,
+            },
             WM_PAINT => {
                 let mut ps: PAINTSTRUCT = zeroed();
                 let hdc = BeginPaint(hwnd, &mut ps);

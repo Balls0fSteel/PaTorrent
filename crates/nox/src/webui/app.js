@@ -1636,8 +1636,8 @@
   // keeps its DOM between updates, so the scroll position, the sort and the selection stay.
   const tabBody = $("tab-body");
   let detailView = null; // {tab, id, ...} the DOM built for the current subscription
-  const tabSort = { trackers: [0, false], peers: [0, false], files: [0, false] };
-  const tabSel = { trackers: new Set(), peers: new Set(), files: new Set() };
+  const tabSort = { trackers: [0, false], peers: [0, false], pieces: [0, false], files: [0, false] };
+  const tabSel = { trackers: new Set(), peers: new Set(), pieces: new Set(), files: new Set() };
   const DOWN_COLOR = "#2aa52a";
   const UP_COLOR = "#d23c3c";
 
@@ -1741,9 +1741,10 @@
     };
   }
 
-  // Trackers, Peers, Files: a table with the frontend's columns, sortable by header click
-  // (client-side; these lists are small), rows reconciled by key so nothing flickers.
-  function tableView(tab, id) {
+  // Trackers, Peers, Pieces, Files: a table with the frontend's columns, sortable by header
+  // click (client-side; these lists are small), rows reconciled by key so nothing flickers.
+  // `blocksCol` is a column drawn from the row's block letters (the Pieces list) instead of text.
+  function tableView(tab, id, blocksCol = -1) {
     const cols = (hello && hello.detail && hello.detail[tab]) || [];
     const keyOf = tab === "files" ? (r) => String(r.i) : (r) => r.c[0];
     const el = document.createElement("table");
@@ -1811,6 +1812,13 @@
         }
         r.c.forEach((text, j) => {
           const td = tr.children[j];
+          if (j === blocksCol) {
+            if (td && td.dataset.b !== r.b) {
+              td.dataset.b = r.b || "";
+              drawBlocks(td, r.b || "");
+            }
+            return;
+          }
           if (td && td.textContent !== text) {
             td.textContent = text;
             if (j === 0) td.title = text;
@@ -1895,19 +1903,47 @@
     };
   }
 
+  // A piece's blocks as one bar: blue on disk, green being written, orange requested, grey
+  // free; a CSS gradient with a hard stop per run of one kind.
+  const BLOCK_COLORS = { f: "var(--bar-dl)", w: "var(--bar-seed)", r: "var(--blk-req)", "-": "var(--bar-bg)" };
+  function drawBlocks(td, letters) {
+    let bar = td.firstChild;
+    if (!bar) {
+      bar = document.createElement("i");
+      bar.className = "blk";
+      td.appendChild(bar);
+    }
+    const n = letters.length;
+    const stops = [];
+    for (let i = 0; i < n; ) {
+      let j = i;
+      while (j < n && letters[j] === letters[i]) j++;
+      const color = BLOCK_COLORS[letters[i]] || BLOCK_COLORS["-"];
+      stops.push(`${color} ${((i * 100) / n).toFixed(2)}% ${((j * 100) / n).toFixed(2)}%`);
+      i = j;
+    }
+    bar.style.backgroundImage = stops.length ? `linear-gradient(to right, ${stops.join(", ")})` : "";
+    td.title = `${letters.split("f").length - 1} of ${n} blocks done`;
+  }
+
   // Pieces: one bar for the bitfield (blue = have, grey = missing, orange = being
-  // downloaded), each pixel column shaded by the share of its pieces we have.
+  // downloaded), each pixel column shaded by the share of its pieces we have; under it the
+  // pieces being downloaded with their blocks (µTorrent 2.2.1's list).
   function piecesView(tab, id) {
     const el = document.createElement("div");
-    el.className = "pieces";
+    el.className = "pieces-tab";
+    const head = document.createElement("div");
+    head.className = "pieces";
     const text = document.createElement("div");
     text.className = "ptext";
     const canvas = document.createElement("canvas");
-    el.append(text, canvas);
+    head.append(text, canvas);
+    const list = tableView(tab, id, 3);
+    el.append(head, list.el);
     let data = null;
     const draw = () => {
       if (!data) return;
-      const w = Math.max(10, el.clientWidth - 16);
+      const w = Math.max(10, head.clientWidth - 16);
       const h = 24;
       const dpr = window.devicePixelRatio || 1;
       if (canvas.width !== Math.round(w * dpr)) canvas.width = Math.round(w * dpr);
@@ -1962,7 +1998,7 @@
       ctx.strokeStyle = css.getPropertyValue("--line").trim() || "#d9d9d9";
       ctx.strokeRect(0.5, 0.5, w - 1, h - 1);
     };
-    new ResizeObserver(draw).observe(el);
+    new ResizeObserver(draw).observe(head);
     return {
       tab,
       id,
@@ -1972,6 +2008,7 @@
         const dl = (m.downloading || []).length;
         setTextIf(text, `${m.n} pieces, ${m.have} done` + (dl ? `, ${dl} downloading` : "") + ".");
         draw();
+        list.update(m);
       },
     };
   }

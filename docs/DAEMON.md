@@ -91,9 +91,11 @@ reload` sends SIGHUP. Settings go in `/etc/rc.conf` (`sysrc`): `patorrent_nox_en
 
 - `--daemon` (Unix) detaches the classic way: fork, `setsid`, fork again, `chdir /`, stdin from
   `/dev/null` (relative paths on the command line are made absolute first). The command returns
-  once the daemon is up, with status 0, or 1 when it failed to start; until then its output
-  reaches the terminal, so start-up errors and the temporary Web UI password are seen. Then the
-  output goes to the `--log` file, or nowhere.
+  once the daemon is up, with status 0, or 1 when it failed to start. Start-up errors reach the
+  terminal either way. Without `--log` all output reaches the terminal until the daemon is up
+  (so the temporary Web UI password is seen) and goes nowhere afterwards; with `--log` normal
+  output goes to the log from the start (the temporary password is there) and errors from the
+  moment the daemon is up.
 - `--pid-file FILE` writes the process id and keeps FILE locked (`flock`; on Windows a share
   mode that refuses other writers) while the daemon runs; a second instance with the same FILE
   stops with "already running (pid N)". The file is removed at a clean exit.

@@ -340,7 +340,12 @@ fn state_dirs(o: &Opts) -> paths::Dirs {
             Ok(done) => {
                 for (file, moved) in done {
                     let how = if moved { "moved" } else { "copied" };
-                    println!("* {how} {} to the config directory {}", file.display(), new.display());
+                    let name = file.file_name().unwrap_or_default().to_string_lossy();
+                    println!(
+                        "* {how} {name} from {} to the config directory {}",
+                        old.display(),
+                        new.display()
+                    );
                 }
             }
             Err(e) => {

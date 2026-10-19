@@ -13,6 +13,7 @@ use std::mem::{size_of, zeroed};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
+use patorrent_core::fetch::FetchProxy;
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::util::time::{local_utc_offset, unix_now};
 use patorrent_core::{
@@ -26,6 +27,8 @@ use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::properties::{Properties, TorrentProps};
+use patorrent_frontend::rss::view::{self as rss_view, ItemRow};
+use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::Category;
@@ -60,6 +63,8 @@ const WM_APP_TRAY: u32 = WM_APP + 2;
 const WM_APP_URL: u32 = WM_APP + 3;
 /// Arguments forwarded by a second instance are waiting in `App::pending_args`.
 const WM_APP_ARGS: u32 = WM_APP + 4;
+/// An RSS fetch finished (posted from its worker thread): `App::rss_worker` has a result.
+const WM_APP_RSS: u32 = WM_APP + 5;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
 pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
@@ -72,6 +77,8 @@ const IDC_LIST: usize = 12;
 const IDC_TABS: usize = 13;
 const IDC_STATUS: usize = 14;
 const IDC_PAGE: usize = 20;
+/// Tree item parameters from here on are the Feeds branch (`App::feed_tree` index).
+const FEED_PARAM: usize = 1_000_000;
 
 mod cmd {
     pub const ADD: u16 = 100;
@@ -108,6 +115,13 @@ mod cmd {
     pub const SUPER_SEED: u16 = 131;
     pub const SET_LOCATION: u16 = 132;
     pub const PROPERTIES: u16 = 133;
+    pub const RSS: u16 = 134;
+    pub const FEED_ADD: u16 = 135;
+    pub const FEED_EDIT: u16 = 136;
+    pub const FEED_TOGGLE: u16 = 137;
+    pub const FEED_UPDATE: u16 = 138;
+    pub const FEED_REMOVE: u16 = 139;
+    pub const ITEM_DOWNLOAD: u16 = 140;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -118,7 +132,7 @@ mod cmd {
 /// Bandwidth menu presets in kB/s; 0 = unlimited.
 const LIMITS: [u32; 10] = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
 
-const TOOLBAR: [Option<(Icon, u16, &str)>; 14] = [
+const TOOLBAR: [Option<(Icon, u16, &str)>; 15] = [
     Some((Icon::AddTorrent, cmd::ADD, "Add Torrent")),
     Some((Icon::AddUrl, cmd::ADD_URL, "Add Torrent from URL")),
     Some((Icon::Create, cmd::CREATE, "Create New Torrent")),
@@ -132,6 +146,7 @@ const TOOLBAR: [Option<(Icon, u16, &str)>; 14] = [
     Some((Icon::Up, cmd::UP, "Move Up Queue")),
     Some((Icon::Down, cmd::DOWN, "Move Down Queue")),
     None,
+    Some((Icon::Rss, cmd::RSS, "RSS Downloader")),
     Some((Icon::Preferences, cmd::PREFS, "Preferences")),
 ];
 
@@ -222,6 +237,20 @@ struct App {
     autoload: Poller,
     /// Preferences > Queueing "Seeding Goal", checked on every status update.
     seeding_goal: SeedingGoal,
+    /// The RSS Downloader (`rss.dat` beside `patorrent.ini`), its fetches, whether it changed
+    /// since it was saved, and its dialog while that is open.
+    rss: RssDownloader,
+    rss_worker: Worker,
+    rss_dirty: bool,
+    rss_dialog: HWND,
+    /// The tree's Feeds branch: the Feeds node (`None`), then one node per feed.
+    feed_tree: Vec<(HTREEITEM, Option<FeedId>)>,
+    /// The Feeds branch is being rebuilt: its selection changes are not the user's.
+    feed_tree_busy: bool,
+    /// The list shows feed items instead of torrents (`Some(None)`: every feed's), as µTorrent
+    /// did when a feed was picked in the tree; their rows.
+    feed_view: Option<Option<FeedId>>,
+    feed_rows: Vec<ItemRow>,
 }
 
 thread_local! {
@@ -410,6 +439,7 @@ unsafe fn main_menu() -> HMENU {
         append(file, cmd::EXIT, "E&xit");
         let options = CreatePopupMenu();
         append(options, cmd::PREFS, "&Preferences\tCtrl+P");
+        append(options, cmd::RSS, "&RSS Downloader...");
         separator(options);
         append(options, cmd::SHOW_TOOLBAR, "Show &Toolbar");
         append(options, cmd::SHOW_DETAILS, "Show &Detailed Info");
@@ -536,6 +566,11 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         list.set_sort(prefs.sort());
         let page =
             Page::ALL.into_iter().find(|p| prefs.get("ui.tab") == Some(p.title())).unwrap_or(Page::General);
+        let rss = RssDownloader::load(&rss_file());
+        // Runs on a fetch's worker thread: only post a message.
+        let rss_worker = Worker::new(move || {
+            PostMessageW(target as HWND, WM_APP_RSS, 0, 0);
+        });
         let icon_big = icons::app_icon(scale(32, dpi) as usize);
         let icon_small = icons::app_icon(scale(16, dpi) as usize);
         SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icon_big as LPARAM);
@@ -597,6 +632,14 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             torrent_files: TorrentFiles::new(),
             autoload: Poller::new(),
             seeding_goal,
+            rss,
+            rss_worker,
+            rss_dirty: false,
+            rss_dialog: null_mut(),
+            feed_tree: Vec::new(),
+            feed_tree_busy: false,
+            feed_view: None,
+            feed_rows: Vec::new(),
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -737,7 +780,8 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
 
 /// Reads column order and widths back from the list view into `app.columns`.
 fn sync_columns(app: &mut App) {
-    if app.shown.is_empty() {
+    // while the list shows feed items its columns are those of the items
+    if app.shown.is_empty() || app.feed_view.is_some() {
         return;
     }
     let layout = unsafe { controls::column_layout(app.lv, app.shown.len()) };
@@ -752,6 +796,9 @@ fn sync_columns(app: &mut App) {
 }
 
 unsafe fn rebuild_columns() {
+    if with_app(|a| a.feed_view.is_some()) == Some(true) {
+        return unsafe { set_feed_columns() };
+    }
     let Some((lv, cols, sort, n)) = with_app(|a| {
         a.shown = a.columns.iter().filter(|(_, w)| *w > 0).map(|(c, _)| *c).collect();
         let cols: Vec<(&'static str, i32, bool)> = a
@@ -951,7 +998,9 @@ unsafe fn build_tree() {
             a.tree_texts = vec![String::new(); items.len()];
             a.tree_items = items;
             a.tree_labels.clear();
+            a.feed_tree.clear();
         });
+        update_feed_tree();
     }
 }
 
@@ -1067,7 +1116,7 @@ unsafe fn update_tree() {
 /// Rebuilds the visible rows after an update, keeping the selection on the same torrents.
 unsafe fn refresh_list() {
     unsafe {
-        let Some(lv) = with_app(|a| a.lv) else { return };
+        let Some(lv) = with_app(|a| a.feed_view.is_none().then_some(a.lv)).flatten() else { return };
         let sel = controls::selected(lv);
         let focus = controls::focused(lv);
         let Some(result) = with_app(|a| {
@@ -1117,7 +1166,7 @@ unsafe fn refresh_list() {
 }
 
 fn selected_ids() -> Vec<TorrentId> {
-    let Some(lv) = with_app(|a| a.lv) else { return Vec::new() };
+    let Some(lv) = with_app(|a| a.feed_view.is_none().then_some(a.lv)).flatten() else { return Vec::new() };
     let rows = unsafe { controls::selected(lv) };
     with_app(|a| rows.iter().filter_map(|&i| a.list.view().get(i).copied()).collect()).unwrap_or_default()
 }
@@ -1133,7 +1182,8 @@ unsafe fn selection_changed() {
         let focus = controls::focused(lv).filter(|f| sel.contains(f));
         let row = focus.or(sel.first().copied());
         let changed = with_app(|a| {
-            let id = row.and_then(|r| a.list.view().get(r).copied());
+            // feed items have no detail
+            let id = row.filter(|_| a.feed_view.is_none()).and_then(|r| a.list.view().get(r).copied());
             let changed = a.detail.id != id;
             a.detail.select(id);
             if changed {
@@ -1152,8 +1202,11 @@ unsafe fn selection_changed() {
 
 unsafe fn update_toolbar() {
     unsafe {
-        let Some((toolbar, lv)) = with_app(|a| (a.toolbar, a.lv)) else { return };
-        let any = !controls::selected(lv).is_empty();
+        let Some((toolbar, lv, feeds)) = with_app(|a| (a.toolbar, a.lv, a.feed_view.is_some())) else {
+            return;
+        };
+        // feed items are not torrents
+        let any = !feeds && !controls::selected(lv).is_empty();
         for id in [cmd::REMOVE, cmd::START, cmd::PAUSE, cmd::STOP, cmd::UP, cmd::DOWN] {
             send(toolbar, TB_ENABLEBUTTON, id as usize, any as isize);
         }
@@ -1218,6 +1271,7 @@ fn on_timer() {
         a.handle.post_session_stats();
         run_scheduler(a, None);
         autoload(a);
+        rss_timer(a);
     });
     request_detail();
 }
@@ -1561,6 +1615,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 add_sources(hwnd, &args);
                 0
             }
+            WM_APP_RSS => {
+                rss_collect();
+                0
+            }
             WM_COMMAND => {
                 on_command(hwnd, crate::util::loword(wparam));
                 0
@@ -1742,6 +1800,9 @@ unsafe fn on_destroy(hwnd: HWND) {
             if let Err(e) = a.prefs.save() {
                 eprintln!("cannot save preferences: {e}");
             }
+            if let Err(e) = a.rss.save(&rss_file()) {
+                eprintln!("cannot save {}: {e}", rss_file().display());
+            }
         });
         // Dropping the session saves resume data and stops the engine; take it out of the
         // RefCell first so nothing is borrowed while that blocks.
@@ -1830,12 +1891,20 @@ unsafe fn menu_point(target: HWND, lparam: LPARAM) -> POINT {
 
 unsafe fn on_context_menu(hwnd: HWND, target: HWND, lparam: LPARAM) {
     unsafe {
-        let Some((lv, files_lv)) = with_app(|a| (a.lv, a.pages[Page::Files.index()])) else { return };
+        let Some((lv, files_lv, tree, feeds)) =
+            with_app(|a| (a.lv, a.pages[Page::Files.index()], a.tree, a.feed_view.is_some()))
+        else {
+            return;
+        };
         let p = menu_point(target, lparam);
-        if target == controls::header(lv) {
+        if target == controls::header(lv) && !feeds {
             column_menu(hwnd, p);
+        } else if target == lv && feeds {
+            feed_item_menu(hwnd, p);
         } else if target == lv {
             torrent_menu(hwnd, p);
+        } else if target == tree {
+            tree_menu(hwnd, tree, p, lparam == -1);
         } else if target == files_lv {
             files_menu(hwnd, files_lv, p);
         }
@@ -2019,6 +2088,10 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             }
             cmd::CREATE => create_torrent(hwnd),
             cmd::PREFS => show_preferences(hwnd),
+            cmd::RSS => {
+                let feed = with_app(|a| a.feed_view.flatten()).flatten();
+                show_rss(hwnd, feed);
+            }
             cmd::EXIT => {
                 with_app(|a| a.quitting = true);
                 DestroyWindow(hwnd);
@@ -2614,6 +2687,434 @@ fn download_url(hwnd: HWND, url: String) {
     });
 }
 
+// ---- RSS ------------------------------------------------------------------------------------
+// The RSS Downloader (`patorrent_frontend::rss`): the timer starts the refreshes that are due,
+// the fetches run on the worker's threads and post `WM_APP_RSS`, and `rss_collect` takes their
+// results here and adds what the filters chose. The tree's Feeds branch lists the feeds;
+// picking one shows its items in the torrent list (µTorrent's way), where a double-click
+// downloads one.
+
+/// `rss.dat`, beside `patorrent.ini`.
+fn rss_file() -> PathBuf {
+    data_dir().join(patorrent_frontend::rss::store::FILE_NAME)
+}
+
+/// The proxy feeds and their downloads go through: the engine's, when it carries HTTP
+/// tracker connections.
+fn rss_proxy(a: &App) -> Option<FetchProxy> {
+    FetchProxy::from_settings(&Options::load(&a.prefs, &a.save_path).settings)
+}
+
+/// Once a second: the refreshes that are due, and `rss.dat` when it changed.
+fn rss_timer(a: &mut App) {
+    let now = unix_now();
+    if a.rss.next_due().is_some_and(|t| t <= now)
+        && a.rss.due_feeds(now).iter().any(|&id| !a.rss_worker.is_busy(id))
+    {
+        let proxy = rss_proxy(a);
+        a.rss_worker.refresh_due(&a.rss, now, proxy.as_ref());
+    }
+    if a.rss_dirty {
+        a.rss_dirty = false;
+        if let Err(e) = a.rss.save(&rss_file()) {
+            a.detail.push_log(format!("{} could not save {}: {e}", now_hms(), rss_file().display()));
+        }
+    }
+}
+
+/// Starts refreshing feed `feed` now (`None`: every enabled feed).
+fn rss_update(a: &mut App, feed: Option<FeedId>) {
+    let proxy = rss_proxy(a);
+    let ids: Vec<FeedId> = match feed {
+        Some(id) => vec![id],
+        None => a.rss.feeds.iter().filter(|f| f.enabled).map(|f| f.id).collect(),
+    };
+    for id in ids {
+        a.rss_worker.refresh(&a.rss, id, proxy.as_ref());
+    }
+}
+
+/// `WM_APP_RSS`: the finished fetches into the downloader, and their torrents into the session.
+unsafe fn rss_collect() {
+    let Some((changed, logged, dialog)) = with_app(|a| {
+        let proxy = rss_proxy(a);
+        let c = a.rss_worker.collect(&mut a.rss, unix_now(), proxy.as_ref());
+        let logged = !c.log.is_empty();
+        for line in c.log {
+            a.detail.push_log(format!("{} {line}", now_hms()));
+        }
+        for (req, d) in c.adds {
+            rss_add(a, req, d);
+        }
+        a.rss_dirty |= c.changed;
+        (c.changed, logged, a.rss_dialog)
+    }) else {
+        return;
+    };
+    unsafe {
+        if changed {
+            update_feed_tree();
+            refresh_feed_rows();
+            if !dialog.is_null() {
+                PostMessageW(dialog, crate::rss::WM_RSS_CHANGED, 0, 0);
+            }
+        }
+        if logged {
+            update_detail_lists();
+        }
+    }
+}
+
+/// Adds a torrent the downloader asked for: its label, "highest priority" (the top of the
+/// queue once added) and "paused state" (µTorrent's Pause) as the Add dialog's would be.
+fn rss_add(a: &mut App, req: AddRequest, d: Download) {
+    if let Some(key) = d.info_hashes().map(|h| h.key_hex()) {
+        if a.list.ids().any(|id| a.list.get(id).is_some_and(|s| s.info_hashes.key_hex() == key)) {
+            a.detail.push_log(format!("{} RSS: {}: already in the torrent list", now_hms(), req.title));
+            return;
+        }
+        // picked up when the torrent first shows up in the list, like a restored label
+        if !req.label.is_empty() {
+            a.prefs.set(&format!("torrent.{key}.label"), &req.label);
+        }
+        if req.paused {
+            a.prefs.set_bool(&format!("torrent.{key}.paused"), true);
+        }
+        if req.top_priority {
+            a.queue_top.insert(key);
+        }
+    }
+    let magnet = matches!(d, Download::Magnet(_));
+    let mut p = AddTorrentParams::new(d.into_source(), a.save_path.clone());
+    p.flags = TorrentFlags::DEFAULT;
+    GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+    a.scheduler.apply_to_new(&mut p);
+    req.apply_to(&mut p);
+    if magnet {
+        // the item's title until the metadata names it
+        p.name = Some(req.title.clone());
+    }
+    add_to_session(a, p);
+    if let Err(e) = a.prefs.save() {
+        a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+    }
+}
+
+/// Starts the downloads `reqs` ask for (the magnet links are added at once).
+fn rss_download(a: &mut App, reqs: Vec<AddRequest>) {
+    if reqs.is_empty() {
+        return;
+    }
+    for r in &reqs {
+        let feed = a.rss.feed(r.feed).map(|f| f.name().to_owned()).unwrap_or_default();
+        a.detail.push_log(format!("{} RSS: {feed}: downloading {}", now_hms(), r.title));
+    }
+    let proxy = rss_proxy(a);
+    for (req, d) in a.rss_worker.download(reqs, proxy.as_ref()) {
+        rss_add(a, req, d);
+    }
+    a.rss_dirty = true;
+}
+
+/// Shows feed items in the list (`Some(None)`: every feed's) or, with `None`, the torrents.
+unsafe fn show_feed_items(view: Option<Option<FeedId>>) {
+    unsafe {
+        let Some((lv, was)) = with_app(|a| {
+            let was = a.feed_view;
+            if was.is_none() && view.is_some() {
+                // keep the torrent columns' widths and order for the way back
+                sync_columns(a);
+            }
+            a.feed_view = view;
+            a.feed_rows = view.map(|f| rss_view::item_rows(&a.rss, f)).unwrap_or_default();
+            (a.lv, was)
+        }) else {
+            return;
+        };
+        if was.is_some() == view.is_some() {
+            if view.is_some() {
+                controls::set_state(lv, None, false, false);
+                let n = with_app(|a| a.feed_rows.len()).unwrap_or(0);
+                controls::set_count(lv, n);
+                InvalidateRect(lv, null(), 1);
+            }
+            return;
+        }
+        controls::set_state(lv, None, false, false);
+        rebuild_columns();
+        if view.is_none() {
+            refresh_list();
+        }
+        selection_changed();
+        update_toolbar();
+    }
+}
+
+/// The feed item columns at the window's DPI.
+unsafe fn set_feed_columns() {
+    let Some((lv, cols, n)) = with_app(|a| {
+        let cols: Vec<(&'static str, i32, bool)> =
+            rss_view::ITEM_COLUMNS.iter().map(|&(t, w, right)| (t, scale(w, a.dpi), right)).collect();
+        (a.lv, cols, a.feed_rows.len())
+    }) else {
+        return;
+    };
+    unsafe {
+        controls::set_columns(lv, &cols);
+        controls::set_sort_arrow(lv, cols.len(), None, false);
+        controls::set_count(lv, n);
+        InvalidateRect(lv, null(), 1);
+    }
+}
+
+/// The feed items again after a fetch (when the list shows them).
+unsafe fn refresh_feed_rows() {
+    let Some((lv, n)) = with_app(|a| {
+        let view = a.feed_view?;
+        a.feed_rows = rss_view::item_rows(&a.rss, view);
+        Some((a.lv, a.feed_rows.len()))
+    })
+    .flatten() else {
+        return;
+    };
+    unsafe {
+        controls::set_count(lv, n);
+        InvalidateRect(lv, null(), 0);
+    }
+}
+
+/// The tree's Feeds branch: the feeds' names, rebuilt when feeds came or went. A feed shown in
+/// the list that went away gives the list back to the torrents.
+unsafe fn update_feed_tree() {
+    unsafe {
+        let Some((tree, feeds, current, view)) = with_app(|a| {
+            let feeds: Vec<(FeedId, String)> =
+                a.rss.feeds.iter().map(|f| (f.id, f.name().to_owned())).collect();
+            (a.tree, feeds, a.feed_tree.clone(), a.feed_view)
+        }) else {
+            return;
+        };
+        let set_text = |h: HTREEITEM, text: &str| {
+            let mut t = wide(text);
+            let mut item: TVITEMW = zeroed();
+            item.mask = TVIF_TEXT;
+            item.hItem = h;
+            item.pszText = t.as_mut_ptr();
+            send(tree, TVM_SETITEMW, 0, &item as *const _ as LPARAM);
+        };
+        let same = current.len() == feeds.len() + 1
+            && current.iter().skip(1).zip(&feeds).all(|((_, id), (fid, _))| *id == Some(*fid));
+        if same {
+            for ((h, _), (_, name)) in current.iter().skip(1).zip(&feeds) {
+                set_text(*h, name);
+            }
+            return;
+        }
+        with_app(|a| a.feed_tree_busy = true);
+        if let Some(&(root, _)) = current.first() {
+            send(tree, TVM_DELETEITEM, 0, root);
+        }
+        let root = insert_tree(tree, TVI_ROOT, "Feeds", FEED_PARAM);
+        let mut items = vec![(root, None)];
+        for (i, (id, name)) in feeds.iter().enumerate() {
+            items.push((insert_tree(tree, root, name, FEED_PARAM + i + 1), Some(*id)));
+        }
+        send(tree, TVM_EXPAND, TVE_EXPAND as usize, root);
+        let torrents = with_app(|a| {
+            a.feed_tree = items.clone();
+            a.feed_tree_busy = false;
+            a.tree_items.first().map(|t| t.0)
+        })
+        .flatten();
+        if let Some(shown) = view {
+            // select the shown feed's new node, or the torrents when it went away
+            match items.iter().find(|(_, f)| *f == shown).map(|x| x.0).or(torrents) {
+                Some(h) => {
+                    send(tree, TVM_SELECTITEM, TVGN_CARET as usize, h);
+                }
+                None => show_feed_items(None),
+            }
+        }
+    }
+}
+
+/// The right-click menu of the feed item list.
+unsafe fn feed_item_menu(hwnd: HWND, p: POINT) {
+    unsafe {
+        let Some(lv) = with_app(|a| a.lv) else { return };
+        let any = !controls::selected(lv).is_empty();
+        let menu = CreatePopupMenu();
+        append_flags(menu, grayed(!any), cmd::ITEM_DOWNLOAD, "&Download");
+        separator(menu);
+        append(menu, cmd::RSS, "&RSS Downloader...");
+        match popup(hwnd, menu, p.x, p.y) {
+            cmd::ITEM_DOWNLOAD => download_feed_items(),
+            0 => {}
+            id => on_command(hwnd, id),
+        }
+    }
+}
+
+/// Downloads the selected feed items (a double-click, or the menu's Download).
+unsafe fn download_feed_items() {
+    let Some(lv) = with_app(|a| a.lv) else { return };
+    let rows = unsafe { controls::selected(lv) };
+    with_app(|a| {
+        let now = unix_now();
+        let picked: Vec<(FeedId, String)> =
+            rows.iter().filter_map(|&r| a.feed_rows.get(r)).map(|r| (r.feed, r.id.clone())).collect();
+        let reqs: Vec<AddRequest> =
+            picked.into_iter().filter_map(|(feed, id)| a.rss.request_item(feed, &id, now)).collect();
+        rss_download(a, reqs);
+    });
+    unsafe {
+        refresh_feed_rows();
+        update_detail_lists();
+    }
+}
+
+/// The right-click menu of the tree's Feeds branch (µTorrent's: Add RSS Feed, Edit Feed,
+/// Disable Feed, Update Feed, Delete Feed).
+unsafe fn tree_menu(hwnd: HWND, tree: HWND, p: POINT, keyboard: bool) {
+    unsafe {
+        let h = if keyboard {
+            send(tree, TVM_GETNEXTITEM, TVGN_CARET as usize, 0) as HTREEITEM
+        } else {
+            let mut ht: TVHITTESTINFO = zeroed();
+            ht.pt = p;
+            windows_sys::Win32::Graphics::Gdi::ScreenToClient(tree, &mut ht.pt);
+            send(tree, TVM_HITTEST, 0, &mut ht as *mut _ as LPARAM) as HTREEITEM
+        };
+        let Some((feed, enabled)) = with_app(|a| {
+            let feed = a.feed_tree.iter().find(|(x, _)| *x == h)?.1;
+            Some((feed, feed.and_then(|id| a.rss.feed(id)).is_none_or(|f| f.enabled)))
+        })
+        .flatten() else {
+            return;
+        };
+        let menu = CreatePopupMenu();
+        append(menu, cmd::FEED_ADD, "&Add RSS Feed...");
+        append_flags(menu, grayed(feed.is_none()), cmd::FEED_EDIT, "&Edit Feed...");
+        let toggle = if enabled { "&Disable Feed" } else { "E&nable Feed" };
+        append_flags(menu, grayed(feed.is_none()), cmd::FEED_TOGGLE, toggle);
+        append(menu, cmd::FEED_UPDATE, "&Update Feed");
+        append_flags(menu, grayed(feed.is_none()), cmd::FEED_REMOVE, "De&lete Feed");
+        separator(menu);
+        append(menu, cmd::RSS, "&RSS Downloader...");
+        let id = popup(hwnd, menu, p.x, p.y);
+        feed_command(hwnd, id, feed);
+    }
+}
+
+/// A Feeds branch command on feed `feed` (`None`: the Feeds node).
+unsafe fn feed_command(hwnd: HWND, id: u16, feed: Option<FeedId>) {
+    unsafe {
+        match id {
+            cmd::FEED_ADD => {
+                let form =
+                    crate::rss::FeedForm { url: crate::rss::url_from_clipboard(hwnd), ..Default::default() };
+                let Some(form) = crate::rss::feed_dialog(hwnd, "Add RSS Feed", form) else { return };
+                with_app(|a| {
+                    let id = form.add_to(&mut a.rss);
+                    a.rss_dirty = true;
+                    rss_update(a, Some(id));
+                });
+            }
+            cmd::FEED_EDIT => {
+                let Some(id) = feed else { return };
+                let Some(form) = with_app(|a| a.rss.feed(id).map(crate::rss::FeedForm::of)).flatten() else {
+                    return;
+                };
+                let Some(form) = crate::rss::feed_dialog(hwnd, "Edit RSS Feed", form) else { return };
+                with_app(|a| {
+                    if form.store(&mut a.rss, id) {
+                        rss_update(a, Some(id));
+                    }
+                    a.rss_dirty = true;
+                });
+            }
+            cmd::FEED_TOGGLE => {
+                with_app(|a| {
+                    if let Some(f) = feed.and_then(|id| a.rss.feed_mut(id)) {
+                        f.enabled = !f.enabled;
+                        a.rss_dirty = true;
+                    }
+                });
+            }
+            cmd::FEED_UPDATE => {
+                with_app(|a| rss_update(a, feed));
+            }
+            cmd::FEED_REMOVE => {
+                let Some(id) = feed else { return };
+                let name =
+                    with_app(|a| a.rss.feed(id).map(|f| f.name().to_owned())).flatten().unwrap_or_default();
+                if !dialogs::confirm(hwnd, &format!("Delete the feed \"{name}\"?")) {
+                    return;
+                }
+                with_app(|a| {
+                    a.rss.remove_feed(id);
+                    a.rss_dirty = true;
+                });
+            }
+            cmd::RSS => return show_rss(hwnd, feed),
+            _ => return,
+        }
+        update_feed_tree();
+        refresh_feed_rows();
+    }
+}
+
+/// Options > RSS Downloader. The dialog edits the live downloader; when it closes the filters
+/// run over the feeds' current items (they may have changed).
+unsafe fn show_rss(hwnd: HWND, feed: Option<FeedId>) {
+    // the dialog runs its own message loop; the host borrows the app only while it runs
+    crate::rss::show(hwnd, &mut AppHost, feed);
+    with_app(|a| {
+        let now = unix_now();
+        let ids: Vec<FeedId> = a.rss.feeds.iter().map(|f| f.id).collect();
+        let reqs: Vec<AddRequest> = ids.into_iter().flat_map(|id| a.rss.process(id, now)).collect();
+        rss_download(a, reqs);
+        a.rss_dirty = true;
+    });
+    unsafe {
+        update_feed_tree();
+        refresh_feed_rows();
+        update_detail_lists();
+    }
+}
+
+/// What the RSS Downloader dialog asks of the window.
+struct AppHost;
+
+impl crate::rss::Host for AppHost {
+    fn view(&mut self, f: &mut dyn FnMut(&RssDownloader)) {
+        with_app(|a| f(&a.rss));
+    }
+
+    fn edit(&mut self, f: &mut dyn FnMut(&mut RssDownloader)) {
+        with_app(|a| {
+            f(&mut a.rss);
+            a.rss_dirty = true;
+        });
+    }
+
+    fn updating(&mut self, id: FeedId) -> bool {
+        with_app(|a| a.rss_worker.is_busy(id)).unwrap_or(false)
+    }
+
+    fn update(&mut self, id: Option<FeedId>) {
+        with_app(|a| rss_update(a, id));
+    }
+
+    fn labels(&mut self) -> Vec<String> {
+        with_app(|a| a.list.labels().into_iter().map(|(l, _)| l).collect()).unwrap_or_default()
+    }
+
+    fn set_dialog(&mut self, dlg: HWND) {
+        with_app(|a| a.rss_dialog = dlg);
+    }
+}
+
 unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
     unsafe {
         let id = (*nm).idFrom;
@@ -2623,6 +3124,10 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 let di = &mut *(nm as *mut NMLVDISPINFOW);
                 if di.item.mask & LVIF_TEXT != 0 {
                     let text = with_app(|a| {
+                        if a.feed_view.is_some() {
+                            let row = a.feed_rows.get(di.item.iItem as usize)?;
+                            return row.cells.get(di.item.iSubItem as usize).cloned();
+                        }
                         let tid = *a.list.view().get(di.item.iItem as usize)?;
                         let col = *a.shown.get(di.item.iSubItem as usize)?;
                         // The Done cell is painted as a bar (see `list_custom_draw`).
@@ -2638,6 +3143,7 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 0
             }
             (IDC_LIST, NM_CUSTOMDRAW) => list_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW)),
+            (IDC_LIST, LVN_COLUMNCLICK) if with_app(|a| a.feed_view.is_some()) == Some(true) => 0,
             (IDC_LIST, LVN_COLUMNCLICK) => {
                 let lv = &*(nm as *const NMLISTVIEW);
                 with_app(|a| {
@@ -2668,6 +3174,10 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 selection_changed();
                 0
             }
+            (IDC_LIST, NM_DBLCLK) if with_app(|a| a.feed_view.is_some()) == Some(true) => {
+                download_feed_items();
+                0
+            }
             (IDC_LIST, NM_DBLCLK) => {
                 let ids = selected_ids();
                 let done =
@@ -2682,6 +3192,15 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
             (IDC_TREE, TVN_SELCHANGEDW) => {
                 let tv = &*(nm as *const NMTREEVIEWW);
                 let idx = tv.itemNew.lParam as usize;
+                if with_app(|a| a.feed_tree_busy) != Some(false) {
+                    return 0;
+                }
+                if idx >= FEED_PARAM {
+                    let feed = with_app(|a| a.feed_tree.get(idx - FEED_PARAM).map(|f| f.1)).flatten();
+                    show_feed_items(Some(feed.flatten()));
+                    return 0;
+                }
+                show_feed_items(None);
                 with_app(|a| {
                     if let Some((_, f)) = a.tree_items.get(idx) {
                         let f = f.clone();
@@ -2742,7 +3261,9 @@ unsafe fn list_custom_draw(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
             CDDS_PREPAINT => CDRF_NOTIFYITEMDRAW as LRESULT,
             CDDS_ITEMPREPAINT => CDRF_NOTIFYSUBITEMDRAW as LRESULT,
             ITEM_SUB_PRE => {
-                let is_done = with_app(|a| a.shown.get(cd.iSubItem as usize) == Some(&Column::Done));
+                let is_done = with_app(|a| {
+                    a.feed_view.is_none() && a.shown.get(cd.iSubItem as usize) == Some(&Column::Done)
+                });
                 if is_done == Some(true) {
                     CDRF_NOTIFYPOSTPAINT as LRESULT
                 } else {

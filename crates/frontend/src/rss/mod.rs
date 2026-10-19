@@ -5,8 +5,9 @@
 //!
 //! The model is pure: a frontend asks [`RssDownloader::due_feeds`] which feeds to refresh,
 //! fetches them on a worker thread ([`fetch_feed`]), hands the parsed document to
-//! [`RssDownloader::feed_fetched`] and adds the [`AddRequest`]s that come back. Nothing here
-//! starts threads or timers.
+//! [`RssDownloader::feed_fetched`] and adds the [`AddRequest`]s that come back. Nothing in the
+//! model starts threads or timers; [`worker`] is the shared helper that runs those fetches for
+//! a frontend, and [`view`] formats what the dialogs and the feed item list show.
 //!
 //! What follows µTorrent 2.2.1 is from memory of its dialogs and Advanced settings (no source
 //! or documentation was at hand): the filter fields, the feed's "Automatically download all
@@ -19,6 +20,8 @@ pub mod episode;
 pub mod feed;
 pub mod filter;
 pub mod store;
+pub mod view;
+pub mod worker;
 
 use std::collections::{HashSet, VecDeque};
 
@@ -27,6 +30,7 @@ use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
 pub use episode::{Episode, EpisodeSpec, Quality, is_repack, parse_episode};
 pub use feed::{Enclosure, Feed, FeedItem, FeedKind, parse_date, parse_feed};
 pub use filter::{FilterId, MIN_INTERVALS, RssFilter, wildcard_match};
+pub use worker::{Collected, Download, Worker, fetch_download};
 
 pub type FeedId = u32;
 
@@ -249,6 +253,23 @@ impl RssDownloader {
         id
     }
 
+    /// Changes a feed's URL and alias (the Edit Feed dialog). A new URL is a new feed to
+    /// fetch: the old items, title, error and refresh time go. False when there is no such
+    /// feed.
+    pub fn edit_feed(&mut self, id: FeedId, url: &str, alias: &str) -> bool {
+        let Some(f) = self.feed_mut(id) else { return false };
+        let url = url.trim();
+        if f.url != url {
+            f.url = url.to_owned();
+            f.items.clear();
+            f.title.clear();
+            f.last_error.clear();
+            f.last_refresh = None;
+        }
+        f.alias = alias.trim().to_owned();
+        true
+    }
+
     /// Removes a feed. Filters bound to it stay, and match nothing until pointed elsewhere.
     pub fn remove_feed(&mut self, id: FeedId) {
         self.feeds.retain(|f| f.id != id);
@@ -409,6 +430,48 @@ impl RssDownloader {
         feed.episodes.prune(MAX_EPISODES, &HashSet::new());
         feed.items = items;
         out
+    }
+
+    /// The user's own download of an item (a double-click on it): the request to add it, with
+    /// the feed's name as its label when `feed_as_default_label` is on. The item is marked
+    /// added and goes into the History, as a filter's would. `None` when the feed or the item
+    /// is gone, or the item names nothing to download.
+    pub fn request_item(&mut self, feed: FeedId, item_id: &str, now: i64) -> Option<AddRequest> {
+        let label_from_feed = self.settings.feed_as_default_label;
+        let f = self.feed_mut(feed)?;
+        let item = f.items.iter().find(|i| i.id() == item_id)?;
+        let req = AddRequest {
+            feed,
+            filter: None,
+            item_id: item_id.to_owned(),
+            title: item.title.clone(),
+            url: item.torrent_url()?,
+            cookies: f.fetch_url().1.to_owned(),
+            save_path: String::new(),
+            label: if label_from_feed { f.name().to_owned() } else { String::new() },
+            top_priority: false,
+            paused: false,
+        };
+        f.downloaded.insert(item_id);
+        self.history.push_back(HistoryEntry {
+            title: req.title.clone(),
+            url: req.url.clone(),
+            feed,
+            time: now,
+        });
+        while self.history.len() > MAX_HISTORY {
+            self.history.pop_front();
+        }
+        Some(req)
+    }
+
+    /// Moves filter `id` one place up (`up`) or down the list, where order is priority.
+    pub fn move_filter(&mut self, id: FilterId, up: bool) {
+        let Some(i) = self.filters.iter().position(|f| f.id == id) else { return };
+        let j = if up { i.checked_sub(1) } else { Some(i + 1).filter(|&j| j < self.filters.len()) };
+        if let Some(j) = j {
+            self.filters.swap(i, j);
+        }
     }
 
     /// Forgets that an item was added (its download could not be fetched), so the next

@@ -14,6 +14,7 @@
 //! * [`settings`]: the engine settings by libtorrent name (the Advanced preferences table).
 //! * [`options`]: what the Preferences dialog edits, loaded from and stored to the preferences.
 //! * [`scheduler`]: the weekly scheduler (table, modes, what to change when the hour turns).
+//! * [`torrent_folders`]: the `.torrent` folders (stored copies, finished jobs, auto-load).
 
 pub mod actions;
 pub mod add;
@@ -27,3 +28,4 @@ pub mod prefs;
 pub mod scheduler;
 pub mod settings;
 pub mod status;
+pub mod torrent_folders;

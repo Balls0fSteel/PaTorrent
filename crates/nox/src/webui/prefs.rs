@@ -210,6 +210,55 @@ pub(crate) static FIELDS: &[Field] = &[
         |w| Value::Bool(w.prefs.move_only_default),
         |w, v| w.prefs.move_only_default = boolean(&v)
     ),
+    field!(
+        "dir.store_torrents",
+        "Store .torrents in:",
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.torrent_folders.store),
+        |w, v| w.prefs.torrent_folders.store = boolean(&v)
+    ),
+    field!(
+        "dir.torrents",
+        "",
+        Kind::Folder,
+        |w| Value::Str(w.prefs.torrent_folders.store_dir.clone()),
+        |w, v| w.prefs.torrent_folders.store_dir = string(v).trim().to_owned()
+    ),
+    field!(
+        "dir.move_torrents",
+        "Move .torrents for finished jobs to:",
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.torrent_folders.move_finished),
+        |w, v| w.prefs.torrent_folders.move_finished = boolean(&v)
+    ),
+    field!(
+        "dir.finished_torrents",
+        "",
+        Kind::Folder,
+        |w| Value::Str(w.prefs.torrent_folders.finished_dir.clone()),
+        |w, v| w.prefs.torrent_folders.finished_dir = string(v).trim().to_owned()
+    ),
+    field!(
+        "dir.autoload",
+        "Automatically load .torrents from:",
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.torrent_folders.autoload),
+        |w, v| w.prefs.torrent_folders.autoload = boolean(&v)
+    ),
+    field!(
+        "dir.autoload_dir",
+        "",
+        Kind::Folder,
+        |w| Value::Str(w.prefs.torrent_folders.autoload_dir.clone()),
+        |w, v| w.prefs.torrent_folders.autoload_dir = string(v).trim().to_owned()
+    ),
+    field!(
+        "dir.autoload_delete",
+        "Delete loaded .torrents",
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.torrent_folders.autoload_delete),
+        |w, v| w.prefs.torrent_folders.autoload_delete = boolean(&v)
+    ),
     // UI Settings
     field!(
         "ui.confirm_delete",
@@ -598,6 +647,7 @@ fn ranged(id: &str, min: i64, max: i64) -> Json {
     f(id).with("min", min).with("max", max)
 }
 
+/// Greys `item` while the check box `id` is off (several ids, space-separated: while any is).
 fn enabled_by(item: Json, id: &str) -> Json {
     item.with("enabled_by", id)
 }
@@ -668,9 +718,13 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                 group(
                     Some("Location of .torrents"),
                     vec![
-                        stub("Store .torrents in:"),
-                        stub("Automatically load .torrents from:"),
-                        note("Storing and automatically loading .torrents are not available yet."),
+                        f("dir.store_torrents"),
+                        enabled_by(f("dir.torrents"), "dir.store_torrents"),
+                        enabled_by(f("dir.move_torrents"), "dir.store_torrents"),
+                        enabled_by(f("dir.finished_torrents"), "dir.store_torrents dir.move_torrents"),
+                        f("dir.autoload"),
+                        enabled_by(f("dir.autoload_dir"), "dir.autoload"),
+                        enabled_by(f("dir.autoload_delete"), "dir.autoload"),
                     ],
                 ),
             ],
@@ -848,8 +902,8 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
 }
 
 /// `GET /pa/prefs`: `pages` (the tree in order, each with its groups of items: `{"f": id}`
-/// with optional `kb`, `min`, `max`, `enabled_by`, `secret`; `{"row": [items]}`;
-/// `{"stub": label}`; `{"note": text}`; `{"button": label, "action": name}`), `fields` (id to
+/// with optional `kb`, `min`, `max`, `enabled_by` (space-separated ids), `secret`;
+/// `{"row": [items]}`; `{"stub": label}`; `{"note": text}`; `{"button": label, "action": name}`), `fields` (id to
 /// `label`, `type`, `value`, `default`, `min` / `max` for ints, `options` for enums,
 /// `readonly`) and `advanced` (every engine setting's id, the table's order).
 pub(crate) fn model(shared: &Shared, st: &State) -> Json {
@@ -925,6 +979,16 @@ pub(crate) fn validate(w: &Working) -> Result<(), Refusal> {
     }
     if w.prefs.move_completed && w.prefs.completed_dir.is_empty() {
         return refuse("dir.completed", "Please choose a folder for completed downloads.");
+    }
+    let tf = &w.prefs.torrent_folders;
+    if tf.store && tf.store_dir.is_empty() {
+        return refuse("dir.torrents", "Please choose a folder to store .torrents in.");
+    }
+    if tf.store && tf.move_finished && tf.finished_dir.is_empty() {
+        return refuse("dir.finished_torrents", "Please choose a folder for the .torrents of finished jobs.");
+    }
+    if tf.autoload && tf.autoload_dir.is_empty() {
+        return refuse("dir.autoload_dir", "Please choose a folder to load .torrents from.");
     }
     if w.username.is_empty() {
         return refuse("webui.username", "Please enter a user name.");

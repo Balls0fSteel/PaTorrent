@@ -27,6 +27,7 @@ use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::status::Category;
+use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 use patorrent_frontend::{actions, add, create, fmt, settings};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
@@ -211,6 +212,11 @@ struct App {
     /// Preferences > Scheduler, and the mode it has put into effect.
     schedule: Schedule,
     scheduler: Scheduler,
+    /// Preferences > Directories "Location of .torrents", the helper that stores and moves the
+    /// copies (fed every alert) and the auto-load folder's watcher (run from the timer).
+    torrent_folders: TorrentFolders,
+    torrent_files: TorrentFiles,
+    autoload: Poller,
 }
 
 thread_local! {
@@ -517,7 +523,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         });
 
         let save_path = prefs.get("dir.download").map(str::to_owned).unwrap_or_else(downloads_folder);
-        let move_completed = GuiOptions::load(&prefs, &save_path).move_completed();
+        let gui = GuiOptions::load(&prefs, &save_path);
+        let move_completed = gui.move_completed();
         let schedule = Schedule::load(&prefs);
         let mut list = TorrentList::new();
         list.set_sort(prefs.sort());
@@ -580,6 +587,9 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             move_completed,
             schedule,
             scheduler: Scheduler::new(),
+            torrent_folders: gui.torrent_folders,
+            torrent_files: TorrentFiles::new(),
+            autoload: Poller::new(),
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -1200,8 +1210,47 @@ fn on_timer() {
         a.handle.post_torrent_updates();
         a.handle.post_session_stats();
         run_scheduler(a, None);
+        autoload(a);
     });
     request_detail();
+}
+
+/// Preferences > Directories "Automatically load .torrents from": the new files in the folder
+/// are added without the Add New Torrent dialog, as µTorrent added them, and renamed to
+/// `.torrent.loaded` (or deleted) once the engine has them.
+fn autoload(a: &mut App) {
+    let Some(dir) = a.torrent_folders.loads_from().map(PathBuf::from) else { return };
+    let found = a.autoload.poll(&dir, std::time::Instant::now());
+    if let Some(e) = a.autoload.take_error() {
+        a.detail.push_log(format!("{} Automatically load .torrents: {e}", now_hms()));
+    }
+    for path in found {
+        let (bytes, ti) = match torrent_folders::read(&path) {
+            Ok(r) => r,
+            Err(e) => {
+                a.detail.push_log(format!("{} {}: not loaded: {e}", now_hms(), path.display()));
+                continue;
+            }
+        };
+        let key = ti.info_hashes().key_hex();
+        if a.list.ids().any(|id| a.list.get(id).is_some_and(|s| s.info_hashes.key_hex() == key)) {
+            let line = torrent_folders::loaded(ti.name(), &path, a.torrent_folders.autoload_delete);
+            a.detail.push_log(format!("{} {line} (already in the list)", now_hms()));
+            continue;
+        }
+        a.torrent_files.loading(&ti, path);
+        let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
+        p.flags = TorrentFlags::DEFAULT;
+        GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+        a.scheduler.apply_to_new(&mut p);
+        add_to_session(a, p);
+    }
+}
+
+/// Hands a torrent to the engine; a `.torrent`'s copy is stored once it is added.
+fn add_to_session(a: &mut App, p: AddTorrentParams) {
+    a.torrent_files.adding(&a.torrent_folders, &p);
+    a.handle.add_torrent(p);
 }
 
 /// Puts the scheduler's mode for this hour into effect. `applied`: the options just applied
@@ -1266,6 +1315,9 @@ unsafe fn on_alerts(hwnd: HWND) {
                 let dir = m.dir.clone();
                 a.detail.push_log(format!("{} {name}: moving the completed download to {dir}", now_hms()));
                 a.handle.post_torrent_updates();
+            }
+            for line in a.torrent_files.on_alert(&alert, &a.torrent_folders) {
+                a.detail.push_log(format!("{} {line}", now_hms()));
             }
             match alert {
                 Alert::StateUpdate(v) => {
@@ -2277,7 +2329,7 @@ fn add_params(_hwnd: HWND, source: TorrentSource, name: Option<String>) {
         p.flags = TorrentFlags::DEFAULT;
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
         a.scheduler.apply_to_new(&mut p);
-        a.handle.add_torrent(p);
+        add_to_session(a, p);
     });
 }
 
@@ -2325,7 +2377,7 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
         a.scheduler.apply_to_new(&mut p);
         choice.apply_to(&ti, &mut p);
-        a.handle.add_torrent(p);
+        add_to_session(a, p);
     });
 }
 
@@ -2363,6 +2415,7 @@ fn apply_options(a: &mut App, o: &Options) {
     a.schedule = o.gui.schedule.clone();
     run_scheduler(a, Some(o));
     o.gui.update_move_completed(&mut a.move_completed);
+    a.torrent_folders = o.gui.torrent_folders.clone();
     if o.gui.pex != old.gui.pex {
         for id in a.list.ids() {
             let t = a.handle.torrent(id);
@@ -2422,7 +2475,7 @@ unsafe fn create_torrent(hwnd: HWND) {
     });
     let Some(done) = done else { return };
     if let Some(save) = done.seed_from {
-        with_app(|a| a.handle.add_torrent(create::seed_params(done.created.bytes, &save)));
+        with_app(|a| add_to_session(a, create::seed_params(done.created.bytes, &save)));
     }
 }
 

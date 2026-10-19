@@ -37,6 +37,7 @@ use patorrent_core::{
 };
 use patorrent_frontend::options::GuiOptions;
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
+use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 
 use auth::{BanList, PasswordHash};
 use json::Json;
@@ -127,6 +128,8 @@ pub(crate) struct Prefs {
     pub move_completed: bool,
     pub completed_dir: String,
     pub move_only_default: bool,
+    /// "Location of .torrents" (Directories page): stored copies, finished jobs, auto-load.
+    pub torrent_folders: TorrentFolders,
     /// The page asks before removing torrents.
     pub confirm_delete: bool,
     /// The page shows the Add New Torrent dialog for `.torrent` files (`GET /pa/add`'s
@@ -170,6 +173,7 @@ impl Prefs {
             move_completed: false,
             completed_dir: String::new(),
             move_only_default: true,
+            torrent_folders: TorrentFolders::default(),
             confirm_delete: true,
             show_add_dialog: true,
             random_port: false,
@@ -199,6 +203,7 @@ impl Prefs {
             move_completed: self.move_completed,
             completed_dir: self.completed_dir.clone(),
             move_only_default: self.move_only_default,
+            torrent_folders: self.torrent_folders.clone(),
             confirm_delete: self.confirm_delete,
             close_to_tray: true,
             minimize_to_tray: false,
@@ -220,6 +225,7 @@ impl Prefs {
         self.move_completed = g.move_completed;
         self.completed_dir = g.completed_dir.clone();
         self.move_only_default = g.move_only_default;
+        self.torrent_folders = g.torrent_folders.clone();
         self.confirm_delete = g.confirm_delete;
         self.start_paused = g.add_stopped;
         self.show_add_dialog = g.show_add_dialog;
@@ -327,6 +333,10 @@ pub(crate) struct State {
     pub gui_version: u64,
     /// The weekly scheduler's mode in force (Preferences > Scheduler is `prefs.schedule`).
     pub scheduler: Scheduler,
+    /// Stores and moves the `.torrent` copies (`prefs.torrent_folders`), fed every alert, and
+    /// watches the auto-load folder on the status tick.
+    pub torrent_files: TorrentFiles,
+    pub autoload: Poller,
     replies: HashMap<(TorrentId, ReplyKind), (u64, Reply)>,
     serial: u64,
     pub sessions: HashMap<String, ClientSession>,
@@ -572,6 +582,8 @@ impl WebUi {
                 listen_addr: addr,
                 gui_version: 1,
                 scheduler: Scheduler::new(),
+                torrent_files: TorrentFiles::new(),
+                autoload: Poller::new(),
                 replies: HashMap::new(),
                 serial: 0,
                 sessions: HashMap::new(),
@@ -640,7 +652,11 @@ impl WebUi {
         let mut replied = false;
         let mut ticked = false;
         let now = unix_now();
+        let folders = st.prefs.torrent_folders.clone();
         for a in alerts {
+            for line in st.torrent_files.on_alert(a, &folders) {
+                st.push_log(None, line, now);
+            }
             match a {
                 Alert::StateUpdate(v) => {
                     for s in v {
@@ -710,14 +726,21 @@ impl WebUi {
                 st.log_line(a, now);
             }
         }
+        let mut found = Vec::new();
         if ticked {
             st.tick += 1;
             st.sample_speeds();
             self.shared.run_scheduler(&mut st, false);
+            found = autoload(&mut st, now);
         }
         drop(st);
         if replied {
             self.shared.replied.notify_all();
+        }
+        for (path, source) in found {
+            if let Err(e) = commands::add(&self.shared, source, &commands::AddOptions::default()) {
+                self.shared.lock().push_log(None, format!("{}: not loaded: {}", path.display(), e.msg), now);
+            }
         }
     }
 
@@ -740,6 +763,36 @@ impl Drop for WebUi {
     fn drop(&mut self) {
         self.stop_now();
     }
+}
+
+/// Preferences > Directories "Automatically load .torrents from": the new files in the folder,
+/// to add without the Add New Torrent dialog (they are renamed to `.torrent.loaded`, or
+/// deleted, once the engine has them). Files whose torrent is in the session already are
+/// finished at once.
+fn autoload(st: &mut State, now: i64) -> Vec<(PathBuf, commands::Source)> {
+    let Some(dir) = st.prefs.torrent_folders.loads_from().map(PathBuf::from) else { return Vec::new() };
+    let paths = st.autoload.poll(&dir, Instant::now());
+    if let Some(e) = st.autoload.take_error() {
+        st.push_log(None, format!("Automatically load .torrents: {e}"), now);
+    }
+    let mut found = Vec::new();
+    for path in paths {
+        let (bytes, ti) = match torrent_folders::read(&path) {
+            Ok(r) => r,
+            Err(e) => {
+                st.push_log(None, format!("{}: not loaded: {e}", path.display()), now);
+                continue;
+            }
+        };
+        if st.by_hash.contains_key(&torrent::hash_of(&ti.info_hashes())) {
+            let line = torrent_folders::loaded(ti.name(), &path, st.prefs.torrent_folders.autoload_delete);
+            st.push_log(None, format!("{line} (already in the list)"), now);
+            continue;
+        }
+        st.torrent_files.loading(&ti, path.clone());
+        found.push((path, commands::Source::Torrent(bytes, Box::new(ti))));
+    }
+    found
 }
 
 /// Whether the Logger tab shows an alert: everything but the replies to `post_*` requests
@@ -887,6 +940,8 @@ impl State {
             listen_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
             gui_version: 1,
             scheduler: Scheduler::new(),
+            torrent_files: TorrentFiles::new(),
+            autoload: Poller::new(),
             replies: HashMap::new(),
             serial: 0,
             sessions: HashMap::new(),

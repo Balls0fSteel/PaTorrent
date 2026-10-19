@@ -9,6 +9,7 @@ use patorrent_core::{AddTorrentParams, MoveCompleted, Settings, TorrentFlags};
 use crate::prefs::Prefs;
 use crate::scheduler::Schedule;
 use crate::settings;
+use crate::torrent_folders::TorrentFolders;
 
 /// The frontend's options (preferences file keys in brackets).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -23,6 +24,10 @@ pub struct GuiOptions {
     /// Move only torrents saved in `download_dir` (`dir.move_only_default`; µTorrent's "Only
     /// move from the default download directory", on by default as there).
     pub move_only_default: bool,
+    /// "Location of .torrents": stored copies, finished jobs, auto-load (`dir.store_torrents`,
+    /// `dir.torrents`, `dir.move_torrents`, `dir.finished_torrents`, `dir.autoload`,
+    /// `dir.autoload_dir`, `dir.autoload_delete`).
+    pub torrent_folders: TorrentFolders,
     /// Ask before removing torrents (`ui.confirm_delete`).
     pub confirm_delete: bool,
     /// Close / minimize to the tray (`ui.close_to_tray`, `ui.minimize_to_tray`).
@@ -64,6 +69,7 @@ impl GuiOptions {
             move_completed: prefs.get_bool("dir.move_completed", false),
             completed_dir: prefs.get("dir.completed").unwrap_or_default().to_owned(),
             move_only_default: prefs.get_bool("dir.move_only_default", true),
+            torrent_folders: TorrentFolders::load(prefs),
             confirm_delete: prefs.get_bool("ui.confirm_delete", true),
             close_to_tray: prefs.get_bool("ui.close_to_tray", true),
             minimize_to_tray: prefs.get_bool("ui.minimize_to_tray", false),
@@ -89,6 +95,7 @@ impl GuiOptions {
             prefs.set("dir.completed", self.completed_dir.trim());
         }
         prefs.set_bool("dir.move_only_default", self.move_only_default);
+        self.torrent_folders.store(prefs);
         prefs.set_bool("ui.confirm_delete", self.confirm_delete);
         prefs.set_bool("ui.close_to_tray", self.close_to_tray);
         prefs.set_bool("ui.minimize_to_tray", self.minimize_to_tray);
@@ -209,6 +216,13 @@ mod tests {
             move_completed: true,
             completed_dir: r"D:\done".into(),
             move_only_default: false,
+            torrent_folders: TorrentFolders {
+                store: true,
+                store_dir: r"D:\torrents".into(),
+                autoload: true,
+                autoload_dir: r"D:\watch".into(),
+                ..Default::default()
+            },
             confirm_delete: false,
             close_to_tray: false,
             minimize_to_tray: true,

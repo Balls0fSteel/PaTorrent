@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-19_101030_1792397430
+Last updated: 2026-10-19_104021_1792399221
 
 ## Vision
 
@@ -418,7 +418,11 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - no lock on the state directory itself: two daemons with different pid files can share one `resume.db`.
   - `--daemon` sends start-up stderr to the terminal only, not to the log.
   - verified on the VMs (CHANGELOG 2026-10-19_092115_1792394475): both systemd units on Xubuntu (systemd 259, `systemd-analyze security` 1.1 OK, port mapping inside the sandbox), `--daemon` / pid file / SIGHUP / SIGTERM on Xubuntu and FreeBSD. The FreeBSD rc.d script is only syntax-checked (`sh -n`): installing it needs root there.
-- Flaky once: `super_seed::two_leeches_finish_while_the_super_seed_uploads_about_one_copy` ("the seed uploaded 1.82 copies") in FreeBSD's full parallel run on 2026-10-19; it passed 5 of 5 alone and in the next full run. Widen the bound or make the leeches' timing deterministic if it recurs.
+- ~~Flaky: `super_seed::two_leeches_finish_while_the_super_seed_uploads_about_one_copy`~~: fixed 2026-10-19_104021_1792399221. A uTP link stalled for good after losing a whole window (libtorrent restarts the retransmission timer on every incoming packet); the timer now restarts only on ACK progress, and the test runs over TCP. Left over:
+  - loopback UDP receive buffers overflow easily under load on Windows and FreeBSD: support libtorrent's `recv_socket_buffer_size` / `send_socket_buffer_size` and consider larger defaults.
+  - other loopback swarm tests over uTP can still lose 500 ms per lost tail under load; switch them to TCP if they assert on timing or throughput.
+  - the uTP timer change is a deliberate libtorrent deviation (docs/PORTING.md-worthy; note it in uTP interop runs).
+- One full Windows `cargo test --workspace` on 2026-10-19 printed no result line for the win32 crate's tests (39), with no FAILED line; the cause was not captured (the run's filter dropped error lines). The crate passes alone and in two following full runs (902 / 902). If it recurs, look for a crashing hidden-dialog test (exit code in the cargo output).
 - Auto Shutdown follow-ups (CHANGELOG 2026-10-19_101030_1792397430):
   - the real `SetSuspendState` / `ExitWindowsEx` calls and the privilege enabling were never run (code-read only; hand runs used a build whose OS call failed on purpose); try them on a test machine or with `PATORRENT_POWER_DRY_RUN=1`. Not seen: the `IsPwrHibernateAllowed` greying, the countdown while the window is in the tray or another modal dialog is open, waking from standby.
   - from memory, to check against a real 2.2.1: the item wording and separators (no "Allow forced shutdown", thought to be 3.x), the 30 s countdown and its text, whether Quit showed it too, arming only after seeing work, the mode not being persisted, the menu position; the tray menu has no Auto Shutdown.

@@ -2,6 +2,17 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_104021_1792399221: uTP no longer stalls after losing a whole window; super-seed test deflaked
+
+### Fixed
+- `super_seed::two_leeches_finish_while_the_super_seed_uploads_about_one_copy` failed under load ("the seed uploaded 1.82 copies"; FreeBSD and Windows). Not a super-seeding bug (offers, HAVE-driven re-offers and refused unoffered requests all checked out; libtorrent's own test asserts no upload bound): the uTP link between the two leeches stalled. A window lost whole to a full loopback UDP receive buffer (49 packets, about 70 KB in one trace) was never resent, because every incoming packet restarted the retransmission timer (libtorrent 2.0.11, unchanged in master) and the other leech's HAVEs kept arriving every ~100 ms; with nothing received there were no duplicate ACKs either. The link stayed dead and the super seed served both leeches.
+- `utp/socket.rs`: an incoming packet restarts the timer and clears `num_timeouts` only when it acknowledges something or nothing is in flight (RFC 6298 §5.3); documented as a deviation in the file header. New simulated test `a_window_lost_whole_is_resent_while_the_peer_keeps_sending` (fails 20 of 20 without the fix, passes 40 of 40 with it).
+- `tests/super_seed.rs`: TCP only (each lost uTP tail still costs the 500 ms minimum timeout, which is not what the 1.5-copies bound measures), and the leeches connect to each other before the seed. The bound is unchanged. Commit `915424b`, merge `4491b4f`.
+
+### Verified
+- Failure rate of the two-leech test: FreeBSD under 16 parallel copies plus a workspace test loop 68/400 (17 %) → 14/400 with the uTP fix alone → 0/1200 with both changes; Windows under 8 parallel copies 8/1760 → 0/1760 with the uTP fix alone. Never reproduced on Xubuntu.
+- Merged main `4491b4f`: `cargo test --workspace --no-fail-fast` on Xubuntu 852 passed, 0 failed; FreeBSD 852 passed, 0 failed; Windows 902 passed, 0 failed in two runs. One earlier Windows run printed no result line for the win32 crate's 39 tests and no FAILED line; the cause was not captured (see PLAN.md Known TODOs).
+
 ## 2026-10-19_101030_1792397430: RSS Downloader GUIs, Auto Shutdown, the Web UI's Properties dialog, nox as a Windows service
 
 The second parallel batch, merged into main: `57e8f71` (merge `af08c41`), `5560b04` (`8c1054d`), `97b76ac` (`f31bd0c`), `3422742` / `4afa736` / `89873e1` (`c0b1a83`).
@@ -29,7 +40,7 @@ The second parallel batch, merged into main: `57e8f71` (merge `af08c41`), `5560b
 - Windows service, unelevated: install refused with "Access is denied", `service run` outside the SCM fails with 1063 and a hint, `service debug` prints START_PENDING / RUNNING / STOP_PENDING / STOPPED. The elevated SCM run is pending.
 
 ### Issues
-- `super_seed::two_leeches_finish_while_the_super_seed_uploads_about_one_copy` failed once in a full Windows run too (not FreeBSD-only); a separate fix is under way.
+- `super_seed::two_leeches_finish_while_the_super_seed_uploads_about_one_copy` failed once in a full Windows run too (not FreeBSD-only); fixed in the next entry (2026-10-19_104021_1792399221).
 
 ## 2026-10-19_092115_1792394475: nox daemon verified on Linux and FreeBSD
 

@@ -1,0 +1,74 @@
+# patorrent-nox as a system service, run as the `patorrent` account (docs/DAEMON.md).
+#
+#   sudo install -m 755 patorrent-nox /usr/local/bin/
+#   sudo install -m 644 patorrent-nox.sysusers /etc/sysusers.d/patorrent-nox.conf
+#   sudo systemd-sysusers
+#   sudo install -m 644 patorrent-nox.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable --now patorrent-nox
+#   journalctl -u patorrent-nox     (the Web UI's temporary password on the first start)
+#
+# Change the command line with `sudo systemctl edit patorrent-nox`:
+#
+#   [Service]
+#   ExecStart=
+#   ExecStart=/usr/local/bin/patorrent-nox run --save /srv/torrents --webui 0.0.0.0:8080
+#   ReadWritePaths=/srv/torrents
+#
+# Everything the daemon keeps (resume data, DHT state, webui.json) goes to
+# /var/lib/patorrent-nox ($STATE_DIRECTORY). `systemctl reload` reloads the IP filter.
+
+[Unit]
+Description=PaTorrent BitTorrent daemon (patorrent-nox)
+Documentation=https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=patorrent
+Group=patorrent
+ExecStart=/usr/local/bin/patorrent-nox run --save /var/lib/patorrent-nox/downloads --webui 127.0.0.1:8080
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+# saving resume data and deleting the router's port mappings takes a moment
+TimeoutStopSec=60
+StateDirectory=patorrent-nox
+StateDirectoryMode=0750
+UMask=0027
+LimitNOFILE=16384
+
+# Sandboxing (systemd.exec(5)); `systemd-analyze security patorrent-nox` rates it.
+# Downloads outside /var/lib/patorrent-nox need a ReadWritePaths= line (see above).
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+# AF_NETLINK: interface and route lists (port mapping, network changes); AF_UNIX: sd_notify
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

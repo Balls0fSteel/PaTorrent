@@ -1,0 +1,56 @@
+#!/bin/sh
+#
+# patorrent-nox for FreeBSD's rc.d (docs/DAEMON.md).
+#
+#   pw useradd patorrent -d /var/db/patorrent-nox -s /usr/sbin/nologin -c "PaTorrent daemon"
+#   install -m 755 patorrent-nox /usr/local/bin/
+#   install -m 555 patorrent_nox /usr/local/etc/rc.d/
+#   sysrc patorrent_nox_enable=YES
+#   sysrc patorrent_nox_args="--webui 0.0.0.0:8080"     (more `patorrent-nox run` options)
+#   service patorrent_nox start
+#
+# The first start writes the Web UI's temporary password to the log. `service patorrent_nox
+# reload` (SIGHUP) reloads the IP filter and reopens the log, so newsyslog can rotate it:
+#
+#   /var/log/patorrent-nox.log  patorrent:patorrent  600  7  1000  *  JC  /var/run/patorrent-nox/patorrent-nox.pid
+#
+# Use patorrent_nox_args, not patorrent_nox_flags: rc.subr puts the flags before `run`.
+
+# PROVIDE: patorrent_nox
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="patorrent_nox"
+rcvar="patorrent_nox_enable"
+desc="PaTorrent BitTorrent daemon"
+
+load_rc_config "$name"
+
+: ${patorrent_nox_enable:="NO"}
+: ${patorrent_nox_user:="patorrent"}
+: ${patorrent_nox_group:="patorrent"}
+: ${patorrent_nox_dir:="/var/db/patorrent-nox"}
+: ${patorrent_nox_save:="${patorrent_nox_dir}/downloads"}
+: ${patorrent_nox_log:="/var/log/patorrent-nox.log"}
+: ${patorrent_nox_args:="--webui 127.0.0.1:8080"}
+
+pidfile="/var/run/patorrent-nox/patorrent-nox.pid"
+command="/usr/local/bin/patorrent-nox"
+command_args="run --daemon --pid-file ${pidfile} --log ${patorrent_nox_log} --state-dir ${patorrent_nox_dir} --save ${patorrent_nox_save} ${patorrent_nox_args}"
+extra_commands="reload"
+start_precmd="patorrent_nox_prestart"
+
+patorrent_nox_prestart()
+{
+	install -d -o "${patorrent_nox_user}" -g "${patorrent_nox_group}" -m 750 \
+	    "${patorrent_nox_dir}" "${patorrent_nox_save}"
+	install -d -o "${patorrent_nox_user}" -g "${patorrent_nox_group}" -m 755 "${pidfile%/*}"
+	if [ ! -e "${patorrent_nox_log}" ]; then
+		install -o "${patorrent_nox_user}" -g "${patorrent_nox_group}" -m 600 /dev/null \
+		    "${patorrent_nox_log}"
+	fi
+}
+
+run_rc_command "$1"

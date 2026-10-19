@@ -18,6 +18,7 @@ pub mod http;
 pub mod json;
 pub mod native;
 pub(crate) mod prefs;
+pub(crate) mod rss;
 mod server;
 pub mod torrent;
 pub mod ws;
@@ -368,6 +369,8 @@ pub(crate) struct State {
     /// Torrents (by hash) added with "Add to top of queue", moved there when the engine
     /// reports them added.
     pub pending_top: commands::PendingTop,
+    /// Bumped when the RSS Downloader changed (`rss.rs`); a WebSocket `tick` carries it.
+    pub rss_version: u64,
 }
 
 pub(crate) struct Shared {
@@ -380,6 +383,8 @@ pub(crate) struct Shared {
     /// Where `ipfilter.dat` is looked for when the IP filter has no path: the state directory,
     /// else the working directory.
     pub settings_dir: PathBuf,
+    /// The RSS Downloader; its lock comes before the State lock, never after it.
+    pub rss: Mutex<rss::Rss>,
 }
 
 pub fn unix_now() -> i64 {
@@ -390,6 +395,10 @@ impl Shared {
     pub fn lock(&self) -> MutexGuard<'_, State> {
         // A panicking request thread must not take the whole Web UI down with it.
         self.state.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn rss(&self) -> MutexGuard<'_, rss::Rss> {
+        self.rss.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// Posts a request with `post` and waits for the engine's answer.
@@ -606,12 +615,17 @@ impl WebUi {
                 speed: HashMap::new(),
                 user_paused,
                 pending_top: HashSet::new(),
+                rss_version: 1,
             }),
             replied: Condvar::new(),
             limits: config.limits,
             iterations: config.pbkdf2_iterations,
             state_file,
             settings_dir,
+            // rss.dat beside webui.json, in the config directory
+            rss: Mutex::new(rss::Rss::load(
+                config.state_dir.as_ref().map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
+            )),
         });
         {
             let mut st = shared.lock();
@@ -790,6 +804,9 @@ impl WebUi {
             if let Err(e) = commands::add(&self.shared, source, &commands::AddOptions::default()) {
                 self.shared.lock().push_log(None, format!("{}: not loaded: {}", path.display(), e.msg), now);
             }
+        }
+        if ticked {
+            rss::tick(&self.shared);
         }
     }
 
@@ -1003,6 +1020,7 @@ impl State {
             speed: HashMap::new(),
             user_paused: HashSet::new(),
             pending_top: HashSet::new(),
+            rss_version: 1,
         }
     }
 }

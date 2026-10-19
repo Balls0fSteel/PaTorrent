@@ -101,6 +101,11 @@ pub struct TorrentStatus {
     pub current_tracker: String,
     /// Seconds until the next tracker announce; `None` if none is scheduled.
     pub next_announce: Option<u32>,
+    /// How many trackers the torrent has (not in libtorrent's `torrent_status`).
+    pub num_trackers: u32,
+    /// The longest `interval` the torrent's trackers asked for in their last announce replies
+    /// this session, in seconds; `None` before any reply (not in libtorrent's `torrent_status`).
+    pub announce_interval: Option<u32>,
     /// Per-torrent limits in bytes per second; 0 = unlimited.
     pub download_limit: u32,
     pub upload_limit: u32,

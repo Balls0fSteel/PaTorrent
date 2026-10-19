@@ -30,6 +30,7 @@ pub(crate) enum Command {
     ForceRecheck(TorrentId),
     ForceReannounce(TorrentId),
     ScrapeTracker(TorrentId, Option<usize>),
+    ScrapeTrackers(Vec<TorrentId>),
     SetFilePriority {
         id: TorrentId,
         file: u32,
@@ -248,6 +249,15 @@ impl SessionHandle {
         net: Option<(Vec<crate::net::enum_net::IpInterface>, Vec<crate::net::enum_net::IpRoute>)>,
     ) {
         self.send(Command::SetFakeNetwork(net));
+    }
+
+    /// [`TorrentHandle::scrape_tracker`] with `None` for each of these torrents, in one
+    /// command, so the engine handles them in one round of its loop and their UDP scrapes share
+    /// requests (up to 74 torrents each) for certain. Torrents without trackers are skipped.
+    pub fn scrape_trackers(&self, ids: Vec<TorrentId>) {
+        if !ids.is_empty() {
+            self.send(Command::ScrapeTrackers(ids));
+        }
     }
 
     /// Pauses every torrent without changing their own paused/auto-managed flags.

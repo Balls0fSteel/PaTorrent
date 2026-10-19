@@ -1179,6 +1179,11 @@ impl Engine {
                 }
             }
             Command::ScrapeTracker(id, index) => self.scrape_tracker(id, index),
+            Command::ScrapeTrackers(ids) => {
+                for id in ids {
+                    self.scrape_tracker(id, None);
+                }
+            }
             Command::SetFilePriority { id, file, priority } => {
                 if let Some(t) = self.torrent(id) {
                     let mut prios = t.file_priority.clone();
@@ -2658,6 +2663,7 @@ impl Engine {
                     if let Some(tid) = &r.tracker_id {
                         tr.tracker_id = tid.clone();
                     }
+                    tr.interval = Some(r.interval);
                     let interval = r.interval.max(min_interval.min(r.interval.max(60)));
                     tr.next_announce = Some(now + Duration::from_secs(interval as u64));
                     tr.min_announce = r.min_interval.map(|m| now + Duration::from_secs(m as u64));

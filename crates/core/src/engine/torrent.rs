@@ -460,6 +460,8 @@ impl Torrent {
                 .map(|t| t.url.clone())
                 .unwrap_or_default(),
             next_announce,
+            num_trackers: self.trackers.len() as u32,
+            announce_interval: self.trackers.iter().filter_map(|t| t.interval).max(),
             download_limit: self.download_limit.limit,
             upload_limit: self.upload_limit.limit,
             connections_limit: self.max_connections,
@@ -653,8 +655,17 @@ mod tests {
             t.resume_data().trackers,
             [vec!["udp://b".to_owned(), "udp://new".to_owned()], vec!["udp://d".to_owned()]]
         );
+        // the status counts the trackers and carries the longest announce interval known
+        let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
+        assert_eq!((st.num_trackers, st.announce_interval), (3, None));
+        t.trackers[0].interval = Some(1800);
+        t.trackers[2].interval = Some(2700);
+        let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
+        assert_eq!((st.num_trackers, st.announce_interval), (3, Some(2700)));
         t.replace_trackers(&[]);
         assert!(t.trackers.is_empty());
+        let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
+        assert_eq!((st.num_trackers, st.announce_interval), (0, None));
 
         // the per-torrent switches and limits are saved
         t.flags |= TorrentFlags::DISABLE_DHT | TorrentFlags::DISABLE_LSD;

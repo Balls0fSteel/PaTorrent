@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-19_230536_1792443936
+Last updated: 2026-10-19_232401_1792445041
 
 ## Vision
 
@@ -149,7 +149,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - UDP (BEP 15) with connection-id cache and retransmits
   - tiers (BEP 12), backoff, `stopped` / `completed` events
   - [x] HTTPS through the OS TLS layer (D9, `core::net::tls`): SChannel (TLS 1.2 and 1.3) on Windows, OpenSSL / LibreSSL on Unix; certificate and host-name checks on, SNI. Verified against Ubuntu's IPv4 and IPv6 HTTPS trackers
-  - [x] batched UDP scrapes (2026-10-19_231102_1792444262): `TorrentHandle::scrape_tracker`; the UDP scrapes asked for in one round of the engine loop go to each tracker in requests of up to 74 info-hashes (HTTP scrapes still carry one)
+  - [x] batched UDP scrapes (2026-10-19_231102_1792444262): `TorrentHandle::scrape_tracker`; the UDP scrapes asked for in one round of the engine loop go to each tracker in requests of up to 74 info-hashes (HTTP scrapes still carry one); the frontends scrape stopped and queued torrents for their swarm counts (2026-10-19_232401_1792445041, `frontend::scrape`, `SessionHandle::scrape_trackers`)
 - [x] HTTP client: parser, chunked encoding, redirects. gzip is not needed (we request identity encoding). OS TLS: done (`core::net::tls`).
 - [x] `store`: resume.db + metadata.pack, libtorrent fast-resume field names, metadata loaded only for running torrents
 - [x] Dev CLI: `patorrent-nox add <file> --save DIR [--seed]`, `run`, rate limits, per-user state directory, progress lines
@@ -313,7 +313,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 13. The Web UI's phone layout on a real phone.
 14. Release engineering: version 1.0.0 and peer-ID prefix `-PA1000-` (a test ties them), release notes, the parser security review (Continuous), then the `PA` registrations (libtorrent, Transmission, webtorrent, the BEP 20 list).
 
-**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; nothing calls `scrape_tracker` yet: µTorrent showed the swarm counts of stopped and queued torrents, which a periodic scrape of them would bring); `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; a disconnect alert with the close reason.
+**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; the Win32 GUI and the Web UI scrape stopped and queued torrents every 30 minutes since 2026-10-19_232401_1792445041); `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; a disconnect alert with the close reason.
 
 **Still to settle:** Properties > Advanced and the `rss.*` Advanced settings need a real µTorrent 2.2.1 to copy from.
 
@@ -345,6 +345,12 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
   - a label chosen in the dialog is stored as `torrent.<info-hash>.label` before the engine adds the torrent; if the add then fails, the line stays in `patorrent.ini` (harmless, reused if the torrent is added again).
   - µTorrent 2.2.1 also had "Don't show this again" and per-torrent "Advanced" (sequential download, initial seeding) in the dialog; not built.
   - adding a `.torrent` already in the list shows "already in the torrent list" instead of merging its trackers (µTorrent asks whether to load the new trackers).
+- Periodic scrape of stopped and queued torrents (CHANGELOG 2026-10-19_232401_1792445041):
+  - from memory, to check against a real 2.2.1: that it scraped stopped torrents as well as queued ones (µTorrent's Advanced `bt.scrape_stopped` may have been off by default), and how often. Ours: every paused torrent with trackers, every 30 minutes, with no option to turn it off (`ScrapeConfig` is fixed; an Advanced row would need the frontend-only rows the `rss.*` settings wait for too).
+  - the trackers' announce interval (`TorrentStatus::announce_interval`) is known only after an announce in this session, so after a restart a private tracker asking for more than 30 minutes is scraped every 30 minutes until the torrent runs once; storing the interval in resume data would close that.
+  - at most 200 torrents a round of 30 s (24,000 an hour): beyond about 12,000 paused torrents each is scraped less often than every 30 minutes, and the first pass after a start takes a while (10,000 torrents: about 25 minutes). HTTP trackers get one request per torrent, up to 200 at once.
+  - not seen on screen in the Win32 GUI (the demo engine's synthetic torrents carry counts anyway); the Web UI path is covered by a loopback test. nox scrapes only with `--webui`; no scrapes while the scheduler has the session turned off.
+  - scrape replies and failures stay out of both Loggers (one per torrent and interval).
 - Magnets through the Add dialog (CHANGELOG 2026-10-19_224116_1792442476):
   - the Win32 dialog was checked on the demo engine through window messages only (it opened with the magnet's name, Skip hash check greyed, OK closed it and cleared `torrent.<hash>.awaiting`); not clicked by hand, not tried with a real magnet on the real engine, nor across a restart while waiting (the model's persistence is unit-tested).
   - while it waits the row reads "[F] Downloading" at 0 B/s (forced, upload mode); µTorrent 3 showed "retrieving metadata" in the dialog itself. A queue-respecting wait would leave the dialog waiting behind full active slots.

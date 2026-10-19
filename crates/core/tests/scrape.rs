@@ -1,7 +1,9 @@
 //! Loopback tests for `TorrentHandle::scrape_tracker` (libtorrent `scrape_tracker`) against a
 //! BEP 15 tracker: stopped torrents scraped together get their own counts (the scrapes share
 //! requests, BEP 15 allowing 74 info-hashes in one), an index picks the tracker, and a
-//! tracker's error comes back as `ScrapeFailed` without touching the announce state. The
+//! tracker's error comes back as `ScrapeFailed` without touching the announce state, and
+//! `SessionHandle::scrape_trackers` sends one request for all its torrents and fills their
+//! status (`num_complete`, `num_incomplete`, `num_trackers`). The
 //! session runs with non-default socket buffer sizes (`send_socket_buffer_size`,
 //! `recv_socket_buffer_size`), which its tracker sockets take.
 
@@ -212,5 +214,52 @@ fn a_trackers_error_answers_the_scrape() {
         _ => false,
     });
     assert_eq!(tracker.join().unwrap(), [1]);
+    s.shutdown();
+}
+
+#[test]
+fn scrape_trackers_sends_one_request_and_fills_the_status() {
+    const N: u32 = 10;
+    let torrents: Vec<_> = (200..200 + N).map(fixture).collect();
+    let counts: HashMap<_, _> =
+        torrents.iter().enumerate().map(|(i, t)| (t.1, (30 + i as u32, 40 + i as u32))).collect();
+    let (url, tracker) = udp_tracker(counts, N as usize);
+    let s = start();
+    let h = s.handle();
+    let mut backlog = VecDeque::new();
+    let mut list: Vec<_> = torrents.iter().map(|t| (t.0.clone(), vec![url.clone()])).collect();
+    // one torrent without trackers: skipped, nothing reported for it
+    list.push((fixture(300).0, Vec::new()));
+    let ids = add_stopped(&h, &mut backlog, &list);
+    let bare = ids[N as usize];
+    h.scrape_trackers(ids.clone());
+    let mut got = HashMap::new();
+    wait(&h, &mut backlog, 15, "scrape replies", |a| {
+        match a {
+            Alert::ScrapeReply { id, complete, incomplete, .. } => {
+                assert_ne!(*id, bare);
+                got.insert(*id, (*complete, *incomplete));
+            }
+            Alert::ScrapeFailed { message, .. } => panic!("scrape failed: {message}"),
+            _ => {}
+        }
+        got.len() == N as usize
+    });
+    // one command, one round of the engine loop: one request for all ten
+    assert_eq!(tracker.join().unwrap(), [N as usize]);
+    h.post_torrent_updates();
+    let mut seen = HashMap::new();
+    wait(&h, &mut backlog, 10, "status", |a| {
+        if let Alert::StateUpdate(v) = a {
+            for st in v {
+                seen.insert(st.id, (st.num_complete, st.num_incomplete, st.num_trackers));
+            }
+        }
+        seen.len() == ids.len()
+    });
+    for (i, id) in ids[..N as usize].iter().enumerate() {
+        assert_eq!(seen[id], (Some(30 + i as u32), Some(40 + i as u32), 1), "torrent {i}");
+    }
+    assert_eq!(seen[&bare], (None, None, 0));
     s.shutdown();
 }

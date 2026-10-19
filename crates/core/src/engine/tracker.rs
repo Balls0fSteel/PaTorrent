@@ -63,6 +63,9 @@ pub(crate) struct TrackerEntry {
     pub message: String,
     pub scrape: Option<ScrapeEntry>,
     pub tracker_id: String,
+    /// The `interval` of the tracker's last announce reply, in seconds (kept while the torrent
+    /// is stopped, so frontends scrape it no more often).
+    pub interval: Option<u32>,
 }
 
 impl TrackerEntry {
@@ -80,6 +83,7 @@ impl TrackerEntry {
             message: String::new(),
             scrape: None,
             tracker_id: String::new(),
+            interval: None,
         }
     }
 

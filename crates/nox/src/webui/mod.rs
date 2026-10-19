@@ -39,6 +39,7 @@ use patorrent_core::{
 use patorrent_frontend::fmt;
 use patorrent_frontend::options::GuiOptions;
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
+use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 
@@ -348,6 +349,9 @@ pub(crate) struct State {
     pub gui_version: u64,
     /// The weekly scheduler's mode in force (Preferences > Scheduler is `prefs.schedule`).
     pub scheduler: Scheduler,
+    /// The periodic scrape that gives stopped and queued torrents their swarm counts, run on
+    /// the status tick.
+    pub scrapes: Scrapes,
     /// Stores and moves the `.torrent` copies (`prefs.torrent_folders`), fed every alert, and
     /// watches the auto-load folder on the status tick.
     pub torrent_files: TorrentFiles,
@@ -651,6 +655,7 @@ impl WebUi {
                 listen_addr: addr,
                 gui_version: 1,
                 scheduler: Scheduler::new(),
+                scrapes: Scrapes::default(),
                 torrent_files: TorrentFiles::new(),
                 autoload: Poller::new(),
                 replies: HashMap::new(),
@@ -854,6 +859,11 @@ impl WebUi {
             st.tick += 1;
             st.sample_speeds();
             self.shared.run_scheduler(&mut st, false);
+            // no scrapes while the scheduler has the session turned off
+            if st.scheduler.mode() != Mode::Off {
+                let s = &mut *st;
+                s.scrapes.run(s.torrents.values().map(|e| &e.status), Instant::now(), &self.shared.handle);
+            }
             found = autoload(&mut st, now);
         }
         drop(st);
@@ -922,7 +932,9 @@ fn autoload(st: &mut State, now: i64) -> Vec<(PathBuf, commands::Source)> {
 }
 
 /// Whether the Logger tab shows an alert: everything but the replies to `post_*` requests
-/// (the Win32 Logger's rule) and the port mappers' step-by-step chatter.
+/// (the Win32 Logger's rule), the port mappers' step-by-step chatter and scrape results (one
+/// per stopped or queued torrent every half hour, `frontend::scrape`; the counts show in the
+/// Seeds and Peers columns).
 fn logged(a: &Alert) -> bool {
     !matches!(
         a,
@@ -936,6 +948,8 @@ fn logged(a: &Alert) -> bool {
             | Alert::WebSeeds { .. }
             | Alert::TorrentFile { .. }
             | Alert::PortmapLog { .. }
+            | Alert::ScrapeReply { .. }
+            | Alert::ScrapeFailed { .. }
     )
 }
 
@@ -1067,6 +1081,7 @@ impl State {
             listen_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
             gui_version: 1,
             scheduler: Scheduler::new(),
+            scrapes: Scrapes::default(),
             torrent_files: TorrentFiles::new(),
             autoload: Poller::new(),
             replies: HashMap::new(),

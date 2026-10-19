@@ -182,6 +182,20 @@ impl Mock {
         slot_get(&mut self.slots, id)
     }
 
+    /// Made-up swarm counts from the tracker at `index` (else the first), as a `ScrapeReply`
+    /// and in the status, as the engine reports a scrape.
+    fn scrape(&mut self, id: TorrentId, index: Option<usize>) {
+        let Some(t) = self.get(id) else { return };
+        let list = tracker_list(t);
+        let i = index.filter(|&i| i < list.len()).unwrap_or(0);
+        let Some((url, _)) = list.into_iter().nth(i) else { return };
+        let (complete, incomplete) = ((t.seed % 500) as u32, (t.seed % 97) as u32);
+        t.st.num_complete = Some(complete);
+        t.st.num_incomplete = Some(incomplete);
+        t.dirty = true;
+        self.out.push(Alert::ScrapeReply { id, url, complete, incomplete });
+    }
+
     fn insert(&mut self, t: Torrent) -> TorrentId {
         let index = match self.free.pop() {
             Some(i) => i,
@@ -261,14 +275,10 @@ impl Mock {
                     self.out.push(Alert::TrackerReply { id, url, num_peers });
                 }
             }
-            Command::ScrapeTracker(id, index) => {
-                if let Some(t) = self.get(id) {
-                    let list = tracker_list(t);
-                    let i = index.filter(|&i| i < list.len()).unwrap_or(0);
-                    if let Some((url, _)) = list.into_iter().nth(i) {
-                        let (complete, incomplete) = ((t.seed % 500) as u32, (t.seed % 97) as u32);
-                        self.out.push(Alert::ScrapeReply { id, url, complete, incomplete });
-                    }
+            Command::ScrapeTracker(id, index) => self.scrape(id, index),
+            Command::ScrapeTrackers(ids) => {
+                for id in ids {
+                    self.scrape(id, None);
                 }
             }
             Command::SetFilePriority { id, file, priority } => {
@@ -331,6 +341,7 @@ impl Mock {
                         }
                     }
                     t.trackers = Some(v);
+                    t.dirty = true;
                 }
             }
             Command::AddTracker(id, e) => {
@@ -342,6 +353,7 @@ impl Mock {
                         v.insert(pos, (url.to_owned(), e.tier));
                     }
                     t.trackers = Some(v);
+                    t.dirty = true;
                 }
             }
             Command::MoveStorage(id, path, _) => {
@@ -368,6 +380,7 @@ impl Mock {
                 for t in self.slots.iter_mut().filter_map(|s| s.torrent.as_mut()) {
                     if t.dirty {
                         t.dirty = false;
+                        t.st.num_trackers = tracker_count(t);
                         changed.push(t.st.clone());
                     }
                 }
@@ -1104,6 +1117,14 @@ fn torrent_file_for(t: &Torrent) -> Option<Vec<u8>> {
         *root.key("announce") = url.as_str().into();
     }
     Some(root.bencode())
+}
+
+/// `tracker_list(t).len()` without building the list.
+fn tracker_count(t: &Torrent) -> u32 {
+    match &t.trackers {
+        Some(v) => v.len() as u32,
+        None => (1 + t.seed % 3) as u32 + t.extra_trackers.len() as u32,
+    }
 }
 
 fn trackers_for(t: &Torrent) -> Vec<String> {

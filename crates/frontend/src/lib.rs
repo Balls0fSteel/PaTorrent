@@ -19,6 +19,7 @@
 //! * [`properties`]: the Torrent Properties dialog (trackers, limits, seeding goal, switches).
 //! * [`seeding`]: the seeding goal: when a queued seed is stopped or held to an upload rate.
 //! * [`auto_shutdown`]: Options > Auto Shutdown (quit, standby, hibernate or shut down when done).
+//! * [`scrape`]: the periodic scrape that gives stopped and queued torrents their swarm counts.
 
 pub mod actions;
 pub mod add;
@@ -33,6 +34,7 @@ pub mod prefs;
 pub mod properties;
 pub mod rss;
 pub mod scheduler;
+pub mod scrape;
 pub mod seeding;
 pub mod settings;
 pub mod status;

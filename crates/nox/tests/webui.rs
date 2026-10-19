@@ -2755,3 +2755,73 @@ fn torrent_properties_and_the_shims_tracker_and_share_limit_edits() {
     let pref = |id: &str| m.get("fields").unwrap().get(id).unwrap().get("value").cloned().unwrap();
     assert_eq!((pref("queue.seed_ratio"), pref("queue.seed_limit")), (Json::Int(0), Json::Bool(true)));
 }
+
+/// A BEP 15 tracker that answers connects, and scrapes with 17 seeds and 23 peers for every
+/// info-hash. Returns its announce URL and the number of info-hashes it was asked about.
+fn scrape_tracker() -> (String, Arc<std::sync::atomic::AtomicUsize>) {
+    let s = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    s.set_read_timeout(Some(Duration::from_millis(200))).unwrap();
+    let url = format!("udp://{}/announce", s.local_addr().unwrap());
+    let asked = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counter = asked.clone();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 2048];
+        let started = Instant::now();
+        while started.elapsed() < Duration::from_secs(60) {
+            let Ok((n, from)) = s.recv_from(&mut buf) else { continue };
+            if n < 16 {
+                continue;
+            }
+            let action = u32::from_be_bytes(buf[8..12].try_into().unwrap());
+            let mut out = Vec::new();
+            out.extend_from_slice(&action.to_be_bytes());
+            out.extend_from_slice(&buf[12..16]);
+            match action {
+                0 => out.extend_from_slice(&0x0bad_cafeu64.to_be_bytes()),
+                2 => {
+                    let hashes = (n - 16) / 20;
+                    counter.fetch_add(hashes, Ordering::SeqCst);
+                    for _ in 0..hashes {
+                        for v in [17u32, 5, 23] {
+                            out.extend_from_slice(&v.to_be_bytes());
+                        }
+                    }
+                }
+                _ => continue,
+            }
+            let _ = s.send_to(&out, from);
+        }
+    });
+    (url, asked)
+}
+
+#[test]
+fn stopped_torrents_get_swarm_counts_from_the_periodic_scrape() {
+    let (url, asked) = scrape_tracker();
+    let t = Harness::start("scrape");
+    let sid = t.login();
+    let add = |bytes: &[u8]| {
+        let (body, boundary) = multipart(&[("paused", "true")], bytes);
+        let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+        assert_eq!(r.status, 200);
+    };
+    let (bytes, hash) = torrent_named("scraped", Some(&url));
+    add(&bytes);
+    // no trackers: never scraped, the counts stay unknown
+    let (bare_bytes, bare) = torrent_named("no-trackers", None);
+    add(&bare_bytes);
+    // the first round after the add (5 s at most) asks the tracker; nothing announces
+    let x = t.wait_for(&sid, &hash, "the scrape counts", |x| {
+        x.get("num_complete") == Some(&Json::Int(17)) && x.get("num_incomplete") == Some(&Json::Int(23))
+    });
+    // nothing connected: the cells read "0 (17)" and "0 (23)"
+    assert_eq!((x.get("num_seeds"), x.get("num_leechs")), (Some(&Json::Int(0)), Some(&Json::Int(0))));
+    let y = t.wait_for(&sid, &bare, "the bare torrent", |_| true);
+    assert_eq!(
+        (y.get("num_complete"), y.get("num_incomplete")),
+        (Some(&Json::Int(-1)), Some(&Json::Int(-1)))
+    );
+    // one scrape, not one per tick
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!(asked.load(Ordering::SeqCst), 1);
+}

@@ -2,6 +2,25 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_232401_1792445041: Stopped and queued torrents show their swarm counts
+
+### Added
+- **Periodic scrape** (`patorrent_frontend::scrape::Scrapes`): as in µTorrent 2.2.1, stopped and queued torrents show the tracker's counts in the Seeds and Peers columns ("0 (123)"). Every torrent that is paused (stopped, paused or queued: it does not announce) and has trackers is scraped every 30 minutes, never more often than the longest announce interval its trackers asked for, plus a fixed per-torrent stagger of up to an eighth of that. Unknown counts (restored at startup, added stopped) are due at once; a torrent stopped after running keeps its announce's counts for an interval first. Due torrents are collected per round (30 s after a round that asked, 5 s after one that found nothing) and asked for in one command, at most 200 a round, the longest waiting first. Running torrents and torrents without trackers are left alone.
+- The Win32 GUI runs it from its 1 s timer, nox's Web UI on the status tick; neither while the scheduler has the session turned off. The counts reach the list, the Web UI cells and the shim's `num_complete` / `num_incomplete` through the status, as the engine stores a scrape's counts there. Scrape replies and failures stay out of both Loggers (one per torrent and interval).
+- Engine: `SessionHandle::scrape_trackers(ids)`, one command for many torrents, so they are handled in one round of the engine loop and their UDP scrapes share requests for certain (separate `scrape_tracker` calls could straddle two rounds). `TorrentStatus::num_trackers` and `TorrentStatus::announce_interval` (the longest `interval` from the trackers' last announce replies this session, kept while the torrent is stopped; `TrackerEntry::interval`). The mock engine answers `scrape_trackers`, puts its made-up scrape counts into the status, reports `num_trackers`, and marks the status changed when trackers are replaced or added (as the engine does).
+
+### Decisions
+- The scheduler lives in `patorrent_frontend`, shared by the Win32 GUI, nox and later GTK, rather than in the engine: what to scrape and how often is a client's choice (libtorrent leaves it to clients too). docs/PORTING.md lists the two status fields and `scrape_trackers` under "Deliberate divergences".
+- Every paused torrent is scraped, stopped ones included, with no option; µTorrent's Advanced `bt.scrape_stopped` (from memory) has no counterpart yet. The trackers' announce interval is the floor for every torrent, not only private ones, because a stopped torrent's private flag is not known without its metadata (D5).
+- 200 torrents per 30 s round (24,000 scrapes an hour) keeps HTTP trackers, which take one request per torrent, from being flooded; bigger libraries are scraped less often than every 30 minutes.
+
+### Verified
+- New tests: `scrape::tests` (paused torrents with trackers only, once per interval with the stagger; a round's cap with the rest following, each once; the announce interval as a floor; known counts waiting an interval, running and removed torrents forgotten, a torrent added stopped picked up at the next check; through the mock engine: the stopped and the queued torrent get "0 (N)" in Seeds and Peers, a running one and one without trackers are not scraped), `engine::torrent` tests (`num_trackers`, `announce_interval`), loopback `tests/scrape.rs::scrape_trackers_sends_one_request_and_fills_the_status` (ten stopped torrents in exactly one UDP request, their status counts filled, a torrent without trackers skipped), nox `stopped_torrents_get_swarm_counts_from_the_periodic_scrape` (real engine and a UDP tracker: a stopped torrent's `num_complete` / `num_incomplete` in `torrents/info` within the first round, one scrape only; a torrent without trackers keeps -1).
+- Windows: `cargo test --workspace` 943 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`; `cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`; `cargo fmt --all --check`; no let-chains.
+
+### Issues
+- Not seen on screen in the Win32 GUI: its demo engine's synthetic torrents carry counts from the start, so a hand check needs the real engine with stopped torrents on public trackers.
+
 ## 2026-10-19_230536_1792443936: Languages chosen; the repository goes public
 
 ### Decisions

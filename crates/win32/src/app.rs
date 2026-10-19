@@ -31,6 +31,7 @@ use patorrent_frontend::properties::{Properties, TorrentProps};
 use patorrent_frontend::rss::view::{self as rss_view, ItemRow};
 use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
+use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::Category;
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
@@ -254,6 +255,9 @@ struct App {
     autoload: Poller,
     /// Preferences > Queueing "Seeding Goal", checked on every status update.
     seeding_goal: SeedingGoal,
+    /// The periodic scrape that gives stopped and queued torrents their swarm counts (run from
+    /// the timer).
+    scrapes: Scrapes,
     /// The RSS Downloader (`rss.dat` beside `patorrent.ini`), its fetches, whether it changed
     /// since it was saved, and its dialog while that is open.
     rss: RssDownloader,
@@ -688,6 +692,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             torrent_files: TorrentFiles::new(),
             autoload: Poller::new(),
             seeding_goal,
+            scrapes: Scrapes::default(),
             rss,
             rss_worker,
             rss_dirty: false,
@@ -1411,6 +1416,11 @@ fn on_timer() {
         a.handle.post_torrent_updates();
         a.handle.post_session_stats();
         run_scheduler(a, None);
+        // no scrapes while the scheduler has the session turned off
+        if a.scheduler.mode() != Mode::Off {
+            let list = &a.list;
+            a.scrapes.run(list.ids().filter_map(|id| list.get(id)), std::time::Instant::now(), &a.handle);
+        }
         autoload(a);
         rss_timer(a);
         let list = &a.list;
@@ -1721,6 +1731,9 @@ unsafe fn on_alerts(hwnd: HWND) {
                 | Alert::FileProgress { .. }
                 | Alert::PieceInfo { .. }
                 | Alert::TorrentFile { .. } => {}
+                // one per stopped or queued torrent every half hour (`frontend::scrape`); the
+                // counts show in the Seeds and Peers columns
+                Alert::ScrapeReply { .. } | Alert::ScrapeFailed { .. } => {}
                 // the mappers' step-by-step chatter (SOAP bodies included) stays out of the
                 // logger; the mapped ports, failures and the external address still show
                 Alert::PortmapLog { .. } => {}

@@ -1400,6 +1400,8 @@
           ...labels.map((l) => ({ label: l, key: "label:" + l, run: () => command("label", l) })),
         ],
       },
+      "-",
+      { label: "Properties", run: () => openProps(false) },
     ];
     // the phone's sheet: no folder to open on a phone; the detail sheet first (a tap opens it
     // too, but not in selection mode)
@@ -3176,9 +3178,160 @@
   $("tb-prefs").addEventListener("click", openPrefs);
   document.addEventListener("keydown", (ev) => {
     if (!(ev.ctrlKey || ev.metaKey) || ev.shiftKey || ev.altKey || ev.key.toLowerCase() !== "p") return;
-    if ($("app").hidden || addDlg.open) return;
+    if ($("app").hidden || addDlg.open || $("props").open) return;
     ev.preventDefault();
     if (!prefsDlg.open) openPrefs();
+  });
+
+  // ---- Torrent Properties (frontend::properties) -------------------------------------------
+  // The Win32 dialog's General tab on GET / POST pa/torrents/properties, opened from the
+  // context menu and by double-clicking a torrent that is not finished. The fields come as text
+  // (blank where the selected torrents differ), the check boxes as "on", "off" or "mixed". OK
+  // sends only the fields that changed: what the others hold stays as it is on every torrent.
+  const propsDlg = $("props");
+  let props = null; // {sel, loaded, multi, canSeed} while the dialog is open
+  let propsBusy = false; // a GET or the OK's POST in flight
+
+  const propsInputs = () => propsDlg.querySelectorAll("[data-f]");
+  const propsField = (f) => propsDlg.querySelector('[data-f="' + f + '"]');
+  function triOf(inp) {
+    return inp.indeterminate ? "mixed" : inp.checked ? "on" : "off";
+  }
+  function setTri(inp, v) {
+    inp.checked = v === "on";
+    inp.indeterminate = v === "mixed";
+    inp._tri = v;
+  }
+  /// The selection as the GET's query: the hashes, or with Ctrl+A the view's filter.
+  function propsQuery(s) {
+    if (!s.all) return "ids=" + s.ids.join(",");
+    const q = new URLSearchParams({ all: "1", category: s.filter.category, search: s.filter.search });
+    if (s.filter.label != null) q.set("label", s.filter.label);
+    return q.toString();
+  }
+  async function openProps(dblclick) {
+    const s = selection();
+    if (!s || propsBusy || propsDlg.open || $("app").hidden) return;
+    propsBusy = true;
+    let m;
+    try {
+      m = await pa("torrents/properties?" + propsQuery(s));
+    } catch (e) {
+      return; // shown by pa()
+    } finally {
+      propsBusy = false;
+    }
+    // the Win32 window opens a finished torrent's folder instead, which a browser cannot
+    if (dblclick && m.finished) return;
+    props = { sel: s, loaded: m.fields, multi: m.count > 1, canSeed: m.can_initial_seed };
+    $("props-title").textContent = "Properties - " + (m.count === 1 && m.name != null ? m.name : m.count + " torrents");
+    for (const inp of propsInputs()) {
+      const v = m.fields[inp.dataset.f];
+      if (inp.type === "checkbox") setTri(inp, v);
+      else inp.value = v;
+    }
+    showPropsError(null, "");
+    propsGrey();
+    propsDlg.showModal();
+    layerOpened(closeProps);
+    const tr = $("props-trackers");
+    tr.scrollTop = 0;
+    if (phone) $("props-ok").focus(); // no keyboard popping up over the dialog
+    else {
+      tr.focus();
+      tr.setSelectionRange(0, 0);
+    }
+  }
+  function closeProps() {
+    if (propsDlg.open) propsDlg.close();
+    props = null;
+    body.focus();
+  }
+  /// The slot count and the goal's values are edited only while their override is not off,
+  /// Initial Seeding only when every torrent is a seed (the Win32 dialog's greying).
+  function propsGrey() {
+    const on = (f) => triOf(propsField(f)) !== "off";
+    const grey = (f, off) => {
+      propsField(f).disabled = off;
+      propsField(f).closest(".pf").classList.toggle("disabled", off);
+    };
+    grey("upload_slots", !on("override_slots"));
+    grey("goal_ratio", !on("override_goal"));
+    grey("goal_minutes", !on("override_goal"));
+    grey("initial_seeding", !props.canSeed);
+  }
+  /// A validation error under its field, which takes the focus with the text selected (the
+  /// tracker box selects the line named); without a field, above the buttons.
+  function showPropsError(inp, text) {
+    const el = $("props-err");
+    for (const i of propsInputs()) i.classList.remove("bad");
+    el.textContent = text;
+    el.hidden = !text;
+    if (!text) return;
+    if (!inp) {
+      propsDlg.querySelector(".props-btns").before(el);
+      return;
+    }
+    (inp.closest(".pf") || inp).after(el);
+    inp.classList.add("bad");
+    inp.focus();
+    const line = /^"(.*)" is not/.exec(text);
+    const at = line ? inp.value.indexOf(line[1]) : -1;
+    if (at >= 0) inp.setSelectionRange(at, at + line[1].length);
+    else inp.select();
+  }
+  async function okProps() {
+    if (!props || propsBusy) return;
+    const fields = {};
+    for (const inp of propsInputs()) {
+      const v = inp.type === "checkbox" ? triOf(inp) : inp.value;
+      if (v !== props.loaded[inp.dataset.f]) fields[inp.dataset.f] = v;
+    }
+    if (Object.keys(fields).length) {
+      propsBusy = true;
+      try {
+        await pa("torrents/properties", { ...props.sel, fields });
+      } catch (e) {
+        // {"error": "<field>: <why>"} names the first bad field
+        const m = /^([a-z_]+): ([\s\S]*)$/.exec(e.msg || "");
+        if (m && propsField(m[1])) showPropsError(propsField(m[1]), m[2]);
+        else showPropsError(null, e.msg || "The properties could not be set.");
+        return;
+      } finally {
+        propsBusy = false;
+      }
+    }
+    closeProps();
+  }
+  propsDlg.addEventListener("click", (ev) => {
+    const inp = ev.target;
+    if (inp.type !== "checkbox" || !inp.dataset.f) return;
+    // several torrents give the boxes a third state, cycled as BS_AUTO3STATE: off, on, mixed
+    const next = { off: "on", on: props && props.multi ? "mixed" : "off", mixed: "off" };
+    setTri(inp, next[inp._tri] || "on");
+    propsGrey();
+  });
+  propsDlg.addEventListener("input", (ev) => {
+    if (ev.target.classList.contains("bad")) showPropsError(null, "");
+  });
+  $("props-form").addEventListener("submit", (ev) => {
+    ev.preventDefault(); // Enter in a number field: OK, the Win32 dialog's default button
+    okProps();
+  });
+  $("props-form").addEventListener("keydown", (ev) => {
+    // Enter is a new line in the tracker box; Ctrl+Enter is OK anywhere, Enter on a check box too
+    if (ev.key !== "Enter" || !(ev.ctrlKey || ev.metaKey || ev.target.type === "checkbox")) return;
+    ev.preventDefault();
+    okProps();
+  });
+  $("props-cancel").addEventListener("click", closeProps);
+  propsDlg.addEventListener("close", () => layerClosed(closeProps));
+  propsDlg.addEventListener("cancel", (ev) => {
+    ev.preventDefault(); // Escape
+    closeProps();
+  });
+  body.addEventListener("dblclick", (ev) => {
+    if (!phone && rowOf(ev.target)) openProps(true);
   });
 
   // ---- splitters -----------------------------------------------------------------------

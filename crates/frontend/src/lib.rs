@@ -18,9 +18,11 @@
 //! * [`rss`]: RSS / Atom feeds and the RSS Downloader (filters, episodes, history, `rss.dat`).
 //! * [`properties`]: the Torrent Properties dialog (trackers, limits, seeding goal, switches).
 //! * [`seeding`]: the seeding goal: when a queued seed is stopped or held to an upload rate.
+//! * [`auto_shutdown`]: Options > Auto Shutdown (quit, standby, hibernate or shut down when done).
 
 pub mod actions;
 pub mod add;
+pub mod auto_shutdown;
 pub mod columns;
 pub mod create;
 pub mod detail;

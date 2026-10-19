@@ -359,3 +359,48 @@ fn replaced_trackers_are_announced_to_and_saved_with_the_switches() {
         let _ = std::fs::remove_dir_all(d);
     }
 }
+
+fn copy_dir(from: &Path, to: &Path) {
+    std::fs::create_dir_all(to).unwrap();
+    for e in std::fs::read_dir(from).unwrap() {
+        let e = e.unwrap();
+        if e.file_type().unwrap().is_dir() {
+            copy_dir(&e.path(), &to.join(e.file_name()));
+        } else {
+            std::fs::copy(e.path(), to.join(e.file_name())).unwrap();
+        }
+    }
+}
+
+/// `save_resume_data` (before a standby or hibernation) writes the state at once: a copy of the
+/// state directory taken when `ResumeDataSaved` arrives, with the session still running,
+/// restores the torrent with the change made just before.
+#[test]
+fn save_resume_data_writes_the_state_while_running() {
+    let f = fixture("save");
+    let state = temp_dir("sstate");
+    let dir = temp_dir("sdl");
+    let (s, mut w) = start(settings(), Some(state.clone()));
+    let id = add(&mut w, &f, &dir, 0);
+    w.h.torrent(id).set_flags(TorrentFlags::DISABLE_PEX);
+    w.h.torrent(id).set_max_uploads(5);
+    w.h.save_resume_data();
+    wait(&mut w, 5, "resume data saved", |a| matches!(a, Alert::ResumeDataSaved).then_some(()));
+    let copy = temp_dir("scopy");
+    copy_dir(&state, &copy);
+
+    let (restored, mut rw) = start(settings(), Some(copy.clone()));
+    let rid = wait(&mut rw, 5, "the restored torrent", |a| match a {
+        Alert::StateUpdate(v) => v.first().map(|s| s.id),
+        _ => None,
+    });
+    let st = status(&mut rw, rid, "restored", |_| true);
+    assert!(st.flags.contains(TorrentFlags::DISABLE_PEX), "{:?}", st.flags);
+    assert_eq!(st.uploads_limit, Some(5));
+
+    restored.shutdown();
+    s.shutdown();
+    for d in [state, dir, copy] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}

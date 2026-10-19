@@ -28,6 +28,8 @@ mod properties;
 #[cfg(windows)]
 mod sched_grid;
 #[cfg(windows)]
+mod shutdown;
+#[cfg(windows)]
 mod tray;
 #[cfg(windows)]
 mod util;

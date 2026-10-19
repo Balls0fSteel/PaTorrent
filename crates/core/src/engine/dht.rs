@@ -20,6 +20,7 @@ use crate::alert::Alert;
 use crate::bencode::bdecode;
 use crate::dht::{AnnounceArgs, DhtEvent, DhtSettings, DhtState, DhtTracker, read_dht_state, save_dht_state};
 use crate::net::resolver::Resolved;
+use crate::params::TorrentFlags;
 use crate::proto::proxy::Target;
 use crate::status::PeerSource;
 use crate::types::TorrentId;
@@ -373,8 +374,8 @@ impl Engine {
         if t.has_metadata() && (t.checking || !t.checked) && t.fetch.is_none() {
             return false;
         }
-        // never announce private torrents
-        !t.ti.as_ref().is_some_and(|ti| ti.is_private())
+        // never announce private torrents, nor ones with the DHT switched off (`m_enable_dht`)
+        !t.ti.as_ref().is_some_and(|ti| ti.is_private()) && !t.flags.contains(TorrentFlags::DISABLE_DHT)
     }
 
     /// libtorrent `torrent::dht_announce`. With incoming uTP on, `implied_port` asks the node

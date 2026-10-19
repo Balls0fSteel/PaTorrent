@@ -24,6 +24,8 @@ mod icons;
 #[cfg(windows)]
 mod preferences;
 #[cfg(windows)]
+mod properties;
+#[cfg(windows)]
 mod sched_grid;
 #[cfg(windows)]
 mod tray;

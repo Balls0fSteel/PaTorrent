@@ -36,6 +36,10 @@ pub(crate) struct ResumeData {
     pub sequential_download: bool,
     /// BEP 16 (libtorrent `super_seeding`).
     pub super_seeding: bool,
+    /// Per-torrent switches (libtorrent `disable_dht`, `disable_lsd`, `disable_pex`).
+    pub disable_dht: bool,
+    pub disable_lsd: bool,
+    pub disable_pex: bool,
     pub file_priority: Vec<u8>,
     /// Files stored under another name (libtorrent `mapped_files`).
     pub mapped_files: std::collections::BTreeMap<u32, String>,
@@ -102,6 +106,9 @@ impl ResumeData {
         *e.key("auto_managed") = int(self.auto_managed as i64);
         *e.key("sequential_download") = int(self.sequential_download as i64);
         *e.key("super_seeding") = int(self.super_seeding as i64);
+        *e.key("disable_dht") = int(self.disable_dht as i64);
+        *e.key("disable_lsd") = int(self.disable_lsd as i64);
+        *e.key("disable_pex") = int(self.disable_pex as i64);
         if !self.file_priority.is_empty() {
             *e.key("file_priority") =
                 Entry::List(self.file_priority.iter().map(|&p| int(p as i64)).collect());
@@ -198,6 +205,9 @@ impl ResumeData {
             auto_managed: int("auto_managed") != 0,
             sequential_download: int("sequential_download") != 0,
             super_seeding: int("super_seeding") != 0,
+            disable_dht: int("disable_dht") != 0,
+            disable_lsd: int("disable_lsd") != 0,
+            disable_pex: int("disable_pex") != 0,
             upload_rate_limit: opt("upload_rate_limit").unwrap_or(0),
             download_rate_limit: opt("download_rate_limit").unwrap_or(0),
             max_connections: opt("max_connections"),
@@ -294,6 +304,8 @@ mod tests {
             paused: true,
             auto_managed: true,
             super_seeding: true,
+            disable_dht: true,
+            disable_pex: true,
             file_priority: vec![4, 0, 7],
             mapped_files: [(1, "x/renamed.bin".to_owned()), (3, "/abs/y".to_owned())].into(),
             trackers: vec![vec!["http://a/announce".into()], vec!["udp://b:1".into(), "udp://c:2".into()]],
@@ -319,6 +331,8 @@ mod tests {
         let mapped = root.dict_find_list("mapped_files").unwrap();
         let names: Vec<_> = mapped.list_iter().map(|n| n.str_value().unwrap()).collect();
         assert_eq!(names, ["", "x/renamed.bin", "", "/abs/y"]);
+        assert_eq!(root.dict_find_int_value("disable_dht"), Some(1));
+        assert_eq!(root.dict_find_int_value("disable_lsd"), Some(0));
         let u = root.dict_find_list("unfinished").unwrap().list_at(0).unwrap();
         assert_eq!(u.dict_find_int_value("piece"), Some(4));
         assert_eq!(u.dict_find_string_value("bitmask").unwrap(), &[0b1010_0000, 0x01]);

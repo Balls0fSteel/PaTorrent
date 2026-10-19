@@ -10,20 +10,24 @@
 //! `frontend::add::AddChoice`, the Add New Torrent dialog's model, so the Web UI and the Win32
 //! dialog add the same way.
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
-    AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags, TorrentId,
-    TorrentSource,
+    AddTorrentParams, AnnounceEntry, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags,
+    TorrentId, TorrentSource,
 };
 use patorrent_frontend::actions;
 use patorrent_frontend::add::{self, AddChoice};
 use patorrent_frontend::fmt;
+use patorrent_frontend::properties::{self, Changes, Field, Fields, Properties, TorrentProps, Tri};
+use patorrent_frontend::seeding::SeedGoal;
 use patorrent_frontend::status::Category;
 
 use super::api::Request;
-use super::http::{Head, Part, Response, multipart_boundary, parse_header_params, parse_multipart};
+use super::http::{
+    Head, Part, Response, multipart_boundary, parse_header_params, parse_multipart, parse_urlencoded,
+};
 use super::json::{self, Json};
 use super::native::category_from_id;
 use super::torrent::hash_of;
@@ -332,6 +336,211 @@ pub fn super_seed(shared: &Shared, ids: &[TorrentId], on: bool) {
             t.unset_flags(TorrentFlags::SUPER_SEEDING);
         }
     }
+}
+
+// --- Torrent Properties (`frontend::properties`) ----------------------------------------------
+
+/// Each torrent's tracker list, asked of the engine (outside the lock); a torrent that does not
+/// answer in time is left out.
+fn tracker_lists(shared: &Shared, ids: &[TorrentId]) -> HashMap<TorrentId, Vec<AnnounceEntry>> {
+    let mut out = HashMap::new();
+    for &id in ids {
+        if let Some(Reply::Trackers(list)) =
+            shared.query(id, ReplyKind::Trackers, |h| h.torrent(id).post_trackers())
+        {
+            out.insert(id, list);
+        }
+    }
+    out
+}
+
+/// The Properties dialog's model for `ids`, as the Win32 dialog loads it.
+pub fn properties(shared: &Shared, ids: &[TorrentId]) -> Result<Properties, CmdError> {
+    let trackers = tracker_lists(shared, ids);
+    let st = shared.lock();
+    let items: Vec<TorrentProps> = ids
+        .iter()
+        .filter_map(|id| {
+            let e = st.torrents.get(id)?;
+            Some(TorrentProps::new(&e.status, trackers.get(id).map(Vec::as_slice), &st.options))
+        })
+        .collect();
+    if items.is_empty() {
+        return Err(not_found());
+    }
+    Ok(Properties::load(&items, st.prefs.gui().property_defaults()))
+}
+
+fn tri_name(t: Tri) -> &'static str {
+    match t {
+        Tri::Off => "off",
+        Tri::On => "on",
+        Tri::Mixed => "mixed",
+    }
+}
+
+/// `GET /pa/torrents/properties?ids=<hash>,<hash>`: the fields (text as the dialog shows it,
+/// check boxes as `"on"`, `"off"` or `"mixed"`), how many torrents, and whether Initial
+/// Seeding can be set.
+pub fn properties_json(p: &Properties) -> Json {
+    let f = &p.fields;
+    let fields = Json::obj()
+        .with("trackers", f.trackers.as_str())
+        .with("upload_kib", f.upload_kib.as_str())
+        .with("download_kib", f.download_kib.as_str())
+        .with("override_slots", tri_name(f.override_slots))
+        .with("upload_slots", f.upload_slots.as_str())
+        .with("override_goal", tri_name(f.override_goal))
+        .with("goal_ratio", f.goal_ratio.as_str())
+        .with("goal_minutes", f.goal_minutes.as_str())
+        .with("initial_seeding", tri_name(f.initial_seeding))
+        .with("dht", tri_name(f.dht))
+        .with("pex", tri_name(f.pex));
+    Json::obj().with("count", p.count).with("can_initial_seed", p.can_initial_seed).with("fields", fields)
+}
+
+/// Sets the fields a partial `fields` object names (same names and values as the `GET`).
+fn overlay(f: &mut Fields, body: &Json) -> Result<(), CmdError> {
+    for (k, v) in body.entries() {
+        let text = || v.as_str().map(str::to_owned).ok_or_else(|| err(400, format!("{k} must be a string")));
+        let tri = || match v.as_str() {
+            Some("on") => Ok(Tri::On),
+            Some("off") => Ok(Tri::Off),
+            Some("mixed") => Ok(Tri::Mixed),
+            _ => match v.as_bool() {
+                Some(b) => Ok(if b { Tri::On } else { Tri::Off }),
+                None => Err(err(400, format!("{k} must be on, off or mixed"))),
+            },
+        };
+        match k.as_str() {
+            "trackers" => f.trackers = text()?,
+            "upload_kib" => f.upload_kib = text()?,
+            "download_kib" => f.download_kib = text()?,
+            "upload_slots" => f.upload_slots = text()?,
+            "goal_ratio" => f.goal_ratio = text()?,
+            "goal_minutes" => f.goal_minutes = text()?,
+            "override_slots" => f.override_slots = tri()?,
+            "override_goal" => f.override_goal = tri()?,
+            "initial_seeding" => f.initial_seeding = tri()?,
+            "dht" => f.dht = tri()?,
+            "pex" => f.pex = tri()?,
+            _ => return Err(err(400, format!("unknown field {k}"))),
+        }
+    }
+    Ok(())
+}
+
+fn field_name(f: Field) -> &'static str {
+    match f {
+        Field::Trackers => "trackers",
+        Field::UploadRate => "upload_kib",
+        Field::DownloadRate => "download_kib",
+        Field::UploadSlots => "upload_slots",
+        Field::GoalRatio => "goal_ratio",
+        Field::GoalMinutes => "goal_minutes",
+    }
+}
+
+/// `POST /pa/torrents/properties`: the selection plus `fields`; the fields left out stay as
+/// loaded, and so what they hold stays on every torrent. 400 names the first bad field.
+pub fn set_properties(shared: &Shared, ids: &[TorrentId], fields: &Json) -> Result<(), CmdError> {
+    let mut p = properties(shared, ids)?;
+    overlay(&mut p.fields, fields)?;
+    let changes = p.changes().map_err(|e| err(400, format!("{}: {}", field_name(e.field), e.message)))?;
+    apply_properties(shared, ids, &changes);
+    Ok(())
+}
+
+/// The engine calls, and the seeding goal override in the stored preferences.
+pub fn apply_properties(shared: &Shared, ids: &[TorrentId], changes: &Changes) {
+    if changes.is_empty() {
+        return;
+    }
+    let mut st = shared.lock();
+    let defaults = st.prefs.gui().property_defaults();
+    for id in ids {
+        let Some(key) = st.torrents.get(id).map(|e| e.status.info_hashes.key_hex()) else { continue };
+        changes.apply(&shared.handle.torrent(*id));
+        changes.store(&mut st.options, &key, &defaults);
+    }
+    if changes.seed_goal.is_some() {
+        shared.save(&st);
+    }
+}
+
+/// The shim's `editTracker`: one URL replaced in place. 400 for a URL that is not a tracker,
+/// 409 when the old one is not in the list or the new one already is.
+pub fn edit_tracker(shared: &Shared, id: TorrentId, orig: &str, new: &str) -> Result<(), CmdError> {
+    let new = new.trim();
+    properties::parse_trackers(new)
+        .ok()
+        .filter(|t| t.len() == 1)
+        .ok_or_else(|| err(400, "newUrl is not a valid URL"))?;
+    let list = tracker_lists(shared, &[id]).remove(&id).ok_or_else(not_found)?;
+    if list.iter().any(|t| t.url == new) {
+        return Err(err(409, "newUrl already exists for the torrent"));
+    }
+    let Some(i) = list.iter().position(|t| t.url == orig.trim()) else {
+        return Err(err(409, "origUrl was not found"));
+    };
+    let mut entries: Vec<AnnounceEntry> =
+        list.iter().map(|t| AnnounceEntry::new(t.url.clone(), t.tier)).collect();
+    entries[i].url = new.to_owned();
+    shared.handle.torrent(id).replace_trackers(entries);
+    Ok(())
+}
+
+/// The shim's `addTrackers`: each new URL in a tier of its own after the existing ones (lines
+/// that are not tracker URLs are skipped, as the shim reports nothing per URL).
+pub fn add_trackers(shared: &Shared, ids: &[TorrentId], urls: &str) {
+    let lists = tracker_lists(shared, ids);
+    let valid = |u: &&str| properties::parse_trackers(u).is_ok_and(|v| !v.is_empty());
+    for &id in ids {
+        let first = lists.get(&id).and_then(|l| l.iter().map(|t| t.tier).max()).map_or(0, |t| t + 1);
+        let t = shared.handle.torrent(id);
+        for (tier, url) in (first..).zip(urls.lines().map(str::trim).filter(valid)) {
+            t.add_tracker(AnnounceEntry::new(url, tier));
+        }
+    }
+}
+
+/// The shim's `removeTrackers`: `urls` `|`-separated. 409 when none of them was there.
+pub fn remove_trackers(shared: &Shared, ids: &[TorrentId], urls: &str) -> Result<(), CmdError> {
+    let gone: HashSet<&str> = urls.split('|').map(str::trim).filter(|u| !u.is_empty()).collect();
+    let mut removed = false;
+    for (id, list) in tracker_lists(shared, ids) {
+        if !list.iter().any(|t| gone.contains(t.url.as_str())) {
+            continue;
+        }
+        removed = true;
+        let keep = list
+            .iter()
+            .filter(|t| !gone.contains(t.url.as_str()))
+            .map(|t| AnnounceEntry::new(t.url.clone(), t.tier))
+            .collect();
+        shared.handle.torrent(id).replace_trackers(keep);
+    }
+    if removed { Ok(()) } else { Err(err(409, "All urls were not found")) }
+}
+
+/// The shim's `setShareLimits` on the seeding goal: `ratio` (-2 the default, -1 none) and
+/// `minutes` (the same) become the torrent's own goal; both -2 drop it.
+pub fn share_limits(shared: &Shared, ids: &[TorrentId], ratio: f64, minutes: i64) {
+    let mut st = shared.lock();
+    let default = st.prefs.seeding_goal.goal;
+    for id in ids {
+        let Some(key) = st.torrents.get(id).map(|e| e.status.info_hashes.key_hex()) else { continue };
+        let goal = (ratio != -2.0 || minutes != -2).then(|| SeedGoal {
+            ratio_pct: if ratio == -2.0 {
+                default.ratio_pct
+            } else {
+                (ratio.max(0.0) * 100.0).round().min(1e6) as u32
+            },
+            minutes: if minutes == -2 { default.minutes } else { minutes.clamp(0, 1_000_000) as u32 },
+        });
+        SeedGoal::store_override(&mut st.options, &key, goal);
+    }
+    shared.save(&st);
 }
 
 /// The engine's file list, or the shim's 409 when the metadata is not there yet.
@@ -814,6 +1023,18 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Respons
                 let st = shared.lock();
                 Ok(Response::json(&prefs::model(shared, &st)))
             }
+            "torrents/properties" => {
+                let q = parse_urlencoded(req.head.query.as_bytes());
+                let hashes = q.iter().rev().find(|(k, _)| k == "ids").map(|(_, v)| v.as_str()).unwrap_or("");
+                let ids: Vec<TorrentId> = {
+                    let st = shared.lock();
+                    hashes
+                        .split(',')
+                        .filter_map(|h| st.by_hash.get(&h.trim().to_ascii_lowercase()).copied())
+                        .collect()
+                };
+                Ok(Response::json(&properties_json(&properties(shared, &ids)?)))
+            }
             _ => Err(err(405, "POST only")),
         };
     }
@@ -956,6 +1177,7 @@ fn torrent_command(shared: &Shared, cmd: &str, body: &Json) -> Result<(), CmdErr
         "label" => label(shared, &ids, body.get("label").and_then(Json::as_str).unwrap_or(""))?,
         "location" => location(shared, &ids, body.get("path").and_then(Json::as_str).unwrap_or(""))?,
         "super-seed" => super_seed(shared, &ids, body.get("on").and_then(Json::as_bool).unwrap_or(true)),
+        "properties" => set_properties(shared, &ids, body.get("fields").unwrap_or(&Json::obj()))?,
         _ => return Err(err(404, "no such command")),
     }
     Ok(())

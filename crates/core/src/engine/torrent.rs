@@ -233,6 +233,31 @@ impl Torrent {
         self.trackers.insert(pos, TrackerEntry::new(url.to_owned(), tier));
     }
 
+    /// libtorrent `replace_trackers`: the new list, ordered by tier (stably), without empty
+    /// URLs and repeats. A URL that was in the list keeps its entry's state (next announce,
+    /// `started` sent, scrape), as libtorrent keeps what a client passes back from `trackers()`;
+    /// new ones are announced to on the next tick.
+    pub fn replace_trackers(&mut self, list: &[(String, u32)]) {
+        let mut old = std::mem::take(&mut self.trackers);
+        let mut sorted: Vec<&(String, u32)> = list.iter().collect();
+        sorted.sort_by_key(|(_, tier)| *tier);
+        for (url, tier) in sorted {
+            let url = url.trim();
+            if url.is_empty() || self.trackers.iter().any(|t| t.url == url) {
+                continue;
+            }
+            let entry = match old.iter().position(|t| t.url == url) {
+                Some(i) => {
+                    let mut e = old.swap_remove(i);
+                    e.tier = *tier;
+                    e
+                }
+                None => TrackerEntry::new(url.to_owned(), *tier),
+            };
+            self.trackers.push(entry);
+        }
+    }
+
     /// The info dictionary is known (it may still be in the store rather than loaded).
     pub fn has_metadata(&self) -> bool {
         self.num_pieces > 0
@@ -437,6 +462,8 @@ impl Torrent {
             next_announce,
             download_limit: self.download_limit.limit,
             upload_limit: self.upload_limit.limit,
+            connections_limit: self.max_connections,
+            uploads_limit: self.max_uploads,
         }
     }
 
@@ -475,6 +502,9 @@ impl Torrent {
             auto_managed: self.flags.contains(TorrentFlags::AUTO_MANAGED),
             sequential_download: self.flags.contains(TorrentFlags::SEQUENTIAL_DOWNLOAD),
             super_seeding: self.flags.contains(TorrentFlags::SUPER_SEEDING),
+            disable_dht: self.flags.contains(TorrentFlags::DISABLE_DHT),
+            disable_lsd: self.flags.contains(TorrentFlags::DISABLE_LSD),
+            disable_pex: self.flags.contains(TorrentFlags::DISABLE_PEX),
             file_priority: self.file_priority.clone(),
             mapped_files: self.renamed_files.clone(),
             trackers,
@@ -603,5 +633,36 @@ mod tests {
             [vec!["udp://a".to_owned()], vec!["udp://b".to_owned(), "udp://c".to_owned()]]
         );
         assert_eq!(r.pieces.unwrap().count(), 2);
+
+        // replace_trackers: sorted by tier, repeats and blanks dropped, kept entries keep state
+        t.trackers[1].start_sent = true;
+        t.trackers[1].message = "kept".into();
+        t.replace_trackers(&[
+            ("udp://new".into(), 2),
+            (" udp://b ".into(), 0),
+            ("".into(), 0),
+            ("udp://d".into(), 1),
+            ("udp://new".into(), 0),
+        ]);
+        let list: Vec<(&str, u32)> = t.trackers.iter().map(|e| (e.url.as_str(), e.tier)).collect();
+        // (a repeated URL keeps its lowest tier)
+        assert_eq!(list, [("udp://b", 0), ("udp://new", 0), ("udp://d", 1)]);
+        assert!(t.trackers[0].start_sent && t.trackers[0].message == "kept");
+        assert!(!t.trackers[1].start_sent);
+        assert_eq!(
+            t.resume_data().trackers,
+            [vec!["udp://b".to_owned(), "udp://new".to_owned()], vec!["udp://d".to_owned()]]
+        );
+        t.replace_trackers(&[]);
+        assert!(t.trackers.is_empty());
+
+        // the per-torrent switches and limits are saved
+        t.flags |= TorrentFlags::DISABLE_DHT | TorrentFlags::DISABLE_LSD;
+        t.max_uploads = Some(3);
+        let r = t.resume_data();
+        assert!(r.disable_dht && r.disable_lsd && !r.disable_pex);
+        assert_eq!(r.max_uploads, Some(3));
+        let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
+        assert_eq!((st.uploads_limit, st.connections_limit), (Some(3), None));
     }
 }

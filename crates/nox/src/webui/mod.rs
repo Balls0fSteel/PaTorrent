@@ -35,8 +35,10 @@ use patorrent_core::{
     Alert, AnnounceEntry, Bitfield, FileEntry, MoveCompleted, PeerInfo, SessionHandle, SessionStats,
     Settings, TorrentFlags, TorrentId, TorrentStatus,
 };
+use patorrent_frontend::fmt;
 use patorrent_frontend::options::GuiOptions;
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
+use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 
 use auth::{BanList, PasswordHash};
@@ -142,6 +144,8 @@ pub(crate) struct Prefs {
     pub pex: bool,
     pub max_peers_per_torrent: u32,
     pub upload_slots_per_torrent: u32,
+    /// Preferences > Queueing's seeding goal (`GuiOptions::seeding_goal`).
+    pub seeding_goal: SeedingGoal,
     /// The IP filter: on, and the block list (empty = `ipfilter.dat` in the state directory).
     pub ip_filter: bool,
     pub ip_filter_path: String,
@@ -180,6 +184,7 @@ impl Prefs {
             pex: true,
             max_peers_per_torrent: 0,
             upload_slots_per_torrent: 0,
+            seeding_goal: SeedingGoal::default(),
             ip_filter: false,
             ip_filter_path: String::new(),
             schedule: Schedule::default(),
@@ -214,6 +219,10 @@ impl Prefs {
             pex: self.pex,
             max_peers_per_torrent: self.max_peers_per_torrent,
             upload_slots_per_torrent: self.upload_slots_per_torrent,
+            seed_ratio: self.seeding_goal.goal.ratio_pct,
+            seed_minutes: self.seeding_goal.goal.minutes,
+            seed_limit_upload: self.seeding_goal.limit_upload,
+            seed_limit_kib: self.seeding_goal.limit_kib,
             ip_filter: self.ip_filter,
             ip_filter_path: self.ip_filter_path.clone(),
             schedule: self.schedule.clone(),
@@ -233,6 +242,7 @@ impl Prefs {
         self.pex = g.pex;
         self.max_peers_per_torrent = g.max_peers_per_torrent;
         self.upload_slots_per_torrent = g.upload_slots_per_torrent;
+        self.seeding_goal = g.seeding_goal();
         self.ip_filter = g.ip_filter;
         self.ip_filter_path = g.ip_filter_path.clone();
         self.schedule = g.schedule.clone();
@@ -676,8 +686,27 @@ impl WebUi {
             }
             match a {
                 Alert::StateUpdate(v) => {
+                    let goal = st.prefs.seeding_goal;
                     for s in v {
                         st.update(s.clone(), now);
+                        // Queueing > Seeding Goal: stop or limit a queued seed past its goal
+                        if s.is_finished {
+                            let own = SeedGoal::load_override(&st.options, &s.info_hashes.key_hex());
+                            if let Some(action) = goal.check(s, own) {
+                                action.apply(&self.shared.handle.torrent(s.id));
+                                let what = match action {
+                                    GoalAction::Stop => "stopped".to_owned(),
+                                    GoalAction::LimitUpload(b) => {
+                                        format!("upload limited to {}", fmt::speed_always(b))
+                                    }
+                                };
+                                st.push_log(
+                                    Some(s.id),
+                                    format!("{}: seeding goal reached, {what}", s.name),
+                                    now,
+                                );
+                            }
+                        }
                     }
                     ticked = true;
                 }
@@ -705,7 +734,10 @@ impl WebUi {
                         st.by_hash.remove(&e.hash);
                         st.meta.remove(&e.hash);
                         st.removals += 1;
-                        let forget = st.torrent_categories.remove(&e.hash).is_some();
+                        let key = e.status.info_hashes.key_hex();
+                        let had_goal = SeedGoal::load_override(&st.options, &key).is_some();
+                        SeedGoal::store_override(&mut st.options, &key, None);
+                        let forget = st.torrent_categories.remove(&e.hash).is_some() | had_goal;
                         if st.user_paused.remove(&e.hash) | forget {
                             self.shared.save(&st);
                         }

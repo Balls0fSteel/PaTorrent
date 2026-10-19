@@ -187,6 +187,7 @@ nothing is 404. The shim's `torrents/*` handlers call the same functions.
 | `/pa/torrents/location` | `{"ids":[...],"path":"..."}` | `move_storage` (Set Download Location) |
 | `/pa/torrents/super-seed` | `{"ids":[...],"on":true}` | Initial Seeding |
 | `/pa/torrents/files` | `{"id":"...","priorities":{"<index>":0..7}}` | file priorities |
+| `/pa/torrents/properties` (`GET ?ids=<hash>,<hash>`, `POST`) | `GET`: `count`, `can_initial_seed`, `fields` (`trackers` one URL per line with a blank line between tiers, `upload_kib`, `download_kib`, `upload_slots`, `goal_ratio`, `goal_minutes` as text, blank where the torrents differ; `override_slots`, `override_goal`, `initial_seeding`, `dht`, `pex` as `"on"` / `"off"` / `"mixed"`); `POST`: `{"ids":[...],"fields":{...}}` with any of those fields, 400 `{"error":"<field>: <why>"}` | Torrent Properties (`frontend::properties`): fields left out or unchanged stay as they are on every torrent; the seeding goal override is stored as `torrent.<hash>.seed_ratio` / `.seed_time` in `options` |
 | `/pa/torrents/rename` | `{"id":"...","old":"...","new":"...","folder":bool}` | files and folders (`folder` optional: a file when `old` names one, else a folder) |
 | `/pa/add` | `multipart/form-data`: `.torrent` files as `torrent` parts plus an `options` part holding the JSON below, or JSON `{"url":"magnet:...","save":"...","name":"...","label":"...","start":true,"skip_check":false,"top":false,"priorities":{"<index>":0..7}}` (`url` also takes a bare info-hash or an `http://` link to a torrent) | the Add dialog's choices (`frontend::add::AddChoice`); `GET /pa/add` gives the dialog its defaults: `save_in` (the default folder, then the recent ones), `labels`, `start`, `show_dialog` |
 | `/pa/torrent-info` | a `.torrent` upload (a `torrent` part) | parses it and returns the Add dialog's Torrent Contents without adding (two-step add): `name`, `comment`, `created_by`, `size` / `size_text`, `date` / `date_text`, `private`, `hash`, `files` of `{"i": engine index, "path": below the torrent's folder, "size", "text"}` (pad files left out) |
@@ -197,7 +198,12 @@ nothing is 404. The shim's `torrents/*` handlers call the same functions.
 The compat shim's `torrents/*` handlers call the same internal functions, so one implementation
 serves both. `torrents/setLocation` is Set Download Location (it creates the directory first:
 400 for an empty location, 403 / 409 when the directory cannot be created) and `topPrio`,
-`bottomPrio`, `increasePrio`, `decreasePrio` are `/pa/torrents/queue`'s top, bottom, up and down.
+`bottomPrio`, `increasePrio`, `decreasePrio` are `/pa/torrents/queue`'s top, bottom, up and down. `editTracker` (409 when `origUrl` is missing or `newUrl` already listed, 400 for a URL that
+is not `http`, `https` or `udp`), `addTrackers` (each URL in a new tier after the last) and
+`removeTrackers` (409 when none was listed) edit the tracker list through `replace_trackers` /
+`add_tracker`; `setShareLimits` sets the torrent's own seeding goal (`ratioLimit` x 100 % and
+`seedingTimeLimit` minutes; -1 is no target, -2 the default, both -2 drop the override;
+`inactiveSeedingTimeLimit` is ignored).
 
 ### Page layout
 

@@ -7,7 +7,9 @@ use std::path::{Path, PathBuf};
 use patorrent_core::{AddTorrentParams, MoveCompleted, Settings, TorrentFlags};
 
 use crate::prefs::Prefs;
+use crate::properties::Defaults;
 use crate::scheduler::Schedule;
+use crate::seeding::{SeedGoal, SeedingGoal};
 use crate::settings;
 use crate::torrent_folders::TorrentFolders;
 
@@ -48,6 +50,14 @@ pub struct GuiOptions {
     pub max_peers_per_torrent: u32,
     /// Upload slots per new torrent, 0 = no limit (`bt.upload_slots`).
     pub upload_slots_per_torrent: u32,
+    /// Queueing > Seeding Goal: "Minimum ratio (%)" (`queue.seed_ratio`, 150) and "Minimum
+    /// seeding time (minutes)" (`queue.seed_time`, 0); 0 switches a target off.
+    pub seed_ratio: u32,
+    pub seed_minutes: u32,
+    /// "Limit the upload rate to X kB/s [0: stop]" when the goal is reached
+    /// (`queue.seed_limit`, `queue.seed_limit_kib`); off stops the torrent.
+    pub seed_limit_upload: bool,
+    pub seed_limit_kib: u32,
     /// Load the IP filter at start and on Apply (`ipfilter.enable`).
     pub ip_filter: bool,
     /// The block list; empty = `ipfilter.dat` in the settings folder, like µTorrent
@@ -80,6 +90,12 @@ impl GuiOptions {
             pex: prefs.get_bool("bt.pex", true),
             max_peers_per_torrent: u32_of("bt.max_peers"),
             upload_slots_per_torrent: u32_of("bt.upload_slots"),
+            seed_ratio: prefs
+                .get_i32("queue.seed_ratio")
+                .map_or(SeedGoal::default().ratio_pct, |v| v.max(0) as u32),
+            seed_minutes: u32_of("queue.seed_time"),
+            seed_limit_upload: prefs.get_bool("queue.seed_limit", false),
+            seed_limit_kib: u32_of("queue.seed_limit_kib"),
             ip_filter: prefs.get_bool("ipfilter.enable", false),
             ip_filter_path: prefs.get("ipfilter.path").unwrap_or_default().to_owned(),
             schedule: Schedule::load(prefs),
@@ -106,6 +122,10 @@ impl GuiOptions {
         prefs.set_bool("bt.pex", self.pex);
         prefs.set("bt.max_peers", self.max_peers_per_torrent);
         prefs.set("bt.upload_slots", self.upload_slots_per_torrent);
+        prefs.set("queue.seed_ratio", self.seed_ratio);
+        prefs.set("queue.seed_time", self.seed_minutes);
+        prefs.set_bool("queue.seed_limit", self.seed_limit_upload);
+        prefs.set("queue.seed_limit_kib", self.seed_limit_kib);
         prefs.set_bool("ipfilter.enable", self.ip_filter);
         if self.ip_filter_path.trim().is_empty() {
             prefs.remove("ipfilter.path");
@@ -145,6 +165,20 @@ impl GuiOptions {
             }
             (_, new) => *current = new,
         }
+    }
+
+    /// Preferences > Queueing's seeding goal, for [`SeedingGoal::check`].
+    pub fn seeding_goal(&self) -> SeedingGoal {
+        SeedingGoal {
+            goal: SeedGoal { ratio_pct: self.seed_ratio, minutes: self.seed_minutes },
+            limit_upload: self.seed_limit_upload,
+            limit_kib: self.seed_limit_kib,
+        }
+    }
+
+    /// What the Properties dialog falls back to when a torrent has no setting of its own.
+    pub fn property_defaults(&self) -> Defaults {
+        Defaults { upload_slots: self.upload_slots_per_torrent, seed_goal: self.seeding_goal().goal }
     }
 
     /// Applies the per-torrent defaults to a torrent being added.
@@ -204,6 +238,8 @@ mod tests {
         assert_eq!(o.gui.download_dir, r"C:\Downloads");
         assert!(o.gui.confirm_delete && o.gui.close_to_tray && !o.gui.minimize_to_tray && o.gui.pex);
         assert!(!o.gui.ip_filter && o.gui.show_add_dialog);
+        assert_eq!(o.gui.seeding_goal(), SeedingGoal::default(), "150 %, no time, stop");
+        assert_eq!(o.gui.property_defaults(), Defaults { upload_slots: 0, seed_goal: SeedGoal::default() });
         assert!(!o.gui.move_completed && o.gui.move_only_default && o.gui.completed_dir.is_empty());
         assert!(o.gui.move_completed().is_none());
         assert_eq!(o.gui.ip_filter_file(Path::new("S")), Path::new("S").join("ipfilter.dat"));
@@ -233,6 +269,10 @@ mod tests {
             pex: false,
             max_peers_per_torrent: 50,
             upload_slots_per_torrent: 4,
+            seed_ratio: 0,
+            seed_minutes: 90,
+            seed_limit_upload: true,
+            seed_limit_kib: 20,
             ip_filter: true,
             ip_filter_path: r"E:\lists\level1.p2p".into(),
             schedule: crate::scheduler::Schedule { enabled: true, limited_up_kib: 25, ..Default::default() },
@@ -245,6 +285,9 @@ mod tests {
             reread.set(k, v);
         }
         assert_eq!(Options::load(&reread, "unused"), changed);
+        let goal = changed.gui.seeding_goal();
+        assert_eq!(goal.goal, SeedGoal { ratio_pct: 0, minutes: 90 });
+        assert_eq!(goal.action(), crate::seeding::GoalAction::LimitUpload(20 * 1024));
         assert_eq!(changed.gui.ip_filter_file(Path::new("S")), Path::new(r"E:\lists\level1.p2p"));
 
         changed.gui.ip_filter_path = "  ".into();

@@ -104,6 +104,10 @@ pub struct TorrentStatus {
     /// Per-torrent limits in bytes per second; 0 = unlimited.
     pub download_limit: u32,
     pub upload_limit: u32,
+    /// Per-torrent connection and upload slot limits (libtorrent `connections_limit`,
+    /// `uploads_limit`); `None` = no limit of its own.
+    pub connections_limit: Option<u32>,
+    pub uploads_limit: Option<u32>,
 }
 
 impl TorrentStatus {
@@ -246,6 +250,17 @@ pub struct AnnounceEntry {
     /// Seconds until the next announce.
     pub next_announce: Option<u32>,
     pub fails: u32,
+}
+
+impl AnnounceEntry {
+    /// A tracker to hand to [`TorrentHandle::replace_trackers`] or
+    /// [`TorrentHandle::add_tracker`](crate::TorrentHandle::add_tracker): only the URL and the
+    /// tier are read there (libtorrent `announce_entry(url)` plus `tier`).
+    ///
+    /// [`TorrentHandle::replace_trackers`]: crate::TorrentHandle::replace_trackers
+    pub fn new(url: impl Into<String>, tier: u32) -> AnnounceEntry {
+        AnnounceEntry { url: url.into(), tier, ..AnnounceEntry::default() }
+    }
 }
 
 /// One file in a torrent (libtorrent `file_storage` entry).

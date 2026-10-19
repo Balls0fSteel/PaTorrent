@@ -388,6 +388,10 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             | "torrents/editCategory"
             | "torrents/removeCategories"
             | "torrents/setLocation"
+            | "torrents/editTracker"
+            | "torrents/addTrackers"
+            | "torrents/removeTrackers"
+            | "torrents/setShareLimits"
             | "torrents/topPrio"
             | "torrents/bottomPrio"
             | "torrents/increasePrio"
@@ -525,6 +529,47 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             Response::ok()
         }
         "torrents/setLocation" => set_location(shared, &p),
+        "torrents/editTracker" => {
+            let Some(id) = one(&shared.lock(), &p) else { return not_found() };
+            let (Some(orig), Some(new)) = (p.get("origUrl"), p.get("newUrl")) else {
+                return Response::text(400, "origUrl and newUrl are required");
+            };
+            match commands::edit_tracker(shared, id, orig, new) {
+                Ok(()) => Response::ok(),
+                Err(e) => Response::text(e.status, e.msg),
+            }
+        }
+        "torrents/addTrackers" => {
+            let Some(id) = one(&shared.lock(), &p) else { return not_found() };
+            commands::add_trackers(shared, &[id], p.get("urls").unwrap_or(""));
+            Response::ok()
+        }
+        "torrents/removeTrackers" => {
+            // `hash` may name several torrents (`|`-separated, or `all`)
+            let ids = selected(
+                &shared.lock(),
+                &Params {
+                    pairs: vec![("hashes".into(), p.get("hash").unwrap_or("").into())],
+                    files: Vec::new(),
+                },
+            );
+            if ids.is_empty() {
+                return not_found();
+            }
+            match commands::remove_trackers(shared, &ids, p.get("urls").unwrap_or("")) {
+                Ok(()) => Response::ok(),
+                Err(e) => Response::text(e.status, e.msg),
+            }
+        }
+        "torrents/setShareLimits" => {
+            let ratio = p.get("ratioLimit").and_then(|v| v.trim().parse::<f64>().ok());
+            let (Some(ratio), Some(minutes)) = (ratio, p.int("seedingTimeLimit")) else {
+                return Response::text(400, "ratioLimit and seedingTimeLimit are required");
+            };
+            let ids = selected(&shared.lock(), &p); // (the guard goes before share_limits locks)
+            commands::share_limits(shared, &ids, ratio, minutes);
+            Response::ok()
+        }
         "torrents/topPrio" | "torrents/bottomPrio" | "torrents/increasePrio" | "torrents/decreasePrio" => {
             let m = match endpoint {
                 "torrents/topPrio" => QueueMove::Top,

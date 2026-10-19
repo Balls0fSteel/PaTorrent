@@ -132,6 +132,11 @@ const ID_ACTIVE: u16 = id(6, 1);
 const ID_ACTIVE_DL: u16 = id(6, 2);
 const ID_ACTIVE_SEEDS: u16 = id(6, 3);
 const ID_SLOW: u16 = id(6, 4);
+// the Seeding Goal box
+const ID_SEED_RATIO: u16 = id(6, 5);
+const ID_SEED_TIME: u16 = id(6, 6);
+const ID_SEED_LIMIT: u16 = id(6, 7);
+const ID_SEED_LIMIT_KIB: u16 = id(6, 8);
 // Advanced
 const ID_SCHED: u16 = id(7, 1);
 const ID_SCHED_GRID: u16 = id(7, 2);
@@ -414,6 +419,32 @@ static FIELDS: &[Field] = &[
         set: |o, v| o.settings.dont_count_slow_torrents = v,
     },
     Field::Num {
+        id: ID_SEED_RATIO,
+        min: 0,
+        max: 1_000_000,
+        get: |o| Some(o.gui.seed_ratio as i64),
+        set: |o, v| o.gui.seed_ratio = v as u32,
+    },
+    Field::Num {
+        id: ID_SEED_TIME,
+        min: 0,
+        max: 1_000_000,
+        get: |o| Some(o.gui.seed_minutes as i64),
+        set: |o, v| o.gui.seed_minutes = v as u32,
+    },
+    Field::Check {
+        id: ID_SEED_LIMIT,
+        get: |o| o.gui.seed_limit_upload,
+        set: |o, v| o.gui.seed_limit_upload = v,
+    },
+    Field::Num {
+        id: ID_SEED_LIMIT_KIB,
+        min: 0,
+        max: MAX_KB,
+        get: |o| Some(o.gui.seed_limit_kib as i64),
+        set: |o, v| o.gui.seed_limit_kib = v as u32,
+    },
+    Field::Num {
         id: ID_DISK_QUEUE,
         min: 1,
         max: MAX_KB,
@@ -692,10 +723,12 @@ fn template() -> Vec<u16> {
     b.number(29, ID_ACTIVE_DL, LINE, "Maximum number of active downloads: [-1: no limit]");
     b.number(45, ID_ACTIVE_SEEDS, LINE, "Maximum number of active seeds: [-1: no limit]");
     b.ctl(BUTTON, ID_SLOW, CHECK, [8, 62, 290, 10], "Don't count slow torrents toward these limits");
-    b.group([0, 84, W, 46], "Seeding Goal");
-    b.label([8, 99, 228, 9], "When torrents reach a ratio of (%):");
-    b.stub(EDIT, NUMBER, [240, 97, 54, 13], "");
-    b.label([8, 115, 294, 9], "Seeding goals are not available yet.");
+    b.group([0, 84, W, 92], "Seeding Goal");
+    b.number(97, ID_SEED_RATIO, NUMBER, "Minimum ratio (%): [0: no ratio goal]");
+    b.number(113, ID_SEED_TIME, NUMBER, "Minimum seeding time (minutes): [0: no time goal]");
+    b.label([8, 132, 294, 9], "When a torrent reaches the seeding goal (forced torrents never do):");
+    b.ctl(BUTTON, ID_SEED_LIMIT, CHECK, [8, 147, 228, 10], "Limit the upload rate to (kB/s): [0: stop]");
+    b.ctl(EDIT, ID_SEED_LIMIT_KIB, NUMBER, [240, 145, 54, 13], "");
 
     b.page(7);
     b.ctl(BUTTON, ID_SCHED, CHECK, [0, 0, 200, 10], "Enable Scheduler");
@@ -1517,6 +1550,10 @@ mod tests {
         f.set(ID_SLOTS_PER_TORRENT, "4");
         f.set(ID_ACTIVE, "-1");
         f.set(ID_ACTIVE_SEEDS, "9");
+        f.set(ID_SEED_RATIO, "200");
+        f.set(ID_SEED_TIME, "45");
+        f.check(ID_SEED_LIMIT, true);
+        f.set(ID_SEED_LIMIT_KIB, "8");
         f.set(ID_DISK_QUEUE, "4096");
         f.set(ID_DL_DIR, r"D:\Torrents");
         f.set(ID_IPF_PATH, r"D:\level1.dat");
@@ -1552,6 +1589,11 @@ mod tests {
         assert_eq!(o.gui.ip_filter_path, r"D:\level1.dat");
         assert_eq!(o.gui.upload_slots_per_torrent, 4);
         assert!(!o.gui.pex && o.gui.add_stopped && !o.gui.confirm_delete);
+        let goal = o.gui.seeding_goal();
+        assert_eq!(
+            (goal.goal.ratio_pct, goal.goal.minutes, goal.limit_upload, goal.limit_kib),
+            (200, 45, true, 8)
+        );
 
         // persisted and loaded back the same
         let mut prefs = Prefs::default();

@@ -37,6 +37,11 @@ pub(crate) enum Command {
     PrioritizeFiles(TorrentId, Vec<DownloadPriority>),
     SetDownloadLimit(TorrentId, u32),
     SetUploadLimit(TorrentId, u32),
+    /// 0 = no limit (libtorrent `set_max_connections` / `set_max_uploads` with -1).
+    SetMaxConnections(TorrentId, u32),
+    SetMaxUploads(TorrentId, u32),
+    ReplaceTrackers(TorrentId, Vec<crate::status::AnnounceEntry>),
+    AddTracker(TorrentId, crate::status::AnnounceEntry),
     MoveStorage(TorrentId, String, MoveFlags),
     RenameFile(TorrentId, u32, String),
     ConnectPeer(TorrentId, std::net::SocketAddr),
@@ -316,6 +321,32 @@ impl TorrentHandle {
 
     pub fn set_upload_limit(&self, limit: u32) {
         self.session.send(Command::SetUploadLimit(self.id, limit));
+    }
+
+    /// The most peers the torrent connects to (libtorrent `set_max_connections`); 0 = no limit
+    /// of its own. Peers beyond a lowered limit are disconnected, the least useful first.
+    pub fn set_max_connections(&self, limit: u32) {
+        self.session.send(Command::SetMaxConnections(self.id, limit));
+    }
+
+    /// The most peers the torrent unchokes at a time, besides the optimistic unchoke
+    /// (libtorrent `set_max_uploads`); 0 = no limit of its own.
+    pub fn set_max_uploads(&self, limit: u32) {
+        self.session.send(Command::SetMaxUploads(self.id, limit));
+    }
+
+    /// Replaces the tracker list (libtorrent `replace_trackers`): entries are sorted by tier,
+    /// empty URLs and repeats dropped. Trackers that stay keep their state; new ones are
+    /// announced to at once when the torrent runs. Saved with the torrent; answered by nothing
+    /// (see [`TorrentHandle::post_trackers`]).
+    pub fn replace_trackers(&self, trackers: Vec<crate::status::AnnounceEntry>) {
+        self.session.send(Command::ReplaceTrackers(self.id, trackers));
+    }
+
+    /// Adds one tracker in its tier, unless the URL is in the list already (libtorrent
+    /// `add_tracker`).
+    pub fn add_tracker(&self, tracker: crate::status::AnnounceEntry) {
+        self.session.send(Command::AddTracker(self.id, tracker));
     }
 
     /// Adds `addr` to the torrent's peer list and connects to it (libtorrent `connect_peer`).

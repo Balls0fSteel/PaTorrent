@@ -2,8 +2,9 @@
 //!
 //! Phase 3: the µTorrent 2.2.1 main window on the real engine. One instance runs per user;
 //! starting another forwards its arguments (`.torrent` paths, `magnet:` links, URLs) to the
-//! running one, as µTorrent does. `--demo N` runs the simulated engine with N synthetic torrents
-//! instead (scale testing).
+//! running one, as µTorrent does. `--minimized` starts in the tray (the autostart entry's
+//! "Start minimized"). `--demo N` runs the simulated engine with N synthetic torrents instead
+//! (scale testing).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -21,6 +22,8 @@ mod details;
 mod dialogs;
 #[cfg(windows)]
 mod icons;
+#[cfg(windows)]
+mod integration;
 #[cfg(windows)]
 mod preferences;
 #[cfg(windows)]

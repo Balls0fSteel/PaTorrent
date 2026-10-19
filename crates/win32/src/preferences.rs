@@ -36,6 +36,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
+use crate::integration::{Integration, Status};
 use crate::sched_grid;
 use crate::util::{hiword, loword, send, wide, window_text};
 
@@ -69,6 +70,13 @@ const ID_APPLY: u16 = 901;
 
 // General
 const ID_LANG: u16 = id(0, 1);
+const ID_ASSOC_TORRENT: u16 = id(0, 2);
+const ID_ASSOC_MAGNET: u16 = id(0, 3);
+const ID_CHECK_ASSOC: u16 = id(0, 4);
+const ID_AUTOSTART: u16 = id(0, 5);
+const ID_START_MIN: u16 = id(0, 6);
+const ID_ASSOC_NOTE: u16 = id(0, 7);
+const ID_DEFAULT_APPS: u16 = id(0, 8);
 // UI Settings
 const ID_CONFIRM_DELETE: u16 = id(1, 1);
 const ID_BALLOONS: u16 = id(1, 2);
@@ -207,6 +215,11 @@ const KB: i64 = 1024;
 const MAX_KB: i64 = u32::MAX as i64 / KB;
 
 static FIELDS: &[Field] = &[
+    Field::Check {
+        id: ID_CHECK_ASSOC,
+        get: |o| o.gui.check_association,
+        set: |o, v| o.gui.check_association = v,
+    },
     Field::Check { id: ID_SCHED, get: |o| o.gui.schedule.enabled, set: |o, v| o.gui.schedule.enabled = v },
     Field::Num {
         id: ID_SCHED_UL,
@@ -477,12 +490,18 @@ static FIELDS: &[Field] = &[
 /// Loads a block list: the number of rules or an error.
 pub type ReloadIpFilter<'a> = Box<dyn FnMut(&Path) -> Result<usize, String> + 'a>;
 
+/// The Windows integration: `None` reads it, `Some((old, new))` changes it from `old` (as last
+/// read) to `new`; either way the registry as found afterwards, or an error.
+pub type Integrate<'a> = Box<dyn FnMut(Option<(&Integration, &Integration)>) -> Result<Status, String> + 'a>;
+
 /// What the dialog asks of its owner.
 pub struct Hooks<'a> {
     /// OK and Apply: store the options and hand them to the engine.
     pub apply: Box<dyn FnMut(&Options) + 'a>,
     /// "Reload" on the BitTorrent page: load this block list; the number of rules or an error.
     pub reload_ip_filter: ReloadIpFilter<'a>,
+    /// The General page's associations and autostart, which live in the registry.
+    pub integration: Integrate<'a>,
 }
 
 struct State<'a> {
@@ -499,6 +518,8 @@ struct State<'a> {
     rows: Vec<&'static Entry>,
     /// The options were applied at least once (OK or Apply).
     applied: bool,
+    /// The Windows integration as last read.
+    integration: Status,
 }
 
 /// Shows the dialog modally. Returns whether anything was applied.
@@ -528,6 +549,7 @@ impl<'a> State<'a> {
             shown: Vec::new(),
             rows: Vec::new(),
             applied: false,
+            integration: Status::default(),
         }
     }
 }
@@ -609,11 +631,14 @@ fn template() -> Vec<u16> {
     b.group([0, 0, W, 34], "Language");
     b.label([8, 15, 60, 9], "User interface:");
     b.ctl(COMBOBOX, ID_LANG, COMBO | OFF, [72, 13, 120, 60], "");
-    b.group([0, 40, W, 72], "Windows Integration");
-    b.stub(BUTTON, CHECK, [8, 53, 290, 10], "Associate with .torrent files");
-    b.stub(BUTTON, CHECK, [8, 67, 290, 10], "Associate with magnet: links");
-    b.stub(BUTTON, CHECK, [8, 81, 290, 10], "Start PaTorrent on system startup");
-    b.label([8, 96, 294, 9], "File associations and autostart are not available yet.");
+    b.group([0, 40, W, 112], "Windows Integration");
+    b.ctl(BUTTON, ID_ASSOC_TORRENT, CHECK, [8, 53, 290, 10], "Associate with .torrent files");
+    b.ctl(BUTTON, ID_ASSOC_MAGNET, CHECK, [8, 67, 290, 10], "Associate with magnet: links");
+    b.ctl(BUTTON, ID_CHECK_ASSOC, CHECK, [8, 81, 290, 10], "Check association on startup");
+    b.ctl(BUTTON, ID_AUTOSTART, CHECK, [8, 95, 290, 10], "Start PaTorrent on system startup");
+    b.ctl(BUTTON, ID_START_MIN, CHECK, [20, 109, 278, 10], "Start minimized");
+    b.ctl(STATIC, ID_ASSOC_NOTE, C, [8, 126, 226, 18], "");
+    b.ctl(BUTTON, ID_DEFAULT_APPS, PUSH, [240, 127, 62, 14], "Default apps...");
 
     b.page(1);
     b.group([0, 0, W, 46], "Display Options");
@@ -868,6 +893,7 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
             send(lv, LVM_INSERTCOLUMNW, i, &c as *const _ as LPARAM);
         }
 
+        st.integration = (st.hooks.integration)(None).unwrap_or_default();
         write_controls(dlg, st);
         fill_advanced(dlg, st, None);
         send(tree, TVM_SELECTITEM, TVGN_CARET as usize, st.tree_items[0]);
@@ -954,9 +980,80 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         send(item(dlg, ID_SCHED_GRID), sched_grid::SET, 0, &table as *const _ as LPARAM);
         st.shown.push((ID_SCHED_GRID, st.opts.gui.schedule.table_text()));
         update_ip_filter_status(dlg, st, None);
+        write_integration(dlg, st);
         update_move_controls(dlg);
         update_torrent_folder_controls(dlg);
         update_sched_controls(dlg);
+    }
+}
+
+/// The General page's boxes from the registry as last read.
+unsafe fn write_integration(dlg: HWND, st: &State<'_>) {
+    unsafe {
+        let set = st.integration.set;
+        set_check(dlg, ID_ASSOC_TORRENT, set.torrent);
+        set_check(dlg, ID_ASSOC_MAGNET, set.magnet);
+        set_check(dlg, ID_AUTOSTART, set.autostart);
+        set_check(dlg, ID_START_MIN, set.minimized);
+        let note = st.integration.note();
+        let note = if note.is_empty() { note } else { format!("{note} Choose PaTorrent in Default apps.") };
+        set_text(item(dlg, ID_ASSOC_NOTE), &note);
+        update_autostart_controls(dlg);
+    }
+}
+
+/// The boxes as edited.
+unsafe fn integration_controls(dlg: HWND) -> Integration {
+    unsafe {
+        Integration {
+            torrent: checked(dlg, ID_ASSOC_TORRENT),
+            magnet: checked(dlg, ID_ASSOC_MAGNET),
+            autostart: checked(dlg, ID_AUTOSTART),
+            minimized: checked(dlg, ID_START_MIN),
+        }
+        .normalized()
+    }
+}
+
+/// "Start minimized" follows "Start PaTorrent on system startup".
+unsafe fn update_autostart_controls(dlg: HWND) {
+    unsafe { EnableWindow(item(dlg, ID_START_MIN), checked(dlg, ID_AUTOSTART) as i32) };
+}
+
+/// Changes the registry if the General page's boxes changed. False (after saying why) when it
+/// could not. When Windows' own choice still wins for what was just associated, offers to open
+/// Default apps.
+unsafe fn apply_integration(dlg: HWND, st: &mut State<'_>) -> bool {
+    unsafe {
+        let old = st.integration.set.normalized();
+        let want = integration_controls(dlg);
+        if want == old {
+            return true;
+        }
+        match (st.hooks.integration)(Some((&old, &want))) {
+            Ok(status) => {
+                let overridden = (!old.torrent && want.torrent && status.torrent_choice.is_some())
+                    || (!old.magnet && want.magnet && status.magnet_choice.is_some());
+                st.integration = status;
+                write_integration(dlg, st);
+                if overridden {
+                    let text = format!(
+                        "{}\n\nWindows keeps a program chosen in Windows itself, and only you can change \
+                         that choice, in Settings > Default apps. Open Default apps now?",
+                        st.integration.note()
+                    );
+                    if dialogs::confirm(dlg, &text) {
+                        crate::integration::open_default_apps(dlg);
+                    }
+                }
+                true
+            }
+            Err(e) => {
+                select_page(dlg, st, 0);
+                dialogs::error(dlg, &format!("Could not change the Windows integration:\n{e}"));
+                false
+            }
+        }
     }
 }
 
@@ -1110,7 +1207,7 @@ unsafe fn read_or_complain(dlg: HWND, st: &mut State<'_>) -> bool {
 /// OK and Apply.
 unsafe fn apply(dlg: HWND, st: &mut State<'_>) -> bool {
     unsafe {
-        if !read_or_complain(dlg, st) {
+        if !read_or_complain(dlg, st) || !apply_integration(dlg, st) {
             return false;
         }
         (st.hooks.apply)(&st.opts);
@@ -1163,6 +1260,8 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
                 }
             }
             ID_SCHED if code == BN_CLICKED => update_sched_controls(dlg),
+            ID_AUTOSTART if code == BN_CLICKED => update_autostart_controls(dlg),
+            ID_DEFAULT_APPS if code == BN_CLICKED => crate::integration::open_default_apps(dlg),
             ID_MOVE_BROWSE if code == BN_CLICKED => {
                 let now = window_text(item(dlg, ID_MOVE_DIR));
                 let title = "Select the folder for completed downloads";
@@ -1369,10 +1468,17 @@ mod tests {
         st: Box<State<'static>>,
         applied: Log,
         reloads: Rc<RefCell<Vec<PathBuf>>>,
+        /// The fake registry: what it reads as, and the changes asked for.
+        registry: Rc<RefCell<Status>>,
+        integrations: Rc<RefCell<Vec<(Integration, Integration)>>>,
     }
 
     impl Fixture {
         fn new(opts: Options) -> Fixture {
+            Fixture::with_registry(opts, Status::default())
+        }
+
+        fn with_registry(opts: Options, registry: Status) -> Fixture {
             unsafe {
                 let icc = INITCOMMONCONTROLSEX {
                     dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
@@ -1383,7 +1489,17 @@ mod tests {
             let applied: Log = Rc::default();
             let reloads: Rc<RefCell<Vec<PathBuf>>> = Rc::default();
             let (a, r) = (applied.clone(), reloads.clone());
+            let registry = Rc::new(RefCell::new(registry));
+            let integrations: Rc<RefCell<Vec<(Integration, Integration)>>> = Rc::default();
+            let (reg, ints) = (registry.clone(), integrations.clone());
             let hooks = Hooks {
+                integration: Box::new(move |change| {
+                    if let Some((old, new)) = change {
+                        ints.borrow_mut().push((*old, *new));
+                        reg.borrow_mut().set = *new;
+                    }
+                    Ok(reg.borrow().clone())
+                }),
                 apply: Box::new(move |o: &Options| a.borrow_mut().push(o.clone())),
                 reload_ip_filter: Box::new(move |p: &Path| {
                     r.borrow_mut().push(p.to_path_buf());
@@ -1402,7 +1518,7 @@ mod tests {
                 )
             };
             assert!(!dlg.is_null(), "the template does not load");
-            Fixture { dlg, st, applied, reloads }
+            Fixture { dlg, st, applied, reloads, registry, integrations }
         }
 
         fn click(&self, id: u16) {
@@ -1599,6 +1715,50 @@ mod tests {
         let mut prefs = Prefs::default();
         o.store(&mut prefs);
         assert_eq!(Options::load(&prefs, "unused"), o);
+    }
+
+    #[test]
+    fn the_general_page_changes_the_windows_integration() {
+        let registry = Status {
+            set: Integration { magnet: true, ..Integration::default() },
+            magnet_choice: Some("qBittorrent.Url.Magnet".into()),
+            ..Status::default()
+        };
+        let f = Fixture::with_registry(defaults(), registry);
+        unsafe {
+            assert!(!checked(f.dlg, ID_ASSOC_TORRENT) && checked(f.dlg, ID_ASSOC_MAGNET));
+            assert!(!checked(f.dlg, ID_AUTOSTART) && !checked(f.dlg, ID_CHECK_ASSOC));
+            assert_eq!(IsWindowEnabled(item(f.dlg, ID_START_MIN)), 0, "greyed without autostart");
+        }
+        assert_eq!(
+            f.text(ID_ASSOC_NOTE),
+            "Windows still opens magnet: links with qBittorrent.Url.Magnet. Choose PaTorrent in Default apps."
+        );
+
+        // Apply with nothing changed leaves the registry alone
+        f.click(ID_APPLY);
+        assert!(f.integrations.borrow().is_empty());
+
+        f.check(ID_ASSOC_TORRENT, true);
+        f.check(ID_AUTOSTART, true);
+        f.click(ID_AUTOSTART);
+        unsafe { assert_ne!(IsWindowEnabled(item(f.dlg, ID_START_MIN)), 0) };
+        f.check(ID_START_MIN, true);
+        f.check(ID_CHECK_ASSOC, true);
+        f.click(ID_APPLY);
+        let all = Integration { torrent: true, magnet: true, autostart: true, minimized: true };
+        let old = Integration { magnet: true, ..Integration::default() };
+        assert_eq!(*f.integrations.borrow(), [(old, all)]);
+        assert!(f.last_applied().gui.check_association, "an option, stored in patorrent.ini");
+
+        // "Start minimized" alone means nothing once autostart is off
+        f.check(ID_AUTOSTART, false);
+        f.click(ID_AUTOSTART);
+        f.click(ID_APPLY);
+        let off = Integration { autostart: false, minimized: false, ..all };
+        assert_eq!(f.integrations.borrow().last(), Some(&(all, off)));
+        assert_eq!(f.registry.borrow().set, off);
+        unsafe { assert!(!checked(f.dlg, ID_START_MIN), "shown as read back") };
     }
 
     #[test]

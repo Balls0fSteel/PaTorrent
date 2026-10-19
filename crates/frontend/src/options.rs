@@ -32,6 +32,9 @@ pub struct GuiOptions {
     pub torrent_folders: TorrentFolders,
     /// Ask before removing torrents (`ui.confirm_delete`).
     pub confirm_delete: bool,
+    /// Ask at start when PaTorrent does not open `.torrent` files and `magnet:` links
+    /// (`ui.check_assoc`; µTorrent's "Check association on startup"). Off by default here.
+    pub check_association: bool,
     /// Close / minimize to the tray (`ui.close_to_tray`, `ui.minimize_to_tray`).
     pub close_to_tray: bool,
     pub minimize_to_tray: bool,
@@ -81,6 +84,7 @@ impl GuiOptions {
             move_only_default: prefs.get_bool("dir.move_only_default", true),
             torrent_folders: TorrentFolders::load(prefs),
             confirm_delete: prefs.get_bool("ui.confirm_delete", true),
+            check_association: prefs.get_bool("ui.check_assoc", false),
             close_to_tray: prefs.get_bool("ui.close_to_tray", true),
             minimize_to_tray: prefs.get_bool("ui.minimize_to_tray", false),
             balloons: prefs.get_bool("ui.balloons", true),
@@ -113,6 +117,7 @@ impl GuiOptions {
         prefs.set_bool("dir.move_only_default", self.move_only_default);
         self.torrent_folders.store(prefs);
         prefs.set_bool("ui.confirm_delete", self.confirm_delete);
+        prefs.set_bool("ui.check_assoc", self.check_association);
         prefs.set_bool("ui.close_to_tray", self.close_to_tray);
         prefs.set_bool("ui.minimize_to_tray", self.minimize_to_tray);
         prefs.set_bool("ui.balloons", self.balloons);
@@ -260,6 +265,7 @@ mod tests {
                 ..Default::default()
             },
             confirm_delete: false,
+            check_association: true,
             close_to_tray: false,
             minimize_to_tray: true,
             balloons: false,

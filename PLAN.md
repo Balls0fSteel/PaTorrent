@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-19_104021_1792399221
+Last updated: 2026-10-19_204739_1792435659
 
 ## Vision
 
@@ -196,7 +196,8 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
   - [x] the Win32 dialog (2026-10-17_155028_1792245028): Options > Preferences / Ctrl+P / toolbar, every page in the tree, OK / Cancel / Apply without a restart, patorrent.ini persistence, IP filter (enable, path, Reload); `patorrent_frontend::settings` is the string-keyed table (every `Settings` field by libtorrent name, plus `bt.transp_disposition`) and `patorrent_frontend::options` the toolkit-independent model for GTK
   - [x] the Proxy Server box on the Connection page (type, host, port, authentication, resolve names through the proxy, peer and tracker connections) (2026-10-17_161604_1792246564)
   - [x] Directories > "Move completed downloads to" (folder, Browse) and "Only move from the default download directory" (2026-10-17_193944_1792258784): `dir.move_completed` / `dir.completed` / `dir.move_only_default` in patorrent.ini, applied live through `patorrent_core::MoveCompleted` in the alert loop
-  - [ ] placeholders still disabled in the Win32 dialog: Web UI (the Web UI page is live in the nox page, which has its own Preferences dialog generated from the same model: 2026-10-18_101527_1792311327; the Win32 one stays a placeholder until the GUI remote-controls a nox instance), language, file association / autostart (the .torrent folders and the seeding goal are live since 2026-10-19_091815_1792394295)
+  - [ ] placeholders still disabled in the Win32 dialog: Web UI (the Web UI page is live in the nox page, which has its own Preferences dialog generated from the same model: 2026-10-18_101527_1792311327; the Win32 one stays a placeholder until the GUI remote-controls a nox instance), language (the .torrent folders and the seeding goal are live since 2026-10-19_091815_1792394295)
+  - [x] General > Windows Integration (2026-10-19_204739_1792435659): "Associate with .torrent files", "Associate with magnet: links", "Check association on startup", "Start PaTorrent on system startup" with "Start minimized", a note and a "Default apps..." button when Windows' own choice still wins (`win32/src/integration.rs`, HKCU only)
 - [x] Add-torrent dialog: save folder, file tree with priorities, label, skip hash check, start/stop (2026-10-17_163655_1792247815): µTorrent 2.2.1's Add New Torrent for `.torrent` files from File > Add Torrent, drag and drop, the command line, a second instance's arguments and Add Torrent from URL (http/https); Save In with the recent folders (`add.recent_dirs`), Name, Torrent Contents (name, comment, size with free disk space, date), a virtual file tree with check boxes and priorities, Select All / None, Skip hash check, Start torrent, Add to top of queue, Label; Preferences > UI Settings "Show a window that displays the files inside the torrent" (`ui.show_add_dialog`). Model in `patorrent_frontend::add`
   - [ ] magnets: still added directly (no file list before the metadata arrives). Showing the dialog once metadata is known needs either an engine "fetch metadata only" add (libtorrent: add paused with `stop_when_ready` / qBittorrent's metadata-download session) plus a way to apply the save path afterwards (move storage), or a GUI-side wait on `MetadataReceived` with `prioritize_files` and `move_storage`
   - [x] Name renames the torrent's folder (or its only file) on disk through `AddTorrentParams::renamed_files` (2026-10-17_200844_1792260524); `add::renamed_root` builds the renames, so GTK gets the same
@@ -216,6 +217,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
   - [ ] the `rss.*` Advanced settings have no UI on either client (the Advanced table only knows engine `Settings` rows)
 - [x] Auto Shutdown (2026-10-19_101030_1792397430): `frontend::auto_shutdown`, Options > Auto Shutdown with the countdown (Win32 `shutdown.rs`: quit, standby, hibernate, shut down), `SessionHandle::save_resume_data`; nox `run --exit-when-done downloads|all` (quit only)
 - [ ] Labels (in the list, tree and menus already); `.torrent` and `magnet:` association
+  - [x] `.torrent` and `magnet:` association in the Win32 GUI (2026-10-19_204739_1792435659), see Preferences above; labels remain (the list, tree and menus have them)
 - [ ] Speed graph, pieces map and list, availability bar
 - [ ] Network features:
   - [x] IP filter (`ipfilter.dat`, PeerGuardian P2P) and port filter in the engine and nox (2026-10-17_114537_1792230337); in the GUI Preferences (2026-10-17_155028_1792245028)
@@ -301,6 +303,12 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - a label chosen in the dialog is stored as `torrent.<info-hash>.label` before the engine adds the torrent; if the add then fails, the line stays in `patorrent.ini` (harmless, reused if the torrent is added again).
   - µTorrent 2.2.1 also had "Don't show this again" and per-torrent "Advanced" (sequential download, initial seeding) in the dialog; not built.
   - adding a `.torrent` already in the list shows "already in the torrent list" instead of merging its trackers (µTorrent asks whether to load the new trackers).
+- Windows integration (CHANGELOG 2026-10-19_204739_1792435659):
+  - not clicked through by hand: Preferences > General on the real registry (check each box, Apply, double-click a `.torrent` in Explorer, open a `magnet:` link from a browser, sign out and in for autostart and Start minimized). The tests run against a scratch key under HKCU only, so this machine's associations were not touched.
+  - Windows 8+ keeps a choice made in Windows itself (`UserChoice`, hash-protected) above our registration; we only report it and open Settings > Default apps (`ms-settings:defaultapps?registeredAppUser=PaTorrent`, PaTorrent's own page on Windows 11, the general page on Windows 10). Not checked on Windows 10.
+  - turning an association off removes only what names this executable; it does not restore the program that had it before (µTorrent did not either).
+  - "Check association on startup" is off by default (µTorrent's was on), so development builds in `target\` do not ask at every start; it never asks at a `--minimized` start.
+  - the GTK client's counterparts (an XDG autostart `.desktop` file, `xdg-mime default` for `application/x-bittorrent` and `x-scheme-handler/magnet`) come with Phase 7.
 - Part files (CHANGELOG 2026-10-17_160022_1792245622):
   - the Win32 "Remove" (without data) passes `RemoveFlags::empty()`, so a removed torrent with skipped files leaves its `.<info-hash>.parts` behind; qBittorrent passes `delete_partfile` there. Decide when the remove dialog is next touched.
   - ~~moving storage should call `PartFile::move_partfile` and rekey the `PartFiles` registry~~: done (2026-10-17_163533_1792247733).

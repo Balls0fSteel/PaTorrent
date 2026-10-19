@@ -55,6 +55,7 @@ use crate::controls;
 use crate::details::{Detail, Page, PaintCtx};
 use crate::dialogs;
 use crate::icons::{self, Icon};
+use crate::integration::{self, Integration, Keys};
 use crate::shutdown::{self, Outcome, Power};
 use crate::tray;
 use crate::util::{child, copy_to, exe_path, point_from_lparam, scale, send, unscale, wide};
@@ -321,15 +322,18 @@ fn now_hms() -> String {
 
 pub struct Args {
     pub demo: Option<usize>,
+    /// Start in the tray, without showing the window.
+    pub minimized: bool,
     pub sources: Vec<String>,
 }
 
 pub fn parse_args(args: &[String]) -> Args {
-    let mut out = Args { demo: None, sources: Vec::new() };
+    let mut out = Args { demo: None, minimized: false, sources: Vec::new() };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--demo" => out.demo = it.next().and_then(|n| n.parse().ok()),
+            s if s.eq_ignore_ascii_case(integration::MINIMIZED) => out.minimized = true,
             s if s.starts_with("--") => {}
             s => out.sources.push(s.to_owned()),
         }
@@ -413,7 +417,11 @@ pub fn run(args: Args) -> i32 {
         if opts.gui.ip_filter && args.demo.is_none() {
             with_app(|a| load_ip_filter(a, &opts.gui));
         }
-        restore_placement(hwnd);
+        restore_placement(hwnd, args.minimized);
+        // not at a login's minimized start, where nobody asked for the window
+        if opts.gui.check_association && args.demo.is_none() && !args.minimized {
+            check_association(hwnd);
+        }
         add_sources(hwnd, &args.sources);
 
         let accels = [
@@ -695,7 +703,39 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
     }
 }
 
-unsafe fn restore_placement(hwnd: HWND) {
+/// Preferences > General "Check association on startup": asks to make PaTorrent the program
+/// for `.torrent` files and `magnet:` links when it is not.
+fn check_association(hwnd: HWND) {
+    let (keys, exe) = (Keys::user(), exe_path());
+    let status = integration::read(&keys, &exe);
+    if status.opens_torrents() && status.opens_magnets() {
+        return;
+    }
+    let question = "PaTorrent is not the program that opens .torrent files and magnet: links.\n\n\
+                    Associate them with PaTorrent?\n\n\
+                    (Preferences > General > \"Check association on startup\" turns this question off.)";
+    if !dialogs::confirm(hwnd, question) {
+        return;
+    }
+    let want = Integration { torrent: true, magnet: true, ..status.set };
+    match integration::write(&keys, &exe, &status.set, &want) {
+        Ok(after) if !(after.opens_torrents() && after.opens_magnets()) => {
+            let text = format!(
+                "{}\n\nWindows keeps a program chosen in Windows itself, and only you can change that \
+                 choice, in Settings > Default apps. Open Default apps now?",
+                after.note()
+            );
+            if dialogs::confirm(hwnd, &text) {
+                integration::open_default_apps(hwnd);
+            }
+        }
+        Ok(_) => {}
+        Err(e) => dialogs::error(hwnd, &format!("Could not associate PaTorrent:\n{e}")),
+    }
+}
+
+/// Places the window where it was; `hidden` leaves it in the tray.
+unsafe fn restore_placement(hwnd: HWND, hidden: bool) {
     unsafe {
         let (rect, max) = with_app(|a| {
             let r = a
@@ -718,6 +758,11 @@ unsafe fn restore_placement(hwnd: HWND) {
                 r.right = r.left + scale(900, dpi);
                 r.bottom = r.top + scale(620, dpi);
             }
+        }
+        if hidden {
+            wp.showCmd = SW_HIDE as u32;
+            SetWindowPlacement(hwnd, &wp);
+            return;
         }
         wp.showCmd = if max { SW_SHOWMAXIMIZED } else { SW_SHOWNORMAL } as u32;
         SetWindowPlacement(hwnd, &wp);
@@ -2715,6 +2760,13 @@ unsafe fn show_preferences(hwnd: HWND) {
             })
             .unwrap_or_else(|| Err("not running".to_owned()))
         }),
+        integration: Box::new(|change| {
+            let (keys, exe) = (Keys::user(), exe_path());
+            match change {
+                None => Ok(integration::read(&keys, &exe)),
+                Some((old, new)) => integration::write(&keys, &exe, old, new).map_err(|e| e.to_string()),
+            }
+        }),
     };
     if crate::preferences::show(hwnd, opts, &dir, hooks) {
         unsafe { update_menu(hwnd) };
@@ -3514,6 +3566,19 @@ unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpara
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_command_line_takes_sources_and_switches() {
+        let args: Vec<String> =
+            ["--MINIMIZED", r"C:\a.torrent", "magnet:?xt=urn:btih:x", "--unknown"].map(String::from).to_vec();
+        let a = parse_args(&args);
+        assert!(a.minimized && a.demo.is_none());
+        assert_eq!(a.sources, [r"C:\a.torrent", "magnet:?xt=urn:btih:x"]);
+        // the association's command line: "<exe>" "%1"
+        let a = parse_args(&["magnet:?xt=urn:btih:y".to_owned()]);
+        assert!(!a.minimized);
+        assert_eq!(a.sources, ["magnet:?xt=urn:btih:y"]);
+    }
 
     #[test]
     fn the_auto_shutdown_submenu_carries_one_radio_mark() {

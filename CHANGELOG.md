@@ -2,6 +2,28 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_204739_1792435659: Windows integration: .torrent and magnet: association, autostart
+
+### Added
+- **Preferences > General > Windows Integration** in the Win32 GUI, the last disabled boxes on that page except the language: "Associate with .torrent files", "Associate with magnet: links", "Check association on startup", "Start PaTorrent on system startup" and, under it, "Start minimized". A note under the boxes says when Windows' own choice still opens `.torrent` files or `magnet:` links with another program, and "Default apps..." opens Settings > Default apps.
+- `win32/src/integration.rs`: everything under HKEY_CURRENT_USER (no elevation; a portable copy registers itself). The ProgIDs `PaTorrent.torrent` and `PaTorrent.magnet` with `shell\open\command` = `"<exe>" "%1"` (a second instance forwards it to the running one, so double-clicking a `.torrent` or clicking a magnet link adds it); `.torrent` naming our ProgID, with `OpenWithProgids` and `application/x-bittorrent`; the `magnet` scheme key (`URL Protocol`), as µTorrent and qBittorrent write it; `Software\PaTorrent\Capabilities` listed in `Software\RegisteredApplications` so PaTorrent appears in Default apps; `Run\PaTorrent` = `"<exe>"` plus `--minimized` for "Start minimized". `SHChangeNotify(SHCNE_ASSOCCHANGED)` after an association changes. windows-sys feature `Win32_System_Registry`.
+- `read` reports what is registered for this executable (paths compared without regard to case, so a moved portable copy reads as unregistered) and the `UserChoice` ProgID Windows keeps from "Always use this app" / Default apps when it names another program (`Applications\patorrent.exe` and the `magnet` key itself count as PaTorrent). `write` changes only what differs and, when turning something off, removes only entries naming this executable: another client's `magnet` scheme or another copy's `Run` value stays.
+- `--minimized` on the command line starts in the tray (window placement restored, not shown).
+- "Check association on startup" (`ui.check_assoc` in `patorrent.ini`, `GuiOptions::check_association`): at start, if PaTorrent does not open both, asks to associate; if Windows' own choice still wins afterwards, offers Default apps. Not at a `--minimized` start, not with `--demo`.
+
+### Decisions
+- The association and autostart state is read from the registry each time the dialog opens, never stored in `patorrent.ini`.
+- "Check association on startup" defaults to off (µTorrent's default was on): development builds would ask at every start.
+- Programs cannot write `UserChoice` (Windows 8+ protects it with a hash), so PaTorrent does not try; it reports the override and sends the user to Default apps.
+- The Web UI's Preferences keep these as disabled placeholders ("belong to the desktop client").
+
+### Verified
+- New tests: `integration::tests` (7) against a scratch key `HKCU\Software\PaTorrent-test-<pid>-<n>` removed afterwards (everything on and off, only changes written, another client's scheme and another copy's autostart left alone, case-insensitive paths, `UserChoice` reporting, the command lines); `preferences::tests::the_general_page_changes_the_windows_integration` with a fake registry (boxes from the registry, Apply without changes writes nothing, "Start minimized" greyed and dropped without autostart, the option stored); `app::tests::the_command_line_takes_sources_and_switches`.
+- Windows: `cargo test --workspace` 912 passed, 0 failed; stable clippy `-D warnings`, Linux-target clippy, both fmt checks. No `PaTorrent` key left under `HKCU\Software` after the tests.
+
+### Issues
+- Not clicked through by hand on the real registry (it would change this machine's `.torrent` association, which the interop setup's qBittorrent uses). See PLAN.md Known TODOs.
+
 ## 2026-10-19_105727_1792400247: CI fix for MSRV 1.85 and stable clippy
 
 ### Fixed

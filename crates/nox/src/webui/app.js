@@ -2799,10 +2799,11 @@
     }
     updateEnabled($("prefs-page"));
   });
-  /// "Move completed downloads to" and the like gate the controls under them, as in µTorrent.
+  /// "Move completed downloads to" and the like gate the controls under them, as in µTorrent
+  /// (several space-separated ids: all must be on).
   function updateEnabled(root) {
     for (const l of root.querySelectorAll("[data-enabled-by]")) {
-      const on = !!prefValue(l.dataset.enabledBy);
+      const on = l.dataset.enabledBy.split(" ").every((id) => !!prefValue(id));
       for (const c of l.querySelectorAll("input,select,button")) c.disabled = !on;
       l.classList.toggle("disabled", !on);
     }

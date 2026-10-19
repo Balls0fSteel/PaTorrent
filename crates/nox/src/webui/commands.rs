@@ -617,6 +617,9 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
     }
     add::remember_dir(&mut st.options, &save_path);
     shared.save(&st);
+    // a `.torrent`'s copy is stored once the engine has it (Directories > Store .torrents in)
+    let folders = st.prefs.torrent_folders.clone();
+    st.torrent_files.adding(&folders, &params);
     drop(st);
     shared.handle.add_torrent(params);
     // Ask for the new torrent's status now rather than at the next refresh.

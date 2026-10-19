@@ -2468,3 +2468,67 @@ fn native_prefs_survive_a_restart() {
     assert_eq!(s(p.get("save_path")), download.to_string_lossy());
     assert_eq!(t.get(&sid, "/api/v2/transfer/downloadLimit").text(), "102400");
 }
+
+/// Waits until `f` holds (files appearing or going away in the `.torrent` folders).
+fn wait_until(what: &str, f: impl Fn() -> bool) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !f() {
+        assert!(Instant::now() < deadline, "timed out waiting for {what}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn torrent_folders_store_copies_and_auto_load() {
+    let t = Harness::start("torrent-folders");
+    let sid = t.login();
+    let (store, watch) = (t.dir.join("store"), t.dir.join("watch"));
+    std::fs::create_dir_all(&watch).unwrap();
+    let esc = |p: &PathBuf| p.to_string_lossy().replace('\\', "\\\\");
+    // a box without its folder is refused, naming the folder
+    let r = t.pa(&sid, "/pa/prefs", r#"{"dir.autoload":true}"#);
+    assert_eq!(r.status, 400);
+    assert!(r.text().contains("dir.autoload_dir"), "{}", r.text());
+    let body = format!(
+        r#"{{"dir.store_torrents":true,"dir.torrents":"{}","dir.autoload":true,"dir.autoload_dir":"{}"}}"#,
+        esc(&store),
+        esc(&watch)
+    );
+    let r = t.pa(&sid, "/pa/prefs", &body);
+    assert_eq!(r.status, 204, "{}", r.text());
+    let m = t.get(&sid, "/pa/prefs").json();
+    let field = |id: &str| m.get("fields").unwrap().get(id).unwrap().get("value").cloned().unwrap();
+    assert_eq!(field("dir.autoload"), Json::Bool(true));
+    assert_eq!(field("dir.torrents"), Json::Str(store.to_string_lossy().into_owned()));
+
+    // added through the page: a copy named after the torrent
+    let (bytes, hash) = torrent_named("folders-added", None);
+    assert_eq!(t.pa_upload(&sid, "/pa/add", r#"{"start":false}"#, &bytes).status, 204);
+    t.wait_for(&sid, &hash, "the added torrent", |_| true);
+    wait_until("the stored copy", || store.join("folders-added.torrent").exists());
+    assert_eq!(std::fs::read(store.join("folders-added.torrent")).unwrap(), bytes);
+
+    // dropped into the watched folder: added without a dialog, renamed to .torrent.loaded
+    let (bytes, hash) = torrent_named("folders-auto", None);
+    std::fs::write(watch.join("dropped.torrent"), &bytes).unwrap();
+    t.wait_for(&sid, &hash, "the auto-loaded torrent", |_| true);
+    wait_until("the .loaded rename", || watch.join("dropped.torrent.loaded").exists());
+    assert!(!watch.join("dropped.torrent").exists());
+    wait_until("the auto-loaded copy", || store.join("folders-auto.torrent").exists());
+
+    // with "Delete loaded .torrents" the file goes; one already in the list is finished too
+    let r = t.pa(&sid, "/pa/prefs", r#"{"dir.autoload_delete":true}"#);
+    assert_eq!(r.status, 204, "{}", r.text());
+    std::fs::write(watch.join("again.torrent"), &bytes).unwrap();
+    wait_until("the duplicate deleted", || !watch.join("again.torrent").exists());
+    let (bytes, hash) = torrent_named("folders-deleted", None);
+    std::fs::write(watch.join("gone.torrent"), &bytes).unwrap();
+    t.wait_for(&sid, &hash, "the third torrent", |_| true);
+    wait_until("the file deleted", || !watch.join("gone.torrent").exists());
+    assert!(!watch.join("gone.torrent.loaded").exists());
+
+    // a file that is not a torrent stays where it is
+    std::fs::write(watch.join("broken.torrent"), b"not bencode").unwrap();
+    std::thread::sleep(Duration::from_secs(5));
+    assert!(watch.join("broken.torrent").exists());
+}

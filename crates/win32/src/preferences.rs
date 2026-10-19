@@ -83,6 +83,16 @@ const ID_MOVE: u16 = id(2, 3);
 const ID_MOVE_DIR: u16 = id(2, 4);
 const ID_MOVE_BROWSE: u16 = id(2, 5);
 const ID_MOVE_ONLY_DEFAULT: u16 = id(2, 6);
+const ID_STORE: u16 = id(2, 7);
+const ID_STORE_DIR: u16 = id(2, 8);
+const ID_STORE_BROWSE: u16 = id(2, 9);
+const ID_MOVE_TORRENTS: u16 = id(2, 10);
+const ID_MOVE_TORRENTS_DIR: u16 = id(2, 11);
+const ID_MOVE_TORRENTS_BROWSE: u16 = id(2, 12);
+const ID_AUTOLOAD: u16 = id(2, 13);
+const ID_AUTOLOAD_DIR: u16 = id(2, 14);
+const ID_AUTOLOAD_BROWSE: u16 = id(2, 15);
+const ID_AUTOLOAD_DELETE: u16 = id(2, 16);
 // Connection
 const ID_PORT: u16 = id(3, 1);
 const ID_RANDOM_PORT: u16 = id(3, 2);
@@ -233,6 +243,41 @@ static FIELDS: &[Field] = &[
         id: ID_MOVE_ONLY_DEFAULT,
         get: |o| o.gui.move_only_default,
         set: |o, v| o.gui.move_only_default = v,
+    },
+    Field::Check {
+        id: ID_STORE,
+        get: |o| o.gui.torrent_folders.store,
+        set: |o, v| o.gui.torrent_folders.store = v,
+    },
+    Field::Text {
+        id: ID_STORE_DIR,
+        get: |o| o.gui.torrent_folders.store_dir.clone(),
+        set: |o, v| o.gui.torrent_folders.store_dir = v.trim().to_owned(),
+    },
+    Field::Check {
+        id: ID_MOVE_TORRENTS,
+        get: |o| o.gui.torrent_folders.move_finished,
+        set: |o, v| o.gui.torrent_folders.move_finished = v,
+    },
+    Field::Text {
+        id: ID_MOVE_TORRENTS_DIR,
+        get: |o| o.gui.torrent_folders.finished_dir.clone(),
+        set: |o, v| o.gui.torrent_folders.finished_dir = v.trim().to_owned(),
+    },
+    Field::Check {
+        id: ID_AUTOLOAD,
+        get: |o| o.gui.torrent_folders.autoload,
+        set: |o, v| o.gui.torrent_folders.autoload = v,
+    },
+    Field::Text {
+        id: ID_AUTOLOAD_DIR,
+        get: |o| o.gui.torrent_folders.autoload_dir.clone(),
+        set: |o, v| o.gui.torrent_folders.autoload_dir = v.trim().to_owned(),
+    },
+    Field::Check {
+        id: ID_AUTOLOAD_DELETE,
+        get: |o| o.gui.torrent_folders.autoload_delete,
+        set: |o, v| o.gui.torrent_folders.autoload_delete = v,
     },
     Field::Num {
         id: ID_PORT,
@@ -571,10 +616,17 @@ fn template() -> Vec<u16> {
         [8, 78, 290, 10],
         "Only move from the default download directory",
     );
-    b.group([0, 102, W, 58], "Location of .torrents");
-    b.stub(BUTTON, CHECK, [8, 116, 290, 10], "Store .torrents in:");
-    b.stub(BUTTON, CHECK, [8, 130, 290, 10], "Automatically load .torrents from:");
-    b.label([8, 145, 294, 9], "Storing and automatically loading .torrents are not available yet.");
+    b.group([0, 102, W, 128], "Location of .torrents");
+    b.ctl(BUTTON, ID_STORE, CHECK, [8, 116, 290, 10], "Store .torrents in:");
+    b.ctl(EDIT, ID_STORE_DIR, LINE, [8, 129, 272, 13], "");
+    b.ctl(BUTTON, ID_STORE_BROWSE, PUSH, [284, 129, 18, 13], "...");
+    b.ctl(BUTTON, ID_MOVE_TORRENTS, CHECK, [20, 148, 278, 10], "Move .torrents for finished jobs to:");
+    b.ctl(EDIT, ID_MOVE_TORRENTS_DIR, LINE, [20, 161, 260, 13], "");
+    b.ctl(BUTTON, ID_MOVE_TORRENTS_BROWSE, PUSH, [284, 161, 18, 13], "...");
+    b.ctl(BUTTON, ID_AUTOLOAD, CHECK, [8, 181, 290, 10], "Automatically load .torrents from:");
+    b.ctl(EDIT, ID_AUTOLOAD_DIR, LINE, [8, 194, 272, 13], "");
+    b.ctl(BUTTON, ID_AUTOLOAD_BROWSE, PUSH, [284, 194, 18, 13], "...");
+    b.ctl(BUTTON, ID_AUTOLOAD_DELETE, CHECK, [20, 213, 278, 10], "Delete loaded .torrents");
 
     b.page(3);
     b.group([0, 0, W, 78], "Listening Port");
@@ -870,6 +922,7 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         st.shown.push((ID_SCHED_GRID, st.opts.gui.schedule.table_text()));
         update_ip_filter_status(dlg, st, None);
         update_move_controls(dlg);
+        update_torrent_folder_controls(dlg);
         update_sched_controls(dlg);
     }
 }
@@ -897,6 +950,29 @@ unsafe fn update_move_controls(dlg: HWND) {
         let on = checked(dlg, ID_MOVE) as i32;
         for id in [ID_MOVE_DIR, ID_MOVE_BROWSE, ID_MOVE_ONLY_DEFAULT] {
             EnableWindow(item(dlg, id), on);
+        }
+    }
+}
+
+/// "Location of .torrents" greys as µTorrent's did: the "Move .torrents for finished jobs"
+/// box under "Store .torrents in", each folder under its box, "Delete loaded .torrents" under
+/// "Automatically load .torrents from".
+unsafe fn update_torrent_folder_controls(dlg: HWND) {
+    unsafe {
+        let store = checked(dlg, ID_STORE);
+        let moving = store && checked(dlg, ID_MOVE_TORRENTS);
+        let autoload = checked(dlg, ID_AUTOLOAD);
+        for (id, on) in [
+            (ID_STORE_DIR, store),
+            (ID_STORE_BROWSE, store),
+            (ID_MOVE_TORRENTS, store),
+            (ID_MOVE_TORRENTS_DIR, moving),
+            (ID_MOVE_TORRENTS_BROWSE, moving),
+            (ID_AUTOLOAD_DIR, autoload),
+            (ID_AUTOLOAD_BROWSE, autoload),
+            (ID_AUTOLOAD_DELETE, autoload),
+        ] {
+            EnableWindow(item(dlg, id), on as i32);
         }
     }
 }
@@ -965,6 +1041,17 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
         if o.gui.move_completed && o.gui.completed_dir.is_empty() {
             return Err((ID_MOVE_DIR, "Please choose a folder for completed downloads.".to_owned()));
         }
+        let tf = &o.gui.torrent_folders;
+        if tf.store && tf.store_dir.is_empty() {
+            return Err((ID_STORE_DIR, "Please choose a folder to store .torrents in.".to_owned()));
+        }
+        if tf.store && tf.move_finished && tf.finished_dir.is_empty() {
+            let message = "Please choose a folder for the .torrents of finished jobs.";
+            return Err((ID_MOVE_TORRENTS_DIR, message.to_owned()));
+        }
+        if tf.autoload && tf.autoload_dir.is_empty() {
+            return Err((ID_AUTOLOAD_DIR, "Please choose a folder to load .torrents from.".to_owned()));
+        }
         st.opts = o;
         Ok(())
     }
@@ -1026,6 +1113,22 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
                 }
             }
             ID_MOVE if code == BN_CLICKED => update_move_controls(dlg),
+            ID_STORE | ID_MOVE_TORRENTS | ID_AUTOLOAD if code == BN_CLICKED => {
+                update_torrent_folder_controls(dlg)
+            }
+            ID_STORE_BROWSE | ID_MOVE_TORRENTS_BROWSE | ID_AUTOLOAD_BROWSE if code == BN_CLICKED => {
+                let (edit, title) = match id {
+                    ID_STORE_BROWSE => (ID_STORE_DIR, "Select the folder to store .torrents in"),
+                    ID_MOVE_TORRENTS_BROWSE => {
+                        (ID_MOVE_TORRENTS_DIR, "Select the folder for the .torrents of finished jobs")
+                    }
+                    _ => (ID_AUTOLOAD_DIR, "Select the folder to load .torrents from"),
+                };
+                let now = window_text(item(dlg, edit));
+                if let Some(p) = crate::create::pick_folder_at(dlg, title, Some(&now)) {
+                    set_text(item(dlg, edit), &p);
+                }
+            }
             ID_SCHED if code == BN_CLICKED => update_sched_controls(dlg),
             ID_MOVE_BROWSE if code == BN_CLICKED => {
                 let now = window_text(item(dlg, ID_MOVE_DIR));
@@ -1695,6 +1798,81 @@ mod tests {
         assert!(!o.gui.move_completed && o.gui.move_completed().is_none());
         assert_eq!(o.gui.completed_dir, r"D:\Done");
         unsafe { assert_eq!(IsWindowEnabled(item(g.dlg, ID_MOVE_DIR)), 0) };
+    }
+
+    #[test]
+    fn torrent_folders_on_directories() {
+        let mut f = Fixture::new(defaults());
+        f.page(2);
+        let all = [
+            ID_STORE,
+            ID_STORE_DIR,
+            ID_STORE_BROWSE,
+            ID_MOVE_TORRENTS,
+            ID_MOVE_TORRENTS_DIR,
+            ID_MOVE_TORRENTS_BROWSE,
+            ID_AUTOLOAD,
+            ID_AUTOLOAD_DIR,
+            ID_AUTOLOAD_BROWSE,
+            ID_AUTOLOAD_DELETE,
+        ];
+        let enabled = |f: &Fixture, id: u16| unsafe { IsWindowEnabled(item(f.dlg, id)) != 0 };
+        unsafe {
+            for id in all {
+                assert!(shown(item(f.dlg, id)), "control {id}");
+            }
+            assert!(!checked(f.dlg, ID_STORE) && !checked(f.dlg, ID_AUTOLOAD));
+        }
+        // greyed as in µTorrent: everything under an unchecked box
+        for id in all.into_iter().filter(|&id| id != ID_STORE && id != ID_AUTOLOAD) {
+            assert!(!enabled(&f, id), "control {id} greyed");
+        }
+        f.check(ID_STORE, true);
+        f.click(ID_STORE);
+        assert!(enabled(&f, ID_STORE_DIR) && enabled(&f, ID_MOVE_TORRENTS));
+        assert!(!enabled(&f, ID_MOVE_TORRENTS_DIR), "until its own box is checked");
+        f.check(ID_MOVE_TORRENTS, true);
+        f.click(ID_MOVE_TORRENTS);
+        assert!(enabled(&f, ID_MOVE_TORRENTS_DIR) && enabled(&f, ID_MOVE_TORRENTS_BROWSE));
+        f.check(ID_AUTOLOAD, true);
+        f.click(ID_AUTOLOAD);
+        assert!(enabled(&f, ID_AUTOLOAD_DIR) && enabled(&f, ID_AUTOLOAD_DELETE));
+
+        // each checked box needs its folder, refused on the Directories page
+        for (id, text) in [
+            (ID_STORE_DIR, r"D:\Torrents"),
+            (ID_MOVE_TORRENTS_DIR, r" D:\Done "),
+            (ID_AUTOLOAD_DIR, r"D:\Watch"),
+        ] {
+            let err = unsafe { read_controls(f.dlg, &mut f.st) }.unwrap_err();
+            assert_eq!((err.0, page_of(err.0)), (id, Some(2)));
+            f.set(id, text);
+        }
+        f.check(ID_AUTOLOAD_DELETE, true);
+        f.click(ID_APPLY);
+        let o = f.last_applied();
+        let tf = &o.gui.torrent_folders;
+        assert!(tf.store && tf.move_finished && tf.autoload && tf.autoload_delete);
+        assert_eq!(tf.stores_in(), Some(r"D:\Torrents"));
+        assert_eq!(tf.moves_finished_to(), Some(r"D:\Done"));
+        assert_eq!(tf.loads_from(), Some(r"D:\Watch"));
+        let mut prefs = Prefs::default();
+        o.store(&mut prefs);
+        let text = prefs.to_text();
+        assert!(text.contains("dir.store_torrents=1") && text.contains(r"dir.autoload_dir=D:\Watch"));
+        assert_eq!(Options::load(&prefs, "unused"), o);
+
+        // shown back; unchecking Store greys the move box and its folder but keeps them
+        let g = Fixture::new(o);
+        assert_eq!(g.text(ID_MOVE_TORRENTS_DIR), r"D:\Done");
+        assert!(enabled(&g, ID_MOVE_TORRENTS_DIR));
+        g.check(ID_STORE, false);
+        g.click(ID_STORE);
+        assert!(!enabled(&g, ID_MOVE_TORRENTS) && !enabled(&g, ID_MOVE_TORRENTS_DIR));
+        g.click(ID_APPLY);
+        let tf = g.last_applied().gui.torrent_folders;
+        assert!(!tf.store && tf.move_finished);
+        assert_eq!((tf.stores_in(), tf.moves_finished_to()), (None, None));
     }
 
     #[test]

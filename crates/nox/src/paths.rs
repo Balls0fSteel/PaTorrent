@@ -132,7 +132,7 @@ fn systemd_dir(env: &impl Fn(&str) -> Option<OsString>, var: &str) -> Option<Pat
 
 /// Moves `webui.json` from the old place to the config directory when only the old place has
 /// one, and copies `ipfilter.dat` likewise (a `--ip-filter` path may still name the old copy).
-/// Returns what was moved or copied, as `(file, moved)`.
+/// Returns the new files, as `(file, moved)` (`false`: copied).
 pub fn migrate(from: &Path, to: &Path) -> io::Result<Vec<(PathBuf, bool)>> {
     let mut done = Vec::new();
     for (i, name) in MOVED.iter().enumerate() {

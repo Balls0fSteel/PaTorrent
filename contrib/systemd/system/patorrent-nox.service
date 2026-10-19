@@ -1,7 +1,7 @@
 # patorrent-nox as a system service, run as the `patorrent` account (docs/DAEMON.md).
 #
 #   sudo install -m 755 patorrent-nox /usr/local/bin/
-#   sudo install -m 644 patorrent-nox.sysusers /etc/sysusers.d/patorrent-nox.conf
+#   sudo install -D -m 644 patorrent-nox.sysusers /etc/sysusers.d/patorrent-nox.conf
 #   sudo systemd-sysusers
 #   sudo install -m 644 patorrent-nox.service /etc/systemd/system/
 #   sudo systemctl daemon-reload

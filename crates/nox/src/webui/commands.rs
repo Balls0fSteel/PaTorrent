@@ -31,7 +31,7 @@ use super::http::{
 use super::json::{self, Json};
 use super::native::category_from_id;
 use super::torrent::hash_of;
-use super::{Meta, Reply, ReplyKind, Shared, State, fetch, prefs};
+use super::{Entry, Meta, Reply, ReplyKind, Shared, State, fetch, prefs};
 
 /// The header every native command must carry (a browser cannot send a custom header
 /// cross-site without a CORS preflight, which the server never grants): `X-Requested-With:
@@ -343,15 +343,14 @@ pub fn super_seed(shared: &Shared, ids: &[TorrentId], on: bool) {
 /// Each torrent's tracker list, asked of the engine (outside the lock); a torrent that does not
 /// answer in time is left out.
 fn tracker_lists(shared: &Shared, ids: &[TorrentId]) -> HashMap<TorrentId, Vec<AnnounceEntry>> {
-    let mut out = HashMap::new();
-    for &id in ids {
-        if let Some(Reply::Trackers(list)) =
-            shared.query(id, ReplyKind::Trackers, |h| h.torrent(id).post_trackers())
-        {
-            out.insert(id, list);
-        }
-    }
-    out
+    shared
+        .query_many(ids, ReplyKind::Trackers, |h, id| h.torrent(id).post_trackers())
+        .into_iter()
+        .filter_map(|(id, r)| match r {
+            Reply::Trackers(list) => Some((id, list)),
+            _ => None,
+        })
+        .collect()
 }
 
 /// The Properties dialog's model for `ids`, as the Win32 dialog loads it.
@@ -397,6 +396,38 @@ pub fn properties_json(p: &Properties) -> Json {
         .with("dht", tri_name(f.dht))
         .with("pex", tri_name(f.pex));
     Json::obj().with("count", p.count).with("can_initial_seed", p.can_initial_seed).with("fields", fields)
+}
+
+/// The `GET`'s selection: `ids=<hash>,<hash>`, or `all=1` with the view's `category`, `label`
+/// and `search`, as a command's `{"all":true,"filter":{...}}` (the page's Ctrl+A).
+fn query_selection(q: &[(String, String)]) -> Result<Selection, CmdError> {
+    let get = |k: &str| q.iter().rev().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+    if matches!(get("all"), Some("1" | "true")) {
+        let mut f = Json::obj();
+        for k in ["category", "label", "search"] {
+            if let Some(v) = get(k) {
+                f.set(k, v);
+            }
+        }
+        return Selection::parse(&Json::obj().with("all", true).with("filter", f)).map_err(|e| err(400, e));
+    }
+    let hashes = get("ids").unwrap_or("").split(',');
+    Ok(Selection::Ids(hashes.map(|h| h.trim().to_ascii_lowercase()).filter(|h| !h.is_empty()).collect()))
+}
+
+/// The `GET`'s answer: [`properties_json`], plus the torrent's `name` when there is one (the
+/// page's dialog title) and whether every torrent is `finished` (a double-click opens the
+/// dialog only on a torrent that is not, as in the Win32 window).
+fn properties_reply(shared: &Shared, sel: &Selection) -> Result<Json, CmdError> {
+    let ids = sel.resolve(&shared.lock());
+    let mut out = properties_json(&properties(shared, &ids)?);
+    let st = shared.lock();
+    let entries: Vec<&Entry> = ids.iter().filter_map(|id| st.torrents.get(id)).collect();
+    if let [one] = entries[..] {
+        out.set("name", one.status.name.as_str());
+    }
+    out.set("finished", !entries.is_empty() && entries.iter().all(|e| e.status.is_finished));
+    Ok(out)
 }
 
 /// Sets the fields a partial `fields` object names (same names and values as the `GET`).
@@ -1024,16 +1055,8 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Respons
                 Ok(Response::json(&prefs::model(shared, &st)))
             }
             "torrents/properties" => {
-                let q = parse_urlencoded(req.head.query.as_bytes());
-                let hashes = q.iter().rev().find(|(k, _)| k == "ids").map(|(_, v)| v.as_str()).unwrap_or("");
-                let ids: Vec<TorrentId> = {
-                    let st = shared.lock();
-                    hashes
-                        .split(',')
-                        .filter_map(|h| st.by_hash.get(&h.trim().to_ascii_lowercase()).copied())
-                        .collect()
-                };
-                Ok(Response::json(&properties_json(&properties(shared, &ids)?)))
+                let sel = query_selection(&parse_urlencoded(req.head.query.as_bytes()))?;
+                Ok(Response::json(&properties_reply(shared, &sel)?))
             }
             _ => Err(err(405, "POST only")),
         };

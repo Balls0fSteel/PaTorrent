@@ -2533,6 +2533,34 @@ fn torrent_folders_store_copies_and_auto_load() {
     assert!(watch.join("broken.torrent").exists());
 }
 
+/// Properties on a selection larger than the reply cache: every torrent's tracker list is
+/// asked for and read back (a missing one would load the box blank).
+#[test]
+fn torrent_properties_on_a_whole_library() {
+    let t = Harness::start_mock("properties-all", 300, 0.0, 0);
+    let sid = t.login();
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let all = || t.get(&sid, "/pa/torrents/properties?all=1").json();
+    while all().get("count").and_then(Json::as_i64) != Some(300) {
+        assert!(Instant::now() < deadline, "the library never loaded");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    let tracker = |p: &Json| s(p.get("fields").and_then(|f| f.get("trackers"))).to_owned();
+    assert_eq!(tracker(&all()), "", "the generated lists differ");
+    let body = r#"{"all":true,"fields":{"trackers":"udp://one.example:1/announce"}}"#;
+    let r = t.pa(&sid, "/pa/torrents/properties", body);
+    assert_eq!(r.status, 204, "{}", r.text());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let p = all();
+        if tracker(&p) == "udp://one.example:1/announce" {
+            break;
+        }
+        assert!(Instant::now() < deadline, "{}", p.to_json());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
 #[test]
 fn torrent_properties_and_the_shims_tracker_and_share_limit_edits() {
     let t = Harness::start("properties");
@@ -2550,6 +2578,45 @@ fn torrent_properties_and_the_shims_tracker_and_share_limit_edits() {
     assert_eq!(field(&p, "upload_kib"), "0");
     assert_eq!((field(&p, "override_goal"), field(&p, "dht")), ("off".to_owned(), "on".to_owned()));
     assert_eq!(t.get(&sid, "/pa/torrents/properties?ids=00").status, 404);
+    // the page's dialog title and double-click
+    assert_eq!(s(p.get("name")), "webui-test");
+    assert_eq!(p.get("finished").and_then(Json::as_bool), Some(false));
+
+    // several torrents, and the page's Ctrl+A: `all=1` with the view's filter
+    let (other_bytes, other) = torrent_named("other-props", Some("udp://127.0.0.1:9/other"));
+    let (body, boundary) = multipart(&[("paused", "true")], &other_bytes);
+    let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+    assert_eq!(r.status, 200);
+    t.wait_for(&sid, &other, "the second torrent", |x| s(x.get("name")) == "other-props");
+    let both = t.get(&sid, &format!("/pa/torrents/properties?ids={hash},{other}")).json();
+    assert_eq!(both.get("count").and_then(Json::as_i64), Some(2));
+    assert_eq!(field(&both, "trackers"), "", "differing trackers load blank");
+    assert_eq!(field(&both, "dht"), "on");
+    assert!(both.get("name").is_none(), "no name for several");
+    let all = t.get(&sid, "/pa/torrents/properties?all=1").json();
+    assert_eq!(all.get("count").and_then(Json::as_i64), Some(2));
+    let one = t.get(&sid, "/pa/torrents/properties?all=1&category=all&search=OTHER").json();
+    assert_eq!((one.get("count").and_then(Json::as_i64), s(one.get("name"))), (Some(1), "other-props"));
+    assert_eq!(field(&one, "trackers"), "udp://127.0.0.1:9/other");
+    assert_eq!(t.get(&sid, "/pa/torrents/properties?all=1&label=").status, 200, "No Label");
+    assert_eq!(t.get(&sid, "/pa/torrents/properties?all=1&search=zzz").status, 404);
+    assert_eq!(t.get(&sid, "/pa/torrents/properties?all=1&category=bogus").status, 400);
+    let r = t.pa(
+        &sid,
+        "/pa/torrents/properties",
+        r#"{"all":true,"filter":{"search":"other"},"fields":{"pex":"off"}}"#,
+    );
+    assert_eq!(r.status, 204, "{}", r.text());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    while field(&t.get(&sid, &format!("/pa/torrents/properties?ids={other}")).json(), "pex") != "off" {
+        assert!(Instant::now() < deadline, "pex never went off");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(field(&props(), "pex"), "on", "outside the filter");
+    let mixed = t.get(&sid, &format!("/pa/torrents/properties?ids={hash},{other}")).json();
+    assert_eq!(field(&mixed, "pex"), "mixed");
+    let r = t.pa(&sid, "/pa/torrents/remove", &format!(r#"{{"ids":["{other}"]}}"#));
+    assert_eq!(r.status, 204, "{}", r.text());
 
     // the dialog's OK: only the fields sent change
     let body = format!(

@@ -108,6 +108,7 @@ version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
  "patorrent-core",
+ "patorrent-frontend",
  "patorrent-nox",
 ]
 

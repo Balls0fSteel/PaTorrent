@@ -45,10 +45,14 @@ mod mock;
 pub use alert::{Alert, AlertPriority, AlertQueue, BlockReason, FileOperation, ProxyOperation};
 pub use error::Error;
 pub use move_completed::{MoveCompleted, same_dir};
+/// A blocking HTTP / HTTPS `GET` for frontends (Add Torrent from URL, RSS feeds).
+pub use net::fetch;
 pub use net::ip_filter::{IpFilter, IpFilterLoad, IpRange, PortFilter};
 pub use params::{
     AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags, TorrentSource,
 };
+/// The forgiving XML scanner (libtorrent `xml_parse`), for RSS and Atom feeds.
+pub use proto::xml;
 pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
 pub use settings::{EncLevel, EncPolicy, ProxyType, Settings};
 pub use status::{

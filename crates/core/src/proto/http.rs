@@ -109,6 +109,11 @@ pub enum ParseError {
 /// Parses a response. With `eof`, a body without `Content-Length` or chunked framing ends at
 /// the end of the buffer (the server closed the connection).
 pub fn parse_response(buf: &[u8], eof: bool) -> Result<Response, ParseError> {
+    parse_response_limited(buf, eof, MAX_RESPONSE)
+}
+
+/// [`parse_response`] with a body limit other than [`MAX_RESPONSE`] (the public fetch helper).
+pub fn parse_response_limited(buf: &[u8], eof: bool, max: usize) -> Result<Response, ParseError> {
     let Some(head_end) = find(buf, b"\r\n\r\n") else {
         return Err(if eof { ParseError::Invalid("truncated HTTP header") } else { ParseError::Incomplete });
     };
@@ -135,10 +140,10 @@ pub fn parse_response(buf: &[u8], eof: bool) -> Result<Response, ParseError> {
     let chunked =
         resp.header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
     if chunked {
-        resp.body = decode_chunked(rest, eof)?;
+        resp.body = decode_chunked(rest, eof, max)?;
     } else if let Some(len) = resp.header("content-length") {
         let len: usize = len.parse().map_err(|_| ParseError::Invalid("invalid content-length"))?;
-        if len > MAX_RESPONSE {
+        if len > max {
             return Err(ParseError::Invalid("HTTP response too large"));
         }
         if rest.len() < len {
@@ -150,6 +155,9 @@ pub fn parse_response(buf: &[u8], eof: bool) -> Result<Response, ParseError> {
         }
         resp.body = rest[..len].to_vec();
     } else if eof || status == 204 || status == 304 {
+        if rest.len() > max {
+            return Err(ParseError::Invalid("HTTP response too large"));
+        }
         resp.body = rest.to_vec();
     } else {
         return Err(ParseError::Incomplete);
@@ -157,7 +165,7 @@ pub fn parse_response(buf: &[u8], eof: bool) -> Result<Response, ParseError> {
     Ok(resp)
 }
 
-fn decode_chunked(mut buf: &[u8], eof: bool) -> Result<Vec<u8>, ParseError> {
+fn decode_chunked(mut buf: &[u8], eof: bool, max: usize) -> Result<Vec<u8>, ParseError> {
     let incomplete =
         || if eof { ParseError::Invalid("truncated chunked body") } else { ParseError::Incomplete };
     let mut out = Vec::new();
@@ -172,7 +180,7 @@ fn decode_chunked(mut buf: &[u8], eof: bool) -> Result<Vec<u8>, ParseError> {
         if size == 0 {
             return Ok(out);
         }
-        if out.len() + size > MAX_RESPONSE {
+        if size > max || out.len() + size > max {
             return Err(ParseError::Invalid("HTTP response too large"));
         }
         if buf.len() < size + 2 {

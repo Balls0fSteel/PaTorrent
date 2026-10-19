@@ -26,7 +26,7 @@ pub(crate) mod peer_list;
 mod pex;
 pub(crate) mod picker;
 mod portmap;
-mod proxy;
+pub(crate) mod proxy;
 mod smart_ban;
 mod super_seed;
 pub(crate) mod torrent;

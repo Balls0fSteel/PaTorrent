@@ -15,6 +15,7 @@
 //! * [`options`]: what the Preferences dialog edits, loaded from and stored to the preferences.
 //! * [`scheduler`]: the weekly scheduler (table, modes, what to change when the hour turns).
 //! * [`torrent_folders`]: the `.torrent` folders (stored copies, finished jobs, auto-load).
+//! * [`rss`]: RSS / Atom feeds and the RSS Downloader (filters, episodes, history, `rss.dat`).
 
 pub mod actions;
 pub mod add;
@@ -25,6 +26,7 @@ pub mod fmt;
 pub mod model;
 pub mod options;
 pub mod prefs;
+pub mod rss;
 pub mod scheduler;
 pub mod settings;
 pub mod status;

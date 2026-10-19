@@ -666,6 +666,13 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             }
         }
         "torrents/tags" => Response::json(&Json::Arr(Vec::new())),
+        e if e.starts_with("rss/") => {
+            let e = &e["rss/".len()..];
+            if read && super::rss::shim_post_only(e) {
+                return Response::text(405, "Method Not Allowed").with_header("Allow", "POST");
+            }
+            super::rss::shim(shared, e, &|k| p.get(k).map(str::to_owned))
+        }
         _ => Response::text(404, "Not Found"),
     }
 }

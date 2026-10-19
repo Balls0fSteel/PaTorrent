@@ -205,6 +205,40 @@ is not `http`, `https` or `udp`), `addTrackers` (each URL in a new tier after th
 `seedingTimeLimit` minutes; -1 is no target, -2 the default, both -2 drop the override;
 `inactiveSeedingTimeLimit` is ignored).
 
+#### The RSS Downloader
+
+`webui/rss.rs` runs µTorrent 2.2.1's downloader (`frontend::rss`) on the status tick (so only
+with `--webui`): due feeds and the `.torrent` files the filters pick are fetched on the shared
+worker's threads (`frontend::rss::worker`, with the engine's proxy for HTTP trackers), never on
+the alert or HTTP threads; the tick collects the results and adds through the same `add` as
+`/pa/add` (the filter's Save in, Label, "highest priority" as Add to top of queue, "paused
+state" as the page's Pause). `rss.dat` lives in the config directory beside `webui.json`. The
+downloader has its own lock, always taken before the State lock. Every change bumps a version
+that the `tick` message carries as `"rss": n` (sent when it changed since the client's last
+tick), so an open dialog and the tree's Feeds branch reload `GET /pa/rss`.
+
+| Endpoint | Body | Does |
+|---|---|---|
+| `GET /pa/rss` | | `feeds` (`id`, `name`, `url`, `alias`, `enabled`, `subscribe`, `smart`, `items`, `updating`, `status`), `filters` (`id`, `name`, `enabled`, `pattern`, `not`, `save_in`, `feed` (0 all), `quality` (bit mask) and `quality_text`, `episodes`, `min_interval` (seconds), `label`, `smart`, `top_priority`, `paused`), `history` (`[name, date, feed]`, newest first), `qualities` (`[bit, name]`), `intervals` (`[seconds, name]`), `labels` |
+| `GET /pa/rss/items?feed=ID` | | the item list (`frontend::rss::view`): `columns` and `rows` of `{feed, id, downloaded, can, cells}`; no `feed` (or 0) for every feed's |
+| `GET /pa/rss/preview?filter=ID` | | the items of the feeds' last fetches the filter matches, `[title, feed]` |
+| `/pa/rss/feed-add` | `{"url":"...","alias":"","subscribe":false,"smart":false}` | answers `{"id"}` and fetches the feed |
+| `/pa/rss/feed-edit` | `{"id":n, "url", "alias", "enabled", "subscribe", "smart"}` (each optional) | a new URL drops the old items and fetches again |
+| `/pa/rss/feed-remove`, `/pa/rss/feed-update` | `{"id":n}` (`feed-update` without one: every enabled feed) | |
+| `/pa/rss/filter-add`, `/pa/rss/filter-edit` | the filter's fields as in `GET /pa/rss` (`filter-edit` with `id`; each optional) | `filter-add` answers `{"id"}` |
+| `/pa/rss/filter-remove`, `filter-up`, `filter-down` | `{"id":n}` | order is priority: an item goes to the first filter that takes it |
+| `/pa/rss/download` | `{"feed":n,"item":"<item id>"}` | the user's own download of an item (labelled with the feed's name) |
+| `/pa/rss/history-clear`, `/pa/rss/process` | `{}` | `process` runs the filters over the feeds' current items (the page sends it when the dialog closes) |
+
+The shim's `rss/*` map onto the same downloader: `addFeed` (`url`, `path` as the alias),
+`removeItem`, `moveItem` (renames), `refreshItem`, `markAsRead` (kept in memory only),
+`items` (`withData` for the articles; `isRead` is an added or marked article), `setRule` (a
+filter by name; `mustContain` / `mustNotContain` in our wildcard syntax, `episodeFilter`,
+`smartFilter`, `affectedFeeds` (one feed, else all), `ignoreDays` as the Minimum interval,
+`addPaused`, `assignedCategory`, `savePath`; `useRegex` is ignored), `renameRule`,
+`removeRule`, `rules`, `matchingArticles`. The RSS tree is flat (a feed's path is its name):
+`addFolder` and paths with folders are 409.
+
 ### Page layout
 
 Desktop (the 2.2.1 window): toolbar; category tree on the left with counts; the list; the detail
@@ -279,7 +313,9 @@ In order; each is a CHANGELOG entry and lands green on the three CI platforms.
 7. **Phone layout** pass, then the long-poll fallback if a deployment needs it. The phone
    layout landed: CHANGELOG 2026-10-18_230237_1792357357.
 8. Later, with Phase 5: labels in the tree and the Label column (the tree's Labels branch with
-   "No Label" and live counts landed: CHANGELOG 2026-10-18_232431_1792358671), RSS, the scheduler
+   "No Label" and live counts landed: CHANGELOG 2026-10-18_232431_1792358671), RSS (landed: the
+   RSS Downloader dialog with Items, Filters and History, the tree's Feeds branch, `/pa/rss` and
+   the shim's `rss/*`), the scheduler
    (landed: the Preferences > Scheduler page with its 7 x 24 table, CHANGELOG 2026-10-18_235124_1792360284), per-torrent
    limits; and the GUIs' remote mode on its own binary stream.
 

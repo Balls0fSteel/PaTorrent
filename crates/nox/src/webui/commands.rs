@@ -1035,6 +1035,16 @@ pub fn serve(shared: &Shared, endpoint: &str, req: &Request) -> Response {
 
 fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Response, CmdError> {
     let read = matches!(req.head.method.as_str(), "GET" | "HEAD");
+    // the RSS Downloader's own (`rss.rs`)
+    if let Some(rest) = endpoint.strip_prefix("rss").filter(|r| r.is_empty() || r.starts_with('/')) {
+        if read {
+            return super::rss::serve(shared, rest, req, None);
+        }
+        if !csrf_header_ok(&req.head) {
+            return Err(err(403, format!("missing X-Requested-With: {CSRF_VALUE} header")));
+        }
+        return super::rss::serve(shared, rest, req, Some(json_body(req)?));
+    }
     if read {
         return match endpoint {
             "session/limits" => Ok(Response::json(&session_limits(&shared.lock()))),

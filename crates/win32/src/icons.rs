@@ -28,10 +28,11 @@ pub enum Icon {
     Up,
     Down,
     Preferences,
+    Rss,
 }
 
 impl Icon {
-    pub const ALL: [Icon; 10] = [
+    pub const ALL: [Icon; 11] = [
         Icon::AddTorrent,
         Icon::AddUrl,
         Icon::Create,
@@ -42,6 +43,7 @@ impl Icon {
         Icon::Up,
         Icon::Down,
         Icon::Preferences,
+        Icon::Rss,
     ];
 }
 
@@ -288,7 +290,28 @@ fn draw(icon: Icon, c: &mut Canvas) {
             });
             c.ring(Paint::Solid(OUTLINE), 12.0, 12.0, 3.6, 3.0);
         }
+        Icon::Rss => {
+            // the feed sign: a dot and two arcs on an orange tile
+            c.fill(Paint::Solid(0xa84c00), |x, y| rounded(x, y, 2.5, 21.5, 3.5));
+            c.fill(Paint::Gradient(0xffb347, 0xe8650c), |x, y| rounded(x, y, 3.3, 20.7, 2.8));
+            let white = Paint::Solid(0xffffff);
+            c.circle(white, 7.8, 16.2, 2.0);
+            for (r_out, r_in) in [(9.2, 6.8), (14.2, 11.8)] {
+                c.fill(white, move |x, y| {
+                    let (dx, dy) = (x - 6.2, y - 17.8);
+                    let d = (dx * dx + dy * dy).sqrt();
+                    dx >= -0.5 && dy <= 0.5 && d <= r_out && d >= r_in
+                });
+            }
+        }
     }
+}
+
+/// Inside a square from `a` to `b` (both axes) with corners rounded by `r`.
+fn rounded(x: f32, y: f32, a: f32, b: f32, r: f32) -> bool {
+    let cx = x.clamp(a + r, b - r);
+    let cy = y.clamp(a + r, b - r);
+    x >= a && x <= b && y >= a && y <= b && (x - cx).powi(2) + (y - cy).powi(2) <= r * r
 }
 
 /// The application icon: a green disc with a white down arrow over a bar.

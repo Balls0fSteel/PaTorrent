@@ -154,6 +154,8 @@ pub struct Client {
     rows_stale: bool,
     /// The label list and counts as last sent (`labels` and `no_label` in a tick).
     labels_sent: Option<(Json, usize)>,
+    /// `State::rss_version` as last sent (`rss` in a tick).
+    rss_sent: u64,
 }
 
 impl Default for Client {
@@ -176,6 +178,7 @@ impl Client {
             rows: Vec::new(),
             rows_stale: true,
             labels_sent: None,
+            rss_sent: 0,
         }
     }
 
@@ -521,6 +524,11 @@ impl Client {
             out.set("no_label", no_label);
         }
         out.set("status", status_bar(st));
+        // the RSS Downloader changed: the page reloads its feeds (GET /pa/rss)
+        if st.rss_version != self.rss_sent {
+            self.rss_sent = st.rss_version;
+            out.set("rss", st.rss_version);
+        }
         out
     }
 

@@ -533,6 +533,91 @@ div.pg { border: 0; padding: 0 8px; }
   .props-btns button { flex: 1; min-height: 40px; }
 }
 
+/* the RSS Downloader (the 2.2.1 layout: the feeds left, Filters and History on tabs right) and
+   its Add RSS Feed dialog; the tree's Feeds branch */
+#tree .fitem {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 0 8px 0 16px;
+  line-height: var(--row-h);
+  height: var(--row-h);
+  cursor: default;
+  white-space: nowrap;
+  overflow: hidden;
+}
+#tree .fitem:hover { background: var(--bg2); }
+#tree .fitem .t { overflow: hidden; text-overflow: ellipsis; }
+#tree .fitem .n { color: var(--muted); font-variant-numeric: tabular-nums; }
+#rss, #rss-feed {
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 2px 2px 10px var(--shadow);
+}
+#rss { width: min(980px, calc(100vw - 32px)); height: min(620px, calc(100vh - 32px)); }
+#rss-feed { width: min(480px, calc(100vw - 32px)); }
+#rss::backdrop, #rss-feed::backdrop { background: rgba(0, 0, 0, 0.35); }
+#rss h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+#rss-body { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+#rss select, #rss input:not([type]) { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; min-width: 0; }
+.rss-cols { display: grid; grid-template-columns: 200px minmax(0, 1fr); gap: 10px; flex: 1 1 auto; min-height: 0; }
+.rss-left, .rss-right, .rss-fl { display: flex; flex-direction: column; gap: 6px; min-height: 0; }
+.rss-cap { color: var(--muted); }
+.rss-list { flex: 1 1 auto; min-height: 60px; overflow: auto; border: 1px solid var(--line); background: var(--bg); user-select: none; }
+.rss-row { display: flex; align-items: center; gap: 4px; padding: 0 6px; line-height: 20px; white-space: nowrap; cursor: default; }
+.rss-row span { overflow: hidden; text-overflow: ellipsis; }
+.rss-row input { margin: 0; }
+.rss-row.on { background: var(--sel); color: var(--sel-fg); }
+.rss-row:not(.on):hover { background: var(--bg2); }
+.rss-status { min-height: 2.6em; color: var(--muted); overflow-wrap: anywhere; }
+.rss-btns { display: flex; flex-wrap: wrap; gap: 4px; }
+#rss-tabs { display: flex; gap: 2px; border-bottom: 1px solid var(--line); }
+#rss-tabs button { border-radius: 3px 3px 0 0; border-bottom: 0; }
+#rss-tabs button.on { background: var(--bg); font-weight: 600; }
+.rss-page { display: flex; flex-direction: column; gap: 6px; flex: 1 1 auto; min-height: 0; }
+.rss-page[hidden] { display: none; }
+.rss-filters { display: grid; grid-template-columns: 170px minmax(0, 1fr); gap: 10px; }
+#rss-fields { display: flex; flex-direction: column; gap: 3px; min-height: 0; overflow: auto; }
+#rss-fields > label { display: grid; grid-template-columns: 110px minmax(0, 1fr); align-items: center; gap: 6px; }
+#rss-fields > label > button, .rss-pair { justify-self: start; }
+#rss-x-quality { min-width: 120px; text-align: left; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+.rss-pair { display: flex; gap: 4px; align-items: center; width: 100%; }
+.rss-pair input { flex: 1 1 auto; }
+.rss-hint { color: var(--muted); white-space: nowrap; }
+.rss-checks label { display: block; line-height: 22px; }
+#rss-preview { min-height: 80px; }
+.rss-table { flex: 1 1 auto; min-height: 0; overflow: auto; border: 1px solid var(--line); background: var(--bg); }
+.rss-table table { border-collapse: collapse; table-layout: fixed; min-width: 100%; user-select: none; }
+.rss-table th { position: sticky; top: 0; background: var(--hdr); text-align: left; padding: 2px 6px; border-bottom: 1px solid var(--line); font-weight: 600; }
+.rss-table td { padding: 1px 6px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 0; }
+.rss-table tr.done td { color: var(--muted); }
+.rss-table tbody tr.on td { background: var(--sel); color: var(--sel-fg); }
+.rss-table tbody tr:not(.on):hover td { background: var(--bg2); }
+#rss-history th:first-child { width: 55%; }
+.rss-ok { display: flex; justify-content: flex-end; gap: 6px; align-items: center; }
+.rss-ok button { min-width: 72px; }
+#rss-f-msg { flex: 1; color: var(--err); }
+#rss-feed-form { display: flex; flex-direction: column; gap: 8px; }
+#rss-feed fieldset { border: 1px solid var(--line); border-radius: 3px; padding: 6px 8px 8px; margin: 0; }
+#rss-feed fieldset label { display: block; line-height: 22px; }
+#rss-feed .rss-sub { padding-left: 20px; }
+.rss-line { display: flex; flex-direction: column; gap: 2px; }
+.rss-line input { width: 100%; background: var(--bg); }
+@media (max-width: 767px) {
+  /* the dialog takes the whole screen; the feeds go above the tabs */
+  #rss, #rss-feed { width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: none; margin: 0; border: 0; padding: 10px; }
+  .rss-cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
+  .rss-left .rss-list { max-height: 22vh; }
+  .rss-filters { grid-template-columns: minmax(0, 1fr); overflow: auto; }
+  .rss-fl .rss-list { max-height: 20vh; }
+  #rss-fields { overflow: visible; }
+  #rss-fields > label { grid-template-columns: minmax(0, 1fr); gap: 2px; }
+  .rss-row { line-height: 36px; }
+  #rss button { min-height: 36px; }
+}
+
 /* gate panel (#gate in the URL): measurements of the page itself */
 #gate {
   position: fixed;

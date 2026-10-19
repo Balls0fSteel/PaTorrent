@@ -26,6 +26,8 @@ mod preferences;
 #[cfg(windows)]
 mod properties;
 #[cfg(windows)]
+mod rss;
+#[cfg(windows)]
 mod sched_grid;
 #[cfg(windows)]
 mod shutdown;

@@ -468,6 +468,7 @@
     if (m.cells) for (const id in m.cells) cells.set(id, m.cells[id]);
     if (m.counts) updateCounts(m.counts);
     if (m.labels) updateLabels(m.labels, m.no_label);
+    if (m.rss !== undefined) rssChanged(m.rss);
     if (m.status) updateStatus(m.status);
     if (m.ids || m.cells) {
       // keep only the window's cells
@@ -957,6 +958,7 @@
         { label: "Sort Descending", chk: !!sort[1], run: () => setSort([sort[0], !sort[1]]) },
         "-",
         { label: "Preferences", run: () => $("tb-prefs").click() },
+        { label: "RSS Downloader", run: () => openRss(0) },
         { label: "Log Out", run: () => $("logout").click() },
       ],
       r.left,
@@ -1156,6 +1158,7 @@
       it.append(t, n);
       tree.appendChild(it);
     }
+    rssRenderTree();
     markTree();
   }
   function markTree() {
@@ -1464,11 +1467,11 @@
 
   // ---- menus ---------------------------------------------------------------------------
   const menus = []; // open menu elements, root first
-  /// Where menus live: inside the Add dialog while it is open (a modal dialog's top layer
-  /// covers the page and makes the rest of it inert), else the body.
+  /// Where menus live: inside the topmost open dialog (a modal dialog's top layer covers the
+  /// page and makes the rest of it inert), else the body.
   function menuHost() {
-    const dlg = document.getElementById("add");
-    return dlg && dlg.open ? dlg : document.body;
+    const open = document.querySelectorAll("dialog[open]");
+    return open.length ? open[open.length - 1] : document.body;
   }
   function openMenu(items, x, y) {
     closeMenu();
@@ -2551,6 +2554,409 @@
       renderTree();
     }
     closeAddDialog();
+  });
+
+  // ---- the RSS Downloader (µTorrent 2.2.1's dialog; pa/rss, nox's webui/rss.rs) -----------
+  // Feeds on the left (All Feeds, then each feed: Add, Edit, Remove, Update), three tabs on the
+  // right: the selected feed's Items (the Win32 window lists them in the torrent list; a
+  // double-click or Download adds one), Filters (the list with check boxes, the selected
+  // filter's fields, the items it matches) and History. Edits go to the server as they are
+  // made, as in the Win32 dialog; Close runs the filters over the feeds' items. The tick's
+  // `rss` version says when to reload; the category tree lists the feeds too.
+  const rssDlg = $("rss");
+  const feedDlg = $("rss-feed");
+  let rssModel = null;
+  let rssFeed = 0; // the feed picked on the left, 0 = All Feeds
+  let rssFilter = 0; // the filter whose fields show
+  let rssTab = store.get("pa.rssTab", "filters");
+  let rssItems = []; // the Items tab's rows
+  let rssItemSel = -1;
+  let rssEditTimer = 0;
+  let rssPending = {}; // filter fields typed but not sent yet
+  let rssFeedEdit = 0; // the feed the Add RSS Feed dialog edits, 0 = a new one
+  let rssVersion = 0;
+
+  const rssEl = (tag, cls, text) => {
+    const e = document.createElement(tag);
+    if (cls) e.className = cls;
+    if (text !== undefined) e.textContent = text;
+    return e;
+  };
+  const feedName = (id) => (rssModel.feeds.find((f) => f.id === id) || {}).name || "";
+
+  /// The tick's version: the tree's Feeds branch and an open dialog follow it.
+  function rssChanged(v) {
+    if (v === rssVersion) return;
+    rssVersion = v;
+    rssLoad();
+  }
+  async function rssLoad() {
+    try {
+      rssModel = await pa("rss");
+    } catch (e) {
+      return;
+    }
+    rssRenderTree();
+    if (!rssDlg.open) return;
+    if (rssFeed && !rssModel.feeds.some((f) => f.id === rssFeed)) rssFeed = 0;
+    rssRenderFeeds();
+    rssRenderFilters();
+    rssRenderHistory();
+    if (rssTab === "items") rssLoadItems();
+  }
+
+  // the category tree's Feeds branch: a click opens the dialog on the feed's items
+  function rssRenderTree() {
+    const tree = $("tree");
+    for (const e of tree.querySelectorAll(".rss-t")) e.remove();
+    if (!rssModel || !rssModel.feeds.length) return;
+    tree.appendChild(rssEl("div", "group rss-t", "Feeds"));
+    for (const f of rssModel.feeds) {
+      const it = rssEl("div", "fitem rss-t");
+      it.dataset.feed = f.id;
+      const t = rssEl("span", "t", f.name);
+      t.title = f.status;
+      it.append(t, rssEl("span", "n", String(f.items)));
+      tree.appendChild(it);
+    }
+  }
+  $("tree").addEventListener("click", (ev) => {
+    const it = ev.target.closest(".fitem");
+    if (!it) return;
+    setDrawer(false);
+    openRss(+it.dataset.feed, "items");
+  });
+
+  async function openRss(feed, tab) {
+    if (rssDlg.open || $("app").hidden) return;
+    rssFeed = feed || 0;
+    if (tab) rssTab = tab;
+    rssDlg.showModal();
+    layerOpened(closeRss);
+    rssShowTab(rssTab);
+    await rssLoad();
+  }
+  function closeRss() {
+    if (!rssDlg.open) return;
+    rssFlush();
+    rssDlg.close();
+    // the filters may have changed: they run over the feeds' current items
+    pa("rss/process", {}).catch(() => {});
+    body.focus();
+  }
+  rssDlg.addEventListener("close", () => layerClosed(closeRss));
+  rssDlg.addEventListener("cancel", (ev) => {
+    ev.preventDefault();
+    if (!feedDlg.open) closeRss();
+  });
+  $("rss-close").addEventListener("click", closeRss);
+  $("tb-rss").addEventListener("click", () => openRss(0));
+
+  function rssShowTab(tab) {
+    rssTab = tab;
+    store.set("pa.rssTab", tab);
+    for (const b of $("rss-tabs").children) b.classList.toggle("on", b.dataset.tab === tab);
+    for (const p of rssDlg.querySelectorAll(".rss-page")) p.hidden = p.dataset.tab !== tab;
+    if (tab === "items" && rssModel) rssLoadItems();
+  }
+  $("rss-tabs").addEventListener("click", (ev) => {
+    const b = ev.target.closest("button");
+    if (b) rssShowTab(b.dataset.tab);
+  });
+
+  // a list of rows, one picked; `check` adds the check boxes of the filter list
+  function rssList(el, rows, picked, check) {
+    el.textContent = "";
+    rows.forEach(([key, text, on, tip]) => {
+      const r = rssEl("div", "rss-row" + (key === picked ? " on" : ""));
+      r.dataset.key = key;
+      if (tip) r.title = tip;
+      if (check) {
+        const c = rssEl("input");
+        c.type = "checkbox";
+        c.checked = on;
+        r.appendChild(c);
+      }
+      r.appendChild(rssEl("span", "", text));
+      el.appendChild(r);
+    });
+  }
+
+  // ---- Feeds
+  function rssRenderFeeds() {
+    const rows = [[0, "All Feeds"], ...rssModel.feeds.map((f) => [f.id, f.name + (f.enabled ? "" : " (disabled)"), false, f.status])];
+    rssList($("rss-feed-list"), rows, rssFeed);
+    const f = rssModel.feeds.find((x) => x.id === rssFeed);
+    const n = rssModel.feeds.length;
+    $("rss-feed-status").textContent = f ? f.status : n + (n === 1 ? " feed" : " feeds");
+    $("rss-feed-edit").disabled = $("rss-feed-remove").disabled = !f;
+  }
+  $("rss-feed-list").addEventListener("click", (ev) => {
+    const r = ev.target.closest(".rss-row");
+    if (!r) return;
+    rssFeed = +r.dataset.key;
+    rssRenderFeeds();
+    if (rssTab === "items") rssLoadItems();
+  });
+  $("rss-feed-list").addEventListener("dblclick", () => rssFeed && rssFeedDialog(rssFeed));
+  $("rss-feed-add").addEventListener("click", () => rssFeedDialog(0));
+  $("rss-feed-edit").addEventListener("click", () => rssFeedDialog(rssFeed));
+  $("rss-feed-update").addEventListener("click", () => pa("rss/feed-update", rssFeed ? { id: rssFeed } : {}).catch(() => {}));
+  $("rss-feed-remove").addEventListener("click", async () => {
+    if (!rssFeed || !confirm('Remove the feed "' + feedName(rssFeed) + '"?')) return;
+    await pa("rss/feed-remove", { id: rssFeed }).catch(() => {});
+    rssFeed = 0;
+    rssLoad();
+  });
+
+  // the Add RSS Feed dialog (also Edit)
+  function rssFeedDialog(id) {
+    const f = rssModel.feeds.find((x) => x.id === id);
+    rssFeedEdit = f ? id : 0;
+    $("rss-feed-title").textContent = f ? "Edit RSS Feed" : "Add RSS Feed";
+    $("rss-f-url").value = f ? f.url : "";
+    $("rss-f-alias").value = f ? f.alias : "";
+    $(f && f.subscribe ? "rss-f-auto" : "rss-f-noauto").checked = true;
+    $("rss-f-smart").checked = !!(f && f.smart);
+    $("rss-f-smart").disabled = !(f && f.subscribe);
+    $("rss-f-msg").textContent = "";
+    feedDlg.showModal();
+    $("rss-f-url").focus();
+  }
+  $("rss-feed-form").addEventListener("change", () => ($("rss-f-smart").disabled = !$("rss-f-auto").checked));
+  $("rss-f-cancel").addEventListener("click", () => feedDlg.close());
+  $("rss-feed-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const url = $("rss-f-url").value.trim();
+    if (!url) {
+      $("rss-f-msg").textContent = "Please enter the URL of the feed.";
+      return;
+    }
+    const subscribe = $("rss-f-auto").checked;
+    const b = { url, alias: $("rss-f-alias").value.trim(), subscribe, smart: subscribe && $("rss-f-smart").checked };
+    try {
+      if (rssFeedEdit) await pa("rss/feed-edit", { id: rssFeedEdit, ...b });
+      else rssFeed = (await pa("rss/feed-add", b)).id;
+    } catch (e) {
+      $("rss-f-msg").textContent = e.msg || "The feed could not be saved.";
+      return;
+    }
+    feedDlg.close();
+    rssLoad();
+  });
+
+  // ---- Items
+  async function rssLoadItems() {
+    let m;
+    try {
+      m = await pa("rss/items" + (rssFeed ? "?feed=" + rssFeed : ""));
+    } catch (e) {
+      return;
+    }
+    rssItems = m.rows;
+    rssItemSel = -1;
+    const t = $("rss-items");
+    t.textContent = "";
+    const head = rssEl("tr");
+    for (const c of m.columns) {
+      const th = rssEl("th", "", c.title);
+      th.style.width = c.width + "px";
+      head.appendChild(th);
+    }
+    t.appendChild(rssEl("thead")).appendChild(head);
+    const tb = t.appendChild(rssEl("tbody"));
+    rssItems.slice(0, 2000).forEach((r, i) => {
+      const tr = rssEl("tr", r.downloaded ? "done" : "");
+      tr.dataset.i = i;
+      for (const c of r.cells) tr.appendChild(rssEl("td", "", c));
+      tb.appendChild(tr);
+    });
+    $("rss-item-dl").disabled = true;
+  }
+  function rssItemPick(tr) {
+    for (const x of $("rss-items").querySelectorAll("tr.on")) x.classList.remove("on");
+    tr.classList.add("on");
+    rssItemSel = +tr.dataset.i;
+    $("rss-item-dl").disabled = !rssItems[rssItemSel].can;
+  }
+  async function rssDownload() {
+    const r = rssItems[rssItemSel];
+    if (!r || !r.can) return;
+    await pa("rss/download", { feed: r.feed, item: r.id }).catch(() => {});
+    rssLoadItems();
+  }
+  $("rss-items").addEventListener("click", (ev) => {
+    const tr = ev.target.closest("tbody tr");
+    if (tr) rssItemPick(tr);
+  });
+  $("rss-items").addEventListener("dblclick", (ev) => {
+    const tr = ev.target.closest("tbody tr");
+    if (!tr) return;
+    rssItemPick(tr);
+    rssDownload();
+  });
+  $("rss-item-dl").addEventListener("click", rssDownload);
+
+  // ---- Filters
+  const RSS_TEXT = ["name", "pattern", "not", "save_in", "episodes", "label"];
+  const RSS_CHECK = ["smart", "top_priority", "paused"];
+  function rssRenderFilters() {
+    const fs = rssModel.filters;
+    if (!fs.some((f) => f.id === rssFilter)) rssFilter = fs.length ? fs[0].id : 0;
+    rssList($("rss-filter-list"), fs.map((f) => [f.id, f.name, f.enabled]), rssFilter, true);
+    // the feed and interval choices, the labels
+    const feedSel = $("rss-x-feed");
+    feedSel.textContent = "";
+    for (const [id, name] of [[0, "All Feeds"], ...rssModel.feeds.map((f) => [f.id, f.name])]) feedSel.appendChild(new Option(name, id));
+    const iv = $("rss-x-min_interval");
+    if (!iv.options.length) for (const [s, name] of rssModel.intervals) iv.appendChild(new Option(name, s));
+    const dl = $("rss-labels");
+    dl.textContent = "";
+    for (const l of rssModel.labels) dl.appendChild(new Option(l));
+    rssShowFilter();
+  }
+  function rssShowFilter() {
+    const f = rssModel.filters.find((x) => x.id === rssFilter);
+    const fields = $("rss-fields");
+    for (const e of fields.querySelectorAll("input, select, button")) e.disabled = !f;
+    for (const id of ["rss-filter-remove", "rss-filter-up", "rss-filter-down"]) $(id).disabled = !f;
+    const active = document.activeElement;
+    for (const k of RSS_TEXT) {
+      const e = $("rss-x-" + k);
+      // a field being typed in keeps what is typed
+      if (e !== active || !f) e.value = f ? f[k] : "";
+    }
+    for (const k of RSS_CHECK) $("rss-x-" + k).checked = !!(f && f[k]);
+    $("rss-x-feed").value = f ? f.feed : 0;
+    $("rss-x-min_interval").value = f ? f.min_interval : 0;
+    $("rss-x-quality").textContent = f ? f.quality_text : "All";
+    rssPreview();
+  }
+  async function rssPreview() {
+    const el = $("rss-preview");
+    if (!rssFilter) {
+      el.textContent = "";
+      return;
+    }
+    let rows;
+    try {
+      rows = await pa("rss/preview?filter=" + rssFilter);
+    } catch (e) {
+      return;
+    }
+    rssList(el, rows.map(([title, feed], i) => [i, title, false, feed]), -1);
+  }
+  /// Sends the typed fields (after a pause, or at once before something else).
+  async function rssFlush() {
+    clearTimeout(rssEditTimer);
+    rssEditTimer = 0;
+    if (!rssFilter || !Object.keys(rssPending).length) return;
+    const b = { id: rssFilter, ...rssPending };
+    rssPending = {};
+    await pa("rss/filter-edit", b).catch(() => {});
+  }
+  function rssEdit(k, v, now) {
+    rssPending[k] = v;
+    clearTimeout(rssEditTimer);
+    rssEditTimer = setTimeout(async () => {
+      await rssFlush();
+      rssPreview();
+    }, now ? 0 : 400);
+    if (k === "name") {
+      const row = $("rss-filter-list").querySelector(".rss-row.on span");
+      if (row) row.textContent = v;
+    }
+  }
+  $("rss-fields").addEventListener("input", (ev) => {
+    const k = ev.target.id.replace("rss-x-", "");
+    if (RSS_TEXT.includes(k)) rssEdit(k, ev.target.value);
+  });
+  $("rss-fields").addEventListener("change", (ev) => {
+    const k = ev.target.id.replace("rss-x-", "");
+    if (RSS_CHECK.includes(k)) rssEdit(k, ev.target.checked, true);
+    else if (k === "feed" || k === "min_interval") rssEdit(k, +ev.target.value, true);
+  });
+  $("rss-x-quality").addEventListener("click", (ev) => {
+    const f = rssModel.filters.find((x) => x.id === rssFilter);
+    if (!f) return;
+    const set = async (q) => {
+      f.quality = q;
+      await rssFlush();
+      await pa("rss/filter-edit", { id: f.id, quality: q }).catch(() => {});
+      rssLoad();
+    };
+    const r = ev.currentTarget.getBoundingClientRect();
+    openMenu(
+      [
+        { label: "All", chk: f.quality === 0, run: () => set(0) },
+        "-",
+        ...rssModel.qualities.map(([bit, name]) => ({ label: name, chk: (f.quality & bit) !== 0, run: () => set(f.quality ^ bit) })),
+      ],
+      r.left,
+      r.bottom
+    );
+  });
+  $("rss-filter-list").addEventListener("click", async (ev) => {
+    const r = ev.target.closest(".rss-row");
+    if (!r) return;
+    const id = +r.dataset.key;
+    await rssFlush();
+    if (ev.target.type === "checkbox") {
+      await pa("rss/filter-edit", { id, enabled: ev.target.checked }).catch(() => {});
+      return;
+    }
+    rssFilter = id;
+    for (const x of $("rss-filter-list").children) x.classList.toggle("on", x === r);
+    rssShowFilter();
+  });
+  $("rss-filter-add").addEventListener("click", async () => {
+    await rssFlush();
+    let m;
+    try {
+      // bound to the feed picked on the left, as the Win32 dialog does
+      m = await pa("rss/filter-add", { name: "New filter", feed: rssFeed });
+    } catch (e) {
+      return;
+    }
+    rssFilter = m.id;
+    await rssLoad();
+    $("rss-x-name").select();
+  });
+  for (const [id, cmd] of [["rss-filter-remove", "filter-remove"], ["rss-filter-up", "filter-up"], ["rss-filter-down", "filter-down"]]) {
+    $(id).addEventListener("click", async () => {
+      if (!rssFilter) return;
+      await rssFlush();
+      const fs = rssModel.filters;
+      const at = fs.findIndex((f) => f.id === rssFilter);
+      await pa("rss/" + cmd, { id: rssFilter }).catch(() => {});
+      if (cmd === "filter-remove") rssFilter = (fs[at + 1] || fs[at - 1] || {}).id || 0;
+      rssLoad();
+    });
+  }
+  $("rss-browse").addEventListener("click", () => {
+    const v = prompt("Save in (a folder on the server; empty for the default download folder):", $("rss-x-save_in").value);
+    if (v === null) return;
+    $("rss-x-save_in").value = v.trim();
+    rssEdit("save_in", v.trim(), true);
+  });
+
+  // ---- History
+  function rssRenderHistory() {
+    const t = $("rss-history");
+    t.textContent = "";
+    const head = rssEl("tr");
+    for (const h of ["Name", "Date", "Feed"]) head.appendChild(rssEl("th", "", h));
+    t.appendChild(rssEl("thead")).appendChild(head);
+    const tb = t.appendChild(rssEl("tbody"));
+    for (const row of rssModel.history) {
+      const tr = rssEl("tr");
+      for (const c of row) tr.appendChild(rssEl("td", "", c));
+      tb.appendChild(tr);
+    }
+  }
+  $("rss-history-clear").addEventListener("click", async () => {
+    await pa("rss/history-clear", {}).catch(() => {});
+    rssLoad();
   });
 
   // ---- Preferences (docs/WEBUI.md slice 6) -------------------------------------------------

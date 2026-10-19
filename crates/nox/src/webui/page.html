@@ -30,6 +30,7 @@
     <button type="button" id="tb-up" class="only-desk" data-cmd="queue_up" title="Move Up Queue">Up</button>
     <button type="button" id="tb-down" class="only-desk" data-cmd="queue_down" title="Move Down Queue">Down</button>
     <span class="sep only-desk"></span>
+    <button type="button" id="tb-rss" class="only-desk" title="RSS Downloader">RSS</button>
     <button type="button" id="tb-prefs" class="only-desk" title="Preferences (Ctrl+P)">Preferences</button>
     <span class="grow"></span>
     <button type="button" id="tb-seldone" class="only-phone" title="End the selection" hidden>Done</button>
@@ -174,6 +175,85 @@
       <button type="button" id="props-cancel">Cancel</button>
     </div>
   </form>
+</dialog>
+<!-- the RSS Downloader (app.js "the RSS Downloader") -->
+<dialog id="rss" aria-labelledby="rss-title">
+  <div id="rss-body">
+    <h2 id="rss-title">RSS Downloader</h2>
+    <div class="rss-cols">
+      <div class="rss-left">
+        <div class="rss-cap">Feeds</div>
+        <div id="rss-feed-list" class="rss-list" role="listbox" aria-label="Feeds"></div>
+        <div id="rss-feed-status" class="rss-status" role="status"></div>
+        <div class="rss-btns">
+          <button type="button" id="rss-feed-add">Add...</button>
+          <button type="button" id="rss-feed-edit">Edit...</button>
+          <button type="button" id="rss-feed-remove">Remove</button>
+          <button type="button" id="rss-feed-update">Update</button>
+        </div>
+      </div>
+      <div class="rss-right">
+        <div id="rss-tabs" role="tablist">
+          <button type="button" role="tab" data-tab="items">Items</button>
+          <button type="button" role="tab" data-tab="filters">Filters</button>
+          <button type="button" role="tab" data-tab="history">History</button>
+        </div>
+        <div class="rss-page" data-tab="items" hidden>
+          <div class="rss-table"><table id="rss-items"></table></div>
+          <div class="rss-btns"><button type="button" id="rss-item-dl">Download</button></div>
+        </div>
+        <div class="rss-page rss-filters" data-tab="filters">
+          <div class="rss-fl">
+            <div id="rss-filter-list" class="rss-list" aria-label="Filters"></div>
+            <div class="rss-btns">
+              <button type="button" id="rss-filter-add">Add</button>
+              <button type="button" id="rss-filter-remove">Remove</button>
+              <button type="button" id="rss-filter-up">Up</button>
+              <button type="button" id="rss-filter-down">Down</button>
+            </div>
+          </div>
+          <div id="rss-fields">
+            <label>Name:<input id="rss-x-name" autocomplete="off"></label>
+            <label>Filter:<input id="rss-x-pattern" autocomplete="off"></label>
+            <label>Not:<input id="rss-x-not" autocomplete="off"></label>
+            <label>Save in:<span class="rss-pair"><input id="rss-x-save_in" autocomplete="off"><button type="button" id="rss-browse">...</button></span></label>
+            <label>Feed:<select id="rss-x-feed"></select></label>
+            <label>Quality:<button type="button" id="rss-x-quality">All</button></label>
+            <label>Episode number:<span class="rss-pair"><input id="rss-x-episodes" autocomplete="off"><span class="rss-hint">[ex. 1x12-14]</span></span></label>
+            <label>Minimum interval:<select id="rss-x-min_interval"></select></label>
+            <label>Label:<input id="rss-x-label" list="rss-labels" autocomplete="off"></label>
+            <datalist id="rss-labels"></datalist>
+            <span class="rss-checks">
+              <label><input type="checkbox" id="rss-x-smart"> Smart ep. filter</label>
+              <label><input type="checkbox" id="rss-x-top_priority"> Give download highest priority</label>
+              <label><input type="checkbox" id="rss-x-paused"> Add torrent in paused state</label>
+            </span>
+            <div class="rss-cap">Matching items in the feeds:</div>
+            <div id="rss-preview" class="rss-list"></div>
+          </div>
+        </div>
+        <div class="rss-page" data-tab="history" hidden>
+          <div class="rss-table"><table id="rss-history"></table></div>
+          <div class="rss-btns"><button type="button" id="rss-history-clear">Clear History</button></div>
+        </div>
+      </div>
+    </div>
+    <div class="rss-ok"><button type="button" id="rss-close">Close</button></div>
+  </div>
+  <dialog id="rss-feed" aria-labelledby="rss-feed-title">
+    <form id="rss-feed-form">
+      <h2 id="rss-feed-title">Add RSS Feed</h2>
+      <label class="rss-line">Feed URL:<input id="rss-f-url" autocomplete="off" inputmode="url"></label>
+      <label class="rss-line">Custom Alias:<input id="rss-f-alias" autocomplete="off"></label>
+      <fieldset>
+        <legend>Subscription</legend>
+        <label><input type="radio" name="rss-auto" id="rss-f-noauto"> Do not automatically download all items</label>
+        <label><input type="radio" name="rss-auto" id="rss-f-auto"> Automatically download all items published in feed</label>
+        <label class="rss-sub"><input type="checkbox" id="rss-f-smart"> Use smart episode filter</label>
+      </fieldset>
+      <div class="rss-ok"><span id="rss-f-msg" role="status"></span><button type="submit">OK</button><button type="button" id="rss-f-cancel">Cancel</button></div>
+    </form>
+  </dialog>
 </dialog>
 <script src="app.js"></script>
 </body>

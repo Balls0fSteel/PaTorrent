@@ -1,7 +1,9 @@
 //! Platform networking helpers: resolver, OS TLS, interface enumeration and raw socket options,
-//! listen-interface parsing and expansion, network-change notifications, bandwidth buckets.
+//! listen-interface parsing and expansion, network-change notifications, bandwidth buckets, and
+//! the blocking HTTP(S) fetch helper frontends use ([`fetch`]).
 
 pub(crate) mod enum_net;
+pub mod fetch;
 pub(crate) mod ip_filter;
 pub(crate) mod ip_notifier;
 pub(crate) mod ip_voter;

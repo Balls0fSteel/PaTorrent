@@ -13,4 +13,4 @@ pub(crate) mod upnp;
 pub(crate) mod ut_metadata;
 pub(crate) mod ut_pex;
 pub(crate) mod web_peer;
-pub(crate) mod xml;
+pub mod xml;

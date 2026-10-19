@@ -10,7 +10,7 @@ use patorrent_nox::webui::http::{
 use patorrent_nox::webui::json;
 
 fuzz_target!(|data: &[u8]| {
-    let limits = Limits { max_head: 4096, max_headers: 32, max_body: 1 << 20 };
+    let limits = Limits { max_head: 4096, max_headers: 32, max_body: 1 << 20, max_message: 64 * 1024 };
     let Ok(Some((head, used))) = parse_head(data, &limits) else {
         // not a request head: still exercise the body parsers on the raw bytes
         let _ = parse_urlencoded(data);

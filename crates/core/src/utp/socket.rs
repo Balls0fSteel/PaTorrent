@@ -6,6 +6,9 @@
 // what the window does not take stays with the caller (`write_some`). Instead of read, write
 // and connect callbacks the socket marks itself ready and the engine looks at it after the
 // wakeup. The `close_reason` extension is parsed but never sent (we have no close reasons yet).
+// An incoming packet restarts the retransmission timer only if it acknowledges something or
+// nothing is in flight (libtorrent restarts it on every packet, so a window lost whole was never
+// resent while the peer kept sending data of its own).
 
 //! One uTP connection: libtorrent's `utp_socket_impl`.
 
@@ -1492,6 +1495,7 @@ impl UtpSocket {
         let mut acked_bytes = 0i32;
         debug_assert!(self.bytes_in_flight >= 0);
         let prev_bytes_in_flight = self.bytes_in_flight;
+        let prev_acked_seq_nr = self.acked_seq_nr;
         self.adv_wnd = ph.wnd_size;
 
         // if we get an ack for the same sequence number as was last ACKed, and we have
@@ -1562,8 +1566,16 @@ impl UtpSocket {
 
         // this is a valid incoming packet, update the timeout timer. Do this after processing
         // sacks/acks as that can effect packet_timeout()
-        self.num_timeouts = 0;
-        self.timeout = receive_time + Duration::from_millis(self.packet_timeout(ctx) as u64);
+        // Unlike libtorrent, only while nothing is in flight or when the packet acknowledged
+        // some of it (RFC 6298 5.3): the peer's own data packets do not prove that ours arrive.
+        // Restarting the timer on every packet, a window lost whole (UDP receive buffer
+        // overflow) was never resent for as long as the peer kept sending, e.g. HAVEs every
+        // few hundred ms: no timeout, and no duplicate ACKs since nothing arrived to ACK.
+        let progress = self.acked_seq_nr != prev_acked_seq_nr || self.bytes_in_flight < prev_bytes_in_flight;
+        if progress || self.bytes_in_flight == 0 {
+            self.num_timeouts = 0;
+            self.timeout = receive_time + Duration::from_millis(self.packet_timeout(ctx) as u64);
+        }
 
         if self.duplicate_acks >= DUP_ACK_LIMIT
             && self.acked_seq_nr.wrapping_add(1) == self.fast_resend_seq_nr

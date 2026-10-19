@@ -2102,6 +2102,68 @@ fn shim_queue_moves_and_set_location() {
     assert_eq!(t.get(&sid, &format!("/api/v2/torrents/setLocation?hashes={c}&location=x")).status, 405);
 }
 
+/// The ready magnets in `GET /pa/add`, as (hash, name).
+fn ready_adds(t: &Harness, sid: &str) -> Vec<(String, String)> {
+    let setup = t.get(sid, "/pa/add").json();
+    let Some(Json::Arr(v)) = setup.get("ready") else { panic!("{}", setup.to_json()) };
+    v.iter().map(|r| (s(r.get("hash")).to_owned(), s(r.get("name")).to_owned())).collect()
+}
+
+fn wait_ready(t: &Harness, sid: &str, hash: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while !ready_adds(t, sid).iter().any(|(h, _)| h == hash) {
+        assert!(Instant::now() < deadline, "the magnet's metadata never arrived");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+#[test]
+fn native_magnet_waits_for_the_add_dialog() {
+    // the simulated engine fetches a magnet's metadata after a few ticks
+    let t = Harness::start_mock("native-magnet-dialog", 0, 0.0, 0);
+    let sid = t.login();
+    let hash = "1123456789abcdef0123456789abcdef01234567";
+    let body = format!(r#"{{"url":"magnet:?xt=urn:btih:{hash}&dn=waiting","dialog":true}}"#);
+    let r = t.pa(&sid, "/pa/add", &body);
+    assert_eq!(r.status, 200, "{}", r.text());
+    assert_eq!(s(r.json().get("hash")), hash);
+    t.wait_for(&sid, hash, "the waiting magnet", |_| true);
+    assert_eq!(t.pa(&sid, "/pa/add", &body).status, 409, "already in the list");
+    // nothing to show before the metadata, and an unknown hash
+    assert_eq!(t.get(&sid, "/pa/torrent-info?hash=ffff").status, 404);
+    wait_ready(&t, &sid, hash);
+    let info = t.get(&sid, &format!("/pa/torrent-info?hash={hash}")).json();
+    let Some(Json::Arr(files)) = info.get("files") else { panic!("{}", info.to_json()) };
+    assert!(!files.is_empty());
+    // in upload mode while it waits: nothing downloaded
+    let x = t.wait_for(&sid, hash, "status", |_| true);
+    assert_eq!(x.get("downloaded"), Some(&Json::Int(0)), "{}", x.to_json());
+
+    // OK: the choices go to the torrent in the session
+    let save = t.dir.join("chosen").to_string_lossy().replace('\\', "\\\\");
+    let ok = format!(r#"{{"hash":"{hash}","save":"{save}","label":"tv","start":false}}"#);
+    let r = t.pa(&sid, "/pa/add", &ok);
+    assert_eq!((r.status, r.text().as_str()), (204, ""));
+    assert!(ready_adds(&t, &sid).is_empty());
+    assert_eq!(t.pa(&sid, "/pa/add", &ok).status, 404, "answered once");
+    let x = t.wait_for(&sid, hash, "the chosen folder and label", |x| {
+        s(x.get("save_path")).contains("chosen")
+            && s(x.get("category")) == "tv"
+            && s(x.get("state")) == "pausedDL"
+    });
+    assert_eq!(x.get("force_start"), Some(&Json::Bool(false)));
+
+    // Cancel removes a waiting magnet
+    let other = "2223456789abcdef0123456789abcdef01234567";
+    let r = t.pa(&sid, "/pa/add", &format!(r#"{{"url":"magnet:?xt=urn:btih:{other}","dialog":true}}"#));
+    assert_eq!(r.status, 200);
+    wait_ready(&t, &sid, other);
+    let r = t.pa(&sid, "/pa/add", &format!(r#"{{"hash":"{other}","cancel":true}}"#));
+    assert_eq!(r.status, 204);
+    t.wait_for_gone(&sid, other);
+    assert!(ready_adds(&t, &sid).is_empty());
+}
+
 #[test]
 fn native_add_dialog_flow_and_magnet() {
     let t = Harness::start("native-add");

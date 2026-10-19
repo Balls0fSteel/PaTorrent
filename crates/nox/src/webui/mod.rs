@@ -375,6 +375,10 @@ pub(crate) struct State {
     pub pending_top: commands::PendingTop,
     /// Bumped when the RSS Downloader changed (`rss.rs`); a WebSocket `tick` carries it.
     pub rss_version: u64,
+    /// Magnets added through the Add dialog, waiting for their metadata or for the user's
+    /// choice (kept in `options`), and a version a `tick` carries as `adds`.
+    pub awaiting: patorrent_frontend::add::AwaitingMetadata,
+    pub adds_version: u64,
 }
 
 pub(crate) struct Shared {
@@ -537,7 +541,8 @@ impl Shared {
                 let t = self.handle.torrent(*id);
                 if on {
                     t.set_flags(TorrentFlags::UPLOAD_MODE);
-                } else {
+                } else if !st.awaiting.holds(*id) {
+                    // a magnet waiting for the Add dialog stays in upload mode until its OK
                     t.unset_flags(TorrentFlags::UPLOAD_MODE);
                 }
             }
@@ -611,6 +616,7 @@ impl WebUi {
                 patorrent_frontend::add::remember_dir(&mut options, d);
             }
         }
+        let awaiting = patorrent_frontend::add::AwaitingMetadata::load(&options);
         let settings = config.settings.clone();
         let mut prefs = Prefs::defaults(&config.save_path, &settings);
         if let Some(d) = &config.move_completed_dir {
@@ -660,6 +666,8 @@ impl WebUi {
                 user_paused,
                 pending_top: HashSet::new(),
                 rss_version: 1,
+                awaiting,
+                adds_version: 1,
             }),
             replied: Condvar::new(),
             limits: config.limits,
@@ -739,8 +747,16 @@ impl WebUi {
         let now = unix_now();
         let folders = st.prefs.torrent_folders.clone();
         for a in alerts {
-            for line in st.torrent_files.on_alert(a, &folders) {
+            for line in st.torrent_files.on_alert(a, &folders, &self.shared.handle) {
                 st.push_log(None, line, now);
+            }
+            let left = matches!(a, Alert::TorrentRemoved { id, .. } if st.awaiting.holds(*id));
+            let s = &mut *st;
+            if s.awaiting.on_alert(a, &self.shared.handle, &mut s.options) || left {
+                s.adds_version += 1;
+            }
+            if left {
+                self.shared.save(&st);
             }
             match a {
                 Alert::StateUpdate(v) => {
@@ -918,6 +934,7 @@ fn logged(a: &Alert) -> bool {
             | Alert::TrackerList { .. }
             | Alert::PieceInfo { .. }
             | Alert::WebSeeds { .. }
+            | Alert::TorrentFile { .. }
             | Alert::PortmapLog { .. }
     )
 }
@@ -1065,6 +1082,8 @@ impl State {
             user_paused: HashSet::new(),
             pending_top: HashSet::new(),
             rss_version: 1,
+            awaiting: Default::default(),
+            adds_version: 1,
         }
     }
 }

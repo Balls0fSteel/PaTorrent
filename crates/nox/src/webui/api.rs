@@ -1459,6 +1459,7 @@ fn add(shared: &Shared, p: &Params) -> Response {
         sequential: p.flag("sequentialDownload"),
         download_limit: lim("dlLimit"),
         upload_limit: lim("upLimit"),
+        dialog: false,
     };
     for source in sources {
         if let Err(e) = commands::add(shared, source, &o) {

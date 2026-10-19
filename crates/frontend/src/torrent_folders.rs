@@ -21,8 +21,9 @@
 //!   or deleted with "Delete loaded .torrents". A file that cannot be read or parsed is left
 //!   alone until it changes.
 //!
-//! Magnet links have no `.torrent` to copy: the engine has no API that hands out a torrent's
-//! info dictionary yet, so their copies are not stored.
+//! A magnet link's copy is stored once its metadata has arrived, from the `.torrent` the engine
+//! hands out ([`SessionHandle`]'s `post_torrent_file`). A magnet restored after a restart
+//! before its metadata arrived gets none.
 
 use std::collections::HashMap;
 use std::fs;
@@ -31,7 +32,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
 use patorrent_core::metainfo::TorrentInfo;
-use patorrent_core::{AddTorrentParams, Alert, TorrentId, TorrentSource};
+use patorrent_core::{AddTorrentParams, Alert, SessionHandle, TorrentId, TorrentSource};
 
 use crate::prefs::Prefs;
 
@@ -339,6 +340,8 @@ struct Pending {
     bytes: Option<Vec<u8>>,
     /// The auto-loaded file to rename or delete once added.
     loaded_from: Option<PathBuf>,
+    /// A magnet: stored once its metadata is known.
+    magnet: bool,
 }
 
 /// Follows the session's alerts for the `.torrent` folders: stores the copies of torrents the
@@ -349,6 +352,9 @@ pub struct TorrentFiles {
     pending: HashMap<String, Pending>,
     /// Every torrent the session reported: its info-hash key and name.
     known: HashMap<TorrentId, (String, String)>,
+    /// Magnets added while storing was on, whose `.torrent` is stored once their metadata is
+    /// known.
+    magnets: std::collections::HashSet<TorrentId>,
 }
 
 impl TorrentFiles {
@@ -356,13 +362,27 @@ impl TorrentFiles {
         TorrentFiles::default()
     }
 
-    /// A torrent is being added with `p`: a `.torrent`'s copy is stored once the engine has it
-    /// (when [`TorrentFolders::stores_in`] has a folder now). Nothing for magnets.
+    /// A torrent is being added with `p`: a `.torrent`'s copy is stored once the engine has it,
+    /// a magnet's once its metadata is known (when [`TorrentFolders::stores_in`] has a folder
+    /// now).
     pub fn adding(&mut self, folders: &TorrentFolders, p: &AddTorrentParams) {
-        let TorrentSource::TorrentFile(bytes) = &p.source else { return };
         if folders.stores_in().is_none() {
             return;
         }
+        let bytes = match &p.source {
+            TorrentSource::TorrentFile(bytes) => bytes,
+            TorrentSource::Magnet(uri) => {
+                if let Ok(m) = patorrent_core::metainfo::parse_magnet_uri(uri) {
+                    self.pending.entry(m.info_hashes.key_hex()).or_default().magnet = true;
+                }
+                return;
+            }
+            TorrentSource::InfoHash(h) => {
+                self.pending.entry(h.key_hex()).or_default().magnet = true;
+                return;
+            }
+            TorrentSource::Resume(_) => return,
+        };
         let Ok(ti) = TorrentInfo::from_bytes(bytes) else { return };
         let e = self.pending.entry(ti.info_hashes().key_hex()).or_default();
         e.name = ti.name().to_owned();
@@ -376,14 +396,23 @@ impl TorrentFiles {
         e.loaded_from = Some(path);
     }
 
-    /// Looks at one alert; returns lines for the log (`"<name>: <what happened>"`).
-    pub fn on_alert(&mut self, alert: &Alert, folders: &TorrentFolders) -> Vec<String> {
+    /// Looks at one alert (asking `handle` for a magnet's `.torrent` once its metadata is in);
+    /// returns lines for the log (`"<name>: <what happened>"`).
+    pub fn on_alert(
+        &mut self,
+        alert: &Alert,
+        folders: &TorrentFolders,
+        handle: &SessionHandle,
+    ) -> Vec<String> {
         let mut log = Vec::new();
         match alert {
             Alert::TorrentAdded { id, info_hashes, name } => {
                 let key = info_hashes.key_hex();
                 self.known.insert(*id, (key.clone(), name.clone()));
                 let Some(p) = self.pending.remove(&key) else { return log };
+                if p.magnet {
+                    self.magnets.insert(*id);
+                }
                 if let (Some(bytes), Some(dir)) = (&p.bytes, folders.stores_in()) {
                     match place(Path::new(dir), name, bytes) {
                         Ok(path) => log.push(format!("{name}: .torrent stored as {}", path.display())),
@@ -418,6 +447,21 @@ impl TorrentFiles {
             }
             Alert::TorrentRemoved { id, .. } => {
                 self.known.remove(id);
+                self.magnets.remove(id);
+            }
+            Alert::MetadataReceived { id } if self.magnets.contains(id) => {
+                handle.torrent(*id).post_torrent_file();
+            }
+            Alert::TorrentFile { id, data: Some(data) } if self.magnets.contains(id) => {
+                self.magnets.remove(id);
+                let (Some(dir), Ok(ti)) = (folders.stores_in(), TorrentInfo::from_bytes(data)) else {
+                    return log;
+                };
+                let name = ti.name();
+                match place(Path::new(dir), name, data) {
+                    Ok(path) => log.push(format!("{name}: .torrent stored as {}", path.display())),
+                    Err(e) => log.push(format!("{name}: could not store the .torrent in {dir}: {e}")),
+                }
             }
             Alert::TorrentFinished { id } => {
                 let (Some(from), Some(to), Some((key, name))) =
@@ -633,6 +677,8 @@ mod tests {
         let watch = temp("alerts-watch");
         let mut f = folders(&store, Some(&done));
         let mut files = TorrentFiles::new();
+        let session = patorrent_core::Session::start_mock(Default::default(), Default::default());
+        let h = session.handle();
         let bytes = torrent("movie", 0);
         let id = TorrentId::from_raw(7);
 
@@ -641,15 +687,15 @@ mod tests {
         files.adding(&f, &p);
         assert!(!store.join("movie.torrent").exists());
         let added = Alert::TorrentAdded { id, info_hashes: hashes(&bytes), name: "movie".into() };
-        let log = files.on_alert(&added, &f);
+        let log = files.on_alert(&added, &f, &h);
         assert_eq!(fs::read(store.join("movie.torrent")).unwrap(), bytes);
         assert!(log[0].starts_with("movie: .torrent stored as"), "{log:?}");
 
         // finished: moved
-        let log = files.on_alert(&Alert::TorrentFinished { id }, &f);
+        let log = files.on_alert(&Alert::TorrentFinished { id }, &f, &h);
         assert!(done.join("movie.torrent").exists() && !store.join("movie.torrent").exists());
         assert!(log[0].starts_with("movie: .torrent moved to"), "{log:?}");
-        assert!(files.on_alert(&Alert::TorrentFinished { id }, &f).is_empty(), "nothing left to move");
+        assert!(files.on_alert(&Alert::TorrentFinished { id }, &f, &h).is_empty(), "nothing left to move");
 
         // auto-loaded: renamed once added; with storing off nothing is copied
         f.store = false;
@@ -661,8 +707,11 @@ mod tests {
         files.adding(&f, &p);
         files.loading(&ti, path.clone());
         let id2 = TorrentId::from_raw(8);
-        let log = files
-            .on_alert(&Alert::TorrentAdded { id: id2, info_hashes: hashes(&other), name: "show".into() }, &f);
+        let log = files.on_alert(
+            &Alert::TorrentAdded { id: id2, info_hashes: hashes(&other), name: "show".into() },
+            &f,
+            &h,
+        );
         assert_eq!(log.len(), 1, "{log:?}");
         assert!(watch.join("show.torrent.loaded").exists() && !path.exists());
         assert!(!store.join("show.torrent").exists());
@@ -675,17 +724,37 @@ mod tests {
         files.loading(&ti, path.clone());
         let failed =
             Alert::AddTorrentFailed { name: "bad".into(), error: patorrent_core::Error::DuplicateTorrent };
-        let log = files.on_alert(&failed, &f);
+        let log = files.on_alert(&failed, &f, &h);
         assert!(log[0].contains("not loaded"), "{log:?}");
         assert!(path.exists());
         assert!(files.pending.is_empty());
 
         // names follow status updates (a magnet's name arrives with its metadata)
         let st = TorrentStatus { id: id2, name: "renamed".into(), ..TorrentStatus::default() };
-        files.on_alert(&Alert::StateUpdate(vec![st]), &f);
+        files.on_alert(&Alert::StateUpdate(vec![st]), &f, &h);
         assert_eq!(files.known[&id2].1, "renamed");
-        files.on_alert(&Alert::TorrentRemoved { id: id2, info_hashes: hashes(&other) }, &f);
+        files.on_alert(&Alert::TorrentRemoved { id: id2, info_hashes: hashes(&other) }, &f, &h);
         assert!(!files.known.contains_key(&id2));
+
+        // a magnet: stored from the engine's .torrent once its metadata is in
+        f.store = true;
+        let meta = torrent("from a magnet", 0);
+        let ih = hashes(&meta);
+        let uri = format!("magnet:?xt=urn:btih:{}", ih.key_hex());
+        files.adding(&f, &AddTorrentParams::new(TorrentSource::Magnet(uri), "x"));
+        let id3 = TorrentId::from_raw(9);
+        assert!(
+            files
+                .on_alert(&Alert::TorrentAdded { id: id3, info_hashes: ih, name: "m".into() }, &f, &h)
+                .is_empty()
+        );
+        assert!(files.magnets.contains(&id3));
+        files.on_alert(&Alert::MetadataReceived { id: id3 }, &f, &h);
+        assert!(files.on_alert(&Alert::TorrentFile { id: id3, data: None }, &f, &h).is_empty());
+        let log = files.on_alert(&Alert::TorrentFile { id: id3, data: Some(meta.clone().into()) }, &f, &h);
+        assert!(log[0].starts_with("from a magnet: .torrent stored as"), "{log:?}");
+        assert_eq!(fs::read(store.join("from a magnet.torrent")).unwrap(), meta);
+        assert!(files.magnets.is_empty(), "stored once");
         for d in [store, done, watch] {
             let _ = fs::remove_dir_all(d);
         }

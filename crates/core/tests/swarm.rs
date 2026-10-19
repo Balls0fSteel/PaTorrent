@@ -666,6 +666,109 @@ fn magnet_fetches_metadata_from_the_seed_then_downloads() {
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 
+#[test]
+fn a_magnet_in_upload_mode_hands_out_its_torrent_file_and_waits() {
+    // The Add New Torrent dialog for a magnet: metadata fetched without writing anything, the
+    // `.torrent` handed to the GUI, the download started once the user has chosen.
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech-magnet-wait");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let uri = format!("magnet:?xt=urn:btih:{}&tr=http%3A%2F%2F127.0.0.1%3A9%2Fannounce", hex(&f.info_hash));
+    let mut p = AddTorrentParams::new(TorrentSource::Magnet(uri), dir.to_string_lossy());
+    p.flags = TorrentFlags::UPLOAD_MODE;
+    leech.handle().add_torrent(p);
+    let id = wait(&mut w, 5, "add magnet", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    let h = leech.handle().torrent(id);
+    h.post_torrent_file();
+    let none = wait(&mut w, 5, "no file yet", |a| match a {
+        Alert::TorrentFile { id: i, data } if *i == id => Some(data.clone()),
+        _ => None,
+    });
+    assert!(none.is_none(), "no metadata, no .torrent");
+    h.connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    wait(&mut w, 30, "metadata", |a| {
+        matches!(a, Alert::MetadataReceived { id: i } if *i == id).then_some(())
+    });
+    h.post_torrent_file();
+    let data = wait(&mut w, 5, "torrent file", |a| match a {
+        Alert::TorrentFile { id: i, data } if *i == id => data.clone(),
+        _ => None,
+    });
+    let ti = patorrent_core::metainfo::TorrentInfo::from_bytes(&data).unwrap();
+    assert_eq!(ti.info_hash().as_bytes(), &f.info_hash);
+    assert_eq!(ti.trackers().len(), 1, "the magnet's tracker is in the file");
+    assert_eq!(ti.trackers()[0].url, "http://127.0.0.1:9/announce");
+    std::thread::sleep(Duration::from_secs(1));
+    w.backlog.clear();
+    let st = wait(&mut w, 5, "status", |a| status_of(a, id));
+    assert_eq!(st.total_done, 0, "upload mode wrote nothing");
+    h.unset_flags(TorrentFlags::UPLOAD_MODE);
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn stop_when_ready_stops_a_torrent_once_it_is_checked() {
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech-swr");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    // a .torrent: queued, checked, then stopped and out of the queue
+    let id = add_with_flags(&mut w, &f, &dir, TorrentFlags::AUTO_MANAGED | TorrentFlags::STOP_WHEN_READY);
+    wait(&mut w, 10, "paused", |a| matches!(a, Alert::TorrentPaused { id: i } if *i == id).then_some(()));
+    let st = wait(&mut w, 5, "status", |a| status_of(a, id));
+    assert!(st.flags.contains(TorrentFlags::PAUSED));
+    assert!(
+        !st.flags.intersects(TorrentFlags::AUTO_MANAGED | TorrentFlags::STOP_WHEN_READY),
+        "{:?}",
+        st.flags
+    );
+    assert_eq!(st.state, TorrentState::Downloading);
+    leech.handle().remove_torrent(id, patorrent_core::RemoveFlags::empty());
+    wait(&mut w, 5, "removed", |a| {
+        matches!(a, Alert::TorrentRemoved { id: i, .. } if *i == id).then_some(())
+    });
+
+    // a magnet: its metadata first, then the check, then the stop; nothing downloaded
+    let uri = format!("magnet:?xt=urn:btih:{}&x.pe=127.0.0.1:{port}", hex(&f.info_hash));
+    let mut p = AddTorrentParams::new(TorrentSource::Magnet(uri), dir.to_string_lossy());
+    p.flags = TorrentFlags::STOP_WHEN_READY;
+    leech.handle().add_torrent(p);
+    let id = wait(&mut w, 5, "add magnet", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    wait(&mut w, 30, "metadata", |a| {
+        matches!(a, Alert::MetadataReceived { id: i } if *i == id).then_some(())
+    });
+    wait(&mut w, 10, "paused", |a| matches!(a, Alert::TorrentPaused { id: i } if *i == id).then_some(()));
+    let st = wait(&mut w, 5, "status", |a| status_of(a, id));
+    assert!(st.flags.contains(TorrentFlags::PAUSED) && st.has_metadata);
+    assert!(st.total_done < f.piece_len as u64 * 2, "stopped before downloading much: {}", st.total_done);
+    // setting the flag on a torrent that is ready stops it at once
+    let h = leech.handle().torrent(id);
+    h.resume();
+    wait(&mut w, 10, "resumed", |a| matches!(a, Alert::TorrentResumed { id: i } if *i == id).then_some(()));
+    h.set_flags(TorrentFlags::STOP_WHEN_READY);
+    wait(&mut w, 10, "paused again", |a| {
+        matches!(a, Alert::TorrentPaused { id: i } if *i == id).then_some(())
+    });
+    leech.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
 /// A session whose DHT bootstraps from `router` (no router: a DHT of its own).
 fn start_dht(router: Option<u16>) -> (Session, Watch, u16) {
     let settings = Settings {
@@ -724,6 +827,38 @@ fn trackerless_magnet_finds_its_seed_through_the_dht() {
     router.shutdown();
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn a_torrent_files_dht_nodes_join_the_routing_table() {
+    // libtorrent `add_torrent_impl`: a `.torrent`'s `nodes` go to the DHT, host names resolved
+    let f = fixture(None);
+    let (router, _rw, router_port) = start_dht(None);
+    let (leech, mut w, _) = start_dht(None);
+    let d = patorrent_core::bencode::bdecode(&f.torrent[..]).unwrap();
+    let mut e = Entry::from_node(d.root().unwrap());
+    *e.key("nodes") =
+        Entry::List(vec![Entry::List(vec!["localhost".into(), Entry::Int(router_port as i64)])]);
+    let dir = temp_dir("dht-nodes");
+    let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(e.bencode()), dir.to_string_lossy());
+    p.flags = TorrentFlags::PAUSED;
+    leech.handle().add_torrent(p);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        leech.handle().post_session_stats();
+        let n = wait(&mut w, 5, "stats", |a| match a {
+            Alert::SessionStats(s) => Some(s.dht_nodes),
+            _ => None,
+        });
+        if n >= 1 {
+            break;
+        }
+        assert!(Instant::now() < deadline, "the torrent's node never joined the routing table");
+        std::thread::sleep(Duration::from_millis(200));
+    }
+    leech.shutdown();
+    router.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
 }
 
 #[test]

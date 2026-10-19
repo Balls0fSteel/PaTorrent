@@ -18,9 +18,10 @@ use patorrent_core::{
     TorrentId, TorrentSource,
 };
 use patorrent_frontend::actions;
-use patorrent_frontend::add::{self, AddChoice};
+use patorrent_frontend::add::{self, AddChoice, AwaitingMetadata};
 use patorrent_frontend::fmt;
 use patorrent_frontend::properties::{self, Changes, Field, Fields, Properties, TorrentProps, Tri};
+use patorrent_frontend::scheduler::Mode;
 use patorrent_frontend::seeding::SeedGoal;
 use patorrent_frontend::status::Category;
 
@@ -739,6 +740,9 @@ pub struct AddOptions {
     pub sequential: bool,
     pub download_limit: u32,
     pub upload_limit: u32,
+    /// A magnet: wait for its metadata in the session, then show the dialog
+    /// ([`add_awaiting`]); the other choices come with [`finish_awaiting`].
+    pub dialog: bool,
 }
 
 impl AddOptions {
@@ -771,6 +775,7 @@ impl AddOptions {
             sequential: flag("sequential")?.unwrap_or(false),
             download_limit: limit("download_limit"),
             upload_limit: limit("upload_limit"),
+            dialog: flag("dialog")?.unwrap_or(false),
         })
     }
 }
@@ -782,30 +787,17 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
     if !valid_label(label) {
         return Err(err(400, "invalid label"));
     }
+    if let (Source::Magnet(m), true) = (&source, o.dialog) {
+        return add_awaiting(shared, m.clone());
+    }
     let hash = source.hash();
     let mut st = shared.lock();
     let save_path = o.save.clone().unwrap_or_else(|| st.prefs.save_path.clone());
-    let n = match &source {
-        Source::Torrent(_, ti) => ti.files().num_files(),
-        Source::Magnet(_) => 0,
+    let file_priorities = match &source {
+        Source::Torrent(_, ti) => file_priorities(ti, o)?,
+        Source::Magnet(_) if o.priorities.is_empty() => Vec::new(),
+        Source::Magnet(_) => return Err(err(400, "priorities name a file the torrent does not have")),
     };
-    let mut file_priorities = Vec::new();
-    if !o.priorities.is_empty() {
-        if o.priorities.keys().any(|&i| i as usize >= n) {
-            return Err(err(400, "priorities name a file the torrent does not have"));
-        }
-        file_priorities = (0..n as u32)
-            .map(|i| o.priorities.get(&i).copied().unwrap_or(DownloadPriority::NORMAL))
-            .collect();
-        if let Source::Torrent(_, ti) = &source {
-            let fs = ti.files();
-            for (i, p) in file_priorities.iter_mut().enumerate() {
-                if fs.pad_file_at(i) {
-                    *p = DownloadPriority::DONT_DOWNLOAD;
-                }
-            }
-        }
-    }
     let choice = AddChoice {
         save_path: save_path.clone(),
         name: o.name.clone(),
@@ -865,6 +857,138 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
     // Ask for the new torrent's status now rather than at the next refresh.
     shared.handle.post_torrent_updates();
     Ok(hash)
+}
+
+/// The dialog's priorities for every file of `ti` (Normal where not named, pad files never);
+/// empty when none were given.
+fn file_priorities(ti: &TorrentInfo, o: &AddOptions) -> Result<Vec<DownloadPriority>, CmdError> {
+    if o.priorities.is_empty() {
+        return Ok(Vec::new());
+    }
+    let fs = ti.files();
+    if o.priorities.keys().any(|&i| i as usize >= fs.num_files()) {
+        return Err(err(400, "priorities name a file the torrent does not have"));
+    }
+    Ok((0..fs.num_files())
+        .map(|i| match fs.pad_file_at(i) {
+            true => DownloadPriority::DONT_DOWNLOAD,
+            false => o.priorities.get(&(i as u32)).copied().unwrap_or(DownloadPriority::NORMAL),
+        })
+        .collect())
+}
+
+/// A magnet for the Add dialog: it joins the session in upload mode (fetching its metadata,
+/// writing nothing) and outside the queue; once the engine hands out its file list the tick's
+/// `adds` changes and `GET /pa/add` lists it as `ready`. Returns the info-hash.
+pub fn add_awaiting(shared: &Shared, uri: String) -> Result<String, CmdError> {
+    let m = parse_magnet_uri(&uri).map_err(|_| err(400, "invalid magnet link"))?;
+    let (hash, key) = (hash_of(&m.info_hashes), m.info_hashes.key_hex());
+    let mut st = shared.lock();
+    if st.by_hash.contains_key(&hash) {
+        return Err(err(409, "the torrent is already in the list"));
+    }
+    let save_path = st.prefs.save_path.clone();
+    let mut p = AddTorrentParams::new(TorrentSource::Magnet(uri), save_path.as_str());
+    st.prefs.gui().apply_to_new(&mut p);
+    st.scheduler.apply_to_new(&mut p);
+    AwaitingMetadata::prepare(&mut p);
+    let s = &mut *st;
+    s.torrent_files.adding(&s.prefs.torrent_folders, &p);
+    s.awaiting.insert(&mut s.options, &key, &save_path);
+    s.adds_version += 1;
+    shared.save(&st);
+    drop(st);
+    shared.handle.add_torrent(p);
+    shared.handle.post_torrent_updates();
+    Ok(hash)
+}
+
+/// The waiting magnet whose torrent has `hash`, once its metadata is known: its key.
+fn ready_key(st: &State, hash: &str) -> Option<String> {
+    st.awaiting.ready().into_iter().find(|k| {
+        let id = st.awaiting.get(k).and_then(|w| w.id);
+        id.and_then(|id| st.torrents.get(&id)).is_some_and(|e| e.hash == hash)
+    })
+}
+
+/// `GET /pa/add`'s `ready`: the magnets whose dialog can open, as `{"hash", "name"}`.
+pub fn ready_adds(st: &State) -> Json {
+    let mut out = Vec::new();
+    for k in st.awaiting.ready() {
+        let Some(w) = st.awaiting.get(&k) else { continue };
+        let (Some(id), Some(ti)) = (w.id, &w.ti) else { continue };
+        let Some(e) = st.torrents.get(&id) else { continue };
+        out.push(Json::obj().with("hash", e.hash.as_str()).with("name", ti.name()));
+    }
+    Json::Arr(out)
+}
+
+/// `GET /pa/torrent-info?hash=`: the dialog's Torrent Contents for a waiting magnet.
+pub fn awaiting_info(st: &State, hash: &str) -> Result<Json, CmdError> {
+    let key = ready_key(st, hash).ok_or_else(|| err(404, "no magnet waiting for the Add dialog"))?;
+    let ti = st.awaiting.get(&key).and_then(|w| w.ti.clone()).expect("ready");
+    Ok(torrent_info(&ti))
+}
+
+/// `POST /pa/add` with a waiting magnet's `hash`: OK gives the torrent the dialog's choices
+/// (`frontend::add::AddChoice::apply_to_torrent`); `cancel` removes it with its part file.
+pub fn finish_awaiting(shared: &Shared, hash: &str, o: &AddOptions, cancel: bool) -> Result<(), CmdError> {
+    let label = o.label.trim();
+    if !valid_label(label) {
+        return Err(err(400, "invalid label"));
+    }
+    let mut st = shared.lock();
+    let key = ready_key(&st, hash).ok_or_else(|| err(404, "no magnet waiting for the Add dialog"))?;
+    let w = st.awaiting.get(&key).cloned().expect("ready");
+    let (id, ti) = (w.id.expect("ready"), w.ti.expect("ready"));
+    let h = shared.handle.torrent(id);
+    if cancel {
+        let s = &mut *st;
+        s.awaiting.finish(&mut s.options, &key);
+        s.adds_version += 1;
+        shared.save(&st);
+        drop(st);
+        shared.handle.remove_torrent(id, RemoveFlags::DELETE_PARTFILE);
+        return Ok(());
+    }
+    let save_path = o.save.clone().unwrap_or_else(|| w.save_path.clone());
+    let choice = AddChoice {
+        save_path: save_path.clone(),
+        name: o.name.clone(),
+        file_priorities: file_priorities(&ti, o)?,
+        start: o.start.unwrap_or(!st.prefs.start_paused),
+        skip_hash_check: false,
+        top_of_queue: o.top,
+        label: label.to_owned(),
+    };
+    if !label.is_empty() {
+        if !st.categories.contains_key(label) {
+            st.categories.insert(label.to_owned(), String::new());
+            st.categories_version += 1;
+        }
+        st.torrent_categories.insert(hash.to_owned(), label.to_owned());
+        st.touch(hash);
+    }
+    st.meta.insert(hash.to_owned(), meta_of(&ti));
+    let seed_only = st.scheduler.mode() == Mode::SeedOnly;
+    let s = &mut *st;
+    s.awaiting.finish(&mut s.options, &key);
+    s.adds_version += 1;
+    add::remember_dir(&mut s.options, &save_path);
+    shared.save(&st);
+    drop(st);
+    if o.sequential {
+        h.set_flags(TorrentFlags::SEQUENTIAL_DOWNLOAD);
+    }
+    if o.download_limit > 0 {
+        h.set_download_limit(o.download_limit);
+    }
+    if o.upload_limit > 0 {
+        h.set_upload_limit(o.upload_limit);
+    }
+    choice.apply_to_torrent(&h, &ti, &w.save_path, seed_only);
+    shared.handle.post_torrent_updates();
+    Ok(())
 }
 
 pub fn meta_of(ti: &TorrentInfo) -> Meta {
@@ -1057,8 +1181,14 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Respons
                         .with("save_in", Json::Arr(dirs))
                         .with("labels", Json::Arr(labels))
                         .with("start", !st.prefs.start_paused)
-                        .with("show_dialog", st.prefs.show_add_dialog),
+                        .with("show_dialog", st.prefs.show_add_dialog)
+                        .with("ready", ready_adds(&st)),
                 ))
+            }
+            "torrent-info" => {
+                let q = parse_urlencoded(req.head.query.as_bytes());
+                let hash = q.iter().find(|(k, _)| k == "hash").map(|(_, v)| v.as_str()).unwrap_or_default();
+                Ok(Response::json(&awaiting_info(&shared.lock(), hash)?))
             }
             "prefs" => {
                 let st = shared.lock();
@@ -1090,13 +1220,21 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Respons
             }
             let body = json_body(req)?;
             let o = AddOptions::parse(&body).map_err(|e| err(400, e))?;
+            if let Some(hash) = body.get("hash").and_then(Json::as_str) {
+                let cancel = body.get("cancel").and_then(Json::as_bool).unwrap_or(false);
+                finish_awaiting(shared, hash, &o, cancel)?;
+                return Ok(no_content());
+            }
             let url = body
                 .get("url")
                 .and_then(Json::as_str)
                 .map(str::trim)
                 .filter(|u| !u.is_empty())
                 .ok_or_else(|| err(400, "missing url"))?;
-            add(shared, Source::from_url(url)?, &o)?;
+            let hash = add(shared, Source::from_url(url)?, &o)?;
+            if o.dialog {
+                return Ok(Response::json(&Json::obj().with("hash", hash)));
+            }
             Ok(no_content())
         }
         "torrent-info" => {

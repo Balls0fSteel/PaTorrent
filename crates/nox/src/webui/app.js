@@ -469,6 +469,7 @@
     if (m.counts) updateCounts(m.counts);
     if (m.labels) updateLabels(m.labels, m.no_label);
     if (m.rss !== undefined) rssChanged(m.rss);
+    if (m.adds !== undefined) addsChanged(m.adds);
     if (m.status) updateStatus(m.status);
     if (m.ids || m.cells) {
       // keep only the window's cells
@@ -2178,10 +2179,15 @@
   // A .torrent (the Add Torrent button, a drop) is parsed by the server first (pa/torrent-info)
   // and shown in the 2.2.1 dialog: Save In, Name, the file tree with check boxes and
   // priorities, Skip hash check, Start torrent, Add to top of queue, Label; OK uploads it with
-  // the choices (pa/add). A magnet or URL (Add URL, a drop, a paste) adds directly for now.
+  // the choices (pa/add). A magnet (Add URL, a drop, a paste) joins the session in upload mode
+  // to fetch its metadata (pa/add with dialog); once its file list is known the tick's `adds`
+  // changes, GET pa/add lists it as ready and the same dialog opens for it (pa/torrent-info?
+  // hash=); OK sends the choices with its hash, Cancel removes it. Other URLs add directly.
   const addDlg = $("add");
-  const addQueue = []; // files waiting for their turn in the dialog
-  let addState = null; // {file, info, nodes, roots, files: [node per file index]}
+  const addQueue = []; // files, and {hash} of waiting magnets, waiting for their turn
+  let addState = null; // {file, info, tree, sel, anchor, done}; file is {hash} for a magnet
+  const shownAdds = new Set(); // waiting magnets queued or shown here
+  let addsVersion = 0;
 
   /// frontend::fmt::size: binary units, three significant digits, "kB".
   function fmtSize(bytes) {
@@ -2211,8 +2217,50 @@
     if (!url || !url.trim()) return;
     addUrl(url.trim());
   });
-  function addUrl(url) {
+  async function addUrl(url) {
+    const magnet = /^magnet:/i.test(url) || /^[0-9a-f]{40}$/i.test(url) || /^[a-z2-7]{32}$/i.test(url);
+    if (magnet) {
+      let setup = null;
+      try {
+        setup = await pa("add");
+      } catch (e) {
+        /* the dialog then */
+      }
+      if (!setup || setup.show_dialog !== false) {
+        pa("add", { url, dialog: true }).catch(() => {});
+        return;
+      }
+    }
     pa("add", { url }).catch(() => {});
+  }
+  /// The tick's `adds`: the waiting magnets changed; queue the ready ones not seen here yet,
+  /// and drop (or close) the ones finished elsewhere.
+  function addsChanged(v) {
+    if (v === addsVersion) return;
+    addsVersion = v;
+    loadReadyAdds();
+  }
+  async function loadReadyAdds() {
+    let setup;
+    try {
+      setup = await pa("add");
+    } catch (e) {
+      return;
+    }
+    const ready = setup.ready || [];
+    const hashes = new Set(ready.map((r) => r.hash));
+    for (const h of [...shownAdds]) if (!hashes.has(h)) shownAdds.delete(h);
+    for (let i = addQueue.length - 1; i >= 0; i--) if (addQueue[i].hash && !hashes.has(addQueue[i].hash)) addQueue.splice(i, 1);
+    if (addState && addState.file.hash && !hashes.has(addState.file.hash)) {
+      addState.done = true; // OK or Cancel in another window
+      closeAddDialog();
+    }
+    for (const r of ready) {
+      if (shownAdds.has(r.hash)) continue;
+      shownAdds.add(r.hash);
+      addQueue.push({ hash: r.hash, name: r.name });
+    }
+    if (!addDlg.open) nextAdd();
   }
   function queueTorrents(files) {
     for (const f of files) addQueue.push(f);
@@ -2221,6 +2269,22 @@
   async function nextAdd() {
     const file = addQueue.shift();
     if (!file) return;
+    if (file.hash) {
+      let info;
+      let setup = { save_in: [""], labels, start: true };
+      try {
+        info = await pa("torrent-info?hash=" + encodeURIComponent(file.hash));
+        setup = await pa("add");
+      } catch (e) {
+        if (!info) {
+          nextAdd();
+          return;
+        }
+      }
+      setup.in_session = true;
+      openAddDialog(file, info, setup);
+      return;
+    }
     const fd = new FormData();
     fd.append("torrent", file, file.name);
     let info;
@@ -2371,6 +2435,8 @@
     $("add-label").value = "";
     $("add-name").value = info.name || "";
     $("add-skip").checked = false;
+    // a waiting magnet's files were checked when its metadata arrived
+    $("add-skip").disabled = !!setup.in_session;
     $("add-start").checked = setup.start !== false;
     $("add-top").checked = false;
     setText("add-t-name", info.name || "");
@@ -2382,6 +2448,8 @@
     $("add-ok").focus();
   }
   function closeAddDialog() {
+    // Cancel (the button, Esc, Back) on a waiting magnet removes it
+    if (addState && addState.file.hash && !addState.done) pa("add", { hash: addState.file.hash, cancel: true }).catch(() => {});
     if (addDlg.open) addDlg.close();
     addState = null;
     $("add-files").textContent = "";
@@ -2576,14 +2644,19 @@
       const p = node.wanted ? node.prio : 0;
       if (p !== 4) options.priorities[node.i] = p;
     }
-    const fd = new FormData();
-    fd.append("torrent", st.file, st.file.name);
-    fd.append("options", JSON.stringify(options));
     try {
-      await pa("add", fd);
+      if (st.file.hash) {
+        await pa("add", Object.assign({ hash: st.file.hash }, options));
+      } else {
+        const fd = new FormData();
+        fd.append("torrent", st.file, st.file.name);
+        fd.append("options", JSON.stringify(options));
+        await pa("add", fd);
+      }
     } catch (e) {
       return; // shown; the dialog stays so the choice is not lost
     }
+    st.done = true;
     if (options.label && !labels.includes(options.label)) {
       // a new label: the tree learns it now rather than at the next hello
       labels.push(options.label);

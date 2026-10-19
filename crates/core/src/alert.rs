@@ -304,6 +304,13 @@ pub enum Alert {
         url_seeds: Vec<String>,
         http_seeds: Vec<String>,
     },
+    /// The torrent as a `.torrent` file (libtorrent `write_torrent_file` of `torrent_file()`):
+    /// its info dictionary verbatim plus the trackers and web seeds in use. `None` while the
+    /// metadata is unknown (a magnet still fetching it).
+    TorrentFile {
+        id: TorrentId,
+        data: Option<Arc<[u8]>>,
+    },
 
     /// Free-form log line for the Logger tab (libtorrent `log_alert` / `torrent_log_alert`).
     Log {
@@ -342,6 +349,7 @@ impl Alert {
             | TrackerList { .. }
             | PieceInfo { .. }
             | WebSeeds { .. }
+            | TorrentFile { .. }
             | AlertsDropped { .. } => AlertPriority::Critical,
             StateChanged { .. }
             | TorrentPaused { .. }
@@ -407,7 +415,8 @@ impl Alert {
             | TrackerList { id, .. }
             | PieceInfo { id, .. }
             | UrlSeed { id, .. }
-            | WebSeeds { id, .. } => Some(id),
+            | WebSeeds { id, .. }
+            | TorrentFile { id, .. } => Some(id),
             Log { id, .. } | PeerBlocked { id, .. } => id,
             _ => None,
         }
@@ -474,6 +483,10 @@ impl Alert {
             WebSeeds { url_seeds, http_seeds, .. } => {
                 write!(s, "{} web seeds", url_seeds.len() + http_seeds.len())
             }
+            TorrentFile { data, .. } => match data {
+                Some(d) => write!(s, ".torrent file of {} bytes", d.len()),
+                None => write!(s, "no metadata for a .torrent file"),
+            },
             StateUpdate(v) => write!(s, "state update for {} torrents", v.len()),
             SessionStats(_) => write!(s, "session stats"),
             ResumeDataSaved => write!(s, "resume data saved"),

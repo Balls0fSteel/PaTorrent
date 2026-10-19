@@ -2,6 +2,37 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_224116_1792442476: Magnets through the Add New Torrent dialog; gzip block lists; .torrent DHT nodes
+
+### Added
+- **Magnet links open the Add New Torrent dialog** (Phase 5's open item), in the Win32 GUI and the Web UI, when "Show a window that displays the files inside the torrent" is on. The magnet joins the session in upload mode and outside the queue, so it fetches its metadata and checks for existing files but writes nothing; when the file list is known the dialog opens for the torrent already in the session. OK gives it the choices in place, Cancel removes it with its part file.
+  - Engine: `TorrentHandle::post_torrent_file` answered by `Alert::TorrentFile { id, data }`: the torrent as a `.torrent` (the info dictionary verbatim, the trackers and web seeds in use; `None` while a magnet has no metadata). `metainfo::write_torrent_file` ports libtorrent's `write_torrent_file` / `build_tracker_list`. The mock engine answers too (a generated `.torrent` for its synthetic torrents) and honours upload mode.
+  - Engine: `TorrentFlags::STOP_WHEN_READY` is honoured (it was declared but ignored): the torrent is paused and taken out of the queue once checked and ready, and the flag is cleared; setting it on a ready torrent stops it at once. Unlike libtorrent, a magnet stops after its metadata and the check, not as soon as it starts fetching.
+  - `frontend::add::AwaitingMetadata`: the waiting magnets by info-hash (`prepare` sets the flags; `on_alert` asks for the `.torrent` on `TorrentAdded` and `MetadataReceived` and keeps its `TorrentInfo`; `ready`, `finish`, `holds`), stored as `torrent.<hash>.awaiting = <save folder>` so the dialog comes back after a restart. `AddChoice::apply_to_torrent`: the renames, a new Save In as `move_storage(ResetSavePath)`, priorities, queue (start = auto-managed, or paused), top of queue, upload mode off (kept during the scheduler's Seeding only hours).
+  - Win32: `add_magnet` (a magnet already in the list is refused with a message), `WM_APP_MAGNET` and `magnet_dialogs` (one dialog at a time, Save In starting with the folder it was added to, the label stored as for `.torrent` adds). `add::Setup::in_session` greys out Skip hash check. The scheduler leaves upload mode on for waiting magnets; `TorrentFile` replies stay out of the Logger.
+  - nox: `POST /pa/add` with `"dialog": true` (200 `{"hash"}`, 409 when the torrent is in the list), then `{"hash", ...choices}` or `{"hash", "cancel": true}`; `GET /pa/add` lists `ready` magnets; `GET /pa/torrent-info?hash=`; the tick carries `adds` (`State::adds_version`). The page sends magnets (Add URL, drop, paste, a bare info-hash) with `dialog`, queues ready ones it has not shown, opens the same dialog, closes it when another window finished it; Cancel, Esc and Back cancel. A greyed label style for disabled check boxes. docs/WEBUI.md updated.
+- **gzip**: `util::puff` (Mark Adler's inflate via libtorrent's `puff.cpp`) and `util::gzip` (libtorrent's `gzip.cpp`), safe Rust: running out of input is an `Err`, the output grows to a limit in one pass. `IpFilter::load` inflates gzip-compressed block lists (decided by the magic bytes; at most 512 MiB). Fuzz target `gzip` (also in `fuzz.yml`). THIRD-PARTY-NOTICES.md lists the ports.
+- **`.torrent` DHT nodes**: a torrent file's `nodes` join the DHT routing table when it is added (libtorrent `add_torrent_impl`), and host names are resolved now (libtorrent `add_dht_node_name`), for magnet `dht=` nodes too. Beyond 200 waiting nodes a random one is replaced, as in libtorrent.
+- **Stored `.torrent` copies for magnets**: with "Store .torrents in" on, a magnet's copy is written once its metadata arrives (`TorrentFiles::on_alert` takes the session handle to ask for it).
+
+### Changed
+- Win32 "Remove" (without data) deletes the part file of skipped files too (`RemoveFlags::DELETE_PARTFILE`), as nox and qBittorrent do.
+- PLAN.md: a "Road to 1.0" section proposes the 1.0 bar (must-dos, owner decisions, engine gaps).
+
+### Decisions
+- Magnets wait in place (the torrent stays in the session through the dialog) rather than qBittorrent's way (a hidden metadata-only torrent, removed and re-added): the peers found while fetching are kept, and both clients use the same engine calls as Set Download Location and the Files tab.
+- The wait is forced (outside the queue) so the dialog comes promptly even with full active slots; OK puts the torrent in the queue.
+- libtorrent maps puff's errors -9 to -11 one code off in `gzip.cpp`; ours keep puff's own messages. The gzip CRC-32 and size trailer are not checked, as in libtorrent.
+
+### Verified
+- New tests: `write_torrent` (info-hash kept, tiers, web seeds, single tracker), swarm `a_magnet_in_upload_mode_hands_out_its_torrent_file_and_waits`, `stop_when_ready_stops_a_torrent_once_it_is_checked` (a `.torrent`, a magnet, and the flag set on a ready torrent), `a_torrent_files_dht_nodes_join_the_routing_table` (a `localhost` node; fails with the change taken out), `add::a_magnet_waits_for_its_metadata_then_takes_the_choice` (mock engine), win32 `a_torrent_in_the_session_cannot_skip_the_check`, nox `native_magnet_waits_for_the_add_dialog` (wait, info, 409, OK with folder / label / stopped, Cancel), `puff` (stored, fixed, dynamic blocks; every prefix; bit flips; limits; error codes), `gzip` (every header field, bad headers, libtorrent's `test_gzip` with `zeroes.gz`, `corrupt.gz`, `invalid1.gz`), a gzipped block list, the magnet's stored copy in `torrent_folders`.
+- Fuzzing: `gzip` ran 3.7 million inputs in 120 s on Windows (seeded with libtorrent's three files and zlib output), no findings.
+- On screen: the Web UI with `run --mock-library 20` in the built-in browser: a pasted magnet's dialog opened on its own with the generated file list and Skip hash check greyed; OK added it queued; a second one cancelled with Esc disappeared; no console errors besides the pre-login 403. The Win32 GUI (`--demo 8` with a magnet argument, portable copy): the dialog opened with the magnet's name, Skip hash check disabled, Start torrent checked; `IDOK` closed it and removed `torrent.<hash>.awaiting` from `patorrent.ini`. Computer use is blocked by policy for this app here, so the Win32 check went through window messages, not clicks.
+- Windows: `cargo test --workspace` 930 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`, Linux-target clippy, `cargo fmt --all --check`, the fuzz crate builds.
+
+### Issues
+- One of the new Win32 hidden-dialog tests first used `C:\Downloads` as its save folder and the dialog created that (empty) folder on OK; the test now uses a temp folder. The empty `C:\Downloads` is still there (deleting it was blocked here).
+
 ## 2026-10-19_213029_1792438229: The Pieces tab lists the pieces being downloaded
 
 ### Added

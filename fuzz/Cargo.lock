@@ -118,6 +118,7 @@ version = "0.1.0"
 dependencies = [
  "patorrent-core",
  "patorrent-frontend",
+ "windows-sys",
 ]
 
 [[package]]

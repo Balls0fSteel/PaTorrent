@@ -38,7 +38,7 @@ use windows_sys::Win32::UI::Controls::{
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, OpenThemeDataForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    SetFocus, VK_ADD, VK_LEFT, VK_RIGHT, VK_SPACE, VK_SUBTRACT,
+    EnableWindow, SetFocus, VK_ADD, VK_LEFT, VK_RIGHT, VK_SPACE, VK_SUBTRACT,
 };
 use windows_sys::Win32::UI::Shell::{
     SHFILEINFOW, SHGFI_OPENICON, SHGFI_SMALLICON, SHGFI_SYSICONINDEX, SHGFI_USEFILEATTRIBUTES, SHGetFileInfoW,
@@ -91,6 +91,9 @@ pub struct Setup {
     pub labels: Vec<String>,
     /// "Start torrent" (off with Preferences' "Don't start the download automatically").
     pub start: bool,
+    /// The torrent is in the session already (a magnet that fetched its metadata): its files
+    /// were checked when the metadata arrived, so "Skip hash check" is greyed out.
+    pub in_session: bool,
 }
 
 struct State {
@@ -251,6 +254,9 @@ unsafe fn init(dlg: HWND, st: &mut State) {
         set_text(save, st.setup.save_dirs.first().map_or("", String::as_str));
         set_text(item(dlg, ID_NAME), &st.name);
         set_check(dlg, ID_START, st.setup.start);
+        if st.setup.in_session {
+            EnableWindow(item(dlg, ID_SKIP), 0);
+        }
         let label = item(dlg, ID_LABEL);
         for l in &st.setup.labels {
             let w = wide(l);
@@ -406,7 +412,7 @@ unsafe fn collect(dlg: HWND, st: &State) -> Option<AddChoice> {
             name: (!name.is_empty() && name != st.name).then_some(name),
             file_priorities: st.tree.file_priorities(),
             start: checked(dlg, ID_START),
-            skip_hash_check: checked(dlg, ID_SKIP),
+            skip_hash_check: !st.setup.in_session && checked(dlg, ID_SKIP),
             top_of_queue: checked(dlg, ID_TOP),
             label: window_text(item(dlg, ID_LABEL)).trim().to_owned(),
         })
@@ -741,6 +747,7 @@ mod tests {
             save_dirs: vec![r"C:\Downloads".into(), r"D:\Recent".into()],
             labels: vec!["Linux".into(), "Music".into()],
             start: true,
+            in_session: false,
         }
     }
 
@@ -822,6 +829,26 @@ mod tests {
         f.select(&[3]);
         f.key(VK_LEFT);
         unsafe { assert_eq!(controls::focused(f.lv()), Some(1)) };
+    }
+
+    #[test]
+    fn a_torrent_in_the_session_cannot_skip_the_check() {
+        let dir = std::env::temp_dir().join(format!("patorrent-win32-add-session-{}", std::process::id()));
+        let save = dir.to_string_lossy().into_owned();
+        let mut f =
+            Fixture::new(&FILES, Setup { in_session: true, save_dirs: vec![save.clone()], ..setup() });
+        unsafe {
+            assert_eq!(
+                windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled(item(f.dlg, ID_SKIP)),
+                0
+            );
+            set_check(f.dlg, ID_SKIP, true);
+        }
+        f.click(IDOK as u16);
+        let c = f.st.choice.take().expect("OK gives a choice");
+        assert!(!c.skip_hash_check);
+        assert_eq!(c.save_path, save);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

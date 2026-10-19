@@ -1,12 +1,18 @@
 //! The Add New Torrent dialog's model: the torrent's files as a tree with check boxes and
 //! priorities behind a virtual list (only the visible rows are materialized, so torrents with
 //! many thousands of files open at once), the recent save folders, and what the user chose,
-//! turned into [`AddTorrentParams`]. Toolkit-independent, so the GTK dialog can share it.
+//! turned into [`AddTorrentParams`] (or, for a magnet that waited for its metadata in the
+//! session, applied to the torrent: [`AwaitingMetadata`]). Toolkit-independent, so the GTK
+//! dialog can share it.
 
 use std::collections::BTreeMap;
+use std::sync::Arc;
 
 use patorrent_core::metainfo::TorrentInfo;
-use patorrent_core::{AddTorrentParams, DownloadPriority, TorrentFlags};
+use patorrent_core::{
+    AddTorrentParams, Alert, DownloadPriority, MoveFlags, QueueMove, SessionHandle, TorrentFlags,
+    TorrentHandle, TorrentId,
+};
 
 use crate::prefs::Prefs;
 
@@ -428,6 +434,160 @@ impl AddChoice {
     }
 }
 
+impl AddChoice {
+    /// Applies the choice to a magnet that waited for its metadata in the session
+    /// ([`AwaitingMetadata`]): renames, the save folder (`added_to` is the one it was added
+    /// with; nothing was written there in upload mode, so the files are looked for in the new
+    /// one), priorities, the queue, then the download starts or the torrent stops. "Skip hash
+    /// check" cannot apply any more (the files were checked when the metadata arrived).
+    /// `keep_upload_mode` leaves upload mode on (the scheduler's Seeding only hours).
+    pub fn apply_to_torrent(
+        &self,
+        h: &TorrentHandle,
+        ti: &TorrentInfo,
+        added_to: &str,
+        keep_upload_mode: bool,
+    ) {
+        for (file, name) in self.name.as_deref().map(|n| renamed_root(ti, n)).unwrap_or_default() {
+            h.rename_file(file, name);
+        }
+        if !same_dir(&self.save_path, added_to) {
+            h.move_storage(self.save_path.clone(), MoveFlags::ResetSavePath);
+        }
+        if !self.file_priorities.is_empty() {
+            h.prioritize_files(self.file_priorities.clone());
+        }
+        if self.start {
+            // queued like any started torrent; the queue may hold it back
+            h.set_flags(TorrentFlags::AUTO_MANAGED);
+        } else {
+            h.pause();
+        }
+        if self.top_of_queue {
+            h.queue_position(QueueMove::Top);
+        }
+        if !keep_upload_mode {
+            h.unset_flags(TorrentFlags::UPLOAD_MODE);
+        }
+    }
+}
+
+/// A magnet waiting for its metadata before the Add New Torrent dialog opens.
+#[derive(Clone, Debug, Default)]
+pub struct Awaiting {
+    /// Known once the engine reports the torrent added (or restored).
+    pub id: Option<TorrentId>,
+    /// The folder it was added with.
+    pub save_path: String,
+    /// Its metadata, once the engine handed out the `.torrent`: the dialog can open.
+    pub ti: Option<Arc<TorrentInfo>>,
+}
+
+/// Magnets added "through the dialog". µTorrent 3 and qBittorrent show the dialog for a magnet
+/// once its file list is known; here the magnet joins the session in upload mode (it fetches
+/// the metadata and checks for existing files but writes nothing) and outside the queue (so it
+/// runs at once), then [`AddChoice::apply_to_torrent`] gives it the user's choices, or Cancel
+/// removes it. Kept in the preferences as `torrent.<info-hash>.awaiting = <save folder>`, so
+/// the dialog comes back after a restart instead of the torrent waiting in upload mode for
+/// good.
+#[derive(Clone, Debug, Default)]
+pub struct AwaitingMetadata {
+    by_key: BTreeMap<String, Awaiting>,
+}
+
+const AWAITING_SUFFIX: &str = ".awaiting";
+
+impl AwaitingMetadata {
+    pub fn load(prefs: &Prefs) -> AwaitingMetadata {
+        let by_key = prefs
+            .entries()
+            .filter_map(|(k, v)| {
+                let key = k.strip_prefix("torrent.")?.strip_suffix(AWAITING_SUFFIX)?;
+                Some((key.to_owned(), Awaiting { save_path: v.to_owned(), ..Awaiting::default() }))
+            })
+            .collect();
+        AwaitingMetadata { by_key }
+    }
+
+    /// The flags of a magnet added to wait for the dialog: upload mode, running, not queued.
+    pub fn prepare(p: &mut AddTorrentParams) {
+        p.flags =
+            (p.flags | TorrentFlags::UPLOAD_MODE) & !(TorrentFlags::AUTO_MANAGED | TorrentFlags::PAUSED);
+    }
+
+    /// Remembers the magnet with info-hash `key` (`InfoHashes::key_hex`) added to `save_path`.
+    pub fn insert(&mut self, prefs: &mut Prefs, key: &str, save_path: &str) {
+        prefs.set(&format!("torrent.{key}{AWAITING_SUFFIX}"), save_path);
+        self.by_key
+            .insert(key.to_owned(), Awaiting { save_path: save_path.to_owned(), ..Awaiting::default() });
+    }
+
+    /// Follows the engine: asks for the `.torrent` of a waiting magnet when it is added
+    /// (restored ones may have their metadata already) and when its metadata arrives, keeps
+    /// it, and forgets removed torrents. True when a dialog can open ([`AwaitingMetadata::ready`]).
+    pub fn on_alert(&mut self, a: &Alert, handle: &SessionHandle, prefs: &mut Prefs) -> bool {
+        match a {
+            Alert::TorrentAdded { id, info_hashes, .. } => {
+                if let Some(w) = self.by_key.get_mut(&info_hashes.key_hex()) {
+                    w.id = Some(*id);
+                    handle.torrent(*id).post_torrent_file();
+                }
+            }
+            Alert::MetadataReceived { id } => {
+                if self.key_of(*id).is_some() {
+                    handle.torrent(*id).post_torrent_file();
+                }
+            }
+            Alert::TorrentFile { id, data: Some(data) } => {
+                if let Some(key) = self.key_of(*id) {
+                    let w = self.by_key.get_mut(&key).expect("found");
+                    if w.ti.is_none() {
+                        if let Ok(ti) = TorrentInfo::from_bytes(data) {
+                            w.ti = Some(Arc::new(ti));
+                            return true;
+                        }
+                    }
+                }
+            }
+            Alert::TorrentRemoved { id, .. } => {
+                if let Some(key) = self.key_of(*id) {
+                    self.finish(prefs, &key);
+                }
+            }
+            _ => {}
+        }
+        false
+    }
+
+    fn key_of(&self, id: TorrentId) -> Option<String> {
+        self.by_key.iter().find(|(_, w)| w.id == Some(id)).map(|(k, _)| k.clone())
+    }
+
+    /// Whether `id` is a magnet waiting for the dialog (the scheduler leaves its upload mode).
+    pub fn holds(&self, id: TorrentId) -> bool {
+        self.by_key.values().any(|w| w.id == Some(id))
+    }
+
+    /// The info-hashes whose dialog can open, in info-hash order.
+    pub fn ready(&self) -> Vec<String> {
+        self.by_key.iter().filter(|(_, w)| w.ti.is_some() && w.id.is_some()).map(|(k, _)| k.clone()).collect()
+    }
+
+    pub fn get(&self, key: &str) -> Option<&Awaiting> {
+        self.by_key.get(key)
+    }
+
+    /// Done with `key` (OK, Cancel, or the torrent left the session).
+    pub fn finish(&mut self, prefs: &mut Prefs, key: &str) -> Option<Awaiting> {
+        prefs.remove(&format!("torrent.{key}{AWAITING_SUFFIX}"));
+        self.by_key.remove(key)
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.by_key.is_empty()
+    }
+}
+
 /// The Add New Torrent dialog's "Name" as file renames (libtorrent `renamed_files`): a
 /// multi-file torrent's folder, or a single-file torrent's file, stored under `name`. Empty
 /// when `name` is the torrent's own or cannot be one path component (a separator, `.`, `..`).
@@ -684,6 +844,90 @@ mod tests {
         let r = renamed_root(&ti, "Other");
         assert_eq!(r, BTreeMap::from([(0, "Other/x/y.txt".to_owned()), (1, "Other/z.txt".to_owned())]));
         assert!(renamed_root(&ti, "root").is_empty());
+    }
+
+    #[test]
+    fn a_magnet_waits_for_its_metadata_then_takes_the_choice() {
+        use patorrent_core::{MockConfig, Session, Settings};
+        use std::time::{Duration, Instant};
+        let s =
+            Session::start_mock(Settings { tick_interval: 50, ..Settings::default() }, MockConfig::default());
+        let h = s.handle();
+        let mut prefs = Prefs::default();
+        let mut waiting = AwaitingMetadata::default();
+        let hash = "0123456789abcdef0123456789abcdef01234567";
+        let mut p =
+            AddTorrentParams::new(TorrentSource::Magnet(format!("magnet:?xt=urn:btih:{hash}")), "/dl");
+        p.flags = TorrentFlags::DEFAULT;
+        AwaitingMetadata::prepare(&mut p);
+        assert!(p.flags.contains(TorrentFlags::UPLOAD_MODE));
+        assert!(!p.flags.intersects(TorrentFlags::PAUSED | TorrentFlags::AUTO_MANAGED));
+        waiting.insert(&mut prefs, hash, "/dl");
+        assert_eq!(prefs.get(&format!("torrent.{hash}.awaiting")), Some("/dl"));
+        assert_eq!(AwaitingMetadata::load(&prefs).get(hash).unwrap().save_path, "/dl");
+        h.add_torrent(p);
+
+        let mut alerts = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while waiting.ready().is_empty() {
+            assert!(Instant::now() < deadline, "no metadata");
+            std::thread::sleep(Duration::from_millis(20));
+            alerts.clear();
+            h.pop_alerts(&mut alerts);
+            for a in &alerts {
+                waiting.on_alert(a, &h, &mut prefs);
+            }
+        }
+        assert_eq!(waiting.ready(), [hash]);
+        let w = waiting.get(hash).unwrap().clone();
+        let (id, ti) = (w.id.unwrap(), w.ti.unwrap());
+        assert!(waiting.holds(id));
+        let n = ti.num_files();
+        let c = AddChoice {
+            save_path: "/other".into(),
+            name: None,
+            file_priorities: vec![DownloadPriority::TOP; n],
+            start: true,
+            skip_hash_check: false,
+            top_of_queue: false,
+            label: String::new(),
+        };
+        c.apply_to_torrent(&h.torrent(id), &ti, &w.save_path, false);
+        waiting.finish(&mut prefs, hash);
+        assert!(prefs.get(&format!("torrent.{hash}.awaiting")).is_none());
+        assert!(!waiting.holds(id));
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            assert!(Instant::now() < deadline, "the choice never showed");
+            std::thread::sleep(Duration::from_millis(20));
+            h.post_torrent_updates();
+            alerts.clear();
+            h.pop_alerts(&mut alerts);
+            let st = alerts.iter().find_map(|a| match a {
+                Alert::StateUpdate(v) => v.iter().find(|s| s.id == id).cloned(),
+                _ => None,
+            });
+            if let Some(st) = st {
+                if st.flags.contains(TorrentFlags::AUTO_MANAGED)
+                    && !st.flags.contains(TorrentFlags::UPLOAD_MODE)
+                    && st.save_path == "/other"
+                {
+                    break;
+                }
+            }
+        }
+
+        // a removed magnet is forgotten
+        waiting.insert(&mut prefs, hash, "/dl");
+        waiting.on_alert(
+            &Alert::TorrentAdded { id, info_hashes: ti.info_hashes(), name: String::new() },
+            &h,
+            &mut prefs,
+        );
+        waiting.by_key.get_mut(hash).unwrap().id = Some(id);
+        waiting.on_alert(&Alert::TorrentRemoved { id, info_hashes: ti.info_hashes() }, &h, &mut prefs);
+        assert!(waiting.is_empty());
+        assert!(prefs.get(&format!("torrent.{hash}.awaiting")).is_none());
     }
 
     #[test]

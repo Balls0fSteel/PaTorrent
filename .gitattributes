@@ -3,5 +3,6 @@
 *.bat text eol=crlf
 *.manifest text eol=crlf
 *.torrent binary
+*.gz binary
 # Unix service files: LF even in a Windows checkout or archive
 contrib/** text eol=lf

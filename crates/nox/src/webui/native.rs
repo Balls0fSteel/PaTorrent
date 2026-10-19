@@ -156,6 +156,8 @@ pub struct Client {
     labels_sent: Option<(Json, usize)>,
     /// `State::rss_version` as last sent (`rss` in a tick).
     rss_sent: u64,
+    /// `State::adds_version` as last sent (`adds` in a tick).
+    adds_sent: u64,
 }
 
 impl Default for Client {
@@ -179,6 +181,7 @@ impl Client {
             rows_stale: true,
             labels_sent: None,
             rss_sent: 0,
+            adds_sent: 0,
         }
     }
 
@@ -529,6 +532,11 @@ impl Client {
         if st.rss_version != self.rss_sent {
             self.rss_sent = st.rss_version;
             out.set("rss", st.rss_version);
+        }
+        // a magnet's Add dialog can open (or closed elsewhere): the page asks GET /pa/add
+        if st.adds_version != self.adds_sent {
+            self.adds_sent = st.adds_version;
+            out.set("adds", st.adds_version);
         }
         out
     }

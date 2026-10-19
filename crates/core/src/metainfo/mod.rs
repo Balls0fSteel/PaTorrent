@@ -10,9 +10,11 @@ pub mod magnet;
 pub mod merkle;
 pub mod sanitize;
 pub mod torrent_info;
+pub mod write_torrent;
 
 pub use create_torrent::{CreateFlags, CreateTorrent, CreateTorrentError, add_files, set_piece_hashes};
 pub use error::MetainfoError;
 pub use file_storage::{FileFlags, FileSlice, FileStorage, PeerRequest};
 pub use magnet::{MagnetUri, make_magnet_uri, make_magnet_uri_from_info, parse_magnet_uri};
 pub use torrent_info::{AnnounceUrl, LoadLimits, TorrentInfo, TrackerSource, WebSeed, WebSeedKind};
+pub use write_torrent::write_torrent_file;

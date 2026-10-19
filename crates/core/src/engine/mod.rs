@@ -1278,6 +1278,19 @@ impl Engine {
                     self.alert(Alert::PieceInfo { id, have, availability, downloading });
                 }
             }
+            Command::PostTorrentFile(id) => {
+                self.ensure_metadata(id);
+                if let Some(t) = self.torrent_ref(id) {
+                    let data = t.ti.as_ref().map(|ti| {
+                        let trackers: Vec<(String, u32)> =
+                            t.trackers.iter().map(|tr| (tr.url.clone(), tr.tier)).collect();
+                        let url_seeds = t.web_seeds.urls(crate::metainfo::WebSeedKind::UrlSeed);
+                        let http_seeds = t.web_seeds.urls(crate::metainfo::WebSeedKind::HttpSeed);
+                        crate::metainfo::write_torrent_file(ti, &trackers, &url_seeds, &http_seeds).into()
+                    });
+                    self.alert(Alert::TorrentFile { id, data });
+                }
+            }
             Command::ApplySettings(s) => self.apply_settings(*s),
             Command::PauseSession => {
                 if !self.session_paused {
@@ -1448,6 +1461,10 @@ impl Engine {
             save_path,
             flags,
         );
+        // libtorrent `add_torrent_impl`: the torrent's DHT nodes join the routing table
+        for (host, port) in ti.nodes().to_vec() {
+            self.add_dht_node(&host, port);
+        }
         let info_bytes = ti.info_section().to_vec();
         let ti = Arc::new(ti);
         t.renamed_files = p.renamed_files.clone();
@@ -1939,6 +1956,10 @@ impl Engine {
                 }
             }
         }
+        if new.contains(TorrentFlags::STOP_WHEN_READY) && !old.contains(TorrentFlags::STOP_WHEN_READY) {
+            // set after the check: stop now (libtorrent's race guard in `stop_when_ready`)
+            self.maybe_stop_when_ready(id);
+        }
         self.update_running(id);
     }
 
@@ -2183,8 +2204,27 @@ impl Engine {
                 self.connect_peers_for(id, 10);
                 self.prioritize_dht(id);
                 self.lsd_announce(id, Instant::now());
+                self.maybe_stop_when_ready(id);
             }
         }
+    }
+
+    /// libtorrent `stop_when_ready`: a torrent flagged so is paused and taken out of the queue
+    /// once it is ready to download or seed (checked, metadata known), and the flag is cleared.
+    /// libtorrent counts a magnet's metadata download as ready too and stops it before it
+    /// fetches anything; here a magnet stops after its metadata arrived and its files were
+    /// checked, which is what the flag is for (an add that waits for the user's choices).
+    fn maybe_stop_when_ready(&mut self, id: TorrentId) {
+        let Some(t) = self.torrent(id) else { return };
+        if !t.flags.contains(TorrentFlags::STOP_WHEN_READY) || t.checking || !t.has_metadata() {
+            return;
+        }
+        if !matches!(t.state, TorrentState::Downloading | TorrentState::Finished | TorrentState::Seeding) {
+            return;
+        }
+        t.flags.remove(TorrentFlags::STOP_WHEN_READY);
+        t.resume_dirty = true;
+        self.set_flags(id, TorrentFlags::PAUSED, TorrentFlags::PAUSED | TorrentFlags::AUTO_MANAGED);
     }
 
     fn set_file_priorities(&mut self, id: TorrentId, prios: Vec<u8>) {

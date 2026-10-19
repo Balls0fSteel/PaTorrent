@@ -70,6 +70,8 @@ const WM_APP_ARGS: u32 = WM_APP + 4;
 const WM_APP_COUNTDOWN: u32 = WM_APP + 5;
 /// An RSS fetch finished (posted from its worker thread): `App::rss_worker` has a result.
 const WM_APP_RSS: u32 = WM_APP + 7;
+/// A magnet added through the Add New Torrent dialog has its metadata: `App::awaiting` has it.
+const WM_APP_MAGNET: u32 = WM_APP + 8;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
 pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
@@ -236,6 +238,10 @@ struct App {
     pending_args: Vec<String>,
     /// Torrents (by `InfoHashes::key_hex`) to move to the top of the queue once added.
     queue_top: HashSet<String>,
+    /// Magnets waiting for their metadata before the Add New Torrent dialog opens, and whether
+    /// such a dialog is open now.
+    awaiting: add::AwaitingMetadata,
+    awaiting_dialog: bool,
     /// Preferences > Directories "Move completed downloads to", fed every alert.
     move_completed: Option<MoveCompleted>,
     /// Preferences > Scheduler, and the mode it has put into effect.
@@ -608,6 +614,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         let move_completed = gui.move_completed();
         let seeding_goal = gui.seeding_goal();
         let schedule = Schedule::load(&prefs);
+        let awaiting = add::AwaitingMetadata::load(&prefs);
         let mut list = TorrentList::new();
         list.set_sort(prefs.sort());
         let page =
@@ -672,6 +679,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
             pending_args: Vec::new(),
             queue_top: HashSet::new(),
+            awaiting,
+            awaiting_dialog: false,
             move_completed,
             schedule,
             scheduler: Scheduler::new(),
@@ -1562,7 +1571,8 @@ fn run_scheduler(a: &mut App, applied: Option<&Options>) {
             let t = a.handle.torrent(id);
             if on {
                 t.set_flags(TorrentFlags::UPLOAD_MODE);
-            } else {
+            } else if !a.awaiting.holds(id) {
+                // a magnet waiting for the Add dialog stays in upload mode until its OK
                 t.unset_flags(TorrentFlags::UPLOAD_MODE);
             }
         }
@@ -1577,6 +1587,7 @@ unsafe fn on_alerts(hwnd: HWND) {
     let mut errors: Vec<String> = Vec::new();
     let mut balloons: Vec<String> = Vec::new();
     let mut suspend = None;
+    let mut magnet_ready = false;
     let Some((lists_changed, removed_any, repaint_page)) = with_app(|a| {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
@@ -1594,9 +1605,10 @@ unsafe fn on_alerts(hwnd: HWND) {
                 a.detail.push_log(format!("{} {name}: moving the completed download to {dir}", now_hms()));
                 a.handle.post_torrent_updates();
             }
-            for line in a.torrent_files.on_alert(&alert, &a.torrent_folders) {
+            for line in a.torrent_files.on_alert(&alert, &a.torrent_folders, &a.handle) {
                 a.detail.push_log(format!("{} {line}", now_hms()));
             }
+            magnet_ready |= a.awaiting.on_alert(&alert, &a.handle, &mut a.prefs);
             match alert {
                 Alert::StateUpdate(v) => {
                     for st in &v {
@@ -1707,7 +1719,8 @@ unsafe fn on_alerts(hwnd: HWND) {
                 | Alert::TrackerList { .. }
                 | Alert::FileList { .. }
                 | Alert::FileProgress { .. }
-                | Alert::PieceInfo { .. } => {}
+                | Alert::PieceInfo { .. }
+                | Alert::TorrentFile { .. } => {}
                 // the mappers' step-by-step chatter (SOAP bodies included) stays out of the
                 // logger; the mapped ports, failures and the external address still show
                 Alert::PortmapLog { .. } => {}
@@ -1753,6 +1766,10 @@ unsafe fn on_alerts(hwnd: HWND) {
         }
         for e in errors {
             dialogs::error(hwnd, &e);
+        }
+        if magnet_ready {
+            // posted: the dialog's message loop must not run inside this alert batch
+            PostMessageW(hwnd, WM_APP_MAGNET, 0, 0);
         }
         // Auto Shutdown's Standby / Hibernate; returns once the computer is awake again
         if let Some(Err(e)) = suspend.map(shutdown::perform) {
@@ -1846,6 +1863,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_APP_RSS => {
                 rss_collect();
+                0
+            }
+            WM_APP_MAGNET => {
+                magnet_dialogs(hwnd);
                 0
             }
             WM_COMMAND => {
@@ -2705,7 +2726,9 @@ unsafe fn remove_selected(hwnd: HWND, delete_data: bool) {
     if ask && !dialogs::confirm(hwnd, &question) {
         return;
     }
-    let flags = if delete_data { RemoveFlags::DELETE_FILES } else { RemoveFlags::empty() };
+    // the part file only holds pieces of skipped files, useless without the torrent (as
+    // qBittorrent and nox's Remove do)
+    let flags = if delete_data { RemoveFlags::DELETE_FILES } else { RemoveFlags::DELETE_PARTFILE };
     with_app(|a| {
         for id in ids {
             a.handle.remove_torrent(id, flags);
@@ -2713,8 +2736,7 @@ unsafe fn remove_selected(hwnd: HWND, delete_data: bool) {
     });
 }
 
-/// Adds `.torrent` paths, `magnet:` links and `http(s)://` URLs. Magnets are added directly:
-/// the Add New Torrent dialog needs the file list, which they only get from peers.
+/// Adds `.torrent` paths, `magnet:` links and `http(s)://` URLs.
 unsafe fn add_sources(hwnd: HWND, sources: &[String]) {
     for s in sources {
         let s = s.trim().trim_matches('"');
@@ -2722,7 +2744,7 @@ unsafe fn add_sources(hwnd: HWND, sources: &[String]) {
             continue;
         }
         if s.starts_with("magnet:") {
-            add_params(hwnd, TorrentSource::Magnet(s.to_owned()), None);
+            add_magnet(hwnd, s);
         } else if s.starts_with("http://") || s.starts_with("https://") {
             download_url(hwnd, s.to_owned());
         } else {
@@ -2746,6 +2768,93 @@ fn add_params(_hwnd: HWND, source: TorrentSource, name: Option<String>) {
     });
 }
 
+/// A magnet link. With the Add New Torrent dialog on, the magnet joins the session in upload
+/// mode to fetch its metadata, and the dialog opens once the file list is known
+/// ([`add::AwaitingMetadata`], `WM_APP_MAGNET`); otherwise it is added directly.
+fn add_magnet(hwnd: HWND, uri: &str) {
+    let show = with_app(|a| GuiOptions::load(&a.prefs, &a.save_path).show_add_dialog).unwrap_or(false);
+    let key = match patorrent_core::metainfo::parse_magnet_uri(uri) {
+        Ok(m) if show => m.info_hashes.key_hex(),
+        // the engine reports a broken link
+        _ => return add_params(hwnd, TorrentSource::Magnet(uri.to_owned()), None),
+    };
+    let known = with_app(|a| {
+        let st = a.list.ids().find_map(|id| a.list.get(id).filter(|s| s.info_hashes.key_hex() == key));
+        st.map(|s| s.name.clone())
+    })
+    .flatten();
+    if let Some(name) = known {
+        dialogs::info(hwnd, &format!("\"{name}\" is already in the torrent list."));
+        return;
+    }
+    with_app(|a| {
+        let save_path = a.save_path.clone();
+        let mut p = AddTorrentParams::new(TorrentSource::Magnet(uri.to_owned()), save_path.clone());
+        p.flags = TorrentFlags::DEFAULT;
+        GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+        a.scheduler.apply_to_new(&mut p);
+        add::AwaitingMetadata::prepare(&mut p);
+        a.awaiting.insert(&mut a.prefs, &key, &save_path);
+        if let Err(e) = a.prefs.save() {
+            a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+        }
+        add_to_session(a, p);
+    });
+}
+
+/// `WM_APP_MAGNET`: the Add New Torrent dialog for each magnet whose metadata arrived, one at a
+/// time. OK gives the torrent the choices and starts it (or leaves it stopped); Cancel removes
+/// it with its part file (nothing else was written).
+unsafe fn magnet_dialogs(hwnd: HWND) {
+    loop {
+        let next = with_app(|a| {
+            if a.awaiting_dialog {
+                return None;
+            }
+            let key = a.awaiting.ready().into_iter().next()?;
+            let w = a.awaiting.get(&key)?.clone();
+            let gui = GuiOptions::load(&a.prefs, &a.save_path);
+            let mut dirs = add::save_in_choices(&gui.download_dir, &add::recent_dirs(&a.prefs));
+            // the folder it was added with first
+            dirs.retain(|d| !d.eq_ignore_ascii_case(&w.save_path));
+            dirs.insert(0, w.save_path.clone());
+            let setup = crate::add::Setup {
+                save_dirs: dirs,
+                labels: a.list.labels().into_iter().map(|(l, _)| l).collect(),
+                start: !gui.add_stopped,
+                in_session: true,
+            };
+            a.awaiting_dialog = true;
+            Some((key, w, setup))
+        })
+        .flatten();
+        let Some((key, w, setup)) = next else { return };
+        let (Some(id), Some(ti)) = (w.id, w.ti.clone()) else { return };
+        // the dialog runs its own message loop; nothing is borrowed across it
+        let choice = crate::add::show(hwnd, &ti, setup);
+        with_app(|a| {
+            a.awaiting_dialog = false;
+            a.awaiting.finish(&mut a.prefs, &key);
+            match choice {
+                Some(c) => {
+                    add::remember_dir(&mut a.prefs, &c.save_path);
+                    if !c.label.is_empty() {
+                        a.prefs.set(&format!("torrent.{key}.label"), &c.label);
+                        a.list.set_label(id, &c.label);
+                    }
+                    let seed_only = a.scheduler.mode() == Mode::SeedOnly;
+                    c.apply_to_torrent(&a.handle.torrent(id), &ti, &w.save_path, seed_only);
+                    a.handle.post_torrent_updates();
+                }
+                None => a.handle.remove_torrent(id, RemoveFlags::DELETE_PARTFILE),
+            }
+            if let Err(e) = a.prefs.save() {
+                a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+            }
+        });
+    }
+}
+
 /// A `.torrent`'s contents, through the Add New Torrent dialog unless Preferences turned it off
 /// (files the engine cannot read are handed to it anyway, so it reports why).
 fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
@@ -2755,6 +2864,7 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
             save_dirs: add::save_in_choices(&gui.download_dir, &add::recent_dirs(&a.prefs)),
             labels: a.list.labels().into_iter().map(|(l, _)| l).collect(),
             start: !gui.add_stopped,
+            in_session: false,
         };
         (gui.show_add_dialog, setup)
     }) else {

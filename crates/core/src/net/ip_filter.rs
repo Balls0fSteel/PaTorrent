@@ -167,10 +167,22 @@ impl IpFilter {
         )
     }
 
-    /// Reads a block list in the `ipfilter.dat` or P2P format (see [`IpFilter::parse`]).
+    /// Reads a block list in the `ipfilter.dat` or P2P format (see [`IpFilter::parse`]),
+    /// gzip-compressed or not (lists are often published as `.gz`; the file's first bytes
+    /// decide, not its name). A list may inflate to at most [`IpFilter::MAX_LIST_SIZE`].
     pub fn load(path: impl AsRef<std::path::Path>) -> std::io::Result<IpFilterLoad> {
-        Ok(IpFilter::parse(&std::fs::read(path)?))
+        let data = std::fs::read(path)?;
+        if crate::util::gzip::is_gzip(&data) {
+            let plain = crate::util::gzip::inflate_gzip(&data, IpFilter::MAX_LIST_SIZE)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            return Ok(IpFilter::parse(&plain));
+        }
+        Ok(IpFilter::parse(&data))
     }
+
+    /// The largest block list [`IpFilter::load`] inflates (the big public lists are some
+    /// tens of MB as text).
+    pub const MAX_LIST_SIZE: usize = 512 << 20;
 
     /// Parses a block list. Each line is one of
     ///
@@ -323,6 +335,32 @@ mod tests {
 
     fn addr(s: &str) -> IpAddr {
         s.parse().unwrap()
+    }
+
+    #[test]
+    fn a_gzipped_list_loads_like_a_plain_one() {
+        // a comment, an ipfilter.dat line and a P2P line, through Python's gzip.compress:
+        // "# a list\n001.002.003.000 - 001.002.003.255 , 000 , test\nsome range:5.6.7.8-5.6.7.9\n"
+        let gz: [u8; 82] = [
+            31, 139, 8, 0, 0, 0, 0, 0, 2, 255, 83, 86, 72, 84, 200, 201, 44, 46, 225, 50, 48, 48, 212, 51,
+            48, 48, 2, 98, 99, 32, 54, 80, 208, 85, 64, 22, 49, 50, 53, 85, 208, 81, 0, 137, 235, 40, 148,
+            164, 2, 149, 23, 231, 231, 166, 42, 20, 37, 230, 165, 167, 90, 153, 234, 153, 233, 153, 235, 89,
+            232, 66, 104, 75, 46, 0, 33, 222, 82, 75, 83, 0, 0, 0,
+        ];
+        let dir = std::env::temp_dir().join(format!("patorrent-ipfilter-gz-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("level1.gz");
+        std::fs::write(&path, gz).unwrap();
+        let l = IpFilter::load(&path).unwrap();
+        assert_eq!((l.rules, l.invalid), (2, 0));
+        assert_eq!(l.filter.access(addr("1.2.3.4")), IpFilter::BLOCKED);
+        assert_eq!(l.filter.access(addr("5.6.7.9")), IpFilter::BLOCKED);
+        assert_eq!(l.filter.access(addr("5.6.7.10")), 0);
+        // a damaged one is an error, not an empty filter
+        std::fs::write(&path, &gz[..50]).unwrap();
+        let Err(e) = IpFilter::load(&path) else { panic!("a truncated list loaded") };
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     fn r4(a: &str, b: &str, flags: u32) -> IpRange<Ipv4Addr> {

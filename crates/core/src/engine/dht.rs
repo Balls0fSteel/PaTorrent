@@ -27,6 +27,9 @@ use crate::types::TorrentId;
 
 /// Resolver cookies of DHT bootstrap lookups carry this bit (tracker cookies count up from 1).
 pub(crate) const DHT_COOKIE: u64 = 1 << 63;
+/// With [`DHT_COOKIE`]: the lookup of a node's host name (a magnet's `dht=`, a `.torrent`'s
+/// `nodes`), not of a bootstrap router.
+const DHT_NODE_COOKIE: u64 = 1 << 60;
 const STATE_FILE: &str = "dht_state.dat";
 const SAVE_INTERVAL: Duration = Duration::from_secs(30 * 60);
 
@@ -35,7 +38,8 @@ pub(super) struct DhtSession {
     pub tracker: Option<DhtTracker>,
     pending_routers: usize,
     routers: Vec<SocketAddr>,
-    /// Nodes from magnet links, added once the DHT runs (libtorrent `m_dht_nodes`).
+    /// Nodes from magnet links and `.torrent` files, added once the DHT runs (libtorrent
+    /// `m_dht_nodes`).
     pending_nodes: Vec<SocketAddr>,
     state_path: Option<PathBuf>,
     state: Option<DhtState>,
@@ -170,9 +174,20 @@ impl Engine {
         }
     }
 
-    /// A bootstrap router's name resolved (or failed).
+    /// A bootstrap router's or a node's name resolved (or failed).
     pub(super) fn on_dht_resolved(&mut self, r: Resolved) {
         let port = ((r.cookie >> 32) & 0xffff) as u16;
+        if r.cookie & DHT_NODE_COOKIE != 0 {
+            // libtorrent `on_dht_name_lookup`
+            match r.result {
+                Ok(ips) => ips.into_iter().for_each(|ip| self.add_dht_node_ep(SocketAddr::new(ip, port))),
+                Err(e) => self.alert(Alert::Log {
+                    id: None,
+                    message: format!("DHT: cannot resolve node {}: {e}", r.host),
+                }),
+            }
+            return;
+        }
         match r.result {
             Ok(ips) => {
                 let eps: Vec<SocketAddr> = ips.into_iter().map(|ip| SocketAddr::new(ip, port)).collect();
@@ -294,19 +309,35 @@ impl Engine {
         }
     }
 
-    /// A DHT node from a magnet link (`dht=`); only IP literals are used.
+    /// libtorrent `add_dht_node_name`: a DHT node from a magnet link (`dht=`) or a `.torrent`'s
+    /// `nodes`; a host name is resolved first.
     pub(super) fn add_dht_node(&mut self, host: &str, port: u16) {
-        let Ok(ip) = host.trim_start_matches('[').trim_end_matches(']').parse::<std::net::IpAddr>() else {
-            return;
-        };
         if !self.settings.enable_dht || port == 0 {
             return;
         }
-        let ep = SocketAddr::new(ip, port);
+        let host = host.trim_start_matches('[').trim_end_matches(']');
+        if let Ok(ip) = host.parse::<std::net::IpAddr>() {
+            return self.add_dht_node_ep(SocketAddr::new(ip, port));
+        }
+        if host.is_empty() {
+            return;
+        }
+        let cookie = DHT_COOKIE | DHT_NODE_COOKIE | ((port as u64) << 32);
+        if let Some(ips) = self.resolver.resolve(host, cookie) {
+            ips.into_iter().for_each(|ip| self.add_dht_node_ep(SocketAddr::new(ip, port)));
+        }
+    }
+
+    /// libtorrent `add_dht_node`: into the routing table, or kept (at most 200, a random one
+    /// replaced beyond that) until the DHT runs.
+    fn add_dht_node_ep(&mut self, ep: SocketAddr) {
         match self.dht.tracker.as_mut() {
             Some(t) => t.add_node(ep, Instant::now()),
             None if self.dht.pending_nodes.len() < 200 => self.dht.pending_nodes.push(ep),
-            None => {}
+            None => {
+                let i = crate::util::random::random_u64() as usize % self.dht.pending_nodes.len();
+                self.dht.pending_nodes[i] = ep;
+            }
         }
     }
 

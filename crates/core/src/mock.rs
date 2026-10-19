@@ -375,6 +375,12 @@ impl Mock {
                     self.out.push(Alert::PeerInfo { id, peers });
                 }
             }
+            Command::PostTorrentFile(id) => {
+                if let Some(t) = self.get(id) {
+                    let data = torrent_file_for(t).map(Arc::from);
+                    self.out.push(Alert::TorrentFile { id, data });
+                }
+            }
             Command::PostFileList(id) => {
                 if let Some(t) = self.get(id) {
                     let files: Arc<[FileEntry]> = files_for(t).into();
@@ -679,6 +685,7 @@ impl Mock {
                     t.st.progress_ppm = ppm(t.st.total_wanted_done, t.st.total_wanted);
                     self.out.push(Alert::TorrentChecked { id });
                     self.out.push(Alert::StateChanged { id, state, prev_state: TorrentState::CheckingFiles });
+                    stop_when_ready(t, &mut self.out);
                 }
                 t.dirty = true;
                 continue;
@@ -708,6 +715,13 @@ impl Mock {
                             state: TorrentState::Downloading,
                             prev_state: TorrentState::DownloadingMetadata,
                         });
+                        stop_when_ready(t, &mut self.out);
+                    }
+                }
+                TorrentState::Downloading if t.st.flags.contains(TorrentFlags::UPLOAD_MODE) => {
+                    if t.st.download_payload_rate != 0 {
+                        t.st.download_payload_rate = 0;
+                        t.dirty = true;
                     }
                 }
                 TorrentState::Downloading => {
@@ -808,6 +822,14 @@ fn slot_get(slots: &mut [Slot], id: TorrentId) -> Option<&mut Torrent> {
         return None;
     }
     slot.torrent.as_mut()
+}
+
+/// The engine's `stop_when_ready`: stopped and out of the queue once ready, the flag cleared.
+fn stop_when_ready(t: &mut Torrent, out: &mut Vec<Alert>) {
+    if t.st.flags.contains(TorrentFlags::STOP_WHEN_READY) {
+        t.st.flags.remove(TorrentFlags::STOP_WHEN_READY | TorrentFlags::AUTO_MANAGED);
+        set_paused(t, true, out);
+    }
 }
 
 fn set_paused(t: &mut Torrent, paused: bool, out: &mut Vec<Alert>) {
@@ -1030,6 +1052,48 @@ fn file_done(f: &FileEntry, have: &Bitfield, piece_length: u64, total: u64) -> u
             stop.min(end).saturating_sub(start.max(f.offset))
         })
         .sum()
+}
+
+/// The torrent as a `.torrent`: the real one's, or for a generated torrent one describing
+/// [`files_for`] with made-up piece hashes (its info-hash is not the torrent's).
+fn torrent_file_for(t: &Torrent) -> Option<Vec<u8>> {
+    use crate::bencode::Entry;
+    if let Some(ti) = &t.ti {
+        return Some(crate::metainfo::write_torrent_file(ti, &tracker_list(t), &[], &[]));
+    }
+    if !t.st.has_metadata {
+        return None;
+    }
+    let files = files_for(t);
+    let mut info = Entry::new_dict();
+    *info.key("name") = t.st.name.as_str().into();
+    *info.key("piece length") = Entry::Int(t.st.piece_length.max(1) as i64);
+    let mut rng = Rng::new(t.seed ^ 0x7069_6563);
+    let pieces: Vec<u8> = (0..t.st.pieces_total as usize * 20).map(|_| rng.below(256) as u8).collect();
+    *info.key("pieces") = Entry::Bytes(pieces);
+    match files.as_slice() {
+        [f] if !f.path.contains('/') => *info.key("length") = Entry::Int(f.size as i64),
+        _ => {
+            let list = files
+                .iter()
+                .map(|f| {
+                    let mut d = Entry::new_dict();
+                    *d.key("length") = Entry::Int(f.size as i64);
+                    let parts = f.path.split('/').skip(1).map(Entry::from).collect();
+                    *d.key("path") = Entry::List(parts);
+                    d
+                })
+                .collect();
+            *info.key("files") = Entry::List(list);
+        }
+    }
+    let mut root = Entry::new_dict();
+    *root.key("info") = info;
+    let trackers = tracker_list(t);
+    if let Some((url, _)) = trackers.first() {
+        *root.key("announce") = url.as_str().into();
+    }
+    Some(root.bencode())
 }
 
 fn trackers_for(t: &Torrent) -> Vec<String> {

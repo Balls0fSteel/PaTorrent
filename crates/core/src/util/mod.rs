@@ -3,8 +3,10 @@
 
 pub mod bitfield;
 pub mod bloom_filter;
+pub mod gzip;
 pub mod hex;
 pub mod path;
+pub mod puff;
 pub mod random;
 pub mod stat;
 pub mod string;

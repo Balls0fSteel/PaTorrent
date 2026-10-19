@@ -56,6 +56,7 @@ pub(crate) enum Command {
     PostFileProgress(TorrentId),
     PostTrackers(TorrentId),
     PostPieceInfo(TorrentId),
+    PostTorrentFile(TorrentId),
     ApplySettings(Box<Settings>),
     SetIpFilter(Arc<IpFilter>),
     SetPortFilter(PortFilter),
@@ -432,5 +433,11 @@ impl TorrentHandle {
     /// Answered by [`Alert::PieceInfo`].
     pub fn post_piece_info(&self) {
         self.session.send(Command::PostPieceInfo(self.id));
+    }
+
+    /// The torrent as a `.torrent` file, answered by [`Alert::TorrentFile`] (libtorrent
+    /// `torrent_file()` plus `write_torrent_file`).
+    pub fn post_torrent_file(&self) {
+        self.session.send(Command::PostTorrentFile(self.id));
     }
 }

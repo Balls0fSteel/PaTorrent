@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-19_091815_1792394295
+Last updated: 2026-10-19_092115_1792394475
 
 ## Vision
 
@@ -410,7 +410,8 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
   - the Windows service (above); the Windows console close / logoff / shutdown wait is untested.
   - no lock on the state directory itself: two daemons with different pid files can share one `resume.db`.
   - `--daemon` sends start-up stderr to the terminal only, not to the log.
-  - the systemd syscall filter (`~@privileged @resources`), `PrivateUsers` and `ProtectProc` need confirming under a real systemd start.
+  - verified on the VMs (CHANGELOG 2026-10-19_092115_1792394475): both systemd units on Xubuntu (systemd 259, `systemd-analyze security` 1.1 OK, port mapping inside the sandbox), `--daemon` / pid file / SIGHUP / SIGTERM on Xubuntu and FreeBSD. The FreeBSD rc.d script is only syntax-checked (`sh -n`): installing it needs root there.
+- Flaky once: `super_seed::two_leeches_finish_while_the_super_seed_uploads_about_one_copy` ("the seed uploaded 1.82 copies") in FreeBSD's full parallel run on 2026-10-19; it passed 5 of 5 alone and in the next full run. Widen the bound or make the leeches' timing deterministic if it recurs.
 - RSS follow-ups (CHANGELOG 2026-10-19_091815_1792394295):
   - the GUIs (Phase 5 item above); Win32 Add Torrent from URL could move from urlmon to `fetch::http_get` (proxy, User-Agent).
   - the fetch helper ignores the IP filter for feed hosts; no `If-Modified-Since` / ETag, no gzip; Atom `type="html"` titles are not HTML-decoded a second time.

@@ -2,6 +2,22 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_092115_1792394475: nox daemon verified on Linux and FreeBSD
+
+### Fixed
+- The `webui.json` migration message named the new path as its source; it now reads "moved webui.json from OLD to the config directory NEW" (`fd0c725`, merge `93087a8`).
+- The system unit's header installs the sysusers file with `install -D`: Ubuntu has no `/etc/sysusers.d` until something creates it.
+- docs/DAEMON.md says where `--daemon` output goes with and without `--log` (with `--log`, normal output including the temporary password goes to the log from the start; errors reach the terminal until the daemon is up).
+
+### Verified
+- Xubuntu 26.04.1 and FreeBSD 15.1: `cargo test --workspace --no-fail-fast` on the merged tree, 837 passed, 0 failed on each, including both Unix tests in `crates/nox/tests/daemon.rs`. Windows: 865 passed.
+- By hand on both VMs: `run --daemon --pid-file --log --webui` returns 0 once up (PPID 1, no terminal, not a session leader, cwd `/` on Linux), the Web UI answers, a second instance is refused with "already running (pid N)", SIGHUP reopens a moved log, SIGTERM stops cleanly and removes the pid file. XDG migration on Xubuntu (old `webui.json` moved to `~/.config`, state left in `~/.local/share`).
+- systemd 259 on Xubuntu: the user unit and the system unit with the sysusers file (`systemd-analyze verify` clean; active only after READY with the status line; reload round trip; stop with exit 0; `/var/lib/patorrent-nox` mode 0750; `systemd-analyze security` 1.1 "OK"; interface / route listing and NAT-PMP / UPnP mapping work inside the sandbox). Everything installed was removed again.
+- FreeBSD: `sh -n` on the rc.d script (not installed: no root).
+
+### Issues
+- `super_seed::two_leeches_finish_while_the_super_seed_uploads_about_one_copy` failed once in FreeBSD's first full parallel run ("the seed uploaded 1.82 copies"); 5 of 5 passes alone and a clean next full run. Recorded as a timing flake in PLAN.md.
+
 ## 2026-10-19_091815_1792394295: Torrent Properties and seeding goal, .torrent folders, nox daemon mode, RSS core (four parallel branches)
 
 Built in parallel by four sub-agents in their own worktrees and merged into main: `0a1daad` (merge `c8a53af`), `f5ace82` (`83b934e`), `9c94a42` (`7d5864b`), `d00ac83` (`5dfe903`). Two of the worktrees started from the stale `origin/main` (8c9ad1e, 27 commits behind); they were brought onto local main before committing.

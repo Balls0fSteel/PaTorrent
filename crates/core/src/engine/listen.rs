@@ -506,6 +506,13 @@ impl Engine {
             let mut listener = None;
             let mut token = Token(usize::MAX);
             if let Some(l) = tcp {
+                // libtorrent sets them on the listen socket only when the setting changes;
+                // set here too, so accepted connections start with them
+                let _ = sys::set_socket_buffer_size(
+                    &l,
+                    self.settings.send_socket_buffer_size,
+                    self.settings.recv_socket_buffer_size,
+                );
                 let t = self.listen_token();
                 let res = l.set_nonblocking(true).and_then(|()| {
                     let mut l = TcpListener::from_std(l);
@@ -572,6 +579,14 @@ impl Engine {
     /// DHT). Returns its address.
     fn register_udp(&mut self, u: std::net::UdpSocket, v4: bool) -> io::Result<SocketAddr> {
         let token = if v4 { UDP4_LISTEN_TOKEN } else { UDP6_LISTEN_TOKEN };
+        // libtorrent `setup_listener`: a refused size is reported, the socket kept
+        if let Err(e) = sys::set_socket_buffer_size(
+            &u,
+            self.settings.send_socket_buffer_size,
+            self.settings.recv_socket_buffer_size,
+        ) {
+            self.out.push(Alert::Log { id: None, message: format!("UDP socket buffer size: {e}") });
+        }
         u.set_nonblocking(true)?;
         let mut u = UdpSocket::from_std(u);
         self.poll.registry().register(&mut u, token, Interest::READABLE | Interest::WRITABLE)?;

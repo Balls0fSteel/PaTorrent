@@ -286,6 +286,8 @@ pub(crate) struct Engine {
     last_optimistic: Instant,
     last_save: Instant,
     last_auto_manage: Instant,
+    /// When peer turnover runs next (libtorrent `m_disconnect_time_scaler`).
+    next_turnover: Instant,
     store_flush_due: Option<Instant>,
     dht: dht::DhtSession,
     lsd: lsd::LsdSession,
@@ -364,6 +366,9 @@ pub(crate) fn run(
         if now >= e.last_tick + tick {
             e.tick(now);
         }
+        // the UDP scrapes asked for this round (commands, tracker replies) go out together
+        e.trackers.start_scrapes(&e.resolver, now);
+        e.flush_tracker_udp();
         e.reap_peers();
         e.flush_peers();
         e.flush_alerts();
@@ -395,6 +400,7 @@ impl Engine {
         let resolver = Resolver::new(res_tx, wake);
         let mut trackers = TrackerManager::new(poll.registry(), settings.user_agent.clone());
         trackers.set_options(&settings.user_agent, settings.tracker_completion_timeout);
+        trackers.set_socket_buffer_size(settings.send_socket_buffer_size, settings.recv_socket_buffer_size);
         let now = Instant::now();
         Engine {
             poll,
@@ -439,6 +445,8 @@ impl Engine {
             last_optimistic: now,
             last_save: now,
             last_auto_manage: now,
+            // libtorrent's first turnover comes 90 s after the start; a shorter interval sooner
+            next_turnover: now + Duration::from_secs(settings.peer_turnover_interval.clamp(1, 90) as u64),
             store_flush_due: None,
             dht: dht::DhtSession::new(now),
             lsd: lsd::LsdSession::new(),
@@ -796,6 +804,12 @@ impl Engine {
     ) -> Option<usize> {
         if let Transport::Tcp(s) = &sock {
             let _ = s.set_nodelay(true);
+            // libtorrent `peer_connection::start`: failures are only logged there
+            let _ = sys::set_socket_buffer_size(
+                s,
+                self.settings.send_socket_buffer_size,
+                self.settings.recv_socket_buffer_size,
+            );
         }
         let generation = self.next_peer_gen;
         // The top bit of a connection id stays clear: the disk read cookies of smart_ban use it.
@@ -1164,6 +1178,7 @@ impl Engine {
                     }
                 }
             }
+            Command::ScrapeTracker(id, index) => self.scrape_tracker(id, index),
             Command::SetFilePriority { id, file, priority } => {
                 if let Some(t) = self.torrent(id) {
                     let mut prios = t.file_priority.clone();
@@ -1336,7 +1351,12 @@ impl Engine {
         let natpmp_changed = s.enable_natpmp != self.settings.enable_natpmp;
         let upnp_changed = s.enable_upnp != self.settings.enable_upnp;
         let listen_changed = listen::listen_settings_changed(&self.settings, &s);
+        let buffers_changed = s.send_socket_buffer_size != self.settings.send_socket_buffer_size
+            || s.recv_socket_buffer_size != self.settings.recv_socket_buffer_size;
         self.settings = s;
+        if buffers_changed {
+            self.update_socket_buffer_size();
+        }
         self.update_proxy(Instant::now());
         if let Some(close_all) = listen_changed {
             self.on_listen_settings_changed(close_all);
@@ -2746,6 +2766,11 @@ impl Engine {
                 >= Duration::from_secs(self.settings.optimistic_unchoke_interval.max(1) as u64);
             self.run_choker(now, optimistic);
         }
+        if now >= self.next_turnover {
+            self.next_turnover =
+                now + Duration::from_secs(self.settings.peer_turnover_interval.max(1) as u64);
+            self.peer_turnover();
+        }
         if self.needs_auto_manage
             || now.duration_since(self.last_auto_manage)
                 >= Duration::from_secs(self.settings.auto_manage_interval.max(1) as u64)
@@ -2826,6 +2851,28 @@ impl Engine {
         for index in due {
             self.announce(id, index, now);
         }
+    }
+
+    /// libtorrent `torrent::scrape_tracker`: an index out of range means the last tracker that
+    /// worked (here the first one that has), else the first.
+    fn scrape_tracker(&mut self, id: TorrentId, index: Option<usize>) {
+        let filter = self.tracker_filter(id);
+        let Some(t) = self.torrent_ref(id) else { return };
+        if t.trackers.is_empty() {
+            return;
+        }
+        let index = index
+            .filter(|&i| i < t.trackers.len())
+            .or_else(|| t.trackers.iter().position(|tr| tr.working))
+            .unwrap_or(0);
+        let job = TrackerJob {
+            torrent: id,
+            tracker: Some(index),
+            url: t.trackers[index].url.clone(),
+            kind: JobKind::Scrape(t.info_hashes.best_v1_compatible()),
+            filter,
+        };
+        self.trackers.start(job, &self.resolver, self.poll.registry(), Instant::now());
     }
 
     fn announce(&mut self, id: TorrentId, index: usize, now: Instant) {
@@ -2912,9 +2959,7 @@ impl Engine {
 
     /// libtorrent `torrent::set_max_connections`: 0 is no limit. Peers beyond a lowered limit
     /// are disconnected (`disconnect_peers` with `too_many_connections`), the least useful
-    /// first: libtorrent's `compare_disconnect_peer` order (peers we are not interested in, then
-    /// non-seeds, then the slowest average download, then peers choking us, then the longest
-    /// silent).
+    /// first.
     fn set_max_connections(&mut self, id: TorrentId, l: u32) {
         let limit = (l > 0).then_some(l);
         let Some(t) = self.torrent(id) else { return };
@@ -2925,26 +2970,114 @@ impl Engine {
         t.resume_dirty = true;
         t.status_dirty = true;
         let Some(max) = limit else { return };
+        let live = self.live_peers(id).len();
+        self.disconnect_peers(id, live.saturating_sub(max as usize), "too many connections");
+    }
+
+    /// A torrent's peer connections that are not closing.
+    fn live_peers(&self, id: TorrentId) -> Vec<usize> {
+        let Some(t) = self.torrent_ref(id) else { return Vec::new() };
+        t.peers.iter().copied().filter(|&s| self.peers.get(s).is_some_and(|p| p.closing.is_none())).collect()
+    }
+
+    /// libtorrent `torrent::disconnect_peers`: closes up to `n` of a torrent's peers, the least
+    /// useful first in libtorrent's `compare_disconnect_peer` order: peers we are not interested
+    /// in, then non-seeds, then peers on parole, then the slowest average download, then peers
+    /// choking us, then the longest silent. Peers already closing are left out (libtorrent
+    /// counts them first). Returns how many were closed.
+    fn disconnect_peers(&mut self, id: TorrentId, n: usize, reason: &str) -> usize {
+        if n == 0 {
+            return 0;
+        }
         let now = Instant::now();
-        let slots = t.peers.clone();
-        let mut live: Vec<_> = slots
+        let live = self.live_peers(id);
+        let Some(t) = self.torrent_ref(id) else { return 0 };
+        let mut ranked: Vec<_> = live
             .into_iter()
             .filter_map(|s| {
-                let p = self.peers.get(s).filter(|p| p.closing.is_none())?;
+                let p = self.peers.get(s)?;
                 let secs = now.duration_since(p.connected_at).as_secs();
                 let avg = p.stat.download_payload.total / (secs + 1);
-                Some((s, (p.am_interested, p.peer_seed, avg, !p.peer_choking, p.last_receive)))
+                let parole = t.peer_list.get(&p.addr).is_some_and(|k| k.trust.on_parole);
+                Some((s, (p.am_interested, p.peer_seed, !parole, avg, !p.peer_choking, p.last_receive)))
             })
             .collect();
-        let excess = live.len().saturating_sub(max as usize);
-        if excess == 0 {
+        ranked.sort_by_key(|&(s, key)| (key, s));
+        let mut closed = 0;
+        for &(s, _) in ranked.iter().take(n) {
+            if let Some(p) = self.peers.get_mut(s) {
+                p.close(reason, false);
+                closed += 1;
+            }
+        }
+        closed
+    }
+
+    /// Peer turnover (libtorrent `session_impl::second_tick`, "disconnect peers when we have too
+    /// many", every `peer_turnover_interval`): at `peer_turnover_cutoff` percent of the
+    /// session's connection limit, the torrent with the most peers drops `peer_turnover`
+    /// percent of them (at least one, at most as many as it has peers to connect to instead);
+    /// below it, so does every torrent at the cutoff of its own limit. A connection limit of 5
+    /// or less turns it off, as too disruptive.
+    fn peer_turnover(&mut self) {
+        let limit = self.settings.connections_limit;
+        if (0..=5).contains(&limit) {
             return;
         }
-        live.sort_by_key(|&(s, key)| (key, s));
-        for &(s, _) in live.iter().take(excess) {
-            if let Some(p) = self.peers.get_mut(s) {
-                p.close("too many connections", false);
+        let cutoff = self.settings.peer_turnover_cutoff.min(100) as u64;
+        let turnover = self.settings.peer_turnover as u64;
+        let share = |peers: usize| (peers as u64 * turnover / 100).max(1) as usize;
+        let ids = self.torrent_ids();
+        if limit > 0 && self.peers.len() as u64 >= limit as u64 * cutoff / 100 && !ids.is_empty() {
+            // the first of the torrents with the most peers, as libtorrent's `max_element`
+            let most = ids
+                .iter()
+                .filter_map(|&id| self.torrent_ref(id).map(|t| (id, t.peers.len())))
+                .min_by_key(|&(_, n)| std::cmp::Reverse(n));
+            if let Some((id, peers)) = most {
+                let n = share(peers).min(self.num_connect_candidates(id));
+                self.disconnect_peers(id, n, "optimistic disconnect");
             }
+            return;
+        }
+        for id in ids {
+            let Some(t) = self.torrent_ref(id) else { continue };
+            // a torrent without a limit of its own has libtorrent's 16777215
+            let Some(max) = t.max_connections else { continue };
+            let peers = t.peers.len();
+            if (peers as u64) < max as u64 * cutoff / 100 || max < 6 {
+                continue;
+            }
+            let n = share(peers).min(self.num_connect_candidates(id));
+            self.disconnect_peers(id, n, "optimistic disconnect");
+        }
+    }
+
+    /// libtorrent `torrent::num_connect_candidates`.
+    fn num_connect_candidates(&self, id: TorrentId) -> usize {
+        self.torrent_ref(id).map_or(0, |t| t.peer_list.num_connect_candidates(t.is_finished()))
+    }
+
+    /// libtorrent `session_impl::update_socket_buffer_size`: the new sizes apply to the listen
+    /// sockets (UDP and TCP) and the UDP tracker sockets; connections keep theirs.
+    fn update_socket_buffer_size(&mut self) {
+        let (send, recv) = (self.settings.send_socket_buffer_size, self.settings.recv_socket_buffer_size);
+        let mut errors = Vec::new();
+        for u in &self.udp {
+            if let Err(e) = sys::set_socket_buffer_size(&u.sock, send, recv) {
+                errors.push(format!("listen socket buffer size [ udp {} ] {e}", u.local));
+            }
+        }
+        for l in &self.listeners {
+            if let Some(tcp) = &l.tcp {
+                if let Err(e) = sys::set_socket_buffer_size(tcp, send, recv) {
+                    errors.push(format!("listen socket buffer size [ tcp {} ] {e}", l.local));
+                }
+            }
+        }
+        self.trackers.set_socket_buffer_size(send, recv);
+        for message in errors {
+            self.alert(Alert::Log { id: None, message });
         }
     }
 

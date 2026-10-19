@@ -8,10 +8,14 @@
 // Through a proxy (libtorrent `http_connection` with `proxy_settings`, `udp_tracker_connection`
 // on a proxied `udp_socket`): HTTP requests wait while the proxy's name resolves; UDP tracker
 // datagrams are queued for the engine to send through the SOCKS5 associate on its listen socket.
+// UDP scrapes are batched: the scrapes asked for in one round of the engine loop go to each
+// tracker in as few requests as BEP 15 allows (74 info-hashes each); libtorrent sends one
+// info-hash per scrape request.
 
 //! Tracker requests and per-torrent tracker state.
 
 use std::collections::HashMap;
+use std::collections::hash_map::Entry as MapEntry;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr};
 use std::sync::Arc;
@@ -28,7 +32,8 @@ use crate::net::tls::{self, TlsStream};
 use crate::proto::http::{self, ParseError, Url};
 use crate::proto::proxy::Target;
 use crate::proto::tracker::{
-    self, AnnounceRequest, AnnounceResponse, Event, ScrapeEntry, UdpResponse, announce_url, scrape_url,
+    self, AnnounceRequest, AnnounceResponse, Event, MAX_SCRAPE_BATCH, ScrapeEntry, UdpResponse, announce_url,
+    scrape_url,
 };
 use crate::status::{AnnounceEntry, TrackerStatus};
 use crate::types::{Sha1Hash, TorrentId};
@@ -272,6 +277,9 @@ enum UdpStage {
 
 struct UdpTxn {
     job: TrackerJob,
+    /// Scrapes of other torrents sent in the same request, their info-hashes after `job`'s
+    /// (and their counts in the reply in the same order).
+    batch: Vec<TrackerJob>,
     port: u16,
     /// The tracker's address, sent to directly.
     ep: Option<SocketAddr>,
@@ -306,6 +314,8 @@ pub(crate) struct TrackerManager {
     proxy: Option<TrackerProxy>,
     /// HTTP requests waiting for the proxy's address.
     parked: Vec<TrackerJob>,
+    /// UDP scrapes waiting to be sent together (`start_scrapes`).
+    scrapes: Vec<TrackerJob>,
     /// UDP trackers go through the proxy: datagrams wait in `proxied_out` for the engine.
     udp_proxied: bool,
     /// ... but the proxy carries no UDP.
@@ -334,6 +344,7 @@ impl TrackerManager {
             connection_ids: HashMap::new(),
             proxy: None,
             parked: Vec::new(),
+            scrapes: Vec::new(),
             udp_proxied: false,
             udp_refused: false,
             proxied_out: Vec::new(),
@@ -346,6 +357,14 @@ impl TrackerManager {
         }
     }
 
+    /// The UDP tracker sockets' buffer sizes (libtorrent's tracker traffic shares the listen
+    /// socket, which `update_socket_buffer_size` covers).
+    pub fn set_socket_buffer_size(&mut self, send: i32, recv: i32) {
+        for s in [self.udp4.as_ref(), self.udp6.as_ref()].into_iter().flatten() {
+            let _ = crate::net::sys::set_socket_buffer_size(s, send, recv);
+        }
+    }
+
     pub fn set_options(&mut self, user_agent: &str, completion_timeout: u32) {
         self.user_agent = user_agent.to_owned();
         self.completion_timeout = Duration::from_secs(completion_timeout.max(1) as u64);
@@ -353,7 +372,7 @@ impl TrackerManager {
 
     /// Requests in flight.
     pub fn pending(&self) -> usize {
-        self.http.len() + self.txns.len() + self.parked.len()
+        self.http.len() + self.txns.len() + self.parked.len() + self.scrapes.len()
     }
 
     /// The proxy for tracker connections changed or its name resolved. Requests that waited for
@@ -395,10 +414,21 @@ impl TrackerManager {
         self.results.push((job, TrackerOutcome::Failed(msg.into())));
     }
 
+    /// Fails a UDP transaction's request and every scrape batched with it.
+    fn fail_txn(&mut self, t: UdpTxn, msg: impl Into<String>) {
+        let msg = msg.into();
+        for job in std::iter::once(t.job).chain(t.batch) {
+            self.fail(job, msg.clone());
+        }
+    }
+
     pub fn start(&mut self, job: TrackerJob, resolver: &Resolver, registry: &Registry, now: Instant) {
         let lower = job.url.to_ascii_lowercase();
-        if lower.starts_with("udp://") {
-            self.start_udp(job, resolver, now);
+        if lower.starts_with("udp://") && matches!(job.kind, JobKind::Scrape(_)) {
+            // sent with the other scrapes of this round (`start_scrapes`)
+            self.scrapes.push(job);
+        } else if lower.starts_with("udp://") {
+            self.start_udp(job, Vec::new(), resolver, now);
         } else if lower.starts_with("http://") || lower.starts_with("https://") {
             if let Some(p) = &self.proxy {
                 if let Some(e) = &p.error {
@@ -420,6 +450,46 @@ impl TrackerManager {
             }
         } else {
             self.fail(job, "unsupported tracker protocol")
+        }
+    }
+
+    /// Sends the UDP scrapes queued since the last call: one request per tracker (host and
+    /// port, and IP filter) for up to `MAX_SCRAPE_BATCH` torrents, in the order they were asked
+    /// for.
+    pub fn start_scrapes(&mut self, resolver: &Resolver, now: Instant) {
+        if self.scrapes.is_empty() {
+            return;
+        }
+        let mut groups: Vec<Vec<TrackerJob>> = Vec::new();
+        // the group still taking scrapes for each tracker
+        let mut open: HashMap<(String, u16, usize), usize> = HashMap::new();
+        for job in std::mem::take(&mut self.scrapes) {
+            let key = crate::util::string::parse_url_components(&job.url).ok().and_then(|p| {
+                let filter = job.filter.as_ref().map_or(0, |f| Arc::as_ptr(f) as usize);
+                Some((p.host.to_ascii_lowercase(), p.port?, filter))
+            });
+            // a URL that does not parse fails on its own in `start_udp`
+            let Some(key) = key else {
+                groups.push(vec![job]);
+                continue;
+            };
+            match open.entry(key) {
+                MapEntry::Occupied(e) if groups[*e.get()].len() < MAX_SCRAPE_BATCH => {
+                    groups[*e.get()].push(job);
+                }
+                MapEntry::Occupied(mut e) => {
+                    *e.get_mut() = groups.len();
+                    groups.push(vec![job]);
+                }
+                MapEntry::Vacant(e) => {
+                    e.insert(groups.len());
+                    groups.push(vec![job]);
+                }
+            }
+        }
+        for mut jobs in groups {
+            let first = jobs.remove(0);
+            self.start_udp(first, jobs, resolver, now);
         }
     }
 
@@ -676,17 +746,35 @@ impl TrackerManager {
         }
     }
 
-    fn start_udp(&mut self, job: TrackerJob, resolver: &Resolver, now: Instant) {
+    /// Starts a UDP request: `job`, and for a scrape, `batch`: scrapes of other torrents from
+    /// the same tracker.
+    fn start_udp(&mut self, job: TrackerJob, batch: Vec<TrackerJob>, resolver: &Resolver, now: Instant) {
         let parts = crate::util::string::parse_url_components(&job.url);
         let (host, port) = match parts {
             Ok(p) if p.port.is_some_and(|p| p != 0) && !p.host.is_empty() => {
                 (p.host, p.port.expect("checked"))
             }
-            _ => return self.fail(job, "invalid UDP tracker URL"),
+            _ => {
+                for job in batch {
+                    self.start_udp(job, Vec::new(), resolver, now);
+                }
+                return self.fail(job, "invalid UDP tracker URL");
+            }
+        };
+        let t = UdpTxn {
+            job,
+            batch,
+            port,
+            ep: None,
+            target: None,
+            stage: UdpStage::Resolving,
+            attempts: 0,
+            deadline: now + self.completion_timeout,
+            connection_id: 0,
         };
         if self.udp_proxied && self.udp_refused {
             // libtorrent `udp_socket::send`: `permission_denied` without a SOCKS5 associate
-            return self.fail(job, "Permission denied (UDP trackers need a SOCKS5 proxy)");
+            return self.fail_txn(t, "Permission denied (UDP trackers need a SOCKS5 proxy)");
         }
         // a SOCKS5 proxy with `proxy_hostnames` resolves the name (libtorrent
         // `udp_tracker_connection::start`)
@@ -694,19 +782,7 @@ impl TrackerManager {
             && self.proxy.as_ref().is_some_and(|p| p.cfg.kind.is_socks5() && p.cfg.hostnames)
             && matches!(Target::new(&host, port), Target::Host(..));
         let id = self.new_txn_id();
-        self.txns.insert(
-            id,
-            UdpTxn {
-                job,
-                port,
-                ep: None,
-                target: by_proxy.then(|| Target::Host(host.clone(), port)),
-                stage: UdpStage::Resolving,
-                attempts: 0,
-                deadline: now + self.completion_timeout,
-                connection_id: 0,
-            },
-        );
+        self.txns.insert(id, UdpTxn { target: by_proxy.then(|| Target::Host(host.clone(), port)), ..t });
         if by_proxy {
             return self.udp_send(id, now);
         }
@@ -724,13 +800,13 @@ impl TrackerManager {
         t.job.filter_ips(&mut ips);
         if any && ips.is_empty() {
             let t = self.txns.remove(&id).expect("present");
-            return self.fail(t.job, BANNED_BY_IP_FILTER);
+            return self.fail_txn(t, BANNED_BY_IP_FILTER);
         }
         let ip = ips.iter().find(|ip| ip.is_ipv4()).or_else(|| ips.iter().find(|_| have6)).copied();
         let ip = if self.udp_proxied { ips.first().copied() } else { ip };
         let Some(ip) = ip else {
             let t = self.txns.remove(&id).expect("present");
-            return self.fail(t.job, "no usable tracker address");
+            return self.fail_txn(t, "no usable tracker address");
         };
         let ep = SocketAddr::new(ip, t.port);
         t.target = Some(Target::Addr(ep));
@@ -745,7 +821,7 @@ impl TrackerManager {
         let Some(mut t) = self.txns.remove(&id) else { return };
         let target = t.target.clone().expect("resolved");
         if t.attempts >= UDP_ATTEMPTS {
-            return self.fail(t.job, "timed out");
+            return self.fail_txn(t, "timed out");
         }
         let new_id = self.new_txn_id();
         let cached = self
@@ -758,7 +834,16 @@ impl TrackerManager {
                 t.connection_id = cid;
                 match &t.job.kind {
                     JobKind::Announce(r) => tracker::udp_announce(cid, new_id, r),
-                    JobKind::Scrape(ih) => tracker::udp_scrape(cid, new_id, &[*ih]),
+                    JobKind::Scrape(_) => {
+                        let hashes: Vec<Sha1Hash> = std::iter::once(&t.job)
+                            .chain(&t.batch)
+                            .filter_map(|j| match j.kind {
+                                JobKind::Scrape(ih) => Some(ih),
+                                JobKind::Announce(_) => None,
+                            })
+                            .collect();
+                        tracker::udp_scrape(cid, new_id, &hashes)
+                    }
                 }
             }
             None => {
@@ -775,11 +860,11 @@ impl TrackerManager {
             let ep = match (t.ep, &target) {
                 (Some(ep), _) => ep,
                 (None, Target::Addr(a)) => *t.ep.insert(*a),
-                (None, Target::Host(..)) => return self.fail(t.job, "the proxy was turned off"),
+                (None, Target::Host(..)) => return self.fail_txn(t, "the proxy was turned off"),
             };
             let sock = if ep.is_ipv4() { self.udp4.as_ref() } else { self.udp6.as_ref() };
             let Some(sock) = sock else {
-                return self.fail(t.job, "no UDP socket for the tracker's address family");
+                return self.fail_txn(t, "no UDP socket for the tracker's address family");
             };
             // Send errors (unreachable networks) are treated like a lost packet.
             let _ = sock.send_to(&packet, ep);
@@ -854,15 +939,19 @@ impl TrackerManager {
                 }
                 UdpResponse::Scrape { entries, .. } if t.stage == UdpStage::Requesting => {
                     let t = self.txns.remove(&txn).expect("present");
-                    match entries.first() {
-                        Some(e) => self.results.push((t.job, TrackerOutcome::Scrape(*e))),
-                        None => self.fail(t.job, "empty scrape response"),
+                    // the counts come in the order the info-hashes were sent
+                    let mut entries = entries.into_iter();
+                    for job in std::iter::once(t.job).chain(t.batch) {
+                        match entries.next() {
+                            Some(e) => self.results.push((job, TrackerOutcome::Scrape(e))),
+                            None => self.fail(job, "empty scrape response"),
+                        }
                     }
                 }
                 UdpResponse::Error { message, .. } => {
                     let t = self.txns.remove(&txn).expect("present");
                     self.connection_ids.remove(&ep);
-                    self.fail(t.job, message);
+                    self.fail_txn(t, message);
                 }
                 _ => {}
             }
@@ -882,7 +971,7 @@ impl TrackerManager {
             (Waiting::Udp(id), Ok(ips)) => self.udp_resolved(id, ips, now),
             (Waiting::Udp(id), Err(e)) => {
                 if let Some(t) = self.txns.remove(&id) {
-                    self.fail(t.job, format!("{}: {e}", r.host));
+                    self.fail_txn(t, format!("{}: {e}", r.host));
                 }
             }
         }
@@ -904,7 +993,7 @@ impl TrackerManager {
         for id in due {
             if self.txns.get(&id).is_some_and(|t| t.stage == UdpStage::Resolving) {
                 let t = self.txns.remove(&id).expect("present");
-                self.fail(t.job, "timed out resolving the tracker");
+                self.fail_txn(t, "timed out resolving the tracker");
             } else {
                 self.udp_send(id, now);
             }
@@ -972,6 +1061,113 @@ mod tests {
         assert!(!trackers_to_announce(&t, now, true, false).contains(&2));
         t[3].next_announce = Some(now + Duration::from_secs(1));
         assert!(!trackers_to_announce(&t, now, true, false).contains(&3));
+    }
+
+    /// A BEP 15 tracker on loopback that answers connects, and scrapes with counts made from
+    /// each info-hash (complete: its first byte, incomplete: one more), or with an error. Returns
+    /// how many info-hashes each of the `scrapes` scrape requests it waits for carried.
+    fn fake_udp_tracker(scrapes: usize, error: bool) -> (u16, std::thread::JoinHandle<Vec<usize>>) {
+        let s = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+        s.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+        let port = s.local_addr().unwrap().port();
+        let h = std::thread::spawn(move || {
+            let mut sizes = Vec::new();
+            let mut buf = [0u8; 2048];
+            while sizes.len() < scrapes {
+                let Ok((n, from)) = s.recv_from(&mut buf) else { break };
+                if n < 16 {
+                    continue;
+                }
+                let action = u32::from_be_bytes(buf[8..12].try_into().unwrap());
+                let txn = &buf[12..16];
+                let mut out = Vec::new();
+                if action == tracker::ACTION_CONNECT {
+                    out.extend_from_slice(&tracker::ACTION_CONNECT.to_be_bytes());
+                    out.extend_from_slice(txn);
+                    out.extend_from_slice(&7u64.to_be_bytes());
+                } else if action == tracker::ACTION_SCRAPE {
+                    assert_eq!(&buf[..8], &7u64.to_be_bytes(), "uses the connection id");
+                    let hashes = &buf[16..n];
+                    assert_eq!(hashes.len() % 20, 0);
+                    sizes.push(hashes.len() / 20);
+                    if error {
+                        out.extend_from_slice(&tracker::ACTION_ERROR.to_be_bytes());
+                        out.extend_from_slice(txn);
+                        out.extend_from_slice(b"go away");
+                    } else {
+                        out.extend_from_slice(&tracker::ACTION_SCRAPE.to_be_bytes());
+                        out.extend_from_slice(txn);
+                        for h in hashes.chunks(20) {
+                            out.extend_from_slice(&(h[0] as u32).to_be_bytes());
+                            out.extend_from_slice(&0u32.to_be_bytes());
+                            out.extend_from_slice(&(h[0] as u32 + 1).to_be_bytes());
+                        }
+                    }
+                } else {
+                    continue;
+                }
+                s.send_to(&out, from).unwrap();
+            }
+            sizes
+        });
+        (port, h)
+    }
+
+    #[test]
+    fn udp_scrapes_to_one_tracker_share_requests_of_up_to_74() {
+        let poll = mio::Poll::new().unwrap();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let resolver = Resolver::new(tx, Arc::new(|| {}));
+        let mut m = TrackerManager::new(poll.registry(), "test".into());
+        let (a, tracker_a) = fake_udp_tracker(2, false);
+        let (b, tracker_b) = fake_udp_tracker(1, true);
+        let now = Instant::now();
+        // 80 torrents scrape tracker A (its host spelled two ways), two of them tracker B
+        let mut on_b = Vec::new();
+        for i in 0..82u32 {
+            let url = if i == 3 || i == 50 {
+                on_b.push(i);
+                format!("udp://127.0.0.1:{b}/announce")
+            } else if i % 2 == 0 {
+                format!("udp://127.0.0.1:{a}/announce")
+            } else {
+                format!("UDP://127.0.0.1:{a}/x/announce")
+            };
+            let job = TrackerJob {
+                torrent: TorrentId::new(i, 0),
+                tracker: Some(0),
+                url,
+                kind: JobKind::Scrape(Sha1Hash([i as u8; 20])),
+                filter: None,
+            };
+            m.start(job, &resolver, poll.registry(), now);
+        }
+        assert_eq!(m.pending(), 82);
+        m.start_scrapes(&resolver, now);
+        let deadline = Instant::now() + Duration::from_secs(10);
+        let mut results = Vec::new();
+        while results.len() < 82 && Instant::now() < deadline {
+            std::thread::sleep(Duration::from_millis(10));
+            m.on_udp_readable(false, Instant::now());
+            m.tick(poll.registry(), Instant::now());
+            results.extend(m.take_results());
+        }
+        assert_eq!(tracker_a.join().unwrap(), [74, 6], "tracker A: two requests");
+        assert_eq!(tracker_b.join().unwrap(), [2], "tracker B: one request");
+        assert_eq!(results.len(), 82);
+        for (job, outcome) in results {
+            let i = job.torrent.index();
+            match outcome {
+                // each torrent gets the counts for its own info-hash
+                TrackerOutcome::Scrape(e) if !on_b.contains(&i) => {
+                    assert_eq!((e.complete, e.incomplete), (i, i + 1), "torrent {i}");
+                }
+                // the error answers every scrape of the request
+                TrackerOutcome::Failed(m) if on_b.contains(&i) => assert_eq!(m, "go away"),
+                o => panic!("torrent {i}: {o:?}"),
+            }
+        }
+        assert_eq!(m.pending(), 0);
     }
 
     #[test]

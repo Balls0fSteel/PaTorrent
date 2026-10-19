@@ -315,6 +315,11 @@ pub static TABLE: &[Entry] = &[
     entry!(optimistic_unchoke_interval: u32),
     entry!(send_buffer_watermark: u32),
     entry!(close_redundant_connections: bool),
+    entry!(peer_turnover: u32),
+    entry!(peer_turnover_cutoff: u32),
+    entry!(peer_turnover_interval: u32),
+    entry!(recv_socket_buffer_size: i32),
+    entry!(send_socket_buffer_size: i32),
     entry!(max_metadata_size: i32),
     entry!(max_pex_peers: i32),
     Entry {

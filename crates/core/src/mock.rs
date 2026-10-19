@@ -261,6 +261,16 @@ impl Mock {
                     self.out.push(Alert::TrackerReply { id, url, num_peers });
                 }
             }
+            Command::ScrapeTracker(id, index) => {
+                if let Some(t) = self.get(id) {
+                    let list = tracker_list(t);
+                    let i = index.filter(|&i| i < list.len()).unwrap_or(0);
+                    if let Some((url, _)) = list.into_iter().nth(i) {
+                        let (complete, incomplete) = ((t.seed % 500) as u32, (t.seed % 97) as u32);
+                        self.out.push(Alert::ScrapeReply { id, url, complete, incomplete });
+                    }
+                }
+            }
             Command::SetFilePriority { id, file, priority } => {
                 if let Some(t) = self.get(id) {
                     let n = files_for(t).len();

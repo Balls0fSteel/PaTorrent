@@ -145,6 +145,18 @@ impl PeerList {
         before - self.peers.len()
     }
 
+    /// libtorrent `peer_list::num_connect_candidates` (`is_connect_candidate`): peers that could
+    /// be connected to, now or once their reconnect delay is over. A finished torrent does not
+    /// connect to seeds.
+    pub fn num_connect_candidates(&self, finished: bool) -> usize {
+        self.peers
+            .iter()
+            .filter(|p| {
+                p.connection.is_none() && !p.banned && p.failcount < MAX_FAILCOUNT && !(p.seed && finished)
+            })
+            .count()
+    }
+
     /// libtorrent `find_connect_candidates`: up to `n` peers to connect to now.
     pub fn connect_candidates(&self, n: usize, now: Instant) -> Vec<SocketAddr> {
         let mut c: Vec<&KnownPeer> = self
@@ -418,8 +430,13 @@ mod tests {
 
         pl.connecting(a, 1, PeerSource::TRACKER, now);
         assert_eq!(pl.connect_candidates(5, now), [b]);
+        assert_eq!(pl.num_connect_candidates(false), 1, "a connected peer is no candidate");
+        pl.set_seed(&b, true);
+        assert_eq!(pl.num_connect_candidates(true), 0, "a finished torrent skips seeds");
+        pl.set_seed(&b, false);
         pl.disconnected(&a, true, false, false);
         assert_eq!(pl.connect_candidates(5, now), [b], "reconnects wait");
+        assert_eq!(pl.num_connect_candidates(false), 2, "but they count");
         assert_eq!(pl.connect_candidates(5, now + Duration::from_secs(121)), [b, a], "failed peers last");
 
         // Full list: the failed peer is evicted for a new one.

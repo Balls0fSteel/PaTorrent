@@ -29,6 +29,7 @@ pub(crate) enum Command {
     Queue(TorrentId, QueueMove),
     ForceRecheck(TorrentId),
     ForceReannounce(TorrentId),
+    ScrapeTracker(TorrentId, Option<usize>),
     SetFilePriority {
         id: TorrentId,
         file: u32,
@@ -312,6 +313,15 @@ impl TorrentHandle {
 
     pub fn force_reannounce(&self) {
         self.session.send(Command::ForceReannounce(self.id));
+    }
+
+    /// Asks a tracker for the torrent's swarm counts (libtorrent `scrape_tracker`): the tracker
+    /// at `index`, or with `None` (or an index past the list) the first one that has worked,
+    /// else the first one. Answered by `Alert::ScrapeReply` or `Alert::ScrapeFailed`; works on
+    /// stopped torrents too. Scrapes of several torrents asked for together go to a UDP tracker
+    /// in one request (up to 74 torrents each).
+    pub fn scrape_tracker(&self, index: Option<usize>) {
+        self.session.send(Command::ScrapeTracker(self.id, index));
     }
 
     pub fn set_file_priority(&self, file: u32, priority: DownloadPriority) {

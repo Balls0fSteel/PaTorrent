@@ -21,6 +21,26 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 ### Issues
 - macOS cannot build today: the TLS layer uses OpenSSL on every Unix target and macOS has no linkable OpenSSL. A Security.framework backend is the first macOS item.
 
+## 2026-10-19_231102_1792444262: Batched UDP scrapes, peer turnover, socket buffer sizes
+
+### Added
+- **`TorrentHandle::scrape_tracker(index)`** (libtorrent `torrent_handle::scrape_tracker`): asks the tracker at `index` (with `None` or an index past the list: the first tracker that has worked, else the first) for the torrent's swarm counts, answered by `ScrapeReply` / `ScrapeFailed`; stopped torrents can be scraped. The mock engine answers with made-up counts.
+- **Batched UDP scrapes** (PLAN "Road to 1.0 > Engine gaps"): UDP scrape jobs queue in `TrackerManager` and `start_scrapes` (called once per round of the engine loop, after the tick) sends them to each tracker (host and port, case-insensitive, and the same IP filter) in requests of up to `MAX_SCRAPE_BATCH` (74) info-hashes. A transaction carries its batch; the reply's counts are matched to the torrents in the order sent; an error reply, a failed lookup, a timeout or a refused proxy fails every scrape of the request. HTTP scrapes are unchanged (one info-hash each).
+- **Peer turnover** (libtorrent `session_impl::second_tick`): settings `peer_turnover` (4 %), `peer_turnover_cutoff` (90 %), `peer_turnover_interval` (300 s). At the cutoff of `connections_limit` the torrent with the most peers drops `peer_turnover` percent of them (at least one, at most `num_connect_candidates`), the least useful first; below it, every torrent at the cutoff of its own `max_connections` does the same; a limit of 5 or less turns it off. `Engine::disconnect_peers` ports `torrent::disconnect_peers` with `compare_disconnect_peer`'s order, now including "on parole", and `set_max_connections` uses it too. `PeerList::num_connect_candidates` ports `is_connect_candidate`.
+- **`recv_socket_buffer_size` / `send_socket_buffer_size`** (0 = OS default): `net::sys::set_socket_buffer_size` (libtorrent `aux::set_socket_buffer_size`: a size equal to the current one is not set again, a refused one is put back) with a hand-written `getsockopt` beside `setsockopt` and `SO_SNDBUF` / `SO_RCVBUF` for Windows, Linux and the BSDs. Applied to TCP peer connections (incoming and outgoing), the UDP listen sockets (a refusal is logged), the TCP listeners, and the UDP tracker sockets; a changed setting reaches the listen and tracker sockets at once (`update_socket_buffer_size`), connections keep theirs.
+- The five settings have rows in `patorrent_frontend::settings` (so the Advanced list and the Web UI's Advanced page show them).
+
+### Decisions
+- Batching UDP scrapes goes beyond libtorrent, which sends one info-hash per scrape. docs/PORTING.md "Deliberate divergences" lists it, the first turnover coming after `min(90 s, interval)` instead of 90 s, peers already closing being left out of the turnover count, and where the socket buffer sizes are set.
+- `peer_turnover*` are `u32`; the socket buffer sizes are `i32` (libtorrent's `int`), and 0 or less keeps the OS default.
+
+### Verified
+- New tests: `engine::tracker::tests::udp_scrapes_to_one_tracker_share_requests_of_up_to_74` (82 scrapes: tracker A gets requests of 74 and 6 info-hashes, its host spelled two ways; tracker B's error fails both of its scrapes; each torrent gets its own counts), `net::sys::tests::socket_buffer_sizes_are_set_and_zero_keeps_the_default` (UDP socket and TCP listener; Linux's doubled report allowed), `peer_list` connect-candidate counts, loopback `tests/scrape.rs` (six stopped torrents scraped together through the public API get their own counts, in one request here; an index picks the second tracker; a tracker's error comes back as `ScrapeFailed`; the session runs with 96 KiB socket buffers) and `tests/peer_turnover.rs` (six scripted peers at a limit of 6 with a seventh waiting: a quiet peer is dropped and the seventh connects, the peer with every piece stays; with no seventh nobody is dropped). The first turnover test fails with the turnover call taken out.
+- Windows: `cargo test --workspace` 936 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`; `cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`; `cargo clippy -p patorrent-core --all-targets --target x86_64-unknown-freebsd -- -D warnings`; `cargo fmt --all --check`; no let-chains.
+
+### Issues
+- The Linux target is installed for the default toolchain only, so the Linux-target clippy runs without `+stable`; its newer `nonminimal_bool` lint caught a `while !(a && !b)` in the new test.
+
 ## 2026-10-19_224116_1792442476: Magnets through the Add New Torrent dialog; gzip block lists; .torrent DHT nodes
 
 ### Added

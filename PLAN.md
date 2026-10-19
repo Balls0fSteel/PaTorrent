@@ -149,7 +149,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
   - UDP (BEP 15) with connection-id cache and retransmits
   - tiers (BEP 12), backoff, `stopped` / `completed` events
   - [x] HTTPS through the OS TLS layer (D9, `core::net::tls`): SChannel (TLS 1.2 and 1.3) on Windows, OpenSSL / LibreSSL on Unix; certificate and host-name checks on, SNI. Verified against Ubuntu's IPv4 and IPv6 HTTPS trackers
-  - [ ] batched UDP scrapes: the packet format supports 74 hashes; the engine still scrapes one torrent per request
+  - [x] batched UDP scrapes (2026-10-19_231102_1792444262): `TorrentHandle::scrape_tracker`; the UDP scrapes asked for in one round of the engine loop go to each tracker in requests of up to 74 info-hashes (HTTP scrapes still carry one)
 - [x] HTTP client: parser, chunked encoding, redirects. gzip is not needed (we request identity encoding). OS TLS: done (`core::net::tls`).
 - [x] `store`: resume.db + metadata.pack, libtorrent fast-resume field names, metadata loaded only for running torrents
 - [x] Dev CLI: `patorrent-nox add <file> --save DIR [--seed]`, `run`, rate limits, per-user state directory, progress lines
@@ -313,7 +313,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 13. The Web UI's phone layout on a real phone.
 14. Release engineering: version 1.0.0 and peer-ID prefix `-PA1000-` (a test ties them), release notes, the parser security review (Continuous), then the `PA` registrations (libtorrent, Transmission, webtorrent, the BEP 20 list).
 
-**Engine gaps worth closing (libtorrent has them):** batched UDP scrapes and peer turnover (a session is on them, 2026-10-19_230101_1792443661); `recv_socket_buffer_size` / `send_socket_buffer_size`; `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; a disconnect alert with the close reason.
+**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; nothing calls `scrape_tracker` yet: µTorrent showed the swarm counts of stopped and queued torrents, which a periodic scrape of them would bring); `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; a disconnect alert with the close reason.
 
 **Still to settle:** Properties > Advanced and the `rss.*` Advanced settings need a real µTorrent 2.2.1 to copy from.
 
@@ -523,7 +523,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
   - Linux and FreeBSD are covered by CI only (the swarm test multicasts on loopback); not tried on a real LAN with another machine. Linux `lo` has no `IFF_MULTICAST`; if the CI swarm test fails there, the loopback join needs a look.
   - ~~the GUI has no LSD switch~~: "Enable Local Peer Discovery" on the BitTorrent page (2026-10-17_155028_1792245028).
 - ~~Connection slots: DHT peers never connected in the rate-limited Debian run~~. Fixed 2026-10-15 (CHANGELOG 2026-10-15_230633_1792098393): the bandwidth tick served read-blocked peers in slot order with all the quota, so new peers never read their handshake. DHT decoding was fine, and counting pending connects against `connections_limit` matches libtorrent. Left over:
-  - peer turnover (libtorrent `peer_turnover` / `peer_turnover_cutoff`: at 90 % of the limit, drop the slowest 4 % every unchoke interval) is not ported. With 150 of 200 slots connected it isn't needed yet, but a full limit then stays full of whoever got in first.
+  - ~~peer turnover is not ported~~: done 2026-10-19_231102_1792444262 (`peer_turnover`, `peer_turnover_cutoff`, `peer_turnover_interval`). Not tried on a real swarm at the limit yet: watch a busy torrent with a low global limit (say 20) and see peers come and go every 5 minutes.
   - a readable peer still reads all the quota left between ticks (libtorrent queues it once the channel runs short, `need_queueing`). Fine as long as the tick's even split keeps every waiting peer moving.
 - Magnets (ut_metadata) follow-ups:
   - partly fetched metadata is dropped when the torrent stops; it starts over on the next start (metadata is small, so this costs little).
@@ -531,7 +531,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
   - `TorrentSource::Resume` without an embedded info dictionary is still rejected; it could take the magnet path.
   - a name the user gave a magnet is kept only until a restart before the metadata arrives; then the torrent's real name is used.
   - the GUI shows a magnet's size as 0 B until the metadata arrives; µTorrent leaves the cell empty.
-- Phase 2 follow-ups: batched UDP scrapes, block buffer pool, timer wheel if the tick shows up in profiles, the full session counter table. (The string-keyed settings table is `patorrent_frontend::settings`, 2026-10-17_155028_1792245028.)
+- Phase 2 follow-ups: block buffer pool, timer wheel if the tick shows up in profiles, the full session counter table. (The string-keyed settings table is `patorrent_frontend::settings`, 2026-10-17_155028_1792245028.)
 - ~~Flaky on CI: `engine::upnp::tests::maps_and_unmaps_on_a_loopback_igd`, `dht::routing_table::tests::routing_table_v4`, `swarm::partial_pieces_survive_a_restart`~~. Fixed 2026-10-16_203336_1792175616: the fake IGD's threads are joined when the guard drops; the bucket count accepts 13 (random ids); the stingy peer skips the short last piece and counts real bytes (CHANGELOG 2026-10-16_203336_1792175616). Linux CI jobs are pinned to `ubuntu-24.04`; bump the pin on purpose, not by `ubuntu-latest` moving.
 - ~~Flaky: `dht::node::tests::scrape_v6` (seen on FreeBSD, about 1 run in 300 anywhere)~~. Fixed 2026-10-17_165701_1792249021: the Bloom filter size estimate of 100 random addresses missed the +-3 tolerance (libtorrent's test has the same flake); the announcing addresses are now a fixed scattered sequence.
 - ~~Flaky on CI: `swarm::download_through_an_http_tracker`~~. Fixed 2026-10-15: the test's `wait()` dropped the alerts behind a match, so `TorrentFinished` was lost when it arrived in the same batch as `TrackerReply`. Not an engine stall (CHANGELOG 2026-10-15_153331).

@@ -179,6 +179,19 @@ pub struct Settings {
     pub send_buffer_watermark: u32,
     /// Disconnect peers when both sides are seeds (or neither side wants anything).
     pub close_redundant_connections: bool,
+    /// Peer turnover (libtorrent `peer_turnover`, `peer_turnover_cutoff`,
+    /// `peer_turnover_interval`): every `peer_turnover_interval` seconds, once the session has
+    /// `peer_turnover_cutoff` percent of `connections_limit` peers, the torrent with the most
+    /// peers drops `peer_turnover` percent of them, the least useful first (at least one, at
+    /// most as many as it has other peers to connect to). Below the session's cutoff, every
+    /// torrent at the cutoff of its own connection limit does the same.
+    pub peer_turnover: u32,
+    pub peer_turnover_cutoff: u32,
+    pub peer_turnover_interval: u32,
+    /// Socket buffer sizes in bytes (`SO_RCVBUF` / `SO_SNDBUF`) of peer connections and of the
+    /// listen and UDP tracker sockets; 0 keeps the OS default.
+    pub recv_socket_buffer_size: i32,
+    pub send_socket_buffer_size: i32,
     /// Largest info dictionary accepted from peers (ut_metadata), in bytes.
     pub max_metadata_size: i32,
     /// Peers remembered per connection (and address family) from its ut_pex messages.
@@ -326,6 +339,11 @@ impl Default for Settings {
             optimistic_unchoke_interval: 30,
             send_buffer_watermark: 500 * 1024,
             close_redundant_connections: true,
+            peer_turnover: 4,
+            peer_turnover_cutoff: 90,
+            peer_turnover_interval: 300,
+            recv_socket_buffer_size: 0,
+            send_socket_buffer_size: 0,
             max_metadata_size: 3 * 1024 * 10240,
             max_pex_peers: 50,
             alert_queue_size: 2000,

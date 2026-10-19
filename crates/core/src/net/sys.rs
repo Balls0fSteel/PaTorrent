@@ -2,7 +2,8 @@
 // enum_net.cpp platform code).
 
 //! Socket calls that std and mio do not offer: options set before `bind` (address reuse,
-//! v6-only, for UDP sockets and TCP listeners), the outgoing multicast interface and hop limit, the list of local interface
+//! v6-only, for UDP sockets and TCP listeners), socket buffer sizes, the outgoing multicast
+//! interface and hop limit, the list of local interface
 //! addresses and the routing table. Windows goes through `windows-sys`; Unix functions are
 //! declared here by hand (D4: no libc crate), with the constants of each supported OS.
 
@@ -128,6 +129,41 @@ pub(crate) fn set_dont_fragment(s: &impl RawSock, on: bool) -> io::Result<()> {
     }
 }
 
+/// Sets a socket's send and receive buffer sizes (libtorrent `aux::set_socket_buffer_size`,
+/// with `send_socket_buffer_size` / `recv_socket_buffer_size`). A size of 0 or less keeps the
+/// OS default; a size equal to the current one is not set again. If the OS refuses a size, the
+/// previous one is put back and the error returned (the receive size is then not tried).
+pub(crate) fn set_socket_buffer_size(s: &impl RawSock, send: i32, recv: i32) -> io::Result<()> {
+    let mut result = Ok(());
+    for (name, size) in [(SO_SNDBUF, send), (SO_RCVBUF, recv)] {
+        if size <= 0 {
+            continue;
+        }
+        let prev = match imp::getsockopt_int(s, SOL_SOCKET, name) {
+            Ok(p) => p,
+            Err(e) => {
+                result = Err(e);
+                continue;
+            }
+        };
+        if prev == size {
+            continue;
+        }
+        if let Err(e) = imp::setsockopt(s, SOL_SOCKET, name, &size.to_ne_bytes()) {
+            let _ = imp::setsockopt(s, SOL_SOCKET, name, &prev.to_ne_bytes());
+            return Err(e);
+        }
+    }
+    result
+}
+
+/// A socket's (send, receive) buffer sizes as the OS reports them (Linux reports twice the
+/// size set, for its bookkeeping).
+#[cfg(test)]
+pub(crate) fn socket_buffer_sizes(s: &impl RawSock) -> io::Result<(i32, i32)> {
+    Ok((imp::getsockopt_int(s, SOL_SOCKET, SO_SNDBUF)?, imp::getsockopt_int(s, SOL_SOCKET, SO_RCVBUF)?))
+}
+
 /// A UDP socket bound to `addr`. With `reuse` other sockets (other clients on this machine)
 /// may bind the same port, as multicast listeners must. IPv6 sockets are v6-only.
 pub(crate) fn udp_socket(addr: SocketAddr, reuse: bool) -> io::Result<UdpSocket> {
@@ -193,6 +229,8 @@ mod windows_consts {
     pub const SOL_SOCKET: i32 = ws::SOL_SOCKET;
     pub const SO_REUSEADDR: i32 = ws::SO_REUSEADDR;
     pub const SO_REUSEPORT: Option<i32> = None;
+    pub const SO_SNDBUF: i32 = ws::SO_SNDBUF;
+    pub const SO_RCVBUF: i32 = ws::SO_RCVBUF;
     pub const IP_MULTICAST_IF: i32 = ws::IP_MULTICAST_IF;
     pub const IPV6_MULTICAST_IF: i32 = ws::IPV6_MULTICAST_IF;
     pub const IPV6_MULTICAST_HOPS: i32 = ws::IPV6_MULTICAST_HOPS;
@@ -207,6 +245,8 @@ mod unix_consts {
     pub const SOL_SOCKET: i32 = 1;
     pub const SO_REUSEADDR: i32 = 2;
     pub const SO_REUSEPORT: Option<i32> = None;
+    pub const SO_SNDBUF: i32 = 7;
+    pub const SO_RCVBUF: i32 = 8;
     pub const IP_MULTICAST_IF: i32 = 32;
     pub const IPV6_MULTICAST_IF: i32 = 17;
     pub const IPV6_MULTICAST_HOPS: i32 = 18;
@@ -234,6 +274,8 @@ mod unix_consts {
     pub const SOL_SOCKET: i32 = 0xffff;
     pub const SO_REUSEADDR: i32 = 4;
     pub const SO_REUSEPORT: Option<i32> = Some(0x200);
+    pub const SO_SNDBUF: i32 = 0x1001;
+    pub const SO_RCVBUF: i32 = 0x1002;
     pub const IP_MULTICAST_IF: i32 = 9;
     pub const IPV6_MULTICAST_IF: i32 = 9;
     pub const IPV6_MULTICAST_HOPS: i32 = 10;
@@ -380,6 +422,15 @@ mod imp {
             ws::setsockopt(s.as_raw_socket() as ws::SOCKET, level, name, value.as_ptr(), value.len() as i32)
         };
         if r == 0 { Ok(()) } else { Err(last_error()) }
+    }
+
+    pub fn getsockopt_int(s: &impl AsRawSocket, level: i32, name: i32) -> io::Result<i32> {
+        let mut v = [0u8; 4];
+        let mut len = v.len() as i32;
+        // SAFETY: `v` is writable for `len` bytes, `len` a valid in/out pointer
+        let r =
+            unsafe { ws::getsockopt(s.as_raw_socket() as ws::SOCKET, level, name, v.as_mut_ptr(), &mut len) };
+        if r == 0 { Ok(i32::from_ne_bytes(v)) } else { Err(last_error()) }
     }
 
     pub(super) fn bind(s: &impl AsRawSocket, sa: &SockaddrBuf, len: usize) -> io::Result<()> {
@@ -688,6 +739,8 @@ mod imp {
         fn c_listen(fd: c_int, backlog: c_int) -> c_int;
         #[link_name = "setsockopt"]
         fn c_setsockopt(fd: c_int, level: c_int, name: c_int, value: *const c_void, len: u32) -> c_int;
+        #[link_name = "getsockopt"]
+        fn c_getsockopt(fd: c_int, level: c_int, name: c_int, value: *mut c_void, len: *mut u32) -> c_int;
         fn getifaddrs(out: *mut *mut IfAddrs) -> c_int;
         fn freeifaddrs(ifa: *mut IfAddrs);
         fn if_nametoindex(name: *const c_char) -> c_uint;
@@ -735,6 +788,14 @@ mod imp {
         let r =
             unsafe { c_setsockopt(s.as_raw_fd(), level, name, value.as_ptr().cast(), value.len() as u32) };
         if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+    }
+
+    pub fn getsockopt_int(s: &impl AsRawFd, level: i32, name: i32) -> io::Result<i32> {
+        let mut v = [0u8; 4];
+        let mut len = v.len() as u32;
+        // SAFETY: `v` is writable for `len` bytes, `len` a valid in/out pointer
+        let r = unsafe { c_getsockopt(s.as_raw_fd(), level, name, v.as_mut_ptr().cast(), &mut len) };
+        if r == 0 { Ok(i32::from_ne_bytes(v)) } else { Err(io::Error::last_os_error()) }
     }
 
     pub(super) fn bind(s: &impl AsRawFd, sa: &SockaddrBuf, len: usize) -> io::Result<()> {
@@ -838,6 +899,28 @@ mod tests {
             tcp_listener(SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), port)).unwrap_err().kind(),
             io::ErrorKind::AddrInUse
         );
+    }
+
+    #[test]
+    fn socket_buffer_sizes_are_set_and_zero_keeps_the_default() {
+        // Linux reports twice the size set
+        let near = |got: i32, set: i32| got == set || got == 2 * set;
+        let u = udp_socket("127.0.0.1:0".parse().unwrap(), false).unwrap();
+        let before = socket_buffer_sizes(&u).unwrap();
+        set_socket_buffer_size(&u, 0, -1).unwrap();
+        assert_eq!(socket_buffer_sizes(&u).unwrap(), before);
+        set_socket_buffer_size(&u, 96 * 1024, 80 * 1024).unwrap();
+        let (send, recv) = socket_buffer_sizes(&u).unwrap();
+        assert!(near(send, 96 * 1024) && near(recv, 80 * 1024), "{send} {recv}");
+        // only the receive size: the send size stays
+        set_socket_buffer_size(&u, 0, 72 * 1024).unwrap();
+        let (send2, recv) = socket_buffer_sizes(&u).unwrap();
+        assert!(send2 == send && near(recv, 72 * 1024), "{send2} {recv}");
+
+        let t = tcp_listener("127.0.0.1:0".parse().unwrap()).unwrap();
+        set_socket_buffer_size(&t, 64 * 1024, 128 * 1024).unwrap();
+        let (send, recv) = socket_buffer_sizes(&t).unwrap();
+        assert!(near(send, 64 * 1024) && near(recv, 128 * 1024), "{send} {recv}");
     }
 
     #[test]

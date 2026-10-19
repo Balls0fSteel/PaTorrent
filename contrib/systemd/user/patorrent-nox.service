@@ -1,0 +1,33 @@
+# patorrent-nox as a user service: runs as you, with your files (docs/DAEMON.md).
+#
+#   install -m 755 patorrent-nox ~/.local/bin/
+#   install -D -m 644 patorrent-nox.service ~/.config/systemd/user/patorrent-nox.service
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now patorrent-nox
+#   journalctl --user -u patorrent-nox     (the Web UI's temporary password on the first start)
+#   loginctl enable-linger "$USER"          (keep it running while you are logged out)
+#
+# The state and the config follow XDG: ~/.local/share/patorrent/nox (resume data, DHT state)
+# and ~/.config/patorrent/nox (webui.json). Change the command line with
+# `systemctl --user edit patorrent-nox` (an empty ExecStart= first, then the new one).
+
+[Unit]
+Description=PaTorrent BitTorrent daemon (patorrent-nox)
+Documentation=https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=%h/.local/bin/patorrent-nox run --save %h/Downloads --webui 127.0.0.1:8080
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=default.target

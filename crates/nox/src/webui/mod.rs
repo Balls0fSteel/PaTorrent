@@ -621,6 +621,23 @@ impl WebUi {
         self.shared.lock().shutdown
     }
 
+    /// Reads the IP filter's block list again (the daemon's SIGHUP) when the filter is on: the
+    /// BitTorrent page's file, else `ipfilter.dat` in the state directory. A list that does not
+    /// load leaves the old rules in force. Returns the line it logged.
+    pub fn reload_ip_filter(&self) -> Option<String> {
+        let mut st = self.shared.lock();
+        if !st.prefs.ip_filter {
+            return None;
+        }
+        let file = st.prefs.gui().ip_filter_file(&self.shared.settings_dir);
+        let line = match self.shared.handle.load_ip_filter(&file) {
+            Ok(n) => format!("IP filter: {n} rules from {}", file.display()),
+            Err(e) => format!("IP filter: {}: {e} (the old rules stay)", file.display()),
+        };
+        st.push_log(None, line.clone(), unix_now());
+        Some(line)
+    }
+
     /// Points the owner's "Move completed downloads" helper at the Directories preferences
     /// when they changed since the last call (`seen` is the caller's copy of the version).
     /// Returns whether it changed anything.

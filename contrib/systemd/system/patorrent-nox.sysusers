@@ -1,0 +1,3 @@
+# The account patorrent-nox.service runs as (sysusers.d(5)): install as
+# /etc/sysusers.d/patorrent-nox.conf and run `systemd-sysusers`.
+u patorrent - "PaTorrent daemon" /var/lib/patorrent-nox /usr/sbin/nologin

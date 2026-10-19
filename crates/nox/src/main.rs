@@ -5,8 +5,15 @@
 //! (resume.db + metadata.pack) persists between runs, so a restart resumes without a recheck.
 //! `demo` still drives the simulated engine for scale experiments. Arguments are parsed by hand
 //! to keep the dependency list empty.
+//!
+//! Phase 6: `run` as a service (docs/DAEMON.md): where the files go (`paths`), signals and
+//! console events (`signals`), `--daemon`, `--pid-file`, `--log` and systemd's notifications
+//! (`daemon`).
 
 mod create;
+mod daemon;
+mod paths;
+mod signals;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -64,7 +71,13 @@ CREATE OPTIONS:
 
 OPTIONS:
     --save DIR        Download directory (default: current directory)
-    --state DIR       Session state directory (default: per-user data directory)
+    --state-dir DIR   Session state directory: resume data, DHT state (default: per-user data
+                      directory: $XDG_DATA_HOME/patorrent/nox or ~/.local/share/patorrent/nox;
+                      %APPDATA%\\PaTorrent\\nox on Windows); also the config directory unless
+                      --config-dir is given. --state DIR is the same
+    --config-dir DIR  Web UI login and preferences (webui.json), default ipfilter.dat (default:
+                      $XDG_CONFIG_HOME/patorrent/nox or ~/.config/patorrent/nox; the state
+                      directory on Windows)
     --no-state        Do not load or save any session state
     --seed            After downloading, keep seeding until stopped
     --super-seed      Super seed (BEP 16, \"initial seeding\") torrents that are complete;
@@ -88,16 +101,27 @@ OPTIONS:
                       127.0.0.1; `run --webui 8080`)
     --webui-user NAME --webui-pass PASS
                       Web UI login (default user admin); the password is stored as a salted
-                      PBKDF2 hash in the state directory. Without one, a temporary password
+                      PBKDF2 hash in the config directory. Without one, a temporary password
                       is printed at start
 
-Type q and Enter to stop cleanly (state is saved on the way out).
+SERVICE OPTIONS (docs/DAEMON.md):
+    --daemon          Detach into the background (Unix): returns once the daemon is up
+    --pid-file FILE   Write the process id to FILE and lock it; a second instance with the
+                      same FILE refuses to start
+    --log FILE        Append all output to FILE (reopened on SIGHUP)
+
+Type q and Enter, press Ctrl+C or send SIGTERM to stop cleanly (state is saved on the way
+out; a second Ctrl+C quits at once). SIGHUP reloads the IP filter and reopens the log. Under
+systemd (Type=notify) readiness is reported through NOTIFY_SOCKET.
 ";
 
 struct Opts {
     save: String,
     state: Option<PathBuf>,
+    config_dir: Option<PathBuf>,
     no_state: bool,
+    /// `--daemon`, `--pid-file`, `--log`.
+    service: daemon::Options,
     seed: bool,
     super_seed: bool,
     move_on_complete: Option<String>,
@@ -124,7 +148,9 @@ fn parse(args: &[String]) -> Result<Opts, String> {
     let mut o = Opts {
         save: ".".into(),
         state: None,
+        config_dir: None,
         no_state: false,
+        service: daemon::Options::default(),
         seed: false,
         super_seed: false,
         move_on_complete: None,
@@ -152,8 +178,12 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         }
         match a.as_str() {
             "--save" => o.save = value("--save")?,
-            "--state" => o.state = Some(value("--state")?.into()),
+            "--state" | "--state-dir" => o.state = Some(value(a.as_str())?.into()),
+            "--config-dir" => o.config_dir = Some(value("--config-dir")?.into()),
             "--no-state" => o.no_state = true,
+            "--daemon" => o.service.daemon = true,
+            "--pid-file" => o.service.pid_file = Some(value("--pid-file")?.into()),
+            "--log" => o.service.log = Some(value("--log")?.into()),
             "--seed" => o.seed = true,
             "--super-seed" => {
                 o.super_seed = true;
@@ -268,17 +298,94 @@ enum Mode {
     Run,
 }
 
-/// Per-user state directory: `%APPDATA%\PaTorrent\nox` on Windows, `$XDG_DATA_HOME/patorrent/nox`
-/// (or `~/.local/share/...`) elsewhere.
-fn default_state_dir() -> Option<PathBuf> {
-    if cfg!(windows) {
-        std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("PaTorrent").join("nox"))
-    } else {
-        std::env::var_os("XDG_DATA_HOME")
-            .map(PathBuf::from)
-            .or_else(|| std::env::var_os("HOME").map(|h| PathBuf::from(h).join(".local").join("share")))
-            .map(|d| d.join("patorrent").join("nox"))
+/// `--daemon` changes to `/`: the paths given relative to the working directory are made
+/// absolute first.
+fn absolutize(o: &mut Opts) {
+    fn abs(p: &mut PathBuf) {
+        if let Ok(a) = std::path::absolute(&*p) {
+            *p = a;
+        }
     }
+    fn abs_str(s: &mut String) {
+        if let Ok(a) = std::path::absolute(&*s) {
+            *s = a.to_string_lossy().into_owned();
+        }
+    }
+    abs_str(&mut o.save);
+    let dirs =
+        [&mut o.state, &mut o.config_dir, &mut o.ip_filter, &mut o.service.pid_file, &mut o.service.log];
+    for p in dirs.into_iter().flatten() {
+        abs(p);
+    }
+    if let Some(d) = &mut o.move_on_complete {
+        abs_str(d);
+    }
+    for s in o.sources.iter_mut().filter(|s| !s.starts_with("magnet:")) {
+        abs_str(s);
+    }
+}
+
+/// The state and config directories (`paths`), with `webui.json` moved from where it was
+/// kept before the config directory existed. `None`s with `--no-state`.
+fn state_dirs(o: &Opts) -> paths::Dirs {
+    if o.no_state {
+        return paths::Dirs::default();
+    }
+    let dirs = paths::resolve(o.state.clone(), o.config_dir.clone());
+    if dirs.state.is_none() {
+        eprintln!("! no state directory (HOME / APPDATA not set): nothing is saved; use --state-dir DIR");
+    }
+    if let (Some(old), Some(new)) = (&dirs.legacy_config, &dirs.config) {
+        match paths::migrate(old, new) {
+            Ok(done) => {
+                for (file, moved) in done {
+                    let how = if moved { "moved" } else { "copied" };
+                    println!("* {how} {} to the config directory {}", file.display(), new.display());
+                }
+            }
+            Err(e) => {
+                eprintln!("! moving the Web UI settings from {} to {}: {e}", old.display(), new.display())
+            }
+        }
+    }
+    dirs
+}
+
+/// SIGHUP: the `--log` file reopened and the IP filter's block list read again (the Web UI's
+/// BitTorrent page choice when it runs, else `--ip-filter`). `webui.json` is not re-read: the
+/// running daemon owns it (it rewrites it on every change made in the Web UI).
+fn reload(
+    o: &Opts,
+    service: &mut daemon::Service,
+    web: Option<&webui::WebUi>,
+    h: &patorrent_core::SessionHandle,
+) {
+    let log_error = service.reloading();
+    println!("* SIGHUP: reloading");
+    if let Some(e) = log_error {
+        eprintln!("! {e}");
+    }
+    match (web, &o.ip_filter) {
+        (Some(w), _) => {
+            if let Some(line) = w.reload_ip_filter() {
+                println!("* {line}");
+            }
+        }
+        (None, Some(path)) => match IpFilter::load(path) {
+            Ok(l) => {
+                println!(
+                    "* IP filter: {} rules from {} ({} lines skipped)",
+                    l.rules,
+                    path.display(),
+                    l.invalid
+                );
+                h.set_ip_filter(l.filter);
+            }
+            Err(e) => eprintln!("! IP filter: {}: {e} (the old rules stay)", path.display()),
+        },
+        (None, None) => {}
+    }
+    service.reloaded();
 }
 
 /// Lines typed on stdin ("q" quits).
@@ -296,8 +403,27 @@ fn stdin_lines() -> mpsc::Receiver<String> {
     rx
 }
 
-fn run(o: Opts, mode: Mode) -> ExitCode {
-    let state_dir = if o.no_state { None } else { o.state.clone().or_else(default_state_dir) };
+fn run(mut o: Opts, mode: Mode) -> ExitCode {
+    if o.service.daemon {
+        absolutize(&mut o);
+    }
+    // first, while this is the only thread: `--daemon` forks
+    let mut service = match daemon::Service::start(&o.service) {
+        Ok(s) => s,
+        Err(e) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    };
+    let (wake_tx, wake_rx) = mpsc::channel::<()>();
+    let signal_wake = wake_tx.clone();
+    if let Err(e) = signals::install(move || {
+        let _ = signal_wake.send(());
+    }) {
+        eprintln!("! cannot install the signal handlers: {e}");
+    }
+    let dirs = state_dirs(&o);
+    let state_dir = dirs.state.clone();
     let mut settings =
         Settings { download_rate_limit: o.dl_limit, upload_rate_limit: o.ul_limit, ..Settings::default() };
     if let Some(p) = o.port {
@@ -346,6 +472,9 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
     if let Some(d) = &state_dir {
         println!("* state: {}", d.display());
     }
+    if let Some(c) = dirs.config.as_ref().filter(|&c| Some(c) != state_dir.as_ref()) {
+        println!("* config: {}", c.display());
+    }
     let h = session.handle();
     if let Some(path) = &o.ip_filter {
         match IpFilter::load(path) {
@@ -364,7 +493,6 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
             }
         }
     }
-    let (wake_tx, wake_rx) = mpsc::channel::<()>();
     h.set_alert_notify(move || {
         let _ = wake_tx.send(());
     });
@@ -402,14 +530,20 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
         .move_on_complete
         .as_ref()
         .map(|d| std::path::absolute(d).map_or(d.clone(), |p| p.to_string_lossy().into_owned()));
-    let web =
-        match o.webui.map(|addr| start_webui(&o, addr, &h, settings, state_dir.clone(), &save, &move_dir)) {
-            Some(Err(e)) => {
-                eprintln!("error: cannot start the Web UI: {e}");
-                return ExitCode::FAILURE;
-            }
-            w => w.and_then(Result::ok),
-        };
+    let web = match o
+        .webui
+        .map(|addr| start_webui(&o, addr, &h, settings, dirs.config.clone(), &save, &move_dir))
+    {
+        Some(Err(e)) => {
+            eprintln!("error: cannot start the Web UI: {e}");
+            return ExitCode::FAILURE;
+        }
+        w => w.and_then(Result::ok),
+    };
+    service.ready(&match &web {
+        Some(w) => format!("running, Web UI on http://{}/", w.local_addr()),
+        None => "running".to_owned(),
+    });
 
     let mut move_completed = move_dir.map(|d| {
         println!("* completed downloads move to {d}");
@@ -544,14 +678,27 @@ fn run(o: Opts, mode: Mode) -> ExitCode {
             }
         }
         let quit = quit || web.as_ref().is_some_and(|w| w.shutdown_requested());
+        let ev = signals::take();
+        if ev.reload {
+            reload(&o, &mut service, web.as_ref(), &h);
+        }
+        if let Some(name) = ev.stop {
+            println!("* {name} received (again to quit at once, without saving)");
+        }
+        let quit = quit || ev.stop.is_some();
         if quit || (mine_done && !o.seed) || deadline.is_some_and(|d| Instant::now() >= d) {
             break;
         }
     }
     println!("* shutting down");
+    service.stopping();
     drop(web);
     h.clear_alert_notify();
     session.shutdown();
+    println!("* stopped");
+    // the pid file goes before a Windows close / shutdown handler lets the process end
+    drop(service);
+    signals::finished();
     if failed > 0 || (mode == Mode::Add && finished_at.is_none() && o.seconds.is_none()) {
         ExitCode::FAILURE
     } else {
@@ -564,14 +711,15 @@ fn start_webui(
     addr: std::net::SocketAddr,
     h: &patorrent_core::SessionHandle,
     settings: Settings,
-    state_dir: Option<PathBuf>,
+    config_dir: Option<PathBuf>,
     save: &str,
     move_dir: &Option<String>,
 ) -> std::io::Result<webui::WebUi> {
     let mut c = webui::Config::new(addr, settings, save);
     c.username = o.webui_user.clone().unwrap_or(c.username);
     c.password = o.webui_pass.clone();
-    c.state_dir = state_dir;
+    // webui.json and the default ipfilter.dat live in the config directory (`paths`)
+    c.state_dir = config_dir;
     c.move_completed_dir = move_dir.clone();
     c.ip_filter = o.ip_filter.clone();
     let w = webui::WebUi::start(h.clone(), c)?;
@@ -717,6 +865,65 @@ mod tests {
         assert_eq!(o.move_on_complete.as_deref(), Some("done"));
         assert_eq!(o.sources, ["a.torrent"]);
         assert!(parse(&["--move-on-complete".to_owned()]).is_err());
+    }
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn service_and_directory_options() {
+        let o = parse(&args(&[
+            "--state-dir",
+            "s",
+            "--config-dir",
+            "c",
+            "--daemon",
+            "--pid-file",
+            "nox.pid",
+            "--log",
+            "nox.log",
+        ]))
+        .unwrap();
+        assert_eq!((o.state, o.config_dir), (Some("s".into()), Some("c".into())));
+        assert_eq!(
+            o.service,
+            daemon::Options { daemon: true, pid_file: Some("nox.pid".into()), log: Some("nox.log".into()) }
+        );
+        // --state is the older spelling
+        assert_eq!(parse(&args(&["--state", "x"])).unwrap().state, Some("x".into()));
+        let o = parse(&args(&[])).unwrap();
+        assert_eq!((o.state, o.config_dir, o.service), (None, None, daemon::Options::default()));
+        for flag in ["--state-dir", "--config-dir", "--pid-file", "--log"] {
+            let e = parse(&args(&[flag])).err().expect(flag);
+            assert_eq!(e, format!("{flag} needs a value"));
+        }
+        assert!(parse(&args(&["--deamon"])).is_err());
+    }
+
+    #[test]
+    fn daemon_paths_are_made_absolute() {
+        let mut o = parse(&args(&[
+            "a.torrent",
+            "magnet:?xt=urn:btih:x",
+            "--save",
+            "dl",
+            "--pid-file",
+            "p",
+            "--log",
+            "l",
+        ]))
+        .unwrap();
+        absolutize(&mut o);
+        let cwd = std::env::current_dir().unwrap();
+        assert_eq!(PathBuf::from(&o.save), cwd.join("dl"));
+        assert_eq!(o.service.pid_file, Some(cwd.join("p")));
+        assert_eq!(o.service.log, Some(cwd.join("l")));
+        assert_eq!(
+            o.sources,
+            [cwd.join("a.torrent").to_string_lossy().into_owned(), "magnet:?xt=urn:btih:x".into()]
+        );
+        assert_eq!(o.state, None);
     }
 
     #[test]

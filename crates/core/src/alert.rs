@@ -266,6 +266,10 @@ pub enum Alert {
     /// Torrents whose status changed since the previous `post_torrent_updates()`.
     StateUpdate(Vec<TorrentStatus>),
     SessionStats(SessionStats),
+    /// Every torrent's resume data has been written (the reply to
+    /// [`SessionHandle::save_resume_data`](crate::SessionHandle::save_resume_data); sent also
+    /// when the session keeps no state).
+    ResumeDataSaved,
     PeerInfo {
         id: TorrentId,
         peers: Vec<PeerInfo>,
@@ -329,6 +333,7 @@ impl Alert {
             | ListenSucceeded { .. }
             | ListenFailed { .. }
             | SessionStats(_)
+            | ResumeDataSaved
             | PeerInfo { .. }
             | FileList { .. }
             | FileProgress { .. }
@@ -469,6 +474,7 @@ impl Alert {
             }
             StateUpdate(v) => write!(s, "state update for {} torrents", v.len()),
             SessionStats(_) => write!(s, "session stats"),
+            ResumeDataSaved => write!(s, "resume data saved"),
             PeerInfo { peers, .. } => write!(s, "{} peers", peers.len()),
             FileList { files, .. } => write!(s, "{} files", files.len()),
             FileProgress { done, .. } => write!(s, "progress for {} files", done.len()),

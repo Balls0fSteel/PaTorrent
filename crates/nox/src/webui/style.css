@@ -484,6 +484,55 @@ div.pg { border: 0; padding: 0 8px; }
   #prefs-tree .pt.sub { padding-left: 8px; }
 }
 
+/* Torrent Properties (the Win32 dialog's General tab); never taller than the viewport, the
+   page scrolls inside. On the phone it takes the whole screen. */
+#props {
+  width: min(540px, calc(100vw - 32px));
+  max-height: calc(100vh - 32px);
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+  color: var(--fg);
+  box-shadow: 2px 2px 10px var(--shadow);
+}
+#props::backdrop { background: rgba(0, 0, 0, 0.35); }
+#props h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#props-form { display: flex; flex-direction: column; gap: 8px; max-height: calc(100vh - 56px); }
+.props-tabs { display: flex; border-bottom: 1px solid var(--line); }
+.props-tabs span { padding: 3px 12px; margin-bottom: -1px; border: 1px solid var(--line); border-bottom-color: var(--bg); border-radius: 3px 3px 0 0; background: var(--bg); }
+.props-page { display: flex; flex-direction: column; gap: 8px; overflow: auto; min-height: 0; flex: 1 1 auto; padding-right: 2px; }
+#props-trackers {
+  display: block;
+  width: 100%;
+  min-height: 7em;
+  resize: vertical;
+  font: inherit;
+  color: inherit;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  padding: 3px 5px;
+}
+#props-trackers:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }
+#props .pf input:not([type]) { background: var(--bg); }
+#props .pf.disabled { color: var(--muted); }
+#props .pf input:disabled { opacity: 0.6; }
+.props-other { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); column-gap: 12px; }
+#props .bad { border-color: var(--err); outline: 1px solid var(--err); }
+#props-err { margin: 0; color: var(--err); white-space: pre-wrap; overflow-wrap: anywhere; }
+.props-btns { display: flex; justify-content: flex-end; gap: 6px; }
+.props-btns button { min-width: 72px; }
+@media (max-width: 767px) {
+  #props { width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: none; margin: 0; border: 0; padding: 10px; }
+  #props-form { height: 100%; max-height: none; }
+  #props .pf { line-height: 20px; min-height: 40px; }
+  #props .pf.num input { width: 5.5em; min-height: 34px; }
+  #props .pf.chk { display: flex; align-items: center; gap: 6px; }
+  #props .pf.chk input { width: 20px; height: 20px; margin: 0; }
+  .props-other { grid-template-columns: minmax(0, 1fr); }
+  .props-btns button { flex: 1; min-height: 40px; }
+}
+
 /* gate panel (#gate in the URL): measurements of the page itself */
 #gate {
   position: fixed;

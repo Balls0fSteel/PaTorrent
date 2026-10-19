@@ -15,8 +15,9 @@ line is visible to other local users in the process list, so prefer setting it i
 For a LAN host name, add it to Preferences > Web UI > domain list (`web_ui_domain_list`).
 
 Ready-made service files are in [`contrib/`](../contrib): systemd units (system and user) and a
-FreeBSD rc.d script. The command-line options are the configuration; the rest (limits, folders,
-the Web UI's settings) is set in the Web UI and kept in `webui.json`.
+FreeBSD rc.d script. On Windows `patorrent-nox service install` registers a Windows service
+([below](#the-windows-service)). The command-line options are the configuration; the rest
+(limits, folders, the Web UI's settings) is set in the Web UI and kept in `webui.json`.
 
 ## Files
 
@@ -24,6 +25,7 @@ the Web UI's settings) is set in the Web UI and kept in `webui.json`.
 |---|---|---|
 | state: `resume.db`, `metadata.pack`, `dht_state.dat` | `$XDG_DATA_HOME/patorrent/nox`, else `~/.local/share/patorrent/nox` | `%APPDATA%\PaTorrent\nox` |
 | config: `webui.json`, the default `ipfilter.dat` | `$XDG_CONFIG_HOME/patorrent/nox`, else `~/.config/patorrent/nox` | the same folder as the state |
+| the Windows service | | `%ProgramData%\PaTorrent\nox` for both, unless `service install` gets `--state-dir` |
 
 - The torrent library is data you would miss, so it lives under `XDG_DATA_HOME`, not
   `XDG_STATE_HOME` (which the XDG spec keeps for history and layout that may be lost). Nothing
@@ -49,6 +51,7 @@ the Web UI's settings) is set in the Web UI and kept in `webui.json`.
 | SIGHUP | reloads the IP filter's block list (the Web UI's choice when it runs, else `--ip-filter`; a list that fails to load leaves the old rules in force) and reopens the `--log` file |
 | SIGPIPE | ignored |
 | Windows: Ctrl+C, Ctrl+Break, closing the console window, logoff, shutdown | clean shutdown; for the last three Windows ends the process when the handler returns, so it waits for the state to be saved |
+| Windows service: stop, shutdown / PARAMCHANGE | clean shutdown / reload, as above ([the Windows service](#the-windows-service)); logoff is ignored |
 
 `webui.json` is not re-read on SIGHUP (see above).
 
@@ -117,8 +120,101 @@ reload` sends SIGHUP. Settings go in `/etc/rc.conf` (`sysrc`): `patorrent_nox_en
 
 ## Windows
 
-There is no Windows service yet (a follow-up). `patorrent-nox run` in a console stops cleanly on
-Ctrl+C or when the window closes. To start it with Windows, use the Task Scheduler: a task "At
-startup" that runs `patorrent-nox.exe run --save D:\Torrents --webui 8080 --log
-C:\PaTorrent\nox.log` as a chosen account, "whether the user is logged on or not". `--log`
-works on Windows too; `--daemon` does not.
+### The Windows service
+
+`patorrent-nox service install [OPTIONS]` registers the service **`PaTorrentNox`** (display
+name "PaTorrent nox") with the Service Control Manager. It runs `patorrent-nox run` with the
+given options; `install`, `uninstall`, `start` and `stop` need an administrator prompt.
+
+1. Put the exe where the service account can read it, e.g. `C:\Program Files\PaTorrent\`. A copy
+   under your user profile (Downloads, Documents, a build folder) cannot be opened by
+   LocalService; `install` warns about that.
+2. Install it from an elevated prompt, with the `run` options it should start with:
+
+   ```bat
+   "C:\Program Files\PaTorrent\patorrent-nox.exe" service install --webui 127.0.0.1:8080
+   ```
+
+   Relative paths are made absolute (a service starts in `C:\Windows\System32`). Torrent files on
+   the command line, `--daemon` and `--no-state` are refused. Install options of its own:
+   `--account LocalService|NetworkService|LocalSystem` (default LocalService) and
+   `--start delayed|auto|manual` (default delayed: automatic, after the boot has settled).
+3. `patorrent-nox service start` (or `sc start PaTorrentNox`, or the Services console) starts it
+   and waits until it runs; it starts with Windows from then on.
+
+What `install` sets up:
+
+| | |
+|---|---|
+| image path | `"C:\...\patorrent-nox.exe" service run OPTIONS`, the exe quoted; `sc qc PaTorrentNox` shows it, so install again to change the options |
+| account | `NT AUTHORITY\LocalService`: few rights, no password, anonymous on the network |
+| state and config | `%ProgramData%\PaTorrent\nox` unless `--state-dir` is given. Not the account's `%APPDATA%`, which is hidden under `C:\Windows\ServiceProfiles\LocalService`. A folder that does not exist yet is created with a protected ACL: full control for SYSTEM, Administrators and the service account, nothing inherited from `%ProgramData%` (where every user may read), because `webui.json` and the log hold the Web UI login |
+| downloads | `Downloads` in the state folder unless `--save` is given |
+| log | `--log`, else `nox.log` in the state folder (a service has no console). It shows the temporary Web UI password when none is stored; read it from an elevated prompt |
+| recovery | restart after 5 s, 30 s and 60 s; the count starts again after a day without failures. Also when it stops by itself with an error code, not only on a crash |
+| shutdown | the service asks for 60 s at system shutdown (PRESHUTDOWN) to save resume data and delete port mappings |
+
+Folders the account has to write that `install` did not create (an existing state folder, a
+`--save` folder, `--move-on-complete`) need a grant, from an elevated prompt:
+
+```bat
+icacls D:\Torrents /grant "NT AUTHORITY\LocalService:(OI)(CI)M"
+```
+
+Incoming peer connections need a Windows Firewall rule for the exe (the first `run` in a
+console normally asks; a service cannot):
+
+```bat
+netsh advfirewall firewall add rule name="PaTorrent nox" dir=in action=allow program="C:\Program Files\PaTorrent\patorrent-nox.exe"
+```
+
+`--webui-pass` would become part of the image path, which every local user can read with `sc
+qc`: leave it out, log in with the temporary password from the log and set one in Preferences >
+Web UI.
+
+Controls:
+
+| Control | Effect |
+|---|---|
+| `sc stop PaTorrentNox`, `service stop`, the Services console | STOP_PENDING at once, then the same clean shutdown as Ctrl+C; STOPPED with exit code 0 |
+| system shutdown (PRESHUTDOWN, SHUTDOWN) | the same |
+| `sc control PaTorrentNox paramchange` | the reload SIGHUP does (IP filter, log reopened) |
+| a user logging off | ignored |
+
+The service reports START_PENDING until the session runs and the Web UI listens (the point where
+systemd gets `READY=1`), then RUNNING. The pending states count a checkpoint every second for at
+most two minutes. When it stops by itself, `sc query PaTorrentNox` shows the reason as
+SERVICE_EXIT_CODE (with WIN32_EXIT_CODE 1066): 1 it failed (see the log), 2 its command line is
+invalid, 3 the log cannot be opened.
+
+`patorrent-nox service uninstall` stops and removes it; the state folder and log stay.
+`patorrent-nox service debug [OPTIONS]` runs the service's body in a console, without the SCM,
+printing the states it would report (and keeping output on the console unless `--log` is given):
+handy to try the options before installing. `service run` is the entry the SCM starts; in a
+console it fails with "could not connect to the service controller" (os error 1063).
+
+Step by step, from an elevated prompt (the ones marked "user" work unelevated too):
+
+```bat
+mkdir "C:\Program Files\PaTorrent"
+copy target\release\patorrent-nox.exe "C:\Program Files\PaTorrent\"
+cd /d "C:\Program Files\PaTorrent"
+patorrent-nox service install --webui 127.0.0.1:8080
+sc qc PaTorrentNox                         & rem user: image path, account, start type
+sc qfailure PaTorrentNox                   & rem user: the restart actions
+patorrent-nox service start
+sc query PaTorrentNox                      & rem user: STATE 4 RUNNING
+type "%ProgramData%\PaTorrent\nox\nox.log" & rem the temporary Web UI password
+start http://127.0.0.1:8080/
+sc control PaTorrentNox paramchange        & rem "* PARAMCHANGE: reloading" in the log
+patorrent-nox service stop                 & rem STOPPED (exit code 0)
+patorrent-nox service uninstall
+rmdir /s "%ProgramData%\PaTorrent"         & rem only to delete the state and downloads too
+```
+
+### Without the service
+
+`patorrent-nox run` in a console stops cleanly on Ctrl+C or when the window closes. The Task
+Scheduler is an alternative to the service: a task "At startup" that runs `patorrent-nox.exe run
+--save D:\Torrents --webui 8080 --log C:\PaTorrent\nox.log` as a chosen account, "whether the
+user is logged on or not". `--log` and `--pid-file` work on Windows too; `--daemon` does not.

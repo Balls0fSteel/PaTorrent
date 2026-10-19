@@ -1,7 +1,9 @@
 //! `patorrent-nox run` as a service. Unix: SIGTERM and SIGINT stop it cleanly, SIGHUP reloads,
 //! systemd's `NOTIFY_SOCKET` hears `READY=1`, `RELOADING=1` and `STOPPING=1`, and `--daemon`
 //! with `--pid-file` and `--log` detaches, refuses a second instance, reopens the log on SIGHUP
-//! and cleans up on SIGTERM. Windows: Ctrl+Break stops it cleanly and removes the pid file.
+//! and cleans up on SIGTERM. Windows: Ctrl+Break stops it cleanly and removes the pid file;
+//! `service debug` reports the service states in order, and `service run` outside the SCM fails
+//! with a hint.
 //! The sessions listen on loopback only, so no port is mapped on the real router.
 
 use std::io::Read;
@@ -209,5 +211,67 @@ mod windows {
         }
         assert!(!pid_file.exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `service debug`: the service's body without the SCM, printing the status it reports:
+    /// RUNNING only once the Web UI listens, STOP_PENDING through the shutdown, then STOPPED.
+    #[test]
+    fn service_debug_reports_the_status_an_scm_would_see() {
+        let dir = temp_dir("svc");
+        let mut child = Command::new(env!("CARGO_BIN_EXE_patorrent-nox"))
+            .args(["service", "debug", "--no-state", "--listen", "127.0.0.1:0", "--webui", "127.0.0.1:0"])
+            .current_dir(&dir)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .creation_flags(CREATE_NEW_PROCESS_GROUP)
+            .spawn()
+            .unwrap();
+        let mut lines = BufReader::new(child.stdout.take().unwrap());
+        let mut seen = String::new();
+        loop {
+            let mut line = String::new();
+            assert!(lines.read_line(&mut line).unwrap() > 0, "never RUNNING:\n{seen}");
+            seen.push_str(&line);
+            if line.trim() == "* service: RUNNING" {
+                break;
+            }
+        }
+        let order = ["* service: START_PENDING", "* Web UI: http://127.0.0.1:", "* service: RUNNING"];
+        let at: Vec<usize> = order.iter().map(|l| seen.find(l).unwrap_or_else(|| panic!("{l}"))).collect();
+        assert!(at.is_sorted(), "{seen}");
+        // SAFETY: plain call
+        if unsafe { GenerateConsoleCtrlEvent(CTRL_BREAK_EVENT, child.id()) } == 0 {
+            eprintln!("no console to send Ctrl+Break through: {}", std::io::Error::last_os_error());
+            child.kill().unwrap();
+            child.wait().unwrap();
+            return;
+        }
+        let status = wait_exit(&mut child);
+        lines.read_to_string(&mut seen).unwrap();
+        assert!(status.success(), "{status:?}\n{seen}");
+        let order = [
+            "* service: RUNNING",
+            "* Ctrl+Break received",
+            "* service: STOP_PENDING",
+            "* stopped",
+            "* service: STOPPED (exit 0)",
+        ];
+        let at: Vec<usize> =
+            order.iter().map(|l| seen.find(l).unwrap_or_else(|| panic!("{l}\n{seen}"))).collect();
+        assert!(at.is_sorted(), "{seen}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// `service run` outside the SCM says what to do instead.
+    #[test]
+    fn service_run_outside_the_scm_fails_with_a_hint() {
+        let out = Command::new(env!("CARGO_BIN_EXE_patorrent-nox"))
+            .args(["service", "run", "--no-state"])
+            .stdin(Stdio::null())
+            .output()
+            .unwrap();
+        assert_eq!(out.status.code(), Some(1), "{out:?}");
+        let err = String::from_utf8_lossy(&out.stderr);
+        assert!(err.contains("os error 1063") && err.contains("service install"), "{err}");
     }
 }

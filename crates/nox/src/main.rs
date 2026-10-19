@@ -8,11 +8,13 @@
 //!
 //! Phase 6: `run` as a service (docs/DAEMON.md): where the files go (`paths`), signals and
 //! console events (`signals`), `--daemon`, `--pid-file`, `--log` and systemd's notifications
-//! (`daemon`).
+//! (`daemon`); on Windows, the service (`service`).
 
 mod create;
 mod daemon;
 mod paths;
+#[cfg(windows)]
+mod service;
 mod signals;
 
 use std::collections::HashMap;
@@ -26,6 +28,7 @@ use patorrent_core::{
     Session, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus,
     VERSION,
 };
+use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Step, When};
 use patorrent_frontend::{fmt, status};
 use patorrent_nox::webui;
 
@@ -42,6 +45,7 @@ USAGE:
     patorrent-nox run [OPTIONS]
     patorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
     patorrent-nox create <file or dir> [-o OUT] [CREATE OPTIONS]
+    patorrent-nox service install [--account A] [--start TYPE] [OPTIONS] | uninstall | start | stop
     patorrent-nox --version | --help | --license
 
 COMMANDS:
@@ -49,6 +53,7 @@ COMMANDS:
     run     Resume every torrent saved in the state directory and keep running.
     demo    Load N synthetic torrents on the simulated engine and print session totals.
     create  Make a .torrent (v1) from a file or directory.
+    service The Windows service PaTorrentNox, which runs `run` (see WINDOWS SERVICE).
 
 CREATE OPTIONS:
     -o, --output FILE     Where to write the torrent (default: <name>.torrent)
@@ -86,6 +91,10 @@ OPTIONS:
                       Move each torrent that finishes downloading into DIR (files and the
                       part file of skipped files; empty folders left behind are removed)
     --seconds N       Stop after N seconds
+    --exit-when-done downloads|all
+                      Exit (state saved) once nothing is downloading any more, or with all
+                      nothing seeding either, after something has been (the GUI's Options >
+                      Auto Shutdown > Quit When Downloads / Everything Complete)
     --port N          Listen port (default 6881)
     --listen LIST     Listen interfaces, as libtorrent's listen_interfaces: IP:PORT,
                       [IPv6]:PORT or DEVICE:PORT, comma-separated (overrides --port)
@@ -110,9 +119,26 @@ SERVICE OPTIONS (docs/DAEMON.md):
                       same FILE refuses to start
     --log FILE        Append all output to FILE (reopened on SIGHUP)
 
+WINDOWS SERVICE (docs/DAEMON.md; install, uninstall, start and stop need an administrator):
+    service install [--account A] [--start TYPE] [OPTIONS]
+                      Register the service PaTorrentNox (\"PaTorrent nox\"), which runs `run`
+                      with OPTIONS (paths made absolute). The state defaults to
+                      %ProgramData%\\PaTorrent\\nox (created so that only SYSTEM, Administrators
+                      and the account can open it), the downloads to its Downloads folder and
+                      --log to nox.log there. Restarts after a failure
+        --account A   LocalService (default), NetworkService or LocalSystem
+        --start TYPE  delayed (default; automatic, after the boot), auto or manual
+    service uninstall Stop and remove the service (the state directory stays)
+    service start | stop
+                      Start or stop it and wait until it runs or has stopped (sc start / sc stop)
+    service run       What the Service Control Manager starts; not for a console
+    service debug [OPTIONS]
+                      `service run` in this console, printing the status it would report
+
 Type q and Enter, press Ctrl+C or send SIGTERM to stop cleanly (state is saved on the way
 out; a second Ctrl+C quits at once). SIGHUP reloads the IP filter and reopens the log. Under
-systemd (Type=notify) readiness is reported through NOTIFY_SOCKET.
+systemd (Type=notify) readiness is reported through NOTIFY_SOCKET. A Windows service stops on
+`sc stop PaTorrentNox` and reloads on `sc control PaTorrentNox paramchange`.
 ";
 
 struct Opts {
@@ -126,6 +152,7 @@ struct Opts {
     super_seed: bool,
     move_on_complete: Option<String>,
     seconds: Option<u64>,
+    exit_when_done: Option<When>,
     port: Option<u16>,
     listen: Option<String>,
     dl_limit: u32,
@@ -155,6 +182,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         super_seed: false,
         move_on_complete: None,
         seconds: None,
+        exit_when_done: None,
         port: None,
         listen: None,
         dl_limit: 0,
@@ -192,6 +220,13 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--move-on-complete" => o.move_on_complete = Some(value("--move-on-complete")?),
             "--verbose" | "-v" => o.verbose = true,
             "--seconds" => o.seconds = Some(num("--seconds", value("--seconds")?)?),
+            "--exit-when-done" => {
+                o.exit_when_done = Some(match value("--exit-when-done")?.as_str() {
+                    "downloads" => When::Downloads,
+                    "all" => When::Everything,
+                    v => return Err(format!("--exit-when-done {v}: expected downloads or all")),
+                })
+            }
             "--port" => o.port = Some(num("--port", value("--port")?)?),
             "--listen" => o.listen = Some(value("--listen")?),
             "--dl-limit" => o.dl_limit = num::<u32>("--dl-limit", value("--dl-limit")?)?.saturating_mul(1024),
@@ -281,6 +316,12 @@ fn main() -> ExitCode {
         "run" => parse(rest).map(|o| run(o, Mode::Run)),
         "create" => create::parse(rest).map(create::create),
         "demo" => parse(rest).map(demo),
+        #[cfg(windows)]
+        "service" => service::main(rest),
+        #[cfg(not(windows))]
+        "service" => {
+            Err("service is for Windows; on Unix see docs/DAEMON.md (systemd, rc.d, --daemon)".into())
+        }
         other => Err(format!("unknown command {other:?}")),
     };
     match result {
@@ -366,7 +407,7 @@ fn reload(
     h: &patorrent_core::SessionHandle,
 ) {
     let log_error = service.reloading();
-    println!("* SIGHUP: reloading");
+    println!("* {}: reloading", if cfg!(windows) { "PARAMCHANGE" } else { "SIGHUP" });
     if let Some(e) = log_error {
         eprintln!("! {e}");
     }
@@ -567,6 +608,10 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     let mut failed = 0usize;
     let mut finished_at: Option<Instant> = None;
     let deadline = o.seconds.map(|s| started + Duration::from_secs(s));
+    // a few seconds' grace: a torrent added just now, or a move about to start, calls it off
+    let mut exit_when_done = AutoShutdown::new(Duration::from_secs(5));
+    exit_when_done
+        .set_mode(o.exit_when_done.map(|w| auto_shutdown::Mode::new(auto_shutdown::Action::Quit, w)));
     let mut next_report = Instant::now();
     let mut next_peer_report = Instant::now() + PEER_REPORT_INTERVAL;
     loop {
@@ -691,7 +736,21 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             println!("* {name} received (again to quit at once, without saving)");
         }
         let quit = quit || ev.stop.is_some();
-        if quit || (mine_done && !o.seed) || deadline.is_some_and(|d| Instant::now() >= d) {
+        let busy =
+            o.exit_when_done.is_some_and(|w| !moving.is_empty() || auto_shutdown::any_busy(w, rows.values()));
+        let all_done = match exit_when_done.update(busy, Instant::now()) {
+            Step::Start(secs) => {
+                println!("* --exit-when-done: done, exiting in {secs} s");
+                false
+            }
+            Step::Abort => {
+                println!("* --exit-when-done: new work, not exiting yet");
+                false
+            }
+            Step::Act(_) => true,
+            Step::Wait | Step::Tick(_) => false,
+        };
+        if quit || all_done || (mine_done && !o.seed) || deadline.is_some_and(|d| Instant::now() >= d) {
             break;
         }
     }
@@ -929,6 +988,17 @@ mod tests {
             [cwd.join("a.torrent").to_string_lossy().into_owned(), "magnet:?xt=urn:btih:x".into()]
         );
         assert_eq!(o.state, None);
+    }
+
+    #[test]
+    fn exit_when_done_takes_downloads_or_all() {
+        let o = parse(&args(&["--exit-when-done", "downloads"])).unwrap();
+        assert_eq!(o.exit_when_done, Some(When::Downloads));
+        let o = parse(&args(&["--exit-when-done", "all"])).unwrap();
+        assert_eq!(o.exit_when_done, Some(When::Everything));
+        assert_eq!(parse(&args(&[])).unwrap().exit_when_done, None);
+        assert!(parse(&args(&["--exit-when-done", "seeds"])).is_err());
+        assert!(parse(&args(&["--exit-when-done"])).is_err());
     }
 
     #[test]

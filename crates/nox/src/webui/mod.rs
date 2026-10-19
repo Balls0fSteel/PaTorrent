@@ -51,6 +51,9 @@ pub const MAX_CONNECTIONS: usize = 64;
 pub const MAX_SESSIONS: usize = 256;
 /// How long a request waits for the engine to answer a `post_*` call.
 const REPLY_TIMEOUT: Duration = Duration::from_secs(5);
+/// Requests `Shared::query_many` has out at once: well under what `State::reply` keeps after
+/// trimming (the last 64), so other clients' replies cannot push ours out before they are read.
+const QUERY_GROUP: usize = 32;
 /// The name of the state file in the state directory.
 pub const STATE_FILE: &str = "webui.json";
 /// Log lines kept for the Logger tab (the alert loop's lines, session-wide and per torrent).
@@ -419,6 +422,46 @@ impl Shared {
             }
             st = self.replied.wait_timeout(st, deadline - now).unwrap_or_else(|e| e.into_inner()).0;
         }
+    }
+
+    /// [`query`](Self::query) for several torrents (Torrent Properties on a whole selection):
+    /// the requests go out in groups of `QUERY_GROUP` and the answers are taken as they come.
+    /// The torrents that do not answer within `REPLY_TIMEOUT`, all groups together, are left
+    /// out.
+    pub fn query_many(
+        &self,
+        ids: &[TorrentId],
+        kind: ReplyKind,
+        post: impl Fn(&SessionHandle, TorrentId),
+    ) -> HashMap<TorrentId, Reply> {
+        let deadline = Instant::now() + REPLY_TIMEOUT;
+        let mut out = HashMap::new();
+        for group in ids.chunks(QUERY_GROUP) {
+            let start = self.lock().serial;
+            for &id in group {
+                post(&self.handle, id);
+            }
+            let mut waiting = group.to_vec();
+            let mut st = self.lock();
+            loop {
+                waiting.retain(|id| match st.replies.get(&(*id, kind)) {
+                    Some((serial, r)) if *serial > start => {
+                        out.insert(*id, r.clone());
+                        false
+                    }
+                    _ => st.torrents.contains_key(id),
+                });
+                let now = Instant::now();
+                if waiting.is_empty() || now >= deadline {
+                    break;
+                }
+                st = self.replied.wait_timeout(st, deadline - now).unwrap_or_else(|e| e.into_inner()).0;
+            }
+            if Instant::now() >= deadline {
+                break;
+            }
+        }
+        out
     }
 
     /// Writes the state file (credentials as a hash, stored preferences, categories).

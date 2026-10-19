@@ -50,6 +50,7 @@ pub(crate) enum Command {
     PostWebSeeds(TorrentId),
     PostTorrentUpdates,
     PostSessionStats,
+    SaveResumeData,
     PostPeerInfo(TorrentId),
     PostFileList(TorrentId),
     PostFileProgress(TorrentId),
@@ -194,6 +195,12 @@ impl SessionHandle {
     /// Requests an [`Alert::SessionStats`].
     pub fn post_session_stats(&self) {
         self.send(Command::PostSessionStats);
+    }
+
+    /// Writes every torrent's resume data now, as at shutdown, and answers with
+    /// [`Alert::ResumeDataSaved`] once it is on disk (before a standby or hibernation).
+    pub fn save_resume_data(&self) {
+        self.send(Command::SaveResumeData);
     }
 
     pub fn apply_settings(&self, settings: Settings) {

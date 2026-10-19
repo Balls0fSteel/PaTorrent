@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-19_224116_1792442476
+Last updated: 2026-10-19_230101_1792443661
 
 ## Vision
 
@@ -27,7 +27,7 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 - **PatinaTorrent icon candidates (2026-10-15_203223_1792089143):** three original teal/copper application directions (Verdigris, Exchange, Foundry), transparent PNGs and multi-size Windows ICOs, plus 30 editable state SVGs with PNG exports, exact state mapping and an interactive review gallery in `assets/patina-icons/`. Completed transparency/rendering, ICO frame, state-coverage and desktop/mobile gallery checks. Next: choose a brand direction, then integrate its app/tray icon and the state family into the runtime-drawn Win32 UI. The candidates are not yet connected to the application.
 
 - **Stage:** Phase 3 (Win32 GUI MVP) is closed: the owner ran `patorrent.exe`, found the window fine, added a torrent and it downloaded (2026-10-15). Phase 4 has started: magnet links work (`ut_metadata`, BEP 9; CHANGELOG 2026-10-15_204502_1792089902), and the mainline DHT (BEP 5/32/42/43, `core::dht`; CHANGELOG 2026-10-15_211826_1792091906) finds peers for magnets without trackers: the Debian 13.7.0 netinst magnet with only `xt` bootstrapped from `dht.libtorrent.org` in 2 s, had DHT peers at 4 s, its metadata at 5 s and the whole 792 MB at 13 s. Peer exchange (`ut_pex`, BEP 11; CHANGELOG 2026-10-15_221714_1792095434) brought about 70 candidate peers within 10 s of the Debian magnet's first connections. Local service discovery (BEP 14; CHANGELOG 2026-10-15_234806_1792100886) finds peers on the local network: two `patorrent-nox` processes on one machine found each other on all 14 of its interfaces and kept a single connection. Port mapping (UPnP IGD and NAT-PMP / PCP; CHANGELOG 2026-10-16_155608_1792158968) forwards the listen port through the router: on this network (a Technicolor gateway, WANIPConnection:2) NAT-PMP had TCP and UDP 6881 mapped and the public address within a second of start, UPnP within two; the router listed both mappings as `PaTorrent/0.1.0` while `patorrent-nox` ran and no longer after it exited. MSE/PE protocol encryption (CHANGELOG 2026-10-16_163419_1792161259) makes and accepts encrypted connections with libtorrent's policies: the loopback policy matrix passes (forced / enabled / disabled on either side, RC4 and plaintext streams, the plaintext-first-then-encrypted retry), and `lt-swarm interop --encryption forced` downloaded from qBittorrent 5.2.4 over RC4. uTP (BEP 29, CHANGELOG 2026-10-16_220720_1792181240) carries peer connections over the UDP listen socket with LEDBAT congestion control: outgoing connections try uTP first and fall back to TCP (libtorrent's policy), incoming SYNs are accepted, and the loopback suite downloads over uTP, uTP-only, encrypted over uTP, and through the fallback. lt_donthave (BEP 54) and smart-ban (CHANGELOG 2026-10-16_225433_1792184073) close the Phase 4 extensions: peers can take announced pieces back, and a peer that slipped two bad blocks into a piece the seed otherwise supplied is banned once the piece passes, with the seed kept. Session-wide external-IP voting, Create New Torrent (v1, engine and `patorrent-nox create`) and the IP / port filter followed (CHANGELOG 2026-10-17_114537_1792230337), then web seeds (BEP 19 / 17), network-change handling with `listen_interfaces` expansion (closing Phase 4) and the Win32 Create New Torrent dialog (CHANGELOG 2026-10-17_140012_1792238412). Phase 5 has started: the Win32 Preferences dialog, proxies (SOCKS4/5, HTTP), super-seeding and part files were built in parallel and merged (CHANGELOG 2026-10-17_161604_1792246564), then move storage and the Win32 Add New Torrent dialog (CHANGELOG 2026-10-17_165701_1792249021). Phase 6 has started: `patorrent-nox run --webui [ADDR:]PORT` serves a qBittorrent WebAPI v2 subset (login with a salted PBKDF2 hash, ban, CSRF and Host checks, torrents/info, add, stop / start, delete, files, trackers, categories, preferences, incremental `sync/maindata`) and a small Web UI page (CHANGELOG 2026-10-17_164324_1792248204); the native API (D18) has its WebSocket and session protocol (CHANGELOG 2026-10-17_210452_1792263892) and its page, the 2.2.1 main window in the browser, measured within every budget at 10,000 torrents (CHANGELOG 2026-10-17_220311_1792267391). Phase 2 (minimum viable engine) is closed too; its results follow.
-- Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (the 12 MB target is not met as a working set; see Known TODOs). `patorrent.exe` is 1.36 MB.
+- Phase 3 scale gate (release, 10,000 saved stopped torrents, real engine): all rows listed in 0.2–0.4 s, 60 MB working set, idle CPU 0.1 % of a core. Empty session: 19.9 MB working set, 4.5 MB private (accepted for 1.0 by D21; the 12 MB target is dropped). `patorrent.exe` is 1.36 MB.
 - Phase 2 results (release build, this dev machine):
 
   | What | Result |
@@ -67,6 +67,10 @@ Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the reco
 | D16 (Q2, Q8) | Name: **PaTorrent** (long name **PatinaTorrent**; a patina is the good kind of rust). Peer-ID prefix `-PA0100-`, User-Agent `PaTorrent/<version>`, BEP 10 `v` = `PaTorrent <version>`. Crates `patorrent-core` / `-frontend` / `-nox`, binary `patorrent.exe`, `%APPDATA%\PaTorrent`, `patorrent.ini`. `LR` stays mapped to the Android LibreTorrent in our peer table. | "LibreTorrent" was taken (Android, peer ID `LR`) and "libre" is wrong under D15. The owner turned down Ferrite (`Fe` reads badly) and Oxbit. `PA` is free in libtorrent's table and the BEP 20 list. |
 | D17 (Q8) | No peer-ID spoofing. PaTorrent always reports itself. | A borrowed ID with this engine's fingerprint gets accounts banned on private trackers and misreports the client. |
 | D18 | The Web UI is our own, not qBittorrent's: the µTorrent 2.2.1 main window in a browser, driven by a native push API (`/pa/ws` WebSocket down, JSON `POST`s up) designed from what the page needs. The page is a thin terminal of `patorrent-frontend`: the server runs the filtered, sorted `TorrentList` per client and sends formatted cells for the visible window only. No framework, no build step, embedded. The qBittorrent subset (D10) stays as a shim. Design: [docs/WEBUI.md](docs/WEBUI.md). | Parity with the desktop for free (one `frontend` decides what is shown), 10,000 torrents without the page holding them, works on a phone, keeps the Sonarr / Radarr ecosystem at no design cost. Decided with the owner 2026-10-17. |
+| D19 | **1.0 scope** (owner, 2026-10-19_230101_1792443661): the Win32 GUI, the GTK GUI (Phase 7) and nox; BitTorrent v2 and hybrid torrents (Phase 8, BEP 52: adding, downloading, seeding, creating; BEP 44 / 51 / 55 stay after 1.0 unless they come cheap); localisation; the Web UI over HTTPS and the GUIs' remote mode (Phase 6). | The owner wants a complete client at 1.0, not a Windows-only preview. |
+| D20 | **Translations**: every user-visible string goes through string tables (one per language, shared by the three frontends), translated in full by Claude from the English table; English is the source and the fallback. | No translator community yet; whole-table machine translation is good enough to start and is redone when strings change. |
+| D21 | **Scale before size** (2026-10-19_230101_1792443661): the 1.0 gate is 100,000 torrents loaded on a low-end PC ("µTorrent on a potato"), with idle CPU and responsiveness the measure. The empty-session working set of about 20 MB is accepted; memory is optimised later, and only where a measurement shows it is worth it (the 12 MB target is dropped). | The point of the project is lean and very powerful at scale, not a few MB at zero torrents. |
+| D22 | **Distribution** (2026-10-19_230101_1792443661): Windows as the portable `.exe` (D7, a zip with LICENSE.md and the notices); Linux as AppImage and Flatpak, plus plain binary tarballs; no distro packages (D15 is not free software, and distro packages lag). macOS release built in CI without a Mac (GitHub-hosted macOS runners, as qBittorrent does), see Q12–Q14. | Self-contained packages we control and update on our own schedule. |
 
 ## Roadmap
 
@@ -256,10 +260,12 @@ Design: [docs/WEBUI.md](docs/WEBUI.md) (D18, decided 2026-10-17_203617_179226217
 - [ ] Optional: either GUI can remote-control a nox instance
 
 ### Phase 7: GTK GUI (Linux / BSD)
+In 1.0 (D19, 2026-10-19_230101_1792443661).
 - [ ] Same layout and the same `frontend` model; virtualized `ColumnView`; tray via StatusNotifierItem
-- [ ] Packaging: tarball and AppImage first; Flatpak, distro packages and a FreeBSD port later
+- [ ] Packaging (D22): AppImage, Flatpak and binary tarballs for 1.0; no distro packages; a FreeBSD port later
 
 ### Phase 8: Modern protocol extensions
+BEP 52 is in 1.0 (D19, 2026-10-19_230101_1792443661); BEP 44 / 51 / 55 after it unless cheap.
 - [ ] BitTorrent v2 and hybrid torrents (BEP52): merkle trees, hash picker, v2 magnets
 - [ ] BEP44 DHT items (ed25519), BEP51 sample_infohashes, BEP55 holepunch
 
@@ -280,31 +286,42 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 
 ## Road to 1.0
 
-Written 2026-10-19_224116_1792442476. There was no written 1.0 bar; this is a proposal from the open items in this file, for the owner to confirm or cut.
+Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_1792443661 (D19–D22). In rough order; the GTK and v2 work can run beside the rest.
 
-**Must for 1.0 (Windows GUI + nox):**
-1. Hand click-throughs of everything built but only tested hidden or through messages: Preferences (every page, the proxy box, the Advanced list at 150 % DPI), Create New Torrent, Torrent Properties, RSS Downloader, Auto Shutdown (with `PATORRENT_POWER_DRY_RUN=1`), Windows Integration on the real registry, the magnet Add dialog with a real magnet. Fix what they turn up.
-2. The application icon: pick one of the PatinaTorrent candidates (`assets/patina-icons/`) and integrate it with the state icons (also the status bar's network indicator, still text).
-3. The nox Windows service under the real SCM (elevated prompt, docs/DAEMON.md), and the FreeBSD rc.d script with root.
-4. Interop reruns: `lt-swarm interop` plain, encrypted and uTP against qBittorrent, Transmission and Deluge (WSL was down), plus a super-seed run.
-5. The Web UI's phone layout on a real phone.
-6. Release engineering: version 1.0.0 with the peer-ID prefix `-PA1000-` (a test ties them), a tagged release with notes, the parser security review the Continuous section asks for, then the `PA` registrations (libtorrent, Transmission, webtorrent, BEP 20 list).
+**Platform and protocol (D19):**
+1. Phase 8, BEP 52: v2 and hybrid torrents end to end. Merkle trees and the hash picker, v2 piece layers in resume data, v2 magnets (`btmh`), creating v2 / hybrid torrents (`set_hash2`, piece layers, file tree), truncated v2 hashes for LSD / DHT. Port the rest of `test_torrent_info`, `test_create_torrent`, `test_merkle_tree`, `test_hash_picker`.
+2. Phase 7: the GTK 4 GUI on `patorrent_frontend` (the models are toolkit-independent already), virtualised `ColumnView`, StatusNotifierItem tray, XDG autostart and `xdg-mime` associations.
+3. Phase 6: HTTPS for the Web UI (a server side for the TLS layer: SChannel and OpenSSL, certificate and key from the user, optional self-signed one generated on request) and the GUIs' remote mode (either GUI driving a nox over the native API).
+4. Localisation (D20): string tables in `patorrent_frontend`, every frontend's strings moved to them, the language choice on Preferences > General (Win32, GTK, the Web UI), then the translated tables.
 
-**Decide (owner):**
-- Phase 7 (GTK GUI) in 1.0, or a 1.x release? The frontend model is ready for it; it is the biggest piece left.
-- Phase 8: v2-only torrents are refused today and v2 creation is missing. In 1.0 or later?
-- Localisation infrastructure (Phase 5): English-only 1.0, or string tables first?
-- The empty-session working set: 19.9 MB against the 12 MB target (4.5 MB private). Accept, or work on it (lazy urlmon / shell32, SegmentHeap)?
-- Web UI over TLS and the GUIs' remote mode (Phase 6): 1.0 or later?
-- Properties > Advanced tab and the `rss.*` Advanced settings: both need a real µTorrent 2.2.1 to copy from.
+**Scale (D21):**
+5. The 100,000-torrent gate on a low-end machine (proposal: 2 cores, 4 GB RAM, a hard disk, Windows 10 and a light Linux; numbers: startup to a painted list, idle CPU, scroll and sort latency, add / remove at that size). The real engine and the Web UI have only been measured at 10,000 so far. Fix what it shows.
 
-**Engine gaps worth closing (libtorrent has them):** batched UDP scrapes; peer turnover; `recv_socket_buffer_size` / `send_socket_buffer_size`; `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; a disconnect alert with the close reason.
+**Packaging (D22):**
+6. Windows: a release zip (`patorrent.exe`, `patorrent-nox.exe`, LICENSE.md, THIRD-PARTY-NOTICES.md) built by a tagged-release workflow.
+7. Linux: AppImage (GUI and nox, bundling OpenSSL 3), Flatpak (GNOME runtime; Flathub accepts non-free apps with a `LicenseRef` license, but builds from a public source or a published tarball, see Q14), binary tarballs (x86_64 and aarch64).
+8. macOS (Q12–Q14): a Security.framework TLS backend (the TLS layer picks OpenSSL for every Unix today, and macOS has no linkable OpenSSL), the routing table through `PF_ROUTE` sysctl (as on FreeBSD; NAT-PMP is off on macOS now), a macOS CI job running the tests, then the release `.app` / `.dmg` for x86_64 and arm64, ad-hoc signed.
+
+**Before tagging 1.0:**
+9. Hand click-throughs of everything built but only tested hidden or through messages: Preferences, Create New Torrent, Torrent Properties, RSS Downloader, Auto Shutdown (`PATORRENT_POWER_DRY_RUN=1`), Windows Integration on the real registry, the magnet Add dialog with a real magnet. Fix what they turn up.
+10. The application icon from the PatinaTorrent candidates (`assets/patina-icons/`), with the state icons and the status bar's network indicator.
+11. The nox Windows service under the real SCM; the FreeBSD rc.d script with root.
+12. Interop reruns: `lt-swarm interop` plain, encrypted, uTP and super-seed against qBittorrent, Transmission and Deluge, plus a v2 / hybrid swarm with qBittorrent once BEP 52 is in.
+13. The Web UI's phone layout on a real phone.
+14. Release engineering: version 1.0.0 and peer-ID prefix `-PA1000-` (a test ties them), release notes, the parser security review (Continuous), then the `PA` registrations (libtorrent, Transmission, webtorrent, the BEP 20 list).
+
+**Engine gaps worth closing (libtorrent has them):** batched UDP scrapes and peer turnover (a session is on them, 2026-10-19_230101_1792443661); `recv_socket_buffer_size` / `send_socket_buffer_size`; `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; a disconnect alert with the close reason.
+
+**Still to settle:** Properties > Advanced and the `rss.*` Advanced settings need a real µTorrent 2.2.1 to copy from.
 
 ## Open questions
 
 - **Q1, Q2, Q8, Q9.** Resolved, see D14–D17.
 - **Q3–Q7.** Resolved, see D9–D13.
 - **Q11. GitHub repository name.** Resolved 2026-10-15: renamed to `Balls0fSteel/PaTorrent` (GitHub redirects the old URL); Cargo.toml, the README and the `origin` remote point there. The local folder is still `libretorrent`; renaming it is optional and best done with no editor or session open in it.
+- **Q12. macOS GUI** (2026-10-19_230101_1792443661). Options: (a) nox plus the Web UI wrapped as a menu-bar `.app` (smallest; the Web UI is the 2.2.1 window already); (b) the GTK GUI built for macOS (one more target for Phase 7, but GTK on macOS looks foreign and needs its libraries bundled); (c) a native AppKit GUI (a fourth frontend). Recommendation: (a) for 1.0.
+- **Q13. Which languages** for the first translated tables (2026-10-19_230101_1792443661)?
+- **Q14. Repository visibility** (2026-10-19_230101_1792443661). The repo is private: GitHub bills macOS runner minutes at 10× (Windows 2×), and Flathub builds from a source it can fetch. Making the source public (still PolyForm Noncommercial, D15) makes CI free and Flathub straightforward; staying private means macOS builds only on release tags and Flathub from published tarballs.
 - **Q10. Interop testing setup.** Answered: qBittorrent runs as the installed app with a throwaway `--profile`; Transmission and Deluge run in the Debian WSL distro (`transmission-cli`, `deluged`, `deluge-console` installed 2026-10-15; the `deluged` system service the package enabled was stopped and disabled). `lt-swarm interop` scripts all three; `--encryption forced|enabled|disabled` sets the clients' encryption settings too (qBittorrent `Session\Encryption`, Transmission `encryption`, Deluge `enc_in_policy` / `enc_out_policy` / `enc_level`).
 
 ## Future improvements
@@ -479,7 +496,7 @@ Written 2026-10-19_224116_1792442476. There was no written 1.0 bar; this is a pr
   - nox runs the scheduler only with `--webui` (its preferences live in the Web UI state); the qBittorrent shim does not map qBittorrent's scheduler preferences.
   - upload mode leaves requests already sent to peers outstanding (their blocks still arrive); libtorrent also clears the request queues.
 - Win32 GUI (Phase 3 follow-ups):
-  - empty-session working set is 19.9 MB against the 12 MB target (private bytes 4.5 MB). Most of it is shared system DLLs; loading urlmon and parts of shell32 only when needed may help.
+  - empty-session working set is 19.9 MB (private bytes 4.5 MB), accepted by D21 (optimise later, only where measured worthwhile). Most of it is shared system DLLs; loading urlmon and parts of shell32 only when needed may help.
   - the status bar's network indicator is text; µTorrent shows a colored icon.
   - the Pieces tab draws a piece map with the list of pieces in progress under it (2026-10-19_213029_1792438229). The list's columns (#, Size, # of Blocks, Blocks, Completed) are from memory; check them against a real 2.2.1. The Win32 list's first column (#) is left-aligned (a list view's first column cannot be right-aligned).
   - restored torrents each log "added" at startup (10,000 lines with a big library); µTorrent does not log restores.

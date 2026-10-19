@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-19_230101_1792443661: 1.0 scope decided
+
+### Decisions
+- The owner set the 1.0 scope (PLAN.md D19 to D22, Road to 1.0 rewritten): the GTK GUI, v2 / hybrid torrents (BEP 52), localisation with Claude-translated string tables, Web UI HTTPS and the GUIs' remote mode are all in 1.0. The gate is 100,000 torrents on a low-end PC; the 20 MB empty-session working set is accepted and the 12 MB target dropped. Distribution: Windows zip, Linux AppImage, Flatpak and binary tarballs, no distro packages, and a macOS build made in CI without a Mac.
+- Open: Q12 (the macOS GUI), Q13 (the first languages), Q14 (repository visibility, which decides macOS CI cost and how Flathub builds).
+
+### Issues
+- macOS cannot build today: the TLS layer uses OpenSSL on every Unix target and macOS has no linkable OpenSSL. A Security.framework backend is the first macOS item.
+
 ## 2026-10-19_224116_1792442476: Magnets through the Add New Torrent dialog; gzip block lists; .torrent DHT nodes
 
 ### Added

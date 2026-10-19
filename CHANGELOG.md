@@ -83,6 +83,7 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 ### Verified
 - New tests: `integration::tests` (7) against a scratch key `HKCU\Software\PaTorrent-test-<pid>-<n>` removed afterwards (everything on and off, only changes written, another client's scheme and another copy's autostart left alone, case-insensitive paths, `UserChoice` reporting, the command lines); `preferences::tests::the_general_page_changes_the_windows_integration` with a fake registry (boxes from the registry, Apply without changes writes nothing, "Start minimized" greyed and dropped without autostart, the option stored); `app::tests::the_command_line_takes_sources_and_switches`.
 - Windows: `cargo test --workspace` 912 passed, 0 failed; stable clippy `-D warnings`, Linux-target clippy, both fmt checks. No `PaTorrent` key left under `HKCU\Software` after the tests.
+- CI: GitHub made no runs for `5fd43ed` itself; the next pushed commit, `c68d67e`, contains it, and CI (run 39314589089), FreeBSD (39314589099) and Fuzz (39314589563) all passed on it.
 
 ### Issues
 - Not clicked through by hand on the real registry (it would change this machine's `.torrent` association, which the interop setup's qBittorrent uses). See PLAN.md Known TODOs.

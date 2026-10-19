@@ -1753,7 +1753,10 @@ fn native_detail_tabs_against_the_engine() {
     );
     let m = ws.detail_until("speed");
     assert_eq!(m.get("all"), None, "{}", m.to_json());
-    assert_eq!(m.get("samples"), Some(&Json::Arr(vec![Json::Arr(vec![Json::Int(0), Json::Int(0)])])));
+    // one sample per tick, but a slow machine can run two ticks before the update goes out
+    let Some(Json::Arr(samples)) = m.get("samples") else { panic!("{}", m.to_json()) };
+    assert!(!samples.is_empty(), "{}", m.to_json());
+    assert!(samples.iter().all(|x| *x == Json::Arr(vec![Json::Int(0), Json::Int(0)])), "{}", m.to_json());
     assert_eq!(
         m.get("legend"),
         Some(&Json::Arr(vec!["Download: 0.0 kB/s".into(), "Upload: 0.0 kB/s".into()]))

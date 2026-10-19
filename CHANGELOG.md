@@ -7,6 +7,7 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 ### Fixed
 - CI run 39225424904 failed in two jobs (FreeBSD passed). `msrv` (Rust 1.85): a let-chain (`if … && let Some(t) = …`) in `engine/mod.rs`'s upload-mode handling; let-chains are stable only from 1.88. Now a nested `if let`. The three let-chains in `win32/src/app.rs` (Auto Shutdown on exit and on suspend, move-completed alerts) were rewritten too (`Option::map` / `and_then`): the MSRV job runs on Linux and never builds them, but the workspace declares `rust-version = "1.85"`.
 - `test` on Windows and Linux (stable clippy 1.99): `clippy::single_element_loop` in `frontend/src/properties.rs` (the super-seeding flag loop over one pair, now a plain `match`).
+- The next run (39226516579) passed everything except `nox/tests/webui.rs::native_detail_tabs_against_the_engine` on the Windows runner: the Speed tab's incremental update had two `[0, 0]` samples where the test expected exactly one. The server sends every sample since the last update by design (the page appends them all), and a slow runner ran two status ticks before the update went out. The test now accepts one or more samples, all zero.
 
 ### Verified
 - Windows: `cargo +stable fmt --all --check`, `cargo fmt --all --check`, fuzz fmt check, `cargo +stable clippy --workspace --all-targets -- -D warnings` (1.97), Linux-target clippy, `cargo test --workspace`: 902 passed, 0 failed.

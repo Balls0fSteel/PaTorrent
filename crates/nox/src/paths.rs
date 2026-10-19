@@ -5,7 +5,7 @@
 //! - the **state** directory holds the torrent library: the session store (`resume.db`,
 //!   `metadata.pack`) and the DHT state (`dht_state.dat`);
 //! - the **config** directory holds what the user set: `webui.json` (the Web UI login, its
-//!   Preferences, labels) and the default `ipfilter.dat`.
+//!   Preferences, labels), `rss.dat` (the RSS Downloader) and the default `ipfilter.dat`.
 //!
 //! On Linux and the BSDs they follow the XDG Base Directory spec. The library is user data
 //! that is not easily rebuilt, so it goes to `$XDG_DATA_HOME` (as qBittorrent's `BT_backup`

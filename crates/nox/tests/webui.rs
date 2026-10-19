@@ -2532,3 +2532,94 @@ fn torrent_folders_store_copies_and_auto_load() {
     std::thread::sleep(Duration::from_secs(5));
     assert!(watch.join("broken.torrent").exists());
 }
+
+#[test]
+fn torrent_properties_and_the_shims_tracker_and_share_limit_edits() {
+    let t = Harness::start("properties");
+    let sid = t.login();
+    let (bytes, hash) = torrent_with(Some("udp://127.0.0.1:9/announce"));
+    let (body, boundary) = multipart(&[("paused", "true")], &bytes);
+    let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+    assert_eq!(r.status, 200);
+    t.wait_for(&sid, &hash, "the added torrent", |x| s(x.get("name")) == "webui-test");
+    let props = || t.get(&sid, &format!("/pa/torrents/properties?ids={hash}")).json();
+    let field = |p: &Json, k: &str| s(p.get("fields").and_then(|f| f.get(k))).to_owned();
+    let p = props();
+    assert_eq!(p.get("count").and_then(Json::as_i64), Some(1));
+    assert_eq!(field(&p, "trackers"), "udp://127.0.0.1:9/announce");
+    assert_eq!(field(&p, "upload_kib"), "0");
+    assert_eq!((field(&p, "override_goal"), field(&p, "dht")), ("off".to_owned(), "on".to_owned()));
+    assert_eq!(t.get(&sid, "/pa/torrents/properties?ids=00").status, 404);
+
+    // the dialog's OK: only the fields sent change
+    let body = format!(
+        r#"{{"ids":["{hash}"],"fields":{{"trackers":"udp://127.0.0.1:9/announce\n\nhttp://127.0.0.1:9/b","upload_kib":"7","override_goal":"on","goal_ratio":"250","dht":"off"}}}}"#
+    );
+    let r = t.pa(&sid, "/pa/torrents/properties", &body);
+    assert_eq!(r.status, 204, "{}", r.text());
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let p = loop {
+        let p = props();
+        if field(&p, "upload_kib") == "7" && field(&p, "dht") == "off" {
+            break p;
+        }
+        assert!(Instant::now() < deadline, "{}", p.to_json());
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(field(&p, "trackers"), "udp://127.0.0.1:9/announce\n\nhttp://127.0.0.1:9/b");
+    assert_eq!(field(&p, "override_goal"), "on");
+    assert_eq!((field(&p, "goal_ratio"), field(&p, "goal_minutes")), ("250".to_owned(), "0".to_owned()));
+    let bad = format!(r#"{{"ids":["{hash}"],"fields":{{"trackers":"nope"}}}}"#);
+    let r = t.pa(&sid, "/pa/torrents/properties", &bad);
+    assert_eq!(r.status, 400);
+    assert!(s(r.json().get("error")).starts_with("trackers:"), "{}", r.text());
+    let bogus = format!(r#"{{"ids":["{hash}"],"fields":{{"bogus":"1"}}}}"#);
+    assert_eq!(t.pa(&sid, "/pa/torrents/properties", &bogus).status, 400);
+
+    // the shim's tracker edits
+    let urls = || -> Vec<String> {
+        let Json::Arr(v) = t.get(&sid, &format!("/api/v2/torrents/trackers?hash={hash}")).json() else {
+            panic!("a list")
+        };
+        v.iter().map(|x| s(x.get("url")).to_owned()).filter(|u| !u.starts_with("** [")).collect()
+    };
+    let edit = |orig: &str, new: &str| {
+        let q = format!("hash={hash}&origUrl={}&newUrl={}", enc(orig), enc(new));
+        t.post(&sid, "/api/v2/torrents/editTracker", &q).status
+    };
+    assert_eq!(edit("http://127.0.0.1:9/b", "http://127.0.0.1:9/c"), 200);
+    assert_eq!(urls(), ["udp://127.0.0.1:9/announce", "http://127.0.0.1:9/c"]);
+    assert_eq!(edit("http://127.0.0.1:9/b", "http://127.0.0.1:9/d"), 409, "the old URL is gone");
+    assert_eq!(edit("http://127.0.0.1:9/c", "udp://127.0.0.1:9/announce"), 409, "the new one is there");
+    assert_eq!(edit("http://127.0.0.1:9/c", "not a url"), 400);
+    let add = format!("hash={hash}&urls={}", enc("udp://x.example:1\nudp://y.example:2\nnot-a-url"));
+    assert_eq!(t.post(&sid, "/api/v2/torrents/addTrackers", &add).status, 200);
+    assert_eq!(urls().len(), 4);
+    let remove = format!("hash={hash}&urls={}", enc("udp://x.example:1|udp://y.example:2"));
+    assert_eq!(t.post(&sid, "/api/v2/torrents/removeTrackers", &remove).status, 200);
+    assert_eq!(urls(), ["udp://127.0.0.1:9/announce", "http://127.0.0.1:9/c"]);
+    assert_eq!(t.post(&sid, "/api/v2/torrents/removeTrackers", &remove).status, 409);
+    assert_eq!(t.post(&sid, "/api/v2/torrents/editTracker", "hash=00&origUrl=a&newUrl=b").status, 404);
+
+    // setShareLimits: the torrent's own seeding goal (-1 = no target, -2 = the default)
+    let limits =
+        |q: &str| t.post(&sid, "/api/v2/torrents/setShareLimits", &format!("hashes={hash}&{q}")).status;
+    assert_eq!(limits("ratioLimit=-1&seedingTimeLimit=30"), 200);
+    let p = props();
+    assert_eq!(field(&p, "override_goal"), "on");
+    assert_eq!((field(&p, "goal_ratio"), field(&p, "goal_minutes")), ("0".to_owned(), "30".to_owned()));
+    assert_eq!(limits("ratioLimit=1.5&seedingTimeLimit=-2"), 200);
+    let p = props();
+    assert_eq!((field(&p, "goal_ratio"), field(&p, "goal_minutes")), ("150".to_owned(), "0".to_owned()));
+    assert_eq!(limits("ratioLimit=-2&seedingTimeLimit=-2"), 200);
+    assert_eq!(field(&props(), "override_goal"), "off");
+    assert_eq!(limits("ratioLimit=1"), 400);
+
+    // the seeding goal is on the Queueing page
+    let r =
+        t.pa(&sid, "/pa/prefs", r#"{"queue.seed_ratio":0,"queue.seed_limit":true,"queue.seed_limit_kib":5}"#);
+    assert_eq!(r.status, 204, "{}", r.text());
+    let m = t.get(&sid, "/pa/prefs").json();
+    let pref = |id: &str| m.get("fields").unwrap().get(id).unwrap().get("value").cloned().unwrap();
+    assert_eq!((pref("queue.seed_ratio"), pref("queue.seed_limit")), (Json::Int(0), Json::Bool(true)));
+}

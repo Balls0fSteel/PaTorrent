@@ -1196,6 +1196,36 @@ impl Engine {
                     t.status_dirty = true;
                 }
             }
+            Command::SetMaxConnections(id, l) => self.set_max_connections(id, l),
+            Command::SetMaxUploads(id, l) => {
+                if let Some(t) = self.torrent(id) {
+                    // libtorrent `set_max_uploads`: 0 (or less) is no limit
+                    let limit = (l > 0).then_some(l);
+                    if t.max_uploads != limit {
+                        t.max_uploads = limit;
+                        t.resume_dirty = true;
+                        t.status_dirty = true;
+                    }
+                }
+            }
+            Command::ReplaceTrackers(id, list) => {
+                let list: Vec<(String, u32)> = list.into_iter().map(|e| (e.url, e.tier)).collect();
+                if let Some(t) = self.torrent(id) {
+                    t.replace_trackers(&list);
+                    t.resume_dirty = true;
+                    t.status_dirty = true;
+                }
+            }
+            Command::AddTracker(id, e) => {
+                if let Some(t) = self.torrent(id) {
+                    let before = t.trackers.len();
+                    t.add_tracker(&e.url, e.tier);
+                    if t.trackers.len() != before {
+                        t.resume_dirty = true;
+                        t.status_dirty = true;
+                    }
+                }
+            }
             Command::MoveStorage(id, path, flags) => self.move_storage(id, path, flags),
             Command::RenameFile(id, file, name) => self.rename_file(id, file, name),
             Command::ConnectPeer(id, addr) => {
@@ -2538,7 +2568,14 @@ impl Engine {
             let id = job.torrent;
             let Some(t) = self.torrent(id) else { continue };
             let ih = t.info_hashes.best_v1_compatible();
-            let Some(tr) = t.trackers.get_mut(index).filter(|tr| tr.url == job.url) else { continue };
+            // the list may have been replaced while the request was out: find the URL again
+            let index = if t.trackers.get(index).is_some_and(|tr| tr.url == job.url) {
+                index
+            } else {
+                let Some(i) = t.trackers.iter().position(|tr| tr.url == job.url) else { continue };
+                i
+            };
+            let tr = &mut t.trackers[index];
             let url = tr.url.clone();
             match outcome {
                 TrackerOutcome::Announce(r, tracker_ip) => {
@@ -2828,6 +2865,44 @@ impl Engine {
         made
     }
 
+    /// libtorrent `torrent::set_max_connections`: 0 is no limit. Peers beyond a lowered limit
+    /// are disconnected (`disconnect_peers` with `too_many_connections`), the least useful
+    /// first: libtorrent's `compare_disconnect_peer` order (peers we are not interested in, then
+    /// non-seeds, then the slowest average download, then peers choking us, then the longest
+    /// silent).
+    fn set_max_connections(&mut self, id: TorrentId, l: u32) {
+        let limit = (l > 0).then_some(l);
+        let Some(t) = self.torrent(id) else { return };
+        if t.max_connections == limit {
+            return;
+        }
+        t.max_connections = limit;
+        t.resume_dirty = true;
+        t.status_dirty = true;
+        let Some(max) = limit else { return };
+        let now = Instant::now();
+        let slots = t.peers.clone();
+        let mut live: Vec<_> = slots
+            .into_iter()
+            .filter_map(|s| {
+                let p = self.peers.get(s).filter(|p| p.closing.is_none())?;
+                let secs = now.duration_since(p.connected_at).as_secs();
+                let avg = p.stat.download_payload.total / (secs + 1);
+                Some((s, (p.am_interested, p.peer_seed, avg, !p.peer_choking, p.last_receive)))
+            })
+            .collect();
+        let excess = live.len().saturating_sub(max as usize);
+        if excess == 0 {
+            return;
+        }
+        live.sort_by_key(|&(s, key)| (key, s));
+        for &(s, _) in live.iter().take(excess) {
+            if let Some(p) = self.peers.get_mut(s) {
+                p.close("too many connections", false);
+            }
+        }
+    }
+
     /// One outgoing connection (libtorrent `torrent::connect_to_peer`): over uTP when it is
     /// enabled and the peer is thought or known to support it (every peer is thought to, until
     /// a uTP connect to it fails), or when outgoing TCP is off; over TCP otherwise. Returns
@@ -2926,8 +3001,25 @@ impl Engine {
             let s = slots_limit.max(1) as usize;
             if s >= 2 { (s - 1, 1) } else { (s, 0) }
         };
-        let mut unchoke: Vec<usize> = candidates.iter().take(regular).map(|&(s, _)| s).collect();
-        let rest: Vec<usize> = candidates.iter().skip(regular).map(|&(s, _)| s).collect();
+        // libtorrent `torrent::unchoke_peer`: a torrent at its `max_uploads` unchokes no more
+        // regular peers; they stay choked without using up a slot (the optimistic unchoke is
+        // exempt)
+        let mut unchoke: Vec<usize> = Vec::new();
+        let mut rest: Vec<usize> = Vec::new();
+        let mut per_torrent: HashMap<TorrentId, u32> = HashMap::new();
+        for &(s, _) in &candidates {
+            let id = self.peers.get(s).and_then(|p| p.torrent);
+            let max = id.and_then(|id| self.torrent_ref(id)).and_then(|t| t.max_uploads);
+            let count = id.map_or(0, |id| per_torrent.get(&id).copied().unwrap_or(0));
+            if unchoke.len() < regular && max.is_none_or(|m| count < m) {
+                unchoke.push(s);
+                if let Some(id) = id {
+                    *per_torrent.entry(id).or_default() += 1;
+                }
+            } else {
+                rest.push(s);
+            }
+        }
         if optimistic > 0 && !rest.is_empty() {
             let current = rest.iter().copied().find(|&s| self.peers.get(s).is_some_and(|p| p.optimistic));
             let pick = match current {
@@ -2996,7 +3088,15 @@ impl Engine {
         }
         let limit = self.settings.unchoke_slots_limit;
         let unchoked = self.peers.iter().filter(|(_, p)| !p.am_choking).count();
-        if limit < 0 || unchoked < limit as usize {
+        // and only while its torrent is below `max_uploads` (libtorrent `unchoke_peer`)
+        let id = self.peers.get(slot).and_then(|p| p.torrent);
+        let torrent_full = id.and_then(|id| self.torrent_ref(id)).is_some_and(|t| {
+            t.max_uploads.is_some_and(|m| {
+                t.peers.iter().filter(|&&s| self.peers.get(s).is_some_and(|p| !p.am_choking)).count()
+                    >= m as usize
+            })
+        });
+        if (limit < 0 || unchoked < limit as usize) && !torrent_full {
             self.set_choke(slot, false, Instant::now());
         }
     }
@@ -3167,6 +3267,9 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
     flags.set(TorrentFlags::AUTO_MANAGED, r.auto_managed);
     flags.set(TorrentFlags::SEQUENTIAL_DOWNLOAD, r.sequential_download);
     flags.set(TorrentFlags::SUPER_SEEDING, r.super_seeding);
+    flags.set(TorrentFlags::DISABLE_DHT, r.disable_dht);
+    flags.set(TorrentFlags::DISABLE_LSD, r.disable_lsd);
+    flags.set(TorrentFlags::DISABLE_PEX, r.disable_pex);
     flags.insert(TorrentFlags::APPLY_IP_FILTER);
     t.flags = flags;
     if !r.file_priority.is_empty() {

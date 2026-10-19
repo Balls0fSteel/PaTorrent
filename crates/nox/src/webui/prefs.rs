@@ -325,6 +325,35 @@ pub(crate) static FIELDS: &[Field] = &[
         |w| Value::Int(w.prefs.upload_slots_per_torrent as i64),
         |w, v| w.prefs.upload_slots_per_torrent = int(&v) as u32
     ),
+    // Queueing > Seeding Goal (`frontend::seeding`)
+    field!(
+        "queue.seed_ratio",
+        "Minimum ratio (%): [0: no ratio goal]",
+        Kind::Int { min: 0, max: 1_000_000 },
+        |w| Value::Int(w.prefs.seeding_goal.goal.ratio_pct as i64),
+        |w, v| w.prefs.seeding_goal.goal.ratio_pct = int(&v) as u32
+    ),
+    field!(
+        "queue.seed_time",
+        "Minimum seeding time (minutes): [0: no time goal]",
+        Kind::Int { min: 0, max: 1_000_000 },
+        |w| Value::Int(w.prefs.seeding_goal.goal.minutes as i64),
+        |w, v| w.prefs.seeding_goal.goal.minutes = int(&v) as u32
+    ),
+    field!(
+        "queue.seed_limit",
+        "Limit the upload rate instead of stopping the torrent",
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.seeding_goal.limit_upload),
+        |w, v| w.prefs.seeding_goal.limit_upload = boolean(&v)
+    ),
+    field!(
+        "queue.seed_limit_kib",
+        "Limit the upload rate to (kB/s): [0: stop]",
+        Kind::Int { min: 0, max: RATE_MAX / 1024 },
+        |w| Value::Int(w.prefs.seeding_goal.limit_kib as i64),
+        |w, v| w.prefs.seeding_goal.limit_kib = int(&v) as u32
+    ),
     field!(
         "alt_up_limit",
         "Alternative upload rate (kB/s): [0: unlimited]",
@@ -818,8 +847,11 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                 group(
                     Some("Seeding Goal"),
                     vec![
-                        stub("When torrents reach a ratio of (%):").with("text", ""),
-                        note("Seeding goals are not available yet."),
+                        f("queue.seed_ratio"),
+                        f("queue.seed_time"),
+                        note("When a torrent reaches the seeding goal (forced torrents never do):"),
+                        f("queue.seed_limit"),
+                        enabled_by(f("queue.seed_limit_kib"), "queue.seed_limit"),
                     ],
                 ),
             ],

@@ -103,6 +103,8 @@ struct Torrent {
     have: Option<Bitfield>,
     file_prio: Option<Vec<DownloadPriority>>,
     extra_trackers: Vec<String>,
+    /// Set by `replace_trackers` / `add_tracker`: the list from then on, (URL, tier).
+    trackers: Option<Vec<(String, u32)>>,
     done_bytes: f64,
     active_ms: u64,
     seeding_ms: u64,
@@ -254,7 +256,7 @@ impl Mock {
             }
             Command::ForceReannounce(id) => {
                 if let Some(t) = self.get(id) {
-                    let url = trackers_for(t).into_iter().next().unwrap_or_default();
+                    let url = tracker_list(t).into_iter().next().map(|(u, _)| u).unwrap_or_default();
                     let num_peers = (t.seed % 50) as u32;
                     self.out.push(Alert::TrackerReply { id, url, num_peers });
                 }
@@ -293,6 +295,43 @@ impl Mock {
             Command::RenameFile(id, index, new_name) => {
                 if self.get(id).is_some() {
                     self.out.push(Alert::FileRenamed { id, index, old_name: String::new(), new_name });
+                }
+            }
+            Command::SetMaxConnections(id, limit) => {
+                if let Some(t) = self.get(id) {
+                    t.st.connections_limit = (limit > 0).then_some(limit);
+                    t.dirty = true;
+                }
+            }
+            Command::SetMaxUploads(id, limit) => {
+                if let Some(t) = self.get(id) {
+                    t.st.uploads_limit = (limit > 0).then_some(limit);
+                    t.dirty = true;
+                }
+            }
+            Command::ReplaceTrackers(id, list) => {
+                if let Some(t) = self.get(id) {
+                    let mut v: Vec<(String, u32)> = Vec::new();
+                    let mut sorted = list;
+                    sorted.sort_by_key(|e| e.tier);
+                    for e in sorted {
+                        let url = e.url.trim();
+                        if !url.is_empty() && !v.iter().any(|(u, _)| u == url) {
+                            v.push((url.to_owned(), e.tier));
+                        }
+                    }
+                    t.trackers = Some(v);
+                }
+            }
+            Command::AddTracker(id, e) => {
+                if let Some(t) = self.get(id) {
+                    let mut v = tracker_list(t);
+                    let url = e.url.trim();
+                    if !url.is_empty() && !v.iter().any(|(u, _)| u == url) {
+                        let pos = v.iter().position(|(_, tier)| *tier > e.tier).unwrap_or(v.len());
+                        v.insert(pos, (url.to_owned(), e.tier));
+                    }
+                    t.trackers = Some(v);
                 }
             }
             Command::MoveStorage(id, path, _) => {
@@ -421,6 +460,8 @@ impl Mock {
             added_time: now_unix(),
             download_limit: p.download_limit,
             upload_limit: p.upload_limit,
+            connections_limit: p.max_connections.filter(|&m| m > 0),
+            uploads_limit: p.max_uploads.filter(|&m| m > 0),
             ..TorrentStatus::default()
         };
         let mut metadata_ticks = 0;
@@ -441,6 +482,7 @@ impl Mock {
             have: None,
             file_prio: (!p.file_priorities.is_empty()).then(|| p.file_priorities.clone()),
             extra_trackers,
+            trackers: None,
             done_bytes: 0.0,
             active_ms: 0,
             seeding_ms: 0,
@@ -510,6 +552,7 @@ impl Mock {
             have: None,
             file_prio: None,
             extra_trackers: Vec::new(),
+            trackers: None,
             done_bytes,
             active_ms: 0,
             seeding_ms: 0,
@@ -973,16 +1016,24 @@ fn trackers_for(t: &Torrent) -> Vec<String> {
     v
 }
 
+/// The tracker list with tiers: the generated one (a tier each), or the one set by the user.
+fn tracker_list(t: &Torrent) -> Vec<(String, u32)> {
+    match &t.trackers {
+        Some(v) => v.clone(),
+        None => trackers_for(t).into_iter().enumerate().map(|(i, u)| (u, i as u32)).collect(),
+    }
+}
+
 fn tracker_entries(t: &Torrent) -> Vec<AnnounceEntry> {
     let running = !t.st.flags.contains(TorrentFlags::PAUSED);
-    trackers_for(t)
+    tracker_list(t)
         .into_iter()
         .enumerate()
-        .map(|(i, url)| {
+        .map(|(i, (url, tier))| {
             let broken = (t.seed >> i) % 5 == 0;
             AnnounceEntry {
                 url,
-                tier: i as u32,
+                tier,
                 status: match (running, broken) {
                     (false, _) => TrackerStatus::NotContacted,
                     (true, true) => TrackerStatus::Error,
@@ -1364,6 +1415,7 @@ mod tests {
             have: None,
             file_prio: None,
             extra_trackers: vec![],
+            trackers: None,
             done_bytes: 0.0,
             active_ms: 0,
             seeding_ms: 0,

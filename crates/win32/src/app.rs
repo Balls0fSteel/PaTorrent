@@ -16,16 +16,18 @@ use std::ptr::{null, null_mut};
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::util::time::{local_utc_offset, unix_now};
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
-    SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
-    same_dir,
+    AddTorrentParams, Alert, AnnounceEntry, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove,
+    RemoveFlags, Session, SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId,
+    TorrentSource, VERSION, same_dir,
 };
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::PRIORITIES;
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
+use patorrent_frontend::properties::{Properties, TorrentProps};
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
+use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::Category;
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 use patorrent_frontend::{actions, add, create, fmt, settings};
@@ -105,6 +107,7 @@ mod cmd {
     pub const QUEUE_BOTTOM: u16 = 130;
     pub const SUPER_SEED: u16 = 131;
     pub const SET_LOCATION: u16 = 132;
+    pub const PROPERTIES: u16 = 133;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -217,6 +220,8 @@ struct App {
     torrent_folders: TorrentFolders,
     torrent_files: TorrentFiles,
     autoload: Poller,
+    /// Preferences > Queueing "Seeding Goal", checked on every status update.
+    seeding_goal: SeedingGoal,
 }
 
 thread_local! {
@@ -525,6 +530,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         let save_path = prefs.get("dir.download").map(str::to_owned).unwrap_or_else(downloads_folder);
         let gui = GuiOptions::load(&prefs, &save_path);
         let move_completed = gui.move_completed();
+        let seeding_goal = gui.seeding_goal();
         let schedule = Schedule::load(&prefs);
         let mut list = TorrentList::new();
         list.set_sort(prefs.sort());
@@ -590,6 +596,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             torrent_folders: gui.torrent_folders,
             torrent_files: TorrentFiles::new(),
             autoload: Poller::new(),
+            seeding_goal,
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -1342,6 +1349,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                         if !st.is_finished {
                             a.downloading.insert(st.id);
                         }
+                        seeding_goal(a, st);
                     }
                     a.list.update(v);
                 }
@@ -1370,6 +1378,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                     let key = info_hashes.key_hex();
                     a.prefs.remove(&format!("torrent.{key}.label"));
                     a.prefs.remove(&format!("torrent.{key}.paused"));
+                    SeedGoal::store_override(&mut a.prefs, &key, None);
                     removed_any = true;
                 }
                 Alert::TorrentFinished { id } => {
@@ -1944,6 +1953,8 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
             );
         }
         submenu(menu, lm, "&Label");
+        separator(menu);
+        append(menu, cmd::PROPERTIES, "Pr&operties");
         let id = popup(hwnd, menu, p.x, p.y);
         if id != 0 {
             on_command(hwnd, id);
@@ -2109,6 +2120,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 });
             }
             cmd::SET_LOCATION => set_download_location(hwnd),
+            cmd::PROPERTIES => show_properties(hwnd),
             cmd::SUPER_SEED => {
                 let ids = selected_ids();
                 with_app(|a| {
@@ -2139,6 +2151,97 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             _ => {}
         }
     }
+}
+
+/// A queued seed that reached its seeding goal (its own, else Preferences > Queueing's) is
+/// stopped or held to the goal's upload rate.
+fn seeding_goal(a: &mut App, st: &patorrent_core::TorrentStatus) {
+    if !st.is_finished {
+        return;
+    }
+    let own = SeedGoal::load_override(&a.prefs, &st.info_hashes.key_hex());
+    let Some(action) = a.seeding_goal.check(st, own) else { return };
+    action.apply(&a.handle.torrent(st.id));
+    let what = match action {
+        GoalAction::Stop => "stopped".to_owned(),
+        GoalAction::LimitUpload(b) => format!("upload limited to {}", fmt::speed_always(b)),
+    };
+    a.detail.push_log(format!("{} {}: seeding goal reached, {what}", now_hms(), st.name));
+}
+
+/// The tracker lists of `ids` (`post_trackers`), waiting up to two seconds for the engine. The
+/// alerts popped meanwhile are kept for `on_alerts`.
+fn fetch_trackers(
+    a: &mut App,
+    ids: &[TorrentId],
+) -> std::collections::HashMap<TorrentId, Vec<AnnounceEntry>> {
+    let mut found = std::collections::HashMap::new();
+    for &id in ids {
+        a.handle.torrent(id).post_trackers();
+    }
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
+    let mut batch = Vec::new();
+    while found.len() < ids.len() && std::time::Instant::now() < deadline {
+        a.handle.pop_alerts(&mut batch);
+        for alert in &batch {
+            if let Alert::TrackerList { id, trackers } = alert
+                && ids.contains(id)
+            {
+                found.insert(*id, trackers.clone());
+            }
+        }
+        a.alerts.append(&mut batch);
+        if found.len() < ids.len() {
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    }
+    found
+}
+
+/// The context menu's Properties (and a double-click on a torrent that is not finished): the
+/// Torrent Properties dialog for the selected torrents; OK applies what changed to each one.
+unsafe fn show_properties(hwnd: HWND) {
+    let ids = selected_ids();
+    let Some(Some((title, props))) = with_app(|a| {
+        let ids: Vec<TorrentId> = ids.iter().copied().filter(|&id| a.list.get(id).is_some()).collect();
+        if ids.is_empty() {
+            return None;
+        }
+        let trackers = fetch_trackers(a, &ids);
+        let items: Vec<TorrentProps> = ids
+            .iter()
+            .map(|id| {
+                let st = a.list.get(*id).expect("filtered");
+                TorrentProps::new(st, trackers.get(id).map(Vec::as_slice), &a.prefs)
+            })
+            .collect();
+        let names: Vec<String> =
+            ids.iter().map(|id| a.list.get(*id).expect("filtered").name.clone()).collect();
+        let defaults = GuiOptions::load(&a.prefs, &a.save_path).property_defaults();
+        Some((crate::properties::title(&names), Properties::load(&items, defaults)))
+    }) else {
+        return;
+    };
+    // the alerts popped while waiting for the tracker lists
+    unsafe { PostMessageW(hwnd, WM_APP_ALERTS, 0, 0) };
+    let Some(changes) = crate::properties::show(hwnd, &title, props) else { return };
+    if changes.is_empty() {
+        return;
+    }
+    with_app(|a| {
+        let defaults = GuiOptions::load(&a.prefs, &a.save_path).property_defaults();
+        for &id in &ids {
+            let Some(st) = a.list.get(id) else { continue };
+            let key = st.info_hashes.key_hex();
+            changes.apply(&a.handle.torrent(id));
+            changes.store(&mut a.prefs, &key, &defaults);
+        }
+        if let Err(e) = a.prefs.save() {
+            a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+        }
+        a.handle.post_torrent_updates();
+    });
+    request_detail();
 }
 
 /// Advanced > Set Download Location: a folder, then the selected torrents' files move there
@@ -2415,6 +2518,7 @@ fn apply_options(a: &mut App, o: &Options) {
     a.schedule = o.gui.schedule.clone();
     run_scheduler(a, Some(o));
     o.gui.update_move_completed(&mut a.move_completed);
+    a.seeding_goal = o.gui.seeding_goal();
     a.torrent_folders = o.gui.torrent_folders.clone();
     if o.gui.pex != old.gui.pex {
         for id in a.list.ids() {
@@ -2571,7 +2675,7 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 if done == Some(true) {
                     torrent_action(hwnd, cmd::OPEN_FOLDER);
                 } else if !ids.is_empty() {
-                    select_page(Page::General);
+                    show_properties(hwnd);
                 }
                 0
             }

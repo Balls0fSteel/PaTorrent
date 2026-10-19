@@ -16,6 +16,8 @@
 //! * [`scheduler`]: the weekly scheduler (table, modes, what to change when the hour turns).
 //! * [`torrent_folders`]: the `.torrent` folders (stored copies, finished jobs, auto-load).
 //! * [`rss`]: RSS / Atom feeds and the RSS Downloader (filters, episodes, history, `rss.dat`).
+//! * [`properties`]: the Torrent Properties dialog (trackers, limits, seeding goal, switches).
+//! * [`seeding`]: the seeding goal: when a queued seed is stopped or held to an upload rate.
 
 pub mod actions;
 pub mod add;
@@ -26,8 +28,10 @@ pub mod fmt;
 pub mod model;
 pub mod options;
 pub mod prefs;
+pub mod properties;
 pub mod rss;
 pub mod scheduler;
+pub mod seeding;
 pub mod settings;
 pub mod status;
 pub mod torrent_folders;

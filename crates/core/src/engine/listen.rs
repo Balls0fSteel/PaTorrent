@@ -427,7 +427,8 @@ impl Engine {
     /// libtorrent `setup_listener`: binds the TCP listener and (with `want_udp`) the family's
     /// UDP socket on the same port. The first socket picks the port: when the configured one
     /// is busy for either protocol the next ones are tried (`max_retry_port_bind`), and an
-    /// ephemeral port is drawn again. Later sockets listen on that port. Whether it bound.
+    /// ephemeral port is drawn again (by UDP once UDP refused one TCP drew; libtorrent keeps
+    /// the TCP socket without UDP). Later sockets listen on that port. Whether it bound.
     fn open_listen_socket(
         &mut self,
         ep: ListenEndpoint,
@@ -450,6 +451,11 @@ impl Engine {
         let v4 = ep.addr.is_ipv4();
         let mut last_err: Option<(Protocol, io::Error)> = None;
         let mut bound: Option<ListenSocket> = None;
+        // an ephemeral TCP port refused for UDP: let UDP pick the port from then on. Windows
+        // reserves blocks of UDP ports (Hyper-V, WinNAT) and hands out TCP ports nearly in
+        // sequence, so the next TCP picks land in the same block; the system never picks an
+        // excluded port for the protocol asking.
+        let mut udp_first = false;
         for i in 0..tries {
             let port = if !first {
                 self.listen_port
@@ -459,8 +465,22 @@ impl Engine {
                 0
             };
             let a = bind_addr(&ep, port, ifs);
-            // TCP first: with port 0 it is the one that picks the port
-            let tcp = match want_tcp.then(|| sys::tcp_listener(a)) {
+            let mut udp = None;
+            let mut port = port;
+            if udp_first {
+                match sys::udp_socket(a, false) {
+                    Ok(u) => {
+                        port = u.local_addr().map_or(port, |l| l.port());
+                        udp = Some(u);
+                    }
+                    Err(e) => {
+                        last_err = Some((Protocol::Udp, e));
+                        continue;
+                    }
+                }
+            }
+            // else TCP first: with port 0 it is the one that picks the port
+            let tcp = match want_tcp.then(|| sys::tcp_listener(bind_addr(&ep, port, ifs))) {
                 Some(Ok(l)) => Some(l),
                 Some(Err(e)) => {
                     last_err = Some((Protocol::Tcp, e));
@@ -469,21 +489,19 @@ impl Engine {
                 None => None,
             };
             let port = tcp.as_ref().and_then(|l| l.local_addr().ok()).map_or(port, |l| l.port());
-            let udp = if want_udp {
+            if want_udp && !udp_first {
                 match sys::udp_socket(bind_addr(&ep, port, ifs), false) {
-                    Ok(u) => Some(u),
+                    Ok(u) => udp = Some(u),
                     Err(e) => {
                         last_err = Some((Protocol::Udp, e));
                         // free for TCP but taken for UDP: the next port, for both
                         if first && i + 1 < tries {
+                            udp_first = want_tcp && configured == 0;
                             continue;
                         }
-                        None
                     }
                 }
-            } else {
-                None
-            };
+            }
             let mut local = None;
             let mut listener = None;
             let mut token = Token(usize::MAX);
@@ -864,6 +882,34 @@ mod session_tests {
 
     fn refused(addr: SocketAddr) -> bool {
         TcpStream::connect_timeout(&addr, Duration::from_secs(3)).is_err()
+    }
+
+    /// The CI runner's failure (run 39227655787): the ephemeral TCP ports fell in a block of
+    /// UDP ports Windows reserves, and every retry drew the next TCP port in the same block.
+    /// Windows hands out ephemeral ports in sequence, so holding the UDP ports after the
+    /// current one recreates it; elsewhere the test passes without reaching the retry.
+    #[test]
+    #[cfg(windows)]
+    fn udp_picks_the_port_when_tcp_keeps_drawing_ports_taken_for_udp() {
+        for _ in 0..5 {
+            let next = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port();
+            let _held: Vec<_> = (next.saturating_add(1)..next.saturating_add(60))
+                .filter_map(|p| std::net::UdpSocket::bind(("127.0.0.1", p)).ok())
+                .collect();
+            let s = start("127.0.0.1:0");
+            let h = s.handle();
+            // the TCP alert comes first
+            let tcp = wait(&h, 5, "the TCP listener", listening(Protocol::Tcp));
+            let udp = wait(&h, 5, "the UDP socket", |a| match a {
+                Alert::ListenSucceeded { address, protocol: Protocol::Udp } => Some(*address),
+                Alert::ListenFailed { protocol: Protocol::Udp, error, .. } => {
+                    panic!("no UDP socket: {error}")
+                }
+                _ => None,
+            });
+            assert_eq!(tcp.port(), udp.port());
+            PENDING.with_borrow_mut(|p| p.clear());
+        }
     }
 
     #[test]

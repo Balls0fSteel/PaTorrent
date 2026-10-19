@@ -8,11 +8,13 @@
 //!
 //! Phase 6: `run` as a service (docs/DAEMON.md): where the files go (`paths`), signals and
 //! console events (`signals`), `--daemon`, `--pid-file`, `--log` and systemd's notifications
-//! (`daemon`).
+//! (`daemon`); on Windows, the service (`service`).
 
 mod create;
 mod daemon;
 mod paths;
+#[cfg(windows)]
+mod service;
 mod signals;
 
 use std::collections::HashMap;
@@ -42,6 +44,7 @@ USAGE:
     patorrent-nox run [OPTIONS]
     patorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
     patorrent-nox create <file or dir> [-o OUT] [CREATE OPTIONS]
+    patorrent-nox service install [--account A] [--start TYPE] [OPTIONS] | uninstall | start | stop
     patorrent-nox --version | --help | --license
 
 COMMANDS:
@@ -49,6 +52,7 @@ COMMANDS:
     run     Resume every torrent saved in the state directory and keep running.
     demo    Load N synthetic torrents on the simulated engine and print session totals.
     create  Make a .torrent (v1) from a file or directory.
+    service The Windows service PaTorrentNox, which runs `run` (see WINDOWS SERVICE).
 
 CREATE OPTIONS:
     -o, --output FILE     Where to write the torrent (default: <name>.torrent)
@@ -110,9 +114,26 @@ SERVICE OPTIONS (docs/DAEMON.md):
                       same FILE refuses to start
     --log FILE        Append all output to FILE (reopened on SIGHUP)
 
+WINDOWS SERVICE (docs/DAEMON.md; install, uninstall, start and stop need an administrator):
+    service install [--account A] [--start TYPE] [OPTIONS]
+                      Register the service PaTorrentNox (\"PaTorrent nox\"), which runs `run`
+                      with OPTIONS (paths made absolute). The state defaults to
+                      %ProgramData%\\PaTorrent\\nox (created so that only SYSTEM, Administrators
+                      and the account can open it), the downloads to its Downloads folder and
+                      --log to nox.log there. Restarts after a failure
+        --account A   LocalService (default), NetworkService or LocalSystem
+        --start TYPE  delayed (default; automatic, after the boot), auto or manual
+    service uninstall Stop and remove the service (the state directory stays)
+    service start | stop
+                      Start or stop it and wait until it runs or has stopped (sc start / sc stop)
+    service run       What the Service Control Manager starts; not for a console
+    service debug [OPTIONS]
+                      `service run` in this console, printing the status it would report
+
 Type q and Enter, press Ctrl+C or send SIGTERM to stop cleanly (state is saved on the way
 out; a second Ctrl+C quits at once). SIGHUP reloads the IP filter and reopens the log. Under
-systemd (Type=notify) readiness is reported through NOTIFY_SOCKET.
+systemd (Type=notify) readiness is reported through NOTIFY_SOCKET. A Windows service stops on
+`sc stop PaTorrentNox` and reloads on `sc control PaTorrentNox paramchange`.
 ";
 
 struct Opts {
@@ -281,6 +302,12 @@ fn main() -> ExitCode {
         "run" => parse(rest).map(|o| run(o, Mode::Run)),
         "create" => create::parse(rest).map(create::create),
         "demo" => parse(rest).map(demo),
+        #[cfg(windows)]
+        "service" => service::main(rest),
+        #[cfg(not(windows))]
+        "service" => {
+            Err("service is for Windows; on Unix see docs/DAEMON.md (systemd, rc.d, --daemon)".into())
+        }
         other => Err(format!("unknown command {other:?}")),
     };
     match result {
@@ -366,7 +393,7 @@ fn reload(
     h: &patorrent_core::SessionHandle,
 ) {
     let log_error = service.reloading();
-    println!("* SIGHUP: reloading");
+    println!("* {}: reloading", if cfg!(windows) { "PARAMCHANGE" } else { "SIGHUP" });
     if let Some(e) = log_error {
         eprintln!("! {e}");
     }

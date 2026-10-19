@@ -15,6 +15,8 @@
 //! - In the foreground under systemd (`Type=notify`), `NOTIFY_SOCKET` gets `READY=1` once the
 //!   daemon is up, `RELOADING=1` / `READY=1` around a SIGHUP and `STOPPING=1` at shutdown
 //!   (`sd_notify(3)`, written by hand: one datagram on a Unix socket).
+//! - As a Windows service the same points set the status the Service Control Manager sees
+//!   (`service`): `READY=1` is RUNNING, `STOPPING=1` STOP_PENDING.
 //!
 //! Unix calls are declared here by hand (D4: no libc crate).
 
@@ -61,7 +63,9 @@ impl Service {
                 println!("* running in the background, pid {}", std::process::id());
             }
             #[cfg(not(unix))]
-            return Err("--daemon is for Unix (on Windows, start it from the Task Scheduler instead)".into());
+            return Err(
+                "--daemon is for Unix (on Windows, install a service: patorrent-nox service install)".into(),
+            );
         }
         if let Some(log) = &s.log {
             // while a detached daemon starts, its errors still go to the terminal
@@ -239,7 +243,12 @@ fn notify_to(path: &std::ffi::OsStr, msg: &str) -> bool {
     r.is_ok()
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+pub fn notify(msg: &str) -> bool {
+    crate::service::notify(msg)
+}
+
+#[cfg(not(any(unix, windows)))]
 pub fn notify(_msg: &str) -> bool {
     false
 }

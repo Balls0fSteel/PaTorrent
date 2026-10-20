@@ -102,6 +102,9 @@ pub(crate) struct PeerConn {
     pub got_bitfield: bool,
     pub supports_fast: bool,
     pub supports_extensions: bool,
+    /// BEP 52: the connection uses the truncated v2 info-hash, or the peer offered the v2 upgrade on
+    /// a hybrid torrent (libtorrent `torrent_peer::protocol_v2`); hash messages are allowed.
+    pub protocol_v2: bool,
     pub peer_id: [u8; 20],
     pub client: String,
     pub ext: Option<ExtHandshake>,
@@ -191,6 +194,7 @@ impl PeerConn {
             got_bitfield: false,
             supports_fast: false,
             supports_extensions: false,
+            protocol_v2: false,
             peer_id: [0; 20],
             client: String::new(),
             ext: None,

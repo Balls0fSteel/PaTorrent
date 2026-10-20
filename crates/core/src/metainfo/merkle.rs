@@ -211,6 +211,18 @@ pub fn merkle_root_scratch(
     scratch_space[0]
 }
 
+/// The hash of a v2 piece: the root over its block hashes padded with zero hashes to
+/// `padded_leafs` leaves (a power of two: the blocks per piece, or for a file smaller than a
+/// piece its block count rounded up).
+pub fn merkle_piece_root(
+    blocks: &[Sha256Hash],
+    padded_leafs: usize,
+    scratch: &mut Vec<Sha256Hash>,
+) -> Sha256Hash {
+    debug_assert!(!blocks.is_empty() && blocks.len() <= padded_leafs);
+    merkle_root_scratch(blocks, padded_leafs, Sha256Hash::default(), scratch)
+}
+
 /// The layer node `idx` is in (0 is the root).
 pub fn merkle_get_layer(idx: usize) -> usize {
     let mut layer = 1;

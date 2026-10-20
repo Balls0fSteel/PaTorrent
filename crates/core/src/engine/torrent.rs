@@ -18,6 +18,7 @@ use super::tracker::TrackerEntry;
 use super::web_seed::WebSeeds;
 use crate::disk::{BLOCK_SIZE, Storage};
 use crate::metainfo::file_storage::FileFlags;
+use crate::metainfo::merkle_tree::MerkleTree;
 use crate::metainfo::{TorrentInfo, WebSeedKind};
 use crate::net::Bucket;
 use crate::params::{DownloadPriority, TorrentFlags};
@@ -38,6 +39,9 @@ pub(crate) struct Torrent {
     pub save_path: String,
     /// Loaded while running (or when requested); `None` for stopped torrents.
     pub ti: Option<Arc<TorrentInfo>>,
+    /// v2: one merkle tree per file with the root and piece layer, built from `ti` when a peer
+    /// first asks for hashes; dropped with `ti`.
+    pub merkle_trees: Option<Vec<MerkleTree>>,
     pub total_size: u64,
     pub num_pieces: u32,
     pub piece_length: u32,
@@ -125,6 +129,7 @@ impl Torrent {
             name,
             save_path,
             ti: None,
+            merkle_trees: None,
             total_size: 0,
             num_pieces: 0,
             piece_length: 0,
@@ -188,6 +193,7 @@ impl Torrent {
             self.file_priority.resize(n, DownloadPriority::NORMAL.0);
         }
         self.ti = Some(ti);
+        self.merkle_trees = None;
         self.apply_renames();
     }
 

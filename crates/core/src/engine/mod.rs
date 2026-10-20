@@ -24,7 +24,7 @@ mod pe;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
 mod pex;
-// Not used by the engine until the BEP 52 download path is wired in.
+// The picker itself is not used until v2 magnets fetch their piece layers from peers.
 #[allow(dead_code)]
 pub(crate) mod hash_picker;
 pub(crate) mod picker;
@@ -35,6 +35,7 @@ mod super_seed;
 pub(crate) mod torrent;
 pub(crate) mod tracker;
 mod upnp;
+mod v2;
 mod web_seed;
 mod wire;
 
@@ -51,10 +52,10 @@ use mio::{Events, Interest, Poll, Token, Waker};
 use crate::alert::{Alert, FileOperation};
 use crate::crypto::mse;
 use crate::disk::{
-    BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction, MoveError, MoveStatus,
+    BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction, HashVerdict, MoveError, MoveStatus,
 };
 use crate::error::Error;
-use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, WebSeedKind, parse_magnet_uri};
+use crate::metainfo::{LoadLimits, MagnetUri, MetainfoError, TorrentInfo, WebSeedKind, parse_magnet_uri};
 use crate::net::ip_voter::{ExternalIp, SessionVoter, source};
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::{Bucket, sys};
@@ -915,8 +916,8 @@ impl Engine {
     pub(super) fn send_handshake(&mut self, slot: usize) {
         let peer_id = self.peer_id;
         let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
-        let ih = t.info_hashes.best_v1_compatible();
-        peer_wire::encode_handshake(p.out(), &ih, &peer_id);
+        let (reserved, ih) = handshake_for(p, t);
+        peer_wire::encode_handshake(p.out(), &reserved, &ih, &peer_id);
         p.sent_handshake = true;
         self.to_flush.push(slot);
     }
@@ -1407,16 +1408,23 @@ impl Engine {
         slot.generation += 1;
         let id = TorrentId::new(index, slot.generation);
         t.id = id;
-        let ih = t.info_hashes.best_v1_compatible();
-        self.by_hash.insert(ih, id);
-        self.by_obfuscated.insert(mse::stream_key_hash(&ih), ih);
+        self.index_hashes(id, &t.info_hashes);
         if !t.is_finished() {
             t.queue_position = Some(self.queue.len() as u32);
             self.queue.push(id);
         }
-        slot.torrent = Some(t);
+        self.slots[index as usize].torrent = Some(t);
         self.needs_auto_manage = true;
         id
+    }
+
+    /// Every hash the torrent answers to on the wire (v1 and the truncated v2 hash of a hybrid)
+    /// finds it, in plain and in encrypted handshakes.
+    pub(super) fn index_hashes(&mut self, id: TorrentId, hashes: &crate::types::InfoHashes) {
+        for ih in hashes.wire_hashes() {
+            self.by_hash.insert(ih, id);
+            self.by_obfuscated.insert(mse::stream_key_hash(&ih), ih);
+        }
     }
 
     fn add_torrent(&mut self, p: AddTorrentParams) {
@@ -1452,11 +1460,14 @@ impl Engine {
             }
             TorrentSource::Magnet(_) | TorrentSource::InfoHash(_) => return self.add_magnet(p),
         };
-        if ti.v2() && !ti.v1() {
+        // A v2-only torrent is verified against its piece layers, which a magnet or a
+        // `.torrent` without them does not have; fetching them from peers comes with v2
+        // magnets.
+        if ti.v2() && !ti.v1() && !ti.v2_piece_layers_complete() {
             return fail(
                 self,
                 ti.name().to_owned(),
-                Error::Unsupported("v2-only torrents (PLAN.md Phase 8)"),
+                Error::Metainfo(MetainfoError::TorrentMissingPieceLayer),
             );
         }
         let info_hashes = ti.info_hashes();
@@ -1494,6 +1505,7 @@ impl Engine {
             self.add_dht_node(&host, port);
         }
         let info_bytes = ti.info_section().to_vec();
+        let piece_layers = ti.piece_layers_bencoded();
         let ti = Arc::new(ti);
         t.renamed_files = p.renamed_files.clone();
         t.set_metadata(ti.clone());
@@ -1530,7 +1542,12 @@ impl Engine {
         let id = self.insert_torrent(t);
         if let Some(store) = self.store.as_mut() {
             let rec = self.slots[id.index() as usize].torrent.as_ref().expect("inserted").resume_data();
-            if let Err(e) = store.put(&key, &rec, Some(&info_bytes)) {
+            let mut saved = store.put(&key, &rec, Some(&info_bytes));
+            // v2 piece layers live outside the info dictionary: kept beside it
+            if let (Ok(()), Some(layers)) = (&saved, &piece_layers) {
+                saved = store.put_piece_layers(&key, layers);
+            }
+            if let Err(e) = saved {
                 self.out.push(Alert::Log { id: Some(id), message: format!("cannot save the torrent: {e}") });
             }
             self.store_flush_due.get_or_insert(Instant::now() + STORE_FLUSH_DELAY);
@@ -1667,8 +1684,16 @@ impl Engine {
     }
 
     fn load_info(&mut self, key: &str) -> Option<Arc<TorrentInfo>> {
-        let bytes = self.store.as_mut()?.load_metadata(key).ok()??;
-        TorrentInfo::from_info_section(&bytes, LoadLimits::default()).ok().map(Arc::new)
+        let store = self.store.as_mut()?;
+        let bytes = store.load_metadata(key).ok()??;
+        let mut ti = TorrentInfo::from_info_section(&bytes, LoadLimits::default()).ok()?;
+        if ti.v2() {
+            if let Some(layers) = store.load_piece_layers(key).ok().flatten() {
+                // a damaged record leaves the layers out; v2 pieces then cannot be verified
+                let _ = ti.set_piece_layers(&layers);
+            }
+        }
+        Some(Arc::new(ti))
     }
 
     /// Loads metadata from the store if the torrent does not hold it.
@@ -1709,9 +1734,10 @@ impl Engine {
         let slot = &mut self.slots[id.index() as usize];
         let t = slot.torrent.take().expect("checked");
         self.free_slots.push(id.index());
-        let ih = t.info_hashes.best_v1_compatible();
-        self.by_hash.remove(&ih);
-        self.by_obfuscated.remove(&mse::stream_key_hash(&ih));
+        for ih in t.info_hashes.wire_hashes() {
+            self.by_hash.remove(&ih);
+            self.by_obfuscated.remove(&mse::stream_key_hash(&ih));
+        }
         if let Some(pos) = self.queue.iter().position(|&q| q == id) {
             self.queue.remove(pos);
             self.renumber_queue(pos);
@@ -1855,6 +1881,7 @@ impl Engine {
         if let Some((s, true)) = t.moving.take() {
             if !keep_metadata && !t.is_active() {
                 t.ti = None;
+                t.merkle_trees = None;
             }
             self.disk.async_fence(&s, FenceAction::Release);
         }
@@ -2137,6 +2164,7 @@ impl Engine {
         t.peer_list.trim(max_paused);
         if !keep_metadata && !shutting_down {
             t.ti = None;
+            t.merkle_trees = None;
         }
         let state = t.settled_state();
         let now = Instant::now();
@@ -2174,6 +2202,9 @@ impl Engine {
                 self.alert(Alert::FileError { id, file, error: error.clone() });
                 self.alert(Alert::TorrentError { id, error });
                 self.update_running(id);
+            }
+            Ok(res) if res.inconsistent.is_some() => {
+                self.inconsistent_hashes(id, res.inconsistent.expect("checked"));
             }
             Ok(res) => {
                 let was_finished_before = t.completed_time != 0;
@@ -2494,20 +2525,22 @@ impl Engine {
                     self.web_unblock_reads();
                 }
             }
-            Completion::Hashed { storage, piece, passed } => {
+            Completion::Hashed { storage, piece, verdict } => {
                 let Some(&id) = self.storages.get(&storage) else { return };
                 let Some(t) = self.torrent(id) else { return };
                 let current = t.storage.as_ref().is_some_and(|s| s.id == storage);
                 if !current {
                     // The torrent stopped meanwhile; a verified piece is still ours.
-                    if passed {
+                    if verdict == HashVerdict::Passed {
                         if let Some(h) = t.have.as_mut().filter(|h| (piece as usize) < h.len()) {
                             h.set(piece as usize, true);
                         }
                     }
                     return;
                 }
-                if passed {
+                if verdict == HashVerdict::Inconsistent {
+                    self.inconsistent_hashes(id, piece);
+                } else if verdict == HashVerdict::Passed {
                     self.piece_passed(id, piece);
                 } else {
                     // libtorrent `torrent::piece_failed`: who sent each block (for blame),
@@ -3473,4 +3506,19 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
     t.max_uploads = r.max_uploads;
     t.renamed_files.extend(r.mapped_files.iter().map(|(&i, n)| (i, n.clone())));
     t.apply_renames();
+}
+
+/// The reserved bits and info-hash of our handshake: the v1 hash on a v1 connection of a
+/// hybrid, with the v2 bit offering the upgrade (libtorrent `write_handshake`), otherwise the
+/// hash of the connection's protocol. Every connection of a v2-only torrent is a v2 one.
+fn handshake_for(p: &mut PeerConn, t: &Torrent) -> (peer_wire::Reserved, Sha1Hash) {
+    if !t.info_hashes.has_v1() {
+        p.protocol_v2 = true;
+    }
+    let reserved = if t.info_hashes.has_v2() && !p.protocol_v2 {
+        peer_wire::Reserved::ours().with_v2()
+    } else {
+        peer_wire::Reserved::ours()
+    };
+    (reserved, t.info_hashes.wire_hash(p.protocol_v2))
 }

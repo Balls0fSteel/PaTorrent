@@ -245,6 +245,27 @@ impl InfoHashes {
         }
     }
 
+    /// The v2 info-hash truncated to 20 bytes, as the wire, trackers and the DHT use it.
+    pub fn truncated_v2(&self) -> Option<Sha1Hash> {
+        self.v2.map(|v2| Sha1Hash(v2.0[..20].try_into().expect("20 bytes")))
+    }
+
+    /// The hash a connection's handshake carries: the truncated v2 hash on a v2 connection,
+    /// otherwise the v1 hash (libtorrent `info_hash_t::get`), or the truncated v2 hash of a
+    /// v2-only torrent.
+    pub fn wire_hash(&self, v2: bool) -> Sha1Hash {
+        match (v2, self.v1, self.truncated_v2()) {
+            (true, _, Some(h)) | (false, None, Some(h)) => h,
+            (_, Some(v1), _) => v1,
+            (_, None, None) => Sha1Hash::default(),
+        }
+    }
+
+    /// Every 20-byte hash the torrent answers to on the wire: v1 and the truncated v2 hash.
+    pub fn wire_hashes(&self) -> impl Iterator<Item = Sha1Hash> + '_ {
+        self.v1.into_iter().chain(self.truncated_v2())
+    }
+
     /// Stable display / file-name key: v1 hex if present, otherwise v2 hex.
     pub fn key_hex(&self) -> String {
         match (self.v1, self.v2) {

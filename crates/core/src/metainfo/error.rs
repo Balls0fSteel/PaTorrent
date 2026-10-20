@@ -34,6 +34,8 @@ pub enum MetainfoError {
     TorrentInvalidPieceLayer,
     TorrentMissingPiecesRoot,
     TorrentInvalidPadFile,
+    /// errors::torrent_inconsistent_hashes: a hybrid piece passed its v1 or its v2 hash only.
+    TorrentInconsistentHashes,
     FileTooLarge,
     FilenameTooLong,
     InvalidEscapedString,
@@ -69,6 +71,7 @@ impl MetainfoError {
             TorrentInvalidPieceLayer => "a piece layer is invalid",
             TorrentMissingPiecesRoot => "a v2 file entry has no root hash",
             TorrentInvalidPadFile => "a file in the v2 metadata has the pad attribute set",
+            TorrentInconsistentHashes => "v1 and v2 hashes do not describe the same data",
             FileTooLarge => "File too large",
             FilenameTooLong => "Filename too long",
             InvalidEscapedString => "invalid escaped string",

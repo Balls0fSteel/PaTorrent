@@ -45,9 +45,10 @@ impl Engine {
             self.send_handshake(slot);
             return;
         }
-        let ih = t.info_hashes.best_v1_compatible();
+        // the encrypted handshake is keyed on the hash the inner plain handshake carries
+        let (reserved, ih) = super::handshake_for(p, t);
         let mut ia = Vec::with_capacity(peer_wire::HANDSHAKE_LEN);
-        peer_wire::encode_handshake(&mut ia, &ih, &peer_id);
+        peer_wire::encode_handshake(&mut ia, &reserved, &ih, &peer_id);
         // The plain handshake goes inside the encrypted one (libtorrent writes it with pe3).
         p.sent_handshake = true;
         let hs = PeHandshake::outgoing(ih, ia, level, prefer_rc4, p.out());

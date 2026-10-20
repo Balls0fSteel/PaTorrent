@@ -440,7 +440,7 @@ mod tests {
 
     fn handshake_for(ih: &Sha1Hash) -> Vec<u8> {
         let mut v = Vec::new();
-        peer_wire::encode_handshake(&mut v, ih, b"-PA0100-abcdefghijkl");
+        peer_wire::encode_handshake(&mut v, &peer_wire::Reserved::ours(), ih, b"-PA0100-abcdefghijkl");
         v
     }
 

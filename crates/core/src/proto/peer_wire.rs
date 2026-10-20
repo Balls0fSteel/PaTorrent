@@ -8,7 +8,7 @@
 //! BitTorrent peer wire protocol (BEP 3, BEP 6, BEP 10, BEP 54).
 
 use crate::bencode::{Entry, bdecode};
-use crate::types::Sha1Hash;
+use crate::types::{Sha1Hash, Sha256Hash};
 
 pub const PROTOCOL: &[u8; 19] = b"BitTorrent protocol";
 pub const HANDSHAKE_LEN: usize = 68;
@@ -36,6 +36,10 @@ pub mod msg {
     pub const ALLOWED_FAST: u8 = 0x11;
     // BEP 10
     pub const EXTENDED: u8 = 20;
+    // BEP 52
+    pub const HASH_REQUEST: u8 = 21;
+    pub const HASHES: u8 = 22;
+    pub const HASH_REJECT: u8 = 23;
 }
 
 /// BEP 54 `lt_donthave`: a peer takes back a piece it announced (libtorrent
@@ -67,6 +71,17 @@ impl Reserved {
     pub fn supports_fast(&self) -> bool {
         self.0[7] & 0x04 != 0
     }
+
+    /// BEP 52: the peer speaks v2 (libtorrent sets it on a v1 connection of a hybrid torrent,
+    /// offering the upgrade).
+    pub fn supports_v2(&self) -> bool {
+        self.0[7] & 0x10 != 0
+    }
+
+    pub fn with_v2(mut self) -> Reserved {
+        self.0[7] |= 0x10;
+        self
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -76,10 +91,10 @@ pub struct Handshake {
     pub peer_id: [u8; 20],
 }
 
-pub fn encode_handshake(out: &mut Vec<u8>, info_hash: &Sha1Hash, peer_id: &[u8; 20]) {
+pub fn encode_handshake(out: &mut Vec<u8>, reserved: &Reserved, info_hash: &Sha1Hash, peer_id: &[u8; 20]) {
     out.push(PROTOCOL.len() as u8);
     out.extend_from_slice(PROTOCOL);
-    out.extend_from_slice(&Reserved::ours().0);
+    out.extend_from_slice(&reserved.0);
     out.extend_from_slice(&info_hash.0);
     out.extend_from_slice(peer_id);
 }
@@ -157,10 +172,51 @@ pub enum Message<'a> {
         id: u8,
         payload: &'a [u8],
     },
+    /// BEP 52 hash request: a range of a file's merkle tree.
+    HashRequest(HashMsg),
+    /// BEP 52 hashes: the range asked for, then the uncle hashes, 32 bytes each.
+    Hashes(HashMsg, &'a [u8]),
+    /// BEP 52 hash reject: the range cannot be given.
+    HashReject(HashMsg),
     /// A message id we do not know; libtorrent ignores these.
     Unknown {
         id: u8,
     },
+}
+
+/// The header of the BEP 52 hash messages: the file's pieces root, then the layer (0 = blocks),
+/// the first hash in it, how many, and how many proof layers (signed 32-bit, as libtorrent
+/// reads them).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HashMsg {
+    pub root: Sha256Hash,
+    pub base: i32,
+    pub index: i32,
+    pub count: i32,
+    pub proof_layers: i32,
+}
+
+/// Bytes of a [`HashMsg`] after the message id.
+const HASH_MSG_LEN: usize = 32 + 16;
+
+impl HashMsg {
+    fn decode(p: &[u8]) -> HashMsg {
+        let int = |i: usize| be32(&p[32 + i * 4..]) as i32;
+        HashMsg {
+            root: Sha256Hash::from_slice(&p[..32]).expect("32 bytes"),
+            base: int(0),
+            index: int(1),
+            count: int(2),
+            proof_layers: int(3),
+        }
+    }
+
+    fn encode(&self, out: &mut Vec<u8>) {
+        out.extend_from_slice(&self.root.0);
+        for v in [self.base, self.index, self.count, self.proof_layers] {
+            out.extend_from_slice(&v.to_be_bytes());
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -245,6 +301,16 @@ pub fn decode(buf: &[u8]) -> Result<Option<(Message<'_>, usize)>, WireError> {
             }
             Message::Extended { id: p[0], payload: &p[1..] }
         }
+        // libtorrent `invalid_hash_request` / `invalid_hash_reject` for any other size; a
+        // hashes message's hash count is checked against its header by the torrent
+        msg::HASH_REQUEST => exact(HASH_MSG_LEN).map(|_| Message::HashRequest(HashMsg::decode(p)))?,
+        msg::HASH_REJECT => exact(HASH_MSG_LEN).map(|_| Message::HashReject(HashMsg::decode(p)))?,
+        msg::HASHES => {
+            if p.len() < HASH_MSG_LEN || (p.len() - HASH_MSG_LEN) % 32 != 0 {
+                return Err(bad());
+            }
+            Message::Hashes(HashMsg::decode(p), &p[HASH_MSG_LEN..])
+        }
         id => Message::Unknown { id },
     };
     Ok(Some((m, total)))
@@ -286,6 +352,21 @@ pub fn encode_piece(out: &mut Vec<u8>, piece: u32, start: u32, data: &[u8]) {
     out.extend_from_slice(&piece.to_be_bytes());
     out.extend_from_slice(&start.to_be_bytes());
     out.extend_from_slice(data);
+}
+
+/// BEP 52 `hash request` (21) or `hash reject` (23).
+pub fn encode_hash_msg(out: &mut Vec<u8>, id: u8, m: &HashMsg) {
+    header(out, 1 + HASH_MSG_LEN as u32, id);
+    m.encode(out);
+}
+
+/// BEP 52 `hashes` (22): the header, then the hashes.
+pub fn encode_hashes(out: &mut Vec<u8>, m: &HashMsg, hashes: &[Sha256Hash]) {
+    header(out, (1 + HASH_MSG_LEN + hashes.len() * 32) as u32, msg::HASHES);
+    m.encode(out);
+    for h in hashes {
+        out.extend_from_slice(&h.0);
+    }
 }
 
 pub fn encode_extended(out: &mut Vec<u8>, ext_id: u8, payload: &[u8]) {
@@ -491,7 +572,7 @@ mod tests {
     fn handshake_round_trip() {
         let ih = Sha1Hash([7; 20]);
         let mut out = Vec::new();
-        encode_handshake(&mut out, &ih, &[b'x'; 20]);
+        encode_handshake(&mut out, &Reserved::ours(), &ih, &[b'x'; 20]);
         assert_eq!(out.len(), HANDSHAKE_LEN);
         assert_eq!(decode_handshake(&out[..30]), Err(HandshakeError::Incomplete));
         assert_eq!(decode_handshake_prefix(&out[..48]).unwrap().1, ih);

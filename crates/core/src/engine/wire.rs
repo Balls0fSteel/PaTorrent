@@ -20,7 +20,7 @@ use crate::disk::BLOCK_SIZE;
 use crate::error::Error;
 use crate::params::TorrentFlags;
 use crate::proto::pe_handshake::PeHandshake;
-use crate::proto::peer_wire::{self, HandshakeError, Message, lt_donthave, msg};
+use crate::proto::peer_wire::{self, HandshakeError, HashMsg, Message, lt_donthave, msg};
 use crate::proto::ut_metadata;
 use crate::proto::ut_pex;
 use crate::settings::EncPolicy;
@@ -53,6 +53,9 @@ enum Owned {
     Reject(u32, u32),
     AllowedFast(u32),
     Extended(u8, Vec<u8>),
+    HashRequest(HashMsg),
+    Hashes(HashMsg, Vec<u8>),
+    HashReject(HashMsg),
     Ignored,
 }
 
@@ -74,6 +77,9 @@ impl Owned {
             Message::Reject { piece, start, .. } => Owned::Reject(piece, start),
             Message::AllowedFast(i) => Owned::AllowedFast(i),
             Message::Extended { id, payload } => Owned::Extended(id, payload.to_vec()),
+            Message::HashRequest(m) => Owned::HashRequest(m),
+            Message::Hashes(m, hashes) => Owned::Hashes(m, hashes.to_vec()),
+            Message::HashReject(m) => Owned::HashReject(m),
             Message::Port(_) | Message::Suggest(_) | Message::Unknown { .. } => Owned::Ignored,
         }
     }
@@ -125,16 +131,16 @@ impl Engine {
         let (in_policy, out_policy) = (self.settings.in_enc_policy, self.settings.out_enc_policy);
         let (level, prefer_rc4) = (self.settings.allowed_enc_level, self.settings.prefer_rc4);
         let p = self.peers.get_mut(slot).expect("caller checked");
-        if p.torrent.is_none() {
+        if !p.outgoing && !p.sent_handshake {
             // Incoming: pick the torrent by its info-hash as soon as it arrives.
-            let ih = match peer_wire::decode_handshake_prefix(p.received()) {
-                Ok((_, ih)) => ih,
+            let (reserved, ih) = match peer_wire::decode_handshake_prefix(p.received()) {
+                Ok(prefix) => prefix,
                 Err(HandshakeError::Incomplete) => return false,
                 Err(HandshakeError::BadProtocol) => {
                     // libtorrent `read_protocol_identifier`: not the protocol string, so try it
-                    // as an encrypted handshake, unless that cannot be (we initiated, or it is
-                    // already inside one) or `in_enc_policy` forbids it.
-                    if p.outgoing || p.encrypted {
+                    // as an encrypted handshake, unless that cannot be (it is already inside
+                    // one) or `in_enc_policy` forbids it.
+                    if p.encrypted || p.torrent.is_some() {
                         p.close("not a BitTorrent handshake", true);
                         return false;
                     }
@@ -146,16 +152,36 @@ impl Engine {
                     return true;
                 }
             };
-            if in_policy == EncPolicy::Forced && !p.encrypted {
-                p.close("no incoming plaintext connections allowed", false);
-                return false;
+            if p.torrent.is_none() {
+                if in_policy == EncPolicy::Forced && !p.encrypted {
+                    p.close("no incoming plaintext connections allowed", false);
+                    return false;
+                }
+                let Some(&id) = self.by_hash.get(&ih) else {
+                    self.peers.get_mut(slot).expect("exists").close("unknown torrent", true);
+                    return false;
+                };
+                if !self.attach_incoming(slot, id) {
+                    return false;
+                }
             }
-            let Some(&id) = self.by_hash.get(&ih) else {
-                self.peers.get_mut(slot).expect("exists").close("unknown torrent", true);
+            // libtorrent `on_receive_handshake`: the truncated v2 hash makes it a v2 connection,
+            // and so does the v2 bit on a v2 torrent (the peer offers the upgrade, and our
+            // answer carries the v2 hash); the bit on a torrent known to be v1 is an error.
+            let (p, t) = self.peer_and_torrent(slot).expect("exists");
+            let Some(t) = t else {
+                p.close("torrent removed", false);
                 return false;
             };
-            if !self.attach_incoming(slot, id) {
-                return false;
+            if t.info_hashes.truncated_v2() == Some(ih) || !t.info_hashes.has_v1() {
+                p.protocol_v2 = true;
+            }
+            if reserved.supports_v2() {
+                if t.has_metadata() && !t.info_hashes.has_v2() {
+                    p.close("v2 handshake for a v1 torrent", true);
+                    return false;
+                }
+                p.protocol_v2 |= t.info_hashes.has_v2();
             }
         }
         // An incoming connection answers once its torrent is known (after the encrypted
@@ -176,7 +202,16 @@ impl Engine {
                 return false;
             }
         };
-        if h.info_hash != t.info_hashes.best_v1_compatible() {
+        // An outgoing v1 connection of a hybrid is upgraded when the peer answers with the v2
+        // hash; an incoming one chose its hash above.
+        let valid = if p.outgoing {
+            let v2 = t.info_hashes.truncated_v2() == Some(h.info_hash);
+            p.protocol_v2 |= v2;
+            v2 || h.info_hash == t.info_hashes.wire_hash(p.protocol_v2)
+        } else {
+            t.info_hashes.wire_hashes().any(|w| w == h.info_hash)
+        };
+        if !valid {
             p.close("info-hash mismatch", true);
             return false;
         }
@@ -239,7 +274,7 @@ impl Engine {
         // seeding (libtorrent `send_allowed_set`).
         if p.supports_fast && count > 0 && !super_seeding {
             if let std::net::IpAddr::V4(ip) = p.addr.ip() {
-                let ih = t.info_hashes.best_v1_compatible();
+                let ih = t.info_hashes.wire_hash(p.protocol_v2);
                 for piece in peer_wire::allowed_fast_set(ip, &ih, t.num_pieces, ALLOWED_FAST_SET_SIZE) {
                     if have.get(piece as usize) {
                         peer_wire::encode_u32(p.out(), msg::ALLOWED_FAST, piece);
@@ -278,6 +313,9 @@ impl Engine {
     fn on_message(&mut self, slot: usize, m: Owned) {
         match m {
             Owned::KeepAlive | Owned::Ignored => {}
+            Owned::HashRequest(m) => self.on_hash_request(slot, m),
+            Owned::Hashes(m, hashes) => self.on_hashes(slot, m, &hashes),
+            Owned::HashReject(m) => self.on_hash_reject(slot, m),
             Owned::Choke => {
                 let (p, t) = self.peer_and_torrent(slot).expect("exists");
                 p.peer_choking = true;

@@ -7,8 +7,9 @@
 //! * `metadata.pack`: append-only info dictionaries. Each record is `"LTI1"`, a little-endian
 //!   `u16` key length, the key (info-hash hex), a little-endian `u32` length and the bencoded
 //!   info dictionary. Records are read only when a torrent starts, so stopped torrents never
-//!   hold their piece hashes in memory. The pack is compacted when more than half of it is
-//!   dead.
+//!   hold their piece hashes in memory. A v2 torrent's piece layers, which live outside the
+//!   info dictionary, are a second record under `<key>.layers` (a bencoded "piece layers"
+//!   dictionary). The pack is compacted when more than half of it is dead.
 //!
 //! New code (libtorrent stores resume data through the client).
 
@@ -25,6 +26,8 @@ const RESUME_DB: &str = "resume.db";
 const METADATA_PACK: &str = "metadata.pack";
 const PACK_MAGIC: &[u8; 4] = b"LTI1";
 const DB_FORMAT: &str = "patorrent resume db";
+/// Suffix of the pack key that holds a torrent's v2 piece layers.
+const LAYERS_SUFFIX: &str = ".layers";
 
 /// Location of an info dictionary in the pack.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -117,7 +120,7 @@ impl Store {
             }
             let key = String::from_utf8_lossy(&key).into_owned();
             // Later records win; only keys with a resume record are live.
-            if self.records.contains_key(&key) {
+            if self.records.contains_key(key.strip_suffix(LAYERS_SUFFIX).unwrap_or(&key)) {
                 self.pack_index.insert(key, PackLoc { offset: data_off, len: dlen });
             }
             pos = data_off + dlen as u64;
@@ -168,6 +171,32 @@ impl Store {
         Ok(Some(buf))
     }
 
+    /// Saves a torrent's v2 piece layers (a bencoded "piece layers" dictionary) beside its info
+    /// dictionary, replacing earlier ones.
+    pub fn put_piece_layers(&mut self, key: &str, layers: &[u8]) -> Result<(), Error> {
+        let pack_key = format!("{key}{LAYERS_SUFFIX}");
+        if self.load_metadata(&pack_key)?.as_deref() == Some(layers) {
+            return Ok(());
+        }
+        self.append(&pack_key, layers)
+    }
+
+    /// A torrent's v2 piece layers, if they were saved.
+    pub fn load_piece_layers(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
+        self.load_metadata(&format!("{key}{LAYERS_SUFFIX}"))
+    }
+
+    fn append(&mut self, pack_key: &str, data: &[u8]) -> Result<(), Error> {
+        let f = self.pack.as_mut().ok_or(Error::SessionClosed)?;
+        let rec = pack_record(pack_key, data);
+        f.seek(SeekFrom::Start(self.pack_len))?;
+        f.write_all(&rec)?;
+        let offset = self.pack_len + rec.len() as u64 - data.len() as u64;
+        self.pack_len += rec.len() as u64;
+        self.pack_index.insert(pack_key.to_owned(), PackLoc { offset, len: data.len() as u32 });
+        Ok(())
+    }
+
     /// Saves a torrent's record. `info` is appended to the pack if it is not there yet.
     pub fn put(&mut self, key: &str, record: &ResumeData, info: Option<&[u8]>) -> Result<(), Error> {
         let mut rec = record.clone();
@@ -179,13 +208,7 @@ impl Store {
         }
         if let Some(info) = info {
             if !self.pack_index.contains_key(key) {
-                let f = self.pack.as_mut().ok_or(Error::SessionClosed)?;
-                let rec = pack_record(key, info);
-                f.seek(SeekFrom::Start(self.pack_len))?;
-                f.write_all(&rec)?;
-                let offset = self.pack_len + rec.len() as u64 - info.len() as u64;
-                self.pack_len += rec.len() as u64;
-                self.pack_index.insert(key.to_owned(), PackLoc { offset, len: info.len() as u32 });
+                self.append(key, info)?;
             }
         }
         Ok(())
@@ -196,6 +219,7 @@ impl Store {
             self.dirty = true;
         }
         self.pack_index.remove(key);
+        self.pack_index.remove(&format!("{key}{LAYERS_SUFFIX}"));
     }
 
     #[cfg(test)]

@@ -196,8 +196,9 @@ impl Engine {
         };
         let Some(t) = self.torrent(id) else { return };
         t.fetch = None;
-        if ti.info_hashes().v1 == t.info_hashes.v1 {
-            // A hybrid torrent's v2 hash is known now.
+        let learned_v2 = ti.info_hashes().v1 == t.info_hashes.v1 && ti.info_hashes() != t.info_hashes;
+        if learned_v2 {
+            // A hybrid torrent's v2 hash is known now: peers may use it too.
             t.info_hashes = ti.info_hashes();
         }
         if !t.user_named {
@@ -213,6 +214,11 @@ impl Engine {
         }
         t.resume_dirty = true;
         t.status_dirty = true;
+        if learned_v2 {
+            let hashes = t.info_hashes;
+            self.index_hashes(id, &hashes);
+        }
+        let Some(t) = self.torrent(id) else { return };
         let n = t.num_pieces;
         let slots = t.peers.clone();
         let key = t.key.clone();

@@ -17,7 +17,7 @@ use super::file_storage::{
 };
 use super::magnet::parse_magnet_uri;
 use super::sanitize::sanitize_append_path_element;
-use crate::bencode::{Bdecoded, Node, bdecode_with_limits};
+use crate::bencode::{Bdecoded, Node, bdecode, bdecode_with_limits};
 use crate::crypto::crc32c::Crc32c;
 use crate::crypto::{Sha1, Sha256};
 use crate::flags::bit_flags;
@@ -782,14 +782,79 @@ impl TorrentInfo {
 
     /// v2 piece hashes of `file` (the root itself for single-piece files).
     pub fn piece_layer(&self, file: usize) -> &[u8] {
-        if file >= self.files.num_files() || self.files.pad_file_at(file) {
+        let fs = self.orig_files();
+        if file >= fs.num_files() || fs.pad_file_at(file) {
             return &[];
         }
-        if self.files.file_size(file) <= self.piece_length() as u64 {
+        if fs.file_size(file) <= self.piece_length() as u64 {
             // a single-piece file: its root is its only piece hash
-            return self.files.root_bytes(file);
+            return fs.root_bytes(file);
         }
         self.piece_layers.get(file).map_or(&[], Vec::as_slice)
+    }
+
+    /// v2: the expected hash of `piece` (the merkle root over its 16 KiB blocks, from its
+    /// file's piece layer, or the file's root for a single-piece file) and the number of
+    /// leaves that root spans (the blocks per piece, or for a file smaller than a piece its
+    /// block count rounded up to a power of two). `None` without v2 metadata, for a piece that
+    /// starts in a pad file, or when the file's piece layer is not known.
+    pub fn v2_piece_hash(&self, piece: u32) -> Option<(Sha256Hash, usize)> {
+        if !self.v2() || piece >= self.num_pieces() {
+            return None;
+        }
+        let fs = self.orig_files();
+        let pl = fs.piece_length();
+        let file = fs.file_index_at_piece(piece);
+        if fs.pad_file_at(file) || fs.file_size(file) == 0 {
+            return None;
+        }
+        let index = (piece - (fs.file_offset(file) / pl as u64) as u32) as usize;
+        let layer = self.piece_layer(file);
+        let hash = Sha256Hash::from_slice(layer.get(index * 32..index * 32 + 32)?)?;
+        let leafs = if fs.file_size(file) < pl as u64 {
+            super::merkle::merkle_num_leafs(fs.file_num_blocks(file) as usize)
+        } else {
+            (pl / DEFAULT_BLOCK_SIZE) as usize
+        };
+        Some((hash, leafs))
+    }
+
+    /// v2: every file's piece hashes are known (from the `.torrent` or added since).
+    pub fn v2_piece_layers_complete(&self) -> bool {
+        let fs = self.orig_files();
+        self.v2()
+            && (0..fs.num_files()).all(|f| {
+                fs.pad_file_at(f)
+                    || fs.file_size(f) == 0
+                    || self.piece_layer(f).len() == fs.file_num_pieces(f) as usize * 32
+            })
+    }
+
+    /// Adds the piece layers of a bencoded "piece layers" dictionary (as the session store keeps
+    /// them beside the info dictionary), with the same checks as a `.torrent`'s.
+    pub fn set_piece_layers(&mut self, bencoded: &[u8]) -> Result<(), MetainfoError> {
+        let doc = bdecode(bencoded).map_err(|_| MetainfoError::TorrentInvalidPieceLayer)?;
+        let root = doc.root().filter(Node::is_dict).ok_or(MetainfoError::TorrentInvalidPieceLayer)?;
+        self.parse_piece_layers(root)
+    }
+
+    /// The piece layers as a bencoded "piece layers" dictionary (files with more than one
+    /// piece only, as in a `.torrent`); `None` if there are none.
+    pub fn piece_layers_bencoded(&self) -> Option<Vec<u8>> {
+        let fs = self.orig_files();
+        let mut layers = crate::bencode::Entry::new_dict();
+        let mut any = false;
+        for f in 0..fs.num_files() {
+            if fs.pad_file_at(f) || fs.file_size(f) <= self.piece_length() as u64 {
+                continue;
+            }
+            let layer = self.piece_layer(f);
+            if !layer.is_empty() {
+                *layers.key(fs.root_bytes(f)) = crate::bencode::Entry::Bytes(layer.to_vec());
+                any = true;
+            }
+        }
+        any.then(|| layers.bencode())
     }
 
     pub fn v2_piece_hashes_verified(&self) -> bool {

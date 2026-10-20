@@ -26,11 +26,13 @@ use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock, mpsc};
 use std::thread::JoinHandle;
 
 use crate::alert::FileOperation;
-use crate::crypto::Sha1;
+use crate::crypto::{Sha1, Sha256};
 use crate::error::Error;
 use crate::metainfo::TorrentInfo;
 use crate::metainfo::file_storage::{FileFlags, FileStorage};
+use crate::metainfo::merkle::merkle_piece_root;
 use crate::params::MoveFlags;
+use crate::types::Sha256Hash;
 use crate::util::bitfield::Bitfield;
 use file_pool::{FilePool, read_at, write_at};
 use part_file::{PartFile, PartFiles};
@@ -267,6 +269,21 @@ pub(crate) struct CheckResult {
     pub have: Bitfield,
     /// True when resume data did not match the files and a full check was done instead.
     pub resume_failed: bool,
+    /// A hybrid piece whose v1 and v2 hashes disagreed; the check stopped there (libtorrent
+    /// `handle_inconsistent_hashes`).
+    pub inconsistent: Option<u32>,
+}
+
+/// How a piece compares with the metadata. v1 pieces are checked against their SHA-1, v2
+/// pieces against the merkle root of their blocks from the piece layers (both known on the disk
+/// thread), hybrids against both.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum HashVerdict {
+    Passed,
+    Failed,
+    /// A hybrid piece that passed one of its hashes and failed the other (libtorrent
+    /// `torrent_inconsistent_hashes`).
+    Inconsistent,
 }
 
 /// Results sent back to the network thread.
@@ -278,11 +295,11 @@ pub(crate) enum Completion {
         offset: u32,
         error: Option<(String, Error)>,
     },
-    /// Every block of the piece was written; `passed` tells whether its hash matched.
+    /// Every block of the piece was written and the piece hashed.
     Hashed {
         storage: u64,
         piece: u32,
-        passed: bool,
+        verdict: HashVerdict,
     },
     Read {
         storage: u64,
@@ -512,9 +529,62 @@ impl Drop for DiskIo {
     }
 }
 
+/// Hashes one piece as its torrent needs it, fed whole blocks in order: SHA-1 over the piece,
+/// pad bytes included (v1), and SHA-256 over each 16 KiB block of the file data in it (v2,
+/// when the piece's v2 hash is known).
+struct PieceHasher {
+    sha1: Option<Sha1>,
+    /// The block hashes so far, and the piece's v2 size (it ends at the end of its file).
+    v2: Option<(Vec<Sha256Hash>, u32)>,
+    fed: u32,
+}
+
+impl PieceHasher {
+    fn new(info: &TorrentInfo, piece: u32) -> PieceHasher {
+        let sha1 = info.v1().then(Sha1::new);
+        let v2 = info.v2_piece_hash(piece).map(|_| (Vec::new(), info.orig_files().piece_size2(piece)));
+        PieceHasher { sha1, v2, fed: 0 }
+    }
+
+    fn update(&mut self, block: &[u8]) {
+        if let Some(h) = self.sha1.as_mut() {
+            h.update(block);
+        }
+        if let Some((blocks, size2)) = self.v2.as_mut() {
+            if self.fed < *size2 {
+                let n = (block.len() as u32).min(*size2 - self.fed) as usize;
+                blocks.push(Sha256::digest(&block[..n]));
+            }
+        }
+        self.fed += block.len() as u32;
+    }
+
+    /// libtorrent `on_piece_verified` (downloads) and `on_piece_hashed` (`checking`: a v1
+    /// failure is final there, the v2 hash is not looked at).
+    fn verdict(self, info: &TorrentInfo, piece: u32, checking: bool) -> HashVerdict {
+        let v1 = self.sha1.map(|h| Some(h.finalize()) == info.hash_for_piece(piece));
+        if checking && v1 == Some(false) {
+            return HashVerdict::Failed;
+        }
+        let v2 = self.v2.and_then(|(blocks, _)| {
+            let (expected, leafs) = info.v2_piece_hash(piece)?;
+            Some(
+                !blocks.is_empty()
+                    && blocks.len() <= leafs
+                    && merkle_piece_root(&blocks, leafs, &mut Vec::new()) == expected,
+            )
+        });
+        match (v1, v2) {
+            (Some(a), Some(b)) if a != b => HashVerdict::Inconsistent,
+            (Some(true), _) | (_, Some(true)) => HashVerdict::Passed,
+            _ => HashVerdict::Failed,
+        }
+    }
+}
+
 /// Incremental hash of one piece being downloaded.
 struct PartialHash {
-    hasher: Sha1,
+    hasher: PieceHasher,
     /// Next block to feed to the hasher.
     cursor: u32,
     received: Vec<bool>,
@@ -526,9 +596,9 @@ struct PartialHash {
 }
 
 impl PartialHash {
-    fn new(num_blocks: u32) -> PartialHash {
+    fn new(info: &TorrentInfo, piece: u32, num_blocks: u32) -> PartialHash {
         PartialHash {
-            hasher: Sha1::new(),
+            hasher: PieceHasher::new(info, piece),
             cursor: 0,
             received: vec![false; num_blocks as usize],
             cached: HashMap::new(),
@@ -574,8 +644,8 @@ impl Worker {
                 match result {
                     Ok(hashed) => {
                         ctx.send(Completion::Write { storage: storage.id, piece, offset, error: None });
-                        if let Some(passed) = hashed {
-                            ctx.send(Completion::Hashed { storage: storage.id, piece, passed });
+                        if let Some(verdict) = hashed {
+                            ctx.send(Completion::Hashed { storage: storage.id, piece, verdict });
                         }
                     }
                     Err(e) => {
@@ -586,7 +656,9 @@ impl Worker {
             }
             Job::Restore { storage, piece, blocks } => {
                 let n = storage.info.piece_size(piece).div_ceil(BLOCK_SIZE);
-                let state = partial.entry((storage.id, piece)).or_insert_with(|| PartialHash::new(n));
+                let state = partial
+                    .entry((storage.id, piece))
+                    .or_insert_with(|| PartialHash::new(&storage.info, piece, n));
                 for (b, &on_disk) in blocks.iter().enumerate().take(n as usize) {
                     if on_disk && !state.received[b] {
                         state.received[b] = true;
@@ -594,12 +666,13 @@ impl Worker {
                     }
                 }
                 match advance_hash(&storage, ctx, partial, cached_bytes, piece) {
-                    Ok(Some(passed)) => ctx.send(Completion::Hashed { storage: storage.id, piece, passed }),
+                    Ok(Some(verdict)) => ctx.send(Completion::Hashed { storage: storage.id, piece, verdict }),
                     Ok(None) => {}
                     Err(_) => {
                         // Only possible if writes were queued before the restore: fail the piece.
                         drop_partial(partial, cached_bytes, storage.id, piece);
-                        ctx.send(Completion::Hashed { storage: storage.id, piece, passed: false });
+                        let verdict = HashVerdict::Failed;
+                        ctx.send(Completion::Hashed { storage: storage.id, piece, verdict });
                     }
                 }
             }
@@ -694,7 +767,7 @@ fn io_error(storage: &Storage, file: usize, e: io::Error) -> (String, Error) {
     (storage.file_path(file).to_string_lossy().into_owned(), Error::from(e))
 }
 
-/// Writes one block and advances the piece's hash. Returns `Some(passed)` once the whole piece
+/// Writes one block and advances the piece's hash. Returns the verdict once the whole piece
 /// has been hashed.
 fn write_block(
     storage: &Storage,
@@ -704,12 +777,14 @@ fn write_block(
     piece: u32,
     offset: u32,
     data: Vec<u8>,
-) -> Result<Option<bool>, (String, Error)> {
+) -> Result<Option<HashVerdict>, (String, Error)> {
     let fs = storage.info.files();
     let piece_size = storage.info.piece_size(piece);
     let num_blocks = piece_size.div_ceil(BLOCK_SIZE);
     let block = offset / BLOCK_SIZE;
-    let state = partial.entry((storage.id, piece)).or_insert_with(|| PartialHash::new(num_blocks));
+    let state = partial
+        .entry((storage.id, piece))
+        .or_insert_with(|| PartialHash::new(&storage.info, piece, num_blocks));
     if block >= num_blocks || state.received[block as usize] {
         // Out of range or a duplicate (end-game): nothing new to write.
         return Ok(None);
@@ -745,14 +820,14 @@ fn write_block(
 }
 
 /// Feeds the hasher every received block from the cursor on, reading back blocks that are not
-/// cached. Returns `Some(passed)` once the whole piece has been hashed; the state is dropped then.
+/// cached. Returns the verdict once the whole piece has been hashed; the state is dropped then.
 fn advance_hash(
     storage: &Storage,
     ctx: &Ctx,
     partial: &mut HashMap<(u64, u32), PartialHash>,
     cached_bytes: &mut usize,
     piece: u32,
-) -> Result<Option<bool>, (String, Error)> {
+) -> Result<Option<HashVerdict>, (String, Error)> {
     let fs = storage.info.files();
     let piece_size = storage.info.piece_size(piece);
     let num_blocks = piece_size.div_ceil(BLOCK_SIZE);
@@ -773,7 +848,7 @@ fn advance_hash(
                     Err(_) if state.restored[b as usize] => {
                         // The resume data promised a block the files do not hold.
                         drop_partial(partial, cached_bytes, storage.id, piece);
-                        return Ok(Some(false));
+                        return Ok(Some(HashVerdict::Failed));
                     }
                     Err(e) => {
                         let file = storage.file_path(fs.file_index_at_piece(piece));
@@ -788,8 +863,7 @@ fn advance_hash(
         return Ok(None);
     }
     let state = partial.remove(&(storage.id, piece)).expect("present");
-    let passed = Some(state.hasher.finalize()) == storage.info.hash_for_piece(piece);
-    Ok(Some(passed))
+    Ok(Some(state.hasher.verdict(&storage.info, piece, false)))
 }
 
 /// Reads `length` bytes of `piece` at `offset`. Pad files read as zeros.
@@ -874,7 +948,7 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
 
     if let CheckMode::Resume(have) = mode {
         if have.len() == num_pieces as usize && resume_matches_files(storage, &have) {
-            return Ok(CheckResult { have, resume_failed: false });
+            return Ok(CheckResult { have, resume_failed: false, inconsistent: None });
         }
         resume_failed = true;
     }
@@ -885,19 +959,29 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
         || (0..fs.num_files())
             .any(|f| fs.file_size(f) > 0 && !storage.skip_file(f) && storage.file_path(f).exists());
     if !any_file {
-        return Ok(CheckResult { have, resume_failed });
+        return Ok(CheckResult { have, resume_failed, inconsistent: None });
     }
     let mut buf = vec![0u8; storage.info.piece_length() as usize];
     let report_every = (num_pieces / 100).max(16);
+    let mut inconsistent = None;
     for piece in 0..num_pieces {
         if storage.abort.load(Ordering::Relaxed) {
             break;
         }
         let size = storage.info.piece_size(piece) as usize;
-        if read_into(storage, &ctx.pool, piece, 0, &mut buf[..size]).is_ok()
-            && Some(Sha1::digest(&buf[..size])) == storage.info.hash_for_piece(piece)
-        {
-            have.set(piece as usize, true);
+        if read_into(storage, &ctx.pool, piece, 0, &mut buf[..size]).is_ok() {
+            let mut hasher = PieceHasher::new(&storage.info, piece);
+            for block in buf[..size].chunks(BLOCK_SIZE as usize) {
+                hasher.update(block);
+            }
+            match hasher.verdict(&storage.info, piece, true) {
+                HashVerdict::Passed => have.set(piece as usize, true),
+                HashVerdict::Failed => {}
+                HashVerdict::Inconsistent => {
+                    inconsistent = Some(piece);
+                    break;
+                }
+            }
         }
         if (piece + 1) % report_every == 0 {
             ctx.send(Completion::CheckProgress { storage: storage.id, checked: piece + 1 });
@@ -905,7 +989,7 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
     }
     // Checking may open hundreds of files; don't keep them all.
     ctx.pool.release(storage.id);
-    Ok(CheckResult { have, resume_failed })
+    Ok(CheckResult { have, resume_failed, inconsistent })
 }
 
 /// libtorrent `posix_storage::verify_resume_data`, reduced to what pread storage needs: every
@@ -1395,7 +1479,8 @@ pub(crate) mod tests {
         while hashed.len() < 3 {
             match next(&r.rx) {
                 Completion::Write { error: None, .. } => writes += 1,
-                Completion::Hashed { piece, passed, .. } => {
+                Completion::Hashed { piece, verdict, .. } => {
+                    let passed = verdict == HashVerdict::Passed;
                     hashed.insert(piece, passed);
                 }
                 c => panic!("unexpected {c:?}"),
@@ -1409,7 +1494,8 @@ pub(crate) mod tests {
         r.disk.async_write(&r.storage, 0, 0, block(0, 0));
         r.disk.async_write(&r.storage, 0, BLOCK_SIZE, block(0, 1));
         loop {
-            if let Completion::Hashed { piece: 0, passed, .. } = next(&r.rx) {
+            if let Completion::Hashed { piece: 0, verdict, .. } = next(&r.rx) {
+                let passed = verdict == HashVerdict::Passed;
                 assert!(passed);
                 break;
             }
@@ -1471,7 +1557,8 @@ pub(crate) mod tests {
             all[start..start + BLOCK_SIZE as usize].to_vec()
         };
         let hashed = |rx: &mpsc::Receiver<Completion>| loop {
-            if let Completion::Hashed { piece, passed, .. } = next(rx) {
+            if let Completion::Hashed { piece, verdict, .. } = next(rx) {
+                let passed = verdict == HashVerdict::Passed;
                 break (piece, passed);
             }
         };
@@ -1558,7 +1645,8 @@ pub(crate) mod tests {
         let mut left: std::collections::HashSet<u32> = pieces.iter().copied().collect();
         while !left.is_empty() {
             match next(&r.rx) {
-                Completion::Hashed { piece, passed, .. } => {
+                Completion::Hashed { piece, verdict, .. } => {
+                    let passed = verdict == HashVerdict::Passed;
                     assert!(passed, "piece {piece} failed");
                     left.remove(&piece);
                 }
@@ -1728,11 +1816,17 @@ pub(crate) mod tests {
         // Barrier 1 is done: piece 0 is written, then barrier 2 parks piece 1 again.
         w.handle(Job::Unblock { storage: s.id, seq: 1 }, &ctx);
         assert!(matches!(rx.try_recv(), Ok(Completion::Write { piece: 0, error: None, .. })));
-        assert!(matches!(rx.try_recv(), Ok(Completion::Hashed { piece: 0, passed: true, .. })));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Completion::Hashed { piece: 0, verdict: HashVerdict::Passed, .. })
+        ));
         assert!(rx.try_recv().is_err());
         w.handle(Job::Unblock { storage: s.id, seq: 2 }, &ctx);
         assert!(matches!(rx.try_recv(), Ok(Completion::Write { piece: 1, error: None, .. })));
-        assert!(matches!(rx.try_recv(), Ok(Completion::Hashed { piece: 1, passed: true, .. })));
+        assert!(matches!(
+            rx.try_recv(),
+            Ok(Completion::Hashed { piece: 1, verdict: HashVerdict::Passed, .. })
+        ));
         assert!(w.parked.is_empty() && w.blocked.is_empty());
         drop(r.disk);
         let _ = std::fs::remove_dir_all(&r.dir);
@@ -1796,7 +1890,8 @@ pub(crate) mod tests {
         loop {
             match next(rx) {
                 Completion::Moved { status, save_path, error, .. } => break (status, save_path, error),
-                Completion::Write { error: None, .. } | Completion::Hashed { passed: true, .. } => {}
+                Completion::Write { error: None, .. }
+                | Completion::Hashed { verdict: HashVerdict::Passed, .. } => {}
                 c => panic!("unexpected {c:?}"),
             }
         }
@@ -1810,7 +1905,8 @@ pub(crate) mod tests {
         loop {
             match next(rx) {
                 Completion::Renamed { file, name, error, .. } => break (file, name, error),
-                Completion::Write { error: None, .. } | Completion::Hashed { passed: true, .. } => {}
+                Completion::Write { error: None, .. }
+                | Completion::Hashed { verdict: HashVerdict::Passed, .. } => {}
                 c => panic!("unexpected {c:?}"),
             }
         }
@@ -2054,7 +2150,8 @@ pub(crate) mod tests {
         assert!(r.storage.part_files.get(&new.join(&part)).is_some(), "the registry follows");
         assert!(r.storage.part_files.get(&old.join(&part)).is_none());
         loop {
-            if let Completion::Hashed { piece: 0, passed, .. } = next(&r.rx) {
+            if let Completion::Hashed { piece: 0, verdict, .. } = next(&r.rx) {
+                let passed = verdict == HashVerdict::Passed;
                 assert!(passed);
                 break;
             }

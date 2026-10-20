@@ -1,7 +1,10 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/packet_buffer.cpp, include/libtorrent/aux_/packet_buffer.hpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: slots hold `Option<Box<Packet>>` in a Vec instead of pooled `packet_ptr`s; otherwise
-// the same power-of-two circular buffer over 16-bit sequence numbers.
+// the same power-of-two circular buffer over 16-bit sequence numbers. An index's distance from
+// the cursor is taken modulo 0x10000 (`in_range`, `insert`): libtorrent compares the raw numbers,
+// so an index that had wrapped past the end of the buffer found the slot of a packet held from
+// before the wrap. A receiver then dropped new packets as duplicates of held ones.
 
 //! A circular buffer indexed by (wrapping) 16-bit sequence numbers: the packets we sent and
 //! wait to have acknowledged, and the ones we received out of order.
@@ -49,6 +52,13 @@ impl PacketBuffer {
         self.capacity().wrapping_sub(1)
     }
 
+    /// Whether `idx` has a slot: from the cursor on, less than the capacity ahead of it (the
+    /// next lap of a slot belongs to another index).
+    fn in_range(&self, idx: u32) -> bool {
+        (idx.wrapping_sub(self.first) & 0xffff) < self.capacity()
+            && !compare_less_wrap(idx, self.first, 0xffff)
+    }
+
     /// Stores `value` at `idx`, returning what was there before.
     pub fn insert(&mut self, idx: u32, value: Box<Packet>) -> Option<Box<Packet>> {
         debug_assert!(idx <= 0xffff);
@@ -71,13 +81,12 @@ impl PacketBuffer {
                     self.reserve(distance + cap - free_space);
                 }
                 self.first = idx;
-            } else if idx >= self.first + self.capacity() {
-                self.reserve(idx - self.first + 1);
-            } else if idx < self.first {
-                // We have wrapped.
-                let end = (self.first + self.capacity()) & 0xffff;
-                if idx >= end && self.capacity() < 0xffff {
-                    self.reserve(self.capacity() + (idx + 1 - end));
+            } else {
+                // also when `idx` has wrapped and the buffer has not (libtorrent grows it only
+                // when both have)
+                let distance = idx.wrapping_sub(self.first) & 0xffff;
+                if distance >= self.capacity() {
+                    self.reserve(distance + 1);
                 }
             }
             if compare_less_wrap(self.last, (idx + 1) & 0xffff, 0xffff) {
@@ -103,14 +112,14 @@ impl PacketBuffer {
     }
 
     pub fn at(&self, idx: u32) -> Option<&Packet> {
-        if idx >= self.first + self.capacity() || compare_less_wrap(idx, self.first, 0xffff) {
+        if !self.in_range(idx) {
             return None;
         }
         self.storage[(idx & self.mask()) as usize].as_deref()
     }
 
     pub fn at_mut(&mut self, idx: u32) -> Option<&mut Packet> {
-        if idx >= self.first + self.capacity() || compare_less_wrap(idx, self.first, 0xffff) {
+        if !self.in_range(idx) {
             return None;
         }
         let mask = self.mask();
@@ -132,7 +141,7 @@ impl PacketBuffer {
     }
 
     pub fn remove(&mut self, idx: u32) -> Option<Box<Packet>> {
-        if idx >= self.first + self.capacity() || compare_less_wrap(idx, self.first, 0xffff) {
+        if !self.in_range(idx) {
             return None;
         }
         let mask = self.mask();
@@ -280,5 +289,41 @@ mod tests {
         assert!(pb.at(0xfff3).is_none());
         assert_eq!(get_val(pb.at(new_index)), 2);
         pb.insert(0xffff, make_pkt(3));
+    }
+
+    // Not in libtorrent's tests (its buffer fails both).
+    #[test]
+    fn an_index_one_lap_past_a_held_one_is_empty() {
+        let mut pb = PacketBuffer::default();
+        // 16 slots from 0xfff8: up to 7 after the wrap. 8 has the slot of 0xfff8.
+        pb.insert(0xfff8, make_pkt(1));
+        assert_eq!(pb.capacity(), 16);
+        assert!(pb.at(8).is_none());
+        assert!(pb.remove(8).is_none());
+        assert_eq!(pb.len(), 1);
+        assert!(pb.insert(8, make_pkt(2)).is_none());
+        assert_eq!(pb.len(), 2);
+        assert!(pb.capacity() > 16);
+        assert_eq!(pb.span(), 17);
+        assert_eq!(get_val(pb.at(0xfff8)), 1);
+        assert_eq!(get_val(pb.at(8)), 2);
+    }
+
+    #[test]
+    fn a_jump_across_the_wrap_grows_the_buffer() {
+        let mut pb = PacketBuffer::default();
+        // 16 slots from 0xffe0 end before the wrap; 0x10, 48 further, has the slot of 0xffe0
+        pb.insert(0xffe0, make_pkt(1));
+        assert_eq!(pb.capacity(), 16);
+        assert!(pb.at(0x10).is_none());
+        assert!(pb.insert(0x10, make_pkt(2)).is_none());
+        assert_eq!(pb.len(), 2);
+        assert_eq!(pb.span(), 0x31);
+        assert_eq!(get_val(pb.at(0xffe0)), 1);
+        assert_eq!(get_val(pb.at(0x10)), 2);
+        assert_eq!(get_val(pb.remove(0xffe0).as_deref()), 1);
+        assert_eq!(pb.cursor(), 0x10);
+        assert_eq!(get_val(pb.remove(0x10).as_deref()), 2);
+        assert_eq!(pb.len(), 0);
     }
 }

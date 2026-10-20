@@ -32,6 +32,22 @@ const DUP_ACK_LIMIT: u8 = 3;
 const PKT_ACK: u8 = 1;
 const PKT_FIN: u8 = 2;
 
+#[cfg(test)]
+thread_local! {
+    /// The next connection's initial sequence number, taken by the first socket to draw one
+    /// (tests pin it to run into the wrap at 0xffff).
+    pub(super) static NEXT_SEQ_NR: std::cell::Cell<Option<u16>> = const { std::cell::Cell::new(None) };
+}
+
+/// A random initial sequence number, or the one a test pinned.
+fn initial_seq_nr() -> u16 {
+    #[cfg(test)]
+    if let Some(seq) = NEXT_SEQ_NR.with(|s| s.take()) {
+        return seq;
+    }
+    random_below(0x1_0000) as u16
+}
+
 /// libtorrent `utp_socket_impl::state_t`. The order matters: states from `ErrorWait` on are
 /// closing states that lead to the socket being deleted.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -485,7 +501,7 @@ impl UtpSocket {
     // --- Sending ------------------------------------------------------------------------------
 
     fn send_syn(&mut self, ctx: &mut Ctx<'_>) {
-        self.seq_nr = random_below(0x1_0000) as u16;
+        self.seq_nr = initial_seq_nr();
         self.acked_seq_nr = self.seq_nr.wrapping_sub(1);
         self.loss_seq_nr = self.acked_seq_nr;
         self.ack_nr = 0;
@@ -1629,7 +1645,7 @@ impl UtpSocket {
                     self.set_state(ctx, State::Connected);
                     self.remote = ep;
                     self.ack_nr = ph.seq_nr;
-                    self.seq_nr = random_below(0x1_0000) as u16;
+                    self.seq_nr = initial_seq_nr();
                     self.acked_seq_nr = self.seq_nr.wrapping_sub(1);
                     self.loss_seq_nr = self.acked_seq_nr;
                     self.fast_resend_seq_nr = self.seq_nr;

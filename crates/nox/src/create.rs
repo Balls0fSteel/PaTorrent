@@ -44,7 +44,7 @@ pub fn parse(args: &[String]) -> Result<CreateOpts, String> {
         source: String::new(),
         creator: None,
         no_date: false,
-        flags: CreateFlags::V1_ONLY,
+        flags: CreateFlags::empty(),
         skip_hidden: false,
         magnet: false,
     };
@@ -84,6 +84,10 @@ pub fn parse(args: &[String]) -> Result<CreateOpts, String> {
             "--no-date" => o.no_date = true,
             "--pad" => o.flags |= CreateFlags::CANONICAL_FILES,
             "--hybrid" => o.flags.remove(CreateFlags::V1_ONLY | CreateFlags::V2_ONLY),
+            "--v1" => {
+                o.flags.remove(CreateFlags::V2_ONLY);
+                o.flags.insert(CreateFlags::V1_ONLY);
+            }
             "--v2" => {
                 o.flags.remove(CreateFlags::V1_ONLY);
                 o.flags.insert(CreateFlags::V2_ONLY);

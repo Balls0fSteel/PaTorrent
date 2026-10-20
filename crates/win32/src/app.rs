@@ -3005,6 +3005,7 @@ unsafe fn create_torrent(hwnd: HWND) {
         seed: a.prefs.get_bool("create.seed", true),
         private: a.prefs.get_bool("create.private", false),
         preserve_order: a.prefs.get_bool("create.preserve_order", false),
+        format: a.prefs.get("create.format").and_then(create::TorrentFormat::from_key).unwrap_or_default(),
     }) else {
         return;
     };
@@ -3016,6 +3017,7 @@ unsafe fn create_torrent(hwnd: HWND) {
         a.prefs.set_bool("create.seed", r.seed);
         a.prefs.set_bool("create.private", r.private);
         a.prefs.set_bool("create.preserve_order", r.preserve_order);
+        a.prefs.set("create.format", r.format.key());
     });
     let Some(done) = done else { return };
     if let Some(save) = done.seed_from {

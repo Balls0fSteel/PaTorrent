@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-20_101114_1792483874
+Last updated: 2026-10-20_101643_1792484203
 
 ## Vision
 
@@ -211,7 +211,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [ ] Create New Torrent: piece-size auto, trackers, web seeds, private flag, progress
   - [x] engine and nox, v1 (2026-10-17_114537_1792230337): `core::metainfo::create_torrent` (libtorrent `create_torrent`, `add_files`, `set_piece_hashes`), `make_magnet_uri_from_info`, `patorrent-nox create`
   - [x] the Win32 dialog (2026-10-17_140012_1792238412): File > Create New Torrent / Ctrl+N, µTorrent 2.2.1 layout, hashing on a worker thread, Start seeding
-  - [x] v2 / hybrid (2026-10-20_095400_1792482840): `CreateTorrent` makes hybrids by default (libtorrent's default), `V1_ONLY` / `V2_ONLY`; `set_piece_hashes` computes the v2 piece roots; `patorrent-nox create --hybrid` / `--v2`. The Win32 dialog and nox still default to v1 until the engine downloads v2; then a format choice (Hybrid default, as in qBittorrent)
+  - [x] v2 / hybrid (2026-10-20_095400_1792482840): `CreateTorrent` makes hybrids by default (libtorrent's default), `V1_ONLY` / `V2_ONLY`; `set_piece_hashes` computes the v2 piece roots. The Win32 dialog's Version choice (Hybrid default) and `patorrent-nox create --v1` / `--v2` (2026-10-20_101643_1792484203)
 - [x] weekly scheduler (2026-10-18_235124_1792360284): `frontend::scheduler` (7 × 24 table: Full speed, Limited, Turn off, Seeding only; Limited rates; Disable DHT when turning off), the Win32 Preferences > Scheduler page with its grid control, nox's `sched.*` preferences and the page's grid; Turn off pauses the session, Seeding only uses libtorrent's upload mode (now honoured by the engine)
 - [x] Torrent Properties (2026-10-19_091815_1792394295): `frontend::properties`, the Win32 dialog (General tab: trackers, rates, upload slots, seeding goal override, Initial Seeding / DHT / PEX; several torrents at once), nox `GET` / `POST /pa/torrents/properties`; engine `set_max_connections` / `set_max_uploads` / `replace_trackers` / `add_tracker` for running torrents, `DISABLE_DHT` honoured, per-torrent switches in resume data
   - [x] the Web UI page's Properties dialog (2026-10-19_101030_1792397430): context menu, phone action sheet, double-click on an unfinished torrent, several torrents and Ctrl+A (`all=1`)
@@ -275,7 +275,7 @@ BEP 52 is in 1.0 (D19, 2026-10-19_230101_1792443661); BEP 44 / 51 / 55 after it 
   - [x] peer wire (2026-10-20_101114_1792483874): the v2 reserved bit and libtorrent's v1-to-v2 upgrade on hybrids, both hashes indexed (plain and encrypted handshakes), hash request / hashes / hash reject; hash requests answered from the piece layers with proofs (block-hash requests rejected)
   - [ ] asking peers for hashes: missing piece layers (v2 magnets, v2 `.torrent`s without layers) through the hash picker, then handing the completed layers to the disk thread and the store; PEX `lt_v2` and peers found under the v2 hash marked as v2
   - [ ] hybrids announced under both hashes (trackers, DHT, LSD); v2 magnets (`btmh`) fetching v2 metadata (SHA-256 of the info dictionary) then the piece layers
-  - [ ] the Create New Torrent dialog's version choice (Hybrid default) and `patorrent-nox create` defaulting to hybrid
+  - [x] the Create New Torrent dialog's version choice (Hybrid default) and `patorrent-nox create` defaulting to hybrid (2026-10-20_101643_1792484203)
   - [ ] interop: a v2-only and a hybrid swarm with qBittorrent (libtorrent 2.0)
 - [ ] BEP44 DHT items (ed25519), BEP51 sample_infohashes, BEP55 holepunch
 

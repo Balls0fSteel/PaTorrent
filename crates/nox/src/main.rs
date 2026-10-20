@@ -67,9 +67,10 @@ CREATE OPTIONS:
     --source TEXT         info \"source\" (private trackers use it for cross-seeding)
     --creator TEXT        \"created by\" (default: PaTorrent/<version>; \"\" to leave out)
     --no-date             Leave out the creation date
-    --hybrid              A hybrid torrent: BitTorrent v2 (BEP 52) plus v1 (default: v1 only)
+    --v1                  A v1-only torrent (default: hybrid, BitTorrent v2 (BEP 52) plus v1)
     --v2                  A v2-only torrent (v1-only clients cannot load it)
-    --pad                 Align files to pieces with pad files (BEP 47; always for --hybrid / --v2)
+    --hybrid              A hybrid torrent (the default)
+    --pad                 Align files to pieces with pad files (BEP 47; always for hybrid and v2)
     --mtime               Store file modification times
     --symlinks            Store symlinks as links instead of following them (Unix)
     --no-attributes       Do not store hidden / executable attributes

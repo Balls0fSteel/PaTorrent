@@ -7,7 +7,7 @@ use std::ptr::null;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use patorrent_frontend::create::{self, CreateOptions, Created, PIECE_SIZES};
+use patorrent_frontend::create::{self, CreateOptions, Created, FORMATS, PIECE_SIZES, TorrentFormat};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize,
@@ -25,14 +25,14 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON, CB_ADDSTRING,
-    CB_GETCURSEL, CB_SETCURSEL, CBS_DROPDOWNLIST, DLGTEMPLATE, DialogBoxIndirectParamW, ES_AUTOHSCROLL,
-    ES_AUTOVSCROLL, ES_MULTILINE, ES_WANTRETURN, EndDialog, GetDlgItem, GetWindowLongPtrW, IDCANCEL, IDOK,
-    PostMessageW, SetWindowLongPtrW, SetWindowTextW, WM_APP, WM_CLOSE, WM_COMMAND, WM_INITDIALOG, WS_BORDER,
-    WS_CHILD, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, DLGTEMPLATE, DialogBoxIndirectParamW,
+    ES_AUTOHSCROLL, ES_AUTOVSCROLL, ES_MULTILINE, ES_WANTRETURN, EndDialog, GetDlgItem, GetWindowLongPtrW,
+    IDCANCEL, IDOK, PostMessageW, SetWindowLongPtrW, SetWindowTextW, WM_APP, WM_CLOSE, WM_COMMAND,
+    WM_INITDIALOG, WS_BORDER, WS_CHILD, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 
 use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
-use crate::util::{loword, send, wide, window_text};
+use crate::util::{hiword, loword, send, wide, window_text};
 
 /// `wParam` = pieces done, `lParam` = pieces in all.
 const WM_APP_PROGRESS: u32 = WM_APP + 20;
@@ -55,9 +55,10 @@ const ID_PRIVATE: u16 = 109;
 const ID_ORDER: u16 = 110;
 const ID_PROGRESS: u16 = 111;
 const ID_PERCENT: u16 = 112;
+const ID_FORMAT: u16 = 113;
 
 /// Every input, disabled while hashing.
-const INPUTS: [u16; 12] = [
+const INPUTS: [u16; 13] = [
     ID_SOURCE,
     ID_ADD_FILE,
     ID_ADD_DIR,
@@ -66,6 +67,7 @@ const INPUTS: [u16; 12] = [
     ID_WEB_SEEDS,
     ID_COMMENT,
     ID_PIECE,
+    ID_FORMAT,
     ID_SEED,
     ID_PRIVATE,
     ID_ORDER,
@@ -82,6 +84,8 @@ pub struct Remembered {
     pub seed: bool,
     pub private: bool,
     pub preserve_order: bool,
+    /// The BitTorrent version (v1, hybrid, v2).
+    pub format: TorrentFormat,
 }
 
 /// A torrent written to disk.
@@ -155,6 +159,9 @@ fn template() -> Vec<u16> {
     t.item(EDIT, ID_COMMENT, LINE, [64, 192, 222, 13], "");
     t.item(STATIC, 0xffff, LABEL, [12, 212, 48, 9], "&Piece size:");
     t.item(COMBOBOX, ID_PIECE, TAB | WS_VSCROLL | CBS_DROPDOWNLIST as u32, [64, 210, 90, 160], "");
+    // BEP 52 (not in µTorrent 2.2.1): v1, hybrid or v2
+    t.item(STATIC, 0xffff, LABEL, [158, 212, 40, 9], "Versio&n:");
+    t.item(COMBOBOX, ID_FORMAT, TAB | WS_VSCROLL | CBS_DROPDOWNLIST as u32, [202, 210, 84, 60], "");
     t.item(BUTTON, 0xffff, GROUP, [7, 234, 286, 28], "Other");
     t.item(BUTTON, ID_SEED, CHECK, [14, 246, 80, 10], "&Start seeding");
     t.item(BUTTON, ID_PRIVATE, CHECK, [100, 246, 80, 10], "P&rivate torrent");
@@ -208,6 +215,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                             set_text(item(dlg, ID_SOURCE), &p);
                         }
                     }
+                    ID_FORMAT if hiword(wp) == CBN_SELCHANGE as u16 => sync_order(dlg),
                     id if id == IDOK as u16 && !st.busy => start(dlg, st),
                     id if id == IDCANCEL as u16 => close(dlg, st),
                     _ => return 0,
@@ -246,10 +254,30 @@ unsafe fn init(dlg: HWND, r: &Remembered) {
             send(combo, CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
         send(combo, CB_SETCURSEL, r.piece.min(PIECE_SIZES.len() - 1), 0);
+        let formats = item(dlg, ID_FORMAT);
+        for (label, _) in FORMATS {
+            let w = wide(label);
+            send(formats, CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
+        }
+        send(formats, CB_SETCURSEL, r.format.index(), 0);
         set_check(dlg, ID_SEED, r.seed);
         set_check(dlg, ID_PRIVATE, r.private);
         set_check(dlg, ID_ORDER, r.preserve_order);
+        sync_order(dlg);
     }
+}
+
+/// The chosen version.
+unsafe fn format(dlg: HWND) -> TorrentFormat {
+    unsafe {
+        let i = send(item(dlg, ID_FORMAT), CB_GETCURSEL, 0, 0).max(0) as usize;
+        FORMATS[i.min(FORMATS.len() - 1)].1
+    }
+}
+
+/// "Preserve file order" applies to v1 only (v2 lays the files out sorted).
+unsafe fn sync_order(dlg: HWND) {
+    unsafe { EnableWindow(item(dlg, ID_ORDER), format(dlg).allows_any_order() as i32) };
 }
 
 /// "Create and save as...": checks the source, asks where to save, then hashes.
@@ -286,6 +314,7 @@ unsafe fn collect(dlg: HWND, st: &mut State) -> Option<(CreateOptions, Option<Pa
             piece_size: PIECE_SIZES[piece].1,
             private: checked(dlg, ID_PRIVATE),
             preserve_order: checked(dlg, ID_ORDER),
+            format: format(dlg),
         };
         let seed = checked(dlg, ID_SEED);
         st.remembered = Remembered {
@@ -294,6 +323,7 @@ unsafe fn collect(dlg: HWND, st: &mut State) -> Option<(CreateOptions, Option<Pa
             seed,
             private: opts.private,
             preserve_order: opts.preserve_order,
+            format: opts.format,
         };
         let seed_from = if seed {
             match create::seed_save_path(&source) {
@@ -347,6 +377,9 @@ unsafe fn set_busy(dlg: HWND, st: &mut State, busy: bool) {
         st.busy = busy;
         for id in INPUTS {
             EnableWindow(item(dlg, id), (!busy) as i32);
+        }
+        if !busy {
+            sync_order(dlg);
         }
         set_text(item(dlg, IDCANCEL as u16), if busy { "Cancel" } else { "Close" });
         if busy {
@@ -492,6 +525,7 @@ mod tests {
     use std::time::{Duration, Instant};
 
     use patorrent_core::metainfo::TorrentInfo;
+    use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CB_GETCOUNT, CreateDialogIndirectParamW, DestroyWindow, DispatchMessageW, MSG, PM_REMOVE,
         PeekMessageW, SendMessageW, TranslateMessage,
@@ -593,7 +627,11 @@ mod tests {
         let ti = TorrentInfo::from_bytes(&std::fs::read(&out).unwrap()).unwrap();
         assert_eq!(ti.info_hash(), done.created.info_hash);
         assert_eq!(ti.name(), "Folder");
-        assert_eq!(ti.files().num_files(), 2);
+        // a hybrid (the default version): two files, each padded to a piece
+        let fs = ti.files();
+        assert_eq!((0..fs.num_files()).filter(|&i| !fs.pad_file_at(i)).count(), 2);
+        assert!(ti.v1() && ti.v2());
+        assert_eq!(f.st.remembered.format, TorrentFormat::Hybrid);
         assert_eq!(ti.piece_length(), 32 << 10);
         assert!(ti.is_private());
         assert_eq!(ti.comment(), "made in a test");
@@ -602,6 +640,28 @@ mod tests {
         assert!(f.st.remembered.private);
         assert!(f.st.remembered.trackers.contains("http://b/announce"));
         unsafe { assert_eq!(window_text(item(dlg, ID_PERCENT)), "100.0 %") };
+    }
+
+    #[test]
+    fn the_version_choice_greys_out_preserve_order_and_is_remembered() {
+        let mut f = Fixture::new("format", Remembered { format: TorrentFormat::V1, ..Remembered::default() });
+        let dlg = f.dlg;
+        let src = f.dir.join("one.bin");
+        std::fs::write(&src, vec![5u8; 50_000]).unwrap();
+        unsafe {
+            assert_eq!(send(item(dlg, ID_FORMAT), CB_GETCOUNT, 0, 0), FORMATS.len() as isize);
+            assert_eq!(format(dlg), TorrentFormat::V1);
+            assert!(IsWindowEnabled(item(dlg, ID_ORDER)) != 0, "v1 may keep the listing order");
+            // pick "v2 only" as the user would
+            send(item(dlg, ID_FORMAT), CB_SETCURSEL, TorrentFormat::V2.index(), 0);
+            let wp = ((CBN_SELCHANGE as usize) << 16) | ID_FORMAT as usize;
+            SendMessageW(dlg, WM_COMMAND, wp, item(dlg, ID_FORMAT) as LPARAM);
+            assert!(IsWindowEnabled(item(dlg, ID_ORDER)) == 0, "v2 sorts the files");
+            set_text(item(dlg, ID_SOURCE), &src.to_string_lossy());
+            let (opts, _) = collect(dlg, &mut f.st).unwrap();
+            assert_eq!(opts.format, TorrentFormat::V2);
+            assert_eq!(f.st.remembered.format, TorrentFormat::V2);
+        }
     }
 
     #[test]

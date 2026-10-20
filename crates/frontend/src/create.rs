@@ -25,6 +25,58 @@ pub const PIECE_SIZES: [(&str, u32); 12] = [
     ("16MB", 16 << 20),
 ];
 
+/// The BitTorrent version of a new torrent (BEP 52).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum TorrentFormat {
+    /// v2 plus v1: loads in v1-only and v2 clients alike. The default, as in libtorrent and
+    /// qBittorrent.
+    #[default]
+    Hybrid,
+    /// v1 only, as µTorrent 2.2.1 made them.
+    V1,
+    /// v2 only: v1-only clients cannot load it.
+    V2,
+}
+
+/// The "Version" choices, in list order.
+pub const FORMATS: [(&str, TorrentFormat); 3] =
+    [("Hybrid (v1 + v2)", TorrentFormat::Hybrid), ("v1", TorrentFormat::V1), ("v2 only", TorrentFormat::V2)];
+
+impl TorrentFormat {
+    /// The creation flags for this version.
+    pub fn flags(self) -> CreateFlags {
+        match self {
+            TorrentFormat::Hybrid => CreateFlags::empty(),
+            TorrentFormat::V1 => CreateFlags::V1_ONLY,
+            TorrentFormat::V2 => CreateFlags::V2_ONLY,
+        }
+    }
+
+    /// The preferences value.
+    pub fn key(self) -> &'static str {
+        match self {
+            TorrentFormat::Hybrid => "hybrid",
+            TorrentFormat::V1 => "v1",
+            TorrentFormat::V2 => "v2",
+        }
+    }
+
+    pub fn from_key(s: &str) -> Option<TorrentFormat> {
+        [TorrentFormat::Hybrid, TorrentFormat::V1, TorrentFormat::V2].into_iter().find(|f| f.key() == s)
+    }
+
+    /// Position in [`FORMATS`].
+    pub fn index(self) -> usize {
+        FORMATS.iter().position(|(_, f)| *f == self).expect("listed")
+    }
+
+    /// Whether the files may keep the directory's listing order ("Preserve file order"): v2
+    /// lays them out sorted.
+    pub fn allows_any_order(self) -> bool {
+        self == TorrentFormat::V1
+    }
+}
+
 /// What the dialog collected.
 #[derive(Clone, Debug, Default)]
 pub struct CreateOptions {
@@ -40,8 +92,10 @@ pub struct CreateOptions {
     /// Bytes; 0 picks one from the total size.
     pub piece_size: u32,
     pub private: bool,
-    /// Keep the files in the order the directory lists them instead of sorting them by name.
+    /// Keep the files in the order the directory lists them instead of sorting them by name
+    /// (v1 only; v2 and hybrid torrents are always sorted).
     pub preserve_order: bool,
+    pub format: TorrentFormat,
 }
 
 /// A finished torrent.
@@ -175,7 +229,7 @@ pub fn build(o: &CreateOptions, progress: &mut dyn FnMut(u32, u32) -> bool) -> R
     let skip = SkipPatterns::parse(&o.skip);
     let root = std::path::absolute(source).map_err(|e| e.to_string())?;
     let mut fs = FileStorage::new();
-    if o.preserve_order && meta.is_dir() {
+    if o.preserve_order && o.format.allows_any_order() && meta.is_dir() {
         let name = root.file_name().and_then(|n| n.to_str()).ok_or("The source has no usable name.")?;
         add_unsorted(&mut fs, &root, name, &skip)?;
     } else {
@@ -187,7 +241,7 @@ pub fn build(o: &CreateOptions, progress: &mut dyn FnMut(u32, u32) -> bool) -> R
         return Err(format!("{}: no files to put in the torrent (empty, or all skipped).", source.display()));
     }
 
-    let mut t = CreateTorrent::new(fs, o.piece_size, CreateFlags::V1_ONLY).map_err(|e| e.to_string())?;
+    let mut t = CreateTorrent::new(fs, o.piece_size, o.format.flags()).map_err(|e| e.to_string())?;
     for (tier, urls) in parse_trackers(&o.trackers).iter().enumerate() {
         for url in urls {
             t.add_tracker(url, tier as u32);
@@ -269,10 +323,14 @@ mod tests {
         }
     }
 
+    /// The files, pad files left out.
     fn file_paths(bytes: &[u8]) -> Vec<String> {
         let ti = TorrentInfo::from_bytes(bytes).unwrap();
         let fs = ti.files();
-        (0..fs.num_files()).map(|i| fs.file_path(i, "").replace('\\', "/")).collect()
+        (0..fs.num_files())
+            .filter(|&i| !fs.pad_file_at(i))
+            .map(|i| fs.file_path(i, "").replace('\\', "/"))
+            .collect()
     }
 
     #[test]
@@ -335,6 +393,7 @@ mod tests {
             piece_size: 32 << 10,
             private: true,
             preserve_order: false,
+            format: TorrentFormat::Hybrid,
         };
         let mut calls = Vec::new();
         let c = build(&o, &mut |done, total| {
@@ -343,9 +402,9 @@ mod tests {
         })
         .unwrap();
         assert_eq!(c.name, "Album");
-        // 105,000 bytes in 32 KiB pieces
-        assert_eq!(calls.last(), Some(&(4, 4)));
-        assert_eq!(calls.len(), 4);
+        // 5,000 and 100,000 bytes in 32 KiB pieces, each file padded to a piece (a hybrid)
+        assert_eq!(calls.last(), Some(&(5, 5)));
+        assert_eq!(calls.len(), 5);
         let ti = TorrentInfo::from_bytes(&c.bytes).unwrap();
         assert_eq!(ti.info_hash(), c.info_hash);
         assert_eq!(ti.piece_length(), 32 << 10);
@@ -365,6 +424,33 @@ mod tests {
         );
         assert_eq!(ti.web_seeds().iter().map(|w| w.url.as_str()).collect::<Vec<_>>(), ["http://seed/files/"]);
         assert_eq!(file_paths(&c.bytes), ["Album/cover.jpg", "Album/disc 1/01.flac"]);
+        // a hybrid by default: both versions, files padded to pieces
+        assert!(ti.v1() && ti.v2());
+        assert!(ti.files().pad_file_at(1));
+    }
+
+    #[test]
+    fn each_format() {
+        let d = TempDir::new("formats");
+        let src = d.0.join("Two");
+        std::fs::create_dir_all(&src).unwrap();
+        std::fs::write(src.join("a"), vec![1u8; 40_000]).unwrap();
+        std::fs::write(src.join("b"), vec![2u8; 10_000]).unwrap();
+        for (format, v1, v2, pads) in [
+            (TorrentFormat::V1, true, false, false),
+            (TorrentFormat::Hybrid, true, true, true),
+            (TorrentFormat::V2, false, true, true),
+        ] {
+            let o = CreateOptions { source: src.clone(), format, ..CreateOptions::default() };
+            let ti = TorrentInfo::from_bytes(&build(&o, &mut |_, _| true).unwrap().bytes).unwrap();
+            assert_eq!((ti.v1(), ti.v2()), (v1, v2), "{format:?}");
+            let fs = ti.files();
+            assert_eq!((0..fs.num_files()).any(|i| fs.pad_file_at(i)), pads, "{format:?}");
+            assert_eq!(TorrentFormat::from_key(format.key()), Some(format));
+            assert_eq!(FORMATS[format.index()].1, format);
+        }
+        assert_eq!(TorrentFormat::from_key("v3"), None);
+        assert_eq!(TorrentFormat::default(), TorrentFormat::Hybrid);
     }
 
     #[test]
@@ -393,12 +479,22 @@ mod tests {
             .unwrap()
             .map(|e| format!("Mixed/{}", e.unwrap().file_name().to_string_lossy()))
             .collect();
-        let mut o = CreateOptions { source: src, preserve_order: true, ..CreateOptions::default() };
+        let mut o = CreateOptions {
+            source: src,
+            preserve_order: true,
+            format: TorrentFormat::V1,
+            ..CreateOptions::default()
+        };
         let kept = build(&o, &mut |_, _| true).unwrap();
         assert_eq!(file_paths(&kept.bytes), listed);
         o.preserve_order = false;
         let sorted = build(&o, &mut |_, _| true).unwrap();
         assert_eq!(file_paths(&sorted.bytes), ["Mixed/A.bin", "Mixed/b.bin", "Mixed/c.bin"]);
+        // v2 sorts whatever the box says
+        o.preserve_order = true;
+        o.format = TorrentFormat::Hybrid;
+        let hybrid = build(&o, &mut |_, _| true).unwrap();
+        assert_eq!(file_paths(&hybrid.bytes), ["Mixed/A.bin", "Mixed/b.bin", "Mixed/c.bin"]);
     }
 
     #[test]
@@ -465,7 +561,9 @@ mod tests {
                 }
                 if let Alert::StateUpdate(v) = a {
                     if let Some(st) = v.iter().find(|st| st.state == TorrentState::Seeding) {
-                        assert_eq!(st.total_done, 350_000);
+                        // the files plus the pad bytes of the hybrid layout
+                        assert_eq!(st.total_done, st.total);
+                        assert!(st.total >= 350_000);
                         assert!(st.error.is_empty());
                         return;
                     }

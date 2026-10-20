@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_101643_1792484203: Create New Torrent picks the BitTorrent version; hybrid by default
+
+### Added
+- **Version** in the Win32 Create New Torrent dialog, beside the piece size: "Hybrid (v1 + v2)" (the default, as in libtorrent and qBittorrent), "v1" (as µTorrent 2.2.1 made them) or "v2 only". "Preserve file order" is greyed out unless v1 is picked, since v2 lays the files out sorted. The choice is remembered (`create.format` in patorrent.ini: `hybrid`, `v1`, `v2`).
+- `patorrent_frontend::create::TorrentFormat` (with `FORMATS`, `flags`, `key` / `from_key`, `index`, `allows_any_order`) and `CreateOptions::format`, for the GTK dialog to come.
+- `patorrent-nox create --v1`.
+
+### Changed
+- New torrents are hybrids unless v1 or v2 is asked for: the Create dialog's default, and `patorrent-nox create`'s (`--hybrid` stays accepted). Earlier they were v1 only. A hybrid loads in v1-only clients, which see the pad files (BEP 47) between the files.
+
+### Verified
+- New tests: `create::tests::each_format` (v1 without pad files, hybrid with both versions and pad files, v2 only), the hybrid default in `builds_a_folder_with_all_fields` (one piece more for the padded first file) and in the seeding test, "Preserve file order" applying to v1 only; win32 `the_version_choice_greys_out_preserve_order_and_is_remembered` (the list, the greying after a `CBN_SELCHANGE`, the choice in the options and in what is remembered) and the hybrid in `creates_and_reports_seeding`.
+- Windows: `cargo test --workspace` 1016 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`; Linux-target clippy; `cargo +stable fmt --all --check`.
+
+### Issues
+- The dialog's new row was checked through window messages only (the layout at 100 and 150 % DPI has not been looked at on screen).
+
 ## 2026-10-20_101114_1792483874: v2-only and hybrid torrents download and seed
 
 ### Added

@@ -3,6 +3,8 @@
 //! remove), a second client getting the whole list, settings taking the Preferences path, the
 //! login and ban, and the same over HTTPS with a pinned certificate.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
@@ -95,26 +97,53 @@ fn target(addr: SocketAddr, tls: Option<Verify>, password: &str) -> Target {
     }
 }
 
-/// Pops `h`'s alerts until `f` finds what it wants, asking for status updates as it goes.
-fn wait_for<T>(h: &SessionHandle, mut f: impl FnMut(&Alert) -> Option<T>) -> T {
-    let deadline = Instant::now() + Duration::from_secs(20);
-    let mut alerts = Vec::new();
-    while Instant::now() < deadline {
-        h.post_torrent_updates();
-        std::thread::sleep(Duration::from_millis(30));
-        h.pop_alerts(&mut alerts);
-        if let Some(t) = alerts.iter().find_map(&mut f) {
-            return t;
-        }
-    }
-    panic!("timed out");
+/// A remote client, and the latest status of every torrent it was sent, kept as a GUI's model
+/// keeps it: an update that arrives while a test waits for something else is not lost.
+struct Client {
+    h: SessionHandle,
+    seen: RefCell<HashMap<TorrentId, TorrentStatus>>,
 }
 
-fn status_of(h: &SessionHandle, id: TorrentId, f: impl Fn(&TorrentStatus) -> bool) -> TorrentStatus {
-    wait_for(h, |a| match a {
-        Alert::StateUpdate(v) => v.iter().find(|s| s.id == id && f(s)).cloned(),
-        _ => None,
-    })
+impl std::ops::Deref for Client {
+    type Target = SessionHandle;
+    fn deref(&self) -> &SessionHandle {
+        &self.h
+    }
+}
+
+impl Client {
+    fn new(h: SessionHandle) -> Client {
+        Client { h, seen: RefCell::new(HashMap::new()) }
+    }
+
+    /// Pops the alerts until `f` finds what it wants, asking for status updates as it goes.
+    fn wait_for<T>(&self, mut f: impl FnMut(&Alert) -> Option<T>) -> T {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        let mut alerts = Vec::new();
+        while Instant::now() < deadline {
+            self.h.post_torrent_updates();
+            std::thread::sleep(Duration::from_millis(30));
+            self.h.pop_alerts(&mut alerts);
+            for a in &alerts {
+                if let Alert::StateUpdate(v) = a {
+                    self.seen.borrow_mut().extend(v.iter().map(|s| (s.id, s.clone())));
+                }
+            }
+            if let Some(t) = alerts.iter().find_map(&mut f) {
+                return t;
+            }
+        }
+        panic!("timed out");
+    }
+
+    /// The torrent's status once `f` holds for it.
+    fn status_of(&self, id: TorrentId, f: impl Fn(&TorrentStatus) -> bool) -> TorrentStatus {
+        let check = || self.seen.borrow().get(&id).filter(|s| f(s)).cloned();
+        if let Some(s) = check() {
+            return s;
+        }
+        self.wait_for(|_| check())
+    }
 }
 
 fn magnet(byte: u8, name: &str) -> AddTorrentParams {
@@ -151,32 +180,32 @@ fn a_remote_session_drives_the_nox() {
     assert_eq!(hello.server_version, patorrent_core::VERSION);
     assert!(hello.save_path.ends_with("dl"), "{}", hello.save_path);
     assert_eq!(hello.settings.listen_interfaces, "127.0.0.1:0");
-    let h = client.handle();
+    let h = Client::new(client.handle());
 
     // an add goes to the engine; its alert comes back through the fan-out, the status from
     // the cache
     let mut p = magnet(0xa1, "first");
     p.save_path = hello.save_path.clone();
     h.add_torrent(p);
-    let id = wait_for(&h, |a| match a {
+    let id = h.wait_for(|a| match a {
         Alert::TorrentAdded { id, name, .. } if name == "first" => Some(*id),
         _ => None,
     });
-    let st = status_of(&h, id, |_| true);
+    let st = h.status_of(id, |_| true);
     assert_eq!(st.name, "first");
     // a detail request is answered by the engine
     h.torrent(id).post_trackers();
-    wait_for(&h, |a| matches!(a, Alert::TrackerList { id: x, .. } if *x == id).then_some(()));
+    h.wait_for(|a| matches!(a, Alert::TrackerList { id: x, .. } if *x == id).then_some(()));
     // pause: the next update shows it
     h.torrent(id).unset_flags(TorrentFlags::AUTO_MANAGED);
     h.torrent(id).pause();
-    status_of(&h, id, |s| s.flags.contains(TorrentFlags::PAUSED));
+    h.status_of(id, |s| s.flags.contains(TorrentFlags::PAUSED));
     // only what changed comes again: an idle update leaves the paused torrent out
     std::thread::sleep(Duration::from_millis(500));
     let mut alerts = Vec::new();
     h.pop_alerts(&mut alerts);
     h.post_torrent_updates();
-    let quiet = wait_for(&h, |a| match a {
+    let quiet = h.wait_for(|a| match a {
         Alert::StateUpdate(v) => Some(v.len()),
         _ => None,
     });
@@ -184,8 +213,8 @@ fn a_remote_session_drives_the_nox() {
 
     // a second client gets the whole list at once
     let (other, _) = remote::connect(&target(addr, None, PASS), TIMEOUT).unwrap();
-    let o = other.handle();
-    status_of(&o, id, |_| true);
+    let o = Client::new(other.handle());
+    o.status_of(id, |_| true);
 
     // settings take the Preferences path: applied and visible to the Web UI
     let mut s = hello.settings.clone();
@@ -204,7 +233,7 @@ fn a_remote_session_drives_the_nox() {
     // removal reaches both clients
     h.remove_torrent(id, RemoveFlags::empty());
     for c in [&h, &o] {
-        wait_for(c, |a| matches!(a, Alert::TorrentRemoved { id: x, .. } if *x == id).then_some(()));
+        c.wait_for(|a| matches!(a, Alert::TorrentRemoved { id: x, .. } if *x == id).then_some(()));
     }
     drop(other);
     client.shutdown();
@@ -267,11 +296,11 @@ fn a_remote_session_over_https() {
     let e = remote::connect(&target(addr, Some(Verify::System), PASS), TIMEOUT).err().unwrap();
     assert!(matches!(e, ConnectError::Io(_)), "{e:?}");
     let (client, _) = remote::connect(&target(addr, Some(Verify::Pinned(pin)), PASS), TIMEOUT).unwrap();
-    let h = client.handle();
+    let h = Client::new(client.handle());
     h.add_torrent(magnet(0xb2, "over-tls"));
-    let id = wait_for(&h, |a| match a {
+    let id = h.wait_for(|a| match a {
         Alert::TorrentAdded { id, name, .. } if name == "over-tls" => Some(*id),
         _ => None,
     });
-    status_of(&h, id, |_| true);
+    h.status_of(id, |_| true);
 }

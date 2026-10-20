@@ -2,6 +2,14 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_132211_1792495331: The remote tests on Linux
+
+### Verified
+- First Linux run of the TLS server and remote session work (Ubuntu VM, OpenSSL 3.5): `cargo test --workspace --no-fail-fast` 988 passed, 1 failed, the failure a race in the new test below; after the fix the nox suite passed three times in a row there.
+
+### Fixed
+- `crates/nox/tests/remote.rs` dropped the status updates that arrived while it waited for another alert, so under load the update for a new (and then unchanging) magnet torrent could be thrown away and never come again (status updates carry only what changed). Its client now keeps every torrent's last status, as a GUI's model does, and looks there first.
+
 ## 2026-10-20_131729_1792495049: v2 and hybrid interop with libtorrent 2.0 clients; `lt-swarm interop` on Linux
 
 ### Verified

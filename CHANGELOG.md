@@ -2,6 +2,21 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_122917_1792492157: The Win32 GUI's remote mode
+
+### Added
+- `patorrent.exe --remote`, and File > Connect to Remote... (starts such a window beside the local one): a Connect to Remote dialog (host, port, user name, password, Use HTTPS) remembered in `remote.ini` beside `patorrent.ini` (not the password), then the usual window on a `core::remote` session (`remote_ui.rs`).
+- HTTPS: a certificate Windows trusts is used as is; another one is shown by its SHA-256 fingerprint (`probe_certificate`, nothing sent) and pinned in `remote.ini` once the user accepts it. A pinned certificate that no longer matches is refused with a warning, and its pin dropped so the next attempt asks again.
+- The remote window keeps its files in `remote\<host>_<port>` in the settings folder (its own `patorrent.ini`, labels, RSS feeds), takes the server's engine settings and default save path from the hello at every connect, never randomises the server's port, and has its own window class, so a second local start still hands its torrents to the local window. The title says "PaTorrent - host:port (remote)", and "(disconnected)" after `Alert::RemoteDisconnected`, which also puts up one message.
+- Off in remote mode, since they would name this computer's folders: the Add New Torrent dialog's Save In browse button (the path is typed), Open Containing Folder, Create New Torrent's "Start seeding", loading the local IP filter, and the start-up file-association check.
+- docs: WEBUI.md "Remote mode" (the GUI's part), README.
+
+### Verified
+- `cargo test -p patorrent` 53 passed (a new `remote_ui` test: the per-server folder names and the dialog template); workspace clippy and fmt clean. The protocol under the window is covered by the core and nox tests of 2026-10-20_122407_1792491847.
+
+### Issues
+- Not clicked through: computer use is blocked by policy for the PaTorrent window. A portable copy did start with `--remote` against a local nox and showed its connect dialog, but no one filled it in. PLAN.md Known TODOs "Remote mode" has the steps to try by hand and the open points (the window's own automations acting beside nox's, labels versus categories, no reconnect, no stored password).
+
 ## 2026-10-20_122407_1792491847: Remote sessions: the protocol and nox's side
 
 ### Added

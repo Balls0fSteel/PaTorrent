@@ -333,8 +333,18 @@ unchanged on top.
 - **Lost connections** end in an `Alert::RemoteDisconnected`; the client's commands go nowhere
   after it.
 
-What the GUI does with it (a connect dialog, remote paths in the Add dialog, which local
-features stay off) is the GUI's part: PLAN.md Phase 6.
+The Win32 GUI (`remote_ui.rs`): `patorrent.exe --remote`, or File > Connect to Remote... (which
+starts such a window beside the local one), asks for the host, port, login and HTTPS. A
+certificate Windows does not trust is shown by its fingerprint and pinned once accepted; a
+pinned one that changes is refused with a warning and asked about again at the next attempt.
+The window then runs on the remote session with the server's engine settings and default
+folder, and keeps its own files (settings, labels, RSS feeds) in `remote\<host>_<port>` in the
+settings folder; the connection details and pins are in `remote.ini` there, the password is
+never stored. Folder pickers for torrents, Open Containing Folder, seeding a torrent created
+here and the local IP filter are off: those folders would be this computer's. The window's
+own automations (scheduler, RSS, seeding goal, `.torrent` folders, scrapes) act on the server's
+engine too, beside nox's own. A lost connection is reported once and marks the title
+"(disconnected)"; reconnecting means a new window.
 
 ## Budgets (gates, like the desktop's)
 

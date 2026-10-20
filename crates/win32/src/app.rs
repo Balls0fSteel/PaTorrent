@@ -76,6 +76,9 @@ const WM_APP_MAGNET: u32 = WM_APP + 8;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
 pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
+/// A remote window's class: a second local start looks for [`MAIN_CLASS`] only, so it never
+/// hands its torrents to a remote window.
+const REMOTE_CLASS: PCWSTR = w!("PaTorrentRemoteWnd");
 const PANEL_CLASS: PCWSTR = w!("PaTorrentPanel");
 const TIMER_REFRESH: usize = 1;
 
@@ -132,6 +135,7 @@ mod cmd {
     pub const FEED_UPDATE: u16 = 138;
     pub const FEED_REMOVE: u16 = 139;
     pub const ITEM_DOWNLOAD: u16 = 140;
+    pub const CONNECT_REMOTE: u16 = 141;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -286,9 +290,18 @@ fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
     APP.with(|a| a.try_borrow_mut().ok().and_then(|mut a| a.as_mut().map(f)))
 }
 
-/// Where settings and state live: beside the exe when `patorrent.ini` is there (portable,
-/// like µTorrent's `settings.dat`), else `%APPDATA%\PaTorrent`.
+/// Where settings and state live: [`base_data_dir`], or a remote window's own folder in it
+/// (`remote_ui::data_dir`).
 pub fn data_dir() -> PathBuf {
+    match crate::remote_ui::get() {
+        Some(r) => crate::remote_ui::data_dir(&base_data_dir(), &r.label),
+        None => base_data_dir(),
+    }
+}
+
+/// The settings folder: beside the exe when `patorrent.ini` is there (portable, like
+/// µTorrent's `settings.dat`), else `%APPDATA%\PaTorrent`.
+pub fn base_data_dir() -> PathBuf {
     let exe_dir = exe_path().parent().map(Path::to_path_buf).unwrap_or_default();
     if exe_dir.join("patorrent.ini").exists() {
         return exe_dir;
@@ -336,17 +349,20 @@ fn now_hms() -> String {
 
 pub struct Args {
     pub demo: Option<usize>,
+    /// Drive a patorrent-nox elsewhere (`remote_ui`) instead of an engine of our own.
+    pub remote: bool,
     /// Start in the tray, without showing the window.
     pub minimized: bool,
     pub sources: Vec<String>,
 }
 
 pub fn parse_args(args: &[String]) -> Args {
-    let mut out = Args { demo: None, minimized: false, sources: Vec::new() };
+    let mut out = Args { demo: None, remote: false, minimized: false, sources: Vec::new() };
     let mut it = args.iter();
     while let Some(a) = it.next() {
         match a.as_str() {
             "--demo" => out.demo = it.next().and_then(|n| n.parse().ok()),
+            "--remote" => out.remote = true,
             s if s.eq_ignore_ascii_case(integration::MINIMIZED) => out.minimized = true,
             s if s.starts_with("--") => {}
             s => out.sources.push(s.to_owned()),
@@ -368,21 +384,36 @@ pub fn run(args: Args) -> i32 {
         InitCommonControlsEx(&icc);
     }
     fmt::set_utc_offset(utc_offset());
+    let remote_session = match args.remote {
+        true => match crate::remote_ui::connect_interactive() {
+            Some(s) => Some(s),
+            None => return 0,
+        },
+        false => None,
+    };
+    let local = args.demo.is_none() && remote_session.is_none();
     let dir = data_dir();
     let mut prefs = Prefs::load(dir.join("patorrent.ini"));
+    if let Some(r) = crate::remote_ui::get() {
+        // the server's engine settings and default folder are this window's
+        let _ = std::fs::create_dir_all(&dir);
+        settings::store(&mut prefs, &r.hello.settings);
+        prefs.set("dir.download", &r.hello.save_path);
+    }
     let mut opts = Options::load(&prefs, &downloads_folder());
-    if opts.gui.random_port && args.demo.is_none() {
+    if opts.gui.random_port && local {
         // µTorrent's "Randomize port each start" keeps the new port as the configured one
         settings::set_listen_port(&mut opts.settings, options::random_port());
         settings::store(&mut prefs, &opts.settings);
     }
 
-    let session = match args.demo {
-        Some(n) => Session::start_mock(
+    let session = match (remote_session, args.demo) {
+        (Some(s), _) => s,
+        (None, Some(n)) => Session::start_mock(
             Settings::default(),
             MockConfig { initial_torrents: n, active_fraction: 0.02, ..MockConfig::default() },
         ),
-        None => {
+        (None, None) => {
             let settings = opts.settings.clone();
             match Session::start(SessionParams { settings, state_dir: Some(dir.join("state")) }) {
                 Ok(s) => s,
@@ -402,7 +433,8 @@ pub fn run(args: Args) -> i32 {
         wc.hInstance = instance;
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         wc.hbrBackground = (COLOR_BTNFACE + 1) as usize as HBRUSH;
-        wc.lpszClassName = MAIN_CLASS;
+        let class = if crate::remote_ui::is_remote() { REMOTE_CLASS } else { MAIN_CLASS };
+        wc.lpszClassName = class;
         RegisterClassExW(&wc);
         wc.lpfnWndProc = Some(panel_proc);
         wc.hbrBackground = null_mut();
@@ -412,7 +444,7 @@ pub fn run(args: Args) -> i32 {
 
         let hwnd = CreateWindowExW(
             WS_EX_ACCEPTFILES,
-            MAIN_CLASS,
+            class,
             w!("PaTorrent"),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
@@ -428,12 +460,17 @@ pub fn run(args: Args) -> i32 {
             return 1;
         }
         init(hwnd, session, prefs);
-        if opts.gui.ip_filter && args.demo.is_none() {
+        if let Some(r) = crate::remote_ui::get() {
+            let title = wide(&format!("PaTorrent - {} (remote)", r.label));
+            SetWindowTextW(hwnd, title.as_ptr());
+        }
+        // the server applies its own block list
+        if opts.gui.ip_filter && local {
             with_app(|a| load_ip_filter(a, &opts.gui));
         }
         restore_placement(hwnd, args.minimized);
         // not at a login's minimized start, where nobody asked for the window
-        if opts.gui.check_association && args.demo.is_none() && !args.minimized {
+        if opts.gui.check_association && local && !args.minimized {
             check_association(hwnd);
         }
         add_sources(hwnd, &args.sources);
@@ -471,6 +508,8 @@ unsafe fn main_menu() -> HMENU {
         append(file, cmd::ADD, "&Add Torrent...\tCtrl+O");
         append(file, cmd::ADD_URL, "Add Torrent from &URL...\tCtrl+U");
         append(file, cmd::CREATE, "&Create New Torrent...\tCtrl+N");
+        separator(file);
+        append(file, cmd::CONNECT_REMOTE, "Connect to &Remote...");
         separator(file);
         append(file, cmd::EXIT, "E&xit");
         let options = CreatePopupMenu();
@@ -1675,6 +1714,17 @@ unsafe fn on_alerts(hwnd: HWND) {
                     SeedGoal::store_override(&mut a.prefs, &key, None);
                     removed_any = true;
                 }
+                Alert::RemoteDisconnected { ref message } => {
+                    a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
+                    let label = crate::remote_ui::get().map_or("", |r| r.label.as_str());
+                    let title = wide(&format!("PaTorrent - {label} (disconnected)"));
+                    // SAFETY: the main window is live while the app state is.
+                    unsafe { SetWindowTextW(a.hwnd, title.as_ptr()) };
+                    errors.push(format!(
+                        "The connection to {label} was lost:\n{message}\n\nThe list shows the torrents as they \
+                         were. Close this window and use File > Connect to Remote... to connect again."
+                    ));
+                }
                 Alert::TorrentFinished { id } => {
                     let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
                     a.detail.push_log(format!("{} {name}: finished downloading", now_hms()));
@@ -2231,8 +2281,9 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
             return;
         };
         let menu = CreatePopupMenu();
-        append(
+        append_flags(
             menu,
+            grayed(crate::remote_ui::is_remote()),
             cmd::OPEN_FOLDER,
             if single_done { "Open &Containing Folder" } else { "Open Containing &Folder" },
         );
@@ -2367,6 +2418,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 with_app(|a| a.quitting = true);
                 DestroyWindow(hwnd);
             }
+            cmd::CONNECT_REMOTE => crate::remote_ui::start_remote_window(hwnd),
             cmd::ABOUT => dialogs::info(
                 hwnd,
                 &format!(
@@ -2698,7 +2750,7 @@ unsafe fn torrent_action(hwnd: HWND, id: u16) {
                 cmd::DOWN => t.queue_position(QueueMove::Down),
                 cmd::QUEUE_TOP => t.queue_position(QueueMove::Top),
                 cmd::QUEUE_BOTTOM => t.queue_position(QueueMove::Bottom),
-                cmd::OPEN_FOLDER if folder.is_none() => {
+                cmd::OPEN_FOLDER if folder.is_none() && !crate::remote_ui::is_remote() => {
                     folder = a
                         .list
                         .get(tid)

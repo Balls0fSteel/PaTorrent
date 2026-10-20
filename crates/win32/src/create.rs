@@ -277,7 +277,14 @@ unsafe fn format(dlg: HWND) -> TorrentFormat {
 
 /// "Preserve file order" applies to v1 only (v2 lays the files out sorted).
 unsafe fn sync_order(dlg: HWND) {
-    unsafe { EnableWindow(item(dlg, ID_ORDER), format(dlg).allows_any_order() as i32) };
+    unsafe {
+        EnableWindow(item(dlg, ID_ORDER), format(dlg).allows_any_order() as i32);
+        // a remote server has not got the files: the torrent cannot be seeded from here
+        if crate::remote_ui::is_remote() {
+            set_check(dlg, ID_SEED, false);
+            EnableWindow(item(dlg, ID_SEED), 0);
+        }
+    }
 }
 
 /// "Create and save as...": checks the source, asks where to save, then hashes.

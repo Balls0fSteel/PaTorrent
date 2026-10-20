@@ -257,6 +257,10 @@ unsafe fn init(dlg: HWND, st: &mut State) {
         if st.setup.in_session {
             EnableWindow(item(dlg, ID_SKIP), 0);
         }
+        // a folder on this computer means nothing to a remote server: the path is typed
+        if crate::remote_ui::is_remote() {
+            EnableWindow(item(dlg, ID_BROWSE), 0);
+        }
         let label = item(dlg, ID_LABEL);
         for l in &st.setup.labels {
             let w = wide(l);

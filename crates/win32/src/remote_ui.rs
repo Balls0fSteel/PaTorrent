@@ -1,0 +1,319 @@
+//! Remote mode (PLAN.md Phase 6): the window drives a `patorrent-nox` elsewhere instead of an
+//! engine of its own. `patorrent.exe --remote` (File > Connect to Remote... starts one) asks
+//! where to connect, has the user check a self-signed server's certificate, and runs the usual
+//! window on a remote session (`patorrent_core::remote`): the same models, dialogs and
+//! automations, the server's torrents.
+//!
+//! What such a window keeps on disk (its settings, labels, RSS feeds) lives in a folder of its
+//! own per server (`remote\<host>_<port>` in the settings folder), so it never mixes with the
+//! local client's. The connection details and the accepted certificates are in `remote.ini`
+//! beside `patorrent.ini`; the password is not stored. Folders on this computer mean nothing
+//! to the server: the folder pickers for torrents are off, and so are Open Containing Folder,
+//! seeding a torrent just created here, and the local IP filter.
+
+use std::path::PathBuf;
+use std::ptr::{null, null_mut};
+use std::sync::OnceLock;
+use std::time::Duration;
+
+use patorrent_core::Session;
+use patorrent_core::remote::{self, ConnectError, Hello, Target};
+use patorrent_core::tls::{Fingerprint, Verify};
+use patorrent_frontend::prefs::Prefs;
+use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_PUSHBUTTON, DLGTEMPLATE,
+    DialogBoxIndirectParamW, ES_AUTOHSCROLL, ES_NUMBER, ES_PASSWORD, EndDialog, GetDlgItem,
+    GetWindowLongPtrW, IDCANCEL, IDOK, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_INITDIALOG,
+    WS_BORDER, WS_CHILD, WS_TABSTOP, WS_VISIBLE,
+};
+
+use crate::dialogs::{self, BUTTON, DWLP_USER, EDIT, STATIC, Template};
+use crate::util::{loword, send, wide, window_text};
+
+/// How long connecting may take before it is given up.
+const TIMEOUT: Duration = Duration::from_secs(15);
+
+/// The server this window is connected to.
+pub struct Remote {
+    /// `host:port`, as the title bar shows it.
+    pub label: String,
+    pub hello: Hello,
+}
+
+static REMOTE: OnceLock<Remote> = OnceLock::new();
+
+/// The server, in remote mode.
+pub fn get() -> Option<&'static Remote> {
+    REMOTE.get()
+}
+
+pub fn is_remote() -> bool {
+    REMOTE.get().is_some()
+}
+
+/// The folder a remote window keeps its files in, inside the settings folder `base`.
+pub fn data_dir(base: &std::path::Path, label: &str) -> PathBuf {
+    let name: String =
+        label.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '_' }).collect();
+    base.join("remote").join(name)
+}
+
+fn label(host: &str, port: u16) -> String {
+    if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") }
+}
+
+/// What the connect dialog shows and returns.
+#[derive(Clone, Debug, Default, PartialEq)]
+struct Form {
+    host: String,
+    port: String,
+    user: String,
+    password: String,
+    https: bool,
+}
+
+/// Asks where to connect and connects, until it works or the user cancels (`None`). On success
+/// the window is in remote mode ([`get`]).
+pub fn connect_interactive() -> Option<Session> {
+    let mut prefs = Prefs::load(crate::app::base_data_dir().join("remote.ini"));
+    let mut form = Form {
+        host: prefs.get("remote.host").unwrap_or_default().to_owned(),
+        port: prefs.get("remote.port").unwrap_or("8080").to_owned(),
+        user: prefs.get("remote.user").unwrap_or("admin").to_owned(),
+        password: String::new(),
+        https: prefs.get_bool("remote.https", false),
+    };
+    loop {
+        form = dialog(form)?;
+        prefs.set("remote.host", &form.host);
+        prefs.set("remote.port", &form.port);
+        prefs.set("remote.user", &form.user);
+        prefs.set_bool("remote.https", form.https);
+        let _ = prefs.save();
+        let port = match form.port.trim().parse::<u16>() {
+            Ok(p) if p > 0 && !form.host.trim().is_empty() => p,
+            _ => {
+                dialogs::error(
+                    null_mut(),
+                    "Enter the server's host name or address, and its port (1 to 65535).",
+                );
+                continue;
+            }
+        };
+        let host = form.host.trim().trim_start_matches('[').trim_end_matches(']').to_owned();
+        let name = label(&host, port);
+        let mut target =
+            Target { host, port, tls: None, username: form.user.clone(), password: form.password.clone() };
+        if form.https {
+            match verify(&mut prefs, &target, &name) {
+                Some(v) => target.tls = Some(v),
+                None => continue,
+            }
+        }
+        match remote::connect(&target, TIMEOUT) {
+            Ok((session, hello)) => {
+                let _ = REMOTE.set(Remote { label: name, hello });
+                return Some(session);
+            }
+            Err(ConnectError::Io(e)) if e.to_string().contains("not the accepted one") => {
+                // asked again at the next attempt, after the user has had a look
+                prefs.remove(&format!("remote.pin.{name}"));
+                let _ = prefs.save();
+                dialogs::error(
+                    null_mut(),
+                    &format!(
+                        "The certificate of {name} is not the one you accepted before:
+{e}
+
+If it was                          replaced on purpose (a new --webui-cert, or webui-cert.pem renewed), connect                          again to check the new one. Otherwise someone may be in between."
+                    ),
+                );
+            }
+            Err(e) => {
+                let hint = match &e {
+                    ConnectError::Refused { status: 404, .. } => {
+                        "\n\nIs it a patorrent-nox with its Web UI on this port (--webui)?"
+                    }
+                    ConnectError::Io(_) if !form.https => {
+                        "\n\nIf the server's Web UI uses HTTPS (--webui-https), tick Use HTTPS."
+                    }
+                    _ => "",
+                };
+                dialogs::error(null_mut(), &format!("Cannot connect to {name}:\n{e}{hint}"));
+            }
+        }
+    }
+}
+
+/// How to check the server's certificate: one trusted by Windows, or one the user accepted
+/// (asked here when it is new or has changed). `None` when the user declined or the server
+/// cannot be reached.
+fn verify(prefs: &mut Prefs, target: &Target, name: &str) -> Option<Verify> {
+    let key = format!("remote.pin.{name}");
+    if let Some(pin) = prefs.get(&key).and_then(Fingerprint::parse) {
+        return Some(Verify::Pinned(pin));
+    }
+    let presented = match remote::probe_certificate(&target.host, target.port, TIMEOUT) {
+        Ok(f) => f,
+        Err(e) => {
+            dialogs::error(null_mut(), &format!("Cannot reach {name} over HTTPS:\n{e}"));
+            return None;
+        }
+    };
+    // a certificate Windows trusts for this name needs no question
+    if verify_with_system(target) {
+        return Some(Verify::System);
+    }
+    let text = format!(
+        "{name} presents a certificate that Windows does not trust (a self-signed one, as \
+         patorrent-nox --webui-https makes).\n\nSHA-256 fingerprint:\n{presented}\n\nCompare it with \
+         the \"certificate SHA-256\" line patorrent-nox printed when it started. Trust this \
+         certificate for {name}?"
+    );
+    if !dialogs::confirm(null_mut(), &text) {
+        return None;
+    }
+    prefs.set(&key, presented);
+    let _ = prefs.save();
+    Some(Verify::Pinned(presented))
+}
+
+/// Whether a TLS handshake with the system's checks succeeds (nothing is sent after it).
+fn verify_with_system(target: &Target) -> bool {
+    let Ok(sock) = std::net::TcpStream::connect((target.host.as_str(), target.port)) else { return false };
+    let _ = sock.set_read_timeout(Some(TIMEOUT));
+    let _ = sock.set_write_timeout(Some(TIMEOUT));
+    patorrent_core::tls::Stream::connect(sock, &target.host, Verify::System)
+        .and_then(|mut s| s.handshake())
+        .is_ok()
+}
+
+// --- the dialog ------------------------------------------------------------------------------
+
+const ID_HOST: u16 = 100;
+const ID_PORT: u16 = 101;
+const ID_USER: u16 = 102;
+const ID_PASSWORD: u16 = 103;
+const ID_HTTPS: u16 = 104;
+
+fn template() -> Vec<u16> {
+    const TAB: u32 = WS_CHILD | WS_VISIBLE | WS_TABSTOP;
+    const FIELD: u32 = TAB | WS_BORDER | ES_AUTOHSCROLL as u32;
+    let mut t = Template::new(250, 118);
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 9, 50, 9], "&Host:");
+    t.item(EDIT, ID_HOST, FIELD, [60, 7, 118, 13], "");
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [184, 9, 18, 9], "&Port:");
+    t.item(EDIT, ID_PORT, FIELD | ES_NUMBER as u32, [204, 7, 39, 13], "");
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 27, 50, 9], "&User name:");
+    t.item(EDIT, ID_USER, FIELD, [60, 25, 118, 13], "");
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 45, 50, 9], "Pass&word:");
+    t.item(EDIT, ID_PASSWORD, FIELD | ES_PASSWORD as u32, [60, 43, 118, 13], "");
+    t.item(BUTTON, ID_HTTPS, TAB | BS_AUTOCHECKBOX as u32, [60, 61, 183, 10], "Use HTTP&S");
+    t.item(
+        STATIC,
+        0,
+        WS_CHILD | WS_VISIBLE,
+        [7, 76, 236, 18],
+        "The Web UI login of a patorrent-nox started with --webui. Its torrents stay on that computer.",
+    );
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [139, 98, 50, 14], "Connect");
+    t.item(BUTTON, IDCANCEL as u16, TAB | BS_PUSHBUTTON as u32, [193, 98, 50, 14], "Cancel");
+    t.finish()
+}
+
+struct State {
+    form: Form,
+    ok: bool,
+}
+
+/// The connect dialog. `None` on Cancel.
+fn dialog(form: Form) -> Option<Form> {
+    let mut state = State { form, ok: false };
+    let t = template();
+    // SAFETY: the template is a valid in-memory dialog; `state` outlives the modal loop.
+    unsafe {
+        DialogBoxIndirectParamW(
+            GetModuleHandleW(null()),
+            t.as_ptr() as *const DLGTEMPLATE,
+            null_mut(),
+            Some(proc_),
+            &mut state as *mut State as LPARAM,
+        );
+    }
+    state.ok.then_some(state.form)
+}
+
+unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> isize {
+    // SAFETY: plain dialog-procedure calls; DWLP_USER holds the `State` passed in WM_INITDIALOG,
+    // which lives until DialogBoxIndirectParamW returns.
+    unsafe {
+        let set = |id: u16, s: &str| {
+            let w = wide(s);
+            SetWindowTextW(GetDlgItem(dlg, id as i32), w.as_ptr());
+        };
+        let get = |id: u16| window_text(GetDlgItem(dlg, id as i32));
+        match msg {
+            WM_INITDIALOG => {
+                SetWindowLongPtrW(dlg, DWLP_USER, lp);
+                let st = &*(lp as *const State);
+                let title = wide("Connect to Remote");
+                SetWindowTextW(dlg, title.as_ptr());
+                set(ID_HOST, &st.form.host);
+                set(ID_PORT, &st.form.port);
+                set(ID_USER, &st.form.user);
+                send(GetDlgItem(dlg, ID_HTTPS as i32), BM_SETCHECK, usize::from(st.form.https), 0);
+                // the first empty field gets the focus
+                let first = if st.form.host.is_empty() { ID_HOST } else { ID_PASSWORD };
+                SetFocus(GetDlgItem(dlg, first as i32));
+                0
+            }
+            WM_COMMAND => {
+                let id = loword(wp) as i32;
+                if id == IDOK || id == IDCANCEL {
+                    let st = GetWindowLongPtrW(dlg, DWLP_USER) as *mut State;
+                    if id == IDOK && !st.is_null() {
+                        (*st).form = Form {
+                            host: get(ID_HOST).trim().to_owned(),
+                            port: get(ID_PORT).trim().to_owned(),
+                            user: get(ID_USER),
+                            password: get(ID_PASSWORD),
+                            https: send(GetDlgItem(dlg, ID_HTTPS as i32), BM_GETCHECK, 0, 0) == 1,
+                        };
+                        (*st).ok = true;
+                    }
+                    EndDialog(dlg, id as isize);
+                    return 1;
+                }
+                0
+            }
+            _ => 0,
+        }
+    }
+}
+
+/// Starts another PaTorrent window in remote mode (File > Connect to Remote...).
+pub fn start_remote_window(owner: HWND) {
+    if let Err(e) = std::process::Command::new(crate::util::exe_path()).arg("--remote").spawn() {
+        dialogs::error(owner, &format!("Cannot start PaTorrent: {e}"));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn folders_and_labels() {
+        let base = std::path::Path::new(r"C:\PaTorrent");
+        assert_eq!(data_dir(base, "nas.lan:8080"), base.join("remote").join("nas.lan_8080"));
+        assert_eq!(data_dir(base, "[fe80::1%3]:8443"), base.join("remote").join("_fe80__1_3__8443"));
+        assert_eq!(label("::1", 80), "[::1]:80");
+        assert_eq!(label("10.0.0.2", 80), "10.0.0.2:80");
+        // the template is well formed: its item count is the twelve controls
+        let t = template();
+        assert_eq!(t[4], 12);
+    }
+}

@@ -4,7 +4,7 @@
 //! starting another forwards its arguments (`.torrent` paths, `magnet:` links, URLs) to the
 //! running one, as µTorrent does. `--minimized` starts in the tray (the autostart entry's
 //! "Start minimized"). `--demo N` runs the simulated engine with N synthetic torrents instead
-//! (scale testing).
+//! (scale testing). `--remote` drives a patorrent-nox elsewhere (`remote_ui`).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -29,6 +29,8 @@ mod preferences;
 #[cfg(windows)]
 mod properties;
 #[cfg(windows)]
+mod remote_ui;
+#[cfg(windows)]
 mod rss;
 #[cfg(windows)]
 mod sched_grid;
@@ -43,7 +45,8 @@ mod util;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     let parsed = app::parse_args(&args);
-    if parsed.demo.is_none() && instance::forward(&parsed.sources) {
+    // a remote window is not the single local instance, and takes no forwarded torrents
+    if parsed.demo.is_none() && !parsed.remote && instance::forward(&parsed.sources) {
         return;
     }
     std::process::exit(app::run(parsed));

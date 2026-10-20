@@ -187,7 +187,7 @@ pub fn build(o: &CreateOptions, progress: &mut dyn FnMut(u32, u32) -> bool) -> R
         return Err(format!("{}: no files to put in the torrent (empty, or all skipped).", source.display()));
     }
 
-    let mut t = CreateTorrent::new(fs, o.piece_size, CreateFlags::empty()).map_err(|e| e.to_string())?;
+    let mut t = CreateTorrent::new(fs, o.piece_size, CreateFlags::V1_ONLY).map_err(|e| e.to_string())?;
     for (tier, urls) in parse_trackers(&o.trackers).iter().enumerate() {
         for url in urls {
             t.add_tracker(url, tier as u32);

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-19_232401_1792445041
+Last updated: 2026-10-20_095400_1792482840
 
 ## Vision
 
@@ -211,7 +211,7 @@ Implemented 2026-10-15 (CHANGELOG 2026-10-15_172326). Checked on screen by the o
 - [ ] Create New Torrent: piece-size auto, trackers, web seeds, private flag, progress
   - [x] engine and nox, v1 (2026-10-17_114537_1792230337): `core::metainfo::create_torrent` (libtorrent `create_torrent`, `add_files`, `set_piece_hashes`), `make_magnet_uri_from_info`, `patorrent-nox create`
   - [x] the Win32 dialog (2026-10-17_140012_1792238412): File > Create New Torrent / Ctrl+N, µTorrent 2.2.1 layout, hashing on a worker thread, Start seeding
-  - [ ] v2 / hybrid (Phase 8)
+  - [x] v2 / hybrid (2026-10-20_095400_1792482840): `CreateTorrent` makes hybrids by default (libtorrent's default), `V1_ONLY` / `V2_ONLY`; `set_piece_hashes` computes the v2 piece roots; `patorrent-nox create --hybrid` / `--v2`. The Win32 dialog and nox still default to v1 until the engine downloads v2; then a format choice (Hybrid default, as in qBittorrent)
 - [x] weekly scheduler (2026-10-18_235124_1792360284): `frontend::scheduler` (7 × 24 table: Full speed, Limited, Turn off, Seeding only; Limited rates; Disable DHT when turning off), the Win32 Preferences > Scheduler page with its grid control, nox's `sched.*` preferences and the page's grid; Turn off pauses the session, Seeding only uses libtorrent's upload mode (now honoured by the engine)
 - [x] Torrent Properties (2026-10-19_091815_1792394295): `frontend::properties`, the Win32 dialog (General tab: trackers, rates, upload slots, seeding goal override, Initial Seeding / DHT / PEX; several torrents at once), nox `GET` / `POST /pa/torrents/properties`; engine `set_max_connections` / `set_max_uploads` / `replace_trackers` / `add_tracker` for running torrents, `DISABLE_DHT` honoured, per-torrent switches in resume data
   - [x] the Web UI page's Properties dialog (2026-10-19_101030_1792397430): context menu, phone action sheet, double-click on an unfinished torrent, several torrents and Ctrl+A (`all=1`)
@@ -270,6 +270,12 @@ In 1.0 (D19, 2026-10-19_230101_1792443661).
 ### Phase 8: Modern protocol extensions
 BEP 52 is in 1.0 (D19, 2026-10-19_230101_1792443661); BEP 44 / 51 / 55 after it unless cheap.
 - [ ] BitTorrent v2 and hybrid torrents (BEP52): merkle trees, hash picker, v2 magnets
+  - [x] merkle trees (`metainfo::merkle`, `merkle_tree`), the hash picker (`engine::hash_picker`), v2 / hybrid creation, with `test_merkle`, `test_merkle_tree`, `test_hash_picker` and `test_create_torrent` ported (2026-10-20_095400_1792482840)
+  - [ ] the engine's v2 path: the disk thread returns SHA-256 block hashes beside the v1 result (downloads and full checks); the torrent keeps one `MerkleTree` per file (loaded from the piece layers) and a `HashPicker`, and verifies v2 pieces with `set_block_hash` (libtorrent `on_blocks_hashed`; a piece whose hashes are unknown waits, finished but unverified); hybrids check both and stop with "inconsistent hashes" on a mismatch; v2-only torrents accepted (the add, magnet and metadata paths refuse them today)
+  - [ ] peer wire: the v2 reserved bit (byte 7, 0x10), hash request (21), hashes (22), hash reject (23); serving hash requests from the trees; asking peers for missing piece layers and for a failed piece's block hashes; per-peer protocol version for hybrids (peers found under the v2 hash, PEX `lt_v2`, incoming connections with the truncated v2 hash or the v2 bit)
+  - [ ] the trees in resume data (libtorrent `trees`: sparse hashes, mask, verified bits), since the piece layers live outside the info dictionary the metadata store keeps
+  - [ ] hybrids announced under both hashes (trackers, DHT, LSD), v2 magnets (`btmh`) fetching v2 metadata and then the piece layers from peers
+  - [ ] interop: a v2-only and a hybrid swarm with qBittorrent (libtorrent 2.0)
 - [ ] BEP44 DHT items (ed25519), BEP51 sample_infohashes, BEP55 holepunch
 
 ### Continuous
@@ -292,7 +298,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_1792443661 (D19–D22). In rough order; the GTK and v2 work can run beside the rest.
 
 **Platform and protocol (D19):**
-1. Phase 8, BEP 52: v2 and hybrid torrents end to end. Merkle trees and the hash picker, v2 piece layers in resume data, v2 magnets (`btmh`), creating v2 / hybrid torrents (`set_hash2`, piece layers, file tree), truncated v2 hashes for LSD / DHT. Port the rest of `test_torrent_info`, `test_create_torrent`, `test_merkle_tree`, `test_hash_picker`.
+1. Phase 8, BEP 52: v2 and hybrid torrents end to end. Merkle trees and the hash picker, v2 piece layers in resume data, v2 magnets (`btmh`), creating v2 / hybrid torrents (`set_hash2`, piece layers, file tree), truncated v2 hashes for LSD / DHT. Port the rest of `test_torrent_info`, `test_create_torrent`, `test_merkle_tree`, `test_hash_picker`. In progress: the merkle trees, the hash picker and creation are in with their tests (2026-10-20_095400_1792482840); the engine's v2 path is next (Phase 8 lists the steps).
 2. Phase 7: the GTK 4 GUI on `patorrent_frontend` (the models are toolkit-independent already), virtualised `ColumnView`, StatusNotifierItem tray, XDG autostart and `xdg-mime` associations.
 3. Phase 6: HTTPS for the Web UI (a server side for the TLS layer: SChannel and OpenSSL, certificate and key from the user, optional self-signed one generated on request) and the GUIs' remote mode (either GUI driving a nox over the native API).
 4. Localisation (D20): string tables in `patorrent_frontend`, every frontend's strings moved to them, the language choice on Preferences > General (Win32, GTK, the Web UI), then the translated tables.
@@ -425,7 +431,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
   - the dialog procedures hold a `&mut State` across calls that send notifications back into the same procedure (tree and list view), as `create.rs` does; a `RefCell` like `app.rs`'s `with_app` would be stricter.
 - Create dialog follow-ups (CHANGELOG 2026-10-17_140012_1792238412): click through it by hand once; possible extras libtorrent supports but µTorrent lacked (source tag, pad files, DHT nodes).
 - Create torrent follow-ups (CHANGELOG 2026-10-17_114537_1792230337):
-  - v2 and hybrid creation (BEP 52): `set_hash2`, piece layers, file tree; then the rest of `test_create_torrent.cpp` and `make_magnet_uri` v2 / hybrid.
+  - ~~v2 and hybrid creation (BEP 52): `set_hash2`, piece layers, file tree; then the rest of `test_create_torrent.cpp` and `make_magnet_uri` v2 / hybrid~~: done (2026-10-20_095400_1792482840); `make_magnet_uri` already wrote `btmh`. The Unix-only creation tests (`create_torrent_symlink`, `v1_attributes`) now make hybrids and need a Unix run.
   - `test_torrent_info.rs`'s `resolve_duplicates` comment says it waits for create_torrent; it could now build its torrents with `CreateTorrent`.
 - IP filter follow-ups (CHANGELOG 2026-10-17_114537_1792230337):
   - ~~GUI: Preferences "IP filter" (enable, file path, reload), loading `ipfilter.dat` from the settings directory like µTorrent~~ and ~~persist the path and reload on start~~: done in the Preferences dialog (2026-10-17_155028_1792245028). Still open: `Alert::PeerBlocked` in the Logger tab; nox takes the filter per run only.
@@ -548,7 +554,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 - `lt-swarm interop` is verified only on Windows (the qBittorrent app plus WSL). On Linux it runs `transmission-cli` and `deluged` directly and expects `qbittorrent-nox` via `--qbittorrent`; untested. rTorrent and µTorrent 2.2.1 are not in it yet (Continuous: interop matrix).
 - Peers that only connect and get dropped (seed to seed) are not logged; a `peer_disconnected`-style alert category would help debugging swarms. `remove_peer` already has the close reason and throws it away; connect failures in `connect_peers_for` are not reported either.
 - libtorrent tests not ported yet because they need later pieces:
-  - `create_torrent`: mutable_torrents and the v2 / hybrid cases (v2_only, hybrid*, piece_layer, pieces_root_empty_file, v2_path_conflict, make_magnet_uri v2 / hybrid) wait for v2 creation (Phase 8); the v1 parts are ported
+  - `create_torrent`: mutable_torrents (deprecated in libtorrent); the v2 / hybrid cases are ported (2026-10-20_095400_1792482840)
   - session plus resume data (Phase 2): the write_torrent_file round trips, preserve_* magnet tests
 - Windows `SegmentHeap` (manifest `heapType`) might lower RAM use. Benchmark it with `lt-swarm` before enabling.
 - CI minutes: the repo was private (Windows runners billed at 2×), so FreeBSD runs only on main and weekly. Public since 2026-10-19_230536_1792443936 (D25): Actions minutes are free, so FreeBSD (and a macOS job) can run on every push.

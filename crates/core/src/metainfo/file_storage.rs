@@ -565,14 +565,14 @@ impl FileStorage {
 
     /// v2: index of the first piece-layer node in the file's merkle tree.
     pub fn file_first_piece_node(&self, index: usize) -> u32 {
-        let leafs = merkle_num_leafs(self.file_num_pieces(index));
-        merkle_num_nodes(leafs) - leafs
+        let leafs = merkle_num_leafs(self.file_num_pieces(index) as usize);
+        (merkle_num_nodes(leafs) - leafs) as u32
     }
 
     /// v2: index of the first block-layer node in the file's merkle tree.
     pub fn file_first_block_node(&self, index: usize) -> u32 {
-        let leafs = merkle_num_leafs(self.file_num_blocks(index));
-        merkle_num_nodes(leafs) - leafs
+        let leafs = merkle_num_leafs(self.file_num_blocks(index) as usize);
+        (merkle_num_nodes(leafs) - leafs) as u32
     }
 
     /// The file containing byte `offset` of the torrent.

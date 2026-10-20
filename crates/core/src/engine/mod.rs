@@ -24,6 +24,9 @@ mod pe;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
 mod pex;
+// Not used by the engine until the BEP 52 download path is wired in.
+#[allow(dead_code)]
+pub(crate) mod hash_picker;
 pub(crate) mod picker;
 mod portmap;
 pub(crate) mod proxy;

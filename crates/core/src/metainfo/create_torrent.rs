@@ -1,9 +1,8 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/create_torrent.cpp, include/libtorrent/create_torrent.hpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
-// Changes: v1 only (BEP 52 v2 / hybrid creation returns `V2Unsupported`); errors are `Result`s
-// instead of exceptions; `set_piece_hashes` reads the files itself (one reader, a few hashing
-// threads) instead of going through a disk_interface; directory entries are added in name order;
-// an optional info["source"] (private-tracker convention) is supported.
+// Changes: errors are `Result`s instead of exceptions; `set_piece_hashes` reads the files itself
+// (one reader, a few hashing threads) instead of going through a disk_interface; directory entries
+// are added in name order; an optional info["source"] (private-tracker convention) is supported.
 
 //! Creating `.torrent` files (libtorrent `create_torrent`, `add_files`, `set_piece_hashes`).
 //!
@@ -26,31 +25,38 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 
 use super::file_storage::{DEFAULT_BLOCK_SIZE, FileFlags, FileStorage, FileStorageError, calc_num_pieces};
+use super::merkle::{merkle_num_leafs, merkle_pad, merkle_root};
 use super::torrent_info::{TorrentInfo, WebSeedKind};
 use crate::bencode::Entry;
 use crate::crypto::sha1::Sha1;
+use crate::crypto::sha256::Sha256;
 use crate::flags::bit_flags;
-use crate::types::Sha1Hash;
+use crate::types::{Sha1Hash, Sha256Hash};
 use crate::util::path::{combine_path, has_parent_path, lsplit_path};
 
 bit_flags! {
-    /// libtorrent `create_flags_t`. Torrents are always v1 (`v1_only`).
+    /// libtorrent `create_flags_t`. Without `V1_ONLY` or `V2_ONLY` the torrent is a hybrid
+    /// (BEP 52 v2 plus v1), libtorrent's default.
     pub struct CreateFlags: u8 {
         /// Include file modification times (`mtime`).
         const MODIFICATION_TIME = 0;
         /// Store symlinks as symlinks (BEP 47) instead of following them. Unix only.
         const SYMLINKS = 1;
-        /// Request a v2-only torrent. Not supported yet: [`CreateTorrent::new`] fails.
+        /// A v2-only torrent: no v1 piece hashes, not loadable by v1-only clients.
         const V2_ONLY = 2;
-        /// Sort files and pad each one to a piece boundary, including the last.
+        /// Sort files and pad each one to a piece boundary, including the last. Always done for
+        /// v2 and hybrid torrents.
         const CANONICAL_FILES = 3;
         /// Do not record hidden / executable / symlink attributes.
         const NO_ATTRIBUTES = 4;
         /// Like `CANONICAL_FILES`, but without a pad file after the last file (and padding goes
         /// before each file, as in libtorrent before 2.0).
         const CANONICAL_FILES_NO_TAIL_PADDING = 5;
-        /// Allow piece sizes that are neither a multiple of 16 kiB nor a power of two.
+        /// Allow piece sizes that are neither a multiple of 16 kiB nor a power of two (v1 only).
         const ALLOW_ODD_PIECE_SIZE = 6;
+        /// A v1-only torrent: no v2 file tree or piece layers, and no canonical layout unless
+        /// asked for.
+        const V1_ONLY = 7;
     }
 }
 
@@ -67,8 +73,9 @@ pub enum CreateTorrentError {
     InvalidHashEntry,
     /// errors::torrent_missing_file_tree: there are no files (or they are all empty).
     TorrentMissingFileTree,
-    /// BEP 52 (v2 and hybrid) torrents cannot be created yet.
-    V2Unsupported,
+    /// errors::torrent_inconsistent_files: a file and a directory have the same path, which the
+    /// v2 file tree cannot hold.
+    TorrentInconsistentFiles,
     /// The progress callback asked to stop.
     Aborted,
     /// A file name is not valid UTF-8.
@@ -88,7 +95,7 @@ impl fmt::Display for CreateTorrentError {
             TorrentInvalidLength => f.write_str("invalid length of torrent"),
             InvalidHashEntry => f.write_str("invalid hash entry"),
             TorrentMissingFileTree => f.write_str("the v2 torrent file has no file tree"),
-            V2Unsupported => f.write_str("creating v2 or hybrid torrents is not supported yet"),
+            TorrentInconsistentFiles => f.write_str("the v1 and v2 file metadata does not match"),
             Aborted => f.write_str("operation aborted"),
             NonUtf8Path(p) => write!(f, "{}: file name is not valid UTF-8", p.display()),
             FileStorage(e) => match e {
@@ -153,6 +160,9 @@ pub struct CreateTorrent {
     files: FileStorage,
     /// One per piece; zero = not set yet.
     piece_hash: Vec<Sha1Hash>,
+    /// v2: per file, the hash of each of its pieces (the merkle root of the piece's blocks);
+    /// empty until the first `set_hash2`.
+    file_piece_hash: Vec<Vec<Sha256Hash>>,
     /// (url, tier), kept sorted by tier.
     urls: Vec<(String, u32)>,
     url_seeds: Vec<String>,
@@ -172,24 +182,26 @@ pub struct CreateTorrent {
     private: bool,
     include_mtime: bool,
     include_symlinks: bool,
+    v2_only: bool,
+    v1_only: bool,
 }
 
 impl CreateTorrent {
     /// libtorrent `create_torrent(file_storage&, piece_size, flags)`. A `piece_size` of 0 picks
     /// one automatically ([`auto_piece_size`]). The files are laid out on pieces here: sorted and
-    /// padded with the `CANONICAL_FILES*` flags, in the given order otherwise.
+    /// padded for v2 and hybrid torrents and with the `CANONICAL_FILES*` flags, in the given
+    /// order otherwise.
     pub fn new(
         mut fs: FileStorage,
         piece_size: u32,
         flags: CreateFlags,
     ) -> Result<CreateTorrent, CreateTorrentError> {
-        if flags.contains(CreateFlags::V2_ONLY) {
-            return Err(CreateTorrentError::V2Unsupported);
-        }
+        let v1_only = flags.contains(CreateFlags::V1_ONLY);
         let mut ct = CreateTorrent {
             multifile: fs.num_files() > 1,
             files: FileStorage::new(),
             piece_hash: Vec::new(),
+            file_piece_hash: Vec::new(),
             urls: Vec::new(),
             url_seeds: Vec::new(),
             http_seeds: Vec::new(),
@@ -205,6 +217,8 @@ impl CreateTorrent {
             private: false,
             include_mtime: flags.contains(CreateFlags::MODIFICATION_TIME),
             include_symlinks: flags.contains(CreateFlags::SYMLINKS),
+            v2_only: flags.contains(CreateFlags::V2_ONLY),
+            v1_only,
         };
 
         // return instead of failing; generate() reports the missing files
@@ -217,13 +231,19 @@ impl CreateTorrent {
             ct.multifile = true;
         }
 
-        let piece_size = if piece_size == 0 { auto_piece_size(fs.total_size()) } else { piece_size };
+        let mut piece_size = if piece_size == 0 { auto_piece_size(fs.total_size()) } else { piece_size };
 
-        // v1 torrents should have piece sizes divisible by 16 kiB
-        if piece_size % (16 * 1024) != 0
+        if !v1_only {
+            // v2 needs a power of two of at least 16 kiB
+            piece_size = piece_size.max(16 * 1024);
+            if !piece_size.is_power_of_two() {
+                return Err(CreateTorrentError::InvalidPieceSize);
+            }
+        } else if piece_size % (16 * 1024) != 0
             && !piece_size.is_power_of_two()
             && !flags.contains(CreateFlags::ALLOW_ODD_PIECE_SIZE)
         {
+            // v1 torrents should have piece sizes divisible by 16 kiB
             return Err(CreateTorrentError::InvalidPieceSize);
         }
         // this is an unreasonably large piece size. Some clients don't support pieces this large.
@@ -234,7 +254,7 @@ impl CreateTorrent {
         fs.set_piece_length(piece_size);
         let canonical = flags.contains(CreateFlags::CANONICAL_FILES);
         let no_tail = flags.contains(CreateFlags::CANONICAL_FILES_NO_TAIL_PADDING);
-        if canonical || no_tail {
+        if !v1_only || canonical || no_tail {
             // pad files are whole blocks; libtorrent only canonicalizes v2-capable piece sizes
             if piece_size < 16 * 1024 {
                 return Err(CreateTorrentError::InvalidPieceSize);
@@ -246,19 +266,20 @@ impl CreateTorrent {
         Ok(ct)
     }
 
-    /// libtorrent `create_torrent(torrent_info const&)`: a copy of an existing v1 torrent whose
-    /// info dictionary (and so its info-hash) is preserved verbatim.
+    /// libtorrent `create_torrent(torrent_info const&)`: a copy of an existing torrent whose
+    /// info dictionary (and so its info-hashes) is preserved verbatim. A v2 torrent's piece
+    /// layers come from `ti` (a v2 torrent loaded without them, from a magnet, has none to give).
     pub fn from_torrent_info(ti: &TorrentInfo) -> Result<CreateTorrent, CreateTorrentError> {
-        if ti.v2() {
-            return Err(CreateTorrentError::V2Unsupported);
-        }
-        if !ti.is_valid() || !ti.v1() {
+        let (make_v1, make_v2) = (ti.v1(), ti.v2());
+        if !ti.is_valid() || !(make_v1 || make_v2) {
             return Err(CreateTorrentError::InvalidHashEntry);
         }
         let mut ct = CreateTorrent::new(FileStorage::new(), 0, CreateFlags::empty())?;
         ct.files = ti.files().clone();
         ct.multifile = ti.num_files() > 1;
         ct.private = ti.is_private();
+        ct.v2_only = !make_v1;
+        ct.v1_only = !make_v2;
         if let Some(d) = ti.creation_date().filter(|&d| d > 0) {
             ct.creation_date = d;
         }
@@ -276,12 +297,40 @@ impl CreateTorrent {
                 WebSeedKind::HttpSeed => ct.add_http_seed(&s.url),
             }
         }
-        for i in 0..ti.num_pieces() {
-            let h = ti.hash_for_piece(i).ok_or(CreateTorrentError::InvalidHashEntry)?;
-            ct.set_hash(i, h);
+        if make_v1 {
+            for i in 0..ti.num_pieces() {
+                let h = ti.hash_for_piece(i).ok_or(CreateTorrentError::InvalidHashEntry)?;
+                ct.set_hash(i, h)?;
+            }
+        }
+        if make_v2 {
+            let fs = ti.files();
+            for i in 0..fs.num_files() {
+                // pad files have no tree
+                if fs.pad_file_at(i) || fs.file_size(i) == 0 {
+                    continue;
+                }
+                if fs.file_size(i) <= fs.piece_length() as u64 {
+                    ct.set_hash2(i, 0, fs.root(i))?;
+                    continue;
+                }
+                for (p, h) in ti.piece_layer(i).chunks_exact(Sha256Hash::LEN).enumerate() {
+                    ct.set_hash2(i, p as u32, Sha256Hash(h.try_into().expect("32 bytes")))?;
+                }
+            }
         }
         ct.info_dict = Some(ti.info_section().to_vec());
         Ok(ct)
+    }
+
+    /// The torrent has no v1 part.
+    pub fn is_v2_only(&self) -> bool {
+        self.v2_only
+    }
+
+    /// The torrent has no v2 part.
+    pub fn is_v1_only(&self) -> bool {
+        self.v1_only
     }
 
     pub fn files(&self) -> &FileStorage {
@@ -367,22 +416,73 @@ impl CreateTorrent {
         self.private
     }
 
-    /// Sets the SHA-1 hash of piece `index`. Panics if `index` is out of range.
-    pub fn set_hash(&mut self, index: u32, h: Sha1Hash) {
+    /// Sets the SHA-1 hash of piece `index`; fails for a v2-only torrent or an index out of
+    /// range.
+    pub fn set_hash(&mut self, index: u32, h: Sha1Hash) -> Result<(), CreateTorrentError> {
+        if self.v2_only || index >= self.files.num_pieces() {
+            return Err(CreateTorrentError::InvalidHashEntry);
+        }
         if self.piece_hash.is_empty() {
             self.piece_hash.resize(self.files.num_pieces() as usize, Sha1Hash::default());
         }
         self.piece_hash[index as usize] = h;
+        Ok(())
     }
 
-    /// libtorrent `set_hash2`: v2 piece hashes. Always fails until v2 creation is ported.
-    pub fn set_hash2(
-        &mut self,
-        _file: usize,
-        _piece: u32,
-        _h: crate::types::Sha256Hash,
-    ) -> Result<(), CreateTorrentError> {
-        Err(CreateTorrentError::InvalidHashEntry)
+    /// libtorrent `set_hash2`: the v2 hash of `file`'s `piece` (counted from the file's first
+    /// piece): the merkle root of the piece's block hashes, padded to a whole piece, or to the
+    /// file's block count rounded up to a power of two for a file smaller than a piece. Fails
+    /// for a v1-only torrent, a pad file, a zero hash or an index out of range.
+    pub fn set_hash2(&mut self, file: usize, piece: u32, h: Sha256Hash) -> Result<(), CreateTorrentError> {
+        if self.v1_only
+            || file >= self.files.num_files()
+            || self.files.pad_file_at(file)
+            || h.is_zero()
+            || piece >= self.files.file_num_pieces(file)
+        {
+            return Err(CreateTorrentError::InvalidHashEntry);
+        }
+        if self.file_piece_hash.is_empty() {
+            self.file_piece_hash.resize(self.files.num_files(), Vec::new());
+        }
+        let fh = &mut self.file_piece_hash[file];
+        if fh.is_empty() {
+            fh.resize(self.files.file_num_pieces(file) as usize, Sha256Hash::default());
+        }
+        fh[piece as usize] = h;
+        Ok(())
+    }
+
+    /// Every non-pad file has all its piece hashes (libtorrent `validate_v2_hashes`).
+    fn v2_hashes_valid(&self) -> bool {
+        let fs = &self.files;
+        if self.file_piece_hash.len() != fs.num_files() {
+            return false;
+        }
+        let pl = fs.piece_length() as u64;
+        (0..fs.num_files()).all(|i| {
+            let hashes = &self.file_piece_hash[i];
+            if fs.pad_file_at(i) {
+                return hashes.is_empty();
+            }
+            hashes.len() as u64 == fs.file_size(i).div_ceil(pl) && !hashes.iter().any(Sha256Hash::is_zero)
+        })
+    }
+
+    /// The v2 file roots: the merkle root over each file's piece hashes (zero for pad and empty
+    /// files).
+    fn file_roots(&self) -> Vec<Sha256Hash> {
+        let fs = &self.files;
+        let pad_hash = merkle_pad((fs.piece_length() / DEFAULT_BLOCK_SIZE) as usize, 1);
+        (0..fs.num_files())
+            .map(|i| {
+                if fs.pad_file_at(i) || fs.file_size(i) == 0 {
+                    Sha256Hash::default()
+                } else {
+                    merkle_root(&self.file_piece_hash[i], &pad_hash)
+                }
+            })
+            .collect()
     }
 
     fn v1_hashes_valid(&self) -> bool {
@@ -392,13 +492,15 @@ impl CreateTorrent {
             && !self.piece_hash.iter().any(Sha1Hash::is_zero)
     }
 
-    /// Builds the torrent (libtorrent `generate`).
+    /// Builds the torrent (libtorrent `generate`). The v2 parts are written if every v2 hash is
+    /// set, the v1 parts if every v1 hash is; at least one of them must be.
     pub fn generate(&self) -> Result<Entry, CreateTorrentError> {
         if self.files.num_files() == 0 || self.files.total_size() == 0 {
             return Err(CreateTorrentError::TorrentMissingFileTree);
         }
-        // if the v1 hashes were not all set, we can't create a torrent
-        if !self.v1_hashes_valid() {
+        let make_v2 = self.v2_hashes_valid();
+        let make_v1 = self.v1_hashes_valid();
+        if !make_v1 && !make_v2 {
             return Err(CreateTorrentError::InvalidHashEntry);
         }
 
@@ -448,6 +550,19 @@ impl CreateTorrent {
             *dict.key("httpseeds") = seed_list(&self.http_seeds);
         }
 
+        let file_roots = if make_v2 { self.file_roots() } else { Vec::new() };
+        if make_v2 {
+            let layers = dict.key("piece layers").dict_mut();
+            for (i, root) in file_roots.iter().enumerate() {
+                // files of one piece store the piece hash as the root: no layer
+                if root.is_zero() || self.file_piece_hash[i].len() < 2 {
+                    continue;
+                }
+                let pieces: Vec<u8> = self.file_piece_hash[i].iter().flat_map(|h| h.0).collect();
+                layers.insert(root.0.to_vec(), Entry::Bytes(pieces));
+            }
+        }
+
         if let Some(info) = &self.info_dict {
             *dict.key("info") = Entry::Preformatted(info.clone());
             return Ok(dict);
@@ -473,7 +588,9 @@ impl CreateTorrent {
             *info.key("source") = self.source.as_str().into();
         }
 
-        if !self.multifile {
+        if !make_v1 {
+            // no v1 file list
+        } else if !self.multifile {
             if self.include_mtime {
                 *info.key("mtime") = Entry::Int(fs.mtime(0));
             }
@@ -514,14 +631,66 @@ impl CreateTorrent {
             *info.key("files") = Entry::List(files);
         }
 
-        *info.key("piece length") = Entry::Int(fs.piece_length() as i64);
-        let mut pieces = Vec::with_capacity(self.piece_hash.len() * 20);
-        for h in &self.piece_hash {
-            pieces.extend_from_slice(&h.0);
+        if make_v2 {
+            *info.key("file tree") = self.file_tree(&file_roots)?;
+            *info.key("meta version") = Entry::Int(2);
         }
-        *info.key("pieces") = Entry::Bytes(pieces);
+
+        *info.key("piece length") = Entry::Int(fs.piece_length() as i64);
+        if make_v1 {
+            let mut pieces = Vec::with_capacity(self.piece_hash.len() * 20);
+            for h in &self.piece_hash {
+                pieces.extend_from_slice(&h.0);
+            }
+            *info.key("pieces") = Entry::Bytes(pieces);
+        }
         *dict.key("info") = info;
         Ok(dict)
+    }
+
+    /// The v2 "file tree": a dict per directory level, each file a dict whose "" key holds its
+    /// length, pieces root and attributes. A file and a directory of the same name fail.
+    fn file_tree(&self, file_roots: &[Sha256Hash]) -> Result<Entry, CreateTorrentError> {
+        let fs = &self.files;
+        let mut tree = Entry::new_dict();
+        for (i, root) in file_roots.iter().enumerate() {
+            if fs.pad_file_at(i) {
+                continue;
+            }
+            let file_path = fs.file_path(i, "");
+            // multi-file paths start with the torrent name, which is not part of the tree
+            let rest = if self.multifile { lsplit_path(&file_path).1 } else { file_path.as_str() };
+            let mut node = &mut tree;
+            let mut elems = lsplit_path(rest);
+            while !elems.0.is_empty() {
+                node = node.key(elems.0);
+                // a file of this name is already there
+                if node.dict_mut().contains_key(b"".as_slice()) {
+                    return Err(CreateTorrentError::TorrentInconsistentFiles);
+                }
+                elems = lsplit_path(elems.1);
+            }
+            // a directory of this name is already there
+            if !node.dict_mut().is_empty() {
+                return Err(CreateTorrentError::TorrentInconsistentFiles);
+            }
+            let file_e = node.key("");
+            *file_e = Entry::new_dict();
+            if self.include_mtime && fs.mtime(i) != 0 {
+                *file_e.key("mtime") = Entry::Int(fs.mtime(i));
+            }
+            let flags = self.file_flags(i);
+            add_file_attrs(file_e, flags, self.include_symlinks);
+            if self.include_symlinks && flags.contains(FileFlags::SYMLINK) {
+                add_symlink_path(file_e, fs.internal_symlink(i));
+            } else {
+                if fs.file_size(i) > 0 {
+                    *file_e.key("pieces root") = Entry::Bytes(root.0.to_vec());
+                }
+                *file_e.key("length") = Entry::Int(fs.file_size(i) as i64);
+            }
+        }
+        Ok(tree)
     }
 
     /// The bencoded torrent (libtorrent `generate_buf`).
@@ -682,9 +851,9 @@ fn get_symlink_path(p: &Path) -> String {
 }
 
 /// libtorrent `set_piece_hashes`: reads the files from `base` (the directory that holds the
-/// torrent's top-level file or folder) and sets every piece hash. `progress` is called with the
-/// number of pieces done so far minus one (libtorrent passes the piece index of each completed
-/// piece, in order) and returns false to cancel.
+/// torrent's top-level file or folder) and sets every piece hash, v1 and v2 as the torrent has
+/// them. `progress` is called with the number of pieces done so far minus one (libtorrent passes
+/// the piece index of each completed piece, in order) and returns false to cancel.
 pub fn set_piece_hashes(
     t: &mut CreateTorrent,
     base: &Path,
@@ -715,11 +884,14 @@ pub fn set_piece_hashes_threads(
     let read_ahead = (threads * 4).max((1 << 20) / piece_len).min(((64 << 20) / piece_len).max(threads + 1));
 
     let files = &t.files;
-    let mut hashes = vec![Sha1Hash::default(); num_pieces as usize];
+    let (v1, v2) = (!t.v2_only, !t.v1_only);
+    let mut hashes = vec![Sha1Hash::default(); if v1 { num_pieces as usize } else { 0 }];
+    let mut hashes2: Vec<Option<(usize, u32, Sha256Hash)>> =
+        vec![None; if v2 { num_pieces as usize } else { 0 }];
     let result = std::thread::scope(|scope| {
         let (job_tx, job_rx) = mpsc::sync_channel::<(u32, Vec<u8>)>(read_ahead);
         let job_rx = std::sync::Arc::new(std::sync::Mutex::new(job_rx));
-        let (done_tx, done_rx) = mpsc::channel::<(u32, Sha1Hash, Vec<u8>)>();
+        let (done_tx, done_rx) = mpsc::channel::<PieceHashed>();
         for _ in 0..threads {
             let job_rx = job_rx.clone();
             let done_tx = done_tx.clone();
@@ -727,8 +899,9 @@ pub fn set_piece_hashes_threads(
                 loop {
                     let job = job_rx.lock().map(|rx| rx.recv());
                     let Ok(Ok((piece, buf))) = job else { break };
-                    let h = Sha1::digest(&buf);
-                    if done_tx.send((piece, h, buf)).is_err() {
+                    let v1_hash = v1.then(|| Sha1::digest(&buf));
+                    let v2_hash = if v2 { piece_hash2(files, piece, &buf) } else { None };
+                    if done_tx.send(PieceHashed { piece, v1: v1_hash, v2: v2_hash, buf }).is_err() {
                         break;
                     }
                 }
@@ -742,9 +915,14 @@ pub fn set_piece_hashes_threads(
         let mut in_flight = 0usize;
         let mut result = Ok(());
         // records a finished piece; false when the caller cancelled
-        let mut handle_done = |(piece, h, buf): (u32, Sha1Hash, Vec<u8>), spare: &mut Vec<Vec<u8>>| -> bool {
-            hashes[piece as usize] = h;
-            spare.push(buf);
+        let mut handle_done = |done: PieceHashed, spare: &mut Vec<Vec<u8>>| -> bool {
+            if let Some(h) = done.v1 {
+                hashes[done.piece as usize] = h;
+            }
+            if v2 {
+                hashes2[done.piece as usize] = done.v2;
+            }
+            spare.push(done.buf);
             let keep_going = progress(completed);
             completed += 1;
             keep_going
@@ -783,9 +961,47 @@ pub fn set_piece_hashes_threads(
     });
     result?;
     for (i, h) in hashes.into_iter().enumerate() {
-        t.set_hash(i as u32, h);
+        t.set_hash(i as u32, h)?;
+    }
+    for (file, piece, h) in hashes2.into_iter().flatten() {
+        t.set_hash2(file, piece, h)?;
     }
     Ok(())
+}
+
+/// A hashed piece: its SHA-1, its v2 hash with the file and the piece within the file (none for
+/// a v1-only torrent), and the buffer for reuse.
+struct PieceHashed {
+    piece: u32,
+    v1: Option<Sha1Hash>,
+    v2: Option<(usize, u32, Sha256Hash)>,
+    buf: Vec<u8>,
+}
+
+/// The v2 hash of `piece` (libtorrent's `on_hash` in create_torrent.cpp): the merkle root over
+/// the SHA-256 of each 16 kiB block of the file's data in the piece (the last one shorter),
+/// padded with zero hashes to a whole piece, or for a file smaller than a piece to its block
+/// count rounded up to a power of two. `buf` is the piece as v1 reads it, pad bytes included.
+/// `None` for a piece that starts in a pad file.
+fn piece_hash2(fs: &FileStorage, piece: u32, buf: &[u8]) -> Option<(usize, u32, Sha256Hash)> {
+    let file = fs.file_index_at_piece(piece);
+    if fs.pad_file_at(file) || fs.file_size(file) == 0 {
+        return None;
+    }
+    let pl = fs.piece_length();
+    debug_assert_eq!(fs.file_offset(file) % pl as u64, 0);
+    let file_piece = piece - (fs.file_offset(file) / pl as u64) as u32;
+    let size2 = (fs.piece_size2(piece) as usize).min(buf.len());
+    let padded_leafs = if fs.file_size(file) < pl as u64 {
+        merkle_num_leafs(fs.file_num_blocks(file) as usize)
+    } else {
+        (pl / DEFAULT_BLOCK_SIZE) as usize
+    };
+    let mut leafs = vec![Sha256Hash::default(); padded_leafs];
+    for (leaf, block) in leafs.iter_mut().zip(buf[..size2].chunks(DEFAULT_BLOCK_SIZE as usize)) {
+        *leaf = Sha256::digest(block);
+    }
+    Some((file, file_piece, merkle_root(&leafs, &Sha256Hash::default())))
 }
 
 /// Reads pieces in order across file boundaries; pad files read as zeros.
@@ -840,8 +1056,8 @@ impl<'a> PieceReader<'a> {
 
 #[cfg(test)]
 mod tests {
-    //! Ported from libtorrent-rasterbar 2.0.11 test/test_create_torrent.cpp (the v1 parts), plus
-    //! hashing tests against files on disk.
+    //! Ported from libtorrent-rasterbar 2.0.11 test/test_create_torrent.cpp, plus hashing tests
+    //! against files on disk.
     use super::*;
     use crate::metainfo::TorrentInfo;
 
@@ -904,38 +1120,191 @@ mod tests {
         CreateTorrent::new(fs_with(&[("a", 100 * MIB)]), piece_size, f).map(|ct| ct.piece_length())
     }
 
-    // libtorrent's v1_only cases (we are always v1)
+    const V1: CreateFlags = CreateFlags::V1_ONLY;
+    const HYBRID: CreateFlags = CreateFlags::empty();
+
     #[test]
     fn piece_size_restriction_16kb() {
-        assert!(test_piece_size(15000, CreateFlags::empty()).is_err());
-        assert!(test_piece_size(8000, CreateFlags::empty()).is_err());
-        assert_eq!(test_piece_size(8192, CreateFlags::empty()).unwrap(), 8192);
-        assert_eq!(test_piece_size(15000, CreateFlags::ALLOW_ODD_PIECE_SIZE).unwrap(), 15000);
+        // v2 torrents need at least 16 kiB
+        assert_eq!(test_piece_size(15000, HYBRID).unwrap(), 16 * 1024);
+        assert_eq!(test_piece_size(500, HYBRID).unwrap(), 16 * 1024);
+        assert!(test_piece_size(15000, V1).is_err());
+        assert!(test_piece_size(8000, V1).is_err());
+        assert_eq!(test_piece_size(8192, V1).unwrap(), 8192);
+        assert_eq!(test_piece_size(15000, V1 | CreateFlags::ALLOW_ODD_PIECE_SIZE).unwrap(), 15000);
     }
 
     #[test]
     fn piece_size_quanta() {
-        assert_eq!(test_piece_size(32 * 1024, CreateFlags::empty()).unwrap(), 32 * 1024);
-        assert_eq!(test_piece_size(48 * 1024, CreateFlags::empty()).unwrap(), 48 * 1024);
-        assert!(test_piece_size(47 * 1024, CreateFlags::empty()).is_err());
+        // v2 torrents need a power of two
+        assert_eq!(test_piece_size(32 * 1024, HYBRID).unwrap(), 32 * 1024);
+        assert_eq!(test_piece_size(32 * 1024, V1).unwrap(), 32 * 1024);
+        assert!(test_piece_size(48 * 1024, HYBRID).is_err());
+        assert_eq!(test_piece_size(48 * 1024, V1).unwrap(), 48 * 1024);
+        assert!(test_piece_size(47 * 1024, V1).is_err());
+        assert!(test_piece_size(47 * 1024, HYBRID).is_err());
     }
 
     #[test]
     fn piece_size_limit() {
-        assert_eq!(test_piece_size(0x8000000, CreateFlags::empty()).unwrap(), 0x8000000);
-        assert!(test_piece_size(0x8000001, CreateFlags::empty()).is_err());
-        assert!(test_piece_size(0x10000000, CreateFlags::empty()).is_err());
+        assert_eq!(test_piece_size(0x8000000, HYBRID).unwrap(), 0x8000000);
+        assert!(test_piece_size(0x8000001, V1).is_err());
+        assert!(test_piece_size(0x10000000, HYBRID).is_err());
     }
 
     #[test]
-    fn v2_is_unsupported() {
-        assert!(matches!(
-            CreateTorrent::new(fs_with(&[("test/A", 0x8002)]), 0x4000, CreateFlags::V2_ONLY),
-            Err(CreateTorrentError::V2Unsupported)
-        ));
-        let mut t = CreateTorrent::new(fs_with(&[("test/A", 0x8002)]), 0x4000, CreateFlags::empty()).unwrap();
-        // v1_only_set_hash2
-        assert!(t.set_hash2(0, 0, crate::types::Sha256Hash::max()).is_err());
+    fn v1_only_set_hash2() {
+        let mut t = CreateTorrent::new(fs_with(&[("test/A", 0x8002)]), 0x4000, V1).unwrap();
+        assert!(t.set_hash2(0, 0, Sha256Hash::max()).is_err());
+    }
+
+    #[test]
+    fn v2_only_set_hash() {
+        let mut t = CreateTorrent::new(fs_with(&[("test/A", 0x8002)]), 0x4000, CreateFlags::V2_ONLY).unwrap();
+        assert!(t.set_hash(0, Sha1Hash::max()).is_err());
+    }
+
+    /// Loads a fixture, rebuilds it with `from_torrent_info` and checks that the info dictionary
+    /// and the piece layers come out byte for byte.
+    fn round_trip_torrent(name: &str) {
+        use crate::bencode::bdecode;
+        let path =
+            std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/torrents").join(name);
+        let buffer = std::fs::read(&path).unwrap();
+        let in_torrent = bdecode(&buffer).unwrap();
+        let info1 = TorrentInfo::from_bytes(&buffer).unwrap();
+        let t = CreateTorrent::from_torrent_info(&info1).unwrap();
+        let out = generate_buf(&t);
+        let out_torrent = bdecode(&out).unwrap();
+        let section = |d: &crate::bencode::Bdecoded<&Vec<u8>>, key: &str| {
+            d.root().unwrap().dict_find(key).map(|n| n.data_section().to_vec())
+        };
+        assert_eq!(section(&out_torrent, "info"), section(&in_torrent, "info"), "{name}");
+        assert_eq!(section(&out_torrent, "piece layers"), section(&in_torrent, "piece layers"), "{name}");
+    }
+
+    #[test]
+    fn create_torrent_round_trip_v2() {
+        round_trip_torrent("v2_only.torrent");
+    }
+
+    #[test]
+    fn create_torrent_round_trip_hybrid_missing_tailpad() {
+        round_trip_torrent("v2_hybrid-missing-tailpad.torrent");
+    }
+
+    #[test]
+    fn create_torrent_round_trip_hybrid() {
+        round_trip_torrent("v2_hybrid.torrent");
+    }
+
+    #[test]
+    fn create_torrent_round_trip_empty_file() {
+        round_trip_torrent("v2_empty_file.torrent");
+    }
+
+    // a file and a directory of the same name cannot be in the v2 file tree
+    #[test]
+    fn v2_path_conflict() {
+        let cases: [&[(&str, u64)]; 2] = [
+            &[("test/A/tmp", 0x4000), ("test/a", 0x4000), ("test/A", 0x4000), ("test/filler", 0x4000)],
+            &[
+                ("test/long/path/name/that/collides", 0x4000),
+                ("test/long/path", 0x4000),
+                ("test/filler-1", 0x4000),
+                ("test/filler-2", 0x4000),
+            ],
+        ];
+        for files in cases {
+            let mut t = CreateTorrent::new(fs_with(files), 0x4000, HYBRID).unwrap();
+            let dummy = Sha256Hash(*b"01234567890123456789012345678901");
+            for f in 0..4 {
+                t.set_hash2(f, 0, dummy).unwrap();
+            }
+            assert!(matches!(t.generate(), Err(CreateTorrentError::TorrentInconsistentFiles)));
+            assert!(t.generate_buf().is_err());
+        }
+    }
+
+    fn set_v2_layout(t: &mut CreateTorrent) {
+        let max = Sha256Hash::max();
+        for p in 0..3 {
+            t.set_hash2(0, p, max).unwrap();
+        }
+        // file 1 is a pad file
+        assert!(t.set_hash2(1, 0, max).is_err());
+        t.set_hash2(2, 0, max).unwrap();
+        t.set_hash2(2, 1, max).unwrap();
+    }
+
+    #[test]
+    fn v2_only() {
+        let mut t = CreateTorrent::new(
+            fs_with(&[("test/A", 0x8002), ("test/B", 0x4002)]),
+            0x4000,
+            CreateFlags::V2_ONLY,
+        )
+        .unwrap();
+        set_v2_layout(&mut t);
+        let buffer = generate_buf(&t);
+        let info = TorrentInfo::from_bytes(&buffer).unwrap();
+        assert!(info.info_hashes().has_v2());
+        assert!(!info.info_hashes().has_v1());
+        assert_eq!(info.files().file_name(0), "A");
+        assert!(info.files().pad_file_at(1));
+        assert_eq!(info.files().file_name(2), "B");
+        assert_eq!(info.name(), "test");
+
+        let t2 = CreateTorrent::from_torrent_info(&info).unwrap();
+        assert_eq!(generate_buf(&t2), buffer);
+    }
+
+    // only v2 hashes set without the v2-only flag: implicitly v2-only
+    #[test]
+    fn implicit_v2_only() {
+        let mut t =
+            CreateTorrent::new(fs_with(&[("test/A", 0x8002), ("test/B", 0x4002)]), 0x4000, HYBRID).unwrap();
+        set_v2_layout(&mut t);
+        let info = TorrentInfo::from_bytes(&generate_buf(&t)).unwrap();
+        assert!(info.info_hashes().has_v2());
+        assert!(!info.info_hashes().has_v1());
+        assert_eq!(info.files().file_name(0), "A");
+        assert!(info.files().pad_file_at(1));
+        assert_eq!(info.files().file_name(2), "B");
+        assert_eq!(info.name(), "test");
+    }
+
+    #[test]
+    fn piece_layer() {
+        let fs = fs_with(&[("test/large", 0x8000), ("test/small-1", 0x4000), ("test/small-2", 0x3fff)]);
+        let mut t = CreateTorrent::new(fs, 0x4000, HYBRID).unwrap();
+        let max = Sha256Hash::max();
+        t.set_hash2(0, 0, max).unwrap();
+        t.set_hash2(0, 1, max).unwrap();
+        t.set_hash2(1, 0, max).unwrap();
+        t.set_hash2(2, 0, max).unwrap();
+        let info = TorrentInfo::from_bytes(&generate_buf(&t)).unwrap();
+        assert_eq!(info.piece_layer(0).len(), 64);
+        assert_eq!(info.piece_layer(1).len(), 32);
+        assert_eq!(info.piece_layer(2).len(), 32);
+    }
+
+    #[test]
+    fn pieces_root_empty_file() {
+        let fs = fs_with(&[("test/1-empty", 0), ("test/2-small", 0x3fff), ("test/3-empty", 0)]);
+        let mut t = CreateTorrent::new(fs, 0x4000, HYBRID).unwrap();
+        // canonical order puts the small file first (then its pad, then the empty files)
+        let small = (0..t.files().num_files()).find(|&i| t.files().file_name(i) == "2-small").unwrap();
+        t.set_hash2(small, 0, Sha256Hash::max()).unwrap();
+        let e = t.generate().unwrap();
+        let tree = e.get("info").unwrap().get("file tree").unwrap();
+        assert!(tree.get("1-empty").unwrap().get("").unwrap().get("pieces root").is_none());
+        assert!(tree.get("2-small").unwrap().get("").unwrap().get("pieces root").is_some());
+        let info = TorrentInfo::from_bytes(&e.bencode()).unwrap();
+        let fs = info.files();
+        for i in 0..fs.num_files() {
+            assert_eq!(fs.root(i).is_zero(), fs.file_name(i) != "2-small", "{}", fs.file_name(i));
+        }
     }
 
     #[test]
@@ -957,21 +1326,14 @@ mod tests {
         assert_eq!(info2.creation_date(), Some(1337));
     }
 
-    #[test]
-    fn from_v2_torrent_is_unsupported() {
-        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/torrents");
-        let ti = TorrentInfo::from_file(dir.join("v2_only.torrent")).unwrap();
-        assert!(matches!(CreateTorrent::from_torrent_info(&ti), Err(CreateTorrentError::V2Unsupported)));
-    }
-
     // if we don't specify a v1-only flag, but only set v1 hashes, the created torrent is
-    // implicitly v1-only (libtorrent pads here because its default is hybrid; we need the flag)
+    // implicitly v1-only (padded, since hybrid is the default layout)
     #[test]
     fn implicit_v1_only() {
         let fs = fs_with(&[("test/A", 0x8002), ("test/B", 0x4002)]);
-        let mut t = CreateTorrent::new(fs, 0x4000, CreateFlags::CANONICAL_FILES).unwrap();
+        let mut t = CreateTorrent::new(fs, 0x4000, HYBRID).unwrap();
         for i in 0..t.num_pieces() {
-            t.set_hash(i, Sha1Hash::max());
+            t.set_hash(i, Sha1Hash::max()).unwrap();
         }
         let info = TorrentInfo::from_bytes(&generate_buf(&t)).unwrap();
         assert!(!info.v2());
@@ -986,10 +1348,20 @@ mod tests {
     fn missing_hashes() {
         let mut t = CreateTorrent::new(fs_with(&[("A", 0x8000)]), 0x4000, CreateFlags::empty()).unwrap();
         assert!(matches!(t.generate(), Err(CreateTorrentError::InvalidHashEntry)));
-        t.set_hash(0, Sha1Hash::max());
+        t.set_hash(0, Sha1Hash::max()).unwrap();
         assert!(matches!(t.generate(), Err(CreateTorrentError::InvalidHashEntry)));
-        t.set_hash(1, Sha1Hash::max());
+        t.set_hash(1, Sha1Hash::max()).unwrap();
         assert!(t.generate().is_ok());
+        assert!(t.set_hash(2, Sha1Hash::max()).is_err());
+        // half the v2 hashes: v1 only
+        t.set_hash2(0, 0, Sha256Hash::max()).unwrap();
+        let info = TorrentInfo::from_bytes(&t.generate_buf().unwrap()).unwrap();
+        assert!(info.v1() && !info.v2());
+        t.set_hash2(0, 1, Sha256Hash::max()).unwrap();
+        let info = TorrentInfo::from_bytes(&t.generate_buf().unwrap()).unwrap();
+        assert!(info.v1() && info.v2());
+        assert!(t.set_hash2(0, 2, Sha256Hash::max()).is_err());
+        assert!(t.set_hash2(0, 1, Sha256Hash::default()).is_err());
         let empty = CreateTorrent::new(fs_with(&[("A", 0)]), 0x4000, CreateFlags::empty()).unwrap();
         assert!(matches!(empty.generate(), Err(CreateTorrentError::TorrentMissingFileTree)));
     }
@@ -997,7 +1369,7 @@ mod tests {
     fn test_field(f: impl FnOnce(&mut CreateTorrent)) -> TorrentInfo {
         let mut t = CreateTorrent::new(fs_with(&[("A", 0x4000)]), 0x4000, CreateFlags::empty()).unwrap();
         for i in 0..t.num_pieces() {
-            t.set_hash(i, Sha1Hash::max());
+            t.set_hash(i, Sha1Hash::max()).unwrap();
         }
         f(&mut t);
         TorrentInfo::from_bytes(&generate_buf(&t)).unwrap()
@@ -1083,7 +1455,7 @@ mod tests {
         );
         // a single tracker and a single web seed are plain strings
         let mut t = CreateTorrent::new(fs_with(&[("A", 0x4000)]), 0x4000, CreateFlags::empty()).unwrap();
-        t.set_hash(0, Sha1Hash::max());
+        t.set_hash(0, Sha1Hash::max()).unwrap();
         t.set_creation_date(0);
         t.add_tracker("http://a/announce", 0);
         t.add_url_seed("http://seed/");
@@ -1099,8 +1471,19 @@ mod tests {
     fn test_create_torrent(fs: FileStorage, piece_size: u32, flags: CreateFlags) -> Vec<u8> {
         let mut ct = CreateTorrent::new(fs, piece_size, flags).unwrap();
         ct.set_creation_date(1337);
-        for i in 0..ct.num_pieces() {
-            ct.set_hash(i, Sha1Hash::max());
+        if !flags.contains(CreateFlags::V2_ONLY) {
+            for i in 0..ct.num_pieces() {
+                ct.set_hash(i, Sha1Hash::max()).unwrap();
+            }
+        }
+        if !flags.contains(CreateFlags::V1_ONLY) {
+            for f in 0..ct.files().num_files() {
+                if !ct.files().pad_file_at(f) {
+                    for p in 0..ct.files().file_num_pieces(f) {
+                        ct.set_hash2(f, p, Sha256Hash::max()).unwrap();
+                    }
+                }
+            }
         }
         generate_buf(&ct)
     }
@@ -1127,7 +1510,7 @@ mod tests {
     fn v1_tail_padding() {
         let fs = fs_with(&[("test/1-small", 0x3fff), ("test/2-small", 0x3fff)]);
         assert_eq!(
-            test_create_torrent(fs, 0x4000, CreateFlags::CANONICAL_FILES),
+            test_create_torrent(fs, 0x4000, V1 | CreateFlags::CANONICAL_FILES),
             expected(&format!("{SMALL1}{PAD1}{SMALL2}{PAD1}"))
         );
     }
@@ -1137,7 +1520,7 @@ mod tests {
     fn v1_empty_file_placement() {
         let fs = fs_with(&[("test/1-small", 0x3fff), ("test/2-empty", 0), ("test/3-small", 0x3fff)]);
         assert_eq!(
-            test_create_torrent(fs, 0x4000, CreateFlags::CANONICAL_FILES),
+            test_create_torrent(fs, 0x4000, V1 | CreateFlags::CANONICAL_FILES),
             expected(&format!("{SMALL1}{PAD1}{EMPTY2}{SMALL3}{PAD1}"))
         );
     }
@@ -1148,7 +1531,7 @@ mod tests {
     fn v1_file_sorting() {
         let fs = fs_with(&[("test/2-small", 0x3fff), ("test/1-small", 0x3fff)]);
         assert_eq!(
-            test_create_torrent(fs, 0x4000, CreateFlags::CANONICAL_FILES),
+            test_create_torrent(fs, 0x4000, V1 | CreateFlags::CANONICAL_FILES),
             expected(&format!("{SMALL1}{PAD1}{SMALL2}{PAD1}"))
         );
     }
@@ -1158,7 +1541,7 @@ mod tests {
     fn v1_no_tail_padding() {
         let fs = fs_with(&[("test/1-small", 0x3fff), ("test/2-small", 0x3fff)]);
         assert_eq!(
-            test_create_torrent(fs, 0x4000, CreateFlags::CANONICAL_FILES_NO_TAIL_PADDING),
+            test_create_torrent(fs, 0x4000, V1 | CreateFlags::CANONICAL_FILES_NO_TAIL_PADDING),
             expected(&format!("{SMALL1}{PAD1}{SMALL2}"))
         );
     }
@@ -1168,7 +1551,7 @@ mod tests {
     fn v1_empty_file_placement_backwards_compatibility() {
         let fs = fs_with(&[("test/1-small", 0x3fff), ("test/2-empty", 0), ("test/3-small", 0x3fff)]);
         assert_eq!(
-            test_create_torrent(fs, 0x4000, CreateFlags::CANONICAL_FILES_NO_TAIL_PADDING),
+            test_create_torrent(fs, 0x4000, V1 | CreateFlags::CANONICAL_FILES_NO_TAIL_PADDING),
             expected(&format!("{SMALL1}{EMPTY2}{PAD1}{SMALL3}"))
         );
     }
@@ -1177,10 +1560,7 @@ mod tests {
     #[test]
     fn v1_no_padding() {
         let fs = fs_with(&[("test/1-small", 0x3fff), ("test/2-small", 0x3fff)]);
-        assert_eq!(
-            test_create_torrent(fs, 0x4000, CreateFlags::empty()),
-            expected(&format!("{SMALL1}{SMALL2}"))
-        );
+        assert_eq!(test_create_torrent(fs, 0x4000, V1), expected(&format!("{SMALL1}{SMALL2}")));
     }
 
     #[test]
@@ -1191,7 +1571,87 @@ mod tests {
                 .to_vec();
         want.extend_from_slice(&[0xff; 20]);
         want.extend_from_slice(b"ee");
-        assert_eq!(test_create_torrent(fs, 0x4000, CreateFlags::empty()), want);
+        assert_eq!(test_create_torrent(fs, 0x4000, V1), want);
+    }
+
+    const FF32: &[u8] = &[0xff; 32];
+
+    /// `d7:<name>d0:d6:lengthi16383e11:pieces root32:<ff * 32>ee` for each name.
+    fn v2_tree(names: &[&str]) -> Vec<u8> {
+        let mut v = b"9:file treed".to_vec();
+        for n in names {
+            v.extend_from_slice(format!("{}:{n}d0:d6:lengthi16383e11:pieces root32:", n.len()).as_bytes());
+            v.extend_from_slice(FF32);
+            v.extend_from_slice(b"ee");
+        }
+        v.push(b'e');
+        v
+    }
+
+    fn hybrid_expected(tree: &[&str], v1_files: &str, name: &str, pieces: usize) -> Vec<u8> {
+        let mut v = b"d13:creation datei1337e4:infod".to_vec();
+        v.extend_from_slice(&v2_tree(tree));
+        v.extend_from_slice(v1_files.as_bytes());
+        v.extend_from_slice(
+            format!("12:meta versioni2e4:name{}:{name}12:piece lengthi16384e", name.len()).as_bytes(),
+        );
+        if pieces > 0 {
+            v.extend_from_slice(format!("6:pieces{}:", pieces * 20).as_bytes());
+            v.extend_from_slice(&vec![0xff; pieces * 20]);
+        }
+        v.extend_from_slice(b"e12:piece layersdee");
+        v
+    }
+
+    #[test]
+    fn hybrid() {
+        let fs = fs_with(&[("test/1-small", 0x3fff), ("test/2-small", 0x3fff)]);
+        assert_eq!(
+            test_create_torrent(fs, 0x4000, HYBRID),
+            hybrid_expected(
+                &["1-small", "2-small"],
+                &format!("5:filesl{SMALL1}{PAD1}{SMALL2}{PAD1}e"),
+                "test",
+                2
+            )
+        );
+    }
+
+    #[test]
+    fn hybrid_single_file() {
+        let fs = fs_with(&[("1-small", 0x3fff)]);
+        assert_eq!(
+            test_create_torrent(fs, 0x4000, HYBRID),
+            hybrid_expected(&["1-small"], "6:lengthi16383e", "1-small", 1)
+        );
+    }
+
+    #[test]
+    fn hybrid_single_file_with_directory() {
+        let fs = fs_with(&[("test/1-small", 0x3fff)]);
+        assert_eq!(
+            test_create_torrent(fs, 0x4000, HYBRID),
+            hybrid_expected(&["1-small"], &format!("5:filesl{SMALL1}e"), "test", 1)
+        );
+    }
+
+    // a backwards compatibility feature
+    #[test]
+    fn hybrid_no_tail_padding() {
+        let fs = fs_with(&[("test/1-small", 0x3fff), ("test/2-small", 0x3fff)]);
+        assert_eq!(
+            test_create_torrent(fs, 0x4000, CreateFlags::CANONICAL_FILES_NO_TAIL_PADDING),
+            hybrid_expected(&["1-small", "2-small"], &format!("5:filesl{SMALL1}{PAD1}{SMALL2}e"), "test", 2)
+        );
+    }
+
+    #[test]
+    fn v2_only_file_sorting() {
+        let fs = fs_with(&[("test/2-small", 0x3fff), ("test/1-small", 0x3fff)]);
+        assert_eq!(
+            test_create_torrent(fs, 0x4000, CreateFlags::V2_ONLY),
+            hybrid_expected(&["1-small", "2-small"], "", "test", 0)
+        );
     }
 
     /// A scratch directory under the target dir, removed on drop.
@@ -1255,7 +1715,7 @@ mod tests {
             ["content/a.txt", "content/b.bin", "content/sub/deeper/c", "content/sub/empty", "content/z"]
         );
 
-        let mut t = CreateTorrent::new(fs, 0x8000, CreateFlags::empty()).unwrap();
+        let mut t = CreateTorrent::new(fs, 0x8000, V1).unwrap();
         t.add_tracker("http://tracker/announce", 0);
         let mut calls = Vec::new();
         set_piece_hashes_threads(&mut t, &parent_dir(&root).unwrap(), 3, &mut |p| {
@@ -1294,7 +1754,7 @@ mod tests {
         add_files(&mut fs, &root, &mut |p| p.extension().is_none_or(|e| e != "me"), CreateFlags::empty())
             .unwrap();
         assert_eq!(fs.num_files(), 2);
-        let mut t = CreateTorrent::new(fs, 0x4000, CreateFlags::CANONICAL_FILES).unwrap();
+        let mut t = CreateTorrent::new(fs, 0x4000, V1 | CreateFlags::CANONICAL_FILES).unwrap();
         set_piece_hashes(&mut t, &dir.0, &mut |_| true).unwrap();
         let info = TorrentInfo::from_bytes(&t.generate_buf().unwrap()).unwrap();
         // one, pad, two, pad
@@ -1364,7 +1824,7 @@ mod tests {
 
         let mut fs = FileStorage::new();
         add_files(&mut fs, &root, &mut |_| true, CreateFlags::empty()).unwrap();
-        let mut t = CreateTorrent::new(fs, 0x4000, CreateFlags::empty()).unwrap();
+        let mut t = CreateTorrent::new(fs, 0x4000, V1).unwrap();
         set_piece_hashes(&mut t, &dir.0, &mut |_| true).unwrap();
         let info = TorrentInfo::from_bytes(&t.generate_buf().unwrap()).unwrap();
         assert_eq!(info.files().file_name(0), "hidden");
@@ -1428,6 +1888,81 @@ mod tests {
         let mut t = CreateTorrent::new(fs, 16 * 1024, CreateFlags::empty()).unwrap();
         set_piece_hashes(&mut t, &dir.0, &mut |_| true).unwrap();
         let e = t.generate().unwrap();
-        assert_eq!(e.get("info").unwrap().get("attr").unwrap().as_bytes(), Some(&b"x"[..]));
+        let info = e.get("info").unwrap();
+        assert_eq!(info.get("attr").unwrap().as_bytes(), Some(&b"x"[..]));
+        let leaf = info.get("file tree").unwrap().get("file-1").unwrap().get("").unwrap();
+        assert_eq!(leaf.get("attr").unwrap().as_bytes(), Some(&b"x"[..]));
+    }
+
+    /// The root of a file computed straight from its 16 kiB blocks (the full merkle tree).
+    fn block_root(data: &[u8]) -> Sha256Hash {
+        let blocks: Vec<Sha256Hash> = data.chunks(DEFAULT_BLOCK_SIZE as usize).map(Sha256::digest).collect();
+        merkle_root(&blocks, &Sha256Hash::default())
+    }
+
+    /// v2 and hybrid hashing from files on disk: every pieces root equals the merkle root over
+    /// the file's blocks, the piece layers are the roots of each piece's blocks, and v2-only
+    /// torrents have no v1 hashes.
+    #[test]
+    fn hash_directory_v2() {
+        let dir = TempDir::new("v2");
+        let root = dir.0.join("content");
+        std::fs::create_dir_all(&root).unwrap();
+        let files: [(&str, Vec<u8>); 4] = [
+            ("a", pattern(100, 1)),
+            ("b", pattern(40_000, 2)),
+            ("c", pattern(70_000, 3)),
+            ("d", pattern(0x10000, 4)),
+        ];
+        for (p, data) in &files {
+            std::fs::write(root.join(p), data).unwrap();
+        }
+        for flags in [HYBRID, CreateFlags::V2_ONLY] {
+            let mut fs = FileStorage::new();
+            add_files(&mut fs, &root, &mut |_| true, CreateFlags::empty()).unwrap();
+            let mut t = CreateTorrent::new(fs, 0x8000, flags).unwrap();
+            set_piece_hashes_threads(&mut t, &dir.0, 2, &mut |_| true).unwrap();
+            let buf = t.generate_buf().unwrap();
+            let info = TorrentInfo::from_bytes(&buf).unwrap();
+            assert!(info.v2());
+            assert_eq!(info.v1(), flags == HYBRID);
+            let fs = info.files();
+            // a, pad, b, pad, c, pad, d
+            assert_eq!(fs.num_files(), 7);
+            for (name, data) in &files {
+                let i = (0..fs.num_files()).find(|&i| fs.file_name(i) == *name).unwrap();
+                assert_eq!(fs.root(i), block_root(data), "root of {name}");
+                let layer = info.piece_layer(i);
+                if data.len() <= 0x8000 {
+                    assert_eq!(layer, &fs.root(i).0[..], "{name}");
+                } else {
+                    let want: Vec<u8> = data
+                        .chunks(0x8000)
+                        .flat_map(|piece| {
+                            let mut blocks: Vec<Sha256Hash> =
+                                piece.chunks(DEFAULT_BLOCK_SIZE as usize).map(Sha256::digest).collect();
+                            blocks.resize(2, Sha256Hash::default());
+                            merkle_root(&blocks, &Sha256Hash::default()).0
+                        })
+                        .collect();
+                    assert_eq!(layer, &want[..], "piece layer of {name}");
+                }
+            }
+            assert!(info.v2_piece_hashes_verified());
+            if flags == HYBRID {
+                // the v1 pieces include the pad bytes
+                let mut v1_data = Vec::new();
+                for (_, data) in &files {
+                    v1_data.extend_from_slice(data);
+                    v1_data.resize(v1_data.len().div_ceil(0x8000) * 0x8000, 0);
+                }
+                for (i, chunk) in v1_data.chunks(0x8000).enumerate() {
+                    assert_eq!(info.hash_for_piece(i as u32), Some(Sha1::digest(chunk)), "piece {i}");
+                }
+            }
+            // a round trip keeps the info dictionary and the piece layers
+            let t2 = CreateTorrent::from_torrent_info(&info).unwrap();
+            assert_eq!(t2.generate_buf().unwrap(), buf);
+        }
     }
 }

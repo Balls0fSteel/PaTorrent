@@ -2,6 +2,34 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_095400_1792482840: BEP 52 groundwork: merkle trees, the hash picker, v2 and hybrid torrent creation
+
+Road to 1.0 item 1 (Phase 8, BitTorrent v2) starts with the parts that need no engine changes.
+
+### Added
+- **`metainfo::merkle`** (libtorrent `merkle.cpp`): the flat-array tree helpers (parent, sibling, children, layers, leaves), `merkle_fill_tree` / `_from`, `merkle_fill_partial_tree`, `merkle_clear_tree`, `merkle_root` / `merkle_root_scratch`, `merkle_pad`, `merkle_validate_and_insert_proofs`, `merkle_validate_node`, `merkle_validate_copy`, `merkle_validate_single_layer`, `merkle_find_known_subtree`, plus `merkle_hash_pair`. All of `test_merkle.cpp` is ported (18 tests).
+- **`metainfo::merkle_tree::MerkleTree`** (libtorrent `aux::merkle_tree`): one file's tree with its compact storage modes (root only, piece layer, block layer, full tree while filling), `load_tree` / `load_sparse_tree` / `load_piece_layer`, `add_hashes` (hashes with uncle proofs; reports pieces whose earlier block hashes now pass or fail), `set_block` (verifies the largest known subtree), `get_hashes` (replies to hash requests, with proofs), `build_vector` / `build_sparse_vector` (resume data), `verified_leafs`, `is_complete`, `blocks_verified`, `get_piece_layer`. libtorrent's invariant check runs in the tests after each change. All of `test_merkle_tree.cpp` is ported, plus a hostile-input test (21 tests).
+- **`engine::hash_picker::HashPicker`** (libtorrent `hash_picker`): `validate_hash_request` (the BEP 52 request limits), `pick_hashes` (block hashes of failed pieces first, then piece-layer spans of 512 the peer has a piece of, 3 s apart), `add_hashes`, `set_block_hash` (with the verified range as pieces), `hashes_rejected`, `verify_block_hashes`, `have_hash`, `piece_verified`. The trees stay with the torrent and are passed in. All of `test_hash_picker.cpp` that libtorrent runs is ported, plus tests for known piece layers and the failed-piece request cycle (13 tests). Not wired into the engine yet (`#[allow(dead_code)]` until the v2 download path lands).
+- **v2 and hybrid torrent creation** (libtorrent `create_torrent`): without flags a torrent is now a hybrid, as in libtorrent; `CreateFlags::V1_ONLY` (new) and `V2_ONLY` pick one version. v2 needs a power-of-two piece size of at least 16 KiB (smaller sizes are raised) and always lays files out canonically. `set_hash2(file, piece, hash)`; `generate` writes the "file tree" (files with their "pieces root"), "meta version" 2 and the top-level "piece layers" when every v2 hash is set, the v1 parts when every v1 hash is (only one set gives an implicit v1-only or v2-only torrent); a file and a directory of the same path fail (`TorrentInconsistentFiles`). `from_torrent_info` copies v2 and hybrid torrents too, piece layers included. `set_piece_hashes` computes the v2 piece hashes beside the SHA-1s: SHA-256 per 16 KiB block of the file's data in the piece, merkle root padded to a whole piece (or, for a file smaller than a piece, to its block count rounded up to a power of two). `CreateTorrent::is_v1_only` / `is_v2_only`.
+- `patorrent-nox create --hybrid` and `--v2`.
+
+### Changed
+- `CreateTorrent::set_hash` returns a `Result` (it fails for a v2-only torrent or an index out of range, where libtorrent throws). `CreateTorrentError::V2Unsupported` is gone; `TorrentInconsistentFiles` is new.
+- The Win32 Create New Torrent dialog (through `patorrent_frontend::create`) and `patorrent-nox create` keep making v1 torrents (`V1_ONLY`) until the engine can download and seed v2; then they get a format choice with hybrid as the default.
+- `merkle_num_leafs` / `merkle_num_nodes` take and return `usize`.
+
+### Decisions
+- The hash picker owns no trees: the torrent keeps one `MerkleTree` per file and passes them in, so serving hash requests, resume data and the picker share them without borrows across the engine.
+- Two deliberate divergences from libtorrent, listed in docs/PORTING.md: the hash picker's retry of a failed piece's block hashes (libtorrent's reversed time test sends it once and keeps it forever; ours retries after 3 s and drops it once the blocks are verified, and handles a rejected block-hash request), and `MerkleTree::add_hashes` refusing a run of hashes that is empty, crosses a layer or is unaligned instead of asserting.
+
+### Verified
+- Ported tests: `test_merkle` (all), `test_merkle_tree` (all), `test_hash_picker` (all that libtorrent compiles), `test_create_torrent`'s v2 and hybrid cases (round trips of `v2_only.torrent`, `v2_hybrid.torrent`, `v2_hybrid-missing-tailpad.torrent` and `v2_empty_file.torrent` give the same info dictionary and piece layers byte for byte; `v2_path_conflict`, `v2_only`, `v2_only_set_hash`, `v1_only_set_hash2`, `implicit_v2_only`, `implicit_v1_only`, `piece_layer`, `pieces_root_empty_file`, `hybrid`, `hybrid_single_file`, `hybrid_single_file_with_directory`, `hybrid_no_tail_padding`, `v2_only_file_sorting`, the piece-size rules for both versions), with libtorrent's v1 cases now passing `V1_ONLY` as libtorrent's do. New `hash_directory_v2`: hybrid and v2-only torrents hashed from files on disk, every pieces root equal to the merkle root computed straight from the file's 16 KiB blocks, every piece layer equal to the per-piece block roots, v1 pieces covering the pad bytes, and a round trip giving the same bytes.
+- Windows: `cargo test --workspace` 1009 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`; `cargo clippy --workspace --all-targets --target x86_64-unknown-linux-gnu -- -D warnings`; `cargo +stable fmt --all --check`; no let-chains.
+
+### Issues
+- The engine still refuses v2-only torrents and runs hybrids as v1; the v2 download path (block hashes from the disk thread, the trees on the torrent, hash request / hashes / hash reject messages, trees in resume data, v2 announces) is the next step.
+- The Unix-only creation tests (`create_torrent_symlink`, `v1_attributes`, which now checks the v2 file tree's attribute too) now make hybrid torrents and have not run yet (no Unix test run here).
+
 ## 2026-10-19_232401_1792445041: Stopped and queued torrents show their swarm counts
 
 ### Added

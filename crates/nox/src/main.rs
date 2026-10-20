@@ -52,7 +52,7 @@ COMMANDS:
     add     Add torrents, download them, and exit when they finish (keep seeding with --seed).
     run     Resume every torrent saved in the state directory and keep running.
     demo    Load N synthetic torrents on the simulated engine and print session totals.
-    create  Make a .torrent (v1) from a file or directory.
+    create  Make a .torrent (v1, hybrid or v2) from a file or directory.
     service The Windows service PaTorrentNox, which runs `run` (see WINDOWS SERVICE).
 
 CREATE OPTIONS:
@@ -67,7 +67,9 @@ CREATE OPTIONS:
     --source TEXT         info \"source\" (private trackers use it for cross-seeding)
     --creator TEXT        \"created by\" (default: PaTorrent/<version>; \"\" to leave out)
     --no-date             Leave out the creation date
-    --pad                 Align files to pieces with pad files (BEP 47)
+    --hybrid              A hybrid torrent: BitTorrent v2 (BEP 52) plus v1 (default: v1 only)
+    --v2                  A v2-only torrent (v1-only clients cannot load it)
+    --pad                 Align files to pieces with pad files (BEP 47; always for --hybrid / --v2)
     --mtime               Store file modification times
     --symlinks            Store symlinks as links instead of following them (Unix)
     --no-attributes       Do not store hidden / executable attributes

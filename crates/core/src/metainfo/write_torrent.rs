@@ -95,7 +95,7 @@ mod tests {
         fs.add_file("t/b.bin", 9_000, Default::default(), 0, "", None).unwrap();
         let mut c = CreateTorrent::new(fs, 16 * 1024, Default::default()).unwrap();
         for i in 0..c.num_pieces() {
-            c.set_hash(i, crate::types::Sha1Hash([i as u8 + 1; 20]));
+            c.set_hash(i, crate::types::Sha1Hash([i as u8 + 1; 20])).unwrap();
         }
         c.set_comment("hello");
         c.set_creator("tester");

@@ -1870,7 +1870,7 @@ fn a_created_torrent_seeds_and_downloads() {
     write_files(&f, &seed_dir);
     let mut fs = FileStorage::new();
     add_files(&mut fs, &seed_dir.join("swarm-test"), &mut |_| true, CreateFlags::empty()).unwrap();
-    let mut t = CreateTorrent::new(fs, 0, CreateFlags::CANONICAL_FILES).unwrap();
+    let mut t = CreateTorrent::new(fs, 0, CreateFlags::V1_ONLY | CreateFlags::CANONICAL_FILES).unwrap();
     t.set_creator("swarm test");
     set_piece_hashes(&mut t, &seed_dir, &mut |_| true).unwrap();
     f.torrent = t.generate_buf().unwrap();

@@ -8,6 +8,7 @@ mod error;
 pub mod file_storage;
 pub mod magnet;
 pub mod merkle;
+pub mod merkle_tree;
 pub mod sanitize;
 pub mod torrent_info;
 pub mod write_torrent;

@@ -2,6 +2,41 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_000115_1792533675: A read cache for seeding, and a cold-disk seeding benchmark
+
+Prompted by libtorrent issue 9004 (upload speed falls when the disk is busy: libtorrent 2.x reads every 16 KiB request on its own). Our seeding path did the same: one `pread` per request, no cache.
+
+### Added
+- **Read cache** (`crates/core/src/disk/read_cache.rs`), after libtorrent 1.2's `block_cache` read path. A request that misses reads the line holding it (`read_cache_line_size` blocks, 32 = 512 KiB, capped by the piece) with one call. Later requests in the line are copied from memory. Each disk thread keeps its own lines, because a piece's jobs always run on one thread, so nothing is locked. A write to the piece drops its lines, and a fence or barrier (release, delete, move, rename, file priority) drops the storage's. A line whose blocks have all been sent once is evicted first; the rest go least recently used. A line unused for `cache_expiry` seconds is dropped; the thread wakes up for that only while it holds lines. If a line cannot be read, the request falls back to a read of its own.
+- **Settings**, with libtorrent 1.2's names and defaults (2.0 dropped them): `use_read_cache` (true), `cache_size` (2048 blocks = 32 MiB, shared by the `aio_threads`; -1 is the default), `read_cache_line_size` (32), `cache_expiry` (300 s). They are rows of the Advanced table, cross the remote wire, and apply at once on a settings change.
+- **Disk counters** in `SessionStats`: `disk_blocks_read`, `disk_read_ops` and `disk_cache_hits` (libtorrent `disk.num_blocks_read`, `disk.num_read_ops`, `disk.num_blocks_cache_hits`), and `read_cache_bytes`.
+- **`lt-swarm seed-disk`** (`tools/swarm/src/seed_disk.rs`): one seed serves `--peers` downloaders (8) over loopback from a file in `--dir`, for `--seconds` (30), with the cache off, on or both. Every downloader picks pieces in its own random order. Before each run the file is dropped from the OS cache: on Windows, an unbuffered open purges it (checked first: a 1 GiB file read at 138 MB/s after it, 3–8 GB/s before); on Linux and FreeBSD, `posix_fadvise(DONTNEED)`. `--load N` adds N threads making uncached 64 KiB reads at random offsets of the same file. `--line-blocks`, `--cache-mb` and `--keep` (reuse the data and `.torrent`) are for experiments. It prints `key=value` lines and a summary.
+- The remote protocol is version 2: `Settings` and `SessionStats` are positional on the wire.
+
+### Measured
+A 4 GiB torrent with 1 MiB pieces on the USB hard disk (E:, NTFS), 8 downloaders on the SSD, 30 s per run, release build.
+
+| Run | Cache off | Cache on |
+|---|---|---|
+| idle disk: upload | 54.3 MB/s | 64.6 MB/s (whole-piece lines: 71.4; plus a 128 MiB cache: 77.5) |
+| idle disk: disk reads / requests | 99,406 / 99,406 | 4,123 / 118,429 |
+| `--load 2`: upload (two runs) | 1.4 / 1.4 MB/s | 27.2 / 26.2 MB/s (whole-piece lines: 29.5) |
+| `--load 2`: disk reads / requests | 2,626 / 2,626 | 1,666 / 48,152 |
+
+- With the disk otherwise idle, Windows' cache manager already merges a peer's sequential 16 KiB reads (3,300 one-block reads a second is beyond a hard disk's seeks), so the cache gains 19 %. Once another program reads the same disk, that merging breaks: one read per request fell to 1.4 MB/s, the collapse issue 9004 reports, and the cache held 26–27 MB/s.
+- On the SSD the harness itself tops out around 170–270 MB/s, so it is not the limit for a hard disk.
+
+### Changed
+- docs/ARCHITECTURE.md claimed "our own write-back cache and read-ahead". Neither existed: writes went straight to the files and reads were one per request. It now describes the write-through and the read cache. docs/PORTING.md lists the module and the divergence.
+
+### Verified
+- `cargo test --workspace`: all pass. New tests: `disk::read_cache` (hits, eviction order, oversized lines, dropping pieces and storages, expiry, limits) and `disk::tests::reads_for_peers_go_through_the_read_cache` (two requests make one read, a write shows its new data, a fence clears, off is one read per request). The loopback swarm tests seed through the cache by default now, smart-ban's read after a re-download included.
+- Stable clippy (`-D warnings`) on Windows, and for `x86_64-unknown-linux-gnu` and `x86_64-unknown-freebsd` (without the GTK and Win32 crates); `cargo fmt --check`.
+
+### Issues
+- The Preferences > Disk Cache note still says there is no read/write cache, in every language, and the page has no cache controls (PLAN Known TODOs "Read cache").
+- Linux and FreeBSD were not measured (no free Linux machine). The fadvise code is type-checked and linted only. There is no 1.85 toolchain here (MSRV); CI checks it.
+
 ## 2026-10-20_233232_1792531952: The translations: 34 tables compiled in, deflated, right to left
 
 ### Added

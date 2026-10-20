@@ -453,6 +453,10 @@ wire_struct!(SessionStats {
     utp_packet_loss,
     utp_timeouts,
     utp_resends,
+    disk_blocks_read,
+    disk_read_ops,
+    disk_cache_hits,
+    read_cache_bytes,
 });
 wire_struct!(PeerInfo {
     ip,
@@ -579,6 +583,10 @@ wire_struct!(Settings {
     hashing_threads,
     file_pool_size,
     max_queued_disk_bytes,
+    use_read_cache,
+    cache_size,
+    read_cache_line_size,
+    cache_expiry,
     urlseed_pipeline_size,
     urlseed_timeout,
     urlseed_wait_retry,

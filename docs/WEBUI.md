@@ -324,7 +324,7 @@ unchanged on top.
 
 - **Transport.** An HTTP/1.1 upgrade on the Web UI's port (HTTPS too):
   `GET /pa/remote` with `Connection: Upgrade`, `Upgrade: patorrent-remote`,
-  `X-PaTorrent-Remote: 1` (the protocol version) and the Web UI login as
+  `X-PaTorrent-Remote: 2` (the protocol version) and the Web UI login as
   `Authorization: Basic`. The checks are the WebSocket's: ban list, `Host`, `Origin` when there
   is one (only a browser sends it), then the login, whose failures count towards the ban like
   the login form's (a session cookie or the local-auth bypass also do). `101` switches; a wrong

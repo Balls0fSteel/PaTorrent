@@ -204,6 +204,15 @@ pub struct Settings {
     pub hashing_threads: u32,
     pub file_pool_size: u32,
     pub max_queued_disk_bytes: u32,
+    /// The disk threads' read cache (libtorrent 1.2 names; 2.0 has no read cache): blocks peers
+    /// ask for are read `read_cache_line_size` blocks at a time, capped by the piece, and the
+    /// lines kept in up to `cache_size` blocks of 16 KiB (shared by the `aio_threads`; -1 is
+    /// the default, 2048 = 32 MiB). A line unused for `cache_expiry` seconds is dropped. Off
+    /// when `use_read_cache` is false or `read_cache_line_size` is 0.
+    pub use_read_cache: bool,
+    pub cache_size: i32,
+    pub read_cache_line_size: i32,
+    pub cache_expiry: u32,
     /// Web seeds (libtorrent's `urlseed_*` and web seed settings): BEP 17 requests in flight
     /// per connection (we also cap BEP 19 request runs by it).
     pub urlseed_pipeline_size: i32,
@@ -352,6 +361,10 @@ impl Default for Settings {
             hashing_threads: 1,
             file_pool_size: 40,
             max_queued_disk_bytes: 1024 * 1024,
+            use_read_cache: true,
+            cache_size: 2048,
+            read_cache_line_size: 32,
+            cache_expiry: 300,
             urlseed_pipeline_size: 5,
             urlseed_timeout: 20,
             urlseed_wait_retry: 30,

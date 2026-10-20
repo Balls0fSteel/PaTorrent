@@ -53,6 +53,7 @@ Line counts are libtorrent `.cpp` lines in 2.0.11; headers add roughly 50 % on t
 | `core::http` | `http_connection`, `http_parser`, `gzip`, `puff` | 2.7k | 2 |
 | `core::tracker` | `tracker_manager`, `http_tracker_connection`, `udp_tracker_connection`, `announce_entry` | 2.3k | 2 |
 | `core::disk` | `mmap_disk_io` (job, fence and thread structure), `posix_storage` / `posix_disk_io` (I/O), `disk_buffer_pool`, `disk_io_thread_pool`, `disk_job_fence`, `disk_job_pool`, `storage_utils`, `file`, `file_view_pool`, `path`, `copy_file`, `truncate`, `directory`, `drive_info`, `stat_cache`, `store_buffer.hpp` | 9.2k | 2 |
+| `core::disk::read_cache` | none in 2.0.11; the read path of 1.2's `block_cache` (`try_read`, read lines in `disk_io_thread::do_read`) | 0.3k | 5 |
 | `core::peer` | `peer_connection`, `bt_peer_connection`, `receive_buffer`, `chained_buffer`, `peer_info`, `identify_client`, `fingerprint`, `generate_peer_id`, `peer_connection_handle` | 12.3k | 2 |
 | `core::torrent` | `torrent`, `torrent_handle`, `torrent_status`, `file_progress` | 13.6k | 2 |
 | `core::torrent::{picker, peer_list, choker}` | `piece_picker`, `peer_list`, `torrent_peer`, `torrent_peer_allocator`, `choker`, `request_blocks` | 6.4k | 2 |
@@ -107,6 +108,7 @@ Record each one here with the reason.
 | Area | libtorrent 2.0.11 | PaTorrent | Why |
 |---|---|---|---|
 | Disk backend | mmap by default; `posix_disk_io` runs I/O on the network thread | pread/pwrite on the disk thread pool. Blocks are written through and hashed in order as they arrive (a small reorder cache holds early blocks), so finished pieces are never read back | memory accounting and performance on Windows and network drives; scale |
+| Read cache (Phase 5) | none: the mmap backend leaves reads to the page cache, `posix_disk_io` (and 2.1's pread backend) reads each requested block on its own | libtorrent 1.2's read lines and settings (`use_read_cache`, `cache_size`, `read_cache_line_size`, `cache_expiry`): a miss reads the line holding the request, capped by the piece, with one call; per disk thread, so lock-free; no write cache; a line whose blocks were all sent once goes before lines still being read; `cache_expiry` drops lines unused that long (1.2: the write cache's flush delay) | one 16 KiB read per request costs a disk seek each on a busy hard disk: `lt-swarm seed-disk --load 2` seeded at 1.4 MB/s with one read per request and 26 MB/s with the cache (CHANGELOG 2026-10-21_000115_1792533675) |
 | Persistence | left to the client (qBittorrent: two files per torrent) | `core::store`: one resume DB + one metadata pack | startup time and file count at 10k+ torrents |
 | Inactive torrents | `torrent_info` (incl. piece hashes) stays in memory | info dict loaded lazily on start, dropped when stopped | per-torrent RAM at scale |
 | Ownership | `shared_ptr` / `weak_ptr` graph | slab + generational ids | no refcount traffic, no lifetime cycles, Rust-friendly |

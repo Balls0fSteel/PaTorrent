@@ -44,7 +44,7 @@ pub const UPGRADE: &str = "patorrent-remote";
 /// The request header naming the client's protocol version.
 pub const VERSION_HEADER: &str = "X-PaTorrent-Remote";
 /// The protocol version: both ends must run the same one (messages are positional).
-pub const PROTOCOL: u32 = 1;
+pub const PROTOCOL: u32 = 2;
 /// The largest frame either side accepts (a status update of 100,000 torrents is about
 /// 60 MB).
 pub const MAX_FRAME: usize = 256 << 20;

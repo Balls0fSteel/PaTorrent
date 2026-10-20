@@ -167,6 +167,14 @@ pub struct SessionStats {
     pub utp_packet_loss: u64,
     pub utp_timeouts: u64,
     pub utp_resends: u64,
+    /// Blocks read for peers (libtorrent `disk.num_blocks_read`), the file reads made for them
+    /// (`disk.num_read_ops`; a read cache line counts once) and those answered from the read
+    /// cache (`disk.num_blocks_cache_hits`), since session start.
+    pub disk_blocks_read: u64,
+    pub disk_read_ops: u64,
+    pub disk_cache_hits: u64,
+    /// Bytes held by the read cache.
+    pub read_cache_bytes: u64,
 }
 
 bit_flags! {

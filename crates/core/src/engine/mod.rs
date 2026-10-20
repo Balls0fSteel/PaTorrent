@@ -400,6 +400,12 @@ impl Engine {
             disk_tx,
             wake.clone(),
         );
+        disk.set_read_cache(
+            settings.use_read_cache,
+            settings.cache_size,
+            settings.read_cache_line_size,
+            settings.cache_expiry,
+        );
         let (res_tx, resolve_rx) = mpsc::channel();
         let network = listen::NetworkState::new(wake.clone());
         let resolver = Resolver::new(res_tx, wake);
@@ -1356,6 +1362,7 @@ impl Engine {
         self.upload_bucket.set_limit(s.upload_rate_limit);
         self.utp.set_settings(UtpSettings::from(&s));
         self.disk.set_file_pool_size(s.file_pool_size as usize);
+        self.disk.set_read_cache(s.use_read_cache, s.cache_size, s.read_cache_line_size, s.cache_expiry);
         self.trackers.set_options(&s.user_agent, s.tracker_completion_timeout);
         if let Some(t) = self.dht.tracker.as_mut() {
             t.set_settings(crate::dht::DhtSettings::from(&s));
@@ -3407,6 +3414,7 @@ impl Engine {
     }
 
     fn post_session_stats(&mut self) {
+        let disk = self.disk.counters();
         let mut st = SessionStats {
             num_peers_connected: self.peers.iter().filter(|(_, p)| p.state == PeerState::Active).count()
                 as u32,
@@ -3425,6 +3433,10 @@ impl Engine {
             utp_packet_loss: self.utp.counters().packet_loss,
             utp_timeouts: self.utp.counters().timeout,
             utp_resends: self.utp.counters().packet_resend,
+            disk_blocks_read: disk.blocks_read,
+            disk_read_ops: disk.read_ops,
+            disk_cache_hits: disk.cache_hits,
+            read_cache_bytes: disk.cache_bytes,
             ..SessionStats::default()
         };
         for s in &self.slots {

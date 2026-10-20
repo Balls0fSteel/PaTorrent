@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-20_105225_1792486345
+Last updated: 2026-10-21_000115_1792533675
 
 ## Vision
 
@@ -356,6 +356,12 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 
 ## Known TODOs
 
+- Read cache (CHANGELOG 2026-10-21_000115_1792533675):
+  - the Preferences > Disk Cache page (Win32 and the Web UI) still says PaTorrent has no read/write cache, in all 35 tables, and has none of µTorrent's cache controls. Wanted: "Enable caching of disk reads" (`use_read_cache`), "Override automatic cache size" (`cache_size`), "Remove old blocks from the cache" (`cache_expiry`), a corrected note, and the 34 translations redone. Until then the settings are on the Advanced page.
+  - whole-piece lines read faster on the test hard disk (1 MiB pieces: 71 against 65 MB/s idle, 29.5 against 26 MB/s under load), but 32 blocks (libtorrent 1.2's default) bounds a line for 4–16 MiB pieces; an adaptive line (whole piece up to a size) could take both.
+  - measured on Windows only (USB hard disk, NTFS). On Linux, run `lt-swarm seed-disk --dir <hdd> --load 2` too, and see whether `posix_fadvise(RANDOM)` on read handles helps: kernel read-ahead overlaps our line reads, and Btrfs / ZFS read ahead up to 4 MiB (libtorrent issue 9004).
+  - not done: keeping a piece in the cache when it has just been written and verified (arvid's idea in libtorrent issue 9004, for peers asking for a piece we just announced; the OS cache holds those blocks anyway); reads for smart-ban go through the cache too (harmless: the re-download's writes clear the line before its second read).
+  - Windows' cache manager already merges a peer's sequential 16 KiB reads (the idle run made 3,300 one-block reads a second on a hard disk); the gain without competing I/O was 19 %. Under load from another program it was 19 times.
 - Localisation (CHANGELOG 2026-10-20_153513_1792503313):
   - not translated, on purpose: the engine's error and alert texts (as libtorrent's, English in qBittorrent too), OS error texts (already in the OS language), protocol values, nox's command line and console, the qBittorrent-compatible API and nox's native API errors (`webui/commands.rs`; the page shows them in the status bar as `endpoint: message`), the `#gate` panel. The Advanced page lists libtorrent's setting names.
   - numbers and dates keep one format (`45.3 %`, `1.50 kB`, `2026-10-15 16:47:12`): decimal separators and date order per language are not done; the unit names (B, kB, MB, kB/s) and the short durations (5m 3s) are in the table.

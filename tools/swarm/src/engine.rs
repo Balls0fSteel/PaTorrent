@@ -17,14 +17,14 @@ use patorrent_core::{
     TorrentState,
 };
 
-fn temp_dir(name: &str) -> PathBuf {
+pub(crate) fn temp_dir(name: &str) -> PathBuf {
     let d = std::env::temp_dir().join(format!("lt-swarm-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).expect("temp dir");
     d
 }
 
-fn settings() -> Settings {
+pub(crate) fn settings() -> Settings {
     // A queue large enough that bulk adds lose no alerts.
     Settings {
         listen_interfaces: "127.0.0.1:0".into(),
@@ -38,7 +38,11 @@ fn settings() -> Settings {
 }
 
 /// Pops alerts until `f` returns `Some`, or `None` after `limit`.
-fn wait<T>(h: &SessionHandle, limit: Duration, mut f: impl FnMut(&Alert) -> Option<T>) -> Option<T> {
+pub(crate) fn wait<T>(
+    h: &SessionHandle,
+    limit: Duration,
+    mut f: impl FnMut(&Alert) -> Option<T>,
+) -> Option<T> {
     let deadline = Instant::now() + limit;
     let mut alerts = Vec::new();
     let mut next_update = Instant::now();

@@ -10,13 +10,16 @@
 // reaches them. File priority changes (libtorrent `set_file_priority`, a fence job) are a
 // barrier: every thread parks the storage's later jobs until the last one has run the change.
 // Renames (libtorrent `rename_file`, a fence job) are barriers too, and keep the renamed layout
-// beside the shared `TorrentInfo` as `posix_storage::m_mapped_files` does.
+// beside the shared `TorrentInfo` as `posix_storage::m_mapped_files` does. Reads for peers go
+// through each thread's read cache (`read_cache`, after libtorrent 1.2), which writes, fences
+// and barriers of the storage clear.
 
 //! Disk I/O: a thread pool doing file reads, writes, piece hashing and file checking for the
 //! network thread.
 
 pub(crate) mod file_pool;
 pub(crate) mod part_file;
+pub(crate) mod read_cache;
 
 use std::collections::HashMap;
 use std::io;
@@ -24,6 +27,7 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard, OnceLock, RwLock, mpsc};
 use std::thread::JoinHandle;
+use std::time::{Duration, Instant};
 
 use crate::alert::FileOperation;
 use crate::crypto::{Sha1, Sha256};
@@ -36,6 +40,7 @@ use crate::types::Sha256Hash;
 use crate::util::bitfield::Bitfield;
 use file_pool::{FilePool, read_at, write_at};
 use part_file::{PartFile, PartFiles};
+use read_cache::ReadCache;
 
 /// The BitTorrent block size (libtorrent `default_block_size`).
 pub(crate) const BLOCK_SIZE: u32 = 16 * 1024;
@@ -351,8 +356,43 @@ pub(crate) struct DiskIo {
     pool: Arc<FilePool>,
     part_files: Arc<PartFiles>,
     queued_write_bytes: Arc<AtomicU64>,
+    read_cache: Arc<read_cache::Limits>,
+    stats: Arc<DiskStats>,
     next_storage_id: u64,
     next_barrier: u64,
+}
+
+/// Counters of reads for peers (libtorrent `disk.num_blocks_read`, `disk.num_read_ops`,
+/// `disk.num_blocks_cache_hits`), and the read cache's size per thread.
+struct DiskStats {
+    blocks_read: AtomicU64,
+    read_ops: AtomicU64,
+    cache_hits: AtomicU64,
+    cache_bytes: Vec<AtomicUsize>,
+}
+
+impl DiskStats {
+    fn new(threads: usize) -> DiskStats {
+        DiskStats {
+            blocks_read: AtomicU64::new(0),
+            read_ops: AtomicU64::new(0),
+            cache_hits: AtomicU64::new(0),
+            cache_bytes: (0..threads).map(|_| AtomicUsize::new(0)).collect(),
+        }
+    }
+}
+
+/// A snapshot of the disk counters, see [`DiskIo::counters`].
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub(crate) struct DiskCounters {
+    /// Requests from peers read, from the cache or the files.
+    pub blocks_read: u64,
+    /// File reads made for them (a read cache line counts once).
+    pub read_ops: u64,
+    /// Requests answered from the read cache.
+    pub cache_hits: u64,
+    /// Bytes in the read cache.
+    pub cache_bytes: u64,
 }
 
 struct Ctx {
@@ -360,6 +400,8 @@ struct Ctx {
     done: mpsc::Sender<Completion>,
     wake: Arc<dyn Fn() + Send + Sync>,
     queued_write_bytes: Arc<AtomicU64>,
+    read_cache: Arc<read_cache::Limits>,
+    stats: Arc<DiskStats>,
     /// Every thread's queue, for [`Job::Unblock`].
     queues: Arc<OnceLock<Vec<mpsc::Sender<Job>>>>,
     /// Index of this thread in `queues`.
@@ -386,11 +428,16 @@ impl DiskIo {
         let pool = Arc::new(FilePool::new(file_pool_size));
         let queued_write_bytes = Arc::new(AtomicU64::new(0));
         let queues = Arc::new(OnceLock::new());
+        let n = threads.clamp(1, 64);
+        let read_cache = Arc::new(read_cache::Limits::default());
+        let stats = Arc::new(DiskStats::new(n + 1));
         let ctx = |index| Ctx {
             pool: pool.clone(),
             done: done.clone(),
             wake: wake.clone(),
             queued_write_bytes: queued_write_bytes.clone(),
+            read_cache: read_cache.clone(),
+            stats: stats.clone(),
             queues: queues.clone(),
             index,
         };
@@ -402,7 +449,6 @@ impl DiskIo {
                 .spawn(move || disk_thread(rx, ctx))
                 .expect("failed to spawn a disk thread")
         };
-        let n = threads.clamp(1, 64);
         for i in 0..n {
             let (tx, rx) = mpsc::channel();
             handles.push(spawn(format!("lt-disk-{i}"), rx, ctx(i)));
@@ -418,6 +464,8 @@ impl DiskIo {
             pool,
             part_files: Arc::new(PartFiles::default()),
             queued_write_bytes,
+            read_cache,
+            stats,
             next_storage_id: 1,
             next_barrier: 1,
         }
@@ -438,6 +486,27 @@ impl DiskIo {
 
     pub fn set_file_pool_size(&self, n: usize) {
         self.pool.set_limit(n);
+    }
+
+    /// Sizes the read cache (libtorrent 1.2 `use_read_cache`, `cache_size` and
+    /// `read_cache_line_size` in 16 KiB blocks, `cache_expiry` in seconds). `cache_blocks` is
+    /// shared by the I/O threads; a negative one is the default, 2048 (32 MiB). Off when
+    /// `enabled` is false or a thread's share is less than one line.
+    pub fn set_read_cache(&self, enabled: bool, cache_blocks: i32, line_blocks: i32, expiry_secs: u32) {
+        let blocks = if cache_blocks < 0 { 2048 } else { cache_blocks as usize };
+        let per_thread = if enabled { blocks * BLOCK_SIZE as usize / self.threads.len() } else { 0 };
+        let line = (line_blocks.max(0) as u32).saturating_mul(BLOCK_SIZE);
+        self.read_cache.set(per_thread, line, Duration::from_secs(expiry_secs.into()));
+    }
+
+    pub fn counters(&self) -> DiskCounters {
+        let s = &self.stats;
+        DiskCounters {
+            blocks_read: s.blocks_read.load(Ordering::Relaxed),
+            read_ops: s.read_ops.load(Ordering::Relaxed),
+            cache_hits: s.cache_hits.load(Ordering::Relaxed),
+            cache_bytes: s.cache_bytes.iter().map(|b| b.load(Ordering::Relaxed) as u64).sum(),
+        }
     }
 
     fn thread_for(&self, piece: u32) -> &mpsc::Sender<Job> {
@@ -622,15 +691,33 @@ struct Worker {
     blocked: HashMap<u64, u64>,
     /// Their jobs, in arrival order.
     parked: Vec<Job>,
+    cache: ReadCache,
 }
 
 fn disk_thread(rx: mpsc::Receiver<Job>, ctx: Ctx) {
     let mut w = Worker::default();
-    while let Ok(job) = rx.recv() {
-        if matches!(job, Job::Shutdown) {
-            break;
+    loop {
+        // Wake up for the read cache's expiry while it holds lines.
+        let expiry = ctx.read_cache.expiry();
+        let job = match w.cache.next_check(expiry) {
+            Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                Ok(job) => Some(job),
+                Err(mpsc::RecvTimeoutError::Timeout) => None,
+                Err(mpsc::RecvTimeoutError::Disconnected) => break,
+            },
+            None => match rx.recv() {
+                Ok(job) => Some(job),
+                Err(_) => break,
+            },
+        };
+        match job {
+            Some(Job::Shutdown) => break,
+            Some(job) => w.handle(job, &ctx),
+            None => w.cache.expire(Instant::now(), expiry),
         }
-        w.handle(job, &ctx);
+        if let Some(b) = ctx.stats.cache_bytes.get(ctx.index) {
+            b.store(w.cache.bytes(), Ordering::Relaxed);
+        }
     }
 }
 
@@ -644,6 +731,7 @@ impl Worker {
         let cached_bytes = &mut self.cached_bytes;
         match job {
             Job::Write { storage, piece, offset, data } => {
+                self.cache.drop_piece(storage.id, piece);
                 let length = data.len() as u32;
                 let result = write_block(&storage, ctx, partial, cached_bytes, piece, offset, data);
                 ctx.queued_write_bytes.fetch_sub(length as u64, Ordering::Relaxed);
@@ -683,7 +771,7 @@ impl Worker {
                 }
             }
             Job::Read { storage, piece, offset, length, cookie } => {
-                let result = read_block(&storage, &ctx.pool, piece, offset, length);
+                let result = read_for_peer(&mut self.cache, &storage, ctx, piece, offset, length);
                 ctx.send(Completion::Read { storage: storage.id, cookie, piece, offset, result });
             }
             Job::Check { storage, mode } => {
@@ -694,6 +782,7 @@ impl Worker {
             }
             Job::Fence { storage, fence } => {
                 let id = storage.id;
+                self.cache.drop_storage(id);
                 let keys: Vec<_> = partial.keys().filter(|k| k.0 == id).copied().collect();
                 for (_, piece) in keys {
                     drop_partial(partial, cached_bytes, id, piece);
@@ -713,6 +802,8 @@ impl Worker {
                 }
             }
             Job::Barrier { storage, barrier } => {
+                // A move, rename or priority change may put the storage's blocks elsewhere.
+                self.cache.drop_storage(storage.id);
                 if barrier.remaining.fetch_sub(1, Ordering::AcqRel) != 1 {
                     self.blocked.insert(storage.id, barrier.seq);
                     return;
@@ -870,6 +961,49 @@ fn advance_hash(
     }
     let state = partial.remove(&(storage.id, piece)).expect("present");
     Ok(Some(state.hasher.verdict(&storage.info, piece, false)))
+}
+
+/// Reads a block a peer asked for: from the read cache, else the cache line holding it, read
+/// with one call and kept, else (cache off, or the line could not be read) just the block.
+fn read_for_peer(
+    cache: &mut ReadCache,
+    storage: &Storage,
+    ctx: &Ctx,
+    piece: u32,
+    offset: u32,
+    length: u32,
+) -> Result<Vec<u8>, Error> {
+    let stats = &ctx.stats;
+    stats.blocks_read.fetch_add(1, Ordering::Relaxed);
+    let Some((limit, line)) = ctx.read_cache.get() else {
+        cache.trim(0);
+        stats.read_ops.fetch_add(1, Ordering::Relaxed);
+        return read_block(storage, &ctx.pool, piece, offset, length);
+    };
+    cache.trim(limit);
+    let piece_size = storage.info.piece_size(piece);
+    let start = offset / line * line;
+    let end = start.saturating_add(line).min(piece_size);
+    if offset.saturating_add(length) > end || length == 0 {
+        stats.read_ops.fetch_add(1, Ordering::Relaxed);
+        return read_block(storage, &ctx.pool, piece, offset, length);
+    }
+    let key = (storage.id, piece, start);
+    let now = Instant::now();
+    if let Some(data) = cache.read(key, offset, length, now) {
+        stats.cache_hits.fetch_add(1, Ordering::Relaxed);
+        return Ok(data);
+    }
+    stats.read_ops.fetch_add(1, Ordering::Relaxed);
+    let mut buf = vec![0u8; (end - start) as usize];
+    if read_into(storage, &ctx.pool, piece, start, &mut buf).is_err() {
+        stats.read_ops.fetch_add(1, Ordering::Relaxed);
+        return read_block(storage, &ctx.pool, piece, offset, length);
+    }
+    let at = (offset - start) as usize;
+    let out = buf[at..at + length as usize].to_vec();
+    cache.insert(key, buf, offset, limit, now);
+    Ok(out)
 }
 
 /// Reads `length` bytes of `piece` at `offset`. Pad files read as zeros.
@@ -1457,6 +1591,78 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn reads_for_peers_go_through_the_read_cache() {
+        // 3 pieces of 32 KiB, piece 1 across the boundary of files "one" and "two"
+        let r = rig("read_cache", &[("one", 40_000), ("two", 40_000)], 32 * 1024);
+        let all = torrent_bytes(&r.contents);
+        let block = |p: usize, b: usize| all[p * 32768 + b * 16384..][..16384].to_vec();
+        for p in 0..2u32 {
+            r.disk.async_write(&r.storage, p, 0, block(p as usize, 0));
+            r.disk.async_write(&r.storage, p, BLOCK_SIZE, block(p as usize, 1));
+        }
+        let mut hashed = 0;
+        while hashed < 2 {
+            if let Completion::Hashed { verdict, .. } = next(&r.rx) {
+                assert_eq!(verdict, HashVerdict::Passed);
+                hashed += 1;
+            }
+        }
+        let read = |piece: u32, offset: u32| {
+            r.disk.async_read(&r.storage, piece, offset, BLOCK_SIZE, 1);
+            loop {
+                if let Completion::Read { result, .. } = next(&r.rx) {
+                    break result.unwrap();
+                }
+            }
+        };
+        let counters = |blocks_read, read_ops, cache_hits| DiskCounters {
+            blocks_read,
+            read_ops,
+            cache_hits,
+            cache_bytes: r.disk.counters().cache_bytes,
+        };
+
+        // Lines of two blocks: the whole piece is read at the first request.
+        r.disk.set_read_cache(true, 2048, 2, 300);
+        assert_eq!(read(1, BLOCK_SIZE), block(1, 1));
+        assert_eq!(read(1, 0), block(1, 0));
+        assert_eq!(read(0, 0), block(0, 0));
+        assert_eq!(r.disk.counters(), counters(3, 2, 1));
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while r.disk.counters().cache_bytes != 2 * 32768 {
+            assert!(Instant::now() < deadline, "the threads report their lines");
+            std::thread::sleep(Duration::from_millis(1));
+        }
+
+        // A write to the piece clears its line: the next read sees the new data.
+        let mut changed = block(1, 0);
+        changed[100] ^= 0xff;
+        r.disk.async_write(&r.storage, 1, 0, changed.clone());
+        assert!(matches!(next(&r.rx), Completion::Write { error: None, .. }));
+        assert_eq!(read(1, 0), changed);
+        assert_eq!(r.disk.counters(), counters(4, 3, 1));
+        assert_eq!(read(1, BLOCK_SIZE), block(1, 1));
+        assert_eq!(r.disk.counters(), counters(5, 3, 2));
+
+        // A fence clears the storage's lines.
+        r.disk.async_fence(&r.storage, FenceAction::Release);
+        loop {
+            if let Completion::Fenced { .. } = next(&r.rx) {
+                break;
+            }
+        }
+        assert_eq!(read(0, BLOCK_SIZE), block(0, 1));
+        assert_eq!(r.disk.counters(), counters(6, 4, 2));
+
+        // Off: every request is a read of its own.
+        r.disk.set_read_cache(false, 2048, 2, 300);
+        assert_eq!(read(0, 0), block(0, 0));
+        assert_eq!(read(0, 0), block(0, 0));
+        assert_eq!(r.disk.counters(), counters(8, 6, 2));
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
     fn write_hash_read_check_and_delete() {
         // 3 pieces of 32 KiB over three files, the last piece short.
         let r = rig("disk", &[("a/one", 20_000), ("two", 40_000), ("a/b/three", 15_000)], 32 * 1024);
@@ -1794,6 +2000,8 @@ pub(crate) mod tests {
             done: tx,
             wake: Arc::new(|| {}),
             queued_write_bytes: Arc::new(AtomicU64::new(0)),
+            read_cache: Arc::default(),
+            stats: Arc::new(DiskStats::new(1)),
             queues: Arc::new(OnceLock::new()),
             index: 0,
         };

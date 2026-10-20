@@ -8,12 +8,15 @@
 //!   throughput and CPU time per byte.
 //! * `load`: the real engine's cold start with N saved torrents (`--keep DIR` leaves the state there).
 //! * `interop`: the real engine downloading from qBittorrent, Transmission and Deluge.
+//! * `seed-disk`: the real engine seeding to several downloaders from a cold disk, with the read
+//!   cache off and on: upload rate and disk reads per request.
 //!
 //! Output is `key=value` lines (machine readable, used by CI) followed by a human summary.
 
 mod corpus;
 mod engine;
 mod interop;
+mod seed_disk;
 
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
@@ -32,6 +35,9 @@ USAGE:
     lt-swarm interop [--clients qbittorrent,transmission,deluge] [--mb N]
                      [--encryption forced|enabled|disabled] [--version v1|hybrid|v2]
                      [--qbittorrent PATH] [--wsl-distro NAME] [--keep]
+    lt-swarm seed-disk [--dir DIR] [--mb N] [--piece-kib N] [--peers N] [--seconds N]
+                       [--cache off|on|both] [--line-blocks N] [--cache-mb N]
+                       [--load THREADS] [--keep]
 ";
 
 fn main() -> ExitCode {
@@ -129,6 +135,39 @@ fn main() -> ExitCode {
                 }
             }
             interop::run(&opts)
+        }
+        Some("seed-disk") => {
+            let mut opts = seed_disk::Options::default();
+            let mut it = args[1..].iter();
+            while let Some(a) = it.next() {
+                if a == "--keep" {
+                    opts.keep = true;
+                    continue;
+                }
+                let Some(v) = it.next() else { return usage(&format!("{a} needs a value")) };
+                let num = |v: &str| v.parse::<u64>().ok().filter(|&n| n > 0);
+                match (a.as_str(), num(v)) {
+                    ("--dir", _) => opts.dir = Some(v.into()),
+                    ("--mb", Some(n)) => opts.mb = n,
+                    ("--piece-kib", Some(n)) if n >= 16 && n.is_power_of_two() => opts.piece_kib = n,
+                    ("--peers", Some(n)) => opts.peers = n as usize,
+                    ("--seconds", Some(n)) => opts.seconds = n,
+                    ("--line-blocks", Some(n)) => opts.line_blocks = Some(n.min(1 << 16) as i32),
+                    ("--cache-mb", Some(n)) => opts.cache_blocks = Some((n.min(1 << 16) * 64) as i32),
+                    ("--load", _) if v == "0" => opts.load = 0,
+                    ("--load", Some(n)) => opts.load = n as usize,
+                    ("--cache", _) => {
+                        opts.cache = match v.as_str() {
+                            "off" => vec![false],
+                            "on" => vec![true],
+                            "both" => vec![false, true],
+                            _ => return usage("--cache: expected off, on or both"),
+                        }
+                    }
+                    _ => return usage(&format!("bad option {a} {v}")),
+                }
+            }
+            seed_disk::run(&opts)
         }
         Some("parse") => match args.get(1) {
             Some(dir) => corpus::parse(std::path::Path::new(dir), rss_bytes),

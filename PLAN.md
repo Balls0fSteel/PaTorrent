@@ -402,7 +402,6 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
   - labels are the remote window's own (in its folder), not nox's categories; the Web UI shows categories.
   - reconnecting means closing the window and connecting again; no automatic reconnect, no stored password (Windows' DPAPI could keep one).
   - Preferences shows the server's engine settings and Apply sends them through nox's Preferences path; the GUI-only pages (Directories, .torrent folders) are this window's. The Web UI page of Preferences stays a placeholder.
-- Flaky test (found 2026-10-20_120037_1792490437; not caused by that day's changes): `utp::tests::a_path_that_drops_big_packets_without_fragmenting_kills_the_connection` fails about once in 40 to 300 runs at `assert!(s.mtu() > 1000, "the probe that failed: {}")` with an MTU of 980: the socket sometimes times out after its MTU dropped below the path's limit, which the test does not expect. Randomness-dependent (the simulation's sequence numbers come from the thread RNG).
 - Web UI follow-ups (CHANGELOG 2026-10-17_164324_1792248204):
   - ~~`torrents/add` takes `http://` links only~~: https works through `patorrent_core::fetch` (2026-10-19_091815_1792394295); it does not pass the session's proxy yet (`FetchProxy::from_settings`). HTTPS for the Web UI itself: done (2026-10-20_120037_1792490437).
   - state strings are the documentation's `pausedDL` / `pausedUP`; qBittorrent 5.x sends `stoppedDL` / `stoppedUP`. Switch if a client turns out to care (one constant per state in `webui/torrent.rs`).

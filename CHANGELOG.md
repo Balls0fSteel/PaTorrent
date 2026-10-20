@@ -52,6 +52,19 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 ### Changed
 - The retired Ubuntu VM is back as the build and interop machine; the Xubuntu VM, where the owner works in Android Studio, keeps the desktop for GTK screenshots. Both have libgtk-4-dev 4.22.4 now (Phase 7 unblocked).
 
+## 2026-10-20_131431_1792494871: uTP reorder buffers across the sequence-number wrap
+
+### Fixed
+- **uTP packets past the sequence-number wrap** (`utp/packet_buffer.rs`, ported as is from libtorrent 2.0.11, which has the same code): `at`, `remove` and `insert` compared a sequence number with the buffer's start as plain integers, so once the numbers wrapped past 0xffff a number beyond the buffer's capacity found the slot of a packet held from before the wrap. A receiver with a hole just before the wrap dropped every later packet past its reorder buffer's capacity as a duplicate of a held one, and the sender had to send them all again: in the new test one loss there cost a timeout and 212 resends, against one fast resend now. The distance from the buffer's start is now taken modulo 0x10000 (`in_range`), and `insert` also grows the buffer for an index that wrapped while the buffer had not (libtorrent would overwrite a held packet there). docs/PORTING.md lists the difference.
+- That was the flaky `utp::tests::a_path_that_drops_big_packets_without_fragmenting_kills_the_connection` (PLAN.md Known TODOs), not a wrong test assumption. Its MTU search runs while the receiver holds everything behind the lost first probe (1010 bytes); probes of 778 to 994 bytes get through and the search ends on a lost 1001-byte one. When the random initial sequence number put the search across the wrap (about one run in 40 to 300), the probe sent past it (951 or 980 bytes) was dropped as a duplicate and never acknowledged, so the connection timed out with that probe as its MTU.
+
+### Added
+- Tests: `packet_buffer::tests::an_index_one_lap_past_a_held_one_is_empty` and `a_jump_across_the_wrap_grows_the_buffer`; `utp::tests::packets_past_the_sequence_number_wrap_wait_behind_a_hole` (a hole at 0xfff0 with a full window behind it: only the lost packet is sent again, no timeout) and `a_black_hole_kills_the_connection_the_same_way_across_the_sequence_number_wrap` (the black-hole test with every connection starting at 0xffc0). All four failed before the fix, every run. Tests pin a connection's initial sequence number with `Sim::connect_at` (a test-only `socket::NEXT_SEQ_NR`); the black-hole test's body is the shared `black_hole(seq)`.
+
+### Verified
+- Before the fix the flaky test failed at run 98, 579 and 83 of three loops (MTU 980, 980, 951); after it, `utp::tests::a_path_that_drops_big_packets_without_fragmenting_kills_the_connection` passed 3000 runs in a row on Windows (the test binary run in a loop).
+- Windows: `cargo test --workspace --no-fail-fast` 1060 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings` and `cargo +stable fmt --all --check` clean. No let-chains (MSRV 1.85).
+
 ## 2026-10-20_122917_1792492157: The Win32 GUI's remote mode
 
 ### Added

@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use super::header::{self, Header};
+use super::socket::NEXT_SEQ_NR;
 use super::{ReadOutcome, SendOutcome, SockId, State, UtpError, UtpIo, UtpManager, UtpSettings};
 
 const A: &str = "10.0.0.1:6881";
@@ -155,6 +156,12 @@ impl Sim {
         let ready = self.a.take_ready();
         assert!(ready.contains(&(sa, 7)), "{ready:?}");
         (sa, sb)
+    }
+
+    /// `connect`, A's SYN carrying sequence number `seq` (its first data packet is `seq + 1`).
+    fn connect_at(&mut self, seq: u16) -> (SockId, SockId) {
+        NEXT_SEQ_NR.with(|s| s.set(Some(seq)));
+        self.connect()
     }
 
     fn write(&mut self, who: SocketAddr, id: SockId, data: &[u8]) -> usize {
@@ -568,23 +575,30 @@ fn an_oversized_mtu_probe_lowers_the_ceiling() {
 
 #[test]
 fn a_path_that_drops_big_packets_without_fragmenting_kills_the_connection() {
-    // A black hole: a router that silently drops anything over 1000 bytes, DF bit or not, and
-    // sends no ICMP. The first probe (1010 bytes) is lost; it cannot be re-packetized, so its
-    // resends are lost too and the connection times out, as libtorrent's does. The manager
-    // remembers the size that failed; once three connections failed that way (the restriction
-    // is the largest of the last three), new connections start from a lower ceiling.
+    black_hole(None);
+}
+
+#[test]
+fn a_black_hole_kills_the_connection_the_same_way_across_the_sequence_number_wrap() {
+    // the MTU search runs while the receiver holds everything behind the lost first probe;
+    // from 0xffc0 the probes from 980 bytes on are sent past the wrap
+    black_hole(Some(0xffc0));
+}
+
+/// A black hole: a router that silently drops anything over 1000 bytes, DF bit or not, and
+/// sends no ICMP. The first probe (1010 bytes) is lost; it cannot be re-packetized, so its
+/// resends are lost too and the connection times out, as libtorrent's does. Meanwhile the
+/// search goes on with the packets behind it (778 to 994 bytes get through) and ends on a lost
+/// 1001-byte probe. The manager remembers the size that failed; once three connections failed
+/// that way (the restriction is the largest of the last three), new connections start from a
+/// lower ceiling. `seq` pins each connection's initial sequence number.
+fn black_hole(seq: Option<u16>) {
     let mut sim = Sim::new();
-    let sb_first = {
-        let (_, sb) = sim.connect();
-        sb
-    };
     let mut restricted = Vec::new();
     for attempt in 0..3 {
-        let (sa, sb) = if attempt == 0 {
-            let sa = sim.a.take_ready().first().map(|r| r.0).unwrap_or(0);
-            (sa, sb_first)
-        } else {
-            sim.connect()
+        let (sa, sb) = match seq {
+            Some(seq) => sim.connect_at(seq),
+            None => sim.connect(),
         };
         let data = payload(400_000);
         let mut sent = 0;
@@ -618,6 +632,44 @@ fn a_path_that_drops_big_packets_without_fragmenting_kills_the_connection() {
     assert!(restricted[2] <= 1472 && restricted[2] > 1000, "{restricted:?}");
     assert!(sim.a.mtu_for_dest(&addr(B).ip()) < 1472);
     assert!(sim.a.counters().packet_resend >= 2);
+}
+
+#[test]
+fn packets_past_the_sequence_number_wrap_wait_behind_a_hole() {
+    // One packet lost just before the sequence numbers wrap, with a full window behind it: the
+    // receiver's reorder buffer holds everything after the hole until the resend fills it.
+    // libtorrent's packet buffer compares raw sequence numbers, so a packet past the wrap and
+    // past the buffer's capacity found the slot of one held from before the wrap, was dropped
+    // as a duplicate and had to be sent again.
+    let mut sim = Sim::new();
+    let (sa, sb) = sim.connect_at(0xfe00);
+    let data = payload(1 << 20);
+    let (mut sent, mut got, mut lost) = (0, Vec::new(), false);
+    for _ in 0..10_000 {
+        if sent < data.len() {
+            sent += sim.write(addr(A), sa, &data[sent..]);
+        }
+        if !lost {
+            let hole = sim.net.queue.iter().position(|(from, _, d)| {
+                *from == addr(A)
+                    && Header::parse(d).is_some_and(|h| h.type_ == header::ST_DATA && h.seq_nr == 0xfff0)
+            });
+            if let Some(i) = hole {
+                sim.net.queue.remove(i);
+                lost = true;
+            }
+        }
+        sim.step();
+        sim.read_all(addr(B), sb, &mut got);
+        if got.len() == data.len() {
+            break;
+        }
+    }
+    assert!(lost, "never sent 0xfff0");
+    assert_eq!(got.len(), data.len());
+    assert!(got == data);
+    let c = sim.a.counters();
+    assert_eq!((c.packet_resend, c.timeout), (1, 0), "only the lost packet is sent again: {c:?}");
 }
 
 #[test]

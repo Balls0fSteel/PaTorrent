@@ -2,6 +2,27 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_102248_1792484568: v2 magnets; piece layers fetched from peers
+
+### Added
+- **v2 magnets** (`xt=urn:btmh:1220…`, BEP 52 / BEP 9): accepted like v1 magnets (the add path refused them). The metadata from peers is checked against the SHA-256 info-hash (`ut_metadata::verify` did this already); a magnet that learns its other hash from the metadata (a `btih` magnet of a hybrid learns the v2 hash, a `btmh` magnet the v1 hash) answers to both from then on and, when its store key (the v1 hash when there is one) changes, is re-keyed in the store, so it is found again after a restart.
+- **Piece layers from peers**: a v2-only torrent whose metadata lacks piece layers (a v2 magnet after its metadata, or a `.torrent` without them, refused until now) asks its v2 peers for them before it checks its files, shown as downloading metadata (`engine::v2::LayerFetch`: the files' merkle trees and the hash picker). Requests follow libtorrent's `maybe_send_hash_request`: up to two outstanding per v2 peer, picked by `HashPicker::pick_hashes` from the spans of 512 piece hashes the peer has a piece in, sent after the handshake, on `have`, `have all` and `bitfield`, after each reply and on the tick (for the 3-second retry); a reject frees the span for another peer (`hashes_rejected`) and pokes every v2 peer. Hashes go through `HashPicker::add_hashes` into the trees, which prove them against the file roots; hashes that do not prove out end the connection. Once every layer is in, the metadata gets them (`TorrentInfo::set_piece_layers`), the store keeps them (`<key>.layers`) and the torrent checks its files and downloads as any v2 torrent does. `PeerConn::hash_requests` (libtorrent `m_hash_requests`).
+- A duplicate add finds a torrent by any of its hashes (a hybrid added while its `btmh` magnet runs, and the other way round).
+
+### Changed
+- The engine counts a torrent fetching its piece layers as active, so pausing stops it and resuming starts it over.
+
+### Decisions
+- The piece layers are fetched before the check instead of verifying blocks as hashes arrive (libtorrent starts downloading at once): the disk thread keeps verifying v2 pieces against complete piece layers, and a piece layer is at most 1/512 of the block hashes, so the wait is short. docs/PORTING.md updated. The hash picker's block-hash parts (`set_block_hash`, failed pieces' block requests) stay ported and tested but unused.
+
+### Verified
+- New loopback tests in `tests/v2.rs`: a v2-only `.torrent` stripped of its piece layers fetches them from a seed and downloads; a v2 magnet fetches the metadata, then the piece layers, then the data, and after a restart without the seed passes a forced recheck with the stored layers; a `btmh` magnet of a hybrid learns its v1 hash (its status has both) and is restored under the v1 key after a restart.
+- Windows: `cargo test --workspace` 1018 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`; Linux-target clippy for the workspace and FreeBSD-target clippy for `patorrent-core`; `cargo +stable fmt --all --check`.
+
+### Issues
+- A v2-only torrent with no v2 peer waits in "downloading metadata" for good, as a magnet without peers does.
+- Hybrids are still announced under their v1 hash only (trackers, DHT, LSD); peers that know only the v2 hash find us through peers that announce both (libtorrent clients do).
+
 ## 2026-10-20_101643_1792484203: Create New Torrent picks the BitTorrent version; hybrid by default
 
 ### Added

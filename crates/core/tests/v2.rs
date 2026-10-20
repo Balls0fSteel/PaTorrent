@@ -296,24 +296,142 @@ fn with_info(torrent: &[u8], info: Vec<u8>) -> Vec<u8> {
     t.bencode()
 }
 
+/// A seed for `torrent` with the files in a new directory; returns the session, its directory
+/// and its listen port.
+fn seed(name: &str, torrent: &[u8], files: &[(String, Vec<u8>)]) -> (Session, PathBuf, u16) {
+    let dir = temp_dir(name);
+    write_files(files, &dir);
+    let s = start(None);
+    let mut w = Watch::new(s.handle());
+    let port = listen_port(&mut w);
+    let id = add(&mut w, torrent, &dir).unwrap();
+    wait_state(&mut w, id, TorrentState::Seeding, 20);
+    (s, dir, port)
+}
+
+/// Adds `source` to a leech with `state` (or none), connects it to the seed on `port`, and
+/// waits for the download to finish.
+fn leech(
+    name: &str,
+    source: TorrentSource,
+    port: u16,
+    state: Option<PathBuf>,
+) -> (Session, PathBuf, TorrentId) {
+    let dir = temp_dir(name);
+    let s = start(state);
+    let mut w = Watch::new(s.handle());
+    let mut p = AddTorrentParams::new(source, dir.to_string_lossy());
+    p.flags = TorrentFlags::empty();
+    w.h.add_torrent(p);
+    let id = wait(&mut w, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        Alert::AddTorrentFailed { error, .. } => panic!("add failed: {error}"),
+        _ => None,
+    });
+    s.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+    assert_eq!(st.total_failed_bytes, 0, "{name}: no piece failed its check");
+    (s, dir, id)
+}
+
+/// A v2-only `.torrent` without its piece layers asks the seed for them (hash requests answered
+/// from the seed's piece layers), then downloads as usual.
 #[test]
-fn a_v2_only_torrent_without_piece_layers_is_refused() {
+fn a_v2_only_torrent_without_piece_layers_fetches_them_from_a_seed() {
     let files = files(5);
-    let dir = temp_dir("no-layers");
-    write_files(&files, &dir);
-    let torrent = make_torrent(&dir, CreateFlags::V2_ONLY);
+    let src = temp_dir("no-layers-src");
+    write_files(&files, &src);
+    let torrent = make_torrent(&src, CreateFlags::V2_ONLY);
     let doc = bdecode(&torrent).unwrap();
     let mut t = Entry::from_node(doc.root().unwrap());
     t.dict_mut().remove(b"piece layers".as_slice());
     let stripped = t.bencode();
     assert!(!TorrentInfo::from_bytes(&stripped).unwrap().v2_piece_layers_complete());
 
-    let s = start(None);
-    let mut w = Watch::new(s.handle());
-    let error = add(&mut w, &stripped, &dir).unwrap_err();
-    assert_eq!(error, "one or more files are missing piece layer hashes");
+    let (seeder, seed_dir, port) = seed("no-layers-seed", &torrent, &files);
+    let (s, dir, _) = leech("no-layers-leech", TorrentSource::TorrentFile(stripped), port, None);
     s.shutdown();
-    let _ = std::fs::remove_dir_all(dir);
+    seeder.shutdown();
+    assert_files(&files, &dir);
+    for d in [src, seed_dir, dir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+/// A v2 magnet (`btmh` only): the metadata is checked against the SHA-256 info-hash, the piece
+/// layers come from the seed, the download follows, and the store keeps the layers so a
+/// restarted session passes a recheck.
+#[test]
+fn a_v2_magnet_fetches_metadata_and_piece_layers_then_downloads() {
+    let files = files(7);
+    let src = temp_dir("magnet-src");
+    write_files(&files, &src);
+    let torrent = make_torrent(&src, CreateFlags::V2_ONLY);
+    let ti = TorrentInfo::from_bytes(&torrent).unwrap();
+    let v2 = ti.info_hashes().v2.unwrap();
+    let magnet = format!("magnet:?xt=urn:btmh:1220{}&dn=v2-test", v2.to_hex());
+
+    let (seeder, seed_dir, port) = seed("magnet-seed", &torrent, &files);
+    let state = temp_dir("magnet-state");
+    let (s, dir, _) = leech("magnet-leech", TorrentSource::Magnet(magnet), port, Some(state.clone()));
+    s.shutdown();
+    seeder.shutdown();
+    assert_files(&files, &dir);
+
+    // restart from the store, without the seed: the recheck needs the stored piece layers
+    let s = start(Some(state.clone()));
+    let mut w = Watch::new(s.handle());
+    let id = wait(&mut w, 5, "restore", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    wait_state(&mut w, id, TorrentState::Seeding, 20);
+    s.handle().torrent(id).force_recheck();
+    let st = wait(&mut w, 30, "recheck", |a| {
+        status_of(a, id)
+            .filter(|s| s.state == TorrentState::Seeding && s.error.is_empty() && s.num_pieces > 0)
+    });
+    assert_eq!(st.num_pieces, ti.num_pieces());
+    s.shutdown();
+    for d in [src, seed_dir, dir, state] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+/// A `btmh`-only magnet of a hybrid learns the v1 hash from the metadata (and is stored under
+/// it from then on, so it is found again after a restart); the v1 hashes verify the pieces.
+#[test]
+fn a_v2_magnet_of_a_hybrid_learns_its_v1_hash() {
+    let files = files(8);
+    let src = temp_dir("hybrid-magnet-src");
+    write_files(&files, &src);
+    let torrent = make_torrent(&src, CreateFlags::empty());
+    let ti = TorrentInfo::from_bytes(&torrent).unwrap();
+    let magnet = format!("magnet:?xt=urn:btmh:1220{}", ti.info_hashes().v2.unwrap().to_hex());
+
+    let (seeder, seed_dir, port) = seed("hybrid-magnet-seed", &torrent, &files);
+    let state = temp_dir("hybrid-magnet-state");
+    let (s, dir, id) = leech("hybrid-magnet-leech", TorrentSource::Magnet(magnet), port, Some(state.clone()));
+    let mut w = Watch::new(s.handle());
+    let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
+    assert_eq!(st.info_hashes, ti.info_hashes(), "the v1 hash is known now");
+    s.shutdown();
+    seeder.shutdown();
+    assert_files(&files, &dir);
+
+    let s = start(Some(state.clone()));
+    let mut w = Watch::new(s.handle());
+    let id = wait(&mut w, 5, "restore", |a| match a {
+        Alert::TorrentAdded { id, info_hashes, .. } => Some((*id, *info_hashes)),
+        _ => None,
+    });
+    assert_eq!(id.1, ti.info_hashes());
+    wait_state(&mut w, id.0, TorrentState::Seeding, 20);
+    s.shutdown();
+    for d in [src, seed_dir, dir, state] {
+        let _ = std::fs::remove_dir_all(d);
+    }
 }
 
 /// A scripted peer on a raw TCP connection.

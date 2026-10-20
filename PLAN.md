@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-20_101643_1792484203
+Last updated: 2026-10-20_102248_1792484568
 
 ## Vision
 
@@ -273,8 +273,8 @@ BEP 52 is in 1.0 (D19, 2026-10-19_230101_1792443661); BEP 44 / 51 / 55 after it 
   - [x] merkle trees (`metainfo::merkle`, `merkle_tree`), the hash picker (`engine::hash_picker`), v2 / hybrid creation, with `test_merkle`, `test_merkle_tree`, `test_hash_picker` and `test_create_torrent` ported (2026-10-20_095400_1792482840)
   - [x] the engine's v2 path (2026-10-20_101114_1792483874): the disk thread verifies v2 pieces against the piece layers (merkle root of the block hashes), hybrids against both hashes ("inconsistent hashes" stops the torrent); v2-only `.torrent`s with complete piece layers are accepted; the piece layers are kept in the metadata store (`<key>.layers`). Deliberately not libtorrent's block-hash trees (docs/PORTING.md)
   - [x] peer wire (2026-10-20_101114_1792483874): the v2 reserved bit and libtorrent's v1-to-v2 upgrade on hybrids, both hashes indexed (plain and encrypted handshakes), hash request / hashes / hash reject; hash requests answered from the piece layers with proofs (block-hash requests rejected)
-  - [ ] asking peers for hashes: missing piece layers (v2 magnets, v2 `.torrent`s without layers) through the hash picker, then handing the completed layers to the disk thread and the store; PEX `lt_v2` and peers found under the v2 hash marked as v2
-  - [ ] hybrids announced under both hashes (trackers, DHT, LSD); v2 magnets (`btmh`) fetching v2 metadata (SHA-256 of the info dictionary) then the piece layers
+  - [x] asking peers for the piece layers (v2 magnets, v2 `.torrent`s without layers) through the hash picker before the check; v2 magnets (`btmh`), a magnet learning its other hash and re-keyed in the store (2026-10-20_102248_1792484568)
+  - [ ] hybrids announced under both hashes (trackers with per-version state as libtorrent's `announce_endpoint::info_hashes[2]`, DHT, LSD); PEX `lt_v2` and peers found under the v2 hash marked as v2
   - [x] the Create New Torrent dialog's version choice (Hybrid default) and `patorrent-nox create` defaulting to hybrid (2026-10-20_101643_1792484203)
   - [ ] interop: a v2-only and a hybrid swarm with qBittorrent (libtorrent 2.0)
 - [ ] BEP44 DHT items (ed25519), BEP51 sample_infohashes, BEP55 holepunch
@@ -299,7 +299,7 @@ Phase 2 closing items, done 2026-10-15: OpenSSL TLS backend linked and tested on
 Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_1792443661 (D19–D22). In rough order; the GTK and v2 work can run beside the rest.
 
 **Platform and protocol (D19):**
-1. Phase 8, BEP 52: v2 and hybrid torrents end to end. Merkle trees and the hash picker, v2 piece layers in resume data, v2 magnets (`btmh`), creating v2 / hybrid torrents (`set_hash2`, piece layers, file tree), truncated v2 hashes for LSD / DHT. Port the rest of `test_torrent_info`, `test_create_torrent`, `test_merkle_tree`, `test_hash_picker`. In progress: the merkle trees, the hash picker and creation (2026-10-20_095400_1792482840); v2-only and hybrid `.torrent`s download, seed and serve their piece layers (2026-10-20_101114_1792483874). Left: hash requests to peers and v2 magnets, dual announces for hybrids, the Create dialog's version choice, interop (Phase 8 lists them).
+1. Phase 8, BEP 52: v2 and hybrid torrents end to end. Merkle trees and the hash picker, v2 piece layers in resume data, v2 magnets (`btmh`), creating v2 / hybrid torrents (`set_hash2`, piece layers, file tree), truncated v2 hashes for LSD / DHT. Port the rest of `test_torrent_info`, `test_create_torrent`, `test_merkle_tree`, `test_hash_picker`. In progress: the merkle trees, the hash picker and creation (2026-10-20_095400_1792482840); v2-only and hybrid `.torrent`s download, seed and serve their piece layers (2026-10-20_101114_1792483874); the Create dialog's version choice (2026-10-20_101643_1792484203); v2 magnets and piece layers from peers (2026-10-20_102248_1792484568). Left: dual announces for hybrids, interop with qBittorrent (Phase 8 lists them).
 2. Phase 7: the GTK 4 GUI on `patorrent_frontend` (the models are toolkit-independent already), virtualised `ColumnView`, StatusNotifierItem tray, XDG autostart and `xdg-mime` associations.
 3. Phase 6: HTTPS for the Web UI (a server side for the TLS layer: SChannel and OpenSSL, certificate and key from the user, optional self-signed one generated on request) and the GUIs' remote mode (either GUI driving a nox over the native API).
 4. Localisation (D20): string tables in `patorrent_frontend`, every frontend's strings moved to them, the language choice on Preferences > General (Win32, GTK, the Web UI), then the translated tables.

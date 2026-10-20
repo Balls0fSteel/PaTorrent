@@ -168,15 +168,7 @@ impl Engine {
     /// The info dictionary arrived and matches the info-hash (libtorrent `torrent::set_metadata`
     /// and `peer_connection::on_metadata_impl`).
     fn got_metadata(&mut self, id: TorrentId, info: Vec<u8>) {
-        let parsed = TorrentInfo::from_info_section(&info, LoadLimits::default())
-            .map_err(Error::from)
-            .and_then(|ti| {
-                if ti.v2() && !ti.v1() {
-                    Err(Error::Unsupported("v2-only torrents (PLAN.md Phase 8)"))
-                } else {
-                    Ok(ti)
-                }
-            });
+        let parsed = TorrentInfo::from_info_section(&info, LoadLimits::default()).map_err(Error::from);
         let ti = match parsed {
             Ok(ti) => ti,
             Err(error) => {
@@ -196,10 +188,17 @@ impl Engine {
         };
         let Some(t) = self.torrent(id) else { return };
         t.fetch = None;
-        let learned_v2 = ti.info_hashes().v1 == t.info_hashes.v1 && ti.info_hashes() != t.info_hashes;
-        if learned_v2 {
-            // A hybrid torrent's v2 hash is known now: peers may use it too.
-            t.info_hashes = ti.info_hashes();
+        // A hybrid's other hash is known now (a v1 magnet learns the v2 hash, a v2 one the v1
+        // hash): peers may use it too.
+        let (known, full) = (t.info_hashes, ti.info_hashes());
+        let learned = known != full
+            && known.v1.is_none_or(|h| Some(h) == full.v1)
+            && known.v2.is_none_or(|h| Some(h) == full.v2);
+        let old_key = t.key.clone();
+        if learned {
+            t.info_hashes = full;
+            // the store's key is the v1 hash when there is one
+            t.key = full.key_hex();
         }
         if !t.user_named {
             t.name = ti.name().to_owned();
@@ -214,9 +213,12 @@ impl Engine {
         }
         t.resume_dirty = true;
         t.status_dirty = true;
-        if learned_v2 {
+        if learned {
             let hashes = t.info_hashes;
             self.index_hashes(id, &hashes);
+            if let Some(store) = self.store.as_mut().filter(|_| full.key_hex() != old_key) {
+                store.remove(&old_key);
+            }
         }
         let Some(t) = self.torrent(id) else { return };
         let n = t.num_pieces;

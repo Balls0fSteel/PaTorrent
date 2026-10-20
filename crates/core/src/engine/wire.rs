@@ -307,10 +307,20 @@ impl Engine {
         }
         t.status_dirty = true;
         self.to_flush.push(slot);
+        self.maybe_send_hash_request(slot);
         true
     }
 
     fn on_message(&mut self, slot: usize, m: Owned) {
+        // libtorrent asks a v2 peer for hashes once its piece set is known or grows
+        let poke = matches!(m, Owned::Have(_) | Owned::HaveAll | Owned::Bitfield(_));
+        self.handle_message(slot, m);
+        if poke {
+            self.maybe_send_hash_request(slot);
+        }
+    }
+
+    fn handle_message(&mut self, slot: usize, m: Owned) {
         match m {
             Owned::KeepAlive | Owned::Ignored => {}
             Owned::HashRequest(m) => self.on_hash_request(slot, m),

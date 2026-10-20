@@ -24,7 +24,8 @@ mod pe;
 pub(crate) mod peer;
 pub(crate) mod peer_list;
 mod pex;
-// The picker itself is not used until v2 magnets fetch their piece layers from peers.
+// `set_block_hash`, the block-hash requests of failed pieces and their helpers are ported with
+// their tests but unused: v2 blocks are verified on the disk thread (docs/PORTING.md).
 #[allow(dead_code)]
 pub(crate) mod hash_picker;
 pub(crate) mod picker;
@@ -55,7 +56,7 @@ use crate::disk::{
     BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction, HashVerdict, MoveError, MoveStatus,
 };
 use crate::error::Error;
-use crate::metainfo::{LoadLimits, MagnetUri, MetainfoError, TorrentInfo, WebSeedKind, parse_magnet_uri};
+use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, WebSeedKind, parse_magnet_uri};
 use crate::net::ip_voter::{ExternalIp, SessionVoter, source};
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::{Bucket, sys};
@@ -1460,18 +1461,9 @@ impl Engine {
             }
             TorrentSource::Magnet(_) | TorrentSource::InfoHash(_) => return self.add_magnet(p),
         };
-        // A v2-only torrent is verified against its piece layers, which a magnet or a
-        // `.torrent` without them does not have; fetching them from peers comes with v2
-        // magnets.
-        if ti.v2() && !ti.v1() && !ti.v2_piece_layers_complete() {
-            return fail(
-                self,
-                ti.name().to_owned(),
-                Error::Metainfo(MetainfoError::TorrentMissingPieceLayer),
-            );
-        }
+
         let info_hashes = ti.info_hashes();
-        if let Some(&existing) = self.by_hash.get(&info_hashes.best_v1_compatible()) {
+        if let Some(&existing) = info_hashes.wire_hashes().find_map(|h| self.by_hash.get(&h)) {
             if p.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR) {
                 return fail(self, ti.name().to_owned(), Error::DuplicateTorrent);
             }
@@ -1582,11 +1574,7 @@ impl Engine {
         } else {
             info_hashes.key_hex()
         };
-        if !info_hashes.has_v1() {
-            let error = Error::Unsupported("v2-only torrents (PLAN.md Phase 8)");
-            return self.alert(Alert::AddTorrentFailed { name, error });
-        }
-        if let Some(&existing) = self.by_hash.get(&info_hashes.best_v1_compatible()) {
+        if let Some(&existing) = info_hashes.wire_hashes().find_map(|h| self.by_hash.get(&h)) {
             if p.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR) {
                 return self.alert(Alert::AddTorrentFailed { name, error: Error::DuplicateTorrent });
             }
@@ -2053,6 +2041,13 @@ impl Engine {
         }
         let t = self.torrent(id).expect("exists");
         let ti = t.ti.clone().expect("loaded");
+        // a v2-only torrent is verified against its piece layers: fetch them first
+        if ti.v2() && !ti.v1() && !ti.v2_piece_layers_complete() {
+            if t.layer_fetch.is_none() {
+                self.start_layer_fetch(id);
+            }
+            return;
+        }
         let save_path = t.save_path.clone();
         let peer_slots = t.peers.clone();
         let file_priority = t.file_priority.clone();
@@ -2144,6 +2139,7 @@ impl Engine {
             tr.reset();
         }
         t.fetch = None;
+        t.layer_fetch = None;
         if let Some(storage) = t.storage.take() {
             self.disk.async_fence(&storage, FenceAction::Release);
         }
@@ -2870,6 +2866,7 @@ impl Engine {
                         self.snub(slot);
                     }
                     self.metadata_tick(slot, now);
+                    self.maybe_send_hash_request(slot);
                     self.superseed_tick(slot, now);
                     if !checking {
                         if interest_dirty {

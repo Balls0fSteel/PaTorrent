@@ -8,8 +8,12 @@
 
 //! BitTorrent v2 (BEP 52) handling in the engine.
 
+use std::sync::Arc;
+use std::time::Instant;
+
 use super::Engine;
-use super::hash_picker::{HashRequest, validate_hash_request};
+use super::hash_picker::{HashPicker, HashRequest, validate_hash_request};
+use super::peer::PeerState;
 use crate::alert::Alert;
 use crate::error::Error;
 use crate::metainfo::merkle_tree::MerkleTree;
@@ -17,6 +21,47 @@ use crate::metainfo::{MetainfoError, TorrentInfo};
 use crate::proto::peer_wire::{self, HashMsg, msg};
 use crate::types::{Sha256Hash, TorrentId};
 use crate::util::bitfield::Bitfield;
+
+/// The piece layers of a v2 torrent being fetched from v2 peers (libtorrent's hash picker on a
+/// torrent without piece layers): the files' trees, filled in as hashes arrive with their
+/// proofs, and the picker deciding what to ask for.
+pub(crate) struct LayerFetch {
+    pub trees: Vec<MerkleTree>,
+    pub picker: HashPicker,
+}
+
+impl LayerFetch {
+    pub fn new(ti: &TorrentInfo) -> LayerFetch {
+        let trees = build_trees(ti);
+        let picker = HashPicker::new(ti.orig_files(), &trees);
+        LayerFetch { trees, picker }
+    }
+
+    /// Every file of more than one piece has its whole piece layer.
+    pub fn complete(&self, ti: &TorrentInfo) -> bool {
+        let fs = ti.orig_files();
+        (0..fs.num_files()).all(|f| {
+            fs.pad_file_at(f) || fs.file_size(f) <= fs.piece_length() as u64 || {
+                let layer = self.trees[f].get_piece_layer();
+                layer.len() == fs.file_num_pieces(f) as usize && !layer.iter().any(Sha256Hash::is_zero)
+            }
+        })
+    }
+
+    /// The layers as a bencoded "piece layers" dictionary, as in a `.torrent`.
+    pub fn bencoded(&self, ti: &TorrentInfo) -> Vec<u8> {
+        let fs = ti.orig_files();
+        let mut layers = crate::bencode::Entry::new_dict();
+        for f in 0..fs.num_files() {
+            if fs.pad_file_at(f) || fs.file_size(f) <= fs.piece_length() as u64 {
+                continue;
+            }
+            let bytes: Vec<u8> = self.trees[f].get_piece_layer().iter().flat_map(|h| h.0).collect();
+            *layers.key(fs.root_bytes(f)) = crate::bencode::Entry::Bytes(bytes);
+        }
+        layers.bencode()
+    }
+}
 
 /// One merkle tree per file holding what the metadata knows: the root and the piece layer
 /// (libtorrent `initialize_merkle_trees`). Pad and empty files get an empty tree.
@@ -78,16 +123,18 @@ impl Engine {
         self.to_flush.push(slot);
     }
 
-    /// libtorrent `on_hashes`: hashes we did not ask for (we only run v2 torrents whose piece
-    /// layers are known, and ask for nothing yet) are checked against the request they claim to
-    /// answer and dropped; a malformed reply ends the connection.
+    /// libtorrent `on_hashes`: the reply to one of our requests (or unsolicited hashes, which
+    /// libtorrent takes too) goes into the trees while the piece layers are being fetched, and
+    /// is dropped otherwise. Hashes that do not prove out, or a malformed reply, end the
+    /// connection.
     pub(super) fn on_hashes(&mut self, slot: usize, m: HashMsg, hashes: &[u8]) {
         let Some((p, t)) = self.peer_and_torrent(slot) else { return };
         if !p.protocol_v2 {
             p.close("hashes on a v1 connection", true);
             return;
         }
-        let Some(ti) = t.and_then(|t| t.ti.as_ref()) else { return };
+        let Some(t) = t else { return };
+        let Some(ti) = t.ti.as_ref() else { return };
         let fs = ti.orig_files();
         let file = fs.file_index_for_root(&m.root).unwrap_or(usize::MAX);
         let req = HashRequest::new(file, m.base, m.index, m.count, m.proof_layers);
@@ -95,15 +142,124 @@ impl Engine {
             || hashes.len() != (m.count as usize + req.num_proof_hashes()) * 32
         {
             p.close("invalid hashes", true);
+            return;
+        }
+        p.hash_requests.retain(|r| *r != req);
+        let Some(lf) = t.layer_fetch.as_mut() else { return };
+        let hashes: Vec<Sha256Hash> =
+            hashes.chunks_exact(32).map(|h| Sha256Hash(h.try_into().expect("32 bytes"))).collect();
+        if !lf.picker.add_hashes(fs, &mut lf.trees, &req, &hashes).valid {
+            p.close("hashes that do not prove out", true);
+            return;
+        }
+        let id = t.id;
+        if lf.complete(ti) {
+            self.finish_layer_fetch(id);
+        } else {
+            self.maybe_send_hash_request(slot);
         }
     }
 
-    /// libtorrent `on_hash_reject`: nothing was asked for, so there is nothing to retry.
-    pub(super) fn on_hash_reject(&mut self, slot: usize, _m: HashMsg) {
-        let Some(p) = self.peers.get_mut(slot) else { return };
+    /// libtorrent `on_hash_reject` and `torrent::hashes_rejected`: the request is asked of
+    /// someone else, so every v2 peer gets a chance to send one.
+    pub(super) fn on_hash_reject(&mut self, slot: usize, m: HashMsg) {
+        let Some((p, t)) = self.peer_and_torrent(slot) else { return };
         if !p.protocol_v2 {
             p.close("hash reject on a v1 connection", true);
+            return;
         }
+        let Some(t) = t else { return };
+        let Some(ti) = t.ti.as_ref() else { return };
+        let file = ti.orig_files().file_index_for_root(&m.root).unwrap_or(usize::MAX);
+        let req = HashRequest::new(file, m.base, m.index, m.count, m.proof_layers);
+        let before = p.hash_requests.len();
+        p.hash_requests.retain(|r| *r != req);
+        if p.hash_requests.len() == before {
+            return;
+        }
+        let Some(lf) = t.layer_fetch.as_mut() else { return };
+        lf.picker.hashes_rejected(&req);
+        for peer in t.peers.clone() {
+            self.maybe_send_hash_request(peer);
+        }
+    }
+
+    /// libtorrent `maybe_send_hash_request`: a v2 peer with fewer than two requests out gets the
+    /// next one the hash picker chooses for the pieces it has.
+    pub(super) fn maybe_send_hash_request(&mut self, slot: usize) {
+        let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
+        if p.state != PeerState::Active || p.closing.is_some() || !p.protocol_v2 || p.hash_requests.len() > 1
+        {
+            return;
+        }
+        let (Some(ti), Some(lf)) = (t.ti.as_ref(), t.layer_fetch.as_mut()) else { return };
+        let fs = ti.orig_files();
+        let pieces =
+            if p.peer_seed { Bitfield::new(fs.num_pieces() as usize, true) } else { p.peer_has.clone() };
+        if pieces.len() != fs.num_pieces() as usize {
+            return;
+        }
+        let Some(req) = lf.picker.pick_hashes(fs, &lf.trees, &pieces, Instant::now()) else { return };
+        let m = HashMsg {
+            root: fs.root(req.file),
+            base: req.base,
+            index: req.index,
+            count: req.count,
+            proof_layers: req.proof_layers,
+        };
+        peer_wire::encode_hash_msg(p.out(), msg::HASH_REQUEST, &m);
+        p.hash_requests.push(req);
+        self.to_flush.push(slot);
+    }
+
+    /// A v2 torrent whose metadata lacks piece layers (a v2 magnet, or a `.torrent` without
+    /// them) asks its v2 peers for them before it checks its files, reported as downloading
+    /// metadata meanwhile.
+    pub(super) fn start_layer_fetch(&mut self, id: TorrentId) {
+        let Some(t) = self.torrent(id) else { return };
+        let Some(ti) = t.ti.clone() else { return };
+        t.layer_fetch = Some(LayerFetch::new(&ti));
+        t.started_at = Some(Instant::now());
+        t.status_dirty = true;
+        let peers = t.peers.clone();
+        self.alert(Alert::Log { id: Some(id), message: "fetching the v2 piece layers from peers".into() });
+        self.set_state(id, crate::status::TorrentState::DownloadingMetadata);
+        for slot in peers {
+            self.maybe_send_hash_request(slot);
+        }
+        self.connect_peers_for(id, 10);
+        self.prioritize_dht(id);
+        self.lsd_announce(id, Instant::now());
+    }
+
+    /// Every piece layer arrived and proved out against the file roots: the metadata gets
+    /// them, the store keeps them, and the torrent starts as any v2 torrent does.
+    fn finish_layer_fetch(&mut self, id: TorrentId) {
+        let Some(t) = self.torrent(id) else { return };
+        let (Some(ti), Some(lf)) = (t.ti.clone(), t.layer_fetch.take()) else { return };
+        let layers = lf.bencoded(&ti);
+        let mut full = (*ti).clone();
+        if let Err(e) = full.set_piece_layers(&layers) {
+            // the trees validated every hash, so this would be a bug
+            self.alert(Alert::Log { id: Some(id), message: format!("piece layers: {e}") });
+            return;
+        }
+        t.set_metadata(Arc::new(full));
+        t.resume_dirty = true;
+        for slot in t.peers.clone() {
+            if let Some(p) = self.peers.get_mut(slot) {
+                p.hash_requests.clear();
+            }
+        }
+        let key = self.torrent_ref(id).map(|t| t.key.clone()).unwrap_or_default();
+        if let Some(store) = self.store.as_mut() {
+            if let Err(e) = store.put_piece_layers(&key, &layers) {
+                self.out
+                    .push(Alert::Log { id: Some(id), message: format!("cannot save the piece layers: {e}") });
+            }
+        }
+        self.alert(Alert::Log { id: Some(id), message: "v2 piece layers complete".into() });
+        self.start_torrent(id);
     }
 
     /// libtorrent `handle_inconsistent_hashes`: a hybrid piece passed only one of its v1 and v2

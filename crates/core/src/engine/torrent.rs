@@ -42,6 +42,9 @@ pub(crate) struct Torrent {
     /// v2: one merkle tree per file with the root and piece layer, built from `ti` when a peer
     /// first asks for hashes; dropped with `ti`.
     pub merkle_trees: Option<Vec<MerkleTree>>,
+    /// v2: the piece layers being fetched from peers, for a v2 torrent whose metadata came
+    /// without them (a magnet); the torrent starts once they are complete.
+    pub layer_fetch: Option<super::v2::LayerFetch>,
     pub total_size: u64,
     pub num_pieces: u32,
     pub piece_length: u32,
@@ -130,6 +133,7 @@ impl Torrent {
             save_path,
             ti: None,
             merkle_trees: None,
+            layer_fetch: None,
             total_size: 0,
             num_pieces: 0,
             piece_length: 0,
@@ -271,7 +275,7 @@ impl Torrent {
 
     /// Started: checking or transferring, or fetching metadata.
     pub fn is_active(&self) -> bool {
-        self.storage.is_some() || self.fetch.is_some()
+        self.storage.is_some() || self.fetch.is_some() || self.layer_fetch.is_some()
     }
 
     pub fn is_paused(&self) -> bool {

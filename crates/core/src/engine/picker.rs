@@ -52,8 +52,12 @@ impl Downloading {
 }
 
 pub(crate) struct PiecePicker {
+    block_size: u32,
     blocks_per_piece: u32,
     last_piece_blocks: u32,
+    /// Blocks at the end of a piece that lie wholly in pad files (libtorrent
+    /// `m_pads_in_piece` / block size): never requested, finished as soon as the piece starts.
+    pad_blocks: HashMap<u32, u32>,
     have: Bitfield,
     /// Peers (other than seeds) that have each piece.
     availability: Vec<u16>,
@@ -72,8 +76,10 @@ impl PiecePicker {
     pub fn new(num_pieces: u32, piece_length: u32, last_piece_size: u32, block_size: u32) -> PiecePicker {
         let n = num_pieces as usize;
         PiecePicker {
+            block_size,
             blocks_per_piece: piece_length.div_ceil(block_size),
             last_piece_blocks: last_piece_size.div_ceil(block_size),
+            pad_blocks: HashMap::new(),
             have: Bitfield::new(n, false),
             availability: vec![0; n],
             seeds: 0,
@@ -96,6 +102,30 @@ impl PiecePicker {
 
     pub fn have(&self) -> &Bitfield {
         &self.have
+    }
+
+    /// libtorrent `set_pad_bytes`: the last `bytes` of `piece` are pad bytes; the blocks wholly
+    /// inside them are not downloaded (a block holding data and padding is).
+    pub fn set_pad_bytes(&mut self, piece: u32, bytes: u32) {
+        let n = (bytes / self.block_size).min(self.blocks_in_piece(piece));
+        if n > 0 {
+            self.pad_blocks.insert(piece, n);
+        }
+    }
+
+    /// The blocks of `piece` that hold data (libtorrent's `payload_blocks`).
+    fn payload_blocks(&self, piece: u32) -> usize {
+        (self.blocks_in_piece(piece) - self.pad_blocks.get(&piece).copied().unwrap_or(0)) as usize
+    }
+
+    /// A piece starting to download: its pad blocks are finished already (libtorrent
+    /// `add_download_piece`).
+    fn new_download(&self, piece: u32) -> Downloading {
+        let mut d = Downloading::new(self.blocks_in_piece(piece) as usize);
+        for s in d.blocks.iter_mut().skip(self.payload_blocks(piece)) {
+            *s = BlockState::Finished;
+        }
+        d
     }
 
     pub fn have_piece(&self, piece: u32) -> bool {
@@ -289,8 +319,8 @@ impl PiecePicker {
             if !self.wants(piece) || self.downloading.contains_key(&piece) || !has(piece) {
                 continue;
             }
-            let n = self.blocks_in_piece(piece);
-            self.downloading.insert(piece, Downloading::new(n as usize));
+            let d = self.new_download(piece);
+            self.downloading.insert(piece, d);
             self.take_free_blocks(piece, num_blocks, peer, &mut out);
         }
         if !out.is_empty() || on_parole {
@@ -398,8 +428,8 @@ impl PiecePicker {
     }
 
     fn take_new_piece(&mut self, piece: u32, peer: SocketAddr, out: &mut Vec<(u32, u32)>) {
-        let n = self.blocks_in_piece(piece);
-        self.downloading.insert(piece, Downloading::new(n as usize));
+        let d = self.new_download(piece);
+        self.downloading.insert(piece, d);
         self.take_free_blocks(piece, usize::MAX, peer, out);
     }
 
@@ -461,7 +491,12 @@ impl PiecePicker {
     }
 
     fn drop_if_untouched(&mut self, piece: u32) {
-        if self.downloading.get(&piece).is_some_and(|d| d.blocks.iter().all(|&b| b == BlockState::Free)) {
+        let payload = self.payload_blocks(piece);
+        if self
+            .downloading
+            .get(&piece)
+            .is_some_and(|d| d.blocks[..payload].iter().all(|&b| b == BlockState::Free))
+        {
             self.downloading.remove(&piece);
         }
     }
@@ -472,8 +507,11 @@ impl PiecePicker {
         if self.have_piece(piece) {
             return false;
         }
-        let n = self.blocks_in_piece(piece);
-        let d = self.downloading.entry(piece).or_insert_with(|| Downloading::new(n as usize));
+        if !self.downloading.contains_key(&piece) {
+            let d = self.new_download(piece);
+            self.downloading.insert(piece, d);
+        }
+        let d = self.downloading.get_mut(&piece).expect("inserted");
         match d.blocks.get_mut(block as usize) {
             Some(s @ (BlockState::Free | BlockState::Requested(_))) => {
                 *s = BlockState::Writing;
@@ -540,7 +578,7 @@ impl PiecePicker {
         let mut out: Vec<(u32, Bitfield)> = self
             .downloading
             .iter()
-            .filter(|(_, d)| d.blocks.contains(&BlockState::Finished))
+            .filter(|(p, d)| d.blocks[..self.payload_blocks(**p)].contains(&BlockState::Finished))
             .map(|(&p, d)| {
                 let mut bits = Bitfield::new(self.blocks_per_piece as usize, false);
                 for (b, &s) in d.blocks.iter().enumerate() {
@@ -562,10 +600,14 @@ impl PiecePicker {
         }
         let n = self.blocks_in_piece(piece) as usize;
         let mask: Vec<bool> = (0..n).map(|b| b < blocks.len() && blocks.get(b)).collect();
-        if !mask.contains(&true) {
+        if !mask[..self.payload_blocks(piece)].contains(&true) {
             return None;
         }
-        let d = self.downloading.entry(piece).or_insert_with(|| Downloading::new(n));
+        if !self.downloading.contains_key(&piece) {
+            let d = self.new_download(piece);
+            self.downloading.insert(piece, d);
+        }
+        let d = self.downloading.get_mut(&piece).expect("inserted");
         for (s, &done) in d.blocks.iter_mut().zip(&mask) {
             if done {
                 *s = BlockState::Finished;
@@ -662,6 +704,31 @@ mod tests {
         let picked = p.pick_contiguous(&bits("00110110"), false, 2, 8, C, false, |_, _| false);
         assert_eq!(picked.len(), 2);
         assert!(matches!(p.block_state(picked[0].0, picked[0].1), BlockState::Requested(2)));
+    }
+
+    /// libtorrent's pad blocks: the blocks wholly in pad bytes are finished when the piece
+    /// starts and never requested; a block holding data and padding is.
+    #[test]
+    fn pad_blocks_are_never_requested() {
+        let mut p = PiecePicker::new(2, 4 * B, 4 * B, B);
+        // the last 1.5 blocks of piece 0 are padding: one block is skipped
+        p.set_pad_bytes(0, B + B / 2);
+        p.set_pad_bytes(1, 100);
+        let mut picked = p.pick(&bits("11"), false, 16, A, false, |_, _| false);
+        // equally rare pieces come in random order
+        picked.sort_unstable();
+        assert_eq!(picked, [(0, 0), (0, 1), (0, 2), (1, 0), (1, 1), (1, 2), (1, 3)]);
+        assert_eq!(p.block_state(0, 3), BlockState::Finished);
+        // only pad blocks finished: nothing to resume, and an aborted piece is dropped again
+        assert!(p.unfinished_pieces().is_empty());
+        for b in 0..3 {
+            p.abort_download(0, b);
+        }
+        assert!(p.partial_pieces(|_| 4 * B).iter().all(|pp| pp.piece != 0));
+        // a restored piece keeps its pad block finished
+        assert!(p.restore_partial(0, &bits("1000")).is_some());
+        assert_eq!(p.block_state(0, 3), BlockState::Finished);
+        assert_eq!(p.unfinished_pieces().len(), 1);
     }
 
     #[test]

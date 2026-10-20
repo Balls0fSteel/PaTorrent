@@ -597,10 +597,16 @@ struct PartialHash {
 
 impl PartialHash {
     fn new(info: &TorrentInfo, piece: u32, num_blocks: u32) -> PartialHash {
+        // blocks wholly in pad files are never downloaded (the piece picker finishes them at
+        // once); they hash as the zeros they read as
+        let pad_blocks = info.files().pad_bytes_in_piece(piece) / BLOCK_SIZE;
+        let payload = num_blocks.saturating_sub(pad_blocks) as usize;
+        let mut received = vec![false; num_blocks as usize];
+        received[payload..].fill(true);
         PartialHash {
             hasher: PieceHasher::new(info, piece),
             cursor: 0,
-            received: vec![false; num_blocks as usize],
+            received,
             cached: HashMap::new(),
             restored: vec![false; num_blocks as usize],
         }

@@ -179,6 +179,12 @@ fn seed_and_download(name: &str, torrent: &[u8], files: &[(String, Vec<u8>)], se
     let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
     assert_eq!(st.total_wanted_done, st.total_wanted, "{name}");
     assert_eq!(st.total_failed_bytes, 0, "{name}: no piece failed its check");
+    // blocks wholly in pad files are not downloaded (libtorrent's pad blocks)
+    let ti = TorrentInfo::from_bytes(torrent).unwrap();
+    let pad_blocks: u64 =
+        ti.files().pad_bytes_per_piece().iter().map(|&(_, b)| (b / 0x4000 * 0x4000) as u64).sum();
+    assert!(pad_blocks > 0, "{name}: the layout has pad blocks");
+    assert_eq!(st.total_payload_download, st.total - pad_blocks, "{name}: payload without the pad blocks");
     leech.shutdown();
     seed.shutdown();
     assert_files(files, &dir);

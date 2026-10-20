@@ -2,6 +2,20 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_103641_1792485401: Pad blocks are not downloaded
+
+### Fixed
+- Blocks that lie wholly in pad files (BEP 47) were requested from peers like data; for a hybrid or v2 torrent, which pads every file to a piece boundary, that could be up to a piece of zeros per file. As libtorrent does (`apply_pad_files`, `piece_picker::set_pad_bytes`), the picker now marks a piece's pad blocks finished when the piece starts and never requests them (a block holding data and padding still is), and the disk thread treats them as received and hashes the zeros they read as.
+- `FileStorage::pad_bytes_per_piece` (libtorrent `aux::apply_pad_files`: only pad files that end on a piece boundary or end the torrent count, from their end backwards over every piece they span) and `pad_bytes_in_piece`. `PiecePicker::set_pad_bytes`; pieces whose only finished blocks are pad blocks are left out of resume data's `unfinished` and are dropped when their requests are aborted.
+
+### Verified
+- New tests: `file_storage::tests::pad_bytes_per_piece` (a pad spanning four pieces, an unaligned one treated as a file, the last file counting), `picker::tests::pad_blocks_are_never_requested` (the requested blocks, the finished pad block, `unfinished`, an aborted piece, a restored one); the v2 / hybrid loopback download now asserts its payload is the torrent minus the pad blocks, exactly.
+- `lt-swarm interop --clients qbittorrent --mb 20 --version hybrid`: payload 20,987,904 bytes (the files plus one block of data and padding), down from 21,495,808; no failed or redundant bytes.
+- Windows: `cargo test --workspace` 1020 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`; Linux-target clippy; `cargo +stable fmt --all --check`.
+
+### Issues
+- The first run of the new picker test assumed piece order; rarest-first breaks ties at random, so it now sorts the picked blocks.
+
 ## 2026-10-20_103025_1792485025: `lt-swarm interop --version`; the installed qBittorrent is a libtorrent 1.2 build
 
 ### Added

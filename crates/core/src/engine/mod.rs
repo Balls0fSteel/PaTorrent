@@ -2059,6 +2059,10 @@ impl Engine {
             ti.piece_size(ti.num_pieces().saturating_sub(1)),
             BLOCK_SIZE,
         );
+        // libtorrent `torrent::init`: pad blocks are not downloaded
+        for (piece, bytes) in ti.files().pad_bytes_per_piece() {
+            picker.set_pad_bytes(piece, bytes);
+        }
         // Peers that stayed connected while the metadata was fetched count toward availability.
         for slot in peer_slots {
             let Some(p) = self.peers.get(slot).filter(|p| p.state == PeerState::Active) else { continue };

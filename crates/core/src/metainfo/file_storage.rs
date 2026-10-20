@@ -641,6 +641,62 @@ impl FileStorage {
         PeerRequest { piece: (off / pl) as u32, start: (off % pl) as u32, length }
     }
 
+    /// The pad bytes in each piece that overlaps a pad file, as `(piece, bytes)` (libtorrent
+    /// `aux::apply_pad_files`). Only pad files that end on a piece boundary (or end the torrent)
+    /// count, so a piece's pad bytes are always its last ones; a pad file may span several
+    /// pieces. Pad files that do not align are treated as normal files, as in libtorrent.
+    pub fn pad_bytes_per_piece(&self) -> Vec<(u32, u32)> {
+        let mut out = Vec::new();
+        let last = self.files.len().saturating_sub(1);
+        for i in 0..self.files.len() {
+            if !self.pad_file_at(i) || self.file_size(i) == 0 {
+                continue;
+            }
+            // the last byte of the pad file
+            let pr = self.map_file(i, self.file_size(i) - 1, 0);
+            if (pr.start + 1) % self.piece_length != 0 && i < last {
+                continue;
+            }
+            let mut piece = pr.piece;
+            let mut left = self.file_size(i);
+            while left > 0 {
+                let bytes = left.min(self.piece_size(piece) as u64) as u32;
+                out.push((piece, bytes));
+                left -= bytes as u64;
+                if piece == 0 {
+                    break;
+                }
+                piece -= 1;
+            }
+        }
+        out.sort_unstable();
+        out
+    }
+
+    /// The pad bytes at the end of `piece` ([`FileStorage::pad_bytes_per_piece`] for one piece).
+    pub fn pad_bytes_in_piece(&self, piece: u32) -> u32 {
+        if !self.files.iter().any(|f| f.flags.contains(FileFlags::PAD_FILE)) || piece >= self.num_pieces {
+            return 0;
+        }
+        let pl = self.piece_length as u64;
+        let start = piece as u64 * pl;
+        let end = start + self.piece_size(piece) as u64;
+        let last = self.files.len() - 1;
+        let mut bytes = 0u64;
+        let first = self.files.partition_point(|f| f.offset + f.size <= start);
+        for i in first..self.files.len() {
+            let f = &self.files[i];
+            if f.offset >= end {
+                break;
+            }
+            let aligned = (f.offset + f.size) % pl == 0 || i == last;
+            if f.flags.contains(FileFlags::PAD_FILE) && f.size > 0 && aligned {
+                bytes += (f.offset + f.size).min(end) - f.offset.max(start);
+            }
+        }
+        bytes as u32
+    }
+
     /// CRC32C of the lower-cased full path (libtorrent `file_path_hash`), for case-insensitive
     /// collision detection.
     pub fn file_path_hash(&self, index: usize, save_path: &str) -> u32 {
@@ -1385,6 +1441,39 @@ mod tests {
         };
         assert!(!files_compatible(&link("test/0"), &link("test/1")));
         assert!(files_compatible(&link("test/0"), &link("test/0")));
+    }
+
+    /// libtorrent's `apply_pad_files` rules: a pad file counts when it ends on a piece boundary
+    /// (or ends the torrent), from its end backwards, over as many pieces as it spans.
+    #[test]
+    fn pad_bytes_per_piece() {
+        let pad = FileFlags::PAD_FILE;
+        let mut fs = FileStorage::new();
+        fs.set_piece_length(0x8000);
+        fs.add_file("t/a", 0x1000, NONE, 0, "", None).unwrap();
+        // ends at 0x20000: 0x7000 in piece 0, then three whole pieces
+        fs.add_file("t/.pad/1", 0x1f000, pad, 0, "", None).unwrap();
+        fs.add_file("t/b", 0x9000, NONE, 0, "", None).unwrap();
+        // ends at 0x2a000, not on a boundary: a normal file
+        fs.add_file("t/.pad/2", 0x1000, pad, 0, "", None).unwrap();
+        fs.add_file("t/c", 0x5000, NONE, 0, "", None).unwrap();
+        // the last file: counts though the torrent ends mid-piece
+        fs.add_file("t/.pad/3", 0x800, pad, 0, "", None).unwrap();
+        fs.set_num_pieces(fs.total_size().div_ceil(0x8000) as u32);
+        assert_eq!(fs.num_pieces(), 6);
+        assert_eq!(
+            fs.pad_bytes_per_piece(),
+            [(0, 0x7000), (1, 0x8000), (2, 0x8000), (3, 0x8000), (5, 0x800)]
+        );
+        for (piece, want) in [(0, 0x7000), (1, 0x8000), (3, 0x8000), (4, 0), (5, 0x800)] {
+            assert_eq!(fs.pad_bytes_in_piece(piece), want, "piece {piece}");
+        }
+        let mut plain = FileStorage::new();
+        plain.set_piece_length(0x4000);
+        add(&mut plain, "t/x", 0x9000);
+        plain.set_num_pieces(3);
+        assert!(plain.pad_bytes_per_piece().is_empty());
+        assert_eq!(plain.pad_bytes_in_piece(1), 0);
     }
 
     #[test]

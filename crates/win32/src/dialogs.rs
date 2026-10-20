@@ -16,14 +16,14 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BS_DEFPUSHBUTTON, BS_PUSHBUTTON, DLGTEMPLATE, DS_CENTER, DS_MODALFRAME, DialogBoxIndirectParamW,
     ES_AUTOHSCROLL, EndDialog, GetDlgItem, GetWindowLongPtrW, IDCANCEL, IDOK, IDYES, MB_ICONERROR,
-    MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_YESNO, MessageBoxW, SendMessageW, SetWindowLongPtrW,
-    SetWindowTextW, WM_COMMAND, WM_INITDIALOG, WS_BORDER, WS_CAPTION, WS_CHILD, WS_POPUP, WS_SYSMENU,
-    WS_TABSTOP, WS_VISIBLE,
+    MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_RIGHT, MB_RTLREADING, MB_YESNO, MessageBoxW, SendMessageW,
+    SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_INITDIALOG, WS_BORDER, WS_CAPTION, WS_CHILD,
+    WS_EX_LAYOUTRTL, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 
 use windows_sys::Win32::UI::Controls::EM_SETSEL;
 
-use crate::util::{from_wide_ptr, loword, wide, window_text};
+use crate::util::{from_wide_ptr, loword, rtl, wide, window_text};
 
 /// File → Add Torrent: one or more `.torrent` files.
 pub fn open_torrents(owner: HWND) -> Vec<String> {
@@ -77,7 +77,7 @@ pub fn confirm(owner: HWND, text: &str) -> bool {
 
 fn message(owner: HWND, text: &str, flags: u32) -> i32 {
     let (t, c) = (wide(text), wide("PaTorrent"));
-    unsafe { MessageBoxW(owner, t.as_ptr(), c.as_ptr(), flags) }
+    unsafe { MessageBoxW(owner, t.as_ptr(), c.as_ptr(), flags | rtl(MB_RTLREADING | MB_RIGHT)) }
 }
 
 /// The clipboard's text, if any.
@@ -146,6 +146,7 @@ unsafe extern "system" fn input_proc(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM
                 let edit = GetDlgItem(dlg, ID_EDIT as i32);
                 SetWindowTextW(edit, i.as_ptr());
                 SendMessageW(edit, EM_SETSEL, 0, -1);
+                crate::fit::fit_texts(dlg, |_| Some(0));
                 1
             }
             WM_COMMAND => {
@@ -215,7 +216,8 @@ impl Template {
         let style =
             WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME as u32 | DS_CENTER as u32 | DS_SHELLFONT;
         t.dword(style);
-        t.dword(0);
+        // a dialog has an owner, so the process's right-to-left default does not reach it
+        t.dword(rtl(WS_EX_LAYOUTRTL));
         t.count_at = t.t.len();
         t.t.push(0); // items, set by `item`
         t.t.extend([0, 0, cx, cy].map(|v: i16| v as u16));

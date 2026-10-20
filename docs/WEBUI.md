@@ -298,8 +298,11 @@ still open at exit), the next start deletes it. It is a copy of a key that is on
 
 The page's texts come from the string table (D20, `frontend::lang`) in the server's language:
 `lang.js` (served beside `app.js`, without a login, made at the first request) sets
-`window.PA_LANG` to the language code and every text by key, the `&` mnemonics taken out.
-The static HTML marks its texts with `data-t` (and `data-t-title`, `data-t-aria`, `data-t-ph`)
+`window.PA_LANG` to the language code, its direction (`dir`: `ltr`, or `rtl` for Arabic,
+Hebrew and Persian) and every text by key, the `&` mnemonics taken out. A right-to-left
+language sets `dir="rtl"` on the page: the stylesheet uses logical properties
+(`inset-inline-start`, `text-align: end`, ...) so the layout mirrors, and the script turns
+column drags, the tree splitter, menus and their arrow keys the other way. The static HTML marks its texts with `data-t` (and `data-t-title`, `data-t-aria`, `data-t-ph`)
 and keeps the English in place for a browser without scripts; `app.js` replaces them at load
 and takes its own texts with `T(key, args)`. What the server builds (cells, column titles,
 the detail tabs, Preferences, the Logger) arrives translated. Tests check that every key the

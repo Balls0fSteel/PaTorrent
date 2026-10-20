@@ -25,7 +25,7 @@ use windows_sys::Win32::UI::Controls::{
     LVN_ITEMCHANGED, LVNI_SELECTED, LVS_EX_FULLROWSELECT, LVS_NOSORTHEADER, LVS_REPORT, LVS_SHOWSELALWAYS,
     LVS_SINGLESEL, NMHDR, NMLISTVIEW, NMTREEVIEWW, TVE_EXPAND, TVGN_CARET, TVI_LAST, TVI_ROOT, TVIF_PARAM,
     TVIF_TEXT, TVINSERTSTRUCTW, TVM_EXPAND, TVM_INSERTITEMW, TVM_SELECTITEM, TVN_SELCHANGEDW,
-    TVS_DISABLEDRAGDROP, TVS_HASBUTTONS, TVS_HASLINES, TVS_LINESATROOT, TVS_SHOWSELALWAYS,
+    TVS_DISABLEDRAGDROP, TVS_HASBUTTONS, TVS_HASLINES, TVS_LINESATROOT, TVS_NOHSCROLL, TVS_SHOWSELALWAYS,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -634,6 +634,8 @@ fn template() -> Vec<u16> {
         | TVS_HASLINES
         | TVS_LINESATROOT
         | TVS_SHOWSELALWAYS
+        // a long page name runs to the edge (its tooltip shows it all) rather than scroll
+        | TVS_NOHSCROLL
         | TVS_DISABLEDRAGDROP;
     b.t.item(Class::Name("SysTreeView32"), ID_TREE, tree_style, [7, 7, 100, 236], "");
 
@@ -817,6 +819,8 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         if msg == WM_INITDIALOG {
             SetWindowLongPtrW(dlg, DWLP_USER, lp);
             init(dlg, &mut *(lp as *mut State<'_>));
+            // the pages share the dialog: each fits among its own controls
+            crate::fit::fit_texts(dlg, |id| page_of(id).map(|p| p as i32));
             return 1;
         }
         let st = GetWindowLongPtrW(dlg, DWLP_USER) as *mut State<'_>;

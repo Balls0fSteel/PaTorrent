@@ -144,6 +144,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         if msg == WM_INITDIALOG {
             SetWindowLongPtrW(dlg, DWLP_USER, lp);
             init(dlg, &*(lp as *const State));
+            crate::fit::fit_texts(dlg, |_| Some(0));
             return 1;
         }
         let st = GetWindowLongPtrW(dlg, DWLP_USER) as *mut State;

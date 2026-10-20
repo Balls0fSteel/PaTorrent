@@ -245,6 +245,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 set(ID_PORT, &st.form.port);
                 set(ID_USER, &st.form.user);
                 send(GetDlgItem(dlg, ID_HTTPS as i32), BM_SETCHECK, usize::from(st.form.https), 0);
+                crate::fit::fit_texts(dlg, |_| Some(0));
                 // the first empty field gets the focus
                 let first = if st.form.host.is_empty() { ID_HOST } else { ID_PASSWORD };
                 SetFocus(GetDlgItem(dlg, first as i32));

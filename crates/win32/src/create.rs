@@ -144,11 +144,11 @@ fn template() -> Vec<u16> {
     const CHECK: u32 = TAB | BS_AUTOCHECKBOX as u32;
     const GROUP: u32 = C | BS_GROUPBOX as u32;
     const LABEL: u32 = C | SS_RIGHT;
-    let mut t = Template::new(300, 290);
+    let mut t = Template::new(300, 318);
     t.item(BUTTON, 0xffff, GROUP, [7, 4, 286, 50], tr!(CreateSource));
     t.item(EDIT, ID_SOURCE, LINE, [14, 17, 272, 13], "");
-    t.item(BUTTON, ID_ADD_FILE, PUSH, [166, 35, 56, 14], tr!(CreateAddFile));
-    t.item(BUTTON, ID_ADD_DIR, PUSH, [226, 35, 60, 14], tr!(CreateAddDir));
+    t.item(BUTTON, ID_ADD_FILE, PUSH, [126, 35, 78, 14], tr!(CreateAddFile));
+    t.item(BUTTON, ID_ADD_DIR, PUSH, [208, 35, 78, 14], tr!(CreateAddDir));
     t.item(BUTTON, 0xffff, GROUP, [7, 58, 286, 32], tr!(CreateSkip));
     t.item(EDIT, ID_SKIP, LINE, [14, 71, 272, 13], "");
     t.item(BUTTON, 0xffff, GROUP, [7, 94, 286, 136], tr!(CreateProps));
@@ -163,14 +163,16 @@ fn template() -> Vec<u16> {
     // BEP 52 (not in µTorrent 2.2.1): v1, hybrid or v2
     t.item(STATIC, 0xffff, LABEL, [158, 212, 40, 9], tr!(CreateVersion));
     t.item(COMBOBOX, ID_FORMAT, TAB | WS_VSCROLL | CBS_DROPDOWNLIST as u32, [202, 210, 84, 60], "");
-    t.item(BUTTON, 0xffff, GROUP, [7, 234, 286, 28], tr!(CreateOther));
-    t.item(BUTTON, ID_SEED, CHECK, [14, 246, 80, 10], tr!(CreateSeed));
-    t.item(BUTTON, ID_PRIVATE, CHECK, [100, 246, 80, 10], tr!(CreatePrivate));
-    t.item(BUTTON, ID_ORDER, CHECK, [186, 246, 100, 10], tr!(CreatePreserveOrder));
-    t.item(Class::Name("msctls_progress32"), ID_PROGRESS, C | PBS_SMOOTH, [7, 272, 128, 10], "");
-    t.item(STATIC, ID_PERCENT, C, [139, 272, 34, 9], "");
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [177, 270, 72, 14], tr!(CreateSave));
-    t.item(BUTTON, IDCANCEL as u16, PUSH, [253, 270, 40, 14], tr!(BtnClose));
+    // two rows, so long translations fit
+    t.item(BUTTON, 0xffff, GROUP, [7, 234, 286, 40], tr!(CreateOther));
+    t.item(BUTTON, ID_SEED, CHECK, [14, 246, 130, 10], tr!(CreateSeed));
+    t.item(BUTTON, ID_PRIVATE, CHECK, [150, 246, 136, 10], tr!(CreatePrivate));
+    t.item(BUTTON, ID_ORDER, CHECK, [14, 259, 272, 10], tr!(CreatePreserveOrder));
+    // the progress on its own row, so the buttons can take a long translation
+    t.item(Class::Name("msctls_progress32"), ID_PROGRESS, C | PBS_SMOOTH, [7, 280, 248, 10], "");
+    t.item(STATIC, ID_PERCENT, C, [259, 280, 34, 9], "");
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [139, 297, 106, 14], tr!(CreateSave));
+    t.item(BUTTON, IDCANCEL as u16, PUSH, [249, 297, 44, 14], tr!(BtnClose));
     t.finish()
 }
 
@@ -196,6 +198,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         if msg == WM_INITDIALOG {
             SetWindowLongPtrW(dlg, DWLP_USER, lp);
             init(dlg, &(*(lp as *const State)).remembered);
+            crate::fit::fit_texts(dlg, |_| Some(0));
             return 1;
         }
         let st = GetWindowLongPtrW(dlg, DWLP_USER) as *mut State;

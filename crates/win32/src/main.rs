@@ -21,6 +21,8 @@ mod details;
 #[cfg(windows)]
 mod dialogs;
 #[cfg(windows)]
+mod fit;
+#[cfg(windows)]
 mod icons;
 #[cfg(windows)]
 mod integration;

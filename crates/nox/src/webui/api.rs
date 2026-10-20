@@ -88,7 +88,8 @@ pub fn lang_js() -> String {
     for (key, text) in lang::entries() {
         texts.set(key, lang::plain(text));
     }
-    let table = Json::obj().with("code", lang::current()).with("t", texts);
+    let dir = if lang::right_to_left() { "rtl" } else { "ltr" };
+    let table = Json::obj().with("code", lang::current()).with("dir", dir).with("t", texts);
     format!("window.PA_LANG = {};\n", table.to_json())
 }
 
@@ -1603,6 +1604,7 @@ mod tests {
         let body = js.strip_prefix("window.PA_LANG = ").and_then(|b| b.strip_suffix(";\n")).unwrap();
         let table = json::parse(body).unwrap();
         assert_eq!(table.get("code").and_then(Json::as_str), Some("en"));
+        assert_eq!(table.get("dir").and_then(Json::as_str), Some("ltr"));
         let texts = table.get("t").unwrap();
         assert_eq!(texts.entries().len(), S::ALL.len());
         assert_eq!(texts.get("MenuFile").and_then(Json::as_str), Some("File"));

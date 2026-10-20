@@ -14,12 +14,12 @@ use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
     COLOR_BTNFACE, COLOR_BTNSHADOW, COLOR_GRAYTEXT, COLOR_WINDOW, COLOR_WINDOWTEXT, CreatePen,
-    CreateSolidBrush, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_SINGLELINE, DT_VCENTER,
-    DeleteObject, DrawTextW, FillRect, FrameRect, GetSysColor, GetSysColorBrush, HDC, HFONT, LineTo,
-    MoveToEx, PS_SOLID, Polyline, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    CreateSolidBrush, DT_END_ELLIPSIS, DT_LEFT, DT_NOPREFIX, DT_RIGHT, DT_RTLREADING, DT_SINGLELINE,
+    DT_VCENTER, DeleteObject, DrawTextW, FillRect, FrameRect, GetSysColor, GetSysColorBrush, HDC, HFONT,
+    LineTo, MoveToEx, PS_SOLID, Polyline, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
 };
 
-use crate::util::{scale, wide};
+use crate::util::{rtl, scale, wide};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Page {
@@ -193,7 +193,8 @@ unsafe fn fill(hdc: HDC, rc: &RECT, color: u32) {
 unsafe fn text(hdc: HDC, s: &str, rc: &RECT, flags: u32) {
     let w = wide(s);
     let mut r = *rc;
-    unsafe { DrawTextW(hdc, w.as_ptr(), -1, &mut r, flags | DT_SINGLELINE | DT_NOPREFIX | DT_VCENTER) };
+    let flags = flags | DT_SINGLELINE | DT_NOPREFIX | DT_VCENTER | rtl(DT_RTLREADING);
+    unsafe { DrawTextW(hdc, w.as_ptr(), -1, &mut r, flags) };
 }
 
 /// A horizontal bar with one cell per piece: `value(i)` in 0..=1 is the fill strength.

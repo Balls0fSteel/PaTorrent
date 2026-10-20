@@ -170,3 +170,10 @@ path = "fuzz_targets/gzip.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "deflate"
+path = "fuzz_targets/deflate.rs"
+test = false
+doc = false
+bench = false

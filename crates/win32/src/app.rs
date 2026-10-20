@@ -60,7 +60,7 @@ use crate::icons::{self, Icon};
 use crate::integration::{self, Integration, Keys};
 use crate::shutdown::{self, Outcome, Power};
 use crate::tray;
-use crate::util::{child, copy_to, exe_path, point_from_lparam, scale, send, unscale, wide};
+use crate::util::{child, copy_to, exe_path, point_from_lparam, rtl, scale, send, unscale, wide};
 
 pub const WM_APP_ALERTS: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
@@ -375,7 +375,12 @@ pub fn parse_args(args: &[String]) -> Args {
 /// Picks the language from `patorrent.ini` in [`base_data_dir`] (one language for every
 /// window, remote ones included); what went wrong, for the Logger.
 fn init_language() -> Vec<String> {
-    lang::init(&language_choice())
+    let problems = lang::init(&language_choice());
+    if lang::right_to_left() {
+        // every window created from here on is mirrored, its controls with it
+        unsafe { SetProcessDefaultLayout(LAYOUT_RTL) };
+    }
+    problems
 }
 
 /// Preferences > General's language (`ui.language`), which lives in [`base_data_dir`]'s
@@ -2173,7 +2178,8 @@ unsafe fn toggle_window(hwnd: HWND) {
 
 unsafe fn popup(hwnd: HWND, menu: HMENU, x: i32, y: i32) -> u16 {
     unsafe {
-        let id = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, hwnd, null());
+        let id =
+            TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | rtl(TPM_LAYOUTRTL), x, y, 0, hwnd, null());
         DestroyMenu(menu);
         id as u16
     }

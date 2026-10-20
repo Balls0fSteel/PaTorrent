@@ -13,9 +13,10 @@ use patorrent_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode};
 use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, COLOR_BTNFACE, COLOR_BTNTEXT, CreateSolidBrush, DT_CENTER, DT_LEFT, DT_SINGLELINE,
-    DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FillRect, FrameRect, GetSysColor, GetSysColorBrush, HFONT,
-    HGDIOBJ, InvalidateRect, PAINTSTRUCT, SelectObject, SetBkMode, SetTextColor, TRANSPARENT,
+    BeginPaint, COLOR_BTNFACE, COLOR_BTNTEXT, CreateSolidBrush, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS,
+    DT_LEFT, DT_RTLREADING, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FillRect,
+    FrameRect, GetSysColor, GetSysColorBrush, HFONT, HGDIOBJ, InvalidateRect, PAINTSTRUCT, SelectObject,
+    SetBkMode, SetTextColor, TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
@@ -25,7 +26,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WM_NCDESTROY, WM_PAINT, WM_USER, WNDCLASSEXW,
 };
 
-use crate::util::{point_from_lparam, send, wide};
+use crate::util::{point_from_lparam, rtl, send, wide};
 
 pub const CLASS: &str = "PaTorrentSchedGrid";
 
@@ -120,10 +121,19 @@ unsafe fn layout(hwnd: HWND) -> Layout {
     Layout::new(rc.right, rc.bottom)
 }
 
+/// How wide `s` is in `dc`'s font.
+unsafe fn text_width(dc: windows_sys::Win32::Graphics::Gdi::HDC, s: &str) -> i32 {
+    let w: Vec<u16> = s.encode_utf16().collect();
+    let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
+    unsafe { DrawTextW(dc, w.as_ptr(), w.len() as i32, &mut r, DT_CALCRECT | DT_SINGLELINE) };
+    r.right - r.left
+}
+
 unsafe fn text(dc: windows_sys::Win32::Graphics::Gdi::HDC, s: &str, rc: &RECT, flags: u32) {
     let w: Vec<u16> = s.encode_utf16().collect();
     let mut r = *rc;
-    unsafe { DrawTextW(dc, w.as_ptr(), w.len() as i32, &mut r, flags | DT_SINGLELINE | DT_VCENTER) };
+    let flags = flags | DT_SINGLELINE | DT_VCENTER | rtl(DT_RTLREADING);
+    unsafe { DrawTextW(dc, w.as_ptr(), w.len() as i32, &mut r, flags) };
 }
 
 fn hover_text(g: &Grid, cell: usize) -> String {
@@ -167,10 +177,15 @@ unsafe fn paint(hwnd: HWND, g: &Grid) {
                 FrameRect(dc, &c, frame);
             }
         }
-        // legend: a swatch and the mode's name, four to the line
-        let slot = (rc.right - l.label_w) / Mode::ALL.len() as i32;
-        for (i, m) in Mode::ALL.into_iter().enumerate() {
-            let x = l.label_w + i as i32 * slot;
+        // legend: a swatch and the mode's name, four to the line in equal slots; when a
+        // translation does not fit its slot, packed from the left edge instead
+        let widths = Mode::ALL.map(|m| l.line_h + text_width(dc, m.label()));
+        let n = Mode::ALL.len() as i32;
+        let slot = (rc.right - l.label_w) / n;
+        let packed = widths.iter().any(|&w| w > slot);
+        let gap = if packed { ((rc.right - widths.iter().sum::<i32>()) / (n - 1)).max(4) } else { 0 };
+        let mut x = if packed { 0 } else { l.label_w };
+        for (m, w) in Mode::ALL.into_iter().zip(widths) {
             let sw = RECT {
                 left: x,
                 top: l.legend_y + 2,
@@ -179,9 +194,10 @@ unsafe fn paint(hwnd: HWND, g: &Grid) {
             };
             FillRect(dc, &sw, brush(m));
             FrameRect(dc, &sw, frame);
-            let r =
-                RECT { left: sw.right + 4, top: l.legend_y, right: x + slot, bottom: l.legend_y + l.line_h };
-            text(dc, m.label(), &r, DT_LEFT);
+            let next = if packed { x + w + gap } else { x + slot };
+            let r = RECT { left: sw.right + 4, top: l.legend_y, right: next, bottom: l.legend_y + l.line_h };
+            text(dc, m.label(), &r, DT_LEFT | DT_END_ELLIPSIS);
+            x = next;
         }
         if let Some(cell) = g.hover {
             let y = l.legend_y + l.line_h;

@@ -9,11 +9,16 @@
 //! * A translated table is a `.lng` text file: `Key=Text` lines, `#` comments, `\n` for a line
 //!   break and `\\` for a backslash. `crates/frontend/lang/en.lng` is the English table written
 //!   out for translators; a test keeps it equal to [`en`] (`PATORRENT_WRITE_LNG=1` rewrites it).
+//! * The translations, `crates/frontend/lang/<code>.lng`, are compiled into every binary,
+//!   deflated by `build.rs` (D26) as their texts alone in the English table's key order;
+//!   [`init`] inflates the chosen one only.
 //! * The language is process-wide, picked once at start by [`init`]; tables are leaked, so
 //!   texts are `&'static str`.
 
 use std::fmt::Display;
-use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
+
+use patorrent_core::util::puff;
 
 mod en;
 
@@ -48,16 +53,109 @@ macro_rules! __tr_arg {
 
 /// A language PaTorrent ships.
 pub struct Language {
-    /// A BCP 47 tag: `de`, `pt-BR`, `zh-Hans`; what `ui.language` stores.
+    /// A BCP 47 tag: `de`, `pt-BR`, `zh-Hans`; what `ui.language` stores, and the table's file
+    /// name (`lang/<code>.lng`).
     pub code: &'static str,
     /// The language's own name for itself, as the Preferences list shows it (not translated).
     pub name: &'static str,
-    /// Its `.lng` table; empty for English, whose texts are [`en`].
-    pub lng: &'static str,
+    /// Written right to left (Arabic, Hebrew, Persian): the GUIs mirror their layouts.
+    pub rtl: bool,
+    /// Its texts as `build.rs` deflated them: one `.lng`-escaped line per key in [`S::ALL`]
+    /// order, empty where the table has none. Empty for English, whose texts are [`en`].
+    deflated: &'static [u8],
 }
 
-/// The languages PaTorrent ships, English first. A language is listed once its table is in.
-pub const LANGUAGES: &[Language] = &[Language { code: "en", name: "English", lng: "" }];
+/// The most a table may inflate to; the biggest is under a tenth of it.
+const MAX_TABLE: usize = 1 << 20;
+
+impl Language {
+    /// Its table, inflated, with what was wrong with it (texts whose placeholders differ from
+    /// the English ones are left out); `None` for English.
+    pub fn table(&self) -> Result<Option<(Table, Vec<String>)>, String> {
+        if self.deflated.is_empty() {
+            return Ok(None);
+        }
+        let (bytes, _) = puff::inflate(self.deflated, MAX_TABLE).map_err(|e| e.to_string())?;
+        let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
+        let lines: Vec<&str> = text.split('\n').collect();
+        if lines.len() != S::ALL.len() {
+            return Err(format!("{} texts for {} keys", lines.len(), S::ALL.len()));
+        }
+        let mut problems = Vec::new();
+        let texts = S::ALL
+            .iter()
+            .zip(lines)
+            .map(|(&s, line)| match line {
+                "" => None,
+                l => checked(s, unescape(l)).map_err(|e| problems.push(e)).ok(),
+            })
+            .collect();
+        Ok(Some((Table { code: self.code.to_owned(), texts }, problems)))
+    }
+
+    /// How many bytes its table adds to a binary.
+    pub fn deflated_len(&self) -> usize {
+        self.deflated.len()
+    }
+}
+
+/// A translated language, its table included from `build.rs`'s output.
+macro_rules! translated {
+    ($code:literal, $name:literal) => {
+        translated!(@ $code, $name, false)
+    };
+    ($code:literal, $name:literal, rtl) => {
+        translated!(@ $code, $name, true)
+    };
+    (@ $code:literal, $name:literal, $rtl:literal) => {
+        Language {
+            code: $code,
+            name: $name,
+            rtl: $rtl,
+            deflated: include_bytes!(concat!(env!("OUT_DIR"), "/", $code, ".lng.z")),
+        }
+    };
+}
+
+/// The languages PaTorrent ships (D24), English first, then by code. Every `lang/<code>.lng`
+/// but English's is listed here, and every listed table is complete (tests).
+pub const LANGUAGES: &[Language] = &[
+    Language { code: "en", name: "English", rtl: false, deflated: &[] },
+    translated!("ar", "العربية", rtl),
+    translated!("bg", "Български"),
+    translated!("ca", "Català"),
+    translated!("cs", "Čeština"),
+    translated!("da", "Dansk"),
+    translated!("de", "Deutsch"),
+    translated!("el", "Ελληνικά"),
+    translated!("es", "Español"),
+    translated!("fa", "فارسی", rtl),
+    translated!("fi", "Suomi"),
+    translated!("fr", "Français"),
+    translated!("he", "עברית", rtl),
+    translated!("hr", "Hrvatski"),
+    translated!("hu", "Magyar"),
+    translated!("id", "Bahasa Indonesia"),
+    translated!("it", "Italiano"),
+    translated!("ja", "日本語"),
+    translated!("ko", "한국어"),
+    translated!("nb", "Norsk bokmål"),
+    translated!("nl", "Nederlands"),
+    translated!("pl", "Polski"),
+    translated!("pt-BR", "Português (Brasil)"),
+    translated!("pt-PT", "Português (Portugal)"),
+    translated!("ro", "Română"),
+    translated!("ru", "Русский"),
+    translated!("sk", "Slovenčina"),
+    translated!("sr", "Српски"),
+    translated!("sv", "Svenska"),
+    translated!("th", "ไทย"),
+    translated!("tr", "Türkçe"),
+    translated!("uk", "Українська"),
+    translated!("vi", "Tiếng Việt"),
+    translated!("zh-Hans", "简体中文"),
+    translated!("zh-Hant", "繁體中文"),
+];
 
 /// The operating system's preferred user-interface languages, most preferred first, as it names
 /// them (`de-DE`, `pt_BR.UTF-8`): Windows' preferred UI languages; elsewhere gettext's order,
@@ -232,8 +330,16 @@ pub fn placeholders(text: &str) -> Vec<&str> {
     out
 }
 
-/// `text` without its `&` mnemonics (`&&` stays one `&`): menus and buttons in the Web UI.
+/// `text` without its `&` mnemonics (`&&` stays one `&`), and without the `(&F)` that Chinese,
+/// Japanese, Korean and Thai menus put after a text with no Latin letters: menus and buttons in
+/// the Web UI.
 pub fn plain(text: &str) -> String {
+    let b = text.as_bytes();
+    if let Some(i) = text.find("(&") {
+        if b.len() >= i + 4 && b[i + 2].is_ascii_alphanumeric() && b[i + 3] == b')' {
+            return plain(&format!("{}{}", text[..i].trim_end(), &text[i + 4..]));
+        }
+    }
     let mut out = String::with_capacity(text.len());
     let mut chars = text.chars();
     while let Some(c) = chars.next() {
@@ -293,6 +399,17 @@ impl S {
     }
 }
 
+/// `text` as `s`'s translation, unless its placeholders differ from the English text's.
+fn checked(s: S, text: String) -> Result<Box<str>, String> {
+    let (mut want, mut got) = (placeholders(s.english()), placeholders(&text));
+    want.sort_unstable();
+    got.sort_unstable();
+    if want != got {
+        return Err(format!("{} has placeholders {got:?}, English has {want:?}", s.key()));
+    }
+    Ok(text.into_boxed_str())
+}
+
 /// One language's texts by key; `None` falls back to English.
 pub struct Table {
     code: String,
@@ -318,19 +435,10 @@ impl Table {
                 problems.push(format!("line {}: unknown key {}", n + 1, key.trim()));
                 continue;
             };
-            let value = unescape(value);
-            let (mut want, mut got) = (placeholders(s.english()), placeholders(&value));
-            want.sort_unstable();
-            got.sort_unstable();
-            if want != got {
-                problems.push(format!(
-                    "line {}: {} has placeholders {got:?}, English has {want:?}",
-                    n + 1,
-                    s.key()
-                ));
-                continue;
+            match checked(s, unescape(value)) {
+                Ok(text) => texts[s as usize] = Some(text),
+                Err(e) => problems.push(format!("line {}: {e}", n + 1)),
             }
-            texts[s as usize] = Some(value.into_boxed_str());
         }
         (Table { code: code.to_owned(), texts: texts.into_boxed_slice() }, problems)
     }
@@ -358,12 +466,15 @@ impl Table {
 }
 
 static CURRENT: AtomicPtr<Table> = AtomicPtr::new(std::ptr::null_mut());
+/// [`right_to_left`] for [`CURRENT`], kept beside it for the paint code that asks often.
+static RTL: AtomicBool = AtomicBool::new(false);
 /// Bumped by every [`set`] and [`reset`], so a cache of texts knows to rebuild.
 static GENERATION: AtomicUsize = AtomicUsize::new(0);
 
 /// Makes `table` the current language. Meant for start-up: windows already built keep their
 /// texts.
 pub fn set(table: Table) {
+    RTL.store(is_rtl(&table.code), Ordering::Release);
     CURRENT.store(Box::into_raw(Box::new(table)), Ordering::Release);
     GENERATION.fetch_add(1, Ordering::AcqRel);
 }
@@ -379,8 +490,19 @@ pub fn current() -> &'static str {
     if t.is_null() { "en" } else { unsafe { &*t }.code.as_str() }
 }
 
+/// Whether the current language is written right to left. A translator's `.lng` file counts
+/// by its name (`ar.lng`).
+pub fn right_to_left() -> bool {
+    RTL.load(Ordering::Acquire)
+}
+
+fn is_rtl(code: &str) -> bool {
+    LANGUAGES.iter().any(|l| l.rtl && l.code.eq_ignore_ascii_case(code))
+}
+
 /// Back to English.
 fn reset() {
+    RTL.store(false, Ordering::Release);
     CURRENT.store(std::ptr::null_mut(), Ordering::Release);
     GENERATION.fetch_add(1, Ordering::AcqRel);
 }
@@ -413,15 +535,24 @@ pub fn init(choice: &str) -> Vec<String> {
             }
         },
         code => match LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(code)) {
-            Some(l) if l.lng.is_empty() => {
+            Some(l) if l.deflated.is_empty() => {
                 reset();
                 Vec::new()
             }
-            Some(l) => {
-                let (table, problems) = Table::parse(l.code, l.lng);
-                set(table);
-                problems.into_iter().map(|p| format!("{}.lng: {p}", l.code)).collect()
-            }
+            Some(l) => match l.table() {
+                Ok(Some((table, problems))) => {
+                    set(table);
+                    problems.into_iter().map(|p| format!("{}.lng: {p}", l.code)).collect()
+                }
+                Ok(None) => {
+                    reset();
+                    Vec::new()
+                }
+                Err(e) => {
+                    reset();
+                    vec![format!("{}.lng: {e}", l.code)]
+                }
+            },
             None => {
                 reset();
                 vec![format!("no language \"{code}\"; using English")]
@@ -582,7 +713,9 @@ mod tests {
         assert_eq!(m(&["iw_IL"]), Some("he"));
         assert_eq!(m(&["C", "POSIX", ""]), None);
         assert_eq!(m(&["fr"]), None);
-        assert_eq!(best_match(&["fr_FR".to_owned()]), "en");
+        assert_eq!(best_match(&["fr_FR".to_owned()]), "fr");
+        assert_eq!(best_match(&["eo".to_owned(), "zh_TW.UTF-8".to_owned()]), "zh-Hant");
+        assert_eq!(best_match(&["eo_XX".to_owned()]), "en");
         assert_eq!(best_match(&[]), "en");
     }
 
@@ -599,19 +732,97 @@ mod tests {
     fn the_preferences_list() {
         let system = vec!["de-DE".to_owned()];
         let c = choices("", &system);
-        assert_eq!(c[0], (String::new(), "System default (English)".to_owned()));
+        assert_eq!(c[0], (String::new(), "System default (Deutsch)".to_owned()));
         assert_eq!(c[1], ("en".to_owned(), "English".to_owned()));
+        assert!(c.contains(&("de".to_owned(), "Deutsch".to_owned())));
         assert_eq!(c.len(), LANGUAGES.len() + 1);
+        // no table for the system's language: English
+        assert_eq!(choices("", &["xx-YY".to_owned()])[0].1, "System default (English)");
+        assert_eq!(resolve("", &["xx".to_owned()]), "en");
         // a value written by hand stays a choice, so the dialog does not drop it
         assert_eq!(choices("pseudo", &system).last().unwrap(), &("pseudo".to_owned(), "pseudo".to_owned()));
         assert_eq!(choices("en", &system).len(), c.len());
-        assert_eq!(resolve("", &system), "en");
+        assert_eq!(resolve("", &system), "de");
         assert_eq!(resolve(" pseudo ", &system), "pseudo");
-        assert!(LANGUAGES[0].code == "en" && LANGUAGES[0].lng.is_empty());
-        for l in LANGUAGES.iter().skip(1) {
-            let (_, problems) = Table::parse(l.code, l.lng);
+        assert!(LANGUAGES[0].code == "en" && LANGUAGES[0].table().is_ok_and(|t| t.is_none()));
+    }
+
+    /// Every `lang/<code>.lng` but English's is shipped, inflates back to the file's texts, and
+    /// gives a text for every key with the English text's placeholders, mnemonic and line breaks.
+    #[test]
+    fn every_table_is_shipped_and_complete() {
+        let dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lang");
+        let mut files: Vec<String> = std::fs::read_dir(&dir)
+            .unwrap()
+            .filter_map(|e| {
+                let p = e.unwrap().path();
+                let stem = p.file_stem()?.to_str()?.to_owned();
+                (p.extension()? == "lng" && stem != "en").then_some(stem)
+            })
+            .collect();
+        files.sort_unstable();
+        let listed: Vec<String> = LANGUAGES[1..].iter().map(|l| l.code.to_owned()).collect();
+        assert!(listed.windows(2).all(|w| w[0] < w[1]), "LANGUAGES is not sorted by code");
+        assert_eq!(files, listed, "lang/*.lng and LANGUAGES differ");
+        let mut total = 0;
+        for l in &LANGUAGES[1..] {
+            let (shipped, problems) = l.table().unwrap_or_else(|e| panic!("{}: {e}", l.code)).unwrap();
             assert!(problems.is_empty(), "{}: {problems:?}", l.code);
+            let file = std::fs::read_to_string(dir.join(format!("{}.lng", l.code))).unwrap();
+            let (t, problems) = Table::parse(l.code, &file);
+            assert!(problems.is_empty(), "{}: {problems:?}", l.code);
+            assert_eq!(shipped.code(), l.code);
+            assert!(S::ALL.iter().all(|&s| shipped.get(s) == t.get(s)), "{}: shipped texts differ", l.code);
+            let missing: Vec<&str> =
+                S::ALL.iter().filter(|&&s| t.texts[s as usize].is_none()).map(|s| s.key()).collect();
+            assert!(missing.is_empty(), "{}.lng lacks {missing:?}", l.code);
+            for &s in S::ALL {
+                let (en, tr) = (s.english(), t.get(s));
+                let key = s.key();
+                assert_eq!(mnemonic(tr).is_some(), mnemonic(en).is_some(), "{}: {key}: {tr:?}", l.code);
+                assert_eq!(tr.trim(), tr, "{}: {key} has spaces around it", l.code);
+                assert_eq!(
+                    tr.matches('\n').count(),
+                    en.matches('\n').count(),
+                    "{}: {key}: line breaks",
+                    l.code
+                );
+                // a mnemonic marks a letter or digit; labels keep their colon, menu items
+                // that open a dialog their ellipsis
+                assert!(mnemonic(tr).is_none_or(char::is_alphanumeric), "{}: {key}: {tr:?}", l.code);
+                if en.ends_with(':') {
+                    assert!(tr.ends_with(':') || tr.ends_with('\u{ff1a}'), "{}: {key}: {tr:?}", l.code);
+                }
+                if en.ends_with("...") {
+                    assert!(tr.ends_with("...") || tr.ends_with('\u{2026}'), "{}: {key}: {tr:?}", l.code);
+                }
+            }
+            assert_eq!(l.rtl, matches!(l.code, "ar" | "fa" | "he"), "{}", l.code);
+            assert!(!l.name.is_empty() && l.name != "English");
+            total += l.deflated_len();
         }
+        println!("{} translations, {total} bytes deflated", LANGUAGES.len() - 1);
+    }
+
+    /// `build.rs` writes the shipped tables in `en.lng`'s key order, which must be [`S::ALL`]'s.
+    #[test]
+    fn shipped_tables_follow_the_key_order() {
+        let keys: Vec<&str> = include_str!(concat!(env!("OUT_DIR"), "/keys.txt")).split('\n').collect();
+        assert_eq!(keys, en::KEYS);
+    }
+
+    /// The letter after a single `&`.
+    fn mnemonic(text: &str) -> Option<char> {
+        let mut chars = text.chars();
+        while let Some(c) = chars.next() {
+            if c == '&' {
+                match chars.next() {
+                    Some('&') => {}
+                    other => return other,
+                }
+            }
+        }
+        None
     }
 
     #[test]
@@ -621,6 +832,12 @@ mod tests {
         assert_eq!(gtk_mnemonic("&File"), "_File");
         assert_eq!(gtk_mnemonic("Save && E&xit"), "Save & E_xit");
         assert_eq!(gtk_mnemonic("a_b &_c"), "a__b ___c");
+        // the CJK style keeps the letter in brackets after the text
+        assert_eq!(plain("文件(&F)"), "文件");
+        assert_eq!(plain("添加 Torrent(&A)..."), "添加 Torrent...");
+        assert_eq!(plain("ファイルを開く (&O)"), "ファイルを開く");
+        assert_eq!(plain("a (&&) b"), "a (&) b");
+        assert_eq!(gtk_mnemonic("文件(&F)"), "文件(_F)");
     }
 
     #[test]

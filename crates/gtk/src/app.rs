@@ -118,6 +118,11 @@ progressbar.pa-done > trough, progressbar.pa-done > trough > progress { min-heig
 
 /// The menu bar and the application-wide actions and shortcuts.
 fn startup(app: &gtk::Application) {
+    // GTK takes its direction from gettext's locale, which we do not use: an Arabic, Hebrew
+    // or Persian table mirrors every window
+    if lang::right_to_left() {
+        gtk::Widget::set_default_direction(gtk::TextDirection::Rtl);
+    }
     let css = gtk::CssProvider::new();
     css.load_from_string(CSS);
     if let Some(display) = gtk::gdk::Display::default() {

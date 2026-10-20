@@ -23,7 +23,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::controls;
 use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
-use crate::util::{from_wide, hiword, loword, send, wide, window_text};
+use crate::util::{from_wide, hiword, loword, rtl, send, wide, window_text};
 
 /// A static control style (in `System::SystemServices`, a feature we do not otherwise need).
 const SS_NOPREFIX: u32 = 0x80;
@@ -176,6 +176,7 @@ unsafe extern "system" fn feed_proc(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
             set_check(dlg, if st.form.subscribe { ID_AUTO } else { ID_NO_AUTO }, true);
             set_check(dlg, ID_AUTO_SMART, st.form.smart);
             EnableWindow(item(dlg, ID_AUTO_SMART), st.form.subscribe as i32);
+            crate::fit::fit_texts(dlg, |_| Some(0));
             return 1;
         }
         let st = GetWindowLongPtrW(dlg, DWLP_USER) as *mut FeedState;
@@ -359,12 +360,13 @@ fn template() -> Vec<u16> {
     const LISTVIEW: Class = Class::Name("SysListView32");
     let mut t = Template::new(470, 292);
     t.item(STATIC, 0xffff, C, [7, 7, 140, 9], tr!(RssFeeds));
-    t.item(LISTVIEW, ID_FEEDS, LIST | LVS_NOCOLUMNHEADER, [7, 18, 140, 212], "");
-    t.item(STATIC, ID_FEED_STATUS, C | SS_NOPREFIX, [7, 233, 140, 18], "");
-    t.item(BUTTON, ID_FEED_ADD, PUSH, [7, 254, 34, 14], tr!(RssFeedsAdd));
-    t.item(BUTTON, ID_FEED_EDIT, PUSH, [43, 254, 34, 14], tr!(RssFeedsEdit));
-    t.item(BUTTON, ID_FEED_REMOVE, PUSH, [79, 254, 34, 14], tr!(RssFeedsRemove));
-    t.item(BUTTON, ID_FEED_UPDATE, PUSH, [115, 254, 32, 14], tr!(RssFeedsUpdate));
+    t.item(LISTVIEW, ID_FEEDS, LIST | LVS_NOCOLUMNHEADER, [7, 18, 140, 196], "");
+    t.item(STATIC, ID_FEED_STATUS, C | SS_NOPREFIX, [7, 217, 140, 18], "");
+    // two rows of two, so longer translations fit
+    t.item(BUTTON, ID_FEED_ADD, PUSH, [7, 238, 68, 14], tr!(RssFeedsAdd));
+    t.item(BUTTON, ID_FEED_EDIT, PUSH, [79, 238, 68, 14], tr!(RssFeedsEdit));
+    t.item(BUTTON, ID_FEED_REMOVE, PUSH, [7, 254, 68, 14], tr!(RssFeedsRemove));
+    t.item(BUTTON, ID_FEED_UPDATE, PUSH, [79, 254, 68, 14], tr!(RssFeedsUpdate));
 
     // Filters
     t.item(LISTVIEW, ID_FILTERS, LIST | LVS_NOCOLUMNHEADER, [160, 25, 96, 189], "");
@@ -524,6 +526,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         if msg == WM_INITDIALOG {
             SetWindowLongPtrW(dlg, DWLP_USER, lp);
             init(dlg, &mut *(lp as *mut State<'_>));
+            crate::fit::fit_texts(dlg, |_| Some(0));
             return 1;
         }
         let st = GetWindowLongPtrW(dlg, DWLP_USER) as *mut State<'_>;
@@ -872,7 +875,15 @@ unsafe fn quality_menu(dlg: HWND, st: &mut State<'_>) {
         }
         let mut r: RECT = zeroed();
         GetWindowRect(item(dlg, ID_QUALITY), &mut r);
-        let choice = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_LEFTBUTTON, r.left, r.bottom, 0, dlg, null());
+        let choice = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_LEFTBUTTON | rtl(TPM_LAYOUTRTL),
+            r.left,
+            r.bottom,
+            0,
+            dlg,
+            null(),
+        );
         DestroyMenu(menu);
         if choice > 0 {
             toggle_quality(dlg, st, choice as usize);
@@ -1015,7 +1026,15 @@ unsafe fn feed_menu(dlg: HWND, st: &mut State<'_>, lp: LPARAM) {
         if lp == -1 {
             GetCursorPos(&mut p);
         }
-        let choice = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, p.x, p.y, 0, dlg, null());
+        let choice = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_RIGHTBUTTON | rtl(TPM_LAYOUTRTL),
+            p.x,
+            p.y,
+            0,
+            dlg,
+            null(),
+        );
         DestroyMenu(menu);
         match choice as u16 {
             0 => {}

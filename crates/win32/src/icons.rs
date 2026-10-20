@@ -12,7 +12,9 @@ use windows_sys::Win32::Graphics::Gdi::{
     BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
     HBITMAP,
 };
-use windows_sys::Win32::UI::Controls::{HIMAGELIST, ILC_COLOR32, ImageList_Add, ImageList_Create};
+use windows_sys::Win32::UI::Controls::{
+    HIMAGELIST, ILC_COLOR32, ILC_MIRROR, ImageList_Add, ImageList_Create,
+};
 use windows_sys::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, HICON, ICONINFO};
 
 /// Toolbar images, in image-list order.
@@ -344,11 +346,14 @@ unsafe fn dib(size: usize, bgra: &[u8]) -> HBITMAP {
     }
 }
 
-/// Normal and disabled toolbar image lists, `size` pixels square.
+/// Normal and disabled toolbar image lists, `size` pixels square. In a mirrored (right to
+/// left) window they mirror their images back, so Start still points right and the RSS mark
+/// keeps its shape.
 pub fn toolbar_images(size: usize) -> (HIMAGELIST, HIMAGELIST) {
+    let flags = ILC_COLOR32 | crate::util::rtl(ILC_MIRROR);
     unsafe {
-        let normal = ImageList_Create(size as i32, size as i32, ILC_COLOR32, Icon::ALL.len() as i32, 0);
-        let disabled = ImageList_Create(size as i32, size as i32, ILC_COLOR32, Icon::ALL.len() as i32, 0);
+        let normal = ImageList_Create(size as i32, size as i32, flags, Icon::ALL.len() as i32, 0);
+        let disabled = ImageList_Create(size as i32, size as i32, flags, Icon::ALL.len() as i32, 0);
         for icon in Icon::ALL {
             let mut c = Canvas::new(size);
             draw(icon, &mut c);

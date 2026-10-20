@@ -29,6 +29,8 @@
   // T(key) is a text, T(key, {name: value}) fills its {name} placeholders. Texts the server
   // sends (cells, columns, the General tab, Preferences) come translated already.
   const LANG = (window.PA_LANG && window.PA_LANG.t) || {};
+  // an Arabic, Hebrew or Persian table mirrors the page (dir="rtl"): drags and menus follow
+  const RTL = !!(window.PA_LANG && window.PA_LANG.dir === "rtl");
   function T(key, args) {
     const s = LANG[key] === undefined ? key : LANG[key]; // an unknown key shows itself: a bug
     return args ? s.replace(/\{([a-z0-9_]+)\}/g, (m, n) => (n in args ? String(args[n]) : m)) : s;
@@ -37,6 +39,7 @@
   /// data-t-ph its title, aria-label and placeholder.
   function translatePage() {
     if (window.PA_LANG) document.documentElement.lang = window.PA_LANG.code;
+    document.documentElement.dir = RTL ? "rtl" : "ltr";
     for (const el of document.querySelectorAll("[data-t]")) el.textContent = T(el.dataset.t);
     for (const el of document.querySelectorAll("[data-t-title]")) el.title = T(el.dataset.tTitle);
     for (const el of document.querySelectorAll("[data-t-aria]")) el.setAttribute("aria-label", T(el.dataset.tAria));
@@ -808,7 +811,7 @@
     if (sel.size === 0 && !selAll) return;
     const el = pool.find((r) => !r.hidden && r._index === cur);
     const r = (el || body).getBoundingClientRect();
-    openTorrentMenu(r.left + 40, el ? r.bottom : r.top + 20);
+    openTorrentMenu(RTL ? r.right - 40 : r.left + 40, el ? r.bottom : r.top + 20);
   }
 
   // ---- the phone: tap, long press, the drawer and the sheets ---------------------------
@@ -982,7 +985,7 @@
         { label: T("MenuRss"), run: () => openRss(0) },
         { label: T("WebLogOut"), run: () => $("logout").click() },
       ],
-      r.left,
+      RTL ? r.right : r.left,
       r.bottom
     );
   });
@@ -1049,7 +1052,7 @@
         const r = h.getBoundingClientRect();
         if (e.clientX >= r.left && e.clientX < r.right) {
           target = h;
-          after = e.clientX > (r.left + r.right) / 2;
+          after = RTL ? e.clientX < (r.left + r.right) / 2 : e.clientX > (r.left + r.right) / 2;
           h.classList.add(after ? "drop-after" : "drop-before");
           break;
         }
@@ -1101,7 +1104,7 @@
     const x0 = ev.clientX;
     document.body.classList.add("drag-size");
     const move = (e) => {
-      layout.widths[id] = Math.max(20, w0 + e.clientX - x0);
+      layout.widths[id] = Math.max(20, w0 + (RTL ? x0 - e.clientX : e.clientX - x0));
       applyColumns(false);
     };
     const up = () => {
@@ -1568,6 +1571,7 @@
     el.style.top = "0px";
     const w = el.offsetWidth;
     const h = el.offsetHeight;
+    if (RTL) x = Math.max(0, x - w); // right to left, a menu opens leftwards from x
     if (x + w > innerWidth) x = Math.max(0, innerWidth - w - 2);
     if (y + h > innerHeight) y = Math.max(0, innerHeight - h - 2);
     el.style.left = x + "px";
@@ -1583,7 +1587,10 @@
     buildMenu(sub, items);
     const r = mi.getBoundingClientRect();
     let x = r.right - 2;
-    if (x + sub.offsetWidth > innerWidth) x = Math.max(0, r.left - sub.offsetWidth + 2);
+    if (RTL) {
+      x = r.left + 2;
+      if (x - sub.offsetWidth < 0) x = r.right - 2 + sub.offsetWidth;
+    } else if (x + sub.offsetWidth > innerWidth) x = Math.max(0, r.left - sub.offsetWidth + 2);
     showMenuAt(sub, x, r.top - 3);
     sub._parent = parent;
     menus.push(sub);
@@ -1621,7 +1628,9 @@
       }
       highlight(menu, items[i]);
     };
-    switch (ev.key) {
+    // right to left, a submenu opens towards the left
+    const flip = { ArrowLeft: "ArrowRight", ArrowRight: "ArrowLeft" };
+    switch (RTL ? flip[ev.key] || ev.key : ev.key) {
       case "Escape":
         if (menus.length > 1) {
           menus.pop().remove();
@@ -3031,7 +3040,7 @@
         "-",
         ...rssModel.qualities.map(([bit, name]) => ({ label: name, chk: (f.quality & bit) !== 0, run: () => set(f.quality ^ bit) })),
       ],
-      r.left,
+      RTL ? r.right : r.left,
       r.bottom
     );
   });
@@ -3906,7 +3915,7 @@
       const right = $("right").getBoundingClientRect();
       const move = (e) => {
         if (vertical) {
-          const w = Math.max(0, Math.min(main.width - 120, e.clientX - main.left));
+          const w = Math.max(0, Math.min(main.width - 120, RTL ? main.right - e.clientX : e.clientX - main.left));
           saved.tree = Math.round(w);
           document.documentElement.style.setProperty("--tree-w", saved.tree + "px");
         } else {

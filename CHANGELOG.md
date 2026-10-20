@@ -2,6 +2,32 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_233232_1792531952: The translations: 34 tables compiled in, deflated, right to left
+
+### Added
+- **`util::deflate`** (`crates/core/src/util/deflate.rs`), an in-house DEFLATE encoder (RFC 1951, D4): LZ77 over a 32 KiB window with hash chains and lazy matching, length-limited Huffman codes (package-free two-queue build plus a Kraft fix-up), the code-length alphabet's run lengths (16 / 17 / 18), and per block the smallest of stored, fixed and dynamic. Its output inflates with the existing `util::puff`. A `deflate` fuzz target (round trip through `puff`) joins the fuzz workflow.
+- **The translated tables**: D24's languages as 34 `.lng` files in `crates/frontend/lang/` (ar, bg, ca, cs, da, de, el, es, fa, fi, fr, he, hr, hu, id, it, ja, ko, nb, nl, pl, pt-BR, pt-PT, ro, ru, sk, sr (Cyrillic), sv, th, tr, uk, vi, zh-Hans, zh-Hant; D26 counted 33), translated from `en.lng` with every key, placeholder and `&` mnemonic kept (CJK and Thai put the mnemonic in brackets, `(&F)`, as their Windows conventions do). Preferences lists each in its own name.
+- **Compiled in, deflated (D26)**: `crates/frontend/build.rs` deflates each table's texts, in `en.lng`'s key order with the keys left out, into `OUT_DIR`, and `lang::LANGUAGES` includes them; `Language::table` inflates the chosen one at start. All 34 add 229 KB to each binary (1.07 MB as `.lng` text).
+- **Right to left** for Arabic, Hebrew and Persian (`Language::rtl`, `lang::right_to_left`):
+  - Win32: the process layout is mirrored (`SetProcessDefaultLayout(LAYOUT_RTL)`), dialog templates carry `WS_EX_LAYOUTRTL` (owned windows do not inherit the process layout), message boxes read right to left (`MB_RTLREADING | MB_RIGHT`), popup menus open leftwards (`TPM_LAYOUTRTL`), drawn texts (details, the scheduler grid) use `DT_RTLREADING`, and the toolbar's image lists are `ILC_MIRROR` so the icons come out the right way round.
+  - GTK: `Widget::set_default_direction(Rtl)` at startup (GTK reads the direction from gettext, which we do not use).
+  - Web UI: `lang.js` carries `dir`; the page sets `dir="rtl"`, the stylesheet uses logical properties throughout (borders, padding, sort arrows, resize handles, drop markers, menus, the phone's drawer, which comes in from the right), and column reorder and resize, the tree splitter, menu placement, submenus and their arrow keys follow the direction.
+  - The right-to-left tables carry a left-to-right mark before `.torrent` and after `magnet:` (and before `--webui-...` options, where a right-to-left mark was wrong), so these display whole inside right-to-left text.
+- **Win32 text fitting** (`crates/win32/src/fit.rs`, `fit_texts`, run by every dialog at `WM_INITDIALOG`): a label, check box or push button whose translated text is wider than its control grows into the free space beside it (right-aligned labels to the left first, buttons to the right, then left), up to the next control and its group box or tab control; then the rest of its row moves right and the row's widest field gives up width down to a minimum (edits 48 px, drop-downs 72 px, notes of several lines 90 px, at 96 DPI); last, the controls before it close up (each down to what its own text needs, sliding into free space). Preferences fits each page among its own controls. Measured with the control's font (`DrawText` `DT_CALCRECT`), in the dialog's own coordinates, so mirrored dialogs fit the same way.
+- Layout room for long translations: Create New Torrent's Add File / Add Folder buttons, the progress bar on its own row under them, its Other box in two rows; the RSS Downloader's feed buttons in two rows of two; the scheduler legend packs its items when one is wider than its slot; the Preferences page tree no longer scrolls sideways for a long page name (`TVS_NOHSCROLL`, the tooltip shows it).
+
+### Verified
+- Windows: `cargo test --workspace` (the new tests: the encoder on empty input, short and long text, noise (stored), runs, matches at the window's far end, multi-block input, Huffman limits and run lengths; every shipped table complete and in key order; the mnemonic helper; `best_match` and the Preferences list with the new languages; `lang.js` carries `dir`), stable clippy (`-D warnings`) and fmt (workspace and fuzz); clippy for Linux and FreeBSD; the GTK crate type-checked and linted for Linux with the stand-in `pkg-config`. No let-chains (MSRV 1.85).
+- Every table checked by script: the same keys as `en.lng` in the same order, the same placeholders, one `&` per text where English has one (and none where it has none) on a letter or digit, matching endings (`:`, `...`, line breaks, no stray spaces).
+- Win32 (`--demo`, a portable copy, screenshots with `PrintWindow`): every Preferences page, Create New Torrent and the RSS Downloader in pseudo, de, el, fi, ru, fr and ar; the main window, menus, tree, list, tabs, status bar and the Add Torrent from URL box in ar. Everything fits but the cases in PLAN's Known TODOs.
+- Web UI in the browser pane with `PATORRENT_LANG=ar`: the login page, the main window, the context menu opening leftwards with its submenus to the left, Preferences, and the phone layout's drawer from the right; no new console errors.
+
+### Issues
+- The translations were made without native speakers (PLAN Known TODOs "Localisation").
+- Two-line notes on Preferences (Advanced, Disk Cache) break mid-word in ru and fr; not caused by the fitting (the same with it off) and not reproduced in a STATIC outside the app.
+- A fitting bug found on the way: when a farther field gave up width, the controls nearer the growing text did not slide with it (BitTorrent's IP filter row: Reload over the browse button in Greek); fixed by carrying the freed width to the nearer controls.
+- GTK in right to left was not run (no Linux desktop to run it on).
+
 ## 2026-10-20_212035_1792524035: How the translations ship decided
 
 ### Decisions

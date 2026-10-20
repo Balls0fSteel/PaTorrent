@@ -49,14 +49,16 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     CBS_AUTOHSCROLL, CBS_DROPDOWN, CBS_SORT, CreatePopupMenu, DLGTEMPLATE, DestroyMenu,
     DialogBoxIndirectParamW, ES_AUTOHSCROLL, EndDialog, GetCursorPos, GetDlgItem, GetWindowLongPtrW,
     GetWindowRect, IDCANCEL, IDOK, MF_SEPARATOR, MF_STRING, MapDialogRect, SetWindowLongPtrW, SetWindowTextW,
-    TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_INITDIALOG,
-    WM_NOTIFY, WS_BORDER, WS_CHILD, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
+    WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows_sys::core::w;
 
 use crate::controls;
 use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
-use crate::util::{copy_to, from_wide, hiword, loword, point_from_lparam, scale, send, wide, window_text};
+use crate::util::{
+    copy_to, from_wide, hiword, loword, point_from_lparam, rtl, scale, send, wide, window_text,
+};
 
 /// Static control styles (in `System::SystemServices`, a feature we do not otherwise need).
 const SS_NOPREFIX: u32 = 0x80;
@@ -203,6 +205,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         if msg == WM_INITDIALOG {
             SetWindowLongPtrW(dlg, DWLP_USER, lp);
             init(dlg, &mut *(lp as *mut State));
+            crate::fit::fit_texts(dlg, |_| Some(0));
             // focus is on OK (set by `init`)
             return 0;
         }
@@ -610,7 +613,15 @@ unsafe fn context_menu(dlg: HWND, st: &mut State, lp: LPARAM) {
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
         AppendMenuW(menu, MF_STRING, MENU_CHECK, wide(tr!(MenuCheck)).as_ptr());
         AppendMenuW(menu, MF_STRING, MENU_UNCHECK, wide(tr!(MenuUncheck)).as_ptr());
-        let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, p.x, p.y, 0, dlg, null()) as usize;
+        let cmd = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_RIGHTBUTTON | rtl(TPM_LAYOUTRTL),
+            p.x,
+            p.y,
+            0,
+            dlg,
+            null(),
+        ) as usize;
         DestroyMenu(menu);
         match cmd {
             MENU_CHECK | MENU_UNCHECK => st.tree.set_checks(&rows, cmd == MENU_CHECK),

@@ -3,6 +3,7 @@
 
 pub mod bitfield;
 pub mod bloom_filter;
+pub mod deflate;
 pub mod gzip;
 pub mod hex;
 pub mod path;

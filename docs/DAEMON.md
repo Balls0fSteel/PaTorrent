@@ -14,6 +14,16 @@ password; log in with it and set one in Preferences > Web UI. A password given o
 line is visible to other local users in the process list, so prefer setting it in the page.
 For a LAN host name, add it to Preferences > Web UI > domain list (`web_ui_domain_list`).
 
+On a network, serve the page over HTTPS so the password and the session cookie are not sent in
+the clear: `--webui-https` makes a self-signed certificate on first use and keeps it in the
+config directory (`webui-cert.pem`, `webui-key.pem`), or `--webui-cert FILE --webui-key FILE`
+uses yours (PEM; the key unencrypted). The browser warns about a self-signed certificate until
+you accept it; compare the fingerprint it shows with the `certificate SHA-256` line nox prints.
+
+```sh
+patorrent-nox run --save /srv/torrents --webui 0.0.0.0:8443 --webui-https
+```
+
 Ready-made service files are in [`contrib/`](../contrib): systemd units (system and user) and a
 FreeBSD rc.d script. On Windows `patorrent-nox service install` registers a Windows service
 ([below](#the-windows-service)). The command-line options are the configuration; the rest
@@ -24,7 +34,7 @@ FreeBSD rc.d script. On Windows `patorrent-nox service install` registers a Wind
 | What | Linux / BSD | Windows |
 |---|---|---|
 | state: `resume.db`, `metadata.pack`, `dht_state.dat` | `$XDG_DATA_HOME/patorrent/nox`, else `~/.local/share/patorrent/nox` | `%APPDATA%\PaTorrent\nox` |
-| config: `webui.json`, the default `ipfilter.dat` | `$XDG_CONFIG_HOME/patorrent/nox`, else `~/.config/patorrent/nox` | the same folder as the state |
+| config: `webui.json`, the default `ipfilter.dat`, the generated HTTPS certificate | `$XDG_CONFIG_HOME/patorrent/nox`, else `~/.config/patorrent/nox` | the same folder as the state |
 | the Windows service | | `%ProgramData%\PaTorrent\nox` for both, unless `service install` gets `--state-dir` |
 
 - The torrent library is data you would miss, so it lives under `XDG_DATA_HOME`, not

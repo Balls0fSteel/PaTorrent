@@ -540,6 +540,7 @@ pub fn reason(status: u16) -> &'static str {
         100 => "Continue",
         200 => "OK",
         204 => "No Content",
+        301 => "Moved Permanently",
         304 => "Not Modified",
         400 => "Bad Request",
         401 => "Unauthorized",

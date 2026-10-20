@@ -139,6 +139,38 @@ pub fn base64encode(s: &[u8]) -> String {
     out
 }
 
+/// RFC 4648 base64 decoding, padding optional (PEM bodies, joined without line breaks). `None`
+/// on any other character or an impossible length.
+pub fn base64decode(s: &[u8]) -> Option<Vec<u8>> {
+    let s = match s {
+        [rest @ .., b'=', b'='] | [rest @ .., b'='] => rest,
+        _ => s,
+    };
+    if s.len() % 4 == 1 {
+        return None;
+    }
+    let mut out = Vec::with_capacity(s.len() * 3 / 4);
+    let (mut acc, mut bits) = (0u32, 0);
+    for &c in s {
+        let v = match c {
+            b'A'..=b'Z' => c - b'A',
+            b'a'..=b'z' => c - b'a' + 26,
+            b'0'..=b'9' => c - b'0' + 52,
+            b'+' => 62,
+            b'/' => 63,
+            _ => return None,
+        };
+        acc = acc << 6 | v as u32;
+        bits += 6;
+        if bits >= 8 {
+            bits -= 8;
+            out.push((acc >> bits) as u8);
+            acc &= (1 << bits) - 1;
+        }
+    }
+    Some(out)
+}
+
 /// RFC 4648 base32 decoding, case-insensitive, tolerating missing padding and '1' for 'I'
 /// (libtorrent `base32decode`). `None` on invalid characters.
 pub fn base32decode(s: &[u8]) -> Option<Vec<u8>> {
@@ -286,6 +318,13 @@ mod tests {
             ("foobar", "Zm9vYmFy"),
         ] {
             assert_eq!(base64encode(s.as_bytes()), want);
+            assert_eq!(base64decode(want.as_bytes()).unwrap(), s.as_bytes());
+            assert_eq!(base64decode(want.trim_end_matches('=').as_bytes()).unwrap(), s.as_bytes());
+        }
+        let all: Vec<u8> = (0..=255).collect();
+        assert_eq!(base64decode(base64encode(&all).as_bytes()).unwrap(), all);
+        for bad in ["Zg=a", "Z", "Zm9v Zg==", "Zm9v\nZg==", "Zm9v-Zg"] {
+            assert_eq!(base64decode(bad.as_bytes()), None, "{bad}");
         }
     }
 

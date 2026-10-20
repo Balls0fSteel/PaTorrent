@@ -78,7 +78,7 @@ const EXIT_ARGS: u32 = 2;
 const EXIT_LOG: u32 = 3;
 
 /// `run` options with a path for a value: made absolute at install.
-const PATH_OPTIONS: [&str; 8] = [
+const PATH_OPTIONS: [&str; 10] = [
     "--save",
     "--state",
     "--state-dir",
@@ -87,6 +87,8 @@ const PATH_OPTIONS: [&str; 8] = [
     "--pid-file",
     "--log",
     "--move-on-complete",
+    "--webui-cert",
+    "--webui-key",
 ];
 
 const USAGE: &str = "install, uninstall, start, stop, run or debug (patorrent-nox --help)";

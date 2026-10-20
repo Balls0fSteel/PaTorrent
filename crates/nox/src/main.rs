@@ -115,6 +115,12 @@ OPTIONS:
                       Web UI login (default user admin); the password is stored as a salted
                       PBKDF2 hash in the config directory. Without one, a temporary password
                       is printed at start
+    --webui-https     Serve the Web UI over HTTPS with a self-signed certificate, made on first
+                      use and kept in the config directory (webui-cert.pem, webui-key.pem;
+                      renewed a month before it expires). Its fingerprint is printed at start
+    --webui-cert FILE [--webui-key FILE]
+                      Serve HTTPS with this certificate (PEM, the server's first, then its
+                      chain) and private key (PEM, not encrypted; default: the certificate file)
 
 SERVICE OPTIONS (docs/DAEMON.md):
     --daemon          Detach into the background (Unix): returns once the daemon is up
@@ -166,6 +172,9 @@ struct Opts {
     webui: Option<std::net::SocketAddr>,
     webui_user: Option<String>,
     webui_pass: Option<String>,
+    webui_https: bool,
+    webui_cert: Option<PathBuf>,
+    webui_key: Option<PathBuf>,
     torrents: usize,
     active: f64,
     /// `run --mock-library N` (undocumented): the simulated engine with N synthetic torrents
@@ -196,6 +205,9 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         webui: None,
         webui_user: None,
         webui_pass: None,
+        webui_https: false,
+        webui_cert: None,
+        webui_key: None,
         torrents: 1000,
         active: 0.02,
         mock_library: 0,
@@ -239,12 +251,18 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--webui" => o.webui = Some(webui::parse_addr(&value("--webui")?)?),
             "--webui-user" => o.webui_user = Some(value("--webui-user")?),
             "--webui-pass" => o.webui_pass = Some(value("--webui-pass")?),
+            "--webui-https" => o.webui_https = true,
+            "--webui-cert" => o.webui_cert = Some(value("--webui-cert")?.into()),
+            "--webui-key" => o.webui_key = Some(value("--webui-key")?.into()),
             "--torrents" => o.torrents = num("--torrents", value("--torrents")?)?,
             "--active" => o.active = num("--active", value("--active")?)?,
             "--mock-library" => o.mock_library = num("--mock-library", value("--mock-library")?)?,
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s => o.sources.push(s.to_owned()),
         }
+    }
+    if o.webui_key.is_some() && o.webui_cert.is_none() {
+        return Err("--webui-key needs --webui-cert".into());
     }
     Ok(o)
 }
@@ -590,7 +608,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         w => w.and_then(Result::ok),
     };
     service.ready(&match &web {
-        Some(w) => format!("running, Web UI on http://{}/", w.local_addr()),
+        Some(w) => format!("running, Web UI on {}", w.url()),
         None => "running".to_owned(),
     });
 
@@ -789,8 +807,28 @@ fn start_webui(
     c.state_dir = config_dir;
     c.move_completed_dir = move_dir.clone();
     c.ip_filter = o.ip_filter.clone();
+    c.https = match (&o.webui_cert, o.webui_https) {
+        (Some(cert), _) => Some(webui::https::Certificate::Files {
+            cert: cert.clone(),
+            key: o.webui_key.clone().unwrap_or_else(|| cert.clone()),
+        }),
+        (None, true) => Some(webui::https::Certificate::Generated {
+            dir: c.state_dir.clone(),
+            names: webui::https::default_names(addr),
+        }),
+        (None, false) => None,
+    };
     let w = webui::WebUi::start(h.clone(), c)?;
-    println!("* Web UI: http://{}/", w.local_addr());
+    println!("* Web UI: {}", w.url());
+    if let Some(t) = w.https() {
+        let expires = patorrent_frontend::fmt::date_time(t.not_after);
+        match (&t.cert_path, t.generated) {
+            (Some(path), true) => println!("* Web UI: new self-signed certificate {}", path.display()),
+            (Some(path), false) => println!("* Web UI: certificate {}", path.display()),
+            (None, _) => println!("* Web UI: self-signed certificate for this run only (--no-state)"),
+        }
+        println!("* Web UI: certificate SHA-256 {} (valid until {expires})", t.fingerprint);
+    }
     if let Some(p) = w.temporary_password() {
         println!(
             "* Web UI: no password set; temporary password for this run: {p} (set one with --webui-pass)"

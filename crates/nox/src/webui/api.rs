@@ -403,7 +403,8 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
     match endpoint {
         "auth/logout" => {
             shared.lock().sessions.remove(&key);
-            Response::ok().with_header("Set-Cookie", "SID=; HttpOnly; SameSite=Strict; path=/; Max-Age=0")
+            Response::ok()
+                .with_header("Set-Cookie", format!("SID=; {}; Max-Age=0", cookie_attributes(shared)))
         }
         "app/version" => Response::text(200, COMPAT_VERSION),
         "app/webapiVersion" => Response::text(200, WEBAPI_VERSION),
@@ -701,8 +702,16 @@ fn login(shared: &Shared, p: &Params, ip: IpAddr, now: Instant) -> Response {
     }
     let sid = random_hex(16);
     st.sessions.insert(sid.clone(), ClientSession { last_used: now, maindata: None, peers: None });
-    Response::text(200, "Ok.")
-        .with_header("Set-Cookie", format!("SID={sid}; HttpOnly; SameSite=Strict; path=/"))
+    Response::text(200, "Ok.").with_header("Set-Cookie", format!("SID={sid}; {}", cookie_attributes(shared)))
+}
+
+/// The session cookie's attributes; over HTTPS it is never sent back over plain HTTP.
+fn cookie_attributes(shared: &Shared) -> &'static str {
+    if shared.tls.is_some() {
+        "HttpOnly; Secure; SameSite=Strict; path=/"
+    } else {
+        "HttpOnly; SameSite=Strict; path=/"
+    }
 }
 
 fn valid_category(name: &str) -> bool {

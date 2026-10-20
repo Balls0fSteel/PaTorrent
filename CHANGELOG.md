@@ -2,6 +2,28 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_120037_1792490437: The Web UI over HTTPS
+
+### Added
+- **TLS server side** (`patorrent_core::tls`, now public): an `Identity` (a certificate with its chain and an unencrypted PEM key: PKCS #8, PKCS #1 or SEC 1) and `Stream::accept`, on SChannel and on OpenSSL, TLS 1.2 and 1.3 only (SChannel's own defaults on this Windows build still allowed 1.0 and 1.1; the server credentials turn them off). `generate_self_signed` makes an ECDSA P-256 certificate with subject alternative names and the server-auth key usage (CertCreateSelfSignCertificate on Windows, the X509 API on OpenSSL). `certificate_info` reads a PEM certificate's fingerprint and validity (a small DER reader of our own, `tls/pem.rs`, with base64 decoding added to `util::string`).
+- **Pinned clients**: `Verify::Pinned(Fingerprint)` accepts exactly one certificate whoever issued it (SChannel's manual validation, an OpenSSL verify callback that records the server's certificate), and `Stream::peer_fingerprint` reports what the server presented: what the GUIs' remote mode needs for a nox with a self-signed certificate.
+- **Windows keys**: SChannel signs in LSASS, which cannot use a key that lives only in our process, so `Identity` imports the key into the account's CNG store under `PaTorrent TLS <pid>.<n>` and deletes it when dropped; keys of processes that are gone are deleted at the next import. The key is checked against the certificate's public key at load (a mismatch is an error then, not a failed handshake later). The certificate and its chain sit in an in-memory store SChannel can build the chain from.
+- **nox** (`webui/https.rs`): `--webui-https` serves the Web UI over HTTPS with a self-signed certificate made on first use and kept in the config directory (`webui-cert.pem`, `webui-key.pem` readable by the owner only on Unix; renewed 30 days before its 825 days run out; in memory with `--no-state`), for `localhost`, the loopback addresses, the host name and a specific listen address. `--webui-cert FILE [--webui-key FILE]` uses the user's files. Start prints the certificate's SHA-256 fingerprint and end of validity; a certificate that does not load stops the start before the port is bound. Over HTTPS the session cookie is `Secure`, a plain-HTTP request to the port gets a `301` to `https://`, and a connection beyond the limit is closed instead of answered in plain text. `service install` makes the two paths absolute like the others.
+- docs: WEBUI.md (Security), DAEMON.md, ARCHITECTURE.md, README.md; `crates/core/tests/fixtures/tls/` holds throwaway test keys and certificates (with how they were made).
+
+### Fixed
+- SChannel waited for the rest of a plain-text request it took for a TLS record header (up to the read timeout); a server now refuses a first record that is not a handshake record at once.
+
+### Verified
+- New tests: `tls::tests` (a generated certificate served to a pinned client, keys in every supported form, refused identities, pins to another certificate and the system's roots refused, a plain-text client failing at once, fingerprint text), `tls::pem::tests`, `tls::schannel::tests` (the CNG key lives as long as the identity; keys of dead processes are swept), `webui::https::tests`, and `crates/nox/tests/https.rs` (page, login with a `Secure` cookie, pipelined requests on one TLS connection, the WebSocket upgrade and hello over TLS, the plain-HTTP redirect, a client pinned to another certificate, the certificate kept across a restart; a mismatched key stops the start).
+- Windows: `cargo test --workspace --no-fail-fast` 1041 passed, 0 failed; clippy (stable, Linux and FreeBSD targets) and `cargo +stable fmt --all --check` clean. FreeBSD 15.1 (OpenSSL 3.5.6): the TLS tests and the nox HTTPS tests pass.
+- By hand against `patorrent-nox run --webui 127.0.0.1:18443 --webui-https`: OpenSSL 3.5's `s_client` negotiates TLS 1.2 (ECDHE-ECDSA-AES256-GCM-SHA384) and TLS 1.3 (TLS_AES_256_GCM_SHA384), is refused TLS 1.0 and 1.1, and sees the fingerprint nox printed and the SANs (localhost, 127.0.0.1, ::1, the host name) with the server-auth EKU; curl (OpenSSL and Windows' SChannel build) logs in and gets the `Secure` cookie; plain HTTP gets `301 Moved Permanently`. The second start kept the certificate. A killed process's CNG key was deleted by the next start.
+
+### Issues
+- Not tried in a real browser (the built-in browser pane refuses untrusted certificates outright), nor under the Windows service account; see PLAN.md Known TODOs.
+- `utp::tests::a_path_that_drops_big_packets_without_fragmenting_kills_the_connection` failed once in the first full run: a flake of its own (about one run in 40 to 300, an MTU of 980 where the test expects over 1000), unrelated to this change; recorded in PLAN.md.
+- Phase 7 (GTK) waits for GTK 4 development files (`libgtk-4-dev`) on the Xubuntu VM.
+
 ## 2026-10-20_105225_1792486345: The resume database is journaled
 
 ### Changed

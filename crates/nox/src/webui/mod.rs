@@ -15,6 +15,7 @@ pub mod auth;
 pub(crate) mod commands;
 mod fetch;
 pub mod http;
+pub mod https;
 pub mod json;
 pub mod native;
 pub(crate) mod prefs;
@@ -87,6 +88,8 @@ pub struct Config {
     /// `--ip-filter`: the block list the daemon loaded at start, so the BitTorrent page shows
     /// it and the Web UI does not load it a second time.
     pub ip_filter: Option<PathBuf>,
+    /// Serve HTTPS with this certificate instead of plain HTTP.
+    pub https: Option<https::Certificate>,
 }
 
 impl Config {
@@ -102,6 +105,7 @@ impl Config {
             limits: http::Limits::default(),
             move_completed_dir: None,
             ip_filter: None,
+            https: None,
         }
     }
 }
@@ -397,6 +401,8 @@ pub(crate) struct Shared {
     pub settings_dir: PathBuf,
     /// The RSS Downloader; its lock comes before the State lock, never after it.
     pub rss: Mutex<rss::Rss>,
+    /// The certificate when serving HTTPS.
+    pub tls: Option<patorrent_core::tls::Identity>,
 }
 
 pub fn unix_now() -> i64 {
@@ -564,6 +570,19 @@ pub struct WebUi {
     stop: Arc<AtomicBool>,
     acceptor: Option<JoinHandle<()>>,
     temporary_password: Option<String>,
+    https: Option<HttpsInfo>,
+}
+
+/// The certificate an HTTPS Web UI presents, for the start-up message.
+#[derive(Clone, Debug)]
+pub struct HttpsInfo {
+    pub fingerprint: patorrent_core::tls::Fingerprint,
+    /// Unix seconds.
+    pub not_after: i64,
+    /// The certificate file (none for an in-memory one).
+    pub cert_path: Option<PathBuf>,
+    /// The self-signed certificate was made (or renewed) by this start.
+    pub generated: bool,
 }
 
 impl WebUi {
@@ -632,6 +651,17 @@ impl WebUi {
             prefs.ip_filter = true;
             prefs.ip_filter_path = p.to_string_lossy().into_owned();
         }
+        // the certificate before the socket: a broken one fails the start without binding
+        let loaded = match &config.https {
+            Some(source) => Some(https::load(source, unix_now())?),
+            None => None,
+        };
+        let https = loaded.as_ref().map(|l| HttpsInfo {
+            fingerprint: l.identity.fingerprint(),
+            not_after: l.identity.info().not_after,
+            cert_path: l.cert_path.clone(),
+            generated: l.generated,
+        });
         let listener = std::net::TcpListener::bind(config.addr)?;
         let addr = listener.local_addr()?;
         let settings_dir = config.state_dir.clone().unwrap_or_else(|| PathBuf::from("."));
@@ -683,6 +713,7 @@ impl WebUi {
             rss: Mutex::new(rss::Rss::load(
                 config.state_dir.as_ref().map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
             )),
+            tls: loaded.map(|l| l.identity),
         });
         {
             let mut st = shared.lock();
@@ -697,11 +728,28 @@ impl WebUi {
         }
         let stop = Arc::new(AtomicBool::new(false));
         let acceptor = server::spawn(listener, shared.clone(), stop.clone())?;
-        Ok(WebUi { shared, addr, stop, acceptor: Some(acceptor), temporary_password })
+        Ok(WebUi { shared, addr, stop, acceptor: Some(acceptor), temporary_password, https })
     }
 
     pub fn local_addr(&self) -> SocketAddr {
         self.addr
+    }
+
+    /// The certificate, when serving HTTPS.
+    pub fn https(&self) -> Option<&HttpsInfo> {
+        self.https.as_ref()
+    }
+
+    /// The page's address: `http://` or `https://`, with a loopback host for a wildcard
+    /// listen address.
+    pub fn url(&self) -> String {
+        let scheme = if self.https.is_some() { "https" } else { "http" };
+        let ip = match self.addr.ip() {
+            IpAddr::V4(ip) if ip.is_unspecified() => IpAddr::V4(std::net::Ipv4Addr::LOCALHOST),
+            IpAddr::V6(ip) if ip.is_unspecified() => IpAddr::V6(std::net::Ipv6Addr::LOCALHOST),
+            ip => ip,
+        };
+        format!("{scheme}://{}/", SocketAddr::new(ip, self.addr.port()))
     }
 
     /// The random password made because none was given or stored.

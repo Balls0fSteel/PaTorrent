@@ -10,7 +10,7 @@ pub(crate) mod ip_voter;
 pub(crate) mod listen;
 pub(crate) mod resolver;
 pub(crate) mod sys;
-pub(crate) mod tls;
+pub mod tls;
 
 /// A token bucket (libtorrent `bandwidth_channel`): `limit` bytes per second, refilled in small
 /// steps; 0 means unlimited.

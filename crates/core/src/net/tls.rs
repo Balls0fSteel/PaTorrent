@@ -2,7 +2,7 @@
 // top of a bundled or linked OpenSSL. We use the TLS library the OS ships instead (PLAN.md D9):
 // SChannel on Windows, the system OpenSSL / LibreSSL on Unix.
 
-//! TLS client sessions for HTTPS trackers.
+//! TLS sessions: clients for HTTPS trackers, web seeds and fetches, servers for the Web UI.
 //!
 //! A [`TlsSession`] is sans-IO: ciphertext from the socket goes in through `feed`, plaintext to
 //! send goes in through `encrypt`, and ciphertext to send accumulates in `outgoing`. That fits
@@ -10,13 +10,24 @@
 //! a session on top of a non-blocking socket and offers plain `Read` / `Write`, so the HTTP code
 //! does not change: the handshake simply makes writes return `WouldBlock` until it is done.
 //!
-//! The certificate chain is verified against the OS trust store and the certificate must match
-//! the host name (or IP address) that was asked for. SNI is sent for host names.
+//! A client verifies the certificate chain against the OS trust store, and the certificate must
+//! match the host name (or IP address) that was asked for ([`Verify::System`]), or it must be
+//! one certificate the user accepted ([`Verify::Pinned`]). SNI is sent for host names.
+//!
+//! A server ([`Stream::accept`]) presents an [`Identity`]: a certificate (and its chain) with
+//! its private key, from PEM files or [`generate_self_signed`]. It asks for no client
+//! certificate, and speaks TLS 1.2 and later only.
 
+use std::fmt;
 use std::io::{self, Read, Write};
+use std::path::Path;
+use std::sync::Arc;
+
+use crate::crypto::Sha256;
 
 #[cfg(unix)]
 mod openssl;
+mod pem;
 #[cfg(windows)]
 mod schannel;
 
@@ -28,7 +39,239 @@ pub(crate) type Session = openssl::Session;
 #[cfg(not(any(windows, unix)))]
 pub(crate) type Session = unsupported::Session;
 
-/// One TLS client connection, independent of any socket.
+#[cfg(unix)]
+use openssl as backend;
+#[cfg(windows)]
+use schannel as backend;
+#[cfg(not(any(windows, unix)))]
+use unsupported as backend;
+
+/// The SHA-256 of a certificate's DER encoding: what browsers show as its fingerprint, and what
+/// [`Verify::Pinned`] compares.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct Fingerprint(pub [u8; 32]);
+
+impl Fingerprint {
+    pub fn of(cert_der: &[u8]) -> Fingerprint {
+        Fingerprint(Sha256::digest(cert_der).0)
+    }
+
+    /// Parses 64 hex digits, with or without `:`, `-` or spaces between the bytes, in either
+    /// case (`AB:CD:…` as browsers and [`Display`](fmt::Display) show it, or `abcd…`).
+    pub fn parse(s: &str) -> Option<Fingerprint> {
+        let hex: String = s.chars().filter(|c| !matches!(c, ':' | '-' | ' ')).collect();
+        let mut out = [0u8; 32];
+        crate::util::hex::decode_into(&hex, &mut out).then_some(Fingerprint(out))
+    }
+}
+
+/// Upper-case hex bytes separated by colons.
+impl fmt::Display for Fingerprint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        for (i, b) in self.0.iter().enumerate() {
+            if i > 0 {
+                f.write_str(":")?;
+            }
+            write!(f, "{b:02X}")?;
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Debug for Fingerprint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Fingerprint({self})")
+    }
+}
+
+/// How a client checks the server's certificate.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verify {
+    /// A chain to the OS trust store, issued for the host name that was asked for.
+    System,
+    /// Exactly this certificate, whoever issued it and for whatever name: a self-signed one the
+    /// user has accepted.
+    Pinned(Fingerprint),
+}
+
+/// The first certificate of a PEM file: its fingerprint and validity (Unix seconds).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct CertificateInfo {
+    pub fingerprint: Fingerprint,
+    pub not_before: i64,
+    pub not_after: i64,
+}
+
+/// Reads the first certificate in a PEM file.
+pub fn certificate_info(cert_pem: &[u8]) -> io::Result<CertificateInfo> {
+    info_of(&pem::certificates(cert_pem)?[0])
+}
+
+fn info_of(cert_der: &[u8]) -> io::Result<CertificateInfo> {
+    let (not_before, not_after) = pem::validity(cert_der)
+        .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidData, "the certificate is corrupt"))?;
+    Ok(CertificateInfo { fingerprint: Fingerprint::of(cert_der), not_before, not_after })
+}
+
+/// A server's certificate (with the chain that follows it in the file) and private key, ready
+/// for [`Stream::accept`]. Cheap to clone; every connection shares it.
+///
+/// On Windows the private key is imported into the user's CNG key store under a name of this
+/// process, because SChannel does its key operations in LSASS, which cannot use a key that
+/// lives only in this process. The key is deleted when the last clone is dropped; keys left by
+/// a process that died are deleted by the next process that loads an identity.
+#[derive(Clone)]
+pub struct Identity {
+    inner: Arc<backend::Identity>,
+    info: CertificateInfo,
+}
+
+impl Identity {
+    /// From the PEM text of a certificate file (the server's certificate first, then any
+    /// intermediates) and of a key file (PKCS #8, PKCS #1 or SEC 1, not encrypted). Both may
+    /// be the same text.
+    pub fn from_pem(cert_pem: &[u8], key_pem: &[u8]) -> io::Result<Identity> {
+        let certs = pem::certificates(cert_pem)?;
+        let key = pem::private_key(key_pem)?;
+        Identity::new(&certs, &key)
+    }
+
+    /// [`from_pem`](Identity::from_pem) on two files; errors about a file name it.
+    pub fn load(cert: &Path, key: &Path) -> io::Result<Identity> {
+        let named = |p: &Path, e: io::Error| io::Error::new(e.kind(), format!("{}: {e}", p.display()));
+        let certs = std::fs::read(cert).and_then(|t| pem::certificates(&t)).map_err(|e| named(cert, e))?;
+        let block = std::fs::read(key).and_then(|t| pem::private_key(&t)).map_err(|e| named(key, e))?;
+        Identity::new(&certs, &block)
+    }
+
+    fn new(certs: &[Vec<u8>], key: &pem::Block) -> io::Result<Identity> {
+        let info = info_of(&certs[0])?;
+        Ok(Identity { inner: Arc::new(backend::Identity::new(certs, key)?), info })
+    }
+
+    pub fn fingerprint(&self) -> Fingerprint {
+        self.info.fingerprint
+    }
+
+    /// The certificate's fingerprint and validity.
+    pub fn info(&self) -> CertificateInfo {
+        self.info
+    }
+}
+
+/// A new self-signed certificate and its private key, in PEM.
+pub struct SelfSigned {
+    pub cert_pem: String,
+    pub key_pem: String,
+}
+
+/// Makes a self-signed certificate (ECDSA P-256 signed with SHA-256, extended key usage
+/// "server authentication") for `names`, each a DNS name or an IP address, valid from a day
+/// before now for `days` days. The first name is also the subject's common name. Browsers
+/// still warn about it (nobody vouches for it); clients that know its fingerprint can pin it.
+pub fn generate_self_signed(names: &[&str], days: u32) -> io::Result<SelfSigned> {
+    if names.is_empty() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "a certificate needs at least one name"));
+    }
+    let mut parsed = Vec::with_capacity(names.len());
+    for &n in names {
+        parsed.push(match n.parse::<std::net::IpAddr>() {
+            Ok(ip) => SubjectName::Ip(ip),
+            Err(_) if is_dns_name(n) => SubjectName::Dns(n.to_ascii_lowercase()),
+            Err(_) => {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    format!("not a host name or IP address: {n}"),
+                ));
+            }
+        });
+    }
+    let now = crate::util::time::unix_now();
+    let (cert_pem, key_pem) =
+        backend::generate_self_signed(names[0], &parsed, now - 86_400, now + i64::from(days) * 86_400)?;
+    Ok(SelfSigned { cert_pem, key_pem })
+}
+
+/// A subject alternative name of a generated certificate.
+#[cfg_attr(not(any(windows, unix)), allow(dead_code))]
+pub(crate) enum SubjectName {
+    Dns(String),
+    Ip(std::net::IpAddr),
+}
+
+/// Letters, digits and `-` in dot-separated labels (and a leading `*.`), at most 253 bytes.
+fn is_dns_name(s: &str) -> bool {
+    let s = s.strip_prefix("*.").unwrap_or(s);
+    !s.is_empty()
+        && s.len() <= 253
+        && s.split('.').all(|l| {
+            !l.is_empty() && l.len() <= 63 && l.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+        })
+}
+
+/// A TLS connection over a socket `S`, client or server. Blocking sockets (with timeouts)
+/// and non-blocking ones both work; see [`TlsStream`].
+pub struct Stream<S> {
+    inner: TlsStream<S, Session>,
+}
+
+impl<S: Read + Write> Stream<S> {
+    /// The server side of a connection a client opened. Nothing is sent or read yet: the
+    /// handshake runs in [`handshake`](Stream::handshake), or within the first read or write.
+    pub fn accept(sock: S, identity: &Identity) -> io::Result<Stream<S>> {
+        Ok(Stream { inner: TlsStream::new(sock, Session::server(&identity.inner)?) })
+    }
+
+    /// The client side, for `host` (a DNS name or an IP address literal, used for SNI and for
+    /// [`Verify::System`]). The ClientHello is queued, not sent.
+    pub fn connect(sock: S, host: &str, verify: Verify) -> io::Result<Stream<S>> {
+        Ok(Stream { inner: TlsStream::new(sock, Session::client(host, verify)?) })
+    }
+
+    /// Runs the handshake to its end. With a non-blocking socket (or a timeout) `WouldBlock`
+    /// (`TimedOut` on Windows) comes back until it is done; call again when the socket is ready.
+    pub fn handshake(&mut self) -> io::Result<()> {
+        self.inner.handshake()
+    }
+
+    pub fn is_handshaking(&self) -> bool {
+        self.inner.tls.handshaking()
+    }
+
+    /// The fingerprint of the certificate the server presented, once the handshake is done
+    /// (clients only).
+    pub fn peer_fingerprint(&self) -> Option<Fingerprint> {
+        self.inner.tls.peer_fingerprint()
+    }
+
+    pub fn get_ref(&self) -> &S {
+        &self.inner.sock
+    }
+
+    pub fn get_mut(&mut self) -> &mut S {
+        &mut self.inner.sock
+    }
+}
+
+impl<S: Read + Write> Read for Stream<S> {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.inner.read(buf)
+    }
+}
+
+/// `write` encrypts and sends what the socket takes; with a non-blocking socket or a timeout
+/// the rest stays queued, so finish with `flush`, which fails while anything is left.
+impl<S: Read + Write> Write for Stream<S> {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.inner.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.inner.flush()
+    }
+}
+
+/// One TLS connection, client or server, independent of any socket.
 pub(crate) trait TlsSession {
     /// True until the handshake is done, and again while a post-handshake exchange (TLS 1.3
     /// session tickets reach SChannel as a renegotiation) waits for more data. Application data
@@ -42,11 +285,16 @@ pub(crate) trait TlsSession {
     fn outgoing(&mut self) -> &mut Vec<u8>;
     /// The peer ended the session (close_notify).
     fn closed(&self) -> bool;
+    /// A client's view of the server's certificate, once the handshake is done.
+    fn peer_fingerprint(&self) -> Option<Fingerprint> {
+        None
+    }
 }
 
-/// Starts a client session for `host`. The first handshake message is ready in `outgoing`.
+/// Starts a client session for `host` that verifies the server against the OS trust store.
+/// The first handshake message is ready in `outgoing`.
 pub(crate) fn client(host: &str) -> io::Result<Session> {
-    Session::new(host)
+    Session::client(host, Verify::System)
 }
 
 /// A TLS session over a socket. Works with blocking and non-blocking sockets; with a
@@ -68,6 +316,26 @@ impl<S: Read + Write, T: TlsSession> TlsStream<S, T> {
 
     pub fn get_mut(&mut self) -> &mut S {
         &mut self.sock
+    }
+
+    /// Runs the handshake to its end: see [`Stream::handshake`].
+    pub fn handshake(&mut self) -> io::Result<()> {
+        loop {
+            self.flush_tls()?;
+            if !self.tls.outgoing().is_empty() {
+                return Err(io::ErrorKind::WouldBlock.into());
+            }
+            if !self.tls.handshaking() {
+                return Ok(());
+            }
+            if self.eof || self.tls.closed() {
+                return Err(io::Error::new(
+                    io::ErrorKind::UnexpectedEof,
+                    "connection closed during the TLS handshake",
+                ));
+            }
+            self.read_sock()?;
+        }
     }
 
     /// Writes pending ciphertext until it is gone or the socket would block.
@@ -159,12 +427,38 @@ impl<S: Read + Write, T: TlsSession> Write for TlsStream<S, T> {
 mod unsupported {
     use std::io;
 
+    use super::{SubjectName, Verify};
+
     pub(crate) struct Session;
 
+    fn unsupported() -> io::Error {
+        io::Error::new(io::ErrorKind::Unsupported, "TLS is not available on this platform")
+    }
+
     impl Session {
-        pub fn new(_host: &str) -> io::Result<Session> {
-            Err(io::Error::new(io::ErrorKind::Unsupported, "TLS is not available on this platform"))
+        pub fn client(_host: &str, _verify: Verify) -> io::Result<Session> {
+            Err(unsupported())
         }
+        pub fn server(_identity: &Identity) -> io::Result<Session> {
+            Err(unsupported())
+        }
+    }
+
+    pub(crate) struct Identity;
+
+    impl Identity {
+        pub fn new(_certs: &[Vec<u8>], _key: &super::pem::Block) -> io::Result<Identity> {
+            Err(unsupported())
+        }
+    }
+
+    pub(crate) fn generate_self_signed(
+        _cn: &str,
+        _names: &[SubjectName],
+        _not_before: i64,
+        _not_after: i64,
+    ) -> io::Result<(String, String)> {
+        Err(unsupported())
     }
 
     impl super::TlsSession for Session {
@@ -380,6 +674,164 @@ mod tests {
         let r = s.feed(b"HTTP/1.1 400 Bad Request\r\nContent-Length: 0\r\n\r\n", &mut plain);
         assert!(r.is_err(), "garbage accepted");
         assert!(plain.is_empty());
+    }
+
+    // --- Servers and pinned clients, over loopback -------------------------------------------
+
+    const FIXTURES: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fixtures/tls/");
+
+    fn fixture(name: &str) -> Vec<u8> {
+        std::fs::read(format!("{FIXTURES}{name}")).unwrap()
+    }
+
+    fn reply() -> Vec<u8> {
+        (0..100_000u32).map(|i| (i * 7 + i / 251) as u8).collect()
+    }
+
+    /// Serves one connection: reads 4 bytes, answers with [`reply`], returns what it read.
+    fn serve_once(id: Identity) -> (std::net::SocketAddr, std::thread::JoinHandle<io::Result<Vec<u8>>>) {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let h = std::thread::spawn(move || {
+            let (sock, _) = l.accept()?;
+            sock.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
+            let mut s = Stream::accept(sock, &id)?;
+            s.handshake()?;
+            assert_eq!(s.peer_fingerprint(), None);
+            let mut req = [0u8; 4];
+            s.read_exact(&mut req)?;
+            s.write_all(&reply())?;
+            s.flush()?;
+            Ok(req.to_vec())
+        });
+        (addr, h)
+    }
+
+    fn fetch(addr: std::net::SocketAddr, host: &str, verify: Verify) -> io::Result<Option<Fingerprint>> {
+        let sock = std::net::TcpStream::connect(addr)?;
+        sock.set_read_timeout(Some(std::time::Duration::from_secs(10)))?;
+        let mut c = Stream::connect(sock, host, verify)?;
+        c.write_all(b"ping")?;
+        c.flush()?;
+        let mut got = vec![0u8; 100_000];
+        c.read_exact(&mut got)?;
+        assert!(got == reply(), "payload differs");
+        Ok(c.peer_fingerprint())
+    }
+
+    fn round_trip(id: &Identity, host: &str) {
+        let (addr, server) = serve_once(id.clone());
+        let seen = fetch(addr, host, Verify::Pinned(id.fingerprint())).unwrap();
+        assert_eq!(seen, Some(id.fingerprint()));
+        assert_eq!(server.join().unwrap().unwrap(), b"ping");
+    }
+
+    #[test]
+    fn a_generated_certificate_serves_a_pinned_client() {
+        let pem = generate_self_signed(&["localhost", "127.0.0.1", "::1"], 30).unwrap();
+        assert!(pem.cert_pem.starts_with("-----BEGIN CERTIFICATE-----\n"), "{}", pem.cert_pem);
+        assert!(pem.key_pem.starts_with("-----BEGIN PRIVATE KEY-----\n"), "{}", pem.key_pem);
+        let info = certificate_info(pem.cert_pem.as_bytes()).unwrap();
+        let now = crate::util::time::unix_now();
+        assert!((info.not_before - (now - 86_400)).abs() < 60, "{info:?}");
+        assert!((info.not_after - (now + 30 * 86_400)).abs() < 60, "{info:?}");
+        let id = Identity::from_pem(pem.cert_pem.as_bytes(), pem.key_pem.as_bytes()).unwrap();
+        assert_eq!(id.info(), info);
+        // the name is not checked when pinned
+        round_trip(&id, "127.0.0.1");
+        round_trip(&id, "patorrent.example");
+    }
+
+    #[test]
+    fn keys_in_every_supported_form_serve() {
+        for (cert, key) in [
+            ("ec-cert.pem", "ec-pkcs8.pem"),
+            ("ec-cert.pem", "ec-sec1.pem"),
+            ("rsa-cert.pem", "rsa-pkcs1.pem"),
+        ] {
+            let id =
+                Identity::from_pem(&fixture(cert), &fixture(key)).unwrap_or_else(|e| panic!("{key}: {e}"));
+            round_trip(&id, "localhost");
+        }
+        // one file holding both, as some tools write them
+        let both = [fixture("rsa-pkcs1.pem"), fixture("rsa-cert.pem")].concat();
+        round_trip(&Identity::from_pem(&both, &both).unwrap(), "localhost");
+        let id = Identity::load(
+            &Path::new(FIXTURES).join("ec-cert.pem"),
+            &Path::new(FIXTURES).join("ec-pkcs8.pem"),
+        )
+        .unwrap();
+        assert_eq!(
+            id.fingerprint().to_string(),
+            "78:B1:27:3E:3E:EA:74:50:73:AD:12:CA:BC:20:04:88:A7:81:5B:08:FE:8C:95:CF:8F:0E:A2:4F:89:E0:7D:D5"
+        );
+    }
+
+    #[test]
+    fn identities_that_cannot_work_are_refused() {
+        let e = Identity::from_pem(&fixture("ec-cert.pem"), &fixture("rsa-pkcs1.pem")).err().unwrap();
+        assert!(e.to_string().contains("does not belong"), "{e}");
+        let e = Identity::from_pem(&fixture("rsa-cert.pem"), &fixture("ec-sec1.pem")).err().unwrap();
+        assert!(e.to_string().contains("does not belong"), "{e}");
+        let e = Identity::from_pem(&fixture("ec-cert.pem"), &fixture("ec-encrypted.pem")).err().unwrap();
+        assert!(e.to_string().contains("encrypted"), "{e}");
+        let missing = Path::new(FIXTURES).join("missing.pem");
+        let e = Identity::load(&missing, &Path::new(FIXTURES).join("ec-pkcs8.pem")).err().unwrap();
+        assert!(e.to_string().contains("missing.pem"), "{e}");
+        let e = Identity::load(
+            &Path::new(FIXTURES).join("ec-cert.pem"),
+            &Path::new(FIXTURES).join("ec-cert.pem"),
+        )
+        .err()
+        .unwrap();
+        assert!(e.to_string().contains("ec-cert.pem: no private key"), "{e}");
+        assert!(generate_self_signed(&[], 1).is_err());
+        assert!(generate_self_signed(&["bad name"], 1).is_err());
+        assert!(generate_self_signed(&["x,DNS:evil"], 1).is_err());
+    }
+
+    #[test]
+    fn a_client_refuses_a_certificate_it_did_not_accept() {
+        let id = Identity::from_pem(&fixture("ec-cert.pem"), &fixture("ec-pkcs8.pem")).unwrap();
+        // pinned to another certificate: the error names the one presented
+        let other = Identity::from_pem(&fixture("rsa-cert.pem"), &fixture("rsa-pkcs1.pem")).unwrap();
+        let (addr, server) = serve_once(id.clone());
+        let e = fetch(addr, "localhost", Verify::Pinned(other.fingerprint())).unwrap_err();
+        assert!(e.to_string().contains(&id.fingerprint().to_string()), "{e}");
+        assert!(server.join().unwrap().is_err());
+        // verified against the system's roots: a self-signed certificate is not trusted
+        let (addr, server) = serve_once(id);
+        let e = fetch(addr, "localhost", Verify::System).unwrap_err();
+        eprintln!("system verification: {e}");
+        assert!(server.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn a_plaintext_client_fails_the_server_handshake() {
+        let id = Identity::from_pem(&fixture("ec-cert.pem"), &fixture("ec-pkcs8.pem")).unwrap();
+        let (addr, server) = serve_once(id);
+        let mut sock = std::net::TcpStream::connect(addr).unwrap();
+        let start = std::time::Instant::now();
+        sock.write_all(b"GET / HTTP/1.1\r\nHost: localhost\r\n\r\n").unwrap();
+        let e = server.join().unwrap().unwrap_err();
+        eprintln!("plain request: {e}");
+        // at once, not after the read timeout
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "{e}");
+    }
+
+    #[test]
+    fn fingerprints_print_and_parse() {
+        let f = Fingerprint([0xab; 32]);
+        let text = f.to_string();
+        assert_eq!(text.len(), 32 * 3 - 1);
+        assert!(text.starts_with("AB:AB:"));
+        assert_eq!(Fingerprint::parse(&text), Some(f));
+        assert_eq!(Fingerprint::parse(&text.replace(':', "").to_lowercase()), Some(f));
+        assert_eq!(Fingerprint::parse(&text.replace(':', " ")), Some(f));
+        assert_eq!(Fingerprint::parse("AB:CD"), None);
+        assert_eq!(Fingerprint::parse(&format!("{text}:00")), None);
+        assert!(is_dns_name("my-box.lan") && is_dns_name("*.example.org") && is_dns_name("localhost"));
+        assert!(!is_dns_name("") && !is_dns_name("a..b") && !is_dns_name("a b") && !is_dns_name("-x,y"));
     }
 
     // --- Live checks (network): set LT_NETWORK_TESTS=1 and run with --ignored --------------

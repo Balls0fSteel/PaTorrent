@@ -48,6 +48,8 @@ pub use move_completed::{MoveCompleted, same_dir};
 /// A blocking HTTP / HTTPS `GET` for frontends (Add Torrent from URL, RSS feeds).
 pub use net::fetch;
 pub use net::ip_filter::{IpFilter, IpFilterLoad, IpRange, PortFilter};
+/// TLS over the OS library: HTTPS for the Web UI (servers) and pinned clients.
+pub use net::tls;
 pub use params::{
     AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags, TorrentSource,
 };

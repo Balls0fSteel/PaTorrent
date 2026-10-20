@@ -130,7 +130,7 @@ To be validated by `tools/swarm` on a reference machine and tracked per release.
 | File I/O | `ReadFile`/`WriteFile` with offsets; sparse files (`FSCTL_SET_SPARSE`); optional preallocation | `pread`/`pwrite`; `fallocate`/`posix_fallocate`; sparse by default |
 | Interfaces & routes (`enum_net.cpp`) | `GetAdaptersAddresses`, `GetIpForwardTable2` | `getifaddrs`; netlink (Linux), routing sysctl (BSD) |
 | Network change notification (`ip_notifier.cpp`) | `NotifyIpInterfaceChange` | netlink / `PF_ROUTE` socket |
-| TLS (HTTPS trackers and web seeds) | SChannel (OS) | system OpenSSL / LibreSSL (both in `core::net::tls`, PLAN.md D9) |
+| TLS (HTTPS trackers and web seeds; the Web UI's HTTPS server) | SChannel (OS), server keys in CNG | system OpenSSL / LibreSSL (both in `core::net::tls`, PLAN.md D9) |
 | Randomness | `ProcessPrng` / `BCryptGenRandom` | `getrandom` / `arc4random` |
 
 ## Dependency policy

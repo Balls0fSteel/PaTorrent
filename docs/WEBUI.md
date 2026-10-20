@@ -279,7 +279,20 @@ As today: SID cookie, PBKDF2 password hash, failed-login ban, Host validation, b
 clients, CSRF checks on every `POST` and on the WebSocket handshake (`Origin` must match the
 request's own origin or the domain list). Added: `Content-Security-Policy: default-src 'self'`
 (so no inline script or style in the HTML), `X-Content-Type-Options: nosniff`,
-`Referrer-Policy: no-referrer`, `ETag` on the three static files. TLS is the open Phase 6 item.
+`Referrer-Policy: no-referrer`, `ETag` on the three static files.
+
+HTTPS (`--webui-https`, or `--webui-cert FILE [--webui-key FILE]`): the port serves TLS only,
+through the OS library (SChannel on Windows, OpenSSL on Unix: `patorrent_core::tls`), TLS 1.2
+and 1.3. `--webui-https` alone makes a self-signed certificate on first use (ECDSA P-256, 825
+days, the loopback names, the host name and a specific listen address) and keeps it in the
+config directory as `webui-cert.pem` / `webui-key.pem`, renewed a month before it expires; nox
+prints its SHA-256 fingerprint at every start, which is what a browser's certificate warning
+should be checked against. With HTTPS the session cookie is `Secure`, and a plain-HTTP request
+to the port gets a `301` to the `https://` address. On Windows the key is imported into the
+running account's CNG key store under a name of the process (SChannel signs in LSASS, which
+cannot use a key held only in our process). It is deleted once the Web UI and its last
+connection are gone; when that did not happen before the process ended (killed, or a WebSocket
+still open at exit), the next start deletes it. It is a copy of a key that is on disk anyway.
 
 ## Budgets (gates, like the desktop's)
 

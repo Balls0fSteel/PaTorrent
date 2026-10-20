@@ -1,12 +1,15 @@
 //! Sockets: the acceptor thread and one thread per connection (keep-alive, pipelining, size
-//! limits, timeouts), and the WebSocket loop a `GET /pa/ws` turns its connection thread into.
+//! limits, timeouts, the TLS handshake with HTTPS), and the WebSocket loop a `GET /pa/ws` turns
+//! its connection thread into.
 
-use std::io::{ErrorKind, Read, Write};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream};
+use std::io::{self, ErrorKind, Read, Write};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
+use patorrent_core::tls;
 
 use super::api::{self, Request, UNAUTHENTICATED_BODY};
 use super::http::{HttpError, Response, parse_head};
@@ -47,10 +50,13 @@ pub(super) fn spawn(
                 continue;
             };
             if active.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
-                let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
-                let mut out = Vec::new();
-                Response::text(503, "too many connections").write(false, false, &mut out);
-                let _ = stream.write_all(&out);
+                // (an HTTPS client would not read a plain-text answer: it is just closed)
+                if shared.tls.is_none() {
+                    let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
+                    let mut out = Vec::new();
+                    Response::text(503, "too many connections").write(false, false, &mut out);
+                    let _ = stream.write_all(&out);
+                }
                 continue;
             }
             let peer = match stream.peer_addr() {
@@ -90,13 +96,112 @@ pub(super) fn wake(addr: SocketAddr) {
     let _ = TcpStream::connect_timeout(&target, Duration::from_secs(1));
 }
 
+/// A client's connection: plain HTTP, or HTTPS once the TLS handshake is done.
+enum Conn {
+    Plain(TcpStream),
+    Tls(Box<tls::Stream<TcpStream>>),
+}
+
+impl Conn {
+    fn tcp(&self) -> &TcpStream {
+        match self {
+            Conn::Plain(s) => s,
+            Conn::Tls(s) => s.get_ref(),
+        }
+    }
+
+    fn set_read_timeout(&self, t: Duration) {
+        let _ = self.tcp().set_read_timeout(Some(t));
+    }
+
+    /// Half-closes the socket. A TLS connection ends without a close_notify alert, which
+    /// HTTP/1.1 tolerates (messages carry their length).
+    fn shutdown_write(&self) {
+        let _ = self.tcp().shutdown(Shutdown::Write);
+    }
+}
+
+impl Read for Conn {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        match self {
+            Conn::Plain(s) => s.read(buf),
+            Conn::Tls(s) => s.read(buf),
+        }
+    }
+}
+
+impl Write for Conn {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        match self {
+            Conn::Plain(s) => s.write(buf),
+            Conn::Tls(s) => s.write(buf),
+        }
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        match self {
+            Conn::Plain(s) => s.flush(),
+            Conn::Tls(s) => s.flush(),
+        }
+    }
+}
+
+/// Writes all of `data`; with TLS, also what the socket had no room for (`flush`).
+fn write_out(stream: &mut Conn, data: &[u8]) -> bool {
+    stream.write_all(data).is_ok() && stream.flush().is_ok()
+}
+
+/// The TLS handshake of an HTTPS connection, each read within [`HEAD_TIMEOUT`]. A client that
+/// speaks plain HTTP to the HTTPS port is sent to the `https://` address instead.
+fn start_tls(stream: TcpStream, identity: &tls::Identity, shared: &Shared) -> Option<Conn> {
+    let _ = stream.set_read_timeout(Some(HEAD_TIMEOUT));
+    let mut first = [0u8; 1];
+    if !matches!(stream.peek(&mut first), Ok(1)) {
+        return None;
+    }
+    // a TLS connection starts with a handshake record (22)
+    if first[0] != 22 {
+        redirect_to_https(Conn::Plain(stream), shared);
+        return None;
+    }
+    let mut tls = tls::Stream::accept(stream, identity).ok()?;
+    tls.handshake().ok()?;
+    Some(Conn::Tls(Box::new(tls)))
+}
+
+/// Answers a plain-HTTP request on the HTTPS port with a redirect to the same host over HTTPS.
+fn redirect_to_https(mut stream: Conn, shared: &Shared) {
+    let mut buf = Vec::new();
+    let head = loop {
+        match parse_head(&buf, &shared.limits) {
+            Ok(Some((h, _))) => break h,
+            Ok(None) => {}
+            Err(_) => return,
+        }
+        if !matches!(read_more(&mut stream, &mut buf), ReadOutcome::Data) {
+            return;
+        }
+    };
+    let host = head
+        .header("host")
+        .filter(|h| !h.is_empty() && h.bytes().all(|b| b.is_ascii_alphanumeric() || b".-:[]".contains(&b)));
+    let r = match host {
+        Some(host) => {
+            let url = format!("https://{host}/");
+            Response::text(301, format!("This server speaks HTTPS: {url}\n")).with_header("Location", url)
+        }
+        None => Response::text(400, "This server speaks HTTPS.\n"),
+    };
+    send_and_close(&mut stream, &r);
+}
+
 enum ReadOutcome {
     Data,
     Closed,
     TimedOut,
 }
 
-fn read_more(stream: &mut TcpStream, buf: &mut Vec<u8>) -> ReadOutcome {
+fn read_more(stream: &mut Conn, buf: &mut Vec<u8>) -> ReadOutcome {
     let mut chunk = [0u8; 16 * 1024];
     loop {
         match stream.read(&mut chunk) {
@@ -114,20 +219,27 @@ fn read_more(stream: &mut TcpStream, buf: &mut Vec<u8>) -> ReadOutcome {
     }
 }
 
-fn send(stream: &mut TcpStream, r: &Response, keep_alive: bool, head_only: bool) -> bool {
+fn send(stream: &mut Conn, r: &Response, keep_alive: bool, head_only: bool) -> bool {
     let mut out = Vec::with_capacity(r.body.len() + 512);
     r.write(keep_alive, head_only, &mut out);
-    stream.write_all(&out).is_ok()
+    write_out(stream, &out)
 }
 
-fn connection(mut stream: TcpStream, peer: SocketAddr, shared: &Shared) {
+fn connection(stream: TcpStream, peer: SocketAddr, shared: &Shared) {
     let _ = stream.set_nodelay(true);
     let _ = stream.set_write_timeout(Some(WRITE_TIMEOUT));
+    let mut stream = match &shared.tls {
+        None => Conn::Plain(stream),
+        Some(identity) => match start_tls(stream, identity, shared) {
+            Some(conn) => conn,
+            None => return,
+        },
+    };
     let limits = shared.limits;
     let mut buf: Vec<u8> = Vec::new();
     loop {
         // the head
-        let _ = stream.set_read_timeout(Some(IDLE_TIMEOUT));
+        stream.set_read_timeout(IDLE_TIMEOUT);
         let mut started: Option<Instant> = if buf.is_empty() { None } else { Some(Instant::now()) };
         let (head, used) = loop {
             match parse_head(&buf, &limits) {
@@ -144,7 +256,7 @@ fn connection(mut stream: TcpStream, peer: SocketAddr, shared: &Shared) {
                     send_and_close(&mut stream, &Response::text(408, "Request Timeout"));
                     return;
                 }
-                let _ = stream.set_read_timeout(Some(left.min(IDLE_TIMEOUT)));
+                stream.set_read_timeout(left.min(IDLE_TIMEOUT));
             }
             match read_more(&mut stream, &mut buf) {
                 ReadOutcome::Data => {
@@ -164,7 +276,7 @@ fn connection(mut stream: TcpStream, peer: SocketAddr, shared: &Shared) {
         if head.path == WS_PATH {
             match api::websocket_handshake(shared, &head, peer.ip()) {
                 Ok((key, ws_key)) => {
-                    if stream.write_all(&ws::handshake_response(&ws_key)).is_ok() {
+                    if write_out(&mut stream, &ws::handshake_response(&ws_key)) {
                         websocket(stream, buf, shared, &key);
                     }
                 }
@@ -182,7 +294,7 @@ fn connection(mut stream: TcpStream, peer: SocketAddr, shared: &Shared) {
         }
         if head.expect_continue
             && buf.len() < head.content_length
-            && stream.write_all(b"HTTP/1.1 100 Continue\r\n\r\n").is_err()
+            && !write_out(&mut stream, b"HTTP/1.1 100 Continue\r\n\r\n")
         {
             return;
         }
@@ -193,7 +305,7 @@ fn connection(mut stream: TcpStream, peer: SocketAddr, shared: &Shared) {
                 send_and_close(&mut stream, &Response::text(408, "Request Timeout"));
                 return;
             }
-            let _ = stream.set_read_timeout(Some(left.min(IDLE_TIMEOUT)));
+            stream.set_read_timeout(left.min(IDLE_TIMEOUT));
             match read_more(&mut stream, &mut buf) {
                 ReadOutcome::Data => {}
                 ReadOutcome::Closed => return,
@@ -221,12 +333,12 @@ fn connection(mut stream: TcpStream, peer: SocketAddr, shared: &Shared) {
 /// Sends a final response, then reads (and drops) what the client is still sending for a
 /// moment before closing, so the close does not reset the connection and lose the response
 /// (a "lingering close").
-fn send_and_close(stream: &mut TcpStream, r: &Response) {
+fn send_and_close(stream: &mut Conn, r: &Response) {
     if !send(stream, r, false, false) {
         return;
     }
-    let _ = stream.shutdown(std::net::Shutdown::Write);
-    let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+    stream.shutdown_write();
+    stream.set_read_timeout(Duration::from_secs(2));
     let mut sink = [0u8; 16 * 1024];
     let mut left: usize = 1024 * 1024;
     while left > 0 {
@@ -244,7 +356,7 @@ fn error_response(e: HttpError) -> Response {
 /// The WebSocket loop, on the connection's own thread: `hello` first, then client frames as
 /// they come (read with a short timeout) and a `tick` whenever the cache's tick counter moved
 /// past the last one sent. `buf` holds whatever arrived after the upgrade request.
-fn websocket(mut stream: TcpStream, mut buf: Vec<u8>, shared: &Shared, key: &str) {
+fn websocket(mut stream: Conn, mut buf: Vec<u8>, shared: &Shared, key: &str) {
     let max = shared.limits.max_message;
     let mut client = Client::new();
     let mut assembler = ws::Assembler::new(max);
@@ -254,10 +366,10 @@ fn websocket(mut stream: TcpStream, mut buf: Vec<u8>, shared: &Shared, key: &str
         ws::write_text(&client.hello(&st).to_json(), &mut out);
         st.tick
     };
-    if stream.write_all(&out).is_err() {
+    if !write_out(&mut stream, &out) {
         return;
     }
-    let _ = stream.set_read_timeout(Some(WS_POLL));
+    stream.set_read_timeout(WS_POLL);
     let mut last_heard = Instant::now();
     let mut pinged = false;
     loop {
@@ -301,11 +413,11 @@ fn websocket(mut stream: TcpStream, mut buf: Vec<u8>, shared: &Shared, key: &str
         }
         if let Some((code, reason)) = close {
             ws::write_close(code, &reason, &mut out);
-            let _ = stream.write_all(&out);
-            let _ = stream.shutdown(std::net::Shutdown::Write);
+            write_out(&mut stream, &out);
+            stream.shutdown_write();
             // read what the client still sends (its close frame) for a moment, as a lingering
             // close, so it sees ours
-            let _ = stream.set_read_timeout(Some(Duration::from_secs(2)));
+            stream.set_read_timeout(Duration::from_secs(2));
             let mut sink = [0u8; 4096];
             while matches!(stream.read(&mut sink), Ok(n) if n > 0) {}
             return;
@@ -322,7 +434,7 @@ fn websocket(mut stream: TcpStream, mut buf: Vec<u8>, shared: &Shared, key: &str
                         // logged out elsewhere, or the session expired
                         drop(st);
                         ws::write_close(1008, "session ended", &mut out);
-                        let _ = stream.write_all(&out);
+                        write_out(&mut stream, &out);
                         return;
                     }
                 }
@@ -337,14 +449,14 @@ fn websocket(mut stream: TcpStream, mut buf: Vec<u8>, shared: &Shared, key: &str
         let silent = last_heard.elapsed();
         if silent > 2 * WS_PING_AFTER {
             ws::write_close(1001, "no reply to ping", &mut out);
-            let _ = stream.write_all(&out);
+            write_out(&mut stream, &out);
             return;
         }
         if silent > WS_PING_AFTER && !pinged {
             pinged = true;
             ws::write_frame(Opcode::Ping, b"pa", &mut out);
         }
-        if !out.is_empty() && stream.write_all(&out).is_err() {
+        if !out.is_empty() && !write_out(&mut stream, &out) {
             return;
         }
         match read_more(&mut stream, &mut buf) {

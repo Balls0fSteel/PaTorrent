@@ -1,0 +1,22 @@
+[package]
+name = "patorrent-gtk"
+description = "PaTorrent's GTK 4 GUI for Linux, the BSDs and macOS, in the spirit of µTorrent 2.2.1."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+patorrent-core.workspace = true
+patorrent-frontend.workspace = true
+
+# GTK 4.12 or later (Ubuntu 24.04, Debian 13, Fedora 39). gtk4-rs 0.10 is the last line that
+# builds with the workspace's Rust 1.85 (0.11 needs 1.92). Windows builds the stub in main.rs.
+[target.'cfg(unix)'.dependencies]
+gtk = { package = "gtk4", version = "0.10", features = ["v4_12"] }
+
+[lints]
+workspace = true

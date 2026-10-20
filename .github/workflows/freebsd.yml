@@ -16,7 +16,7 @@ jobs:
       - uses: vmactions/freebsd-vm@v1
         with:
           usesh: true
-          prepare: pkg install -y rust
+          prepare: pkg install -y rust gtk4 pkgconf
           run: |
             cargo --version
             cargo test --workspace

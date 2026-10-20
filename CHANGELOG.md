@@ -2,6 +2,27 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_133622_1792496182: The GTK GUI's main window (Phase 7, slice 1)
+
+### Added
+- **`patorrent-gtk`** (`crates/gtk`, gtk4-rs 0.10 for GTK 4.12 or later; on Windows a stub that says to use `patorrent.exe`): the µTorrent 2.2.1 main window on the real engine, from the same `frontend` models as the Win32 client.
+  - The torrent list is a `GtkColumnView` over `RowModel`, a `GListModel` of `TorrentList::view` that makes a row object only when GTK asks for one (no object per torrent). Cells are drawn by the frontend's columns (the Done column as a bar with its percentage on it); only the bound (visible) cells are redrawn at each update, and when the order or the rows change the model is replaced and the selection put back by torrent id. Every column with its width and order from `patorrent.ini`, a column chooser in the header's menu, sort by header (the frontend sorts; the header shows it), multi-selection, a right click selects the row and opens the torrent menu (Open Containing Folder, Force Start, Start, Pause, Stop, the queue moves, Force Re-Check, Update Tracker, Remove, Remove And Delete Data), a double click opens the folder.
+  - The category list (Torrents, Downloading, Completed, Active, Inactive, then Labels: No Label and each label) with live counts; the toolbar; the menu bar (File: Add Torrent, Add Torrent from URL, Exit; Help: About); the status bar (network, DHT nodes, the two speeds and totals); Ctrl+O, Ctrl+U, Delete, Shift+Delete, Ctrl+A, Ctrl+Q.
+  - Adding: the file dialog (several `.torrent` files), Add Torrent from URL (a magnet or an `http(s)` `.torrent`, offered from the clipboard, fetched on a worker thread with `core::fetch`), and the command line. One instance per user (`GtkApplication`, id `io.github.balls0fsteel.PaTorrent`): a second start hands its arguments to the first, links as typed (`HANDLES_COMMAND_LINE`; GIO's own file handling turned `magnet:` into a broken file URI), paths relative to the caller.
+  - Settings in `$XDG_CONFIG_HOME/patorrent/gtk/patorrent.ini` (the Win32 client's keys: the engine settings as `lt.*`, columns, sort, per-torrent label and pause), the torrent library in `$XDG_DATA_HOME/patorrent/gtk`; window size, maximized state and the sidebar's width saved at exit, when the engine saves its state.
+- CI: `libgtk-4-dev` for the Linux test and MSRV jobs, `gtk4` and `pkgconf` on FreeBSD.
+
+### Verified
+- On the Ubuntu VM: `cargo build`, `cargo clippy -p patorrent-gtk --all-targets -- -D warnings`, `cargo +1.85.0 check -p patorrent-gtk` (gtk4-rs 0.10 keeps the MSRV), the unit test (XDG folders). Windows: the workspace builds (the stub), clippy and fmt clean; the Linux-target lint from Windows excludes the GTK crate (its build scripts need the target's pkg-config).
+- Screenshots in Xvfb on the Xubuntu VM: three magnets given on the command line appear as rows (name, queue number, the Done bar, "Downloading metadata", counts in the category list), and a right click on a row selects it and opens the torrent menu.
+
+### Fixed (found on the way)
+- The first build never showed torrents: the engine had queued alerts before the notification was installed, and the notification fires only when the queue goes from empty to not, so it never fired. The window drains the queue once after installing it.
+
+### Issues
+- Not yet: the detail tabs, every dialog but the URL one, the tray, autostart and associations, remote mode, the application icon (PLAN.md Phase 7 slices 2 to 5).
+- Not clicked through by hand on a real desktop; the screenshots are Xvfb without a window manager.
+
 ## 2026-10-20_132211_1792495331: The remote tests on Linux
 
 ### Verified

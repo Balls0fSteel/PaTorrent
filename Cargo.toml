@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/core", "crates/frontend", "crates/win32", "crates/nox", "tools/swarm"]
+members = ["crates/core", "crates/frontend", "crates/win32", "crates/nox", "crates/gtk", "tools/swarm"]
 resolver = "3"
 
 [workspace.package]

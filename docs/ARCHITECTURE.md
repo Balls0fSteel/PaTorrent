@@ -174,7 +174,7 @@ h.pop_alerts(&mut alerts);
 ## Persistence
 
 - **Store** (`core::store`, optional but used by every frontend):
-  - `resume.db`: one bencoded record per torrent. Records carry the libtorrent fastresume fields plus frontend metadata such as label and "paused vs stopped". It is written incrementally (dirty records appended, compacted when the garbage ratio exceeds a threshold), with atomic replace on compaction.
+  - `resume.db`: one bencoded record per torrent. Records carry the libtorrent fastresume fields plus frontend metadata such as label and "paused vs stopped". It is written incrementally: each save appends the changed records (and removals) to `resume.log`, which is replayed over `resume.db` at startup and folded into a new `resume.db` (atomic replace) once it passes half its size and 4 MiB. The session keeps a hash per record, not the records.
   - `metadata.pack`: append-only, indexed by info-hash, holding raw info dictionaries. Read lazily.
   - `dht_state.dat`: DHT node ids and the routing table's nodes (libtorrent `dht_state` format), written by the engine on shutdown and every 30 minutes, read at startup to bootstrap.
 - **Frontend settings:** `settings.ini`, human-editable.

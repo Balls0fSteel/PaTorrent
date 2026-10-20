@@ -2,6 +2,21 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_105225_1792486345: The resume database is journaled
+
+### Changed
+- **`resume.log`**: a save no longer rewrites `resume.db` (87 MB at 100,000 torrents, every 30 seconds while any torrent changes); it appends the changed records and removals to the journal `resume.log` (entries `"LTR1"`, key, length, record; `u32::MAX` for a removal), which is replayed over `resume.db` at startup. Once the journal passes half of `resume.db` and 4 MiB, both are folded into a new `resume.db` (atomic replace, then the journal is emptied; a crash in between replays records already folded in, which is harmless). A torn entry at the journal's end (a crash while appending) is cut off, as in the metadata pack. Records that do not load are left out at the next fold, as before at the next save.
+- The store keeps a 64-bit hash per record to skip unchanged ones, instead of a copy of every encoded record.
+- docs/ARCHITECTURE.md's persistence section described this design already; it now says how it works.
+
+### Verified
+- New test `store::tests::the_journal_holds_changes_and_is_folded_in` (only changes appended, an unchanged record writes nothing, replay with an update and a removal, a torn entry cut, folding past the threshold, the result after a reopen); the existing store tests pass unchanged.
+- `lt-swarm load --count 100000`: 359 MB working set after restoring (419 MB before), restored in 2.1 s.
+- Windows: `cargo test --workspace` 1023 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`; Linux-target clippy; `cargo +stable fmt --all --check`.
+
+### Issues
+- Stores written by this version replay their journal; an older build would read `resume.db` alone and miss the newer changes (pre-alpha, no compatibility promise).
+
 ## 2026-10-20_104706_1792486026: Sessions of more than about 22,000 torrents load again; first 100,000-torrent measurement
 
 ### Fixed

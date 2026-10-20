@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-20_104706_1792486026
+Last updated: 2026-10-20_105225_1792486345
 
 ## Vision
 
@@ -307,7 +307,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 
 **Scale (D21):**
 5. The 100,000-torrent gate on a low-end machine (proposal: 2 cores, 4 GB RAM, a hard disk, Windows 10 and a light Linux; numbers: startup to a painted list, idle CPU, scroll and sort latency, add / remove at that size). The real engine and the Web UI have only been measured at 10,000 so far. Fix what it shows.
-   - First engine run at 100,000 (2026-10-20_104706_1792486026, this development machine, `lt-swarm load --count 100000`): the store did not open beyond about 22,000 torrents (bdecode's token limit on `resume.db`; fixed). Now: restored in 2.0 s, 419 MB working set, 87 MB `resume.db` + 2.1 GB `metadata.pack`. Follow-ups it shows: about 4 KB per stopped torrent (the store's in-memory copy of every encoded record, 87 MB; the 1.4 KB `Torrent` struct and its heap parts: a compact stopped-torrent form would help); `resume.db` rewritten whole on every save (87 MB; an append-only journal or per-torrent records); restore time (2 s, mostly decoding `resume.db`). Still to measure: the GUIs and the Web UI at 100,000, idle CPU, a low-end machine.
+   - First engine run at 100,000 (2026-10-20_104706_1792486026, this development machine, `lt-swarm load --count 100000`): the store did not open beyond about 22,000 torrents (bdecode's token limit on `resume.db`; fixed). Now: restored in 2.0 s, 419 MB working set, 87 MB `resume.db` + 2.1 GB `metadata.pack`. Follow-ups it shows: ~~`resume.db` rewritten whole on every save~~ and ~~the store's in-memory copy of every record~~: the journal `resume.log` (2026-10-20_105225_1792486345), 359 MB at 100,000 now; still about 3.4 KB per stopped torrent (the 1.4 KB `Torrent` struct and its heap parts: a compact stopped-torrent form would help); restore time (2 s, mostly decoding `resume.db`). Still to measure: the GUIs and the Web UI at 100,000, idle CPU, a low-end machine.
 
 **Packaging (D22):**
 6. Windows: a release zip (`patorrent.exe`, `patorrent-nox.exe`, LICENSE.md, THIRD-PARTY-NOTICES.md) built by a tagged-release workflow.

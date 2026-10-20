@@ -17,6 +17,9 @@
 //! `--encryption forced|enabled|disabled` sets the MSE/PE policy on both sides (`forced` means
 //! RC4 only, as the clients' "require encryption" does); the probe then handshakes encrypted too,
 //! and the result lines report what the connection used.
+//!
+//! `--version v1|hybrid|v2` picks the torrent's BitTorrent version (BEP 52); v2 and hybrid
+//! torrents are made by `create_torrent` and have pad files between the files.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -28,6 +31,9 @@ use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
 use patorrent_core::crypto::mse::Rc4Handler;
 use patorrent_core::fuzzing::{PeHandshake, PeStep};
+use patorrent_core::metainfo::{
+    CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, set_piece_hashes,
+};
 use patorrent_core::{
     AddTorrentParams, Alert, EncLevel, EncPolicy, PeerFlags, Session, SessionHandle, SessionParams, Settings,
     Sha1Hash, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
@@ -98,8 +104,29 @@ impl Encryption {
     }
 }
 
+/// The test torrent's BitTorrent version.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Version {
+    #[default]
+    V1,
+    Hybrid,
+    V2,
+}
+
+impl Version {
+    pub fn parse(s: &str) -> Option<Version> {
+        match s {
+            "v1" => Some(Version::V1),
+            "hybrid" => Some(Version::Hybrid),
+            "v2" => Some(Version::V2),
+            _ => None,
+        }
+    }
+}
+
 pub struct Options {
     pub clients: Vec<Client>,
+    pub version: Version,
     pub mb: usize,
     pub qbittorrent: PathBuf,
     pub wsl_distro: String,
@@ -111,6 +138,7 @@ impl Default for Options {
     fn default() -> Options {
         Options {
             clients: Client::ALL.to_vec(),
+            version: Version::V1,
             mb: 40,
             qbittorrent: if cfg!(windows) {
                 PathBuf::from(r"C:\Program Files\qBittorrent\qbittorrent.exe")
@@ -136,7 +164,7 @@ struct Fixture {
     total: u64,
 }
 
-fn fixture(work: &Path, mb: usize) -> std::io::Result<Fixture> {
+fn fixture(work: &Path, mb: usize, version: Version) -> std::io::Result<Fixture> {
     let total = mb.max(1) << 20;
     // Odd sizes so pieces straddle files and the last piece is short.
     let a = total / 4 + 12_345;
@@ -165,6 +193,9 @@ fn fixture(work: &Path, mb: usize) -> std::io::Result<Fixture> {
         list.list_mut().push(f);
         files.push(name.to_owned());
     }
+    if version != Version::V1 {
+        return created_fixture(work, &seed, files, total as u64, version);
+    }
     let mut pieces = Vec::new();
     for c in all.chunks(PIECE) {
         pieces.extend_from_slice(&Sha1::digest(c).0);
@@ -189,6 +220,37 @@ fn fixture(work: &Path, mb: usize) -> std::io::Result<Fixture> {
         num_pieces: total.div_ceil(PIECE),
         files,
         total: total as u64,
+    })
+}
+
+/// A v2 or hybrid torrent of the files in `seed`, made by `create_torrent`.
+fn created_fixture(
+    work: &Path,
+    seed: &Path,
+    files: Vec<String>,
+    total: u64,
+    version: Version,
+) -> std::io::Result<Fixture> {
+    let err = |e: patorrent_core::metainfo::CreateTorrentError| std::io::Error::other(e.to_string());
+    let mut fs = FileStorage::new();
+    add_files(&mut fs, seed, &mut |_| true, CreateFlags::empty()).map_err(err)?;
+    let flags = if version == Version::V2 { CreateFlags::V2_ONLY } else { CreateFlags::empty() };
+    let mut t = CreateTorrent::new(fs, PIECE as u32, flags).map_err(err)?;
+    t.set_creator("lt-swarm interop");
+    set_piece_hashes(&mut t, seed.parent().expect("has a parent"), &mut |_| true).map_err(err)?;
+    let torrent = t.generate_buf().map_err(err)?;
+    let ti = TorrentInfo::from_bytes(&torrent).map_err(|e| std::io::Error::other(e.to_string()))?;
+    let torrent_path = work.join(format!("{NAME}.torrent"));
+    std::fs::write(&torrent_path, &torrent)?;
+    Ok(Fixture {
+        work: work.to_path_buf(),
+        torrent_path,
+        // the hash a handshake uses: v1 for a hybrid, the truncated v2 hash for v2 only
+        info_hash: ti.info_hash().0,
+        num_pieces: ti.num_pieces() as usize,
+        torrent,
+        files,
+        total,
     })
 }
 
@@ -679,7 +741,7 @@ fn run_one(client: Client, f: &Fixture, opts: &Options) -> Result<(String, Trans
 pub fn run(opts: &Options) -> ExitCode {
     let work = std::env::temp_dir().join(format!("{NAME}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&work);
-    let f = match std::fs::create_dir_all(&work).and_then(|_| fixture(&work, opts.mb)) {
+    let f = match std::fs::create_dir_all(&work).and_then(|_| fixture(&work, opts.mb, opts.version)) {
         Ok(f) => f,
         Err(e) => {
             eprintln!("cannot write the test torrent: {e}");
@@ -688,6 +750,7 @@ pub fn run(opts: &Options) -> ExitCode {
     };
     println!("torrent_bytes={}", f.total);
     println!("torrent_pieces={}", f.num_pieces);
+    println!("torrent_version={}", format!("{:?}", opts.version).to_lowercase());
     if let Some(e) = opts.encryption {
         println!("encryption_policy={}", format!("{e:?}").to_lowercase());
     }

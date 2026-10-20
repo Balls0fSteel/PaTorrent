@@ -157,7 +157,7 @@ Each phase ends with something runnable and measured against the targets in ARCH
 - **Exit criteria:**
   - [x] Downloads a public Linux ISO from its trackers (Debian 13.7.0 netinst, checksum verified).
   - [x] Seeds to qBittorrent, Transmission and Deluge.
-    - [x] qBittorrent 5.2.4 (libtorrent 2.0.x): downloaded a 3-file, 38.7 MiB torrent from `patorrent-nox` over loopback, all files SHA-256 identical, exactly the torrent size downloaded (2026-10-15).
+    - [x] qBittorrent 5.2.4 (a libtorrent 1.2 build: its binary has no v2 code, found 2026-10-20_103025_1792485025): downloaded a 3-file, 38.7 MiB torrent from `patorrent-nox` over loopback, all files SHA-256 identical, exactly the torrent size downloaded (2026-10-15).
     - [x] Transmission 4.1.0-beta.2 (`transmission-cli`) and Deluge 2.2.0 (`deluged` + `deluge-console`, libtorrent 2.0.x) in the Debian 13 WSL distro, across the WSL NAT to nox on Windows: the same torrent, all files SHA-256 identical; nox sent exactly one copy to each (2026-10-15).
   - [x] Downloads from qBittorrent, Transmission and Deluge (reverse direction): `lt-swarm interop` (2026-10-15). 40 MiB, 3 files, files byte-identical, no failed or redundant bytes from any of them. qBittorrent 5.2.4 in 0.2 s and Deluge 2.2.0 in 0.4 s; Transmission 4.1.0-beta.2 in 9.7 s, of which 9.6 s is waiting for its periodic (10 s) rechoke to unchoke us.
   - [x] Restart resumes without a recheck, including partly downloaded pieces (libtorrent `unfinished`).
@@ -276,7 +276,8 @@ BEP 52 is in 1.0 (D19, 2026-10-19_230101_1792443661); BEP 44 / 51 / 55 after it 
   - [x] asking peers for the piece layers (v2 magnets, v2 `.torrent`s without layers) through the hash picker before the check; v2 magnets (`btmh`), a magnet learning its other hash and re-keyed in the store (2026-10-20_102248_1792484568)
   - [ ] hybrids announced under both hashes (trackers with per-version state as libtorrent's `announce_endpoint::info_hashes[2]`, DHT, LSD); PEX `lt_v2` and peers found under the v2 hash marked as v2
   - [x] the Create New Torrent dialog's version choice (Hybrid default) and `patorrent-nox create` defaulting to hybrid (2026-10-20_101643_1792484203)
-  - [ ] interop: a v2-only and a hybrid swarm with qBittorrent (libtorrent 2.0)
+  - [ ] interop: a v2-only and a hybrid swarm with a libtorrent 2.0 client (`lt-swarm interop --version v2|hybrid`, 2026-10-20_103025_1792485025). The installed qBittorrent 5.2.4 is a libtorrent 1.2 build: the hybrid downloads through its v1 half, v2-only is refused. Needs qBittorrent's libtorrent 2.0 build, or qbittorrent-nox / deluged on the Xubuntu VM
+  - [ ] pad files: blocks wholly inside pad files are downloaded as data; libtorrent marks them finished in the piece picker (`apply_pad_files`, `pad_bytes_in_piece`). Hybrids, now the default, pad every file
 - [ ] BEP44 DHT items (ed25519), BEP51 sample_infohashes, BEP55 holepunch
 
 ### Continuous

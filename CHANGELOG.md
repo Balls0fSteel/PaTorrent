@@ -2,6 +2,18 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_103025_1792485025: `lt-swarm interop --version`; the installed qBittorrent is a libtorrent 1.2 build
+
+### Added
+- `lt-swarm interop --version v1|hybrid|v2`: the test torrent's BitTorrent version; v2 and hybrid torrents are made by `create_torrent` (pad files between the files), and the readiness probe handshakes with the hash a connection would use (v1 for a hybrid, the truncated v2 hash for v2 only). v1 stays the default.
+
+### Verified
+- `lt-swarm interop --clients qbittorrent --mb 20 --version hybrid` (release build): the hybrid made by `create_torrent` downloaded from qBittorrent 5.2.4 in 0.11 s, 82 pieces, no failed or redundant bytes.
+
+### Issues
+- `--version v2` against the same qBittorrent fails: it refuses the torrent ("invalid length of torrent [libtorrent:9]", the error a libtorrent without v2 support gives for an info dictionary with no `length` or `files`). Its binary holds none of libtorrent 2.0's v2 strings ("piece layers", "meta version", "file tree"): the installed qBittorrent 5.2.4 is a libtorrent 1.2 build, not 2.0 as PLAN.md said, so the hybrid run above went through its v1 half and the v2 upgrade handshake was not exercised against libtorrent. A v2 interop run needs a libtorrent 2.0 client (qBittorrent's libtorrent 2.0 build, or `qbittorrent-nox` / `deluged` on the Xubuntu VM); WSL2 still does not start here (virtualization off) and both VMs were unreachable.
+- The hybrid run's payload (21.5 MB for 20 MiB of files) includes the pad files' bytes: the engine requests pad blocks from peers as data, where libtorrent marks them finished without downloading them. A follow-up for the piece picker.
+
 ## 2026-10-20_102248_1792484568: v2 magnets; piece layers fetched from peers
 
 ### Added

@@ -2,6 +2,14 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_212035_1792524035: How the translations ship decided
+
+### Decisions
+- Q15 resolved as D26: the translated tables are compiled into every binary, deflated, and inflated at start with `util::puff` (the chosen language's table only). `PATORRENT_LANG=<file>.lng` still loads a loose table for translators.
+
+### Issues
+- The tree can inflate (`util::puff`) but has no deflate encoder, so compressing the tables at build time needs one written in-house (D4).
+
 ## 2026-10-20_155658_1792504618: The language choice in Preferences, the system's language by default
 
 ### Added

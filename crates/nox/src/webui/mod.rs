@@ -161,6 +161,8 @@ pub(crate) struct Prefs {
     pub ip_filter_path: String,
     /// Preferences > Scheduler (`GuiOptions::schedule`).
     pub schedule: Schedule,
+    /// Preferences > General's language (`GuiOptions::language`): the Web UI's, the server's.
+    pub language: String,
     pub bypass_local_auth: bool,
     pub csrf_protection: bool,
     pub host_header_validation: bool,
@@ -198,6 +200,7 @@ impl Prefs {
             ip_filter: false,
             ip_filter_path: String::new(),
             schedule: Schedule::default(),
+            language: String::new(),
             bypass_local_auth: false,
             csrf_protection: true,
             host_header_validation: true,
@@ -237,6 +240,7 @@ impl Prefs {
             ip_filter: self.ip_filter,
             ip_filter_path: self.ip_filter_path.clone(),
             schedule: self.schedule.clone(),
+            language: self.language.clone(),
         }
     }
 
@@ -257,6 +261,7 @@ impl Prefs {
         self.ip_filter = g.ip_filter;
         self.ip_filter_path = g.ip_filter_path.clone();
         self.schedule = g.schedule.clone();
+        self.language = g.language.clone();
     }
 }
 
@@ -724,6 +729,10 @@ impl WebUi {
             // what the Web UI's preferences changed before this start, re-applied; the
             // `preferences` object of state files written before slice 6 holds the shim's keys
             prefs::restore(&shared, &mut st, config.ip_filter.as_deref());
+            // the Web UI's language (Preferences > General); PATORRENT_LANG over it
+            for p in patorrent_frontend::lang::init(&st.prefs.language) {
+                st.push_log(None, p, unix_now());
+            }
             if let Some(legacy @ Json::Obj(_)) = stored.get("preferences") {
                 api::apply_preferences(&shared, &mut st, legacy);
             }

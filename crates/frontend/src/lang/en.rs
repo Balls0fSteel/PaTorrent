@@ -667,8 +667,10 @@ strings! {
     PickStoreDir = "Select the folder to store .torrents in";
     PickFinishedDir = "Select the folder for the .torrents of finished jobs";
     PickAutoloadDir = "Select the folder to load .torrents from";
-    /// The language list's entry for English.
-    LangEnglish = "English";
+    /// The language list's first entry: the system's language, {language} in its own name.
+    LangSystemDefault = "System default ({language})";
+    /// After the language was changed in Preferences.
+    LangRestart = "PaTorrent shows the new language from its next start.";
 
     // ---- RSS Downloader
 

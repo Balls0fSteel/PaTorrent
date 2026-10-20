@@ -305,6 +305,12 @@ and takes its own texts with `T(key, args)`. What the server builds (cells, colu
 the detail tabs, Preferences, the Logger) arrives translated. Tests check that every key the
 page and the script name exists and that the HTML's English is the table's.
 
+The language is Preferences > General's "User interface" (`ui.language` in `webui.json`, a
+choice of `[value, text]` with "System default" first; `PATORRENT_LANG` over it). Applying a new
+one switches the server's texts at once and rebuilds `lang.js`; the page that applied it
+reloads, other open pages keep their texts until they reload. The compat API's `locale` names
+the language in force.
+
 ## Remote mode
 
 A GUI can drive a nox's engine instead of its own (`patorrent_core::remote`; the server side is

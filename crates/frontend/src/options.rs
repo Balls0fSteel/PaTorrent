@@ -68,6 +68,10 @@ pub struct GuiOptions {
     pub ip_filter_path: String,
     /// Preferences > Scheduler (`sched.*`).
     pub schedule: Schedule,
+    /// Preferences > General "User interface" language (`ui.language`): a code of
+    /// [`crate::lang::LANGUAGES`], or empty for the system's. Used from the next start
+    /// (`lang::init`).
+    pub language: String,
 }
 
 impl GuiOptions {
@@ -103,6 +107,7 @@ impl GuiOptions {
             ip_filter: prefs.get_bool("ipfilter.enable", false),
             ip_filter_path: prefs.get("ipfilter.path").unwrap_or_default().to_owned(),
             schedule: Schedule::load(prefs),
+            language: prefs.get("ui.language").unwrap_or_default().trim().to_owned(),
         }
     }
 
@@ -138,6 +143,11 @@ impl GuiOptions {
             prefs.set("ipfilter.path", self.ip_filter_path.trim());
         }
         self.schedule.store(prefs);
+        if self.language.trim().is_empty() {
+            prefs.remove("ui.language");
+        } else {
+            prefs.set("ui.language", self.language.trim());
+        }
     }
 
     /// The block list to load: the configured path, or `ipfilter.dat` in `settings_dir`.
@@ -282,6 +292,7 @@ mod tests {
             ip_filter: true,
             ip_filter_path: r"E:\lists\level1.p2p".into(),
             schedule: crate::scheduler::Schedule { enabled: true, limited_up_kib: 25, ..Default::default() },
+            language: "en".into(),
         };
         changed.store(&mut prefs);
         let text = prefs.to_text();

@@ -3278,7 +3278,7 @@
       l.appendChild(inp);
       l.appendChild(document.createTextNode(" " + f.label));
     } else {
-      l.className = "pf " + (f.type === "int" ? "num" : f.type === "enum" ? "sel" : "txt");
+      l.className = "pf " + (f.type === "int" ? "num" : f.type === "enum" || f.type === "choice" ? "sel" : "txt");
       if (f.label) {
         const sp = document.createElement("span");
         sp.textContent = f.label;
@@ -3292,6 +3292,11 @@
           op.textContent = o;
           inp.appendChild(op);
         });
+        inp.value = v;
+      } else if (f.type === "choice") {
+        // options are [value, text]; the value is sent as it is (the language's code)
+        inp = document.createElement("select");
+        for (const [value, text] of f.options) inp.appendChild(new Option(text, value));
         inp.value = v;
       } else {
         inp = document.createElement("input");
@@ -3676,6 +3681,11 @@
         return;
       }
       if (prefsEdits.has("ui.confirm_delete")) confirmDelete = !!prefsEdits.get("ui.confirm_delete");
+      // a new language: the server's texts follow at once, the page's with a reload (lang.js)
+      if (prefsEdits.has("ui.language")) {
+        location.reload();
+        return;
+      }
       prefsEdits = new Map();
       if (close) {
         closePrefs();

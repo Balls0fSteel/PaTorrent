@@ -375,8 +375,13 @@ pub fn parse_args(args: &[String]) -> Args {
 /// Picks the language from `patorrent.ini` in [`base_data_dir`] (one language for every
 /// window, remote ones included); what went wrong, for the Logger.
 fn init_language() -> Vec<String> {
-    let prefs = Prefs::load(base_data_dir().join("patorrent.ini"));
-    lang::init(prefs.get("ui.language").unwrap_or_default())
+    lang::init(&language_choice())
+}
+
+/// Preferences > General's language (`ui.language`), which lives in [`base_data_dir`]'s
+/// `patorrent.ini` even for a remote window (whose other options are in its own folder).
+fn language_choice() -> String {
+    Prefs::load(base_data_dir().join("patorrent.ini")).get("ui.language").unwrap_or_default().to_owned()
 }
 
 pub fn run(args: Args) -> i32 {
@@ -2970,7 +2975,8 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
 
 /// Options → Preferences. OK and Apply store the options and apply them without a restart.
 unsafe fn show_preferences(hwnd: HWND) {
-    let Some(opts) = with_app(|a| Options::load(&a.prefs, &a.save_path)) else { return };
+    let Some(mut opts) = with_app(|a| Options::load(&a.prefs, &a.save_path)) else { return };
+    opts.gui.language = language_choice();
     let dir = data_dir();
     // the dialog runs its own message loop; the hooks borrow the app only while they run
     let hooks = crate::preferences::Hooks {
@@ -3004,6 +3010,16 @@ fn apply_options(a: &mut App, o: &Options) {
     o.store(&mut a.prefs);
     if let Err(e) = a.prefs.save() {
         a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
+    }
+    if crate::remote_ui::is_remote() && o.gui.language != language_choice() {
+        let mut base = Prefs::load(base_data_dir().join("patorrent.ini"));
+        match o.gui.language.trim() {
+            "" => base.remove("ui.language"),
+            code => base.set("ui.language", code),
+        }
+        if let Err(e) = base.save() {
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
+        }
     }
     a.save_path = o.gui.download_dir.clone();
     a.schedule = o.gui.schedule.clone();

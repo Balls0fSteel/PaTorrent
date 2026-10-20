@@ -6,7 +6,7 @@
 
 use std::collections::{BTreeMap, HashMap};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::sync::LazyLock;
+use std::sync::{LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
 use patorrent_core::crypto::Sha1;
@@ -33,9 +33,9 @@ pub const WEBAPI_VERSION: &str = "2.11.2";
 pub const UNAUTHENTICATED_BODY: usize = 64 * 1024;
 
 /// The Web UI page: three static files embedded in the binary (docs/WEBUI.md goal 3) and the
-/// string table in the server's language (`lang.js`, made at the first request), served with
-/// an `ETag` (a SHA-1 of the body) so a reload after an upgrade fetches them once and a
-/// `Cache-Control: no-cache` so the browser revalidates every time.
+/// string table in the server's language (`lang.js`, made again when the language changes),
+/// served with an `ETag` (a SHA-1 of the body) so a reload after an upgrade fetches them once
+/// and a `Cache-Control: no-cache` so the browser revalidates every time.
 pub struct StaticFile {
     pub path: &'static str,
     pub content_type: &'static str,
@@ -43,20 +43,43 @@ pub struct StaticFile {
     etag: String,
 }
 
-static STATIC_FILES: LazyLock<[StaticFile; 4]> = LazyLock::new(|| {
-    let file = |path, content_type, body: &'static str| StaticFile {
-        path,
-        content_type,
-        body,
-        etag: format!("\"{}\"", Sha1::digest(body.as_bytes()).to_hex()),
-    };
+impl StaticFile {
+    fn new(path: &'static str, content_type: &'static str, body: &'static str) -> StaticFile {
+        StaticFile {
+            path,
+            content_type,
+            body,
+            etag: format!("\"{}\"", Sha1::digest(body.as_bytes()).to_hex()),
+        }
+    }
+}
+
+static STATIC_FILES: LazyLock<[StaticFile; 3]> = LazyLock::new(|| {
     [
-        file("/", "text/html; charset=UTF-8", include_str!("page.html")),
-        file("/style.css", "text/css; charset=UTF-8", include_str!("style.css")),
-        file("/app.js", "text/javascript; charset=UTF-8", include_str!("app.js")),
-        file("/lang.js", "text/javascript; charset=UTF-8", Box::leak(lang_js().into_boxed_str())),
+        StaticFile::new("/", "text/html; charset=UTF-8", include_str!("page.html")),
+        StaticFile::new("/style.css", "text/css; charset=UTF-8", include_str!("style.css")),
+        StaticFile::new("/app.js", "text/javascript; charset=UTF-8", include_str!("app.js")),
     ]
 });
+
+/// `lang.js` for the current language: made at the first request and again after a switch
+/// (`lang::generation`); each one is leaked, as language switches are rare.
+static LANG_FILE: Mutex<Option<(usize, &'static StaticFile)>> = Mutex::new(None);
+
+fn lang_file() -> &'static StaticFile {
+    let mut cached = LANG_FILE.lock().unwrap_or_else(PoisonError::into_inner);
+    let generation = lang::generation();
+    match *cached {
+        Some((g, f)) if g == generation => f,
+        _ => {
+            let body: &'static str = Box::leak(lang_js().into_boxed_str());
+            let f: &'static StaticFile =
+                Box::leak(Box::new(StaticFile::new("/lang.js", "text/javascript; charset=UTF-8", body)));
+            *cached = Some((generation, f));
+            f
+        }
+    }
+}
 
 /// `window.PA_LANG` for the page (`lang.js`, loaded before `app.js`): the language's code and
 /// every text of the string table by key, without the `&` mnemonics (D20, `frontend::lang`).
@@ -74,6 +97,9 @@ const PAGE_CSP: &str = "default-src 'self'; frame-ancestors 'self'; form-action 
 
 pub fn static_file(path: &str) -> Option<&'static StaticFile> {
     let path = if path == "/index.html" { "/" } else { path };
+    if path == "/lang.js" {
+        return Some(lang_file());
+    }
     STATIC_FILES.iter().find(|f| f.path == path)
 }
 
@@ -823,7 +849,7 @@ fn preferences(st: &State, shared: &Shared) -> Json {
     let p = &st.prefs;
     let _ = shared;
     Json::obj()
-        .with("locale", "en")
+        .with("locale", lang::current())
         .with("save_path", p.save_path.as_str())
         .with("temp_path_enabled", false)
         .with("temp_path", "")

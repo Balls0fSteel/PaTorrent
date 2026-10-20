@@ -13,7 +13,7 @@
 //!   texts are `&'static str`.
 
 use std::fmt::Display;
-use std::sync::atomic::{AtomicPtr, Ordering};
+use std::sync::atomic::{AtomicPtr, AtomicUsize, Ordering};
 
 mod en;
 
@@ -46,8 +46,126 @@ macro_rules! __tr_arg {
     };
 }
 
+/// A language PaTorrent ships.
+pub struct Language {
+    /// A BCP 47 tag: `de`, `pt-BR`, `zh-Hans`; what `ui.language` stores.
+    pub code: &'static str,
+    /// The language's own name for itself, as the Preferences list shows it (not translated).
+    pub name: &'static str,
+    /// Its `.lng` table; empty for English, whose texts are [`en`].
+    pub lng: &'static str,
+}
+
 /// The languages PaTorrent ships, English first. A language is listed once its table is in.
-pub const LANGUAGES: &[(&str, &str)] = &[("en", "English")];
+pub const LANGUAGES: &[Language] = &[Language { code: "en", name: "English", lng: "" }];
+
+/// The operating system's preferred user-interface languages, most preferred first, as it names
+/// them (`de-DE`, `pt_BR.UTF-8`): Windows' preferred UI languages; elsewhere gettext's order,
+/// `LANGUAGE` (unless the locale is `C`), then the first of `LC_ALL`, `LC_MESSAGES` and `LANG`.
+pub fn system_languages() -> Vec<String> {
+    #[cfg(windows)]
+    {
+        windows_languages()
+    }
+    #[cfg(not(windows))]
+    {
+        let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
+        let locale = ["LC_ALL", "LC_MESSAGES", "LANG"].into_iter().find_map(var);
+        let mut out = Vec::new();
+        if locale.as_deref().is_some_and(|l| l != "C" && l != "POSIX") {
+            if let Some(list) = var("LANGUAGE") {
+                out.extend(list.split(':').filter(|s| !s.is_empty()).map(str::to_owned));
+            }
+        }
+        out.extend(locale);
+        out
+    }
+}
+
+#[cfg(windows)]
+fn windows_languages() -> Vec<String> {
+    use windows_sys::Win32::Globalization::{GetUserPreferredUILanguages, MUI_LANGUAGE_NAME};
+    let (mut count, mut len) = (0u32, 0u32);
+    // SAFETY: a null buffer asks for its length; the second call gets a buffer of that length.
+    unsafe {
+        if GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, std::ptr::null_mut(), &mut len) == 0 {
+            return Vec::new();
+        }
+        let mut buf = vec![0u16; len as usize];
+        if GetUserPreferredUILanguages(MUI_LANGUAGE_NAME, &mut count, buf.as_mut_ptr(), &mut len) == 0 {
+            return Vec::new();
+        }
+        // NUL-separated, ending with two NULs
+        buf.split(|&c| c == 0).filter(|s| !s.is_empty()).map(String::from_utf16_lossy).collect()
+    }
+}
+
+/// The shipped language for the first of `preferred` (OS locale names: `de_AT.UTF-8`, `zh-TW`,
+/// `pt`) that has one, or English.
+pub fn best_match(preferred: &[String]) -> &'static str {
+    let codes: Vec<&'static str> = LANGUAGES.iter().map(|l| l.code).collect();
+    best_match_in(preferred, &codes).unwrap_or("en")
+}
+
+/// [`best_match`] among `available` codes; `None` when none fits.
+fn best_match_in<'a>(preferred: &[String], available: &[&'a str]) -> Option<&'a str> {
+    preferred.iter().find_map(|p| {
+        let tag = canonical(p)?;
+        let primary = tag.split('-').next().unwrap_or_default();
+        available
+            .iter()
+            .find(|a| a.eq_ignore_ascii_case(&tag))
+            .or_else(|| available.iter().find(|a| a.eq_ignore_ascii_case(primary)))
+            .copied()
+    })
+}
+
+/// An OS locale name as the tag PaTorrent's tables use: `de_AT.UTF-8@euro` is `de-AT`, Chinese
+/// by script (`zh-Hans`, `zh-Hant`), Portuguese by country (`pt-BR` unless `pt-PT`), Norwegian
+/// as Bokmål (`nb`), the old `iw` / `in` as `he` / `id`. `None` for `C` and `POSIX`.
+fn canonical(name: &str) -> Option<String> {
+    let name = name.split(['.', '@']).next().unwrap_or_default().trim().replace('_', "-");
+    if name.is_empty() || name.eq_ignore_ascii_case("C") || name.eq_ignore_ascii_case("POSIX") {
+        return None;
+    }
+    let lower = name.to_ascii_lowercase();
+    let mut parts = lower.split('-');
+    let primary = parts.next().unwrap_or_default();
+    let rest: Vec<&str> = parts.collect();
+    let has = |s: &str| rest.contains(&s);
+    Some(match primary {
+        "zh" if has("hant") || has("tw") || has("hk") || has("mo") => "zh-Hant".to_owned(),
+        "zh" => "zh-Hans".to_owned(),
+        "pt" if has("pt") => "pt-PT".to_owned(),
+        "pt" => "pt-BR".to_owned(),
+        "no" | "nn" | "nb" => "nb".to_owned(),
+        "iw" => "he".to_owned(),
+        "in" => "id".to_owned(),
+        _ => name,
+    })
+}
+
+/// What `ui.language` names: its code, or for an empty choice the system's language.
+pub fn resolve(choice: &str, system: &[String]) -> String {
+    match choice.trim() {
+        "" => best_match(system).to_owned(),
+        c => c.to_owned(),
+    }
+}
+
+/// The Preferences list as `(ui.language value, text)`: "System default (<its language>)",
+/// each shipped language in its own name, and `current` when it is none of them (a value
+/// written by hand, such as `pseudo`), so it survives the dialog.
+pub fn choices(current: &str, system: &[String]) -> Vec<(String, String)> {
+    let system_name = LANGUAGES.iter().find(|l| l.code == best_match(system)).map_or("English", |l| l.name);
+    let mut out = vec![(String::new(), crate::tr!(LangSystemDefault, language = system_name))];
+    out.extend(LANGUAGES.iter().map(|l| (l.code.to_owned(), l.name.to_owned())));
+    let current = current.trim();
+    if !current.is_empty() && !out.iter().any(|(c, _)| c == current) {
+        out.push((current.to_owned(), current.to_owned()));
+    }
+    out
+}
 
 /// The current language's text for `s`.
 pub fn text(s: S) -> &'static str {
@@ -240,11 +358,19 @@ impl Table {
 }
 
 static CURRENT: AtomicPtr<Table> = AtomicPtr::new(std::ptr::null_mut());
+/// Bumped by every [`set`] and [`reset`], so a cache of texts knows to rebuild.
+static GENERATION: AtomicUsize = AtomicUsize::new(0);
 
 /// Makes `table` the current language. Meant for start-up: windows already built keep their
 /// texts.
 pub fn set(table: Table) {
     CURRENT.store(Box::into_raw(Box::new(table)), Ordering::Release);
+    GENERATION.fetch_add(1, Ordering::AcqRel);
+}
+
+/// Changes with every language switch (nox's `lang.js` is rebuilt when it does).
+pub fn generation() -> usize {
+    GENERATION.load(Ordering::Acquire)
 }
 
 /// The current language's code (`en` until [`init`] picks another).
@@ -253,16 +379,22 @@ pub fn current() -> &'static str {
     if t.is_null() { "en" } else { unsafe { &*t }.code.as_str() }
 }
 
-/// Picks the language at start from `choice`, the frontend's `ui.language` preference, unless
-/// the `PATORRENT_LANG` environment variable overrides it: empty or `en` is English, `pseudo`
+/// Back to English.
+fn reset() {
+    CURRENT.store(std::ptr::null_mut(), Ordering::Release);
+    GENERATION.fetch_add(1, Ordering::AcqRel);
+}
+
+/// Picks the language from `choice`, the frontend's `ui.language` preference, unless the
+/// `PATORRENT_LANG` environment variable overrides it: empty is the system's language
+/// ([`system_languages`], [`best_match`]), a code one of [`LANGUAGES`], `pseudo`
 /// pseudo-localised English, and a path to a `.lng` file loads that file (for translators).
-/// Returns what went wrong, if anything; the language is then English, or the file's table
-/// without its bad lines.
+/// Returns what went wrong, if anything; the language is then English, or the table without
+/// its bad lines. Called at start; nox calls it again when the Web UI's choice changes.
 pub fn init(choice: &str) -> Vec<String> {
     let env = std::env::var("PATORRENT_LANG").ok();
-    let choice = env.as_deref().unwrap_or(choice).trim();
-    match choice {
-        "" | "en" => Vec::new(),
+    let choice = resolve(env.as_deref().unwrap_or(choice), &system_languages());
+    match choice.as_str() {
         "pseudo" => {
             set(Table::pseudo());
             Vec::new()
@@ -275,9 +407,26 @@ pub fn init(choice: &str) -> Vec<String> {
                 set(table);
                 problems.into_iter().map(|p| format!("{path}: {p}")).collect()
             }
-            Err(e) => vec![format!("{path}: {e}")],
+            Err(e) => {
+                reset();
+                vec![format!("{path}: {e}")]
+            }
         },
-        other => vec![format!("no language \"{other}\"; using English")],
+        code => match LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(code)) {
+            Some(l) if l.lng.is_empty() => {
+                reset();
+                Vec::new()
+            }
+            Some(l) => {
+                let (table, problems) = Table::parse(l.code, l.lng);
+                set(table);
+                problems.into_iter().map(|p| format!("{}.lng: {p}", l.code)).collect()
+            }
+            None => {
+                reset();
+                vec![format!("no language \"{code}\"; using English")]
+            }
+        },
     }
 }
 
@@ -408,6 +557,61 @@ mod tests {
         assert_eq!(fill(S::MenuFile.english(), &[]), S::MenuFile.english());
         assert_eq!(crate::tr!(LogAdded, name), format!("{name}: added"));
         assert_eq!(crate::tr!(LogAdded, name = "x"), "x: added");
+    }
+
+    #[test]
+    fn os_locale_names_find_the_shipped_language() {
+        let available = ["en", "de", "pt-BR", "pt-PT", "zh-Hans", "zh-Hant", "nb", "he"];
+        let m = |names: &[&str]| {
+            let names: Vec<String> = names.iter().map(|s| s.to_string()).collect();
+            best_match_in(&names, &available)
+        };
+        assert_eq!(m(&["de_AT.UTF-8@euro"]), Some("de"));
+        assert_eq!(m(&["de-DE", "en-US"]), Some("de"));
+        // the first preference with a table, English included
+        assert_eq!(m(&["fr-FR", "de"]), Some("de"));
+        assert_eq!(m(&["en-US", "de-DE"]), Some("en"));
+        assert_eq!(m(&["pt_BR.UTF-8"]), Some("pt-BR"));
+        assert_eq!(m(&["pt-PT"]), Some("pt-PT"));
+        assert_eq!(m(&["pt"]), Some("pt-BR"));
+        assert_eq!(m(&["zh_TW"]), Some("zh-Hant"));
+        assert_eq!(m(&["zh-Hant-HK"]), Some("zh-Hant"));
+        assert_eq!(m(&["zh-Hans-CN"]), Some("zh-Hans"));
+        assert_eq!(m(&["zh_CN.GB2312"]), Some("zh-Hans"));
+        assert_eq!(m(&["no_NO", "nn"]), Some("nb"));
+        assert_eq!(m(&["iw_IL"]), Some("he"));
+        assert_eq!(m(&["C", "POSIX", ""]), None);
+        assert_eq!(m(&["fr"]), None);
+        assert_eq!(best_match(&["fr_FR".to_owned()]), "en");
+        assert_eq!(best_match(&[]), "en");
+    }
+
+    /// Windows always names at least one user-interface language.
+    #[cfg(windows)]
+    #[test]
+    fn windows_names_its_languages() {
+        let names = system_languages();
+        assert!(!names.is_empty() && names.iter().all(|n| canonical(n).is_some()), "{names:?}");
+        println!("system languages: {names:?}");
+    }
+
+    #[test]
+    fn the_preferences_list() {
+        let system = vec!["de-DE".to_owned()];
+        let c = choices("", &system);
+        assert_eq!(c[0], (String::new(), "System default (English)".to_owned()));
+        assert_eq!(c[1], ("en".to_owned(), "English".to_owned()));
+        assert_eq!(c.len(), LANGUAGES.len() + 1);
+        // a value written by hand stays a choice, so the dialog does not drop it
+        assert_eq!(choices("pseudo", &system).last().unwrap(), &("pseudo".to_owned(), "pseudo".to_owned()));
+        assert_eq!(choices("en", &system).len(), c.len());
+        assert_eq!(resolve("", &system), "en");
+        assert_eq!(resolve(" pseudo ", &system), "pseudo");
+        assert!(LANGUAGES[0].code == "en" && LANGUAGES[0].lng.is_empty());
+        for l in LANGUAGES.iter().skip(1) {
+            let (_, problems) = Table::parse(l.code, l.lng);
+            assert!(problems.is_empty(), "{}: {problems:?}", l.code);
+        }
     }
 
     #[test]

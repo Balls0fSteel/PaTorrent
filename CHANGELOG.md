@@ -2,6 +2,25 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_155658_1792504618: The language choice in Preferences, the system's language by default
+
+### Added
+- **Preferences > General "User interface"** in all three frontends: "System default (<the language it resolves to>)" first, then each shipped language in its own name (only English until the translations land, Q15). Stored as `ui.language` (`GuiOptions::language`; removed from the file when it is the system default).
+  - **Win32**: the General page's combo, until now a disabled placeholder; a notice after OK / Apply that the new language shows from the next start (the windows and menus are built once). A remote window's Preferences reads and writes the base `patorrent.ini`, where the language is read at start. The label and the "Default apps..." button got room for longer translations (the pseudo-language had them cut off).
+  - **GTK**: Options > Preferences (Ctrl+P), a first Preferences dialog with µTorrent's page list (General only so far) and OK / Cancel / Apply; the same notice.
+  - **Web UI**: a `ui.language` field of a new kind, `choice` (`[value, text]` options), on the General page. nox applies it at once: the server's texts switch, `lang.js` is rebuilt (cached by `lang::generation`), and the page that applied it reloads. `webui.json` keeps it; the compat API's `locale` names the language in force.
+- **`patorrent_frontend::lang`**: `LANGUAGES` entries with their code, own name and `.lng` table; `system_languages` (Windows' preferred UI languages through `GetUserPreferredUILanguages`, else gettext's `LANGUAGE` / `LC_ALL` / `LC_MESSAGES` / `LANG`); `best_match` (`de_AT.UTF-8` is `de`, Chinese by script, `pt` as `pt-BR`, Norwegian as `nb`, the first preference with a table wins, English otherwise); `resolve`, `choices`, `generation`. `init` now resolves an empty choice to the system's language, loads a shipped language's table, and resets to English (nox can switch more than once).
+
+### Verified
+- Windows: `cargo test --workspace`, stable clippy and fmt; clippy for Linux and FreeBSD; the GTK crate type-checked and linted for Linux with the stand-in `pkg-config` (a planted type error in the new dialog was caught, so the check is real).
+- Tests: locale names to shipped languages, the Preferences list (a hand-written `pseudo` stays a choice), the Windows system languages (`["en-US"]` here), the nox field (a code in any case, empty or `pseudo` accepted, anything else refused with the codes, stored as `ui.language`).
+- Web UI in the browser pane: the select offers "System default (English)" and "English"; `ui.language = pseudo` through the API switched `lang.js` at once, a reload showed the page and the server's cells in the pseudo-language with "pseudo" kept in the select; picking English and OK reloaded the page in English.
+- Win32 (`--demo`, a portable copy): the combo shows "System default (English)" (and fits in the pseudo-language now); picking English and Apply showed the notice and wrote `ui.language=en`.
+
+### Issues
+- The GTK dialog was not run (no Linux machine).
+- macOS: a GTK app started from the Finder has no `LANG`, so its system default is English until the D23 build reads `AppleLanguages`.
+
 ## 2026-10-20_153513_1792503313: String tables (localisation, D20)
 
 ### Added

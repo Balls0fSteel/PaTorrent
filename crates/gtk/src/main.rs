@@ -14,6 +14,8 @@ mod list;
 #[cfg(unix)]
 mod paths;
 #[cfg(unix)]
+mod preferences;
+#[cfg(unix)]
 mod sidebar;
 
 #[cfg(unix)]

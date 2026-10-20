@@ -139,6 +139,7 @@ fn startup(app: &gtk::Application) {
         ("win.remove", &["Delete"]),
         ("win.remove-data", &["<Shift>Delete"]),
         ("win.select-all", &["<Control>a"]),
+        ("win.preferences", &["<Control>p"]),
         ("app.quit", &["<Control>q"]),
     ] {
         app.set_accels_for_action(action, keys);
@@ -152,6 +153,9 @@ fn startup(app: &gtk::Application) {
     item(&quit_section, tr!(MenuExit), "app.quit");
     file.append_section(None, &quit_section);
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuFile))), &file);
+    let options = gio::Menu::new();
+    item(&options, tr!(MenuPreferences), "win.preferences");
+    menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuOptions))), &options);
     let help = gio::Menu::new();
     item(&help, tr!(MenuAbout), "win.about");
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuHelp))), &help);
@@ -534,6 +538,7 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
         }
     });
     simple("about", about);
+    simple("preferences", preferences);
     for name in [
         "start",
         "force-start",
@@ -821,6 +826,22 @@ fn add_url() {
         }
     });
     dialog.present();
+}
+
+/// Options > Preferences: the options as stored; OK and Apply store the changed ones.
+fn preferences() {
+    let Some((window, options)) = with_app(|a| (a.window.clone(), GuiOptions::load(&a.prefs, &a.save_path)))
+    else {
+        return;
+    };
+    crate::preferences::show(&window, options, |o| {
+        with_app(|a| {
+            o.store(&mut a.prefs);
+            if let Err(e) = a.prefs.save() {
+                eprintln!("cannot save the settings: {e}");
+            }
+        });
+    });
 }
 
 fn about() {

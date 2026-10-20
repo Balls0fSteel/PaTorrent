@@ -527,6 +527,8 @@ struct State<'a> {
     applied: bool,
     /// The Windows integration as last read.
     integration: Status,
+    /// The General page's language list: `(ui.language value, text)`.
+    languages: Vec<(String, String)>,
 }
 
 /// Shows the dialog modally. Returns whether anything was applied.
@@ -557,6 +559,7 @@ impl<'a> State<'a> {
             rows: Vec::new(),
             applied: false,
             integration: Status::default(),
+            languages: Vec::new(),
         }
     }
 }
@@ -636,16 +639,16 @@ fn template() -> Vec<u16> {
 
     b.page(0);
     b.group([0, 0, W, 34], tr!(PrefLanguage));
-    b.label([8, 15, 60, 9], tr!(PrefUiLanguage));
-    b.ctl(COMBOBOX, ID_LANG, COMBO | OFF, [72, 13, 120, 60], "");
+    b.label([8, 15, 100, 9], tr!(PrefUiLanguage));
+    b.ctl(COMBOBOX, ID_LANG, COMBO, [112, 13, 180, 120], "");
     b.group([0, 40, W, 112], tr!(PrefIntegration));
     b.ctl(BUTTON, ID_ASSOC_TORRENT, CHECK, [8, 53, 290, 10], tr!(PrefAssocTorrent));
     b.ctl(BUTTON, ID_ASSOC_MAGNET, CHECK, [8, 67, 290, 10], tr!(PrefAssocMagnet));
     b.ctl(BUTTON, ID_CHECK_ASSOC, CHECK, [8, 81, 290, 10], tr!(PrefCheckAssoc));
     b.ctl(BUTTON, ID_AUTOSTART, CHECK, [8, 95, 290, 10], tr!(PrefAutostart));
     b.ctl(BUTTON, ID_START_MIN, CHECK, [20, 109, 278, 10], tr!(PrefStartMinimized));
-    b.ctl(STATIC, ID_ASSOC_NOTE, C, [8, 126, 226, 18], "");
-    b.ctl(BUTTON, ID_DEFAULT_APPS, PUSH, [240, 127, 62, 14], tr!(PrefDefaultApps));
+    b.ctl(STATIC, ID_ASSOC_NOTE, C, [8, 126, 206, 18], "");
+    b.ctl(BUTTON, ID_DEFAULT_APPS, PUSH, [218, 127, 84, 14], tr!(PrefDefaultApps));
 
     b.page(1);
     b.group([0, 0, W, 46], tr!(PrefDisplay));
@@ -847,9 +850,11 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
         }
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, parent);
 
-        let lang = wide(tr!(LangEnglish));
-        send(item(dlg, ID_LANG), CB_ADDSTRING, 0, lang.as_ptr() as LPARAM);
-        send(item(dlg, ID_LANG), CB_SETCURSEL, 0, 0);
+        st.languages = lang::choices(&st.opts.gui.language, &lang::system_languages());
+        for (_, name) in &st.languages {
+            let w = wide(name);
+            send(item(dlg, ID_LANG), CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
+        }
         for label in proxy_types() {
             let w = wide(label);
             send(item(dlg, ID_PROXY_TYPE), CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
@@ -955,6 +960,9 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         let legacy = settings::allow_legacy_incoming(&st.opts.settings);
         set_check(dlg, ID_ENC_LEGACY, legacy);
         st.shown.push((ID_ENC_LEGACY, legacy.to_string()));
+        let language = st.languages.iter().position(|(c, _)| *c == st.opts.gui.language).unwrap_or(0);
+        send(item(dlg, ID_LANG), CB_SETCURSEL, language, 0);
+        st.shown.push((ID_LANG, language.to_string()));
         let (kind, auth) = proxy_to_ui(&st.opts.settings);
         send(item(dlg, ID_PROXY_TYPE), CB_SETCURSEL, kind, 0);
         st.shown.push((ID_PROXY_TYPE, kind.to_string()));
@@ -1124,6 +1132,12 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
         {
             settings::set_encryption(&mut o.settings, ENC_OUT[enc].1, legacy);
         }
+        let language = send(item(dlg, ID_LANG), CB_GETCURSEL, 0, 0).max(0) as usize;
+        if shown(ID_LANG) != Some(language.to_string().as_str()) {
+            if let Some((code, _)) = st.languages.get(language) {
+                o.gui.language.clone_from(code);
+            }
+        }
         let table = sched_table(dlg);
         let text: String = table.iter().map(|m| m.code()).collect();
         if shown(ID_SCHED_GRID) != Some(text.as_str()) {
@@ -1187,11 +1201,16 @@ unsafe fn read_or_complain(dlg: HWND, st: &mut State<'_>) -> bool {
 /// OK and Apply.
 unsafe fn apply(dlg: HWND, st: &mut State<'_>) -> bool {
     unsafe {
+        let language = st.opts.gui.language.clone();
         if !read_or_complain(dlg, st) || !apply_integration(dlg, st) {
             return false;
         }
         (st.hooks.apply)(&st.opts);
         st.applied = true;
+        // the windows are built in the language of the start
+        if st.opts.gui.language != language {
+            dialogs::info(dlg, tr!(LangRestart));
+        }
         write_controls(dlg, st);
         let sel = selected_row(dlg);
         fill_advanced(dlg, st, sel);

@@ -45,6 +45,9 @@ pub enum Kind {
     Password,
     /// The scheduler's week: 168 `frontend::scheduler::Mode` codes, Monday 00:00 first.
     Schedule,
+    /// The user-interface language (`frontend::lang`): a code, empty for the system's; the
+    /// model lists the choices as `[value, text]`.
+    Language,
 }
 
 impl Kind {
@@ -57,6 +60,7 @@ impl Kind {
             Kind::Enum(_) => "enum",
             Kind::Password => "password",
             Kind::Schedule => "schedule",
+            Kind::Language => "choice",
         }
     }
 }
@@ -187,6 +191,14 @@ macro_rules! field {
 /// for (their `GuiOptions` preferences keys as ids), the page's composite controls over several
 /// settings (as the Win32 dialog composes them) and the Web UI's own preferences.
 pub(crate) static FIELDS: &[Field] = &[
+    // General
+    field!(
+        "ui.language",
+        Some(S::PrefUiLanguage),
+        Kind::Language,
+        |w| Value::Str(w.prefs.language.clone()),
+        |w, v| w.prefs.language = string(v).trim().to_owned()
+    ),
     // Directories
     field!(
         "dir.download",
@@ -653,6 +665,15 @@ impl Def {
                 Some(_) => Ok(Value::Str(t.to_owned())),
                 None => Err(tr!(SettingBadSchedule, count = scheduler::CELLS)),
             },
+            // a shipped language, the system's (empty) or the pseudo-language
+            Kind::Language => match lang::LANGUAGES.iter().find(|l| l.code.eq_ignore_ascii_case(t)) {
+                Some(l) => Ok(Value::Str(l.code.to_owned())),
+                None if t.is_empty() || t == "pseudo" => Ok(Value::Str(t.to_owned())),
+                None => {
+                    let codes: Vec<&str> = lang::LANGUAGES.iter().map(|l| l.code).collect();
+                    Err(tr!(SettingNotOneOf, value = t, options = codes.join(", ")))
+                }
+            },
         }
     }
 }
@@ -735,10 +756,7 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
             "general",
             tr!(PageGeneral),
             vec![
-                group(
-                    Some(tr!(PrefLanguage)),
-                    vec![stub(tr!(PrefUiLanguage)).with("text", tr!(LangEnglish))],
-                ),
+                group(Some(tr!(PrefLanguage)), vec![f("ui.language")]),
                 group(
                     Some(tr!(PrefIntegration)),
                     vec![
@@ -968,6 +986,12 @@ pub(crate) fn model(shared: &Shared, st: &State) -> Json {
             Kind::Enum(options) => {
                 j.set("options", Json::Arr(options.iter().map(|&o| Json::from(lang::text(o))).collect()));
             }
+            Kind::Language => {
+                let current = w.prefs.language.as_str();
+                let choices = lang::choices(current, &lang::system_languages());
+                let options = choices.into_iter().map(|(v, t)| Json::Arr(vec![v.into(), t.into()])).collect();
+                j.set("options", Json::Arr(options));
+            }
             _ => {}
         }
         if def.readonly() {
@@ -1103,6 +1127,12 @@ pub(crate) fn commit(shared: &Shared, st: &mut State, changes: &[Change]) -> Res
         TABLE.iter().filter(|e| e.get(&w.settings) != e.get(&old.settings)).map(|e| e.name).collect();
     store(st, &changed);
     shared.save(st);
+    // the server's texts switch now; the page reloads for its own (`lang.js`)
+    if w.prefs.language != old.prefs.language {
+        for p in lang::init(&w.prefs.language) {
+            st.push_log(None, p, unix_now());
+        }
+    }
     Ok(())
 }
 
@@ -1465,5 +1495,29 @@ mod tests {
         assert_eq!(st.options.get("sched.enable"), Some("1"));
         assert_eq!(st.options.get("sched.ul_rate"), Some("20"));
         assert_eq!(st.options.get("sched.table").map(str::len), Some(CELLS));
+    }
+
+    /// Preferences > General's language: a choice of `[value, text]` with the system's first,
+    /// a shipped code (any case), empty or `pseudo`, stored as `ui.language`. (Nothing here
+    /// switches the process's language: the other tests read English.)
+    #[test]
+    fn the_language_is_a_choice_of_codes() {
+        let st = state();
+        let def = find("ui.language").unwrap();
+        assert_eq!(def.kind().name(), "choice");
+        assert_eq!(def.get(&Working::from_state(&st)), Value::Str(String::new()));
+        assert_eq!(edited(&st, r#"{"ui.language": "EN"}"#).unwrap().prefs.language, "en");
+        assert_eq!(edited(&st, r#"{"ui.language": "pseudo"}"#).unwrap().prefs.language, "pseudo");
+        assert_eq!(edited(&st, r#"{"ui.language": ""}"#).unwrap().prefs.language, "");
+        let (id, why) = edited(&st, r#"{"ui.language": "xx"}"#).err().unwrap();
+        assert_eq!(id, "ui.language");
+        assert!(why.contains("\"xx\" is not one of en"), "{why}");
+        let general = &pages(Path::new("S"))[0];
+        assert!(general.to_json().contains(r#"{"f":"ui.language"}"#), "{}", general.to_json());
+        let mut w = Working::from_state(&st);
+        w.prefs.language = "en".to_owned();
+        let mut options = patorrent_frontend::prefs::Prefs::default();
+        w.prefs.gui().store(&mut options);
+        assert_eq!(options.get("ui.language"), Some("en"));
     }
 }

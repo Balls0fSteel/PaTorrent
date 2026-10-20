@@ -12,6 +12,10 @@ publish.workspace = true
 [dependencies]
 patorrent-core.workspace = true
 
+# the system's user-interface languages (lang::system_languages)
+[target.'cfg(windows)'.dependencies]
+windows-sys = { workspace = true, features = ["Win32_Globalization"] }
+
 [dev-dependencies]
 patorrent-core = { workspace = true, features = ["mock"] }
 

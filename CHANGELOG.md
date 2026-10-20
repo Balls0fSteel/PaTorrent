@@ -2,6 +2,21 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_104145_1792485705: Hybrids are announced under both hashes
+
+### Added
+- **Trackers**: a hybrid announces to each tracker under its v1 hash and under its truncated v2 hash, each with its own state (start / completed events, interval, failures and backoff, tracker id), as libtorrent keeps two `announce_infohash` per endpoint. The v2 state lives in `Torrent::trackers_v2`, rebuilt from the visible list by URL (`sync_v2_trackers`, so added, removed and replaced trackers follow); a reply to a v2 announce is recognised by its info-hash (`Engine::apply_v2_announce`). Stopping a torrent sends `stopped` under both. Frontends keep showing the v1 announce: v2 replies and failures post no alerts.
+- **DHT**: a hybrid is announced (or looked up) under both hashes.
+- Peers learned under a hybrid's v2 hash (a v2 tracker reply, a DHT lookup of the v2 hash) are reached with that hash (`KnownPeer::protocol_v2`, libtorrent `torrent_peer::protocol_v2`), so peers that know only the v2 hash accept the connection.
+
+### Decisions
+- PEX carries no version: libtorrent's `lt_v2` is an internal flag it clears from incoming messages, which our `ut_pex` already does.
+- LSD keeps announcing the v1 (or a v2-only torrent's truncated v2) hash only: peers on the local network running a hybrid know its v1 hash.
+
+### Verified
+- New loopback test `a_hybrid_is_announced_under_both_hashes`: an HTTP tracker keeping one swarm per info-hash sees the seed under both hashes, and a `btmh` magnet that names only the v2 hash finds the seed through that tracker, connects and downloads.
+- Windows: `cargo test --workspace` 1021 passed, 0 failed; `cargo +stable clippy --workspace --all-targets -- -D warnings`; Linux-target clippy for the workspace and FreeBSD-target clippy for `patorrent-core`; `cargo +stable fmt --all --check`.
+
 ## 2026-10-20_103641_1792485401: Pad blocks are not downloaded
 
 ### Fixed

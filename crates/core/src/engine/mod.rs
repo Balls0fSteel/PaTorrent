@@ -816,6 +816,11 @@ impl Engine {
                 self.settings.recv_socket_buffer_size,
             );
         }
+        // a peer found under a hybrid's v2 hash is reached with that hash
+        let v2 = outgoing
+            && torrent.and_then(|id| self.torrent_ref(id)).is_some_and(|t| {
+                t.info_hashes.has_v2() && t.peer_list.get(&addr).is_some_and(|k| k.protocol_v2)
+            });
         let generation = self.next_peer_gen;
         // The top bit of a connection id stays clear: the disk read cookies of smart_ban use it.
         self.next_peer_gen = (self.next_peer_gen.wrapping_add(1) & 0x7fff_ffff).max(1);
@@ -824,6 +829,7 @@ impl Engine {
         let p = self.peers.get_mut(slot).expect("just inserted");
         p.id = ((generation as u64) << 32) | slot as u64;
         p.torrent = torrent;
+        p.protocol_v2 = v2;
         let registered = match &mut p.sock {
             Transport::Tcp(s) => self.poll.registry().register(
                 s,
@@ -2117,30 +2123,34 @@ impl Engine {
         self.close_web_seeds(id, "torrent stopped");
         let t = self.torrent(id).expect("exists");
         let mut jobs = Vec::new();
-        for tr in &mut t.trackers {
-            if tr.start_sent {
-                let req = tracker::make_announce(
-                    t.info_hashes.best_v1_compatible(),
-                    peer_id,
-                    port,
-                    t.stat.upload_payload.total,
-                    t.stat.download_payload.total,
-                    0,
-                    t.failed_bytes,
-                    Event::Stopped,
-                    key,
-                    0,
-                    tr.tracker_id.clone(),
-                );
-                jobs.push(TrackerJob {
-                    torrent: id,
-                    tracker: None,
-                    url: tr.url.clone(),
-                    kind: JobKind::Announce(req),
-                    filter: filter.clone(),
-                });
+        let v2_hash = t.info_hashes.wire_hash(true);
+        let lists = [(t.info_hashes.best_v1_compatible(), &mut t.trackers), (v2_hash, &mut t.trackers_v2)];
+        for (ih, list) in lists {
+            for tr in list.iter_mut() {
+                if tr.start_sent {
+                    let req = tracker::make_announce(
+                        ih,
+                        peer_id,
+                        port,
+                        t.stat.upload_payload.total,
+                        t.stat.download_payload.total,
+                        0,
+                        t.failed_bytes,
+                        Event::Stopped,
+                        key,
+                        0,
+                        tr.tracker_id.clone(),
+                    );
+                    jobs.push(TrackerJob {
+                        torrent: id,
+                        tracker: None,
+                        url: tr.url.clone(),
+                        kind: JobKind::Announce(req),
+                        filter: filter.clone(),
+                    });
+                }
+                tr.reset();
             }
-            tr.reset();
         }
         t.fetch = None;
         t.layer_fetch = None;
@@ -2673,6 +2683,13 @@ impl Engine {
             let Some(index) = job.tracker else { continue };
             let id = job.torrent;
             let Some(t) = self.torrent(id) else { continue };
+            // a hybrid's announce under its v2 hash has its own state
+            if matches!(&job.kind, JobKind::Announce(req) if t.info_hashes.has_v1()
+                && t.info_hashes.truncated_v2() == Some(req.info_hash))
+            {
+                self.apply_v2_announce(job, outcome, now);
+                continue;
+            }
             let ih = t.info_hashes.best_v1_compatible();
             // the list may have been replaced while the request was out: find the URL again
             let index = if t.trackers.get(index).is_some_and(|tr| tr.url == job.url) {
@@ -2891,8 +2908,15 @@ impl Engine {
             return;
         }
         let due = tracker::trackers_to_announce(&t.trackers, now, all_tiers, all_trackers);
+        // a hybrid announces under both hashes, each with its own state (libtorrent
+        // `announce_endpoint::info_hashes`)
+        t.sync_v2_trackers();
+        let due_v2 = tracker::trackers_to_announce(&t.trackers_v2, now, all_tiers, all_trackers);
         for index in due {
-            self.announce(id, index, now);
+            self.announce(id, index, now, false);
+        }
+        for index in due_v2 {
+            self.announce(id, index, now, true);
         }
     }
 
@@ -2918,7 +2942,9 @@ impl Engine {
         self.trackers.start(job, &self.resolver, self.poll.registry(), Instant::now());
     }
 
-    fn announce(&mut self, id: TorrentId, index: usize, now: Instant) {
+    /// Announces to tracker `index` of the torrent's list, or of its hybrid v2 list (`v2`),
+    /// under that list's hash.
+    fn announce(&mut self, id: TorrentId, index: usize, now: Instant, v2: bool) {
         let (peer_id, key, port, num_want) =
             (self.peer_id, self.tracker_key, self.tracker_port(), self.settings.num_want);
         let filter = self.tracker_filter(id);
@@ -2928,8 +2954,10 @@ impl Engine {
         let (uploaded, downloaded, corrupt) =
             (t.stat.upload_payload.total, t.stat.download_payload.total, t.failed_bytes);
         let in_session = t.downloaded_in_session;
-        let ih = t.info_hashes.best_v1_compatible();
-        let tr = &mut t.trackers[index];
+        let ih = if v2 { t.info_hashes.wire_hash(true) } else { t.info_hashes.best_v1_compatible() };
+        let want = if finished && t.peers.len() > 50 { 0 } else { num_want };
+        let list = if v2 { &mut t.trackers_v2 } else { &mut t.trackers };
+        let Some(tr) = list.get_mut(index) else { return };
         let event = if !tr.start_sent {
             Event::Started
         } else if finished && in_session && !tr.complete_sent {
@@ -2937,8 +2965,6 @@ impl Engine {
         } else {
             Event::None
         };
-        let want = if finished && t.peers.len() > 50 { 0 } else { num_want };
-        let tr = &mut t.trackers[index];
         tr.updating = true;
         tr.next_announce = Some(now + Duration::from_secs(60));
         let req = tracker::make_announce(

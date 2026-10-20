@@ -589,3 +589,133 @@ fn a_v2_peer_gets_piece_layer_hashes_and_a_v1_peer_is_dropped_for_asking() {
     s.shutdown();
     let _ = std::fs::remove_dir_all(dir);
 }
+
+fn percent_decode(s: &str) -> Vec<u8> {
+    let b = s.as_bytes();
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == b'%' && i + 2 < b.len() {
+            out.push(u8::from_str_radix(&s[i + 1..i + 3], 16).unwrap());
+            i += 3;
+        } else {
+            out.push(b[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+type Swarms = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<Vec<u8>, Vec<u16>>>>;
+
+/// An HTTP tracker with one swarm per info-hash, as real trackers keep them: each announcer gets
+/// the other ports of its own hash on 127.0.0.1. Runs until the test process ends.
+fn swarm_tracker() -> (String, Swarms) {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/announce", l.local_addr().unwrap());
+    let swarms: Swarms = Default::default();
+    let shared = swarms.clone();
+    std::thread::spawn(move || {
+        use std::io::{Read, Write};
+        for conn in l.incoming() {
+            let Ok(mut c) = conn else { continue };
+            let mut buf = vec![0u8; 4096];
+            let mut n = 0;
+            while !buf[..n].windows(4).any(|w| w == b"\r\n\r\n") {
+                match c.read(&mut buf[n..]) {
+                    Ok(0) | Err(_) => break,
+                    Ok(k) => n += k,
+                }
+            }
+            let req = String::from_utf8_lossy(&buf[..n]).into_owned();
+            let param = |name: &str| {
+                req.split(&format!("{name}="))
+                    .nth(1)
+                    .and_then(|r| r.split(['&', ' ']).next())
+                    .unwrap_or_default()
+            };
+            let ih = percent_decode(param("info_hash"));
+            let port: u16 = param("port").parse().unwrap_or(0);
+            let mut peers = Vec::new();
+            {
+                let mut s = shared.lock().unwrap();
+                let swarm = s.entry(ih).or_default();
+                for &p in swarm.iter().filter(|&&p| p != port) {
+                    peers.extend_from_slice(&[127, 0, 0, 1]);
+                    peers.extend_from_slice(&p.to_be_bytes());
+                }
+                if !swarm.contains(&port) {
+                    swarm.push(port);
+                }
+            }
+            let mut body = format!("d8:intervali1800e5:peers{}:", peers.len()).into_bytes();
+            body.extend_from_slice(&peers);
+            body.push(b'e');
+            let head =
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
+            let _ = c.write_all(head.as_bytes());
+            let _ = c.write_all(&body);
+        }
+    });
+    (url, swarms)
+}
+
+/// A hybrid announces under both of its hashes, each with its own tracker state, so a peer that
+/// knows only the v2 hash (a `btmh` magnet) finds the seed through the tracker, connects with
+/// the v2 hash and downloads.
+#[test]
+fn a_hybrid_is_announced_under_both_hashes() {
+    let files = files(9);
+    let src = temp_dir("dual-src");
+    write_files(&files, &src);
+    let torrent = make_torrent(&src, CreateFlags::empty());
+    let ti = TorrentInfo::from_bytes(&torrent).unwrap();
+    let ih = ti.info_hashes();
+    let (url, swarms) = swarm_tracker();
+
+    let seed_dir = temp_dir("dual-seed");
+    write_files(&files, &seed_dir);
+    let seeder = start(None);
+    let mut sw = Watch::new(seeder.handle());
+    let mut p =
+        AddTorrentParams::new(TorrentSource::TorrentFile(torrent.clone()), seed_dir.to_string_lossy());
+    p.flags = TorrentFlags::empty();
+    p.trackers = vec![url.clone()];
+    seeder.handle().add_torrent(p);
+    let sid = wait(&mut sw, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    wait_state(&mut sw, sid, TorrentState::Seeding, 20);
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        let s = swarms.lock().unwrap();
+        let v1 = s.contains_key(ih.v1.unwrap().as_bytes().as_slice());
+        let v2 = s.contains_key(ih.truncated_v2().unwrap().as_bytes().as_slice());
+        if v1 && v2 {
+            break;
+        }
+        drop(s);
+        assert!(Instant::now() < deadline, "the seed announced under v1: {v1}, v2: {v2}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+
+    let magnet = format!("magnet:?xt=urn:btmh:1220{}&tr={}", ih.v2.unwrap().to_hex(), url);
+    let dir = temp_dir("dual-leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let mut p = AddTorrentParams::new(TorrentSource::Magnet(magnet), dir.to_string_lossy());
+    p.flags = TorrentFlags::empty();
+    leech.handle().add_torrent(p);
+    let id = wait(&mut w, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
+    leech.shutdown();
+    seeder.shutdown();
+    assert_files(&files, &dir);
+    for d in [src, seed_dir, dir] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}

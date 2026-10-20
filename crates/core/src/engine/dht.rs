@@ -296,7 +296,14 @@ impl Engine {
                 if !t.is_active() || t.ti.as_ref().is_some_and(|ti| ti.is_private()) || peers.is_empty() {
                     return;
                 }
+                let v2 = t.info_hashes.has_v1() && t.info_hashes.truncated_v2() == Some(info_hash);
                 self.add_peers(id, &peers, PeerSource::DHT);
+                // found under a hybrid's v2 hash: reached with it
+                if let Some(t) = self.torrent(id).filter(|_| v2) {
+                    for addr in &peers {
+                        t.peer_list.set_protocol_v2(addr);
+                    }
+                }
                 self.alert(Alert::DhtReply { id, num_peers: peers.len() as u32 });
                 self.connect_peers_for(id, 10);
             }
@@ -419,14 +426,17 @@ impl Engine {
         let port = self.announce_port();
         let implied_port = self.settings.enable_incoming_utp;
         let Some(t) = self.torrent_ref(id) else { return };
-        let ih = t.info_hashes.best_v1_compatible();
+        // a hybrid is announced under both of its hashes (libtorrent announces each version)
+        let hashes: Vec<_> = t.info_hashes.wire_hashes().collect();
         let seed = t.is_seed();
         let Some(tracker) = self.dht.tracker.as_mut() else { return };
-        if port == 0 {
-            // nothing to announce: just look for peers
-            tracker.get_peers(ih, now);
-        } else {
-            tracker.announce(ih, AnnounceArgs { port, seed, implied_port }, now);
+        for ih in hashes {
+            if port == 0 {
+                // nothing to announce: just look for peers
+                tracker.get_peers(ih, now);
+            } else {
+                tracker.announce(ih, AnnounceArgs { port, seed, implied_port }, now);
+            }
         }
     }
 

@@ -86,6 +86,10 @@ pub(crate) struct Torrent {
     pub peers: Vec<usize>,
     pub peer_list: PeerList,
     pub trackers: Vec<TrackerEntry>,
+    /// A hybrid's trackers once more, for announcing under its truncated v2 hash with their own
+    /// state (libtorrent's second `announce_infohash` per endpoint); kept in step with
+    /// `trackers` by `sync_v2_trackers`, not shown to frontends.
+    pub trackers_v2: Vec<TrackerEntry>,
     /// BEP 19 / BEP 17 web seeds.
     pub web_seeds: WebSeeds,
 
@@ -159,6 +163,7 @@ impl Torrent {
             peers: Vec::new(),
             peer_list: PeerList::default(),
             trackers: Vec::new(),
+            trackers_v2: Vec::new(),
             web_seeds: WebSeeds::default(),
             stat: Stat::default(),
             prev_uploaded: 0,
@@ -234,6 +239,34 @@ impl Torrent {
     }
 
     /// Adds trackers, keeping the list sorted by tier and free of duplicates.
+    /// Makes `trackers_v2` list the same trackers as `trackers` (a hybrid) or none, keeping the
+    /// announce state of the ones it had.
+    pub fn sync_v2_trackers(&mut self) {
+        let hybrid = self.info_hashes.has_v1() && self.info_hashes.has_v2();
+        if !hybrid {
+            self.trackers_v2.clear();
+            return;
+        }
+        let same = self.trackers_v2.len() == self.trackers.len()
+            && self.trackers_v2.iter().zip(&self.trackers).all(|(a, b)| a.url == b.url && a.tier == b.tier);
+        if same {
+            return;
+        }
+        let mut old = std::mem::take(&mut self.trackers_v2);
+        self.trackers_v2 = self
+            .trackers
+            .iter()
+            .map(|t| match old.iter().position(|o| o.url == t.url) {
+                Some(i) => {
+                    let mut e = old.swap_remove(i);
+                    e.tier = t.tier;
+                    e
+                }
+                None => TrackerEntry::new(t.url.clone(), t.tier),
+            })
+            .collect();
+    }
+
     pub fn add_tracker(&mut self, url: &str, tier: u32) {
         let url = url.trim();
         if url.is_empty() || self.trackers.iter().any(|t| t.url == url) {

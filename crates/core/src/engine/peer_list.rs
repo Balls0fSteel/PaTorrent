@@ -43,6 +43,9 @@ pub(crate) struct KnownPeer {
     pub supports_utp: bool,
     /// We have been connected to this peer over uTP at least once.
     pub confirmed_supports_utp: bool,
+    /// Learned under a hybrid's v2 hash (a v2 tracker announce, the DHT, PEX `lt_v2`): we
+    /// connect with that hash (libtorrent `torrent_peer::protocol_v2`).
+    pub protocol_v2: bool,
     /// BEP 40 rank against our external address (higher connects first).
     rank: u32,
 }
@@ -103,9 +106,16 @@ impl PeerList {
             pe_support: false,
             supports_utp: true,
             confirmed_supports_utp: false,
+            protocol_v2: false,
             rank,
         });
         true
+    }
+
+    pub fn set_protocol_v2(&mut self, addr: &SocketAddr) {
+        if let Some(p) = self.get_mut(addr) {
+            p.protocol_v2 = true;
+        }
     }
 
     /// Drops the least useful unconnected peer (libtorrent `erase_peers`).
@@ -189,6 +199,7 @@ impl PeerList {
                 pe_support: false,
                 supports_utp: true,
                 confirmed_supports_utp: false,
+                protocol_v2: false,
                 rank: 0,
             });
         }

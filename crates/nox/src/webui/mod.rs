@@ -19,6 +19,7 @@ pub mod https;
 pub mod json;
 pub mod native;
 pub(crate) mod prefs;
+mod remote;
 pub(crate) mod rss;
 mod server;
 pub mod torrent;
@@ -403,6 +404,8 @@ pub(crate) struct Shared {
     pub rss: Mutex<rss::Rss>,
     /// The certificate when serving HTTPS.
     pub tls: Option<patorrent_core::tls::Identity>,
+    /// The connected remote sessions' alert queues ([`Shared::fan_out`]).
+    pub(crate) remotes: Mutex<Vec<Arc<remote::Client>>>,
 }
 
 pub fn unix_now() -> i64 {
@@ -714,6 +717,7 @@ impl WebUi {
                 config.state_dir.as_ref().map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
             )),
             tls: loaded.map(|l| l.identity),
+            remotes: Mutex::new(Vec::new()),
         });
         {
             let mut st = shared.lock();
@@ -794,6 +798,7 @@ impl WebUi {
 
     /// Feeds a batch of alerts popped from the session.
     pub fn on_alerts(&self, alerts: &[Alert]) {
+        self.shared.fan_out(alerts);
         let mut st = self.shared.lock();
         let mut replied = false;
         let mut ticked = false;

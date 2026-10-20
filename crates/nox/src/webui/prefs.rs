@@ -1094,6 +1094,22 @@ pub(crate) fn commit(shared: &Shared, st: &mut State, changes: &[Change]) -> Res
     Ok(())
 }
 
+/// A remote GUI's `apply_settings`: the engine settings that differ from the current ones,
+/// committed like the Preferences dialog's changes (checked, applied, stored). Settings
+/// without a row in the table, and read-only ones, are not taken.
+pub(crate) fn commit_settings(shared: &Shared, st: &mut State, new: &Settings) -> Result<(), Refusal> {
+    let changes: Vec<Change> = TABLE
+        .iter()
+        .filter(|e| e.get(new) != e.get(&st.settings))
+        .map(|e| (Def::Setting(e), e.get(new)))
+        .filter(|(d, _)| !d.readonly())
+        .collect();
+    if changes.is_empty() {
+        return Ok(());
+    }
+    commit(shared, st, &changes)
+}
+
 /// Writes the preferences into `State::options` (the frontend's keys): the engine settings as
 /// `lt.<name>` with the normal rate limits (the ones that differ from the defaults, as the
 /// Win32 client stores them, plus every row `changed` here or stored before, so a value set

@@ -94,6 +94,32 @@ pub enum Verify {
     Pinned(Fingerprint),
 }
 
+/// How a client session checks the server: [`Verify`], or (for [`probe`]) not at all.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Check {
+    System,
+    Pinned(Fingerprint),
+    Any,
+}
+
+impl From<Verify> for Check {
+    fn from(v: Verify) -> Check {
+        match v {
+            Verify::System => Check::System,
+            Verify::Pinned(f) => Check::Pinned(f),
+        }
+    }
+}
+
+/// Runs a TLS handshake that accepts any certificate, returns the fingerprint of the one the
+/// server presented, and drops the connection without sending anything over it: for showing
+/// the user a certificate to accept before a password goes out.
+pub fn probe<S: Read + Write>(sock: S, host: &str) -> io::Result<Fingerprint> {
+    let mut s = TlsStream::new(sock, Session::client(host, Check::Any)?);
+    s.handshake()?;
+    s.tls.peer_fingerprint().ok_or_else(|| io::Error::other("the server presented no certificate"))
+}
+
 /// The first certificate of a PEM file: its fingerprint and validity (Unix seconds).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct CertificateInfo {
@@ -225,7 +251,7 @@ impl<S: Read + Write> Stream<S> {
     /// The client side, for `host` (a DNS name or an IP address literal, used for SNI and for
     /// [`Verify::System`]). The ClientHello is queued, not sent.
     pub fn connect(sock: S, host: &str, verify: Verify) -> io::Result<Stream<S>> {
-        Ok(Stream { inner: TlsStream::new(sock, Session::client(host, verify)?) })
+        Ok(Stream { inner: TlsStream::new(sock, Session::client(host, verify.into())?) })
     }
 
     /// Runs the handshake to its end. With a non-blocking socket (or a timeout) `WouldBlock`
@@ -294,7 +320,7 @@ pub(crate) trait TlsSession {
 /// Starts a client session for `host` that verifies the server against the OS trust store.
 /// The first handshake message is ready in `outgoing`.
 pub(crate) fn client(host: &str) -> io::Result<Session> {
-    Session::client(host, Verify::System)
+    Session::client(host, Check::System)
 }
 
 /// A TLS session over a socket. Works with blocking and non-blocking sockets; with a
@@ -427,7 +453,7 @@ impl<S: Read + Write, T: TlsSession> Write for TlsStream<S, T> {
 mod unsupported {
     use std::io;
 
-    use super::{SubjectName, Verify};
+    use super::{Check, SubjectName};
 
     pub(crate) struct Session;
 
@@ -436,7 +462,7 @@ mod unsupported {
     }
 
     impl Session {
-        pub fn client(_host: &str, _verify: Verify) -> io::Result<Session> {
+        pub fn client(_host: &str, _check: Check) -> io::Result<Session> {
             Err(unsupported())
         }
         pub fn server(_identity: &Identity) -> io::Result<Session> {
@@ -803,6 +829,17 @@ mod tests {
         let (addr, server) = serve_once(id);
         let e = fetch(addr, "localhost", Verify::System).unwrap_err();
         eprintln!("system verification: {e}");
+        assert!(server.join().unwrap().is_err());
+    }
+
+    #[test]
+    fn a_probe_reports_the_certificate_and_sends_nothing() {
+        let id = Identity::from_pem(&fixture("ec-cert.pem"), &fixture("ec-pkcs8.pem")).unwrap();
+        let (addr, server) = serve_once(id.clone());
+        let sock = std::net::TcpStream::connect(addr).unwrap();
+        sock.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        assert_eq!(probe(sock, "patorrent.example").unwrap(), id.fingerprint());
+        // the server got through its handshake, then the connection ended without a byte
         assert!(server.join().unwrap().is_err());
     }
 

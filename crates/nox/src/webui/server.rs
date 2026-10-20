@@ -28,7 +28,7 @@ const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
 pub const WS_PATH: &str = "/pa/ws";
 /// How long a WebSocket thread blocks in `read` before it looks for a new status tick, so a
 /// tick reaches the client within this long of the alert batch.
-const WS_POLL: Duration = Duration::from_millis(50);
+pub(super) const WS_POLL: Duration = Duration::from_millis(50);
 /// A ping goes out after this long without a frame from the client, and the socket is closed
 /// after twice that.
 const WS_PING_AFTER: Duration = Duration::from_secs(30);
@@ -97,7 +97,7 @@ pub(super) fn wake(addr: SocketAddr) {
 }
 
 /// A client's connection: plain HTTP, or HTTPS once the TLS handshake is done.
-enum Conn {
+pub(super) enum Conn {
     Plain(TcpStream),
     Tls(Box<tls::Stream<TcpStream>>),
 }
@@ -110,7 +110,7 @@ impl Conn {
         }
     }
 
-    fn set_read_timeout(&self, t: Duration) {
+    pub(super) fn set_read_timeout(&self, t: Duration) {
         let _ = self.tcp().set_read_timeout(Some(t));
     }
 
@@ -273,6 +273,17 @@ fn connection(stream: TcpStream, peer: SocketAddr, shared: &Shared) {
         };
         buf.drain(..used);
 
+        if head.path == patorrent_core::remote::PATH {
+            match super::remote::handshake(shared, &head, peer.ip()) {
+                Ok(()) => {
+                    if write_out(&mut stream, &super::remote::switching_protocols()) {
+                        super::remote::run(stream, buf, shared);
+                    }
+                }
+                Err(r) => send_and_close(&mut stream, &api::with_security_headers(r)),
+            }
+            return;
+        }
         if head.path == WS_PATH {
             match api::websocket_handshake(shared, &head, peer.ip()) {
                 Ok((key, ws_key)) => {

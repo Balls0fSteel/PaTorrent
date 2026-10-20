@@ -61,7 +61,7 @@ use windows_sys::Win32::System::Threading::{
 };
 
 use super::pem::{self, der};
-use super::{Fingerprint, SubjectName, Verify};
+use super::{Check, Fingerprint, SubjectName};
 
 const ISC_FLAGS: ISC_REQ_FLAGS = ISC_REQ_SEQUENCE_DETECT
     | ISC_REQ_REPLAY_DETECT
@@ -211,7 +211,7 @@ enum Role {
     Client {
         /// The host name, NUL-terminated UTF-16.
         target: Vec<u16>,
-        pin: Option<Fingerprint>,
+        check: Check,
     },
     /// Keeps the server's credentials alive while the session uses them.
     Server { _identity: Arc<Identity> },
@@ -233,16 +233,12 @@ pub(crate) struct Session {
 }
 
 impl Session {
-    pub fn client(host: &str, verify: Verify) -> io::Result<Session> {
+    pub fn client(host: &str, check: Check) -> io::Result<Session> {
         if host.contains('\0') {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid host name"));
         }
-        let pin = match verify {
-            Verify::System => None,
-            Verify::Pinned(f) => Some(f),
-        };
-        let mut s =
-            Session::with(client_credentials(pin.is_some())?, Role::Client { target: wide(host), pin });
+        let manual = !matches!(check, Check::System);
+        let mut s = Session::with(client_credentials(manual)?, Role::Client { target: wide(host), check });
         s.handshake()?;
         Ok(s)
     }
@@ -389,7 +385,7 @@ impl Session {
 
     /// A client notes the server's certificate and, when pinned, insists on it.
     fn check_peer(&mut self) -> io::Result<()> {
-        let Role::Client { pin, .. } = self.role else { return Ok(()) };
+        let Role::Client { check, .. } = self.role else { return Ok(()) };
         let mut cert: *mut CERT_CONTEXT = ptr::null_mut();
         // SAFETY: the context is established; SECPKG_ATTR_REMOTE_CERT_CONTEXT stores a certificate
         // context pointer, which we own and free.
@@ -404,8 +400,8 @@ impl Session {
             // SAFETY: the context came from QueryContextAttributesW and is freed once.
             unsafe { CertFreeCertificateContext(cert) };
         }
-        match pin {
-            Some(pin) if self.peer != Some(pin) => Err(io::Error::other(format!(
+        match check {
+            Check::Pinned(pin) if self.peer != Some(pin) => Err(io::Error::other(format!(
                 "TLS handshake failed: the server's certificate is not the accepted one (it presented {})",
                 self.peer.map_or_else(|| "none".to_owned(), |p| p.to_string())
             ))),

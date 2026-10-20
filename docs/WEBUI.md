@@ -63,8 +63,8 @@ state class). The page draws. Consequences:
 
 The GUIs' remote mode (Phase 6 "either GUI can remote-control a nox instance") is a *thick*
 client: it wants `TorrentStatus` records, not cells, so its own `TorrentList` keeps working. That
-is a second, binary stream from the same cache, not a variation of the page protocol. Out of
-scope here; noted so the native API is not bent for it.
+is a second, binary stream from the same cache, not a variation of the page protocol: see
+[Remote mode](#remote-mode) below.
 
 ### Transport: one WebSocket down, HTTP POST up
 
@@ -293,6 +293,48 @@ running account's CNG key store under a name of the process (SChannel signs in L
 cannot use a key held only in our process). It is deleted once the Web UI and its last
 connection are gone; when that did not happen before the process ended (killed, or a WebSocket
 still open at exit), the next start deletes it. It is a copy of a key that is on disk anyway.
+
+## Remote mode
+
+A GUI can drive a nox's engine instead of its own (`patorrent_core::remote`; the server side is
+`webui/remote.rs`). The client is a `Session` like a local one: its handles queue the engine's
+own commands, and instead of an engine thread a pump thread sends them to the nox and posts the
+nox's alerts into the client's alert queue. The GUI's models, dialogs and automations run
+unchanged on top.
+
+- **Transport.** An HTTP/1.1 upgrade on the Web UI's port (HTTPS too):
+  `GET /pa/remote` with `Connection: Upgrade`, `Upgrade: patorrent-remote`,
+  `X-PaTorrent-Remote: 1` (the protocol version) and the Web UI login as
+  `Authorization: Basic`. The checks are the WebSocket's: ban list, `Host`, `Origin` when there
+  is one (only a browser sends it), then the login, whose failures count towards the ban like
+  the login form's (a session cookie or the local-auth bypass also do). `101` switches; a wrong
+  version gets `426`, a wrong login `401`.
+- **Frames.** A 4-byte big-endian length and one bencoded list: the message name, then the
+  fields in declaration order (positional, so both ends must speak the same version; structs
+  are lists, options are lists of zero or one, flags integers, addresses text). The server's
+  first frame is `hello`: version, the server's PaTorrent version, its default save path and
+  its engine settings.
+- **Client to server**: the engine commands (add with the `.torrent` bytes or the magnet, remove,
+  pause, flags, queue, limits, trackers, priorities, move storage, rename, the `post_*` detail
+  requests, settings, session pause). A session's IP and port filter tables stay on the client
+  (the server's own filter applies; the client logs that it was not sent).
+- **Server to client**: every alert of the nox's engine, queued per client (a client more than
+  100,000 alerts behind is disconnected and resynchronises on reconnect), except the replies to
+  the nox's own status requests. A client's `post_torrent_updates` is answered from the cache:
+  the torrents whose version passed what this client was last sent (all of them the first
+  time), so each client has its own "changed since" as with a local engine.
+  `post_session_stats` gets the cache's statistics.
+- **Settings** sent by a client take the Preferences dialog's path (`prefs::commit`): checked,
+  applied with the global limits of the mode in force, stored in `webui.json`.
+- **Certificates.** Over HTTPS a client either trusts the system's roots or pins one
+  certificate's SHA-256 fingerprint. `remote::probe_certificate` reads the fingerprint of a
+  self-signed server without sending it anything, so the GUI can show it to the user (to
+  compare with the line nox printed) before the password goes out.
+- **Lost connections** end in an `Alert::RemoteDisconnected`; the client's commands go nowhere
+  after it.
+
+What the GUI does with it (a connect dialog, remote paths in the Add dialog, which local
+features stay off) is the GUI's part: PLAN.md Phase 6.
 
 ## Budgets (gates, like the desktop's)
 

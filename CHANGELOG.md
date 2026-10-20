@@ -2,6 +2,18 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_122407_1792491847: Remote sessions: the protocol and nox's side
+
+### Added
+- **`patorrent_core::remote`**: `connect(&Target, timeout)` returns a `Session` (and the server's `Hello`: its version, default save path and engine settings) whose engine is a `patorrent-nox` elsewhere. Its handles queue the engine's own commands; a pump thread sends them to the nox and posts the nox's alerts into the session's queue, so a frontend's models work unchanged. Plain or TLS (`Verify::System` or `Verify::Pinned`); `probe_certificate` reads a self-signed server's fingerprint without sending it anything (`tls::probe`). A lost connection ends in the new `Alert::RemoteDisconnected`. The IP and port filter tables stay on the client (logged).
+- **The protocol** (docs/WEBUI.md "Remote mode"): an HTTP/1.1 upgrade, `GET /pa/remote` with `Upgrade: patorrent-remote`, `X-PaTorrent-Remote: 1` and Basic credentials; then frames of a 4-byte length and one bencoded list (message name, then the fields positionally). `remote/wire.rs` encodes every alert, every command the network can carry and their types (`TorrentStatus`, `Settings`, `AddTorrentParams` with the `.torrent` bytes...); the struct and enum codecs destructure exhaustively, so a field or variant added without its codec does not compile.
+- **nox** (`webui/remote.rs`): the upgrade checked like the WebSocket's (ban list, `Host`, `Origin` when a browser sends one) plus the protocol version (`426`) and the login (the login form's check, its failures counting towards the ban: `api::check_login`, factored out of `login`); then the hello, the client's commands to the engine, every engine alert queued per client (`Shared::fan_out`, but the replies to nox's own status requests; a client 100,000 alerts behind is disconnected), `post_torrent_updates` answered from the cache with what changed since that client's last one (all of it the first time), `post_session_stats` from the cache, and settings through the Preferences dialog's path (`prefs::commit_settings`: checked, applied, stored).
+
+### Verified
+- `remote::tests`: every alert variant and every command round trip (errors keep their identity or their message), the hello, every truncation and wrong type of a frame refused, and loopback sessions against a minimal server on a real engine: add a magnet, its status, statistics, a detail request, remove, the filter staying local; the same over TLS with a probe then a pin; a server hanging up (one `RemoteDisconnected`, then silence); refusals (401, 426, a wrong password, nothing listening, a server that is not ours).
+- `crates/nox/tests/remote.rs`: a client driving the nox (add, status from the cache, a detail request, pause, an idle update without the unchanged torrent, a second client getting the whole list, settings reaching the Web UI's preferences, removal reaching both clients), the login and the ban after five failures, the upgrade's checks (400, 426, a foreign `Origin` 403), and HTTPS (the probe's fingerprint is the server's, the system's roots refuse it, the pin works).
+- Windows: `cargo test --workspace --no-fail-fast` 1055 passed, 0 failed; clippy (stable, Linux and FreeBSD targets) and fmt clean. The VMs stopped answering before the Unix run: CI's Linux and FreeBSD jobs cover it.
+
 ## 2026-10-20_120037_1792490437: The Web UI over HTTPS
 
 ### Added

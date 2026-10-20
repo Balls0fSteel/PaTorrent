@@ -29,6 +29,7 @@ mod move_completed;
 mod net;
 mod params;
 mod proto;
+pub mod remote;
 mod resume;
 mod session;
 mod settings;

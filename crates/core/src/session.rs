@@ -121,7 +121,7 @@ impl Session {
         })
     }
 
-    fn spawn(
+    pub(crate) fn spawn(
         settings: Settings,
         wake: Box<dyn Fn() + Send + Sync>,
         engine: impl FnOnce(mpsc::Receiver<Command>, Arc<Shared>, Settings) + Send + 'static,
@@ -167,7 +167,7 @@ pub struct SessionHandle {
 }
 
 impl SessionHandle {
-    fn send(&self, cmd: Command) {
+    pub(crate) fn send(&self, cmd: Command) {
         if self.shared.tx.send(cmd).is_ok() {
             (self.shared.wake)();
         }

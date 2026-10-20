@@ -194,4 +194,4 @@ h.pop_alerts(&mut alerts);
 
   All icons and artwork are original, drawn at runtime or embedded. No µTorrent assets, names or trademarks.
 - **GTK** uses the same layout and the same `frontend` model.
-- **nox** is a daemon with a native push API and a dependency-free Web UI that draws the same 2.2.1 window from the same `frontend` model (design: [WEBUI.md](WEBUI.md)), plus a qBittorrent WebAPI shim for Sonarr / Radarr and the mobile remotes. It can also be the target of a "remote" connection from either GUI.
+- **nox** is a daemon with a native push API and a dependency-free Web UI that draws the same 2.2.1 window from the same `frontend` model (design: [WEBUI.md](WEBUI.md)), plus a qBittorrent WebAPI shim for Sonarr / Radarr and the mobile remotes. It can also be the target of a "remote" connection from either GUI: `core::remote` gives a GUI a `Session` whose commands go to a nox over the Web UI's port and whose alerts come back from it (docs/WEBUI.md "Remote mode").

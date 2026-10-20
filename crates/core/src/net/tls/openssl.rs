@@ -18,7 +18,7 @@ use std::ptr;
 use std::sync::{Arc, OnceLock};
 
 use super::pem;
-use super::{Fingerprint, SubjectName, Verify};
+use super::{Check, Fingerprint, SubjectName};
 
 type Handle = *mut c_void;
 type VerifyCallback = unsafe extern "C" fn(c_int, Handle) -> c_int;
@@ -225,7 +225,7 @@ pub(crate) struct Session {
     closed: bool,
     /// A client's verification state (the SSL object points at it).
     verification: Option<Box<Verification>>,
-    pin: Option<Fingerprint>,
+    check: Check,
 }
 
 // SAFETY: the SSL object and its BIOs belong to this session alone and are only used through
@@ -251,7 +251,7 @@ impl Session {
                 handshaking: true,
                 closed: false,
                 verification: None,
-                pin: None,
+                check: Check::System,
             };
             let rbio = BIO_new(BIO_s_mem());
             let wbio = BIO_new(BIO_s_mem());
@@ -269,15 +269,12 @@ impl Session {
         }
     }
 
-    pub fn client(host: &str, verify: Verify) -> io::Result<Session> {
+    pub fn client(host: &str, check: Check) -> io::Result<Session> {
         let name = CString::new(host)
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid host name"))?;
         let mut s = Session::new(context()?)?;
-        s.pin = match verify {
-            Verify::System => None,
-            Verify::Pinned(f) => Some(f),
-        };
-        let mut state = Box::new(Verification { pinned: s.pin.is_some(), leaf: None });
+        s.check = check;
+        let mut state = Box::new(Verification { pinned: !matches!(check, Check::System), leaf: None });
         let is_ip = host.parse::<IpAddr>().is_ok();
         // SAFETY: `s.ssl` is live and `name` is NUL-terminated (OpenSSL copies it). The app
         // data points into the box, which the session keeps as long as the SSL object.
@@ -294,7 +291,7 @@ impl Session {
                 ) == 1;
             }
             // a pinned certificate need not name the host
-            if s.pin.is_none() {
+            if matches!(s.check, Check::System) {
                 ok &= if is_ip {
                     X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(s.ssl), name.as_ptr()) == 1
                 } else {
@@ -321,7 +318,7 @@ impl Session {
     fn error(&self, what: &str) -> io::Error {
         // SAFETY: `self.ssl` is live; the verify error string is a static C string.
         let verify = unsafe { SSL_get_verify_result(self.ssl) };
-        let why = if verify != X509_V_OK && self.pin.is_none() {
+        let why = if verify != X509_V_OK && matches!(self.check, Check::System) {
             // SAFETY: as above.
             let s = unsafe { CStr::from_ptr(X509_verify_cert_error_string(verify)) };
             format!("certificate verification failed: {}", s.to_string_lossy())
@@ -339,7 +336,7 @@ impl Session {
         };
         if r == 1 {
             self.handshaking = false;
-            if let Some(pin) = self.pin {
+            if let Check::Pinned(pin) = self.check {
                 let leaf = self.peer();
                 if leaf != Some(pin) {
                     self.drain();

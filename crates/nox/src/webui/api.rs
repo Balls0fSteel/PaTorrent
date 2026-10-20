@@ -678,9 +678,9 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
     }
 }
 
-fn login(shared: &Shared, p: &Params, ip: IpAddr, now: Instant) -> Response {
-    let user = p.get("username").unwrap_or("");
-    let pass = p.get("password").unwrap_or("");
+/// Checks a user name and password (the hash outside the state lock: it is slow on purpose),
+/// counting a failure towards the address's ban and clearing its count on success.
+pub(super) fn check_login(shared: &Shared, user: &str, pass: &str, ip: IpAddr, now: Instant) -> bool {
     let (expected_user, hash) = {
         let st = shared.lock();
         (st.username.clone(), st.password.clone())
@@ -689,12 +689,22 @@ fn login(shared: &Shared, p: &Params, ip: IpAddr, now: Instant) -> Response {
     let pass_ok = hash.verify(pass);
     let ok = constant_time_eq(user.as_bytes(), expected_user.as_bytes()) & pass_ok;
     let mut st = shared.lock();
-    if !ok {
+    if ok {
+        st.bans.succeeded(ip);
+    } else {
         let (max, ban) = (st.prefs.max_auth_fail_count, Duration::from_secs(st.prefs.ban_duration));
         st.bans.failed(ip, max, ban, now);
+    }
+    ok
+}
+
+fn login(shared: &Shared, p: &Params, ip: IpAddr, now: Instant) -> Response {
+    let user = p.get("username").unwrap_or("");
+    let pass = p.get("password").unwrap_or("");
+    if !check_login(shared, user, pass, ip, now) {
         return Response::text(200, "Fails.");
     }
-    st.bans.succeeded(ip);
+    let mut st = shared.lock();
     if st.sessions.len() >= MAX_SESSIONS {
         if let Some(oldest) = st.sessions.iter().min_by_key(|(_, s)| s.last_used).map(|(k, _)| k.clone()) {
             st.sessions.remove(&oldest);

@@ -321,6 +321,11 @@ pub enum Alert {
     AlertsDropped {
         count: u64,
     },
+    /// A remote session ([`crate::remote`]) lost its connection to the server: nothing more
+    /// arrives, and commands go nowhere. PaTorrent's own.
+    RemoteDisconnected {
+        message: String,
+    },
 }
 
 impl Alert {
@@ -350,7 +355,8 @@ impl Alert {
             | PieceInfo { .. }
             | WebSeeds { .. }
             | TorrentFile { .. }
-            | AlertsDropped { .. } => AlertPriority::Critical,
+            | AlertsDropped { .. }
+            | RemoteDisconnected { .. } => AlertPriority::Critical,
             StateChanged { .. }
             | TorrentPaused { .. }
             | TorrentResumed { .. }
@@ -497,6 +503,7 @@ impl Alert {
             PieceInfo { have, .. } => write!(s, "{} of {} pieces", have.count(), have.len()),
             Log { message, .. } => write!(s, "{message}"),
             AlertsDropped { count } => write!(s, "{count} alerts dropped (queue full)"),
+            RemoteDisconnected { message } => write!(s, "disconnected from the remote session: {message}"),
         };
         s
     }

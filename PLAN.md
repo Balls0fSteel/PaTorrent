@@ -259,7 +259,7 @@ Design: [docs/WEBUI.md](docs/WEBUI.md) (D18, decided 2026-10-17_203617_179226217
     - [x] the scheduler (2026-10-18_235124_1792360284): the Scheduler page's table as a pointer grid (mouse and touch), the `sched.*` fields in `/pa/prefs`, run on the status tick
     - [x] RSS (2026-10-19_101030_1792397430): the RSS Downloader dialog, the tree's Feeds branch, `rss` in the tick
     - [x] Torrent Properties (2026-10-19_101030_1792397430)
-    - [ ] the remote mode
+    - [ ] the remote mode: the protocol and nox's side are in (2026-10-20_122407_1792491847: `core::remote`, `GET /pa/remote`, docs/WEBUI.md "Remote mode"); the Win32 GUI's side next
 - [ ] Optional: either GUI can remote-control a nox instance
 
 ### Phase 7: GTK GUI (Linux / BSD)
@@ -302,7 +302,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 **Platform and protocol (D19):**
 1. Phase 8, BEP 52: v2 and hybrid torrents end to end. Merkle trees and the hash picker, v2 piece layers in resume data, v2 magnets (`btmh`), creating v2 / hybrid torrents (`set_hash2`, piece layers, file tree), truncated v2 hashes for LSD / DHT. Port the rest of `test_torrent_info`, `test_create_torrent`, `test_merkle_tree`, `test_hash_picker`. In progress: the merkle trees, the hash picker and creation (2026-10-20_095400_1792482840); v2-only and hybrid `.torrent`s download, seed and serve their piece layers (2026-10-20_101114_1792483874); the Create dialog's version choice (2026-10-20_101643_1792484203); v2 magnets and piece layers from peers (2026-10-20_102248_1792484568). Hybrids are announced under both hashes (2026-10-20_104145_1792485705). Left: interop with a libtorrent 2.0 client (the installed qBittorrent is a libtorrent 1.2 build).
 2. Phase 7: the GTK 4 GUI on `patorrent_frontend` (the models are toolkit-independent already), virtualised `ColumnView`, StatusNotifierItem tray, XDG autostart and `xdg-mime` associations. Blocked (2026-10-20_120037_1792490437): no GTK 4 development files anywhere here (the Xubuntu VM has only the `libgtk-4-1` runtime, Windows none); the owner was asked to install `libgtk-4-dev` on the VM.
-3. Phase 6: HTTPS for the Web UI (a server side for the TLS layer: SChannel and OpenSSL, certificate and key from the user, optional self-signed one generated on request) and the GUIs' remote mode (either GUI driving a nox over the native API). HTTPS is in (2026-10-20_120037_1792490437; `patorrent_core::tls` has the pinned client the remote mode needs: `Verify::Pinned`, `Stream::peer_fingerprint`). Left: the remote mode.
+3. Phase 6: HTTPS for the Web UI (a server side for the TLS layer: SChannel and OpenSSL, certificate and key from the user, optional self-signed one generated on request) and the GUIs' remote mode (either GUI driving a nox over the native API). HTTPS is in (2026-10-20_120037_1792490437; `patorrent_core::tls` has the pinned client the remote mode needs: `Verify::Pinned`, `Stream::peer_fingerprint`). Left: the remote mode. Its protocol and nox's side are in (2026-10-20_122407_1792491847): `core::remote::connect` gives a GUI a `Session` driving a nox over `GET /pa/remote` (Basic login, plain or TLS with a pinned certificate, `probe_certificate` for a first look); next the Win32 GUI's side (a connect dialog, a data folder per server, local-only features off).
 4. Localisation (D20): string tables in `patorrent_frontend`, every frontend's strings moved to them, the language choice on Preferences > General (Win32, GTK, the Web UI), then the translated tables.
 
 **Scale (D21):**

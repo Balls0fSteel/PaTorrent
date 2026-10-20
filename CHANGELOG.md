@@ -2,6 +2,27 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_131729_1792495049: v2 and hybrid interop with libtorrent 2.0 clients; `lt-swarm interop` on Linux
+
+### Verified
+- On the Ubuntu VM (192.168.32.128) with the static qBittorrent 5.2.4 / libtorrent 2.0.15 (userdocs/qbittorrent-nox-static `release-5.2.4_v2.0.15`), Transmission 4.1.1 and Deluge 2.2.1 / libtorrent 2.0.12, PaTorrent downloaded the 40 MiB fixture byte for byte:
+
+  | torrent | qBittorrent | Deluge | Transmission |
+  |---|---|---|---|
+  | v2-only | ok | ok | refuses it ("missing v1 metadata") |
+  | hybrid | ok | ok | stops seeding at 98.1 % (it seems to want BEP 47 pad files on disk) |
+  | v1 | ok | ok | ok |
+  | v1, RC4 forced | ok | ok | ok |
+  | hybrid, RC4 forced | ok | ok | as above |
+
+  This closes BEP 52's interop check (Road to 1.0 item 1). The Transmission failures are its own limits, not ours.
+
+### Fixed
+- `lt-swarm interop` outside Windows: qBittorrent reads `qBittorrent.conf` there, not `qBittorrent.ini`, so the throwaway profile's settings (its port among them) were ignored and the seed was never found; and Ubuntu's AppArmor profile lets `transmission-cli` use only `~/Downloads`, so the shell-run clients work there instead of `/tmp` (still `/tmp` in WSL).
+
+### Changed
+- The retired Ubuntu VM is back as the build and interop machine; the Xubuntu VM, where the owner works in Android Studio, keeps the desktop for GTK screenshots. Both have libgtk-4-dev 4.22.4 now (Phase 7 unblocked).
+
 ## 2026-10-20_122917_1792492157: The Win32 GUI's remote mode
 
 ### Added

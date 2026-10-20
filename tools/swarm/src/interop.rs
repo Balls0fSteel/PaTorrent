@@ -265,6 +265,18 @@ struct Seed {
     log: PathBuf,
 }
 
+/// Where the shell-run clients (Transmission, Deluge) get their directories: `/tmp` in the WSL
+/// distro; elsewhere the user's `~/Downloads`, the one place Ubuntu's AppArmor profile lets
+/// `transmission-cli` read and write.
+fn shell_root() -> String {
+    if cfg!(windows) {
+        "/tmp".into()
+    } else {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".into());
+        format!("{home}/Downloads")
+    }
+}
+
 /// Runs a POSIX shell script: in the WSL distro on Windows, with `sh` elsewhere.
 fn shell(opts: &Options, script: &str) -> Command {
     if cfg!(windows) {
@@ -351,7 +363,13 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
                  [Network]\r\nPortForwardingEnabled=false\r\n\r\n\
                  [Preferences]\r\nConnection\\ResolvePeerCountries=false\r\nGeneral\\NoSplashScreen=true\r\n"
             );
-            std::fs::write(config.join("qBittorrent.ini"), ini).map_err(|e| e.to_string())?;
+            // qBittorrent.ini on Windows, qBittorrent.conf (with LF line ends) elsewhere
+            let (file, ini) = if cfg!(windows) {
+                ("qBittorrent.ini", ini)
+            } else {
+                ("qBittorrent.conf", ini.replace("\r\n", "\n"))
+            };
+            std::fs::write(config.join(file), ini).map_err(|e| e.to_string())?;
             let child = Command::new(&opts.qbittorrent)
                 .arg(format!("--profile={}", profile.display()))
                 .arg(format!("--save-path={}", f.work.join("seed").display()))
@@ -367,7 +385,7 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
         Client::Transmission | Client::Deluge => {
             let host = shell_host(opts)?;
             let port = shell_port(client);
-            let dir = format!("/tmp/{NAME}-{}/{}", std::process::id(), client.key());
+            let dir = format!("{}/{NAME}-{}/{}", shell_root(), std::process::id(), client.key());
             let src = shell_path(&f.work);
             let prepare = format!(
                 "set -e; rm -rf {dir}; mkdir -p {dir}/cfg; cp -r {src}/seed/{NAME} {dir}/; cp {src}/{NAME}.torrent {dir}/"
@@ -421,10 +439,13 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
                 child,
                 addr: SocketAddr::new(host, port),
                 // The client's path must not appear literally in this command line, or `pkill -f`
-                // kills the cleanup shell too: `[/]` in the pattern, and `$d` for `rm`.
+                // kills the cleanup shell too: `[l]` in the pattern, and `$d` for `rm`.
                 kill: Some(format!(
-                    "d=/tmp/{NAME}-{pid}; pkill -f '[/]tmp/{NAME}-{pid}/{key}'; sleep 1; \
+                    "d={root}/{NAME}-{pid}; pkill -f '[{first}]{rest}-{pid}/{key}'; sleep 1; \
                      rm -rf \"$d/{key}\"; rmdir \"$d\" 2>/dev/null; true",
+                    root = shell_root(),
+                    first = &NAME[..1],
+                    rest = &NAME[1..],
                     pid = std::process::id(),
                     key = client.key()
                 )),

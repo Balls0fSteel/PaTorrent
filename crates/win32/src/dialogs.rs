@@ -4,6 +4,7 @@
 use std::mem::{size_of, zeroed};
 use std::ptr::null;
 
+use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -26,8 +27,8 @@ use crate::util::{from_wide_ptr, loword, wide, window_text};
 
 /// File → Add Torrent: one or more `.torrent` files.
 pub fn open_torrents(owner: HWND) -> Vec<String> {
-    let filter = wide("Torrents (*.torrent)\0*.torrent\0All Files (*.*)\0*.*\0");
-    let title = wide("Select a .torrent to open");
+    let filter = wide(&torrent_filter());
+    let title = wide(tr!(PickTorrent));
     let mut buf = vec![0u16; 64 * 1024];
     unsafe {
         let mut ofn: OPENFILENAMEW = zeroed();
@@ -50,6 +51,16 @@ pub fn open_torrents(owner: HWND) -> Vec<String> {
         [one] => vec![one.clone()],
         [dir, names @ ..] => names.iter().map(|n| format!("{}\\{n}", dir.trim_end_matches('\\'))).collect(),
     }
+}
+
+/// The file dialogs' filter: `.torrent` files, then all files.
+pub fn torrent_filter() -> String {
+    format!("{}\0*.torrent\0{}\0*.*\0", tr!(FilterTorrents), tr!(FilterAllFiles))
+}
+
+/// The file dialogs' filter for any file.
+pub fn all_files_filter() -> String {
+    format!("{}\0*.*\0", tr!(FilterAllFiles))
 }
 
 pub fn error(owner: HWND, text: &str) {
@@ -169,14 +180,14 @@ fn input_template() -> Vec<u16> {
         IDOK as u16,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
         [169, 40, 50, 14],
-        "OK",
+        tr!(BtnOk),
     );
     t.item(
         BUTTON,
         IDCANCEL as u16,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_PUSHBUTTON as u32,
         [223, 40, 50, 14],
-        "Cancel",
+        tr!(BtnCancel),
     );
     t.finish()
 }

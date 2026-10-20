@@ -11,9 +11,11 @@ use std::path::{Path, PathBuf};
 use std::ptr::null;
 
 use patorrent_core::{EncPolicy, ProxyType};
+use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::options::{self, Options};
 use patorrent_frontend::scheduler::{self, Mode};
 use patorrent_frontend::settings::{self, Entry, Kind, Value};
+use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
@@ -41,18 +43,18 @@ use crate::sched_grid;
 use crate::util::{hiword, loword, send, wide, window_text};
 
 /// The tree, in µTorrent 2.2.1's order; Disk Cache sits under Advanced.
-pub const PAGES: [&str; 11] = [
-    "General",
-    "UI Settings",
-    "Directories",
-    "Connection",
-    "Bandwidth",
-    "BitTorrent",
-    "Queueing",
-    "Scheduler",
-    "Web UI",
-    "Advanced",
-    "Disk Cache",
+pub const PAGES: [S; 11] = [
+    S::PageGeneral,
+    S::PageUi,
+    S::PageDirectories,
+    S::PageConnection,
+    S::PageBandwidth,
+    S::PageBitTorrent,
+    S::PageQueueing,
+    S::PageScheduler,
+    S::PageWebUi,
+    S::PageAdvanced,
+    S::PageDiskCache,
 ];
 const PAGE_ADVANCED: usize = 9;
 const PAGE_DISK_CACHE: usize = 10;
@@ -166,13 +168,18 @@ const ID_AIO: u16 = id(10, 3);
 const ID_HASH_THREADS: u16 = id(10, 4);
 
 /// "Outgoing" encryption, in the combo's order.
-const ENC_OUT: [(&str, EncPolicy); 3] =
-    [("Disabled", EncPolicy::Disabled), ("Enabled", EncPolicy::Enabled), ("Forced", EncPolicy::Forced)];
+const ENC_OUT: [(S, EncPolicy); 3] = [
+    (S::EncDisabled, EncPolicy::Disabled),
+    (S::EncEnabled, EncPolicy::Enabled),
+    (S::EncForced, EncPolicy::Forced),
+];
 
 /// The proxy "Type" combo, in µTorrent 2.2.1's order (its "HTTPS" entry, CONNECT for
 /// everything, is our HTTP type: plain `http://` requests go as proxy requests, the rest through
 /// CONNECT). "Authentication" picks the `_pw` variant; SOCKS4 sends the user name as its user id.
-const PROXY_TYPES: [&str; 4] = ["(none)", "Socks4", "Socks5", "HTTP"];
+fn proxy_types() -> [&'static str; 4] {
+    [tr!(PrefProxyNone), "Socks4", "Socks5", "HTTP"]
+}
 
 fn proxy_to_ui(s: &patorrent_core::Settings) -> (usize, bool) {
     match s.proxy_type {
@@ -628,184 +635,160 @@ fn template() -> Vec<u16> {
     b.t.item(Class::Name("SysTreeView32"), ID_TREE, tree_style, [7, 7, 100, 236], "");
 
     b.page(0);
-    b.group([0, 0, W, 34], "Language");
-    b.label([8, 15, 60, 9], "User interface:");
+    b.group([0, 0, W, 34], tr!(PrefLanguage));
+    b.label([8, 15, 60, 9], tr!(PrefUiLanguage));
     b.ctl(COMBOBOX, ID_LANG, COMBO | OFF, [72, 13, 120, 60], "");
-    b.group([0, 40, W, 112], "Windows Integration");
-    b.ctl(BUTTON, ID_ASSOC_TORRENT, CHECK, [8, 53, 290, 10], "Associate with .torrent files");
-    b.ctl(BUTTON, ID_ASSOC_MAGNET, CHECK, [8, 67, 290, 10], "Associate with magnet: links");
-    b.ctl(BUTTON, ID_CHECK_ASSOC, CHECK, [8, 81, 290, 10], "Check association on startup");
-    b.ctl(BUTTON, ID_AUTOSTART, CHECK, [8, 95, 290, 10], "Start PaTorrent on system startup");
-    b.ctl(BUTTON, ID_START_MIN, CHECK, [20, 109, 278, 10], "Start minimized");
+    b.group([0, 40, W, 112], tr!(PrefIntegration));
+    b.ctl(BUTTON, ID_ASSOC_TORRENT, CHECK, [8, 53, 290, 10], tr!(PrefAssocTorrent));
+    b.ctl(BUTTON, ID_ASSOC_MAGNET, CHECK, [8, 67, 290, 10], tr!(PrefAssocMagnet));
+    b.ctl(BUTTON, ID_CHECK_ASSOC, CHECK, [8, 81, 290, 10], tr!(PrefCheckAssoc));
+    b.ctl(BUTTON, ID_AUTOSTART, CHECK, [8, 95, 290, 10], tr!(PrefAutostart));
+    b.ctl(BUTTON, ID_START_MIN, CHECK, [20, 109, 278, 10], tr!(PrefStartMinimized));
     b.ctl(STATIC, ID_ASSOC_NOTE, C, [8, 126, 226, 18], "");
-    b.ctl(BUTTON, ID_DEFAULT_APPS, PUSH, [240, 127, 62, 14], "Default apps...");
+    b.ctl(BUTTON, ID_DEFAULT_APPS, PUSH, [240, 127, 62, 14], tr!(PrefDefaultApps));
 
     b.page(1);
-    b.group([0, 0, W, 46], "Display Options");
-    b.ctl(BUTTON, ID_CONFIRM_DELETE, CHECK, [8, 14, 290, 10], "Confirm when deleting torrents");
-    b.ctl(BUTTON, ID_BALLOONS, CHECK, [8, 28, 290, 10], "Show balloon notifications in tray");
-    b.group([0, 52, W, 46], "System Tray");
-    b.ctl(BUTTON, ID_CLOSE_TRAY, CHECK, [8, 66, 290, 10], "Close to tray");
-    b.ctl(BUTTON, ID_MIN_TRAY, CHECK, [8, 80, 290, 10], "Minimize to tray");
-    b.group([0, 104, W, 46], "When Adding Torrents");
-    b.ctl(BUTTON, ID_ADD_STOPPED, CHECK, [8, 118, 290, 10], "Don't start the download automatically");
-    b.ctl(
-        BUTTON,
-        ID_SHOW_ADD,
-        CHECK,
-        [8, 132, 290, 10],
-        "Show a window that displays the files inside the torrent",
-    );
+    b.group([0, 0, W, 46], tr!(PrefDisplay));
+    b.ctl(BUTTON, ID_CONFIRM_DELETE, CHECK, [8, 14, 290, 10], tr!(PrefConfirmDelete));
+    b.ctl(BUTTON, ID_BALLOONS, CHECK, [8, 28, 290, 10], tr!(PrefBalloons));
+    b.group([0, 52, W, 46], tr!(PrefTray));
+    b.ctl(BUTTON, ID_CLOSE_TRAY, CHECK, [8, 66, 290, 10], tr!(PrefCloseToTray));
+    b.ctl(BUTTON, ID_MIN_TRAY, CHECK, [8, 80, 290, 10], tr!(PrefMinimizeToTray));
+    b.group([0, 104, W, 46], tr!(PrefWhenAdding));
+    b.ctl(BUTTON, ID_ADD_STOPPED, CHECK, [8, 118, 290, 10], tr!(PrefDontStart));
+    b.ctl(BUTTON, ID_SHOW_ADD, CHECK, [8, 132, 290, 10], tr!(PrefShowAddDialog));
 
     b.page(2);
-    b.group([0, 0, W, 96], "Location of Downloaded Files");
-    b.label([8, 14, 290, 9], "Put new downloads in:");
+    b.group([0, 0, W, 96], tr!(PrefDownloadLocation));
+    b.label([8, 14, 290, 9], tr!(PrefNewDownloadsIn));
     b.ctl(EDIT, ID_DL_DIR, LINE, [8, 26, 272, 13], "");
     b.ctl(BUTTON, ID_DL_BROWSE, PUSH, [284, 26, 18, 13], "...");
-    b.ctl(BUTTON, ID_MOVE, CHECK, [8, 46, 290, 10], "Move completed downloads to:");
+    b.ctl(BUTTON, ID_MOVE, CHECK, [8, 46, 290, 10], tr!(PrefMoveCompleted));
     b.ctl(EDIT, ID_MOVE_DIR, LINE, [8, 59, 272, 13], "");
     b.ctl(BUTTON, ID_MOVE_BROWSE, PUSH, [284, 59, 18, 13], "...");
-    b.ctl(
-        BUTTON,
-        ID_MOVE_ONLY_DEFAULT,
-        CHECK,
-        [8, 78, 290, 10],
-        "Only move from the default download directory",
-    );
-    b.group([0, 102, W, 128], "Location of .torrents");
-    b.ctl(BUTTON, ID_STORE, CHECK, [8, 116, 290, 10], "Store .torrents in:");
+    b.ctl(BUTTON, ID_MOVE_ONLY_DEFAULT, CHECK, [8, 78, 290, 10], tr!(PrefMoveOnlyDefault));
+    b.group([0, 102, W, 128], tr!(PrefTorrentLocation));
+    b.ctl(BUTTON, ID_STORE, CHECK, [8, 116, 290, 10], tr!(PrefStoreTorrents));
     b.ctl(EDIT, ID_STORE_DIR, LINE, [8, 129, 272, 13], "");
     b.ctl(BUTTON, ID_STORE_BROWSE, PUSH, [284, 129, 18, 13], "...");
-    b.ctl(BUTTON, ID_MOVE_TORRENTS, CHECK, [20, 148, 278, 10], "Move .torrents for finished jobs to:");
+    b.ctl(BUTTON, ID_MOVE_TORRENTS, CHECK, [20, 148, 278, 10], tr!(PrefMoveTorrents));
     b.ctl(EDIT, ID_MOVE_TORRENTS_DIR, LINE, [20, 161, 260, 13], "");
     b.ctl(BUTTON, ID_MOVE_TORRENTS_BROWSE, PUSH, [284, 161, 18, 13], "...");
-    b.ctl(BUTTON, ID_AUTOLOAD, CHECK, [8, 181, 290, 10], "Automatically load .torrents from:");
+    b.ctl(BUTTON, ID_AUTOLOAD, CHECK, [8, 181, 290, 10], tr!(PrefAutoload));
     b.ctl(EDIT, ID_AUTOLOAD_DIR, LINE, [8, 194, 272, 13], "");
     b.ctl(BUTTON, ID_AUTOLOAD_BROWSE, PUSH, [284, 194, 18, 13], "...");
-    b.ctl(BUTTON, ID_AUTOLOAD_DELETE, CHECK, [20, 213, 278, 10], "Delete loaded .torrents");
+    b.ctl(BUTTON, ID_AUTOLOAD_DELETE, CHECK, [20, 213, 278, 10], tr!(PrefAutoloadDelete));
 
     b.page(3);
-    b.group([0, 0, W, 78], "Listening Port");
-    b.label([8, 15, 128, 9], "Port used for incoming connections:");
+    b.group([0, 0, W, 78], tr!(PrefListeningPort));
+    b.label([8, 15, 128, 9], tr!(PrefPort));
     b.ctl(EDIT, ID_PORT, NUMBER, [140, 13, 40, 13], "");
-    b.ctl(BUTTON, ID_RANDOM_PORT, PUSH, [186, 12, 60, 14], "Random port");
-    b.ctl(BUTTON, ID_RANDOMIZE, CHECK, [8, 32, 290, 10], "Randomize port each start");
-    b.ctl(BUTTON, ID_UPNP, CHECK, [8, 46, 290, 10], "Enable UPnP port mapping");
-    b.ctl(BUTTON, ID_NATPMP, CHECK, [8, 60, 290, 10], "Enable NAT-PMP port mapping");
-    b.group([0, 84, W, 118], "Proxy Server");
-    b.label([8, 98, 30, 9], "Type:");
+    b.ctl(BUTTON, ID_RANDOM_PORT, PUSH, [186, 12, 60, 14], tr!(PrefRandomPort));
+    b.ctl(BUTTON, ID_RANDOMIZE, CHECK, [8, 32, 290, 10], tr!(PrefRandomize));
+    b.ctl(BUTTON, ID_UPNP, CHECK, [8, 46, 290, 10], tr!(PrefUpnp));
+    b.ctl(BUTTON, ID_NATPMP, CHECK, [8, 60, 290, 10], tr!(PrefNatPmp));
+    b.group([0, 84, W, 118], tr!(PrefProxyServer));
+    b.label([8, 98, 30, 9], tr!(PrefProxyType));
     b.ctl(COMBOBOX, ID_PROXY_TYPE, COMBO, [40, 96, 70, 60], "");
-    b.label([118, 98, 24, 9], "Proxy:");
+    b.label([118, 98, 24, 9], tr!(PrefProxy));
     b.ctl(EDIT, ID_PROXY_HOST, LINE, [144, 96, 100, 13], "");
-    b.label([250, 98, 18, 9], "Port:");
+    b.label([250, 98, 18, 9], tr!(PrefProxyPort));
     b.ctl(EDIT, ID_PROXY_PORT, NUMBER, [270, 96, 32, 13], "");
-    b.ctl(BUTTON, ID_PROXY_AUTH, CHECK, [8, 114, 290, 10], "Authentication");
-    b.label([8, 130, 40, 9], "Username:");
+    b.ctl(BUTTON, ID_PROXY_AUTH, CHECK, [8, 114, 290, 10], tr!(PrefAuthentication));
+    b.label([8, 130, 40, 9], tr!(PrefUsername));
     b.ctl(EDIT, ID_PROXY_USER, LINE, [50, 128, 90, 13], "");
-    b.label([150, 130, 40, 9], "Password:");
+    b.label([150, 130, 40, 9], tr!(PrefPassword));
     b.ctl(EDIT, ID_PROXY_PASS, LINE | ES_PASSWORD as u32, [192, 128, 110, 13], "");
-    b.ctl(BUTTON, ID_PROXY_NAMES, CHECK, [8, 146, 290, 10], "Resolve hostnames through proxy");
-    b.ctl(BUTTON, ID_PROXY_PEERS, CHECK, [8, 160, 290, 10], "Use proxy for peer-to-peer connections");
-    b.ctl(BUTTON, ID_PROXY_TRACKERS, CHECK, [8, 174, 290, 10], "Use proxy for tracker connections");
+    b.ctl(BUTTON, ID_PROXY_NAMES, CHECK, [8, 146, 290, 10], tr!(PrefProxyNames));
+    b.ctl(BUTTON, ID_PROXY_PEERS, CHECK, [8, 160, 290, 10], tr!(PrefProxyPeers));
+    b.ctl(BUTTON, ID_PROXY_TRACKERS, CHECK, [8, 174, 290, 10], tr!(PrefProxyTrackers));
 
     b.page(4);
-    b.group([0, 0, W, 32], "Global Upload Rate Limiting");
-    b.number(13, ID_UL_RATE, NUMBER, "Maximum upload rate (kB/s): [0: unlimited]");
-    b.group([0, 38, W, 32], "Global Download Rate Limiting");
-    b.number(51, ID_DL_RATE, NUMBER, "Maximum download rate (kB/s): [0: unlimited]");
-    b.group([0, 76, W, 82], "Number of Connections");
-    b.number(89, ID_CONNECTIONS, NUMBER, "Global maximum number of connections:");
-    b.number(
-        105,
-        ID_PEERS_PER_TORRENT,
-        NUMBER,
-        "Maximum number of connected peers per torrent: [0: no limit]",
-    );
-    b.number(121, ID_SLOTS_PER_TORRENT, NUMBER, "Number of upload slots per torrent: [0: no limit]");
-    b.number(137, ID_UNCHOKE, LINE, "Global number of upload slots: [-1: no limit]");
-    b.label([0, 164, W, 9], "The per-torrent limits apply to torrents added from now on.");
+    b.group([0, 0, W, 32], tr!(PrefUpLimiting));
+    b.number(13, ID_UL_RATE, NUMBER, tr!(PrefUpRate));
+    b.group([0, 38, W, 32], tr!(PrefDownLimiting));
+    b.number(51, ID_DL_RATE, NUMBER, tr!(PrefDownRate));
+    b.group([0, 76, W, 82], tr!(PrefConnections));
+    b.number(89, ID_CONNECTIONS, NUMBER, tr!(PrefMaxConnections));
+    b.number(105, ID_PEERS_PER_TORRENT, NUMBER, tr!(PrefPeersPerTorrent));
+    b.number(121, ID_SLOTS_PER_TORRENT, NUMBER, tr!(PrefSlotsPerTorrent));
+    b.number(137, ID_UNCHOKE, LINE, tr!(PrefGlobalSlots));
+    b.label([0, 164, W, 9], tr!(PrefPerTorrentNote));
 
     b.page(5);
-    b.group([0, 0, W, 72], "Basic BitTorrent Features");
-    b.ctl(BUTTON, ID_DHT, CHECK, [8, 13, 290, 10], "Enable DHT Network");
-    b.ctl(BUTTON, ID_LSD, CHECK, [8, 27, 290, 10], "Enable Local Peer Discovery");
-    b.ctl(BUTTON, ID_PEX, CHECK, [8, 41, 290, 10], "Enable Peer Exchange");
-    b.ctl(BUTTON, ID_UTP, CHECK, [8, 55, 290, 10], "Enable uTP (UDP transport with bandwidth management)");
-    b.group([0, 78, W, 46], "Protocol Encryption");
-    b.label([8, 93, 36, 9], "Outgoing:");
+    b.group([0, 0, W, 72], tr!(PrefBasicFeatures));
+    b.ctl(BUTTON, ID_DHT, CHECK, [8, 13, 290, 10], tr!(PrefDht));
+    b.ctl(BUTTON, ID_LSD, CHECK, [8, 27, 290, 10], tr!(PrefLsd));
+    b.ctl(BUTTON, ID_PEX, CHECK, [8, 41, 290, 10], tr!(PrefPex));
+    b.ctl(BUTTON, ID_UTP, CHECK, [8, 55, 290, 10], tr!(PrefUtp));
+    b.group([0, 78, W, 46], tr!(PrefEncryption));
+    b.label([8, 93, 36, 9], tr!(PrefOutgoing));
     b.ctl(COMBOBOX, ID_ENC_OUT, COMBO, [46, 91, 80, 60], "");
-    b.ctl(BUTTON, ID_ENC_LEGACY, CHECK, [8, 108, 290, 10], "Allow incoming legacy connections");
-    b.group([0, 130, W, 62], "IP Filter");
-    b.ctl(BUTTON, ID_IPF, CHECK, [8, 143, 290, 10], "Enable IP filter");
+    b.ctl(BUTTON, ID_ENC_LEGACY, CHECK, [8, 108, 290, 10], tr!(PrefLegacy));
+    b.group([0, 130, W, 62], tr!(PrefIpFilter));
+    b.ctl(BUTTON, ID_IPF, CHECK, [8, 143, 290, 10], tr!(PrefIpFilterEnable));
     b.ctl(EDIT, ID_IPF_PATH, LINE, [8, 157, 224, 13], "");
     b.ctl(BUTTON, ID_IPF_BROWSE, PUSH, [236, 157, 18, 13], "...");
-    b.ctl(BUTTON, ID_IPF_RELOAD, PUSH, [258, 156, 44, 14], "Reload");
+    b.ctl(BUTTON, ID_IPF_RELOAD, PUSH, [258, 156, 44, 14], tr!(PrefReload));
     b.ctl(STATIC, ID_IPF_STATUS, C, [8, 175, 294, 9], "");
 
     b.page(6);
-    b.group([0, 0, W, 78], "Queue Settings");
-    b.number(13, ID_ACTIVE, LINE, "Maximum number of active torrents (upload or download): [-1: no limit]");
-    b.number(29, ID_ACTIVE_DL, LINE, "Maximum number of active downloads: [-1: no limit]");
-    b.number(45, ID_ACTIVE_SEEDS, LINE, "Maximum number of active seeds: [-1: no limit]");
-    b.ctl(BUTTON, ID_SLOW, CHECK, [8, 62, 290, 10], "Don't count slow torrents toward these limits");
-    b.group([0, 84, W, 92], "Seeding Goal");
-    b.number(97, ID_SEED_RATIO, NUMBER, "Minimum ratio (%): [0: no ratio goal]");
-    b.number(113, ID_SEED_TIME, NUMBER, "Minimum seeding time (minutes): [0: no time goal]");
-    b.label([8, 132, 294, 9], "When a torrent reaches the seeding goal (forced torrents never do):");
-    b.ctl(BUTTON, ID_SEED_LIMIT, CHECK, [8, 147, 228, 10], "Limit the upload rate to (kB/s): [0: stop]");
+    b.group([0, 0, W, 78], tr!(PrefQueue));
+    b.number(13, ID_ACTIVE, LINE, tr!(PrefActive));
+    b.number(29, ID_ACTIVE_DL, LINE, tr!(PrefActiveDownloads));
+    b.number(45, ID_ACTIVE_SEEDS, LINE, tr!(PrefActiveSeeds));
+    b.ctl(BUTTON, ID_SLOW, CHECK, [8, 62, 290, 10], tr!(PrefSlow));
+    b.group([0, 84, W, 92], tr!(PrefSeedingGoal));
+    b.number(97, ID_SEED_RATIO, NUMBER, tr!(PrefRatio));
+    b.number(113, ID_SEED_TIME, NUMBER, tr!(PrefSeedTime));
+    b.label([8, 132, 294, 9], tr!(PrefGoalReached));
+    b.ctl(BUTTON, ID_SEED_LIMIT, CHECK, [8, 147, 228, 10], tr!(PrefGoalLimit));
     b.ctl(EDIT, ID_SEED_LIMIT_KIB, NUMBER, [240, 145, 54, 13], "");
 
     b.page(7);
-    b.ctl(BUTTON, ID_SCHED, CHECK, [0, 0, 200, 10], "Enable Scheduler");
-    b.group([0, 14, W, 132], "Scheduler Table");
+    b.ctl(BUTTON, ID_SCHED, CHECK, [0, 0, 200, 10], tr!(PrefScheduler));
+    b.group([0, 14, W, 132], tr!(PrefSchedTable));
     b.ctl(Class::Name(crate::sched_grid::CLASS), ID_SCHED_GRID, C, [6, 25, W - 12, 117], "");
-    b.group([0, 152, W, 64], "Scheduler Settings");
-    b.number(165, ID_SCHED_UL, NUMBER, "Limited upload rate (kB/s): [0: unlimited]");
-    b.number(181, ID_SCHED_DL, NUMBER, "Limited download rate (kB/s): [0: unlimited]");
-    b.ctl(BUTTON, ID_SCHED_DHT, CHECK, [8, 199, 290, 10], "Disable DHT when turning off");
+    b.group([0, 152, W, 64], tr!(PrefSchedSettings));
+    b.number(165, ID_SCHED_UL, NUMBER, tr!(PrefSchedUp));
+    b.number(181, ID_SCHED_DL, NUMBER, tr!(PrefSchedDown));
+    b.ctl(BUTTON, ID_SCHED_DHT, CHECK, [8, 199, 290, 10], tr!(PrefSchedDht));
 
     b.page(8);
-    b.stub(BUTTON, CHECK, [0, 0, 200, 10], "Enable Web UI");
-    b.group([0, 16, W, 64], "Authentication");
-    b.label([8, 31, 50, 9], "Username:");
+    b.stub(BUTTON, CHECK, [0, 0, 200, 10], tr!(PrefWebUi));
+    b.group([0, 16, W, 64], tr!(PrefAuthentication));
+    b.label([8, 31, 50, 9], tr!(PrefUsername));
     b.stub(EDIT, LINE, [60, 29, 120, 13], "");
-    b.label([8, 47, 50, 9], "Password:");
+    b.label([8, 47, 50, 9], tr!(PrefPassword));
     b.stub(EDIT, LINE, [60, 45, 120, 13], "");
-    b.label([8, 64, 294, 9], "The Web UI comes with patorrent-nox.");
+    b.label([8, 64, 294, 9], tr!(PrefWebUiNote));
 
     b.page(PAGE_ADVANCED);
-    b.label([0, 2, 24, 9], "Filter:");
+    b.label([0, 2, 24, 9], tr!(PrefFilter));
     b.ctl(EDIT, ID_ADV_FILTER, LINE, [28, 0, W - 28, 13], "");
     let list = TAB | WS_BORDER | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER;
     b.ctl(Class::Name("SysListView32"), ID_ADV_LIST, list, [0, 18, W, 172], "");
-    b.label([0, 199, 26, 9], "Value:");
+    b.label([0, 199, 26, 9], tr!(PrefValue));
     b.ctl(EDIT, ID_ADV_VALUE, LINE, [28, 197, 170, 13], "");
-    b.ctl(BUTTON, ID_ADV_TRUE, TAB | WS_GROUP | BS_AUTORADIOBUTTON as u32, [28, 198, 40, 10], "True");
-    b.ctl(BUTTON, ID_ADV_FALSE, C | BS_AUTORADIOBUTTON as u32, [72, 198, 40, 10], "False");
-    b.ctl(BUTTON, ID_ADV_SET, PUSH | WS_GROUP, [206, 196, 50, 14], "Set");
-    b.ctl(BUTTON, ID_ADV_RESET, PUSH, [260, 196, 50, 14], "Reset");
-    b.label(
-        [0, 216, W, 18],
-        "libtorrent setting names; * marks a changed value. Values are applied with OK or Apply.",
-    );
+    b.ctl(BUTTON, ID_ADV_TRUE, TAB | WS_GROUP | BS_AUTORADIOBUTTON as u32, [28, 198, 40, 10], tr!(PrefTrue));
+    b.ctl(BUTTON, ID_ADV_FALSE, C | BS_AUTORADIOBUTTON as u32, [72, 198, 40, 10], tr!(PrefFalse));
+    b.ctl(BUTTON, ID_ADV_SET, PUSH | WS_GROUP, [206, 196, 50, 14], tr!(PrefSet));
+    b.ctl(BUTTON, ID_ADV_RESET, PUSH, [260, 196, 50, 14], tr!(PrefReset));
+    b.label([0, 216, W, 18], tr!(PrefAdvancedNote));
 
     b.page(PAGE_DISK_CACHE);
-    b.group([0, 0, W, 80], "Disk Queue and Files");
-    b.number(13, ID_DISK_QUEUE, NUMBER, "Disk write queue (kB):");
-    b.number(29, ID_FILE_POOL, NUMBER, "Maximum number of open files:");
-    b.number(45, ID_AIO, NUMBER, "Disk I/O threads (used from the next start):");
-    b.number(61, ID_HASH_THREADS, NUMBER, "Hashing threads (used from the next start):");
-    b.label(
-        [0, 88, W, 27],
-        "PaTorrent has no disk read/write cache yet, so µTorrent's cache size settings have no \
-         counterpart; these are the limits of the engine's disk queue.",
-    );
+    b.group([0, 0, W, 80], tr!(PrefDiskQueue));
+    b.number(13, ID_DISK_QUEUE, NUMBER, tr!(PrefDiskWriteQueue));
+    b.number(29, ID_FILE_POOL, NUMBER, tr!(PrefOpenFiles));
+    b.number(45, ID_AIO, NUMBER, tr!(PrefAioThreads));
+    b.number(61, ID_HASH_THREADS, NUMBER, tr!(PrefHashThreads));
+    b.label([0, 88, W, 27], tr!(PrefDiskCacheNote));
 
     let mut t = b.t;
     let vis = windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE;
-    t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 250, 50, 14], "OK");
-    t.item(BUTTON, IDCANCEL as u16, PUSH | vis, [317, 250, 50, 14], "Cancel");
-    t.item(BUTTON, ID_APPLY, PUSH | vis, [371, 250, 53, 14], "&Apply");
+    t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 250, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, PUSH | vis, [317, 250, 50, 14], tr!(BtnCancel));
+    t.item(BUTTON, ID_APPLY, PUSH | vis, [371, 250, 53, 14], tr!(BtnApply));
     t.finish()
 }
 
@@ -851,12 +834,12 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
 
 unsafe fn init(dlg: HWND, st: &mut State<'_>) {
     unsafe {
-        set_text(dlg, "Preferences");
+        set_text(dlg, tr!(PrefTitle));
         let tree = item(dlg, ID_TREE);
         let mut parent = TVI_ROOT;
         for (i, title) in PAGES.iter().enumerate() {
             let under = if i == PAGE_DISK_CACHE { parent } else { TVI_ROOT };
-            let h = insert_tree(tree, under, title, i);
+            let h = insert_tree(tree, under, lang::text(*title), i);
             if i == PAGE_ADVANCED {
                 parent = h;
             }
@@ -864,15 +847,15 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
         }
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, parent);
 
-        let lang = wide("English");
+        let lang = wide(tr!(LangEnglish));
         send(item(dlg, ID_LANG), CB_ADDSTRING, 0, lang.as_ptr() as LPARAM);
         send(item(dlg, ID_LANG), CB_SETCURSEL, 0, 0);
-        for label in PROXY_TYPES {
+        for label in proxy_types() {
             let w = wide(label);
             send(item(dlg, ID_PROXY_TYPE), CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
         for (label, _) in ENC_OUT {
-            let w = wide(label);
+            let w = wide(lang::text(label));
             send(item(dlg, ID_ENC_OUT), CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
 
@@ -884,7 +867,8 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
         let name_w = rc.right;
         rc = RECT { left: 0, top: 0, right: 96, bottom: 0 };
         MapDialogRect(dlg, &mut rc);
-        for (i, (title, width)) in [("Name", name_w), ("Value", rc.right)].into_iter().enumerate() {
+        for (i, (title, width)) in [(tr!(ColName), name_w), (tr!(ColValue), rc.right)].into_iter().enumerate()
+        {
             let mut text = wide(title);
             let mut c: LVCOLUMNW = std::mem::zeroed();
             c.mask = LVCF_TEXT | LVCF_WIDTH;
@@ -996,7 +980,7 @@ unsafe fn write_integration(dlg: HWND, st: &State<'_>) {
         set_check(dlg, ID_AUTOSTART, set.autostart);
         set_check(dlg, ID_START_MIN, set.minimized);
         let note = st.integration.note();
-        let note = if note.is_empty() { note } else { format!("{note} Choose PaTorrent in Default apps.") };
+        let note = if note.is_empty() { note } else { tr!(AssocChoose, note) };
         set_text(item(dlg, ID_ASSOC_NOTE), &note);
         update_autostart_controls(dlg);
     }
@@ -1037,11 +1021,7 @@ unsafe fn apply_integration(dlg: HWND, st: &mut State<'_>) -> bool {
                 st.integration = status;
                 write_integration(dlg, st);
                 if overridden {
-                    let text = format!(
-                        "{}\n\nWindows keeps a program chosen in Windows itself, and only you can change \
-                         that choice, in Settings > Default apps. Open Default apps now?",
-                        st.integration.note()
-                    );
+                    let text = tr!(AskDefaultApps, note = st.integration.note());
                     if dialogs::confirm(dlg, &text) {
                         crate::integration::open_default_apps(dlg);
                     }
@@ -1050,7 +1030,7 @@ unsafe fn apply_integration(dlg: HWND, st: &mut State<'_>) -> bool {
             }
             Err(e) => {
                 select_page(dlg, st, 0);
-                dialogs::error(dlg, &format!("Could not change the Windows integration:\n{e}"));
+                dialogs::error(dlg, &tr!(ErrIntegration, error = e));
                 false
             }
         }
@@ -1131,7 +1111,7 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
             match f {
                 Field::Num { id, min, max, set, .. } => match now.trim().parse::<i64>() {
                     Ok(v) if (*min..=*max).contains(&v) => set(&mut o, v),
-                    _ => return Err((*id, format!("Please enter a number from {min} to {max}."))),
+                    _ => return Err((*id, tr!(PrefBadNumber, min, max))),
                 },
                 Field::Check { set, .. } => set(&mut o, now == "true"),
                 Field::Text { set, .. } => set(&mut o, now),
@@ -1150,7 +1130,7 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
             o.gui.schedule.table = table;
         }
         let kind =
-            (send(item(dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0).max(0) as usize).min(PROXY_TYPES.len() - 1);
+            (send(item(dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0).max(0) as usize).min(proxy_types().len() - 1);
         let auth = checked(dlg, ID_PROXY_AUTH);
         if shown(ID_PROXY_TYPE) != Some(kind.to_string().as_str())
             || shown(ID_PROXY_AUTH) != Some(auth.to_string().as_str())
@@ -1159,28 +1139,28 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
         }
         if o.settings.proxy_type != ProxyType::None {
             if o.settings.proxy_hostname.is_empty() {
-                return Err((ID_PROXY_HOST, "Please enter the proxy server's address.".to_owned()));
+                return Err((ID_PROXY_HOST, tr!(PrefNoProxyHost).to_owned()));
             }
             if o.settings.proxy_port == 0 {
-                return Err((ID_PROXY_PORT, "Please enter the proxy server's port.".to_owned()));
+                return Err((ID_PROXY_PORT, tr!(PrefNoProxyPort).to_owned()));
             }
         }
         if o.gui.download_dir.trim().is_empty() {
-            return Err((ID_DL_DIR, "Please choose a folder for new downloads.".to_owned()));
+            return Err((ID_DL_DIR, tr!(PrefNoDownloadDir).to_owned()));
         }
         if o.gui.move_completed && o.gui.completed_dir.is_empty() {
-            return Err((ID_MOVE_DIR, "Please choose a folder for completed downloads.".to_owned()));
+            return Err((ID_MOVE_DIR, tr!(PrefNoCompletedDir).to_owned()));
         }
         let tf = &o.gui.torrent_folders;
         if tf.store && tf.store_dir.is_empty() {
-            return Err((ID_STORE_DIR, "Please choose a folder to store .torrents in.".to_owned()));
+            return Err((ID_STORE_DIR, tr!(PrefNoStoreDir).to_owned()));
         }
         if tf.store && tf.move_finished && tf.finished_dir.is_empty() {
-            let message = "Please choose a folder for the .torrents of finished jobs.";
+            let message = tr!(PrefNoFinishedDir);
             return Err((ID_MOVE_TORRENTS_DIR, message.to_owned()));
         }
         if tf.autoload && tf.autoload_dir.is_empty() {
-            return Err((ID_AUTOLOAD_DIR, "Please choose a folder to load .torrents from.".to_owned()));
+            return Err((ID_AUTOLOAD_DIR, tr!(PrefNoAutoloadDir).to_owned()));
         }
         st.opts = o;
         Ok(())
@@ -1237,7 +1217,7 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
             }
             ID_DL_BROWSE if code == BN_CLICKED => {
                 let now = window_text(item(dlg, ID_DL_DIR));
-                let title = "Select the folder for new downloads";
+                let title = tr!(PickDownloadDir);
                 if let Some(p) = crate::create::pick_folder_at(dlg, title, Some(&now)) {
                     set_text(item(dlg, ID_DL_DIR), &p);
                 }
@@ -1248,11 +1228,9 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
             }
             ID_STORE_BROWSE | ID_MOVE_TORRENTS_BROWSE | ID_AUTOLOAD_BROWSE if code == BN_CLICKED => {
                 let (edit, title) = match id {
-                    ID_STORE_BROWSE => (ID_STORE_DIR, "Select the folder to store .torrents in"),
-                    ID_MOVE_TORRENTS_BROWSE => {
-                        (ID_MOVE_TORRENTS_DIR, "Select the folder for the .torrents of finished jobs")
-                    }
-                    _ => (ID_AUTOLOAD_DIR, "Select the folder to load .torrents from"),
+                    ID_STORE_BROWSE => (ID_STORE_DIR, tr!(PickStoreDir)),
+                    ID_MOVE_TORRENTS_BROWSE => (ID_MOVE_TORRENTS_DIR, tr!(PickFinishedDir)),
+                    _ => (ID_AUTOLOAD_DIR, tr!(PickAutoloadDir)),
                 };
                 let now = window_text(item(dlg, edit));
                 if let Some(p) = crate::create::pick_folder_at(dlg, title, Some(&now)) {
@@ -1264,7 +1242,7 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
             ID_DEFAULT_APPS if code == BN_CLICKED => crate::integration::open_default_apps(dlg),
             ID_MOVE_BROWSE if code == BN_CLICKED => {
                 let now = window_text(item(dlg, ID_MOVE_DIR));
-                let title = "Select the folder for completed downloads";
+                let title = tr!(PickCompletedDir);
                 if let Some(p) = crate::create::pick_folder_at(dlg, title, Some(&now)) {
                     set_text(item(dlg, ID_MOVE_DIR), &p);
                 }
@@ -1414,10 +1392,10 @@ unsafe fn update_ip_filter_status(dlg: HWND, st: &State<'_>, result: Option<Resu
     unsafe {
         let path = window_text(item(dlg, ID_IPF_PATH));
         let text = match result {
-            Some(Ok(n)) => format!("{n} rules loaded."),
+            Some(Ok(n)) => tr!(PrefIpFilterLoaded, count = n),
             Some(Err(e)) => e,
             None if path.trim().is_empty() => {
-                format!("Empty: {}", st.settings_dir.join("ipfilter.dat").display())
+                tr!(PrefIpFilterDefault, path = st.settings_dir.join("ipfilter.dat").display())
             }
             None => String::new(),
         };
@@ -1429,7 +1407,7 @@ unsafe fn update_ip_filter_status(dlg: HWND, st: &State<'_>, result: Option<Resu
 unsafe fn reload_ip_filter(dlg: HWND, st: &mut State<'_>) {
     unsafe {
         if !checked(dlg, ID_IPF) {
-            update_ip_filter_status(dlg, st, Some(Err("The IP filter is off.".to_owned())));
+            update_ip_filter_status(dlg, st, Some(Err(tr!(PrefIpFilterOff).to_owned())));
             return;
         }
         let mut gui = st.opts.gui.clone();
@@ -1610,7 +1588,7 @@ mod tests {
             }
             assert_eq!(f.st.tree_items.len(), PAGES.len());
             assert_eq!(send(item(dlg, ID_ENC_OUT), CB_GETCOUNT, 0, 0), 3);
-            assert_eq!(send(item(dlg, ID_PROXY_TYPE), CB_GETCOUNT, 0, 0), PROXY_TYPES.len() as isize);
+            assert_eq!(send(item(dlg, ID_PROXY_TYPE), CB_GETCOUNT, 0, 0), proxy_types().len() as isize);
             // only the shown page's controls are visible
             for page in 0..PAGES.len() {
                 f.page(page);

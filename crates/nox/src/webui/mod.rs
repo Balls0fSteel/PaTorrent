@@ -38,12 +38,12 @@ use patorrent_core::{
     Alert, AnnounceEntry, Bitfield, FileEntry, MoveCompleted, PartialPiece, PeerInfo, SessionHandle,
     SessionStats, Settings, TorrentFlags, TorrentId, TorrentStatus,
 };
-use patorrent_frontend::fmt;
 use patorrent_frontend::options::GuiOptions;
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
+use patorrent_frontend::{fmt, tr};
 
 use auth::{BanList, PasswordHash};
 use json::Json;
@@ -561,7 +561,7 @@ impl Shared {
             }
         }
         if c.mode != old {
-            st.push_log(None, format!("Scheduler: {}", c.mode.label()), now);
+            st.push_log(None, tr!(LogScheduler, mode = c.mode.label()), now);
         }
     }
 }
@@ -776,8 +776,8 @@ impl WebUi {
         }
         let file = st.prefs.gui().ip_filter_file(&self.shared.settings_dir);
         let line = match self.shared.handle.load_ip_filter(&file) {
-            Ok(n) => format!("IP filter: {n} rules from {}", file.display()),
-            Err(e) => format!("IP filter: {}: {e} (the old rules stay)", file.display()),
+            Ok(n) => tr!(LogIpFilterRules, count = n, path = file.display()),
+            Err(e) => tr!(LogIpFilterKept, path = file.display(), error = e),
         };
         st.push_log(None, line.clone(), unix_now());
         Some(line)
@@ -827,16 +827,12 @@ impl WebUi {
                             if let Some(action) = goal.check(s, own) {
                                 action.apply(&self.shared.handle.torrent(s.id));
                                 let what = match action {
-                                    GoalAction::Stop => "stopped".to_owned(),
+                                    GoalAction::Stop => tr!(SeedingGoalStopped).to_owned(),
                                     GoalAction::LimitUpload(b) => {
-                                        format!("upload limited to {}", fmt::speed_always(b))
+                                        tr!(SeedingGoalLimited, rate = fmt::speed_always(b))
                                     }
                                 };
-                                st.push_log(
-                                    Some(s.id),
-                                    format!("{}: seeding goal reached, {what}", s.name),
-                                    now,
-                                );
+                                st.push_log(Some(s.id), tr!(LogSeedingGoal, name = s.name, what), now);
                             }
                         }
                     }
@@ -925,7 +921,8 @@ impl WebUi {
         }
         for (path, source) in found {
             if let Err(e) = commands::add(&self.shared, source, &commands::AddOptions::default()) {
-                self.shared.lock().push_log(None, format!("{}: not loaded: {}", path.display(), e.msg), now);
+                let line = tr!(FoldersNotLoaded, path = path.display(), error = e.msg);
+                self.shared.lock().push_log(None, line, now);
             }
         }
         if ticked {
@@ -962,20 +959,20 @@ fn autoload(st: &mut State, now: i64) -> Vec<(PathBuf, commands::Source)> {
     let Some(dir) = st.prefs.torrent_folders.loads_from().map(PathBuf::from) else { return Vec::new() };
     let paths = st.autoload.poll(&dir, Instant::now());
     if let Some(e) = st.autoload.take_error() {
-        st.push_log(None, format!("Automatically load .torrents: {e}"), now);
+        st.push_log(None, tr!(LogAutoloadError, error = e), now);
     }
     let mut found = Vec::new();
     for path in paths {
         let (bytes, ti) = match torrent_folders::read(&path) {
             Ok(r) => r,
             Err(e) => {
-                st.push_log(None, format!("{}: not loaded: {e}", path.display()), now);
+                st.push_log(None, tr!(FoldersNotLoaded, path = path.display(), error = e), now);
                 continue;
             }
         };
         if st.by_hash.contains_key(&torrent::hash_of(&ti.info_hashes())) {
             let line = torrent_folders::loaded(ti.name(), &path, st.prefs.torrent_folders.autoload_delete);
-            st.push_log(None, format!("{line} (already in the list)"), now);
+            st.push_log(None, tr!(LogAlreadyInList, line), now);
             continue;
         }
         st.torrent_files.loading(&ti, path.clone());

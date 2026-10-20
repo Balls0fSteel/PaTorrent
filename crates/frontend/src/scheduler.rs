@@ -16,14 +16,17 @@
 
 use patorrent_core::{AddTorrentParams, Settings, TorrentFlags};
 
+use crate::lang::S;
 use crate::prefs::Prefs;
+use crate::tr;
 
 pub const DAYS: usize = 7;
 pub const HOURS: usize = 24;
 pub const CELLS: usize = DAYS * HOURS;
 
 /// The days as the table's rows, Monday first like µTorrent's.
-pub const DAY_NAMES: [&str; DAYS] = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+pub const DAY_NAMES: [S; DAYS] =
+    [S::DayMon, S::DayTue, S::DayWed, S::DayThu, S::DayFri, S::DaySat, S::DaySun];
 
 /// One hour of the table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
@@ -41,10 +44,10 @@ impl Mode {
     /// The legend's text.
     pub fn label(self) -> &'static str {
         match self {
-            Mode::Full => "Full speed",
-            Mode::Limited => "Limited",
-            Mode::Off => "Turn off",
-            Mode::SeedOnly => "Seeding only",
+            Mode::Full => tr!(SchedFullSpeed),
+            Mode::Limited => tr!(SchedLimited),
+            Mode::Off => tr!(SchedTurnOff),
+            Mode::SeedOnly => tr!(SchedSeedingOnly),
         }
     }
 
@@ -249,9 +252,9 @@ impl Scheduler {
     pub fn status_text(&self) -> Option<&'static str> {
         match self.applied {
             Mode::Full => None,
-            Mode::Limited => Some("Scheduler: limited"),
-            Mode::Off => Some("Scheduler: turned off"),
-            Mode::SeedOnly => Some("Scheduler: seeding only"),
+            Mode::Limited => Some(tr!(SchedStatusLimited)),
+            Mode::Off => Some(tr!(SchedStatusOff)),
+            Mode::SeedOnly => Some(tr!(SchedStatusSeedingOnly)),
         }
     }
 }

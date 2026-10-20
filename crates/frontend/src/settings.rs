@@ -68,12 +68,14 @@ impl Entry {
             Kind::Bool => match t.to_ascii_lowercase().as_str() {
                 "true" | "1" | "yes" | "on" => Ok(Value::Bool(true)),
                 "false" | "0" | "no" | "off" => Ok(Value::Bool(false)),
-                _ => Err(format!("{}: expected true or false, not \"{t}\"", self.name)),
+                _ => Err(format!("{}: {}", self.name, crate::tr!(SettingNotBool, value = t))),
             },
             Kind::Int { min, max } => match t.parse::<i64>() {
                 Ok(i) if (min..=max).contains(&i) => Ok(Value::Int(i)),
-                Ok(_) => Err(format!("{}: {t} is outside {min}..{max}", self.name)),
-                Err(_) => Err(format!("{}: \"{t}\" is not a number", self.name)),
+                Ok(_) => {
+                    Err(format!("{}: {}", self.name, crate::tr!(SettingOutOfRange, value = t, min, max)))
+                }
+                Err(_) => Err(format!("{}: {}", self.name, crate::tr!(SettingNotNumber, value = t))),
             },
             // strings are kept as typed (an empty one is meaningful)
             Kind::Str => Ok(Value::Str(text.to_owned())),
@@ -379,7 +381,7 @@ pub fn get(s: &Settings, name: &str) -> Option<Value> {
 }
 
 pub fn set(s: &mut Settings, name: &str, text: &str) -> Result<(), String> {
-    find(name).ok_or_else(|| format!("unknown setting \"{name}\""))?.set(s, text)
+    find(name).ok_or_else(|| crate::tr!(SettingUnknown, name))?.set(s, text)
 }
 
 /// Prefix of the engine settings in the preferences file.

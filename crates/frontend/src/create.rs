@@ -9,21 +9,34 @@ use patorrent_core::metainfo::{
 };
 use patorrent_core::{AddTorrentParams, Sha1Hash, TorrentFlags, TorrentSource, VERSION};
 
-/// The piece size choices of µTorrent 2.2.1: "(auto detect)" and 16 KiB to 16 MiB.
-pub const PIECE_SIZES: [(&str, u32); 12] = [
-    ("(auto detect)", 0),
-    ("16kB", 16 << 10),
-    ("32kB", 32 << 10),
-    ("64kB", 64 << 10),
-    ("128kB", 128 << 10),
-    ("256kB", 256 << 10),
-    ("512kB", 512 << 10),
-    ("1MB", 1 << 20),
-    ("2MB", 2 << 20),
-    ("4MB", 4 << 20),
-    ("8MB", 8 << 20),
-    ("16MB", 16 << 20),
+use crate::lang::S;
+use crate::tr;
+
+/// The piece size choices of µTorrent 2.2.1 in bytes: 0 for "(auto detect)", then 16 KiB to
+/// 16 MiB.
+pub const PIECE_SIZES: [u32; 12] = [
+    0,
+    16 << 10,
+    32 << 10,
+    64 << 10,
+    128 << 10,
+    256 << 10,
+    512 << 10,
+    1 << 20,
+    2 << 20,
+    4 << 20,
+    8 << 20,
+    16 << 20,
 ];
+
+/// A piece size choice's text: `(auto detect)`, `16kB`, `1MB`.
+pub fn piece_size_text(bytes: u32) -> String {
+    match bytes {
+        0 => tr!(CreateAutoDetect).to_owned(),
+        b if b >= 1 << 20 => format!("{}{}", b >> 20, tr!(UnitMb)),
+        b => format!("{}{}", b >> 10, tr!(UnitKb)),
+    }
+}
 
 /// The BitTorrent version of a new torrent (BEP 52).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -39,8 +52,11 @@ pub enum TorrentFormat {
 }
 
 /// The "Version" choices, in list order.
-pub const FORMATS: [(&str, TorrentFormat); 3] =
-    [("Hybrid (v1 + v2)", TorrentFormat::Hybrid), ("v1", TorrentFormat::V1), ("v2 only", TorrentFormat::V2)];
+pub const FORMATS: [(S, TorrentFormat); 3] = [
+    (S::CreateHybrid, TorrentFormat::Hybrid),
+    (S::CreateV1, TorrentFormat::V1),
+    (S::CreateV2Only, TorrentFormat::V2),
+];
 
 impl TorrentFormat {
     /// The creation flags for this version.
@@ -223,14 +239,14 @@ pub fn seed_params(bytes: Vec<u8>, save_path: &Path) -> AddTorrentParams {
 pub fn build(o: &CreateOptions, progress: &mut dyn FnMut(u32, u32) -> bool) -> Result<Created, String> {
     let source = &o.source;
     if source.as_os_str().is_empty() {
-        return Err("Please select a file or a directory to create the torrent from.".into());
+        return Err(tr!(CreateNoSource).into());
     }
     let meta = std::fs::metadata(source).map_err(|e| format!("{}: {e}", source.display()))?;
     let skip = SkipPatterns::parse(&o.skip);
     let root = std::path::absolute(source).map_err(|e| e.to_string())?;
     let mut fs = FileStorage::new();
     if o.preserve_order && o.format.allows_any_order() && meta.is_dir() {
-        let name = root.file_name().and_then(|n| n.to_str()).ok_or("The source has no usable name.")?;
+        let name = root.file_name().and_then(|n| n.to_str()).ok_or(tr!(CreateNoName))?;
         add_unsorted(&mut fs, &root, name, &skip)?;
     } else {
         let mut pred =
@@ -238,7 +254,7 @@ pub fn build(o: &CreateOptions, progress: &mut dyn FnMut(u32, u32) -> bool) -> R
         add_files(&mut fs, &root, &mut pred, CreateFlags::empty()).map_err(|e| e.to_string())?;
     }
     if fs.num_files() == 0 || fs.total_size() == 0 {
-        return Err(format!("{}: no files to put in the torrent (empty, or all skipped).", source.display()));
+        return Err(tr!(CreateNoFiles, path = source.display()));
     }
 
     let mut t = CreateTorrent::new(fs, o.piece_size, o.format.flags()).map_err(|e| e.to_string())?;
@@ -268,7 +284,7 @@ pub fn build(o: &CreateOptions, progress: &mut dyn FnMut(u32, u32) -> bool) -> R
     hashed.map_err(|e| e.to_string())?;
 
     let bytes = t.generate_buf().map_err(|e| e.to_string())?;
-    let ti = TorrentInfo::from_bytes(&bytes).map_err(|e| format!("The new torrent does not load: {e}"))?;
+    let ti = TorrentInfo::from_bytes(&bytes).map_err(|e| tr!(CreateDoesNotLoad, error = e))?;
     Ok(Created { name: ti.name().to_owned(), info_hash: ti.info_hash(), bytes })
 }
 
@@ -279,7 +295,7 @@ fn add_unsorted(fs: &mut FileStorage, dir: &Path, rel: &str, skip: &SkipPatterns
     for e in entries.filter_map(Result::ok) {
         let name = e.file_name();
         let Some(name) = name.to_str() else {
-            return Err(format!("{}: the name is not valid Unicode", e.path().display()));
+            return Err(tr!(CreateNotUnicode, path = e.path().display()));
         };
         if skip.matches(name) {
             continue;
@@ -363,9 +379,12 @@ mod tests {
 
     #[test]
     fn piece_sizes_are_valid() {
-        assert_eq!(PIECE_SIZES[0].1, 0);
-        assert!(PIECE_SIZES[1..].iter().all(|&(_, s)| s.is_power_of_two() && s % (16 << 10) == 0));
-        assert_eq!(PIECE_SIZES.last().unwrap().1, 16 << 20);
+        assert_eq!(PIECE_SIZES[0], 0);
+        assert!(PIECE_SIZES[1..].iter().all(|&s| s.is_power_of_two() && s % (16 << 10) == 0));
+        assert_eq!(*PIECE_SIZES.last().unwrap(), 16 << 20);
+        let texts: Vec<String> = PIECE_SIZES.iter().map(|&s| piece_size_text(s)).collect();
+        assert_eq!(texts[..3], ["(auto detect)", "16kB", "32kB"]);
+        assert_eq!(texts[7..9], ["1MB", "2MB"]);
     }
 
     #[test]

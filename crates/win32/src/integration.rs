@@ -23,6 +23,7 @@ use std::io;
 use std::path::Path;
 use std::ptr::{null, null_mut};
 
+use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, WIN32_ERROR};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ,
@@ -99,14 +100,10 @@ impl Status {
     pub fn note(&self) -> String {
         match (&self.torrent_choice, &self.magnet_choice) {
             (None, None) => String::new(),
-            (Some(t), None) => format!("Windows still opens .torrent files with {t}."),
-            (None, Some(m)) => format!("Windows still opens magnet: links with {m}."),
-            (Some(t), Some(m)) if t == m => {
-                format!("Windows still opens .torrent files and magnet: links with {t}.")
-            }
-            (Some(t), Some(m)) => {
-                format!("Windows still opens .torrent files with {t}, magnet: links with {m}.")
-            }
+            (Some(t), None) => tr!(AssocTorrent, program = t),
+            (None, Some(m)) => tr!(AssocMagnet, program = m),
+            (Some(t), Some(m)) if t == m => tr!(AssocBoth, program = t),
+            (Some(t), Some(m)) => tr!(AssocEach, torrent = t, magnet = m),
         }
     }
 }
@@ -221,7 +218,7 @@ pub fn write(keys: &Keys, exe: &Path, old: &Integration, want: &Integration) -> 
         let progid = keys.class(PROGID_TORRENT);
         let ext = keys.class(".torrent");
         if want.torrent {
-            set(&progid, None, "Torrent File")?;
+            set(&progid, None, tr!(AssocTorrentType))?;
             set(&format!(r"{progid}\DefaultIcon"), None, &icon)?;
             set(&format!(r"{progid}\shell\open\command"), None, &open)?;
             set(&ext, None, PROGID_TORRENT)?;
@@ -242,7 +239,7 @@ pub fn write(keys: &Keys, exe: &Path, old: &Integration, want: &Integration) -> 
         let scheme = keys.class("magnet");
         if want.magnet {
             for key in [&progid, &scheme] {
-                set(key, None, "URL:Magnet link")?;
+                set(key, None, &format!("URL:{}", tr!(AssocMagnetType)))?;
                 set(key, Some("URL Protocol"), "")?;
                 set(&format!(r"{key}\DefaultIcon"), None, &icon)?;
                 set(&format!(r"{key}\shell\open\command"), None, &open)?;
@@ -260,7 +257,7 @@ pub fn write(keys: &Keys, exe: &Path, old: &Integration, want: &Integration) -> 
         let caps = keys.path(CAPABILITIES);
         if want.torrent || want.magnet {
             set(&caps, Some("ApplicationName"), APP)?;
-            set(&caps, Some("ApplicationDescription"), "BitTorrent client")?;
+            set(&caps, Some("ApplicationDescription"), tr!(AppDescription))?;
             set(&caps, Some("ApplicationIcon"), &icon)?;
             let files = format!(r"{caps}\FileAssociations");
             let urls = format!(r"{caps}\URLAssociations");

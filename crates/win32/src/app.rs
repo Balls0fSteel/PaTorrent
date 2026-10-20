@@ -24,6 +24,7 @@ use patorrent_core::{
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{self, PRIORITIES};
+use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
@@ -35,7 +36,7 @@ use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::Category;
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
-use patorrent_frontend::{actions, add, create, fmt, settings};
+use patorrent_frontend::{actions, add, create, fmt, settings, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -148,22 +149,22 @@ mod cmd {
 /// Bandwidth menu presets in kB/s; 0 = unlimited.
 const LIMITS: [u32; 10] = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
 
-const TOOLBAR: [Option<(Icon, u16, &str)>; 15] = [
-    Some((Icon::AddTorrent, cmd::ADD, "Add Torrent")),
-    Some((Icon::AddUrl, cmd::ADD_URL, "Add Torrent from URL")),
-    Some((Icon::Create, cmd::CREATE, "Create New Torrent")),
+const TOOLBAR: [Option<(Icon, u16, S)>; 15] = [
+    Some((Icon::AddTorrent, cmd::ADD, S::ToolAddTorrent)),
+    Some((Icon::AddUrl, cmd::ADD_URL, S::ToolAddUrl)),
+    Some((Icon::Create, cmd::CREATE, S::ToolCreate)),
     None,
-    Some((Icon::Remove, cmd::REMOVE, "Remove")),
+    Some((Icon::Remove, cmd::REMOVE, S::ToolRemove)),
     None,
-    Some((Icon::Start, cmd::START, "Start")),
-    Some((Icon::Pause, cmd::PAUSE, "Pause")),
-    Some((Icon::Stop, cmd::STOP, "Stop")),
+    Some((Icon::Start, cmd::START, S::ToolStart)),
+    Some((Icon::Pause, cmd::PAUSE, S::ToolPause)),
+    Some((Icon::Stop, cmd::STOP, S::ToolStop)),
     None,
-    Some((Icon::Up, cmd::UP, "Move Up Queue")),
-    Some((Icon::Down, cmd::DOWN, "Move Down Queue")),
+    Some((Icon::Up, cmd::UP, S::ToolQueueUp)),
+    Some((Icon::Down, cmd::DOWN, S::ToolQueueDown)),
     None,
-    Some((Icon::Rss, cmd::RSS, "RSS Downloader")),
-    Some((Icon::Preferences, cmd::PREFS, "Preferences")),
+    Some((Icon::Rss, cmd::RSS, S::ToolRss)),
+    Some((Icon::Preferences, cmd::PREFS, S::ToolPreferences)),
 ];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -371,7 +372,16 @@ pub fn parse_args(args: &[String]) -> Args {
     out
 }
 
+/// Picks the language from `patorrent.ini` in [`base_data_dir`] (one language for every
+/// window, remote ones included); what went wrong, for the Logger.
+fn init_language() -> Vec<String> {
+    let prefs = Prefs::load(base_data_dir().join("patorrent.ini"));
+    lang::init(prefs.get("ui.language").unwrap_or_default())
+}
+
 pub fn run(args: Args) -> i32 {
+    // before any window or message box
+    let lang_problems = init_language();
     unsafe {
         let icc = INITCOMMONCONTROLSEX {
             dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
@@ -418,7 +428,7 @@ pub fn run(args: Args) -> i32 {
             match Session::start(SessionParams { settings, state_dir: Some(dir.join("state")) }) {
                 Ok(s) => s,
                 Err(e) => {
-                    dialogs::error(null_mut(), &format!("Cannot start the BitTorrent engine:\n{e}"));
+                    dialogs::error(null_mut(), &tr!(ErrEngineStart, error = e));
                     return 1;
                 }
             }
@@ -460,8 +470,11 @@ pub fn run(args: Args) -> i32 {
             return 1;
         }
         init(hwnd, session, prefs);
+        for p in lang_problems {
+            log_line(&p);
+        }
         if let Some(r) = crate::remote_ui::get() {
-            let title = wide(&format!("PaTorrent - {} (remote)", r.label));
+            let title = wide(&tr!(TitleRemote, label = r.label));
             SetWindowTextW(hwnd, title.as_ptr());
         }
         // the server applies its own block list
@@ -505,21 +518,21 @@ unsafe fn main_menu() -> HMENU {
     unsafe {
         let bar = CreateMenu();
         let file = CreatePopupMenu();
-        append(file, cmd::ADD, "&Add Torrent...\tCtrl+O");
-        append(file, cmd::ADD_URL, "Add Torrent from &URL...\tCtrl+U");
-        append(file, cmd::CREATE, "&Create New Torrent...\tCtrl+N");
+        append(file, cmd::ADD, &shortcut(tr!(MenuAddTorrent), 'O'));
+        append(file, cmd::ADD_URL, &shortcut(tr!(MenuAddUrl), 'U'));
+        append(file, cmd::CREATE, &shortcut(tr!(MenuCreate), 'N'));
         separator(file);
-        append(file, cmd::CONNECT_REMOTE, "Connect to &Remote...");
+        append(file, cmd::CONNECT_REMOTE, tr!(MenuConnectRemote));
         separator(file);
-        append(file, cmd::EXIT, "E&xit");
+        append(file, cmd::EXIT, tr!(MenuExit));
         let options = CreatePopupMenu();
-        append(options, cmd::PREFS, "&Preferences\tCtrl+P");
-        append(options, cmd::RSS, "&RSS Downloader...");
+        append(options, cmd::PREFS, &shortcut(tr!(MenuPreferences), 'P'));
+        append(options, cmd::RSS, tr!(MenuRss));
         separator(options);
-        append(options, cmd::SHOW_TOOLBAR, "Show &Toolbar");
-        append(options, cmd::SHOW_DETAILS, "Show &Detailed Info");
-        append(options, cmd::SHOW_STATUS, "Show &Status Bar");
-        append(options, cmd::SHOW_TREE, "Show &Category List");
+        append(options, cmd::SHOW_TOOLBAR, tr!(MenuShowToolbar));
+        append(options, cmd::SHOW_DETAILS, tr!(MenuShowDetails));
+        append(options, cmd::SHOW_STATUS, tr!(MenuShowStatus));
+        append(options, cmd::SHOW_TREE, tr!(MenuShowTree));
         separator(options);
         let auto = CreatePopupMenu();
         for (i, &m) in AutoMode::MENU.iter().enumerate() {
@@ -530,17 +543,22 @@ unsafe fn main_menu() -> HMENU {
                 separator(auto);
             }
         }
-        submenu(options, auto, "&Auto Shutdown");
+        submenu(options, auto, tr!(MenuAutoShutdown));
         separator(options);
-        append(options, cmd::CLOSE_TO_TRAY, "Close to Tra&y");
-        append(options, cmd::MIN_TO_TRAY, "&Minimize to Tray");
+        append(options, cmd::CLOSE_TO_TRAY, tr!(MenuCloseToTray));
+        append(options, cmd::MIN_TO_TRAY, tr!(MenuMinimizeToTray));
         let help = CreatePopupMenu();
-        append(help, cmd::ABOUT, "&About PaTorrent");
-        submenu(bar, file, "&File");
-        submenu(bar, options, "&Options");
-        submenu(bar, help, "&Help");
+        append(help, cmd::ABOUT, tr!(MenuAbout));
+        submenu(bar, file, tr!(MenuFile));
+        submenu(bar, options, tr!(MenuOptions));
+        submenu(bar, help, tr!(MenuHelp));
         bar
     }
+}
+
+/// A menu item's text with its Ctrl shortcut after a tab.
+fn shortcut(text: &str, key: char) -> String {
+    format!("{text}\t{}+{key}", tr!(KeyCtrl))
 }
 
 unsafe fn append(menu: HMENU, id: u16, text: &str) {
@@ -593,7 +611,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
                         t.fsState = TBSTATE_ENABLED as u8;
                         t.fsStyle = BTNS_BUTTON as u8;
                         // The toolbar keeps the pointer: leak the few strings once.
-                        t.iString = Box::leak(wide(text).into_boxed_slice()).as_ptr() as isize;
+                        t.iString = Box::leak(wide(lang::text(*text)).into_boxed_slice()).as_ptr() as isize;
                     }
                     None => t.fsStyle = BTNS_SEP as u8,
                 }
@@ -621,7 +639,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         let mut pages = [null_mut(); 7];
         for page in Page::ALL {
             let i = page.index();
-            let mut text = wide(page.title());
+            let mut text = wide(lang::text(page.title()));
             let mut item: TCITEMW = zeroed();
             item.mask = TCIF_TEXT;
             item.pszText = text.as_mut_ptr();
@@ -661,7 +679,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         let mut list = TorrentList::new();
         list.set_sort(prefs.sort());
         let page =
-            Page::ALL.into_iter().find(|p| prefs.get("ui.tab") == Some(p.title())).unwrap_or(Page::General);
+            Page::ALL.into_iter().find(|p| prefs.get("ui.tab") == Some(p.key())).unwrap_or(Page::General);
         let rss = RssDownloader::load(&rss_file());
         // Runs on a fetch's worker thread: only post a message.
         let rss_worker = Worker::new(move || {
@@ -750,12 +768,12 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         for page in Page::ALL {
             if page.is_list() {
                 let cols: Vec<(&str, i32, bool)> =
-                    page.columns().iter().map(|&(t, w, r)| (t, scale(w, dpi), r)).collect();
+                    page.columns().iter().map(|&(t, w, r)| (lang::text(t), scale(w, dpi), r)).collect();
                 controls::set_columns(pages[page.index()], &cols);
             }
         }
         let cols: Vec<(&str, i32, bool)> =
-            detail::PIECE_COLUMNS.iter().map(|&(t, w, r)| (t, scale(w, dpi), r)).collect();
+            detail::PIECE_COLUMNS.iter().map(|&(t, w, r)| (lang::text(t), scale(w, dpi), r)).collect();
         controls::set_columns(piece_list, &cols);
         send(tabs, TCM_SETCURSEL, page.index(), 0);
         DragAcceptFiles(hwnd, 1);
@@ -781,26 +799,18 @@ fn check_association(hwnd: HWND) {
     if status.opens_torrents() && status.opens_magnets() {
         return;
     }
-    let question = "PaTorrent is not the program that opens .torrent files and magnet: links.\n\n\
-                    Associate them with PaTorrent?\n\n\
-                    (Preferences > General > \"Check association on startup\" turns this question off.)";
-    if !dialogs::confirm(hwnd, question) {
+    if !dialogs::confirm(hwnd, tr!(AskAssociate)) {
         return;
     }
     let want = Integration { torrent: true, magnet: true, ..status.set };
     match integration::write(&keys, &exe, &status.set, &want) {
         Ok(after) if !(after.opens_torrents() && after.opens_magnets()) => {
-            let text = format!(
-                "{}\n\nWindows keeps a program chosen in Windows itself, and only you can change that \
-                 choice, in Settings > Default apps. Open Default apps now?",
-                after.note()
-            );
-            if dialogs::confirm(hwnd, &text) {
+            if dialogs::confirm(hwnd, &tr!(AskDefaultApps, note = after.note())) {
                 integration::open_default_apps(hwnd);
             }
         }
         Ok(_) => {}
-        Err(e) => dialogs::error(hwnd, &format!("Could not associate PaTorrent:\n{e}")),
+        Err(e) => dialogs::error(hwnd, &tr!(ErrAssociate, error = e)),
     }
 }
 
@@ -1137,15 +1147,15 @@ unsafe fn build_tree() {
         let Some(tree) = with_app(|a| a.tree) else { return };
         send(tree, TVM_DELETEITEM, 0, TVI_ROOT);
         let mut items = Vec::new();
-        let root = insert_tree(tree, TVI_ROOT, "Torrents", 0);
+        let root = insert_tree(tree, TVI_ROOT, tr!(CatTorrents), 0);
         items.push((root, Filter::Category(Category::All)));
         for c in [Category::Downloading, Category::Completed, Category::Active, Category::Inactive] {
             let h = insert_tree(tree, root, c.label(), items.len());
             items.push((h, Filter::Category(c)));
         }
-        let labels = insert_tree(tree, TVI_ROOT, "Labels", items.len());
+        let labels = insert_tree(tree, TVI_ROOT, tr!(CatLabels), items.len());
         items.push((labels, Filter::Category(Category::All)));
-        let none = insert_tree(tree, labels, "No Label", items.len());
+        let none = insert_tree(tree, labels, tr!(CatNoLabel), items.len());
         items.push((none, Filter::Label(String::new())));
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, root);
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, labels);
@@ -1241,9 +1251,9 @@ unsafe fn update_tree() {
             let mut out = Vec::new();
             for (i, (h, f)) in a.tree_items.iter().enumerate() {
                 let text = match (i, f) {
-                    (5, _) => "Labels".to_owned(),
+                    (5, _) => tr!(CatLabels).to_owned(),
                     (_, Filter::Category(c)) => format!("{} ({})", c.label(), a.list.count(*c)),
-                    (_, Filter::Label(l)) if l.is_empty() => format!("No Label ({no_label})"),
+                    (_, Filter::Label(l)) if l.is_empty() => format!("{} ({no_label})", tr!(CatNoLabel)),
                     (_, Filter::Label(l)) => {
                         let n = label_counts.iter().find(|(x, _)| x == l).map_or(0, |x| x.1);
                         format!("{l} ({n})")
@@ -1483,7 +1493,7 @@ unsafe fn auto_shutdown_step(hwnd: HWND, step: Step) {
         Step::Tick(secs) => shutdown::tick(secs),
         Step::Abort => {
             shutdown::close(Outcome::Aborted);
-            log_line("Auto Shutdown: new work, the countdown is off until it is done");
+            log_line(tr!(LogShutdownNewWork));
         }
         Step::Act(_) if shutdown::is_open() => shutdown::close(Outcome::TimeUp),
         Step::Act(action) => unsafe { auto_shutdown_act(hwnd, action) },
@@ -1499,11 +1509,11 @@ unsafe fn auto_shutdown_countdown(hwnd: HWND, secs: u32) {
     if shutdown::is_open() {
         return;
     }
-    log_line(&format!("Auto Shutdown: done, {} in {secs} s", auto_shutdown_what(mode.action)));
+    log_line(&tr!(LogShutdownDone, what = auto_shutdown_what(mode.action), secs));
     match shutdown::countdown(hwnd, mode, secs) {
         Outcome::Cancelled => {
             with_app(|a| a.auto_shutdown.set_mode(None));
-            log_line("Auto Shutdown: cancelled, now Disabled");
+            log_line(tr!(LogShutdownCancelled));
             unsafe { update_menu(hwnd) };
         }
         Outcome::Aborted => {}
@@ -1513,23 +1523,23 @@ unsafe fn auto_shutdown_countdown(hwnd: HWND, secs: u32) {
 
 fn auto_shutdown_what(action: auto_shutdown::Action) -> &'static str {
     match action {
-        auto_shutdown::Action::Quit => "quitting",
-        auto_shutdown::Action::Standby => "standby",
-        auto_shutdown::Action::Hibernate => "hibernating",
-        auto_shutdown::Action::ShutDown => "shutting down",
+        auto_shutdown::Action::Quit => tr!(ShutdownWhatQuit),
+        auto_shutdown::Action::Standby => tr!(ShutdownWhatStandby),
+        auto_shutdown::Action::Hibernate => tr!(ShutdownWhatHibernate),
+        auto_shutdown::Action::ShutDown => tr!(ShutdownWhatShutDown),
     }
 }
 
 /// Quit as File > Exit does (state saved on the way out); Shut Down after that; Standby and
 /// Hibernate once the engine has written the resume data (`ResumeDataSaved` in `on_alerts`).
 unsafe fn auto_shutdown_act(hwnd: HWND, action: auto_shutdown::Action) {
-    log_line(&format!("Auto Shutdown: {}", auto_shutdown_what(action)));
+    log_line(&tr!(LogShutdown, what = auto_shutdown_what(action)));
     unsafe { update_menu(hwnd) };
     match Power::of(action) {
         Some(p @ (Power::Standby | Power::Hibernate)) => {
             with_app(|a| {
                 if let Err(e) = a.prefs.save() {
-                    a.detail.push_log(format!("{} cannot save preferences: {e}", now_hms()));
+                    a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
                 }
                 a.suspend_pending = Some(p);
                 a.handle.save_resume_data();
@@ -1556,20 +1566,21 @@ fn autoload(a: &mut App) {
     let Some(dir) = a.torrent_folders.loads_from().map(PathBuf::from) else { return };
     let found = a.autoload.poll(&dir, std::time::Instant::now());
     if let Some(e) = a.autoload.take_error() {
-        a.detail.push_log(format!("{} Automatically load .torrents: {e}", now_hms()));
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAutoloadError, error = e)));
     }
     for path in found {
         let (bytes, ti) = match torrent_folders::read(&path) {
             Ok(r) => r,
             Err(e) => {
-                a.detail.push_log(format!("{} {}: not loaded: {e}", now_hms(), path.display()));
+                let line = tr!(FoldersNotLoaded, path = path.display(), error = e);
+                a.detail.push_log(format!("{} {line}", now_hms()));
                 continue;
             }
         };
         let key = ti.info_hashes().key_hex();
         if a.list.ids().any(|id| a.list.get(id).is_some_and(|s| s.info_hashes.key_hex() == key)) {
             let line = torrent_folders::loaded(ti.name(), &path, a.torrent_folders.autoload_delete);
-            a.detail.push_log(format!("{} {line} (already in the list)", now_hms()));
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAlreadyInList, line)));
             continue;
         }
         a.torrent_files.loading(&ti, path);
@@ -1627,7 +1638,7 @@ fn run_scheduler(a: &mut App, applied: Option<&Options>) {
         }
     }
     if c.mode != old {
-        a.detail.push_log(format!("{} Scheduler: {}", now_hms(), c.mode.label()));
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(LogScheduler, mode = c.mode.label())));
         a.status_texts.clear();
     }
 }
@@ -1651,7 +1662,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                 .and_then(|m| m.on_alert(&alert, &a.handle).map(|id| (id, m.dir.clone())))
             {
                 let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
-                a.detail.push_log(format!("{} {name}: moving the completed download to {dir}", now_hms()));
+                a.detail.push_log(format!("{} {}", now_hms(), tr!(LogMovingCompleted, name, dir)));
                 a.handle.post_torrent_updates();
             }
             for line in a.torrent_files.on_alert(&alert, &a.torrent_folders, &a.handle) {
@@ -1692,7 +1703,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                 }
                 Alert::ResumeDataSaved => suspend = a.suspend_pending.take(),
                 Alert::TorrentAdded { id, info_hashes, ref name } => {
-                    a.detail.push_log(format!("{} {name}: added", now_hms()));
+                    a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAdded, name)));
                     if a.queue_top.remove(&info_hashes.key_hex()) {
                         a.handle.torrent(id).queue_position(QueueMove::Top);
                     }
@@ -1701,7 +1712,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                 }
                 Alert::AddTorrentFailed { ref name, ref error } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
-                    errors.push(format!("Could not add {name}:\n{error}"));
+                    errors.push(tr!(ErrAddTorrent, name, error));
                     lists_changed = true;
                 }
                 Alert::TorrentRemoved { id, info_hashes } => {
@@ -1717,17 +1728,14 @@ unsafe fn on_alerts(hwnd: HWND) {
                 Alert::RemoteDisconnected { ref message } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     let label = crate::remote_ui::get().map_or("", |r| r.label.as_str());
-                    let title = wide(&format!("PaTorrent - {label} (disconnected)"));
+                    let title = wide(&tr!(TitleDisconnected, label));
                     // SAFETY: the main window is live while the app state is.
                     unsafe { SetWindowTextW(a.hwnd, title.as_ptr()) };
-                    errors.push(format!(
-                        "The connection to {label} was lost:\n{message}\n\nThe list shows the torrents as they \
-                         were. Close this window and use File > Connect to Remote... to connect again."
-                    ));
+                    errors.push(tr!(ErrRemoteLost, label, message));
                 }
                 Alert::TorrentFinished { id } => {
                     let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
-                    a.detail.push_log(format!("{} {name}: finished downloading", now_hms()));
+                    a.detail.push_log(format!("{} {}", now_hms(), tr!(LogFinished, name)));
                     if a.downloading.remove(&id) {
                         balloons.push(name);
                     }
@@ -1737,8 +1745,12 @@ unsafe fn on_alerts(hwnd: HWND) {
                     let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
                     a.detail.push_log(format!("{} {name}: {}", now_hms(), alert.message()));
                     if let Alert::StorageMovedFailed { ref error, ref file, .. } = alert {
-                        let at = if file.is_empty() { String::new() } else { format!("\n{file}") };
-                        errors.push(format!("Could not move the files of {name}:\n{error}{at}"));
+                        let mut text = tr!(ErrMoveFiles, name, error);
+                        if !file.is_empty() {
+                            text.push('\n');
+                            text.push_str(file);
+                        }
+                        errors.push(text);
                     }
                     // the new save path (or the old one, after a failure) and the end of "Moving"
                     a.handle.post_torrent_updates();
@@ -1825,7 +1837,7 @@ unsafe fn on_alerts(hwnd: HWND) {
             balloons.clear();
         }
         for name in balloons {
-            tray::balloon(hwnd, "Download Complete", &name);
+            tray::balloon(hwnd, tr!(BalloonComplete), &name);
         }
         for e in errors {
             dialogs::error(hwnd, &e);
@@ -1836,7 +1848,7 @@ unsafe fn on_alerts(hwnd: HWND) {
         }
         // Auto Shutdown's Standby / Hibernate; returns once the computer is awake again
         if let Some(Err(e)) = suspend.map(shutdown::perform) {
-            log_line(&format!("Auto Shutdown: {}", e.replace('\n', " ")));
+            log_line(&tr!(LogShutdown, what = e.replace('\n', " ")));
             dialogs::error(hwnd, &e);
         }
     }
@@ -1845,22 +1857,19 @@ unsafe fn on_alerts(hwnd: HWND) {
 unsafe fn update_status_bar() {
     let Some((status, hwnd, parts, tip, changed)) = with_app(|a| {
         let s = &a.stats;
-        let net = if s.has_incoming_connections { "Network OK" } else { "No incoming connections" };
+        let net = if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) };
         let net = match a.scheduler.status_text() {
             Some(sched) => format!("{net} | {sched}"),
             None => net.to_owned(),
         };
         let parts = [
             net,
-            format!("DHT: {} nodes", s.dht_nodes),
-            format!("D: {} T: {}", fmt::speed_always(s.download_rate), fmt::size(s.recv_payload_bytes)),
-            format!("U: {} T: {}", fmt::speed_always(s.upload_rate), fmt::size(s.sent_payload_bytes)),
+            tr!(BarDht, count = s.dht_nodes),
+            tr!(BarDown, rate = fmt::speed_always(s.download_rate), total = fmt::size(s.recv_payload_bytes)),
+            tr!(BarUp, rate = fmt::speed_always(s.upload_rate), total = fmt::size(s.sent_payload_bytes)),
         ];
-        let tip = format!(
-            "PaTorrent\nD: {} U: {}",
-            fmt::speed_always(s.download_rate),
-            fmt::speed_always(s.upload_rate)
-        );
+        let tip =
+            tr!(TrayTip, down = fmt::speed_always(s.download_rate), up = fmt::speed_always(s.upload_rate));
         let changed = tip != a.tray_tip;
         if changed {
             a.tray_tip = tip.clone();
@@ -1911,7 +1920,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 let r = Box::from_raw(lparam as *mut UrlResult);
                 match r.data {
                     Ok(bytes) => add_torrent_file(hwnd, bytes),
-                    Err(e) => dialogs::error(hwnd, &format!("Could not download {}:\n{e}", r.url)),
+                    Err(e) => dialogs::error(hwnd, &tr!(ErrDownloadUrl, url = r.url, error = e)),
                 }
                 0
             }
@@ -2109,7 +2118,7 @@ unsafe fn on_destroy(hwnd: HWND) {
             a.prefs.set_bool("ui.details", a.show_details);
             a.prefs.set_bool("ui.status", a.show_status);
             a.prefs.set_bool("ui.tree", a.show_tree);
-            a.prefs.set("ui.tab", a.page.title());
+            a.prefs.set("ui.tab", a.page.key());
             if let Err(e) = a.prefs.save() {
                 eprintln!("cannot save preferences: {e}");
             }
@@ -2169,15 +2178,15 @@ unsafe fn tray_menu(hwnd: HWND) {
     unsafe {
         let menu = CreatePopupMenu();
         let visible = IsWindowVisible(hwnd) != 0;
-        append(menu, cmd::TRAY_TOGGLE, if visible { "&Hide PaTorrent" } else { "&Show PaTorrent" });
+        append(menu, cmd::TRAY_TOGGLE, if visible { tr!(MenuHide) } else { tr!(MenuShow) });
         separator(menu);
-        append(menu, cmd::ADD, "&Add Torrent...");
-        append(menu, cmd::ADD_URL, "Add Torrent from &URL...");
+        append(menu, cmd::ADD, tr!(MenuAddTorrent));
+        append(menu, cmd::ADD_URL, tr!(MenuAddUrl));
         separator(menu);
-        append(menu, cmd::START_ALL, "S&tart All Torrents");
-        append(menu, cmd::STOP_ALL, "St&op All Torrents");
+        append(menu, cmd::START_ALL, tr!(MenuStartAll));
+        append(menu, cmd::STOP_ALL, tr!(MenuStopAll));
         separator(menu);
-        append(menu, cmd::EXIT, "E&xit");
+        append(menu, cmd::EXIT, tr!(MenuExit));
         let mut p: POINT = zeroed();
         GetCursorPos(&mut p);
         // Without this the menu does not close when clicking elsewhere.
@@ -2285,45 +2294,46 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
             menu,
             grayed(crate::remote_ui::is_remote()),
             cmd::OPEN_FOLDER,
-            if single_done { "Open &Containing Folder" } else { "Open Containing &Folder" },
+            if single_done { tr!(MenuOpenFolder) } else { tr!(MenuOpenFolderMany) },
         );
         separator(menu);
-        append(menu, cmd::FORCE_START, "&Force Start");
-        append(menu, cmd::START, "&Start");
-        append(menu, cmd::PAUSE, "&Pause");
-        append(menu, cmd::STOP, "S&top");
+        append(menu, cmd::FORCE_START, tr!(MenuForceStart));
+        append(menu, cmd::START, tr!(MenuStart));
+        append(menu, cmd::PAUSE, tr!(MenuPause));
+        append(menu, cmd::STOP, tr!(MenuStop));
         separator(menu);
-        append(menu, cmd::UP, "Move &Up Queue");
-        append(menu, cmd::DOWN, "Move &Down Queue");
-        append(menu, cmd::QUEUE_TOP, "Move to &Top of Queue");
-        append(menu, cmd::QUEUE_BOTTOM, "Move to &Bottom of Queue");
+        append(menu, cmd::UP, tr!(MenuQueueUp));
+        append(menu, cmd::DOWN, tr!(MenuQueueDown));
+        append(menu, cmd::QUEUE_TOP, tr!(MenuQueueTop));
+        append(menu, cmd::QUEUE_BOTTOM, tr!(MenuQueueBottom));
         separator(menu);
-        append(menu, cmd::REMOVE, "&Remove");
+        append(menu, cmd::REMOVE, tr!(MenuRemove));
         let remove_and = CreatePopupMenu();
-        append(remove_and, cmd::REMOVE_DATA, "Delete &Data");
-        submenu(menu, remove_and, "Remove &And");
+        append(remove_and, cmd::REMOVE_DATA, tr!(MenuDeleteData));
+        submenu(menu, remove_and, tr!(MenuRemoveAnd));
         separator(menu);
-        append(menu, cmd::RECHECK, "Force Re-&Check");
-        append(menu, cmd::REANNOUNCE, "&Update Tracker");
+        append(menu, cmd::RECHECK, tr!(MenuRecheck));
+        append(menu, cmd::REANNOUNCE, tr!(MenuUpdateTracker));
         separator(menu);
         let adv = CreatePopupMenu();
-        append_flags(adv, grayed(moving), cmd::SET_LOCATION, "Set &Download Location...");
-        append_flags(adv, checked(super_seeding) | grayed(!seeds), cmd::SUPER_SEED, "&Initial Seeding");
-        submenu(menu, adv, "Ad&vanced");
+        append_flags(adv, grayed(moving), cmd::SET_LOCATION, tr!(MenuSetLocation));
+        append_flags(adv, checked(super_seeding) | grayed(!seeds), cmd::SUPER_SEED, tr!(MenuInitialSeeding));
+        submenu(menu, adv, tr!(MenuAdvanced));
         let bw = CreatePopupMenu();
         let dl_menu = CreatePopupMenu();
         let ul_menu = CreatePopupMenu();
         for (i, &kb) in LIMITS.iter().enumerate() {
-            let text = if kb == 0 { "Unlimited".to_owned() } else { format!("{kb} kB/s") };
+            let text =
+                if kb == 0 { tr!(MenuUnlimited).to_owned() } else { format!("{kb} {}", tr!(UnitKbPerSec)) };
             append_flags(dl_menu, checked(dl == kb * 1024), cmd::DL_LIMIT_BASE + i as u16, &text);
             append_flags(ul_menu, checked(ul == kb * 1024), cmd::UL_LIMIT_BASE + i as u16, &text);
         }
-        submenu(bw, dl_menu, "Set &Download Limit");
-        submenu(bw, ul_menu, "Set &Upload Limit");
-        submenu(menu, bw, "&Bandwidth Allocation");
+        submenu(bw, dl_menu, tr!(MenuSetDownLimit));
+        submenu(bw, ul_menu, tr!(MenuSetUpLimit));
+        submenu(menu, bw, tr!(MenuBandwidth));
         let lm = CreatePopupMenu();
-        append(lm, cmd::LABEL_NEW, "&New Label...");
-        append_flags(lm, grayed(current_label.as_deref() == Some("")), cmd::LABEL_NONE, "&Remove Label");
+        append(lm, cmd::LABEL_NEW, tr!(MenuNewLabel));
+        append_flags(lm, grayed(current_label.as_deref() == Some("")), cmd::LABEL_NONE, tr!(MenuRemoveLabel));
         if !labels.is_empty() {
             separator(lm);
         }
@@ -2335,9 +2345,9 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
                 l,
             );
         }
-        submenu(menu, lm, "&Label");
+        submenu(menu, lm, tr!(MenuLabel));
         separator(menu);
-        append(menu, cmd::PROPERTIES, "Pr&operties");
+        append(menu, cmd::PROPERTIES, tr!(MenuProperties));
         let id = popup(hwnd, menu, p.x, p.y);
         if id != 0 {
             on_command(hwnd, id);
@@ -2353,7 +2363,7 @@ unsafe fn files_menu(hwnd: HWND, files_lv: HWND, p: POINT) {
         }
         let menu = CreatePopupMenu();
         for (i, (text, _)) in PRIORITIES.iter().enumerate() {
-            append(menu, cmd::FILE_PRIO_BASE + i as u16, text);
+            append(menu, cmd::FILE_PRIO_BASE + i as u16, lang::text(*text));
         }
         let id = popup(hwnd, menu, p.x, p.y);
         if id < cmd::FILE_PRIO_BASE || (id - cmd::FILE_PRIO_BASE) as usize >= PRIORITIES.len() {
@@ -2389,12 +2399,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                         s.starts_with("magnet:") || s.starts_with("http://") || s.starts_with("https://")
                     })
                     .unwrap_or_default();
-                if let Some(url) = dialogs::input(
-                    hwnd,
-                    "Add Torrent from URL",
-                    "Please enter the location of the .torrent you want to open:",
-                    &clip,
-                ) {
+                if let Some(url) = dialogs::input(hwnd, tr!(AddUrlTitle), tr!(AddUrlPrompt), &clip) {
                     if !url.is_empty() {
                         add_sources(hwnd, &[url]);
                     }
@@ -2406,7 +2411,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             {
                 let mode = AutoMode::MENU[(id - cmd::AUTO_SHUTDOWN_BASE) as usize];
                 with_app(|a| a.auto_shutdown.set_mode(mode));
-                log_line(&format!("Auto Shutdown: {}", AutoMode::label(mode).replace('&', "")));
+                log_line(&tr!(LogShutdown, what = lang::plain(AutoMode::label(mode))));
                 update_menu(hwnd);
             }
             cmd::PREFS => show_preferences(hwnd),
@@ -2421,15 +2426,10 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             cmd::CONNECT_REMOTE => crate::remote_ui::start_remote_window(hwnd),
             cmd::ABOUT => dialogs::info(
                 hwnd,
-                &format!(
-                    "PaTorrent (PatinaTorrent) {VERSION}\n\nA re-creation of µTorrent 2.2.1, built on a Rust \
-                     port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for \
-                     noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted \
-                     libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, \
-                     BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or \
-                     run patorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, \
-                     µTorrent or BitTorrent, Inc.\n\nSettings: {}",
-                    with_app(|a| a.prefs.path().map(|p| p.display().to_string()))
+                &tr!(
+                    AboutText,
+                    version = VERSION,
+                    path = with_app(|a| a.prefs.path().map(|p| p.display().to_string()))
                         .flatten()
                         .unwrap_or_default()
                 ),
@@ -2483,7 +2483,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             }
             cmd::REMOVE | cmd::REMOVE_DATA => remove_selected(hwnd, id == cmd::REMOVE_DATA),
             cmd::LABEL_NEW => {
-                if let Some(l) = dialogs::input(hwnd, "New Label", "Enter the name of the new label:", "") {
+                if let Some(l) = dialogs::input(hwnd, tr!(NewLabelTitle), tr!(NewLabelPrompt), "") {
                     if !l.is_empty() {
                         set_label(&l);
                     }
@@ -2559,10 +2559,10 @@ fn seeding_goal(a: &mut App, st: &patorrent_core::TorrentStatus) {
     let Some(action) = a.seeding_goal.check(st, own) else { return };
     action.apply(&a.handle.torrent(st.id));
     let what = match action {
-        GoalAction::Stop => "stopped".to_owned(),
-        GoalAction::LimitUpload(b) => format!("upload limited to {}", fmt::speed_always(b)),
+        GoalAction::Stop => tr!(SeedingGoalStopped).to_owned(),
+        GoalAction::LimitUpload(b) => tr!(SeedingGoalLimited, rate = fmt::speed_always(b)),
     };
-    a.detail.push_log(format!("{} {}: seeding goal reached, {what}", now_hms(), st.name));
+    a.detail.push_log(format!("{} {}", now_hms(), tr!(LogSeedingGoal, name = st.name, what)));
 }
 
 /// The tracker lists of `ids` (`post_trackers`), waiting up to two seconds for the engine. The
@@ -2633,7 +2633,7 @@ unsafe fn show_properties(hwnd: HWND) {
             changes.store(&mut a.prefs, &key, &defaults);
         }
         if let Err(e) = a.prefs.save() {
-            a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
         }
         a.handle.post_torrent_updates();
     });
@@ -2648,7 +2648,7 @@ unsafe fn set_download_location(hwnd: HWND) {
     else {
         return;
     };
-    let title = "Select the new download location";
+    let title = tr!(PickLocation);
     let Some(dir) = (unsafe { crate::create::pick_folder_at(hwnd, title, start.as_deref()) }) else {
         return;
     };
@@ -2660,7 +2660,7 @@ unsafe fn set_download_location(hwnd: HWND) {
             }
             let name = st.name.clone();
             a.handle.torrent(id).move_storage(dir.clone(), MoveFlags::AlwaysReplaceFiles);
-            a.detail.push_log(format!("{} {name}: moving to {dir}", now_hms()));
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogMovingTo, name, dir)));
         }
         a.handle.post_torrent_updates();
     });
@@ -2778,15 +2778,14 @@ unsafe fn remove_selected(hwnd: HWND, delete_data: bool) {
     let names =
         with_app(|a| ids.iter().filter_map(|id| a.list.get(*id).map(|s| s.name.clone())).collect::<Vec<_>>())
             .unwrap_or_default();
-    let what =
-        if names.len() == 1 { format!("\"{}\"", names[0]) } else { format!("{} torrents", names.len()) };
-    let question = if delete_data {
-        format!(
-            "Remove {what} and delete the downloaded data?\nThe files cannot be recovered from the Recycle Bin."
-        )
-    } else {
-        format!("Remove {what} from the list?\nDownloaded data stays on disk.")
+    let question = match (names.as_slice(), delete_data) {
+        ([name], false) => tr!(AskRemove, name),
+        ([name], true) => tr!(AskRemoveData, name),
+        (_, false) => tr!(AskRemoveMany, count = names.len()),
+        (_, true) => tr!(AskRemoveDataMany, count = names.len()),
     };
+    let detail = if delete_data { tr!(RemoveDeletesData) } else { tr!(RemoveKeepsData) };
+    let question = format!("{question}\n{detail}");
     let ask = with_app(|a| a.prefs.get_bool("ui.confirm_delete", true)).unwrap_or(true);
     if ask && !dialogs::confirm(hwnd, &question) {
         return;
@@ -2815,7 +2814,7 @@ unsafe fn add_sources(hwnd: HWND, sources: &[String]) {
         } else {
             match std::fs::read(s) {
                 Ok(bytes) => add_torrent_file(hwnd, bytes),
-                Err(e) => dialogs::error(hwnd, &format!("Could not open {s}:\n{e}")),
+                Err(e) => dialogs::error(hwnd, &tr!(ErrOpenFile, path = s, error = e)),
             }
         }
     }
@@ -2849,7 +2848,7 @@ fn add_magnet(hwnd: HWND, uri: &str) {
     })
     .flatten();
     if let Some(name) = known {
-        dialogs::info(hwnd, &format!("\"{name}\" is already in the torrent list."));
+        dialogs::info(hwnd, &tr!(InfoAlreadyInList, name));
         return;
     }
     with_app(|a| {
@@ -2861,7 +2860,7 @@ fn add_magnet(hwnd: HWND, uri: &str) {
         add::AwaitingMetadata::prepare(&mut p);
         a.awaiting.insert(&mut a.prefs, &key, &save_path);
         if let Err(e) = a.prefs.save() {
-            a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
         }
         add_to_session(a, p);
     });
@@ -2914,7 +2913,7 @@ unsafe fn magnet_dialogs(hwnd: HWND) {
                 None => a.handle.remove_torrent(id, RemoveFlags::DELETE_PARTFILE),
             }
             if let Err(e) = a.prefs.save() {
-                a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+                a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
             }
         });
     }
@@ -2943,7 +2942,7 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
     let known =
         with_app(|a| a.list.ids().any(|id| a.list.get(id).is_some_and(|s| s.info_hashes.key_hex() == key)));
     if known == Some(true) {
-        dialogs::info(hwnd, &format!("\"{}\" is already in the torrent list.", ti.name()));
+        dialogs::info(hwnd, &tr!(InfoAlreadyInList, name = ti.name()));
         return;
     }
     // the dialog runs its own message loop; nothing is borrowed across it
@@ -2958,7 +2957,7 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
             a.queue_top.insert(key);
         }
         if let Err(e) = a.prefs.save() {
-            a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
         }
         let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
         p.flags = TorrentFlags::DEFAULT;
@@ -2984,7 +2983,7 @@ unsafe fn show_preferences(hwnd: HWND) {
                 log_ip_filter(a, path, &r);
                 r
             })
-            .unwrap_or_else(|| Err("not running".to_owned()))
+            .unwrap_or_else(|| Err(tr!(ErrNotRunning).to_owned()))
         }),
         integration: Box::new(|change| {
             let (keys, exe) = (Keys::user(), exe_path());
@@ -3004,7 +3003,7 @@ fn apply_options(a: &mut App, o: &Options) {
     let old = Options::load(&a.prefs, &a.save_path);
     o.store(&mut a.prefs);
     if let Err(e) = a.prefs.save() {
-        a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
     }
     a.save_path = o.gui.download_dir.clone();
     a.schedule = o.gui.schedule.clone();
@@ -3028,7 +3027,7 @@ fn apply_options(a: &mut App, o: &Options) {
             load_ip_filter(a, &o.gui);
         } else {
             a.handle.set_ip_filter(IpFilter::new());
-            a.detail.push_log(format!("{} IP filter off", now_hms()));
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogIpFilterOff)));
         }
     }
 }
@@ -3042,8 +3041,8 @@ fn load_ip_filter(a: &mut App, gui: &GuiOptions) {
 
 fn log_ip_filter(a: &mut App, path: &Path, r: &Result<usize, String>) {
     let line = match r {
-        Ok(n) => format!("{} IP filter: {n} rules from {}", now_hms(), path.display()),
-        Err(e) => format!("{} IP filter: {}: {e}", now_hms(), path.display()),
+        Ok(n) => format!("{} {}", now_hms(), tr!(LogIpFilterRules, count = n, path = path.display())),
+        Err(e) => format!("{} {}", now_hms(), tr!(LogIpFilterError, path = path.display(), error = e)),
     };
     a.detail.push_log(line);
 }
@@ -3093,7 +3092,7 @@ fn download_url(hwnd: HWND, url: String) {
             let hr = URLDownloadToFileW(null_mut(), u.as_ptr(), f.as_ptr(), 0, null_mut());
             CoUninitialize();
             if hr < 0 {
-                Err(format!("download failed (HRESULT 0x{:08x})", hr as u32))
+                Err(tr!(ErrDownloadFailed, code = format!("0x{:08x}", hr as u32)))
             } else {
                 std::fs::read(&tmp).map_err(|e| e.to_string())
             }
@@ -3138,7 +3137,8 @@ fn rss_timer(a: &mut App) {
     if a.rss_dirty {
         a.rss_dirty = false;
         if let Err(e) = a.rss.save(&rss_file()) {
-            a.detail.push_log(format!("{} could not save {}: {e}", now_hms(), rss_file().display()));
+            let line = tr!(LogNotSaved, file = rss_file().display(), error = e);
+            a.detail.push_log(format!("{} {line}", now_hms()));
         }
     }
 }
@@ -3191,7 +3191,7 @@ unsafe fn rss_collect() {
 fn rss_add(a: &mut App, req: AddRequest, d: Download) {
     if let Some(key) = d.info_hashes().map(|h| h.key_hex()) {
         if a.list.ids().any(|id| a.list.get(id).is_some_and(|s| s.info_hashes.key_hex() == key)) {
-            a.detail.push_log(format!("{} RSS: {}: already in the torrent list", now_hms(), req.title));
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogRssAlreadyInList, title = req.title)));
             return;
         }
         // picked up when the torrent first shows up in the list, like a restored label
@@ -3217,7 +3217,7 @@ fn rss_add(a: &mut App, req: AddRequest, d: Download) {
     }
     add_to_session(a, p);
     if let Err(e) = a.prefs.save() {
-        a.detail.push_log(format!("{} could not save the preferences: {e}", now_hms()));
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
     }
 }
 
@@ -3228,7 +3228,7 @@ fn rss_download(a: &mut App, reqs: Vec<AddRequest>) {
     }
     for r in &reqs {
         let feed = a.rss.feed(r.feed).map(|f| f.name().to_owned()).unwrap_or_default();
-        a.detail.push_log(format!("{} RSS: {feed}: downloading {}", now_hms(), r.title));
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(RssLogDownloading, name = feed, title = r.title)));
     }
     let proxy = rss_proxy(a);
     for (req, d) in a.rss_worker.download(reqs, proxy.as_ref()) {
@@ -3274,8 +3274,10 @@ unsafe fn show_feed_items(view: Option<Option<FeedId>>) {
 /// The feed item columns at the window's DPI.
 unsafe fn set_feed_columns() {
     let Some((lv, cols, n)) = with_app(|a| {
-        let cols: Vec<(&'static str, i32, bool)> =
-            rss_view::ITEM_COLUMNS.iter().map(|&(t, w, right)| (t, scale(w, a.dpi), right)).collect();
+        let cols: Vec<(&'static str, i32, bool)> = rss_view::ITEM_COLUMNS
+            .iter()
+            .map(|&(t, w, right)| (lang::text(t), scale(w, a.dpi), right))
+            .collect();
         (a.lv, cols, a.feed_rows.len())
     }) else {
         return;
@@ -3335,7 +3337,7 @@ unsafe fn update_feed_tree() {
         if let Some(&(root, _)) = current.first() {
             send(tree, TVM_DELETEITEM, 0, root);
         }
-        let root = insert_tree(tree, TVI_ROOT, "Feeds", FEED_PARAM);
+        let root = insert_tree(tree, TVI_ROOT, tr!(CatFeeds), FEED_PARAM);
         let mut items = vec![(root, None)];
         for (i, (id, name)) in feeds.iter().enumerate() {
             items.push((insert_tree(tree, root, name, FEED_PARAM + i + 1), Some(*id)));
@@ -3365,9 +3367,9 @@ unsafe fn feed_item_menu(hwnd: HWND, p: POINT) {
         let Some(lv) = with_app(|a| a.lv) else { return };
         let any = !controls::selected(lv).is_empty();
         let menu = CreatePopupMenu();
-        append_flags(menu, grayed(!any), cmd::ITEM_DOWNLOAD, "&Download");
+        append_flags(menu, grayed(!any), cmd::ITEM_DOWNLOAD, tr!(MenuDownload));
         separator(menu);
-        append(menu, cmd::RSS, "&RSS Downloader...");
+        append(menu, cmd::RSS, tr!(MenuRss));
         match popup(hwnd, menu, p.x, p.y) {
             cmd::ITEM_DOWNLOAD => download_feed_items(),
             0 => {}
@@ -3414,14 +3416,14 @@ unsafe fn tree_menu(hwnd: HWND, tree: HWND, p: POINT, keyboard: bool) {
             return;
         };
         let menu = CreatePopupMenu();
-        append(menu, cmd::FEED_ADD, "&Add RSS Feed...");
-        append_flags(menu, grayed(feed.is_none()), cmd::FEED_EDIT, "&Edit Feed...");
-        let toggle = if enabled { "&Disable Feed" } else { "E&nable Feed" };
+        append(menu, cmd::FEED_ADD, tr!(MenuAddFeed));
+        append_flags(menu, grayed(feed.is_none()), cmd::FEED_EDIT, tr!(MenuEditFeed));
+        let toggle = if enabled { tr!(MenuDisableFeed) } else { tr!(MenuEnableFeed) };
         append_flags(menu, grayed(feed.is_none()), cmd::FEED_TOGGLE, toggle);
-        append(menu, cmd::FEED_UPDATE, "&Update Feed");
-        append_flags(menu, grayed(feed.is_none()), cmd::FEED_REMOVE, "De&lete Feed");
+        append(menu, cmd::FEED_UPDATE, tr!(MenuUpdateFeed));
+        append_flags(menu, grayed(feed.is_none()), cmd::FEED_REMOVE, tr!(MenuDeleteFeed));
         separator(menu);
-        append(menu, cmd::RSS, "&RSS Downloader...");
+        append(menu, cmd::RSS, tr!(MenuRss));
         let id = popup(hwnd, menu, p.x, p.y);
         feed_command(hwnd, id, feed);
     }
@@ -3434,7 +3436,7 @@ unsafe fn feed_command(hwnd: HWND, id: u16, feed: Option<FeedId>) {
             cmd::FEED_ADD => {
                 let form =
                     crate::rss::FeedForm { url: crate::rss::url_from_clipboard(hwnd), ..Default::default() };
-                let Some(form) = crate::rss::feed_dialog(hwnd, "Add RSS Feed", form) else { return };
+                let Some(form) = crate::rss::feed_dialog(hwnd, tr!(RssAddFeed), form) else { return };
                 with_app(|a| {
                     let id = form.add_to(&mut a.rss);
                     a.rss_dirty = true;
@@ -3446,7 +3448,7 @@ unsafe fn feed_command(hwnd: HWND, id: u16, feed: Option<FeedId>) {
                 let Some(form) = with_app(|a| a.rss.feed(id).map(crate::rss::FeedForm::of)).flatten() else {
                     return;
                 };
-                let Some(form) = crate::rss::feed_dialog(hwnd, "Edit RSS Feed", form) else { return };
+                let Some(form) = crate::rss::feed_dialog(hwnd, tr!(RssEditFeed), form) else { return };
                 with_app(|a| {
                     if form.store(&mut a.rss, id) {
                         rss_update(a, Some(id));
@@ -3469,7 +3471,7 @@ unsafe fn feed_command(hwnd: HWND, id: u16, feed: Option<FeedId>) {
                 let Some(id) = feed else { return };
                 let name =
                     with_app(|a| a.rss.feed(id).map(|f| f.name().to_owned())).flatten().unwrap_or_default();
-                if !dialogs::confirm(hwnd, &format!("Delete the feed \"{name}\"?")) {
+                if !dialogs::confirm(hwnd, &tr!(AskDeleteFeed, name)) {
                     return;
                 }
                 with_app(|a| {

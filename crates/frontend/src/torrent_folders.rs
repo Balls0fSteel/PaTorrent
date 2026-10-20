@@ -35,6 +35,7 @@ use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::{AddTorrentParams, Alert, SessionHandle, TorrentId, TorrentSource};
 
 use crate::prefs::Prefs;
+use crate::tr;
 
 /// How often the auto-load folder is scanned (µTorrent looked every few seconds). A file is
 /// added after two scans that agree, so 2 to 4 s after it stops changing.
@@ -415,8 +416,8 @@ impl TorrentFiles {
                 }
                 if let (Some(bytes), Some(dir)) = (&p.bytes, folders.stores_in()) {
                     match place(Path::new(dir), name, bytes) {
-                        Ok(path) => log.push(format!("{name}: .torrent stored as {}", path.display())),
-                        Err(e) => log.push(format!("{name}: could not store the .torrent in {dir}: {e}")),
+                        Ok(path) => log.push(tr!(FoldersStored, name, path = path.display())),
+                        Err(e) => log.push(tr!(FoldersStoreFailed, name, dir, error = e)),
                     }
                 }
                 if let Some(path) = &p.loaded_from {
@@ -431,7 +432,7 @@ impl TorrentFiles {
                         return true;
                     }
                     if let Some(path) = &p.loaded_from {
-                        log.push(format!("{}: not loaded: {error}", path.display()));
+                        log.push(tr!(FoldersNotLoaded, path = path.display(), error));
                     }
                     false
                 });
@@ -459,8 +460,8 @@ impl TorrentFiles {
                 };
                 let name = ti.name();
                 match place(Path::new(dir), name, data) {
-                    Ok(path) => log.push(format!("{name}: .torrent stored as {}", path.display())),
-                    Err(e) => log.push(format!("{name}: could not store the .torrent in {dir}: {e}")),
+                    Ok(path) => log.push(tr!(FoldersStored, name, path = path.display())),
+                    Err(e) => log.push(tr!(FoldersStoreFailed, name, dir, error = e)),
                 }
             }
             Alert::TorrentFinished { id } => {
@@ -470,9 +471,9 @@ impl TorrentFiles {
                     return log;
                 };
                 match move_copy(Path::new(from), Path::new(to), name, key) {
-                    Ok(Some(path)) => log.push(format!("{name}: .torrent moved to {}", path.display())),
+                    Ok(Some(path)) => log.push(tr!(FoldersMoved, name, path = path.display())),
                     Ok(None) => {}
-                    Err(e) => log.push(format!("{name}: could not move the .torrent to {to}: {e}")),
+                    Err(e) => log.push(tr!(FoldersMoveFailed, name, dir = to, error = e)),
                 }
             }
             _ => {}
@@ -484,11 +485,9 @@ impl TorrentFiles {
 /// Renames or deletes an auto-loaded file whose torrent is in the session; the log line.
 pub fn loaded(name: &str, path: &Path, delete: bool) -> String {
     match finish_loaded(path, delete) {
-        Ok(Some(to)) => format!("{name}: loaded from {}, renamed to {}", path.display(), to.display()),
-        Ok(None) => format!("{name}: loaded from {}, deleted", path.display()),
-        Err(e) => {
-            format!("{name}: loaded from {}, which could not be renamed or deleted: {e}", path.display())
-        }
+        Ok(Some(to)) => tr!(FoldersLoadedRenamed, name, path = path.display(), to = to.display()),
+        Ok(None) => tr!(FoldersLoadedDeleted, name, path = path.display()),
+        Err(e) => tr!(FoldersLoadedKept, name, path = path.display(), error = e),
     }
 }
 

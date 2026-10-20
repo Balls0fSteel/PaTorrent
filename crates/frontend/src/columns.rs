@@ -5,8 +5,8 @@ use std::cmp::Ordering;
 
 use patorrent_core::TorrentStatus;
 
-use crate::fmt;
 use crate::status::status_text;
+use crate::{fmt, tr};
 
 /// Per-row data the engine does not know about.
 #[derive(Clone, Copy, Debug, Default)]
@@ -117,30 +117,30 @@ impl Column {
 
     pub fn title(self) -> &'static str {
         match self {
-            Column::Name => "Name",
-            Column::QueuePosition => "#",
-            Column::Size => "Size",
-            Column::Done => "Done",
-            Column::Status => "Status",
-            Column::Seeds => "Seeds",
-            Column::Peers => "Peers",
-            Column::DownSpeed => "Down Speed",
-            Column::UpSpeed => "Up Speed",
-            Column::Eta => "ETA",
-            Column::Uploaded => "Uploaded",
-            Column::Downloaded => "Downloaded",
-            Column::Ratio => "Ratio",
-            Column::Availability => "Avail.",
-            Column::Label => "Label",
-            Column::AddedOn => "Added On",
-            Column::CompletedOn => "Completed On",
-            Column::Tracker => "Tracker",
-            Column::DownLimit => "Down Limit",
-            Column::UpLimit => "Up Limit",
-            Column::Remaining => "Remaining",
-            Column::SeedsPeers => "Seeds/Peers",
-            Column::SaveAs => "Save As",
-            Column::Wasted => "Wasted",
+            Column::Name => tr!(ColName),
+            Column::QueuePosition => tr!(ColQueue),
+            Column::Size => tr!(ColSize),
+            Column::Done => tr!(ColDone),
+            Column::Status => tr!(ColStatus),
+            Column::Seeds => tr!(ColSeeds),
+            Column::Peers => tr!(ColPeers),
+            Column::DownSpeed => tr!(ColDownSpeed),
+            Column::UpSpeed => tr!(ColUpSpeed),
+            Column::Eta => tr!(ColEta),
+            Column::Uploaded => tr!(ColUploaded),
+            Column::Downloaded => tr!(ColDownloaded),
+            Column::Ratio => tr!(ColRatio),
+            Column::Availability => tr!(ColAvailability),
+            Column::Label => tr!(ColLabel),
+            Column::AddedOn => tr!(ColAddedOn),
+            Column::CompletedOn => tr!(ColCompletedOn),
+            Column::Tracker => tr!(ColTracker),
+            Column::DownLimit => tr!(ColDownLimit),
+            Column::UpLimit => tr!(ColUpLimit),
+            Column::Remaining => tr!(ColRemaining),
+            Column::SeedsPeers => tr!(ColSeedsPeers),
+            Column::SaveAs => tr!(ColSaveAs),
+            Column::Wasted => tr!(ColWasted),
         }
     }
 

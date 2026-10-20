@@ -4,6 +4,7 @@
 use super::FeedId;
 use super::episode::{EpisodeSpec, Quality, parse_episode};
 use super::feed::FeedItem;
+use crate::lang::S;
 
 pub type FilterId = u32;
 
@@ -51,7 +52,7 @@ impl Default for RssFilter {
     fn default() -> RssFilter {
         RssFilter {
             id: 0,
-            name: "New filter".into(),
+            name: crate::tr!(RssNewFilter).into(),
             enabled: true,
             pattern: String::new(),
             not: String::new(),
@@ -72,20 +73,20 @@ impl Default for RssFilter {
 
 /// µTorrent's "Minimum interval" choices, in seconds, with their names (the list as
 /// remembered; any number of seconds works).
-pub const MIN_INTERVALS: [(u32, &str); 13] = [
-    (0, "0 (Ignore)"),
-    (2 * 3600, "2 hours"),
-    (5 * 3600, "5 hours"),
-    (10 * 3600, "10 hours"),
-    (12 * 3600, "12 hours"),
-    (86_400, "1 day"),
-    (2 * 86_400, "2 days"),
-    (3 * 86_400, "3 days"),
-    (4 * 86_400, "4 days"),
-    (7 * 86_400, "1 week"),
-    (14 * 86_400, "2 weeks"),
-    (21 * 86_400, "3 weeks"),
-    (30 * 86_400, "1 month"),
+pub const MIN_INTERVALS: [(u32, S); 13] = [
+    (0, S::RssInterval0),
+    (2 * 3600, S::RssInterval2h),
+    (5 * 3600, S::RssInterval5h),
+    (10 * 3600, S::RssInterval10h),
+    (12 * 3600, S::RssInterval12h),
+    (86_400, S::RssInterval1d),
+    (2 * 86_400, S::RssInterval2d),
+    (3 * 86_400, S::RssInterval3d),
+    (4 * 86_400, S::RssInterval4d),
+    (7 * 86_400, S::RssInterval1w),
+    (14 * 86_400, S::RssInterval2w),
+    (21 * 86_400, S::RssInterval3w),
+    (30 * 86_400, S::RssInterval1mo),
 ];
 
 impl RssFilter {

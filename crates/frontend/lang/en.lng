@@ -1,0 +1,906 @@
+# PaTorrent string table: English, the source of every translation.
+# Written from crates/frontend/src/lang/en.rs; do not edit by hand.
+# Key=Text. Keep {placeholders} as they are; & marks the next letter as the keyboard
+# mnemonic (&& is a literal &); \n is a line break.
+
+# {error} is the engine's error message, in English.
+StatusError=Error: {error}
+
+# Moving the torrent's files to another folder.
+StatusMoving=Moving
+StatusQueuedForChecking=Queued for checking
+
+# {percent} is like "45.3 %".
+StatusChecking=Checking {percent}
+StatusQueuedSeed=Queued Seed
+StatusQueued=Queued
+StatusPaused=Paused
+StatusFinished=Finished
+StatusStopped=Stopped
+StatusDownloadingMetadata=Downloading metadata
+StatusSeeding=Seeding
+StatusDownloading=Downloading
+
+# [S] marks initial seeding (super-seeding); keep the [S].
+StatusSuperSeeding=[S] Seeding
+
+# [F] marks a torrent started with Force Start, outside the queue; keep the [F]. {status}
+# is one of the statuses above.
+StatusForced=[F] {status}
+CatTorrents=Torrents
+CatDownloading=Downloading
+CatCompleted=Completed
+CatActive=Active
+CatInactive=Inactive
+ColName=Name
+
+# The queue position column; a short symbol.
+ColQueue=#
+ColSize=Size
+ColDone=Done
+ColStatus=Status
+ColSeeds=Seeds
+ColPeers=Peers
+ColDownSpeed=Down Speed
+ColUpSpeed=Up Speed
+
+# Estimated time left.
+ColEta=ETA
+ColUploaded=Uploaded
+ColDownloaded=Downloaded
+ColRatio=Ratio
+
+# Availability, abbreviated.
+ColAvailability=Avail.
+ColLabel=Label
+ColAddedOn=Added On
+ColCompletedOn=Completed On
+ColTracker=Tracker
+ColDownLimit=Down Limit
+ColUpLimit=Up Limit
+ColRemaining=Remaining
+ColSeedsPeers=Seeds/Peers
+
+# Where the torrent's files are saved.
+ColSaveAs=Save As
+
+# Bytes thrown away (failed hash checks, duplicates).
+ColWasted=Wasted
+
+# Trackers tab: time until the next announce.
+ColUpdateIn=Update In
+ColIp=IP
+
+# Peers tab: the peer's BitTorrent program.
+ColClient=Client
+ColFlags=Flags
+ColPercent=%
+
+# Peers tab: requests queued in each direction.
+ColReqs=Reqs
+
+# Pieces tab: the piece number.
+ColPiece=#
+ColBlockCount=# of Blocks
+ColBlocks=Blocks
+
+# Pieces tab: blocks of the piece completed.
+ColBlocksCompleted=Completed
+ColPieceCount=# Pieces
+ColFirstPiece=First Piece
+ColPriority=Priority
+
+# RSS: the episode number of a feed item.
+ColEpisode=Episode
+
+# RSS: the release's qualities (HDTV, 720p...).
+ColFormat=Format
+ColDate=Date
+ColFeed=Feed
+ColUrl=URL
+TrackerWorking=Working
+
+# {message} is the tracker's own message.
+TrackerWorkingMessage=Working: {message}
+Updating=Updating...
+TrackerError=Error
+PrioDontDownload=Don't Download
+PrioLow=Low
+PrioNormal=Normal
+PrioHigh=High
+PrioHighItem=High Priority
+PrioNormalItem=Normal Priority
+PrioLowItem=Low Priority
+
+# Bytes.
+UnitB=B
+
+# Kibibytes, written kB as µTorrent did.
+UnitKb=kB
+UnitMb=MB
+UnitGb=GB
+UnitTb=TB
+UnitPb=PB
+UnitKbPerSec=kB/s
+UnitMbPerSec=MB/s
+
+# Short durations: s seconds, m minutes, h hours, d days, w weeks.
+DurSeconds={s}s
+DurMinutes={m}m {s}s
+DurHours={h}h {m}m
+DurDays={d}d {h}h
+DurWeeks={w}w {d}d
+MenuFile=&File
+MenuOptions=&Options
+MenuHelp=&Help
+MenuAddTorrent=&Add Torrent...
+MenuAddUrl=Add Torrent from &URL...
+MenuCreate=&Create New Torrent...
+
+# Connect this window to a patorrent-nox on another computer.
+MenuConnectRemote=Connect to &Remote...
+MenuExit=E&xit
+MenuPreferences=&Preferences
+MenuRss=&RSS Downloader...
+MenuShowToolbar=Show &Toolbar
+MenuShowDetails=Show &Detailed Info
+MenuShowStatus=Show &Status Bar
+MenuShowTree=Show &Category List
+MenuAutoShutdown=&Auto Shutdown
+MenuCloseToTray=Close to Tra&y
+MenuMinimizeToTray=&Minimize to Tray
+MenuAbout=&About PaTorrent
+
+# The Ctrl key, as menus write shortcuts (Ctrl+O).
+KeyCtrl=Ctrl
+MenuHide=&Hide PaTorrent
+MenuShow=&Show PaTorrent
+MenuStartAll=S&tart All Torrents
+MenuStopAll=St&op All Torrents
+
+# Shown when one finished torrent is selected.
+MenuOpenFolder=Open &Containing Folder
+MenuOpenFolderMany=Open Containing &Folder
+MenuForceStart=&Force Start
+MenuStart=&Start
+MenuPause=&Pause
+MenuStop=S&top
+MenuQueueUp=Move &Up Queue
+MenuQueueDown=Move &Down Queue
+MenuQueueTop=Move to &Top of Queue
+MenuQueueBottom=Move to &Bottom of Queue
+MenuRemove=&Remove
+
+# "Remove And" > "Delete Data": remove the torrent and delete its files.
+MenuRemoveAnd=Remove &And
+MenuDeleteData=Delete &Data
+MenuRecheck=Force Re-&Check
+MenuUpdateTracker=&Update Tracker
+MenuAdvanced=Ad&vanced
+MenuSetLocation=Set &Download Location...
+MenuInitialSeeding=&Initial Seeding
+MenuBandwidth=&Bandwidth Allocation
+MenuSetDownLimit=Set &Download Limit
+MenuSetUpLimit=Set &Upload Limit
+MenuUnlimited=Unlimited
+MenuLabel=&Label
+MenuNewLabel=&New Label...
+MenuRemoveLabel=&Remove Label
+MenuProperties=Pr&operties
+MenuDownload=&Download
+MenuAddFeed=&Add RSS Feed...
+MenuEditFeed=&Edit Feed...
+MenuDisableFeed=&Disable Feed
+MenuEnableFeed=E&nable Feed
+MenuUpdateFeed=&Update Feed
+MenuDeleteFeed=De&lete Feed
+MenuCheck=Check
+MenuUncheck=Uncheck
+MenuSelectAll=Select &All
+MenuSelectNone=Select N&one
+ToolAddTorrent=Add Torrent
+ToolAddUrl=Add Torrent from URL
+ToolCreate=Create New Torrent
+ToolRemove=Remove
+ToolStart=Start
+ToolPause=Pause
+ToolStop=Stop
+ToolQueueUp=Move Up Queue
+ToolQueueDown=Move Down Queue
+ToolRss=RSS Downloader
+ToolPreferences=Preferences
+CatLabels=Labels
+CatNoLabel=No Label
+CatFeeds=Feeds
+TabGeneral=General
+TabTrackers=Trackers
+TabPeers=Peers
+TabPieces=Pieces
+TabFiles=Files
+TabSpeed=Speed
+TabLogger=Logger
+
+# Logger tab: the column of log lines.
+ColMessage=Message
+GenSelectTorrent=Select a torrent to see its details.
+GenDownloaded=Downloaded:
+GenAvailability=Availability:
+
+# Section heading.
+GenTransfer=Transfer
+
+# Section heading.
+GenGeneral=General
+GenTimeElapsed=Time Elapsed:
+GenRemaining=Remaining:
+GenWasted=Wasted:
+GenUploaded=Uploaded:
+GenSeeds=Seeds:
+GenPeers=Peers:
+
+# {count} connected of {total} in the swarm.
+GenConnected={count} of {total} connected
+GenDownloadSpeed=Download Speed:
+GenUploadSpeed=Upload Speed:
+GenDownLimit=Down Limit:
+GenUpLimit=Up Limit:
+GenShareRatio=Share Ratio:
+GenStatus=Status:
+GenSaveAs=Save As:
+GenTotalSize=Total Size:
+GenAddedOn=Added On:
+GenPieces=Pieces:
+GenCompletedOn=Completed On:
+GenCreatedOn=Created On:
+GenCreatedBy=Created By:
+GenHash=Hash:
+GenTrackers=Trackers:
+GenComment=Comment:
+
+# {count} pieces of {size} each, {have} of them downloaded.
+GenPiecesValue={count} x {size} (have {have})
+PiecesWaiting=Waiting for piece information...
+PiecesSelectTorrent=Select a torrent.
+
+# The Pieces tab's summary: {count} pieces, {done} downloaded.
+PiecesSummary={count} pieces, {done} done. Darker squares are pieces more peers have.
+
+# The same with {downloading} pieces being downloaded, drawn orange.
+PiecesSummaryDownloading={count} pieces, {done} done, {downloading} downloading (orange). Darker squares are pieces more peers have.
+
+# Below the piece map when it does not fit: {count} pieces not drawn.
+PiecesMore=... {count} more
+
+# Speed tab legend; {rate} is like "12.0 kB/s".
+SpeedDownload=Download: {rate}
+SpeedUpload=Upload: {rate}
+NetOk=Network OK
+NetNoIncoming=No incoming connections
+BarDht=DHT: {count} nodes
+
+# D = download, T = total.
+BarDown=D: {rate} T: {total}
+
+# U = upload, T = total.
+BarUp=U: {rate} T: {total}
+
+# The tray icon's tooltip; D = download, U = upload.
+TrayTip=PaTorrent\nD: {down} U: {up}
+BalloonComplete=Download Complete
+
+# The window title of a window connected to a patorrent-nox; {label} is host:port.
+TitleRemote=PaTorrent - {label} (remote)
+TitleDisconnected=PaTorrent - {label} (disconnected)
+LogAdded={name}: added
+LogFinished={name}: finished downloading
+LogMovingCompleted={name}: moving the completed download to {dir}
+LogMovingTo={name}: moving to {dir}
+
+# {mode} is a scheduler mode (Full speed, Limited...).
+LogScheduler=Scheduler: {mode}
+LogShutdownNewWork=Auto Shutdown: new work, the countdown is off until it is done
+
+# {what} is one of the four below; {secs} seconds.
+LogShutdownDone=Auto Shutdown: done, {what} in {secs} s
+LogShutdownCancelled=Auto Shutdown: cancelled, now Disabled
+
+# {what} is one of the four below, or a menu item, or an error.
+LogShutdown=Auto Shutdown: {what}
+ShutdownWhatQuit=quitting
+ShutdownWhatStandby=standby
+ShutdownWhatHibernate=hibernating
+ShutdownWhatShutDown=shutting down
+LogPrefsNotSaved=could not save the preferences: {error}
+
+# {file} is a path.
+LogNotSaved=could not save {file}: {error}
+LogAutoloadError=Automatically load .torrents: {error}
+
+# {line} is a .torrent folder Logger line.
+LogAlreadyInList={line} (already in the list)
+LogIpFilterOff=IP filter off
+LogIpFilterRules=IP filter: {count} rules from {path}
+LogIpFilterError=IP filter: {path}: {error}
+
+# The same, when the rules loaded before stay in force.
+LogIpFilterKept=IP filter: {path}: {error} (the old rules stay)
+
+# {title} is an RSS item's title.
+LogRssAlreadyInList=RSS: {title}: already in the torrent list
+
+# {what} is one of the two below.
+LogSeedingGoal={name}: seeding goal reached, {what}
+SeedingGoalStopped=stopped
+SeedingGoalLimited=upload limited to {rate}
+ErrEngineStart=Cannot start the BitTorrent engine:\n{error}
+AskAssociate=PaTorrent is not the program that opens .torrent files and magnet: links.\n\nAssociate them with PaTorrent?\n\n(Preferences > General > "Check association on startup" turns this question off.)
+
+# {note} says which program Windows still uses.
+AskDefaultApps={note}\n\nWindows keeps a program chosen in Windows itself, and only you can change that choice, in Settings > Default apps. Open Default apps now?
+ErrAssociate=Could not associate PaTorrent:\n{error}
+ErrIntegration=Could not change the Windows integration:\n{error}
+AssocTorrent=Windows still opens .torrent files with {program}.
+AssocMagnet=Windows still opens magnet: links with {program}.
+AssocBoth=Windows still opens .torrent files and magnet: links with {program}.
+AssocEach=Windows still opens .torrent files with {torrent}, magnet: links with {magnet}.
+
+# {note} is one of the four above.
+AssocChoose={note} Choose PaTorrent in Default apps.
+
+# Windows' name for the .torrent file type (Explorer's Type column).
+AssocTorrentType=Torrent File
+
+# Windows' name for magnet: links.
+AssocMagnetType=Magnet link
+
+# PaTorrent's description in Windows' Default apps.
+AppDescription=BitTorrent client
+ErrAddTorrent=Could not add {name}:\n{error}
+
+# {label} is host:port, {message} what went wrong.
+ErrRemoteLost=The connection to {label} was lost:\n{message}\n\nThe list shows the torrents as they were. Close this window and use File > Connect to Remote... to connect again.
+ErrMoveFiles=Could not move the files of {name}:\n{error}
+
+# {url} is a web address.
+ErrDownloadUrl=Could not download {url}:\n{error}
+
+# {code} is a Windows error number.
+ErrDownloadFailed=download failed (HRESULT {code})
+
+# {path} is a file.
+ErrOpenFile=Could not open {path}:\n{error}
+InfoAlreadyInList="{name}" is already in the torrent list.
+AskRemove=Remove "{name}" from the list?
+AskRemoveMany=Remove the selected torrents ({count}) from the list?
+AskRemoveData=Remove "{name}" and delete the downloaded data?
+AskRemoveDataMany=Remove the selected torrents ({count}) and delete the downloaded data?
+
+# Under the questions above.
+RemoveKeepsData=Downloaded data stays on disk.
+
+# Windows: deleted files skip the Recycle Bin.
+RemoveDeletesData=The files cannot be recovered from the Recycle Bin.
+
+# Linux, BSD and the Web UI.
+RemoveDeletesDataTrash=The files are deleted from the disk, not moved to the trash.
+BtnRemove=Remove
+
+# Message headings; the error follows on its own.
+CannotStartEngine=Cannot start the BitTorrent engine
+CannotAdd=Could not add {name}
+CannotOpen=Could not open {path}
+CannotDownload=Could not download {url}
+ErrNotALink=Not a link PaTorrent can add
+
+# Keep the example links as they are.
+UrlPlaceholder=magnet:?xt=… or https://…/file.torrent
+
+# Remove the torrent and delete its files (one menu item).
+MenuRemoveAndDelete=Remove &And Delete Data
+AboutShort=A BitTorrent client in the spirit of µTorrent 2.2.1, on a Rust port of libtorrent.
+AskDeleteFeed=Delete the feed "{name}"?
+ErrNotRunning=not running
+
+# {version} is like 1.0.0, {path} the settings file. Keep the names and licences as they are.
+AboutText=PaTorrent (PatinaTorrent) {version}\n\nA re-creation of µTorrent 2.2.1, built on a Rust port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or run patorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, µTorrent or BitTorrent, Inc.\n\nSettings: {path}
+BtnOk=OK
+BtnCancel=Cancel
+BtnApply=&Apply
+BtnClose=Close
+AddUrlTitle=Add Torrent from URL
+AddUrlPrompt=Please enter the location of the torrent you want to open (a URL or a magnet link):
+NewLabelTitle=New Label
+NewLabelPrompt=Enter the name of the new label:
+PickLocation=Select the new download location
+
+# File dialog filters.
+FilterTorrents=Torrents (*.torrent)
+FilterAllFiles=All Files (*.*)
+PickTorrent=Select a .torrent to open
+PickFile=Select a file
+AddTitle=Add New Torrent
+AddSaveIn=Save In
+AddName=&Name
+AddOptions=Torrent Options
+AddSkipCheck=Skip &hash check
+AddStart=&Start torrent
+AddTopOfQueue=Add to &top of queue
+AddLabel=&Label:
+AddContents=Torrent Contents
+AddTorrentName=Name:
+AddComment=Comment:
+AddSize=Size:
+AddDate=Date:
+
+# A folder whose files have different priorities.
+AddMixed=Mixed
+AddPickFolder=Select the folder to save the torrent in
+AddNoFolder=Please choose the folder to save the torrent in.
+
+# After the size: free space on the save folder's drive.
+AddDiskSpace=(disk space: {free} free)
+CreateTitle=Create New Torrent
+CreateSource=Select So&urce
+CreateAddFile=Add &file
+CreateAddDir=Add &directory
+CreateSkip=S&kip Files
+CreateProps=Torrent Properties
+CreateTrackers=&Trackers:
+CreateWebSeeds=&Web Seeds:
+CreateComment=C&omment:
+CreatePieceSize=&Piece size:
+
+# The BitTorrent version: v1, v2 or both.
+CreateVersion=Versio&n:
+CreateOther=Other
+CreateSeed=&Start seeding
+CreatePrivate=P&rivate torrent
+CreatePreserveOrder=Preser&ve file order
+CreateSave=&Create and save as...
+CreatePickDir=Select a directory to create the torrent from
+CreatePickSave=Select where to save the torrent
+CreateFailed=Could not create the torrent:\n{error}
+
+# {name} is a torrent's name.
+PropsTitle=Properties - {name}
+PropsTitleMany=Properties - {count} torrents
+PropsTrackers=Trackers (a blank line between tiers)
+PropsBandwidth=Bandwidth Settings
+PropsUpRate=Maximum upload rate (kB/s): [0: unlimited]
+PropsDownRate=Maximum download rate (kB/s): [0: unlimited]
+PropsSlots=Number of upload slots: [0: unlimited]
+PropsOverrideSlots=Override default number of upload slots
+PropsSeedingGoal=Seeding Goal
+PropsOverrideGoal=Override default settings
+PropsRatio=Minimum ratio (%): [0: no ratio goal]
+PropsSeedTime=Minimum seeding time (minutes): [0: no time goal]
+PropsOther=Other Settings
+PropsInitialSeeding=Initial Seeding
+PropsDht=Enable DHT
+PropsPex=Peer Exchange
+RemoteTitle=Connect to Remote
+RemoteHost=&Host:
+RemotePort=&Port:
+RemoteUser=&User name:
+RemotePassword=Pass&word:
+RemoteHttps=Use HTTP&S
+RemoteNote=The Web UI login of a patorrent-nox started with --webui. Its torrents stay on that computer.
+RemoteConnect=Connect
+RemoteBadAddress=Enter the server's host name or address, and its port (1 to 65535).
+
+# {name} is host:port, {error} what went wrong.
+RemoteCertChanged=The certificate of {name} is not the one you accepted before:\n{error}\n\nIf it was replaced on purpose (a new --webui-cert, or webui-cert.pem renewed), connect again to check the new one. Otherwise someone may be in between.
+RemoteCannotConnect=Cannot connect to {name}:\n{error}
+RemoteHintNotNox=Is it a patorrent-nox with its Web UI on this port (--webui)?
+RemoteHintHttps=If the server's Web UI uses HTTPS (--webui-https), tick Use HTTPS.
+RemoteNoHttps=Cannot reach {name} over HTTPS:\n{error}
+
+# {fingerprint} is a long hexadecimal number.
+RemoteTrust={name} presents a certificate that Windows does not trust (a self-signed one, as patorrent-nox --webui-https makes).\n\nSHA-256 fingerprint:\n{fingerprint}\n\nCompare it with the "certificate SHA-256" line patorrent-nox printed when it started. Trust this certificate for {name}?
+ErrStartPaTorrent=Cannot start PaTorrent: {error}
+ShutdownTitle=Auto Shutdown
+ShutdownDownloadsDone=All downloads have completed.
+ShutdownEverythingDone=All torrents have completed.
+
+# {time} is minutes:seconds, like 0:30.
+ShutdownWillQuit=PaTorrent will quit in {time}.
+ShutdownWillStandby=The computer will go on standby in {time}.
+ShutdownWillHibernate=The computer will hibernate in {time}.
+ShutdownWillShutDown=The computer will shut down in {time}.
+ShutdownErrStandby=Could not put the computer on standby:\n{error}
+ShutdownErrHibernate=Could not hibernate the computer:\n{error}
+ShutdownErrShutDown=Could not shut down the computer:\n{error}
+
+# A test mode: {name} is an environment variable, {what} one of the three below.
+ShutdownDryRun={name} is set: did not {what}.
+PowerStandby=put the computer on standby
+PowerHibernate=hibernate the computer
+PowerShutDown=shut down the computer
+PrefTitle=Preferences
+PageGeneral=General
+PageUi=UI Settings
+PageDirectories=Directories
+PageConnection=Connection
+PageBandwidth=Bandwidth
+PageBitTorrent=BitTorrent
+PageQueueing=Queueing
+PageScheduler=Scheduler
+PageWebUi=Web UI
+PageAdvanced=Advanced
+PageDiskCache=Disk Cache
+PrefLanguage=Language
+PrefUiLanguage=User interface:
+PrefIntegration=Windows Integration
+PrefAssocTorrent=Associate with .torrent files
+PrefAssocMagnet=Associate with magnet: links
+PrefCheckAssoc=Check association on startup
+PrefAutostart=Start PaTorrent on system startup
+PrefStartMinimized=Start minimized
+PrefDefaultApps=Default apps...
+PrefDisplay=Display Options
+PrefConfirmDelete=Confirm when deleting torrents
+PrefBalloons=Show balloon notifications in tray
+PrefTray=System Tray
+PrefCloseToTray=Close to tray
+PrefMinimizeToTray=Minimize to tray
+PrefWhenAdding=When Adding Torrents
+PrefDontStart=Don't start the download automatically
+PrefShowAddDialog=Show a window that displays the files inside the torrent
+PrefDownloadLocation=Location of Downloaded Files
+PrefNewDownloadsIn=Put new downloads in:
+PrefMoveCompleted=Move completed downloads to:
+PrefMoveOnlyDefault=Only move from the default download directory
+PrefTorrentLocation=Location of .torrents
+PrefStoreTorrents=Store .torrents in:
+PrefMoveTorrents=Move .torrents for finished jobs to:
+PrefAutoload=Automatically load .torrents from:
+PrefAutoloadDelete=Delete loaded .torrents
+PrefListeningPort=Listening Port
+PrefPort=Port used for incoming connections:
+PrefRandomPort=Random port
+PrefRandomize=Randomize port each start
+PrefUpnp=Enable UPnP port mapping
+PrefNatPmp=Enable NAT-PMP port mapping
+PrefProxyServer=Proxy Server
+PrefProxyType=Type:
+PrefProxy=Proxy:
+PrefProxyPort=Port:
+PrefAuthentication=Authentication
+PrefUsername=Username:
+PrefPassword=Password:
+PrefProxyNames=Resolve hostnames through proxy
+PrefProxyPeers=Use proxy for peer-to-peer connections
+PrefProxyTrackers=Use proxy for tracker connections
+
+# Proxy type: no proxy.
+PrefProxyNone=(none)
+
+# Proxy types: protocol names, usually kept as they are.
+ProxySocks4=Socks4
+ProxySocks5=Socks5
+ProxyHttp=HTTP
+PrefUpLimiting=Global Upload Rate Limiting
+PrefUpRate=Maximum upload rate (kB/s): [0: unlimited]
+PrefDownLimiting=Global Download Rate Limiting
+PrefDownRate=Maximum download rate (kB/s): [0: unlimited]
+PrefConnections=Number of Connections
+PrefMaxConnections=Global maximum number of connections:
+PrefPeersPerTorrent=Maximum number of connected peers per torrent: [0: no limit]
+PrefSlotsPerTorrent=Number of upload slots per torrent: [0: no limit]
+PrefGlobalSlots=Global number of upload slots: [-1: no limit]
+PrefPerTorrentNote=The per-torrent limits apply to torrents added from now on.
+PrefBasicFeatures=Basic BitTorrent Features
+PrefDht=Enable DHT Network
+PrefLsd=Enable Local Peer Discovery
+PrefPex=Enable Peer Exchange
+PrefUtp=Enable uTP (UDP transport with bandwidth management)
+PrefEncryption=Protocol Encryption
+PrefOutgoing=Outgoing:
+PrefLegacy=Allow incoming legacy connections
+
+# Encryption choices.
+EncDisabled=Disabled
+EncEnabled=Enabled
+EncForced=Forced
+PrefIpFilter=IP Filter
+PrefIpFilterEnable=Enable IP filter
+PrefReload=Reload
+PrefIpFilterLoaded={count} rules loaded.
+
+# The path field is empty: {path} is the file used instead.
+PrefIpFilterDefault=Empty: {path}
+PrefIpFilterOff=The IP filter is off.
+PrefQueue=Queue Settings
+PrefActive=Maximum number of active torrents (upload or download): [-1: no limit]
+PrefActiveDownloads=Maximum number of active downloads: [-1: no limit]
+PrefActiveSeeds=Maximum number of active seeds: [-1: no limit]
+PrefSlow=Don't count slow torrents toward these limits
+PrefSeedingGoal=Seeding Goal
+PrefRatio=Minimum ratio (%): [0: no ratio goal]
+PrefSeedTime=Minimum seeding time (minutes): [0: no time goal]
+PrefGoalReached=When a torrent reaches the seeding goal (forced torrents never do):
+PrefGoalLimit=Limit the upload rate to (kB/s): [0: stop]
+PrefGoalLimitInstead=Limit the upload rate instead of stopping the torrent
+PrefAltUpRate=Alternative upload rate (kB/s): [0: unlimited]
+PrefAltDownRate=Alternative download rate (kB/s): [0: unlimited]
+PrefUseAltRates=Use the alternative rate limits now
+PrefScheduler=Enable Scheduler
+PrefSchedTable=Scheduler Table
+PrefSchedSettings=Scheduler Settings
+PrefSchedUp=Limited upload rate (kB/s): [0: unlimited]
+PrefSchedDown=Limited download rate (kB/s): [0: unlimited]
+PrefSchedDht=Disable DHT when turning off
+
+# The scheduler grid's tooltip: {day}, {from} and {to} hours, {mode}.
+SchedHover={day} {from}:00 - {to}:00: {mode}
+PrefWebUi=Enable Web UI
+PrefWebUiNote=The Web UI comes with patorrent-nox.
+PrefFilter=Filter:
+PrefValue=Value:
+PrefTrue=True
+PrefFalse=False
+PrefSet=Set
+PrefReset=Reset
+
+# Preferences > Advanced: the list's columns.
+ColValue=Value
+PrefAdvancedNote=libtorrent setting names; * marks a changed value. Values are applied with OK or Apply.
+PrefDiskQueue=Disk Queue and Files
+PrefDiskWriteQueue=Disk write queue (kB):
+PrefOpenFiles=Maximum number of open files:
+PrefAioThreads=Disk I/O threads (used from the next start):
+PrefHashThreads=Hashing threads (used from the next start):
+PrefDiskCacheNote=PaTorrent has no disk read/write cache yet, so µTorrent's cache size settings have no counterpart; these are the limits of the engine's disk queue.
+PrefBadNumber=Please enter a number from {min} to {max}.
+PrefNoProxyHost=Please enter the proxy server's address.
+PrefNoProxyPort=Please enter the proxy server's port.
+PrefNoDownloadDir=Please choose a folder for new downloads.
+PrefNoCompletedDir=Please choose a folder for completed downloads.
+PrefNoStoreDir=Please choose a folder to store .torrents in.
+PrefNoFinishedDir=Please choose a folder for the .torrents of finished jobs.
+PrefNoAutoloadDir=Please choose a folder to load .torrents from.
+PickDownloadDir=Select the folder for new downloads
+PickCompletedDir=Select the folder for completed downloads
+PickStoreDir=Select the folder to store .torrents in
+PickFinishedDir=Select the folder for the .torrents of finished jobs
+PickAutoloadDir=Select the folder to load .torrents from
+
+# The language list's entry for English.
+LangEnglish=English
+RssTitle=RSS Downloader
+RssAddFeed=Add RSS Feed
+RssEditFeed=Edit RSS Feed
+RssFeedUrl=Feed &URL:
+RssAlias=Custom &Alias:
+RssSubscription=Subscription
+RssNoAuto=Do &not automatically download all items
+RssAuto=Automatically &download all items published in feed
+RssSmartAuto=Use &smart episode filter
+RssNoUrl=Please enter the URL of the feed.
+RssFeeds=Feeds
+RssFeedsAdd=&Add...
+RssFeedsEdit=&Edit...
+RssFeedsRemove=Remo&ve
+RssFeedsUpdate=&Update
+RssFilterAdd=Add
+RssFilterRemove=Remove
+RssFilterUp=Up
+RssFilterDown=Down
+RssName=Name:
+RssFilter=Filter:
+
+# Titles matching this are skipped.
+RssNot=Not:
+RssSaveIn=Save in:
+RssFeed=Feed:
+RssQuality=Quality:
+RssEpisodes=Episode number:
+RssMinInterval=Minimum interval:
+RssLabel=Label:
+RssMatching=Matching items in the feeds:
+
+# An example of the episode number syntax; keep 1x12-14.
+RssEpisodesExample=[ex. 1x12-14]
+RssSmart=S&mart ep. filter
+RssHighPriority=Give download &highest priority
+RssPaused=Add torrent in &paused state
+RssClearHistory=&Clear History
+RssTabFilters=Filters
+RssTabHistory=History
+RssColFilter=Filter
+RssAllFeeds=All Feeds
+
+# {count} is the number of feeds.
+RssFeedCount=Feeds: {count}
+RssPickSaveDir=Select the folder to save the downloads in
+WebUserName=User name
+WebPassword=Password
+WebLogIn=Log in
+WebLogOut=Log out
+WebWrongLogin=Wrong user name or password.
+WebCategories=Categories
+
+# Short toolbar buttons.
+WebAdd=Add
+WebAddUrl=Add URL
+WebUp=Up
+WebDown=Down
+WebRss=RSS
+
+# Ends the phone's selection mode.
+WebDone=Done
+WebEndSelection=End the selection
+WebMore=More
+WebSearch=Search
+WebSearchTorrents=Search torrents
+WebCloseDetails=Close details
+WebActions=Actions
+WebDetails=Details
+WebPrefPages=Preference pages
+WebConnecting=Connecting…
+
+# {secs} seconds.
+WebReconnecting=Disconnected, reconnecting in {secs} s
+WebNoMatch=No torrents match.
+WebNoTorrents=No torrents. Add one with the toolbar.
+
+# The status bar: {count} torrents selected.
+WebSelected=Selected: {count}
+WebSortBy=Sort By
+WebSortDescending=Sort Descending
+WebResetColumns=Reset Columns
+
+# Why a menu item is grey.
+WebNotFromBrowser=not from a browser
+WebSetLocation=Set Download Location\n\nMove the selected torrents' files to this folder on the server:
+WebPiecesSummary={count} pieces, {done} done.
+WebPiecesSummaryDownloading={count} pieces, {done} done, {downloading} downloading.
+
+# A piece's tooltip.
+WebBlocksDone={done} of {count} blocks done
+WebRssItems=Items
+
+# A feed that is switched off.
+WebFeedDisabled={name} (disabled)
+WebFeedNotSaved=The feed could not be saved.
+WebRssSaveIn=Save in (a folder on the server; empty for the default download folder):
+
+# A password field left empty keeps the password.
+WebUnchanged=(unchanged)
+WebPrefsNotApplied=The preferences could not be applied.
+WebApplied=Applied.
+WebPropsNotSet=The properties could not be set.
+
+# Preferences > Web UI.
+WebListenAddress=Listening address:
+WebBypassLocal=Bypass authentication for clients on localhost
+WebHostHeader=Enable Host header validation
+WebDomains=Server domains (separate multiple entries with a semicolon):
+WebCsrf=Enable Cross-Site Request Forgery (CSRF) protection
+WebBanAfter=Ban client after consecutive failures:
+WebBanFor=Ban for (seconds):
+WebSessionTimeout=Session timeout (seconds):
+PrefConnectivity=Connectivity
+PrefSecurity=Security
+PrefAltRates=Alternative Rate Limits
+
+# {path} is the block list used when the field is empty.
+PrefIpFilterEmptyPath=An empty path loads {path}.
+PrefDesktopOnly=File associations and autostart belong to the desktop client.
+PrefAdvancedNoteWeb=libtorrent setting names; changed values are shown in bold. Values are applied with OK or Apply.
+PrefNoUsername=Please enter a user name.
+
+# {count} is the number of hours in a week.
+SettingBadSchedule=expected {count} hours, each 0 (full speed), 1 (turn off), 2 (limited) or 3 (seeding only)
+
+# Piece size: pick one from the total size.
+CreateAutoDetect=(auto detect)
+CreateHybrid=Hybrid (v1 + v2)
+CreateV1=v1
+CreateV2Only=v2 only
+CreateNoSource=Please select a file or a directory to create the torrent from.
+CreateNoName=The source has no usable name.
+
+# {path} is a file or folder.
+CreateNoFiles={path}: no files to put in the torrent (empty, or all skipped).
+CreateDoesNotLoad=The new torrent does not load: {error}
+CreateNotUnicode={path}: the name is not valid Unicode
+PropsBadUploadRate=The maximum upload rate must be a whole number from 0 to {max}.
+PropsBadDownloadRate=The maximum download rate must be a whole number from 0 to {max}.
+PropsBadUploadSlots=The number of upload slots must be a whole number from 0 to {max}.
+PropsBadRatio=The minimum ratio must be a whole number from 0 to {max}.
+PropsBadSeedTime=The minimum seeding time must be a whole number from 0 to {max}.
+PropsBadNumber=The value must be a whole number from 0 to {max}.
+PropsBadTracker="{line}" is not a tracker URL (http://, https:// or udp://).
+ShutdownDisabled=&Disabled
+ShutdownQuitDownloads=&Quit When Downloads Complete
+ShutdownQuitEverything=Quit When &Everything Completes
+ShutdownStandbyDownloads=&Standby When Downloads Complete
+ShutdownStandbyEverything=Standby &When Everything Completes
+ShutdownHibernateDownloads=&Hibernate When Downloads Complete
+ShutdownHibernateEverything=Hibernate When E&verything Completes
+ShutdownShutDownDownloads=Shut Down When D&ownloads Complete
+ShutdownShutDownEverything=Shut Down When Everything &Completes
+
+# Days of the week, short, Monday first.
+DayMon=Mon
+DayTue=Tue
+DayWed=Wed
+DayThu=Thu
+DayFri=Fri
+DaySat=Sat
+DaySun=Sun
+SchedFullSpeed=Full speed
+SchedLimited=Limited
+SchedTurnOff=Turn off
+SchedSeedingOnly=Seeding only
+
+# The status bar while the scheduler limits the session.
+SchedStatusLimited=Scheduler: limited
+SchedStatusOff=Scheduler: turned off
+SchedStatusSeedingOnly=Scheduler: seeding only
+
+# {selected} and {total} are sizes like "1.20 GB".
+AddSizeSelected={selected} of {total} selected
+
+# {name} is a torrent's name, {path} a file.
+FoldersStored={name}: .torrent stored as {path}
+FoldersStoreFailed={name}: could not store the .torrent in {dir}: {error}
+FoldersNotLoaded={path}: not loaded: {error}
+FoldersMoved={name}: .torrent moved to {path}
+FoldersMoveFailed={name}: could not move the .torrent to {dir}: {error}
+FoldersLoadedRenamed={name}: loaded from {path}, renamed to {to}
+FoldersLoadedDeleted={name}: loaded from {path}, deleted
+FoldersLoadedKept={name}: loaded from {path}, which could not be renamed or deleted: {error}
+
+# {value} is what was typed.
+SettingNotBool=expected true or false, not "{value}"
+SettingOutOfRange={value} is outside {min}..{max}
+SettingNotNumber="{value}" is not a number
+
+# {options} lists the choices.
+SettingNotOneOf="{value}" is not one of {options}
+
+# {name} is a setting's name.
+SettingUnknown=unknown setting "{name}"
+RssDisabled=Disabled
+
+# {error} is a network or feed error.
+RssError=Error: {error}
+
+# {time} is a date and time, {count} the number of items in the feed.
+RssUpdated=Updated {time}, items: {count}
+RssNotUpdated=Not updated yet
+
+# A filter's minimum interval that is not in the list.
+RssSeconds={secs} s
+
+# Quality: any.
+RssQualityAll=All
+
+# The name of a filter just added.
+RssNewFilter=New filter
+RssInterval0=0 (Ignore)
+RssInterval2h=2 hours
+RssInterval5h=5 hours
+RssInterval10h=10 hours
+RssInterval12h=12 hours
+RssInterval1d=1 day
+RssInterval2d=2 days
+RssInterval3d=3 days
+RssInterval4d=4 days
+RssInterval1w=1 week
+RssInterval2w=2 weeks
+RssInterval3w=3 weeks
+RssInterval1mo=1 month
+
+# Logger lines; {name} is a feed's name, {title} an item's title.
+RssLogError=RSS: {name}: {error}
+RssLogDownloading=RSS: {name}: downloading {title}
+RssLogDownloadFailed=RSS: could not download {title}: {error}
+
+# {url} is a web address.
+RssErrRedirect={url}: unsupported redirect
+RssErrNotTorrent={url}: not a .torrent file
+RssErrFeedRedirect={url}: redirected away from the feed
+RssErrNotFeed={url}: not an RSS or Atom feed

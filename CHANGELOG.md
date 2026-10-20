@@ -2,6 +2,33 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_153513_1792503313: String tables (localisation, D20)
+
+### Added
+- **`patorrent_frontend::lang`**: every user-visible string of the Win32 GUI, the GTK main window and the Web UI by key, in one table per language. `lang/en.rs` is the English table (685 keys grouped by where they show, `///` notes for translators), the source and the fallback; `tr!(MenuFile)` gives the current language's `&'static str`, `tr!(LogAdded, name = st.name)` fills named `{placeholders}`. Keys are an enum, so a misspelt one does not compile.
+  - `.lng` files (`Key=Text`, `#` comments, `\n` escapes) are read with `Table::parse`: unknown keys and translations whose placeholders differ from the English ones are left out and reported, English shows instead. `crates/frontend/lang/en.lng` is the English table written out for translators; a test keeps it equal to `en.rs` (`PATORRENT_WRITE_LNG=1` rewrites it).
+  - The language is picked once at start by `lang::init`: `ui.language` from the preferences (Win32's base `patorrent.ini`, GTK's own; none set yet: the choice in Preferences comes next), overridden by `PATORRENT_LANG`, which also takes a path to a `.lng` file (for translators) or `pseudo`: accented, bracketed and a third longer, so a screen shows at once which strings bypass the tables and where longer translations get cut.
+  - Texts keep µTorrent's `&` mnemonics; GTK gets them as `_` (`lang::gtk_mnemonic`), the Web UI without (`lang::plain`).
+- **Win32**: menus (the Ctrl shortcuts' key name from the table too), toolbar tips, the category tree, tabs, the General / Pieces / Speed tabs, the status bar and tray, Logger lines, every message box, and the Add New Torrent, Create New Torrent, Torrent Properties, Preferences (every page), RSS Downloader, Connect to Remote, Auto Shutdown, New Label and Add Torrent from URL dialogs; the scheduler grid; the file types and description Windows Integration writes to the registry.
+- **GTK**: the menu bar, the torrent menu, the toolbar, the category list, the status bar, the remove, Add Torrent from URL, error and About dialogs.
+- **Web UI**: `lang.js` (no login needed, made at the first request) carries the server's table as `window.PA_LANG`; the static page marks its texts `data-t` / `data-t-title` / `data-t-aria` / `data-t-ph` and keeps the English inline for a browser without scripts, `app.js` takes its own texts with `T(key, args)`. The server's texts (columns, cells, statuses, the General tab, Preferences pages and fields and their errors, Logger lines) are translated where they are built. docs/WEBUI.md "Language".
+- **Shared frontend modules**: statuses, categories, column titles, the detail tables, file priorities, units and short durations (`fmt`), the scheduler's days and modes, Auto Shutdown's items, Create New Torrent's choices and errors, Torrent Properties' errors, the `.torrent` folders' and RSS's Logger lines and errors, the Advanced table's errors.
+
+### Changed
+- Constants that held English texts hold keys now: `detail::ColumnDef` and the detail tables, `detail::PRIORITIES`, `create::FORMATS`, `scheduler::DAY_NAMES`, `rss::MIN_INTERVALS`, `rss::view::{ITEM_COLUMNS, HISTORY_COLUMNS}`; `create::PIECE_SIZES` is the byte sizes, `create::piece_size_text` names them. nox's Preferences fields carry an `Option<S>` label and its enum choices keys (the API takes a choice by its English name, its translated name or its index).
+- The Win32 detail tab is remembered by a fixed name (`Page::key`), not its title.
+- Wording, so translations need no plural forms: `Selected: 3`, `Feeds: 2`, `Remove the selected torrents (3) from the list?`, the RSS feed status `Updated <time>, items: 12`, a minimum interval outside the list `61 s`, the Auto Shutdown countdown `... will shut down in 0:30.`. One prompt for Add Torrent from URL everywhere ("... (a URL or a magnet link):"); GTK's remove dialog uses the shared questions; the Remote mode's "certificate changed" message lost the stray indentation it had inside the string.
+
+### Verified
+- Windows: `cargo test --workspace` 1069 passed, 0 failed; stable clippy and fmt clean; clippy for `x86_64-unknown-linux-gnu` and `x86_64-unknown-freebsd` clean (without the GTK crate).
+- New tests: the table's keys and texts (unique, placeholders well formed), `en.lng` in step with `en.rs`, `.lng` parsing, mnemonics, the pseudo-language keeping placeholders; the page's keys exist and its inline English is the table's, every key `app.js` names exists, `lang.js` carries the whole table without mnemonics and is served like the other static files (its own 96 KB budget; the page's three files stay under 200 KB).
+- The Web UI in the browser pane with `PATORRENT_LANG=pseudo`: login, toolbar, list, categories, statuses, units, context menu, General tab, status bar, Preferences (General, Connection with the proxy choices, Scheduler with the grid's days and legend) all in the pseudo-language; no English left on them.
+- The Win32 window (`--demo 20`, a portable copy) with `PATORRENT_LANG=pseudo`: menu bar, tree, columns, statuses, tabs, the General tab's hint and the status bar in the pseudo-language; Preferences > General too, where "User interface:" and the "Default apps..." button are already cut off (PLAN.md Known TODOs "Localisation").
+
+### Issues
+- GTK was type-checked and linted for Linux from Windows (a stand-in `pkg-config`), not built or run: the Ubuntu build VM is gone from VMware's inventory. CI's Linux job builds it.
+- Not translated on purpose: engine and OS error texts, nox's command line and its API errors, the qBittorrent-compatible API (PLAN.md Known TODOs "Localisation").
+
 ## 2026-10-20_133622_1792496182: The GTK GUI's main window (Phase 7, slice 1)
 
 ### Added

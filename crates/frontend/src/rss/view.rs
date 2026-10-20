@@ -5,22 +5,24 @@
 
 use super::episode::{Episode, Quality, parse_episode};
 use super::{FeedId, MIN_INTERVALS, RssDownloader, RssFeed};
-use crate::fmt;
+use crate::detail::ColumnDef;
+use crate::lang::{S, text};
+use crate::{fmt, tr};
 
 /// The feed item list's columns: title, width at 96 DPI, right-aligned (as remembered:
 /// µTorrent also had a Codec column, which the model does not detect).
-pub const ITEM_COLUMNS: [(&str, i32, bool); 6] = [
-    ("Name", 320, false),
-    ("Episode", 70, false),
-    ("Format", 80, false),
-    ("Date", 130, false),
-    ("Feed", 130, false),
-    ("URL", 300, false),
+pub const ITEM_COLUMNS: [ColumnDef; 6] = [
+    (S::ColName, 320, false),
+    (S::ColEpisode, 70, false),
+    (S::ColFormat, 80, false),
+    (S::ColDate, 130, false),
+    (S::ColFeed, 130, false),
+    (S::ColUrl, 300, false),
 ];
 
 /// The History list's columns.
-pub const HISTORY_COLUMNS: [(&str, i32, bool); 3] =
-    [("Name", 300, false), ("Date", 130, false), ("Feed", 130, false)];
+pub const HISTORY_COLUMNS: [ColumnDef; 3] =
+    [(S::ColName, 300, false), (S::ColDate, 130, false), (S::ColFeed, 130, false)];
 
 /// One row of the feed item list.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -90,11 +92,11 @@ pub fn episode_text(ep: Option<Episode>) -> String {
 /// when it was last updated.
 pub fn feed_status(f: &RssFeed, updating: bool) -> String {
     match (updating, f.last_refresh) {
-        (true, _) => "Updating...".to_owned(),
-        _ if !f.enabled => "Disabled".to_owned(),
-        _ if !f.last_error.is_empty() => format!("Error: {}", f.last_error),
-        (false, Some(t)) => format!("Updated {} ({} items)", fmt::date_time(t), f.items.len()),
-        (false, None) => "Not updated yet".to_owned(),
+        (true, _) => tr!(Updating).to_owned(),
+        _ if !f.enabled => tr!(RssDisabled).to_owned(),
+        _ if !f.last_error.is_empty() => tr!(RssError, error = f.last_error),
+        (false, Some(t)) => tr!(RssUpdated, time = fmt::date_time(t), count = f.items.len()),
+        (false, None) => tr!(RssNotUpdated).to_owned(),
     }
 }
 
@@ -103,12 +105,12 @@ pub fn interval_text(secs: u32) -> String {
     MIN_INTERVALS
         .iter()
         .find(|(s, _)| *s == secs)
-        .map_or_else(|| format!("{secs} seconds"), |(_, n)| (*n).to_owned())
+        .map_or_else(|| tr!(RssSeconds, secs), |(_, n)| text(*n).to_owned())
 }
 
 /// The Quality field's text: "All" or the chosen names.
 pub fn quality_text(q: Quality) -> String {
-    if q.is_all() { "All".to_owned() } else { q.names() }
+    if q.is_all() { tr!(RssQualityAll).to_owned() } else { q.names() }
 }
 
 #[cfg(test)]
@@ -161,7 +163,7 @@ mod tests {
         assert_eq!(episode_text(Some(Episode::Numbered { season: 0, first: 12, last: 13 })), "12-13");
         assert_eq!(episode_text(Some(Episode::Numbered { season: 2, first: 3, last: 4 })), "2x03-04");
         assert_eq!(interval_text(86_400), "1 day");
-        assert_eq!(interval_text(61), "61 seconds");
+        assert_eq!(interval_text(61), "61 s");
         assert_eq!(quality_text(Quality::ALL), "All");
         assert!(feed_status(d.feed(a).unwrap(), false).starts_with("Updated "));
         assert_eq!(feed_status(d.feed(a).unwrap(), true), "Updating...");

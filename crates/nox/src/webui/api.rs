@@ -15,6 +15,7 @@ use patorrent_core::{
     TrackerStatus, VERSION,
 };
 use patorrent_frontend::detail::peer_flags;
+use patorrent_frontend::lang;
 
 use super::auth::{constant_time_eq, random_hex};
 use super::commands::{self, AddOptions, Source};
@@ -31,8 +32,9 @@ pub const WEBAPI_VERSION: &str = "2.11.2";
 /// Largest body accepted before a client has logged in (the login form).
 pub const UNAUTHENTICATED_BODY: usize = 64 * 1024;
 
-/// The Web UI page: three static files embedded in the binary (docs/WEBUI.md goal 3), served
-/// with an `ETag` (a SHA-1 of the body) so a reload after an upgrade fetches them once and a
+/// The Web UI page: three static files embedded in the binary (docs/WEBUI.md goal 3) and the
+/// string table in the server's language (`lang.js`, made at the first request), served with
+/// an `ETag` (a SHA-1 of the body) so a reload after an upgrade fetches them once and a
 /// `Cache-Control: no-cache` so the browser revalidates every time.
 pub struct StaticFile {
     pub path: &'static str,
@@ -41,7 +43,7 @@ pub struct StaticFile {
     etag: String,
 }
 
-static STATIC_FILES: LazyLock<[StaticFile; 3]> = LazyLock::new(|| {
+static STATIC_FILES: LazyLock<[StaticFile; 4]> = LazyLock::new(|| {
     let file = |path, content_type, body: &'static str| StaticFile {
         path,
         content_type,
@@ -52,8 +54,20 @@ static STATIC_FILES: LazyLock<[StaticFile; 3]> = LazyLock::new(|| {
         file("/", "text/html; charset=UTF-8", include_str!("page.html")),
         file("/style.css", "text/css; charset=UTF-8", include_str!("style.css")),
         file("/app.js", "text/javascript; charset=UTF-8", include_str!("app.js")),
+        file("/lang.js", "text/javascript; charset=UTF-8", Box::leak(lang_js().into_boxed_str())),
     ]
 });
+
+/// `window.PA_LANG` for the page (`lang.js`, loaded before `app.js`): the language's code and
+/// every text of the string table by key, without the `&` mnemonics (D20, `frontend::lang`).
+pub fn lang_js() -> String {
+    let mut texts = Json::obj();
+    for (key, text) in lang::entries() {
+        texts.set(key, lang::plain(text));
+    }
+    let table = Json::obj().with("code", lang::current()).with("t", texts);
+    format!("window.PA_LANG = {};\n", table.to_json())
+}
 
 /// The page sets `default-src 'self'`: no inline script or style, nothing from elsewhere.
 const PAGE_CSP: &str = "default-src 'self'; frame-ancestors 'self'; form-action 'self'";
@@ -1491,6 +1505,84 @@ fn add(shared: &Shared, p: &Params) -> Response {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    use patorrent_frontend::lang::S;
+
+    /// Every key the page names (`data-t`, `data-t-title`, `data-t-aria`, `data-t-ph`) is in
+    /// the string table, and the English the page carries for a browser without scripts is the
+    /// table's, without its mnemonics.
+    #[test]
+    fn the_page_names_known_strings() {
+        let page = include_str!("page.html");
+        let mut found = 0;
+        for attr in ["data-t=\"", "data-t-title=\"", "data-t-aria=\"", "data-t-ph=\""] {
+            let mut rest = page;
+            while let Some(i) = rest.find(attr) {
+                rest = &rest[i + attr.len()..];
+                let key = &rest[..rest.find('"').unwrap()];
+                let s = S::from_key(key).unwrap_or_else(|| panic!("page.html: unknown key {key}"));
+                if attr == "data-t=\"" {
+                    // the element's text, after the end of its start tag
+                    let text = &rest[rest.find('>').unwrap() + 1..];
+                    let text = &text[..text.find('<').unwrap()];
+                    assert_eq!(text, lang::plain(s.english()), "page.html: {key}");
+                }
+                found += 1;
+            }
+        }
+        assert!(found > 100, "{found}");
+    }
+
+    /// The keys app.js asks for: `T("Key")`, and the keys it keeps in lists for `T` (any
+    /// CamelCase string literal of two words or more must be a key, but for a few DOM names).
+    #[test]
+    fn the_script_names_known_strings() {
+        let js = include_str!("app.js");
+        const NOT_KEYS: [&str; 8] = [
+            "PaTorrent",
+            "ArrowUp",
+            "ArrowDown",
+            "ArrowLeft",
+            "ArrowRight",
+            "PageUp",
+            "PageDown",
+            "ContextMenu",
+        ];
+        let mut found = 0;
+        for (i, _) in js.match_indices('"') {
+            let rest = &js[i + 1..];
+            let Some(end) = rest.find('"') else { break };
+            let lit = &rest[..end];
+            let camel = lit.len() > 3
+                && lit.chars().all(|c| c.is_ascii_alphanumeric())
+                && lit.starts_with(|c: char| c.is_ascii_uppercase())
+                && lit.chars().skip(1).any(|c| c.is_ascii_uppercase())
+                && lit.chars().any(|c| c.is_ascii_lowercase());
+            if camel && !NOT_KEYS.contains(&lit) {
+                assert!(S::from_key(lit).is_some(), "app.js: unknown key {lit}");
+                found += 1;
+            }
+        }
+        assert!(found > 100, "{found}");
+        // the dynamic ones are list entries; a T( call with a literal names its key directly
+        for (i, _) in js.match_indices("T(\"") {
+            let key = &js[i + 3..][..js[i + 3..].find('"').unwrap()];
+            assert!(S::from_key(key).is_some(), "app.js: unknown key {key}");
+        }
+    }
+
+    #[test]
+    fn lang_js_carries_the_table_without_mnemonics() {
+        let js = lang_js();
+        let body = js.strip_prefix("window.PA_LANG = ").and_then(|b| b.strip_suffix(";\n")).unwrap();
+        let table = json::parse(body).unwrap();
+        assert_eq!(table.get("code").and_then(Json::as_str), Some("en"));
+        let texts = table.get("t").unwrap();
+        assert_eq!(texts.entries().len(), S::ALL.len());
+        assert_eq!(texts.get("MenuFile").and_then(Json::as_str), Some("File"));
+        assert_eq!(texts.get("GenConnected").and_then(Json::as_str), Some("{count} of {total} connected"));
+        assert!(static_file("/lang.js").is_some_and(|f| f.body == js));
+    }
 
     fn head_with(headers: &[(&str, &str)]) -> Head {
         Head {

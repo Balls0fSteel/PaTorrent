@@ -1,12 +1,16 @@
 //! Number formatting in µTorrent's style: binary units with lower-case `kB`, three significant
-//! digits for sizes, one decimal for speeds, two-unit ETAs and `∞` for unknown or never.
+//! digits for sizes, one decimal for speeds, two-unit ETAs and `∞` for unknown or never. Unit
+//! names come from the string tables.
 
-const UNITS: [&str; 6] = ["B", "kB", "MB", "GB", "TB", "PB"];
+use crate::lang::{S, text};
+use crate::tr;
+
+const UNITS: [S; 6] = [S::UnitB, S::UnitKb, S::UnitMb, S::UnitGb, S::UnitTb, S::UnitPb];
 
 /// `0 B`, `512 B`, `1.50 kB`, `12.3 MB`, `698 MB`, `4.37 GB`.
 pub fn size(bytes: u64) -> String {
     if bytes < 1024 {
-        return format!("{bytes} B");
+        return format!("{bytes} {}", tr!(UnitB));
     }
     let mut v = bytes as f64;
     let mut unit = 0;
@@ -15,7 +19,7 @@ pub fn size(bytes: u64) -> String {
         v /= 1024.0;
         unit += 1;
     }
-    let u = UNITS[unit];
+    let u = text(UNITS[unit]);
     if v >= 99.95 {
         format!("{v:.0} {u}")
     } else if v >= 9.995 {
@@ -37,7 +41,11 @@ pub fn speed(bytes_per_sec: u32) -> String {
 /// Like [`speed`] but renders zero as `0.0 kB/s` (status bar, General tab).
 pub fn speed_always(bytes_per_sec: u32) -> String {
     let kb = bytes_per_sec as f64 / 1024.0;
-    if kb < 1023.95 { format!("{kb:.1} kB/s") } else { format!("{:.1} MB/s", kb / 1024.0) }
+    if kb < 1023.95 {
+        format!("{kb:.1} {}", tr!(UnitKbPerSec))
+    } else {
+        format!("{:.1} {}", kb / 1024.0, tr!(UnitMbPerSec))
+    }
 }
 
 /// Remaining time: `45s`, `12m 5s`, `3h 2m`, `2d 5h`, `3w 2d`; `∞` for unknown or a year and up.
@@ -55,11 +63,11 @@ pub fn duration(s: u64) -> String {
     const D: u64 = 24 * H;
     const W: u64 = 7 * D;
     match s {
-        _ if s < M => format!("{s}s"),
-        _ if s < H => format!("{}m {}s", s / M, s % M),
-        _ if s < D => format!("{}h {}m", s / H, (s % H) / M),
-        _ if s < W => format!("{}d {}h", s / D, (s % D) / H),
-        _ => format!("{}w {}d", s / W, (s % W) / D),
+        _ if s < M => tr!(DurSeconds, s),
+        _ if s < H => tr!(DurMinutes, m = s / M, s = s % M),
+        _ if s < D => tr!(DurHours, h = s / H, m = (s % H) / M),
+        _ if s < W => tr!(DurDays, d = s / D, h = (s % D) / H),
+        _ => tr!(DurWeeks, w = s / W, d = (s % W) / D),
     }
 }
 

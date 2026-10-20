@@ -18,6 +18,7 @@ use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{AddTorrentParams, InfoHashes, TorrentFlags, TorrentSource};
 
 use super::{AddRequest, Feed, FeedId, RssDownloader, fetch_feed};
+use crate::tr;
 
 /// What an item's URL gave: a `.torrent` file, or a magnet link (named by the item, or where
 /// the download redirected, as indexers do).
@@ -71,10 +72,10 @@ pub fn fetch_download(url: &str, cookies: &str, proxy: Option<FetchProxy>) -> Re
         Some(m) if m.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("magnet:")) => {
             Ok(Download::Magnet(m.to_owned()))
         }
-        Some(other) => Err(format!("{other}: unsupported redirect")),
+        Some(other) => Err(tr!(RssErrRedirect, url = other)),
         None if resp.body.first() == Some(&b'd') => Ok(Download::Torrent(resp.body)),
         // an HTML page (a login form, a "download will start" page) is no torrent
-        None => Err(format!("{url}: not a .torrent file")),
+        None => Err(tr!(RssErrNotTorrent, url)),
     }
 }
 
@@ -224,19 +225,19 @@ impl Worker {
                     }
                     if let Err(e) = &result {
                         let name = rss.feed(id).map(|f| f.name().to_owned()).unwrap_or_default();
-                        out.log.push(format!("RSS: {name}: {e}"));
+                        out.log.push(tr!(RssLogError, name, error = e));
                     }
                     let reqs = rss.feed_fetched(id, now, result);
                     out.changed = true;
                     let name = rss.feed(id).map(|f| f.name().to_owned()).unwrap_or_default();
                     for r in &reqs {
-                        out.log.push(format!("RSS: {name}: downloading {}", r.title));
+                        out.log.push(tr!(RssLogDownloading, name, title = r.title));
                     }
                     out.adds.extend(self.download(reqs, proxy));
                 }
                 Done::Download(req, Ok(d)) => out.adds.push((req, d)),
                 Done::Download(req, Err(e)) => {
-                    out.log.push(format!("RSS: could not download {}: {e}", req.title));
+                    out.log.push(tr!(RssLogDownloadFailed, title = req.title, error = e));
                     rss.forget(req.feed, &req.item_id);
                     out.changed = true;
                 }

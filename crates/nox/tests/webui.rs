@@ -422,6 +422,7 @@ fn static_files_have_their_headers_and_no_inline_code() {
         ("/", "text/html; charset=UTF-8"),
         ("/style.css", "text/css; charset=UTF-8"),
         ("/app.js", "text/javascript; charset=UTF-8"),
+        ("/lang.js", "text/javascript; charset=UTF-8"),
     ];
     let mut total = 0;
     for (path, content_type) in files {
@@ -441,7 +442,12 @@ fn static_files_have_their_headers_and_no_inline_code() {
         let etag = r.header("etag").unwrap_or_else(|| panic!("{path}: no ETag")).to_owned();
         assert!(etag.starts_with('"') && etag.ends_with('"') && etag.len() > 10, "{path}: {etag}");
         assert!(!r.body.is_empty());
-        total += r.body.len();
+        // the string table has a budget of its own
+        if path == "/lang.js" {
+            assert!(r.body.len() < 96 * 1024, "lang.js is {} bytes", r.body.len());
+        } else {
+            total += r.body.len();
+        }
         // the browser's revalidation
         let again = t.req("GET", path, &[("If-None-Match", &etag)], Body::None);
         assert_eq!(again.status, 304, "{path}");
@@ -467,10 +473,10 @@ fn static_files_have_their_headers_and_no_inline_code() {
     let csp = page.header("content-security-policy").expect("a CSP on the page");
     assert!(csp.starts_with("default-src 'self'") && !csp.contains("unsafe"), "{csp}");
     assert_eq!(t.req("GET", "/index.html", &[], Body::None).header("etag"), page.header("etag"));
-    for other in ["/style.css", "/app.js"] {
+    for other in ["/style.css", "/app.js", "/lang.js"] {
         assert!(t.req("GET", other, &[], Body::None).header("content-security-policy").is_none(), "{other}");
     }
-    // the HTML: no inline script or style anywhere, and only our own two files referenced
+    // the HTML: no inline script or style anywhere, and only our own files referenced
     let html = page.text();
     assert!(html.contains("<title>PaTorrent</title>"));
     let lower = html.to_ascii_lowercase();
@@ -479,7 +485,10 @@ fn static_files_have_their_headers_and_no_inline_code() {
     assert!(!lower.contains("javascript:"), "a javascript: URL");
     for (at, _) in lower.match_indices("<script") {
         let tag = &lower[at..at + lower[at..].find('>').unwrap()];
-        assert!(tag.contains("src=\"app.js\""), "an inline <script>: {tag}");
+        assert!(
+            tag.contains("src=\"app.js\"") || tag.contains("src=\"lang.js\""),
+            "an inline <script>: {tag}"
+        );
         assert!(lower[at..].trim_start_matches(tag).starts_with("></script>"), "a <script> with content");
     }
     for (at, _) in lower.match_indices(" on") {

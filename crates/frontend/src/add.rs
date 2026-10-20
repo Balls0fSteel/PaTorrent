@@ -662,7 +662,7 @@ pub fn size_text(selected: u64, total: u64) -> String {
     if selected == total {
         crate::fmt::size(total)
     } else {
-        format!("{} of {} selected", crate::fmt::size(selected), crate::fmt::size(total))
+        crate::tr!(AddSizeSelected, selected = crate::fmt::size(selected), total = crate::fmt::size(total))
     }
 }
 

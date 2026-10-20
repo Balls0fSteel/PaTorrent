@@ -20,10 +20,11 @@ use patorrent_core::{
     TorrentId, TorrentSource,
 };
 use patorrent_frontend::columns::Column;
+use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
 use patorrent_frontend::options::{GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::{actions, fmt};
+use patorrent_frontend::{actions, fmt, tr};
 
 use crate::list::{Content, List};
 use crate::paths;
@@ -69,6 +70,11 @@ fn ui() -> Option<Rc<Ui>> {
 }
 
 pub fn run() -> ExitCode {
+    // before the menu bar is built (`startup`); no Logger yet, so problems go to stderr
+    let prefs = Prefs::load(paths::config_dir().join("patorrent.ini"));
+    for p in lang::init(prefs.get("ui.language").unwrap_or_default()) {
+        eprintln!("{p}");
+    }
     // the raw command line, so links reach us as typed (GIO's file handling would turn a
     // `magnet:` argument into a file); a second start hands it to the first
     let app = gtk::Application::builder()
@@ -140,43 +146,48 @@ fn startup(app: &gtk::Application) {
 
     let menubar = gio::Menu::new();
     let file = gio::Menu::new();
-    file.append(Some("_Add Torrent..."), Some("win.add"));
-    file.append(Some("Add Torrent from _URL..."), Some("win.add-url"));
+    item(&file, tr!(MenuAddTorrent), "win.add");
+    item(&file, tr!(MenuAddUrl), "win.add-url");
     let quit_section = gio::Menu::new();
-    quit_section.append(Some("E_xit"), Some("app.quit"));
+    item(&quit_section, tr!(MenuExit), "app.quit");
     file.append_section(None, &quit_section);
-    menubar.append_submenu(Some("_File"), &file);
+    menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuFile))), &file);
     let help = gio::Menu::new();
-    help.append(Some("_About PaTorrent"), Some("win.about"));
-    menubar.append_submenu(Some("_Help"), &help);
+    item(&help, tr!(MenuAbout), "win.about");
+    menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuHelp))), &help);
     app.set_menubar(Some(&menubar));
+}
+
+/// A menu item from a string table text (its `&` mnemonic as GTK's `_`).
+fn item(menu: &gio::Menu, text: &str, action: &str) {
+    menu.append(Some(&gtk_mnemonic(text)), Some(action));
 }
 
 /// The torrent context menu (right click on the list).
 fn torrent_menu() -> gio::Menu {
     let menu = gio::Menu::new();
     let open = gio::Menu::new();
-    open.append(Some("Open _Containing Folder"), Some("win.open-folder"));
+    item(&open, tr!(MenuOpenFolder), "win.open-folder");
     menu.append_section(None, &open);
     let run = gio::Menu::new();
-    run.append(Some("_Force Start"), Some("win.force-start"));
-    run.append(Some("_Start"), Some("win.start"));
-    run.append(Some("_Pause"), Some("win.pause"));
-    run.append(Some("S_top"), Some("win.stop"));
+    item(&run, tr!(MenuForceStart), "win.force-start");
+    item(&run, tr!(MenuStart), "win.start");
+    item(&run, tr!(MenuPause), "win.pause");
+    item(&run, tr!(MenuStop), "win.stop");
     menu.append_section(None, &run);
     let queue = gio::Menu::new();
-    queue.append(Some("Move _Up Queue"), Some("win.queue-up"));
-    queue.append(Some("Move _Down Queue"), Some("win.queue-down"));
-    queue.append(Some("Move to _Top"), Some("win.queue-top"));
-    queue.append(Some("Move to _Bottom"), Some("win.queue-bottom"));
+    item(&queue, tr!(MenuQueueUp), "win.queue-up");
+    item(&queue, tr!(MenuQueueDown), "win.queue-down");
+    item(&queue, tr!(MenuQueueTop), "win.queue-top");
+    item(&queue, tr!(MenuQueueBottom), "win.queue-bottom");
     menu.append_section(None, &queue);
     let check = gio::Menu::new();
-    check.append(Some("Force _Re-Check"), Some("win.recheck"));
-    check.append(Some("Update Track_er"), Some("win.reannounce"));
+    item(&check, tr!(MenuRecheck), "win.recheck");
+    item(&check, tr!(MenuUpdateTracker), "win.reannounce");
     menu.append_section(None, &check);
     let remove = gio::Menu::new();
-    remove.append(Some("_Remove"), Some("win.remove"));
-    remove.append(Some("Remove _And Delete Data"), Some("win.remove-data"));
+    item(&remove, tr!(MenuRemove), "win.remove");
+    item(&remove, tr!(MenuRemoveAndDelete), "win.remove-data");
     menu.append_section(None, &remove);
     menu
 }
@@ -186,6 +197,7 @@ fn build(app: &gtk::Application) {
     let config = paths::config_dir();
     let data = paths::data_dir();
     let prefs = Prefs::load(config.join("patorrent.ini"));
+    // (the language was picked in `run`)
     let downloads = glib::user_special_dir(glib::UserDirectory::Downloads)
         .unwrap_or_else(|| glib::home_dir().join("Downloads"))
         .to_string_lossy()
@@ -210,7 +222,7 @@ fn build(app: &gtk::Application) {
             Err(e) => {
                 window.present();
                 let d = gtk::AlertDialog::builder()
-                    .message("Cannot start the BitTorrent engine")
+                    .message(tr!(CannotStartEngine))
                     .detail(e.to_string())
                     .modal(true)
                     .build();
@@ -268,17 +280,17 @@ fn build(app: &gtk::Application) {
     let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     toolbar.add_css_class("toolbar");
     for item in [
-        Some(("document-open", "win.add", "Add Torrent")),
-        Some(("insert-link", "win.add-url", "Add Torrent from URL")),
+        Some(("document-open", "win.add", tr!(ToolAddTorrent))),
+        Some(("insert-link", "win.add-url", tr!(ToolAddUrl))),
         None,
-        Some(("edit-delete", "win.remove", "Remove")),
+        Some(("edit-delete", "win.remove", tr!(ToolRemove))),
         None,
-        Some(("media-playback-start", "win.start", "Start")),
-        Some(("media-playback-pause", "win.pause", "Pause")),
-        Some(("media-playback-stop", "win.stop", "Stop")),
+        Some(("media-playback-start", "win.start", tr!(ToolStart))),
+        Some(("media-playback-pause", "win.pause", tr!(ToolPause))),
+        Some(("media-playback-stop", "win.stop", tr!(ToolStop))),
         None,
-        Some(("go-up", "win.queue-up", "Move Up Queue")),
-        Some(("go-down", "win.queue-down", "Move Down Queue")),
+        Some(("go-up", "win.queue-up", tr!(ToolQueueUp))),
+        Some(("go-down", "win.queue-down", tr!(ToolQueueDown))),
     ] {
         match item {
             Some((icon, action, tip)) => {
@@ -430,7 +442,7 @@ fn on_alerts() {
                 Alert::SessionStats(s) => a.stats = s,
                 Alert::TorrentAdded { .. } => a.handle.post_torrent_updates(),
                 Alert::AddTorrentFailed { ref name, ref error } => {
-                    errors.push((format!("Could not add {name}"), error.to_string()));
+                    errors.push((tr!(CannotAdd, name), error.to_string()));
                 }
                 Alert::TorrentRemoved { id, info_hashes } => {
                     a.list.remove(id);
@@ -483,10 +495,10 @@ fn update_status() {
     let Some(texts) = with_app(|a| {
         let s = &a.stats;
         [
-            if s.has_incoming_connections { "Network OK" } else { "No incoming connections" }.to_owned(),
-            format!("DHT: {} nodes", s.dht_nodes),
-            format!("D: {} T: {}", fmt::speed_always(s.download_rate), fmt::size(s.recv_payload_bytes)),
-            format!("U: {} T: {}", fmt::speed_always(s.upload_rate), fmt::size(s.sent_payload_bytes)),
+            if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) }.to_owned(),
+            tr!(BarDht, count = s.dht_nodes),
+            tr!(BarDown, rate = fmt::speed_always(s.download_rate), total = fmt::size(s.recv_payload_bytes)),
+            tr!(BarUp, rate = fmt::speed_always(s.upload_rate), total = fmt::size(s.sent_payload_bytes)),
         ]
     }) else {
         return;
@@ -641,23 +653,16 @@ fn remove(with_data: bool) {
         go();
         return;
     }
-    let what = match names.as_slice() {
-        [one] => format!("\u{201c}{one}\u{201d}"),
-        many => format!("{} torrents", many.len()),
-    };
-    let message = if with_data {
-        format!("Remove {what} and delete the downloaded data?")
-    } else {
-        format!("Remove {what} from the list?")
+    let message = match (names.as_slice(), with_data) {
+        ([name], false) => tr!(AskRemove, name),
+        ([name], true) => tr!(AskRemoveData, name),
+        (_, false) => tr!(AskRemoveMany, count = names.len()),
+        (_, true) => tr!(AskRemoveDataMany, count = names.len()),
     };
     let d = gtk::AlertDialog::builder()
         .message(message)
-        .detail(if with_data {
-            "The files are deleted from the disk."
-        } else {
-            "The files stay on the disk."
-        })
-        .buttons(["Cancel", "Remove"])
+        .detail(if with_data { tr!(RemoveDeletesDataTrash) } else { tr!(RemoveKeepsData) })
+        .buttons([tr!(BtnCancel), tr!(BtnRemove)])
         .cancel_button(0)
         .default_button(1)
         .modal(true)
@@ -688,13 +693,12 @@ fn open_folder(ids: &[TorrentId]) {
 fn add_files() {
     let Some(window) = with_app(|a| a.window.clone()) else { return };
     let filter = gtk::FileFilter::new();
-    filter.set_name(Some("Torrents (*.torrent)"));
+    filter.set_name(Some(tr!(FilterTorrents)));
     filter.add_pattern("*.torrent");
     filter.add_mime_type("application/x-bittorrent");
     let filters = gio::ListStore::new::<gtk::FileFilter>();
     filters.append(&filter);
-    let dialog =
-        gtk::FileDialog::builder().title("Select a .torrent to open").modal(true).filters(&filters).build();
+    let dialog = gtk::FileDialog::builder().title(tr!(PickTorrent)).modal(true).filters(&filters).build();
     dialog.open_multiple(Some(&window), None::<&gio::Cancellable>, |r| {
         let Ok(files) = r else { return };
         for f in files.iter::<gio::File>().flatten() {
@@ -720,7 +724,7 @@ fn open_source(f: &gio::File) {
     } else if let Some(path) = f.path() {
         match std::fs::read(&path) {
             Ok(bytes) => add_torrent_file(bytes),
-            Err(e) => error(&format!("Cannot open {}", path.display()), &e.to_string()),
+            Err(e) => error(&tr!(CannotOpen, path = path.display()), &e.to_string()),
         }
     }
 }
@@ -749,7 +753,7 @@ fn download(url: String) {
             .and_then(|r| if r.status == 200 { Ok(r.body) } else { Err(format!("HTTP {}", r.status)) });
         glib::MainContext::default().invoke(move || match result {
             Ok(bytes) => add_torrent_file(bytes),
-            Err(e) => error(&format!("Cannot download {url}"), &e),
+            Err(e) => error(&tr!(CannotDownload, url), &e),
         });
     });
 }
@@ -757,14 +761,14 @@ fn download(url: String) {
 fn add_url() {
     let Some(window) = with_app(|a| a.window.clone()) else { return };
     let dialog = gtk::Window::builder()
-        .title("Add Torrent from URL")
+        .title(tr!(AddUrlTitle))
         .transient_for(&window)
         .modal(true)
         .default_width(460)
         .resizable(false)
         .build();
     let entry = gtk::Entry::new();
-    entry.set_placeholder_text(Some("magnet:?xt=… or https://…/file.torrent"));
+    entry.set_placeholder_text(Some(tr!(UrlPlaceholder)));
     entry.set_activates_default(true);
     // a link on the clipboard is offered
     let clip = entry.clipboard();
@@ -778,9 +782,9 @@ fn add_url() {
             }
         }
     });
-    let ok = gtk::Button::with_mnemonic("_OK");
+    let ok = gtk::Button::with_mnemonic(&gtk_mnemonic(tr!(BtnOk)));
     ok.add_css_class("suggested-action");
-    let cancel = gtk::Button::with_mnemonic("_Cancel");
+    let cancel = gtk::Button::with_mnemonic(&gtk_mnemonic(tr!(BtnCancel)));
     let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
     buttons.set_halign(gtk::Align::End);
     buttons.append(&cancel);
@@ -790,7 +794,7 @@ fn add_url() {
     body.set_margin_bottom(12);
     body.set_margin_start(12);
     body.set_margin_end(12);
-    let prompt = gtk::Label::new(Some("Please enter the URL of the .torrent file, or a magnet link:"));
+    let prompt = gtk::Label::new(Some(tr!(AddUrlPrompt)));
     prompt.set_xalign(0.0);
     body.append(&prompt);
     body.append(&entry);
@@ -813,7 +817,7 @@ fn add_url() {
         } else if url.starts_with("http://") || url.starts_with("https://") {
             download(url);
         } else if !url.is_empty() {
-            error("Not a link PaTorrent can add", &url);
+            error(tr!(ErrNotALink), &url);
         }
     });
     dialog.present();
@@ -826,7 +830,7 @@ fn about() {
         .modal(true)
         .program_name("PaTorrent")
         .version(patorrent_core::VERSION)
-        .comments("A BitTorrent client in the spirit of µTorrent 2.2.1, on a Rust port of libtorrent.")
+        .comments(tr!(AboutShort))
         .website("https://github.com/Balls0fSteel/PaTorrent")
         .build()
         .present();

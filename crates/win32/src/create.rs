@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use patorrent_frontend::create::{self, CreateOptions, Created, FORMATS, PIECE_SIZES, TorrentFormat};
+use patorrent_frontend::{lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize,
@@ -144,32 +145,32 @@ fn template() -> Vec<u16> {
     const GROUP: u32 = C | BS_GROUPBOX as u32;
     const LABEL: u32 = C | SS_RIGHT;
     let mut t = Template::new(300, 290);
-    t.item(BUTTON, 0xffff, GROUP, [7, 4, 286, 50], "Select So&urce");
+    t.item(BUTTON, 0xffff, GROUP, [7, 4, 286, 50], tr!(CreateSource));
     t.item(EDIT, ID_SOURCE, LINE, [14, 17, 272, 13], "");
-    t.item(BUTTON, ID_ADD_FILE, PUSH, [166, 35, 56, 14], "Add &file");
-    t.item(BUTTON, ID_ADD_DIR, PUSH, [226, 35, 60, 14], "Add &directory");
-    t.item(BUTTON, 0xffff, GROUP, [7, 58, 286, 32], "S&kip Files");
+    t.item(BUTTON, ID_ADD_FILE, PUSH, [166, 35, 56, 14], tr!(CreateAddFile));
+    t.item(BUTTON, ID_ADD_DIR, PUSH, [226, 35, 60, 14], tr!(CreateAddDir));
+    t.item(BUTTON, 0xffff, GROUP, [7, 58, 286, 32], tr!(CreateSkip));
     t.item(EDIT, ID_SKIP, LINE, [14, 71, 272, 13], "");
-    t.item(BUTTON, 0xffff, GROUP, [7, 94, 286, 136], "Torrent Properties");
-    t.item(STATIC, 0xffff, LABEL, [12, 108, 48, 9], "&Trackers:");
+    t.item(BUTTON, 0xffff, GROUP, [7, 94, 286, 136], tr!(CreateProps));
+    t.item(STATIC, 0xffff, LABEL, [12, 108, 48, 9], tr!(CreateTrackers));
     t.item(EDIT, ID_TRACKERS, BOX, [64, 106, 222, 50], "");
-    t.item(STATIC, 0xffff, LABEL, [12, 163, 48, 9], "&Web Seeds:");
+    t.item(STATIC, 0xffff, LABEL, [12, 163, 48, 9], tr!(CreateWebSeeds));
     t.item(EDIT, ID_WEB_SEEDS, BOX, [64, 161, 222, 26], "");
-    t.item(STATIC, 0xffff, LABEL, [12, 194, 48, 9], "C&omment:");
+    t.item(STATIC, 0xffff, LABEL, [12, 194, 48, 9], tr!(CreateComment));
     t.item(EDIT, ID_COMMENT, LINE, [64, 192, 222, 13], "");
-    t.item(STATIC, 0xffff, LABEL, [12, 212, 48, 9], "&Piece size:");
+    t.item(STATIC, 0xffff, LABEL, [12, 212, 48, 9], tr!(CreatePieceSize));
     t.item(COMBOBOX, ID_PIECE, TAB | WS_VSCROLL | CBS_DROPDOWNLIST as u32, [64, 210, 90, 160], "");
     // BEP 52 (not in µTorrent 2.2.1): v1, hybrid or v2
-    t.item(STATIC, 0xffff, LABEL, [158, 212, 40, 9], "Versio&n:");
+    t.item(STATIC, 0xffff, LABEL, [158, 212, 40, 9], tr!(CreateVersion));
     t.item(COMBOBOX, ID_FORMAT, TAB | WS_VSCROLL | CBS_DROPDOWNLIST as u32, [202, 210, 84, 60], "");
-    t.item(BUTTON, 0xffff, GROUP, [7, 234, 286, 28], "Other");
-    t.item(BUTTON, ID_SEED, CHECK, [14, 246, 80, 10], "&Start seeding");
-    t.item(BUTTON, ID_PRIVATE, CHECK, [100, 246, 80, 10], "P&rivate torrent");
-    t.item(BUTTON, ID_ORDER, CHECK, [186, 246, 100, 10], "Preser&ve file order");
+    t.item(BUTTON, 0xffff, GROUP, [7, 234, 286, 28], tr!(CreateOther));
+    t.item(BUTTON, ID_SEED, CHECK, [14, 246, 80, 10], tr!(CreateSeed));
+    t.item(BUTTON, ID_PRIVATE, CHECK, [100, 246, 80, 10], tr!(CreatePrivate));
+    t.item(BUTTON, ID_ORDER, CHECK, [186, 246, 100, 10], tr!(CreatePreserveOrder));
     t.item(Class::Name("msctls_progress32"), ID_PROGRESS, C | PBS_SMOOTH, [7, 272, 128, 10], "");
     t.item(STATIC, ID_PERCENT, C, [139, 272, 34, 9], "");
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [177, 270, 72, 14], "&Create and save as...");
-    t.item(BUTTON, IDCANCEL as u16, PUSH, [253, 270, 40, 14], "Close");
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [177, 270, 72, 14], tr!(CreateSave));
+    t.item(BUTTON, IDCANCEL as u16, PUSH, [253, 270, 40, 14], tr!(BtnClose));
     t.finish()
 }
 
@@ -211,7 +212,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                         }
                     }
                     ID_ADD_DIR => {
-                        if let Some(p) = pick_folder(dlg, "Select a directory to create the torrent from") {
+                        if let Some(p) = pick_folder(dlg, tr!(CreatePickDir)) {
                             set_text(item(dlg, ID_SOURCE), &p);
                         }
                     }
@@ -246,17 +247,17 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
 
 unsafe fn init(dlg: HWND, r: &Remembered) {
     unsafe {
-        set_text(dlg, "Create New Torrent");
+        set_text(dlg, tr!(CreateTitle));
         set_text(item(dlg, ID_TRACKERS), &r.trackers);
         let combo = item(dlg, ID_PIECE);
-        for (label, _) in PIECE_SIZES {
-            let w = wide(label);
+        for bytes in PIECE_SIZES {
+            let w = wide(&create::piece_size_text(bytes));
             send(combo, CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
         send(combo, CB_SETCURSEL, r.piece.min(PIECE_SIZES.len() - 1), 0);
         let formats = item(dlg, ID_FORMAT);
         for (label, _) in FORMATS {
-            let w = wide(label);
+            let w = wide(lang::text(label));
             send(formats, CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
         send(formats, CB_SETCURSEL, r.format.index(), 0);
@@ -301,7 +302,7 @@ unsafe fn collect(dlg: HWND, st: &mut State) -> Option<(CreateOptions, Option<Pa
     unsafe {
         let source = PathBuf::from(window_text(item(dlg, ID_SOURCE)).trim().trim_matches('"'));
         if source.as_os_str().is_empty() {
-            dialogs::error(dlg, "Please select a file or a directory to create the torrent from.");
+            dialogs::error(dlg, tr!(CreateNoSource));
             SetFocus(item(dlg, ID_SOURCE));
             return None;
         }
@@ -318,7 +319,7 @@ unsafe fn collect(dlg: HWND, st: &mut State) -> Option<(CreateOptions, Option<Pa
             trackers: window_text(item(dlg, ID_TRACKERS)),
             web_seeds: window_text(item(dlg, ID_WEB_SEEDS)),
             comment: window_text(item(dlg, ID_COMMENT)),
-            piece_size: PIECE_SIZES[piece].1,
+            piece_size: PIECE_SIZES[piece],
             private: checked(dlg, ID_PRIVATE),
             preserve_order: checked(dlg, ID_ORDER),
             format: format(dlg),
@@ -388,7 +389,7 @@ unsafe fn set_busy(dlg: HWND, st: &mut State, busy: bool) {
         if !busy {
             sync_order(dlg);
         }
-        set_text(item(dlg, IDCANCEL as u16), if busy { "Cancel" } else { "Close" });
+        set_text(item(dlg, IDCANCEL as u16), if busy { tr!(BtnCancel) } else { tr!(BtnClose) });
         if busy {
             send(item(dlg, ID_PROGRESS), PBM_SETPOS, 0, 0);
             set_text(item(dlg, ID_PERCENT), "0.0 %");
@@ -425,7 +426,7 @@ unsafe fn finished(dlg: HWND, st: &mut State, result: Result<Created, String>) {
                 send(item(dlg, ID_PROGRESS), PBM_SETPOS, 0, 0);
                 set_text(item(dlg, ID_PERCENT), "");
                 if e != "cancelled" {
-                    dialogs::error(dlg, &format!("Could not create the torrent:\n{e}"));
+                    dialogs::error(dlg, &tr!(CreateFailed, error = e));
                 }
                 SetFocus(item(dlg, IDOK as u16));
             }
@@ -435,8 +436,8 @@ unsafe fn finished(dlg: HWND, st: &mut State, result: Result<Created, String>) {
 
 /// "Add file".
 pub(crate) unsafe fn pick_file(owner: HWND) -> Option<String> {
-    let filter = wide("All Files (*.*)\0*.*\0");
-    let title = wide("Select a file");
+    let filter = wide(&dialogs::all_files_filter());
+    let title = wide(tr!(PickFile));
     let mut buf = vec![0u16; 32 * 1024];
     unsafe {
         let mut ofn: OPENFILENAMEW = zeroed();
@@ -498,8 +499,8 @@ pub(crate) unsafe fn pick_folder_at(owner: HWND, title: &str, start: Option<&str
 
 /// The save dialog, starting next to the source with `<name>.torrent`.
 unsafe fn save_as(owner: HWND, source: &Path) -> Option<PathBuf> {
-    let filter = wide("Torrents (*.torrent)\0*.torrent\0All Files (*.*)\0*.*\0");
-    let title = wide("Select where to save the torrent");
+    let filter = wide(&dialogs::torrent_filter());
+    let title = wide(tr!(CreatePickSave));
     let ext = wide("torrent");
     let dir = create::seed_save_path(source).ok().map(|d| wide(&d.to_string_lossy()));
     let mut buf = vec![0u16; 32 * 1024];

@@ -15,15 +15,35 @@
   const OVERSCAN = 10;
   const MAX_WINDOW = 200;
   const LIMITS = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000]; // kB/s, 0 = unlimited
-  // frontend::detail::PRIORITIES: the menu's order and the engine's values
+  // frontend::detail::PRIORITIES: the menu's order (string table keys) and the engine's values
   const PRIORITIES = [
-    ["High Priority", 7],
-    ["Normal Priority", 4],
-    ["Low Priority", 1],
-    ["Don't Download", 0],
+    ["PrioHighItem", 7],
+    ["PrioNormalItem", 4],
+    ["PrioLowItem", 1],
+    ["PrioDontDownload", 0],
   ];
   const GATE = location.hash === "#gate";
   const $ = (id) => document.getElementById(id);
+
+  // ---- the string table (lang.js: frontend::lang in the server's language) -----------------
+  // T(key) is a text, T(key, {name: value}) fills its {name} placeholders. Texts the server
+  // sends (cells, columns, the General tab, Preferences) come translated already.
+  const LANG = (window.PA_LANG && window.PA_LANG.t) || {};
+  function T(key, args) {
+    const s = LANG[key] === undefined ? key : LANG[key]; // an unknown key shows itself: a bug
+    return args ? s.replace(/\{([a-z0-9_]+)\}/g, (m, n) => (n in args ? String(args[n]) : m)) : s;
+  }
+  /// The static page's texts: data-t is an element's text, data-t-title, data-t-aria and
+  /// data-t-ph its title, aria-label and placeholder.
+  function translatePage() {
+    if (window.PA_LANG) document.documentElement.lang = window.PA_LANG.code;
+    for (const el of document.querySelectorAll("[data-t]")) el.textContent = T(el.dataset.t);
+    for (const el of document.querySelectorAll("[data-t-title]")) el.title = T(el.dataset.tTitle);
+    for (const el of document.querySelectorAll("[data-t-aria]")) el.setAttribute("aria-label", T(el.dataset.tAria));
+    for (const el of document.querySelectorAll("[data-t-ph]")) el.placeholder = T(el.dataset.tPh);
+    $("tb-prefs").title = T("ToolPreferences") + " (" + T("KeyCtrl") + "+P)";
+  }
+  translatePage();
 
   const store = {
     get(key, fallback) {
@@ -288,7 +308,7 @@
       mb.type = "button";
       mb.className = "mb";
       mb.tabIndex = -1;
-      mb.setAttribute("aria-label", "Actions");
+      mb.setAttribute("aria-label", T("WebActions"));
       mb.textContent = "⋯";
       row.append(name, bar, info, mb);
       return;
@@ -325,7 +345,7 @@
     clearTimeout(reconnectTimer);
     clearInterval(countdownTimer);
     closing = false;
-    setConn("Connecting…");
+    setConn(T("WebConnecting"));
     const sock = new WebSocket(wsUrl());
     ws = sock;
     sock.onopen = () => stage("open");
@@ -370,11 +390,11 @@
     const delay = backoff;
     backoff = Math.min(backoff * 2, 30000);
     let left = Math.ceil(delay / 1000);
-    setConn("Disconnected, reconnecting in " + left + " s", true);
+    setConn(T("WebReconnecting", { secs: left }), true);
     clearInterval(countdownTimer);
     countdownTimer = setInterval(() => {
       left--;
-      if (left > 0) setConn("Disconnected, reconnecting in " + left + " s", true);
+      if (left > 0) setConn(T("WebReconnecting", { secs: left }), true);
     }, 1000);
     reconnectTimer = setTimeout(async () => {
       clearInterval(countdownTimer);
@@ -513,7 +533,7 @@
       if (!empty) {
         const e = document.createElement("div");
         e.className = "empty";
-        e.textContent = search || filter.label != null || filter.category !== "all" ? "No torrents match." : "No torrents. Add one with the toolbar.";
+        e.textContent = search || filter.label != null || filter.category !== "all" ? T("WebNoMatch") : T("WebNoTorrents");
         body.appendChild(e);
       }
     } else if (empty) empty.remove();
@@ -624,7 +644,7 @@
   }
   function updateSelStatus() {
     const n = selAll ? total : sel.size;
-    $("st-sel").textContent = n ? n + " selected" : "";
+    $("st-sel").textContent = n ? T("WebSelected", { count: n }) : "";
     const none = n === 0;
     for (const b of document.querySelectorAll("#toolbar [data-cmd]")) b.disabled = none;
     if (selecting && none) selecting = false;
@@ -939,14 +959,14 @@
     const r = ev.currentTarget.getBoundingClientRect();
     openMenu(
       [
-        { label: "Add Torrent from URL...", run: () => $("tb-add-url").click() },
+        { label: T("MenuAddUrl"), run: () => $("tb-add-url").click() },
         "-",
-        { label: "Stop", dis: none, run: () => command("stop") },
-        { label: "Move Up Queue", dis: none, run: () => command("queue_up") },
-        { label: "Move Down Queue", dis: none, run: () => command("queue_down") },
+        { label: T("MenuStop"), dis: none, run: () => command("stop") },
+        { label: T("MenuQueueUp"), dis: none, run: () => command("queue_up") },
+        { label: T("MenuQueueDown"), dis: none, run: () => command("queue_down") },
         "-",
         {
-          label: "Select All",
+          label: T("MenuSelectAll"),
           dis: total === 0,
           run: () => {
             selAll = true;
@@ -955,12 +975,12 @@
             updateSelClasses();
           },
         },
-        { label: "Sort By", sub: sortBy },
-        { label: "Sort Descending", chk: !!sort[1], run: () => setSort([sort[0], !sort[1]]) },
+        { label: T("WebSortBy"), sub: sortBy },
+        { label: T("WebSortDescending"), chk: !!sort[1], run: () => setSort([sort[0], !sort[1]]) },
         "-",
-        { label: "Preferences", run: () => $("tb-prefs").click() },
-        { label: "RSS Downloader", run: () => openRss(0) },
-        { label: "Log Out", run: () => $("logout").click() },
+        { label: T("MenuPreferences"), run: () => $("tb-prefs").click() },
+        { label: T("MenuRss"), run: () => openRss(0) },
+        { label: T("WebLogOut"), run: () => $("logout").click() },
       ],
       r.left,
       r.bottom
@@ -1113,7 +1133,7 @@
       },
     }));
     items.push("-", {
-      label: "Reset Columns",
+      label: T("WebResetColumns"),
       run: () => {
         layout = { order: [], widths: {}, hidden: null };
         mergeColumns(hello.columns);
@@ -1142,7 +1162,7 @@
     }
     const g = document.createElement("div");
     g.className = "group";
-    g.textContent = "Labels";
+    g.textContent = T("CatLabels");
     tree.appendChild(g);
     // "No Label" first, as in the 2.2.1 tree; the counts come with the ticks
     for (const l of ["", ...labels]) {
@@ -1151,7 +1171,7 @@
       it.dataset.label = l;
       const t = document.createElement("span");
       t.className = "t";
-      t.textContent = l || "No Label";
+      t.textContent = l || T("CatNoLabel");
       t.title = t.textContent;
       const n = document.createElement("span");
       n.className = "n";
@@ -1218,10 +1238,11 @@
 
   // ---- status bar ----------------------------------------------------------------------
   function updateStatus(s) {
-    setText("st-dht", "DHT: " + s.dht + " nodes");
+    setText("st-dht", T("BarDht", { count: s.dht }));
     // the global limit in brackets while one is set
-    setText("st-down", "D: " + s.down + (s.down_limit ? " [" + s.down_limit + "]" : "") + " T: " + s.down_total);
-    setText("st-up", "U: " + s.up + (s.up_limit ? " [" + s.up_limit + "]" : "") + " T: " + s.up_total);
+    const limit = (rate, l) => rate + (l ? " [" + l + "]" : "");
+    setText("st-down", T("BarDown", { rate: limit(s.down, s.down_limit), total: s.down_total }));
+    setText("st-up", T("BarUp", { rate: limit(s.up, s.up_limit), total: s.up_total }));
   }
   function setText(id, text) {
     const el = $(id);
@@ -1261,14 +1282,20 @@
   function selectedCount() {
     return selAll ? total : sel.size;
   }
-  function nameOfSelection() {
+  /// The Remove question for the selection: by name for one torrent, else by count.
+  function removeQuestion(data) {
+    let name = null;
     if (selectedCount() === 1 && !selAll) {
       const id = [...sel][0];
       const c = cells.get(id);
       const nameAt = viewColumns().indexOf("name");
-      if (c && nameAt >= 0) return c.c[nameAt];
+      if (c && nameAt >= 0) name = c.c[nameAt];
     }
-    return selectedCount() + " torrents";
+    const q =
+      name !== null
+        ? T(data ? "AskRemoveData" : "AskRemove", { name })
+        : T(data ? "AskRemoveDataMany" : "AskRemoveMany", { count: selectedCount() });
+    return q + "\n" + T(data ? "RemoveDeletesDataTrash" : "RemoveKeepsData");
   }
   async function command(name, arg) {
     const body = selection();
@@ -1286,10 +1313,7 @@
       case "remove":
       case "remove_data": {
         const data = name === "remove_data";
-        const what = nameOfSelection();
-        const msg = data
-          ? "Remove " + what + " and delete the downloaded data?"
-          : "Remove " + what + "? The downloaded files are kept.";
+        const msg = removeQuestion(data);
         if (confirmDelete && !confirm(msg)) return;
         path = "torrents/remove";
         body.data = data;
@@ -1325,7 +1349,7 @@
         body.label = arg || "";
         break;
       case "label_new": {
-        const l = prompt("New label:");
+        const l = prompt(T("NewLabelPrompt"));
         if (!l || !l.trim()) return;
         const label = l.trim();
         path = "torrents/label";
@@ -1338,7 +1362,7 @@
         break;
       }
       case "location": {
-        const dir = prompt("Set Download Location\n\nMove the selected torrents' files to this folder on the server:");
+        const dir = prompt(T("WebSetLocation"));
         if (!dir || !dir.trim()) return;
         path = "torrents/location";
         body.path = dir.trim();
@@ -1363,60 +1387,60 @@
     if (n === 0) return;
     const dis = (hint) => ({ dis: true, hint });
     const items = [
-      { label: "Open Containing Folder", ...dis("not from a browser") },
+      { label: T("MenuOpenFolder"), ...dis(T("WebNotFromBrowser")) },
       "-",
-      { label: "Force Start", run: () => command("force_start") },
-      { label: "Start", run: () => command("start") },
-      { label: "Pause", run: () => command("pause") },
-      { label: "Stop", run: () => command("stop") },
+      { label: T("MenuForceStart"), run: () => command("force_start") },
+      { label: T("MenuStart"), run: () => command("start") },
+      { label: T("MenuPause"), run: () => command("pause") },
+      { label: T("MenuStop"), run: () => command("stop") },
       "-",
-      { label: "Move Up Queue", run: () => command("queue_up") },
-      { label: "Move Down Queue", run: () => command("queue_down") },
-      { label: "Move to Top of Queue", run: () => command("queue_top") },
-      { label: "Move to Bottom of Queue", run: () => command("queue_bottom") },
+      { label: T("MenuQueueUp"), run: () => command("queue_up") },
+      { label: T("MenuQueueDown"), run: () => command("queue_down") },
+      { label: T("MenuQueueTop"), run: () => command("queue_top") },
+      { label: T("MenuQueueBottom"), run: () => command("queue_bottom") },
       "-",
-      { label: "Remove", run: () => command("remove") },
-      { label: "Remove And", sub: [{ label: "Delete Data", run: () => command("remove_data") }] },
+      { label: T("MenuRemove"), run: () => command("remove") },
+      { label: T("MenuRemoveAnd"), sub: [{ label: T("MenuDeleteData"), run: () => command("remove_data") }] },
       "-",
-      { label: "Force Re-Check", run: () => command("recheck") },
-      { label: "Update Tracker", run: () => command("reannounce") },
+      { label: T("MenuRecheck"), run: () => command("recheck") },
+      { label: T("MenuUpdateTracker"), run: () => command("reannounce") },
       "-",
       {
-        label: "Advanced",
+        label: T("MenuAdvanced"),
         sub: [
-          { label: "Set Download Location...", run: () => command("location") },
-          { label: "Initial Seeding", key: "superseed", run: (it) => command("superseed", !it.chk) },
+          { label: T("MenuSetLocation"), run: () => command("location") },
+          { label: T("MenuInitialSeeding"), key: "superseed", run: (it) => command("superseed", !it.chk) },
         ],
       },
       {
-        label: "Bandwidth Allocation",
+        label: T("MenuBandwidth"),
         sub: [
-          { label: "Set Download Limit", sub: limitItems("dl") },
-          { label: "Set Upload Limit", sub: limitItems("ul") },
+          { label: T("MenuSetDownLimit"), sub: limitItems("dl") },
+          { label: T("MenuSetUpLimit"), sub: limitItems("ul") },
         ],
       },
       {
-        label: "Label",
+        label: T("MenuLabel"),
         sub: [
-          { label: "New Label...", run: () => command("label_new") },
-          { label: "Remove Label", key: "label:", run: () => command("label", "") },
+          { label: T("MenuNewLabel"), run: () => command("label_new") },
+          { label: T("MenuRemoveLabel"), key: "label:", run: () => command("label", "") },
           ...(labels.length ? ["-"] : []),
           ...labels.map((l) => ({ label: l, key: "label:" + l, run: () => command("label", l) })),
         ],
       },
       "-",
-      { label: "Properties", run: () => openProps(false) },
+      { label: T("MenuProperties"), run: () => openProps(false) },
     ];
     // the phone's sheet: no folder to open on a phone; the detail sheet first (a tap opens it
     // too, but not in selection mode)
     if (phone) items.splice(0, 2);
-    if (phone && n === 1 && !selAll) items.unshift({ label: "Details", run: openSheet }, "-");
+    if (phone && n === 1 && !selAll) items.unshift({ label: T("WebDetails"), run: openSheet }, "-");
     openMenu(items, x, y);
     fillChecks(items);
   }
   function limitItems(kind) {
     return LIMITS.map((kb) => ({
-      label: kb === 0 ? "Unlimited" : kb + " kB/s",
+      label: kb === 0 ? T("MenuUnlimited") : kb + " " + T("UnitKbPerSec"),
       key: kind + ":" + kb,
       run: () => command(kind + "_limit", kb),
     }));
@@ -1886,7 +1910,7 @@
           pa("torrents/files", { id, priorities }).catch(() => {});
         };
         openMenu(
-          PRIORITIES.map(([label, p]) => ({ label, run: prio(p) })),
+          PRIORITIES.map(([key, p]) => ({ label: T(key), run: prio(p) })),
           ev.clientX,
           ev.clientY
         );
@@ -1924,7 +1948,7 @@
       i = j;
     }
     bar.style.backgroundImage = stops.length ? `linear-gradient(to right, ${stops.join(", ")})` : "";
-    td.title = `${letters.split("f").length - 1} of ${n} blocks done`;
+    td.title = T("WebBlocksDone", { done: letters.split("f").length - 1, count: n });
   }
 
   // Pieces: one bar for the bitfield (blue = have, grey = missing, orange = being
@@ -2007,7 +2031,12 @@
       update(m) {
         data = m;
         const dl = (m.downloading || []).length;
-        setTextIf(text, `${m.n} pieces, ${m.have} done` + (dl ? `, ${dl} downloading` : "") + ".");
+        setTextIf(
+          text,
+          dl
+            ? T("WebPiecesSummaryDownloading", { count: m.n, done: m.have, downloading: dl })
+            : T("WebPiecesSummary", { count: m.n, done: m.have })
+        );
         draw();
         list.update(m);
       },
@@ -2191,8 +2220,8 @@
 
   /// frontend::fmt::size: binary units, three significant digits, "kB".
   function fmtSize(bytes) {
-    if (bytes < 1024) return bytes + " B";
-    const units = ["B", "kB", "MB", "GB", "TB", "PB"];
+    const units = ["UnitB", "UnitKb", "UnitMb", "UnitGb", "UnitTb", "UnitPb"].map((k) => T(k));
+    if (bytes < 1024) return bytes + " " + units[0];
     let v = bytes;
     let u = 0;
     while (v >= 999.5 && u + 1 < units.length) {
@@ -2203,7 +2232,7 @@
     return v.toFixed(d) + " " + units[u];
   }
   function priorityText(p) {
-    return p === 0 ? "Don't Download" : p <= 3 ? "Low" : p === 4 ? "Normal" : "High";
+    return T(p === 0 ? "PrioDontDownload" : p <= 3 ? "PrioLow" : p === 4 ? "PrioNormal" : "PrioHigh");
   }
 
   $("tb-add").addEventListener("click", () => $("file").click());
@@ -2213,7 +2242,7 @@
     queueTorrents(files);
   });
   $("tb-add-url").addEventListener("click", () => {
-    const url = prompt("Add Torrent from URL\n\nPlease enter the location of the torrent you want to open (a URL or a magnet link):");
+    const url = prompt(T("AddUrlTitle") + "\n\n" + T("AddUrlPrompt"));
     if (!url || !url.trim()) return;
     addUrl(url.trim());
   });
@@ -2468,7 +2497,7 @@
     table.className = "dt af";
     const thead = document.createElement("thead");
     const hr = document.createElement("tr");
-    for (const [title, cls] of [["", "c"], ["Name", ""], ["Size", "r"], ["Priority", ""]]) {
+    for (const [title, cls] of [["", "c"], [T("ColName"), ""], [T("ColSize"), "r"], [T("ColPriority"), ""]]) {
       const th = document.createElement("th");
       th.textContent = title;
       if (cls) th.className = cls;
@@ -2510,7 +2539,7 @@
       tds.className = "r";
       tds.textContent = fmtSize(node.size);
       const tdp = document.createElement("td");
-      tdp.textContent = node.dir ? (node.wanted === 0 ? "Don't Download" : node.mixed || node.wanted < node.files ? "Mixed" : priorityText(node.prio)) : priorityText(node.wanted ? node.prio : 0);
+      tdp.textContent = node.dir ? (node.wanted === 0 ? T("PrioDontDownload") : node.mixed || node.wanted < node.files ? T("AddMixed") : priorityText(node.prio)) : priorityText(node.wanted ? node.prio : 0);
       tr.append(tdc, tdn, tds, tdp);
       tbody.appendChild(tr);
     }
@@ -2523,7 +2552,7 @@
     let sel = 0;
     for (const node of tree.nodes) if (!node.dir && node.wanted) sel += node.size;
     const all = info.size || 0;
-    setText("add-t-size", sel === all ? fmtSize(all) : fmtSize(sel) + " of " + fmtSize(all) + " selected");
+    setText("add-t-size", sel === all ? fmtSize(all) : T("AddSizeSelected", { selected: fmtSize(sel), total: fmtSize(all) }));
   }
   function setChecks(nodesIdx, on) {
     const { tree } = addState;
@@ -2602,10 +2631,10 @@
     const rows = [...st.sel];
     openMenu(
       [
-        ...PRIORITIES.map(([label, p]) => ({ label, run: () => setPriority(rows, p) })),
+        ...PRIORITIES.map(([key, p]) => ({ label: T(key), run: () => setPriority(rows, p) })),
         "-",
-        { label: "Check", run: () => setChecks(rows, true) },
-        { label: "Uncheck", run: () => setChecks(rows, false) },
+        { label: T("MenuCheck"), run: () => setChecks(rows, true) },
+        { label: T("MenuUncheck"), run: () => setChecks(rows, false) },
       ],
       ev.clientX,
       ev.clientY
@@ -2626,7 +2655,7 @@
     const save = $("add-save").value.trim();
     if (!save) {
       $("add-save").focus();
-      flash("Please choose the folder to save the torrent in.");
+      flash(T("AddNoFolder"));
       return;
     }
     const options = {
@@ -2720,7 +2749,7 @@
     const tree = $("tree");
     for (const e of tree.querySelectorAll(".rss-t")) e.remove();
     if (!rssModel || !rssModel.feeds.length) return;
-    tree.appendChild(rssEl("div", "group rss-t", "Feeds"));
+    tree.appendChild(rssEl("div", "group rss-t", T("CatFeeds")));
     for (const f of rssModel.feeds) {
       const it = rssEl("div", "fitem rss-t");
       it.dataset.feed = f.id;
@@ -2794,11 +2823,11 @@
 
   // ---- Feeds
   function rssRenderFeeds() {
-    const rows = [[0, "All Feeds"], ...rssModel.feeds.map((f) => [f.id, f.name + (f.enabled ? "" : " (disabled)"), false, f.status])];
+    const rows = [[0, T("RssAllFeeds")], ...rssModel.feeds.map((f) => [f.id, f.enabled ? f.name : T("WebFeedDisabled", { name: f.name }), false, f.status])];
     rssList($("rss-feed-list"), rows, rssFeed);
     const f = rssModel.feeds.find((x) => x.id === rssFeed);
     const n = rssModel.feeds.length;
-    $("rss-feed-status").textContent = f ? f.status : n + (n === 1 ? " feed" : " feeds");
+    $("rss-feed-status").textContent = f ? f.status : T("RssFeedCount", { count: n });
     $("rss-feed-edit").disabled = $("rss-feed-remove").disabled = !f;
   }
   $("rss-feed-list").addEventListener("click", (ev) => {
@@ -2813,7 +2842,7 @@
   $("rss-feed-edit").addEventListener("click", () => rssFeedDialog(rssFeed));
   $("rss-feed-update").addEventListener("click", () => pa("rss/feed-update", rssFeed ? { id: rssFeed } : {}).catch(() => {}));
   $("rss-feed-remove").addEventListener("click", async () => {
-    if (!rssFeed || !confirm('Remove the feed "' + feedName(rssFeed) + '"?')) return;
+    if (!rssFeed || !confirm(T("AskDeleteFeed", { name: feedName(rssFeed) }))) return;
     await pa("rss/feed-remove", { id: rssFeed }).catch(() => {});
     rssFeed = 0;
     rssLoad();
@@ -2823,7 +2852,7 @@
   function rssFeedDialog(id) {
     const f = rssModel.feeds.find((x) => x.id === id);
     rssFeedEdit = f ? id : 0;
-    $("rss-feed-title").textContent = f ? "Edit RSS Feed" : "Add RSS Feed";
+    $("rss-feed-title").textContent = f ? T("RssEditFeed") : T("RssAddFeed");
     $("rss-f-url").value = f ? f.url : "";
     $("rss-f-alias").value = f ? f.alias : "";
     $(f && f.subscribe ? "rss-f-auto" : "rss-f-noauto").checked = true;
@@ -2839,7 +2868,7 @@
     ev.preventDefault();
     const url = $("rss-f-url").value.trim();
     if (!url) {
-      $("rss-f-msg").textContent = "Please enter the URL of the feed.";
+      $("rss-f-msg").textContent = T("RssNoUrl");
       return;
     }
     const subscribe = $("rss-f-auto").checked;
@@ -2848,7 +2877,7 @@
       if (rssFeedEdit) await pa("rss/feed-edit", { id: rssFeedEdit, ...b });
       else rssFeed = (await pa("rss/feed-add", b)).id;
     } catch (e) {
-      $("rss-f-msg").textContent = e.msg || "The feed could not be saved.";
+      $("rss-f-msg").textContent = e.msg || T("WebFeedNotSaved");
       return;
     }
     feedDlg.close();
@@ -2917,7 +2946,7 @@
     // the feed and interval choices, the labels
     const feedSel = $("rss-x-feed");
     feedSel.textContent = "";
-    for (const [id, name] of [[0, "All Feeds"], ...rssModel.feeds.map((f) => [f.id, f.name])]) feedSel.appendChild(new Option(name, id));
+    for (const [id, name] of [[0, T("RssAllFeeds")], ...rssModel.feeds.map((f) => [f.id, f.name])]) feedSel.appendChild(new Option(name, id));
     const iv = $("rss-x-min_interval");
     if (!iv.options.length) for (const [s, name] of rssModel.intervals) iv.appendChild(new Option(name, s));
     const dl = $("rss-labels");
@@ -2939,7 +2968,7 @@
     for (const k of RSS_CHECK) $("rss-x-" + k).checked = !!(f && f[k]);
     $("rss-x-feed").value = f ? f.feed : 0;
     $("rss-x-min_interval").value = f ? f.min_interval : 0;
-    $("rss-x-quality").textContent = f ? f.quality_text : "All";
+    $("rss-x-quality").textContent = f ? f.quality_text : T("RssQualityAll");
     rssPreview();
   }
   async function rssPreview() {
@@ -2998,7 +3027,7 @@
     const r = ev.currentTarget.getBoundingClientRect();
     openMenu(
       [
-        { label: "All", chk: f.quality === 0, run: () => set(0) },
+        { label: T("RssQualityAll"), chk: f.quality === 0, run: () => set(0) },
         "-",
         ...rssModel.qualities.map(([bit, name]) => ({ label: name, chk: (f.quality & bit) !== 0, run: () => set(f.quality ^ bit) })),
       ],
@@ -3024,7 +3053,7 @@
     let m;
     try {
       // bound to the feed picked on the left, as the Win32 dialog does
-      m = await pa("rss/filter-add", { name: "New filter", feed: rssFeed });
+      m = await pa("rss/filter-add", { name: T("RssNewFilter"), feed: rssFeed });
     } catch (e) {
       return;
     }
@@ -3044,7 +3073,7 @@
     });
   }
   $("rss-browse").addEventListener("click", () => {
-    const v = prompt("Save in (a folder on the server; empty for the default download folder):", $("rss-x-save_in").value);
+    const v = prompt(T("WebRssSaveIn"), $("rss-x-save_in").value);
     if (v === null) return;
     $("rss-x-save_in").value = v.trim();
     rssEdit("save_in", v.trim(), true);
@@ -3055,7 +3084,7 @@
     const t = $("rss-history");
     t.textContent = "";
     const head = rssEl("tr");
-    for (const h of ["Name", "Date", "Feed"]) head.appendChild(rssEl("th", "", h));
+    for (const h of ["ColName", "ColDate", "ColFeed"]) head.appendChild(rssEl("th", "", T(h)));
     t.appendChild(rssEl("thead")).appendChild(head);
     const tb = t.appendChild(rssEl("tbody"));
     for (const row of rssModel.history) {
@@ -3284,7 +3313,7 @@
           inp.type = f.type === "password" || it.secret ? "password" : "text";
           inp.value = v;
           inp.autocomplete = f.type === "password" ? "new-password" : "off";
-          if (f.type === "password") inp.placeholder = "(unchanged)";
+          if (f.type === "password") inp.placeholder = T("WebUnchanged");
         }
         if (f.readonly) inp.readOnly = true;
       }
@@ -3329,8 +3358,8 @@
 
   // The Scheduler table (frontend::scheduler): 7 days x 24 hours, one mode code per hour,
   // Monday 00:00 first. A click (or tap) moves a cell to the next mode, a drag paints that mode.
-  const SCHED_DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-  const SCHED_MODES = { 0: "Full speed", 2: "Limited", 1: "Turn off", 3: "Seeding only" };
+  const SCHED_DAYS = ["DayMon", "DayTue", "DayWed", "DayThu", "DayFri", "DaySat", "DaySun"].map((k) => T(k));
+  const SCHED_MODES = { 0: T("SchedFullSpeed"), 2: T("SchedLimited"), 1: T("SchedTurnOff"), 3: T("SchedSeedingOnly") };
   const SCHED_NEXT = { 0: "2", 2: "1", 1: "3", 3: "0" };
   function renderSchedule(it) {
     const id = it.f;
@@ -3381,7 +3410,7 @@
       const t = table();
       const d = Math.floor(i / 24), h = i % 24;
       const two = (n) => String(n).padStart(2, "0");
-      info.textContent = `${SCHED_DAYS[d]} ${two(h)}:00 - ${two((h + 1) % 24)}:00: ${SCHED_MODES[t[i]]}`;
+      info.textContent = T("SchedHover", { day: SCHED_DAYS[d], from: two(h), to: two((h + 1) % 24), mode: SCHED_MODES[t[i]] });
     };
     const setCell = (i, code) => {
       const t = table();
@@ -3450,7 +3479,7 @@
     const lab = document.createElement("label");
     lab.className = "pf txt";
     const sp = document.createElement("span");
-    sp.textContent = "Filter:";
+    sp.textContent = T("PrefFilter");
     const filt = document.createElement("input");
     filt.type = "search";
     filt.id = "adv-filter";
@@ -3467,9 +3496,9 @@
     table.className = "adv";
     const thead = document.createElement("thead");
     const hr = document.createElement("tr");
-    for (const t of ["Name", "Value"]) {
+    for (const key of ["ColName", "ColValue"]) {
       const th = document.createElement("th");
-      th.textContent = t;
+      th.textContent = T(key);
       hr.appendChild(th);
     }
     thead.appendChild(hr);
@@ -3482,7 +3511,7 @@
     const ed = document.createElement("div");
     ed.className = "adv-edit";
     const vl = document.createElement("span");
-    vl.textContent = "Value:";
+    vl.textContent = T("PrefValue");
     const value = document.createElement("input");
     value.type = "text";
     value.id = "adv-value";
@@ -3500,14 +3529,14 @@
       radios.appendChild(l);
       return r;
     };
-    const rTrue = mk("True", "true");
-    const rFalse = mk("False", "false");
+    const rTrue = mk(T("PrefTrue"), "true");
+    const rFalse = mk(T("PrefFalse"), "false");
     const set = document.createElement("button");
     set.type = "button";
-    set.textContent = "Set";
+    set.textContent = T("PrefSet");
     const reset = document.createElement("button");
     reset.type = "button";
-    reset.textContent = "Reset";
+    reset.textContent = T("PrefReset");
     ed.append(vl, value, radios, set, reset);
     el.appendChild(ed);
 
@@ -3625,7 +3654,7 @@
       if (f.type !== "int") continue;
       const [min, max, scale] = prefsRanges.get(id) || [f.min, f.max, 1];
       if (typeof v !== "number" || !Number.isInteger(v) || v < min || v > max) {
-        return [id, "Please enter a number from " + Math.ceil(min / scale) + " to " + Math.floor(max / scale) + "."];
+        return [id, T("PrefBadNumber", { min: Math.ceil(min / scale), max: Math.floor(max / scale) })];
       }
     }
     return null;
@@ -3643,7 +3672,7 @@
         // {"error": "<field>: <why>"} names the first bad field
         const m = /^([^\s:]+): ([\s\S]*)$/.exec(e.msg || "");
         if (m && prefField(m[1])) showPrefError(m[1], e.msg);
-        else setPrefsMsg(e.msg || "The preferences could not be applied.", true);
+        else setPrefsMsg(e.msg || T("WebPrefsNotApplied"), true);
         return;
       }
       if (prefsEdits.has("ui.confirm_delete")) confirmDelete = !!prefsEdits.get("ui.confirm_delete");
@@ -3659,7 +3688,7 @@
         /* the dialog keeps what it has */
       }
       showPrefsPage(prefsPageId);
-      setPrefsMsg("Applied.");
+      setPrefsMsg(T("WebApplied"));
       return;
     }
     if (close) closePrefs();
@@ -3740,7 +3769,8 @@
     // the Win32 window opens a finished torrent's folder instead, which a browser cannot
     if (dblclick && m.finished) return;
     props = { sel: s, loaded: m.fields, multi: m.count > 1, canSeed: m.can_initial_seed };
-    $("props-title").textContent = "Properties - " + (m.count === 1 && m.name != null ? m.name : m.count + " torrents");
+    $("props-title").textContent =
+      m.count === 1 && m.name != null ? T("PropsTitle", { name: m.name }) : T("PropsTitleMany", { count: m.count });
     for (const inp of propsInputs()) {
       const v = m.fields[inp.dataset.f];
       if (inp.type === "checkbox") setTri(inp, v);
@@ -3811,7 +3841,7 @@
         // {"error": "<field>: <why>"} names the first bad field
         const m = /^([a-z_]+): ([\s\S]*)$/.exec(e.msg || "");
         if (m && propsField(m[1])) showPropsError(propsField(m[1]), m[2]);
-        else showPropsError(null, e.msg || "The properties could not be set.");
+        else showPropsError(null, e.msg || T("WebPropsNotSet"));
         return;
       } finally {
         propsBusy = false;
@@ -3934,7 +3964,7 @@
       $("login-error").textContent = "";
       ev.target.elements.password.value = "";
       showApp();
-    } else $("login-error").textContent = r.status === 403 ? text : "Wrong user name or password.";
+    } else $("login-error").textContent = r.status === 403 ? text : T("WebWrongLogin");
   });
   $("logout").addEventListener("click", () => {
     api("auth/logout", {}).then(showLogin, showLogin);

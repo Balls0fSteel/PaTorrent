@@ -538,9 +538,9 @@ pub fn fetch_feed(url: &str, proxy: Option<FetchProxy>) -> Result<Feed, String> 
     let opts = FetchOptions { cookies: cookies.to_owned(), proxy, ..FetchOptions::default() };
     let resp = http_get(url, &opts).map_err(|e| e.to_string())?;
     if resp.redirect().is_some() {
-        return Err(format!("{url}: redirected away from the feed"));
+        return Err(crate::tr!(RssErrFeedRedirect, url));
     }
-    parse_feed(&resp.body).ok_or_else(|| format!("{url}: not an RSS or Atom feed"))
+    parse_feed(&resp.body).ok_or_else(|| crate::tr!(RssErrNotFeed, url))
 }
 
 #[cfg(test)]

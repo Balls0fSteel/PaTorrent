@@ -16,6 +16,7 @@ use patorrent_core::{AnnounceEntry, TorrentFlags, TorrentHandle, TorrentStatus};
 
 use crate::prefs::Prefs;
 use crate::seeding::SeedGoal;
+use crate::tr;
 
 /// One torrent's current values, as the dialog loads them.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -330,17 +331,19 @@ fn err(field: Field, message: impl Into<String>) -> FieldError {
 }
 
 fn number(text: &str, field: Field, max: u32) -> Result<u32, FieldError> {
-    let what = match field {
-        Field::UploadRate => "The maximum upload rate",
-        Field::DownloadRate => "The maximum download rate",
-        Field::UploadSlots => "The number of upload slots",
-        Field::GoalRatio => "The minimum ratio",
-        Field::GoalMinutes => "The minimum seeding time",
-        Field::Trackers => "The value",
-    };
     match text.trim().parse::<u32>() {
         Ok(v) if v <= max => Ok(v),
-        _ => Err(err(field, format!("{what} must be a whole number from 0 to {max}."))),
+        _ => {
+            let message = match field {
+                Field::UploadRate => tr!(PropsBadUploadRate, max),
+                Field::DownloadRate => tr!(PropsBadDownloadRate, max),
+                Field::UploadSlots => tr!(PropsBadUploadSlots, max),
+                Field::GoalRatio => tr!(PropsBadRatio, max),
+                Field::GoalMinutes => tr!(PropsBadSeedTime, max),
+                Field::Trackers => tr!(PropsBadNumber, max),
+            };
+            Err(err(field, message))
+        }
     }
 }
 
@@ -384,7 +387,7 @@ pub fn parse_trackers(text: &str) -> Result<Vec<Vec<String>>, String> {
             continue;
         }
         if !is_tracker_url(line) {
-            return Err(format!("\"{line}\" is not a tracker URL (http://, https:// or udp://)."));
+            return Err(tr!(PropsBadTracker, line));
         }
         if seen.insert(line.to_owned()) {
             tiers.last_mut().expect("never empty").push(line.to_owned());

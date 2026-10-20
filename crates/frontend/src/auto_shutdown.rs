@@ -26,6 +26,8 @@ use std::time::{Duration, Instant};
 
 use patorrent_core::{TorrentFlags, TorrentState, TorrentStatus};
 
+use crate::tr;
+
 /// What to do once the work is done.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
@@ -79,16 +81,16 @@ impl Mode {
 
     /// The menu text (with its access key) of a [`Mode::MENU`] item.
     pub fn label(mode: Option<Mode>) -> &'static str {
-        let Some(m) = mode else { return "&Disabled" };
+        let Some(m) = mode else { return tr!(ShutdownDisabled) };
         match (m.action, m.when) {
-            (Action::Quit, When::Downloads) => "&Quit When Downloads Complete",
-            (Action::Quit, When::Everything) => "Quit When &Everything Completes",
-            (Action::Standby, When::Downloads) => "&Standby When Downloads Complete",
-            (Action::Standby, When::Everything) => "Standby &When Everything Completes",
-            (Action::Hibernate, When::Downloads) => "&Hibernate When Downloads Complete",
-            (Action::Hibernate, When::Everything) => "Hibernate When E&verything Completes",
-            (Action::ShutDown, When::Downloads) => "Shut Down When D&ownloads Complete",
-            (Action::ShutDown, When::Everything) => "Shut Down When Everything &Completes",
+            (Action::Quit, When::Downloads) => tr!(ShutdownQuitDownloads),
+            (Action::Quit, When::Everything) => tr!(ShutdownQuitEverything),
+            (Action::Standby, When::Downloads) => tr!(ShutdownStandbyDownloads),
+            (Action::Standby, When::Everything) => tr!(ShutdownStandbyEverything),
+            (Action::Hibernate, When::Downloads) => tr!(ShutdownHibernateDownloads),
+            (Action::Hibernate, When::Everything) => tr!(ShutdownHibernateEverything),
+            (Action::ShutDown, When::Downloads) => tr!(ShutdownShutDownDownloads),
+            (Action::ShutDown, When::Everything) => tr!(ShutdownShutDownEverything),
         }
     }
 }

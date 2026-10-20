@@ -279,7 +279,7 @@ As today: SID cookie, PBKDF2 password hash, failed-login ban, Host validation, b
 clients, CSRF checks on every `POST` and on the WebSocket handshake (`Origin` must match the
 request's own origin or the domain list). Added: `Content-Security-Policy: default-src 'self'`
 (so no inline script or style in the HTML), `X-Content-Type-Options: nosniff`,
-`Referrer-Policy: no-referrer`, `ETag` on the three static files.
+`Referrer-Policy: no-referrer`, `ETag` on the static files.
 
 HTTPS (`--webui-https`, or `--webui-cert FILE [--webui-key FILE]`): the port serves TLS only,
 through the OS library (SChannel on Windows, OpenSSL on Unix: `patorrent_core::tls`), TLS 1.2
@@ -293,6 +293,17 @@ running account's CNG key store under a name of the process (SChannel signs in L
 cannot use a key held only in our process). It is deleted once the Web UI and its last
 connection are gone; when that did not happen before the process ended (killed, or a WebSocket
 still open at exit), the next start deletes it. It is a copy of a key that is on disk anyway.
+
+### Language
+
+The page's texts come from the string table (D20, `frontend::lang`) in the server's language:
+`lang.js` (served beside `app.js`, without a login, made at the first request) sets
+`window.PA_LANG` to the language code and every text by key, the `&` mnemonics taken out.
+The static HTML marks its texts with `data-t` (and `data-t-title`, `data-t-aria`, `data-t-ph`)
+and keeps the English in place for a browser without scripts; `app.js` replaces them at load
+and takes its own texts with `T(key, args)`. What the server builds (cells, column titles,
+the detail tabs, Preferences, the Logger) arrives translated. Tests check that every key the
+page and the script name exists and that the HTML's English is the table's.
 
 ## Remote mode
 

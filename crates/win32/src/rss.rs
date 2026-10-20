@@ -14,6 +14,7 @@ use std::ptr::{null, null_mut};
 
 use patorrent_frontend::rss::view::{self, quality_text};
 use patorrent_frontend::rss::{FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFeed, RssFilter};
+use patorrent_frontend::{lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::*;
@@ -144,29 +145,23 @@ fn feed_template() -> Vec<u16> {
     const TAB: u32 = C | WS_TABSTOP;
     const LINE: u32 = TAB | WS_BORDER | ES_AUTOHSCROLL as u32;
     let mut t = Template::new(260, 138);
-    t.item(STATIC, 0xffff, C, [7, 7, 246, 9], "Feed &URL:");
+    t.item(STATIC, 0xffff, C, [7, 7, 246, 9], tr!(RssFeedUrl));
     t.item(EDIT, ID_URL, LINE, [7, 18, 246, 13], "");
-    t.item(STATIC, 0xffff, C, [7, 36, 246, 9], "Custom &Alias:");
+    t.item(STATIC, 0xffff, C, [7, 36, 246, 9], tr!(RssAlias));
     t.item(EDIT, ID_ALIAS, LINE, [7, 47, 246, 13], "");
-    t.item(BUTTON, 0xffff, C | BS_GROUPBOX as u32, [7, 65, 246, 48], "Subscription");
+    t.item(BUTTON, 0xffff, C | BS_GROUPBOX as u32, [7, 65, 246, 48], tr!(RssSubscription));
     let radio = TAB | BS_AUTORADIOBUTTON as u32;
-    t.item(
-        BUTTON,
-        ID_NO_AUTO,
-        radio | WS_GROUP,
-        [14, 77, 232, 10],
-        "Do &not automatically download all items",
-    );
-    t.item(BUTTON, ID_AUTO, radio, [14, 89, 232, 10], "Automatically &download all items published in feed");
+    t.item(BUTTON, ID_NO_AUTO, radio | WS_GROUP, [14, 77, 232, 10], tr!(RssNoAuto));
+    t.item(BUTTON, ID_AUTO, radio, [14, 89, 232, 10], tr!(RssAuto));
     t.item(
         BUTTON,
         ID_AUTO_SMART,
         TAB | WS_GROUP | BS_AUTOCHECKBOX as u32,
         [24, 101, 222, 10],
-        "Use &smart episode filter",
+        tr!(RssSmartAuto),
     );
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [149, 118, 50, 14], "OK");
-    t.item(BUTTON, IDCANCEL as u16, TAB | BS_PUSHBUTTON as u32, [203, 118, 50, 14], "Cancel");
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [149, 118, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, TAB | BS_PUSHBUTTON as u32, [203, 118, 50, 14], tr!(BtnCancel));
     t.finish()
 }
 
@@ -194,7 +189,7 @@ unsafe extern "system" fn feed_proc(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
                 let url = window_text(item(dlg, ID_URL)).trim().to_owned();
                 if url.is_empty() {
                     if !cfg!(test) {
-                        dialogs::error(dlg, "Please enter the URL of the feed.");
+                        dialogs::error(dlg, tr!(RssNoUrl));
                     }
                     SetFocus(item(dlg, ID_URL));
                     return 1;
@@ -363,32 +358,32 @@ fn template() -> Vec<u16> {
     const DROPDOWN: u32 = TAB | WS_VSCROLL | (CBS_DROPDOWN | CBS_AUTOHSCROLL | CBS_SORT) as u32;
     const LISTVIEW: Class = Class::Name("SysListView32");
     let mut t = Template::new(470, 292);
-    t.item(STATIC, 0xffff, C, [7, 7, 140, 9], "Feeds");
+    t.item(STATIC, 0xffff, C, [7, 7, 140, 9], tr!(RssFeeds));
     t.item(LISTVIEW, ID_FEEDS, LIST | LVS_NOCOLUMNHEADER, [7, 18, 140, 212], "");
     t.item(STATIC, ID_FEED_STATUS, C | SS_NOPREFIX, [7, 233, 140, 18], "");
-    t.item(BUTTON, ID_FEED_ADD, PUSH, [7, 254, 34, 14], "&Add...");
-    t.item(BUTTON, ID_FEED_EDIT, PUSH, [43, 254, 34, 14], "&Edit...");
-    t.item(BUTTON, ID_FEED_REMOVE, PUSH, [79, 254, 34, 14], "Remo&ve");
-    t.item(BUTTON, ID_FEED_UPDATE, PUSH, [115, 254, 32, 14], "&Update");
+    t.item(BUTTON, ID_FEED_ADD, PUSH, [7, 254, 34, 14], tr!(RssFeedsAdd));
+    t.item(BUTTON, ID_FEED_EDIT, PUSH, [43, 254, 34, 14], tr!(RssFeedsEdit));
+    t.item(BUTTON, ID_FEED_REMOVE, PUSH, [79, 254, 34, 14], tr!(RssFeedsRemove));
+    t.item(BUTTON, ID_FEED_UPDATE, PUSH, [115, 254, 32, 14], tr!(RssFeedsUpdate));
 
     // Filters
     t.item(LISTVIEW, ID_FILTERS, LIST | LVS_NOCOLUMNHEADER, [160, 25, 96, 189], "");
-    t.item(BUTTON, ID_FILTER_ADD, PUSH, [160, 217, 46, 14], "Add");
-    t.item(BUTTON, ID_FILTER_REMOVE, PUSH, [210, 217, 46, 14], "Remove");
-    t.item(BUTTON, ID_FILTER_UP, PUSH, [160, 233, 46, 14], "Up");
-    t.item(BUTTON, ID_FILTER_DOWN, PUSH, [210, 233, 46, 14], "Down");
+    t.item(BUTTON, ID_FILTER_ADD, PUSH, [160, 217, 46, 14], tr!(RssFilterAdd));
+    t.item(BUTTON, ID_FILTER_REMOVE, PUSH, [210, 217, 46, 14], tr!(RssFilterRemove));
+    t.item(BUTTON, ID_FILTER_UP, PUSH, [160, 233, 46, 14], tr!(RssFilterUp));
+    t.item(BUTTON, ID_FILTER_DOWN, PUSH, [210, 233, 46, 14], tr!(RssFilterDown));
     let labels = [
-        "Name:",
-        "Filter:",
-        "Not:",
-        "Save in:",
-        "Feed:",
-        "Quality:",
-        "Episode number:",
-        "Minimum interval:",
-        "Label:",
-        "Matching items in the feeds:",
-        "[ex. 1x12-14]",
+        tr!(RssName),
+        tr!(RssFilter),
+        tr!(RssNot),
+        tr!(RssSaveIn),
+        tr!(RssFeed),
+        tr!(RssQuality),
+        tr!(RssEpisodes),
+        tr!(RssMinInterval),
+        tr!(RssLabel),
+        tr!(RssMatching),
+        tr!(RssEpisodesExample),
     ];
     let label = |t: &mut Template, i: usize, rect: [i16; 4]| {
         t.item(STATIC, ID_FILTER_LABELS + i as u16, C, rect, labels[i]);
@@ -405,7 +400,7 @@ fn template() -> Vec<u16> {
     label(&mut t, 4, [262, 87, 58, 9]);
     t.item(COMBOBOX, ID_FEED, DROPLIST, [322, 85, 135, 120], "");
     label(&mut t, 5, [262, 102, 58, 9]);
-    t.item(BUTTON, ID_QUALITY, PUSH, [322, 100, 135, 13], "All");
+    t.item(BUTTON, ID_QUALITY, PUSH, [322, 100, 135, 13], tr!(RssQualityAll));
     label(&mut t, 6, [262, 117, 58, 9]);
     t.item(EDIT, ID_EPISODES, LINE, [322, 115, 62, 12], "");
     label(&mut t, 10, [388, 117, 69, 9]);
@@ -413,19 +408,19 @@ fn template() -> Vec<u16> {
     t.item(COMBOBOX, ID_INTERVAL, DROPLIST, [322, 130, 135, 150], "");
     label(&mut t, 8, [262, 147, 58, 9]);
     t.item(COMBOBOX, ID_LABEL, DROPDOWN, [322, 145, 135, 120], "");
-    t.item(BUTTON, ID_SMART, CHECK, [262, 162, 195, 10], "S&mart ep. filter");
-    t.item(BUTTON, ID_PRIORITY, CHECK, [262, 174, 195, 10], "Give download &highest priority");
-    t.item(BUTTON, ID_PAUSED, CHECK, [262, 186, 195, 10], "Add torrent in &paused state");
+    t.item(BUTTON, ID_SMART, CHECK, [262, 162, 195, 10], tr!(RssSmart));
+    t.item(BUTTON, ID_PRIORITY, CHECK, [262, 174, 195, 10], tr!(RssHighPriority));
+    t.item(BUTTON, ID_PAUSED, CHECK, [262, 186, 195, 10], tr!(RssPaused));
     label(&mut t, 9, [262, 200, 195, 9]);
     t.item(LISTVIEW, ID_PREVIEW, LIST, [262, 210, 195, 52], "");
 
     // History
     t.item(LISTVIEW, ID_HISTORY, LIST, [160, 25, 297, 217], "");
-    t.item(BUTTON, ID_HISTORY_CLEAR, PUSH, [397, 247, 60, 14], "&Clear History");
+    t.item(BUTTON, ID_HISTORY_CLEAR, PUSH, [397, 247, 60, 14], tr!(RssClearHistory));
 
     // last, so it lies under the pages' controls (and does not take their clicks)
     t.item(Class::Name("SysTabControl32"), ID_TABS, C | WS_CLIPSIBLINGS, [154, 7, 309, 261], "");
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [413, 273, 50, 14], "Close");
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [413, 273, 50, 14], tr!(BtnClose));
     t.finish()
 }
 
@@ -561,27 +556,27 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
 
 unsafe fn init(dlg: HWND, st: &mut State<'_>) {
     unsafe {
-        set_text(dlg, "RSS Downloader");
+        set_text(dlg, tr!(RssTitle));
         st.host.set_dialog(dlg);
         let tabs = item(dlg, ID_TABS);
-        for (i, name) in ["Filters", "History"].into_iter().enumerate() {
+        for (i, name) in [tr!(RssTabFilters), tr!(RssTabHistory)].into_iter().enumerate() {
             let mut text = wide(name);
             let mut tab: TCITEMW = zeroed();
             tab.mask = TCIF_TEXT;
             tab.pszText = text.as_mut_ptr();
             send(tabs, TCM_INSERTITEMW, i, &tab as *const _ as LPARAM);
         }
-        lv_columns(dlg, item(dlg, ID_FEEDS), &[("Feed", 128)]);
-        lv_columns(dlg, item(dlg, ID_FILTERS), &[("Filter", 84)]);
+        lv_columns(dlg, item(dlg, ID_FEEDS), &[(tr!(ColFeed), 128)]);
+        lv_columns(dlg, item(dlg, ID_FILTERS), &[(tr!(RssColFilter), 84)]);
         let ex = LVS_EX_CHECKBOXES;
         send(item(dlg, ID_FILTERS), LVM_SETEXTENDEDLISTVIEWSTYLE, ex as usize, ex as isize);
-        lv_columns(dlg, item(dlg, ID_PREVIEW), &[("Name", 125), ("Feed", 60)]);
+        lv_columns(dlg, item(dlg, ID_PREVIEW), &[(tr!(ColName), 125), (tr!(ColFeed), 60)]);
         let cols: Vec<(&str, i32)> =
-            view::HISTORY_COLUMNS.iter().zip([170, 70, 50]).map(|(&(t, ..), w)| (t, w)).collect();
+            view::HISTORY_COLUMNS.iter().zip([170, 70, 50]).map(|(&(t, ..), w)| (lang::text(t), w)).collect();
         lv_columns(dlg, item(dlg, ID_HISTORY), &cols);
         let interval = item(dlg, ID_INTERVAL);
         for (_, name) in MIN_INTERVALS {
-            let w = wide(name);
+            let w = wide(lang::text(name));
             send(interval, CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
         for l in st.host.labels() {
@@ -638,7 +633,7 @@ unsafe fn fill_feeds(dlg: HWND, st: &mut State<'_>, select: Option<FeedId>) {
         st.loading = true;
         let lv = item(dlg, ID_FEEDS);
         lv_clear(lv);
-        lv_add(lv, 0, &["All Feeds"]);
+        lv_add(lv, 0, &[tr!(RssAllFeeds)]);
         st.feeds = vec![None];
         for (i, (id, name)) in feeds.iter().enumerate() {
             lv_add(lv, i + 1, &[name]);
@@ -649,7 +644,7 @@ unsafe fn fill_feeds(dlg: HWND, st: &mut State<'_>, select: Option<FeedId>) {
         let combo = item(dlg, ID_FEED);
         send(combo, CB_RESETCONTENT, 0, 0);
         st.feed_choices = vec![None];
-        let all = wide("All Feeds");
+        let all = wide(tr!(RssAllFeeds));
         send(combo, CB_ADDSTRING, 0, all.as_ptr() as LPARAM);
         for (id, name) in &feeds {
             let w = wide(name);
@@ -674,7 +669,7 @@ unsafe fn feed_selected(dlg: HWND, st: &mut State<'_>) {
             }
             None => {
                 let n = read(st.host, |d| d.feeds.len()).unwrap_or(0);
-                format!("{n} feed{}", if n == 1 { "" } else { "s" })
+                tr!(RssFeedCount, count = n)
             }
         };
         set_text(item(dlg, ID_FEED_STATUS), &text);
@@ -868,7 +863,7 @@ unsafe fn quality_menu(dlg: HWND, st: &mut State<'_>) {
         let Some(q) = read(st.host, |d| d.filter(id).map(|f| f.quality)).flatten() else { return };
         let menu = CreatePopupMenu();
         let flag = |on: bool| MF_STRING | if on { MF_CHECKED } else { 0 };
-        let all = wide("All");
+        let all = wide(tr!(RssQualityAll));
         AppendMenuW(menu, flag(q.is_all()), 1, all.as_ptr());
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
         for (i, (one, name)) in Quality::LIST.iter().enumerate() {
@@ -901,7 +896,7 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
             ID_QUALITY => quality_menu(dlg, st),
             ID_SAVE_BROWSE => {
                 let now = window_text(item(dlg, ID_SAVE));
-                let title = "Select the folder to save the downloads in";
+                let title = tr!(RssPickSaveDir);
                 if let Some(p) =
                     crate::create::pick_folder_at(dlg, title, Some(now.as_str()).filter(|s| !s.is_empty()))
                 {
@@ -961,7 +956,7 @@ unsafe fn add_filter(dlg: HWND, st: &mut State<'_>) {
 unsafe fn add_feed(dlg: HWND, st: &mut State<'_>) {
     unsafe {
         let form = FeedForm { url: url_from_clipboard(dlg), ..FeedForm::default() };
-        let Some(form) = feed_dialog(dlg, "Add RSS Feed", form) else { return };
+        let Some(form) = feed_dialog(dlg, tr!(RssAddFeed), form) else { return };
         let mut id = 0;
         edit(st.host, |d| id = form.add_to(d));
         st.host.update(Some(id));
@@ -973,7 +968,7 @@ unsafe fn edit_feed(dlg: HWND, st: &mut State<'_>) {
     unsafe {
         let Some(id) = selected_feed(dlg, st) else { return };
         let Some(form) = read(st.host, |d| d.feed(id).map(FeedForm::of)).flatten() else { return };
-        let Some(form) = feed_dialog(dlg, "Edit RSS Feed", form) else { return };
+        let Some(form) = feed_dialog(dlg, tr!(RssEditFeed), form) else { return };
         let mut moved = false;
         edit(st.host, |d| moved = form.store(d, id));
         if moved {
@@ -987,7 +982,7 @@ unsafe fn remove_feed(dlg: HWND, st: &mut State<'_>) {
     unsafe {
         let Some(id) = selected_feed(dlg, st) else { return };
         let name = read(st.host, |d| d.feed(id).map(|f| f.name().to_owned())).flatten().unwrap_or_default();
-        if !cfg!(test) && !dialogs::confirm(dlg, &format!("Remove the feed \"{name}\"?")) {
+        if !cfg!(test) && !dialogs::confirm(dlg, &tr!(AskDeleteFeed, name)) {
             return;
         }
         edit(st.host, |d| d.remove_feed(id));
@@ -1007,11 +1002,15 @@ unsafe fn feed_menu(dlg: HWND, st: &mut State<'_>, lp: LPARAM) {
             let w = wide(text);
             AppendMenuW(menu, MF_STRING | if on { 0 } else { MF_GRAYED }, id as usize, w.as_ptr());
         };
-        add(ID_FEED_ADD, "&Add RSS Feed...", true);
-        add(ID_FEED_EDIT, "&Edit Feed...", feed.is_some());
-        add(1, if enabled == Some(false) { "E&nable Feed" } else { "&Disable Feed" }, feed.is_some());
-        add(ID_FEED_UPDATE, "&Update Feed", true);
-        add(ID_FEED_REMOVE, "&Delete Feed", feed.is_some());
+        add(ID_FEED_ADD, tr!(MenuAddFeed), true);
+        add(ID_FEED_EDIT, tr!(MenuEditFeed), feed.is_some());
+        add(
+            1,
+            if enabled == Some(false) { tr!(MenuEnableFeed) } else { tr!(MenuDisableFeed) },
+            feed.is_some(),
+        );
+        add(ID_FEED_UPDATE, tr!(MenuUpdateFeed), true);
+        add(ID_FEED_REMOVE, tr!(MenuDeleteFeed), feed.is_some());
         let mut p = POINT { x: (lp & 0xffff) as i16 as i32, y: ((lp >> 16) & 0xffff) as i16 as i32 };
         if lp == -1 {
             GetCursorPos(&mut p);
@@ -1273,7 +1272,7 @@ mod tests {
         d.request_item(1, "Other.S03E04.720p", 1_800_000_000);
         let mut f = Fixture::new(d);
         assert_eq!(f.rows(ID_FEEDS), ["All Feeds", "Shows", "Linux ISOs"]);
-        assert_eq!(f.text(ID_FEED_STATUS), "2 feeds");
+        assert_eq!(f.text(ID_FEED_STATUS), "Feeds: 2");
         assert!(!f.enabled(ID_FEED_EDIT), "All Feeds cannot be edited");
         assert_eq!(f.rows(ID_FILTERS), ["Show", "Off"]);
         unsafe {

@@ -20,6 +20,7 @@ use patorrent_core::Session;
 use patorrent_core::remote::{self, ConnectError, Hello, Target};
 use patorrent_core::tls::{Fingerprint, Verify};
 use patorrent_frontend::prefs::Prefs;
+use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
@@ -96,10 +97,7 @@ pub fn connect_interactive() -> Option<Session> {
         let port = match form.port.trim().parse::<u16>() {
             Ok(p) if p > 0 && !form.host.trim().is_empty() => p,
             _ => {
-                dialogs::error(
-                    null_mut(),
-                    "Enter the server's host name or address, and its port (1 to 65535).",
-                );
+                dialogs::error(null_mut(), tr!(RemoteBadAddress));
                 continue;
             }
         };
@@ -122,27 +120,20 @@ pub fn connect_interactive() -> Option<Session> {
                 // asked again at the next attempt, after the user has had a look
                 prefs.remove(&format!("remote.pin.{name}"));
                 let _ = prefs.save();
-                dialogs::error(
-                    null_mut(),
-                    &format!(
-                        "The certificate of {name} is not the one you accepted before:
-{e}
-
-If it was                          replaced on purpose (a new --webui-cert, or webui-cert.pem renewed), connect                          again to check the new one. Otherwise someone may be in between."
-                    ),
-                );
+                dialogs::error(null_mut(), &tr!(RemoteCertChanged, name, error = e));
             }
             Err(e) => {
                 let hint = match &e {
-                    ConnectError::Refused { status: 404, .. } => {
-                        "\n\nIs it a patorrent-nox with its Web UI on this port (--webui)?"
-                    }
-                    ConnectError::Io(_) if !form.https => {
-                        "\n\nIf the server's Web UI uses HTTPS (--webui-https), tick Use HTTPS."
-                    }
-                    _ => "",
+                    ConnectError::Refused { status: 404, .. } => Some(tr!(RemoteHintNotNox)),
+                    ConnectError::Io(_) if !form.https => Some(tr!(RemoteHintHttps)),
+                    _ => None,
                 };
-                dialogs::error(null_mut(), &format!("Cannot connect to {name}:\n{e}{hint}"));
+                let mut text = tr!(RemoteCannotConnect, name, error = e);
+                if let Some(h) = hint {
+                    text.push_str("\n\n");
+                    text.push_str(h);
+                }
+                dialogs::error(null_mut(), &text);
             }
         }
     }
@@ -159,7 +150,7 @@ fn verify(prefs: &mut Prefs, target: &Target, name: &str) -> Option<Verify> {
     let presented = match remote::probe_certificate(&target.host, target.port, TIMEOUT) {
         Ok(f) => f,
         Err(e) => {
-            dialogs::error(null_mut(), &format!("Cannot reach {name} over HTTPS:\n{e}"));
+            dialogs::error(null_mut(), &tr!(RemoteNoHttps, name, error = e));
             return None;
         }
     };
@@ -167,12 +158,7 @@ fn verify(prefs: &mut Prefs, target: &Target, name: &str) -> Option<Verify> {
     if verify_with_system(target) {
         return Some(Verify::System);
     }
-    let text = format!(
-        "{name} presents a certificate that Windows does not trust (a self-signed one, as \
-         patorrent-nox --webui-https makes).\n\nSHA-256 fingerprint:\n{presented}\n\nCompare it with \
-         the \"certificate SHA-256\" line patorrent-nox printed when it started. Trust this \
-         certificate for {name}?"
-    );
+    let text = tr!(RemoteTrust, name, fingerprint = presented);
     if !dialogs::confirm(null_mut(), &text) {
         return None;
     }
@@ -203,24 +189,18 @@ fn template() -> Vec<u16> {
     const TAB: u32 = WS_CHILD | WS_VISIBLE | WS_TABSTOP;
     const FIELD: u32 = TAB | WS_BORDER | ES_AUTOHSCROLL as u32;
     let mut t = Template::new(250, 118);
-    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 9, 50, 9], "&Host:");
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 9, 50, 9], tr!(RemoteHost));
     t.item(EDIT, ID_HOST, FIELD, [60, 7, 118, 13], "");
-    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [184, 9, 18, 9], "&Port:");
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [184, 9, 18, 9], tr!(RemotePort));
     t.item(EDIT, ID_PORT, FIELD | ES_NUMBER as u32, [204, 7, 39, 13], "");
-    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 27, 50, 9], "&User name:");
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 27, 50, 9], tr!(RemoteUser));
     t.item(EDIT, ID_USER, FIELD, [60, 25, 118, 13], "");
-    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 45, 50, 9], "Pass&word:");
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 45, 50, 9], tr!(RemotePassword));
     t.item(EDIT, ID_PASSWORD, FIELD | ES_PASSWORD as u32, [60, 43, 118, 13], "");
-    t.item(BUTTON, ID_HTTPS, TAB | BS_AUTOCHECKBOX as u32, [60, 61, 183, 10], "Use HTTP&S");
-    t.item(
-        STATIC,
-        0,
-        WS_CHILD | WS_VISIBLE,
-        [7, 76, 236, 18],
-        "The Web UI login of a patorrent-nox started with --webui. Its torrents stay on that computer.",
-    );
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [139, 98, 50, 14], "Connect");
-    t.item(BUTTON, IDCANCEL as u16, TAB | BS_PUSHBUTTON as u32, [193, 98, 50, 14], "Cancel");
+    t.item(BUTTON, ID_HTTPS, TAB | BS_AUTOCHECKBOX as u32, [60, 61, 183, 10], tr!(RemoteHttps));
+    t.item(STATIC, 0, WS_CHILD | WS_VISIBLE, [7, 76, 236, 18], tr!(RemoteNote));
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [139, 98, 50, 14], tr!(RemoteConnect));
+    t.item(BUTTON, IDCANCEL as u16, TAB | BS_PUSHBUTTON as u32, [193, 98, 50, 14], tr!(BtnCancel));
     t.finish()
 }
 
@@ -259,7 +239,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             WM_INITDIALOG => {
                 SetWindowLongPtrW(dlg, DWLP_USER, lp);
                 let st = &*(lp as *const State);
-                let title = wide("Connect to Remote");
+                let title = wide(tr!(RemoteTitle));
                 SetWindowTextW(dlg, title.as_ptr());
                 set(ID_HOST, &st.form.host);
                 set(ID_PORT, &st.form.port);
@@ -297,7 +277,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
 /// Starts another PaTorrent window in remote mode (File > Connect to Remote...).
 pub fn start_remote_window(owner: HWND) {
     if let Err(e) = std::process::Command::new(crate::util::exe_path()).arg("--remote").spawn() {
-        dialogs::error(owner, &format!("Cannot start PaTorrent: {e}"));
+        dialogs::error(owner, &tr!(ErrStartPaTorrent, error = e));
     }
 }
 

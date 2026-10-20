@@ -482,6 +482,10 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
+    // the language of the Web UI and of the status lines (PATORRENT_LANG; D20)
+    for p in patorrent_frontend::lang::init("") {
+        eprintln!("! {p}");
+    }
     let (wake_tx, wake_rx) = mpsc::channel::<()>();
     let signal_wake = wake_tx.clone();
     if let Err(e) = signals::install(move || {

@@ -6,18 +6,19 @@ use patorrent_core::{
     TrackerStatus,
 };
 
-use crate::fmt;
+use crate::lang::S;
+use crate::{fmt, tr};
 
 /// Title, width at 96 DPI, right-aligned.
-pub type ColumnDef = (&'static str, i32, bool);
+pub type ColumnDef = (S, i32, bool);
 
 pub const TRACKER_COLUMNS: [ColumnDef; 6] = [
-    ("Name", 300, false),
-    ("Status", 200, false),
-    ("Update In", 80, true),
-    ("Seeds", 60, true),
-    ("Peers", 60, true),
-    ("Downloaded", 80, true),
+    (S::ColName, 300, false),
+    (S::ColStatus, 200, false),
+    (S::ColUpdateIn, 80, true),
+    (S::ColSeeds, 60, true),
+    (S::ColPeers, 60, true),
+    (S::ColDownloaded, 80, true),
 ];
 
 pub fn tracker_cell(t: &AnnounceEntry, col: usize) -> String {
@@ -36,24 +37,24 @@ pub fn tracker_cell(t: &AnnounceEntry, col: usize) -> String {
 pub fn tracker_status(t: &AnnounceEntry) -> String {
     match t.status {
         TrackerStatus::NotContacted => String::new(),
-        TrackerStatus::Working if t.message.is_empty() => "Working".to_owned(),
-        TrackerStatus::Working => format!("Working: {}", t.message),
-        TrackerStatus::Updating => "Updating...".to_owned(),
-        TrackerStatus::Error if t.message.is_empty() => "Error".to_owned(),
+        TrackerStatus::Working if t.message.is_empty() => tr!(TrackerWorking).to_owned(),
+        TrackerStatus::Working => tr!(TrackerWorkingMessage, message = t.message),
+        TrackerStatus::Updating => tr!(Updating).to_owned(),
+        TrackerStatus::Error if t.message.is_empty() => tr!(TrackerError).to_owned(),
         TrackerStatus::Error => t.message.clone(),
     }
 }
 
 pub const PEER_COLUMNS: [ColumnDef; 9] = [
-    ("IP", 160, false),
-    ("Client", 130, false),
-    ("Flags", 60, false),
-    ("%", 50, true),
-    ("Down Speed", 75, true),
-    ("Up Speed", 75, true),
-    ("Reqs", 50, true),
-    ("Downloaded", 75, true),
-    ("Uploaded", 75, true),
+    (S::ColIp, 160, false),
+    (S::ColClient, 130, false),
+    (S::ColFlags, 60, false),
+    (S::ColPercent, 50, true),
+    (S::ColDownSpeed, 75, true),
+    (S::ColUpSpeed, 75, true),
+    (S::ColReqs, 50, true),
+    (S::ColDownloaded, 75, true),
+    (S::ColUploaded, 75, true),
 ];
 
 pub fn peer_cell(p: &PeerInfo, col: usize) -> String {
@@ -115,11 +116,11 @@ pub fn peer_flags(p: &PeerInfo) -> String {
 /// The Pieces tab's list of pieces being downloaded. The Blocks cell is drawn, not text: one
 /// mark per block, coloured by [`block_kind`].
 pub const PIECE_COLUMNS: [ColumnDef; 5] = [
-    ("#", 60, true),
-    ("Size", 75, true),
-    ("# of Blocks", 75, true),
-    ("Blocks", 320, false),
-    ("Completed", 75, true),
+    (S::ColPiece, 60, true),
+    (S::ColSize, 75, true),
+    (S::ColBlockCount, 75, true),
+    (S::ColBlocks, 320, false),
+    (S::ColBlocksCompleted, 75, true),
 ];
 
 /// The Blocks column's index in [`PIECE_COLUMNS`].
@@ -179,13 +180,13 @@ pub fn block_runs(p: &PartialPiece) -> Vec<(BlockKind, usize, usize)> {
 }
 
 pub const FILE_COLUMNS: [ColumnDef; 7] = [
-    ("Name", 300, false),
-    ("Size", 75, true),
-    ("Done", 75, true),
-    ("%", 50, true),
-    ("# Pieces", 60, true),
-    ("First Piece", 70, true),
-    ("Priority", 90, false),
+    (S::ColName, 300, false),
+    (S::ColSize, 75, true),
+    (S::ColDone, 75, true),
+    (S::ColPercent, 50, true),
+    (S::ColPieceCount, 60, true),
+    (S::ColFirstPiece, 70, true),
+    (S::ColPriority, 90, false),
 ];
 
 /// `done` is the file's completed bytes, if known.
@@ -209,19 +210,19 @@ pub fn file_cell(f: &FileEntry, done: Option<u64>, col: usize) -> String {
 /// µTorrent's three file priorities plus "skip".
 pub fn priority_text(p: DownloadPriority) -> &'static str {
     match p.0 {
-        0 => "Don't Download",
-        1..=3 => "Low",
-        4 => "Normal",
-        _ => "High",
+        0 => tr!(PrioDontDownload),
+        1..=3 => tr!(PrioLow),
+        4 => tr!(PrioNormal),
+        _ => tr!(PrioHigh),
     }
 }
 
 /// The priorities the Files tab's menu offers, in menu order.
-pub const PRIORITIES: [(&str, DownloadPriority); 4] = [
-    ("High Priority", DownloadPriority::TOP),
-    ("Normal Priority", DownloadPriority::NORMAL),
-    ("Low Priority", DownloadPriority::LOW),
-    ("Don't Download", DownloadPriority::DONT_DOWNLOAD),
+pub const PRIORITIES: [(S, DownloadPriority); 4] = [
+    (S::PrioHighItem, DownloadPriority::TOP),
+    (S::PrioNormalItem, DownloadPriority::NORMAL),
+    (S::PrioLowItem, DownloadPriority::LOW),
+    (S::PrioDontDownload, DownloadPriority::DONT_DOWNLOAD),
 ];
 
 #[cfg(test)]
@@ -277,7 +278,7 @@ mod tests {
         };
         let cells: Vec<String> = (0..PIECE_COLUMNS.len()).map(|c| piece_cell(&p, c)).collect();
         assert_eq!(cells, ["41", "64.0 kB", "5", "", "2"]);
-        assert_eq!(PIECE_COLUMNS[PIECE_BLOCKS_COLUMN].0, "Blocks");
+        assert_eq!(PIECE_COLUMNS[PIECE_BLOCKS_COLUMN].0, S::ColBlocks);
         assert_eq!(
             block_runs(&p),
             [

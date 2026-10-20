@@ -8,6 +8,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::status::Category;
+use patorrent_frontend::tr;
 
 pub struct Sidebar {
     pub widget: gtk::ListBox,
@@ -57,7 +58,9 @@ impl Sidebar {
         for (filter, label) in self.rows.borrow().iter() {
             let text = match filter {
                 Some(Filter::Category(c)) => format!("{} ({})", c.label(), list.count(*c)),
-                Some(Filter::Label(l)) if l.is_empty() => format!("No Label ({})", list.len() - labelled),
+                Some(Filter::Label(l)) if l.is_empty() => {
+                    format!("{} ({})", tr!(CatNoLabel), list.len() - labelled)
+                }
                 Some(Filter::Label(l)) => {
                     let n = labels.iter().find(|(x, _)| x == l).map_or(0, |(_, n)| *n);
                     format!("{l} ({n})")
@@ -97,8 +100,8 @@ impl Sidebar {
         for (i, c) in Category::ALL.iter().enumerate() {
             add(Some(Filter::Category(*c)), c.label(), i > 0);
         }
-        add(None, "Labels", false);
-        add(Some(Filter::Label(String::new())), "No Label", true);
+        add(None, tr!(CatLabels), false);
+        add(Some(Filter::Label(String::new())), tr!(CatNoLabel), true);
         for l in labels {
             add(Some(Filter::Label(l.clone())), l, true);
         }

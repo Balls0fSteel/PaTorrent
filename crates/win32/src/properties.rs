@@ -11,6 +11,7 @@ use std::mem::zeroed;
 use std::ptr::null;
 
 use patorrent_frontend::properties::{Changes, Field, FieldError, Fields, Properties, Tri};
+use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
@@ -76,34 +77,34 @@ fn template(multi: bool) -> Vec<u16> {
     let check = TAB | if multi { BS_AUTO3STATE } else { BS_AUTOCHECKBOX } as u32;
     let tracker_box = TAB | WS_BORDER | WS_VSCROLL | (ES_MULTILINE | ES_AUTOVSCROLL | ES_WANTRETURN) as u32;
     let mut t = Template::new(300, 324);
-    t.item(BUTTON, 0xffff, GROUP, [14, 24, 272, 78], "Trackers (a blank line between tiers)");
+    t.item(BUTTON, 0xffff, GROUP, [14, 24, 272, 78], tr!(PropsTrackers));
     t.item(EDIT, ID_TRACKERS, tracker_box, [21, 36, 258, 60], "");
 
-    t.item(BUTTON, 0xffff, GROUP, [14, 106, 272, 74], "Bandwidth Settings");
-    t.item(STATIC, 0xffff, C, [21, 121, 200, 9], "Maximum upload rate (kB/s): [0: unlimited]");
+    t.item(BUTTON, 0xffff, GROUP, [14, 106, 272, 74], tr!(PropsBandwidth));
+    t.item(STATIC, 0xffff, C, [21, 121, 200, 9], tr!(PropsUpRate));
     t.item(EDIT, ID_UL, NUMBER, [230, 119, 49, 13], "");
-    t.item(STATIC, 0xffff, C, [21, 137, 200, 9], "Maximum download rate (kB/s): [0: unlimited]");
+    t.item(STATIC, 0xffff, C, [21, 137, 200, 9], tr!(PropsDownRate));
     t.item(EDIT, ID_DL, NUMBER, [230, 135, 49, 13], "");
-    t.item(STATIC, 0xffff, C, [21, 153, 200, 9], "Number of upload slots: [0: unlimited]");
+    t.item(STATIC, 0xffff, C, [21, 153, 200, 9], tr!(PropsSlots));
     t.item(EDIT, ID_SLOTS, NUMBER, [230, 151, 49, 13], "");
-    t.item(BUTTON, ID_OVERRIDE_SLOTS, check, [21, 166, 200, 10], "Override default number of upload slots");
+    t.item(BUTTON, ID_OVERRIDE_SLOTS, check, [21, 166, 200, 10], tr!(PropsOverrideSlots));
 
-    t.item(BUTTON, 0xffff, GROUP, [14, 184, 272, 58], "Seeding Goal");
-    t.item(BUTTON, ID_OVERRIDE_GOAL, check, [21, 196, 200, 10], "Override default settings");
-    t.item(STATIC, 0xffff, C, [21, 212, 200, 9], "Minimum ratio (%): [0: no ratio goal]");
+    t.item(BUTTON, 0xffff, GROUP, [14, 184, 272, 58], tr!(PropsSeedingGoal));
+    t.item(BUTTON, ID_OVERRIDE_GOAL, check, [21, 196, 200, 10], tr!(PropsOverrideGoal));
+    t.item(STATIC, 0xffff, C, [21, 212, 200, 9], tr!(PropsRatio));
     t.item(EDIT, ID_RATIO, NUMBER, [230, 210, 49, 13], "");
-    t.item(STATIC, 0xffff, C, [21, 228, 200, 9], "Minimum seeding time (minutes): [0: no time goal]");
+    t.item(STATIC, 0xffff, C, [21, 228, 200, 9], tr!(PropsSeedTime));
     t.item(EDIT, ID_MINUTES, NUMBER, [230, 226, 49, 13], "");
 
-    t.item(BUTTON, 0xffff, GROUP, [14, 246, 272, 44], "Other Settings");
-    t.item(BUTTON, ID_INITIAL_SEEDING, check, [21, 258, 120, 10], "Initial Seeding");
-    t.item(BUTTON, ID_DHT, check, [21, 272, 120, 10], "Enable DHT");
-    t.item(BUTTON, ID_PEX, check, [150, 258, 120, 10], "Peer Exchange");
+    t.item(BUTTON, 0xffff, GROUP, [14, 246, 272, 44], tr!(PropsOther));
+    t.item(BUTTON, ID_INITIAL_SEEDING, check, [21, 258, 120, 10], tr!(PropsInitialSeeding));
+    t.item(BUTTON, ID_DHT, check, [21, 272, 120, 10], tr!(PropsDht));
+    t.item(BUTTON, ID_PEX, check, [150, 258, 120, 10], tr!(PropsPex));
 
     // last, so it lies under the page's controls (and does not take their clicks)
     t.item(Class::Name("SysTabControl32"), ID_TABS, C | WS_CLIPSIBLINGS, [7, 7, 286, 290], "");
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [189, 303, 50, 14], "OK");
-    t.item(BUTTON, IDCANCEL as u16, TAB | BS_PUSHBUTTON as u32, [243, 303, 50, 14], "Cancel");
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [189, 303, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, TAB | BS_PUSHBUTTON as u32, [243, 303, 50, 14], tr!(BtnCancel));
     t.finish()
 }
 
@@ -156,7 +157,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
 unsafe fn init(dlg: HWND, st: &State) {
     unsafe {
         set_text(dlg, &st.title);
-        let mut text = wide("General");
+        let mut text = wide(tr!(TabGeneral));
         let mut tab: TCITEMW = zeroed();
         tab.mask = TCIF_TEXT;
         tab.pszText = text.as_mut_ptr();
@@ -269,8 +270,8 @@ unsafe fn report(dlg: HWND, st: &mut State, e: FieldError) {
 /// The dialog's title: "Properties - name" for one torrent.
 pub fn title(names: &[String]) -> String {
     match names {
-        [one] => format!("Properties - {one}"),
-        _ => format!("Properties - {} torrents", names.len()),
+        [one] => tr!(PropsTitle, name = one),
+        _ => tr!(PropsTitleMany, count = names.len()),
     }
 }
 

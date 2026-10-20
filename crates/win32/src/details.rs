@@ -8,7 +8,8 @@ use std::sync::Arc;
 
 use patorrent_core::{AnnounceEntry, Bitfield, FileEntry, PartialPiece, PeerInfo, TorrentId, TorrentStatus};
 use patorrent_frontend::detail::{self, BlockKind, ColumnDef};
-use patorrent_frontend::{columns::RowExtra, fmt, status::status_text};
+use patorrent_frontend::lang::S;
+use patorrent_frontend::{columns::RowExtra, fmt, status::status_text, tr};
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -35,7 +36,20 @@ impl Page {
     pub const ALL: [Page; 7] =
         [Page::General, Page::Trackers, Page::Peers, Page::Pieces, Page::Files, Page::Speed, Page::Logger];
 
-    pub fn title(self) -> &'static str {
+    pub fn title(self) -> S {
+        match self {
+            Page::General => S::TabGeneral,
+            Page::Trackers => S::TabTrackers,
+            Page::Peers => S::TabPeers,
+            Page::Pieces => S::TabPieces,
+            Page::Files => S::TabFiles,
+            Page::Speed => S::TabSpeed,
+            Page::Logger => S::TabLogger,
+        }
+    }
+
+    /// The name kept in the preferences (`ui.tab`), whatever the language.
+    pub fn key(self) -> &'static str {
         match self {
             Page::General => "General",
             Page::Trackers => "Trackers",
@@ -57,7 +71,7 @@ impl Page {
     }
 
     pub fn columns(self) -> &'static [ColumnDef] {
-        const LOG: [ColumnDef; 1] = [("Message", 900, false)];
+        const LOG: [ColumnDef; 1] = [(S::ColMessage, 900, false)];
         match self {
             Page::Trackers => &detail::TRACKER_COLUMNS,
             Page::Peers => &detail::PEER_COLUMNS,
@@ -262,7 +276,7 @@ pub unsafe fn paint(page: Page, c: &PaintCtx<'_>) {
 
 unsafe fn general(c: &PaintCtx<'_>) {
     let Some((st, x)) = c.status else {
-        unsafe { hint(c, "Select a torrent to see its details.") };
+        unsafe { hint(c, tr!(GenSelectTorrent)) };
         return;
     };
     let pad = c.s(8);
@@ -275,8 +289,8 @@ unsafe fn general(c: &PaintCtx<'_>) {
         // Downloaded and availability bars.
         let pieces = c.detail.have.as_ref().map_or(st.pieces_total as usize, |h| h.len());
         let bars: [(&str, String); 2] = [
-            ("Downloaded:", fmt::percent(st.progress_ppm)),
-            ("Availability:", fmt::availability(st.distributed_copies)),
+            (tr!(GenDownloaded), fmt::percent(st.progress_ppm)),
+            (tr!(GenAvailability), fmt::availability(st.distributed_copies)),
         ];
         for (i, (label, value)) in bars.iter().enumerate() {
             let row = RECT { left, top: y, right, bottom: y + line };
@@ -310,38 +324,38 @@ unsafe fn general(c: &PaintCtx<'_>) {
         }
 
         y += c.s(6);
-        y = section(c, "Transfer", y);
+        y = section(c, tr!(GenTransfer), y);
         let remaining = st.total_wanted.saturating_sub(st.total_wanted_done);
         let grid: [[(&str, String); 3]; 4] = [
             [
-                ("Time Elapsed:", fmt::duration(st.active_duration)),
-                ("Remaining:", if st.is_finished { String::new() } else { fmt::eta(st.eta()) }),
-                ("Wasted:", fmt::size(st.total_failed_bytes + st.total_redundant_bytes)),
+                (tr!(GenTimeElapsed), fmt::duration(st.active_duration)),
+                (tr!(GenRemaining), if st.is_finished { String::new() } else { fmt::eta(st.eta()) }),
+                (tr!(GenWasted), fmt::size(st.total_failed_bytes + st.total_redundant_bytes)),
             ],
             [
-                ("Downloaded:", fmt::size(st.all_time_download)),
-                ("Uploaded:", fmt::size(st.all_time_upload)),
+                (tr!(GenDownloaded), fmt::size(st.all_time_download)),
+                (tr!(GenUploaded), fmt::size(st.all_time_upload)),
                 (
-                    "Seeds:",
-                    format!("{} of {} connected", st.num_seeds, st.num_complete.unwrap_or(st.list_seeds)),
+                    tr!(GenSeeds),
+                    tr!(GenConnected, count = st.num_seeds, total = st.num_complete.unwrap_or(st.list_seeds)),
                 ),
             ],
             [
-                ("Download Speed:", fmt::speed_always(st.download_payload_rate)),
-                ("Upload Speed:", fmt::speed_always(st.upload_payload_rate)),
+                (tr!(GenDownloadSpeed), fmt::speed_always(st.download_payload_rate)),
+                (tr!(GenUploadSpeed), fmt::speed_always(st.upload_payload_rate)),
                 (
-                    "Peers:",
-                    format!(
-                        "{} of {} connected",
-                        st.num_peers.saturating_sub(st.num_seeds),
-                        st.num_incomplete.unwrap_or(st.list_peers.saturating_sub(st.list_seeds))
+                    tr!(GenPeers),
+                    tr!(
+                        GenConnected,
+                        count = st.num_peers.saturating_sub(st.num_seeds),
+                        total = st.num_incomplete.unwrap_or(st.list_peers.saturating_sub(st.list_seeds))
                     ),
                 ),
             ],
             [
-                ("Down Limit:", limit(st.download_limit)),
-                ("Up Limit:", limit(st.upload_limit)),
-                ("Share Ratio:", fmt::ratio(st.ratio())),
+                (tr!(GenDownLimit), limit(st.download_limit)),
+                (tr!(GenUpLimit), limit(st.upload_limit)),
+                (tr!(GenShareRatio), fmt::ratio(st.ratio())),
             ],
         ];
         let col_w = (right - left) / 3;
@@ -352,19 +366,24 @@ unsafe fn general(c: &PaintCtx<'_>) {
             }
             y += line;
         }
-        pair(c, left, y, right - left, "Status:", &status_text(st, x.user_paused));
+        pair(c, left, y, right - left, tr!(GenStatus), &status_text(st, x.user_paused));
         y += line + c.s(6);
 
-        y = section(c, "General", y);
+        y = section(c, tr!(GenGeneral), y);
         let pieces_text = if st.piece_length > 0 {
-            format!("{} x {} (have {})", st.pieces_total, fmt::size(st.piece_length as u64), st.num_pieces)
+            tr!(
+                GenPiecesValue,
+                count = st.pieces_total,
+                size = fmt::size(st.piece_length as u64),
+                have = st.num_pieces
+            )
         } else {
             String::new()
         };
         let rows: [(&str, String, &str, String); 3] = [
-            ("Save As:", st.save_path.clone(), "Remaining:", fmt::size(remaining)),
-            ("Total Size:", fmt::size(st.total), "Added On:", fmt::date_time(st.added_time)),
-            ("Pieces:", pieces_text, "Completed On:", fmt::date_time(st.completed_time)),
+            (tr!(GenSaveAs), st.save_path.clone(), tr!(GenRemaining), fmt::size(remaining)),
+            (tr!(GenTotalSize), fmt::size(st.total), tr!(GenAddedOn), fmt::date_time(st.added_time)),
+            (tr!(GenPieces), pieces_text, tr!(GenCompletedOn), fmt::date_time(st.completed_time)),
         ];
         let half = (right - left) * 2 / 3;
         for (l1, v1, l2, v2) in &rows {
@@ -372,7 +391,7 @@ unsafe fn general(c: &PaintCtx<'_>) {
             pair(c, left + half, y, right - left - half, l2, v2);
             y += line;
         }
-        pair(c, left, y, right - left, "Hash:", &st.info_hashes.key_hex().to_uppercase());
+        pair(c, left, y, right - left, tr!(GenHash), &st.info_hashes.key_hex().to_uppercase());
     }
 }
 
@@ -474,7 +493,7 @@ pub unsafe fn block_bar(hdc: HDC, rc: &RECT, p: &PartialPiece) {
 unsafe fn pieces(c: &PaintCtx<'_>) {
     let d = c.detail;
     let Some(have) = &d.have else {
-        let msg = if c.status.is_some() { "Waiting for piece information..." } else { "Select a torrent." };
+        let msg = if c.status.is_some() { tr!(PiecesWaiting) } else { tr!(PiecesSelectTorrent) };
         unsafe { hint(c, msg) };
         return;
     };
@@ -493,12 +512,10 @@ unsafe fn pieces(c: &PaintCtx<'_>) {
             right: c.rc.right - pad,
             bottom: c.rc.top + header,
         };
-        let dl = match d.partial.len() {
-            0 => String::new(),
-            k => format!(", {k} downloading (orange)"),
+        let s = match d.partial.len() {
+            0 => tr!(PiecesSummary, count = n, done = have.count()),
+            k => tr!(PiecesSummaryDownloading, count = n, done = have.count(), downloading = k),
         };
-        let s =
-            format!("{} pieces, {} done{dl}. Darker squares are pieces more peers have.", n, have.count());
         text(c.hdc, &s, &r, DT_LEFT | DT_END_ELLIPSIS);
         let rows_in = |h: i32| (h / (cell + gap)).max(0) as usize;
         let mut max_rows = rows_in(bottom - c.rc.top - header - pad);
@@ -529,7 +546,7 @@ unsafe fn pieces(c: &PaintCtx<'_>) {
         if shown < n {
             let y = bottom - c.s(18);
             let r = RECT { left: c.rc.left + pad, top: y, right: c.rc.right - pad, bottom };
-            text(c.hdc, &format!("... {} more", n - shown), &r, DT_RIGHT);
+            text(c.hdc, &tr!(PiecesMore, count = n - shown), &r, DT_RIGHT);
         }
     }
 }
@@ -590,8 +607,8 @@ unsafe fn speed(c: &PaintCtx<'_>) {
         let (down, up) = d.speed.back().copied().unwrap_or((0, 0));
         let mut x = plot.left;
         for (label, color) in [
-            (format!("Download: {}", fmt::speed_always(down)), DOWN_COLOR),
-            (format!("Upload: {}", fmt::speed_always(up)), UP_COLOR),
+            (tr!(SpeedDownload, rate = fmt::speed_always(down)), DOWN_COLOR),
+            (tr!(SpeedUpload, rate = fmt::speed_always(up)), UP_COLOR),
         ] {
             let swatch = RECT {
                 left: x,

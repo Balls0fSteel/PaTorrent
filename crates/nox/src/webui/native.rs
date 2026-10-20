@@ -15,9 +15,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use patorrent_core::{DownloadPriority, SessionHandle, TorrentId, VERSION};
 use patorrent_frontend::columns::{Align, Column};
 use patorrent_frontend::detail::{self, ColumnDef};
-use patorrent_frontend::fmt;
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::status::{Category, status_class, status_text};
+use patorrent_frontend::{fmt, lang, tr};
 
 use super::json::{self, Json};
 use super::{Entry, Reply, ReplyKind, SPEED_SAMPLES, State};
@@ -217,7 +217,10 @@ impl Client {
             Json::Arr(
                 cols.iter()
                     .map(|&(title, width, right)| {
-                        Json::obj().with("title", title).with("width", width as i64).with("right", right)
+                        Json::obj()
+                            .with("title", lang::text(title))
+                            .with("width", width as i64)
+                            .with("right", right)
                     })
                     .collect(),
             )
@@ -593,63 +596,71 @@ fn general(e: &Entry, st: &State, user_paused: bool, msg: &mut Json) -> bool {
         _ => String::new(),
     };
     let pieces = if s.piece_length > 0 {
-        format!("{} x {} (have {})", s.pieces_total, fmt::size(s.piece_length as u64), s.num_pieces)
+        tr!(
+            GenPiecesValue,
+            count = s.pieces_total,
+            size = fmt::size(s.piece_length as u64),
+            have = s.num_pieces
+        )
     } else {
         String::new()
     };
     let bars = vec![
         Json::Arr(vec![
-            "Downloaded:".into(),
+            tr!(GenDownloaded).into(),
             fmt::percent(s.progress_ppm).into(),
             (s.progress_ppm.min(1_000_000) / 1000).into(),
         ]),
         Json::Arr(vec![
-            "Availability:".into(),
+            tr!(GenAvailability).into(),
             fmt::availability(s.distributed_copies).into(),
             ((s.distributed_copies.unwrap_or(0.0).clamp(0.0, 1.0) * 1000.0) as i64).into(),
         ]),
     ];
     let transfer = vec![
-        pair("Time Elapsed:", fmt::duration(s.active_duration)),
-        pair("Remaining:", if s.is_finished { String::new() } else { fmt::eta(s.eta()) }),
-        pair("Wasted:", fmt::size(s.total_failed_bytes + s.total_redundant_bytes)),
-        pair("Downloaded:", fmt::size(s.all_time_download)),
-        pair("Uploaded:", fmt::size(s.all_time_upload)),
-        pair("Seeds:", format!("{} of {} connected", s.num_seeds, s.num_complete.unwrap_or(s.list_seeds))),
-        pair("Download Speed:", fmt::speed_always(s.download_payload_rate)),
-        pair("Upload Speed:", fmt::speed_always(s.upload_payload_rate)),
+        pair(tr!(GenTimeElapsed), fmt::duration(s.active_duration)),
+        pair(tr!(GenRemaining), if s.is_finished { String::new() } else { fmt::eta(s.eta()) }),
+        pair(tr!(GenWasted), fmt::size(s.total_failed_bytes + s.total_redundant_bytes)),
+        pair(tr!(GenDownloaded), fmt::size(s.all_time_download)),
+        pair(tr!(GenUploaded), fmt::size(s.all_time_upload)),
         pair(
-            "Peers:",
-            format!(
-                "{} of {} connected",
-                s.num_peers.saturating_sub(s.num_seeds),
-                s.num_incomplete.unwrap_or(s.list_peers.saturating_sub(s.list_seeds))
+            tr!(GenSeeds),
+            tr!(GenConnected, count = s.num_seeds, total = s.num_complete.unwrap_or(s.list_seeds)),
+        ),
+        pair(tr!(GenDownloadSpeed), fmt::speed_always(s.download_payload_rate)),
+        pair(tr!(GenUploadSpeed), fmt::speed_always(s.upload_payload_rate)),
+        pair(
+            tr!(GenPeers),
+            tr!(
+                GenConnected,
+                count = s.num_peers.saturating_sub(s.num_seeds),
+                total = s.num_incomplete.unwrap_or(s.list_peers.saturating_sub(s.list_seeds))
             ),
         ),
-        pair("Down Limit:", limit(s.download_limit)),
-        pair("Up Limit:", limit(s.upload_limit)),
-        pair("Share Ratio:", fmt::ratio(s.ratio())),
-        pair("Status:", status_text(s, user_paused)),
+        pair(tr!(GenDownLimit), limit(s.download_limit)),
+        pair(tr!(GenUpLimit), limit(s.upload_limit)),
+        pair(tr!(GenShareRatio), fmt::ratio(s.ratio())),
+        pair(tr!(GenStatus), status_text(s, user_paused)),
     ];
     let general = vec![
-        pair("Save As:", s.save_path.clone()),
-        pair("Remaining:", fmt::size(remaining)),
-        pair("Total Size:", fmt::size(s.total)),
-        pair("Added On:", fmt::date_time(s.added_time)),
-        pair("Pieces:", pieces),
-        pair("Completed On:", fmt::date_time(s.completed_time)),
-        pair("Created On:", meta.and_then(|m| m.creation_date).map(fmt::date_time).unwrap_or_default()),
-        pair("Created By:", meta.map(|m| m.created_by.clone()).unwrap_or_default()),
-        pair("Hash:", s.info_hashes.key_hex().to_uppercase()),
-        pair("Trackers:", trackers),
-        pair("Comment:", meta.map(|m| m.comment.clone()).unwrap_or_default()),
+        pair(tr!(GenSaveAs), s.save_path.clone()),
+        pair(tr!(GenRemaining), fmt::size(remaining)),
+        pair(tr!(GenTotalSize), fmt::size(s.total)),
+        pair(tr!(GenAddedOn), fmt::date_time(s.added_time)),
+        pair(tr!(GenPieces), pieces),
+        pair(tr!(GenCompletedOn), fmt::date_time(s.completed_time)),
+        pair(tr!(GenCreatedOn), meta.and_then(|m| m.creation_date).map(fmt::date_time).unwrap_or_default()),
+        pair(tr!(GenCreatedBy), meta.map(|m| m.created_by.clone()).unwrap_or_default()),
+        pair(tr!(GenHash), s.info_hashes.key_hex().to_uppercase()),
+        pair(tr!(GenTrackers), trackers),
+        pair(tr!(GenComment), meta.map(|m| m.comment.clone()).unwrap_or_default()),
     ];
     msg.set("bars", Json::Arr(bars));
     msg.set(
         "groups",
         Json::Arr(vec![
-            Json::obj().with("title", "Transfer").with("rows", Json::Arr(transfer)),
-            Json::obj().with("title", "General").with("rows", Json::Arr(general)),
+            Json::obj().with("title", tr!(GenTransfer)).with("rows", Json::Arr(transfer)),
+            Json::obj().with("title", tr!(GenGeneral)).with("rows", Json::Arr(general)),
         ]),
     );
     true
@@ -824,8 +835,8 @@ fn speed_axis(top: u32) -> Json {
 
 fn speed_legend(down: u32, up: u32) -> Json {
     Json::Arr(vec![
-        format!("Download: {}", fmt::speed_always(down)).into(),
-        format!("Upload: {}", fmt::speed_always(up)).into(),
+        tr!(SpeedDownload, rate = fmt::speed_always(down)).into(),
+        tr!(SpeedUpload, rate = fmt::speed_always(up)).into(),
     ])
 }
 

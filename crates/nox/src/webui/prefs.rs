@@ -19,9 +19,11 @@
 use std::path::Path;
 
 use patorrent_core::{IpFilter, ProxyType, Settings, TorrentFlags};
+use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::options::{self, GuiOptions};
 use patorrent_frontend::scheduler;
 use patorrent_frontend::settings::{self, Entry, Kind as SettingKind, TABLE, Value};
+use patorrent_frontend::tr;
 
 use super::auth::PasswordHash;
 use super::json::Json;
@@ -38,7 +40,7 @@ pub enum Kind {
     Text,
     Folder,
     /// A choice among labels; the value is the index.
-    Enum(&'static [&'static str]),
+    Enum(&'static [S]),
     /// Write-only: the value read back is always empty, an empty value sent changes nothing.
     Password,
     /// The scheduler's week: 168 `frontend::scheduler::Mode` codes, Monday 00:00 first.
@@ -101,7 +103,8 @@ impl Working {
 /// A field that is not an engine setting row.
 pub(crate) struct Field {
     pub id: &'static str,
-    pub label: &'static str,
+    /// `None`: the field shows with the control before it (a folder under its check box).
+    pub label: Option<S>,
     pub kind: Kind,
     pub readonly: bool,
     get: fn(&Working) -> Value,
@@ -129,9 +132,9 @@ fn string(v: Value) -> String {
 
 /// The proxy "Type" combo, in µTorrent 2.2.1's order (its "HTTPS" entry is our HTTP type);
 /// "Authentication" picks the `_pw` variant, SOCKS4 sends the user name as its user id.
-const PROXY_TYPES: [&str; 4] = ["(none)", "Socks4", "Socks5", "HTTP"];
+const PROXY_TYPES: [S; 4] = [S::PrefProxyNone, S::ProxySocks4, S::ProxySocks5, S::ProxyHttp];
 /// "Outgoing" encryption, in the combo's order.
-const ENC_OUT: [&str; 3] = ["Disabled", "Enabled", "Forced"];
+const ENC_OUT: [S; 3] = [S::EncDisabled, S::EncEnabled, S::EncForced];
 
 fn proxy_to_ui(s: &Settings) -> (i64, bool) {
     match s.proxy_type {
@@ -187,74 +190,74 @@ pub(crate) static FIELDS: &[Field] = &[
     // Directories
     field!(
         "dir.download",
-        "Put new downloads in:",
+        Some(S::PrefNewDownloadsIn),
         Kind::Folder,
         |w| Value::Str(w.prefs.save_path.clone()),
         |w, v| w.prefs.save_path = string(v).trim().to_owned()
     ),
     field!(
         "dir.move_completed",
-        "Move completed downloads to:",
+        Some(S::PrefMoveCompleted),
         Kind::Bool,
         |w| Value::Bool(w.prefs.move_completed),
         |w, v| w.prefs.move_completed = boolean(&v)
     ),
-    field!("dir.completed", "", Kind::Folder, |w| Value::Str(w.prefs.completed_dir.clone()), |w, v| w
+    field!("dir.completed", None, Kind::Folder, |w| Value::Str(w.prefs.completed_dir.clone()), |w, v| w
         .prefs
         .completed_dir =
         string(v).trim().to_owned()),
     field!(
         "dir.move_only_default",
-        "Only move from the default download directory",
+        Some(S::PrefMoveOnlyDefault),
         Kind::Bool,
         |w| Value::Bool(w.prefs.move_only_default),
         |w, v| w.prefs.move_only_default = boolean(&v)
     ),
     field!(
         "dir.store_torrents",
-        "Store .torrents in:",
+        Some(S::PrefStoreTorrents),
         Kind::Bool,
         |w| Value::Bool(w.prefs.torrent_folders.store),
         |w, v| w.prefs.torrent_folders.store = boolean(&v)
     ),
     field!(
         "dir.torrents",
-        "",
+        None,
         Kind::Folder,
         |w| Value::Str(w.prefs.torrent_folders.store_dir.clone()),
         |w, v| w.prefs.torrent_folders.store_dir = string(v).trim().to_owned()
     ),
     field!(
         "dir.move_torrents",
-        "Move .torrents for finished jobs to:",
+        Some(S::PrefMoveTorrents),
         Kind::Bool,
         |w| Value::Bool(w.prefs.torrent_folders.move_finished),
         |w, v| w.prefs.torrent_folders.move_finished = boolean(&v)
     ),
     field!(
         "dir.finished_torrents",
-        "",
+        None,
         Kind::Folder,
         |w| Value::Str(w.prefs.torrent_folders.finished_dir.clone()),
         |w, v| w.prefs.torrent_folders.finished_dir = string(v).trim().to_owned()
     ),
     field!(
         "dir.autoload",
-        "Automatically load .torrents from:",
+        Some(S::PrefAutoload),
         Kind::Bool,
         |w| Value::Bool(w.prefs.torrent_folders.autoload),
         |w, v| w.prefs.torrent_folders.autoload = boolean(&v)
     ),
     field!(
         "dir.autoload_dir",
-        "",
+        None,
         Kind::Folder,
         |w| Value::Str(w.prefs.torrent_folders.autoload_dir.clone()),
         |w, v| w.prefs.torrent_folders.autoload_dir = string(v).trim().to_owned()
     ),
     field!(
         "dir.autoload_delete",
-        "Delete loaded .torrents",
+        Some(S::PrefAutoloadDelete),
         Kind::Bool,
         |w| Value::Bool(w.prefs.torrent_folders.autoload_delete),
         |w, v| w.prefs.torrent_folders.autoload_delete = boolean(&v)
@@ -262,21 +265,21 @@ pub(crate) static FIELDS: &[Field] = &[
     // UI Settings
     field!(
         "ui.confirm_delete",
-        "Confirm when deleting torrents",
+        Some(S::PrefConfirmDelete),
         Kind::Bool,
         |w| Value::Bool(w.prefs.confirm_delete),
         |w, v| w.prefs.confirm_delete = boolean(&v)
     ),
     field!(
         "ui.add_stopped",
-        "Don't start the download automatically",
+        Some(S::PrefDontStart),
         Kind::Bool,
         |w| Value::Bool(w.prefs.start_paused),
         |w, v| w.prefs.start_paused = boolean(&v)
     ),
     field!(
         "ui.show_add_dialog",
-        "Show a window that displays the files inside the torrent",
+        Some(S::PrefShowAddDialog),
         Kind::Bool,
         |w| Value::Bool(w.prefs.show_add_dialog),
         |w, v| w.prefs.show_add_dialog = boolean(&v)
@@ -284,28 +287,28 @@ pub(crate) static FIELDS: &[Field] = &[
     // Connection
     field!(
         "listen_port",
-        "Port used for incoming connections:",
+        Some(S::PrefPort),
         Kind::Int { min: 1, max: 65535 },
         |w| Value::Int(settings::listen_port(&w.settings).map_or(0, i64::from)),
         |w, v| settings::set_listen_port(&mut w.settings, int(&v) as u16)
     ),
     field!(
         "net.random_port",
-        "Randomize port each start",
+        Some(S::PrefRandomize),
         Kind::Bool,
         |w| Value::Bool(w.prefs.random_port),
         |w, v| w.prefs.random_port = boolean(&v)
     ),
     field!(
         "proxy_kind",
-        "Type:",
+        Some(S::PrefProxyType),
         Kind::Enum(&PROXY_TYPES),
         |w| Value::Int(proxy_to_ui(&w.settings).0),
         |w, v| w.settings.proxy_type = proxy_from_ui(int(&v), proxy_to_ui(&w.settings).1)
     ),
     field!(
         "proxy_auth",
-        "Authentication",
+        Some(S::PrefAuthentication),
         Kind::Bool,
         |w| Value::Bool(proxy_to_ui(&w.settings).1),
         |w, v| w.settings.proxy_type = proxy_from_ui(proxy_to_ui(&w.settings).0, boolean(&v))
@@ -313,14 +316,14 @@ pub(crate) static FIELDS: &[Field] = &[
     // Bandwidth
     field!(
         "bt.max_peers",
-        "Maximum number of connected peers per torrent: [0: no limit]",
+        Some(S::PrefPeersPerTorrent),
         Kind::Int { min: 0, max: 65535 },
         |w| Value::Int(w.prefs.max_peers_per_torrent as i64),
         |w, v| w.prefs.max_peers_per_torrent = int(&v) as u32
     ),
     field!(
         "bt.upload_slots",
-        "Number of upload slots per torrent: [0: no limit]",
+        Some(S::PrefSlotsPerTorrent),
         Kind::Int { min: 0, max: 65535 },
         |w| Value::Int(w.prefs.upload_slots_per_torrent as i64),
         |w, v| w.prefs.upload_slots_per_torrent = int(&v) as u32
@@ -328,71 +331,77 @@ pub(crate) static FIELDS: &[Field] = &[
     // Queueing > Seeding Goal (`frontend::seeding`)
     field!(
         "queue.seed_ratio",
-        "Minimum ratio (%): [0: no ratio goal]",
+        Some(S::PrefRatio),
         Kind::Int { min: 0, max: 1_000_000 },
         |w| Value::Int(w.prefs.seeding_goal.goal.ratio_pct as i64),
         |w, v| w.prefs.seeding_goal.goal.ratio_pct = int(&v) as u32
     ),
     field!(
         "queue.seed_time",
-        "Minimum seeding time (minutes): [0: no time goal]",
+        Some(S::PrefSeedTime),
         Kind::Int { min: 0, max: 1_000_000 },
         |w| Value::Int(w.prefs.seeding_goal.goal.minutes as i64),
         |w, v| w.prefs.seeding_goal.goal.minutes = int(&v) as u32
     ),
     field!(
         "queue.seed_limit",
-        "Limit the upload rate instead of stopping the torrent",
+        Some(S::PrefGoalLimitInstead),
         Kind::Bool,
         |w| Value::Bool(w.prefs.seeding_goal.limit_upload),
         |w, v| w.prefs.seeding_goal.limit_upload = boolean(&v)
     ),
     field!(
         "queue.seed_limit_kib",
-        "Limit the upload rate to (kB/s): [0: stop]",
+        Some(S::PrefGoalLimit),
         Kind::Int { min: 0, max: RATE_MAX / 1024 },
         |w| Value::Int(w.prefs.seeding_goal.limit_kib as i64),
         |w, v| w.prefs.seeding_goal.limit_kib = int(&v) as u32
     ),
     field!(
         "alt_up_limit",
-        "Alternative upload rate (kB/s): [0: unlimited]",
+        Some(S::PrefAltUpRate),
         Kind::Int { min: 0, max: RATE_MAX },
         |w| Value::Int(w.prefs.alt_up_limit as i64),
         |w, v| w.prefs.alt_up_limit = int(&v) as u32
     ),
     field!(
         "alt_dl_limit",
-        "Alternative download rate (kB/s): [0: unlimited]",
+        Some(S::PrefAltDownRate),
         Kind::Int { min: 0, max: RATE_MAX },
         |w| Value::Int(w.prefs.alt_dl_limit as i64),
         |w, v| w.prefs.alt_dl_limit = int(&v) as u32
     ),
     field!(
         "alt_enabled",
-        "Use the alternative rate limits now",
+        Some(S::PrefUseAltRates),
         Kind::Bool,
         |w| Value::Bool(w.prefs.alt_enabled),
         |w, v| w.prefs.alt_enabled = boolean(&v)
     ),
     // BitTorrent
-    field!("bt.pex", "Enable Peer Exchange", Kind::Bool, |w| Value::Bool(w.prefs.pex), |w, v| w.prefs.pex =
+    field!("bt.pex", Some(S::PrefPex), Kind::Bool, |w| Value::Bool(w.prefs.pex), |w, v| w.prefs.pex =
         boolean(&v)),
     // uTP both ways; the four transports one by one are bt.transp_disposition on Advanced
     field!(
         "utp",
-        "Enable uTP (UDP transport with bandwidth management)",
+        Some(S::PrefUtp),
         Kind::Bool,
         |w| Value::Bool(w.settings.enable_outgoing_utp || w.settings.enable_incoming_utp),
         |w, v| (w.settings.enable_outgoing_utp, w.settings.enable_incoming_utp) = (boolean(&v), boolean(&v))
     ),
-    field!("enc_out", "Outgoing:", Kind::Enum(&ENC_OUT), |w| Value::Int(enc_out(&w.settings)), |w, v| {
-        let legacy = settings::allow_legacy_incoming(&w.settings);
-        settings::set_encryption(&mut w.settings, enc_policy(int(&v)), legacy)
-    }),
+    field!(
+        "enc_out",
+        Some(S::PrefOutgoing),
+        Kind::Enum(&ENC_OUT),
+        |w| Value::Int(enc_out(&w.settings)),
+        |w, v| {
+            let legacy = settings::allow_legacy_incoming(&w.settings);
+            settings::set_encryption(&mut w.settings, enc_policy(int(&v)), legacy)
+        }
+    ),
     field!(
         "enc_legacy",
-        "Allow incoming legacy connections",
+        Some(S::PrefLegacy),
         Kind::Bool,
         |w| Value::Bool(settings::allow_legacy_incoming(&w.settings)),
         |w, v| {
@@ -400,44 +409,47 @@ pub(crate) static FIELDS: &[Field] = &[
             settings::set_encryption(&mut w.settings, out, boolean(&v))
         }
     ),
-    field!("ipfilter.enable", "Enable IP filter", Kind::Bool, |w| Value::Bool(w.prefs.ip_filter), |w, v| w
-        .prefs
-        .ip_filter =
-        boolean(&v)),
-    field!("ipfilter.path", "", Kind::Text, |w| Value::Str(w.prefs.ip_filter_path.clone()), |w, v| w
+    field!(
+        "ipfilter.enable",
+        Some(S::PrefIpFilterEnable),
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.ip_filter),
+        |w, v| w.prefs.ip_filter = boolean(&v)
+    ),
+    field!("ipfilter.path", None, Kind::Text, |w| Value::Str(w.prefs.ip_filter_path.clone()), |w, v| w
         .prefs
         .ip_filter_path =
         string(v).trim().to_owned()),
     // Scheduler
     field!(
         "sched.enable",
-        "Enable Scheduler",
+        Some(S::PrefScheduler),
         Kind::Bool,
         |w| Value::Bool(w.prefs.schedule.enabled),
         |w, v| w.prefs.schedule.enabled = boolean(&v)
     ),
-    field!("sched.table", "", Kind::Schedule, |w| Value::Str(w.prefs.schedule.table_text()), |w, v| {
+    field!("sched.table", None, Kind::Schedule, |w| Value::Str(w.prefs.schedule.table_text()), |w, v| {
         if let Some(t) = scheduler::parse_table(&string(v)) {
             w.prefs.schedule.table = t;
         }
     }),
     field!(
         "sched.ul_rate",
-        "Limited upload rate (kB/s): [0: unlimited]",
+        Some(S::PrefSchedUp),
         Kind::Int { min: 0, max: RATE_MAX / 1024 },
         |w| Value::Int(w.prefs.schedule.limited_up_kib as i64),
         |w, v| w.prefs.schedule.limited_up_kib = int(&v) as u32
     ),
     field!(
         "sched.dl_rate",
-        "Limited download rate (kB/s): [0: unlimited]",
+        Some(S::PrefSchedDown),
         Kind::Int { min: 0, max: RATE_MAX / 1024 },
         |w| Value::Int(w.prefs.schedule.limited_down_kib as i64),
         |w, v| w.prefs.schedule.limited_down_kib = int(&v) as u32
     ),
     field!(
         "sched.dis_dht",
-        "Disable DHT when turning off",
+        Some(S::PrefSchedDht),
         Kind::Bool,
         |w| Value::Bool(w.prefs.schedule.disable_dht),
         |w, v| w.prefs.schedule.disable_dht = boolean(&v)
@@ -445,66 +457,73 @@ pub(crate) static FIELDS: &[Field] = &[
     // Web UI
     Field {
         id: "webui.listen",
-        label: "Listening address:",
+        label: Some(S::WebListenAddress),
         kind: Kind::Text,
         readonly: true,
         get: |w| Value::Str(w.listen.clone()),
         set: |_, _| {},
     },
-    field!("webui.username", "Username:", Kind::Text, |w| Value::Str(w.username.clone()), |w, v| w
-        .username =
-        string(v).trim().to_owned()),
-    field!("webui.password", "Password:", Kind::Password, |_w| Value::Str(String::new()), |w, v| {
-        let p = string(v);
-        if !p.is_empty() {
-            w.new_password = Some(p);
+    field!(
+        "webui.username",
+        Some(S::PrefUsername),
+        Kind::Text,
+        |w| Value::Str(w.username.clone()),
+        |w, v| w.username = string(v).trim().to_owned()
+    ),
+    field!(
+        "webui.password",
+        Some(S::PrefPassword),
+        Kind::Password,
+        |_w| Value::Str(String::new()),
+        |w, v| {
+            let p = string(v);
+            if !p.is_empty() {
+                w.new_password = Some(p);
+            }
         }
-    }),
+    ),
     field!(
         "webui.bypass_local_auth",
-        "Bypass authentication for clients on localhost",
+        Some(S::WebBypassLocal),
         Kind::Bool,
         |w| Value::Bool(w.prefs.bypass_local_auth),
         |w, v| w.prefs.bypass_local_auth = boolean(&v)
     ),
     field!(
         "webui.host_header_validation",
-        "Enable Host header validation",
+        Some(S::WebHostHeader),
         Kind::Bool,
         |w| Value::Bool(w.prefs.host_header_validation),
         |w, v| w.prefs.host_header_validation = boolean(&v)
     ),
     field!(
         "webui.domain_list",
-        "Server domains (separate multiple entries with a semicolon):",
+        Some(S::WebDomains),
         Kind::Text,
         |w| Value::Str(w.prefs.domain_list.clone()),
         |w, v| w.prefs.domain_list = string(v).trim().to_owned()
     ),
-    field!(
-        "webui.csrf",
-        "Enable Cross-Site Request Forgery (CSRF) protection",
-        Kind::Bool,
-        |w| Value::Bool(w.prefs.csrf_protection),
-        |w, v| w.prefs.csrf_protection = boolean(&v)
-    ),
+    field!("webui.csrf", Some(S::WebCsrf), Kind::Bool, |w| Value::Bool(w.prefs.csrf_protection), |w, v| w
+        .prefs
+        .csrf_protection =
+        boolean(&v)),
     field!(
         "webui.max_auth_fail_count",
-        "Ban client after consecutive failures:",
+        Some(S::WebBanAfter),
         Kind::Int { min: 0, max: 1000 },
         |w| Value::Int(w.prefs.max_auth_fail_count as i64),
         |w, v| w.prefs.max_auth_fail_count = int(&v) as u32
     ),
     field!(
         "webui.ban_duration",
-        "Ban for (seconds):",
+        Some(S::WebBanFor),
         Kind::Int { min: 1, max: YEAR },
         |w| Value::Int(w.prefs.ban_duration as i64),
         |w, v| w.prefs.ban_duration = int(&v) as u64
     ),
     field!(
         "webui.session_timeout",
-        "Session timeout (seconds):",
+        Some(S::WebSessionTimeout),
         Kind::Int { min: 1, max: YEAR },
         |w| Value::Int(w.prefs.session_timeout as i64),
         |w, v| w.prefs.session_timeout = int(&v) as u64
@@ -513,30 +532,30 @@ pub(crate) static FIELDS: &[Field] = &[
 
 /// The 2.2.1 wording of the engine settings the pages show (the Advanced table shows the
 /// libtorrent names); a row not listed here is labelled by its name.
-const LABELS: &[(&str, &str)] = &[
-    ("enable_upnp", "Enable UPnP port mapping"),
-    ("enable_natpmp", "Enable NAT-PMP port mapping"),
-    ("proxy_hostname", "Proxy:"),
-    ("proxy_port", "Port:"),
-    ("proxy_username", "Username:"),
-    ("proxy_password", "Password:"),
-    ("proxy_hostnames", "Resolve hostnames through proxy"),
-    ("proxy_peer_connections", "Use proxy for peer-to-peer connections"),
-    ("proxy_tracker_connections", "Use proxy for tracker connections"),
-    ("upload_rate_limit", "Maximum upload rate (kB/s): [0: unlimited]"),
-    ("download_rate_limit", "Maximum download rate (kB/s): [0: unlimited]"),
-    ("connections_limit", "Global maximum number of connections:"),
-    ("unchoke_slots_limit", "Global number of upload slots: [-1: no limit]"),
-    ("enable_dht", "Enable DHT Network"),
-    ("enable_lsd", "Enable Local Peer Discovery"),
-    ("active_limit", "Maximum number of active torrents (upload or download): [-1: no limit]"),
-    ("active_downloads", "Maximum number of active downloads: [-1: no limit]"),
-    ("active_seeds", "Maximum number of active seeds: [-1: no limit]"),
-    ("dont_count_slow_torrents", "Don't count slow torrents toward these limits"),
-    ("max_queued_disk_bytes", "Disk write queue (kB):"),
-    ("file_pool_size", "Maximum number of open files:"),
-    ("aio_threads", "Disk I/O threads (used from the next start):"),
-    ("hashing_threads", "Hashing threads (used from the next start):"),
+const LABELS: &[(&str, S)] = &[
+    ("enable_upnp", S::PrefUpnp),
+    ("enable_natpmp", S::PrefNatPmp),
+    ("proxy_hostname", S::PrefProxy),
+    ("proxy_port", S::PrefProxyPort),
+    ("proxy_username", S::PrefUsername),
+    ("proxy_password", S::PrefPassword),
+    ("proxy_hostnames", S::PrefProxyNames),
+    ("proxy_peer_connections", S::PrefProxyPeers),
+    ("proxy_tracker_connections", S::PrefProxyTrackers),
+    ("upload_rate_limit", S::PrefUpRate),
+    ("download_rate_limit", S::PrefDownRate),
+    ("connections_limit", S::PrefMaxConnections),
+    ("unchoke_slots_limit", S::PrefGlobalSlots),
+    ("enable_dht", S::PrefDht),
+    ("enable_lsd", S::PrefLsd),
+    ("active_limit", S::PrefActive),
+    ("active_downloads", S::PrefActiveDownloads),
+    ("active_seeds", S::PrefActiveSeeds),
+    ("dont_count_slow_torrents", S::PrefSlow),
+    ("max_queued_disk_bytes", S::PrefDiskWriteQueue),
+    ("file_pool_size", S::PrefOpenFiles),
+    ("aio_threads", S::PrefAioThreads),
+    ("hashing_threads", S::PrefHashThreads),
 ];
 
 /// One editable thing: an engine setting row or one of [`FIELDS`].
@@ -556,8 +575,10 @@ impl Def {
 
     fn label(&self) -> &'static str {
         match self {
-            Def::Setting(e) => LABELS.iter().find(|(n, _)| *n == e.name).map_or(e.name, |(_, l)| l),
-            Def::Own(f) => f.label,
+            Def::Setting(e) => {
+                LABELS.iter().find(|(n, _)| *n == e.name).map_or(e.name, |(_, l)| lang::text(*l))
+            }
+            Def::Own(f) => f.label.map_or("", lang::text),
         }
     }
 
@@ -605,29 +626,32 @@ impl Def {
             Kind::Bool => match t.to_ascii_lowercase().as_str() {
                 "true" | "1" | "yes" | "on" => Ok(Value::Bool(true)),
                 "false" | "0" | "no" | "off" => Ok(Value::Bool(false)),
-                _ => Err(format!("expected true or false, not \"{t}\"")),
+                _ => Err(tr!(SettingNotBool, value = t)),
             },
             Kind::Int { min, max } => match t.parse::<i64>() {
                 Ok(i) if (min..=max).contains(&i) => Ok(Value::Int(i)),
-                Ok(_) => Err(format!("{t} is outside {min}..{max}")),
-                Err(_) => Err(format!("\"{t}\" is not a number")),
+                Ok(_) => Err(tr!(SettingOutOfRange, value = t, min, max)),
+                Err(_) => Err(tr!(SettingNotNumber, value = t)),
             },
             Kind::Enum(options) => match t.parse::<i64>() {
                 Ok(i) if (0..options.len() as i64).contains(&i) => Ok(Value::Int(i)),
-                Ok(_) => Err(format!("{t} is outside 0..{}", options.len() - 1)),
+                Ok(_) => Err(tr!(SettingOutOfRange, value = t, min = 0, max = options.len() - 1)),
+                // by name: the English one (what scripts send) or the current language's
                 Err(_) => options
                     .iter()
-                    .position(|o| o.eq_ignore_ascii_case(t))
+                    .position(|&o| {
+                        o.english().eq_ignore_ascii_case(t) || lang::text(o).eq_ignore_ascii_case(t)
+                    })
                     .map(|i| Value::Int(i as i64))
-                    .ok_or_else(|| format!("\"{t}\" is not one of {}", options.join(", "))),
+                    .ok_or_else(|| {
+                        let names: Vec<&str> = options.iter().map(|&o| lang::text(o)).collect();
+                        tr!(SettingNotOneOf, value = t, options = names.join(", "))
+                    }),
             },
             Kind::Text | Kind::Folder | Kind::Password => Ok(Value::Str(text.to_owned())),
             Kind::Schedule => match scheduler::parse_table(t) {
                 Some(_) => Ok(Value::Str(t.to_owned())),
-                None => Err(format!(
-                    "expected {} hours, each 0 (full speed), 1 (turn off), 2 (limited) or 3 (seeding only)",
-                    scheduler::CELLS
-                )),
+                None => Err(tr!(SettingBadSchedule, count = scheduler::CELLS)),
             },
         }
     }
@@ -709,34 +733,37 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
     vec![
         page(
             "general",
-            "General",
+            tr!(PageGeneral),
             vec![
-                group(Some("Language"), vec![stub("User interface:").with("text", "English")]),
                 group(
-                    Some("Windows Integration"),
+                    Some(tr!(PrefLanguage)),
+                    vec![stub(tr!(PrefUiLanguage)).with("text", tr!(LangEnglish))],
+                ),
+                group(
+                    Some(tr!(PrefIntegration)),
                     vec![
-                        stub("Associate with .torrent files"),
-                        stub("Associate with magnet: links"),
-                        stub("Start PaTorrent on system startup"),
-                        note("File associations and autostart belong to the desktop client."),
+                        stub(tr!(PrefAssocTorrent)),
+                        stub(tr!(PrefAssocMagnet)),
+                        stub(tr!(PrefAutostart)),
+                        note(tr!(PrefDesktopOnly)),
                     ],
                 ),
             ],
         ),
         page(
             "ui",
-            "UI Settings",
+            tr!(PageUi),
             vec![
-                group(Some("Display Options"), vec![f("ui.confirm_delete")]),
-                group(Some("When Adding Torrents"), vec![f("ui.add_stopped"), f("ui.show_add_dialog")]),
+                group(Some(tr!(PrefDisplay)), vec![f("ui.confirm_delete")]),
+                group(Some(tr!(PrefWhenAdding)), vec![f("ui.add_stopped"), f("ui.show_add_dialog")]),
             ],
         ),
         page(
             "directories",
-            "Directories",
+            tr!(PageDirectories),
             vec![
                 group(
-                    Some("Location of Downloaded Files"),
+                    Some(tr!(PrefDownloadLocation)),
                     vec![
                         f("dir.download"),
                         f("dir.move_completed"),
@@ -745,7 +772,7 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                     ],
                 ),
                 group(
-                    Some("Location of .torrents"),
+                    Some(tr!(PrefTorrentLocation)),
                     vec![
                         f("dir.store_torrents"),
                         enabled_by(f("dir.torrents"), "dir.store_torrents"),
@@ -760,14 +787,14 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
         ),
         page(
             "connection",
-            "Connection",
+            tr!(PageConnection),
             vec![
                 group(
-                    Some("Listening Port"),
+                    Some(tr!(PrefListeningPort)),
                     vec![
                         row(vec![
                             f("listen_port"),
-                            Json::obj().with("button", "Random port").with("action", "random_port"),
+                            Json::obj().with("button", tr!(PrefRandomPort)).with("action", "random_port"),
                         ]),
                         f("net.random_port"),
                         f("enable_upnp"),
@@ -775,7 +802,7 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                     ],
                 ),
                 group(
-                    Some("Proxy Server"),
+                    Some(tr!(PrefProxyServer)),
                     vec![
                         row(vec![f("proxy_kind"), f("proxy_hostname"), ranged("proxy_port", 0, 65535)]),
                         f("proxy_auth"),
@@ -792,12 +819,12 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
         ),
         page(
             "bandwidth",
-            "Bandwidth",
+            tr!(PageBandwidth),
             vec![
-                group(Some("Global Upload Rate Limiting"), vec![kb("upload_rate_limit")]),
-                group(Some("Global Download Rate Limiting"), vec![kb("download_rate_limit")]),
+                group(Some(tr!(PrefUpLimiting)), vec![kb("upload_rate_limit")]),
+                group(Some(tr!(PrefDownLimiting)), vec![kb("download_rate_limit")]),
                 group(
-                    Some("Number of Connections"),
+                    Some(tr!(PrefConnections)),
                     vec![
                         ranged("connections_limit", 2, 65535),
                         f("bt.max_peers"),
@@ -805,38 +832,38 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                         ranged("unchoke_slots_limit", -1, 65535),
                     ],
                 ),
-                group(None, vec![note("The per-torrent limits apply to torrents added from now on.")]),
+                group(None, vec![note(tr!(PrefPerTorrentNote))]),
                 group(
-                    Some("Alternative Rate Limits"),
+                    Some(tr!(PrefAltRates)),
                     vec![kb("alt_up_limit"), kb("alt_dl_limit"), f("alt_enabled")],
                 ),
             ],
         ),
         page(
             "bittorrent",
-            "BitTorrent",
+            tr!(PageBitTorrent),
             vec![
                 group(
-                    Some("Basic BitTorrent Features"),
+                    Some(tr!(PrefBasicFeatures)),
                     vec![f("enable_dht"), f("enable_lsd"), f("bt.pex"), f("utp")],
                 ),
-                group(Some("Protocol Encryption"), vec![f("enc_out"), f("enc_legacy")]),
+                group(Some(tr!(PrefEncryption)), vec![f("enc_out"), f("enc_legacy")]),
                 group(
-                    Some("IP Filter"),
+                    Some(tr!(PrefIpFilter)),
                     vec![
                         f("ipfilter.enable"),
                         enabled_by(f("ipfilter.path"), "ipfilter.enable"),
-                        note(format!("An empty path loads {}.", ipf_default.display())),
+                        note(tr!(PrefIpFilterEmptyPath, path = ipf_default.display())),
                     ],
                 ),
             ],
         ),
         page(
             "queueing",
-            "Queueing",
+            tr!(PageQueueing),
             vec![
                 group(
-                    Some("Queue Settings"),
+                    Some(tr!(PrefQueue)),
                     vec![
                         ranged("active_limit", -1, 65535),
                         ranged("active_downloads", -1, 65535),
@@ -845,11 +872,11 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                     ],
                 ),
                 group(
-                    Some("Seeding Goal"),
+                    Some(tr!(PrefSeedingGoal)),
                     vec![
                         f("queue.seed_ratio"),
                         f("queue.seed_time"),
-                        note("When a torrent reaches the seeding goal (forced torrents never do):"),
+                        note(tr!(PrefGoalReached)),
                         f("queue.seed_limit"),
                         enabled_by(f("queue.seed_limit_kib"), "queue.seed_limit"),
                     ],
@@ -858,12 +885,12 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
         ),
         page(
             "scheduler",
-            "Scheduler",
+            tr!(PageScheduler),
             vec![
                 group(None, vec![f("sched.enable")]),
-                group(Some("Scheduler Table"), vec![enabled_by(f("sched.table"), "sched.enable")]),
+                group(Some(tr!(PrefSchedTable)), vec![enabled_by(f("sched.table"), "sched.enable")]),
                 group(
-                    Some("Scheduler Settings"),
+                    Some(tr!(PrefSchedSettings)),
                     vec![
                         enabled_by(f("sched.ul_rate"), "sched.enable"),
                         enabled_by(f("sched.dl_rate"), "sched.enable"),
@@ -874,15 +901,15 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
         ),
         page(
             "webui",
-            "Web UI",
+            tr!(PageWebUi),
             vec![
-                group(None, vec![stub("Enable Web UI").with("on", true)]),
+                group(None, vec![stub(tr!(PrefWebUi)).with("on", true)]),
                 group(
-                    Some("Authentication"),
+                    Some(tr!(PrefAuthentication)),
                     vec![f("webui.username"), f("webui.password"), f("webui.bypass_local_auth")],
                 ),
                 group(
-                    Some("Connectivity"),
+                    Some(tr!(PrefConnectivity)),
                     vec![
                         f("webui.listen"),
                         f("webui.host_header_validation"),
@@ -891,28 +918,19 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                     ],
                 ),
                 group(
-                    Some("Security"),
+                    Some(tr!(PrefSecurity)),
                     vec![f("webui.max_auth_fail_count"), f("webui.ban_duration"), f("webui.session_timeout")],
                 ),
             ],
         ),
-        page(
-            "advanced",
-            "Advanced",
-            vec![group(
-                None,
-                vec![note(
-                    "libtorrent setting names; changed values are shown in bold. Values are applied with OK or Apply.",
-                )],
-            )],
-        )
-        .with("advanced", true),
+        page("advanced", tr!(PageAdvanced), vec![group(None, vec![note(tr!(PrefAdvancedNoteWeb))])])
+            .with("advanced", true),
         page(
             "diskcache",
-            "Disk Cache",
+            tr!(PageDiskCache),
             vec![
                 group(
-                    Some("Disk Queue and Files"),
+                    Some(tr!(PrefDiskQueue)),
                     vec![
                         kb("max_queued_disk_bytes").with("min", 1024),
                         ranged("file_pool_size", 1, 65535),
@@ -920,13 +938,7 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                         ranged("hashing_threads", 1, 64),
                     ],
                 ),
-                group(
-                    None,
-                    vec![note(
-                        "PaTorrent has no disk read/write cache yet, so µTorrent's cache size settings have no \
-                         counterpart; these are the limits of the engine's disk queue.",
-                    )],
-                ),
+                group(None, vec![note(tr!(PrefDiskCacheNote))]),
             ],
         )
         .with("under", "advanced"),
@@ -954,7 +966,7 @@ pub(crate) fn model(shared: &Shared, st: &State) -> Json {
                 j.set("max", max);
             }
             Kind::Enum(options) => {
-                j.set("options", Json::Arr(options.iter().map(|o| Json::from(*o)).collect()));
+                j.set("options", Json::Arr(options.iter().map(|&o| Json::from(lang::text(o))).collect()));
             }
             _ => {}
         }
@@ -1000,30 +1012,30 @@ pub(crate) fn validate(w: &Working) -> Result<(), Refusal> {
     let refuse = |id: &str, why: &str| Err((id.to_owned(), why.to_owned()));
     if w.settings.proxy_type != ProxyType::None {
         if w.settings.proxy_hostname.trim().is_empty() {
-            return refuse("proxy_hostname", "Please enter the proxy server's address.");
+            return refuse("proxy_hostname", tr!(PrefNoProxyHost));
         }
         if w.settings.proxy_port == 0 {
-            return refuse("proxy_port", "Please enter the proxy server's port.");
+            return refuse("proxy_port", tr!(PrefNoProxyPort));
         }
     }
     if w.prefs.save_path.trim().is_empty() {
-        return refuse("dir.download", "Please choose a folder for new downloads.");
+        return refuse("dir.download", tr!(PrefNoDownloadDir));
     }
     if w.prefs.move_completed && w.prefs.completed_dir.is_empty() {
-        return refuse("dir.completed", "Please choose a folder for completed downloads.");
+        return refuse("dir.completed", tr!(PrefNoCompletedDir));
     }
     let tf = &w.prefs.torrent_folders;
     if tf.store && tf.store_dir.is_empty() {
-        return refuse("dir.torrents", "Please choose a folder to store .torrents in.");
+        return refuse("dir.torrents", tr!(PrefNoStoreDir));
     }
     if tf.store && tf.move_finished && tf.finished_dir.is_empty() {
-        return refuse("dir.finished_torrents", "Please choose a folder for the .torrents of finished jobs.");
+        return refuse("dir.finished_torrents", tr!(PrefNoFinishedDir));
     }
     if tf.autoload && tf.autoload_dir.is_empty() {
-        return refuse("dir.autoload_dir", "Please choose a folder to load .torrents from.");
+        return refuse("dir.autoload_dir", tr!(PrefNoAutoloadDir));
     }
     if w.username.is_empty() {
-        return refuse("webui.username", "Please enter a user name.");
+        return refuse("webui.username", tr!(PrefNoUsername));
     }
     Ok(())
 }
@@ -1047,13 +1059,13 @@ pub(crate) fn commit(shared: &Shared, st: &mut State, changes: &[Change]) -> Res
         if on {
             match shared.handle.load_ip_filter(&file) {
                 Ok(n) => {
-                    st.push_log(None, format!("IP filter: {n} rules from {}", file.display()), unix_now())
+                    st.push_log(None, tr!(LogIpFilterRules, count = n, path = file.display()), unix_now())
                 }
                 Err(e) => return Err(("ipfilter.path".to_owned(), format!("{}: {e}", file.display()))),
             }
         } else {
             shared.handle.set_ip_filter(IpFilter::new());
-            st.push_log(None, "IP filter off".to_owned(), unix_now());
+            st.push_log(None, tr!(LogIpFilterOff).to_owned(), unix_now());
         }
     }
     if w.prefs.pex != old.prefs.pex {
@@ -1201,9 +1213,11 @@ pub(crate) fn restore(shared: &Shared, st: &mut State, loaded_ip_filter: Option<
         if loaded_ip_filter != Some(file.as_path()) {
             match shared.handle.load_ip_filter(&file) {
                 Ok(n) => {
-                    st.push_log(None, format!("IP filter: {n} rules from {}", file.display()), unix_now())
+                    st.push_log(None, tr!(LogIpFilterRules, count = n, path = file.display()), unix_now())
                 }
-                Err(e) => st.push_log(None, format!("IP filter: {}: {e}", file.display()), unix_now()),
+                Err(e) => {
+                    st.push_log(None, tr!(LogIpFilterError, path = file.display(), error = e), unix_now())
+                }
             }
         }
     } else if loaded_ip_filter.is_some() {

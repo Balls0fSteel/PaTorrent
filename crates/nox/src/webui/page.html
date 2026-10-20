@@ -8,44 +8,47 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<!-- Texts come from the string table (lang.js, app.js `translatePage`): data-t is an element's
+     text, data-t-title / data-t-aria / data-t-ph its title, aria-label and placeholder. The
+     English stays in place for a page without scripts; a test keeps it equal to the table. -->
 <form id="login" hidden>
   <h1>PaTorrent</h1>
-  <input name="username" placeholder="User name" autocomplete="username" required>
-  <input name="password" type="password" placeholder="Password" autocomplete="current-password" required>
-  <button>Log in</button>
+  <input name="username" placeholder="User name" data-t-ph="WebUserName" autocomplete="username" required>
+  <input name="password" type="password" placeholder="Password" data-t-ph="WebPassword" autocomplete="current-password" required>
+  <button data-t="WebLogIn">Log in</button>
   <p id="login-error"></p>
 </form>
 <div id="app" hidden>
   <div id="toolbar" role="toolbar">
-    <button type="button" id="tb-menu" class="only-phone" title="Categories" aria-label="Categories" aria-expanded="false">&#9776;</button>
-    <button type="button" id="tb-add" title="Add Torrent"><span class="only-desk">Add Torrent</span><span class="only-phone">Add</span></button>
-    <button type="button" id="tb-add-url" class="only-desk" title="Add Torrent from URL">Add URL</button>
+    <button type="button" id="tb-menu" class="only-phone" title="Categories" aria-label="Categories" data-t-title="WebCategories" data-t-aria="WebCategories" aria-expanded="false">&#9776;</button>
+    <button type="button" id="tb-add" title="Add Torrent" data-t-title="ToolAddTorrent"><span class="only-desk" data-t="ToolAddTorrent">Add Torrent</span><span class="only-phone" data-t="WebAdd">Add</span></button>
+    <button type="button" id="tb-add-url" class="only-desk" title="Add Torrent from URL" data-t-title="ToolAddUrl" data-t="WebAddUrl">Add URL</button>
     <span class="sep only-desk"></span>
-    <button type="button" id="tb-remove" data-cmd="remove" title="Remove">Remove</button>
+    <button type="button" id="tb-remove" data-cmd="remove" title="Remove" data-t-title="ToolRemove" data-t="ToolRemove">Remove</button>
     <span class="sep only-desk"></span>
-    <button type="button" id="tb-start" data-cmd="start" title="Start">Start</button>
-    <button type="button" id="tb-pause" data-cmd="pause" title="Pause">Pause</button>
-    <button type="button" id="tb-stop" class="only-desk" data-cmd="stop" title="Stop">Stop</button>
+    <button type="button" id="tb-start" data-cmd="start" title="Start" data-t-title="ToolStart" data-t="ToolStart">Start</button>
+    <button type="button" id="tb-pause" data-cmd="pause" title="Pause" data-t-title="ToolPause" data-t="ToolPause">Pause</button>
+    <button type="button" id="tb-stop" class="only-desk" data-cmd="stop" title="Stop" data-t-title="ToolStop" data-t="ToolStop">Stop</button>
     <span class="sep only-desk"></span>
-    <button type="button" id="tb-up" class="only-desk" data-cmd="queue_up" title="Move Up Queue">Up</button>
-    <button type="button" id="tb-down" class="only-desk" data-cmd="queue_down" title="Move Down Queue">Down</button>
+    <button type="button" id="tb-up" class="only-desk" data-cmd="queue_up" title="Move Up Queue" data-t-title="ToolQueueUp" data-t="WebUp">Up</button>
+    <button type="button" id="tb-down" class="only-desk" data-cmd="queue_down" title="Move Down Queue" data-t-title="ToolQueueDown" data-t="WebDown">Down</button>
     <span class="sep only-desk"></span>
-    <button type="button" id="tb-rss" class="only-desk" title="RSS Downloader">RSS</button>
-    <button type="button" id="tb-prefs" class="only-desk" title="Preferences (Ctrl+P)">Preferences</button>
+    <button type="button" id="tb-rss" class="only-desk" title="RSS Downloader" data-t-title="ToolRss" data-t="WebRss">RSS</button>
+    <button type="button" id="tb-prefs" class="only-desk" title="Preferences (Ctrl+P)" data-t="ToolPreferences">Preferences</button>
     <span class="grow"></span>
-    <button type="button" id="tb-seldone" class="only-phone" title="End the selection" hidden>Done</button>
-    <button type="button" id="tb-more" class="only-phone" title="More" aria-label="More">&#8943;</button>
-    <input id="search" type="search" placeholder="Search" autocomplete="off" aria-label="Search torrents">
-    <button type="button" id="logout" class="only-desk" title="Log out">Log out</button>
+    <button type="button" id="tb-seldone" class="only-phone" title="End the selection" data-t-title="WebEndSelection" data-t="WebDone" hidden>Done</button>
+    <button type="button" id="tb-more" class="only-phone" title="More" aria-label="More" data-t-title="WebMore" data-t-aria="WebMore">&#8943;</button>
+    <input id="search" type="search" placeholder="Search" data-t-ph="WebSearch" autocomplete="off" aria-label="Search torrents" data-t-aria="WebSearchTorrents">
+    <button type="button" id="logout" class="only-desk" title="Log out" data-t-title="WebLogOut" data-t="WebLogOut">Log out</button>
     <input id="file" type="file" accept=".torrent,application/x-bittorrent" multiple hidden>
   </div>
   <div id="main">
-    <nav id="tree" aria-label="Categories"></nav>
+    <nav id="tree" aria-label="Categories" data-t-aria="WebCategories"></nav>
     <div id="split-v" class="splitter v" role="separator" aria-orientation="vertical"></div>
     <div id="right">
       <div id="list">
         <div id="hdr" class="hdr"><div id="hdr-row" class="hrow"></div></div>
-        <div id="body" class="body" tabindex="0" role="grid" aria-label="Torrents" aria-multiselectable="true">
+        <div id="body" class="body" tabindex="0" role="grid" aria-label="Torrents" data-t-aria="CatTorrents" aria-multiselectable="true">
           <div id="spacer"></div>
         </div>
       </div>
@@ -53,16 +56,16 @@
       <div id="detail">
         <div id="sheet-head" class="only-phone">
           <span id="sheet-title"></span>
-          <button type="button" id="sheet-close" title="Close" aria-label="Close details">&#10005;</button>
+          <button type="button" id="sheet-close" title="Close" aria-label="Close details" data-t-title="BtnClose" data-t-aria="WebCloseDetails">&#10005;</button>
         </div>
         <div id="tabs" role="tablist">
-          <button type="button" role="tab" data-tab="general" class="on">General</button>
-          <button type="button" role="tab" data-tab="trackers">Trackers</button>
-          <button type="button" role="tab" data-tab="peers">Peers</button>
-          <button type="button" role="tab" data-tab="pieces">Pieces</button>
-          <button type="button" role="tab" data-tab="files">Files</button>
-          <button type="button" role="tab" data-tab="speed">Speed</button>
-          <button type="button" role="tab" data-tab="logger">Logger</button>
+          <button type="button" role="tab" data-tab="general" class="on" data-t="TabGeneral">General</button>
+          <button type="button" role="tab" data-tab="trackers" data-t="TabTrackers">Trackers</button>
+          <button type="button" role="tab" data-tab="peers" data-t="TabPeers">Peers</button>
+          <button type="button" role="tab" data-tab="pieces" data-t="TabPieces">Pieces</button>
+          <button type="button" role="tab" data-tab="files" data-t="TabFiles">Files</button>
+          <button type="button" role="tab" data-tab="speed" data-t="TabSpeed">Speed</button>
+          <button type="button" role="tab" data-tab="logger" data-t="TabLogger">Logger</button>
         </div>
         <div id="tab-body" role="tabpanel"></div>
       </div>
@@ -82,179 +85,180 @@
 </div>
 <dialog id="add" aria-labelledby="add-title">
   <form id="add-form">
-    <h2 id="add-title">Add New Torrent</h2>
+    <h2 id="add-title" data-t="AddTitle">Add New Torrent</h2>
     <div class="add-cols">
       <div class="add-left">
         <fieldset>
-          <legend>Save In</legend>
-          <input id="add-save" list="add-dirs" autocomplete="off" aria-label="Save in">
+          <legend data-t="AddSaveIn">Save In</legend>
+          <input id="add-save" list="add-dirs" autocomplete="off" aria-label="Save In" data-t-aria="AddSaveIn">
           <datalist id="add-dirs"></datalist>
         </fieldset>
         <fieldset>
-          <legend>Name</legend>
-          <input id="add-name" autocomplete="off" aria-label="Name">
+          <legend data-t="AddName">Name</legend>
+          <input id="add-name" autocomplete="off" aria-label="Name" data-t-aria="ColName">
         </fieldset>
         <fieldset>
-          <legend>Torrent Options</legend>
-          <label><input type="checkbox" id="add-skip"> Skip hash check</label>
-          <label><input type="checkbox" id="add-start" checked> Start torrent</label>
-          <label><input type="checkbox" id="add-top"> Add to top of queue</label>
-          <label class="lbl">Label: <input id="add-label" list="add-labels" autocomplete="off"></label>
+          <legend data-t="AddOptions">Torrent Options</legend>
+          <label><input type="checkbox" id="add-skip"> <span data-t="AddSkipCheck">Skip hash check</span></label>
+          <label><input type="checkbox" id="add-start" checked> <span data-t="AddStart">Start torrent</span></label>
+          <label><input type="checkbox" id="add-top"> <span data-t="AddTopOfQueue">Add to top of queue</span></label>
+          <label class="lbl"><span data-t="AddLabel">Label:</span> <input id="add-label" list="add-labels" autocomplete="off"></label>
           <datalist id="add-labels"></datalist>
         </fieldset>
       </div>
       <fieldset class="add-right">
-        <legend>Torrent Contents</legend>
+        <legend data-t="AddContents">Torrent Contents</legend>
         <div class="add-info">
-          <b>Name:</b><span id="add-t-name"></span>
-          <b>Comment:</b><span id="add-t-comment"></span>
-          <b>Size:</b><span id="add-t-size"></span>
-          <b>Date:</b><span id="add-t-date"></span>
+          <b data-t="AddTorrentName">Name:</b><span id="add-t-name"></span>
+          <b data-t="AddComment">Comment:</b><span id="add-t-comment"></span>
+          <b data-t="AddSize">Size:</b><span id="add-t-size"></span>
+          <b data-t="AddDate">Date:</b><span id="add-t-date"></span>
         </div>
         <div id="add-files" role="tree"></div>
         <div class="add-btns">
-          <button type="button" id="add-all">Select All</button>
-          <button type="button" id="add-none">Select None</button>
+          <button type="button" id="add-all" data-t="MenuSelectAll">Select All</button>
+          <button type="button" id="add-none" data-t="MenuSelectNone">Select None</button>
         </div>
       </fieldset>
     </div>
     <div class="add-ok">
-      <button type="submit" id="add-ok">OK</button>
-      <button type="button" id="add-cancel">Cancel</button>
+      <button type="submit" id="add-ok" data-t="BtnOk">OK</button>
+      <button type="button" id="add-cancel" data-t="BtnCancel">Cancel</button>
     </div>
   </form>
 </dialog>
 <dialog id="prefs" aria-labelledby="prefs-title">
   <form id="prefs-form">
-    <h2 id="prefs-title">Preferences</h2>
+    <h2 id="prefs-title" data-t="PrefTitle">Preferences</h2>
     <div class="prefs-cols">
-      <nav id="prefs-tree" role="tree" aria-label="Preference pages"></nav>
+      <nav id="prefs-tree" role="tree" aria-label="Preference pages" data-t-aria="WebPrefPages"></nav>
       <div id="prefs-page"></div>
     </div>
     <div class="prefs-btns">
       <span id="prefs-msg" role="status"></span>
-      <button type="submit" id="prefs-ok">OK</button>
-      <button type="button" id="prefs-cancel">Cancel</button>
-      <button type="button" id="prefs-apply">Apply</button>
+      <button type="submit" id="prefs-ok" data-t="BtnOk">OK</button>
+      <button type="button" id="prefs-cancel" data-t="BtnCancel">Cancel</button>
+      <button type="button" id="prefs-apply" data-t="BtnApply">Apply</button>
     </div>
   </form>
 </dialog>
 <!-- Torrent Properties: the Win32 dialog's General tab (frontend::properties) -->
 <dialog id="props" aria-labelledby="props-title">
   <form id="props-form" novalidate>
-    <h2 id="props-title">Properties</h2>
-    <div class="props-tabs" role="tablist"><span role="tab" aria-selected="true">General</span></div>
+    <h2 id="props-title" data-t="MenuProperties">Properties</h2>
+    <div class="props-tabs" role="tablist"><span role="tab" aria-selected="true" data-t="TabGeneral">General</span></div>
     <div class="props-page">
       <fieldset class="pg">
-        <legend>Trackers (a blank line between tiers)</legend>
-        <textarea id="props-trackers" data-f="trackers" rows="6" wrap="off" spellcheck="false" autocomplete="off" aria-label="Trackers"></textarea>
+        <legend data-t="PropsTrackers">Trackers (a blank line between tiers)</legend>
+        <textarea id="props-trackers" data-f="trackers" rows="6" wrap="off" spellcheck="false" autocomplete="off" aria-label="Trackers" data-t-aria="TabTrackers"></textarea>
       </fieldset>
       <fieldset class="pg">
-        <legend>Bandwidth Settings</legend>
-        <label class="pf num"><span>Maximum upload rate (kB/s): [0: unlimited]</span><input data-f="upload_kib" inputmode="numeric" autocomplete="off"></label>
-        <label class="pf num"><span>Maximum download rate (kB/s): [0: unlimited]</span><input data-f="download_kib" inputmode="numeric" autocomplete="off"></label>
-        <label class="pf num"><span>Number of upload slots: [0: unlimited]</span><input data-f="upload_slots" inputmode="numeric" autocomplete="off"></label>
-        <label class="pf chk"><input type="checkbox" data-f="override_slots"> Override default number of upload slots</label>
+        <legend data-t="PropsBandwidth">Bandwidth Settings</legend>
+        <label class="pf num"><span data-t="PropsUpRate">Maximum upload rate (kB/s): [0: unlimited]</span><input data-f="upload_kib" inputmode="numeric" autocomplete="off"></label>
+        <label class="pf num"><span data-t="PropsDownRate">Maximum download rate (kB/s): [0: unlimited]</span><input data-f="download_kib" inputmode="numeric" autocomplete="off"></label>
+        <label class="pf num"><span data-t="PropsSlots">Number of upload slots: [0: unlimited]</span><input data-f="upload_slots" inputmode="numeric" autocomplete="off"></label>
+        <label class="pf chk"><input type="checkbox" data-f="override_slots"> <span data-t="PropsOverrideSlots">Override default number of upload slots</span></label>
       </fieldset>
       <fieldset class="pg">
-        <legend>Seeding Goal</legend>
-        <label class="pf chk"><input type="checkbox" data-f="override_goal"> Override default settings</label>
-        <label class="pf num"><span>Minimum ratio (%): [0: no ratio goal]</span><input data-f="goal_ratio" inputmode="numeric" autocomplete="off"></label>
-        <label class="pf num"><span>Minimum seeding time (minutes): [0: no time goal]</span><input data-f="goal_minutes" inputmode="numeric" autocomplete="off"></label>
+        <legend data-t="PropsSeedingGoal">Seeding Goal</legend>
+        <label class="pf chk"><input type="checkbox" data-f="override_goal"> <span data-t="PropsOverrideGoal">Override default settings</span></label>
+        <label class="pf num"><span data-t="PropsRatio">Minimum ratio (%): [0: no ratio goal]</span><input data-f="goal_ratio" inputmode="numeric" autocomplete="off"></label>
+        <label class="pf num"><span data-t="PropsSeedTime">Minimum seeding time (minutes): [0: no time goal]</span><input data-f="goal_minutes" inputmode="numeric" autocomplete="off"></label>
       </fieldset>
       <fieldset class="pg props-other">
-        <legend>Other Settings</legend>
-        <label class="pf chk"><input type="checkbox" data-f="initial_seeding"> Initial Seeding</label>
-        <label class="pf chk"><input type="checkbox" data-f="pex"> Peer Exchange</label>
-        <label class="pf chk"><input type="checkbox" data-f="dht"> Enable DHT</label>
+        <legend data-t="PropsOther">Other Settings</legend>
+        <label class="pf chk"><input type="checkbox" data-f="initial_seeding"> <span data-t="PropsInitialSeeding">Initial Seeding</span></label>
+        <label class="pf chk"><input type="checkbox" data-f="pex"> <span data-t="PropsPex">Peer Exchange</span></label>
+        <label class="pf chk"><input type="checkbox" data-f="dht"> <span data-t="PropsDht">Enable DHT</span></label>
       </fieldset>
     </div>
     <p id="props-err" role="alert" hidden></p>
     <div class="props-btns">
-      <button type="submit" id="props-ok">OK</button>
-      <button type="button" id="props-cancel">Cancel</button>
+      <button type="submit" id="props-ok" data-t="BtnOk">OK</button>
+      <button type="button" id="props-cancel" data-t="BtnCancel">Cancel</button>
     </div>
   </form>
 </dialog>
 <!-- the RSS Downloader (app.js "the RSS Downloader") -->
 <dialog id="rss" aria-labelledby="rss-title">
   <div id="rss-body">
-    <h2 id="rss-title">RSS Downloader</h2>
+    <h2 id="rss-title" data-t="RssTitle">RSS Downloader</h2>
     <div class="rss-cols">
       <div class="rss-left">
-        <div class="rss-cap">Feeds</div>
-        <div id="rss-feed-list" class="rss-list" role="listbox" aria-label="Feeds"></div>
+        <div class="rss-cap" data-t="RssFeeds">Feeds</div>
+        <div id="rss-feed-list" class="rss-list" role="listbox" aria-label="Feeds" data-t-aria="RssFeeds"></div>
         <div id="rss-feed-status" class="rss-status" role="status"></div>
         <div class="rss-btns">
-          <button type="button" id="rss-feed-add">Add...</button>
-          <button type="button" id="rss-feed-edit">Edit...</button>
-          <button type="button" id="rss-feed-remove">Remove</button>
-          <button type="button" id="rss-feed-update">Update</button>
+          <button type="button" id="rss-feed-add" data-t="RssFeedsAdd">Add...</button>
+          <button type="button" id="rss-feed-edit" data-t="RssFeedsEdit">Edit...</button>
+          <button type="button" id="rss-feed-remove" data-t="RssFeedsRemove">Remove</button>
+          <button type="button" id="rss-feed-update" data-t="RssFeedsUpdate">Update</button>
         </div>
       </div>
       <div class="rss-right">
         <div id="rss-tabs" role="tablist">
-          <button type="button" role="tab" data-tab="items">Items</button>
-          <button type="button" role="tab" data-tab="filters">Filters</button>
-          <button type="button" role="tab" data-tab="history">History</button>
+          <button type="button" role="tab" data-tab="items" data-t="WebRssItems">Items</button>
+          <button type="button" role="tab" data-tab="filters" data-t="RssTabFilters">Filters</button>
+          <button type="button" role="tab" data-tab="history" data-t="RssTabHistory">History</button>
         </div>
         <div class="rss-page" data-tab="items" hidden>
           <div class="rss-table"><table id="rss-items"></table></div>
-          <div class="rss-btns"><button type="button" id="rss-item-dl">Download</button></div>
+          <div class="rss-btns"><button type="button" id="rss-item-dl" data-t="MenuDownload">Download</button></div>
         </div>
         <div class="rss-page rss-filters" data-tab="filters">
           <div class="rss-fl">
-            <div id="rss-filter-list" class="rss-list" aria-label="Filters"></div>
+            <div id="rss-filter-list" class="rss-list" aria-label="Filters" data-t-aria="RssTabFilters"></div>
             <div class="rss-btns">
-              <button type="button" id="rss-filter-add">Add</button>
-              <button type="button" id="rss-filter-remove">Remove</button>
-              <button type="button" id="rss-filter-up">Up</button>
-              <button type="button" id="rss-filter-down">Down</button>
+              <button type="button" id="rss-filter-add" data-t="RssFilterAdd">Add</button>
+              <button type="button" id="rss-filter-remove" data-t="RssFilterRemove">Remove</button>
+              <button type="button" id="rss-filter-up" data-t="RssFilterUp">Up</button>
+              <button type="button" id="rss-filter-down" data-t="RssFilterDown">Down</button>
             </div>
           </div>
           <div id="rss-fields">
-            <label>Name:<input id="rss-x-name" autocomplete="off"></label>
-            <label>Filter:<input id="rss-x-pattern" autocomplete="off"></label>
-            <label>Not:<input id="rss-x-not" autocomplete="off"></label>
-            <label>Save in:<span class="rss-pair"><input id="rss-x-save_in" autocomplete="off"><button type="button" id="rss-browse">...</button></span></label>
-            <label>Feed:<select id="rss-x-feed"></select></label>
-            <label>Quality:<button type="button" id="rss-x-quality">All</button></label>
-            <label>Episode number:<span class="rss-pair"><input id="rss-x-episodes" autocomplete="off"><span class="rss-hint">[ex. 1x12-14]</span></span></label>
-            <label>Minimum interval:<select id="rss-x-min_interval"></select></label>
-            <label>Label:<input id="rss-x-label" list="rss-labels" autocomplete="off"></label>
+            <label><span data-t="RssName">Name:</span><input id="rss-x-name" autocomplete="off"></label>
+            <label><span data-t="RssFilter">Filter:</span><input id="rss-x-pattern" autocomplete="off"></label>
+            <label><span data-t="RssNot">Not:</span><input id="rss-x-not" autocomplete="off"></label>
+            <label><span data-t="RssSaveIn">Save in:</span><span class="rss-pair"><input id="rss-x-save_in" autocomplete="off"><button type="button" id="rss-browse">...</button></span></label>
+            <label><span data-t="RssFeed">Feed:</span><select id="rss-x-feed"></select></label>
+            <label><span data-t="RssQuality">Quality:</span><button type="button" id="rss-x-quality" data-t="RssQualityAll">All</button></label>
+            <label><span data-t="RssEpisodes">Episode number:</span><span class="rss-pair"><input id="rss-x-episodes" autocomplete="off"><span class="rss-hint" data-t="RssEpisodesExample">[ex. 1x12-14]</span></span></label>
+            <label><span data-t="RssMinInterval">Minimum interval:</span><select id="rss-x-min_interval"></select></label>
+            <label><span data-t="RssLabel">Label:</span><input id="rss-x-label" list="rss-labels" autocomplete="off"></label>
             <datalist id="rss-labels"></datalist>
             <span class="rss-checks">
-              <label><input type="checkbox" id="rss-x-smart"> Smart ep. filter</label>
-              <label><input type="checkbox" id="rss-x-top_priority"> Give download highest priority</label>
-              <label><input type="checkbox" id="rss-x-paused"> Add torrent in paused state</label>
+              <label><input type="checkbox" id="rss-x-smart"> <span data-t="RssSmart">Smart ep. filter</span></label>
+              <label><input type="checkbox" id="rss-x-top_priority"> <span data-t="RssHighPriority">Give download highest priority</span></label>
+              <label><input type="checkbox" id="rss-x-paused"> <span data-t="RssPaused">Add torrent in paused state</span></label>
             </span>
-            <div class="rss-cap">Matching items in the feeds:</div>
+            <div class="rss-cap" data-t="RssMatching">Matching items in the feeds:</div>
             <div id="rss-preview" class="rss-list"></div>
           </div>
         </div>
         <div class="rss-page" data-tab="history" hidden>
           <div class="rss-table"><table id="rss-history"></table></div>
-          <div class="rss-btns"><button type="button" id="rss-history-clear">Clear History</button></div>
+          <div class="rss-btns"><button type="button" id="rss-history-clear" data-t="RssClearHistory">Clear History</button></div>
         </div>
       </div>
     </div>
-    <div class="rss-ok"><button type="button" id="rss-close">Close</button></div>
+    <div class="rss-ok"><button type="button" id="rss-close" data-t="BtnClose">Close</button></div>
   </div>
   <dialog id="rss-feed" aria-labelledby="rss-feed-title">
     <form id="rss-feed-form">
-      <h2 id="rss-feed-title">Add RSS Feed</h2>
-      <label class="rss-line">Feed URL:<input id="rss-f-url" autocomplete="off" inputmode="url"></label>
-      <label class="rss-line">Custom Alias:<input id="rss-f-alias" autocomplete="off"></label>
+      <h2 id="rss-feed-title" data-t="RssAddFeed">Add RSS Feed</h2>
+      <label class="rss-line"><span data-t="RssFeedUrl">Feed URL:</span><input id="rss-f-url" autocomplete="off" inputmode="url"></label>
+      <label class="rss-line"><span data-t="RssAlias">Custom Alias:</span><input id="rss-f-alias" autocomplete="off"></label>
       <fieldset>
-        <legend>Subscription</legend>
-        <label><input type="radio" name="rss-auto" id="rss-f-noauto"> Do not automatically download all items</label>
-        <label><input type="radio" name="rss-auto" id="rss-f-auto"> Automatically download all items published in feed</label>
-        <label class="rss-sub"><input type="checkbox" id="rss-f-smart"> Use smart episode filter</label>
+        <legend data-t="RssSubscription">Subscription</legend>
+        <label><input type="radio" name="rss-auto" id="rss-f-noauto"> <span data-t="RssNoAuto">Do not automatically download all items</span></label>
+        <label><input type="radio" name="rss-auto" id="rss-f-auto"> <span data-t="RssAuto">Automatically download all items published in feed</span></label>
+        <label class="rss-sub"><input type="checkbox" id="rss-f-smart"> <span data-t="RssSmartAuto">Use smart episode filter</span></label>
       </fieldset>
-      <div class="rss-ok"><span id="rss-f-msg" role="status"></span><button type="submit">OK</button><button type="button" id="rss-f-cancel">Cancel</button></div>
+      <div class="rss-ok"><span id="rss-f-msg" role="status"></span><button type="submit" data-t="BtnOk">OK</button><button type="button" id="rss-f-cancel" data-t="BtnCancel">Cancel</button></div>
     </form>
   </dialog>
 </dialog>
+<script src="lang.js"></script>
 <script src="app.js"></script>
 </body>
 </html>

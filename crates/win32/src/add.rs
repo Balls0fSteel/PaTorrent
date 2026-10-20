@@ -14,7 +14,7 @@ use std::ptr::{null, null_mut};
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_frontend::add::{self, AddChoice, Check, FileTree};
 use patorrent_frontend::detail::{PRIORITIES, priority_text};
-use patorrent_frontend::fmt;
+use patorrent_frontend::{fmt, lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     COLOR_WINDOW, CreateCompatibleBitmap, CreateCompatibleDC, DFC_BUTTON, DFCS_BUTTON3STATE,
@@ -153,31 +153,31 @@ fn template() -> Vec<u16> {
     const VALUE: u32 = C | SS_NOPREFIX | SS_ENDELLIPSIS;
     let list = TAB | WS_BORDER | LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS;
     let mut t = Template::new(420, 258);
-    t.item(BUTTON, 0xffff, GROUP, [7, 4, 176, 34], "Save In");
+    t.item(BUTTON, 0xffff, GROUP, [7, 4, 176, 34], tr!(AddSaveIn));
     t.item(COMBOBOX, ID_SAVE, COMBO, [14, 17, 140, 150], "");
     t.item(BUTTON, ID_BROWSE, PUSH, [158, 16, 18, 14], "...");
-    t.item(BUTTON, 0xffff, GROUP, [7, 42, 176, 32], "&Name");
+    t.item(BUTTON, 0xffff, GROUP, [7, 42, 176, 32], tr!(AddName));
     t.item(EDIT, ID_NAME, LINE, [14, 55, 162, 13], "");
-    t.item(BUTTON, 0xffff, GROUP, [7, 78, 176, 82], "Torrent Options");
-    t.item(BUTTON, ID_SKIP, CHECK, [14, 91, 162, 10], "Skip &hash check");
-    t.item(BUTTON, ID_START, CHECK, [14, 105, 162, 10], "&Start torrent");
-    t.item(BUTTON, ID_TOP, CHECK, [14, 119, 162, 10], "Add to &top of queue");
-    t.item(STATIC, 0xffff, C, [14, 138, 28, 9], "&Label:");
+    t.item(BUTTON, 0xffff, GROUP, [7, 78, 176, 82], tr!(AddOptions));
+    t.item(BUTTON, ID_SKIP, CHECK, [14, 91, 162, 10], tr!(AddSkipCheck));
+    t.item(BUTTON, ID_START, CHECK, [14, 105, 162, 10], tr!(AddStart));
+    t.item(BUTTON, ID_TOP, CHECK, [14, 119, 162, 10], tr!(AddTopOfQueue));
+    t.item(STATIC, 0xffff, C, [14, 138, 28, 9], tr!(AddLabel));
     t.item(COMBOBOX, ID_LABEL, COMBO | CBS_SORT as u32, [44, 136, 132, 120], "");
-    t.item(BUTTON, 0xffff, GROUP, [190, 4, 223, 226], "Torrent Contents");
-    t.item(STATIC, 0xffff, C, [197, 16, 36, 9], "Name:");
+    t.item(BUTTON, 0xffff, GROUP, [190, 4, 223, 226], tr!(AddContents));
+    t.item(STATIC, 0xffff, C, [197, 16, 36, 9], tr!(AddTorrentName));
     t.item(STATIC, ID_T_NAME, VALUE, [236, 16, 170, 9], "");
-    t.item(STATIC, 0xffff, C, [197, 27, 36, 9], "Comment:");
+    t.item(STATIC, 0xffff, C, [197, 27, 36, 9], tr!(AddComment));
     t.item(STATIC, ID_T_COMMENT, VALUE, [236, 27, 170, 9], "");
-    t.item(STATIC, 0xffff, C, [197, 38, 36, 9], "Size:");
+    t.item(STATIC, 0xffff, C, [197, 38, 36, 9], tr!(AddSize));
     t.item(STATIC, ID_T_SIZE, VALUE, [236, 38, 170, 9], "");
-    t.item(STATIC, 0xffff, C, [197, 49, 36, 9], "Date:");
+    t.item(STATIC, 0xffff, C, [197, 49, 36, 9], tr!(AddDate));
     t.item(STATIC, ID_T_DATE, VALUE, [236, 49, 170, 9], "");
     t.item(Class::Name("SysListView32"), ID_FILES, list, [197, 62, 209, 144], "");
-    t.item(BUTTON, ID_ALL, PUSH, [197, 210, 56, 14], "Select &All");
-    t.item(BUTTON, ID_NONE, PUSH, [257, 210, 56, 14], "Select N&one");
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [309, 238, 50, 14], "OK");
-    t.item(BUTTON, IDCANCEL as u16, PUSH, [363, 238, 50, 14], "Cancel");
+    t.item(BUTTON, ID_ALL, PUSH, [197, 210, 56, 14], tr!(MenuSelectAll));
+    t.item(BUTTON, ID_NONE, PUSH, [257, 210, 56, 14], tr!(MenuSelectNone));
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [309, 238, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, PUSH, [363, 238, 50, 14], tr!(BtnCancel));
     t.finish()
 }
 
@@ -245,7 +245,7 @@ unsafe fn dlu(dlg: HWND, x: i32) -> i32 {
 
 unsafe fn init(dlg: HWND, st: &mut State) {
     unsafe {
-        set_text(dlg, "Add New Torrent");
+        set_text(dlg, tr!(AddTitle));
         let save = item(dlg, ID_SAVE);
         for d in &st.setup.save_dirs {
             let w = wide(d);
@@ -275,7 +275,7 @@ unsafe fn init(dlg: HWND, st: &mut State) {
         let ex = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP;
         send(lv, LVM_SETEXTENDEDLISTVIEWSTYLE, ex as usize, ex as isize);
         // columns in dialog units, like the rest of the layout (the list is 209 wide)
-        let cols = [("Name", 108, false), ("Size", 42, true), ("Priority", 40, false)];
+        let cols = [(tr!(ColName), 108, false), (tr!(ColSize), 42, true), (tr!(ColPriority), 40, false)];
         for (i, (title, width, right)) in cols.into_iter().enumerate() {
             let mut text = wide(title);
             let mut c: LVCOLUMNW = zeroed();
@@ -359,7 +359,7 @@ unsafe fn command(dlg: HWND, st: &mut State, id: u16, code: u32) -> bool {
     unsafe {
         match id {
             ID_BROWSE => {
-                if let Some(p) = crate::create::pick_folder(dlg, "Select the folder to save the torrent in") {
+                if let Some(p) = crate::create::pick_folder(dlg, tr!(AddPickFolder)) {
                     set_text(item(dlg, ID_SAVE), &p);
                     update_size(dlg, st);
                 }
@@ -401,7 +401,7 @@ unsafe fn collect(dlg: HWND, st: &State) -> Option<AddChoice> {
     unsafe {
         let save_path = window_text(item(dlg, ID_SAVE)).trim().trim_matches('"').to_owned();
         if save_path.is_empty() {
-            dialogs::error(dlg, "Please choose the folder to save the torrent in.");
+            dialogs::error(dlg, tr!(AddNoFolder));
             SetFocus(item(dlg, ID_SAVE));
             return None;
         }
@@ -429,7 +429,8 @@ unsafe fn update_size(dlg: HWND, st: &State) {
         let (sel, all) = st.tree.sizes();
         let mut text = add::size_text(sel, all);
         if let Some(free) = free_space(&window_text(item(dlg, ID_SAVE))) {
-            text.push_str(&format!(" (disk space: {} free)", fmt::size(free)));
+            text.push(' ');
+            text.push_str(&tr!(AddDiskSpace, free = fmt::size(free)));
         }
         set_text(item(dlg, ID_T_SIZE), &text);
     }
@@ -547,7 +548,7 @@ unsafe fn display(st: &mut State, it: &mut windows_sys::Win32::UI::Controls::LVI
         let text = match it.iSubItem {
             0 => row.name.to_owned(),
             1 => fmt::size(row.size),
-            _ => row.priority.map_or("Mixed", priority_text).to_owned(),
+            _ => row.priority.map_or(tr!(AddMixed), priority_text).to_owned(),
         };
         unsafe { copy_to(it.pszText, it.cchTextMax, &text) };
     }
@@ -603,12 +604,12 @@ unsafe fn context_menu(dlg: HWND, st: &mut State, lp: LPARAM) {
         }
         let menu = CreatePopupMenu();
         for (i, (text, _)) in PRIORITIES.iter().enumerate() {
-            let w = wide(text);
+            let w = wide(lang::text(*text));
             AppendMenuW(menu, MF_STRING, MENU_PRIO + i, w.as_ptr());
         }
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
-        AppendMenuW(menu, MF_STRING, MENU_CHECK, w!("Check"));
-        AppendMenuW(menu, MF_STRING, MENU_UNCHECK, w!("Uncheck"));
+        AppendMenuW(menu, MF_STRING, MENU_CHECK, wide(tr!(MenuCheck)).as_ptr());
+        AppendMenuW(menu, MF_STRING, MENU_UNCHECK, wide(tr!(MenuUncheck)).as_ptr());
         let cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON, p.x, p.y, 0, dlg, null()) as usize;
         DestroyMenu(menu);
         match cmd {

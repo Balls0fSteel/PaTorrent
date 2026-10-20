@@ -12,6 +12,7 @@ use std::cell::{Cell, RefCell};
 use std::ptr::{null, null_mut};
 
 use patorrent_frontend::auto_shutdown::{Action, Mode, When};
+use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Power::{IsPwrHibernateAllowed, IsPwrSuspendAllowed};
@@ -45,9 +46,9 @@ impl Power {
 
     fn what(self) -> &'static str {
         match self {
-            Power::Standby => "put the computer on standby",
-            Power::Hibernate => "hibernate the computer",
-            Power::ShutDown => "shut down the computer",
+            Power::Standby => tr!(PowerStandby),
+            Power::Hibernate => tr!(PowerHibernate),
+            Power::ShutDown => tr!(PowerShutDown),
         }
     }
 }
@@ -70,9 +71,13 @@ const DRY_RUN: &str = "PATORRENT_POWER_DRY_RUN";
 /// shutdown. The caller has saved everything first.
 pub fn perform(p: Power) -> Result<(), String> {
     if std::env::var_os(DRY_RUN).is_some() {
-        return Err(format!("{DRY_RUN} is set: did not {}.", p.what()));
+        return Err(tr!(ShutdownDryRun, name = DRY_RUN, what = p.what()));
     }
-    os::perform(p).map_err(|e| format!("Could not {}:\n{e}", p.what()))
+    os::perform(p).map_err(|e| match p {
+        Power::Standby => tr!(ShutdownErrStandby, error = e),
+        Power::Hibernate => tr!(ShutdownErrHibernate, error = e),
+        Power::ShutDown => tr!(ShutdownErrShutDown, error = e),
+    })
 }
 
 #[cfg(not(test))]
@@ -197,17 +202,17 @@ struct State {
 /// The countdown's text.
 pub fn message(mode: Mode, secs: u32) -> String {
     let done = match mode.when {
-        When::Downloads => "All downloads have completed.",
-        When::Everything => "All torrents have completed.",
+        When::Downloads => tr!(ShutdownDownloadsDone),
+        When::Everything => tr!(ShutdownEverythingDone),
     };
+    let time = format!("{}:{:02}", secs / 60, secs % 60);
     let what = match mode.action {
-        Action::Quit => "PaTorrent will quit",
-        Action::Standby => "The computer will go on standby",
-        Action::Hibernate => "The computer will hibernate",
-        Action::ShutDown => "The computer will shut down",
+        Action::Quit => tr!(ShutdownWillQuit, time),
+        Action::Standby => tr!(ShutdownWillStandby, time),
+        Action::Hibernate => tr!(ShutdownWillHibernate, time),
+        Action::ShutDown => tr!(ShutdownWillShutDown, time),
     };
-    let unit = if secs == 1 { "second" } else { "seconds" };
-    format!("{done}\n{what} in {secs} {unit}.")
+    format!("{done}\n{what}")
 }
 
 /// Shows the countdown (modal, on top of every window, the owner possibly hidden in the tray)
@@ -260,7 +265,7 @@ fn template() -> Vec<u16> {
         IDCANCEL as u16,
         WS_CHILD | WS_VISIBLE | WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
         [85, 36, 50, 14],
-        "Cancel",
+        tr!(BtnCancel),
     );
     t.finish()
 }
@@ -277,7 +282,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             WM_INITDIALOG => {
                 SetWindowLongPtrW(dlg, DWLP_USER, lp);
                 let st = &*(lp as *const State);
-                let title = wide("Auto Shutdown");
+                let title = wide(tr!(ShutdownTitle));
                 SetWindowTextW(dlg, title.as_ptr());
                 show(dlg, st);
                 OPEN.with(|o| o.set(dlg));
@@ -362,9 +367,9 @@ mod tests {
         let f = Fixture::new(SHUT_DOWN, 30);
         assert!(is_open());
         assert_eq!(unsafe { window_text(f.dlg) }, "Auto Shutdown");
-        assert_eq!(f.text(), "All downloads have completed.\nThe computer will shut down in 30 seconds.");
+        assert_eq!(f.text(), "All downloads have completed.\nThe computer will shut down in 0:30.");
         tick(1);
-        assert_eq!(f.text(), "All downloads have completed.\nThe computer will shut down in 1 second.");
+        assert_eq!(f.text(), "All downloads have completed.\nThe computer will shut down in 0:01.");
         unsafe { SendMessageW(f.dlg, WM_COMMAND, IDCANCEL as usize, 0) };
         assert_eq!(f.st.outcome, Outcome::Cancelled);
         drop(f);
@@ -375,13 +380,13 @@ mod tests {
     #[test]
     fn the_timer_ends_the_countdown_when_time_is_up_or_new_work_comes() {
         let f = Fixture::new(Mode::new(Action::Quit, When::Everything), 30);
-        assert_eq!(f.text(), "All torrents have completed.\nPaTorrent will quit in 30 seconds.");
+        assert_eq!(f.text(), "All torrents have completed.\nPaTorrent will quit in 0:30.");
         close(Outcome::TimeUp);
         assert_eq!(f.st.outcome, Outcome::TimeUp);
         drop(f);
 
         let f = Fixture::new(Mode::new(Action::Hibernate, When::Downloads), 12);
-        assert!(f.text().ends_with("The computer will hibernate in 12 seconds."));
+        assert!(f.text().ends_with("The computer will hibernate in 0:12."));
         close(Outcome::Aborted);
         assert_eq!(f.st.outcome, Outcome::Aborted);
     }

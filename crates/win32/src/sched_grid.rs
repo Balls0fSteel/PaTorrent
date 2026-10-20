@@ -8,7 +8,9 @@
 use std::mem::zeroed;
 use std::ptr::null;
 
+use patorrent_frontend::lang;
 use patorrent_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode};
+use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, COLOR_BTNFACE, COLOR_BTNTEXT, CreateSolidBrush, DT_CENTER, DT_LEFT, DT_SINGLELINE,
@@ -126,7 +128,13 @@ unsafe fn text(dc: windows_sys::Win32::Graphics::Gdi::HDC, s: &str, rc: &RECT, f
 
 fn hover_text(g: &Grid, cell: usize) -> String {
     let (day, hour) = (cell / HOURS, cell % HOURS);
-    format!("{} {hour:02}:00 - {:02}:00: {}", DAY_NAMES[day], (hour + 1) % 24, g.table[cell].label())
+    tr!(
+        SchedHover,
+        day = lang::text(DAY_NAMES[day]),
+        from = format!("{hour:02}"),
+        to = format!("{:02}", (hour + 1) % 24),
+        mode = g.table[cell].label()
+    )
 }
 
 unsafe fn paint(hwnd: HWND, g: &Grid) {
@@ -152,7 +160,7 @@ unsafe fn paint(hwnd: HWND, g: &Grid) {
         for (day, name) in DAY_NAMES.iter().enumerate() {
             let c = l.cell_rect(day, 0);
             let r = RECT { left: 0, top: c.top, right: l.label_w - 2, bottom: c.bottom };
-            text(dc, name, &r, DT_LEFT);
+            text(dc, lang::text(*name), &r, DT_LEFT);
             for hour in 0..HOURS {
                 let c = l.cell_rect(day, hour);
                 FillRect(dc, &c, brush(g.table[day * HOURS + hour]));

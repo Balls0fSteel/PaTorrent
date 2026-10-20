@@ -19,6 +19,7 @@ use patorrent_frontend::rss::view::{self, quality_text};
 use patorrent_frontend::rss::{
     AddRequest, Download, FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter, Worker,
 };
+use patorrent_frontend::{lang, tr};
 
 use super::api::Request;
 use super::commands::{self, AddOptions, CmdError, Source, valid_label};
@@ -47,7 +48,7 @@ impl Rss {
     fn save(&mut self) -> Option<String> {
         self.dirty = false;
         let file = self.file.as_ref()?;
-        self.d.save(file).err().map(|e| format!("could not save {}: {e}", file.display()))
+        self.d.save(file).err().map(|e| tr!(LogNotSaved, file = file.display(), error = e))
     }
 }
 
@@ -107,7 +108,7 @@ fn add(shared: &Shared, req: AddRequest, d: Download) {
         Download::Torrent(b) => match Source::from_torrent_bytes(b) {
             Ok(s) => s,
             Err(e) => {
-                let line = format!("RSS: {}: {}", req.title, e.msg);
+                let line = tr!(RssLogError, name = req.title, error = e.msg);
                 shared.lock().push_log(None, line, now);
                 return;
             }
@@ -235,7 +236,7 @@ fn model(shared: &Shared) -> Json {
     let qualities: Vec<Json> =
         Quality::LIST.iter().map(|(q, n)| Json::Arr(vec![q.0.into(), (*n).into()])).collect();
     let intervals: Vec<Json> =
-        MIN_INTERVALS.iter().map(|(s, n)| Json::Arr(vec![(*s).into(), (*n).into()])).collect();
+        MIN_INTERVALS.iter().map(|(s, n)| Json::Arr(vec![(*s).into(), lang::text(*n).into()])).collect();
     Json::obj()
         .with("feeds", Json::Arr(feeds))
         .with("filters", Json::Arr(filters))
@@ -261,7 +262,7 @@ fn items(shared: &Shared, feed: Option<FeedId>) -> Json {
         .collect();
     let columns: Vec<Json> = view::ITEM_COLUMNS
         .iter()
-        .map(|&(t, w, _)| Json::obj().with("title", t).with("width", w as i64))
+        .map(|&(t, w, _)| Json::obj().with("title", lang::text(t)).with("width", w as i64))
         .collect();
     Json::obj().with("columns", Json::Arr(columns)).with("rows", Json::Arr(rows))
 }

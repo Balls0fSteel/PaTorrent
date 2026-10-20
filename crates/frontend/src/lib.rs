@@ -3,6 +3,7 @@
 //! Anything that decides *what* the user sees or *what* a user action means lives here, so the
 //! frontends only decide *how* it is drawn:
 //!
+//! * [`lang`]: the string tables: every user-visible string by key, per language ([`tr!`]).
 //! * [`fmt`]: µTorrent-style number formatting (sizes, speeds, ETA, ratio, percent).
 //! * [`status`]: status text ("[F] Downloading", "Queued Seed", ...) and category filters.
 //! * [`add`]: the Add New Torrent dialog's file tree, choices and recent save folders.
@@ -28,6 +29,7 @@ pub mod columns;
 pub mod create;
 pub mod detail;
 pub mod fmt;
+pub mod lang;
 pub mod model;
 pub mod options;
 pub mod prefs;

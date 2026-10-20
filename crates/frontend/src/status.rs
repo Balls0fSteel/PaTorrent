@@ -6,46 +6,46 @@
 
 use patorrent_core::{TorrentFlags, TorrentState, TorrentStatus};
 
-use crate::fmt;
+use crate::{fmt, tr};
 
 /// The text shown in the Status column.
 pub fn status_text(st: &TorrentStatus, user_paused: bool) -> String {
     if !st.error.is_empty() {
-        return format!("Error: {}", st.error);
+        return tr!(StatusError, error = st.error);
     }
     if st.moving_storage {
-        return "Moving".to_owned();
+        return tr!(StatusMoving).to_owned();
     }
     let paused = st.flags.contains(TorrentFlags::PAUSED);
     let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);
     match st.state {
         TorrentState::CheckingFiles | TorrentState::CheckingResumeData => {
             return if paused && auto {
-                "Queued for checking".to_owned()
+                tr!(StatusQueuedForChecking).to_owned()
             } else {
-                format!("Checking {}", fmt::percent(st.progress_ppm))
+                tr!(StatusChecking, percent = fmt::percent(st.progress_ppm))
             };
         }
         _ => {}
     }
     if paused {
         return match (auto, user_paused, st.is_finished) {
-            (true, _, true) => "Queued Seed",
-            (true, _, false) => "Queued",
-            (false, true, _) => "Paused",
-            (false, false, true) => "Finished",
-            (false, false, false) => "Stopped",
+            (true, _, true) => tr!(StatusQueuedSeed),
+            (true, _, false) => tr!(StatusQueued),
+            (false, true, _) => tr!(StatusPaused),
+            (false, false, true) => tr!(StatusFinished),
+            (false, false, false) => tr!(StatusStopped),
         }
         .to_owned();
     }
     let what = match st.state {
-        TorrentState::DownloadingMetadata => "Downloading metadata",
+        TorrentState::DownloadingMetadata => tr!(StatusDownloadingMetadata),
         // µTorrent marks initial seeding (BEP 16 super seeding) with [S], like [F] for forced.
-        _ if st.super_seeding => "[S] Seeding",
-        _ if st.is_finished => "Seeding",
-        _ => "Downloading",
+        _ if st.super_seeding => tr!(StatusSuperSeeding),
+        _ if st.is_finished => tr!(StatusSeeding),
+        _ => tr!(StatusDownloading),
     };
-    if auto { what.to_owned() } else { format!("[F] {what}") }
+    if auto { what.to_owned() } else { tr!(StatusForced, status = what) }
 }
 
 /// A short, stable class for the row's state, with the same branches as [`status_text`]: for
@@ -96,11 +96,11 @@ impl Category {
 
     pub fn label(self) -> &'static str {
         match self {
-            Category::All => "Torrents",
-            Category::Downloading => "Downloading",
-            Category::Completed => "Completed",
-            Category::Active => "Active",
-            Category::Inactive => "Inactive",
+            Category::All => tr!(CatTorrents),
+            Category::Downloading => tr!(CatDownloading),
+            Category::Completed => tr!(CatCompleted),
+            Category::Active => tr!(CatActive),
+            Category::Inactive => tr!(CatInactive),
         }
     }
 

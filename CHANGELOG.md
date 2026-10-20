@@ -2,6 +2,20 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-20_104706_1792486026: Sessions of more than about 22,000 torrents load again; first 100,000-torrent measurement
+
+### Fixed
+- **The session store did not open beyond about 22,000 torrents**: `resume.db` (one bencoded dictionary of every record, about 90 tokens per torrent) was decoded with bdecode's default token limit of 2 million, so a larger database failed to decode and the session started with no torrents (the file itself was not overwritten: the store stayed closed). The limit is now half the file's length (every token takes at least two bytes): the default guards against hostile input, and this is our own file.
+
+### Verified
+- New test `store::tests::a_resume_database_beyond_the_default_token_limit_loads` (40,000 records, which the default limit refuses, all restored).
+- First measurement towards the 100,000-torrent gate (D21), on this development machine with the release build: `lt-swarm load --count 100000` (synthetic torrents, saved stopped, then restored by a new session): restored in 2.04 s, listed after 2.09 s, 419 MB working set (21.5 MB before), store 87 MB `resume.db` + 2.1 GB `metadata.pack`. Before the fix: none restored. For comparison `--count 10000`: 114 ms, 55 MB.
+
+### Issues
+- About 4 KB of memory per stopped torrent: the engine's `Torrent` is 1,416 bytes before its heap parts (tracker list, strings, piece bitfield), and the store keeps every encoded resume record in memory (about 870 bytes each, 87 MB at 100,000). PLAN.md "Road to 1.0" item 5 lists the follow-ups.
+- `resume.db` is rewritten whole when any record changes: 87 MB per save at 100,000 torrents.
+- Not yet measured on a low-end machine, nor through the GUIs or the Web UI at 100,000.
+
 ## 2026-10-20_104145_1792485705: Hybrids are announced under both hashes
 
 ### Added

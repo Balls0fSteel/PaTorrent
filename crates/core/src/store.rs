@@ -18,7 +18,7 @@ use std::fs::{File, OpenOptions};
 use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use crate::bencode::{Entry, bdecode};
+use crate::bencode::{DEFAULT_DEPTH_LIMIT, Entry, bdecode_with_limits};
 use crate::error::Error;
 use crate::resume::ResumeData;
 
@@ -63,7 +63,11 @@ impl Store {
         let mut errors = Vec::new();
         match std::fs::read(dir.join(RESUME_DB)) {
             Ok(buf) => {
-                let doc = bdecode(&buf[..])
+                // our own file, one dictionary of every record: the default token limit (2
+                // million, about 22,000 torrents) guards against hostile input, not this. Every
+                // token takes at least two bytes.
+                let token_limit = (buf.len() / 2).max(16);
+                let doc = bdecode_with_limits(&buf[..], DEFAULT_DEPTH_LIMIT, token_limit)
                     .map_err(|e| Error::InvalidResumeData(format!("{RESUME_DB}: {}", e.kind.message())))?;
                 let root = doc.root().filter(|r| r.dict_find_str("file-format") == Some(DB_FORMAT));
                 let root = root
@@ -277,6 +281,29 @@ mod tests {
             save_path: "/dl".into(),
             ..Default::default()
         }
+    }
+
+    /// A database with more tokens than bdecode's default limit (about 22,000 torrents) still
+    /// loads: the session would otherwise start empty.
+    #[test]
+    fn a_resume_database_beyond_the_default_token_limit_loads() {
+        let dir = crate::disk::tests::temp_dir("store-big");
+        let n = 40_000;
+        {
+            let (mut s, _, _) = Store::open(&dir).unwrap();
+            for i in 0..n {
+                let mut r = rec((i % 251) as u8);
+                r.name = format!("t{i}");
+                s.put(&format!("{i:040x}"), &r, None).unwrap();
+            }
+            s.flush().unwrap();
+        }
+        let buf = std::fs::read(dir.join(RESUME_DB)).unwrap();
+        assert!(crate::bencode::bdecode(&buf[..]).is_err(), "beyond the default token limit");
+        let (_, list, errors) = Store::open(&dir).unwrap();
+        assert!(errors.is_empty());
+        assert_eq!(list.len(), n as usize);
+        let _ = std::fs::remove_dir_all(dir);
     }
 
     #[test]

@@ -464,9 +464,73 @@ pub fn set_encryption(s: &mut Settings, outgoing: EncPolicy, allow_legacy: bool)
     s.allowed_enc_level = if outgoing == EncPolicy::Forced { EncLevel::Rc4 } else { EncLevel::Both };
 }
 
+/// The read cache's automatic size (`cache_size` -1) in MB, as Preferences > Disk Cache shows it.
+pub const AUTO_CACHE_MB: u32 = 32;
+/// The timeout Disk Cache offers for unused blocks when it was off (`cache_expiry` 0).
+pub const DEFAULT_CACHE_EXPIRY: u32 = 300;
+
+/// µTorrent's "Override automatic cache size" box: on while `cache_size` is set.
+pub fn cache_size_overridden(s: &Settings) -> bool {
+    s.cache_size >= 0
+}
+
+/// The size beside it: the size set, in MB, or the automatic size.
+pub fn cache_size_mb(s: &Settings) -> u32 {
+    if s.cache_size < 0 { AUTO_CACHE_MB } else { s.cache_size as u32 / 64 }
+}
+
+/// Sets both: `mb` (at least 1) when `overridden`, else automatic. A dialog applies the box
+/// before the size, each with the other's current value.
+pub fn set_cache_size(s: &mut Settings, overridden: bool, mb: u32) {
+    s.cache_size = if overridden { (mb.clamp(1, i32::MAX as u32 / 64) * 64) as i32 } else { -1 };
+}
+
+/// "Remove old blocks from the cache": on while `cache_expiry` is set.
+pub fn cache_expiry_on(s: &Settings) -> bool {
+    s.cache_expiry > 0
+}
+
+/// The seconds beside it: those set, or [`DEFAULT_CACHE_EXPIRY`] while it is off.
+pub fn cache_expiry_secs(s: &Settings) -> u32 {
+    if s.cache_expiry == 0 { DEFAULT_CACHE_EXPIRY } else { s.cache_expiry }
+}
+
+/// Sets both, as [`set_cache_size`] does: `secs` (at least 1) when `on`, else 0 (never).
+pub fn set_cache_expiry(s: &mut Settings, on: bool, secs: u32) {
+    s.cache_expiry = if on { secs.max(1) } else { 0 };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn disk_cache_controls() {
+        let mut s = Settings::default();
+        assert!(!cache_size_overridden(&s) && cache_size_mb(&s) == AUTO_CACHE_MB);
+        // the box, then the size, each with the other's value as a dialog applies them
+        let v = cache_size_mb(&s);
+        set_cache_size(&mut s, true, v);
+        assert_eq!(s.cache_size, 2048);
+        let on = cache_size_overridden(&s);
+        set_cache_size(&mut s, on, 100);
+        assert_eq!((s.cache_size, cache_size_mb(&s)), (6400, 100));
+        let v = cache_size_mb(&s);
+        set_cache_size(&mut s, false, v);
+        assert_eq!((s.cache_size, cache_size_mb(&s)), (-1, AUTO_CACHE_MB));
+        set_cache_size(&mut s, true, 0);
+        assert_eq!(s.cache_size, 64, "at least 1 MB");
+
+        assert!(cache_expiry_on(&s) && cache_expiry_secs(&s) == 300);
+        let v = cache_expiry_secs(&s);
+        set_cache_expiry(&mut s, false, v);
+        assert_eq!((s.cache_expiry, cache_expiry_secs(&s)), (0, DEFAULT_CACHE_EXPIRY));
+        let v = cache_expiry_secs(&s);
+        set_cache_expiry(&mut s, true, v);
+        let on = cache_expiry_on(&s);
+        set_cache_expiry(&mut s, on, 60);
+        assert_eq!(s.cache_expiry, 60);
+    }
 
     /// Field names of `Settings` read from its `Debug` output, so a field added to the struct
     /// without a row here fails this test.

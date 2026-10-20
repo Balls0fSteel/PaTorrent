@@ -2,6 +2,30 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_002121_1792534881: The read cache on Preferences > Disk Cache
+
+### Added
+- **A Disk Read Cache group** at the top of Preferences > Disk Cache, in the Win32 GUI and the Web UI, after µTorrent 2.2.1's boxes:
+  - "Enable caching of disk reads" (`use_read_cache`);
+  - "Override the automatic cache size (MB):" with a number (`cache_size`; off is automatic, 32 MB);
+  - "Remove blocks unused for more than (seconds):" with a number (`cache_expiry`; off keeps lines until they are evicted).
+  The boxes grey what depends on them. µTorrent's write-cache boxes are left out, since there is no write cache. The line size (`read_cache_line_size`) stays on the Advanced page.
+- `patorrent_frontend::settings`: `cache_size_overridden` / `cache_size_mb` / `set_cache_size` and `cache_expiry_on` / `cache_expiry_secs` / `set_cache_expiry`, shared by both frontends. A box and its number are each applied with the other's current value, box first, so a box and a number changed together both count.
+- Strings: `PrefReadCache`, `PrefReadCacheEnable`, `PrefCacheOverride`, `PrefCacheExpire` and `PrefReadCacheNote` (with `{mb}`), translated in all 34 tables. `PrefDiskCacheNote` ("PaTorrent has no disk read/write cache yet ...") is gone; the key was renamed, as en.rs asks, because the meaning changed.
+
+### Changed
+- Engine: `cache_size` defaults to -1 (automatic, still 32 MiB), so the override box is off by default as in µTorrent; `cache_expiry` 0 now means never (the disk threads no longer wake for it).
+- Web UI: `POST /pa/prefs` applies its changes in the page's field order, not the body's, so a composite's box always comes before its number (the proxy pair did not depend on it).
+
+### Verified
+- `cargo test --workspace`: 1,092 passed, 0 failed. New: the helpers (both orders, the 1 MB floor, expiry off and on), the Win32 dialog (defaults, greying, a box and its number changed together, reads off, back to automatic), and the Web UI parse (number before box in the body, a number alone).
+- Stable clippy (`-D warnings`) on Windows; clippy for Linux and FreeBSD; fmt.
+- Win32 on screen (`--demo`, a portable copy, `PrintWindow`): the page in en, de, ru, el, fi, ja and ar. Everything fits; the ru and el notes break mid-word (the known STATIC wrapping issue, PLAN Known TODOs).
+- Web UI in the browser pane (`nox-mock-webui`): the page's layout (each box beside its number), greying, and an edit through the page (timeout on at 60 s) read back from `GET /pa/prefs`; a body with the size before its box gives `cache_size` 6400.
+
+### Issues
+- Translations by Claude without native speakers (D20).
+
 ## 2026-10-21_000115_1792533675: A read cache for seeding, and a cold-disk seeding benchmark
 
 Prompted by libtorrent issue 9004 (upload speed falls when the disk is busy: libtorrent 2.x reads every 16 KiB request on its own). Our seeding path did the same: one `pread` per request, no cache.

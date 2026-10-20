@@ -8,8 +8,9 @@
 // ever clean; each disk thread keeps its own lines (jobs for a piece always run on one thread),
 // so nothing is locked; a line whose blocks have all been sent once is evicted before any line
 // still being read, which keeps the lines peers are part way through when many pieces are read
-// at once; `cache_expiry` is how long an unused line stays (1.2: how long a dirty block may
-// wait in the write cache).
+// at once; `cache_expiry` is how long an unused line stays, 0 for as long as there is room
+// (1.2: how long a dirty block may wait in the write cache); `cache_size` -1 is 2048 blocks
+// (1.2: sized by the machine's memory).
 
 //! The disk threads' read cache: whole lines of a piece read with one call, so seeding many
 //! pieces at once costs one disk seek per line instead of one per 16 KiB block.

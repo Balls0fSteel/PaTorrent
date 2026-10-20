@@ -653,7 +653,6 @@ strings! {
     PrefOpenFiles = "Maximum number of open files:";
     PrefAioThreads = "Disk I/O threads (used from the next start):";
     PrefHashThreads = "Hashing threads (used from the next start):";
-    PrefDiskCacheNote = "PaTorrent has no disk read/write cache yet, so µTorrent's cache size settings have no counterpart; these are the limits of the engine's disk queue.";
     PrefBadNumber = "Please enter a number from {min} to {max}.";
     PrefNoProxyHost = "Please enter the proxy server's address.";
     PrefNoProxyPort = "Please enter the proxy server's port.";
@@ -671,6 +670,14 @@ strings! {
     LangSystemDefault = "System default ({language})";
     /// After the language was changed in Preferences.
     LangRestart = "PaTorrent shows the new language from its next start.";
+    /// Preferences > Disk Cache: the read cache's group and controls; the two ending in ":"
+    /// have a number field beside them.
+    PrefReadCache = "Disk Read Cache";
+    PrefReadCacheEnable = "Enable caching of disk reads";
+    PrefCacheOverride = "Override the automatic cache size (MB):";
+    PrefCacheExpire = "Remove blocks unused for more than (seconds):";
+    /// {mb} is the automatic cache size in MB. read_cache_line_size is a setting's name: keep it.
+    PrefReadCacheNote = "PaTorrent caches disk reads: a block a peer asks for is read together with the blocks around it (read_cache_line_size on the Advanced page), which saves disk seeks when seeding. The automatic size is {mb} MB. Writes are left to the system's cache.";
 
     // ---- RSS Downloader
 

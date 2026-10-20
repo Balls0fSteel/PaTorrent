@@ -325,6 +325,47 @@ pub(crate) static FIELDS: &[Field] = &[
         |w| Value::Bool(proxy_to_ui(&w.settings).1),
         |w, v| w.settings.proxy_type = proxy_from_ui(proxy_to_ui(&w.settings).0, boolean(&v))
     ),
+    // Disk Cache: each box before its number (changes apply in this order)
+    field!(
+        "cache.override",
+        Some(S::PrefCacheOverride),
+        Kind::Bool,
+        |w| Value::Bool(settings::cache_size_overridden(&w.settings)),
+        |w, v| {
+            let mb = settings::cache_size_mb(&w.settings);
+            settings::set_cache_size(&mut w.settings, boolean(&v), mb)
+        }
+    ),
+    field!(
+        "cache.size_mb",
+        None,
+        Kind::Int { min: 1, max: 65535 },
+        |w| Value::Int(settings::cache_size_mb(&w.settings) as i64),
+        |w, v| {
+            let on = settings::cache_size_overridden(&w.settings);
+            settings::set_cache_size(&mut w.settings, on, int(&v) as u32)
+        }
+    ),
+    field!(
+        "cache.expire",
+        Some(S::PrefCacheExpire),
+        Kind::Bool,
+        |w| Value::Bool(settings::cache_expiry_on(&w.settings)),
+        |w, v| {
+            let secs = settings::cache_expiry_secs(&w.settings);
+            settings::set_cache_expiry(&mut w.settings, boolean(&v), secs)
+        }
+    ),
+    field!(
+        "cache.expiry_s",
+        None,
+        Kind::Int { min: 1, max: 86400 },
+        |w| Value::Int(settings::cache_expiry_secs(&w.settings) as i64),
+        |w, v| {
+            let on = settings::cache_expiry_on(&w.settings);
+            settings::set_cache_expiry(&mut w.settings, on, int(&v) as u32)
+        }
+    ),
     // Bandwidth
     field!(
         "bt.max_peers",
@@ -568,6 +609,7 @@ const LABELS: &[(&str, S)] = &[
     ("file_pool_size", S::PrefOpenFiles),
     ("aio_threads", S::PrefAioThreads),
     ("hashing_threads", S::PrefHashThreads),
+    ("use_read_cache", S::PrefReadCacheEnable),
 ];
 
 /// One editable thing: an engine setting row or one of [`FIELDS`].
@@ -948,6 +990,20 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
             tr!(PageDiskCache),
             vec![
                 group(
+                    Some(tr!(PrefReadCache)),
+                    vec![
+                        f("use_read_cache"),
+                        row(vec![
+                            enabled_by(f("cache.override"), "use_read_cache"),
+                            enabled_by(f("cache.size_mb"), "use_read_cache cache.override"),
+                        ]),
+                        row(vec![
+                            enabled_by(f("cache.expire"), "use_read_cache"),
+                            enabled_by(f("cache.expiry_s"), "use_read_cache cache.expire"),
+                        ]),
+                    ],
+                ),
+                group(
                     Some(tr!(PrefDiskQueue)),
                     vec![
                         kb("max_queued_disk_bytes").with("min", 1024),
@@ -956,7 +1012,7 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                         ranged("hashing_threads", 1, 64),
                     ],
                 ),
-                group(None, vec![note(tr!(PrefDiskCacheNote))]),
+                group(None, vec![note(tr!(PrefReadCacheNote, mb = settings::AUTO_CACHE_MB))]),
             ],
         )
         .with("under", "advanced"),
@@ -1028,7 +1084,11 @@ pub(crate) fn parse_one(id: &str, v: &Json) -> Result<Change, Refusal> {
 /// Parses a `POST /pa/prefs` body: a partial object of ids to values. Stops at the first bad
 /// field.
 pub(crate) fn parse(body: &Json) -> Result<Vec<Change>, Refusal> {
-    body.entries().iter().map(|(k, v)| parse_one(k, v)).collect()
+    let mut changes: Vec<Change> =
+        body.entries().iter().map(|(k, v)| parse_one(k, v)).collect::<Result<_, _>>()?;
+    // in table order, whatever the body's: a composite's box applies before its number
+    changes.sort_by_key(|(def, _)| all().position(|d| d.id() == def.id()));
+    Ok(changes)
 }
 
 /// The Win32 dialog's checks across fields.
@@ -1414,6 +1474,16 @@ mod tests {
         assert_eq!(w.settings.proxy_type, ProxyType::HttpPw);
         let w = edited(&st, r#"{"proxy_kind":3,"proxy_hostname":"p","proxy_port":8080}"#).unwrap();
         assert_eq!(w.settings.proxy_type, ProxyType::Http);
+        // Disk Cache: a number before its box in the body still counts
+        assert_eq!(st.settings.cache_size, -1, "automatic by default");
+        let w = edited(&st, r#"{"cache.size_mb":100,"cache.override":true}"#).unwrap();
+        assert_eq!(w.settings.cache_size, 6400);
+        let w = edited(&st, r#"{"cache.size_mb":100}"#).unwrap();
+        assert_eq!(w.settings.cache_size, -1, "the size alone keeps the automatic size");
+        let w = edited(&st, r#"{"cache.expiry_s":60,"cache.expire":false,"use_read_cache":false}"#).unwrap();
+        assert_eq!((w.settings.cache_expiry, w.settings.use_read_cache), (0, false));
+        let w = edited(&st, r#"{"cache.expiry_s":60}"#).unwrap();
+        assert_eq!(w.settings.cache_expiry, 60);
         assert_eq!(bad(r#"{"dir.download":"  "}"#).0, "dir.download");
         assert_eq!(bad(r#"{"dir.move_completed":true}"#).0, "dir.completed");
         assert_eq!(bad(r#"{"webui.username":""}"#).0, "webui.username");

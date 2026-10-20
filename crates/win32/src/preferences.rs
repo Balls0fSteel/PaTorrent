@@ -166,6 +166,11 @@ const ID_DISK_QUEUE: u16 = id(10, 1);
 const ID_FILE_POOL: u16 = id(10, 2);
 const ID_AIO: u16 = id(10, 3);
 const ID_HASH_THREADS: u16 = id(10, 4);
+const ID_READ_CACHE: u16 = id(10, 5);
+const ID_CACHE_OVERRIDE: u16 = id(10, 6);
+const ID_CACHE_MB: u16 = id(10, 7);
+const ID_CACHE_EXPIRE: u16 = id(10, 8);
+const ID_CACHE_EXPIRY: u16 = id(10, 9);
 
 /// "Outgoing" encryption, in the combo's order.
 const ENC_OUT: [(S, EncPolicy); 3] = [
@@ -463,6 +468,48 @@ static FIELDS: &[Field] = &[
         max: MAX_KB,
         get: |o| Some(o.gui.seed_limit_kib as i64),
         set: |o, v| o.gui.seed_limit_kib = v as u32,
+    },
+    Field::Check {
+        id: ID_READ_CACHE,
+        get: |o| o.settings.use_read_cache,
+        set: |o, v| o.settings.use_read_cache = v,
+    },
+    // each box before its number, so a box and a number changed together both count
+    Field::Check {
+        id: ID_CACHE_OVERRIDE,
+        get: |o| settings::cache_size_overridden(&o.settings),
+        set: |o, v| {
+            let mb = settings::cache_size_mb(&o.settings);
+            settings::set_cache_size(&mut o.settings, v, mb)
+        },
+    },
+    Field::Num {
+        id: ID_CACHE_MB,
+        min: 1,
+        max: 65535,
+        get: |o| Some(settings::cache_size_mb(&o.settings) as i64),
+        set: |o, v| {
+            let on = settings::cache_size_overridden(&o.settings);
+            settings::set_cache_size(&mut o.settings, on, v as u32)
+        },
+    },
+    Field::Check {
+        id: ID_CACHE_EXPIRE,
+        get: |o| settings::cache_expiry_on(&o.settings),
+        set: |o, v| {
+            let secs = settings::cache_expiry_secs(&o.settings);
+            settings::set_cache_expiry(&mut o.settings, v, secs)
+        },
+    },
+    Field::Num {
+        id: ID_CACHE_EXPIRY,
+        min: 1,
+        max: 86400,
+        get: |o| Some(settings::cache_expiry_secs(&o.settings) as i64),
+        set: |o, v| {
+            let on = settings::cache_expiry_on(&o.settings);
+            settings::set_cache_expiry(&mut o.settings, on, v as u32)
+        },
     },
     Field::Num {
         id: ID_DISK_QUEUE,
@@ -782,12 +829,18 @@ fn template() -> Vec<u16> {
     b.label([0, 216, W, 18], tr!(PrefAdvancedNote));
 
     b.page(PAGE_DISK_CACHE);
-    b.group([0, 0, W, 80], tr!(PrefDiskQueue));
-    b.number(13, ID_DISK_QUEUE, NUMBER, tr!(PrefDiskWriteQueue));
-    b.number(29, ID_FILE_POOL, NUMBER, tr!(PrefOpenFiles));
-    b.number(45, ID_AIO, NUMBER, tr!(PrefAioThreads));
-    b.number(61, ID_HASH_THREADS, NUMBER, tr!(PrefHashThreads));
-    b.label([0, 88, W, 27], tr!(PrefDiskCacheNote));
+    b.group([0, 0, W, 64], tr!(PrefReadCache));
+    b.ctl(BUTTON, ID_READ_CACHE, CHECK, [8, 13, 290, 10], tr!(PrefReadCacheEnable));
+    b.ctl(BUTTON, ID_CACHE_OVERRIDE, CHECK, [8, 29, 228, 10], tr!(PrefCacheOverride));
+    b.ctl(EDIT, ID_CACHE_MB, NUMBER, [240, 27, 54, 13], "");
+    b.ctl(BUTTON, ID_CACHE_EXPIRE, CHECK, [8, 45, 228, 10], tr!(PrefCacheExpire));
+    b.ctl(EDIT, ID_CACHE_EXPIRY, NUMBER, [240, 43, 54, 13], "");
+    b.group([0, 72, W, 80], tr!(PrefDiskQueue));
+    b.number(85, ID_DISK_QUEUE, NUMBER, tr!(PrefDiskWriteQueue));
+    b.number(101, ID_FILE_POOL, NUMBER, tr!(PrefOpenFiles));
+    b.number(117, ID_AIO, NUMBER, tr!(PrefAioThreads));
+    b.number(133, ID_HASH_THREADS, NUMBER, tr!(PrefHashThreads));
+    b.label([0, 160, W, 45], &tr!(PrefReadCacheNote, mb = settings::AUTO_CACHE_MB));
 
     let mut t = b.t;
     let vis = windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE;
@@ -980,6 +1033,7 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         update_move_controls(dlg);
         update_torrent_folder_controls(dlg);
         update_sched_controls(dlg);
+        update_cache_controls(dlg);
     }
 }
 
@@ -1072,6 +1126,21 @@ unsafe fn update_move_controls(dlg: HWND) {
         let on = checked(dlg, ID_MOVE) as i32;
         for id in [ID_MOVE_DIR, ID_MOVE_BROWSE, ID_MOVE_ONLY_DEFAULT] {
             EnableWindow(item(dlg, id), on);
+        }
+    }
+}
+
+/// The cache's size and timeout follow "Enable caching of disk reads", each number its box.
+unsafe fn update_cache_controls(dlg: HWND) {
+    unsafe {
+        let on = checked(dlg, ID_READ_CACHE);
+        for (id, enabled) in [
+            (ID_CACHE_OVERRIDE, on),
+            (ID_CACHE_MB, on && checked(dlg, ID_CACHE_OVERRIDE)),
+            (ID_CACHE_EXPIRE, on),
+            (ID_CACHE_EXPIRY, on && checked(dlg, ID_CACHE_EXPIRE)),
+        ] {
+            EnableWindow(item(dlg, id), enabled as i32);
         }
     }
 }
@@ -1246,6 +1315,9 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
                 }
             }
             ID_MOVE if code == BN_CLICKED => update_move_controls(dlg),
+            ID_READ_CACHE | ID_CACHE_OVERRIDE | ID_CACHE_EXPIRE if code == BN_CLICKED => {
+                update_cache_controls(dlg)
+            }
             ID_STORE | ID_MOVE_TORRENTS | ID_AUTOLOAD if code == BN_CLICKED => {
                 update_torrent_folder_controls(dlg)
             }
@@ -1948,6 +2020,50 @@ mod tests {
         f.click(ID_IPF_RELOAD);
         assert_eq!(f.reloads.borrow().len(), 2, "no reload while the filter is off");
         assert!(f.applied.borrow().is_empty(), "Reload does not apply the rest");
+    }
+
+    #[test]
+    fn read_cache_controls_on_disk_cache() {
+        let mut f = Fixture::new(defaults());
+        f.page(PAGE_DISK_CACHE);
+        let enabled = |f: &Fixture, id| unsafe { IsWindowEnabled(item(f.dlg, id)) != 0 };
+        unsafe {
+            assert!(checked(f.dlg, ID_READ_CACHE) && checked(f.dlg, ID_CACHE_EXPIRE));
+            assert!(!checked(f.dlg, ID_CACHE_OVERRIDE), "automatic by default, as in µTorrent");
+        }
+        assert_eq!((f.text(ID_CACHE_MB), f.text(ID_CACHE_EXPIRY)), ("32".into(), "300".into()));
+        assert!(!enabled(&f, ID_CACHE_MB) && enabled(&f, ID_CACHE_EXPIRY));
+
+        // the box and its number changed together
+        f.check(ID_CACHE_OVERRIDE, true);
+        f.click(ID_CACHE_OVERRIDE);
+        assert!(enabled(&f, ID_CACHE_MB));
+        f.set(ID_CACHE_MB, "100");
+        f.check(ID_CACHE_EXPIRE, false);
+        f.click(ID_CACHE_EXPIRE);
+        assert!(!enabled(&f, ID_CACHE_EXPIRY));
+        f.click(ID_APPLY);
+        let s = &f.last_applied().settings;
+        assert_eq!((s.use_read_cache, s.cache_size, s.cache_expiry), (true, 6400, 0));
+
+        // reads off: everything under it greys
+        f.check(ID_READ_CACHE, false);
+        f.click(ID_READ_CACHE);
+        for id in [ID_CACHE_OVERRIDE, ID_CACHE_MB, ID_CACHE_EXPIRE, ID_CACHE_EXPIRY] {
+            assert!(!enabled(&f, id), "control {id}");
+        }
+        f.click(ID_APPLY);
+        let s = &f.last_applied().settings;
+        assert_eq!((s.use_read_cache, s.cache_size), (false, 6400));
+
+        // automatic again; the timeout back on offers 300 s
+        let g = Fixture::new(f.last_applied());
+        g.check(ID_READ_CACHE, true);
+        g.check(ID_CACHE_OVERRIDE, false);
+        g.check(ID_CACHE_EXPIRE, true);
+        g.click(ID_APPLY);
+        let s = &g.last_applied().settings;
+        assert_eq!((s.use_read_cache, s.cache_size, s.cache_expiry), (true, -1, 300));
     }
 
     #[test]

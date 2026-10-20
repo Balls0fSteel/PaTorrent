@@ -697,9 +697,10 @@ struct Worker {
 fn disk_thread(rx: mpsc::Receiver<Job>, ctx: Ctx) {
     let mut w = Worker::default();
     loop {
-        // Wake up for the read cache's expiry while it holds lines.
+        // Wake up for the read cache's expiry while it holds lines (an expiry of 0 is never).
         let expiry = ctx.read_cache.expiry();
-        let job = match w.cache.next_check(expiry) {
+        let check = if expiry.is_zero() { None } else { w.cache.next_check(expiry) };
+        let job = match check {
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(job) => Some(job),
                 Err(mpsc::RecvTimeoutError::Timeout) => None,

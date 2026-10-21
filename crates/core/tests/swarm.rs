@@ -1167,6 +1167,58 @@ fn a_second_connection_to_the_same_peer_is_closed() {
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 
+#[test]
+fn disconnects_are_posted_with_their_reason_when_the_mask_asks() {
+    // libtorrent `peer_disconnected_alert`, in the connect category: off by default, so the seed
+    // posts none; the other seed asks for it and sees the two seeds part, then a refused connect
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let sw = Watch::new(seed.handle());
+    let dir = temp_dir("disconnect-seed");
+    write_files(&f, &dir);
+    let (other, mut w, _) = start_with(|s| {
+        s.alert_mask |= patorrent_core::AlertCategory::CONNECT.bits();
+        // a refused TCP connect is reported at once; a uTP one would wait for its timeout
+        s.enable_outgoing_utp = false;
+    });
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Seeding, 20);
+    let seed_addr = SocketAddr::from(([127, 0, 0, 1], port));
+    other.handle().torrent(id).connect_peer(seed_addr);
+    let (reason, error, utp) = wait(&mut w, 15, "the seeds parting", |a| match a {
+        Alert::PeerDisconnected { id: Some(i), addr, reason, error, utp, .. }
+            if *i == id && *addr == seed_addr =>
+        {
+            Some((reason.clone(), *error, *utp))
+        }
+        _ => None,
+    });
+    // whichever side reads the other's bitfield first closes; the other may see it close
+    assert!(reason == "both sides are seeds" || reason == "connection closed by peer", "{reason}");
+    assert!(!error && !utp, "{reason}");
+
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    other.handle().torrent(id).connect_peer(closed);
+    let (reason, error) = wait(&mut w, 15, "a refused connect", |a| match a {
+        Alert::PeerDisconnected { addr, reason, error, .. } if *addr == closed => {
+            Some((reason.clone(), *error))
+        }
+        _ => None,
+    });
+    assert!(error && reason.starts_with("connect failed"), "{reason}");
+
+    let mut alerts = Vec::new();
+    sw.h.pop_alerts(&mut alerts);
+    assert!(
+        !alerts.iter().any(|a| matches!(a, Alert::PeerDisconnected { .. })),
+        "the default mask posts none"
+    );
+    other.shutdown();
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
 // --- MSE/PE protocol encryption ------------------------------------------------------------------
 
 fn start_with(f: impl FnOnce(&mut Settings)) -> (Session, Watch, u16) {

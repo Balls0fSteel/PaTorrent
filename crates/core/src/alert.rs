@@ -3,6 +3,9 @@
 //! The queue is bounded (`Settings::alert_queue_size`). As in libtorrent, high-priority alerts
 //! may use twice the limit and critical ones three times; anything beyond that is dropped and
 //! counted, and the next [`AlertQueue::pop_all`] reports the loss as [`Alert::AlertsDropped`].
+//!
+//! `Settings::alert_mask` picks the [`AlertCategory`]s the engine posts (libtorrent
+//! `alert_mask`); the replies to `post_*` requests are posted whatever it says.
 
 use std::fmt::Write as _;
 use std::net::{IpAddr, SocketAddr};
@@ -10,11 +13,41 @@ use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use crate::error::Error;
+use crate::flags::bit_flags;
 use crate::status::{
     AnnounceEntry, FileEntry, PartialPiece, PeerInfo, SessionStats, TorrentState, TorrentStatus,
 };
 use crate::types::{InfoHashes, TorrentId};
 use crate::util::bitfield::Bitfield;
+
+bit_flags! {
+    /// libtorrent `alert_category`, the categories PaTorrent's alerts use, at libtorrent's bit
+    /// positions (so an `alert_mask` means the same in both).
+    pub struct AlertCategory: u32 {
+        const ERROR = 0;
+        const PEER = 1;
+        const PORT_MAPPING = 2;
+        const STORAGE = 3;
+        const TRACKER = 4;
+        /// Peers connecting and disconnecting ([`Alert::PeerDisconnected`]): chatty, off by
+        /// default as in libtorrent.
+        const CONNECT = 5;
+        const STATUS = 6;
+        const IP_BLOCK = 8;
+        const DHT = 10;
+        const SESSION_LOG = 13;
+        const TORRENT_LOG = 14;
+        const PORT_MAPPING_LOG = 19;
+    }
+}
+
+impl AlertCategory {
+    /// `Settings::alert_mask`'s default: everything but [`AlertCategory::CONNECT`]. A deliberate
+    /// difference from libtorrent, whose default is errors only: PaTorrent's frontends read the
+    /// status, tracker, storage and log alerts.
+    pub const DEFAULT: AlertCategory =
+        AlertCategory(AlertCategory::all().bits() & !AlertCategory::CONNECT.bits());
+}
 
 /// libtorrent `alert_priority`.
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Debug)]
@@ -247,6 +280,20 @@ pub enum Alert {
         addr: SocketAddr,
         reason: BlockReason,
     },
+    /// A peer connection closed, or an outgoing one could not be made (libtorrent
+    /// `peer_disconnected_alert`; [`AlertCategory::CONNECT`], off by default). `reason` says why
+    /// ("connection closed by peer", "both sides are seeds", "connect timed out", ...); `error`
+    /// is set when it failed (a connect, handshake or protocol error) rather than ended. `id` is
+    /// `None` for an incoming connection closed before it named a torrent, `peer_id` all zeros
+    /// before the handshake.
+    PeerDisconnected {
+        id: Option<TorrentId>,
+        addr: SocketAddr,
+        peer_id: [u8; 20],
+        utp: bool,
+        reason: String,
+        error: bool,
+    },
     /// The proxy failed (libtorrent `socks5_alert`, also for HTTP and SOCKS4 proxies): its name
     /// did not resolve, the SOCKS5 UDP associate could not be made or was lost, or it refused a
     /// connection for a reason of its own (authentication, protocol). `proxy` is
@@ -380,10 +427,71 @@ impl Alert {
             | LsdError { .. }
             | PeerBanned { .. }
             | PeerBlocked { .. }
+            | PeerDisconnected { .. }
             | UrlSeed { .. }
             | Proxy { .. }
             | Log { .. } => AlertPriority::Normal,
         }
+    }
+
+    /// libtorrent's `static_category` of the alert (of the alert it stands for). Empty for the
+    /// alerts the mask never holds back ([`Alert::masked_by`]).
+    pub fn category(&self) -> AlertCategory {
+        use Alert::*;
+        type C = AlertCategory;
+        match self {
+            TorrentAdded { .. }
+            | AddTorrentFailed { .. }
+            | TorrentRemoved { .. }
+            | StateChanged { .. }
+            | TorrentPaused { .. }
+            | TorrentResumed { .. }
+            | TorrentChecked { .. }
+            | TorrentFinished { .. }
+            | MetadataReceived { .. }
+            | ListenSucceeded { .. }
+            | ExternalIp { .. } => C::STATUS,
+            TorrentDeleted { .. } | StorageMoved { .. } | FileRenamed { .. } => C::STORAGE,
+            TorrentDeleteFailed { .. } | StorageMovedFailed { .. } | FileRenameFailed { .. } => {
+                C::STORAGE | C::ERROR
+            }
+            FileError { .. } => C::STATUS | C::STORAGE,
+            MetadataFailed { .. } | LsdError { .. } | Proxy { .. } => C::ERROR,
+            TorrentError { .. } | ListenFailed { .. } => C::STATUS | C::ERROR,
+            TrackerReply { .. } | ScrapeReply { .. } => C::TRACKER,
+            TrackerWarning { .. } | TrackerError { .. } | ScrapeFailed { .. } => C::TRACKER | C::ERROR,
+            PortmapSucceeded { .. } => C::PORT_MAPPING,
+            PortmapFailed { .. } => C::PORT_MAPPING | C::ERROR,
+            PortmapLog { .. } => C::PORT_MAPPING_LOG,
+            DhtReply { .. } => C::DHT | C::TRACKER,
+            DhtBootstrap => C::DHT,
+            LsdPeer { .. } | PeerBanned { .. } => C::PEER,
+            PeerBlocked { .. } => C::IP_BLOCK,
+            PeerDisconnected { .. } => C::CONNECT,
+            UrlSeed { .. } => C::PEER | C::ERROR,
+            Log { id: Some(_), .. } => C::TORRENT_LOG,
+            Log { id: None, .. } => C::SESSION_LOG,
+            // replies to requests, and the queue's and the remote session's own news
+            StateUpdate(_)
+            | SessionStats(_)
+            | ResumeDataSaved
+            | PeerInfo { .. }
+            | FileList { .. }
+            | FileProgress { .. }
+            | TrackerList { .. }
+            | PieceInfo { .. }
+            | WebSeeds { .. }
+            | TorrentFile { .. }
+            | AlertsDropped { .. }
+            | RemoteDisconnected { .. } => C::empty(),
+        }
+    }
+
+    /// Whether `mask` (`Settings::alert_mask`) holds the alert back: none of its categories is
+    /// in the mask. Replies to requests ([`Alert::category`] empty) always get through.
+    pub fn masked_by(&self, mask: AlertCategory) -> bool {
+        let c = self.category();
+        !c.is_empty() && !c.intersects(mask)
     }
 
     /// The torrent this alert is about, if any.
@@ -423,7 +531,7 @@ impl Alert {
             | UrlSeed { id, .. }
             | WebSeeds { id, .. }
             | TorrentFile { id, .. } => Some(id),
-            Log { id, .. } | PeerBlocked { id, .. } => id,
+            Log { id, .. } | PeerBlocked { id, .. } | PeerDisconnected { id, .. } => id,
             _ => None,
         }
     }
@@ -482,6 +590,11 @@ impl Alert {
             LsdError { address, error } => write!(s, "LSD failed on {address}: {error}"),
             PeerBanned { addr, .. } => write!(s, "peer {addr} banned"),
             PeerBlocked { addr, reason, .. } => write!(s, "peer {addr} blocked ({reason:?})"),
+            PeerDisconnected { addr, utp, reason, error, .. } => {
+                let (over, how) =
+                    (if *utp { "uTP" } else { "TCP" }, if *error { "failed" } else { "disconnected" });
+                write!(s, "peer {addr} ({over}) {how}: {reason}")
+            }
             UrlSeed { url, message, .. } => write!(s, "web seed {url}: {message}"),
             Proxy { proxy, operation, error } => {
                 write!(s, "proxy error. op: {operation:?} ec: {error} ep: {proxy}")
@@ -613,6 +726,42 @@ mod tests {
         assert_eq!(out.len(), 2);
         q.post(log(3));
         assert_eq!(hits.load(Ordering::Relaxed), 2);
+    }
+
+    #[test]
+    fn the_mask_holds_back_its_categories_but_never_replies() {
+        let addr: SocketAddr = "10.0.0.1:6881".parse().unwrap();
+        let disconnected = Alert::PeerDisconnected {
+            id: None,
+            addr,
+            peer_id: [0; 20],
+            utp: false,
+            reason: "connect timed out".into(),
+            error: true,
+        };
+        assert!(disconnected.masked_by(AlertCategory::DEFAULT), "connect is off by default");
+        assert!(!disconnected.masked_by(AlertCategory::DEFAULT | AlertCategory::CONNECT));
+        assert_eq!(disconnected.message(), "peer 10.0.0.1:6881 (TCP) failed: connect timed out");
+        // an alert in two categories gets through on either
+        let tracker_error = Alert::TrackerError {
+            id: TorrentId::default(),
+            url: "u".into(),
+            times_in_row: 1,
+            message: "m".into(),
+        };
+        assert!(!tracker_error.masked_by(AlertCategory::ERROR));
+        assert!(!tracker_error.masked_by(AlertCategory::TRACKER));
+        assert!(tracker_error.masked_by(AlertCategory::STATUS));
+        // the default holds back nothing PaTorrent posted before the mask
+        assert!(!Alert::TorrentFinished { id: TorrentId::default() }.masked_by(AlertCategory::DEFAULT));
+        assert!(!log(1).masked_by(AlertCategory::DEFAULT));
+        // a request's reply ignores the mask
+        assert!(!Alert::SessionStats(SessionStats::default()).masked_by(AlertCategory::empty()));
+        assert!(!Alert::StateUpdate(Vec::new()).masked_by(AlertCategory::empty()));
+        assert!(log(1).masked_by(AlertCategory::empty()));
+        // libtorrent's bit positions
+        assert_eq!(AlertCategory::CONNECT.bits(), 1 << 5);
+        assert_eq!(AlertCategory::PORT_MAPPING_LOG.bits(), 1 << 19);
     }
 
     #[test]

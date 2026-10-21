@@ -646,7 +646,9 @@ impl Engine {
     }
 
     fn alert(&mut self, a: Alert) {
-        self.out.push(a);
+        if !a.masked_by(crate::AlertCategory::from_bits_truncate(self.settings.alert_mask)) {
+            self.out.push(a);
+        }
     }
 
     fn flush_alerts(&mut self) {
@@ -1153,6 +1155,14 @@ impl Engine {
             }
         }
         let (reason, failed) = p.closing.take().unwrap_or_default();
+        self.alert(Alert::PeerDisconnected {
+            id: p.torrent,
+            addr: p.addr,
+            peer_id: p.peer_id,
+            utp: p.sock.is_utp(),
+            reason,
+            error: failed,
+        });
         let Some(id) = p.torrent else { return };
         let Some(t) = self.torrent(id) else { return };
         t.peers.retain(|&s| s != slot);
@@ -1184,7 +1194,6 @@ impl Engine {
         } else {
             t.peer_list.disconnected(&p.addr, failed && p.state != PeerState::Active, seed, p.fast_reconnect);
         }
-        let _ = reason;
     }
 
     // --- Commands -----------------------------------------------------------------------------
@@ -3247,10 +3256,18 @@ impl Engine {
                 }
                 None => false,
             },
-            Err(_) => {
+            Err(e) => {
                 let t = self.torrent(id).expect("exists");
                 t.peer_list.connecting(addr, 0, source, now);
                 t.peer_list.disconnected(&addr, true, false, false);
+                self.alert(Alert::PeerDisconnected {
+                    id: Some(id),
+                    addr,
+                    peer_id: [0; 20],
+                    utp: false,
+                    reason: format!("connect failed: {e}"),
+                    error: true,
+                });
                 false
             }
         }

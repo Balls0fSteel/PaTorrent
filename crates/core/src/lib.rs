@@ -43,7 +43,9 @@ mod version;
 #[cfg(feature = "mock")]
 mod mock;
 
-pub use alert::{Alert, AlertPriority, AlertQueue, BlockReason, FileOperation, ProxyOperation};
+pub use alert::{
+    Alert, AlertCategory, AlertPriority, AlertQueue, BlockReason, FileOperation, ProxyOperation,
+};
 pub use error::Error;
 pub use move_completed::{MoveCompleted, same_dir};
 /// A blocking HTTP / HTTPS `GET` for frontends (Add Torrent from URL, RSS feeds).

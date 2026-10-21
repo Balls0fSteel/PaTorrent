@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-21_213858_1792611538
+Last updated: 2026-10-21_214719_1792612039
 
 ## Vision
 
@@ -340,7 +340,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 13. The Web UI's phone layout on a real phone.
 14. Release engineering: version 1.0.0 and peer-ID prefix `-PA1000-` (a test ties them), release notes, the parser security review (Continuous), then the `PA` registrations (libtorrent, Transmission, webtorrent, the BEP 20 list).
 
-**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; the Win32 GUI and the Web UI scrape stopped and queued torrents every 30 minutes since 2026-10-19_232401_1792445041); `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; a disconnect alert with the close reason.
+**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; the Win32 GUI and the Web UI scrape stopped and queued torrents every 30 minutes since 2026-10-19_232401_1792445041); `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; ~~a disconnect alert with the close reason~~ (`Alert::PeerDisconnected` and `alert_mask`, 2026-10-21_214719_1792612039).
 
 **Still to settle:** Properties > Advanced and the `rss.*` Advanced settings need a real µTorrent 2.2.1 to copy from.
 
@@ -659,7 +659,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
   - no macOS backend (Secure Transport / Network.framework) yet; non-Windows, non-Unix targets fail HTTPS announces with a clear message.
   - web seeds over HTTPS go through `TlsStream`; no loopback HTTPS test yet (needs a trusted test certificate).
 - `lt-swarm interop` is verified only on Windows (the qBittorrent app plus WSL). On Linux it runs `transmission-cli` and `deluged` directly and expects `qbittorrent-nox` via `--qbittorrent`; untested. rTorrent and µTorrent 2.2.1 are not in it yet (Continuous: interop matrix).
-- Peers that only connect and get dropped (seed to seed) are not logged; a `peer_disconnected`-style alert category would help debugging swarms. `remove_peer` already has the close reason and throws it away; connect failures in `connect_peers_for` are not reported either.
+- ~~Peers that only connect and get dropped (seed to seed) are not logged~~: `Alert::PeerDisconnected` (2026-10-21_214719_1792612039), in the connect category of the new `Settings::alert_mask` (off by default; `patorrent-nox --verbose` and the Advanced page's `alert_mask` turn it on). Left: the reasons are our own texts, not libtorrent's `close_reason_t` codes, so the uTP `close_reason` extension still sends nothing; libtorrent's `peer_connect_alert` and `incoming_connection_alert` are not ported.
 - libtorrent tests not ported yet because they need later pieces:
   - `create_torrent`: mutable_torrents (deprecated in libtorrent); the v2 / hybrid cases are ported (2026-10-20_095400_1792482840)
   - session plus resume data (Phase 2): the write_torrent_file round trips, preserve_* magnet tests

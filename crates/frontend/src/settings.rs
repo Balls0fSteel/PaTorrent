@@ -330,6 +330,7 @@ pub static TABLE: &[Entry] = &[
         get: |s| Value::Int(s.alert_queue_size as i64),
         set: |s, v| s.alert_queue_size = int(v) as usize,
     },
+    entry!(alert_mask: u32),
     entry!(tick_interval: u32),
     entry!(aio_threads: u32),
     entry!(hashing_threads: u32),

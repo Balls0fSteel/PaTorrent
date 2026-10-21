@@ -107,8 +107,8 @@ OPTIONS:
     --proxy URL       Connect through a proxy: TYPE://[USER:PASS@]HOST:PORT with TYPE socks4,
                       socks5 or http (USER alone for socks4). Peers, web seeds, trackers and
                       (socks5 only) uTP and the DHT go through it; nothing incoming is accepted
-    --verbose         Print tracker and peer events, and every 10 s where the connected
-                      peers came from
+    --verbose         Print tracker and peer events (each disconnect with its reason), and
+                      every 10 s where the connected peers came from
     --webui [ADDR:]PORT  Serve the Web UI and qBittorrent-compatible WebAPI (ADDR defaults to
                       127.0.0.1; `run --webui 8080`)
     --webui-user NAME --webui-pass PASS
@@ -511,6 +511,10 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         settings.proxy_password = p.pass.clone();
         println!("* proxy: {:?} {}:{}", p.kind, p.host, p.port);
     }
+    if o.verbose {
+        // peers' disconnects, with their reasons
+        settings.alert_mask |= patorrent_core::AlertCategory::CONNECT.bits();
+    }
     let session = if o.mock_library > 0 {
         // the Web UI's scale profile: nothing auto-managed runs, only the --active fraction
         // (force-started) moves data, as in the nox webui tests
@@ -719,6 +723,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
                 | Alert::LsdPeer { .. }
                 | Alert::PortmapLog { .. }
                 | Alert::PeerBlocked { .. }
+                | Alert::PeerDisconnected { .. }
                     if o.verbose =>
                 {
                     println!("* {}", a.message())

@@ -578,6 +578,7 @@ wire_struct!(Settings {
     max_metadata_size,
     max_pex_peers,
     alert_queue_size,
+    alert_mask,
     tick_interval,
     aio_threads,
     hashing_threads,
@@ -879,6 +880,9 @@ pub(crate) fn encode_alert(a: &Alert, e: &mut Enc) {
         Alert::LsdError { address, error } => message!(e, "LsdError", address, error),
         Alert::PeerBanned { id, addr, peer_id } => message!(e, "PeerBanned", id, addr, peer_id),
         Alert::PeerBlocked { id, addr, reason } => message!(e, "PeerBlocked", id, addr, reason),
+        Alert::PeerDisconnected { id, addr, peer_id, utp, reason, error } => {
+            message!(e, "PeerDisconnected", id, addr, peer_id, utp, reason, error)
+        }
         Alert::Proxy { proxy, operation, error } => message!(e, "Proxy", proxy, operation, error),
         Alert::UrlSeed { id, url, message } => message!(e, "UrlSeed", id, url, message),
         Alert::StateUpdate(v) => message!(e, "StateUpdate", v),
@@ -967,6 +971,14 @@ pub(crate) fn decode_alert(frame: &[u8]) -> Option<Alert> {
             "LsdError" => Alert::LsdError { address: f.next()?, error: f.next()? },
             "PeerBanned" => Alert::PeerBanned { id: f.next()?, addr: f.next()?, peer_id: f.next()? },
             "PeerBlocked" => Alert::PeerBlocked { id: f.next()?, addr: f.next()?, reason: f.next()? },
+            "PeerDisconnected" => Alert::PeerDisconnected {
+                id: f.next()?,
+                addr: f.next()?,
+                peer_id: f.next()?,
+                utp: f.next()?,
+                reason: f.next()?,
+                error: f.next()?,
+            },
             "Proxy" => Alert::Proxy { proxy: f.next()?, operation: f.next()?, error: f.next()? },
             "UrlSeed" => Alert::UrlSeed { id: f.next()?, url: f.next()?, message: f.next()? },
             "StateUpdate" => Alert::StateUpdate(f.next()?),

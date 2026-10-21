@@ -2,6 +2,21 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_214719_1792612039: Peer disconnects as alerts, and the alert mask
+
+### Added
+- **`Alert::PeerDisconnected`** (libtorrent `peer_disconnected_alert`): every peer connection the engine closes, with the address, peer id, transport, the reason the engine already gave the close ("connection closed by peer", "both sides are seeds", "connect timed out", "banned: ...", ...) and whether it was a failure; also an outgoing connect that could not even start. Incoming connections closed before they named a torrent have no torrent id.
+- **`AlertCategory`** and **`Settings::alert_mask`** (libtorrent `alert_category` and `alert_mask`, at libtorrent's bit positions): `Alert::category` gives each alert libtorrent's category for it, the engine posts an alert only when the mask holds one of its categories, and the replies to `post_*` requests (status, statistics, peer and file lists...) always get through. The default is every category but `CONNECT`, so nothing that was posted before is held back and the disconnects are off unless asked for (libtorrent's default is errors only: docs/PORTING.md "Deliberate divergences"). `alert_mask` is on the Advanced page of every client (the settings table), in nox's preferences and in the remote protocol.
+- `patorrent-nox --verbose` turns the connect category on and prints each disconnect.
+
+### Changed
+- The remote protocol is version 3 (the settings carry `alert_mask`, and the new alert): a GUI and a nox must both be this build (docs/WEBUI.md).
+
+### Verified
+- New tests: the mask holding back its categories but never replies, an alert in two categories passing on either, the default holding back nothing posted before; the new alert's round trip in the remote protocol; a loopback swarm test (two seeds part with "both sides are seeds" or "connection closed by peer", a refused connect is reported as a failure, the default mask on the other seed posts none), six runs in a row.
+- `cargo test --workspace` on Windows: 1,115 passed, 0 failed.
+- Stable clippy (`-D warnings`) and fmt on Windows; the 1.90.0 clippy for Linux (GTK included) and FreeBSD.
+
 ## 2026-10-21_213858_1792611538: The GTK GUI's remote mode (Phase 7, slice 5)
 
 ### Added

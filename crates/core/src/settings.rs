@@ -198,6 +198,10 @@ pub struct Settings {
     pub max_pex_peers: i32,
 
     pub alert_queue_size: usize,
+    /// The [`AlertCategory`](crate::AlertCategory) bits the engine posts (libtorrent `alert_mask`;
+    /// default [`AlertCategory::DEFAULT`](crate::AlertCategory::DEFAULT), all but `CONNECT`).
+    /// Replies to `post_*` requests are posted whatever it holds.
+    pub alert_mask: u32,
     /// Milliseconds between session ticks.
     pub tick_interval: u32,
     pub aio_threads: u32,
@@ -357,6 +361,7 @@ impl Default for Settings {
             max_metadata_size: 3 * 1024 * 10240,
             max_pex_peers: 50,
             alert_queue_size: 2000,
+            alert_mask: crate::AlertCategory::DEFAULT.bits(),
             tick_interval: 500,
             aio_threads: 10,
             hashing_threads: 1,

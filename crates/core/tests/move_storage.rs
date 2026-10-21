@@ -147,6 +147,18 @@ fn wait<T>(w: &mut Watch, secs: u64, what: &str, mut f: impl FnMut(&Alert) -> Op
     panic!("timed out waiting for {what}; alerts: {seen:#?}");
 }
 
+/// The status of the torrent a restarted session restored (these tests restore one). Restored
+/// torrents post no `TorrentAdded`; the first status update names them, and it is put back for
+/// the waits that follow (a torrent whose state does not change is in no later update).
+fn first_restored(w: &mut Watch) -> TorrentStatus {
+    let (st, update) = wait(w, 5, "restore", |a| match a {
+        Alert::StateUpdate(v) => v.first().map(|s| (s.clone(), a.clone())),
+        _ => None,
+    });
+    w.backlog.push_front(update);
+    st
+}
+
 fn listen_port(w: &mut Watch) -> u16 {
     wait(w, 5, "listen", |a| match a {
         Alert::ListenSucceeded { address, .. } => Some(address.port()),
@@ -292,10 +304,7 @@ fn a_seed_moves_while_seeding_and_while_stopped_and_keeps_its_path() {
     let s = start_with(Some(state.clone()), |_| {});
     let mut w = Watch::new(s.handle());
     let port = listen_port(&mut w);
-    let id = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
-        _ => None,
-    });
+    let id = first_restored(&mut w).id;
     s.handle().torrent(id).resume();
     let st = wait_state(&mut w, id, TorrentState::Seeding, 20);
     assert!(same(&st.save_path, &b), "{}", st.save_path);

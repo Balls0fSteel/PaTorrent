@@ -144,6 +144,7 @@ fn every_alert() -> Vec<Alert> {
         Alert::LsdError { address: "192.168.1.2".parse().unwrap(), error: err() },
         Alert::PeerBanned { id, addr, peer_id: *b"-PA0100-abcdefghijkl" },
         Alert::PeerBlocked { id: None, addr, reason: BlockReason::PortFilter },
+        Alert::TorrentsRestored { count: 100_000, dir: "/var/lib/patorrent".into() },
         Alert::PeerDisconnected {
             id: Some(id),
             addr,

@@ -113,6 +113,13 @@ pub enum Alert {
         id: TorrentId,
         info_hashes: InfoHashes,
     },
+    /// The session store's torrents are back, at start: `count` of them, from `dir`. They post
+    /// no [`Alert::TorrentAdded`] each (at 100,000 torrents those flooded the queue); the first
+    /// status update names them all. PaTorrent's own: libtorrent leaves restoring to its client.
+    TorrentsRestored {
+        count: u32,
+        dir: String,
+    },
     TorrentDeleted {
         id: TorrentId,
         info_hashes: InfoHashes,
@@ -405,6 +412,7 @@ impl Alert {
             | AlertsDropped { .. }
             | RemoteDisconnected { .. } => AlertPriority::Critical,
             StateChanged { .. }
+            | TorrentsRestored { .. }
             | TorrentPaused { .. }
             | TorrentResumed { .. }
             | TorrentChecked { .. }
@@ -443,6 +451,7 @@ impl Alert {
             TorrentAdded { .. }
             | AddTorrentFailed { .. }
             | TorrentRemoved { .. }
+            | TorrentsRestored { .. }
             | StateChanged { .. }
             | TorrentPaused { .. }
             | TorrentResumed { .. }
@@ -544,6 +553,7 @@ impl Alert {
             TorrentAdded { name, .. } => write!(s, "{name}: added"),
             AddTorrentFailed { name, error } => write!(s, "{name}: failed to add: {error}"),
             TorrentRemoved { info_hashes, .. } => write!(s, "{}: removed", info_hashes.key_hex()),
+            TorrentsRestored { count, dir } => write!(s, "restored {count} torrents from {dir}"),
             TorrentDeleted { info_hashes, .. } => write!(s, "{}: files deleted", info_hashes.key_hex()),
             TorrentDeleteFailed { info_hashes, error, .. } => {
                 write!(s, "{}: failed to delete files: {error}", info_hashes.key_hex())

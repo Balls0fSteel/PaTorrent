@@ -499,14 +499,11 @@ impl Engine {
                     self.store = Some(store);
                     let mut records = records;
                     records.sort_by_key(|r| r.queue_position.unwrap_or(u32::MAX));
-                    let n = records.len();
+                    let count = u32::try_from(records.len()).unwrap_or(u32::MAX);
                     for r in records {
                         self.restore(r);
                     }
-                    self.out.push(Alert::Log {
-                        id: None,
-                        message: format!("restored {n} torrents from {}", dir.display()),
-                    });
+                    self.alert(Alert::TorrentsRestored { count, dir: dir.display().to_string() });
                 }
                 Err(e) => self
                     .out
@@ -1729,9 +1726,9 @@ impl Engine {
         }
         t.state = t.settled_state();
         t.resume_dirty = false;
-        let id = self.insert_torrent(t);
-        let name = self.torrent_ref(id).map(|t| t.name.clone()).unwrap_or_default();
-        self.alert(Alert::TorrentAdded { id, info_hashes: r.info_hashes, name });
+        // no `TorrentAdded`: `TorrentsRestored` follows the lot, and `status_dirty` puts it in
+        // the next status update
+        self.insert_torrent(t);
     }
 
     fn load_info(&mut self, key: &str) -> Option<Arc<TorrentInfo>> {

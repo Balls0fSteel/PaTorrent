@@ -128,6 +128,18 @@ fn wait<T>(w: &mut Watch, secs: u64, what: &str, mut f: impl FnMut(&Alert) -> Op
     panic!("timed out waiting for {what}; alerts: {seen:#?}");
 }
 
+/// The status of the torrent a restarted session restored (these tests restore one). Restored
+/// torrents post no `TorrentAdded`; the first status update names them, and it is put back for
+/// the waits that follow (a torrent whose state does not change is in no later update).
+fn first_restored(w: &mut Watch) -> TorrentStatus {
+    let (st, update) = wait(w, 5, "restore", |a| match a {
+        Alert::StateUpdate(v) => v.first().map(|s| (s.clone(), a.clone())),
+        _ => None,
+    });
+    w.backlog.push_front(update);
+    st
+}
+
 fn listen_port(w: &mut Watch) -> u16 {
     wait(w, 5, "listen", |a| match a {
         Alert::ListenSucceeded { address, .. } => Some(address.port()),
@@ -233,10 +245,7 @@ fn a_v2_torrent_keeps_its_piece_layers_across_a_restart() {
 
     let s = start(Some(state.clone()));
     let mut w = Watch::new(s.handle());
-    let restored = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
-        _ => None,
-    });
+    let restored = first_restored(&mut w).id;
     let _ = id;
     wait_state(&mut w, restored, TorrentState::Seeding, 20);
     s.handle().torrent(restored).force_recheck();
@@ -388,10 +397,7 @@ fn a_v2_magnet_fetches_metadata_and_piece_layers_then_downloads() {
     // restart from the store, without the seed: the recheck needs the stored piece layers
     let s = start(Some(state.clone()));
     let mut w = Watch::new(s.handle());
-    let id = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
-        _ => None,
-    });
+    let id = first_restored(&mut w).id;
     wait_state(&mut w, id, TorrentState::Seeding, 20);
     s.handle().torrent(id).force_recheck();
     let st = wait(&mut w, 30, "recheck", |a| {
@@ -428,10 +434,10 @@ fn a_v2_magnet_of_a_hybrid_learns_its_v1_hash() {
 
     let s = start(Some(state.clone()));
     let mut w = Watch::new(s.handle());
-    let id = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, info_hashes, .. } => Some((*id, *info_hashes)),
-        _ => None,
-    });
+    let id = {
+        let st = first_restored(&mut w);
+        (st.id, st.info_hashes)
+    };
     assert_eq!(id.1, ti.info_hashes());
     wait_state(&mut w, id.0, TorrentState::Seeding, 20);
     s.shutdown();

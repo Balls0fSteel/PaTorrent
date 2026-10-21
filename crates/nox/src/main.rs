@@ -729,6 +729,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
                     println!("* {}", a.message())
                 }
                 Alert::ListenSucceeded { .. }
+                | Alert::TorrentsRestored { .. }
                 | Alert::Log { .. }
                 | Alert::AlertsDropped { .. }
                 | Alert::DhtBootstrap

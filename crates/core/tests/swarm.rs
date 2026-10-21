@@ -180,6 +180,18 @@ fn wait<T>(w: &mut Watch, secs: u64, what: &str, mut f: impl FnMut(&Alert) -> Op
     panic!("timed out waiting for {what}; alerts: {seen:#?}");
 }
 
+/// The status of the torrent a restarted session restored (these tests restore one). Restored
+/// torrents post no `TorrentAdded`; the first status update names them, and it is put back for
+/// the waits that follow (a torrent whose state does not change is in no later update).
+fn first_restored(w: &mut Watch) -> TorrentStatus {
+    let (st, update) = wait(w, 5, "restore", |a| match a {
+        Alert::StateUpdate(v) => v.first().map(|s| (s.clone(), a.clone())),
+        _ => None,
+    });
+    w.backlog.push_front(update);
+    st
+}
+
 fn listen_port(h: &mut Watch) -> u16 {
     wait(h, 5, "listen", |a| match a {
         Alert::ListenSucceeded { address, .. } => Some(address.port()),
@@ -426,13 +438,16 @@ fn download_through_a_udp_tracker_then_resume_without_recheck() {
     assert_files(&plain, &dir);
 
     // Restart from the store: the torrent comes back as a seed after resume verification,
-    // without a full recheck.
+    // without a full recheck. The session says how many came back, once.
     let leech = start(Some(state.clone()));
     let mut w = Watch::new(leech.handle());
-    let id = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
+    let count = wait(&mut w, 5, "the restore's count", |a| match a {
+        Alert::TorrentsRestored { count, .. } => Some(*count),
+        Alert::TorrentAdded { .. } => panic!("a restored torrent posted TorrentAdded"),
         _ => None,
     });
+    assert_eq!(count, 1);
+    let id = first_restored(&mut w).id;
     let mut rechecked = false;
     let st = wait(&mut w, 10, "seeding after restart", |a| {
         if let Alert::Log { message, .. } = a {
@@ -583,10 +598,7 @@ fn partial_pieces_survive_a_restart() {
     let (seed, seed_dir, seed_port, _) = seeder(&f);
     let leech = start(Some(state.clone()));
     let mut w = Watch::new(leech.handle());
-    let id = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
-        _ => None,
-    });
+    let id = first_restored(&mut w).id;
     let st = wait_state(&mut w, id, TorrentState::Downloading, 10);
     assert_eq!(st.total_done, done_before, "restored blocks count as done");
     assert_eq!(st.num_pieces, 1);
@@ -653,10 +665,7 @@ fn magnet_fetches_metadata_from_the_seed_then_downloads() {
     seed.shutdown();
     let leech = start(Some(state.clone()));
     let mut w = Watch::new(leech.handle());
-    let id = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
-        _ => None,
-    });
+    let id = first_restored(&mut w).id;
     let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
     assert!(st.has_metadata);
     assert_eq!(st.name, "swarm-test");
@@ -878,10 +887,7 @@ fn magnet_without_peers_survives_a_restart_then_downloads() {
     let (seed, seed_dir, port, _) = seeder(&f);
     let leech = start(Some(state.clone()));
     let mut w = Watch::new(leech.handle());
-    let id = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
-        _ => None,
-    });
+    let id = first_restored(&mut w).id;
     wait_state(&mut w, id, TorrentState::DownloadingMetadata, 10);
     leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
     wait(&mut w, 60, "finished", |a| matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(()));
@@ -2049,10 +2055,7 @@ fn a_skipped_file_stays_in_the_part_file_until_it_is_unskipped() {
     // Restart: still finished, nothing created; a recheck finds the boundary pieces again.
     let leech = start(Some(state.clone()));
     let mut w = Watch::new(leech.handle());
-    let id = wait(&mut w, 5, "restore", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
-        _ => None,
-    });
+    let id = first_restored(&mut w).id;
     let st = wait_state(&mut w, id, TorrentState::Finished, 10);
     let wanted = st.total_wanted;
     assert_eq!(st.total_wanted_done, wanted);

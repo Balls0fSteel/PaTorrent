@@ -2,6 +2,18 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_220442_1792613082: Restored torrents no longer post an alert each
+
+### Changed
+- **The engine restores the session store without a `TorrentAdded` per torrent**, and posts one **`Alert::TorrentsRestored { count, dir }`** after the lot (in place of the "restored N torrents" log line). At 100,000 torrents the restore posted 100,000 alerts: the queue (2,000, three times that for these) dropped about 90 % of them, the Loggers filled with "added" lines (µTorrent logs no restores) and the alerts around them were lost too. Restored torrents are in the first status update, which is never lost (a dropped one marks its torrents again).
+- What learned restored torrents from `TorrentAdded` now learns them from the status updates, as it had to for the ones the queue dropped: a magnet waiting for its Add New Torrent dialog after a restart (`frontend::add::AwaitingMetadata`), nox's Seeding only hours putting restored torrents into upload mode, `lt-swarm load`'s restore count. The `.torrent` folders and the GUIs' "first sight" already used them.
+- The Win32 and GTK Loggers and nox's console show the one "restored N torrents from ..." line instead of a line per torrent.
+- The remote protocol is version 6 (the new alert).
+
+### Verified
+- New tests: a waiting magnet found through the status updates with its `TorrentAdded` withheld (it is never found without the change); a restart posting one `TorrentsRestored` with the right count and no `TorrentAdded`; the new alert's round trip in the remote protocol. The restart tests now take the restored torrent from the first status update, which they put back for the waits that follow (a restored torrent whose state does not change is in no later update: the first run of the suite caught that).
+- `cargo test --workspace` on Windows: 1,119 passed, 0 failed. Stable clippy and fmt on Windows; the 1.90.0 clippy for Linux (GTK included) and FreeBSD.
+
 ## 2026-10-21_220017_1792612817: libtorrent's reconnect policy: `max_failcount`, `min_reconnect_time`
 
 ### Changed

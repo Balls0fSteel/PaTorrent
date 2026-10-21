@@ -703,7 +703,7 @@ fn web_seeds_are_saved_and_can_be_added_and_removed() {
     }
     let mut w = Watch::start_in(settings(), Some(state.clone()));
     let id2 = w.wait(10, "restored", |a| match a {
-        Alert::TorrentAdded { id, .. } => Some(*id),
+        Alert::StateUpdate(v) => v.first().map(|s| s.id),
         _ => None,
     });
     let (urls, http) = w.web_seeds(id2);

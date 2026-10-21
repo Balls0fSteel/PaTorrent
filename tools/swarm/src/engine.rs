@@ -233,7 +233,7 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
     let mut load_time = None;
     let ok = wait(&h, Duration::from_secs(60), |a| {
         match a {
-            Alert::TorrentAdded { .. } => restored += 1,
+            Alert::TorrentsRestored { count, .. } => restored = *count as usize,
             Alert::StateUpdate(v) => listed += v.len(),
             Alert::SessionStats(st) if count == usize::MAX => count = st.num_torrents as usize,
             _ => {}

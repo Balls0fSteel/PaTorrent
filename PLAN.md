@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-21_220017_1792612817
+Last updated: 2026-10-21_220442_1792613082
 
 ## Vision
 
@@ -621,7 +621,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
   - empty-session working set is 19.9 MB (private bytes 4.5 MB), accepted by D21 (optimise later, only where measured worthwhile). Most of it is shared system DLLs; loading urlmon and parts of shell32 only when needed may help.
   - the status bar's network indicator is text; µTorrent shows a colored icon.
   - the Pieces tab draws a piece map with the list of pieces in progress under it (2026-10-19_213029_1792438229). The list's columns (#, Size, # of Blocks, Blocks, Completed) are from memory; check them against a real 2.2.1. The Win32 list's first column (#) is left-aligned (a list view's first column cannot be right-aligned).
-  - restored torrents each log "added" at startup (10,000 lines with a big library); µTorrent does not log restores. Beyond the alert queue's size most of these alerts are dropped (90 % at 100,000), so the Logger and nox's console show a partial list; a restore alert of its own (or none) would be cleaner.
+  - ~~restored torrents each log "added" at startup~~ (and flooded the alert queue at 100,000): one `Alert::TorrentsRestored` since 2026-10-21_220442_1792613082; restored torrents are met in the status updates.
   - Pause does not toggle back to running as µTorrent's does; Start resumes.
   - double-click opens the folder for finished torrents and Torrent Properties otherwise (2026-10-19_091815_1792394295).
   - Preferences is in (2026-10-17_155028_1792245028) but has not been clicked through by hand yet (see the Preferences follow-ups). Create New Torrent is in (2026-10-17_140012_1792238412) but has not been clicked through by hand yet: Add directory, Save as, progress, Cancel, Start seeding.

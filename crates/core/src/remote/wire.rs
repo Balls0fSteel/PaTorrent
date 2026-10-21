@@ -839,6 +839,7 @@ pub(crate) fn encode_alert(a: &Alert, e: &mut Enc) {
         Alert::TorrentAdded { id, info_hashes, name } => message!(e, "TorrentAdded", id, info_hashes, name),
         Alert::AddTorrentFailed { name, error } => message!(e, "AddTorrentFailed", name, error),
         Alert::TorrentRemoved { id, info_hashes } => message!(e, "TorrentRemoved", id, info_hashes),
+        Alert::TorrentsRestored { count, dir } => message!(e, "TorrentsRestored", count, dir),
         Alert::TorrentDeleted { id, info_hashes } => message!(e, "TorrentDeleted", id, info_hashes),
         Alert::TorrentDeleteFailed { id, info_hashes, error } => {
             message!(e, "TorrentDeleteFailed", id, info_hashes, error)
@@ -914,6 +915,7 @@ pub(crate) fn decode_alert(frame: &[u8]) -> Option<Alert> {
             "TorrentAdded" => Alert::TorrentAdded { id: f.next()?, info_hashes: f.next()?, name: f.next()? },
             "AddTorrentFailed" => Alert::AddTorrentFailed { name: f.next()?, error: f.next()? },
             "TorrentRemoved" => Alert::TorrentRemoved { id: f.next()?, info_hashes: f.next()? },
+            "TorrentsRestored" => Alert::TorrentsRestored { count: f.next()?, dir: f.next()? },
             "TorrentDeleted" => Alert::TorrentDeleted { id: f.next()?, info_hashes: f.next()? },
             "TorrentDeleteFailed" => {
                 Alert::TorrentDeleteFailed { id: f.next()?, info_hashes: f.next()?, error: f.next()? }

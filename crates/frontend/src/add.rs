@@ -563,6 +563,14 @@ impl AwaitingMetadata {
             (p.flags | TorrentFlags::UPLOAD_MODE) & !(TorrentFlags::AUTO_MANAGED | TorrentFlags::PAUSED);
     }
 
+    /// The engine's id for the waiting magnet `key`, the first time it is seen.
+    fn found(&mut self, id: TorrentId, key: &str, handle: &SessionHandle) {
+        if let Some(w) = self.by_key.get_mut(key).filter(|w| w.id.is_none()) {
+            w.id = Some(id);
+            handle.torrent(id).post_torrent_file();
+        }
+    }
+
     /// Remembers the magnet with info-hash `key` (`InfoHashes::key_hex`) added to `save_path`.
     pub fn insert(&mut self, prefs: &mut Prefs, key: &str, save_path: &str) {
         prefs.set(&format!("torrent.{key}{AWAITING_SUFFIX}"), save_path);
@@ -570,15 +578,17 @@ impl AwaitingMetadata {
             .insert(key.to_owned(), Awaiting { save_path: save_path.to_owned(), ..Awaiting::default() });
     }
 
-    /// Follows the engine: asks for the `.torrent` of a waiting magnet when it is added
-    /// (restored ones may have their metadata already) and when its metadata arrives, keeps
-    /// it, and forgets removed torrents. True when a dialog can open ([`AwaitingMetadata::ready`]).
+    /// Follows the engine: asks for the `.torrent` of a waiting magnet when it is added, or
+    /// first seen in a status update (a restored one, which may have its metadata already), and
+    /// when its metadata arrives, keeps it, and forgets removed torrents. True when a dialog can
+    /// open ([`AwaitingMetadata::ready`]).
     pub fn on_alert(&mut self, a: &Alert, handle: &SessionHandle, prefs: &mut Prefs) -> bool {
         match a {
-            Alert::TorrentAdded { id, info_hashes, .. } => {
-                if let Some(w) = self.by_key.get_mut(&info_hashes.key_hex()) {
-                    w.id = Some(*id);
-                    handle.torrent(*id).post_torrent_file();
+            Alert::TorrentAdded { id, info_hashes, .. } => self.found(*id, &info_hashes.key_hex(), handle),
+            // restored torrents post no `TorrentAdded`
+            Alert::StateUpdate(v) if self.by_key.values().any(|w| w.id.is_none()) => {
+                for st in v {
+                    self.found(st.id, &st.info_hashes.key_hex(), handle);
                 }
             }
             Alert::MetadataReceived { id } => {
@@ -892,6 +902,39 @@ mod tests {
         let r = renamed_root(&ti, "Other");
         assert_eq!(r, BTreeMap::from([(0, "Other/x/y.txt".to_owned()), (1, "Other/z.txt".to_owned())]));
         assert!(renamed_root(&ti, "root").is_empty());
+    }
+
+    #[test]
+    fn a_restored_magnet_is_found_in_the_status_updates() {
+        // after a restart the engine restores the waiting magnet without a `TorrentAdded`: the
+        // dialog's wait finds it by its info-hash in a status update
+        use patorrent_core::{MockConfig, Session, Settings};
+        use std::time::{Duration, Instant};
+        let s =
+            Session::start_mock(Settings { tick_interval: 50, ..Settings::default() }, MockConfig::default());
+        let h = s.handle();
+        let hash = "1123456789abcdef0123456789abcdef01234567";
+        let mut prefs = Prefs::default();
+        AwaitingMetadata::default().insert(&mut prefs, hash, "/dl");
+        let mut waiting = AwaitingMetadata::load(&prefs);
+        let mut p =
+            AddTorrentParams::new(TorrentSource::Magnet(format!("magnet:?xt=urn:btih:{hash}")), "/dl");
+        AwaitingMetadata::prepare(&mut p);
+        h.add_torrent(p);
+        let mut alerts = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while waiting.ready().is_empty() {
+            assert!(Instant::now() < deadline, "the magnet was not found");
+            std::thread::sleep(Duration::from_millis(20));
+            h.post_torrent_updates();
+            alerts.clear();
+            h.pop_alerts(&mut alerts);
+            for a in alerts.iter().filter(|a| !matches!(a, Alert::TorrentAdded { .. })) {
+                waiting.on_alert(a, &h, &mut prefs);
+            }
+        }
+        assert_eq!(waiting.ready(), [hash]);
+        assert!(waiting.get(hash).unwrap().id.is_some());
     }
 
     #[test]

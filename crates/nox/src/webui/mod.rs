@@ -829,6 +829,14 @@ impl WebUi {
                 Alert::StateUpdate(v) => {
                     let goal = st.prefs.seeding_goal;
                     for s in v {
+                        // first sight of a restored torrent (they post no `TorrentAdded`) during
+                        // Seeding only hours
+                        if !st.torrents.contains_key(&s.id)
+                            && st.scheduler.mode() == Mode::SeedOnly
+                            && !s.flags.contains(TorrentFlags::UPLOAD_MODE)
+                        {
+                            self.shared.handle.torrent(s.id).set_flags(TorrentFlags::UPLOAD_MODE);
+                        }
                         st.update(s.clone(), now);
                         // Queueing > Seeding Goal: stop or limit a queued seed past its goal
                         if s.is_finished {
@@ -857,7 +865,7 @@ impl WebUi {
                         };
                         st.update(s, now);
                     }
-                    // restored or added by anyone during Seeding only hours
+                    // added by anyone during Seeding only hours
                     if st.scheduler.mode() == Mode::SeedOnly {
                         self.shared.handle.torrent(*id).set_flags(TorrentFlags::UPLOAD_MODE);
                     }

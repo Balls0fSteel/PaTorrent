@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_200000_1792605600: The GTK GUI's Preferences pages (Phase 7, slice 3)
+
+### Added
+- **`patorrent_frontend::pref_pages`**: the Preferences pages as data, toolkit-independent: µTorrent 2.2.1's pages, their group boxes, and each field (check box, number with its range, text, folder or file, password, drop-down) bound to one value of `Options` by getter and setter, with the indenting, "beside the previous field" rows and the check boxes that grey it. The fields are the Win32 dialog's: UI Settings (the tray boxes only for a toolkit with a tray, `Features::tray`), Directories with the .torrent folders, Connection with the proxy, Bandwidth, BitTorrent with encryption and the IP filter, Queueing with the seeding goal, the Advanced table and Disk Cache. Composite controls (proxy type and authentication, outgoing encryption and legacy connections, the cache's boxes and numbers) each set their part with the other part as it stands, so both changed together count.
+  - `Form` writes the values as the controls show them and reads back only what the user changed, so a value set on Advanced that a page rounds (a rate that is not a whole kB/s) survives; `check` finds what cannot be stored (the proxy's host and port, the folders) and names the field; `advanced_rows` / `advanced_name` are the Advanced table's rows.
+  - `proxy_to_ui`, `proxy_from_ui` and `ENC_OUT` are there too (the Win32 dialog still has its own copies).
+- **GTK Preferences** (`crates/gtk/src/preferences.rs`), built from that model: the page list (Disk Cache indented under Advanced), every page but the Scheduler, the Web UI and the Windows integration; a group box per group, "..." pickers beside folders and the block list, Random Port, Reload with the IP filter's status line, greying that follows the boxes, the Advanced table (Filter, Name and Value with `*` for changed settings, a value field or True / False, Set, Reset, Enter in the value sets it). OK / Cancel / Apply, Escape; a bad value shows its page, says what is wrong and focuses the field; opening Advanced reads the pages first, and Set / Reset rewrite them.
+- **The GTK client puts the options into effect without a restart**, as the Win32 one: the engine settings (`apply_settings`), the default save folder, "Move completed downloads to" (`MoveCompleted` in the alert loop, logged), the seeding goal (per status update, the torrent's own goal first), the .torrent folders (copies stored when added and moved for finished jobs, the auto-load folder polled every second), Peer Exchange on every torrent, the IP filter (loaded at start when on, reloaded or cleared on Apply), and "Randomize port each start".
+
+### Verified
+- `cargo test -p patorrent-frontend -p patorrent`: all pass (frontend 139, Win32 53). New `pref_pages` tests: keys unique, every `needs` names a check box, every field's shown value applies back unchanged, only changed fields applied (a 1.5 kB/s limit survives), composite fields changed together, bad values and missing folders name their field, greying, the Advanced rows.
+- Stable clippy (`-D warnings`) and fmt on Windows; the 1.90.0 clippy (`-D warnings`) for Linux on `patorrent-gtk` and `patorrent-frontend`. No let-chains.
+
+### Issues
+- The GTK dialog and the run-time options were not built or run: no Linux machine. PLAN Known TODOs "GTK Preferences" lists what to try.
+- The Scheduler page waits for the scheduler's run in the GTK client (its grid and the hourly switch); the Web UI page for the remote mode; General has only the language until the desktop integration (slice 4).
+
 ## 2026-10-21_195046_1792605046: The GTK GUI's Add New Torrent dialog (Phase 7, slice 3 begins)
 
 ### Added

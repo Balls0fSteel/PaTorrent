@@ -17,16 +17,18 @@ use gtk::{gio, glib};
 use patorrent_core::fetch::{FetchOptions, http_get};
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
-    AddTorrentParams, Alert, QueueMove, RemoveFlags, Session, SessionHandle, SessionParams, SessionStats,
-    TorrentId, TorrentSource,
+    AddTorrentParams, Alert, IpFilter, MoveCompleted, QueueMove, RemoveFlags, Session, SessionHandle,
+    SessionParams, SessionStats, TorrentFlags, TorrentId, TorrentSource,
 };
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{Detail, PRIORITIES, Tab};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
-use patorrent_frontend::options::{GuiOptions, Options};
+use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::{actions, add, fmt, tr};
+use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
+use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
+use patorrent_frontend::{actions, add, fmt, settings, tr};
 
 use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
@@ -59,6 +61,15 @@ struct App {
     awaiting_dialog: bool,
     /// Info-hashes to move to the top of the queue once added ("Add to top of queue").
     queue_top: HashSet<String>,
+    /// Preferences > Directories "Move completed downloads to".
+    move_completed: Option<MoveCompleted>,
+    /// Preferences > Queueing's seeding goal.
+    seeding_goal: SeedingGoal,
+    /// Preferences > Directories "Location of .torrents", the copies being stored and the
+    /// auto-load folder's watch.
+    torrent_folders: TorrentFolders,
+    torrent_files: TorrentFiles,
+    autoload: Poller,
 }
 
 /// The widgets that draw from [`App`].
@@ -243,13 +254,18 @@ fn torrent_menu() -> gio::Menu {
 fn build(app: &gtk::Application) {
     let config = paths::config_dir();
     let data = paths::data_dir();
-    let prefs = Prefs::load(config.join("patorrent.ini"));
+    let mut prefs = Prefs::load(config.join("patorrent.ini"));
     // (the language was picked in `run`)
     let downloads = glib::user_special_dir(glib::UserDirectory::Downloads)
         .unwrap_or_else(|| glib::home_dir().join("Downloads"))
         .to_string_lossy()
         .into_owned();
-    let opts = Options::load(&prefs, &downloads);
+    let mut opts = Options::load(&prefs, &downloads);
+    if opts.gui.random_port {
+        // µTorrent's "Randomize port each start" keeps the new port as the configured one
+        settings::set_listen_port(&mut opts.settings, options::random_port());
+        settings::store(&mut prefs, &opts.settings);
+    }
     let save_path = opts.gui.download_dir.clone();
 
     let window = gtk::ApplicationWindow::builder()
@@ -426,11 +442,19 @@ fn build(app: &gtk::Application) {
             awaiting,
             awaiting_dialog: false,
             queue_top: HashSet::new(),
+            move_completed: opts.gui.move_completed(),
+            seeding_goal: opts.gui.seeding_goal(),
+            torrent_folders: opts.gui.torrent_folders.clone(),
+            torrent_files: TorrentFiles::new(),
+            autoload: Poller::new(),
         })
     });
     with_app(|a| {
         let sort = a.prefs.sort();
         a.list.set_sort(sort);
+        if opts.gui.ip_filter {
+            load_ip_filter(a, &opts.gui);
+        }
     });
 
     // the engine's alerts: drained on the main loop
@@ -445,6 +469,7 @@ fn build(app: &gtk::Application) {
         h.post_torrent_updates();
         h.post_session_stats();
         request_detail();
+        with_app(autoload);
         glib::ControlFlow::Continue
     });
     handle.post_torrent_updates();
@@ -491,6 +516,18 @@ fn on_alerts() {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
         for alert in alerts.drain(..) {
+            if let Some((id, dir)) = a
+                .move_completed
+                .as_mut()
+                .and_then(|m| m.on_alert(&alert, &a.handle).map(|id| (id, m.dir.clone())))
+            {
+                let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
+                a.detail.push_log(format!("{} {}", now_hms(), tr!(LogMovingCompleted, name, dir)));
+                a.handle.post_torrent_updates();
+            }
+            for line in a.torrent_files.on_alert(&alert, &a.torrent_folders, &a.handle) {
+                a.detail.push_log(format!("{} {line}", now_hms()));
+            }
             magnet_ready |= a.awaiting.on_alert(&alert, &a.handle, &mut a.prefs);
             match alert {
                 Alert::StateUpdate(v) => {
@@ -506,6 +543,7 @@ fn on_alerts() {
                                 a.list.set_user_paused(st.id, true);
                             }
                         }
+                        seeding_goal(a, st);
                     }
                     a.list.update(v);
                 }
@@ -977,7 +1015,7 @@ fn add_torrent_file(bytes: Vec<u8>) {
             let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
             GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
             choice.apply_to(&ti2, &mut p);
-            a.handle.add_torrent(p);
+            add_to_session(a, p);
         });
     });
 }
@@ -1003,7 +1041,7 @@ fn add_magnet(uri: String) {
         add::AwaitingMetadata::prepare(&mut p);
         a.awaiting.insert(&mut a.prefs, &key, &save_path);
         save_prefs(a);
-        a.handle.add_torrent(p);
+        add_to_session(a, p);
     });
 }
 
@@ -1053,8 +1091,60 @@ fn add(source: TorrentSource) {
     with_app(|a| {
         let mut p = AddTorrentParams::new(source, a.save_path.clone());
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
-        a.handle.add_torrent(p);
+        add_to_session(a, p);
     });
+}
+
+/// Hands a torrent to the engine; a `.torrent`'s copy is stored once it is added.
+fn add_to_session(a: &mut App, p: AddTorrentParams) {
+    a.torrent_files.adding(&a.torrent_folders, &p);
+    a.handle.add_torrent(p);
+}
+
+/// Preferences > Directories "Automatically load .torrents from": the new files in the folder
+/// are added without the Add New Torrent dialog, as µTorrent added them, and renamed to
+/// `.torrent.loaded` (or deleted) once the engine has them.
+fn autoload(a: &mut App) {
+    let Some(dir) = a.torrent_folders.loads_from().map(PathBuf::from) else { return };
+    let found = a.autoload.poll(&dir, std::time::Instant::now());
+    if let Some(e) = a.autoload.take_error() {
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAutoloadError, error = e)));
+    }
+    for path in found {
+        let (bytes, ti) = match torrent_folders::read(&path) {
+            Ok(r) => r,
+            Err(e) => {
+                let line = tr!(FoldersNotLoaded, path = path.display(), error = e);
+                a.detail.push_log(format!("{} {line}", now_hms()));
+                continue;
+            }
+        };
+        if in_list(a, &ti.info_hashes().key_hex()).is_some() {
+            let line = torrent_folders::loaded(ti.name(), &path, a.torrent_folders.autoload_delete);
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAlreadyInList, line)));
+            continue;
+        }
+        a.torrent_files.loading(&ti, path);
+        let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
+        GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+        add_to_session(a, p);
+    }
+}
+
+/// Preferences > Queueing's seeding goal (or the torrent's own, from Properties) for a finished
+/// torrent.
+fn seeding_goal(a: &mut App, st: &patorrent_core::TorrentStatus) {
+    if !st.is_finished {
+        return;
+    }
+    let own = SeedGoal::load_override(&a.prefs, &st.info_hashes.key_hex());
+    let Some(action) = a.seeding_goal.check(st, own) else { return };
+    action.apply(&a.handle.torrent(st.id));
+    let what = match action {
+        GoalAction::Stop => tr!(SeedingGoalStopped).to_owned(),
+        GoalAction::LimitUpload(b) => tr!(SeedingGoalLimited, rate = fmt::speed_always(b)),
+    };
+    a.detail.push_log(format!("{} {}", now_hms(), tr!(LogSeedingGoal, name = st.name, what)));
 }
 
 /// The name of the torrent in the list with info-hash `key` (`InfoHashes::key_hex`).
@@ -1154,20 +1244,73 @@ fn add_url() {
     dialog.present();
 }
 
-/// Options > Preferences: the options as stored; OK and Apply store the changed ones.
+/// Options > Preferences. OK and Apply store the options and apply them without a restart.
 fn preferences() {
-    let Some((window, options)) = with_app(|a| (a.window.clone(), GuiOptions::load(&a.prefs, &a.save_path)))
+    let Some((window, options)) = with_app(|a| (a.window.clone(), Options::load(&a.prefs, &a.save_path)))
     else {
         return;
     };
-    crate::preferences::show(&window, options, |o| {
-        with_app(|a| {
-            o.store(&mut a.prefs);
-            if let Err(e) = a.prefs.save() {
-                eprintln!("cannot save the settings: {e}");
+    let hooks = crate::preferences::Hooks {
+        apply: Box::new(|o| {
+            with_app(|a| apply_options(a, o));
+        }),
+        reload_ip_filter: Box::new(|path| {
+            with_app(|a| {
+                let r = a.handle.load_ip_filter(path).map_err(|e| e.to_string());
+                log_ip_filter(a, path, &r);
+                r
+            })
+            .unwrap_or_else(|| Err(tr!(ErrNotRunning).to_owned()))
+        }),
+        settings_dir: paths::config_dir(),
+    };
+    crate::preferences::show(&window, options, hooks);
+}
+
+/// Stores `o` and hands it to the engine and the window.
+fn apply_options(a: &mut App, o: &Options) {
+    let old = Options::load(&a.prefs, &a.save_path);
+    o.store(&mut a.prefs);
+    save_prefs(a);
+    a.save_path = o.gui.download_dir.clone();
+    a.handle.apply_settings(o.settings.clone());
+    o.gui.update_move_completed(&mut a.move_completed);
+    a.seeding_goal = o.gui.seeding_goal();
+    a.torrent_folders = o.gui.torrent_folders.clone();
+    if o.gui.pex != old.gui.pex {
+        for id in a.list.ids() {
+            let t = a.handle.torrent(id);
+            if o.gui.pex {
+                t.unset_flags(TorrentFlags::DISABLE_PEX);
+            } else {
+                t.set_flags(TorrentFlags::DISABLE_PEX);
             }
-        });
-    });
+        }
+    }
+    let dir = paths::config_dir();
+    if (o.gui.ip_filter, o.gui.ip_filter_file(&dir)) != (old.gui.ip_filter, old.gui.ip_filter_file(&dir)) {
+        if o.gui.ip_filter {
+            load_ip_filter(a, &o.gui);
+        } else {
+            a.handle.set_ip_filter(IpFilter::new());
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogIpFilterOff)));
+        }
+    }
+}
+
+/// Loads the configured block list (`ipfilter.dat` in the settings folder by default).
+fn load_ip_filter(a: &mut App, gui: &GuiOptions) {
+    let path = gui.ip_filter_file(&paths::config_dir());
+    let r = a.handle.load_ip_filter(&path).map_err(|e| e.to_string());
+    log_ip_filter(a, &path, &r);
+}
+
+fn log_ip_filter(a: &mut App, path: &std::path::Path, r: &Result<usize, String>) {
+    let line = match r {
+        Ok(n) => format!("{} {}", now_hms(), tr!(LogIpFilterRules, count = n, path = path.display())),
+        Err(e) => format!("{} {}", now_hms(), tr!(LogIpFilterError, path = path.display(), error = e)),
+    };
+    a.detail.push_log(line);
 }
 
 fn about() {

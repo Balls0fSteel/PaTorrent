@@ -32,6 +32,7 @@ pub mod fmt;
 pub mod lang;
 pub mod model;
 pub mod options;
+pub mod pref_pages;
 pub mod prefs;
 pub mod properties;
 pub mod rss;

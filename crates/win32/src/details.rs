@@ -3,13 +3,10 @@
 //! The Pieces panel paints the piece map and holds a list view of the pieces being downloaded
 //! under it (µTorrent 2.2.1's Pieces list), its Blocks column drawn by [`block_bar`].
 
-use std::collections::VecDeque;
-use std::sync::Arc;
-
-use patorrent_core::{AnnounceEntry, Bitfield, FileEntry, PartialPiece, PeerInfo, TorrentId, TorrentStatus};
-use patorrent_frontend::detail::{self, BlockKind, ColumnDef};
-use patorrent_frontend::lang::S;
-use patorrent_frontend::{columns::RowExtra, fmt, status::status_text, tr};
+use patorrent_core::{PartialPiece, TorrentStatus};
+use patorrent_frontend::detail::{self, BlockKind, PieceShade, SPEED_SAMPLES};
+pub use patorrent_frontend::detail::{Detail, Tab as Page};
+use patorrent_frontend::{columns::RowExtra, fmt, tr};
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -20,157 +17,6 @@ use windows_sys::Win32::Graphics::Gdi::{
 };
 
 use crate::util::{rtl, scale, wide};
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Page {
-    General,
-    Trackers,
-    Peers,
-    Pieces,
-    Files,
-    Speed,
-    Logger,
-}
-
-impl Page {
-    pub const ALL: [Page; 7] =
-        [Page::General, Page::Trackers, Page::Peers, Page::Pieces, Page::Files, Page::Speed, Page::Logger];
-
-    pub fn title(self) -> S {
-        match self {
-            Page::General => S::TabGeneral,
-            Page::Trackers => S::TabTrackers,
-            Page::Peers => S::TabPeers,
-            Page::Pieces => S::TabPieces,
-            Page::Files => S::TabFiles,
-            Page::Speed => S::TabSpeed,
-            Page::Logger => S::TabLogger,
-        }
-    }
-
-    /// The name kept in the preferences (`ui.tab`), whatever the language.
-    pub fn key(self) -> &'static str {
-        match self {
-            Page::General => "General",
-            Page::Trackers => "Trackers",
-            Page::Peers => "Peers",
-            Page::Pieces => "Pieces",
-            Page::Files => "Files",
-            Page::Speed => "Speed",
-            Page::Logger => "Logger",
-        }
-    }
-
-    pub fn index(self) -> usize {
-        Page::ALL.iter().position(|&p| p == self).unwrap_or(0)
-    }
-
-    /// List view pages; the others are painted.
-    pub fn is_list(self) -> bool {
-        matches!(self, Page::Trackers | Page::Peers | Page::Files | Page::Logger)
-    }
-
-    pub fn columns(self) -> &'static [ColumnDef] {
-        const LOG: [ColumnDef; 1] = [(S::ColMessage, 900, false)];
-        match self {
-            Page::Trackers => &detail::TRACKER_COLUMNS,
-            Page::Peers => &detail::PEER_COLUMNS,
-            Page::Files => &detail::FILE_COLUMNS,
-            Page::Logger => &LOG,
-            _ => &[],
-        }
-    }
-}
-
-pub const LOG_LINES: usize = 1000;
-/// Seconds of speed history.
-pub const SPEED_SAMPLES: usize = 600;
-
-/// What the detail tabs show for the selected torrent, plus the session-wide log and speeds.
-#[derive(Default)]
-pub struct Detail {
-    pub id: Option<TorrentId>,
-    pub peers: Vec<PeerInfo>,
-    pub trackers: Vec<AnnounceEntry>,
-    pub files: Option<Arc<[FileEntry]>>,
-    /// Indices into `files` without pad files.
-    pub file_rows: Vec<usize>,
-    pub file_done: Vec<u64>,
-    pub have: Option<Bitfield>,
-    pub availability: Vec<u32>,
-    /// The pieces being downloaded, ascending (the Pieces list).
-    pub partial: Vec<PartialPiece>,
-    pub log: VecDeque<String>,
-    /// (download, upload) payload bytes per second, oldest first.
-    pub speed: VecDeque<(u32, u32)>,
-}
-
-impl Detail {
-    /// Switches to another torrent, dropping the previous one's data.
-    pub fn select(&mut self, id: Option<TorrentId>) {
-        if self.id != id {
-            self.id = id;
-            self.peers.clear();
-            self.trackers.clear();
-            self.files = None;
-            self.file_rows.clear();
-            self.file_done.clear();
-            self.have = None;
-            self.availability.clear();
-            self.partial.clear();
-        }
-    }
-
-    pub fn set_files(&mut self, files: Arc<[FileEntry]>) {
-        self.file_rows = (0..files.len()).filter(|&i| !files[i].pad_file).collect();
-        self.files = Some(files);
-    }
-
-    pub fn push_log(&mut self, line: String) {
-        if self.log.len() == LOG_LINES {
-            self.log.pop_front();
-        }
-        self.log.push_back(line);
-    }
-
-    pub fn push_speed(&mut self, down: u32, up: u32) {
-        if self.speed.len() == SPEED_SAMPLES {
-            self.speed.pop_front();
-        }
-        self.speed.push_back((down, up));
-    }
-
-    pub fn rows(&self, page: Page) -> usize {
-        match page {
-            Page::Trackers => self.trackers.len(),
-            Page::Peers => self.peers.len(),
-            Page::Pieces => self.partial.len(),
-            Page::Files => self.file_rows.len(),
-            Page::Logger => self.log.len(),
-            _ => 0,
-        }
-    }
-
-    pub fn cell(&self, page: Page, row: usize, col: usize) -> String {
-        match page {
-            Page::Trackers => self.trackers.get(row).map(|t| detail::tracker_cell(t, col)),
-            Page::Peers => self.peers.get(row).map(|p| detail::peer_cell(p, col)),
-            Page::Pieces => self.partial.get(row).map(|p| detail::piece_cell(p, col)),
-            Page::Files => self.file_rows.get(row).and_then(|&i| {
-                let f = &self.files.as_ref()?[i];
-                Some(detail::file_cell(f, self.file_done.get(i).copied(), col))
-            }),
-            Page::Logger => self.log.get(row).cloned(),
-            _ => None,
-        }
-        .unwrap_or_default()
-    }
-
-    /// File index (into the torrent's file list) of a Files tab row.
-    pub fn file_index(&self, row: usize) -> Option<u32> {
-        self.file_rows.get(row).map(|&i| i as u32)
-    }
-}
 
 fn rgb(c: u32) -> COLORREF {
     ((c & 0xff) << 16) | (c & 0xff00) | ((c >> 16) & 0xff)
@@ -280,6 +126,7 @@ unsafe fn general(c: &PaintCtx<'_>) {
         unsafe { hint(c, tr!(GenSelectTorrent)) };
         return;
     };
+    let g = detail::general(st, x.user_paused);
     let pad = c.s(8);
     let line = c.s(18);
     let label_w = c.s(110);
@@ -289,11 +136,7 @@ unsafe fn general(c: &PaintCtx<'_>) {
     unsafe {
         // Downloaded and availability bars.
         let pieces = c.detail.have.as_ref().map_or(st.pieces_total as usize, |h| h.len());
-        let bars: [(&str, String); 2] = [
-            (tr!(GenDownloaded), fmt::percent(st.progress_ppm)),
-            (tr!(GenAvailability), fmt::availability(st.distributed_copies)),
-        ];
-        for (i, (label, value)) in bars.iter().enumerate() {
+        for (i, (label, value)) in g.bars.iter().enumerate() {
             let row = RECT { left, top: y, right, bottom: y + line };
             text(c.hdc, label, &row, DT_LEFT);
             let value_w = c.s(60);
@@ -326,78 +169,26 @@ unsafe fn general(c: &PaintCtx<'_>) {
 
         y += c.s(6);
         y = section(c, tr!(GenTransfer), y);
-        let remaining = st.total_wanted.saturating_sub(st.total_wanted_done);
-        let grid: [[(&str, String); 3]; 4] = [
-            [
-                (tr!(GenTimeElapsed), fmt::duration(st.active_duration)),
-                (tr!(GenRemaining), if st.is_finished { String::new() } else { fmt::eta(st.eta()) }),
-                (tr!(GenWasted), fmt::size(st.total_failed_bytes + st.total_redundant_bytes)),
-            ],
-            [
-                (tr!(GenDownloaded), fmt::size(st.all_time_download)),
-                (tr!(GenUploaded), fmt::size(st.all_time_upload)),
-                (
-                    tr!(GenSeeds),
-                    tr!(GenConnected, count = st.num_seeds, total = st.num_complete.unwrap_or(st.list_seeds)),
-                ),
-            ],
-            [
-                (tr!(GenDownloadSpeed), fmt::speed_always(st.download_payload_rate)),
-                (tr!(GenUploadSpeed), fmt::speed_always(st.upload_payload_rate)),
-                (
-                    tr!(GenPeers),
-                    tr!(
-                        GenConnected,
-                        count = st.num_peers.saturating_sub(st.num_seeds),
-                        total = st.num_incomplete.unwrap_or(st.list_peers.saturating_sub(st.list_seeds))
-                    ),
-                ),
-            ],
-            [
-                (tr!(GenDownLimit), limit(st.download_limit)),
-                (tr!(GenUpLimit), limit(st.upload_limit)),
-                (tr!(GenShareRatio), fmt::ratio(st.ratio())),
-            ],
-        ];
         let col_w = (right - left) / 3;
-        for row in &grid {
+        for row in &g.transfer {
             for (i, (label, value)) in row.iter().enumerate() {
                 let x0 = left + col_w * i as i32;
                 pair(c, x0, y, col_w, label, value);
             }
             y += line;
         }
-        pair(c, left, y, right - left, tr!(GenStatus), &status_text(st, x.user_paused));
+        pair(c, left, y, right - left, g.status.0, &g.status.1);
         y += line + c.s(6);
 
         y = section(c, tr!(GenGeneral), y);
-        let pieces_text = if st.piece_length > 0 {
-            tr!(
-                GenPiecesValue,
-                count = st.pieces_total,
-                size = fmt::size(st.piece_length as u64),
-                have = st.num_pieces
-            )
-        } else {
-            String::new()
-        };
-        let rows: [(&str, String, &str, String); 3] = [
-            (tr!(GenSaveAs), st.save_path.clone(), tr!(GenRemaining), fmt::size(remaining)),
-            (tr!(GenTotalSize), fmt::size(st.total), tr!(GenAddedOn), fmt::date_time(st.added_time)),
-            (tr!(GenPieces), pieces_text, tr!(GenCompletedOn), fmt::date_time(st.completed_time)),
-        ];
         let half = (right - left) * 2 / 3;
-        for (l1, v1, l2, v2) in &rows {
+        for [(l1, v1), (l2, v2)] in &g.general {
             pair(c, left, y, half, l1, v1);
             pair(c, left + half, y, right - left - half, l2, v2);
             y += line;
         }
-        pair(c, left, y, right - left, tr!(GenHash), &st.info_hashes.key_hex().to_uppercase());
+        pair(c, left, y, right - left, g.hash.0, &g.hash.1);
     }
-}
-
-fn limit(v: u32) -> String {
-    if v == 0 { "∞".to_owned() } else { fmt::speed_always(v) }
 }
 
 unsafe fn section(c: &PaintCtx<'_>, title: &str, y: i32) -> i32 {
@@ -513,11 +304,7 @@ unsafe fn pieces(c: &PaintCtx<'_>) {
             right: c.rc.right - pad,
             bottom: c.rc.top + header,
         };
-        let s = match d.partial.len() {
-            0 => tr!(PiecesSummary, count = n, done = have.count()),
-            k => tr!(PiecesSummaryDownloading, count = n, done = have.count(), downloading = k),
-        };
-        text(c.hdc, &s, &r, DT_LEFT | DT_END_ELLIPSIS);
+        text(c.hdc, &d.pieces_summary(), &r, DT_LEFT | DT_END_ELLIPSIS);
         let rows_in = |h: i32| (h / (cell + gap)).max(0) as usize;
         let mut max_rows = rows_in(bottom - c.rc.top - header - pad);
         if n > cols * max_rows {
@@ -529,17 +316,13 @@ unsafe fn pieces(c: &PaintCtx<'_>) {
             let x = c.rc.left + pad + ((i % cols) as i32) * (cell + gap);
             let y = c.rc.top + header + ((i / cols) as i32) * (cell + gap);
             let rc = RECT { left: x, top: y, right: x + cell, bottom: y + cell };
-            let color = if have.get(i) {
-                BAR_BLUE
-            } else if d.partial.binary_search_by_key(&(i as u32), |p| p.piece).is_ok() {
-                BLOCK_REQUESTED
-            } else {
-                match d.availability.get(i).copied().unwrap_or(0) {
-                    0 => 0xffffff,
-                    1 => 0xd8e8d0,
-                    2 | 3 => 0xa8d29a,
-                    _ => 0x6fb85c,
-                }
+            let color = match d.piece_shade(i) {
+                PieceShade::Have => BAR_BLUE,
+                PieceShade::Downloading => BLOCK_REQUESTED,
+                PieceShade::Available(0) => 0xffffff,
+                PieceShade::Available(1) => 0xd8e8d0,
+                PieceShade::Available(2 | 3) => 0xa8d29a,
+                PieceShade::Available(_) => 0x6fb85c,
             };
             fill(c.hdc, &rc, color);
             FrameRect(c.hdc, &rc, GetSysColorBrush(COLOR_BTNSHADOW));
@@ -565,19 +348,7 @@ unsafe fn speed(c: &PaintCtx<'_>) {
     if plot.right - plot.left < 20 || plot.bottom - plot.top < 20 {
         return;
     }
-    let max = d.speed.iter().map(|&(a, b)| a.max(b)).max().unwrap_or(0).max(10 * 1024);
-    // Round the scale up to 1, 2 or 5 × 10^n kB/s.
-    let mut top;
-    let mut base = 1024u64;
-    'scale: loop {
-        for m in [1, 2, 5] {
-            top = base * m;
-            if top >= max as u64 {
-                break 'scale;
-            }
-        }
-        base *= 10;
-    }
+    let top = detail::speed_scale(&d.speed);
     unsafe {
         FrameRect(c.hdc, &plot, GetSysColorBrush(COLOR_BTNSHADOW));
         let grid = CreatePen(PS_SOLID, 1, rgb(0xe0e0e0));
@@ -660,7 +431,7 @@ unsafe fn speed(c: &PaintCtx<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::BlockState;
+    use patorrent_core::Bitfield;
 
     #[test]
     fn the_piece_map_leaves_the_rest_of_the_page_to_the_list() {
@@ -679,22 +450,5 @@ mod tests {
         // twice the size at 192 DPI
         d.have = Some(Bitfield::new(10, false));
         assert_eq!(piece_map_height(&d, 1000, 600, 192), 80);
-    }
-
-    #[test]
-    fn the_pieces_rows_follow_the_selected_torrent() {
-        let mut d = Detail::default();
-        d.select(Some(TorrentId::from_raw(1)));
-        d.partial = vec![PartialPiece {
-            piece: 12,
-            size: 32 * 1024,
-            blocks: vec![BlockState::Finished, BlockState::Requested(1)],
-        }];
-        assert_eq!(d.rows(Page::Pieces), 1);
-        assert!(!Page::Pieces.is_list(), "a painted panel holding its own list");
-        let cells: Vec<String> = (0..5).map(|c| d.cell(Page::Pieces, 0, c)).collect();
-        assert_eq!(cells, ["12", "32.0 kB", "2", "", "1"]);
-        d.select(Some(TorrentId::from_raw(2)));
-        assert_eq!(d.rows(Page::Pieces), 0);
     }
 }

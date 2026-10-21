@@ -10,6 +10,10 @@
 #[cfg(unix)]
 mod app;
 #[cfg(unix)]
+mod canvas;
+#[cfg(unix)]
+mod detail;
+#[cfg(unix)]
 mod list;
 #[cfg(unix)]
 mod paths;
@@ -17,6 +21,8 @@ mod paths;
 mod preferences;
 #[cfg(unix)]
 mod sidebar;
+#[cfg(unix)]
+mod table;
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {

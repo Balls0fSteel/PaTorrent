@@ -1,16 +1,305 @@
-//! The detail tabs' tables (Trackers, Peers, Pieces, Files) in µTorrent 2.2.1's layout: column
-//! titles, default widths and cell text.
+//! The detail tabs under the torrent list (General, Trackers, Peers, Pieces, Files, Speed,
+//! Logger) in µTorrent 2.2.1's layout: what each GUI keeps for the selected torrent
+//! ([`Detail`]), the General tab's fields, and the tables' column titles, default widths and
+//! cell text. The drawing is the toolkit's.
+
+use std::collections::VecDeque;
+use std::sync::Arc;
 
 use patorrent_core::{
-    AnnounceEntry, BlockState, DownloadPriority, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource,
-    TrackerStatus,
+    AnnounceEntry, Bitfield, BlockState, DownloadPriority, FileEntry, PartialPiece, PeerFlags, PeerInfo,
+    PeerSource, TorrentId, TorrentStatus, TrackerStatus,
 };
 
 use crate::lang::S;
+use crate::status::status_text;
 use crate::{fmt, tr};
 
 /// Title, width at 96 DPI, right-aligned.
 pub type ColumnDef = (S, i32, bool);
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Tab {
+    General,
+    Trackers,
+    Peers,
+    Pieces,
+    Files,
+    Speed,
+    Logger,
+}
+
+impl Tab {
+    pub const ALL: [Tab; 7] =
+        [Tab::General, Tab::Trackers, Tab::Peers, Tab::Pieces, Tab::Files, Tab::Speed, Tab::Logger];
+
+    pub fn title(self) -> S {
+        match self {
+            Tab::General => S::TabGeneral,
+            Tab::Trackers => S::TabTrackers,
+            Tab::Peers => S::TabPeers,
+            Tab::Pieces => S::TabPieces,
+            Tab::Files => S::TabFiles,
+            Tab::Speed => S::TabSpeed,
+            Tab::Logger => S::TabLogger,
+        }
+    }
+
+    /// The name kept in the preferences (`ui.tab`), whatever the language.
+    pub fn key(self) -> &'static str {
+        match self {
+            Tab::General => "General",
+            Tab::Trackers => "Trackers",
+            Tab::Peers => "Peers",
+            Tab::Pieces => "Pieces",
+            Tab::Files => "Files",
+            Tab::Speed => "Speed",
+            Tab::Logger => "Logger",
+        }
+    }
+
+    pub fn from_key(key: &str) -> Option<Tab> {
+        Tab::ALL.into_iter().find(|t| t.key() == key)
+    }
+
+    pub fn index(self) -> usize {
+        Tab::ALL.iter().position(|&t| t == self).unwrap_or(0)
+    }
+
+    /// Tabs that are one plain table; General, Pieces and Speed are drawn (Pieces with a table
+    /// of its own under the map).
+    pub fn is_list(self) -> bool {
+        matches!(self, Tab::Trackers | Tab::Peers | Tab::Files | Tab::Logger)
+    }
+
+    /// The table's columns ([`PIECE_COLUMNS`] for Pieces).
+    pub fn columns(self) -> &'static [ColumnDef] {
+        const LOG: [ColumnDef; 1] = [(S::ColMessage, 900, false)];
+        match self {
+            Tab::Trackers => &TRACKER_COLUMNS,
+            Tab::Peers => &PEER_COLUMNS,
+            Tab::Pieces => &PIECE_COLUMNS,
+            Tab::Files => &FILE_COLUMNS,
+            Tab::Logger => &LOG,
+            _ => &[],
+        }
+    }
+}
+
+/// Lines the Logger keeps.
+pub const LOG_LINES: usize = 1000;
+/// Seconds of speed history.
+pub const SPEED_SAMPLES: usize = 600;
+
+/// What the detail tabs show for the selected torrent, plus the session-wide log and speeds.
+#[derive(Default)]
+pub struct Detail {
+    pub id: Option<TorrentId>,
+    pub peers: Vec<PeerInfo>,
+    pub trackers: Vec<AnnounceEntry>,
+    pub files: Option<Arc<[FileEntry]>>,
+    /// Indices into `files` without pad files.
+    pub file_rows: Vec<usize>,
+    pub file_done: Vec<u64>,
+    pub have: Option<Bitfield>,
+    pub availability: Vec<u32>,
+    /// The pieces being downloaded, ascending (the Pieces list).
+    pub partial: Vec<PartialPiece>,
+    pub log: VecDeque<String>,
+    /// (download, upload) payload bytes per second, oldest first.
+    pub speed: VecDeque<(u32, u32)>,
+}
+
+impl Detail {
+    /// Switches to another torrent, dropping the previous one's data.
+    pub fn select(&mut self, id: Option<TorrentId>) {
+        if self.id != id {
+            self.id = id;
+            self.peers.clear();
+            self.trackers.clear();
+            self.files = None;
+            self.file_rows.clear();
+            self.file_done.clear();
+            self.have = None;
+            self.availability.clear();
+            self.partial.clear();
+        }
+    }
+
+    pub fn set_files(&mut self, files: Arc<[FileEntry]>) {
+        self.file_rows = (0..files.len()).filter(|&i| !files[i].pad_file).collect();
+        self.files = Some(files);
+    }
+
+    pub fn push_log(&mut self, line: String) {
+        if self.log.len() == LOG_LINES {
+            self.log.pop_front();
+        }
+        self.log.push_back(line);
+    }
+
+    pub fn push_speed(&mut self, down: u32, up: u32) {
+        if self.speed.len() == SPEED_SAMPLES {
+            self.speed.pop_front();
+        }
+        self.speed.push_back((down, up));
+    }
+
+    pub fn rows(&self, tab: Tab) -> usize {
+        match tab {
+            Tab::Trackers => self.trackers.len(),
+            Tab::Peers => self.peers.len(),
+            Tab::Pieces => self.partial.len(),
+            Tab::Files => self.file_rows.len(),
+            Tab::Logger => self.log.len(),
+            _ => 0,
+        }
+    }
+
+    pub fn cell(&self, tab: Tab, row: usize, col: usize) -> String {
+        match tab {
+            Tab::Trackers => self.trackers.get(row).map(|t| tracker_cell(t, col)),
+            Tab::Peers => self.peers.get(row).map(|p| peer_cell(p, col)),
+            Tab::Pieces => self.partial.get(row).map(|p| piece_cell(p, col)),
+            Tab::Files => self.file_rows.get(row).and_then(|&i| {
+                let f = &self.files.as_ref()?[i];
+                Some(file_cell(f, self.file_done.get(i).copied(), col))
+            }),
+            Tab::Logger => self.log.get(row).cloned(),
+            _ => None,
+        }
+        .unwrap_or_default()
+    }
+
+    /// File index (into the torrent's file list) of a Files tab row.
+    pub fn file_index(&self, row: usize) -> Option<u32> {
+        self.file_rows.get(row).map(|&i| i as u32)
+    }
+
+    /// The piece map's colour for piece `i`: on disk, being downloaded, or by how many peers
+    /// have it.
+    pub fn piece_shade(&self, i: usize) -> PieceShade {
+        if self.have.as_ref().is_some_and(|h| h.get(i)) {
+            PieceShade::Have
+        } else if self.partial.binary_search_by_key(&(i as u32), |p| p.piece).is_ok() {
+            PieceShade::Downloading
+        } else {
+            PieceShade::Available(self.availability.get(i).copied().unwrap_or(0).min(4) as u8)
+        }
+    }
+
+    /// The text above the piece map.
+    pub fn pieces_summary(&self) -> String {
+        let Some(have) = &self.have else { return String::new() };
+        match self.partial.len() {
+            0 => tr!(PiecesSummary, count = have.len(), done = have.count()),
+            k => tr!(PiecesSummaryDownloading, count = have.len(), done = have.count(), downloading = k),
+        }
+    }
+}
+
+/// How the piece map shows a piece.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum PieceShade {
+    Have,
+    Downloading,
+    /// Peers that have it, capped at 4.
+    Available(u8),
+}
+
+/// The General tab's texts for one torrent: labels with their values, in µTorrent 2.2.1's
+/// layout.
+pub struct General {
+    /// The Downloaded and Availability bars' labels and values.
+    pub bars: [(&'static str, String); 2],
+    /// The Transfer section: four rows of three.
+    pub transfer: [[(&'static str, String); 3]; 4],
+    /// The Transfer section's last line, across the width.
+    pub status: (&'static str, String),
+    /// The General section: three rows of two (the left one wider).
+    pub general: [[(&'static str, String); 2]; 3],
+    /// The General section's last line.
+    pub hash: (&'static str, String),
+}
+
+pub fn general(st: &TorrentStatus, user_paused: bool) -> General {
+    let remaining = st.total_wanted.saturating_sub(st.total_wanted_done);
+    let pieces = if st.piece_length > 0 {
+        tr!(
+            GenPiecesValue,
+            count = st.pieces_total,
+            size = fmt::size(st.piece_length as u64),
+            have = st.num_pieces
+        )
+    } else {
+        String::new()
+    };
+    General {
+        bars: [
+            (tr!(GenDownloaded), fmt::percent(st.progress_ppm)),
+            (tr!(GenAvailability), fmt::availability(st.distributed_copies)),
+        ],
+        transfer: [
+            [
+                (tr!(GenTimeElapsed), fmt::duration(st.active_duration)),
+                (tr!(GenRemaining), if st.is_finished { String::new() } else { fmt::eta(st.eta()) }),
+                (tr!(GenWasted), fmt::size(st.total_failed_bytes + st.total_redundant_bytes)),
+            ],
+            [
+                (tr!(GenDownloaded), fmt::size(st.all_time_download)),
+                (tr!(GenUploaded), fmt::size(st.all_time_upload)),
+                (
+                    tr!(GenSeeds),
+                    tr!(GenConnected, count = st.num_seeds, total = st.num_complete.unwrap_or(st.list_seeds)),
+                ),
+            ],
+            [
+                (tr!(GenDownloadSpeed), fmt::speed_always(st.download_payload_rate)),
+                (tr!(GenUploadSpeed), fmt::speed_always(st.upload_payload_rate)),
+                (
+                    tr!(GenPeers),
+                    tr!(
+                        GenConnected,
+                        count = st.num_peers.saturating_sub(st.num_seeds),
+                        total = st.num_incomplete.unwrap_or(st.list_peers.saturating_sub(st.list_seeds))
+                    ),
+                ),
+            ],
+            [
+                (tr!(GenDownLimit), limit(st.download_limit)),
+                (tr!(GenUpLimit), limit(st.upload_limit)),
+                (tr!(GenShareRatio), fmt::ratio(st.ratio())),
+            ],
+        ],
+        status: (tr!(GenStatus), status_text(st, user_paused)),
+        general: [
+            [(tr!(GenSaveAs), st.save_path.clone()), (tr!(GenRemaining), fmt::size(remaining))],
+            [(tr!(GenTotalSize), fmt::size(st.total)), (tr!(GenAddedOn), fmt::date_time(st.added_time))],
+            [(tr!(GenPieces), pieces), (tr!(GenCompletedOn), fmt::date_time(st.completed_time))],
+        ],
+        hash: (tr!(GenHash), st.info_hashes.key_hex().to_uppercase()),
+    }
+}
+
+/// A rate limit: `∞` for none.
+pub fn limit(v: u32) -> String {
+    if v == 0 { "∞".to_owned() } else { fmt::speed_always(v) }
+}
+
+/// The Speed graph's top: the highest sample (at least 10 kB/s) rounded up to 1, 2 or 5 × 10ⁿ
+/// kB/s.
+pub fn speed_scale(speed: &VecDeque<(u32, u32)>) -> u64 {
+    let max = speed.iter().map(|&(a, b)| a.max(b)).max().unwrap_or(0).max(10 * 1024) as u64;
+    let mut base = 1024u64;
+    loop {
+        for m in [1, 2, 5] {
+            if base * m >= max {
+                return base * m;
+            }
+        }
+        base *= 10;
+    }
+}
 
 pub const TRACKER_COLUMNS: [ColumnDef; 6] = [
     (S::ColName, 300, false),
@@ -317,5 +606,52 @@ mod tests {
         assert_eq!(file_cell(&f, None, 4), "4");
         assert_eq!(file_cell(&f, None, 6), "Normal");
         assert_eq!(priority_text(DownloadPriority::TOP), "High");
+    }
+
+    #[test]
+    fn the_pieces_rows_follow_the_selected_torrent() {
+        let mut d = Detail::default();
+        d.select(Some(TorrentId::from_raw(1)));
+        d.partial = vec![PartialPiece {
+            piece: 12,
+            size: 32 * 1024,
+            blocks: vec![BlockState::Finished, BlockState::Requested(1)],
+        }];
+        let mut have = Bitfield::new(20, false);
+        have.set(3, true);
+        d.have = Some(have);
+        d.availability = vec![7; 20];
+        assert_eq!(d.rows(Tab::Pieces), 1);
+        assert!(!Tab::Pieces.is_list(), "a drawn tab holding its own list");
+        let cells: Vec<String> = (0..5).map(|c| d.cell(Tab::Pieces, 0, c)).collect();
+        assert_eq!(cells, ["12", "32.0 kB", "2", "", "1"]);
+        assert_eq!(d.piece_shade(3), PieceShade::Have);
+        assert_eq!(d.piece_shade(12), PieceShade::Downloading);
+        assert_eq!(d.piece_shade(0), PieceShade::Available(4));
+        assert_eq!(d.pieces_summary(), tr!(PiecesSummaryDownloading, count = 20, done = 1, downloading = 1));
+        d.select(Some(TorrentId::from_raw(2)));
+        assert_eq!(d.rows(Tab::Pieces), 0);
+        assert_eq!(d.pieces_summary(), "");
+    }
+
+    #[test]
+    fn tabs_log_and_speed_scale() {
+        for t in Tab::ALL {
+            assert_eq!(Tab::from_key(t.key()), Some(t));
+            assert_eq!(Tab::ALL[t.index()], t);
+        }
+        assert_eq!(Tab::from_key("nope"), None);
+        let mut d = Detail::default();
+        for i in 0..LOG_LINES + 5 {
+            d.push_log(i.to_string());
+        }
+        assert_eq!(d.rows(Tab::Logger), LOG_LINES);
+        assert_eq!(d.cell(Tab::Logger, 0, 0), "5");
+        assert_eq!(speed_scale(&d.speed), 10 * 1024);
+        d.push_speed(30 * 1024, 1);
+        assert_eq!(speed_scale(&d.speed), 50 * 1024);
+        d.push_speed(0, 101 * 1024);
+        assert_eq!(speed_scale(&d.speed), 200 * 1024);
+        assert_eq!(limit(0), "∞");
     }
 }

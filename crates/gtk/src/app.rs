@@ -1,5 +1,5 @@
 //! The application: the engine session, the main window (menu bar, toolbar, category list,
-//! torrent list, status bar), the alert loop and the torrent actions.
+//! torrent list, detail tabs, status bar), the alert loop and the torrent actions.
 //!
 //! The engine's alert notification runs on the engine thread; it only asks the main loop to
 //! drain the queue (`MainContext::invoke`). Everything else happens on the GTK thread, with
@@ -20,12 +20,14 @@ use patorrent_core::{
     TorrentId, TorrentSource,
 };
 use patorrent_frontend::columns::Column;
+use patorrent_frontend::detail::{Detail, PRIORITIES, Tab};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
 use patorrent_frontend::options::{GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::{actions, fmt, tr};
 
+use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
 use crate::paths;
 use crate::sidebar::Sidebar;
@@ -46,6 +48,10 @@ struct App {
     /// Torrents seen in a status update since start.
     known: HashSet<TorrentId>,
     alerts: Vec<Alert>,
+    /// What the detail tabs show, and the Logger and Speed history.
+    detail: Detail,
+    /// The torrent whose file list was asked for (it is asked once per selection).
+    files_requested: Option<TorrentId>,
 }
 
 /// The widgets that draw from [`App`].
@@ -54,6 +60,9 @@ struct Ui {
     sidebar: Rc<Sidebar>,
     status: [gtk::Label; 4],
     paned: gtk::Paned,
+    details: Rc<Details>,
+    /// The list over the detail tabs.
+    split: gtk::Paned,
 }
 
 thread_local! {
@@ -69,9 +78,31 @@ fn ui() -> Option<Rc<Ui>> {
     UI.with(|u| u.borrow().clone())
 }
 
+/// The detail tabs' view of the state ([`crate::detail::Peek`]): read-only, so it works while
+/// the widgets draw.
+fn peek(f: &mut Visit<'_>) {
+    APP.with(|a| {
+        let Ok(a) = a.try_borrow() else { return };
+        let Some(a) = a.as_ref() else { return };
+        let st = a.detail.id.and_then(|id| a.list.get(id).map(|st| (st, a.list.extra(id).user_paused)));
+        f(&a.detail, st);
+    });
+}
+
+/// `[16:47:12]`, the Logger's time stamp.
+fn now_hms() -> String {
+    glib::DateTime::now_local()
+        .and_then(|t| t.format("[%H:%M:%S]"))
+        .map(|s| s.to_string())
+        .unwrap_or_default()
+}
+
 pub fn run() -> ExitCode {
     // before the menu bar is built (`startup`); no Logger yet, so problems go to stderr
     let prefs = Prefs::load(paths::config_dir().join("patorrent.ini"));
+    if let Ok(now) = glib::DateTime::now_local() {
+        fmt::set_utc_offset(now.utc_offset().as_seconds() as i32);
+    }
     for p in lang::init(prefs.get("ui.language").unwrap_or_default()) {
         eprintln!("{p}");
     }
@@ -257,23 +288,26 @@ fn build(app: &gtk::Application) {
     });
     let menu = torrent_menu();
     let popup: crate::list::ContextMenu = Rc::new(move |widget, x, y| {
-        let Some(ui) = ui() else { return };
-        let view = ui.list.view.upcast_ref::<gtk::Widget>();
-        let at = widget
-            .compute_point(view, &gtk::graphene::Point::new(x as f32, y as f32))
-            .unwrap_or_else(|| gtk::graphene::Point::new(x as f32, y as f32));
-        let popover = gtk::PopoverMenu::from_model(Some(&menu));
-        popover.set_parent(view);
-        popover.set_has_arrow(false);
-        popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(at.x() as i32, at.y() as i32, 1, 1)));
-        popover.connect_closed(|p| {
-            let p = p.clone();
-            // unparent once the menu's action has run
-            glib::idle_add_local_once(move || p.unparent());
-        });
-        popover.popup();
+        if let Some(ui) = ui() {
+            popup_menu(&menu, ui.list.view.upcast_ref(), widget, x, y);
+        }
     });
     let list = List::new(&prefs.columns(), prefs.sort(), render, popup);
+    let files_menu = crate::detail::files_menu();
+    let details = Details::new(
+        peek,
+        prefs.get("ui.tab").and_then(Tab::from_key).unwrap_or(Tab::General),
+        |_| {
+            request_detail();
+            refresh_details();
+        },
+        Rc::new(move |widget, x, y| {
+            // the menu hangs off the notebook, which outlives the table's cells
+            if let Some(ui) = ui() {
+                popup_menu(&files_menu, ui.details.notebook.upcast_ref(), widget, x, y);
+            }
+        }),
+    );
     let sidebar = Sidebar::new(|filter| {
         with_app(|a| a.list.set_filter(filter));
         refresh();
@@ -318,9 +352,15 @@ fn build(app: &gtk::Application) {
         .hscrollbar_policy(gtk::PolicyType::Never)
         .build();
     let list_scroll = gtk::ScrolledWindow::builder().child(&list.view).hexpand(true).vexpand(true).build();
+    let split = gtk::Paned::new(gtk::Orientation::Vertical);
+    split.set_start_child(Some(&list_scroll));
+    split.set_end_child(Some(&details.notebook));
+    split.set_resize_end_child(false);
+    split.set_shrink_end_child(false);
+    split.set_position(prefs.get_i32("gtk.split").unwrap_or(330));
     let paned = gtk::Paned::new(gtk::Orientation::Horizontal);
     paned.set_start_child(Some(&side_scroll));
-    paned.set_end_child(Some(&list_scroll));
+    paned.set_end_child(Some(&split));
     paned.set_shrink_start_child(false);
     paned.set_resize_start_child(false);
     paned.set_position(prefs.get_i32("gtk.sidebar").unwrap_or(180));
@@ -356,9 +396,10 @@ fn build(app: &gtk::Application) {
             open_folder(&[id]);
         }
     });
+    list.selection.connect_selection_changed(|_, _, _| selection_changed());
 
     add_actions(&window, &list);
-    let ui = Rc::new(Ui { list, sidebar, status, paned });
+    let ui = Rc::new(Ui { list, sidebar, status, paned, details, split });
     UI.with(|u| *u.borrow_mut() = Some(ui));
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
@@ -371,6 +412,8 @@ fn build(app: &gtk::Application) {
             save_path,
             known: HashSet::new(),
             alerts: Vec::new(),
+            detail: Detail::default(),
+            files_requested: None,
         })
     });
     with_app(|a| {
@@ -389,6 +432,7 @@ fn build(app: &gtk::Application) {
     glib::timeout_add_seconds_local(1, move || {
         h.post_torrent_updates();
         h.post_session_stats();
+        request_detail();
         glib::ControlFlow::Continue
     });
     handle.post_torrent_updates();
@@ -406,11 +450,14 @@ fn build(app: &gtk::Application) {
 fn shutdown() {
     let Some(ui) = ui() else { return };
     let (layout, sort, sidebar) = (ui.list.layout(), ui.list.sort(), ui.paned.position());
+    let (tab, split) = (ui.details.tab(), ui.split.position());
     let app = APP.with(|a| a.borrow_mut().take());
     let Some(mut app) = app else { return };
     app.prefs.set_columns(&layout);
     app.prefs.set_sort(sort);
     app.prefs.set("gtk.sidebar", sidebar);
+    app.prefs.set("ui.tab", tab.key());
+    app.prefs.set("gtk.split", split);
     let (w, h) = app.window.default_size();
     app.prefs.set("gtk.width", w);
     app.prefs.set("gtk.height", h);
@@ -448,9 +495,16 @@ fn on_alerts() {
                     }
                     a.list.update(v);
                 }
-                Alert::SessionStats(s) => a.stats = s,
-                Alert::TorrentAdded { .. } => a.handle.post_torrent_updates(),
+                Alert::SessionStats(s) => {
+                    a.stats = s;
+                    a.detail.push_speed(s.download_rate, s.upload_rate);
+                }
+                Alert::TorrentAdded { ref name, .. } => {
+                    a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAdded, name)));
+                    a.handle.post_torrent_updates();
+                }
                 Alert::AddTorrentFailed { ref name, ref error } => {
+                    a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     errors.push((tr!(CannotAdd, name), error.to_string()));
                 }
                 Alert::TorrentRemoved { id, info_hashes } => {
@@ -460,7 +514,47 @@ fn on_alerts() {
                     a.prefs.remove(&format!("torrent.{key}.label"));
                     a.prefs.remove(&format!("torrent.{key}.paused"));
                 }
-                _ => {}
+                Alert::TorrentFinished { id } => {
+                    let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
+                    a.detail.push_log(format!("{} {}", now_hms(), tr!(LogFinished, name)));
+                }
+                Alert::FileRenamed { id, .. } | Alert::FileRenameFailed { id, .. } => {
+                    let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
+                    a.detail.push_log(format!("{} {name}: {}", now_hms(), alert.message()));
+                    if a.detail.id == Some(id) {
+                        a.handle.torrent(id).post_file_list();
+                    }
+                }
+                Alert::PeerInfo { id, peers } if a.detail.id == Some(id) => a.detail.peers = peers,
+                Alert::TrackerList { id, trackers } if a.detail.id == Some(id) => {
+                    a.detail.trackers = trackers
+                }
+                Alert::FileList { id, files } if a.detail.id == Some(id) => a.detail.set_files(files),
+                Alert::FileProgress { id, done } if a.detail.id == Some(id) => a.detail.file_done = done,
+                Alert::PieceInfo { id, have, availability, downloading } if a.detail.id == Some(id) => {
+                    a.detail.have = Some(have);
+                    a.detail.availability = availability;
+                    a.detail.partial = downloading;
+                }
+                Alert::PeerInfo { .. }
+                | Alert::TrackerList { .. }
+                | Alert::FileList { .. }
+                | Alert::FileProgress { .. }
+                | Alert::PieceInfo { .. }
+                | Alert::TorrentFile { .. }
+                | Alert::ResumeDataSaved => {}
+                // one per stopped or queued torrent every half hour (`frontend::scrape`); the
+                // counts show in the Seeds and Peers columns
+                Alert::ScrapeReply { .. } | Alert::ScrapeFailed { .. } => {}
+                // the mappers' step-by-step chatter stays out of the Logger, as in the Win32 one
+                Alert::PortmapLog { .. } => {}
+                other => {
+                    let name = other.torrent().and_then(|id| a.list.get(id)).map(|st| st.name.clone());
+                    a.detail.push_log(match name {
+                        Some(n) => format!("{} {n}: {}", now_hms(), other.message()),
+                        None => format!("{} {}", now_hms(), other.message()),
+                    });
+                }
             }
         }
         a.alerts = alerts;
@@ -469,6 +563,9 @@ fn on_alerts() {
         return;
     }
     refresh();
+    // a removed torrent may have been the one shown
+    selection_changed();
+    refresh_details();
     update_status();
     for (message, detail) in errors {
         error(&message, &detail);
@@ -497,6 +594,70 @@ fn refresh() {
             }
         }
     });
+}
+
+/// The torrent the detail tabs show: the first selected one.
+fn selection_changed() {
+    let Some(ui) = ui() else { return };
+    let id = ui.list.selected().first().copied();
+    let changed = with_app(|a| {
+        let changed = a.detail.id != id;
+        a.detail.select(id);
+        if changed {
+            a.files_requested = None;
+        }
+        changed
+    });
+    if changed == Some(true) {
+        ui.details.torrent_changed();
+        request_detail();
+        ui.details.refresh();
+    }
+}
+
+/// Asks the engine for what the detail tab on screen needs.
+fn request_detail() {
+    let Some(tab) = ui().map(|ui| ui.details.tab()) else { return };
+    with_app(|a| {
+        let Some(id) = a.detail.id else { return };
+        let t = a.handle.torrent(id);
+        match tab {
+            Tab::General | Tab::Pieces => t.post_piece_info(),
+            Tab::Trackers => t.post_trackers(),
+            Tab::Peers => t.post_peer_info(),
+            Tab::Files => {
+                if a.files_requested != Some(id) {
+                    a.files_requested = Some(id);
+                    t.post_file_list();
+                }
+                t.post_file_progress();
+            }
+            Tab::Speed | Tab::Logger => {}
+        }
+    });
+}
+
+fn refresh_details() {
+    if let Some(ui) = ui() {
+        ui.details.refresh();
+    }
+}
+
+/// Opens `menu` at (x, y) of `widget`, hung off `parent`.
+fn popup_menu(menu: &gio::Menu, parent: &gtk::Widget, widget: &gtk::Widget, x: f64, y: f64) {
+    let at = widget
+        .compute_point(parent, &gtk::graphene::Point::new(x as f32, y as f32))
+        .unwrap_or_else(|| gtk::graphene::Point::new(x as f32, y as f32));
+    let popover = gtk::PopoverMenu::from_model(Some(menu));
+    popover.set_parent(parent);
+    popover.set_has_arrow(false);
+    popover.set_pointing_to(Some(&gtk::gdk::Rectangle::new(at.x() as i32, at.y() as i32, 1, 1)));
+    popover.connect_closed(|p| {
+        let p = p.clone();
+        // unparent once the menu's action has run
+        glib::idle_add_local_once(move || p.unparent());
+    });
+    popover.popup();
 }
 
 fn update_status() {
@@ -544,6 +705,23 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
     });
     simple("about", about);
     simple("preferences", preferences);
+    for (i, &(_, prio)) in PRIORITIES.iter().enumerate() {
+        let a = gio::SimpleAction::new(&format!("file-prio-{i}"), None);
+        a.connect_activate(move |_, _| {
+            let Some(rows) = ui().map(|ui| ui.details.selected_files()) else { return };
+            with_app(|a| {
+                let Some(id) = a.detail.id else { return };
+                let t = a.handle.torrent(id);
+                for f in rows.iter().filter_map(|&r| a.detail.file_index(r)) {
+                    t.set_file_priority(f, prio);
+                }
+                // read the list back to show the new priorities
+                a.files_requested = None;
+            });
+            request_detail();
+        });
+        window.add_action(&a);
+    }
     for name in [
         "start",
         "force-start",

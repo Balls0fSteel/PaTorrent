@@ -2,6 +2,30 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_141400_1792584840: The GTK GUI's detail tabs (Phase 7, slice 2)
+
+### Added
+- **GTK detail tabs** under the torrent list, in a `GtkNotebook` with a split to the list: General, Trackers, Peers, Pieces, Files, Speed and Logger, as in the Win32 client (`crates/gtk/src/detail.rs`).
+  - General: the Downloaded and Availability bars, the Transfer and General sections as a grid of bold labels and selectable values, a hint while nothing is selected.
+  - Trackers, Peers, Files, Logger and the Pieces list are `ColumnView`s over a model that is only a row count (`table.rs`): a count that grows adds rows at the end, so the Logger keeps its place and follows new lines only while scrolled to the end. The cells on screen are redrawn from the data once a second, like the torrent list's.
+  - Files: a right-click menu with the four priorities (`win.file-prio-N`), applied to the selected files and read back.
+  - Pieces: the summary line, the piece map (one square per piece, its height following the width) in a pane over the list of pieces being downloaded, with the Blocks column drawn.
+  - Speed: the 600-second download and upload graph with its scale and legend.
+  - The drawn parts are a small widget of our own (`canvas.rs`, a `GtkWidget` subclass painting into its `GtkSnapshot`): text through Pango layouts, so it follows the theme's font and the text direction; frames, grid lines and text take the theme's colour.
+  - The engine is asked only for what the tab on screen shows (piece info, trackers, peers, the file list once per selection and the file progress), once a second and on a tab or selection change; the open tab (`ui.tab`) and the split (`gtk.split`) are saved.
+  - The Logger gets the alerts as the Win32 one does (added, finished, renames, errors and the rest, without scrapes and the port mappers' chatter); the Speed history comes from the session stats.
+  - `Added On` and `Completed On` are in local time now: the GTK client sets the frontend's UTC offset at start, as the Win32 client does.
+
+### Changed
+- `patorrent_frontend::detail` holds what both GUIs keep for the detail tabs: `Detail` (moved from the Win32 client), `Tab` (the Win32 `Page`), the General tab's labels and values (`general`), the piece map's shades (`Detail::piece_shade`), the summary line (`Detail::pieces_summary`), `limit` and the Speed graph's scale (`speed_scale`). The Win32 client draws from them; its look is unchanged (checked by screenshot, General and Speed, demo engine).
+
+### Verified
+- `cargo test -p patorrent-frontend -p patorrent`: all pass; new tests for the tabs' keys, the Logger's cap, the graph's scale and the piece shades (frontend) and the GTK piece map's height (compiled only).
+- Stable clippy and fmt on Windows; clippy (1.90.0, `-D warnings`) for Linux on `patorrent-gtk` and `patorrent-frontend` with the stand-in `pkg-config`, and for FreeBSD on the frontend. No let-chains (MSRV 1.85).
+
+### Issues
+- The GTK tabs were not built, linked or run: no Linux build machine (the Ubuntu VM is gone; the Xubuntu VM is the owner's Android box). CI's Linux job builds them; its stable clippy may find what the 1.90.0 one did not. PLAN Known TODOs "GTK detail tabs" lists what to look at.
+
 ## 2026-10-21_090705_1792566425: Idle at 100,000 torrents (the D21 gate, first pass)
 
 The Win32 GUI, nox and the Web UI measured with 100,000 saved (stopped) torrents for the first time (Road to 1.0 item 5), on this development machine, release builds. The GUI idled at 4.2 % of a core and nox at 41 %; both are under 0.2 % now.

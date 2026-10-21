@@ -1,8 +1,8 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/kademlia/dht_storage.cpp (the peer part of
 // dht_default_storage), include/libtorrent/kademlia/dht_storage.hpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
-// Changes: only announced peers are stored. BEP 44 items and BEP 51 samples come with Phase 8,
-// so `get` / `put` / `sample_infohashes` queries are answered like `find_node`.
+// Changes: only announced peers are stored; BEP 44 items come with Phase 8, so `get` / `put`
+// queries are answered like `find_node`. BEP 51 samples (`get_infohashes_sample`) are ported.
 
 //! Peers other nodes announced to us, served from `get_peers`.
 
@@ -20,6 +20,18 @@ use crate::util::bloom_filter::BloomFilter;
 
 /// How long an announce stays valid (libtorrent `announce_interval` in dht_storage.cpp).
 const ANNOUNCE_INTERVAL: Duration = Duration::from_secs(30 * 60);
+
+/// BEP 51 bounds (libtorrent `sample_infohashes_interval_max`, `infohashes_sample_count_max`).
+const SAMPLE_INTERVAL_MAX: i32 = 21600;
+const SAMPLE_COUNT_MAX: i32 = 20;
+
+/// The info-hashes handed out in `sample_infohashes` replies until the sample is redrawn
+/// (libtorrent `infohashes_sample`).
+#[derive(Debug, Default)]
+struct InfohashesSample {
+    samples: Vec<Sha1Hash>,
+    created: Option<Instant>,
+}
 
 #[derive(Clone, Debug)]
 struct PeerEntry {
@@ -51,6 +63,7 @@ pub struct StorageCounters {
 pub struct DhtStorage {
     map: BTreeMap<Sha1Hash, TorrentEntry>,
     counters: StorageCounters,
+    sample: InfohashesSample,
 }
 
 impl DhtStorage {
@@ -162,6 +175,52 @@ impl DhtStorage {
         }
     }
 
+    /// BEP 51 (libtorrent `get_infohashes_sample`): the reply's `interval`, `num` (the
+    /// info-hashes stored) and `samples` (up to `max_infohashes_sample_count` of them, drawn at
+    /// random and kept for `sample_infohashes_interval` seconds, concatenated). Returns how
+    /// many samples it holds.
+    pub fn get_infohashes_sample(&mut self, s: &DhtSettings, now: Instant, item: &mut Entry) -> usize {
+        let interval = s.sample_infohashes_interval.clamp(0, SAMPLE_INTERVAL_MAX);
+        *item.key("interval") = Entry::Int(i64::from(interval));
+        *item.key("num") = Entry::Int(self.map.len() as i64);
+        self.refresh_infohashes_sample(s, now);
+        let samples: Vec<u8> = self.sample.samples.iter().flat_map(|h| *h.as_bytes()).collect();
+        *item.key("samples") = Entry::Bytes(samples);
+        self.sample.samples.len()
+    }
+
+    /// libtorrent `refresh_infohashes_sample`: a new sample once the interval is over, or while
+    /// the sample is short of `max_infohashes_sample_count`.
+    fn refresh_infohashes_sample(&mut self, s: &DhtSettings, now: Instant) {
+        let interval = s.sample_infohashes_interval.clamp(0, SAMPLE_INTERVAL_MAX);
+        let max_count = s.max_infohashes_sample_count.clamp(0, SAMPLE_COUNT_MAX) as usize;
+        let count = max_count.min(self.map.len());
+        let fresh = self.sample.created.is_some_and(|c| c + Duration::from_secs(interval as u64) > now);
+        if interval > 0 && fresh && self.sample.samples.len() >= max_count {
+            return;
+        }
+        let samples = &mut self.sample.samples;
+        samples.clear();
+        samples.reserve(count);
+        let mut to_pick = count as u32;
+        let mut candidates = self.map.len() as u32;
+        for k in self.map.keys() {
+            if to_pick == 0 {
+                break;
+            }
+            // pick with probability <left to pick> / <left in the set>
+            let r = random_inclusive(candidates);
+            candidates -= 1;
+            if r > to_pick {
+                continue;
+            }
+            samples.push(*k);
+            to_pick -= 1;
+        }
+        debug_assert_eq!(samples.len(), count);
+        self.sample.created = Some(now);
+    }
+
     /// Drops announces older than 45 minutes, and torrents left without peers.
     pub fn tick(&mut self, now: Instant) {
         let mut removed_peers = 0;
@@ -207,6 +266,77 @@ mod tests {
         let mut peers = Entry::new_dict();
         let full = st.get_peers(s, h, false, false, &requester.parse().unwrap(), &mut peers);
         (peers, full)
+    }
+
+    // libtorrent test_dht_storage.cpp: infohashes_sample
+    #[test]
+    fn infohashes_sample() {
+        let mut s = DhtSettings {
+            max_torrents: 5,
+            sample_infohashes_interval: 10,
+            max_infohashes_sample_count: 2,
+            ..DhtSettings::default()
+        };
+        let mut st = DhtStorage::default();
+        let now = Instant::now();
+        let hashes = [
+            ih("n1111111111111111111"),
+            ih("n2222222222222222222"),
+            ih("n3333333333333333333"),
+            ih("n4444444444444444444"),
+        ];
+        for (i, h) in hashes.iter().enumerate() {
+            st.announce_peer(&s, h, ep(&format!("124.31.75.{}:1", 21 + i)), b"torrent_name", false, now);
+        }
+        let mut item = Entry::new_dict();
+        assert_eq!(st.get_infohashes_sample(&s, now, &mut item), 2);
+        assert_eq!(item.get("interval").and_then(Entry::as_int), Some(10));
+        assert_eq!(item.get("num").and_then(Entry::as_int), Some(4));
+        assert_eq!(item.get("samples").and_then(Entry::as_bytes).map(<[u8]>::len), Some(2 * 20));
+
+        // get all of them
+        s.max_infohashes_sample_count = 5;
+        let mut item = Entry::new_dict();
+        assert_eq!(st.get_infohashes_sample(&s, now, &mut item), 4);
+        assert_eq!(item.get("interval").and_then(Entry::as_int), Some(10));
+        assert_eq!(item.get("num").and_then(Entry::as_int), Some(4));
+        let samples = item.get("samples").and_then(Entry::as_bytes).unwrap().to_vec();
+        assert_eq!(samples.len(), 4 * 20);
+        for h in &hashes {
+            assert!(samples.chunks(20).any(|c| c == h.as_bytes()), "{h:?}");
+        }
+    }
+
+    // libtorrent test_dht_storage.cpp: infohashes_sample_dist
+    #[test]
+    fn infohashes_sample_dist() {
+        let s = DhtSettings {
+            max_torrents: 1000,
+            // a new sample at every call
+            sample_infohashes_interval: 0,
+            max_infohashes_sample_count: 1,
+            ..DhtSettings::default()
+        };
+        let mut st = DhtStorage::default();
+        let now = Instant::now();
+        for i in 0..1000u32 {
+            let mut h = [0u8; 20];
+            h[..4].copy_from_slice(&i.to_be_bytes());
+            h[4..8].copy_from_slice(&i.wrapping_mul(0x9e37_79b9).to_be_bytes());
+            let addr = SocketAddr::from(([10, (i >> 8) as u8, i as u8, 1], 6881));
+            st.announce_peer(&s, &Sha1Hash::from_slice(&h).unwrap(), addr, b"torrent_name", false, now);
+        }
+        let mut seen = std::collections::BTreeSet::new();
+        for _ in 0..1000 {
+            let mut item = Entry::new_dict();
+            assert_eq!(st.get_infohashes_sample(&s, now, &mut item), 1);
+            assert_eq!(item.get("interval").and_then(Entry::as_int), Some(0));
+            assert_eq!(item.get("num").and_then(Entry::as_int), Some(1000));
+            let sample = item.get("samples").and_then(Entry::as_bytes).unwrap().to_vec();
+            assert_eq!(sample.len(), 20);
+            seen.insert(sample);
+        }
+        assert!(seen.len() > 500, "{} different samples", seen.len());
     }
 
     // libtorrent test_dht_storage.cpp: announce_peer, dual_stack, counters, peer_limit,

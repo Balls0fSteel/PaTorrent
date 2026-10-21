@@ -1299,9 +1299,21 @@ impl Node {
                 let seed = k[4].is_some_and(|n| n.int_value() != 0);
                 storage.announce_peer(&self.settings, &info_hash, addr, name, seed, now);
             }
+            b"sample_infohashes" => {
+                // BEP 51: a sample of the info-hashes we store, with nodes as find_node gives
+                const DESC: [KeyDesc; 2] =
+                    [key("target", NodeType::Str, 20, 0), key("want", NodeType::List, 0, OPTIONAL)];
+                let k = match verify_message(arg_ent, &DESC) {
+                    Ok(k) => k,
+                    Err(err) => return incoming_error(e, &err, 203),
+                };
+                let target = Sha1Hash::from_slice(k[0].expect("required").string_value()).expect("20");
+                storage.get_infohashes_sample(&self.settings, now, e.key("r"));
+                self.write_nodes_entries(&target, k[1], e.key("r"), other.as_deref_mut());
+            }
             _ => {
-                // unknown (or not yet supported: BEP 44 / 51) queries with a target or
-                // info_hash are answered like find_node, to be future compatible
+                // unknown (or not yet supported: BEP 44) queries with a target or info_hash
+                // are answered like find_node, to be future compatible
                 let target = arg_ent
                     .dict_find_string("target")
                     .filter(|n| n.string_length() == 20)

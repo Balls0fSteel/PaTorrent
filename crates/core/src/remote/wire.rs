@@ -526,6 +526,8 @@ wire_struct!(Settings {
     dht_aggressive_lookups,
     dht_ignore_dark_internet,
     dht_max_peers_reply,
+    dht_sample_infohashes_interval,
+    dht_max_infohashes_sample_count,
     dht_search_branching,
     dht_max_fail_count,
     dht_max_torrents,

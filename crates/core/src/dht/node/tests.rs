@@ -163,6 +163,33 @@ fn ping() {
     assert_eq!(r.root().unwrap().dict_find_string_value("ip"), Some(&endpoint_to_bytes(&src)[..]));
 }
 
+// BEP 51, the answering side (libtorrent test_dht.cpp `sample_infohashes` checks the asking
+// side, which is not ported)
+#[test]
+fn sample_infohashes() {
+    let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));
+    let src = t.source;
+    let s = test_settings();
+    for i in 0..3u8 {
+        let h = Sha1Hash::from_slice(&[i + 1; 20]).unwrap();
+        t.storage.announce_peer(&s, &h, SocketAddr::new(rand_v4(), 6881), b"", false, t.now);
+    }
+    let r =
+        t.request("sample_infohashes", src, with(args(), "target", "01010101010101010101"), "10").unwrap();
+    let e = Entry::from_node(r.root().unwrap());
+    assert_eq!(e.get("y").and_then(Entry::as_bytes), Some(&b"r"[..]));
+    let reply = e.get("r").expect("a reply");
+    assert_eq!(reply.get("interval").and_then(Entry::as_int), Some(21600));
+    assert_eq!(reply.get("num").and_then(Entry::as_int), Some(3));
+    let samples = reply.get("samples").and_then(Entry::as_bytes).expect("samples");
+    assert_eq!(samples.len(), 3 * 20);
+    for i in 0..3u8 {
+        assert!(samples.chunks(20).any(|c| c == [i + 1; 20]));
+    }
+    let r = t.request("sample_infohashes", src, args(), "10").unwrap();
+    assert_eq!(error_text(&r), "missing 'target' key");
+}
+
 #[test]
 fn invalid_message() {
     let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));

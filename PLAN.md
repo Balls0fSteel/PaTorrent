@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-21_220442_1792613082
+Last updated: 2026-10-21_221018_1792613418
 
 ## Vision
 
@@ -296,6 +296,7 @@ BEP 52 is in 1.0 (D19, 2026-10-19_230101_1792443661); BEP 44 / 51 / 55 after it 
   - [x] interop: a v2-only and a hybrid swarm with a libtorrent 2.0 client (`lt-swarm interop --version v2|hybrid`, 2026-10-20_103025_1792485025): done 2026-10-20_131729_1792495049 against qBittorrent 5.2.4 / libtorrent 2.0.15 and Deluge 2.2.1 / libtorrent 2.0.12 (see Road to 1.0 item 1)
   - [x] pad files (2026-10-20_103641_1792485401): blocks wholly inside pad files are not downloaded (libtorrent `apply_pad_files` / `set_pad_bytes`)
 - [ ] BEP44 DHT items (ed25519), BEP51 sample_infohashes, BEP55 holepunch
+  - [x] BEP 51, answering (`2026-10-21_221018_1792613418`): `sample_infohashes` queries get a sample of the stored info-hashes (`dht_sample_infohashes_interval`, `dht_max_infohashes_sample_count`); asking other nodes (libtorrent `dht_sample_infohashes`, for crawlers) is not ported
 
 ### Continuous
 - Scale and performance benchmarks in CI, with regressions failing the build once baselines exist
@@ -478,6 +479,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
   - command line only: Preferences > Web UI has no HTTPS switch or certificate fields (qBittorrent's `use_https`, `web_ui_https_cert_path`, `web_ui_https_key_path` are not in the shim's preferences either). Changing it would need a restart of the listener.
   - not opened in a real browser yet: the built-in browser pane refuses an untrusted certificate outright. Checked with OpenSSL 3.5's `s_client` (TLS 1.2 and 1.3 negotiated, 1.0 / 1.1 refused, the SANs and server-auth EKU present), curl on OpenSSL and on SChannel, and the loopback tests on Windows and FreeBSD (OpenSSL 3.5.6). Try Firefox and Chrome by hand: accept the warning after comparing the fingerprint nox prints, log in, watch the list update (the WebSocket over `wss://`).
   - the Windows service (LocalService) with `--webui-https` is untried: its CNG key goes to LocalService's own key store, which should work as for any account.
+  - `schannel::tests::keys_left_by_processes_that_are_gone_are_swept` imports a key under a fixed name: two test processes at once (or a nox sweeping its stale keys meanwhile) can make it fail, as an overlapping run did on 2026-10-21. A per-run name would fix it.
   - on Windows the persisted CNG key outlives the Web UI while a WebSocket thread still holds the identity (the server does not wait for open connections at stop); the next start deletes it. A stop that closes the WebSocket threads would delete it at exit.
   - SChannel sends the chain from the certificate file only if it can build it: the intermediates are added to the identity's in-memory store, which SChannel searches; not tested with a real CA chain.
   - Linux was not run (the Xubuntu VM was busy with Android Studio); CI's Linux job covers it.
@@ -565,7 +567,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
   - `peer_connection::fast_reconnect` exists only for this alternation. The general reconnect policy is libtorrent's since 2026-10-21_220017_1792612817: `(failcount + 1) * min_reconnect_time` after the connection closed (the formula was always the same; the delay used to run from the connect).
   - interop with Transmission and Deluge under `--encryption forced` is untested (WSL2 was down on 2026-10-16); rTorrent and µTorrent 2.2.1 as before.
 - DHT follow-ups (Phase 4 DHT is in, CHANGELOG 2026-10-15_211826_1792091906):
-  - BEP 44 items (`get` / `put`, ed25519) and BEP 51 `sample_infohashes` are Phase 8; until then such queries get a `find_node`-style answer. Not ported yet: the matching `test_dht` tests (put/get/mutable/immutable, signing_test1-3, sample_infohashes), `test_direct_dht` and the item parts of `test_dht_storage`.
+  - BEP 44 items (`get` / `put`, ed25519) are Phase 8; until then such queries get a `find_node`-style answer. BEP 51 `sample_infohashes` is answered since 2026-10-21_221018_1792613418 (`test_dht_storage`'s `infohashes_sample` and `infohashes_sample_dist` ported). Not ported yet: the matching `test_dht` tests (put/get/mutable/immutable, signing_test1-3, the asking side of sample_infohashes), `test_direct_dht` and the item parts of `test_dht_storage`.
   - ~~Linux: `[::]` is dual-stack, so the IPv6 DHT socket fails to bind after `0.0.0.0` and the DHT runs IPv4 only.~~ The DHT now runs on the engine's UDP listen sockets, opened with `IPV6_V6ONLY` through `net::sys` (2026-10-16_220720_1792181240), so both families run on Linux too. The TCP listener still has the dual-stack limitation (IPv6 is served by the v4 socket there).
   - the default bootstrap list is libtorrent's (`dht.libtorrent.org:25401` only). qBittorrent adds `router.bittorrent.com:6881`, `router.utorrent.com:6881`, `dht.transmissionbt.com:6881`; worth it if that one host is ever down. A deliberate settings change, so it goes in docs/SETTINGS.md.
   - ~~the GUI has no DHT preferences~~: "Enable DHT Network" on the BitTorrent page, the rest on Advanced (2026-10-17_155028_1792245028). Turning DHT off or on through `apply_settings` at run time was not checked against a live DHT.

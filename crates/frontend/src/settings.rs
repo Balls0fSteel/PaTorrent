@@ -255,6 +255,8 @@ pub static TABLE: &[Entry] = &[
     entry!(dht_aggressive_lookups: bool),
     entry!(dht_ignore_dark_internet: bool),
     entry!(dht_max_peers_reply: i32),
+    entry!(dht_sample_infohashes_interval: i32),
+    entry!(dht_max_infohashes_sample_count: i32),
     entry!(dht_search_branching: i32),
     entry!(dht_max_fail_count: i32),
     entry!(dht_max_torrents: i32),

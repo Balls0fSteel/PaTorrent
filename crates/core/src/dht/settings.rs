@@ -42,6 +42,10 @@ pub struct DhtSettings {
     pub upload_rate_limit: i32,
     /// Seconds between DHT announces of every running torrent.
     pub announce_interval: i32,
+    /// BEP 51: seconds a `sample_infohashes` sample is kept.
+    pub sample_infohashes_interval: i32,
+    /// BEP 51: info-hashes in a `sample_infohashes` reply.
+    pub max_infohashes_sample_count: i32,
 }
 
 impl Default for DhtSettings {
@@ -67,6 +71,8 @@ impl Default for DhtSettings {
             block_ratelimit: 5,
             upload_rate_limit: 8000,
             announce_interval: 15 * 60,
+            sample_infohashes_interval: 21600,
+            max_infohashes_sample_count: 20,
         }
     }
 }
@@ -92,6 +98,8 @@ impl From<&crate::settings::Settings> for DhtSettings {
             block_ratelimit: s.dht_block_ratelimit,
             upload_rate_limit: s.dht_upload_rate_limit.min(i32::MAX as u32) as i32,
             announce_interval: s.dht_announce_interval.min(i32::MAX as u32) as i32,
+            sample_infohashes_interval: s.dht_sample_infohashes_interval,
+            max_infohashes_sample_count: s.dht_max_infohashes_sample_count,
             ..DhtSettings::default()
         }
     }

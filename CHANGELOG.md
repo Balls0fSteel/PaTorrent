@@ -2,6 +2,19 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_221018_1792613418: BEP 51: the DHT answers `sample_infohashes`
+
+### Added
+- **`sample_infohashes` queries are answered** (BEP 51, libtorrent `dht_default_storage::get_infohashes_sample` and the node's query handler): `interval`, `num` (the info-hashes we store) and `samples` (up to 20 of them drawn at random, kept until the interval is over or while the sample is short), plus `nodes` / `nodes6` as `find_node` gives. Until now such queries got a `find_node`-style answer. Asking other nodes for samples (libtorrent `dht_sample_infohashes`, what DHT crawlers use) is not ported.
+- `Settings::dht_sample_infohashes_interval` (21,600 s, at most 6 hours) and `dht_max_infohashes_sample_count` (20, at most 20), libtorrent's names and defaults: the Advanced page, nox's preferences, the remote protocol (version 7).
+
+### Verified
+- Ported `test_dht_storage`'s `infohashes_sample` (two samples, then all four once the count is raised) and `infohashes_sample_dist` (1,000 single samples from 1,000 info-hashes are more than 500 different ones); a node test: the reply's fields for three stored info-hashes, and a query without `target` refused.
+- `cargo test --workspace` on Windows: 1,122 passed, 0 failed. Stable clippy and fmt on Windows; the 1.90.0 clippy for Linux (GTK included) and FreeBSD.
+
+### Issues
+- A second test run started while the suite ran failed `schannel::tests::keys_left_by_processes_that_are_gone_are_swept` (both processes used its fixed key name); it passes alone and in the suite. Noted in PLAN Known TODOs.
+
 ## 2026-10-21_220442_1792613082: Restored torrents no longer post an alert each
 
 ### Changed

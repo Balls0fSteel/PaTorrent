@@ -110,6 +110,12 @@ pub struct Settings {
     pub dht_aggressive_lookups: bool,
     pub dht_ignore_dark_internet: bool,
     pub dht_max_peers_reply: i32,
+    /// BEP 51: seconds a `sample_infohashes` sample is kept before a new one is drawn, at most
+    /// 6 hours (libtorrent `dht_sample_infohashes_interval`).
+    pub dht_sample_infohashes_interval: i32,
+    /// BEP 51: info-hashes in a `sample_infohashes` reply, at most 20 (libtorrent
+    /// `dht_max_infohashes_sample_count`).
+    pub dht_max_infohashes_sample_count: i32,
     pub dht_search_branching: i32,
     pub dht_max_fail_count: i32,
     pub dht_max_torrents: i32,
@@ -310,6 +316,8 @@ impl Default for Settings {
             dht_aggressive_lookups: true,
             dht_ignore_dark_internet: true,
             dht_max_peers_reply: 100,
+            dht_sample_infohashes_interval: 21600,
+            dht_max_infohashes_sample_count: 20,
             dht_search_branching: 5,
             dht_max_fail_count: 20,
             dht_max_torrents: 2000,

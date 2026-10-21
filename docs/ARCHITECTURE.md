@@ -8,7 +8,7 @@ Status: **in implementation**. Phases 0-2 are built as described here (one mio n
 2. **Low resource use.** Small binary, small idle RAM, near-zero idle CPU.
 3. **Speed.** Saturate fast links from one network thread with modest CPU.
 4. **Monolithic binaries.** Each frontend ships as one self-contained executable with no runtime dependencies beyond the OS (plus GTK on Linux/BSD).
-5. **Portable engine.** Windows 10+, Linux, FreeBSD/OpenBSD/NetBSD. macOS falls out of the same code but is not a target.
+5. **Portable engine.** Windows 10+, Linux, FreeBSD/OpenBSD/NetBSD, and macOS (a target since PLAN.md D23: the engine and nox run there, the GTK GUI is to follow).
 
 ## Shape
 
@@ -124,13 +124,13 @@ To be validated by `tools/swarm` on a reference machine and tracked per release.
 
 ## Platform layer
 
-| Concern | Windows | Linux / BSD |
+| Concern | Windows | Linux / BSD / macOS |
 |---|---|---|
 | Event loop | mio (IOCP / AFD) | mio (epoll / kqueue) |
 | File I/O | `ReadFile`/`WriteFile` with offsets; sparse files (`FSCTL_SET_SPARSE`); optional preallocation | `pread`/`pwrite`; `fallocate`/`posix_fallocate`; sparse by default |
-| Interfaces & routes (`enum_net.cpp`) | `GetAdaptersAddresses`, `GetIpForwardTable2` | `getifaddrs`; netlink (Linux), routing sysctl (BSD) |
+| Interfaces & routes (`enum_net.cpp`) | `GetAdaptersAddresses`, `GetIpForwardTable2` | `getifaddrs`; `/proc/net` (Linux), routing sysctl (BSD, macOS) |
 | Network change notification (`ip_notifier.cpp`) | `NotifyIpInterfaceChange` | netlink / `PF_ROUTE` socket |
-| TLS (HTTPS trackers and web seeds; the Web UI's HTTPS server) | SChannel (OS), server keys in CNG | system OpenSSL / LibreSSL (both in `core::net::tls`, PLAN.md D9) |
+| TLS (HTTPS trackers and web seeds; the Web UI's HTTPS server) | SChannel (OS), server keys in CNG | system OpenSSL / LibreSSL; Secure Transport (Security.framework) on macOS, keys in memory (all in `core::net::tls`, PLAN.md D9) |
 | Randomness | `ProcessPrng` / `BCryptGenRandom` | `getrandom` / `arc4random` |
 
 ## Dependency policy

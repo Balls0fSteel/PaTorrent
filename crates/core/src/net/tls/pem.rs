@@ -1,8 +1,9 @@
 // PaTorrent's own code, not ported: libtorrent hands certificate files to OpenSSL as they are.
 
 //! PEM files, and the little DER the TLS layer reads or writes itself: a certificate's validity
-//! period and fingerprint, and (for CNG, which imports PKCS #8 only) PKCS #1 and SEC 1 private
-//! keys wrapped into PKCS #8.
+//! period and fingerprint, (for CNG, which imports PKCS #8 only) PKCS #1 and SEC 1 private keys
+//! wrapped into PKCS #8, and (for Security.framework, which reads raw keys and makes no
+//! certificates) the parts of EC keys and a self-signed certificate built around a signature.
 
 use std::io;
 
@@ -62,7 +63,7 @@ const ENCRYPTED: &str =
     "the private key is encrypted; store it without a passphrase (openssl pkey -in key.pem -out plain.pem)";
 
 /// `der` as a PEM block, 64 columns, with a final line break.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_vendor = "apple", test))]
 pub(crate) fn encode(label: &str, der: &[u8]) -> String {
     let b64 = crate::util::string::base64encode(der);
     let mut out = format!("-----BEGIN {label}-----\n");
@@ -168,7 +169,7 @@ pub(crate) fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
 }
 
 /// The date of a day number from [`days_from_civil`]: `(year, month, day)`.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_vendor = "apple", test))]
 pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
     let era = if z >= 0 { z } else { z - 146_096 } / 146_097;
@@ -182,7 +183,7 @@ pub(crate) fn civil_from_days(z: i64) -> (i64, u32, u32) {
 }
 
 /// A DER element with `content`.
-#[cfg(any(windows, test))]
+#[cfg(any(windows, target_vendor = "apple", test))]
 pub(crate) fn der(tag: u8, content: &[u8]) -> Vec<u8> {
     let mut out = vec![tag];
     let n = content.len();
@@ -232,6 +233,158 @@ fn ec_curve(sec1: &[u8]) -> Option<&[u8]> {
         fields = rest;
     }
     None
+}
+
+/// rsaEncryption (1.2.840.113549.1.1.1), an OID's contents.
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) const RSA_OID: &[u8] = &[0x2a, 0x86, 0x48, 0x86, 0xf7, 0x0d, 0x01, 0x01, 0x01];
+/// id-ecPublicKey (1.2.840.10045.2.1), an OID's contents.
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) const EC_OID: &[u8] = &[0x2a, 0x86, 0x48, 0xce, 0x3d, 0x02, 0x01];
+
+/// A PKCS #8 `PrivateKeyInfo`'s algorithm (the OID's contents) and the key it wraps (PKCS #1
+/// for RSA, SEC 1 for EC).
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) fn pkcs8_key(info: &[u8]) -> Option<(&[u8], &[u8])> {
+    let Some((0x30, body, _)) = tlv(info) else { return None };
+    let Some((0x02, _, rest)) = tlv(body) else { return None };
+    let Some((0x30, algorithm, rest)) = tlv(rest) else { return None };
+    let Some((0x06, oid, _)) = tlv(algorithm) else { return None };
+    let Some((0x04, key, _)) = tlv(rest) else { return None };
+    Some((oid, key))
+}
+
+/// A SEC 1 `ECPrivateKey`'s private scalar and, when the key carries it, its public point
+/// (`04 || X || Y`).
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) fn ec_private_key(sec1: &[u8]) -> Option<(&[u8], Option<&[u8]>)> {
+    let Some((0x30, body, _)) = tlv(sec1) else { return None };
+    let Some((0x02, &[1], rest)) = tlv(body) else { return None };
+    let Some((0x04, d, mut rest)) = tlv(rest) else { return None };
+    let mut public = None;
+    while !rest.is_empty() {
+        let (tag, content, next) = tlv(rest)?;
+        if tag == 0xa1 {
+            let Some((0x03, bits, _)) = tlv(content) else { return None };
+            public = bit_string(bits);
+        }
+        rest = next;
+    }
+    Some((d, public))
+}
+
+/// A BIT STRING's bytes, when it is a whole number of them.
+#[cfg(any(target_vendor = "apple", test))]
+fn bit_string(contents: &[u8]) -> Option<&[u8]> {
+    match contents.split_first() {
+        Some((0, bytes)) => Some(bytes),
+        _ => None,
+    }
+}
+
+/// A certificate's `subjectPublicKey` (for an EC key, its point `04 || X || Y`).
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) fn subject_public_key(cert: &[u8]) -> Option<&[u8]> {
+    let Some((0x30, cert, _)) = tlv(cert) else { return None };
+    let Some((0x30, tbs, _)) = tlv(cert) else { return None };
+    // version [0] (optional), serialNumber, signature, issuer, validity, subject, then the key
+    let (tag, _, mut rest) = tlv(tbs)?;
+    for _ in 0..if tag == 0xa0 { 5 } else { 4 } {
+        rest = tlv(rest)?.2;
+    }
+    let Some((0x30, spki, _)) = tlv(rest) else { return None };
+    let Some((0x03, bits, _)) = tlv(tlv(spki)?.2) else { return None };
+    bit_string(bits)
+}
+
+/// A UTCTime for the years 1950 to 2049 and a GeneralizedTime otherwise, as RFC 5280 asks.
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) fn der_time(unix: i64) -> Vec<u8> {
+    let (days, secs) = (unix.div_euclid(86_400), unix.rem_euclid(86_400));
+    let (y, m, d) = civil_from_days(days);
+    let rest = format!("{m:02}{d:02}{:02}{:02}{:02}Z", secs / 3600, secs / 60 % 60, secs % 60);
+    if (1950..2050).contains(&y) {
+        der(0x17, format!("{:02}{rest}", y % 100).as_bytes())
+    } else {
+        der(0x18, format!("{y:04}{rest}").as_bytes())
+    }
+}
+
+/// The algorithms of a self-signed P-256 certificate, as whole elements: ecdsa-with-SHA256
+/// (1.2.840.10045.4.3.2) and prime256v1 (1.2.840.10045.3.1.7).
+#[cfg(any(target_vendor = "apple", test))]
+const ECDSA_SHA256: &[u8] = &[0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x04, 0x03, 0x02];
+#[cfg(any(target_vendor = "apple", test))]
+const P256: &[u8] = &[0x06, 0x08, 0x2a, 0x86, 0x48, 0xce, 0x3d, 0x03, 0x01, 0x07];
+
+/// `AlgorithmIdentifier { id-ecPublicKey, prime256v1 }`.
+#[cfg(any(target_vendor = "apple", test))]
+fn p256_algorithm() -> Vec<u8> {
+    der(0x30, &[&der(0x06, EC_OID), P256].concat())
+}
+
+/// The `TBSCertificate` of an X.509 v3 certificate that `cn` issues to itself for `names`, for
+/// the P-256 public key `point` (`04 || X || Y`), to be signed with ecdsa-with-SHA256; the
+/// extensions are subjectAltName and extendedKeyUsage serverAuth, as the other backends make
+/// them. `serial` must be a positive DER integer's bytes.
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) fn self_signed_tbs(
+    cn: &str,
+    names: &[super::SubjectName],
+    serial: &[u8],
+    not_before: i64,
+    not_after: i64,
+    point: &[u8],
+) -> Vec<u8> {
+    use super::SubjectName;
+    // Name ::= SEQUENCE OF SET OF { commonName (2.5.4.3), UTF8String }
+    let cn_attr = [&[0x06, 0x03, 0x55, 0x04, 0x03][..], &der(0x0c, cn.as_bytes())].concat();
+    let name = der(0x30, &der(0x31, &der(0x30, &cn_attr)));
+    // subjectAltName: dNSName [2] and iPAddress [7]
+    let alt: Vec<u8> = names
+        .iter()
+        .flat_map(|n| match n {
+            SubjectName::Dns(d) => der(0x82, d.as_bytes()),
+            SubjectName::Ip(std::net::IpAddr::V4(ip)) => der(0x87, &ip.octets()),
+            SubjectName::Ip(std::net::IpAddr::V6(ip)) => der(0x87, &ip.octets()),
+        })
+        .collect();
+    // extKeyUsage: id-kp-serverAuth (1.3.6.1.5.5.7.3.1)
+    let eku = der(0x30, &[0x06, 0x08, 0x2b, 0x06, 0x01, 0x05, 0x05, 0x07, 0x03, 0x01]);
+    let extension = |oid: &[u8], value: &[u8]| der(0x30, &[&der(0x06, oid), &der(0x04, value)[..]].concat());
+    let extensions = [extension(&[0x55, 0x1d, 0x11], &der(0x30, &alt)), extension(&[0x55, 0x1d, 0x25], &eku)];
+    let spki = der(0x30, &[p256_algorithm(), der(0x03, &[&[0], point].concat())].concat());
+    der(
+        0x30,
+        &[
+            // version v3
+            der(0xa0, &der(0x02, &[2])),
+            der(0x02, serial),
+            der(0x30, ECDSA_SHA256),
+            name.clone(),
+            der(0x30, &[der_time(not_before), der_time(not_after)].concat()),
+            name,
+            spki,
+            der(0xa3, &der(0x30, &extensions.concat())),
+        ]
+        .concat(),
+    )
+}
+
+/// The certificate made of a [`self_signed_tbs`] and its ECDSA signature (a DER
+/// `Ecdsa-Sig-Value`).
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) fn self_signed_certificate(tbs: &[u8], signature: &[u8]) -> Vec<u8> {
+    der(0x30, &[tbs, &der(0x30, ECDSA_SHA256), &der(0x03, &[&[0], signature].concat())].concat())
+}
+
+/// A P-256 private key as PKCS #8, the way OpenSSL writes it: the curve in the algorithm, the
+/// public point inside the `ECPrivateKey`.
+#[cfg(any(target_vendor = "apple", test))]
+pub(crate) fn p256_pkcs8(d: &[u8], point: &[u8]) -> Vec<u8> {
+    let ec_key =
+        der(0x30, &[der(0x02, &[1]), der(0x04, d), der(0xa1, &der(0x03, &[&[0], point].concat()))].concat());
+    der(0x30, &[der(0x02, &[0]), p256_algorithm(), der(0x04, &ec_key)].concat())
 }
 
 #[cfg(test)]
@@ -322,6 +475,72 @@ mod tests {
         assert!(certificates(b"-----BEGIN CERTIFICATE-----\nA*AA\n-----END CERTIFICATE-----").is_err());
         assert!(certificates(b"-----BEGIN CERTIFICATE-----\nAAAA\n-----END CERTIFICATE-----").is_err());
         assert!(parse(&[0x30, 0x82, 0xff, 0xfe]).is_err());
+    }
+
+    #[test]
+    fn the_parts_of_ec_and_rsa_keys() {
+        let point = subject_public_key(&certificates(EC_CERT).unwrap()[0]).unwrap().to_vec();
+        assert_eq!((point.len(), point[0]), (65, 4));
+        // the SEC 1 file and the PKCS #8 one both belong to the EC certificate and carry its point
+        let sec1 = private_key(EC_SEC1).unwrap();
+        let (d, public) = ec_private_key(&sec1.der).unwrap();
+        assert_eq!((d.len(), public), (32, Some(&point[..])));
+        let ec8 = private_key(EC_PKCS8).unwrap();
+        let (oid, inner) = pkcs8_key(&ec8.der).unwrap();
+        assert_eq!(oid, EC_OID);
+        let (d8, public) = ec_private_key(inner).unwrap();
+        assert_eq!((d8.len(), public), (32, Some(&point[..])));
+        // wrapped as OpenSSL wraps it, the key reads back the same
+        let wrapped = p256_pkcs8(d, &point);
+        let (oid, inner) = pkcs8_key(&wrapped).unwrap();
+        assert_eq!((oid, ec_private_key(inner).unwrap()), (EC_OID, (d, Some(&point[..]))));
+        assert_eq!(pkcs8(&Block { label: "PRIVATE KEY".into(), der: wrapped.clone() }).unwrap(), wrapped);
+        // an RSA certificate's key is no EC point; a PKCS #8 RSA key wraps the PKCS #1 one
+        let rsa_cert = certificates(RSA_CERT).unwrap().remove(0);
+        assert_eq!(subject_public_key(&rsa_cert).unwrap()[0], 0x30);
+        let rsa = private_key(RSA_PKCS1).unwrap();
+        let info = pkcs8(&rsa).unwrap();
+        assert_eq!(pkcs8_key(&info), Some((RSA_OID, &rsa.der[..])));
+        assert_eq!(ec_private_key(&rsa.der), None);
+        assert_eq!(pkcs8_key(&rsa.der), None);
+    }
+
+    #[test]
+    fn times_switch_to_generalized_time_outside_1950_to_2049() {
+        for (unix, tag) in [
+            (days_from_civil(2026, 10, 21) * 86400 + 3723, 0x17),
+            (days_from_civil(2049, 12, 31) * 86400 + 86399, 0x17),
+            (days_from_civil(2050, 1, 1) * 86400, 0x18),
+            (days_from_civil(1949, 12, 31) * 86400, 0x18),
+            (days_from_civil(1950, 1, 1) * 86400, 0x17),
+        ] {
+            let el = der_time(unix);
+            let (t, v, rest) = tlv(&el).unwrap();
+            assert_eq!((t, rest), (tag, &[][..]));
+            assert_eq!(time(t, v), Some(unix), "{}", String::from_utf8_lossy(v));
+        }
+        assert_eq!(der_time(days_from_civil(2026, 10, 21) * 86400 + 3723), der(0x17, b"261021010203Z"));
+    }
+
+    #[test]
+    fn a_self_signed_certificate_reads_back() {
+        let point = subject_public_key(&certificates(EC_CERT).unwrap()[0]).unwrap().to_vec();
+        let (from, to) = (days_from_civil(2026, 10, 20) * 86400, days_from_civil(2051, 1, 1) * 86400);
+        let names = [
+            super::super::SubjectName::Dns("localhost".into()),
+            super::super::SubjectName::Ip("127.0.0.1".parse().unwrap()),
+            super::super::SubjectName::Ip("::1".parse().unwrap()),
+        ];
+        let tbs = self_signed_tbs("localhost", &names, &[0x42, 1, 2, 3, 4, 5, 6, 7], from, to, &point);
+        let cert = self_signed_certificate(&tbs, &der(0x30, &[der(0x02, &[1]), der(0x02, &[2])].concat()));
+        assert_eq!(validity(&cert), Some((from, to)));
+        assert_eq!(subject_public_key(&cert), Some(&point[..]));
+        let text = encode("CERTIFICATE", &cert);
+        assert_eq!(certificates(text.as_bytes()).unwrap(), vec![cert.clone()]);
+        // the names are in the subjectAltName extension
+        assert!(cert.windows(11).any(|w| w == [&[0x82, 9][..], b"localhost"].concat()));
+        assert!(cert.windows(6).any(|w| w == [0x87, 4, 127, 0, 0, 1]));
+        assert!(cert.windows(18).any(|w| w[..2] == [0x87, 16] && w[17] == 1));
     }
 
     #[test]

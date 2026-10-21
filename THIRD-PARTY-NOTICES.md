@@ -173,6 +173,6 @@ THE SOFTWARE.
 
 ## System libraries used at run time
 
-HTTPS trackers use the operating system's TLS library, which is linked dynamically and not shipped with PaTorrent: SChannel (`secur32.dll`) on Windows, and the system OpenSSL (`libssl`, `libcrypto`; Apache-2.0 from 3.0, the OpenSSL/SSLeay license before) or LibreSSL on Linux and BSD.
+HTTPS trackers use the operating system's TLS library, which is linked dynamically and not shipped with PaTorrent: SChannel (`secur32.dll`) on Windows, Security.framework (Secure Transport) on macOS, and the system OpenSSL (`libssl`, `libcrypto`; Apache-2.0 from 3.0, the OpenSSL/SSLeay license before) or LibreSSL on Linux and BSD.
 
 The GTK GUI (`patorrent-gtk`) links the system's GTK 4 and the libraries under it dynamically: GTK, GLib / GIO, Pango and gdk-pixbuf (LGPL-2.1-or-later), Cairo (LGPL-2.1 or MPL-1.1) and Graphene (MIT). The release tarballs do not ship them; a bundle that does (AppImage, Flatpak, the macOS `.app`; PLAN.md D22, D23) must carry their licenses and keep them replaceable, as the LGPL asks.

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-21_223244_1792614764
+Last updated: 2026-10-21_225032_1792615832
 
 ## Vision
 
@@ -57,7 +57,7 @@ Approved 2026-10-15 (D1–D8 as proposed; D9–D13 resolve Q3–Q7 with the reco
 | D6 | Targets: Windows 10+ x64 (Rust's tier-1 baseline), Linux x86_64/aarch64, FreeBSD/OpenBSD. | Rust dropped pre-Windows-10 support from its tier-1 targets in 1.78. |
 | D7 | Windows: static CRT, single `.exe`, portable mode (settings beside the exe), like µTorrent. | No installer or runtime needed. |
 | D8 | Port libtorrent's tests with each module. Fuzz every parser. Deterministic swarm simulator. | Correctness without libtorrent's simulator. |
-| D9 (Q3) | TLS is OS-native: SChannel on Windows, system OpenSSL / LibreSSL on Unix, behind a thin trait. | Almost no added binary size; the OS patches TLS. Built in `core::net::tls` with no new crates: SChannel through more `windows-sys` features, OpenSSL through hand-written declarations of a dozen stable functions, so Unix builds link the system `libssl` / `libcrypto` (Linux needs `libssl-dev` to build; FreeBSD has it in base). |
+| D9 (Q3) | TLS is OS-native: SChannel on Windows, system OpenSSL / LibreSSL on Unix, behind a thin trait; Secure Transport (Security.framework) on macOS, which has no linkable OpenSSL (2026-10-21_225032_1792615832). | Almost no added binary size; the OS patches TLS. Built in `core::net::tls` with no new crates: SChannel through more `windows-sys` features, OpenSSL through hand-written declarations of a dozen stable functions, so Unix builds link the system `libssl` / `libcrypto` (Linux needs `libssl-dev` to build; FreeBSD has it in base). |
 | D10 (Q4) | nox exposes a qBittorrent WebAPI v2-compatible subset (incremental `sync/maindata`). Since D18 it is a compatibility shim beside the native API, translating from the same cache; it never shapes a native feature. | Works with Sonarr, Radarr, Prowlarr and mobile apps. |
 | D11 (Q5) | The Linux/BSD GUI uses GTK 4 via gtk4-rs. | Maintained bindings. Memory can be trimmed with the Cairo renderer if needed. |
 | D12 (Q6) | Windows 10+ x64 only, on stable Rust. ARM64 Windows comes later as an extra CI target. No Windows 7/8.1, no 32-bit. | No nightly/`build-std`; tier-1 target. |
@@ -331,7 +331,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 **Packaging (D22):**
 6. Windows: a release zip (`patorrent.exe`, `patorrent-nox.exe`, LICENSE.md, THIRD-PARTY-NOTICES.md) built by a tagged-release workflow. Written (2026-10-21_215616_1792612576: `.github/workflows/release.yml`, docs/RELEASING.md), Run by hand once (2026-10-21_223244_1792614764, run 39669244734 on 38c4036): every job passed; the Windows zip (4.2 MB), the x86_64 tarball (4.2 MB) and the aarch64 one (3.9 MB) were built. A tagged run (the draft release) has not happened yet.
 7. Linux: AppImage (GUI and nox, bundling OpenSSL 3), Flatpak (GNOME runtime; Flathub accepts non-free apps with a `LicenseRef` license and builds from the public source, D25), binary tarballs (x86_64 and aarch64). The tarballs are in the release workflow (2026-10-21_215616_1792612576; built on Ubuntu 24.04, so they need its glibc, OpenSSL 3 and GTK 4 or newer); AppImage and Flatpak are left.
-8. macOS (D23): the GTK GUI (item 2) built for macOS, plus a Security.framework TLS backend (the TLS layer picks OpenSSL for every Unix today, and macOS has no linkable OpenSSL), the routing table through `PF_ROUTE` sysctl (as on FreeBSD; NAT-PMP is off on macOS now), a macOS CI job running the tests, then the release `.app` (GTK bundled) / `.dmg` for x86_64 and arm64, ad-hoc signed. Nobody here has a Mac: CI builds and runs the tests, the owner judges screenshots from the runner.
+8. macOS (D23): the GTK GUI (item 2) built for macOS, plus a Security.framework TLS backend (the TLS layer picks OpenSSL for every Unix today, and macOS has no linkable OpenSSL), the routing table through `PF_ROUTE` sysctl (as on FreeBSD; NAT-PMP is off on macOS now), a macOS CI job running the tests, then the release `.app` (GTK bundled) / `.dmg` for x86_64 and arm64, ad-hoc signed. Nobody here has a Mac: CI builds and runs the tests, the owner judges screenshots from the runner. Started (2026-10-21_225032_1792615832): the Secure Transport backend (`net::tls::secure_transport`), macOS routes, and a `macos` job in `ci.yml` (Apple silicon tests, Intel build) that has not run yet (Known TODOs "macOS"). Next: the GTK GUI on macOS (it does not compile there yet: `gio::DesktopAppInfo` in `integration.rs`), nox's folders (`~/Library/Application Support` rather than XDG), the system language (`AppleLanguages`), then the `.app`.
 
 **Before tagging 1.0:**
 9. Hand click-throughs of everything built but only tested hidden or through messages: Preferences, Create New Torrent, Torrent Properties, RSS Downloader, Auto Shutdown (`PATORRENT_POWER_DRY_RUN=1`), Windows Integration on the real registry, the magnet Add dialog with a real magnet. Fix what they turn up.
@@ -374,6 +374,15 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
 - Optional plugin hooks (Rust traits, compiled in) mirroring libtorrent's extension API.
 
 ## Known TODOs
+
+- macOS (CHANGELOG 2026-10-21_225032_1792615832):
+  - nothing has run on a Mac yet: the code is type-checked and linted for `aarch64-apple-darwin` and `x86_64-apple-darwin` from Windows (nothing linked). The `macos` CI job is the first build, link and test run; expect a round of fixes from it (tests that assume Linux or FreeBSD behaviour, multicast on the runner, the TLS backend's first handshakes).
+  - Secure Transport speaks TLS 1.2 at most (Apple never gave it 1.3; Network.framework has 1.3 but owns the socket, which the sans-IO `TlsSession` cannot use). Every tracker and browser still offers 1.2. Deprecated since macOS 10.15 but present; if Apple removes it, the way out is a TLS 1.3 library of our own or Network.framework with a socket handed over.
+  - server identities pair the in-memory key with the certificate through `SecIdentityCreate`, which Security.framework exports without a header (WebKit uses it too), looked up with `dlsym`; without it nox cannot serve HTTPS on that macOS. The public alternative is a temporary keychain (what .NET does).
+  - client certificate checks: `SecTrustEvaluateWithError` may fetch intermediates or revocation data on the calling thread (the engine thread for trackers), as SChannel's AIA fetches can.
+  - macOS 10.14 or later (`SecTrustEvaluateWithError`, `SecCertificateCopyKey`); GTK 4 asks for more anyway.
+  - NAT-PMP now runs on macOS (it had no gateway before); network changes are still found by the 30 s re-read, not a `PF_ROUTE` socket as on FreeBSD.
+  - the GTK GUI is left out of the job until its macOS pieces exist (Road to 1.0 item 8).
 
 - GTK remote mode (CHANGELOG 2026-10-21_213858_1792611538):
   - never built or run (no Linux machine). Check on Linux against `patorrent-nox run --webui 127.0.0.1:8443 --webui-https`: File > Connect to Remote... opening a second process; the dialog (focus on the first empty field, Enter connects, Escape, the spinner and greying while it connects, the note wrapping in a long translation); a bad port; a wrong password; nothing listening (the Use HTTPS hint); the fingerprint question (Cancel, then OK and the pin in `remote.ini`), a changed certificate (`webui-cert.pem` replaced); then the window: the title, the list, add a `.torrent` (the Save In picker grey, a typed folder), pause, Properties, Preferences (the server's settings, Apply, the language written to the local `patorrent.ini`), Set Download Location typed, Create New Torrent with Start seeding grey, a completion notification; stop nox ("(disconnected)" and one message). A plain `patorrent-gtk file.torrent` while a remote window is open must go to the local window. `patorrent-gtk --remote file.torrent` adds the file once connected.
@@ -632,7 +641,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
   - ~~the GUI has no PEX switch~~: "Enable Peer Exchange" sets / clears `TorrentFlags::DISABLE_PEX` on every torrent and on new ones (2026-10-17_155028_1792245028).
   - `lt-swarm interop` runs the other clients with PeX off; a PEX interop case (three clients in one swarm) would check that they accept our messages. In the real Debian swarm no peer dropped us after our PEX messages.
 - Port-mapping follow-ups (CHANGELOG 2026-10-16_155608_1792158968):
-  - the routing table is read on Windows, Linux, FreeBSD and OpenBSD. Elsewhere (macOS, NetBSD, DragonFly) `net::sys::routes` is `Unsupported`: NAT-PMP stays off and UPnP runs on every multicast-capable interface. The FreeBSD `rt_msghdr` layout assumes 64-bit `long`; the `routes_are_listed` unit test checks it in CI (FreeBSD runs on main and weekly). OpenBSD is not in CI.
+  - the routing table is read on Windows, Linux, FreeBSD, OpenBSD and macOS (since 2026-10-21_225032_1792615832). Elsewhere (NetBSD, DragonFly) `net::sys::routes` is `Unsupported`: NAT-PMP stays off and UPnP runs on every multicast-capable interface. The FreeBSD `rt_msghdr` layout assumes 64-bit `long`; the `routes_are_listed` unit test checks it in CI (FreeBSD runs on main and weekly; macOS on every push). OpenBSD is not in CI.
   - UPnP device URLs with a host name instead of an IP literal disable that device (libtorrent resolves them). Not seen on any router so far.
   - ~~the GUI has no UPnP / NAT-PMP preferences~~: on the Connection page (2026-10-17_155028_1792245028). The status bar's network indicator is still text; µTorrent's turns green once a port is mapped, a natural use of the state icons once they are integrated.
   - `patorrent-nox` does not print the alerts of the shutdown (the mapping deletions): `Session::shutdown` joins the engine thread before the last alerts are popped. The deletions were verified by asking the router instead.
@@ -658,7 +667,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
 - ~~Flaky on CI: `swarm::download_through_an_http_tracker`~~. Fixed 2026-10-15: the test's `wait()` dropped the alerts behind a match, so `TorrentFinished` was lost when it arrived in the same batch as `TrackerReply`. Not an engine stall (CHANGELOG 2026-10-15_153331).
 - TLS (`core::net::tls`):
   - certificate revocation is not checked; SChannel would fetch CRLs synchronously on the engine thread. SChannel may still fetch a missing intermediate certificate (AIA) synchronously; move the handshake off the reactor if that ever shows up as a stall.
-  - no macOS backend (Secure Transport / Network.framework) yet; non-Windows, non-Unix targets fail HTTPS announces with a clear message.
+  - macOS uses Secure Transport since 2026-10-21_225032_1792615832 (Known TODOs "macOS"); non-Windows, non-Unix targets fail HTTPS announces with a clear message.
   - web seeds over HTTPS go through `TlsStream`; no loopback HTTPS test yet (needs a trusted test certificate).
 - `lt-swarm interop` is verified only on Windows (the qBittorrent app plus WSL). On Linux it runs `transmission-cli` and `deluged` directly and expects `qbittorrent-nox` via `--qbittorrent`; untested. rTorrent and µTorrent 2.2.1 are not in it yet (Continuous: interop matrix).
 - ~~Peers that only connect and get dropped (seed to seed) are not logged~~: `Alert::PeerDisconnected` (2026-10-21_214719_1792612039), in the connect category of the new `Settings::alert_mask` (off by default; `patorrent-nox --verbose` and the Advanced page's `alert_mask` turn it on). Left: the reasons are our own texts, not libtorrent's `close_reason_t` codes, so the uTP `close_reason` extension still sends nothing; libtorrent's `peer_connect_alert` and `incoming_connection_alert` are not ported.
@@ -666,5 +675,5 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
   - `create_torrent`: mutable_torrents (deprecated in libtorrent); the v2 / hybrid cases are ported (2026-10-20_095400_1792482840)
   - session plus resume data (Phase 2): the write_torrent_file round trips, preserve_* magnet tests
 - Windows `SegmentHeap` (manifest `heapType`) might lower RAM use. Benchmark it with `lt-swarm` before enabling.
-- CI minutes: the repo was private (Windows runners billed at 2×), so FreeBSD runs only on main and weekly. Public since 2026-10-19_230536_1792443936 (D25): Actions minutes are free, so FreeBSD (and a macOS job) can run on every push.
+- CI minutes: the repo was private (Windows runners billed at 2×), so FreeBSD runs only on main and weekly. Public since 2026-10-19_230536_1792443936 (D25): Actions minutes are free, so FreeBSD can run on every push too. The macOS job runs on every push and pull request since 2026-10-21_225032_1792615832.
 - The vcpkg cache from the abandoned approach (about 2 GB under `%LOCALAPPDATA%\vcpkg`) can be deleted by the user if no other project uses it.

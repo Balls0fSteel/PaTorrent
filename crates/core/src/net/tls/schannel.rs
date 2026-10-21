@@ -989,6 +989,80 @@ pub(crate) fn generate_self_signed(
     Ok((pem::encode("CERTIFICATE", &cert_der), pem::encode("PRIVATE KEY", &pkcs8)))
 }
 
+/// For the tests of the certificates the Security.framework backend builds by hand: signs
+/// `message` with a PKCS #8 P-256 key through CNG, as a DER `Ecdsa-Sig-Value`.
+#[cfg(test)]
+pub(crate) fn ecdsa_sign_for_test(pkcs8: &[u8], message: &[u8]) -> Vec<u8> {
+    use windows_sys::Win32::Security::Cryptography::NCryptSignHash;
+    let provider = Provider::open().unwrap();
+    let mut handle = 0;
+    // SAFETY: the provider is open; without parameters the key is ephemeral, freed by `Key`.
+    let status = unsafe {
+        NCryptImportKey(
+            provider.0,
+            0,
+            NCRYPT_PKCS8_PRIVATE_KEY_BLOB,
+            ptr::null(),
+            &mut handle,
+            pkcs8.as_ptr(),
+            pkcs8.len() as u32,
+            NCRYPT_SILENT_FLAG,
+        )
+    };
+    assert_eq!(status, 0, "import");
+    let key = Key(handle);
+    let hash = crate::crypto::Sha256::digest(message).0;
+    let (mut sig, mut len) = ([0u8; 64], 0);
+    // SAFETY: the key is live; the hash and the signature buffer are valid for their lengths.
+    let status = unsafe {
+        NCryptSignHash(
+            key.0,
+            ptr::null(),
+            hash.as_ptr(),
+            32,
+            sig.as_mut_ptr(),
+            64,
+            &mut len,
+            NCRYPT_SILENT_FLAG,
+        )
+    };
+    assert_eq!((status, len), (0, 64), "sign");
+    // CNG gives r || s; DER integers are minimal and positive
+    let int = |b: &[u8]| {
+        let b = &b[b.iter().take_while(|&&x| x == 0).count().min(b.len() - 1)..];
+        der(0x02, &[if b[0] & 0x80 != 0 { &[0][..] } else { &[] }, b].concat())
+    };
+    der(0x30, &[int(&sig[..32]), int(&sig[32..])].concat())
+}
+
+/// For the same tests: whether a certificate's signature verifies with its own public key.
+#[cfg(test)]
+pub(crate) fn self_signature_verifies(cert: &[u8]) -> bool {
+    use windows_sys::Win32::Security::Cryptography::{
+        CRYPT_VERIFY_CERT_SIGN_ISSUER_CERT, CRYPT_VERIFY_CERT_SIGN_SUBJECT_CERT,
+        CertCreateCertificateContext, CryptVerifyCertificateSignatureEx,
+    };
+    // SAFETY: `cert` is valid for its length; the context is freed once.
+    unsafe {
+        let ctx = CertCreateCertificateContext(X509_ASN_ENCODING, cert.as_ptr(), cert.len() as u32);
+        if ctx.is_null() {
+            return false;
+        }
+        let ok = CryptVerifyCertificateSignatureEx(
+            0,
+            X509_ASN_ENCODING,
+            CRYPT_VERIFY_CERT_SIGN_SUBJECT_CERT,
+            ctx.cast(),
+            CRYPT_VERIFY_CERT_SIGN_ISSUER_CERT,
+            ctx.cast(),
+            0,
+            ptr::null_mut(),
+        ) != 0;
+        CertFreeCertificateContext(ctx);
+        ok
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

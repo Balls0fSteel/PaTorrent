@@ -1,14 +1,15 @@
 // PaTorrent's own OS glue, not ported: libtorrent wraps sockets in Boost.Asio's ssl::stream on
 // top of a bundled or linked OpenSSL. We use the TLS library the OS ships instead (PLAN.md D9):
-// SChannel on Windows, the system OpenSSL / LibreSSL on Unix.
+// SChannel on Windows, Secure Transport on macOS, the system OpenSSL / LibreSSL on other Unixes.
 
 //! TLS sessions: clients for HTTPS trackers, web seeds and fetches, servers for the Web UI.
 //!
 //! A [`TlsSession`] is sans-IO: ciphertext from the socket goes in through `feed`, plaintext to
 //! send goes in through `encrypt`, and ciphertext to send accumulates in `outgoing`. That fits
-//! SChannel, which only works on buffers, and OpenSSL with memory BIOs alike. [`TlsStream`] puts
-//! a session on top of a non-blocking socket and offers plain `Read` / `Write`, so the HTTP code
-//! does not change: the handshake simply makes writes return `WouldBlock` until it is done.
+//! SChannel and Secure Transport, which only work on buffers, and OpenSSL with memory BIOs alike.
+//! [`TlsStream`] puts a session on top of a non-blocking socket and offers plain `Read` /
+//! `Write`, so the HTTP code does not change: the handshake simply makes writes return
+//! `WouldBlock` until it is done.
 //!
 //! A client verifies the certificate chain against the OS trust store, and the certificate must
 //! match the host name (or IP address) that was asked for ([`Verify::System`]), or it must be
@@ -25,24 +26,30 @@ use std::sync::Arc;
 
 use crate::crypto::Sha256;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_vendor = "apple")))]
 mod openssl;
 mod pem;
 #[cfg(windows)]
 mod schannel;
+#[cfg(target_vendor = "apple")]
+mod secure_transport;
 
 /// The OS backend's session type.
 #[cfg(windows)]
 pub(crate) type Session = schannel::Session;
-#[cfg(unix)]
+#[cfg(target_vendor = "apple")]
+pub(crate) type Session = secure_transport::Session;
+#[cfg(all(unix, not(target_vendor = "apple")))]
 pub(crate) type Session = openssl::Session;
 #[cfg(not(any(windows, unix)))]
 pub(crate) type Session = unsupported::Session;
 
-#[cfg(unix)]
+#[cfg(all(unix, not(target_vendor = "apple")))]
 use openssl as backend;
 #[cfg(windows)]
 use schannel as backend;
+#[cfg(target_vendor = "apple")]
+use secure_transport as backend;
 #[cfg(not(any(windows, unix)))]
 use unsupported as backend;
 
@@ -814,6 +821,34 @@ mod tests {
         assert!(generate_self_signed(&[], 1).is_err());
         assert!(generate_self_signed(&["bad name"], 1).is_err());
         assert!(generate_self_signed(&["x,DNS:evil"], 1).is_err());
+    }
+
+    /// The certificate and key encodings the Security.framework backend builds by hand
+    /// (`pem::self_signed_tbs`, `pem::p256_pkcs8`), signed through CNG here: CryptoAPI verifies
+    /// the self-signature and SChannel serves them.
+    #[cfg(windows)]
+    #[test]
+    fn a_certificate_built_by_hand_serves() {
+        use super::pem;
+        let key = pem::private_key(&fixture("ec-pkcs8.pem")).unwrap();
+        let (_, sec1) = pem::pkcs8_key(&key.der).unwrap();
+        let (d, point) = pem::ec_private_key(sec1).unwrap();
+        let point = point.unwrap();
+        let now = crate::util::time::unix_now();
+        let names = [SubjectName::Dns("localhost".into()), SubjectName::Ip("127.0.0.1".parse().unwrap())];
+        let serial = [0x5a, 1, 2, 3, 4, 5, 6, 7];
+        let tbs = pem::self_signed_tbs("localhost", &names, &serial, now - 86_400, now + 30 * 86_400, point);
+        let cert = pem::self_signed_certificate(&tbs, &schannel::ecdsa_sign_for_test(&key.der, &tbs));
+        assert!(schannel::self_signature_verifies(&cert));
+        let mut bad = cert.clone();
+        let n = bad.len();
+        bad[n - 5] ^= 1;
+        assert!(!schannel::self_signature_verifies(&bad));
+        let cert_pem = pem::encode("CERTIFICATE", &cert);
+        let key_pem = pem::encode("PRIVATE KEY", &pem::p256_pkcs8(d, point));
+        let id = Identity::from_pem(cert_pem.as_bytes(), key_pem.as_bytes()).unwrap();
+        assert_eq!(id.info().not_after - id.info().not_before, 31 * 86_400);
+        round_trip(&id, "localhost");
     }
 
     #[test]

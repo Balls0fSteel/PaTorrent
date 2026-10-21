@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_225032_1792615832: macOS: Secure Transport for TLS, the routing table, a CI job (Road to 1.0 item 8 begins)
+
+### Added
+- **`net::tls::secure_transport`**, the TLS backend for macOS (D9; macOS has no OpenSSL to link, so the engine could not have linked there). Secure Transport, from Security.framework, is driven through read and write callbacks over memory, so it fits the sans-IO `TlsSession` as SChannel and OpenSSL's memory BIOs do. Clients stop at the server's certificate and check it themselves: the system trust store with an SSL policy for the host name or IP address, a pinned fingerprint, or nothing (the probe); SNI for host names. Servers speak TLS 1.2 or later. Identities are made without the keychain: the PEM key (PKCS #8, PKCS #1 or SEC 1) becomes an in-memory `SecKey`, is checked against the certificate by signing and verifying a message ("does not belong" otherwise), and is paired with it through `SecIdentityCreate`, found with `dlsym` (Security.framework exports it without a header). Self-signed certificates: a P-256 key from `SecKeyCreateRandomKey` signs a certificate built here.
+- **The DER the macOS backend needs**, in `tls::pem`: the parts of PKCS #8 and SEC 1 keys, a certificate's public key, RFC 5280 times, a self-signed certificate's `TBSCertificate` and the whole certificate around a signature, a P-256 key as PKCS #8.
+- **The routing table on macOS**: the `PF_ROUTE` `NET_RT_DUMP` sysctl, as on FreeBSD, with the Darwin `rt_msghdr` (92 bytes) and its sockaddrs on 32-bit boundaries (xnu's `ROUNDUP32`; libtorrent rounds to a `long` there, which is wrong on 64-bit Macs; docs/PORTING.md). The parser takes each OS's layout as a value now. NAT-PMP and PCP get the gateway they need on macOS.
+- **A `macos` job in `ci.yml`**: clippy and `cargo test` on Apple silicon (`macos-15`), a build for Intel Macs, every push and pull request; the GTK GUI is left out until its macOS pieces exist.
+
+### Verified
+- Nothing ran on a Mac: the workspace (without the GTK GUI) is type-checked and linted with no warnings for `aarch64-apple-darwin` and `x86_64-apple-darwin` (the 1.90.0 and stable clippy), as are FreeBSD and Linux after the route change. The targets were added to the local toolchains for that (`rustup target add`, with the owner's go-ahead).
+- New tests on Windows: the key parts of the fixtures (both EC files carry the certificate's point, the PKCS #8 forms unwrap to PKCS #1 and SEC 1), times either side of 1950 and 2050, a hand-built certificate read back; and a certificate built by these helpers, signed through CNG, whose self-signature CryptoAPI verifies (a flipped byte does not) and which SChannel serves to a pinned client with the key in our PKCS #8 encoding. A route-dump test (a default route, an IPv6 route with an empty netmask, a link-layer gateway skipped, another message type) runs on FreeBSD and macOS only.
+- `cargo test --workspace` on Windows: 1,126 passed, 0 failed. Stable clippy and fmt on Windows.
+
+### Issues
+- The GTK GUI does not compile for macOS (`gio::DesktopAppInfo` in `integration.rs` is Unix-without-macOS); that is the next piece of item 8.
+- Secure Transport stops at TLS 1.2, and `SecIdentityCreate` is undocumented: both noted in PLAN Known TODOs "macOS" with the ways out.
+
 ## 2026-10-21_223244_1792614764: First runs on GitHub of the GTK GUI's slices and the release workflow
 
 ### Verified

@@ -211,8 +211,8 @@ pub(crate) fn interfaces() -> io::Result<Vec<IpInterface>> {
 }
 
 /// The routing table (libtorrent `enum_routes`): `GetIpForwardTable2` on Windows, `/proc/net`
-/// on Linux, a `PF_ROUTE` sysctl dump on FreeBSD and OpenBSD. Elsewhere `Unsupported`, and
-/// NAT-PMP (which needs the gateway) stays off.
+/// on Linux, a `PF_ROUTE` sysctl dump on FreeBSD, OpenBSD and macOS. Elsewhere `Unsupported`,
+/// and NAT-PMP (which needs the gateway) stays off.
 pub(crate) fn routes() -> io::Result<Vec<IpRoute>> {
     imp::routes()
 }
@@ -592,13 +592,14 @@ mod imp {
     }
 
     /// A `NET_RT_DUMP` sysctl, parsed as libtorrent's `parse_route` does: each `rt_msghdr` is
-    /// followed by the sockaddrs its `rtm_addrs` bits name, each rounded up to a `long`.
-    #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
+    /// followed by the sockaddrs its `rtm_addrs` bits name, each rounded up to a `long` (to 32
+    /// bits on macOS, see [`RtLayout`]).
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_vendor = "apple"))]
     pub fn routes() -> io::Result<Vec<IpRoute>> {
         const CTL_NET: c_int = 4;
         const PF_ROUTE: c_int = 17;
         const NET_RT_DUMP: c_int = 1;
-        #[cfg(target_os = "freebsd")]
+        #[cfg(any(target_os = "freebsd", target_vendor = "apple"))]
         let mib = [CTL_NET, PF_ROUTE, 0, 0, NET_RT_DUMP, 0];
         // OpenBSD takes the routing table id as a seventh element
         #[cfg(target_os = "openbsd")]
@@ -630,11 +631,38 @@ mod imp {
             return Err(io::Error::last_os_error());
         }
         buf.truncate(needed);
-        Ok(parse_rt_dump(&buf))
+        Ok(parse_rt_dump(&buf, RtLayout::OS))
     }
 
-    #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
-    fn parse_rt_dump(buf: &[u8]) -> Vec<IpRoute> {
+    /// Where a `rt_msghdr` of this OS keeps what [`parse_rt_dump`] needs.
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_vendor = "apple"))]
+    #[derive(Clone, Copy)]
+    pub(super) struct RtLayout {
+        /// Where the sockaddrs start, when the header has a fixed size (`rtm_index` at 4);
+        /// `None` when `rtm_hdrlen` at 4 says (`rtm_index` at 6). `rtm_addrs` is at 12 in all.
+        pub(super) header: Option<usize>,
+        /// What each sockaddr is rounded up to.
+        pub(super) align: usize,
+    }
+
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_vendor = "apple"))]
+    impl RtLayout {
+        /// FreeBSD: rt_metrics (14 longs) after rtm_inits (a long at 32); sockaddrs on longs.
+        #[cfg(target_os = "freebsd")]
+        pub(super) const OS: RtLayout =
+            RtLayout { header: Some(32 + 15 * size_of::<usize>()), align: size_of::<usize>() };
+        /// OpenBSD: rtm_hdrlen says; sockaddrs on longs.
+        #[cfg(target_os = "openbsd")]
+        pub(super) const OS: RtLayout = RtLayout { header: None, align: size_of::<usize>() };
+        /// macOS: rt_metrics (14 32-bit fields) at 36, so 92 bytes on every architecture, and
+        /// sockaddrs on 32-bit boundaries (xnu's `ROUNDUP32`; libtorrent rounds to a `long`
+        /// there too, which misplaces what follows an IPv6 address or an empty netmask).
+        #[cfg(target_vendor = "apple")]
+        pub(super) const OS: RtLayout = RtLayout { header: Some(92), align: 4 };
+    }
+
+    #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_vendor = "apple"))]
+    pub(super) fn parse_rt_dump(buf: &[u8], layout: RtLayout) -> Vec<IpRoute> {
         const RTM_VERSION: u8 = 5;
         const RTM_ADD: u8 = 1;
         const RTM_GET: u8 = 4;
@@ -643,8 +671,8 @@ mod imp {
         const RTAX_NETMASK: usize = 2;
         const RTAX_IFA: usize = 5;
         const RTAX_MAX: usize = 8;
-        let long = std::mem::size_of::<usize>();
-        let roundup = |a: usize| if a > 0 { 1 + ((a - 1) | (long - 1)) } else { long };
+        let align = layout.align;
+        let roundup = |a: usize| if a > 0 { 1 + ((a - 1) | (align - 1)) } else { align };
         let u16_at = |m: &[u8], o: usize| u16::from_ne_bytes([m[o], m[o + 1]]);
         let i32_at = |m: &[u8], o: usize| i32::from_ne_bytes([m[o], m[o + 1], m[o + 2], m[o + 3]]);
         let mut out = Vec::new();
@@ -659,12 +687,11 @@ mod imp {
             if m[2] != RTM_VERSION || (m[3] != RTM_ADD && m[3] != RTM_GET) {
                 continue;
             }
-            // FreeBSD: rtm_index at 4, rtm_addrs at 12, then rt_metrics (14 longs) after
-            // rtm_inits (a long at 32). OpenBSD: rtm_hdrlen at 4 says where the sockaddrs start.
-            #[cfg(target_os = "freebsd")]
-            let (hdrlen, index, addrs) = (32 + 15 * long, u16_at(m, 4) as u32, i32_at(m, 12));
-            #[cfg(target_os = "openbsd")]
-            let (hdrlen, index, addrs) = (u16_at(m, 4) as usize, u16_at(m, 6) as u32, i32_at(m, 12));
+            let (hdrlen, index) = match layout.header {
+                Some(h) => (h, u16_at(m, 4) as u32),
+                None => (u16_at(m, 4) as usize, u16_at(m, 6) as u32),
+            };
+            let addrs = i32_at(m, 12);
             if hdrlen > m.len() {
                 continue;
             }
@@ -711,7 +738,8 @@ mod imp {
         target_os = "linux",
         target_os = "android",
         target_os = "freebsd",
-        target_os = "openbsd"
+        target_os = "openbsd",
+        target_vendor = "apple"
     )))]
     pub fn routes() -> io::Result<Vec<IpRoute>> {
         Err(io::Error::new(io::ErrorKind::Unsupported, "route enumeration is not implemented on this OS"))
@@ -744,7 +772,7 @@ mod imp {
         fn getifaddrs(out: *mut *mut IfAddrs) -> c_int;
         fn freeifaddrs(ifa: *mut IfAddrs);
         fn if_nametoindex(name: *const c_char) -> c_uint;
-        #[cfg(any(target_os = "freebsd", target_os = "openbsd"))]
+        #[cfg(any(target_os = "freebsd", target_os = "openbsd", target_vendor = "apple"))]
         fn sysctl(
             name: *const c_int,
             namelen: c_uint,
@@ -929,6 +957,74 @@ mod tests {
         assert!(ifs.iter().any(|i| i.addr == IpAddr::V4(Ipv4Addr::LOCALHOST) && i.loopback), "{ifs:?}");
     }
 
+    /// A dump as this OS's kernel writes it: a default route, an IPv6 route whose gateway
+    /// follows a 28-byte address (where 32-bit and `long` rounding part ways) and whose netmask
+    /// is empty, a directly connected network (a link-layer gateway, skipped) and a message of
+    /// another type.
+    #[cfg(any(target_os = "freebsd", target_vendor = "apple"))]
+    #[test]
+    fn route_dumps_are_parsed() {
+        use super::imp::{RtLayout, parse_rt_dump};
+        let layout = RtLayout::OS;
+        let header = layout.header.unwrap();
+        let pad = |mut v: Vec<u8>| {
+            let n = v.len().max(1).div_ceil(layout.align) * layout.align;
+            v.resize(n, 0);
+            v
+        };
+        let sa = |addr: SocketAddr| {
+            let (b, len) = encode_sockaddr(addr);
+            pad(b.0[..len].to_vec())
+        };
+        // a netmask as the kernel trims it: only up to its last non-zero byte, sa_len saying so
+        let mask = |addr: IpAddr| {
+            let (b, len) = encode_sockaddr(SocketAddr::new(addr, 0));
+            let mut v = b.0[..len].to_vec();
+            let used = v.iter().rposition(|&x| x != 0).map_or(0, |i| i + 1).max(2);
+            v.truncate(used);
+            v[0] = if used > 2 { used as u8 } else { 0 };
+            if v[0] == 0 { vec![0; layout.align] } else { pad(v) }
+        };
+        let link = pad([&[20u8, 18][..], &[0; 18]].concat());
+        let message = |kind: u8, index: u16, addrs: i32, sockaddrs: &[Vec<u8>]| {
+            let mut m = vec![0u8; header];
+            m[2] = 5;
+            m[3] = kind;
+            m[4..6].copy_from_slice(&index.to_ne_bytes());
+            m[12..16].copy_from_slice(&addrs.to_ne_bytes());
+            for s in sockaddrs {
+                m.extend_from_slice(s);
+            }
+            let len = m.len() as u16;
+            m[..2].copy_from_slice(&len.to_ne_bytes());
+            m
+        };
+        let any4: SocketAddr = "0.0.0.0:0".parse().unwrap();
+        let any6: SocketAddr = "[::]:0".parse().unwrap();
+        let gw4: SocketAddr = "192.168.1.1:0".parse().unwrap();
+        let gw6: SocketAddr = "[2001:db8::1]:0".parse().unwrap();
+        let lan: SocketAddr = "192.168.1.0:0".parse().unwrap();
+        let ifa: SocketAddr = "192.168.1.20:0".parse().unwrap();
+        // RTA_DST | RTA_GATEWAY | RTA_NETMASK, and RTA_IFA (bit 5)
+        let dump = [
+            message(4, 3, 0b111, &[sa(any4), sa(gw4), mask(Ipv4Addr::UNSPECIFIED.into())]),
+            message(4, 3, 0b10_0111, &[sa(any6), sa(gw6), mask(Ipv6Addr::UNSPECIFIED.into()), sa(any6)]),
+            message(4, 3, 0b10_0111, &[sa(lan), link, mask(Ipv4Addr::new(255, 255, 255, 0).into()), sa(ifa)]),
+            message(2, 3, 0b111, &[sa(any4), sa(gw4), mask(Ipv4Addr::UNSPECIFIED.into())]),
+        ]
+        .concat();
+        let routes = parse_rt_dump(&dump, layout);
+        assert_eq!(routes.len(), 2, "{routes:?}");
+        assert_eq!(
+            (routes[0].destination, routes[0].netmask, routes[0].gateway, routes[0].index),
+            (any4.ip(), IpAddr::from(Ipv4Addr::UNSPECIFIED), gw4.ip(), 3)
+        );
+        assert_eq!(
+            (routes[1].destination, routes[1].netmask, routes[1].gateway, routes[1].source_hint),
+            (any6.ip(), IpAddr::from(Ipv6Addr::UNSPECIFIED), gw6.ip(), Some(any6.ip()))
+        );
+    }
+
     #[test]
     fn routes_are_listed() {
         match routes() {
@@ -940,7 +1036,7 @@ mod tests {
                     assert_eq!(r.destination.is_ipv4(), r.gateway.is_ipv4(), "{r:?}");
                     assert!(ifs.iter().any(|i| i.index == r.index) || r.index == 0, "{r:?} not in {ifs:?}");
                 }
-                if cfg!(any(windows, target_os = "linux")) {
+                if cfg!(any(windows, target_os = "linux", target_vendor = "apple")) {
                     assert!(!routes.is_empty());
                 }
             }

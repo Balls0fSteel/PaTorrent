@@ -242,6 +242,11 @@ pub(crate) struct Engine {
 
     slots: Vec<TorrentSlot>,
     free_slots: Vec<u32>,
+    /// Torrents that may be active (`Torrent::is_active`), in slot order: a torrent joins when
+    /// it gets a storage or a metadata / piece-layer fetch, and `active_ids` drops those that
+    /// stopped. The tick, the bandwidth refill and the session stats walk this instead of every
+    /// slot (100,000 stopped torrents are about 140 MB of `Torrent`s).
+    live: Vec<TorrentId>,
     by_hash: HashMap<Sha1Hash, TorrentId>,
     /// `SHA-1("req2", info-hash)` of every torrent, which incoming encrypted handshakes name
     /// (libtorrent `torrent_list::find_obfuscated`).
@@ -420,6 +425,7 @@ impl Engine {
             out: Vec::new(),
             slots: Vec::new(),
             free_slots: Vec::new(),
+            live: Vec::new(),
             by_hash: HashMap::new(),
             by_obfuscated: HashMap::new(),
             queue: Vec::new(),
@@ -570,6 +576,26 @@ impl Engine {
             .enumerate()
             .filter_map(|(i, s)| s.torrent.as_ref().map(|_| TorrentId::new(i as u32, s.generation)))
             .collect()
+    }
+
+    /// Called wherever a torrent may become active (see `live`).
+    pub(super) fn mark_live(&mut self, id: TorrentId) {
+        match self.live.binary_search_by_key(&id.index(), |l| l.index()) {
+            // a stale id of a reused slot is replaced
+            Ok(i) => self.live[i] = id,
+            Err(i) => self.live.insert(i, id),
+        }
+    }
+
+    /// The active torrents in slot order, dropping the stopped and removed ones from `live`.
+    fn active_ids(&mut self) -> Vec<TorrentId> {
+        let Engine { live, slots, .. } = self;
+        live.retain(|&id| {
+            slots.get(id.index() as usize).is_some_and(|s| {
+                s.generation == id.generation() && s.torrent.as_ref().is_some_and(Torrent::is_active)
+            })
+        });
+        live.clone()
     }
 
     pub(super) fn torrent(&mut self, id: TorrentId) -> Option<&mut Torrent> {
@@ -1057,8 +1083,9 @@ impl Engine {
         self.last_bandwidth = now;
         self.download_bucket.refill(dt);
         self.upload_bucket.refill(dt);
-        for s in &mut self.slots {
-            if let Some(t) = s.torrent.as_mut() {
+        // stopped torrents move no data: their buckets refill once they run again
+        for id in self.active_ids() {
+            if let Some(t) = self.torrent(id) {
                 t.download_limit.refill(dt);
                 t.upload_limit.refill(dt);
             }
@@ -1165,15 +1192,22 @@ impl Engine {
     /// Handles queued commands. Returns false on shutdown.
     fn drain_commands(&mut self) -> bool {
         let mut any = false;
+        // Status requests in one batch are answered once, after the rest: each walks every
+        // torrent, and a frontend asking once per restored torrent asked 100,000 times.
+        let mut updates = false;
         while let Ok(cmd) = self.rx.try_recv() {
             any = true;
-            if matches!(cmd, Command::Shutdown) {
-                return false;
+            match cmd {
+                Command::Shutdown => return false,
+                Command::PostTorrentUpdates => updates = true,
+                cmd => self.handle(cmd),
             }
-            self.handle(cmd);
         }
         if any && self.needs_auto_manage {
             self.auto_manage();
+        }
+        if updates {
+            self.post_torrent_updates();
         }
         true
     }
@@ -2046,6 +2080,7 @@ impl Engine {
             // A magnet: fetch the info dictionary from peers first (BEP 9).
             t.fetch = Some(crate::proto::ut_metadata::MetadataFetch::new());
             t.started_at = Some(Instant::now());
+            self.mark_live(id);
             self.set_state(id, TorrentState::DownloadingMetadata);
             self.connect_peers_for(id, 10);
             self.prioritize_dht(id);
@@ -2109,6 +2144,7 @@ impl Engine {
         } else {
             TorrentState::CheckingFiles
         };
+        self.mark_live(id);
         self.disk.async_check(&storage, mode);
         self.set_state(id, state);
     }
@@ -2456,7 +2492,10 @@ impl Engine {
         let mut active_seeds = 0;
         for id in self.torrent_ids() {
             let t = self.torrent_ref(id).expect("listed");
-            if self.queue.contains(&id) || !t.flags.contains(TorrentFlags::AUTO_MANAGED) || t.error.is_some()
+            // `queue_position` mirrors membership of `queue` (a scan of it here was quadratic)
+            if t.queue_position.is_some()
+                || !t.flags.contains(TorrentFlags::AUTO_MANAGED)
+                || t.error.is_some()
             {
                 continue;
             }
@@ -2800,13 +2839,7 @@ impl Engine {
         }
         self.utp_dispatch(now);
 
-        let mut running = Vec::new();
-        for id in self.torrent_ids() {
-            let t = self.torrent_ref(id).expect("listed");
-            if t.is_active() {
-                running.push(id);
-            }
-        }
+        let running = self.active_ids();
         for (_, p) in self.peers.iter_mut() {
             p.stat.tick(dt);
         }
@@ -3439,12 +3472,10 @@ impl Engine {
             read_cache_bytes: disk.cache_bytes,
             ..SessionStats::default()
         };
-        for s in &self.slots {
-            if let Some(t) = &s.torrent {
-                st.num_torrents += 1;
-                if t.is_active() {
-                    if t.is_finished() { st.num_seeding += 1 } else { st.num_downloading += 1 }
-                }
+        st.num_torrents = (self.slots.len() - self.free_slots.len()) as u32;
+        for id in self.active_ids() {
+            if let Some(t) = self.torrent_ref(id) {
+                if t.is_finished() { st.num_seeding += 1 } else { st.num_downloading += 1 }
             }
         }
         self.alert(Alert::SessionStats(st));

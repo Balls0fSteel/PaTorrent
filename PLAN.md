@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-21_002121_1792534881
+Last updated: 2026-10-21_090705_1792566425
 
 ## Vision
 
@@ -317,6 +317,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 **Scale (D21):**
 5. The 100,000-torrent gate on a low-end machine (proposal: 2 cores, 4 GB RAM, a hard disk, Windows 10 and a light Linux; numbers: startup to a painted list, idle CPU, scroll and sort latency, add / remove at that size). The real engine and the Web UI have only been measured at 10,000 so far. Fix what it shows.
    - First engine run at 100,000 (2026-10-20_104706_1792486026, this development machine, `lt-swarm load --count 100000`): the store did not open beyond about 22,000 torrents (bdecode's token limit on `resume.db`; fixed). Now: restored in 2.0 s, 419 MB working set, 87 MB `resume.db` + 2.1 GB `metadata.pack`. Follow-ups it shows: ~~`resume.db` rewritten whole on every save~~ and ~~the store's in-memory copy of every record~~: the journal `resume.log` (2026-10-20_105225_1792486345), 359 MB at 100,000 now; still about 3.4 KB per stopped torrent (the 1.4 KB `Torrent` struct and its heap parts: a compact stopped-torrent form would help); restore time (2 s, mostly decoding `resume.db`). Still to measure: the GUIs and the Web UI at 100,000, idle CPU, a low-end machine.
+   - The GUIs and the Web UI at 100,000 (2026-10-21_090705_1792566425, this machine): the Win32 GUI idled at 4.2 % of a core and painted its rows after 4.5 s; nox's console took 41 %. Fixed (a quadratic `auto_manage`, full walks of every torrent in the tick, the session stats and the bandwidth tick, one status request per restored torrent, nox printing every row every second). Now: the Win32 GUI lists 100,000 rows in 1.4 s and idles at 0.16 % (381 MB working set); nox 0.18 %, with the Web UI page open 0.42 % (518 MB); the page shows its first rows 0.6 s after load. `lt-swarm load --count 100000 --keep DIR` then `--keep DIR --reuse --idle 60` repeats the engine part. Left: a low-end machine (2 cores, a hard disk), the GTK GUI, scroll / sort / add / remove latency at 100,000, memory (3.8 KB per stopped torrent), the status update's walk of every slot (once a second; a dirty list would need its 47 setters changed).
 
 **Packaging (D22):**
 6. Windows: a release zip (`patorrent.exe`, `patorrent-nox.exe`, LICENSE.md, THIRD-PARTY-NOTICES.md) built by a tagged-release workflow.
@@ -569,7 +570,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
   - empty-session working set is 19.9 MB (private bytes 4.5 MB), accepted by D21 (optimise later, only where measured worthwhile). Most of it is shared system DLLs; loading urlmon and parts of shell32 only when needed may help.
   - the status bar's network indicator is text; µTorrent shows a colored icon.
   - the Pieces tab draws a piece map with the list of pieces in progress under it (2026-10-19_213029_1792438229). The list's columns (#, Size, # of Blocks, Blocks, Completed) are from memory; check them against a real 2.2.1. The Win32 list's first column (#) is left-aligned (a list view's first column cannot be right-aligned).
-  - restored torrents each log "added" at startup (10,000 lines with a big library); µTorrent does not log restores.
+  - restored torrents each log "added" at startup (10,000 lines with a big library); µTorrent does not log restores. Beyond the alert queue's size most of these alerts are dropped (90 % at 100,000), so the Logger and nox's console show a partial list; a restore alert of its own (or none) would be cleaner.
   - Pause does not toggle back to running as µTorrent's does; Start resumes.
   - double-click opens the folder for finished torrents and Torrent Properties otherwise (2026-10-19_091815_1792394295).
   - Preferences is in (2026-10-17_155028_1792245028) but has not been clicked through by hand yet (see the Preferences follow-ups). Create New Torrent is in (2026-10-17_140012_1792238412) but has not been clicked through by hand yet: Add directory, Save as, progress, Cancel, Start seeding.

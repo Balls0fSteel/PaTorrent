@@ -225,6 +225,7 @@ impl Engine {
         t.started_at = Some(Instant::now());
         t.status_dirty = true;
         let peers = t.peers.clone();
+        self.mark_live(id);
         self.alert(Alert::Log { id: Some(id), message: "fetching the v2 piece layers from peers".into() });
         self.set_state(id, crate::status::TorrentState::DownloadingMetadata);
         for slot in peers {

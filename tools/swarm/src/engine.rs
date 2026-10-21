@@ -165,10 +165,24 @@ pub fn loopback(mb: usize, piece_kib: usize, cpu: fn() -> Option<Duration>) -> E
     ExitCode::SUCCESS
 }
 
-/// With `keep`, the state is written there and left in place (for example, to open the same
-/// 10,000 torrents in the GUI).
-pub fn load(count: usize, keep: Option<PathBuf>, rss: fn() -> Option<u64>) -> ExitCode {
+/// What `load` does besides the cold start.
+pub struct LoadOptions {
+    pub count: usize,
+    /// The state is written there and left in place (for example, to open the same 10,000
+    /// torrents in the GUI).
+    pub keep: Option<PathBuf>,
+    /// With `keep`: open the store already there instead of writing a new one.
+    pub reuse: bool,
+    /// After the restore, this many seconds idle while polled as the GUIs poll (status and
+    /// session stats every second): the process CPU over them.
+    pub idle_secs: u64,
+}
+
+pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Duration>) -> ExitCode {
+    let LoadOptions { mut count, keep, reuse, idle_secs } = o;
+    let reuse = reuse && keep.as_ref().is_some_and(|d| d.join("resume.db").exists());
     let state = match &keep {
+        Some(d) if reuse => d.clone(),
         Some(d) => {
             let _ = std::fs::remove_dir_all(d);
             std::fs::create_dir_all(d).expect("state dir");
@@ -177,7 +191,10 @@ pub fn load(count: usize, keep: Option<PathBuf>, rss: fn() -> Option<u64>) -> Ex
         None => temp_dir("load-state"),
     };
     let save = temp_dir("load-data");
-    {
+    if reuse {
+        // the count is whatever the store holds
+        count = usize::MAX;
+    } else {
         let s = Session::start(SessionParams { settings: settings(), state_dir: Some(state.clone()) })
             .expect("session");
         let h = s.handle();
@@ -207,6 +224,10 @@ pub fn load(count: usize, keep: Option<PathBuf>, rss: fn() -> Option<u64>) -> Ex
     let s = Session::start(SessionParams { settings: settings(), state_dir: Some(state.clone()) })
         .expect("session");
     let h = s.handle();
+    if reuse {
+        // answered once the store is restored: its count
+        h.post_session_stats();
+    }
     let mut restored = 0;
     let mut listed = 0;
     let mut load_time = None;
@@ -214,6 +235,7 @@ pub fn load(count: usize, keep: Option<PathBuf>, rss: fn() -> Option<u64>) -> Ex
         match a {
             Alert::TorrentAdded { .. } => restored += 1,
             Alert::StateUpdate(v) => listed += v.len(),
+            Alert::SessionStats(st) if count == usize::MAX => count = st.num_torrents as usize,
             _ => {}
         }
         if restored == count && load_time.is_none() {
@@ -224,6 +246,8 @@ pub fn load(count: usize, keep: Option<PathBuf>, rss: fn() -> Option<u64>) -> Ex
     let load_time = load_time.unwrap_or_default();
     let first_update = t0.elapsed();
     let rss1 = rss();
+    let idle = (ok.is_some() && idle_secs > 0).then(|| idle_cpu(&h, Duration::from_secs(idle_secs), cpu));
+    let rss2 = rss();
     s.shutdown();
     if keep.is_none() {
         let _ = std::fs::remove_dir_all(&state);
@@ -242,6 +266,12 @@ pub fn load(count: usize, keep: Option<PathBuf>, rss: fn() -> Option<u64>) -> Ex
     println!("first_update_ms={:.1}", first_update.as_secs_f64() * 1e3);
     println!("rss_before_mb={}", mb(rss0));
     println!("rss_loaded_mb={}", mb(rss1));
+    if let Some(pct) = idle {
+        let pct = pct.map_or("n/a".to_owned(), |p| format!("{p:.2}"));
+        println!("idle_seconds={idle_secs}");
+        println!("idle_cpu_pct={pct}");
+        println!("rss_idle_mb={}", mb(rss2));
+    }
     println!();
     println!(
         "{count} saved torrents restored in {:.0} ms (listed after {:.0} ms); store {} KB + {} KB",
@@ -250,5 +280,28 @@ pub fn load(count: usize, keep: Option<PathBuf>, rss: fn() -> Option<u64>) -> Ex
         db / 1024,
         pack / 1024
     );
+    if let Some(pct) = idle {
+        let pct = pct.map_or("n/a".to_owned(), |p| format!("{p:.2} %"));
+        println!("idle for {idle_secs} s, polled every second: {pct} of one core");
+    }
     ExitCode::SUCCESS
+}
+
+/// The process CPU while the session sits idle and is polled as the GUIs poll it, as a share
+/// of one core.
+fn idle_cpu(h: &SessionHandle, length: Duration, cpu: fn() -> Option<Duration>) -> Option<f64> {
+    let mut alerts = Vec::new();
+    let t0 = Instant::now();
+    let c0 = cpu();
+    let mut next = t0;
+    while next < t0 + length {
+        h.post_torrent_updates();
+        h.post_session_stats();
+        next += Duration::from_secs(1);
+        std::thread::sleep(next.saturating_duration_since(Instant::now()));
+        h.pop_alerts(&mut alerts);
+        alerts.clear();
+    }
+    let (c0, c1) = (c0?, cpu()?);
+    Some((c1 - c0).as_secs_f64() * 100.0 / t0.elapsed().as_secs_f64())
 }

@@ -6,7 +6,8 @@
 //!
 //! * `loopback`: the real engine, a seed and a downloader in this process over 127.0.0.1:
 //!   throughput and CPU time per byte.
-//! * `load`: the real engine's cold start with N saved torrents (`--keep DIR` leaves the state there).
+//! * `load`: the real engine's cold start with N saved torrents (`--keep DIR` leaves the state there,
+//!   `--reuse` opens it again), then with `--idle` the idle CPU while polled as the GUIs poll.
 //! * `interop`: the real engine downloading from qBittorrent, Transmission and Deluge.
 //! * `seed-disk`: the real engine seeding to several downloaders from a cold disk, with the read
 //!   cache off and on: upload rate and disk reads per request.
@@ -31,7 +32,7 @@ USAGE:
     lt-swarm gen --out DIR [--count N] [--seed N]
     lt-swarm parse DIR
     lt-swarm loopback [--mb N] [--piece-kib N]
-    lt-swarm load [--count N] [--keep DIR]
+    lt-swarm load [--count N] [--keep DIR [--reuse]] [--idle SECONDS]
     lt-swarm interop [--clients qbittorrent,transmission,deluge] [--mb N]
                      [--encryption forced|enabled|disabled] [--version v1|hybrid|v2]
                      [--qbittorrent PATH] [--wsl-distro NAME] [--keep]
@@ -87,18 +88,27 @@ fn main() -> ExitCode {
             engine::loopback(mb.max(1), piece.clamp(16, 16 * 1024), cpu_time)
         }
         Some("load") => {
-            let (mut count, mut keep) = (1000, None);
-            for pair in args[1..].chunks(2) {
-                match (pair[0].as_str(), pair.get(1)) {
+            let mut o = engine::LoadOptions { count: 1000, keep: None, reuse: false, idle_secs: 0 };
+            let mut it = args[1..].iter();
+            while let Some(a) = it.next() {
+                if a == "--reuse" {
+                    o.reuse = true;
+                    continue;
+                }
+                match (a.as_str(), it.next()) {
                     ("--count", Some(n)) => match n.parse() {
-                        Ok(n) => count = n,
+                        Ok(n) => o.count = n,
                         Err(_) => return usage("--count: not a number"),
                     },
-                    ("--keep", Some(d)) => keep = Some(std::path::PathBuf::from(d)),
-                    _ => return usage("load: expected --count N and --keep DIR"),
+                    ("--idle", Some(n)) => match n.parse() {
+                        Ok(n) => o.idle_secs = n,
+                        Err(_) => return usage("--idle: not a number"),
+                    },
+                    ("--keep", Some(d)) => o.keep = Some(std::path::PathBuf::from(d)),
+                    _ => return usage("load: expected --count N, --keep DIR, --reuse, --idle SECONDS"),
                 }
             }
-            engine::load(count, keep, rss_bytes)
+            engine::load(o, rss_bytes, cpu_time)
         }
         Some("interop") => {
             let mut opts = interop::Options::default();

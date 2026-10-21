@@ -638,6 +638,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     exit_when_done
         .set_mode(o.exit_when_done.map(|w| auto_shutdown::Mode::new(auto_shutdown::Action::Quit, w)));
     let mut next_report = Instant::now();
+    let mut reported = false;
     let mut next_peer_report = Instant::now() + PEER_REPORT_INTERVAL;
     loop {
         let now = Instant::now();
@@ -663,6 +664,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
                 }
             }
         }
+        let mut changed: Vec<TorrentId> = Vec::new();
         let mut updated = false;
         for a in alerts.drain(..) {
             if let Some(id) = move_completed.as_mut().and_then(|m| m.on_alert(&a, &h)) {
@@ -682,6 +684,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
                 Alert::StateUpdate(v) => {
                     updated = true;
                     for st in v {
+                        changed.push(st.id);
                         rows.insert(st.id, st);
                     }
                 }
@@ -738,8 +741,11 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
                 _ => {}
             }
         }
-        if updated {
-            report(&rows, &stats, started.elapsed());
+        // after the first status line (the sign that nox is up), an update that changed nothing
+        // prints nothing: an idle daemon's log stays quiet
+        if updated && (!changed.is_empty() || !reported) {
+            report(&rows, &changed, &stats, started.elapsed());
+            reported = true;
         }
         let quit = matches!(input.try_recv().as_deref(), Ok("q" | "quit"));
         let mine_done = mode == Mode::Add
@@ -909,11 +915,23 @@ fn print_totals(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, 
     );
 }
 
-fn report(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, t: Duration) {
+/// At most this many torrents are listed per report.
+const REPORT_ROWS: usize = 50;
+
+/// The totals, then the torrents whose status changed (by name, up to `REPORT_ROWS`): a
+/// line per torrent of a 100,000-torrent session every second was 10 MB a second.
+fn report(
+    rows: &HashMap<TorrentId, TorrentStatus>,
+    changed: &[TorrentId],
+    stats: &SessionStats,
+    t: Duration,
+) {
     print_totals(rows, stats, t);
-    let mut v: Vec<&TorrentStatus> = rows.values().collect();
-    v.sort_by(|a, b| a.name.cmp(&b.name));
-    for st in v {
+    let mut v: Vec<&TorrentStatus> = changed.iter().filter_map(|id| rows.get(id)).collect();
+    v.sort_by(|a, b| a.name.cmp(&b.name).then(a.id.cmp(&b.id)));
+    v.dedup_by_key(|st| st.id);
+    let more = v.len().saturating_sub(REPORT_ROWS);
+    for st in v.into_iter().take(REPORT_ROWS) {
         println!(
             "         {:<40} {:>8} {:>7}  {:<20} D {:>10} U {:>10}  {:>3}({}) peers  ETA {}",
             truncate(&st.name, 40),
@@ -926,6 +944,9 @@ fn report(rows: &HashMap<TorrentId, TorrentStatus>, stats: &SessionStats, t: Dur
             st.list_peers,
             fmt::eta(st.eta()),
         );
+    }
+    if more > 0 {
+        println!("         ... and {more} more");
     }
 }
 

@@ -2,6 +2,36 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_090705_1792566425: Idle at 100,000 torrents (the D21 gate, first pass)
+
+The Win32 GUI, nox and the Web UI measured with 100,000 saved (stopped) torrents for the first time (Road to 1.0 item 5), on this development machine, release builds. The GUI idled at 4.2 % of a core and nox at 41 %; both are under 0.2 % now.
+
+### Fixed
+- **Engine, `auto_manage` was quadratic**: it asked `queue.contains(&id)` for every torrent, and every unfinished torrent is in the queue: about 5 billion comparisons per pass at 100,000, once at the restore and then every 30 s (`auto_manage_interval`) and after command batches that change the queue. It reads `Torrent::queue_position` now, which mirrors queue membership.
+- **Engine, full walks of every torrent**: the 500 ms tick, the session stats and the bandwidth tick (10 a second whenever a rate limit is set) walked all slots, 1.4 KB of `Torrent` each, for the few that run. A list of possibly running torrents (`Engine::live`, joined where a torrent gets a storage or a metadata / piece-layer fetch, pruned by `active_ids`) replaces those walks. Stopped torrents' rate-limit buckets refill once they run again. Status updates still walk every slot for its dirty flag, once a second.
+- **Engine, status requests coalesced**: the `post_torrent_updates` requests in one command batch are answered with one `StateUpdate`, after the batch. The Win32 and GTK GUIs ask once per `TorrentAdded` alert, so a restore made the engine walk all 100,000 torrents about 10,000 times (the rest of the alerts were dropped from the full queue).
+- **nox printed every torrent every second**: the console listed all rows on each status update, even an empty one: 10 MB a second at 100,000 torrents, 41 % of a core and a 117 MB log in 70 s. It now prints a report only when torrents changed (and the first one, the sign that nox is up), listing the changed torrents by name, at most 50 with "... and N more".
+
+### Added
+- `lt-swarm load --idle SECONDS`: after the restore, the session idles while polled as the GUIs poll it (status and session stats every second) and the process CPU is printed (`idle_cpu_pct`, `rss_idle_mb`). `--reuse` with `--keep DIR` opens the store left there instead of writing a new one.
+
+### Measured (100,000 stopped torrents, this machine, release)
+
+| | Before | After |
+|---|---|---|
+| `lt-swarm load --idle 60` (engine only, no DHT / LSD) | restored in 2.19 s, 3.54 % idle | 1.16–1.22 s, 0.00 % (under the 15.6 ms timer resolution over 60 s; 0.60 % with the `auto_manage` fix alone) |
+| Win32 GUI (a portable copy; the window found, `LVM_GETITEMCOUNT` polled) | window 79 ms, 100,000 rows at 4.53 s, 4.20 % idle over 60 s | window 126 ms, rows at 1.39 s, 0.155 % idle over 120 s |
+| Win32 GUI memory | 381 MB working set, 424 MB private | the same |
+| nox `run` (console to a file) | 41 % on its main thread + 5.9 % engine, 117 MB of output in 70 s | 0.18 %, 437 KB (mostly 12,005 "added" lines from the restore) |
+| nox `--webui` with the page open (Chromium pane) | not measured | 0.42 % idle (status thread 0.34 %, engine 0.23 % with DHT, LSD and the periodic scrape), 518 MB working set |
+| Web UI page (`#gate`) | not measured | page load to the first rows 604 ms (hello to rows 291 ms: the server's sorted view of 100,000), first `rows` 10.5 KB (45 rows), idle tick 235 B |
+
+### Issues
+- Still to measure for the gate: a low-end machine (D21's "potato": 2 cores, a hard disk), the GTK GUI, scroll and sort latency and add / remove at 100,000.
+- Memory: about 3.8 KB per stopped torrent in the GUI (381 MB at 100,000), 5 KB in nox with the Web UI's caches; a compact stopped-torrent form in the engine would help (PLAN Road to 1.0 item 5).
+- At restore 90 % of the `TorrentAdded` alerts are dropped (queue full); the frontends rely on the status updates instead, but nox logs a partial "added" list and the Win32 Logger a partial one.
+- `patorrent.exe` is 3.88 MB now (the 34 translations and the features since Phase 3), close to ARCHITECTURE.md's 4 MB target.
+
 ## 2026-10-21_082212_1792563732: V2.0 goals noted
 
 ### Added

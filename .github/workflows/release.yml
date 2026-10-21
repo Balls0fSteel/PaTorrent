@@ -1,0 +1,114 @@
+name: Release
+
+# The release files (PLAN.md Road to 1.0 items 6 and 7, D22; V2.0 goal 2): a tag `v<version>`
+# builds them and attaches them to a draft GitHub release, which the owner checks and publishes
+# (docs/RELEASING.md). Started by hand, it builds the same files as an artifact and makes no
+# release.
+#
+# - Windows x64: a zip of patorrent.exe and patorrent-nox.exe (static CRT, D7) with LICENSE.md
+#   and THIRD-PARTY-NOTICES.md.
+# - Linux x86_64 and aarch64: a tarball of patorrent-nox, patorrent-gtk, the desktop entry, the
+#   systemd units and the same two texts. They link the system's glibc, OpenSSL 3 and GTK 4 as
+#   Ubuntu 24.04 has them; AppImage and Flatpak (self-contained) come later.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  # Note: never set RUSTFLAGS here; it would override the static-CRT flags in .cargo/config.toml.
+
+jobs:
+  version:
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+    steps:
+      - uses: actions/checkout@v7
+      - id: v
+        name: The version, and a tag that matches the crates
+        run: |
+          crate=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            version="${GITHUB_REF_NAME#v}"
+            if [ "$version" != "$crate" ]; then
+              echo "::error::tag $GITHUB_REF_NAME does not match the workspace version $crate"
+              exit 1
+            fi
+          else
+            version="$crate-dev.${GITHUB_SHA::7}"
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+  windows:
+    needs: version
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --release --locked -p patorrent -p patorrent-nox
+      - name: Zip
+        shell: pwsh
+        run: |
+          $name = "patorrent-${{ needs.version.outputs.version }}-windows-x64"
+          New-Item -ItemType Directory $name | Out-Null
+          Copy-Item target/release/patorrent.exe, target/release/patorrent-nox.exe, LICENSE.md, THIRD-PARTY-NOTICES.md $name
+          Compress-Archive -Path $name -DestinationPath "$name.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: windows-x64
+          path: patorrent-*.zip
+
+  linux:
+    needs: version
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev libgtk-4-dev
+      - run: cargo build --release --locked -p patorrent-nox -p patorrent-gtk
+      - name: Tarball
+        run: |
+          name="patorrent-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}"
+          mkdir -p "$name/systemd"
+          install -m 755 target/release/patorrent-nox target/release/patorrent-gtk "$name/"
+          install -m 644 LICENSE.md THIRD-PARTY-NOTICES.md contrib/linux/*.desktop "$name/"
+          cp -r contrib/systemd/system contrib/systemd/user "$name/systemd/"
+          tar -czf "$name.tar.gz" --owner=0 --group=0 "$name"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: linux-${{ matrix.arch }}
+          path: patorrent-*.tar.gz
+
+  release:
+    if: github.ref_type == 'tag'
+    needs: [version, windows, linux]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          merge-multiple: true
+      - run: sha256sum patorrent-* > SHA256SUMS && cat SHA256SUMS
+      - name: Draft release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
+            --title "PaTorrent ${{ needs.version.outputs.version }}" \
+            --notes "Release notes: see CHANGELOG.md. Checksums: SHA256SUMS." \
+            patorrent-* SHA256SUMS

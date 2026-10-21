@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-21_215215_1792612335
+Last updated: 2026-10-21_215616_1792612576
 
 ## Vision
 
@@ -328,8 +328,8 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
    - The GUIs and the Web UI at 100,000 (2026-10-21_090705_1792566425, this machine): the Win32 GUI idled at 4.2 % of a core and painted its rows after 4.5 s; nox's console took 41 %. Fixed (a quadratic `auto_manage`, full walks of every torrent in the tick, the session stats and the bandwidth tick, one status request per restored torrent, nox printing every row every second). Now: the Win32 GUI lists 100,000 rows in 1.4 s and idles at 0.16 % (381 MB working set); nox 0.18 %, with the Web UI page open 0.42 % (518 MB); the page shows its first rows 0.6 s after load. `lt-swarm load --count 100000 --keep DIR` then `--keep DIR --reuse --idle 60` repeats the engine part. Left: a low-end machine (2 cores, a hard disk), the GTK GUI, scroll / sort / add / remove latency at 100,000, memory (3.8 KB per stopped torrent), the status update's walk of every slot (once a second; a dirty list would need its 47 setters changed).
 
 **Packaging (D22):**
-6. Windows: a release zip (`patorrent.exe`, `patorrent-nox.exe`, LICENSE.md, THIRD-PARTY-NOTICES.md) built by a tagged-release workflow.
-7. Linux: AppImage (GUI and nox, bundling OpenSSL 3), Flatpak (GNOME runtime; Flathub accepts non-free apps with a `LicenseRef` license and builds from the public source, D25), binary tarballs (x86_64 and aarch64).
+6. Windows: a release zip (`patorrent.exe`, `patorrent-nox.exe`, LICENSE.md, THIRD-PARTY-NOTICES.md) built by a tagged-release workflow. Written (2026-10-21_215616_1792612576: `.github/workflows/release.yml`, docs/RELEASING.md), not run yet: a hand run (Actions > Release > Run workflow) after the next push.
+7. Linux: AppImage (GUI and nox, bundling OpenSSL 3), Flatpak (GNOME runtime; Flathub accepts non-free apps with a `LicenseRef` license and builds from the public source, D25), binary tarballs (x86_64 and aarch64). The tarballs are in the release workflow (2026-10-21_215616_1792612576; built on Ubuntu 24.04, so they need its glibc, OpenSSL 3 and GTK 4 or newer); AppImage and Flatpak are left.
 8. macOS (D23): the GTK GUI (item 2) built for macOS, plus a Security.framework TLS backend (the TLS layer picks OpenSSL for every Unix today, and macOS has no linkable OpenSSL), the routing table through `PF_ROUTE` sysctl (as on FreeBSD; NAT-PMP is off on macOS now), a macOS CI job running the tests, then the release `.app` (GTK bundled) / `.dmg` for x86_64 and arm64, ad-hoc signed. Nobody here has a Mac: CI builds and runs the tests, the owner judges screenshots from the runner.
 
 **Before tagging 1.0:**
@@ -349,7 +349,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs research and a decision before work starts.
 
 1. **Profiles**, like a browser's: separate settings, torrents and state per profile, and several instances running at once (one per profile), which means the single-instance handling, listen ports, the Web UI port and the nox service have to be per profile.
-2. **GitHub Releases**: binaries people can download (the Windows zip, AppImage, tarballs, and so on) attached to tagged releases. Builds on Road to 1.0 items 6–8 (the packaging workflows).
+2. **GitHub Releases**: binaries people can download (the Windows zip, AppImage, tarballs, and so on) attached to tagged releases. Builds on Road to 1.0 items 6–8 (the packaging workflows). Started early (2026-10-21_215616_1792612576): a tag makes a draft release with the Windows zip and the Linux tarballs.
 3. **Portable mode**: run entirely from a folder (settings, state and downloads relative to it), on every platform. Research the options first; qBittorrent's mode (a `profile` folder beside the exe) may not be the best model. Revisit D7 (Windows keeps settings beside the exe today) as part of it, and see how it fits with profiles.
 4. **A multilingual wiki guide**: a user guide in the D24 languages, probably written and translated with Sonnet.
 

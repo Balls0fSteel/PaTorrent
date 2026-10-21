@@ -2,6 +2,18 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_215616_1792612576: A release workflow, and the notices for the GTK GUI's crates
+
+### Added
+- **`.github/workflows/release.yml`** (Road to 1.0 items 6 and 7, V2.0 goal 2): a tag `v<version>` checks that it names the workspace version, builds `patorrent-<version>-windows-x64.zip` (`patorrent.exe`, `patorrent-nox.exe`, LICENSE.md, THIRD-PARTY-NOTICES.md) and `patorrent-<version>-linux-x86_64.tar.gz` / `-linux-aarch64.tar.gz` (`patorrent-nox`, `patorrent-gtk`, the desktop entry, the systemd units, the two texts), and opens a draft GitHub release with them and `SHA256SUMS` for the owner to check and publish. Run by hand it builds the same files as artifacts (`<version>-dev.<commit>`) and makes no release.
+- **docs/RELEASING.md**: what a release has and the steps (version and peer-id prefix, CHANGELOG, a green CI, tag, check the draft, publish).
+
+### Fixed
+- THIRD-PARTY-NOTICES.md left out the crates the GTK GUI links (the gtk-rs bindings, `futures-*`, `bitflags`, `smallvec`, `memchr`, `pin-project-lite`, `slab`, `field-offset`, `memoffset`, all MIT or MIT-compatible) and had no MIT text: the table now lists every crate the binaries link with its copyright line (from `cargo tree -e normal,no-proc-macro`), the MIT license text follows it once, and the system libraries section names GTK 4 and its libraries (LGPL; not shipped in the tarballs, and what a bundle would owe).
+
+### Verified
+- The workflow parses (PyYAML); its version check (a matching tag, a mismatched one stopping, a dev build), the Windows zip and the Linux tarball steps were run locally on stand-ins. The workflow itself has not run on GitHub yet: run it once by hand after the next push.
+
 ## 2026-10-21_215215_1792612335: The active DHT, tracker and LSD announce limits
 
 ### Added

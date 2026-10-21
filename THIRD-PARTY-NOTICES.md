@@ -128,16 +128,51 @@ SHA-256. Adapted from LibTomCrypt. This code is Public Domain
 
 ## Rust crates linked into the binaries
 
-| Crate | Used by | License |
-|---|---|---|
-| `mio` | engine (all binaries): the network event loop (PLAN.md D2) | MIT |
-| `log` (pulled in by `mio`) | same | MIT OR Apache-2.0 |
-| `libc` (pulled in by `mio`) | same (Unix only) | MIT OR Apache-2.0 |
-| `windows-sys` | engine (sparse files, and mio on Windows), Win32 GUI, `lt-swarm` (Windows only) | MIT OR Apache-2.0 |
-| `windows-link` (pulled in by `windows-sys`) | same | MIT OR Apache-2.0 |
+Each is used under the MIT license (where a crate also offers Apache-2.0 or the Unlicense, MIT is the one PaTorrent takes); the license text follows the table, and each crate's copyright notice is in it.
 
-This table is kept current with every dependency change (dependency policy: docs/ARCHITECTURE.md).
+| Crate | Used by | License | Copyright |
+|---|---|---|---|
+| `mio` | engine (all binaries): the network event loop (PLAN.md D2) | MIT | (c) 2014 Carl Lerche and other MIO contributors |
+| `log` (pulled in by `mio`) | same | MIT OR Apache-2.0 | (c) 2014 The Rust Project Developers |
+| `libc` (pulled in by `mio`, `glib`) | same (Unix only), and the GTK GUI | MIT OR Apache-2.0 | (c) The Rust Project Developers |
+| `windows-sys` | engine (sparse files, and mio on Windows), Win32 GUI, `lt-swarm` (Windows only) | MIT OR Apache-2.0 | (c) Microsoft Corporation |
+| `windows-link` (pulled in by `windows-sys`) | same | MIT OR Apache-2.0 | (c) Microsoft Corporation |
+| `gtk4`, `gtk4-sys`, `gdk4`, `gdk4-sys`, `gsk4`, `gsk4-sys`, `glib`, `glib-sys`, `gobject-sys`, `gio`, `gio-sys`, `pango`, `pango-sys`, `cairo-rs`, `cairo-sys-rs`, `gdk-pixbuf`, `gdk-pixbuf-sys`, `graphene-rs`, `graphene-sys` (gtk-rs) | the GTK GUI (`patorrent-gtk`, PLAN.md D11) | MIT | (c) The gtk-rs Project Developers |
+| `futures-channel`, `futures-core`, `futures-executor`, `futures-io`, `futures-task`, `futures-util` (pulled in by `glib`) | same | MIT OR Apache-2.0 | (c) 2016 Alex Crichton |
+| `bitflags` (pulled in by gtk-rs) | same | MIT OR Apache-2.0 | (c) 2014 The Rust Project Developers |
+| `smallvec` (pulled in by `glib`) | same | MIT OR Apache-2.0 | (c) 2018 The Servo Project Developers |
+| `memchr` (pulled in by `futures-util`) | same | Unlicense OR MIT | (c) 2015 Andrew Gallant |
+| `pin-project-lite`, `slab` (pulled in by `futures-util`) | same | Apache-2.0 OR MIT; MIT | (c) the pin-project-lite authors; (c) 2019 Carl Lerche |
+| `field-offset`, `memoffset` (pulled in by `glib`) | same | MIT OR Apache-2.0; MIT | (c) 2016-2021 Diggory Blake, and other contributors; (c) 2017 Gilad Naaman |
+
+Build-time only, not in the binaries: the gtk-rs build scripts' `system-deps` and their procedural macros (`glib-macros`, `gtk4-macros`, `futures-macro` with `syn`, `quote`, `proc-macro2`, `proc-macro-crate`, `toml_*` and their dependencies).
+
+This table is kept current with every dependency change (dependency policy: docs/ARCHITECTURE.md): `cargo tree -e normal,no-proc-macro -p <binary> --target <target>` lists what a binary links.
+
+### The MIT license
+
+```text
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
+```
 
 ## System libraries used at run time
 
 HTTPS trackers use the operating system's TLS library, which is linked dynamically and not shipped with PaTorrent: SChannel (`secur32.dll`) on Windows, and the system OpenSSL (`libssl`, `libcrypto`; Apache-2.0 from 3.0, the OpenSSL/SSLeay license before) or LibreSSL on Linux and BSD.
+
+The GTK GUI (`patorrent-gtk`) links the system's GTK 4 and the libraries under it dynamically: GTK, GLib / GIO, Pango and gdk-pixbuf (LGPL-2.1-or-later), Cairo (LGPL-2.1 or MPL-1.1) and Graphene (MIT). The release tarballs do not ship them; a bundle that does (AppImage, Flatpak, the macOS `.app`; PLAN.md D22, D23) must carry their licenses and keep them replaceable, as the LGPL asks.

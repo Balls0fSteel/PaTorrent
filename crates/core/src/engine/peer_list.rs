@@ -16,10 +16,34 @@ use crate::crypto::crc32c::Crc32c;
 use crate::net::ip_voter::ExternalIp;
 use crate::status::PeerSource;
 
-/// libtorrent `max_failcount` default.
-const MAX_FAILCOUNT: u8 = 3;
-/// libtorrent `min_reconnect_time` default, multiplied by the fail count.
-const MIN_RECONNECT_TIME: Duration = Duration::from_secs(60);
+/// When an unconnected peer may be tried (again): libtorrent's `max_failcount` and
+/// `min_reconnect_time` settings.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Reconnect {
+    /// Peers that failed this often are no longer tried.
+    pub max_failcount: u8,
+    /// How long after its last connection closed a peer waits, times its fail count plus one.
+    pub min_reconnect_time: Duration,
+}
+
+impl Reconnect {
+    pub fn from_settings(s: &crate::Settings) -> Reconnect {
+        Reconnect {
+            max_failcount: s.max_failcount.clamp(0, i32::from(FAILCOUNT_CAP)) as u8,
+            min_reconnect_time: Duration::from_secs(u64::from(s.min_reconnect_time)),
+        }
+    }
+}
+
+impl Default for Reconnect {
+    /// libtorrent's defaults: 3 failures, 60 s.
+    fn default() -> Reconnect {
+        Reconnect { max_failcount: 3, min_reconnect_time: Duration::from_secs(60) }
+    }
+}
+
+/// libtorrent's `torrent_peer::failcount` is five bits.
+const FAILCOUNT_CAP: u8 = 31;
 
 #[derive(Debug)]
 pub(crate) struct KnownPeer {
@@ -87,6 +111,11 @@ impl PeerList {
         }
         if let Some(p) = self.get_mut(&addr) {
             p.source |= source;
+            // libtorrent `update_peer`: a tracker listing a peer that failed us gives it another
+            // try, since somebody apparently reaches it (only trackers are trusted with that)
+            if source.contains(PeerSource::TRACKER) {
+                p.failcount = p.failcount.saturating_sub(1);
+            }
             return true;
         }
         if self.peers.len() >= max_size && !self.evict_one() {
@@ -158,24 +187,29 @@ impl PeerList {
     /// libtorrent `peer_list::num_connect_candidates` (`is_connect_candidate`): peers that could
     /// be connected to, now or once their reconnect delay is over. A finished torrent does not
     /// connect to seeds.
-    pub fn num_connect_candidates(&self, finished: bool) -> usize {
+    pub fn num_connect_candidates(&self, finished: bool, policy: Reconnect) -> usize {
         self.peers
             .iter()
             .filter(|p| {
-                p.connection.is_none() && !p.banned && p.failcount < MAX_FAILCOUNT && !(p.seed && finished)
+                p.connection.is_none()
+                    && !p.banned
+                    && p.failcount < policy.max_failcount
+                    && !(p.seed && finished)
             })
             .count()
     }
 
-    /// libtorrent `find_connect_candidates`: up to `n` peers to connect to now.
-    pub fn connect_candidates(&self, n: usize, now: Instant) -> Vec<SocketAddr> {
+    /// libtorrent `find_connect_candidates`: up to `n` peers to connect to now. A peer waits
+    /// `min_reconnect_time` times its fail count plus one after its last connection.
+    pub fn connect_candidates(&self, n: usize, now: Instant, policy: Reconnect) -> Vec<SocketAddr> {
         let mut c: Vec<&KnownPeer> = self
             .peers
             .iter()
-            .filter(|p| p.connection.is_none() && !p.banned && p.failcount < MAX_FAILCOUNT)
+            .filter(|p| p.connection.is_none() && !p.banned && p.failcount < policy.max_failcount)
             .filter(|p| {
-                p.last_connected
-                    .is_none_or(|t| now.duration_since(t) >= MIN_RECONNECT_TIME * (p.failcount as u32 + 1))
+                p.last_connected.is_none_or(|t| {
+                    now.duration_since(t) >= policy.min_reconnect_time * (u32::from(p.failcount) + 1)
+                })
             })
             .collect();
         c.sort_by_key(|p| (p.failcount, std::cmp::Reverse(p.rank), p.last_connected));
@@ -208,21 +242,29 @@ impl PeerList {
         p.last_connected = Some(now);
     }
 
-    /// The connection closed. `failed` counts against the peer (could not connect, protocol
-    /// error); a clean disconnect resets its fail count. With `fast_reconnect` (an encrypted
-    /// attempt the peer closed on us, libtorrent `connection_closed`) a clean close also forgets
-    /// the connect time, so the peer is a candidate again at once, for the plaintext retry.
-    pub fn disconnected(&mut self, addr: &SocketAddr, failed: bool, seed: bool, fast_reconnect: bool) {
+    /// The connection closed at `now` (libtorrent `connection_closed`), which starts the peer's
+    /// reconnect delay. `failed` counts against the peer (could not connect, protocol error); a
+    /// clean disconnect resets its fail count. With `fast_reconnect` (an encrypted attempt the
+    /// peer closed on us) a clean close instead forgets the connect time, so the peer is a
+    /// candidate again at once for the plaintext retry (libtorrent rewinds it by
+    /// `min_reconnect_time * max_failcount`).
+    pub fn disconnected(
+        &mut self,
+        addr: &SocketAddr,
+        failed: bool,
+        seed: bool,
+        fast_reconnect: bool,
+        now: Instant,
+    ) {
         if let Some(p) = self.get_mut(addr) {
             p.connection = None;
             p.seed |= seed;
             if failed {
-                p.failcount = p.failcount.saturating_add(1);
+                p.failcount = (p.failcount + 1).min(FAILCOUNT_CAP);
+                p.last_connected = Some(now);
             } else {
                 p.failcount = 0;
-                if fast_reconnect {
-                    p.last_connected = None;
-                }
+                p.last_connected = if fast_reconnect { None } else { Some(now) };
             }
         }
     }
@@ -437,26 +479,72 @@ mod tests {
         assert!(pl.add(a, PeerSource::PEX, ExternalIp::default(), 2), "duplicates merge sources");
         assert!(pl.get(&a).unwrap().source.contains(PeerSource::PEX));
         assert!(!pl.add("0.0.0.0:5".parse().unwrap(), PeerSource::TRACKER, ExternalIp::default(), 9));
-        assert_eq!(pl.connect_candidates(5, now).len(), 2);
+        let r = Reconnect::default();
+        assert_eq!(pl.connect_candidates(5, now, r).len(), 2);
 
         pl.connecting(a, 1, PeerSource::TRACKER, now);
-        assert_eq!(pl.connect_candidates(5, now), [b]);
-        assert_eq!(pl.num_connect_candidates(false), 1, "a connected peer is no candidate");
+        assert_eq!(pl.connect_candidates(5, now, r), [b]);
+        assert_eq!(pl.num_connect_candidates(false, r), 1, "a connected peer is no candidate");
         pl.set_seed(&b, true);
-        assert_eq!(pl.num_connect_candidates(true), 0, "a finished torrent skips seeds");
+        assert_eq!(pl.num_connect_candidates(true, r), 0, "a finished torrent skips seeds");
         pl.set_seed(&b, false);
-        pl.disconnected(&a, true, false, false);
-        assert_eq!(pl.connect_candidates(5, now), [b], "reconnects wait");
-        assert_eq!(pl.num_connect_candidates(false), 2, "but they count");
-        assert_eq!(pl.connect_candidates(5, now + Duration::from_secs(121)), [b, a], "failed peers last");
+        pl.disconnected(&a, true, false, false, now);
+        assert_eq!(pl.connect_candidates(5, now, r), [b], "reconnects wait");
+        assert_eq!(pl.num_connect_candidates(false, r), 2, "but they count");
+        assert_eq!(pl.connect_candidates(5, now + Duration::from_secs(121), r), [b, a], "failed peers last");
 
         // Full list: the failed peer is evicted for a new one.
         let c: SocketAddr = "10.0.0.3:1".parse().unwrap();
         assert!(pl.add(c, PeerSource::TRACKER, ExternalIp::default(), 2));
         assert!(pl.get(&a).is_none() && pl.get(&b).is_some() && pl.get(&c).is_some());
         pl.ban(&b);
-        assert_eq!(pl.connect_candidates(5, now), [c]);
+        assert_eq!(pl.connect_candidates(5, now, r), [c]);
         pl.trim(1);
         assert_eq!(pl.len(), 1);
+    }
+
+    #[test]
+    fn the_reconnect_delay_runs_from_the_close() {
+        // libtorrent `connection_closed` stamps `last_connected`: a peer connected for an hour
+        // waits `min_reconnect_time` after it leaves, not after it came
+        let mut pl = PeerList::default();
+        let r = Reconnect::default();
+        let t0 = Instant::now();
+        let a: SocketAddr = "10.0.0.1:1".parse().unwrap();
+        pl.connecting(a, 1, PeerSource::TRACKER, t0);
+        let closed = t0 + Duration::from_secs(3600);
+        pl.disconnected(&a, false, false, false, closed);
+        assert!(pl.connect_candidates(5, closed + Duration::from_secs(59), r).is_empty());
+        assert_eq!(pl.connect_candidates(5, closed + Duration::from_secs(60), r), [a]);
+        // the plaintext retry after an encrypted attempt goes at once
+        pl.connecting(a, 2, PeerSource::TRACKER, closed);
+        pl.disconnected(&a, false, false, true, closed);
+        assert_eq!(pl.connect_candidates(5, closed, r), [a]);
+    }
+
+    #[test]
+    fn a_tracker_gives_a_failed_peer_another_try() {
+        // libtorrent `update_peer`: only a tracker's word takes a failure off
+        let mut pl = PeerList::default();
+        let r = Reconnect { max_failcount: 2, min_reconnect_time: Duration::from_secs(1) };
+        let now = Instant::now();
+        let a: SocketAddr = "10.0.0.1:1".parse().unwrap();
+        assert!(pl.add(a, PeerSource::DHT, ExternalIp::default(), 9));
+        for _ in 0..2 {
+            pl.connecting(a, 1, PeerSource::DHT, now);
+            pl.disconnected(&a, true, false, false, now);
+        }
+        let later = now + Duration::from_secs(10);
+        assert_eq!(pl.get(&a).unwrap().failcount, 2);
+        assert!(pl.connect_candidates(5, later, r).is_empty(), "max_failcount reached");
+        assert_eq!(pl.num_connect_candidates(false, r), 0);
+        pl.add(a, PeerSource::PEX, ExternalIp::default(), 9);
+        assert_eq!(pl.get(&a).unwrap().failcount, 2, "a peer's word is not enough");
+        pl.add(a, PeerSource::TRACKER, ExternalIp::default(), 9);
+        assert_eq!(pl.get(&a).unwrap().failcount, 1);
+        assert_eq!(pl.connect_candidates(5, later, r), [a]);
+        // the settings' names and defaults are libtorrent's
+        let d = Reconnect::from_settings(&crate::Settings::default());
+        assert_eq!((d.max_failcount, d.min_reconnect_time), (3, Duration::from_secs(60)));
     }
 }

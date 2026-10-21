@@ -75,6 +75,7 @@ use crate::util::bitfield::Bitfield;
 use crate::util::stat::{Stat, now_unix};
 use crate::utp::{self, SendOutcome, UtpIo, UtpManager, UtpSettings};
 use peer::{PeerConn, PeerState, Transport};
+use peer_list::Reconnect;
 use picker::PiecePicker;
 use torrent::{AnnounceTo, Torrent, piece_priorities};
 use tracker::{HTTP_TOKEN_BASE, JobKind, TrackerJob, TrackerManager, TrackerOutcome, UDP4_TOKEN, UDP6_TOKEN};
@@ -1189,10 +1190,16 @@ impl Engine {
             && failed
             && t.peer_list.utp_failed(&p.addr);
         if utp_retry {
-            t.peer_list.disconnected(&p.addr, false, seed, true);
+            t.peer_list.disconnected(&p.addr, false, seed, true, now);
             self.connect_to_peer(id, p.addr, now);
         } else {
-            t.peer_list.disconnected(&p.addr, failed && p.state != PeerState::Active, seed, p.fast_reconnect);
+            t.peer_list.disconnected(
+                &p.addr,
+                failed && p.state != PeerState::Active,
+                seed,
+                p.fast_reconnect,
+                now,
+            );
         }
     }
 
@@ -3074,7 +3081,7 @@ impl Engine {
         if room == 0 {
             return 0;
         }
-        let candidates = t.peer_list.connect_candidates(room, now);
+        let candidates = t.peer_list.connect_candidates(room, now, Reconnect::from_settings(&self.settings));
         let finished = t.is_finished();
         let mut made = 0;
         for addr in candidates {
@@ -3186,7 +3193,8 @@ impl Engine {
 
     /// libtorrent `torrent::num_connect_candidates`.
     fn num_connect_candidates(&self, id: TorrentId) -> usize {
-        self.torrent_ref(id).map_or(0, |t| t.peer_list.num_connect_candidates(t.is_finished()))
+        let policy = Reconnect::from_settings(&self.settings);
+        self.torrent_ref(id).map_or(0, |t| t.peer_list.num_connect_candidates(t.is_finished(), policy))
     }
 
     /// libtorrent `session_impl::update_socket_buffer_size`: the new sizes apply to the listen
@@ -3272,7 +3280,7 @@ impl Engine {
             Err(e) => {
                 let t = self.torrent(id).expect("exists");
                 t.peer_list.connecting(addr, 0, source, now);
-                t.peer_list.disconnected(&addr, true, false, false);
+                t.peer_list.disconnected(&addr, true, false, false, now);
                 self.alert(Alert::PeerDisconnected {
                     id: Some(id),
                     addr,

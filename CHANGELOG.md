@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_220017_1792612817: libtorrent's reconnect policy: `max_failcount`, `min_reconnect_time`
+
+### Changed
+- **A peer's reconnect delay runs from when its connection closed** (libtorrent `peer_list::connection_closed` stamps `last_connected`), not from when it was opened: a peer that stayed connected for an hour used to be a connect candidate again the moment it left; now it waits `min_reconnect_time` (times its fail count plus one), as in libtorrent. The plaintext retry after an encrypted attempt still goes at once.
+- **A tracker listing a peer again takes one failure off it** (libtorrent `update_peer`, trackers only), so a peer that failed us gets another try once somebody else apparently reaches it.
+- The fail count stops at 31 (libtorrent's five bits).
+
+### Added
+- **`Settings::max_failcount`** (3) and **`min_reconnect_time`** (60 s), libtorrent's names and defaults, in place of two constants: the Advanced page of every client, nox's preferences and the remote protocol (version 5) carry them.
+
+### Fixed
+- PLAN.md said our reconnect formula was stricter than libtorrent's; both use `(failcount + 1) * min_reconnect_time`. The difference was where the delay starts (above).
+
+### Verified
+- New peer-list tests: the delay counted from the close (59 s still waiting, 60 s a candidate), the fast reconnect, a tracker's report taking a failure off while a PEX one does not, `max_failcount` stopping a peer, the defaults.
+- `cargo test --workspace` on Windows: 1,118 passed, 0 failed (the loopback swarm tests reconnect as before). Stable clippy and fmt on Windows; the 1.90.0 clippy for Linux (GTK included) and FreeBSD.
+
 ## 2026-10-21_215616_1792612576: A release workflow, and the notices for the GTK GUI's crates
 
 ### Added

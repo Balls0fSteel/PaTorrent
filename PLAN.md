@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-21_215616_1792612576
+Last updated: 2026-10-21_220017_1792612817
 
 ## Vision
 
@@ -340,7 +340,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 13. The Web UI's phone layout on a real phone.
 14. Release engineering: version 1.0.0 and peer-ID prefix `-PA1000-` (a test ties them), release notes, the parser security review (Continuous), then the `PA` registrations (libtorrent, Transmission, webtorrent, the BEP 20 list).
 
-**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; the Win32 GUI and the Web UI scrape stopped and queued torrents every 30 minutes since 2026-10-19_232401_1792445041); ~~`active_lsd_limit` / DHT / tracker limits~~ (2026-10-21_215215_1792612335); `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; ~~a disconnect alert with the close reason~~ (`Alert::PeerDisconnected` and `alert_mask`, 2026-10-21_214719_1792612039).
+**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; the Win32 GUI and the Web UI scrape stopped and queued torrents every 30 minutes since 2026-10-19_232401_1792445041); ~~`active_lsd_limit` / DHT / tracker limits~~ (2026-10-21_215215_1792612335); `mixed_mode_algorithm` (needs peer classes); ~~a general reconnect policy~~ (libtorrent's: the delay from the close, `max_failcount` / `min_reconnect_time` settings, 2026-10-21_220017_1792612817); ~~a disconnect alert with the close reason~~ (`Alert::PeerDisconnected` and `alert_mask`, 2026-10-21_214719_1792612039).
 
 **Still to settle:** Properties > Advanced and the `rss.*` Advanced settings need a real µTorrent 2.2.1 to copy from.
 
@@ -562,7 +562,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
 - MSE/PE follow-ups (CHANGELOG 2026-10-16_163419_1792161259):
   - ~~the Phase 5 Preferences page maps µTorrent's encryption settings~~: done (2026-10-17_155028_1792245028) as noted under Phase 4; `allowed_enc_level` and `prefer_rc4` are on the Advanced page.
   - the DHT and the trackers do not yet learn `pe_support` for peers (libtorrent takes it from ut_pex only, as we do); nothing is persisted about it.
-  - `peer_connection::fast_reconnect` exists only for this alternation; a general reconnect policy (libtorrent's `min_reconnect_time * failcount` after any close) is still the stricter `min_reconnect_time * (failcount + 1)` here.
+  - `peer_connection::fast_reconnect` exists only for this alternation. The general reconnect policy is libtorrent's since 2026-10-21_220017_1792612817: `(failcount + 1) * min_reconnect_time` after the connection closed (the formula was always the same; the delay used to run from the connect).
   - interop with Transmission and Deluge under `--encryption forced` is untested (WSL2 was down on 2026-10-16); rTorrent and µTorrent 2.2.1 as before.
 - DHT follow-ups (Phase 4 DHT is in, CHANGELOG 2026-10-15_211826_1792091906):
   - BEP 44 items (`get` / `put`, ed25519) and BEP 51 `sample_infohashes` are Phase 8; until then such queries get a `find_node`-style answer. Not ported yet: the matching `test_dht` tests (put/get/mutable/immutable, signing_test1-3, sample_infohashes), `test_direct_dht` and the item parts of `test_dht_storage`.

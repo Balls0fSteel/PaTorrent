@@ -510,6 +510,8 @@ wire_struct!(Settings {
     max_retry_port_bind,
     unchoke_slots_limit,
     max_peerlist_size,
+    max_failcount,
+    min_reconnect_time,
     max_paused_peerlist_size,
     enable_dht,
     dht_announce_interval,

@@ -84,6 +84,12 @@ pub struct Settings {
     pub max_retry_port_bind: u32,
     pub unchoke_slots_limit: i32,
     pub max_peerlist_size: i32,
+    /// A peer that failed this many times in a row is no longer tried (libtorrent
+    /// `max_failcount`); a tracker listing it again takes one failure off.
+    pub max_failcount: i32,
+    /// Seconds a peer waits after its last connection closed before it is tried again, times
+    /// its fail count plus one (libtorrent `min_reconnect_time`).
+    pub min_reconnect_time: u32,
     pub max_paused_peerlist_size: i32,
 
     pub enable_dht: bool,
@@ -288,6 +294,8 @@ impl Default for Settings {
             max_retry_port_bind: 10,
             unchoke_slots_limit: 8,
             max_peerlist_size: 3000,
+            max_failcount: 3,
+            min_reconnect_time: 60,
             max_paused_peerlist_size: 1000,
             enable_dht: true,
             dht_announce_interval: 15 * 60,

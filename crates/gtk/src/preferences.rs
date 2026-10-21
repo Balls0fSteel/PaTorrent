@@ -1,7 +1,7 @@
 //! Options > Preferences: µTorrent 2.2.1's dialog, the page list on the left and the page on the
 //! right, OK / Cancel / Apply, built from the frontend's description of the pages
-//! ([`pref_pages`]): every page the Win32 dialog has but the Scheduler (it comes with the
-//! scheduler's run in this client), the Web UI (the remote mode) and the Windows integration.
+//! ([`pref_pages`]): every page the Win32 dialog has but the Web UI (the remote mode) and the
+//! Windows integration.
 //!
 //! The pages and the Advanced table edit one working [`Options`]. The controls are written from
 //! it ([`Form::write`]) and only the ones the user changed are read back ([`Form::read`]), on
@@ -17,11 +17,14 @@ use gtk::{gio, glib};
 use patorrent_frontend::lang::{self, S, gtk_mnemonic};
 use patorrent_frontend::options::{self, Options};
 use patorrent_frontend::pref_pages::{
-    self, Action, Control, Features, Field, Form, Item, Page, TextKind, advanced_name, advanced_rows,
+    self, Action, Control, Features, Field, Form, Item, Page, SCHED_ENABLE, TextKind, advanced_name,
+    advanced_rows,
 };
+use patorrent_frontend::scheduler::{CELLS, Mode};
 use patorrent_frontend::settings::{Entry, Kind, Value};
 use patorrent_frontend::tr;
 
+use crate::sched_grid::SchedGrid;
 use crate::table::Table;
 
 /// Loads a block list: the number of rules or an error.
@@ -99,6 +102,10 @@ struct Dialog {
     page: RefCell<String>,
     ip_status: Option<gtk::Label>,
     advanced: Option<Advanced>,
+    /// The Scheduler page's table and what it showed when written, so an untouched table keeps
+    /// the stored one.
+    sched: Option<SchedGrid>,
+    sched_shown: RefCell<[Mode; CELLS]>,
     /// The Advanced table's rows.
     rows: RefCell<Vec<&'static Entry>>,
     hooks: Hooks,
@@ -161,7 +168,7 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
     ));
     window.add_controller(keys);
 
-    let Builder { controls, needs, ip_status, advanced, browse, actions, .. } = b;
+    let Builder { controls, needs, ip_status, advanced, sched, browse, actions, .. } = b;
     let d = Rc::new(Dialog {
         page: RefCell::new(pages.first().map(|p| p.key.to_owned()).unwrap_or_default()),
         pages,
@@ -172,6 +179,8 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
         stack: stack.clone(),
         ip_status,
         advanced,
+        sched,
+        sched_shown: RefCell::new([Mode::Full; CELLS]),
         rows: RefCell::default(),
         hooks,
     });
@@ -301,6 +310,11 @@ impl Dialog {
                 c.set(&value);
             }
         }
+        if let Some(g) = &self.sched {
+            let table = self.opts.borrow().gui.schedule.table;
+            g.set(&table);
+            *self.sched_shown.borrow_mut() = table;
+        }
         self.update_sensitivity();
     }
 
@@ -320,7 +334,13 @@ impl Dialog {
             form.read(&self.pages, &opts, |k| self.controls.get(k).map(Ctl::value).unwrap_or_default())
         };
         match read {
-            Ok(o) => {
+            Ok(mut o) => {
+                if let Some(g) = &self.sched {
+                    let table = g.table();
+                    if table != *self.sched_shown.borrow() {
+                        o.gui.schedule.table = table;
+                    }
+                }
                 *self.opts.borrow_mut() = o;
                 true
             }
@@ -508,6 +528,7 @@ struct Builder {
     needs: Vec<(gtk::Widget, &'static [&'static str])>,
     ip_status: Option<gtk::Label>,
     advanced: Option<Advanced>,
+    sched: Option<SchedGrid>,
     /// "..." buttons: the button, its field and the picker.
     browse: Vec<(gtk::Button, &'static str, TextKind)>,
     actions: Vec<(gtk::Button, Action)>,
@@ -562,6 +583,12 @@ impl Builder {
                     let (widget, advanced) = advanced_page();
                     target.append(&widget);
                     self.advanced = Some(advanced);
+                }
+                Item::SchedTable => {
+                    let grid = SchedGrid::new();
+                    target.append(&grid.widget);
+                    self.needs.push((grid.widget.clone().upcast(), &[SCHED_ENABLE]));
+                    self.sched = Some(grid);
                 }
             }
         }

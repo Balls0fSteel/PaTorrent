@@ -11,7 +11,7 @@
 use std::cell::{Cell, RefCell};
 use std::ptr::{null, null_mut};
 
-use patorrent_frontend::auto_shutdown::{Action, Mode, When};
+use patorrent_frontend::auto_shutdown::{self, Action, Mode};
 use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -199,22 +199,6 @@ struct State {
     outcome: Outcome,
 }
 
-/// The countdown's text.
-pub fn message(mode: Mode, secs: u32) -> String {
-    let done = match mode.when {
-        When::Downloads => tr!(ShutdownDownloadsDone),
-        When::Everything => tr!(ShutdownEverythingDone),
-    };
-    let time = format!("{}:{:02}", secs / 60, secs % 60);
-    let what = match mode.action {
-        Action::Quit => tr!(ShutdownWillQuit, time),
-        Action::Standby => tr!(ShutdownWillStandby, time),
-        Action::Hibernate => tr!(ShutdownWillHibernate, time),
-        Action::ShutDown => tr!(ShutdownWillShutDown, time),
-    };
-    format!("{done}\n{what}")
-}
-
 /// Shows the countdown (modal, on top of every window, the owner possibly hidden in the tray)
 /// until Cancel, [`close`] or the window's end.
 pub fn countdown(owner: HWND, mode: Mode, secs: u32) -> Outcome {
@@ -271,7 +255,7 @@ fn template() -> Vec<u16> {
 }
 
 unsafe fn show(dlg: HWND, st: &State) {
-    let text = wide(&message(st.mode, st.secs));
+    let text = wide(&auto_shutdown::countdown_text(st.mode, st.secs));
     unsafe { SetWindowTextW(GetDlgItem(dlg, ID_TEXT as i32), text.as_ptr()) };
 }
 
@@ -323,6 +307,8 @@ mod tests {
     //! The dialog built from its template, hidden and modeless, driven through its messages.
 
     use windows_sys::Win32::UI::WindowsAndMessaging::{CreateDialogIndirectParamW, DestroyWindow};
+
+    use patorrent_frontend::auto_shutdown::When;
 
     use super::*;
     use crate::util::window_text;

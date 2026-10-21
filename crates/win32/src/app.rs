@@ -17,9 +17,9 @@ use patorrent_core::fetch::FetchProxy;
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::util::time::{local_utc_offset, unix_now};
 use patorrent_core::{
-    AddTorrentParams, Alert, AnnounceEntry, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove,
-    RemoveFlags, Session, SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId,
-    TorrentSource, VERSION, same_dir,
+    AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
+    SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
+    same_dir,
 };
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
@@ -28,7 +28,7 @@ use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::properties::{Properties, TorrentProps};
+use patorrent_frontend::properties::{self, Properties, TorrentProps};
 use patorrent_frontend::rss::view::{self as rss_view, ItemRow};
 use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
@@ -146,8 +146,7 @@ mod cmd {
     pub const AUTO_SHUTDOWN_BASE: u16 = 3200;
 }
 
-/// Bandwidth menu presets in kB/s; 0 = unlimited.
-const LIMITS: [u32; 10] = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
+use patorrent_frontend::actions::LIMITS;
 
 const TOOLBAR: [Option<(Icon, u16, S)>; 15] = [
     Some((Icon::AddTorrent, cmd::ADD, S::ToolAddTorrent)),
@@ -1519,7 +1518,7 @@ unsafe fn auto_shutdown_countdown(hwnd: HWND, secs: u32) {
     if shutdown::is_open() {
         return;
     }
-    log_line(&tr!(LogShutdownDone, what = auto_shutdown_what(mode.action), secs));
+    log_line(&tr!(LogShutdownDone, what = mode.action.doing(), secs));
     match shutdown::countdown(hwnd, mode, secs) {
         Outcome::Cancelled => {
             with_app(|a| a.auto_shutdown.set_mode(None));
@@ -1531,19 +1530,10 @@ unsafe fn auto_shutdown_countdown(hwnd: HWND, secs: u32) {
     }
 }
 
-fn auto_shutdown_what(action: auto_shutdown::Action) -> &'static str {
-    match action {
-        auto_shutdown::Action::Quit => tr!(ShutdownWhatQuit),
-        auto_shutdown::Action::Standby => tr!(ShutdownWhatStandby),
-        auto_shutdown::Action::Hibernate => tr!(ShutdownWhatHibernate),
-        auto_shutdown::Action::ShutDown => tr!(ShutdownWhatShutDown),
-    }
-}
-
 /// Quit as File > Exit does (state saved on the way out); Shut Down after that; Standby and
 /// Hibernate once the engine has written the resume data (`ResumeDataSaved` in `on_alerts`).
 unsafe fn auto_shutdown_act(hwnd: HWND, action: auto_shutdown::Action) {
-    log_line(&tr!(LogShutdown, what = auto_shutdown_what(action)));
+    log_line(&tr!(LogShutdown, what = action.doing()));
     unsafe { update_menu(hwnd) };
     match Power::of(action) {
         Some(p @ (Power::Standby | Power::Hibernate)) => {
@@ -2334,8 +2324,7 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
         let dl_menu = CreatePopupMenu();
         let ul_menu = CreatePopupMenu();
         for (i, &kb) in LIMITS.iter().enumerate() {
-            let text =
-                if kb == 0 { tr!(MenuUnlimited).to_owned() } else { format!("{kb} {}", tr!(UnitKbPerSec)) };
+            let text = actions::limit_text(kb);
             append_flags(dl_menu, checked(dl == kb * 1024), cmd::DL_LIMIT_BASE + i as u16, &text);
             append_flags(ul_menu, checked(ul == kb * 1024), cmd::UL_LIMIT_BASE + i as u16, &text);
         }
@@ -2576,35 +2565,6 @@ fn seeding_goal(a: &mut App, st: &patorrent_core::TorrentStatus) {
     a.detail.push_log(format!("{} {}", now_hms(), tr!(LogSeedingGoal, name = st.name, what)));
 }
 
-/// The tracker lists of `ids` (`post_trackers`), waiting up to two seconds for the engine. The
-/// alerts popped meanwhile are kept for `on_alerts`.
-fn fetch_trackers(
-    a: &mut App,
-    ids: &[TorrentId],
-) -> std::collections::HashMap<TorrentId, Vec<AnnounceEntry>> {
-    let mut found = std::collections::HashMap::new();
-    for &id in ids {
-        a.handle.torrent(id).post_trackers();
-    }
-    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(2);
-    let mut batch = Vec::new();
-    while found.len() < ids.len() && std::time::Instant::now() < deadline {
-        a.handle.pop_alerts(&mut batch);
-        for alert in &batch {
-            if let Alert::TrackerList { id, trackers } = alert
-                && ids.contains(id)
-            {
-                found.insert(*id, trackers.clone());
-            }
-        }
-        a.alerts.append(&mut batch);
-        if found.len() < ids.len() {
-            std::thread::sleep(std::time::Duration::from_millis(5));
-        }
-    }
-    found
-}
-
 /// The context menu's Properties (and a double-click on a torrent that is not finished): the
 /// Torrent Properties dialog for the selected torrents; OK applies what changed to each one.
 unsafe fn show_properties(hwnd: HWND) {
@@ -2614,7 +2574,8 @@ unsafe fn show_properties(hwnd: HWND) {
         if ids.is_empty() {
             return None;
         }
-        let trackers = fetch_trackers(a, &ids);
+        let trackers =
+            properties::fetch_trackers(&a.handle, &ids, &mut a.alerts, std::time::Duration::from_secs(2));
         let items: Vec<TorrentProps> = ids
             .iter()
             .map(|id| {
@@ -3059,26 +3020,10 @@ fn log_ip_filter(a: &mut App, path: &Path, r: &Result<usize, String>) {
 /// File → Create New Torrent; with "Start seeding" the new torrent is added with the source's
 /// folder as its save path (the files are checked, then it seeds).
 unsafe fn create_torrent(hwnd: HWND) {
-    let Some(mut r) = with_app(|a| crate::create::Remembered {
-        trackers: create::trackers_from_pref(a.prefs.get("create.trackers").unwrap_or_default()),
-        piece: a.prefs.get_i32("create.piece_size").unwrap_or(0).max(0) as usize,
-        seed: a.prefs.get_bool("create.seed", true),
-        private: a.prefs.get_bool("create.private", false),
-        preserve_order: a.prefs.get_bool("create.preserve_order", false),
-        format: a.prefs.get("create.format").and_then(create::TorrentFormat::from_key).unwrap_or_default(),
-    }) else {
-        return;
-    };
+    let Some(mut r) = with_app(|a| create::Remembered::load(&a.prefs)) else { return };
     // the dialog runs its own message loop; nothing is borrowed across it
     let done = crate::create::show(hwnd, &mut r);
-    with_app(|a| {
-        a.prefs.set("create.trackers", create::trackers_to_pref(&r.trackers));
-        a.prefs.set("create.piece_size", r.piece);
-        a.prefs.set_bool("create.seed", r.seed);
-        a.prefs.set_bool("create.private", r.private);
-        a.prefs.set_bool("create.preserve_order", r.preserve_order);
-        a.prefs.set("create.format", r.format.key());
-    });
+    with_app(|a| r.store(&mut a.prefs));
     let Some(done) = done else { return };
     if let Some(save) = done.seed_from {
         with_app(|a| add_to_session(a, create::seed_params(done.created.bytes, &save)));

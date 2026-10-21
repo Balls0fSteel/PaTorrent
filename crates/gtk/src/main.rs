@@ -14,6 +14,8 @@ mod app;
 #[cfg(unix)]
 mod canvas;
 #[cfg(unix)]
+mod create;
+#[cfg(unix)]
 mod detail;
 #[cfg(unix)]
 mod list;
@@ -21,6 +23,12 @@ mod list;
 mod paths;
 #[cfg(unix)]
 mod preferences;
+#[cfg(unix)]
+mod properties;
+#[cfg(unix)]
+mod sched_grid;
+#[cfg(unix)]
+mod shutdown;
 #[cfg(unix)]
 mod sidebar;
 #[cfg(unix)]

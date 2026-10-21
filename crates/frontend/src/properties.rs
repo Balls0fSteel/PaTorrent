@@ -12,7 +12,12 @@
 //! The tracker box holds one URL per line, tiers separated by a blank line (BEP 12), as in
 //! µTorrent; [`parse_trackers`] and [`trackers_text`] convert between that text and tiers.
 
-use patorrent_core::{AnnounceEntry, TorrentFlags, TorrentHandle, TorrentStatus};
+use std::collections::HashMap;
+use std::time::{Duration, Instant};
+
+use patorrent_core::{
+    Alert, AnnounceEntry, SessionHandle, TorrentFlags, TorrentHandle, TorrentId, TorrentStatus,
+};
 
 use crate::prefs::Prefs;
 use crate::seeding::SeedGoal;
@@ -403,6 +408,37 @@ fn is_tracker_url(s: &str) -> bool {
     ["http", "https", "udp"].iter().any(|k| scheme.eq_ignore_ascii_case(k))
         && !host.is_empty()
         && !s.contains(char::is_whitespace)
+}
+
+/// The tracker lists of `ids` (`post_trackers`) for the dialog, waiting up to `wait` for the
+/// engine. The alerts popped meanwhile are appended to `popped`, for the frontend's alert loop.
+pub fn fetch_trackers(
+    handle: &SessionHandle,
+    ids: &[TorrentId],
+    popped: &mut Vec<Alert>,
+    wait: Duration,
+) -> HashMap<TorrentId, Vec<AnnounceEntry>> {
+    let mut found = HashMap::new();
+    for &id in ids {
+        handle.torrent(id).post_trackers();
+    }
+    let deadline = Instant::now() + wait;
+    let mut batch = Vec::new();
+    while found.len() < ids.len() && Instant::now() < deadline {
+        handle.pop_alerts(&mut batch);
+        for alert in &batch {
+            if let Alert::TrackerList { id, trackers } = alert {
+                if ids.contains(id) {
+                    found.insert(*id, trackers.clone());
+                }
+            }
+        }
+        popped.append(&mut batch);
+        if found.len() < ids.len() {
+            std::thread::sleep(Duration::from_millis(5));
+        }
+    }
+    found
 }
 
 #[cfg(test)]

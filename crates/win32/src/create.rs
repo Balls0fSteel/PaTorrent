@@ -7,6 +7,7 @@ use std::ptr::null;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+pub use patorrent_frontend::create::Remembered;
 use patorrent_frontend::create::{self, CreateOptions, Created, FORMATS, PIECE_SIZES, TorrentFormat};
 use patorrent_frontend::{lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -74,20 +75,6 @@ const INPUTS: [u16; 13] = [
     ID_ORDER,
     IDOK as u16,
 ];
-
-/// What the dialog remembers between uses (kept in the preferences by the caller).
-#[derive(Clone, Debug, Default)]
-pub struct Remembered {
-    /// The Trackers box text.
-    pub trackers: String,
-    /// Index into [`PIECE_SIZES`].
-    pub piece: usize,
-    pub seed: bool,
-    pub private: bool,
-    pub preserve_order: bool,
-    /// The BitTorrent version (v1, hybrid, v2).
-    pub format: TorrentFormat,
-}
 
 /// A torrent written to disk.
 pub struct Done {

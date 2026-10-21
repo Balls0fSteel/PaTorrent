@@ -80,6 +80,43 @@ impl Mode {
             Mode::SeedOnly => Mode::Full,
         }
     }
+
+    /// The cell's colour as `0xRRGGBB`, µTorrent's: green, light green, white, blue.
+    pub fn rgb(self) -> u32 {
+        match self {
+            Mode::Full => 0x40b040,
+            Mode::Limited => 0xa0e8a0,
+            Mode::Off => 0xffffff,
+            Mode::SeedOnly => 0x60a0e0,
+        }
+    }
+}
+
+/// The table's line under the cells for the hour `cell` (`day * HOURS + hour`) of `table`:
+/// "Mon 09:00 - 10:00: Full speed".
+pub fn hover_text(table: &[Mode; CELLS], cell: usize) -> String {
+    let (day, hour) = (cell / HOURS, cell % HOURS);
+    tr!(
+        SchedHover,
+        day = crate::lang::text(DAY_NAMES[day]),
+        from = format!("{hour:02}"),
+        to = format!("{:02}", (hour + 1) % 24),
+        mode = table[cell].label()
+    )
+}
+
+/// The cells on the line from `from` to `to` (without `from`), so a fast drag over the table
+/// leaves no gaps.
+pub fn drag_line(from: usize, to: usize) -> Vec<usize> {
+    let (d0, h0, d1, h1) =
+        ((from / HOURS) as f32, (from % HOURS) as f32, (to / HOURS) as f32, (to % HOURS) as f32);
+    let n = (d1 - d0).abs().max((h1 - h0).abs()) as usize;
+    (1..=n)
+        .map(|k| {
+            let t = k as f32 / n as f32;
+            ((d0 + (d1 - d0) * t).round() as usize) * HOURS + (h0 + (h1 - h0) * t).round() as usize
+        })
+        .collect()
 }
 
 /// Preferences > Scheduler (preferences file keys in brackets).
@@ -314,6 +351,23 @@ mod tests {
         for m in Mode::ALL {
             assert_eq!(Mode::from_code(m.code()), Some(m));
         }
+    }
+
+    #[test]
+    fn a_fast_drag_fills_the_cells_between() {
+        assert_eq!(drag_line(25, 28), [26, 27, 28]);
+        assert_eq!(drag_line(28, 25), [27, 26, 25]);
+        assert_eq!(drag_line(5, 5), Vec::<usize>::new());
+        assert_eq!(drag_line(0, 2 * HOURS + 2), [HOURS + 1, 2 * HOURS + 2]);
+        assert_eq!(drag_line(0, 2 * HOURS), [HOURS, 2 * HOURS]);
+    }
+
+    #[test]
+    fn the_hover_text_names_the_hour() {
+        let mut table = [Mode::Full; CELLS];
+        table[6 * HOURS + 23] = Mode::SeedOnly;
+        assert_eq!(hover_text(&table, 6 * HOURS + 23), "Sun 23:00 - 00:00: Seeding only");
+        assert_eq!(hover_text(&table, 9), "Mon 09:00 - 10:00: Full speed");
     }
 
     #[test]

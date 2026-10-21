@@ -9,8 +9,7 @@ use std::mem::zeroed;
 use std::ptr::null;
 
 use patorrent_frontend::lang;
-use patorrent_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode};
-use patorrent_frontend::tr;
+use patorrent_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode, drag_line, hover_text};
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, COLOR_BTNFACE, COLOR_BTNTEXT, CreateSolidBrush, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS,
@@ -42,14 +41,10 @@ struct Grid {
     hover: Option<usize>,
 }
 
-/// Cell colors (BGR), µTorrent's: green, light green, white, blue.
+/// A cell's colour as GDI wants it (BGR).
 fn color(m: Mode) -> COLORREF {
-    match m {
-        Mode::Full => 0x0040b040,
-        Mode::Limited => 0x00a0e8a0,
-        Mode::Off => 0x00ffffff,
-        Mode::SeedOnly => 0x00e0a060,
-    }
+    let c = m.rgb();
+    ((c & 0xff) << 16) | (c & 0xff00) | (c >> 16)
 }
 
 pub fn register() {
@@ -102,19 +97,6 @@ impl Layout {
     }
 }
 
-/// The cells on the line from `from` to `to` (without `from`), so a fast drag leaves no gaps.
-fn line(from: usize, to: usize) -> Vec<usize> {
-    let (d0, h0, d1, h1) =
-        ((from / HOURS) as f32, (from % HOURS) as f32, (to / HOURS) as f32, (to % HOURS) as f32);
-    let n = (d1 - d0).abs().max((h1 - h0).abs()) as usize;
-    (1..=n)
-        .map(|k| {
-            let t = k as f32 / n as f32;
-            ((d0 + (d1 - d0) * t).round() as usize) * HOURS + (h0 + (h1 - h0) * t).round() as usize
-        })
-        .collect()
-}
-
 unsafe fn layout(hwnd: HWND) -> Layout {
     let mut rc: RECT = unsafe { zeroed() };
     unsafe { GetClientRect(hwnd, &mut rc) };
@@ -134,17 +116,6 @@ unsafe fn text(dc: windows_sys::Win32::Graphics::Gdi::HDC, s: &str, rc: &RECT, f
     let mut r = *rc;
     let flags = flags | DT_SINGLELINE | DT_VCENTER | rtl(DT_RTLREADING);
     unsafe { DrawTextW(dc, w.as_ptr(), w.len() as i32, &mut r, flags) };
-}
-
-fn hover_text(g: &Grid, cell: usize) -> String {
-    let (day, hour) = (cell / HOURS, cell % HOURS);
-    tr!(
-        SchedHover,
-        day = lang::text(DAY_NAMES[day]),
-        from = format!("{hour:02}"),
-        to = format!("{:02}", (hour + 1) % 24),
-        mode = g.table[cell].label()
-    )
 }
 
 unsafe fn paint(hwnd: HWND, g: &Grid) {
@@ -202,7 +173,7 @@ unsafe fn paint(hwnd: HWND, g: &Grid) {
         if let Some(cell) = g.hover {
             let y = l.legend_y + l.line_h;
             let r = RECT { left: l.label_w, top: y, right: rc.right, bottom: y + l.line_h };
-            text(dc, &hover_text(g, cell), &r, DT_LEFT);
+            text(dc, &hover_text(&g.table, cell), &r, DT_LEFT);
         }
         DeleteObject(frame as HGDIOBJ);
         for b in brushes {
@@ -262,7 +233,7 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) ->
                 let mut dirty = cell != g.hover;
                 g.hover = cell;
                 if let (Some(c), Some((m, from))) = (cell, g.painting) {
-                    for i in line(from, c) {
+                    for i in drag_line(from, c) {
                         dirty |= g.table[i] != m;
                         g.table[i] = m;
                     }
@@ -300,22 +271,5 @@ mod tests {
         assert_eq!(l.hit(last.right + 2, last.top + 1), None);
         assert_eq!(l.hit(last.left + 1, last.bottom + 2), None);
         assert!(l.legend_y + 2 * l.line_h <= 260);
-    }
-
-    #[test]
-    fn a_fast_drag_fills_the_cells_between() {
-        assert_eq!(line(25, 28), [26, 27, 28]);
-        assert_eq!(line(28, 25), [27, 26, 25]);
-        assert_eq!(line(5, 5), Vec::<usize>::new());
-        assert_eq!(line(0, 2 * HOURS + 2), [HOURS + 1, 2 * HOURS + 2]);
-        assert_eq!(line(0, 2 * HOURS), [HOURS, 2 * HOURS]);
-    }
-
-    #[test]
-    fn the_hover_text_names_the_hour() {
-        let mut g = Grid { table: [Mode::Full; CELLS], painting: None, hover: None };
-        g.table[6 * HOURS + 23] = Mode::SeedOnly;
-        assert_eq!(hover_text(&g, 6 * HOURS + 23), "Sun 23:00 - 00:00: Seeding only");
-        assert_eq!(hover_text(&g, 9), "Mon 09:00 - 10:00: Full speed");
     }
 }

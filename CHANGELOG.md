@@ -2,6 +2,27 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_203617_1792607777: The GTK GUI's scheduler, Torrent Properties, Create New Torrent, context menu and Auto Shutdown (Phase 7, slice 3)
+
+### Added
+- **GTK Preferences > Scheduler** (`crates/gtk/src/sched_grid.rs`): Enable Scheduler, the 7 × 24 table drawn into a snapshot (a click moves a cell to the next mode, a drag paints the cells passed over, the legend and the hovered hour below, hours from the right in a right-to-left language, faded while the scheduler is off), the Limited rates and "Disable DHT when turning off". An untouched table keeps the stored one, as in Win32.
+- **The scheduler runs in the GTK client**, as in the Win32 one: checked every second, the engine settings for Limited, Turn off pausing the session (and the DHT), Seeding only putting every torrent (and new and restored ones) into upload mode, a magnet waiting for its dialog left in upload mode, the mode in the Logger and the status bar. Apply puts the settings into effect through the scheduler.
+- **GTK Torrent Properties** (`crates/gtk/src/properties.rs`): the General tab's Trackers, Bandwidth Settings, Seeding Goal and Other Settings for one torrent or several, three-state check boxes with several selected (a click goes off, on, mixed), greying, Initial Seeding for seeds only, a bad value focused with its text selected. From the context menu's Properties and a double click on a torrent that has not finished (a finished one opens its folder, as in µTorrent).
+- **GTK Create New Torrent** (`crates/gtk/src/create.rs`): File > Create New Torrent, Ctrl+N and a toolbar button; the Win32 dialog's fields (source with Add file / Add directory, Skip Files, Trackers, Web Seeds, Comment, Piece size, Version, Start seeding, Private, Preserve file order), hashing on a worker thread with the progress bar, Cancel or closing the window stops it, the save dialog suggests `<name>.torrent` beside the source; Start seeding adds it from the source's folder.
+- **The GTK context menu as the Win32 one's**: built for each right click, with "Open Containing Folder" for one finished torrent, Remove And > Delete Data, Advanced (Set Download Location..., Initial Seeding with its check mark), Bandwidth Allocation (Set Download / Upload Limit, the first torrent's limit checked), Label (New Label... with an input box, Remove Label, the labels in use with the common one checked) and Properties.
+- **GTK Options > Auto Shutdown** (`crates/gtk/src/shutdown.rs`): the nine modes, the countdown window with Cancel, Quit as File > Exit, Standby and Hibernate after the resume data is written, Shut Down after the session has stopped. The power actions go to systemd-logind over D-Bus (`Suspend`, `Hibernate`, `PowerOff`, interactive); where logind is missing or says no (`CanSuspend` and the others) they are greyed. `PATORRENT_POWER_DRY_RUN` as on Windows.
+
+### Changed
+- `patorrent_frontend` holds more of what both GUIs need: `scheduler::{hover_text, drag_line}` and `Mode::rgb` (the Win32 grid uses them), the Scheduler page in `pref_pages` (`Item::SchedTable`, `SCHED_ENABLE`), `properties::fetch_trackers` (the wait for the tracker lists, which the Win32 client had), `create::Remembered` with `load` / `store` (moved from the Win32 dialog), `actions::LIMITS` and `limit_text`, `auto_shutdown::countdown_text` and `Action::doing` (moved from the Win32 client). The Win32 client's behaviour is unchanged.
+
+### Verified
+- `cargo test --workspace` on Windows: 1,103 passed, 0 failed (new: the drag line and hover text moved to the frontend, the Scheduler page's fields and greying, the page order, the Create dialog's remembered fields).
+- Stable clippy (`-D warnings`) and fmt on Windows; the 1.90.0 clippy (`-D warnings`) for Linux on the whole workspace, GTK included, with the stand-in `pkg-config` (recreated in the session's scratchpad as a `.bat` answering `--modversion` with 99.0; a planted type error in the new grid was caught). No let-chains.
+
+### Issues
+- None of the GTK parts was built, linked or run: no Linux machine. PLAN Known TODOs "GTK dialogs (slice 3)" lists what to try.
+- `MenuRemoveAndDelete` is no longer used (the GTK menu has Remove And > Delete Data now); the key stays in the tables.
+
 ## 2026-10-21_200000_1792605600: The GTK GUI's Preferences pages (Phase 7, slice 3)
 
 ### Added

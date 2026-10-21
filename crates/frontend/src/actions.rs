@@ -12,6 +12,18 @@
 
 use patorrent_core::{TorrentFlags, TorrentHandle};
 
+/// The context menu's Bandwidth Allocation presets in kB/s; 0 = unlimited.
+pub const LIMITS: [u32; 10] = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
+
+/// A preset's menu text: "Unlimited" or "50 kB/s".
+pub fn limit_text(kib: u32) -> String {
+    if kib == 0 {
+        crate::tr!(MenuUnlimited).to_owned()
+    } else {
+        format!("{kib} {}", crate::tr!(UnitKbPerSec))
+    }
+}
+
 pub fn start(t: &TorrentHandle) {
     t.set_flags(TorrentFlags::AUTO_MANAGED);
     t.resume();

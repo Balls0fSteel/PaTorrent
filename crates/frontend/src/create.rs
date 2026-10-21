@@ -10,6 +10,7 @@ use patorrent_core::metainfo::{
 use patorrent_core::{AddTorrentParams, Sha1Hash, TorrentFlags, TorrentSource, VERSION};
 
 use crate::lang::S;
+use crate::prefs::Prefs;
 use crate::tr;
 
 /// The piece size choices of µTorrent 2.2.1 in bytes: 0 for "(auto detect)", then 16 KiB to
@@ -112,6 +113,57 @@ pub struct CreateOptions {
     /// (v1 only; v2 and hybrid torrents are always sorted).
     pub preserve_order: bool,
     pub format: TorrentFormat,
+}
+
+/// What the dialog remembers between uses (`create.*` in the preferences).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Remembered {
+    /// The Trackers box text (CRLF line ends, a blank line between tiers).
+    pub trackers: String,
+    /// Index into [`PIECE_SIZES`].
+    pub piece: usize,
+    pub seed: bool,
+    pub private: bool,
+    pub preserve_order: bool,
+    /// The BitTorrent version (v1, hybrid, v2).
+    pub format: TorrentFormat,
+}
+
+impl Default for Remembered {
+    fn default() -> Remembered {
+        Remembered {
+            trackers: String::new(),
+            piece: 0,
+            seed: true,
+            private: false,
+            preserve_order: false,
+            format: TorrentFormat::default(),
+        }
+    }
+}
+
+impl Remembered {
+    pub fn load(prefs: &Prefs) -> Remembered {
+        let d = Remembered::default();
+        Remembered {
+            trackers: trackers_from_pref(prefs.get("create.trackers").unwrap_or_default()),
+            piece: (prefs.get_i32("create.piece_size").unwrap_or(0).max(0) as usize)
+                .min(PIECE_SIZES.len() - 1),
+            seed: prefs.get_bool("create.seed", d.seed),
+            private: prefs.get_bool("create.private", d.private),
+            preserve_order: prefs.get_bool("create.preserve_order", d.preserve_order),
+            format: prefs.get("create.format").and_then(TorrentFormat::from_key).unwrap_or_default(),
+        }
+    }
+
+    pub fn store(&self, prefs: &mut Prefs) {
+        prefs.set("create.trackers", trackers_to_pref(&self.trackers));
+        prefs.set("create.piece_size", self.piece);
+        prefs.set_bool("create.seed", self.seed);
+        prefs.set_bool("create.private", self.private);
+        prefs.set_bool("create.preserve_order", self.preserve_order);
+        prefs.set("create.format", self.format.key());
+    }
 }
 
 /// A finished torrent.
@@ -347,6 +399,24 @@ mod tests {
             .filter(|&i| !fs.pad_file_at(i))
             .map(|i| fs.file_path(i, "").replace('\\', "/"))
             .collect()
+    }
+
+    #[test]
+    fn the_dialog_remembers_its_fields() {
+        let mut prefs = Prefs::default();
+        assert_eq!(Remembered::load(&prefs), Remembered::default());
+        let r = Remembered {
+            trackers: "udp://a:1\r\nhttp://b/\r\n\r\nudp://c:2".into(),
+            piece: 7,
+            seed: false,
+            private: true,
+            preserve_order: true,
+            format: TorrentFormat::V1,
+        };
+        r.store(&mut prefs);
+        assert_eq!(Remembered::load(&prefs), r);
+        prefs.set("create.piece_size", 99);
+        assert_eq!(Remembered::load(&prefs).piece, PIECE_SIZES.len() - 1);
     }
 
     #[test]

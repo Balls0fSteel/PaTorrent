@@ -44,6 +44,16 @@ impl Action {
     pub fn is_power(self) -> bool {
         self != Action::Quit
     }
+
+    /// The Logger's word for it: "quitting", "standby", "hibernating", "shutting down".
+    pub fn doing(self) -> &'static str {
+        match self {
+            Action::Quit => tr!(ShutdownWhatQuit),
+            Action::Standby => tr!(ShutdownWhatStandby),
+            Action::Hibernate => tr!(ShutdownWhatHibernate),
+            Action::ShutDown => tr!(ShutdownWhatShutDown),
+        }
+    }
 }
 
 /// When the work is done.
@@ -93,6 +103,22 @@ impl Mode {
             (Action::ShutDown, When::Everything) => tr!(ShutdownShutDownEverything),
         }
     }
+}
+
+/// The countdown's text: what completed, then what happens in how long (`0:30`).
+pub fn countdown_text(mode: Mode, secs: u32) -> String {
+    let done = match mode.when {
+        When::Downloads => tr!(ShutdownDownloadsDone),
+        When::Everything => tr!(ShutdownEverythingDone),
+    };
+    let time = format!("{}:{:02}", secs / 60, secs % 60);
+    let what = match mode.action {
+        Action::Quit => tr!(ShutdownWillQuit, time),
+        Action::Standby => tr!(ShutdownWillStandby, time),
+        Action::Hibernate => tr!(ShutdownWillHibernate, time),
+        Action::ShutDown => tr!(ShutdownWillShutDown, time),
+    };
+    format!("{done}\n{what}")
 }
 
 /// How long the countdown before the action runs.

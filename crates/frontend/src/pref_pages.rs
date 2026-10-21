@@ -96,7 +96,13 @@ pub enum Item {
     IpFilterStatus,
     /// The Advanced page's table of every engine setting ([`advanced_rows`]).
     AdvancedTable,
+    /// The Scheduler page's 7 × 24 table (`Options::gui.schedule.table`), which the toolkit
+    /// draws and edits itself; greyed unless [`SCHED_ENABLE`] is on.
+    SchedTable,
 }
+
+/// The Scheduler page's "Enable Scheduler" box, which greys the table and the rates.
+pub const SCHED_ENABLE: &str = "sched.enable";
 
 pub struct Page {
     pub key: &'static str,
@@ -711,6 +717,47 @@ pub fn pages(features: Features) -> Vec<Page> {
             ],
         },
         Page {
+            key: "scheduler",
+            title: S::PageScheduler,
+            parent: None,
+            items: vec![
+                F(checkbox(
+                    SCHED_ENABLE,
+                    S::PrefScheduler,
+                    |o| o.gui.schedule.enabled,
+                    |o, v| o.gui.schedule.enabled = v,
+                )),
+                Group(S::PrefSchedTable),
+                Item::SchedTable,
+                Group(S::PrefSchedSettings),
+                F(number(
+                    "sched.ul_rate",
+                    Some(S::PrefSchedUp),
+                    0,
+                    MAX_KB,
+                    |o| Some(o.gui.schedule.limited_up_kib.into()),
+                    |o, v| o.gui.schedule.limited_up_kib = v as u32,
+                )
+                .needs(&[SCHED_ENABLE])),
+                F(number(
+                    "sched.dl_rate",
+                    Some(S::PrefSchedDown),
+                    0,
+                    MAX_KB,
+                    |o| Some(o.gui.schedule.limited_down_kib.into()),
+                    |o, v| o.gui.schedule.limited_down_kib = v as u32,
+                )
+                .needs(&[SCHED_ENABLE])),
+                F(checkbox(
+                    "sched.dis_dht",
+                    S::PrefSchedDht,
+                    |o| o.gui.schedule.disable_dht,
+                    |o, v| o.gui.schedule.disable_dht = v,
+                )
+                .needs(&[SCHED_ENABLE])),
+            ],
+        },
+        Page {
             key: "advanced",
             title: S::PageAdvanced,
             parent: None,
@@ -943,6 +990,31 @@ mod tests {
         assert!(fields(&without).all(|f| !f.key.contains("tray") && f.key != "ui.balloons"));
         assert_eq!(page_of(&without, "cache.mb").map(|p| p.key), Some("disk_cache"));
         assert_eq!(without.iter().find(|p| p.key == "disk_cache").unwrap().parent, Some("advanced"));
+        let order: Vec<&str> = without.iter().map(|p| p.key).collect();
+        assert_eq!(order[6..], ["queueing", "scheduler", "advanced", "disk_cache"]);
+    }
+
+    #[test]
+    fn the_scheduler_page_edits_the_schedule() {
+        let pages = pages(Features::default());
+        let sched = pages.iter().find(|p| p.key == "scheduler").unwrap();
+        assert!(sched.items.iter().any(|i| matches!(i, Item::SchedTable)));
+        let o = opts();
+        let mut form = Form::default();
+        let shown: HashMap<_, _> = form.write(&pages, &o).into_iter().collect();
+        assert_eq!(shown[SCHED_ENABLE], "false");
+        let edited = |k: &str| match k {
+            SCHED_ENABLE => "true".to_owned(),
+            "sched.ul_rate" => "20".to_owned(),
+            "sched.dl_rate" => "300".to_owned(),
+            "sched.dis_dht" => "false".to_owned(),
+            _ => shown[k].clone(),
+        };
+        let s = form.read(&pages, &o, edited).unwrap().gui.schedule;
+        assert!(s.enabled && !s.disable_dht);
+        assert_eq!((s.limited_up_kib, s.limited_down_kib), (20, 300));
+        let rate = fields(&pages).find(|f| f.key == "sched.ul_rate").unwrap();
+        assert!(!rate.enabled(|_| false) && rate.enabled(|k| k == SCHED_ENABLE));
     }
 
     #[test]

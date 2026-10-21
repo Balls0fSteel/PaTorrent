@@ -17,22 +17,26 @@ use gtk::{gio, glib};
 use patorrent_core::fetch::{FetchOptions, http_get};
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MoveCompleted, QueueMove, RemoveFlags, Session, SessionHandle,
-    SessionParams, SessionStats, TorrentFlags, TorrentId, TorrentSource,
+    AddTorrentParams, Alert, IpFilter, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
+    SessionHandle, SessionParams, SessionStats, TorrentFlags, TorrentId, TorrentSource, same_dir,
 };
+use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{Detail, PRIORITIES, Tab};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
+use patorrent_frontend::properties::{self, Properties, TorrentProps};
+use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
-use patorrent_frontend::{actions, add, fmt, settings, tr};
+use patorrent_frontend::{actions, add, create, fmt, settings, tr};
 
 use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
 use crate::paths;
+use crate::shutdown::{self, Power};
 use crate::sidebar::Sidebar;
 
 /// The application id (D-Bus name, desktop file, single instance).
@@ -70,6 +74,12 @@ struct App {
     torrent_folders: TorrentFolders,
     torrent_files: TorrentFiles,
     autoload: Poller,
+    /// Preferences > Scheduler, and the mode put into effect.
+    schedule: Schedule,
+    scheduler: Scheduler,
+    /// Options > Auto Shutdown, and the standby or hibernation waiting for the resume data.
+    auto_shutdown: AutoShutdown,
+    suspend_pending: Option<Power>,
 }
 
 /// The widgets that draw from [`App`].
@@ -155,6 +165,10 @@ pub fn run() -> ExitCode {
         glib::ExitCode::SUCCESS
     });
     let code = app.run();
+    // Auto Shutdown's Shut Down, once the session has saved its state and stopped
+    if let Some(Err(e)) = shutdown::take_after_exit().map(shutdown::perform) {
+        eprintln!("{e}");
+    }
     ExitCode::from(u8::from(code))
 }
 
@@ -190,6 +204,7 @@ fn startup(app: &gtk::Application) {
     for (action, keys) in [
         ("win.add", &["<Control>o"][..]),
         ("win.add-url", &["<Control>u"]),
+        ("win.create", &["<Control>n"]),
         ("win.remove", &["Delete"]),
         ("win.remove-data", &["<Shift>Delete"]),
         ("win.select-all", &["<Control>a"]),
@@ -203,12 +218,26 @@ fn startup(app: &gtk::Application) {
     let file = gio::Menu::new();
     item(&file, tr!(MenuAddTorrent), "win.add");
     item(&file, tr!(MenuAddUrl), "win.add-url");
+    item(&file, tr!(MenuCreate), "win.create");
     let quit_section = gio::Menu::new();
     item(&quit_section, tr!(MenuExit), "app.quit");
     file.append_section(None, &quit_section);
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuFile))), &file);
     let options = gio::Menu::new();
     item(&options, tr!(MenuPreferences), "win.preferences");
+    // Disabled | the client | the computer
+    let auto = gio::Menu::new();
+    let mut section = gio::Menu::new();
+    for (i, &m) in AutoMode::MENU.iter().enumerate() {
+        item(&section, AutoMode::label(m), &format!("win.auto-shutdown-{i}"));
+        if i == 0 || i == 2 || i == AutoMode::MENU.len() - 1 {
+            auto.append_section(None, &section);
+            section = gio::Menu::new();
+        }
+    }
+    let auto_section = gio::Menu::new();
+    auto_section.append_submenu(Some(&gtk_mnemonic(tr!(MenuAutoShutdown))), &auto);
+    options.append_section(None, &auto_section);
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuOptions))), &options);
     let help = gio::Menu::new();
     item(&help, tr!(MenuAbout), "win.about");
@@ -221,11 +250,18 @@ fn item(menu: &gio::Menu, text: &str, action: &str) {
     menu.append(Some(&gtk_mnemonic(text)), Some(action));
 }
 
-/// The torrent context menu (right click on the list).
-fn torrent_menu() -> gio::Menu {
+/// What the torrent context menu shows besides its actions' states.
+struct MenuState {
+    labels: Vec<String>,
+    /// One finished torrent: "Open Containing Folder" names its own folder.
+    single_done: bool,
+}
+
+/// The torrent context menu (right click on the list), as the Win32 client's.
+fn torrent_menu(m: &MenuState) -> gio::Menu {
     let menu = gio::Menu::new();
     let open = gio::Menu::new();
-    item(&open, tr!(MenuOpenFolder), "win.open-folder");
+    item(&open, if m.single_done { tr!(MenuOpenFolder) } else { tr!(MenuOpenFolderMany) }, "win.open-folder");
     menu.append_section(None, &open);
     let run = gio::Menu::new();
     item(&run, tr!(MenuForceStart), "win.force-start");
@@ -239,15 +275,90 @@ fn torrent_menu() -> gio::Menu {
     item(&queue, tr!(MenuQueueTop), "win.queue-top");
     item(&queue, tr!(MenuQueueBottom), "win.queue-bottom");
     menu.append_section(None, &queue);
+    let remove = gio::Menu::new();
+    item(&remove, tr!(MenuRemove), "win.remove");
+    let remove_and = gio::Menu::new();
+    item(&remove_and, tr!(MenuDeleteData), "win.remove-data");
+    remove.append_submenu(Some(&gtk_mnemonic(tr!(MenuRemoveAnd))), &remove_and);
+    menu.append_section(None, &remove);
     let check = gio::Menu::new();
     item(&check, tr!(MenuRecheck), "win.recheck");
     item(&check, tr!(MenuUpdateTracker), "win.reannounce");
     menu.append_section(None, &check);
-    let remove = gio::Menu::new();
-    item(&remove, tr!(MenuRemove), "win.remove");
-    item(&remove, tr!(MenuRemoveAndDelete), "win.remove-data");
-    menu.append_section(None, &remove);
+    let more = gio::Menu::new();
+    let advanced = gio::Menu::new();
+    item(&advanced, tr!(MenuSetLocation), "win.set-location");
+    item(&advanced, tr!(MenuInitialSeeding), "win.super-seed");
+    more.append_submenu(Some(&gtk_mnemonic(tr!(MenuAdvanced))), &advanced);
+    let bandwidth = gio::Menu::new();
+    for (title, action) in [(tr!(MenuSetDownLimit), "win.dl-limit"), (tr!(MenuSetUpLimit), "win.ul-limit")] {
+        let rates = gio::Menu::new();
+        for kib in actions::LIMITS {
+            let i = gio::MenuItem::new(Some(&actions::limit_text(kib)), None);
+            i.set_action_and_target_value(Some(action), Some(&kib.to_variant()));
+            rates.append_item(&i);
+        }
+        bandwidth.append_submenu(Some(&gtk_mnemonic(title)), &rates);
+    }
+    more.append_submenu(Some(&gtk_mnemonic(tr!(MenuBandwidth))), &bandwidth);
+    let label = gio::Menu::new();
+    let label_actions = gio::Menu::new();
+    item(&label_actions, tr!(MenuNewLabel), "win.label-new");
+    item(&label_actions, tr!(MenuRemoveLabel), "win.label-none");
+    label.append_section(None, &label_actions);
+    let names = gio::Menu::new();
+    for l in &m.labels {
+        // a label is the user's text: an underscore in it is not a mnemonic
+        let i = gio::MenuItem::new(Some(&l.replace('_', "__")), None);
+        i.set_action_and_target_value(Some("win.label"), Some(&l.to_variant()));
+        names.append_item(&i);
+    }
+    label.append_section(None, &names);
+    more.append_submenu(Some(&gtk_mnemonic(tr!(MenuLabel))), &label);
+    menu.append_section(None, &more);
+    let props = gio::Menu::new();
+    item(&props, tr!(MenuProperties), "win.properties");
+    menu.append_section(None, &props);
     menu
+}
+
+/// The context menu for the selection: its texts, with the actions' check marks and greying set
+/// to match (the label in common, the first torrent's limits, Initial Seeding for seeds only).
+fn menu_state() -> Option<MenuState> {
+    let ids = selected();
+    let first = *ids.first()?;
+    with_app(|a| {
+        let label = a.list.extra(first).label;
+        let label = ids.iter().all(|&id| a.list.extra(id).label == label).then(|| label.to_owned());
+        let st = a.list.get(first);
+        let kib = |b: u32| if b % 1024 == 0 { b / 1024 } else { u32::MAX };
+        let (seeds, super_seeding) = super_seed_state(a, &ids);
+        let moving = ids.iter().any(|&id| a.list.get(id).is_some_and(|s| s.moving_storage));
+        let set = |name: &str, state: Option<glib::Variant>, enabled: bool| {
+            if let Some(action) = a.window.lookup_action(name).and_downcast::<gio::SimpleAction>() {
+                if let Some(state) = state {
+                    action.set_state(&state);
+                }
+                action.set_enabled(enabled);
+            }
+        };
+        // while the torrents differ, a label no item has
+        set("label", Some(label.clone().unwrap_or_else(|| "\u{1}".into()).to_variant()), true);
+        set("label-none", None, label.as_deref() != Some(""));
+        set("dl-limit", Some(st.map_or(0, |s| kib(s.download_limit)).to_variant()), true);
+        set("ul-limit", Some(st.map_or(0, |s| kib(s.upload_limit)).to_variant()), true);
+        set("set-location", None, !moving);
+        set("super-seed", Some(super_seeding.to_variant()), seeds);
+        MenuState { labels: labels(a), single_done: ids.len() == 1 && st.is_some_and(|s| s.is_finished) }
+    })
+}
+
+/// (every torrent is a seed, every torrent is super seeding), for "Initial Seeding".
+fn super_seed_state(a: &App, ids: &[TorrentId]) -> (bool, bool) {
+    let all = |f: &dyn Fn(&patorrent_core::TorrentStatus) -> bool| {
+        ids.iter().all(|&id| a.list.get(id).is_some_and(f))
+    };
+    (all(&|s| s.is_seeding), all(&|s| s.super_seeding))
 }
 
 /// The main window, on a new engine session.
@@ -309,9 +420,10 @@ fn build(app: &gtk::Application) {
         })
         .flatten()
     });
-    let menu = torrent_menu();
     let popup: crate::list::ContextMenu = Rc::new(move |widget, x, y| {
-        if let Some(ui) = ui() {
+        let Some(ui) = ui() else { return };
+        // built for each click: the labels and the check marks follow the selection
+        if let Some(menu) = menu_state().map(|m| torrent_menu(&m)) {
             popup_menu(&menu, ui.list.view.upcast_ref(), widget, x, y);
         }
     });
@@ -348,6 +460,7 @@ fn build(app: &gtk::Application) {
     for item in [
         Some(("document-open", "win.add", tr!(ToolAddTorrent))),
         Some(("insert-link", "win.add-url", tr!(ToolAddUrl))),
+        Some(("document-new", "win.create", tr!(ToolCreate))),
         None,
         Some(("edit-delete", "win.remove", tr!(ToolRemove))),
         None,
@@ -414,9 +527,13 @@ fn build(app: &gtk::Application) {
             refresh();
         });
     }
+    // a double click opens a finished torrent's folder and the others' Properties, as in µTorrent
     list.view.connect_activate(|_, position| {
-        if let Some(id) = ui().and_then(|ui| ui.list.model.id_at(position)) {
+        let Some(id) = ui().and_then(|ui| ui.list.model.id_at(position)) else { return };
+        if with_app(|a| a.list.get(id).is_some_and(|st| st.is_finished)) == Some(true) {
             open_folder(&[id]);
+        } else {
+            show_properties();
         }
     });
     list.selection.connect_selection_changed(|_, _, _| selection_changed());
@@ -447,6 +564,10 @@ fn build(app: &gtk::Application) {
             torrent_folders: opts.gui.torrent_folders.clone(),
             torrent_files: TorrentFiles::new(),
             autoload: Poller::new(),
+            schedule: opts.gui.schedule.clone(),
+            scheduler: Scheduler::new(),
+            auto_shutdown: AutoShutdown::default(),
+            suspend_pending: None,
         })
     });
     with_app(|a| {
@@ -469,7 +590,15 @@ fn build(app: &gtk::Application) {
         h.post_torrent_updates();
         h.post_session_stats();
         request_detail();
-        with_app(autoload);
+        let step = with_app(|a| {
+            run_scheduler(a, None);
+            autoload(a);
+            let list = &a.list;
+            a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), std::time::Instant::now())
+        });
+        if let Some(step) = step {
+            auto_shutdown_step(step);
+        }
         glib::ControlFlow::Continue
     });
     handle.post_torrent_updates();
@@ -512,6 +641,7 @@ fn shutdown() {
 fn on_alerts() {
     let mut errors = Vec::new();
     let mut magnet_ready = false;
+    let mut suspend = None;
     let done = with_app(|a| {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
@@ -533,6 +663,12 @@ fn on_alerts() {
                 Alert::StateUpdate(v) => {
                     for st in &v {
                         if a.known.insert(st.id) {
+                            // restored or added during Seeding only hours
+                            if a.scheduler.mode() == Mode::SeedOnly
+                                && !st.flags.contains(TorrentFlags::UPLOAD_MODE)
+                            {
+                                a.handle.torrent(st.id).set_flags(TorrentFlags::UPLOAD_MODE);
+                            }
                             // first sight: what only the frontend knows
                             let key = st.info_hashes.key_hex();
                             if let Some(l) = a.prefs.get(&format!("torrent.{key}.label")) {
@@ -591,13 +727,14 @@ fn on_alerts() {
                     a.detail.availability = availability;
                     a.detail.partial = downloading;
                 }
+                // standby and hibernation wait for the state on disk
+                Alert::ResumeDataSaved => suspend = a.suspend_pending.take(),
                 Alert::PeerInfo { .. }
                 | Alert::TrackerList { .. }
                 | Alert::FileList { .. }
                 | Alert::FileProgress { .. }
                 | Alert::PieceInfo { .. }
-                | Alert::TorrentFile { .. }
-                | Alert::ResumeDataSaved => {}
+                | Alert::TorrentFile { .. } => {}
                 // one per stopped or queued torrent every half hour (`frontend::scrape`); the
                 // counts show in the Seeds and Peers columns
                 Alert::ScrapeReply { .. } | Alert::ScrapeFailed { .. } => {}
@@ -627,6 +764,10 @@ fn on_alerts() {
     }
     if magnet_ready {
         magnet_dialogs();
+    }
+    if let Some(Err(e)) = suspend.map(shutdown::perform) {
+        log_line(&tr!(LogShutdown, what = e.replace('\n', " ")));
+        error(&e, "");
     }
 }
 
@@ -722,8 +863,12 @@ fn update_status() {
     let Some(ui) = ui() else { return };
     let Some(texts) = with_app(|a| {
         let s = &a.stats;
+        let net = if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) };
         [
-            if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) }.to_owned(),
+            match a.scheduler.status_text() {
+                Some(sched) => format!("{net} | {sched}"),
+                None => net.to_owned(),
+            },
             tr!(BarDht, count = s.dht_nodes),
             tr!(BarDown, rate = fmt::speed_always(s.download_rate), total = fmt::size(s.recv_payload_bytes)),
             tr!(BarUp, rate = fmt::speed_always(s.upload_rate), total = fmt::size(s.sent_payload_bytes)),
@@ -758,6 +903,7 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
     };
     simple("add", add_files);
     simple("add-url", add_url);
+    simple("create", create_torrent);
     simple("remove", || remove(false));
     simple("remove-data", || remove(true));
     simple("open-folder", || open_folder(&selected()));
@@ -768,6 +914,57 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
     });
     simple("about", about);
     simple("preferences", preferences);
+    simple("properties", show_properties);
+    simple("set-location", set_download_location);
+    simple("label-new", || {
+        input(tr!(NewLabelTitle), tr!(NewLabelPrompt), "", |l| {
+            if !l.is_empty() {
+                set_label(&l);
+            }
+        })
+    });
+    simple("label-none", || set_label(""));
+    let label = gio::SimpleAction::new_stateful("label", Some(glib::VariantTy::STRING), &"".to_variant());
+    label.connect_activate(|_, v| {
+        if let Some(l) = v.and_then(|v| v.get::<String>()) {
+            set_label(&l);
+        }
+    });
+    window.add_action(&label);
+    for (name, download) in [("dl-limit", true), ("ul-limit", false)] {
+        let a = gio::SimpleAction::new_stateful(name, Some(glib::VariantTy::UINT32), &0u32.to_variant());
+        a.connect_activate(move |_, v| {
+            if let Some(kib) = v.and_then(|v| v.get::<u32>()) {
+                set_limit(download, kib.saturating_mul(1024));
+            }
+        });
+        window.add_action(&a);
+    }
+    let super_seed = gio::SimpleAction::new_stateful("super-seed", None, &false.to_variant());
+    super_seed.connect_activate(|_, _| toggle_super_seeding());
+    window.add_action(&super_seed);
+    // Options > Auto Shutdown: one check item per mode, the chosen one checked
+    for (i, &mode) in AutoMode::MENU.iter().enumerate() {
+        let a = gio::SimpleAction::new_stateful(&format!("auto-shutdown-{i}"), None, &(i == 0).to_variant());
+        a.connect_activate(move |_, _| {
+            with_app(|a| a.auto_shutdown.set_mode(mode));
+            update_auto_shutdown_menu();
+        });
+        window.add_action(&a);
+    }
+    // Standby, Hibernate and Shut Down need logind; asked once the window is up
+    let w = window.downgrade();
+    glib::idle_add_local_once(move || {
+        let Some(window) = w.upgrade() else { return };
+        for (i, m) in AutoMode::MENU.iter().enumerate() {
+            let Some(m) = m.filter(|m| m.action.is_power()) else { continue };
+            if let Some(a) =
+                window.lookup_action(&format!("auto-shutdown-{i}")).and_downcast::<gio::SimpleAction>()
+            {
+                a.set_enabled(shutdown::available(m.action));
+            }
+        }
+    });
     for (i, &(_, prio)) in PRIORITIES.iter().enumerate() {
         let a = gio::SimpleAction::new(&format!("file-prio-{i}"), None);
         a.connect_activate(move |_, _| {
@@ -860,6 +1057,132 @@ fn torrent_action(name: &str) {
             }
         }
         a.handle.post_torrent_updates();
+    });
+}
+
+/// The context menu's Properties: the Torrent Properties dialog for the selected torrents; OK
+/// applies what changed to each one.
+fn show_properties() {
+    let ids = selected();
+    let Some(Some((window, title, props))) = with_app(|a| {
+        let ids: Vec<TorrentId> = ids.iter().copied().filter(|&id| a.list.get(id).is_some()).collect();
+        if ids.is_empty() {
+            return None;
+        }
+        let trackers =
+            properties::fetch_trackers(&a.handle, &ids, &mut a.alerts, std::time::Duration::from_secs(2));
+        let mut items = Vec::new();
+        let mut names = Vec::new();
+        for id in &ids {
+            let Some(st) = a.list.get(*id) else { continue };
+            items.push(TorrentProps::new(st, trackers.get(id).map(Vec::as_slice), &a.prefs));
+            names.push(st.name.clone());
+        }
+        let defaults = GuiOptions::load(&a.prefs, &a.save_path).property_defaults();
+        Some((a.window.clone(), crate::properties::title(&names), Properties::load(&items, defaults)))
+    }) else {
+        return;
+    };
+    // the alerts popped while waiting for the tracker lists
+    glib::idle_add_local_once(on_alerts);
+    crate::properties::show(&window, &title, props, move |changes| {
+        let Some(changes) = changes.filter(|c| !c.is_empty()) else { return };
+        with_app(|a| {
+            let defaults = GuiOptions::load(&a.prefs, &a.save_path).property_defaults();
+            for &id in &ids {
+                let Some(st) = a.list.get(id) else { continue };
+                let key = st.info_hashes.key_hex();
+                changes.apply(&a.handle.torrent(id));
+                changes.store(&mut a.prefs, &key, &defaults);
+            }
+            save_prefs(a);
+            a.handle.post_torrent_updates();
+        });
+        request_detail();
+    });
+}
+
+fn set_label(label: &str) {
+    let ids = selected();
+    with_app(|a| {
+        for id in ids {
+            a.list.set_label(id, label);
+            if let Some(st) = a.list.get(id) {
+                let key = format!("torrent.{}.label", st.info_hashes.key_hex());
+                if label.is_empty() {
+                    a.prefs.remove(&key);
+                } else {
+                    a.prefs.set(&key, label);
+                }
+            }
+        }
+        save_prefs(a);
+    });
+    refresh();
+}
+
+/// Bandwidth Allocation: the selected torrents' download or upload limit (bytes per second).
+fn set_limit(download: bool, bytes: u32) {
+    let ids = selected();
+    with_app(|a| {
+        for id in ids {
+            let t = a.handle.torrent(id);
+            if download {
+                t.set_download_limit(bytes);
+            } else {
+                t.set_upload_limit(bytes);
+            }
+        }
+        a.handle.post_torrent_updates();
+    });
+}
+
+/// Advanced > Initial Seeding: on for all unless every selected torrent has it, as in µTorrent.
+fn toggle_super_seeding() {
+    let ids = selected();
+    with_app(|a| {
+        let (_, on) = super_seed_state(a, &ids);
+        for id in ids {
+            let t = a.handle.torrent(id);
+            if on {
+                t.unset_flags(TorrentFlags::SUPER_SEEDING);
+            } else {
+                t.set_flags(TorrentFlags::SUPER_SEEDING);
+            }
+        }
+        a.handle.post_torrent_updates();
+    });
+}
+
+/// Advanced > Set Download Location: a folder, then the selected torrents' files move there
+/// (µTorrent 2.2.1 moves them; files already there are replaced, libtorrent's default).
+fn set_download_location() {
+    let ids = selected();
+    let found = with_app(|a| {
+        let st = a.list.get(*ids.first()?)?;
+        Some((a.window.clone(), st.save_path.clone()))
+    });
+    let Some(Some((window, start))) = found else { return };
+    let dialog = gtk::FileDialog::builder().title(tr!(PickLocation)).modal(true).build();
+    if std::path::Path::new(&start).is_dir() {
+        dialog.set_initial_folder(Some(&gio::File::for_path(&start)));
+    }
+    dialog.select_folder(Some(&window), None::<&gio::Cancellable>, move |r| {
+        let Some(dir) = r.ok().and_then(|f| f.path()) else { return };
+        let dir = dir.to_string_lossy().into_owned();
+        with_app(|a| {
+            for id in ids {
+                let Some(st) = a.list.get(id) else { continue };
+                if same_dir(&st.save_path, &dir) {
+                    continue;
+                }
+                let name = st.name.clone();
+                a.handle.torrent(id).move_storage(dir.clone(), MoveFlags::AlwaysReplaceFiles);
+                a.detail.push_log(format!("{} {}", now_hms(), tr!(LogMovingTo, name, dir)));
+            }
+            a.handle.post_torrent_updates();
+        });
+        refresh_details();
     });
 }
 
@@ -1074,7 +1397,8 @@ fn magnet_dialogs() {
                         a.prefs.set(&format!("torrent.{key}.label"), &c.label);
                         a.list.set_label(id, &c.label);
                     }
-                    c.apply_to_torrent(&a.handle.torrent(id), &ti, &w.save_path, false);
+                    let seed_only = a.scheduler.mode() == Mode::SeedOnly;
+                    c.apply_to_torrent(&a.handle.torrent(id), &ti, &w.save_path, seed_only);
                     a.handle.post_torrent_updates();
                 }
                 None => a.handle.remove_torrent(id, RemoveFlags::DELETE_PARTFILE),
@@ -1095,8 +1419,10 @@ fn add(source: TorrentSource) {
     });
 }
 
-/// Hands a torrent to the engine; a `.torrent`'s copy is stored once it is added.
-fn add_to_session(a: &mut App, p: AddTorrentParams) {
+/// Hands a torrent to the engine (in upload mode during Seeding only hours); a `.torrent`'s copy
+/// is stored once it is added.
+fn add_to_session(a: &mut App, mut p: AddTorrentParams) {
+    a.scheduler.apply_to_new(&mut p);
     a.torrent_files.adding(&a.torrent_folders, &p);
     a.handle.add_torrent(p);
 }
@@ -1128,6 +1454,131 @@ fn autoload(a: &mut App) {
         let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
         add_to_session(a, p);
+    }
+}
+
+/// The Auto Shutdown items' check marks: the mode in force.
+fn update_auto_shutdown_menu() {
+    let Some((window, mode)) = with_app(|a| (a.window.clone(), a.auto_shutdown.mode())) else { return };
+    for (i, &m) in AutoMode::MENU.iter().enumerate() {
+        if let Some(a) =
+            window.lookup_action(&format!("auto-shutdown-{i}")).and_downcast::<gio::SimpleAction>()
+        {
+            a.set_state(&(m == mode).to_variant());
+        }
+    }
+}
+
+/// Options > Auto Shutdown: the timer's step. The countdown opens when the work is done and
+/// closes when time is up (then it acts) or new work comes.
+fn auto_shutdown_step(step: Step) {
+    match step {
+        Step::Wait => {}
+        Step::Start(secs) => {
+            let Some(Some((window, mode))) =
+                with_app(|a| a.auto_shutdown.mode().map(|m| (a.window.clone(), m)))
+            else {
+                return;
+            };
+            log_line(&tr!(LogShutdownDone, what = mode.action.doing(), secs));
+            shutdown::open(&window, mode, secs, || {
+                with_app(|a| a.auto_shutdown.set_mode(None));
+                log_line(tr!(LogShutdownCancelled));
+                update_auto_shutdown_menu();
+            });
+        }
+        Step::Tick(secs) => shutdown::tick(secs),
+        Step::Abort => {
+            shutdown::close();
+            log_line(tr!(LogShutdownNewWork));
+        }
+        Step::Act(action) => {
+            shutdown::close();
+            auto_shutdown_act(action);
+        }
+    }
+}
+
+/// Quit as File > Exit does (state saved on the way out); Shut Down after that; Standby and
+/// Hibernate once the engine has written the resume data (`ResumeDataSaved` in `on_alerts`).
+fn auto_shutdown_act(action: auto_shutdown::Action) {
+    log_line(&tr!(LogShutdown, what = action.doing()));
+    update_auto_shutdown_menu();
+    match Power::of(action) {
+        Some(p @ (Power::Standby | Power::Hibernate)) => {
+            with_app(|a| {
+                save_prefs(a);
+                a.suspend_pending = Some(p);
+                a.handle.save_resume_data();
+            });
+        }
+        p => {
+            if let Some(p) = p {
+                shutdown::after_exit(p);
+            }
+            let Some(app) = with_app(|a| a.window.application()).flatten() else { return };
+            for w in app.windows() {
+                w.close();
+            }
+        }
+    }
+}
+
+fn log_line(text: &str) {
+    with_app(|a| a.detail.push_log(format!("{} {text}", now_hms())));
+}
+
+/// The local clock: seconds since 1970 and the zone's offset east of UTC.
+fn clock() -> Option<(i64, i32)> {
+    let t = glib::DateTime::now_local().ok()?;
+    Some((t.to_unix(), t.utc_offset().as_seconds() as i32))
+}
+
+/// Puts the scheduler's mode for this hour into effect. `applied`: the options just applied
+/// (their settings go to the engine through the scheduler, even if the mode stays).
+fn run_scheduler(a: &mut App, applied: Option<&Options>) {
+    let Some((now, offset)) = clock() else {
+        if let Some(o) = applied {
+            a.handle.apply_settings(o.settings.clone());
+        }
+        return;
+    };
+    if applied.is_none() && a.schedule.mode_at(now, offset) == a.scheduler.mode() {
+        return;
+    }
+    let loaded;
+    let o = match applied {
+        Some(o) => o,
+        None => {
+            loaded = Options::load(&a.prefs, &a.save_path);
+            &loaded
+        }
+    };
+    let old = a.scheduler.mode();
+    let Some(c) = a.scheduler.update(&a.schedule, &o.settings, now, offset, applied.is_some()) else {
+        return;
+    };
+    if let Some(s) = c.settings {
+        a.handle.apply_settings(s);
+    }
+    match c.pause_session {
+        Some(true) => a.handle.pause(),
+        Some(false) => a.handle.resume(),
+        None => {}
+    }
+    if let Some(on) = c.upload_mode {
+        for id in a.list.ids() {
+            let t = a.handle.torrent(id);
+            if on {
+                t.set_flags(TorrentFlags::UPLOAD_MODE);
+            } else if !a.awaiting.holds(id) {
+                // a magnet waiting for the Add dialog stays in upload mode until its OK
+                t.unset_flags(TorrentFlags::UPLOAD_MODE);
+            }
+        }
+    }
+    if c.mode != old {
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(LogScheduler, mode = c.mode.label())));
     }
 }
 
@@ -1177,6 +1628,55 @@ fn download(url: String) {
             Err(e) => error(&tr!(CannotDownload, url), &e),
         });
     });
+}
+
+/// A one-line input box (New Label); `done` gets the trimmed text on OK.
+fn input(title: &str, prompt: &str, initial: &str, done: impl Fn(String) + 'static) {
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    let dialog = gtk::Window::builder()
+        .title(title)
+        .transient_for(&window)
+        .modal(true)
+        .default_width(360)
+        .resizable(false)
+        .build();
+    let entry = gtk::Entry::new();
+    entry.set_text(initial);
+    entry.set_activates_default(true);
+    let ok = gtk::Button::with_mnemonic(&gtk_mnemonic(tr!(BtnOk)));
+    ok.add_css_class("suggested-action");
+    let cancel = gtk::Button::with_mnemonic(&gtk_mnemonic(tr!(BtnCancel)));
+    let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    buttons.set_halign(gtk::Align::End);
+    buttons.append(&cancel);
+    buttons.append(&ok);
+    let body = gtk::Box::new(gtk::Orientation::Vertical, 8);
+    body.set_margin_top(12);
+    body.set_margin_bottom(12);
+    body.set_margin_start(12);
+    body.set_margin_end(12);
+    let label = gtk::Label::new(Some(prompt));
+    label.set_xalign(0.0);
+    label.set_wrap(true);
+    body.append(&label);
+    body.append(&entry);
+    body.append(&buttons);
+    dialog.set_child(Some(&body));
+    dialog.set_default_widget(Some(&ok));
+    let d = dialog.downgrade();
+    cancel.connect_clicked(move |_| {
+        if let Some(d) = d.upgrade() {
+            d.close();
+        }
+    });
+    let (d, e) = (dialog.downgrade(), entry.downgrade());
+    ok.connect_clicked(move |_| {
+        let (Some(d), Some(e)) = (d.upgrade(), e.upgrade()) else { return };
+        let text = e.text().trim().to_owned();
+        d.close();
+        done(text);
+    });
+    dialog.present();
 }
 
 fn add_url() {
@@ -1273,7 +1773,9 @@ fn apply_options(a: &mut App, o: &Options) {
     o.store(&mut a.prefs);
     save_prefs(a);
     a.save_path = o.gui.download_dir.clone();
-    a.handle.apply_settings(o.settings.clone());
+    // the engine settings, as the scheduler's hour changes them
+    a.schedule = o.gui.schedule.clone();
+    run_scheduler(a, Some(o));
     o.gui.update_move_completed(&mut a.move_completed);
     a.seeding_goal = o.gui.seeding_goal();
     a.torrent_folders = o.gui.torrent_folders.clone();
@@ -1311,6 +1813,23 @@ fn log_ip_filter(a: &mut App, path: &std::path::Path, r: &Result<usize, String>)
         Err(e) => format!("{} {}", now_hms(), tr!(LogIpFilterError, path = path.display(), error = e)),
     };
     a.detail.push_log(line);
+}
+
+/// File > Create New Torrent; with "Start seeding" the new torrent is added with the source's
+/// folder as its save path (the files are checked, then it seeds).
+fn create_torrent() {
+    let Some((window, r)) = with_app(|a| (a.window.clone(), create::Remembered::load(&a.prefs))) else {
+        return;
+    };
+    crate::create::show(&window, r, |r, created| {
+        with_app(|a| {
+            r.store(&mut a.prefs);
+            save_prefs(a);
+            if let Some((created, Some(save))) = created {
+                add_to_session(a, create::seed_params(created.bytes, &save));
+            }
+        });
+    });
 }
 
 fn about() {

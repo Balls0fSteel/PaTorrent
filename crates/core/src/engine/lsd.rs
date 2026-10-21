@@ -326,7 +326,11 @@ impl Engine {
             return;
         }
         let Some(t) = self.torrent_ref(id) else { return };
-        if t.flags.contains(TorrentFlags::DISABLE_LSD) || !self.is_running(t) || !t.is_active() {
+        if t.flags.contains(TorrentFlags::DISABLE_LSD)
+            || !self.is_running(t)
+            || !t.is_active()
+            || !t.announces().lsd
+        {
             return;
         }
         // a torrent with metadata announces once its files are checked; a magnet right away

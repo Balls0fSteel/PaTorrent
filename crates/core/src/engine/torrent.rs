@@ -30,6 +30,20 @@ use crate::types::{InfoHashes, TorrentId};
 use crate::util::bitfield::Bitfield;
 use crate::util::stat::Stat;
 
+/// Where a running torrent announces (libtorrent `m_announce_to_dht`, `m_announce_to_trackers`,
+/// `m_announce_to_lsd`): everywhere, unless the auto-manager's `active_dht_limit`,
+/// `active_tracker_limit` or `active_lsd_limit` left an auto-managed torrent out.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) struct AnnounceTo {
+    pub dht: bool,
+    pub trackers: bool,
+    pub lsd: bool,
+}
+
+impl AnnounceTo {
+    pub const ALL: AnnounceTo = AnnounceTo { dht: true, trackers: true, lsd: true };
+}
+
 pub(crate) struct Torrent {
     pub id: TorrentId,
     pub info_hashes: InfoHashes,
@@ -112,6 +126,9 @@ pub(crate) struct Torrent {
     pub num_complete: Option<u32>,
     pub num_incomplete: Option<u32>,
 
+    /// What the auto-manager last allowed (`announces`).
+    pub announce: AnnounceTo,
+
     pub status_dirty: bool,
     pub resume_dirty: bool,
     /// Our piece set changed: recheck interest in every peer on the next tick.
@@ -182,6 +199,7 @@ impl Torrent {
             max_uploads: None,
             num_complete: None,
             num_incomplete: None,
+            announce: AnnounceTo::ALL,
             status_dirty: true,
             resume_dirty: true,
             interest_dirty: false,
@@ -421,6 +439,12 @@ impl Torrent {
         }
     }
 
+    /// Where it announces while running: everywhere when not auto-managed (forced), else what
+    /// the auto-manager allowed.
+    pub fn announces(&self) -> AnnounceTo {
+        if self.flags.contains(TorrentFlags::AUTO_MANAGED) { self.announce } else { AnnounceTo::ALL }
+    }
+
     pub fn status(
         &self,
         num_peers: u32,
@@ -505,6 +529,9 @@ impl Torrent {
             next_announce,
             num_trackers: self.trackers.len() as u32,
             announce_interval: self.trackers.iter().filter_map(|t| t.interval).max(),
+            announcing_to_trackers: !self.is_paused() && self.announces().trackers,
+            announcing_to_lsd: !self.is_paused() && self.announces().lsd,
+            announcing_to_dht: !self.is_paused() && self.announces().dht,
             download_limit: self.download_limit.limit,
             upload_limit: self.upload_limit.limit,
             connections_limit: self.max_connections,

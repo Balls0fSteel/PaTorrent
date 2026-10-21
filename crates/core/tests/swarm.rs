@@ -1219,6 +1219,55 @@ fn disconnects_are_posted_with_their_reason_when_the_mask_asks() {
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 
+#[test]
+fn the_announce_limits_leave_the_last_running_torrents_out() {
+    // libtorrent `auto_manage_torrents`: of the running auto-managed torrents the first
+    // `active_tracker_limit` announce to their trackers, the first `active_lsd_limit` on LSD,
+    // the first `active_dht_limit` on the DHT; a forced torrent announces everywhere
+    let dir = temp_dir("announce-limits");
+    // three torrents of the same files (the padding gives each its own info-hash)
+    let fixtures: Vec<Fixture> = (1..=3).map(|n| fixture_padded(None, n)).collect();
+    write_files(&fixtures[0], &dir);
+    let (s, mut w, _) = start_with(|s| {
+        s.active_tracker_limit = 1;
+        s.active_lsd_limit = 2;
+        s.active_dht_limit = -1;
+        s.auto_manage_interval = 1;
+    });
+    let ids: Vec<TorrentId> =
+        fixtures.iter().map(|f| add_with_flags(&mut w, f, &dir, TorrentFlags::AUTO_MANAGED)).collect();
+    // the latest status of each, until the counts are as expected
+    let mut latest: std::collections::HashMap<TorrentId, TorrentStatus> = std::collections::HashMap::new();
+    let mut counts = |w: &mut Watch, want: (usize, usize, usize), what: &str| {
+        wait(w, 20, what, |a| {
+            for id in &ids {
+                if let Some(st) = status_of(a, *id) {
+                    latest.insert(*id, st);
+                }
+            }
+            let seeding =
+                latest.len() == ids.len() && latest.values().all(|st| st.state == TorrentState::Seeding);
+            let count = |f: fn(&TorrentStatus) -> bool| latest.values().filter(|st| f(st)).count();
+            let got = (
+                count(|st| st.announcing_to_trackers),
+                count(|st| st.announcing_to_lsd),
+                count(|st| st.announcing_to_dht),
+            );
+            (seeding && got == want).then_some(())
+        });
+        latest.clone()
+    };
+    let st = counts(&mut w, (1, 2, 3), "one tracker, two LSD and three DHT announcers");
+    // forcing one that was left out of the trackers makes it announce there too, and frees the
+    // auto-managed slot it held for the first of the others
+    let left_out = *st.iter().find(|(_, st)| !st.announcing_to_trackers).expect("one is left out").0;
+    s.handle().torrent(left_out).unset_flags(TorrentFlags::AUTO_MANAGED);
+    let st = counts(&mut w, (2, 3, 3), "the forced torrent announcing too");
+    assert!(st[&left_out].announcing_to_trackers && st[&left_out].announcing_to_lsd);
+    s.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 // --- MSE/PE protocol encryption ------------------------------------------------------------------
 
 fn start_with(f: impl FnOnce(&mut Settings)) -> (Session, Watch, u16) {

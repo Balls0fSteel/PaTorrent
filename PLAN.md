@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-21_214719_1792612039
+Last updated: 2026-10-21_215215_1792612335
 
 ## Vision
 
@@ -340,7 +340,7 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 13. The Web UI's phone layout on a real phone.
 14. Release engineering: version 1.0.0 and peer-ID prefix `-PA1000-` (a test ties them), release notes, the parser security review (Continuous), then the `PA` registrations (libtorrent, Transmission, webtorrent, the BEP 20 list).
 
-**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; the Win32 GUI and the Web UI scrape stopped and queued torrents every 30 minutes since 2026-10-19_232401_1792445041); `active_lsd_limit` / DHT / tracker limits; `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; ~~a disconnect alert with the close reason~~ (`Alert::PeerDisconnected` and `alert_mask`, 2026-10-21_214719_1792612039).
+**Engine gaps worth closing (libtorrent has them):** ~~batched UDP scrapes, peer turnover, `recv_socket_buffer_size` / `send_socket_buffer_size`~~ (done 2026-10-19_231102_1792444262; the Win32 GUI and the Web UI scrape stopped and queued torrents every 30 minutes since 2026-10-19_232401_1792445041); ~~`active_lsd_limit` / DHT / tracker limits~~ (2026-10-21_215215_1792612335); `mixed_mode_algorithm` (needs peer classes); a general reconnect policy; ~~a disconnect alert with the close reason~~ (`Alert::PeerDisconnected` and `alert_mask`, 2026-10-21_214719_1792612039).
 
 **Still to settle:** Properties > Advanced and the `rss.*` Advanced settings need a real µTorrent 2.2.1 to copy from.
 
@@ -638,7 +638,7 @@ Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs re
 - LSD follow-ups (CHANGELOG 2026-10-15_234806_1792100886):
   - a client on the same machine is announced and found on every local interface (14 here: LAN, Hyper-V, WSL, VirtualBox, loopback, link-local IPv6), so its peer list holds 14 addresses for one peer. The duplicate peer-id rule keeps one connection, but the others are retried at the normal pacing and closed again at the handshake. libtorrent does the same; a "same peer-id seen at another address" mark in the peer list would stop the retries.
   - only the v1 (or truncated v2) info-hash is announced; libtorrent also announces the truncated v2 hash of hybrid torrents (Phase 8).
-  - `active_lsd_limit` (and the DHT / tracker limits) is not enforced: every running torrent announces.
+  - ~~`active_lsd_limit` (and the DHT / tracker limits) is not enforced~~: enforced by the auto-manager since 2026-10-21_215215_1792612335 (`TorrentStatus::announcing_to_*`). Seeds take their slots in the torrent list's order, not libtorrent's `seed_rank`.
   - Linux and FreeBSD are covered by CI only (the swarm test multicasts on loopback); not tried on a real LAN with another machine. Linux `lo` has no `IFF_MULTICAST`; if the CI swarm test fails there, the loopback join needs a look.
   - ~~the GUI has no LSD switch~~: "Enable Local Peer Discovery" on the BitTorrent page (2026-10-17_155028_1792245028).
 - ~~Connection slots: DHT peers never connected in the rate-limited Debian run~~. Fixed 2026-10-15 (CHANGELOG 2026-10-15_230633_1792098393): the bandwidth tick served read-blocked peers in slot order with all the quota, so new peers never read their handshake. DHT decoding was fine, and counting pending connects against `connections_limit` matches libtorrent. Left over:

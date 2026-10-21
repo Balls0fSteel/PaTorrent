@@ -76,7 +76,7 @@ use crate::util::stat::{Stat, now_unix};
 use crate::utp::{self, SendOutcome, UtpIo, UtpManager, UtpSettings};
 use peer::{PeerConn, PeerState, Transport};
 use picker::PiecePicker;
-use torrent::{Torrent, piece_priorities};
+use torrent::{AnnounceTo, Torrent, piece_priorities};
 use tracker::{HTTP_TOKEN_BASE, JobKind, TrackerJob, TrackerManager, TrackerOutcome, UDP4_TOKEN, UDP6_TOKEN};
 
 pub(crate) const WAKER_TOKEN: Token = Token(0);
@@ -2473,7 +2473,10 @@ impl Engine {
 
     /// libtorrent `session_impl::recalculate_auto_managed_torrents`, simplified: auto-managed
     /// torrents run in queue order up to `active_downloads` / `active_seeds` / `active_limit`
-    /// and are paused beyond that. Errored torrents don't take a slot.
+    /// and are paused beyond that. Errored torrents don't take a slot. Of the ones that run,
+    /// downloads first, the first `active_dht_limit` announce on the DHT, the first
+    /// `active_tracker_limit` to their trackers and the first `active_lsd_limit` on LSD
+    /// (libtorrent `auto_manage_torrents`).
     fn auto_manage(&mut self) {
         self.needs_auto_manage = false;
         self.last_auto_manage = Instant::now();
@@ -2515,11 +2518,19 @@ impl Engine {
             }
             decisions.push((id, run));
         }
+        let mut slots = AnnounceSlots::new(&self.settings);
         for (id, run) in decisions {
             let paused = self.torrent_ref(id).is_some_and(|t| t.is_paused());
             if paused == run {
                 let flags = if run { TorrentFlags::empty() } else { TorrentFlags::PAUSED };
                 self.set_flags(id, flags, TorrentFlags::PAUSED);
+            }
+            // libtorrent clears them when it pauses; a paused torrent announces nowhere anyway
+            let announce =
+                if run { slots.take() } else { AnnounceTo { dht: false, trackers: false, lsd: false } };
+            if let Some(t) = self.torrent(id).filter(|t| t.announce != announce) {
+                t.announce = announce;
+                t.status_dirty = true;
             }
         }
     }
@@ -2953,7 +2964,9 @@ impl Engine {
         let all_tiers = settings.announce_to_all_tiers;
         let all_trackers = settings.announce_to_all_trackers;
         let Some(t) = self.torrent(id) else { return };
-        if t.checking {
+        // beyond `active_tracker_limit` only a stopping torrent announces (`stopped`, sent
+        // when it pauses), as in libtorrent
+        if t.checking || !t.announces().trackers {
             return;
         }
         let due = tracker::trackers_to_announce(&t.trackers, now, all_tiers, all_trackers);
@@ -3608,4 +3621,33 @@ fn handshake_for(p: &mut PeerConn, t: &Torrent) -> (peer_wire::Reserved, Sha1Has
         peer_wire::Reserved::ours()
     };
     (reserved, t.info_hashes.wire_hash(p.protocol_v2))
+}
+
+/// The announce slots `auto_manage` hands out in order (libtorrent `auto_manage_torrents`'
+/// `dht_limit`, `tracker_limit`, `lsd_limit`); a negative limit is none.
+struct AnnounceSlots {
+    dht: usize,
+    trackers: usize,
+    lsd: usize,
+}
+
+impl AnnounceSlots {
+    fn new(s: &Settings) -> AnnounceSlots {
+        let limit = |v: i32| usize::try_from(v).unwrap_or(usize::MAX);
+        AnnounceSlots {
+            dht: limit(s.active_dht_limit),
+            trackers: limit(s.active_tracker_limit),
+            lsd: limit(s.active_lsd_limit),
+        }
+    }
+
+    /// Where the next running torrent announces.
+    fn take(&mut self) -> AnnounceTo {
+        let take = |n: &mut usize| {
+            let free = *n > 0;
+            *n = n.saturating_sub(1);
+            free
+        };
+        AnnounceTo { dht: take(&mut self.dht), trackers: take(&mut self.trackers), lsd: take(&mut self.lsd) }
+    }
 }

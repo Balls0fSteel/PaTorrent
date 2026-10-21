@@ -405,6 +405,7 @@ impl Engine {
         if !self.dht.tracker.as_ref().is_some_and(DhtTracker::is_running)
             || !self.is_running(t)
             || !t.is_active()
+            || !t.announces().dht
         {
             return false;
         }

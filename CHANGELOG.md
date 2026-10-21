@@ -2,6 +2,20 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_215215_1792612335: The active DHT, tracker and LSD announce limits
+
+### Added
+- **`active_dht_limit`, `active_tracker_limit`, `active_lsd_limit`** are enforced (libtorrent `auto_manage_torrents`; the settings were there, with libtorrent's defaults 88, 1600 and 60, but every running torrent announced): of the running auto-managed torrents, downloads first in queue order, then seeds, the first `active_dht_limit` announce on the DHT, the first `active_tracker_limit` to their trackers and the first `active_lsd_limit` on local service discovery; the others still run, accept peers and keep the peers they have. A torrent that is not auto-managed (Force Start) announces everywhere. Beyond the tracker limit only the `stopped` announce of a pause goes out. A negative limit is none.
+- **`TorrentStatus::announcing_to_trackers`, `announcing_to_lsd`, `announcing_to_dht`** (libtorrent's names): what the torrent does now; false while paused.
+
+### Changed
+- The remote protocol is version 4 (the status carries the new fields).
+- The limits take effect at the auto-manager's next pass after a torrent starts; libtorrent lets a resumed torrent announce everywhere until its next recalculation (docs/PORTING.md).
+
+### Verified
+- A loopback swarm test: three auto-managed seeds with limits of one tracker, two LSD and unlimited DHT announcers show exactly that; forcing the one left out of the trackers makes it announce there and gives its slot to the first of the others (five runs in a row).
+- `cargo test --workspace` on Windows: 1,116 passed, 0 failed. Stable clippy (`-D warnings`) and fmt on Windows; the 1.90.0 clippy for Linux (GTK included) and FreeBSD.
+
 ## 2026-10-21_214719_1792612039: Peer disconnects as alerts, and the alert mask
 
 ### Added

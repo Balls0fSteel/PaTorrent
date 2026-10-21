@@ -106,6 +106,13 @@ pub struct TorrentStatus {
     /// The longest `interval` the torrent's trackers asked for in their last announce replies
     /// this session, in seconds; `None` before any reply (not in libtorrent's `torrent_status`).
     pub announce_interval: Option<u32>,
+    /// It announces to its trackers, on local service discovery, on the DHT (libtorrent
+    /// `announcing_to_trackers` / `_lsd` / `_dht`): a running torrent does unless it is
+    /// auto-managed and beyond `active_tracker_limit` / `active_lsd_limit` / `active_dht_limit`.
+    /// Says nothing about whether the DHT or LSD are on, or the torrent is private.
+    pub announcing_to_trackers: bool,
+    pub announcing_to_lsd: bool,
+    pub announcing_to_dht: bool,
     /// Per-torrent limits in bytes per second; 0 = unlimited.
     pub download_limit: u32,
     pub upload_limit: u32,

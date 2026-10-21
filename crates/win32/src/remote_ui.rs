@@ -14,12 +14,12 @@
 use std::path::PathBuf;
 use std::ptr::{null, null_mut};
 use std::sync::OnceLock;
-use std::time::Duration;
 
 use patorrent_core::Session;
-use patorrent_core::remote::{self, ConnectError, Hello, Target};
-use patorrent_core::tls::{Fingerprint, Verify};
+use patorrent_core::remote::{self, Hello, Target};
+use patorrent_core::tls::Verify;
 use patorrent_frontend::prefs::Prefs;
+use patorrent_frontend::remote::{self as connect, Failure, Form, Probe, TIMEOUT};
 use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -33,9 +33,6 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::dialogs::{self, BUTTON, DWLP_USER, EDIT, STATIC, Template};
 use crate::util::{loword, send, wide, window_text};
-
-/// How long connecting may take before it is given up.
-const TIMEOUT: Duration = Duration::from_secs(15);
 
 /// The server this window is connected to.
 pub struct Remote {
@@ -57,54 +54,22 @@ pub fn is_remote() -> bool {
 
 /// The folder a remote window keeps its files in, inside the settings folder `base`.
 pub fn data_dir(base: &std::path::Path, label: &str) -> PathBuf {
-    let name: String =
-        label.chars().map(|c| if c.is_ascii_alphanumeric() || c == '.' { c } else { '_' }).collect();
-    base.join("remote").join(name)
-}
-
-fn label(host: &str, port: u16) -> String {
-    if host.contains(':') { format!("[{host}]:{port}") } else { format!("{host}:{port}") }
-}
-
-/// What the connect dialog shows and returns.
-#[derive(Clone, Debug, Default, PartialEq)]
-struct Form {
-    host: String,
-    port: String,
-    user: String,
-    password: String,
-    https: bool,
+    connect::data_dir(base, label)
 }
 
 /// Asks where to connect and connects, until it works or the user cancels (`None`). On success
 /// the window is in remote mode ([`get`]).
 pub fn connect_interactive() -> Option<Session> {
-    let mut prefs = Prefs::load(crate::app::base_data_dir().join("remote.ini"));
-    let mut form = Form {
-        host: prefs.get("remote.host").unwrap_or_default().to_owned(),
-        port: prefs.get("remote.port").unwrap_or("8080").to_owned(),
-        user: prefs.get("remote.user").unwrap_or("admin").to_owned(),
-        password: String::new(),
-        https: prefs.get_bool("remote.https", false),
-    };
+    let mut prefs = Prefs::load(crate::app::base_data_dir().join(connect::FILE_NAME));
+    let mut form = Form::load(&prefs);
     loop {
         form = dialog(form)?;
-        prefs.set("remote.host", &form.host);
-        prefs.set("remote.port", &form.port);
-        prefs.set("remote.user", &form.user);
-        prefs.set_bool("remote.https", form.https);
+        form.store(&mut prefs);
         let _ = prefs.save();
-        let port = match form.port.trim().parse::<u16>() {
-            Ok(p) if p > 0 && !form.host.trim().is_empty() => p,
-            _ => {
-                dialogs::error(null_mut(), tr!(RemoteBadAddress));
-                continue;
-            }
+        let Some((mut target, name)) = form.target() else {
+            dialogs::error(null_mut(), tr!(RemoteBadAddress));
+            continue;
         };
-        let host = form.host.trim().trim_start_matches('[').trim_end_matches(']').to_owned();
-        let name = label(&host, port);
-        let mut target =
-            Target { host, port, tls: None, username: form.user.clone(), password: form.password.clone() };
         if form.https {
             match verify(&mut prefs, &target, &name) {
                 Some(v) => target.tls = Some(v),
@@ -116,24 +81,13 @@ pub fn connect_interactive() -> Option<Session> {
                 let _ = REMOTE.set(Remote { label: name, hello });
                 return Some(session);
             }
-            Err(ConnectError::Io(e)) if e.to_string().contains("not the accepted one") => {
-                // asked again at the next attempt, after the user has had a look
-                prefs.remove(&format!("remote.pin.{name}"));
-                let _ = prefs.save();
-                dialogs::error(null_mut(), &tr!(RemoteCertChanged, name, error = e));
-            }
             Err(e) => {
-                let hint = match &e {
-                    ConnectError::Refused { status: 404, .. } => Some(tr!(RemoteHintNotNox)),
-                    ConnectError::Io(_) if !form.https => Some(tr!(RemoteHintHttps)),
-                    _ => None,
-                };
-                let mut text = tr!(RemoteCannotConnect, name, error = e);
-                if let Some(h) = hint {
-                    text.push_str("\n\n");
-                    text.push_str(h);
-                }
-                dialogs::error(null_mut(), &text);
+                // a changed certificate is asked about again at the next attempt, after the
+                // user has had a look
+                let failure = Failure::new(&e, &name, form.https);
+                failure.apply(&mut prefs, &name);
+                let _ = prefs.save();
+                dialogs::error(null_mut(), &failure.text);
             }
         }
     }
@@ -143,38 +97,25 @@ pub fn connect_interactive() -> Option<Session> {
 /// (asked here when it is new or has changed). `None` when the user declined or the server
 /// cannot be reached.
 fn verify(prefs: &mut Prefs, target: &Target, name: &str) -> Option<Verify> {
-    let key = format!("remote.pin.{name}");
-    if let Some(pin) = prefs.get(&key).and_then(Fingerprint::parse) {
+    if let Some(pin) = connect::pinned(prefs, name) {
         return Some(Verify::Pinned(pin));
     }
-    let presented = match remote::probe_certificate(&target.host, target.port, TIMEOUT) {
-        Ok(f) => f,
-        Err(e) => {
-            dialogs::error(null_mut(), &tr!(RemoteNoHttps, name, error = e));
-            return None;
+    match connect::probe(target, name) {
+        Err(text) => {
+            dialogs::error(null_mut(), &text);
+            None
         }
-    };
-    // a certificate Windows trusts for this name needs no question
-    if verify_with_system(target) {
-        return Some(Verify::System);
+        // a certificate Windows trusts for this name needs no question
+        Ok(Probe::Trusted) => Some(Verify::System),
+        Ok(Probe::Unknown(presented)) => {
+            if !dialogs::confirm(null_mut(), &tr!(RemoteTrust, name, fingerprint = presented)) {
+                return None;
+            }
+            connect::pin(prefs, name, presented);
+            let _ = prefs.save();
+            Some(Verify::Pinned(presented))
+        }
     }
-    let text = tr!(RemoteTrust, name, fingerprint = presented);
-    if !dialogs::confirm(null_mut(), &text) {
-        return None;
-    }
-    prefs.set(&key, presented);
-    let _ = prefs.save();
-    Some(Verify::Pinned(presented))
-}
-
-/// Whether a TLS handshake with the system's checks succeeds (nothing is sent after it).
-fn verify_with_system(target: &Target) -> bool {
-    let Ok(sock) = std::net::TcpStream::connect((target.host.as_str(), target.port)) else { return false };
-    let _ = sock.set_read_timeout(Some(TIMEOUT));
-    let _ = sock.set_write_timeout(Some(TIMEOUT));
-    patorrent_core::tls::Stream::connect(sock, &target.host, Verify::System)
-        .and_then(|mut s| s.handshake())
-        .is_ok()
 }
 
 // --- the dialog ------------------------------------------------------------------------------
@@ -287,12 +228,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn folders_and_labels() {
+    fn folders_and_the_template() {
         let base = std::path::Path::new(r"C:\PaTorrent");
         assert_eq!(data_dir(base, "nas.lan:8080"), base.join("remote").join("nas.lan_8080"));
-        assert_eq!(data_dir(base, "[fe80::1%3]:8443"), base.join("remote").join("_fe80__1_3__8443"));
-        assert_eq!(label("::1", 80), "[::1]:80");
-        assert_eq!(label("10.0.0.2", 80), "10.0.0.2:80");
         // the template is well formed: its item count is the twelve controls
         let t = template();
         assert_eq!(t[4], 12);

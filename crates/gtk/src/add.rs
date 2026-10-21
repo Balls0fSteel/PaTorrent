@@ -83,6 +83,8 @@ pub fn show(
     save.set_text(setup.save_dirs.first().map_or("", String::as_str));
     save.set_hexpand(true);
     let browse = gtk::Button::with_label("...");
+    // a folder on this computer means nothing to a remote server: the path is typed
+    browse.set_sensitive(!crate::remote::is_remote());
     save_row.append(&browse);
     let name = gtk::Entry::new();
     name.set_text(ti.name());

@@ -418,6 +418,11 @@ pub fn run(args: Args) -> i32 {
         let _ = std::fs::create_dir_all(&dir);
         settings::store(&mut prefs, &r.hello.settings);
         prefs.set("dir.download", &r.hello.save_path);
+        // Preferences shows the language every window has (`language_choice`)
+        match language_choice().as_str() {
+            "" => prefs.remove("ui.language"),
+            code => prefs.set("ui.language", code),
+        }
     }
     let mut opts = Options::load(&prefs, &downloads_folder());
     if opts.gui.random_port && local {
@@ -2620,9 +2625,20 @@ unsafe fn set_download_location(hwnd: HWND) {
     else {
         return;
     };
-    let title = tr!(PickLocation);
-    let Some(dir) = (unsafe { crate::create::pick_folder_at(hwnd, title, start.as_deref()) }) else {
-        return;
+    let dir = if crate::remote_ui::is_remote() {
+        // a folder on the server, typed (the Web UI's question)
+        let text = tr!(WebSetLocation);
+        let (title, prompt) = text.split_once("\n\n").unwrap_or((text, text));
+        match dialogs::input(hwnd, title, prompt, start.as_deref().unwrap_or_default()) {
+            Some(d) if !d.trim().is_empty() => d.trim().to_owned(),
+            _ => return,
+        }
+    } else {
+        let title = tr!(PickLocation);
+        let Some(dir) = (unsafe { crate::create::pick_folder_at(hwnd, title, start.as_deref()) }) else {
+            return;
+        };
+        dir
     };
     with_app(|a| {
         for id in ids {

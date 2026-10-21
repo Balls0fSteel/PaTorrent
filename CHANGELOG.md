@@ -2,6 +2,31 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_213858_1792611538: The GTK GUI's remote mode (Phase 7, slice 5)
+
+### Added
+- **`patorrent-gtk --remote`** and **File > Connect to Remote...** (`crates/gtk/src/remote.rs`), as the Win32 client's: the Connect to Remote dialog (host, port, user name, password with a peek icon, Use HTTPS, the note), then the usual main window on a `core::remote` session titled "PaTorrent - host:port (remote)", and "(disconnected)" with one message after `Alert::RemoteDisconnected`.
+  - A remote window is a process of its own outside the single instance (`NON_UNIQUE`): a second local start still hands its torrents to the local window, and several servers can be open at once. File > Connect to Remote... starts this executable again with `--remote` (the AppImage file when run from one), and reaps it when it ends.
+  - The certificate check and the connection run on GIO's thread pool while the dialog waits, its fields greyed, with a spinner; an untrusted certificate is shown by its fingerprint (OK pins it, Cancel is the default), a pin that no longer matches is dropped with a warning. Closing the dialog while it connects quits and drops the session.
+  - Its files (`patorrent.ini`, labels, `rss.dat`) are in `remote/<host>_<port>` in `~/.config/patorrent/gtk` (`paths::settings_dir`), `remote.ini` beside the local `patorrent.ini`; the server's engine settings and default folder are taken from the hello at every connect; the language stays every window's (a change in a remote window's Preferences is written to the local `patorrent.ini`).
+  - Off in remote mode: the Add New Torrent dialog's folder picker, Open Containing Folder (greyed; a double click on a finished torrent does nothing, as in the Web UI), Create New Torrent's Start seeding, the local IP filter (at start and on Apply), Randomize port, the start-up association question. Set Download Location asks for a folder on the server as text, with the Web UI's question.
+  - Completion notifications from a remote window go to `org.freedesktop.Notifications` directly: a non-unique `GApplication` has no bus name, which `GNotification` needs.
+  - Torrents named on a remote window's command line wait until it has connected, then open as usual.
+- **`patorrent_frontend::remote`**: the connect step both GUIs share: `Form` (loaded from and stored to `remote.ini`, never the password; `target` checks the host and port), `label`, `data_dir`, the pins (`pinned`, `pin`), `probe` (the certificate's fingerprint and whether the system trusts it, nothing sent) and `Failure` (the message with its hint, and whether the pin must go).
+
+### Changed
+- The Win32 `remote_ui` uses `patorrent_frontend::remote`; its behaviour is unchanged. Its Set Download Location asks for a typed folder in remote mode too (a folder picker showed this computer's folders), and a remote window's Preferences now shows the language every window has (it showed the one last stored in the server's folder).
+- `RemoteTrust` says "a certificate that this computer does not trust" (it said Windows), in all 34 tables.
+- README: the GTK GUI's row lists what it has now.
+- docs/WEBUI.md "Remote mode": the GTK window.
+
+### Verified
+- `cargo test --workspace` on Windows: 1,113 passed, 0 failed (new in `patorrent_frontend::remote`: the form's targets, the form and pins stored without the password, the failure texts and the pin dropped on a changed certificate, the folder names).
+- Stable clippy (`-D warnings`) and fmt on Windows; the 1.90.0 clippy (`-D warnings`) for Linux on the whole workspace, GTK included, with the stand-in `pkg-config` (a planted error in the new `remote.rs` was caught). No let-chains.
+
+### Issues
+- Not built, linked or run on Linux (no Linux machine): PLAN Known TODOs "GTK remote mode" lists what to try.
+
 ## 2026-10-21_210624_1792609584: The GTK GUI's tray icon (Phase 7, slice 4)
 
 ### Added

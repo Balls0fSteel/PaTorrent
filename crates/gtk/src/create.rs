@@ -260,8 +260,14 @@ impl Dialog {
     }
 
     /// "Preserve file order" applies to v1 only (v2 lays the files out sorted).
+    /// "Preserve file order" applies to v1 only (v2 lays the files out sorted).
     fn sync_order(&self) {
         self.order.set_sensitive(!self.busy.get() && self.chosen_format().allows_any_order());
+        // a remote server has not got the files: the torrent cannot be seeded from here
+        if crate::remote::is_remote() {
+            self.seed.set_active(false);
+            self.seed.set_sensitive(false);
+        }
     }
 
     fn error(&self, message: &str) {

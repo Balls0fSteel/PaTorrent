@@ -18,6 +18,7 @@
 //! * [`torrent_folders`]: the `.torrent` folders (stored copies, finished jobs, auto-load).
 //! * [`rss`]: RSS / Atom feeds and the RSS Downloader (filters, episodes, history, `rss.dat`).
 //! * [`properties`]: the Torrent Properties dialog (trackers, limits, seeding goal, switches).
+//! * [`remote`]: remote mode's Connect to Remote step (the form, certificates, failure texts).
 //! * [`seeding`]: the seeding goal: when a queued seed is stopped or held to an upload rate.
 //! * [`auto_shutdown`]: Options > Auto Shutdown (quit, standby, hibernate or shut down when done).
 //! * [`scrape`]: the periodic scrape that gives stopped and queued torrents their swarm counts.
@@ -37,6 +38,7 @@ pub mod options;
 pub mod pref_pages;
 pub mod prefs;
 pub mod properties;
+pub mod remote;
 pub mod rss;
 pub mod scheduler;
 pub mod scrape;

@@ -366,6 +366,18 @@ own automations (scheduler, RSS, seeding goal, `.torrent` folders, scrapes) act 
 engine too, beside nox's own. A lost connection is reported once and marks the title
 "(disconnected)"; reconnecting means a new window.
 
+The GTK GUI (`crates/gtk/src/remote.rs`) does the same: `patorrent-gtk --remote`, or File >
+Connect to Remote... A remote window is a process of its own outside GTK's single instance
+(`G_APPLICATION_NON_UNIQUE`), so a second local start still goes to the local window and
+several servers can be open at once. The certificate check and the connection run on GIO's
+thread pool while the dialog waits greyed with a spinner. Its files are in
+`remote/<host>_<port>` in `~/.config/patorrent/gtk`, `remote.ini` beside the local
+`patorrent.ini`. Set Download Location asks for a folder on the server as text (the Web UI's
+question), as the Win32 window now does too, and completion notifications go to
+`org.freedesktop.Notifications` directly (a non-unique application has no bus name for
+`GNotification`). The connect step itself (the form, the pins, the failure texts) is shared in
+`patorrent_frontend::remote`.
+
 ## Budgets (gates, like the desktop's)
 
 10,000 torrents loaded, measured with the `lt-swarm`-style synthetic profile against the real

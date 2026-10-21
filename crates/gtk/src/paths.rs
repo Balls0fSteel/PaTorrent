@@ -2,7 +2,8 @@
 //!
 //! | | default |
 //! |---|---|
-//! | settings (`patorrent.ini`, `rss.dat`) | `$XDG_CONFIG_HOME/patorrent/gtk`, else `~/.config/patorrent/gtk` |
+//! | settings (`patorrent.ini`, `rss.dat`, `remote.ini`) | `$XDG_CONFIG_HOME/patorrent/gtk`, else `~/.config/patorrent/gtk` |
+//! | a remote window's settings | `remote/<host>_<port>` in the settings folder |
 //! | torrent library (`resume.db`, `metadata.pack`, `dht_state.dat`) | `$XDG_DATA_HOME/patorrent/gtk`, else `~/.local/share/patorrent/gtk` |
 //!
 //! Relative or empty XDG variables are ignored, as the spec says.
@@ -15,6 +16,16 @@ const APP: [&str; 2] = ["patorrent", "gtk"];
 /// The settings folder.
 pub fn config_dir() -> PathBuf {
     dir(&|k| std::env::var_os(k), "XDG_CONFIG_HOME", &[".config"])
+}
+
+/// This window's settings folder: [`config_dir`], or a remote window's own folder in it
+/// (`remote/<host>_<port>`, `crate::remote`). The language and `remote.ini` stay in
+/// [`config_dir`] for every window.
+pub fn settings_dir() -> PathBuf {
+    match crate::remote::get() {
+        Some(r) => patorrent_frontend::remote::data_dir(&config_dir(), &r.label),
+        None => config_dir(),
+    }
 }
 
 /// The torrent library's folder.

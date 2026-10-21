@@ -122,6 +122,30 @@ thread_local! {
     /// Quitting: the window closes instead of going into the tray.
     static QUITTING: Cell<bool> = const { Cell::new(false) };
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
+    /// Torrents from the command line that came before the window (a remote window's, while
+    /// it connects): opened once it is built.
+    static PENDING: RefCell<Vec<Source>> = const { RefCell::new(Vec::new()) };
+}
+
+/// A torrent named on the command line.
+enum Source {
+    /// A `magnet:` or `http(s)` link.
+    Link(String),
+    File(gio::File),
+}
+
+/// Opens a command-line torrent, or keeps it until the window is there.
+fn open(source: Source) {
+    // (borrowed: it is there)
+    let built = APP.with(|a| a.try_borrow().map(|a| a.is_some()).unwrap_or(true));
+    if !built {
+        PENDING.with(|p| p.borrow_mut().push(source));
+        return;
+    }
+    match source {
+        Source::Link(link) => open_link(link),
+        Source::File(f) => open_source(&f),
+    }
 }
 
 fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
@@ -161,17 +185,23 @@ pub fn run() -> ExitCode {
         eprintln!("{p}");
     }
     // the raw command line, so links reach us as typed (GIO's file handling would turn a
-    // `magnet:` argument into a file); a second start hands it to the first
-    let app = gtk::Application::builder()
-        .application_id(APP_ID)
-        .flags(gio::ApplicationFlags::HANDLES_COMMAND_LINE)
-        .build();
+    // `magnet:` argument into a file); a second start hands it to the first. A remote window
+    // is a process of its own, never that first one (`crate::remote`)
+    let remote = crate::remote::requested();
+    let mut flags = gio::ApplicationFlags::HANDLES_COMMAND_LINE;
+    if remote {
+        flags |= gio::ApplicationFlags::NON_UNIQUE;
+    }
+    let app = gtk::Application::builder().application_id(APP_ID).flags(flags).build();
     app.connect_startup(startup);
-    app.connect_activate(|app| {
+    app.connect_activate(move |app| {
         if let Some(w) = app.active_window() {
             w.present();
+        } else if remote {
+            let a = app.clone();
+            crate::remote::connect(app, move |session| build(&a, Some(session)));
         } else {
-            build(app);
+            build(app, None);
         }
     });
     app.connect_command_line(|app, cmdline| {
@@ -187,10 +217,10 @@ pub fn run() -> ExitCode {
                 continue;
             }
             if arg.starts_with("magnet:") || arg.starts_with("http://") || arg.starts_with("https://") {
-                open_link(arg.into_owned());
+                open(Source::Link(arg.into_owned()));
             } else {
                 // relative to the directory of the process that was started
-                open_source(&cmdline.create_file_for_arg(&*arg));
+                open(Source::File(cmdline.create_file_for_arg(&*arg)));
             }
         }
         glib::ExitCode::SUCCESS
@@ -225,6 +255,14 @@ fn startup(app: &gtk::Application) {
     let quit = gio::SimpleAction::new("quit", None);
     quit.connect_activate(|_, _| quit_app());
     app.add_action(&quit);
+    let remote = gio::SimpleAction::new("connect-remote", None);
+    let a = app.downgrade();
+    remote.connect_activate(move |_, _| {
+        if let Some(w) = a.upgrade().and_then(|a| a.active_window()) {
+            crate::remote::start_remote_window(&w);
+        }
+    });
+    app.add_action(&remote);
     for (action, keys) in [
         ("win.add", &["<Control>o"][..]),
         ("win.add-url", &["<Control>u"]),
@@ -243,6 +281,9 @@ fn startup(app: &gtk::Application) {
     item(&file, tr!(MenuAddTorrent), "win.add");
     item(&file, tr!(MenuAddUrl), "win.add-url");
     item(&file, tr!(MenuCreate), "win.create");
+    let remote_section = gio::Menu::new();
+    item(&remote_section, tr!(MenuConnectRemote), "app.connect-remote");
+    file.append_section(None, &remote_section);
     let quit_section = gio::Menu::new();
     item(&quit_section, tr!(MenuExit), "app.quit");
     file.append_section(None, &quit_section);
@@ -374,6 +415,8 @@ fn menu_state() -> Option<MenuState> {
         set("ul-limit", Some(st.map_or(0, |s| kib(s.upload_limit)).to_variant()), true);
         set("set-location", None, !moving);
         set("super-seed", Some(super_seeding.to_variant()), seeds);
+        // the server's folders are not on this computer
+        set("open-folder", None, !crate::remote::is_remote());
         MenuState { labels: labels(a), single_done: ids.len() == 1 && st.is_some_and(|s| s.is_finished) }
     })
 }
@@ -386,18 +429,34 @@ fn super_seed_state(a: &App, ids: &[TorrentId]) -> (bool, bool) {
     (all(&|s| s.is_seeding), all(&|s| s.super_seeding))
 }
 
-/// The main window, on a new engine session.
-fn build(app: &gtk::Application) {
-    let config = paths::config_dir();
+/// The main window, on a new engine session, or on `remote_session` in remote mode
+/// (`crate::remote`).
+fn build(app: &gtk::Application, remote_session: Option<Session>) {
+    let config = paths::settings_dir();
     let data = paths::data_dir();
     let mut prefs = Prefs::load(config.join("patorrent.ini"));
+    let remote = crate::remote::get();
+    if let Some(r) = remote {
+        // the server's engine settings and default folder are this window's; the language
+        // (picked in `run`) is every window's
+        if let Err(e) = std::fs::create_dir_all(&config) {
+            eprintln!("cannot create {}: {e}", config.display());
+        }
+        settings::store(&mut prefs, &r.hello.settings);
+        prefs.set("dir.download", &r.hello.save_path);
+        match Prefs::load(paths::config_dir().join("patorrent.ini")).get("ui.language") {
+            Some(code) => prefs.set("ui.language", code),
+            None => prefs.remove("ui.language"),
+        }
+    }
     // (the language was picked in `run`)
     let downloads = glib::user_special_dir(glib::UserDirectory::Downloads)
         .unwrap_or_else(|| glib::home_dir().join("Downloads"))
         .to_string_lossy()
         .into_owned();
     let mut opts = Options::load(&prefs, &downloads);
-    if opts.gui.random_port {
+    // the server keeps its own port
+    if opts.gui.random_port && remote.is_none() {
         // µTorrent's "Randomize port each start" keeps the new port as the configured one
         settings::set_listen_port(&mut opts.settings, options::random_port());
         settings::store(&mut prefs, &opts.settings);
@@ -414,22 +473,28 @@ fn build(app: &gtk::Application) {
     if prefs.get_bool("gtk.maximized", false) {
         window.maximize();
     }
+    if let Some(r) = remote {
+        window.set_title(Some(&tr!(TitleRemote, label = r.label)));
+    }
 
-    let session =
-        match Session::start(SessionParams { settings: opts.settings.clone(), state_dir: Some(data) }) {
-            Ok(s) => s,
-            Err(e) => {
-                window.present();
-                let d = gtk::AlertDialog::builder()
-                    .message(tr!(CannotStartEngine))
-                    .detail(e.to_string())
-                    .modal(true)
-                    .build();
-                let w = window.clone();
-                d.choose(Some(&window), None::<&gio::Cancellable>, move |_| w.close());
-                return;
-            }
-        };
+    let started = match remote_session {
+        Some(s) => Ok(s),
+        None => Session::start(SessionParams { settings: opts.settings.clone(), state_dir: Some(data) }),
+    };
+    let session = match started {
+        Ok(s) => s,
+        Err(e) => {
+            window.present();
+            let d = gtk::AlertDialog::builder()
+                .message(tr!(CannotStartEngine))
+                .detail(e.to_string())
+                .modal(true)
+                .build();
+            let w = window.clone();
+            d.choose(Some(&window), None::<&gio::Cancellable>, move |_| w.close());
+            return;
+        }
+    };
     let handle = session.handle();
 
     // the widgets
@@ -640,7 +705,8 @@ fn build(app: &gtk::Application) {
     with_app(|a| {
         let sort = a.prefs.sort();
         a.list.set_sort(sort);
-        if opts.gui.ip_filter {
+        // a server applies its own block list
+        if opts.gui.ip_filter && remote.is_none() {
             load_ip_filter(a, &opts.gui);
         }
     });
@@ -691,8 +757,11 @@ fn build(app: &gtk::Application) {
         // into the tray once it is there (`tray_shown`); minimized until then, or for good
         // without one
         window.minimize();
-    } else if opts.gui.check_association {
+    } else if opts.gui.check_association && remote.is_none() {
         glib::idle_add_local_once(check_association);
+    }
+    for source in PENDING.with(|p| p.take()) {
+        open(source);
     }
 }
 
@@ -814,10 +883,38 @@ fn notify_completed(names: Vec<String>) {
     };
     let Some(app) = app.filter(|_| on) else { return };
     for name in names {
+        if crate::remote::is_remote() {
+            notify_directly(tr!(BalloonComplete), &name);
+            continue;
+        }
         let n = gio::Notification::new(tr!(BalloonComplete));
         n.set_body(Some(&name));
         app.send_notification(Some(&format!("complete-{name}")), &n);
     }
+}
+
+/// A desktop notification from `org.freedesktop.Notifications` itself: a remote window
+/// (`NON_UNIQUE`) has no bus name of its own, which `GNotification` needs.
+fn notify_directly(summary: &str, body: &str) {
+    let Ok(bus) = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>) else { return };
+    let hints = std::collections::HashMap::<String, glib::Variant>::new();
+    let args = ("PaTorrent", 0u32, "", summary, body, Vec::<String>::new(), hints, -1i32).to_variant();
+    bus.call(
+        Some("org.freedesktop.Notifications"),
+        "/org/freedesktop/Notifications",
+        "org.freedesktop.Notifications",
+        "Notify",
+        Some(&args),
+        None,
+        gio::DBusCallFlags::NONE,
+        -1,
+        None::<&gio::Cancellable>,
+        |r| {
+            if let Err(e) = r {
+                eprintln!("cannot show a notification: {e}");
+            }
+        },
+    );
 }
 
 /// Preferences > General "Check association on startup": asks to make PaTorrent the program
@@ -957,6 +1054,12 @@ fn on_alerts() {
                     let key = info_hashes.key_hex();
                     a.prefs.remove(&format!("torrent.{key}.label"));
                     a.prefs.remove(&format!("torrent.{key}.paused"));
+                }
+                Alert::RemoteDisconnected { ref message } => {
+                    a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
+                    let label = crate::remote::get().map_or("", |r| r.label.as_str());
+                    a.window.set_title(Some(&tr!(TitleDisconnected, label)));
+                    errors.push((tr!(ErrRemoteLost, label, message), String::new()));
                 }
                 Alert::TorrentFinished { id } => {
                     let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
@@ -1452,15 +1555,12 @@ fn set_download_location() {
         Some((a.window.clone(), st.save_path.clone()))
     });
     let Some(Some((window, start))) = found else { return };
-    let dialog = gtk::FileDialog::builder().title(tr!(PickLocation)).modal(true).build();
-    if std::path::Path::new(&start).is_dir() {
-        dialog.set_initial_folder(Some(&gio::File::for_path(&start)));
-    }
-    dialog.select_folder(Some(&window), None::<&gio::Cancellable>, move |r| {
-        let Some(dir) = r.ok().and_then(|f| f.path()) else { return };
-        let dir = dir.to_string_lossy().into_owned();
+    let move_to = move |dir: String| {
+        if dir.is_empty() {
+            return;
+        }
         with_app(|a| {
-            for id in ids {
+            for &id in &ids {
                 let Some(st) = a.list.get(id) else { continue };
                 if same_dir(&st.save_path, &dir) {
                     continue;
@@ -1472,6 +1572,21 @@ fn set_download_location() {
             a.handle.post_torrent_updates();
         });
         refresh_details();
+    };
+    if crate::remote::is_remote() {
+        // a folder on the server, typed (the Web UI's question)
+        let text = tr!(WebSetLocation);
+        let (title, prompt) = text.split_once("\n\n").unwrap_or((text, text));
+        return input(title, prompt, &start, move_to);
+    }
+    let dialog = gtk::FileDialog::builder().title(tr!(PickLocation)).modal(true).build();
+    if std::path::Path::new(&start).is_dir() {
+        dialog.set_initial_folder(Some(&gio::File::for_path(&start)));
+    }
+    dialog.select_folder(Some(&window), None::<&gio::Cancellable>, move |r| {
+        if let Some(dir) = r.ok().and_then(|f| f.path()) {
+            move_to(dir.to_string_lossy().into_owned());
+        }
     });
 }
 
@@ -1538,6 +1653,10 @@ fn remove(with_data: bool) {
 }
 
 fn open_folder(ids: &[TorrentId]) {
+    // (a remote window's double click on a finished torrent does nothing, as the Web UI's)
+    if crate::remote::is_remote() {
+        return;
+    }
     let Some((window, path)) = with_app(|a| {
         let st = a.list.get(*ids.first()?)?;
         Some((a.window.clone(), PathBuf::from(&st.save_path).join(&st.name)))
@@ -2051,7 +2170,7 @@ fn preferences() {
             })
             .unwrap_or_else(|| Err(tr!(ErrNotRunning).to_owned()))
         }),
-        settings_dir: paths::config_dir(),
+        settings_dir: paths::settings_dir(),
         tray: tray_shown(),
     };
     crate::preferences::show(&window, options, hooks);
@@ -2062,6 +2181,17 @@ fn apply_options(a: &mut App, o: &Options) {
     let old = Options::load(&a.prefs, &a.save_path);
     o.store(&mut a.prefs);
     save_prefs(a);
+    if crate::remote::is_remote() && o.gui.language != old.gui.language {
+        // one language for every window: it lives in the local client's settings
+        let mut base = Prefs::load(paths::config_dir().join("patorrent.ini"));
+        match o.gui.language.trim() {
+            "" => base.remove("ui.language"),
+            code => base.set("ui.language", code),
+        }
+        if let Err(e) = base.save() {
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
+        }
+    }
     a.save_path = o.gui.download_dir.clone();
     // the engine settings, as the scheduler's hour changes them
     a.schedule = o.gui.schedule.clone();
@@ -2079,8 +2209,11 @@ fn apply_options(a: &mut App, o: &Options) {
             }
         }
     }
-    let dir = paths::config_dir();
-    if (o.gui.ip_filter, o.gui.ip_filter_file(&dir)) != (old.gui.ip_filter, old.gui.ip_filter_file(&dir)) {
+    let dir = paths::settings_dir();
+    let changed =
+        (o.gui.ip_filter, o.gui.ip_filter_file(&dir)) != (old.gui.ip_filter, old.gui.ip_filter_file(&dir));
+    // a server applies its own block list
+    if changed && !crate::remote::is_remote() {
         if o.gui.ip_filter {
             load_ip_filter(a, &o.gui);
         } else {
@@ -2092,7 +2225,7 @@ fn apply_options(a: &mut App, o: &Options) {
 
 /// Loads the configured block list (`ipfilter.dat` in the settings folder by default).
 fn load_ip_filter(a: &mut App, gui: &GuiOptions) {
-    let path = gui.ip_filter_file(&paths::config_dir());
+    let path = gui.ip_filter_file(&paths::settings_dir());
     let r = a.handle.load_ip_filter(&path).map_err(|e| e.to_string());
     log_ip_filter(a, &path, &r);
 }
@@ -2112,7 +2245,7 @@ fn log_ip_filter(a: &mut App, path: &std::path::Path, r: &Result<usize, String>)
 
 /// `rss.dat`, beside `patorrent.ini`.
 fn rss_file() -> PathBuf {
-    paths::config_dir().join(patorrent_frontend::rss::store::FILE_NAME)
+    paths::settings_dir().join(patorrent_frontend::rss::store::FILE_NAME)
 }
 
 fn unix_now() -> i64 {

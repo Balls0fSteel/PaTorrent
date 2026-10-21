@@ -5,7 +5,8 @@
 //! One instance runs per user (`GtkApplication`); starting another hands its arguments
 //! (`.torrent` files, `magnet:` links, URLs) to the running one. Settings live in
 //! `$XDG_CONFIG_HOME/patorrent/gtk`, the torrent library in `$XDG_DATA_HOME/patorrent/gtk`
-//! (`paths`).
+//! (`paths`). `--remote` drives a patorrent-nox elsewhere instead, in a process of its own
+//! (`remote`).
 
 #[cfg(unix)]
 mod add;
@@ -27,6 +28,8 @@ mod paths;
 mod preferences;
 #[cfg(unix)]
 mod properties;
+#[cfg(unix)]
+mod remote;
 #[cfg(unix)]
 mod rss;
 #[cfg(unix)]

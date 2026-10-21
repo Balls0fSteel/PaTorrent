@@ -37,6 +37,8 @@ mod shutdown;
 mod sidebar;
 #[cfg(unix)]
 mod table;
+#[cfg(unix)]
+mod tray;
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {

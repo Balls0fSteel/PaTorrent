@@ -2,6 +2,22 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_210624_1792609584: The GTK GUI's tray icon (Phase 7, slice 4)
+
+### Added
+- **A StatusNotifierItem tray** (`crates/gtk/src/tray.rs`), over GDBus with no library beyond GIO: the item at `/StatusNotifierItem` under `org.kde.StatusNotifierItem-<pid>-1`, registered with `org.kde.StatusNotifierWatcher` whenever one is on the bus (KDE Plasma, Xfce, LXQt, Cinnamon, MATE, waybar, GNOME with the AppIndicator extension), and its menu as `com.canonical.dbusmenu` at `/MenuBar`: Show / Hide PaTorrent, Add Torrent, Add Torrent from URL, Start All, Stop All, Exit, as the Win32 tray's. The icon is the application icon as pixmaps (16 to 64 px), the tooltip the rates (`TrayTip`), a left click brings the window to the front or hides it when it is in front.
+- **Close to tray and Minimize to tray** (Preferences > UI Settings, shown while a tray is on screen): closing the window hides it into the tray, minimizing does too (from the window's `GdkToplevel` state). File > Exit, Ctrl+Q, the tray's Exit and Auto Shutdown quit through one path. Started with `--minimized`, the window goes into the tray as soon as one takes the item.
+- **Completion notifications** ("Show balloon notifications"): a desktop notification (`GNotification`) for each download that completes, not for restored or checked seeds.
+- `patorrent_frontend::icons`: the runtime-drawn toolbar and application icons, moved from the Win32 client (which builds its bitmaps from them unchanged), with the pixels as premultiplied BGRA for Windows and as ARGB for a StatusNotifierItem.
+
+### Verified
+- `cargo test --workspace` on Windows: 1,109 passed, 0 failed (new: the application icon in both layouts).
+- Stable clippy (`-D warnings`) and fmt on Windows; the 1.90.0 clippy (`-D warnings`) for Linux on the whole workspace, GTK included (a planted error in `tray.rs` was caught). No let-chains.
+
+### Issues
+- Not run: no Linux machine. PLAN Known TODOs "GTK tray" lists what to try.
+- GNOME shows no tray without the AppIndicator extension; then the window closes as before and the tray boxes are hidden.
+
 ## 2026-10-21_205834_1792609114: The GTK GUI's desktop integration (Phase 7, slice 4 begins)
 
 ### Added

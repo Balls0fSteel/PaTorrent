@@ -6,7 +6,7 @@
 //! the state in a thread-local [`App`] (the widgets that draw from it in [`Ui`], so drawing
 //! never runs while the state is borrowed).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashSet;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -42,6 +42,7 @@ use crate::paths;
 use crate::shutdown::{self, Power};
 use crate::sidebar::{Pick, Sidebar};
 use crate::table::Table;
+use crate::tray::{Command as TrayCommand, Tray};
 
 /// The application id (D-Bus name, desktop file, single instance).
 pub const APP_ID: &str = patorrent_frontend::integration::APP_ID;
@@ -58,6 +59,8 @@ struct App {
     save_path: String,
     /// Torrents seen in a status update since start.
     known: HashSet<TorrentId>,
+    /// Torrents seen downloading: their completion is announced.
+    downloading: HashSet<TorrentId>,
     alerts: Vec<Alert>,
     /// What the detail tabs show, and the Logger and Speed history.
     detail: Detail,
@@ -113,8 +116,12 @@ struct Ui {
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
     static UI: RefCell<Option<Rc<Ui>>> = const { RefCell::new(None) };
-    /// Started with `--minimized` (the autostart entry's "Start minimized").
-    static START_MINIMIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+    /// Started with `--minimized` (the autostart entry's "Start minimized"), until the tray
+    /// came or did not.
+    static START_MINIMIZED: Cell<bool> = const { Cell::new(false) };
+    /// Quitting: the window closes instead of going into the tray.
+    static QUITTING: Cell<bool> = const { Cell::new(false) };
+    static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
 }
 
 fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
@@ -216,14 +223,7 @@ fn startup(app: &gtk::Application) {
         gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
     }
     let quit = gio::SimpleAction::new("quit", None);
-    let weak = app.downgrade();
-    quit.connect_activate(move |_, _| {
-        if let Some(app) = weak.upgrade() {
-            for w in app.windows() {
-                w.close();
-            }
-        }
-    });
+    quit.connect_activate(|_, _| quit_app());
     app.add_action(&quit);
     for (action, keys) in [
         ("win.add", &["<Control>o"][..]),
@@ -612,6 +612,7 @@ fn build(app: &gtk::Application) {
             prefs,
             save_path,
             known: HashSet::new(),
+            downloading: HashSet::new(),
             alerts: Vec::new(),
             detail: Detail::default(),
             files_requested: None,
@@ -671,17 +672,151 @@ fn build(app: &gtk::Application) {
     handle.post_torrent_updates();
     handle.post_session_stats();
 
-    window.connect_close_request(|_| {
+    window.connect_close_request(|w| {
+        // µTorrent's "Close to tray"; Exit and the other ways to quit go through `quit_app`
+        let to_tray = !QUITTING.with(Cell::get)
+            && tray_shown()
+            && with_app(|a| a.prefs.get_bool("ui.close_to_tray", true)) == Some(true);
+        if to_tray {
+            hide_window(w.upcast_ref());
+            return glib::Propagation::Stop;
+        }
         shutdown();
         glib::Propagation::Proceed
     });
     update_status();
     window.present();
+    start_tray(&window);
     if START_MINIMIZED.with(|m| m.get()) {
-        // no tray yet: minimized to the taskbar or dock
+        // into the tray once it is there (`tray_shown`); minimized until then, or for good
+        // without one
         window.minimize();
     } else if opts.gui.check_association {
         glib::idle_add_local_once(check_association);
+    }
+}
+
+// ---- the tray ---------------------------------------------------------------------------------
+
+fn tray() -> Option<Rc<Tray>> {
+    TRAY.with(|t| t.borrow().clone())
+}
+
+/// A tray is on screen (a StatusNotifierWatcher took the item).
+fn tray_shown() -> bool {
+    tray().is_some_and(|t| t.shown())
+}
+
+/// The tray icon on the session bus, and "Minimize to tray" on the window's state.
+fn start_tray(window: &gtk::ApplicationWindow) {
+    let tray = Tray::start(crate::tray::Hooks {
+        activate: Box::new(toggle_window),
+        command: Box::new(tray_command),
+        window_visible: Box::new(|| with_app(|a| a.window.is_visible()).unwrap_or(true)),
+        shown: Box::new(|on| {
+            // started minimized: into the tray as soon as there is one
+            let start = START_MINIMIZED.with(|m| m.replace(false));
+            if on && start {
+                if let Some(w) = with_app(|a| a.window.clone()).filter(|w| !w.is_active()) {
+                    hide_window(w.upcast_ref());
+                }
+            }
+        }),
+    });
+    TRAY.with(|t| *t.borrow_mut() = tray);
+    if let Some(toplevel) = window.surface().and_downcast::<gtk::gdk::Toplevel>() {
+        let w = window.downgrade();
+        toplevel.connect_state_notify(move |t| {
+            let minimized = t.state().contains(gtk::gdk::ToplevelState::MINIMIZED);
+            let to_tray = with_app(|a| a.prefs.get_bool("ui.minimize_to_tray", false)) == Some(true);
+            if let (true, true, true, Some(w)) = (minimized, to_tray, tray_shown(), w.upgrade()) {
+                hide_window(w.upcast_ref());
+            }
+        });
+    }
+}
+
+/// Hides the window into the tray.
+fn hide_window(w: &gtk::Window) {
+    w.set_visible(false);
+    if let Some(t) = tray() {
+        t.menu_changed();
+    }
+}
+
+/// A click on the tray icon: the window comes to the front, or goes into the tray when it is
+/// in front already.
+fn toggle_window() {
+    let Some(w) = with_app(|a| a.window.clone()) else { return };
+    if w.is_visible() && w.is_active() {
+        hide_window(w.upcast_ref());
+    } else {
+        show_window();
+    }
+}
+
+fn show_window() {
+    let Some(w) = with_app(|a| a.window.clone()) else { return };
+    w.set_visible(true);
+    w.unminimize();
+    w.present();
+    if let Some(t) = tray() {
+        t.menu_changed();
+    }
+}
+
+fn tray_command(c: TrayCommand) {
+    match c {
+        TrayCommand::Toggle => toggle_window(),
+        TrayCommand::AddTorrent => {
+            show_window();
+            add_files();
+        }
+        TrayCommand::AddUrl => {
+            show_window();
+            add_url();
+        }
+        TrayCommand::StartAll | TrayCommand::StopAll => {
+            with_app(|a| {
+                let ids: Vec<TorrentId> = a.list.ids().collect();
+                for id in ids {
+                    let t = a.handle.torrent(id);
+                    if c == TrayCommand::StartAll {
+                        actions::start(&t);
+                    } else {
+                        actions::stop(&t);
+                    }
+                    set_paused(a, id, false);
+                }
+                a.handle.post_torrent_updates();
+            });
+        }
+        TrayCommand::Exit => quit_app(),
+    }
+}
+
+/// File > Exit, the tray's Exit, Ctrl+Q, Auto Shutdown: every window closes, the main one
+/// saves and stops the session on the way.
+fn quit_app() {
+    QUITTING.with(|q| q.set(true));
+    let Some(app) = with_app(|a| a.window.application()).flatten() else { return };
+    for w in app.windows() {
+        w.close();
+    }
+}
+
+/// Desktop notifications for downloads that completed (Preferences > UI Settings "Show
+/// balloon notifications", µTorrent's tray balloons).
+fn notify_completed(names: Vec<String>) {
+    let Some((app, on)) = with_app(|a| (a.window.application(), a.prefs.get_bool("ui.balloons", true)))
+    else {
+        return;
+    };
+    let Some(app) = app.filter(|_| on) else { return };
+    for name in names {
+        let n = gio::Notification::new(tr!(BalloonComplete));
+        n.set_body(Some(&name));
+        app.send_notification(Some(&format!("complete-{name}")), &n);
     }
 }
 
@@ -755,6 +890,7 @@ fn on_alerts() {
     let mut errors = Vec::new();
     let mut magnet_ready = false;
     let mut suspend = None;
+    let mut completed = Vec::new();
     let done = with_app(|a| {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
@@ -792,6 +928,9 @@ fn on_alerts() {
                                 a.list.set_user_paused(st.id, true);
                             }
                         }
+                        if !st.is_finished {
+                            a.downloading.insert(st.id);
+                        }
                         seeding_goal(a, st);
                     }
                     a.list.update(v);
@@ -814,6 +953,7 @@ fn on_alerts() {
                 Alert::TorrentRemoved { id, info_hashes } => {
                     a.list.remove(id);
                     a.known.remove(&id);
+                    a.downloading.remove(&id);
                     let key = info_hashes.key_hex();
                     a.prefs.remove(&format!("torrent.{key}.label"));
                     a.prefs.remove(&format!("torrent.{key}.paused"));
@@ -821,6 +961,10 @@ fn on_alerts() {
                 Alert::TorrentFinished { id } => {
                     let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
                     a.detail.push_log(format!("{} {}", now_hms(), tr!(LogFinished, name)));
+                    // a download that completed, not a restored or checked seed
+                    if a.downloading.remove(&id) {
+                        completed.push(name);
+                    }
                 }
                 Alert::FileRenamed { id, .. } | Alert::FileRenameFailed { id, .. } => {
                     let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
@@ -878,6 +1022,7 @@ fn on_alerts() {
     if magnet_ready {
         magnet_dialogs();
     }
+    notify_completed(completed);
     if let Some(Err(e)) = suspend.map(shutdown::perform) {
         log_line(&tr!(LogShutdown, what = e.replace('\n', " ")));
         error(&e, "");
@@ -1004,6 +1149,15 @@ fn update_status() {
     }) else {
         return;
     };
+    if let Some(t) = tray() {
+        let tip = with_app(|a| {
+            let s = &a.stats;
+            tr!(TrayTip, down = fmt::speed_always(s.download_rate), up = fmt::speed_always(s.upload_rate))
+        });
+        if let Some(tip) = tip {
+            t.set_tooltip(&tip);
+        }
+    }
     for (label, text) in ui.status.iter().zip(texts) {
         if label.text() != text {
             label.set_text(&text);
@@ -1651,10 +1805,7 @@ fn auto_shutdown_act(action: auto_shutdown::Action) {
             if let Some(p) = p {
                 shutdown::after_exit(p);
             }
-            let Some(app) = with_app(|a| a.window.application()).flatten() else { return };
-            for w in app.windows() {
-                w.close();
-            }
+            quit_app();
         }
     }
 }
@@ -1901,6 +2052,7 @@ fn preferences() {
             .unwrap_or_else(|| Err(tr!(ErrNotRunning).to_owned()))
         }),
         settings_dir: paths::config_dir(),
+        tray: tray_shown(),
     };
     crate::preferences::show(&window, options, hooks);
 }

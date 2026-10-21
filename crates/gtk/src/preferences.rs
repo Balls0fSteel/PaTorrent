@@ -1,7 +1,8 @@
 //! Options > Preferences: µTorrent 2.2.1's dialog, the page list on the left and the page on the
 //! right, OK / Cancel / Apply, built from the frontend's description of the pages
-//! ([`pref_pages`]): every page the Win32 dialog has but the Web UI (the remote mode) and the
-//! Windows integration.
+//! ([`pref_pages`]): every page the Win32 dialog has but the Web UI (the remote mode); General
+//! has the desktop integration in place of the Windows one, and UI Settings the tray boxes
+//! while a tray is on screen.
 //!
 //! The pages and the Advanced table edit one working [`Options`]. The controls are written from
 //! it ([`Form::write`]) and only the ones the user changed are read back ([`Form::read`]), on
@@ -38,6 +39,8 @@ pub struct Hooks {
     pub reload_ip_filter: ReloadIpFilter,
     /// Where `ipfilter.dat` is looked for when no path is set.
     pub settings_dir: PathBuf,
+    /// A tray is on screen: UI Settings shows the tray and notification boxes.
+    pub tray: bool,
 }
 
 /// A field's control.
@@ -120,7 +123,7 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
         .default_width(760)
         .default_height(560)
         .build();
-    let pages = pref_pages::pages(Features { desktop: true, ..Features::default() });
+    let pages = pref_pages::pages(Features { desktop: true, tray: hooks.tray });
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);

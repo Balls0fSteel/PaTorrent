@@ -26,6 +26,8 @@ mod preferences;
 #[cfg(unix)]
 mod properties;
 #[cfg(unix)]
+mod rss;
+#[cfg(unix)]
 mod sched_grid;
 #[cfg(unix)]
 mod shutdown;

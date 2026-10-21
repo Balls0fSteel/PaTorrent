@@ -12,8 +12,9 @@
 use std::mem::zeroed;
 use std::ptr::{null, null_mut};
 
+pub use patorrent_frontend::rss::view::FeedForm;
 use patorrent_frontend::rss::view::{self, quality_text};
-use patorrent_frontend::rss::{FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFeed, RssFilter};
+use patorrent_frontend::rss::{FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter};
 use patorrent_frontend::{lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -70,47 +71,6 @@ fn edit(host: &mut dyn Host, f: impl FnOnce(&mut RssDownloader)) {
 }
 
 // ---- the Add RSS Feed dialog -------------------------------------------------------------
-
-/// The Add RSS Feed (and Edit Feed) dialog's fields.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct FeedForm {
-    /// With µTorrent's optional `:COOKIE:` suffix.
-    pub url: String,
-    pub alias: String,
-    /// "Automatically download all items published in feed".
-    pub subscribe: bool,
-    /// "Use smart episode filter" (with `subscribe`).
-    pub smart: bool,
-}
-
-impl FeedForm {
-    pub fn of(f: &RssFeed) -> FeedForm {
-        FeedForm {
-            url: f.url.clone(),
-            alias: f.alias.clone(),
-            subscribe: f.subscribe,
-            smart: f.subscribe_smart,
-        }
-    }
-
-    /// Adds the feed; its id.
-    pub fn add_to(&self, d: &mut RssDownloader) -> FeedId {
-        let id = d.add_feed(&self.url, &self.alias);
-        self.store(d, id);
-        id
-    }
-
-    /// Stores the form in feed `id`; whether its URL changed (it is fetched again).
-    pub fn store(&self, d: &mut RssDownloader, id: FeedId) -> bool {
-        let old = d.feed(id).map(|f| f.url.clone());
-        d.edit_feed(id, &self.url, &self.alias);
-        if let Some(f) = d.feed_mut(id) {
-            f.subscribe = self.subscribe;
-            f.subscribe_smart = self.subscribe && self.smart;
-        }
-        old.is_some_and(|u| u != self.url.trim())
-    }
-}
 
 const ID_URL: u16 = 100;
 const ID_ALIAS: u16 = 101;
@@ -214,12 +174,7 @@ unsafe extern "system" fn feed_proc(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM)
 /// The clipboard's text when it is a feed URL (µTorrent filled the Add RSS Feed dialog from
 /// it), else nothing.
 pub fn url_from_clipboard(owner: HWND) -> String {
-    dialogs::clipboard_text(owner)
-        .map(|s| s.trim().to_owned())
-        .filter(|s| {
-            (s.starts_with("http://") || s.starts_with("https://")) && !s.contains(char::is_whitespace)
-        })
-        .unwrap_or_default()
+    dialogs::clipboard_text(owner).and_then(|s| view::feed_url(&s)).unwrap_or_default()
 }
 
 // ---- the RSS Downloader dialog -----------------------------------------------------------

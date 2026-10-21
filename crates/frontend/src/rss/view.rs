@@ -108,6 +108,55 @@ pub fn interval_text(secs: u32) -> String {
         .map_or_else(|| tr!(RssSeconds, secs), |(_, n)| text(*n).to_owned())
 }
 
+/// The Add RSS Feed (and Edit Feed) dialog's fields.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct FeedForm {
+    /// With µTorrent's optional `:COOKIE:` suffix.
+    pub url: String,
+    pub alias: String,
+    /// "Automatically download all items published in feed".
+    pub subscribe: bool,
+    /// "Use smart episode filter" (with `subscribe`).
+    pub smart: bool,
+}
+
+impl FeedForm {
+    pub fn of(f: &RssFeed) -> FeedForm {
+        FeedForm {
+            url: f.url.clone(),
+            alias: f.alias.clone(),
+            subscribe: f.subscribe,
+            smart: f.subscribe_smart,
+        }
+    }
+
+    /// Adds the feed; its id.
+    pub fn add_to(&self, d: &mut RssDownloader) -> FeedId {
+        let id = d.add_feed(&self.url, &self.alias);
+        self.store(d, id);
+        id
+    }
+
+    /// Stores the form in feed `id`; whether its URL changed (it is fetched again).
+    pub fn store(&self, d: &mut RssDownloader, id: FeedId) -> bool {
+        let old = d.feed(id).map(|f| f.url.clone());
+        d.edit_feed(id, &self.url, &self.alias);
+        if let Some(f) = d.feed_mut(id) {
+            f.subscribe = self.subscribe;
+            f.subscribe_smart = self.subscribe && self.smart;
+        }
+        old.is_some_and(|u| u != self.url.trim())
+    }
+}
+
+/// `text` trimmed when it looks like a feed URL (µTorrent filled the Add RSS Feed dialog from
+/// the clipboard with one).
+pub fn feed_url(text: &str) -> Option<String> {
+    let s = text.trim();
+    ((s.starts_with("http://") || s.starts_with("https://")) && !s.contains(char::is_whitespace))
+        .then(|| s.to_owned())
+}
+
 /// The Quality field's text: "All" or the chosen names.
 pub fn quality_text(q: Quality) -> String {
     if q.is_all() { tr!(RssQualityAll).to_owned() } else { q.names() }
@@ -167,6 +216,28 @@ mod tests {
         assert_eq!(quality_text(Quality::ALL), "All");
         assert!(feed_status(d.feed(a).unwrap(), false).starts_with("Updated "));
         assert_eq!(feed_status(d.feed(a).unwrap(), true), "Updating...");
+    }
+
+    #[test]
+    fn the_feed_form_adds_and_edits() {
+        let mut d = RssDownloader::default();
+        let form =
+            FeedForm { url: " https://a/rss ".into(), alias: "A".into(), subscribe: true, smart: true };
+        let id = form.add_to(&mut d);
+        let f = d.feed(id).unwrap();
+        assert_eq!(
+            (f.url.as_str(), f.alias.as_str(), f.subscribe, f.subscribe_smart),
+            ("https://a/rss", "A", true, true)
+        );
+        assert_eq!(FeedForm::of(f).url, "https://a/rss");
+        let off = FeedForm { subscribe: false, ..FeedForm::of(f) };
+        assert!(!off.store(&mut d, id), "the same URL");
+        assert!(!d.feed(id).unwrap().subscribe_smart, "smart only with the subscription");
+        let moved = FeedForm { url: "https://b/rss".into(), ..off };
+        assert!(moved.store(&mut d, id));
+        assert_eq!(feed_url(" https://x/feed?a=1 \n"), Some("https://x/feed?a=1".into()));
+        assert_eq!(feed_url("ftp://x"), None);
+        assert_eq!(feed_url("https://x/a b"), None);
     }
 
     #[test]

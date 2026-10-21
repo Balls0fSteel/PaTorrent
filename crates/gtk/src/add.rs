@@ -633,7 +633,7 @@ fn framed(title: &str, child: &impl IsA<gtk::Widget>, target: Option<&gtk::Entry
 }
 
 /// An entry with a drop-down of `choices` beside it (none when there are none).
-fn entry_with_choices(choices: &[String]) -> (gtk::Box, gtk::Entry) {
+pub(crate) fn entry_with_choices(choices: &[String]) -> (gtk::Box, gtk::Entry) {
     let entry = gtk::Entry::new();
     let row = gtk::Box::new(gtk::Orientation::Horizontal, 0);
     row.add_css_class("linked");

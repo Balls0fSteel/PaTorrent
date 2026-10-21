@@ -2,6 +2,25 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_204619_1792608379: The GTK GUI's RSS Downloader and Feeds (Phase 7, slice 3 done)
+
+### Added
+- **GTK RSS Downloader** (`crates/gtk/src/rss.rs`), as the Win32 dialog: Options > RSS Downloader and a toolbar button; the Feeds list (All Feeds, then each feed) with Add, Edit, Remove, Update, the feed's state line, a double click to edit and a right-click menu (Add, Edit, Enable / Disable, Update, Delete); the Filters tab (the filter list with on / off check boxes, Add, Remove, Up, Down; Name, Filter, Not, Save in with a folder picker, Feed, Quality as a menu of check items, Episode number, Minimum interval, Label with the labels in use, Smart episode filter, Highest priority, Add in paused state; the matching items of the last fetches) and the History tab with Clear History. Edits go to the live downloader at once; closing the window runs the filters over the feeds' current items.
+- **GTK Add RSS Feed** dialog: URL (taken from the clipboard when it holds a feed URL), Alias, and the subscription ("Automatically download all items published in feed" with its smart episode filter); Edit Feed uses it too.
+- **The feeds run in the GTK client**: `rss.dat` beside `patorrent.ini`, the refreshes that are due every second on the shared `rss::Worker` (its threads wake the main loop), the torrents the filters choose added with their label, top of queue and paused state, magnets named by the item until their metadata arrives, the session's proxy, the Logger lines; `rss.dat` saved when it changed and at exit.
+- **The category list's Feeds branch**: a Feeds row (every feed's items) and one row per feed after the labels; picking one shows its items in the torrent list's place (Name, Episode, Format, Date, Feed, URL), where a double click or the right-click menu's Download adds them; a Feeds row's right-click menu has Add RSS Feed, Edit Feed, Disable / Enable Feed, Update Feed, Delete Feed and RSS Downloader. A label or feed that goes away gives the list back to the torrents.
+
+### Changed
+- `patorrent_frontend::rss::view` holds the Add RSS Feed dialog's `FeedForm` (moved from the Win32 client) and `feed_url` (the clipboard check). The Win32 client uses them; its behaviour is unchanged.
+
+### Verified
+- `cargo test --workspace` on Windows: 1,104 passed, 0 failed (new: `FeedForm` adding and editing, `feed_url`).
+- Stable clippy (`-D warnings`) and fmt on Windows; the 1.90.0 clippy (`-D warnings`) for Linux on the whole workspace, GTK included, with the stand-in `pkg-config`. No let-chains.
+
+### Issues
+- Not built, linked or run: no Linux machine. PLAN Known TODOs "GTK dialogs (slice 3)" lists what to try.
+- While a feed's items show, the toolbar's torrent buttons still act on the torrents selected before (hidden); the Win32 client greys them.
+
 ## 2026-10-21_203617_1792607777: The GTK GUI's scheduler, Torrent Properties, Create New Torrent, context menu and Auto Shutdown (Phase 7, slice 3)
 
 ### Added

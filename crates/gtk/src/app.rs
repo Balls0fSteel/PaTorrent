@@ -14,7 +14,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_core::fetch::{FetchOptions, http_get};
+use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
     AddTorrentParams, Alert, IpFilter, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
@@ -28,6 +28,8 @@ use patorrent_frontend::model::TorrentList;
 use patorrent_frontend::options::{self, GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::properties::{self, Properties, TorrentProps};
+use patorrent_frontend::rss::view::{self as rss_view, FeedForm, ItemRow};
+use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
@@ -37,7 +39,8 @@ use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
 use crate::paths;
 use crate::shutdown::{self, Power};
-use crate::sidebar::Sidebar;
+use crate::sidebar::{Pick, Sidebar};
+use crate::table::Table;
 
 /// The application id (D-Bus name, desktop file, single instance).
 pub const APP_ID: &str = "io.github.balls0fsteel.PaTorrent";
@@ -80,6 +83,16 @@ struct App {
     /// Options > Auto Shutdown, and the standby or hibernation waiting for the resume data.
     auto_shutdown: AutoShutdown,
     suspend_pending: Option<Power>,
+    /// The RSS Downloader (`rss.dat` beside `patorrent.ini`), its fetches, and whether it
+    /// changed since it was saved.
+    rss: RssDownloader,
+    rss_worker: Worker,
+    rss_dirty: bool,
+    /// The feed whose items the list shows (`Some(None)`: every feed's), and their rows.
+    feed_view: Option<Option<FeedId>>,
+    feed_rows: Vec<ItemRow>,
+    /// The feed a Feeds row's menu is for (`None`: the Feeds row).
+    menu_feed: Option<FeedId>,
 }
 
 /// The widgets that draw from [`App`].
@@ -91,6 +104,9 @@ struct Ui {
     details: Rc<Details>,
     /// The list over the detail tabs.
     split: gtk::Paned,
+    /// Holds the torrent list, or a feed's items in its place.
+    list_scroll: gtk::ScrolledWindow,
+    feed_table: Table,
 }
 
 thread_local! {
@@ -225,6 +241,7 @@ fn startup(app: &gtk::Application) {
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuFile))), &file);
     let options = gio::Menu::new();
     item(&options, tr!(MenuPreferences), "win.preferences");
+    item(&options, tr!(MenuRss), "win.rss");
     // Disabled | the client | the computer
     let auto = gio::Menu::new();
     let mut section = gio::Menu::new();
@@ -443,10 +460,42 @@ fn build(app: &gtk::Application) {
             }
         }),
     );
-    let sidebar = Sidebar::new(|filter| {
-        with_app(|a| a.list.set_filter(filter));
-        refresh();
+    let sidebar = Sidebar::new(
+        |pick| match pick {
+            Pick::Torrents(filter) => {
+                with_app(|a| a.list.set_filter(filter));
+                show_feed_items(None);
+                refresh();
+            }
+            Pick::Feed(feed) => show_feed_items(Some(feed)),
+        },
+        Rc::new(|feed, widget, x, y| {
+            with_app(|a| a.menu_feed = feed);
+            if let Some(ui) = ui() {
+                popup_menu(&feed_menu(feed), ui.sidebar.widget.upcast_ref(), widget, x, y);
+            }
+        }),
+    );
+    // a feed's items, in the torrent list's place while a feed is picked
+    let feed_text: crate::table::CellText = Rc::new(|row, column| {
+        APP.with(|a| {
+            let a = a.try_borrow().ok()?;
+            a.as_ref()?.feed_rows.get(row)?.cells.get(column).cloned()
+        })
+        .unwrap_or_default()
     });
+    let item_menu: crate::table::ContextMenu = Rc::new(|widget, x, y| {
+        let menu = gio::Menu::new();
+        item(&menu, tr!(MenuDownload), "win.feed-item-download");
+        let more = gio::Menu::new();
+        item(&more, tr!(MenuRss), "win.rss");
+        menu.append_section(None, &more);
+        if let Some(ui) = ui() {
+            popup_menu(&menu, ui.feed_table.view.upcast_ref(), widget, x, y);
+        }
+    });
+    let feed_table = Table::new(&rss_view::ITEM_COLUMNS, feed_text, None, Some(item_menu));
+    feed_table.view.connect_activate(|_, _| download_feed_items());
     let status: [gtk::Label; 4] = std::array::from_fn(|_| {
         let l = gtk::Label::new(None);
         l.set_xalign(0.0);
@@ -470,6 +519,8 @@ fn build(app: &gtk::Application) {
         None,
         Some(("go-up", "win.queue-up", tr!(ToolQueueUp))),
         Some(("go-down", "win.queue-down", tr!(ToolQueueDown))),
+        None,
+        Some(("application-rss+xml", "win.rss", tr!(ToolRss))),
     ] {
         match item {
             Some((icon, action, tip)) => {
@@ -541,7 +592,7 @@ fn build(app: &gtk::Application) {
     add_actions(&window, &list);
     // magnets whose dialog was still to come at the last exit
     let awaiting = add::AwaitingMetadata::load(&prefs);
-    let ui = Rc::new(Ui { list, sidebar, status, paned, details, split });
+    let ui = Rc::new(Ui { list, sidebar, status, paned, details, split, list_scroll, feed_table });
     UI.with(|u| *u.borrow_mut() = Some(ui));
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
@@ -568,6 +619,13 @@ fn build(app: &gtk::Application) {
             scheduler: Scheduler::new(),
             auto_shutdown: AutoShutdown::default(),
             suspend_pending: None,
+            rss: RssDownloader::load(&rss_file()),
+            // a fetch finished on its thread: its result is taken on the main loop
+            rss_worker: Worker::new(|| glib::MainContext::default().invoke(rss_collect)),
+            rss_dirty: false,
+            feed_view: None,
+            feed_rows: Vec::new(),
+            menu_feed: None,
         })
     });
     with_app(|a| {
@@ -593,6 +651,7 @@ fn build(app: &gtk::Application) {
         let step = with_app(|a| {
             run_scheduler(a, None);
             autoload(a);
+            rss_timer(a);
             let list = &a.list;
             a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), std::time::Instant::now())
         });
@@ -630,6 +689,9 @@ fn shutdown() {
     app.prefs.set_bool("gtk.maximized", app.window.is_maximized());
     if let Err(e) = app.prefs.save() {
         eprintln!("cannot save the settings: {e}");
+    }
+    if let Err(e) = app.rss.save(&rss_file()) {
+        eprintln!("cannot save {}: {e}", rss_file().display());
     }
     app.handle.clear_alert_notify();
     if let Some(s) = app.session.take() {
@@ -789,10 +851,25 @@ fn refresh() {
     APP.with(|a| {
         if let Ok(a) = a.try_borrow() {
             if let Some(a) = a.as_ref() {
-                ui.sidebar.update(&a.list);
+                let feeds: Vec<(FeedId, String)> =
+                    a.rss.feeds.iter().map(|f| (f.id, f.name().to_owned())).collect();
+                ui.sidebar.update(&a.list, &feeds);
             }
         }
     });
+    // a label or feed shown that went away gives the list back to the torrents
+    let gone = with_app(|a| match ui.sidebar.current() {
+        Pick::Torrents(f) if *a.list.filter() != f => {
+            a.list.set_filter(f);
+            true
+        }
+        Pick::Torrents(_) => a.feed_view.is_some(),
+        Pick::Feed(_) => false,
+    });
+    if gone == Some(true) {
+        show_feed_items(None);
+        refresh();
+    }
 }
 
 /// The torrent the detail tabs show: the first selected one.
@@ -904,6 +981,13 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
     simple("add", add_files);
     simple("add-url", add_url);
     simple("create", create_torrent);
+    simple("rss", || show_rss(None));
+    simple("feed-item-download", download_feed_items);
+    for name in ["feed-add", "feed-edit", "feed-toggle", "feed-update", "feed-remove", "feed-rss"] {
+        let a = gio::SimpleAction::new(name, None);
+        a.connect_activate(move |_, _| feed_command(name));
+        window.add_action(&a);
+    }
     simple("remove", || remove(false));
     simple("remove-data", || remove(true));
     simple("open-folder", || open_folder(&selected()));
@@ -1813,6 +1897,315 @@ fn log_ip_filter(a: &mut App, path: &std::path::Path, r: &Result<usize, String>)
         Err(e) => format!("{} {}", now_hms(), tr!(LogIpFilterError, path = path.display(), error = e)),
     };
     a.detail.push_log(line);
+}
+
+// ---- RSS ------------------------------------------------------------------------------------
+// The RSS Downloader (`patorrent_frontend::rss`): the timer starts the refreshes that are due,
+// the fetches run on the worker's threads and wake the main loop, and `rss_collect` takes their
+// results here and adds what the filters chose.
+
+/// `rss.dat`, beside `patorrent.ini`.
+fn rss_file() -> PathBuf {
+    paths::config_dir().join(patorrent_frontend::rss::store::FILE_NAME)
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
+}
+
+/// The proxy feeds and their downloads go through: the engine's, when it carries HTTP
+/// tracker connections.
+fn rss_proxy(a: &App) -> Option<FetchProxy> {
+    FetchProxy::from_settings(&Options::load(&a.prefs, &a.save_path).settings)
+}
+
+/// Once a second: the refreshes that are due, and `rss.dat` when it changed.
+fn rss_timer(a: &mut App) {
+    let now = unix_now();
+    if a.rss.next_due().is_some_and(|t| t <= now)
+        && a.rss.due_feeds(now).iter().any(|&id| !a.rss_worker.is_busy(id))
+    {
+        let proxy = rss_proxy(a);
+        a.rss_worker.refresh_due(&a.rss, now, proxy.as_ref());
+    }
+    if a.rss_dirty {
+        a.rss_dirty = false;
+        if let Err(e) = a.rss.save(&rss_file()) {
+            let line = tr!(LogNotSaved, file = rss_file().display(), error = e);
+            a.detail.push_log(format!("{} {line}", now_hms()));
+        }
+    }
+}
+
+/// Starts refreshing feed `feed` now (`None`: every enabled feed).
+fn rss_update(a: &mut App, feed: Option<FeedId>) {
+    let proxy = rss_proxy(a);
+    let ids: Vec<FeedId> = match feed {
+        Some(id) => vec![id],
+        None => a.rss.feeds.iter().filter(|f| f.enabled).map(|f| f.id).collect(),
+    };
+    for id in ids {
+        a.rss_worker.refresh(&a.rss, id, proxy.as_ref());
+    }
+}
+
+/// A fetch finished: the results into the downloader, and their torrents into the session.
+fn rss_collect() {
+    let Some(changed) = with_app(|a| {
+        let proxy = rss_proxy(a);
+        let c = a.rss_worker.collect(&mut a.rss, unix_now(), proxy.as_ref());
+        for line in c.log {
+            a.detail.push_log(format!("{} {line}", now_hms()));
+        }
+        for (req, d) in c.adds {
+            rss_add(a, req, d);
+        }
+        a.rss_dirty |= c.changed;
+        c.changed
+    }) else {
+        return;
+    };
+    if changed {
+        rss_changed();
+    }
+    refresh_details();
+}
+
+/// What follows the downloader: the open RSS Downloader window, the Feeds rows and the feed
+/// items in the list.
+fn rss_changed() {
+    crate::rss::changed();
+    refresh();
+    refresh_feed_rows();
+}
+
+/// Shows feed items in the list (`Some(None)`: every feed's) or, with `None`, the torrents.
+fn show_feed_items(view: Option<Option<FeedId>>) {
+    let Some(ui) = ui() else { return };
+    let Some(n) = with_app(|a| {
+        a.feed_view = view;
+        a.feed_rows = view.map(|f| rss_view::item_rows(&a.rss, f)).unwrap_or_default();
+        a.feed_rows.len()
+    }) else {
+        return;
+    };
+    let child: gtk::Widget =
+        if view.is_some() { ui.feed_table.view.clone().upcast() } else { ui.list.view.clone().upcast() };
+    if ui.list_scroll.child().as_ref() != Some(&child) {
+        ui.list_scroll.set_child(Some(&child));
+    }
+    if view.is_some() {
+        ui.feed_table.unselect_all();
+        ui.feed_table.update(n);
+    }
+}
+
+/// The feed items again after a fetch (when the list shows them).
+fn refresh_feed_rows() {
+    let Some(ui) = ui() else { return };
+    let n = with_app(|a| {
+        let view = a.feed_view?;
+        a.feed_rows = rss_view::item_rows(&a.rss, view);
+        Some(a.feed_rows.len())
+    })
+    .flatten();
+    if let Some(n) = n {
+        ui.feed_table.update(n);
+    }
+}
+
+/// Downloads the selected feed items (a double click, or the menu's Download).
+fn download_feed_items() {
+    let Some(rows) = ui().map(|ui| ui.feed_table.selected()) else { return };
+    with_app(|a| {
+        let now = unix_now();
+        let picked: Vec<(FeedId, String)> =
+            rows.iter().filter_map(|&r| a.feed_rows.get(r)).map(|r| (r.feed, r.id.clone())).collect();
+        let reqs: Vec<AddRequest> =
+            picked.into_iter().filter_map(|(feed, id)| a.rss.request_item(feed, &id, now)).collect();
+        rss_download(a, reqs);
+    });
+    refresh_feed_rows();
+    refresh_details();
+}
+
+/// The right-click menu of a Feeds row (µTorrent's: Add RSS Feed, Edit Feed, Disable Feed,
+/// Update Feed, Delete Feed), for `feed` (`None`: the Feeds row).
+fn feed_menu(feed: Option<FeedId>) -> gio::Menu {
+    let enabled = with_app(|a| feed.and_then(|id| a.rss.feed(id)).is_none_or(|f| f.enabled)).unwrap_or(true);
+    if let Some(window) = with_app(|a| a.window.clone()) {
+        for name in ["feed-edit", "feed-toggle", "feed-remove"] {
+            if let Some(a) = window.lookup_action(name).and_downcast::<gio::SimpleAction>() {
+                a.set_enabled(feed.is_some());
+            }
+        }
+    }
+    let menu = gio::Menu::new();
+    let feeds = gio::Menu::new();
+    item(&feeds, tr!(MenuAddFeed), "win.feed-add");
+    item(&feeds, tr!(MenuEditFeed), "win.feed-edit");
+    item(&feeds, if enabled { tr!(MenuDisableFeed) } else { tr!(MenuEnableFeed) }, "win.feed-toggle");
+    item(&feeds, tr!(MenuUpdateFeed), "win.feed-update");
+    item(&feeds, tr!(MenuDeleteFeed), "win.feed-remove");
+    menu.append_section(None, &feeds);
+    let more = gio::Menu::new();
+    item(&more, tr!(MenuRss), "win.feed-rss");
+    menu.append_section(None, &more);
+    menu
+}
+
+/// A Feeds row menu's command on the feed it was opened for.
+fn feed_command(name: &str) {
+    let Some((window, feed)) = with_app(|a| (a.window.clone(), a.menu_feed)) else { return };
+    match name {
+        "feed-add" => crate::rss::add_feed_dialog(window.upcast_ref(), |form| {
+            with_app(|a| {
+                let id = form.add_to(&mut a.rss);
+                a.rss_dirty = true;
+                rss_update(a, Some(id));
+            });
+            rss_changed();
+        }),
+        "feed-edit" => {
+            let Some(id) = feed else { return };
+            let Some(form) = with_app(|a| a.rss.feed(id).map(FeedForm::of)).flatten() else { return };
+            crate::rss::feed_dialog(window.upcast_ref(), tr!(RssEditFeed), form, move |form| {
+                with_app(|a| {
+                    if form.store(&mut a.rss, id) {
+                        rss_update(a, Some(id));
+                    }
+                    a.rss_dirty = true;
+                });
+                rss_changed();
+            });
+        }
+        "feed-toggle" => {
+            with_app(|a| {
+                if let Some(f) = feed.and_then(|id| a.rss.feed_mut(id)) {
+                    f.enabled = !f.enabled;
+                    a.rss_dirty = true;
+                }
+            });
+        }
+        "feed-update" => {
+            with_app(|a| rss_update(a, feed));
+        }
+        "feed-remove" => {
+            let Some(id) = feed else { return };
+            let name =
+                with_app(|a| a.rss.feed(id).map(|f| f.name().to_owned())).flatten().unwrap_or_default();
+            let d = gtk::AlertDialog::builder()
+                .message(tr!(AskDeleteFeed, name))
+                .buttons([tr!(BtnCancel), tr!(BtnOk)])
+                .cancel_button(0)
+                .default_button(1)
+                .modal(true)
+                .build();
+            d.choose(Some(&window), None::<&gio::Cancellable>, move |r| {
+                if r == Ok(1) {
+                    with_app(|a| {
+                        a.rss.remove_feed(id);
+                        a.rss_dirty = true;
+                    });
+                    rss_changed();
+                }
+            });
+        }
+        "feed-rss" => show_rss(feed),
+        _ => {}
+    }
+}
+
+/// Adds a torrent the downloader asked for: its label, "highest priority" (the top of the
+/// queue once added) and "paused state" (µTorrent's Pause) as the Add dialog's would be.
+fn rss_add(a: &mut App, req: AddRequest, d: Download) {
+    if let Some(key) = d.info_hashes().map(|h| h.key_hex()) {
+        if in_list(a, &key).is_some() {
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogRssAlreadyInList, title = req.title)));
+            return;
+        }
+        // picked up when the torrent first shows up in the list, like a restored label
+        if !req.label.is_empty() {
+            a.prefs.set(&format!("torrent.{key}.label"), &req.label);
+        }
+        if req.paused {
+            a.prefs.set_bool(&format!("torrent.{key}.paused"), true);
+        }
+        if req.top_priority {
+            a.queue_top.insert(key);
+        }
+    }
+    let magnet = matches!(d, Download::Magnet(_));
+    let mut p = AddTorrentParams::new(d.into_source(), a.save_path.clone());
+    GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+    req.apply_to(&mut p);
+    if magnet {
+        // the item's title until the metadata names it
+        p.name = Some(req.title.clone());
+    }
+    add_to_session(a, p);
+    save_prefs(a);
+}
+
+/// Starts the downloads `reqs` ask for (the magnet links are added at once).
+fn rss_download(a: &mut App, reqs: Vec<AddRequest>) {
+    if reqs.is_empty() {
+        return;
+    }
+    for r in &reqs {
+        let feed = a.rss.feed(r.feed).map(|f| f.name().to_owned()).unwrap_or_default();
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(RssLogDownloading, name = feed, title = r.title)));
+    }
+    let proxy = rss_proxy(a);
+    for (req, d) in a.rss_worker.download(reqs, proxy.as_ref()) {
+        rss_add(a, req, d);
+    }
+    a.rss_dirty = true;
+}
+
+/// Options > RSS Downloader, with `feed` picked. The window edits the live downloader; when it
+/// closes the filters run over the feeds' current items (they may have changed).
+fn show_rss(feed: Option<FeedId>) {
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    crate::rss::show(&window, Rc::new(AppHost), feed, || {
+        with_app(|a| {
+            let now = unix_now();
+            let ids: Vec<FeedId> = a.rss.feeds.iter().map(|f| f.id).collect();
+            let reqs: Vec<AddRequest> = ids.into_iter().flat_map(|id| a.rss.process(id, now)).collect();
+            rss_download(a, reqs);
+            a.rss_dirty = true;
+        });
+        rss_changed();
+        refresh_details();
+    });
+}
+
+/// What the RSS Downloader window asks of the main window.
+struct AppHost;
+
+impl crate::rss::Host for AppHost {
+    fn view(&self, f: &mut dyn FnMut(&RssDownloader)) {
+        with_app(|a| f(&a.rss));
+    }
+
+    fn edit(&self, f: &mut dyn FnMut(&mut RssDownloader)) {
+        with_app(|a| {
+            f(&mut a.rss);
+            a.rss_dirty = true;
+        });
+    }
+
+    fn updating(&self, id: FeedId) -> bool {
+        with_app(|a| a.rss_worker.is_busy(id)).unwrap_or(false)
+    }
+
+    fn update(&self, id: Option<FeedId>) {
+        with_app(|a| rss_update(a, id));
+    }
+
+    fn labels(&self) -> Vec<String> {
+        with_app(|a| labels(a)).unwrap_or_default()
+    }
 }
 
 /// File > Create New Torrent; with "Start seeding" the new torrent is added with the source's

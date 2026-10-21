@@ -335,6 +335,15 @@ Proposed 2026-10-19_224116_1792442476, decided by the owner 2026-10-19_230101_17
 
 **Still to settle:** Properties > Advanced and the `rss.*` Advanced settings need a real µTorrent 2.2.1 to copy from.
 
+## V2.0 goals
+
+Noted by the owner 2026-10-21_082212_1792563732. Not designed yet; each needs research and a decision before work starts.
+
+1. **Profiles**, like a browser's: separate settings, torrents and state per profile, and several instances running at once (one per profile), which means the single-instance handling, listen ports, the Web UI port and the nox service have to be per profile.
+2. **GitHub Releases**: binaries people can download (the Windows zip, AppImage, tarballs, and so on) attached to tagged releases. Builds on Road to 1.0 items 6–8 (the packaging workflows).
+3. **Portable mode**: run entirely from a folder (settings, state and downloads relative to it), on every platform. Research the options first; qBittorrent's mode (a `profile` folder beside the exe) may not be the best model. Revisit D7 (Windows keeps settings beside the exe today) as part of it, and see how it fits with profiles.
+4. **A multilingual wiki guide**: a user guide in the D24 languages, probably written and translated with Sonnet.
+
 ## Open questions
 
 - **Q1, Q2, Q8, Q9.** Resolved, see D14–D17.

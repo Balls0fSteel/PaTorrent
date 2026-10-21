@@ -2,6 +2,11 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_082212_1792563732: V2.0 goals noted
+
+### Added
+- PLAN.md "V2.0 goals", from the owner: profiles with several instances at once, GitHub Releases with downloadable binaries, a portable mode (to be researched; qBittorrent's may not be the model), and a multilingual wiki guide (probably written and translated with Sonnet). Nothing designed or built yet.
+
 ## 2026-10-21_002121_1792534881: The read cache on Preferences > Disk Cache
 
 ### Added

@@ -78,6 +78,14 @@ impl CountModel {
         }
         true
     }
+
+    /// `removed` rows at `at` replaced by `added` ones (a folder of a tree opened or closed).
+    /// Rows after them move, so their cells must read their row from the list item's position.
+    pub fn splice(&self, at: usize, removed: usize, added: usize) {
+        let len = self.imp().len.get() as usize;
+        self.imp().len.set((len - removed + added) as u32);
+        self.items_changed(at as u32, removed as u32, added as u32);
+    }
 }
 
 /// The text of a cell: (row, column).

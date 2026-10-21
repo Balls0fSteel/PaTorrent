@@ -2889,16 +2889,8 @@ unsafe fn magnet_dialogs(hwnd: HWND) {
             let key = a.awaiting.ready().into_iter().next()?;
             let w = a.awaiting.get(&key)?.clone();
             let gui = GuiOptions::load(&a.prefs, &a.save_path);
-            let mut dirs = add::save_in_choices(&gui.download_dir, &add::recent_dirs(&a.prefs));
-            // the folder it was added with first
-            dirs.retain(|d| !d.eq_ignore_ascii_case(&w.save_path));
-            dirs.insert(0, w.save_path.clone());
-            let setup = crate::add::Setup {
-                save_dirs: dirs,
-                labels: a.list.labels().into_iter().map(|(l, _)| l).collect(),
-                start: !gui.add_stopped,
-                in_session: true,
-            };
+            let labels = a.list.labels().into_iter().map(|(l, _)| l).collect();
+            let setup = add::Setup::for_magnet(&gui, &a.prefs, labels, &w.save_path);
             a.awaiting_dialog = true;
             Some((key, w, setup))
         })
@@ -2935,12 +2927,7 @@ unsafe fn magnet_dialogs(hwnd: HWND) {
 fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
     let Some((show, setup)) = with_app(|a| {
         let gui = GuiOptions::load(&a.prefs, &a.save_path);
-        let setup = crate::add::Setup {
-            save_dirs: add::save_in_choices(&gui.download_dir, &add::recent_dirs(&a.prefs)),
-            labels: a.list.labels().into_iter().map(|(l, _)| l).collect(),
-            start: !gui.add_stopped,
-            in_session: false,
-        };
+        let setup = add::Setup::new(&gui, &a.prefs, a.list.labels().into_iter().map(|(l, _)| l).collect());
         (gui.show_add_dialog, setup)
     }) else {
         return;

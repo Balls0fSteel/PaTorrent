@@ -15,6 +15,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{gio, glib};
 use patorrent_core::fetch::{FetchOptions, http_get};
+use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
     AddTorrentParams, Alert, QueueMove, RemoveFlags, Session, SessionHandle, SessionParams, SessionStats,
     TorrentId, TorrentSource,
@@ -25,7 +26,7 @@ use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
 use patorrent_frontend::options::{GuiOptions, Options};
 use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::{actions, fmt, tr};
+use patorrent_frontend::{actions, add, fmt, tr};
 
 use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
@@ -52,6 +53,12 @@ struct App {
     detail: Detail,
     /// The torrent whose file list was asked for (it is asked once per selection).
     files_requested: Option<TorrentId>,
+    /// Magnets waiting for their metadata before the Add New Torrent dialog opens.
+    awaiting: add::AwaitingMetadata,
+    /// A magnet's Add New Torrent dialog is open (they open one at a time).
+    awaiting_dialog: bool,
+    /// Info-hashes to move to the top of the queue once added ("Add to top of queue").
+    queue_top: HashSet<String>,
 }
 
 /// The widgets that draw from [`App`].
@@ -399,6 +406,8 @@ fn build(app: &gtk::Application) {
     list.selection.connect_selection_changed(|_, _, _| selection_changed());
 
     add_actions(&window, &list);
+    // magnets whose dialog was still to come at the last exit
+    let awaiting = add::AwaitingMetadata::load(&prefs);
     let ui = Rc::new(Ui { list, sidebar, status, paned, details, split });
     UI.with(|u| *u.borrow_mut() = Some(ui));
     APP.with(|a| {
@@ -414,6 +423,9 @@ fn build(app: &gtk::Application) {
             alerts: Vec::new(),
             detail: Detail::default(),
             files_requested: None,
+            awaiting,
+            awaiting_dialog: false,
+            queue_top: HashSet::new(),
         })
     });
     with_app(|a| {
@@ -474,10 +486,12 @@ fn shutdown() {
 
 fn on_alerts() {
     let mut errors = Vec::new();
+    let mut magnet_ready = false;
     let done = with_app(|a| {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
         for alert in alerts.drain(..) {
+            magnet_ready |= a.awaiting.on_alert(&alert, &a.handle, &mut a.prefs);
             match alert {
                 Alert::StateUpdate(v) => {
                     for st in &v {
@@ -499,8 +513,11 @@ fn on_alerts() {
                     a.stats = s;
                     a.detail.push_speed(s.download_rate, s.upload_rate);
                 }
-                Alert::TorrentAdded { ref name, .. } => {
+                Alert::TorrentAdded { id, info_hashes, ref name } => {
                     a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAdded, name)));
+                    if a.queue_top.remove(&info_hashes.key_hex()) {
+                        a.handle.torrent(id).queue_position(QueueMove::Top);
+                    }
                     a.handle.post_torrent_updates();
                 }
                 Alert::AddTorrentFailed { ref name, ref error } => {
@@ -569,6 +586,9 @@ fn on_alerts() {
     update_status();
     for (message, detail) in errors {
         error(&message, &detail);
+    }
+    if magnet_ready {
+        magnet_dialogs();
     }
 }
 
@@ -644,7 +664,7 @@ fn refresh_details() {
 }
 
 /// Opens `menu` at (x, y) of `widget`, hung off `parent`.
-fn popup_menu(menu: &gio::Menu, parent: &gtk::Widget, widget: &gtk::Widget, x: f64, y: f64) {
+pub(crate) fn popup_menu(menu: &gio::Menu, parent: &gtk::Widget, widget: &gtk::Widget, x: f64, y: f64) {
     let at = widget
         .compute_point(parent, &gtk::graphene::Point::new(x as f32, y as f32))
         .unwrap_or_else(|| gtk::graphene::Point::new(x as f32, y as f32));
@@ -683,6 +703,11 @@ fn update_status() {
 fn error(message: &str, detail: &str) {
     let Some(window) = with_app(|a| a.window.clone()) else { return };
     gtk::AlertDialog::builder().message(message).detail(detail).modal(true).build().show(Some(&window));
+}
+
+fn info(message: &str) {
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    gtk::AlertDialog::builder().message(message).modal(true).build().show(Some(&window));
 }
 
 // --- actions -------------------------------------------------------------------------------
@@ -917,20 +942,138 @@ fn open_source(f: &gio::File) {
     }
 }
 
+/// A `.torrent`'s contents, through the Add New Torrent dialog unless Preferences turned it off
+/// (files the engine cannot read are handed to it anyway, so it reports why).
 fn add_torrent_file(bytes: Vec<u8>) {
-    add(TorrentSource::TorrentFile(bytes));
+    let Some((window, show, setup)) = with_app(|a| {
+        let gui = GuiOptions::load(&a.prefs, &a.save_path);
+        let setup = add::Setup::new(&gui, &a.prefs, labels(a));
+        (a.window.clone(), gui.show_add_dialog, setup)
+    }) else {
+        return;
+    };
+    let ti = match TorrentInfo::from_bytes(&bytes) {
+        Ok(ti) if show => ti,
+        _ => return add(TorrentSource::TorrentFile(bytes)),
+    };
+    let key = ti.info_hashes().key_hex();
+    if with_app(|a| in_list(a, &key).is_some()) == Some(true) {
+        info(&tr!(InfoAlreadyInList, name = ti.name()));
+        return;
+    }
+    let ti2 = ti.clone();
+    crate::add::show(&window, &ti, setup, move |choice| {
+        let Some(choice) = choice else { return };
+        with_app(|a| {
+            add::remember_dir(&mut a.prefs, &choice.save_path);
+            if !choice.label.is_empty() {
+                // picked up when the torrent first shows up in the list, like a restored label
+                a.prefs.set(&format!("torrent.{key}.label"), &choice.label);
+            }
+            if choice.top_of_queue {
+                a.queue_top.insert(key);
+            }
+            save_prefs(a);
+            let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), a.save_path.clone());
+            GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+            choice.apply_to(&ti2, &mut p);
+            a.handle.add_torrent(p);
+        });
+    });
 }
 
+/// A magnet link. With the Add New Torrent dialog on, the magnet joins the session in upload
+/// mode to fetch its metadata, and the dialog opens once the file list is known
+/// ([`add::AwaitingMetadata`], [`magnet_dialogs`]); otherwise it is added directly.
 fn add_magnet(uri: String) {
-    add(TorrentSource::Magnet(uri));
+    let show = with_app(|a| GuiOptions::load(&a.prefs, &a.save_path).show_add_dialog).unwrap_or(false);
+    let key = match parse_magnet_uri(&uri) {
+        Ok(m) if show => m.info_hashes.key_hex(),
+        // the engine reports a broken link
+        _ => return add(TorrentSource::Magnet(uri)),
+    };
+    if let Some(name) = with_app(|a| in_list(a, &key)).flatten() {
+        info(&tr!(InfoAlreadyInList, name));
+        return;
+    }
+    with_app(|a| {
+        let save_path = a.save_path.clone();
+        let mut p = AddTorrentParams::new(TorrentSource::Magnet(uri), save_path.clone());
+        GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
+        add::AwaitingMetadata::prepare(&mut p);
+        a.awaiting.insert(&mut a.prefs, &key, &save_path);
+        save_prefs(a);
+        a.handle.add_torrent(p);
+    });
 }
 
+/// The Add New Torrent dialog for each magnet whose metadata arrived, one at a time. OK gives
+/// the torrent the choices and starts it (or leaves it stopped); Cancel removes it with its
+/// part file (nothing else was written).
+fn magnet_dialogs() {
+    let next = with_app(|a| {
+        if a.awaiting_dialog {
+            return None;
+        }
+        let key = a.awaiting.ready().into_iter().next()?;
+        let w = a.awaiting.get(&key)?.clone();
+        let gui = GuiOptions::load(&a.prefs, &a.save_path);
+        let setup = add::Setup::for_magnet(&gui, &a.prefs, labels(a), &w.save_path);
+        a.awaiting_dialog = true;
+        Some((a.window.clone(), key, w, setup))
+    })
+    .flatten();
+    let Some((window, key, w, setup)) = next else { return };
+    let (Some(id), Some(ti)) = (w.id, w.ti.clone()) else { return };
+    crate::add::show(&window, &ti.clone(), setup, move |choice| {
+        with_app(|a| {
+            a.awaiting_dialog = false;
+            a.awaiting.finish(&mut a.prefs, &key);
+            match choice {
+                Some(c) => {
+                    add::remember_dir(&mut a.prefs, &c.save_path);
+                    if !c.label.is_empty() {
+                        a.prefs.set(&format!("torrent.{key}.label"), &c.label);
+                        a.list.set_label(id, &c.label);
+                    }
+                    c.apply_to_torrent(&a.handle.torrent(id), &ti, &w.save_path, false);
+                    a.handle.post_torrent_updates();
+                }
+                None => a.handle.remove_torrent(id, RemoveFlags::DELETE_PARTFILE),
+            }
+            save_prefs(a);
+        });
+        // the next one, if another is ready
+        glib::idle_add_local_once(magnet_dialogs);
+    });
+}
+
+/// Adds without the dialog, with the Preferences' defaults.
 fn add(source: TorrentSource) {
     with_app(|a| {
         let mut p = AddTorrentParams::new(source, a.save_path.clone());
         GuiOptions::load(&a.prefs, &a.save_path).apply_to_new(&mut p);
         a.handle.add_torrent(p);
     });
+}
+
+/// The name of the torrent in the list with info-hash `key` (`InfoHashes::key_hex`).
+fn in_list(a: &App, key: &str) -> Option<String> {
+    a.list
+        .ids()
+        .find_map(|id| a.list.get(id).filter(|s| s.info_hashes.key_hex() == key))
+        .map(|s| s.name.clone())
+}
+
+/// The labels in use, for the dialog's Label list.
+fn labels(a: &App) -> Vec<String> {
+    a.list.labels().into_iter().map(|(l, _)| l).collect()
+}
+
+fn save_prefs(a: &mut App) {
+    if let Err(e) = a.prefs.save() {
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
+    }
 }
 
 /// Fetches a `.torrent` on a worker thread, then adds it.

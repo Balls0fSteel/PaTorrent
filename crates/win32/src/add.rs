@@ -12,7 +12,7 @@ use std::mem::{size_of, zeroed};
 use std::ptr::{null, null_mut};
 
 use patorrent_core::metainfo::TorrentInfo;
-use patorrent_frontend::add::{self, AddChoice, Check, FileTree};
+use patorrent_frontend::add::{self, AddChoice, Check, FileTree, Setup};
 use patorrent_frontend::detail::{PRIORITIES, priority_text};
 use patorrent_frontend::{fmt, lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
@@ -83,20 +83,6 @@ const ID_NONE: u16 = 113;
 const MENU_PRIO: usize = 1;
 const MENU_CHECK: usize = 10;
 const MENU_UNCHECK: usize = 11;
-
-/// What the dialog starts with (the caller reads it from the preferences and the list).
-#[derive(Clone, Debug, Default)]
-pub struct Setup {
-    /// The Save In list; the first is selected.
-    pub save_dirs: Vec<String>,
-    /// The labels already in use.
-    pub labels: Vec<String>,
-    /// "Start torrent" (off with Preferences' "Don't start the download automatically").
-    pub start: bool,
-    /// The torrent is in the session already (a magnet that fetched its metadata): its files
-    /// were checked when the metadata arrived, so "Skip hash check" is greyed out.
-    pub in_session: bool,
-}
 
 struct State {
     name: String,
@@ -402,17 +388,14 @@ unsafe fn command(dlg: HWND, st: &mut State, id: u16, code: u32) -> bool {
 /// Reads the fields; `None` after telling the user what is wrong.
 unsafe fn collect(dlg: HWND, st: &State) -> Option<AddChoice> {
     unsafe {
-        let save_path = window_text(item(dlg, ID_SAVE)).trim().trim_matches('"').to_owned();
-        if save_path.is_empty() {
-            dialogs::error(dlg, tr!(AddNoFolder));
-            SetFocus(item(dlg, ID_SAVE));
-            return None;
-        }
-        if let Err(e) = std::fs::create_dir_all(&save_path) {
-            dialogs::error(dlg, &format!("{save_path}:\n{e}"));
-            SetFocus(item(dlg, ID_SAVE));
-            return None;
-        }
+        let save_path = match add::save_folder(&window_text(item(dlg, ID_SAVE))) {
+            Ok(dir) => dir,
+            Err(e) => {
+                dialogs::error(dlg, &e);
+                SetFocus(item(dlg, ID_SAVE));
+                return None;
+            }
+        };
         let name = window_text(item(dlg, ID_NAME)).trim().to_owned();
         Some(AddChoice {
             save_path,

@@ -2,6 +2,25 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_195046_1792605046: The GTK GUI's Add New Torrent dialog (Phase 7, slice 3 begins)
+
+### Added
+- **GTK Add New Torrent** (`crates/gtk/src/add.rs`), as the Win32 dialog: Save In with the default and recent folders (an entry with a drop-down) and a folder picker, Name, Skip hash check, Start torrent, Add to top of queue, Label (with the labels in use), and Torrent Contents: name, comment, size with the selection and the free disk space (GIO's `filesystem::free`), date, the file tree, Select All / Select None, OK / Cancel (Escape).
+  - The file tree is a `ColumnView` over the frontend's `FileTree` behind a row count, so big torrents open at once: per row an arrow for folders, a check box (mixed for folders whose files differ), the theme's icon for the file type, the name indented by depth, Size and Priority. Folders open and close with the arrow, a double click, Enter, Right / Left or + / -; Left on a file goes to its folder; Space toggles the selected rows; a right click offers the four priorities, Check and Uncheck.
+  - Opening a folder splices its rows in under it (`CountModel::splice`); the cells read their row from the list item's position when drawn, since the rows below move.
+- **The GTK client adds through it**: `.torrent` files from the file dialog, the command line, a second start and URLs, unless `ui.show_add_dialog` is off; a torrent already in the list is refused with a message. Magnets wait in the session in upload mode for their metadata and then open the dialog (`AwaitingMetadata`, restored across restarts), one at a time; OK applies the choices to the torrent, Cancel removes it with its part file. The label is kept as `torrent.<hash>.label`, "Add to top of queue" moves it once added, the folder joins the recent ones.
+
+### Changed
+- `patorrent_frontend::add` holds the dialog's `Setup` (moved from the Win32 client) with `Setup::new` (a `.torrent`) and `Setup::for_magnet` (the folder it was added with first, Skip hash check greyed), and `save_folder` (the Save In text trimmed and unquoted, created if missing, or the message for the user). The Win32 dialog uses them; its behaviour is unchanged.
+
+### Verified
+- `cargo test -p patorrent-frontend -p patorrent`: all pass (frontend 133, Win32 53), with new tests for `Setup` and `save_folder`.
+- Stable clippy (`-D warnings`) and fmt on Windows; the 1.90.0 clippy (`-D warnings`) for Linux on `patorrent-gtk` and `patorrent-frontend` with the stand-in `pkg-config` (a planted error was caught, so the lint covers the new file). No let-chains (MSRV 1.85).
+
+### Issues
+- Not built, linked or run: no Linux machine (as for the detail tabs). PLAN Known TODOs "GTK Add New Torrent" lists what to try.
+- The GTK Preferences has no "Show a window that displays the files inside the torrent" box yet: turning the dialog off means `ui.show_add_dialog=0` in `patorrent.ini`.
+
 ## 2026-10-21_141400_1792584840: The GTK GUI's detail tabs (Phase 7, slice 2)
 
 ### Added

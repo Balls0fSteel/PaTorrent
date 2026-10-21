@@ -14,6 +14,7 @@ use patorrent_core::{
     TorrentHandle, TorrentId,
 };
 
+use crate::options::GuiOptions;
 use crate::prefs::Prefs;
 
 /// A row's check box: folders are mixed when only some of their files are wanted.
@@ -397,6 +398,53 @@ impl FileTree {
     pub fn num_files(&self) -> usize {
         self.node_of.iter().filter(|n| n.is_some()).count()
     }
+}
+
+/// What the dialog starts with, read from the preferences and the list.
+#[derive(Clone, Debug, Default)]
+pub struct Setup {
+    /// The Save In list; the first is selected.
+    pub save_dirs: Vec<String>,
+    /// The labels already in use.
+    pub labels: Vec<String>,
+    /// "Start torrent" (off with Preferences' "Don't start the download automatically").
+    pub start: bool,
+    /// The torrent is in the session already (a magnet that fetched its metadata): its files
+    /// were checked when the metadata arrived, so "Skip hash check" is greyed out.
+    pub in_session: bool,
+}
+
+impl Setup {
+    /// For a `.torrent`: the default download folder, then the recent ones.
+    pub fn new(gui: &GuiOptions, prefs: &Prefs, labels: Vec<String>) -> Setup {
+        Setup {
+            save_dirs: save_in_choices(&gui.download_dir, &recent_dirs(prefs)),
+            labels,
+            start: !gui.add_stopped,
+            in_session: false,
+        }
+    }
+
+    /// For a magnet that waited in the session ([`AwaitingMetadata`]): the folder it was added
+    /// with first.
+    pub fn for_magnet(gui: &GuiOptions, prefs: &Prefs, labels: Vec<String>, added_to: &str) -> Setup {
+        let mut s = Setup::new(gui, prefs, labels);
+        s.save_dirs.retain(|d| !same_dir(d, added_to));
+        s.save_dirs.insert(0, added_to.to_owned());
+        s.in_session = true;
+        s
+    }
+}
+
+/// The Save In text as a folder: trimmed, quotes removed, created if missing. `Err` is the
+/// message for the user.
+pub fn save_folder(text: &str) -> Result<String, String> {
+    let dir = text.trim().trim_matches('"').trim();
+    if dir.is_empty() {
+        return Err(crate::tr!(AddNoFolder).to_owned());
+    }
+    std::fs::create_dir_all(dir).map_err(|e| format!("{dir}:\n{e}"))?;
+    Ok(dir.to_owned())
 }
 
 /// What the user chose in the dialog.
@@ -946,5 +994,32 @@ mod tests {
         assert_eq!(save_in_choices(r"E:\19\", &recent_dirs(&prefs))[..2], [r"E:\19\", r"E:\18"]);
         assert_eq!(size_text(5, 5), "5 B");
         assert_eq!(size_text(2048, 4096), "2.00 kB of 4.00 kB selected");
+    }
+
+    #[test]
+    fn the_dialog_setup() {
+        let mut prefs = Prefs::default();
+        remember_dir(&mut prefs, "/b");
+        remember_dir(&mut prefs, "/a");
+        let mut gui = GuiOptions::load(&prefs, "/dl");
+        let s = Setup::new(&gui, &prefs, vec!["Linux".into()]);
+        assert_eq!(s.save_dirs, ["/dl", "/a", "/b"]);
+        assert_eq!(s.labels, ["Linux"]);
+        assert!(s.start && !s.in_session);
+        gui.add_stopped = true;
+        let s = Setup::for_magnet(&gui, &prefs, Vec::new(), "/b/");
+        assert_eq!(s.save_dirs, ["/b/", "/dl", "/a"]);
+        assert!(!s.start && s.in_session);
+    }
+
+    #[test]
+    fn the_save_folder_is_created() {
+        let base = std::env::temp_dir().join(format!("pa-add-{}", std::process::id()));
+        let dir = base.join("new");
+        let text = format!(" \"{}\" ", dir.display());
+        assert_eq!(save_folder(&text).unwrap(), dir.display().to_string());
+        assert!(dir.is_dir());
+        assert_eq!(save_folder("  ").unwrap_err(), crate::tr!(AddNoFolder));
+        std::fs::remove_dir_all(&base).unwrap();
     }
 }

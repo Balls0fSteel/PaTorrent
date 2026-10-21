@@ -8,6 +8,8 @@
 //! (`paths`).
 
 #[cfg(unix)]
+mod add;
+#[cfg(unix)]
 mod app;
 #[cfg(unix)]
 mod canvas;

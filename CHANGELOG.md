@@ -2,6 +2,17 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_231317_1792617197: The first macOS CI run
+
+### Verified
+- Pushed bf700e1 and a9d71b6 (38c4036..a9d71b6). CI run 39674729565: fmt, MSRV, the Windows and Ubuntu tests and the Windows release build passed; FreeBSD (with the reworked route parser and its new test) and Fuzz passed.
+- The new `macos` job (macos-15, Apple silicon): the workspace without the GTK GUI built and linked for the first time, and stable clippy passed. About 500 core tests passed before the crash below, among them the macOS routes (`routes_are_listed` finds routes, `route_dumps_are_parsed`), every `tls::pem` test, and the NAT-PMP, UPnP, LSD and socket tests.
+
+### Issues
+- The core test process crashed with SIGTRAP as the Secure Transport tests (`net::tls::tests`) started; none of them reported. It looks like a Core Foundation / Security trap rather than a Rust panic (which would end in SIGABRT with an "aborting" line). Not found by reading the code; next time a debug branch prints the crash report's backtrace (PLAN Next steps 0).
+- `engine::listen::session_tests::unchanged_interfaces_change_nothing` failed on macOS; its message was lost in the crash.
+- The remaining test binaries and the Intel Mac build did not run (the job stops at the first failure).
+
 ## 2026-10-21_225032_1792615832: macOS: Secure Transport for TLS, the routing table, a CI job (Road to 1.0 item 8 begins)
 
 ### Added

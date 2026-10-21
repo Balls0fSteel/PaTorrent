@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use patorrent_core::{AddTorrentParams, MoveCompleted, Settings, TorrentFlags};
 
+use crate::integration::Integration;
 use crate::prefs::Prefs;
 use crate::properties::Defaults;
 use crate::scheduler::Schedule;
@@ -215,11 +216,19 @@ impl GuiOptions {
 pub struct Options {
     pub settings: Settings,
     pub gui: GuiOptions,
+    /// Preferences > General's desktop integration as the system has it: read and written by
+    /// the GUI in the system's own places, never stored in the preferences ([`Options::load`]
+    /// leaves it off).
+    pub integration: Integration,
 }
 
 impl Options {
     pub fn load(prefs: &Prefs, default_download_dir: &str) -> Options {
-        Options { settings: settings::load(prefs), gui: GuiOptions::load(prefs, default_download_dir) }
+        Options {
+            settings: settings::load(prefs),
+            gui: GuiOptions::load(prefs, default_download_dir),
+            integration: Integration::default(),
+        }
     }
 
     pub fn store(&self, prefs: &mut Prefs) {

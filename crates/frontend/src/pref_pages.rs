@@ -117,6 +117,9 @@ pub struct Page {
 pub struct Features {
     /// A tray icon: UI Settings shows the tray and balloon boxes.
     pub tray: bool,
+    /// Desktop integration (associations, autostart): General shows its group, bound to
+    /// `Options::integration`, which the toolkit reads from the system and writes back.
+    pub desktop: bool,
 }
 
 const KB: i64 = 1024;
@@ -293,24 +296,57 @@ pub fn pages(features: Features) -> Vec<Page> {
             |o, v| o.gui.show_add_dialog = v,
         )),
     ]);
+    let mut general = vec![
+        Group(S::PrefLanguage),
+        F(field(
+            "ui.language",
+            Some(S::PrefUiLanguage),
+            Control::Choice {
+                choices: language_choices,
+                get: |o| o.gui.language.clone(),
+                set: |o, v| o.gui.language = v.trim().to_owned(),
+            },
+        )),
+    ];
+    if features.desktop {
+        general.extend([
+            Group(S::PrefDesktopIntegration),
+            F(checkbox(
+                "assoc.torrent",
+                S::PrefAssocTorrent,
+                |o| o.integration.torrent,
+                |o, v| o.integration.torrent = v,
+            )),
+            F(checkbox(
+                "assoc.magnet",
+                S::PrefAssocMagnet,
+                |o| o.integration.magnet,
+                |o, v| o.integration.magnet = v,
+            )),
+            F(checkbox(
+                "ui.check_assoc",
+                S::PrefCheckAssoc,
+                |o| o.gui.check_association,
+                |o, v| o.gui.check_association = v,
+            )),
+            F(checkbox(
+                "assoc.autostart",
+                S::PrefAutostart,
+                |o| o.integration.autostart,
+                |o, v| o.integration.autostart = v,
+            )),
+            F(checkbox(
+                "assoc.minimized",
+                S::PrefStartMinimized,
+                |o| o.integration.minimized,
+                |o, v| o.integration.minimized = v,
+            )
+            .indent()
+            .needs(&["assoc.autostart"])),
+        ]);
+    }
     vec![
-        Page {
-            key: "general",
-            title: S::PageGeneral,
-            parent: None,
-            items: vec![
-                Group(S::PrefLanguage),
-                F(field(
-                    "ui.language",
-                    Some(S::PrefUiLanguage),
-                    Control::Choice {
-                        choices: language_choices,
-                        get: |o| o.gui.language.clone(),
-                        set: |o, v| o.gui.language = v.trim().to_owned(),
-                    },
-                )),
-            ],
-        },
+        Page { key: "general", title: S::PageGeneral, parent: None, items: general },
         Page { key: "ui", title: S::PageUi, parent: None, items: ui },
         Page {
             key: "directories",
@@ -968,7 +1004,7 @@ mod tests {
 
     #[test]
     fn keys_are_unique_and_every_value_round_trips() {
-        let pages = pages(Features { tray: true });
+        let pages = pages(Features { tray: true, desktop: true });
         let mut seen = std::collections::HashSet::new();
         for f in fields(&pages) {
             assert!(seen.insert(f.key), "{} twice", f.key);
@@ -988,6 +1024,8 @@ mod tests {
         assert!(seen.contains("ui.close_to_tray"));
         let without = super::pages(Features::default());
         assert!(fields(&without).all(|f| !f.key.contains("tray") && f.key != "ui.balloons"));
+        assert!(fields(&without).all(|f| !f.key.starts_with("assoc.") && f.key != "ui.check_assoc"));
+        assert_eq!(page_of(&pages, "assoc.minimized").map(|p| p.key), Some("general"));
         assert_eq!(page_of(&without, "cache.mb").map(|p| p.key), Some("disk_cache"));
         assert_eq!(without.iter().find(|p| p.key == "disk_cache").unwrap().parent, Some("advanced"));
         let order: Vec<&str> = without.iter().map(|p| p.key).collect();

@@ -29,6 +29,7 @@ pub mod columns;
 pub mod create;
 pub mod detail;
 pub mod fmt;
+pub mod integration;
 pub mod lang;
 pub mod model;
 pub mod options;

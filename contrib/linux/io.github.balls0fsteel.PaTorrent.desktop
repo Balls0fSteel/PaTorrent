@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Version=1.5
+Name=PaTorrent
+GenericName=BitTorrent Client
+Comment=A BitTorrent client in the spirit of µTorrent 2.2.1, on a Rust port of libtorrent.
+Exec=patorrent-gtk %U
+Icon=io.github.balls0fsteel.PaTorrent
+Terminal=false
+Categories=Network;FileTransfer;P2P;GTK;
+MimeType=application/x-bittorrent;x-scheme-handler/magnet;
+StartupNotify=true

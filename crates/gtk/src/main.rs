@@ -18,6 +18,8 @@ mod create;
 #[cfg(unix)]
 mod detail;
 #[cfg(unix)]
+mod integration;
+#[cfg(unix)]
 mod list;
 #[cfg(unix)]
 mod paths;

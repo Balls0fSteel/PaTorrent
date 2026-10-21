@@ -35,13 +35,12 @@ use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 use crate::util::wide;
 
+pub use patorrent_frontend::integration::{Integration, MINIMIZED};
+
 pub const PROGID_TORRENT: &str = "PaTorrent.torrent";
 pub const PROGID_MAGNET: &str = "PaTorrent.magnet";
 /// The `Run` value and the `RegisteredApplications` name.
 const APP: &str = "PaTorrent";
-/// The command-line switch the autostart entry passes for "Start minimized".
-pub const MINIMIZED: &str = "--minimized";
-
 const CLASSES: &str = r"Software\Classes";
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const TORRENT_CHOICE: &str =
@@ -51,27 +50,6 @@ const MAGNET_CHOICE: &str =
 const APP_KEY: &str = r"Software\PaTorrent";
 const CAPABILITIES: &str = r"Software\PaTorrent\Capabilities";
 const REGISTERED: &str = r"Software\RegisteredApplications";
-
-/// What PaTorrent is registered for (or is to be).
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Integration {
-    /// "Associate with .torrent files".
-    pub torrent: bool,
-    /// "Associate with magnet: links".
-    pub magnet: bool,
-    /// "Start PaTorrent on system startup".
-    pub autostart: bool,
-    /// "Start minimized" (only with `autostart`: the entry passes [`MINIMIZED`]).
-    pub minimized: bool,
-}
-
-impl Integration {
-    /// `minimized` means nothing without `autostart`.
-    pub fn normalized(mut self) -> Integration {
-        self.minimized &= self.autostart;
-        self
-    }
-}
 
 /// The registry as found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]

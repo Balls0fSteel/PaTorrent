@@ -339,6 +339,7 @@ AskAssociate=PaTorrent is not the program that opens .torrent files and magnet: 
 AskDefaultApps={note}\n\nWindows keeps a program chosen in Windows itself, and only you can change that choice, in Settings > Default apps. Open Default apps now?
 ErrAssociate=Could not associate PaTorrent:\n{error}
 ErrIntegration=Could not change the Windows integration:\n{error}
+ErrDesktopIntegration=Could not change the desktop integration:\n{error}
 AssocTorrent=Windows still opens .torrent files with {program}.
 AssocMagnet=Windows still opens magnet: links with {program}.
 AssocBoth=Windows still opens .torrent files and magnet: links with {program}.
@@ -531,6 +532,9 @@ PageDiskCache=Disk Cache
 PrefLanguage=Language
 PrefUiLanguage=User interface:
 PrefIntegration=Windows Integration
+
+# The GTK client's group on Preferences > General (Linux, the BSDs).
+PrefDesktopIntegration=Desktop Integration
 PrefAssocTorrent=Associate with .torrent files
 PrefAssocMagnet=Associate with magnet: links
 PrefCheckAssoc=Check association on startup

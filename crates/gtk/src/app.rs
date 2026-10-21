@@ -23,6 +23,7 @@ use patorrent_core::{
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{Detail, PRIORITIES, Tab};
+use patorrent_frontend::integration::{Integration, MINIMIZED};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
 use patorrent_frontend::options::{self, GuiOptions, Options};
@@ -43,7 +44,7 @@ use crate::sidebar::{Pick, Sidebar};
 use crate::table::Table;
 
 /// The application id (D-Bus name, desktop file, single instance).
-pub const APP_ID: &str = "io.github.balls0fsteel.PaTorrent";
+pub const APP_ID: &str = patorrent_frontend::integration::APP_ID;
 
 /// The engine-side state.
 struct App {
@@ -112,6 +113,8 @@ struct Ui {
 thread_local! {
     static APP: RefCell<Option<App>> = const { RefCell::new(None) };
     static UI: RefCell<Option<Rc<Ui>>> = const { RefCell::new(None) };
+    /// Started with `--minimized` (the autostart entry's "Start minimized").
+    static START_MINIMIZED: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
 }
 
 fn with_app<R>(f: impl FnOnce(&mut App) -> R) -> Option<R> {
@@ -165,6 +168,11 @@ pub fn run() -> ExitCode {
         }
     });
     app.connect_command_line(|app, cmdline| {
+        // the autostart entry's "Start minimized"; a second start's switch is not for us
+        if app.active_window().is_none() && cmdline.arguments().iter().any(|a| a.to_str() == Some(MINIMIZED))
+        {
+            START_MINIMIZED.with(|m| m.set(true));
+        }
         app.activate();
         for arg in cmdline.arguments().iter().skip(1) {
             let arg = arg.to_string_lossy();
@@ -669,6 +677,49 @@ fn build(app: &gtk::Application) {
     });
     update_status();
     window.present();
+    if START_MINIMIZED.with(|m| m.get()) {
+        // no tray yet: minimized to the taskbar or dock
+        window.minimize();
+    } else if opts.gui.check_association {
+        glib::idle_add_local_once(check_association);
+    }
+}
+
+/// Preferences > General "Check association on startup": asks to make PaTorrent the program
+/// for `.torrent` files and `magnet:` links when it is not.
+fn check_association() {
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    let set = crate::integration::read();
+    if set.torrent && set.magnet {
+        return;
+    }
+    let d = gtk::AlertDialog::builder()
+        .message(tr!(AskAssociate))
+        .buttons([tr!(BtnCancel), tr!(BtnOk)])
+        .cancel_button(0)
+        .default_button(1)
+        .modal(true)
+        .build();
+    d.choose(Some(&window), None::<&gio::Cancellable>, move |r| {
+        if r != Ok(1) {
+            return;
+        }
+        let want = Integration { torrent: true, magnet: true, ..set };
+        if let Err(e) = crate::integration::write(&set, &want) {
+            error(&tr!(ErrAssociate, error = e), "");
+        }
+    });
+}
+
+/// Preferences > General's Desktop Integration, when the dialog's boxes differ from what is set.
+fn apply_integration(o: &Options) {
+    let set = crate::integration::read();
+    if o.integration.normalized() == set {
+        return;
+    }
+    if let Err(e) = crate::integration::write(&set, &o.integration) {
+        error(&tr!(ErrDesktopIntegration, error = e), "");
+    }
 }
 
 /// Saves the layout, then stops the engine (it saves its state).
@@ -1830,13 +1881,16 @@ fn add_url() {
 
 /// Options > Preferences. OK and Apply store the options and apply them without a restart.
 fn preferences() {
-    let Some((window, options)) = with_app(|a| (a.window.clone(), Options::load(&a.prefs, &a.save_path)))
+    let Some((window, mut options)) = with_app(|a| (a.window.clone(), Options::load(&a.prefs, &a.save_path)))
     else {
         return;
     };
+    // as the system has it now
+    options.integration = crate::integration::read();
     let hooks = crate::preferences::Hooks {
         apply: Box::new(|o| {
             with_app(|a| apply_options(a, o));
+            apply_integration(o);
         }),
         reload_ip_filter: Box::new(|path| {
             with_app(|a| {

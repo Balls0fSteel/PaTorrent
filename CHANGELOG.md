@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-21_223244_1792614764: First runs on GitHub of the GTK GUI's slices and the release workflow
+
+### Verified
+- Pushed the seven commits since 0bd0bc3 (3f4f9c5..38c4036). On 38c4036 every workflow passed: CI (fmt, clippy and tests on Windows and Ubuntu 24.04, the MSRV 1.85 check, the Windows release build), FreeBSD and Fuzz. It is the first time `patorrent-gtk` with Phase 7's slices 2 to 5 was compiled, linked and unit-tested on Linux; until now it had only been type-checked from Windows.
+- The Release workflow run by hand (run 39669244734): the version step, the Windows job, the Linux x86_64 and aarch64 jobs (release builds of `patorrent-nox` and `patorrent-gtk` on `ubuntu-24.04` and `ubuntu-24.04-arm`) passed and uploaded `windows-x64` (4.2 MB), `linux-x86_64` (4.2 MB) and `linux-aarch64` (3.9 MB); the release job was skipped, as it must be without a tag.
+
+### Issues
+- Still not run on a Linux desktop: PLAN Known TODOs "GTK ..." list what to try. The artifacts were not downloaded and tried here.
+
 ## 2026-10-21_221018_1792613418: BEP 51: the DHT answers `sample_infohashes`
 
 ### Added

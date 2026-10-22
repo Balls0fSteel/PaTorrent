@@ -257,6 +257,7 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
     let rss1 = rss();
     let heap1 = crate::heap::live();
     let idle = (ok.is_some() && idle_secs > 0).then(|| idle_cpu(&h, Duration::from_secs(idle_secs), cpu));
+    let request = (ok.is_some() && idle_secs > 0).then(|| status_request_cost(&h, cpu));
     let rss2 = rss();
     s.shutdown();
     if keep.is_none() {
@@ -293,6 +294,10 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
         let pct = pct.map_or("n/a".to_owned(), |p| format!("{p:.2}"));
         println!("idle_seconds={idle_secs}");
         println!("idle_cpu_pct={pct}");
+        if let Some(Some((cpu_us, wall_us))) = request {
+            println!("status_request_cpu_us={cpu_us:.1}");
+            println!("status_request_wall_us={wall_us:.1}");
+        }
         println!("rss_idle_mb={}", mb(rss2));
     }
     println!();
@@ -343,6 +348,40 @@ fn resume_with_peers(torrent: &[u8], save: &Path, i: usize, peers: usize) -> Vec
     }
     *e.key("info") = Entry::Preformatted(ti.info_section().to_vec());
     e.bencode()
+}
+
+/// What one status request costs with nothing changed: `post_torrent_updates` answered
+/// (with an empty update) 1,000 times in a row, waiting for each answer without spinning: the
+/// process CPU and the wall time per round trip, in microseconds. The idle CPU above is too coarse for it (the process times advance
+/// in clock ticks of about 15 ms on Windows).
+fn status_request_cost(h: &SessionHandle, cpu: fn() -> Option<Duration>) -> Option<(f64, f64)> {
+    const N: u32 = 1000;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = std::sync::Mutex::new(tx);
+    h.set_alert_notify(move || {
+        if let Ok(tx) = tx.lock() {
+            let _ = tx.send(());
+        }
+    });
+    let mut alerts = Vec::new();
+    let t0 = Instant::now();
+    let c0 = cpu();
+    for _ in 0..N {
+        h.post_torrent_updates();
+        'reply: loop {
+            let _ = rx.recv_timeout(Duration::from_millis(100));
+            h.pop_alerts(&mut alerts);
+            for a in alerts.drain(..) {
+                if matches!(a, Alert::StateUpdate(_)) {
+                    break 'reply;
+                }
+            }
+        }
+    }
+    let wall = t0.elapsed();
+    h.clear_alert_notify();
+    let (c0, c1) = (c0?, cpu()?);
+    Some(((c1 - c0).as_secs_f64() * 1e6 / f64::from(N), wall.as_secs_f64() * 1e6 / f64::from(N)))
 }
 
 /// The process CPU while the session sits idle and is polled as the GUIs poll it, as a share

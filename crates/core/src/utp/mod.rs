@@ -7,6 +7,12 @@
 // implements, so the protocol runs without sockets or clocks (tests, fuzzing). Instead of asio
 // handlers, sockets with news for the upper layer are collected in a ready list the engine
 // drains after each wakeup. Packets are plain heap buffers (no `packet_pool`).
+// Security review (2026-10-22, docs/SECURITY-REVIEW.md): sockets are found through an index by
+// receive id (libtorrent's multimap) rather than a scan of the slab; a SYN sent again for a
+// connection we accepted is acknowledged again instead of making a second socket; a SYN that
+// does not leave its new socket connected (a malformed extension) leaves no socket; a negative
+// `connections_limit` (unlimited in the engine) bounds the sockets at
+// `2 * UNLIMITED_CONNECTIONS` instead of refusing every SYN.
 
 //! uTP (BEP 29): reliable, LEDBAT-congestion-controlled streams over the UDP listen socket.
 //!
@@ -22,6 +28,7 @@ mod socket;
 mod tests;
 pub(crate) mod timestamp_history;
 
+use std::collections::HashMap;
 use std::io;
 use std::net::{IpAddr, SocketAddr};
 use std::time::Instant;
@@ -43,6 +50,10 @@ pub(crate) const INET_MIN_MTU: u16 = 576;
 
 /// Index of a socket in the manager.
 pub type SockId = usize;
+
+/// The connection count the SYN-flood bound assumes when `connections_limit` is negative
+/// (unlimited): at most twice this many sockets accept new SYNs.
+const UNLIMITED_CONNECTIONS: i64 = 10_000;
 
 /// How a datagram send went, as the UDP socket owner saw it.
 #[derive(Debug)]
@@ -392,6 +403,9 @@ pub fn micros(epoch: Instant, now: Instant) -> u32 {
 pub struct UtpManager {
     sockets: Vec<Option<Box<UtpSocket>>>,
     free: Vec<SockId>,
+    /// Sockets by the connection id they receive on (libtorrent's `m_utp_sockets` multimap):
+    /// a packet for a socket other than the last one is found without a scan of the slab.
+    by_recv_id: HashMap<u16, Vec<SockId>>,
     settings: UtpSettings,
     counters: UtpCounters,
     /// This socket still needs to send an ACK. Once the UDP socket is drained, or a packet for
@@ -416,6 +430,7 @@ impl UtpManager {
         UtpManager {
             sockets: Vec::new(),
             free: Vec::new(),
+            by_recv_id: HashMap::new(),
             settings,
             counters: UtpCounters::default(),
             deferred_ack: None,
@@ -483,7 +498,8 @@ impl UtpManager {
     }
 
     fn insert(&mut self, s: UtpSocket) -> SockId {
-        match self.free.pop() {
+        let recv_id = s.receive_id();
+        let id = match self.free.pop() {
             Some(i) => {
                 self.sockets[i] = Some(Box::new(s));
                 i
@@ -492,7 +508,15 @@ impl UtpManager {
                 self.sockets.push(Some(Box::new(s)));
                 self.sockets.len() - 1
             }
-        }
+        };
+        self.by_recv_id.entry(recv_id).or_default().push(id);
+        id
+    }
+
+    /// The socket receiving on `id` from `from`.
+    fn find(&self, from: &SocketAddr, id: u16) -> Option<SockId> {
+        let ids = self.by_recv_id.get(&id)?;
+        ids.iter().copied().find(|&i| self.get(i).is_some_and(|s| s.matches(from, id)))
     }
 
     /// libtorrent `remove_socket`.
@@ -500,6 +524,13 @@ impl UtpManager {
         if let Some(s) = self.sockets.get_mut(id).and_then(Option::take) {
             self.counters.num_by_state[s.state() as usize] -= 1;
             self.free.push(id);
+            let recv_id = s.receive_id();
+            if let Some(ids) = self.by_recv_id.get_mut(&recv_id) {
+                ids.retain(|&i| i != id);
+                if ids.is_empty() {
+                    self.by_recv_id.remove(&recv_id);
+                }
+            }
         }
         if self.last_socket == Some(id) {
             self.last_socket = None;
@@ -574,8 +605,7 @@ impl UtpManager {
         if let Some(d) = self.deferred_ack.take() {
             let _ = self.with_socket(d, io, now, &[], |s, ctx| s.send_deferred_ack(ctx));
         }
-        let found = (0..self.sockets.len()).find(|&i| self.get(i).is_some_and(|s| s.matches(&from, id)));
-        if let Some(i) = found {
+        if let Some(i) = self.find(&from, id) {
             let ret = self
                 .with_socket(i, io, now, &[], |s, ctx| s.incoming_packet(ctx, buf, from))
                 .is_some_and(|r| r.0);
@@ -589,8 +619,25 @@ impl UtpManager {
         }
         // if not found, see if it's a SYN packet, if it is, create a new socket
         if h.type_ == header::ST_SYN {
-            // possible SYN flood. Just ignore
-            if self.num_sockets() as i64 > self.settings.connections_limit as i64 * 2 {
+            // A SYN for a connection we accepted from this address: our SYN-ACK was lost and the
+            // other end sends its SYN again. libtorrent makes a second socket (and a second
+            // incoming connection) for it; this one is acknowledged again instead. Such a socket
+            // sends with the SYN's id and receives on the next one; an outgoing socket of ours
+            // has them the other way round, so it never matches.
+            let again = self.by_recv_id.get(&id.wrapping_add(1)).and_then(|ids| {
+                ids.iter().copied().find(|&i| self.get(i).is_some_and(|s| s.accepted_from(&from, id)))
+            });
+            if let Some(i) = again {
+                let _ = self.with_socket(i, io, now, &[], |s, ctx| s.syn_again(ctx, &h));
+                return true;
+            }
+            // possible SYN flood. Just ignore. A negative limit is unlimited to the engine; the
+            // sockets stay bounded here.
+            let limit = match self.settings.connections_limit {
+                l if l < 0 => UNLIMITED_CONNECTIONS,
+                l => l as i64,
+            };
+            if self.num_sockets() as i64 > limit * 2 {
                 return false;
             }
             // create the new socket with this ID: the SYN carries the id we send with, and we
@@ -604,7 +651,10 @@ impl UtpManager {
                     s.incoming_packet(ctx, buf, from)
                 })
                 .is_some_and(|r| r.0);
-            if !ret {
+            // a SYN the socket rejected after all (a malformed extension chain returns early,
+            // leaving the socket unconnected) leaves no socket: libtorrent hands such a socket
+            // to the session in its `none` state
+            if !ret || self.get(i).is_none_or(|s| s.state() != State::Connected) {
                 self.remove(i);
                 return false;
             }

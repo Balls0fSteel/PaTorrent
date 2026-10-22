@@ -9,6 +9,15 @@
 // An incoming packet restarts the retransmission timer only if it acknowledges something or
 // nothing is in flight (libtorrent restarts it on every packet, so a window lost whole was never
 // resent while the peer kept sending data of its own).
+// Security review (2026-10-22, docs/SECURITY-REVIEW.md): received bytes are kept in one byte
+// ring, not one heap packet each (a peer sending 1-byte packets made a 1 MiB window cost about
+// 100 MiB), and empty packets are dropped as libtorrent's `incoming` does; a detached socket
+// acknowledges data but no longer stores it, and is deleted `DETACHED_LINGER` after the upper
+// layer let go (a peer that kept sending without acknowledging our FIN kept it forever); no
+// more than `MAX_OUTSTANDING` sequence numbers are in flight (the wrapping comparisons need
+// less than half the space); a selective ACK on the SYN that opens a socket is not walked
+// (it stepped `acked_seq_nr` through all 65,536 sequence numbers); the LEDBAT and loss
+// arithmetic is done wide and the window bounded at `MAX_CWND`.
 
 //! One uTP connection: libtorrent's `utp_socket_impl`.
 
@@ -32,11 +41,26 @@ const DUP_ACK_LIMIT: u8 = 3;
 const PKT_ACK: u8 = 1;
 const PKT_FIN: u8 = 2;
 
+/// Sequence numbers sent and not yet acknowledged, at most. `compare_less_wrap` needs every
+/// number in play within half the 16-bit space of each other; a receiver that advertises a huge
+/// window and acknowledges slowly could otherwise make us wrap into our own send buffer. 16,384
+/// packets are 9 MiB at the smallest MTU and 23 MiB at 1452 bytes in flight.
+const MAX_OUTSTANDING: u16 = 0x4000;
+/// The largest congestion window, fixed point (2 GiB): bounds the LEDBAT arithmetic.
+const MAX_CWND: i64 = (i32::MAX as i64) << 16;
+/// How long a socket the upper layer let go may wait for its FIN to be acknowledged and its
+/// data to drain before it is deleted (libtorrent keeps it while packets keep coming).
+const DETACHED_LINGER: Duration = Duration::from_secs(60);
+/// The receive buffer's allocation kept once it is drained.
+const RECEIVE_BUFFER_KEEP: usize = 16 * 1024;
+
 #[cfg(test)]
 thread_local! {
     /// The next connection's initial sequence number, taken by the first socket to draw one
     /// (tests pin it to run into the wrap at 0xffff).
     pub(super) static NEXT_SEQ_NR: std::cell::Cell<Option<u16>> = const { std::cell::Cell::new(None) };
+    /// Steps `maybe_inc_acked_seq_nr` took (the tests bound the work one packet causes).
+    pub(super) static ACK_STEPS: std::cell::Cell<u64> = const { std::cell::Cell::new(0) };
 }
 
 /// A random initial sequence number, or the one a test pinned.
@@ -106,13 +130,16 @@ pub struct UtpSocket {
     pub user: usize,
     /// The upper layer still refers to this socket.
     attached: bool,
+    /// When the upper layer let go.
+    detached_at: Option<Instant>,
     /// A write returned less than offered: the caller waits for room.
     wants_write: bool,
 
     /// A packet held back by Nagle, accruing more bytes before it is sent.
     nagle_packet: Option<Box<Packet>>,
-    /// Packets received and not yet read by the application.
-    receive_buffer: VecDeque<Box<Packet>>,
+    /// Bytes received in order and not yet read by the application (libtorrent keeps the
+    /// packets; one byte ring has no per-packet overhead).
+    receive_buffer: VecDeque<u8>,
     error: Option<UtpError>,
     remote: SocketAddr,
     /// Packets received out of order, by sequence number.
@@ -141,8 +168,6 @@ pub struct UtpSocket {
     adv_wnd: u32,
     /// Un-acked bytes sent, not counting packets that failed to send or were lost.
     bytes_in_flight: i32,
-    /// The sum of the packets in `receive_buffer`.
-    receive_buffer_size: i32,
     /// Max bytes to hold for the application.
     receive_buffer_capacity: i32,
     /// The last three corrected delay measurements; the lowest feeds the congestion
@@ -205,13 +230,52 @@ impl UtpSocket {
     pub fn mtu(&self) -> u16 {
         self.mtu
     }
+
+    /// Bytes allocated for the receive buffer.
+    pub fn receive_buffer_allocated(&self) -> usize {
+        self.receive_buffer.capacity()
+    }
+
+    /// Sequence numbers sent and not acknowledged.
+    pub fn outstanding(&self) -> u16 {
+        self.outstanding_seq()
+    }
+
+    /// Our congestion window grown to `cwnd` bytes and the other end advertising `adv_wnd`.
+    pub fn force_windows(&mut self, cwnd: i64, adv_wnd: u32) {
+        self.cwnd = cwnd << 16;
+        self.adv_wnd = adv_wnd;
+        self.slow_start = false;
+    }
 }
 
 impl UtpSocket {
     /// The connection id this socket receives on.
-    #[cfg(any(test, feature = "fuzzing"))]
     pub fn receive_id(&self) -> u16 {
         self.recv_id
+    }
+
+    /// Bytes received and not yet read.
+    fn receive_buffer_size(&self) -> i32 {
+        self.receive_buffer.len() as i32
+    }
+
+    /// Made by a SYN with connection id `id` from `ep` (it sends with that id and receives on
+    /// the next; outgoing sockets have them the other way round).
+    pub(super) fn accepted_from(&self, ep: &SocketAddr, id: u16) -> bool {
+        self.send_id == id && self.recv_id == id.wrapping_add(1) && self.remote == *ep
+    }
+
+    /// The SYN that made this socket came again: our SYN-ACK was lost. While nothing else came
+    /// from the other end, acknowledge it again; anything later is ignored as libtorrent ignores
+    /// a SYN on an open socket.
+    pub(super) fn syn_again(&mut self, ctx: &mut Ctx<'_>, ph: &header::Header) {
+        ctx.counters.packets_in += 1;
+        if self.state == State::Connected && !self.confirmed && ph.seq_nr == self.ack_nr {
+            self.defer_ack(ctx);
+        } else {
+            ctx.counters.invalid_pkts_in += 1;
+        }
     }
 
     pub(super) fn new(
@@ -226,6 +290,7 @@ impl UtpSocket {
         UtpSocket {
             user: 0,
             attached: true,
+            detached_at: None,
             wants_write: false,
             nagle_packet: None,
             receive_buffer: VecDeque::new(),
@@ -244,7 +309,6 @@ impl UtpSocket {
             reply_micro: 0,
             adv_wnd: super::ETHERNET_MTU as u32,
             bytes_in_flight: 0,
-            receive_buffer_size: 0,
             receive_buffer_capacity: 1024 * 1024,
             delay_sample_hist: [u32::MAX; 3],
             delay_sample_idx: 0,
@@ -320,10 +384,16 @@ impl UtpSocket {
         ctx.mark_ready();
     }
 
+    /// Sequence numbers sent and not yet acknowledged.
+    fn outstanding_seq(&self) -> u16 {
+        self.seq_nr.wrapping_sub(self.acked_seq_nr).wrapping_sub(1)
+    }
+
     fn can_write(&self) -> bool {
         self.state == State::Connected
             && !self.stalled
             && !self.out_eof
+            && self.outstanding_seq() < MAX_OUTSTANDING
             && (self.bytes_in_flight == 0
                 || (self.bytes_in_flight as i64 + self.mtu as i64)
                     <= (self.cwnd >> 16).min(self.adv_wnd as i64))
@@ -342,26 +412,20 @@ impl UtpSocket {
     /// libtorrent `utp_socket_impl::read_some`: moves received bytes to the application.
     pub fn read_some(&mut self, out: &mut Vec<u8>, max: usize) -> ReadOutcome {
         if let Some(e) = self.error {
-            if self.receive_buffer_size <= 0 {
+            if self.receive_buffer.is_empty() {
                 return if e == UtpError::Eof { ReadOutcome::Eof } else { ReadOutcome::Error(e) };
             }
         }
-        let mut total = 0usize;
-        while total < max {
-            let Some(p) = self.receive_buffer.front_mut() else { break };
-            let hs = p.header_size as usize;
-            let avail = p.size as usize - hs;
-            let n = avail.min(max - total);
-            out.extend_from_slice(&p.buf[hs..hs + n]);
-            p.header_size += n as u16;
-            self.receive_buffer_size -= n as i32;
-            total += n;
-            if p.header_size == p.size {
-                self.receive_buffer.pop_front();
-            }
-        }
-        debug_assert!(self.receive_buffer_size >= 0);
+        let total = self.receive_buffer.len().min(max);
         if total > 0 {
+            let (a, b) = self.receive_buffer.as_slices();
+            let from_a = a.len().min(total);
+            out.extend_from_slice(&a[..from_a]);
+            out.extend_from_slice(&b[..total - from_a]);
+            self.receive_buffer.drain(..total);
+            if self.receive_buffer.is_empty() {
+                self.receive_buffer.shrink_to(RECEIVE_BUFFER_KEEP);
+            }
             return ReadOutcome::Data(total);
         }
         // if we have passed all data up to the application, and we're at EOF, say so
@@ -432,7 +496,11 @@ impl UtpSocket {
         }
         self.close(ctx);
         self.attached = false;
+        self.detached_at = Some(ctx.now);
         self.wants_write = false;
+        // nobody reads any more: what was received is dropped, and so is what comes (it is
+        // still acknowledged)
+        self.receive_buffer = VecDeque::new();
         if matches!(self.state, State::ErrorWait | State::None | State::SynSent) {
             self.set_state(ctx, State::Deleting);
         }
@@ -739,8 +807,12 @@ impl UtpSocket {
         debug_assert!(flags & PKT_FIN == 0 || payload_size == 0);
 
         // if we have one MSS worth of data, make sure it fits in our congestion window and the
-        // advertised receive window from the other end.
-        if self.bytes_in_flight as i64 + payload_size as i64 > (self.cwnd >> 16).min(self.adv_wnd as i64) {
+        // advertised receive window from the other end, and that its sequence number stays
+        // within reach of the oldest one in flight (not in libtorrent)
+        let seq_full = payload_size > 0 && self.outstanding_seq() >= MAX_OUTSTANDING;
+        if seq_full
+            || self.bytes_in_flight as i64 + payload_size as i64 > (self.cwnd >> 16).min(self.adv_wnd as i64)
+        {
             // we can't fit a full packet of payload in the cwnd, but if we're sending an ACK,
             // we can send a packet without payload
             if flags & PKT_ACK != 0 {
@@ -862,7 +934,7 @@ impl UtpSocket {
 
         header::set_timestamp_difference(&mut p.buf, self.reply_micro);
         let wnd =
-            (self.receive_buffer_capacity - self.buffered_incoming_bytes - self.receive_buffer_size).max(0);
+            (self.receive_buffer_capacity - self.buffered_incoming_bytes - self.receive_buffer_size()).max(0);
         header::set_wnd_size(&mut p.buf, wnd as u32);
         header::set_ack_nr(&mut p.buf, self.ack_nr);
         // if this is a FIN packet, override the type
@@ -1084,8 +1156,9 @@ impl UtpSocket {
             return;
         }
         self.next_loss = Some(ctx.now + Duration::from_millis(ctx.settings.cwnd_reduce_timer.max(0) as u64));
-        // cut window size in 2
-        self.cwnd = (self.cwnd * ctx.settings.loss_multiplier as i64 / 100).max((self.mtu as i64) << 16);
+        // cut window size in 2 (wide: the multiplier is a setting)
+        let cut = self.cwnd as i128 * ctx.settings.loss_multiplier as i128 / 100;
+        self.cwnd = (cut.clamp(0, MAX_CWND as i128) as i64).max((self.mtu as i64) << 16);
         self.loss_seq_nr = self.seq_nr;
         // if we happen to be in slow-start mode, we need to leave it. Note that we set ssthres
         // to the window size _after_ reducing it. Next slow start should end before we over
@@ -1112,6 +1185,8 @@ impl UtpSocket {
             }
             self.acked_seq_nr = self.acked_seq_nr.wrapping_add(1);
             incremented = true;
+            #[cfg(test)]
+            ACK_STEPS.with(|c| c.set(c.get() + 1));
         }
         if !incremented {
             return;
@@ -1149,7 +1224,9 @@ impl UtpSocket {
 
     /// libtorrent `parse_sack`: returns (min RTT, acked bytes).
     fn parse_sack(&mut self, ctx: &mut Ctx<'_>, packet_ack: u16, bits: &[u8]) -> (u32, i32) {
-        if bits.is_empty() {
+        // nothing was sent before the SYN that opens a socket; walking the bits would step
+        // `acked_seq_nr` from 0 through the whole sequence space (libtorrent does)
+        if bits.is_empty() || self.state == State::None {
             return (0, 0);
         }
         // this is the sequence number the current bit represents
@@ -1263,24 +1340,14 @@ impl UtpSocket {
     // --- Receiving ----------------------------------------------------------------------------
 
     /// Stores received payload for the application (libtorrent `incoming`, with no user
-    /// buffer to copy into).
-    fn incoming(&mut self, ctx: &mut Ctx<'_>, buf: &[u8], p: Option<Box<Packet>>) {
-        let p = match p {
-            Some(p) => p,
-            None => {
-                if buf.is_empty() {
-                    return;
-                }
-                let mut p = Box::new(Packet::new(buf.len()));
-                p.size = buf.len() as u16;
-                p.header_size = 0;
-                p.buf.copy_from_slice(buf);
-                p
-            }
-        };
-        // save this packet until the client issues another read
-        self.receive_buffer_size += p.payload_len();
-        self.receive_buffer.push_back(p);
+    /// buffer to copy into). Empty payloads are dropped, as in libtorrent; once the upper layer
+    /// let go, everything is.
+    fn incoming(&mut self, ctx: &mut Ctx<'_>, buf: &[u8]) {
+        if buf.is_empty() || !self.attached {
+            return;
+        }
+        // save the bytes until the client issues another read
+        self.receive_buffer.extend(buf);
         self.mark_ready(ctx);
     }
 
@@ -1295,7 +1362,7 @@ impl UtpSocket {
             // Ignore this packet
             return true;
         }
-        if self.receive_buffer_size >= self.receive_buffer_capacity - self.buffered_incoming_bytes {
+        if self.receive_buffer_size() >= self.receive_buffer_capacity - self.buffered_incoming_bytes {
             // the number of queued up bytes, waiting for the upper layer, exceeds the
             // advertised receive window, start ignoring more data packets
             return false;
@@ -1303,14 +1370,14 @@ impl UtpSocket {
         let payload_size = payload.len() as i32;
         if ph.seq_nr == self.ack_nr.wrapping_add(1) {
             debug_assert!(self.inbuf.at(self.ack_nr as u32).is_none());
-            if self.buffered_incoming_bytes + self.receive_buffer_size + payload_size
+            if self.buffered_incoming_bytes + self.receive_buffer_size() + payload_size
                 > self.receive_buffer_capacity
             {
                 // other end is not honoring our advertised window, dropping packet
                 return true;
             }
             // we received a packet in order
-            self.incoming(ctx, payload, None);
+            self.incoming(ctx, payload);
             self.ack_nr = self.ack_nr.wrapping_add(1);
             // If this packet was previously in the reorder buffer it would have been acked
             // when ack_nr-1 was acked.
@@ -1320,7 +1387,7 @@ impl UtpSocket {
                 let Some(p) = self.inbuf.remove(next_ack_nr as u32) else { break };
                 debug_assert!(p.size >= p.header_size);
                 self.buffered_incoming_bytes -= p.payload_len();
-                self.incoming(ctx, &[], Some(p));
+                self.incoming(ctx, &p.buf[p.header_size as usize..p.size as usize]);
                 self.ack_nr = next_ack_nr;
             }
         } else {
@@ -1334,7 +1401,12 @@ impl UtpSocket {
             if self.inbuf.at(ph.seq_nr as u32).is_some() {
                 return true;
             }
-            if self.buffered_incoming_bytes + self.receive_buffer_size + payload_size
+            // nobody will read it: what comes in order is acknowledged and dropped, what does
+            // not is not held for it
+            if !self.attached {
+                return true;
+            }
+            if self.buffered_incoming_bytes + self.receive_buffer_size() + payload_size
                 > self.receive_buffer_capacity
             {
                 // other end is not honoring our advertised window, dropping packet
@@ -1683,7 +1755,7 @@ impl UtpSocket {
                     if delay > min_rtt {
                         delay = min_rtt;
                     }
-                    self.do_ledbat(ctx, acked_bytes, delay as i32, prev_bytes_in_flight);
+                    self.do_ledbat(ctx, acked_bytes, delay as i64, prev_bytes_in_flight);
                     self.send_delay = delay as i32;
                 }
                 self.recv_delay = their_delay.min(min_rtt) as i32;
@@ -1777,20 +1849,20 @@ impl UtpSocket {
 
     /// The LEDBAT controller (RFC 6817 / BEP 29): grows or shrinks the window from the one-way
     /// delay's distance to the target.
-    fn do_ledbat(&mut self, ctx: &mut Ctx<'_>, acked_bytes: i32, delay: i32, in_flight: i32) {
+    fn do_ledbat(&mut self, ctx: &mut Ctx<'_>, acked_bytes: i32, delay: i64, in_flight: i32) {
         // the portion of the in-flight bytes that were acked. This is used to make the gain
         // factor be scaled by the rtt. The formula is applied once per rtt, or on every ACK
         // scaled by the number of ACKs per rtt
         debug_assert!(in_flight > 0);
         debug_assert!(acked_bytes > 0);
-        let target_delay = ctx.settings.target_delay.max(1);
+        let target_delay = ctx.settings.target_delay.max(1) as i64;
         // true if the upper layer is pushing enough data down the socket to be limited by the
         // cwnd. If this is not the case, we should not adjust cwnd.
         let cwnd_saturated =
             (self.bytes_in_flight + acked_bytes + self.mtu as i32) as i64 > (self.cwnd >> 16);
         // all of these are fixed points with 16 bits fraction portion
         let window_factor = ((acked_bytes as i64) << 16) / in_flight as i64;
-        let delay_factor = (((target_delay - delay) as i64) << 16) / target_delay as i64;
+        let delay_factor = ((target_delay - delay) << 16) / target_delay;
         if delay >= target_delay {
             if self.slow_start {
                 self.ssthres = ((self.cwnd >> 16) / 2) as i32;
@@ -1800,7 +1872,11 @@ impl UtpSocket {
         } else {
             ctx.counters.samples_below_target += 1;
         }
-        let linear_gain = ((window_factor * delay_factor) >> 16) * ctx.settings.gain_factor as i64;
+        // wide, and bounded: a small `target_delay` or a large `gain_factor` (settings) with a
+        // long delay overflowed 64 bits
+        let linear_gain = (((window_factor as i128 * delay_factor as i128) >> 16)
+            * ctx.settings.gain_factor as i128)
+            .clamp(-(MAX_CWND as i128), MAX_CWND as i128) as i64;
         // if the user is not saturating the link (i.e. not filling the congestion window),
         // don't adjust it at all.
         let mut scaled_gain = if cwnd_saturated {
@@ -1822,17 +1898,15 @@ impl UtpSocket {
         } else {
             0
         };
-        // make sure we don't wrap the cwnd
-        if scaled_gain >= i64::MAX - self.cwnd {
-            scaled_gain = i64::MAX - self.cwnd - 1;
-        }
+        // make sure we don't wrap the cwnd: both are within MAX_CWND, so the sum fits
+        scaled_gain = scaled_gain.min(MAX_CWND);
         // don't drop below 1*MSS. This behavior is from rfc6817 (LEDBAT). This differs from
         // BEP 29 which allows cwnd to drop to 0, however this way avoids needing to wait until
         // the next timeout to resume sending.
         if (self.cwnd + scaled_gain) >> 16 < self.mtu as i64 {
             self.cwnd = (self.mtu as i64) << 16;
         } else {
-            self.cwnd += scaled_gain;
+            self.cwnd = (self.cwnd + scaled_gain).min(MAX_CWND);
         }
         debug_assert!((self.cwnd >> 16) >= self.mtu as i64);
         let window_size_left =
@@ -1852,6 +1926,12 @@ impl UtpSocket {
         // operation so that we can communicate the error. No need to do anything else with this
         // socket
         if matches!(self.state, State::ErrorWait | State::Deleting) {
+            return;
+        }
+        // a socket the upper layer let go is deleted after a while, whatever the other end keeps
+        // sending (every packet restarts the timer once nothing of ours is in flight)
+        if self.detached_at.is_some_and(|t| ctx.now.saturating_duration_since(t) > DETACHED_LINGER) {
+            self.fail(ctx, UtpError::TimedOut);
             return;
         }
         if ctx.now <= self.timeout {

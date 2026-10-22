@@ -1110,7 +1110,7 @@ fn maindata(shared: &Shared, key: &str, rid: i64) -> Response {
 }
 
 /// What one client was last sent by `sync/torrentPeers`: the torrent and the peers by
-/// `ip:port`, each as its full field list, so the next call sends only what changed.
+/// [`peer_key`], each as its full field list, so the next call sends only what changed.
 pub struct PeersSnapshot {
     rid: i64,
     hash: String,
@@ -1119,7 +1119,7 @@ pub struct PeersSnapshot {
 
 /// One peer in `sync/torrentPeers`' documented shape (a subset of the fields: no country or
 /// relevance; `flags` are the µTorrent letters of the Peers tab, `connection` is `BT`, `uTP` or
-/// `Web`).
+/// `Web`). A web seed's `ip` is its URL, as qBittorrent's is.
 fn peer_fields(p: &PeerInfo) -> Json {
     let connection = if p.is_web_seed {
         "Web"
@@ -1129,7 +1129,7 @@ fn peer_fields(p: &PeerInfo) -> Json {
         "BT"
     };
     Json::obj()
-        .with("ip", p.ip.ip().to_string())
+        .with("ip", p.url.clone().unwrap_or_else(|| p.ip.ip().to_string()))
         .with("port", p.ip.port() as i64)
         .with("client", p.client.as_str())
         .with("connection", connection)
@@ -1144,6 +1144,12 @@ fn peer_fields(p: &PeerInfo) -> Json {
         .with("uploaded", p.total_upload)
         .with("relevance", 0.0f64)
         .with("files", "")
+}
+
+/// A peer's key in `sync/torrentPeers`: `ip:port`, or a web seed's URL (several URLs can share
+/// a server).
+fn peer_key(p: &PeerInfo) -> String {
+    p.url.clone().unwrap_or_else(|| p.ip.to_string())
 }
 
 /// `sync/torrentPeers`: the torrent's connected peers, a full list for `rid=0` (or a rid the
@@ -1171,7 +1177,7 @@ fn torrent_peers(shared: &Shared, key: &str, p: &Params) -> Response {
     let mut peers = Json::obj();
     let mut snap = HashMap::with_capacity(list.len());
     for peer in &list {
-        let addr = peer.ip.to_string();
+        let addr = peer_key(peer);
         let now = peer_fields(peer);
         match old.as_mut().and_then(|o| o.peers.remove(&addr)) {
             Some(prev) => {
@@ -1531,6 +1537,39 @@ mod tests {
     use super::*;
 
     use patorrent_frontend::lang::S;
+
+    /// A web seed's row names it by its URL, as qBittorrent's does; a peer by its address.
+    #[test]
+    fn web_seed_peers_are_their_urls() {
+        let peer = PeerInfo {
+            ip: "10.0.0.1:443".parse().unwrap(),
+            client: "nginx".into(),
+            flags: PeerFlags::empty(),
+            source: patorrent_core::PeerSource::empty(),
+            progress_ppm: 1_000_000,
+            down_speed: 0,
+            up_speed: 0,
+            total_download: 0,
+            total_upload: 0,
+            download_queue_length: 0,
+            upload_queue_length: 0,
+            num_hashfails: 0,
+            is_web_seed: false,
+            url: None,
+        };
+        let f = peer_fields(&peer);
+        assert_eq!(f.get("ip").and_then(Json::as_str), Some("10.0.0.1"));
+        assert_eq!(f.get("connection").and_then(Json::as_str), Some("BT"));
+        assert_eq!(peer_key(&peer), "10.0.0.1:443");
+        let url = "https://mirror.example/ubuntu.iso";
+        let seed = PeerInfo { is_web_seed: true, url: Some(url.into()), ..peer };
+        let f = peer_fields(&seed);
+        assert_eq!(f.get("ip").and_then(Json::as_str), Some(url));
+        assert_eq!(f.get("connection").and_then(Json::as_str), Some("Web"));
+        assert_eq!(f.get("client").and_then(Json::as_str), Some("nginx"));
+        assert_eq!(f.get("port").and_then(Json::as_f64), Some(443.0));
+        assert_eq!(peer_key(&seed), url);
+    }
 
     #[test]
     fn the_page_has_the_application_icon() {

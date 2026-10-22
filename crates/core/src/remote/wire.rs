@@ -475,6 +475,7 @@ wire_struct!(PeerInfo {
     upload_queue_length,
     num_hashfails,
     is_web_seed,
+    url,
 });
 wire_struct!(PartialPiece { piece, size, blocks });
 wire_struct!(AnnounceEntry {

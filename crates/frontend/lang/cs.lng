@@ -103,6 +103,7 @@ MenuAutoShutdown=Automatické &vypnutí
 MenuCloseToTray=Zavírat do &oznamovací oblasti
 MenuMinimizeToTray=&Minimalizovat do oznamovací oblasti
 MenuAbout=&O programu PaTorrent
+MenuNotices=Oznámení &třetích stran
 KeyCtrl=Ctrl
 MenuHide=&Skrýt PaTorrent
 MenuShow=&Zobrazit PaTorrent

@@ -103,6 +103,7 @@ MenuAutoShutdown=&Automatikus leállítás
 MenuCloseToTray=Bezáráskor a &tálcára
 MenuMinimizeToTray=Kis &méretnél a tálcára
 MenuAbout=A PaTorrent &névjegye
+MenuNotices=&Harmadik felek közleményei
 KeyCtrl=Ctrl
 MenuHide=PaTorrent &elrejtése
 MenuShow=PaTorrent &megjelenítése

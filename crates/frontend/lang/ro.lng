@@ -103,6 +103,7 @@ MenuAutoShutdown=Oprire &automată
 MenuCloseToTray=Închide în zona de &notificare
 MenuMinimizeToTray=&Minimizează în zona de notificare
 MenuAbout=&Despre PaTorrent
+MenuNotices=Notificări pentru &terți
 KeyCtrl=Ctrl
 MenuHide=&Ascunde PaTorrent
 MenuShow=&Arată PaTorrent

@@ -21,6 +21,7 @@ use std::path::Path;
 use patorrent_core::{IpFilter, ProxyType, Settings, TorrentFlags};
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::options::{self, GuiOptions};
+use patorrent_frontend::pref_pages;
 use patorrent_frontend::scheduler;
 use patorrent_frontend::settings::{self, Entry, Kind as SettingKind, TABLE, Value};
 use patorrent_frontend::tr;
@@ -134,32 +135,18 @@ fn string(v: Value) -> String {
     }
 }
 
-/// The proxy "Type" combo, in µTorrent 2.2.1's order (its "HTTPS" entry is our HTTP type);
-/// "Authentication" picks the `_pw` variant, SOCKS4 sends the user name as its user id.
-const PROXY_TYPES: [S; 4] = [S::PrefProxyNone, S::ProxySocks4, S::ProxySocks5, S::ProxyHttp];
+/// The proxy "Type" combo: the GUIs' list (`frontend::pref_pages::PROXY_TYPES`).
+const PROXY_TYPES: [S; 4] = pref_pages::PROXY_TYPES;
 /// "Outgoing" encryption, in the combo's order.
 const ENC_OUT: [S; 3] = [S::EncDisabled, S::EncEnabled, S::EncForced];
 
 fn proxy_to_ui(s: &Settings) -> (i64, bool) {
-    match s.proxy_type {
-        ProxyType::None => (0, false),
-        ProxyType::Socks4 => (1, !s.proxy_username.is_empty()),
-        ProxyType::Socks5 => (2, false),
-        ProxyType::Socks5Pw => (2, true),
-        ProxyType::Http => (3, false),
-        ProxyType::HttpPw => (3, true),
-    }
+    let (kind, auth) = pref_pages::proxy_to_ui(s);
+    (kind as i64, auth)
 }
 
 fn proxy_from_ui(kind: i64, auth: bool) -> ProxyType {
-    match (kind, auth) {
-        (1, _) => ProxyType::Socks4,
-        (2, false) => ProxyType::Socks5,
-        (2, true) => ProxyType::Socks5Pw,
-        (3, false) => ProxyType::Http,
-        (3, true) => ProxyType::HttpPw,
-        _ => ProxyType::None,
-    }
+    pref_pages::proxy_from_ui(usize::try_from(kind).unwrap_or(0), auth)
 }
 
 fn enc_out(s: &Settings) -> i64 {
@@ -864,15 +851,21 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                 group(
                     Some(tr!(PrefProxyServer)),
                     vec![
-                        row(vec![f("proxy_kind"), f("proxy_hostname"), ranged("proxy_port", 0, 65535)]),
-                        f("proxy_auth"),
+                        // greyed while the type is "(none)" (0), the name and password while
+                        // "Authentication" is off, as in µTorrent and the GUIs
                         row(vec![
-                            enabled_by(f("proxy_username"), "proxy_auth"),
-                            enabled_by(f("proxy_password").with("secret", true), "proxy_auth"),
+                            f("proxy_kind"),
+                            enabled_by(f("proxy_hostname"), "proxy_kind"),
+                            enabled_by(ranged("proxy_port", 0, 65535), "proxy_kind"),
                         ]),
-                        f("proxy_hostnames"),
-                        f("proxy_peer_connections"),
-                        f("proxy_tracker_connections"),
+                        enabled_by(f("proxy_auth"), "proxy_kind"),
+                        row(vec![
+                            enabled_by(f("proxy_username"), "proxy_kind proxy_auth"),
+                            enabled_by(f("proxy_password").with("secret", true), "proxy_kind proxy_auth"),
+                        ]),
+                        enabled_by(f("proxy_hostnames"), "proxy_kind"),
+                        enabled_by(f("proxy_peer_connections"), "proxy_kind"),
+                        enabled_by(f("proxy_tracker_connections"), "proxy_kind"),
                     ],
                 ),
             ],

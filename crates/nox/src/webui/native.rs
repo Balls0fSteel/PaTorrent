@@ -1238,6 +1238,7 @@ mod tests {
                 upload_queue_length: 0,
                 num_hashfails: 0,
                 is_web_seed: false,
+                url: None,
             }]),
         );
         (st, hash)

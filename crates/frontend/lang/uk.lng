@@ -103,6 +103,7 @@ MenuAutoShutdown=&Автовимкнення
 MenuCloseToTray=Закривати в &трей
 MenuMinimizeToTray=&Згортати в трей
 MenuAbout=&Про PaTorrent
+MenuNotices=Повідомлення &третіх сторін
 KeyCtrl=Ctrl
 MenuHide=&Сховати PaTorrent
 MenuShow=&Показати PaTorrent

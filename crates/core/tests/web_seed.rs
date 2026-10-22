@@ -607,6 +607,7 @@ fn web_seeds_show_in_the_peer_list() {
         std::thread::sleep(Duration::from_millis(50));
     };
     assert_eq!(peer.ip, srv.addr);
+    assert_eq!(peer.url.as_deref(), Some(srv.url("/slow.bin").as_str()), "the Peers tab shows the URL");
     assert_eq!(peer.client, "test-seed/1.0");
     assert!(peer.flags.contains(patorrent_core::PeerFlags::SEED));
     let st = w.finished(id, 60);

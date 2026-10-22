@@ -103,6 +103,7 @@ MenuAutoShutdown=&Automatsko gašenje
 MenuCloseToTray=Zatvaraj u &područje obavijesti
 MenuMinimizeToTray=&Smanji u područje obavijesti
 MenuAbout=&O programu PaTorrent
+MenuNotices=Obavijesti &trećih strana
 KeyCtrl=Ctrl
 MenuHide=&Sakrij PaTorrent
 MenuShow=&Prikaži PaTorrent

@@ -179,6 +179,7 @@ fn every_alert() -> Vec<Alert> {
                 upload_queue_length: 6,
                 num_hashfails: 7,
                 is_web_seed: false,
+                url: Some("http://seed.example/file".into()),
             }],
         },
         Alert::FileList {

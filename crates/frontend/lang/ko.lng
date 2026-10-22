@@ -103,6 +103,7 @@ MenuAutoShutdown=자동 종료(&A)
 MenuCloseToTray=닫으면 알림 영역으로(&Y)
 MenuMinimizeToTray=최소화하면 알림 영역으로(&M)
 MenuAbout=PaTorrent 정보(&A)
+MenuNotices=타사 고지(&N)
 KeyCtrl=Ctrl
 MenuHide=PaTorrent 숨기기(&H)
 MenuShow=PaTorrent 보이기(&S)

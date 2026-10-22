@@ -103,6 +103,7 @@ MenuAutoShutdown=自動關機(&A)
 MenuCloseToTray=關閉時縮到通知區域(&Y)
 MenuMinimizeToTray=最小化時縮到通知區域(&M)
 MenuAbout=關於 PaTorrent(&A)
+MenuNotices=第三方聲明(&N)
 KeyCtrl=Ctrl
 MenuHide=隱藏 PaTorrent(&H)
 MenuShow=顯示 PaTorrent(&S)

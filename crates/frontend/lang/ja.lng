@@ -103,6 +103,7 @@ MenuAutoShutdown=自動シャットダウン(&A)
 MenuCloseToTray=閉じるとトレイに格納(&Y)
 MenuMinimizeToTray=最小化でトレイに格納(&M)
 MenuAbout=PaTorrent について(&A)
+MenuNotices=サードパーティーの告知(&N)
 KeyCtrl=Ctrl
 MenuHide=PaTorrent を隠す(&H)
 MenuShow=PaTorrent を表示(&S)

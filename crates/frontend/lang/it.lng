@@ -103,6 +103,7 @@ MenuAutoShutdown=Spegnimento &automatico
 MenuCloseToTray=Chiudi nell'area di &notifica
 MenuMinimizeToTray=&Riduci nell'area di notifica
 MenuAbout=&Informazioni su PaTorrent
+MenuNotices=&Note di terze parti
 KeyCtrl=Ctrl
 MenuHide=&Nascondi PaTorrent
 MenuShow=&Mostra PaTorrent

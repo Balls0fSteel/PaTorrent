@@ -151,6 +151,10 @@ MenuCloseToTray=Close to Tra&y
 MenuMinimizeToTray=&Minimize to Tray
 MenuAbout=&About PaTorrent
 
+# Help menu: opens a window with the licence texts of the code PaTorrent is built on
+# (THIRD-PARTY-NOTICES.md); without the mnemonic it is also the window's title.
+MenuNotices=Third-Party &Notices
+
 # The Ctrl key, as menus write shortcuts (Ctrl+O).
 KeyCtrl=Ctrl
 MenuHide=&Hide PaTorrent

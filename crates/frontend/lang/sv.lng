@@ -103,6 +103,7 @@ MenuAutoShutdown=Automatisk &avstängning
 MenuCloseToTray=Stäng till &meddelandefältet
 MenuMinimizeToTray=&Minimera till meddelandefältet
 MenuAbout=&Om PaTorrent
+MenuNotices=&Tredjepartsmeddelanden
 KeyCtrl=Ctrl
 MenuHide=&Dölj PaTorrent
 MenuShow=&Visa PaTorrent

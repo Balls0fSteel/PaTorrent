@@ -2,6 +2,18 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_141257_1792671177: macOS folders and the system language
+
+### Verified
+- CI run 39739629446 (68cff06 and 6650408): every job green; the `macos` job ran every test binary (`--no-fail-fast`), the GTK GUI's included, and the flaky `a_tracker_reply_sets_the_external_address` passed this time.
+
+### Changed
+- **macOS folders**: nox keeps its state and config in `~/Library/Application Support/PaTorrent/nox` (`paths::resolve_macos`; config follows state as on Windows; XDG variables are not read on macOS; `--state-dir` / `--config-dir` still win); the GTK GUI keeps its settings and library in `~/Library/Application Support/PaTorrent/gtk`. docs/DAEMON.md and `--help` name them. Nothing to migrate: no macOS build was ever released.
+- **macOS system language**: `lang::system_languages` reads the system's preferred languages (`CFLocaleCopyPreferredLanguages`, System Settings' Language & Region list) through a small Core Foundation binding, since an application started from the Finder has no `LANG`. Order there: `LANGUAGE`, `LC_ALL` / `LC_MESSAGES` (set on purpose), the system's list, then `LANG` (Terminal sets it from the region). Linux and the BSDs are unchanged (`posix_languages`, now tested on every OS).
+
+### Verified
+- Windows: the nox `paths` tests (new `macos_application_support`) and the `lang` tests (new `posix_and_macos_language_order`); clippy (`-D warnings`) for `aarch64-apple-darwin`, Linux and FreeBSD on the frontend, and on nox and the GTK GUI for macOS and Linux with the stand-in `pkg-config`; fmt. `macos_names_its_languages` runs only on the macOS runner.
+
 ## 2026-10-22_090703_1792652823: The GTK GUI builds and passes its tests on macOS; the flaky test, closer
 
 ### Verified

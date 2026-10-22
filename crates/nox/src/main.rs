@@ -81,11 +81,12 @@ OPTIONS:
     --save DIR        Download directory (default: current directory)
     --state-dir DIR   Session state directory: resume data, DHT state (default: per-user data
                       directory: $XDG_DATA_HOME/patorrent/nox or ~/.local/share/patorrent/nox;
-                      %APPDATA%\\PaTorrent\\nox on Windows); also the config directory unless
-                      --config-dir is given. --state DIR is the same
+                      %APPDATA%\\PaTorrent\\nox on Windows; ~/Library/Application Support/
+                      PaTorrent/nox on macOS); also the config directory unless --config-dir
+                      is given. --state DIR is the same
     --config-dir DIR  Web UI login and preferences (webui.json), default ipfilter.dat (default:
                       $XDG_CONFIG_HOME/patorrent/nox or ~/.config/patorrent/nox; the state
-                      directory on Windows)
+                      directory on Windows and macOS)
     --no-state        Do not load or save any session state
     --seed            After downloading, keep seeding until stopped
     --super-seed      Super seed (BEP 16, \"initial seeding\") torrents that are complete;

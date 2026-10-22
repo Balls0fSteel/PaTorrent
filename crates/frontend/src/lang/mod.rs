@@ -160,6 +160,10 @@ pub const LANGUAGES: &[Language] = &[
 /// The operating system's preferred user-interface languages, most preferred first, as it names
 /// them (`de-DE`, `pt_BR.UTF-8`): Windows' preferred UI languages; elsewhere gettext's order,
 /// `LANGUAGE` (unless the locale is `C`), then the first of `LC_ALL`, `LC_MESSAGES` and `LANG`.
+/// On macOS, where an application started from the Finder has no `LANG`, the system's list
+/// (System Settings > General > Language & Region, `AppleLanguages`) comes before `LANG`, which
+/// Terminal sets from the region rather than the language; `LANGUAGE`, `LC_ALL` and
+/// `LC_MESSAGES` still win, being set on purpose.
 pub fn system_languages() -> Vec<String> {
     #[cfg(windows)]
     {
@@ -168,15 +172,77 @@ pub fn system_languages() -> Vec<String> {
     #[cfg(not(windows))]
     {
         let var = |k: &str| std::env::var(k).ok().filter(|v| !v.trim().is_empty());
-        let locale = ["LC_ALL", "LC_MESSAGES", "LANG"].into_iter().find_map(var);
-        let mut out = Vec::new();
-        if locale.as_deref().is_some_and(|l| l != "C" && l != "POSIX") {
-            if let Some(list) = var("LANGUAGE") {
-                out.extend(list.split(':').filter(|s| !s.is_empty()).map(str::to_owned));
-            }
+        #[cfg(target_os = "macos")]
+        let system = macos::preferred_languages();
+        #[cfg(not(target_os = "macos"))]
+        let system = Vec::new();
+        posix_languages(var, system)
+    }
+}
+
+/// [`system_languages`] off Windows, from the environment `var` and the system's own list
+/// (`system`, empty but on macOS), which goes after the variables set on purpose and before `LANG`.
+#[cfg_attr(windows, allow(dead_code))]
+fn posix_languages(var: impl Fn(&str) -> Option<String>, system: Vec<String>) -> Vec<String> {
+    let explicit = ["LC_ALL", "LC_MESSAGES"].into_iter().find_map(&var);
+    let locale = explicit.clone().or_else(|| var("LANG"));
+    let mut out = Vec::new();
+    // gettext ignores LANGUAGE under the C locale; with no locale at all only the system's
+    // list counts (macOS)
+    if locale.as_deref().is_some_and(|l| l != "C" && l != "POSIX") {
+        if let Some(list) = var("LANGUAGE") {
+            out.extend(list.split(':').filter(|s| !s.is_empty()).map(str::to_owned));
         }
+    }
+    if system.is_empty() {
         out.extend(locale);
-        out
+    } else {
+        out.extend(explicit);
+        out.extend(system);
+        out.extend(var("LANG"));
+    }
+    out
+}
+
+/// The system's preferred languages through Core Foundation.
+#[cfg(target_os = "macos")]
+mod macos {
+    use std::ffi::{c_char, c_void};
+
+    type CFIndex = isize;
+    #[link(name = "CoreFoundation", kind = "framework")]
+    unsafe extern "C" {
+        fn CFLocaleCopyPreferredLanguages() -> *const c_void;
+        fn CFArrayGetCount(array: *const c_void) -> CFIndex;
+        fn CFArrayGetValueAtIndex(array: *const c_void, index: CFIndex) -> *const c_void;
+        fn CFStringGetCString(s: *const c_void, buf: *mut c_char, size: CFIndex, encoding: u32) -> u8;
+        fn CFRelease(cf: *const c_void);
+    }
+    const UTF8: u32 = 0x0800_0100;
+
+    /// BCP 47 tags (`en-US`, `zh-Hans-CN`), most preferred first.
+    pub fn preferred_languages() -> Vec<String> {
+        // SAFETY: the array follows the Copy rule and is released here; its values follow the
+        // Get rule and are only read while it lives; the buffer's length is passed.
+        unsafe {
+            let array = CFLocaleCopyPreferredLanguages();
+            if array.is_null() {
+                return Vec::new();
+            }
+            let mut out = Vec::new();
+            for i in 0..CFArrayGetCount(array) {
+                let s = CFArrayGetValueAtIndex(array, i);
+                let mut buf = [0 as c_char; 128];
+                if !s.is_null() && CFStringGetCString(s, buf.as_mut_ptr(), buf.len() as CFIndex, UTF8) != 0 {
+                    let tag = std::ffi::CStr::from_ptr(buf.as_ptr()).to_string_lossy().into_owned();
+                    if !tag.is_empty() {
+                        out.push(tag);
+                    }
+                }
+            }
+            CFRelease(array);
+            out
+        }
     }
 }
 
@@ -724,6 +790,44 @@ mod tests {
     #[test]
     fn windows_names_its_languages() {
         let names = system_languages();
+        assert!(!names.is_empty() && names.iter().all(|n| canonical(n).is_some()), "{names:?}");
+        println!("system languages: {names:?}");
+    }
+
+    #[test]
+    fn posix_and_macos_language_order() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| (*v).to_owned())
+        };
+        let list = |v: &[&str]| v.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        // Linux: LANGUAGE, then the first locale variable
+        let e = env(&[("LANGUAGE", "fr:de"), ("LC_MESSAGES", "it_IT.UTF-8"), ("LANG", "es_ES.UTF-8")]);
+        assert_eq!(posix_languages(e, Vec::new()), list(&["fr", "de", "it_IT.UTF-8"]));
+        // the C locale silences LANGUAGE
+        assert_eq!(posix_languages(env(&[("LANGUAGE", "fr"), ("LANG", "C")]), Vec::new()), list(&["C"]));
+        assert!(posix_languages(env(&[("LANGUAGE", "fr")]), Vec::new()).is_empty());
+
+        // macOS from the Finder: no variables, the system's list
+        let mac = list(&["zh-Hans-CN", "en-US"]);
+        assert_eq!(posix_languages(env(&[]), mac.clone()), mac);
+        assert_eq!(best_match(&posix_languages(env(&[]), mac.clone())), "zh-Hans");
+        // Terminal's LANG (from the region) comes after the system's list
+        assert_eq!(
+            posix_languages(env(&[("LANG", "en_GB.UTF-8")]), mac.clone()),
+            list(&["zh-Hans-CN", "en-US", "en_GB.UTF-8"])
+        );
+        // LC_ALL / LC_MESSAGES / LANGUAGE set on purpose win
+        assert_eq!(
+            posix_languages(env(&[("LC_ALL", "de_DE.UTF-8"), ("LANGUAGE", "fr")]), mac.clone()),
+            list(&["fr", "de_DE.UTF-8", "zh-Hans-CN", "en-US"])
+        );
+    }
+
+    /// macOS always names at least one preferred language.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_names_its_languages() {
+        let names = macos::preferred_languages();
         assert!(!names.is_empty() && names.iter().all(|n| canonical(n).is_some()), "{names:?}");
         println!("system languages: {names:?}");
     }

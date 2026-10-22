@@ -31,11 +31,11 @@ FreeBSD rc.d script. On Windows `patorrent-nox service install` registers a Wind
 
 ## Files
 
-| What | Linux / BSD | Windows |
-|---|---|---|
-| state: `resume.db`, `metadata.pack`, `dht_state.dat` | `$XDG_DATA_HOME/patorrent/nox`, else `~/.local/share/patorrent/nox` | `%APPDATA%\PaTorrent\nox` |
-| config: `webui.json`, the default `ipfilter.dat`, the generated HTTPS certificate | `$XDG_CONFIG_HOME/patorrent/nox`, else `~/.config/patorrent/nox` | the same folder as the state |
-| the Windows service | | `%ProgramData%\PaTorrent\nox` for both, unless `service install` gets `--state-dir` |
+| What | Linux / BSD | Windows | macOS |
+|---|---|---|---|
+| state: `resume.db`, `metadata.pack`, `dht_state.dat` | `$XDG_DATA_HOME/patorrent/nox`, else `~/.local/share/patorrent/nox` | `%APPDATA%\PaTorrent\nox` | `~/Library/Application Support/PaTorrent/nox` |
+| config: `webui.json`, the default `ipfilter.dat`, the generated HTTPS certificate | `$XDG_CONFIG_HOME/patorrent/nox`, else `~/.config/patorrent/nox` | the same folder as the state | the same folder as the state |
+| the Windows service | | `%ProgramData%\PaTorrent\nox` for both, unless `service install` gets `--state-dir` | |
 
 - The torrent library is data you would miss, so it lives under `XDG_DATA_HOME`, not
   `XDG_STATE_HOME` (which the XDG spec keeps for history and layout that may be lost). Nothing

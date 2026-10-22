@@ -7,6 +7,9 @@
 //! | torrent library (`resume.db`, `metadata.pack`, `dht_state.dat`) | `$XDG_DATA_HOME/patorrent/gtk`, else `~/.local/share/patorrent/gtk` |
 //!
 //! Relative or empty XDG variables are ignored, as the spec says.
+//!
+//! On macOS both are `~/Library/Application Support/PaTorrent/gtk` (their file names differ),
+//! where Apple puts an application's own files; the XDG variables are not read there.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -15,6 +18,9 @@ const APP: [&str; 2] = ["patorrent", "gtk"];
 
 /// The settings folder.
 pub fn config_dir() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        return macos_dir(&|k| std::env::var_os(k));
+    }
     dir(&|k| std::env::var_os(k), "XDG_CONFIG_HOME", &[".config"])
 }
 
@@ -30,6 +36,9 @@ pub fn settings_dir() -> PathBuf {
 
 /// The torrent library's folder.
 pub fn data_dir() -> PathBuf {
+    if cfg!(target_os = "macos") {
+        return macos_dir(&|k| std::env::var_os(k));
+    }
     dir(&|k| std::env::var_os(k), "XDG_DATA_HOME", &[".local", "share"])
 }
 
@@ -42,6 +51,12 @@ fn dir(env: &dyn Fn(&str) -> Option<OsString>, var: &str, fallback: &[&str]) -> 
         }
     };
     APP.iter().fold(base, |p, c| p.join(c))
+}
+
+/// `$HOME/Library/Application Support/PaTorrent/gtk`.
+fn macos_dir(env: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+    let home = env("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
+    ["Library", "Application Support", "PaTorrent", APP[1]].iter().fold(home, |p, c| p.join(c))
 }
 
 #[cfg(test)]
@@ -62,5 +77,7 @@ mod tests {
         );
         let e = env(&[("HOME", "/home/u"), ("XDG_CONFIG_HOME", "")]);
         assert_eq!(dir(&e, "XDG_CONFIG_HOME", &[".config"]), PathBuf::from("/home/u/.config/patorrent/gtk"));
+        let e = env(&[("HOME", "/Users/u"), ("XDG_CONFIG_HOME", "/cfg")]);
+        assert_eq!(macos_dir(&e), PathBuf::from("/Users/u/Library/Application Support/PaTorrent/gtk"));
     }
 }

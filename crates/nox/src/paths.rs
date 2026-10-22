@@ -23,6 +23,10 @@
 //! On Windows both are `%APPDATA%\PaTorrent\nox`, or `nox` beside the exe in portable mode
 //! (`patorrent.ini` beside the exe, the GUI's rule).
 //!
+//! On macOS both are `~/Library/Application Support/PaTorrent/nox`, where Apple puts an
+//! application's own files; XDG variables are not read there. A launchd job's
+//! `--state-dir` still wins.
+//!
 //! `--state-dir` (or `--state`) and `--config-dir` override; a state directory given on the
 //! command line or by systemd holds the config too unless a config directory is also given,
 //! so `--state DIR` keeps everything in one folder as before.
@@ -55,6 +59,8 @@ pub fn resolve(state: Option<PathBuf>, config: Option<PathBuf>) -> Dirs {
     let env = |k: &str| std::env::var_os(k);
     if cfg!(windows) {
         resolve_windows(state, config, env, portable_dir())
+    } else if cfg!(target_os = "macos") {
+        resolve_macos(state, config, env)
     } else {
         resolve_unix(state, config, env)
     }
@@ -77,6 +83,23 @@ pub fn resolve_windows(
 ) -> Dirs {
     let default = portable.map(|d| d.join(APP[1])).or_else(|| {
         env("APPDATA").filter(|v| !v.is_empty()).map(|d| PathBuf::from(d).join("PaTorrent").join(APP[1]))
+    });
+    let state = state.or(default);
+    let config = config.or_else(|| state.clone());
+    Dirs { state, config, legacy_config: None }
+}
+
+/// macOS: the flags, else `$HOME/Library/Application Support/PaTorrent/nox`; the config follows
+/// the state, as on Windows.
+pub fn resolve_macos(
+    state: Option<PathBuf>,
+    config: Option<PathBuf>,
+    env: impl Fn(&str) -> Option<OsString>,
+) -> Dirs {
+    let default = env("HOME").filter(|v| unix_absolute(v)).map(|home| {
+        ["Library", "Application Support", "PaTorrent", APP[1]]
+            .iter()
+            .fold(PathBuf::from(home), |p, c| p.join(c))
     });
     let state = state.or(default);
     let config = config.or_else(|| state.clone());
@@ -258,6 +281,22 @@ mod tests {
         let d = resolve_windows(None, p(r"E:\c"), env(&appdata), None);
         assert_eq!((d.state, d.config), (nox, p(r"E:\c")));
         assert_eq!(resolve_windows(None, None, env(&[("APPDATA", "")]), None), Dirs::default());
+    }
+
+    #[test]
+    fn macos_application_support() {
+        let vars = [("HOME", "/Users/u"), ("XDG_DATA_HOME", "/d"), ("XDG_CONFIG_HOME", "/c")];
+        let nox = join("/Users/u", &["Library", "Application Support", "PaTorrent", "nox"]);
+        // XDG is not read on macOS; config and state share the folder
+        let d = resolve_macos(None, None, env(&vars));
+        assert_eq!(d, Dirs { state: nox.clone(), config: nox.clone(), legacy_config: None });
+        // flags
+        let d = resolve_macos(p("/s"), None, env(&vars));
+        assert_eq!((d.state, d.config), (p("/s"), p("/s")));
+        let d = resolve_macos(None, p("/cfg"), env(&vars));
+        assert_eq!((d.state, d.config), (nox, p("/cfg")));
+        // no usable HOME: nothing (the caller warns)
+        assert_eq!(resolve_macos(None, None, env(&[("HOME", "rel")])), Dirs::default());
     }
 
     #[test]

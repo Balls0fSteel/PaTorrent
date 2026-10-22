@@ -12,7 +12,10 @@ name: Release
 #   Ubuntu 24.04 has them.
 # - Linux x86_64 and aarch64 AppImages: PaTorrent (the GTK GUI with GTK 4 and its libraries)
 #   and patorrent-nox (with OpenSSL), made by linuxdeploy; they need glibc 2.39 (Ubuntu 24.04)
-#   or newer. Flatpak comes later.
+#   or newer.
+# - Linux x86_64 Flatpak: a single-file bundle of the GTK GUI on the GNOME runtime, built by
+#   flatpak-builder from packaging/flatpak (the manifest Flathub would build); installing it
+#   needs Flathub for the runtime. aarch64 later.
 
 on:
   push:
@@ -157,9 +160,71 @@ jobs:
             patorrent-*.tar.gz
             *.AppImage
 
+  flatpak:
+    needs: version
+    runs-on: ubuntu-24.04
+    # flatpak-builder with the GNOME runtime and Flathub's linter; it needs a privileged
+    # container for bubblewrap
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
+      options: --privileged
+    env:
+      APP_ID: io.github.balls0fsteel.PaTorrent
+      # flatpak-builder-tools' cargo generator, pinned by commit and checksum
+      CARGO_GENERATOR: https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/880230d0c74bf532f29dff76521a650c0444bb14/cargo/flatpak-cargo-generator.py
+      CARGO_GENERATOR_SHA256: 0a2db6be87d75910facef28ab46d4d6460802e8419ab850d0caa6a364d26b380
+    steps:
+      - uses: actions/checkout@v7
+      - name: The metainfo's release is the workspace version
+        run: |
+          crate=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          meta=$(grep -m1 '<release ' "packaging/flatpak/$APP_ID.metainfo.xml" | sed 's/.*version="\([^"]*\)".*/\1/')
+          if [ "$meta" != "$crate" ]; then
+            echo "::error::the metainfo's first <release> is $meta, Cargo.toml has $crate"
+            exit 1
+          fi
+      - name: Validate the metainfo
+        run: appstreamcli validate --no-net --explain "packaging/flatpak/$APP_ID.metainfo.xml"
+      - name: The crates, from Cargo.lock
+        # a tool missing from the image leaves the committed file in place
+        continue-on-error: true
+        run: |
+          # build with sources that match Cargo.lock even when the committed file is stale
+          # (Flathub builds the committed one, so a warning asks for it to be regenerated)
+          gen="$RUNNER_TEMP/cargo-generator"
+          mkdir -p "$gen"
+          curl -fsSL -o "$gen/flatpak-cargo-generator.py" "$CARGO_GENERATOR"
+          echo "$CARGO_GENERATOR_SHA256  $gen/flatpak-cargo-generator.py" | sha256sum -c -
+          if python3 -m venv "$gen/venv" && "$gen/venv/bin/pip" install -q "aiohttp>=3.9.5,<4" "PyYAML>=6.0.2,<7" "tomlkit>=0.13.3,<1"; then
+            "$gen/venv/bin/python" -I "$gen/flatpak-cargo-generator.py" Cargo.lock -o "$gen/cargo-sources.json"
+            if ! cmp -s "$gen/cargo-sources.json" packaging/flatpak/cargo-sources.json; then
+              echo "::warning::packaging/flatpak/cargo-sources.json is stale; regenerate it (docs/RELEASING.md, Flatpak)"
+              cp "$gen/cargo-sources.json" packaging/flatpak/cargo-sources.json
+            fi
+          else
+            echo "::warning::could not run the cargo generator; building with the committed cargo-sources.json"
+          fi
+      - name: Flathub's linter on the manifest (advisory)
+        continue-on-error: true
+        run: flatpak-builder-lint manifest "packaging/flatpak/$APP_ID.yml"
+      - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
+        with:
+          manifest-path: packaging/flatpak/${{ env.APP_ID }}.yml
+          bundle: PaTorrent-${{ needs.version.outputs.version }}-x86_64.flatpak
+          arch: x86_64
+          cache-key: flatpak-builder-${{ hashFiles('Cargo.lock') }}
+          upload-artifact: false
+      - name: The bundle
+        run: |
+          ls -l "PaTorrent-${{ needs.version.outputs.version }}-x86_64.flatpak"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: flatpak-x86_64
+          path: PaTorrent-*.flatpak
+
   release:
     if: github.ref_type == 'tag'
-    needs: [version, windows, linux]
+    needs: [version, windows, linux, flatpak]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

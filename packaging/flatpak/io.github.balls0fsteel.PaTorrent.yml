@@ -1,0 +1,82 @@
+# flatpak-builder manifest of PaTorrent's GTK 4 GUI (PLAN.md D22, Road to 1.0 item 7).
+#
+# Built by the `flatpak` job of .github/workflows/release.yml from this checkout (`type: dir`
+# below); docs/RELEASING.md has how to build it by hand, the sandbox permissions and why, and
+# what a Flathub submission changes (a `git` source with a tag and commit instead of `dir`).
+#
+# The crates come from cargo-sources.json, which flatpak-cargo-generator.py
+# (flatpak/flatpak-builder-tools) makes from Cargo.lock; the build is offline, as Flathub's are.
+# Regenerate it whenever Cargo.lock changes (docs/RELEASING.md, "Flatpak"); the release job
+# regenerates it before building and warns when the committed one is stale.
+
+id: io.github.balls0fsteel.PaTorrent
+runtime: org.gnome.Platform
+runtime-version: '51'
+sdk: org.gnome.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: patorrent-gtk
+
+finish-args:
+  - --share=network
+  - --share=ipc
+  - --socket=fallback-x11
+  - --socket=wayland
+  - --device=dri
+  # Downloads go anywhere the user picks, as in µTorrent (Preferences > Directories, the Add
+  # dialog, "Move completed to"), and .torrent files are opened from anywhere: the home folder,
+  # plus the XDG download folder for when it lies outside home. See docs/RELEASING.md for the
+  # tradeoff against the file chooser portal.
+  - --filesystem=home
+  - --filesystem=xdg-download
+  # The tray: a StatusNotifierItem registered with the watcher (crates/gtk/src/tray.rs).
+  - --talk-name=org.kde.StatusNotifierWatcher
+  # TEMPORARY: tray.rs owns `org.kde.StatusNotifierItem-<pid>-1`, which the sandbox refuses
+  # without this (flatpak's own-name wildcard is whole name elements, so nothing narrower
+  # matches). Remove it once tray.rs falls back to registering its unique bus name; Flathub's
+  # linter rejects it (finish-args-wildcard-kde-own-name).
+  - --own-name=org.kde.*
+  # Desktop notifications straight from the notification server (a remote window is
+  # NON_UNIQUE, so no GNotification / portal there; crates/gtk/src/app.rs).
+  - --talk-name=org.freedesktop.Notifications
+  # Auto Shutdown: Standby, Hibernate and Shut Down through systemd-logind
+  # (crates/gtk/src/shutdown.rs), on the system bus.
+  - --system-talk-name=org.freedesktop.login1
+
+build-options:
+  append-path: /usr/lib/sdk/rust-stable/bin
+
+modules:
+  - name: patorrent
+    buildsystem: simple
+    build-options:
+      env:
+        # where cargo-sources.json puts the vendored crates and their `config`
+        CARGO_HOME: /run/build/patorrent/cargo
+        CARGO_NET_OFFLINE: 'true'
+        # PROVISIONAL: the recommended candidate until the owner picks the icon (Road to 1.0
+        # item 10), the same one as the AppImage's APP_ICON
+        ICON_DIR: assets/patina-icons/exports/app/01-verdigris
+    build-commands:
+      - cargo --offline build --release --locked -p patorrent-gtk
+      - install -Dm755 target/release/patorrent-gtk /app/bin/patorrent-gtk
+      # the desktop entry the GUI itself writes (frontend::integration::packaged_entry, kept
+      # equal to this file by a test); flatpak exports it and rewrites its Exec line
+      - install -Dm644 contrib/linux/${FLATPAK_ID}.desktop /app/share/applications/${FLATPAK_ID}.desktop
+      - install -Dm644 packaging/flatpak/${FLATPAK_ID}.metainfo.xml /app/share/metainfo/${FLATPAK_ID}.metainfo.xml
+      - for s in 16 32 48 64 128 256 512; do install -Dm644 "${ICON_DIR}/${s}.png" "/app/share/icons/hicolor/${s}x${s}/apps/${FLATPAK_ID}.png"; done
+      - install -Dm644 -t /app/share/licenses/${FLATPAK_ID} LICENSE.md THIRD-PARTY-NOTICES.md
+    sources:
+      - type: dir
+        path: ../..
+        # (the reference libtorrent submodule, build output, and the state, build and repo
+        # folders flatpak-builder and the GitHub action leave in the checkout)
+        skip:
+          - .git
+          - target
+          - third_party
+          - .flatpak-builder
+          - flatpak_app
+          - repo
+          - build-dir
+      - cargo-sources.json

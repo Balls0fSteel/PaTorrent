@@ -1467,7 +1467,8 @@ impl Engine {
         let num_pieces = t.num_pieces.max(1) as u64;
         let mut out = Vec::new();
         for (_, c) in self.web.conns.iter().filter(|(_, c)| c.torrent == id) {
-            let trust = t.web_seeds.index_of(c.seed).map_or(Trust::default(), |i| t.web_seeds.list[i].trust);
+            let seed = t.web_seeds.index_of(c.seed).map(|i| &t.web_seeds.list[i]);
+            let trust = seed.map_or(Trust::default(), |w| w.trust);
             let mut flags = PeerFlags::empty();
             flags.set(PeerFlags::INTERESTING, c.am_interested);
             flags.set(PeerFlags::CHOKED, true);
@@ -1494,6 +1495,7 @@ impl Engine {
                 upload_queue_length: 0,
                 num_hashfails: trust.hashfails as u32,
                 is_web_seed: true,
+                url: seed.map(|w| w.url.clone()),
             });
         }
         out

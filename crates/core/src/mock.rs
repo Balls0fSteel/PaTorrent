@@ -1223,6 +1223,7 @@ fn peers_for(t: &Torrent) -> Vec<PeerInfo> {
                 upload_queue_length: rng.below(8) as u32,
                 num_hashfails: 0,
                 is_web_seed: false,
+                url: None,
             }
         })
         .collect()

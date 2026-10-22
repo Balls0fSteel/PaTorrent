@@ -346,9 +346,11 @@ pub const PEER_COLUMNS: [ColumnDef; 9] = [
     (S::ColUploaded, 75, true),
 ];
 
+/// A peer's cell. A web seed shows its URL in the IP column (its `client` is the server's
+/// `Server` header), as µTorrent did.
 pub fn peer_cell(p: &PeerInfo, col: usize) -> String {
     match col {
-        0 => p.ip.to_string(),
+        0 => p.url.clone().unwrap_or_else(|| p.ip.to_string()),
         1 => p.client.clone(),
         2 => peer_flags(p),
         3 => format!("{:.1}", p.progress_ppm as f64 / 10_000.0),
@@ -533,6 +535,7 @@ mod tests {
             upload_queue_length: 0,
             num_hashfails: 0,
             is_web_seed: false,
+            url: None,
         }
     }
 
@@ -550,6 +553,16 @@ mod tests {
         assert_eq!(peer_flags(&p), "dE");
         assert_eq!(peer_cell(&p, 3), "50.0");
         assert_eq!(peer_cell(&p, 6), "3 | 0");
+        assert_eq!(peer_cell(&p, 0), "10.0.0.1:6881");
+        // a web seed: the URL in the IP column, the server header as the client
+        let w = PeerInfo {
+            is_web_seed: true,
+            url: Some("http://mirror.example/ubuntu.iso".into()),
+            client: "nginx".into(),
+            ..p
+        };
+        assert_eq!(peer_cell(&w, 0), "http://mirror.example/ubuntu.iso");
+        assert_eq!(peer_cell(&w, 1), "nginx");
     }
 
     #[test]

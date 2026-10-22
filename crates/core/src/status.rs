@@ -244,6 +244,9 @@ pub struct PeerInfo {
     pub num_hashfails: u32,
     /// True for web seeds (BEP 17/19) rather than BitTorrent peers.
     pub is_web_seed: bool,
+    /// A web seed's URL (`ip` is the server's address, `client` its `Server` header); `None`
+    /// for BitTorrent peers.
+    pub url: Option<String>,
 }
 
 /// The state of one block of a piece being downloaded (libtorrent `block_info::block_state_t`).

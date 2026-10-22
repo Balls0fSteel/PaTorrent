@@ -3584,6 +3584,7 @@ impl Engine {
                 upload_queue_length: (p.upload_queue.len() + p.reads_in_flight.len()) as u32,
                 num_hashfails: trust.hashfails as u32,
                 is_web_seed: false,
+                url: None,
             });
         }
         peers.extend(self.web_peer_infos(id));

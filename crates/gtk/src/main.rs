@@ -48,6 +48,9 @@ mod sidebar;
 mod table;
 #[cfg(unix)]
 mod tray;
+// on every Unix: its pure parts are tested wherever the GTK tests run; the AppKit part is macOS's
+#[cfg(unix)]
+mod tray_macos;
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {

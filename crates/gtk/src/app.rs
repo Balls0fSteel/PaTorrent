@@ -248,6 +248,9 @@ pub fn run() -> ExitCode {
         }
     });
     let code = app.run();
+    // the tray goes while the toolkit is still there, not with the thread's locals at exit: on
+    // macOS its NSStatusItem leaves the menu bar through AppKit
+    TRAY.with(|t| t.borrow_mut().take());
     // Auto Shutdown's Shut Down, once the session has saved its state and stopped
     if let Some(Err(e)) = shutdown::take_after_exit().map(shutdown::perform) {
         eprintln!("{e}");
@@ -823,12 +826,14 @@ fn tray() -> Option<Rc<Tray>> {
     TRAY.with(|t| t.borrow().clone())
 }
 
-/// A tray is on screen (a StatusNotifierWatcher took the item).
+/// A tray is on screen (a StatusNotifierWatcher took the item; on macOS the status item is in
+/// the menu bar).
 fn tray_shown() -> bool {
     tray().is_some_and(|t| t.shown())
 }
 
-/// The tray icon on the session bus, and "Minimize to tray" on the window's state.
+/// The tray icon (on the session bus; the menu bar on macOS), and "Minimize to tray" on the
+/// window's state.
 fn start_tray(window: &gtk::ApplicationWindow) {
     let tray = Tray::start(crate::tray::Hooks {
         activate: Box::new(toggle_window),

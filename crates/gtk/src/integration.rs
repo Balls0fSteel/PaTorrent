@@ -20,13 +20,22 @@
 //! for that type (GIO's `reset_type_associations`), which gives it back to the system's
 //! default; it does not restore a program chosen before PaTorrent.
 //!
-//! A Flatpak manages all of it ([`packaged`]): its exported desktop entry declares both types,
-//! so the desktop offers PaTorrent for them, and the user picks the default program and the
-//! startup applications in the desktop's own settings. Inside the sandbox GIO's
+//! In a Flatpak ([`packaged`]) the associations are the package's: its exported desktop entry
+//! declares both types, so the desktop offers PaTorrent for them, and the user picks the
+//! default program in the desktop's own settings. Inside the sandbox GIO's
 //! `set_as_default_for_type` would write the sandbox's own `mimeapps.list`, which the host never
-//! reads, and an autostart entry needs the Background portal (not used yet). So there nothing
-//! reads as set, nothing is written, Preferences shows the group's boxes greyed under a note,
-//! and "Check association on startup" never asks.
+//! reads. So there the associations read as unset and are never written, Preferences shows
+//! their boxes greyed under a note, and "Check association on startup" never asks.
+//!
+//! Autostart works in a Flatpak too, through the Background portal (`crate::portal`):
+//! `RequestBackground` with `autostart` and the sandbox's command line (`patorrent-gtk`, the
+//! manifest's `command`, plus `--minimized` for "Start minimized"), which makes the portal write
+//! the host's autostart entry (`flatpak run --command=patorrent-gtk <app id> ...`); turning it
+//! off is the same request with `autostart` false. The portal answers later, after the desktop
+//! has perhaps asked the user, and has nothing to read back, so what it granted is kept in
+//! `background.ini` in the settings folder (`paths::background_file`) and read from there. The
+//! dialog's Apply does not wait: the boxes show the granted state the next time it opens, and a
+//! refusal or failure shows the usual error.
 //!
 //! macOS (`crate::macos`, PLAN.md D23) keeps the same boxes in its own places:
 //! - "Start PaTorrent on system startup" is a LaunchAgent, `~/Library/LaunchAgents/<app id>.plist`
@@ -110,11 +119,11 @@ mod imp {
             .is_some_and(|i| i == id.as_str())
     }
 
-    /// What is set for this program now: nothing in a Flatpak, where the desktop's settings
-    /// hold it and the sandbox cannot see them.
+    /// What is set for this program now. In a Flatpak: no association (the desktop's settings
+    /// hold them, out of the sandbox's sight) and autostart as the portal last granted it.
     pub fn read() -> Integration {
         if super::packaged() {
-            return Integration::default();
+            return flatpak::read();
         }
         let command = command();
         let app = ours(&app_entry_path(), &command).is_some();
@@ -147,8 +156,7 @@ mod imp {
     pub fn write(old: &Integration, want: &Integration) -> Result<Integration, String> {
         let (old, want) = (old.normalized(), want.normalized());
         if super::packaged() {
-            // the boxes are greyed there, so nothing asks; nothing would reach the host
-            return Err("managed by the Flatpak: use the desktop's settings".into());
+            return flatpak::write(&old, &want);
         }
         let command = command();
         if command.is_empty() {
@@ -192,6 +200,96 @@ mod imp {
             }
         }
         Ok(read())
+    }
+
+    /// Inside a Flatpak (see the module's note): autostart through the Background portal.
+    mod flatpak {
+        use gtk::gio;
+        use gtk::prelude::*;
+        use patorrent_frontend::integration::{Integration, MINIMIZED};
+        use patorrent_frontend::prefs::Prefs;
+        use patorrent_frontend::tr;
+
+        /// The manifest's `command`: what the portal's autostart entry runs in the sandbox.
+        const COMMAND: &str = "patorrent-gtk";
+
+        fn state() -> Prefs {
+            Prefs::load(crate::paths::background_file())
+        }
+
+        /// Autostart as the portal last granted it; never an association.
+        pub fn read() -> Integration {
+            let s = state();
+            let autostart = s.get_bool("autostart", false);
+            Integration {
+                autostart,
+                minimized: autostart && s.get_bool("minimized", false),
+                ..Default::default()
+            }
+        }
+
+        /// The portal's command line, with or without "Start minimized".
+        pub fn commandline(minimized: bool) -> Vec<String> {
+            let mut c = vec![COMMAND.to_owned()];
+            if minimized {
+                c.push(MINIMIZED.to_owned());
+            }
+            c
+        }
+
+        /// Asks the portal when autostart changes and returns at once with what is set now (the
+        /// associations' boxes are greyed, so they never differ). The answer is kept and shown
+        /// next time; a refusal or failure is reported when it comes.
+        pub fn write(old: &Integration, want: &Integration) -> Result<Integration, String> {
+            if (want.autostart, want.minimized) != (old.autostart, old.minimized) {
+                let (autostart, minimized) = (want.autostart, want.minimized);
+                let reason = tr!(PrefAutostart).replace('&', "");
+                crate::portal::request_autostart(autostart, commandline(minimized), reason, move |r| {
+                    let r = r.and_then(|granted| {
+                        let mut s = state();
+                        s.set_bool("autostart", granted);
+                        s.set_bool("minimized", granted && minimized);
+                        s.save()
+                            .map_err(|e| format!("{}: {e}", crate::paths::background_file().display()))?;
+                        if autostart && !granted {
+                            return Err("the desktop does not allow PaTorrent to start at login".into());
+                        }
+                        Ok(())
+                    });
+                    if let Err(e) = r {
+                        report(&e);
+                    }
+                });
+            }
+            Ok(read())
+        }
+
+        /// An error after the dialog has gone, over whichever window is in front.
+        fn report(e: &str) {
+            eprintln!("autostart through the Background portal: {e}");
+            let window = gio::Application::default()
+                .and_downcast::<gtk::Application>()
+                .and_then(|a| a.active_window());
+            gtk::AlertDialog::builder()
+                .message(tr!(ErrDesktopIntegration, error = e))
+                .modal(true)
+                .build()
+                .show(window.as_ref());
+        }
+
+        #[cfg(test)]
+        mod tests {
+            use super::*;
+
+            #[test]
+            fn the_portal_runs_the_manifest_command() {
+                assert_eq!(commandline(false), ["patorrent-gtk"]);
+                assert_eq!(commandline(true), ["patorrent-gtk", "--minimized"]);
+                let manifest =
+                    include_str!("../../../packaging/flatpak/io.github.balls0fsteel.PaTorrent.yml");
+                assert!(manifest.lines().any(|l| l == format!("command: {COMMAND}")));
+            }
+        }
     }
 }
 

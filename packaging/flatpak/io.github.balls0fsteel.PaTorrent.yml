@@ -38,6 +38,8 @@ finish-args:
   # Auto Shutdown: Standby, Hibernate and Shut Down through systemd-logind
   # (crates/gtk/src/shutdown.rs), on the system bus.
   - --system-talk-name=org.freedesktop.login1
+  # (Autostart goes through the Background portal, crates/gtk/src/portal.rs; portals need no
+  # permission here. Its commandline is the `command` above: keep them equal.)
 
 build-options:
   append-path: /usr/lib/sdk/rust-stable/bin

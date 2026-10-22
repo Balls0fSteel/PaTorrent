@@ -205,7 +205,7 @@ jobs:
             exit 1
           fi
       - name: The crates, from Cargo.lock
-        # a tool missing from the image leaves the committed file in place
+        # advisory: a generator that cannot run leaves the committed file in place
         continue-on-error: true
         run: |
           # build with sources that match Cargo.lock even when the committed file is stale
@@ -214,18 +214,30 @@ jobs:
           mkdir -p "$gen"
           curl -fsSL -o "$gen/flatpak-cargo-generator.py" "$CARGO_GENERATOR"
           echo "$CARGO_GENERATOR_SHA256  $gen/flatpak-cargo-generator.py" | sha256sum -c -
-          if python3 -m venv "$gen/venv" && "$gen/venv/bin/pip" install -q "aiohttp>=3.9.5,<4" "PyYAML>=6.0.2,<7" "tomlkit>=0.13.3,<1"; then
-            "$gen/venv/bin/python" -I "$gen/flatpak-cargo-generator.py" Cargo.lock -o "$gen/cargo-sources.json"
-            if ! cmp -s "$gen/cargo-sources.json" packaging/flatpak/cargo-sources.json; then
-              echo "::warning::packaging/flatpak/cargo-sources.json is stale; regenerate it (docs/RELEASING.md, Flatpak)"
+          # The image sets PYTHONPATH=/app/lib/python3.13/site-packages, which has aiohttp: a
+          # pip run with it set finds aiohttp "already satisfied" there and installs nothing
+          # into the venv, and the generator under -I (which ignores PYTHONPATH) then has no
+          # aiohttp (Release 39791608589). So pip runs under -I too: same sys.path as the
+          # generator, everything lands in the venv.
+          py="$gen/venv/bin/python"
+          if python3 -m venv "$gen/venv" \
+            && "$py" -I -m pip install -q --no-cache-dir "aiohttp>=3.9.5,<4" "PyYAML>=6.0.2,<7" "tomlkit>=0.13.3,<1" \
+            && "$py" -I "$gen/flatpak-cargo-generator.py" Cargo.lock -o "$gen/cargo-sources.json"; then
+            if cmp -s "$gen/cargo-sources.json" packaging/flatpak/cargo-sources.json; then
+              echo "packaging/flatpak/cargo-sources.json matches Cargo.lock"
+            else
+              echo "::warning file=packaging/flatpak/cargo-sources.json::stale against Cargo.lock; regenerate it (docs/RELEASING.md, Flatpak)"
+              diff -u packaging/flatpak/cargo-sources.json "$gen/cargo-sources.json" | head -40 || true
               cp "$gen/cargo-sources.json" packaging/flatpak/cargo-sources.json
             fi
           else
             echo "::warning::could not run the cargo generator; building with the committed cargo-sources.json"
           fi
+      # advisory; the exceptions a Flathub submission asks for (docs/RELEASING.md) are skipped,
+      # so what it prints is what Flathub would still refuse
       - name: Flathub's linter on the manifest (advisory)
         continue-on-error: true
-        run: flatpak-builder-lint manifest "packaging/flatpak/$APP_ID.yml"
+        run: flatpak-builder-lint --exceptions --user-exceptions packaging/flatpak/lint-exceptions.json manifest "packaging/flatpak/$APP_ID.yml"
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: packaging/flatpak/${{ env.APP_ID }}.yml

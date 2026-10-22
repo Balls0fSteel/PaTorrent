@@ -549,7 +549,7 @@ strings! {
     PrefAutostart = "Start PaTorrent on system startup";
     PrefStartMinimized = "Start minimized";
     /// Under Desktop Integration when the GTK client runs as a Flatpak (the boxes are greyed).
-    PrefDesktopPackaged = "PaTorrent runs as a Flatpak: the desktop offers it for .torrent files and magnet: links. Choose the default program and the startup applications in your desktop's settings.";
+    PrefDesktopPackaged = "PaTorrent runs as a Flatpak: the desktop offers it for .torrent files and magnet: links. Choose the default program in your desktop's settings.";
     PrefDefaultApps = "Default apps...";
     PrefDisplay = "Display Options";
     PrefConfirmDelete = "Confirm when deleting torrents";

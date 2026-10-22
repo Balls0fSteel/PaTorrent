@@ -122,8 +122,9 @@ pub struct Features {
     /// Desktop integration (associations, autostart): General shows its group, bound to
     /// `Options::integration`, which the toolkit reads from the system and writes back.
     pub desktop: bool,
-    /// With `desktop`: the integration is the package's (a Flatpak, whose exported desktop
-    /// entry declares the types): the group's boxes are greyed under a note saying so.
+    /// With `desktop`: the associations are the package's (a Flatpak, whose exported desktop
+    /// entry declares the types): their boxes are greyed under a note saying so. Autostart
+    /// stays editable: the toolkit asks the package's own means (the Background portal).
     pub packaged: bool,
 }
 
@@ -323,6 +324,7 @@ pub fn pages(features: Features) -> Vec<Page> {
         if features.packaged {
             general.push(Note(|| tr_owned(S::PrefDesktopPackaged)));
         }
+        // the associations only: autostart goes through the package (see `Features::packaged`)
         let fixed = features.packaged;
         general.extend([
             F(checkbox(
@@ -351,8 +353,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                 S::PrefAutostart,
                 |o| o.integration.autostart,
                 |o, v| o.integration.autostart = v,
-            )
-            .fixed(fixed)),
+            )),
             F(checkbox(
                 "assoc.minimized",
                 S::PrefStartMinimized,
@@ -360,8 +361,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                 |o, v| o.integration.minimized = v,
             )
             .indent()
-            .needs(&["assoc.autostart"])
-            .fixed(fixed)),
+            .needs(&["assoc.autostart"])),
         ]);
     }
     vec![
@@ -1046,11 +1046,12 @@ mod tests {
         assert!(fields(&without).all(|f| !f.key.starts_with("assoc.") && f.key != "ui.check_assoc"));
         assert_eq!(page_of(&pages, "assoc.minimized").map(|p| p.key), Some("general"));
         assert!(fields(&pages).all(|f| !f.fixed));
-        // in a Flatpak the same boxes, all greyed, under the note
+        // in a Flatpak the same boxes under the note, the associations greyed, autostart live
         let packaged = super::pages(Features { tray: true, desktop: true, packaged: true });
         let desktop = |f: &&Field| f.key.starts_with("assoc.") || f.key == "ui.check_assoc";
         assert_eq!(fields(&packaged).filter(desktop).count(), 5);
-        assert!(fields(&packaged).all(|f| f.fixed == desktop(&f)));
+        let associations = ["assoc.torrent", "assoc.magnet", "ui.check_assoc"];
+        assert!(fields(&packaged).all(|f| f.fixed == associations.contains(&f.key)));
         let general = &packaged.iter().find(|p| p.key == "general").unwrap().items;
         assert!(
             general.iter().any(|i| matches!(i, Item::Note(t) if t() == lang::text(S::PrefDesktopPackaged)))

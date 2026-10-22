@@ -123,7 +123,11 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
         .default_width(760)
         .default_height(560)
         .build();
-    let pages = pref_pages::pages(Features { desktop: crate::integration::AVAILABLE, tray: hooks.tray });
+    let pages = pref_pages::pages(Features {
+        desktop: crate::integration::AVAILABLE,
+        packaged: crate::integration::packaged(),
+        tray: hooks.tray,
+    });
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);
@@ -651,7 +655,9 @@ impl Builder {
         if f.beside {
             if let Some(row) = &self.last_row {
                 row.append(&control);
-                if !f.needs.is_empty() {
+                if f.fixed {
+                    grey.set_sensitive(false);
+                } else if !f.needs.is_empty() {
                     self.needs.push((grey, f.needs));
                 }
                 self.controls.insert(f.key, ctl);
@@ -674,7 +680,10 @@ impl Builder {
             self.browse.push((b, f.key, kind));
         }
         target.append(&row);
-        if !f.needs.is_empty() {
+        if f.fixed {
+            // what a package manages: shown, never edited
+            row.set_sensitive(false);
+        } else if !f.needs.is_empty() {
             self.needs.push((row.clone().upcast(), f.needs));
         }
         self.last_row = Some(row);

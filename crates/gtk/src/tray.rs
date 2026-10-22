@@ -5,7 +5,10 @@
 //! The item lives at `/StatusNotifierItem` under the bus name
 //! `org.kde.StatusNotifierItem-<pid>-1` and registers with `org.kde.StatusNotifierWatcher`
 //! whenever a watcher is on the bus; while none is, there is no tray ([`Tray::shown`] is false)
-//! and the window does not hide into it. The icon is the application icon: by name
+//! and the window does not hide into it. Inside a Flatpak (`FLATPAK_ID` set), or when the bus
+//! will not let it own that name, it registers the connection's unique name (`:1.42`) instead,
+//! as Qt, KDE Frameworks and Electron do: the sandbox refuses owning `org.kde.*` names unless
+//! the manifest grants a wildcard Flathub rejects ([`item_name`]). The icon is the application icon: by name
 //! (`IconName`, with `IconThemePath` the folder `icons::setup` wrote it to) and as pixmaps for
 //! hosts that draw those (`icons::app_pixmaps`). The tooltip shows the rates, a left click
 //! shows or hides the window,
@@ -28,6 +31,31 @@ const MENU_PATH: &str = "/MenuBar";
 const ITEM_IFACE: &str = "org.kde.StatusNotifierItem";
 const MENU_IFACE: &str = "com.canonical.dbusmenu";
 const WATCHER: &str = "org.kde.StatusNotifierWatcher";
+
+/// How owning the well-known item name went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Owning {
+    /// Asked for, no answer yet.
+    Pending,
+    Owned,
+    /// Refused (a Flatpak without `--own-name`, the name taken) or lost.
+    Refused,
+}
+
+/// The bus name to register with the watcher: the unique name in a Flatpak or once the
+/// well-known name was refused, the well-known one while owned, nothing while that is pending.
+fn item_name<'a>(
+    flatpak: bool,
+    owning: Owning,
+    well_known: &'a str,
+    unique: Option<&'a str>,
+) -> Option<&'a str> {
+    match (flatpak, owning) {
+        (true, _) | (false, Owning::Refused) => unique,
+        (false, Owning::Owned) => Some(well_known),
+        (false, Owning::Pending) => None,
+    }
+}
 
 const XML: &str = r#"<node>
  <interface name="org.kde.StatusNotifierItem">
@@ -146,12 +174,15 @@ pub struct Hooks {
 
 pub struct Tray {
     connection: gio::DBusConnection,
+    /// The well-known name, `org.kde.StatusNotifierItem-<pid>-1`.
     name: String,
+    /// In a Flatpak: the well-known name is not asked for at all.
+    flatpak: bool,
     hooks: Hooks,
     tooltip: RefCell<(String, String)>,
     pixmaps: Vec<(i32, i32, Vec<u8>)>,
     revision: Cell<u32>,
-    owned: Cell<bool>,
+    owning: Cell<Owning>,
     watcher: Cell<bool>,
     shown: Cell<bool>,
 }
@@ -165,11 +196,12 @@ impl Tray {
         let tray = Rc::new(Tray {
             name: format!("org.kde.StatusNotifierItem-{}-1", std::process::id()),
             connection: connection.clone(),
+            flatpak: std::env::var_os("FLATPAK_ID").is_some(),
             hooks,
             tooltip: RefCell::new(("PaTorrent".into(), String::new())),
             pixmaps: crate::icons::app_pixmaps(),
             revision: Cell::new(1),
-            owned: Cell::new(false),
+            owning: Cell::new(Owning::Pending),
             watcher: Cell::new(false),
             shown: Cell::new(false),
         });
@@ -190,24 +222,33 @@ impl Tray {
                 return None;
             }
         }
-        let (got, lost) = (Rc::downgrade(&tray), Rc::downgrade(&tray));
-        gio::bus_own_name_on_connection(
-            &connection,
-            &tray.name,
-            gio::BusNameOwnerFlags::NONE,
-            move |_, _| {
-                if let Some(t) = got.upgrade() {
-                    t.owned.set(true);
-                    t.register();
-                }
-            },
-            move |_, _| {
-                if let Some(t) = lost.upgrade() {
-                    t.owned.set(false);
-                    t.set_shown(false);
-                }
-            },
-        );
+        if !tray.flatpak {
+            let (got, lost) = (Rc::downgrade(&tray), Rc::downgrade(&tray));
+            // not queued: a refusal falls back to the unique name for good, so the item is
+            // never registered under two names
+            gio::bus_own_name_on_connection(
+                &connection,
+                &tray.name,
+                gio::BusNameOwnerFlags::DO_NOT_QUEUE,
+                move |_, _| {
+                    if let Some(t) = got.upgrade() {
+                        if t.owning.get() == Owning::Pending {
+                            t.owning.set(Owning::Owned);
+                            t.register();
+                        }
+                    }
+                },
+                move |_, _| {
+                    if let Some(t) = lost.upgrade() {
+                        if t.owning.replace(Owning::Refused) != Owning::Refused {
+                            eprintln!("tray: cannot own {}; registering the unique bus name", t.name);
+                            t.set_shown(false);
+                            t.register();
+                        }
+                    }
+                },
+            );
+        }
         let (came, went) = (Rc::downgrade(&tray), Rc::downgrade(&tray));
         gio::bus_watch_name_on_connection(
             &connection,
@@ -241,16 +282,20 @@ impl Tray {
     }
 
     fn register(self: &Rc<Self>) {
-        if !(self.owned.get() && self.watcher.get()) {
+        if !self.watcher.get() {
             return;
         }
+        let unique = self.connection.unique_name();
+        let Some(name) = item_name(self.flatpak, self.owning.get(), &self.name, unique.as_deref()) else {
+            return;
+        };
         let me = Rc::downgrade(self);
         self.connection.call(
             Some(WATCHER),
             "/StatusNotifierWatcher",
             WATCHER,
             "RegisterStatusNotifierItem",
-            Some(&(self.name.as_str(),).to_variant()),
+            Some(&(name,).to_variant()),
             None,
             gio::DBusCallFlags::NONE,
             -1,
@@ -429,5 +474,24 @@ impl Tray {
         let children = (1..=MENU.len() as i32).map(|id| glib::Variant::from_variant(&self.node(id)));
         let children = glib::Variant::array_from_iter_with_type(glib::VariantTy::VARIANT, children);
         glib::Variant::tuple_from_iter([0i32.to_variant(), self.props(0).to_variant(), children])
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_registered_name() {
+        let (wk, unique) = ("org.kde.StatusNotifierItem-7-1", Some(":1.42"));
+        // in a Flatpak the unique name, whatever owning did (it is never asked for)
+        for owning in [Owning::Pending, Owning::Owned, Owning::Refused] {
+            assert_eq!(item_name(true, owning, wk, unique), Some(":1.42"));
+        }
+        assert_eq!(item_name(false, Owning::Pending, wk, unique), None);
+        assert_eq!(item_name(false, Owning::Owned, wk, unique), Some(wk));
+        assert_eq!(item_name(false, Owning::Refused, wk, unique), Some(":1.42"));
+        // a connection without a unique name (not a message bus): nothing to register
+        assert_eq!(item_name(true, Owning::Pending, wk, None), None);
     }
 }

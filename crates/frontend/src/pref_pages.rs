@@ -69,6 +69,8 @@ pub struct Field {
     pub beside: bool,
     /// Greyed unless these check boxes (keys) are all on.
     pub needs: &'static [&'static str],
+    /// Always greyed: shown, never edited (what a package manages, [`Features::packaged`]).
+    pub fixed: bool,
 }
 
 /// A button a toolkit acts on.
@@ -120,6 +122,9 @@ pub struct Features {
     /// Desktop integration (associations, autostart): General shows its group, bound to
     /// `Options::integration`, which the toolkit reads from the system and writes back.
     pub desktop: bool,
+    /// With `desktop`: the integration is the package's (a Flatpak, whose exported desktop
+    /// entry declares the types): the group's boxes are greyed under a note saying so.
+    pub packaged: bool,
 }
 
 const KB: i64 = 1024;
@@ -178,7 +183,7 @@ fn language_choices(o: &Options) -> Vec<(String, String)> {
 }
 
 const fn field(key: &'static str, label: Option<S>, control: Control) -> Field {
-    Field { key, label, control, indent: false, beside: false, needs: &[] }
+    Field { key, label, control, indent: false, beside: false, needs: &[], fixed: false }
 }
 
 const fn checkbox(
@@ -224,6 +229,11 @@ impl Field {
 
     const fn needs(mut self, keys: &'static [&'static str]) -> Field {
         self.needs = keys;
+        self
+    }
+
+    const fn fixed(mut self, on: bool) -> Field {
+        self.fixed = on;
         self
     }
 
@@ -309,32 +319,40 @@ pub fn pages(features: Features) -> Vec<Page> {
         )),
     ];
     if features.desktop {
+        general.push(Group(S::PrefDesktopIntegration));
+        if features.packaged {
+            general.push(Note(|| tr_owned(S::PrefDesktopPackaged)));
+        }
+        let fixed = features.packaged;
         general.extend([
-            Group(S::PrefDesktopIntegration),
             F(checkbox(
                 "assoc.torrent",
                 S::PrefAssocTorrent,
                 |o| o.integration.torrent,
                 |o, v| o.integration.torrent = v,
-            )),
+            )
+            .fixed(fixed)),
             F(checkbox(
                 "assoc.magnet",
                 S::PrefAssocMagnet,
                 |o| o.integration.magnet,
                 |o, v| o.integration.magnet = v,
-            )),
+            )
+            .fixed(fixed)),
             F(checkbox(
                 "ui.check_assoc",
                 S::PrefCheckAssoc,
                 |o| o.gui.check_association,
                 |o, v| o.gui.check_association = v,
-            )),
+            )
+            .fixed(fixed)),
             F(checkbox(
                 "assoc.autostart",
                 S::PrefAutostart,
                 |o| o.integration.autostart,
                 |o, v| o.integration.autostart = v,
-            )),
+            )
+            .fixed(fixed)),
             F(checkbox(
                 "assoc.minimized",
                 S::PrefStartMinimized,
@@ -342,7 +360,8 @@ pub fn pages(features: Features) -> Vec<Page> {
                 |o, v| o.integration.minimized = v,
             )
             .indent()
-            .needs(&["assoc.autostart"])),
+            .needs(&["assoc.autostart"])
+            .fixed(fixed)),
         ]);
     }
     vec![
@@ -1004,7 +1023,7 @@ mod tests {
 
     #[test]
     fn keys_are_unique_and_every_value_round_trips() {
-        let pages = pages(Features { tray: true, desktop: true });
+        let pages = pages(Features { tray: true, desktop: true, packaged: false });
         let mut seen = std::collections::HashSet::new();
         for f in fields(&pages) {
             assert!(seen.insert(f.key), "{} twice", f.key);
@@ -1026,6 +1045,16 @@ mod tests {
         assert!(fields(&without).all(|f| !f.key.contains("tray") && f.key != "ui.balloons"));
         assert!(fields(&without).all(|f| !f.key.starts_with("assoc.") && f.key != "ui.check_assoc"));
         assert_eq!(page_of(&pages, "assoc.minimized").map(|p| p.key), Some("general"));
+        assert!(fields(&pages).all(|f| !f.fixed));
+        // in a Flatpak the same boxes, all greyed, under the note
+        let packaged = super::pages(Features { tray: true, desktop: true, packaged: true });
+        let desktop = |f: &&Field| f.key.starts_with("assoc.") || f.key == "ui.check_assoc";
+        assert_eq!(fields(&packaged).filter(desktop).count(), 5);
+        assert!(fields(&packaged).all(|f| f.fixed == desktop(&f)));
+        let general = &packaged.iter().find(|p| p.key == "general").unwrap().items;
+        assert!(
+            general.iter().any(|i| matches!(i, Item::Note(t) if t() == lang::text(S::PrefDesktopPackaged)))
+        );
         assert_eq!(page_of(&without, "cache.mb").map(|p| p.key), Some("disk_cache"));
         assert_eq!(without.iter().find(|p| p.key == "disk_cache").unwrap().parent, Some("advanced"));
         let order: Vec<&str> = without.iter().map(|p| p.key).collect();

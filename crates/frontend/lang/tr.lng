@@ -393,6 +393,7 @@ PrefAssocMagnet=magnet: bağlantılarıyla ilişkilendir
 PrefCheckAssoc=Başlangıçta ilişkilendirmeyi denetle
 PrefAutostart=PaTorrent'i sistem açılışında başlat
 PrefStartMinimized=Küçültülmüş başlat
+PrefDesktopPackaged=PaTorrent bir Flatpak olarak çalışıyor: masaüstü onu .torrent dosyaları ve magnet: bağlantıları için sunar. Varsayılan programı ve başlangıç uygulamalarını masaüstünüzün ayarlarından seçin.
 PrefDefaultApps=Varsayılan uygulamalar...
 PrefDisplay=Görüntü seçenekleri
 PrefConfirmDelete=Torrent kaldırırken onay iste

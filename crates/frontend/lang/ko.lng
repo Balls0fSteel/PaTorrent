@@ -393,6 +393,7 @@ PrefAssocMagnet=magnet: 링크 연결
 PrefCheckAssoc=시작할 때 연결 확인
 PrefAutostart=시스템이 시작할 때 PaTorrent 시작
 PrefStartMinimized=최소화된 상태로 시작
+PrefDesktopPackaged=PaTorrent가 Flatpak으로 실행 중입니다. 데스크톱이 .torrent 파일과 magnet: 링크에 PaTorrent를 제공합니다. 기본 프로그램과 시작 프로그램은 데스크톱 설정에서 선택하십시오.
 PrefDefaultApps=기본 앱...
 PrefDisplay=표시 옵션
 PrefConfirmDelete=토렌트를 제거할 때 확인

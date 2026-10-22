@@ -393,6 +393,7 @@ PrefAssocMagnet=Liên kết với liên kết magnet:
 PrefCheckAssoc=Kiểm tra liên kết khi khởi động
 PrefAutostart=Chạy PaTorrent khi hệ thống khởi động
 PrefStartMinimized=Khởi động thu nhỏ
+PrefDesktopPackaged=PaTorrent đang chạy dưới dạng Flatpak: màn hình nền đề xuất nó cho tệp .torrent và liên kết magnet:. Hãy chọn chương trình mặc định và các ứng dụng khởi động trong phần cài đặt của màn hình nền.
 PrefDefaultApps=Ứng dụng mặc định...
 PrefDisplay=Tùy chọn hiển thị
 PrefConfirmDelete=Xác nhận khi gỡ torrent

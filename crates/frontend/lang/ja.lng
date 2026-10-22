@@ -393,6 +393,7 @@ PrefAssocMagnet=magnet: リンクを関連付ける
 PrefCheckAssoc=起動時に関連付けを確認
 PrefAutostart=システム起動時に PaTorrent を開始
 PrefStartMinimized=最小化して開始
+PrefDesktopPackaged=PaTorrent は Flatpak として動作しています。デスクトップが .torrent ファイルと magnet: リンク用に提示します。既定のプログラムと自動起動アプリケーションはデスクトップの設定で選択してください。
 PrefDefaultApps=既定のアプリ...
 PrefDisplay=表示のオプション
 PrefConfirmDelete=トレントの削除時に確認する

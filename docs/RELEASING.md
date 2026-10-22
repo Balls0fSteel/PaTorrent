@@ -20,7 +20,7 @@ The tarballs' binaries use the system's glibc, OpenSSL 3 and GTK 4 (4.12 or late
 24.04 has them, so they run on distributions about that age or newer. The AppImages carry their
 libraries but glibc, so they need glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, Debian 13);
 an AppImage started on a desktop without FUSE 2 needs `--appimage-extract-and-run`. The AppImage
-icon is provisional (the recommended candidate, `APP_ICON` in the workflow) until the owner picks
+icon is provisional (the family `assets/patina-icons/app-icon.txt` names) until the owner picks
 one (Road to 1.0 item 10); the Flatpak and the macOS `.app` use the same one.
 
 ### macOS
@@ -92,7 +92,8 @@ use:
   Rust SDK extension, an offline `cargo build --release --locked -p patorrent-gtk`). It
   installs the binary, the desktop entry the GUI itself writes (`contrib/linux/`, kept current
   by a test in `crates/frontend/src/integration.rs`), the metainfo, the icons at 16 to 512
-  pixels (the provisional icon, `ICON_DIR` in the manifest) and `LICENSE.md` with the notices.
+  pixels (the provisional icon, `ICON_DIR` in the manifest, which the `flatpak` job checks
+  against `assets/patina-icons/app-icon.txt`) and `LICENSE.md` with the notices.
 - `io.github.balls0fsteel.PaTorrent.metainfo.xml`: the AppStream metadata. Its first
   `<release>` must be the workspace version (the job stops otherwise): add a release there in
   step 2 of [Steps](#steps). The job validates it with `appstreamcli validate`.
@@ -131,8 +132,7 @@ flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakr
 | `--share=network` | BitTorrent, trackers, DHT, the remote mode |
 | `--share=ipc`, `--socket=wayland`, `--socket=fallback-x11`, `--device=dri` | a GTK 4 window on Wayland or X11, with GPU rendering |
 | `--filesystem=home`, `--filesystem=xdg-download` | downloads go to any folder the user picks, and `.torrent` files are opened from anywhere, as in µTorrent (below) |
-| `--talk-name=org.kde.StatusNotifierWatcher` | the tray icon (`crates/gtk/src/tray.rs`) |
-| `--own-name=org.kde.*` | **temporary**: the tray owns `org.kde.StatusNotifierItem-<pid>-1`, and a flatpak name wildcard covers only whole name elements. To go once the tray falls back to its unique bus name in a sandbox (Flathub refuses this permission) |
+| `--talk-name=org.kde.StatusNotifierWatcher` | the tray icon (`crates/gtk/src/tray.rs`). In a Flatpak the item registers its unique bus name (`:1.42`) with the watcher, as Qt, KDE Frameworks and Electron do, instead of owning `org.kde.StatusNotifierItem-<pid>-1`, so it needs no `--own-name` (Flathub's linter refuses `org.kde.*`) |
 | `--talk-name=org.freedesktop.Notifications` | notifications from a remote-mode window, which is not the bus's application and so cannot use `GNotification` |
 | `--system-talk-name=org.freedesktop.login1` | Auto Shutdown's Standby, Hibernate and Shut Down (`crates/gtk/src/shutdown.rs`) |
 
@@ -145,13 +145,15 @@ cost of the sandbox not protecting the home folder from it. Folders outside home
 under `/mnt` or `/media`) need `flatpak override --user --filesystem=/mnt/data
 io.github.balls0fsteel.PaTorrent`.
 
-**Inside a Flatpak, Preferences > General** behaves differently (PLAN.md Known TODOs, "GTK
-desktop integration"): the application's entry is the one the Flatpak exports, so the
-associations need no file of their own, but GIO writes the default handlers to the sandbox's
-own `~/.var/app/<id>/config/mimeapps.list`, which the desktop most likely does not read (not
-checked yet), and "Start PaTorrent on system startup" needs the Background portal, which is not
-done yet. The exported entry's `MimeType` already offers PaTorrent for both types in the
-desktop's own "Open with" settings.
+**Inside a Flatpak, Preferences > General** leaves the desktop integration to the Flatpak
+(PLAN.md Known TODOs, "GTK desktop integration"): the Desktop Integration boxes are greyed under
+a note, nothing is read or written, and "Check association on startup" never asks. The exported
+entry's `MimeType` already offers PaTorrent for both types in the desktop's own "Open with" and
+default-application settings; GIO would write the default handlers to the sandbox's own
+`~/.var/app/<id>/config/mimeapps.list`, which the host does not read. "Start PaTorrent on system
+startup" needs the Background portal (`org.freedesktop.portal.Background.RequestBackground` with
+`autostart`), which is not done yet; until then the user adds PaTorrent to the desktop's startup
+applications.
 
 **Flathub submission.** Flathub builds from the public source (D25), so a submission is a pull
 request to [flathub/flathub](https://github.com/flathub/flathub) (the `new-pr` branch) that
@@ -161,7 +163,8 @@ becomes the `flathub/io.github.balls0fsteel.PaTorrent` repository, holding:
   repository, `tag` and `commit`) and `cargo-sources.json` beside it;
 - the metainfo, which must pass Flathub's `flatpak-builder-lint` (screenshots taken of the GTK
   GUI, at URLs on the repository, are needed there and are not in the file yet);
-- no `--own-name=org.kde.*` (see the table) and a reviewer's agreement to `--filesystem=home`.
+- a reviewer's agreement to `--filesystem=home` (the manifest has no `--own-name`, which
+  Flathub's linter would refuse; see the table).
 
 The license is the open question: Flathub accepts software that is not free, and
 `PolyForm-Noncommercial-1.0.0` is an SPDX identifier, so the metainfo names it and Flathub shows

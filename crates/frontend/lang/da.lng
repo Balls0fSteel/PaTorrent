@@ -393,6 +393,7 @@ PrefAssocMagnet=Tilknyt magnet:-links
 PrefCheckAssoc=Kontrollér tilknytning ved start
 PrefAutostart=Start PaTorrent, når systemet starter
 PrefStartMinimized=Start minimeret
+PrefDesktopPackaged=PaTorrent kører som Flatpak: skrivebordet tilbyder det til .torrent-filer og magnet:-links. Vælg standardprogrammet og opstartsprogrammerne i skrivebordets indstillinger.
 PrefDefaultApps=Standardapps...
 PrefDisplay=Visningsindstillinger
 PrefConfirmDelete=Bekræft sletning af torrents

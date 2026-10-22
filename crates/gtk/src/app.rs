@@ -765,7 +765,11 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         // into the tray once it is there (`tray_shown`); minimized until then, or for good
         // without one
         window.minimize();
-    } else if opts.gui.check_association && remote.is_none() && crate::integration::AVAILABLE {
+    } else if opts.gui.check_association
+        && remote.is_none()
+        && crate::integration::AVAILABLE
+        && !crate::integration::packaged()
+    {
         glib::idle_add_local_once(check_association);
     }
     for source in PENDING.with(|p| p.take()) {

@@ -2,6 +2,15 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_143652_1792672612: The AppImages build; macOS language test passes
+
+### Verified
+- Pushed e79516f and a2585ac. CI 39777535680, FreeBSD and Fuzz green; the `macos` job ran `macos_names_its_languages` (Core Foundation's preferred languages) and it passed.
+- Release run 39777535394 (by hand, no release made): every job passed. The Linux jobs built `PaTorrent-0.1.0-dev.a2585ac-{x86_64,aarch64}.AppImage` (36.9 / 36.0 MB) and `patorrent-nox-...AppImage` (5.1 / 4.8 MB) with the pinned linuxdeploy; GTK 4, OpenSSL 3 and the GTK plugin's files were bundled, and both nox AppImages started (`patorrent-nox 0.1.0`). Only warnings: missing dpkg copyright files for our binary and a few libraries.
+
+### Issues
+- The AppImages have not been started on a Linux desktop (PLAN Known TODOs "AppImage").
+
 ## 2026-10-22_141510_1792671310: AppImages in the release workflow
 
 ### Changed

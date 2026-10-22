@@ -123,7 +123,7 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
         .default_width(760)
         .default_height(560)
         .build();
-    let pages = pref_pages::pages(Features { desktop: true, tray: hooks.tray });
+    let pages = pref_pages::pages(Features { desktop: crate::integration::AVAILABLE, tray: hooks.tray });
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);

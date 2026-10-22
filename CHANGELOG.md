@@ -2,6 +2,18 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_083939_1792651179: The GTK GUI compiles for macOS, and the macOS job builds it
+
+### Changed
+- **`patorrent-gtk` on macOS**: the freedesktop desktop integration (`integration.rs`: `.desktop` entries, GIO defaults, XDG autostart) is now one implementation of two; on macOS `integration::AVAILABLE` is false, nothing reads as set, writing fails, Preferences > General leaves the Desktop Integration group out (`Features::desktop`) and "Check association on startup" never asks. GIO has no `DesktopAppInfo` on macOS, which was the one error stopping the crate there. The macOS way (D23: `Info.plist` associations, Login Items) is still to come.
+- **The `macos` CI job** installs Homebrew's `gtk4` (and `pkgconf`) and lints and tests the whole workspace, `patorrent-gtk` included; the Intel build still leaves the GTK GUI out (the runner's Homebrew is arm64 only).
+
+### Verified
+- `patorrent-gtk` type-checked and linted with no warnings for `aarch64-apple-darwin` (the 1.90.0 and stable clippy, the whole workspace) and `x86_64-unknown-linux-gnu`, from Windows with the stand-in `pkg-config`; nothing linked. Stable clippy and fmt on Windows.
+
+### Issues
+- Not pushed: the first real build, link and test run of the GTK GUI on macOS is the next CI run. Without D-Bus on macOS the tray and logind's power actions stay off there (noted in PLAN Known TODOs "macOS").
+
 ## 2026-10-22_080500_1792649100: macOS green on main
 
 ### Verified

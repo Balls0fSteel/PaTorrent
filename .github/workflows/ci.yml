@@ -45,9 +45,9 @@ jobs:
       - run: cargo clippy --workspace --all-targets -- -D warnings
       - run: cargo test --workspace
 
-  # macOS (PLAN.md D23): the engine, nox and the tools, with Secure Transport for TLS, on Apple
-  # silicon; Intel Macs are built (and linked) only. The GTK GUI's macOS pieces are still to
-  # come (Road to 1.0 item 8), so it is left out here.
+  # macOS (PLAN.md D23): the whole workspace on Apple silicon, with Secure Transport for TLS and
+  # Homebrew's GTK 4 for patorrent-gtk. Intel Macs are built (and linked) only, without the GTK
+  # GUI: Homebrew on this runner has arm64 libraries only.
   macos:
     runs-on: macos-15
     steps:
@@ -57,8 +57,9 @@ jobs:
           components: clippy
           targets: x86_64-apple-darwin
       - uses: Swatinem/rust-cache@v2
-      - run: cargo clippy --workspace --exclude patorrent-gtk --all-targets -- -D warnings
-      - run: cargo test --workspace --exclude patorrent-gtk
+      - run: brew install gtk4 pkgconf
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
       - run: cargo build --workspace --exclude patorrent-gtk --target x86_64-apple-darwin
       # a test binary that crashes prints nothing of its own: macOS's crash report says why
       - name: Crash reports

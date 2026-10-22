@@ -2,6 +2,24 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_160654_1792678014: The GTK GUI runs on macOS from the bundle; the Flatpak builds; Release green
+
+Pushed the six merged pieces (838a6ea) and ran the Release workflow by hand three times.
+
+### Verified
+- **CI 39787672307** (838a6ea): every job green (fmt, MSRV, Windows, Ubuntu, macOS, the Windows release build; FreeBSD and Fuzz separately).
+- **Release 39787671566** (838a6ea): version, Windows, both Linux jobs and the **Flatpak** passed on its first run: GNOME 51 and `rust-stable` exist, `appstreamcli validate` passed ("pedantic: 1"), the GNOME 51 builder image has what it needs, and `PaTorrent-0.1.0-dev.838a6ea-x86_64.flatpak` was built (2.2 MB artifact). The macOS job built the GTK GUI and nox for arm64 and nox for x86_64 (the release build of the whole GUI took 2 min on the runner) and failed on `lipo -archs` given three files.
+- **Release 39790036240** (b16521e, `lipo` fixed): the macOS bundling got through 42 libraries and the schemas and failed on `gtk4-update-icon-cache`: the copied Adwaita theme had no `index.theme`.
+- **Release 39791608589** (103ab7c): **every job green, the macOS job included.** `PaTorrent.app` bundles 42 dylibs, `index.theme` was taken from the adwaita-icon-theme 50.0 keg, the launcher compiled under `-Werror`, `codesign --verify --deep --strict` passed, the minimum macOS inside is 15.0 as predicted (the Sequoia bottles), `PaTorrent.app/Contents/MacOS/PaTorrent --version` and both nox binaries ran with Homebrew moved away (the x86_64 nox under Rosetta too), and **the GUI was still running after 20 s with a fresh HOME**: the screenshot ([docs/screenshots/macos-gtk-first-start-2026-10-22.png](docs/screenshots/macos-gtk-first-start-2026-10-22.png)) shows the PaTorrent window with its menu bar (PaTorrent, File, Options, Help), the Verdigris icon in the Dock, and macOS 15's "find devices on local networks" prompt in front (LSD / port mapping). The only GTK message: `Trying to measure GtkNotebook ... for height of 109, but it needs at least 110`. `hdiutil verify` passed. Artifacts: `PaTorrent-<v>-arm64.dmg` 16.0 MB, `patorrent-nox-<v>-macos-arm64.tar.gz` 1.9 MB, `-macos-x86_64.tar.gz` 2.1 MB.
+
+### Changed
+- `release.yml`: `lipo -archs` is called per file (b16521e); the bundling step lists Homebrew's `share/icons/Adwaita` first.
+- `.github/scripts/macos_bundle.py`: when the copied Adwaita theme has no `index.theme` (Homebrew's `share/icons/Adwaita` is a merge of several formulae's links; `copytree` did not bring the link over), it is taken from the adwaita-icon-theme keg; without one the icon cache is skipped with a warning instead of failing (103ab7c). `Info.plist` gets `NSLocalNetworkUsageDescription` so macOS 15's local-network prompt names the app and says why (not run yet).
+
+### Issues
+- The Flatpak job's `cargo-sources.json` regeneration step failed in the container (`ModuleNotFoundError: aiohttp` after the venv's pip install; the step is `continue-on-error`), so the committed file was built, which is what Flathub does anyway. Flathub's linter (advisory) reports `finish-args-home-filesystem-access` and `finish-args-login1-system-talk-name`: both need exceptions at submission (docs/RELEASING.md).
+- macOS: the local-network prompt appears at first start (LSD's multicast or the port mappers); with the plist text it will be attributed properly, but the prompt itself is macOS policy. The GTK notebook measurement warning is harmless but worth a look (the detail tabs' minimum height). The Dock and the window show the app, but the window's content under the prompt was not visible in the screenshot. Nothing has been clicked on a Mac.
+- The `release` job was skipped on every run (it only runs on a tag), so the draft release with every artifact attached is still untested.
 ## 2026-10-22_151726_1792675046: GTK in a Flatpak (tray, integration), tracker icons, the icon selector in the workflows
 
 Follow-up to the Flatpak and icon pieces of 2026-10-22_150939_1792674579 (4d42e5d, merged b6dd8a6).

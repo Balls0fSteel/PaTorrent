@@ -460,6 +460,9 @@ def info_plist(app_id, version, minos):
         'LSMinimumSystemVersion': minos,
         'LSApplicationCategoryType': 'public.app-category.utilities',
         'NSHighResolutionCapable': True,
+        # macOS 15 asks before an app may use the local network (LSD multicast, UPnP, NAT-PMP);
+        # the prompt shows this text and the app's name instead of the host's
+        'NSLocalNetworkUsageDescription': 'PaTorrent finds peers on your local network (Local Service Discovery) and asks your router to forward its port.',
         'NSSupportsAutomaticGraphicsSwitching': True,
         'CFBundleDocumentTypes': [{
             'CFBundleTypeName': 'BitTorrent file',

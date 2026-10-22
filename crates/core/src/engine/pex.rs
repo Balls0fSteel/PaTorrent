@@ -111,8 +111,9 @@ impl Engine {
         let list: Vec<(SocketAddr, u8)> =
             slots.iter().filter_map(|&s| self.peers.get(s).and_then(advertised)).collect();
         let t = self.torrent(id).expect("exists");
-        t.pex.tick(now, num_peers, list.iter().copied());
-        let diff = t.pex.diff().map(<[u8]>::to_vec);
+        let pex = t.pex.get_or_insert_with(Box::default);
+        pex.tick(now, num_peers, list.iter().copied());
+        let diff = pex.diff().map(<[u8]>::to_vec);
         let full = std::cell::OnceCell::new();
         for slot in slots {
             let Some(p) = self.peers.get_mut(slot) else { continue };

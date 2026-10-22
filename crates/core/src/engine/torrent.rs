@@ -44,13 +44,17 @@ impl AnnounceTo {
     pub const ALL: AnnounceTo = AnnounceTo { dht: true, trackers: true, lsd: true };
 }
 
+/// Every torrent of the session has one of these, stopped or not, so it is kept compact (PLAN.md
+/// D21: 100,000 stopped torrents): the parts only a running torrent uses (the piece picker, the
+/// metadata and piece-layer fetches, the PEX and smart-ban state) are boxed and absent until
+/// needed, as libtorrent holds `m_picker` and `m_peer_list` behind pointers made on demand.
+/// The engine keeps each `Torrent` in a box of its own, so its slot table stays small too.
 pub(crate) struct Torrent {
     pub id: TorrentId,
     pub info_hashes: InfoHashes,
-    /// Store key: the info-hash in hex.
-    pub key: String,
     pub name: String,
-    pub save_path: String,
+    /// Shared with the other torrents saved in the same place (`Engine::intern_save_path`).
+    pub save_path: Arc<str>,
     /// Loaded while running (or when requested); `None` for stopped torrents.
     pub ti: Option<Arc<TorrentInfo>>,
     /// v2: one merkle tree per file with the root and piece layer, built from `ti` when a peer
@@ -58,7 +62,7 @@ pub(crate) struct Torrent {
     pub merkle_trees: Option<Vec<MerkleTree>>,
     /// v2: the piece layers being fetched from peers, for a v2 torrent whose metadata came
     /// without them (a magnet); the torrent starts once they are complete.
-    pub layer_fetch: Option<super::v2::LayerFetch>,
+    pub layer_fetch: Option<Box<super::v2::LayerFetch>>,
     pub total_size: u64,
     pub num_pieces: u32,
     pub piece_length: u32,
@@ -78,16 +82,22 @@ pub(crate) struct Torrent {
     /// `ti` whenever it is loaded.
     pub renamed_files: BTreeMap<u32, String>,
     /// Running without metadata (a magnet): the info dictionary being fetched from peers.
-    pub fetch: Option<MetadataFetch>,
-    /// BEP 11: the peer diff sent to every peer once a minute.
-    pub pex: TorrentPex,
-    /// Block hashes of failed pieces per peer, for banning the senders of bad blocks.
-    pub smart_ban: SmartBan,
+    pub fetch: Option<Box<MetadataFetch>>,
+    /// BEP 11: the peer diff sent to every peer once a minute; made at the first tick with
+    /// peers.
+    pub pex: Option<Box<TorrentPex>>,
+    /// Block hashes of failed pieces per peer, for banning the senders of bad blocks; made at
+    /// the first failed piece.
+    pub smart_ban: Option<Box<SmartBan>>,
     /// The name came from the user; metadata does not replace it.
     pub user_named: bool,
-    pub picker: Option<PiecePicker>,
-    /// Pieces we have while there is no picker (stopped, or before the check finished).
+    pub picker: Option<Box<PiecePicker>>,
+    /// Pieces we have while there is no picker (stopped, or before the check finished). Set it
+    /// through `set_have`, which keeps a complete set as `have_all` instead.
     pub have: Option<Bitfield>,
+    /// Every piece, held without a bitfield (libtorrent `m_have_all`): a stopped seed, the
+    /// usual torrent of a large library, needs no bit per piece. `have` is `None` then.
+    pub have_all: bool,
     /// Partial pieces while there is no picker: (piece, finished blocks), from resume data or
     /// saved when the torrent stopped. Restored into the picker once resume data is verified.
     pub unfinished: Vec<(u32, Bitfield)>,
@@ -107,7 +117,9 @@ pub(crate) struct Torrent {
     /// BEP 19 / BEP 17 web seeds.
     pub web_seeds: WebSeeds,
 
-    pub stat: Stat,
+    /// Traffic this session; made at the first tick or transfer, so a torrent that never ran
+    /// holds none (`stat()` reads zeros then).
+    pub stat: Option<Box<Stat>>,
     /// All-time totals from earlier sessions.
     pub prev_uploaded: u64,
     pub prev_downloaded: u64,
@@ -143,13 +155,12 @@ impl Torrent {
         id: TorrentId,
         info_hashes: InfoHashes,
         name: String,
-        save_path: String,
+        save_path: Arc<str>,
         flags: TorrentFlags,
     ) -> Torrent {
         Torrent {
             id,
             info_hashes,
-            key: info_hashes.key_hex(),
             name,
             save_path,
             ti: None,
@@ -167,11 +178,12 @@ impl Torrent {
             renames_pending: 0,
             renamed_files: BTreeMap::new(),
             fetch: None,
-            pex: TorrentPex::default(),
-            smart_ban: SmartBan::default(),
+            pex: None,
+            smart_ban: None,
             user_named: false,
             picker: None,
             have: None,
+            have_all: false,
             unfinished: Vec::new(),
             checked: false,
             checking: false,
@@ -182,7 +194,7 @@ impl Torrent {
             trackers: Vec::new(),
             trackers_v2: Vec::new(),
             web_seeds: WebSeeds::default(),
-            stat: Stat::default(),
+            stat: None,
             prev_uploaded: 0,
             prev_downloaded: 0,
             failed_bytes: 0,
@@ -206,6 +218,17 @@ impl Torrent {
             downloaded_in_session: false,
             started_at: None,
         }
+    }
+
+    /// Store key: the info-hash in hex. Made when the store is used rather than kept, since
+    /// every torrent would hold its 40 or 64 bytes for the few calls that need it.
+    pub fn key(&self) -> String {
+        self.info_hashes.key_hex()
+    }
+
+    /// This session's traffic (zeros for a torrent that has not run).
+    pub fn stat(&self) -> Stat {
+        self.stat.as_deref().copied().unwrap_or_default()
     }
 
     pub fn set_metadata(&mut self, ti: Arc<TorrentInfo>) {
@@ -256,7 +279,6 @@ impl Torrent {
         Arc::make_mut(ti).rename_file(file as usize, name);
     }
 
-    /// Adds trackers, keeping the list sorted by tier and free of duplicates.
     /// Makes `trackers_v2` list the same trackers as `trackers` (a hybrid) or none, keeping the
     /// announce state of the ones it had.
     pub fn sync_v2_trackers(&mut self) {
@@ -285,12 +307,16 @@ impl Torrent {
             .collect();
     }
 
+    /// Adds a tracker, keeping the list sorted by tier and free of duplicates. The list grows
+    /// one entry at a time: a doubling `Vec` would hold four 144-byte entries for the usual two
+    /// trackers, in every stopped torrent.
     pub fn add_tracker(&mut self, url: &str, tier: u32) {
         let url = url.trim();
         if url.is_empty() || self.trackers.iter().any(|t| t.url == url) {
             return;
         }
         let pos = self.trackers.iter().position(|t| t.tier > tier).unwrap_or(self.trackers.len());
+        self.trackers.reserve_exact(1);
         self.trackers.insert(pos, TrackerEntry::new(url.to_owned(), tier));
     }
 
@@ -317,6 +343,7 @@ impl Torrent {
             };
             self.trackers.push(entry);
         }
+        self.trackers.shrink_to_fit();
     }
 
     /// The info dictionary is known (it may still be in the store rather than loaded).
@@ -333,8 +360,29 @@ impl Torrent {
         self.flags.contains(TorrentFlags::PAUSED)
     }
 
-    pub fn have_bits(&self) -> Option<&Bitfield> {
-        self.picker.as_ref().map(|p| p.have()).or(self.have.as_ref())
+    /// The pieces we have: the picker's while there is one, else the stored set; `None` when
+    /// unknown (the files must be checked).
+    pub fn have_bits(&self) -> Option<HaveRef<'_>> {
+        match (&self.picker, &self.have) {
+            (Some(p), _) => Some(HaveRef::Bits(p.have())),
+            (None, Some(h)) => Some(HaveRef::Bits(h)),
+            (None, None) if self.have_all => Some(HaveRef::All(self.num_pieces as usize)),
+            (None, None) => None,
+        }
+    }
+
+    /// Stores the pieces we have while there is no picker; a complete set is kept as
+    /// `have_all` (libtorrent drops a seed's bitfield the same way).
+    pub fn set_have(&mut self, have: Option<Bitfield>) {
+        let n = self.num_pieces as usize;
+        self.have_all = have.as_ref().is_some_and(|h| n > 0 && h.len() == n && h.all_set());
+        self.have = have.filter(|_| !self.have_all);
+    }
+
+    /// Takes the stored piece set (for the picker), as a bitfield even when it was `have_all`.
+    pub fn take_have(&mut self) -> Option<Bitfield> {
+        let all = std::mem::take(&mut self.have_all);
+        self.have.take().or_else(|| all.then(|| Bitfield::new(self.num_pieces as usize, true)))
     }
 
     pub fn num_have(&self) -> u32 {
@@ -476,7 +524,7 @@ impl Torrent {
             id: self.id,
             info_hashes: self.info_hashes,
             name: self.name.clone(),
-            save_path: self.save_path.clone(),
+            save_path: self.save_path.to_string(),
             state: self.state,
             flags: self.flags,
             error: self.error.clone().unwrap_or_default(),
@@ -499,14 +547,14 @@ impl Torrent {
             num_incomplete: self.num_incomplete,
             num_connections: num_peers,
             distributed_copies: self.picker.as_ref().map(|p| p.distributed_copies()),
-            total_download: self.stat.total_download(),
-            total_upload: self.stat.total_upload(),
-            total_payload_download: self.stat.download_payload.total,
-            total_payload_upload: self.stat.upload_payload.total,
+            total_download: self.stat().total_download(),
+            total_upload: self.stat().total_upload(),
+            total_payload_download: self.stat().download_payload.total,
+            total_payload_upload: self.stat().upload_payload.total,
             total_failed_bytes: self.failed_bytes,
             total_redundant_bytes: self.redundant_bytes,
-            all_time_download: self.prev_downloaded + self.stat.download_payload.total,
-            all_time_upload: self.prev_uploaded + self.stat.upload_payload.total,
+            all_time_download: self.prev_downloaded + self.stat().download_payload.total,
+            all_time_upload: self.prev_uploaded + self.stat().upload_payload.total,
             total: self.total_size,
             total_done,
             total_wanted: wanted,
@@ -554,17 +602,21 @@ impl Torrent {
         ResumeData {
             info_hashes: self.info_hashes,
             name: self.name.clone(),
-            save_path: self.save_path.clone(),
+            save_path: self.save_path.to_string(),
             // Only verified pieces are written, so a crash never makes us trust unchecked data.
-            pieces: if self.checked || self.picker.is_none() { self.have_bits().cloned() } else { None },
+            pieces: if self.checked || self.picker.is_none() {
+                self.have_bits().map(HaveRef::to_bitfield)
+            } else {
+                None
+            },
             unfinished: match &self.picker {
                 Some(p) if self.checked => p.unfinished_pieces(),
                 Some(_) => Vec::new(),
-                None if self.have.is_some() => self.unfinished.clone(),
+                None if self.have.is_some() || self.have_all => self.unfinished.clone(),
                 None => Vec::new(),
             },
-            total_uploaded: self.prev_uploaded + self.stat.upload_payload.total,
-            total_downloaded: self.prev_downloaded + self.stat.download_payload.total,
+            total_uploaded: self.prev_uploaded + self.stat().upload_payload.total,
+            total_downloaded: self.prev_downloaded + self.stat().download_payload.total,
             active_time: self.active_secs as u64,
             finished_time: self.finished_secs as u64,
             seeding_time: self.seeding_secs as u64,
@@ -627,6 +679,51 @@ impl Torrent {
             }
         }
         out
+    }
+}
+
+/// A torrent's piece set as `Torrent::have_bits` finds it: a bitfield, or every one of `len`
+/// pieces (`Torrent::have_all`).
+#[derive(Clone, Copy)]
+pub(crate) enum HaveRef<'a> {
+    Bits(&'a Bitfield),
+    All(usize),
+}
+
+impl HaveRef<'_> {
+    pub fn len(self) -> usize {
+        match self {
+            HaveRef::Bits(b) => b.len(),
+            HaveRef::All(n) => n,
+        }
+    }
+
+    pub fn get(self, i: usize) -> bool {
+        match self {
+            HaveRef::Bits(b) => b.get(i),
+            HaveRef::All(n) => i < n,
+        }
+    }
+
+    pub fn count(self) -> usize {
+        match self {
+            HaveRef::Bits(b) => b.count(),
+            HaveRef::All(n) => n,
+        }
+    }
+
+    pub fn all_set(self) -> bool {
+        match self {
+            HaveRef::Bits(b) => b.all_set(),
+            HaveRef::All(_) => true,
+        }
+    }
+
+    pub fn to_bitfield(self) -> Bitfield {
+        match self {
+            HaveRef::Bits(b) => b.clone(),
+            HaveRef::All(n) => Bitfield::new(n, true),
+        }
     }
 }
 
@@ -745,5 +842,68 @@ mod tests {
         assert_eq!(r.max_uploads, Some(3));
         let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
         assert_eq!((st.uploads_limit, st.connections_limit), (Some(3), None));
+    }
+
+    /// A stopped torrent keeps none of the running parts (PLAN.md D21: 100,000 of them): no
+    /// picker, fetches, PEX or smart-ban state, traffic counters or peer list until it runs.
+    #[test]
+    fn a_stopped_torrent_stays_compact() {
+        let size = std::mem::size_of::<Torrent>();
+        assert!(size <= 672, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
+        let mut t = Torrent::new(
+            TorrentId::default(),
+            InfoHashes::v1(crate::types::Sha1Hash([1; 20])),
+            "a".into(),
+            "/x".into(),
+            TorrentFlags::DEFAULT,
+        );
+        assert_eq!(t.key(), "01".repeat(20));
+        assert!(t.picker.is_none() && t.fetch.is_none() && t.layer_fetch.is_none());
+        assert!(t.pex.is_none() && t.smart_ban.is_none() && t.stat.is_none());
+        assert_eq!(t.peer_list.len(), 0);
+        let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
+        assert_eq!((st.total_download, st.all_time_upload, st.download_rate), (0, 0, 0));
+        // trackers take exactly the room they need
+        t.add_tracker("udp://a", 0);
+        t.add_tracker("udp://b", 1);
+        assert_eq!(t.trackers.capacity(), 2);
+        t.replace_trackers(&[("udp://c".into(), 0)]);
+        assert_eq!(t.trackers.capacity(), 1);
+    }
+
+    /// A complete piece set without a picker is kept as `have_all` (libtorrent `m_have_all`),
+    /// and reads, saves and starts like the bitfield it stands for.
+    #[test]
+    fn a_stopped_seed_keeps_no_bitfield() {
+        let (bytes, _) = make_torrent(&[("a", 20_000), ("b", 30_000), ("c", 10_000)], 16 * 1024);
+        let ti = Arc::new(TorrentInfo::from_bytes(&bytes).unwrap());
+        let mut t = Torrent::new(
+            TorrentId::default(),
+            ti.info_hashes(),
+            String::new(),
+            "/x".into(),
+            TorrentFlags::DEFAULT,
+        );
+        t.set_metadata(ti);
+        t.set_have(Some(Bitfield::new(4, true)));
+        assert!(t.have_all && t.have.is_none());
+        assert!(t.is_seed() && t.is_finished());
+        assert_eq!((t.num_have(), t.total_done(), t.wanted()), (4, 60_000, (60_000, 60_000)));
+        assert_eq!(t.file_progress(), [20_000, 30_000, 10_000]);
+        assert_eq!(t.settled_state(), TorrentState::Seeding);
+        assert_eq!(t.resume_data().pieces, Some(Bitfield::new(4, true)));
+        // the picker gets the full set back
+        assert_eq!(t.take_have(), Some(Bitfield::new(4, true)));
+        assert!(!t.have_all && t.have_bits().is_none());
+        // a partial set stays a bitfield; a set of the wrong length is not taken for all
+        let mut some = Bitfield::new(4, true);
+        some.set(2, false);
+        t.set_have(Some(some.clone()));
+        assert!(!t.have_all && t.have == Some(some));
+        t.set_have(Some(Bitfield::new(3, true)));
+        assert!(!t.have_all && t.have.is_some());
+        t.set_have(Some(Bitfield::new(4, true)));
+        t.set_have(None);
+        assert!(!t.have_all && t.have_bits().is_none());
     }
 }

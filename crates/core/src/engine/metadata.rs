@@ -31,7 +31,7 @@ fn slot_torrent(slots: &mut [TorrentSlot], id: TorrentId) -> Option<&mut Torrent
     if s.generation != id.generation() {
         return None;
     }
-    s.torrent.as_mut()
+    s.torrent.as_deref_mut()
 }
 
 /// The peer with connection id `id`, if it is still connected and not closing.
@@ -194,11 +194,10 @@ impl Engine {
         let learned = known != full
             && known.v1.is_none_or(|h| Some(h) == full.v1)
             && known.v2.is_none_or(|h| Some(h) == full.v2);
-        let old_key = t.key.clone();
+        let old_key = t.key();
         if learned {
             t.info_hashes = full;
-            // the store's key is the v1 hash when there is one
-            t.key = full.key_hex();
+            // the store key (`Torrent::key`) follows: the v1 hash when there is one
         }
         if !t.user_named {
             t.name = ti.name().to_owned();
@@ -223,7 +222,7 @@ impl Engine {
         let Some(t) = self.torrent(id) else { return };
         let n = t.num_pieces;
         let slots = t.peers.clone();
-        let key = t.key.clone();
+        let key = t.key();
         let rec = t.resume_data();
         for slot in slots {
             let Some(p) = self.peers.get_mut(slot) else { continue };

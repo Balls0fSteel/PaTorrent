@@ -348,7 +348,7 @@ impl Engine {
         let t = slots
             .get_mut(id.index() as usize)
             .filter(|s| s.generation == id.generation())
-            .and_then(|s| s.torrent.as_mut());
+            .and_then(|s| s.torrent.as_deref_mut());
         Some((c, t))
     }
 
@@ -854,7 +854,7 @@ impl Engine {
         let id = c.torrent;
         self.stat.sent(0, sent as u64);
         if let Some(t) = self.torrent(id) {
-            t.stat.sent(0, sent as u64);
+            t.stat.get_or_insert_with(Box::default).sent(0, sent as u64);
         }
         if let Some(e) = failed {
             self.remove_web_conn(slot, &format!("write error: {e}"), Close::Failure);
@@ -898,7 +898,7 @@ impl Engine {
                     let payload = c.proto.feed(ti.files(), &buf[..n]);
                     let protocol = n as u64 - payload;
                     c.stat.received(payload, protocol);
-                    t.stat.received(payload, protocol);
+                    t.stat.get_or_insert_with(Box::default).received(payload, protocol);
                     t.download_limit.consume(n);
                     self.download_bucket.consume(n);
                     self.stat.received(payload, protocol);

@@ -238,7 +238,7 @@ impl Engine {
     pub(super) fn start_layer_fetch(&mut self, id: TorrentId) {
         let Some(t) = self.torrent(id) else { return };
         let Some(ti) = t.ti.clone() else { return };
-        t.layer_fetch = Some(LayerFetch::new(&ti));
+        t.layer_fetch = Some(Box::new(LayerFetch::new(&ti)));
         t.started_at = Some(Instant::now());
         t.status_dirty = true;
         let peers = t.peers.clone();
@@ -272,7 +272,7 @@ impl Engine {
                 p.hash_requests.clear();
             }
         }
-        let key = self.torrent_ref(id).map(|t| t.key.clone()).unwrap_or_default();
+        let key = self.torrent_ref(id).map(|t| t.key()).unwrap_or_default();
         if let Some(store) = self.store.as_mut() {
             if let Err(e) = store.put_piece_layers(&key, &layers) {
                 self.out
@@ -335,7 +335,7 @@ impl Engine {
         if let Some(p) = t.picker.as_mut() {
             p.set_have(&Bitfield::new(t.num_pieces as usize, false));
         }
-        t.have = None;
+        t.set_have(None);
         t.unfinished.clear();
         t.checked = false;
         t.error = Some(match &file {

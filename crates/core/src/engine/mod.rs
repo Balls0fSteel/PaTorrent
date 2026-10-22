@@ -40,7 +40,7 @@ mod v2;
 mod web_seed;
 mod wire;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -77,7 +77,7 @@ use crate::utp::{self, SendOutcome, UtpIo, UtpManager, UtpSettings};
 use peer::{PeerConn, PeerState, Transport};
 use peer_list::Reconnect;
 use picker::PiecePicker;
-use torrent::{AnnounceTo, Torrent, piece_priorities};
+use torrent::{AnnounceTo, HaveRef, Torrent, piece_priorities};
 use tracker::{HTTP_TOKEN_BASE, JobKind, TrackerJob, TrackerManager, TrackerOutcome, UDP4_TOKEN, UDP6_TOKEN};
 
 pub(crate) const WAKER_TOKEN: Token = Token(0);
@@ -156,7 +156,7 @@ impl<T> Slab<T> {
 
 struct TorrentSlot {
     generation: u32,
-    torrent: Option<Torrent>,
+    torrent: Option<Box<Torrent>>,
 }
 
 /// A UDP listen socket, bound beside a TCP listener on the same port.
@@ -248,6 +248,8 @@ pub(crate) struct Engine {
     /// stopped. The tick, the bandwidth refill and the session stats walk this instead of every
     /// slot (100,000 stopped torrents are about 140 MB of `Torrent`s).
     live: Vec<TorrentId>,
+    /// The save paths of the torrents, shared (`intern_save_path`).
+    save_paths: HashSet<Arc<str>>,
     by_hash: HashMap<Sha1Hash, TorrentId>,
     /// `SHA-1("req2", info-hash)` of every torrent, which incoming encrypted handshakes name
     /// (libtorrent `torrent_list::find_obfuscated`).
@@ -431,6 +433,7 @@ impl Engine {
             slots: Vec::new(),
             free_slots: Vec::new(),
             live: Vec::new(),
+            save_paths: HashSet::new(),
             by_hash: HashMap::new(),
             by_obfuscated: HashMap::new(),
             queue: Vec::new(),
@@ -533,7 +536,7 @@ impl Engine {
         while self
             .slots
             .iter()
-            .any(|s| s.torrent.as_ref().is_some_and(|t| t.moves_pending > 0 || t.renames_pending > 0))
+            .any(|s| s.torrent.as_deref().is_some_and(|t| t.moves_pending > 0 || t.renames_pending > 0))
         {
             match self.disk_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(Completion::Moved { storage, status, save_path, error }) => {
@@ -576,7 +579,7 @@ impl Engine {
         self.slots
             .iter()
             .enumerate()
-            .filter_map(|(i, s)| s.torrent.as_ref().map(|_| TorrentId::new(i as u32, s.generation)))
+            .filter_map(|(i, s)| s.torrent.as_deref().map(|_| TorrentId::new(i as u32, s.generation)))
             .collect()
     }
 
@@ -594,7 +597,7 @@ impl Engine {
         let Engine { live, slots, .. } = self;
         live.retain(|&id| {
             slots.get(id.index() as usize).is_some_and(|s| {
-                s.generation == id.generation() && s.torrent.as_ref().is_some_and(Torrent::is_active)
+                s.generation == id.generation() && s.torrent.as_deref().is_some_and(Torrent::is_active)
             })
         });
         live.clone()
@@ -605,7 +608,7 @@ impl Engine {
         if s.generation != id.generation() {
             return None;
         }
-        s.torrent.as_mut()
+        s.torrent.as_deref_mut()
     }
 
     fn torrent_ref(&self, id: TorrentId) -> Option<&Torrent> {
@@ -613,7 +616,7 @@ impl Engine {
         if s.generation != id.generation() {
             return None;
         }
-        s.torrent.as_ref()
+        s.torrent.as_deref()
     }
 
     /// Disjoint borrows of a peer, its torrent, the uTP manager and the UDP sockets: what a
@@ -629,7 +632,7 @@ impl Engine {
             if s.generation != id.generation() {
                 return None;
             }
-            s.torrent.as_mut()
+            s.torrent.as_deref_mut()
         });
         Some((p, t, utp, udp.as_slice()))
     }
@@ -642,7 +645,7 @@ impl Engine {
             if s.generation != id.generation() {
                 return None;
             }
-            s.torrent.as_mut()
+            s.torrent.as_deref_mut()
         });
         Some((p, t))
     }
@@ -1015,7 +1018,7 @@ impl Engine {
                 if let Some((p, t)) = self.peer_and_torrent(slot) {
                     p.stat.received(0, protocol);
                     if let Some(t) = t {
-                        t.stat.received(0, protocol);
+                        t.stat.get_or_insert_with(Box::default).received(0, protocol);
                     }
                 }
             }
@@ -1053,7 +1056,7 @@ impl Engine {
                 p.stat.sent(payload as u64, protocol);
                 if let Some(t) = t {
                     t.upload_limit.consume(raw);
-                    t.stat.sent(payload as u64, protocol);
+                    t.stat.get_or_insert_with(Box::default).sent(payload as u64, protocol);
                 }
                 self.upload_bucket.consume(raw);
                 self.stat.sent(payload as u64, protocol);
@@ -1354,8 +1357,10 @@ impl Engine {
             }
             Command::PostPieceInfo(id) => {
                 if let Some(t) = self.torrent_ref(id) {
-                    let have =
-                        t.have_bits().cloned().unwrap_or_else(|| Bitfield::new(t.num_pieces as usize, false));
+                    let have = t
+                        .have_bits()
+                        .map(HaveRef::to_bitfield)
+                        .unwrap_or_else(|| Bitfield::new(t.num_pieces as usize, false));
                     let (availability, downloading) = match &t.picker {
                         Some(p) => (
                             (0..t.num_pieces).map(|i| p.availability(i)).collect(),
@@ -1478,7 +1483,7 @@ impl Engine {
             t.queue_position = Some(self.queue.len() as u32);
             self.queue.push(id);
         }
-        self.slots[index as usize].torrent = Some(t);
+        self.slots[index as usize].torrent = Some(Box::new(t));
         self.needs_auto_manage = true;
         id
     }
@@ -1549,6 +1554,7 @@ impl Engine {
             .unwrap_or(p.save_path.clone());
         let mut flags = p.flags;
         flags.remove(TorrentFlags::DUPLICATE_IS_ERROR);
+        let save_path = self.intern_save_path(&save_path);
         let mut t = Torrent::new(
             TorrentId::default(),
             info_hashes,
@@ -1591,10 +1597,10 @@ impl Engine {
             apply_resume(&mut t, &r);
         }
         if flags.contains(TorrentFlags::SEED_MODE) {
-            t.have = Some(Bitfield::new(t.num_pieces as usize, true));
+            t.set_have(Some(Bitfield::new(t.num_pieces as usize, true)));
         }
         let name = t.name.clone();
-        let key = t.key.clone();
+        let key = t.key();
         let id = self.insert_torrent(t);
         if let Some(store) = self.store.as_mut() {
             let rec = self.slots[id.index() as usize].torrent.as_ref().expect("inserted").resume_data();
@@ -1651,7 +1657,8 @@ impl Engine {
         if m.default_dont_download {
             flags.insert(TorrentFlags::DEFAULT_DONT_DOWNLOAD);
         }
-        let mut t = Torrent::new(TorrentId::default(), info_hashes, name, p.save_path.clone(), flags);
+        let save_path = self.intern_save_path(&p.save_path);
+        let mut t = Torrent::new(TorrentId::default(), info_hashes, name, save_path, flags);
         t.user_named = user_named;
         t.renamed_files = p.renamed_files.clone();
         for (i, url) in m.trackers.iter().enumerate() {
@@ -1681,7 +1688,7 @@ impl Engine {
         t.max_uploads = p.max_uploads;
         t.state = TorrentState::DownloadingMetadata;
         let name = t.name.clone();
-        let key = t.key.clone();
+        let key = t.key();
         let rec = t.resume_data();
         let id = self.insert_torrent(t);
         if let Some(store) = self.store.as_mut() {
@@ -1703,7 +1710,7 @@ impl Engine {
             TorrentId::default(),
             r.info_hashes,
             r.name.clone(),
-            r.save_path.clone(),
+            self.intern_save_path(&r.save_path),
             TorrentFlags::empty(),
         );
         t.total_size = r.total_size;
@@ -1717,12 +1724,12 @@ impl Engine {
         t.web_seeds.add_urls(&r.url_seeds, WebSeedKind::UrlSeed);
         t.web_seeds.add_urls(&r.http_seeds, WebSeedKind::HttpSeed);
         apply_resume(&mut t, &r);
-        let has_meta = self.store.as_ref().is_some_and(|s| s.has_metadata(&t.key));
+        let has_meta = self.store.as_ref().is_some_and(|s| s.has_metadata(&t.key()));
         if !has_meta && t.num_pieces == 0 {
             // A magnet still waiting for its metadata.
         } else if !has_meta || t.num_pieces == 0 || t.piece_length == 0 {
             // Records from before metadata was stored, or a damaged pack: load it now.
-            let key = t.key.clone();
+            let key = t.key();
             match self.load_info(&key) {
                 Some(ti) => t.set_metadata(ti),
                 None => t.error = Some("metadata missing from the session store".into()),
@@ -1733,6 +1740,21 @@ impl Engine {
         // no `TorrentAdded`: `TorrentsRestored` follows the lot, and `status_dirty` puts it in
         // the next status update
         self.insert_torrent(t);
+    }
+
+    /// The save path as an `Arc` shared by every torrent saved there: a library of 100,000
+    /// torrents has a handful of download folders, not 100,000 copies of them. Paths no
+    /// torrent holds any more are dropped once the pool grows.
+    fn intern_save_path(&mut self, path: &str) -> Arc<str> {
+        if let Some(p) = self.save_paths.get(path) {
+            return p.clone();
+        }
+        if self.save_paths.len() >= 64 {
+            self.save_paths.retain(|p| Arc::strong_count(p) > 1);
+        }
+        let p: Arc<str> = path.into();
+        self.save_paths.insert(p.clone());
+        p
     }
 
     fn load_info(&mut self, key: &str) -> Option<Arc<TorrentInfo>> {
@@ -1754,7 +1776,7 @@ impl Engine {
         if t.ti.is_some() {
             return true;
         }
-        let key = t.key.clone();
+        let key = t.key();
         match self.load_info(&key) {
             Some(ti) => {
                 self.torrent(id).expect("exists").set_metadata(ti);
@@ -1795,7 +1817,7 @@ impl Engine {
             self.renumber_queue(pos);
         }
         if let Some(store) = self.store.as_mut() {
-            store.remove(&t.key);
+            store.remove(&t.key());
             self.store_flush_due.get_or_insert(Instant::now() + STORE_FLUSH_DELAY);
         }
         self.alert(Alert::TorrentRemoved { id, info_hashes: t.info_hashes });
@@ -1811,7 +1833,7 @@ impl Engine {
         } else if let Some(action) = delete {
             match t.ti.clone() {
                 Some(ti) => {
-                    let storage = self.disk.new_storage(t.save_path.clone(), ti, Vec::new());
+                    let storage = self.disk.new_storage(t.save_path.to_string(), ti, Vec::new());
                     self.deleting.insert(storage.id, (id, t.info_hashes));
                     self.disk.async_fence(&storage, action);
                 }
@@ -1851,7 +1873,8 @@ impl Engine {
         // Without metadata nothing is on disk yet: just use the new path.
         if !t.has_metadata() {
             let new = crate::disk::complete(&path);
-            let old = std::mem::replace(&mut t.save_path, new.clone());
+            // (a moved torrent's path is its own; restores and adds share theirs)
+            let old = std::mem::replace(&mut t.save_path, new.as_str().into()).to_string();
             t.resume_dirty = true;
             t.status_dirty = true;
             self.alert(Alert::StorageMoved { id, old, new });
@@ -1869,7 +1892,7 @@ impl Engine {
         }
         let t = self.torrent(id).expect("exists");
         let (save_path, ti, prio) =
-            (t.save_path.clone(), t.ti.clone().expect("loaded"), t.file_priority.clone());
+            (t.save_path.to_string(), t.ti.clone().expect("loaded"), t.file_priority.clone());
         let storage = self.disk.new_storage(save_path, ti, prio);
         self.storages.insert(storage.id, id);
         let t = self.torrent(id).expect("exists");
@@ -1896,7 +1919,7 @@ impl Engine {
         t.status_dirty = true;
         match status {
             MoveStatus::NoError | MoveStatus::NeedFullCheck => {
-                let old = std::mem::replace(&mut t.save_path, save_path.clone());
+                let old = std::mem::replace(&mut t.save_path, save_path.as_str().into()).to_string();
                 t.resume_dirty = true;
                 self.alert(Alert::StorageMoved { id, old, new: save_path });
             }
@@ -1964,7 +1987,7 @@ impl Engine {
         let storage = match (&t.storage, &t.moving) {
             (Some(s), _) | (None, Some((s, _))) => s.clone(),
             (None, None) => {
-                let (save_path, prio) = (t.save_path.clone(), t.file_priority.clone());
+                let (save_path, prio) = (t.save_path.to_string(), t.file_priority.clone());
                 let s = self.disk.new_storage(save_path, ti, prio);
                 self.storages.insert(s.id, id);
                 self.torrent(id).expect("exists").moving = Some((s.clone(), true));
@@ -2095,7 +2118,7 @@ impl Engine {
                 return;
             }
             // A magnet: fetch the info dictionary from peers first (BEP 9).
-            t.fetch = Some(crate::proto::ut_metadata::MetadataFetch::new());
+            t.fetch = Some(Box::new(crate::proto::ut_metadata::MetadataFetch::new()));
             t.started_at = Some(Instant::now());
             self.mark_live(id);
             self.set_state(id, TorrentState::DownloadingMetadata);
@@ -2113,7 +2136,7 @@ impl Engine {
             }
             return;
         }
-        let save_path = t.save_path.clone();
+        let save_path = t.save_path.to_string();
         let peer_slots = t.peers.clone();
         let file_priority = t.file_priority.clone();
         let storage = self.disk.new_storage(save_path, ti.clone(), file_priority);
@@ -2142,7 +2165,7 @@ impl Engine {
             picker.set_piece_priority(i as u32, p);
         }
         picker.set_sequential(t.flags.contains(TorrentFlags::SEQUENTIAL_DOWNLOAD));
-        let mode = match t.have.take() {
+        let mode = match t.take_have() {
             Some(have) if have.len() == ti.num_pieces() as usize => CheckMode::Resume(have),
             _ => CheckMode::Full,
         };
@@ -2150,7 +2173,7 @@ impl Engine {
             // A full check finds only whole pieces; partial blocks are not trusted.
             t.unfinished.clear();
         }
-        t.picker = Some(picker);
+        t.picker = Some(Box::new(picker));
         t.storage = Some(storage.clone());
         t.checking = true;
         t.checked_pieces = 0;
@@ -2184,6 +2207,7 @@ impl Engine {
         let t = self.torrent(id).expect("exists");
         let mut jobs = Vec::new();
         let v2_hash = t.info_hashes.wire_hash(true);
+        let totals = (t.stat().upload_payload.total, t.stat().download_payload.total);
         let lists = [(t.info_hashes.best_v1_compatible(), &mut t.trackers), (v2_hash, &mut t.trackers_v2)];
         for (ih, list) in lists {
             for tr in list.iter_mut() {
@@ -2192,8 +2216,8 @@ impl Engine {
                         ih,
                         peer_id,
                         port,
-                        t.stat.upload_payload.total,
-                        t.stat.download_payload.total,
+                        totals.0,
+                        totals.1,
                         0,
                         t.failed_bytes,
                         Event::Stopped,
@@ -2220,7 +2244,7 @@ impl Engine {
         let t = self.torrent(id).expect("exists");
         if let Some(mut p) = t.picker.take() {
             if t.checked || !t.checking {
-                t.have = Some(p.have().clone());
+                t.set_have(Some(p.have().clone()));
                 t.unfinished = p.unfinished_pieces();
             }
             p.clear_downloading();
@@ -2248,7 +2272,7 @@ impl Engine {
 
     fn force_recheck(&mut self, id: TorrentId) {
         let Some(t) = self.torrent(id) else { return };
-        t.have = None;
+        t.set_have(None);
         t.unfinished.clear();
         t.checked = false;
         t.resume_dirty = true;
@@ -2256,7 +2280,7 @@ impl Engine {
             self.stop_torrent(id, false);
             self.reap_peers();
             if let Some(t) = self.torrent(id) {
-                t.have = None;
+                t.set_have(None);
             }
             self.start_torrent(id);
         }
@@ -2914,7 +2938,7 @@ impl Engine {
     fn tick_torrent(&mut self, id: TorrentId, now: Instant, dt: f64) {
         let settings = self.settings.clone();
         let Some(t) = self.torrent(id) else { return };
-        t.stat.tick(dt);
+        t.stat.get_or_insert_with(Box::default).tick(dt);
         if !t.checking {
             t.active_secs += dt;
             if t.is_finished() {
@@ -2924,7 +2948,7 @@ impl Engine {
                 t.seeding_secs += dt;
             }
         }
-        if t.stat.download_rate() > 0 || t.stat.upload_rate() > 0 || !t.peers.is_empty() || t.checking {
+        if t.stat().download_rate() > 0 || t.stat().upload_rate() > 0 || !t.peers.is_empty() || t.checking {
             t.status_dirty = true;
         }
         let interest_dirty = std::mem::take(&mut t.interest_dirty);
@@ -3022,7 +3046,7 @@ impl Engine {
         let finished = t.is_finished();
         let left = t.bytes_left();
         let (uploaded, downloaded, corrupt) =
-            (t.stat.upload_payload.total, t.stat.download_payload.total, t.failed_bytes);
+            (t.stat().upload_payload.total, t.stat().download_payload.total, t.failed_bytes);
         let in_session = t.downloaded_in_session;
         let ih = if v2 { t.info_hashes.wire_hash(true) } else { t.info_hashes.best_v1_compatible() };
         let want = if finished && t.peers.len() > 50 { 0 } else { num_want };
@@ -3435,10 +3459,10 @@ impl Engine {
         let Some(store) = self.store.as_mut() else { return };
         let mut errors = Vec::new();
         for s in &mut self.slots {
-            let Some(t) = s.torrent.as_mut() else { continue };
+            let Some(t) = s.torrent.as_deref_mut() else { continue };
             if t.resume_dirty || force {
                 t.resume_dirty = false;
-                if let Err(e) = store.put(&t.key, &t.resume_data(), None) {
+                if let Err(e) = store.put(&t.key(), &t.resume_data(), None) {
                     errors.push((t.id, e));
                 }
             }
@@ -3475,10 +3499,10 @@ impl Engine {
             let (web_peers, web_seeds) = self.web.counts(t.id);
             peers += web_peers;
             seeds += web_seeds;
-            rates.0 = t.stat.download_rate();
-            rates.1 = t.stat.upload_rate();
-            rates.2 = t.stat.download_payload.rate();
-            rates.3 = t.stat.upload_payload.rate();
+            rates.0 = t.stat().download_rate();
+            rates.1 = t.stat().upload_rate();
+            rates.2 = t.stat().download_payload.rate();
+            rates.3 = t.stat().upload_payload.rate();
             out.push(t.status(peers, seeds, rates, now));
             self.slots[i].torrent.as_mut().expect("present").status_dirty = false;
         }
@@ -3578,7 +3602,7 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
     }
     if let Some(p) = &r.pieces {
         if t.num_pieces == 0 || p.len() == t.num_pieces as usize {
-            t.have = Some(p.clone());
+            t.set_have(Some(p.clone()));
             t.unfinished = r.unfinished.clone();
         }
     }

@@ -31,7 +31,7 @@ impl Engine {
         self.update_external_ip();
         let e = self.external_ip;
         for s in &mut self.slots {
-            if let Some(t) = s.torrent.as_mut() {
+            if let Some(t) = s.torrent.as_deref_mut() {
                 t.peer_list.clear_peer_prio(&e);
             }
         }

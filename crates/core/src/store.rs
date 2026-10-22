@@ -41,6 +41,8 @@ const COMPACT_LOG_MIN: u64 = 4 * 1024 * 1024;
 const DB_FORMAT: &str = "patorrent resume db";
 /// Suffix of the pack key that holds a torrent's v2 piece layers.
 const LAYERS_SUFFIX: &str = ".layers";
+/// The journal buffer is freed after a flush when it grew past this.
+const PENDING_KEEP: usize = 64 * 1024;
 
 /// Location of an info dictionary in the pack.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -49,17 +51,83 @@ struct PackLoc {
     len: u32,
 }
 
+impl PackLoc {
+    /// No info dictionary in the pack (a real one is at least `de`).
+    const NONE: PackLoc = PackLoc { offset: 0, len: 0 };
+
+    fn is_some(self) -> bool {
+        self.len > 0
+    }
+}
+
+/// A store key held in binary: the info-hash hex of a v1 or a v2 torrent (40 or 64 lowercase
+/// digits) in 20 or 32 bytes, anything else (a foreign or damaged file) as the text. Every torrent
+/// has one in memory, so a `String` (24 bytes plus a 40-byte heap block) was a good part of the
+/// store's share per stopped torrent.
+#[derive(Clone, Debug, PartialEq, Eq, Hash)]
+enum StoreKey {
+    V1([u8; 20]),
+    V2([u8; 32]),
+    Other(Box<str>),
+}
+
+impl StoreKey {
+    fn new(key: &str) -> StoreKey {
+        fn hex<const N: usize>(s: &[u8]) -> Option<[u8; N]> {
+            let digit = |c: u8| match c {
+                b'0'..=b'9' => Some(c - b'0'),
+                b'a'..=b'f' => Some(c - b'a' + 10),
+                _ => None,
+            };
+            let mut out = [0u8; N];
+            for (o, pair) in out.iter_mut().zip(s.chunks_exact(2)) {
+                *o = (digit(pair[0])? << 4) | digit(pair[1])?;
+            }
+            Some(out)
+        }
+        let b = key.as_bytes();
+        match b.len() {
+            40 => hex(b).map(StoreKey::V1),
+            64 => hex(b).map(StoreKey::V2),
+            _ => None,
+        }
+        .unwrap_or_else(|| StoreKey::Other(key.into()))
+    }
+}
+
+impl std::fmt::Display for StoreKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let bytes: &[u8] = match self {
+            StoreKey::V1(b) => b,
+            StoreKey::V2(b) => b,
+            StoreKey::Other(s) => return f.write_str(s),
+        };
+        bytes.iter().try_for_each(|b| write!(f, "{b:02x}"))
+    }
+}
+
+/// What the store keeps per saved torrent.
+#[derive(Clone, Copy, Debug)]
+struct Saved {
+    /// A hash of the encoded record (unchanged records are not written).
+    hash: u64,
+    /// The info dictionary in the pack, if there.
+    info: PackLoc,
+}
+
 pub(crate) struct Store {
     dir: PathBuf,
-    /// A hash of each torrent's encoded record, by key (unchanged records are not written).
-    records: HashMap<String, u64>,
+    /// Every saved torrent by key: its record's hash and where its info dictionary is (one map
+    /// for both: they have the same keys, an info dictionary being live only with a record).
+    saved: HashMap<StoreKey, Saved>,
+    /// v2 piece layers in the pack, by the key of their torrent (only v2 torrents have them).
+    layers: HashMap<StoreKey, PackLoc>,
     /// Journal entries not written yet.
     pending: Vec<u8>,
     /// Bytes of `resume.log` and of `resume.db`.
     log_len: u64,
     db_len: u64,
     pack: Option<File>,
-    pack_index: HashMap<String, PackLoc>,
     pack_len: u64,
 }
 
@@ -70,27 +138,30 @@ impl Store {
         std::fs::create_dir_all(dir)?;
         let mut store = Store {
             dir: dir.to_owned(),
-            records: HashMap::new(),
+            saved: HashMap::new(),
+            layers: HashMap::new(),
             pending: Vec::new(),
             log_len: 0,
             db_len: 0,
             pack: None,
-            pack_index: HashMap::new(),
             pack_len: 0,
         };
-        let mut torrents = Vec::new();
+        let (db, log) = store.read_files()?;
+        let records = store.read_records(db.as_deref(), &log)?;
+        let mut torrents = Vec::with_capacity(records.len());
         let mut errors = Vec::new();
-        let records = store.read_records()?;
+        store.saved.reserve(records.len());
         for (key, bytes) in &records {
-            let decoded = bdecode(&bytes[..]).map_err(|e| e.kind.message().to_owned()).and_then(|doc| {
-                match doc.root() {
+            let decoded =
+                bdecode(bytes).map_err(|e| e.kind.message().to_owned()).and_then(|doc| match doc.root() {
                     Some(root) => ResumeData::from_node(root).map_err(|e| e.to_string()),
                     None => Err("empty record".to_owned()),
-                }
-            });
+                });
             match decoded {
                 Ok(r) => {
-                    store.records.insert(key.clone(), record_hash(bytes));
+                    store
+                        .saved
+                        .insert(StoreKey::new(key), Saved { hash: record_hash(bytes), info: PackLoc::NONE });
                     torrents.push(r);
                 }
                 Err(e) => errors.push(format!("{key}: {e}")),
@@ -100,35 +171,44 @@ impl Store {
             store.write_db(&records)?;
         }
         drop(records);
+        drop((db, log));
         store.open_pack()?;
-        let live = store.pack_index.values().map(|l| l.len as u64 + 64).sum::<u64>();
+        let live = store.saved.values().map(|s| s.info).chain(store.layers.values().copied());
+        let live = live.filter(|l| l.is_some()).map(|l| l.len as u64 + 64).sum::<u64>();
         if store.pack_len > 1024 * 1024 && store.pack_len > 2 * live {
             store.compact()?;
         }
         Ok((store, torrents, errors))
     }
 
-    /// Every saved record: `resume.db` with `resume.log` replayed over it. A torn journal entry
-    /// (a crash while appending) is cut off.
-    fn read_records(&mut self) -> Result<BTreeMap<String, Vec<u8>>, Error> {
-        let mut records = BTreeMap::new();
-        match std::fs::read(self.dir.join(RESUME_DB)) {
-            Ok(buf) => {
-                self.db_len = buf.len() as u64;
-                parse_db(&buf, &mut records)?;
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {}
-            Err(e) => return Err(e.into()),
-        }
-        let log_path = self.dir.join(RESUME_LOG);
-        let log = match std::fs::read(&log_path) {
-            Ok(log) => log,
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
-            Err(e) => return Err(e.into()),
+    /// `resume.db` and `resume.log` as they are on disk (`None` and empty when missing).
+    fn read_files(&mut self) -> Result<(Option<Vec<u8>>, Vec<u8>), Error> {
+        let read = |name: &str| match std::fs::read(self.dir.join(name)) {
+            Ok(buf) => Ok(Some(buf)),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(None),
+            Err(e) => Err(e),
         };
-        let pos = replay_log(&log, &mut records);
+        let db = read(RESUME_DB)?;
+        let log = read(RESUME_LOG)?.unwrap_or_default();
+        self.db_len = db.as_ref().map_or(0, |d| d.len() as u64);
+        Ok((db, log))
+    }
+
+    /// Every saved record: `db` (`resume.db`) with `log` (`resume.log`) replayed over it, the
+    /// records left where they are in the two buffers (at 100,000 torrents a copy of each was
+    /// 87 MB more at startup). A torn journal entry (a crash while appending) is cut off.
+    fn read_records<'a>(
+        &mut self,
+        db: Option<&'a [u8]>,
+        log: &'a [u8],
+    ) -> Result<BTreeMap<String, &'a [u8]>, Error> {
+        let mut records = BTreeMap::new();
+        if let Some(db) = db {
+            parse_db(db, &mut records)?;
+        }
+        let pos = replay_log(log, &mut records);
         if pos < log.len() {
-            OpenOptions::new().write(true).open(&log_path)?.set_len(pos as u64)?;
+            OpenOptions::new().write(true).open(self.dir.join(RESUME_LOG))?.set_len(pos as u64)?;
         }
         self.log_len = pos as u64;
         Ok(records)
@@ -136,11 +216,11 @@ impl Store {
 
     /// Writes `records` as the new `resume.db` (atomically: temporary file, flush, rename),
     /// then empties the journal they include.
-    fn write_db(&mut self, records: &BTreeMap<String, Vec<u8>>) -> Result<(), Error> {
+    fn write_db(&mut self, records: &BTreeMap<String, &[u8]>) -> Result<(), Error> {
         let mut torrents = Entry::new_dict();
         // records that did not load are left out, as they were never kept
-        for (k, v) in records.iter().filter(|(k, _)| self.records.contains_key(*k)) {
-            *torrents.key(k) = Entry::Preformatted(v.clone());
+        for (k, v) in records.iter().filter(|(k, _)| self.saved.contains_key(&StoreKey::new(k))) {
+            *torrents.key(k) = Entry::Preformatted(v.to_vec());
         }
         let mut root = Entry::new_dict();
         *root.key("file-format") = Entry::Bytes(DB_FORMAT.as_bytes().to_vec());
@@ -191,10 +271,21 @@ impl Store {
             if data_off + dlen as u64 > len {
                 break;
             }
-            let key = String::from_utf8_lossy(&key).into_owned();
+            let key = String::from_utf8_lossy(&key);
+            let loc = PackLoc { offset: data_off, len: dlen };
             // Later records win; only keys with a resume record are live.
-            if self.records.contains_key(key.strip_suffix(LAYERS_SUFFIX).unwrap_or(&key)) {
-                self.pack_index.insert(key, PackLoc { offset: data_off, len: dlen });
+            match key.strip_suffix(LAYERS_SUFFIX) {
+                Some(base) => {
+                    let base = StoreKey::new(base);
+                    if self.saved.contains_key(&base) {
+                        self.layers.insert(base, loc);
+                    }
+                }
+                None => {
+                    if let Some(s) = self.saved.get_mut(&StoreKey::new(&key)) {
+                        s.info = loc;
+                    }
+                }
             }
             pos = data_off + dlen as u64;
         }
@@ -209,11 +300,11 @@ impl Store {
     fn compact(&mut self) -> Result<(), Error> {
         let tmp = self.dir.join(format!("{METADATA_PACK}.tmp"));
         let mut entries: Vec<(String, Vec<u8>)> = Vec::new();
-        let keys: Vec<String> = self.pack_index.keys().cloned().collect();
-        for k in keys {
-            if let Some(d) = self.load_metadata(&k)? {
-                entries.push((k, d));
-            }
+        let infos = self.saved.iter().filter(|(_, s)| s.info.is_some()).map(|(k, s)| (k.to_string(), s.info));
+        let layers = self.layers.iter().map(|(k, &l)| (format!("{k}{LAYERS_SUFFIX}"), l));
+        let locs: Vec<(String, PackLoc)> = infos.chain(layers).collect();
+        for (k, loc) in locs {
+            entries.push((k, self.read_pack(loc)?));
         }
         {
             let mut out = File::create(&tmp)?;
@@ -224,50 +315,63 @@ impl Store {
         }
         self.pack = None;
         std::fs::rename(&tmp, self.dir.join(METADATA_PACK))?;
-        self.pack_index.clear();
-        self.open_pack()?;
+        for s in self.saved.values_mut() {
+            s.info = PackLoc::NONE;
+        }
+        self.layers.clear();
         // Records were rewritten for live keys only; reindex them.
+        self.open_pack()?;
         Ok(())
     }
 
     pub fn has_metadata(&self, key: &str) -> bool {
-        self.pack_index.contains_key(key)
+        self.saved.get(&StoreKey::new(key)).is_some_and(|s| s.info.is_some())
     }
 
-    /// Reads a torrent's info dictionary from the pack.
-    pub fn load_metadata(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
-        let Some(loc) = self.pack_index.get(key).copied() else { return Ok(None) };
+    fn read_pack(&mut self, loc: PackLoc) -> Result<Vec<u8>, Error> {
         let f = self.pack.as_mut().ok_or(Error::SessionClosed)?;
         let mut buf = vec![0u8; loc.len as usize];
         f.seek(SeekFrom::Start(loc.offset))?;
         f.read_exact(&mut buf)?;
-        Ok(Some(buf))
+        Ok(buf)
+    }
+
+    /// Reads a torrent's info dictionary from the pack.
+    pub fn load_metadata(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
+        match self.saved.get(&StoreKey::new(key)).map(|s| s.info).filter(|l| l.is_some()) {
+            Some(loc) => self.read_pack(loc).map(Some),
+            None => Ok(None),
+        }
     }
 
     /// Saves a torrent's v2 piece layers (a bencoded "piece layers" dictionary) beside its info
     /// dictionary, replacing earlier ones.
     pub fn put_piece_layers(&mut self, key: &str, layers: &[u8]) -> Result<(), Error> {
-        let pack_key = format!("{key}{LAYERS_SUFFIX}");
-        if self.load_metadata(&pack_key)?.as_deref() == Some(layers) {
+        if self.load_piece_layers(key)?.as_deref() == Some(layers) {
             return Ok(());
         }
-        self.append(&pack_key, layers)
+        let loc = self.append(&format!("{key}{LAYERS_SUFFIX}"), layers)?;
+        self.layers.insert(StoreKey::new(key), loc);
+        Ok(())
     }
 
     /// A torrent's v2 piece layers, if they were saved.
     pub fn load_piece_layers(&mut self, key: &str) -> Result<Option<Vec<u8>>, Error> {
-        self.load_metadata(&format!("{key}{LAYERS_SUFFIX}"))
+        match self.layers.get(&StoreKey::new(key)).copied() {
+            Some(loc) => self.read_pack(loc).map(Some),
+            None => Ok(None),
+        }
     }
 
-    fn append(&mut self, pack_key: &str, data: &[u8]) -> Result<(), Error> {
+    /// Appends a record to the pack; returns where its data is.
+    fn append(&mut self, pack_key: &str, data: &[u8]) -> Result<PackLoc, Error> {
         let f = self.pack.as_mut().ok_or(Error::SessionClosed)?;
         let rec = pack_record(pack_key, data);
         f.seek(SeekFrom::Start(self.pack_len))?;
         f.write_all(&rec)?;
         let offset = self.pack_len + rec.len() as u64 - data.len() as u64;
         self.pack_len += rec.len() as u64;
-        self.pack_index.insert(pack_key.to_owned(), PackLoc { offset, len: data.len() as u32 });
-        Ok(())
+        Ok(PackLoc { offset, len: data.len() as u32 })
     }
 
     /// Saves a torrent's record. `info` is appended to the pack if it is not there yet.
@@ -276,24 +380,28 @@ impl Store {
         rec.info = None;
         let bytes = rec.encode();
         let hash = record_hash(&bytes);
-        if self.records.get(key) != Some(&hash) {
-            self.records.insert(key.to_owned(), hash);
+        let saved =
+            self.saved.entry(StoreKey::new(key)).or_insert(Saved { hash: !hash, info: PackLoc::NONE });
+        if saved.hash != hash {
+            saved.hash = hash;
             push_log_entry(&mut self.pending, key, Some(&bytes));
         }
-        if let Some(info) = info {
-            if !self.pack_index.contains_key(key) {
-                self.append(key, info)?;
+        let stored = saved.info.is_some();
+        if let Some(info) = info.filter(|i| !stored && !i.is_empty()) {
+            let loc = self.append(key, info)?;
+            if let Some(s) = self.saved.get_mut(&StoreKey::new(key)) {
+                s.info = loc;
             }
         }
         Ok(())
     }
 
     pub fn remove(&mut self, key: &str) {
-        if self.records.remove(key).is_some() {
+        let key_bin = StoreKey::new(key);
+        if self.saved.remove(&key_bin).is_some() {
             push_log_entry(&mut self.pending, key, None);
         }
-        self.pack_index.remove(key);
-        self.pack_index.remove(&format!("{key}{LAYERS_SUFFIX}"));
+        self.layers.remove(&key_bin);
     }
 
     #[cfg(test)]
@@ -313,12 +421,18 @@ impl Store {
             f.sync_data()?;
         }
         self.log_len += self.pending.len() as u64;
-        self.pending.clear();
+        // a save of every torrent (100,000 records are 87 MB) must not stay allocated
+        if self.pending.capacity() > PENDING_KEEP {
+            self.pending = Vec::new();
+        } else {
+            self.pending.clear();
+        }
         if let Some(p) = &self.pack {
             p.sync_data()?;
         }
         if self.log_len >= COMPACT_LOG_MIN && self.log_len > self.db_len / 2 {
-            let records = self.read_records()?;
+            let (db, log) = self.read_files()?;
+            let records = self.read_records(db.as_deref(), &log)?;
             self.write_db(&records)?;
         }
         Ok(())
@@ -346,7 +460,7 @@ fn push_log_entry(out: &mut Vec<u8>, key: &str, data: Option<&[u8]>) {
 }
 
 /// The records of a `resume.db` file, added to `records` by key.
-pub(crate) fn parse_db(buf: &[u8], records: &mut BTreeMap<String, Vec<u8>>) -> Result<(), Error> {
+pub(crate) fn parse_db<'a>(buf: &'a [u8], records: &mut BTreeMap<String, &'a [u8]>) -> Result<(), Error> {
     // our own file, one dictionary of every record: the default token limit (2 million, about
     // 22,000 torrents) guards against hostile input, not this. Every token takes at least two
     // bytes.
@@ -358,7 +472,10 @@ pub(crate) fn parse_db(buf: &[u8], records: &mut BTreeMap<String, Vec<u8>>) -> R
     if let Some(t) = root.dict_find_dict("torrents") {
         for (key, rec) in t.dict_iter().nodes() {
             let key = String::from_utf8_lossy(key.string_value()).into_owned();
-            records.insert(key, rec.data_section().to_vec());
+            // the record where it is in `buf` (the document's nodes borrow the document)
+            let section = rec.data_section();
+            let at = section.as_ptr() as usize - buf.as_ptr() as usize;
+            records.insert(key, &buf[at..at + section.len()]);
         }
     }
     Ok(())
@@ -366,11 +483,11 @@ pub(crate) fn parse_db(buf: &[u8], records: &mut BTreeMap<String, Vec<u8>>) -> R
 
 /// Replays the journal `log` over `records`; returns the length of its intact part (what
 /// follows is a torn or foreign entry).
-pub(crate) fn replay_log(log: &[u8], records: &mut BTreeMap<String, Vec<u8>>) -> usize {
+pub(crate) fn replay_log<'a>(log: &'a [u8], records: &mut BTreeMap<String, &'a [u8]>) -> usize {
     let mut pos = 0usize;
     while let Some((key, data, next)) = log_entry(log, pos) {
         match data {
-            Some(data) => records.insert(key, data.to_vec()),
+            Some(data) => records.insert(key, data),
             None => records.remove(&key),
         };
         pos = next;
@@ -575,6 +692,48 @@ mod tests {
         s.compact().unwrap();
         assert_eq!(s.load_metadata("b").unwrap().unwrap(), b"d4:name1:be");
         assert_eq!(s.load_metadata("c").unwrap().unwrap(), b"d4:name1:ce");
+        drop(s);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Keys are held in binary when they are info-hash hex (v1 or v2) and as text otherwise;
+    /// either way they come back as written, and a torrent's info dictionary and piece layers
+    /// live and die with its record.
+    #[test]
+    fn keys_are_held_in_binary_and_round_trip() {
+        let v1 = "0123456789abcdef0123456789abcdef01234567";
+        let v2 = "ab".repeat(32);
+        for k in [v1, v2.as_str(), "k1", "0123456789ABCDEF0123456789ABCDEF01234567", "zz"] {
+            assert_eq!(StoreKey::new(k).to_string(), k);
+        }
+        assert!(matches!(StoreKey::new(v1), StoreKey::V1(_)));
+        assert!(matches!(StoreKey::new(&v2), StoreKey::V2(_)));
+        assert!(matches!(StoreKey::new(&v1.to_uppercase()), StoreKey::Other(_)), "not our spelling");
+
+        let dir = crate::disk::tests::temp_dir("store-keys");
+        {
+            let (mut s, _, _) = Store::open(&dir).unwrap();
+            s.put(v1, &rec(1), Some(b"d4:name1:ae")).unwrap();
+            s.put(&v2, &rec(2), Some(b"d4:name1:be")).unwrap();
+            s.put_piece_layers(&v2, b"de").unwrap();
+            s.put("odd", &rec(3), None).unwrap();
+            s.flush().unwrap();
+        }
+        {
+            let (mut s, list, errors) = Store::open(&dir).unwrap();
+            assert_eq!((list.len(), errors.len()), (3, 0));
+            assert!(s.has_metadata(v1) && s.has_metadata(&v2) && !s.has_metadata("odd"));
+            assert_eq!(s.load_metadata(&v2).unwrap().unwrap(), b"d4:name1:be");
+            assert_eq!(s.load_piece_layers(&v2).unwrap().unwrap(), b"de");
+            assert_eq!(s.load_piece_layers(v1).unwrap(), None);
+            s.remove(&v2);
+            s.flush().unwrap();
+            assert!(!s.has_metadata(&v2) && s.load_piece_layers(&v2).unwrap().is_none());
+        }
+        let (mut s, list, _) = Store::open(&dir).unwrap();
+        assert_eq!(list.len(), 2);
+        assert_eq!(s.load_metadata(v1).unwrap().unwrap(), b"d4:name1:ae");
+        assert!(!s.has_metadata(&v2), "a removed torrent's pack records are dead");
         drop(s);
         let _ = std::fs::remove_dir_all(&dir);
     }

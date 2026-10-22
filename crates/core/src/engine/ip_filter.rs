@@ -65,7 +65,7 @@ impl Engine {
         let Engine { filters, slots, peers, out, .. } = self;
         let Some(t) = slots
             .get_mut(id.index() as usize)
-            .and_then(|s| (s.generation == id.generation()).then_some(s.torrent.as_mut()).flatten())
+            .and_then(|s| (s.generation == id.generation()).then_some(s.torrent.as_deref_mut()).flatten())
         else {
             return;
         };
@@ -122,7 +122,7 @@ impl Engine {
         let exempt = self
             .slots
             .iter()
-            .filter_map(|s| s.torrent.as_ref())
+            .filter_map(|s| s.torrent.as_deref())
             .any(|t| !t.flags.contains(TorrentFlags::APPLY_IP_FILTER));
         if exempt {
             return false;

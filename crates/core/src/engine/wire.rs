@@ -807,7 +807,7 @@ impl Engine {
         let Some(t) = t else { return };
         let len = data.len() as u64;
         p.stat.received(len, 0);
-        t.stat.received(len, 0);
+        t.stat.get_or_insert_with(Box::default).received(len, 0);
         let block = start / BLOCK_SIZE;
         let pos = (start % BLOCK_SIZE == 0)
             .then(|| p.requests.iter().position(|r| r.piece == piece && r.block == block))

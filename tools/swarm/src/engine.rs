@@ -220,6 +220,7 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
     let pack = std::fs::metadata(state.join("metadata.pack")).map(|m| m.len()).unwrap_or(0);
 
     let rss0 = rss();
+    let heap0 = crate::heap::live();
     let t0 = Instant::now();
     let s = Session::start(SessionParams { settings: settings(), state_dir: Some(state.clone()) })
         .expect("session");
@@ -246,6 +247,7 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
     let load_time = load_time.unwrap_or_default();
     let first_update = t0.elapsed();
     let rss1 = rss();
+    let heap1 = crate::heap::live();
     let idle = (ok.is_some() && idle_secs > 0).then(|| idle_cpu(&h, Duration::from_secs(idle_secs), cpu));
     let rss2 = rss();
     s.shutdown();
@@ -266,6 +268,16 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
     println!("first_update_ms={:.1}", first_update.as_secs_f64() * 1e3);
     println!("rss_before_mb={}", mb(rss0));
     println!("rss_loaded_mb={}", mb(rss1));
+    // what the session holds per torrent: live heap bytes and blocks (the working set adds the
+    // heap kept after the restore's transient peak, and the allocator's overhead per block)
+    let per = |a: u64, b: u64| a.saturating_sub(b) as f64 / count.max(1) as f64;
+    println!("heap_loaded_mb={}", mb(Some(heap1.0)));
+    println!("heap_bytes_per_torrent={:.0}", per(heap1.0, heap0.0));
+    println!("heap_blocks_per_torrent={:.1}", per(heap1.1, heap0.1));
+    println!(
+        "rss_bytes_per_torrent={}",
+        rss0.zip(rss1).map_or("n/a".to_owned(), |(a, b)| format!("{:.0}", per(b, a)))
+    );
     if let Some(pct) = idle {
         let pct = pct.map_or("n/a".to_owned(), |p| format!("{p:.2}"));
         println!("idle_seconds={idle_secs}");

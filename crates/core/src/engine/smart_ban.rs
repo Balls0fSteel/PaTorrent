@@ -201,7 +201,7 @@ impl Engine {
         t.failed_bytes += t.piece_size(piece);
         if let Some(storage) = t.storage.clone() {
             let size = t.piece_size(piece);
-            for block in t.smart_ban.on_piece_failed(piece, &downloaders) {
+            for block in t.smart_ban.get_or_insert_with(Box::default).on_piece_failed(piece, &downloaders) {
                 let start = block * BLOCK_SIZE;
                 let len = (size - start as u64).min(BLOCK_SIZE as u64) as u32;
                 self.disk.async_read(&storage, piece, start, len, SMART_BAN_COOKIE);
@@ -240,7 +240,7 @@ impl Engine {
         }
         self.web_seeds_passed(id, &peers);
         let Some(t) = self.torrent(id) else { return };
-        let reads = t.smart_ban.on_piece_pass(piece);
+        let reads = t.smart_ban.as_mut().map_or_else(Vec::new, |s| s.on_piece_pass(piece));
         if let Some(storage) = t.storage.clone().filter(|_| !reads.is_empty()) {
             let size = t.piece_size(piece);
             for block in reads {
@@ -250,7 +250,9 @@ impl Engine {
             }
         }
         if let Some(t) = self.torrent(id).filter(|t| t.is_seed()) {
-            t.smart_ban.clear();
+            if let Some(s) = t.smart_ban.as_mut() {
+                s.clear();
+            }
         }
     }
 
@@ -272,16 +274,16 @@ impl Engine {
         let data = match result {
             Ok(d) => d,
             Err(_) => {
-                t.smart_ban.read_failed(piece, block);
+                t.smart_ban.get_or_insert_with(Box::default).read_failed(piece, block);
                 return;
             }
         };
         let verdict = if cookie & OK_BLOCK != 0 {
-            t.smart_ban.on_read_ok_block(piece, block, &data)
+            t.smart_ban.get_or_insert_with(Box::default).on_read_ok_block(piece, block, &data)
         } else {
             let list = &t.peer_list;
             let peer_state = |addr: SocketAddr| list.get(&addr).map(|p| p.banned);
-            t.smart_ban.on_read_failed_block(piece, block, &data, peer_state)
+            t.smart_ban.get_or_insert_with(Box::default).on_read_failed_block(piece, block, &data, peer_state)
         };
         if let Verdict::Ban(addr) = verdict {
             self.ban_peer(id, addr, &format!("sent a bad block of piece {piece} (block {block})"));

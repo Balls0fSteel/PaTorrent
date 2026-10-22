@@ -74,17 +74,198 @@ pub(crate) struct KnownPeer {
     rank: u32,
 }
 
+/// A torrent's known peers (libtorrent `peer_list`). The list is boxed and made with its first
+/// peer, as libtorrent makes `torrent::m_peer_list` in `need_peer_list`: most torrents of a large
+/// library are stopped and know no peers, and an empty list would still take 72 bytes each.
 #[derive(Default)]
-pub(crate) struct PeerList {
+pub(crate) struct PeerList(Option<Box<Peers>>);
+
+impl PeerList {
+    pub fn len(&self) -> usize {
+        self.0.as_ref().map_or(0, |l| l.peers.len())
+    }
+
+    pub fn num_seeds(&self) -> usize {
+        self.0.as_ref().map_or(0, |l| l.num_seeds())
+    }
+
+    pub fn get(&self, addr: &SocketAddr) -> Option<&KnownPeer> {
+        self.0.as_ref()?.get(addr)
+    }
+
+    pub fn get_mut(&mut self, addr: &SocketAddr) -> Option<&mut KnownPeer> {
+        self.0.as_mut()?.get_mut(addr)
+    }
+
+    /// libtorrent `peer_list::add_peer`. Returns false if the peer was rejected (full list,
+    /// invalid address).
+    pub fn add(
+        &mut self,
+        addr: SocketAddr,
+        source: PeerSource,
+        external_ip: ExternalIp,
+        max_size: usize,
+    ) -> bool {
+        if addr.port() == 0 || addr.ip().is_unspecified() || addr.ip().is_multicast() {
+            return false;
+        }
+        let added = self.0.get_or_insert_with(Box::default).add(addr, source, external_ip, max_size);
+        self.drop_if_empty();
+        added
+    }
+
+    pub fn set_protocol_v2(&mut self, addr: &SocketAddr) {
+        if let Some(p) = self.get_mut(addr) {
+            p.protocol_v2 = true;
+        }
+    }
+
+    /// Forgets every peer `f` picks (libtorrent `apply_ip_filter` / `apply_port_filter`).
+    /// Returns how many went. A connected peer's connection is the caller's to close.
+    pub fn remove_if(&mut self, f: impl Fn(&KnownPeer) -> bool) -> usize {
+        let removed = self.0.as_mut().map_or(0, |l| l.remove_if(f));
+        self.drop_if_empty();
+        removed
+    }
+
+    /// libtorrent `peer_list::num_connect_candidates` (`is_connect_candidate`): peers that could
+    /// be connected to, now or once their reconnect delay is over. A finished torrent does not
+    /// connect to seeds.
+    pub fn num_connect_candidates(&self, finished: bool, policy: Reconnect) -> usize {
+        self.0.as_ref().map_or(0, |l| l.num_connect_candidates(finished, policy))
+    }
+
+    /// libtorrent `find_connect_candidates`: up to `n` peers to connect to now. A peer waits
+    /// `min_reconnect_time` times its fail count plus one after its last connection.
+    pub fn connect_candidates(&self, n: usize, now: Instant, policy: Reconnect) -> Vec<SocketAddr> {
+        self.0.as_ref().map_or_else(Vec::new, |l| l.connect_candidates(n, now, policy))
+    }
+
+    /// A connection to or from `addr` started. Incoming peers are added on the fly.
+    pub fn connecting(&mut self, addr: SocketAddr, conn: u64, source: PeerSource, now: Instant) {
+        self.0.get_or_insert_with(Box::default).connecting(addr, conn, source, now);
+    }
+
+    /// Up to `n` peers worth persisting in resume data (connectable, not failing).
+    pub fn resume_peers(&self, n: usize) -> Vec<SocketAddr> {
+        self.0.as_ref().map_or_else(Vec::new, |l| l.resume_peers(n))
+    }
+
+    /// Drops unconnected peers beyond `max` (libtorrent `max_paused_peerlist_size`).
+    pub fn trim(&mut self, max: usize) {
+        if let Some(l) = self.0.as_mut() {
+            l.trim(max);
+        }
+        self.drop_if_empty();
+    }
+
+    /// Our external address changed: rank every peer again (libtorrent `clear_peer_prio`,
+    /// which makes `torrent_peer::rank` recompute on next use).
+    pub fn clear_peer_prio(&mut self, external_ip: &ExternalIp) {
+        if let Some(l) = self.0.as_mut() {
+            l.clear_peer_prio(external_ip);
+        }
+    }
+
+    /// Frees the list once it holds no peers (a stopped torrent trimmed to none).
+    fn drop_if_empty(&mut self) {
+        if self.0.as_ref().is_some_and(|l| l.peers.is_empty()) {
+            self.0 = None;
+        }
+    }
+
+    /// The connection closed at `now` (libtorrent `connection_closed`), which starts the peer's
+    /// reconnect delay. `failed` counts against the peer (could not connect, protocol error); a
+    /// clean disconnect resets its fail count. With `fast_reconnect` (an encrypted attempt the
+    /// peer closed on us) a clean close instead forgets the connect time, so the peer is a
+    /// candidate again at once for the plaintext retry (libtorrent rewinds it by
+    /// `min_reconnect_time * max_failcount`).
+    pub fn disconnected(
+        &mut self,
+        addr: &SocketAddr,
+        failed: bool,
+        seed: bool,
+        fast_reconnect: bool,
+        now: Instant,
+    ) {
+        if let Some(p) = self.get_mut(addr) {
+            p.connection = None;
+            p.seed |= seed;
+            if failed {
+                p.failcount = (p.failcount + 1).min(FAILCOUNT_CAP);
+                p.last_connected = Some(now);
+            } else {
+                p.failcount = 0;
+                p.last_connected = if fast_reconnect { None } else { Some(now) };
+            }
+        }
+    }
+
+    pub fn pe_support(&self, addr: &SocketAddr) -> bool {
+        self.get(addr).is_some_and(|p| p.pe_support)
+    }
+
+    pub fn set_pe_support(&mut self, addr: &SocketAddr, pe_support: bool) {
+        if let Some(p) = self.get_mut(addr) {
+            p.pe_support = pe_support;
+        }
+    }
+
+    /// Whether to try uTP with this peer (libtorrent `torrent::connect_to_peer`): assumed
+    /// until a uTP connect failed, or known once one succeeded.
+    pub fn wants_utp(&self, addr: &SocketAddr) -> bool {
+        self.get(addr).is_none_or(|p| p.supports_utp || p.confirmed_supports_utp)
+    }
+
+    /// A uTP connect failed (libtorrent `on_connection_failed`): never assume uTP again.
+    /// Returns whether it was assumed, i.e. whether a TCP retry is due.
+    pub fn utp_failed(&mut self, addr: &SocketAddr) -> bool {
+        match self.get_mut(addr) {
+            Some(p) if p.supports_utp => {
+                p.supports_utp = false;
+                true
+            }
+            _ => false,
+        }
+    }
+
+    /// A uTP connection to this peer was established (libtorrent `on_connection_complete`).
+    pub fn utp_confirmed(&mut self, addr: &SocketAddr) {
+        if let Some(p) = self.get_mut(addr) {
+            p.confirmed_supports_utp = true;
+            p.supports_utp = false;
+        }
+    }
+
+    /// A PEX message flagged this peer as a uTP peer.
+    pub fn set_supports_utp(&mut self, addr: &SocketAddr) {
+        if let Some(p) = self.get_mut(addr) {
+            p.supports_utp = true;
+        }
+    }
+
+    /// Never connect to this peer again (bad hashes, or it turned out to be ourselves).
+    pub fn ban(&mut self, addr: &SocketAddr) {
+        if let Some(p) = self.get_mut(addr) {
+            p.banned = true;
+        }
+    }
+
+    pub fn set_seed(&mut self, addr: &SocketAddr, seed: bool) {
+        if let Some(p) = self.get_mut(addr) {
+            p.seed = seed;
+        }
+    }
+}
+
+/// The list itself, while there is one.
+#[derive(Default)]
+struct Peers {
     peers: Vec<KnownPeer>,
     index: HashMap<SocketAddr, usize>,
 }
 
-impl PeerList {
-    pub fn len(&self) -> usize {
-        self.peers.len()
-    }
-
+impl Peers {
     pub fn num_seeds(&self) -> usize {
         self.peers.iter().filter(|p| p.seed).count()
     }
@@ -139,12 +320,6 @@ impl PeerList {
             rank,
         });
         true
-    }
-
-    pub fn set_protocol_v2(&mut self, addr: &SocketAddr) {
-        if let Some(p) = self.get_mut(addr) {
-            p.protocol_v2 = true;
-        }
     }
 
     /// Drops the least useful unconnected peer (libtorrent `erase_peers`).
@@ -240,89 +415,6 @@ impl PeerList {
         let p = self.get_mut(&addr).expect("just added");
         p.connection = Some(conn);
         p.last_connected = Some(now);
-    }
-
-    /// The connection closed at `now` (libtorrent `connection_closed`), which starts the peer's
-    /// reconnect delay. `failed` counts against the peer (could not connect, protocol error); a
-    /// clean disconnect resets its fail count. With `fast_reconnect` (an encrypted attempt the
-    /// peer closed on us) a clean close instead forgets the connect time, so the peer is a
-    /// candidate again at once for the plaintext retry (libtorrent rewinds it by
-    /// `min_reconnect_time * max_failcount`).
-    pub fn disconnected(
-        &mut self,
-        addr: &SocketAddr,
-        failed: bool,
-        seed: bool,
-        fast_reconnect: bool,
-        now: Instant,
-    ) {
-        if let Some(p) = self.get_mut(addr) {
-            p.connection = None;
-            p.seed |= seed;
-            if failed {
-                p.failcount = (p.failcount + 1).min(FAILCOUNT_CAP);
-                p.last_connected = Some(now);
-            } else {
-                p.failcount = 0;
-                p.last_connected = if fast_reconnect { None } else { Some(now) };
-            }
-        }
-    }
-
-    pub fn pe_support(&self, addr: &SocketAddr) -> bool {
-        self.get(addr).is_some_and(|p| p.pe_support)
-    }
-
-    pub fn set_pe_support(&mut self, addr: &SocketAddr, pe_support: bool) {
-        if let Some(p) = self.get_mut(addr) {
-            p.pe_support = pe_support;
-        }
-    }
-
-    /// Whether to try uTP with this peer (libtorrent `torrent::connect_to_peer`): assumed
-    /// until a uTP connect failed, or known once one succeeded.
-    pub fn wants_utp(&self, addr: &SocketAddr) -> bool {
-        self.get(addr).is_none_or(|p| p.supports_utp || p.confirmed_supports_utp)
-    }
-
-    /// A uTP connect failed (libtorrent `on_connection_failed`): never assume uTP again.
-    /// Returns whether it was assumed, i.e. whether a TCP retry is due.
-    pub fn utp_failed(&mut self, addr: &SocketAddr) -> bool {
-        match self.get_mut(addr) {
-            Some(p) if p.supports_utp => {
-                p.supports_utp = false;
-                true
-            }
-            _ => false,
-        }
-    }
-
-    /// A uTP connection to this peer was established (libtorrent `on_connection_complete`).
-    pub fn utp_confirmed(&mut self, addr: &SocketAddr) {
-        if let Some(p) = self.get_mut(addr) {
-            p.confirmed_supports_utp = true;
-            p.supports_utp = false;
-        }
-    }
-
-    /// A PEX message flagged this peer as a uTP peer.
-    pub fn set_supports_utp(&mut self, addr: &SocketAddr) {
-        if let Some(p) = self.get_mut(addr) {
-            p.supports_utp = true;
-        }
-    }
-
-    /// Never connect to this peer again (bad hashes, or it turned out to be ourselves).
-    pub fn ban(&mut self, addr: &SocketAddr) {
-        if let Some(p) = self.get_mut(addr) {
-            p.banned = true;
-        }
-    }
-
-    pub fn set_seed(&mut self, addr: &SocketAddr, seed: bool) {
-        if let Some(p) = self.get_mut(addr) {
-            p.seed = seed;
-        }
     }
 
     /// Up to `n` peers worth persisting in resume data (connectable, not failing).

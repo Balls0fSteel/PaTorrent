@@ -8,6 +8,7 @@
 //!   throughput and CPU time per byte.
 //! * `load`: the real engine's cold start with N saved torrents (`--keep DIR` leaves the state there,
 //!   `--reuse` opens it again), then with `--idle` the idle CPU while polled as the GUIs poll.
+//!   It reports the working set and the live heap per torrent (a counting allocator).
 //! * `interop`: the real engine downloading from qBittorrent, Transmission and Deluge, over TCP or
 //!   uTP, or (`--super-seed`) super-seeding to them.
 //! * `seed-disk`: the real engine seeding to several downloaders from a cold disk, with the read
@@ -17,6 +18,7 @@
 
 mod corpus;
 mod engine;
+mod heap;
 mod interop;
 mod seed_disk;
 
@@ -24,6 +26,9 @@ use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
 use patorrent_core::{Alert, MockConfig, Session, Settings};
+
+#[global_allocator]
+static HEAP: heap::Counting = heap::Counting;
 
 const USAGE: &str = "\
 lt-swarm: PaTorrent benchmarks
@@ -49,6 +54,10 @@ USAGE:
 ";
 
 fn main() -> ExitCode {
+    if std::env::args().nth(1).as_deref() == Some("load") {
+        // before anything is allocated that it should see (`load` reports the heap per torrent)
+        heap::enable();
+    }
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.first().map(String::as_str) {
         Some("scale") => match parse_scale(&args[1..]) {

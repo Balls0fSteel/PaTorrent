@@ -67,7 +67,8 @@ pub struct Field {
     pub indent: bool,
     /// On the same row as the field before it (a number after its check box).
     pub beside: bool,
-    /// Greyed unless these check boxes (keys) are all on.
+    /// Greyed unless these fields (keys) are all on ([`is_on`]): check boxes, or the proxy
+    /// type, which is off at "(none)".
     pub needs: &'static [&'static str],
     /// Always greyed: shown, never edited (what a package manages, [`Features::packaged`]).
     pub fixed: bool,
@@ -131,17 +132,24 @@ pub struct Features {
 const KB: i64 = 1024;
 const MAX_KB: i64 = u32::MAX as i64 / KB;
 
-/// The proxy "Type" choices, in µTorrent 2.2.1's order (its "HTTPS" entry, CONNECT for
-/// everything, is our HTTP type). "Authentication" picks the `_pw` variant; SOCKS4 sends the
-/// user name as its user id.
+/// The proxy "Type" choices, in µTorrent 2.2.1's order (None / SOCKS4 / SOCKS5 / HTTPS / HTTP;
+/// its "HTTPS" entry, CONNECT for everything, is our HTTP type, which sends plain `http://`
+/// requests as proxy requests and tunnels the rest). Index 0, "(none)", is no proxy and greys
+/// the rest of the group. "Authentication" picks the `_pw` variant; SOCKS4 sends the user name
+/// as its user id. Every toolkit's combo is this list, read and written by [`proxy_to_ui`] /
+/// [`proxy_from_ui`].
+pub const PROXY_TYPES: [S; 4] = [S::PrefProxyNone, S::ProxySocks4, S::ProxySocks5, S::ProxyHttp];
+
+/// The proxy type field: off at "(none)", so it can be in [`Field::needs`].
+pub const PROXY_TYPE: &str = "proxy.type";
+/// "Authentication", which the user name and password need.
+pub const PROXY_AUTH: &str = "proxy.auth";
+
 fn proxy_choices(_: &Options) -> Vec<(String, String)> {
-    [tr_owned(S::PrefProxyNone), "Socks4".into(), "Socks5".into(), "HTTP".into()]
-        .into_iter()
-        .enumerate()
-        .map(|(i, t)| (i.to_string(), t))
-        .collect()
+    PROXY_TYPES.iter().enumerate().map(|(i, &s)| (i.to_string(), tr_owned(s))).collect()
 }
 
+/// The combo's index and the "Authentication" box for the settings' proxy type.
 pub fn proxy_to_ui(s: &Settings) -> (usize, bool) {
     match s.proxy_type {
         ProxyType::None => (0, false),
@@ -153,6 +161,7 @@ pub fn proxy_to_ui(s: &Settings) -> (usize, bool) {
     }
 }
 
+/// The proxy type for the combo's index and the "Authentication" box.
 pub fn proxy_from_ui(kind: usize, auth: bool) -> ProxyType {
     match (kind, auth) {
         (1, _) => ProxyType::Socks4,
@@ -261,9 +270,21 @@ impl Field {
         Ok(())
     }
 
-    /// Whether the control is enabled, with `on` telling whether a check box is ticked now.
+    /// Whether the control is enabled, with `on` telling whether a field it needs is on now
+    /// ([`is_on`] of its control's value).
     pub fn enabled(&self, on: impl Fn(&str) -> bool) -> bool {
         self.needs.iter().all(|k| on(k))
+    }
+}
+
+/// Whether a field another one [`Field::needs`] is on, from its control's value as
+/// [`Field::shown`] gives it: a ticked check box, a drop-down past its first choice (the proxy
+/// type past "(none)").
+pub fn is_on(control: &Control, value: &str) -> bool {
+    match control {
+        Control::Check { .. } => value == "true",
+        Control::Choice { .. } => !value.is_empty() && value != "0",
+        Control::Number { .. } | Control::Text { .. } => false,
     }
 }
 
@@ -494,7 +515,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                 // each part of the type sets the type with the other part as it stands, so
                 // both changed together count
                 F(field(
-                    "proxy.type",
+                    PROXY_TYPE,
                     Some(S::PrefProxyType),
                     Control::Choice {
                         choices: proxy_choices,
@@ -511,7 +532,8 @@ pub fn pages(features: Features) -> Vec<Page> {
                     TextKind::Plain,
                     |o| o.settings.proxy_hostname.clone(),
                     |o, v| o.settings.proxy_hostname = v.trim().to_owned(),
-                )),
+                )
+                .needs(&[PROXY_TYPE])),
                 F(number(
                     "proxy_port",
                     Some(S::PrefProxyPort),
@@ -519,16 +541,18 @@ pub fn pages(features: Features) -> Vec<Page> {
                     65535,
                     |o| Some(o.settings.proxy_port.into()),
                     |o, v| o.settings.proxy_port = v as u16,
-                )),
+                )
+                .needs(&[PROXY_TYPE])),
                 F(checkbox(
-                    "proxy.auth",
+                    PROXY_AUTH,
                     S::PrefAuthentication,
                     |o| proxy_to_ui(&o.settings).1,
                     |o, v| {
                         let kind = proxy_to_ui(&o.settings).0;
                         o.settings.proxy_type = proxy_from_ui(kind, v);
                     },
-                )),
+                )
+                .needs(&[PROXY_TYPE])),
                 F(text(
                     "proxy_username",
                     Some(S::PrefUsername),
@@ -536,7 +560,8 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.settings.proxy_username.clone(),
                     |o, v| o.settings.proxy_username = v,
                 )
-                .indent()),
+                .indent()
+                .needs(&[PROXY_TYPE, PROXY_AUTH])),
                 F(text(
                     "proxy_password",
                     Some(S::PrefPassword),
@@ -544,25 +569,29 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.settings.proxy_password.clone(),
                     |o, v| o.settings.proxy_password = v,
                 )
-                .indent()),
+                .indent()
+                .needs(&[PROXY_TYPE, PROXY_AUTH])),
                 F(checkbox(
                     "proxy_hostnames",
                     S::PrefProxyNames,
                     |o| o.settings.proxy_hostnames,
                     |o, v| o.settings.proxy_hostnames = v,
-                )),
+                )
+                .needs(&[PROXY_TYPE])),
                 F(checkbox(
                     "proxy_peer_connections",
                     S::PrefProxyPeers,
                     |o| o.settings.proxy_peer_connections,
                     |o, v| o.settings.proxy_peer_connections = v,
-                )),
+                )
+                .needs(&[PROXY_TYPE])),
                 F(checkbox(
                     "proxy_tracker_connections",
                     S::PrefProxyTrackers,
                     |o| o.settings.proxy_tracker_connections,
                     |o, v| o.settings.proxy_tracker_connections = v,
-                )),
+                )
+                .needs(&[PROXY_TYPE])),
             ],
         },
         Page {
@@ -1029,7 +1058,8 @@ mod tests {
             assert!(seen.insert(f.key), "{} twice", f.key);
             for k in f.needs {
                 let needed = fields(&pages).find(|g| g.key == *k).unwrap_or_else(|| panic!("{k}"));
-                assert!(matches!(needed.control, Control::Check { .. }), "{k} is not a check box");
+                let switch = matches!(needed.control, Control::Check { .. }) || *k == PROXY_TYPE;
+                assert!(switch, "{k} is not a check box");
             }
             // what a control shows, applied back, changes nothing
             let o = opts();

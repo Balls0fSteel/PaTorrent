@@ -13,6 +13,7 @@ use std::ptr::null;
 use patorrent_core::{EncPolicy, ProxyType};
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::options::{self, Options};
+use patorrent_frontend::pref_pages::{PROXY_TYPES, proxy_from_ui, proxy_to_ui};
 use patorrent_frontend::scheduler::{self, Mode};
 use patorrent_frontend::settings::{self, Entry, Kind, Value};
 use patorrent_frontend::tr;
@@ -30,7 +31,7 @@ use windows_sys::Win32::UI::Controls::{
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_GROUPBOX,
-    BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBS_DROPDOWNLIST, DLGTEMPLATE,
+    BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, DLGTEMPLATE,
     DialogBoxIndirectParamW, EN_CHANGE, ES_AUTOHSCROLL, ES_NUMBER, ES_PASSWORD, EndDialog, GetDlgItem,
     GetWindowLongPtrW, IDCANCEL, IDOK, MapDialogRect, SW_HIDE, SW_SHOW, SetWindowLongPtrW, SetWindowTextW,
     ShowWindow, WM_COMMAND, WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD, WS_DISABLED, WS_GROUP, WS_TABSTOP,
@@ -178,35 +179,6 @@ const ENC_OUT: [(S, EncPolicy); 3] = [
     (S::EncEnabled, EncPolicy::Enabled),
     (S::EncForced, EncPolicy::Forced),
 ];
-
-/// The proxy "Type" combo, in µTorrent 2.2.1's order (its "HTTPS" entry, CONNECT for
-/// everything, is our HTTP type: plain `http://` requests go as proxy requests, the rest through
-/// CONNECT). "Authentication" picks the `_pw` variant; SOCKS4 sends the user name as its user id.
-fn proxy_types() -> [&'static str; 4] {
-    [tr!(PrefProxyNone), "Socks4", "Socks5", "HTTP"]
-}
-
-fn proxy_to_ui(s: &patorrent_core::Settings) -> (usize, bool) {
-    match s.proxy_type {
-        ProxyType::None => (0, false),
-        ProxyType::Socks4 => (1, !s.proxy_username.is_empty()),
-        ProxyType::Socks5 => (2, false),
-        ProxyType::Socks5Pw => (2, true),
-        ProxyType::Http => (3, false),
-        ProxyType::HttpPw => (3, true),
-    }
-}
-
-fn proxy_from_ui(kind: usize, auth: bool) -> ProxyType {
-    match (kind, auth) {
-        (1, _) => ProxyType::Socks4,
-        (2, false) => ProxyType::Socks5,
-        (2, true) => ProxyType::Socks5Pw,
-        (3, false) => ProxyType::Http,
-        (3, true) => ProxyType::HttpPw,
-        _ => ProxyType::None,
-    }
-}
 
 /// A page control bound to one value of the options.
 enum Field {
@@ -912,8 +884,9 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
             let w = wide(name);
             send(item(dlg, ID_LANG), CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
-        for label in proxy_types() {
-            let w = wide(label);
+        // the shared list (None / Socks4 / Socks5 / HTTP), indexed as `proxy_to_ui` counts
+        for label in PROXY_TYPES {
+            let w = wide(lang::text(label));
             send(item(dlg, ID_PROXY_TYPE), CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
         }
         for (label, _) in ENC_OUT {
@@ -1034,6 +1007,7 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         update_torrent_folder_controls(dlg);
         update_sched_controls(dlg);
         update_cache_controls(dlg);
+        update_proxy_controls(dlg);
     }
 }
 
@@ -1145,6 +1119,28 @@ unsafe fn update_cache_controls(dlg: HWND) {
     }
 }
 
+/// The Proxy Server box greys as µTorrent's did (`pref_pages`' `needs` for the proxy fields):
+/// everything after Type while it is "(none)", the user name and password while
+/// "Authentication" is off.
+unsafe fn update_proxy_controls(dlg: HWND) {
+    unsafe {
+        let proxy = send(item(dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0) > 0;
+        let auth = proxy && checked(dlg, ID_PROXY_AUTH);
+        for (id, on) in [
+            (ID_PROXY_HOST, proxy),
+            (ID_PROXY_PORT, proxy),
+            (ID_PROXY_AUTH, proxy),
+            (ID_PROXY_USER, auth),
+            (ID_PROXY_PASS, auth),
+            (ID_PROXY_NAMES, proxy),
+            (ID_PROXY_PEERS, proxy),
+            (ID_PROXY_TRACKERS, proxy),
+        ] {
+            EnableWindow(item(dlg, id), on as i32);
+        }
+    }
+}
+
 /// "Location of .torrents" greys as µTorrent's did: the "Move .torrents for finished jobs"
 /// box under "Store .torrents in", each folder under its box, "Delete loaded .torrents" under
 /// "Automatically load .torrents from".
@@ -1217,7 +1213,7 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
             o.gui.schedule.table = table;
         }
         let kind =
-            (send(item(dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0).max(0) as usize).min(proxy_types().len() - 1);
+            (send(item(dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0).max(0) as usize).min(PROXY_TYPES.len() - 1);
         let auth = checked(dlg, ID_PROXY_AUTH);
         if shown(ID_PROXY_TYPE) != Some(kind.to_string().as_str())
             || shown(ID_PROXY_AUTH) != Some(auth.to_string().as_str())
@@ -1333,6 +1329,8 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
                 }
             }
             ID_SCHED if code == BN_CLICKED => update_sched_controls(dlg),
+            ID_PROXY_TYPE if code == CBN_SELCHANGE => update_proxy_controls(dlg),
+            ID_PROXY_AUTH if code == BN_CLICKED => update_proxy_controls(dlg),
             ID_AUTOSTART if code == BN_CLICKED => update_autostart_controls(dlg),
             ID_DEFAULT_APPS if code == BN_CLICKED => crate::integration::open_default_apps(dlg),
             ID_MOVE_BROWSE if code == BN_CLICKED => {
@@ -1528,8 +1526,8 @@ mod tests {
     };
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CB_GETCOUNT, CreateDialogIndirectParamW, DestroyWindow, GWL_STYLE, GetWindowLongW, SendMessageW,
-        WS_VISIBLE,
+        CB_GETCOUNT, CB_GETLBTEXT, CreateDialogIndirectParamW, DestroyWindow, GWL_STYLE, GetWindowLongW,
+        SendMessageW, WS_VISIBLE,
     };
 
     use super::*;
@@ -1683,7 +1681,7 @@ mod tests {
             }
             assert_eq!(f.st.tree_items.len(), PAGES.len());
             assert_eq!(send(item(dlg, ID_ENC_OUT), CB_GETCOUNT, 0, 0), 3);
-            assert_eq!(send(item(dlg, ID_PROXY_TYPE), CB_GETCOUNT, 0, 0), proxy_types().len() as isize);
+            assert_eq!(send(item(dlg, ID_PROXY_TYPE), CB_GETCOUNT, 0, 0), PROXY_TYPES.len() as isize);
             // only the shown page's controls are visible
             for page in 0..PAGES.len() {
                 f.page(page);
@@ -1889,6 +1887,50 @@ mod tests {
             s.proxy_username = "id".into();
             assert_eq!(proxy_to_ui(&Settings { proxy_type: ProxyType::Socks4, ..s }), (1, true));
         }
+    }
+
+    /// µTorrent's greying: the box after Type while it is "(none)", the user name and password
+    /// while "Authentication" is off; on load, on a new type and on the box.
+    #[test]
+    fn the_proxy_box_greys_as_the_type_and_authentication_say() {
+        const REST: [u16; 6] =
+            [ID_PROXY_HOST, ID_PROXY_PORT, ID_PROXY_AUTH, ID_PROXY_NAMES, ID_PROXY_PEERS, ID_PROXY_TRACKERS];
+        let enabled = |f: &Fixture, id| unsafe { IsWindowEnabled(item(f.dlg, id)) != 0 };
+        let pick = |f: &Fixture, kind: usize| unsafe {
+            send(item(f.dlg, ID_PROXY_TYPE), CB_SETCURSEL, kind, 0);
+            SendMessageW(f.dlg, WM_COMMAND, ID_PROXY_TYPE as usize | (CBN_SELCHANGE as usize) << 16, 0);
+        };
+        let f = Fixture::new(defaults());
+        assert!(enabled(&f, ID_PROXY_TYPE));
+        for id in REST.into_iter().chain([ID_PROXY_USER, ID_PROXY_PASS]) {
+            assert!(!enabled(&f, id), "{id} greyed at (none)");
+        }
+        pick(&f, 2);
+        assert!(REST.iter().all(|&id| enabled(&f, id)));
+        assert!(!enabled(&f, ID_PROXY_USER) && !enabled(&f, ID_PROXY_PASS), "no authentication");
+        f.check(ID_PROXY_AUTH, true);
+        f.click(ID_PROXY_AUTH);
+        assert!(enabled(&f, ID_PROXY_USER) && enabled(&f, ID_PROXY_PASS));
+        pick(&f, 0);
+        for id in REST.into_iter().chain([ID_PROXY_USER, ID_PROXY_PASS]) {
+            assert!(!enabled(&f, id), "{id} greyed again");
+        }
+
+        // a stored HTTP proxy with a password loads enabled
+        let mut o = defaults();
+        o.settings.proxy_type = ProxyType::HttpPw;
+        let g = Fixture::new(o);
+        assert!(REST.into_iter().chain([ID_PROXY_USER, ID_PROXY_PASS]).all(|id| enabled(&g, id)));
+        // and the combo is the shared list, in `proxy_to_ui`'s order
+        let texts: Vec<String> = (0..PROXY_TYPES.len())
+            .map(|i| unsafe {
+                let mut buf = [0u16; 64];
+                send(item(g.dlg, ID_PROXY_TYPE), CB_GETLBTEXT, i, buf.as_mut_ptr() as LPARAM);
+                crate::util::from_wide(&buf)
+            })
+            .collect();
+        assert_eq!(texts, PROXY_TYPES.map(|s| lang::text(s).to_owned()));
+        unsafe { assert_eq!(send(item(g.dlg, ID_PROXY_TYPE), CB_GETCURSEL, 0, 0), 3) };
     }
 
     #[test]

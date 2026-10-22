@@ -197,15 +197,22 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
     });
     DIALOG.with(|x| *x.borrow_mut() = Some(Rc::downgrade(&d)));
 
-    // the check boxes grey what depends on them
+    // the check boxes and the proxy type grey what depends on them
     for ctl in d.controls.values() {
-        if let Ctl::Check(c) = ctl {
-            let w = Rc::downgrade(&d);
-            c.connect_toggled(move |_| {
-                if let Some(d) = w.upgrade() {
-                    d.update_sensitivity();
-                }
-            });
+        let w = Rc::downgrade(&d);
+        let update = move || {
+            if let Some(d) = w.upgrade() {
+                d.update_sensitivity();
+            }
+        };
+        match ctl {
+            Ctl::Check(c) => {
+                c.connect_toggled(move |_| update());
+            }
+            Ctl::Choice(dd, _) => {
+                dd.connect_selected_notify(move |_| update());
+            }
+            Ctl::Entry(_) => {}
         }
     }
     // "..." beside folders and files
@@ -330,7 +337,11 @@ impl Dialog {
     }
 
     fn update_sensitivity(&self) {
-        let on = |k: &str| matches!(self.controls.get(k), Some(Ctl::Check(c)) if c.is_active());
+        let on = |k: &str| {
+            let Some(ctl) = self.controls.get(k) else { return false };
+            let value = ctl.value();
+            pref_pages::fields(&self.pages).any(|f| f.key == k && pref_pages::is_on(&f.control, &value))
+        };
         for (widget, needs) in &self.needs {
             widget.set_sensitive(needs.iter().all(|k| on(k)));
         }

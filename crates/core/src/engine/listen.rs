@@ -1008,7 +1008,9 @@ mod session_tests {
                     Alert::Log { message, .. } if message.contains("closing listen socket") => {
                         panic!("{message}")
                     }
-                    Alert::Log { message, .. } if message.contains("network change") => reopens += 1,
+                    Alert::Log { message, .. } if message.starts_with("network change: reopening") => {
+                        reopens += 1
+                    }
                     Alert::ListenSucceeded { address, .. } => panic!("reopened {address}"),
                     _ => {}
                 }
@@ -1078,7 +1080,7 @@ mod session_tests {
         // a global address with a default route
         let net = |addr: &str| (vec![ifc(addr, "eth0", 2)], vec![default_route("198.51.100.1", 2)]);
         h.set_fake_network(Some(net("198.51.100.7")));
-        wait(&h, 5, "first change", log_containing("network change"));
+        wait(&h, 5, "first change", log_containing("network change: reopening"));
 
         let dir = std::env::temp_dir().join(format!("lt-netchange-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -1131,7 +1133,7 @@ mod session_tests {
         let (mut ifs, routes) = net("198.51.100.8");
         ifs.push(ifc("172.17.0.1", "docker0", 3));
         h.set_fake_network(Some((ifs, routes)));
-        wait(&h, 5, "third change", log_containing("network change"));
+        wait(&h, 5, "third change", log_containing("network change: reopening"));
         assert!(rx.recv_timeout(Duration::from_secs(1)).is_err(), "no announce for a local-only change");
         s.shutdown();
         let _ = std::fs::remove_dir_all(dir);

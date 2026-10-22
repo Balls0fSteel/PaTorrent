@@ -14,6 +14,17 @@ use patorrent_core::{
     TorrentId, TorrentSource,
 };
 
+static T0: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+static LOG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
+
+/// Every alert the tests saw and what the fake tracker did, timed, for a timeout to print (all
+/// tests of the file write here). `a_tracker_reply_sets_the_external_address` once waited 15 s
+/// on macOS with no alert after the add (PLAN Known TODOs "macOS").
+fn note(what: String) {
+    let t = T0.get_or_init(Instant::now).elapsed().as_secs_f64();
+    LOG.lock().unwrap().push(format!("{t:8.3} {what}"));
+}
+
 fn temp_dir(name: &str) -> PathBuf {
     use std::hash::{BuildHasher, Hasher};
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
@@ -54,6 +65,7 @@ fn start(f: impl FnOnce(&mut Settings)) -> Session {
         enable_lsd: false,
         enable_upnp: false,
         enable_natpmp: false,
+        alert_mask: u32::MAX,
         ..Settings::default()
     };
     f(&mut settings);
@@ -70,6 +82,7 @@ fn wait<T>(h: &SessionHandle, secs: u64, what: &str, mut f: impl FnMut(&Alert) -
         for a in alerts.drain(..) {
             if !matches!(a, Alert::StateUpdate(_)) {
                 seen.push(a.message());
+                note(a.message());
             }
             if let Some(v) = f(&a) {
                 return v;
@@ -77,7 +90,8 @@ fn wait<T>(h: &SessionHandle, secs: u64, what: &str, mut f: impl FnMut(&Alert) -
         }
         std::thread::sleep(Duration::from_millis(20));
     }
-    panic!("timed out waiting for {what}; alerts: {seen:#?}");
+    let log = LOG.lock().unwrap().join("\n");
+    panic!("timed out waiting for {what}; alerts: {seen:#?}\nall:\n{log}");
 }
 
 fn add(h: &SessionHandle, t: &[u8], dir: &std::path::Path) -> TorrentId {
@@ -102,8 +116,10 @@ fn external_ip(a: &Alert) -> Option<IpAddr> {
 fn a_tracker_reply_sets_the_external_address() {
     let l = TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/announce", l.local_addr().unwrap());
+    note(format!("tracker listening on {url}"));
     let tracker = std::thread::spawn(move || {
-        let (mut c, _) = l.accept().unwrap();
+        let (mut c, from) = l.accept().unwrap();
+        note(format!("tracker accepted {from}"));
         let mut buf = vec![0u8; 4096];
         let mut n = 0;
         while !buf[..n].windows(4).any(|w| w == b"\r\n\r\n") {
@@ -112,6 +128,7 @@ fn a_tracker_reply_sets_the_external_address() {
                 Ok(k) => n += k,
             }
         }
+        note(format!("tracker read {n} bytes: {:?}", String::from_utf8_lossy(&buf[..n.min(80)])));
         let mut body = b"d11:external ip4:".to_vec();
         body.extend_from_slice(&[203, 0, 113, 7]);
         body.extend_from_slice(b"8:intervali1800e5:peers0:e");

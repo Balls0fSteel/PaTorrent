@@ -2,6 +2,24 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_075500_1792648500: macOS: the whole suite passes on the runner
+
+### Fixed
+- **`CFRelease(NULL)` in the Secure Transport backend**: `Cf::new` made its wrapper with `(!p.is_null()).then_some(Cf(p))`, which builds the `Cf` whether or not it is kept, so every null result (a CFError out parameter left empty, mostly) was released as NULL, and Core Foundation traps on that. It was the SIGTRAP of the first run, in the core TLS tests, the remote session over TLS and nox's HTTPS tests. Found from the crash reports (`*** CFRelease() called with NULL ***`, from `signs_for`).
+- `engine::listen::session_tests::unchanged_interfaces_change_nothing` counted every log line that mentions a network change, and macOS (no notifier) logs at start that it reads the interfaces every 30 s: it and two waits now match the reopen line.
+
+### Added
+- The macOS CI job prints the crash reports macOS wrote when it fails (`.github/scripts/macos_crash_reports.py`: the exception, the trap message, the crashing thread, which is named after its test, and its frames). A crashing test binary prints nothing of its own.
+- `tests/external_ip.rs` keeps a timed log of every alert and of its fake tracker's accept and read, printed when a wait times out (alerts of every category).
+- A `macos-debug` branch on GitHub whose `ci.yml` runs only a macOS diagnostics job (`gh workflow run CI --ref macos-debug`); not for merging.
+
+### Verified
+- On the macOS runner (debug run 39729948240 on the fixes): the Secure Transport tests (21 passed, the 2 live ones ignored), the rest of the core crate (686), the core integration tests, frontend, nox and its integration tests (HTTPS, remote, Web UI, RSS, daemon) passed, with no crash report; one failure, `a_tracker_reply_sets_the_external_address`, timed out once with no alert, then passed 30 runs of its binary in a row (39730528420).
+- `cargo test --workspace` on Windows: 1,126 passed, 0 failed. Stable clippy for Windows and macOS, fmt.
+
+### Issues
+- Main's `macos` job has not run the fixes yet (not pushed): clippy and the Intel build were not part of the debug runs.
+
 ## 2026-10-21_231317_1792617197: The first macOS CI run
 
 ### Verified

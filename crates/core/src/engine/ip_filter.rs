@@ -168,5 +168,7 @@ fn reason_name(r: BlockReason) -> &'static str {
     match r {
         BlockReason::IpFilter => "IP filter",
         BlockReason::PortFilter => "port filter",
+        BlockReason::UtpDisabled => "uTP switch",
+        BlockReason::TcpDisabled => "TCP switch",
     }
 }

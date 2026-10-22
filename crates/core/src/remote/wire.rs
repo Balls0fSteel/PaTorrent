@@ -24,7 +24,7 @@ use crate::params::{
     AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags, TorrentSource,
 };
 use crate::session::Command;
-use crate::settings::{EncLevel, EncPolicy, ProxyType, Settings};
+use crate::settings::{EncLevel, EncPolicy, MixedModeAlgorithm, ProxyType, Settings};
 use crate::status::{
     AnnounceEntry, BlockState, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource, SessionStats,
     TorrentState, TorrentStatus, TrackerStatus,
@@ -349,11 +349,12 @@ wire_unit!(QueueMove { Up, Down, Top, Bottom });
 wire_unit!(FileOperation { Unknown, FileStat, Mkdir, FileRename, FileCopy, PartfileMove });
 wire_unit!(Protocol { Tcp, Udp });
 wire_unit!(PortmapTransport { Upnp, NatPmp });
-wire_unit!(BlockReason { IpFilter, PortFilter });
+wire_unit!(BlockReason { IpFilter, PortFilter, UtpDisabled, TcpDisabled });
 wire_unit!(ProxyOperation { HostnameLookup, Connect, Handshake, SockRead });
 wire_unit!(WebSeedKind { UrlSeed, HttpSeed });
 wire_unit!(EncPolicy { Forced, Enabled, Disabled });
 wire_unit!(EncLevel { Plaintext, Rc4, Both });
+wire_unit!(MixedModeAlgorithm { PreferTcp, PeerProportional });
 wire_unit!(ProxyType { None, Socks4, Socks5, Socks5Pw, Http, HttpPw });
 
 /// Structs travel as the list of their fields.
@@ -545,6 +546,7 @@ wire_struct!(Settings {
     enable_outgoing_tcp,
     enable_incoming_utp,
     enable_outgoing_utp,
+    mixed_mode_algorithm,
     utp_target_delay,
     utp_gain_factor,
     utp_min_timeout,
@@ -783,7 +785,9 @@ pub(crate) fn encode_command(c: &Command, e: &mut Enc) -> bool {
         Command::PauseSession => message!(e, "pause_session"),
         Command::ResumeSession => message!(e, "resume_session"),
         Command::ReopenNetworkSockets => message!(e, "reopen_network_sockets"),
-        Command::SetIpFilter(_) | Command::SetPortFilter(_) | Command::Shutdown => return false,
+        Command::SetIpFilter(_) | Command::SetPortFilter(_) | Command::PeerClass(_) | Command::Shutdown => {
+            return false;
+        }
         #[cfg(test)]
         Command::SetFakeNetwork(_) => return false,
     }

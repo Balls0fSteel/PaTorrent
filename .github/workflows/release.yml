@@ -284,6 +284,9 @@ jobs:
           otool -L target/release/patorrent-gtk target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox
       - name: PaTorrent.app
         run: |
+          # what Homebrew's icon theme dir holds (index.theme was missing on the first run)
+          ls -la "$(brew --prefix)/share/icons/Adwaita" | head -20
+          ls "$(brew --prefix)"/Cellar/adwaita-icon-theme/*/share/icons/Adwaita | head
           python3 .github/scripts/macos_bundle.py app \
             --binary target/release/patorrent-gtk \
             --prefix "$(brew --prefix)" \

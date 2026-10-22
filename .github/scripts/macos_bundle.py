@@ -393,6 +393,20 @@ def icon_themes(tools, prefix, res):
         raise BundleError('{} is missing (brew install adwaita-icon-theme)'.format(adwaita))
     # links copied as files: a bundle must not point outside itself
     shutil.copytree(adwaita, os.path.join(icons, 'Adwaita'), symlinks=False, ignore_dangling_symlinks=True)
+    # Homebrew's share/icons/Adwaita may be a merge of several formulae's links (gtk4 and
+    # libadwaita add icons there) without the theme's own index.theme linked; take it from
+    # the adwaita-icon-theme keg then. Without it gtk4-update-icon-cache refuses the theme
+    # and GTK still finds the icons, only without the cache.
+    index = os.path.join(icons, 'Adwaita', 'index.theme')
+    if not os.path.isfile(index):
+        kegs = sorted(glob.glob(os.path.join(prefix, 'Cellar', 'adwaita-icon-theme', '*', 'share', 'icons',
+                                             'Adwaita', 'index.theme')))
+        if kegs:
+            shutil.copy2(kegs[-1], index)
+            log('Adwaita index.theme taken from {}'.format(kegs[-1]))
+        else:
+            log('::warning::{} has no index.theme and no adwaita-icon-theme keg has one; entries: {}'.format(
+                adwaita, ', '.join(sorted(os.listdir(adwaita))[:20])))
     hicolor = os.path.join(prefix, 'share', 'icons', 'hicolor', 'index.theme')
     os.makedirs(os.path.join(icons, 'hicolor'), exist_ok=True)
     if os.path.isfile(hicolor):
@@ -402,7 +416,10 @@ def icon_themes(tools, prefix, res):
     cache_tool = os.path.join(prefix, 'bin', 'gtk4-update-icon-cache')
     if os.path.isfile(cache_tool) or tools.dry:
         for theme in ('Adwaita', 'hicolor'):
-            tools.run([cache_tool, '--quiet', '--force', os.path.join(icons, theme)])
+            if os.path.isfile(os.path.join(icons, theme, 'index.theme')) or tools.dry:
+                tools.run([cache_tool, '--quiet', '--force', os.path.join(icons, theme)])
+            else:
+                log('::warning::no icon cache for {}: it has no index.theme'.format(theme))
 
 
 ICONSET = [  # (iconutil's name, the PNG's size)

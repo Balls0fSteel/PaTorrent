@@ -4,6 +4,7 @@
 //! |---|---|
 //! | settings (`patorrent.ini`, `rss.dat`, `remote.ini`) | `$XDG_CONFIG_HOME/patorrent/gtk`, else `~/.config/patorrent/gtk` |
 //! | a remote window's settings | `remote/<host>_<port>` in the settings folder |
+//! | inside a Flatpak, what the Background portal granted for autostart (`background.ini`) | the settings folder |
 //! | torrent library (`resume.db`, `metadata.pack`, `dht_state.dat`) | `$XDG_DATA_HOME/patorrent/gtk`, else `~/.local/share/patorrent/gtk` |
 //!
 //! Relative or empty XDG variables are ignored, as the spec says.
@@ -32,6 +33,15 @@ pub fn settings_dir() -> PathBuf {
         Some(r) => patorrent_frontend::remote::data_dir(&config_dir(), &r.label),
         None => config_dir(),
     }
+}
+
+/// Inside a Flatpak, what the Background portal last granted for "Start PaTorrent on system
+/// startup" (`crate::integration`): the portal cannot be asked afterwards, so the answer is kept
+/// here. A file of its own beside `patorrent.ini`, which the main window keeps in memory and
+/// writes back whole, so it would lose a value written behind its back.
+#[cfg(not(target_os = "macos"))]
+pub fn background_file() -> PathBuf {
+    config_dir().join("background.ini")
 }
 
 /// The torrent library's folder.

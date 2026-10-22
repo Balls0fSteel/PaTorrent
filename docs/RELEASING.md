@@ -106,8 +106,16 @@ use:
   python3 flatpak-cargo-generator.py Cargo.lock -o packaging/flatpak/cargo-sources.json
   ```
 
-  The job regenerates it before building, so a stale file only gives a warning there; Flathub
-  builds the committed one.
+  The job regenerates it before building and compares (byte for byte: the pinned generator
+  reproduces the committed file exactly), so a stale file only gives a warning there and the
+  build uses the regenerated one; Flathub builds the committed one. In Flathub's builder image
+  pip and the generator both run with `python -I`: the image sets `PYTHONPATH` to a
+  site-packages that has `aiohttp`, so a plain `pip install` in the venv found it "already
+  satisfied" and installed nothing, and the generator, isolated, then had no `aiohttp`.
+- `lint-exceptions.json`: the two linter errors a Flathub submission asks exceptions for (see
+  [Flathub submission](#flathub-submission)), in the linter's local format, so the job's
+  advisory `flatpak-builder-lint --exceptions --user-exceptions` run prints only what Flathub
+  would still refuse.
 
 **Installing the bundle.** The bundle carries the application, not the runtime, which comes
 from Flathub:
@@ -136,6 +144,9 @@ flatpak build-bundle --runtime-repo=https://dl.flathub.org/repo/flathub.flatpakr
 | `--talk-name=org.freedesktop.Notifications` | notifications from a remote-mode window, which is not the bus's application and so cannot use `GNotification` |
 | `--system-talk-name=org.freedesktop.login1` | Auto Shutdown's Standby, Hibernate and Shut Down (`crates/gtk/src/shutdown.rs`) |
 
+The portals need no permission: a sandbox can always reach `org.freedesktop.portal.*` on the
+session bus, so autostart through the Background portal (below) adds nothing to `finish-args`.
+
 The home folder is the tradeoff. The portals would let the sandbox see only what the user picks
 in a file chooser, but a torrent client keeps writing to its folders long after the dialog, for
 every torrent, across restarts, and moves completed downloads elsewhere; the document portal
@@ -145,15 +156,24 @@ cost of the sandbox not protecting the home folder from it. Folders outside home
 under `/mnt` or `/media`) need `flatpak override --user --filesystem=/mnt/data
 io.github.balls0fsteel.PaTorrent`.
 
-**Inside a Flatpak, Preferences > General** leaves the desktop integration to the Flatpak
-(PLAN.md Known TODOs, "GTK desktop integration"): the Desktop Integration boxes are greyed under
-a note, nothing is read or written, and "Check association on startup" never asks. The exported
+**Inside a Flatpak, Preferences > General** leaves the associations to the Flatpak
+(PLAN.md Known TODOs, "GTK desktop integration"): their boxes are greyed under a note, nothing
+about them is read or written, and "Check association on startup" never asks. The exported
 entry's `MimeType` already offers PaTorrent for both types in the desktop's own "Open with" and
 default-application settings; GIO would write the default handlers to the sandbox's own
-`~/.var/app/<id>/config/mimeapps.list`, which the host does not read. "Start PaTorrent on system
-startup" needs the Background portal (`org.freedesktop.portal.Background.RequestBackground` with
-`autostart`), which is not done yet; until then the user adds PaTorrent to the desktop's startup
-applications.
+`~/.var/app/<id>/config/mimeapps.list`, which the host does not read.
+
+"Start PaTorrent on system startup" and "Start minimized" work there through the Background
+portal (`crates/gtk/src/portal.rs`): `org.freedesktop.portal.Background.RequestBackground` with
+`autostart`, `commandline` `["patorrent-gtk"]` or `["patorrent-gtk", "--minimized"]` (the
+manifest's `command`, as the sandbox sees it; a test keeps them equal), `dbus-activatable`
+false and the box's text as `reason`. The portal writes the host's
+`~/.config/autostart/io.github.balls0fsteel.PaTorrent.desktop` (`flatpak run --command=...`),
+and turning the box off sends the same request with `autostart` false. The desktop may ask the
+user first (GNOME does, once); the answer comes on the request's `Response` signal and cannot be
+read back later, so it is kept in `background.ini` in the settings folder
+(`~/.var/app/io.github.balls0fsteel.PaTorrent/config/patorrent/gtk/`) and the boxes show it.
+Apply does not wait for the answer; a refusal or failure shows the desktop-integration error.
 
 **Flathub submission.** Flathub builds from the public source (D25), so a submission is a pull
 request to [flathub/flathub](https://github.com/flathub/flathub) (the `new-pr` branch) that
@@ -163,8 +183,55 @@ becomes the `flathub/io.github.balls0fsteel.PaTorrent` repository, holding:
   repository, `tag` and `commit`) and `cargo-sources.json` beside it;
 - the metainfo, which must pass Flathub's `flatpak-builder-lint` (screenshots taken of the GTK
   GUI, at URLs on the repository, are needed there and are not in the file yet);
-- a reviewer's agreement to `--filesystem=home` (the manifest has no `--own-name`, which
-  Flathub's linter would refuse; see the table).
+- exceptions for the two linter errors the manifest keeps, `finish-args-home-filesystem-access`
+  and `finish-args-login1-system-talk-name` (below; the manifest has no `--own-name`, which
+  Flathub's linter would refuse, see the table).
+
+**Linter exceptions.** Flathub records exceptions in the linter's own repository, not in the
+app's: a pull request to
+[flathub/flatpak-builder-lint](https://github.com/flathub/flatpak-builder-lint)'s
+`flatpak_builder_lint/staticfiles/exceptions.json` adds one entry for the app, keyed by the
+repository (`stable`, or `beta` for the beta remote), each error with its reason:
+
+```json
+"io.github.balls0fsteel.PaTorrent": {
+    "stable": {
+        "finish-args-home-filesystem-access": "<reason>",
+        "finish-args-login1-system-talk-name": "<reason>"
+    }
+}
+```
+
+`flathub.json` in the app's repository has no place for them (it holds build options such as
+`only-arches`). Both errors are "granted on sufficient explanation" in Flathub's linter
+documentation. **Flathub asks that exception requests are not written with an LLM, and says
+that exceptions which open the sandbox, `home` among them, are not granted when there are signs
+of LLM use in the software or in the request.** So the reasons and the pull request must be the
+owner's own words, and the owner should weigh that policy against how this project is made
+before asking for `home` at all (the alternative is below). The facts a reason can draw on:
+
+- *Home.* The engine writes each torrent's files into whatever folder the user chose for it
+  (Preferences > Directories, the Add dialog's Save In, a label's folder), keeps writing there
+  for days across restarts, moves finished downloads to another chosen folder ("Move completed
+  downloads to", Set Download Location), and watches a folder for new `.torrent` files and moves
+  them to others (`.torrent` folders). Resume data names those folders, so they must still be
+  reachable after a restart without asking again. The narrower alternative exists: the file
+  chooser portal with `directory` set grants lasting access to a picked folder through the
+  document portal, surviving restarts. It would mean every one of those folders is picked
+  through the portal (including folders typed or remembered from before), the engine's paths
+  become `/run/user/<uid>/doc/<id>/<name>`, which the GUI would have to show as the real
+  folder, and every piece read and write goes through the document portal's FUSE file system,
+  which is slow for a torrent's many small random writes. That is a redesign of the
+  directories handling, not done; `--filesystem=xdg-download` alone would work for users who
+  keep everything in Downloads.
+- *logind.* Options > Auto Shutdown can, when downloads finish, put the machine to sleep
+  (Standby), hibernate it or shut it down, as µTorrent does; the GUI calls logind's `Suspend`,
+  `Hibernate` and `PowerOff` with `interactive` true (polkit still decides) after checking
+  `CanSuspend` and the others (`crates/gtk/src/shutdown.rs`), and nothing else on that bus.
+  There is no portal for it: the Inhibit portal only holds sleep off, and the desktops' session
+  managers (`org.gnome.SessionManager`, KDE's ksmserver) are desktop-specific, show a
+  confirmation that defeats an unattended shutdown, and do not hibernate. Without the
+  permission Auto Shutdown can only quit PaTorrent.
 
 The license is the open question: Flathub accepts software that is not free, and
 `PolyForm-Noncommercial-1.0.0` is an SPDX identifier, so the metainfo names it and Flathub shows

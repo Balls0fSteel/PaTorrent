@@ -26,6 +26,8 @@ mod integration;
 mod list;
 #[cfg(unix)]
 mod paths;
+#[cfg(all(unix, not(target_os = "macos")))]
+mod portal;
 #[cfg(unix)]
 mod preferences;
 #[cfg(unix)]

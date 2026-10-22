@@ -6,7 +6,7 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use super::header::{self, Header};
-use super::socket::NEXT_SEQ_NR;
+use super::socket::{ACK_STEPS, NEXT_SEQ_NR};
 use super::{ReadOutcome, SendOutcome, SockId, State, UtpError, UtpIo, UtpManager, UtpSettings};
 
 const A: &str = "10.0.0.1:6881";
@@ -685,4 +685,289 @@ fn ready_is_reported_when_the_window_opens() {
     sim.step(); // ACK at A: room to write again
     assert!(sim.a.take_ready().contains(&(sa, 7)));
     let _ = sb;
+}
+
+// --- Security review (2026-10-22): hostile peers driven packet by packet ----------------------
+
+/// Records what a manager sends.
+#[derive(Default)]
+struct Capture {
+    sent: Vec<(SocketAddr, Vec<u8>)>,
+}
+
+impl UtpIo for Capture {
+    fn send(&mut self, to: SocketAddr, data: &[u8], _dont_fragment: bool) -> SendOutcome {
+        self.sent.push((to, data.to_vec()));
+        SendOutcome::Sent
+    }
+}
+
+impl Capture {
+    fn last(&self) -> Header {
+        Header::parse(&self.sent.last().expect("something sent").1).expect("a uTP header")
+    }
+}
+
+/// A peer we drive by hand.
+const P: &str = "10.0.0.9:7000";
+/// The connection id P's SYN carries: P receives on it, we on the next one.
+const P_ID: u16 = 0x2000;
+const P_SEQ: u16 = 500;
+/// Our side's first sequence number (pinned).
+const B_SEQ: u16 = 1000;
+
+fn raw(type_: u8, extension: u8, connection_id: u16, seq_nr: u16, ack_nr: u16, rest: &[u8]) -> Vec<u8> {
+    let mut b = vec![0u8; header::SIZE];
+    Header {
+        type_,
+        version: 1,
+        extension,
+        connection_id,
+        timestamp_microseconds: 1,
+        timestamp_difference_microseconds: 0,
+        wnd_size: 1 << 20,
+        seq_nr,
+        ack_nr,
+    }
+    .write(&mut b);
+    b.extend_from_slice(rest);
+    b
+}
+
+/// P's SYN.
+fn syn() -> Vec<u8> {
+    raw(header::ST_SYN, 0, P_ID, P_SEQ, 0, &[])
+}
+
+/// A data packet from P, acknowledging what our side sent before its first packet.
+fn data(seq_nr: u16, payload: &[u8]) -> Vec<u8> {
+    raw(header::ST_DATA, 0, P_ID.wrapping_add(1), seq_nr, B_SEQ.wrapping_sub(1), payload)
+}
+
+/// A manager that accepted a connection from P.
+fn accept_raw(settings: UtpSettings) -> (UtpManager, Capture, SockId, Instant) {
+    let now = Instant::now();
+    let mut m = UtpManager::new(settings, now);
+    let mut io = Capture::default();
+    NEXT_SEQ_NR.with(|s| s.set(Some(B_SEQ)));
+    assert!(m.incoming_packet(addr(P), &syn(), &mut io, now));
+    m.socket_drained(&mut io, now);
+    let accepted = m.take_accepted();
+    assert_eq!(accepted.len(), 1);
+    let h = io.last();
+    assert_eq!((h.type_, h.connection_id, h.ack_nr), (header::ST_STATE, P_ID, P_SEQ));
+    (m, io, accepted[0], now)
+}
+
+fn read_everything(m: &mut UtpManager, id: SockId) -> (Vec<u8>, ReadOutcome) {
+    let mut out = Vec::new();
+    loop {
+        match m.read_some(id, &mut out, usize::MAX) {
+            ReadOutcome::Data(_) => continue,
+            other => return (out, other),
+        }
+    }
+}
+
+#[test]
+fn one_byte_packets_take_one_byte_each_in_the_receive_buffer() {
+    // Each received packet used to be kept as its own heap packet until read: 1-byte packets
+    // filling the 1 MiB receive window cost about 100 bytes each, 100 MiB per connection.
+    let (mut m, mut io, sb, now) = accept_raw(UtpSettings::default());
+    for i in 1..=4000u16 {
+        assert!(m.incoming_packet(addr(P), &data(P_SEQ + i, &[i as u8]), &mut io, now));
+    }
+    // empty data packets, out of order and then in order, take no room at all (libtorrent
+    // drops them; a reordered one used to be queued for the reader)
+    assert!(m.incoming_packet(addr(P), &data(P_SEQ + 4002, &[]), &mut io, now));
+    assert!(m.incoming_packet(addr(P), &data(P_SEQ + 4001, &[]), &mut io, now));
+    m.socket_drained(&mut io, now);
+    assert_eq!(io.last().ack_nr, P_SEQ + 4002, "the empty packets are acknowledged");
+    let allocated = m.get(sb).unwrap().receive_buffer_allocated();
+    assert!((4000..=8192).contains(&allocated), "{allocated} bytes for 4000 received");
+    let (got, end) = read_everything(&mut m, sb);
+    assert!(matches!(end, ReadOutcome::WouldBlock));
+    assert_eq!(got, (1..=4000u16).map(|i| i as u8).collect::<Vec<_>>());
+}
+
+#[test]
+fn a_detached_socket_stores_nothing_and_goes_away_although_the_peer_keeps_sending() {
+    // Once nothing of ours is in flight every packet restarts the retransmission timer, so a
+    // peer that kept sending data without acknowledging our FIN kept a socket the engine had
+    // let go alive for ever, buffering up to 1 MiB that nobody would read.
+    let (mut m, mut io, sb, mut now) = accept_raw(UtpSettings::default());
+    let mut seq = P_SEQ + 1;
+    assert!(m.incoming_packet(addr(P), &data(seq, b"handshake"), &mut io, now));
+    m.socket_drained(&mut io, now);
+    m.detach(sb, &mut io, now);
+    assert_eq!(m.get(sb).unwrap().state(), State::FinSent);
+    assert_eq!(io.last().type_, header::ST_FIN);
+    let mut gone_after = None;
+    for second in 1..=70u64 {
+        now += Duration::from_secs(1);
+        seq += 1;
+        m.incoming_packet(addr(P), &data(seq, &[7; 1000]), &mut io, now);
+        m.socket_drained(&mut io, now);
+        m.tick(&mut io, now);
+        match m.get(sb) {
+            Some(s) => {
+                assert_eq!(s.receive_buffer_allocated(), 0, "second {second}");
+                if second < 60 {
+                    assert_eq!(s.state(), State::FinSent, "second {second}");
+                }
+            }
+            None => {
+                gone_after.get_or_insert(second);
+            }
+        }
+    }
+    let gone = gone_after.expect("the socket is deleted");
+    assert!((60..=63).contains(&gone), "deleted after {gone} s");
+    assert_eq!(m.num_sockets(), 0);
+}
+
+#[test]
+fn a_selective_ack_on_a_syn_does_not_walk_the_sequence_space() {
+    // A new socket has sent nothing (sequence number 0, acked 0); parsing a selective ACK
+    // stepped its acked sequence number through all 65,536 values for every spoofed SYN.
+    let mut sack = vec![header::EXT_NONE, 255];
+    sack.extend_from_slice(&[0xff; 255]);
+    let pkt = raw(header::ST_SYN, header::EXT_SACK, P_ID, P_SEQ, 0x1234, &sack);
+    let now = Instant::now();
+    let mut m = UtpManager::new(UtpSettings::default(), now);
+    let mut io = Capture::default();
+    ACK_STEPS.with(|c| c.set(0));
+    assert!(m.incoming_packet(addr(P), &pkt, &mut io, now));
+    let steps = ACK_STEPS.with(|c| c.get());
+    assert!(steps < 100, "{steps} steps for one SYN");
+    assert_eq!(m.take_accepted().len(), 1);
+}
+
+#[test]
+fn a_syn_with_a_broken_extension_chain_leaves_no_socket() {
+    // The extension parser returns early on a malformed chain; the SYN's socket was then
+    // handed to the engine unconnected.
+    let now = Instant::now();
+    let mut m = UtpManager::new(UtpSettings::default(), now);
+    let mut io = Capture::default();
+    for rest in [&[][..], &[0][..], &[0, 10, 1, 2, 3][..]] {
+        let pkt = raw(header::ST_SYN, header::EXT_SACK, P_ID, P_SEQ, 0, rest);
+        assert!(!m.incoming_packet(addr(P), &pkt, &mut io, now));
+        m.socket_drained(&mut io, now);
+    }
+    assert_eq!(m.num_sockets(), 0);
+    assert!(m.take_accepted().is_empty());
+    assert!(io.sent.is_empty(), "nothing is sent for them");
+}
+
+#[test]
+fn a_syn_sent_again_is_acknowledged_again_without_a_second_socket() {
+    // libtorrent makes a new socket, and a second incoming connection, for every copy of a SYN
+    // whose SYN-ACK was lost (libutp resends its SYN).
+    let (mut m, mut io, sb, now) = accept_raw(UtpSettings::default());
+    let sent = io.sent.len();
+    assert!(m.incoming_packet(addr(P), &syn(), &mut io, now));
+    m.socket_drained(&mut io, now);
+    assert_eq!(m.num_sockets(), 1);
+    assert!(m.take_accepted().is_empty());
+    assert_eq!(io.sent.len(), sent + 1);
+    let h = io.last();
+    assert_eq!((h.type_, h.connection_id, h.ack_nr), (header::ST_STATE, P_ID, P_SEQ));
+    // once the peer sent anything else, a SYN with that id is ignored: nothing goes out
+    assert!(m.incoming_packet(addr(P), &data(P_SEQ + 1, b"x"), &mut io, now));
+    m.socket_drained(&mut io, now);
+    let sent = io.sent.len();
+    assert!(m.incoming_packet(addr(P), &syn(), &mut io, now));
+    m.socket_drained(&mut io, now);
+    assert_eq!(io.sent.len(), sent);
+    assert_eq!(m.num_sockets(), 1);
+    assert_eq!(m.get(sb).unwrap().state(), State::Connected);
+    // the same SYN from another address is another connection
+    let mut other = io;
+    assert!(m.incoming_packet(addr("10.0.0.10:7000"), &syn(), &mut other, now));
+    assert_eq!(m.take_accepted().len(), 1);
+}
+
+#[test]
+fn an_unlimited_connections_limit_still_accepts_and_bounds_syns() {
+    // A negative `connections_limit` is unlimited to the engine; here it refused every SYN.
+    let settings = UtpSettings { connections_limit: -1, ..UtpSettings::default() };
+    let (m, _, _, _) = accept_raw(settings);
+    assert_eq!(m.num_sockets(), 1);
+    // with a limit of 2, at most 5 sockets (more than twice the limit refuses)
+    let now = Instant::now();
+    let mut m = UtpManager::new(UtpSettings { connections_limit: 2, ..UtpSettings::default() }, now);
+    let mut io = Capture::default();
+    for i in 0..20u16 {
+        let pkt = raw(header::ST_SYN, 0, i * 4, P_SEQ, 0, &[]);
+        m.incoming_packet(addr(P), &pkt, &mut io, now);
+        m.socket_drained(&mut io, now);
+    }
+    assert_eq!(m.num_sockets(), 5);
+}
+
+#[test]
+fn sockets_are_found_by_id_after_their_slots_are_reused() {
+    let mut sim = Sim::new();
+    let (sa1, sb1) = sim.connect();
+    let (sa2, sb2) = sim.connect();
+    sim.detach(addr(A), sa1);
+    sim.detach(addr(B), sb1);
+    sim.steps(50);
+    assert_eq!((sim.a.num_sockets(), sim.b.num_sockets()), (1, 1));
+    let (sa3, sb3) = sim.connect();
+    assert_eq!((sa3, sb3), (sa1, sb1), "the freed slots are reused");
+    let data = payload(100_000);
+    sim.transfer(addr(A), sa2, sb2, &data, 10_000);
+    // (the accepting side learns the other end's window from its first packet after the SYN)
+    sim.transfer(addr(A), sa3, sb3, &data, 10_000);
+    sim.transfer(addr(B), sb3, sa3, &data, 10_000);
+}
+
+#[test]
+fn no_more_than_a_quarter_of_the_sequence_space_is_in_flight() {
+    // A receiver advertising a huge window, with a congestion window grown to match, while no
+    // acknowledgement comes back: without a bound, sequence numbers in flight passed half the
+    // 16-bit space and the wrapping comparisons turned around.
+    let mut sim = Sim::new();
+    let (sa, _sb) = sim.connect();
+    sim.net.drop_from = Some(addr(B));
+    sim.a.get_mut(sa).unwrap().force_windows(1 << 30, u32::MAX);
+    let data = payload(32 << 20);
+    let taken = sim.write(addr(A), sa, &data);
+    let s = sim.a.get(sa).unwrap();
+    assert_eq!(s.outstanding(), 0x4000);
+    assert!(taken < data.len());
+    // the window is shut until acknowledgements come
+    assert_eq!(sim.write(addr(A), sa, &data[taken..]), 0);
+}
+
+#[test]
+fn an_extreme_target_delay_and_gain_do_not_overflow_the_window_arithmetic() {
+    // With a 1 µs target delay and the largest gain factor (both settings), a delay of a few
+    // hundred milliseconds overflowed the 64-bit LEDBAT gain (a panic in a debug build).
+    let mut sim =
+        Sim::with_settings(UtpSettings { target_delay: 1, gain_factor: i32::MAX, ..UtpSettings::default() });
+    let (sa, sb) = sim.connect();
+    let data = payload(6_000_000);
+    let (mut sent, mut got) = (0, Vec::new());
+    for round in 0..300 {
+        if sent < data.len() {
+            sent += sim.write(addr(A), sa, &data[sent..]);
+        }
+        // the first rounds set the base delay; then every packet waits 200 ms more (a round
+        // trip stays under the 500 ms minimum timeout, so the ACKs reach the controller)
+        if round >= 4 {
+            sim.now += Duration::from_millis(200);
+        }
+        sim.step();
+        sim.read_all(addr(B), sb, &mut got);
+        if got.len() == data.len() {
+            break;
+        }
+    }
+    assert!(got.len() > 10_000, "{} bytes", got.len());
+    assert_eq!(&got[..], &data[..got.len()]);
+    let s = sim.a.get(sa).unwrap();
+    assert!(s.cwnd() >= s.mtu() as i64);
 }

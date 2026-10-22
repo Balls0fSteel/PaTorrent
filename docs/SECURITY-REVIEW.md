@@ -57,7 +57,7 @@ limits and on logic the fuzzers cannot judge.
 | ut_metadata | `proto/ut_metadata.rs`, `engine/metadata.rs` | `max_metadata_size`, block index and size against the announced total, data only for pieces we asked that peer for, answers held back above 160 KiB queued (libtorrent's 10 blocks), at most 1024 held-back requests, then rejects | |
 | ut_pex | `proto/ut_pex.rs`, `engine/pex.rs` | 500 KiB per message, 6 messages per minute, `max_pex_peers` (50) known per peer, local addresses only from local peers | |
 | MSE / PE handshake | `proto/pe_handshake.rs`, `crypto/mse.rs` | pads ≤ 512 bytes, sync point searched in at most 512 + 20 bytes | |
-| uTP | `utp/` | a port of libtorrent's packet handling; fuzzed with datagrams into every socket state | Not read line by line in this review. |
+| uTP | `utp/` | a port of libtorrent's packet handling; fuzzed with datagrams into every socket state | Read line by line on 2026-10-22: see "uTP" below. |
 | LSD | `proto/lsd.rs`, `engine/lsd.rs` | our own cookie ignored, info-hashes we do not have ignored, none for private torrents | |
 | UPnP | `proto/upnp.rs`, `proto/xml.rs`, `engine/upnp.rs` | replies from outside the local network ignored (`ignore_nonrouters`), 50 devices, 50 mappings, plain HTTP locations and control URLs only, responses 4 MiB | The XML scanner expands no entities and builds no tree. |
 | NAT-PMP / PCP | `proto/natpmp.rs`, `engine/natpmp.rs` | replies only from the gateway's endpoint, exact sizes | |
@@ -74,9 +74,9 @@ limits and on logic the fuzzers cannot judge.
 ## Open
 
 As of 2026-10-22 (the chunked decode, the hash-request CPU, the login ban by prefix and the
-remote protocol's fuzz target are closed above):
+remote protocol's fuzz target are closed above; uTP was read line by line, see "uTP" below,
+whose own "Open" list holds what is left there):
 
-- uTP (`utp/`) has not been read line by line; its fuzz target stands in.
 - Fuzzing runs for short periods (120 s per target per push). The new targets have had one
   local 60 s run each on Windows (`fuzz.bat`): `udp_tracker` 6,609,867 runs, `resume_data`
   961,403 runs, `remote_wire` 413,530 runs (coverage 1,522 edges, from an empty corpus), no
@@ -85,3 +85,82 @@ remote protocol's fuzz target are closed above):
   (`P × log2(P)` hashes: tens of milliseconds of one core for 10,000 pieces, several seconds
   at the 2^21-piece maximum, about what serving that torrent's piece layers once costs).
   Connection limits bound how often that can happen.
+
+## uTP
+
+Date: 2026-10-22. Scope: `crates/core/src/utp/` (`mod.rs`, `socket.rs`, `packet_buffer.rs`,
+`timestamp_history.rs`, about 3,900 lines with the tests), read line by line against
+libtorrent 2.0.11's `src/utp_stream.cpp`, `src/utp_socket_manager.cpp`,
+`include/libtorrent/aux_/utp_stream.hpp`, `src/packet_buffer.cpp` and
+`src/timestamp_history.cpp`, and the engine's use of the manager (`engine/mod.rs`
+`utp_dispatch`, read only). Questions asked of each path: what a short or malformed datagram
+does, what one unsolicited datagram makes us store or send, what a peer that is connected can
+make us allocate or compute, and where 16- and 32-bit wrapping arithmetic can turn around.
+
+### Found and fixed
+
+| Severity | Where | Problem | Fix | Test |
+|---|---|---|---|---|
+| Medium | `utp/socket.rs` receive buffer | Every in-order packet was kept as its own heap packet until the engine read it, and the receive window (1 MiB) counted payload bytes only. A peer sending 1-byte packets made a full window cost about 100 bytes of heap per byte, about 100 MiB per connection, whenever the engine was not reading (download rate limit, disk backlog). libtorrent pools its packets but has the same per-packet cost class. | Received bytes go into one byte ring (`VecDeque<u8>`), shrunk to 16 KiB once drained: the window bounds the memory. | `utp::tests::one_byte_packets_take_one_byte_each_in_the_receive_buffer` |
+| Medium | `utp/socket.rs` detached sockets | Once nothing of ours is in flight every incoming packet restarts the retransmission timer. A peer that kept sending data without acknowledging our FIN kept a socket the engine had let go alive for ever, storing up to 1 MiB that nobody read. Such sockets count against the SYN-flood bound (`2 × connections_limit` sockets), so enough of them shut out incoming uTP, and they are not engine peers, so the engine's own limit does not see them. libtorrent behaves the same. | A detached socket acknowledges data and drops it (its receive buffer is freed at detach, out-of-order data is not held), and it is deleted 60 s after the upper layer let go (`DETACHED_LINGER`) whatever arrives. | `utp::tests::a_detached_socket_stores_nothing_and_goes_away_although_the_peer_keeps_sending` |
+| Low | `utp/socket.rs` `incoming` | An empty data packet received out of order was queued for the reader once the gap closed, uncounted: unbounded while the engine was not reading. libtorrent drops empty payloads (`size <= 0`). | Empty payloads are dropped (with the byte ring there is nothing to queue). | as the first row |
+| Low | `utp/socket.rs` `parse_sack` | A SYN carrying a selective ACK made the new socket (sequence number 0, acked 0) step `acked_seq_nr` through all 65,536 values: about 0.1-0.3 ms of CPU per spoofed SYN. libtorrent does the same. | The selective ACK of a packet that reaches a socket in state `None` (only the SYN that opens it) is not walked. | `utp::tests::a_selective_ack_on_a_syn_does_not_walk_the_sequence_space` (counts the steps) |
+| Low | `utp/mod.rs` `incoming_packet` | A SYN whose extension chain was malformed returned early from the socket's parser before the socket connected, and the manager still handed that socket to the engine as an incoming connection in state `None` (it lived until the engine's handshake timeout). libtorrent does the same. | A SYN that does not leave its socket `Connected` leaves no socket. | `utp::tests::a_syn_with_a_broken_extension_chain_leaves_no_socket` |
+| Low | `utp/mod.rs` `incoming_packet` | A SYN sent again (its SYN-ACK was lost; libutp clients resend SYNs) made a second socket and a second incoming connection: the first stayed half-open until the handshake timeout. libtorrent does the same. | A SYN from the address and with the connection id of a socket we accepted is answered by that socket: acknowledged again while nothing else came from the other end, ignored after. | `utp::tests::a_syn_sent_again_is_acknowledged_again_without_a_second_socket` |
+| Low | `utp/mod.rs` demultiplexing | A packet not for the last socket was matched by scanning every socket: O(sockets) work per datagram for anyone who can send datagrams (up to `2 × connections_limit` sockets from SYNs, more with outgoing ones). libtorrent uses a multimap by connection id. | An index by receive id (`by_recv_id`), kept on insert and remove. | `utp::tests::sockets_are_found_by_id_after_their_slots_are_reused` |
+| Low | `utp/socket.rs` `send_pkt` | Nothing bounded the sequence numbers in flight. A receiver advertising a huge window, with a congestion window grown by fast ACKs, could have us send past half the 16-bit space without an ACK: the wrapping comparisons (ACK validity, `packet_buffer`, loss detection) then turn around and the send buffer's slots collide. libtorrent has no bound either; real receivers advertise about 1 MiB. | At most 16,384 sequence numbers unacknowledged (`MAX_OUTSTANDING`; 9 MiB at the smallest MTU, 23 MiB at 1452 bytes). | `utp::tests::no_more_than_a_quarter_of_the_sequence_space_is_in_flight` |
+| Low | `utp/mod.rs` SYN-flood bound | With a negative `connections_limit` (unlimited to the engine) the bound `2 × limit` was negative and every incoming SYN was refused. | A negative limit counts as 10,000 connections for the bound (20,000 sockets). | `utp::tests::an_unlimited_connections_limit_still_accepts_and_bounds_syns` (also checks the bound with a limit of 2) |
+| Low (hardening) | `utp/socket.rs` `do_ledbat`, `experienced_loss` | The LEDBAT gain was computed in 64 bits; with a target delay near 1 µs and a large gain factor (both settings) a delay of a few hundred milliseconds overflowed (a panic in a debug build, a wrapped window in release). The loss cut multiplied by `utp_loss_multiplier` likewise. Not reachable with libtorrent's defaults. | Both in 128 bits, the window bounded at 2 GiB (`MAX_CWND`). | `utp::tests::an_extreme_target_delay_and_gain_do_not_overflow_the_window_arithmetic` (panics on the old code) |
+
+### Fuzzing
+
+The `utp` target (`fuzz/fuzz_targets/utp.rs`) gained a stage: the input's datagrams go
+unpatched, one by one and from two addresses, into a manager with `connections_limit` 2, which
+must never hold more than 5 sockets and never send more datagrams than it received (the
+amplification bound: its sockets have nothing of their own to send). The accepted connection of
+the connected stage is detached halfway, so the rest of the datagrams reach a closing socket
+nobody reads, and after the final detach and 100 s of ticks no socket may be left. One local
+run on Windows (`fuzz.bat utp 120`, from an empty corpus): 488,360 runs, coverage 1,353 edges
+(5,742 features, a 556-entry corpus), no findings.
+
+### Reviewed and judged fine
+
+| Area | Checks | Notes |
+|---|---|---|
+| Header | at least 20 bytes, version 1 (checked by the manager before any lookup), type below 5 | A DHT message never parses as version 1 (`d` is 0x64). |
+| Extension chain | each extension's two-byte header and its length checked against the datagram before reading; unknown extensions skipped; `close_reason` read and dropped | A selective ACK is at most 255 bytes (2,040 bits); the walk stops at our next sequence number. |
+| 16-bit arithmetic | `wrapping_*` throughout; `compare_less_wrap`; an ACK must lie between `acked_seq_nr − 3` and the last sequence number sent (the FIN's in `syn_sent` / `fin_sent`); data more than `max(16, capacity / 1100)` = 953 packets ahead of `ack_nr` is dropped; data after a received FIN is ignored | Out-of-order bytes count against the same 1 MiB window as in-order ones. |
+| `packet_buffer` | indices masked by a power-of-two capacity; `at`, `remove`, `insert` take distances modulo 0x10000 (the earlier wrap fix); growth bounded by the reorder window (receive side) and now `MAX_OUTSTANDING` (send side) | A distance past 0xffff cannot reach `reserve` from either side any more. |
+| Unexpected packets per state | a SYN on an open socket is ignored (counted invalid); in `syn_sent` only a packet acknowledging the SYN connects; a RESET needs the socket's address, its receive id and an ACK within what we sent; a RESET or other packet for an unknown connection is ignored, and no RESET is sent for one (libtorrent's `#error send reset` is not done there either) | Off-path injection needs the 16-bit connection id, the address and an in-window ACK: BEP 29's weakness, as in libtorrent. |
+| Amplification | an unknown non-SYN gets nothing; a SYN gets one 20-byte `ST_STATE`; a FIN one `ST_STATE`; a socket in an error state answers nothing (the RESET branch is unreachable, as in libtorrent) | When the engine refuses the connection (limit, IP filter) a 20-byte FIN follows the `ST_STATE`: see Open. |
+| Timestamps and delay | `u32` wrapping differences; the other side's base delay shift compensates only for drops of 0 to 10 ms; the delay used is clamped to the RTT; `target_delay` at least 1 (no division by zero); LEDBAT runs only with bytes in flight; `packet_timeout` capped at 60 s, the shift bounded by `num_timeouts < 7` | `timestamp_history` is a faithful port; its counter saturates at 0xfffe. |
+| MTU discovery | `u16` subtractions bounded below (the floor starts at 548 and every ceiling the manager remembers is a socket's MTU, at least its floor); a probe that hits `EMSGSIZE` is resent unprobed | A peer that drops probes on three connections lowers the starting ceiling for new ones (the largest of the last three failures; libtorrent's design). |
+| SYN flood | more than `2 × connections_limit` sockets: SYNs are dropped (libtorrent's rule); a socket whose address was never confirmed fails on its first timeout; accepted sockets go to the engine, whose connection limit, IP filter and handshake timeout apply | |
+| Integer ranges | window and in-flight counters are `i32` / `i64` with the window now bounded; `adv_wnd` is the peer's `u32` and only ever a minimum; RTT samples come from `Instant` differences | |
+| Shutdown | detach sends the FIN once everything queued is out; the socket goes once the FIN is acknowledged, its resends or timeouts run out, or now the linger expires; the session's shutdown drops the manager (libtorrent drops the FINs too) | |
+
+Deliberate deviations from libtorrent, beside those in docs/PORTING.md: the retransmission
+timer restarts only on ACK progress (2026-10-19); the timers run from the session tick (up to
+one tick late); and the fixes above (byte receive buffer, empty payloads dropped, detached
+sockets drop data and linger 60 s, at most 16,384 sequence numbers in flight, no selective ACK
+walk on a SYN, a SYN sent again answered by its socket, unconnected SYN sockets removed, the
+socket index, the unlimited-connections bound, wide LEDBAT arithmetic).
+
+### Open
+
+- Spoofed SYNs make half-open connections that take engine peer slots until the handshake
+  timeout (uTP has no SYN cookies; libtorrent is the same). An engine-side mitigation would
+  count unconfirmed incoming uTP connections apart, or give them a shorter handshake timeout.
+- A connection the engine refuses (connection limit, IP filter) gets our `ST_STATE` and then a
+  FIN: two 20-byte datagrams for one SYN, where libtorrent sends one FIN carrying the ACK
+  (its session decides inside the manager's callback, before the deferred ACK goes out). Doing
+  the same needs the engine's refusal before the SYN is acknowledged, e.g. an accept filter the
+  manager asks in `incoming_packet` (an engine change, not made here).
+- `send_pkt` scans every unacknowledged sequence number for packets to resend on each send:
+  O(packets in flight) per packet, now at most 16,384 (libtorrent the same). The ready list's
+  duplicate check is O(sockets) per mark.
+- The accepting side cannot send before the initiator's first packet after the SYN (the SYN
+  advertises a zero window; libtorrent the same). BitTorrent's initiator speaks first.
+- Not run against other implementations since these changes: the SYN-resend handling with
+  libutp clients (µTorrent, Transmission), and `MAX_OUTSTANDING` is never reached against real
+  receivers (about 1 MiB windows). The fuzz target has had one 120 s local run.

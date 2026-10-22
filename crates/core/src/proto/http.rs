@@ -1,8 +1,9 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/http_parser.cpp (response parsing, chunked
 // transfer encoding), src/http_connection.cpp (request format, redirects)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
-// Changes: parses a complete buffered response instead of incrementally; trackers and web
-// seeds only need whole, small bodies here. Responses are capped at `MAX_RESPONSE`.
+// Changes: the caller keeps the whole response in one buffer (trackers and UPnP only need
+// whole, small bodies) and `ResponseParser` resumes where it stopped after each read, as
+// libtorrent's `http_parser` does. Responses are capped at `MAX_RESPONSE`.
 
 //! Minimal HTTP/1.1 client protocol for trackers.
 
@@ -109,99 +110,255 @@ pub enum ParseError {
 
 /// Parses a response. With `eof`, a body without `Content-Length` or chunked framing ends at
 /// the end of the buffer (the server closed the connection).
+///
+/// One-shot: a caller that reads the response piece by piece keeps a [`ResponseParser`]
+/// instead, so each read costs only the bytes it added.
 pub fn parse_response(buf: &[u8], eof: bool) -> Result<Response, ParseError> {
     parse_response_limited(buf, eof, MAX_RESPONSE)
 }
 
-/// [`parse_response`] with a body limit other than [`MAX_RESPONSE`] (the public fetch helper).
+/// [`parse_response`] with a body limit other than [`MAX_RESPONSE`].
 pub fn parse_response_limited(buf: &[u8], eof: bool, max: usize) -> Result<Response, ParseError> {
-    let Some(head_end) = find(buf, b"\r\n\r\n") else {
-        // The header is searched for again after every read: without a cap, a server that
-        // never ends it makes each read scan the whole (up to `max`) buffer. Same cap as the
-        // incremental parser (`http_parser::MAX_HEADER`).
-        if buf.len() > MAX_HEADER {
-            return Err(ParseError::Invalid("HTTP header too large"));
-        }
-        return Err(if eof { ParseError::Invalid("truncated HTTP header") } else { ParseError::Incomplete });
-    };
-    if head_end > MAX_HEADER {
-        return Err(ParseError::Invalid("HTTP header too large"));
+    ResponseParser::new(max).parse(buf, eof)
+}
+
+/// How the body of a parsed head ends.
+#[derive(Clone, Copy, Debug)]
+enum Framing {
+    Chunked,
+    Length(usize),
+    /// At the end of the connection (or right away, for 204 and 304).
+    Eof,
+}
+
+/// Where the chunked decoder is (libtorrent's `http_parser` keeps the same state in
+/// `m_chunked_size`, `m_chunk_header_size` and `m_partial_chunk_header`).
+#[derive(Clone, Copy, Debug)]
+enum Chunk {
+    /// Looking for the end of the chunk-size line that starts at the parser's position; the
+    /// bytes before `scan` were searched already.
+    Header { scan: usize },
+    /// `left` bytes of chunk data still to copy.
+    Data { left: usize },
+    /// `left` bytes of the CRLF ending a chunk's data still to skip.
+    Crlf { left: usize },
+}
+
+/// A buffered HTTP response parser that keeps its place across reads, like libtorrent's
+/// `http_parser::incoming`. The caller appends what it reads to one buffer and passes the whole
+/// buffer each time; the parser resumes where it stopped, so a body trickled in one byte at a
+/// time costs O(n) in total. Before (security review 2026-10-22) the whole chunked body was
+/// decoded again after every read: O(n²) up to [`MAX_RESPONSE`].
+#[derive(Debug)]
+pub struct ResponseParser {
+    max: usize,
+    /// Where the next search for the end of the header starts.
+    head_scan: usize,
+    /// The parsed head, the offset of the body, and how the body ends. The response's `body`
+    /// collects the decoded chunks.
+    head: Option<(Response, usize, Framing)>,
+    /// The offset in the buffer up to which the chunked body is decoded.
+    pos: usize,
+    chunk: Chunk,
+    /// Bytes searched or copied so far (the tests bound the work per read with it).
+    work: usize,
+}
+
+impl Default for ResponseParser {
+    fn default() -> ResponseParser {
+        ResponseParser::new(MAX_RESPONSE)
     }
-    let head =
-        std::str::from_utf8(&buf[..head_end]).map_err(|_| ParseError::Invalid("invalid HTTP header"))?;
-    let mut lines = head.split("\r\n");
-    let status_line = lines.next().unwrap_or_default();
-    let mut parts = status_line.splitn(3, ' ');
-    let proto = parts.next().unwrap_or_default();
-    if !proto.starts_with("HTTP/") {
-        return Err(ParseError::Invalid("not an HTTP response"));
+}
+
+impl ResponseParser {
+    /// A parser for a body of at most `max` bytes.
+    pub fn new(max: usize) -> ResponseParser {
+        ResponseParser { max, head_scan: 0, head: None, pos: 0, chunk: Chunk::Header { scan: 0 }, work: 0 }
     }
-    let status =
-        parts.next().and_then(|s| s.parse::<u16>().ok()).ok_or(ParseError::Invalid("invalid HTTP status"))?;
-    let message = parts.next().unwrap_or_default().to_owned();
-    let mut headers = Vec::new();
-    for line in lines {
-        if let Some((k, v)) = line.split_once(':') {
-            headers.push((k.trim().to_owned(), v.trim().to_owned()));
+
+    /// Bytes of the buffer searched or copied so far, over every call.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub fn bytes_scanned(&self) -> usize {
+        self.work
+    }
+
+    /// Parses `buf`, the whole response read so far: the bytes passed to the previous calls
+    /// followed by any new ones (the buffer only grows; a new connection needs a new parser).
+    /// With `eof`, a body without `Content-Length` or chunked framing ends at the end of the
+    /// buffer. Returns the response once it is complete; an `Invalid` error is final.
+    pub fn parse(&mut self, buf: &[u8], eof: bool) -> Result<Response, ParseError> {
+        let (body_start, framing, status) = match &self.head {
+            Some((resp, body_start, framing)) => (*body_start, *framing, resp.status),
+            None => {
+                let head = self.parse_head(buf, eof)?;
+                let r = (head.1, head.2, head.0.status);
+                self.head = Some(head);
+                r
+            }
+        };
+        let rest = buf.get(body_start..).unwrap_or_default();
+        let body = match framing {
+            Framing::Chunked => {
+                self.decode_chunked(buf, eof)?;
+                return Ok(self.take_response());
+            }
+            Framing::Length(len) => {
+                if rest.len() < len {
+                    return Err(if eof {
+                        ParseError::Invalid("truncated HTTP body")
+                    } else {
+                        ParseError::Incomplete
+                    });
+                }
+                rest[..len].to_vec()
+            }
+            Framing::Eof if eof || status == 204 || status == 304 => {
+                if rest.len() > self.max {
+                    return Err(ParseError::Invalid("HTTP response too large"));
+                }
+                rest.to_vec()
+            }
+            Framing::Eof => return Err(ParseError::Incomplete),
+        };
+        self.work += body.len();
+        let mut resp = self.take_response();
+        resp.body = body;
+        Ok(resp)
+    }
+
+    fn take_response(&mut self) -> Response {
+        let Some((resp, ..)) = self.head.as_mut() else { unreachable!("the head is parsed") };
+        Response {
+            status: resp.status,
+            message: std::mem::take(&mut resp.message),
+            headers: std::mem::take(&mut resp.headers),
+            body: std::mem::take(&mut resp.body),
         }
     }
-    let mut resp = Response { status, message, headers, body: Vec::new() };
-    let rest = &buf[head_end + 4..];
-    let chunked =
-        resp.header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
-    if chunked {
-        resp.body = decode_chunked(rest, eof, max)?;
-    } else if let Some(len) = resp.header("content-length") {
-        let len: usize = len.parse().map_err(|_| ParseError::Invalid("invalid content-length"))?;
-        if len > max {
-            return Err(ParseError::Invalid("HTTP response too large"));
-        }
-        if rest.len() < len {
+
+    fn parse_head(&mut self, buf: &[u8], eof: bool) -> Result<(Response, usize, Framing), ParseError> {
+        let from = self.head_scan.min(buf.len());
+        let found = find(&buf[from..], b"\r\n\r\n");
+        // what the search looked at: up to the end of the marker, or all of the new part
+        self.work += found.map_or(buf.len() - from, |i| i + 4);
+        let Some(head_end) = found.map(|i| i + from) else {
+            // the end marker may straddle this read and the next: back up three bytes
+            self.head_scan = buf.len().saturating_sub(3);
+            // Without a cap a server that never ends the header would keep us reading up to
+            // `max`. Same cap as the incremental parser (`http_parser::MAX_HEADER`).
+            if buf.len() > MAX_HEADER {
+                return Err(ParseError::Invalid("HTTP header too large"));
+            }
             return Err(if eof {
-                ParseError::Invalid("truncated HTTP body")
+                ParseError::Invalid("truncated HTTP header")
             } else {
                 ParseError::Incomplete
             });
+        };
+        if head_end > MAX_HEADER {
+            return Err(ParseError::Invalid("HTTP header too large"));
         }
-        resp.body = rest[..len].to_vec();
-    } else if eof || status == 204 || status == 304 {
-        if rest.len() > max {
-            return Err(ParseError::Invalid("HTTP response too large"));
+        let head =
+            std::str::from_utf8(&buf[..head_end]).map_err(|_| ParseError::Invalid("invalid HTTP header"))?;
+        let mut lines = head.split("\r\n");
+        let status_line = lines.next().unwrap_or_default();
+        let mut parts = status_line.splitn(3, ' ');
+        let proto = parts.next().unwrap_or_default();
+        if !proto.starts_with("HTTP/") {
+            return Err(ParseError::Invalid("not an HTTP response"));
         }
-        resp.body = rest.to_vec();
-    } else {
-        return Err(ParseError::Incomplete);
+        let status = parts
+            .next()
+            .and_then(|s| s.parse::<u16>().ok())
+            .ok_or(ParseError::Invalid("invalid HTTP status"))?;
+        let message = parts.next().unwrap_or_default().to_owned();
+        let mut headers = Vec::new();
+        for line in lines {
+            if let Some((k, v)) = line.split_once(':') {
+                headers.push((k.trim().to_owned(), v.trim().to_owned()));
+            }
+        }
+        let resp = Response { status, message, headers, body: Vec::new() };
+        let chunked =
+            resp.header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
+        let framing = if chunked {
+            Framing::Chunked
+        } else if let Some(len) = resp.header("content-length") {
+            let len: usize = len.parse().map_err(|_| ParseError::Invalid("invalid content-length"))?;
+            if len > self.max {
+                return Err(ParseError::Invalid("HTTP response too large"));
+            }
+            Framing::Length(len)
+        } else {
+            Framing::Eof
+        };
+        let body_start = head_end + 4;
+        self.pos = body_start;
+        self.chunk = Chunk::Header { scan: body_start };
+        Ok((resp, body_start, framing))
     }
-    Ok(resp)
+
+    /// Decodes the chunks that arrived since the last call into the response's body; `Ok`
+    /// once the last (zero-size) chunk's header is in.
+    fn decode_chunked(&mut self, buf: &[u8], eof: bool) -> Result<(), ParseError> {
+        let incomplete =
+            || if eof { ParseError::Invalid("truncated chunked body") } else { ParseError::Incomplete };
+        let max = self.max;
+        let Some((resp, ..)) = self.head.as_mut() else { unreachable!("the head is parsed") };
+        let out = &mut resp.body;
+        loop {
+            match self.chunk {
+                Chunk::Header { scan } => {
+                    // the CRLF may straddle this read and the last: back up one byte
+                    let from = scan.saturating_sub(1).max(self.pos).min(buf.len());
+                    let found = find(&buf[from..], b"\r\n");
+                    self.work += found.map_or(buf.len() - from, |i| i + 2);
+                    let Some(line_end) = found.map(|i| i + from) else {
+                        self.chunk = Chunk::Header { scan: buf.len() };
+                        return Err(incomplete());
+                    };
+                    let line = std::str::from_utf8(&buf[self.pos..line_end])
+                        .map_err(|_| ParseError::Invalid("invalid chunk header"))?;
+                    let size_str = line.split(';').next().unwrap_or_default().trim();
+                    let size = usize::from_str_radix(size_str, 16)
+                        .map_err(|_| ParseError::Invalid("invalid chunk size"))?;
+                    if size == 0 {
+                        self.pos = line_end + 2;
+                        return Ok(());
+                    }
+                    if size > max || out.len() + size > max {
+                        return Err(ParseError::Invalid("HTTP response too large"));
+                    }
+                    self.pos = line_end + 2;
+                    self.chunk = Chunk::Data { left: size };
+                }
+                Chunk::Data { left } => {
+                    let n = left.min(buf.len().saturating_sub(self.pos));
+                    out.extend_from_slice(&buf[self.pos..self.pos + n]);
+                    self.work += n;
+                    self.pos += n;
+                    if n < left {
+                        self.chunk = Chunk::Data { left: left - n };
+                        return Err(incomplete());
+                    }
+                    self.chunk = Chunk::Crlf { left: 2 };
+                }
+                Chunk::Crlf { left } => {
+                    // skipped unread, as the whole-buffer decoder always did
+                    let n = left.min(buf.len().saturating_sub(self.pos));
+                    self.pos += n;
+                    if n < left {
+                        self.chunk = Chunk::Crlf { left: left - n };
+                        return Err(incomplete());
+                    }
+                    self.chunk = Chunk::Header { scan: self.pos };
+                }
+            }
+        }
+    }
 }
 
-fn decode_chunked(mut buf: &[u8], eof: bool, max: usize) -> Result<Vec<u8>, ParseError> {
-    let incomplete =
-        || if eof { ParseError::Invalid("truncated chunked body") } else { ParseError::Incomplete };
-    let mut out = Vec::new();
-    loop {
-        let line_end = find(buf, b"\r\n").ok_or_else(incomplete)?;
-        let line =
-            std::str::from_utf8(&buf[..line_end]).map_err(|_| ParseError::Invalid("invalid chunk header"))?;
-        let size_str = line.split(';').next().unwrap_or_default().trim();
-        let size =
-            usize::from_str_radix(size_str, 16).map_err(|_| ParseError::Invalid("invalid chunk size"))?;
-        buf = &buf[line_end + 2..];
-        if size == 0 {
-            return Ok(out);
-        }
-        if size > max || out.len() + size > max {
-            return Err(ParseError::Invalid("HTTP response too large"));
-        }
-        if buf.len() < size + 2 {
-            return Err(incomplete());
-        }
-        out.extend_from_slice(&buf[..size]);
-        buf = &buf[size + 2..];
-    }
-}
-
-/// Resolves a `Location` header against the request URL (absolute, or absolute-path).
+// Resolves a `Location` header against the request URL (absolute, or absolute-path).
 pub fn resolve_redirect(base: &Url, location: &str) -> Option<String> {
     if location.contains("://") {
         return Some(location.to_owned());
@@ -292,6 +449,76 @@ mod tests {
         }
         ok.extend_from_slice(b"\r\nbody");
         assert_eq!(parse_response(&ok, true).unwrap().body, b"body");
+    }
+
+    const TRICKLED: &[u8] = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nX: y\r\n\r\n\
+        4\r\nWiki\r\n5;ext=1\r\npedia\r\n0e\r\n in\r\n\r\nchunks.\r\n0\r\n\r\n";
+
+    /// Feeds `resp` to one parser `step` bytes at a time, as the tracker and UPnP loops do.
+    fn trickle(resp: &[u8], step: usize) -> (Result<Response, ParseError>, usize, ResponseParser) {
+        let mut p = ResponseParser::default();
+        let mut reads = 0;
+        for end in (step..resp.len()).step_by(step).chain([resp.len()]) {
+            reads += 1;
+            match p.parse(&resp[..end], false) {
+                Err(ParseError::Incomplete) => {}
+                r => return (r, reads, p),
+            }
+        }
+        (Err(ParseError::Incomplete), reads, p)
+    }
+
+    /// Security review 2026-10-22: a chunked body trickled in one byte at a time decodes to the
+    /// same body as the whole response at once, CRLFs split across reads included.
+    #[test]
+    fn a_body_trickled_one_byte_at_a_time_decodes() {
+        let whole = parse_response(TRICKLED, false).unwrap();
+        assert_eq!(whole.body, b"Wikipedia in\r\n\r\nchunks.");
+        for step in 1..8 {
+            let (r, _, _) = trickle(TRICKLED, step);
+            assert_eq!(r.unwrap(), whole, "step {step}");
+        }
+        // content-length and end-of-connection framing through the same parser
+        let cl = b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nabcd";
+        assert_eq!(trickle(cl, 1).0.unwrap().body, b"abcd");
+        let mut p = ResponseParser::default();
+        let eof = b"HTTP/1.0 200 OK\r\n\r\nrest";
+        assert_eq!(p.parse(&eof[..10], false), Err(ParseError::Incomplete));
+        assert_eq!(p.parse(eof, false), Err(ParseError::Incomplete));
+        assert_eq!(p.parse(eof, true).unwrap().body, b"rest");
+        // errors are still errors when trickled
+        let bad = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\nzz\r\n";
+        assert_eq!(trickle(bad, 1).0, Err(ParseError::Invalid("invalid chunk size")));
+        let mut p = ResponseParser::default();
+        assert_eq!(
+            p.parse(&TRICKLED[..TRICKLED.len() - 9], true),
+            Err(ParseError::Invalid("truncated chunked body"))
+        );
+    }
+
+    /// Security review 2026-10-22: the work per read is bounded by what the read added. A large
+    /// chunked body (1 MiB in 1 KiB chunks) trickled in 100-byte reads scans each byte a small,
+    /// constant number of times; re-decoding it after every read would scan ~5 GiB.
+    #[test]
+    fn the_work_per_read_is_bounded() {
+        let mut resp = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n".to_vec();
+        let mut body = Vec::new();
+        for i in 0..1024u32 {
+            let chunk: Vec<u8> = (0..1024u32).map(|j| (i ^ j) as u8).collect();
+            resp.extend_from_slice(b"400\r\n");
+            resp.extend_from_slice(&chunk);
+            resp.extend_from_slice(b"\r\n");
+            body.extend_from_slice(&chunk);
+        }
+        resp.extend_from_slice(b"0\r\n\r\n");
+        let (r, reads, p) = trickle(&resp, 100);
+        assert_eq!(r.unwrap().body, body);
+        assert!(reads > 10_000);
+        // every byte copied once, chunk headers and the head searched about once
+        assert!(p.bytes_scanned() <= resp.len() + 4 * reads, "{} for {}", p.bytes_scanned(), resp.len());
+        // the same for a header trickled in
+        let (_, reads, p) = trickle(&resp[..40], 1);
+        assert!(p.bytes_scanned() <= 40 + 3 * reads);
     }
 
     #[test]

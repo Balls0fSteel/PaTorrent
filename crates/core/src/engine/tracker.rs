@@ -269,6 +269,8 @@ struct HttpConn {
     request: Vec<u8>,
     written: usize,
     buf: Vec<u8>,
+    /// Keeps its place in `buf` across reads.
+    parser: http::ResponseParser,
     deadline: Instant,
     redirects: u32,
 }
@@ -553,6 +555,7 @@ impl TrackerManager {
             request,
             written: 0,
             buf: Vec::new(),
+            parser: http::ResponseParser::default(),
             deadline: now + self.completion_timeout,
             redirects,
         });
@@ -642,6 +645,7 @@ impl TrackerManager {
                     c.connected = false;
                     c.written = 0;
                     c.buf.clear();
+                    c.parser = http::ResponseParser::default();
                     return;
                 }
             }
@@ -703,7 +707,7 @@ impl TrackerManager {
                 Err(e) => return self.http_done(slot, Err(e.to_string()), resolver, registry, now),
             }
         }
-        match http::parse_response(&c.buf, eof) {
+        match c.parser.parse(&c.buf, eof) {
             Ok(resp) => self.http_done(slot, Ok(resp), resolver, registry, now),
             Err(ParseError::Incomplete) => {}
             Err(ParseError::Invalid(m)) => self.http_done(slot, Err(m.into()), resolver, registry, now),

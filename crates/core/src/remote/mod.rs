@@ -466,3 +466,87 @@ fn pump(rx: mpsc::Receiver<Command>, shared: Arc<Shared>, mut conn: Conn, mut re
     // commands go nowhere now; wait for the frontend to shut the session down
     while !matches!(rx.recv(), Ok(Command::Shutdown) | Err(_)) {}
 }
+
+// --- fuzzing ---------------------------------------------------------------------------------
+
+/// The `remote_wire` fuzz target (security review, 2026-10-22): `data` as one frame through
+/// every decoder of the protocol, then as a byte stream split into frames, each frame through
+/// them again. Whatever decodes must encode to bytes that decode and encode to the same bytes
+/// (bytes, not values: settings and statuses hold floats, which may be NaN). Returns how many
+/// decoders accepted something.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn fuzz_wire(data: &[u8]) -> usize {
+    let mut decoded = fuzz_frame(data);
+    let mut reader = FrameReader::new(data.to_vec(), 1 << 20);
+    while let Ok(Some(frame)) = reader.next_frame() {
+        decoded += fuzz_frame(&frame);
+    }
+    decoded
+}
+
+#[cfg(feature = "fuzzing")]
+fn fuzz_frame(frame: &[u8]) -> usize {
+    use crate::params::{AddTorrentParams, TorrentSource};
+    use crate::status::{AnnounceEntry, FileEntry, PartialPiece, PeerInfo};
+
+    /// Decodes with `get` and encodes with `put`; the encoding must survive a second trip.
+    fn round_trip<T>(
+        frame: &[u8],
+        what: &str,
+        get: impl Fn(&[u8]) -> Option<T>,
+        put: impl Fn(&T, &mut Enc),
+    ) -> usize {
+        let Some(v) = get(frame) else { return 0 };
+        let mut once = Enc::default();
+        put(&v, &mut once);
+        let again = get(&once.0).unwrap_or_else(|| panic!("{what}: our own encoding decodes"));
+        let mut twice = Enc::default();
+        put(&again, &mut twice);
+        assert!(once.0 == twice.0, "{what}: round trip");
+        1
+    }
+    /// A message of one value, `[name, value]` under any name.
+    fn value<T: Wire>(frame: &[u8], what: &str) -> usize {
+        round_trip(
+            frame,
+            what,
+            |b| wire::decode(b, |_, f| f.next::<T>()),
+            |v, e| {
+                e.list();
+                e.bytes(b"v");
+                v.put(e);
+                e.end();
+            },
+        )
+    }
+
+    let mut n = round_trip(frame, "command", wire::decode_command, |c, e| {
+        // what decodes is what crosses the network, which always encodes
+        assert!(wire::encode_command(c, e), "a decoded command encodes");
+    });
+    n += round_trip(frame, "alert", wire::decode_alert, wire::encode_alert);
+    n += round_trip(frame, "hello", decode_hello, |(protocol, h), e| {
+        e.list();
+        e.bytes(b"hello");
+        protocol.put(e);
+        h.server_version.put(e);
+        h.save_path.put(e);
+        h.settings.put(e);
+        e.end();
+    });
+    n += value::<Settings>(frame, "settings");
+    n += value::<AddTorrentParams>(frame, "add torrent params");
+    n += value::<TorrentSource>(frame, "torrent source");
+    n += value::<TorrentStatus>(frame, "torrent status");
+    n += value::<SessionStats>(frame, "session stats");
+    n += value::<Vec<PeerInfo>>(frame, "peers");
+    n += value::<Vec<AnnounceEntry>>(frame, "trackers");
+    n += value::<Vec<PartialPiece>>(frame, "partial pieces");
+    n += value::<Arc<[FileEntry]>>(frame, "files");
+    n += value::<crate::error::Error>(frame, "error");
+    n += value::<crate::util::bitfield::Bitfield>(frame, "bitfield");
+    n += value::<std::collections::BTreeMap<u32, String>>(frame, "renamed files");
+    n += value::<Option<std::net::SocketAddr>>(frame, "address");
+    n
+}

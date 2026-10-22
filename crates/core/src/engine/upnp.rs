@@ -66,6 +66,8 @@ struct HttpConn {
     request: Vec<u8>,
     written: usize,
     buf: Vec<u8>,
+    /// Keeps its place in `buf` across reads.
+    parser: http::ResponseParser,
     connected: bool,
     deadline: Instant,
 }
@@ -558,6 +560,7 @@ impl Upnp {
                     request: Vec::new(),
                     written: 0,
                     buf: Vec::new(),
+                    parser: http::ResponseParser::default(),
                     connected: false,
                     deadline: now + timeout,
                 });
@@ -698,7 +701,7 @@ impl Upnp {
                 }
             }
         }
-        match http::parse_response(&c.buf, eof) {
+        match c.parser.parse(&c.buf, eof) {
             Ok(resp) => self.finish_request(di, Ok(resp), registry, now),
             Err(http::ParseError::Incomplete) => {}
             Err(http::ParseError::Invalid("truncated HTTP header")) => {

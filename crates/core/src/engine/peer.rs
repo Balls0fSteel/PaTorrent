@@ -107,6 +107,9 @@ pub(crate) struct PeerConn {
     pub protocol_v2: bool,
     /// BEP 52 hash requests sent and not answered yet (libtorrent `m_hash_requests`).
     pub hash_requests: Vec<super::hash_picker::HashRequest>,
+    /// What its hash requests may still cost us in merkle hashing (`v2::HashWorkBudget`; our
+    /// own limit, libtorrent has none).
+    pub hash_budget: super::v2::HashWorkBudget,
     pub peer_id: [u8; 20],
     pub client: String,
     pub ext: Option<ExtHandshake>,
@@ -198,6 +201,7 @@ impl PeerConn {
             supports_extensions: false,
             protocol_v2: false,
             hash_requests: Vec::new(),
+            hash_budget: super::v2::HashWorkBudget::default(),
             peer_id: [0; 20],
             client: String::new(),
             ext: None,

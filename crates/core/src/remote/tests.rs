@@ -645,3 +645,17 @@ fn refusals_say_why() {
     t.join().unwrap();
     let _ = TcpStream::connect(("127.0.0.1", 1));
 }
+
+/// The `remote_wire` fuzz target's entry reaches the decoders: a stream of a hello and two
+/// alerts decodes as frames, and garbage decodes nowhere.
+#[cfg(feature = "fuzzing")]
+#[test]
+fn the_fuzz_entry_decodes_real_frames() {
+    let hello = Hello { server_version: "1".into(), save_path: "/s".into(), settings: Default::default() };
+    let mut out = Vec::new();
+    hello_frame(&hello, &mut out);
+    alert_frame(&Alert::TorrentPaused { id: TorrentId::from_raw(1) }, &mut out);
+    session_stats_frame(SessionStats::default(), &mut out);
+    assert!(fuzz_wire(&out) >= 3);
+    assert_eq!(fuzz_wire(b"\x00\x00\x00\x03lle"), 0);
+}

@@ -2,6 +2,28 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_151726_1792675046: GTK in a Flatpak (tray, integration), tracker icons, the icon selector in the workflows
+
+Follow-up to the Flatpak and icon pieces of 2026-10-22_150939_1792674579 (4d42e5d, merged b6dd8a6).
+
+### Changed
+- **The GTK tray inside a Flatpak**: `tray::item_name` (tested) decides what is registered with the StatusNotifierWatcher: inside a Flatpak (`FLATPAK_ID`) the well-known `org.kde.StatusNotifierItem-<pid>-1` is never requested and the connection's unique name is registered (what Qt, KF6 and Electron do); outside, the well-known name is requested with `DO_NOT_QUEUE` and, if refused or lost, the unique name is used for good. The object path is unchanged. The manifest's TEMPORARY `--own-name=org.kde.*` is gone (Flathub's `finish-args-wildcard-kde-own-name`), and docs/RELEASING.md's permissions table and Flathub note follow.
+- **Desktop integration inside a Flatpak**: `pref_pages::Features::packaged` and `Field::fixed`: Preferences > General shows the Desktop Integration boxes greyed under a note (`PrefDesktopPackaged`, in `en.rs`, `en.lng` and all 34 tables, machine-translated); `integration::packaged()` checks `FLATPAK_ID`, `read` reports nothing set and `write` refuses there (the old scattered `in_flatpak()` checks and `command()`'s `flatpak run` branch are gone); "Check association on startup" never asks in a Flatpak. The hicolor icon install was already skipped there.
+- **GTK Trackers table** shows `tracker_icon` beside each tracker, as Win32 does (`Table::with_icon`, an `icons::state_image()` in the cell).
+- **The workflows read `assets/patina-icons/app-icon.txt`**: the AppImage and macOS jobs derive `APP_ICON_DIR` from it in a step (failing with `::error::` if `256.png` is missing); the Flatpak job fails when the manifest's `ICON_DIR` differs from it (the manifest cannot read a file). `INTEGRATION.md`'s swap steps and RELEASING.md are updated.
+
+### Verified
+- On Windows: GTK clippy with the stand-in pkg-config for `x86_64-unknown-linux-gnu`, `cargo +stable clippy --workspace --all-targets -- -D warnings`, fmt, PyYAML loading `release.yml` and the manifest, the `ICON_DIR` check's shell logic against the real files. After the merge: fmt, workspace clippy and the GTK type-check clean; frontend 161, win32 50 and nox 57 tests green; `release.yml` and the manifest load.
+
+### Issues
+- Nothing GTK has run: the unique-name registration on KDE / Xfce / GNOME AppIndicator inside a real Flatpak, the greyed group and its note (RTL too), the tracker icons, `flatpak-builder-lint` no longer flagging the manifest.
+- The Background portal for autostart inside a Flatpak is still not done.
+- A new string key cannot be left for the fallback: `every_table_is_shipped_and_complete` requires every key in every `.lng` (D20), so the note's 34 translations are machine translations like the rest.
+
+### Decisions
+- In a Flatpak the integration reads as unset rather than guessed from inside the sandbox; the exported desktop entry carries the associations.
+- The well-known tray name is still tried outside a Flatpak (hosts that look at the name's pattern keep working); the unique name is the fallback, never both.
+
 ## 2026-10-22_150939_1792674579: Five Road-to-1.0 pieces, built in parallel and merged
 
 Five worktree branches, one per item, merged into main (92a9679 security review, cf2e162 icons, 06ed15e interop switches, 023f932 macOS app, 0da4fca Flatpak).

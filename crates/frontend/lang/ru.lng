@@ -393,6 +393,7 @@ PrefAssocMagnet=Связать со ссылками magnet:
 PrefCheckAssoc=Проверять связи при запуске
 PrefAutostart=Запускать PaTorrent при старте системы
 PrefStartMinimized=Запускать свёрнутым
+PrefDesktopPackaged=PaTorrent работает как Flatpak: рабочий стол предлагает его для файлов .torrent и ссылок magnet:. Программу по умолчанию и автозапуск выберите в настройках рабочего стола.
 PrefDefaultApps=Приложения по умолчанию...
 PrefDisplay=Параметры отображения
 PrefConfirmDelete=Подтверждать удаление торрентов

@@ -393,6 +393,7 @@ PrefAssocMagnet=Συσχέτιση με συνδέσμους magnet:
 PrefCheckAssoc=Έλεγχος συσχέτισης κατά την εκκίνηση
 PrefAutostart=Εκκίνηση του PaTorrent με το σύστημα
 PrefStartMinimized=Εκκίνηση ελαχιστοποιημένο
+PrefDesktopPackaged=Το PaTorrent εκτελείται ως Flatpak: η επιφάνεια εργασίας το προσφέρει για αρχεία .torrent και συνδέσμους magnet:. Επιλέξτε το προεπιλεγμένο πρόγραμμα και τις εφαρμογές εκκίνησης στις ρυθμίσεις της επιφάνειας εργασίας.
 PrefDefaultApps=Προεπιλεγμένες εφαρμογές...
 PrefDisplay=Επιλογές εμφάνισης
 PrefConfirmDelete=Επιβεβαίωση κατά την αφαίρεση torrent

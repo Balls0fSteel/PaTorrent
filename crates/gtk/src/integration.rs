@@ -11,14 +11,22 @@
 //! - the icon both entries name (`Icon=<app id>`), as
 //!   `$XDG_DATA_HOME/icons/hicolor/<n>x<n>/apps/<app id>.png`, whenever an entry is written
 //!   (`icons::install_theme_icons`), and kept, like the application's entry. A Flatpak exports
-//!   its own entry and icon and writes neither; an AppImage's entries point at the AppImage
-//!   and the icon is written as here.
+//!   its own entry and icon and writes nothing (see below); an AppImage's entries point at the
+//!   AppImage and the icon is written as here.
 //!
 //! The state is read from those places each time, never stored in `patorrent.ini`: a box is
 //! checked when the entry starts this very program ([`command`]), so a moved AppImage shows
 //! unchecked until it registers again. Turning an association off resets the user's choices
 //! for that type (GIO's `reset_type_associations`), which gives it back to the system's
 //! default; it does not restore a program chosen before PaTorrent.
+//!
+//! A Flatpak manages all of it ([`packaged`]): its exported desktop entry declares both types,
+//! so the desktop offers PaTorrent for them, and the user picks the default program and the
+//! startup applications in the desktop's own settings. Inside the sandbox GIO's
+//! `set_as_default_for_type` would write the sandbox's own `mimeapps.list`, which the host never
+//! reads, and an autostart entry needs the Background portal (not used yet). So there nothing
+//! reads as set, nothing is written, Preferences shows the group's boxes greyed under a note,
+//! and "Check association on startup" never asks.
 //!
 //! macOS has none of this: an application registers for file types and URL schemes through
 //! its `.app` bundle's `Info.plist` and starts at login through Login Items (PLAN.md D23),
@@ -27,6 +35,11 @@
 
 /// Whether this desktop has the integration (not macOS, see above).
 pub const AVAILABLE: bool = cfg!(not(target_os = "macos"));
+
+/// Whether the integration is the package's, not ours: running in a Flatpak (see above).
+pub fn packaged() -> bool {
+    std::env::var_os("FLATPAK_ID").is_some()
+}
 
 pub use imp::{read, write};
 
@@ -46,17 +59,9 @@ mod imp {
         format!("{APP_ID}.desktop")
     }
 
-    /// In a Flatpak the application's entry is the one the Flatpak exports.
-    fn in_flatpak() -> bool {
-        std::env::var_os("FLATPAK_ID").is_some()
-    }
-
-    /// The command that starts this program: `flatpak run <id>` in a Flatpak, the AppImage file
-    /// when run from one, else this executable.
+    /// The command that starts this program: the AppImage file when run from one, else this
+    /// executable (never asked in a Flatpak).
     pub fn command() -> Vec<String> {
-        if let Some(id) = std::env::var_os("FLATPAK_ID") {
-            return vec!["flatpak".into(), "run".into(), id.to_string_lossy().into_owned()];
-        }
         if let Some(image) = std::env::var_os("APPIMAGE") {
             return vec![image.to_string_lossy().into_owned()];
         }
@@ -83,10 +88,14 @@ mod imp {
             .is_some_and(|i| i == id.as_str())
     }
 
-    /// What is set for this program now.
+    /// What is set for this program now: nothing in a Flatpak, where the desktop's settings
+    /// hold it and the sandbox cannot see them.
     pub fn read() -> Integration {
+        if super::packaged() {
+            return Integration::default();
+        }
         let command = command();
-        let app = in_flatpak() || ours(&app_entry_path(), &command).is_some();
+        let app = ours(&app_entry_path(), &command).is_some();
         let autostart = ours(&autostart_path(), &command);
         Integration {
             torrent: app && default_is_ours(MIME_TORRENT),
@@ -115,16 +124,18 @@ mod imp {
     /// Changes what differs between `old` (as [`read`] gave it) and `want`; what is set afterwards.
     pub fn write(old: &Integration, want: &Integration) -> Result<Integration, String> {
         let (old, want) = (old.normalized(), want.normalized());
+        if super::packaged() {
+            // the boxes are greyed there, so nothing asks; nothing would reach the host
+            return Err("managed by the Flatpak: use the desktop's settings".into());
+        }
         let command = command();
         if command.is_empty() {
             return Err("the path of this program is not known".into());
         }
         if (want.torrent && !old.torrent) || (want.magnet && !old.magnet) {
-            if !in_flatpak() {
-                // written again, so it starts this program (a moved AppImage, a new build)
-                write_file(&app_entry_path(), &integration::entry(&command, APP_ID, EntryKind::App))?;
-                install_icon()?;
-            }
+            // written again, so it starts this program (a moved AppImage, a new build)
+            write_file(&app_entry_path(), &integration::entry(&command, APP_ID, EntryKind::App))?;
+            install_icon()?;
             let id = desktop_id();
             let info = gio::DesktopAppInfo::new(&id)
                 .or_else(|| gio::DesktopAppInfo::from_filename(app_entry_path()))
@@ -149,9 +160,7 @@ mod imp {
             if want.autostart {
                 let kind = EntryKind::Autostart { minimized: want.minimized };
                 write_file(&path, &integration::entry(&command, APP_ID, kind))?;
-                if !in_flatpak() {
-                    install_icon()?;
-                }
+                install_icon()?;
             } else {
                 match std::fs::remove_file(&path) {
                     Ok(()) => {}

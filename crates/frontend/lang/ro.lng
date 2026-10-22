@@ -393,6 +393,7 @@ PrefAssocMagnet=Asociază cu legăturile magnet:
 PrefCheckAssoc=Verifică asocierea la pornire
 PrefAutostart=Pornește PaTorrent odată cu sistemul
 PrefStartMinimized=Pornește minimizat
+PrefDesktopPackaged=PaTorrent rulează ca Flatpak: mediul desktop îl oferă pentru fișierele .torrent și legăturile magnet:. Alegeți programul implicit și aplicațiile de pornire în setările mediului desktop.
 PrefDefaultApps=Aplicații implicite...
 PrefDisplay=Opțiuni de afișare
 PrefConfirmDelete=Confirmă la eliminarea torentelor

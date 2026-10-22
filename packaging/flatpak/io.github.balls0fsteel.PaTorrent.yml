@@ -29,13 +29,9 @@ finish-args:
   # tradeoff against the file chooser portal.
   - --filesystem=home
   - --filesystem=xdg-download
-  # The tray: a StatusNotifierItem registered with the watcher (crates/gtk/src/tray.rs).
+  # The tray: a StatusNotifierItem registered with the watcher (crates/gtk/src/tray.rs). In a
+  # Flatpak it registers its unique bus name and owns no `org.kde.*` name, so no --own-name.
   - --talk-name=org.kde.StatusNotifierWatcher
-  # TEMPORARY: tray.rs owns `org.kde.StatusNotifierItem-<pid>-1`, which the sandbox refuses
-  # without this (flatpak's own-name wildcard is whole name elements, so nothing narrower
-  # matches). Remove it once tray.rs falls back to registering its unique bus name; Flathub's
-  # linter rejects it (finish-args-wildcard-kde-own-name).
-  - --own-name=org.kde.*
   # Desktop notifications straight from the notification server (a remote window is
   # NON_UNIQUE, so no GNotification / portal there; crates/gtk/src/app.rs).
   - --talk-name=org.freedesktop.Notifications
@@ -55,7 +51,8 @@ modules:
         CARGO_HOME: /run/build/patorrent/cargo
         CARGO_NET_OFFLINE: 'true'
         # PROVISIONAL: the recommended candidate until the owner picks the icon (Road to 1.0
-        # item 10), the same one as the AppImage's APP_ICON
+        # item 10). Must name the family in assets/patina-icons/app-icon.txt (a manifest cannot
+        # read a file): the release workflow's flatpak job fails when they differ.
         ICON_DIR: assets/patina-icons/exports/app/01-verdigris
     build-commands:
       - cargo --offline build --release --locked -p patorrent-gtk

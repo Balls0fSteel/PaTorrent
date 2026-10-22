@@ -393,6 +393,7 @@ PrefAssocMagnet=Priradiť odkazy magnet:
 PrefCheckAssoc=Kontrolovať priradenie pri spustení
 PrefAutostart=Spúšťať PaTorrent pri štarte systému
 PrefStartMinimized=Spúšťať minimalizované
+PrefDesktopPackaged=PaTorrent beží ako Flatpak: prostredie ho ponúka pre súbory .torrent a odkazy magnet:. Predvolený program a aplikácie spúšťané po štarte zvoľte v nastaveniach prostredia.
 PrefDefaultApps=Predvolené aplikácie...
 PrefDisplay=Možnosti zobrazenia
 PrefConfirmDelete=Potvrdzovať odstraňovanie torrentov

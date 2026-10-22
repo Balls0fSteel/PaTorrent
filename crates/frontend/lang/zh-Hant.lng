@@ -393,6 +393,7 @@ PrefAssocMagnet=與 magnet: 連結建立關聯
 PrefCheckAssoc=啟動時檢查關聯
 PrefAutostart=系統啟動時執行 PaTorrent
 PrefStartMinimized=啟動時最小化
+PrefDesktopPackaged=PaTorrent 以 Flatpak 方式執行：桌面會為 .torrent 檔案和 magnet: 連結提供它。請在桌面設定中選擇預設程式和開機啟動的應用程式。
 PrefDefaultApps=預設應用程式...
 PrefDisplay=顯示選項
 PrefConfirmDelete=移除種子時確認

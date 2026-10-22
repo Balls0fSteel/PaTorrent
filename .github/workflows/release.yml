@@ -86,13 +86,21 @@ jobs:
       LINUXDEPLOY: https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1
       LINUXDEPLOY_APPIMAGE: https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/1-alpha-20250213-1
       LINUXDEPLOY_GTK: https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh
-      # PROVISIONAL: the recommended candidate until the owner picks the icon (Road to 1.0
-      # item 10); the AppImages are the only place it is used so far
-      APP_ICON: assets/patina-icons/exports/app/01-verdigris/256.png
       # the runners have no FUSE: AppImages (linuxdeploy's own) unpack themselves to run
       APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
       - uses: actions/checkout@v7
+      # the provisional app icon's family: assets/patina-icons/app-icon.txt names it for every
+      # build (Road to 1.0 item 10; assets/patina-icons/INTEGRATION.md)
+      - name: The app icon (app-icon.txt)
+        run: |
+          family=$(tr -d '[:space:]' < assets/patina-icons/app-icon.txt)
+          dir="assets/patina-icons/exports/app/$family"
+          if [ -z "$family" ] || [ ! -f "$dir/256.png" ]; then
+            echo "::error file=assets/patina-icons/app-icon.txt::names '$family', which has no $dir/256.png"
+            exit 1
+          fi
+          echo "APP_ICON_DIR=$dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev libgtk-4-dev libgdk-pixbuf2.0-bin librsvg2-common
       - run: cargo build --release --locked -p patorrent-nox -p patorrent-gtk
@@ -118,8 +126,8 @@ jobs:
           app_id=io.github.balls0fsteel.PaTorrent
           icons="$RUNNER_TEMP/icons"
           mkdir -p "$icons"
-          cp "$APP_ICON" "$icons/$app_id.png"
-          cp "$APP_ICON" "$icons/$app_id.Nox.png"
+          cp "$APP_ICON_DIR/256.png" "$icons/$app_id.png"
+          cp "$APP_ICON_DIR/256.png" "$icons/$app_id.Nox.png"
 
           # the GTK GUI, GTK 4 bundled (the plugin sets GTK's module, schema and loader paths)
           DEPLOY_GTK_VERSION=4 LDAI_OUTPUT="PaTorrent-$version-$arch.AppImage" linuxdeploy \
@@ -185,6 +193,17 @@ jobs:
           fi
       - name: Validate the metainfo
         run: appstreamcli validate --no-net --explain "packaging/flatpak/$APP_ID.metainfo.xml"
+      # a manifest cannot read a file, so it names the icon folder itself (ICON_DIR); it must be
+      # the family assets/patina-icons/app-icon.txt names, as in the other builds
+      - name: The manifest's icon is app-icon.txt's
+        run: |
+          family=$(tr -d '[:space:]' < assets/patina-icons/app-icon.txt)
+          want="assets/patina-icons/exports/app/$family"
+          have=$(sed -n 's/^ *ICON_DIR: *//p' "packaging/flatpak/$APP_ID.yml" | tr -d "\"'[:space:]")
+          if [ "$have" != "$want" ]; then
+            echo "::error file=packaging/flatpak/$APP_ID.yml::ICON_DIR is '$have', but assets/patina-icons/app-icon.txt names $family: set ICON_DIR to $want"
+            exit 1
+          fi
       - name: The crates, from Cargo.lock
         # a tool missing from the image leaves the committed file in place
         continue-on-error: true
@@ -232,9 +251,6 @@ jobs:
     needs: version
     runs-on: macos-15
     env:
-      # PROVISIONAL: the recommended candidate until the owner picks the icon (Road to 1.0
-      # item 10), as the AppImages' APP_ICON; the folder has 16.png ... 512.png
-      APP_ICON_DIR: assets/patina-icons/exports/app/01-verdigris
       # room in the GUI's load commands for the bundle's @executable_path/../Frameworks names,
       # which can be longer than Homebrew's (only the Apple targets; Windows keeps
       # .cargo/config.toml's static CRT)
@@ -243,6 +259,18 @@ jobs:
       COPYFILE_DISABLE: 1
     steps:
       - uses: actions/checkout@v7
+      # the provisional app icon's family: assets/patina-icons/app-icon.txt names it for every
+      # build (Road to 1.0 item 10; assets/patina-icons/INTEGRATION.md); the folder has 16.png
+      # ... 512.png
+      - name: The app icon (app-icon.txt)
+        run: |
+          family=$(tr -d '[:space:]' < assets/patina-icons/app-icon.txt)
+          dir="assets/patina-icons/exports/app/$family"
+          if [ -z "$family" ] || [ ! -f "$dir/256.png" ]; then
+            echo "::error file=assets/patina-icons/app-icon.txt::names '$family', which has no $dir/256.png"
+            exit 1
+          fi
+          echo "APP_ICON_DIR=$dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: x86_64-apple-darwin

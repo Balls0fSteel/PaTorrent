@@ -393,6 +393,7 @@ PrefAssocMagnet=Asociar con enlaces magnet:
 PrefCheckAssoc=Comprobar asociación al iniciar
 PrefAutostart=Iniciar PaTorrent al arrancar el sistema
 PrefStartMinimized=Iniciar minimizado
+PrefDesktopPackaged=PaTorrent se ejecuta como Flatpak: el escritorio lo ofrece para archivos .torrent y enlaces magnet:. Elija el programa predeterminado y las aplicaciones de inicio en la configuración del escritorio.
 PrefDefaultApps=Aplicaciones predeterminadas...
 PrefDisplay=Opciones de visualización
 PrefConfirmDelete=Confirmar al borrar torrents

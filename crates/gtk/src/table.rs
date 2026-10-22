@@ -5,6 +5,9 @@
 //!
 //! A count that grows adds rows at the end and one that shrinks drops them there, so the
 //! Logger keeps its scroll position while lines arrive.
+//!
+//! A column can have a state icon before its text ([`Table::with_icon`]), drawn as the torrent
+//! list's Name column draws its own: the Trackers tab's status icon.
 
 use std::cell::RefCell;
 use std::rc::Rc;
@@ -13,6 +16,7 @@ use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk::{gio, glib};
 use patorrent_frontend::detail::ColumnDef;
+use patorrent_frontend::icons::StateIcon;
 use patorrent_frontend::lang;
 
 use crate::canvas::Canvas;
@@ -97,6 +101,9 @@ pub type CellPaint = Rc<dyn Fn(&gtk::Widget, &gtk::Snapshot, f32, f32, usize)>;
 /// Called for a right click on a row (after it was selected): the widget and where.
 pub type ContextMenu = Rc<dyn Fn(&gtk::Widget, f64, f64)>;
 
+/// The state icon before a row's text in the icon column, if any.
+pub type CellIcon = Rc<dyn Fn(usize) -> Option<StateIcon>>;
+
 struct Bound {
     widget: glib::WeakRef<gtk::Widget>,
     column: usize,
@@ -109,6 +116,7 @@ pub struct Table {
     pub selection: gtk::MultiSelection,
     bound: Rc<RefCell<Vec<Bound>>>,
     text: CellText,
+    icon: Option<(usize, CellIcon)>,
 }
 
 impl Table {
@@ -118,6 +126,18 @@ impl Table {
         text: CellText,
         drawn: Option<(usize, CellPaint)>,
         menu: Option<ContextMenu>,
+    ) -> Table {
+        Table::with_icon(columns, text, drawn, menu, None)
+    }
+
+    /// As [`new`](Table::new), with column `icon.0` showing `icon.1`'s state icon before its
+    /// text.
+    pub fn with_icon(
+        columns: &[ColumnDef],
+        text: CellText,
+        drawn: Option<(usize, CellPaint)>,
+        menu: Option<ContextMenu>,
+        icon: Option<(usize, CellIcon)>,
     ) -> Table {
         let model = CountModel::default();
         let selection = gtk::MultiSelection::new(Some(model.clone()));
@@ -129,6 +149,7 @@ impl Table {
         let last = columns.len().saturating_sub(1);
         for (column, &(title, width, right)) in columns.iter().enumerate() {
             let paint = drawn.as_ref().filter(|(c, _)| *c == column).map(|(_, p)| p.clone());
+            let iconed = icon.as_ref().is_some_and(|(c, _)| *c == column);
             let factory = gtk::SignalListItemFactory::new();
             {
                 let (selection, menu, bound) = (selection.downgrade(), menu.clone(), bound.clone());
@@ -155,7 +176,15 @@ impl Table {
                             label.set_xalign(if right { 1.0 } else { 0.0 });
                             label.set_ellipsize(gtk::pango::EllipsizeMode::End);
                             label.set_single_line_mode(true);
-                            label.upcast()
+                            if iconed {
+                                let named = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+                                named.append(&crate::icons::state_image());
+                                label.set_hexpand(true);
+                                named.append(&label);
+                                named.upcast()
+                            } else {
+                                label.upcast()
+                            }
                         }
                     };
                     if let Some(menu) = &menu {
@@ -182,7 +211,7 @@ impl Table {
                 });
             }
             {
-                let (bound, text) = (bound.clone(), text.clone());
+                let (bound, text, icon) = (bound.clone(), text.clone(), icon.clone());
                 factory.connect_bind(move |_, obj| {
                     let Some(item) = obj.downcast_ref::<gtk::ListItem>() else { return };
                     let (Some(widget), Some(row)) =
@@ -192,7 +221,7 @@ impl Table {
                     };
                     let row = *row.borrow::<usize>();
                     bound.borrow_mut().push(Bound { widget: widget.downgrade(), column, row });
-                    draw(&widget, &text, row, column);
+                    draw(&widget, &text, icon.as_ref(), row, column);
                 });
             }
             {
@@ -211,7 +240,7 @@ impl Table {
             col.set_expand(column == last);
             view.append_column(&col);
         }
-        Table { view, model, selection, bound, text }
+        Table { view, model, selection, bound, text, icon }
     }
 
     /// Sets the row count and redraws the cells on screen.
@@ -224,7 +253,7 @@ impl Table {
             .filter_map(|b| b.widget.upgrade().map(|w| (w, b.row, b.column)))
             .collect();
         for (widget, row, column) in bound {
-            draw(&widget, &self.text, row, column);
+            draw(&widget, &self.text, self.icon.as_ref(), row, column);
         }
     }
 
@@ -247,11 +276,24 @@ impl Table {
     }
 }
 
-fn draw(widget: &gtk::Widget, text: &CellText, row: usize, column: usize) {
+fn set_text(label: &gtk::Label, t: &str) {
+    if label.text() != t {
+        label.set_text(t);
+    }
+}
+
+fn draw(widget: &gtk::Widget, text: &CellText, icon: Option<&(usize, CellIcon)>, row: usize, column: usize) {
     if let Some(l) = widget.downcast_ref::<gtk::Label>() {
-        let t = text(row, column);
-        if l.text() != t {
-            l.set_text(&t);
+        set_text(l, &text(row, column));
+    } else if let Some(named) = widget.downcast_ref::<gtk::Box>() {
+        if let (Some(image), Some((_, icon))) = (named.first_child().and_downcast::<gtk::Image>(), icon) {
+            match icon(row) {
+                Some(state) => crate::icons::set_state(&image, state),
+                None => image.clear(),
+            }
+        }
+        if let Some(l) = named.last_child().and_downcast::<gtk::Label>() {
+            set_text(&l, &text(row, column));
         }
     } else {
         widget.queue_draw();

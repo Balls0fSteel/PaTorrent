@@ -393,6 +393,7 @@ PrefAssocMagnet=Пов'язати з посиланнями magnet:
 PrefCheckAssoc=Перевіряти зв'язки під час запуску
 PrefAutostart=Запускати PaTorrent під час старту системи
 PrefStartMinimized=Запускати згорнутим
+PrefDesktopPackaged=PaTorrent працює як Flatpak: стільниця пропонує його для файлів .torrent і посилань magnet:. Програму за замовчуванням і автозапуск виберіть у налаштуваннях стільниці.
 PrefDefaultApps=Програми за замовчуванням...
 PrefDisplay=Параметри відображення
 PrefConfirmDelete=Підтверджувати вилучення торрентів

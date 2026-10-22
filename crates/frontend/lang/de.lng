@@ -393,6 +393,7 @@ PrefAssocMagnet=Mit magnet:-Links verknüpfen
 PrefCheckAssoc=Verknüpfung beim Start prüfen
 PrefAutostart=PaTorrent beim Systemstart starten
 PrefStartMinimized=Minimiert starten
+PrefDesktopPackaged=PaTorrent läuft als Flatpak: Die Arbeitsumgebung bietet es für .torrent-Dateien und magnet:-Links an. Das Standardprogramm und die Autostart-Anwendungen wählen Sie in den Einstellungen Ihrer Arbeitsumgebung.
 PrefDefaultApps=Standard-Apps...
 PrefDisplay=Anzeigeoptionen
 PrefConfirmDelete=Löschen von Torrents bestätigen

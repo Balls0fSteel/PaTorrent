@@ -16,6 +16,7 @@ use patorrent_frontend::detail::{
     self, BlockKind, Detail, PIECE_BLOCKS_COLUMN, PIECE_COLUMNS, PRIORITIES, PieceShade, SPEED_SAMPLES, Tab,
 };
 use patorrent_frontend::fmt;
+use patorrent_frontend::icons::tracker_icon;
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::tr;
 
@@ -93,7 +94,17 @@ impl Details {
         let text = |tab: Tab| -> crate::table::CellText {
             Rc::new(move |row, col| with(peek, |d, _| d.cell(tab, row, col)).unwrap_or_default())
         };
-        let trackers = Table::new(Tab::Trackers.columns(), text(Tab::Trackers), None, None);
+        // the status icon before the tracker's URL, as the Win32 tab shows it
+        let status_icon: crate::table::CellIcon = Rc::new(move |row| {
+            with(peek, |d, _| d.trackers.get(row).map(|t| tracker_icon(t.status))).flatten()
+        });
+        let trackers = Table::with_icon(
+            Tab::Trackers.columns(),
+            text(Tab::Trackers),
+            None,
+            None,
+            Some((0, status_icon)),
+        );
         let peers = Table::new(Tab::Peers.columns(), text(Tab::Peers), None, None);
         let files = Table::new(Tab::Files.columns(), text(Tab::Files), None, Some(files_menu));
         let logger = Table::new(Tab::Logger.columns(), text(Tab::Logger), None, None);

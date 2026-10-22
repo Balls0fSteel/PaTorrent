@@ -222,9 +222,147 @@ jobs:
           name: flatpak-x86_64
           path: PaTorrent-*.flatpak
 
+  # macOS (PLAN.md D23, Road to 1.0 item 8): PaTorrent.app (the GTK GUI with GTK 4 and its
+  # libraries from Homebrew, ad-hoc signed) in a .dmg, and patorrent-nox tarballs. The GitHub
+  # runner is the only Mac the project has, so every step says what it found.
+  # - arm64 (Apple silicon): the .app and nox, both run here with Homebrew moved away.
+  # - x86_64 (Intel): nox only, cross-built; the runner's Homebrew is arm64 only, so there is no
+  #   Intel GTK to bundle.
+  macos:
+    needs: version
+    runs-on: macos-15
+    env:
+      # PROVISIONAL: the recommended candidate until the owner picks the icon (Road to 1.0
+      # item 10), as the AppImages' APP_ICON; the folder has 16.png ... 512.png
+      APP_ICON_DIR: assets/patina-icons/exports/app/01-verdigris
+      # room in the GUI's load commands for the bundle's @executable_path/../Frameworks names,
+      # which can be longer than Homebrew's (only the Apple targets; Windows keeps
+      # .cargo/config.toml's static CRT)
+      CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: -C link-arg=-Wl,-headerpad_max_install_names
+      # no ._ AppleDouble files in the tarballs
+      COPYFILE_DISABLE: 1
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-apple-darwin
+      # gtk4 as in ci.yml; Adwaita for the toolbar's icons, librsvg for its SVGs
+      - run: brew install gtk4 adwaita-icon-theme librsvg pkgconf
+      - name: Build
+        run: |
+          cargo build --release --locked -p patorrent-gtk -p patorrent-nox
+          cargo build --release --locked -p patorrent-nox --target x86_64-apple-darwin
+          lipo -archs target/release/patorrent-gtk target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox
+          otool -L target/release/patorrent-gtk target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox
+      - name: PaTorrent.app
+        run: |
+          python3 .github/scripts/macos_bundle.py app \
+            --binary target/release/patorrent-gtk \
+            --prefix "$(brew --prefix)" \
+            --icon-dir "$APP_ICON_DIR" \
+            --app-id io.github.balls0fsteel.PaTorrent \
+            --version "${{ needs.version.outputs.version }}" \
+            --extra LICENSE.md --extra THIRD-PARTY-NOTICES.md \
+            --minos-file macos-minos.txt \
+            --out PaTorrent.app
+          plutil -lint PaTorrent.app/Contents/Info.plist
+          du -sh PaTorrent.app PaTorrent.app/Contents/*
+      # nox links only the system (Secure Transport, D9): no Homebrew library may remain
+      - name: nox's libraries
+        run: python3 .github/scripts/macos_bundle.py check target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox
+      - name: Sign
+        run: |
+          xattr -cr PaTorrent.app
+          codesign --force --deep --sign - PaTorrent.app
+          codesign --verify --deep --strict --verbose=2 PaTorrent.app
+          codesign --display --verbose=2 PaTorrent.app
+      # Homebrew moved away (as on a Mac without it), so what starts uses the bundle only
+      - name: Start without Homebrew
+        run: |
+          prefix="$(brew --prefix)"
+          sudo mv "$prefix" "$prefix.away"
+          trap 'sudo mv "$prefix.away" "$prefix"' EXIT
+          PATORRENT_LAUNCHER_DEBUG=1 PaTorrent.app/Contents/MacOS/PaTorrent --version
+          target/release/patorrent-nox --version
+          arch -x86_64 target/x86_64-apple-darwin/release/patorrent-nox --version \
+            || echo "::warning::the x86_64 nox did not run here (no Rosetta on the runner?)"
+          # the GUI itself, with a fresh profile: it should still be running after 20 s
+          export HOME="$RUNNER_TEMP/gui-home"
+          mkdir -p "$HOME"
+          PaTorrent.app/Contents/MacOS/PaTorrent > macos-gui.log 2>&1 &
+          pid=$!
+          sleep 20
+          # (perl's alarm: screencapture must not hang on a permission prompt)
+          perl -e 'alarm 20; exec @ARGV' screencapture -x macos-gui.png             || echo "::warning::screencapture failed"
+          if kill -0 "$pid" 2>/dev/null; then
+            echo "the GUI is running after 20 s"
+            kill "$pid"
+          else
+            status=0
+            wait "$pid" || status=$?
+            echo "::warning::the GUI exited within 20 s (status $status); its output is below"
+          fi
+          echo "--- the GUI's output"
+          cat macos-gui.log
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: macos-gui-start
+          path: |
+            macos-gui.png
+            macos-gui.log
+          if-no-files-found: ignore
+      - name: dmg and tarballs
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          mkdir dmg
+          ditto PaTorrent.app dmg/PaTorrent.app
+          ln -s /Applications dmg/Applications
+          cp LICENSE.md THIRD-PARTY-NOTICES.md dmg/
+          dmg="PaTorrent-$version-arm64.dmg"
+          # hdiutil on the runners sometimes fails with "Resource busy": try again
+          for i in 1 2 3 4 5; do
+            hdiutil create -volname PaTorrent -srcfolder dmg -ov -format UDZO "$dmg" && break
+            echo "::warning::hdiutil create failed (try $i)"
+            sleep 10
+          done
+          test -f "$dmg"
+          hdiutil verify "$dmg"
+          # the app inside the image still verifies
+          mnt="$(mktemp -d)"
+          hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
+          codesign --verify --deep --strict --verbose=2 "$mnt/PaTorrent.app"
+          ls -la "$mnt"
+          hdiutil detach "$mnt"
+
+          for arch in arm64 x86_64; do
+            name="patorrent-nox-$version-macos-$arch"
+            if [ "$arch" = x86_64 ]; then
+              bin=target/x86_64-apple-darwin/release/patorrent-nox
+            else
+              bin=target/release/patorrent-nox
+            fi
+            mkdir "$name"
+            install -m 755 "$bin" "$name/"
+            install -m 644 LICENSE.md THIRD-PARTY-NOTICES.md "$name/"
+            tar -czf "$name.tar.gz" --uid 0 --gid 0 "$name"
+          done
+          ls -l *.dmg *.tar.gz
+          echo "minimum macOS: $(cat macos-minos.txt)"
+          echo "PaTorrent.app needs macOS $(cat macos-minos.txt) or later (arm64)" >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos
+          path: |
+            PaTorrent-*.dmg
+            patorrent-nox-*.tar.gz
+      - name: Crash reports
+        if: failure()
+        run: python3 .github/scripts/macos_crash_reports.py
+
   release:
     if: github.ref_type == 'tag'
-    needs: [version, windows, linux, flatpak]
+    needs: [version, windows, linux, flatpak, macos]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

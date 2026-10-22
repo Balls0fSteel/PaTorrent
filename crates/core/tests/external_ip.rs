@@ -17,6 +17,9 @@ use patorrent_core::{
 static T0: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 static LOG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
+/// Every alert the tests saw and what the fake tracker did, timed, for a timeout to print (all
+/// tests of the file write here). `a_tracker_reply_sets_the_external_address` once waited 15 s
+/// on macOS with no alert after the add (PLAN Known TODOs "macOS").
 fn note(what: String) {
     let t = T0.get_or_init(Instant::now).elapsed().as_secs_f64();
     LOG.lock().unwrap().push(format!("{t:8.3} {what}"));
@@ -69,8 +72,12 @@ fn start(f: impl FnOnce(&mut Settings)) -> Session {
     Session::start(SessionParams { settings, state_dir: None }).expect("session starts")
 }
 
-/// Takes alerts until `f` returns `Some`, failing after `secs`.
-fn wait<T>(h: &SessionHandle, secs: u64, what: &str, mut f: impl FnMut(&Alert) -> Option<T>) -> T {
+/// Takes alerts until `f` returns `Some`; after `secs`, the messages of those it took.
+fn try_wait<T>(
+    h: &SessionHandle,
+    secs: u64,
+    mut f: impl FnMut(&Alert) -> Option<T>,
+) -> Result<T, Vec<String>> {
     let deadline = Instant::now() + Duration::from_secs(secs);
     let mut alerts = Vec::new();
     let mut seen = Vec::new();
@@ -82,13 +89,22 @@ fn wait<T>(h: &SessionHandle, secs: u64, what: &str, mut f: impl FnMut(&Alert) -
                 note(a.message());
             }
             if let Some(v) = f(&a) {
-                return v;
+                return Ok(v);
             }
         }
         std::thread::sleep(Duration::from_millis(20));
     }
+    Err(seen)
+}
+
+fn timed_out(what: &str, seen: &[String]) -> ! {
     let log = LOG.lock().unwrap().join("\n");
     panic!("timed out waiting for {what}; alerts: {seen:#?}\nall:\n{log}");
+}
+
+/// Takes alerts until `f` returns `Some`, failing after `secs`.
+fn wait<T>(h: &SessionHandle, secs: u64, what: &str, f: impl FnMut(&Alert) -> Option<T>) -> T {
+    try_wait(h, secs, f).unwrap_or_else(|seen| timed_out(what, &seen))
 }
 
 fn add(h: &SessionHandle, t: &[u8], dir: &std::path::Path) -> TorrentId {
@@ -132,13 +148,25 @@ fn a_tracker_reply_sets_the_external_address() {
         let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len());
         c.write_all(head.as_bytes()).unwrap();
         c.write_all(&body).unwrap();
+        note("tracker answered".into());
     });
     let s = start(|_| {});
     let h = s.handle();
     let (t, _) = torrent(Some(&url));
     let dir = temp_dir("tracker");
-    add(&h, &t, &dir);
-    let ip = wait(&h, 15, "external IP", external_ip);
+    let id = add(&h, &t, &dir);
+    let ip = try_wait(&h, 15, external_ip).unwrap_or_else(|seen| {
+        // whether the engine still answers, and what it makes of its tracker
+        h.torrent(id).post_trackers();
+        h.post_session_stats();
+        let _ = try_wait(&h, 2, |a| {
+            if let Alert::TrackerList { trackers, .. } = a {
+                note(format!("{trackers:?}"));
+            }
+            None::<()>
+        });
+        timed_out("external IP", &seen)
+    });
     assert_eq!(ip, "203.0.113.7".parse::<IpAddr>().unwrap());
     tracker.join().unwrap();
     s.shutdown();

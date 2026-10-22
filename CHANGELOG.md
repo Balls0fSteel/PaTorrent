@@ -2,6 +2,41 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_083939_1792651179: The GTK GUI compiles for macOS, and the macOS job builds it
+
+### Changed
+- **`patorrent-gtk` on macOS**: the freedesktop desktop integration (`integration.rs`: `.desktop` entries, GIO defaults, XDG autostart) is now one implementation of two; on macOS `integration::AVAILABLE` is false, nothing reads as set, writing fails, Preferences > General leaves the Desktop Integration group out (`Features::desktop`) and "Check association on startup" never asks. GIO has no `DesktopAppInfo` on macOS, which was the one error stopping the crate there. The macOS way (D23: `Info.plist` associations, Login Items) is still to come.
+- **The `macos` CI job** installs Homebrew's `gtk4` (and `pkgconf`) and lints and tests the whole workspace, `patorrent-gtk` included; the Intel build still leaves the GTK GUI out (the runner's Homebrew is arm64 only).
+
+### Verified
+- `patorrent-gtk` type-checked and linted with no warnings for `aarch64-apple-darwin` (the 1.90.0 and stable clippy, the whole workspace) and `x86_64-unknown-linux-gnu`, from Windows with the stand-in `pkg-config`; nothing linked. Stable clippy and fmt on Windows.
+
+### Issues
+- Not pushed: the first real build, link and test run of the GTK GUI on macOS is the next CI run. Without D-Bus on macOS the tray and logind's power actions stay off there (noted in PLAN Known TODOs "macOS").
+
+## 2026-10-22_080500_1792649100: macOS green on main
+
+### Verified
+- Pushed aa21bef, ea8398d and c172d7d (a9d71b6..c172d7d). CI run 39731145691 passed every job: fmt, the Windows and Ubuntu tests, MSRV 1.85, the Windows release build, and `macos` (stable clippy, `cargo test` without the GTK GUI on Apple silicon, the build for Intel Macs; no crash reports, the flaky external-address test passed). FreeBSD and the 22 fuzz targets passed too.
+
+## 2026-10-22_075500_1792648500: macOS: the whole suite passes on the runner
+
+### Fixed
+- **`CFRelease(NULL)` in the Secure Transport backend**: `Cf::new` made its wrapper with `(!p.is_null()).then_some(Cf(p))`, which builds the `Cf` whether or not it is kept, so every null result (a CFError out parameter left empty, mostly) was released as NULL, and Core Foundation traps on that. It was the SIGTRAP of the first run, in the core TLS tests, the remote session over TLS and nox's HTTPS tests. Found from the crash reports (`*** CFRelease() called with NULL ***`, from `signs_for`).
+- `engine::listen::session_tests::unchanged_interfaces_change_nothing` counted every log line that mentions a network change, and macOS (no notifier) logs at start that it reads the interfaces every 30 s: it and two waits now match the reopen line.
+
+### Added
+- The macOS CI job prints the crash reports macOS wrote when it fails (`.github/scripts/macos_crash_reports.py`: the exception, the trap message, the crashing thread, which is named after its test, and its frames). A crashing test binary prints nothing of its own.
+- `tests/external_ip.rs` keeps a timed log of every alert and of its fake tracker's accept and read, printed when a wait times out (alerts of every category).
+- A `macos-debug` branch on GitHub whose `ci.yml` runs only a macOS diagnostics job (`gh workflow run CI --ref macos-debug`); not for merging.
+
+### Verified
+- On the macOS runner (debug run 39729948240 on the fixes): the Secure Transport tests (21 passed, the 2 live ones ignored), the rest of the core crate (686), the core integration tests, frontend, nox and its integration tests (HTTPS, remote, Web UI, RSS, daemon) passed, with no crash report; one failure, `a_tracker_reply_sets_the_external_address`, timed out once with no alert, then passed 30 runs of its binary in a row (39730528420).
+- `cargo test --workspace` on Windows: 1,126 passed, 0 failed. Stable clippy for Windows and macOS, fmt.
+
+### Issues
+- Main's `macos` job had not run the fixes yet (not pushed): clippy and the Intel build were not part of the debug runs. (They passed on main at 2026-10-22_080500_1792649100.)
+
 ## 2026-10-21_231317_1792617197: The first macOS CI run
 
 ### Verified

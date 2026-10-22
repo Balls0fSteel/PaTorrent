@@ -2,6 +2,11 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_080500_1792649100: macOS green on main
+
+### Verified
+- Pushed aa21bef, ea8398d and c172d7d (a9d71b6..c172d7d). CI run 39731145691 passed every job: fmt, the Windows and Ubuntu tests, MSRV 1.85, the Windows release build, and `macos` (stable clippy, `cargo test` without the GTK GUI on Apple silicon, the build for Intel Macs; no crash reports, the flaky external-address test passed). FreeBSD and the 22 fuzz targets passed too.
+
 ## 2026-10-22_075500_1792648500: macOS: the whole suite passes on the runner
 
 ### Fixed
@@ -18,7 +23,7 @@ All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix 
 - `cargo test --workspace` on Windows: 1,126 passed, 0 failed. Stable clippy for Windows and macOS, fmt.
 
 ### Issues
-- Main's `macos` job has not run the fixes yet (not pushed): clippy and the Intel build were not part of the debug runs.
+- Main's `macos` job had not run the fixes yet (not pushed): clippy and the Intel build were not part of the debug runs. (They passed on main at 2026-10-22_080500_1792649100.)
 
 ## 2026-10-21_231317_1792617197: The first macOS CI run
 

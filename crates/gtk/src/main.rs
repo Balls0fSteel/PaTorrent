@@ -45,6 +45,12 @@ mod tray;
 
 #[cfg(unix)]
 fn main() -> std::process::ExitCode {
+    // before GTK starts, so it needs no display: the macOS release job runs it to prove that
+    // the libraries bundled in PaTorrent.app load
+    if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
+        println!("patorrent-gtk {}", patorrent_core::VERSION);
+        return std::process::ExitCode::SUCCESS;
+    }
     app::run()
 }
 

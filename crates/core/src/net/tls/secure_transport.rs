@@ -150,9 +150,10 @@ unsafe extern "C" {
 struct Cf(CFTypeRef);
 
 impl Cf {
-    /// Takes ownership of `p`; `None` when it is null.
+    /// Takes ownership of `p`; `None` when it is null. (Not `then_some(Cf(p))`: that builds the
+    /// `Cf` either way, and dropping one of null calls `CFRelease(NULL)`, which traps.)
     fn new(p: CFTypeRef) -> Option<Cf> {
-        (!p.is_null()).then_some(Cf(p))
+        if p.is_null() { None } else { Some(Cf(p)) }
     }
 }
 

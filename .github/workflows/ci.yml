@@ -60,6 +60,10 @@ jobs:
       - run: cargo clippy --workspace --exclude patorrent-gtk --all-targets -- -D warnings
       - run: cargo test --workspace --exclude patorrent-gtk
       - run: cargo build --workspace --exclude patorrent-gtk --target x86_64-apple-darwin
+      # a test binary that crashes prints nothing of its own: macOS's crash report says why
+      - name: Crash reports
+        if: failure()
+        run: python3 .github/scripts/macos_crash_reports.py
 
   msrv:
     runs-on: ubuntu-24.04

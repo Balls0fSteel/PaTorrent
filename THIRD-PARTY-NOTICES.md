@@ -9,6 +9,7 @@ Ported so far:
 - `crates/core/src/util/puff.rs` (Mark Adler's `puff`, via libtorrent's `puff.cpp`; see the puff section) and `util/gzip.rs` (libtorrent's `gzip.cpp`)
 - `crates/core/src/metainfo/write_torrent.rs` (`write_torrent_file` of libtorrent's `write_resume_data.cpp`)
 - `crates/core/src/net/ip_filter.rs` and `engine/ip_filter.rs` (libtorrent's `ip_filter` and `port_filter`, and how the session, torrent, peer list and tracker connections apply them)
+- `crates/core/src/engine/peer_class.rs` (libtorrent's `peer_class`, `peer_class_set`, `peer_class_type_filter`, the peer class and mixed mode parts of `session_impl.cpp` and `peer_connection.cpp`) and `crates/core/tests/peer_classes.rs` (from `test_peer_classes.cpp`)
 - libtorrent's test torrents in `crates/core/tests/fixtures/torrents`
 
 Each source file names its origin in a header comment.

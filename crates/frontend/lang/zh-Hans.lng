@@ -103,6 +103,7 @@ MenuAutoShutdown=自动关机(&A)
 MenuCloseToTray=关闭到托盘(&Y)
 MenuMinimizeToTray=最小化到托盘(&M)
 MenuAbout=关于 PaTorrent(&A)
+MenuNotices=第三方声明(&N)
 KeyCtrl=Ctrl
 MenuHide=隐藏 PaTorrent(&H)
 MenuShow=显示 PaTorrent(&S)

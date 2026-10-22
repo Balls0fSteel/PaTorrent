@@ -27,6 +27,8 @@ mod icons;
 #[cfg(windows)]
 mod integration;
 #[cfg(windows)]
+mod notices;
+#[cfg(windows)]
 mod preferences;
 #[cfg(windows)]
 mod properties;

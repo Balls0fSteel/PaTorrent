@@ -345,6 +345,7 @@ fn startup(app: &gtk::Application) {
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuOptions))), &options);
     let help = gio::Menu::new();
     item(&help, tr!(MenuAbout), "win.about");
+    item(&help, tr!(MenuNotices), "win.notices");
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuHelp))), &help);
     app.set_menubar(Some(&menubar));
 }
@@ -1359,6 +1360,7 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
         }
     });
     simple("about", about);
+    simple("notices", third_party_notices);
     simple("preferences", preferences);
     simple("properties", show_properties);
     simple("set-location", set_download_location);
@@ -2616,6 +2618,12 @@ fn create_torrent() {
             }
         });
     });
+}
+
+/// Help > Third-Party Notices.
+fn third_party_notices() {
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    crate::notices::show(&window);
 }
 
 fn about() {

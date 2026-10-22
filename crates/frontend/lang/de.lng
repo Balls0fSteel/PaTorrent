@@ -103,6 +103,7 @@ MenuAutoShutdown=&Automatisch herunterfahren
 MenuCloseToTray=Beim Schließen in den &Infobereich
 MenuMinimizeToTray=Beim &Minimieren in den Infobereich
 MenuAbout=&Über PaTorrent
+MenuNotices=&Hinweise zu Drittanbietern
 KeyCtrl=Strg
 MenuHide=PaTorrent &ausblenden
 MenuShow=PaTorrent an&zeigen

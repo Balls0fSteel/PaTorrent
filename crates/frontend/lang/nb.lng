@@ -103,6 +103,7 @@ MenuAutoShutdown=Automatisk a&vslutning
 MenuCloseToTray=Lukk til &systemstatusfeltet
 MenuMinimizeToTray=&Minimer til systemstatusfeltet
 MenuAbout=&Om PaTorrent
+MenuNotices=&Tredjepartsmerknader
 KeyCtrl=Ctrl
 MenuHide=&Skjul PaTorrent
 MenuShow=&Vis PaTorrent

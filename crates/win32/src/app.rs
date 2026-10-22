@@ -138,6 +138,7 @@ mod cmd {
     pub const FEED_REMOVE: u16 = 139;
     pub const ITEM_DOWNLOAD: u16 = 140;
     pub const CONNECT_REMOTE: u16 = 141;
+    pub const NOTICES: u16 = 142;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -570,6 +571,7 @@ unsafe fn main_menu() -> HMENU {
         append(options, cmd::MIN_TO_TRAY, tr!(MenuMinimizeToTray));
         let help = CreatePopupMenu();
         append(help, cmd::ABOUT, tr!(MenuAbout));
+        append(help, cmd::NOTICES, tr!(MenuNotices));
         submenu(bar, file, tr!(MenuFile));
         submenu(bar, options, tr!(MenuOptions));
         submenu(bar, help, tr!(MenuHelp));
@@ -2481,6 +2483,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                         .unwrap_or_default()
                 ),
             ),
+            cmd::NOTICES => crate::notices::show(hwnd),
             cmd::SHOW_TOOLBAR | cmd::SHOW_DETAILS | cmd::SHOW_STATUS | cmd::SHOW_TREE => {
                 with_app(|a| {
                     let v = match id {

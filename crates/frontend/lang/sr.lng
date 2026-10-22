@@ -103,6 +103,7 @@ MenuAutoShutdown=&Аутоматско гашење
 MenuCloseToTray=Затварај у &системску палету
 MenuMinimizeToTray=&Умањи у системску палету
 MenuAbout=&О програму PaTorrent
+MenuNotices=&Обавештења трећих страна
 KeyCtrl=Ctrl
 MenuHide=&Сакриј PaTorrent
 MenuShow=&Прикажи PaTorrent

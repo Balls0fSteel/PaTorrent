@@ -103,6 +103,7 @@ MenuAutoShutdown=Otomatik &kapatma
 MenuCloseToTray=Kapatınca &bildirim alanına
 MenuMinimizeToTray=Küçültünce bildirim &alanına
 MenuAbout=PaTorrent &hakkında
+MenuNotices=Üçüncü taraf &bildirimleri
 KeyCtrl=Ctrl
 MenuHide=PaTorrent'i &gizle
 MenuShow=PaTorrent'i &göster

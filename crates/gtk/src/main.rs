@@ -27,6 +27,8 @@ mod list;
 // on every system: its LaunchAgent text is tested wherever the tests run (Windows included)
 mod macos;
 #[cfg(unix)]
+mod notices;
+#[cfg(unix)]
 mod paths;
 #[cfg(all(unix, not(target_os = "macos")))]
 mod portal;

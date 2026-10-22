@@ -103,6 +103,7 @@ MenuAutoShutdown=Automatisch &uitschakelen
 MenuCloseToTray=Sluiten naar het &systeemvak
 MenuMinimizeToTray=&Minimaliseren naar het systeemvak
 MenuAbout=&Over PaTorrent
+MenuNotices=Kennisgevingen van &derden
 KeyCtrl=Ctrl
 MenuHide=PaTorrent &verbergen
 MenuShow=PaTorrent &tonen

@@ -103,6 +103,7 @@ MenuAutoShutdown=Automatyczne &wyłączanie
 MenuCloseToTray=Zamykaj do &zasobnika
 MenuMinimizeToTray=&Minimalizuj do zasobnika
 MenuAbout=&O programie PaTorrent
+MenuNotices=Informacje o stronach &trzecich
 KeyCtrl=Ctrl
 MenuHide=&Ukryj PaTorrent
 MenuShow=&Pokaż PaTorrent

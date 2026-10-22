@@ -103,6 +103,7 @@ MenuAutoShutdown=ปิดเครื่องอัตโนมัติ(&A)
 MenuCloseToTray=ปิดแล้วไปที่ถาดระบบ(&Y)
 MenuMinimizeToTray=ย่อแล้วไปที่ถาดระบบ(&M)
 MenuAbout=เกี่ยวกับ PaTorrent(&A)
+MenuNotices=ประกาศของบุคคลที่สาม(&N)
 KeyCtrl=Ctrl
 MenuHide=ซ่อน PaTorrent(&H)
 MenuShow=แสดง PaTorrent(&S)

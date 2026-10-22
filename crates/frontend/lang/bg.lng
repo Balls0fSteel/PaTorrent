@@ -103,6 +103,7 @@ MenuAutoShutdown=&Автоматично изключване
 MenuCloseToTray=Затваряй в &системната област
 MenuMinimizeToTray=&Минимизирай в системната област
 MenuAbout=&За PaTorrent
+MenuNotices=&Бележки за трети страни
 KeyCtrl=Ctrl
 MenuHide=&Скрий PaTorrent
 MenuShow=&Покажи PaTorrent

@@ -103,6 +103,7 @@ MenuAutoShutdown=Tự động &tắt
 MenuCloseToTray=Đóng vào &khay hệ thống
 MenuMinimizeToTray=Thu &nhỏ vào khay hệ thống
 MenuAbout=&Giới thiệu PaTorrent
+MenuNotices=&Thông báo bên thứ ba
 KeyCtrl=Ctrl
 MenuHide=Ẩ&n PaTorrent
 MenuShow=&Hiện PaTorrent

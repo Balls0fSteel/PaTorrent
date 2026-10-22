@@ -103,6 +103,7 @@ MenuAutoShutdown=&Arrêt automatique
 MenuCloseToTray=Fermer dans la zone de &notification
 MenuMinimizeToTray=&Réduire dans la zone de notification
 MenuAbout=À &propos de PaTorrent
+MenuNotices=Mentions des &tiers
 KeyCtrl=Ctrl
 MenuHide=&Masquer PaTorrent
 MenuShow=&Afficher PaTorrent

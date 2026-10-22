@@ -103,6 +103,7 @@ MenuAutoShutdown=&Apagado automático
 MenuCloseToTray=Cerrar a la &bandeja
 MenuMinimizeToTray=&Minimizar a la bandeja
 MenuAbout=&Acerca de PaTorrent
+MenuNotices=Avisos de &terceros
 KeyCtrl=Ctrl
 MenuHide=&Ocultar PaTorrent
 MenuShow=&Mostrar PaTorrent

@@ -103,6 +103,7 @@ MenuAutoShutdown=Automaattinen &sammutus
 MenuCloseToTray=Sulje &ilmaisinalueelle
 MenuMinimizeToTray=&Pienennä ilmaisinalueelle
 MenuAbout=&Tietoja PaTorrentista
+MenuNotices=&Kolmansien osapuolten tiedot
 KeyCtrl=Ctrl
 MenuHide=&Piilota PaTorrent
 MenuShow=&Näytä PaTorrent

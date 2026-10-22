@@ -314,7 +314,9 @@ fn exchange<S: Read + Write>(
     let mut chunk = [0u8; 16 * 1024];
     // the head, once it is in: (content length or -1, chunked, body offset)
     let mut framing: Option<(i64, bool, usize)> = None;
-    let eof = loop {
+    // keeps its place across reads, so a chunked body is decoded once, not after every read
+    let mut parser = http::ResponseParser::new(max);
+    let result = loop {
         set_timeouts(sock(&mut s), deadline)?;
         let n = match s.read(&mut chunk) {
             Ok(n) => n,
@@ -322,7 +324,7 @@ fn exchange<S: Read + Write>(
             Err(e) => return Err(e.into()),
         };
         if n == 0 {
-            break true;
+            break parser.parse(&buf, true);
         }
         buf.extend_from_slice(&chunk[..n]);
         if framing.is_none() {
@@ -336,17 +338,16 @@ fn exchange<S: Read + Write>(
         if buf.len() - body > max.saturating_add(64 * 1024) || (!chunked && len > max as i64) {
             return Err(FetchError::TooLarge);
         }
-        let done = if chunked {
-            // cheap test first: the parser runs only when the buffer could end the body
-            buf.ends_with(b"\r\n\r\n") && http::parse_response_limited(&buf, false, max).is_ok()
-        } else {
-            len >= 0 && (buf.len() - body) as i64 >= len
-        };
-        if done {
-            break false;
+        if chunked {
+            match parser.parse(&buf, false) {
+                Err(ParseError::Incomplete) => {}
+                r => break r,
+            }
+        } else if len >= 0 && (buf.len() - body) as i64 >= len {
+            break parser.parse(&buf, false);
         }
     };
-    match http::parse_response_limited(&buf, eof, max) {
+    match result {
         Ok(r) => Ok(r),
         Err(ParseError::Invalid("HTTP response too large")) => Err(FetchError::TooLarge),
         Err(ParseError::Invalid(e)) => Err(FetchError::Http(e)),

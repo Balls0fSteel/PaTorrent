@@ -18,7 +18,7 @@ use super::tracker::{JobKind, TrackerJob, TrackerOutcome};
 use crate::alert::Alert;
 use crate::error::Error;
 use crate::metainfo::merkle_tree::MerkleTree;
-use crate::metainfo::{MetainfoError, TorrentInfo};
+use crate::metainfo::{FileStorage, MetainfoError, TorrentInfo};
 use crate::proto::peer_wire::{self, HashMsg, msg};
 use crate::proto::tracker::Event;
 use crate::status::PeerSource;
@@ -117,6 +117,81 @@ fn write_hash_answer(out: &mut Vec<u8>, queued: usize, m: &HashMsg, hashes: &[Sh
     }
 }
 
+/// Hash-tree work (merkle node pairs hashed, one SHA-256 each) a peer's budget gains per
+/// second: a few milliseconds of one core.
+pub(super) const HASH_WORK_PER_SECOND: u64 = 1 << 16;
+
+/// The least a peer's budget holds when full, for torrents of few pieces.
+const MIN_HASH_WORK_BURST: u64 = 1 << 16;
+
+/// What answering a valid hash request costs in merkle hashing (pairs hashed, one SHA-256
+/// each), as an upper bound. Our trees hold the piece layers only (libtorrent's piece-layer
+/// mode), so a node `h` layers above the piece layer is computed from the `2^h` pieces under it
+/// with `2^h - 1` hashes, for each of the `count` hashes asked and for each proof hash beyond
+/// the subtree the requested hashes span (as `MerkleTree::get_hashes` walks them). Hashes of
+/// the piece layer are copied, and requests below it are rejected without hashing.
+pub(super) fn hash_request_cost(fs: &FileStorage, m: &HashMsg) -> u64 {
+    let piece_base = fs.blocks_per_piece().max(1).trailing_zeros();
+    let height = (m.base.max(0) as u32).saturating_sub(piece_base);
+    let node = |h: u32| 1u64.checked_shl(h).map_or(u64::MAX, |n| n - 1);
+    let count = m.count.max(1) as u64;
+    let mut cost = count.saturating_mul(node(height));
+    let base_tree_layers = count.next_power_of_two().trailing_zeros();
+    // past 64 layers every node costs `u64::MAX` already: no need to walk two billion of them
+    for i in base_tree_layers..(m.proof_layers.max(0) as u32).min(64) {
+        cost = cost.saturating_add(node(height.saturating_add(i + 1)));
+    }
+    cost
+}
+
+/// A peer's budget of hash-tree work ([`hash_request_cost`]) for its hash requests: a token
+/// bucket filled at [`HASH_WORK_PER_SECOND`] up to a burst of `P × log2(P)`, `P` the torrent's
+/// piece count padded to a power of two. Beyond it requests get a `hash reject`, uncomputed.
+/// New in the parser security review (2026-10-22); libtorrent computes every request (see
+/// docs/PORTING.md).
+///
+/// Why this size: a client fetching a file's piece layer from us (libtorrent's hash picker:
+/// 512 pieces per request, two outstanding) asks for proof hashes up to the first node of its
+/// tree it knows, so the subtrees beside its path get hashed once per level: the whole layer
+/// costs us about `P × (log2(P) - 9)` (measured by
+/// `a_client_fetching_piece_layers_stays_within_the_hash_budget`), and over several files no
+/// more than for one file of all the pieces. The burst covers that with no time passing, so a
+/// well-behaved client never hits the limit, while a peer repeating requests near the root
+/// (each about `P` hashes) is held to the refill rate after one burst. A client downloading a
+/// torrent with piece layers asks only for block hashes, which our trees do not hold: those
+/// are rejected without hashing. Cached interior layers would make every request cheap but
+/// cost as much memory again as the piece layers; the budget costs 24 bytes a peer.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct HashWorkBudget {
+    /// Work left; `None` until the first request (the bucket starts full).
+    tokens: Option<u64>,
+    refilled: Option<Instant>,
+}
+
+impl HashWorkBudget {
+    /// The burst for a torrent of `num_pieces` pieces.
+    pub(super) fn burst(num_pieces: u32) -> u64 {
+        let padded = u64::from(num_pieces.max(1)).next_power_of_two();
+        (padded * u64::from(padded.trailing_zeros())).max(MIN_HASH_WORK_BURST)
+    }
+
+    /// Takes `cost` from the budget, refilled for the time since the last call and capped at
+    /// `burst`; false (and nothing taken) when it does not hold that much.
+    pub(super) fn try_spend(&mut self, cost: u64, burst: u64, now: Instant) -> bool {
+        let elapsed = self.refilled.map_or(Duration::ZERO, |t| now.saturating_duration_since(t));
+        let gained = (elapsed.as_millis() as u64).saturating_mul(HASH_WORK_PER_SECOND) / 1000;
+        let tokens = self.tokens.map_or(burst, |t| t.saturating_add(gained).min(burst));
+        // the refill counts whole milliseconds: a call that gains nothing leaves the clock
+        // alone, so requests less than a millisecond apart still add up to a refill
+        if self.refilled.is_none() || gained > 0 || tokens == burst {
+            self.refilled = Some(now);
+        }
+        let ok = cost <= tokens;
+        self.tokens = Some(if ok { tokens - cost } else { tokens });
+        ok
+    }
+}
+
 impl Engine {
     /// libtorrent `on_hash_request`: a v2 peer asks for part of a file's merkle tree; it gets
     /// the hashes or a reject. Hash messages on a v1 connection end it.
@@ -133,7 +208,20 @@ impl Engine {
             Some(t) => match &t.ti {
                 Some(ti) => {
                     let trees = t.merkle_trees.get_or_insert_with(|| build_trees(ti));
-                    hashes_for(trees, ti, &m)
+                    let fs = ti.orig_files();
+                    let valid = fs.file_index_for_root(&m.root).is_some_and(|file| {
+                        validate_hash_request(
+                            &HashRequest::new(file, m.base, m.index, m.count, m.proof_layers),
+                            fs,
+                        )
+                    });
+                    // an invalid request is rejected by `hashes_for` without hashing and is not
+                    // charged; a valid one beyond the peer's budget is rejected uncomputed
+                    let affordable = !valid || {
+                        let burst = HashWorkBudget::burst(fs.num_pieces());
+                        p.hash_budget.try_spend(hash_request_cost(fs, &m), burst, Instant::now())
+                    };
+                    if affordable { hashes_for(trees, ti, &m) } else { Vec::new() }
                 }
                 None => Vec::new(),
             },
@@ -380,5 +468,122 @@ mod tests {
         let mut out = Vec::new();
         write_hash_answer(&mut out, 0, &m, &[]);
         assert_eq!(out[4], msg::HASH_REJECT);
+    }
+
+    const BLOCK: u32 = crate::metainfo::file_storage::DEFAULT_BLOCK_SIZE;
+
+    /// One file of `pieces` pieces of four blocks, and our tree of it in piece-layer mode.
+    fn one_file(pieces: u32) -> (FileStorage, MerkleTree) {
+        use crate::metainfo::merkle::{merkle_pad, merkle_root};
+        let mut fs = FileStorage::new();
+        fs.set_piece_length(4 * BLOCK);
+        let size = u64::from(pieces) * u64::from(4 * BLOCK);
+        fs.add_file("t/f", size, crate::metainfo::FileFlags::empty(), 0, "", None).unwrap();
+        fs.set_num_pieces(pieces);
+        let layer: Vec<Sha256Hash> = (0..pieces)
+            .map(|i| {
+                let mut h = [0u8; 32];
+                h[..4].copy_from_slice(&i.to_le_bytes());
+                h[31] = 1;
+                Sha256Hash(h)
+            })
+            .collect();
+        let root = merkle_root(&layer, &merkle_pad(4, 1));
+        let mut tree = MerkleTree::new(pieces as usize * 4, 4, root);
+        let bytes: Vec<u8> = layer.iter().flat_map(|h| h.0).collect();
+        assert!(tree.load_piece_layer(&bytes));
+        (fs, tree)
+    }
+
+    fn msg_for(r: &HashRequest) -> HashMsg {
+        HashMsg {
+            root: Sha256Hash::default(),
+            base: r.base,
+            index: r.index,
+            count: r.count,
+            proof_layers: r.proof_layers,
+        }
+    }
+
+    /// Security review 2026-10-22: a client fetching the piece layer from us the way
+    /// libtorrent's hash picker does (512 pieces per request, two outstanding, replies in
+    /// order) never runs out of hash-work budget, with no time passing at all, and gets the
+    /// whole layer.
+    #[test]
+    fn a_client_fetching_piece_layers_stays_within_the_hash_budget() {
+        for pieces in [3, 600, 4099, 1 << 14] {
+            let (fs, ours) = one_file(pieces);
+            let mut theirs = vec![MerkleTree::new(pieces as usize * 4, 4, ours.root())];
+            let mut picker = HashPicker::new(&fs, &theirs);
+            let all = Bitfield::new(pieces as usize, true);
+            let now = Instant::now();
+            let burst = HashWorkBudget::burst(fs.num_pieces());
+            let mut budget = HashWorkBudget::default();
+            let (mut spent, mut requests) = (0, 0);
+            let mut outstanding = std::collections::VecDeque::new();
+            loop {
+                while outstanding.len() < 2 {
+                    let Some(req) = picker.pick_hashes(&fs, &theirs, &all, now) else { break };
+                    let m = msg_for(&req);
+                    let cost = hash_request_cost(&fs, &m);
+                    assert!(
+                        budget.try_spend(cost, burst, now),
+                        "{pieces} pieces: request {requests} rejected"
+                    );
+                    spent += cost;
+                    requests += 1;
+                    let hashes = ours.get_hashes(
+                        m.base as usize,
+                        m.index as usize,
+                        m.count as usize,
+                        m.proof_layers as usize,
+                    );
+                    assert!(!hashes.is_empty());
+                    outstanding.push_back((req, hashes));
+                }
+                let Some((req, hashes)) = outstanding.pop_front() else { break };
+                assert!(picker.add_hashes(&fs, &mut theirs, &req, &hashes).valid);
+            }
+            assert_eq!(theirs[0].get_piece_layer(), ours.get_piece_layer(), "{pieces} pieces");
+            // about `P × (log2(P) - 9)`: 65,506 hashes for 16,384 pieces, 393,090 for 65,536
+            let padded = u64::from(pieces).next_power_of_two();
+            let levels = u64::from(padded.trailing_zeros().saturating_sub(9));
+            assert!(spent <= padded * levels, "{pieces} pieces: {spent} in {requests} requests");
+        }
+    }
+
+    /// Security review 2026-10-22: a peer repeating a request that costs a SHA-256 per piece of
+    /// the file (one hash near the root, with its proof) is answered until its burst is spent,
+    /// then rejected, then answered again at the refill rate.
+    #[test]
+    fn repeated_root_level_hash_requests_are_rejected_beyond_the_budget() {
+        let pieces = 1 << 14;
+        let (fs, _) = one_file(pieces);
+        // the piece layer is 2 layers above the blocks; ask for one node 12 layers above it,
+        // with its proof up to the root (one layer below the root's children)
+        let m = HashMsg { root: Sha256Hash::default(), base: 2 + 12, index: 0, count: 1, proof_layers: 1 };
+        let req = HashRequest::new(0, m.base, m.index, m.count, m.proof_layers);
+        assert!(validate_hash_request(&req, &fs));
+        let cost = hash_request_cost(&fs, &m);
+        assert_eq!(cost, (1 << 12) - 1 + (1 << 13) - 1);
+        let burst = HashWorkBudget::burst(fs.num_pieces());
+        assert_eq!(burst, 14 << 14);
+
+        let t0 = Instant::now();
+        let mut budget = HashWorkBudget::default();
+        let answered = (0..100).take_while(|_| budget.try_spend(cost, burst, t0)).count();
+        assert_eq!(answered as u64, burst / cost);
+        assert!(!budget.try_spend(cost, burst, t0 + Duration::from_millis(10)));
+        // one second refills `HASH_WORK_PER_SECOND`: a few more, never the whole burst at once
+        let t1 = t0 + Duration::from_secs(1);
+        let again = (0..100).take_while(|_| budget.try_spend(cost, burst, t1)).count() as u64;
+        assert!((1..=HASH_WORK_PER_SECOND / cost + 1).contains(&again), "{again}");
+        // a cheap request (the piece layer, no proof) still goes through
+        let cheap = HashMsg { base: 2, count: 512, proof_layers: 0, ..m };
+        assert_eq!(hash_request_cost(&fs, &cheap), 0);
+        assert!(budget.try_spend(hash_request_cost(&fs, &cheap), burst, t1 + Duration::from_millis(10)));
+        // costs saturate instead of overflowing
+        let silly = HashMsg { base: i32::MAX, count: i32::MAX, proof_layers: i32::MAX, ..m };
+        assert_eq!(hash_request_cost(&fs, &silly), u64::MAX);
     }
 }

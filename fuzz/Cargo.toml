@@ -191,3 +191,10 @@ path = "fuzz_targets/resume_data.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "remote_wire"
+path = "fuzz_targets/remote_wire.rs"
+test = false
+doc = false
+bench = false

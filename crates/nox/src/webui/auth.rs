@@ -121,15 +121,28 @@ impl std::fmt::Display for PasswordHash {
     }
 }
 
-/// Failed logins per client address (qBittorrent `web_ui_max_auth_fail_count` /
-/// `web_ui_ban_duration`).
+/// Failed logins per client (qBittorrent `web_ui_max_auth_fail_count` /
+/// `web_ui_ban_duration`). An IPv4 client is its address; an IPv6 client is its /64, since a
+/// host given a /64 can pick any address in it (privacy addresses, or on purpose) and would
+/// otherwise get a fresh count with each one. qBittorrent bans per address; the /64 is ours
+/// (security review, 2026-10-22).
 #[derive(Default)]
 pub struct BanList {
     entries: HashMap<IpAddr, (u32, Option<Instant>)>,
 }
 
+/// What a client's failures are counted under: an IPv4 address (IPv4-mapped IPv6 included) as
+/// is, an IPv6 address with its last 64 bits cleared.
+fn ban_key(ip: IpAddr) -> IpAddr {
+    match ip.to_canonical() {
+        IpAddr::V6(v6) => IpAddr::V6((u128::from(v6) & !u128::from(u64::MAX)).into()),
+        v4 => v4,
+    }
+}
+
 impl BanList {
     pub fn is_banned(&mut self, ip: IpAddr, now: Instant) -> bool {
+        let ip = ban_key(ip);
         match self.entries.get(&ip) {
             Some((_, Some(until))) if *until > now => true,
             Some((_, Some(_))) => {
@@ -140,8 +153,9 @@ impl BanList {
         }
     }
 
-    /// Counts a failure; true when this one got the address banned.
+    /// Counts a failure; true when this one got the client banned.
     pub fn failed(&mut self, ip: IpAddr, max_fails: u32, ban: Duration, now: Instant) -> bool {
+        let ip = ban_key(ip);
         if self.entries.len() > 10_000 {
             // Bounded: forget addresses that are not banned.
             self.entries.retain(|_, (_, until)| until.is_some_and(|u| u > now));
@@ -156,7 +170,7 @@ impl BanList {
     }
 
     pub fn succeeded(&mut self, ip: IpAddr) {
-        self.entries.remove(&ip);
+        self.entries.remove(&ban_key(ip));
     }
 }
 
@@ -226,5 +240,30 @@ mod tests {
         assert!(b.is_banned(ip, t + Duration::from_secs(59)));
         assert!(!b.is_banned("10.0.0.2".parse().unwrap(), t));
         assert!(!b.is_banned(ip, t + Duration::from_secs(61)));
+    }
+
+    /// Security review 2026-10-22: an IPv6 client moving within its /64 keeps its count and its
+    /// ban; the next /64 and IPv4 neighbours are separate clients, and an IPv4-mapped address
+    /// is its IPv4 address.
+    #[test]
+    fn an_ipv6_client_is_counted_and_banned_by_its_64() {
+        let mut b = BanList::default();
+        let t = Instant::now();
+        let ban = Duration::from_secs(60);
+        let addr = |s: &str| -> IpAddr { s.parse().unwrap() };
+        assert!(!b.failed(addr("2001:db8:1:2::1"), 3, ban, t));
+        assert!(!b.failed(addr("2001:db8:1:2:aaaa:bbbb:cccc:dddd"), 3, ban, t));
+        assert!(b.failed(addr("2001:db8:1:2:ffff:ffff:ffff:ffff"), 3, ban, t));
+        assert!(b.is_banned(addr("2001:db8:1:2::1234"), t));
+        assert!(!b.is_banned(addr("2001:db8:1:3::1"), t));
+        // a login from inside the /64 clears its count
+        assert!(!b.failed(addr("2001:db8:1:3::1"), 3, ban, t));
+        b.succeeded(addr("2001:db8:1:3::2"));
+        assert!(!b.failed(addr("2001:db8:1:3::3"), 2, ban, t));
+        // IPv4 stays per address; a mapped address counts as its IPv4 address
+        assert!(!b.failed(addr("10.0.0.1"), 2, ban, t));
+        assert!(b.failed(addr("::ffff:10.0.0.1"), 2, ban, t));
+        assert!(b.is_banned(addr("10.0.0.1"), t));
+        assert!(!b.is_banned(addr("10.0.0.2"), t));
     }
 }

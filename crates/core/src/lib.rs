@@ -105,6 +105,7 @@ pub mod fuzzing {
     pub use crate::proto::ut_pex::{PeerPex, TorrentPex, encode_full as encode_ut_pex_full};
     pub use crate::proto::web_peer::{WebEvent, WebPeer};
     pub use crate::proto::xml::{Token as XmlToken, parse as parse_xml};
+    pub use crate::remote::fuzz_wire as remote_wire;
     pub use crate::utp::{
         ReadOutcome as UtpReadOutcome, SendOutcome as UtpSendOutcome, State as UtpState, UtpIo, UtpManager,
         UtpSettings,

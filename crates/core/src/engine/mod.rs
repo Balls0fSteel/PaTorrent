@@ -40,7 +40,7 @@ mod v2;
 mod web_seed;
 mod wire;
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::path::PathBuf;
@@ -68,7 +68,7 @@ use crate::proto::tracker::Event;
 use crate::resume::ResumeData;
 use crate::session::{Command, Shared};
 use crate::settings::Settings;
-use crate::status::{PeerFlags, PeerInfo, PeerSource, SessionStats, TorrentState};
+use crate::status::{PeerFlags, PeerInfo, PeerSource, SessionStats, TorrentState, TorrentStatus};
 use crate::store::Store;
 use crate::types::{Sha1Hash, TorrentId};
 use crate::util::bitfield::Bitfield;
@@ -77,8 +77,11 @@ use crate::utp::{self, SendOutcome, UtpIo, UtpManager, UtpSettings};
 use peer::{PeerConn, PeerState, Transport};
 use peer_list::Reconnect;
 use picker::PiecePicker;
-use torrent::{AnnounceTo, HaveRef, Torrent, piece_priorities};
-use tracker::{HTTP_TOKEN_BASE, JobKind, TrackerJob, TrackerManager, TrackerOutcome, UDP4_TOKEN, UDP6_TOKEN};
+use torrent::{AnnounceTo, HaveRef, StrPool, Torrent, piece_priorities};
+use tracker::{
+    HTTP_TOKEN_BASE, JobKind, TrackerEntry, TrackerJob, TrackerManager, TrackerOutcome, UDP4_TOKEN,
+    UDP6_TOKEN,
+};
 
 pub(crate) const WAKER_TOKEN: Token = Token(0);
 /// The UDP listen sockets (one per address family) that uTP and the DHT share.
@@ -157,6 +160,104 @@ impl<T> Slab<T> {
 struct TorrentSlot {
     generation: u32,
     torrent: Option<Box<Torrent>>,
+}
+
+/// The torrent slot table. Besides the slots it keeps a bit per slot that is set whenever the
+/// slot is borrowed mutably (`get_mut`, `slots[i]` as a place, `iter_mut`): a torrent's
+/// `status_dirty` can only be set through such a borrow, so the status update looks at the
+/// slots whose bit is set and nothing else. A library of 100,000 stopped torrents then costs
+/// the status update a scan of 1,563 words instead of a visit to every torrent, and no setter
+/// of `status_dirty` has to know about it. Reads go through `Deref` to the slice and set
+/// nothing.
+#[derive(Default)]
+struct Slots {
+    slots: Vec<TorrentSlot>,
+    /// One bit per slot: borrowed mutably since the last status update.
+    touched: Vec<u64>,
+}
+
+impl Slots {
+    fn touch(&mut self, i: usize) {
+        let w = i / 64;
+        if w >= self.touched.len() {
+            self.touched.resize(w + 1, 0);
+        }
+        self.touched[w] |= 1 << (i % 64);
+    }
+
+    fn touch_all(&mut self) {
+        self.touched.clear();
+        self.touched.resize(self.slots.len().div_ceil(64), u64::MAX);
+    }
+
+    fn get_mut(&mut self, i: usize) -> Option<&mut TorrentSlot> {
+        if i < self.slots.len() {
+            self.touch(i);
+        }
+        self.slots.get_mut(i)
+    }
+
+    /// The torrent with `id`, if its slot still holds it.
+    fn torrent_mut(&mut self, id: TorrentId) -> Option<&mut Torrent> {
+        let s = self.get_mut(id.index() as usize)?;
+        if s.generation != id.generation() {
+            return None;
+        }
+        s.torrent.as_deref_mut()
+    }
+
+    fn push(&mut self, slot: TorrentSlot) {
+        self.slots.push(slot);
+        self.touch(self.slots.len() - 1);
+    }
+
+    fn iter_mut(&mut self) -> std::slice::IterMut<'_, TorrentSlot> {
+        self.touch_all();
+        self.slots.iter_mut()
+    }
+
+    /// Every slot, mutably, without marking them: for walks that never set `status_dirty`
+    /// (saving resume data).
+    fn iter_mut_untracked(&mut self) -> std::slice::IterMut<'_, TorrentSlot> {
+        self.slots.iter_mut()
+    }
+
+    /// Takes the touched bits, leaving none set.
+    fn take_touched(&mut self) -> Vec<u64> {
+        std::mem::take(&mut self.touched)
+    }
+}
+
+impl std::ops::Deref for Slots {
+    type Target = [TorrentSlot];
+
+    fn deref(&self) -> &[TorrentSlot] {
+        &self.slots
+    }
+}
+
+impl std::ops::Index<usize> for Slots {
+    type Output = TorrentSlot;
+
+    fn index(&self, i: usize) -> &TorrentSlot {
+        &self.slots[i]
+    }
+}
+
+impl std::ops::IndexMut<usize> for Slots {
+    fn index_mut(&mut self, i: usize) -> &mut TorrentSlot {
+        self.touch(i);
+        &mut self.slots[i]
+    }
+}
+
+impl<'a> IntoIterator for &'a mut Slots {
+    type Item = &'a mut TorrentSlot;
+    type IntoIter = std::slice::IterMut<'a, TorrentSlot>;
+
+    fn into_iter(self) -> Self::IntoIter {
+        self.iter_mut()
+    }
 }
 
 /// A UDP listen socket, bound beside a TCP listener on the same port.
@@ -241,7 +342,7 @@ pub(crate) struct Engine {
     settings: Settings,
     out: Vec<Alert>,
 
-    slots: Vec<TorrentSlot>,
+    slots: Slots,
     free_slots: Vec<u32>,
     /// Torrents that may be active (`Torrent::is_active`), in slot order: a torrent joins when
     /// it gets a storage or a metadata / piece-layer fetch, and `active_ids` drops those that
@@ -249,7 +350,9 @@ pub(crate) struct Engine {
     /// slot (100,000 stopped torrents are about 140 MB of `Torrent`s).
     live: Vec<TorrentId>,
     /// The save paths of the torrents, shared (`intern_save_path`).
-    save_paths: HashSet<Arc<str>>,
+    save_paths: StrPool,
+    /// The tracker URLs of the torrents, shared.
+    tracker_urls: StrPool,
     by_hash: HashMap<Sha1Hash, TorrentId>,
     /// `SHA-1("req2", info-hash)` of every torrent, which incoming encrypted handshakes name
     /// (libtorrent `torrent_list::find_obfuscated`).
@@ -430,10 +533,11 @@ impl Engine {
             shared,
             rx,
             out: Vec::new(),
-            slots: Vec::new(),
+            slots: Slots::default(),
             free_slots: Vec::new(),
             live: Vec::new(),
-            save_paths: HashSet::new(),
+            save_paths: StrPool::default(),
+            tracker_urls: StrPool::default(),
             by_hash: HashMap::new(),
             by_obfuscated: HashMap::new(),
             queue: Vec::new(),
@@ -590,6 +694,11 @@ impl Engine {
             Ok(i) => self.live[i] = id,
             Err(i) => self.live.insert(i, id),
         }
+        // the peers saved in resume data become the peer list now
+        let ext = self.external_ip;
+        if let Some(t) = self.torrent(id) {
+            t.peer_list.expand(&ext);
+        }
     }
 
     /// The active torrents in slot order, dropping the stopped and removed ones from `live`.
@@ -604,11 +713,7 @@ impl Engine {
     }
 
     pub(super) fn torrent(&mut self, id: TorrentId) -> Option<&mut Torrent> {
-        let s = self.slots.get_mut(id.index() as usize)?;
-        if s.generation != id.generation() {
-            return None;
-        }
-        s.torrent.as_deref_mut()
+        self.slots.torrent_mut(id)
     }
 
     fn torrent_ref(&self, id: TorrentId) -> Option<&Torrent> {
@@ -627,26 +732,14 @@ impl Engine {
     ) -> Option<(&mut PeerConn, Option<&mut Torrent>, &mut UtpManager, &[UdpListen])> {
         let Engine { peers, slots, utp, udp, .. } = self;
         let p = peers.get_mut(slot)?;
-        let t = p.torrent.and_then(|id| {
-            let s = slots.get_mut(id.index() as usize)?;
-            if s.generation != id.generation() {
-                return None;
-            }
-            s.torrent.as_deref_mut()
-        });
+        let t = p.torrent.and_then(|id| slots.torrent_mut(id));
         Some((p, t, utp, udp.as_slice()))
     }
 
     /// Disjoint borrows of a peer and its torrent.
     pub(super) fn peer_and_torrent(&mut self, slot: usize) -> Option<(&mut PeerConn, Option<&mut Torrent>)> {
         let p = self.peers.get_mut(slot)?;
-        let t = p.torrent.and_then(|id| {
-            let s = self.slots.get_mut(id.index() as usize)?;
-            if s.generation != id.generation() {
-                return None;
-            }
-            s.torrent.as_deref_mut()
-        });
+        let t = p.torrent.and_then(|id| self.slots.torrent_mut(id));
         Some((p, t))
     }
 
@@ -1243,10 +1336,7 @@ impl Engine {
             Command::ForceRecheck(id) => self.force_recheck(id),
             Command::ForceReannounce(id) => {
                 if let Some(t) = self.torrent(id) {
-                    for tr in &mut t.trackers {
-                        tr.next_announce = None;
-                        tr.fails = 0;
-                    }
+                    t.trackers.iter_mut().for_each(TrackerEntry::announce_now);
                 }
             }
             Command::ScrapeTracker(id, index) => self.scrape_tracker(id, index),
@@ -1301,16 +1391,18 @@ impl Engine {
             }
             Command::ReplaceTrackers(id, list) => {
                 let list: Vec<(String, u32)> = list.into_iter().map(|e| (e.url, e.tier)).collect();
-                if let Some(t) = self.torrent(id) {
-                    t.replace_trackers(&list);
+                let Engine { slots, tracker_urls, .. } = self;
+                if let Some(t) = slots.torrent_mut(id) {
+                    t.replace_trackers(&list, tracker_urls);
                     t.resume_dirty = true;
                     t.status_dirty = true;
                 }
             }
             Command::AddTracker(id, e) => {
-                if let Some(t) = self.torrent(id) {
+                let Engine { slots, tracker_urls, .. } = self;
+                if let Some(t) = slots.torrent_mut(id) {
                     let before = t.trackers.len();
-                    t.add_tracker(&e.url, e.tier);
+                    t.add_tracker(&e.url, e.tier, tracker_urls);
                     if t.trackers.len() != before {
                         t.resume_dirty = true;
                         t.status_dirty = true;
@@ -1376,7 +1468,7 @@ impl Engine {
                 if let Some(t) = self.torrent_ref(id) {
                     let data = t.ti.as_ref().map(|ti| {
                         let trackers: Vec<(String, u32)> =
-                            t.trackers.iter().map(|tr| (tr.url.clone(), tr.tier)).collect();
+                            t.trackers.iter().map(|tr| (tr.url.to_string(), tr.tier)).collect();
                         let url_seeds = t.web_seeds.urls(crate::metainfo::WebSeedKind::UrlSeed);
                         let http_seeds = t.web_seeds.urls(crate::metainfo::WebSeedKind::HttpSeed);
                         crate::metainfo::write_torrent_file(ti, &trackers, &url_seeds, &http_seeds).into()
@@ -1578,7 +1670,7 @@ impl Engine {
             t.file_priority[i] = prio.0.min(7);
         }
         for (url, tier) in trackers {
-            t.add_tracker(&url, tier);
+            t.add_tracker(&url, tier, &mut self.tracker_urls);
         }
         for ws in ti.web_seeds() {
             t.web_seeds.add(&ws.url, ws.kind, &ws.auth, &ws.extra_headers, false, false);
@@ -1662,10 +1754,10 @@ impl Engine {
         t.user_named = user_named;
         t.renamed_files = p.renamed_files.clone();
         for (i, url) in m.trackers.iter().enumerate() {
-            t.add_tracker(url, m.tracker_tiers.get(i).copied().unwrap_or(0));
+            t.add_tracker(url, m.tracker_tiers.get(i).copied().unwrap_or(0), &mut self.tracker_urls);
         }
         for (i, url) in p.trackers.iter().enumerate() {
-            t.add_tracker(url, p.tracker_tiers.get(i).copied().unwrap_or(0));
+            t.add_tracker(url, p.tracker_tiers.get(i).copied().unwrap_or(0), &mut self.tracker_urls);
         }
         // BEP 19 `ws=`: used once the metadata is in
         t.web_seeds.add_urls(&m.url_seeds, WebSeedKind::UrlSeed);
@@ -1718,7 +1810,7 @@ impl Engine {
         t.piece_length = r.piece_length;
         for (tier, urls) in r.trackers.iter().enumerate() {
             for u in urls {
-                t.add_tracker(u, tier as u32);
+                t.add_tracker(u, tier as u32, &mut self.tracker_urls);
             }
         }
         t.web_seeds.add_urls(&r.url_seeds, WebSeedKind::UrlSeed);
@@ -1742,19 +1834,9 @@ impl Engine {
         self.insert_torrent(t);
     }
 
-    /// The save path as an `Arc` shared by every torrent saved there: a library of 100,000
-    /// torrents has a handful of download folders, not 100,000 copies of them. Paths no
-    /// torrent holds any more are dropped once the pool grows.
+    /// The save path as an `Arc` shared by every torrent saved there (`StrPool`).
     fn intern_save_path(&mut self, path: &str) -> Arc<str> {
-        if let Some(p) = self.save_paths.get(path) {
-            return p.clone();
-        }
-        if self.save_paths.len() >= 64 {
-            self.save_paths.retain(|p| Arc::strong_count(p) > 1);
-        }
-        let p: Arc<str> = path.into();
-        self.save_paths.insert(p.clone());
-        p
+        self.save_paths.intern(path)
     }
 
     fn load_info(&mut self, key: &str) -> Option<Arc<TorrentInfo>> {
@@ -2211,7 +2293,7 @@ impl Engine {
         let lists = [(t.info_hashes.best_v1_compatible(), &mut t.trackers), (v2_hash, &mut t.trackers_v2)];
         for (ih, list) in lists {
             for tr in list.iter_mut() {
-                if tr.start_sent {
+                if tr.start_sent() {
                     let req = tracker::make_announce(
                         ih,
                         peer_id,
@@ -2223,12 +2305,12 @@ impl Engine {
                         Event::Stopped,
                         key,
                         0,
-                        tr.tracker_id.clone(),
+                        tr.tracker_id().to_owned(),
                     );
                     jobs.push(TrackerJob {
                         torrent: id,
                         tracker: None,
-                        url: tr.url.clone(),
+                        url: tr.url.to_string(),
                         kind: JobKind::Announce(req),
                         filter: filter.clone(),
                     });
@@ -2422,8 +2504,8 @@ impl Engine {
         t.resume_dirty = true;
         if t.downloaded_in_session {
             for tr in &mut t.trackers {
-                if tr.start_sent && !tr.complete_sent && !tr.updating {
-                    tr.next_announce = None;
+                if tr.start_sent() && !tr.complete_sent() && !tr.updating() {
+                    tr.run_mut().next_announce = None;
                 }
             }
         }
@@ -2790,34 +2872,29 @@ impl Engine {
             }
             let ih = t.info_hashes.best_v1_compatible();
             // the list may have been replaced while the request was out: find the URL again
-            let index = if t.trackers.get(index).is_some_and(|tr| tr.url == job.url) {
+            let index = if t.trackers.get(index).is_some_and(|tr| *tr.url == *job.url) {
                 index
             } else {
-                let Some(i) = t.trackers.iter().position(|tr| tr.url == job.url) else { continue };
+                let Some(i) = t.trackers.iter().position(|tr| *tr.url == *job.url) else { continue };
                 i
             };
             let tr = &mut t.trackers[index];
-            let url = tr.url.clone();
+            let url = tr.url.to_string();
             match outcome {
                 TrackerOutcome::Announce(r, tracker_ip) => {
-                    tr.updating = false;
-                    tr.fails = 0;
-                    tr.working = true;
-                    tr.message = r.warning.clone().unwrap_or_default();
-                    if let JobKind::Announce(req) = &job.kind {
-                        match req.event {
-                            Event::Started => tr.start_sent = true,
-                            Event::Completed => tr.complete_sent = true,
-                            _ => {}
-                        }
-                    }
-                    if let Some(tid) = &r.tracker_id {
-                        tr.tracker_id = tid.clone();
-                    }
-                    tr.interval = Some(r.interval);
-                    let interval = r.interval.max(min_interval.min(r.interval.max(60)));
-                    tr.next_announce = Some(now + Duration::from_secs(interval as u64));
-                    tr.min_announce = r.min_interval.map(|m| now + Duration::from_secs(m as u64));
+                    let event = match &job.kind {
+                        JobKind::Announce(req) => Some(req.event),
+                        JobKind::Scrape(_) => None,
+                    };
+                    tr.announced(
+                        event,
+                        r.tracker_id.as_deref(),
+                        r.interval,
+                        r.min_interval,
+                        min_interval,
+                        now,
+                    );
+                    tr.run_mut().message = r.warning.clone().unwrap_or_default();
                     if r.complete.is_some() || r.incomplete.is_some() {
                         let s = tr.scrape.get_or_insert_default();
                         s.complete = r.complete.unwrap_or(s.complete);
@@ -2869,7 +2946,7 @@ impl Engine {
                 }
                 TrackerOutcome::Failed(message) => {
                     tr.failed(message.clone(), now);
-                    let times_in_row = tr.fails;
+                    let times_in_row = tr.fails();
                     t.status_dirty = true;
                     self.alert(Alert::TrackerError { id, url, times_in_row, message });
                 }
@@ -3024,12 +3101,12 @@ impl Engine {
         }
         let index = index
             .filter(|&i| i < t.trackers.len())
-            .or_else(|| t.trackers.iter().position(|tr| tr.working))
+            .or_else(|| t.trackers.iter().position(TrackerEntry::working))
             .unwrap_or(0);
         let job = TrackerJob {
             torrent: id,
             tracker: Some(index),
-            url: t.trackers[index].url.clone(),
+            url: t.trackers[index].url.to_string(),
             kind: JobKind::Scrape(t.info_hashes.best_v1_compatible()),
             filter,
         };
@@ -3052,15 +3129,16 @@ impl Engine {
         let want = if finished && t.peers.len() > 50 { 0 } else { num_want };
         let list = if v2 { &mut t.trackers_v2 } else { &mut t.trackers };
         let Some(tr) = list.get_mut(index) else { return };
-        let event = if !tr.start_sent {
+        let event = if !tr.start_sent() {
             Event::Started
-        } else if finished && in_session && !tr.complete_sent {
+        } else if finished && in_session && !tr.complete_sent() {
             Event::Completed
         } else {
             Event::None
         };
-        tr.updating = true;
-        tr.next_announce = Some(now + Duration::from_secs(60));
+        let run = tr.run_mut();
+        run.updating = true;
+        run.next_announce = Some(now + Duration::from_secs(60));
         let req = tracker::make_announce(
             ih,
             peer_id,
@@ -3072,12 +3150,12 @@ impl Engine {
             event,
             key,
             want,
-            tr.tracker_id.clone(),
+            tr.tracker_id().to_owned(),
         );
         let job = TrackerJob {
             torrent: id,
             tracker: Some(index),
-            url: tr.url.clone(),
+            url: tr.url.to_string(),
             kind: JobKind::Announce(req),
             filter,
         };
@@ -3458,7 +3536,7 @@ impl Engine {
         self.store_flush_due = None;
         let Some(store) = self.store.as_mut() else { return };
         let mut errors = Vec::new();
-        for s in &mut self.slots {
+        for s in self.slots.iter_mut_untracked() {
             let Some(t) = s.torrent.as_deref_mut() else { continue };
             if t.resume_dirty || force {
                 t.resume_dirty = false;
@@ -3478,13 +3556,36 @@ impl Engine {
 
     // --- Status -------------------------------------------------------------------------------
 
+    /// libtorrent `post_torrent_updates`: the torrents whose status changed since the last
+    /// call. Only the slots borrowed mutably since then can hold one (`Slots`), so unchanged
+    /// torrents cost nothing here, however many there are.
     fn post_torrent_updates(&mut self) {
         let now = Instant::now();
         let mut out = Vec::new();
-        for i in 0..self.slots.len() {
-            let Some(t) = self.slots[i].torrent.as_ref() else { continue };
+        let mut touched = self.slots.take_touched();
+        for (w, word) in touched.iter_mut().enumerate() {
+            let mut bits = std::mem::take(word);
+            while bits != 0 {
+                let i = w * 64 + bits.trailing_zeros() as usize;
+                bits &= bits - 1;
+                if let Some(st) = self.changed_status(i, now) {
+                    out.push(st);
+                }
+            }
+        }
+        // nothing borrows a slot mutably above: keep the (cleared) allocation
+        if self.slots.touched.is_empty() {
+            self.slots.touched = touched;
+        }
+        self.alert(Alert::StateUpdate(out));
+    }
+
+    /// The status of the torrent in slot `i` if it changed, clearing `status_dirty`.
+    fn changed_status(&mut self, i: usize, now: Instant) -> Option<TorrentStatus> {
+        {
+            let t = self.slots.get(i)?.torrent.as_deref()?;
             if !t.status_dirty {
-                continue;
+                return None;
             }
             let (mut peers, mut seeds) = (0u32, 0u32);
             let mut rates = (0u32, 0u32, 0u32, 0u32);
@@ -3503,10 +3604,11 @@ impl Engine {
             rates.1 = t.stat().upload_rate();
             rates.2 = t.stat().download_payload.rate();
             rates.3 = t.stat().upload_payload.rate();
-            out.push(t.status(peers, seeds, rates, now));
-            self.slots[i].torrent.as_mut().expect("present").status_dirty = false;
+            let st = t.status(peers, seeds, rates, now);
+            // the bit was taken already: clear the flag without setting it again
+            self.slots.slots[i].torrent.as_mut().expect("present").status_dirty = false;
+            Some(st)
         }
-        self.alert(Alert::StateUpdate(out));
     }
 
     fn post_session_stats(&mut self) {
@@ -3630,9 +3732,8 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
         t.file_priority = r.file_priority.clone();
         t.file_priority.resize(n, DownloadPriority::NORMAL.0);
     }
-    for p in &r.peers {
-        t.peer_list.add(*p, PeerSource::RESUME_DATA, ExternalIp::default(), usize::MAX);
-    }
+    // kept compact until the torrent starts (`PeerList::Saved`)
+    t.peer_list.restore(r.peers.clone());
     t.download_limit.set_limit(r.download_rate_limit);
     t.upload_limit.set_limit(r.upload_rate_limit);
     t.max_connections = r.max_connections;
@@ -3682,5 +3783,37 @@ impl AnnounceSlots {
             free
         };
         AnnounceTo { dht: take(&mut self.dht), trackers: take(&mut self.trackers), lsd: take(&mut self.lsd) }
+    }
+}
+
+#[cfg(test)]
+mod slots_tests {
+    use super::*;
+
+    fn bits(s: &mut Slots) -> Vec<usize> {
+        let words = s.take_touched();
+        (0..words.len() * 64).filter(|&i| words[i / 64] & (1 << (i % 64)) != 0).collect()
+    }
+
+    /// Every mutable borrow of a slot marks it for the status update; reads and the untracked
+    /// walk do not.
+    #[test]
+    fn slots_mark_what_is_borrowed_mutably() {
+        let mut s = Slots::default();
+        for _ in 0..130 {
+            s.push(TorrentSlot { generation: 1, torrent: None });
+        }
+        assert_eq!(bits(&mut s).len(), 130, "new slots are marked");
+        assert!(bits(&mut s).is_empty(), "taking clears");
+        let _ = (s.get(3).is_some(), s.iter().count(), s[5].generation, s.len());
+        let _ = s.iter_mut_untracked().count();
+        assert!(bits(&mut s).is_empty(), "reads mark nothing");
+        s.get_mut(129);
+        s[64].generation = 2;
+        let _ = s.torrent_mut(TorrentId::new(7, 1));
+        let _ = s.get_mut(500);
+        assert_eq!(bits(&mut s), [7, 64, 129]);
+        for _ in &mut s {}
+        assert_eq!(bits(&mut s).len(), 192, "a full walk marks every slot");
     }
 }

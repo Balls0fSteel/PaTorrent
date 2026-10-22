@@ -110,11 +110,12 @@ impl Engine {
             self.peers.get_mut(slot).expect("exists").close("torrent not accepting peers", false);
             return false;
         }
-        // libtorrent `torrent::attach_peer`: `too_many_connections` at the torrent's own limit
-        if self
-            .torrent_ref(id)
-            .is_some_and(|t| t.max_connections.is_some_and(|m| t.peers.len() >= m as usize))
-        {
+        // libtorrent `torrent::attach_peer`: `too_many_connections` at the torrent's own limit,
+        // weighed by the peer's classes
+        let classes = self.peers.get(slot).map(|p| p.classes).unwrap_or_default();
+        if self.torrent_ref(id).is_some_and(|t| {
+            t.max_connections.is_some_and(|m| t.peers.len() >= self.weighed_limit(&classes, m as usize))
+        }) {
             self.peers.get_mut(slot).expect("exists").close("too many connections", false);
             return false;
         }

@@ -74,6 +74,10 @@ pub enum PortmapTransport {
 pub enum BlockReason {
     IpFilter,
     PortFilter,
+    /// An incoming uTP connection while `enable_incoming_utp` is off.
+    UtpDisabled,
+    /// An incoming TCP connection while `enable_incoming_tcp` is off.
+    TcpDisabled,
 }
 
 /// What failed when the proxy did (libtorrent `operation_t`, the values `socks5_alert` uses).

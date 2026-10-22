@@ -8,7 +8,7 @@
 //! that differ from the defaults as `lt.<name>=<value>` lines, so a later build's new defaults
 //! reach everything the user never changed.
 
-use patorrent_core::{EncLevel, EncPolicy, ProxyType, Settings};
+use patorrent_core::{EncLevel, EncPolicy, MixedModeAlgorithm, ProxyType, Settings};
 
 use crate::prefs::Prefs;
 
@@ -164,6 +164,18 @@ pub fn proxy_from_int(i: i64) -> ProxyType {
     }
 }
 
+/// libtorrent's `mixed_mode_algorithm` numbers (0 `prefer_tcp`, 1 `peer_proportional`).
+pub fn mixed_mode_to_int(m: MixedModeAlgorithm) -> i64 {
+    match m {
+        MixedModeAlgorithm::PreferTcp => 0,
+        MixedModeAlgorithm::PeerProportional => 1,
+    }
+}
+
+pub fn mixed_mode_from_int(i: i64) -> MixedModeAlgorithm {
+    if i == 0 { MixedModeAlgorithm::PreferTcp } else { MixedModeAlgorithm::PeerProportional }
+}
+
 macro_rules! entry {
     ($f:ident: bool) => {
         Entry {
@@ -273,6 +285,12 @@ pub static TABLE: &[Entry] = &[
     entry!(enable_outgoing_tcp: bool),
     entry!(enable_incoming_utp: bool),
     entry!(enable_outgoing_utp: bool),
+    Entry {
+        name: "mixed_mode_algorithm",
+        kind: Kind::Int { min: 0, max: 1 },
+        get: |s| Value::Int(mixed_mode_to_int(s.mixed_mode_algorithm)),
+        set: |s, v| s.mixed_mode_algorithm = mixed_mode_from_int(int(v)),
+    },
     entry!(utp_target_delay: i32),
     entry!(utp_gain_factor: i32),
     entry!(utp_min_timeout: i32),

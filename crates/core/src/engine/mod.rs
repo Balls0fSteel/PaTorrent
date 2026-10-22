@@ -22,6 +22,7 @@ mod metadata;
 mod natpmp;
 mod pe;
 pub(crate) mod peer;
+pub(crate) mod peer_class;
 pub(crate) mod peer_list;
 mod pex;
 // `set_block_hash`, the block-hash requests of failed pieces and their helpers are ported with
@@ -306,6 +307,9 @@ pub(crate) struct Engine {
     lsd: lsd::LsdSession,
     portmap: portmap::PortmapSession,
     filters: ip_filter::Filters,
+    /// The peer classes and the filters that assign them (libtorrent `m_classes`,
+    /// `m_peer_class_filter`, `m_peer_class_type_filter`).
+    peer_classes: peer_class::PeerClasses,
     network: listen::NetworkState,
     /// Web seed connections (BEP 19 / BEP 17).
     web: web_seed::WebConns,
@@ -477,6 +481,7 @@ impl Engine {
             lsd: lsd::LsdSession::new(),
             portmap: portmap::PortmapSession::new(),
             filters: ip_filter::Filters::default(),
+            peer_classes: peer_class::PeerClasses::default(),
             network,
             web: web_seed::WebConns::default(),
             proxy: proxy::ProxyState::default(),
@@ -738,16 +743,19 @@ impl Engine {
                     return;
                 }
             };
-            let limit = self.settings.connections_limit;
-            if limit >= 0 && self.peers.len() >= limit as usize {
+            // libtorrent: with a proxy, peers are only accepted through it, never directly
+            if self.session_paused || self.proxy.for_peers().is_some() {
                 continue; // dropped: closes the socket
             }
-            // libtorrent: with a proxy, peers are only accepted through it, never directly
-            if !self.settings.enable_incoming_tcp
-                || self.session_paused
-                || self.proxy.for_peers().is_some()
-                || self.incoming_blocked(addr)
-            {
+            if !self.settings.enable_incoming_tcp {
+                self.alert(Alert::PeerBlocked {
+                    id: None,
+                    addr,
+                    reason: crate::alert::BlockReason::TcpDisabled,
+                });
+                continue;
+            }
+            if self.incoming_blocked(addr) || self.incoming_over_limit(addr, false) {
                 continue;
             }
             self.add_peer_conn(Transport::Tcp(sock), addr, false, PeerSource::INCOMING, None);
@@ -819,11 +827,14 @@ impl Engine {
     fn utp_dispatch(&mut self, now: Instant) {
         for id in self.utp.take_accepted() {
             let Some(addr) = self.utp.get(id).map(|s| s.remote()) else { continue };
-            let limit = self.settings.connections_limit;
-            let refuse = (limit >= 0 && self.peers.len() >= limit as usize)
-                || !self.settings.enable_incoming_utp
-                || self.session_paused
-                || self.incoming_blocked(addr);
+            let refuse = self.session_paused
+                || if !self.settings.enable_incoming_utp {
+                    let reason = crate::alert::BlockReason::UtpDisabled;
+                    self.alert(Alert::PeerBlocked { id: None, addr, reason });
+                    true
+                } else {
+                    self.incoming_blocked(addr) || self.incoming_over_limit(addr, true)
+                };
             if refuse {
                 let mut io = UdpIo { socks: &self.udp };
                 self.utp.detach(id, &mut io, now);
@@ -860,6 +871,8 @@ impl Engine {
             && torrent.and_then(|id| self.torrent_ref(id)).is_some_and(|t| {
                 t.info_hashes.has_v2() && t.peer_list.get(&addr).is_some_and(|k| k.protocol_v2)
             });
+        // libtorrent `peer_connection::start`: `set_peer_classes` by address and socket type
+        let classes = self.peer_classes_for(addr.ip(), sock.is_utp());
         let generation = self.next_peer_gen;
         // The top bit of a connection id stays clear: the disk read cookies of smart_ban use it.
         self.next_peer_gen = (self.next_peer_gen.wrapping_add(1) & 0x7fff_ffff).max(1);
@@ -869,6 +882,7 @@ impl Engine {
         p.id = ((generation as u64) << 32) | slot as u64;
         p.torrent = torrent;
         p.protocol_v2 = v2;
+        p.classes = classes;
         let registered = match &mut p.sock {
             Transport::Tcp(s) => self.poll.registry().register(
                 s,
@@ -883,7 +897,9 @@ impl Engine {
         };
         if let Err(e) = registered {
             self.alert(Alert::Log { id: torrent, message: format!("{addr}: register failed: {e}") });
-            self.peers.remove(slot);
+            if let Some(mut p) = self.peers.remove(slot) {
+                p.classes.clear(&mut self.peer_classes.pool);
+            }
             return None;
         }
         Some(slot)
@@ -980,12 +996,12 @@ impl Engine {
     fn do_read_capped(&mut self, slot: usize, mut share: usize) {
         loop {
             let backlogged = self.disk_backlogged();
-            let session_quota = self.download_bucket.available();
-            let Some((p, t, utp, _)) = self.peer_io(slot) else { return };
+            let class_quota = self.peer_quota(slot, peer_class::DOWNLOAD);
+            let Some((p, _, utp, _)) = self.peer_io(slot) else { return };
             if p.closing.is_some() || p.state == PeerState::Connecting {
                 return;
             }
-            let quota = session_quota.min(t.map_or(usize::MAX, |t| t.download_limit.available())).min(share);
+            let quota = class_quota.min(share);
             let quota = if backlogged && p.state == PeerState::Active { 0 } else { quota };
             if quota == 0 {
                 p.read_blocked = true;
@@ -1008,10 +1024,7 @@ impl Engine {
             share = share.saturating_sub(n);
             if n > 0 {
                 p.last_receive = Instant::now();
-                self.download_bucket.consume(n);
-                if let Some((_, Some(t))) = self.peer_and_torrent(slot) {
-                    t.download_limit.consume(n);
-                }
+                self.use_quota(slot, peer_class::DOWNLOAD, n);
                 let payload = self.process_messages(slot);
                 let protocol = (n as u64).saturating_sub(payload);
                 self.stat.received(0, protocol);
@@ -1034,19 +1047,20 @@ impl Engine {
 
     /// Writes at most `share` bytes: the peer's share when several wait for quota.
     fn flush_peer_capped(&mut self, slot: usize, share: usize) {
-        let session_quota = self.upload_bucket.available();
+        let class_quota = self.peer_quota(slot, peer_class::UPLOAD);
         let now = Instant::now();
         let Some((p, t, utp, udp)) = self.peer_io(slot) else { return };
         if p.closing.is_some() || p.state == PeerState::Connecting || p.send_buffer_len() == 0 {
             return;
         }
-        let quota =
-            session_quota.min(t.as_ref().map_or(usize::MAX, |t| t.upload_limit.available())).min(share);
+        let quota = class_quota.min(share);
+        p.upload_quota_blocked = quota == 0;
         if quota == 0 {
             p.write_blocked = true;
             return;
         }
         let mut io = UdpIo { socks: udp };
+        let mut sent = 0;
         match p.write_some(quota, utp, &mut io, now) {
             Ok((raw, payload, _)) => {
                 if raw > 0 {
@@ -1055,14 +1069,14 @@ impl Engine {
                 let protocol = raw.saturating_sub(payload) as u64;
                 p.stat.sent(payload as u64, protocol);
                 if let Some(t) = t {
-                    t.upload_limit.consume(raw);
                     t.stat.get_or_insert_with(Box::default).sent(payload as u64, protocol);
                 }
-                self.upload_bucket.consume(raw);
                 self.stat.sent(payload as u64, protocol);
+                sent = raw;
             }
             Err(e) => p.close(format!("write error: {e}"), false),
         }
+        self.use_quota(slot, peer_class::UPLOAD, sent);
         self.pump_uploads(slot);
     }
 
@@ -1081,6 +1095,7 @@ impl Engine {
     fn bandwidth_tick_needed(&self) -> bool {
         self.download_bucket.limit > 0
             || self.upload_bucket.limit > 0
+            || self.peer_classes.pool.any_limited()
             || self.peers.iter().any(|(_, p)| p.read_blocked || (p.write_blocked && p.send_buffer_len() > 0))
             || self.web.any_read_blocked()
     }
@@ -1090,6 +1105,7 @@ impl Engine {
         self.last_bandwidth = now;
         self.download_bucket.refill(dt);
         self.upload_bucket.refill(dt);
+        self.peer_classes.pool.refill(dt);
         // stopped torrents move no data: their buckets refill once they run again
         for id in self.active_ids() {
             if let Some(t) = self.torrent(id) {
@@ -1110,29 +1126,34 @@ impl Engine {
     }
 
     /// libtorrent `bandwidth_manager::update_quotas` / `bw_request::assign_bandwidth`: the
-    /// quota of each channel (the session's and each torrent's) is split evenly over the peers
-    /// waiting for it (every peer has priority 1). Serving them in slot order with all the quota
-    /// let the first, busy peers take everything, and a new peer never read its handshake.
+    /// quota of each rate-limited channel (the classes of the peers, the global class being the
+    /// session's limit, and each torrent's own limit) is split over the peers waiting for it in
+    /// proportion to their priority (`distribute_quota * priority / tmp`, `tmp` being the sum of
+    /// the waiting peers' priorities), and a peer on several channels gets the smallest of its
+    /// shares. Serving them in slot order with all the quota let the first, busy peers take
+    /// everything, and a new peer never read its handshake.
     fn quota_shares(&self, slots: &[usize], download: bool) -> Vec<(usize, usize)> {
-        fn share(available: usize, waiting: usize) -> usize {
-            if available == usize::MAX { usize::MAX } else { available / waiting.max(1) }
+        let channel = if download { peer_class::DOWNLOAD } else { peer_class::UPLOAD };
+        let mut requests = Vec::with_capacity(slots.len());
+        let mut tmp: HashMap<peer_class::Channel, u64> = HashMap::new();
+        for &slot in slots {
+            let mut chans = Vec::new();
+            self.pertinent_channels(slot, channel, &mut chans);
+            let priority = self.peer_priority(slot, channel);
+            for &c in &chans {
+                *tmp.entry(c).or_default() += priority as u64;
+            }
+            requests.push((slot, priority, chans));
         }
-        let mut per_torrent: HashMap<TorrentId, usize> = HashMap::new();
-        for id in slots.iter().filter_map(|&s| self.peers.get(s).and_then(|p| p.torrent)) {
-            *per_torrent.entry(id).or_default() += 1;
-        }
-        let session = if download { &self.download_bucket } else { &self.upload_bucket };
-        let session_share = share(session.available(), slots.len());
-        slots
-            .iter()
-            .map(|&slot| {
-                let id = self.peers.get(slot).and_then(|p| p.torrent);
-                let torrent_share =
-                    id.and_then(|id| self.torrent_ref(id).map(|t| (id, t))).map_or(usize::MAX, |(id, t)| {
-                        let bucket = if download { &t.download_limit } else { &t.upload_limit };
-                        share(bucket.available(), per_torrent[&id])
-                    });
-                (slot, session_share.min(torrent_share))
+        requests
+            .into_iter()
+            .map(|(slot, priority, chans)| {
+                let share = chans
+                    .iter()
+                    .map(|&c| self.channel_share(c, channel, priority, tmp[&c]))
+                    .min()
+                    .unwrap_or(usize::MAX);
+                (slot, share)
             })
             .collect()
     }
@@ -1148,6 +1169,7 @@ impl Engine {
 
     fn remove_peer(&mut self, slot: usize) {
         let Some(mut p) = self.peers.remove(slot) else { return };
+        p.classes.clear(&mut self.peer_classes.pool);
         let now = Instant::now();
         match &mut p.sock {
             Transport::Tcp(sock) => {
@@ -1403,6 +1425,7 @@ impl Engine {
             }
             Command::SetIpFilter(f) => self.set_ip_filter(f),
             Command::SetPortFilter(f) => self.set_port_filter(f),
+            Command::PeerClass(c) => self.peer_class_command(c),
             Command::ReopenNetworkSockets => self.on_ip_change(Instant::now(), true),
             #[cfg(test)]
             Command::SetFakeNetwork(net) => {
@@ -1414,8 +1437,14 @@ impl Engine {
     }
 
     fn apply_settings(&mut self, s: Settings) {
-        self.download_bucket.set_limit(s.download_rate_limit);
-        self.upload_bucket.set_limit(s.upload_rate_limit);
+        // libtorrent `update_download_rate` / `update_upload_rate`: the global class's limits,
+        // set only when the setting changes (`set_peer_class` may have set them since)
+        if s.download_rate_limit != self.settings.download_rate_limit {
+            self.set_rate_limit(peer_class::PeerClassId::GLOBAL, peer_class::DOWNLOAD, s.download_rate_limit);
+        }
+        if s.upload_rate_limit != self.settings.upload_rate_limit {
+            self.set_rate_limit(peer_class::PeerClassId::GLOBAL, peer_class::UPLOAD, s.upload_rate_limit);
+        }
         self.utp.set_settings(UtpSettings::from(&s));
         self.disk.set_file_pool_size(s.file_pool_size as usize);
         self.disk.set_read_cache(s.use_read_cache, s.cache_size, s.read_cache_line_size, s.cache_expiry);
@@ -2883,6 +2912,7 @@ impl Engine {
         let dt = now.duration_since(self.last_tick).as_secs_f64();
         self.last_tick = now;
         self.stat.tick(dt);
+        self.update_mixed_mode();
         self.trackers.tick(self.poll.registry(), now);
         self.apply_tracker_results();
         {
@@ -3332,7 +3362,9 @@ impl Engine {
         let mut candidates: Vec<(usize, u32)> = Vec::new();
         let mut others: Vec<usize> = Vec::new();
         for (slot, p) in self.peers.iter() {
-            if p.state != PeerState::Active || p.closing.is_some() {
+            // libtorrent `recalculate_unchoke_slots`: peers that ignore the unchoke slots are
+            // left alone (they were unchoked when they became interested)
+            if p.state != PeerState::Active || p.closing.is_some() || self.ignore_unchoke_slots(p) {
                 continue;
             }
             let Some(t) = p.torrent.and_then(|id| self.torrent_ref(id)) else { continue };
@@ -3436,8 +3468,14 @@ impl Engine {
         if !ready {
             return;
         }
+        // libtorrent `maybe_unchoke_this_peer`: a peer exempt from the choker is unchoked at once
+        if self.peers.get(slot).is_some_and(|p| self.ignore_unchoke_slots(p)) {
+            return self.set_choke(slot, false, Instant::now());
+        }
         let limit = self.settings.unchoke_slots_limit;
-        let unchoked = self.peers.iter().filter(|(_, p)| !p.am_choking).count();
+        // the unchoked peers that use a slot (libtorrent `num_peers_up_unchoked`)
+        let unchoked =
+            self.peers.iter().filter(|(_, p)| !p.am_choking && !self.ignore_unchoke_slots(p)).count();
         // and only while its torrent is below `max_uploads` (libtorrent `unchoke_peer`)
         let id = self.peers.get(slot).and_then(|p| p.torrent);
         let torrent_full = id.and_then(|id| self.torrent_ref(id)).is_some_and(|t| {

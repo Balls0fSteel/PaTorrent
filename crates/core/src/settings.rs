@@ -24,6 +24,20 @@ pub enum EncLevel {
     Both,
 }
 
+/// How TCP peers are limited while uTP peers are connected (libtorrent
+/// `settings_pack::mixed_mode_algorithm_t`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum MixedModeAlgorithm {
+    /// TCP peers are never throttled for uTP's sake (libtorrent `prefer_tcp`, 0).
+    PreferTcp,
+    /// While uTP peers move data, the tcp peer class is limited to four times the TCP peers'
+    /// share (by peer count) of the session's current rate, at least 5 kB/s up and 30 kB/s
+    /// down, so uTP's delay-based congestion control is not starved (libtorrent
+    /// `peer_proportional`, 1, the default).
+    #[default]
+    PeerProportional,
+}
+
 /// The kind of proxy server (libtorrent `settings_pack::proxy_type_t`; I2P is not supported).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum ProxyType {
@@ -135,6 +149,9 @@ pub struct Settings {
     pub enable_outgoing_tcp: bool,
     pub enable_incoming_utp: bool,
     pub enable_outgoing_utp: bool,
+    /// How TCP peers are throttled while uTP peers are connected (libtorrent
+    /// `mixed_mode_algorithm`): the tcp peer class's limits are set every tick.
+    pub mixed_mode_algorithm: MixedModeAlgorithm,
     /// uTP's target one-way delay, in milliseconds (LEDBAT).
     pub utp_target_delay: i32,
     /// Bytes the uTP congestion window grows per RTT when the delay is zero.
@@ -334,6 +351,7 @@ impl Default for Settings {
             enable_outgoing_tcp: true,
             enable_incoming_utp: true,
             enable_outgoing_utp: true,
+            mixed_mode_algorithm: MixedModeAlgorithm::PeerProportional,
             utp_target_delay: 100,
             utp_gain_factor: 3000,
             utp_min_timeout: 500,

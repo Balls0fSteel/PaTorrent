@@ -8,6 +8,7 @@ use std::sync::{Arc, mpsc};
 use std::thread::JoinHandle;
 
 use crate::alert::{Alert, AlertQueue};
+use crate::engine::peer_class::{PeerClassId, PeerClassInfo, PeerClassTypeFilter};
 use crate::net::ip_filter::{IpFilter, PortFilter};
 use crate::params::{AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags};
 use crate::settings::Settings;
@@ -62,6 +63,7 @@ pub(crate) enum Command {
     ApplySettings(Box<Settings>),
     SetIpFilter(Arc<IpFilter>),
     SetPortFilter(PortFilter),
+    PeerClass(PeerClassCommand),
     PauseSession,
     ResumeSession,
     /// libtorrent `reopen_network_sockets`.
@@ -71,6 +73,20 @@ pub(crate) enum Command {
     #[cfg(test)]
     SetFakeNetwork(Option<(Vec<crate::net::enum_net::IpInterface>, Vec<crate::net::enum_net::IpRoute>)>),
     Shutdown,
+}
+
+/// The peer class calls (libtorrent `session_handle`'s peer class functions). The getters and
+/// `create_peer_class` carry a channel for the engine's answer.
+#[derive(Debug)]
+pub(crate) enum PeerClassCommand {
+    Create(String, mpsc::Sender<PeerClassId>),
+    Delete(PeerClassId),
+    Get(PeerClassId, mpsc::Sender<Option<PeerClassInfo>>),
+    Set(PeerClassId, PeerClassInfo),
+    SetFilter(IpFilter),
+    GetFilter(mpsc::Sender<IpFilter>),
+    SetTypeFilter(PeerClassTypeFilter),
+    GetTypeFilter(mpsc::Sender<PeerClassTypeFilter>),
 }
 
 /// State shared between handles and the engine thread.
@@ -231,6 +247,86 @@ impl SessionHandle {
     /// blocked port are not added to any torrent.
     pub fn set_port_filter(&self, filter: PortFilter) {
         self.send(Command::SetPortFilter(filter));
+    }
+
+    /// Sends a call that the engine answers, and waits for the answer (libtorrent's
+    /// `sync_call`). `None` once the session is gone, or when the engine cannot answer (a
+    /// remote session, the simulated engine). Never call it from the alert notify callback,
+    /// which runs on the engine thread.
+    fn sync_call<T>(&self, f: impl FnOnce(mpsc::Sender<T>) -> PeerClassCommand) -> Option<T> {
+        let (tx, rx) = mpsc::channel();
+        self.send(Command::PeerClass(f(tx)));
+        rx.recv().ok()
+    }
+
+    /// Creates a peer class (libtorrent `create_peer_class`): no rate limits, priority 1,
+    /// counted in the unchoke slots, connection limit factor 100. Peers join it through the
+    /// peer class filter ([`SessionHandle::set_peer_class_filter`]) or the type filter
+    /// ([`SessionHandle::set_peer_class_type_filter`]), which name classes 0 to 31 only. Ids of
+    /// deleted classes are reused. Blocks until the engine answers; `None` once the session is
+    /// gone.
+    pub fn create_peer_class(&self, label: &str) -> Option<PeerClassId> {
+        self.sync_call(|tx| PeerClassCommand::Create(label.to_owned(), tx))
+    }
+
+    /// Deletes a class made by [`SessionHandle::create_peer_class`] (libtorrent
+    /// `delete_peer_class`). Peers in it keep it, with its limits, until they disconnect; its
+    /// id is reused after that. The default classes ([`PeerClassId::GLOBAL`], `TCP`, `LOCAL`)
+    /// are not deleted. Take the class out of the filters first: until its id is reused by
+    /// another class, new peers that map to it join no class for that bit.
+    pub fn delete_peer_class(&self, class: PeerClassId) {
+        self.send(Command::PeerClass(PeerClassCommand::Delete(class)));
+    }
+
+    /// The settings of a class (libtorrent `get_peer_class`); `None` if there is no such
+    /// class. The global class's limits are the session's rate limits.
+    pub fn get_peer_class(&self, class: PeerClassId) -> Option<PeerClassInfo> {
+        self.sync_call(|tx| PeerClassCommand::Get(class, tx)).flatten()
+    }
+
+    /// Changes a class (libtorrent `set_peer_class`): limits apply to the sum of all its peers'
+    /// transfers; priorities are clamped to 1..=255 and limits of 1 to 9 become 10. The global
+    /// class's limits are the session's rate limits (until the `upload_rate_limit` or
+    /// `download_rate_limit` setting changes), and the tcp class's are set every tick by
+    /// `mixed_mode_algorithm`.
+    pub fn set_peer_class(&self, class: PeerClassId, info: PeerClassInfo) {
+        self.send(Command::PeerClass(PeerClassCommand::Set(class, info)));
+    }
+
+    /// Maps address ranges to peer classes (libtorrent `set_peer_class_filter`): each range's
+    /// flags are a mask of class bits ([`PeerClassId::mask`]). Connections made from then on
+    /// join the classes of their address, then the type filter applies. The default maps every
+    /// address to the global class; libtorrent's also puts the local networks and loopback in
+    /// the local class, outside the global limits and the unchoke slots:
+    ///
+    /// ```
+    /// # use patorrent_core::{IpFilter, PeerClassId};
+    /// let mut f = IpFilter::new();
+    /// let (all, last) = ("0.0.0.0".parse().unwrap(), "255.255.255.255".parse().unwrap());
+    /// f.add_rule(all, last, PeerClassId::GLOBAL.mask());
+    /// let (lan, lan_end) = ("192.168.0.0".parse().unwrap(), "192.168.255.255".parse().unwrap());
+    /// f.add_rule(lan, lan_end, PeerClassId::LOCAL.mask());
+    /// ```
+    pub fn set_peer_class_filter(&self, filter: IpFilter) {
+        self.send(Command::PeerClass(PeerClassCommand::SetFilter(filter)));
+    }
+
+    /// libtorrent `get_peer_class_filter`.
+    pub fn get_peer_class_filter(&self) -> Option<IpFilter> {
+        self.sync_call(PeerClassCommand::GetFilter)
+    }
+
+    /// Adds and removes classes by socket type, after the peer class filter (libtorrent
+    /// `set_peer_class_type_filter`). The default adds TCP sockets to the tcp class.
+    /// Disallowing the global class for uTP sockets takes uTP peers out of the session's rate
+    /// limits (what libtorrent's deprecated `rate_limit_utp = false` did).
+    pub fn set_peer_class_type_filter(&self, filter: PeerClassTypeFilter) {
+        self.send(Command::PeerClass(PeerClassCommand::SetTypeFilter(filter)));
+    }
+
+    /// libtorrent `get_peer_class_type_filter`.
+    pub fn get_peer_class_type_filter(&self) -> Option<PeerClassTypeFilter> {
+        self.sync_call(PeerClassCommand::GetTypeFilter)
     }
 
     /// Reads the network interfaces again and reopens the listen sockets, LSD and the port

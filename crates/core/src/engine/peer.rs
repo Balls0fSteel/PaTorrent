@@ -147,6 +147,12 @@ pub(crate) struct PeerConn {
     pub read_blocked: bool,
     /// Bytes are waiting in the send buffer and the socket said WouldBlock.
     pub write_blocked: bool,
+    /// The last write stopped for lack of upload quota (libtorrent's `bw_limit` channel
+    /// state, as opposed to `bw_network`); the mixed mode counts only peers on the network.
+    pub upload_quota_blocked: bool,
+    /// The peer classes of the connection (libtorrent `peer_connection` is a
+    /// `peer_class_set`), set once when it is added; each holds a reference in the pool.
+    pub classes: super::peer_class::PeerClassSet,
     /// Set once we decided to close; the engine removes the peer after the current event.
     pub closing: Option<(String, bool)>,
 }
@@ -225,6 +231,8 @@ impl PeerConn {
             snubbed: false,
             read_blocked: false,
             write_blocked: false,
+            upload_quota_blocked: false,
+            classes: super::peer_class::PeerClassSet::default(),
             closing: None,
         }
     }

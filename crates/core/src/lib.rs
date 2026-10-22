@@ -46,6 +46,8 @@ mod mock;
 pub use alert::{
     Alert, AlertCategory, AlertPriority, AlertQueue, BlockReason, FileOperation, ProxyOperation,
 };
+/// Peer classes (libtorrent `peer_class_t`, `peer_class_info`, `peer_class_type_filter`).
+pub use engine::peer_class::{PeerClassId, PeerClassInfo, PeerClassTypeFilter, SocketType};
 pub use error::Error;
 pub use move_completed::{MoveCompleted, same_dir};
 /// A blocking HTTP / HTTPS `GET` for frontends (Add Torrent from URL, RSS feeds).
@@ -59,7 +61,7 @@ pub use params::{
 /// The forgiving XML scanner (libtorrent `xml_parse`), for RSS and Atom feeds.
 pub use proto::xml;
 pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
-pub use settings::{EncLevel, EncPolicy, ProxyType, Settings};
+pub use settings::{EncLevel, EncPolicy, MixedModeAlgorithm, ProxyType, Settings};
 pub use status::{
     AnnounceEntry, BlockState, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource, SessionStats,
     TorrentState, TorrentStatus, TrackerStatus,

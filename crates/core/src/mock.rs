@@ -367,6 +367,7 @@ impl Mock {
             Command::ConnectPeer(..)
             | Command::SetIpFilter(_)
             | Command::SetPortFilter(_)
+            | Command::PeerClass(_)
             | Command::ReopenNetworkSockets
             | Command::AddWebSeed(..)
             | Command::RemoveWebSeed(..) => {}

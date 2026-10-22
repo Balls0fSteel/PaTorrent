@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- AppStream metadata of PaTorrent's GTK GUI (packaging/flatpak, docs/RELEASING.md).
+     The first <release> is the workspace version in Cargo.toml; the release workflow checks
+     that they agree and validates this file with appstreamcli. -->
+<component type="desktop-application">
+  <id>io.github.balls0fsteel.PaTorrent</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>PolyForm-Noncommercial-1.0.0</project_license>
+
+  <name>PaTorrent</name>
+  <summary>Lightweight BitTorrent client</summary>
+  <developer id="io.github.balls0fsteel">
+    <name>DukeCorp1996</name>
+  </developer>
+
+  <description>
+    <p>
+      PaTorrent (PatinaTorrent) is a lean BitTorrent client in the spirit of µTorrent 2.2.1:
+      small, fast, native and comfortable with thousands of torrents. Its engine is a Rust port
+      of libtorrent-rasterbar.
+    </p>
+    <ul>
+      <li>Downloads and seeds over TCP and uTP, with HTTP, HTTPS and UDP trackers</li>
+      <li>Magnet links, DHT, peer exchange and local peer discovery</li>
+      <li>Encryption, web seeds, proxies, UPnP and NAT-PMP, IP filters</li>
+      <li>A tray icon, desktop notifications and Auto Shutdown</li>
+    </ul>
+    <p>
+      PaTorrent is pre-alpha: settings and saved state may change between versions. It is
+      source-available under the PolyForm Noncommercial License 1.0.0, so it is free for
+      noncommercial use only.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.balls0fsteel.PaTorrent.desktop</launchable>
+
+  <url type="homepage">https://github.com/Balls0fSteel/PaTorrent</url>
+  <url type="bugtracker">https://github.com/Balls0fSteel/PaTorrent/issues</url>
+  <url type="vcs-browser">https://github.com/Balls0fSteel/PaTorrent</url>
+
+  <provides>
+    <binary>patorrent-gtk</binary>
+    <mediatype>application/x-bittorrent</mediatype>
+    <mediatype>x-scheme-handler/magnet</mediatype>
+  </provides>
+
+  <categories>
+    <category>Network</category>
+    <category>FileTransfer</category>
+    <category>P2P</category>
+  </categories>
+
+  <keywords>
+    <keyword>torrent</keyword>
+    <keyword>bittorrent</keyword>
+    <keyword>magnet</keyword>
+    <keyword>p2p</keyword>
+  </keywords>
+
+  <supports>
+    <control>pointing</control>
+    <control>keyboard</control>
+  </supports>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#8fd1c4</color>
+    <color type="primary" scheme_preference="dark">#1e4d47</color>
+  </branding>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.1.0" date="2026-10-22" type="development">
+      <description>
+        <p>First pre-alpha build of the GTK GUI as a Flatpak.</p>
+      </description>
+    </release>
+  </releases>
+</component>

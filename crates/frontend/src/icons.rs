@@ -1,9 +1,165 @@
-//! Original toolbar, window and tray icons, drawn at run time at the size needed, shared by the
-//! GUIs (the Win32 client's toolbar, window and tray icons; the GTK client's tray icon).
+//! The GUIs' icons, shared by the Win32 and GTK clients.
 //!
-//! Each icon is a few vector shapes on a 24-unit grid, rasterised with 4×4 supersampling. No
-//! image files are involved, and the icons are sharp at every scale. The GUIs take the pixels
-//! in their system's layout ([`toolbar_bgra`], [`app_bgra`], [`app_argb`]).
+//! - The toolbar images ([`Icon`]): original drawings, a few vector shapes on a 24-unit grid
+//!   rasterised at run time with 4×4 supersampling, so they are sharp at every scale
+//!   ([`toolbar_bgra`]).
+//! - The PatinaTorrent state icons ([`StateIcon`]): the PNG exports of
+//!   `assets/patina-icons/states` at 16, 20, 24 and 32 px, embedded. Which one a torrent,
+//!   tracker or the network indicator shows is [`crate::status::status_icon`],
+//!   [`tracker_icon`] and [`network_icon`], as `states/manifest.json` maps them; this table
+//!   (state to asset name) is the same for both GUIs.
+//! - The PatinaTorrent application icon's PNG exports ([`app_png`], for the GTK client's window,
+//!   tray and desktop entries). The Win32 client embeds the same family's `.ico` as the
+//!   executable's icon resource (`crates/win32/build.rs`). The family in use is named once, in
+//!   `assets/patina-icons/app-icon.txt` (see `assets/patina-icons/INTEGRATION.md`).
+//!
+//! The PNGs are decoded by the toolkits (Windows' icon loader, GDK's texture loader), so there
+//! is no image decoder here.
+
+use patorrent_core::TrackerStatus;
+
+/// The pixel sizes the state icons are embedded at (`exports/states/<size>`).
+pub const STATE_SIZES: [u32; 4] = [16, 20, 24, 32];
+
+/// The state icon size to use for `want` pixels (16 scaled to the screen): the largest
+/// embedded size that fits, 16 at least. 100 %, 125 %, 150 % and 200 % get theirs exactly.
+pub fn state_size(want: u32) -> u32 {
+    STATE_SIZES.iter().rev().copied().find(|&s| s <= want).unwrap_or(STATE_SIZES[0])
+}
+
+macro_rules! state_png {
+    ($size:literal, $file:literal) => {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../assets/patina-icons/exports/states/",
+            $size,
+            "/",
+            $file,
+            ".png"
+        ))
+    };
+}
+
+macro_rules! state_icons {
+    ($($(#[$doc:meta])* $variant:ident => $file:literal,)*) => {
+        /// A PatinaTorrent state icon, named after its asset (`states/<name>.svg`, exported as
+        /// `exports/states/<size>/<name>.png`). [`StateIcon::ALL`] is in declaration order, so
+        /// `icon as usize` is an index into it (the Win32 image list's order).
+        #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+        pub enum StateIcon {
+            $($(#[$doc])* $variant,)*
+        }
+
+        impl StateIcon {
+            pub const ALL: [StateIcon; 24] = [$(StateIcon::$variant,)*];
+
+            /// The asset's name, as in `states/manifest.json`'s `id`.
+            pub fn name(self) -> &'static str {
+                match self {
+                    $(StateIcon::$variant => $file,)*
+                }
+            }
+
+            /// The PNG export at [`state_size`]`(size)` pixels: 8-bit RGBA, straight alpha.
+            pub fn png(self, size: u32) -> &'static [u8] {
+                let i = STATE_SIZES.iter().position(|&s| s == state_size(size)).unwrap_or(0);
+                let all: [&'static [u8]; 4] = match self {
+                    $(StateIcon::$variant => [
+                        state_png!(16, $file),
+                        state_png!(20, $file),
+                        state_png!(24, $file),
+                        state_png!(32, $file),
+                    ],)*
+                };
+                all[i]
+            }
+        }
+    };
+}
+
+state_icons! {
+    // torrents: the branches of `status::status_text`
+    Downloading => "downloading",
+    ForceDownloading => "force-downloading",
+    Seeding => "seeding",
+    ForceSeeding => "force-seeding",
+    DownloadingMetadata => "downloading-metadata",
+    ForceDownloadingMetadata => "force-downloading-metadata",
+    CheckingFiles => "checking-files",
+    CheckingResumeData => "checking-resume-data",
+    QueuedChecking => "queued-checking",
+    QueuedResumeChecking => "queued-resume-checking",
+    QueuedDownload => "queued-download",
+    QueuedSeed => "queued-seed",
+    PausedIncomplete => "paused-incomplete",
+    PausedComplete => "paused-complete",
+    StoppedIncomplete => "stopped-incomplete",
+    /// "Finished": stopped and complete.
+    StoppedComplete => "stopped-complete",
+    Moving => "moving",
+    Error => "error",
+    // trackers (the Trackers tab)
+    TrackerNotContacted => "tracker-not-contacted",
+    TrackerWorking => "tracker-working",
+    TrackerUpdating => "tracker-updating",
+    TrackerError => "tracker-error",
+    // the status bar's network indicator
+    /// An incoming connection has been seen.
+    NetworkOk => "network-ok",
+    /// None seen yet (not proof that the port is closed).
+    NetworkNoIncoming => "network-no-incoming",
+}
+
+/// A tracker row's icon.
+pub fn tracker_icon(status: TrackerStatus) -> StateIcon {
+    match status {
+        TrackerStatus::NotContacted => StateIcon::TrackerNotContacted,
+        TrackerStatus::Working => StateIcon::TrackerWorking,
+        TrackerStatus::Updating => StateIcon::TrackerUpdating,
+        TrackerStatus::Error => StateIcon::TrackerError,
+    }
+}
+
+/// The status bar's network indicator (`SessionStats::has_incoming_connections`).
+pub fn network_icon(has_incoming_connections: bool) -> StateIcon {
+    if has_incoming_connections { StateIcon::NetworkOk } else { StateIcon::NetworkNoIncoming }
+}
+
+/// The pixel sizes the application icon is exported at (`exports/app/<family>/<size>.png`; the
+/// 512 px master is left out).
+pub const APP_SIZES: [u32; 8] = [16, 20, 24, 32, 48, 64, 128, 256];
+
+macro_rules! app_png {
+    ($size:literal) => {
+        include_bytes!(concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../assets/patina-icons/exports/app/",
+            env!("PATINA_APP_ICON"),
+            "/",
+            $size,
+            ".png"
+        ))
+    };
+}
+
+/// The application icon (the family named in `assets/patina-icons/app-icon.txt`) as a PNG of
+/// `size` pixels, one of [`APP_SIZES`]: 8-bit RGBA, straight alpha.
+pub fn app_png(size: u32) -> Option<&'static [u8]> {
+    Some(match size {
+        16 => app_png!(16),
+        20 => app_png!(20),
+        24 => app_png!(24),
+        32 => app_png!(32),
+        48 => app_png!(48),
+        64 => app_png!(64),
+        128 => app_png!(128),
+        256 => app_png!(256),
+        _ => return None,
+    })
+}
+
+/// The application icon's family, such as `01-verdigris` (`assets/patina-icons/app-icon.txt`).
+pub const APP_ICON_FAMILY: &str = env!("PATINA_APP_ICON");
 
 /// Toolbar images, in image-list order.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -304,46 +460,12 @@ fn rounded(x: f32, y: f32, a: f32, b: f32, r: f32) -> bool {
     x >= a && x <= b && y >= a && y <= b && (x - cx).powi(2) + (y - cy).powi(2) <= r * r
 }
 
-/// The application icon: a green disc with a white down arrow over a bar.
-fn draw_app(c: &mut Canvas) {
-    c.circle(Paint::Solid(0x15651d), 12.0, 12.0, 11.5);
-    c.circle(Paint::Gradient(0x6ad86a, 0x1f8f2a), 12.0, 12.0, 10.5);
-    let white = Paint::Solid(0xffffff);
-    c.poly(
-        white,
-        &[(9.5, 4.5), (14.5, 4.5), (14.5, 11.0), (18.0, 11.0), (12.0, 17.0), (6.0, 11.0), (9.5, 11.0)],
-    );
-    c.rect(white, 6.5, 18.0, 17.5, 20.0);
-}
-
 /// A toolbar image, `size` pixels square: BGRA bytes, premultiplied, top-down; `gray` for the
 /// disabled look.
 pub fn toolbar_bgra(icon: Icon, size: usize, gray: bool) -> Vec<u8> {
     let mut c = Canvas::new(size);
     draw(icon, &mut c);
     c.bgra(gray)
-}
-
-/// The application icon, `size` pixels square: BGRA bytes, premultiplied, top-down (a Windows
-/// DIB).
-pub fn app_bgra(size: usize) -> Vec<u8> {
-    let mut c = Canvas::new(size);
-    draw_app(&mut c);
-    c.bgra(false)
-}
-
-/// The application icon, `size` pixels square: ARGB bytes in that order, not premultiplied,
-/// top-down (a StatusNotifierItem pixmap: 32-bit ARGB in network byte order).
-pub fn app_argb(size: usize) -> Vec<u8> {
-    let mut c = Canvas::new(size);
-    draw_app(&mut c);
-    let mut out = Vec::with_capacity(c.px.len() * 4);
-    for p in &c.px {
-        let a = p[3];
-        let un = |v: f32| if a > 0.0 { v / a } else { 0.0 };
-        out.extend([to8(a), to8(un(p[0])), to8(un(p[1])), to8(un(p[2]))]);
-    }
-    out
 }
 
 #[cfg(test)]
@@ -363,14 +485,63 @@ mod tests {
         }
     }
 
+    /// Width, height, bit depth, colour type and interlace method from a PNG's IHDR.
+    fn ihdr(png: &[u8]) -> (u32, u32, u8, u8, u8) {
+        assert_eq!(&png[..8], b"\x89PNG\r\n\x1a\n", "not a PNG");
+        assert_eq!(&png[12..16], b"IHDR");
+        let be = |i: usize| u32::from_be_bytes([png[i], png[i + 1], png[i + 2], png[i + 3]]);
+        (be(16), be(20), png[24], png[25], png[28])
+    }
+
     #[test]
-    fn the_app_icon_in_both_layouts() {
-        let (bgra, argb) = (app_bgra(22), app_argb(22));
-        assert_eq!((bgra.len(), argb.len()), (22 * 22 * 4, 22 * 22 * 4));
-        // a corner is clear, the centre opaque; the same pixel in both layouts
-        assert_eq!((bgra[3], argb[0]), (0, 0));
-        let mid = (11 * 22 + 11) * 4;
-        assert_eq!(argb[mid], 255);
-        assert_eq!([bgra[mid + 2], bgra[mid + 1], bgra[mid]], [argb[mid + 1], argb[mid + 2], argb[mid + 3]]);
+    fn state_icons_are_embedded_at_every_size() {
+        for icon in StateIcon::ALL {
+            assert_eq!(StateIcon::ALL[icon as usize], icon);
+            for size in STATE_SIZES {
+                // 8-bit RGBA, not interlaced, at the size asked for
+                assert_eq!(ihdr(icon.png(size)), (size, size, 8, 6, 0), "{icon:?} at {size}");
+            }
+        }
+    }
+
+    #[test]
+    fn state_icons_are_the_manifests() {
+        let manifest = include_str!("../../../assets/patina-icons/states/manifest.json");
+        for icon in StateIcon::ALL {
+            let id = format!("\"id\": \"{}\"", icon.name());
+            assert!(manifest.contains(&id), "{icon:?}: {id} is not in states/manifest.json");
+        }
+        let mut names: Vec<&str> = StateIcon::ALL.iter().map(|i| i.name()).collect();
+        names.sort_unstable();
+        names.dedup();
+        assert_eq!(names.len(), StateIcon::ALL.len());
+    }
+
+    #[test]
+    fn state_sizes_follow_the_scale() {
+        let got: Vec<u32> = [8, 16, 18, 20, 22, 24, 28, 32, 48].into_iter().map(state_size).collect();
+        assert_eq!(got, [16, 16, 16, 20, 20, 24, 24, 32, 32]);
+        assert_eq!(ihdr(StateIcon::Error.png(28)).0, 24);
+    }
+
+    #[test]
+    fn trackers_and_network() {
+        assert_eq!(tracker_icon(TrackerStatus::NotContacted), StateIcon::TrackerNotContacted);
+        assert_eq!(tracker_icon(TrackerStatus::Working), StateIcon::TrackerWorking);
+        assert_eq!(tracker_icon(TrackerStatus::Updating), StateIcon::TrackerUpdating);
+        assert_eq!(tracker_icon(TrackerStatus::Error), StateIcon::TrackerError);
+        assert_eq!(network_icon(true), StateIcon::NetworkOk);
+        assert_eq!(network_icon(false), StateIcon::NetworkNoIncoming);
+    }
+
+    #[test]
+    fn the_app_icon_at_every_size() {
+        let chosen = include_str!("../../../assets/patina-icons/app-icon.txt").trim();
+        assert_eq!(APP_ICON_FAMILY, chosen);
+        for size in APP_SIZES {
+            let png = app_png(size).expect("an exported size");
+            assert_eq!(ihdr(png), (size, size, 8, 6, 0), "app icon at {size}");
+        }
+        assert!(app_png(22).is_none() && app_png(512).is_none());
     }
 }

@@ -6,6 +6,7 @@
 
 use patorrent_core::{TorrentFlags, TorrentState, TorrentStatus};
 
+use crate::icons::StateIcon;
 use crate::{fmt, tr};
 
 /// The text shown in the Status column.
@@ -76,6 +77,51 @@ pub fn status_class(st: &TorrentStatus, user_paused: bool) -> &'static str {
         TorrentState::DownloadingMetadata => "metadata",
         _ if st.is_finished => "seeding",
         _ => "downloading",
+    }
+}
+
+/// The row's PatinaTorrent state icon, with the same branches as [`status_text`]
+/// (`assets/patina-icons/states/manifest.json` gives each icon's condition). Unlike the text,
+/// the icon keeps checking files and checking resume data apart, and pausing a finished
+/// torrent apart from pausing an unfinished one. Initial seeding shows as seeding.
+pub fn status_icon(st: &TorrentStatus, user_paused: bool) -> StateIcon {
+    if !st.error.is_empty() {
+        return StateIcon::Error;
+    }
+    if st.moving_storage {
+        return StateIcon::Moving;
+    }
+    let paused = st.flags.contains(TorrentFlags::PAUSED);
+    let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);
+    match (st.state, paused && auto) {
+        (TorrentState::CheckingFiles, true) => return StateIcon::QueuedChecking,
+        (TorrentState::CheckingFiles, false) => return StateIcon::CheckingFiles,
+        (TorrentState::CheckingResumeData, true) => return StateIcon::QueuedResumeChecking,
+        (TorrentState::CheckingResumeData, false) => return StateIcon::CheckingResumeData,
+        _ => {}
+    }
+    if paused {
+        return match (auto, user_paused, st.is_finished) {
+            (true, _, true) => StateIcon::QueuedSeed,
+            (true, _, false) => StateIcon::QueuedDownload,
+            (false, true, true) => StateIcon::PausedComplete,
+            (false, true, false) => StateIcon::PausedIncomplete,
+            (false, false, true) => StateIcon::StoppedComplete,
+            (false, false, false) => StateIcon::StoppedIncomplete,
+        };
+    }
+    match (st.state, auto) {
+        (TorrentState::DownloadingMetadata, true) => StateIcon::DownloadingMetadata,
+        (TorrentState::DownloadingMetadata, false) => StateIcon::ForceDownloadingMetadata,
+        _ if st.is_finished => {
+            if auto {
+                StateIcon::Seeding
+            } else {
+                StateIcon::ForceSeeding
+            }
+        }
+        (_, true) => StateIcon::Downloading,
+        (_, false) => StateIcon::ForceDownloading,
     }
 }
 
@@ -177,6 +223,43 @@ mod tests {
         err.error.clear();
         err.moving_storage = true;
         assert_eq!(status_class(&err, false), "moving");
+    }
+
+    #[test]
+    fn status_icons_follow_the_manifest() {
+        let am = TorrentFlags::AUTO_MANAGED;
+        let p = TorrentFlags::PAUSED;
+        let e = TorrentFlags::empty();
+        use StateIcon as I;
+        use TorrentState::*;
+        let cases = [
+            (st(am, Downloading, false), false, I::Downloading),
+            (st(e, Downloading, false), false, I::ForceDownloading),
+            (st(am, Seeding, true), false, I::Seeding),
+            (st(e, Seeding, true), false, I::ForceSeeding),
+            // the core's Finished (wanted pieces done) is shown as seeding, as the text does
+            (st(am, Finished, true), false, I::Seeding),
+            (st(am, DownloadingMetadata, false), false, I::DownloadingMetadata),
+            (st(e, DownloadingMetadata, false), false, I::ForceDownloadingMetadata),
+            (st(e, CheckingFiles, false), false, I::CheckingFiles),
+            (st(am, CheckingResumeData, false), false, I::CheckingResumeData),
+            (st(am | p, CheckingFiles, false), false, I::QueuedChecking),
+            (st(am | p, CheckingResumeData, false), false, I::QueuedResumeChecking),
+            (st(am | p, Downloading, false), false, I::QueuedDownload),
+            (st(am | p, Seeding, true), false, I::QueuedSeed),
+            (st(p, Downloading, false), true, I::PausedIncomplete),
+            (st(p, Seeding, true), true, I::PausedComplete),
+            (st(p, Downloading, false), false, I::StoppedIncomplete),
+            (st(p, Seeding, true), false, I::StoppedComplete),
+        ];
+        for (s, user_paused, icon) in cases {
+            assert_eq!(status_icon(&s, user_paused), icon, "{:?} {:?}", s.state, s.flags);
+        }
+        let mut s = st(am, Downloading, false);
+        s.moving_storage = true;
+        assert_eq!(status_icon(&s, false), I::Moving);
+        s.error = "disk full".into();
+        assert_eq!(status_icon(&s, false), I::Error);
     }
 
     #[test]

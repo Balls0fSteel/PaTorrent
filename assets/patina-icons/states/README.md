@@ -23,7 +23,7 @@ Follow `crates/frontend/src/status.rs`:
 4. For other paused torrents, `AUTO_MANAGED` selects queued download or queued seed. Otherwise `user_paused` selects a paused variant. A user stop selects stopped incomplete or stopped complete (**Finished**).
 5. Active metadata download gets its document icon. Other active torrents use `is_finished` to select seeding or downloading. Absence of `AUTO_MANAGED` selects a force-start variant.
 
-`manifest.json` contains both the six base core-state mappings and an individually documented source condition for every file. The application still draws its existing icons at runtime; these candidate assets are not connected to Rust or UI code.
+`manifest.json` contains both the six base core-state mappings and an individually documented source condition for every file. The PNG exports are used by both GUIs (the torrent list, the Trackers tab and the status bar); see [../INTEGRATION.md](../INTEGRATION.md).
 
 ## Palette and rendering
 

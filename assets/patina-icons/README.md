@@ -37,7 +37,7 @@ Editable SVGs use a **16 × 16** view box. Transparent PNG exports are in `expor
 - [prompts.json](prompts.json): exact prompts used with the built-in image_gen tool.
 - [validation.json](validation.json): export validation summary.
 
-No application code or default icon has been changed. The assets are original; no artwork was taken from other torrent clients. App candidates were created using the built-in image_gen tool; state icons were drawn directly as vectors. Repository licensing applies.
+01 Verdigris and the state family are connected to the application, provisionally until a direction is chosen: [INTEGRATION.md](INTEGRATION.md) lists where each file is used and how to switch candidates. The assets are original; no artwork was taken from other torrent clients. App candidates were created using the built-in image_gen tool; state icons were drawn directly as vectors. Repository licensing applies.
 
 To regenerate exports and comparison sheets with Node.js and the `sharp` library:
 

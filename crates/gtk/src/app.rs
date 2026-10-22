@@ -23,6 +23,7 @@ use patorrent_core::{
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{Detail, PRIORITIES, Tab};
+use patorrent_frontend::icons::network_icon;
 use patorrent_frontend::integration::{Integration, MINIMIZED};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
@@ -33,6 +34,7 @@ use patorrent_frontend::rss::view::{self as rss_view, FeedForm, ItemRow};
 use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
+use patorrent_frontend::status::status_icon;
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 use patorrent_frontend::{actions, add, create, fmt, settings, tr};
 
@@ -104,6 +106,8 @@ struct Ui {
     list: List,
     sidebar: Rc<Sidebar>,
     status: [gtk::Label; 4],
+    /// The network indicator before the first status text.
+    net_icon: gtk::Image,
     paned: gtk::Paned,
     details: Rc<Details>,
     /// The list over the detail tabs.
@@ -251,6 +255,7 @@ fn startup(app: &gtk::Application) {
     css.load_from_string(CSS);
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
+        crate::icons::setup(&display);
     }
     let quit = gio::SimpleAction::new("quit", None);
     quit.connect_activate(|_, _| quit_app());
@@ -502,10 +507,10 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         with_app(|a| {
             let st = a.list.get(id)?;
             let text = column.text(st, a.list.extra(id));
-            Some(if column == Column::Done {
-                Content::Progress(f64::from(st.progress_ppm) / 1e6, text)
-            } else {
-                Content::Text(text)
+            Some(match column {
+                Column::Done => Content::Progress(f64::from(st.progress_ppm) / 1e6, text),
+                Column::Name => Content::Named(status_icon(st, a.list.extra(id).user_paused), text),
+                _ => Content::Text(text),
             })
         })
         .flatten()
@@ -625,6 +630,9 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     paned.set_resize_start_child(false);
     paned.set_position(prefs.get_i32("gtk.sidebar").unwrap_or(180));
     let statusbar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    let net_icon = crate::icons::state_image();
+    net_icon.set_margin_start(6);
+    statusbar.append(&net_icon);
     for (i, l) in status.iter().enumerate() {
         if i > 0 {
             statusbar.append(&gtk::Separator::new(gtk::Orientation::Vertical));
@@ -665,7 +673,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     add_actions(&window, &list);
     // magnets whose dialog was still to come at the last exit
     let awaiting = add::AwaitingMetadata::load(&prefs);
-    let ui = Rc::new(Ui { list, sidebar, status, paned, details, split, list_scroll, feed_table });
+    let ui = Rc::new(Ui { list, sidebar, status, net_icon, paned, details, split, list_scroll, feed_table });
     UI.with(|u| *u.borrow_mut() = Some(ui));
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
@@ -1237,10 +1245,10 @@ pub(crate) fn popup_menu(menu: &gio::Menu, parent: &gtk::Widget, widget: &gtk::W
 
 fn update_status() {
     let Some(ui) = ui() else { return };
-    let Some(texts) = with_app(|a| {
+    let Some((texts, has_incoming)) = with_app(|a| {
         let s = &a.stats;
         let net = if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) };
-        [
+        let texts = [
             match a.scheduler.status_text() {
                 Some(sched) => format!("{net} | {sched}"),
                 None => net.to_owned(),
@@ -1248,10 +1256,12 @@ fn update_status() {
             tr!(BarDht, count = s.dht_nodes),
             tr!(BarDown, rate = fmt::speed_always(s.download_rate), total = fmt::size(s.recv_payload_bytes)),
             tr!(BarUp, rate = fmt::speed_always(s.upload_rate), total = fmt::size(s.sent_payload_bytes)),
-        ]
+        ];
+        (texts, s.has_incoming_connections)
     }) else {
         return;
     };
+    crate::icons::set_state(&ui.net_icon, network_icon(has_incoming));
     if let Some(t) = tray() {
         let tip = with_app(|a| {
             let s = &a.stats;
@@ -2570,6 +2580,7 @@ fn about() {
         .transient_for(&window)
         .modal(true)
         .program_name("PaTorrent")
+        .logo_icon_name(APP_ID)
         .version(patorrent_core::VERSION)
         .comments(tr!(AboutShort))
         .website("https://github.com/Balls0fSteel/PaTorrent")

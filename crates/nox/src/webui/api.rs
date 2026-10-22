@@ -15,7 +15,7 @@ use patorrent_core::{
     TrackerStatus, VERSION,
 };
 use patorrent_frontend::detail::peer_flags;
-use patorrent_frontend::lang;
+use patorrent_frontend::{icons, lang};
 
 use super::auth::{constant_time_eq, random_hex};
 use super::commands::{self, AddOptions, Source};
@@ -32,33 +32,30 @@ pub const WEBAPI_VERSION: &str = "2.11.2";
 /// Largest body accepted before a client has logged in (the login form).
 pub const UNAUTHENTICATED_BODY: usize = 64 * 1024;
 
-/// The Web UI page: three static files embedded in the binary (docs/WEBUI.md goal 3) and the
+/// The Web UI page: three static files and the favicon (the application icon's 32 px PNG,
+/// `frontend::icons::app_png`) embedded in the binary (docs/WEBUI.md goal 3) and the
 /// string table in the server's language (`lang.js`, made again when the language changes),
 /// served with an `ETag` (a SHA-1 of the body) so a reload after an upgrade fetches them once
 /// and a `Cache-Control: no-cache` so the browser revalidates every time.
 pub struct StaticFile {
     pub path: &'static str,
     pub content_type: &'static str,
-    pub body: &'static str,
+    pub body: &'static [u8],
     etag: String,
 }
 
 impl StaticFile {
-    fn new(path: &'static str, content_type: &'static str, body: &'static str) -> StaticFile {
-        StaticFile {
-            path,
-            content_type,
-            body,
-            etag: format!("\"{}\"", Sha1::digest(body.as_bytes()).to_hex()),
-        }
+    fn new(path: &'static str, content_type: &'static str, body: &'static [u8]) -> StaticFile {
+        StaticFile { path, content_type, body, etag: format!("\"{}\"", Sha1::digest(body).to_hex()) }
     }
 }
 
-static STATIC_FILES: LazyLock<[StaticFile; 3]> = LazyLock::new(|| {
+static STATIC_FILES: LazyLock<[StaticFile; 4]> = LazyLock::new(|| {
     [
-        StaticFile::new("/", "text/html; charset=UTF-8", include_str!("page.html")),
-        StaticFile::new("/style.css", "text/css; charset=UTF-8", include_str!("style.css")),
-        StaticFile::new("/app.js", "text/javascript; charset=UTF-8", include_str!("app.js")),
+        StaticFile::new("/", "text/html; charset=UTF-8", include_bytes!("page.html")),
+        StaticFile::new("/style.css", "text/css; charset=UTF-8", include_bytes!("style.css")),
+        StaticFile::new("/app.js", "text/javascript; charset=UTF-8", include_bytes!("app.js")),
+        StaticFile::new("/favicon.png", "image/png", icons::app_png(32).unwrap_or_default()),
     ]
 });
 
@@ -72,7 +69,7 @@ fn lang_file() -> &'static StaticFile {
     match *cached {
         Some((g, f)) if g == generation => f,
         _ => {
-            let body: &'static str = Box::leak(lang_js().into_boxed_str());
+            let body: &'static [u8] = Box::leak(lang_js().into_boxed_str()).as_bytes();
             let f: &'static StaticFile =
                 Box::leak(Box::new(StaticFile::new("/lang.js", "text/javascript; charset=UTF-8", body)));
             *cached = Some((generation, f));
@@ -1535,6 +1532,15 @@ mod tests {
 
     use patorrent_frontend::lang::S;
 
+    #[test]
+    fn the_page_has_the_application_icon() {
+        let f = static_file("/favicon.png").expect("served");
+        assert_eq!((f.content_type, &f.body[..8]), ("image/png", &b"\x89PNG\r\n\x1a\n"[..]));
+        assert!(
+            include_str!("page.html").contains(r#"<link rel="icon" type="image/png" href="favicon.png">"#)
+        );
+    }
+
     /// Every key the page names (`data-t`, `data-t-title`, `data-t-aria`, `data-t-ph`) is in
     /// the string table, and the English the page carries for a browser without scripts is the
     /// table's, without its mnemonics.
@@ -1609,7 +1615,7 @@ mod tests {
         assert_eq!(texts.entries().len(), S::ALL.len());
         assert_eq!(texts.get("MenuFile").and_then(Json::as_str), Some("File"));
         assert_eq!(texts.get("GenConnected").and_then(Json::as_str), Some("{count} of {total} connected"));
-        assert!(static_file("/lang.js").is_some_and(|f| f.body == js));
+        assert!(static_file("/lang.js").is_some_and(|f| f.body == js.as_bytes()));
     }
 
     fn head_with(headers: &[(&str, &str)]) -> Head {

@@ -173,16 +173,21 @@ mod tests {
         );
     }
 
+    /// A `Response` as the portal sends it: `(ua{sv})`. (A tuple's `to_variant` would box the
+    /// dictionary as `v`, which is not what arrives.)
+    fn signal(code: u32, results: &glib::VariantDict) -> glib::Variant {
+        glib::Variant::tuple_from_iter([code.to_variant(), results.end()])
+    }
+
     #[test]
     fn responses_carry_results_only_on_success() {
         let results = glib::VariantDict::new(None);
         results.insert("autostart", true);
-        let ok = (0u32, results.end()).to_variant();
+        let ok = signal(0, &results);
+        assert_eq!(ok.type_().as_str(), "(ua{sv})");
         assert_eq!(response(&ok).unwrap().lookup::<bool>("autostart").unwrap(), Some(true));
-        let cancelled = (1u32, glib::VariantDict::new(None).end()).to_variant();
-        assert!(response(&cancelled).is_err());
-        let other = (2u32, glib::VariantDict::new(None).end()).to_variant();
-        assert!(response(&other).is_err());
+        assert!(response(&signal(1, &glib::VariantDict::new(None))).is_err());
+        assert!(response(&signal(2, &glib::VariantDict::new(None))).is_err());
         assert!(response(&"nonsense".to_variant()).is_err());
     }
 }

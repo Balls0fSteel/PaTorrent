@@ -59,7 +59,9 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: brew install gtk4 pkgconf
       - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      # every test binary runs, so one failure (a flaky one: PLAN Known TODOs "macOS") does not
+      # hide the results of the others
+      - run: cargo test --workspace --no-fail-fast
       - run: cargo build --workspace --exclude patorrent-gtk --target x86_64-apple-darwin
       # a test binary that crashes prints nothing of its own: macOS's crash report says why
       - name: Crash reports

@@ -2,6 +2,19 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_090703_1792652823: The GTK GUI builds and passes its tests on macOS; the flaky test, closer
+
+### Verified
+- Pushed 1838729 and 5a4e082. CI run 39735832737: fmt, MSRV, Windows, Ubuntu and the Windows release build passed, FreeBSD passed; `macos` installed Homebrew's GTK 4 and passed clippy over the whole workspace (the GTK GUI compiled for macOS for the first time), then `cargo test` stopped at the flaky `a_tracker_reply_sets_the_external_address` before reaching the GTK GUI's tests.
+- Debug run 39737718964 (`macos-debug`): `patorrent-gtk` builds and links against Homebrew's GTK 4.22.4 (`/opt/homebrew/opt/gtk4/lib/libgtk-4.1.dylib`), and its tests pass (2). Not run as a GUI yet.
+
+### Changed
+- The `macos` job runs `cargo test --workspace --no-fail-fast`: one failing binary no longer hides the others' results.
+- `tests/external_ip.rs`: on a timeout the tracker test asks the engine for its tracker list and session stats and logs the answers (68cff06).
+
+### Issues
+- `a_tracker_reply_sets_the_external_address` on macOS: 2 failures in 4 full runs, none in 38 targeted ones. The CI failure's timed log shows the engine's announce reaching the fake tracker and the reply going back, and the engine never handling it (no reply, no error) for 15 s. Cause not found; PLAN Known TODOs "macOS".
+
 ## 2026-10-22_083939_1792651179: The GTK GUI compiles for macOS, and the macOS job builds it
 
 ### Changed

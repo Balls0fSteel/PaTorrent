@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-22_214800_1792698480: Pushed; CI green after one GTK test fix; Release green on every job, the Flatpak step and the macOS 1 px fix confirmed
+
+Pushed f4c6349..c60f65f (the parallel batch), then a95c096.
+
+### Verified
+- **CI 39827079639 / FreeBSD 39827079666** (c60f65f): every job green but the Ubuntu test job and FreeBSD, both on one new GTK test, `portal::tests::responses_carry_results_only_on_success` (`unexpected portal response (uint32 0, <{'autostart': <true>}>)`). The portal code was right (the `Response` signal is `(ua{sv})`); the test built its sample with a tuple's `to_variant()`, which boxes the dictionary as `v`, so `get::<(u32, VariantDict)>()` found nothing. It had never run: the GTK crate's tests do not build on Windows. Fixed (a95c096: the sample is `Variant::tuple_from_iter`, and the test asserts the type is `(ua{sv})`); **CI 39836902912 and FreeBSD 39836902942 green** on every job. **Fuzz 39827079678** green on all 25 targets, `remote_wire` included.
+- **Release 39840228831** (a95c096, by hand, 17 min): **every job green** (version, windows, both linux, flatpak, macos; `release` skipped as always without a tag). Artifacts: `linux-x86_64` 45.5 MB, `linux-aarch64` 44.1 MB, `macos` 20.0 MB, `flatpak-x86_64` 2.2 MB, `windows-x64` 4.4 MB, `macos-gui-start` 92 KB.
+  - **Flatpak**: the regeneration step works in the container now (`packaging/flatpak/cargo-sources.json matches Cargo.lock`), `appstreamcli validate` passed (pedantic: 1), and `flatpak-builder-lint --exceptions --user-exceptions packaging/flatpak/lint-exceptions.json manifest` printed nothing, so with the two exceptions nothing is left for Flathub's linter. `PaTorrent-0.1.0-dev.a95c096-x86_64.flatpak` built.
+  - **macOS**: the launcher compiled under `-Werror`, 42 libraries bundled, minimum macOS 15.0, `codesign --verify --deep --strict` passed, both nox binaries linked system libraries only (arm64 minimum 11.0, x86_64 10.12), `--version` ran for the app and both nox binaries with Homebrew moved away, **the GUI was running after 20 s with an empty log**: the `GtkNotebook` 109/110 warning that was the only message last time is gone (the 1 px fix of 4908a9f). The dmg was made. The screenshot (artifact `macos-gui-start`) shows the PaTorrent window with its menu bar (PaTorrent, File, Options, Help) and the Verdigris icon in the Dock.
+- Everything before the push, in the entry above.
+
+### Issues
+- The macOS screenshot: macOS 15's local-network prompt is attributed to "hosted-compute-" (the runner's host name) with the generic text, not to PaTorrent with `NSLocalNetworkUsageDescription`: TCC attributes a prompt to the *responsible* process, which for a GUI started from the runner's shell session is not the bundle. Started from the Finder on a real Mac it should name the app; unverified. The window's body is black under the prompt (the title bar and menu bar paint): the headless runner's GPU, the prompt, or a real paint problem; unknown until someone clicks on a Mac.
+- GitHub left the aarch64 Linux job's record `in_progress` with no conclusion for over 15 min after its last step (`Complete job`) succeeded and its artifact uploaded; the run itself concluded `success`.
+- The `release` job (the draft release with every artifact attached) is still untested: it needs a tag.
+- Nothing from a95c096 is pushed beyond itself: the CHANGELOG / PLAN commit for this run is local.
+
 ## 2026-10-22_184817_1792687697: Four Road-to-1.0 pieces in parallel: macOS open events and Login Items, Flatpak autostart, the security review's open points, memory per stopped torrent
 
 Four worktree branches, one per item, merged into main (4908a9f macOS, f13d778 Flatpak, 3772a16 security, eca2ae1 scale), plus 93a9550 (dead code the merge showed). Not pushed.

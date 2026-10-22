@@ -116,12 +116,14 @@ pub fn setup(display: &gdk::Display) {
 
 /// The folder holding the application icon as a theme (the tray's `IconThemePath`), when
 /// [`setup`] could write it.
+#[cfg(not(target_os = "macos"))]
 pub fn theme_dir() -> Option<PathBuf> {
     THEME_DIR.with(|d| d.borrow().clone())
 }
 
 /// The application icon as StatusNotifierItem pixmaps: (width, height, ARGB32 in network byte
 /// order, straight alpha), at the exported sizes from 16 to 64 pixels.
+#[cfg(not(target_os = "macos"))]
 pub fn app_pixmaps() -> Vec<(i32, i32, Vec<u8>)> {
     APP_SIZES
         .iter()

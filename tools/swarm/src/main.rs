@@ -38,7 +38,7 @@ USAGE:
     lt-swarm gen --out DIR [--count N] [--seed N]
     lt-swarm parse DIR
     lt-swarm loopback [--mb N] [--piece-kib N]
-    lt-swarm load [--count N] [--keep DIR [--reuse]] [--idle SECONDS]
+    lt-swarm load [--count N] [--peers N] [--keep DIR [--reuse]] [--idle SECONDS]
     lt-swarm interop [--clients qbittorrent,transmission,deluge] [--mb N]
                      [--encryption forced|enabled|disabled] [--version v1|hybrid|v2]
                      [--transport tcp|utp|utp-only] [--super-seed]
@@ -104,7 +104,7 @@ fn main() -> ExitCode {
             engine::loopback(mb.max(1), piece.clamp(16, 16 * 1024), cpu_time)
         }
         Some("load") => {
-            let mut o = engine::LoadOptions { count: 1000, keep: None, reuse: false, idle_secs: 0 };
+            let mut o = engine::LoadOptions { count: 1000, peers: 0, keep: None, reuse: false, idle_secs: 0 };
             let mut it = args[1..].iter();
             while let Some(a) = it.next() {
                 if a == "--reuse" {
@@ -116,12 +116,20 @@ fn main() -> ExitCode {
                         Ok(n) => o.count = n,
                         Err(_) => return usage("--count: not a number"),
                     },
+                    ("--peers", Some(n)) => match n.parse() {
+                        Ok(n) => o.peers = n,
+                        Err(_) => return usage("--peers: not a number"),
+                    },
                     ("--idle", Some(n)) => match n.parse() {
                         Ok(n) => o.idle_secs = n,
                         Err(_) => return usage("--idle: not a number"),
                     },
                     ("--keep", Some(d)) => o.keep = Some(std::path::PathBuf::from(d)),
-                    _ => return usage("load: expected --count N, --keep DIR, --reuse, --idle SECONDS"),
+                    _ => {
+                        return usage(
+                            "load: expected --count N, --peers N, --keep DIR, --reuse, --idle SECONDS",
+                        );
+                    }
                 }
             }
             engine::load(o, rss_bytes, cpu_time)

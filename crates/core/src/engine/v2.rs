@@ -20,7 +20,6 @@ use crate::error::Error;
 use crate::metainfo::merkle_tree::MerkleTree;
 use crate::metainfo::{FileStorage, MetainfoError, TorrentInfo};
 use crate::proto::peer_wire::{self, HashMsg, msg};
-use crate::proto::tracker::Event;
 use crate::status::PeerSource;
 use crate::types::{Sha256Hash, TorrentId};
 use crate::util::bitfield::Bitfield;
@@ -378,26 +377,14 @@ impl Engine {
         let min_interval = self.settings.min_announce_interval;
         let id = job.torrent;
         let Some(t) = self.torrent(id) else { return };
-        let Some(tr) = t.trackers_v2.iter_mut().find(|tr| tr.url == job.url) else { return };
+        let Some(tr) = t.trackers_v2.iter_mut().find(|tr| *tr.url == *job.url) else { return };
         match outcome {
             TrackerOutcome::Announce(r, _) => {
-                tr.updating = false;
-                tr.fails = 0;
-                tr.working = true;
-                if let JobKind::Announce(req) = &job.kind {
-                    match req.event {
-                        Event::Started => tr.start_sent = true,
-                        Event::Completed => tr.complete_sent = true,
-                        _ => {}
-                    }
-                }
-                if let Some(tid) = &r.tracker_id {
-                    tr.tracker_id = tid.clone();
-                }
-                tr.interval = Some(r.interval);
-                let interval = r.interval.max(min_interval.min(r.interval.max(60)));
-                tr.next_announce = Some(now + Duration::from_secs(interval as u64));
-                tr.min_announce = r.min_interval.map(|m| now + Duration::from_secs(m as u64));
+                let event = match &job.kind {
+                    JobKind::Announce(req) => Some(req.event),
+                    JobKind::Scrape(_) => None,
+                };
+                tr.announced(event, r.tracker_id.as_deref(), r.interval, r.min_interval, min_interval, now);
                 self.add_peers(id, &r.peers, PeerSource::TRACKER);
                 if let Some(t) = self.torrent(id) {
                     for addr in &r.peers {

@@ -7,11 +7,10 @@
 
 //! Fast-resume records.
 
-use std::net::SocketAddr;
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::bencode::{Entry, Node, bdecode};
 use crate::error::Error;
-use crate::proto::tracker::parse_compact_peers;
 use crate::types::{InfoHashes, Sha1Hash, Sha256Hash};
 use crate::util::bitfield::Bitfield;
 
@@ -45,7 +44,8 @@ pub(crate) struct ResumeData {
     pub mapped_files: std::collections::BTreeMap<u32, String>,
     /// Tracker URLs per tier.
     pub trackers: Vec<Vec<String>>,
-    pub peers: Vec<SocketAddr>,
+    /// The saved peers, compact (`peers` and `peers6`).
+    pub peers: SavedPeers,
     /// BEP 19 and BEP 17 web seeds (libtorrent `url-list` / `httpseeds`): they live outside the
     /// info dictionary, so the metadata store does not keep them.
     pub url_seeds: Vec<String>,
@@ -122,24 +122,11 @@ impl ResumeData {
         *e.key("trackers") = Entry::List(
             self.trackers.iter().map(|tier| Entry::List(tier.iter().map(|u| s(u)).collect())).collect(),
         );
-        let (mut v4, mut v6) = (Vec::new(), Vec::new());
-        for p in &self.peers {
-            match p {
-                SocketAddr::V4(a) => {
-                    v4.extend_from_slice(&a.ip().octets());
-                    v4.extend_from_slice(&a.port().to_be_bytes());
-                }
-                SocketAddr::V6(a) => {
-                    v6.extend_from_slice(&a.ip().octets());
-                    v6.extend_from_slice(&a.port().to_be_bytes());
-                }
-            }
+        if !self.peers.v4().is_empty() {
+            *e.key("peers") = Entry::Bytes(self.peers.v4().to_vec());
         }
-        if !v4.is_empty() {
-            *e.key("peers") = Entry::Bytes(v4);
-        }
-        if !v6.is_empty() {
-            *e.key("peers6") = Entry::Bytes(v6);
+        if !self.peers.v6().is_empty() {
+            *e.key("peers6") = Entry::Bytes(self.peers.v6().to_vec());
         }
         *e.key("url-list") = Entry::List(self.url_seeds.iter().map(|u| s(u)).collect());
         *e.key("httpseeds") = Entry::List(self.http_seeds.iter().map(|u| s(u)).collect());
@@ -266,12 +253,10 @@ impl ResumeData {
         };
         r.url_seeds = strings("url-list");
         r.http_seeds = strings("httpseeds");
-        if let Some(p) = root.dict_find_string_value("peers") {
-            parse_compact_peers(p, false, &mut r.peers);
-        }
-        if let Some(p) = root.dict_find_string_value("peers6") {
-            parse_compact_peers(p, true, &mut r.peers);
-        }
+        r.peers = SavedPeers::from_compact(
+            root.dict_find_string_value("peers").unwrap_or_default(),
+            root.dict_find_string_value("peers6").unwrap_or_default(),
+        );
         if let Some(info) = root.dict_find_dict("info") {
             r.info = Some(info.data_section().to_vec());
         }
@@ -282,9 +267,180 @@ impl ResumeData {
     }
 }
 
+/// Peers saved in resume data, in the compact form they are saved in (libtorrent's `peers`
+/// and `peers6`: 6 bytes per IPv4 peer, 18 per IPv6 one): a stopped torrent keeps them so
+/// until it starts (`PeerList::Saved`). Unusable addresses (port 0, unspecified, multicast)
+/// and repeats are dropped, as adding them to a peer list would.
+#[derive(Clone, Default, Debug, PartialEq, Eq)]
+pub(crate) struct SavedPeers {
+    /// The IPv4 entries' byte length (a `u32` at the front would cost as much and read worse),
+    /// then the IPv4 entries, then the IPv6 ones.
+    bytes: Box<[u8]>,
+}
+
+const V4_LEN: usize = 6;
+const V6_LEN: usize = 18;
+
+impl SavedPeers {
+    /// Whether a peer list takes the address (libtorrent `peer_list::add_peer` refuses the
+    /// others).
+    pub fn usable(addr: &SocketAddr) -> bool {
+        !(addr.port() == 0 || addr.ip().is_unspecified() || addr.ip().is_multicast())
+    }
+
+    pub fn from_addrs(addrs: impl IntoIterator<Item = SocketAddr>) -> SavedPeers {
+        let (mut v4, mut v6) = (Vec::new(), Vec::new());
+        for a in addrs {
+            match a {
+                SocketAddr::V4(a) => {
+                    v4.extend_from_slice(&a.ip().octets());
+                    v4.extend_from_slice(&a.port().to_be_bytes());
+                }
+                SocketAddr::V6(a) => {
+                    v6.extend_from_slice(&a.ip().octets());
+                    v6.extend_from_slice(&a.port().to_be_bytes());
+                }
+            }
+        }
+        SavedPeers::from_compact(&v4, &v6)
+    }
+
+    /// From libtorrent's `peers` and `peers6` strings (a trailing partial entry is ignored).
+    pub fn from_compact(v4: &[u8], v6: &[u8]) -> SavedPeers {
+        let mut seen = std::collections::HashSet::new();
+        let mut keep = |c: &[u8]| {
+            let a = decode_entry(c);
+            SavedPeers::usable(&a) && seen.insert(a)
+        };
+        let mut out = Vec::with_capacity(v4.len() + v6.len());
+        for c in v4.chunks_exact(V4_LEN) {
+            if keep(c) {
+                out.extend_from_slice(c);
+            }
+        }
+        let n4 = out.len();
+        for c in v6.chunks_exact(V6_LEN) {
+            if keep(c) {
+                out.extend_from_slice(c);
+            }
+        }
+        SavedPeers::from_parts(n4, out)
+    }
+
+    fn from_parts(n4: usize, entries: Vec<u8>) -> SavedPeers {
+        if entries.is_empty() {
+            return SavedPeers::default();
+        }
+        let mut bytes = Vec::with_capacity(4 + entries.len());
+        bytes.extend_from_slice(&(n4 as u32).to_le_bytes());
+        bytes.extend_from_slice(&entries);
+        SavedPeers { bytes: bytes.into_boxed_slice() }
+    }
+
+    fn n4(&self) -> usize {
+        match self.bytes.get(..4) {
+            Some(b) => u32::from_le_bytes(b.try_into().expect("4 bytes")) as usize,
+            None => 0,
+        }
+    }
+
+    /// The IPv4 entries, as libtorrent's `peers`.
+    pub fn v4(&self) -> &[u8] {
+        self.bytes.get(4..4 + self.n4()).unwrap_or_default()
+    }
+
+    /// The IPv6 entries, as libtorrent's `peers6`.
+    pub fn v6(&self) -> &[u8] {
+        self.bytes.get(4 + self.n4()..).unwrap_or_default()
+    }
+
+    pub fn len(&self) -> usize {
+        self.v4().len() / V4_LEN + self.v6().len() / V6_LEN
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.bytes.is_empty()
+    }
+
+    pub fn iter(&self) -> impl Iterator<Item = SocketAddr> + '_ {
+        self.v4().chunks_exact(V4_LEN).chain(self.v6().chunks_exact(V6_LEN)).map(decode_entry)
+    }
+
+    /// The first `n` peers.
+    pub fn first(&self, n: usize) -> SavedPeers {
+        if n >= self.len() {
+            return self.clone();
+        }
+        let n4 = n.min(self.n4() / V4_LEN);
+        let mut entries = self.v4()[..n4 * V4_LEN].to_vec();
+        entries.extend_from_slice(&self.v6()[..(n - n4) * V6_LEN]);
+        SavedPeers::from_parts(n4 * V4_LEN, entries)
+    }
+
+    /// Keeps the peers `f` says yes to; returns how many went.
+    pub fn retain(&mut self, mut f: impl FnMut(SocketAddr) -> bool) -> usize {
+        let before = self.len();
+        let (mut entries, mut n4) = (Vec::new(), 0);
+        for (i, a) in self.iter().enumerate() {
+            if f(a) {
+                let c = self.entry(i);
+                if c.len() == V4_LEN {
+                    n4 += V4_LEN;
+                }
+                entries.extend_from_slice(c);
+            }
+        }
+        if entries.len() != self.bytes.len().saturating_sub(4) {
+            *self = SavedPeers::from_parts(n4, entries);
+        }
+        before - self.len()
+    }
+
+    fn entry(&self, i: usize) -> &[u8] {
+        let k4 = self.n4() / V4_LEN;
+        if i < k4 { &self.v4()[i * V4_LEN..][..V4_LEN] } else { &self.v6()[(i - k4) * V6_LEN..][..V6_LEN] }
+    }
+}
+
+/// One compact entry: 4 address bytes and the port, or 16 and the port (network order).
+fn decode_entry(c: &[u8]) -> SocketAddr {
+    let port = u16::from_be_bytes([c[c.len() - 2], c[c.len() - 1]]);
+    if c.len() == V4_LEN {
+        SocketAddr::new(Ipv4Addr::new(c[0], c[1], c[2], c[3]).into(), port)
+    } else {
+        SocketAddr::new(Ipv6Addr::from(<[u8; 16]>::try_from(&c[..16]).expect("16 bytes")).into(), port)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn saved_peers_stay_compact() {
+        let v4 = [
+            10, 0, 0, 1, 0, 1, 10, 0, 0, 2, 0, 2, 0, 0, 0, 0, 0, 3, 10, 0, 0, 1, 0, 1, 224, 0, 0, 1, 0, 4, 9,
+        ];
+        let mut v6 = vec![0x20, 1, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 5];
+        v6.extend_from_slice(&[0; 18]);
+        let s = SavedPeers::from_compact(&v4, &v6);
+        // repeats, unspecified, multicast, port 0 and the partial entry are dropped
+        let addrs: Vec<String> = s.iter().map(|a| a.to_string()).collect();
+        assert_eq!(addrs, ["10.0.0.1:1", "10.0.0.2:2", "[2001:db8::1]:5"]);
+        assert_eq!((s.len(), s.v4(), s.v6()), (3, &v4[..12], &v6[..18]));
+        assert_eq!(SavedPeers::from_addrs(s.iter()), s);
+        assert_eq!(s.first(1).iter().count(), 1);
+        assert_eq!(s.first(2), SavedPeers::from_compact(&v4[..12], &[]));
+        assert_eq!(s.first(3), s);
+        assert!(s.first(0).is_empty() && SavedPeers::default().v6().is_empty());
+        let mut t = s.clone();
+        assert_eq!(t.retain(|a| a.port() != 2), 1);
+        let ports: Vec<u16> = t.iter().map(|a| a.port()).collect();
+        assert_eq!(ports, [1, 5]);
+        assert_eq!(t.retain(|_| true), 0);
+        assert_eq!(t.retain(|_| false), 2);
+        assert!(t.is_empty() && t.iter().next().is_none());
+    }
 
     #[test]
     fn round_trip() {
@@ -309,7 +465,7 @@ mod tests {
             file_priority: vec![4, 0, 7],
             mapped_files: [(1, "x/renamed.bin".to_owned()), (3, "/abs/y".to_owned())].into(),
             trackers: vec![vec!["http://a/announce".into()], vec!["udp://b:1".into(), "udp://c:2".into()]],
-            peers: vec!["1.2.3.4:5".parse().unwrap(), "[::1]:6".parse().unwrap()],
+            peers: SavedPeers::from_addrs(["1.2.3.4:5".parse().unwrap(), "[::1]:6".parse().unwrap()]),
             url_seeds: vec!["http://w/a/".into(), "https://w/b".into()],
             http_seeds: vec!["http://h/seed".into()],
             upload_rate_limit: 1000,

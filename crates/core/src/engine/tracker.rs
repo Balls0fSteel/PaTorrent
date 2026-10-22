@@ -10,7 +10,8 @@
 // datagrams are queued for the engine to send through the SOCKS5 associate on its listen socket.
 // UDP scrapes are batched: the scrapes asked for in one round of the engine loop go to each
 // tracker in as few requests as BEP 15 allows (74 info-hashes each); libtorrent sends one
-// info-hash per scrape request.
+// info-hash per scrape request. A tracker entry boxes its announce state (libtorrent's
+// `announce_endpoint`) and makes it with the first announce.
 
 //! Tracker requests and per-torrent tracker state.
 
@@ -18,6 +19,7 @@ use std::collections::HashMap;
 use std::collections::hash_map::Entry as MapEntry;
 use std::io::{self, Read, Write};
 use std::net::{IpAddr, SocketAddr};
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
@@ -49,10 +51,27 @@ const UDP_FIRST_TIMEOUT: Duration = Duration::from_secs(5);
 
 // --- Per-torrent tracker state (libtorrent announce_entry / announce_endpoint) ----------------
 
+/// One tracker of a torrent. Every torrent keeps its list while stopped, so the entry is
+/// compact (PLAN.md D21): the URL is shared with the other torrents announcing there
+/// (`StrPool`), and the announce state (fail count, timers, the `started` / `completed` flags,
+/// the last message, the tracker id) is boxed and made with the first announce, as a stopped
+/// torrent that never ran has none. A scrape reply and the announce interval stay inline: the
+/// frontends scrape stopped torrents, and read the interval to scrape no more often.
 #[derive(Clone, Debug)]
 pub(crate) struct TrackerEntry {
-    pub url: String,
+    pub url: Arc<str>,
     pub tier: u32,
+    /// The `interval` of the tracker's last announce reply, in seconds (kept while the torrent
+    /// is stopped, so frontends scrape it no more often); `None` until one came (or for 0).
+    interval: Option<NonZeroU32>,
+    pub scrape: Option<ScrapeEntry>,
+    run: Option<Box<TrackerRun>>,
+}
+
+/// The announce state of a tracker (libtorrent `announce_endpoint`), made with the first
+/// announce and kept while it says something (a message, `started` sent, working).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct TrackerRun {
     pub fails: u32,
     pub updating: bool,
     pub next_announce: Option<Instant>,
@@ -62,70 +81,142 @@ pub(crate) struct TrackerEntry {
     pub complete_sent: bool,
     pub working: bool,
     pub message: String,
-    pub scrape: Option<ScrapeEntry>,
     pub tracker_id: String,
-    /// The `interval` of the tracker's last announce reply, in seconds (kept while the torrent
-    /// is stopped, so frontends scrape it no more often).
-    pub interval: Option<u32>,
 }
 
 impl TrackerEntry {
-    pub fn new(url: String, tier: u32) -> TrackerEntry {
-        TrackerEntry {
-            url,
-            tier,
-            fails: 0,
-            updating: false,
-            next_announce: None,
-            min_announce: None,
-            start_sent: false,
-            complete_sent: false,
-            working: false,
-            message: String::new(),
-            scrape: None,
-            tracker_id: String::new(),
-            interval: None,
+    pub fn new(url: Arc<str>, tier: u32) -> TrackerEntry {
+        TrackerEntry { url, tier, interval: None, scrape: None, run: None }
+    }
+
+    fn run(&self) -> Option<&TrackerRun> {
+        self.run.as_deref()
+    }
+
+    /// The announce state, made on first use.
+    pub fn run_mut(&mut self) -> &mut TrackerRun {
+        self.run.get_or_insert_with(Box::default)
+    }
+
+    pub fn fails(&self) -> u32 {
+        self.run().map_or(0, |r| r.fails)
+    }
+
+    pub fn updating(&self) -> bool {
+        self.run().is_some_and(|r| r.updating)
+    }
+
+    pub fn working(&self) -> bool {
+        self.run().is_some_and(|r| r.working)
+    }
+
+    pub fn start_sent(&self) -> bool {
+        self.run().is_some_and(|r| r.start_sent)
+    }
+
+    pub fn complete_sent(&self) -> bool {
+        self.run().is_some_and(|r| r.complete_sent)
+    }
+
+    pub fn next_announce(&self) -> Option<Instant> {
+        self.run().and_then(|r| r.next_announce)
+    }
+
+    pub fn message(&self) -> &str {
+        self.run().map_or("", |r| r.message.as_str())
+    }
+
+    pub fn tracker_id(&self) -> &str {
+        self.run().map_or("", |r| r.tracker_id.as_str())
+    }
+
+    pub fn interval(&self) -> Option<u32> {
+        self.interval.map(NonZeroU32::get)
+    }
+
+    /// Announce at the next tick, forgetting the failures (a forced reannounce).
+    pub fn announce_now(&mut self) {
+        if let Some(r) = self.run.as_deref_mut() {
+            r.next_announce = None;
+            r.fails = 0;
         }
+    }
+
+    /// An announce reply (libtorrent `tracker_response` for the endpoint): `event` was sent,
+    /// the tracker asked for `interval` (at least `min_announce_interval`, unless it asked for
+    /// less than a minute itself) and `min_interval`.
+    pub fn announced(
+        &mut self,
+        event: Option<Event>,
+        tracker_id: Option<&str>,
+        interval: u32,
+        min_interval: Option<u32>,
+        min_announce_interval: u32,
+        now: Instant,
+    ) {
+        self.interval = NonZeroU32::new(interval);
+        let r = self.run_mut();
+        r.updating = false;
+        r.fails = 0;
+        r.working = true;
+        match event {
+            Some(Event::Started) => r.start_sent = true,
+            Some(Event::Completed) => r.complete_sent = true,
+            _ => {}
+        }
+        if let Some(tid) = tracker_id {
+            r.tracker_id = tid.to_owned();
+        }
+        let wait = interval.max(min_announce_interval.min(interval.max(60)));
+        r.next_announce = Some(now + Duration::from_secs(wait as u64));
+        r.min_announce = min_interval.map(|m| now + Duration::from_secs(m as u64));
     }
 
     /// libtorrent `announce_endpoint::failed` with the default `tracker_backoff` (250 %):
     /// 5 s, 17 s, 36 s, ... capped at an hour.
     pub fn failed(&mut self, message: String, now: Instant) {
-        self.fails += 1;
-        self.working = false;
-        self.updating = false;
-        self.message = message;
-        let delay = (5.0 + 5.0 * (self.fails as f64).powi(2) * 2.5 / 1.0).min(3600.0);
-        self.next_announce = Some(now + Duration::from_secs_f64(delay));
+        let r = self.run_mut();
+        r.fails += 1;
+        r.working = false;
+        r.updating = false;
+        r.message = message;
+        let delay = (5.0 + 5.0 * (r.fails as f64).powi(2) * 2.5 / 1.0).min(3600.0);
+        r.next_announce = Some(now + Duration::from_secs_f64(delay));
     }
 
+    /// The torrent stopped: the next start announces `started` again. The announce state is
+    /// freed if nothing of it is left to show.
     pub fn reset(&mut self) {
-        self.next_announce = None;
-        self.min_announce = None;
-        self.updating = false;
-        self.start_sent = false;
-        self.fails = 0;
+        let Some(r) = self.run.as_deref_mut() else { return };
+        r.next_announce = None;
+        r.min_announce = None;
+        r.updating = false;
+        r.start_sent = false;
+        r.fails = 0;
+        if *r == TrackerRun::default() {
+            self.run = None;
+        }
     }
 
     pub fn to_status(&self, now: Instant) -> AnnounceEntry {
         AnnounceEntry {
-            url: self.url.clone(),
+            url: self.url.to_string(),
             tier: self.tier,
-            status: if self.updating {
+            status: if self.updating() {
                 TrackerStatus::Updating
-            } else if self.fails > 0 {
+            } else if self.fails() > 0 {
                 TrackerStatus::Error
-            } else if self.working {
+            } else if self.working() {
                 TrackerStatus::Working
             } else {
                 TrackerStatus::NotContacted
             },
-            message: self.message.clone(),
+            message: self.message().to_owned(),
             scrape_complete: self.scrape.map(|s| s.complete),
             scrape_incomplete: self.scrape.map(|s| s.incomplete),
             scrape_downloaded: self.scrape.map(|s| s.downloaded),
-            next_announce: self.next_announce.map(|t| t.saturating_duration_since(now).as_secs() as u32),
-            fails: self.fails,
+            next_announce: self.next_announce().map(|t| t.saturating_duration_since(now).as_secs() as u32),
+            fails: self.fails(),
         }
     }
 }
@@ -154,14 +245,14 @@ pub(crate) fn trackers_to_announce(
             // First non-failing tracker; if every one fails, the one that may retry soonest.
             let pick = in_tier
                 .clone()
-                .find(|&t| trackers[t].fails == 0)
-                .or_else(|| in_tier.clone().min_by_key(|&t| trackers[t].next_announce.unwrap_or(now)));
+                .find(|&t| trackers[t].fails() == 0)
+                .or_else(|| in_tier.clone().min_by_key(|&t| trackers[t].next_announce().unwrap_or(now)));
             chosen.extend(pick);
         }
-        let usable = chosen.iter().any(|&t| trackers[t].fails == 0);
+        let usable = chosen.iter().any(|&t| trackers[t].fails() == 0);
         for t in chosen {
             let e = &trackers[t];
-            if !e.updating && e.next_announce.is_none_or(|n| n <= now) {
+            if !e.updating() && e.next_announce().is_none_or(|n| n <= now) {
                 out.push(t);
             }
         }
@@ -1057,7 +1148,7 @@ mod tests {
     use super::*;
 
     fn entries(tiers: &[u32]) -> Vec<TrackerEntry> {
-        tiers.iter().enumerate().map(|(i, &t)| TrackerEntry::new(format!("udp://t{i}:1"), t)).collect()
+        tiers.iter().enumerate().map(|(i, &t)| TrackerEntry::new(format!("udp://t{i}:1").into(), t)).collect()
     }
 
     #[test]
@@ -1077,9 +1168,9 @@ mod tests {
         let later = now + Duration::from_secs(60);
         assert_eq!(trackers_to_announce(&t, later, false, false), [0, 2]);
 
-        t[2].updating = true;
+        t[2].run_mut().updating = true;
         assert!(!trackers_to_announce(&t, now, true, false).contains(&2));
-        t[3].next_announce = Some(now + Duration::from_secs(1));
+        t[3].run_mut().next_announce = Some(now + Duration::from_secs(1));
         assert!(!trackers_to_announce(&t, now, true, false).contains(&3));
     }
 
@@ -1250,14 +1341,33 @@ mod tests {
     fn backoff_grows_and_caps() {
         let now = Instant::now();
         let mut e = TrackerEntry::new("x".into(), 0);
+        assert_eq!(e.to_status(now).status, TrackerStatus::NotContacted);
         let mut prev = Duration::ZERO;
         for _ in 0..30 {
             e.failed("x".into(), now);
-            let d = e.next_announce.unwrap() - now;
+            let d = e.next_announce().unwrap() - now;
             assert!(d >= prev && d <= Duration::from_secs(3600));
             prev = d;
         }
         assert_eq!(prev, Duration::from_secs(3600));
         assert_eq!(e.to_status(now).status, TrackerStatus::Error);
+        // stopping keeps the message to show, and frees the state once nothing is left
+        e.reset();
+        assert_eq!((e.fails(), e.message()), (0, "x"));
+        assert!(e.run.is_some());
+        let mut e = TrackerEntry::new("y".into(), 0);
+        e.announced(Some(Event::Started), Some("id"), 1800, None, 0, now);
+        assert!(e.start_sent() && e.working() && e.tracker_id() == "id" && e.interval() == Some(1800));
+        e.reset();
+        assert!(!e.start_sent() && e.working() && e.tracker_id() == "id");
+        let mut e = TrackerEntry::new("z".into(), 0);
+        e.run_mut().updating = true;
+        e.reset();
+        assert!(e.run.is_none(), "an announce that never came back leaves nothing");
+    }
+
+    #[test]
+    fn entry_is_compact() {
+        assert_eq!(std::mem::size_of::<TrackerEntry>(), 48);
     }
 }

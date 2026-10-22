@@ -901,6 +901,47 @@ fn magnet_without_peers_survives_a_restart_then_downloads() {
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 
+/// The peers saved in resume data stay in their compact form while the torrent is stopped (the
+/// status still counts them) and are connected to when it starts: a stopped leech that knew
+/// the seed is restarted, resumed, and downloads without being told where the seed is.
+#[test]
+fn saved_peers_are_connected_after_a_restart() {
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech-saved-peers");
+    let state = temp_dir("state-saved-peers");
+    {
+        let leech = start(Some(state.clone()));
+        let mut w = Watch::new(leech.handle());
+        let mut p =
+            AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
+        p.flags = TorrentFlags::PAUSED;
+        leech.handle().add_torrent(p);
+        let id = wait(&mut w, 5, "add", |a| match a {
+            Alert::TorrentAdded { id, .. } => Some(*id),
+            _ => None,
+        });
+        // a stopped torrent only learns the peer
+        leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+        leech.shutdown();
+    }
+    let leech = start(Some(state.clone()));
+    let mut w = Watch::new(leech.handle());
+    let st = first_restored(&mut w);
+    assert!(st.flags.contains(TorrentFlags::PAUSED), "{st:?}");
+    assert_eq!((st.list_peers, st.num_peers), (1, 0), "{st:?}");
+    leech.handle().torrent(st.id).resume();
+    wait(&mut w, 60, "finished", |a| {
+        matches!(a, Alert::TorrentFinished { id: i } if *i == st.id).then_some(())
+    });
+    leech.shutdown();
+    seed.shutdown();
+    assert_files(&f, &dir);
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(state);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
 #[test]
 fn bad_magnets_and_garbage_are_rejected_cleanly() {
     let s = start(None);

@@ -4,6 +4,7 @@
 // Changes: a Vec plus an address index instead of a sorted vector of pooled `torrent_peer`
 // pointers. Connect candidates are chosen by a scan with libtorrent's ordering (fewest failures,
 // then BEP 40 rank); the list is capped at `max_peerlist_size` by evicting failed peers first.
+// Peers restored from resume data stay in their compact saved bytes until the torrent starts.
 
 //! Every peer a torrent knows about, connected or not.
 
@@ -14,6 +15,7 @@ use std::time::{Duration, Instant};
 use super::smart_ban::Trust;
 use crate::crypto::crc32c::Crc32c;
 use crate::net::ip_voter::ExternalIp;
+use crate::resume::SavedPeers;
 use crate::status::PeerSource;
 
 /// When an unconnected peer may be tried (again): libtorrent's `max_failcount` and
@@ -74,27 +76,109 @@ pub(crate) struct KnownPeer {
     rank: u32,
 }
 
-/// A torrent's known peers (libtorrent `peer_list`). The list is boxed and made with its first
-/// peer, as libtorrent makes `torrent::m_peer_list` in `need_peer_list`: most torrents of a large
-/// library are stopped and know no peers, and an empty list would still take 72 bytes each.
-#[derive(Default)]
-pub(crate) struct PeerList(Option<Box<Peers>>);
+/// A torrent's known peers (libtorrent `peer_list`). Most torrents of a large library are
+/// stopped, so the list takes the least room it can for what it holds:
+///
+/// * `Saved`: only the peers restored from resume data, kept as their compact bytes (6 or 18
+///   each, as saved) until the torrent starts: a torrent that ran saves up to 100, which as
+///   `KnownPeer`s and index entries take about 15 KB. They read as the list they stand for
+///   (fresh peers from resume data: no failures, not connected, not seeds), so the status,
+///   the resume data and the filters see no difference; anything that changes a peer makes the
+///   list `Live` first. No peers at all is an empty `Saved`, which allocates nothing
+///   (libtorrent makes `torrent::m_peer_list` in `need_peer_list`, with the first peer).
+/// * `Live`: the full list, boxed.
+///
+/// 16 bytes (a third, `Empty` variant would make it 24).
+pub(crate) enum PeerList {
+    Saved(SavedPeers),
+    Live(Box<Peers>),
+}
+
+impl Default for PeerList {
+    fn default() -> PeerList {
+        PeerList::Saved(SavedPeers::default())
+    }
+}
 
 impl PeerList {
+    fn live(&self) -> Option<&Peers> {
+        match self {
+            PeerList::Live(l) => Some(l),
+            _ => None,
+        }
+    }
+
+    /// The full list, made on first use; saved peers are expanded into it (unranked, as
+    /// `clear_peer_prio` would rank them).
+    fn live_mut(&mut self) -> &mut Peers {
+        match self {
+            PeerList::Saved(s) if s.is_empty() => *self = PeerList::Live(Box::default()),
+            PeerList::Saved(_) => self.expand(&ExternalIp::default()),
+            PeerList::Live(_) => {}
+        }
+        match self {
+            PeerList::Live(l) => l,
+            _ => unreachable!("expanded above"),
+        }
+    }
+
+    /// The torrent starts: saved peers become the full list, ranked against our external
+    /// address (libtorrent computes `torrent_peer::rank` on first use).
+    pub fn expand(&mut self, external_ip: &ExternalIp) {
+        if let PeerList::Saved(saved) = self {
+            if saved.is_empty() {
+                return;
+            }
+            let saved = std::mem::take(saved);
+            let mut l = Box::<Peers>::default();
+            l.peers.reserve_exact(saved.len());
+            l.index.reserve(saved.len());
+            for addr in saved.iter() {
+                l.index.insert(addr, l.peers.len());
+                l.peers.push(KnownPeer::new(addr, PeerSource::RESUME_DATA, rank(external_ip, addr)));
+            }
+            *self = PeerList::Live(l);
+        }
+    }
+
+    /// Peers from resume data (libtorrent `add_torrent_params::peers`, added with
+    /// `peer_info::resume_data` as the source). Into an empty list they go as they are.
+    pub fn restore(&mut self, saved: SavedPeers) {
+        if saved.is_empty() {
+            return;
+        }
+        match self {
+            PeerList::Saved(s) if s.is_empty() => *s = saved,
+            _ => {
+                for addr in saved.iter() {
+                    self.add(addr, PeerSource::RESUME_DATA, ExternalIp::default(), usize::MAX);
+                }
+            }
+        }
+    }
+
     pub fn len(&self) -> usize {
-        self.0.as_ref().map_or(0, |l| l.peers.len())
+        match self {
+            PeerList::Saved(s) => s.len(),
+            PeerList::Live(l) => l.peers.len(),
+        }
     }
 
     pub fn num_seeds(&self) -> usize {
-        self.0.as_ref().map_or(0, |l| l.num_seeds())
+        self.live().map_or(0, Peers::num_seeds)
     }
 
+    /// The peer at `addr`. Saved peers are not found until the list is expanded (the torrent
+    /// starting does that): nothing asks for a peer of a stopped torrent.
     pub fn get(&self, addr: &SocketAddr) -> Option<&KnownPeer> {
-        self.0.as_ref()?.get(addr)
+        self.live()?.get(addr)
     }
 
     pub fn get_mut(&mut self, addr: &SocketAddr) -> Option<&mut KnownPeer> {
-        self.0.as_mut()?.get_mut(addr)
+        match self {
+            PeerList::Saved(s) if !s.iter().any(|a| a == *addr) => None,
+            _ => self.live_mut().get_mut(addr),
+        }
     }
 
     /// libtorrent `peer_list::add_peer`. Returns false if the peer was rejected (full list,
@@ -106,10 +190,13 @@ impl PeerList {
         external_ip: ExternalIp,
         max_size: usize,
     ) -> bool {
-        if addr.port() == 0 || addr.ip().is_unspecified() || addr.ip().is_multicast() {
+        if !SavedPeers::usable(&addr) {
             return false;
         }
-        let added = self.0.get_or_insert_with(Box::default).add(addr, source, external_ip, max_size);
+        if matches!(self, PeerList::Saved(_)) {
+            self.expand(&external_ip);
+        }
+        let added = self.live_mut().add(addr, source, external_ip, max_size);
         self.drop_if_empty();
         added
     }
@@ -121,9 +208,13 @@ impl PeerList {
     }
 
     /// Forgets every peer `f` picks (libtorrent `apply_ip_filter` / `apply_port_filter`).
-    /// Returns how many went. A connected peer's connection is the caller's to close.
+    /// Returns how many went. A connected peer's connection is the caller's to close. Saved
+    /// peers stay saved.
     pub fn remove_if(&mut self, f: impl Fn(&KnownPeer) -> bool) -> usize {
-        let removed = self.0.as_mut().map_or(0, |l| l.remove_if(f));
+        let removed = match self {
+            PeerList::Saved(s) => s.retain(|addr| !f(&KnownPeer::new(addr, PeerSource::RESUME_DATA, 0))),
+            PeerList::Live(l) => l.remove_if(f),
+        };
         self.drop_if_empty();
         removed
     }
@@ -132,48 +223,74 @@ impl PeerList {
     /// be connected to, now or once their reconnect delay is over. A finished torrent does not
     /// connect to seeds.
     pub fn num_connect_candidates(&self, finished: bool, policy: Reconnect) -> usize {
-        self.0.as_ref().map_or(0, |l| l.num_connect_candidates(finished, policy))
+        match self {
+            // fresh peers: none failed, none connected, none known as a seed
+            PeerList::Saved(s) if policy.max_failcount > 0 => s.len(),
+            PeerList::Saved(_) => 0,
+            PeerList::Live(l) => l.num_connect_candidates(finished, policy),
+        }
     }
 
     /// libtorrent `find_connect_candidates`: up to `n` peers to connect to now. A peer waits
     /// `min_reconnect_time` times its fail count plus one after its last connection.
     pub fn connect_candidates(&self, n: usize, now: Instant, policy: Reconnect) -> Vec<SocketAddr> {
-        self.0.as_ref().map_or_else(Vec::new, |l| l.connect_candidates(n, now, policy))
+        match self {
+            // all equal in the ordering, so in their saved order
+            PeerList::Saved(s) if policy.max_failcount > 0 => s.iter().take(n).collect(),
+            PeerList::Saved(_) => Vec::new(),
+            PeerList::Live(l) => l.connect_candidates(n, now, policy),
+        }
     }
 
     /// A connection to or from `addr` started. Incoming peers are added on the fly.
     pub fn connecting(&mut self, addr: SocketAddr, conn: u64, source: PeerSource, now: Instant) {
-        self.0.get_or_insert_with(Box::default).connecting(addr, conn, source, now);
+        self.live_mut().connecting(addr, conn, source, now);
     }
 
     /// Up to `n` peers worth persisting in resume data (connectable, not failing).
-    pub fn resume_peers(&self, n: usize) -> Vec<SocketAddr> {
-        self.0.as_ref().map_or_else(Vec::new, |l| l.resume_peers(n))
+    pub fn resume_peers(&self, n: usize) -> SavedPeers {
+        match self {
+            PeerList::Saved(s) => s.first(n),
+            PeerList::Live(l) => SavedPeers::from_addrs(l.resume_peers(n)),
+        }
     }
 
-    /// Drops unconnected peers beyond `max` (libtorrent `max_paused_peerlist_size`).
+    /// Drops unconnected peers beyond `max` (libtorrent `max_paused_peerlist_size`). Saved
+    /// peers all rank the same, and the eviction takes the last of equals: the list is cut.
     pub fn trim(&mut self, max: usize) {
-        if let Some(l) = self.0.as_mut() {
-            l.trim(max);
+        match self {
+            PeerList::Saved(s) => {
+                if s.len() > max {
+                    *s = s.first(max);
+                }
+            }
+            PeerList::Live(l) => l.trim(max),
         }
         self.drop_if_empty();
     }
 
     /// Our external address changed: rank every peer again (libtorrent `clear_peer_prio`,
-    /// which makes `torrent_peer::rank` recompute on next use).
+    /// which makes `torrent_peer::rank` recompute on next use). Saved peers are ranked when
+    /// they are expanded.
     pub fn clear_peer_prio(&mut self, external_ip: &ExternalIp) {
-        if let Some(l) = self.0.as_mut() {
+        if let PeerList::Live(l) = self {
             l.clear_peer_prio(external_ip);
         }
     }
 
     /// Frees the list once it holds no peers (a stopped torrent trimmed to none).
     fn drop_if_empty(&mut self) {
-        if self.0.as_ref().is_some_and(|l| l.peers.is_empty()) {
-            self.0 = None;
+        if self.len() == 0 {
+            *self = PeerList::default();
         }
     }
 
+    /// The connection closed at `now` (libtorrent `connection_closed`), which starts the peer's
+    /// reconnect delay. `failed` counts against the peer (could not connect, protocol error); a
+    /// clean disconnect resets its fail count. With `fast_reconnect` (an encrypted attempt the
+    /// peer closed on us) a clean close instead forgets the connect time, so the peer is a
+    /// candidate again at once for the plaintext retry (libtorrent rewinds it by
+    /// `min_reconnect_time * max_failcount`).
     /// The connection closed at `now` (libtorrent `connection_closed`), which starts the peer's
     /// reconnect delay. `failed` counts against the peer (could not connect, protocol error); a
     /// clean disconnect resets its fail count. With `fast_reconnect` (an encrypted attempt the
@@ -258,9 +375,29 @@ impl PeerList {
     }
 }
 
-/// The list itself, while there is one.
+impl KnownPeer {
+    fn new(addr: SocketAddr, source: PeerSource, rank: u32) -> KnownPeer {
+        KnownPeer {
+            addr,
+            source,
+            failcount: 0,
+            connection: None,
+            last_connected: None,
+            seed: false,
+            banned: false,
+            trust: Trust::default(),
+            pe_support: false,
+            supports_utp: true,
+            confirmed_supports_utp: false,
+            protocol_v2: false,
+            rank,
+        }
+    }
+}
+
+/// The full list.
 #[derive(Default)]
-struct Peers {
+pub(crate) struct Peers {
     peers: Vec<KnownPeer>,
     index: HashMap<SocketAddr, usize>,
 }
@@ -287,9 +424,6 @@ impl Peers {
         external_ip: ExternalIp,
         max_size: usize,
     ) -> bool {
-        if addr.port() == 0 || addr.ip().is_unspecified() || addr.ip().is_multicast() {
-            return false;
-        }
         if let Some(p) = self.get_mut(&addr) {
             p.source |= source;
             // libtorrent `update_peer`: a tracker listing a peer that failed us gives it another
@@ -304,21 +438,7 @@ impl Peers {
         }
         let rank = rank(&external_ip, addr);
         self.index.insert(addr, self.peers.len());
-        self.peers.push(KnownPeer {
-            addr,
-            source,
-            failcount: 0,
-            connection: None,
-            last_connected: None,
-            seed: false,
-            banned: false,
-            trust: Trust::default(),
-            pe_support: false,
-            supports_utp: true,
-            confirmed_supports_utp: false,
-            protocol_v2: false,
-            rank,
-        });
+        self.peers.push(KnownPeer::new(addr, source, rank));
         true
     }
 
@@ -396,21 +516,7 @@ impl Peers {
         if self.get(&addr).is_none() {
             // Bypass the size cap for connected peers, as libtorrent does for incoming ones.
             self.index.insert(addr, self.peers.len());
-            self.peers.push(KnownPeer {
-                addr,
-                source,
-                failcount: 0,
-                connection: None,
-                last_connected: None,
-                seed: false,
-                banned: false,
-                trust: Trust::default(),
-                pe_support: false,
-                supports_utp: true,
-                confirmed_supports_utp: false,
-                protocol_v2: false,
-                rank: 0,
-            });
+            self.peers.push(KnownPeer::new(addr, source, 0));
         }
         let p = self.get_mut(&addr).expect("just added");
         p.connection = Some(conn);
@@ -593,6 +699,88 @@ mod tests {
         assert_eq!(pl.connect_candidates(5, now, r), [c]);
         pl.trim(1);
         assert_eq!(pl.len(), 1);
+    }
+
+    /// Peers restored from resume data stay compact until the torrent starts, and read as the
+    /// list they stand for: the same peers added one by one.
+    #[test]
+    fn saved_peers_read_as_the_list_they_stand_for() {
+        assert_eq!(std::mem::size_of::<PeerList>(), 16);
+        let addrs: Vec<SocketAddr> =
+            ["10.0.0.1:1", "[2001:db8::1]:2", "10.0.0.2:3", "10.0.0.3:4", "[2001:db8::2]:5"]
+                .iter()
+                .map(|a| a.parse().unwrap())
+                .collect();
+        let live = || {
+            // resume data lists the IPv4 peers (`peers`), then the IPv6 ones (`peers6`)
+            let mut l = PeerList::default();
+            for &a in addrs.iter().filter(|a| a.is_ipv4()).chain(addrs.iter().filter(|a| a.is_ipv6())) {
+                l.add(a, PeerSource::RESUME_DATA, ExternalIp::default(), usize::MAX);
+            }
+            l
+        };
+        let saved = || {
+            let mut l = PeerList::default();
+            l.restore(SavedPeers::from_addrs(addrs.iter().copied()));
+            assert!(matches!(l, PeerList::Saved(_)));
+            l
+        };
+        let now = Instant::now();
+        let (a, b) = (live(), saved());
+        let r = Reconnect::default();
+        let none = Reconnect { max_failcount: 0, ..r };
+        assert_eq!((a.len(), a.num_seeds()), (b.len(), b.num_seeds()));
+        for policy in [r, none] {
+            for finished in [false, true] {
+                assert_eq!(
+                    a.num_connect_candidates(finished, policy),
+                    b.num_connect_candidates(finished, policy)
+                );
+            }
+            for n in [0, 3, 9] {
+                assert_eq!(a.connect_candidates(n, now, policy), b.connect_candidates(n, now, policy));
+            }
+        }
+        for n in [0, 2, 3, 100] {
+            assert_eq!(a.resume_peers(n), b.resume_peers(n));
+        }
+        for &addr in &addrs {
+            assert_eq!(a.pe_support(&addr), b.pe_support(&addr));
+            assert_eq!(a.wants_utp(&addr), b.wants_utp(&addr));
+        }
+        for max in [0, 1, 4, 9] {
+            let (mut a, mut b) = (live(), saved());
+            a.trim(max);
+            b.trim(max);
+            assert_eq!(a.resume_peers(100), b.resume_peers(100), "trim({max})");
+            assert!(max > 0 || matches!(&b, PeerList::Saved(s) if s.is_empty()));
+        }
+        let (mut a, mut b) = (live(), saved());
+        let v6 = |k: &KnownPeer| k.addr.is_ipv6();
+        assert_eq!(a.remove_if(v6), b.remove_if(v6));
+        assert!(matches!(b, PeerList::Saved(_)), "filtering keeps them saved");
+        assert_eq!(a.resume_peers(100), b.resume_peers(100));
+
+        // starting expands them, ranked; changing one expands them too
+        let (a, mut b) = (live(), saved());
+        b.expand(&ExternalIp::default());
+        assert!(matches!(b, PeerList::Live(_)));
+        for &addr in &addrs {
+            assert_eq!(format!("{:?}", a.get(&addr)), format!("{:?}", b.get(&addr)));
+        }
+        let mut b = saved();
+        b.ban(&"10.9.9.9:9".parse().unwrap());
+        assert!(matches!(b, PeerList::Saved(_)), "an unknown peer expands nothing");
+        b.ban(&addrs[0]);
+        assert!(b.get(&addrs[0]).unwrap().banned);
+        let mut b = saved();
+        assert!(b.add("10.9.9.9:9".parse().unwrap(), PeerSource::TRACKER, ExternalIp::default(), 99));
+        assert_eq!(b.len(), addrs.len() + 1);
+        // an empty list stays unallocated when the torrent starts
+        let mut e = PeerList::default();
+        e.expand(&ExternalIp::default());
+        e.restore(SavedPeers::default());
+        assert!(matches!(&e, PeerList::Saved(s) if s.is_empty()));
     }
 
     #[test]

@@ -168,6 +168,9 @@ pub fn loopback(mb: usize, piece_kib: usize, cpu: fn() -> Option<Duration>) -> E
 /// What `load` does besides the cold start.
 pub struct LoadOptions {
     pub count: usize,
+    /// Peers saved in each torrent's resume data (a torrent that ran keeps up to 100), every
+    /// fifth one IPv6. 0 adds plain `.torrent`s.
+    pub peers: usize,
     /// The state is written there and left in place (for example, to open the same 10,000
     /// torrents in the GUI).
     pub keep: Option<PathBuf>,
@@ -179,7 +182,7 @@ pub struct LoadOptions {
 }
 
 pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Duration>) -> ExitCode {
-    let LoadOptions { mut count, keep, reuse, idle_secs } = o;
+    let LoadOptions { mut count, peers, keep, reuse, idle_secs } = o;
     let reuse = reuse && keep.as_ref().is_some_and(|d| d.join("resume.db").exists());
     let state = match &keep {
         Some(d) if reuse => d.clone(),
@@ -201,7 +204,12 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
         let mut rng = crate::corpus::Rng::new(7);
         for i in 0..count {
             let bytes = crate::corpus::synthetic_torrent(&mut rng, i);
-            let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(bytes), save.to_string_lossy());
+            let source = if peers == 0 {
+                TorrentSource::TorrentFile(bytes)
+            } else {
+                TorrentSource::Resume(resume_with_peers(&bytes, &save, i, peers))
+            };
+            let mut p = AddTorrentParams::new(source, save.to_string_lossy());
             // Stopped torrents: what a large, mostly idle library looks like.
             p.flags = TorrentFlags::PAUSED;
             h.add_torrent(p);
@@ -249,6 +257,7 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
     let rss1 = rss();
     let heap1 = crate::heap::live();
     let idle = (ok.is_some() && idle_secs > 0).then(|| idle_cpu(&h, Duration::from_secs(idle_secs), cpu));
+    let request = (ok.is_some() && idle_secs > 0).then(|| status_request_cost(&h, cpu));
     let rss2 = rss();
     s.shutdown();
     if keep.is_none() {
@@ -261,6 +270,9 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
     }
     let mb = |b: Option<u64>| b.map_or("n/a".to_owned(), |b| format!("{:.1}", b as f64 / (1 << 20) as f64));
     println!("torrents={count}");
+    if peers > 0 {
+        println!("peers_per_torrent={peers}");
+    }
     println!("resume_db_kb={}", db / 1024);
     println!("metadata_pack_kb={}", pack / 1024);
     println!("restore_ms={:.1}", load_time.as_secs_f64() * 1e3);
@@ -282,6 +294,10 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
         let pct = pct.map_or("n/a".to_owned(), |p| format!("{p:.2}"));
         println!("idle_seconds={idle_secs}");
         println!("idle_cpu_pct={pct}");
+        if let Some(Some((cpu_us, wall_us))) = request {
+            println!("status_request_cpu_us={cpu_us:.1}");
+            println!("status_request_wall_us={wall_us:.1}");
+        }
         println!("rss_idle_mb={}", mb(rss2));
     }
     println!();
@@ -297,6 +313,75 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
         println!("idle for {idle_secs} s, polled every second: {pct} of one core");
     }
     ExitCode::SUCCESS
+}
+
+/// Resume data for `torrent` (a `.torrent` file) holding `peers` peers, as a stopped torrent
+/// that ran saves them: compact IPv4 entries, and every fifth one IPv6.
+fn resume_with_peers(torrent: &[u8], save: &Path, i: usize, peers: usize) -> Vec<u8> {
+    let ti = patorrent_core::metainfo::TorrentInfo::from_bytes(torrent).expect("synthetic torrent");
+    let mut e = Entry::new_dict();
+    *e.key("file-format") = "libtorrent resume file".into();
+    *e.key("file-version") = Entry::Int(1);
+    *e.key("info-hash") = Entry::Bytes(ti.info_hash().0.to_vec());
+    *e.key("name") = ti.name().into();
+    *e.key("save_path") = save.to_string_lossy().as_ref().into();
+    *e.key("paused") = Entry::Int(1);
+    let tiers: Vec<Entry> =
+        ti.trackers().iter().map(|t| Entry::from(vec![Entry::from(t.url.as_str())])).collect();
+    *e.key("trackers") = Entry::from(tiers);
+    let (mut v4, mut v6) = (Vec::new(), Vec::new());
+    for k in 0..peers {
+        let n = (i * peers + k) as u32;
+        let port = (6881 + k as u16).to_be_bytes();
+        if k % 5 == 4 {
+            v6.extend_from_slice(&[0x20, 0x01, 0x0d, 0xb8, 0, 0, 0, 0, 0, 0, 0, 0]);
+            v6.extend_from_slice(&n.to_be_bytes());
+            v6.extend_from_slice(&port);
+        } else {
+            v4.extend_from_slice(&(0x0a00_0000 | (n & 0x00ff_ffff)).to_be_bytes());
+            v4.extend_from_slice(&port);
+        }
+    }
+    *e.key("peers") = Entry::Bytes(v4);
+    if !v6.is_empty() {
+        *e.key("peers6") = Entry::Bytes(v6);
+    }
+    *e.key("info") = Entry::Preformatted(ti.info_section().to_vec());
+    e.bencode()
+}
+
+/// What one status request costs with nothing changed: `post_torrent_updates` answered
+/// (with an empty update) 1,000 times in a row, waiting for each answer without spinning: the
+/// process CPU and the wall time per round trip, in microseconds. The idle CPU above is too coarse for it (the process times advance
+/// in clock ticks of about 15 ms on Windows).
+fn status_request_cost(h: &SessionHandle, cpu: fn() -> Option<Duration>) -> Option<(f64, f64)> {
+    const N: u32 = 1000;
+    let (tx, rx) = std::sync::mpsc::channel();
+    let tx = std::sync::Mutex::new(tx);
+    h.set_alert_notify(move || {
+        if let Ok(tx) = tx.lock() {
+            let _ = tx.send(());
+        }
+    });
+    let mut alerts = Vec::new();
+    let t0 = Instant::now();
+    let c0 = cpu();
+    for _ in 0..N {
+        h.post_torrent_updates();
+        'reply: loop {
+            let _ = rx.recv_timeout(Duration::from_millis(100));
+            h.pop_alerts(&mut alerts);
+            for a in alerts.drain(..) {
+                if matches!(a, Alert::StateUpdate(_)) {
+                    break 'reply;
+                }
+            }
+        }
+    }
+    let wall = t0.elapsed();
+    h.clear_alert_notify();
+    let (c0, c1) = (c0?, cpu()?);
+    Some(((c1 - c0).as_secs_f64() * 1e6 / f64::from(N), wall.as_secs_f64() * 1e6 / f64::from(N)))
 }
 
 /// The process CPU while the session sits idle and is polled as the GUIs poll it, as a share

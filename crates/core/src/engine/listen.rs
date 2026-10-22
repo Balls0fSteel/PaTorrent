@@ -674,10 +674,7 @@ impl Engine {
             if !t.is_active() {
                 continue;
             }
-            for tr in &mut t.trackers {
-                tr.next_announce = None;
-                tr.fails = 0;
-            }
+            t.trackers.iter_mut().for_each(super::tracker::TrackerEntry::announce_now);
         }
         self.dht_reannounce_all();
     }

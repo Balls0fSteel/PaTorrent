@@ -7,7 +7,7 @@
 
 //! One torrent's state.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -42,6 +42,31 @@ pub(crate) struct AnnounceTo {
 
 impl AnnounceTo {
     pub const ALL: AnnounceTo = AnnounceTo { dht: true, trackers: true, lsd: true };
+}
+
+/// Strings many torrents hold the same of (save paths, tracker URLs), shared as `Arc<str>`s: a
+/// library of 100,000 torrents has a handful of download folders and trackers, not 100,000
+/// copies of them. Strings no torrent holds any more are dropped when the pool has doubled
+/// since the last sweep.
+#[derive(Default)]
+pub(crate) struct StrPool {
+    set: HashSet<Arc<str>>,
+    sweep_at: usize,
+}
+
+impl StrPool {
+    pub fn intern(&mut self, s: &str) -> Arc<str> {
+        if let Some(p) = self.set.get(s) {
+            return p.clone();
+        }
+        if self.set.len() >= self.sweep_at.max(64) {
+            self.set.retain(|p| Arc::strong_count(p) > 1);
+            self.sweep_at = self.set.len() * 2;
+        }
+        let p: Arc<str> = s.into();
+        self.set.insert(p.clone());
+        p
+    }
 }
 
 /// Every torrent of the session has one of these, stopped or not, so it is kept compact (PLAN.md
@@ -307,39 +332,40 @@ impl Torrent {
             .collect();
     }
 
-    /// Adds a tracker, keeping the list sorted by tier and free of duplicates. The list grows
-    /// one entry at a time: a doubling `Vec` would hold four 144-byte entries for the usual two
-    /// trackers, in every stopped torrent.
-    pub fn add_tracker(&mut self, url: &str, tier: u32) {
+    /// Adds a tracker, keeping the list sorted by tier and free of duplicates; the URL comes
+    /// from `urls`, shared with the other torrents. The list grows one entry at a time: a
+    /// doubling `Vec` would hold four entries for the usual two trackers, in every stopped
+    /// torrent.
+    pub fn add_tracker(&mut self, url: &str, tier: u32, urls: &mut StrPool) {
         let url = url.trim();
-        if url.is_empty() || self.trackers.iter().any(|t| t.url == url) {
+        if url.is_empty() || self.trackers.iter().any(|t| &*t.url == url) {
             return;
         }
         let pos = self.trackers.iter().position(|t| t.tier > tier).unwrap_or(self.trackers.len());
         self.trackers.reserve_exact(1);
-        self.trackers.insert(pos, TrackerEntry::new(url.to_owned(), tier));
+        self.trackers.insert(pos, TrackerEntry::new(urls.intern(url), tier));
     }
 
     /// libtorrent `replace_trackers`: the new list, ordered by tier (stably), without empty
     /// URLs and repeats. A URL that was in the list keeps its entry's state (next announce,
     /// `started` sent, scrape), as libtorrent keeps what a client passes back from `trackers()`;
     /// new ones are announced to on the next tick.
-    pub fn replace_trackers(&mut self, list: &[(String, u32)]) {
+    pub fn replace_trackers(&mut self, list: &[(String, u32)], urls: &mut StrPool) {
         let mut old = std::mem::take(&mut self.trackers);
         let mut sorted: Vec<&(String, u32)> = list.iter().collect();
         sorted.sort_by_key(|(_, tier)| *tier);
         for (url, tier) in sorted {
             let url = url.trim();
-            if url.is_empty() || self.trackers.iter().any(|t| t.url == url) {
+            if url.is_empty() || self.trackers.iter().any(|t| &*t.url == url) {
                 continue;
             }
-            let entry = match old.iter().position(|t| t.url == url) {
+            let entry = match old.iter().position(|t| &*t.url == url) {
                 Some(i) => {
                     let mut e = old.swap_remove(i);
                     e.tier = *tier;
                     e
                 }
-                None => TrackerEntry::new(url.to_owned(), *tier),
+                None => TrackerEntry::new(urls.intern(url), *tier),
             };
             self.trackers.push(entry);
         }
@@ -517,7 +543,7 @@ impl Torrent {
         let next_announce = self
             .trackers
             .iter()
-            .filter_map(|t| t.next_announce)
+            .filter_map(TrackerEntry::next_announce)
             .min()
             .map(|t| t.saturating_duration_since(now).as_secs() as u32);
         TorrentStatus {
@@ -571,12 +597,12 @@ impl Torrent {
             current_tracker: self
                 .trackers
                 .iter()
-                .find(|t| t.working)
-                .map(|t| t.url.clone())
+                .find(|t| t.working())
+                .map(|t| t.url.to_string())
                 .unwrap_or_default(),
             next_announce,
             num_trackers: self.trackers.len() as u32,
-            announce_interval: self.trackers.iter().filter_map(|t| t.interval).max(),
+            announce_interval: self.trackers.iter().filter_map(TrackerEntry::interval).max(),
             announcing_to_trackers: !self.is_paused() && self.announces().trackers,
             announcing_to_lsd: !self.is_paused() && self.announces().lsd,
             announcing_to_dht: !self.is_paused() && self.announces().dht,
@@ -592,11 +618,15 @@ impl Torrent {
         for t in &self.trackers {
             match trackers.last_mut() {
                 Some(tier)
-                    if self.trackers.iter().find(|x| x.url == tier[0]).is_some_and(|x| x.tier == t.tier) =>
+                    if self
+                        .trackers
+                        .iter()
+                        .find(|x| *x.url == *tier[0])
+                        .is_some_and(|x| x.tier == t.tier) =>
                 {
-                    tier.push(t.url.clone())
+                    tier.push(t.url.to_string())
                 }
-                _ => trackers.push(vec![t.url.clone()]),
+                _ => trackers.push(vec![t.url.to_string()]),
             }
         }
         ResumeData {
@@ -792,10 +822,11 @@ mod tests {
         // Piece 3 (49152..60000) holds the last 848 bytes of b and all of c.
         assert_eq!(t.file_progress(), [16384, 848, 10_000]);
 
-        t.add_tracker("udp://b", 1);
-        t.add_tracker("udp://a", 0);
-        t.add_tracker("udp://c", 1);
-        t.add_tracker("udp://a", 5);
+        let urls = &mut StrPool::default();
+        t.add_tracker("udp://b", 1, urls);
+        t.add_tracker("udp://a", 0, urls);
+        t.add_tracker("udp://c", 1, urls);
+        t.add_tracker("udp://a", 5, urls);
         let r = t.resume_data();
         assert_eq!(
             r.trackers,
@@ -804,20 +835,25 @@ mod tests {
         assert_eq!(r.pieces.unwrap().count(), 2);
 
         // replace_trackers: sorted by tier, repeats and blanks dropped, kept entries keep state
-        t.trackers[1].start_sent = true;
-        t.trackers[1].message = "kept".into();
-        t.replace_trackers(&[
-            ("udp://new".into(), 2),
-            (" udp://b ".into(), 0),
-            ("".into(), 0),
-            ("udp://d".into(), 1),
-            ("udp://new".into(), 0),
-        ]);
-        let list: Vec<(&str, u32)> = t.trackers.iter().map(|e| (e.url.as_str(), e.tier)).collect();
+        t.trackers[1].run_mut().start_sent = true;
+        t.trackers[1].run_mut().message = "kept".into();
+        t.replace_trackers(
+            &[
+                ("udp://new".into(), 2),
+                (" udp://b ".into(), 0),
+                ("".into(), 0),
+                ("udp://d".into(), 1),
+                ("udp://new".into(), 0),
+            ],
+            urls,
+        );
+        let list: Vec<(&str, u32)> = t.trackers.iter().map(|e| (&*e.url, e.tier)).collect();
         // (a repeated URL keeps its lowest tier)
         assert_eq!(list, [("udp://b", 0), ("udp://new", 0), ("udp://d", 1)]);
-        assert!(t.trackers[0].start_sent && t.trackers[0].message == "kept");
-        assert!(!t.trackers[1].start_sent);
+        assert!(t.trackers[0].start_sent() && t.trackers[0].message() == "kept");
+        assert!(!t.trackers[1].start_sent());
+        // the URLs are shared through the pool
+        assert!(Arc::ptr_eq(&t.trackers[1].url, &urls.intern("udp://new")));
         assert_eq!(
             t.resume_data().trackers,
             [vec!["udp://b".to_owned(), "udp://new".to_owned()], vec!["udp://d".to_owned()]]
@@ -825,11 +861,12 @@ mod tests {
         // the status counts the trackers and carries the longest announce interval known
         let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
         assert_eq!((st.num_trackers, st.announce_interval), (3, None));
-        t.trackers[0].interval = Some(1800);
-        t.trackers[2].interval = Some(2700);
+        let now = Instant::now();
+        t.trackers[0].announced(None, None, 1800, None, 0, now);
+        t.trackers[2].announced(None, None, 2700, None, 0, now);
         let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
         assert_eq!((st.num_trackers, st.announce_interval), (3, Some(2700)));
-        t.replace_trackers(&[]);
+        t.replace_trackers(&[], urls);
         assert!(t.trackers.is_empty());
         let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
         assert_eq!((st.num_trackers, st.announce_interval), (0, None));
@@ -849,7 +886,7 @@ mod tests {
     #[test]
     fn a_stopped_torrent_stays_compact() {
         let size = std::mem::size_of::<Torrent>();
-        assert!(size <= 672, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
+        assert!(size <= 664, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
         let mut t = Torrent::new(
             TorrentId::default(),
             InfoHashes::v1(crate::types::Sha1Hash([1; 20])),
@@ -864,10 +901,11 @@ mod tests {
         let st = t.status(0, 0, (0, 0, 0, 0), Instant::now());
         assert_eq!((st.total_download, st.all_time_upload, st.download_rate), (0, 0, 0));
         // trackers take exactly the room they need
-        t.add_tracker("udp://a", 0);
-        t.add_tracker("udp://b", 1);
+        let urls = &mut StrPool::default();
+        t.add_tracker("udp://a", 0, urls);
+        t.add_tracker("udp://b", 1, urls);
         assert_eq!(t.trackers.capacity(), 2);
-        t.replace_trackers(&[("udp://c".into(), 0)]);
+        t.replace_trackers(&[("udp://c".into(), 0)], urls);
         assert_eq!(t.trackers.capacity(), 1);
     }
 

@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 use super::peer::PeerConn;
 use super::peer::PeerState;
 use super::torrent::Torrent;
-use super::{Engine, STORE_FLUSH_DELAY, Slab, TorrentSlot};
+use super::{Engine, STORE_FLUSH_DELAY, Slab, Slots};
 use crate::alert::Alert;
 use crate::error::Error;
 use crate::metainfo::{LoadLimits, TorrentInfo};
@@ -26,12 +26,8 @@ use crate::types::TorrentId;
 const SINGLE_PEER_PENALTY: Duration = Duration::from_secs(5 * 60);
 
 /// The torrent with `id`, borrowing only the slot table (so peers can be borrowed alongside).
-fn slot_torrent(slots: &mut [TorrentSlot], id: TorrentId) -> Option<&mut Torrent> {
-    let s = slots.get_mut(id.index() as usize)?;
-    if s.generation != id.generation() {
-        return None;
-    }
-    s.torrent.as_deref_mut()
+fn slot_torrent(slots: &mut Slots, id: TorrentId) -> Option<&mut Torrent> {
+    slots.torrent_mut(id)
 }
 
 /// The peer with connection id `id`, if it is still connected and not closing.

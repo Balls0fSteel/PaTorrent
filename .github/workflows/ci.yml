@@ -1,7 +1,7 @@
 name: CI
 
-# The macos-debug branch: only the macOS job, with the diagnostics for the first run's crash
-# (PLAN.md Next steps 0). Run with `gh workflow run CI --ref macos-debug`; never merged as is.
+# The macos-debug branch: only the macOS job, with diagnostics (PLAN.md Next steps 0). Run with
+# `gh workflow run CI --ref macos-debug`; never merged as is.
 
 on:
   workflow_dispatch:
@@ -17,51 +17,17 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --workspace --exclude patorrent-gtk --no-run
-      - name: TLS tests, one at a time
-        id: tls
-        continue-on-error: true
-        run: cargo test -p patorrent-core --lib net::tls -- --test-threads=1 --nocapture
-      - name: TLS tests under lldb
-        if: steps.tls.outcome == 'failure'
-        continue-on-error: true
+      - run: cargo test -p patorrent-core --test external_ip --no-run
+      # a_tracker_reply_sets_the_external_address timed out once with no alert at all
+      - name: The external-address tests, 30 times
         run: |
-          bin=$(cargo test -p patorrent-core --lib --no-run --message-format=json \
-            | jq -r 'select(.profile.test == true and .executable != null) | .executable' | head -1)
-          echo "binary: $bin"
-          lldb --batch -o run -k "thread backtrace all" -k "quit 1" -- "$bin" net::tls --test-threads=1 --nocapture
-      - name: Everything else
-        if: always()
-        continue-on-error: true
-        run: cargo test --workspace --exclude patorrent-gtk --no-fail-fast -- --skip net::tls::tests
+          fails=0
+          for i in $(seq 30); do
+            echo "== run $i"
+            cargo test -q -p patorrent-core --test external_ip || fails=$((fails + 1))
+          done
+          echo "failed runs: $fails of 30"
+          test $fails -eq 0
       - name: Crash reports
-        if: always()
-        run: |
-          python3 - <<'EOF'
-          import glob, json, os
-          files = sorted(glob.glob(os.path.expanduser('~/Library/Logs/DiagnosticReports/*.ips')))
-          print(len(files), 'crash reports')
-          for f in files:
-              text = open(f, errors='replace').read()
-              head, _, body = text.partition('\n')
-              try:
-                  d = json.loads(body)
-              except ValueError:
-                  print(text[:20000])
-                  continue
-              print('==', f)
-              print('exception:', d.get('exception'))
-              print('termination:', d.get('termination'))
-              print('asi:', d.get('asi'))
-              print('ktriage:', d.get('ktriageinfo'))
-              images = d.get('usedImages', [])
-              for t in d.get('threads', []):
-                  if not t.get('triggered'):
-                      continue
-                  print('thread', t.get('name'), t.get('queue'))
-                  for fr in t.get('frames', []):
-                      i = fr.get('imageIndex')
-                      img = images[i].get('name', '?') if i is not None and i < len(images) else '?'
-                      sym = fr.get('symbol', hex(fr.get('imageOffset', 0)))
-                      print('  ', img, sym, '+', fr.get('symbolLocation', ''))
-          EOF
+        if: failure()
+        run: python3 .github/scripts/macos_crash_reports.py

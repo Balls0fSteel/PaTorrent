@@ -9,7 +9,10 @@ name: Release
 #   and THIRD-PARTY-NOTICES.md.
 # - Linux x86_64 and aarch64: a tarball of patorrent-nox, patorrent-gtk, the desktop entry, the
 #   systemd units and the same two texts. They link the system's glibc, OpenSSL 3 and GTK 4 as
-#   Ubuntu 24.04 has them; AppImage and Flatpak (self-contained) come later.
+#   Ubuntu 24.04 has them.
+# - Linux x86_64 and aarch64 AppImages: PaTorrent (the GTK GUI with GTK 4 and its libraries)
+#   and patorrent-nox (with OpenSSL), made by linuxdeploy; they need glibc 2.39 (Ubuntu 24.04)
+#   or newer. Flatpak comes later.
 
 on:
   push:
@@ -75,10 +78,20 @@ jobs:
           - arch: aarch64
             runner: ubuntu-24.04-arm
     runs-on: ${{ matrix.runner }}
+    env:
+      # pinned linuxdeploy releases and the GTK plugin's commit (no `continuous` builds)
+      LINUXDEPLOY: https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1
+      LINUXDEPLOY_APPIMAGE: https://github.com/linuxdeploy/linuxdeploy-plugin-appimage/releases/download/1-alpha-20250213-1
+      LINUXDEPLOY_GTK: https://raw.githubusercontent.com/linuxdeploy/linuxdeploy-plugin-gtk/7a3fbc31a9e5075073ff8790f26effbac5f84453/linuxdeploy-plugin-gtk.sh
+      # PROVISIONAL: the recommended candidate until the owner picks the icon (Road to 1.0
+      # item 10); the AppImages are the only place it is used so far
+      APP_ICON: assets/patina-icons/exports/app/01-verdigris/256.png
+      # the runners have no FUSE: AppImages (linuxdeploy's own) unpack themselves to run
+      APPIMAGE_EXTRACT_AND_RUN: 1
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - run: sudo apt-get update && sudo apt-get install -y libssl-dev libgtk-4-dev
+      - run: sudo apt-get update && sudo apt-get install -y libssl-dev libgtk-4-dev libgdk-pixbuf2.0-bin librsvg2-common
       - run: cargo build --release --locked -p patorrent-nox -p patorrent-gtk
       - name: Tarball
         run: |
@@ -88,10 +101,61 @@ jobs:
           install -m 644 LICENSE.md THIRD-PARTY-NOTICES.md contrib/linux/*.desktop "$name/"
           cp -r contrib/systemd/system contrib/systemd/user "$name/systemd/"
           tar -czf "$name.tar.gz" --owner=0 --group=0 "$name"
+      - name: AppImages
+        run: |
+          version="${{ needs.version.outputs.version }}"
+          arch="${{ matrix.arch }}"
+          tools="$RUNNER_TEMP/linuxdeploy"
+          mkdir -p "$tools"
+          curl -fsSL -o "$tools/linuxdeploy" "$LINUXDEPLOY/linuxdeploy-$arch.AppImage"
+          curl -fsSL -o "$tools/linuxdeploy-plugin-appimage" "$LINUXDEPLOY_APPIMAGE/linuxdeploy-plugin-appimage-$arch.AppImage"
+          curl -fsSL -o "$tools/linuxdeploy-plugin-gtk.sh" "$LINUXDEPLOY_GTK"
+          chmod +x "$tools"/*
+          export PATH="$tools:$PATH" LINUXDEPLOY_OUTPUT_VERSION="$version"
+          app_id=io.github.balls0fsteel.PaTorrent
+          icons="$RUNNER_TEMP/icons"
+          mkdir -p "$icons"
+          cp "$APP_ICON" "$icons/$app_id.png"
+          cp "$APP_ICON" "$icons/$app_id.Nox.png"
+
+          # the GTK GUI, GTK 4 bundled (the plugin sets GTK's module, schema and loader paths)
+          DEPLOY_GTK_VERSION=4 LDAI_OUTPUT="PaTorrent-$version-$arch.AppImage" linuxdeploy \
+            --appdir AppDir-gtk \
+            --executable target/release/patorrent-gtk \
+            --desktop-file "contrib/linux/$app_id.desktop" \
+            --icon-file "$icons/$app_id.png" \
+            --plugin gtk --output appimage
+
+          # nox: a terminal program, kept out of the menus; OpenSSL bundled
+          cat > "$RUNNER_TEMP/$app_id.Nox.desktop" <<EOF
+          [Desktop Entry]
+          Type=Application
+          Name=PaTorrent nox
+          Comment=Headless BitTorrent daemon with a Web UI
+          Exec=patorrent-nox
+          Icon=$app_id.Nox
+          Terminal=true
+          NoDisplay=true
+          Categories=Network;FileTransfer;P2P;
+          EOF
+          LDAI_OUTPUT="patorrent-nox-$version-$arch.AppImage" linuxdeploy \
+            --appdir AppDir-nox \
+            --executable target/release/patorrent-nox \
+            --desktop-file "$RUNNER_TEMP/$app_id.Nox.desktop" \
+            --icon-file "$icons/$app_id.Nox.png" \
+            --output appimage
+
+          # the libraries are inside (the runner has them too, so ldd alone proves nothing),
+          # and the nox bundle starts
+          ls AppDir-gtk/usr/lib/libgtk-4.so.* AppDir-nox/usr/lib/libssl.so.* AppDir-nox/usr/lib/libcrypto.so.*
+          ./"patorrent-nox-$version-$arch.AppImage" --version
+          ls -l *.AppImage
       - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
-          path: patorrent-*.tar.gz
+          path: |
+            patorrent-*.tar.gz
+            *.AppImage
 
   release:
     if: github.ref_type == 'tag'
@@ -103,7 +167,7 @@ jobs:
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-      - run: sha256sum patorrent-* > SHA256SUMS && cat SHA256SUMS
+      - run: sha256sum patorrent-* PaTorrent-* > SHA256SUMS && cat SHA256SUMS
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -111,4 +175,4 @@ jobs:
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
             --title "PaTorrent ${{ needs.version.outputs.version }}" \
             --notes "Release notes: see CHANGELOG.md. Checksums: SHA256SUMS." \
-            patorrent-* SHA256SUMS
+            patorrent-* PaTorrent-* SHA256SUMS

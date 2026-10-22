@@ -2,16 +2,28 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
-## 2026-10-22_141257_1792671177: macOS folders and the system language
+## 2026-10-22_141510_1792671310: AppImages in the release workflow
+
+### Changed
+- **`release.yml`'s Linux jobs build AppImages** beside the tarballs (Road to 1.0 item 7), for x86_64 and aarch64: `PaTorrent-<version>-<arch>.AppImage`, the GTK GUI with GTK 4 and its libraries, loaders and schemas (linuxdeploy with its GTK plugin, `DEPLOY_GTK_VERSION=4`), and `patorrent-nox-<version>-<arch>.AppImage` with OpenSSL (a desktop entry made in the job: `Terminal=true`, `NoDisplay=true`). The step checks that `libgtk-4`, `libssl` and `libcrypto` are inside and that the nox bundle starts (`--version`). The release step checksums and attaches them.
+- The tools are pinned, not `continuous`: linuxdeploy `1-alpha-20251107-1`, linuxdeploy-plugin-appimage `1-alpha-20250213-1`, linuxdeploy-plugin-gtk at commit `7a3fbc3`. `APPIMAGE_EXTRACT_AND_RUN=1` since the runners have no FUSE.
+- docs/RELEASING.md lists the AppImages and what they need (glibc 2.39 or newer).
+
+### Decisions
+- The AppImages' icon is the recommended candidate, 01 Verdigris (`assets/patina-icons/exports/app/01-verdigris/256.png`), as a **provisional** choice: an AppImage cannot be made without one, and the owner has not picked the brand icon yet (Road to 1.0 item 10). One line (`APP_ICON`) changes it; nothing else uses it.
+- Two AppImages rather than one with a switch: each is a normal AppImage (nox in a terminal, the GUI from a menu), and nox users need not carry GTK.
 
 ### Verified
-- CI run 39739629446 (68cff06 and 6650408): every job green; the `macos` job ran every test binary (`--no-fail-fast`), the GTK GUI's included, and the flaky `a_tracker_reply_sets_the_external_address` passed this time.
+- The workflow parses (PyYAML) and the icon path exists. Nothing ran: the workflow runs on GitHub only and the change is not pushed (PLAN Known TODOs "AppImage").
+
+## 2026-10-22_141257_1792671177: macOS folders and the system language
 
 ### Changed
 - **macOS folders**: nox keeps its state and config in `~/Library/Application Support/PaTorrent/nox` (`paths::resolve_macos`; config follows state as on Windows; XDG variables are not read on macOS; `--state-dir` / `--config-dir` still win); the GTK GUI keeps its settings and library in `~/Library/Application Support/PaTorrent/gtk`. docs/DAEMON.md and `--help` name them. Nothing to migrate: no macOS build was ever released.
 - **macOS system language**: `lang::system_languages` reads the system's preferred languages (`CFLocaleCopyPreferredLanguages`, System Settings' Language & Region list) through a small Core Foundation binding, since an application started from the Finder has no `LANG`. Order there: `LANGUAGE`, `LC_ALL` / `LC_MESSAGES` (set on purpose), the system's list, then `LANG` (Terminal sets it from the region). Linux and the BSDs are unchanged (`posix_languages`, now tested on every OS).
 
 ### Verified
+- CI run 39739629446 (68cff06 and 6650408): every job green; the `macos` job ran every test binary (`--no-fail-fast`), the GTK GUI's included, and the flaky `a_tracker_reply_sets_the_external_address` passed this time.
 - Windows: the nox `paths` tests (new `macos_application_support`) and the `lang` tests (new `posix_and_macos_language_order`); clippy (`-D warnings`) for `aarch64-apple-darwin`, Linux and FreeBSD on the frontend, and on nox and the GTK GUI for macOS and Linux with the stand-in `pkg-config`; fmt. `macos_names_its_languages` runs only on the macOS runner.
 
 ## 2026-10-22_090703_1792652823: The GTK GUI builds and passes its tests on macOS; the flaky test, closer

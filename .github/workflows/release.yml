@@ -280,7 +280,7 @@ jobs:
         run: |
           cargo build --release --locked -p patorrent-gtk -p patorrent-nox
           cargo build --release --locked -p patorrent-nox --target x86_64-apple-darwin
-          lipo -archs target/release/patorrent-gtk target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox
+          for f in target/release/patorrent-gtk target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox; do echo "$f: $(lipo -archs "$f")"; done
           otool -L target/release/patorrent-gtk target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox
       - name: PaTorrent.app
         run: |

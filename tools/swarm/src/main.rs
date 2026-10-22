@@ -8,7 +8,8 @@
 //!   throughput and CPU time per byte.
 //! * `load`: the real engine's cold start with N saved torrents (`--keep DIR` leaves the state there,
 //!   `--reuse` opens it again), then with `--idle` the idle CPU while polled as the GUIs poll.
-//! * `interop`: the real engine downloading from qBittorrent, Transmission and Deluge.
+//! * `interop`: the real engine downloading from qBittorrent, Transmission and Deluge, over TCP or
+//!   uTP, or (`--super-seed`) super-seeding to them.
 //! * `seed-disk`: the real engine seeding to several downloaders from a cold disk, with the read
 //!   cache off and on: upload rate and disk reads per request.
 //!
@@ -35,7 +36,13 @@ USAGE:
     lt-swarm load [--count N] [--keep DIR [--reuse]] [--idle SECONDS]
     lt-swarm interop [--clients qbittorrent,transmission,deluge] [--mb N]
                      [--encryption forced|enabled|disabled] [--version v1|hybrid|v2]
+                     [--transport tcp|utp|utp-only] [--super-seed]
                      [--qbittorrent PATH] [--wsl-distro NAME] [--keep]
+        --transport   tcp: no uTP anywhere it can be switched off; utp: our engine tries uTP
+                      first (TCP fallback), qBittorrent uTP only, Transmission uTP on;
+                      utp-only: as utp, with TCP off in our engine too
+        --super-seed  reverse direction: the clients download from our engine, which
+                      super-seeds (BEP 16); reports the copies uploaded
     lt-swarm seed-disk [--dir DIR] [--mb N] [--piece-kib N] [--peers N] [--seconds N]
                        [--cache off|on|both] [--line-blocks N] [--cache-mb N]
                        [--load THREADS] [--keep]
@@ -118,6 +125,10 @@ fn main() -> ExitCode {
                     opts.keep = true;
                     continue;
                 }
+                if a == "--super-seed" {
+                    opts.super_seed = true;
+                    continue;
+                }
                 let Some(v) = it.next() else { return usage(&format!("{a} needs a value")) };
                 match a.as_str() {
                     "--clients" => {
@@ -140,6 +151,10 @@ fn main() -> ExitCode {
                     "--encryption" => match interop::Encryption::parse(v) {
                         Some(e) => opts.encryption = Some(e),
                         None => return usage("--encryption: expected forced, enabled or disabled"),
+                    },
+                    "--transport" => match interop::Transport::parse(v) {
+                        Some(t) => opts.transport = Some(t),
+                        None => return usage("--transport: expected tcp, utp or utp-only"),
                     },
                     _ => return usage(&format!("unknown option {a}")),
                 }

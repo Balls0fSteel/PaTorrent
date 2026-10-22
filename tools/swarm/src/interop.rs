@@ -20,6 +20,19 @@
 //!
 //! `--version v1|hybrid|v2` picks the torrent's BitTorrent version (BEP 52); v2 and hybrid
 //! torrents are made by `create_torrent` and have pad files between the files.
+//!
+//! `--transport tcp|utp|utp-only` picks the peer transport. `tcp`: uTP off on our side,
+//! qBittorrent TCP only, Transmission `utp-enabled` off. `utp`: our engine's own policy (uTP
+//! first, TCP when the uTP connect fails), qBittorrent uTP only, Transmission `utp-enabled` on.
+//! `utp-only`: as `utp` with TCP off on our side too. Deluge has no transport setting; its
+//! libtorrent takes both. Without the switch every side keeps its default, which for our engine
+//! already means uTP first. The result lines report the transport the connection used. A client
+//! that takes no TCP is not probed: the engine connects (and reconnects) until it gets through.
+//!
+//! `--super-seed` turns the direction around: the client starts with no data and downloads from
+//! our engine, which seeds with super-seeding (BEP 16) on and connects to the client. Afterwards
+//! the client's files are compared with the originals, and the result lines report how many
+//! copies of the torrent we uploaded (about one for one downloader is the point).
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
@@ -35,8 +48,8 @@ use patorrent_core::metainfo::{
     CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, set_piece_hashes,
 };
 use patorrent_core::{
-    AddTorrentParams, Alert, EncLevel, EncPolicy, PeerFlags, Session, SessionHandle, SessionParams, Settings,
-    Sha1Hash, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, EncLevel, EncPolicy, PeerFlags, PeerInfo, Session, SessionHandle, SessionParams,
+    Settings, Sha1Hash, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const NAME: &str = "lt-interop";
@@ -124,6 +137,47 @@ impl Version {
     }
 }
 
+/// The peer transport for a run (`None`: every side's default).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transport {
+    Tcp,
+    /// uTP first with the TCP fallback on our side; uTP only where the client can be told so.
+    Utp,
+    /// uTP only on both sides (where the client can be told so).
+    UtpOnly,
+}
+
+impl Transport {
+    pub fn parse(s: &str) -> Option<Transport> {
+        match s {
+            "tcp" => Some(Transport::Tcp),
+            "utp" => Some(Transport::Utp),
+            "utp-only" => Some(Transport::UtpOnly),
+            _ => None,
+        }
+    }
+
+    fn name(self) -> &'static str {
+        match self {
+            Transport::Tcp => "tcp",
+            Transport::Utp => "utp",
+            Transport::UtpOnly => "utp-only",
+        }
+    }
+
+    fn apply(self, s: &mut Settings) {
+        let (tcp, utp) = match self {
+            Transport::Tcp => (true, false),
+            Transport::Utp => (true, true),
+            Transport::UtpOnly => (false, true),
+        };
+        s.enable_outgoing_tcp = tcp;
+        s.enable_incoming_tcp = tcp;
+        s.enable_outgoing_utp = utp;
+        s.enable_incoming_utp = utp;
+    }
+}
+
 pub struct Options {
     pub clients: Vec<Client>,
     pub version: Version,
@@ -132,6 +186,9 @@ pub struct Options {
     pub wsl_distro: String,
     pub keep: bool,
     pub encryption: Option<Encryption>,
+    pub transport: Option<Transport>,
+    /// The client downloads from our engine, which super-seeds.
+    pub super_seed: bool,
 }
 
 impl Default for Options {
@@ -148,6 +205,8 @@ impl Default for Options {
             wsl_distro: "Debian".into(),
             keep: false,
             encryption: None,
+            transport: None,
+            super_seed: false,
         }
     }
 }
@@ -254,10 +313,10 @@ fn created_fixture(
     })
 }
 
-// --- Seeds --------------------------------------------------------------------------------------
+// --- Clients ------------------------------------------------------------------------------------
 
-/// A client seeding the fixture.
-struct Seed {
+/// A client process: seeding the fixture, or (`--super-seed`) downloading it from us.
+struct Remote {
     child: Child,
     addr: SocketAddr,
     /// Shell command that kills what the child started (WSL processes outlive `wsl.exe`).
@@ -338,7 +397,24 @@ fn shell_port(client: Client) -> u16 {
     base + client as u16 * 3
 }
 
-fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, String> {
+/// The client's directory in the shell (Transmission, Deluge): the data lands in `<it>/NAME`.
+fn shell_dir(client: Client) -> String {
+    format!("{}/{NAME}-{}/{}", shell_root(), std::process::id(), client.key())
+}
+
+/// Where qBittorrent keeps the data: the fixture's seed directory, or an empty one to download to.
+fn qbt_save_path(f: &Fixture, seeding: bool) -> PathBuf {
+    if seeding { f.work.join("seed") } else { f.work.join(format!("leech-{}", Client::QBittorrent.key())) }
+}
+
+/// Whether the client takes incoming TCP connections (the readiness probe is TCP).
+fn takes_tcp(client: Client, opts: &Options) -> bool {
+    !(client == Client::QBittorrent && matches!(opts.transport, Some(Transport::Utp | Transport::UtpOnly)))
+}
+
+/// Starts `client` with the torrent: as a seed of the fixture's data, or with no data, to
+/// download it.
+fn start_client(client: Client, f: &Fixture, opts: &Options, seeding: bool) -> Result<Remote, String> {
     let log = f.work.join(format!("{}.log", client.key()));
     let log_file = std::fs::File::create(&log).map_err(|e| e.to_string())?;
     let err_file = log_file.try_clone().map_err(|e| e.to_string())?;
@@ -355,10 +431,16 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
                 Some(Encryption::Forced) => "Session\\Encryption=1\r\n".into(),
                 Some(Encryption::Disabled) => "Session\\Encryption=2\r\n".into(),
             };
+            // qBittorrent's `BTProtocol` enum, stored by name: Both, TCP or UTP.
+            let protocol = match opts.transport {
+                None => "",
+                Some(Transport::Tcp) => "Session\\BTProtocol=TCP\r\n",
+                Some(Transport::Utp | Transport::UtpOnly) => "Session\\BTProtocol=UTP\r\n",
+            };
             let ini = format!(
                 "[LegalNotice]\r\nAccepted=true\r\n\r\n\
                  [BitTorrent]\r\nSession\\Port={port}\r\nSession\\DHTEnabled=false\r\n\
-                 Session\\LSDEnabled=false\r\nSession\\PeXEnabled=false\r\n{encryption}\
+                 Session\\LSDEnabled=false\r\nSession\\PeXEnabled=false\r\n{encryption}{protocol}\
                  Session\\AddTorrentStopped=false\r\n\r\n\
                  [Network]\r\nPortForwardingEnabled=false\r\n\r\n\
                  [Preferences]\r\nConnection\\ResolvePeerCountries=false\r\nGeneral\\NoSplashScreen=true\r\n"
@@ -370,9 +452,11 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
                 ("qBittorrent.conf", ini.replace("\r\n", "\n"))
             };
             std::fs::write(config.join(file), ini).map_err(|e| e.to_string())?;
+            let save = qbt_save_path(f, seeding);
+            std::fs::create_dir_all(&save).map_err(|e| e.to_string())?;
             let child = Command::new(&opts.qbittorrent)
                 .arg(format!("--profile={}", profile.display()))
-                .arg(format!("--save-path={}", f.work.join("seed").display()))
+                .arg(format!("--save-path={}", save.display()))
                 .args(["--skip-dialog=true", "--add-stopped=false"])
                 .arg(&f.torrent_path)
                 .stdin(Stdio::null())
@@ -380,16 +464,21 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
                 .stderr(err_file)
                 .spawn()
                 .map_err(|e| format!("cannot start {}: {e}", opts.qbittorrent.display()))?;
-            Ok(Seed { child, addr: SocketAddr::from(([127, 0, 0, 1], port)), kill: None, log })
+            Ok(Remote { child, addr: SocketAddr::from(([127, 0, 0, 1], port)), kill: None, log })
         }
         Client::Transmission | Client::Deluge => {
             let host = shell_host(opts)?;
             let port = shell_port(client);
-            let dir = format!("{}/{NAME}-{}/{}", shell_root(), std::process::id(), client.key());
+            let dir = shell_dir(client);
             let src = shell_path(&f.work);
-            let prepare = format!(
-                "set -e; rm -rf {dir}; mkdir -p {dir}/cfg; cp -r {src}/seed/{NAME} {dir}/; cp {src}/{NAME}.torrent {dir}/"
-            );
+            let data = if seeding { format!("cp -r {src}/seed/{NAME} {dir}/; ") } else { String::new() };
+            let prepare =
+                format!("set -e; rm -rf {dir}; mkdir -p {dir}/cfg; {data}cp {src}/{NAME}.torrent {dir}/");
+            let tr_utp = match opts.transport {
+                None => "",
+                Some(Transport::Tcp) => ", \"utp-enabled\": false",
+                Some(Transport::Utp | Transport::UtpOnly) => ", \"utp-enabled\": true",
+            };
             // Transmission: 0 plaintext preferred, 1 encryption preferred, 2 required. Deluge:
             // libtorrent's own values (policy 0 forced, 1 enabled, 2 disabled; level 1 RC4, 2 both).
             let (tr_enc, de_policy, de_level) = match opts.encryption {
@@ -408,7 +497,7 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
             let run = if client == Client::Transmission {
                 format!(
                     "printf '%s' '{{\"dht-enabled\": false, \"lpd-enabled\": false, \"pex-enabled\": false, \
-                     \"port-forwarding-enabled\": false, \"rpc-enabled\": false, \"peer-port\": {port}{tr_enc}}}' \
+                     \"port-forwarding-enabled\": false, \"rpc-enabled\": false, \"peer-port\": {port}{tr_enc}{tr_utp}}}' \
                      > {dir}/cfg/settings.json; \
                      transmission-cli --version 2>&1 | head -1; \
                      exec stdbuf -oL timeout 900 transmission-cli -g {dir}/cfg -w {dir} -p {port} -M -U -v {dir}/{NAME}.torrent"
@@ -435,7 +524,7 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
                 .stderr(err_file)
                 .spawn()
                 .map_err(|e| format!("cannot start a shell: {e}"))?;
-            Ok(Seed {
+            Ok(Remote {
                 child,
                 addr: SocketAddr::new(host, port),
                 // The client's path must not appear literally in this command line, or `pkill -f`
@@ -455,7 +544,7 @@ fn start_seed(client: Client, f: &Fixture, opts: &Options) -> Result<Seed, Strin
     }
 }
 
-fn stop_seed(mut s: Seed, opts: &Options) {
+fn stop_client(mut s: Remote, opts: &Options) {
     if let Some(kill) = &s.kill {
         let _ = shell(opts, kill).stdin(Stdio::null()).stdout(Stdio::null()).stderr(Stdio::null()).status();
     }
@@ -581,22 +670,38 @@ fn probe(
     Ok((peer_id, have.iter().all(|&h| h)))
 }
 
-fn wait_until_seeding(seed: &mut Seed, f: &Fixture, opts: &Options) -> Result<[u8; 20], String> {
+/// Waits until the client answers a handshake for the torrent and, when `seeding`, has every
+/// piece. Returns its peer-id; `None` when the client takes no TCP (`takes_tcp`) and cannot be
+/// probed: then it only has to stay up for a few seconds, and the engine retries its connects.
+fn wait_until_ready(
+    remote: &mut Remote,
+    client: Client,
+    f: &Fixture,
+    opts: &Options,
+    seeding: bool,
+) -> Result<Option<[u8; 20]>, String> {
+    let exited = |r: &mut Remote| match r.child.try_wait() {
+        Ok(Some(status)) => Err(format!("the client exited ({status}); see {}", r.log.display())),
+        _ => Ok(()),
+    };
+    if !takes_tcp(client, opts) {
+        std::thread::sleep(Duration::from_secs(3));
+        return exited(remote).map(|()| None);
+    }
     let deadline = Instant::now() + SEED_READY_LIMIT;
     let mut last = String::from("no answer");
     let encrypted = opts.encryption == Some(Encryption::Forced);
     while Instant::now() < deadline {
-        if let Ok(Some(status)) = seed.child.try_wait() {
-            return Err(format!("the client exited ({status}); see {}", seed.log.display()));
-        }
-        match probe(seed.addr, &f.info_hash, f.num_pieces, encrypted) {
-            Ok((id, true)) => return Ok(id),
-            Ok((_, false)) => last = "connected, not seeding yet".into(),
+        exited(remote)?;
+        match probe(remote.addr, &f.info_hash, f.num_pieces, encrypted) {
+            Ok((id, all)) if all || !seeding => return Ok(Some(id)),
+            Ok(_) => last = "connected, not seeding yet".into(),
             Err(e) => last = e.to_string(),
         }
         std::thread::sleep(Duration::from_millis(500));
     }
-    Err(format!("not seeding after {SEED_READY_LIMIT:?} ({last}); see {}", seed.log.display()))
+    let what = if seeding { "not seeding" } else { "no answer for the torrent" };
+    Err(format!("{what} after {SEED_READY_LIMIT:?} ({last}); see {}", remote.log.display()))
 }
 
 // --- Leech --------------------------------------------------------------------------------------
@@ -633,10 +738,32 @@ struct Transfer {
     /// When the first payload showed up in a status update (200 ms resolution). Some clients
     /// unchoke only on their periodic rechoke: Transmission's runs every 10 s.
     first_data: Option<Duration>,
+    /// Our torrent's status at the end: the downloader's, or with `--super-seed` the seed's.
     status: TorrentStatus,
-    /// What the connection to the seed used: `rc4`, `plaintext` (an encrypted handshake, plain
-    /// payload) or `none`.
-    encryption: &'static str,
+    /// The connection to the client as our peer list last saw it.
+    conn: Conn,
+}
+
+/// What the connection to the client used, from our engine's peer list.
+#[derive(Default)]
+struct Conn {
+    /// `rc4`, `plaintext` (an encrypted handshake, plain payload) or `none`.
+    encryption: Option<&'static str>,
+    /// `utp` or `tcp`.
+    transport: Option<&'static str>,
+    /// The client name decoded from its peer-id / extension handshake.
+    client: Option<String>,
+}
+
+impl Conn {
+    /// Takes the first connected peer from a peer list; returns it.
+    fn update<'a>(&mut self, peers: &'a [PeerInfo]) -> Option<&'a PeerInfo> {
+        let p = peers.iter().find(|p| !p.flags.intersects(PeerFlags::CONNECTING | PeerFlags::HANDSHAKE))?;
+        self.encryption = Some(encryption_name(p.flags));
+        self.transport = Some(if p.flags.contains(PeerFlags::UTP_SOCKET) { "utp" } else { "tcp" });
+        self.client = Some(p.client.clone());
+        Some(p)
+    }
 }
 
 fn encryption_name(flags: PeerFlags) -> &'static str {
@@ -649,9 +776,17 @@ fn encryption_name(flags: PeerFlags) -> &'static str {
     }
 }
 
-fn download(f: &Fixture, from: SocketAddr, dir: &Path, opts: &Options) -> Result<Transfer, String> {
+/// How often the engine connects to the client again while it has no connection to it (a client
+/// that takes no TCP is not probed, so the first connects may come before it listens).
+const RECONNECT: Duration = Duration::from_secs(2);
+
+/// Our session for a run against the client at `peer`.
+fn session(opts: &Options, peer: SocketAddr) -> Result<Session, String> {
+    // A uTP socket bound to loopback cannot reach a WSL distro's address.
+    let utp = !matches!(opts.transport, None | Some(Transport::Tcp));
+    let listen = if peer.ip().is_loopback() || !utp { "127.0.0.1:0" } else { "0.0.0.0:0" };
     let mut settings = Settings {
-        listen_interfaces: "127.0.0.1:0".into(),
+        listen_interfaces: listen.into(),
         enable_dht: false,
         enable_lsd: false,
         enable_upnp: false,
@@ -661,26 +796,55 @@ fn download(f: &Fixture, from: SocketAddr, dir: &Path, opts: &Options) -> Result
     if let Some(e) = opts.encryption {
         e.apply(&mut settings);
     }
-    let session = Session::start(SessionParams { settings, state_dir: None }).map_err(|e| e.to_string())?;
-    let h = session.handle();
+    if let Some(t) = opts.transport {
+        t.apply(&mut settings);
+    }
+    Session::start(SessionParams { settings, state_dir: None }).map_err(|e| e.to_string())
+}
+
+/// Adds the fixture's torrent to `h` with `flags`, saving to (or seeding from) `dir`.
+fn add_fixture(h: &SessionHandle, f: &Fixture, dir: &Path, flags: TorrentFlags) -> Result<TorrentId, String> {
     let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
-    p.flags = TorrentFlags::empty();
+    p.flags = flags;
     h.add_torrent(p);
-    let id = wait(&h, Duration::from_secs(5), |a| match a {
+    wait(h, Duration::from_secs(5), |a| match a {
         Alert::TorrentAdded { id, .. } => Some(Ok(*id)),
         Alert::AddTorrentFailed { error, .. } => Some(Err(error.to_string())),
         _ => None,
     })
-    .ok_or("the torrent was not added")??;
+    .ok_or("the torrent was not added")?
+}
+
+fn trace_line(t0: Instant, st: &TorrentStatus, upload: bool) {
+    let (bytes, rate) = if upload {
+        (st.total_payload_upload, st.upload_payload_rate)
+    } else {
+        (st.total_done, st.download_payload_rate)
+    };
+    eprintln!(
+        "  {:>6} ms  {:>9} bytes  {:>7.2} MB/s  peers {}",
+        t0.elapsed().as_millis(),
+        bytes,
+        rate as f64 / 1e6,
+        st.num_peers
+    );
+}
+
+fn download(f: &Fixture, from: SocketAddr, dir: &Path, opts: &Options) -> Result<Transfer, String> {
+    let session = session(opts, from)?;
+    let h = session.handle();
+    let id = add_fixture(&h, f, dir, TorrentFlags::empty())?;
     wait(&h, Duration::from_secs(10), |a| status(a, id).filter(|s| s.state == TorrentState::Downloading))
         .ok_or("the torrent did not start downloading")?;
     let t0 = Instant::now();
     h.torrent(id).connect_peer(from);
+    h.torrent(id).post_peer_info();
+    let mut last_connect = Instant::now();
     let mut errors = Vec::new();
     // LT_INTEROP_TRACE=1 prints progress about every 200 ms, to see where a transfer stalls.
     let trace = std::env::var_os("LT_INTEROP_TRACE").is_some();
     let mut first_data = None;
-    let mut encryption = None;
+    let mut conn = Conn::default();
     let finished = wait(&h, DOWNLOAD_LIMIT, |a| match a {
         Alert::TorrentFinished { id: i } if *i == id => Some(()),
         Alert::TorrentError { error, .. } => {
@@ -688,29 +852,26 @@ fn download(f: &Fixture, from: SocketAddr, dir: &Path, opts: &Options) -> Result
             None
         }
         Alert::PeerInfo { id: i, peers } if *i == id => {
-            if let Some(p) =
-                peers.iter().find(|p| !p.flags.intersects(PeerFlags::CONNECTING | PeerFlags::HANDSHAKE))
-            {
-                encryption = Some(encryption_name(p.flags));
+            // ask again until the connection is up: a fast transfer is over in a few status updates
+            if conn.update(peers).is_none() {
+                h.torrent(id).post_peer_info();
             }
             None
         }
         _ => {
             let st = status(a, id)?;
-            if encryption.is_none() {
+            if conn.transport.is_none() {
                 h.torrent(id).post_peer_info();
+            }
+            if st.num_peers == 0 && last_connect.elapsed() >= RECONNECT {
+                h.torrent(id).connect_peer(from);
+                last_connect = Instant::now();
             }
             if st.total_done > 0 && first_data.is_none() {
                 first_data = Some(t0.elapsed());
             }
             if trace {
-                eprintln!(
-                    "  {:>6} ms  {:>9} bytes  {:>7.2} MB/s  peers {}",
-                    t0.elapsed().as_millis(),
-                    st.total_done,
-                    st.download_payload_rate as f64 / 1e6,
-                    st.num_peers
-                );
+                trace_line(t0, &st, false);
             }
             None
         }
@@ -727,7 +888,111 @@ fn download(f: &Fixture, from: SocketAddr, dir: &Path, opts: &Options) -> Result
             if errors.is_empty() { String::new() } else { format!(", errors: {errors:?}") }
         ));
     }
-    Ok(Transfer { elapsed, first_data, status: st, encryption: encryption.unwrap_or("unknown") })
+    Ok(Transfer { elapsed, first_data, status: st, conn })
+}
+
+/// `--super-seed`: our engine seeds the fixture with super-seeding on and connects to the client,
+/// which downloads; done once the client has every piece (or dropped us after we uploaded a full
+/// copy) and its files match the originals.
+fn upload(client: Client, f: &Fixture, to: SocketAddr, opts: &Options) -> Result<Transfer, String> {
+    let session = session(opts, to)?;
+    let h = session.handle();
+    let id = add_fixture(&h, f, &f.work.join("seed"), TorrentFlags::SUPER_SEEDING)?;
+    let st =
+        wait(&h, Duration::from_secs(60), |a| status(a, id).filter(|s| s.state == TorrentState::Seeding))
+            .ok_or("our seed did not finish checking its data")?;
+    if !st.super_seeding {
+        return Err("the engine turned super-seeding off after the check".into());
+    }
+    let t0 = Instant::now();
+    h.torrent(id).connect_peer(to);
+    h.torrent(id).post_peer_info();
+    let mut last_connect = Instant::now();
+    let mut errors = Vec::new();
+    let trace = std::env::var_os("LT_INTEROP_TRACE").is_some();
+    let mut first_data = None;
+    let mut conn = Conn::default();
+    let done = wait(&h, DOWNLOAD_LIMIT, |a| match a {
+        Alert::TorrentError { error, .. } => {
+            errors.push(error.to_string());
+            None
+        }
+        Alert::PeerInfo { id: i, peers } if *i == id => {
+            let Some(p) = conn.update(peers) else {
+                if conn.transport.is_none() {
+                    h.torrent(id).post_peer_info();
+                }
+                return None;
+            };
+            (p.flags.contains(PeerFlags::SEED) || p.progress_ppm >= 1_000_000).then_some(())
+        }
+        _ => {
+            let st = status(a, id)?;
+            h.torrent(id).post_peer_info();
+            if st.total_payload_upload > 0 && first_data.is_none() {
+                first_data = Some(t0.elapsed());
+            }
+            if trace {
+                trace_line(t0, &st, true);
+            }
+            if st.num_peers == 0 {
+                // a finished downloader may close the connection before we see it complete
+                if st.total_payload_upload >= f.total {
+                    return Some(());
+                }
+                if last_connect.elapsed() >= RECONNECT {
+                    h.torrent(id).connect_peer(to);
+                    last_connect = Instant::now();
+                }
+            }
+            None
+        }
+    });
+    let elapsed = t0.elapsed();
+    if done.is_none() {
+        let st = wait(&h, Duration::from_secs(5), |a| status(a, id));
+        session.shutdown();
+        let sent = st.map_or(0, |s| s.total_payload_upload);
+        return Err(format!(
+            "the client did not complete within {DOWNLOAD_LIMIT:?}: {sent} of {} bytes uploaded{}",
+            f.total,
+            if errors.is_empty() { String::new() } else { format!(", errors: {errors:?}") }
+        ));
+    }
+    // The client announces a piece once it passed the hash check; its last writes may still be on
+    // their way to the disk.
+    let deadline = Instant::now() + Duration::from_secs(30);
+    let checked = loop {
+        match client_has_files(client, f, opts) {
+            Ok(()) => break Ok(()),
+            Err(e) if Instant::now() >= deadline => break Err(format!("the client's copy: {e}")),
+            Err(_) => std::thread::sleep(Duration::from_millis(500)),
+        }
+    };
+    let st = wait(&h, Duration::from_secs(5), |a| status(a, id)).ok_or("no final status");
+    session.shutdown();
+    checked?;
+    Ok(Transfer { elapsed, first_data, status: st?, conn })
+}
+
+/// Whether the client's downloaded files equal the originals.
+fn client_has_files(client: Client, f: &Fixture, opts: &Options) -> Result<(), String> {
+    if client == Client::QBittorrent {
+        return same_files(f, &qbt_save_path(f, false));
+    }
+    let src = shell_path(&f.work);
+    let dir = shell_dir(client);
+    let checks: String = f
+        .files
+        .iter()
+        .map(|name| format!("cmp -s {src}/seed/{NAME}/{name} {dir}/{NAME}/{name} || echo {name}; "))
+        .collect();
+    match shell_output(opts, &checks)? {
+        differ if differ.is_empty() => Ok(()),
+        differ => {
+            Err(format!("missing or different: {}", differ.split_whitespace().collect::<Vec<_>>().join(", ")))
+        }
+    }
 }
 
 fn same_files(f: &Fixture, dir: &Path) -> Result<(), String> {
@@ -748,14 +1013,26 @@ fn peer_id_text(id: &[u8; 20]) -> String {
 // --- Driver -------------------------------------------------------------------------------------
 
 fn run_one(client: Client, f: &Fixture, opts: &Options) -> Result<(String, Transfer), String> {
-    let mut seed = start_seed(client, f, opts)?;
-    let result = wait_until_seeding(&mut seed, f, opts).and_then(|peer_id| {
-        let dir = f.work.join(format!("leech-{}", client.key()));
-        let t = download(f, seed.addr, &dir, opts)?;
-        same_files(f, &dir)?;
-        Ok((peer_id_text(&peer_id), t))
+    let seeding = !opts.super_seed;
+    let mut remote = start_client(client, f, opts, seeding)?;
+    let result = wait_until_ready(&mut remote, client, f, opts, seeding).and_then(|peer_id| {
+        let t = if opts.super_seed {
+            upload(client, f, remote.addr, opts)?
+        } else {
+            let dir = f.work.join(format!("leech-{}", client.key()));
+            let t = download(f, remote.addr, &dir, opts)?;
+            same_files(f, &dir)?;
+            t
+        };
+        // not probed (no TCP): the client name from our peer list instead
+        let peer_id = match (peer_id, &t.conn.client) {
+            (Some(id), _) => peer_id_text(&id),
+            (None, Some(name)) => name.clone(),
+            (None, None) => "-".into(),
+        };
+        Ok((peer_id, t))
     });
-    stop_seed(seed, opts);
+    stop_client(remote, opts);
     result
 }
 
@@ -775,6 +1052,10 @@ pub fn run(opts: &Options) -> ExitCode {
     if let Some(e) = opts.encryption {
         println!("encryption_policy={}", format!("{e:?}").to_lowercase());
     }
+    if let Some(t) = opts.transport {
+        println!("transport_policy={}", t.name());
+    }
+    println!("direction={}", if opts.super_seed { "super-seed" } else { "download" });
     let mut summary = Vec::new();
     let mut failed = false;
     for &client in &opts.clients {
@@ -782,24 +1063,44 @@ pub fn run(opts: &Options) -> ExitCode {
         match run_one(client, &f, opts) {
             Ok((peer_id, t)) => {
                 let st = &t.status;
+                let encryption = t.conn.encryption.unwrap_or("unknown");
+                let transport = t.conn.transport.unwrap_or("unknown");
                 println!("{k}_result=ok");
                 println!("{k}_peer_id={peer_id}");
-                println!("{k}_download_ms={:.0}", t.elapsed.as_secs_f64() * 1e3);
+                if let Some(c) = &t.conn.client {
+                    println!("{k}_client={c}");
+                }
+                let verb = if opts.super_seed { "upload" } else { "download" };
+                println!("{k}_{verb}_ms={:.0}", t.elapsed.as_secs_f64() * 1e3);
                 if let Some(d) = t.first_data {
                     println!("{k}_first_data_ms={}", d.as_millis());
                 }
-                println!("{k}_encryption={}", t.encryption);
-                println!("{k}_payload_bytes={}", st.total_payload_download);
-                println!("{k}_failed_bytes={}", st.total_failed_bytes);
-                println!("{k}_redundant_bytes={}", st.total_redundant_bytes);
+                println!("{k}_encryption={encryption}");
+                println!("{k}_transport={transport}");
                 let first = t.first_data.map_or("-".into(), |d| format!("{:.1} s", d.as_secs_f64()));
-                summary.push(format!(
-                    "{k:<13} ok   {peer_id}  {:>6.2} s (first data after {first}), failed {} B, redundant {} B, encryption {}",
-                    t.elapsed.as_secs_f64(),
-                    st.total_failed_bytes,
-                    st.total_redundant_bytes,
-                    t.encryption
-                ));
+                if opts.super_seed {
+                    let copies = st.total_payload_upload as f64 / f.total as f64;
+                    println!("{k}_super_seeding={}", st.super_seeding);
+                    println!("{k}_upload_payload_bytes={}", st.total_payload_upload);
+                    println!("{k}_copies={copies:.3}");
+                    summary.push(format!(
+                        "{k:<13} ok   {peer_id}  {:>6.2} s (first data after {first}), uploaded {} B = {copies:.3} copies, \
+                         transport {transport}, encryption {encryption}",
+                        t.elapsed.as_secs_f64(),
+                        st.total_payload_upload,
+                    ));
+                } else {
+                    println!("{k}_payload_bytes={}", st.total_payload_download);
+                    println!("{k}_failed_bytes={}", st.total_failed_bytes);
+                    println!("{k}_redundant_bytes={}", st.total_redundant_bytes);
+                    summary.push(format!(
+                        "{k:<13} ok   {peer_id}  {:>6.2} s (first data after {first}), failed {} B, redundant {} B, \
+                         transport {transport}, encryption {encryption}",
+                        t.elapsed.as_secs_f64(),
+                        st.total_failed_bytes,
+                        st.total_redundant_bytes,
+                    ));
+                }
             }
             Err(e) => {
                 failed = true;
@@ -809,7 +1110,11 @@ pub fn run(opts: &Options) -> ExitCode {
         }
     }
     println!();
-    println!("PaTorrent downloading {} MiB ({} pieces) from:", f.total >> 20, f.num_pieces);
+    if opts.super_seed {
+        println!("PaTorrent super-seeding {} MiB ({} pieces) to:", f.total >> 20, f.num_pieces);
+    } else {
+        println!("PaTorrent downloading {} MiB ({} pieces) from:", f.total >> 20, f.num_pieces);
+    }
     for line in &summary {
         println!("  {line}");
     }

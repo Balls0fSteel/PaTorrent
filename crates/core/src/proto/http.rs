@@ -112,12 +112,15 @@ pub enum ParseError {
 /// the end of the buffer (the server closed the connection).
 ///
 /// One-shot: a caller that reads the response piece by piece keeps a [`ResponseParser`]
-/// instead, so each read costs only the bytes it added.
+/// instead, so each read costs only the bytes it added. Only the tests and the fuzz target
+/// parse in one go.
+#[cfg(any(test, feature = "fuzzing"))]
 pub fn parse_response(buf: &[u8], eof: bool) -> Result<Response, ParseError> {
     parse_response_limited(buf, eof, MAX_RESPONSE)
 }
 
 /// [`parse_response`] with a body limit other than [`MAX_RESPONSE`].
+#[cfg(any(test, feature = "fuzzing"))]
 pub fn parse_response_limited(buf: &[u8], eof: bool, max: usize) -> Result<Response, ParseError> {
     ResponseParser::new(max).parse(buf, eof)
 }

@@ -37,6 +37,7 @@ use crate::proto::tracker::{
 };
 use crate::status::{AnnounceEntry, TrackerStatus};
 use crate::types::{Sha1Hash, TorrentId};
+use crate::util::string::string_begins_no_case;
 
 pub(crate) const HTTP_TOKEN_BASE: usize = 0x2000_0000;
 pub(crate) const UDP4_TOKEN: Token = Token(9);
@@ -330,6 +331,9 @@ pub(crate) struct TrackerManager {
     results: Vec<(TrackerJob, TrackerOutcome)>,
     user_agent: String,
     completion_timeout: Duration,
+    /// libtorrent `ssrf_mitigation`: an HTTP tracker on loopback is only asked for paths that
+    /// start with `/announce`.
+    ssrf_mitigation: bool,
     udp_buf: Vec<u8>,
 }
 
@@ -357,6 +361,7 @@ impl TrackerManager {
             results: Vec::new(),
             user_agent,
             completion_timeout: Duration::from_secs(30),
+            ssrf_mitigation: true,
             udp_buf: vec![0; 64 * 1024],
         }
     }
@@ -369,9 +374,10 @@ impl TrackerManager {
         }
     }
 
-    pub fn set_options(&mut self, user_agent: &str, completion_timeout: u32) {
+    pub fn set_options(&mut self, user_agent: &str, completion_timeout: u32, ssrf_mitigation: bool) {
         self.user_agent = user_agent.to_owned();
         self.completion_timeout = Duration::from_secs(completion_timeout.max(1) as u64);
+        self.ssrf_mitigation = ssrf_mitigation;
     }
 
     /// Requests in flight.
@@ -564,6 +570,12 @@ impl TrackerManager {
         let Some(c) = self.http.get_mut(slot) else { return };
         let any = !ips.is_empty();
         c.job.filter_ips(&mut ips);
+        // libtorrent `http_tracker_connection::on_filter` (SSRF mitigation): a tracker URL, or a
+        // redirect, that resolves to loopback must use the conventional `/announce` path, so a
+        // torrent or a tracker cannot make us send requests to other local services.
+        if self.ssrf_mitigation && !string_begins_no_case(b"/announce", c.url.path.as_bytes()) {
+            ips.retain(|ip| !ip.is_loopback());
+        }
         if any && ips.is_empty() {
             let c = self.http.remove(slot).expect("present");
             return self.fail(c.job, BANNED_BY_IP_FILTER);
@@ -1172,6 +1184,62 @@ mod tests {
             }
         }
         assert_eq!(m.pending(), 0);
+    }
+
+    /// Security review 2026-10-22: libtorrent's `ssrf_mitigation` for HTTP trackers. A tracker
+    /// on loopback is contacted only for a path starting with `/announce`; any other path (a
+    /// torrent pointing its tracker at a local web service) fails without a connection.
+    #[test]
+    fn ssrf_mitigation_keeps_http_trackers_off_other_loopback_paths() {
+        let poll = mio::Poll::new().unwrap();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let resolver = Resolver::new(tx, Arc::new(|| {}));
+        let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let job = |path: &str| TrackerJob {
+            torrent: TorrentId::new(0, 0),
+            tracker: Some(0),
+            url: format!("http://127.0.0.1:{port}{path}"),
+            kind: JobKind::Announce(AnnounceRequest {
+                info_hash: Sha1Hash([1; 20]),
+                peer_id: [b'x'; 20],
+                port: 6881,
+                uploaded: 0,
+                downloaded: 0,
+                left: 0,
+                corrupt: 0,
+                event: Event::Started,
+                key: 0,
+                num_want: 50,
+                tracker_id: String::new(),
+            }),
+            filter: None,
+        };
+        let now = Instant::now();
+        for (path, ssrf, allowed) in [
+            ("/admin/delete?all=1", true, false),
+            ("/", true, false),
+            ("/x/announce", true, false),
+            ("/announce", true, true),
+            ("/ANNOUNCE.php?passkey=1", true, true),
+            ("/admin/delete?all=1", false, true),
+        ] {
+            let mut m = TrackerManager::new(poll.registry(), "test".into());
+            m.set_options("test", 30, ssrf);
+            m.start(job(path), &resolver, poll.registry(), now);
+            let results = m.take_results();
+            if allowed {
+                assert!(results.is_empty(), "{path}: {results:?}");
+                assert_eq!(m.pending(), 1, "{path}: connecting");
+            } else {
+                assert_eq!(results.len(), 1, "{path}");
+                assert!(
+                    matches!(&results[0].1, TrackerOutcome::Failed(e) if e == BANNED_BY_IP_FILTER),
+                    "{path}"
+                );
+                assert_eq!(m.pending(), 0, "{path}");
+            }
+        }
     }
 
     #[test]

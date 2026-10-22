@@ -1101,9 +1101,10 @@ mod session_tests {
 
         // the address changes (a new DHCP lease): the old votes are forgotten and the torrent
         // announces again at the next tick (its interval is 30 minutes). The reply above also
-        // started a scrape, which this tracker answers with an announce body: that scrape fails
-        // at about the same time as this change, and a failed scrape must leave the tracker's
-        // schedule alone, or the announce would wait out a retry backoff instead.
+        // started a scrape, which fails at about the same time as this change (libtorrent's SSRF
+        // mitigation refuses `/scrape` on loopback: only `/announce` paths may go there), and a
+        // failed scrape must leave the tracker's schedule alone, or the announce would wait out
+        // a retry backoff instead.
         h.set_fake_network(Some(net("198.51.100.8")));
         wait(&h, 5, "votes reset", log_containing("forgetting the IPv4 external address votes"));
         rx.recv_timeout(Duration::from_secs(10)).expect("a second announce after the change");
@@ -1118,7 +1119,7 @@ mod session_tests {
             Alert::ScrapeFailed { message, .. } => Some(message.clone()),
             _ => None,
         });
-        assert_eq!(m, "invalid scrape response");
+        assert_eq!(m, "banned by IP filter");
         h.torrent(id).post_trackers();
         let trackers = wait(&h, 5, "the tracker list", |a| match a {
             Alert::TrackerList { trackers, .. } => Some(trackers.clone()),

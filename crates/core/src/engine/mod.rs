@@ -416,7 +416,11 @@ impl Engine {
         let network = listen::NetworkState::new(wake.clone());
         let resolver = Resolver::new(res_tx, wake);
         let mut trackers = TrackerManager::new(poll.registry(), settings.user_agent.clone());
-        trackers.set_options(&settings.user_agent, settings.tracker_completion_timeout);
+        trackers.set_options(
+            &settings.user_agent,
+            settings.tracker_completion_timeout,
+            settings.ssrf_mitigation,
+        );
         trackers.set_socket_buffer_size(settings.send_socket_buffer_size, settings.recv_socket_buffer_size);
         let now = Instant::now();
         Engine {
@@ -1410,7 +1414,7 @@ impl Engine {
         self.utp.set_settings(UtpSettings::from(&s));
         self.disk.set_file_pool_size(s.file_pool_size as usize);
         self.disk.set_read_cache(s.use_read_cache, s.cache_size, s.read_cache_line_size, s.cache_expiry);
-        self.trackers.set_options(&s.user_agent, s.tracker_completion_timeout);
+        self.trackers.set_options(&s.user_agent, s.tracker_completion_timeout, s.ssrf_mitigation);
         if let Some(t) = self.dht.tracker.as_mut() {
             t.set_settings(crate::dht::DhtSettings::from(&s));
         }

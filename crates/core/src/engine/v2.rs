@@ -99,6 +99,24 @@ pub(super) fn hashes_for(trees: &[MerkleTree], ti: &TorrentInfo, m: &HashMsg) ->
     trees[file].get_hashes(m.base as usize, m.index as usize, m.count as usize, m.proof_layers as usize)
 }
 
+/// Bytes queued for a peer at which its hash requests are rejected instead of answered.
+/// A 49-byte request can ask for 8192 hashes (256 KiB), and libtorrent answers every one, so a
+/// peer that sends requests and never reads the answers would grow our send buffer without
+/// bound. ut_metadata requests have the same kind of guard (`ut_metadata::SEND_BUFFER_LIMIT`).
+/// New in the security review of 2026-10-22; libtorrent has no such limit.
+pub(super) const HASH_REPLY_SEND_BUFFER_LIMIT: usize = 1024 * 1024;
+
+/// Appends the answer to a hash request to `out`: the hashes, or a reject when there are none
+/// or when `queued` (the bytes already waiting for the peer) has reached
+/// [`HASH_REPLY_SEND_BUFFER_LIMIT`]. A reject is no larger than the request.
+fn write_hash_answer(out: &mut Vec<u8>, queued: usize, m: &HashMsg, hashes: &[Sha256Hash]) {
+    if hashes.is_empty() || queued >= HASH_REPLY_SEND_BUFFER_LIMIT {
+        peer_wire::encode_hash_msg(out, msg::HASH_REJECT, m);
+    } else {
+        peer_wire::encode_hashes(out, m, hashes);
+    }
+}
+
 impl Engine {
     /// libtorrent `on_hash_request`: a v2 peer asks for part of a file's merkle tree; it gets
     /// the hashes or a reject. Hash messages on a v1 connection end it.
@@ -108,7 +126,10 @@ impl Engine {
             p.close("hash request on a v1 connection", true);
             return;
         }
+        let queued = p.send_buffer_len();
         let hashes = match t {
+            // not even looked up while the peer leaves its earlier answers unread
+            _ if queued >= HASH_REPLY_SEND_BUFFER_LIMIT => Vec::new(),
             Some(t) => match &t.ti {
                 Some(ti) => {
                     let trees = t.merkle_trees.get_or_insert_with(|| build_trees(ti));
@@ -118,11 +139,7 @@ impl Engine {
             },
             None => Vec::new(),
         };
-        if hashes.is_empty() {
-            peer_wire::encode_hash_msg(p.out(), msg::HASH_REJECT, &m);
-        } else {
-            peer_wire::encode_hashes(p.out(), &m, &hashes);
-        }
+        write_hash_answer(p.out(), queued, &m, &hashes);
         self.to_flush.push(slot);
     }
 
@@ -334,5 +351,34 @@ impl Engine {
         self.alert(Alert::TorrentError { id, error });
         self.update_running(id);
         self.needs_auto_manage = true;
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Security review 2026-10-22: hash requests are answered while the peer's send buffer is
+    /// below the limit, and rejected (an answer no larger than the request) from then on, so a
+    /// peer that never reads cannot make one 49-byte request queue 256 KiB of hashes after
+    /// another.
+    #[test]
+    fn hash_requests_are_rejected_while_the_send_buffer_is_full() {
+        let m = HashMsg { root: Sha256Hash([7; 32]), base: 1, index: 0, count: 8192, proof_layers: 0 };
+        let hashes = vec![Sha256Hash([1; 32]); 8192];
+        let mut out = Vec::new();
+        write_hash_answer(&mut out, 0, &m, &hashes);
+        assert_eq!(out[4], msg::HASHES);
+        assert_eq!(out.len(), 4 + 1 + 48 + 8192 * 32);
+
+        for queued in [HASH_REPLY_SEND_BUFFER_LIMIT, HASH_REPLY_SEND_BUFFER_LIMIT * 4] {
+            let mut out = Vec::new();
+            write_hash_answer(&mut out, queued, &m, &hashes);
+            assert_eq!(out[4], msg::HASH_REJECT);
+            assert_eq!(out.len(), 4 + 1 + 48, "the size of the request");
+        }
+        let mut out = Vec::new();
+        write_hash_answer(&mut out, 0, &m, &[]);
+        assert_eq!(out[4], msg::HASH_REJECT);
     }
 }

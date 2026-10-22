@@ -19,6 +19,8 @@ mod create;
 #[cfg(unix)]
 mod detail;
 #[cfg(unix)]
+mod icons;
+#[cfg(unix)]
 mod integration;
 #[cfg(unix)]
 mod list;

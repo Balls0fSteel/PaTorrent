@@ -6,6 +6,10 @@
 //! key order, for a test to compare with `en.rs`.
 //!
 //! The encoder is core's, included by path: a build script cannot use a crate it builds beside.
+//!
+//! It also reads which PatinaTorrent application icon is in use from
+//! `assets/patina-icons/app-icon.txt` (one name, such as `01-verdigris`) and passes it to
+//! `icons::app_png` as `PATINA_APP_ICON` (`assets/patina-icons/INTEGRATION.md`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -17,6 +21,15 @@ mod deflate;
 fn main() {
     println!("cargo:rerun-if-changed=lang");
     println!("cargo:rerun-if-changed=../core/src/util/deflate.rs");
+    println!("cargo:rerun-if-changed=../../assets/patina-icons/app-icon.txt");
+    let app_icon = fs::read_to_string("../../assets/patina-icons/app-icon.txt")
+        .expect("assets/patina-icons/app-icon.txt");
+    let app_icon = app_icon.trim();
+    assert!(
+        Path::new("../../assets/patina-icons/exports/app").join(app_icon).is_dir(),
+        "assets/patina-icons/app-icon.txt names {app_icon:?}, not a folder of exports/app"
+    );
+    println!("cargo:rustc-env=PATINA_APP_ICON={app_icon}");
     let out = PathBuf::from(env::var_os("OUT_DIR").expect("cargo sets OUT_DIR"));
     let english = fs::read_to_string("lang/en.lng").expect("crates/frontend/lang/en.lng");
     let keys: Vec<&str> = entries(&english).map(|(k, _)| k).collect();

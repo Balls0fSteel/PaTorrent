@@ -24,6 +24,7 @@ use patorrent_core::{
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{self, PRIORITIES};
+use patorrent_frontend::icons::{network_icon, tracker_icon};
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
@@ -34,7 +35,7 @@ use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worke
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
-use patorrent_frontend::status::Category;
+use patorrent_frontend::status::{Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 use patorrent_frontend::{actions, add, create, fmt, settings, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
@@ -191,6 +192,12 @@ struct App {
     icon_big: HICON,
     icon_small: HICON,
     images: (HIMAGELIST, HIMAGELIST),
+    /// The state icons (the torrent list's Name column, the Trackers tab) and their size.
+    states: (HIMAGELIST, usize),
+    /// The status bar's network indicator: no incoming connection seen yet, one seen.
+    net_icons: [HICON; 2],
+    /// Which of them the status bar shows (`None`: not since the icons were made).
+    net_shown: Option<bool>,
 
     toolbar: HWND,
     tree: HWND,
@@ -649,6 +656,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             IDC_TREE,
         );
         let lv = controls::create_report(hwnd, IDC_LIST, true);
+        // the state icon goes in the Name column wherever it is
+        send(lv, LVM_SETEXTENDEDLISTVIEWSTYLE, LVS_EX_SUBITEMIMAGES as usize, LVS_EX_SUBITEMIMAGES as isize);
         let tabs = child(hwnd, WC_TABCONTROLW, "", WS_CHILD | WS_CLIPSIBLINGS | WS_TABSTOP, 0, IDC_TABS);
         let mut pages = [null_mut(); 7];
         for page in Page::ALL {
@@ -725,6 +734,9 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             icon_big,
             icon_small,
             images: (0, 0),
+            states: (0, 0),
+            net_icons: [null_mut(); 2],
+            net_shown: None,
             toolbar,
             tree,
             lv,
@@ -894,7 +906,10 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
         let bold = CreateFontIndirectW(&lf);
         let size = scale(22, dpi) as usize;
         let images = icons::toolbar_images(size);
-        let Some((old, controls_list, toolbar)) = with_app(|a| {
+        let state_px = scale(16, dpi) as usize;
+        let states = icons::state_images(state_px);
+        let net_icons = [false, true].map(|on| icons::state_icon(network_icon(on), state_px));
+        let Some((old, old_states, controls_list, toolbar, trackers)) = with_app(|a| {
             // Keep column widths in 96-DPI units across the change.
             sync_columns(a);
             a.dpi = dpi;
@@ -903,9 +918,12 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
                 std::mem::replace(&mut a.bold, bold),
                 std::mem::replace(&mut a.images, images),
             );
+            let old_states =
+                (std::mem::replace(&mut a.states, states).0, std::mem::replace(&mut a.net_icons, net_icons));
+            a.net_shown = None;
             let mut list = vec![a.tree, a.lv, a.tabs, a.status];
             list.extend(a.pages);
-            (old, list, a.toolbar)
+            (old, old_states, list, a.toolbar, a.pages[Page::Trackers.index()])
         }) else {
             return;
         };
@@ -926,7 +944,17 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
             ImageList_Destroy(old_images.0);
             ImageList_Destroy(old_images.1);
         }
+        // the lists share the state icons (LVS_SHAREIMAGELISTS): the old ones go once replaced
+        send(trackers, LVM_SETIMAGELIST, LVSIL_SMALL as usize, states.0);
         rebuild_columns();
+        update_status_bar();
+        let (old_states, old_net) = old_states;
+        if old_states != 0 {
+            ImageList_Destroy(old_states);
+        }
+        for icon in old_net.into_iter().filter(|i| !i.is_null()) {
+            DestroyIcon(icon);
+        }
         // Detail list columns scale too.
         let (pages, piece_list) = with_app(|a| (a.pages, a.piece_list)).unwrap_or_default();
         for page in Page::ALL {
@@ -965,6 +993,10 @@ fn sync_columns(app: &mut App) {
 }
 
 unsafe fn rebuild_columns() {
+    // the feed items have no state icons
+    if let Some((lv, images)) = with_app(|a| (a.lv, if a.feed_view.is_some() { 0 } else { a.states.0 })) {
+        unsafe { send(lv, LVM_SETIMAGELIST, LVSIL_SMALL as usize, images) };
+    }
     if with_app(|a| a.feed_view.is_some()) == Some(true) {
         return unsafe { set_feed_columns() };
     }
@@ -1860,8 +1892,13 @@ unsafe fn on_alerts(hwnd: HWND) {
 }
 
 unsafe fn update_status_bar() {
-    let Some((status, hwnd, parts, tip, changed)) = with_app(|a| {
+    let Some((status, hwnd, parts, tip, changed, net_icon)) = with_app(|a| {
         let s = &a.stats;
+        let has = s.has_incoming_connections;
+        let net_icon = (a.net_shown != Some(has)).then(|| {
+            a.net_shown = Some(has);
+            a.net_icons[has as usize]
+        });
         let net = if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) };
         let net = match a.scheduler.status_text() {
             Some(sched) => format!("{net} | {sched}"),
@@ -1887,11 +1924,14 @@ unsafe fn update_status_bar() {
             }
             a.status_texts[*i] = p.clone();
         }
-        (a.status, a.hwnd, parts, tip, changed)
+        (a.status, a.hwnd, parts, tip, changed, net_icon)
     }) else {
         return;
     };
     unsafe {
+        if let Some(icon) = net_icon {
+            send(status, SB_SETICON, 0, icon as LPARAM);
+        }
         for (i, text) in &parts {
             let w = wide(text);
             send(status, SB_SETTEXTW, *i, w.as_ptr() as LPARAM);
@@ -2143,8 +2183,10 @@ unsafe fn on_destroy(hwnd: HWND) {
             DeleteObject(app.bold);
             ImageList_Destroy(app.images.0);
             ImageList_Destroy(app.images.1);
-            DestroyIcon(app.icon_big);
-            DestroyIcon(app.icon_small);
+            ImageList_Destroy(app.states.0);
+            for icon in [app.icon_big, app.icon_small].into_iter().chain(app.net_icons) {
+                DestroyIcon(icon);
+            }
         }
         PostQuitMessage(0);
     }
@@ -2429,7 +2471,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 DestroyWindow(hwnd);
             }
             cmd::CONNECT_REMOTE => crate::remote_ui::start_remote_window(hwnd),
-            cmd::ABOUT => dialogs::info(
+            cmd::ABOUT => dialogs::about(
                 hwnd,
                 &tr!(
                     AboutText,
@@ -3515,6 +3557,20 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
         match (id, code) {
             (IDC_LIST, LVN_GETDISPINFOW) => {
                 let di = &mut *(nm as *mut NMLVDISPINFOW);
+                if di.item.mask & LVIF_IMAGE != 0 {
+                    di.item.iImage = with_app(|a| {
+                        if a.feed_view.is_some()
+                            || a.shown.get(di.item.iSubItem as usize) != Some(&Column::Name)
+                        {
+                            return None;
+                        }
+                        let tid = *a.list.view().get(di.item.iItem as usize)?;
+                        let st = a.list.get(tid)?;
+                        Some(status_icon(st, a.list.extra(tid).user_paused) as i32)
+                    })
+                    .flatten()
+                    .unwrap_or(I_IMAGENONE);
+                }
                 if di.item.mask & LVIF_TEXT != 0 {
                     let text = with_app(|a| {
                         if a.feed_view.is_some() {
@@ -3627,6 +3683,13 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
             (i, LVN_GETDISPINFOW) if (IDC_PAGE..IDC_PAGE + Page::ALL.len()).contains(&i) => {
                 let page = Page::ALL[i - IDC_PAGE];
                 let di = &mut *(nm as *mut NMLVDISPINFOW);
+                if page == Page::Trackers && di.item.mask & LVIF_IMAGE != 0 && di.item.iSubItem == 0 {
+                    di.item.iImage = with_app(|a| {
+                        a.detail.trackers.get(di.item.iItem as usize).map(|t| tracker_icon(t.status) as i32)
+                    })
+                    .flatten()
+                    .unwrap_or(I_IMAGENONE);
+                }
                 if di.item.mask & LVIF_TEXT != 0 {
                     let text =
                         with_app(|a| a.detail.cell(page, di.item.iItem as usize, di.item.iSubItem as usize))

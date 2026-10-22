@@ -1,21 +1,29 @@
-//! The toolbar, window and tray icons as Windows bitmaps, at the window's DPI, from the shared
-//! drawings in `patorrent_frontend::icons` (no image files, no resource compiler).
+//! The Windows icons, at the window's DPI: the toolbar images from the shared drawings in
+//! `patorrent_frontend::icons`, the application icon from the executable's icon resource
+//! (`build.rs` embeds the PatinaTorrent `.ico`), and the PatinaTorrent state icons from the
+//! PNGs the frontend embeds (Windows decodes PNG icon images itself).
 
 use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
-use std::ptr::null_mut;
+use std::ptr::{null, null_mut};
 
 use windows_sys::Win32::Graphics::Gdi::{
-    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateBitmap, CreateDIBSection, DIB_RGB_COLORS, DeleteObject,
-    HBITMAP,
+    BI_RGB, BITMAPINFO, BITMAPINFOHEADER, CreateDIBSection, DIB_RGB_COLORS, DeleteObject, HBITMAP,
 };
+use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
-    HIMAGELIST, ILC_COLOR32, ILC_MIRROR, ImageList_Add, ImageList_Create,
+    HIMAGELIST, ILC_COLOR32, ILC_MIRROR, ImageList_Add, ImageList_Create, ImageList_ReplaceIcon,
 };
-use windows_sys::Win32::UI::WindowsAndMessaging::{CreateIconIndirect, HICON, ICONINFO};
+use windows_sys::Win32::UI::WindowsAndMessaging::{
+    CreateIconFromResourceEx, DestroyIcon, HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR, LoadIconW,
+    LoadImageW,
+};
 
-use patorrent_frontend::icons;
 pub use patorrent_frontend::icons::Icon;
+use patorrent_frontend::icons::{self, StateIcon};
+
+/// The application icon's resource ID (`build.rs`).
+const APP_ICON_ID: u16 = 1;
 
 unsafe fn dib(size: usize, bgra: &[u8]) -> HBITMAP {
     unsafe {
@@ -54,16 +62,55 @@ pub fn toolbar_images(size: usize) -> (HIMAGELIST, HIMAGELIST) {
     }
 }
 
-/// The application icon at `size` pixels (window, taskbar, tray).
+/// The application icon at `size` pixels (window, taskbar, tray, About box): the frame of the
+/// embedded icon that fits best. Windows' generic icon when the executable has none (a
+/// non-MSVC build, where `build.rs` embeds nothing). Free with `DestroyIcon`.
 pub fn app_icon(size: usize) -> HICON {
     unsafe {
-        let color = dib(size, &icons::app_bgra(size));
-        // 32-bit icons take their alpha from the color bitmap; the mask is still required.
-        let mask = CreateBitmap(size as i32, size as i32, 1, 1, null_mut());
-        let info = ICONINFO { fIcon: 1, xHotspot: 0, yHotspot: 0, hbmMask: mask, hbmColor: color };
-        let icon = CreateIconIndirect(&info);
-        DeleteObject(color);
-        DeleteObject(mask);
-        icon
+        let module = GetModuleHandleW(null());
+        let s = size as i32;
+        let icon = LoadImageW(module, APP_ICON_ID as usize as *const u16, IMAGE_ICON, s, s, LR_DEFAULTCOLOR);
+        if icon.is_null() { LoadIconW(null_mut(), IDI_APPLICATION) } else { icon as HICON }
+    }
+}
+
+/// The resource ID of the application icon, for `MessageBoxIndirectW`'s `MB_USERICON`.
+pub fn app_icon_resource() -> *const u16 {
+    APP_ICON_ID as usize as *const u16
+}
+
+/// A state icon at [`icons::state_size`]`(size)` pixels, from its PNG. Free with `DestroyIcon`.
+pub fn state_icon(icon: StateIcon, size: usize) -> HICON {
+    let size = icons::state_size(size as u32);
+    let png = icon.png(size);
+    // 0x00030000: the icon format version every image since Windows 3 uses, PNG included
+    unsafe {
+        CreateIconFromResourceEx(
+            png.as_ptr(),
+            png.len() as u32,
+            1,
+            0x0003_0000,
+            size as i32,
+            size as i32,
+            LR_DEFAULTCOLOR,
+        )
+    }
+}
+
+/// Every state icon in [`StateIcon::ALL`] order (`icon as i32` is its index), at the size for
+/// `size` pixels; returns the list and its image size. Shared by the torrent list and the
+/// Trackers tab (both `LVS_SHAREIMAGELISTS`): the caller destroys it.
+pub fn state_images(size: usize) -> (HIMAGELIST, usize) {
+    let px = icons::state_size(size as u32) as i32;
+    unsafe {
+        // mirrored back in a right-to-left window, as the toolbar's are
+        let flags = ILC_COLOR32 | crate::util::rtl(ILC_MIRROR);
+        let list = ImageList_Create(px, px, flags, StateIcon::ALL.len() as i32, 0);
+        for icon in StateIcon::ALL {
+            let h = state_icon(icon, px as usize);
+            ImageList_ReplaceIcon(list, -1, h);
+            DestroyIcon(h);
+        }
+        (list, px as usize)
     }
 }

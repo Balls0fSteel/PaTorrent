@@ -5,8 +5,10 @@
 //! The item lives at `/StatusNotifierItem` under the bus name
 //! `org.kde.StatusNotifierItem-<pid>-1` and registers with `org.kde.StatusNotifierWatcher`
 //! whenever a watcher is on the bus; while none is, there is no tray ([`Tray::shown`] is false)
-//! and the window does not hide into it. The icon is the application icon drawn at run time
-//! (`frontend::icons`), the tooltip shows the rates, a left click shows or hides the window,
+//! and the window does not hide into it. The icon is the application icon: by name
+//! (`IconName`, with `IconThemePath` the folder `icons::setup` wrote it to) and as pixmaps for
+//! hosts that draw those (`icons::app_pixmaps`). The tooltip shows the rates, a left click
+//! shows or hides the window,
 //! and the menu is the Win32 tray's: Show / Hide, Add Torrent, Add Torrent from URL, Start All,
 //! Stop All, Exit.
 
@@ -17,7 +19,7 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::{gio, glib};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
-use patorrent_frontend::{icons, tr};
+use patorrent_frontend::tr;
 
 use crate::app::APP_ID;
 
@@ -165,7 +167,7 @@ impl Tray {
             connection: connection.clone(),
             hooks,
             tooltip: RefCell::new(("PaTorrent".into(), String::new())),
-            pixmaps: [16, 22, 32, 48, 64].iter().map(|&s| (s as i32, s as i32, icons::app_argb(s))).collect(),
+            pixmaps: crate::icons::app_pixmaps(),
             revision: Cell::new(1),
             owned: Cell::new(false),
             watcher: Cell::new(false),
@@ -311,7 +313,12 @@ impl Tray {
             }
             "ItemIsMenu" => false.to_variant(),
             "Menu" => glib::variant::ObjectPath::try_from(MENU_PATH).expect("a valid path").to_variant(),
-            // the theme names (none: the icon is the pixmap until one is installed)
+            "IconName" if crate::icons::theme_dir().is_some() => APP_ID.to_variant(),
+            "IconThemePath" => crate::icons::theme_dir()
+                .map(|d| d.to_string_lossy().into_owned())
+                .unwrap_or_default()
+                .to_variant(),
+            // the overlay and attention names: none
             _ => "".to_variant(),
         }
     }

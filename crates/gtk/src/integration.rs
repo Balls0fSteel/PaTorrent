@@ -7,7 +7,12 @@
 //! - the defaults for `application/x-bittorrent` and `x-scheme-handler/magnet`, through GIO,
 //!   which keeps them in `$XDG_CONFIG_HOME/mimeapps.list` (what `xdg-mime default` writes);
 //! - `$XDG_CONFIG_HOME/autostart/<app id>.desktop` for "Start PaTorrent on system startup",
-//!   with `--minimized` for "Start minimized".
+//!   with `--minimized` for "Start minimized";
+//! - the icon both entries name (`Icon=<app id>`), as
+//!   `$XDG_DATA_HOME/icons/hicolor/<n>x<n>/apps/<app id>.png`, whenever an entry is written
+//!   (`icons::install_theme_icons`), and kept, like the application's entry. A Flatpak exports
+//!   its own entry and icon and writes neither; an AppImage's entries point at the AppImage
+//!   and the icon is written as here.
 //!
 //! The state is read from those places each time, never stored in `patorrent.ini`: a box is
 //! checked when the entry starts this very program ([`command`]), so a moved AppImage shows
@@ -102,6 +107,11 @@ mod imp {
         std::fs::write(path, text).map_err(fail)
     }
 
+    /// The icon the entries name, in the user's hicolor theme.
+    fn install_icon() -> Result<(), String> {
+        crate::icons::install_theme_icons(&glib::user_data_dir().join("icons"), false)
+    }
+
     /// Changes what differs between `old` (as [`read`] gave it) and `want`; what is set afterwards.
     pub fn write(old: &Integration, want: &Integration) -> Result<Integration, String> {
         let (old, want) = (old.normalized(), want.normalized());
@@ -113,6 +123,7 @@ mod imp {
             if !in_flatpak() {
                 // written again, so it starts this program (a moved AppImage, a new build)
                 write_file(&app_entry_path(), &integration::entry(&command, APP_ID, EntryKind::App))?;
+                install_icon()?;
             }
             let id = desktop_id();
             let info = gio::DesktopAppInfo::new(&id)
@@ -138,6 +149,9 @@ mod imp {
             if want.autostart {
                 let kind = EntryKind::Autostart { minimized: want.minimized };
                 write_file(&path, &integration::entry(&command, APP_ID, kind))?;
+                if !in_flatpak() {
+                    install_icon()?;
+                }
             } else {
                 match std::fs::remove_file(&path) {
                     Ok(()) => {}

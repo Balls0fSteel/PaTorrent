@@ -16,9 +16,10 @@ use windows_sys::Win32::UI::Controls::Dialogs::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BS_DEFPUSHBUTTON, BS_PUSHBUTTON, DLGTEMPLATE, DS_CENTER, DS_MODALFRAME, DialogBoxIndirectParamW,
     ES_AUTOHSCROLL, EndDialog, GetDlgItem, GetWindowLongPtrW, IDCANCEL, IDOK, IDYES, MB_ICONERROR,
-    MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_RIGHT, MB_RTLREADING, MB_YESNO, MessageBoxW, SendMessageW,
-    SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_INITDIALOG, WS_BORDER, WS_CAPTION, WS_CHILD,
-    WS_EX_LAYOUTRTL, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_RIGHT, MB_RTLREADING, MB_USERICON, MB_YESNO, MSGBOXPARAMSW,
+    MessageBoxIndirectW, MessageBoxW, SendMessageW, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND,
+    WM_INITDIALOG, WS_BORDER, WS_CAPTION, WS_CHILD, WS_EX_LAYOUTRTL, WS_POPUP, WS_SYSMENU, WS_TABSTOP,
+    WS_VISIBLE,
 };
 
 use windows_sys::Win32::UI::Controls::EM_SETSEL;
@@ -65,6 +66,22 @@ pub fn all_files_filter() -> String {
 
 pub fn error(owner: HWND, text: &str) {
     message(owner, text, MB_OK | MB_ICONERROR);
+}
+
+/// Help > About: the text with the application icon.
+pub fn about(owner: HWND, text: &str) {
+    let (t, c) = (wide(text), wide("PaTorrent"));
+    unsafe {
+        let mut p: MSGBOXPARAMSW = zeroed();
+        p.cbSize = size_of::<MSGBOXPARAMSW>() as u32;
+        p.hwndOwner = owner;
+        p.hInstance = GetModuleHandleW(null());
+        p.lpszText = t.as_ptr();
+        p.lpszCaption = c.as_ptr();
+        p.dwStyle = MB_OK | MB_USERICON | rtl(MB_RTLREADING | MB_RIGHT);
+        p.lpszIcon = crate::icons::app_icon_resource();
+        MessageBoxIndirectW(&p);
+    }
 }
 
 pub fn info(owner: HWND, text: &str) {

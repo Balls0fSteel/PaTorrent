@@ -17,6 +17,7 @@ use gtk::subclass::prelude::*;
 use gtk::{gio, glib};
 use patorrent_core::TorrentId;
 use patorrent_frontend::columns::{Align, Column};
+use patorrent_frontend::icons::StateIcon;
 
 mod imp {
     use std::cell::RefCell;
@@ -91,6 +92,8 @@ impl RowModel {
 /// What a cell shows.
 pub enum Content {
     Text(String),
+    /// The Name column: the state icon and the text.
+    Named(StateIcon, String),
     /// The Done column: a bar with its text.
     Progress(f64, String),
 }
@@ -280,16 +283,36 @@ fn cell_widget(column: Column) -> gtk::Widget {
     label.set_xalign(if column.align() == Align::Right { 1.0 } else { 0.0 });
     label.set_ellipsize(gtk::pango::EllipsizeMode::End);
     label.set_single_line_mode(true);
+    if column == Column::Name {
+        let named = gtk::Box::new(gtk::Orientation::Horizontal, 4);
+        named.append(&crate::icons::state_image());
+        label.set_hexpand(true);
+        named.append(&label);
+        return named.upcast();
+    }
     label.upcast()
+}
+
+fn set_text(label: &gtk::Label, t: &str) {
+    if label.text() != t {
+        label.set_text(t);
+    }
 }
 
 fn draw(widget: &gtk::Widget, content: Content) {
     match content {
         Content::Text(t) => {
             if let Some(l) = widget.downcast_ref::<gtk::Label>() {
-                if l.text() != t {
-                    l.set_text(&t);
-                }
+                set_text(l, &t);
+            }
+        }
+        Content::Named(icon, t) => {
+            let Some(named) = widget.downcast_ref::<gtk::Box>() else { return };
+            if let Some(image) = named.first_child().and_downcast::<gtk::Image>() {
+                crate::icons::set_state(&image, icon);
+            }
+            if let Some(l) = named.last_child().and_downcast::<gtk::Label>() {
+                set_text(&l, &t);
             }
         }
         Content::Progress(fraction, t) => {
@@ -298,9 +321,7 @@ fn draw(widget: &gtk::Widget, content: Content) {
                 p.set_fraction(fraction.clamp(0.0, 1.0));
             }
             if let Some(l) = overlay.last_child().and_downcast::<gtk::Label>() {
-                if l.text() != t {
-                    l.set_text(&t);
-                }
+                set_text(&l, &t);
             }
         }
     }

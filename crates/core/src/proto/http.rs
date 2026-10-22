@@ -6,6 +6,7 @@
 
 //! Minimal HTTP/1.1 client protocol for trackers.
 
+use super::http_parser::MAX_HEADER;
 use crate::util::string::{UrlParts, parse_url_components};
 
 /// Largest tracker response we accept (libtorrent `max_http_recv_buffer_size` is 6 MB for
@@ -115,8 +116,17 @@ pub fn parse_response(buf: &[u8], eof: bool) -> Result<Response, ParseError> {
 /// [`parse_response`] with a body limit other than [`MAX_RESPONSE`] (the public fetch helper).
 pub fn parse_response_limited(buf: &[u8], eof: bool, max: usize) -> Result<Response, ParseError> {
     let Some(head_end) = find(buf, b"\r\n\r\n") else {
+        // The header is searched for again after every read: without a cap, a server that
+        // never ends it makes each read scan the whole (up to `max`) buffer. Same cap as the
+        // incremental parser (`http_parser::MAX_HEADER`).
+        if buf.len() > MAX_HEADER {
+            return Err(ParseError::Invalid("HTTP header too large"));
+        }
         return Err(if eof { ParseError::Invalid("truncated HTTP header") } else { ParseError::Incomplete });
     };
+    if head_end > MAX_HEADER {
+        return Err(ParseError::Invalid("HTTP header too large"));
+    }
     let head =
         std::str::from_utf8(&buf[..head_end]).map_err(|_| ParseError::Invalid("invalid HTTP header"))?;
     let mut lines = head.split("\r\n");
@@ -262,6 +272,26 @@ mod tests {
         let resp = parse_response(eof, true).unwrap();
         assert_eq!((resp.status, &resp.body[..]), (404, &b"nope"[..]));
         assert!(matches!(parse_response(b"SSH-2.0\r\n\r\n", true), Err(ParseError::Invalid(_))));
+    }
+
+    /// Security review 2026-10-22: a header that never ends is refused once it passes
+    /// `MAX_HEADER`, instead of being searched again after every read up to `MAX_RESPONSE`.
+    #[test]
+    fn an_endless_header_is_refused() {
+        let mut r = b"HTTP/1.1 200 OK\r\n".to_vec();
+        while r.len() <= MAX_HEADER {
+            r.extend_from_slice(b"X-Padding: aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\r\n");
+        }
+        assert_eq!(parse_response(&r, false), Err(ParseError::Invalid("HTTP header too large")));
+        r.extend_from_slice(b"\r\nbody");
+        assert_eq!(parse_response(&r, true), Err(ParseError::Invalid("HTTP header too large")));
+        // a header just under the cap still parses
+        let mut ok = b"HTTP/1.1 200 OK\r\n".to_vec();
+        while ok.len() < MAX_HEADER - 100 {
+            ok.extend_from_slice(b"X: y\r\n");
+        }
+        ok.extend_from_slice(b"\r\nbody");
+        assert_eq!(parse_response(&ok, true).unwrap().body, b"body");
     }
 
     #[test]

@@ -91,7 +91,10 @@ pub mod fuzzing {
     pub use crate::proto::proxy::{
         Handshake as ProxyHandshake, Socks5Command, Step as ProxyStep, Target as ProxyTarget, udp_unwrap,
     };
-    pub use crate::proto::tracker::{parse_announce_response, parse_compact_peers, parse_scrape_response};
+    pub use crate::proto::tracker::{
+        UdpResponse, parse_announce_response, parse_compact_peers, parse_scrape_response,
+        udp_decode as decode_udp_tracker_response,
+    };
     pub use crate::proto::upnp::{
         parse_device_description, parse_error_code, parse_external_address, parse_ssdp,
     };
@@ -106,4 +109,24 @@ pub mod fuzzing {
         ReadOutcome as UtpReadOutcome, SendOutcome as UtpSendOutcome, State as UtpState, UtpIo, UtpManager,
         UtpSettings,
     };
+
+    /// Decodes a fast-resume record (libtorrent `read_resume_data`); a record that decodes must
+    /// encode to one that decodes to the same values. Returns whether it decoded.
+    pub fn resume_data_round_trip(buf: &[u8]) -> bool {
+        use crate::resume::ResumeData;
+        let Ok(r) = ResumeData::decode(buf) else { return false };
+        let again = ResumeData::decode(&r.encode()).expect("our own encoding decodes");
+        assert_eq!(again, r, "resume data round trip");
+        true
+    }
+
+    /// The store's start-up read without files: `resume.db` parsed, `resume.log` replayed over
+    /// it, and every record decoded. Returns how many records decoded.
+    pub fn store_records(db: &[u8], log: &[u8]) -> usize {
+        let mut records = std::collections::BTreeMap::new();
+        let _ = crate::store::parse_db(db, &mut records);
+        let intact = crate::store::replay_log(log, &mut records);
+        assert!(intact <= log.len());
+        records.values().filter(|r| crate::resume::ResumeData::decode(&r[..]).is_ok()).count()
+    }
 }

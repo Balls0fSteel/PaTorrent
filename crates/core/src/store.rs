@@ -115,21 +115,7 @@ impl Store {
         match std::fs::read(self.dir.join(RESUME_DB)) {
             Ok(buf) => {
                 self.db_len = buf.len() as u64;
-                // our own file, one dictionary of every record: the default token limit (2
-                // million, about 22,000 torrents) guards against hostile input, not this. Every
-                // token takes at least two bytes.
-                let token_limit = (buf.len() / 2).max(16);
-                let doc = bdecode_with_limits(&buf[..], DEFAULT_DEPTH_LIMIT, token_limit)
-                    .map_err(|e| Error::InvalidResumeData(format!("{RESUME_DB}: {}", e.kind.message())))?;
-                let root = doc.root().filter(|r| r.dict_find_str("file-format") == Some(DB_FORMAT));
-                let root = root
-                    .ok_or_else(|| Error::InvalidResumeData(format!("{RESUME_DB}: not a resume database")))?;
-                if let Some(t) = root.dict_find_dict("torrents") {
-                    for (key, rec) in t.dict_iter().nodes() {
-                        let key = String::from_utf8_lossy(key.string_value()).into_owned();
-                        records.insert(key, rec.data_section().to_vec());
-                    }
-                }
+                parse_db(&buf, &mut records)?;
             }
             Err(e) if e.kind() == io::ErrorKind::NotFound => {}
             Err(e) => return Err(e.into()),
@@ -140,14 +126,7 @@ impl Store {
             Err(e) if e.kind() == io::ErrorKind::NotFound => Vec::new(),
             Err(e) => return Err(e.into()),
         };
-        let mut pos = 0usize;
-        while let Some((key, data, next)) = log_entry(&log, pos) {
-            match data {
-                Some(data) => records.insert(key, data.to_vec()),
-                None => records.remove(&key),
-            };
-            pos = next;
-        }
+        let pos = replay_log(&log, &mut records);
         if pos < log.len() {
             OpenOptions::new().write(true).open(&log_path)?.set_len(pos as u64)?;
         }
@@ -366,23 +345,59 @@ fn push_log_entry(out: &mut Vec<u8>, key: &str, data: Option<&[u8]>) {
     }
 }
 
+/// The records of a `resume.db` file, added to `records` by key.
+pub(crate) fn parse_db(buf: &[u8], records: &mut BTreeMap<String, Vec<u8>>) -> Result<(), Error> {
+    // our own file, one dictionary of every record: the default token limit (2 million, about
+    // 22,000 torrents) guards against hostile input, not this. Every token takes at least two
+    // bytes.
+    let token_limit = (buf.len() / 2).max(16);
+    let doc = bdecode_with_limits(buf, DEFAULT_DEPTH_LIMIT, token_limit)
+        .map_err(|e| Error::InvalidResumeData(format!("{RESUME_DB}: {}", e.kind.message())))?;
+    let root = doc.root().filter(|r| r.dict_find_str("file-format") == Some(DB_FORMAT));
+    let root = root.ok_or_else(|| Error::InvalidResumeData(format!("{RESUME_DB}: not a resume database")))?;
+    if let Some(t) = root.dict_find_dict("torrents") {
+        for (key, rec) in t.dict_iter().nodes() {
+            let key = String::from_utf8_lossy(key.string_value()).into_owned();
+            records.insert(key, rec.data_section().to_vec());
+        }
+    }
+    Ok(())
+}
+
+/// Replays the journal `log` over `records`; returns the length of its intact part (what
+/// follows is a torn or foreign entry).
+pub(crate) fn replay_log(log: &[u8], records: &mut BTreeMap<String, Vec<u8>>) -> usize {
+    let mut pos = 0usize;
+    while let Some((key, data, next)) = log_entry(log, pos) {
+        match data {
+            Some(data) => records.insert(key, data.to_vec()),
+            None => records.remove(&key),
+        };
+        pos = next;
+    }
+    pos
+}
+
 /// The journal entry at `pos`: its key, its record (`None` for a removal) and where the next
-/// one starts; `None` at the end or at a torn or foreign entry.
+/// one starts; `None` at the end or at a torn or foreign entry. The offsets are added with
+/// overflow checks: a length near `u32::MAX` must not wrap on a 32-bit target.
 fn log_entry(log: &[u8], pos: usize) -> Option<(String, Option<&[u8]>, usize)> {
-    let head = log.get(pos..pos + 6)?;
+    let head = log.get(pos..pos.checked_add(6)?)?;
     if &head[..4] != LOG_MAGIC {
         return None;
     }
     let klen = u16::from_le_bytes([head[4], head[5]]) as usize;
-    let key = log.get(pos + 6..pos + 6 + klen)?;
-    let len_at = pos + 6 + klen;
-    let len = u32::from_le_bytes(log.get(len_at..len_at + 4)?.try_into().expect("4 bytes"));
+    let len_at = pos.checked_add(6 + klen)?;
+    let key = log.get(pos + 6..len_at)?;
+    let data_at = len_at.checked_add(4)?;
+    let len = u32::from_le_bytes(log.get(len_at..data_at)?.try_into().ok()?);
     let key = String::from_utf8_lossy(key).into_owned();
     if len == REMOVED {
-        return Some((key, None, len_at + 4));
+        return Some((key, None, data_at));
     }
-    let data = log.get(len_at + 4..len_at + 4 + len as usize)?;
-    Some((key, Some(data), len_at + 4 + len as usize))
+    let end = data_at.checked_add(usize::try_from(len).ok()?)?;
+    let data = log.get(data_at..end)?;
+    Some((key, Some(data), end))
 }
 
 fn pack_record(key: &str, data: &[u8]) -> Vec<u8> {
@@ -407,6 +422,42 @@ mod tests {
             save_path: "/dl".into(),
             ..Default::default()
         }
+    }
+
+    /// Security review 2026-10-22: crafted journal entries (lengths past the end, a length of
+    /// `u32::MAX - 1`, a position at the end of the address space) stop the replay at the last
+    /// intact entry instead of wrapping an offset.
+    #[test]
+    fn crafted_journal_entries_end_the_replay() {
+        let mut log = Vec::new();
+        push_log_entry(&mut log, "a", Some(b"d1:xi1ee"));
+        let intact = log.len();
+        for len in [u32::MAX - 1, 1000, 9] {
+            let mut bad = log.clone();
+            bad.extend_from_slice(LOG_MAGIC);
+            bad.extend_from_slice(&1u16.to_le_bytes());
+            bad.push(b'b');
+            bad.extend_from_slice(&len.to_le_bytes());
+            bad.extend_from_slice(b"d1:xi2e");
+            let mut records = BTreeMap::new();
+            assert_eq!(replay_log(&bad, &mut records), intact, "length {len}");
+            assert_eq!(records.keys().collect::<Vec<_>>(), ["a"]);
+        }
+        // a key length past the end
+        let mut bad = log.clone();
+        bad.extend_from_slice(LOG_MAGIC);
+        bad.extend_from_slice(&u16::MAX.to_le_bytes());
+        assert_eq!(replay_log(&bad, &mut BTreeMap::new()), intact);
+        assert!(log_entry(&log, usize::MAX - 3).is_none());
+        assert!(log_entry(&log, usize::MAX).is_none());
+        // a removal entry
+        push_log_entry(&mut log, "a", None);
+        let mut records = BTreeMap::new();
+        assert_eq!(replay_log(&log, &mut records), log.len());
+        assert!(records.is_empty());
+        // resume.db: not ours, and not bencode
+        assert!(parse_db(b"d11:file-format3:fooe", &mut BTreeMap::new()).is_err());
+        assert!(parse_db(b"d8:torrents", &mut BTreeMap::new()).is_err());
     }
 
     /// Saves append the changed records to the journal only; it is replayed over `resume.db`

@@ -177,3 +177,17 @@ path = "fuzz_targets/deflate.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "udp_tracker"
+path = "fuzz_targets/udp_tracker.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "resume_data"
+path = "fuzz_targets/resume_data.rs"
+test = false
+doc = false
+bench = false

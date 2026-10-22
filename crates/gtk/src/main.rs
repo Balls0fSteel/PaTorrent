@@ -24,6 +24,8 @@ mod icons;
 mod integration;
 #[cfg(unix)]
 mod list;
+// on every system: its LaunchAgent text is tested wherever the tests run (Windows included)
+mod macos;
 #[cfg(unix)]
 mod paths;
 #[cfg(unix)]

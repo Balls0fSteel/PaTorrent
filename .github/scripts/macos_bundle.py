@@ -484,6 +484,7 @@ def info_plist(app_id, version, minos):
         }],
         'CFBundleURLTypes': [{
             'CFBundleURLName': 'Magnet link',
+            'CFBundleTypeRole': 'Viewer',
             'CFBundleURLSchemes': ['magnet'],
         }],
     }

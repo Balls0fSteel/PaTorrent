@@ -196,6 +196,14 @@ pub fn run() -> ExitCode {
     if remote {
         flags |= gio::ApplicationFlags::NON_UNIQUE;
     }
+    // Finder's double click on a `.torrent` reaches a running or starting app as an `odoc`
+    // Apple event, which GTK's macOS delegate (`application:openFiles:`) turns into
+    // `g_application_open`; that needs HANDLES_OPEN, and refuses the files without it. The
+    // command line still goes to `command-line` (GApplication gives HANDLES_COMMAND_LINE the
+    // arguments when both are set). Links come as `GURL` events: `crate::macos`
+    if cfg!(target_os = "macos") {
+        flags |= gio::ApplicationFlags::HANDLES_OPEN;
+    }
     let app = gtk::Application::builder().application_id(APP_ID).flags(flags).build();
     app.connect_startup(startup);
     app.connect_activate(move |app| {
@@ -229,12 +237,31 @@ pub fn run() -> ExitCode {
         }
         glib::ExitCode::SUCCESS
     });
+    // only emitted with HANDLES_OPEN (macOS, above): files by path, any link by its URI
+    app.connect_open(|app, files, _hint| {
+        app.activate();
+        for f in files {
+            match f.uri_scheme().as_deref() {
+                Some("magnet" | "http" | "https") => open(Source::Link(f.uri().into())),
+                _ => open(Source::File(f.clone())),
+            }
+        }
+    });
     let code = app.run();
     // Auto Shutdown's Shut Down, once the session has saved its state and stopped
     if let Some(Err(e)) = shutdown::take_after_exit().map(shutdown::perform) {
         eprintln!("{e}");
     }
     ExitCode::from(u8::from(code))
+}
+
+/// A URL from a `GURL` Apple event (a `magnet:` link clicked in a browser), through the `open`
+/// signal like Finder's files.
+#[cfg(target_os = "macos")]
+fn open_url(url: String) {
+    if let Some(app) = gio::Application::default() {
+        app.open(&[gio::File::for_uri(&url)], "");
+    }
 }
 
 /// The few style rules the window needs: the Done column's taller bar with its text on it.
@@ -256,6 +283,12 @@ fn startup(app: &gtk::Application) {
     if let Some(display) = gtk::gdk::Display::default() {
         gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
         crate::icons::setup(&display);
+    }
+    // after GTK's own startup (the signal runs its class handler first), which set its
+    // NSApplication delegate and called `finishLaunching`
+    #[cfg(target_os = "macos")]
+    if let Err(e) = crate::macos::install_url_handler(open_url) {
+        eprintln!("magnet: links from other programs will not arrive: {e}");
     }
     let quit = gio::SimpleAction::new("quit", None);
     quit.connect_activate(|_, _| quit_app());
@@ -617,8 +650,15 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         .hscrollbar_policy(gtk::PolicyType::Never)
         .build();
     let list_scroll = gtk::ScrolledWindow::builder().child(&list.view).hexpand(true).vexpand(true).build();
+    // The list keeps a minimum (its column header) and is not shrunk below it. A shrinkable
+    // start child counts 0 in GtkPaned's minimum but at least 1 px in `gtk_paned_compute_position`
+    // (`max = MAX (1, allocation - end_child_req)`), so a split given exactly its minimum
+    // measured the tabs 1 px short: "Trying to measure GtkNotebook ... for height of 109, but it
+    // needs at least 110" on macOS (GTK 4.20). With a minimum of its own the two agree.
+    list_scroll.set_size_request(-1, 24);
     let split = gtk::Paned::new(gtk::Orientation::Vertical);
     split.set_start_child(Some(&list_scroll));
+    split.set_shrink_start_child(false);
     split.set_end_child(Some(&details.notebook));
     split.set_resize_end_child(false);
     split.set_shrink_end_child(false);
@@ -768,7 +808,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     } else if opts.gui.check_association
         && remote.is_none()
         && crate::integration::AVAILABLE
-        && !crate::integration::packaged()
+        && crate::integration::associations_settable()
     {
         glib::idle_add_local_once(check_association);
     }

@@ -123,11 +123,15 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
         .default_width(760)
         .default_height(560)
         .build();
-    let pages = pref_pages::pages(Features {
+    let mut pages = pref_pages::pages(Features {
         desktop: crate::integration::AVAILABLE,
         packaged: crate::integration::packaged(),
         tray: hooks.tray,
     });
+    if !crate::integration::associations_settable() {
+        // macOS outside PaTorrent.app: no bundle id to register, autostart still works
+        fix_fields(&mut pages, &["assoc.torrent", "assoc.magnet", "ui.check_assoc"]);
+    }
     let stack = gtk::Stack::new();
     stack.set_hexpand(true);
     stack.set_vexpand(true);
@@ -496,6 +500,19 @@ impl Dialog {
         match column {
             0 => advanced_name(e, &opts.settings),
             _ => e.get(&opts.settings).to_string(),
+        }
+    }
+}
+
+/// Greys the fields `keys` ([`Field::fixed`]): shown, never edited.
+fn fix_fields(pages: &mut [Page], keys: &[&str]) {
+    for page in pages {
+        for item in &mut page.items {
+            if let Item::Field(f) = item {
+                if keys.contains(&f.key) {
+                    f.fixed = true;
+                }
+            }
         }
     }
 }

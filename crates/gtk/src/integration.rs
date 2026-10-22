@@ -28,13 +28,35 @@
 //! reads as set, nothing is written, Preferences shows the group's boxes greyed under a note,
 //! and "Check association on startup" never asks.
 //!
-//! macOS has none of this: an application registers for file types and URL schemes through
-//! its `.app` bundle's `Info.plist` and starts at login through Login Items (PLAN.md D23),
-//! neither built yet. There [`AVAILABLE`] is false, Preferences leaves the group out, nothing
-//! reads as set and nothing can be written.
+//! macOS (`crate::macos`, PLAN.md D23) keeps the same boxes in its own places:
+//! - "Start PaTorrent on system startup" is a LaunchAgent, `~/Library/LaunchAgents/<app id>.plist`
+//!   with `RunAtLoad`, whose `ProgramArguments` are the bundle's executable (PaTorrent.app's
+//!   launcher, which sets up GTK's paths; this executable outside a bundle), plus `--minimized`
+//!   for "Start minimized". It is checked when the plist starts this very program, as above.
+//!   macOS 13 and later list it in System Settings > General > Login Items ("Allow in the
+//!   Background") and announce it in a notification when it is written.
+//! - The defaults for `.torrent` files (the UTI LaunchServices has for the extension,
+//!   `org.bittorrent.torrent`, which the bundle's `Info.plist` imports) and `magnet:` links are
+//!   LaunchServices', set and read by bundle id. Only PaTorrent.app has one: run from a bare
+//!   executable, the two association boxes and "Check association on startup" are greyed
+//!   ([`associations_settable`]). macOS has no way to give a type back to "no default", so
+//!   turning one off is refused with a pointer to Finder's Get Info > Open with.
 
-/// Whether this desktop has the integration (not macOS, see above).
-pub const AVAILABLE: bool = cfg!(not(target_os = "macos"));
+/// Whether this desktop has the integration (every one the GUI runs on now; see above).
+pub const AVAILABLE: bool = true;
+
+/// Whether the `.torrent` and `magnet:` associations can be changed from here: not in a
+/// Flatpak, and on macOS only from PaTorrent.app (LaunchServices names programs by bundle id).
+pub fn associations_settable() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        crate::macos::bundle_id().is_some()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        !packaged()
+    }
+}
 
 /// Whether the integration is the package's, not ours: running in a Flatpak (see above).
 pub fn packaged() -> bool {
@@ -175,14 +197,96 @@ mod imp {
 
 #[cfg(target_os = "macos")]
 mod imp {
-    use patorrent_frontend::integration::Integration;
+    use std::path::PathBuf;
 
-    /// Nothing is set (see the module's note on macOS).
-    pub fn read() -> Integration {
-        Integration::default()
+    use gtk::glib;
+    use patorrent_frontend::integration::{Integration, MINIMIZED};
+
+    use crate::app::APP_ID;
+    use crate::macos;
+
+    /// What the LaunchAgent starts: the bundle's own executable inside PaTorrent.app (starting
+    /// `patorrent-gtk` there directly would skip the launcher's paths), else this executable.
+    pub fn command() -> Vec<String> {
+        macos::bundle_executable()
+            .or_else(|| std::env::current_exe().ok())
+            .map(|p| vec![p.to_string_lossy().into_owned()])
+            .unwrap_or_default()
     }
 
-    pub fn write(_old: &Integration, _want: &Integration) -> Result<Integration, String> {
-        Err("not available on macOS yet".into())
+    fn agent_path() -> PathBuf {
+        glib::home_dir().join("Library").join("LaunchAgents").join(format!("{APP_ID}.plist"))
+    }
+
+    /// The LaunchAgent's arguments after the program, when it starts this program.
+    fn agent_args(command: &[String]) -> Option<Vec<String>> {
+        let text = std::fs::read_to_string(agent_path()).ok()?;
+        let args = macos::launch_agent_arguments(&text)?;
+        let program = command.first()?;
+        (args.first() == Some(program)).then(|| args[1..].to_vec())
+    }
+
+    /// LaunchServices may hand bundle ids back lowercased.
+    fn is(handler: Option<String>, id: &str) -> bool {
+        handler.is_some_and(|h| h.eq_ignore_ascii_case(id))
+    }
+
+    /// What is set for this program now (the associations only for PaTorrent.app).
+    pub fn read() -> Integration {
+        let args = agent_args(&command());
+        let id = macos::bundle_id();
+        let id = id.as_deref();
+        Integration {
+            torrent: id.is_some_and(|id| is(macos::default_for_type(&macos::torrent_uti()), id)),
+            magnet: id.is_some_and(|id| is(macos::default_for_scheme(macos::MAGNET_SCHEME), id)),
+            minimized: args.as_ref().is_some_and(|a| a.iter().any(|x| x == MINIMIZED)),
+            autostart: args.is_some(),
+        }
+    }
+
+    /// Changes what differs between `old` (as [`read`] gave it) and `want`; what is set afterwards.
+    pub fn write(old: &Integration, want: &Integration) -> Result<Integration, String> {
+        let (old, want) = (old.normalized(), want.normalized());
+        if (want.torrent && !old.torrent) || (want.magnet && !old.magnet) {
+            // the boxes are greyed outside the bundle; "Check association" does not ask there
+            let id = macos::bundle_id().ok_or("only PaTorrent.app can be the default program")?;
+            if want.torrent && !old.torrent {
+                macos::set_default_for_type(&macos::torrent_uti(), &id)?;
+            }
+            if want.magnet && !old.magnet {
+                macos::set_default_for_scheme(macos::MAGNET_SCHEME, &id)?;
+            }
+        }
+        if (want.autostart, want.minimized) != (old.autostart, old.minimized) {
+            let path = agent_path();
+            if want.autostart {
+                let mut program = command();
+                if program.is_empty() {
+                    return Err("the path of this program is not known".into());
+                }
+                if want.minimized {
+                    program.push(MINIMIZED.to_owned());
+                }
+                let fail = |e: std::io::Error| format!("{}: {e}", path.display());
+                if let Some(dir) = path.parent() {
+                    std::fs::create_dir_all(dir).map_err(fail)?;
+                }
+                std::fs::write(&path, macos::launch_agent(APP_ID, &program)).map_err(fail)?;
+            } else {
+                match std::fs::remove_file(&path) {
+                    Ok(()) => {}
+                    Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(e) => return Err(format!("{}: {e}", path.display())),
+                }
+            }
+        }
+        // LaunchServices keeps a default until another program takes it; there is no reset
+        if (!want.torrent && old.torrent) || (!want.magnet && old.magnet) {
+            return Err("macOS keeps PaTorrent as the default program until another one is chosen \
+                 (Finder's Get Info > Open with > Change All for .torrent files, the other \
+                 program's own setting for magnet: links)"
+                .into());
+        }
+        Ok(read())
     }
 }

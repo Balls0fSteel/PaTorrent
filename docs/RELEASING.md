@@ -53,8 +53,14 @@ one (Road to 1.0 item 10); the Flatpak and the macOS `.app` use the same one.
   `python3 .github/scripts/macos_bundle.py --help` lists its commands; `--dry-run FIXTURE.json`
   runs the logic without a Mac.
 - The `.app` declares `.torrent` files and `magnet:` links in its `Info.plist`, so Finder
-  offers it for them; the GUI does not yet take the open requests macOS sends (Apple events,
-  not command-line arguments), PLAN.md D23.
+  offers it for them. The open requests arrive as Apple events, not command-line arguments:
+  Finder's `odoc` through GTK's own delegate into GApplication's `open` signal (the GUI sets
+  `HANDLES_OPEN` on macOS), a browser's `GURL` through a handler of our own
+  (`crates/gtk/src/macos.rs`). Preferences > General sets the defaults through LaunchServices
+  (by bundle id, so only when run from the `.app`) and writes "Start PaTorrent on system
+  startup" as `~/Library/LaunchAgents/io.github.balls0fsteel.PaTorrent.plist`, which starts
+  `Contents/MacOS/PaTorrent` (with `--minimized` for "Start minimized"); macOS 13 and later show
+  it under System Settings > General > Login Items. PLAN.md D23.
 
 ## Steps
 

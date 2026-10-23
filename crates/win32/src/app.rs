@@ -176,7 +176,13 @@ enum Split {
 
 struct UrlResult {
     url: String,
-    data: Result<Vec<u8>, String>,
+    data: Result<UrlBody, String>,
+}
+
+/// What a URL gave: a `.torrent`'s contents, or the `magnet:` link it redirected to.
+enum UrlBody {
+    Torrent(Vec<u8>),
+    Magnet(String),
 }
 
 struct App {
@@ -1964,11 +1970,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 0
             }
             WM_APP_URL => {
-                let r = Box::from_raw(lparam as *mut UrlResult);
-                match r.data {
-                    Ok(bytes) => add_torrent_file(hwnd, bytes),
-                    Err(e) => dialogs::error(hwnd, &tr!(ErrDownloadUrl, url = r.url, error = e)),
-                }
+                url_done(hwnd, *Box::from_raw(lparam as *mut UrlResult));
                 0
             }
             WM_APP_COUNTDOWN => {
@@ -3091,28 +3093,15 @@ unsafe fn create_torrent(hwnd: HWND) {
     }
 }
 
-/// Fetches a `.torrent` over HTTP(S) on a worker thread with the OS downloader (urlmon), then
-/// posts the result back to the window.
+/// Fetches a `.torrent` over HTTP(S) on a worker thread with the engine's HTTP client
+/// (`fetch::http_get`: our User-Agent, redirects followed, through the session's proxy when it
+/// carries tracker connections, as the RSS Downloader's fetches do), then posts the result back
+/// to the window (`WM_APP_URL`).
 fn download_url(hwnd: HWND, url: String) {
     let target = hwnd as isize;
+    let proxy = with_app(|a| rss_proxy(a)).flatten();
     std::thread::spawn(move || {
-        use windows_sys::Win32::System::Com::Urlmon::URLDownloadToFileW;
-        use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
-        static COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
-        let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let tmp = std::env::temp_dir().join(format!("patorrent-{}-{n}.torrent", std::process::id()));
-        let data = unsafe {
-            CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32);
-            let (u, f) = (wide(&url), wide(&tmp.to_string_lossy()));
-            let hr = URLDownloadToFileW(null_mut(), u.as_ptr(), f.as_ptr(), 0, null_mut());
-            CoUninitialize();
-            if hr < 0 {
-                Err(tr!(ErrDownloadFailed, code = format!("0x{:08x}", hr as u32)))
-            } else {
-                std::fs::read(&tmp).map_err(|e| e.to_string())
-            }
-        };
-        let _ = std::fs::remove_file(&tmp);
+        let data = fetch_torrent(&url, proxy);
         let result = Box::into_raw(Box::new(UrlResult { url, data }));
         unsafe {
             if PostMessageW(target as HWND, WM_APP_URL, 0, result as LPARAM) == 0 {
@@ -3120,6 +3109,197 @@ fn download_url(hwnd: HWND, url: String) {
             }
         }
     });
+}
+
+/// `GET url`: the body, or the `magnet:` link an indexer redirected to.
+fn fetch_torrent(url: &str, proxy: Option<FetchProxy>) -> Result<UrlBody, String> {
+    let opts = patorrent_core::fetch::FetchOptions { proxy, ..Default::default() };
+    let r = patorrent_core::fetch::http_get(url, &opts).map_err(|e| e.to_string())?;
+    match r.redirect() {
+        Some(to) if to.trim_start().starts_with("magnet:") => Ok(UrlBody::Magnet(to.trim().to_owned())),
+        // a redirect `fetch` does not follow, to something that is neither http(s) nor magnet
+        Some(to) => Err(format!("HTTP {} -> {to}", r.status)),
+        None => Ok(UrlBody::Torrent(r.body)),
+    }
+}
+
+/// `WM_APP_URL`: adds what the download gave, or says why it failed.
+fn url_done(hwnd: HWND, r: UrlResult) {
+    match r.data {
+        Ok(UrlBody::Torrent(bytes)) => add_torrent_file(hwnd, bytes),
+        Ok(UrlBody::Magnet(uri)) => add_magnet(hwnd, &uri),
+        Err(e) => url_error(hwnd, &tr!(ErrDownloadUrl, url = r.url, error = e)),
+    }
+}
+
+#[cfg(not(test))]
+fn url_error(hwnd: HWND, text: &str) {
+    dialogs::error(hwnd, text);
+}
+
+#[cfg(test)]
+thread_local! {
+    /// The errors `url_error` would have shown (no message box in a test).
+    static URL_ERRORS: RefCell<Vec<String>> = const { RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn url_error(_: HWND, text: &str) {
+    URL_ERRORS.with(|e| e.borrow_mut().push(text.to_owned()));
+}
+
+/// File > Add Torrent from URL end to end, in a hidden main window over the simulated engine:
+/// a `.torrent` behind a redirect on a loopback server lands in the list, an unreachable URL
+/// reaches the error path.
+#[cfg(test)]
+mod url_tests {
+    use std::io::{Read, Write};
+    use std::net::TcpListener;
+    use std::time::{Duration, Instant};
+
+    use super::*;
+
+    /// A one-file v1 torrent named `url-test.bin`.
+    fn torrent() -> Vec<u8> {
+        let mut t = b"d4:infod6:lengthi16384e4:name12:url-test.bin12:piece lengthi16384e6:pieces20:".to_vec();
+        t.extend_from_slice(&[7; 20]);
+        t.extend_from_slice(b"ee");
+        t
+    }
+
+    /// Serves `/t` as a redirect to `/file.torrent`, which is the torrent; returns the port and
+    /// the request heads it saw.
+    fn serve() -> (u16, std::sync::mpsc::Receiver<String>) {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = l.local_addr().unwrap().port();
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            for mut c in l.incoming().flatten() {
+                let mut head = Vec::new();
+                let mut buf = [0u8; 1024];
+                while !head.ends_with(b"\r\n\r\n") {
+                    match c.read(&mut buf) {
+                        Ok(0) | Err(_) => break,
+                        Ok(n) => head.extend_from_slice(&buf[..n]),
+                    }
+                }
+                let head = String::from_utf8_lossy(&head).into_owned();
+                let reply = if head.starts_with("GET /t ") {
+                    b"HTTP/1.1 302 Found\r\nLocation: /file.torrent\r\nContent-Length: 0\r\n\r\n".to_vec()
+                } else {
+                    let body = torrent();
+                    let mut r = format!(
+                        "HTTP/1.1 200 OK\r\nContent-Type: application/x-bittorrent\r\nContent-Length: {}\r\n\r\n",
+                        body.len()
+                    )
+                    .into_bytes();
+                    r.extend_from_slice(&body);
+                    r
+                };
+                let _ = c.write_all(&reply);
+                let _ = tx.send(head);
+            }
+        });
+        (port, rx)
+    }
+
+    /// Pumps this thread's messages until `done` or 15 s.
+    fn pump_until(mut done: impl FnMut() -> bool) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(15) {
+            unsafe {
+                let mut msg: MSG = zeroed();
+                while PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+            if done() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    #[test]
+    fn add_torrent_from_url_through_fetch() {
+        // keep rss.dat and the rest out of the real %APPDATA%\PaTorrent
+        let dir = std::env::temp_dir().join(format!("patorrent-url-test-{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&dir);
+        // SAFETY: no other test of this crate reads APPDATA.
+        unsafe { std::env::set_var("APPDATA", &dir) };
+        let (port, heads) = serve();
+        unsafe {
+            let icc = INITCOMMONCONTROLSEX {
+                dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
+                dwICC: ICC_WIN95_CLASSES
+                    | ICC_BAR_CLASSES
+                    | ICC_TAB_CLASSES
+                    | ICC_LISTVIEW_CLASSES
+                    | ICC_TREEVIEW_CLASSES,
+            };
+            InitCommonControlsEx(&icc);
+            let instance = GetModuleHandleW(null());
+            let mut wc: WNDCLASSEXW = zeroed();
+            wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
+            wc.lpfnWndProc = Some(wndproc);
+            wc.hInstance = instance;
+            wc.lpszClassName = w!("PaTorrentUrlTestWnd");
+            RegisterClassExW(&wc);
+            wc.lpfnWndProc = Some(panel_proc);
+            wc.lpszClassName = PANEL_CLASS;
+            RegisterClassExW(&wc);
+            let hwnd = CreateWindowExW(
+                0,
+                w!("PaTorrentUrlTestWnd"),
+                w!("PaTorrent URL test"),
+                WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                0,
+                0,
+                800,
+                600,
+                null_mut(),
+                null_mut(),
+                instance,
+                null(),
+            );
+            assert!(!hwnd.is_null());
+            let session = Session::start_mock(
+                Settings::default(),
+                MockConfig { initial_torrents: 0, active_fraction: 0.0, ..MockConfig::default() },
+            );
+            let mut prefs = Prefs::default();
+            prefs.set_bool("ui.show_add_dialog", false);
+            prefs.set("dir.download", dir.to_string_lossy());
+            init(hwnd, session, prefs);
+
+            // the toolbar's command with a URL typed in is `add_sources`
+            add_sources(hwnd, &[format!("http://127.0.0.1:{port}/t")]);
+            let names = || {
+                with_app(|a| a.list.ids().filter_map(|id| a.list.get(id)).map(|s| s.name.clone()).collect())
+                    .unwrap_or_else(Vec::new)
+            };
+            assert!(pump_until(|| names().iter().any(|n| n == "url-test.bin")), "{:?}", names());
+            let first = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+            let second = heads.recv_timeout(Duration::from_secs(5)).unwrap();
+            assert!(first.starts_with("GET /t "), "{first}");
+            assert!(second.starts_with("GET /file.torrent "), "the redirect was followed: {second}");
+            let ua = format!("\r\nUser-Agent: {}\r\n", patorrent_core::USER_AGENT);
+            assert!(first.contains(&ua), "{first}");
+            URL_ERRORS.with(|e| assert!(e.borrow().is_empty(), "{:?}", e.borrow()));
+
+            // nothing listens on port 1: the error path, the list unchanged
+            add_sources(hwnd, &["http://127.0.0.1:1/x.torrent".to_owned()]);
+            assert!(pump_until(|| URL_ERRORS.with(|e| !e.borrow().is_empty())));
+            let err = URL_ERRORS.with(|e| e.borrow()[0].clone());
+            assert!(err.contains("http://127.0.0.1:1/x.torrent"), "{err}");
+            assert_eq!(names().len(), 1);
+
+            DestroyWindow(hwnd);
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }
 
 // ---- RSS ------------------------------------------------------------------------------------

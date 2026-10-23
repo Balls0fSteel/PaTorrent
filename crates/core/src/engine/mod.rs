@@ -1246,16 +1246,36 @@ impl Engine {
                 t.upload_limit.refill(dt);
             }
         }
-        let writes: Vec<usize> =
-            self.peers.iter().filter(|(_, p)| p.send_buffer_len() > 0).map(|(i, _)| i).collect();
-        for (slot, share) in self.quota_shares(&writes, false) {
-            self.flush_peer_capped(slot, share);
+        let writes: Vec<peer_class::Requester> = self
+            .peers
+            .iter()
+            .filter(|(_, p)| p.send_buffer_len() > 0)
+            .map(|(i, _)| peer_class::Requester::Peer(i))
+            .collect();
+        for (r, share) in self.quota_shares(&writes, false) {
+            if let peer_class::Requester::Peer(slot) = r {
+                self.flush_peer_capped(slot, share);
+            }
         }
-        let reads: Vec<usize> = self.peers.iter().filter(|(_, p)| p.read_blocked).map(|(i, _)| i).collect();
-        for (slot, share) in self.quota_shares(&reads, true) {
-            self.do_read_capped(slot, share);
+        self.unblock_reads();
+    }
+
+    /// Reads for the peers and web seed connections that waited for download quota or the
+    /// disk, each within its share of the channels it waits on (`quota_shares`).
+    fn unblock_reads(&mut self) {
+        let mut reads: Vec<peer_class::Requester> = self
+            .peers
+            .iter()
+            .filter(|(_, p)| p.read_blocked)
+            .map(|(i, _)| peer_class::Requester::Peer(i))
+            .collect();
+        reads.extend(self.web.read_blocked().map(peer_class::Requester::Web));
+        for (r, share) in self.quota_shares(&reads, true) {
+            match r {
+                peer_class::Requester::Peer(slot) => self.do_read_capped(slot, share),
+                peer_class::Requester::Web(slot) => self.web_read_capped(slot, share),
+            }
         }
-        self.web_unblock_reads();
     }
 
     /// libtorrent `bandwidth_manager::update_quotas` / `bw_request::assign_bandwidth`: the
@@ -1265,18 +1285,24 @@ impl Engine {
     /// the waiting peers' priorities), and a peer on several channels gets the smallest of its
     /// shares. Serving them in slot order with all the quota let the first, busy peers take
     /// everything, and a new peer never read its handshake.
-    fn quota_shares(&self, slots: &[usize], download: bool) -> Vec<(usize, usize)> {
+    /// Web seed connections are `peer_connection`s in libtorrent and wait in the same queues:
+    /// they share the channels of their classes and their torrent with the peers.
+    fn quota_shares(
+        &self,
+        waiting: &[peer_class::Requester],
+        download: bool,
+    ) -> Vec<(peer_class::Requester, usize)> {
         let channel = if download { peer_class::DOWNLOAD } else { peer_class::UPLOAD };
-        let mut requests = Vec::with_capacity(slots.len());
+        let mut requests = Vec::with_capacity(waiting.len());
         let mut tmp: HashMap<peer_class::Channel, u64> = HashMap::new();
-        for &slot in slots {
+        for &r in waiting {
             let mut chans = Vec::new();
-            self.pertinent_channels(slot, channel, &mut chans);
-            let priority = self.peer_priority(slot, channel);
+            self.pertinent_channels(r, channel, &mut chans);
+            let priority = self.peer_priority(r, channel);
             for &c in &chans {
                 *tmp.entry(c).or_default() += priority as u64;
             }
-            requests.push((slot, priority, chans));
+            requests.push((r, priority, chans));
         }
         requests
             .into_iter()
@@ -2776,12 +2802,7 @@ impl Engine {
                 }
                 // Writes drained: peers held back by the disk queue may read again.
                 if !self.disk_backlogged() {
-                    let blocked: Vec<usize> =
-                        self.peers.iter().filter(|(_, p)| p.read_blocked).map(|(i, _)| i).collect();
-                    for (slot, share) in self.quota_shares(&blocked, true) {
-                        self.do_read_capped(slot, share);
-                    }
-                    self.web_unblock_reads();
+                    self.unblock_reads();
                 }
             }
             Completion::Hashed { storage, piece, verdict } => {

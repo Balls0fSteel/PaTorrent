@@ -172,5 +172,6 @@ fn reason_name(r: BlockReason) -> &'static str {
         BlockReason::PortFilter => "port filter",
         BlockReason::UtpDisabled => "uTP switch",
         BlockReason::TcpDisabled => "TCP switch",
+        BlockReason::SsrfMitigation => "SSRF mitigation",
     }
 }

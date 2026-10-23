@@ -628,8 +628,11 @@ impl Engine {
         // The SSRF mitigation for web seeds is that any HTTP server on the local network may
         // not use any query string parameters
         if ssrf && is_local(addr.ip()) && parts.path.contains('?') {
+            // never try it again
             w.disabled = true;
-            return self.url_seed_alert(id, &url, "blocked by SSRF mitigation");
+            self.url_seed_alert(id, &url, "blocked by SSRF mitigation");
+            let reason = BlockReason::SsrfMitigation;
+            return self.alert(Alert::PeerBlocked { id: Some(id), addr, reason });
         }
         let ih = t.info_hashes.best_v1_compatible();
         let proto =

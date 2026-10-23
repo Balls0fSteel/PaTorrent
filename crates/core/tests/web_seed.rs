@@ -5,8 +5,9 @@
 //! left out of the URL, chunked bodies, per-file redirects to another path, a single-file
 //! redirect, a server that answers 503 before it serves, an HTTP/1.0 server closing after each
 //! response, a BEP 17 seed, the peer list showing the seeds, a seed with corrupt data banned
-//! while the download completes from a good one, a seed the IP filter blocks, and web seeds
-//! added and removed through the handle and kept across a restart.
+//! while the download completes from a good one, a seed the IP filter blocks, web seeds
+//! added and removed through the handle and kept across a restart, and a local seed with a query
+//! string refused by `ssrf_mitigation`.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -19,8 +20,8 @@ use std::time::{Duration, Instant};
 use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
 use patorrent_core::{
-    AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId,
-    TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, BlockReason, Session, SessionHandle, SessionParams, Settings, TorrentFlags,
+    TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const PIECE: usize = 32 * 1024;
@@ -668,6 +669,41 @@ fn ip_filter_blocks_a_web_seed() {
     assert_eq!(srv.hits.load(Ordering::SeqCst), 0, "never contacted");
     w.s.shutdown();
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn ssrf_mitigation_blocks_a_local_web_seed_with_a_query_string() {
+    // libtorrent `torrent::connect_web_seed`: a web seed on a local address may not use a query
+    // string while `ssrf_mitigation` is on; a `url_seed_alert` and a `peer_blocked_alert`
+    // (`ssrf_mitigation`) are posted and the seed is never tried again
+    let f = fixture("ssrf.bin", &[("ssrf.bin", 100_000)], &[], &[]);
+    let file = f.files[0].1.clone();
+    let srv = server(Mode::Plain, move |_| Reply::File(file.clone()));
+    let dir = temp_dir("ssrf");
+    let mut w = Watch::start(settings());
+    let id = w.add(&f, &dir, &[srv.url("/ssrf.bin?token=1")]);
+    let addr = w.wait(20, "blocked", |a| match a {
+        Alert::PeerBlocked { id: Some(i), addr, reason: BlockReason::SsrfMitigation } if *i == id => {
+            Some(*addr)
+        }
+        _ => None,
+    });
+    assert_eq!(addr, srv.addr);
+    assert!(w.seen.iter().any(|m| m.contains("SSRF")), "a url seed alert: {:#?}", w.seen);
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(srv.hits.load(Ordering::SeqCst), 0, "never contacted");
+    w.s.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // with the mitigation off the same seed serves the download
+    let f = fixture("ssrf-off.bin", &[("ssrf-off.bin", 100_000)], &[], &[]);
+    let file = f.files[0].1.clone();
+    let srv = server(Mode::Plain, move |_| Reply::File(file.clone()));
+    let dir = temp_dir("ssrf-off");
+    let mut w = Watch::start(Settings { ssrf_mitigation: false, ..settings() });
+    let id = w.add(&f, &dir, &[srv.url("/ssrf-off.bin?token=1")]);
+    w.finished(id, 30);
+    finish(w, &f, dir);
 }
 
 #[test]

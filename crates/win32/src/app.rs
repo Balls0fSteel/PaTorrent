@@ -63,6 +63,9 @@ use crate::shutdown::{self, Outcome, Power};
 use crate::tray;
 use crate::util::{child, copy_to, exe_path, point_from_lparam, rtl, scale, send, unscale, wide};
 
+#[path = "bench.rs"]
+mod bench;
+
 pub const WM_APP_ALERTS: u32 = WM_APP + 1;
 const WM_APP_TRAY: u32 = WM_APP + 2;
 /// A URL download finished; `lParam` is a `Box<UrlResult>`.
@@ -822,6 +825,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         // empty → non-empty only), so drain once now.
         PostMessageW(hwnd, WM_APP_ALERTS, 0, 0);
         on_timer();
+        bench::start(hwnd);
     }
 }
 
@@ -1239,6 +1243,7 @@ unsafe fn insert_tree(tree: HWND, parent: HTREEITEM, text: &str, param: usize) -
 
 /// Updates the counts in the tree and adds or removes label entries.
 unsafe fn update_tree() {
+    let _timing = bench::span("update_tree");
     unsafe {
         let Some((tree, labels, changed)) = with_app(|a| {
             let generation = Some(a.list.generation());
@@ -1301,7 +1306,7 @@ unsafe fn update_tree() {
         }
         let Some(updates) = with_app(|a| {
             let label_counts = a.list.labels();
-            let no_label = a.list.ids().filter(|&id| a.list.extra(id).label.is_empty()).count();
+            let no_label = a.list.unlabeled();
             let mut out = Vec::new();
             for (i, (h, f)) in a.tree_items.iter().enumerate() {
                 let text = match (i, f) {
@@ -1334,43 +1339,95 @@ unsafe fn update_tree() {
 }
 
 /// Rebuilds the visible rows after an update, keeping the selection on the same torrents.
+///
+/// Runs on every status update (once a second): when only cell values changed (the model's
+/// view kept its order) it just repaints the visible rows; the selection is carried over only
+/// when rows moved, joined or left.
 unsafe fn refresh_list() {
+    let _timing = bench::span("refresh_list");
     unsafe {
         let Some(lv) = with_app(|a| a.feed_view.is_none().then_some(a.lv)).flatten() else { return };
-        let sel = controls::selected(lv);
-        let focus = controls::focused(lv);
-        let Some(result) = with_app(|a| {
-            let view = a.list.view();
-            let sel_ids: Vec<TorrentId> = sel.iter().filter_map(|&i| view.get(i).copied()).collect();
-            let focus_id = focus.and_then(|i| view.get(i).copied());
-            if !a.list.refresh() {
-                return None;
-            }
-            let view = a.list.view();
-            let index = |id: TorrentId| view.iter().position(|&v| v == id);
-            let new_sel: Vec<usize> = if sel_ids.len() > 64 {
-                let map: std::collections::HashMap<TorrentId, usize> =
-                    view.iter().enumerate().map(|(i, &id)| (id, i)).collect();
-                sel_ids.iter().filter_map(|id| map.get(id).copied()).collect()
-            } else {
-                sel_ids.iter().filter_map(|&id| index(id)).collect()
-            };
-            let new_focus = focus_id.and_then(index);
-            let moved = new_sel != sel || new_focus != focus;
-            if moved {
-                a.restoring = true;
-            }
-            Some((view.len(), new_sel, new_focus, moved))
+        let Some((refreshed, rows_moved)) = with_app(|a| {
+            let _timing = bench::span("model.refresh");
+            let generation = a.list.view_generation();
+            let refreshed = a.list.refresh();
+            (refreshed, a.list.view_generation() != generation)
         }) else {
             return;
         };
-        // Nothing changed: no repaint either (this runs once a second).
-        let Some((count, new_sel, new_focus, moved)) = result else { return };
+        // Nothing changed: no repaint either.
+        if !refreshed {
+            return;
+        }
+        if rows_moved {
+            carry_selection(lv);
+        }
+        InvalidateRect(lv, null(), 0);
+    }
+}
+
+/// Where the selection goes after the view changed.
+enum NewSelection {
+    /// Every row (all were selected and no row joined).
+    All,
+    Rows(Vec<usize>),
+}
+
+/// After the view changed: the row count, then the selection and focus moved to the rows their
+/// torrents went to (`TorrentList::previous_view` is what the list showed until now).
+unsafe fn carry_selection(lv: HWND) {
+    unsafe {
+        let selected = controls::selected_count(lv);
+        let all = selected > 0 && with_app(|a| a.list.previous_view().len() == selected) == Some(true);
+        // Select All with 100,000 rows: no walk of the selection
+        let sel = if all { Vec::new() } else { controls::selected(lv) };
+        let focus = controls::focused(lv);
+        let Some((count, new_sel, new_focus, moved)) = with_app(|a| {
+            let (old, view) = (a.list.previous_view(), a.list.view());
+            let focus_id = focus.and_then(|i| old.get(i).copied());
+            let index = |id: TorrentId| view.iter().position(|&v| v == id);
+            let new_sel = if all {
+                let old: HashSet<TorrentId> = old.iter().copied().collect();
+                if view.iter().all(|id| old.contains(id)) {
+                    NewSelection::All
+                } else {
+                    NewSelection::Rows(
+                        view.iter().enumerate().filter(|(_, id)| old.contains(id)).map(|(i, _)| i).collect(),
+                    )
+                }
+            } else {
+                let sel_ids = sel.iter().filter_map(|&i| old.get(i).copied());
+                NewSelection::Rows(if sel.len() > 64 {
+                    let map: std::collections::HashMap<TorrentId, usize> =
+                        view.iter().enumerate().map(|(i, &id)| (id, i)).collect();
+                    sel_ids.filter_map(|id| map.get(&id).copied()).collect()
+                } else {
+                    sel_ids.filter_map(index).collect()
+                })
+            };
+            let new_focus = focus_id.and_then(index);
+            let moved = new_focus != focus
+                || match &new_sel {
+                    NewSelection::All => view.len() != old.len(),
+                    NewSelection::Rows(rows) => *rows != sel,
+                };
+            if moved {
+                a.restoring = true;
+            }
+            (view.len(), new_sel, new_focus, moved)
+        }) else {
+            return;
+        };
         controls::set_count(lv, count);
         if moved {
-            controls::set_state(lv, None, false, false);
-            for &i in &new_sel {
-                controls::set_state(lv, Some(i), true, false);
+            match new_sel {
+                NewSelection::All => controls::set_state(lv, None, true, false),
+                NewSelection::Rows(rows) => {
+                    controls::set_state(lv, None, false, false);
+                    for i in rows {
+                        controls::set_state(lv, Some(i), true, false);
+                    }
+                }
             }
             if let Some(f) = new_focus {
                 let mut item: LVITEMW = zeroed();
@@ -1381,7 +1438,6 @@ unsafe fn refresh_list() {
             with_app(|a| a.restoring = false);
             selection_changed();
         }
-        InvalidateRect(lv, null(), 0);
     }
 }
 
@@ -1398,9 +1454,9 @@ unsafe fn selection_changed() {
         if restoring {
             return;
         }
-        let sel = controls::selected(lv);
-        let focus = controls::focused(lv).filter(|f| sel.contains(f));
-        let row = focus.or(sel.first().copied());
+        // the focused row and the first selected one, never a walk of a 100,000-row selection
+        let focus = controls::focused(lv).filter(|&f| controls::is_selected(lv, f));
+        let row = focus.or_else(|| controls::first_selected(lv));
         let changed = with_app(|a| {
             // feed items have no detail
             let id = row.filter(|_| a.feed_view.is_none()).and_then(|r| a.list.view().get(r).copied());
@@ -1426,7 +1482,7 @@ unsafe fn update_toolbar() {
             return;
         };
         // feed items are not torrents
-        let any = !feeds && !controls::selected(lv).is_empty();
+        let any = !feeds && controls::selected_count(lv) > 0;
         for id in [cmd::REMOVE, cmd::START, cmd::PAUSE, cmd::STOP, cmd::UP, cmd::DOWN] {
             send(toolbar, TB_ENABLEBUTTON, id as usize, any as isize);
         }
@@ -1515,6 +1571,7 @@ fn invalidate_page() {
 }
 
 fn on_timer() {
+    let _timing = bench::span("timer");
     let step = with_app(|a| {
         a.handle.post_torrent_updates();
         a.handle.post_session_stats();
@@ -1689,6 +1746,7 @@ fn run_scheduler(a: &mut App, applied: Option<&Options>) {
 }
 
 unsafe fn on_alerts(hwnd: HWND) {
+    let _timing = bench::span("on_alerts");
     let mut errors: Vec<String> = Vec::new();
     let mut balloons: Vec<String> = Vec::new();
     let mut suspend = None;
@@ -1891,6 +1949,7 @@ unsafe fn on_alerts(hwnd: HWND) {
             // posted: the dialog's message loop must not run inside this alert batch
             PostMessageW(hwnd, WM_APP_MAGNET, 0, 0);
         }
+        bench::after_alerts();
         // Auto Shutdown's Standby / Hibernate; returns once the computer is awake again
         if let Some(Err(e)) = suspend.map(shutdown::perform) {
             log_line(&tr!(LogShutdown, what = e.replace('\n', " ")));
@@ -1955,6 +2014,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
         match msg {
             WM_TIMER if wparam == TIMER_REFRESH => {
                 on_timer();
+                0
+            }
+            WM_TIMER if wparam == bench::TIMER_BENCH => {
+                bench::on_timer(hwnd);
                 0
             }
             WM_APP_ALERTS => {

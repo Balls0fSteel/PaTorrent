@@ -320,41 +320,98 @@ fn host(url: &str) -> &str {
 }
 
 /// Case-insensitive comparison where digit runs compare by value ("ep2" < "ep10"), like
-/// Explorer's `StrCmpLogicalW`.
+/// Explorer's `StrCmpLogicalW`. ASCII is compared byte by byte without allocating (sorting
+/// 100,000 names calls this about two million times); other characters by their lowercase forms.
 pub fn natural_cmp(a: &str, b: &str) -> Ordering {
-    let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
+    let (ab, bb) = (a.as_bytes(), b.as_bytes());
+    let (mut i, mut j) = (0, 0);
     loop {
-        match (a.peek().copied(), b.peek().copied()) {
+        let (x, y) = match (ab.get(i), bb.get(j)) {
             (None, None) => return Ordering::Equal,
             (None, Some(_)) => return Ordering::Less,
             (Some(_), None) => return Ordering::Greater,
-            (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
-                let na = digits(&mut a);
-                let nb = digits(&mut b);
-                let (ta, tb) = (na.trim_start_matches('0'), nb.trim_start_matches('0'));
-                let o = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
-                if o != Ordering::Equal {
-                    return o;
-                }
+            (Some(&x), Some(&y)) => (x, y),
+        };
+        if x.is_ascii_digit() && y.is_ascii_digit() {
+            let ei = i + ab[i..].iter().take_while(|c| c.is_ascii_digit()).count();
+            let ej = j + bb[j..].iter().take_while(|c| c.is_ascii_digit()).count();
+            let zeros = |s: &[u8]| s.iter().take_while(|&&c| c == b'0').count();
+            let (ta, tb) = (&ab[i + zeros(&ab[i..ei])..ei], &bb[j + zeros(&bb[j..ej])..ej]);
+            let o = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
+            if o != Ordering::Equal {
+                return o;
             }
-            (Some(x), Some(y)) => {
-                let o = x.to_lowercase().cmp(y.to_lowercase());
-                if o != Ordering::Equal {
-                    return o;
-                }
-                a.next();
-                b.next();
+            (i, j) = (ei, ej);
+        } else if x.is_ascii() && y.is_ascii() {
+            let o = x.to_ascii_lowercase().cmp(&y.to_ascii_lowercase());
+            if o != Ordering::Equal {
+                return o;
             }
+            (i, j) = (i + 1, j + 1);
+        } else {
+            // `i` and `j` stay on character boundaries: they only move by whole characters
+            let (Some(ca), Some(cb)) = (a[i..].chars().next(), b[j..].chars().next()) else {
+                return Ordering::Equal;
+            };
+            let o = ca.to_lowercase().cmp(cb.to_lowercase());
+            if o != Ordering::Equal {
+                return o;
+            }
+            (i, j) = (i + ca.len_utf8(), j + cb.len_utf8());
         }
     }
 }
 
-fn digits(it: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
-    let mut s = String::new();
-    while let Some(c) = it.next_if(|c| c.is_ascii_digit()) {
-        s.push(c);
+/// A byte string whose plain comparison orders names as [`natural_cmp`] does, made once per
+/// name so that sorting 100,000 names compares bytes rather than parsing each name about 17
+/// times. Digit runs become `'0'`, the length without leading zeros (4 bytes, big-endian) and
+/// those digits; other characters their lowercase form in UTF-8. `None` for a name with a
+/// character whose lowercase is several characters (such as `İ`), where the two orders could
+/// differ: sort those with [`natural_cmp`].
+pub fn natural_key(s: &str) -> Option<Vec<u8>> {
+    let mut out = Vec::with_capacity(s.len() + 8);
+    natural_key_into(s, &mut out).then_some(out)
+}
+
+/// [`natural_key`] appended to `out` (one buffer for many names); false, with `out` as it was,
+/// where `natural_key` gives `None`.
+pub fn natural_key_into(s: &str, out: &mut Vec<u8>) -> bool {
+    let len = out.len();
+    let ok = push_natural_key(s, out).is_some();
+    if !ok {
+        out.truncate(len);
     }
-    s
+    ok
+}
+
+fn push_natural_key(s: &str, out: &mut Vec<u8>) -> Option<()> {
+    let b = s.as_bytes();
+    let mut i = 0;
+    while let Some(&c) = b.get(i) {
+        if c.is_ascii_digit() {
+            let end = i + b[i..].iter().take_while(|c| c.is_ascii_digit()).count();
+            let start = i + b[i..end].iter().take_while(|&&c| c == b'0').count();
+            // a digit compares with any other character as '0' does: all ten sit between the
+            // same neighbours
+            out.push(b'0');
+            out.extend_from_slice(&u32::try_from(end - start).ok()?.to_be_bytes());
+            out.extend_from_slice(&b[start..end]);
+            i = end;
+        } else if c.is_ascii() {
+            out.push(c.to_ascii_lowercase());
+            i += 1;
+        } else {
+            let ch = s[i..].chars().next()?;
+            let mut lower = ch.to_lowercase();
+            let l = lower.next()?;
+            if lower.next().is_some() {
+                return None;
+            }
+            out.extend_from_slice(l.encode_utf8(&mut [0; 4]).as_bytes());
+            i += ch.len_utf8();
+        }
+    }
+    Some(())
 }
 
 #[cfg(test)]
@@ -375,6 +432,116 @@ mod tests {
         assert_eq!(natural_cmp("Ubuntu", "debian"), Ordering::Greater);
         assert_eq!(natural_cmp("a01", "a1"), Ordering::Equal);
         assert_eq!(natural_cmp("a", "ab"), Ordering::Less);
+    }
+
+    /// The comparison before it stopped allocating: chars, digit runs collected into strings.
+    fn reference_cmp(a: &str, b: &str) -> Ordering {
+        fn digits(it: &mut std::iter::Peekable<std::str::Chars<'_>>) -> String {
+            let mut s = String::new();
+            while let Some(c) = it.next_if(|c| c.is_ascii_digit()) {
+                s.push(c);
+            }
+            s
+        }
+        let (mut a, mut b) = (a.chars().peekable(), b.chars().peekable());
+        loop {
+            match (a.peek().copied(), b.peek().copied()) {
+                (None, None) => return Ordering::Equal,
+                (None, Some(_)) => return Ordering::Less,
+                (Some(_), None) => return Ordering::Greater,
+                (Some(x), Some(y)) if x.is_ascii_digit() && y.is_ascii_digit() => {
+                    let (na, nb) = (digits(&mut a), digits(&mut b));
+                    let (ta, tb) = (na.trim_start_matches('0'), nb.trim_start_matches('0'));
+                    let o = ta.len().cmp(&tb.len()).then_with(|| ta.cmp(tb));
+                    if o != Ordering::Equal {
+                        return o;
+                    }
+                }
+                (Some(x), Some(y)) => {
+                    let o = x.to_lowercase().cmp(y.to_lowercase());
+                    if o != Ordering::Equal {
+                        return o;
+                    }
+                    a.next();
+                    b.next();
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn natural_order_matches_the_char_by_char_reference() {
+        let words = [
+            "",
+            "a",
+            "A",
+            "ab",
+            "aB1",
+            "ep2",
+            "ep10",
+            "ep010",
+            "Ep 9",
+            "x00",
+            "x0",
+            "x",
+            "0",
+            "007",
+            "7",
+            "\u{dc}n\u{ef}code",
+            "\u{fc}nicode 2",
+            "\u{fc}ber",
+            "Zebra",
+            "\u{df}",
+            "SS",
+            "\u{130}stanbul",
+            "istanbul",
+            "\u{65e5}\u{672c} 1",
+            "\u{65e5}\u{672c} 01",
+            "a1b2",
+            "a01b02",
+            "a1b10",
+            "-1",
+            "_x",
+            "[x]",
+            "a\u{0}b",
+            "\u{3a9}",
+            "\u{3c9}2",
+            "\u{3c9}10",
+            "9z",
+            "99",
+            "100",
+        ];
+        for a in words {
+            for b in words {
+                assert_eq!(natural_cmp(a, b), reference_cmp(a, b), "{a:?} vs {b:?}");
+                if let (Some(ka), Some(kb)) = (natural_key(a), natural_key(b)) {
+                    assert_eq!(ka.cmp(&kb), reference_cmp(a, b), "keys of {a:?} vs {b:?}");
+                }
+            }
+        }
+        assert!(natural_key("\u{130}stanbul").is_none(), "İ lowercases to two characters");
+    }
+
+    #[test]
+    fn natural_keys_order_random_names_as_natural_cmp() {
+        // characters around the digits, upper and lower case, a few non-ASCII ones
+        let alphabet: Vec<char> = "0012789 !/:A_aZz.-\u{e9}\u{c9}\u{212a}k\u{3a3}\u{3c3}".chars().collect();
+        let mut x = 0x2545_f491_4f6c_dd1du64;
+        let mut next = |n: usize| {
+            x ^= x << 13;
+            x ^= x >> 7;
+            x ^= x << 17;
+            (x % n as u64) as usize
+        };
+        let names: Vec<String> =
+            (0..400).map(|_| (0..next(7)).map(|_| alphabet[next(alphabet.len())]).collect()).collect();
+        for a in &names {
+            for b in &names {
+                let (ka, kb) = (natural_key(a).unwrap(), natural_key(b).unwrap());
+                assert_eq!(ka.cmp(&kb), natural_cmp(a, b), "{a:?} vs {b:?}");
+                assert_eq!(natural_cmp(a, b), reference_cmp(a, b), "{a:?} vs {b:?}");
+            }
+        }
     }
 
     #[test]

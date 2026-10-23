@@ -225,7 +225,7 @@ fn template() -> Vec<u16> {
     t.item(BUTTON, ID_BOX_SAVE, GROUP, [7, 4, 406, 78], tr!(AddSaveIn));
     t.item(COMBOBOX, ID_SAVE, COMBO, [14, 16, 370, 150], "");
     t.item(BUTTON, ID_BROWSE, PUSH, [388, 15, 18, 14], "...");
-    t.item(STATIC, 0xffff, C, [14, 36, 40, 9], tr!(AddName));
+    t.item(STATIC, 0xffff, C, [14, 36, 40, 9], tr!(AddNameLine));
     t.item(EDIT, ID_NAME, LINE, [58, 34, 348, 13], "");
     // the options in two columns, as 2.2.1 had them
     t.item(BUTTON, ID_SKIP, CHECK, [14, 53, 100, 10], tr!(AddSkipCheck));

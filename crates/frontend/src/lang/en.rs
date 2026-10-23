@@ -424,7 +424,7 @@ strings! {
 
     AddTitle = "Add New Torrent";
     AddSaveIn = "Save In";
-    AddName = "&Name:";
+    AddName = "&Name";
     AddOptions = "Torrent Options";
     AddSkipCheck = "Skip &hash check";
     AddStart = "&Start torrent";
@@ -443,6 +443,8 @@ strings! {
     AddDiskSpace = "(disk space: {free} free)";
     /// The check box that turns Preferences' "Show a window that displays the files inside the torrent" off.
     AddDontShowAgain = "Don't show this again";
+    /// The Name field's label on a line (the Win32 dialog; `AddName` titles a box in the others).
+    AddNameLine = "&Name:";
 
     // ---- Create New Torrent
 

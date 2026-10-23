@@ -9,8 +9,9 @@
 //! bodies, caps the body at [`FetchOptions::max_size`] and gives up after
 //! [`FetchOptions::timeout`] for the whole exchange, redirects included. HTTPS goes through the
 //! OS TLS layer with certificate and host name checks (PLAN.md D9). A proxy from the engine's
-//! settings ([`FetchProxy::from_settings`]) is used the way HTTP trackers use it: an HTTP proxy
-//! is asked for `http://` URLs directly, everything else is tunnelled (SOCKS4/5, HTTP CONNECT).
+//! settings ([`FetchProxy::from_settings`]: whenever one is set) is used the way HTTP trackers
+//! use it: an HTTP proxy is asked for `http://` URLs directly, everything else is tunnelled
+//! (SOCKS4/5, HTTP CONNECT).
 //!
 //! Call it from a worker thread: it blocks for up to the timeout.
 
@@ -61,10 +62,15 @@ impl Default for FetchOptions {
 pub struct FetchProxy(ProxyConfig);
 
 impl FetchProxy {
-    /// The session's proxy when one is set and `proxy_tracker_connections` is on: the rule HTTP
-    /// trackers follow, and the closest libtorrent has to "HTTP connections that are not peers".
+    /// The session's proxy whenever one is set (`proxy_type` not `None`), whatever
+    /// `proxy_peer_connections` and `proxy_tracker_connections` say: those two scope the
+    /// engine's peer and tracker connections only. libtorrent's `.torrent` URL download
+    /// (`torrent::start_download_url`, before 2.0 removed it) passes the session's proxy to
+    /// its `http_connection` unconditionally, and µTorrent's use-proxy boxes name peer and
+    /// tracker connections only, so a `.torrent` link and an RSS feed always go through the
+    /// proxy.
     pub fn from_settings(s: &Settings) -> Option<FetchProxy> {
-        if s.proxy_type == ProxyType::None || !s.proxy_tracker_connections {
+        if s.proxy_type == ProxyType::None {
             return None;
         }
         ProxyConfig::from_settings(s).map(FetchProxy)
@@ -519,8 +525,10 @@ mod tests {
     fn proxy_selection() {
         let mut s = proxy_settings(ProxyType::Socks5, 1080);
         assert_eq!(FetchProxy::from_settings(&s).unwrap().label(), "socks5://127.0.0.1:1080");
+        // the peer and tracker scopes do not apply to web fetches
         s.proxy_tracker_connections = false;
-        assert!(FetchProxy::from_settings(&s).is_none());
+        s.proxy_peer_connections = false;
+        assert_eq!(FetchProxy::from_settings(&s).unwrap().label(), "socks5://127.0.0.1:1080");
         assert!(FetchProxy::from_settings(&Settings::default()).is_none());
     }
 

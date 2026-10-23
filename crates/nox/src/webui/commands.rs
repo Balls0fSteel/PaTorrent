@@ -12,6 +12,7 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
+use patorrent_core::fetch::FetchProxy;
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
     AddTorrentParams, AnnounceEntry, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags,
@@ -693,9 +694,10 @@ impl Source {
         }
     }
 
-    /// A magnet link, a bare info-hash, or an `http://` URL to fetch a torrent from (which may
-    /// redirect to a magnet, as indexers do).
-    pub fn from_url(url: &str) -> Result<Source, CmdError> {
+    /// A magnet link, a bare info-hash, or an `http://` / `https://` URL to fetch a torrent
+    /// from (which may redirect to a magnet, as indexers do), through the session's proxy when
+    /// one is set (`FetchProxy::from_settings`, as RSS feeds).
+    pub fn from_url(shared: &Shared, url: &str) -> Result<Source, CmdError> {
         let url = url.trim();
         let magnet = if url.starts_with("magnet:") { Some(url.to_owned()) } else { bare_hash_magnet(url) };
         if let Some(m) = magnet {
@@ -704,7 +706,8 @@ impl Source {
                 Err(_) => Err(err(400, "invalid magnet link")),
             };
         }
-        match fetch::fetch(url) {
+        let proxy = FetchProxy::from_settings(&shared.lock().settings);
+        match fetch::fetch(url, proxy) {
             Ok(fetch::Fetched::Torrent(bytes)) => Source::from_torrent_bytes(bytes),
             Ok(fetch::Fetched::Magnet(m)) => match parse_magnet_uri(&m) {
                 Ok(_) => Ok(Source::Magnet(m)),
@@ -991,6 +994,41 @@ pub fn finish_awaiting(shared: &Shared, hash: &str, o: &AddOptions, cancel: bool
     Ok(())
 }
 
+/// The private flag, comment, creator and creation date of torrent `id` for the Properties
+/// pages (`torrents/properties`, the General tab): from [`State::meta`], else asked of the
+/// engine (`TorrentHandle::metadata`, which also knows torrents restored from the state
+/// directory) and kept there, so each torrent is asked once. The default (not private, no
+/// text) while the torrent has no metadata, or when the engine cannot say.
+pub fn meta(shared: &Shared, id: TorrentId) -> Meta {
+    let hash = {
+        let st = shared.lock();
+        let Some(e) = st.torrents.get(&id) else { return Meta::default() };
+        if let Some(m) = st.meta.get(&e.hash) {
+            return m.clone();
+        }
+        if !e.status.has_metadata {
+            return Meta::default();
+        }
+        e.hash.clone()
+    };
+    let Some(m) = shared.handle.torrent(id).metadata() else { return Meta::default() };
+    let m = Meta {
+        comment: m.comment,
+        created_by: m.created_by,
+        creation_date: m.creation_date,
+        private: m.private,
+    };
+    let mut st = shared.lock();
+    if st.by_hash.get(&hash) == Some(&id) {
+        // the list's `private` field changes with it
+        if m.private {
+            st.touch(&hash);
+        }
+        st.meta.insert(hash, m.clone());
+    }
+    m
+}
+
 pub fn meta_of(ti: &TorrentInfo) -> Meta {
     Meta {
         comment: ti.comment().to_owned(),
@@ -1231,7 +1269,7 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Respons
                 .map(str::trim)
                 .filter(|u| !u.is_empty())
                 .ok_or_else(|| err(400, "missing url"))?;
-            let hash = add(shared, Source::from_url(url)?, &o)?;
+            let hash = add(shared, Source::from_url(shared, url)?, &o)?;
             if o.dialog {
                 return Ok(Response::json(&Json::obj().with("hash", hash)));
             }

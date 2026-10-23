@@ -64,7 +64,7 @@ pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
 pub use settings::{EncLevel, EncPolicy, MixedModeAlgorithm, ProxyType, Settings};
 pub use status::{
     AnnounceEntry, BlockState, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource, SessionStats,
-    TorrentState, TorrentStatus, TrackerStatus,
+    TorrentMetadata, TorrentState, TorrentStatus, TrackerStatus,
 };
 pub use types::{InfoHashes, Sha1Hash, Sha256Hash, TorrentId};
 pub use util::bitfield::Bitfield;

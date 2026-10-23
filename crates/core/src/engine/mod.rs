@@ -1485,6 +1485,19 @@ impl Engine {
                     self.alert(Alert::PieceInfo { id, have, availability, downloading });
                 }
             }
+            Command::GetMetadata(id, tx) => {
+                // a stopped torrent's info dictionary is read for the call and not kept
+                let ti = match self.torrent_ref(id) {
+                    Some(t) if t.ti.is_some() => t.ti.clone(),
+                    Some(t) if t.num_pieces > 0 => {
+                        let key = t.key();
+                        self.load_info(&key)
+                    }
+                    _ => None,
+                };
+                let meta = ti.and_then(|ti| self.torrent_ref(id).map(|t| t.metadata_summary(&ti)));
+                let _ = tx.send(meta);
+            }
             Command::PostTorrentFile(id) => {
                 self.ensure_metadata(id);
                 if let Some(t) = self.torrent_ref(id) {
@@ -3779,6 +3792,9 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
     t.max_uploads = r.max_uploads;
     t.renamed_files.extend(r.mapped_files.iter().map(|(&i, n)| (i, n.clone())));
     t.apply_renames();
+    if let Some(c) = torrent::Created::new(&r.comment, &r.created_by, r.creation_date) {
+        t.created = Some(c);
+    }
 }
 
 /// The reserved bits and info-hash of our handshake: the v1 hash on a v1 connection of a

@@ -405,6 +405,18 @@ impl Mock {
                     self.out.push(Alert::TorrentFile { id, data });
                 }
             }
+            Command::GetMetadata(id, tx) => {
+                // a synthetic torrent has no .torrent: not private, no comment
+                let meta = self.get(id).filter(|t| t.st.has_metadata).map(|t| match &t.ti {
+                    Some(ti) => crate::status::TorrentMetadata::of(ti),
+                    None => crate::status::TorrentMetadata {
+                        num_pieces: t.st.pieces_total,
+                        piece_length: t.st.piece_length,
+                        ..Default::default()
+                    },
+                });
+                let _ = tx.send(meta);
+            }
             Command::PostFileList(id) => {
                 if let Some(t) = self.get(id) {
                     let files: Arc<[FileEntry]> = files_for(t).into();

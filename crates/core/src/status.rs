@@ -144,6 +144,47 @@ impl TorrentStatus {
     }
 }
 
+/// What a torrent's `.torrent` file says about itself (the parts of libtorrent's
+/// `torrent_info` a Properties page shows), from [`TorrentHandle::metadata`]: the info
+/// dictionary's `private` flag and `source`, and the comment, creator and creation date from
+/// outside it, which the session keeps in resume data so a restored torrent still has them.
+///
+/// [`TorrentHandle::metadata`]: crate::TorrentHandle::metadata
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TorrentMetadata {
+    /// BEP 27: no DHT, PEX or local discovery.
+    pub private: bool,
+    pub comment: String,
+    pub created_by: String,
+    /// Unix seconds.
+    pub creation_date: Option<i64>,
+    /// The info dictionary's `source` key (private trackers set it); empty when absent.
+    pub source: String,
+    pub num_pieces: u32,
+    pub piece_length: u32,
+}
+
+impl TorrentMetadata {
+    /// The summary of `ti`; the comment, creator and date come from `ti` itself (a torrent
+    /// loaded from a `.torrent` file has them; one loaded from the bare info dictionary has
+    /// not, and the engine fills them from what it kept).
+    pub(crate) fn of(ti: &crate::metainfo::TorrentInfo) -> TorrentMetadata {
+        let source = ti
+            .info_dict()
+            .and_then(|d| d.root().and_then(|r| r.dict_find_str("source").map(str::to_owned)))
+            .unwrap_or_default();
+        TorrentMetadata {
+            private: ti.is_private(),
+            comment: ti.comment().to_owned(),
+            created_by: ti.creator().to_owned(),
+            creation_date: ti.creation_date(),
+            source,
+            num_pieces: ti.num_pieces(),
+            piece_length: ti.piece_length(),
+        }
+    }
+}
+
 /// Session-wide counters (a named subset of libtorrent's `session_stats_alert` metrics; Phase 2
 /// adds the full counter table).
 #[derive(Clone, Copy, Debug, Default, PartialEq)]

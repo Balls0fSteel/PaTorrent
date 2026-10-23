@@ -208,11 +208,27 @@ is not `http`, `https` or `udp`), `addTrackers` (each URL in a new tier after th
 `seedingTimeLimit` minutes; -1 is no target, -2 the default, both -2 drop the override;
 `inactiveSeedingTimeLimit` is ignored).
 
+`torrents/properties` (`isPrivate`, `comment`, `created_by`, `creation_date`), the trackers
+list's "This torrent is private" rows and the native General tab's Created On / Created By /
+Comment ask the engine once per torrent (`TorrentHandle::metadata`, a call answered on a
+channel; a stopped torrent's info dictionary is read from the session store for it) and keep
+the answer in `State::meta`, so a torrent restored from the state directory shows them too
+(the engine keeps the `.torrent`'s comment, creator and date in its resume data). The
+`isPrivate` field of `torrents/info` is the cached value: right for torrents added in this run
+and for those whose properties were asked for. `torrents/pieceStates` is 0 missing, 1 with
+blocks in flight (the picker's partial pieces, as the Pieces tab lists them), 2 had.
+`torrents/addPeers` (`hashes`, `peers` as `ip:port|[ip6]:port`; 400 when none is an address)
+connects to the peers. A `torrents/add` URL (and `/pa/add`'s `url`) that is an `http://` or
+`https://` link is fetched through the session's proxy whenever one is set
+(`FetchProxy::from_settings`): `proxy_peer_connections` and `proxy_tracker_connections` scope
+the engine's peer and tracker connections only, as libtorrent's `.torrent` URL download took
+the session proxy unconditionally.
+
 #### The RSS Downloader
 
 `webui/rss.rs` runs µTorrent 2.2.1's downloader (`frontend::rss`) on the status tick (so only
 with `--webui`): due feeds and the `.torrent` files the filters pick are fetched on the shared
-worker's threads (`frontend::rss::worker`, with the engine's proxy for HTTP trackers), never on
+worker's threads (`frontend::rss::worker`, through the engine's proxy whenever one is set), never on
 the alert or HTTP threads; the tick collects the results and adds through the same `add` as
 `/pa/add` (the filter's Save in, Label, "highest priority" as Add to top of queue, "paused
 state" as the page's Pause). `rss.dat` lives in the config directory beside `webui.json`. The

@@ -3,7 +3,9 @@
 // Changes: a plain struct instead of `add_torrent_params`; only the fields this engine uses are
 // read and written, under libtorrent's key names, so records stay readable by libtorrent tools.
 // Extra `lt-` keys (queue position, total size, piece count and length) let a stopped
-// torrent be listed without loading its metadata (PLAN.md D5).
+// torrent be listed without loading its metadata (PLAN.md D5). `comment`, `created by` and
+// `creation date` are kept under the `.torrent` file's own key names, since the session store
+// holds only the info dictionary and a restored torrent would lose them.
 
 //! Fast-resume records.
 
@@ -58,6 +60,11 @@ pub(crate) struct ResumeData {
     pub total_size: u64,
     pub num_pieces: u32,
     pub piece_length: u32,
+    /// The `.torrent` file's text outside the info dictionary (`comment`, `created by`,
+    /// `creation date`).
+    pub comment: String,
+    pub created_by: String,
+    pub creation_date: Option<i64>,
     /// The bencoded info dictionary, when embedded (libtorrent's `info` key).
     pub info: Option<Vec<u8>>,
 }
@@ -140,6 +147,15 @@ impl ResumeData {
         *e.key("lt-total-size") = int(self.total_size as i64);
         *e.key("lt-num-pieces") = int(self.num_pieces as i64);
         *e.key("lt-piece-length") = int(self.piece_length as i64);
+        if !self.comment.is_empty() {
+            *e.key("comment") = s(&self.comment);
+        }
+        if !self.created_by.is_empty() {
+            *e.key("created by") = s(&self.created_by);
+        }
+        if let Some(d) = self.creation_date {
+            *e.key("creation date") = int(d);
+        }
         if let Some(info) = &self.info {
             // Verbatim, so the info-hash of the embedded dictionary is preserved exactly.
             *e.key("info") = Entry::Preformatted(info.clone());
@@ -203,6 +219,9 @@ impl ResumeData {
             total_size: uint("lt-total-size"),
             num_pieces: opt("lt-num-pieces").unwrap_or(0),
             piece_length: opt("lt-piece-length").unwrap_or(0),
+            comment: root.dict_find_str("comment").unwrap_or_default().to_owned(),
+            created_by: root.dict_find_str("created by").unwrap_or_default().to_owned(),
+            creation_date: root.dict_find_int_value("creation date"),
             ..Default::default()
         };
         if let Some(p) = root.dict_find_string_value("pieces") {
@@ -474,6 +493,9 @@ mod tests {
             total_size: 12345,
             num_pieces: 10,
             piece_length: 16384,
+            comment: "a comment".into(),
+            created_by: "mktorrent".into(),
+            creation_date: Some(951_782_400),
             info: Some(b"d4:name1:xe".to_vec()),
             ..Default::default()
         };
@@ -481,6 +503,8 @@ mod tests {
         assert_eq!(ResumeData::decode(&bytes).unwrap(), r);
         let doc = bdecode(&bytes[..]).unwrap();
         let root = doc.root().unwrap();
+        assert_eq!(root.dict_find_str("created by"), Some("mktorrent"));
+        assert_eq!(root.dict_find_int_value("creation date"), Some(951_782_400));
         assert_eq!(root.dict_find_string_value("pieces").unwrap(), &[0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
         assert_eq!(root.dict_find_int_value("max_uploads"), Some(-1));
         // libtorrent's layout: one string per file up to the last renamed one.

@@ -49,10 +49,19 @@ fn torrent_with(tracker: Option<&str>) -> (Vec<u8>, String) {
 
 /// The two-file torrent under another name (so another info-hash).
 fn torrent_named(name: &str, tracker: Option<&str>) -> (Vec<u8>, String) {
+    torrent_built(name, tracker, false)
+}
+
+/// The two files' contents, one after the other (`a.bin` is the first 40,000 bytes).
+fn torrent_data() -> Vec<u8> {
+    (0..50_000usize).map(|i| (i * 7 % 251) as u8).collect()
+}
+
+/// The two-file torrent, BEP 27 private when `private`.
+fn torrent_built(name: &str, tracker: Option<&str>, private: bool) -> (Vec<u8>, String) {
     let piece = 16 * 1024;
     let sizes = [("a.bin", 40_000usize), ("b.bin", 10_000)];
-    let total: usize = sizes.iter().map(|s| s.1).sum();
-    let data: Vec<u8> = (0..total).map(|i| (i * 7 % 251) as u8).collect();
+    let data = torrent_data();
     let pieces: Vec<u8> = data.chunks(piece).flat_map(|c| Sha1::digest(c).0).collect();
     let mut info = Entry::new_dict();
     let mut list = Entry::new_list();
@@ -66,6 +75,9 @@ fn torrent_named(name: &str, tracker: Option<&str>) -> (Vec<u8>, String) {
     *info.key("name") = Entry::Bytes(name.as_bytes().to_vec());
     *info.key("piece length") = Entry::Int(piece as i64);
     *info.key("pieces") = Entry::Bytes(pieces);
+    if private {
+        *info.key("private") = Entry::Int(1);
+    }
     let hash = Sha1::digest(&info.bencode()).to_hex();
     let mut t = Entry::new_dict();
     if let Some(url) = tracker {
@@ -109,6 +121,14 @@ impl Harness {
         let settings = Harness::settings();
         let session = Session::start(SessionParams { settings: settings.clone(), state_dir: None }).unwrap();
         Harness::with_session(dir, password, settings, session)
+    }
+
+    /// A real session with `settings` that keeps its torrents in `dir/engine`, so a harness
+    /// started again on `dir` restores them.
+    fn start_with(dir: PathBuf, settings: Settings) -> Harness {
+        let state_dir = Some(dir.join("engine"));
+        let session = Session::start(SessionParams { settings: settings.clone(), state_dir }).unwrap();
+        Harness::with_session(dir, Some(PASS), settings, session)
     }
 
     /// The simulated engine with `n` synthetic torrents, `active` of them force-started; the
@@ -2833,4 +2853,157 @@ fn stopped_torrents_get_swarm_counts_from_the_periodic_scrape() {
     // one scrape, not one per tick
     std::thread::sleep(Duration::from_millis(500));
     assert_eq!(asked.load(Ordering::SeqCst), 1);
+}
+
+/// `torrents/properties` of a torrent the engine restored from its state directory (added in
+/// an earlier run, so the shim never saw its `.torrent`): the private flag from the info
+/// dictionary, the comment, creator and date from the resume data, asked of the engine
+/// (`TorrentHandle::metadata`); the tracker list's DHT / PeX / LSD rows say it is private.
+#[test]
+fn properties_of_a_restored_torrent_come_from_the_engine() {
+    let dir = temp_dir("restored-meta");
+    let (bytes, hash) = torrent_built("restored-private", None, true);
+    let check = |t: &Harness, sid: &str| {
+        let p = t.get(sid, &format!("/api/v2/torrents/properties?hash={hash}")).json();
+        assert_eq!(p.get("isPrivate"), Some(&Json::Bool(true)), "{}", p.to_json());
+        assert_eq!(s(p.get("comment")), "made for a test");
+        assert_eq!(s(p.get("created_by")), "the test");
+        assert_eq!(p.get("creation_date").and_then(Json::as_i64), Some(951_782_400));
+    };
+    {
+        let mut t = Harness::start_with(dir.clone(), Harness::settings());
+        let sid = t.login();
+        let (body, boundary) = multipart(&[("paused", "true")], &bytes);
+        let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+        assert_eq!((r.status, r.text().as_str()), (200, "Ok."));
+        t.wait_for(&sid, &hash, "the added torrent", |x| s(x.get("name")) == "restored-private");
+        check(&t, &sid);
+        // keep the directory for the second run: the harness removes this one instead
+        t.dir = temp_dir("restored-meta-scratch");
+    }
+    let t = Harness::start_with(dir, Harness::settings());
+    let sid = t.login();
+    let x = t.wait_for(&sid, &hash, "the restored torrent", |x| s(x.get("name")) == "restored-private");
+    assert!(s(x.get("state")).starts_with("paused") || s(x.get("state")).starts_with("stopped"));
+    check(&t, &sid);
+    // asked once, then the list's `isPrivate` field knows it too
+    let x = t.wait_for(&sid, &hash, "the private field", |x| x.get("isPrivate") == Some(&Json::Bool(true)));
+    assert_eq!(s(x.get("name")), "restored-private");
+    let Json::Arr(tr) = t.get(&sid, &format!("/api/v2/torrents/trackers?hash={hash}")).json() else {
+        panic!()
+    };
+    assert_eq!(s(tr[0].get("msg")), "This torrent is private");
+}
+
+/// A free loopback port (bound and released; nothing else in the test binds ports by number).
+fn free_port() -> u16 {
+    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
+}
+
+/// `torrents/pieceStates` sends 1 for the pieces with blocks in flight: a seed on loopback, a
+/// leech limited to 4 kB/s told about it through `torrents/addPeers`, so each 16 KiB piece
+/// stays requested for seconds.
+#[test]
+fn piece_states_report_the_pieces_being_downloaded() {
+    let (bytes, hash) = torrent();
+    let port = free_port();
+    let seed_settings = Settings { listen_interfaces: format!("127.0.0.1:{port}"), ..Harness::settings() };
+    let seed = Harness::start_with(temp_dir("piece-seed"), seed_settings);
+    let data = seed.dir.join("data").join("webui-test");
+    std::fs::create_dir_all(&data).unwrap();
+    let all = torrent_data();
+    std::fs::write(data.join("a.bin"), &all[..40_000]).unwrap();
+    std::fs::write(data.join("b.bin"), &all[40_000..]).unwrap();
+    let seed_sid = seed.login();
+    let save = seed.dir.join("data").to_string_lossy().into_owned();
+    let (body, boundary) = multipart(&[("savepath", &save), ("paused", "false")], &bytes);
+    let r =
+        seed.req("POST", "/api/v2/torrents/add", &[("Cookie", &seed_sid)], Body::Multipart(&body, boundary));
+    assert_eq!((r.status, r.text().as_str()), (200, "Ok."));
+    seed.wait_for(&seed_sid, &hash, "the seed", |x| matches!(s(x.get("state")), "uploading" | "stalledUP"));
+
+    let t = Harness::start("piece-leech");
+    let sid = t.login();
+    let (body, boundary) = multipart(&[("paused", "false"), ("dlLimit", "4000")], &bytes);
+    let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+    assert_eq!((r.status, r.text().as_str()), (200, "Ok."));
+    t.wait_for(&sid, &hash, "the leech", |x| x.get("dl_limit") == Some(&Json::Int(4000)));
+    // a bad peer list is refused; the seed is connected to
+    let bad = t.post(&sid, "/api/v2/torrents/addPeers", &format!("hashes={hash}&peers=nowhere"));
+    assert_eq!(bad.status, 400);
+    let peers = enc(&format!("127.0.0.1:{port}|[::1]:0"));
+    let r = t.post(&sid, "/api/v2/torrents/addPeers", &format!("hashes={hash}&peers={peers}"));
+    assert_eq!(r.status, 200);
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        let Json::Arr(v) = t.get(&sid, &format!("/api/v2/torrents/pieceStates?hash={hash}")).json() else {
+            panic!()
+        };
+        assert_eq!(v.len(), 4);
+        if v.contains(&Json::Int(1)) {
+            break;
+        }
+        assert!(Instant::now() < deadline, "no piece reported downloading: {v:?}");
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+/// An HTTP proxy on loopback that answers every absolute-form `GET` itself with `body` (the
+/// URLs name a host that does not resolve, so only the proxy can answer them). Its log holds
+/// the request lines.
+fn torrent_proxy(body: Vec<u8>) -> (u16, Arc<std::sync::Mutex<Vec<String>>>) {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log2 = log.clone();
+    std::thread::spawn(move || {
+        for c in l.incoming() {
+            let Ok(mut c) = c else { continue };
+            let mut head = Vec::new();
+            let mut b = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                match c.read(&mut b) {
+                    Ok(1) => head.push(b[0]),
+                    _ => break,
+                }
+            }
+            let line = String::from_utf8_lossy(&head).lines().next().unwrap_or_default().to_owned();
+            log2.lock().unwrap().push(line);
+            let mut out =
+                format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n", body.len())
+                    .into_bytes();
+            out.extend_from_slice(&body);
+            let _ = c.write_all(&out);
+        }
+    });
+    (port, log)
+}
+
+/// `torrents/add` and the native add with an `http://` link fetch it through the session's
+/// proxy, also with `proxy_tracker_connections` off (web fetches follow the proxy whenever one
+/// is set, as libtorrent's `.torrent` URL download did).
+#[test]
+fn url_adds_go_through_the_sessions_proxy() {
+    let (bytes, hash) = torrent_named("webui-proxied", None);
+    let (port, log) = torrent_proxy(bytes);
+    let settings = Settings {
+        proxy_type: patorrent_core::ProxyType::Http,
+        proxy_hostname: "127.0.0.1".into(),
+        proxy_port: port,
+        proxy_tracker_connections: false,
+        proxy_peer_connections: false,
+        ..Harness::settings()
+    };
+    let t = Harness::start_with(temp_dir("url-proxy"), settings);
+    let sid = t.login();
+    let url = "http://indexer.invalid/get/1.torrent";
+    let r = t.post(&sid, "/api/v2/torrents/add", &format!("urls={}&paused=true", enc(url)));
+    assert_eq!((r.status, r.text().as_str()), (200, "Ok."));
+    t.wait_for(&sid, &hash, "the fetched torrent", |x| s(x.get("name")) == "webui-proxied");
+    assert_eq!(log.lock().unwrap().as_slice(), [format!("GET {url} HTTP/1.1")]);
+    // the native add's URL takes the same way (the same torrent again: the engine keeps one)
+    let r = t.pa(&sid, "/pa/add", r#"{"url":"http://indexer.invalid/get/2.torrent"}"#);
+    assert_eq!(r.status, 204, "{}", r.text());
+    assert_eq!(log.lock().unwrap().len(), 2);
+    assert_eq!(log.lock().unwrap()[1], "GET http://indexer.invalid/get/2.torrent HTTP/1.1");
 }

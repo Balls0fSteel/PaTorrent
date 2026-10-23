@@ -7,12 +7,13 @@
 //! what the desktop shows. The `detail` subscription (docs/WEBUI.md "Detail tabs") works the
 //! same way: the tab's content is built from the cache with `frontend::detail` and `fmt`, sent
 //! whole once, then again on a tick only when it changed. Nothing here does I/O beyond posting
-//! the tab's `post_*` requests through the [`SessionHandle`]; `server.rs` moves the frames.
+//! the tab's `post_*` requests through the session handle (and the General tab's one
+//! metadata call per torrent, `commands::meta`); `server.rs` moves the frames.
 
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use patorrent_core::{DownloadPriority, SessionHandle, TorrentId, VERSION};
+use patorrent_core::{DownloadPriority, TorrentId, VERSION};
 use patorrent_frontend::columns::{Align, Column};
 use patorrent_frontend::detail::{self, ColumnDef};
 use patorrent_frontend::model::{Filter, TorrentList};
@@ -20,7 +21,7 @@ use patorrent_frontend::status::{Category, status_class, status_text};
 use patorrent_frontend::{fmt, lang, tr};
 
 use super::json::{self, Json};
-use super::{Entry, Reply, ReplyKind, SPEED_SAMPLES, State};
+use super::{Entry, Reply, ReplyKind, SPEED_SAMPLES, Shared, State, commands};
 
 /// Most rows one window may ask for (the page shows about 60 and asks for some overscan).
 pub const MAX_WINDOW: usize = 200;
@@ -303,11 +304,16 @@ impl Client {
 
     /// Posts the engine requests the subscribed tab's next update needs (`server.rs` calls it
     /// after a `detail` message and on every tick while subscribed).
-    pub(crate) fn request_detail(&self, handle: &SessionHandle) {
+    pub(crate) fn request_detail(&self, shared: &Shared) {
         let Some(d) = &self.detail else { return };
-        let t = handle.torrent(d.id);
+        let t = shared.handle.torrent(d.id);
         match d.tab {
-            Tab::General | Tab::Trackers => t.post_trackers(),
+            Tab::General => {
+                // the comment, creator and date: asked of the engine once per torrent
+                commands::meta(shared, d.id);
+                t.post_trackers();
+            }
+            Tab::Trackers => t.post_trackers(),
             Tab::Peers => t.post_peer_info(),
             Tab::Pieces => t.post_piece_info(),
             Tab::Files => {

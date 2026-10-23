@@ -429,6 +429,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             | "torrents/editTracker"
             | "torrents/addTrackers"
             | "torrents/removeTrackers"
+            | "torrents/addPeers"
             | "torrents/setShareLimits"
             | "torrents/topPrio"
             | "torrents/bottomPrio"
@@ -583,6 +584,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             commands::add_trackers(shared, &[id], p.get("urls").unwrap_or(""));
             Response::ok()
         }
+        "torrents/addPeers" => add_peers(shared, &p),
         "torrents/removeTrackers" => {
             // `hash` may name several torrents (`|`-separated, or `all`)
             let ids = selected(
@@ -1267,11 +1269,12 @@ fn not_found() -> Response {
 }
 
 fn properties(shared: &Shared, p: &Params) -> Response {
+    let Some(id) = one(&shared.lock(), p) else { return not_found() };
+    // asked of the engine the first time (a torrent restored from the state directory)
+    let meta = commands::meta(shared, id);
     let st = shared.lock();
-    let Some(id) = one(&st, p) else { return not_found() };
-    let e = &st.torrents[&id];
+    let Some(e) = st.torrents.get(&id) else { return not_found() };
     let s = &e.status;
-    let meta = st.meta.get(&e.hash).cloned().unwrap_or_default();
     let avg = |bytes: u64| bytes.checked_div(s.active_duration).unwrap_or(0);
     let lim = |b: u32| if b == 0 { -1 } else { b as i64 };
     let or_m1 = |t: i64| if t > 0 { t } else { -1 };
@@ -1316,18 +1319,16 @@ fn properties(shared: &Shared, p: &Params) -> Response {
 }
 
 fn trackers(shared: &Shared, p: &Params) -> Response {
-    let (id, dht, lsd, pex, private) = {
+    let Some(id) = one(&shared.lock(), p) else { return not_found() };
+    let private = commands::meta(shared, id).private;
+    let (dht, lsd, pex) = {
         let st = shared.lock();
-        let Some(id) = one(&st, p) else { return not_found() };
-        let e = &st.torrents[&id];
-        let private = st.meta.get(&e.hash).is_some_and(|m| m.private);
+        let Some(e) = st.torrents.get(&id) else { return not_found() };
         let f = e.status.flags;
         (
-            id,
             st.settings.enable_dht && !private && !f.contains(TorrentFlags::DISABLE_DHT),
             st.settings.enable_lsd && !private && !f.contains(TorrentFlags::DISABLE_LSD),
             !private && !f.contains(TorrentFlags::DISABLE_PEX),
-            private,
         )
     };
     let special = |name: &str, on: bool| {
@@ -1447,6 +1448,30 @@ fn piece_states(shared: &Shared, p: &Params) -> Response {
     Response::json(&Json::Arr(v))
 }
 
+/// `torrents/addPeers`: `peers` (`|`-separated `ip:port`, IPv6 as `[ip]:port`) connected to
+/// on every torrent `hashes` names (libtorrent `connect_peer`); 400 when none of the peers is
+/// an address.
+fn add_peers(shared: &Shared, p: &Params) -> Response {
+    let peers: Vec<std::net::SocketAddr> = p
+        .get("peers")
+        .unwrap_or("")
+        .split('|')
+        .filter_map(|s| s.trim().parse().ok())
+        .filter(|a: &std::net::SocketAddr| a.port() != 0)
+        .collect();
+    if peers.is_empty() {
+        return Response::text(400, "No valid peers were specified");
+    }
+    let ids = selected(&shared.lock(), p);
+    for id in ids {
+        let t = shared.handle.torrent(id);
+        for &a in &peers {
+            t.connect_peer(a);
+        }
+    }
+    Response::ok()
+}
+
 /// `torrents/filePrio`: the API's priorities (0, 1, 6, 7) onto the shared file command.
 fn file_prio(shared: &Shared, p: &Params) -> Response {
     let prio = match p.int("priority") {
@@ -1491,7 +1516,7 @@ fn add(shared: &Shared, p: &Params) -> Response {
     let mut sources: Vec<Source> = Vec::new();
     let mut invalid_file = false;
     for url in p.get("urls").unwrap_or("").split('\n').map(str::trim).filter(|u| !u.is_empty()) {
-        if let Ok(s) = Source::from_url(url) {
+        if let Ok(s) = Source::from_url(shared, url) {
             sources.push(s);
         }
     }

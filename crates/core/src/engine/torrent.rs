@@ -69,6 +69,32 @@ impl StrPool {
     }
 }
 
+/// A `.torrent` file's text outside the info dictionary (`Torrent::created`).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub(crate) struct Created {
+    pub comment: String,
+    pub created_by: String,
+    pub creation_date: Option<i64>,
+}
+
+impl Created {
+    /// `None` when there is nothing to keep.
+    pub fn new(comment: &str, created_by: &str, creation_date: Option<i64>) -> Option<Box<Created>> {
+        if comment.is_empty() && created_by.is_empty() && creation_date.is_none() {
+            return None;
+        }
+        Some(Box::new(Created {
+            comment: comment.to_owned(),
+            created_by: created_by.to_owned(),
+            creation_date,
+        }))
+    }
+
+    pub fn of(ti: &TorrentInfo) -> Option<Box<Created>> {
+        Created::new(ti.comment(), ti.creator(), ti.creation_date())
+    }
+}
+
 /// Every torrent of the session has one of these, stopped or not, so it is kept compact (PLAN.md
 /// D21: 100,000 stopped torrents): the parts only a running torrent uses (the piece picker, the
 /// metadata and piece-layer fetches, the PEX and smart-ban state) are boxed and absent until
@@ -82,6 +108,11 @@ pub(crate) struct Torrent {
     pub save_path: Arc<str>,
     /// Loaded while running (or when requested); `None` for stopped torrents.
     pub ti: Option<Arc<TorrentInfo>>,
+    /// The `.torrent` file's comment, creator and creation date, which the info dictionary in
+    /// the session store does not hold: taken from the first metadata that has them or from
+    /// resume data, kept while `ti` comes and goes, and saved in resume data. `None` when there
+    /// are none.
+    pub created: Option<Box<Created>>,
     /// v2: one merkle tree per file with the root and piece layer, built from `ti` when a peer
     /// first asks for hashes; dropped with `ti`.
     pub merkle_trees: Option<Vec<MerkleTree>>,
@@ -189,6 +220,7 @@ impl Torrent {
             name,
             save_path,
             ti: None,
+            created: None,
             merkle_trees: None,
             layer_fetch: None,
             total_size: 0,
@@ -266,6 +298,9 @@ impl Torrent {
         let n = ti.num_files();
         if self.file_priority.len() != n {
             self.file_priority.resize(n, DownloadPriority::NORMAL.0);
+        }
+        if self.created.is_none() {
+            self.created = Created::of(&ti);
         }
         self.ti = Some(ti);
         self.merkle_trees = None;
@@ -673,8 +708,23 @@ impl Torrent {
             total_size: self.total_size,
             num_pieces: self.num_pieces,
             piece_length: self.piece_length,
+            comment: self.created.as_ref().map(|c| c.comment.clone()).unwrap_or_default(),
+            created_by: self.created.as_ref().map(|c| c.created_by.clone()).unwrap_or_default(),
+            creation_date: self.created.as_ref().and_then(|c| c.creation_date),
             info: None,
         }
+    }
+
+    /// The metadata summary for frontends (`TorrentHandle::metadata`) from `ti` (the torrent's
+    /// own or one loaded for the call), with the text kept in `created`.
+    pub fn metadata_summary(&self, ti: &TorrentInfo) -> crate::status::TorrentMetadata {
+        let mut m = crate::status::TorrentMetadata::of(ti);
+        if let Some(c) = &self.created {
+            m.comment.clone_from(&c.comment);
+            m.created_by.clone_from(&c.created_by);
+            m.creation_date = c.creation_date;
+        }
+        m
     }
 
     pub fn file_entries(&self) -> Vec<FileEntry> {
@@ -886,7 +936,8 @@ mod tests {
     #[test]
     fn a_stopped_torrent_stays_compact() {
         let size = std::mem::size_of::<Torrent>();
-        assert!(size <= 664, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
+        // 672: 664 plus the boxed `.torrent` text (`created`), which a stopped torrent keeps
+        assert!(size <= 672, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
         let mut t = Torrent::new(
             TorrentId::default(),
             InfoHashes::v1(crate::types::Sha1Hash([1; 20])),

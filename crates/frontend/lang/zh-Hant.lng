@@ -256,7 +256,6 @@ ErrAddTorrent=無法加入 {name}：\n{error}
 ErrRemoteLost=與 {label} 的連線已中斷：\n{message}\n\n清單顯示的是中斷前的種子。請關閉此視窗，再用「檔案 > 遠端連線...」重新連線。
 ErrMoveFiles=無法移動 {name} 的檔案：\n{error}
 ErrDownloadUrl=無法下載 {url}：\n{error}
-ErrDownloadFailed=下載失敗（HRESULT {code}）
 ErrOpenFile=無法開啟 {path}：\n{error}
 InfoAlreadyInList=「{name}」已在種子清單中。
 AskRemove=要從清單中移除「{name}」嗎？

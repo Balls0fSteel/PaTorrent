@@ -2083,10 +2083,12 @@ fn save_prefs(a: &mut App) {
     }
 }
 
-/// Fetches a `.torrent` on a worker thread, then adds it.
+/// Fetches a `.torrent` on a worker thread (through the session's proxy, as the RSS fetches
+/// and the Win32 GUI do), then adds it.
 fn download(url: String) {
+    let proxy = with_app(rss_proxy).flatten();
     std::thread::spawn(move || {
-        let result = http_get(&url, &FetchOptions::default())
+        let result = http_get(&url, &FetchOptions { proxy, ..FetchOptions::default() })
             .map_err(|e| e.to_string())
             .and_then(|r| if r.status == 200 { Ok(r.body) } else { Err(format!("HTTP {}", r.status)) });
         glib::MainContext::default().invoke(move || match result {

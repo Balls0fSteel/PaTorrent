@@ -256,7 +256,6 @@ ErrAddTorrent={name} се не може додати:\n{error}
 ErrRemoteLost=Веза са {label} је прекинута:\n{message}\n\nЛиста приказује торенте онакве какви су били. Затворите овај прозор и поново се повежите преко Датотека > Повежи се даљински....
 ErrMoveFiles=Датотеке торента {name} се не могу преместити:\n{error}
 ErrDownloadUrl={url} се не може преузети:\n{error}
-ErrDownloadFailed=преузимање није успело (HRESULT {code})
 ErrOpenFile={path} се не може отворити:\n{error}
 InfoAlreadyInList=„{name}“ је већ на листи торената.
 AskRemove=Уклонити „{name}“ са листе?

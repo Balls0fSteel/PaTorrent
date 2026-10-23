@@ -256,7 +256,6 @@ ErrAddTorrent=לא ניתן להוסיף את {name}:\n{error}
 ErrRemoteLost=החיבור אל {label} אבד:\n{message}\n\nהרשימה מציגה את הטורנטים כפי שהיו. סגרו חלון זה והשתמשו בקובץ > התחברות מרחוק... כדי להתחבר שוב.
 ErrMoveFiles=לא ניתן להעביר את הקבצים של {name}:\n{error}
 ErrDownloadUrl=לא ניתן להוריד את {url}:\n{error}
-ErrDownloadFailed=ההורדה נכשלה (HRESULT {code})
 ErrOpenFile=לא ניתן לפתוח את {path}:\n{error}
 InfoAlreadyInList="{name}" כבר ברשימת הטורנטים.
 AskRemove=להסיר את "{name}" מהרשימה?

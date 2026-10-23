@@ -256,7 +256,6 @@ ErrAddTorrent=Kunde inte lägga till {name}:\n{error}
 ErrRemoteLost=Anslutningen till {label} bröts:\n{message}\n\nListan visar torrenterna som de var. Stäng det här fönstret och använd Arkiv > Anslut på distans... för att ansluta igen.
 ErrMoveFiles=Kunde inte flytta filerna för {name}:\n{error}
 ErrDownloadUrl=Kunde inte hämta {url}:\n{error}
-ErrDownloadFailed=hämtningen misslyckades (HRESULT {code})
 ErrOpenFile=Kunde inte öppna {path}:\n{error}
 InfoAlreadyInList="{name}" finns redan i torrentlistan.
 AskRemove=Ta bort "{name}" från listan?

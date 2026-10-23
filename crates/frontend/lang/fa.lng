@@ -256,7 +256,6 @@ ErrAddTorrent=افزودن {name} ممکن نشد:\n{error}
 ErrRemoteLost=اتصال به {label} از دست رفت:\n{message}\n\nفهرست، تورنت‌ها را همان‌گونه که بودند نشان می‌دهد. این پنجره را ببندید و با پرونده > اتصال از دور... دوباره وصل شوید.
 ErrMoveFiles=جابه‌جایی پرونده‌های {name} ممکن نشد:\n{error}
 ErrDownloadUrl=بارگیری {url} ممکن نشد:\n{error}
-ErrDownloadFailed=بارگیری ناموفق بود (HRESULT {code})
 ErrOpenFile=باز کردن {path} ممکن نشد:\n{error}
 InfoAlreadyInList=«{name}» از پیش در فهرست تورنت‌ها است.
 AskRemove=«{name}» از فهرست برداشته شود؟

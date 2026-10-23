@@ -256,7 +256,6 @@ ErrAddTorrent=无法添加 {name}：\n{error}
 ErrRemoteLost=与 {label} 的连接已断开：\n{message}\n\n列表显示的是断开前的种子。请关闭此窗口，然后用“文件 > 远程连接...”重新连接。
 ErrMoveFiles=无法移动 {name} 的文件：\n{error}
 ErrDownloadUrl=无法下载 {url}：\n{error}
-ErrDownloadFailed=下载失败（HRESULT {code}）
 ErrOpenFile=无法打开 {path}：\n{error}
 InfoAlreadyInList=“{name}”已在种子列表中。
 AskRemove=要从列表中删除“{name}”吗？

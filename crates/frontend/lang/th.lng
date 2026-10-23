@@ -256,7 +256,6 @@ ErrAddTorrent=เพิ่ม {name} ไม่ได้:\n{error}
 ErrRemoteLost=การเชื่อมต่อกับ {label} ขาดหาย:\n{message}\n\nรายการแสดงทอร์เรนต์ตามที่เป็นก่อนหน้า ปิดหน้าต่างนี้แล้วใช้ แฟ้ม > เชื่อมต่อระยะไกล... เพื่อเชื่อมต่อใหม่
 ErrMoveFiles=ย้ายแฟ้มของ {name} ไม่ได้:\n{error}
 ErrDownloadUrl=ดาวน์โหลด {url} ไม่ได้:\n{error}
-ErrDownloadFailed=ดาวน์โหลดล้มเหลว (HRESULT {code})
 ErrOpenFile=เปิด {path} ไม่ได้:\n{error}
 InfoAlreadyInList="{name}" มีอยู่ในรายการทอร์เรนต์แล้ว
 AskRemove=เอา "{name}" ออกจากรายการหรือไม่?

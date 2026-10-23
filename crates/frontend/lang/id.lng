@@ -256,7 +256,6 @@ ErrAddTorrent=Tidak dapat menambahkan {name}:\n{error}
 ErrRemoteLost=Sambungan ke {label} terputus:\n{message}\n\nDaftar menampilkan torrent seperti sebelumnya. Tutup jendela ini dan gunakan Berkas > Sambungkan jarak jauh... untuk menyambung lagi.
 ErrMoveFiles=Tidak dapat memindahkan berkas {name}:\n{error}
 ErrDownloadUrl=Tidak dapat mengunduh {url}:\n{error}
-ErrDownloadFailed=unduhan gagal (HRESULT {code})
 ErrOpenFile=Tidak dapat membuka {path}:\n{error}
 InfoAlreadyInList="{name}" sudah ada di daftar torrent.
 AskRemove=Hapus "{name}" dari daftar?

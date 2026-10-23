@@ -256,7 +256,6 @@ ErrAddTorrent=Impossible d'ajouter {name} :\n{error}
 ErrRemoteLost=La connexion à {label} a été perdue :\n{message}\n\nLa liste montre les torrents tels qu'ils étaient. Fermez cette fenêtre et utilisez Fichier > Se connecter à distance... pour vous reconnecter.
 ErrMoveFiles=Impossible de déplacer les fichiers de {name} :\n{error}
 ErrDownloadUrl=Impossible de télécharger {url} :\n{error}
-ErrDownloadFailed=échec du téléchargement (HRESULT {code})
 ErrOpenFile=Impossible d'ouvrir {path} :\n{error}
 InfoAlreadyInList=« {name} » est déjà dans la liste des torrents.
 AskRemove=Supprimer « {name} » de la liste ?

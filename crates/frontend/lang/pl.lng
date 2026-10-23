@@ -256,7 +256,6 @@ ErrAddTorrent=Nie można dodać {name}:\n{error}
 ErrRemoteLost=Utracono połączenie z {label}:\n{message}\n\nLista pokazuje torrenty w stanie sprzed rozłączenia. Zamknij to okno i użyj Plik > Połącz zdalnie..., aby połączyć się ponownie.
 ErrMoveFiles=Nie można przenieść plików {name}:\n{error}
 ErrDownloadUrl=Nie można pobrać {url}:\n{error}
-ErrDownloadFailed=pobieranie nie powiodło się (HRESULT {code})
 ErrOpenFile=Nie można otworzyć {path}:\n{error}
 InfoAlreadyInList=„{name}” jest już na liście torrentów.
 AskRemove=Usunąć „{name}” z listy?

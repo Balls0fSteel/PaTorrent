@@ -256,7 +256,6 @@ ErrAddTorrent=تعذّرت إضافة {name}:\n{error}
 ErrRemoteLost=انقطع الاتصال بـ {label}:\n{message}\n\nتعرض القائمة التورنتات كما كانت. أغلق هذه النافذة واستخدم ملف > الاتصال عن بُعد... للاتصال من جديد.
 ErrMoveFiles=تعذّر نقل ملفات {name}:\n{error}
 ErrDownloadUrl=تعذّر تنزيل {url}:\n{error}
-ErrDownloadFailed=فشل التنزيل (HRESULT {code})
 ErrOpenFile=تعذّر فتح {path}:\n{error}
 InfoAlreadyInList=«{name}» موجود في قائمة التورنتات.
 AskRemove=هل تريد إزالة «{name}» من القائمة؟

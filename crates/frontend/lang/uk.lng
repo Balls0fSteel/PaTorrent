@@ -256,7 +256,6 @@ ErrAddTorrent=Не вдалося додати {name}:\n{error}
 ErrRemoteLost=З'єднання з {label} втрачено:\n{message}\n\nУ списку торренти такими, якими були. Закрийте це вікно й підключіться знову через Файл > Віддалене підключення....
 ErrMoveFiles=Не вдалося перемістити файли {name}:\n{error}
 ErrDownloadUrl=Не вдалося завантажити {url}:\n{error}
-ErrDownloadFailed=завантаження не вдалося (HRESULT {code})
 ErrOpenFile=Не вдалося відкрити {path}:\n{error}
 InfoAlreadyInList=«{name}» уже в списку торрентів.
 AskRemove=Вилучити «{name}» зі списку?

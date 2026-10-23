@@ -256,7 +256,6 @@ ErrAddTorrent=Torrentia {name} ei voitu lisätä:\n{error}
 ErrRemoteLost=Yhteys kohteeseen {label} katkesi:\n{message}\n\nLuettelo näyttää torrentit sellaisina kuin ne olivat. Sulje tämä ikkuna ja yhdistä uudelleen valinnalla Tiedosto > Yhdistä etänä....
 ErrMoveFiles=Torrentin {name} tiedostoja ei voitu siirtää:\n{error}
 ErrDownloadUrl=Osoitetta {url} ei voitu ladata:\n{error}
-ErrDownloadFailed=lataus epäonnistui (HRESULT {code})
 ErrOpenFile=Tiedostoa {path} ei voitu avata:\n{error}
 InfoAlreadyInList="{name}" on jo torrent-luettelossa.
 AskRemove=Poistetaanko "{name}" luettelosta?

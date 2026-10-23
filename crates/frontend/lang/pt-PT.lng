@@ -256,7 +256,6 @@ ErrAddTorrent=Não foi possível adicionar {name}:\n{error}
 ErrRemoteLost=A ligação a {label} perdeu-se:\n{message}\n\nA lista mostra os torrents como estavam. Feche esta janela e use Ficheiro > Ligar remotamente... para voltar a ligar.
 ErrMoveFiles=Não foi possível mover os ficheiros de {name}:\n{error}
 ErrDownloadUrl=Não foi possível transferir {url}:\n{error}
-ErrDownloadFailed=a transferência falhou (HRESULT {code})
 ErrOpenFile=Não foi possível abrir {path}:\n{error}
 InfoAlreadyInList="{name}" já está na lista de torrents.
 AskRemove=Remover "{name}" da lista?

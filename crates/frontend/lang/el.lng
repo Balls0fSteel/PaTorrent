@@ -256,7 +256,6 @@ ErrAddTorrent=Δεν ήταν δυνατή η προσθήκη του {name}:\n{
 ErrRemoteLost=Η σύνδεση με το {label} χάθηκε:\n{message}\n\nΗ λίστα δείχνει τα torrent όπως ήταν. Κλείστε αυτό το παράθυρο και χρησιμοποιήστε το Αρχείο > Απομακρυσμένη σύνδεση... για να συνδεθείτε ξανά.
 ErrMoveFiles=Δεν ήταν δυνατή η μετακίνηση των αρχείων του {name}:\n{error}
 ErrDownloadUrl=Δεν ήταν δυνατή η λήψη του {url}:\n{error}
-ErrDownloadFailed=η λήψη απέτυχε (HRESULT {code})
 ErrOpenFile=Δεν ήταν δυνατό το άνοιγμα του {path}:\n{error}
 InfoAlreadyInList=Το «{name}» είναι ήδη στη λίστα των torrent.
 AskRemove=Αφαίρεση του «{name}» από τη λίστα;

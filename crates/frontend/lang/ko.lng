@@ -256,7 +256,6 @@ ErrAddTorrent={name}을(를) 추가할 수 없습니다:\n{error}
 ErrRemoteLost={label}과(와)의 연결이 끊어졌습니다:\n{message}\n\n목록에는 연결이 끊기기 전의 토렌트가 표시됩니다. 이 창을 닫고 파일 > 원격 연결...으로 다시 연결하세요.
 ErrMoveFiles={name}의 파일을 옮길 수 없습니다:\n{error}
 ErrDownloadUrl={url}을(를) 다운로드할 수 없습니다:\n{error}
-ErrDownloadFailed=다운로드 실패 (HRESULT {code})
 ErrOpenFile={path}을(를) 열 수 없습니다:\n{error}
 InfoAlreadyInList="{name}"은(는) 이미 토렌트 목록에 있습니다.
 AskRemove="{name}"을(를) 목록에서 제거할까요?

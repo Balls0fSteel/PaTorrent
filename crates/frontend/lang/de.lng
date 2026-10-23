@@ -256,7 +256,6 @@ ErrAddTorrent={name} konnte nicht hinzugefügt werden:\n{error}
 ErrRemoteLost=Die Verbindung zu {label} wurde unterbrochen:\n{message}\n\nDie Liste zeigt die Torrents, wie sie waren. Schließen Sie dieses Fenster und verbinden Sie sich mit Datei > Mit Fernsitzung verbinden... erneut.
 ErrMoveFiles=Die Dateien von {name} konnten nicht verschoben werden:\n{error}
 ErrDownloadUrl={url} konnte nicht heruntergeladen werden:\n{error}
-ErrDownloadFailed=Download fehlgeschlagen (HRESULT {code})
 ErrOpenFile={path} konnte nicht geöffnet werden:\n{error}
 InfoAlreadyInList=„{name}“ ist bereits in der Torrent-Liste.
 AskRemove=„{name}“ aus der Liste entfernen?

@@ -256,7 +256,6 @@ ErrAddTorrent={name} を追加できませんでした:\n{error}
 ErrRemoteLost={label} との接続が切れました:\n{message}\n\n一覧には切断前のトレントが表示されています。このウィンドウを閉じ、ファイル > リモートに接続... で接続し直してください。
 ErrMoveFiles={name} のファイルを移動できませんでした:\n{error}
 ErrDownloadUrl={url} をダウンロードできませんでした:\n{error}
-ErrDownloadFailed=ダウンロードに失敗しました (HRESULT {code})
 ErrOpenFile={path} を開けませんでした:\n{error}
 InfoAlreadyInList=「{name}」はすでにトレント一覧にあります。
 AskRemove=「{name}」を一覧から削除しますか?

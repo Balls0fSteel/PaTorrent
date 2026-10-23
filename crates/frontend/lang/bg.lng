@@ -256,7 +256,6 @@ ErrAddTorrent={name} не може да се добави:\n{error}
 ErrRemoteLost=Връзката с {label} прекъсна:\n{message}\n\nСписъкът показва торентите такива, каквито бяха. Затворете този прозорец и се свържете отново чрез Файл > Отдалечена връзка....
 ErrMoveFiles=Файловете на {name} не могат да се преместят:\n{error}
 ErrDownloadUrl={url} не може да се изтегли:\n{error}
-ErrDownloadFailed=изтеглянето се провали (HRESULT {code})
 ErrOpenFile={path} не може да се отвори:\n{error}
 InfoAlreadyInList=„{name}“ вече е в списъка с торенти.
 AskRemove=Да се премахне ли „{name}“ от списъка?

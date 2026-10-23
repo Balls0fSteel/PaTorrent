@@ -369,9 +369,6 @@ ErrMoveFiles=Could not move the files of {name}:\n{error}
 # {url} is a web address.
 ErrDownloadUrl=Could not download {url}:\n{error}
 
-# {code} is a Windows error number.
-ErrDownloadFailed=download failed (HRESULT {code})
-
 # {path} is a file.
 ErrOpenFile=Could not open {path}:\n{error}
 InfoAlreadyInList="{name}" is already in the torrent list.

@@ -256,7 +256,6 @@ ErrAddTorrent={name} nelze přidat:\n{error}
 ErrRemoteLost=Spojení s {label} bylo ztraceno:\n{message}\n\nSeznam ukazuje torrenty tak, jak byly. Zavřete toto okno a znovu se připojte pomocí Soubor > Připojit vzdáleně....
 ErrMoveFiles=Soubory {name} nelze přesunout:\n{error}
 ErrDownloadUrl={url} nelze stáhnout:\n{error}
-ErrDownloadFailed=stahování selhalo (HRESULT {code})
 ErrOpenFile={path} nelze otevřít:\n{error}
 InfoAlreadyInList=„{name}“ už je v seznamu torrentů.
 AskRemove=Odebrat „{name}“ ze seznamu?

@@ -256,7 +256,6 @@ ErrAddTorrent=Kunne ikke tilføje {name}:\n{error}
 ErrRemoteLost=Forbindelsen til {label} blev afbrudt:\n{message}\n\nListen viser torrents, som de var. Luk dette vindue, og brug Filer > Forbind eksternt... for at forbinde igen.
 ErrMoveFiles=Kunne ikke flytte filerne for {name}:\n{error}
 ErrDownloadUrl=Kunne ikke hente {url}:\n{error}
-ErrDownloadFailed=download mislykkedes (HRESULT {code})
 ErrOpenFile=Kunne ikke åbne {path}:\n{error}
 InfoAlreadyInList="{name}" er allerede på torrentlisten.
 AskRemove=Fjern "{name}" fra listen?

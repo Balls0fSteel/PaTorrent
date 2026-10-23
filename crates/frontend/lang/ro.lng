@@ -256,7 +256,6 @@ ErrAddTorrent={name} nu a putut fi adăugat:\n{error}
 ErrRemoteLost=Conexiunea cu {label} s-a pierdut:\n{message}\n\nLista arată torentele așa cum erau. Închideți această fereastră și folosiți Fișier > Conectare la distanță... pentru a vă reconecta.
 ErrMoveFiles=Fișierele lui {name} nu au putut fi mutate:\n{error}
 ErrDownloadUrl={url} nu a putut fi descărcat:\n{error}
-ErrDownloadFailed=descărcarea a eșuat (HRESULT {code})
 ErrOpenFile={path} nu a putut fi deschis:\n{error}
 InfoAlreadyInList=„{name}” este deja în lista de torente.
 AskRemove=Eliminați „{name}” din listă?

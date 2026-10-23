@@ -256,7 +256,6 @@ ErrAddTorrent={name} nem adható hozzá:\n{error}
 ErrRemoteLost=A kapcsolat megszakadt ezzel: {label}:\n{message}\n\nA lista a torrenteket a korábbi állapotukban mutatja. Zárja be ezt az ablakot, és csatlakozzon újra a Fájl > Csatlakozás távoli géphez... menüponttal.
 ErrMoveFiles={name} fájljai nem helyezhetők át:\n{error}
 ErrDownloadUrl={url} nem tölthető le:\n{error}
-ErrDownloadFailed=sikertelen letöltés (HRESULT {code})
 ErrOpenFile={path} nem nyitható meg:\n{error}
 InfoAlreadyInList=„{name}” már a torrentlistában van.
 AskRemove=Eltávolítja a listából: „{name}”?

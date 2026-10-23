@@ -256,7 +256,6 @@ ErrAddTorrent=Kunne ikke legge til {name}:\n{error}
 ErrRemoteLost=Tilkoblingen til {label} ble brutt:\n{message}\n\nListen viser torrentene slik de var. Lukk dette vinduet og bruk Fil > Koble til eksternt... for å koble til igjen.
 ErrMoveFiles=Kunne ikke flytte filene til {name}:\n{error}
 ErrDownloadUrl=Kunne ikke laste ned {url}:\n{error}
-ErrDownloadFailed=nedlastingen mislyktes (HRESULT {code})
 ErrOpenFile=Kunne ikke åpne {path}:\n{error}
 InfoAlreadyInList=«{name}» er allerede i torrentlisten.
 AskRemove=Fjerne «{name}» fra listen?

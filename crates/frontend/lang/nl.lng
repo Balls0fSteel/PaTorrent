@@ -256,7 +256,6 @@ ErrAddTorrent=Kon {name} niet toevoegen:\n{error}
 ErrRemoteLost=De verbinding met {label} is verbroken:\n{message}\n\nDe lijst toont de torrents zoals ze waren. Sluit dit venster en gebruik Bestand > Op afstand verbinden... om opnieuw te verbinden.
 ErrMoveFiles=Kon de bestanden van {name} niet verplaatsen:\n{error}
 ErrDownloadUrl=Kon {url} niet downloaden:\n{error}
-ErrDownloadFailed=download mislukt (HRESULT {code})
 ErrOpenFile=Kon {path} niet openen:\n{error}
 InfoAlreadyInList="{name}" staat al in de torrentlijst.
 AskRemove="{name}" uit de lijst verwijderen?

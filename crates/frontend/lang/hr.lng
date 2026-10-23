@@ -256,7 +256,6 @@ ErrAddTorrent={name} se ne može dodati:\n{error}
 ErrRemoteLost=Veza s {label} je prekinuta:\n{message}\n\nPopis prikazuje torrente onakve kakvi su bili. Zatvorite ovaj prozor i ponovno se povežite preko Datoteka > Poveži se daljinski....
 ErrMoveFiles=Datoteke torrenta {name} ne mogu se premjestiti:\n{error}
 ErrDownloadUrl={url} se ne može preuzeti:\n{error}
-ErrDownloadFailed=preuzimanje nije uspjelo (HRESULT {code})
 ErrOpenFile={path} se ne može otvoriti:\n{error}
 InfoAlreadyInList=„{name}” je već na popisu torrenata.
 AskRemove=Ukloniti „{name}” s popisa?

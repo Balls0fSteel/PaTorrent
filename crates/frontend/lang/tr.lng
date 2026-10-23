@@ -256,7 +256,6 @@ ErrAddTorrent={name} eklenemedi:\n{error}
 ErrRemoteLost={label} ile bağlantı koptu:\n{message}\n\nListe torrentleri son hâlleriyle gösteriyor. Bu pencereyi kapatıp Dosya > Uzaktan bağlan... ile yeniden bağlanın.
 ErrMoveFiles={name} dosyaları taşınamadı:\n{error}
 ErrDownloadUrl={url} indirilemedi:\n{error}
-ErrDownloadFailed=indirme başarısız (HRESULT {code})
 ErrOpenFile={path} açılamadı:\n{error}
 InfoAlreadyInList="{name}" zaten torrent listesinde.
 AskRemove="{name}" listeden kaldırılsın mı?

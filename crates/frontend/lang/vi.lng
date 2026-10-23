@@ -256,7 +256,6 @@ ErrAddTorrent=Không thêm được {name}:\n{error}
 ErrRemoteLost=Mất kết nối tới {label}:\n{message}\n\nDanh sách hiện các torrent như lúc trước. Đóng cửa sổ này và dùng Tệp > Kết nối từ xa... để kết nối lại.
 ErrMoveFiles=Không di chuyển được các tệp của {name}:\n{error}
 ErrDownloadUrl=Không tải được {url}:\n{error}
-ErrDownloadFailed=tải xuống thất bại (HRESULT {code})
 ErrOpenFile=Không mở được {path}:\n{error}
 InfoAlreadyInList="{name}" đã có trong danh sách torrent.
 AskRemove=Gỡ "{name}" khỏi danh sách?

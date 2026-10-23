@@ -256,7 +256,6 @@ ErrAddTorrent=No s'ha pogut afegir {name}:\n{error}
 ErrRemoteLost=S'ha perdut la connexió amb {label}:\n{message}\n\nLa llista mostra els torrents tal com eren. Tanqueu aquesta finestra i feu servir Fitxer > Connecta en remot... per tornar a connectar.
 ErrMoveFiles=No s'han pogut moure els fitxers de {name}:\n{error}
 ErrDownloadUrl=No s'ha pogut baixar {url}:\n{error}
-ErrDownloadFailed=la baixada ha fallat (HRESULT {code})
 ErrOpenFile=No s'ha pogut obrir {path}:\n{error}
 InfoAlreadyInList=«{name}» ja és a la llista de torrents.
 AskRemove=Voleu eliminar «{name}» de la llista?

@@ -7,10 +7,11 @@ use windows_sys::Win32::UI::Controls::{
     HDF_SORTDOWN, HDF_SORTUP, HDI_FORMAT, HDITEMW, HDM_GETITEMW, HDM_SETITEMW, LVCF_FMT, LVCF_SUBITEM,
     LVCF_TEXT, LVCF_WIDTH, LVCFMT_LEFT, LVCFMT_RIGHT, LVCOLUMNW, LVIR_BOUNDS, LVIR_LABEL, LVIS_FOCUSED,
     LVIS_SELECTED, LVITEMW, LVM_DELETECOLUMN, LVM_GETCOLUMNORDERARRAY, LVM_GETCOLUMNWIDTH, LVM_GETHEADER,
-    LVM_GETNEXTITEM, LVM_GETSUBITEMRECT, LVM_INSERTCOLUMNW, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMCOUNT,
-    LVM_SETITEMSTATE, LVNI_FOCUSED, LVNI_SELECTED, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
-    LVS_EX_HEADERDRAGDROP, LVS_EX_LABELTIP, LVS_OWNERDATA, LVS_REPORT, LVS_SHAREIMAGELISTS,
-    LVS_SHOWSELALWAYS, LVSICF_NOINVALIDATEALL, LVSICF_NOSCROLL, WC_LISTVIEWW,
+    LVM_GETITEMSTATE, LVM_GETNEXTITEM, LVM_GETSELECTEDCOUNT, LVM_GETSUBITEMRECT, LVM_INSERTCOLUMNW,
+    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMCOUNT, LVM_SETITEMSTATE, LVNI_FOCUSED, LVNI_SELECTED,
+    LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_EX_HEADERDRAGDROP, LVS_EX_LABELTIP, LVS_OWNERDATA,
+    LVS_REPORT, LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSICF_NOINVALIDATEALL, LVSICF_NOSCROLL,
+    WC_LISTVIEWW,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{WS_CHILD, WS_CLIPSIBLINGS, WS_EX_CLIENTEDGE, WS_TABSTOP};
 
@@ -99,17 +100,38 @@ pub unsafe fn set_count(lv: HWND, n: usize) {
     }
 }
 
-/// Selected row indices.
+/// How many rows are selected (without walking them).
+pub unsafe fn selected_count(lv: HWND) -> usize {
+    unsafe { send(lv, LVM_GETSELECTEDCOUNT, 0, 0).max(0) as usize }
+}
+
+/// Selected row indices. Stops at the last selected row: asking past it makes an owner-data
+/// list scan every remaining row (a millisecond at 100,000 rows).
 pub unsafe fn selected(lv: HWND) -> Vec<usize> {
-    let mut out = Vec::new();
+    let n = unsafe { selected_count(lv) };
+    let mut out = Vec::with_capacity(n);
     let mut i = -1isize;
-    loop {
+    while out.len() < n {
         i = unsafe { send(lv, LVM_GETNEXTITEM, i as usize, LVNI_SELECTED as isize) };
         if i < 0 {
-            return out;
+            break;
         }
         out.push(i as usize);
     }
+    out
+}
+
+/// The first selected row.
+pub unsafe fn first_selected(lv: HWND) -> Option<usize> {
+    if unsafe { selected_count(lv) } == 0 {
+        return None;
+    }
+    let i = unsafe { send(lv, LVM_GETNEXTITEM, usize::MAX, LVNI_SELECTED as isize) };
+    (i >= 0).then_some(i as usize)
+}
+
+pub unsafe fn is_selected(lv: HWND, row: usize) -> bool {
+    unsafe { send(lv, LVM_GETITEMSTATE, row, LVIS_SELECTED as isize) as u32 & LVIS_SELECTED != 0 }
 }
 
 pub unsafe fn focused(lv: HWND) -> Option<usize> {

@@ -116,19 +116,21 @@ impl Engine {
     /// some torrent ignores the filter (the connection might be for that one; `attach_incoming`
     /// checks again once the torrent is known).
     pub(super) fn incoming_blocked(&mut self, addr: SocketAddr) -> bool {
-        if !self.filters.ip.is_blocked(addr.ip()) {
-            return false;
-        }
-        let exempt = self
-            .slots
-            .iter()
-            .filter_map(|s| s.torrent.as_deref())
-            .any(|t| !t.flags.contains(TorrentFlags::APPLY_IP_FILTER));
-        if exempt {
+        if !self.incoming_filtered(addr) {
             return false;
         }
         self.alert(Alert::PeerBlocked { id: None, addr, reason: BlockReason::IpFilter });
         true
+    }
+
+    /// [`Engine::incoming_blocked`]'s decision without the alert.
+    pub(super) fn incoming_filtered(&self, addr: SocketAddr) -> bool {
+        self.filters.ip.is_blocked(addr.ip())
+            && !self
+                .slots
+                .iter()
+                .filter_map(|s| s.torrent.as_deref())
+                .any(|t| !t.flags.contains(TorrentFlags::APPLY_IP_FILTER))
     }
 
     /// libtorrent `torrent::attach_peer`: an incoming peer that turned out to be for a torrent
@@ -170,5 +172,6 @@ fn reason_name(r: BlockReason) -> &'static str {
         BlockReason::PortFilter => "port filter",
         BlockReason::UtpDisabled => "uTP switch",
         BlockReason::TcpDisabled => "TCP switch",
+        BlockReason::SsrfMitigation => "SSRF mitigation",
     }
 }

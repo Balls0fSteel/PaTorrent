@@ -860,6 +860,12 @@ impl Engine {
     fn on_udp_readable(&mut self, v4: bool) {
         let now = Instant::now();
         let Some(index) = self.udp.iter().position(|u| u.v4 == v4) else { return };
+        // The manager is taken out for the loop so its accept filter can read the engine
+        // (libtorrent's session decides inside the manager's callback); the refusals' alerts
+        // are raised after it.
+        let mut utp = std::mem::replace(&mut self.utp, UtpManager::new(UtpSettings::default(), now));
+        let mut refused: Vec<(SocketAddr, Option<crate::alert::BlockReason>)> = Vec::new();
+        let mut pending = 0;
         loop {
             let (n, from) = match self.udp[index].sock.recv_from(&mut self.udp_buf) {
                 Ok(r) => r,
@@ -891,13 +897,30 @@ impl Engine {
             }
             let n = buf.len();
             let mut io = UdpIo { socks: &self.udp };
-            if self.utp.incoming_packet(from, buf, &mut io, now) {
+            let this = &*self;
+            let mut accept = |a: SocketAddr| match this.utp_refusal(a, pending) {
+                None => {
+                    pending += 1;
+                    true
+                }
+                Some(reason) => {
+                    refused.push((a, reason));
+                    false
+                }
+            };
+            if utp.incoming_packet_filtered(from, buf, &mut io, now, &mut accept) {
                 continue;
             }
             if let Some(t) = self.dht.tracker.as_mut() {
                 if n > 20 && buf[0] == b'd' && buf[n - 1] == b'e' {
                     t.incoming_packet(node_v4, from, buf, now);
                 }
+            }
+        }
+        self.utp = utp;
+        for (addr, reason) in refused {
+            if let Some(reason) = reason {
+                self.alert(Alert::PeerBlocked { id: None, addr, reason });
             }
         }
         let mut io = UdpIo { socks: &self.udp };
@@ -914,21 +937,38 @@ impl Engine {
         self.utp_dispatch(now);
     }
 
+    /// The uTP manager's accept filter (libtorrent `session_impl::incoming_connection` for a
+    /// uTP socket, in its order): `None` accepts a connection from `addr`, `Some` refuses it,
+    /// with the reason a `PeerBlocked` alert gives (none for a paused session or the
+    /// connection limit, as libtorrent). `pending` connections were accepted in this wakeup
+    /// and are not peers yet.
+    fn utp_refusal(&self, addr: SocketAddr, pending: usize) -> Option<Option<crate::alert::BlockReason>> {
+        use crate::alert::BlockReason;
+        if self.session_paused {
+            Some(None)
+        } else if !self.settings.enable_incoming_utp {
+            Some(Some(BlockReason::UtpDisabled))
+        } else if self.incoming_filtered(addr) {
+            Some(Some(BlockReason::IpFilter))
+        } else if self.incoming_over_limit_with(addr, true, pending) {
+            Some(None)
+        } else {
+            None
+        }
+    }
+
     /// Hands new incoming uTP connections to the peer layer (libtorrent's
     /// `incoming_utp_callback_t` and `incoming_connection`) and wakes the peers whose uTP
     /// sockets have news (its read, write and connect handlers).
     fn utp_dispatch(&mut self, now: Instant) {
         for id in self.utp.take_accepted() {
             let Some(addr) = self.utp.get(id).map(|s| s.remote()) else { continue };
-            let refuse = self.session_paused
-                || if !self.settings.enable_incoming_utp {
-                    let reason = crate::alert::BlockReason::UtpDisabled;
+            // the accept filter decided before the SYN was answered; this catches what changed
+            // since (nothing within one wakeup but the peers added just before)
+            if let Some(reason) = self.utp_refusal(addr, 0) {
+                if let Some(reason) = reason {
                     self.alert(Alert::PeerBlocked { id: None, addr, reason });
-                    true
-                } else {
-                    self.incoming_blocked(addr) || self.incoming_over_limit(addr, true)
-                };
-            if refuse {
+                }
                 let mut io = UdpIo { socks: &self.udp };
                 self.utp.detach(id, &mut io, now);
                 continue;
@@ -1206,16 +1246,36 @@ impl Engine {
                 t.upload_limit.refill(dt);
             }
         }
-        let writes: Vec<usize> =
-            self.peers.iter().filter(|(_, p)| p.send_buffer_len() > 0).map(|(i, _)| i).collect();
-        for (slot, share) in self.quota_shares(&writes, false) {
-            self.flush_peer_capped(slot, share);
+        let writes: Vec<peer_class::Requester> = self
+            .peers
+            .iter()
+            .filter(|(_, p)| p.send_buffer_len() > 0)
+            .map(|(i, _)| peer_class::Requester::Peer(i))
+            .collect();
+        for (r, share) in self.quota_shares(&writes, false) {
+            if let peer_class::Requester::Peer(slot) = r {
+                self.flush_peer_capped(slot, share);
+            }
         }
-        let reads: Vec<usize> = self.peers.iter().filter(|(_, p)| p.read_blocked).map(|(i, _)| i).collect();
-        for (slot, share) in self.quota_shares(&reads, true) {
-            self.do_read_capped(slot, share);
+        self.unblock_reads();
+    }
+
+    /// Reads for the peers and web seed connections that waited for download quota or the
+    /// disk, each within its share of the channels it waits on (`quota_shares`).
+    fn unblock_reads(&mut self) {
+        let mut reads: Vec<peer_class::Requester> = self
+            .peers
+            .iter()
+            .filter(|(_, p)| p.read_blocked)
+            .map(|(i, _)| peer_class::Requester::Peer(i))
+            .collect();
+        reads.extend(self.web.read_blocked().map(peer_class::Requester::Web));
+        for (r, share) in self.quota_shares(&reads, true) {
+            match r {
+                peer_class::Requester::Peer(slot) => self.do_read_capped(slot, share),
+                peer_class::Requester::Web(slot) => self.web_read_capped(slot, share),
+            }
         }
-        self.web_unblock_reads();
     }
 
     /// libtorrent `bandwidth_manager::update_quotas` / `bw_request::assign_bandwidth`: the
@@ -1225,18 +1285,24 @@ impl Engine {
     /// the waiting peers' priorities), and a peer on several channels gets the smallest of its
     /// shares. Serving them in slot order with all the quota let the first, busy peers take
     /// everything, and a new peer never read its handshake.
-    fn quota_shares(&self, slots: &[usize], download: bool) -> Vec<(usize, usize)> {
+    /// Web seed connections are `peer_connection`s in libtorrent and wait in the same queues:
+    /// they share the channels of their classes and their torrent with the peers.
+    fn quota_shares(
+        &self,
+        waiting: &[peer_class::Requester],
+        download: bool,
+    ) -> Vec<(peer_class::Requester, usize)> {
         let channel = if download { peer_class::DOWNLOAD } else { peer_class::UPLOAD };
-        let mut requests = Vec::with_capacity(slots.len());
+        let mut requests = Vec::with_capacity(waiting.len());
         let mut tmp: HashMap<peer_class::Channel, u64> = HashMap::new();
-        for &slot in slots {
+        for &r in waiting {
             let mut chans = Vec::new();
-            self.pertinent_channels(slot, channel, &mut chans);
-            let priority = self.peer_priority(slot, channel);
+            self.pertinent_channels(r, channel, &mut chans);
+            let priority = self.peer_priority(r, channel);
             for &c in &chans {
                 *tmp.entry(c).or_default() += priority as u64;
             }
-            requests.push((slot, priority, chans));
+            requests.push((r, priority, chans));
         }
         requests
             .into_iter()
@@ -2749,12 +2815,7 @@ impl Engine {
                 }
                 // Writes drained: peers held back by the disk queue may read again.
                 if !self.disk_backlogged() {
-                    let blocked: Vec<usize> =
-                        self.peers.iter().filter(|(_, p)| p.read_blocked).map(|(i, _)| i).collect();
-                    for (slot, share) in self.quota_shares(&blocked, true) {
-                        self.do_read_capped(slot, share);
-                    }
-                    self.web_unblock_reads();
+                    self.unblock_reads();
                 }
             }
             Completion::Hashed { storage, piece, verdict } => {

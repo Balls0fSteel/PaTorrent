@@ -78,6 +78,9 @@ pub enum BlockReason {
     UtpDisabled,
     /// An incoming TCP connection while `enable_incoming_tcp` is off.
     TcpDisabled,
+    /// A web seed on a local address whose URL has a query string, refused by
+    /// `ssrf_mitigation` (libtorrent `torrent::connect_web_seed`).
+    SsrfMitigation,
 }
 
 /// What failed when the proxy did (libtorrent `operation_t`, the values `socks5_alert` uses).

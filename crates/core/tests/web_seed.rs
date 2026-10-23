@@ -5,8 +5,10 @@
 //! left out of the URL, chunked bodies, per-file redirects to another path, a single-file
 //! redirect, a server that answers 503 before it serves, an HTTP/1.0 server closing after each
 //! response, a BEP 17 seed, the peer list showing the seeds, a seed with corrupt data banned
-//! while the download completes from a good one, a seed the IP filter blocks, and web seeds
-//! added and removed through the handle and kept across a restart.
+//! while the download completes from a good one, a seed the IP filter blocks, web seeds
+//! added and removed through the handle and kept across a restart, and a local seed with a query
+//! string refused by `ssrf_mitigation`; a download limit on the global class, and one on a class
+//! the type filter assigns to TCP sockets, holding for a web seed.
 
 use std::collections::HashMap;
 use std::io::{Read, Write};
@@ -19,8 +21,8 @@ use std::time::{Duration, Instant};
 use patorrent_core::bencode::Entry;
 use patorrent_core::crypto::Sha1;
 use patorrent_core::{
-    AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId,
-    TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, BlockReason, PeerClassId, Session, SessionHandle, SessionParams, Settings,
+    SocketType, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const PIECE: usize = 32 * 1024;
@@ -668,6 +670,88 @@ fn ip_filter_blocks_a_web_seed() {
     assert_eq!(srv.hits.load(Ordering::SeqCst), 0, "never contacted");
     w.s.shutdown();
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+fn ssrf_mitigation_blocks_a_local_web_seed_with_a_query_string() {
+    // libtorrent `torrent::connect_web_seed`: a web seed on a local address may not use a query
+    // string while `ssrf_mitigation` is on; a `url_seed_alert` and a `peer_blocked_alert`
+    // (`ssrf_mitigation`) are posted and the seed is never tried again
+    let f = fixture("ssrf.bin", &[("ssrf.bin", 100_000)], &[], &[]);
+    let file = f.files[0].1.clone();
+    let srv = server(Mode::Plain, move |_| Reply::File(file.clone()));
+    let dir = temp_dir("ssrf");
+    let mut w = Watch::start(settings());
+    let id = w.add(&f, &dir, &[srv.url("/ssrf.bin?token=1")]);
+    let addr = w.wait(20, "blocked", |a| match a {
+        Alert::PeerBlocked { id: Some(i), addr, reason: BlockReason::SsrfMitigation } if *i == id => {
+            Some(*addr)
+        }
+        _ => None,
+    });
+    assert_eq!(addr, srv.addr);
+    assert!(w.seen.iter().any(|m| m.contains("SSRF")), "a url seed alert: {:#?}", w.seen);
+    std::thread::sleep(Duration::from_millis(1500));
+    assert_eq!(srv.hits.load(Ordering::SeqCst), 0, "never contacted");
+    w.s.shutdown();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    // with the mitigation off the same seed serves the download
+    let f = fixture("ssrf-off.bin", &[("ssrf-off.bin", 100_000)], &[], &[]);
+    let file = f.files[0].1.clone();
+    let srv = server(Mode::Plain, move |_| Reply::File(file.clone()));
+    let dir = temp_dir("ssrf-off");
+    let mut w = Watch::start(Settings { ssrf_mitigation: false, ..settings() });
+    let id = w.add(&f, &dir, &[srv.url("/ssrf-off.bin?token=1")]);
+    w.finished(id, 30);
+    finish(w, &f, dir);
+}
+
+/// Downloads 300 kB from one web seed after `setup` named a class and the class's download
+/// limit was set to 100 kB/s through `set_peer_class`; returns how long it took.
+fn limited_download(name: &str, setup: impl FnOnce(&SessionHandle) -> PeerClassId) -> Duration {
+    let file_name = format!("{name}.bin");
+    let f = fixture(&file_name, &[(&file_name, 300_000)], &[], &[]);
+    let file = f.files[0].1.clone();
+    let srv = server(Mode::Plain, move |_| Reply::File(file.clone()));
+    let dir = temp_dir(name);
+    let mut w = Watch::start(settings());
+    let class = setup(&w.h);
+    let mut info = w.h.get_peer_class(class).expect("the class exists");
+    info.download_limit = 100_000;
+    w.h.set_peer_class(class, info);
+    assert_eq!(w.h.get_peer_class(class).unwrap().download_limit, 100_000);
+    let started = Instant::now();
+    let id = w.add(&f, &dir, &[srv.url(&format!("/{file_name}"))]);
+    let st = w.finished(id, 60);
+    let took = started.elapsed();
+    assert_eq!(st.total_failed_bytes, 0);
+    finish(w, &f, dir);
+    took
+}
+
+#[test]
+fn a_global_class_download_limit_holds_for_a_web_seed() {
+    // libtorrent's web seed connections are peer connections: they draw from the global
+    // class's channels like any peer (a quarter second of burst, then 100 kB/s)
+    let took = limited_download("global-limit", |_| PeerClassId::GLOBAL);
+    assert!(took >= Duration::from_millis(2_300), "300 kB at 100 kB/s took {took:?}");
+}
+
+#[test]
+fn a_class_the_type_filter_assigns_limits_a_web_seed() {
+    // a plain-HTTP web seed is a TCP socket to the type filter (libtorrent `socket_type_idx` of
+    // a TCP, SOCKS5 or HTTP stream): a class the filter adds to TCP sockets applies to it. Web
+    // seeds used to draw from the session and torrent buckets only. (The tcp class itself is
+    // reset every tick by `mixed_mode_algorithm`, as in libtorrent, so a class of our own.)
+    let took = limited_download("type-filter-limit", |h| {
+        let c = h.create_peer_class("web seeds").expect("created");
+        let mut f = h.get_peer_class_type_filter().expect("the type filter");
+        f.add(SocketType::Tcp, c);
+        h.set_peer_class_type_filter(f);
+        c
+    });
+    assert!(took >= Duration::from_millis(2_300), "300 kB at 100 kB/s took {took:?}");
 }
 
 #[test]

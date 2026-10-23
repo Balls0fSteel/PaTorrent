@@ -971,3 +971,90 @@ fn an_extreme_target_delay_and_gain_do_not_overflow_the_window_arithmetic() {
     let s = sim.a.get(sa).unwrap();
     assert!(s.cwnd() >= s.mtu() as i64);
 }
+
+// --- The engine's accept filter (2026-10-23) -----------------------------------------------
+
+#[test]
+fn a_refused_syn_gets_one_fin_carrying_the_ack_and_no_connection() {
+    // libtorrent's session refuses a connection inside the manager's callback, while the SYN's
+    // ACK is still deferred: the closed socket's FIN, acknowledging the SYN, is all the peer
+    // gets. The engine used to decide after the ACK had gone out (an ST_STATE, then a FIN).
+    let mut now = Instant::now();
+    let mut m = UtpManager::new(UtpSettings::default(), now);
+    let mut io = Capture::default();
+    NEXT_SEQ_NR.with(|s| s.set(Some(B_SEQ)));
+    let mut asked = Vec::new();
+    let mut refuse = |a: SocketAddr| {
+        asked.push(a);
+        false
+    };
+    assert!(m.incoming_packet_filtered(addr(P), &syn(), &mut io, now, &mut refuse));
+    m.socket_drained(&mut io, now);
+    assert_eq!(asked, vec![addr(P)]);
+    assert!(m.take_accepted().is_empty(), "the engine never sees it");
+    assert_eq!(io.sent.len(), 1, "one datagram for the SYN");
+    assert_eq!(io.sent[0].0, addr(P));
+    let fin = io.last();
+    assert_eq!((fin.type_, fin.connection_id, fin.ack_nr), (header::ST_FIN, P_ID, P_SEQ));
+    assert_eq!(fin.seq_nr, B_SEQ);
+    // the peer acknowledges the FIN: the socket goes at the next tick
+    let ack = raw(header::ST_STATE, 0, P_ID.wrapping_add(1), P_SEQ + 1, B_SEQ, &[]);
+    assert!(m.incoming_packet(addr(P), &ack, &mut io, now));
+    m.socket_drained(&mut io, now);
+    assert_eq!(io.sent.len(), 1, "nothing answers the ACK");
+    now += Duration::from_millis(100);
+    m.tick(&mut io, now);
+    assert_eq!(m.num_sockets(), 0);
+    assert!(m.take_accepted().is_empty());
+}
+
+#[test]
+fn a_refused_syn_whose_fin_is_never_acknowledged_goes_away() {
+    let mut now = Instant::now();
+    let mut m = UtpManager::new(UtpSettings::default(), now);
+    let mut io = Capture::default();
+    assert!(m.incoming_packet_filtered(addr(P), &syn(), &mut io, now, &mut |_| false));
+    m.socket_drained(&mut io, now);
+    assert_eq!(io.sent.len(), 1);
+    for _ in 0..700 {
+        now += Duration::from_millis(100);
+        m.tick(&mut io, now);
+    }
+    assert_eq!(m.num_sockets(), 0);
+    // only the FIN, resent (`fin_resends`) as libtorrent's would be
+    assert!(io.sent.iter().all(|(_, d)| Header::parse(d).unwrap().type_ == header::ST_FIN));
+    let most = 2 + UtpSettings::default().fin_resends as usize;
+    assert!(io.sent.len() <= most, "{} FINs", io.sent.len());
+}
+
+#[test]
+fn an_accepted_syn_through_the_filter_is_answered_and_connects() {
+    let now = Instant::now();
+    let mut m = UtpManager::new(UtpSettings::default(), now);
+    let mut io = Capture::default();
+    NEXT_SEQ_NR.with(|s| s.set(Some(B_SEQ)));
+    let mut asked = 0;
+    let mut accept = |_: SocketAddr| {
+        asked += 1;
+        true
+    };
+    assert!(m.incoming_packet_filtered(addr(P), &syn(), &mut io, now, &mut accept));
+    m.socket_drained(&mut io, now);
+    let accepted = m.take_accepted();
+    assert_eq!(accepted.len(), 1);
+    let sb = accepted[0];
+    assert_eq!(io.sent.len(), 1);
+    let h = io.last();
+    assert_eq!((h.type_, h.connection_id, h.ack_nr), (header::ST_STATE, P_ID, P_SEQ));
+    // the filter is asked about new connections only: not for data, nor for the SYN again
+    assert!(m.incoming_packet_filtered(addr(P), &syn(), &mut io, now, &mut accept));
+    assert!(m.incoming_packet_filtered(addr(P), &data(P_SEQ + 1, b"hello"), &mut io, now, &mut accept));
+    m.socket_drained(&mut io, now);
+    assert_eq!(asked, 1);
+    let (got, end) = read_everything(&mut m, sb);
+    assert!(matches!(end, ReadOutcome::WouldBlock));
+    assert_eq!(got, b"hello");
+    assert_eq!(m.write_some(sb, b"world", &mut io, now), Ok(5));
+    let h = io.last();
+    assert_eq!((h.type_, h.connection_id), (header::ST_DATA, P_ID));
+}

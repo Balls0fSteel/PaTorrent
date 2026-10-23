@@ -349,7 +349,7 @@ wire_unit!(QueueMove { Up, Down, Top, Bottom });
 wire_unit!(FileOperation { Unknown, FileStat, Mkdir, FileRename, FileCopy, PartfileMove });
 wire_unit!(Protocol { Tcp, Udp });
 wire_unit!(PortmapTransport { Upnp, NatPmp });
-wire_unit!(BlockReason { IpFilter, PortFilter, UtpDisabled, TcpDisabled });
+wire_unit!(BlockReason { IpFilter, PortFilter, UtpDisabled, TcpDisabled, SsrfMitigation });
 wire_unit!(ProxyOperation { HostnameLookup, Connect, Handshake, SockRead });
 wire_unit!(WebSeedKind { UrlSeed, HttpSeed });
 wire_unit!(EncPolicy { Forced, Enabled, Disabled });

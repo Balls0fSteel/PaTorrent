@@ -28,6 +28,7 @@ use std::time::{Duration, Instant};
 use mio::net::TcpStream;
 use mio::{Interest, Token};
 
+use super::peer_class::{DOWNLOAD, PeerClassSet, Requester, SocketType, UPLOAD};
 use super::proxy::Tunnel;
 use super::smart_ban::Trust;
 use super::torrent::Torrent;
@@ -295,6 +296,9 @@ pub(crate) struct WebConn {
     last_receive: Instant,
     stat: Stat,
     read_blocked: bool,
+    /// Its peer classes (libtorrent `peer_connection::start`'s `set_peer_classes`), each
+    /// holding a reference: its reads draw from their channels and its torrent's.
+    classes: PeerClassSet,
     /// Block counts of the HTTP request runs not fully answered yet, oldest first.
     runs: std::collections::VecDeque<usize>,
 }
@@ -332,6 +336,16 @@ impl WebConns {
 
     pub fn any_read_blocked(&self) -> bool {
         self.conns.iter().any(|(_, c)| c.read_blocked)
+    }
+
+    /// The connections waiting for download quota or the disk.
+    pub(super) fn read_blocked(&self) -> impl Iterator<Item = usize> + '_ {
+        self.conns.iter().filter(|(_, c)| c.read_blocked).map(|(s, _)| s)
+    }
+
+    /// The peer classes and the torrent connection `slot`'s transfers draw bandwidth from.
+    pub(super) fn quota_owner(&self, slot: usize) -> Option<(PeerClassSet, TorrentId)> {
+        self.conns.get(slot).map(|c| (c.classes, c.torrent))
     }
 }
 
@@ -628,8 +642,11 @@ impl Engine {
         // The SSRF mitigation for web seeds is that any HTTP server on the local network may
         // not use any query string parameters
         if ssrf && is_local(addr.ip()) && parts.path.contains('?') {
+            // never try it again
             w.disabled = true;
-            return self.url_seed_alert(id, &url, "blocked by SSRF mitigation");
+            self.url_seed_alert(id, &url, "blocked by SSRF mitigation");
+            let reason = BlockReason::SsrfMitigation;
+            return self.alert(Alert::PeerBlocked { id: Some(id), addr, reason });
         }
         let ih = t.info_hashes.best_v1_compatible();
         let proto =
@@ -687,6 +704,8 @@ impl Engine {
         };
         // nothing is requested before the connection is up
         proto.out().clear();
+        let st = if https { SocketType::SslTcp } else { SocketType::Tcp };
+        let classes = self.peer_classes_for_type(addr.ip(), st);
         let slot = self.web.conns.insert(WebConn {
             torrent: id,
             seed,
@@ -704,6 +723,7 @@ impl Engine {
             last_receive: now,
             stat: Stat::default(),
             read_blocked: false,
+            classes,
             runs: Default::default(),
         });
         let Engine { web, poll, .. } = self;
@@ -712,7 +732,9 @@ impl Engine {
         if let Err(e) =
             poll.registry().register(c.stream.tcp(), token, Interest::READABLE | Interest::WRITABLE)
         {
-            self.web.conns.remove(slot);
+            if let Some(mut c) = self.web.conns.remove(slot) {
+                c.classes.clear(&mut self.peer_classes.pool);
+            }
             return self.url_seed_alert(id, &url, format!("register failed: {e}"));
         }
         let t = self.torrent(id).expect("exists");
@@ -852,6 +874,9 @@ impl Engine {
         }
         c.stat.sent(0, sent as u64);
         let id = c.torrent;
+        // the requests count against the upload channels, as a peer's messages do (they are
+        // not held back for upload quota: see docs/PORTING.md)
+        self.use_quota_of(Requester::Web(slot), UPLOAD, sent);
         self.stat.sent(0, sent as u64);
         if let Some(t) = self.torrent(id) {
             t.stat.get_or_insert_with(Box::default).sent(0, sent as u64);
@@ -863,12 +888,18 @@ impl Engine {
 
     /// Reads and parses what the server sent, within the download quota.
     fn web_read(&mut self, slot: usize) {
+        self.web_read_capped(slot, usize::MAX);
+    }
+
+    /// Reads at most `share` bytes, within the download quota of the connection's classes and
+    /// its torrent: its share when several connections wait for quota (`quota_shares`).
+    pub(super) fn web_read_capped(&mut self, slot: usize, mut share: usize) {
         let now = Instant::now();
         let mut buf = std::mem::take(&mut self.web.buf);
         buf.resize(READ_CHUNK, 0);
         loop {
             let backlogged = self.disk_backlogged();
-            let session_quota = self.download_bucket.available();
+            let class_quota = self.quota(Requester::Web(slot), DOWNLOAD).min(share);
             let Some((c, t)) = self.web_and_torrent(slot) else { break };
             if c.connecting {
                 break;
@@ -881,7 +912,7 @@ impl Engine {
                 self.remove_web_conn(slot, "torrent stopped", Close::Normal);
                 break;
             };
-            let quota = if backlogged { 0 } else { session_quota.min(t.download_limit.available()) };
+            let quota = if backlogged { 0 } else { class_quota };
             if quota == 0 {
                 c.read_blocked = true;
                 break;
@@ -899,8 +930,8 @@ impl Engine {
                     let protocol = n as u64 - payload;
                     c.stat.received(payload, protocol);
                     t.stat.get_or_insert_with(Box::default).received(payload, protocol);
-                    t.download_limit.consume(n);
-                    self.download_bucket.consume(n);
+                    share = share.saturating_sub(n);
+                    self.use_quota_of(Requester::Web(slot), DOWNLOAD, n);
                     self.stat.received(payload, protocol);
                     self.web_handle_events(slot);
                 }
@@ -916,15 +947,6 @@ impl Engine {
         if self.web.conns.get(slot).is_some() {
             self.web_request_blocks(slot);
             self.web_flush(slot);
-        }
-    }
-
-    /// Re-reads connections that waited for download quota or the disk.
-    pub(super) fn web_unblock_reads(&mut self) {
-        let blocked: Vec<usize> =
-            self.web.conns.iter().filter(|(_, c)| c.read_blocked).map(|(s, _)| s).collect();
-        for slot in blocked {
-            self.web_read(slot);
         }
     }
 
@@ -1242,6 +1264,7 @@ impl Engine {
         let wait = Duration::from_secs(self.settings.urlseed_wait_retry as u64);
         let Some(mut c) = self.web.conns.remove(slot) else { return };
         let _ = self.poll.registry().deregister(c.stream.tcp());
+        c.classes.clear(&mut self.peer_classes.pool);
         let now = Instant::now();
         let Some(t) = self.torrent(c.torrent) else { return };
         if let Some(picker) = t.picker.as_mut() {

@@ -8,10 +8,10 @@
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: a class's bandwidth channels are the engine's token buckets (`net::Bucket`); the
 // global class's two channels are the engine's session buckets and a torrent's own class is its
-// pair of buckets in `Torrent` (no pool entry), so web seeds and the torrent code read them where
-// they always did. Bandwidth is not queued per request: a peer reads or writes what the smallest
-// of its channels allows, and the bandwidth tick splits each channel over the peers waiting for
-// it by priority (`Engine::quota_shares`). The peer class filter is a plain `IpFilter` whose
+// pair of buckets in `Torrent` (no pool entry), so the torrent code reads them where it always
+// did. Bandwidth is not queued per request: a peer or web seed connection (`Requester`) reads or
+// writes what the smallest of its channels allows, and the bandwidth tick splits each channel
+// over the connections waiting for it by priority (`Engine::quota_shares`). The peer class filter is a plain `IpFilter` whose
 // flags are class masks, as in libtorrent.
 
 //! Peer classes: groups of peers sharing rate limits, bandwidth priorities and choking and
@@ -397,12 +397,27 @@ pub(super) enum Channel {
     Torrent(crate::types::TorrentId),
 }
 
+/// A connection waiting for bandwidth (libtorrent's `bw_request` peer): a BitTorrent peer or a
+/// web seed connection, by slot.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Requester {
+    Peer(usize),
+    Web(usize),
+}
+
 impl Engine {
     /// libtorrent `session_impl::set_peer_classes`: the classes of a new connection to `addr`
     /// over TCP or uTP, each holding a reference.
     pub(super) fn peer_classes_for(&mut self, addr: IpAddr, utp: bool) -> PeerClassSet {
+        self.peer_classes_for_type(addr, if utp { SocketType::Utp } else { SocketType::Tcp })
+    }
+
+    /// [`Engine::peer_classes_for`] by socket type. Web seed connections are `peer_connection`s
+    /// in libtorrent and get their classes the same way: `Tcp` for plain HTTP (its socket is a
+    /// TCP, SOCKS5 or HTTP proxy stream, all `tcp_socket` to the type filter) and `SslTcp` for
+    /// HTTPS.
+    pub(super) fn peer_classes_for_type(&mut self, addr: IpAddr, st: SocketType) -> PeerClassSet {
         let pc = &mut self.peer_classes;
-        let st = if utp { SocketType::Utp } else { SocketType::Tcp };
         let mut mask = pc.type_filter.apply(st, pc.filter.access(addr));
         let mut set = PeerClassSet::default();
         let mut i = 0;
@@ -434,6 +449,12 @@ impl Engine {
     /// libtorrent `session_impl::incoming_connection`: the session's `connections_limit`
     /// weighed by the classes an incoming connection from `addr` would get is reached.
     pub(super) fn incoming_over_limit(&self, addr: SocketAddr, utp: bool) -> bool {
+        self.incoming_over_limit_with(addr, utp, 0)
+    }
+
+    /// [`Engine::incoming_over_limit`] counting `pending` connections accepted but not yet
+    /// peers (uTP connections accepted earlier in the same wakeup).
+    pub(super) fn incoming_over_limit_with(&self, addr: SocketAddr, utp: bool, pending: usize) -> bool {
         let limit = self.settings.connections_limit;
         if limit < 0 {
             return false;
@@ -443,7 +464,7 @@ impl Engine {
         let mask = pc.type_filter.apply(st, pc.filter.access(addr.ip()));
         let classes = (0..32).filter(|i| mask & (1 << i) != 0).map(PeerClassId);
         let limit = limit as u64 * 100 / self.connection_limit_factor(classes);
-        self.peers.len() as u64 >= limit
+        (self.peers.len() + pending) as u64 >= limit
     }
 
     /// libtorrent `peer_connection::ignore_unchoke_slots`: a peer in no class, or in a class
@@ -471,47 +492,64 @@ impl Engine {
         }
     }
 
-    /// libtorrent `copy_pertinent_channels` over the peer's classes and its torrent's: the
-    /// channels with a limit that `slot`'s transfers in `channel` draw from.
-    pub(super) fn pertinent_channels(&self, slot: usize, channel: usize, out: &mut Vec<Channel>) {
+    /// The classes and the torrent whose channels `r`'s transfers draw from.
+    fn quota_owner(&self, r: Requester) -> Option<(PeerClassSet, Option<crate::types::TorrentId>)> {
+        match r {
+            Requester::Peer(slot) => self.peers.get(slot).map(|p| (p.classes, p.torrent)),
+            Requester::Web(slot) => self.web.quota_owner(slot).map(|(c, t)| (c, Some(t))),
+        }
+    }
+
+    /// libtorrent `copy_pertinent_channels` over the connection's classes and its torrent's:
+    /// the channels with a limit that `r`'s transfers in `channel` draw from.
+    pub(super) fn pertinent_channels(&self, r: Requester, channel: usize, out: &mut Vec<Channel>) {
         out.clear();
-        let Some(p) = self.peers.get(slot) else { return };
-        for c in p.classes.iter() {
+        let Some((classes, torrent)) = self.quota_owner(r) else { return };
+        for c in classes.iter() {
             if self.class_channel(c, channel).is_some_and(|b| b.limit > 0) {
                 out.push(Channel::Class(c));
             }
         }
-        if let Some(id) = p.torrent {
+        if let Some(id) = torrent {
             if self.torrent_ref(id).is_some_and(|t| torrent_channel(t, channel).limit > 0) {
                 out.push(Channel::Torrent(id));
             }
         }
     }
 
-    /// libtorrent `peer_connection::get_priority`: the highest priority of the peer's classes
-    /// (a torrent's own class has priority 1).
-    pub(super) fn peer_priority(&self, slot: usize, channel: usize) -> u32 {
-        let Some(p) = self.peers.get(slot) else { return 1 };
-        p.classes
+    /// libtorrent `peer_connection::get_priority`: the highest priority of the connection's
+    /// classes (a torrent's own class has priority 1).
+    pub(super) fn peer_priority(&self, r: Requester, channel: usize) -> u32 {
+        let Some((classes, _)) = self.quota_owner(r) else { return 1 };
+        classes
             .iter()
             .filter_map(|c| self.peer_classes.pool.at(c))
             .map(|c| c.priority[channel])
             .fold(1, u32::max)
     }
 
-    /// How many bytes `slot` may move in `channel` now: the least any of its channels has left
-    /// (`usize::MAX` when none is limited).
+    /// How many bytes peer `slot` may move in `channel` now: the least any of its channels has
+    /// left (`usize::MAX` when none is limited).
     pub(super) fn peer_quota(&self, slot: usize, channel: usize) -> usize {
-        let Some(p) = self.peers.get(slot) else { return 0 };
-        let classes = p.classes.iter().filter_map(|c| self.class_channel(c, channel));
-        let torrent = p.torrent.and_then(|id| self.torrent_ref(id)).map(|t| torrent_channel(t, channel));
+        self.quota(Requester::Peer(slot), channel)
+    }
+
+    /// [`Engine::peer_quota`] for any connection.
+    pub(super) fn quota(&self, r: Requester, channel: usize) -> usize {
+        let Some((classes, torrent)) = self.quota_owner(r) else { return 0 };
+        let classes = classes.iter().filter_map(|c| self.class_channel(c, channel));
+        let torrent = torrent.and_then(|id| self.torrent_ref(id)).map(|t| torrent_channel(t, channel));
         classes.chain(torrent).map(Bucket::available).min().unwrap_or(usize::MAX)
     }
 
-    /// libtorrent `bandwidth_channel::use_quota` on every channel of the peer.
+    /// libtorrent `bandwidth_channel::use_quota` on every channel of peer `slot`.
     pub(super) fn use_quota(&mut self, slot: usize, channel: usize, n: usize) {
-        let Some(p) = self.peers.get(slot) else { return };
-        let (classes, torrent) = (p.classes, p.torrent);
+        self.use_quota_of(Requester::Peer(slot), channel, n);
+    }
+
+    /// [`Engine::use_quota`] for any connection.
+    pub(super) fn use_quota_of(&mut self, r: Requester, channel: usize, n: usize) {
+        let Some((classes, torrent)) = self.quota_owner(r) else { return };
         for c in classes.iter() {
             if self.peer_classes.pool.at(c).is_none() {
                 continue;

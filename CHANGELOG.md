@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_122235_1792750955: A fresh hand-test set from ad714b1: Windows built here, Linux from Release 39937587571
+
+The owner asked for new builds to test the latest changes (the Win32 Add New Torrent comment fix, ad714b1, already pushed). The Release workflow was dispatched on main by hand for the Linux files; Windows was also built here.
+
+### Changed
+- `dist/1.0-test-ad714b1/` (gitignored; the c8fe9e8 set in `dist/1.0-test/` is left as it was): `windows-x64/` (`cargo build --release --locked -p patorrent -p patorrent-nox -p lt-swarm`, 33 s incremental, static CRT; `patorrent.exe` 4,248,576 bytes, `patorrent-nox.exe` 4,480,000, `lt-swarm.exe` 2,887,680, LICENSE.md, THIRD-PARTY-NOTICES.md; the three exes refreshed in `dist/` too), `windows-x64-ci/` (the run's `patorrent-0.1.0-dev.ad714b1-windows-x64.zip`, 4.5 MB), `linux-x86_64/` (tarball 4.5 MB, GUI AppImage 37.1 MB, nox AppImage 5.2 MB, Flatpak 2.2 MB, `gh run download`), `SHA256SUMS`, `HAND-TEST.md`. 63 MB in all.
+- `patorrent-nox.exe` and `lt-swarm.exe` hash the same as the c8fe9e8 set's (the build is reproducible and neither commit since touched them); only `patorrent.exe` differs.
+
+### Verified
+- **Release 39937587571** (ad714b1, dispatched by hand, about 8 min): every job green (version, windows, both linux, both flatpak legs, macos; `release` skipped without a tag).
+- **CI 39936218710** (ad714b1) green on every job; **FreeBSD 39936218751** green. Fuzz last ran on 40295ea (39926969899, green); the Win32 commit touches no fuzz target.
+- Windows: `patorrent-nox.exe --version` prints `patorrent-nox 0.1.0`; `lt-swarm.exe --version` prints its banner.
+
+### Issues
+- Not smoke-tested on the Xubuntu VM this time: nothing Linux-side changed since the c8fe9e8 set, which was.
+- Not pushed; the hand-test folder is gitignored and stays local.
+
 ## 2026-10-23_120110_1792749670: The Win32 Add New Torrent dialog: the comment no longer runs to the box's edge, the whole comment in a tooltip, 2.2.1's height
 
 The owner's look at the dialog with the CachyOS ISO torrent (2026-10-23): the Comment line ran to the Torrent Contents box's edge and the dialog looked empty, its left column ending far above the file list.

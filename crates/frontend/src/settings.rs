@@ -711,4 +711,33 @@ mod tests {
         assert_eq!(load(&again), Settings::default());
         let _ = std::fs::remove_dir_all(&dir);
     }
+
+    #[test]
+    fn the_proxy_password_round_trips_sealed() {
+        let dir = std::env::temp_dir().join(format!("patorrent-settings-pw-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let path = dir.join("patorrent.ini");
+        let mut prefs = Prefs::load(&path);
+        let mut s = Settings::default();
+        s.proxy_type = ProxyType::Socks5Pw;
+        s.proxy_username = "me".to_owned();
+        s.proxy_password = "pw with = and spaces".to_owned();
+        store(&mut prefs, &s);
+        prefs.save().unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        if cfg!(windows) {
+            assert!(text.contains("lt.proxy_password=dpapi:"), "{text}");
+            assert!(!text.contains("pw with"), "{text}");
+        } else {
+            assert!(text.contains("lt.proxy_password=pw with = and spaces\n"), "{text}");
+        }
+        assert_eq!(load(&Prefs::load(&path)), s);
+        // a file written before: plain
+        std::fs::write(&path, "lt.proxy_password=legacy\n").unwrap();
+        assert_eq!(load(&Prefs::load(&path)).proxy_password, "legacy");
+        // another account's (or a corrupt) blob: empty
+        std::fs::write(&path, "lt.proxy_password=dpapi:AAAAAAAA\n").unwrap();
+        assert_eq!(load(&Prefs::load(&path)).proxy_password, "");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 }

@@ -13,6 +13,7 @@
 //! * [`model`]: the filtered, sorted torrent list behind a virtual list view.
 //! * [`prefs`]: a small `key=value` preferences file for layout and frontend options.
 //! * [`settings`]: the engine settings by libtorrent name (the Advanced preferences table).
+//! * [`secret`]: the proxy password sealed with DPAPI in the preferences file (Windows).
 //! * [`options`]: what the Preferences dialog edits, loaded from and stored to the preferences.
 //! * [`scheduler`]: the weekly scheduler (table, modes, what to change when the hour turns).
 //! * [`torrent_folders`]: the `.torrent` folders (stored copies, finished jobs, auto-load).
@@ -42,6 +43,7 @@ pub mod remote;
 pub mod rss;
 pub mod scheduler;
 pub mod scrape;
+pub mod secret;
 pub mod seeding;
 pub mod settings;
 pub mod status;

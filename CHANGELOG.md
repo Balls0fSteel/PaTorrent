@@ -2,6 +2,20 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_080750_1792735670: Pushed the five-item batch; CI, FreeBSD, Fuzz and Release green on every job; the macOS status item is in the runner's menu bar
+
+Pushed a95c096..1ddc58b (18 commits: the five merged branches, the PORTING.md rows, the records). Release 39909025474 run by hand afterwards.
+
+### Verified
+- **CI 39862176739** (1ddc58b): every job green (fmt, msrv, macOS, Ubuntu, Windows, the Windows release build). First runs of the new code off this machine: the Ubuntu job ran the GTK crate's 19 tests (the StatusNotifierItem ones included), the macOS job ran its 19 with the ten `tray_macos` tests (the AppKit classes load, the target class registers once and answers both actions, the icon becomes an `NSImage` with every size, `NSString` round trips), and both ran `tests/peer_classes.rs` (15 passed), the swarm suite with the new saved-peers test (41), and `web_seed` (12). **FreeBSD 39862176708** green. **Fuzz 39862176663** green on all 25 targets; the extended `utp` target made 836,043 runs in its 121 s (cov 1,507, no findings), `remote_wire` ran too.
+- **Release 39909025474** (1ddc58b, by hand, 20 min): every job green (version, windows, both linux, flatpak, macos; `release` skipped without a tag). Artifacts: `linux-x86_64` 43.5 MB, `linux-aarch64` 42.1 MB, `macos` 19.1 MB, `flatpak-x86_64` 2.1 MB, `windows-x64` 4.2 MB, `macos-gui-start` 0.1 MB.
+  - **macOS: the GUI was running after 20 s with an empty log, and the screenshot shows the status item**: the PaTorrent icon sits in the menu bar at the top right beside Spotlight, in colour, with the app's own menu bar (PaTorrent, File, Options, Help) on the left. So `NSStatusItem` creation through the hand-written Objective-C runtime calls works on macOS 15 (arm64) at startup, and the item is drawn by the system. Kept as [docs/screenshots/macos-gtk-tray-2026-10-23.png](docs/screenshots/macos-gtk-tray-2026-10-23.png). The window body is still black under the local-network prompt (the headless-runner artefact noted before); nothing was clicked, so the menu, the tooltip, the left click and removal at quit remain for a real Mac.
+
+### Issues
+- `gh run watch --exit-status` returned 4 for the green CI and Fuzz runs (and my jq after it was wrong); the runs themselves were green. Read conclusions with `gh run view --json conclusion,jobs`.
+- The fuzz job's log ends with the `cmin` step's `#737 DONE`, which looks like a tiny run; the fuzz run's own `Done 836043 runs` line is further up.
+- The records commit for this push is local only.
+
 ## 2026-10-22_235616_1792706176: Five Road-to-1.0 pieces in parallel: the engine at 100,000 (tracker entries, saved peers, a dirty status update), the uTP security review, peer classes and mixed mode, the macOS tray, three GUI parity items
 
 Five worktree branches, one per item, merged into main (800cb60 macOS tray, 0097d1b parity, 1bba41c peer classes, 42c9e95 uTP review, 71e0d84 engine memory), plus a844c3a (PORTING.md rows the uTP review asked for). Not pushed.

@@ -2,6 +2,20 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_094022_1792741222: Pushed the second batch; CI, FreeBSD, Fuzz and Release green on every job; the aarch64 Flatpak built first time
+
+Pushed 1ddc58b..c8fe9e8 (20 commits: the five merged branches, the GTK proxy fix, the key removal, the records). Release 39917672379 run by hand right after the push.
+
+### Verified
+- **CI 39917670374** (c8fe9e8): every job green (fmt, msrv, macOS, Ubuntu, Windows, the Windows release build). The Ubuntu and macOS jobs ran the GTK crate's tests with the new `the_piece_map_draws_only_the_rows_in_view`, the peer-class and web seed suites with the new accept-filter, SSRF and class tests, the frontend's randomized model test, and the nox suites with the metadata, `pieceStates` and proxied-add tests, all for the first time off this machine. **FreeBSD 39917670292** green. **Fuzz 39917670194** green on all 25 targets with the refusing flood stage in `utp`.
+- **Release 39917672379** (c8fe9e8, by hand, 9 min): every job green (version, windows, both linux, **both flatpak legs**, macos; `release` skipped without a tag). Artifacts: `linux-x86_64` 43.6 MB, `linux-aarch64` 42.2 MB, `macos` 19.2 MB, `flatpak-x86_64` 2.1 MB, **`flatpak-aarch64` 1.9 MB**, `windows-x64` 4.3 MB, `macos-gui-start` 0.1 MB.
+  - **The aarch64 Flatpak** (job 120295577267, `ubuntu-24.04-arm`, Flathub's `gnome-51` builder image resolved to arm64): `actions/checkout` ran inside the arm64 container, the metainfo validated (pedantic: 1), the generator reported `packaging/flatpak/cargo-sources.json matches Cargo.lock`, the linter printed nothing, flatpak-builder exported the app and `flatpak build-bundle --arch=aarch64` wrote `PaTorrent-0.1.0-dev.c8fe9e8-aarch64.flatpak` (2,027,112 bytes). Not installed on an arm64 desktop.
+  - **macOS**: the GUI was running after 20 s with the status item, as in the run before.
+
+### Issues
+- `gh run watch` exits non-zero for some green runs; the conclusions were read with `gh run view --json`.
+- The records commit for this push is local only.
+
 ## 2026-10-23_090418_1792739058: Five more Road-to-1.0 pieces in parallel: the Win32 GUI at 100,000 (sort, select, add, remove), one FIN for refused uTP, web seeds in peer classes, the shim's restored-torrent metadata and proxied adds, DPAPI for the proxy password, nox proxy switches, URL adds through fetch, an aarch64 Flatpak, the GTK piece map
 
 Five worktree branches, one per item, merged into main (a174074 Flatpak + piece map, 0a1641e proxy loose ends, c1f934e shim gaps, 8d03c6f engine loose ends, ebc3591 Win32 latency), plus 94d02d4 / a45dac5 (the GTK GUI's URL add through the proxy, the `ErrDownloadFailed` key out of the tables). Not pushed.

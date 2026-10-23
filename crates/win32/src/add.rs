@@ -1,5 +1,8 @@
-//! The Add New Torrent dialog (µTorrent 2.2.1): Save In with the recent folders, Name, the
-//! torrent's contents with a file tree of check boxes and priorities, the options and Label.
+//! The Add New Torrent dialog, laid out as µTorrent 2.2.1's: one column, with Save In (the
+//! recent folders), Name and the options in a box at the top and the torrent's contents under
+//! it, a file tree of check boxes and priorities that takes the whole width, OK and Cancel at
+//! the bottom. The dialog resizes (the list grows) and keeps its size; "Don't show this again"
+//! turns it off in the preferences.
 //!
 //! The file tree is an owner-data list view over [`FileTree`]: only visible rows are asked for,
 //! so torrents with tens of thousands of files open at once. Folders are indented rows with the
@@ -14,13 +17,14 @@ use std::ptr::{null, null_mut};
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_frontend::add::{self, AddChoice, Check, FileTree, Setup};
 use patorrent_frontend::detail::{PRIORITIES, priority_text};
+use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::{fmt, lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     COLOR_WINDOW, CreateCompatibleBitmap, CreateCompatibleDC, DFC_BUTTON, DFCS_BUTTON3STATE,
     DFCS_BUTTONCHECK, DFCS_CHECKED, DT_CALCRECT, DT_NOPREFIX, DT_SINGLELINE, DeleteDC, DeleteObject,
-    DrawFrameControl, DrawTextW, FillRect, GetDC, GetSysColorBrush, HFONT, InvalidateRect, ReleaseDC,
-    SelectObject,
+    DrawFrameControl, DrawTextW, FillRect, GetDC, GetMonitorInfoW, GetSysColorBrush, HFONT, InvalidateRect,
+    MONITOR_DEFAULTTONEAREST, MONITORINFO, MapWindowPoints, MonitorFromWindow, ReleaseDC, SelectObject,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, GetDiskFreeSpaceExW,
@@ -31,12 +35,13 @@ use windows_sys::Win32::UI::Controls::{
     CloseThemeData, DrawThemeBackground, HIMAGELIST, ILC_COLOR24, ILC_MASK, ImageList_AddMasked,
     ImageList_Create, ImageList_Destroy, LVCF_FMT, LVCF_TEXT, LVCF_WIDTH, LVCFMT_LEFT, LVCFMT_RIGHT,
     LVCOLUMNW, LVHITTESTINFO, LVHT_ONITEMICON, LVHT_ONITEMSTATEICON, LVIF_IMAGE, LVIF_INDENT, LVIF_STATE,
-    LVIF_TEXT, LVIS_STATEIMAGEMASK, LVM_ENSUREVISIBLE, LVM_INSERTCOLUMNW, LVM_SETCALLBACKMASK,
-    LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETIMAGELIST, LVM_SUBITEMHITTEST, LVN_GETDISPINFOW, LVN_KEYDOWN,
-    LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_EX_LABELTIP, LVS_OWNERDATA, LVS_REPORT,
-    LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSIL_SMALL, LVSIL_STATE, NM_CLICK, NM_CUSTOMDRAW, NM_DBLCLK,
-    NM_RETURN, NMHDR, NMITEMACTIVATE, NMLVCUSTOMDRAW, NMLVDISPINFOW, NMLVKEYDOWN, TOOLTIPS_CLASSW,
-    TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW, TTM_SETMAXTIPWIDTH, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
+    LVIF_TEXT, LVIS_STATEIMAGEMASK, LVM_ENSUREVISIBLE, LVM_GETCOLUMNWIDTH, LVM_INSERTCOLUMNW,
+    LVM_SETCALLBACKMASK, LVM_SETCOLUMNWIDTH, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETIMAGELIST,
+    LVM_SUBITEMHITTEST, LVN_GETDISPINFOW, LVN_KEYDOWN, LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT,
+    LVS_EX_LABELTIP, LVS_OWNERDATA, LVS_REPORT, LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSIL_SMALL,
+    LVSIL_STATE, NM_CLICK, NM_CUSTOMDRAW, NM_DBLCLK, NM_RETURN, NMHDR, NMITEMACTIVATE, NMLVCUSTOMDRAW,
+    NMLVDISPINFOW, NMLVKEYDOWN, TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW,
+    TTM_SETMAXTIPWIDTH, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, OpenThemeDataForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -47,20 +52,22 @@ use windows_sys::Win32::UI::Shell::{
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON,
-    CB_ADDSTRING, CB_GETCURSEL, CB_GETLBTEXT, CB_GETLBTEXTLEN, CBN_EDITCHANGE, CBN_SELCHANGE,
-    CBS_AUTOHSCROLL, CBS_DROPDOWN, CBS_SORT, CreatePopupMenu, CreateWindowExW, DLGTEMPLATE, DestroyMenu,
-    DialogBoxIndirectParamW, ES_AUTOHSCROLL, EndDialog, GetClientRect, GetCursorPos, GetDlgItem,
-    GetWindowLongPtrW, GetWindowRect, IDCANCEL, IDOK, MF_SEPARATOR, MF_STRING, MapDialogRect,
-    SetWindowLongPtrW, SetWindowTextW, TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
-    WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_GETFONT, WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD,
-    WS_POPUP, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    BeginDeferWindowPos, CB_ADDSTRING, CB_GETCURSEL, CB_GETDROPPEDCONTROLRECT, CB_GETLBTEXT, CB_GETLBTEXTLEN,
+    CBN_EDITCHANGE, CBN_SELCHANGE, CBS_AUTOHSCROLL, CBS_DROPDOWN, CBS_SORT, CreatePopupMenu, CreateWindowExW,
+    DLGTEMPLATE, DeferWindowPos, DestroyMenu, DialogBoxIndirectParamW, ES_AUTOHSCROLL, EndDeferWindowPos,
+    EndDialog, GWL_STYLE, GetClientRect, GetCursorPos, GetDlgItem, GetWindowLongPtrW, GetWindowPlacement,
+    GetWindowRect, IDCANCEL, IDOK, MF_SEPARATOR, MF_STRING, MINMAXINFO, MapDialogRect, SIZE_MINIMIZED,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos,
+    SetWindowTextW, TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WINDOWPLACEMENT,
+    WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_GETFONT, WM_GETMINMAXINFO, WM_INITDIALOG, WM_NOTIFY, WM_SIZE,
+    WS_BORDER, WS_CHILD, WS_MAXIMIZEBOX, WS_POPUP, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
 };
 use windows_sys::core::w;
 
 use crate::controls;
 use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_MSGRESULT, DWLP_USER, EDIT, STATIC, Template};
 use crate::util::{
-    copy_to, from_wide, hiword, loword, point_from_lparam, rtl, scale, send, wide, window_text,
+    copy_to, from_wide, hiword, loword, point_from_lparam, rtl, scale, send, unscale, wide, window_text,
 };
 
 /// Static control styles (in `System::SystemServices`, a feature we do not otherwise need).
@@ -83,6 +90,35 @@ const ID_T_DATE: u16 = 110;
 const ID_FILES: u16 = 111;
 const ID_ALL: u16 = 112;
 const ID_NONE: u16 = 113;
+const ID_AGAIN: u16 = 114;
+const ID_BOX_SAVE: u16 = 115;
+const ID_BOX_CONTENTS: u16 = 116;
+
+/// How a control follows the window's size: moved or grown with the width or the height.
+const MOVE_X: u8 = 1;
+const GROW_X: u8 = 2;
+const MOVE_Y: u8 = 4;
+const GROW_Y: u8 = 8;
+/// A drop-down: its height is the open one (`GetWindowRect` gives the closed one).
+const DROP: u8 = 16;
+const ANCHORS: [(u16, u8); 16] = [
+    (ID_BOX_SAVE, GROW_X),
+    (ID_SAVE, GROW_X | DROP),
+    (ID_BROWSE, MOVE_X),
+    (ID_NAME, GROW_X),
+    (ID_LABEL, GROW_X | DROP),
+    (ID_BOX_CONTENTS, GROW_X | GROW_Y),
+    (ID_T_NAME, GROW_X),
+    (ID_T_COMMENT, GROW_X),
+    (ID_T_SIZE, GROW_X),
+    (ID_T_DATE, GROW_X),
+    (ID_ALL, MOVE_X),
+    (ID_NONE, MOVE_X),
+    (ID_FILES, GROW_X | GROW_Y),
+    (ID_AGAIN, MOVE_Y),
+    (IDOK as u16, MOVE_X | MOVE_Y),
+    (IDCANCEL as u16, MOVE_X | MOVE_Y),
+];
 
 /// Context menu commands: the priorities, then check and uncheck.
 const MENU_PRIO: usize = 1;
@@ -103,6 +139,16 @@ struct State {
     checks: HIMAGELIST,
     /// The tooltip with the whole name and comment, when one of them shows "...".
     tip: HWND,
+    /// The client size the template gave (the rects in `rects` belong to it).
+    base: (i32, i32),
+    /// The anchored controls with their rects at the template's size.
+    rects: Vec<(HWND, RECT, u8)>,
+    /// The window's smallest size: the template's.
+    min: (i32, i32),
+    /// The window's size when it closed (96-DPI pixels).
+    window: (i32, i32),
+    /// "Don't show this again" was checked when OK was pressed.
+    again: bool,
 }
 
 impl State {
@@ -118,12 +164,36 @@ impl State {
             folder_icons: (-1, -1),
             checks: 0,
             tip: null_mut(),
+            base: (0, 0),
+            rects: Vec::new(),
+            min: (0, 0),
+            window: (0, 0),
+            again: false,
         }
     }
 }
 
-/// Shows the dialog for `ti`; `None` on Cancel.
-pub fn show(owner: HWND, ti: &TorrentInfo, setup: Setup) -> Option<AddChoice> {
+/// What came of the dialog.
+pub struct Shown {
+    /// The choices on OK; `None` on Cancel.
+    pub choice: Option<AddChoice>,
+    /// The size the dialog closed with (96-DPI pixels), for [`remember`].
+    pub window: (i32, i32),
+    /// "Don't show this again" was checked when OK was pressed.
+    pub dont_show_again: bool,
+}
+
+/// Keeps the dialog's size for next time and, after "Don't show this again", turns the dialog
+/// off in the preferences (`ui.show_add_dialog`; the caller saves them).
+pub fn remember(prefs: &mut Prefs, shown: &Shown) {
+    add::remember_window(prefs, shown.window);
+    if shown.dont_show_again {
+        prefs.set_bool("ui.show_add_dialog", false);
+    }
+}
+
+/// Shows the dialog for `ti`.
+pub fn show(owner: HWND, ti: &TorrentInfo, setup: Setup) -> Shown {
     let mut st = State::new(ti, setup);
     let template = template();
     unsafe {
@@ -135,7 +205,7 @@ pub fn show(owner: HWND, ti: &TorrentInfo, setup: Setup) -> Option<AddChoice> {
             &mut st as *mut State as LPARAM,
         );
     }
-    st.choice
+    Shown { choice: st.choice, window: st.window, dont_show_again: st.again }
 }
 
 fn template() -> Vec<u16> {
@@ -149,33 +219,36 @@ fn template() -> Vec<u16> {
     // a value shows "..." for what does not fit; the whole text is in its tooltip (`tips`)
     const VALUE: u32 = C | SS_NOPREFIX | SS_NOTIFY | SS_ENDELLIPSIS;
     let list = TAB | WS_BORDER | LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS;
-    // 2.2.1's proportions: the options column ends a little above the contents' list
-    let mut t = Template::new(420, 226);
-    t.item(BUTTON, 0xffff, GROUP, [7, 4, 176, 34], tr!(AddSaveIn));
-    t.item(COMBOBOX, ID_SAVE, COMBO, [14, 17, 140, 150], "");
-    t.item(BUTTON, ID_BROWSE, PUSH, [158, 16, 18, 14], "...");
-    t.item(BUTTON, 0xffff, GROUP, [7, 42, 176, 32], tr!(AddName));
-    t.item(EDIT, ID_NAME, LINE, [14, 55, 162, 13], "");
-    t.item(BUTTON, 0xffff, GROUP, [7, 78, 176, 82], tr!(AddOptions));
-    t.item(BUTTON, ID_SKIP, CHECK, [14, 91, 162, 10], tr!(AddSkipCheck));
-    t.item(BUTTON, ID_START, CHECK, [14, 105, 162, 10], tr!(AddStart));
-    t.item(BUTTON, ID_TOP, CHECK, [14, 119, 162, 10], tr!(AddTopOfQueue));
-    t.item(STATIC, 0xffff, C, [14, 138, 28, 9], tr!(AddLabel));
-    t.item(COMBOBOX, ID_LABEL, COMBO | CBS_SORT as u32, [44, 136, 132, 120], "");
-    t.item(BUTTON, 0xffff, GROUP, [190, 4, 223, 194], tr!(AddContents));
-    t.item(STATIC, 0xffff, C, [197, 16, 36, 9], tr!(AddTorrentName));
-    t.item(STATIC, ID_T_NAME, VALUE, [236, 16, 170, 9], "");
-    t.item(STATIC, 0xffff, C, [197, 27, 36, 9], tr!(AddComment));
-    t.item(STATIC, ID_T_COMMENT, VALUE, [236, 27, 170, 9], "");
-    t.item(STATIC, 0xffff, C, [197, 38, 36, 9], tr!(AddSize));
-    t.item(STATIC, ID_T_SIZE, VALUE, [236, 38, 170, 9], "");
-    t.item(STATIC, 0xffff, C, [197, 49, 36, 9], tr!(AddDate));
-    t.item(STATIC, ID_T_DATE, VALUE, [236, 49, 170, 9], "");
-    t.item(Class::Name("SysListView32"), ID_FILES, list, [197, 62, 209, 112], "");
-    t.item(BUTTON, ID_ALL, PUSH, [197, 178, 56, 14], tr!(MenuSelectAll));
-    t.item(BUTTON, ID_NONE, PUSH, [257, 178, 56, 14], tr!(MenuSelectNone));
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [309, 206, 50, 14], tr!(BtnOk));
-    t.item(BUTTON, IDCANCEL as u16, PUSH, [363, 206, 50, 14], tr!(BtnCancel));
+    // 2.2.1's layout: one column, the contents' list the whole width. Everything is 7 units
+    // in from the box around it; the two boxes and OK / Cancel keep 7 to the dialog's edge.
+    let mut t = Template::new(420, 300);
+    t.item(BUTTON, ID_BOX_SAVE, GROUP, [7, 4, 406, 78], tr!(AddSaveIn));
+    t.item(COMBOBOX, ID_SAVE, COMBO, [14, 16, 370, 150], "");
+    t.item(BUTTON, ID_BROWSE, PUSH, [388, 15, 18, 14], "...");
+    t.item(STATIC, 0xffff, C, [14, 36, 40, 9], tr!(AddName));
+    t.item(EDIT, ID_NAME, LINE, [58, 34, 348, 13], "");
+    // the options in two columns, as 2.2.1 had them
+    t.item(BUTTON, ID_SKIP, CHECK, [14, 53, 100, 10], tr!(AddSkipCheck));
+    t.item(STATIC, 0xffff, C, [122, 54, 40, 9], tr!(AddLabel));
+    t.item(COMBOBOX, ID_LABEL, COMBO | CBS_SORT as u32, [165, 52, 241, 120], "");
+    t.item(BUTTON, ID_START, CHECK, [14, 67, 100, 10], tr!(AddStart));
+    t.item(BUTTON, ID_TOP, CHECK, [122, 67, 160, 10], tr!(AddTopOfQueue));
+    t.item(BUTTON, ID_BOX_CONTENTS, GROUP, [7, 88, 406, 186], tr!(AddContents));
+    t.item(STATIC, 0xffff, C, [14, 100, 36, 9], tr!(AddTorrentName));
+    t.item(STATIC, ID_T_NAME, VALUE, [54, 100, 352, 9], "");
+    t.item(STATIC, 0xffff, C, [14, 111, 36, 9], tr!(AddComment));
+    t.item(STATIC, ID_T_COMMENT, VALUE, [54, 111, 352, 9], "");
+    t.item(STATIC, 0xffff, C, [14, 122, 36, 9], tr!(AddSize));
+    t.item(STATIC, ID_T_SIZE, VALUE, [54, 122, 352, 9], "");
+    t.item(STATIC, 0xffff, C, [14, 133, 36, 9], tr!(AddDate));
+    // Select All / None beside the date, as in 2.2.1
+    t.item(STATIC, ID_T_DATE, VALUE, [54, 133, 244, 9], "");
+    t.item(BUTTON, ID_ALL, PUSH, [302, 130, 50, 14], tr!(MenuSelectAll));
+    t.item(BUTTON, ID_NONE, PUSH, [356, 130, 50, 14], tr!(MenuSelectNone));
+    t.item(Class::Name("SysListView32"), ID_FILES, list, [14, 148, 392, 119], "");
+    t.item(BUTTON, ID_AGAIN, CHECK, [7, 281, 220, 10], tr!(AddDontShowAgain));
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [309, 279, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, PUSH, [363, 279, 50, 14], tr!(BtnCancel));
     t.finish()
 }
 
@@ -203,6 +276,8 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             init(dlg, &mut *(lp as *mut State));
             crate::fit::fit_texts(dlg, |_| Some(0));
             tips(dlg, &mut *(lp as *mut State));
+            resizable(dlg, &mut *(lp as *mut State));
+            layout(dlg, &*(lp as *mut State));
             // focus is on OK (set by `init`)
             return 0;
         }
@@ -230,7 +305,26 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 context_menu(dlg, st, lp);
                 1
             }
+            WM_SIZE => {
+                if wp as u32 != SIZE_MINIMIZED {
+                    layout(dlg, st);
+                }
+                0
+            }
+            WM_GETMINMAXINFO => {
+                if st.min != (0, 0) {
+                    (*(lp as *mut MINMAXINFO)).ptMinTrackSize = POINT { x: st.min.0, y: st.min.1 };
+                }
+                1
+            }
             WM_DESTROY => {
+                // the size the dialog closed with (its normal one when maximized)
+                let mut wp: WINDOWPLACEMENT = zeroed();
+                wp.length = size_of::<WINDOWPLACEMENT>() as u32;
+                if GetWindowPlacement(dlg, &mut wp) != 0 {
+                    let (r, dpi) = (wp.rcNormalPosition, GetDpiForWindow(dlg).max(96));
+                    st.window = (unscale(r.right - r.left, dpi), unscale(r.bottom - r.top, dpi));
+                }
                 if st.checks != 0 {
                     ImageList_Destroy(st.checks);
                     st.checks = 0;
@@ -281,8 +375,8 @@ unsafe fn init(dlg: HWND, st: &mut State) {
         let lv = item(dlg, ID_FILES);
         let ex = LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_LABELTIP;
         send(lv, LVM_SETEXTENDEDLISTVIEWSTYLE, ex as usize, ex as isize);
-        // columns in dialog units, like the rest of the layout (the list is 209 wide)
-        let cols = [(tr!(ColName), 108, false), (tr!(ColSize), 42, true), (tr!(ColPriority), 40, false)];
+        // Size and Priority in dialog units; Name takes the rest (`fit_columns`)
+        let cols = [(tr!(ColName), 0, false), (tr!(ColSize), 50, true), (tr!(ColPriority), 48, false)];
         for (i, (title, width, right)) in cols.into_iter().enumerate() {
             let mut text = wide(title);
             let mut c: LVCOLUMNW = zeroed();
@@ -303,8 +397,97 @@ unsafe fn init(dlg: HWND, st: &mut State) {
             send(lv, LVM_SETIMAGELIST, LVSIL_SMALL as usize, system as LPARAM);
         }
         controls::set_count(lv, st.tree.len());
+        fit_columns(lv);
         update_size(dlg, st);
         SetFocus(item(dlg, IDOK as u16));
+    }
+}
+
+/// A control's rect in the dialog's client coordinates (mirrored with the dialog).
+unsafe fn rect_in(dlg: HWND, h: HWND) -> RECT {
+    unsafe {
+        let mut r: RECT = zeroed();
+        GetWindowRect(h, &mut r);
+        MapWindowPoints(null_mut(), dlg, &mut r as *mut RECT as *mut POINT, 2);
+        r
+    }
+}
+
+/// A sizing border, the template's size as the smallest, the controls' rects noted for
+/// `layout`, and the remembered size (if any) around the same centre, kept on the screen.
+unsafe fn resizable(dlg: HWND, st: &mut State) {
+    unsafe {
+        let style = GetWindowLongPtrW(dlg, GWL_STYLE);
+        SetWindowLongPtrW(dlg, GWL_STYLE, style | (WS_THICKFRAME | WS_MAXIMIZEBOX) as isize);
+        let keep = SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE;
+        SetWindowPos(dlg, null_mut(), 0, 0, 0, 0, keep | SWP_FRAMECHANGED);
+        let mut c: RECT = zeroed();
+        GetClientRect(dlg, &mut c);
+        st.base = (c.right, c.bottom);
+        st.rects = ANCHORS
+            .iter()
+            .map(|&(id, a)| {
+                let h = item(dlg, id);
+                (h, rect_in(dlg, h), a)
+            })
+            .collect();
+        let mut w: RECT = zeroed();
+        GetWindowRect(dlg, &mut w);
+        st.min = (w.right - w.left, w.bottom - w.top);
+        let Some((rw, rh)) = st.setup.window else { return };
+        let dpi = GetDpiForWindow(dlg).max(96);
+        let (cx, cy) = (scale(rw, dpi).max(st.min.0), scale(rh, dpi).max(st.min.1));
+        let (mut x, mut y) = (w.left - (cx - st.min.0) / 2, w.top - (cy - st.min.1) / 2);
+        let mut mi: MONITORINFO = zeroed();
+        mi.cbSize = size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(MonitorFromWindow(dlg, MONITOR_DEFAULTTONEAREST), &mut mi) != 0 {
+            let work = mi.rcWork;
+            x = x.min(work.right - cx).max(work.left);
+            y = y.min(work.bottom - cy).max(work.top);
+        }
+        SetWindowPos(dlg, null_mut(), x, y, cx, cy, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+}
+
+/// Moves and grows the anchored controls with the window (`ANCHORS`), from their rects at the
+/// template's size.
+unsafe fn layout(dlg: HWND, st: &State) {
+    unsafe {
+        if st.rects.is_empty() {
+            return;
+        }
+        let mut c: RECT = zeroed();
+        GetClientRect(dlg, &mut c);
+        let (dx, dy) = (c.right - st.base.0, c.bottom - st.base.1);
+        let mut dwp = BeginDeferWindowPos(st.rects.len() as i32);
+        for &(h, r, a) in &st.rects {
+            let x = r.left + if a & MOVE_X != 0 { dx } else { 0 };
+            let right = r.right + if a & (MOVE_X | GROW_X) != 0 { dx } else { 0 };
+            let y = r.top + if a & MOVE_Y != 0 { dy } else { 0 };
+            let bottom = r.bottom + if a & (MOVE_Y | GROW_Y) != 0 { dy } else { 0 };
+            let mut cy = bottom - y;
+            if a & DROP != 0 {
+                let mut d: RECT = zeroed();
+                send(h, CB_GETDROPPEDCONTROLRECT, 0, &mut d as *mut _ as LPARAM);
+                cy = d.bottom - d.top;
+            }
+            let flags = SWP_NOZORDER | SWP_NOACTIVATE;
+            dwp = DeferWindowPos(dwp, h, null_mut(), x, y, (right - x).max(0), cy.max(0), flags);
+        }
+        EndDeferWindowPos(dwp);
+        fit_columns(item(dlg, ID_FILES));
+    }
+}
+
+/// The Name column takes what Size and Priority leave of the list's width (a scroll bar, when
+/// there is one, is outside the client area).
+unsafe fn fit_columns(lv: HWND) {
+    unsafe {
+        let mut c: RECT = zeroed();
+        GetClientRect(lv, &mut c);
+        let rest: i32 = (1..3).map(|i| send(lv, LVM_GETCOLUMNWIDTH, i, 0) as i32).sum();
+        let least = scale(90, GetDpiForWindow(lv).max(96));
+        send(lv, LVM_SETCOLUMNWIDTH, 0, (c.right - rest).max(least) as isize);
     }
 }
 
@@ -450,6 +633,7 @@ unsafe fn command(dlg: HWND, st: &mut State, id: u16, code: u32) -> bool {
             _ if id == IDOK as u16 => {
                 if let Some(c) = collect(dlg, st) {
                     st.choice = Some(c);
+                    st.again = checked(dlg, ID_AGAIN);
                     EndDialog(dlg, IDOK as isize);
                 }
             }
@@ -532,6 +716,8 @@ unsafe fn reshaped(dlg: HWND, st: &State, row: usize) {
         controls::set_state(lv, None, false, false);
         controls::set_state(lv, Some(row), true, true);
         send(lv, LVM_ENSUREVISIBLE, row, 0);
+        // a scroll bar may have come or gone
+        fit_columns(lv);
         InvalidateRect(lv, null(), 0);
     }
 }
@@ -700,7 +886,6 @@ mod tests {
     //! and the list view's own keyboard handling.
 
     use patorrent_frontend::options::{GuiOptions, Options};
-    use patorrent_frontend::prefs::Prefs;
     use windows_sys::Win32::UI::Controls::{
         ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LVITEMW, LVM_GETITEMCOUNT,
         LVM_GETITEMTEXTW, TTM_GETTOOLCOUNT,
@@ -830,6 +1015,7 @@ mod tests {
             labels: vec!["Linux".into(), "Music".into()],
             start: true,
             in_session: false,
+            window: None,
         }
     }
 
@@ -838,7 +1024,9 @@ mod tests {
         let f = Fixture::new(&FILES, setup());
         let dlg = f.dlg;
         unsafe {
-            for id in [ID_SAVE, ID_BROWSE, ID_NAME, ID_SKIP, ID_START, ID_TOP, ID_LABEL, ID_ALL, ID_NONE] {
+            let ids =
+                [ID_SAVE, ID_BROWSE, ID_NAME, ID_SKIP, ID_START, ID_TOP, ID_LABEL, ID_ALL, ID_NONE, ID_AGAIN];
+            for id in ids {
                 assert!(!item(dlg, id).is_null(), "control {id}");
             }
             assert_eq!(send(item(dlg, ID_SAVE), CB_GETCOUNT, 0, 0), 2);
@@ -881,6 +1069,102 @@ mod tests {
             assert_eq!(send(f.st.tip, TTM_GETTOOLCOUNT, 0, 0), 1);
         }
         assert_eq!(f.text(ID_T_COMMENT), comment.replace('\n', " "));
+    }
+
+    #[test]
+    fn the_list_and_the_buttons_follow_the_window_size() {
+        let f = Fixture::new(&FILES, setup());
+        let dlg = f.dlg;
+        unsafe {
+            assert_ne!(GetWindowLongPtrW(dlg, GWL_STYLE) as u32 & WS_THICKFRAME, 0, "a sizing border");
+            let mut w: RECT = zeroed();
+            GetWindowRect(dlg, &mut w);
+            let (cx, cy) = (w.right - w.left, w.bottom - w.top);
+            let mut mmi: MINMAXINFO = zeroed();
+            SendMessageW(dlg, WM_GETMINMAXINFO, 0, &mut mmi as *mut _ as LPARAM);
+            let min = (mmi.ptMinTrackSize.x, mmi.ptMinTrackSize.y);
+            assert_eq!(min, (cx, cy), "the template's size is the smallest");
+            let at = |id: u16| rect_in(dlg, item(dlg, id));
+            let (list, ok, none, save) = (at(ID_FILES), at(IDOK as u16), at(ID_NONE), at(ID_SAVE));
+            let (again, box_, drop) = (at(ID_AGAIN), at(ID_BOX_CONTENTS), at(ID_LABEL));
+            let mut dropped: RECT = zeroed();
+            send(item(dlg, ID_LABEL), CB_GETDROPPEDCONTROLRECT, 0, &mut dropped as *mut _ as LPARAM);
+            let open_height = dropped.bottom - dropped.top;
+
+            SetWindowPos(
+                dlg,
+                null_mut(),
+                0,
+                0,
+                cx + 100,
+                cy + 80,
+                SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
+            );
+            let l = at(ID_FILES);
+            assert_eq!(
+                (l.left, l.top, l.right, l.bottom),
+                (list.left, list.top, list.right + 100, list.bottom + 80)
+            );
+            let b = at(ID_BOX_CONTENTS);
+            assert_eq!((b.right, b.bottom), (box_.right + 100, box_.bottom + 80));
+            let o = at(IDOK as u16);
+            assert_eq!((o.left, o.top, o.right - o.left), (ok.left + 100, ok.top + 80, ok.right - ok.left));
+            let n = at(ID_NONE);
+            assert_eq!((n.left, n.top), (none.left + 100, none.top));
+            let s = at(ID_SAVE);
+            assert_eq!((s.left, s.right), (save.left, save.right + 100));
+            let a = at(ID_AGAIN);
+            assert_eq!((a.left, a.top), (again.left, again.top + 80));
+            // a grown drop-down still opens as far
+            let d = at(ID_LABEL);
+            assert_eq!(
+                (d.left, d.right, d.bottom - d.top),
+                (drop.left, drop.right + 100, drop.bottom - drop.top)
+            );
+            send(item(dlg, ID_LABEL), CB_GETDROPPEDCONTROLRECT, 0, &mut dropped as *mut _ as LPARAM);
+            assert_eq!(dropped.bottom - dropped.top, open_height);
+            // the Name column fills what Size and Priority leave
+            let lv = item(dlg, ID_FILES);
+            let mut c: RECT = zeroed();
+            GetClientRect(lv, &mut c);
+            let widths: Vec<i32> = (0..3).map(|i| send(lv, LVM_GETCOLUMNWIDTH, i, 0) as i32).collect();
+            assert_eq!(widths.iter().sum::<i32>(), c.right, "{widths:?}");
+        }
+    }
+
+    #[test]
+    fn the_size_is_remembered() {
+        let f = Fixture::new(&FILES, Setup { window: Some((900, 700)), ..setup() });
+        let (mut w, mut c) = unsafe { (zeroed::<RECT>(), zeroed::<RECT>()) };
+        unsafe {
+            GetWindowRect(f.dlg, &mut w);
+            let dpi = GetDpiForWindow(f.dlg).max(96);
+            assert_eq!((w.right - w.left, w.bottom - w.top), (scale(900, dpi), scale(700, dpi)));
+            // the list grew with it
+            GetClientRect(item(f.dlg, ID_FILES), &mut c);
+            assert!(c.right > scale(600, dpi), "list {} wide", c.right);
+        }
+        // a size below the template's is lifted to it
+        let small = Fixture::new(&FILES, Setup { window: Some((100, 100)), ..setup() });
+        unsafe { GetWindowRect(small.dlg, &mut w) };
+        assert_eq!((w.right - w.left, w.bottom - w.top), small.st.min);
+
+        // what the caller keeps: the size, and the preference after "Don't show this again"
+        let mut prefs = Prefs::default();
+        remember(&mut prefs, &Shown { choice: None, window: (700, 500), dont_show_again: false });
+        assert!(GuiOptions::load(&prefs, "x").show_add_dialog);
+        assert_eq!(Setup::new(&GuiOptions::load(&prefs, "x"), &prefs, vec![]).window, Some((700, 500)));
+        remember(&mut prefs, &Shown { choice: None, window: (0, 0), dont_show_again: true });
+        assert!(!GuiOptions::load(&prefs, "x").show_add_dialog);
+        assert_eq!(add::window_size(&prefs), Some((700, 500)), "a zero size is not kept");
+    }
+
+    #[test]
+    fn ok_notes_dont_show_again() {
+        let mut f = Fixture::new(&FILES, setup());
+        unsafe { set_check(f.dlg, ID_AGAIN, true) };
+        f.click(IDOK as u16);
+        assert!(f.st.choice.take().is_some() && f.st.again);
     }
 
     #[test]

@@ -412,6 +412,9 @@ pub struct Setup {
     /// The torrent is in the session already (a magnet that fetched its metadata): its files
     /// were checked when the metadata arrived, so "Skip hash check" is greyed out.
     pub in_session: bool,
+    /// The dialog's size the last time it was closed (width and height in 96-DPI pixels), as
+    /// [`remember_window`] keeps it; `None` for the dialog's own.
+    pub window: Option<(i32, i32)>,
 }
 
 impl Setup {
@@ -422,6 +425,7 @@ impl Setup {
             labels,
             start: !gui.add_stopped,
             in_session: false,
+            window: window_size(prefs),
         }
     }
 
@@ -672,6 +676,22 @@ pub fn renamed_root(ti: &TorrentInfo, name: &str) -> BTreeMap<u32, String> {
 /// How many save folders the Save In list remembers.
 pub const RECENT_DIRS: usize = 10;
 const RECENT_KEY: &str = "add.recent_dirs";
+/// The dialog's last size: `width,height` in 96-DPI pixels.
+const WINDOW_KEY: &str = "add.window";
+
+/// The dialog's remembered size, when there is a sensible one.
+pub fn window_size(prefs: &Prefs) -> Option<(i32, i32)> {
+    let (w, h) = prefs.get(WINDOW_KEY)?.split_once(',')?;
+    let (w, h) = (w.trim().parse::<i32>().ok()?, h.trim().parse::<i32>().ok()?);
+    (w > 0 && h > 0).then_some((w, h))
+}
+
+/// Keeps the dialog's size for the next time (the user resized it, as in 2.2.1).
+pub fn remember_window(prefs: &mut Prefs, (w, h): (i32, i32)) {
+    if w > 0 && h > 0 {
+        prefs.set(WINDOW_KEY, format!("{w},{h}"));
+    }
+}
 
 /// The remembered save folders, most recent first (`add.recent_dirs`, `|`-separated: no
 /// Windows or Unix path in practice contains one).

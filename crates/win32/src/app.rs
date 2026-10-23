@@ -2985,11 +2985,12 @@ unsafe fn magnet_dialogs(hwnd: HWND) {
         let Some((key, w, setup)) = next else { return };
         let (Some(id), Some(ti)) = (w.id, w.ti.clone()) else { return };
         // the dialog runs its own message loop; nothing is borrowed across it
-        let choice = crate::add::show(hwnd, &ti, setup);
+        let shown = crate::add::show(hwnd, &ti, setup);
         with_app(|a| {
             a.awaiting_dialog = false;
             a.awaiting.finish(&mut a.prefs, &key);
-            match choice {
+            crate::add::remember(&mut a.prefs, &shown);
+            match shown.choice {
                 Some(c) => {
                     add::remember_dir(&mut a.prefs, &c.save_path);
                     if !c.label.is_empty() {
@@ -3031,8 +3032,15 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
         return;
     }
     // the dialog runs its own message loop; nothing is borrowed across it
-    let Some(choice) = crate::add::show(hwnd, &ti, setup) else { return };
+    let shown = crate::add::show(hwnd, &ti, setup);
     with_app(|a| {
+        crate::add::remember(&mut a.prefs, &shown);
+        let Some(choice) = shown.choice else {
+            if let Err(e) = a.prefs.save() {
+                a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
+            }
+            return;
+        };
         add::remember_dir(&mut a.prefs, &choice.save_path);
         if !choice.label.is_empty() {
             // picked up when the torrent first shows up in the list, like a restored label

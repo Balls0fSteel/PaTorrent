@@ -424,7 +424,7 @@ strings! {
 
     AddTitle = "Add New Torrent";
     AddSaveIn = "Save In";
-    AddName = "&Name";
+    AddName = "&Name:";
     AddOptions = "Torrent Options";
     AddSkipCheck = "Skip &hash check";
     AddStart = "&Start torrent";
@@ -441,6 +441,8 @@ strings! {
     AddNoFolder = "Please choose the folder to save the torrent in.";
     /// After the size: free space on the save folder's drive.
     AddDiskSpace = "(disk space: {free} free)";
+    /// The check box that turns Preferences' "Show a window that displays the files inside the torrent" off.
+    AddDontShowAgain = "Don't show this again";
 
     // ---- Create New Torrent
 

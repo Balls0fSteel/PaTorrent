@@ -23,3 +23,6 @@
 Thumbs.db
 Desktop.ini
 .claude/settings.local.json
+
+# The owner's portable µTorrent 2.2.1, the reference for the Win32 dialogs (not ours to ship)
+/z_exclude_uTorrent

@@ -718,10 +718,12 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
         let path = dir.join("patorrent.ini");
         let mut prefs = Prefs::load(&path);
-        let mut s = Settings::default();
-        s.proxy_type = ProxyType::Socks5Pw;
-        s.proxy_username = "me".to_owned();
-        s.proxy_password = "pw with = and spaces".to_owned();
+        let s = Settings {
+            proxy_type: ProxyType::Socks5Pw,
+            proxy_username: "me".to_owned(),
+            proxy_password: "pw with = and spaces".to_owned(),
+            ..Settings::default()
+        };
         store(&mut prefs, &s);
         prefs.save().unwrap();
         let text = std::fs::read_to_string(&path).unwrap();

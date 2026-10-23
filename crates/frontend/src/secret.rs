@@ -143,7 +143,7 @@ mod tests {
         assert!(!s.contains("pa ss"));
         assert_eq!(open(&s), "pa ss=wörd");
         // a changed byte in the blob does not open
-        let mut blob = patorrent_core::util::string::base64decode(s[MARKER.len()..].as_bytes()).unwrap();
+        let mut blob = patorrent_core::util::string::base64decode(&s.as_bytes()[MARKER.len()..]).unwrap();
         let n = blob.len();
         blob[n - 5] ^= 0x55;
         let bad = format!("{MARKER}{}", patorrent_core::util::string::base64encode(&blob));

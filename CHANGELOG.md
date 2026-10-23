@@ -14,6 +14,7 @@ The push of the two records commits (0b468a7) ran CI: fmt, msrv, macOS and Ubunt
 
 ### Verified
 - `cargo test -p patorrent-nox --test webui piece_states`: 6 of 6 runs pass (0.46 s each); the whole `webui` suite: 31 passed, 0 failed in 17.3 s; `cargo +stable fmt -p patorrent-nox --check` and `cargo clippy -p patorrent-nox --tests -D warnings` clean.
+- Pushed as 40295ea (2026-10-23_105946_1792745986): **CI 39926969891** green on every job (fmt, msrv, macOS, Ubuntu, Windows with the fixed test, the Windows release build), **FreeBSD 39926969919** green, **Fuzz 39926969899** green.
 
 ## 2026-10-23_100449_1792742689: The 1.0 hand-test set: Windows built here, Linux from the green Release run, smoke-tested on the Xubuntu VM
 

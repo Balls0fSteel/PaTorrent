@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_100449_1792742689: The 1.0 hand-test set: Windows built here, Linux from the green Release run, smoke-tested on the Xubuntu VM
+
+The owner asked for the Windows and Linux binaries to test by hand before 1.0. The Release run 39917672379 (c8fe9e8) is the current code (c8b7c39 only adds records), so its Linux files are used as they are; Windows was also built here.
+
+### Changed
+- `dist/1.0-test/` (under the gitignored `dist/`): `windows-x64/` (`cargo build --release --locked -p patorrent -p patorrent-nox -p lt-swarm`, 1 m 22 s, static CRT; `patorrent.exe` 4.2 MB, `patorrent-nox.exe` 4.5 MB, `lt-swarm.exe` 2.9 MB, LICENSE.md, THIRD-PARTY-NOTICES.md; the same three exes refreshed in `dist/` as build.bat does), `windows-x64-ci/` (the Release run's `patorrent-0.1.0-dev.c8fe9e8-windows-x64.zip`, 4.5 MB), `linux-x86_64/` (the tarball 4.5 MB, `PaTorrent-…-x86_64.AppImage` 37.1 MB, `patorrent-nox-…-x86_64.AppImage` 5.2 MB, `PaTorrent-…-x86_64.flatpak` 2.2 MB, downloaded with `gh run download`), `SHA256SUMS`, `HAND-TEST.md` (what each file is and how to start it). 63 MB in all.
+
+### Verified
+- Windows: `patorrent-nox.exe --version` → `patorrent-nox 0.1.0` for both the local build and the CI zip's exe; `--help` prints the usage.
+- Xubuntu 26.04 VM (192.168.32.132, glibc 2.43, resumed with vmrun for this): from the tarball `patorrent-nox --version` and `xvfb-run patorrent-gtk --version` print 0.1.0 (ldd: the system's libssl 3 / libgtk-4); both AppImages run through FUSE and print their versions; `patorrent-nox run --save … --webui 127.0.0.1:18080` listened on 6881 TCP/UDP, served `/` with HTTP 200, started LSD and the DHT, learned the external address, and stopped cleanly on SIGTERM after 10 s.
+
+### Issues
+- `patorrent.exe --help` opens the GUI window instead of printing anything (the GUI has no `--help`); the window was closed again. Harmless, noted for item 9.
+- The Flatpak was not installed: the Xubuntu VM has no `flatpak`. The Ubuntu build VM (.128) is gone, so nothing was built on Linux here; the Linux files are CI's.
+- The FreeBSD VM showed as running after the Xubuntu resume (it was not started on purpose).
+- Not pushed; the hand-test folder is gitignored and stays local.
+
 ## 2026-10-23_094022_1792741222: Pushed the second batch; CI, FreeBSD, Fuzz and Release green on every job; the aarch64 Flatpak built first time
 
 Pushed 1ddc58b..c8fe9e8 (20 commits: the five merged branches, the GTK proxy fix, the key removal, the records). Release 39917672379 run by hand right after the push.

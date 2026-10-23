@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-23_094022_1792741222
+Last updated: 2026-10-23_100449_1792742689
 
 ## Vision
 
@@ -23,6 +23,8 @@ Where it sits: qBittorrent's modular libtorrent-plus-frontend split, with µTorr
 Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy), [docs/PORTING.md](docs/PORTING.md) (libtorrent → Rust module map and porting rules) and [docs/WEBUI.md](docs/WEBUI.md) (the Web UI and nox's native API).
 
 ## Current status
+
+- **1.0 hand-test set ready (2026-10-23_100449_1792742689):** `dist/1.0-test/` (gitignored) holds the Windows x64 binaries built here from c8b7c39 (`patorrent.exe`, `patorrent-nox.exe`, `lt-swarm.exe`, static CRT, with the two texts), the Release workflow's Windows zip, Linux x86_64 tarball, both AppImages and the Flatpak from run 39917672379 (c8fe9e8, the same code), `SHA256SUMS` and `HAND-TEST.md` (how to start each). Smoke-tested: Windows nox prints its version and help; on the Xubuntu VM every Linux binary and AppImage prints its version and nox served the Web UI and stopped cleanly. Not run: the Flatpak (no flatpak on the VM), the GUIs by hand. Next: Road to 1.0 item 9, the owner's click-throughs on these files.
 
 - **PatinaTorrent icon candidates (2026-10-15_203223_1792089143):** three original teal/copper application directions (Verdigris, Exchange, Foundry), transparent PNGs and multi-size Windows ICOs, plus 30 editable state SVGs with PNG exports, exact state mapping and an interactive review gallery in `assets/patina-icons/`. Completed transparency/rendering, ICO frame, state-coverage and desktop/mobile gallery checks. Next: choose a brand direction, then integrate its app/tray icon and the state family into the runtime-drawn Win32 UI. The candidates are not yet connected to the application.
 

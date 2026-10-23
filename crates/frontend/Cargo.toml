@@ -12,9 +12,9 @@ publish.workspace = true
 [dependencies]
 patorrent-core.workspace = true
 
-# the system's user-interface languages (lang::system_languages)
+# the system's user-interface languages (lang::system_languages); DPAPI for the proxy password (secret)
 [target.'cfg(windows)'.dependencies]
-windows-sys = { workspace = true, features = ["Win32_Globalization"] }
+windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_Globalization", "Win32_Security_Cryptography"] }
 
 [dev-dependencies]
 patorrent-core = { workspace = true, features = ["mock"] }

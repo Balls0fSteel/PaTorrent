@@ -107,7 +107,18 @@ OPTIONS:
     --ip-filter FILE  Block the address ranges in FILE (ipfilter.dat or P2P format)
     --proxy URL       Connect through a proxy: TYPE://[USER:PASS@]HOST:PORT with TYPE socks4,
                       socks5 or http (USER alone for socks4). Peers, web seeds, trackers and
-                      (socks5 only) uTP and the DHT go through it; nothing incoming is accepted
+                      (socks5 only) uTP and the DHT go through it; nothing incoming is accepted.
+                      Kept in the Web UI's preferences like its Connection page's proxy box
+    --no-proxy-peers  Connect to peers and web seeds directly (incoming connections, LSD and
+                      port mapping stay on); --proxy-peers is the default
+    --no-proxy-trackers
+                      Contact trackers directly; --proxy-trackers is the default
+    --no-proxy-hostnames
+                      Resolve host names here instead of at the proxy (SOCKS5 sends addresses,
+                      SOCKS4 no SOCKS4a); --proxy-hostnames is the default
+    --socks5-udp-local-ep
+                      SOCKS5 UDP ASSOCIATE names our UDP address and port (only without a NAT
+                      between us and the proxy); --no-socks5-udp-local-ep is the default
     --verbose         Print tracker and peer events (each disconnect with its reason), and
                       every 10 s where the connected peers came from
     --webui [ADDR:]PORT  Serve the Web UI and qBittorrent-compatible WebAPI (ADDR defaults to
@@ -169,6 +180,9 @@ struct Opts {
     ul_limit: u32,
     ip_filter: Option<PathBuf>,
     proxy: Option<Proxy>,
+    /// `--[no-]proxy-peers` and the other proxy switches, as settings table rows and values
+    /// in the order given (the last one of a row wins).
+    proxy_switches: Vec<(&'static str, bool)>,
     verbose: bool,
     webui: Option<std::net::SocketAddr>,
     webui_user: Option<String>,
@@ -202,6 +216,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         ul_limit: 0,
         ip_filter: None,
         proxy: None,
+        proxy_switches: Vec::new(),
         verbose: false,
         webui: None,
         webui_user: None,
@@ -249,6 +264,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--ul-limit" => o.ul_limit = num::<u32>("--ul-limit", value("--ul-limit")?)?.saturating_mul(1024),
             "--ip-filter" => o.ip_filter = Some(value("--ip-filter")?.into()),
             "--proxy" => o.proxy = Some(parse_proxy(&value("--proxy")?)?),
+            s if proxy_switch(s).is_some() => o.proxy_switches.extend(proxy_switch(s)),
             "--webui" => o.webui = Some(webui::parse_addr(&value("--webui")?)?),
             "--webui-user" => o.webui_user = Some(value("--webui-user")?),
             "--webui-pass" => o.webui_pass = Some(value("--webui-pass")?),
@@ -266,6 +282,45 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         return Err("--webui-key needs --webui-cert".into());
     }
     Ok(o)
+}
+
+/// The proxy switches: `--[no-]proxy-peers`, `--[no-]proxy-trackers`, `--[no-]proxy-hostnames`
+/// and `--[no-]socks5-udp-local-ep`, as the settings table row they set and its value.
+fn proxy_switch(arg: &str) -> Option<(&'static str, bool)> {
+    let (name, on) = match arg.strip_prefix("--no-") {
+        Some(n) => (n, false),
+        None => (arg.strip_prefix("--")?, true),
+    };
+    let row = match name {
+        "proxy-peers" => "proxy_peer_connections",
+        "proxy-trackers" => "proxy_tracker_connections",
+        "proxy-hostnames" => "proxy_hostnames",
+        "socks5-udp-local-ep" => "socks5_udp_send_local_ep",
+        _ => return None,
+    };
+    Some((row, on))
+}
+
+/// Applies `--proxy` and the proxy switches to `s` through the frontend's settings table (the
+/// rows the Web UI's Connection page and Advanced list edit, so they are stored the same way).
+fn apply_proxy(s: &mut Settings, o: &Opts) {
+    use patorrent_frontend::settings;
+    let mut rows: Vec<(&str, String)> = Vec::new();
+    if let Some(p) = &o.proxy {
+        rows.push(("proxy_type", settings::proxy_to_int(p.kind).to_string()));
+        rows.push(("proxy_hostname", p.host.clone()));
+        rows.push(("proxy_port", p.port.to_string()));
+        rows.push(("proxy_username", p.user.clone()));
+        rows.push(("proxy_password", p.pass.clone()));
+    }
+    rows.extend(o.proxy_switches.iter().map(|&(row, on)| (row, on.to_string())));
+    for (row, value) in rows {
+        if let Err(e) = settings::set(s, row, &value) {
+            // every row exists and every value parses; a failure is a bug, not a user error
+            debug_assert!(false, "{e}");
+            eprintln!("! {e}");
+        }
+    }
 }
 
 /// A proxy from `--proxy`.
@@ -504,13 +559,18 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     if let Some(l) = &o.listen {
         settings.listen_interfaces = l.clone();
     }
+    apply_proxy(&mut settings, &o);
     if let Some(p) = &o.proxy {
-        settings.proxy_type = p.kind;
-        settings.proxy_hostname = p.host.clone();
-        settings.proxy_port = p.port;
-        settings.proxy_username = p.user.clone();
-        settings.proxy_password = p.pass.clone();
-        println!("* proxy: {:?} {}:{}", p.kind, p.host, p.port);
+        let scope = |on: bool, what: &str| if on { String::new() } else { format!(", {what} direct") };
+        println!(
+            "* proxy: {:?} {}:{}{}{}{}",
+            p.kind,
+            p.host,
+            p.port,
+            scope(settings.proxy_peer_connections, "peers"),
+            scope(settings.proxy_tracker_connections, "trackers"),
+            scope(settings.proxy_hostnames, "host names resolved"),
+        );
     }
     if o.verbose {
         // peers' disconnects, with their reasons
@@ -1093,5 +1153,74 @@ mod tests {
         for bad in ["h:1", "ftp://h:1", "socks5://h", "socks5://h:0", "socks5://:1", "socks4://u:p@h:1"] {
             assert!(parse_proxy(bad).is_err(), "{bad}");
         }
+    }
+
+    #[test]
+    fn proxy_switches_parse() {
+        let o = parse(&args(&[
+            "--proxy",
+            "socks5://u:p@h:1080",
+            "--no-proxy-peers",
+            "--proxy-trackers",
+            "--no-proxy-hostnames",
+            "--socks5-udp-local-ep",
+            "--no-proxy-trackers",
+        ]))
+        .unwrap();
+        assert_eq!(o.proxy, Some(proxy(ProxyType::Socks5Pw, "h", 1080, "u", "p")));
+        assert_eq!(
+            o.proxy_switches,
+            [
+                ("proxy_peer_connections", false),
+                ("proxy_tracker_connections", true),
+                ("proxy_hostnames", false),
+                ("socks5_udp_send_local_ep", true),
+                ("proxy_tracker_connections", false),
+            ]
+        );
+        assert!(o.sources.is_empty());
+        // the old form alone: no switches
+        let o = parse(&args(&["--proxy", "http://h:3128"])).unwrap();
+        assert!(o.proxy_switches.is_empty());
+        assert_eq!(parse(&args(&["--no-proxy-bogus"])).err(), Some("unknown option --no-proxy-bogus".into()));
+        assert_eq!(proxy_switch("--proxy"), None);
+        assert_eq!(proxy_switch("proxy-peers"), None);
+    }
+
+    #[test]
+    fn proxy_options_set_the_settings() {
+        let mut s = Settings::default();
+        apply_proxy(&mut s, &parse(&[]).unwrap());
+        assert_eq!(s, Settings::default(), "nothing given, nothing changed");
+
+        let o = parse(&args(&[
+            "--proxy",
+            "socks5://al:p@ss@proxy.example:1080",
+            "--no-proxy-peers",
+            "--no-proxy-hostnames",
+            "--socks5-udp-local-ep",
+        ]))
+        .unwrap();
+        apply_proxy(&mut s, &o);
+        let want = Settings {
+            proxy_type: ProxyType::Socks5Pw,
+            proxy_hostname: "proxy.example".into(),
+            proxy_port: 1080,
+            proxy_username: "al".into(),
+            proxy_password: "p@ss".into(),
+            proxy_peer_connections: false,
+            proxy_tracker_connections: true,
+            proxy_hostnames: false,
+            socks5_udp_send_local_ep: true,
+            ..Settings::default()
+        };
+        assert_eq!(s, want);
+        // stored like the Web UI's preferences: as lt.<name> rows (the defaults left out)
+        let mut prefs = patorrent_frontend::prefs::Prefs::default();
+        patorrent_frontend::settings::store(&mut prefs, &s);
+        assert_eq!(prefs.get("lt.proxy_peer_connections"), Some("false"));
+        assert_eq!(prefs.get("lt.socks5_udp_send_local_ep"), Some("true"));
+        assert_eq!(prefs.get("lt.proxy_tracker_connections"), None);
+        assert_eq!(patorrent_frontend::settings::load(&prefs), want);
     }
 }

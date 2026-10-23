@@ -29,6 +29,33 @@ FreeBSD rc.d script. On Windows `patorrent-nox service install` registers a Wind
 ([below](#the-windows-service)). The command-line options are the configuration; the rest
 (limits, folders, the Web UI's settings) is set in the Web UI and kept in `webui.json`.
 
+## Through a proxy
+
+`--proxy TYPE://[USER:PASS@]HOST:PORT` (TYPE `socks4`, `socks5` or `http`; credentials pick the
+authenticating types, SOCKS4 takes a user id only) sends peers, web seeds and trackers through
+the proxy, and with SOCKS5 uTP and the DHT too (UDP ASSOCIATE). Nothing incoming is accepted
+while peers go through it. Four switches set the rest of the Web UI's Connection page proxy
+box and its Advanced rows, each with a `--no-` form; the last one given wins:
+
+| Switch | Setting | Default |
+|---|---|---|
+| `--[no-]proxy-peers` | `proxy_peer_connections`: peer and web seed connections through the proxy (off: direct, incoming connections, LSD and port mapping work again) | on |
+| `--[no-]proxy-trackers` | `proxy_tracker_connections`: tracker announces and scrapes through the proxy | on |
+| `--[no-]proxy-hostnames` | `proxy_hostnames`: the proxy resolves host names (SOCKS5 sends the name, SOCKS4 uses SOCKS4a) | on |
+| `--[no-]socks5-udp-local-ep` | `socks5_udp_send_local_ep`: UDP ASSOCIATE names our UDP address and port (wrong behind a NAT) | off |
+
+```sh
+patorrent-nox run --webui 8080 --proxy socks5://user:pass@proxy.lan:1080 --no-proxy-trackers
+```
+
+They are applied through the same settings table as the Web UI's preferences, so they are
+stored in `webui.json` with the rest at the next change made in the Web UI, and from then on
+the stored value wins over the command line (change it in the Web UI). A password on the
+command line is visible to other local users in the process list; set it in Preferences >
+Connection instead. In `webui.json` (and the GUI's `patorrent.ini`) the proxy password is
+sealed with DPAPI on Windows (`dpapi:...`, readable only by the same Windows account) and plain
+elsewhere.
+
 ## Files
 
 | What | Linux / BSD | Windows | macOS |

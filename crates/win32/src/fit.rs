@@ -31,6 +31,8 @@ const SS_RIGHT: u32 = 2;
 const SS_LEFTNOWORDWRAP: u32 = 0xc;
 const SS_TYPEMASK: u32 = 0x1f;
 const SS_NOPREFIX: u32 = 0x80;
+/// `SS_ENDELLIPSIS`, `SS_PATHELLIPSIS` and `SS_WORDELLIPSIS` together.
+const SS_ELLIPSISMASK: u32 = 0xc000;
 
 #[derive(Clone, Copy, PartialEq)]
 enum Kind {
@@ -287,6 +289,11 @@ unsafe fn kind(h: HWND, dpi: u32) -> Kind {
         let style = GetWindowLongW(h, GWL_STYLE) as u32;
         if class.eq_ignore_ascii_case("Static") {
             let prefix = style & SS_NOPREFIX == 0;
+            // a value that shows "..." for what does not fit (a torrent's comment) is never
+            // widened to its text; like a field, it gives width to a label on its row
+            if style & SS_ELLIPSISMASK != 0 {
+                return Kind::Field { min: scale(48, dpi) };
+            }
             // a note of several lines wraps its text, so it can be narrower
             if style & SS_TYPEMASK == SS_LEFT && is_tall(h) {
                 return Kind::Field { min: scale(90, dpi) };

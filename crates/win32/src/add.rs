@@ -18,8 +18,9 @@ use patorrent_frontend::{fmt, lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     COLOR_WINDOW, CreateCompatibleBitmap, CreateCompatibleDC, DFC_BUTTON, DFCS_BUTTON3STATE,
-    DFCS_BUTTONCHECK, DFCS_CHECKED, DeleteDC, DeleteObject, DrawFrameControl, FillRect, GetDC,
-    GetSysColorBrush, InvalidateRect, ReleaseDC, SelectObject,
+    DFCS_BUTTONCHECK, DFCS_CHECKED, DT_CALCRECT, DT_NOPREFIX, DT_SINGLELINE, DeleteDC, DeleteObject,
+    DrawFrameControl, DrawTextW, FillRect, GetDC, GetSysColorBrush, HFONT, InvalidateRect, ReleaseDC,
+    SelectObject,
 };
 use windows_sys::Win32::Storage::FileSystem::{
     FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, GetDiskFreeSpaceExW,
@@ -34,7 +35,8 @@ use windows_sys::Win32::UI::Controls::{
     LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETIMAGELIST, LVM_SUBITEMHITTEST, LVN_GETDISPINFOW, LVN_KEYDOWN,
     LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_EX_LABELTIP, LVS_OWNERDATA, LVS_REPORT,
     LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSIL_SMALL, LVSIL_STATE, NM_CLICK, NM_DBLCLK, NM_RETURN, NMHDR,
-    NMITEMACTIVATE, NMLVDISPINFOW, NMLVKEYDOWN,
+    NMITEMACTIVATE, NMLVDISPINFOW, NMLVKEYDOWN, TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW,
+    TTM_SETMAXTIPWIDTH, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, OpenThemeDataForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -46,11 +48,12 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     AppendMenuW, BM_GETCHECK, BM_SETCHECK, BS_AUTOCHECKBOX, BS_DEFPUSHBUTTON, BS_GROUPBOX, BS_PUSHBUTTON,
     CB_ADDSTRING, CB_GETCURSEL, CB_GETLBTEXT, CB_GETLBTEXTLEN, CBN_EDITCHANGE, CBN_SELCHANGE,
-    CBS_AUTOHSCROLL, CBS_DROPDOWN, CBS_SORT, CreatePopupMenu, DLGTEMPLATE, DestroyMenu,
-    DialogBoxIndirectParamW, ES_AUTOHSCROLL, EndDialog, GetCursorPos, GetDlgItem, GetWindowLongPtrW,
-    GetWindowRect, IDCANCEL, IDOK, MF_SEPARATOR, MF_STRING, MapDialogRect, SetWindowLongPtrW, SetWindowTextW,
-    TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY,
-    WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
+    CBS_AUTOHSCROLL, CBS_DROPDOWN, CBS_SORT, CreatePopupMenu, CreateWindowExW, DLGTEMPLATE, DestroyMenu,
+    DialogBoxIndirectParamW, ES_AUTOHSCROLL, EndDialog, GetClientRect, GetCursorPos, GetDlgItem,
+    GetWindowLongPtrW, GetWindowRect, IDCANCEL, IDOK, MF_SEPARATOR, MF_STRING, MapDialogRect,
+    SetWindowLongPtrW, SetWindowTextW, TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu,
+    WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_GETFONT, WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD,
+    WS_POPUP, WS_TABSTOP, WS_VISIBLE, WS_VSCROLL,
 };
 use windows_sys::core::w;
 
@@ -62,6 +65,8 @@ use crate::util::{
 
 /// Static control styles (in `System::SystemServices`, a feature we do not otherwise need).
 const SS_NOPREFIX: u32 = 0x80;
+/// The static takes the mouse (so a tooltip over it sees it) instead of passing it to the dialog.
+const SS_NOTIFY: u32 = 0x100;
 const SS_ENDELLIPSIS: u32 = 0x4000;
 
 const ID_SAVE: u16 = 100;
@@ -96,6 +101,8 @@ struct State {
     /// Closed and open folder.
     folder_icons: (i32, i32),
     checks: HIMAGELIST,
+    /// The tooltip with the whole name and comment, when one of them shows "...".
+    tip: HWND,
 }
 
 impl State {
@@ -110,6 +117,7 @@ impl State {
             icons: HashMap::new(),
             folder_icons: (-1, -1),
             checks: 0,
+            tip: null_mut(),
         }
     }
 }
@@ -138,9 +146,11 @@ fn template() -> Vec<u16> {
     const CHECK: u32 = TAB | BS_AUTOCHECKBOX as u32;
     const GROUP: u32 = C | BS_GROUPBOX as u32;
     const COMBO: u32 = TAB | WS_VSCROLL | (CBS_DROPDOWN | CBS_AUTOHSCROLL) as u32;
-    const VALUE: u32 = C | SS_NOPREFIX | SS_ENDELLIPSIS;
+    // a value shows "..." for what does not fit; the whole text is in its tooltip (`tips`)
+    const VALUE: u32 = C | SS_NOPREFIX | SS_NOTIFY | SS_ENDELLIPSIS;
     let list = TAB | WS_BORDER | LVS_REPORT | LVS_OWNERDATA | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS;
-    let mut t = Template::new(420, 258);
+    // 2.2.1's proportions: the options column ends a little above the contents' list
+    let mut t = Template::new(420, 226);
     t.item(BUTTON, 0xffff, GROUP, [7, 4, 176, 34], tr!(AddSaveIn));
     t.item(COMBOBOX, ID_SAVE, COMBO, [14, 17, 140, 150], "");
     t.item(BUTTON, ID_BROWSE, PUSH, [158, 16, 18, 14], "...");
@@ -152,7 +162,7 @@ fn template() -> Vec<u16> {
     t.item(BUTTON, ID_TOP, CHECK, [14, 119, 162, 10], tr!(AddTopOfQueue));
     t.item(STATIC, 0xffff, C, [14, 138, 28, 9], tr!(AddLabel));
     t.item(COMBOBOX, ID_LABEL, COMBO | CBS_SORT as u32, [44, 136, 132, 120], "");
-    t.item(BUTTON, 0xffff, GROUP, [190, 4, 223, 226], tr!(AddContents));
+    t.item(BUTTON, 0xffff, GROUP, [190, 4, 223, 194], tr!(AddContents));
     t.item(STATIC, 0xffff, C, [197, 16, 36, 9], tr!(AddTorrentName));
     t.item(STATIC, ID_T_NAME, VALUE, [236, 16, 170, 9], "");
     t.item(STATIC, 0xffff, C, [197, 27, 36, 9], tr!(AddComment));
@@ -161,11 +171,11 @@ fn template() -> Vec<u16> {
     t.item(STATIC, ID_T_SIZE, VALUE, [236, 38, 170, 9], "");
     t.item(STATIC, 0xffff, C, [197, 49, 36, 9], tr!(AddDate));
     t.item(STATIC, ID_T_DATE, VALUE, [236, 49, 170, 9], "");
-    t.item(Class::Name("SysListView32"), ID_FILES, list, [197, 62, 209, 144], "");
-    t.item(BUTTON, ID_ALL, PUSH, [197, 210, 56, 14], tr!(MenuSelectAll));
-    t.item(BUTTON, ID_NONE, PUSH, [257, 210, 56, 14], tr!(MenuSelectNone));
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [309, 238, 50, 14], tr!(BtnOk));
-    t.item(BUTTON, IDCANCEL as u16, PUSH, [363, 238, 50, 14], tr!(BtnCancel));
+    t.item(Class::Name("SysListView32"), ID_FILES, list, [197, 62, 209, 112], "");
+    t.item(BUTTON, ID_ALL, PUSH, [197, 178, 56, 14], tr!(MenuSelectAll));
+    t.item(BUTTON, ID_NONE, PUSH, [257, 178, 56, 14], tr!(MenuSelectNone));
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [309, 206, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, PUSH, [363, 206, 50, 14], tr!(BtnCancel));
     t.finish()
 }
 
@@ -192,6 +202,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             SetWindowLongPtrW(dlg, DWLP_USER, lp);
             init(dlg, &mut *(lp as *mut State));
             crate::fit::fit_texts(dlg, |_| Some(0));
+            tips(dlg, &mut *(lp as *mut State));
             // focus is on OK (set by `init`)
             return 0;
         }
@@ -257,7 +268,8 @@ unsafe fn init(dlg: HWND, st: &mut State) {
         }
 
         set_text(item(dlg, ID_T_NAME), &st.name);
-        set_text(item(dlg, ID_T_COMMENT), &st.comment);
+        // on one line (a comment of several lines shows whole in its tooltip)
+        set_text(item(dlg, ID_T_COMMENT), &st.comment.split_whitespace().collect::<Vec<_>>().join(" "));
         set_text(item(dlg, ID_T_DATE), &st.date.map(fmt::date_time).unwrap_or_default());
 
         let lv = item(dlg, ID_FILES);
@@ -287,6 +299,65 @@ unsafe fn init(dlg: HWND, st: &mut State) {
         controls::set_count(lv, st.tree.len());
         update_size(dlg, st);
         SetFocus(item(dlg, IDOK as u16));
+    }
+}
+
+/// A tooltip with the whole name and comment over the values that show "..." for part of
+/// theirs (a torrent's comment is often a paragraph). Run once the texts are fitted.
+unsafe fn tips(dlg: HWND, st: &mut State) {
+    unsafe {
+        let mut tip: HWND = null_mut();
+        for (id, full) in [(ID_T_NAME, &st.name), (ID_T_COMMENT, &st.comment)] {
+            let h = item(dlg, id);
+            let shown = wide(&window_text(h));
+            if shown.len() <= 1 {
+                continue;
+            }
+            // the width the shown text needs on one line, against the control's
+            let dc = GetDC(h);
+            let old = SelectObject(dc, send(h, WM_GETFONT, 0, 0) as HFONT);
+            let mut r: RECT = zeroed();
+            let flags = DT_CALCRECT | DT_SINGLELINE | DT_NOPREFIX;
+            DrawTextW(dc, shown.as_ptr(), shown.len() as i32 - 1, &mut r, flags);
+            SelectObject(dc, old);
+            ReleaseDC(h, dc);
+            let mut own: RECT = zeroed();
+            GetClientRect(h, &mut own);
+            if r.right <= own.right {
+                continue;
+            }
+            if tip.is_null() {
+                tip = CreateWindowExW(
+                    0,
+                    TOOLTIPS_CLASSW,
+                    null(),
+                    WS_POPUP | TTS_ALWAYSTIP | TTS_NOPREFIX,
+                    0,
+                    0,
+                    0,
+                    0,
+                    dlg,
+                    null_mut(),
+                    GetModuleHandleW(null()),
+                    null(),
+                );
+                if tip.is_null() {
+                    return;
+                }
+                // a long comment wraps rather than running off the screen
+                send(tip, TTM_SETMAXTIPWIDTH, 0, dlu(dlg, 240) as LPARAM);
+            }
+            // the tooltip copies the text, with its line breaks
+            let mut w = wide(full);
+            let mut ti: TTTOOLINFOW = zeroed();
+            ti.cbSize = size_of::<TTTOOLINFOW>() as u32;
+            ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+            ti.hwnd = dlg;
+            ti.uId = h as usize;
+            ti.lpszText = w.as_mut_ptr();
+            send(tip, TTM_ADDTOOLW, 0, &ti as *const _ as LPARAM);
+        }
+        st.tip = tip;
     }
 }
 
@@ -626,7 +697,7 @@ mod tests {
     use patorrent_frontend::prefs::Prefs;
     use windows_sys::Win32::UI::Controls::{
         ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LVITEMW, LVM_GETITEMCOUNT,
-        LVM_GETITEMTEXTW,
+        LVM_GETITEMTEXTW, TTM_GETTOOLCOUNT,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CB_GETCOUNT, CreateDialogIndirectParamW, DestroyWindow, SendMessageW, WM_KEYDOWN,
@@ -634,11 +705,13 @@ mod tests {
 
     use super::*;
 
-    /// A multi-file torrent: `name/` with the given (path, size) files.
-    pub(crate) fn torrent(name: &str, files: &[(&str, u64)]) -> Vec<u8> {
+    /// A multi-file torrent: `name/` with the given (path, size) files and a comment.
+    fn torrent(name: &str, files: &[(&str, u64)], comment: &str) -> Vec<u8> {
         let total: u64 = files.iter().map(|f| f.1).sum();
         let pieces = total.div_ceil(16384).max(1);
-        let mut b = b"d7:comment9:a comment13:creation datei1700000000e4:infod5:filesl".to_vec();
+        let mut b =
+            format!("d7:comment{}:{comment}13:creation datei1700000000e4:infod5:filesl", comment.len())
+                .into_bytes();
         for (path, size) in files {
             b.extend(format!("d6:lengthi{size}e4:pathl").as_bytes());
             for part in path.split('/') {
@@ -661,6 +734,10 @@ mod tests {
 
     impl Fixture {
         fn new(files: &[(&str, u64)], setup: Setup) -> Fixture {
+            Fixture::with_comment(files, setup, "a comment")
+        }
+
+        fn with_comment(files: &[(&str, u64)], setup: Setup, comment: &str) -> Fixture {
             unsafe {
                 let icc = INITCOMMONCONTROLSEX {
                     dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
@@ -668,7 +745,7 @@ mod tests {
                 };
                 InitCommonControlsEx(&icc);
             }
-            let ti = TorrentInfo::from_bytes(&torrent("Pack", files)).expect("test torrent");
+            let ti = TorrentInfo::from_bytes(&torrent("Pack", files, comment)).expect("test torrent");
             let mut st = Box::new(State::new(&ti, setup));
             let template = template();
             let dlg = unsafe {
@@ -774,6 +851,30 @@ mod tests {
         assert_eq!(f.cell(1, 1), "48.8 kB");
         assert_eq!(f.cell(2, 0), "a.bin");
         assert_eq!(f.cell(2, 2), "Normal");
+    }
+
+    #[test]
+    fn a_long_comment_stays_in_its_box_with_a_tooltip() {
+        let short = Fixture::new(&FILES, setup());
+        assert!(short.st.tip.is_null(), "a comment that fits needs no tooltip");
+        let comment = "Comment: CachyOS ISO - Edition: Desktop, Version: 260809, Note: Torrent Created on a \
+                       build box with a long comment\nand a second line";
+        let f = Fixture::with_comment(&FILES, setup(), comment);
+        unsafe {
+            // never widened past the contents box: it ends where the list does
+            let (mut value, mut list) = (zeroed::<RECT>(), zeroed::<RECT>());
+            GetWindowRect(item(f.dlg, ID_T_COMMENT), &mut value);
+            GetWindowRect(item(f.dlg, ID_FILES), &mut list);
+            assert!(
+                value.right <= list.right,
+                "the value ends at {}, the list at {}",
+                value.right,
+                list.right
+            );
+            assert!(!f.st.tip.is_null(), "the whole comment is in a tooltip");
+            assert_eq!(send(f.st.tip, TTM_GETTOOLCOUNT, 0, 0), 1);
+        }
+        assert_eq!(f.text(ID_T_COMMENT), comment.replace('\n', " "));
     }
 
     #[test]

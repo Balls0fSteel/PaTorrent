@@ -2,6 +2,23 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_120110_1792749670: The Win32 Add New Torrent dialog: the comment no longer runs to the box's edge, the whole comment in a tooltip, 2.2.1's height
+
+The owner's look at the dialog with the CachyOS ISO torrent (2026-10-23): the Comment line ran to the Torrent Contents box's edge and the dialog looked empty, its left column ending far above the file list.
+
+### Issues
+- `fit::fit_texts` took the ellipsized values (Name and Comment in Torrent Contents, `SS_ENDELLIPSIS`) for labels and widened each to its text, as far as the box allowed: a long comment grew to the box's edge, ellipsis against the frame. `SS_ENDELLIPSIS` lies outside `SS_TYPEMASK`, so the type check saw a plain left label.
+- The template was 258 dialog units tall with a 144-unit file list, so the left column (Save In, Name, Torrent Options) ended at 160 and about 70 units stood empty below it; 2.2.1's dialog was shorter, its list a few rows above the options column's end.
+
+### Fixed
+- `fit.rs`: a static with any ellipsis style (`SS_ENDELLIPSIS`, `SS_PATHELLIPSIS`, `SS_WORDELLIPSIS`) is a `Field` (minimum 48 units): never widened to its text, and it gives width to a label on its row (a long "Kommentar:" still fits). Only `add.rs` has such statics.
+- `add.rs`: the dialog is 420 x 226 (the list 112 tall, Select All / None at 178, OK / Cancel at 206), so the options column ends a little above the list's end, as in 2.2.1. The comment is set on one line (whitespace runs, line breaks included, become one space). A tooltip (`tooltips_class32`, `TTF_SUBCLASS`, `TTM_SETMAXTIPWIDTH` 240 units so a paragraph wraps) over the Name and Comment values shows the whole text with its line breaks, added after `fit_texts` only for a value whose text is wider than its control; the values take `SS_NOTIFY` so the mouse reaches them. `State::tip` keeps the tooltip's handle (owned by the dialog, destroyed with it).
+- A test, `a_long_comment_stays_in_its_box_with_a_tooltip`: a two-line comment longer than the box keeps the value's right edge at the list's, gets one tool in the tooltip, and shows on one line; the short "a comment" gets no tooltip. The test torrent helper takes the comment.
+- Seen by eye: a portable copy of the debug build (`patorrent.ini` beside it) started with `--demo 3` and a hand-made `.torrent` carrying a two-line CachyOS-style comment, captured with a `BitBlt` script: the comment ends with "..." a few pixels inside the box, the dialog is 646 x 406 pixels at 100 %, and the tooltip over the comment shows all three wrapped lines.
+
+### Decisions
+- No multi-line comment box: 2.2.1 showed the comment on one line, and a box that is empty for the many torrents without a comment would look emptier than the gap did. The tooltip carries the paragraph.
+
 ## 2026-10-23_103938_1792744778: CI 39923065588 red on Windows: the piece-state test guessed the seed's port; fixed to read the engine's
 
 The push of the two records commits (0b468a7) ran CI: fmt, msrv, macOS and Ubuntu green, FreeBSD green, the Windows test job red on one test, `piece_states_report_the_pieces_being_downloaded` in `crates/nox/tests/webui.rs` (`no piece reported downloading: [0, 0, 0, 0]` after 30 s). The same test passed on the previous Windows run of the same code (39917670374) and 5 of 5 times here, so it was a flake.

@@ -2,6 +2,19 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_103938_1792744778: CI 39923065588 red on Windows: the piece-state test guessed the seed's port; fixed to read the engine's
+
+The push of the two records commits (0b468a7) ran CI: fmt, msrv, macOS and Ubuntu green, FreeBSD green, the Windows test job red on one test, `piece_states_report_the_pieces_being_downloaded` in `crates/nox/tests/webui.rs` (`no piece reported downloading: [0, 0, 0, 0]` after 30 s). The same test passed on the previous Windows run of the same code (39917670374) and 5 of 5 times here, so it was a flake.
+
+### Issues
+- The test bound and released a loopback port (`free_port`) and started the seed's engine on it. The suite's 31 tests run in parallel, each starting sessions and Web UI servers on ephemeral ports, so by the time the seed bound the port another socket could hold it; the engine then does what libtorrent does with a configured port that is taken (`max_retry_port_bind`, `open_listen_socket`): it listens one port up and reports the real one in `ListenSucceeded`. The leech was told the guessed port, its one connection attempt was refused, and no retry comes within the test's 30 s.
+
+### Fixed
+- The harness's alert pump records every TCP `ListenSucceeded` address (`Harness::listen`), new `Harness::listen_port()` waits for the first one, and the test starts the seed on `127.0.0.1:0` and tells the leech the port the engine reported. `free_port` is gone. The engine is unchanged: the silent move to the next port is libtorrent's behaviour and the alert says where it went.
+
+### Verified
+- `cargo test -p patorrent-nox --test webui piece_states`: 6 of 6 runs pass (0.46 s each); the whole `webui` suite: 31 passed, 0 failed in 17.3 s; `cargo +stable fmt -p patorrent-nox --check` and `cargo clippy -p patorrent-nox --tests -D warnings` clean.
+
 ## 2026-10-23_100449_1792742689: The 1.0 hand-test set: Windows built here, Linux from the green Release run, smoke-tested on the Xubuntu VM
 
 The owner asked for the Windows and Linux binaries to test by hand before 1.0. The Release run 39917672379 (c8fe9e8) is the current code (c8b7c39 only adds records), so its Linux files are used as they are; Windows was also built here.

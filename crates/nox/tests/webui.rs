@@ -97,6 +97,8 @@ struct Harness {
     pump: Option<JoinHandle<()>>,
     session: Option<Session>,
     dir: PathBuf,
+    /// The TCP addresses the engine reported listening on (`ListenSucceeded`).
+    listen: Arc<std::sync::Mutex<Vec<SocketAddr>>>,
 }
 
 impl Harness {
@@ -155,8 +157,9 @@ impl Harness {
         let web = Arc::new(WebUi::start(h.clone(), c).unwrap());
         let addr = web.local_addr();
         let stop = Arc::new(AtomicBool::new(false));
+        let listen = Arc::new(std::sync::Mutex::new(Vec::new()));
         let pump = {
-            let (web, stop) = (web.clone(), stop.clone());
+            let (web, stop, listen) = (web.clone(), stop.clone(), listen.clone());
             std::thread::spawn(move || {
                 let mut alerts = Vec::new();
                 while !stop.load(Ordering::SeqCst) {
@@ -164,12 +167,19 @@ impl Harness {
                     h.post_session_stats();
                     std::thread::sleep(Duration::from_millis(50));
                     h.pop_alerts(&mut alerts);
+                    for a in &alerts {
+                        if let patorrent_core::Alert::ListenSucceeded { address, protocol } = a {
+                            if format!("{protocol:?}") == "Tcp" {
+                                listen.lock().unwrap().push(*address);
+                            }
+                        }
+                    }
                     web.on_alerts(&alerts);
                     alerts.clear();
                 }
             })
         };
-        Harness { web, addr, stop, pump: Some(pump), session: Some(session), dir }
+        Harness { web, addr, stop, pump: Some(pump), session: Some(session), dir, listen }
     }
 
     fn host(&self) -> String {
@@ -250,6 +260,19 @@ impl Harness {
     }
 
     /// Polls `torrents/info` until `f` holds for the torrent.
+    /// The port the engine listens on for TCP peers: the one it reported, not the one asked
+    /// for (a configured port that is taken is moved past, `max_retry_port_bind`).
+    fn listen_port(&self) -> u16 {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        loop {
+            if let Some(a) = self.listen.lock().unwrap().first() {
+                return a.port();
+            }
+            assert!(Instant::now() < deadline, "the engine never reported a TCP listen socket");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
+
     fn wait_for(&self, sid: &str, hash: &str, what: &str, f: impl Fn(&Json) -> bool) -> Json {
         let deadline = Instant::now() + Duration::from_secs(20);
         loop {
@@ -2895,20 +2918,17 @@ fn properties_of_a_restored_torrent_come_from_the_engine() {
     assert_eq!(s(tr[0].get("msg")), "This torrent is private");
 }
 
-/// A free loopback port (bound and released; nothing else in the test binds ports by number).
-fn free_port() -> u16 {
-    std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap().port()
-}
-
 /// `torrents/pieceStates` sends 1 for the pieces with blocks in flight: a seed on loopback, a
 /// leech limited to 4 kB/s told about it through `torrents/addPeers`, so each 16 KiB piece
-/// stays requested for seconds.
+/// stays requested for seconds. The seed's port is the one its engine reports: a port picked
+/// in advance can be taken by the other tests' sockets by the time the seed binds it, and the
+/// engine then listens one port up while the leech knocks on the wrong door (CI
+/// 39923065588, Windows).
 #[test]
 fn piece_states_report_the_pieces_being_downloaded() {
     let (bytes, hash) = torrent();
-    let port = free_port();
-    let seed_settings = Settings { listen_interfaces: format!("127.0.0.1:{port}"), ..Harness::settings() };
-    let seed = Harness::start_with(temp_dir("piece-seed"), seed_settings);
+    let seed = Harness::start_with(temp_dir("piece-seed"), Harness::settings());
+    let port = seed.listen_port();
     let data = seed.dir.join("data").join("webui-test");
     std::fs::create_dir_all(&data).unwrap();
     let all = torrent_data();

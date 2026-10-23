@@ -745,7 +745,9 @@ macro_rules! message {
 }
 
 /// A command from a remote client. `None` for what does not cross the network: a session's
-/// IP filter tables (they are the server's), the test hook, and `Shutdown` (the client closing).
+/// IP filter tables (they are the server's), the calls answered on a channel (peer classes,
+/// `TorrentHandle::metadata`: dropping the channel answers `None`), the test hook, and
+/// `Shutdown` (the client closing).
 pub(crate) fn encode_command(c: &Command, e: &mut Enc) -> bool {
     match c {
         Command::AddTorrent(p) => message!(e, "add", **p),
@@ -785,7 +787,11 @@ pub(crate) fn encode_command(c: &Command, e: &mut Enc) -> bool {
         Command::PauseSession => message!(e, "pause_session"),
         Command::ResumeSession => message!(e, "resume_session"),
         Command::ReopenNetworkSockets => message!(e, "reopen_network_sockets"),
-        Command::SetIpFilter(_) | Command::SetPortFilter(_) | Command::PeerClass(_) | Command::Shutdown => {
+        Command::SetIpFilter(_)
+        | Command::SetPortFilter(_)
+        | Command::PeerClass(_)
+        | Command::GetMetadata(..)
+        | Command::Shutdown => {
             return false;
         }
         #[cfg(test)]

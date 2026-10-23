@@ -4,7 +4,9 @@
 //! leeches unchokes one regular peer plus the optimistic one under `max_uploads = 1` and all
 //! of them without a limit, and drops the extra peers when `max_connections` is lowered; a
 //! leech whose tracker list is replaced announces to the new tracker, downloads from the peer
-//! it hands out, and finds the list and its switches again after a restart.
+//! it hands out, and finds the list and its switches again after a restart. The metadata
+//! summary (`TorrentHandle::metadata`: private flag, comment, creator, date, `source`) of a
+//! torrent restored from the state directory, stopped or running.
 
 use std::collections::VecDeque;
 use std::net::{SocketAddr, TcpListener};
@@ -401,6 +403,101 @@ fn save_resume_data_writes_the_state_while_running() {
     restored.shutdown();
     s.shutdown();
     for d in [state, dir, copy] {
+        let _ = std::fs::remove_dir_all(d);
+    }
+}
+
+/// A private one-piece torrent with a comment, a creator, a date and a `source`, and a plain
+/// one without any of them.
+fn private_torrent(name: &str, private: bool) -> Vec<u8> {
+    let data = vec![7u8; 1000];
+    let mut info = Entry::new_dict();
+    *info.key("length") = Entry::Int(data.len() as i64);
+    *info.key("name") = Entry::Bytes(name.as_bytes().to_vec());
+    *info.key("piece length") = Entry::Int(PIECE as i64);
+    *info.key("pieces") = Entry::Bytes(Sha1::digest(&data).0.to_vec());
+    let mut t = Entry::new_dict();
+    if private {
+        *info.key("private") = Entry::Int(1);
+        *info.key("source") = Entry::Bytes(b"SRC".to_vec());
+        *t.key("comment") = Entry::Bytes(b"kept across restarts".to_vec());
+        *t.key("created by") = Entry::Bytes(b"the test".to_vec());
+        *t.key("creation date") = Entry::Int(951_782_400);
+    }
+    *t.key("info") = info;
+    t.bencode()
+}
+
+/// `TorrentHandle::metadata` reads the info dictionary's private flag and `source` and the
+/// `.torrent`'s text around it, for a torrent added this run and for one restored from the
+/// state directory, stopped (its metadata read from the store for the call) or running; a
+/// torrent without any of it reports none.
+#[test]
+fn metadata_summary_survives_a_restart() {
+    let state = temp_dir("mstate");
+    let dir = temp_dir("mdl");
+    let (s, mut w) = start(settings(), Some(state.clone()));
+    let mut ids = Vec::new();
+    for (name, paused) in [("stopped", true), ("running", false)] {
+        let mut p = AddTorrentParams::new(
+            TorrentSource::TorrentFile(private_torrent(name, true)),
+            dir.to_string_lossy(),
+        );
+        p.flags = if paused { TorrentFlags::PAUSED } else { TorrentFlags::empty() };
+        w.h.add_torrent(p);
+        ids.push(wait(&mut w, 5, "add", |a| match a {
+            Alert::TorrentAdded { id, .. } => Some(*id),
+            _ => None,
+        }));
+    }
+    let mut p = AddTorrentParams::new(
+        TorrentSource::TorrentFile(private_torrent("plain", false)),
+        dir.to_string_lossy(),
+    );
+    p.flags = TorrentFlags::PAUSED;
+    w.h.add_torrent(p);
+    let plain = wait(&mut w, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    let check = |m: Option<patorrent_core::TorrentMetadata>| {
+        let m = m.expect("a summary");
+        assert!(m.private);
+        assert_eq!((m.comment.as_str(), m.created_by.as_str()), ("kept across restarts", "the test"));
+        assert_eq!((m.creation_date, m.source.as_str()), (Some(951_782_400), "SRC"));
+        assert_eq!((m.num_pieces, m.piece_length), (1, PIECE as u32));
+    };
+    for &id in &ids {
+        check(w.h.torrent(id).metadata());
+    }
+    let m = w.h.torrent(plain).metadata().expect("a summary");
+    assert!(!m.private && m.comment.is_empty() && m.created_by.is_empty() && m.creation_date.is_none());
+    assert!(m.source.is_empty());
+    s.shutdown();
+
+    let (s, mut w) = start(settings(), Some(state.clone()));
+    let mut restored = Vec::new();
+    while restored.len() < 3 {
+        let more = wait(&mut w, 5, "the restored torrents", |a| match a {
+            Alert::StateUpdate(v) if !v.is_empty() => Some(v.clone()),
+            _ => None,
+        });
+        for st in more {
+            if !restored.iter().any(|(id, _)| *id == st.id) {
+                restored.push((st.id, st.name.clone()));
+            }
+        }
+    }
+    for (id, name) in restored {
+        let m = w.h.torrent(id).metadata();
+        if name == "plain" {
+            assert!(!m.expect("a summary").private);
+        } else {
+            check(m);
+        }
+    }
+    s.shutdown();
+    for d in [state, dir] {
         let _ = std::fs::remove_dir_all(d);
     }
 }

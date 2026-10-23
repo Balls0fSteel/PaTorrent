@@ -407,7 +407,7 @@ fn websocket(mut stream: Conn, mut buf: Vec<u8>, shared: &Shared, key: &str) {
                     }
                     drop(st);
                     // the tab's engine replies, so the next tick has fresh content
-                    client.request_detail(&shared.handle);
+                    client.request_detail(shared);
                 }
                 Ok(Some(Message::Ping(payload))) => ws::write_frame(Opcode::Pong, &payload, &mut out),
                 Ok(Some(Message::Pong(_))) | Ok(None) => {}
@@ -453,7 +453,7 @@ fn websocket(mut stream: Conn, mut buf: Vec<u8>, shared: &Shared, key: &str) {
                     ws::write_text(&msg.to_json(), &mut out);
                 }
                 drop(st);
-                client.request_detail(&shared.handle);
+                client.request_detail(shared);
             }
         }
         // liveness

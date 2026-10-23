@@ -60,6 +60,8 @@ pub(crate) enum Command {
     PostTrackers(TorrentId),
     PostPieceInfo(TorrentId),
     PostTorrentFile(TorrentId),
+    /// [`TorrentHandle::metadata`]: answered on the channel (not over a remote session).
+    GetMetadata(TorrentId, mpsc::Sender<Option<crate::status::TorrentMetadata>>),
     ApplySettings(Box<Settings>),
     SetIpFilter(Arc<IpFilter>),
     SetPortFilter(PortFilter),
@@ -555,5 +557,18 @@ impl TorrentHandle {
     /// `torrent_file()` plus `write_torrent_file`).
     pub fn post_torrent_file(&self) {
         self.session.send(Command::PostTorrentFile(self.id));
+    }
+
+    /// The private flag, comment, creator, creation date and `source` of the torrent's
+    /// metadata, whichever way it was added (a `.torrent`, a magnet once its metadata came, or
+    /// restored from the state directory), waiting for the engine's answer (libtorrent
+    /// `torrent_file()` read for these fields). A stopped torrent's metadata is read from the
+    /// session store for the call and not kept. `None` for a removed torrent, one still
+    /// fetching its metadata, once the session is gone, and over a remote session (the call
+    /// does not cross the network). Never call it from the alert notify callback.
+    pub fn metadata(&self) -> Option<crate::status::TorrentMetadata> {
+        let (tx, rx) = mpsc::channel();
+        self.session.send(Command::GetMetadata(self.id, tx));
+        rx.recv().ok().flatten()
     }
 }

@@ -2,6 +2,22 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_141938_1792757978: A fresh hand-test set from 63e3f50: Windows built here, Linux from Release 39950546995
+
+The owner asked for new builds with the three UI fixes (63e3f50). The commit was pushed (the Release workflow builds only what is on GitHub) and the workflow dispatched on main by hand for the Linux files; Windows was also built here.
+
+### Changed
+- `dist/1.0-test-63e3f50/` (gitignored; the ad714b1 set in `dist/1.0-test-ad714b1/` is left as it was): `windows-x64/` (`cargo build --release --locked -p patorrent -p patorrent-nox -p lt-swarm`, 57 s, static CRT; `patorrent.exe` 4,253,184 bytes, `patorrent-nox.exe` 4,483,584, `lt-swarm.exe` 2,890,240, LICENSE.md, THIRD-PARTY-NOTICES.md), `windows-x64-ci/` (the run's `patorrent-0.1.0-dev.63e3f50-windows-x64.zip`, 4.5 MB), `linux-x86_64/` (tarball 4.5 MB, GUI AppImage 37.1 MB, nox AppImage 5.2 MB, Flatpak 2.2 MB, `gh run download`), `SHA256SUMS`, `HAND-TEST.md` (with the three things to look at). 63 MB in all.
+- Every binary differs from the ad714b1 set's (the engine changed: port mapping, the client table). `dist/patorrent-nox.exe` and `dist/lt-swarm.exe` refreshed; `dist/patorrent.exe` was running (the owner's CachyOS download) and stays the ad714b1 build until that instance exits.
+
+### Verified
+- **Release 39950546995** (63e3f50, dispatched by hand, about 9 min): every job green (version, windows, both linux, both flatpak legs, macos; `release` skipped without a tag).
+- **FreeBSD 39950547019** and **Fuzz 39950546842** green on the push; **CI 39950546969** green (macos, test on ubuntu-24.04 and windows-latest, msrv, fmt, release-windows).
+- Windows: `patorrent-nox.exe --version` prints `patorrent-nox 0.1.0`.
+
+### Issues
+- Not smoke-tested on the Xubuntu VM (the c8fe9e8 set was; this set has Linux-side changes in the engine and the GTK Peers tab, covered by CI's tests only).
+
 ## 2026-10-23_124915_1792752555: Three UI bugs from the owner's CachyOS run: the list selection, "no router found", empty Client cells
 
 The owner's screenshots (2026-10-23): the selected torrent row drawn as separate blue cells with white gaps between them; the Logger with eight "Upnp: mapping failed: no router found" lines at one second although the router has UPnP; the Peers tab with ten rows showing no client, 0.0 %, no speed.

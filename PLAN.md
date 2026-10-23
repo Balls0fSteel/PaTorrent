@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-23_124915_1792752555
+Last updated: 2026-10-23_141938_1792757978
 
 ## Vision
 
@@ -24,7 +24,8 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Three UI bugs from the owner's CachyOS run fixed (2026-10-23_124915_1792752555; CHANGELOG 2026-10-23_124915_1792752555):** the Win32 lists paint the selection as one bar across the row (every list in the main window and the dialogs); UPnP no longer searches interfaces without a default gateway, so the Logger shows the router's mappings instead of eight "no router found" lines from the VM adapters; the Peers tab lists connected peers only (their client from the peer id or the BEP 10 `v`), and the client table is libtorrent's whole one. Next: a fresh hand-test build for the owner.
+- **Hand-test set refreshed from 63e3f50 (2026-10-23_141938_1792757978):** `dist/1.0-test-63e3f50/` (gitignored) holds the Windows x64 binaries built here from 63e3f50 (every binary differs from the ad714b1 set) plus Release 39950546995's Windows zip, Linux x86_64 tarball, both AppImages and the Flatpak, `SHA256SUMS` and `HAND-TEST.md` (what to look at). Not smoke-tested on the VM. Next: the owner's click-through of the three fixes.
+- **Three UI bugs from the owner's CachyOS run fixed (2026-10-23_124915_1792752555; CHANGELOG 2026-10-23_124915_1792752555):** the Win32 lists paint the selection as one bar across the row (every list in the main window and the dialogs); UPnP no longer searches interfaces without a default gateway, so the Logger shows the router's mappings instead of eight "no router found" lines from the VM adapters; the Peers tab lists connected peers only (their client from the peer id or the BEP 10 `v`), and the client table is libtorrent's whole one. The hand-test set above carries them.
 - **Hand-test set refreshed from ad714b1 (2026-10-23_122235_1792750955):** `dist/1.0-test-ad714b1/` (gitignored) holds the Windows x64 binaries built here from ad714b1 (only `patorrent.exe` differs from the c8fe9e8 set) plus Release 39937587571's Windows zip, Linux x86_64 tarball, both AppImages and the Flatpak, `SHA256SUMS` and `HAND-TEST.md`. Not smoke-tested on the VM (no Linux-side change). The previous set stays in `dist/1.0-test/`.
 - **1.0 hand-test set ready (2026-10-23_100449_1792742689):** `dist/1.0-test/` (gitignored) holds the Windows x64 binaries built here from c8b7c39 (`patorrent.exe`, `patorrent-nox.exe`, `lt-swarm.exe`, static CRT, with the two texts), the Release workflow's Windows zip, Linux x86_64 tarball, both AppImages and the Flatpak from run 39917672379 (c8fe9e8, the same code), `SHA256SUMS` and `HAND-TEST.md` (how to start each). Smoke-tested: Windows nox prints its version and help; on the Xubuntu VM every Linux binary and AppImage prints its version and nox served the Web UI and stopped cleanly. Not run: the Flatpak (no flatpak on the VM), the GUIs by hand. Next: Road to 1.0 item 9, the owner's click-throughs on these files.
 

@@ -5,6 +5,8 @@
 //! unpatched datagrams also go, one by one, to a manager with a small connection limit, which
 //! must stay within its SYN-flood bound and answer every datagram with at most one; and the
 //! accepted connection is detached halfway, so the rest reaches a closing socket nobody reads.
+//! Since 2026-10-23 that manager's accept filter refuses one of the two addresses, so refused
+//! SYNs (answered by a FIN alone) are under the same bounds.
 #![no_main]
 
 use std::net::SocketAddr;
@@ -58,14 +60,17 @@ fuzz_target!(|data: &[u8]| {
     let mut flood = Sink::default();
     let other: SocketAddr = "10.0.0.3:6881".parse().unwrap();
     let dgrams = datagrams(data);
+    // The accept filter refuses `other` (the engine's refusal): such a SYN is answered by the
+    // closed socket's FIN alone and never becomes a connection.
     for (i, d) in dgrams.iter().enumerate() {
         let src = if i % 3 == 2 { other } else { from };
-        m.incoming_packet(src, d, &mut flood, now);
+        m.incoming_packet_filtered(src, d, &mut flood, now, &mut |a| a != other);
         m.socket_drained(&mut flood, now);
         assert!(m.num_sockets() <= 5, "{} sockets", m.num_sockets());
         assert!(flood.sent <= i + 1, "{} datagrams out for {} in", flood.sent, i + 1);
     }
     for id in m.take_accepted() {
+        assert!(m.get(id).is_some_and(|s| s.remote() != other), "a refused connection was accepted");
         let mut out = Vec::new();
         let _ = m.read_some(id, &mut out, 1 << 16);
     }

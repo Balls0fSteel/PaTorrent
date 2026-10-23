@@ -12,7 +12,9 @@
 // connection we accepted is acknowledged again instead of making a second socket; a SYN that
 // does not leave its new socket connected (a malformed extension) leaves no socket; a negative
 // `connections_limit` (unlimited in the engine) bounds the sockets at
-// `2 * UNLIMITED_CONNECTIONS` instead of refusing every SYN.
+// `2 * UNLIMITED_CONNECTIONS` instead of refusing every SYN. The engine's refusal of a new
+// connection is asked for through an accept filter before the SYN is answered
+// (`incoming_packet_filtered`), so a refused SYN gets libtorrent's single FIN.
 
 //! uTP (BEP 29): reliable, LEDBAT-congestion-controlled streams over the UDP listen socket.
 //!
@@ -576,13 +578,36 @@ impl UtpManager {
     }
 
     /// Feeds a datagram from the UDP listen socket. Returns false if it is not a uTP packet
-    /// (so the DHT or the trackers can have it).
+    /// (so the DHT or the trackers can have it). Every new connection is accepted: see
+    /// [`UtpManager::incoming_packet_filtered`].
+    #[cfg(any(test, feature = "fuzzing"))]
     pub fn incoming_packet(
         &mut self,
         from: SocketAddr,
         buf: &[u8],
         io: &mut dyn UtpIo,
         now: Instant,
+    ) -> bool {
+        self.incoming_packet_filtered(from, buf, io, now, &mut |_| true)
+    }
+
+    /// Feeds a datagram from the UDP listen socket, with the upper layer's accept filter.
+    /// Returns false if it is not a uTP packet (so the DHT or the trackers can have it).
+    /// `accept` is asked,
+    /// with the source address, about each SYN that makes a new connection, before anything is
+    /// sent for it (libtorrent's session decides inside the manager's `m_cb`, while the SYN's
+    /// ACK is still deferred). A refused connection's socket is closed at once, as libtorrent's
+    /// is when `session_impl::incoming_connection` lets go of it: its FIN, which carries the
+    /// ACK of the SYN, is the one datagram the SYN gets, and the socket lingers only until the
+    /// FIN is acknowledged or its resends run out. It never reaches
+    /// [`UtpManager::take_accepted`].
+    pub fn incoming_packet_filtered(
+        &mut self,
+        from: SocketAddr,
+        buf: &[u8],
+        io: &mut dyn UtpIo,
+        now: Instant,
+        accept: &mut dyn FnMut(SocketAddr) -> bool,
     ) -> bool {
         let Some(h) = header::Header::parse(buf) else { return false };
         if h.version != 1 {
@@ -659,7 +684,12 @@ impl UtpManager {
                 return false;
             }
             self.last_socket = Some(i);
-            self.accepted.push(i);
+            if accept(from) {
+                self.accepted.push(i);
+            } else {
+                // the FIN acknowledges the SYN and cancels the deferred ACK
+                let _ = self.with_socket(i, io, now, &[], |s, ctx| s.destroy(ctx));
+            }
             return true;
         }
         // an ST_RESET for an unknown connection is ignored, as is anything else

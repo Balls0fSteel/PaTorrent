@@ -434,6 +434,12 @@ impl Engine {
     /// libtorrent `session_impl::incoming_connection`: the session's `connections_limit`
     /// weighed by the classes an incoming connection from `addr` would get is reached.
     pub(super) fn incoming_over_limit(&self, addr: SocketAddr, utp: bool) -> bool {
+        self.incoming_over_limit_with(addr, utp, 0)
+    }
+
+    /// [`Engine::incoming_over_limit`] counting `pending` connections accepted but not yet
+    /// peers (uTP connections accepted earlier in the same wakeup).
+    pub(super) fn incoming_over_limit_with(&self, addr: SocketAddr, utp: bool, pending: usize) -> bool {
         let limit = self.settings.connections_limit;
         if limit < 0 {
             return false;
@@ -443,7 +449,7 @@ impl Engine {
         let mask = pc.type_filter.apply(st, pc.filter.access(addr.ip()));
         let classes = (0..32).filter(|i| mask & (1 << i) != 0).map(PeerClassId);
         let limit = limit as u64 * 100 / self.connection_limit_factor(classes);
-        self.peers.len() as u64 >= limit
+        (self.peers.len() + pending) as u64 >= limit
     }
 
     /// libtorrent `peer_connection::ignore_unchoke_slots`: a peer in no class, or in a class

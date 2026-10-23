@@ -2,6 +2,29 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_124915_1792752555: Three UI bugs from the owner's CachyOS run: the list selection, "no router found", empty Client cells
+
+The owner's screenshots (2026-10-23): the selected torrent row drawn as separate blue cells with white gaps between them; the Logger with eight "Upnp: mapping failed: no router found" lines at one second although the router has UPnP; the Peers tab with ten rows showing no client, 0.0 %, no speed.
+
+### Issues
+- Selection: comctl32 v6 on Windows 10 / 11 without the Explorer theme paints a full-row selection cell by cell (each subitem's label rectangle), leaving the column padding white, with the focus rectangle around the first cell's label only. 2.2.1 drew one solid bar across the row.
+- UPnP: the router answers fine on the LAN interface (192.168.1.101: NAT-PMP and UPnP both mapped TCP and UDP within a second, `patorrent-nox run --no-state --seconds 30 --verbose`). The eight failures came from the four other IPv4 interfaces (VirtualBox 192.168.56.1, VMware 192.168.41.1 and 192.168.32.1, Hyper-V 172.22.96.1): each had a UPnP mapper searching twelve times over 156 s and then failing its two mappings (TCP, UDP) with "no router found", all at the same second since they had started together. NAT-PMP already skipped them ("no default gateway on ...; not started"). The GUI hides `PortmapLog` and shows `PortmapFailed`, so the noise was all the owner saw of port mapping.
+- Peers: the engine fills the Client cell after the handshake (the peer id's Azureus code, then the BEP 10 `v` string when one comes), but the Peers tab listed every connection, the ones still connecting or in their handshake first (they take the free slots at the top of the torrent's peer list), each with no client, 0.0 % and no flags but its source letter. µTorrent listed the connected peers its Peers column counts. The client table had 20 codes and mapped `lt` (rTorrent's) to "libTorrent" and `RT` (Retriever) to "rTorrent".
+
+### Fixed
+- `controls::selection_pre_paint` / `selection_cell_colours` / `selection_post_paint` / `selection_custom_draw`: at `CDDS_ITEMPREPAINT` a selected row is filled across its `LVIR_BOUNDS` with `COLOR_HIGHLIGHT` (the list has the focus) or `COLOR_BTNFACE` (it has not); the item loses `CDIS_SELECTED | CDIS_FOCUS` so the list view paints the cells' text over the bar with `clrText` / `clrTextBk` set to the bar's colours (set again per cell, as the list view restores the state); `CDDS_ITEMPOSTPAINT` draws the focus rectangle around the whole row. Used by the torrent list and the pieces list (their own bars stay on top), every detail tab list (an `NM_CUSTOMDRAW` arm for `IDC_PAGE..`), the Add New Torrent file list, the RSS dialog's feeds, preview and history lists and the Advanced preferences list (dialog procedures answer `NM_CUSTOMDRAW` through `DWLP_MSGRESULT`, new in `dialogs`). The RSS filters list keeps the default look (check boxes, no full-row select).
+- `portmap`: `Mapper::routed` records that the routing table was read; `start_upnp` skips a routed interface without a default gateway (logged as NAT-PMP's is), so UPnP searches only where the internet can come in. Without a readable routing table every interface is searched as before. The failure names the interface: "no router found on 192.168.56.1". PORTING.md's per-interface row carries the divergence.
+- `detail::listed_peers` / `Detail::set_peers`: peers flagged `CONNECTING` or `HANDSHAKE` stay out of the Peers tab (Win32, GTK, the Web UI's native page; the qBittorrent shim's `sync/torrentPeers` lists them all, as qBittorrent does). Test `the_peers_tab_lists_connected_peers_only`.
+- `identify_client`: libtorrent's whole table (`identify_client.cpp`, the BEP 20 codes) with the two corrections and the codes we had beyond it kept (PaTorrent, LibreTorrent, Free Download Manager, PicoTorrent, Tixati, WebTorrent); an unknown code still shows as the code and version. Four more asserts in `peer_wire::tests`.
+
+### Verified
+- `cargo fmt --all --check`; `cargo clippy --workspace --all-targets -- -D warnings`; for `x86_64-unknown-linux-gnu`: the GTK crate with `--all-targets` (stand-in pkg-config) and the plain core and nox libs, all clean; `cargo test -p patorrent-core -p patorrent-frontend -p patorrent-nox` (736 core tests, 171 frontend, the nox suites) green before the new test; the frontend suite again after it.
+- By eye, the debug build as a portable copy (`patorrent.ini` beside it): `--demo 3`, a row clicked by a posted `WM_LBUTTONDOWN`, captured with `PrintWindow`: one blue bar across the row with the green Done bar on it and the dotted focus rectangle around the whole row; grey once the tree has the focus. The Debian 13.7.0 netinst magnet on the command line (`ui.show_add_dialog=false`, a scratch download folder, 30 s, then stopped and deleted): the Peers tab lists connected peers with "µTorrent 3.6", "qBittorrent/5.3.0", "qBittorrent/5.2.4", "BitTorrent 7.11" (their `v` strings), flags, percentages and speeds; the Logger has "NatPmp: mapped Tcp port 6882", "Upnp: mapped Tcp port 6882", "Upnp: mapped Udp port 6882" and no "no router found". That run also covers Next steps item 1 (a magnet link in the GUI): the row appeared and downloaded.
+
+### Issues
+- No Rust test for the custom draw (it needs a window) or for the UPnP start rule (the interface list comes from the OS); both were checked by eye and in the nox log.
+- Not pushed.
+
 ## 2026-10-23_122235_1792750955: A fresh hand-test set from ad714b1: Windows built here, Linux from Release 39937587571
 
 The owner asked for new builds to test the latest changes (the Win32 Add New Torrent comment fix, ad714b1, already pushed). The Release workflow was dispatched on main by hand for the Linux files; Windows was also built here.

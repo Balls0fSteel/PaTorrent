@@ -122,6 +122,9 @@ const DS_SHELLFONT: u32 = 0x48;
 /// `GetWindowLongPtr` index of the dialog's user data (after the message result and the
 /// dialog procedure).
 pub const DWLP_USER: i32 = (2 * size_of::<usize>()) as i32;
+/// Where a dialog procedure leaves the result of a message such as `WM_NOTIFY` (it returns
+/// `TRUE` to say it did).
+pub const DWLP_MSGRESULT: i32 = 0;
 
 const ID_EDIT: u16 = 100;
 const ID_PROMPT: u16 = 101;

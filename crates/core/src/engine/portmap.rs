@@ -58,6 +58,9 @@ const TRANSPORTS: [PortmapTransport; 2] = [PortmapTransport::NatPmp, PortmapTran
 struct Mapper {
     iface: IpInterface,
     gateway: Option<IpAddr>,
+    /// The routing table was read, so a `None` gateway means the interface has no default
+    /// route: neither mapper starts on it (a virtual-machine or container adapter, say).
+    routed: bool,
     natpmp: Option<NatPmp>,
     natpmp_token: usize,
     upnp: Option<Upnp>,
@@ -135,8 +138,9 @@ impl Engine {
     /// The interfaces to map ports on (libtorrent starts a NAT-PMP and a UPnP mapper per listen
     /// socket): the expanded listen endpoints that reach the internet (not `LOCAL_NETWORK`),
     /// never loopback, and IPv6 ones only with a global address (NAT-PMP / PCP; UPnP is IPv4
-    /// only). Each comes with its default gateway, if the routing table names one.
-    fn portmap_interfaces(&mut self) -> Vec<(IpInterface, Option<IpAddr>)> {
+    /// only). Each comes with its default gateway, if the routing table names one, and whether
+    /// the table could be read at all.
+    fn portmap_interfaces(&mut self) -> (Vec<(IpInterface, Option<IpAddr>)>, bool) {
         let endpoints: Vec<IpAddr> = self
             .network
             .expanded
@@ -146,7 +150,7 @@ impl Engine {
             .filter(|a| a.is_ipv4() || !crate::net::ip_voter::is_local(a))
             .collect();
         if endpoints.is_empty() {
-            return Vec::new();
+            return (Vec::new(), false);
         }
         let ifs = match self.net_interfaces() {
             Ok(ifs) => ifs,
@@ -155,7 +159,7 @@ impl Engine {
                     id: None,
                     message: format!("port mapping: cannot list the network interfaces: {e}"),
                 });
-                return Vec::new();
+                return (Vec::new(), false);
             }
         };
         let routes = match self.net_routes() {
@@ -177,7 +181,7 @@ impl Engine {
             let gateway = routes.as_ref().and_then(|r| get_gateway(ifc, r));
             out.push((ifc.clone(), gateway));
         }
-        out
+        (out, routes.is_some())
     }
 
     /// libtorrent `reopen_listen_sockets`' mapper part: mappers for the listen interfaces, then
@@ -194,7 +198,7 @@ impl Engine {
         if !self.settings.enable_natpmp && !self.settings.enable_upnp {
             return;
         }
-        let want = self.portmap_interfaces();
+        let (want, routed) = self.portmap_interfaces();
         let now = Instant::now();
         let mut i = 0;
         while i < self.portmap.mappers.len() {
@@ -221,6 +225,7 @@ impl Engine {
             self.portmap.mappers.push(Mapper {
                 iface,
                 gateway,
+                routed,
                 natpmp: None,
                 natpmp_token,
                 upnp: None,
@@ -300,12 +305,25 @@ impl Engine {
         self.drain_portmap();
     }
 
-    /// libtorrent `start_upnp` (IPv4 interfaces only, as there).
+    /// libtorrent `start_upnp` (IPv4 interfaces only, as there), on the interfaces with a
+    /// default route: libtorrent searches on every one, and an adapter of a virtual machine or
+    /// a container then reports "no router found" for each mapping after its twelve searches.
+    /// An interface the routing table leaves without a gateway cannot be the way in from the
+    /// internet, so a mapping there would serve nothing. Without a readable routing table every
+    /// interface is searched, as there.
     pub(super) fn start_upnp(&mut self) {
         let now = Instant::now();
         let settings = self.upnp_settings();
         for mi in 0..self.portmap.mappers.len() {
             if self.portmap.mappers[mi].upnp.is_some() {
+                continue;
+            }
+            let m = &self.portmap.mappers[mi];
+            if m.routed && m.gateway.is_none() {
+                if m.iface.addr.is_ipv4() {
+                    let message = format!("no default gateway on {}; not started", m.iface.addr);
+                    self.alert(Alert::PortmapLog { transport: PortmapTransport::Upnp, message });
+                }
                 continue;
             }
             let block = self.portmap.http_block();

@@ -34,9 +34,9 @@ use windows_sys::Win32::UI::Controls::{
     LVIF_TEXT, LVIS_STATEIMAGEMASK, LVM_ENSUREVISIBLE, LVM_INSERTCOLUMNW, LVM_SETCALLBACKMASK,
     LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETIMAGELIST, LVM_SUBITEMHITTEST, LVN_GETDISPINFOW, LVN_KEYDOWN,
     LVS_EX_DOUBLEBUFFER, LVS_EX_FULLROWSELECT, LVS_EX_LABELTIP, LVS_OWNERDATA, LVS_REPORT,
-    LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSIL_SMALL, LVSIL_STATE, NM_CLICK, NM_DBLCLK, NM_RETURN, NMHDR,
-    NMITEMACTIVATE, NMLVDISPINFOW, NMLVKEYDOWN, TOOLTIPS_CLASSW, TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW,
-    TTM_SETMAXTIPWIDTH, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
+    LVS_SHAREIMAGELISTS, LVS_SHOWSELALWAYS, LVSIL_SMALL, LVSIL_STATE, NM_CLICK, NM_CUSTOMDRAW, NM_DBLCLK,
+    NM_RETURN, NMHDR, NMITEMACTIVATE, NMLVCUSTOMDRAW, NMLVDISPINFOW, NMLVKEYDOWN, TOOLTIPS_CLASSW,
+    TTF_IDISHWND, TTF_SUBCLASS, TTM_ADDTOOLW, TTM_SETMAXTIPWIDTH, TTS_ALWAYSTIP, TTS_NOPREFIX, TTTOOLINFOW,
 };
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, OpenThemeDataForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
@@ -58,7 +58,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use windows_sys::core::w;
 
 use crate::controls;
-use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
+use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_MSGRESULT, DWLP_USER, EDIT, STATIC, Template};
 use crate::util::{
     copy_to, from_wide, hiword, loword, point_from_lparam, rtl, scale, send, wide, window_text,
 };
@@ -215,9 +215,15 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             WM_COMMAND => command(dlg, st, loword(wp), hiword(wp) as u32) as isize,
             WM_NOTIFY => {
                 let nm = lp as *mut NMHDR;
-                if (*nm).idFrom == ID_FILES as usize {
-                    notify(dlg, st, nm);
+                if (*nm).idFrom != ID_FILES as usize {
+                    return 0;
                 }
+                if (*nm).code == NM_CUSTOMDRAW {
+                    let r = controls::selection_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW));
+                    SetWindowLongPtrW(dlg, DWLP_MSGRESULT, r);
+                    return 1;
+                }
+                notify(dlg, st, nm);
                 0
             }
             WM_CONTEXTMENU if wp as HWND == item(dlg, ID_FILES) => {

@@ -23,7 +23,7 @@ use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 
 use crate::controls;
-use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
+use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_MSGRESULT, DWLP_USER, EDIT, STATIC, Template};
 use crate::util::{from_wide, hiword, loword, rtl, send, wide, window_text};
 
 /// A static control style (in `System::SystemServices`, a feature we do not otherwise need).
@@ -492,7 +492,15 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         match msg {
             WM_COMMAND => command(dlg, st, loword(wp), hiword(wp) as u32) as isize,
             WM_NOTIFY => {
-                notify(dlg, st, &*(lp as *const NMHDR));
+                let nm = &*(lp as *const NMHDR);
+                if nm.code == NM_CUSTOMDRAW
+                    && [ID_FEEDS, ID_PREVIEW, ID_HISTORY].contains(&(nm.idFrom as u16))
+                {
+                    let r = controls::selection_custom_draw(&mut *(lp as *mut NMLVCUSTOMDRAW));
+                    SetWindowLongPtrW(dlg, DWLP_MSGRESULT, r);
+                    return 1;
+                }
+                notify(dlg, st, nm);
                 0
             }
             WM_CONTEXTMENU if wp as HWND == item(dlg, ID_FEEDS) => {

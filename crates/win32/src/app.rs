@@ -1868,7 +1868,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                     lists_changed = true;
                 }
                 Alert::PeerInfo { id, peers } if a.detail.id == Some(id) => {
-                    a.detail.peers = peers;
+                    a.detail.set_peers(peers);
                     lists_changed = true;
                 }
                 Alert::TrackerList { id, trackers } if a.detail.id == Some(id) => {
@@ -3926,6 +3926,9 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 0
             }
             (IDC_PIECE_LIST, NM_CUSTOMDRAW) => pieces_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW)),
+            (i, NM_CUSTOMDRAW) if (IDC_PAGE..IDC_PAGE + Page::ALL.len()).contains(&i) => {
+                controls::selection_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW))
+            }
             (i, LVN_GETDISPINFOW) if (IDC_PAGE..IDC_PAGE + Page::ALL.len()).contains(&i) => {
                 let page = Page::ALL[i - IDC_PAGE];
                 let di = &mut *(nm as *mut NMLVDISPINFOW);
@@ -3966,15 +3969,21 @@ unsafe fn select_page(page: Page) {
     }
 }
 
-/// Paints the Done column as a progress bar with the percentage on it.
+/// Paints the selection bar (`controls::selection_pre_paint`) and the Done column as a progress
+/// bar with the percentage on it.
 unsafe fn list_custom_draw(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
     const ITEM_SUB_PRE: u32 = CDDS_ITEMPREPAINT | CDDS_SUBITEM;
     const ITEM_SUB_POST: u32 = CDDS_ITEMPOSTPAINT | CDDS_SUBITEM;
     unsafe {
         match cd.nmcd.dwDrawStage {
             CDDS_PREPAINT => CDRF_NOTIFYITEMDRAW as LRESULT,
-            CDDS_ITEMPREPAINT => CDRF_NOTIFYSUBITEMDRAW as LRESULT,
+            CDDS_ITEMPREPAINT => controls::selection_pre_paint(cd) | CDRF_NOTIFYSUBITEMDRAW as LRESULT,
+            CDDS_ITEMPOSTPAINT => {
+                controls::selection_post_paint(cd);
+                CDRF_DODEFAULT as LRESULT
+            }
             ITEM_SUB_PRE => {
+                controls::selection_cell_colours(cd);
                 let is_done = with_app(|a| {
                     a.feed_view.is_none() && a.shown.get(cd.iSubItem as usize) == Some(&Column::Done)
                 });
@@ -4050,9 +4059,18 @@ unsafe fn pieces_custom_draw(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
     unsafe {
         match cd.nmcd.dwDrawStage {
             CDDS_PREPAINT => CDRF_NOTIFYITEMDRAW as LRESULT,
-            CDDS_ITEMPREPAINT => CDRF_NOTIFYSUBITEMDRAW as LRESULT,
-            ITEM_SUB_PRE if cd.iSubItem as usize == detail::PIECE_BLOCKS_COLUMN => {
-                CDRF_NOTIFYPOSTPAINT as LRESULT
+            CDDS_ITEMPREPAINT => controls::selection_pre_paint(cd) | CDRF_NOTIFYSUBITEMDRAW as LRESULT,
+            CDDS_ITEMPOSTPAINT => {
+                controls::selection_post_paint(cd);
+                CDRF_DODEFAULT as LRESULT
+            }
+            ITEM_SUB_PRE => {
+                controls::selection_cell_colours(cd);
+                if cd.iSubItem as usize == detail::PIECE_BLOCKS_COLUMN {
+                    CDRF_NOTIFYPOSTPAINT as LRESULT
+                } else {
+                    CDRF_DODEFAULT as LRESULT
+                }
             }
             ITEM_SUB_POST => {
                 let row = cd.nmcd.dwItemSpec;

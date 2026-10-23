@@ -1134,7 +1134,7 @@ fn on_alerts() {
                         a.handle.torrent(id).post_file_list();
                     }
                 }
-                Alert::PeerInfo { id, peers } if a.detail.id == Some(id) => a.detail.peers = peers,
+                Alert::PeerInfo { id, peers } if a.detail.id == Some(id) => a.detail.set_peers(peers),
                 Alert::TrackerList { id, trackers } if a.detail.id == Some(id) => {
                     a.detail.trackers = trackers
                 }

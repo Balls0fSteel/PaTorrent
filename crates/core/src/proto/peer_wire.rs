@@ -493,30 +493,112 @@ pub fn generate_peer_id(prefix: &str) -> [u8; 20] {
     id
 }
 
-/// A readable client name from an Azureus-style peer id (a small part of libtorrent
-/// `identify_client`). Unknown ids come back as the raw prefix.
+/// A readable client name from an Azureus-style peer id: the name from the table below
+/// (libtorrent `identify_client`'s, BEP 20's two-letter codes, plus a few newer clients) and
+/// the version from the next three characters, as µTorrent showed it ("qBittorrent 4.6.5").
+/// Unknown codes come back as the code and version; Mainline's `M7-4-3--` style as
+/// "Mainline"; anything else as the id's first eight printable characters. The BEP 10
+/// handshake's `v`, when a peer sends one, replaces this in the engine's status.
 pub fn identify_client(peer_id: &[u8; 20]) -> String {
     const NAMES: &[(&[u8; 2], &str)] = &[
+        (b"A~", "Ares"),
+        (b"AG", "Ares"),
+        (b"AR", "Arctic Torrent"),
+        (b"AT", "Artemis"),
+        (b"AV", "Avicora"),
+        (b"AX", "BitPump"),
         (b"AZ", "Azureus"),
+        (b"BB", "BitBuddy"),
         (b"BC", "BitComet"),
+        (b"BE", "baretorrent"),
+        (b"BF", "Bitflu"),
+        (b"BG", "BTG"),
         (b"BI", "BiglyBT"),
+        (b"BL", "BitBlinder"),
+        (b"BP", "BitTorrent Pro"),
+        (b"BR", "BitRocket"),
+        (b"BS", "BTSlave"),
+        (b"BT", "BitTorrent"),
+        (b"BU", "BigUp"),
+        (b"BW", "BitWombat"),
+        (b"BX", "BittorrentX"),
+        (b"CD", "Enhanced CTorrent"),
+        (b"CT", "CTorrent"),
         (b"DE", "Deluge"),
+        (b"DP", "Propagate Data Client"),
+        (b"EB", "EBit"),
+        (b"ES", "electric sheep"),
+        (b"FC", "FileCroc"),
+        (b"FD", "Free Download Manager"),
+        (b"FT", "FoxTorrent"),
+        (b"FX", "Freebox BitTorrent"),
+        (b"GS", "GSTorrent"),
+        (b"HK", "Hekate"),
+        (b"HL", "Halite"),
+        (b"HN", "Hydranode"),
+        (b"KG", "KGet"),
         (b"KT", "KTorrent"),
+        (b"LC", "LeechCraft"),
+        (b"LH", "LH-ABC"),
+        (b"LK", "Linkage"),
+        (b"LP", "lphant"),
         (b"LR", "LibreTorrent"),
         (b"LT", "libtorrent"),
-        (b"lt", "libTorrent"),
+        (b"lt", "rTorrent"),
+        (b"LW", "LimeWire"),
+        (b"M4", "Monsoon"),
+        (b"MK", "Meerkat"),
+        (b"MO", "MonoTorrent"),
+        (b"MP", "MooPolice"),
+        (b"MR", "Miro"),
+        (b"MT", "Moonlight Torrent"),
+        (b"NE", "BT Next Evolution"),
+        (b"NX", "Net Transport"),
+        (b"O~", "Orbit"),
+        (b"OS", "OneSwarm"),
+        (b"OT", "OmegaTorrent"),
         (b"PA", "PaTorrent"),
-        (b"qB", "qBittorrent"),
-        (b"TR", "Transmission"),
-        (b"UT", "\u{b5}Torrent"),
-        (b"UM", "\u{b5}Torrent Mac"),
-        (b"UW", "\u{b5}Torrent Web"),
-        (b"BT", "BitTorrent"),
-        (b"FD", "Free Download Manager"),
+        (b"PC", "CacheHTTP"),
+        (b"PD", "Pando"),
+        (b"PE", "PeerProject"),
         (b"PI", "PicoTorrent"),
-        (b"RT", "rTorrent"),
+        (b"PT", "Popcorn Time"),
+        (b"pX", "pHoeniX"),
+        (b"qB", "qBittorrent"),
+        (b"QD", "QQDownload"),
+        (b"RS", "Rufus"),
+        (b"RT", "Retriever"),
+        (b"RZ", "RezTorrent"),
+        (b"S~", "Shareaza"),
+        (b"SB", "Swiftbit"),
+        (b"SD", "Xunlei"),
+        (b"SG", "GS Torrent"),
+        (b"SN", "ShareNET"),
+        (b"SP", "BitSpirit"),
+        (b"SS", "SwarmScope"),
+        (b"ST", "SymTorrent"),
+        (b"st", "SharkTorrent"),
+        (b"SZ", "Shareaza"),
+        (b"TB", "Torch"),
+        (b"TL", "Tribler"),
+        (b"TN", "Torrent.NET"),
+        (b"TR", "Transmission"),
+        (b"TS", "TorrentStorm"),
+        (b"TT", "TuoTu"),
         (b"TX", "Tixati"),
+        (b"UL", "uLeecher"),
+        (b"UM", "\u{b5}Torrent Mac"),
+        (b"UT", "\u{b5}Torrent"),
+        (b"UW", "\u{b5}Torrent Web"),
+        (b"VG", "Vagaa"),
+        (b"WD", "WebTorrent Desktop"),
+        (b"WT", "BitLet"),
         (b"WW", "WebTorrent"),
+        (b"WY", "FireTorrent"),
+        (b"XL", "Xunlei"),
+        (b"XT", "XanTorrent"),
+        (b"XX", "Xtorrent"),
+        (b"ZT", "ZipTorrent"),
     ];
     if peer_id[0] == b'-' && peer_id[7] == b'-' && peer_id[3..7].iter().all(u8::is_ascii_alphanumeric) {
         let code: [u8; 2] = [peer_id[1], peer_id[2]];
@@ -674,6 +756,10 @@ mod tests {
         assert_eq!(identify_client(&id), "PaTorrent 0.1.0");
         assert_eq!(identify_client(b"-qB4650-abcdefghijkl"), "qBittorrent 4.6.5");
         assert_eq!(identify_client(b"-TR4060-abcdefghijkl"), "Transmission 4.0.6");
+        assert_eq!(identify_client(b"-lt0D80-abcdefghijkl"), "rTorrent 0.13.8");
+        assert_eq!(identify_client(b"-DE211s-abcdefghijkl"), "Deluge 2.1.1");
+        assert_eq!(identify_client(b"-BI3100-abcdefghijkl"), "BiglyBT 3.1.0");
+        assert_eq!(identify_client(b"-ZZ1000-abcdefghijkl"), "ZZ 1.0.0");
         assert_eq!(identify_client(b"M7-4-3--abcdefghijkl"), "Mainline");
     }
 

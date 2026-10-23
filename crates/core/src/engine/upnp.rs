@@ -372,7 +372,7 @@ impl Upnp {
             return;
         }
         if self.devices.is_empty() {
-            self.disable("no router found".into());
+            self.disable(format!("no router found on {}", self.listen_address));
             return;
         }
         for di in 0..self.devices.len() {
@@ -1461,7 +1461,7 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
         let mut now = Instant::now();
         upnp.start(poll.registry(), Token(1), Token(2), now);
         upnp.add_mapping(Protocol::Tcp, 500, 500, poll.registry(), now).unwrap();
-        // twelve searches 2, 4, ... 24 s apart, then "no router found"
+        // twelve searches 2, 4, ... 24 s apart, then "no router found on 127.0.0.1"
         let mut searches = 1;
         while let Some(d) = upnp.broadcast_at {
             now = d;
@@ -1472,7 +1472,7 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
         assert_eq!(searches, MAX_SEARCHES as usize + 1, "twelve searches, then the timer that gives up");
         assert!(upnp.disabled);
         assert_eq!(upnp.events.len(), 1);
-        assert_eq!(upnp.events[0].error.as_deref(), Some("no router found"));
+        assert_eq!(upnp.events[0].error.as_deref(), Some("no router found on 127.0.0.1"));
         assert!(upnp.add_mapping(Protocol::Tcp, 501, 501, poll.registry(), now).is_none());
     }
 }

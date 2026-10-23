@@ -24,9 +24,10 @@ use windows_sys::Win32::UI::Controls::{
     LVIS_FOCUSED, LVIS_SELECTED, LVITEMW, LVM_DELETEALLITEMS, LVM_ENSUREVISIBLE, LVM_GETNEXTITEM,
     LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMSTATE, LVM_SETITEMTEXTW,
     LVN_ITEMCHANGED, LVNI_SELECTED, LVS_EX_FULLROWSELECT, LVS_NOSORTHEADER, LVS_REPORT, LVS_SHOWSELALWAYS,
-    LVS_SINGLESEL, NMHDR, NMLISTVIEW, NMTREEVIEWW, TVE_EXPAND, TVGN_CARET, TVI_LAST, TVI_ROOT, TVIF_PARAM,
-    TVIF_TEXT, TVINSERTSTRUCTW, TVM_EXPAND, TVM_INSERTITEMW, TVM_SELECTITEM, TVN_SELCHANGEDW,
-    TVS_DISABLEDRAGDROP, TVS_HASBUTTONS, TVS_HASLINES, TVS_LINESATROOT, TVS_NOHSCROLL, TVS_SHOWSELALWAYS,
+    LVS_SINGLESEL, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW, NMLVCUSTOMDRAW, NMTREEVIEWW, TVE_EXPAND, TVGN_CARET,
+    TVI_LAST, TVI_ROOT, TVIF_PARAM, TVIF_TEXT, TVINSERTSTRUCTW, TVM_EXPAND, TVM_INSERTITEMW, TVM_SELECTITEM,
+    TVN_SELCHANGEDW, TVS_DISABLEDRAGDROP, TVS_HASBUTTONS, TVS_HASLINES, TVS_LINESATROOT, TVS_NOHSCROLL,
+    TVS_SHOWSELALWAYS,
 };
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -38,7 +39,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_VSCROLL,
 };
 
-use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_USER, EDIT, STATIC, Template};
+use crate::controls;
+use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_MSGRESULT, DWLP_USER, EDIT, STATIC, Template};
 use crate::integration::{Integration, Status};
 use crate::sched_grid;
 use crate::util::{hiword, loword, send, wide, window_text};
@@ -856,7 +858,13 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         match msg {
             WM_COMMAND => command(dlg, st, loword(wp), hiword(wp) as u32) as isize,
             WM_NOTIFY => {
-                notify(dlg, st, &*(lp as *const NMHDR));
+                let nm = &*(lp as *const NMHDR);
+                if nm.code == NM_CUSTOMDRAW && nm.idFrom == ID_ADV_LIST as usize {
+                    let r = controls::selection_custom_draw(&mut *(lp as *mut NMLVCUSTOMDRAW));
+                    SetWindowLongPtrW(dlg, DWLP_MSGRESULT, r);
+                    return 1;
+                }
+                notify(dlg, st, nm);
                 0
             }
             _ => 0,

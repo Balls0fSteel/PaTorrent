@@ -138,6 +138,11 @@ impl Detail {
         self.log.push_back(line);
     }
 
+    /// The engine's peer list for the Peers tab (see [`listed_peers`]).
+    pub fn set_peers(&mut self, peers: Vec<PeerInfo>) {
+        self.peers = listed_peers(peers);
+    }
+
     pub fn push_speed(&mut self, down: u32, up: u32) {
         if self.speed.len() == SPEED_SAMPLES {
             self.speed.pop_front();
@@ -346,6 +351,15 @@ pub const PEER_COLUMNS: [ColumnDef; 9] = [
     (S::ColUploaded, 75, true),
 ];
 
+/// The peers the Peers tab lists: those past the handshake, as in µTorrent, whose tab showed
+/// the connected peers its Peers column counts. A connection still being made or in its
+/// handshake has no client, no progress and no flags yet, and would show as an empty row.
+pub fn listed_peers(peers: Vec<PeerInfo>) -> Vec<PeerInfo> {
+    let mut peers = peers;
+    peers.retain(|p| !p.flags.intersects(PeerFlags::CONNECTING | PeerFlags::HANDSHAKE));
+    peers
+}
+
 /// A peer's cell. A web seed shows its URL in the IP column (its `client` is the server's
 /// `Server` header), as µTorrent did.
 pub fn peer_cell(p: &PeerInfo, col: usize) -> String {
@@ -537,6 +551,19 @@ mod tests {
             is_web_seed: false,
             url: None,
         }
+    }
+
+    #[test]
+    fn the_peers_tab_lists_connected_peers_only() {
+        let mut d = Detail::default();
+        d.set_peers(vec![
+            peer(PeerFlags::CONNECTING, PeerSource::DHT),
+            peer(PeerFlags::HANDSHAKE | PeerFlags::OUTGOING_CONNECTION, PeerSource::TRACKER),
+            peer(PeerFlags::INTERESTING, PeerSource::PEX),
+        ]);
+        assert_eq!(d.rows(Tab::Peers), 1);
+        assert_eq!(d.cell(Tab::Peers, 0, 1), "qBittorrent 5.2.4");
+        assert_eq!(d.cell(Tab::Peers, 0, 2), "DX");
     }
 
     #[test]

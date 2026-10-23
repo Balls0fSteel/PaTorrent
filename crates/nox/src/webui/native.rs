@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use patorrent_core::{DownloadPriority, TorrentId, VERSION};
+use patorrent_core::{DownloadPriority, PeerFlags, TorrentId, VERSION};
 use patorrent_frontend::columns::{Align, Column};
 use patorrent_frontend::detail::{self, ColumnDef};
 use patorrent_frontend::model::{Filter, TorrentList};
@@ -707,6 +707,8 @@ fn peers(e: &Entry, st: &State, msg: &mut Json) -> bool {
     let Some(Reply::Peers(list)) = st.cached(e.status.id, ReplyKind::Peers) else { return false };
     let rows: Vec<Json> = list
         .iter()
+        // the connected peers, as the GUIs' Peers tab (`detail::listed_peers`)
+        .filter(|p| !p.flags.intersects(PeerFlags::CONNECTING | PeerFlags::HANDSHAKE))
         .map(|p| {
             let cells = (0..detail::PEER_COLUMNS.len()).map(|c| detail::peer_cell(p, c)).collect();
             let keys = vec![

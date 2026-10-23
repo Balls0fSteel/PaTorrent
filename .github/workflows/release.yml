@@ -13,9 +13,9 @@ name: Release
 # - Linux x86_64 and aarch64 AppImages: PaTorrent (the GTK GUI with GTK 4 and its libraries)
 #   and patorrent-nox (with OpenSSL), made by linuxdeploy; they need glibc 2.39 (Ubuntu 24.04)
 #   or newer.
-# - Linux x86_64 Flatpak: a single-file bundle of the GTK GUI on the GNOME runtime, built by
-#   flatpak-builder from packaging/flatpak (the manifest Flathub would build); installing it
-#   needs Flathub for the runtime. aarch64 later.
+# - Linux x86_64 and aarch64 Flatpaks: a single-file bundle of the GTK GUI on the GNOME
+#   runtime, built by flatpak-builder from packaging/flatpak (the manifest Flathub would build)
+#   natively on each runner; installing it needs Flathub for the runtime.
 
 on:
   push:
@@ -170,7 +170,18 @@ jobs:
 
   flatpak:
     needs: version
-    runs-on: ubuntu-24.04
+    # natively on each architecture, as the linux job: the builder image is published for
+    # linux/amd64 and linux/arm64, and Flathub has the GNOME runtime and the rust-stable
+    # extension for aarch64 (docs/RELEASING.md, Flatpak)
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: x86_64
+            runner: ubuntu-24.04
+          - arch: aarch64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
     # flatpak-builder with the GNOME runtime and Flathub's linter; it needs a privileged
     # container for bubblewrap
     container:
@@ -241,16 +252,16 @@ jobs:
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: packaging/flatpak/${{ env.APP_ID }}.yml
-          bundle: PaTorrent-${{ needs.version.outputs.version }}-x86_64.flatpak
-          arch: x86_64
-          cache-key: flatpak-builder-${{ hashFiles('Cargo.lock') }}
+          bundle: PaTorrent-${{ needs.version.outputs.version }}-${{ matrix.arch }}.flatpak
+          arch: ${{ matrix.arch }}
+          cache-key: flatpak-builder-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
           upload-artifact: false
       - name: The bundle
         run: |
-          ls -l "PaTorrent-${{ needs.version.outputs.version }}-x86_64.flatpak"
+          ls -l "PaTorrent-${{ needs.version.outputs.version }}-${{ matrix.arch }}.flatpak"
       - uses: actions/upload-artifact@v7
         with:
-          name: flatpak-x86_64
+          name: flatpak-${{ matrix.arch }}
           path: PaTorrent-*.flatpak
 
   # macOS (PLAN.md D23, Road to 1.0 item 8): PaTorrent.app (the GTK GUI with GTK 4 and its

@@ -11,7 +11,7 @@ How a version goes out (PLAN.md D22, Road to 1.0 items 6, 7 and 14). The files a
 | `patorrent-<version>-linux-x86_64.tar.gz`, `-linux-aarch64.tar.gz` | `patorrent-nox`, `patorrent-gtk`, the desktop entry, the systemd units (`systemd/system`, `systemd/user`), the same two texts | `ubuntu-24.04`, `ubuntu-24.04-arm` |
 | `PaTorrent-<version>-x86_64.AppImage`, `-aarch64.AppImage` | the GTK GUI with GTK 4 and every library it needs but glibc (linuxdeploy and its GTK plugin) | `ubuntu-24.04`, `ubuntu-24.04-arm` |
 | `patorrent-nox-<version>-x86_64.AppImage`, `-aarch64.AppImage` | `patorrent-nox` with OpenSSL; a terminal program, kept out of the menus | `ubuntu-24.04`, `ubuntu-24.04-arm` |
-| `PaTorrent-<version>-x86_64.flatpak` | the GTK GUI as a single-file Flatpak bundle on the GNOME 51 runtime (see [Flatpak](#flatpak)) | `ubuntu-24.04`, in Flathub's builder container |
+| `PaTorrent-<version>-x86_64.flatpak`, `-aarch64.flatpak` | the GTK GUI as a single-file Flatpak bundle on the GNOME 51 runtime (see [Flatpak](#flatpak)) | `ubuntu-24.04`, `ubuntu-24.04-arm`, in Flathub's builder container |
 | `PaTorrent-<version>-arm64.dmg` | `PaTorrent.app`: the GTK GUI with GTK 4 and every library it needs from Homebrew, ad-hoc signed; the two texts | `macos-15` (Apple silicon) |
 | `patorrent-nox-<version>-macos-arm64.tar.gz`, `-macos-x86_64.tar.gz` | `patorrent-nox` (system libraries only: TLS is Secure Transport, D9), the two texts | `macos-15` (x86_64 cross-built) |
 | `SHA256SUMS` | the files' SHA-256 | |
@@ -92,7 +92,14 @@ artifact per platform, named `<version>-dev.<commit>`, and makes no release.
 ## Flatpak
 
 `packaging/flatpak/` holds what the `flatpak` job builds and what a Flathub submission would
-use:
+use. The job is a matrix like the `linux` job's: x86_64 on `ubuntu-24.04` and aarch64 natively
+on `ubuntu-24.04-arm` (no emulation), each in Flathub's builder container
+`ghcr.io/flathub-infra/flatpak-github-actions:gnome-51`, which is published for `linux/amd64`
+and `linux/arm64` with the GNOME 51 runtime and SDK installed; flatpak-builder installs the
+`rust-stable` SDK extension from Flathub, which builds it for both architectures. Each leg runs
+every check below (the metainfo, the icon, the `cargo-sources.json` comparison, the linter) and
+uploads its bundle as the `flatpak-x86_64` or `flatpak-aarch64` artifact; its flatpak-builder
+cache key carries the architecture.
 
 - `io.github.balls0fsteel.PaTorrent.yml`: the flatpak-builder manifest (GNOME 51 runtime, the
   Rust SDK extension, an offline `cargo build --release --locked -p patorrent-gtk`). It
@@ -128,7 +135,7 @@ from Flathub:
 
 ```bash
 flatpak remote-add --if-not-exists --user flathub https://dl.flathub.org/repo/flathub.flatpakrepo
-flatpak install --user PaTorrent-1.0.0-x86_64.flatpak
+flatpak install --user PaTorrent-1.0.0-x86_64.flatpak   # or -aarch64.flatpak on ARM
 flatpak run io.github.balls0fsteel.PaTorrent
 ```
 

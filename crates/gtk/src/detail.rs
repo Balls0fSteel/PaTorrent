@@ -7,6 +7,7 @@
 //! The widgets read the data through a [`Peek`] at the application state when they draw, so
 //! only the tab on screen costs anything.
 
+use std::ops::Range;
 use std::rc::Rc;
 
 use gtk::gio;
@@ -51,6 +52,8 @@ const UP_COLOR: u32 = 0xd23c3c;
 const MAP_PAD: i32 = 4;
 const MAP_CELL: i32 = 9;
 const MAP_GAP: i32 = 1;
+/// Rows of squares drawn beyond the visible ones, above and below.
+const MAP_MARGIN_ROWS: usize = 2;
 
 pub struct Details {
     pub notebook: gtk::Notebook,
@@ -120,7 +123,16 @@ impl Details {
             Table::new(&PIECE_COLUMNS, text(Tab::Pieces), Some((PIECE_BLOCKS_COLUMN, blocks)), None);
 
         let piece_map = Canvas::new(move |w, s, width, _| {
-            with(peek, |d, _| piece_map(w, s, width, d));
+            // the scrolled window's view of the map (it sits in a viewport at y = 0), so only
+            // the rows on screen get render nodes; no window yet, the whole map
+            let view = w
+                .ancestor(gtk::ScrolledWindow::static_type())
+                .and_downcast::<gtk::ScrolledWindow>()
+                .map_or((0.0, 0.0), |sw| {
+                    let adj = sw.vadjustment();
+                    (adj.value(), adj.page_size())
+                });
+            with(peek, |d, _| piece_map(w, s, width, view, d));
         });
         piece_map.set_height_for_width(move |width| {
             let n = with(peek, |d, _| d.have.as_ref().map_or(0, |h| h.len())).unwrap_or(0);
@@ -138,6 +150,21 @@ impl Details {
             .propagate_natural_height(true)
             .max_content_height(160)
             .build();
+        // a scroll moves the map inside its viewport without redrawing it: redraw, so the rows
+        // that come into view get their squares (and when the page grows with the split)
+        let adj = map_scroll.vadjustment();
+        let map = piece_map.downgrade();
+        adj.connect_value_changed(move |_| {
+            if let Some(map) = map.upgrade() {
+                map.queue_draw();
+            }
+        });
+        let map = piece_map.downgrade();
+        adj.connect_changed(move |_| {
+            if let Some(map) = map.upgrade() {
+                map.queue_draw();
+            }
+        });
         let pieces_split = gtk::Paned::new(gtk::Orientation::Vertical);
         pieces_split.set_start_child(Some(&map_scroll));
         pieces_split.set_end_child(Some(&scrolled(&piece_list.view)));
@@ -432,15 +459,32 @@ fn map_height(pieces: usize, width: i32) -> i32 {
     2 * MAP_PAD + rows * (MAP_CELL + MAP_GAP)
 }
 
+/// The rows of a map of `pieces` squares in `cols` columns (row `r` at `pad + r * step`) that
+/// meet the span `value..value + page` its scrolled window shows (the vertical adjustment's
+/// value and page size), with [`MAP_MARGIN_ROWS`] more above and below. Without a page (not
+/// laid out yet), every row.
+fn visible_rows(value: f64, page: f64, pad: f64, step: f64, cols: usize, pieces: usize) -> Range<usize> {
+    let rows = pieces.div_ceil(cols.max(1));
+    if page.is_nan() || page <= 0.0 || step.is_nan() || step <= 0.0 {
+        return 0..rows;
+    }
+    let first = ((value - pad) / step).floor().max(0.0) as usize;
+    let end = ((value + page - pad) / step).ceil().max(0.0) as usize;
+    first.saturating_sub(MAP_MARGIN_ROWS).min(rows)..end.saturating_add(MAP_MARGIN_ROWS).min(rows)
+}
+
 /// One square per piece: blue on disk, orange being downloaded, else green by availability.
-fn piece_map(w: &gtk::Widget, s: &gtk::Snapshot, width: f32, d: &Detail) {
+/// Only the rows `view` (the vertical adjustment's value and page size) shows are drawn; the
+/// canvas still asks for the whole map's height, so the scrollbar's range is the same.
+fn piece_map(w: &gtk::Widget, s: &gtk::Snapshot, width: f32, (value, page): (f64, f64), d: &Detail) {
     let Some(have) = &d.have else { return };
     let cols = map_columns(width as i32);
     let border = faded(w, 0.45);
     let (cell, step) = (MAP_CELL as f32, (MAP_CELL + MAP_GAP) as f32);
     let shades = [rgb(0xffffff), rgb(0xd8e8d0), rgb(0xa8d29a), rgb(0x6fb85c)];
     let (blue, orange) = (rgb(BAR_BLUE), rgb(BLOCK_REQUESTED));
-    for i in 0..have.len() {
+    let rows = visible_rows(value, page, MAP_PAD as f64, step as f64, cols, have.len());
+    for i in rows.start * cols..(rows.end * cols).min(have.len()) {
         let x = MAP_PAD as f32 + (i % cols) as f32 * step;
         let y = MAP_PAD as f32 + (i / cols) as f32 * step;
         let color = match d.piece_shade(i) {
@@ -571,5 +615,29 @@ mod tests {
         // never fewer than one column
         assert_eq!(map_columns(5), 1);
         assert_eq!(map_height(3, 5), 8 + 30);
+    }
+
+    #[test]
+    fn the_piece_map_draws_only_the_rows_in_view() {
+        let (pad, step) = (MAP_PAD as f64, (MAP_CELL + MAP_GAP) as f64);
+        // 50,000 pieces at 500 pixels: 49 columns, 1,021 rows
+        let (cols, pieces) = (map_columns(500), 50_000_usize);
+        assert_eq!(pieces.div_ceil(cols), 1021);
+        // unscrolled, 160 pixels in view: rows 0 to 15 (row 15 is 154..163), and two more
+        assert_eq!(visible_rows(0.0, 160.0, pad, step, cols, pieces), 0..18);
+        // scrolled to 1,000: rows 99 (994..1003) to 115 (1154..1163), two more either side
+        assert_eq!(visible_rows(1000.0, 160.0, pad, step, cols, pieces), 97..118);
+        // at the bottom (the map is 8 + 10,210 high): clamped to the last row
+        let bottom = map_height(pieces, 500) as f64 - 160.0;
+        assert_eq!(visible_rows(bottom, 160.0, pad, step, cols, pieces), 1003..1021);
+        // a page taller than the map: every row
+        assert_eq!(visible_rows(0.0, 400.0, pad, step, 10, 95), 0..10);
+        // not laid out yet (no page): every row
+        assert_eq!(visible_rows(0.0, 0.0, pad, step, cols, pieces), 0..1021);
+        assert_eq!(visible_rows(0.0, 160.0, pad, step, cols, 0), 0..0);
+        // the node count: two per square, 100,000 for the whole map, about 2,000 in view
+        let drawn = visible_rows(1000.0, 160.0, pad, step, cols, pieces).len() * cols * 2;
+        assert_eq!(drawn, 21 * 49 * 2);
+        assert!(drawn * 45 < pieces * 2);
     }
 }

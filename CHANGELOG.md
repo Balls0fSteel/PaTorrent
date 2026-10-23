@@ -2,6 +2,21 @@
 
 All notable changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<unix epoch>` (local time).
 
+## 2026-10-23_155639_1792763799: The Win32 dialogs use the system's message font (Segoe UI 9 pt), as the main window and 2.2.1 do
+
+The owner's go-ahead on the previous entry's finding.
+
+### Issues
+- Every dialog template named `MS Shell Dlg` at 8 pt, which the dialog manager resolves to Tahoma 8 pt (a 6 x 13 base) on Windows 11, while the main window takes the message font from `NONCLIENTMETRICS` (Segoe UI 9 pt, 7 x 15) and µTorrent 2.2.1's dialogs measure as the same. The dialogs looked smaller and older than the window around them.
+
+### Fixed
+- `dialogs.rs`: `Template::new` writes `DS_SETFONT` with `message_font()`: the face and point size of `lfMessageFont` from `SystemParametersInfoForDpi(SPI_GETNONCLIENTMETRICS, .., 96)` (a negative `lfHeight` is the character height in pixels at 96 DPI, so points = height x 72 / 96; the dialog manager scales the font to the window's DPI as before). `MS Shell Dlg` 8 pt stays as the fallback when the call fails. Every dialog (Add New Torrent, Preferences and its pages, Create, Properties, RSS, Remote, Auto Shutdown, the notices, the input boxes) keeps its unit layout and grows by 7/6 across and 15/13 down.
+- A test, `dialogs::tests::templates_use_the_system_message_font`: the face is not `MS Shell Dlg`, the size 8 to 12 pt, and a dialog built from a template answers `WM_GETFONT` with that face, its button with the same handle.
+
+### Verified
+- `cargo test -p patorrent --bin patorrent`: 59 passed (no pixel-pinned test needed a change: the layouts are in dialog units and the Add dialog's tests measure against the window); `cargo clippy -p patorrent --all-targets -D warnings` clean; `cargo fmt`.
+- Seen by eye in a portable copy of the debug build (`--demo 3`): Add New Torrent is 751 x 602 px at 100 % now (646 x 527 in Tahoma), Preferences 770 x 547, Create New Torrent 541 x 635, every text in Segoe UI 9 like the main window, nothing clipped on the three; not every dialog was opened.
+
 ## 2026-10-23_154951_1792763391: The Win32 Add New Torrent dialog on 2.2.1's one-column layout, resizable, with "Don't show this again"
 
 The owner found the dialog still clunky and put a portable µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored now) to compare with. Computer use refuses µTorrent by policy, so the comparison went through scripts: `PrintWindow` captures of 2.2.1's main window and of its Add dialog (opened with the CachyOS torrent), and a dump of every child control's class, id, rect and style.

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-23_154951_1792763391
+Last updated: 2026-10-23_155639_1792763799
 
 ## Vision
 
@@ -24,7 +24,8 @@ Details: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) (design and scale strategy
 
 ## Current status
 
-- **Win32 Add New Torrent dialog on 2.2.1's layout (2026-10-23_154951_1792763391; CHANGELOG 2026-10-23_154951_1792763391):** one column, the file list across the whole width, resizable with the size remembered, "Don't show this again". The owner left the 2.2.1-or-3.x choice here: 2.2.1's structure with 3.x's separate Save In and Name fields. Not built into a hand-test set yet. Found on the way: the Win32 dialogs' font is Tahoma 8 pt (`MS Shell Dlg`) while 2.2.1's dialogs and our main window use Segoe UI 9 pt (Known TODOs "Win32 dialog font").
+- **Win32 dialogs in the system's message font (2026-10-23_155639_1792763799; CHANGELOG 2026-10-23_155639_1792763799):** every template names Segoe UI 9 pt (from `NONCLIENTMETRICS`) instead of `MS Shell Dlg` 8 pt, so the dialogs match the main window and 2.2.1; the unit layouts are unchanged, each dialog about a sixth larger. Seen on Add New Torrent, Preferences and Create; the rest only through their tests. Not in a hand-test set yet.
+- **Win32 Add New Torrent dialog on 2.2.1's layout (2026-10-23_154951_1792763391; CHANGELOG 2026-10-23_154951_1792763391):** one column, the file list across the whole width, resizable with the size remembered, "Don't show this again". The owner left the 2.2.1-or-3.x choice here: 2.2.1's structure with 3.x's separate Save In and Name fields. Not built into a hand-test set yet. Found on the way: the Win32 dialogs' font was Tahoma 8 pt (`MS Shell Dlg`) while 2.2.1's dialogs and our main window use Segoe UI 9 pt; fixed 2026-10-23_155639_1792763799.
 - **A real µTorrent 2.2.1 to copy from (2026-10-23):** the owner's portable copy is in `z_exclude_uTorrent/` (gitignored). Computer use refuses it by policy, so it is read through scripts (`PrintWindow` captures and control dumps worked for the Add dialog). It answers the "Still to settle" items under Road to 1.0 when someone gets to them.
 - **The GTK GUI works for the owner (2026-10-23):** nothing to fix from their run; testers come once 1.0 is out.
 - **Hand-test set refreshed from 63e3f50 (2026-10-23_141938_1792757978):** `dist/1.0-test-63e3f50/` (gitignored) holds the Windows x64 binaries built here from 63e3f50 (every binary differs from the ad714b1 set) plus Release 39950546995's Windows zip, Linux x86_64 tarball, both AppImages and the Flatpak, `SHA256SUMS` and `HAND-TEST.md` (what to look at). Not smoke-tested on the VM. Next: the owner's click-through of the three fixes.
@@ -384,7 +385,7 @@ Noted by the owner 2026-10-21_082212_1792563732 and reaffirmed 2026-10-23 (profi
 
 ## Known TODOs
 
-- **Win32 dialog font** (2026-10-23_154951_1792763391): every dialog template names `MS Shell Dlg` at 8 pt, which is Tahoma (a 6 x 13 base), while the main window takes the system's message font (Segoe UI 9 pt, 7 x 15) and µTorrent 2.2.1's dialogs measure as Segoe UI 9 too. Switching the templates to the message font (the face and size from `NONCLIENTMETRICS`, as `app.rs` already reads them) would scale every dialog by 7/6 and 15/13 with the same unit layout, and the pixel numbers in tests and CHANGELOG entries (646 x 406 and the like) would change. A decision for the owner; the Add dialog's rebuild left it alone.
+- ~~**Win32 dialog font**~~ (2026-10-23_154951_1792763391): done 2026-10-23_155639_1792763799, the templates name the system's message font; the pixel sizes in older CHANGELOG entries (646 x 406 and the like) are Tahoma's. Still to look at: the dialogs not opened by eye since (Properties, RSS, Remote, Auto Shutdown, the notices, Preferences' other pages) for clipped translations, though `fit_texts` widens what it can.
 - **Add New Torrent's "Advanced..."** (2026-10-23_154951_1792763391): 2.2.1's button opened the torrent's properties (trackers, bandwidth, seeding goal) before adding. Not in the Win32 dialog; it needs properties on an `AddTorrentParams` rather than on a torrent in the session.
 - Security review (CHANGELOG 2026-10-22_150939_1792674579, 2026-10-22_184817_1792687697; `docs/SECURITY-REVIEW.md`):
   - open: fuzz runs are short (120 s per target per push); a peer's hash-work budget resets when it reconnects (the reconnect policy's delay bounds that).

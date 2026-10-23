@@ -13,18 +13,19 @@ use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 use windows_sys::Win32::UI::Controls::Dialogs::{
     GetOpenFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OPENFILENAMEW,
 };
+use windows_sys::Win32::UI::HiDpi::SystemParametersInfoForDpi;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BS_DEFPUSHBUTTON, BS_PUSHBUTTON, DLGTEMPLATE, DS_CENTER, DS_MODALFRAME, DialogBoxIndirectParamW,
     ES_AUTOHSCROLL, EndDialog, GetDlgItem, GetWindowLongPtrW, IDCANCEL, IDOK, IDYES, MB_ICONERROR,
     MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_RIGHT, MB_RTLREADING, MB_USERICON, MB_YESNO, MSGBOXPARAMSW,
-    MessageBoxIndirectW, MessageBoxW, SendMessageW, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND,
-    WM_INITDIALOG, WS_BORDER, WS_CAPTION, WS_CHILD, WS_EX_LAYOUTRTL, WS_POPUP, WS_SYSMENU, WS_TABSTOP,
-    WS_VISIBLE,
+    MessageBoxIndirectW, MessageBoxW, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SendMessageW,
+    SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_INITDIALOG, WS_BORDER, WS_CAPTION, WS_CHILD,
+    WS_EX_LAYOUTRTL, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 
 use windows_sys::Win32::UI::Controls::EM_SETSEL;
 
-use crate::util::{from_wide_ptr, loword, rtl, wide, window_text};
+use crate::util::{from_wide, from_wide_ptr, loword, rtl, wide, window_text};
 
 /// File → Add Torrent: one or more `.torrent` files.
 pub fn open_torrents(owner: HWND) -> Vec<String> {
@@ -117,8 +118,31 @@ pub fn clipboard_text(owner: HWND) -> Option<String> {
     }
 }
 
-/// `DS_SETFONT | DS_FIXEDSYS`: the dialog uses the shell font (Segoe UI).
-const DS_SHELLFONT: u32 = 0x48;
+/// The template names its font (`message_font`).
+const DS_SETFONT: u32 = 0x40;
+
+/// The system's message font as a template names it: face and point size at 96 DPI (Segoe UI
+/// 9 pt since Vista; the dialog manager scales it to the window's DPI). The main window and
+/// µTorrent 2.2.1's dialogs use the same, where `MS Shell Dlg` would be Tahoma 8 pt.
+fn message_font() -> (String, u16) {
+    unsafe {
+        let mut ncm: NONCLIENTMETRICSW = zeroed();
+        ncm.cbSize = size_of::<NONCLIENTMETRICSW>() as u32;
+        let ok = SystemParametersInfoForDpi(
+            SPI_GETNONCLIENTMETRICS,
+            ncm.cbSize,
+            &mut ncm as *mut _ as *mut _,
+            0,
+            96,
+        );
+        let lf = &ncm.lfMessageFont;
+        if ok == 0 || lf.lfFaceName[0] == 0 || lf.lfHeight >= 0 {
+            return ("MS Shell Dlg".to_owned(), 8);
+        }
+        // a negative height is the character height in pixels at 96 DPI
+        ((from_wide(&lf.lfFaceName)), ((-lf.lfHeight * 72 + 48) / 96).max(1) as u16)
+    }
+}
 /// `GetWindowLongPtr` index of the dialog's user data (after the message result and the
 /// dialog procedure).
 pub const DWLP_USER: i32 = (2 * size_of::<usize>()) as i32;
@@ -224,7 +248,8 @@ pub const STATIC: Class = Class::Atom(0x0082);
 pub const COMBOBOX: Class = Class::Atom(0x0085);
 
 /// `DLGTEMPLATE` + items, as the dialog manager reads them (UTF-16 words, items DWORD-aligned).
-/// Positions are dialog units; the dialog uses the shell font and is centred on its owner.
+/// Positions are dialog units; the dialog uses the system's message font and is centred on its
+/// owner.
 pub struct Template {
     t: Vec<u16>,
     count_at: usize,
@@ -233,8 +258,7 @@ pub struct Template {
 impl Template {
     pub fn new(cx: i16, cy: i16) -> Template {
         let mut t = Template { t: Vec::new(), count_at: 0 };
-        let style =
-            WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME as u32 | DS_CENTER as u32 | DS_SHELLFONT;
+        let style = WS_POPUP | WS_CAPTION | WS_SYSMENU | DS_MODALFRAME as u32 | DS_CENTER as u32 | DS_SETFONT;
         t.dword(style);
         // a dialog has an owner, so the process's right-to-left default does not reach it
         t.dword(rtl(WS_EX_LAYOUTRTL));
@@ -244,8 +268,9 @@ impl Template {
         t.t.push(0); // no menu
         t.t.push(0); // default class
         t.text("");
-        t.t.push(8);
-        t.text("MS Shell Dlg");
+        let (face, points) = message_font();
+        t.t.push(points);
+        t.text(&face);
         t
     }
 
@@ -285,4 +310,48 @@ impl Template {
 /// Reads a NUL-separated list (WM_COPYDATA payloads) into strings.
 pub fn split_nul(buf: &[u16]) -> Vec<String> {
     buf.split(|&c| c == 0).filter(|s| !s.is_empty()).map(String::from_utf16_lossy).collect()
+}
+
+#[cfg(test)]
+mod tests {
+    use std::ptr::null_mut;
+
+    use windows_sys::Win32::Graphics::Gdi::{GetObjectW, HFONT, LOGFONTW};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        CreateDialogIndirectParamW, DestroyWindow, WM_GETFONT,
+    };
+
+    use super::*;
+
+    unsafe extern "system" fn nop(_: HWND, _: u32, _: WPARAM, _: LPARAM) -> isize {
+        0
+    }
+
+    #[test]
+    fn templates_use_the_system_message_font() {
+        let (face, points) = message_font();
+        assert!(!face.is_empty() && face != "MS Shell Dlg", "{face}");
+        assert!((8..=12).contains(&points), "{points} pt");
+        let mut t = Template::new(200, 100);
+        t.item(BUTTON, IDOK as u16, WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON as u32, [7, 7, 50, 14], "OK");
+        let template = t.finish();
+        unsafe {
+            let dlg = CreateDialogIndirectParamW(
+                GetModuleHandleW(null()),
+                template.as_ptr() as *const DLGTEMPLATE,
+                null_mut(),
+                Some(nop),
+                0,
+            );
+            assert!(!dlg.is_null());
+            let font = SendMessageW(dlg, WM_GETFONT, 0, 0) as HFONT;
+            let mut lf: LOGFONTW = zeroed();
+            GetObjectW(font, size_of::<LOGFONTW>() as i32, &mut lf as *mut _ as *mut _);
+            assert_eq!(from_wide(&lf.lfFaceName), face);
+            // the button's font too
+            let bf = SendMessageW(GetDlgItem(dlg, IDOK), WM_GETFONT, 0, 0) as HFONT;
+            assert_eq!(bf, font);
+            DestroyWindow(dlg);
+        }
+    }
 }

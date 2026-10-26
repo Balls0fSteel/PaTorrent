@@ -21,7 +21,7 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
   - Win32 build, clippy and tests pass (frontend 174, Win32 59).
   - A portable debug run was captured: bold toolbar, greyed disabled buttons and the globe network icon at 100 % DPI.
 - Not verified:
-  - The GTK client compiles only on Unix and WSL is unavailable here, so its changes were checked against the gtk4 0.10.3 API only, not built.
+  - The GTK client compiles only on Unix and WSL is unavailable here. After the push, CI run 40336848086 built and tested it on Ubuntu, macOS, Windows and MSRV, all green; it has not been run on a desktop.
   - Non-100 % DPI, the GTK dark palette, the Trackers tab with real trackers and macOS are still hand checks.
 - Moved the six oldest root entries, verbatim, to `docs/archive/CHANGELOG-2026-10-23--2026-10-26.md`.
 

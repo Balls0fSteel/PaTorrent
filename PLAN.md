@@ -47,7 +47,7 @@ Original gate numbers are retained for references in source comments and release
 | 7 | Linux packages | x86_64/aarch64 tarballs, GUI/nox AppImages and Flatpaks build. Run desktop AppImage and Flatpak checks, including schemas, icons, tray, HTTPS, associations and the Background portal. Flathub still needs screenshots, submission changes and the owner's exception text; see RELEASING.md. |
 | 8 | macOS (D23) | Secure Transport, CI, arm64 GTK bundle/dmg, Apple events, Login Items, associations and NSStatusItem are implemented. A real Mac must validate window content, opening files/magnets, login and tray behavior. Intel engine/nox build; the Intel GTK bundle remains absent. Current bundle requires macOS 15. |
 | 9 | Manual GUI checks | Preferences (all pages, OK/Cancel/Apply, proxy and Advanced), Add (files/folders, priorities, labels, recent paths, real magnet OK/Cancel), Create, Properties (multi-select and DPI), RSS with a public feed, scheduler/hour boundary, Auto Shutdown with `PATORRENT_POWER_DRY_RUN=1`, Windows integration on the real registry, moving completed data / Set Download Location across drives, seeding goals and .torrent folders. Check Pieces progress and newly resized/font-changed dialogs. |
-| 10 | Icon integration and validation | Bold UI family approved (D27); revision 6 passed independent review. Integrated (2026-10-26_150634_1793023594): both GUIs embed its 24 state icons and 11 toolbar images (GTK: dark palette on dark themes). Remaining: build and run the GTK client (not compiled here), check non-100% DPI, the Trackers tab with live trackers, GTK light/dark, tray/About and macOS Retina/light/dark menu bars. Final app brand remains provisional Verdigris. |
+| 10 | Icon integration and validation | Bold UI family approved (D27); revision 6 passed independent review. Integrated (2026-10-26_150634_1793023594): both GUIs embed its 24 state icons and 11 toolbar images (GTK: dark palette on dark themes). CI run 40336848086 built and tested it on Ubuntu, macOS, Windows and MSRV (all green). Remaining: run the GTK client, check non-100% DPI, the Trackers tab with live trackers, GTK light/dark, tray/About and macOS Retina/light/dark menu bars. Final app brand remains provisional Verdigris. |
 | 11 | Service integration | Run the nox Windows service under the real elevated SCM, including restart-on-failure and shutdown behavior. Install and exercise FreeBSD rc.d with root (only syntax-checked so far). |
 | 12 | Final interop rerun | Use release builds: plain, RC4, TCP, uTP, uTP-only and super-seed with qBittorrent, Transmission and Deluge; v2/hybrid where supported. Transmission/Deluge uTP and super-seed switches remain unverified. Known Linux results: Transmission rejects v2-only and stalls on hybrid pad-file expectations; qBittorrent/Deluge v1/v2/hybrid plain/RC4 passed. |
 | 13 | Web UI on a real phone | Android/iOS: detail/action sheets, drawer, sort, long-press multi-select, Back behavior, Properties and reconnection. Also verify desktop keyboard, selection, columns, Preferences and dark mode on the real engine. |
@@ -70,6 +70,10 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison.
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text. Research before designing the V2.0 goals below.
 
+
+## V1.1 goals
+- Import µTorrent `resume.dat` and qBittorrent `BT_backup`; add local search/filter; consider compiled-in Rust plugin hooks.
+
 ## V2.0 goals
 
 Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23; not designed yet.
@@ -83,8 +87,9 @@ Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23; not designed yet
 
 - BEP 44 DHT items/ed25519, BEP 51 sample-infohash querying and BEP 55 holepunch after 1.0 unless cheap. Detailed remaining engine/test gaps are in the backlog.
 - Split `core` only if compile times justify it; consider io_uring disk/network on Linux and IOCP file I/O on Windows.
-- Import µTorrent `resume.dat` and qBittorrent `BT_backup`; add local search/filter; consider compiled-in Rust plugin hooks.
 - Continuous work: meaningful scale regression baselines, parser fuzzing, per-release security review and a wider interop matrix (including rTorrent and µTorrent).
+- qBittorrent web search support. Worth looking into, but qBittorrent always had a rough history with the search engines. They broke, the Python installations did not work, etc. I'm interested in something more robust - if there is anything. Also, users love the Sonarr, Radarr, Prowler integration - while I never used them myself. Either we could adopt support for their search engines and save us the work of maintaining the engines, or with your help we can easily come up with our own Rust or whatever search engine modules.
+- Theming support: GTK4 takes up theme looks, so I think this might be Windows only. And, maybe its not even possible. But if we could, without extra resource use, it would be really cool and nice if we could have some nice looking themes included and third party support as well.
 
 ## Known TODOs
 

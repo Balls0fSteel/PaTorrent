@@ -8,7 +8,7 @@
   - 5 px refresh badges that read as "e".
 - The build, geometry check and proof pages pass, with zero overflow, margin failures and unexpected identical masks; median partial alpha at 16 px is 22.7 %. Near matches: normal/forced metadata (0.88) and download/upload-limit (0.93, gauge plus a direction badge).
 - The reviewer's scripts were rerun on the result: `review-sheets.py` and `shipped-sizes.py` (20 px clean), plus `compare-sheets.py` against `bef24b7`. Revision 4 → 5 comparisons and family sheets are in [qa/revision5](qa/revision5/).
-- Not done: an independent review of revision 5.
+- Independent review: [revision 5 report](review-2026-10-26/revision5/REPORT.md). It reproduced these measurements and passed 123/131. It failed the network trio (eye or key; globe fallback needed) and the tracker states plus reannounce (they read "A✓", "Ac"…).
 
 ## Revision 4 (2026-10-26)
 

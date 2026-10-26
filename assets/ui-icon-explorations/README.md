@@ -16,9 +16,9 @@ Open [review.html](review.html) to inspect the **131-symbol bold set** at native
 
 Redraws what the [revision 4 review](review-2026-10-26/revision4/REPORT.md) failed, following the owner's choices in D29. The pixel-art method is unchanged.
 
-- **Badges** are 5 × 5 at x 10–14, y 10–14; the refresh badge is 5 × 6 (y 9–14). Below y 8, bases stay at x ≤ 8, so every badge keeps a 1 px gap.
-- **Network:** a closed ring. The arrow's shaft pierces its left side and the head sits inside it, clear of the ring, so the open "?" hook is gone. The globe fallback was drawn but not needed.
-- **Tracker states and reannounce:** the Trackers-tab tower narrowed. It keeps two arcs a side, 2 px clear of the mast tip, with a tall mast on an A-frame lattice, so it has no head and no "arms".
+- **Badges:** ✓, × and … are 5 × 5 at x 10–14, y 10–14. The refresh badge is 5 × 6 (y 9–14), ! is 2 × 5, the add badge 6 × 6 and the limit arrows 6 × 5. Below y 8, bases stay at x ≤ 8, so every badge keeps a 1 px gap.
+- **Network:** a closed ring. The arrow's shaft pierces its left side and the head sits inside it, clear of the ring, so the open "?" hook is gone. A globe was only sketched outside the repository; it is not in the drawings. The [revision 5 review](review-2026-10-26/revision5/REPORT.md) found this base reads as an eye or a key, so the globe fallback is next.
+- **Tracker states and reannounce:** a narrowed tower with two arcs a side and a tall mast on a 4 px A-frame. Correction: the arcs are 1 px clear of the mast on the left and 2 px on the right, and the legs are vertical, so this is not the Trackers-tab tower narrowed. The review found the A-frame reads as the letter "A".
 - **Refresh badge:** a small copy of the full refresh action: an open C, a solid corner arrowhead and a two-row gap under it.
 - **Add URL:** a chain link (two loops joined by a bar) with the plus badge.
 - **Download/upload limits:** a speedometer base with a small ↓/↑ badge. Their masks are 0.93 similar because only the arrow differs; like normal/forced metadata, that is a modifier pair.

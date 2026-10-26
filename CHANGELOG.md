@@ -4,6 +4,20 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_124308_1793014988: Independent review of revision 5 UI icons
+
+- An independent reviewer checked commit `16b14bf` with the revision 4 method. It also produced native-size strips, ASCII masks, mask neighbours and sketches. The geometry audit reproduced byte for byte.
+- 123 of 131 pass. Add URL (chain link), both limits (speedometers), the refresh badge and all 11 toolbar icons now pass.
+- Still failing (6 shipped icons):
+  - Network trio: the closed ring with its detached arrowhead reads as an eye or a key, so D29's globe fallback applies.
+  - Tracker states and reannounce: the 4 px A-frame reads as "A✓", "Ac", "Ax", "A…".
+- The review also corrected the artist's notes: the globe was never drawn in the repository; the tower is not the tab tower narrowed, and its arcs are asymmetric. The revision 5 commit is `16b14bf`; it was misquoted as `6b14bf0`. The README is corrected.
+- Owner decision needed on the tracker base, because D29's narrowed tower cannot have splayed legs beside a 5 × 5 badge. Options:
+  - (a) the reviewer's recommendation: a pylon in x 1–8 with arcs above its apex, and the Trackers tab redrawn to match;
+  - (b) keep side arcs and give tracker states a smaller badge;
+  - (c) a non-tower base.
+- Report and evidence: `assets/ui-icon-explorations/review-2026-10-26/revision5/`.
+
 ## 2026-10-26_120258_1793012578: Revision 5 UI icons per D29: closed port, narrowed tower, chain link
 
 - The owner accepted the review's recommendations (D29). The redraws:

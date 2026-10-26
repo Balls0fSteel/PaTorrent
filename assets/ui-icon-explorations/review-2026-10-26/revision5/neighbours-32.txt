@@ -1,0 +1,30 @@
+# 32 px: top 3 mask neighbours (IoU) of each changed icon
+ 56 network-ok               network-no-incoming(57) 0.81  offline(58) 0.81  reset-columns(128) 0.34
+ 57 network-no-incoming      network-ok(56) 0.81  offline(58) 0.80  reset-columns(128) 0.32
+ 58 offline                  network-ok(56) 0.81  network-no-incoming(57) 0.80  reset-columns(128) 0.32
+ 64 tracker-working          tracker-updating(65) 0.81  reannounce(15) 0.81  tracker-error(66) 0.79
+ 65 tracker-updating         reannounce(15) 1.00  tracker-working(64) 0.81  tracker-error(66) 0.75
+ 66 tracker-error            tracker-working(64) 0.79  tracker-not-contacted(67) 0.76  tracker-updating(65) 0.75
+ 67 tracker-not-contacted    tracker-working(64) 0.79  tracker-error(66) 0.76  tracker-updating(65) 0.74
+ 15 reannounce               tracker-updating(65) 1.00  tracker-working(64) 0.81  tracker-error(66) 0.75
+128 reset-columns            add-url(2) 0.43  copy(19) 0.40  reload-ip-filter(116) 0.39
+116 reload-ip-filter         new-label(121) 0.48  remove-label(122) 0.41  wanted-complete(90) 0.40
+  2 add-url                  new-label(121) 0.51  set-location(17) 0.44  reset-columns(128) 0.43
+117 download-limit           upload-limit(118) 0.93  error(85) 0.32  random-port(115) 0.31
+118 upload-limit             download-limit(117) 0.93  error(85) 0.32  random-port(115) 0.31
+
+# pairs >= 0.70 involving a changed icon
+network-ok(56) ~ network-no-incoming(57) 0.810
+network-ok(56) ~ offline(58) 0.806
+network-no-incoming(57) ~ offline(58) 0.803
+tracker-working(64) ~ reannounce(15) 0.806
+tracker-working(64) ~ tracker-updating(65) 0.806
+tracker-working(64) ~ tracker-error(66) 0.794
+tracker-working(64) ~ tracker-not-contacted(67) 0.793
+tracker-updating(65) ~ reannounce(15) 1.000
+tracker-updating(65) ~ tracker-error(66) 0.746
+tracker-updating(65) ~ tracker-not-contacted(67) 0.742
+tracker-error(66) ~ reannounce(15) 0.746
+tracker-error(66) ~ tracker-not-contacted(67) 0.758
+tracker-not-contacted(67) ~ reannounce(15) 0.742
+download-limit(117) ~ upload-limit(118) 0.933

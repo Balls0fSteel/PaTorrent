@@ -1,0 +1,45 @@
+# 16 px: top 4 mask neighbours (IoU) of each changed icon
+ 56 network-ok               network-no-incoming(57) 0.81  offline(58) 0.81  reset-columns(128) 0.34  new-label(121) 0.31
+ 57 network-no-incoming      network-ok(56) 0.81  offline(58) 0.80  reset-columns(128) 0.32  set-location(17) 0.30
+ 58 offline                  network-ok(56) 0.81  network-no-incoming(57) 0.80  web-ui(47) 0.33  skip(94) 0.32
+ 64 tracker-working          tracker-updating(65) 0.81  reannounce(15) 0.81  tracker-error(66) 0.79  tracker-not-contacted(67) 0.79
+ 65 tracker-updating         reannounce(15) 1.00  tracker-working(64) 0.81  tracker-error(66) 0.75  tracker-not-contacted(67) 0.74
+ 66 tracker-error            tracker-working(64) 0.79  tracker-not-contacted(67) 0.76  tracker-updating(65) 0.75  reannounce(15) 0.75
+ 67 tracker-not-contacted    tracker-working(64) 0.79  tracker-error(66) 0.76  tracker-updating(65) 0.74  reannounce(15) 0.74
+ 15 reannounce               tracker-updating(65) 1.00  tracker-working(64) 0.81  tracker-error(66) 0.75  tracker-not-contacted(67) 0.74
+128 reset-columns            add-url(2) 0.43  copy(19) 0.40  reload-ip-filter(116) 0.39  clear-selection(109) 0.39
+116 reload-ip-filter         new-label(121) 0.48  remove-label(122) 0.42  set-location(17) 0.41  wanted-complete(90) 0.40
+  2 add-url                  new-label(121) 0.52  set-location(17) 0.45  reset-columns(128) 0.43  add-torrent(1) 0.38
+117 download-limit           upload-limit(118) 0.93  error(85) 0.33  recheck(14) 0.33  checking-files(74) 0.33
+118 upload-limit             download-limit(117) 0.93  error(85) 0.33  recheck(14) 0.33  checking-files(74) 0.33
+
+# pairs >= 0.70 involving a changed icon
+network-ok(56) ~ network-no-incoming(57) 0.810
+network-ok(56) ~ offline(58) 0.806
+network-no-incoming(57) ~ offline(58) 0.803
+tracker-working(64) ~ reannounce(15) 0.806
+tracker-working(64) ~ tracker-updating(65) 0.806
+tracker-working(64) ~ tracker-error(66) 0.794
+tracker-working(64) ~ tracker-not-contacted(67) 0.793
+tracker-updating(65) ~ reannounce(15) 1.000
+tracker-updating(65) ~ tracker-error(66) 0.746
+tracker-updating(65) ~ tracker-not-contacted(67) 0.742
+tracker-error(66) ~ reannounce(15) 0.746
+tracker-error(66) ~ tracker-not-contacted(67) 0.758
+tracker-not-contacted(67) ~ reannounce(15) 0.742
+download-limit(117) ~ upload-limit(118) 0.933
+
+# 16 px badge/base clearance (Chebyshev distance; 2 = one clear pixel)
+network-ok               components=3 badge_px=10 min_gap=3
+network-no-incoming      components=4 badge_px=8 min_gap=2
+offline                  components=3 badge_px=15 min_gap=2
+tracker-working          components=6 badge_px=10 min_gap=2
+tracker-updating         components=6 badge_px=14 min_gap=2
+tracker-error            components=6 badge_px=15 min_gap=2
+tracker-not-contacted    components=8 badge_px=6 min_gap=2
+reannounce               components=6 badge_px=14 min_gap=2
+reset-columns            components=2 badge_px=14 min_gap=3
+reload-ip-filter         components=2 badge_px=14 min_gap=4
+add-url                  components=4 badge_px=20 min_gap=3
+download-limit           components=2 badge_px=16 min_gap=2
+upload-limit             components=2 badge_px=16 min_gap=2

@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_100209_1793005329: Generate the full bold UI artwork with native-size proofs
+
+- Owner approved the proposed single-bold, full-set direction (D27). Added editable drawings for all 131 stable IDs, separate larger compound variants, per-size fitted SVGs and 2,358 PNGs across six sizes and light/dark/monochrome. About follows the current Verdigris identity; paused/stopped colours follow activity, and completion remains a check modifier.
+- Replaced broken/ambiguous compounds and unrelated shared silhouettes; explicit reuse is limited to eight documented pairs. Updated the gallery with native-size SVG downloads and monochrome review, complete proof sheets, the 24-current-symbol runtime map and a reproducible handoff ZIP. Historical outline/tile explorations remain outside the active manifest.
+- Validation: all PNGs decoded; 786 padded monochrome size checks have no overflow/margin failures; all-pair 16/32 px masks have no unexpected duplicates. Full visual review plus independent review prompted final Offline, clock and completed-Stop fixes. Median partial alpha at 16 px is 27% (earlier bold audit: 55%). GTK sizing proof inspected; gallery size/theme/path/filter checks and ZIP integrity passed. Application integration and live platform/DPI checks remain open. No runtime code or existing app selection changed.
+
 ## 2026-10-26_093102_1793003462: Review of revision 2 UI icon candidates
 
 - Inspected all 131 symbols × 3 families at 64 px and real 16 px on light/dark, and compared every pair's 32 px mask. 47 symbols need regeneration: malformed drawings (wanted-complete, new/remove-label, language, offline, add-url, rss-rule, forced-state arrows), weak metaphors (about, proxy, bittorrent, rss-history, limits, reset-columns), 19 pixel-identical shape pairs that differ only by colour (queue-up = seeding = upload, error = warning, reannounce = refresh, …), generic tile substitutes, and no pixel-grid fitting (71 % of outline 16 px pixels are semi-transparent). QA.md's earlier pass had missed these.

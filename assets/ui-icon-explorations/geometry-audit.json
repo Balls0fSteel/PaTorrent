@@ -1,5 +1,1034 @@
 {
+  "revision": 3,
   "checked": 786,
-  "criterion": "No significant stroke alpha beyond the 16-unit canvas (alpha >16/255)",
-  "overflow": []
+  "criterion": "No significant alpha outside canvas or on outermost pixel; silhouette comparisons threshold alpha at 128/255",
+  "overflow": [],
+  "margin": [],
+  "identical": [
+    {
+      "a": "pause",
+      "b": "paused-incomplete",
+      "size": 16,
+      "allowed": true
+    },
+    {
+      "a": "stop",
+      "b": "stopped-incomplete",
+      "size": 16,
+      "allowed": true
+    },
+    {
+      "a": "recheck",
+      "b": "checking-files",
+      "size": 16,
+      "allowed": true
+    },
+    {
+      "a": "reannounce",
+      "b": "tracker-updating",
+      "size": 16,
+      "allowed": true
+    },
+    {
+      "a": "filter",
+      "b": "rss-filters",
+      "size": 16,
+      "allowed": true
+    },
+    {
+      "a": "completed",
+      "b": "tracker-working",
+      "size": 16,
+      "allowed": true
+    },
+    {
+      "a": "upload",
+      "b": "seeding",
+      "size": 16,
+      "allowed": true
+    },
+    {
+      "a": "download",
+      "b": "downloading",
+      "size": 16,
+      "allowed": true
+    },
+    {
+      "a": "pause",
+      "b": "paused-incomplete",
+      "size": 32,
+      "allowed": true
+    },
+    {
+      "a": "stop",
+      "b": "stopped-incomplete",
+      "size": 32,
+      "allowed": true
+    },
+    {
+      "a": "recheck",
+      "b": "checking-files",
+      "size": 32,
+      "allowed": true
+    },
+    {
+      "a": "reannounce",
+      "b": "tracker-updating",
+      "size": 32,
+      "allowed": true
+    },
+    {
+      "a": "filter",
+      "b": "rss-filters",
+      "size": 32,
+      "allowed": true
+    },
+    {
+      "a": "completed",
+      "b": "tracker-working",
+      "size": 32,
+      "allowed": true
+    },
+    {
+      "a": "upload",
+      "b": "seeding",
+      "size": 32,
+      "allowed": true
+    },
+    {
+      "a": "download",
+      "b": "downloading",
+      "size": 32,
+      "allowed": true
+    }
+  ],
+  "unexpected": [],
+  "near": [
+    {
+      "a": "downloading-metadata",
+      "b": "force-downloading-metadata",
+      "size": 16,
+      "iou": 0.8824
+    }
+  ],
+  "medianPartialFraction16": 0.2667,
+  "stats": [
+    {
+      "id": "add-torrent",
+      "ink": 73,
+      "opaque": 70,
+      "partial": 3,
+      "partialFraction": 0.0411
+    },
+    {
+      "id": "add-url",
+      "ink": 72,
+      "opaque": 52,
+      "partial": 20,
+      "partialFraction": 0.2778
+    },
+    {
+      "id": "create-torrent",
+      "ink": 81,
+      "opaque": 63,
+      "partial": 18,
+      "partialFraction": 0.2222
+    },
+    {
+      "id": "remove",
+      "ink": 90,
+      "opaque": 90,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "delete-data",
+      "ink": 88,
+      "opaque": 64,
+      "partial": 24,
+      "partialFraction": 0.2727
+    },
+    {
+      "id": "start",
+      "ink": 82,
+      "opaque": 50,
+      "partial": 32,
+      "partialFraction": 0.3902
+    },
+    {
+      "id": "pause",
+      "ink": 72,
+      "opaque": 72,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "stop",
+      "ink": 100,
+      "opaque": 100,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "force-start",
+      "ink": 81,
+      "opaque": 32,
+      "partial": 49,
+      "partialFraction": 0.6049
+    },
+    {
+      "id": "queue-up",
+      "ink": 59,
+      "opaque": 35,
+      "partial": 24,
+      "partialFraction": 0.4068
+    },
+    {
+      "id": "queue-down",
+      "ink": 59,
+      "opaque": 35,
+      "partial": 24,
+      "partialFraction": 0.4068
+    },
+    {
+      "id": "queue-top",
+      "ink": 73,
+      "opaque": 49,
+      "partial": 24,
+      "partialFraction": 0.3288
+    },
+    {
+      "id": "queue-bottom",
+      "ink": 73,
+      "opaque": 49,
+      "partial": 24,
+      "partialFraction": 0.3288
+    },
+    {
+      "id": "recheck",
+      "ink": 107,
+      "opaque": 28,
+      "partial": 79,
+      "partialFraction": 0.7383
+    },
+    {
+      "id": "reannounce",
+      "ink": 97,
+      "opaque": 73,
+      "partial": 24,
+      "partialFraction": 0.2474
+    },
+    {
+      "id": "open-folder",
+      "ink": 116,
+      "opaque": 85,
+      "partial": 31,
+      "partialFraction": 0.2672
+    },
+    {
+      "id": "set-location",
+      "ink": 71,
+      "opaque": 63,
+      "partial": 8,
+      "partialFraction": 0.1127
+    },
+    {
+      "id": "properties",
+      "ink": 99,
+      "opaque": 96,
+      "partial": 3,
+      "partialFraction": 0.0303
+    },
+    {
+      "id": "copy",
+      "ink": 100,
+      "opaque": 100,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "save",
+      "ink": 134,
+      "opaque": 131,
+      "partial": 3,
+      "partialFraction": 0.0224
+    },
+    {
+      "id": "refresh",
+      "ink": 92,
+      "opaque": 32,
+      "partial": 60,
+      "partialFraction": 0.6522
+    },
+    {
+      "id": "search",
+      "ink": 87,
+      "opaque": 22,
+      "partial": 65,
+      "partialFraction": 0.7471
+    },
+    {
+      "id": "filter",
+      "ink": 100,
+      "opaque": 86,
+      "partial": 14,
+      "partialFraction": 0.14
+    },
+    {
+      "id": "all-torrents",
+      "ink": 108,
+      "opaque": 108,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "active",
+      "ink": 60,
+      "opaque": 24,
+      "partial": 36,
+      "partialFraction": 0.6
+    },
+    {
+      "id": "inactive",
+      "ink": 100,
+      "opaque": 28,
+      "partial": 72,
+      "partialFraction": 0.72
+    },
+    {
+      "id": "completed",
+      "ink": 52,
+      "opaque": 10,
+      "partial": 42,
+      "partialFraction": 0.8077
+    },
+    {
+      "id": "labels",
+      "ink": 96,
+      "opaque": 57,
+      "partial": 39,
+      "partialFraction": 0.4063
+    },
+    {
+      "id": "rss",
+      "ink": 109,
+      "opaque": 27,
+      "partial": 82,
+      "partialFraction": 0.7523
+    },
+    {
+      "id": "rss-rule",
+      "ink": 68,
+      "opaque": 28,
+      "partial": 40,
+      "partialFraction": 0.5882
+    },
+    {
+      "id": "statistics",
+      "ink": 75,
+      "opaque": 75,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "speed",
+      "ink": 100,
+      "opaque": 58,
+      "partial": 42,
+      "partialFraction": 0.42
+    },
+    {
+      "id": "general",
+      "ink": 126,
+      "opaque": 46,
+      "partial": 80,
+      "partialFraction": 0.6349
+    },
+    {
+      "id": "trackers",
+      "ink": 98,
+      "opaque": 42,
+      "partial": 56,
+      "partialFraction": 0.5714
+    },
+    {
+      "id": "peers",
+      "ink": 84,
+      "opaque": 30,
+      "partial": 54,
+      "partialFraction": 0.6429
+    },
+    {
+      "id": "pieces",
+      "ink": 99,
+      "opaque": 99,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "files",
+      "ink": 98,
+      "opaque": 88,
+      "partial": 10,
+      "partialFraction": 0.102
+    },
+    {
+      "id": "logger",
+      "ink": 126,
+      "opaque": 126,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "ratings",
+      "ink": 104,
+      "opaque": 58,
+      "partial": 46,
+      "partialFraction": 0.4423
+    },
+    {
+      "id": "preferences",
+      "ink": 115,
+      "opaque": 66,
+      "partial": 49,
+      "partialFraction": 0.4261
+    },
+    {
+      "id": "connection",
+      "ink": 108,
+      "opaque": 108,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "bandwidth",
+      "ink": 68,
+      "opaque": 44,
+      "partial": 24,
+      "partialFraction": 0.3529
+    },
+    {
+      "id": "bittorrent",
+      "ink": 108,
+      "opaque": 39,
+      "partial": 69,
+      "partialFraction": 0.6389
+    },
+    {
+      "id": "directories",
+      "ink": 108,
+      "opaque": 100,
+      "partial": 8,
+      "partialFraction": 0.0741
+    },
+    {
+      "id": "scheduler",
+      "ink": 138,
+      "opaque": 138,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "remote",
+      "ink": 110,
+      "opaque": 82,
+      "partial": 28,
+      "partialFraction": 0.2545
+    },
+    {
+      "id": "web-ui",
+      "ink": 160,
+      "opaque": 111,
+      "partial": 49,
+      "partialFraction": 0.3063
+    },
+    {
+      "id": "language",
+      "ink": 127,
+      "opaque": 97,
+      "partial": 30,
+      "partialFraction": 0.2362
+    },
+    {
+      "id": "appearance",
+      "ink": 142,
+      "opaque": 76,
+      "partial": 66,
+      "partialFraction": 0.4648
+    },
+    {
+      "id": "advanced",
+      "ink": 72,
+      "opaque": 72,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "privacy",
+      "ink": 125,
+      "opaque": 42,
+      "partial": 83,
+      "partialFraction": 0.664
+    },
+    {
+      "id": "proxy",
+      "ink": 98,
+      "opaque": 98,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "disk",
+      "ink": 108,
+      "opaque": 108,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "notifications",
+      "ink": 70,
+      "opaque": 48,
+      "partial": 22,
+      "partialFraction": 0.3143
+    },
+    {
+      "id": "power",
+      "ink": 86,
+      "opaque": 34,
+      "partial": 52,
+      "partialFraction": 0.6047
+    },
+    {
+      "id": "network-ok",
+      "ink": 82,
+      "opaque": 58,
+      "partial": 24,
+      "partialFraction": 0.2927
+    },
+    {
+      "id": "network-no-incoming",
+      "ink": 66,
+      "opaque": 62,
+      "partial": 4,
+      "partialFraction": 0.0606
+    },
+    {
+      "id": "offline",
+      "ink": 88,
+      "opaque": 60,
+      "partial": 28,
+      "partialFraction": 0.3182
+    },
+    {
+      "id": "dht",
+      "ink": 112,
+      "opaque": 112,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "upload",
+      "ink": 44,
+      "opaque": 34,
+      "partial": 10,
+      "partialFraction": 0.2273
+    },
+    {
+      "id": "download",
+      "ink": 44,
+      "opaque": 34,
+      "partial": 10,
+      "partialFraction": 0.2273
+    },
+    {
+      "id": "lock",
+      "ink": 106,
+      "opaque": 86,
+      "partial": 20,
+      "partialFraction": 0.1887
+    },
+    {
+      "id": "unlock",
+      "ink": 104,
+      "opaque": 84,
+      "partial": 20,
+      "partialFraction": 0.1923
+    },
+    {
+      "id": "tracker-working",
+      "ink": 52,
+      "opaque": 10,
+      "partial": 42,
+      "partialFraction": 0.8077
+    },
+    {
+      "id": "tracker-updating",
+      "ink": 97,
+      "opaque": 73,
+      "partial": 24,
+      "partialFraction": 0.2474
+    },
+    {
+      "id": "tracker-error",
+      "ink": 93,
+      "opaque": 69,
+      "partial": 24,
+      "partialFraction": 0.2581
+    },
+    {
+      "id": "tracker-not-contacted",
+      "ink": 66,
+      "opaque": 42,
+      "partial": 24,
+      "partialFraction": 0.3636
+    },
+    {
+      "id": "downloading",
+      "ink": 44,
+      "opaque": 34,
+      "partial": 10,
+      "partialFraction": 0.2273
+    },
+    {
+      "id": "seeding",
+      "ink": 44,
+      "opaque": 34,
+      "partial": 10,
+      "partialFraction": 0.2273
+    },
+    {
+      "id": "force-downloading",
+      "ink": 77,
+      "opaque": 34,
+      "partial": 43,
+      "partialFraction": 0.5584
+    },
+    {
+      "id": "force-seeding",
+      "ink": 77,
+      "opaque": 34,
+      "partial": 43,
+      "partialFraction": 0.5584
+    },
+    {
+      "id": "downloading-metadata",
+      "ink": 81,
+      "opaque": 66,
+      "partial": 15,
+      "partialFraction": 0.1852
+    },
+    {
+      "id": "force-downloading-metadata",
+      "ink": 102,
+      "opaque": 71,
+      "partial": 31,
+      "partialFraction": 0.3039
+    },
+    {
+      "id": "checking-files",
+      "ink": 107,
+      "opaque": 28,
+      "partial": 79,
+      "partialFraction": 0.7383
+    },
+    {
+      "id": "checking-resume-data",
+      "ink": 86,
+      "opaque": 53,
+      "partial": 33,
+      "partialFraction": 0.3837
+    },
+    {
+      "id": "queued-checking",
+      "ink": 79,
+      "opaque": 50,
+      "partial": 29,
+      "partialFraction": 0.3671
+    },
+    {
+      "id": "queued-resume-checking",
+      "ink": 71,
+      "opaque": 39,
+      "partial": 32,
+      "partialFraction": 0.4507
+    },
+    {
+      "id": "queued-download",
+      "ink": 62,
+      "opaque": 50,
+      "partial": 12,
+      "partialFraction": 0.1935
+    },
+    {
+      "id": "queued-seed",
+      "ink": 62,
+      "opaque": 50,
+      "partial": 12,
+      "partialFraction": 0.1935
+    },
+    {
+      "id": "paused-incomplete",
+      "ink": 72,
+      "opaque": 72,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "paused-complete",
+      "ink": 67,
+      "opaque": 46,
+      "partial": 21,
+      "partialFraction": 0.3134
+    },
+    {
+      "id": "stopped-incomplete",
+      "ink": 100,
+      "opaque": 100,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "stopped-complete",
+      "ink": 72,
+      "opaque": 51,
+      "partial": 21,
+      "partialFraction": 0.2917
+    },
+    {
+      "id": "moving",
+      "ink": 120,
+      "opaque": 88,
+      "partial": 32,
+      "partialFraction": 0.2667
+    },
+    {
+      "id": "error",
+      "ink": 148,
+      "opaque": 80,
+      "partial": 68,
+      "partialFraction": 0.4595
+    },
+    {
+      "id": "stalled-download",
+      "ink": 60,
+      "opaque": 44,
+      "partial": 16,
+      "partialFraction": 0.2667
+    },
+    {
+      "id": "stalled-seed",
+      "ink": 60,
+      "opaque": 44,
+      "partial": 16,
+      "partialFraction": 0.2667
+    },
+    {
+      "id": "no-peers",
+      "ink": 90,
+      "opaque": 44,
+      "partial": 46,
+      "partialFraction": 0.5111
+    },
+    {
+      "id": "allocating",
+      "ink": 85,
+      "opaque": 85,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "wanted-complete",
+      "ink": 74,
+      "opaque": 51,
+      "partial": 23,
+      "partialFraction": 0.3108
+    },
+    {
+      "id": "priority-high",
+      "ink": 104,
+      "opaque": 20,
+      "partial": 84,
+      "partialFraction": 0.8077
+    },
+    {
+      "id": "priority-normal",
+      "ink": 40,
+      "opaque": 40,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "priority-low",
+      "ink": 104,
+      "opaque": 20,
+      "partial": 84,
+      "partialFraction": 0.8077
+    },
+    {
+      "id": "skip",
+      "ink": 144,
+      "opaque": 40,
+      "partial": 104,
+      "partialFraction": 0.7222
+    },
+    {
+      "id": "folder",
+      "ink": 86,
+      "opaque": 78,
+      "partial": 8,
+      "partialFraction": 0.093
+    },
+    {
+      "id": "file-audio",
+      "ink": 89,
+      "opaque": 56,
+      "partial": 33,
+      "partialFraction": 0.3708
+    },
+    {
+      "id": "file-video",
+      "ink": 110,
+      "opaque": 96,
+      "partial": 14,
+      "partialFraction": 0.1273
+    },
+    {
+      "id": "file-image",
+      "ink": 149,
+      "opaque": 122,
+      "partial": 27,
+      "partialFraction": 0.1812
+    },
+    {
+      "id": "file-archive",
+      "ink": 116,
+      "opaque": 116,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "help",
+      "ink": 138,
+      "opaque": 45,
+      "partial": 93,
+      "partialFraction": 0.6739
+    },
+    {
+      "id": "about",
+      "ink": 152,
+      "opaque": 66,
+      "partial": 86,
+      "partialFraction": 0.5658
+    },
+    {
+      "id": "warning",
+      "ink": 98,
+      "opaque": 60,
+      "partial": 38,
+      "partialFraction": 0.3878
+    },
+    {
+      "id": "close",
+      "ink": 92,
+      "opaque": 20,
+      "partial": 72,
+      "partialFraction": 0.7826
+    },
+    {
+      "id": "menu",
+      "ink": 72,
+      "opaque": 72,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "back",
+      "ink": 74,
+      "opaque": 62,
+      "partial": 12,
+      "partialFraction": 0.1622
+    },
+    {
+      "id": "expand",
+      "ink": 52,
+      "opaque": 10,
+      "partial": 42,
+      "partialFraction": 0.8077
+    },
+    {
+      "id": "collapse",
+      "ink": 52,
+      "opaque": 10,
+      "partial": 42,
+      "partialFraction": 0.8077
+    },
+    {
+      "id": "select-all",
+      "ink": 139,
+      "opaque": 105,
+      "partial": 34,
+      "partialFraction": 0.2446
+    },
+    {
+      "id": "clear-selection",
+      "ink": 96,
+      "opaque": 96,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "sort-ascending",
+      "ink": 58,
+      "opaque": 46,
+      "partial": 12,
+      "partialFraction": 0.2069
+    },
+    {
+      "id": "sort-descending",
+      "ink": 58,
+      "opaque": 46,
+      "partial": 12,
+      "partialFraction": 0.2069
+    },
+    {
+      "id": "queueing",
+      "ink": 68,
+      "opaque": 56,
+      "partial": 12,
+      "partialFraction": 0.1765
+    },
+    {
+      "id": "desktop-integration",
+      "ink": 98,
+      "opaque": 98,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "authentication",
+      "ink": 74,
+      "opaque": 36,
+      "partial": 38,
+      "partialFraction": 0.5135
+    },
+    {
+      "id": "random-port",
+      "ink": 116,
+      "opaque": 116,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "reload-ip-filter",
+      "ink": 108,
+      "opaque": 39,
+      "partial": 69,
+      "partialFraction": 0.6389
+    },
+    {
+      "id": "download-limit",
+      "ink": 52,
+      "opaque": 42,
+      "partial": 10,
+      "partialFraction": 0.1923
+    },
+    {
+      "id": "upload-limit",
+      "ink": 52,
+      "opaque": 42,
+      "partial": 10,
+      "partialFraction": 0.1923
+    },
+    {
+      "id": "unlimited",
+      "ink": 128,
+      "opaque": 28,
+      "partial": 100,
+      "partialFraction": 0.7813
+    },
+    {
+      "id": "initial-seeding",
+      "ink": 48,
+      "opaque": 26,
+      "partial": 22,
+      "partialFraction": 0.4583
+    },
+    {
+      "id": "new-label",
+      "ink": 75,
+      "opaque": 62,
+      "partial": 13,
+      "partialFraction": 0.1733
+    },
+    {
+      "id": "remove-label",
+      "ink": 67,
+      "opaque": 54,
+      "partial": 13,
+      "partialFraction": 0.194
+    },
+    {
+      "id": "add-feed",
+      "ink": 66,
+      "opaque": 32,
+      "partial": 34,
+      "partialFraction": 0.5152
+    },
+    {
+      "id": "rss-items",
+      "ink": 94,
+      "opaque": 60,
+      "partial": 34,
+      "partialFraction": 0.3617
+    },
+    {
+      "id": "rss-history",
+      "ink": 81,
+      "opaque": 15,
+      "partial": 66,
+      "partialFraction": 0.8148
+    },
+    {
+      "id": "rss-filters",
+      "ink": 100,
+      "opaque": 86,
+      "partial": 14,
+      "partialFraction": 0.14
+    },
+    {
+      "id": "more",
+      "ink": 12,
+      "opaque": 12,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "reset-columns",
+      "ink": 97,
+      "opaque": 73,
+      "partial": 24,
+      "partialFraction": 0.2474
+    },
+    {
+      "id": "logout",
+      "ink": 84,
+      "opaque": 74,
+      "partial": 10,
+      "partialFraction": 0.119
+    },
+    {
+      "id": "association",
+      "ink": 105,
+      "opaque": 60,
+      "partial": 45,
+      "partialFraction": 0.4286
+    },
+    {
+      "id": "tray",
+      "ink": 72,
+      "opaque": 64,
+      "partial": 8,
+      "partialFraction": 0.1111
+    }
+  ]
 }

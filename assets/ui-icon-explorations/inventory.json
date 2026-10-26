@@ -1,0 +1,657 @@
+[
+  {
+    "id": "add-torrent",
+    "label": "Add torrent",
+    "group": "Actions"
+  },
+  {
+    "id": "add-url",
+    "label": "Add URL / magnet",
+    "group": "Actions"
+  },
+  {
+    "id": "create-torrent",
+    "label": "Create torrent",
+    "group": "Actions"
+  },
+  {
+    "id": "remove",
+    "label": "Remove torrent",
+    "group": "Actions"
+  },
+  {
+    "id": "delete-data",
+    "label": "Delete torrent and data",
+    "group": "Actions"
+  },
+  {
+    "id": "start",
+    "label": "Start",
+    "group": "Actions"
+  },
+  {
+    "id": "pause",
+    "label": "Pause",
+    "group": "Actions"
+  },
+  {
+    "id": "stop",
+    "label": "Stop",
+    "group": "Actions"
+  },
+  {
+    "id": "force-start",
+    "label": "Force start",
+    "group": "Actions"
+  },
+  {
+    "id": "queue-up",
+    "label": "Move up",
+    "group": "Actions"
+  },
+  {
+    "id": "queue-down",
+    "label": "Move down",
+    "group": "Actions"
+  },
+  {
+    "id": "queue-top",
+    "label": "Move to top",
+    "group": "Actions"
+  },
+  {
+    "id": "queue-bottom",
+    "label": "Move to bottom",
+    "group": "Actions"
+  },
+  {
+    "id": "recheck",
+    "label": "Force recheck",
+    "group": "Actions"
+  },
+  {
+    "id": "reannounce",
+    "label": "Update tracker",
+    "group": "Actions"
+  },
+  {
+    "id": "open-folder",
+    "label": "Open containing folder",
+    "group": "Actions"
+  },
+  {
+    "id": "set-location",
+    "label": "Set download location",
+    "group": "Actions"
+  },
+  {
+    "id": "properties",
+    "label": "Properties",
+    "group": "Actions"
+  },
+  {
+    "id": "copy",
+    "label": "Copy",
+    "group": "Actions"
+  },
+  {
+    "id": "save",
+    "label": "Save",
+    "group": "Actions"
+  },
+  {
+    "id": "refresh",
+    "label": "Refresh",
+    "group": "Actions"
+  },
+  {
+    "id": "search",
+    "label": "Search",
+    "group": "Navigation"
+  },
+  {
+    "id": "filter",
+    "label": "Filter",
+    "group": "Navigation"
+  },
+  {
+    "id": "all-torrents",
+    "label": "All torrents",
+    "group": "Navigation"
+  },
+  {
+    "id": "active",
+    "label": "Active transfers",
+    "group": "Navigation"
+  },
+  {
+    "id": "inactive",
+    "label": "Inactive transfers",
+    "group": "Navigation"
+  },
+  {
+    "id": "completed",
+    "label": "Completed",
+    "group": "Navigation"
+  },
+  {
+    "id": "labels",
+    "label": "Labels",
+    "group": "Navigation"
+  },
+  {
+    "id": "rss",
+    "label": "RSS feeds",
+    "group": "Navigation"
+  },
+  {
+    "id": "rss-rule",
+    "label": "RSS download rule",
+    "group": "Navigation"
+  },
+  {
+    "id": "statistics",
+    "label": "Statistics",
+    "group": "Navigation"
+  },
+  {
+    "id": "speed",
+    "label": "Speed graph",
+    "group": "Details"
+  },
+  {
+    "id": "general",
+    "label": "General details",
+    "group": "Details"
+  },
+  {
+    "id": "trackers",
+    "label": "Trackers",
+    "group": "Details"
+  },
+  {
+    "id": "peers",
+    "label": "Peers",
+    "group": "Details"
+  },
+  {
+    "id": "pieces",
+    "label": "Pieces",
+    "group": "Details"
+  },
+  {
+    "id": "files",
+    "label": "Files",
+    "group": "Details"
+  },
+  {
+    "id": "logger",
+    "label": "Logger",
+    "group": "Details"
+  },
+  {
+    "id": "ratings",
+    "label": "Ratings",
+    "group": "Details"
+  },
+  {
+    "id": "preferences",
+    "label": "Preferences",
+    "group": "Settings"
+  },
+  {
+    "id": "connection",
+    "label": "Connection",
+    "group": "Settings"
+  },
+  {
+    "id": "bandwidth",
+    "label": "Bandwidth",
+    "group": "Settings"
+  },
+  {
+    "id": "bittorrent",
+    "label": "BitTorrent",
+    "group": "Settings"
+  },
+  {
+    "id": "directories",
+    "label": "Directories",
+    "group": "Settings"
+  },
+  {
+    "id": "scheduler",
+    "label": "Scheduler",
+    "group": "Settings"
+  },
+  {
+    "id": "remote",
+    "label": "Remote control",
+    "group": "Settings"
+  },
+  {
+    "id": "web-ui",
+    "label": "Web UI",
+    "group": "Settings"
+  },
+  {
+    "id": "language",
+    "label": "Language",
+    "group": "Settings"
+  },
+  {
+    "id": "appearance",
+    "label": "Appearance",
+    "group": "Settings"
+  },
+  {
+    "id": "advanced",
+    "label": "Advanced",
+    "group": "Settings"
+  },
+  {
+    "id": "privacy",
+    "label": "Privacy / encryption",
+    "group": "Settings"
+  },
+  {
+    "id": "proxy",
+    "label": "Proxy",
+    "group": "Settings"
+  },
+  {
+    "id": "disk",
+    "label": "Disk cache",
+    "group": "Settings"
+  },
+  {
+    "id": "notifications",
+    "label": "Notifications",
+    "group": "Settings"
+  },
+  {
+    "id": "power",
+    "label": "Auto shutdown",
+    "group": "Settings"
+  },
+  {
+    "id": "network-ok",
+    "label": "Incoming connection seen",
+    "group": "Network"
+  },
+  {
+    "id": "network-no-incoming",
+    "label": "No incoming connection seen",
+    "group": "Network"
+  },
+  {
+    "id": "offline",
+    "label": "Offline",
+    "group": "Network"
+  },
+  {
+    "id": "dht",
+    "label": "DHT",
+    "group": "Network"
+  },
+  {
+    "id": "upload",
+    "label": "Upload",
+    "group": "Network"
+  },
+  {
+    "id": "download",
+    "label": "Download",
+    "group": "Network"
+  },
+  {
+    "id": "lock",
+    "label": "Encrypted",
+    "group": "Network"
+  },
+  {
+    "id": "unlock",
+    "label": "Unencrypted",
+    "group": "Network"
+  },
+  {
+    "id": "tracker-working",
+    "label": "Tracker working",
+    "group": "Trackers"
+  },
+  {
+    "id": "tracker-updating",
+    "label": "Tracker updating",
+    "group": "Trackers"
+  },
+  {
+    "id": "tracker-error",
+    "label": "Tracker error",
+    "group": "Trackers"
+  },
+  {
+    "id": "tracker-not-contacted",
+    "label": "Tracker not contacted",
+    "group": "Trackers"
+  },
+  {
+    "id": "downloading",
+    "label": "Downloading",
+    "group": "Torrent states"
+  },
+  {
+    "id": "seeding",
+    "label": "Seeding",
+    "group": "Torrent states"
+  },
+  {
+    "id": "force-downloading",
+    "label": "Forced download",
+    "group": "Torrent states"
+  },
+  {
+    "id": "force-seeding",
+    "label": "Forced seed",
+    "group": "Torrent states"
+  },
+  {
+    "id": "downloading-metadata",
+    "label": "Fetching metadata",
+    "group": "Torrent states"
+  },
+  {
+    "id": "force-downloading-metadata",
+    "label": "Forced metadata fetch",
+    "group": "Torrent states"
+  },
+  {
+    "id": "checking-files",
+    "label": "Checking files",
+    "group": "Torrent states"
+  },
+  {
+    "id": "checking-resume-data",
+    "label": "Checking resume data",
+    "group": "Torrent states"
+  },
+  {
+    "id": "queued-checking",
+    "label": "Queued file check",
+    "group": "Torrent states"
+  },
+  {
+    "id": "queued-resume-checking",
+    "label": "Queued resume check",
+    "group": "Torrent states"
+  },
+  {
+    "id": "queued-download",
+    "label": "Queued download",
+    "group": "Torrent states"
+  },
+  {
+    "id": "queued-seed",
+    "label": "Queued seed",
+    "group": "Torrent states"
+  },
+  {
+    "id": "paused-incomplete",
+    "label": "Paused incomplete",
+    "group": "Torrent states"
+  },
+  {
+    "id": "paused-complete",
+    "label": "Paused complete",
+    "group": "Torrent states"
+  },
+  {
+    "id": "stopped-incomplete",
+    "label": "Stopped incomplete",
+    "group": "Torrent states"
+  },
+  {
+    "id": "stopped-complete",
+    "label": "Finished / stopped complete",
+    "group": "Torrent states"
+  },
+  {
+    "id": "moving",
+    "label": "Moving data",
+    "group": "Torrent states"
+  },
+  {
+    "id": "error",
+    "label": "Torrent error",
+    "group": "Torrent states"
+  },
+  {
+    "id": "stalled-download",
+    "label": "Stalled download",
+    "group": "Torrent states"
+  },
+  {
+    "id": "stalled-seed",
+    "label": "Stalled seed",
+    "group": "Torrent states"
+  },
+  {
+    "id": "no-peers",
+    "label": "No peers",
+    "group": "Torrent states"
+  },
+  {
+    "id": "allocating",
+    "label": "Allocating space",
+    "group": "Torrent states"
+  },
+  {
+    "id": "wanted-complete",
+    "label": "Wanted files complete",
+    "group": "Torrent states"
+  },
+  {
+    "id": "priority-high",
+    "label": "High priority",
+    "group": "Files"
+  },
+  {
+    "id": "priority-normal",
+    "label": "Normal priority",
+    "group": "Files"
+  },
+  {
+    "id": "priority-low",
+    "label": "Low priority",
+    "group": "Files"
+  },
+  {
+    "id": "skip",
+    "label": "Do not download",
+    "group": "Files"
+  },
+  {
+    "id": "folder",
+    "label": "Folder",
+    "group": "Files"
+  },
+  {
+    "id": "file-audio",
+    "label": "Audio file",
+    "group": "Files"
+  },
+  {
+    "id": "file-video",
+    "label": "Video file",
+    "group": "Files"
+  },
+  {
+    "id": "file-image",
+    "label": "Image file",
+    "group": "Files"
+  },
+  {
+    "id": "file-archive",
+    "label": "Archive file",
+    "group": "Files"
+  },
+  {
+    "id": "help",
+    "label": "Help",
+    "group": "Utility"
+  },
+  {
+    "id": "about",
+    "label": "About PaTorrent",
+    "group": "Utility"
+  },
+  {
+    "id": "warning",
+    "label": "Warning",
+    "group": "Utility"
+  },
+  {
+    "id": "close",
+    "label": "Close",
+    "group": "Utility"
+  },
+  {
+    "id": "menu",
+    "label": "Menu",
+    "group": "Utility"
+  },
+  {
+    "id": "back",
+    "label": "Back",
+    "group": "Utility"
+  },
+  {
+    "id": "expand",
+    "label": "Expand",
+    "group": "Utility"
+  },
+  {
+    "id": "collapse",
+    "label": "Collapse",
+    "group": "Utility"
+  },
+  {
+    "id": "select-all",
+    "label": "Select all",
+    "group": "Utility"
+  },
+  {
+    "id": "clear-selection",
+    "label": "Clear selection",
+    "group": "Utility"
+  },
+  {
+    "id": "sort-ascending",
+    "label": "Sort ascending",
+    "group": "Utility"
+  },
+  {
+    "id": "sort-descending",
+    "label": "Sort descending",
+    "group": "Utility"
+  },
+  {
+    "id": "queueing",
+    "label": "Queueing",
+    "group": "Settings"
+  },
+  {
+    "id": "desktop-integration",
+    "label": "Desktop integration",
+    "group": "Settings"
+  },
+  {
+    "id": "authentication",
+    "label": "Authentication",
+    "group": "Settings"
+  },
+  {
+    "id": "random-port",
+    "label": "Random port",
+    "group": "Settings"
+  },
+  {
+    "id": "reload-ip-filter",
+    "label": "Reload IP filter",
+    "group": "Settings"
+  },
+  {
+    "id": "download-limit",
+    "label": "Download limit",
+    "group": "Actions"
+  },
+  {
+    "id": "upload-limit",
+    "label": "Upload limit",
+    "group": "Actions"
+  },
+  {
+    "id": "unlimited",
+    "label": "Unlimited",
+    "group": "Actions"
+  },
+  {
+    "id": "initial-seeding",
+    "label": "Initial seeding",
+    "group": "Actions"
+  },
+  {
+    "id": "new-label",
+    "label": "New label",
+    "group": "Actions"
+  },
+  {
+    "id": "remove-label",
+    "label": "Remove label",
+    "group": "Actions"
+  },
+  {
+    "id": "add-feed",
+    "label": "Add RSS feed",
+    "group": "RSS"
+  },
+  {
+    "id": "rss-items",
+    "label": "Feed items",
+    "group": "RSS"
+  },
+  {
+    "id": "rss-history",
+    "label": "Feed history",
+    "group": "RSS"
+  },
+  {
+    "id": "rss-filters",
+    "label": "Feed filters",
+    "group": "RSS"
+  },
+  {
+    "id": "more",
+    "label": "More actions",
+    "group": "Utility"
+  },
+  {
+    "id": "reset-columns",
+    "label": "Reset columns",
+    "group": "Utility"
+  },
+  {
+    "id": "logout",
+    "label": "Log out",
+    "group": "Utility"
+  },
+  {
+    "id": "association",
+    "label": "Torrent file association",
+    "group": "Brand"
+  },
+  {
+    "id": "tray",
+    "label": "Tray transfer mark",
+    "group": "Brand"
+  }
+]

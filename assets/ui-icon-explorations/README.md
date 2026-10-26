@@ -1,50 +1,63 @@
-# PaTorrent UI icon explorations
+# PaTorrent bold UI artwork — revision 3
 
-Open [review.html](review.html) directly in a browser to compare complete alternative icon families. No server, network connection, or installation is needed. Keep `manifest.js` beside the gallery.
+Open [review.html](review.html) to inspect the **131-symbol bold set** at native 16/20/24/32/48/64 px. The gallery supports light/dark artwork, monochrome proofs, UI-area/search filters and shortlist export. The larger inspection image uses the separately fitted 48 px SVG. SVG downloads match the selected size.
 
-## Choosing icons
+## Design
 
-- Compare **Bold color**, **Strong outline**, and **Contrast tile** side by side.
-- Start at **16 px**, then check 20, 24 and 32 px. Each cell also offers a 48 px inspection view. These are real displayed sizes, not enlarged 16 px screenshots.
-- Switch between light and dark backgrounds to see the matching artwork.
-- Search by name, filter by UI area, and star individual family/icon combinations. The shortlist is kept in browser storage when available; export its JSON to retain or share choices reliably.
-- Use the SVG and PNG links beneath a candidate to retrieve that exact theme and size.
+- One bold family; tiles and outline are no longer active generation targets.
+- Native 16 px drawings and explicit larger variants for dense compound symbols. Each output size has its own fitted SVG; PNGs are rendered directly from that SVG, never downscaled from another PNG.
+- Integer horizontal/vertical edges and 1/2 px small-size strokes; antialiasing is retained for diagonals and curves. A clear outer pixel remains at every export size.
+- Compound symbols keep a complete base beside their modifier, with transparent space between them. Forced transfers use lightning, stalled transfers use an exclamation mark. Metadata states share the same page/down-arrow base.
+- Colour describes operational state: downloads/metadata teal, seeding blue, checking/queueing/paused amber, stopped/inactive grey, errors red. Completion is a check shape; it never recolours paused or stopped variants.
+- About is a flat symbolic rendition of the currently selected Verdigris medallion and P/down-arrow. The existing app/window/tray/packaging brand remains selected; the twelve earlier app concepts are a historical discussion sheet.
+- `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. Offline uses an intact plug plus a cross.
 
 ## Files
 
-- `svg/{family}/{id}.svg`: original editable light-interface vectors.
-- `svg-dark/{family}/{id}.svg`: corresponding dark-interface vectors.
-- `png/{family}/{size}/{id}.png` and `png-dark/{family}/{size}/{id}.png`: transparent raster exports at the sizes listed in the manifest.
-- `manifest.json`: semantic icon inventory, families and export sizes.
-- `manifest.js`: the same inventory exposed to the offline gallery as `window.ICON_EXPLORATIONS`.
-- `app-concepts.png`, when present: additional generated application-mark concepts, presented as a selection sheet rather than individual ready-to-ship UI assets.
+| Path | Contents |
+|---|---|
+| `inventory.json` | Stable 131 IDs, labels and groups |
+| `bold/{actions,states,misc}.cjs` | Editable small/large vector drawings |
+| `bold/common.cjs`, `bold/index.cjs` | Shared primitives, About mark and explicit reuse allowlist |
+| `bold/render.cjs` | Native-size SVG fitting and light/dark palette |
+| `svg/bold/{id}.svg` | Native 16 px light SVG; stable original paths |
+| `svg-size/bold/{size}/{id}.svg` | Separate fitted 20/24/32/48/64 px light drawings |
+| `svg-dark`, `svg-dark-size` | Matching dark SVGs |
+| `svg-mono`, `svg-mono-size` | Black monochrome SVGs |
+| `png{,-dark,-mono}/bold/{size}/{id}.png` | Transparent native-size PNG exports |
+| `manifest.json`, `manifest.js` | Active family, semantics, colours, reuse and runtime/toolbar lists |
+| `preview.png` | Toolbar proof: native 16/24 px and nearest-neighbour zoom |
+| `small-size-proof.png` | Complete actual-size 16 px contact sheet |
+| `qa/revision3/all-01.png` … `all-06.png` | All symbols: native 16/24, light/dark/mono and 3× nearest zoom |
+| `qa/revision3/runtime.png`, `gtk-logical.png` | The 24 shared runtime states and GTK 32-source-at-16-logical proof |
+| `geometry-audit.json`, `validation.json`, `QA.md` | Measured checks, visual review and remaining platform gates |
 
-The UI symbols are original vector artwork designed around substantial strokes, simple silhouettes and clear negative space for small sizes. Color reinforces meaning; shapes remain the primary cue. Each family is a selection candidate, and individual symbols can be mixed or refined after review.
+**Active output: 2,358 SVGs + 2,358 PNGs** (131 × six sizes × three colour modes). Older outline/tile files, revision 2 proof pages and `refine.cjs`/`compare.cjs` remain for historical comparison and are not advertised by the active manifest. The dated [revision 2 report](review-2026-10-26/REPORT.md) explains the defects that prompted this redraw.
 
-These files do not change the application's existing icon selection or runtime UI. Choose the family and individual variants first; integration and platform/DPI checks follow that decision. Repository licensing applies.
+## Reproduce
 
-## Batch and regeneration
+The existing development-only Sharp library is the only Node dependency. No application dependency was added.
 
-This batch contains **131 semantic symbols × 3 families = 393 candidates**, each with light/dark artwork: **786 SVGs** and **4,716 PNGs** at **16, 20, 24, 32, 48, 64 px**. Coverage includes the current 11 toolbar actions and 24 shared state icons, context actions, sidebar/navigation, details, preferences, RSS, file priorities/types, utility controls and brand support marks. Some controls intentionally reuse familiar glyphs (for example download and downloading).
+```text
+node build.cjs --sharp <absolute-path-to-sharp>
+node check-geometry.cjs <absolute-path-to-sharp>
+node proof-pages.cjs <absolute-path-to-sharp>
+```
 
-- [preview.png](preview.png): first 22 symbols at actual 16 px on both backgrounds.
-- [small-size-proof.png](small-size-proof.png): all symbols at actual 16 px on both backgrounds.
-- [validation.json](validation.json): export counts and validation results.
-- [prompts.json](prompts.json): exact built-in image_gen prompt for the 12 application concepts and provenance of the directly drawn UI vectors.
-- `build.cjs`: deterministic vector and PNG export source. Uses the existing development-only `sharp` library, with no application dependency added.
+To create the handoff ZIP, use the shared home virtual environment's Python:
 
-Regenerate with `node build.cjs --sharp /absolute/path/to/sharp`. This regenerates vectors, manifests, PNGs and proof sheets; it preserves the separately generated app concept sheet and gallery. The application concepts remain a contact sheet, not transparent individual app masters or Windows ICOs. Choose a concept before preparing production app exports.
+```text
+python package.py
+```
 
-All raster exports were decoded and checked for expected dimensions, visible pixels and transparency. The proof sheet was inspected visually. These are review candidates: composite states and tile interiors need your judgment at actual size, followed by platform/DPI checks after selection.
+The ZIP is written to `dist/artwork/patorrent-bold-revision3.zip` from the repository root.
 
-## Revision 2 — visual corrections
+## Intentional reuse
 
-77 symbols have been redrawn after a complete small-size audit, including Add Torrent, URL/Create, Pieces, Web UI, language, labels, locks and composite torrent states. The tile glyphs have more room, and fine details no longer inherit the same thick stroke as the outer frame. `refine.cjs` contains the revised geometry and is loaded by `build.cjs`.
+Only these pairs may have identical monochrome masks: upload/seeding, download/downloading, pause/paused-incomplete, stop/stopped-incomplete, recheck/checking-files, completed/tracker-working, filter/RSS-filters, and reannounce/tracker-updating. Queue controls, limits, sort, network/statistics, tracker-error/Close, RSS-items/queueing/properties, and Folder/Open Folder have distinct drawings.
 
-The gallery now displays exact exported PNGs at the chosen proof size, while the 48 px inspection image remains SVG. Reload the page to pick up revision 2, then use **Show revised only** to focus on direct redraws. Existing IDs and saved shortlist keys are preserved.
+## Integration handoff
 
-See [QA.md](QA.md) for the review scope, limitations, reproducible checks and paginated 16/24/32 px proof sheets; [qa-comparison.png](qa-comparison.png) compares representative fixes with the first batch. The padded-canvas audit checks all 786 SVGs for clipped strokes, beyond simple image-format validation.
+This change supplies artwork and review tools. The application still embeds the previous `assets/patina-icons/exports/states` images, draws the Win32 toolbar at runtime and uses GTK theme icons for toolbar actions. `manifest.json` identifies the **24 currently embedded symbols (18 torrent + four tracker + two network)** and the 11 toolbar symbols to integrate first. The report's earlier “24 state + four tracker + two network” count was incorrect.
 
-## Review 2026-10-26
-
-[review-2026-10-26/REPORT.md](review-2026-10-26/REPORT.md) lists the 47 symbols that still fail after revision 2, the decisions needed and the specification for regenerating them.
+After integration, hand-check Windows DPI, GTK light/dark and 32 px textures displayed at 16 logical px, and macOS Retina/menu-bar behaviour. Repository licensing applies; the handoff ZIP includes `LICENSE.md`.

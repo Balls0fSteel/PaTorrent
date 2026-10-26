@@ -1,28 +1,29 @@
-# Revision 2 visual QA
+# Revision 3 artwork QA
 
-The first batch passed image-format checks, but those checks did not establish visual quality. Native-resolution review found overlapping page modifiers, overly heavy internal strokes, and a tile transform that reduced detail too far.
+The revision 2 QA claims are superseded by the [2026-10-26 audit](review-2026-10-26/REPORT.md). Export validity alone did not establish legibility. Revision 3 uses a complete redraw, native-size exports, mask comparisons and a separate visual review.
 
-## Corrections
+## Checks performed
 
-77 semantic symbols were directly redrawn in `refine.cjs`; the whole set also received rounded joins, lighter default strokes and a larger tile interior (90% rather than 75%). Add Torrent now uses an open page with a separate large plus; Create uses a sparkle. Bars and dots have explicit fills without inherited outlines. Dense grid/browser/settings artwork was simplified; locks, labels, completion checks and peer states have separated cues. Forced transfers use double arrows; stalled transfers retain warnings.
+- All 131 symbols are exported as one bold family, in light/dark/monochrome, at 16/20/24/32/48/64 px: **2,358 SVGs and 2,358 PNGs**. Every PNG is decoded for dimensions, visible ink and transparency.
+- Every size is rendered from a separately fitted SVG. Small source geometry is used at 16/20; explicit large geometry is used at 24+ where supplied. The larger drawing retains the same metaphor and readable detail at 16 logical px.
+- Padded-canvas raster checks cover all 786 monochrome icon/size combinations. **Zero overflow and zero outer-pixel margin failures.** The check fails on either condition.
+- All pairs are compared at 16 and 32 px after thresholding alpha at 128/255. **Zero unapproved identical masks.** Eight explicit action/state or same-operation pairs are allowlisted in the manifest. Near matches at intersection-over-union ≥0.88 remain visible in the audit rather than being hidden.
+- The remaining near match is normal/forced metadata at 16 px (shared page and down arrow). The added upper-right lightning is visible in monochrome and the GTK logical-size proof; this is a modifier relationship, not a colour-only distinction.
+- Median partially transparent ink at native 16 px is approximately **27%**, compared with the prior report's 55% for bold. Curves and diagonals remain antialiased; straight menu/pause/stop geometry is opaque and aligned. This metric is diagnostic, not a visual-quality pass by itself.
+- The complete six-page 16/24 light/dark/monochrome proof set was visually inspected. A second reviewer inspected all 131 symbols plus the shared-runtime and GTK logical-size proofs. Their final findings led to a recognisable intact plug + cross for Offline, thinner/readable resume-check clocks and a square completed-Stop base. Labels/pages/folders retain their bases; force/stall, queue/transfer, network/chart, limits/sort and tracker/Close are separated.
+- The 32 px runtime exports were also previewed at 16 logical px. This is a raster proof of the GTK sizing path, not a live GTK application test.
 
-## Review performed
+- Gallery JavaScript passed 18 size/theme combinations, 9,432 generated asset-reference checks, search/group filtering and stable shortlist handling in a DOM harness. The local HTTP preview returned 200. This does not claim a full interactive browser/platform test.
 
-- First pass: all 131 symbols, three families and both themes, using five native-resolution 16 px sheets. Independent visual audit identified the major failures.
-- Second pass: all revised 16 px sheets reviewed again; an independent reviewer also inspected all 131 at 32 px across both themes and all styles. Its remaining findings led to another correction pass (Create, New Label, selection and forced-state cues).
-- Final pass: complete 16 and 24 px proof pages visually inspected, before/after comparison checked, and final forced-metadata tile aligned with the other forced states. These are visual judgments, not a guarantee that every candidate suits every use.
-- Every one of the 4,716 PNGs was decoded and checked for dimensions, visible pixels and transparency. All 786 SVG variants passed padded-canvas overflow detection (no significant stroke alpha outside the 16-unit canvas).
-- Stable IDs, manifest asset paths, gallery JavaScript syntax and force/stall shape distinction checked. The gallery uses actual PNG exports for small-size proof and SVG for enlarged inspection; `?v=2` asset references avoid stale cache entries after a reload.
+## Evidence
 
-The browser automation tool refused access to the local file URL, so live browser interaction was not reverified. The visual reviews above used rendered local proof sheets. Runtime application integration and platform/DPI checks remain pending owner selection.
+- [Toolbar](preview.png)
+- [All native 16 px](small-size-proof.png)
+- [Shared runtime symbols](qa/revision3/runtime.png)
+- [GTK logical sizing](qa/revision3/gtk-logical.png)
+- Complete proof pages [1](qa/revision3/all-01.png), [2](qa/revision3/all-02.png), [3](qa/revision3/all-03.png), [4](qa/revision3/all-04.png), [5](qa/revision3/all-05.png), [6](qa/revision3/all-06.png).
+- [Measured geometry and collision audit](geometry-audit.json)
 
-## Evidence and regeneration
+## Remaining gates
 
-- [Before / after](qa-comparison.png), at exact 16 px.
-- `qa/16-01.png` through `qa/16-05.png`: all 131 symbols, all families, both themes.
-- Equivalent five-page sets for 24 and 32 px.
-- [Geometry results](geometry-audit.json) and [export results](validation.json).
-
-Run `node build.cjs --sharp <sharp-path>`, `node check-geometry.cjs <sharp-path>` and `node proof-pages.cjs <sharp-path>`. `compare.cjs` renders the before/after proof from original commit `42f7cab`; it requires that commit in the local Git history. These are development helpers, with no new application dependency.
-
-Some tile symbols deliberately use a simpler primary cue (for example Add uses a plus, Create a sparkle, recheck a check, Remote a monitor). The labelled gallery supplies context; the full unboxed symbols retain more context where it remains legible.
+Artwork review involves judgment; the sheets expose the exact pixels for owner review. Runtime integration, toolkit rendering, accessibility themes and real platform/DPI checks remain open. No application code or production artwork selection changed in this revision. The 12 app concepts remain discussion-only raster artwork.

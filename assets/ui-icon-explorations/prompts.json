@@ -11,5 +11,13 @@
     "revision": 2,
     "refinementSource": "refine.cjs",
     "refinementBrief": "Redraw 77 unclear symbols with separated modifiers, explicit fill geometry and simplified tile cues; review all131 in both themes at16/24/32 px."
+  },
+  "revision3": {
+    "method": "Direct native-grid SVG authoring and per-size fitted raster export; no new raster image generation",
+    "family": "bold",
+    "scope": 131,
+    "brand": "Symbolic Verdigris medallion/P-down mark, preserving current app selection",
+    "source": "bold/",
+    "decision": "D27"
   }
 }

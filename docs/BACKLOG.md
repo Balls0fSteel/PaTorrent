@@ -152,6 +152,11 @@ That broad check does not establish that every detailed case below was tried.
   completion notifications. Check X11/Wayland; compositors may not report
   minimized state, in which case minimize-to-tray stays a normal minimize.
   Tray menus lack Auto Shutdown and limits in both GUIs.
+- Icons (2026-10-26_100209_1793005329, D27): bold revision 3 artwork is ready in
+  `assets/ui-icon-explorations/`; integrate its 24 shared symbols and 11 toolbar
+  actions. Win32 still draws its toolbar and GTK still uses theme icons; both
+  GUIs still embed the earlier Patina state exports. Preserve state precedence
+  and the no-incoming-observed meaning. Then check the actual toolkit rendering.
 - Icons: check installed themed icons, tray `IconName`/`IconThemePath` across
   hosts, list/Trackers textures, About and DPIs beyond 100%. The chosen family is
   provisionally Verdigris via `app-icon.txt`; non-MSVC Windows builds retain a

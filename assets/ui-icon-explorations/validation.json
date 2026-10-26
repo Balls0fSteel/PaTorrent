@@ -1,11 +1,12 @@
 {
+  "revision": 3,
   "icons": 131,
-  "families": 3,
-  "themes": 2,
-  "svgCount": 786,
-  "pngCount": 4716,
-  "revision": 2,
-  "redrawnSymbols": 77,
+  "families": 1,
+  "themes": [
+    "light",
+    "dark",
+    "mono"
+  ],
   "sizes": [
     16,
     20,
@@ -14,14 +15,16 @@
     48,
     64
   ],
+  "svgCount": 2358,
+  "pngCount": 2358,
+  "separateLargeDrawings": 29,
   "checks": [
-    "All PNG dimensions verified",
-    "All PNGs contain visible pixels and transparency",
-    "Actual-size light/dark proof rendered"
+    "Every PNG decoded at its expected native dimensions",
+    "Every PNG contains ink and transparency",
+    "Each size rendered from its own pixel-fitted SVG without raster resizing"
   ],
   "limitations": [
-    "Candidate artwork; no application integration",
-    "Candidate selection still requires owner judgment",
-    "Application integration and platform/DPI checks remain pending"
+    "Artwork only; application integration and platform/DPI checks remain pending",
+    "Visual judgments documented separately in QA.md"
   ]
 }

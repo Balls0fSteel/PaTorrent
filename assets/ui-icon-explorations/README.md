@@ -44,3 +44,7 @@ All raster exports were decoded and checked for expected dimensions, visible pix
 The gallery now displays exact exported PNGs at the chosen proof size, while the 48 px inspection image remains SVG. Reload the page to pick up revision 2, then use **Show revised only** to focus on direct redraws. Existing IDs and saved shortlist keys are preserved.
 
 See [QA.md](QA.md) for the review scope, limitations, reproducible checks and paginated 16/24/32 px proof sheets; [qa-comparison.png](qa-comparison.png) compares representative fixes with the first batch. The padded-canvas audit checks all 786 SVGs for clipped strokes, beyond simple image-format validation.
+
+## Review 2026-10-26
+
+[review-2026-10-26/REPORT.md](review-2026-10-26/REPORT.md) lists the 47 symbols that still fail after revision 2, the decisions needed and the specification for regenerating them.

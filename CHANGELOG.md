@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_093102_1793003462: Review of revision 2 UI icon candidates
+
+- Inspected all 131 symbols × 3 families at 64 px and real 16 px on light/dark, and compared every pair's 32 px mask. 47 symbols need regeneration: malformed drawings (wanted-complete, new/remove-label, language, offline, add-url, rss-rule, forced-state arrows), weak metaphors (about, proxy, bittorrent, rss-history, limits, reset-columns), 19 pixel-identical shape pairs that differ only by colour (queue-up = seeding = upload, error = warning, reannounce = refresh, …), generic tile substitutes, and no pixel-grid fitting (71 % of outline 16 px pixels are semi-transparent). QA.md's earlier pass had missed these.
+- Added `assets/ui-icon-explorations/review-2026-10-26/`: report with per-icon fixes, owner decisions and a regeneration spec (pixel-fitted 16 px SVGs, shared badge system, no shared silhouettes), labelled review sheets and their Pillow script. App concept 08 resembles the Edge logo and 03 Ubuntu's mark. No artwork or runtime code changed.
+
 ## 2026-10-26_092453_1793003093: Redraw unclear small-size UI icon candidates after full visual audit
 
 - The owner found bad symbols, notably Add Torrent. Format-only validation had missed visual collisions: heavy shared strokes and 75% tile scaling collapsed interior details. Redrew 77 semantic symbols, separated page/action badges, simplified dense geometry, corrected filled bars/dots and made forced/stalled states distinct. Regenerated all 786 SVGs and 4,716 PNGs; tile interior now uses 90% scale.

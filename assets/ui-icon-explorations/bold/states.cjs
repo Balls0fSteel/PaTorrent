@@ -21,24 +21,23 @@ module.exports = (H) => {
   const metadataDown = p('M11 8h2v3h2l-3 4-3-4h2Z');
   const metadataBolt = p('M12 1l-3 4h3l-2 2 5-4h-3l2-2Z');
   const floppy = even('M1 2h6l1 1v8H1Z M3 2v3h3V2Z M3 8v1h3V8Z');
-  // Revision 4 (D28): an arrow entering a port. The ring's left side is open and
-  // the arrowhead sits in that mouth, so it cannot read as a target or "no entry".
+  // Revisions 4-5 (D28, D29): an arrow entering a port. The ring is closed; the shaft
+  // pierces its left side and the arrowhead sits inside it, clear of the ring.
   const port = H.px(0,0,[
-    '................',
-    '........####',
-    '....#..######',
-    '....##......##',
-    '.######.....##',
-    '.######.....##',
-    '....##......##',
-    '....#..######',
-    '........####']);
-  // Pixel badges in the bottom-right corner, each clear of its base by 1 px.
-  const okBadge = H.px(9,9,['.....#','....##','#..##.','####..','.##...']);
-  const bangBadge = H.px(13,9,['##','##','##','##','..','##']);
-  const crossBadge = H.px(9,9,['##..##','.####.','..##..','..##..','.####.','##..##']);
-  const smallCross = H.px(10,10,['##.##','.###.','..#..','.###.','##.##']);
-  const moreBadge = H.px(7,13,['##.##.##','##.##.##']);
+    '',
+    '......######',
+    '.....##....##',
+    '....##..#...##',
+    '.######.##...#',
+    '.######.##...#',
+    '....##..#...##',
+    '.....##....##',
+    '......######']);
+  // 5 x 5 pixel badges in the bottom-right corner, each clear of its base by 1 px.
+  const okBadge = H.px(10,10,['....#','...##','#.##.','###..','.#...']);
+  const bangBadge = H.px(12,10,['##','##','##','..','##']);
+  const crossBadge = H.px(10,10,['##.##','.###.','..#..','.###.','##.##']);
+  const moreBadge = H.px(10,13,['#.#.#','#.#.#']);
   const person = c(4,4,2)+p('M1 14V10a3 3 0 0 1 6 0v4Z');
   const folder = even('M1 1h4l2 2h3v5H1Z M3 5v1h5V5Z');
   const error = even('M5 1h6l4 4v6l-4 4H5l-4-4V5Z M5.8 3 3 5.8v4.4L5.8 13h4.4l2.8-2.8V5.8L10.2 3Z')+s('M5 5l6 6m0-6-6 6');
@@ -102,6 +101,6 @@ module.exports = (H) => {
     'network-ok': {small:port+okBadge, color:'teal'},
     // "No incoming connection seen yet" is a caution, not a fault: same base, "!".
     'network-no-incoming': {small:port+bangBadge, color:'amber'},
-    offline: {small:port+smallCross, color:'neutral'}
+    offline: {small:port+crossBadge, color:'neutral'}
   };
 };

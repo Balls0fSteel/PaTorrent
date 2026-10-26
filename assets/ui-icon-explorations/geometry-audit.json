@@ -97,6 +97,18 @@
       "b": "force-downloading-metadata",
       "size": 16,
       "iou": 0.8824
+    },
+    {
+      "a": "download-limit",
+      "b": "upload-limit",
+      "size": 16,
+      "iou": 0.9333
+    },
+    {
+      "a": "download-limit",
+      "b": "upload-limit",
+      "size": 32,
+      "iou": 0.9333
     }
   ],
   "medianPartialFraction16": 0.2273,
@@ -110,8 +122,8 @@
     },
     {
       "id": "add-url",
-      "ink": 68,
-      "opaque": 68,
+      "ink": 64,
+      "opaque": 64,
       "partial": 0,
       "partialFraction": 0
     },
@@ -201,8 +213,8 @@
     },
     {
       "id": "reannounce",
-      "ink": 59,
-      "opaque": 59,
+      "ink": 58,
+      "opaque": 58,
       "partial": 0,
       "partialFraction": 0
     },
@@ -502,8 +514,8 @@
     },
     {
       "id": "offline",
-      "ink": 61,
-      "opaque": 61,
+      "ink": 63,
+      "opaque": 63,
       "partial": 0,
       "partialFraction": 0
     },
@@ -551,22 +563,22 @@
     },
     {
       "id": "tracker-updating",
+      "ink": 58,
+      "opaque": 58,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "tracker-error",
       "ink": 59,
       "opaque": 59,
       "partial": 0,
       "partialFraction": 0
     },
     {
-      "id": "tracker-error",
-      "ink": 62,
-      "opaque": 62,
-      "partial": 0,
-      "partialFraction": 0
-    },
-    {
       "id": "tracker-not-contacted",
-      "ink": 54,
-      "opaque": 54,
+      "ink": 50,
+      "opaque": 50,
       "partial": 0,
       "partialFraction": 0
     },
@@ -908,22 +920,22 @@
     },
     {
       "id": "reload-ip-filter",
-      "ink": 55,
-      "opaque": 55,
+      "ink": 52,
+      "opaque": 52,
       "partial": 0,
       "partialFraction": 0
     },
     {
       "id": "download-limit",
-      "ink": 43,
-      "opaque": 43,
+      "ink": 58,
+      "opaque": 58,
       "partial": 0,
       "partialFraction": 0
     },
     {
       "id": "upload-limit",
-      "ink": 43,
-      "opaque": 43,
+      "ink": 58,
+      "opaque": 58,
       "partial": 0,
       "partialFraction": 0
     },
@@ -992,8 +1004,8 @@
     },
     {
       "id": "reset-columns",
-      "ink": 68,
-      "opaque": 68,
+      "ink": 65,
+      "opaque": 65,
       "partial": 0,
       "partialFraction": 0
     },

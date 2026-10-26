@@ -17,12 +17,12 @@ module.exports = H => {
  const rss=c(2,8,1)+s('M2 5a3 3 0 0 1 3 3M2 2a6 6 0 0 1 6 6');
  const rssLarge=c(2,8,1)+s('M2 5a3 3 0 0 1 3 3M2 2a6 6 0 0 1 6 6',1.5);
  const bolt=p('M13 1l-3 7h2l-1 7 4-9h-3Z');
- const gauge=H.px(8,9,['..###..','.##.##.','##...##','#...#.#','#..#..#','#.##..#']);
+ const gauge=H.px(0,0,['','.....######','...##......##','..#..........#','.#........##..#','.#.......##...#','.#......##....#','.#.....##.....#','.##############']);
  return {
   'add-torrent':{small:page+plus,large:pageLarge+plus,color:'teal'},
   'add-url':{
-   // Horseshoe magnet tilted 45 degrees, pole caps split off by a 1 px gap: not a letter U.
-   small:H.px(0,0,['................','.......###','......###','...........#','....###...##','...###....##','..###...#.#','.###...##','.###..###','.#######','..#####','...###'])+plus,color:'teal'},
+   // A chain link (D29): two open loops joined by a bar. Magnet links are URLs too.
+   small:H.px(0,0,['','..#####..#####','.##..........##','.#...######...#','.#...######...#','.##..........##','..#####..#####'])+plus,color:'teal'},
   'create-torrent':{small:page+p('M9 12l4-4 2 2-4 4-3 1Z'),large:pageLarge+p('M9 12l4-4 2 2-4 4-3 1Z'),color:'teal'},
   remove:{small:trash,color:'red'},
   'delete-data':{small:miniTrash+s('M10 10l4 4m0-4-4 4'),large:miniTrash+s('M10 10l4 4m0-4-4 4'),color:'red'},
@@ -42,9 +42,9 @@ module.exports = H => {
   copy:{small:p('M1 11V1h10v2H3v8Z')+even('M5 5h10v10H5Z M7 7v6h6V7Z'),color:'blue'},
   save:{small:even('M1 1h11l3 3v11H1Z M4 1v5h6V1Z M4 9v4h8V9Z')+r(8,2,1,3),large:even('M1 1h11l3 3v11H1Z M4 1v5h6V1Z M4 9v4h8V9Z')+r(8,2,1,3)+r(6,10,4,1),color:'blue'},
   refresh:{small:s('M13 5a5 5 0 1 0 0 6')+p('M10 1h5v5Z'),color:'teal'},
-  // Transfer arrow plus a speed gauge (half dial and needle); not a tray or floor line.
-  'download-limit':{small:H.px(0,0,['................','...##','...##','...##','...##','...##','.######','..####','...##'])+gauge,color:'teal'},
-  'upload-limit':{small:H.px(0,0,['................','...##','..####','.######','...##','...##','...##','...##','...##'])+gauge,color:'blue'},
+  // A speedometer (flat-based half dial, needle) with a small down/up arrow badge.
+  'download-limit':{small:gauge+H.px(9,10,['..##..','..##..','######','.####.','..##..']),color:'teal'},
+  'upload-limit':{small:gauge+H.px(9,10,['..##..','.####.','######','..##..','..##..']),color:'blue'},
   unlimited:{small:s('M8 8C5 2 2 3 2 8s3 6 6 0c3-6 6-5 6 0s-3 6-6 0'),color:'blue'},
   'initial-seeding':{small:p('M7 10V7H3l5-5 5 5H9v3Z')+c(3,13,1)+c(8,13,1)+c(13,13,1),large:p('M7 10V7H3l5-5 5 5H9v3Z')+c(3,13,1)+c(8,13,1)+c(13,13,1),color:'blue'},
   'new-label':{small:tag+plus,large:tag+plus,color:'purple'},

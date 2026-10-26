@@ -19,32 +19,36 @@ H.stop=r(3,3,10,10);
 H.check=s('M3 8l3 3 7-7');
 H.verify=o(6,6,4)+s('M9 9l5 5')+s('M4 6l1.5 1.5 3-3',1.5);
 H.filter=p('M1 2h14v2l-5 5v4l-4 2V9L1 4Z');
-// Revision 4 shared primitives, drawn pixel by pixel on the 16 px grid.
-// Clockwise refresh badge: open ring, gap at the right, solid arrowhead at the top right.
-// It occupies x 9-14, y 8-14, so bases keep x <= 7 wherever they reach y >= 7.
-H.refreshBadge=px(9,8,[
- '..##.#',
- '.#..##',
- '#..###',
- '#.....',
- '#....#',
- '.#..#.',
- '..##..']);
-// Radio tower, no dot on top (the dot read as "i"): a 2 px mast, splayed legs and
-// broadcast arcs. The compact one, with one arc each side, is the tracker-state base.
+// Shared primitives drawn pixel by pixel on the 16 px grid (revisions 4-5).
+// Badges are 5 x 5 at x 10-14, y 10-14 (refresh: x 10-14, y 9-14). Bases keep a 1 px
+// gap: below y 8 they stay at x <= 8.
+// Clockwise refresh badge: a small copy of the full refresh action, an open C with a
+// solid corner arrowhead and a two-row gap under it.
+H.refreshBadge=px(10,9,[
+ '..###',
+ '.#.##',
+ '#..##',
+ '#....',
+ '#....',
+ '.###.']);
+// Radio tower, no dot on top (the dot read as "i"), two arcs a side. The tracker-state
+// base is the Trackers-tab tower narrowed (D29): arcs 2 px clear of the mast tip, a tall
+// mast and an A-frame lattice, so it reads as a pylon rather than a figure.
 H.tower=px(0,0,[
- '................',
- '..#.##.#',
- '.##.##.##',
- '.#..##..#',
- '.#..##..#',
- '.##.##.##',
- '..#.##.#',
- '...####',
- '...#..#',
- '..##..##',
- '..#....#',
- '..#....#']);
+ '',
+ '..#.........#',
+ '.#..#.....#..#',
+ '.#.#..##...#.#',
+ '.#.#..##...#.#',
+ '.#..#.##..#..#',
+ '..#...##....#',
+ '......##',
+ '.....#..#',
+ '.....####',
+ '.....#..#',
+ '.....#..#',
+ '.....#..#',
+ '.....#..#']);
 H.towerFull=px(0,0,[
  '................',
  '..##........##',

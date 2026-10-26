@@ -1,5 +1,15 @@
 # Artwork QA
 
+## Revision 5 (2026-10-26)
+
+- Redrew the revision 4 failures per D29: the network trio, the four tracker states and reannounce, the refresh badge (and its four users), add-url and both limits. Each was chosen from several candidates at zoom and at native 16/20/24/32 px. Rejected along the way:
+  - narrowed towers whose mast top looked like a head;
+  - towers that needed the outer margin or touched the badge;
+  - 5 px refresh badges that read as "e".
+- The build, geometry check and proof pages pass, with zero overflow, margin failures and unexpected identical masks; median partial alpha at 16 px is 22.7 %. Near matches: normal/forced metadata (0.88) and download/upload-limit (0.93, gauge plus a direction badge).
+- The reviewer's scripts were rerun on the result: `review-sheets.py` and `shipped-sizes.py` (20 px clean), plus `compare-sheets.py` against `bef24b7`. Revision 4 → 5 comparisons and family sheets are in [qa/revision5](qa/revision5/).
+- Not done: an independent review of revision 5.
+
 ## Revision 4 (2026-10-26)
 
 - Redrew the 18 symbols and the badge listed in the [revision 4 brief](review-2026-10-26/revision3/REGENERATION-BRIEF.md). Pieces was also redrawn to avoid matching the new all-torrents grid. Design notes are in the README.

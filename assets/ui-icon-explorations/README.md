@@ -1,4 +1,4 @@
-# PaTorrent bold UI artwork — revision 4
+# PaTorrent bold UI artwork — revision 5
 
 Open [review.html](review.html) to inspect the **131-symbol bold set** at native 16/20/24/32/48/64 px. The gallery supports light/dark artwork, monochrome proofs, UI-area/search filters and shortlist export. The larger inspection image uses the separately fitted 48 px SVG. SVG downloads match the selected size.
 
@@ -10,13 +10,25 @@ Open [review.html](review.html) to inspect the **131-symbol bold set** at native
 - Compound symbols keep a complete base beside their modifier, with transparent space between them. Forced transfers use lightning, stalled transfers use an exclamation mark. Metadata states share the same page/down-arrow base.
 - Colour describes operational state: downloads/metadata teal, seeding blue, checking/queueing/paused amber, stopped/inactive grey, errors red. Completion is a check shape; it never recolours paused or stopped variants.
 - About is a flat symbolic rendition of the currently selected Verdigris medallion and P/down-arrow. The existing app/window/tray/packaging brand remains selected; the twelve earlier app concepts are a historical discussion sheet.
-- `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. The network trio shares one base, an arrow entering an open port (D28), with check, ! and × badges.
+- `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. The network trio shares one base, an arrow entering a closed port (D28, D29), with check, ! and × badges.
+
+## Revision 5 (2026-10-26)
+
+Redraws what the [revision 4 review](review-2026-10-26/revision4/REPORT.md) failed, following the owner's choices in D29. The pixel-art method is unchanged.
+
+- **Badges** are 5 × 5 at x 10–14, y 10–14; the refresh badge is 5 × 6 (y 9–14). Below y 8, bases stay at x ≤ 8, so every badge keeps a 1 px gap.
+- **Network:** a closed ring. The arrow's shaft pierces its left side and the head sits inside it, clear of the ring, so the open "?" hook is gone. The globe fallback was drawn but not needed.
+- **Tracker states and reannounce:** the Trackers-tab tower narrowed. It keeps two arcs a side, 2 px clear of the mast tip, with a tall mast on an A-frame lattice, so it has no head and no "arms".
+- **Refresh badge:** a small copy of the full refresh action: an open C, a solid corner arrowhead and a two-row gap under it.
+- **Add URL:** a chain link (two loops joined by a bar) with the plus badge.
+- **Download/upload limits:** a speedometer base with a small ↓/↑ badge. Their masks are 0.93 similar because only the arrow differs; like normal/forced metadata, that is a modifier pair.
+- The "…" badge now stays inside the badge area.
 
 ## Revision 4 (2026-10-26)
 
 The 18 symbols failed by the [revision 3 review](review-2026-10-26/revision3/REPORT.md) were redrawn from its [brief](review-2026-10-26/revision3/REGENERATION-BRIEF.md). They are pixel art on the 16 px grid (`H.px` in `common.cjs`), emitted as absolute-coordinate paths so 20/24 px rounding never opens gaps between rows.
 
-- **Network** (ok, no-incoming, offline): an arrow whose head sits in the mouth of a ring open on its left. The head stops in the mouth rather than at the centre: a head inside the 4 px hole merged with the ring.
+- **Network** (ok, no-incoming, offline; replaced in revision 5): an arrow whose head sits in the mouth of a ring open on its left. The head stops in the mouth rather than at the centre: a head inside the 4 px hole merged with the ring.
 - **Trackers:** one radio tower with no top dot. The Trackers tab has two arcs a side; the four states use a compact tower with one arc a side and ✓, ↻, × or … badges. Reannounce = tracker-updating.
 - **Refresh badge** (`H.refreshBadge`, used by four icons): an open ring with a solid ◥ arrowhead in the 6 × 7 corner. A 2 px stroke filled the ring into a "C" or "₵" at this size, so the ring is 1 px with doubled corners, like the full-size refresh action.
 - Allocating is a drive filled to half its height; proxy is node–hollow relay–node; DHT is a ring of six nodes; logger is a ">_" terminal; inactive is the pulse flattened to one bump; reset-columns is a three-column table; reload-ip-filter keeps a shield.

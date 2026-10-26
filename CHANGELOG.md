@@ -4,6 +4,17 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_120258_1793012578: Revision 5 UI icons per D29: closed port, narrowed tower, chain link
+
+- The owner accepted the review's recommendations (D29). The redraws:
+  - **Network trio:** an arrow piercing a closed ring, with the head inside; the globe fallback was not needed.
+  - **Tracker states and reannounce:** the Trackers-tab tower narrowed (two arcs a side clear of the mast, A-frame lattice), with 5 × 5 badges.
+  - **Refresh badge:** a small open-C copy of the refresh action, with a two-row gap.
+  - **Add URL:** a chain link.
+  - **Download/upload limits:** a speedometer with a small arrow badge.
+  - The "…" badge stays inside the badge area.
+- Validation: build, geometry check (no overflow, margin failures or unexpected identical masks) and proof pages pass. The reviewer's sheet scripts were rerun; 20 px is clean. The only new near match is download/upload-limit (0.93), a direction-modifier pair. Comparisons are in `assets/ui-icon-explorations/qa/revision5/`. An independent review of revision 5 is still pending.
+
 ## 2026-10-26_110747_1793009267: Independent review of revision 4 UI icons
 
 - A reviewer working independently of the artist inspected all 131 symbols. It used the revision 3 sheets, new revision 3/4 side-by-side zooms, family sheets, mask neighbours and badge clearance. The geometry audit reproduced exactly: no overflow, margin or unexpected identical masks; median partial alpha 22.7 %.

@@ -27,7 +27,7 @@ module.exports = (H) => {
   add('statistics',r(2,9,3,5)+r(7,6,3,8)+r(12,2,3,12),'blue');
   add('speed',s('M2 2v12h12')+s('M4 10l3-4 3 2 4-5'),'teal');
   add('general',o(8,8,6)+r(7,7,2,5)+r(7,4,2,2),'blue');
-  // Radio tower with two arcs each side and no dot on top (D28).
+  // Radio pylon with broadcast arcs above its apex (D30), matching the tracker states.
   add('trackers',H.towerFull,'purple');
   add('peers',c(5,5,2)+s('M2 14v-2a3 3 0 0 1 6 0v2')+c(12,6,1.5)+s('M11 10a3 3 0 0 1 3 3v1'),'blue');
   // A piece map: received pieces solid, missing ones hollow. Distinct from all-torrents.

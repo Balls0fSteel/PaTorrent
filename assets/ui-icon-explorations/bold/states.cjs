@@ -21,18 +21,19 @@ module.exports = (H) => {
   const metadataDown = p('M11 8h2v3h2l-3 4-3-4h2Z');
   const metadataBolt = p('M12 1l-3 4h3l-2 2 5-4h-3l2-2Z');
   const floppy = even('M1 2h6l1 1v8H1Z M3 2v3h3V2Z M3 8v1h3V8Z');
-  // Revisions 4-5 (D28, D29): an arrow entering a port. The ring is closed; the shaft
-  // pierces its left side and the arrowhead sits inside it, clear of the ring.
-  const port = H.px(0,0,[
+  // Revision 6 (D30): a globe (outline, equator, lens meridian). The arrow-into-port
+  // base read as "?" (open ring) and then as an eye or key (closed ring) at 16 px.
+  const globe = H.px(0,0,[
     '',
-    '......######',
-    '.....##....##',
-    '....##..#...##',
-    '.######.##...#',
-    '.######.##...#',
-    '....##..#...##',
-    '.....##....##',
-    '......######']);
+    '....####',
+    '..##.##.##',
+    '.#..#..#..#',
+    '.#..#..#..#',
+    '.##########',
+    '.#..#..#..#',
+    '.#..#..#..#',
+    '..##.##.##',
+    '....####']);
   // 5 x 5 pixel badges in the bottom-right corner, each clear of its base by 1 px.
   const okBadge = H.px(10,10,['....#','...##','#.##.','###..','.#...']);
   const bangBadge = H.px(12,10,['##','##','##','..','##']);
@@ -98,9 +99,9 @@ module.exports = (H) => {
     'tracker-updating': {small:H.reannounce, color:'blue'},
     'tracker-error': {small:H.tower+crossBadge, color:'red'},
     'tracker-not-contacted': {small:H.tower+moreBadge, color:'neutral'},
-    'network-ok': {small:port+okBadge, color:'teal'},
+    'network-ok': {small:globe+okBadge, color:'teal'},
     // "No incoming connection seen yet" is a caution, not a fault: same base, "!".
-    'network-no-incoming': {small:port+bangBadge, color:'amber'},
-    offline: {small:port+crossBadge, color:'neutral'}
+    'network-no-incoming': {small:globe+bangBadge, color:'amber'},
+    offline: {small:globe+crossBadge, color:'neutral'}
   };
 };

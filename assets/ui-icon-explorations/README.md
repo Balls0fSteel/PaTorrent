@@ -1,4 +1,4 @@
-# PaTorrent bold UI artwork — revision 5
+# PaTorrent bold UI artwork — revision 6
 
 Open [review.html](review.html) to inspect the **131-symbol bold set** at native 16/20/24/32/48/64 px. The gallery supports light/dark artwork, monochrome proofs, UI-area/search filters and shortlist export. The larger inspection image uses the separately fitted 48 px SVG. SVG downloads match the selected size.
 
@@ -10,7 +10,15 @@ Open [review.html](review.html) to inspect the **131-symbol bold set** at native
 - Compound symbols keep a complete base beside their modifier, with transparent space between them. Forced transfers use lightning, stalled transfers use an exclamation mark. Metadata states share the same page/down-arrow base.
 - Colour describes operational state: downloads/metadata teal, seeding blue, checking/queueing/paused amber, stopped/inactive grey, errors red. Completion is a check shape; it never recolours paused or stopped variants.
 - About is a flat symbolic rendition of the currently selected Verdigris medallion and P/down-arrow. The existing app/window/tray/packaging brand remains selected; the twelve earlier app concepts are a historical discussion sheet.
-- `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. The network trio shares one base, an arrow entering a closed port (D28, D29), with check, ! and × badges.
+- `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. The network trio shares one base, a globe (D30), with check, ! and × badges.
+
+## Revision 6 (2026-10-26)
+
+Redraws the two bases the [revision 5 review](review-2026-10-26/revision5/REPORT.md) failed, following D30.
+
+- **Network** (ok, no-incoming, offline): D29's globe fallback, a 10 × 9 globe with an outline, an equator and a lens meridian. Both port versions failed: open it read as "?", closed it read as an eye or a key. A bolder globe with a straight meridian read as a ⊕ crosshair, so it was rejected.
+- **Tracker states and reannounce:** a radio pylon in x 1–8. Two curved broadcast arcs sit above the apex, then a solid 2 px Λ with no neck and no crossbar. A neck under the arcs made a figure in a hat, and a crossbar made the letter "A".
+- **Trackers tab:** the same pylon drawn wide (x 1–14), so the family shares one base.
 
 ## Revision 5 (2026-10-26)
 

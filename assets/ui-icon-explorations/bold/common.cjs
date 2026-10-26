@@ -31,39 +31,39 @@ H.refreshBadge=px(10,9,[
  '#....',
  '#....',
  '.###.']);
-// Radio tower, no dot on top (the dot read as "i"), two arcs a side. The tracker-state
-// base is the Trackers-tab tower narrowed (D29): arcs 2 px clear of the mast tip, a tall
-// mast and an A-frame lattice, so it reads as a pylon rather than a figure.
+// Radio pylon (D30): broadcast arcs above the apex, then a solid splayed Λ with no
+// neck or crossbar, so it reads as a tower rather than a figure or the letter A.
+// The tracker-state base fits x 1-8 beside the badges; the Trackers tab is the wide one.
 H.tower=px(0,0,[
  '',
- '..#.........#',
- '.#..#.....#..#',
- '.#.#..##...#.#',
- '.#.#..##...#.#',
- '.#..#.##..#..#',
- '..#...##....#',
- '......##',
- '.....#..#',
- '.....####',
- '.....#..#',
- '.....#..#',
- '.....#..#',
- '.....#..#']);
+ '...####',
+ '..#....#',
+ '.#......#',
+ '...####',
+ '..#....#',
+ '....##',
+ '...####',
+ '...####',
+ '..##..##',
+ '..##..##',
+ '.##....##',
+ '.##....##',
+ '.#......#']);
 H.towerFull=px(0,0,[
- '................',
- '..##........##',
- '.##..........##',
- '.#...##..##...#',
- '.#..##....##..#',
- '.#..#..##..#..#',
- '.#..##.##.##..#',
- '.##..#.##.#..##',
- '..##...##...##',
+ '',
+ '.....######',
+ '...##......##',
+ '..#..........#',
+ '.#....####....#',
+ '.#...#....#...#',
  '.......##',
  '......####',
  '......####',
  '.....##..##',
  '.....##..##',
- '....##....##']);
+ '....##....##',
+ '....##....##',
+ '...##......##',
+ '...##......##']);
 H.reannounce=H.tower+H.refreshBadge;
 module.exports=H;

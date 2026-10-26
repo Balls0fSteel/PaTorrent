@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_143727_1793021847: Revision 6 UI icons per D30: globe network base, arcs-above pylon
+
+- The owner chose option (a) for trackers and confirmed the globe fallback (D30):
+  - **Network trio:** a globe with ✓, ! and × badges.
+  - **Tracker states and reannounce:** a pylon in x 1–8, with two curved broadcast arcs above its apex and a solid splayed Λ (no neck, no crossbar), keeping the 5 × 5 badges.
+  - **Trackers tab:** redrawn as the same pylon at full width.
+- Validation: build, geometry check (no overflow, margin failures or unexpected identical masks; near matches unchanged) and proof pages pass. The revision 5 review scripts were rerun; the evidence is in `assets/ui-icon-explorations/qa/revision6/`. An independent review is still pending.
+
 ## 2026-10-26_124308_1793014988: Independent review of revision 5 UI icons
 
 - An independent reviewer checked commit `16b14bf` with the revision 4 method. It also produced native-size strips, ASCII masks, mask neighbours and sketches. The geometry audit reproduced byte for byte.

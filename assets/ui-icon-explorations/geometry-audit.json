@@ -213,8 +213,8 @@
     },
     {
       "id": "reannounce",
-      "ink": 58,
-      "opaque": 58,
+      "ink": 56,
+      "opaque": 56,
       "partial": 0,
       "partialFraction": 0
     },
@@ -346,8 +346,8 @@
     },
     {
       "id": "trackers",
-      "ink": 70,
-      "opaque": 70,
+      "ink": 56,
+      "opaque": 56,
       "partial": 0,
       "partialFraction": 0
     },
@@ -500,22 +500,22 @@
     },
     {
       "id": "network-ok",
-      "ink": 58,
-      "opaque": 58,
-      "partial": 0,
-      "partialFraction": 0
-    },
-    {
-      "id": "network-no-incoming",
       "ink": 56,
       "opaque": 56,
       "partial": 0,
       "partialFraction": 0
     },
     {
+      "id": "network-no-incoming",
+      "ink": 54,
+      "opaque": 54,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
       "id": "offline",
-      "ink": 63,
-      "opaque": 63,
+      "ink": 61,
+      "opaque": 61,
       "partial": 0,
       "partialFraction": 0
     },
@@ -556,29 +556,29 @@
     },
     {
       "id": "tracker-working",
-      "ink": 54,
-      "opaque": 54,
+      "ink": 52,
+      "opaque": 52,
       "partial": 0,
       "partialFraction": 0
     },
     {
       "id": "tracker-updating",
-      "ink": 58,
-      "opaque": 58,
+      "ink": 56,
+      "opaque": 56,
       "partial": 0,
       "partialFraction": 0
     },
     {
       "id": "tracker-error",
-      "ink": 59,
-      "opaque": 59,
+      "ink": 57,
+      "opaque": 57,
       "partial": 0,
       "partialFraction": 0
     },
     {
       "id": "tracker-not-contacted",
-      "ink": 50,
-      "opaque": 50,
+      "ink": 48,
+      "opaque": 48,
       "partial": 0,
       "partialFraction": 0
     },

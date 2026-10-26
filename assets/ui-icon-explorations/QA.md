@@ -1,5 +1,16 @@
 # Artwork QA
 
+## Revision 6 (2026-10-26)
+
+- Redrew the network trio as a globe, and the tracker states, reannounce and the Trackers tab as an arcs-above pylon (D30). Each was chosen from several candidates, zoomed and at native 16/20/24/32 px. Rejected:
+  - a bold globe that read as a ⊕ crosshair;
+  - flat arcs that read as a hat;
+  - a mast neck that made a figure;
+  - a tall mast that read as "I", and lattice versions that read as "A" or a house.
+- The build, geometry check and proof pages pass, with zero overflow, margin failures and unexpected identical masks. Near matches are unchanged (metadata 0.88, limits 0.93), and median partial alpha is still 22.7 %.
+- The revision 5 review scripts were rerun: `review-sheets.py`, `shipped-sizes.py`, `compare-sheets.py` against `16b14bf`, and `native-strip.py`. Evidence is in [qa/revision6](qa/revision6/). At 20 px the globe and pylon edges are uneven by 1 px (×1.25), as accepted before.
+- Not done: an independent review of revision 6.
+
 ## Revision 5 (2026-10-26)
 
 - Redrew the revision 4 failures per D29: the network trio, the four tracker states and reannounce, the refresh badge (and its four users), add-url and both limits. Each was chosen from several candidates at zoom and at native 16/20/24/32 px. Rejected along the way:

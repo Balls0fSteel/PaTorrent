@@ -4,6 +4,8 @@
   "themes": 2,
   "svgCount": 786,
   "pngCount": 4716,
+  "revision": 2,
+  "redrawnSymbols": 77,
   "sizes": [
     16,
     20,
@@ -19,7 +21,7 @@
   ],
   "limitations": [
     "Candidate artwork; no application integration",
-    "Complex state cues need owner review at 16px",
-    "Tile glyphs have a smaller interior footprint"
+    "Candidate selection still requires owner judgment",
+    "Application integration and platform/DPI checks remain pending"
   ]
 }

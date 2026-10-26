@@ -36,3 +36,11 @@ This batch contains **131 semantic symbols × 3 families = 393 candidates**, eac
 Regenerate with `node build.cjs --sharp /absolute/path/to/sharp`. This regenerates vectors, manifests, PNGs and proof sheets; it preserves the separately generated app concept sheet and gallery. The application concepts remain a contact sheet, not transparent individual app masters or Windows ICOs. Choose a concept before preparing production app exports.
 
 All raster exports were decoded and checked for expected dimensions, visible pixels and transparency. The proof sheet was inspected visually. These are review candidates: composite states and tile interiors need your judgment at actual size, followed by platform/DPI checks after selection.
+
+## Revision 2 — visual corrections
+
+77 symbols have been redrawn after a complete small-size audit, including Add Torrent, URL/Create, Pieces, Web UI, language, labels, locks and composite torrent states. The tile glyphs have more room, and fine details no longer inherit the same thick stroke as the outer frame. `refine.cjs` contains the revised geometry and is loaded by `build.cjs`.
+
+The gallery now displays exact exported PNGs at the chosen proof size, while the 48 px inspection image remains SVG. Reload the page to pick up revision 2, then use **Show revised only** to focus on direct redraws. Existing IDs and saved shortlist keys are preserved.
+
+See [QA.md](QA.md) for the review scope, limitations, reproducible checks and paginated 16/24/32 px proof sheets; [qa-comparison.png](qa-comparison.png) compares representative fixes with the first batch. The padded-canvas audit checks all 786 SVGs for clipped strokes, beyond simple image-format validation.

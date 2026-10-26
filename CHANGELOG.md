@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_092453_1793003093: Redraw unclear small-size UI icon candidates after full visual audit
+
+- The owner found bad symbols, notably Add Torrent. Format-only validation had missed visual collisions: heavy shared strokes and 75% tile scaling collapsed interior details. Redrew 77 semantic symbols, separated page/action badges, simplified dense geometry, corrected filled bars/dots and made forced/stalled states distinct. Regenerated all 786 SVGs and 4,716 PNGs; tile interior now uses 90% scale.
+- Added exact PNG proof to the gallery, a revised-only filter and revisioned asset links; retained stable IDs and shortlist keys. Added paginated 16/24/32 px proof sheets, a before/after comparison, geometry checker and QA notes. No runtime application artwork selection changed.
+- Validation: full 16/24 px visual review, independent full 16/32 px audit and follow-up corrections; every PNG decoded for size/ink/alpha; all 786 variants pass padded-canvas clipping checks. Manifest paths/IDs, gallery syntax and force/stall distinction passed. Live browser automation refused the file URL; rendered proof sheets supplied visual evidence. Platform/DPI checks remain pending selection.
+
 ## 2026-10-26_084833_1793000913: Broad small-size UI icon exploration batch
 
 - Added `assets/ui-icon-explorations/`: 131 UI symbols in three styles (bold color, strong outline, contrast tile), with light/dark variants: 786 original SVGs and 4,716 transparent PNGs at 16/20/24/32/48/64 px. Covers toolbar, torrent/tracker/network states, actions, navigation, detail tabs, settings, RSS and files.

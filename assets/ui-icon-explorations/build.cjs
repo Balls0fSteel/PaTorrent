@@ -153,16 +153,17 @@ add('reset-columns','Reset columns','Utility',R(2,3,12,10,1)+P('M6 3v10m4-10v10M
 add('logout','Log out','Utility',P('M7 2H2v12h5M6 8h8m-3-3 3 3-3 3'),'red');
 add('association','Torrent file association','Brand',file+P('M8 7v5m-2-2 2 2 2-2'),'teal');
 add('tray','Tray transfer mark','Brand',P('M5 2v11m-3-3 3 3 3-3M11 14V3m-3 3 3-3 3 3'),'teal');
+require('./refine.cjs')({icons,P,R,C,plus,link,rows,shield,down,cross,check});
 const families=[{id:'bold',name:'Bold color',description:'Thick compact strokes with strong action silhouettes.'},{id:'outline',name:'Strong outline',description:'Quieter monochrome lines, open space and square joins.'},{id:'tile',name:'Contrast tile',description:'White marks on solid semantic tiles for maximum separation.'}];
 const palettes={light:{neutral:'#374151',teal:'#006b50',blue:'#1558c0',amber:'#895500',orange:'#ab4200',red:'#bc2335',purple:'#713fbb'},dark:{neutral:'#dce4ef',teal:'#51e0b2',blue:'#83baff',amber:'#ffd17a',orange:'#ffb078',red:'#ff8e9c',purple:'#ceadff'}};
 function svg(i,f,dark){
  const c=f==='outline'?palettes[dark?'dark':'light'].neutral:palettes[dark&&f!=='tile'?'dark':'light'][i.color];
  const tile=f==='tile'; const fill=i.solid&&f!=='outline'?'currentColor':'none';
- return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="${i.label.replaceAll('&','&amp;')}"><title>${i.label.replaceAll('&','&amp;')}</title>${tile?`<rect x=".5" y=".5" width="15" height="15" rx="3" fill="${c}"/>`:''}<g color="${tile?'#fff':c}" fill="${fill}" stroke="currentColor" stroke-width="${f==='outline'?1.75:2}" stroke-linecap="${f==='outline'?'square':'round'}" stroke-linejoin="${f==='outline'?'miter':'round'}"${tile?' transform="translate(2 2) scale(.75)"':''}>${i.glyph}</g></svg>`;
+ return `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16" role="img" aria-label="${i.label.replaceAll('&','&amp;')}"><title>${i.label.replaceAll('&','&amp;')}</title>${tile?`<rect x=".5" y=".5" width="15" height="15" rx="3" fill="${c}"/>`:''}<g color="${tile?'#fff':c}" fill="${fill}" stroke="currentColor" stroke-width="${(i.stroke===0 && f==='outline') ? 1.5 : (i.stroke ?? (f==='outline'?1.5:1.75))}" stroke-linecap="round" stroke-linejoin="round"${tile?' transform="translate(.8 .8) scale(.9)"':''}>${tile ? (i.tileGlyph || i.glyph) : i.glyph}</g></svg>`;
 }
 const write=(p,b)=>{const out=path.join(root,p);fs.mkdirSync(path.dirname(out),{recursive:true});fs.writeFileSync(out,b)};
 async function main(){
- const sizes=[16,20,24,32,48,64], manifest={families,icons:icons.map(({glyph,solid,...i})=>i),sizes};
+ const sizes=[16,20,24,32,48,64], manifest={families,icons:icons.map(({glyph,solid,tileGlyph,stroke,...i})=>i),sizes};
  write('manifest.json',JSON.stringify(manifest,null,2)+'\n');write('manifest.js','window.ICON_EXPLORATIONS = '+JSON.stringify(manifest)+';\n');
  let checked=0;
  for(const dark of [false,true])for(const f of families)for(const i of icons){
@@ -187,7 +188,7 @@ async function main(){
  await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">${body}</svg>`)).png().toFile(path.join(root,'small-size-proof.png'));
  // Shorter preview for sharing without the full-height proof.
  await sharp(path.join(root,'small-size-proof.png')).extract({left:0,top:0,width,height:110+22*row}).png().toFile(path.join(root,'preview.png'));
- write('validation.json',JSON.stringify({icons:icons.length,families:families.length,themes:2,svgCount:icons.length*6,pngCount:checked,sizes,checks:['All PNG dimensions verified','All PNGs contain visible pixels and transparency','Actual-size light/dark proof rendered'],limitations:['Candidate artwork; no application integration','Complex state cues need owner review at 16px','Tile glyphs have a smaller interior footprint']},null,2)+'\n');
+ write('validation.json',JSON.stringify({icons:icons.length,families:families.length,themes:2,svgCount:icons.length*6,pngCount:checked,revision:2,redrawnSymbols:icons.filter(i=>i.revised).length,sizes,checks:['All PNG dimensions verified','All PNGs contain visible pixels and transparency','Actual-size light/dark proof rendered'],limitations:['Candidate artwork; no application integration','Candidate selection still requires owner judgment','Application integration and platform/DPI checks remain pending']},null,2)+'\n');
  console.log(JSON.stringify({icons:icons.length,svg:icons.length*6,png:checked}));
 }
 main().catch(e=>{console.error(e);process.exitCode=1});

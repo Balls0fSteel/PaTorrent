@@ -7,6 +7,9 @@
   "uiArtwork": {
     "mode": "original SVG drawings",
     "source": "build.cjs",
-    "brief": "131 UI semantics across three families on a 16-unit grid; strong strokes and silhouettes; light/dark variants and transparent PNG proofs."
+    "brief": "131 UI semantics across three families on a 16-unit grid; strong strokes and silhouettes; light/dark variants and transparent PNG proofs.",
+    "revision": 2,
+    "refinementSource": "refine.cjs",
+    "refinementBrief": "Redraw 77 unclear symbols with separated modifiers, explicit fill geometry and simplified tile cues; review all131 in both themes at16/24/32 px."
   }
 }

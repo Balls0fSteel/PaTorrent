@@ -1,0 +1,107 @@
+module.exports = ({icons,P,R,C,plus,link,rows,shield,down,cross,check}) => {
+// Revision 2: explicitly spaced geometry for small-size recognition.
+// Applied after the semantic inventory so stable IDs and shortlists survive.
+function revise(id,glyph,options={}) {
+ const icon=icons.find(i=>i.id===id);
+ if(!icon)throw Error('Unknown revision '+id);
+ Object.assign(icon,{glyph,revised:true,stroke:1.5,solid:false,tileGlyph:null},options);
+}
+const dot=(x,y,r=.9)=>`<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor" stroke="none"/>`;
+const ink=(x,y,w,h,r=0)=>`<rect x="${x}" y="${y}" width="${w}" height="${h}" rx="${r}" fill="currentColor" stroke="none"/>`;
+const smallPlus=P('M12 9v6M9 12h6');
+// A large outside badge, with the page deliberately open behind it.
+const pageCorner=P('M6 14H2V2h6l3 3v1M8 2v3h3');
+revise('add-torrent',pageCorner+smallPlus,{stroke:1.75,tileGlyph:plus});
+revise('create-torrent',pageCorner+P('m12 8 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z'),{stroke:1.25,tileGlyph:P('M3 3h6v3H3ZM8 8v6M5 11h6')});
+const chain=P('M6 3 7 2a3 3 0 0 1 4 4L9 8M7 7 5 9a3 3 0 0 1-4-4l2-2M4 6l3-3');
+revise('add-url',chain+smallPlus,{stroke:1.5,tileGlyph:link});
+revise('association',P('M8 2H2v12h12V8M8 2v5h6M9 10v3m-2-2 2 2 2-2'),{stroke:1.5,tileGlyph:down});
+revise('files',P('M3 2h6l4 4v8H3ZM9 2v4h4'),{stroke:1.5});
+revise('remove',P('M2 4h12M6 2h4M4 7v7h8V7M7 7v4m2-4v4'),{stroke:1.5,tileGlyph:P('M3 4h10M6 2h4M4 7v7h8V7')});
+revise('delete-data',P('M2 4h12M6 2h4M4 7v7h8V7M6 8l4 4m0-4-4 4'),{stroke:1.5,tileGlyph:cross});
+revise('pause',ink(3,2,3,12)+ink(10,2,3,12));
+revise('paused-incomplete',ink(3,2,3,12)+ink(10,2,3,12));
+revise('stop',ink(3,3,10,10,1));
+revise('stopped-incomplete',ink(3,3,10,10,1));
+revise('start',P('M4 2 14 8 4 14Z'),{solid:true,stroke:0});
+revise('force-start',P('M1 3 7 8 1 13ZM9 3 15 8 9 13Z'),{solid:true,stroke:0});
+revise('statistics',ink(2,9,3,5)+ink(7,6,3,8)+ink(12,2,3,12));
+revise('network-ok',ink(2,10,3,4)+ink(7,6,3,8)+ink(12,2,3,12));
+revise('network-no-incoming',ink(2,10,3,4)+ink(7,6,3,8)+P('M13 2v6')+dot(13,11),{tileGlyph:P('M3 11h2M7 8h2M13 3v6')+dot(13,12)});
+revise('preferences',P('M6 1h4v2l2 1 2-1 1 3-2 1v2l2 1-1 3-2-1-2 1v2H6v-2l-2-1-2 1-1-3 2-1V7L1 6l1-3 2 1 2-1Z')+C(8,8,2),{stroke:1.25,tileGlyph:P('M2 4h12M2 12h12')+C(6,4,2)+C(10,12,2)});
+revise('recheck',C(6.5,6.5,4.5)+P('m4 6 2 2 3-3m1 5 4 4'),{stroke:1.5,tileGlyph:check});
+revise('checking-files',C(6.5,6.5,4.5)+P('m4 6 2 2 3-3m1 5 4 4'),{stroke:1.5,tileGlyph:check});
+revise('pieces',ink(2,2,5,5,.5)+ink(9,2,5,5,.5)+ink(2,9,5,5,.5)+R(9.75,9.75,3.5,3.5,.25),{stroke:1.5});
+revise('properties',R(2.5,1.5,11,13,1)+P('M6 5h4M6 8h4M6 11h2'),{tileGlyph:rows});
+revise('save',P('M2 2h10l2 2v10H2ZM5 2v4h5V2M5 14v-4h6v4'),{stroke:1.5,tileGlyph:P('M2 2h10l2 2v10H2ZM5 2v4h5V2')});
+revise('set-location',P('M2 12V3h4l2 2h6M8 7h5l-2-2M13 7l-2 2M2 12h5'),{stroke:1.75,tileGlyph:P('M2 4h4l2 2h6M2 4v9h6M9 10h5m-2-2 2 2-2 2')});
+revise('general',C(8,8,6)+P('M8 7v4')+dot(8,4.5),{stroke:1.5});
+revise('trackers',P('M8 5v3M3 11V8h10v3')+R(6,1,4,4,.5)+R(1,11,4,4,.5)+R(11,11,4,4,.5),{stroke:1.25});
+revise('peers',C(5,4.5,2)+P('M1.5 14v-2a3.5 3.5 0 0 1 7 0v2M10 9a3.5 3.5 0 0 1 4.5 3v2')+C(12,5.5,1.5),{stroke:1.5,tileGlyph:C(5,4,2)+C(12,5,1.5)+P('M2 13v-2a3 3 0 0 1 6 0v2m3-4a3 3 0 0 1 3 3v1')});
+revise('no-peers',C(5,4.5,2)+P('M1.5 14v-2a3.5 3.5 0 0 1 7 0v2M11 4l4 4m0-4-4 4'),{stroke:1.5});
+revise('web-ui',R(1.5,2.5,13,11,1)+P('M2 6h12M7 6v7'),{stroke:1.5});
+revise('language',P('M1 13 4 3l3 10M2 10h4M9 4h6M12 2v2M10 4c0 4 2 7 5 9M14 4c0 4-2 7-5 9'),{stroke:1.25,tileGlyph:P('M2 13 6 3l4 10M4 9h4M12 3v7')+dot(12,13)});
+revise('appearance',C(8,8,6)+P('M8 2a6 6 0 0 1 0 12Z') ,{stroke:1.5});
+// Half-disc is actual filled geometry, not a duplicated outlined semicircle.
+icons.find(i=>i.id==='appearance').glyph=C(8,8,6)+'<path d="M8 2a6 6 0 0 1 0 12Z" fill="currentColor" stroke="none"/>';
+revise('bandwidth',P('M4 14V2M1 5l3-3 3 3M12 2v12m-3-3 3 3 3-3'),{stroke:1.75});
+revise('bittorrent',P('m5 5 6 6M5 11l6-6')+dot(3,3,2)+dot(13,3,2)+dot(3,13,2)+dot(13,13,2),{stroke:1.5});
+revise('scheduler',R(2,3.5,12,10.5,1)+P('M5 2v3m6-3v3M2 7h12')+ink(5,9,2,2)+ink(9,9,2,2),{stroke:1.5,tileGlyph:R(2,4,12,10,1)+P('M5 2v3m6-3v3M2 8h12')+dot(6,11)+dot(10,11)});
+revise('remote',R(1.5,2.5,13,9,1)+P('M8 12v2M5 14h6')+'<path d="m6 5 4 2-4 2Z" fill="currentColor" stroke="none"/>',{stroke:1.5,tileGlyph:R(2,2,12,9,1)+P('M8 11v3M5 14h6')});
+revise('proxy',R(6,2,4,12,1)+P('M1 8h5m4 0h5'),{stroke:1.5});
+revise('lock',R(2.5,7.5,11,7,1)+P('M5 7V5a3 3 0 0 1 6 0v2'),{stroke:1.5});
+revise('unlock',R(2.5,7.5,11,7,1)+P('M9 7V4a3 3 0 0 1 6 0'),{stroke:1.5});
+revise('privacy',P('m8 1.5 5.5 2v4c0 3-3 5.5-5.5 7-2.5-1.5-5.5-4-5.5-7v-4Z')+P('m5 8 2 2 4-4'),{stroke:1.5,tileGlyph:shield});
+revise('reload-ip-filter',P('m8 1.5 5.5 2v4c0 3-3 5.5-5.5 7-2.5-1.5-5.5-4-5.5-7v-4Z')+P('M5 7h6m-2-2 2 2-2 2'),{stroke:1.5,tileGlyph:shield+P('M5 7h5')});
+revise('offline',P('M1.5 5a10 10 0 0 1 11-1M4 8a6 6 0 0 1 5-1M2 2l12 12')+dot(8,12),{stroke:1.5});
+revise('downloading-metadata',P('M2 2h7v4H2M5 9v5m-3-3 3 3 3-3'),{stroke:1.5,tileGlyph:P('M3 2h8M3 5h5M8 8v6m-3-3 3 3 3-3')});
+revise('force-downloading-metadata',P('M2 2h7v4H2M5 9v5m-3-3 3 3 3-3M13 2v6')+dot(13,10),{stroke:1.5,tileGlyph:P('M2 2h7M2 5h5M5 9v5m-3-3 3 3 3-3M13 3v7')});
+revise('force-downloading',P('M5 2v12m-3-3 3 3 3-3M12 2v8')+dot(12,13),{stroke:1.75});
+revise('force-seeding',P('M5 14V2m-3 3 3-3 3 3M12 2v8')+dot(12,13),{stroke:1.75});
+revise('checking-resume-data',P('M3 5a5.5 5.5 0 1 1-1 5M2 2v4h4M8 5v4h3'),{stroke:1.5});
+revise('queued-checking',P('M2 3h11M2 7h6M2 11h3m4 0 2 2 4-5'),{stroke:1.75});
+revise('queued-resume-checking',P('M2 3h11M2 7h4')+C(10.5,11,3.5)+P('M10.5 9v2h2'),{stroke:1.5});
+revise('queued-download',P('M2 3h11M2 7h4M10 8v6m-3-3 3 3 3-3'),{stroke:1.75});
+revise('queued-seed',P('M2 3h11M2 7h4M10 14V8m-3 3 3-3 3 3'),{stroke:1.75});
+revise('paused-complete',ink(1,2,2.5,12)+ink(5.5,2,2.5,12)+P('m10 11 1.5 2 3.5-5'),{stroke:1.5});
+revise('stopped-complete',ink(1,4,7,9,1)+P('m10 11 1.5 2 3.5-5'),{stroke:1.5});
+revise('moving',P('M2 4h9m-3-3 3 3-3 3M14 12H5m3-3-3 3 3 3'),{stroke:1.75});
+revise('error',P('m8 1.5 6.5 12.5h-13Z')+P('M8 5.5v3.5')+dot(8,11.5,.75),{stroke:1.5});
+revise('warning',P('m8 1.5 6.5 12.5h-13Z')+P('M8 5.5v3.5')+dot(8,11.5,.75),{stroke:1.5});
+revise('stalled-download',P('M5 2v12m-3-3 3 3 3-3M12 2v7')+dot(12,13),{stroke:1.5});
+revise('stalled-seed',P('M5 14V2m-3 3 3-3 3 3M12 2v7')+dot(12,13),{stroke:1.5});
+revise('allocating',R(1.5,3,13,11,1)+P('M2 10h12M8 5v3M6.5 6.5h3'),{stroke:1.5,tileGlyph:R(2,3,12,11,1)+P('M2 10h12M6 6h4')});
+revise('wanted-complete',P('M2 12V3h4l2 2h6v2M2 12h4m2-1 2 2 5-6'),{stroke:1.75});
+revise('file-video',R(1.5,2.5,13,11,1)+'<path d="m6 5 5 3-5 3Z" fill="currentColor" stroke="none"/>',{stroke:1.5});
+revise('file-image',R(1.5,2.5,13,11,1)+dot(5,6)+P('m3 12 4-4 3 3 2-2 2 3'),{stroke:1.5,tileGlyph:R(2,3,12,10,1)+P('m3 12 5-6 5 6')});
+revise('file-archive',R(2.5,1.5,11,13,1)+P('M8 2v7')+R(6.5,10,3,2.5,.25),{stroke:1.5,tileGlyph:R(3,2,10,12,1)+P('M8 2v12')});
+revise('help',C(8,8,6)+P('M6 5.5a2 2 0 1 1 3 2L8 9')+dot(8,11.5,.75),{stroke:1.5});
+revise('new-label',P('M5 13 1.5 9.5v-7H8l4 4')+dot(4.5,5.5,.75)+smallPlus,{stroke:1.5,tileGlyph:P('M2 2h7l5 5-7 7-5-5Z')+dot(5,5,.75)});
+revise('remove-label',P('M5 13 1.5 9.5v-7H8l4 4')+dot(4.5,5.5,.75)+P('M9 12h6'),{stroke:1.5,tileGlyph:P('M2 2h7l5 5-7 7-5-5Z')+P('M5 8h5')});
+revise('labels',P('M2 2h6l6 6-6 6-6-6Z')+dot(5,5,.85),{stroke:1.5});
+revise('rss',dot(3,13,1)+P('M2 7a7 7 0 0 1 7 7M2 2a12 12 0 0 1 12 12'),{stroke:1.75});
+revise('rss-rule',dot(2.5,12.5,.8)+P('M2 7a6 6 0 0 1 6 6M2 2a10 10 0 0 1 10 7M12 9v6m-3-3 3 3 3-3'),{stroke:1.5});
+revise('add-feed',dot(2.5,12.5,.8)+P('M2 7a6 6 0 0 1 6 6M2 2a10 10 0 0 1 10 7')+smallPlus,{stroke:1.5,tileGlyph:plus});
+revise('random-port',R(1.5,1.5,13,13,2)+dot(5,5)+dot(11,11)+dot(8,8)+dot(5,11)+dot(11,5),{stroke:1.5});
+revise('authentication',C(5,6,3)+P('M8 6h7M13 6v3M10 6v2'),{stroke:1.75});
+revise('more',dot(3,8,1.25)+dot(8,8,1.25)+dot(13,8,1.25));
+revise('queueing',P('M6 3h8M6 8h8M6 13h8')+dot(2,3)+dot(2,8)+dot(2,13),{stroke:1.75});
+revise('rss-items',P('M6 3h8M6 8h8M6 13h8')+dot(2,3)+dot(2,8)+dot(2,13),{stroke:1.75});
+revise('reset-columns',R(1.5,2.5,13,11,1)+P('M6 3v10M10 3v10'),{stroke:1.5});
+revise('select-all',R(1.5,1.5,13,13,1)+P('m4 8 3 3 5-6'),{stroke:1.5});
+revise('clear-selection',R(1.5,1.5,13,13,1),{stroke:1.5});
+// Third pass: preserve action modifiers and distinguish force from a stalled warning.
+const sparkle='<path d="m12 8 1 3 3 1-3 1-1 3-1-3-3-1 3-1Z" fill="currentColor" stroke="none"/>';
+const largeSparkle='<path d="m8 1 2 5 5 2-5 2-2 5-2-5-5-2 5-2Z" fill="currentColor" stroke="none"/>';
+revise('create-torrent',pageCorner+sparkle,{stroke:1.5,tileGlyph:largeSparkle});
+revise('new-label',P('M5 13 1.5 9.5v-7H8l4 4')+dot(4.5,5.5,.75)+smallPlus,{stroke:1.5,tileGlyph:P('M5 13 2 10V3h6l3 3')+P('M12 9v6M9 12h6')});
+revise('add-url',chain+smallPlus,{stroke:1.5,tileGlyph:chain+smallPlus});
+revise('clear-selection',R(1.5,1.5,13,13,1),{stroke:1.5,tileGlyph:R(3.5,3.5,9,9,.5)});
+revise('force-downloading',P('M4 2v12m-3-3 3 3 3-3M12 2v12m-3-3 3 3 3-3'),{stroke:1.5});
+revise('force-seeding',P('M4 14V2m-3 3 3-3 3 3M12 14V2m-3 3 3-3 3 3'),{stroke:1.5});
+revise('force-downloading-metadata',P('M2 2h12M4 7v7m-3-3 3 3 3-3M12 7v7m-3-3 3 3 3-3'),{stroke:1.5});
+revise('initial-seeding',P('M8 11V2M4 6l4-4 4 4M3 14h10'),{stroke:1.75});
+revise('language',P('M1 13 4 3l3 10M2 10h4M9 4h6M12 2v2M10 4c0 4 2 7 5 9M14 4c0 4-2 7-5 9'),{stroke:1.25});
+revise('association',P('M8 2H2v12h12V8M8 2l6 5H8ZM9 10v3m-2-2 2 2 2-2'),{stroke:1.5,tileGlyph:down});
+
+};

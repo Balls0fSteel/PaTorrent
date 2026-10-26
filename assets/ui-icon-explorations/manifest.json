@@ -21,55 +21,64 @@
       "id": "add-torrent",
       "label": "Add torrent",
       "group": "Actions",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "add-url",
       "label": "Add URL / magnet",
       "group": "Actions",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "create-torrent",
       "label": "Create torrent",
       "group": "Actions",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "remove",
       "label": "Remove torrent",
       "group": "Actions",
-      "color": "red"
+      "color": "red",
+      "revised": true
     },
     {
       "id": "delete-data",
       "label": "Delete torrent and data",
       "group": "Actions",
-      "color": "red"
+      "color": "red",
+      "revised": true
     },
     {
       "id": "start",
       "label": "Start",
       "group": "Actions",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "pause",
       "label": "Pause",
       "group": "Actions",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "stop",
       "label": "Stop",
       "group": "Actions",
-      "color": "red"
+      "color": "red",
+      "revised": true
     },
     {
       "id": "force-start",
       "label": "Force start",
       "group": "Actions",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "queue-up",
@@ -99,7 +108,8 @@
       "id": "recheck",
       "label": "Force recheck",
       "group": "Actions",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "reannounce",
@@ -117,13 +127,15 @@
       "id": "set-location",
       "label": "Set download location",
       "group": "Actions",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "properties",
       "label": "Properties",
       "group": "Actions",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "copy",
@@ -135,7 +147,8 @@
       "id": "save",
       "label": "Save",
       "group": "Actions",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "refresh",
@@ -183,25 +196,29 @@
       "id": "labels",
       "label": "Labels",
       "group": "Navigation",
-      "color": "purple"
+      "color": "purple",
+      "revised": true
     },
     {
       "id": "rss",
       "label": "RSS feeds",
       "group": "Navigation",
-      "color": "orange"
+      "color": "orange",
+      "revised": true
     },
     {
       "id": "rss-rule",
       "label": "RSS download rule",
       "group": "Navigation",
-      "color": "orange"
+      "color": "orange",
+      "revised": true
     },
     {
       "id": "statistics",
       "label": "Statistics",
       "group": "Navigation",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "speed",
@@ -213,31 +230,36 @@
       "id": "general",
       "label": "General details",
       "group": "Details",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "trackers",
       "label": "Trackers",
       "group": "Details",
-      "color": "purple"
+      "color": "purple",
+      "revised": true
     },
     {
       "id": "peers",
       "label": "Peers",
       "group": "Details",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "pieces",
       "label": "Pieces",
       "group": "Details",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "files",
       "label": "Files",
       "group": "Details",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "logger",
@@ -255,7 +277,8 @@
       "id": "preferences",
       "label": "Preferences",
       "group": "Settings",
-      "color": "neutral"
+      "color": "neutral",
+      "revised": true
     },
     {
       "id": "connection",
@@ -267,13 +290,15 @@
       "id": "bandwidth",
       "label": "Bandwidth",
       "group": "Settings",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "bittorrent",
       "label": "BitTorrent",
       "group": "Settings",
-      "color": "purple"
+      "color": "purple",
+      "revised": true
     },
     {
       "id": "directories",
@@ -285,31 +310,36 @@
       "id": "scheduler",
       "label": "Scheduler",
       "group": "Settings",
-      "color": "purple"
+      "color": "purple",
+      "revised": true
     },
     {
       "id": "remote",
       "label": "Remote control",
       "group": "Settings",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "web-ui",
       "label": "Web UI",
       "group": "Settings",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "language",
       "label": "Language",
       "group": "Settings",
-      "color": "purple"
+      "color": "purple",
+      "revised": true
     },
     {
       "id": "appearance",
       "label": "Appearance",
       "group": "Settings",
-      "color": "purple"
+      "color": "purple",
+      "revised": true
     },
     {
       "id": "advanced",
@@ -321,13 +351,15 @@
       "id": "privacy",
       "label": "Privacy / encryption",
       "group": "Settings",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "proxy",
       "label": "Proxy",
       "group": "Settings",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "disk",
@@ -351,19 +383,22 @@
       "id": "network-ok",
       "label": "Incoming connection seen",
       "group": "Network",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "network-no-incoming",
       "label": "No incoming connection seen",
       "group": "Network",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "offline",
       "label": "Offline",
       "group": "Network",
-      "color": "red"
+      "color": "red",
+      "revised": true
     },
     {
       "id": "dht",
@@ -387,13 +422,15 @@
       "id": "lock",
       "label": "Encrypted",
       "group": "Network",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "unlock",
       "label": "Unencrypted",
       "group": "Network",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "tracker-working",
@@ -435,127 +472,148 @@
       "id": "force-downloading",
       "label": "Forced download",
       "group": "Torrent states",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "force-seeding",
       "label": "Forced seed",
       "group": "Torrent states",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "downloading-metadata",
       "label": "Fetching metadata",
       "group": "Torrent states",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "force-downloading-metadata",
       "label": "Forced metadata fetch",
       "group": "Torrent states",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "checking-files",
       "label": "Checking files",
       "group": "Torrent states",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "checking-resume-data",
       "label": "Checking resume data",
       "group": "Torrent states",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "queued-checking",
       "label": "Queued file check",
       "group": "Torrent states",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "queued-resume-checking",
       "label": "Queued resume check",
       "group": "Torrent states",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "queued-download",
       "label": "Queued download",
       "group": "Torrent states",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "queued-seed",
       "label": "Queued seed",
       "group": "Torrent states",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "paused-incomplete",
       "label": "Paused incomplete",
       "group": "Torrent states",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "paused-complete",
       "label": "Paused complete",
       "group": "Torrent states",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "stopped-incomplete",
       "label": "Stopped incomplete",
       "group": "Torrent states",
-      "color": "neutral"
+      "color": "neutral",
+      "revised": true
     },
     {
       "id": "stopped-complete",
       "label": "Finished / stopped complete",
       "group": "Torrent states",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "moving",
       "label": "Moving data",
       "group": "Torrent states",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "error",
       "label": "Torrent error",
       "group": "Torrent states",
-      "color": "red"
+      "color": "red",
+      "revised": true
     },
     {
       "id": "stalled-download",
       "label": "Stalled download",
       "group": "Torrent states",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "stalled-seed",
       "label": "Stalled seed",
       "group": "Torrent states",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "no-peers",
       "label": "No peers",
       "group": "Torrent states",
-      "color": "neutral"
+      "color": "neutral",
+      "revised": true
     },
     {
       "id": "allocating",
       "label": "Allocating space",
       "group": "Torrent states",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "wanted-complete",
       "label": "Wanted files complete",
       "group": "Torrent states",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "priority-high",
@@ -597,25 +655,29 @@
       "id": "file-video",
       "label": "Video file",
       "group": "Files",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "file-image",
       "label": "Image file",
       "group": "Files",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "file-archive",
       "label": "Archive file",
       "group": "Files",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "help",
       "label": "Help",
       "group": "Utility",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "about",
@@ -627,7 +689,8 @@
       "id": "warning",
       "label": "Warning",
       "group": "Utility",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "close",
@@ -663,13 +726,15 @@
       "id": "select-all",
       "label": "Select all",
       "group": "Utility",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "clear-selection",
       "label": "Clear selection",
       "group": "Utility",
-      "color": "neutral"
+      "color": "neutral",
+      "revised": true
     },
     {
       "id": "sort-ascending",
@@ -687,7 +752,8 @@
       "id": "queueing",
       "label": "Queueing",
       "group": "Settings",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "desktop-integration",
@@ -699,19 +765,22 @@
       "id": "authentication",
       "label": "Authentication",
       "group": "Settings",
-      "color": "amber"
+      "color": "amber",
+      "revised": true
     },
     {
       "id": "random-port",
       "label": "Random port",
       "group": "Settings",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "reload-ip-filter",
       "label": "Reload IP filter",
       "group": "Settings",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "download-limit",
@@ -735,31 +804,36 @@
       "id": "initial-seeding",
       "label": "Initial seeding",
       "group": "Actions",
-      "color": "blue"
+      "color": "blue",
+      "revised": true
     },
     {
       "id": "new-label",
       "label": "New label",
       "group": "Actions",
-      "color": "purple"
+      "color": "purple",
+      "revised": true
     },
     {
       "id": "remove-label",
       "label": "Remove label",
       "group": "Actions",
-      "color": "red"
+      "color": "red",
+      "revised": true
     },
     {
       "id": "add-feed",
       "label": "Add RSS feed",
       "group": "RSS",
-      "color": "orange"
+      "color": "orange",
+      "revised": true
     },
     {
       "id": "rss-items",
       "label": "Feed items",
       "group": "RSS",
-      "color": "orange"
+      "color": "orange",
+      "revised": true
     },
     {
       "id": "rss-history",
@@ -777,13 +851,15 @@
       "id": "more",
       "label": "More actions",
       "group": "Utility",
-      "color": "neutral"
+      "color": "neutral",
+      "revised": true
     },
     {
       "id": "reset-columns",
       "label": "Reset columns",
       "group": "Utility",
-      "color": "neutral"
+      "color": "neutral",
+      "revised": true
     },
     {
       "id": "logout",
@@ -795,7 +871,8 @@
       "id": "association",
       "label": "Torrent file association",
       "group": "Brand",
-      "color": "teal"
+      "color": "teal",
+      "revised": true
     },
     {
       "id": "tray",

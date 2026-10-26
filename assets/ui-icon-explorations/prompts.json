@@ -1,0 +1,12 @@
+{
+  "mode": "built-in image_gen",
+  "applicationConceptSheet": {
+    "file": "app-concepts.png",
+    "prompt": "Use case: logo-brand. Create a polished visual exploration contact sheet of 12 NEW original application icon concepts for PaTorrent, a fast native desktop BitTorrent client. A strict 4 columns x 3 rows grid on an off-white background, with generous whitespace. Each concept should be a single extremely bold compact silhouette readable at 16 pixels, no fine detail, no gradients, no 3D, no ornament. Explore diverse marks: P with download negative space, two interlocking transfer arrows, peer triangle, split transfer tile, downward bolt, seed sprout, stacked data slabs, torrent wave, port doorway, circular exchange, angular P, transfer diamond. Use teal, cobalt, orange and charcoal selectively, maximum two colors per icon. Each tile must be very different structurally. Below each icon a tiny simple number 01 through 12, no other text. Large professional flat icon design presentation, consistent optical size. Do not imitate other torrent clients. These are selection concepts, not an application screenshot."
+  },
+  "uiArtwork": {
+    "mode": "original SVG drawings",
+    "source": "build.cjs",
+    "brief": "131 UI semantics across three families on a 16-unit grid; strong strokes and silhouettes; light/dark variants and transparent PNG proofs."
+  }
+}

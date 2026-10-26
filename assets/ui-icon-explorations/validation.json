@@ -1,0 +1,25 @@
+{
+  "icons": 131,
+  "families": 3,
+  "themes": 2,
+  "svgCount": 786,
+  "pngCount": 4716,
+  "sizes": [
+    16,
+    20,
+    24,
+    32,
+    48,
+    64
+  ],
+  "checks": [
+    "All PNG dimensions verified",
+    "All PNGs contain visible pixels and transparency",
+    "Actual-size light/dark proof rendered"
+  ],
+  "limitations": [
+    "Candidate artwork; no application integration",
+    "Complex state cues need owner review at 16px",
+    "Tile glyphs have a smaller interior footprint"
+  ]
+}

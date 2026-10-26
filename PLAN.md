@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-23_161421_1792764861
+Last updated: 2026-10-26_084833_1793000913
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D26](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -59,7 +59,7 @@ The approved decisions D1-D26 remain active in [DECISIONS.md](docs/DECISIONS.md)
 
 Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the [plan snapshot](docs/archive/PLAN-2026-10-23.md). Current testing constraints and setup notes are in [BACKLOG.md](docs/BACKLOG.md#validation-and-development-environment).
 
-- Owner choice: final icon family (item 10).
+- Owner choice: final icon family (item 10). New UI comparison batch: `assets/ui-icon-explorations/review.html` has 131 symbols in three styles, light/dark variants and actual-size previews, plus 12 app-mark concepts. Shortlist candidates there; integration and platform/DPI checks remain open.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison.
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text. Research before designing the V2.0 goals below.
 

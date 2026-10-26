@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_084833_1793000913: Broad small-size UI icon exploration batch
+
+- Added `assets/ui-icon-explorations/`: 131 UI symbols in three styles (bold color, strong outline, contrast tile), with light/dark variants: 786 original SVGs and 4,716 transparent PNGs at 16/20/24/32/48/64 px. Covers toolbar, torrent/tracker/network states, actions, navigation, detail tabs, settings, RSS and files.
+- Added an offline gallery with actual-size comparison, theme/size controls, search, UI-area filters, favorites and JSON shortlist export; full and excerpted 16 px proof sheets; reproducible export source and manifests. Added a built-in image_gen sheet of 12 new application-mark concepts and its exact prompt. The current application artwork remains selected pending owner choice (gate 10).
+- Validation: decoded every PNG and verified dimensions, visible pixels and transparency; checked every manifest path and unique ID; gallery JavaScript syntax passed; visually inspected the 16 px excerpt on both backgrounds. Production integration, full platform/DPI checks and owner selection remain pending. No runtime code changed; application tests were unnecessary.
+
 ## 2026-10-23_161421_1792764861: Compact the active plan and changelog; preserve dated Markdown history
 
 ### Changed

@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_101801_1793006281: Network/tracker icon decision and revision 4 brief
+
+- Owner decided (D28): network icons use an arrow entering a port/ring; the Trackers tab and all tracker states use a radio tower. Added `assets/ui-icon-explorations/review-2026-10-26/revision3/REGENERATION-BRIEF.md` for the generator: a shared 16 px refresh badge, both new bases with per-state badges, the allowlist change (completed/tracker-working removed), the other 11 redraws and the checks to run. No artwork changed yet.
+
 ## 2026-10-26_101510_1793006110: Review of revision 3 bold UI artwork
 
 - Re-inspected all 131 symbols at 64/24/16 px in light, dark and mono, the 24 shipped state icons and 11 toolbar icons at native 16/20/24/32 px, and all-pair mono masks. Confirmed: only the 8 allowlisted pairs are identical; median partial alpha at 16 px is 20 %; most first-review defects are fixed.

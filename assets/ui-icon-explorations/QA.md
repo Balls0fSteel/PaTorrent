@@ -1,3 +1,15 @@
+# Artwork QA
+
+## Revision 4 (2026-10-26)
+
+- Redrew the 18 symbols and the badge listed in the [revision 4 brief](review-2026-10-26/revision3/REGENERATION-BRIEF.md). Pieces was also redrawn to avoid matching the new all-torrents grid. Design notes are in the README.
+- Each candidate was drawn as pixel art and compared against alternatives, about a dozen rounds in all, with zoomed monochrome views and native 16/20/24/32 px renders in light and dark. Rejected versions included:
+  - a ring arrow that read as "Q", and a tower that read as a stick figure;
+  - a 2 px refresh badge that read as "₵", and an upright magnet that read as "Ü".
+- `build.cjs`, `check-geometry.cjs` and `proof-pages.cjs` pass. There is zero overflow, zero margin failures and zero unexpected identical masks, with completed/tracker-working removed from the allowlist. The only near match is still normal/forced metadata (0.88). The median partial alpha at 16 px fell from 27 % to 23 %.
+- The revision 3 review scripts (`review-sheets.py`, `shipped-sizes.py`) were run on the result. The shipped sheet showed broken 20 px rows; `H.px` now emits shared-edge paths, and the rerun was clean. The proof pages under `qa/revision3/` are regenerated with this artwork.
+- Not done: an independent second review of this revision; it should follow before integration.
+
 # Revision 3 artwork QA
 
 The revision 2 QA claims are superseded by the [2026-10-26 audit](review-2026-10-26/REPORT.md). Export validity alone did not establish legibility. Revision 3 uses a complete redraw, native-size exports, mask comparisons and a separate visual review.

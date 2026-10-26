@@ -16,7 +16,7 @@ const icons=inventory.map(meta=>{
  return {...meta,...glyph,revised:true};
 });
 for(const id of Object.keys(geometry))if(!inventory.some(i=>i.id===id))throw Error('Unknown drawing: '+id);
-const reuse=[['upload','seeding'],['download','downloading'],['pause','paused-incomplete'],['stop','stopped-incomplete'],['recheck','checking-files'],['completed','tracker-working'],['filter','rss-filters'],['reannounce','tracker-updating']];
+const reuse=[['upload','seeding'],['download','downloading'],['pause','paused-incomplete'],['stop','stopped-incomplete'],['recheck','checking-files'],['filter','rss-filters'],['reannounce','tracker-updating']];
 const runtime=['downloading','force-downloading','seeding','force-seeding','downloading-metadata','force-downloading-metadata','checking-files','checking-resume-data','queued-checking','queued-resume-checking','queued-download','queued-seed','paused-incomplete','paused-complete','stopped-incomplete','stopped-complete','moving','error','tracker-not-contacted','tracker-working','tracker-updating','tracker-error','network-ok','network-no-incoming'];
 const toolbar=['add-torrent','add-url','create-torrent','remove','start','pause','stop','queue-up','queue-down','rss','preferences'];
 module.exports={icons,reuse,runtime,toolbar};

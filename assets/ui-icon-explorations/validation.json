@@ -17,7 +17,7 @@
   ],
   "svgCount": 2358,
   "pngCount": 2358,
-  "separateLargeDrawings": 29,
+  "separateLargeDrawings": 22,
   "checks": [
     "Every PNG decoded at its expected native dimensions",
     "Every PNG contains ink and transparency",

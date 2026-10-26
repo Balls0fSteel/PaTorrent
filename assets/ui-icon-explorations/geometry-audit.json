@@ -36,12 +36,6 @@
       "allowed": true
     },
     {
-      "a": "completed",
-      "b": "tracker-working",
-      "size": 16,
-      "allowed": true
-    },
-    {
       "a": "upload",
       "b": "seeding",
       "size": 16,
@@ -84,12 +78,6 @@
       "allowed": true
     },
     {
-      "a": "completed",
-      "b": "tracker-working",
-      "size": 32,
-      "allowed": true
-    },
-    {
       "a": "upload",
       "b": "seeding",
       "size": 32,
@@ -111,7 +99,7 @@
       "iou": 0.8824
     }
   ],
-  "medianPartialFraction16": 0.2667,
+  "medianPartialFraction16": 0.2273,
   "stats": [
     {
       "id": "add-torrent",
@@ -122,10 +110,10 @@
     },
     {
       "id": "add-url",
-      "ink": 72,
-      "opaque": 52,
-      "partial": 20,
-      "partialFraction": 0.2778
+      "ink": 68,
+      "opaque": 68,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "create-torrent",
@@ -213,10 +201,10 @@
     },
     {
       "id": "reannounce",
-      "ink": 97,
-      "opaque": 73,
-      "partial": 24,
-      "partialFraction": 0.2474
+      "ink": 59,
+      "opaque": 59,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "open-folder",
@@ -276,8 +264,8 @@
     },
     {
       "id": "all-torrents",
-      "ink": 108,
-      "opaque": 108,
+      "ink": 100,
+      "opaque": 100,
       "partial": 0,
       "partialFraction": 0
     },
@@ -290,10 +278,10 @@
     },
     {
       "id": "inactive",
-      "ink": 100,
+      "ink": 28,
       "opaque": 28,
-      "partial": 72,
-      "partialFraction": 0.72
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "completed",
@@ -346,10 +334,10 @@
     },
     {
       "id": "trackers",
-      "ink": 98,
-      "opaque": 42,
-      "partial": 56,
-      "partialFraction": 0.5714
+      "ink": 70,
+      "opaque": 70,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "peers",
@@ -360,8 +348,8 @@
     },
     {
       "id": "pieces",
-      "ink": 99,
-      "opaque": 99,
+      "ink": 78,
+      "opaque": 78,
       "partial": 0,
       "partialFraction": 0
     },
@@ -374,8 +362,8 @@
     },
     {
       "id": "logger",
-      "ink": 126,
-      "opaque": 126,
+      "ink": 100,
+      "opaque": 100,
       "partial": 0,
       "partialFraction": 0
     },
@@ -472,8 +460,8 @@
     },
     {
       "id": "proxy",
-      "ink": 98,
-      "opaque": 98,
+      "ink": 56,
+      "opaque": 56,
       "partial": 0,
       "partialFraction": 0
     },
@@ -500,29 +488,29 @@
     },
     {
       "id": "network-ok",
-      "ink": 82,
+      "ink": 58,
       "opaque": 58,
-      "partial": 24,
-      "partialFraction": 0.2927
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "network-no-incoming",
-      "ink": 66,
-      "opaque": 62,
-      "partial": 4,
-      "partialFraction": 0.0606
+      "ink": 56,
+      "opaque": 56,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "offline",
-      "ink": 88,
-      "opaque": 60,
-      "partial": 28,
-      "partialFraction": 0.3182
+      "ink": 61,
+      "opaque": 61,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "dht",
-      "ink": 112,
-      "opaque": 112,
+      "ink": 44,
+      "opaque": 44,
       "partial": 0,
       "partialFraction": 0
     },
@@ -556,31 +544,31 @@
     },
     {
       "id": "tracker-working",
-      "ink": 52,
-      "opaque": 10,
-      "partial": 42,
-      "partialFraction": 0.8077
+      "ink": 54,
+      "opaque": 54,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "tracker-updating",
-      "ink": 97,
-      "opaque": 73,
-      "partial": 24,
-      "partialFraction": 0.2474
+      "ink": 59,
+      "opaque": 59,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "tracker-error",
-      "ink": 93,
-      "opaque": 69,
-      "partial": 24,
-      "partialFraction": 0.2581
+      "ink": 62,
+      "opaque": 62,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "tracker-not-contacted",
-      "ink": 66,
-      "opaque": 42,
-      "partial": 24,
-      "partialFraction": 0.3636
+      "ink": 54,
+      "opaque": 54,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "downloading",
@@ -731,8 +719,8 @@
     },
     {
       "id": "allocating",
-      "ink": 85,
-      "opaque": 85,
+      "ink": 104,
+      "opaque": 104,
       "partial": 0,
       "partialFraction": 0
     },
@@ -920,24 +908,24 @@
     },
     {
       "id": "reload-ip-filter",
-      "ink": 108,
-      "opaque": 39,
-      "partial": 69,
-      "partialFraction": 0.6389
+      "ink": 55,
+      "opaque": 55,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "download-limit",
-      "ink": 52,
-      "opaque": 42,
-      "partial": 10,
-      "partialFraction": 0.1923
+      "ink": 43,
+      "opaque": 43,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "upload-limit",
-      "ink": 52,
-      "opaque": 42,
-      "partial": 10,
-      "partialFraction": 0.1923
+      "ink": 43,
+      "opaque": 43,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "unlimited",
@@ -1004,10 +992,10 @@
     },
     {
       "id": "reset-columns",
-      "ink": 97,
-      "opaque": 73,
-      "partial": 24,
-      "partialFraction": 0.2474
+      "ink": 68,
+      "opaque": 68,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "logout",
@@ -1018,10 +1006,10 @@
     },
     {
       "id": "association",
-      "ink": 105,
-      "opaque": 60,
-      "partial": 45,
-      "partialFraction": 0.4286
+      "ink": 97,
+      "opaque": 97,
+      "partial": 0,
+      "partialFraction": 0
     },
     {
       "id": "tray",

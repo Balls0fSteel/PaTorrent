@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-10-23_161421_1792764861
+Last updated: 2026-10-26_105105_1793008265
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -8,7 +8,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 
 | Archive | Coverage | Contents |
 |---|---|---|
-| [Changelog, 2026-10-15 through 2026-10-23](CHANGELOG-2026-10-15--2026-10-23.md) | `2026-10-15_100350_1792051430` through `2026-10-23_155639_1792763799` | All 148 entries from the original changelog, preserved verbatim. The two newest entries also remain in the root changelog for the current handoff. |
+| [Changelog, 2026-10-15 through 2026-10-23](CHANGELOG-2026-10-15--2026-10-23.md) | `2026-10-15_100350_1792051430` through `2026-10-23_155639_1792763799` | All 148 entries from the original changelog, preserved verbatim. Its two newest entries were also kept in the root changelog until 2026-10-26_105105_1793008265, when they were removed there to keep it under budget. |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

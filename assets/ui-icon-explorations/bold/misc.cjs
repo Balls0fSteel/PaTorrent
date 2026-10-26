@@ -9,15 +9,15 @@ module.exports = (H) => {
   const frame=(x=2,y=2,w=12,h=12)=>s(`M${x} ${y}h${w}v${h}H${x}Z`);
   const page=s('M3 2h6l4 4v8H3ZM9 2v4h4');
   const shield=s('M8 2l5 2v4c0 2.5-3 4.5-5 5-2-1-5-2.5-5-5V4Z');
-  const reload=s('M11 10a2 2 0 1 1-1 3',2)+p('M9 9h4l-4 4Z');
-  const compactShield=s('M5 2l3 1v3c0 2-1 3-3 5-2-2-3-3-3-5V3Z');
   const compactRss=c(2,8,1)+s('M2 5a3 3 0 0 1 3 3')+s('M2 2a6 6 0 0 1 6 6');
   const fullRss=c(3,13,1.5)+s('M2 7a7 7 0 0 1 7 7')+s('M2 2a12 12 0 0 1 12 12');
   add('search',o(6,6,4)+p('M9 10l1-1 5 5-1 1Z'));
   add('filter',H.filter);
-  add('all-torrents',s('M2 10V2h8M5 12V5h7M8 8h6v6H8Z'),'teal');
+  // Revision 4: a 2 x 2 grid of solid tiles, unlike copy's overlapping squares.
+  add('all-torrents',r(2,2,5,5)+r(9,2,5,5)+r(2,9,5,5)+r(9,9,5,5),'teal');
   add('active',p('M1 7h3l2-4 3 8 2-4h4v2h-3l-3 6-3-8-1 2H1Z'),'teal');
-  add('inactive',o(8,8,5));
+  // The active pulse flattened to a line with one small bump.
+  add('inactive',H.px(0,5,['.......##','......####','.######..######','.#####....#####']));
   add('completed',H.check,'teal');
   add('labels',even('M1 1h7l7 7-7 7-7-7Z M3 3h4l5 5-4 4-5-5Z')+c(5,5,1),'purple');
   add('rss',fullRss,'orange');
@@ -27,12 +27,14 @@ module.exports = (H) => {
   add('statistics',r(2,9,3,5)+r(7,6,3,8)+r(12,2,3,12),'blue');
   add('speed',s('M2 2v12h12')+s('M4 10l3-4 3 2 4-5'),'teal');
   add('general',o(8,8,6)+r(7,7,2,5)+r(7,4,2,2),'blue');
-  add('trackers',s('M8 5v8M5 14h6M4 4a5 5 0 0 0 0 7M12 4a5 5 0 0 1 0 7')+c(8,3,1.5),'purple',
-    s('M8 5v8M5 14h6M4 4a5 5 0 0 0 0 7M12 4a5 5 0 0 1 0 7',1.5)+c(8,3,1.5));
+  // Radio tower with two arcs each side and no dot on top (D28).
+  add('trackers',H.towerFull,'purple');
   add('peers',c(5,5,2)+s('M2 14v-2a3 3 0 0 1 6 0v2')+c(12,6,1.5)+s('M11 10a3 3 0 0 1 3 3v1'),'blue');
-  add('pieces',r(2,2,5,5)+r(9,2,5,5)+r(2,9,5,5)+frame(10,10,3,3),'teal');
+  // A piece map: received pieces solid, missing ones hollow. Distinct from all-torrents.
+  add('pieces',H.px(0,2,['..###.###.###','..###.###.###','..###.###.###','','..###.###.###','..###.###.#.#','..###.###.###','','..###.###.###','..###.#.#.#.#','..###.###.###']),'teal');
   add('files',page,'amber');
-  add('logger',frame(2,2,12,12)+r(4,4,2,2)+r(8,4,4,2)+r(4,8,2,2)+r(8,8,4,2)+r(4,12,6,1));
+  // Terminal window with a ">_" prompt (revision 2's reading, redrawn on the grid).
+  add('logger',H.px(0,2,['..############','.##############','.##..........##','.##.#........##','.##.##.......##','.##..##......##','.##.##.......##','.##.#..####..##','.##....####..##','.##..........##','.##############','..############']));
   add('ratings',p('M8 1l2 4 5 1-4 4 1 5-4-3-4 3 1-5-4-4 5-1Z'),'amber');
   // Six substantial teeth and a six-pixel clear centre.
   const gearPoints=[];
@@ -59,13 +61,13 @@ module.exports = (H) => {
   add('appearance',o(8,8,6)+p('M8 2a6 6 0 0 1 0 12Z'),'purple');
   add('advanced',r(2,3,12,2)+r(2,11,12,2)+r(5,1,3,6)+r(10,9,3,6));
   add('privacy',shield+s('M5 8l2 2 4-4'),'teal');
-  // A relay with two separate endpoints; no pill outline.
-  add('proxy',r(1,5,3,6)+s('M4 8h2M10 8h2')+s('M7 3h2v10H7Z')+r(12,4,3,8),'blue',
-    s('M1.5 5.5h2v5h-2ZM7 3h2v10H7ZM12.5 4.5h2v7h-2Z',1)+s('M4 8h2M10 8h2',1.5));
+  // Client -> relay -> server: two small nodes linked through a larger hollow relay.
+  add('proxy',H.px(0,4,['.....######','.....######','.###.##..##.###','.######..######','.###.##..##.###','.....######','.....######']),'blue');
   add('disk',s('M2 3h12v10H2Z')+r(4,5,8,2)+r(4,10,3,1)+r(11,10,1,1),'amber');
   add('notifications',even('M7 1h2v2a4 4 0 0 1 3 4v4l2 2H2l2-2V7a4 4 0 0 1 3-4Z M6 7v5h4V7a2 2 0 0 0-4 0Z')+r(6,14,4,1),'amber');
   add('power',s('M4 4a5 5 0 1 0 8 0')+r(7,1,2,7),'red');
-  add('dht',s('M4 3h8M3 4v8M4 13h8M13 4v8')+r(1,1,4,4)+r(11,1,4,4)+r(1,11,4,4)+r(11,11,4,4),'blue');
+  // A ring of six nodes joined by 1 px links; no frame.
+  add('dht',H.px(0,0,['','.......##','.......##','.....#....#','.##.#......#.##','.###........###','..#..........#','..#..........#','..#..........#','..#..........#','.###........###','.##.#......#.##','.....#....#','.......##','.......##']),'blue');
   add('upload',H.up,'blue');
   add('download',H.down,'teal');
   add('lock',s('M3 7h10v7H3ZM5 7V5a3 3 0 0 1 6 0v2')+r(7,9,2,3),'teal');
@@ -95,14 +97,13 @@ module.exports = (H) => {
   add('desktop-integration',s('M2 2h12v9H2ZM8 11v3M5 14h6'),'blue');
   add('authentication',o(5,6,3)+s('M8 6h7M13 6v3M10 6v2'),'amber');
   add('random-port',s('M2 2h12v12H2Z')+r(4,4,2,2)+r(10,4,2,2)+r(7,7,2,2)+r(4,10,2,2)+r(10,10,2,2),'blue');
-  add('reload-ip-filter',compactShield+reload,'teal',
-    s('M5 2l3 1v3c0 2-1 3-3 5-2-2-3-3-3-5V3Z',1.5)+reload);
+  add('reload-ip-filter',H.px(0,0,['','...####','.########','.##....##','.##....##','.##....##','.##....##','..##..##','...####','....##'])+H.refreshBadge,'teal');
   add('more',r(2,7,2,2)+r(7,7,2,2)+r(12,7,2,2));
-  add('reset-columns',s('M2 2h6v7H2ZM5 2v7')+reload,'neutral',
-    s('M2 2h6v7H2ZM5 2v7',1.5)+reload);
+  // A table (header bar, three columns) above the shared refresh badge.
+  add('reset-columns',H.px(0,1,['.#############','.#############','.#...#...#...#','.#...#...#...#','.#...#...#...#','.#############'])+H.refreshBadge,'neutral');
   add('logout',s('M7 2H2v12h5')+p('M10 3l5 5-5 5v-4H5V7h5Z'),'red');
-  add('association',s('M2 2h3l2 2v6H2ZM5 2v3h2')+s('M10.5 9.5l1-1a1.5 1.5 0 0 1 2 2l-1 1M11.5 12.5l-1 1a1.5 1.5 0 0 1-2-2l1-1M9.5 11.5l2-2',1.5),'teal',
-    s('M2 2h3l2 2v6H2ZM5 2v3h2',1.5)+s('M10.5 9.5l1-1a1.5 1.5 0 0 1 2 2l-1 1M11.5 12.5l-1 1a1.5 1.5 0 0 1-2-2l1-1M9.5 11.5l2-2',1.5));
+  // A page carrying the app's P mark: "files of this type open in PaTorrent".
+  add('association',H.px(0,1,['..########','..#########','..##......##','..##.####..##','..##.##.##.##','..##.##.##.##','..##.####..##','..##.##....##','..##.##....##','..##.##....##','..##.......##','..###########','..###########']),'teal');
   add('tray',s('M2 10v4h12v-4')+p('M7 1h2v6h3l-4 4-4-4h3Z'),'teal');
   return result;
 };

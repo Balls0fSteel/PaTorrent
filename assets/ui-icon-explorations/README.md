@@ -1,4 +1,4 @@
-# PaTorrent bold UI artwork — revision 3
+# PaTorrent bold UI artwork — revision 4
 
 Open [review.html](review.html) to inspect the **131-symbol bold set** at native 16/20/24/32/48/64 px. The gallery supports light/dark artwork, monochrome proofs, UI-area/search filters and shortlist export. The larger inspection image uses the separately fitted 48 px SVG. SVG downloads match the selected size.
 
@@ -10,7 +10,20 @@ Open [review.html](review.html) to inspect the **131-symbol bold set** at native
 - Compound symbols keep a complete base beside their modifier, with transparent space between them. Forced transfers use lightning, stalled transfers use an exclamation mark. Metadata states share the same page/down-arrow base.
 - Colour describes operational state: downloads/metadata teal, seeding blue, checking/queueing/paused amber, stopped/inactive grey, errors red. Completion is a check shape; it never recolours paused or stopped variants.
 - About is a flat symbolic rendition of the currently selected Verdigris medallion and P/down-arrow. The existing app/window/tray/packaging brand remains selected; the twelve earlier app concepts are a historical discussion sheet.
-- `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. Offline uses an intact plug plus a cross.
+- `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. The network trio shares one base, an arrow entering an open port (D28), with check, ! and × badges.
+
+## Revision 4 (2026-10-26)
+
+The 18 symbols failed by the [revision 3 review](review-2026-10-26/revision3/REPORT.md) were redrawn from its [brief](review-2026-10-26/revision3/REGENERATION-BRIEF.md). They are pixel art on the 16 px grid (`H.px` in `common.cjs`), emitted as absolute-coordinate paths so 20/24 px rounding never opens gaps between rows.
+
+- **Network** (ok, no-incoming, offline): an arrow whose head sits in the mouth of a ring open on its left. The head stops in the mouth rather than at the centre: a head inside the 4 px hole merged with the ring.
+- **Trackers:** one radio tower with no top dot. The Trackers tab has two arcs a side; the four states use a compact tower with one arc a side and ✓, ↻, × or … badges. Reannounce = tracker-updating.
+- **Refresh badge** (`H.refreshBadge`, used by four icons): an open ring with a solid ◥ arrowhead in the 6 × 7 corner. A 2 px stroke filled the ring into a "C" or "₵" at this size, so the ring is 1 px with doubled corners, like the full-size refresh action.
+- Allocating is a drive filled to half its height; proxy is node–hollow relay–node; DHT is a ring of six nodes; logger is a ">_" terminal; inactive is the pulse flattened to one bump; reset-columns is a three-column table; reload-ip-filter keeps a shield.
+- **Add URL** is a horseshoe magnet tilted 45° with split pole caps. Upright, the split caps read as "Ü" or a face.
+- Association is a page with the P mark; all-torrents is a 2 × 2 grid of tiles. Pieces became a piece map (solid and hollow cells), because its old 3 + 1 tile drawing would have matched the new all-torrents.
+- The download and upload limits are an arrow plus a speed gauge.
+- Known limitation: the pixel-art symbols are blocky at 48/64 px. They keep the 16 px metaphor; dedicated large drawings can follow if those sizes ship.
 
 ## Files
 
@@ -54,7 +67,7 @@ The ZIP is written to `dist/artwork/patorrent-bold-revision3.zip` from the repos
 
 ## Intentional reuse
 
-Only these pairs may have identical monochrome masks: upload/seeding, download/downloading, pause/paused-incomplete, stop/stopped-incomplete, recheck/checking-files, completed/tracker-working, filter/RSS-filters, and reannounce/tracker-updating. Queue controls, limits, sort, network/statistics, tracker-error/Close, RSS-items/queueing/properties, and Folder/Open Folder have distinct drawings.
+Only these pairs may have identical monochrome masks: upload/seeding, download/downloading, pause/paused-incomplete, stop/stopped-incomplete, recheck/checking-files, filter/RSS-filters, and reannounce/tracker-updating (both tower + refresh). Completed/tracker-working left the list in revision 4: tracker-working now has the tower base. Queue controls, limits, sort, network/statistics, tracker-error/Close, RSS-items/queueing/properties, and Folder/Open Folder have distinct drawings.
 
 ## Integration handoff
 

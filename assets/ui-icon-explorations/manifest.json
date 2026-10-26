@@ -22,7 +22,7 @@
       "group": "Actions",
       "color": "teal",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "create-torrent",
@@ -278,7 +278,7 @@
       "group": "Details",
       "color": "purple",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "peers",
@@ -422,7 +422,7 @@
       "group": "Settings",
       "color": "blue",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "disk",
@@ -454,7 +454,7 @@
       "group": "Network",
       "color": "teal",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "network-no-incoming",
@@ -462,7 +462,7 @@
       "group": "Network",
       "color": "amber",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "offline",
@@ -470,7 +470,7 @@
       "group": "Network",
       "color": "neutral",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "dht",
@@ -534,7 +534,7 @@
       "group": "Trackers",
       "color": "red",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "tracker-not-contacted",
@@ -542,7 +542,7 @@
       "group": "Trackers",
       "color": "neutral",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "downloading",
@@ -718,7 +718,7 @@
       "group": "Torrent states",
       "color": "amber",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "wanted-complete",
@@ -934,7 +934,7 @@
       "group": "Settings",
       "color": "teal",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "download-limit",
@@ -1030,7 +1030,7 @@
       "group": "Utility",
       "color": "neutral",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "logout",
@@ -1046,7 +1046,7 @@
       "group": "Brand",
       "color": "teal",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "tray",
@@ -1090,10 +1090,6 @@
     [
       "recheck",
       "checking-files"
-    ],
-    [
-      "completed",
-      "tracker-working"
     ],
     [
       "filter",

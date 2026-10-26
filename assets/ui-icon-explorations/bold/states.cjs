@@ -16,15 +16,29 @@ module.exports = (H) => {
   const smallUp = p('M11 15h2v-4h2l-3-4-3 4h2Z');
   const miniVerify = o(11,10,2)+s('M12 12l2 2');
   const miniClock = o(11.5,11.5,2.5,1)+s('M11.5 9.5v2h2',1);
-  const server = even('M1 2H8V12H1Z M3 4v1h3V4Z M3 7v1h3V7Z M3 10v1h3v-1Z');
   const metadata = even('M1 1h4l3 3v8H1Z M3 3v7h3V5H4V3Z');
   const metadataLarge = even('M1 1h4l3 3v8H1Z M2.5 2.5v8h4V4.5h-2V2.5Z')+r(3.5,6,2,1)+r(3.5,8,2,1);
   const metadataDown = p('M11 8h2v3h2l-3 4-3-4h2Z');
   const metadataBolt = p('M12 1l-3 4h3l-2 2 5-4h-3l2-2Z');
   const floppy = even('M1 2h6l1 1v8H1Z M3 2v3h3V2Z M3 8v1h3V8Z');
-  const plug = even('M2 4h6v5l-2 2v2H4v-2L2 9Z M4 6v2h2V6Z')+r(2,1,2,3)+r(6,1,2,3)+r(4,13,2,2);
-  const incoming = p('M10 10l2 2 2-3 1 1-3 5-4-4Z');
-  const waiting = r(11,8,2,4)+r(11,14,2,1);
+  // Revision 4 (D28): an arrow entering a port. The ring's left side is open and
+  // the arrowhead sits in that mouth, so it cannot read as a target or "no entry".
+  const port = H.px(0,0,[
+    '................',
+    '........####',
+    '....#..######',
+    '....##......##',
+    '.######.....##',
+    '.######.....##',
+    '....##......##',
+    '....#..######',
+    '........####']);
+  // Pixel badges in the bottom-right corner, each clear of its base by 1 px.
+  const okBadge = H.px(9,9,['.....#','....##','#..##.','####..','.##...']);
+  const bangBadge = H.px(13,9,['##','##','##','##','..','##']);
+  const crossBadge = H.px(9,9,['##..##','.####.','..##..','..##..','.####.','##..##']);
+  const smallCross = H.px(10,10,['##.##','.###.','..#..','.###.','##.##']);
+  const moreBadge = H.px(7,13,['##.##.##','##.##.##']);
   const person = c(4,4,2)+p('M1 14V10a3 3 0 0 1 6 0v4Z');
   const folder = even('M1 1h4l2 2h3v5H1Z M3 5v1h5V5Z');
   const error = even('M5 1h6l4 4v6l-4 4H5l-4-4V5Z M5.8 3 3 5.8v4.4L5.8 13h4.4l2.8-2.8V5.8L10.2 3Z')+s('M5 5l6 6m0-6-6 6');
@@ -61,23 +75,33 @@ module.exports = (H) => {
     'stalled-download': {small:leftDown+attention, color:'amber'},
     'stalled-seed': {small:leftUp+attention, color:'amber'},
     'no-peers': {small:person+s('M10 3l4 4m0-4-4 4'), large:person+s('M10 3l4 4m0-4-4 4'), color:'neutral'},
+    // A drive outline filled to about half its height: space being reserved.
     allocating: {
-      small:even('M2 3h12v10H2Z M4 5v6h8V5Z')+r(4,8,3,3)+r(10,8,2,2),
-      large:even('M2 3h12v10H2Z M3.5 4.5v7h9v-7Z')+r(4,8,3,3)+r(9,8,1,2)+r(11,8,1,2),
+      small:H.px(0,0,[
+        '................',
+        '................',
+        '................',
+        '.##############',
+        '.##############',
+        '.##..........##',
+        '.##..........##',
+        '.##..........##',
+        '.##.########.##',
+        '.##.########.##',
+        '.##.########.##',
+        '.##############',
+        '.##############']),
       color:'amber'
     },
     'wanted-complete': {small:folder+badgeCheck, large:folder+badgeCheck, color:'teal'},
-    'tracker-working': {small:H.check, color:'teal'},
-    'tracker-updating': {small:H.announce, color:'blue'},
-    'tracker-error': {small:server+s('M10 10l4 4m0-4-4 4'), large:server+s('M10 10l4 4m0-4-4 4'), color:'red'},
-    'tracker-not-contacted': {small:even('M1 2h7v10H1Z M2 3v8h5V3Z')+o(12,12,2), large:even('M1 2h7v10H1Z M2.5 3.5v7h4V3.5Z')+o(12,12,2,1.5), color:'neutral'},
-    'network-ok': {small:plug+incoming, large:plug+incoming, color:'teal'},
-    'network-no-incoming': {small:plug+waiting, large:plug+r(11,8,2,4)+r(11,14,2,1), color:'amber'},
-    offline: {
-      // Same intact plug as the observed-connectivity states, with a clear cross.
-      small:plug+s('M10 8l4 4m0-4-4 4'),
-      large:plug+s('M10 8l4 4m0-4-4 4'),
-      color:'neutral'
-    }
+    // One tower base for all four tracker states; only the badge changes.
+    'tracker-working': {small:H.tower+okBadge, color:'teal'},
+    'tracker-updating': {small:H.reannounce, color:'blue'},
+    'tracker-error': {small:H.tower+crossBadge, color:'red'},
+    'tracker-not-contacted': {small:H.tower+moreBadge, color:'neutral'},
+    'network-ok': {small:port+okBadge, color:'teal'},
+    // "No incoming connection seen yet" is a caution, not a fault: same base, "!".
+    'network-no-incoming': {small:port+bangBadge, color:'amber'},
+    offline: {small:port+smallCross, color:'neutral'}
   };
 };

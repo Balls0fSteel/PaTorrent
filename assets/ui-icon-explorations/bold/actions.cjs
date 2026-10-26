@@ -17,12 +17,12 @@ module.exports = H => {
  const rss=c(2,8,1)+s('M2 5a3 3 0 0 1 3 3M2 2a6 6 0 0 1 6 6');
  const rssLarge=c(2,8,1)+s('M2 5a3 3 0 0 1 3 3M2 2a6 6 0 0 1 6 6',1.5);
  const bolt=p('M13 1l-3 7h2l-1 7 4-9h-3Z');
+ const gauge=H.px(8,9,['..###..','.##.##.','##...##','#...#.#','#..#..#','#.##..#']);
  return {
   'add-torrent':{small:page+plus,large:pageLarge+plus,color:'teal'},
   'add-url':{
-   // An open U magnet remains readable at 16 px; the plus is detached.
-   small:p('M1 2h2v5a2 2 0 0 0 4 0V2h2v5a4 4 0 0 1-8 0Z')+r(1,1,2,2)+r(7,1,2,2)+plus,
-   large:p('M1 2h2v5a2 2 0 0 0 4 0V2h2v5a4 4 0 0 1-8 0Z')+r(1,1,2,2)+r(7,1,2,2)+plus,color:'teal'},
+   // Horseshoe magnet tilted 45 degrees, pole caps split off by a 1 px gap: not a letter U.
+   small:H.px(0,0,['................','.......###','......###','...........#','....###...##','...###....##','..###...#.#','.###...##','.###..###','.#######','..#####','...###'])+plus,color:'teal'},
   'create-torrent':{small:page+p('M9 12l4-4 2 2-4 4-3 1Z'),large:pageLarge+p('M9 12l4-4 2 2-4 4-3 1Z'),color:'teal'},
   remove:{small:trash,color:'red'},
   'delete-data':{small:miniTrash+s('M10 10l4 4m0-4-4 4'),large:miniTrash+s('M10 10l4 4m0-4-4 4'),color:'red'},
@@ -35,15 +35,16 @@ module.exports = H => {
   'queue-top':{small:list+upChevron+r(8,2,7,2),color:'blue'},
   'queue-bottom':{small:list+downChevron+r(8,12,7,2),color:'blue'},
   recheck:{small:H.verify,color:'amber'},
-  reannounce:{small:H.announce,color:'blue'},
+  reannounce:{small:H.reannounce,color:'blue'},
   'open-folder':{small:s('M2 10V3h4l2 2h5v2')+even('M4 7h11l-3 7H1Z M5 9l-1 3h6l1-3Z'),large:s('M2 10V3h4l2 2h5v2',1.5)+even('M4 7h11l-3 7H1Z M5 9l-1 3h6l1-3Z'),color:'amber'},
   'set-location':{small:folder+p('M8 11h4V9l3 3-3 3v-2H8Z'),large:folder+p('M8 11h4V9l3 3-3 3v-2H8Z'),color:'blue'},
   properties:{small:even('M2 1h8l3 3v11H2Z M4 3v10h7V5H9V3Z')+r(5,6,5,1)+r(5,10,5,1)+r(6,5,1,3)+r(8,9,1,3),large:even('M2 1h8l3 3v11H2Z M3.5 2.5v11h8v-9h-2v-2Z')+r(5,6,5,1)+r(5,10,5,1)+r(6,5,1,3)+r(8,9,1,3),color:'blue'},
   copy:{small:p('M1 11V1h10v2H3v8Z')+even('M5 5h10v10H5Z M7 7v6h6V7Z'),color:'blue'},
   save:{small:even('M1 1h11l3 3v11H1Z M4 1v5h6V1Z M4 9v4h8V9Z')+r(8,2,1,3),large:even('M1 1h11l3 3v11H1Z M4 1v5h6V1Z M4 9v4h8V9Z')+r(8,2,1,3)+r(6,10,4,1),color:'blue'},
   refresh:{small:s('M13 5a5 5 0 1 0 0 6')+p('M10 1h5v5Z'),color:'teal'},
-  'download-limit':{small:p('M7 1h2v6h4l-5 5-5-5h4Z')+r(3,14,10,1),color:'teal'},
-  'upload-limit':{small:r(3,1,10,1)+p('M7 15V9H3l5-5 5 5H9v6Z'),color:'blue'},
+  // Transfer arrow plus a speed gauge (half dial and needle); not a tray or floor line.
+  'download-limit':{small:H.px(0,0,['................','...##','...##','...##','...##','...##','.######','..####','...##'])+gauge,color:'teal'},
+  'upload-limit':{small:H.px(0,0,['................','...##','..####','.######','...##','...##','...##','...##','...##'])+gauge,color:'blue'},
   unlimited:{small:s('M8 8C5 2 2 3 2 8s3 6 6 0c3-6 6-5 6 0s-3 6-6 0'),color:'blue'},
   'initial-seeding':{small:p('M7 10V7H3l5-5 5 5H9v3Z')+c(3,13,1)+c(8,13,1)+c(13,13,1),large:p('M7 10V7H3l5-5 5 5H9v3Z')+c(3,13,1)+c(8,13,1)+c(13,13,1),color:'blue'},
   'new-label':{small:tag+plus,large:tag+plus,color:'purple'},

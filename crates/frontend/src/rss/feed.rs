@@ -569,14 +569,16 @@ fn parse_rfc822(s: &str) -> Option<i64> {
     if parts.peek().is_some_and(|p| p.bytes().all(|c| c.is_ascii_alphabetic())) {
         parts.next();
     }
-    let d: i64 = parts.next()?.parse().ok()?;
+    // unsigned: a signed field (`12:-5:00`) is not a time, and a negative minute multiplied
+    // below overflowed (fuzz target rss, 2026-10-26)
+    let d = i64::from(parts.next()?.parse::<u32>().ok()?);
     let mon = parts.next()?;
     let mo = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
         .iter()
         .position(|m| mon.get(..3).is_some_and(|p| p.eq_ignore_ascii_case(m)))? as i64
         + 1;
     let ys = parts.next()?;
-    let mut y: i64 = ys.parse().ok()?;
+    let mut y = i64::from(ys.parse::<u32>().ok()?);
     if ys.len() <= 2 {
         y += if y < 50 { 2000 } else { 1900 };
     }
@@ -584,10 +586,10 @@ fn parse_rfc822(s: &str) -> Option<i64> {
     let mut zone = 0;
     if let Some(time) = parts.next() {
         let mut hms = time.split(':');
-        let h: i64 = hms.next()?.parse().ok()?;
-        let mi: i64 = hms.next()?.parse().ok()?;
-        let sec: i64 = match hms.next() {
-            Some(x) => x.parse().ok()?,
+        let h = i64::from(hms.next()?.parse::<u8>().ok()?);
+        let mi = i64::from(hms.next()?.parse::<u8>().ok()?);
+        let sec = match hms.next() {
+            Some(x) => i64::from(x.parse::<u8>().ok()?),
             None => 0,
         };
         if h > 23 || mi > 59 || sec > 60 {
@@ -839,6 +841,11 @@ mod tests {
             ("Mon, 32 Oct 2026 06:35:37 +0000", None),
             ("Mon, 19 Foo 2026 06:35:37 +0000", None),
             ("Mon, 19 Oct 2026 06:xx:37", None),
+            // signed fields: the minute's multiply overflowed (fuzz crash, 2026-10-26)
+            ("080 sep 66 0:-002074284530519326355:9:-", None),
+            ("1 Jan 2026 12:-5:00", None),
+            ("-1 Jan 2026 12:00:00", None),
+            ("1 Jan -2026 12:00:00", None),
             ("yesterday", None),
             ("", None),
             ("2026-1", None),

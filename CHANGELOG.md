@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_215725_1793051845: RSS date parser: signed fields overflowed (fuzz crash)
+
+- Fuzz run 40404037267 (and the scheduled run 40296131012 that morning) crashed the `rss` target: `parse_rfc822` parsed the day, year and time fields as `i64`, so `0:-002074284530519326355:9` passed the `mi > 59` check and `mi * 60` overflowed (`crates/frontend/src/rss/feed.rs`). The fields are now unsigned (`u32` day and year, `u8` time), so a signed field is no date. A release build wrapped instead of panicking, so the shipped binaries were never crashable by a feed; the fuzz build has overflow checks.
+- Four regression cases in `feed::tests::dates`; the frontend RSS tests, clippy and rustfmt pass. `fuzz/Cargo.lock` now names the workspace crates at 1.0.0-rc.1.
+- CI run 40404037237 and FreeBSD 40404037325 on the release commit `9581087b` were green; the other 24 fuzz targets passed.
+
 ## 2026-10-26_212009_1793049609: Release candidate 1.0.0-rc.1: version, notes, README and the tagged release path
 
 - Version `1.0.0-rc.1` (Road to 1.0 item 14): `Cargo.toml`, `Cargo.lock`, peer ID `-PA1000-` (a pre-release carries the version it leads to; the test now strips the suffix), the Windows manifest `1.0.0.0` and the Flatpak metainfo's first `<release>`. `cargo metadata --locked` and the core version tests pass.

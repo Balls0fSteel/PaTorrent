@@ -4,6 +4,21 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_145432_1793022872: Independent review of revision 6 UI icons: all 131 pass
+
+- An independent reviewer checked commit `abd81380` with the revision 5 method. It added lookalike, 20 px and letter-test sheets. The geometry audit reproduced byte for byte, and the other 122 icons are byte-identical to revision 5.
+- **All 131 symbols pass**, including the 24 shipped runtime icons and 11 toolbar icons. The set is ready for integration.
+  - The globe reads as a globe, not a crosshair or eye.
+  - The pylon reads as a broadcast mast, not a figure or an "A".
+  - The Trackers tab and the states read as one family.
+  - Every badge keeps its gap, and nothing comes closer than IoU 0.45 outside its family.
+- Optional notes:
+  - 20 px rounding thickens the globe and pylon; hand-drawn 20 px versions would help if 20 px ships.
+  - At 48/64 px the upscaled globe can look like a waffle.
+  - The tracker arcs could widen past x 8.
+  - web-ui's globe is a different drawing.
+- The review corrected the artist's evidence: the `qa/revision6` comparison sheets used revision 5's ID list. They are replaced with the review's sheets, and QA.md is corrected. Report: `assets/ui-icon-explorations/review-2026-10-26/revision6/`.
+
 ## 2026-10-26_143727_1793021847: Revision 6 UI icons per D30: globe network base, arcs-above pylon
 
 - The owner chose option (a) for trackers and confirmed the globe fallback (D30):

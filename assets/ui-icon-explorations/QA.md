@@ -8,8 +8,10 @@
   - a mast neck that made a figure;
   - a tall mast that read as "I", and lattice versions that read as "A" or a house.
 - The build, geometry check and proof pages pass, with zero overflow, margin failures and unexpected identical masks. Near matches are unchanged (metadata 0.88, limits 0.93), and median partial alpha is still 22.7 %.
-- The revision 5 review scripts were rerun: `review-sheets.py`, `shipped-sizes.py`, `compare-sheets.py` against `16b14bf`, and `native-strip.py`. Evidence is in [qa/revision6](qa/revision6/). At 20 px the globe and pylon edges are uneven by 1 px (×1.25), as accepted before.
-- Not done: an independent review of revision 6.
+- The revision 5 review scripts were rerun: `review-sheets.py`, `shipped-sizes.py`, `compare-sheets.py` against `16b14bf`, and `native-strip.py`. Evidence is in [qa/revision6](qa/revision6/). Only the family and native sheets were kept, and the rejected candidates were not saved.
+- Correction (from the review): the first `compare-01/02.png` here used revision 5's changed-ID list and labels, so they showed 5 unchanged icons and left out the Trackers tab. They are now replaced by the review's corrected sheets.
+- At 20 px, ×1.25 rounding does more than shift edges by 1 px. The globe gets 2-row caps and equator and one 2 px side; the pylon's top arc thickens and its legs differ by 1 px. Both still read the same. Hand-drawn 20 px versions are optional.
+- Independent review: [revision 6 report](review-2026-10-26/revision6/REPORT.md). **All 131 pass**, including the 24 runtime and 11 toolbar icons; the set is ready for integration.
 
 ## Revision 5 (2026-10-26)
 

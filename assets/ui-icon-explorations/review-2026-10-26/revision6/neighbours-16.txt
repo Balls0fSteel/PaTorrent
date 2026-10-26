@@ -1,0 +1,36 @@
+# 16 px: top 3 mask neighbours (IoU) of each changed icon
+ 56 network-ok               network-no-incoming(57) 0.80  offline(58) 0.80  recheck(14) 0.40
+ 57 network-no-incoming      network-ok(56) 0.80  offline(58) 0.80  recheck(14) 0.41
+ 58 offline                  network-ok(56) 0.80  network-no-incoming(57) 0.80  recheck(14) 0.44
+ 34 trackers                 upload-limit(118) 0.39  download-limit(117) 0.37  error(85) 0.36
+ 64 tracker-working          tracker-updating(65) 0.80  reannounce(15) 0.80  tracker-error(66) 0.79
+ 65 tracker-updating         reannounce(15) 1.00  tracker-working(64) 0.80  tracker-error(66) 0.74
+ 66 tracker-error            tracker-working(64) 0.79  tracker-not-contacted(67) 0.75  tracker-updating(65) 0.74
+ 67 tracker-not-contacted    tracker-working(64) 0.79  tracker-error(66) 0.75  tracker-updating(65) 0.73
+ 15 reannounce               tracker-updating(65) 1.00  tracker-working(64) 0.80  tracker-error(66) 0.74
+
+# pairs >= 0.70 involving a changed icon
+network-ok(56) ~ network-no-incoming(57) 0.803
+network-ok(56) ~ offline(58) 0.800
+network-no-incoming(57) ~ offline(58) 0.797
+tracker-working(64) ~ reannounce(15) 0.800
+tracker-working(64) ~ tracker-updating(65) 0.800
+tracker-working(64) ~ tracker-error(66) 0.787
+tracker-working(64) ~ tracker-not-contacted(67) 0.786
+tracker-updating(65) ~ reannounce(15) 1.000
+tracker-updating(65) ~ tracker-error(66) 0.738
+tracker-updating(65) ~ tracker-not-contacted(67) 0.733
+tracker-error(66) ~ reannounce(15) 0.738
+tracker-error(66) ~ tracker-not-contacted(67) 0.750
+tracker-not-contacted(67) ~ reannounce(15) 0.733
+
+# 16 px badge/base clearance (Chebyshev distance; 2 = one clear pixel)
+network-ok               components=2 badge_px=10 min_gap=3
+network-no-incoming      components=3 badge_px=8 min_gap=3
+offline                  components=2 badge_px=15 min_gap=2
+trackers                 components=3 (no separate badge)
+tracker-working          components=4 badge_px=10 min_gap=2
+tracker-updating         components=4 badge_px=14 min_gap=2
+tracker-error            components=4 badge_px=15 min_gap=2
+tracker-not-contacted    components=6 badge_px=6 min_gap=2
+reannounce               components=4 badge_px=14 min_gap=2

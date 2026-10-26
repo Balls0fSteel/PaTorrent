@@ -1,5 +1,5 @@
-//! The Windows icons, at the window's DPI: the toolbar images from the shared drawings in
-//! `patorrent_frontend::icons`, the application icon from the executable's icon resource
+//! The Windows icons, at the window's DPI: the toolbar images from the artwork PNGs
+//! `patorrent_frontend::icons` embeds (decoded there, for the disabled copies), the application icon from the executable's icon resource
 //! (`build.rs` embeds the PatinaTorrent `.ico`), and the PatinaTorrent state icons from the
 //! PNGs the frontend embeds (Windows decodes PNG icon images itself).
 

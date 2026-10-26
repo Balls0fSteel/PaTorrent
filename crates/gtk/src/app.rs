@@ -23,7 +23,7 @@ use patorrent_core::{
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{Detail, PRIORITIES, Tab};
-use patorrent_frontend::icons::network_icon;
+use patorrent_frontend::icons::{Icon, network_icon};
 use patorrent_frontend::integration::{Integration, MINIMIZED};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
@@ -622,24 +622,25 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     toolbar.add_css_class("toolbar");
     for item in [
-        Some(("document-open", "win.add", tr!(ToolAddTorrent))),
-        Some(("insert-link", "win.add-url", tr!(ToolAddUrl))),
-        Some(("document-new", "win.create", tr!(ToolCreate))),
+        Some((Icon::AddTorrent, "win.add", tr!(ToolAddTorrent))),
+        Some((Icon::AddUrl, "win.add-url", tr!(ToolAddUrl))),
+        Some((Icon::Create, "win.create", tr!(ToolCreate))),
         None,
-        Some(("edit-delete", "win.remove", tr!(ToolRemove))),
+        Some((Icon::Remove, "win.remove", tr!(ToolRemove))),
         None,
-        Some(("media-playback-start", "win.start", tr!(ToolStart))),
-        Some(("media-playback-pause", "win.pause", tr!(ToolPause))),
-        Some(("media-playback-stop", "win.stop", tr!(ToolStop))),
+        Some((Icon::Start, "win.start", tr!(ToolStart))),
+        Some((Icon::Pause, "win.pause", tr!(ToolPause))),
+        Some((Icon::Stop, "win.stop", tr!(ToolStop))),
         None,
-        Some(("go-up", "win.queue-up", tr!(ToolQueueUp))),
-        Some(("go-down", "win.queue-down", tr!(ToolQueueDown))),
+        Some((Icon::Up, "win.queue-up", tr!(ToolQueueUp))),
+        Some((Icon::Down, "win.queue-down", tr!(ToolQueueDown))),
         None,
-        Some(("application-rss+xml", "win.rss", tr!(ToolRss))),
+        Some((Icon::Rss, "win.rss", tr!(ToolRss))),
     ] {
         match item {
             Some((icon, action, tip)) => {
-                let b = gtk::Button::from_icon_name(icon);
+                let b = gtk::Button::new();
+                b.set_child(Some(&crate::icons::toolbar_image(icon)));
                 b.set_action_name(Some(action));
                 b.set_tooltip_text(Some(tip));
                 b.add_css_class("flat");

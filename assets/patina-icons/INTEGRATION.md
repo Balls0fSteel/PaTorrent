@@ -15,17 +15,19 @@ differs from `app-icon.txt`.
 | `exports/app/<family>/{16,20,24,32,48,64,128,256}.png` | GTK `patorrent-gtk`, nox's Web UI | Embedded by `crates/frontend/src/icons.rs` (`app_png`). GTK writes them as an icon theme (`hicolor/<n>x<n>/apps/io.github.balls0fsteel.PaTorrent.png`) to `$XDG_CACHE_HOME/patorrent/icons` at startup for the window icon, the About box and the tray's `IconThemePath`, and to `$XDG_DATA_HOME/icons/hicolor` when desktop integration writes the `.desktop` entries; 16 to 64 px are also the tray's `IconPixmap`. The Web UI serves the 32 px one as `/favicon.png`. |
 | `exports/app/<family>/256.png` | AppImages | `$APP_ICON_DIR/256.png` in `.github/workflows/release.yml`'s Linux job, `APP_ICON_DIR` set from `app-icon.txt` in a step. |
 | `exports/app/<family>/` | the macOS `.app` bundles, the Flatpak | `APP_ICON_DIR` in the workflow's macOS job (set from `app-icon.txt`); `ICON_DIR` in `packaging/flatpak/io.github.balls0fsteel.PaTorrent.yml`, checked against `app-icon.txt` by the `flatpak` job. |
-| `exports/states/{16,20,24,32}/<state>.png` | both GUIs | Embedded by `crates/frontend/src/icons.rs` (`StateIcon`). Win32: the torrent list's Name column, the Trackers tab and the status bar's network indicator, at the size for the window's DPI (16 px at 100 %, 20 at 125 %, 24 at 150 %, 32 at 200 %). GTK: the Name column, the Trackers tab and the status bar, the 32 px export drawn at 16 logical pixels. |
+| `exports/states/` (historical) | nothing since 2026-10-26 | Replaced by the bold artwork: `assets/ui-icon-explorations/png{,-dark}/bold/{16,20,24,32}/<state>.png`, embedded by `crates/frontend/src/icons.rs` (`StateIcon`). Win32: the torrent list's Name column, the Trackers tab and the status bar's network indicator, at the size for the window's DPI (16 px at 100 %, 20 at 125 %, 24 at 150 %, 32 at 200 %). GTK: the Name column, the Trackers tab and the status bar, the 32 px export drawn at 16 logical pixels. |
 
 Which state icon a torrent shows is `status::status_icon` (`crates/frontend/src/status.rs`),
 which follows the branches of the status text and `states/manifest.json`; trackers and the
 network indicator are `icons::tracker_icon` and `icons::network_icon`. The four optional states
 (stalled download, idle seed, no peers, allocating), `wanted-complete` and `overlay-force` are not
-used. The toolbar images stay the runtime-drawn ones (`icons::toolbar_bgra`); the GTK toolbar
-uses the desktop's theme icons.
+used. The toolbar images are the bold artwork's too (`icons::Icon`, 16 to 48 px): Win32 gets
+them as pixels from `icons::toolbar_bgra`, which decodes the embedded PNG (a small reader for
+8-bit RGBA PNGs on core's inflater) for its normal and greyed image lists; GTK shows the 32 px
+export at 16 logical pixels. GTK uses the dark-palette exports while its theme is dark.
 
-No image decoder is involved: Windows reads the PNGs as icon images
-(`CreateIconFromResourceEx`), GTK as textures (`gdk::Texture::from_bytes`).
+Otherwise Windows reads the PNGs as icon images (`CreateIconFromResourceEx`) and GTK as
+textures (`gdk::Texture::from_bytes`).
 
 ## Switching to another candidate
 

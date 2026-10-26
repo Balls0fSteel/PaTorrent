@@ -80,8 +80,9 @@ pub fn status_class(st: &TorrentStatus, user_paused: bool) -> &'static str {
     }
 }
 
-/// The row's PatinaTorrent state icon, with the same branches as [`status_text`]
-/// (`assets/patina-icons/states/manifest.json` gives each icon's condition). Unlike the text,
+/// The row's state icon, with the same branches as [`status_text`]
+/// (`assets/patina-icons/states/manifest.json` gives each state's condition; the artwork is
+/// the bold set's, `assets/ui-icon-explorations`). Unlike the text,
 /// the icon keeps checking files and checking resume data apart, and pausing a finished
 /// torrent apart from pausing an unfinished one. Initial seeding shows as seeding.
 pub fn status_icon(st: &TorrentStatus, user_paused: bool) -> StateIcon {

@@ -24,7 +24,7 @@ use patorrent_core::{
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{self, PRIORITIES};
-use patorrent_frontend::icons::{network_icon, tracker_icon};
+use patorrent_frontend::icons::{network_icon, toolbar_size, tracker_icon};
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
@@ -916,7 +916,9 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
         let mut lf = ncm.lfMessageFont;
         lf.lfWeight = FW_BOLD as i32;
         let bold = CreateFontIndirectW(&lf);
-        let size = scale(22, dpi) as usize;
+        // 24 scaled, down to the nearest size the artwork is exported at (24, 24, 32, 48 px
+        // at 100, 125, 150, 200 %)
+        let size = toolbar_size(scale(24, dpi).max(0) as u32) as usize;
         let images = icons::toolbar_images(size);
         let state_px = scale(16, dpi) as usize;
         let states = icons::state_images(state_px);

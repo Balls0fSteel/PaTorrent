@@ -8,15 +8,17 @@
 //!   also puts it into `$XDG_DATA_HOME/icons/hicolor` when desktop integration writes the
 //!   desktop entries (`integration`). The AppImage and the Flatpak bring their own copy.
 //! - the tray's pixmaps ([`app_pixmaps`]), for hosts that draw the item's pixels.
-//! - the state icons of the torrent list and the status bar ([`state_texture`]).
+//! - the state icons of the torrent list, the Trackers tab and the status bar
+//!   ([`state_texture`]) and the toolbar images ([`toolbar_image`]): the artwork's light
+//!   palette, or its dark one while the GTK theme is dark ([`setup`] follows the theme).
 
-use std::cell::RefCell;
+use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
-use patorrent_frontend::icons::{self, APP_SIZES, StateIcon};
+use patorrent_frontend::icons::{self, APP_SIZES, Icon, StateIcon};
 
 use crate::app::APP_ID;
 
@@ -25,6 +27,10 @@ pub const STATE_PX: i32 = 16;
 
 thread_local! {
     static TEXTURES: RefCell<HashMap<StateIcon, gdk::Texture>> = RefCell::default();
+    /// Whether the GTK theme is dark: the icons use the artwork's dark palette.
+    static DARK: Cell<bool> = const { Cell::new(false) };
+    /// The toolbar's images, to repaint when the theme turns dark or light.
+    static TOOLBAR: RefCell<Vec<(Icon, glib::WeakRef<gtk::Image>)>> = RefCell::default();
     /// The folder [`setup`] wrote the application icon into.
     static THEME_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
@@ -33,14 +39,14 @@ fn texture(png: &'static [u8]) -> Option<gdk::Texture> {
     gdk::Texture::from_bytes(&glib::Bytes::from_static(png)).ok()
 }
 
-/// A state icon, decoded once. It is the 32 px export, which GTK draws at [`STATE_PX`]
-/// logical pixels: sharp at a scale of 2.
+/// A state icon, decoded once per theme. It is the 32 px export, which GTK draws at
+/// [`STATE_PX`] logical pixels: sharp at a scale of 2.
 pub fn state_texture(icon: StateIcon) -> Option<gdk::Texture> {
     TEXTURES.with(|t| {
         if let Some(tex) = t.borrow().get(&icon) {
             return Some(tex.clone());
         }
-        let tex = texture(icon.png(32))?;
+        let tex = texture(icon.themed_png(32, DARK.get()))?;
         t.borrow_mut().insert(icon, tex.clone());
         Some(tex)
     })
@@ -60,6 +66,44 @@ pub fn set_state(image: &gtk::Image, icon: StateIcon) {
     if shown.as_ref() != Some(&tex) {
         image.set_paintable(Some(&tex));
     }
+}
+
+/// A toolbar button's image: the 32 px export drawn at [`STATE_PX`] logical pixels, as the
+/// state icons are, in the theme's palette (kept so when the theme changes).
+pub fn toolbar_image(icon: Icon) -> gtk::Image {
+    let image = gtk::Image::new();
+    image.set_pixel_size(STATE_PX);
+    if let Some(tex) = texture(icon.png(32, DARK.get())) {
+        image.set_paintable(Some(&tex));
+    }
+    TOOLBAR.with(|t| t.borrow_mut().push((icon, image.downgrade())));
+    image
+}
+
+/// Whether `settings` describe a dark theme: one asked for (`gtk-application-prefer-dark-theme`)
+/// or one named so (`Adwaita-dark`, `Breeze-Dark`, ...).
+fn is_dark(settings: &gtk::Settings) -> bool {
+    settings.is_gtk_application_prefer_dark_theme()
+        || settings.gtk_theme_name().is_some_and(|n| n.to_lowercase().contains("dark"))
+}
+
+/// Switches the icons to the palette for `settings`' theme. State icons follow at their next
+/// redraw (the list and the status bar redraw every refresh); the toolbar's are set here.
+fn follow_theme(settings: &gtk::Settings) {
+    let dark = is_dark(settings);
+    if DARK.replace(dark) == dark {
+        return;
+    }
+    TEXTURES.with(|t| t.borrow_mut().clear());
+    TOOLBAR.with(|t| {
+        t.borrow_mut().retain(|(icon, image)| {
+            let Some(image) = image.upgrade() else { return false };
+            if let Some(tex) = texture(icon.png(32, dark)) {
+                image.set_paintable(Some(&tex));
+            }
+            true
+        })
+    });
 }
 
 /// Writes `path` unless it already holds `data`.
@@ -102,8 +146,13 @@ pub fn install_theme_icons(base: &Path, index: bool) -> Result<(), String> {
 }
 
 /// Makes the application icon findable by name on `display` and the default icon of every
-/// window. Once, at startup.
+/// window, and makes the other icons follow the display's theme (light or dark). Once, at
+/// startup.
 pub fn setup(display: &gdk::Display) {
+    let settings = gtk::Settings::for_display(display);
+    follow_theme(&settings);
+    settings.connect_gtk_theme_name_notify(follow_theme);
+    settings.connect_gtk_application_prefer_dark_theme_notify(follow_theme);
     let dir = glib::user_cache_dir().join("patorrent").join("icons");
     if let Err(e) = install_theme_icons(&dir, true) {
         eprintln!("icons: {e}");

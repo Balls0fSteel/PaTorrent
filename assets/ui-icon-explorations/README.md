@@ -91,6 +91,6 @@ Only these pairs may have identical monochrome masks: upload/seeding, download/d
 
 ## Integration handoff
 
-This change supplies artwork and review tools. The application still embeds the previous `assets/patina-icons/exports/states` images, draws the Win32 toolbar at runtime and uses GTK theme icons for toolbar actions. `manifest.json` identifies the **24 currently embedded symbols (18 torrent + four tracker + two network)** and the 11 toolbar symbols to integrate first. The report's earlier “24 state + four tracker + two network” count was incorrect.
+Integrated 2026-10-26_150634_1793023594: `crates/frontend/src/icons.rs` embeds `png{,-dark}/bold/` for the **24 runtime symbols (18 torrent + four tracker + two network)** at 16/20/24/32 px and the 11 toolbar symbols at 16/20/24/32/48 px, the lists `manifest.json` names (a test keeps them equal). Renaming, removing or resizing these exports breaks the application build. See `assets/patina-icons/INTEGRATION.md` for how each GUI uses them.
 
-After integration, hand-check Windows DPI, GTK light/dark and 32 px textures displayed at 16 logical px, and macOS Retina/menu-bar behaviour. Repository licensing applies; the handoff ZIP includes `LICENSE.md`.
+Still to hand-check: Windows DPI above 100 %, GTK light/dark and 32 px textures displayed at 16 logical px, and macOS Retina/menu-bar behaviour. Repository licensing applies; the handoff ZIP includes `LICENSE.md`.

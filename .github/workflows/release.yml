@@ -2,8 +2,9 @@ name: Release
 
 # The release files (PLAN.md Road to 1.0 items 6 and 7, D22; V2.0 goal 2): a tag `v<version>`
 # builds them and attaches them to a draft GitHub release, which the owner checks and publishes
-# (docs/RELEASING.md). Started by hand, it builds the same files as an artifact and makes no
-# release.
+# (docs/RELEASING.md). A version with a suffix (1.0.0-rc.1) is marked as a pre-release, and
+# docs/releases/<version>.md, when it exists, is the release's text. Started by hand, it builds
+# the same files as an artifact and makes no release.
 #
 # - Windows x64: a zip of patorrent.exe and patorrent-nox.exe (static CRT, D7) with LICENSE.md
 #   and THIRD-PARTY-NOTICES.md.
@@ -421,15 +422,24 @@ jobs:
     permissions:
       contents: write
     steps:
+      # the checkout is for docs/releases/<version>.md
+      - uses: actions/checkout@v7
       - uses: actions/download-artifact@v8
         with:
           merge-multiple: true
-      - run: sha256sum patorrent-* PaTorrent-* > SHA256SUMS && cat SHA256SUMS
+          path: files
+      - run: cd files && sha256sum patorrent-* PaTorrent-* > SHA256SUMS && cat SHA256SUMS
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.version.outputs.version }}
         run: |
-          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
-            --title "PaTorrent ${{ needs.version.outputs.version }}" \
-            --notes "Release notes: see CHANGELOG.md. Checksums: SHA256SUMS." \
-            patorrent-* PaTorrent-* SHA256SUMS
+          args=(--draft --title "PaTorrent $VERSION")
+          case "$VERSION" in *-*) args+=(--prerelease) ;; esac
+          if [ -f "docs/releases/$VERSION.md" ]; then
+            args+=(--notes-file "docs/releases/$VERSION.md")
+          else
+            args+=(--notes "Release notes: see CHANGELOG.md. Checksums: SHA256SUMS.")
+          fi
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "${args[@]}" \
+            files/patorrent-* files/PaTorrent-* files/SHA256SUMS

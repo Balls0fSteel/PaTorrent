@@ -64,10 +64,14 @@ one (Road to 1.0 item 10); the Flatpak and the macOS `.app` use the same one.
 
 ## Steps
 
-1. Pick the version and set it in `Cargo.toml` (`[workspace.package] version`) and in
-   `PEER_ID_PREFIX` in `crates/core/src/version.rs` (`-PA0100-` is 0.1.0; a test fails when the
-   two differ).
-2. Give it a heading in `CHANGELOG.md` with what is in it since the last release.
+1. Pick the version and set it in `Cargo.toml` (`[workspace.package] version`), in
+   `PEER_ID_PREFIX` in `crates/core/src/version.rs` (`-PA1000-` is 1.0.0; a pre-release such as
+   `1.0.0-rc.1` carries the version it leads to, and a test fails when the two differ), in the
+   Windows manifest `crates/win32/res/patorrent.exe.manifest` (`assemblyIdentity version`, four
+   numbers) and as the first `<release>` of the Flatpak metainfo ([Flatpak](#flatpak)).
+2. Give it a heading in `CHANGELOG.md` with what is in it since the last release, and write
+   `docs/releases/<version>.md`: what it is, the files, how to start each, known limitations.
+   The workflow makes that file the release's text.
 3. Check that CI is green on `main` for the commit to be released (Windows, Linux, macOS,
    FreeBSD, MSRV, fuzzing).
 4. Tag and push the tag:
@@ -75,6 +79,9 @@ one (Road to 1.0 item 10); the Flatpak and the macOS `.app` use the same one.
    ```bash
    git tag -a v1.0.0 -m "PaTorrent 1.0.0"
    ```
+
+   A pre-release's tag is its version too (`v1.0.0-rc.1`); the workflow marks the release as a
+   pre-release when the version has a `-` suffix.
 
    ```bash
    git push origin v1.0.0
@@ -84,7 +91,7 @@ one (Road to 1.0 item 10); the Flatpak and the macOS `.app` use the same one.
    builds the files above and opens a **draft** release with them. Download them, try them (the
    Windows zip on a clean machine, a tarball, the AppImages and the Flatpak on a Linux desktop;
    for macOS, the `macos-gui-start` screenshot, as nobody here has a Mac), compare
-   `SHA256SUMS`, then publish the draft on GitHub.
+   `SHA256SUMS`, then publish the draft on GitHub (`gh release edit v1.0.0 --draft=false`).
 
 A dry run without a tag: Actions > Release > Run workflow builds the same files as one
 artifact per platform, named `<version>-dev.<commit>`, and makes no release.

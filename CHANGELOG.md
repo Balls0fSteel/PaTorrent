@@ -4,6 +4,15 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_212009_1793049609: Release candidate 1.0.0-rc.1: version, notes, README and the tagged release path
+
+- Version `1.0.0-rc.1` (Road to 1.0 item 14): `Cargo.toml`, `Cargo.lock`, peer ID `-PA1000-` (a pre-release carries the version it leads to; the test now strips the suffix), the Windows manifest `1.0.0.0` and the Flatpak metainfo's first `<release>`. `cargo metadata --locked` and the core version tests pass.
+- `docs/releases/1.0.0-rc.1.md`: the release text (downloads per platform, first-run steps, what is in it, known limitations). The Release workflow now checks out the repository and uses `docs/releases/<version>.md` as the draft's notes when it exists, and marks a suffixed version as a pre-release. `docs/RELEASING.md` steps 1, 2, 4 and 5 record the manifest, the metainfo, the notes file and the pre-release tag.
+- README: the warning now describes a release candidate, the status paragraph matches the plan (GTK, v2, languages, remote mode are in), and a Download table lists the release files per platform.
+- Backlog: the Windows executables have no `VERSIONINFO` resource (Explorer shows no version); noted under Win32.
+- Not in this commit: `tools/swarm/src/interop.rs` carries an uncommitted qBittorrent-log wait for `lt-swarm interop` (uTP-only runs); it is unrelated to the release and left for its own change.
+- The tag `v1.0.0-rc.1` and the run's outcome are recorded in the next entry.
+
 ## 2026-10-26_150634_1793023594: Integrate the bold artwork: 24 state icons and the toolbar (gate 10)
 
 - Both GUIs now use the revision 6 artwork. `crates/frontend/src/icons.rs` embeds the bold PNG exports from `assets/ui-icon-explorations/png{,-dark}/bold/`:

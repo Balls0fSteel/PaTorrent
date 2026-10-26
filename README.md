@@ -1,11 +1,11 @@
 # PaTorrent
 
 > [!WARNING]
-> **Pre-alpha. Not ready for use.**
+> **Release candidate. Pre-release software.**
 >
-> PaTorrent is under heavy development. There are no releases, nothing is stable, settings and saved state may change or break between commits, and features are missing or only half tested. Do not use it for torrents you care about, and do not use it on private trackers: its client ID is not whitelisted anywhere yet.
+> PaTorrent 1.0.0-rc.1 is the first public build. It works for the author, but it has had no wider testing: settings and saved state may still change between versions, some features are only half tested, and nothing is code-signed. Do not use it for torrents you care about, and do not use it on private trackers: its client ID is not whitelisted anywhere yet.
 >
-> Feedback and bug reports are welcome; packages, release builds and support are not available yet.
+> Feedback and [bug reports](https://github.com/Balls0fSteel/PaTorrent/issues) are welcome.
 
 **PaTorrent** (long name **PatinaTorrent**) is a lean BitTorrent client in the spirit of µTorrent 2.2.1: tiny, fast, native, and comfortable with thousands of torrents. A patina is the good kind of rust.
 
@@ -17,7 +17,23 @@
   - low RAM and CPU use
   - 100,000 torrents on a modest PC, with an instant UI
 
-**Status:** pre-alpha, working toward 1.0 (see "Road to 1.0" in [PLAN.md](PLAN.md)). The engine downloads and seeds over TCP and uTP, with HTTP, HTTPS and UDP trackers, magnet links, DHT, peer exchange, local peer discovery, encryption, web seeds, proxies, UPnP / NAT-PMP and IP filters. The Win32 GUI has the µTorrent 2.2.1 main window, Preferences, the Add and Create dialogs, RSS and the scheduler; `patorrent-nox` runs headless with its own Web UI and a qBittorrent-compatible API. Not there yet: the GTK GUI, BitTorrent v2 torrents, translations, release packages. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
+**Status:** release candidate, working toward 1.0 (see "Road to 1.0" in [PLAN.md](PLAN.md)). The engine downloads and seeds over TCP and uTP, with HTTP, HTTPS and UDP trackers, magnet links, DHT, peer exchange, local peer discovery, encryption, web seeds, proxies, UPnP / NAT-PMP and IP filters. The Win32 GUI has the µTorrent 2.2.1 main window, Preferences, the Add and Create dialogs, RSS and the scheduler; `patorrent-nox` runs headless with its own Web UI and a qBittorrent-compatible API. The GTK 4 GUI runs on Linux, BSD and macOS. BitTorrent v2 and hybrid torrents, 34 languages, HTTPS and remote mode are in; what remains before 1.0 is validation on more machines. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
+
+## Download
+
+Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.0.0-rc.1](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1). Nothing to install: unpack and run. Each release has `SHA256SUMS` and notes with the first-run steps per platform.
+
+| Platform | File | What is inside |
+|---|---|---|
+| Windows 10 / 11, x64 | `patorrent-<version>-windows-x64.zip` | `patorrent.exe` (the GUI) and `patorrent-nox.exe` (the daemon); statically linked, no runtime needed |
+| Linux desktop, x86_64 or aarch64 | `PaTorrent-<version>-<arch>.AppImage` | the GTK 4 GUI with its libraries bundled (glibc 2.39 or newer: Ubuntu 24.04, Fedora 40, Debian 13) |
+| Linux desktop, Flatpak | `PaTorrent-<version>-<arch>.flatpak` | the GTK 4 GUI on the GNOME 51 runtime from Flathub |
+| Linux, plain binaries | `patorrent-<version>-linux-<arch>.tar.gz` | `patorrent-gtk`, `patorrent-nox`, the desktop entry and the systemd units; they use the system's GTK 4.12+ and OpenSSL 3 |
+| Linux server, headless | `patorrent-nox-<version>-<arch>.AppImage` | `patorrent-nox` with OpenSSL bundled |
+| macOS, Apple silicon | `PaTorrent-<version>-arm64.dmg` | `PaTorrent.app` (macOS 15 or newer; ad-hoc signed, so right-click > Open the first time) |
+| macOS, headless | `patorrent-nox-<version>-macos-<arch>.tar.gz` | `patorrent-nox` for Apple silicon and Intel |
+
+The builds are not code-signed, so Windows SmartScreen and macOS Gatekeeper warn the first time. How the files are made: [docs/RELEASING.md](docs/RELEASING.md).
 
 ## Building
 

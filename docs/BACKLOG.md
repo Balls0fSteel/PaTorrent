@@ -1,6 +1,6 @@
 # Detailed backlog
 
-Last updated: 2026-10-23_161421_1792764861 (Europe/Budapest).
+Last updated: 2026-10-26_212009_1793049609 (Europe/Budapest).
 
 Start with [PLAN.md](../PLAN.md) for priorities and release gates. Load only the
 topic needed here. These are open checks, known limitations and conditional
@@ -102,6 +102,10 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
 - One old full Windows test run omitted the win32 result without a captured
   error; isolated and later full runs passed. If it recurs, capture exit code and
   full output to identify a crashing hidden-dialog test.
+- The Windows executables carry no `VERSIONINFO` resource, so Explorer's Details
+  tab shows no version or copyright; only the manifest's `assemblyIdentity`
+  names the version. `crates/win32/build.rs` already writes a `.res` for the
+  icon and could add one. Keep its four numbers in step with the crate version.
 
 ## GTK desktop checks and limitations
 

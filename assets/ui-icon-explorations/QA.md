@@ -8,7 +8,7 @@
   - a 2 px refresh badge that read as "₵", and an upright magnet that read as "Ü".
 - `build.cjs`, `check-geometry.cjs` and `proof-pages.cjs` pass. There is zero overflow, zero margin failures and zero unexpected identical masks, with completed/tracker-working removed from the allowlist. The only near match is still normal/forced metadata (0.88). The median partial alpha at 16 px fell from 27 % to 23 %.
 - The revision 3 review scripts (`review-sheets.py`, `shipped-sizes.py`) were run on the result. The shipped sheet showed broken 20 px rows; `H.px` now emits shared-edge paths, and the rerun was clean. The proof pages under `qa/revision3/` are regenerated with this artwork.
-- Not done: an independent second review of this revision; it should follow before integration.
+- Independent review: [revision 4 report](review-2026-10-26/revision4/REPORT.md). It reproduced these measurements and passed 120/131. It failed the network trio, the tracker states and reannounce, the refresh badge, add-url and both limits.
 
 # Revision 3 artwork QA
 

@@ -4,6 +4,19 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_110747_1793009267: Independent review of revision 4 UI icons
+
+- A reviewer working independently of the artist inspected all 131 symbols. It used the revision 3 sheets, new revision 3/4 side-by-side zooms, family sheets, mask neighbours and badge clearance. The geometry audit reproduced exactly: no overflow, margin or unexpected identical masks; median partial alpha 22.7 %.
+- 120 of 131 pass. 9 of the 18 revision 3 failures are fixed (trackers tab, allocating, proxy, dht, logger, inactive, reset-columns, association, all-torrents), plus the reload-ip-filter shield.
+- Still failing:
+  - The network trio: the open ring plus the corner badge reads "→?".
+  - The four tracker states and reannounce: the compact tower reads as a figure.
+  - The refresh badge: its 1 px gap closes it into an "e".
+  - add-url: the tilted magnet reads as "Ć".
+  - download/upload-limit: the gauge reads as "∩".
+- Of those, the shipped network pair, the four tracker states and Add URL are the same 7 shipped icons as last time. Accepted deviations: the 1 px refresh stroke, allocating as a bottom fill and the pieces redraw. Rejected: the arrowhead in the ring's mouth and the tilted magnet.
+- Report, sheets and scripts are in `assets/ui-icon-explorations/review-2026-10-26/revision4/`. Three owner decisions are open: the network base, the compact tracker base and chain link vs magnet for Add URL.
+
 ## 2026-10-26_105105_1793008265: Revision 4 UI icons: network port, radio tower and 16 more redrawn
 
 - Redrew the 18 symbols the revision 3 review failed, plus the refresh badge, from the revision 4 brief (D28), all as pixel art on the 16 px grid:

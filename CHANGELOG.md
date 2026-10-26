@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-26_101510_1793006110: Review of revision 3 bold UI artwork
+
+- Re-inspected all 131 symbols at 64/24/16 px in light, dark and mono, the 24 shipped state icons and 11 toolbar icons at native 16/20/24/32 px, and all-pair mono masks. Confirmed: only the 8 allowlisted pairs are identical; median partial alpha at 16 px is 20 %; most first-review defects are fixed.
+- Still to redo (18 symbols): network-ok/no-incoming/offline (plug base reads as a fork), the four tracker states (no shared base; not-contacted unreadable), the 16 px refresh badge, trackers ("(i)" reads as info), allocating, proxy, dht, logger, inactive, reset-columns, add-url, association, all-torrents and download-limit. The first report's runtime-icon count was wrong: 24 in total. Report, sheets and scripts are in `assets/ui-icon-explorations/review-2026-10-26/revision3/`.
+
 ## 2026-10-26_100209_1793005329: Generate the full bold UI artwork with native-size proofs
 
 - Owner approved the proposed single-bold, full-set direction (D27). Added editable drawings for all 131 stable IDs, separate larger compound variants, per-size fitted SVGs and 2,358 PNGs across six sizes and light/dark/monochrome. About follows the current Verdigris identity; paused/stopped colours follow activity, and completion remains a check modifier.

@@ -12,7 +12,8 @@
 //!
 //! A client stops at the server's certificate (`kSSLSessionOptionBreakOnServerAuth`) and checks
 //! it itself: against the system's trust store with an SSL policy for the host name or IP
-//! address ([`Check::System`]), by fingerprint ([`Check::Pinned`]), or not at all
+//! address and a soft-fail revocation policy ([`Check::System`], which uses no network for it,
+//! and [`Check::SystemOnline`]), by fingerprint ([`Check::Pinned`]), or not at all
 //! ([`Check::Any`]). SNI is sent for host names.
 //!
 //! A server identity needs a `SecIdentityRef`. The public way to get one wants the key in a
@@ -35,6 +36,7 @@ type CFTypeRef = *const c_void;
 type CFIndex = isize;
 type OSStatus = i32;
 type Boolean = u8;
+type CFOptionFlags = usize;
 
 type ReadFunc = unsafe extern "C" fn(CFTypeRef, *mut c_void, *mut usize) -> OSStatus;
 type WriteFunc = unsafe extern "C" fn(CFTypeRef, *const c_void, *mut usize) -> OSStatus;
@@ -54,6 +56,10 @@ const K_SSL_SESSION_OPTION_BREAK_ON_SERVER_AUTH: c_int = 0;
 const K_TLS_PROTOCOL_12: c_int = 8;
 const K_CF_STRING_ENCODING_UTF8: u32 = 0x0800_0100;
 const K_CF_NUMBER_SINT32_TYPE: CFIndex = 3;
+/// `kSecRevocationUseAnyAvailableMethod` (OCSP or CRL; soft-fail without
+/// `kSecRevocationRequirePositiveResponse`) and `kSecRevocationNetworkAccessDisabled`.
+const K_SEC_REVOCATION_USE_ANY_AVAILABLE_METHOD: CFOptionFlags = 3;
+const K_SEC_REVOCATION_NETWORK_ACCESS_DISABLED: CFOptionFlags = 1 << 4;
 
 #[link(name = "CoreFoundation", kind = "framework")]
 unsafe extern "C" {
@@ -118,6 +124,7 @@ unsafe extern "C" {
 
     fn SecCopyErrorMessageString(status: OSStatus, reserved: *mut c_void) -> CFTypeRef;
     fn SecPolicyCreateSSL(server: Boolean, hostname: CFTypeRef) -> CFTypeRef;
+    fn SecPolicyCreateRevocation(flags: CFOptionFlags) -> CFTypeRef;
     fn SecTrustSetPolicies(trust: CFTypeRef, policies: CFTypeRef) -> OSStatus;
     fn SecTrustEvaluateWithError(trust: CFTypeRef, error: *mut CFTypeRef) -> bool;
     fn SecTrustGetCertificateAtIndex(trust: CFTypeRef, index: CFIndex) -> CFTypeRef;
@@ -432,13 +439,33 @@ impl Session {
                 "TLS handshake failed: the server's certificate is not the accepted one (it presented {})",
                 self.peer.map_or_else(|| "none".to_owned(), |p| p.to_string())
             ))),
-            Check::System => {
+            Check::System | Check::SystemOnline => {
                 let name = string(&host)?;
                 // SAFETY: `name` is a live CFString; we own the policy.
-                let policy = Cf::new(unsafe { SecPolicyCreateSSL(1, name.0) })
+                let ssl = Cf::new(unsafe { SecPolicyCreateSSL(1, name.0) })
                     .ok_or_else(|| io::Error::other("TLS handshake failed: no SSL policy"))?;
-                // SAFETY: both are live; the trust retains the policy.
-                let status = unsafe { SecTrustSetPolicies(trust.0, policy.0) };
+                // soft-fail revocation (SEC-07); online only where a lookup cannot hold up the
+                // engine thread or go around the proxy, as on SChannel
+                let mut flags = K_SEC_REVOCATION_USE_ANY_AVAILABLE_METHOD;
+                if check == Check::System {
+                    flags |= K_SEC_REVOCATION_NETWORK_ACCESS_DISABLED;
+                }
+                // SAFETY: no arguments but the flags; we own the policy.
+                let revocation = Cf::new(unsafe { SecPolicyCreateRevocation(flags) })
+                    .ok_or_else(|| io::Error::other("TLS handshake failed: no revocation policy"))?;
+                let refs = [ssl.0, revocation.0];
+                // SAFETY: `refs` holds live policies, which the array retains.
+                let policies = Cf::new(unsafe {
+                    CFArrayCreate(
+                        ptr::null(),
+                        refs.as_ptr(),
+                        refs.len() as CFIndex,
+                        &raw const kCFTypeArrayCallBacks,
+                    )
+                })
+                .ok_or_else(out_of_memory)?;
+                // SAFETY: both are live; the trust retains the policies.
+                let status = unsafe { SecTrustSetPolicies(trust.0, policies.0) };
                 if status != NO_ERR {
                     return Err(error("TLS handshake failed", status));
                 }

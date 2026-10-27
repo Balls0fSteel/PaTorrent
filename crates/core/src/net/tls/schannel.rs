@@ -4,9 +4,12 @@
 //!
 //! A client's certificate validation is SChannel's automatic mode: the chain is built against
 //! the Windows trust store and the end certificate must match the target name passed to
-//! `InitializeSecurityContextW`, which also becomes the SNI host name. Revocation is not checked,
-//! because SChannel would fetch CRLs synchronously on the engine thread. A pinned client turns
-//! SChannel's validation off and compares the server certificate's fingerprint itself.
+//! `InitializeSecurityContextW`, which also becomes the SNI host name. Revocation is checked
+//! soft-fail for every certificate but the root: a revoked one fails the handshake, an unknown
+//! status does not. SChannel fetches CRLs and OCSP answers synchronously, so only
+//! [`Check::SystemOnline`] (fetches on worker threads without a proxy) may go online; the engine's
+//! [`Check::System`] uses what Windows has cached. A pinned client turns SChannel's validation off
+//! and compares the server certificate's fingerprint itself.
 //!
 //! A server's private key has to be a persisted CNG key: SChannel signs in LSASS, which opens
 //! the key by name. [`Identity`] imports the PEM file's key under a name made of this process's
@@ -19,11 +22,11 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Arc, OnceLock};
 
 use windows_sys::Win32::Foundation::{
-    CERT_E_CN_NO_MATCH, CERT_E_EXPIRED, CERT_E_UNTRUSTEDROOT, CloseHandle, ERROR_ACCESS_DENIED, GetLastError,
-    SEC_E_ALGORITHM_MISMATCH, SEC_E_CERT_EXPIRED, SEC_E_DECRYPT_FAILURE, SEC_E_ILLEGAL_MESSAGE,
-    SEC_E_INCOMPLETE_MESSAGE, SEC_E_INTERNAL_ERROR, SEC_E_INVALID_TOKEN, SEC_E_NO_CREDENTIALS, SEC_E_OK,
-    SEC_E_UNTRUSTED_ROOT, SEC_E_WRONG_PRINCIPAL, SEC_I_CONTEXT_EXPIRED, SEC_I_CONTINUE_NEEDED,
-    SEC_I_INCOMPLETE_CREDENTIALS, SEC_I_RENEGOTIATE, STILL_ACTIVE, SYSTEMTIME,
+    CERT_E_CN_NO_MATCH, CERT_E_EXPIRED, CERT_E_UNTRUSTEDROOT, CRYPT_E_REVOKED, CloseHandle,
+    ERROR_ACCESS_DENIED, GetLastError, SEC_E_ALGORITHM_MISMATCH, SEC_E_CERT_EXPIRED, SEC_E_DECRYPT_FAILURE,
+    SEC_E_ILLEGAL_MESSAGE, SEC_E_INCOMPLETE_MESSAGE, SEC_E_INTERNAL_ERROR, SEC_E_INVALID_TOKEN,
+    SEC_E_NO_CREDENTIALS, SEC_E_OK, SEC_E_UNTRUSTED_ROOT, SEC_E_WRONG_PRINCIPAL, SEC_I_CONTEXT_EXPIRED,
+    SEC_I_CONTINUE_NEEDED, SEC_I_INCOMPLETE_CREDENTIALS, SEC_I_RENEGOTIATE, STILL_ACTIVE, SYSTEMTIME,
 };
 use windows_sys::Win32::Security::Authentication::Identity::{
     ASC_REQ_ALLOCATE_MEMORY, ASC_REQ_CONFIDENTIALITY, ASC_REQ_EXTENDED_ERROR, ASC_REQ_FLAGS,
@@ -32,7 +35,9 @@ use windows_sys::Win32::Security::Authentication::Identity::{
     FreeCredentialsHandle, ISC_REQ_ALLOCATE_MEMORY, ISC_REQ_CONFIDENTIALITY, ISC_REQ_FLAGS,
     ISC_REQ_REPLAY_DETECT, ISC_REQ_SEQUENCE_DETECT, ISC_REQ_STREAM, ISC_REQ_USE_SUPPLIED_CREDS,
     InitializeSecurityContextW, QueryContextAttributesW, SCH_CRED_AUTO_CRED_VALIDATION,
-    SCH_CRED_MANUAL_CRED_VALIDATION, SCH_CRED_NO_DEFAULT_CREDS, SCH_CREDENTIALS, SCH_CREDENTIALS_VERSION,
+    SCH_CRED_IGNORE_NO_REVOCATION_CHECK, SCH_CRED_IGNORE_REVOCATION_OFFLINE, SCH_CRED_MANUAL_CRED_VALIDATION,
+    SCH_CRED_NO_DEFAULT_CREDS, SCH_CRED_REVOCATION_CHECK_CACHE_ONLY,
+    SCH_CRED_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT, SCH_CREDENTIALS, SCH_CREDENTIALS_VERSION,
     SCH_USE_STRONG_CRYPTO, SCHANNEL_CRED, SCHANNEL_CRED_VERSION, SECBUFFER_ALERT, SECBUFFER_DATA,
     SECBUFFER_EMPTY, SECBUFFER_EXTRA, SECBUFFER_STREAM_HEADER, SECBUFFER_STREAM_TRAILER, SECBUFFER_TOKEN,
     SECBUFFER_VERSION, SECPKG_ATTR_REMOTE_CERT_CONTEXT, SECPKG_ATTR_STREAM_SIZES, SECPKG_CRED_INBOUND,
@@ -77,18 +82,38 @@ const ASC_FLAGS: ASC_REQ_FLAGS = ASC_REQ_SEQUENCE_DETECT
     | ASC_REQ_STREAM
     | ASC_REQ_EXTENDED_ERROR;
 
-/// Process-wide client credentials, one for verifying clients and one for pinned ones. SChannel
-/// keys its session cache on them, so reconnects to the same tracker can resume sessions. They
-/// live until the process exits.
-fn client_credentials(pinned: bool) -> io::Result<SecHandle> {
-    static VERIFYING: OnceLock<Result<SecHandle, i32>> = OnceLock::new();
-    static PINNED: OnceLock<Result<SecHandle, i32>> = OnceLock::new();
-    let (cell, validation) = if pinned {
-        (&PINNED, SCH_CRED_MANUAL_CRED_VALIDATION)
-    } else {
-        (&VERIFYING, SCH_CRED_AUTO_CRED_VALIDATION)
+/// Revocation for verifying clients (SEC-07): every certificate but the root, soft-fail (no
+/// answer, or no revocation information at all, is not an error; a revoked certificate is).
+const REVOCATION: u32 = SCH_CRED_REVOCATION_CHECK_CHAIN_EXCLUDE_ROOT
+    | SCH_CRED_IGNORE_NO_REVOCATION_CHECK
+    | SCH_CRED_IGNORE_REVOCATION_OFFLINE;
+
+/// The credential flags for a client that checks the server as `check` does.
+fn client_flags(check: Check) -> u32 {
+    let validation = match check {
+        // the chain is ignored: the fingerprint is compared once the handshake is done
+        Check::Pinned(_) | Check::Any => SCH_CRED_MANUAL_CRED_VALIDATION,
+        // only cached CRLs and OCSP answers: an online lookup would block the engine thread (a
+        // CRL download took 2 s in a test) and go around the user's proxy
+        Check::System => SCH_CRED_AUTO_CRED_VALIDATION | REVOCATION | SCH_CRED_REVOCATION_CHECK_CACHE_ONLY,
+        Check::SystemOnline => SCH_CRED_AUTO_CRED_VALIDATION | REVOCATION,
     };
-    let flags = validation | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
+    validation | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO
+}
+
+/// Process-wide client credentials: for pinned clients, and for verifying ones with cached and
+/// with online revocation checks. SChannel keys its session cache on them, so reconnects to the
+/// same tracker can resume sessions. They live until the process exits.
+fn client_credentials(check: Check) -> io::Result<SecHandle> {
+    static PINNED: OnceLock<Result<SecHandle, i32>> = OnceLock::new();
+    static VERIFYING: OnceLock<Result<SecHandle, i32>> = OnceLock::new();
+    static VERIFYING_ONLINE: OnceLock<Result<SecHandle, i32>> = OnceLock::new();
+    let cell = match check {
+        Check::Pinned(_) | Check::Any => &PINNED,
+        Check::System => &VERIFYING,
+        Check::SystemOnline => &VERIFYING_ONLINE,
+    };
+    let flags = client_flags(check);
     // TLS 1.2 and later, as for the server: 1.0 and 1.1 are deprecated (RFC 8996, SEC-07)
     match *cell.get_or_init(|| acquire_credentials(SECPKG_CRED_OUTBOUND, flags, &mut [], true)) {
         Ok(h) => Ok(h),
@@ -173,6 +198,7 @@ fn error(what: &str, code: i32) -> io::Error {
         SEC_E_UNTRUSTED_ROOT | CERT_E_UNTRUSTEDROOT => "the certificate is not trusted",
         SEC_E_WRONG_PRINCIPAL | CERT_E_CN_NO_MATCH => "the certificate does not match the host name",
         SEC_E_CERT_EXPIRED | CERT_E_EXPIRED => "the certificate has expired or is not yet valid",
+        CRYPT_E_REVOKED => "the certificate has been revoked",
         SEC_E_ALGORITHM_MISMATCH => "no TLS version or cipher in common with the peer",
         SEC_E_ILLEGAL_MESSAGE => "the peer sent an invalid message or an alert",
         SEC_E_INVALID_TOKEN => "the peer does not speak TLS",
@@ -241,8 +267,7 @@ impl Session {
         if host.contains('\0') {
             return Err(io::Error::new(io::ErrorKind::InvalidInput, "invalid host name"));
         }
-        let manual = !matches!(check, Check::System);
-        let mut s = Session::with(client_credentials(manual)?, Role::Client { target: wide(host), check });
+        let mut s = Session::with(client_credentials(check)?, Role::Client { target: wide(host), check });
         s.handshake()?;
         Ok(s)
     }
@@ -1072,6 +1097,24 @@ pub(crate) fn self_signature_verifies(cert: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn verifying_clients_check_revocation_and_pinned_ones_do_not() {
+        let has = |check, flag| client_flags(check) & flag == flag;
+        for check in [Check::System, Check::SystemOnline] {
+            assert!(has(check, SCH_CRED_AUTO_CRED_VALIDATION | REVOCATION), "{check:?}");
+            assert!(!has(check, SCH_CRED_MANUAL_CRED_VALIDATION), "{check:?}");
+        }
+        // the engine never waits for a CRL; a fetch thread may
+        assert!(has(Check::System, SCH_CRED_REVOCATION_CHECK_CACHE_ONLY));
+        assert!(!has(Check::SystemOnline, SCH_CRED_REVOCATION_CHECK_CACHE_ONLY));
+        // a pinned self-signed certificate has no revocation information to look for
+        for check in [Check::Pinned(Fingerprint([0; 32])), Check::Any] {
+            let flags = client_flags(check);
+            assert_eq!(flags & (REVOCATION | SCH_CRED_REVOCATION_CHECK_CACHE_ONLY), 0, "{check:?}");
+            assert!(has(check, SCH_CRED_MANUAL_CRED_VALIDATION), "{check:?}");
+        }
+    }
 
     fn key_exists(name: &str) -> bool {
         let p = Provider::open().unwrap();

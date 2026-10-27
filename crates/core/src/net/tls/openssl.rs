@@ -6,7 +6,9 @@
 //! client verifies its peer (`SSL_VERIFY_PEER` against the default trust store), the
 //! certificate must match the host name (`SSL_set1_host`) or IP address, and SNI is sent for
 //! host names; a pinned client accepts any chain and compares the fingerprint of the server's
-//! certificate instead, which a verify callback records. A server context holds the
+//! certificate instead, which a verify callback records. Revocation is not checked (SEC-07):
+//! OpenSSL has no CRL or OCSP source of its own, and fetching them here would block the engine
+//! thread, so this back end does what most Linux programs do. A server context holds the
 //! certificate, its chain and the key. Only functions present in OpenSSL 1.1.1, 3.x and LibreSSL
 //! are used, declared here by hand so no binding crate or build script is needed; linking needs
 //! `libssl` and `libcrypto`.
@@ -278,7 +280,10 @@ impl Session {
             .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid host name"))?;
         let mut s = Session::new(context()?)?;
         s.check = check;
-        let mut state = Box::new(Verification { pinned: !matches!(check, Check::System), leaf: None });
+        let mut state = Box::new(Verification {
+            pinned: !matches!(check, Check::System | Check::SystemOnline),
+            leaf: None,
+        });
         let is_ip = host.parse::<IpAddr>().is_ok();
         // SAFETY: `s.ssl` is live and `name` is NUL-terminated (OpenSSL copies it). The app
         // data points into the box, which the session keeps as long as the SSL object.
@@ -295,7 +300,7 @@ impl Session {
                 ) == 1;
             }
             // a pinned certificate need not name the host
-            if matches!(s.check, Check::System) {
+            if matches!(s.check, Check::System | Check::SystemOnline) {
                 ok &= if is_ip {
                     X509_VERIFY_PARAM_set1_ip_asc(SSL_get0_param(s.ssl), name.as_ptr()) == 1
                 } else {
@@ -322,7 +327,7 @@ impl Session {
     fn error(&self, what: &str) -> io::Error {
         // SAFETY: `self.ssl` is live; the verify error string is a static C string.
         let verify = unsafe { SSL_get_verify_result(self.ssl) };
-        let why = if verify != X509_V_OK && matches!(self.check, Check::System) {
+        let why = if verify != X509_V_OK && matches!(self.check, Check::System | Check::SystemOnline) {
             // SAFETY: as above.
             let s = unsafe { CStr::from_ptr(X509_verify_cert_error_string(verify)) };
             format!("certificate verification failed: {}", s.to_string_lossy())

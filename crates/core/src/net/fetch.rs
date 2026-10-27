@@ -423,7 +423,9 @@ fn get_once(
         }
     };
     let resp = if https {
-        let session = tls::client(&url.host)?;
+        // a worker thread: revocation may be looked up online, unless that would go around
+        // the proxy (SChannel's lookups do not use ours)
+        let session = if proxy.is_none() { tls::client_online(&url.host)? } else { tls::client(&url.host)? };
         exchange(
             TlsStream::new(sock, session),
             tls_socket,

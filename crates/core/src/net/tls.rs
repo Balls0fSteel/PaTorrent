@@ -102,9 +102,19 @@ pub enum Verify {
 }
 
 /// How a client session checks the server: [`Verify`], or (for [`probe`]) not at all.
+///
+/// Revocation (SEC-07) is soft-fail: only a certificate known to be revoked is refused, never
+/// one whose status cannot be learnt. SChannel and Secure Transport check it; the OpenSSL
+/// back end does not (it has no revocation source of its own, like most Linux programs).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Check {
+    /// [`Verify::System`]; revocation only from what the OS has cached, so a handshake never
+    /// waits for the network: the engine thread drives trackers and web seeds, and a lookup
+    /// would also bypass the user's proxy.
     System,
+    /// [`Verify::System`], and revocation may be looked up online: for a blocking caller on a
+    /// thread of its own that uses no proxy ([`client_online`]).
+    SystemOnline,
     Pinned(Fingerprint),
     Any,
 }
@@ -328,6 +338,12 @@ pub(crate) trait TlsSession {
 /// The first handshake message is ready in `outgoing`.
 pub(crate) fn client(host: &str) -> io::Result<Session> {
     Session::client(host, Check::System)
+}
+
+/// [`client`], for a blocking caller off the engine thread that connects without a proxy:
+/// revocation may be looked up online ([`Check::SystemOnline`]).
+pub(crate) fn client_online(host: &str) -> io::Result<Session> {
+    Session::client(host, Check::SystemOnline)
 }
 
 /// A TLS session over a socket. Works with blocking and non-blocking sockets; with a
@@ -1021,6 +1037,34 @@ mod tests {
         for host in ["torrent.ubuntu.com", "www.cloudflare.com"] {
             let resp = https_get(&format!("{host}:443"), host, "/").unwrap();
             assert!(resp.starts_with(b"HTTP/1."), "{host}: {}", String::from_utf8_lossy(&resp));
+        }
+    }
+
+    /// Connects and completes the handshake with `check`.
+    fn live_handshake(host: &str, check: Check) -> io::Result<()> {
+        let sock = std::net::TcpStream::connect(format!("{host}:443"))?;
+        sock.set_read_timeout(Some(std::time::Duration::from_secs(20)))?;
+        TlsStream::new(sock, Session::client(host, check)?).handshake()
+    }
+
+    #[test]
+    #[ignore = "network"]
+    fn live_revoked_certificates_are_refused() {
+        if !network() {
+            return;
+        }
+        live_handshake("www.cloudflare.com", Check::SystemOnline).unwrap();
+        // test sites whose certificates are revoked (SEC-07); OpenSSL checks no revocation
+        for host in ["revoked-rsa-dv.ssl.com", "revoked.badssl.com"] {
+            let online = live_handshake(host, Check::SystemOnline);
+            // the engine's check, without the network: what the lookup above left in the cache
+            let cached = live_handshake(host, Check::System);
+            eprintln!("{host}: online {online:?}, cached {cached:?}");
+            if cfg!(windows) {
+                let e = online.unwrap_err().to_string();
+                assert!(e.contains("revoked"), "{host}: {e}");
+                assert!(cached.unwrap_err().to_string().contains("revoked"), "{host}");
+            }
         }
     }
 

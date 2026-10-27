@@ -823,3 +823,134 @@ fn obfuscated_get_peers() {
     assert_eq!(req.get("a").and_then(|a| a.get("info_hash")).and_then(Entry::as_bytes), Some(&target.0[..]));
     t.node.check_invariant();
 }
+
+// SEC-11: endpoints in replies are checked against where the reply came from
+#[test]
+fn usable_endpoints() {
+    let ep = |s: &str| s.parse::<SocketAddr>().unwrap();
+    let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+    let global = ip("1.2.3.4");
+    assert!(usable_endpoint(&ep("5.6.7.8:6881"), &global));
+    assert!(usable_endpoint(&ep("[2001:db8::1]:6881"), &global));
+    for bad in [
+        "5.6.7.8:0",
+        "0.0.0.0:6881",
+        "255.255.255.255:6881",
+        "224.0.0.1:6881",
+        "127.0.0.1:6881",
+        "10.0.0.2:6881",
+        "192.168.1.2:6881",
+        "169.254.1.1:6881",
+        "100.64.0.1:6881",
+        "[::]:6881",
+        "[::1]:6881",
+        "[::ffff:127.0.0.1]:6881",
+        "[::ffff:192.168.1.2]:6881",
+        "[fe80::1]:6881",
+        "[fd00::1]:6881",
+        "[ff02::1]:6881",
+    ] {
+        assert!(!usable_endpoint(&ep(bad), &global), "{bad} from a global node");
+    }
+    // the local network may name itself, this machine only itself
+    let lan = ip("192.168.1.1");
+    assert!(usable_endpoint(&ep("192.168.1.2:6881"), &lan));
+    assert!(usable_endpoint(&ep("10.0.0.2:6881"), &ip("::ffff:10.0.0.1")));
+    assert!(usable_endpoint(&ep("[fd00::2]:6881"), &ip("fd00::1")));
+    assert!(!usable_endpoint(&ep("127.0.0.1:6881"), &lan));
+    assert!(!usable_endpoint(&ep("192.168.1.2:0"), &lan));
+    assert!(usable_endpoint(&ep("127.0.0.1:6881"), &ip("127.0.0.1")));
+    assert!(usable_endpoint(&ep("192.168.1.2:6881"), &ip("127.0.0.1")));
+}
+
+#[test]
+fn a_global_node_cannot_point_lookups_at_the_local_network() {
+    let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));
+    let now = t.now;
+    let target = to_hash("1234876923549721020394873245098347598635");
+    let initial_node = SocketAddr::new(rand_v4(), 1234);
+    let initial_id = to_hash("1111111111222222222233333333334444444444");
+    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), now);
+    t.node.get_peers(&mut t.sm, target, false, now);
+    let req = t.sm.sent.remove(0).1;
+
+    let local: Vec<SocketAddr> = ["127.0.0.1:6881", "192.168.1.2:6881", "10.1.2.3:6881", "0.0.0.0:6881"]
+        .iter()
+        .map(|s| s.parse().unwrap())
+        .chain([SocketAddr::new(rand_v4(), 0)])
+        .collect();
+    let good_node = SocketAddr::new(rand_v4(), 2235);
+    let good_peer = SocketAddr::new(rand_v4(), 4111);
+    let nodes: Vec<NodeEntry> =
+        local.iter().chain([&good_node]).map(|&ep| NodeEntry::from_endpoint(ep)).collect();
+    let peers: BTreeSet<SocketAddr> = local.iter().copied().chain([good_peer]).collect();
+    let a = with(args(), "nodes", nodes_entry(&nodes));
+    t.respond(&req, initial_node, with(with(a, "token", "10"), "values", write_peers(&peers)));
+    let sent: Vec<SocketAddr> = t.sm.sent.iter().map(|(a, _)| *a).collect();
+    assert_eq!(sent, [good_node], "only the public node is asked");
+    assert_eq!(peers_from(&t.node.take_events()), [good_peer]);
+    for ep in &local {
+        assert!(t.node.table.all_nodes().all(|n| n.ep() != *ep), "{ep} reached the routing table");
+    }
+    t.node.check_invariant();
+}
+
+#[test]
+fn a_lan_node_may_name_lan_nodes_and_peers() {
+    let mut t = Setup::new("192.168.1.10:6881".parse().unwrap());
+    let now = t.now;
+    let target = to_hash("1234876923549721020394873245098347598635");
+    let initial_node: SocketAddr = "192.168.1.1:6881".parse().unwrap();
+    let initial_id = to_hash("1111111111222222222233333333334444444444");
+    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), now);
+    t.node.get_peers(&mut t.sm, target, false, now);
+    let req = t.sm.sent.remove(0).1;
+    let lan_node: SocketAddr = "192.168.1.2:6881".parse().unwrap();
+    let lan_peer: SocketAddr = "192.168.1.3:6881".parse().unwrap();
+    let a = with(args(), "nodes", nodes_entry(&[NodeEntry::from_endpoint(lan_node)]));
+    let a = with(a, "values", write_peers(&[lan_peer].into_iter().collect()));
+    t.respond(&req, initial_node, a);
+    assert_eq!(t.sm.sent.iter().map(|(a, _)| *a).collect::<Vec<_>>(), [lan_node]);
+    assert_eq!(peers_from(&t.node.take_events()), [lan_peer]);
+}
+
+#[test]
+fn replies_must_come_from_the_queried_port() {
+    let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));
+    let now = t.now;
+    let initial_node = SocketAddr::new(rand_v4(), 1234);
+    t.node.bootstrap(&mut t.sm, &[initial_node], false, now);
+    let req = t.sm.sent.remove(0).1;
+    let found = NodeEntry::from_endpoint(SocketAddr::new(rand_v4(), 2235));
+    let a = with(args(), "nodes", nodes_entry(std::slice::from_ref(&found)));
+    // the right address and transaction id, but another port: not our reply
+    let spoofed = SocketAddr::new(initial_node.ip(), 1235);
+    t.respond(&req, spoofed, a.clone());
+    assert!(t.sm.sent.is_empty());
+    assert_eq!(t.node.num_transactions(), 1);
+    assert!(t.node.table.all_nodes().all(|n| n.ep() != spoofed));
+    t.respond(&req, initial_node, a);
+    assert_eq!(t.sm.sent.len(), 1);
+    assert_eq!(t.sm.sent[0].0, found.ep());
+}
+
+#[test]
+fn announce_peer_port_zero_is_refused() {
+    let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));
+    let src = t.source;
+    let r = t.request("get_peers", src, with(args(), "info_hash", "01010101010101010101"), "10").unwrap();
+    let k = verify_message(r.root().unwrap(), &PEER1_DESC).unwrap();
+    let token = k[2].unwrap().string_value().to_vec();
+    let ann = |port: i64, implied: bool| {
+        let a = with(args(), "info_hash", "01010101010101010101");
+        let a = with(with(a, "token", Entry::Bytes(token.clone())), "port", port);
+        if implied { with(a, "implied_port", 1) } else { a }
+    };
+    let r = t.request("announce_peer", src, ann(0, false), "10").unwrap();
+    assert_eq!(error_text(&r), "invalid port");
+    assert_eq!(t.storage.counters().peers, 0);
+    // implied_port takes the packet's source port instead
+    let r = t.request("announce_peer", src, ann(0, true), "10").unwrap();
+    assert_eq!(r.root().unwrap().dict_find_string_value("y"), Some(&b"r"[..]));
+    assert_eq!(t.storage.counters().peers, 1);
+}

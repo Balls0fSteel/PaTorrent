@@ -29,6 +29,7 @@ use super::settings::DhtSettings;
 use super::storage::DhtStorage;
 use crate::bencode::{Entry, Node as BNode, NodeType};
 use crate::crypto::Sha1;
+use crate::net::ip_voter::is_local;
 use crate::types::Sha1Hash;
 use crate::util::random::crypto_random_bytes;
 
@@ -250,6 +251,23 @@ fn calculate_node_id(nid: NodeId, external: Option<IpAddr>) -> NodeId {
             }
         }
     }
+}
+
+/// Whether an endpoint that the node at `from` told us about (a `nodes` record or a peer in
+/// `values`) may be used (SEC-11, not in libtorrent): never port 0 or an unspecified,
+/// multicast or broadcast address; loopback only from this machine, and a private,
+/// link-local or CGNAT address only from such an address, so a LAN DHT keeps working while an
+/// internet node cannot aim our queries and connections at the local network.
+pub(crate) fn usable_endpoint(ep: &SocketAddr, from: &IpAddr) -> bool {
+    let ip = ep.ip().to_canonical();
+    let from = from.to_canonical();
+    if ep.port() == 0 || ip.is_unspecified() || ip.is_multicast() || ip == IpAddr::V4(Ipv4Addr::BROADCAST) {
+        return false;
+    }
+    if ip.is_loopback() {
+        return from.is_loopback();
+    }
+    !is_local(&ip) || is_local(&from)
 }
 
 /// An error reply (libtorrent `incoming_error`).
@@ -529,7 +547,9 @@ impl Node {
                 self.observers.get_mut(o).flags |= FLAG_DONE;
                 let Some(r) = m.message.dict_find_dict("r") else { return };
                 for (id, ep) in read_nodes(r, self.protocol_nodes_key(), !self.is_v4) {
-                    self.table.heard_about(&id, ep, now);
+                    if usable_endpoint(&ep, &m.addr.ip()) {
+                        self.table.heard_about(&id, ep, now);
+                    }
                 }
             }
             ObserverKind::GetPeers => {
@@ -538,7 +558,7 @@ impl Node {
                 };
                 if let Some(n) = r.dict_find_list("values") {
                     let first = n.list_at(0);
-                    let peers =
+                    let peers: Vec<SocketAddr> =
                         if n.list_size() == 1 && first.is_some_and(|f| f.is_string()) && m.addr.is_ipv4() {
                             // mainline format: one string of 6-byte peers
                             first
@@ -550,6 +570,7 @@ impl Node {
                         } else {
                             read_endpoint_list(n)
                         };
+                    let peers = peers.into_iter().filter(|p| usable_endpoint(p, &m.addr.ip())).collect();
                     let t = self.observers.get(o).algorithm;
                     let tr = self.traversals.get(t);
                     if tr.report_peers {
@@ -588,7 +609,9 @@ impl Node {
         };
         let t = self.observers.get(o).algorithm;
         for (id, ep) in read_nodes(r, self.protocol_nodes_key(), !self.is_v4) {
-            self.traverse(id, ep, t, now);
+            if usable_endpoint(&ep, &m.addr.ip()) {
+                self.traverse(id, ep, t, now);
+            }
         }
         let Some(id) = r.dict_find_string("id").filter(|i| i.string_length() == 20) else {
             return self.observer_timeout(sm, o, now);
@@ -1023,6 +1046,7 @@ impl Node {
         if !native {
             a.key("want").list_mut().push(Entry::from(family));
         }
+        // from the ChaCha20 generator keyed by the OS (SEC-02), so not predictable
         let tid = random_inclusive(0xffff) as u16;
         *e.key("t") = Entry::Bytes(tid.to_be_bytes().to_vec());
         // BEP 43: read-only nodes say so in every query
@@ -1100,10 +1124,13 @@ impl Node {
             return None;
         }
         let tid = if t.len() == 2 { u16::from_be_bytes([t[0], t[1]]) } else { 0xffff };
-        let i = self
-            .transactions
-            .iter()
-            .position(|&(id, o)| id == tid && self.observers.get(o).addr.ip() == m.addr.ip())?;
+        // the reply must come from the address and port we asked (libtorrent checks the
+        // address only), so a spoofer has to hit both and the transaction id (SEC-11). Not
+        // `SocketAddr` equality: a received IPv6 address may carry a flow label or scope.
+        let i = self.transactions.iter().position(|&(id, o)| {
+            let to = self.observers.get(o).addr;
+            id == tid && to.ip() == m.addr.ip() && to.port() == m.addr.port()
+        })?;
         // not necessarily an attack: requests are dropped when we restart
         let (_, o) = self.transactions.remove(i);
         self.observers.get_mut(o).in_transactions = false;
@@ -1285,7 +1312,8 @@ impl Node {
                 if k[5].is_some_and(|n| n.int_value() != 0) {
                     port = m.addr.port() as i64;
                 }
-                if !(0..65536).contains(&port) {
+                // port 0 cannot be connected to (SEC-11; libtorrent stores it)
+                if !(1..65536).contains(&port) {
                     return incoming_error(e, "invalid port", 203);
                 }
                 let info_hash = Sha1Hash::from_slice(k[0].expect("required").string_value()).expect("20");

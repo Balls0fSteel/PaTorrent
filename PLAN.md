@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-27_124501_1793105101
+Last updated: 2026-10-27_212434_1793132674
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D35](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -35,7 +35,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 5. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
-6. **Security fixes** (reviewed 2026-10-27_132153_1793107313; last fix 2026-10-27_205407_1793130847): [SECURITY.md](SECURITY.md)'s summary table has each finding's status, and its Resolution notes have the dates and what stays open. Fixed: SEC-01, 02, 03, 06, 10, 14, 16, 19-22, 24, 25. Mostly fixed: SEC-04, 07, 12, 23, 26. Partly fixed: SEC-05, 09. Machine translations needing native review: `RemotePlaintext`, `ForwardRefused`, `PrefCurrentPassword`, `PrefNeedCurrentPassword`. Next: SEC-08, 11, 15, 17, 18. Keep the audit out of the public repo until fixed; push only the policy section.
+6. **Security fixes** (reviewed 2026-10-27_132153_1793107313; all done 2026-10-27_212434_1793132674): every finding in [SECURITY.md](SECURITY.md) is Fixed or Ruled out; what stays is accepted and named in its Resolution notes. Still to do by hand: run the Unix-only SEC-17 tests on Linux/macOS, the Secure Transport revocation path on a Mac, Open Folder and a `--shell` magnet click on Windows. Machine translations needing native review: `RemotePlaintext`, `ForwardRefused`, `PrefCurrentPassword`, `PrefNeedCurrentPassword`. The remote protocol is now 9 (SEC-12): a GUI and nox must both be current. Before publishing SECURITY.md's audit, decide with the owner (it was kept out of the public repo until fixed).
 7. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
 
 ## Road to 1.0

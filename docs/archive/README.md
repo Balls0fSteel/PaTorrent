@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-10-27_095101_1793091061
+Last updated: 2026-10-27_212434_1793132674
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -17,6 +17,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-10-27 (1.0.0 and 1.0.1 versions)](CHANGELOG-2026-10-27--2026-10-27-release-1.0.md) | `2026-10-27_092114_1793089274` through `2026-10-27_104216_1793094136` | Three entries moved verbatim from the root changelog on 2026-10-27: the 1.0.0 wording, the Flatpak metainfo fix in the Release run, and 1.0.1 as the first stable release. |
 | [Changelog, 2026-10-27 (V1.1, 1.0.1 published, benchmarks)](CHANGELOG-2026-10-27--2026-10-27-v1.1-benchmarks.md) | `2026-10-27_112013_1793096413` through `2026-10-27_124501_1793105101` | Three entries moved verbatim from the root changelog on 2026-10-27: V1.1's search box and importers (D35), the 1.0.1 publication, and the benchmarks against four other clients. |
 | [Changelog, 2026-10-27 (security audit, first fixes)](CHANGELOG-2026-10-27--2026-10-27-security-review.md) | `2026-10-27_131050_1793106650` through `2026-10-27_142631_1793111191` | Six entries moved verbatim from the root changelog on 2026-10-27: SECURITY.md and its review, and the fixes for SEC-19, SEC-09, SEC-05, SEC-02, SEC-01, SEC-12 and SEC-06. |
+| [Changelog, 2026-10-27 (security fixes SEC-14 to SEC-22)](CHANGELOG-2026-10-27--2026-10-27-security-fixes.md) | `2026-10-27_144050_1793112050` through `2026-10-27_185951_1793123991` | Seven entries moved verbatim from the root changelog on 2026-10-27: the fixes for SEC-14, SEC-16, SEC-04, SEC-10, SEC-20, SEC-21 and SEC-22. |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

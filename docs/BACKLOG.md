@@ -365,8 +365,8 @@ That broad check does not establish that every detailed case below was tried.
 
 - Proxies: real Dante/Squid/Tor/ssh-D/3proxy runs; HTTPS tracker/web-seed TLS
   over tunnels, IPv6 proxy/relay and incoming uTP over relay remain untested.
-  Verify `proxy_send_host_in_connect` semantics against the libtorrent version
-  that has it (not 2.0.11). I2P and `anonymous_mode` remain unported. New nox proxy
+  `proxy_send_host_in_connect` (not in 2.0.11) now defaults to true (SEC-15);
+  check it against the libtorrent version that has it. I2P and `anonymous_mode` remain unported. New nox proxy
   scope flags need real-proxy checks; saved Web UI settings still win next start.
 - Network changes: live FreeBSD PF_ROUTE and Windows adapter-change tests need
   privileged setup; OpenBSD offsets lack coverage. macOS/NetBSD/DragonFly poll

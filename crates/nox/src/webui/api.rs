@@ -31,6 +31,8 @@ pub const COMPAT_VERSION: &str = "v5.0.0";
 pub const WEBAPI_VERSION: &str = "2.11.2";
 /// Largest body accepted before a client has logged in (the login form).
 pub const UNAUTHENTICATED_BODY: usize = 64 * 1024;
+/// The answer to a banned address, qBittorrent's text.
+pub const BANNED: &str = "Your IP address has been banned after too many failed authentication attempts.";
 
 /// The Web UI page: three static files and the favicon (the application icon's 32 px PNG,
 /// `frontend::icons::app_png`) embedded in the binary (docs/WEBUI.md goal 3) and the
@@ -305,10 +307,7 @@ pub(super) fn websocket_handshake(
     let now = Instant::now();
     let mut st = shared.lock();
     if st.bans.is_banned(ip, now) {
-        return Err(Response::text(
-            403,
-            "Your IP address has been banned after too many failed authentication attempts.",
-        ));
+        return Err(Response::text(403, BANNED));
     }
     if st.prefs.host_header_validation && !host_allowed(head.header("host"), &st.prefs.domain_list) {
         return Err(Response::text(400, "Bad Request: unexpected Host header"));
@@ -345,10 +344,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
     let (host_validation, csrf, domains) = {
         let mut st = shared.lock();
         if st.bans.is_banned(ip, now) {
-            return Response::text(
-                403,
-                "Your IP address has been banned after too many failed authentication attempts.",
-            );
+            return Response::text(403, BANNED);
         }
         (st.prefs.host_header_validation, st.prefs.csrf_protection, st.prefs.domain_list.clone())
     };

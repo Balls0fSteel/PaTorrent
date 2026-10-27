@@ -2,16 +2,18 @@
 //! limits, timeouts, the TLS handshake with HTTPS), and the WebSocket loop a `GET /pa/ws` turns
 //! its connection thread into.
 
+use std::collections::HashMap;
 use std::io::{self, ErrorKind, Read, Write};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr, TcpListener, TcpStream};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
 use patorrent_core::tls;
 
 use super::api::{self, Request, UNAUTHENTICATED_BODY};
+use super::auth::ban_key;
 use super::http::{HttpError, Response, parse_head};
 use super::native::Client;
 use super::ws::{self, Message, Opcode};
@@ -38,7 +40,7 @@ pub(super) fn spawn(
     shared: Arc<Shared>,
     stop: Arc<AtomicBool>,
 ) -> std::io::Result<JoinHandle<()>> {
-    let active = Arc::new(AtomicUsize::new(0));
+    let slots = Slots::default();
     std::thread::Builder::new().name("webui-accept".into()).spawn(move || {
         for conn in listener.incoming() {
             if stop.load(Ordering::SeqCst) {
@@ -49,40 +51,103 @@ pub(super) fn spawn(
                 std::thread::sleep(Duration::from_millis(50));
                 continue;
             };
-            if active.load(Ordering::SeqCst) >= MAX_CONNECTIONS {
-                // (an HTTPS client would not read a plain-text answer: it is just closed)
-                if shared.tls.is_none() {
-                    let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
-                    let mut out = Vec::new();
-                    Response::text(503, "too many connections").write(false, false, &mut out);
-                    let _ = stream.write_all(&out);
-                }
+            let Ok(peer) = stream.peer_addr() else { continue };
+            // a banned address is told so before anything is read: it holds its slot (within
+            // its per-address limit) for a lingering close at most, not a request's timeouts
+            // (SEC-04)
+            let banned = shared.lock().bans.is_banned(peer.ip(), Instant::now());
+            let Some(slot) = slots.admit(peer.ip()) else {
+                refuse(&mut stream, &shared, 503, "too many connections");
                 continue;
-            }
-            let peer = match stream.peer_addr() {
-                Ok(a) => a,
-                Err(_) => continue,
             };
-            active.fetch_add(1, Ordering::SeqCst);
-            let guard = ActiveGuard(active.clone());
             let shared = shared.clone();
             let spawned = std::thread::Builder::new().name("webui-conn".into()).spawn(move || {
-                let _guard = guard;
-                connection(stream, peer, &shared);
+                let _slot = slot;
+                if !banned {
+                    connection(stream, peer, &shared);
+                } else if shared.tls.is_none() {
+                    // (an HTTPS client would not read a plain-text answer: it is just closed)
+                    send_and_close(&mut Conn::Plain(stream), &Response::text(403, api::BANNED));
+                }
             });
             if spawned.is_err() {
-                // the guard went down with the closure
+                // the slot went down with the closure
                 std::thread::sleep(Duration::from_millis(50));
             }
         }
     })
 }
 
-struct ActiveGuard(Arc<AtomicUsize>);
+/// A short answer straight from the acceptor, then the close, without lingering: the acceptor
+/// must not wait on a client. (An HTTPS client would not read a plain-text answer: it is just
+/// closed.)
+fn refuse(stream: &mut TcpStream, shared: &Shared, status: u16, text: &str) {
+    if shared.tls.is_none() {
+        let _ = stream.set_write_timeout(Some(Duration::from_secs(1)));
+        let mut out = Vec::new();
+        Response::text(status, text).write(false, false, &mut out);
+        let _ = stream.write_all(&out);
+    }
+}
 
-impl Drop for ActiveGuard {
+/// Connections a single address may hold at once (an IPv6 /64 counting as one address, as for
+/// bans): a browser's six plus a WebSocket and a remote window.
+const MAX_PER_IP: usize = 8;
+
+/// The connection slots: [`MAX_CONNECTIONS`] in all and [`MAX_PER_IP`] per address, so one host
+/// cannot hold every slot and lock everyone out before logging in (SEC-04). Loopback has no
+/// per-address limit: behind a reverse proxy on this machine every client comes from there.
+#[derive(Clone, Default)]
+struct Slots(Arc<Mutex<SlotCounts>>);
+
+#[derive(Default)]
+struct SlotCounts {
+    total: usize,
+    per_ip: HashMap<IpAddr, usize>,
+}
+
+/// A held slot; dropping it frees the slot.
+struct Slot {
+    slots: Slots,
+    /// The address it counts against, `None` for loopback.
+    key: Option<IpAddr>,
+}
+
+impl Slots {
+    fn counts(&self) -> MutexGuard<'_, SlotCounts> {
+        self.0.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn admit(&self, ip: IpAddr) -> Option<Slot> {
+        let mut c = self.counts();
+        if c.total >= MAX_CONNECTIONS {
+            return None;
+        }
+        let key = (!ip.to_canonical().is_loopback()).then(|| ban_key(ip));
+        if let Some(k) = key {
+            let n = c.per_ip.entry(k).or_insert(0);
+            if *n >= MAX_PER_IP {
+                return None;
+            }
+            *n += 1;
+        }
+        c.total += 1;
+        Some(Slot { slots: self.clone(), key })
+    }
+}
+
+impl Drop for Slot {
     fn drop(&mut self) {
-        self.0.fetch_sub(1, Ordering::SeqCst);
+        let mut c = self.slots.counts();
+        c.total -= 1;
+        if let Some(k) = self.key {
+            if let Some(n) = c.per_ip.get_mut(&k) {
+                *n -= 1;
+                if *n == 0 {
+                    c.per_ip.remove(&k);
+                }
+            }
+        }
     }
 }
 
@@ -341,18 +406,32 @@ fn connection(stream: TcpStream, peer: SocketAddr, shared: &Shared) {
     }
 }
 
-/// Sends a final response, then reads (and drops) what the client is still sending for a
-/// moment before closing, so the close does not reset the connection and lose the response
-/// (a "lingering close").
+/// Sends a final response, then closes with [`linger`].
 fn send_and_close(stream: &mut Conn, r: &Response) {
     if !send(stream, r, false, false) {
         return;
     }
     stream.shutdown_write();
-    stream.set_read_timeout(Duration::from_secs(2));
+    linger(stream);
+}
+
+/// How long a closing connection is read in all.
+const LINGER: Duration = Duration::from_secs(2);
+
+/// A "lingering close": reads (and drops) what the client is still sending for up to
+/// [`LINGER`] in all and at most 1 MiB, so the close does not reset the connection and lose the
+/// last response. The limit is on the total time, not each read, so a client trickling a byte
+/// at a time cannot keep the connection, and its slot, for longer (SEC-04).
+fn linger(stream: &mut Conn) {
+    let deadline = Instant::now() + LINGER;
     let mut sink = [0u8; 16 * 1024];
     let mut left: usize = 1024 * 1024;
     while left > 0 {
+        let wait = deadline.saturating_duration_since(Instant::now());
+        if wait.is_zero() {
+            break;
+        }
+        stream.set_read_timeout(wait);
         match stream.read(&mut sink) {
             Ok(0) | Err(_) => break,
             Ok(n) => left = left.saturating_sub(n),
@@ -426,11 +505,8 @@ fn websocket(mut stream: Conn, mut buf: Vec<u8>, shared: &Shared, key: &str) {
             ws::write_close(code, &reason, &mut out);
             write_out(&mut stream, &out);
             stream.shutdown_write();
-            // read what the client still sends (its close frame) for a moment, as a lingering
-            // close, so it sees ours
-            stream.set_read_timeout(Duration::from_secs(2));
-            let mut sink = [0u8; 4096];
-            while matches!(stream.read(&mut sink), Ok(n) if n > 0) {}
+            // read what the client still sends (its close frame) for a moment, so it sees ours
+            linger(&mut stream);
             return;
         }
         // a new status tick, and the session's health
@@ -474,5 +550,65 @@ fn websocket(mut stream: Conn, mut buf: Vec<u8>, shared: &Shared, key: &str) {
             ReadOutcome::Data | ReadOutcome::TimedOut => {}
             ReadOutcome::Closed => return,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// SEC-04: one address holds at most `MAX_PER_IP` slots (an IPv6 /64 as one address), the
+    /// others keep theirs, a freed slot can be taken again, and loopback (a reverse proxy) only
+    /// meets the global limit.
+    #[test]
+    fn slots_are_limited_per_address() {
+        let slots = Slots::default();
+        let ip = |s: &str| s.parse::<IpAddr>().unwrap();
+        let mut held: Vec<Slot> = (0..MAX_PER_IP).map(|_| slots.admit(ip("10.0.0.1")).unwrap()).collect();
+        assert!(slots.admit(ip("10.0.0.1")).is_none());
+        assert!(slots.admit(ip("::ffff:10.0.0.1")).is_none(), "the same address, IPv4-mapped");
+        let other = slots.admit(ip("10.0.0.2")).unwrap();
+        held.pop();
+        assert!(slots.admit(ip("10.0.0.1")).is_some(), "a freed slot is free again");
+
+        let v6: Vec<Slot> =
+            (0..MAX_PER_IP).map(|i| slots.admit(ip(&format!("2001:db8::{i}"))).unwrap()).collect();
+        assert!(slots.admit(ip("2001:db8::ffff")).is_none(), "one /64 is one address");
+        assert!(slots.admit(ip("2001:db8:0:1::1")).is_some());
+        drop((other, v6));
+
+        drop(held);
+        let local: Vec<Slot> = std::iter::from_fn(|| slots.admit(ip("127.0.0.1"))).collect();
+        assert_eq!(local.len(), MAX_CONNECTIONS, "loopback: the global limit only");
+        assert!(slots.admit(ip("10.0.0.3")).is_none(), "the global limit holds for everyone");
+        drop(local);
+        assert_eq!(slots.counts().total, 0);
+        assert!(slots.counts().per_ip.is_empty());
+    }
+
+    /// SEC-04: a client trickling a byte at a time after an error answer no longer keeps the
+    /// connection for up to 1 MiB of reads; the lingering close ends after `LINGER` in all.
+    #[test]
+    fn a_trickling_client_does_not_hold_a_lingering_close() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok(mut s) = TcpStream::connect(addr) else { return };
+            for _ in 0..600 {
+                if s.write_all(b"x").is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+        });
+        let (stream, _) = l.accept().unwrap();
+        let mut conn = Conn::Plain(stream);
+        let start = Instant::now();
+        send_and_close(&mut conn, &Response::text(400, "bad request"));
+        let took = start.elapsed();
+        assert!(
+            took >= LINGER - Duration::from_millis(200) && took < LINGER + Duration::from_secs(1),
+            "{took:?}"
+        );
     }
 }

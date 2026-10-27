@@ -570,6 +570,16 @@ fn failed_logins_get_the_address_banned() {
     assert_eq!(r.status, 403);
     assert!(r.text().contains("banned"));
     assert_eq!(t.req("GET", "/api/v2/app/version", &[], Body::None).status, 403);
+
+    // SEC-04: a banned address is answered at once, before it sends a request, so it holds a
+    // slot only for the lingering close (before, it waited up to 20 s for a head)
+    let mut s = TcpStream::connect(t.addr).unwrap();
+    s.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let start = Instant::now();
+    let mut answer = String::new();
+    s.read_to_string(&mut answer).expect("answered and closed without a request");
+    assert!(answer.starts_with("HTTP/1.1 403 ") && answer.contains("banned"), "{answer}");
+    assert!(start.elapsed() < Duration::from_secs(4), "{:?}", start.elapsed());
 }
 
 #[test]

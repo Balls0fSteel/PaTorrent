@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_152058_1793114458: Security fix SEC-04: Web UI slots before login
+
+- **Lingering close:** both (after an error answer and after a WebSocket close) now stop after 2 s in all, not 2 s per read; one client trickling a byte every 1.9 s used to hold a slot for up to 1 MiB of reads, and 64 of them locked everyone out.
+- **Slots:** the acceptor admits 64 connections in all and 8 per address (an IPv6 /64 counting as one, like bans). Loopback has no per-address limit, so a reverse proxy on the same machine keeps working.
+- **Bans at accept:** a banned address gets its 403 before anything is read and holds its slot only for the linger. Answering straight from the acceptor was tried first: Windows reset the connection over the unread request and the client lost the 403, and lingering in the acceptor would stall every accept. The banned text is now one constant (`api::BANNED`).
+- Validation: unit tests for the slot accounting and the trickling client (2 s instead of about 60 s), the accept-time ban in the Web UI ban test; core, frontend, nox and Win32 suites pass; workspace clippy and rustfmt clean. Still open: an overall TLS handshake deadline, the JSON duplicate-key cost (after login).
+
 ## 2026-10-27_150953_1793113793: Security fix SEC-16: imports are checked, feeds cannot nest forever
 
 - **Decision D36** (owner; supersedes D35's "trusting their pieces"): imported records lose their claimed and partial pieces, so the engine checks the files, and every `mapped_files` path is cleaned element by element into the save folder. The confirm question now lists the save folders (up to 12, then a count). A crafted backup can no longer get a private file of the right length seeded or map a download into Startup.

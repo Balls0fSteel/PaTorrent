@@ -133,7 +133,7 @@ pub struct BanList {
 
 /// What a client's failures are counted under: an IPv4 address (IPv4-mapped IPv6 included) as
 /// is, an IPv6 address with its last 64 bits cleared.
-fn ban_key(ip: IpAddr) -> IpAddr {
+pub(crate) fn ban_key(ip: IpAddr) -> IpAddr {
     match ip.to_canonical() {
         IpAddr::V6(v6) => IpAddr::V6((u128::from(v6) & !u128::from(u64::MAX)).into()),
         v4 => v4,

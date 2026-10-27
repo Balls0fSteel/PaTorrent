@@ -1,6 +1,8 @@
 //! A small JSON value with a writer and a parser (RFC 8259), enough for the WebAPI's replies,
 //! `setPreferences` and the Web UI's own state file. Objects keep their insertion order.
 
+use std::collections::HashMap;
+use std::collections::hash_map::Entry;
 use std::fmt::Write as _;
 
 #[derive(Clone, Debug, PartialEq)]
@@ -214,6 +216,10 @@ impl From<Vec<Json>> for Json {
 /// Deepest nesting [`parse`] accepts, so hostile input cannot exhaust the stack.
 pub const MAX_DEPTH: usize = 64;
 
+/// Objects with more keys than this look for a repeated key in a map instead of scanning, so a
+/// large object (a body may be 100 MiB) parses in linear time (SEC-04).
+const SCAN_KEYS: usize = 16;
+
 /// Parses one JSON text (surrounding whitespace allowed).
 pub fn parse(s: &str) -> Result<Json, String> {
     let mut p = Parser { b: s.as_bytes(), i: 0 };
@@ -259,7 +265,9 @@ impl Parser<'_> {
         match c {
             b'{' => {
                 self.i += 1;
-                let mut m = Vec::new();
+                let mut m: Vec<(String, Json)> = Vec::new();
+                // where each key is, once the object is too big to scan for a repeated one
+                let mut index: HashMap<String, usize> = HashMap::new();
                 self.ws();
                 if self.eat("}") {
                     return Ok(Json::Obj(m));
@@ -275,9 +283,24 @@ impl Parser<'_> {
                         return self.err("expected ':'");
                     }
                     let v = self.value(depth + 1)?;
-                    match m.iter_mut().find(|(key, _): &&mut (String, Json)| *key == k) {
-                        Some(slot) => slot.1 = v,
-                        None => m.push((k, v)),
+                    // a repeated key keeps its place and takes the last value
+                    if m.len() < SCAN_KEYS {
+                        match m.iter().position(|(key, _)| *key == k) {
+                            Some(i) => m[i].1 = v,
+                            None => m.push((k, v)),
+                        }
+                        if m.len() == SCAN_KEYS {
+                            index = m.iter().enumerate().map(|(i, (key, _))| (key.clone(), i)).collect();
+                        }
+                    } else {
+                        match index.entry(k) {
+                            Entry::Occupied(e) => m[*e.get()].1 = v,
+                            Entry::Vacant(e) => {
+                                let k = e.key().clone();
+                                e.insert(m.len());
+                                m.push((k, v));
+                            }
+                        }
                     }
                     self.ws();
                     if self.eat(",") {
@@ -466,6 +489,27 @@ mod tests {
         let deep = "[".repeat(MAX_DEPTH + 2) + &"]".repeat(MAX_DEPTH + 2);
         assert!(parse(&deep).is_err());
         assert_eq!(parse(r#"{"a":1,"a":2}"#).unwrap(), Json::obj().with("a", 2i64));
+    }
+
+    /// SEC-04: a repeated key is found through a map in a big object, so one with many keys
+    /// parses in linear time; a repeated key still keeps its first place and its last value.
+    #[test]
+    fn a_big_object_parses_in_linear_time() {
+        let n = 60_000;
+        let mut text = String::from("{");
+        for i in 0..n {
+            write!(text, "\"key{i}\":{i},").unwrap();
+        }
+        text.push_str("\"key3\":-3,\"key40\":-40}");
+        let start = std::time::Instant::now();
+        let v = parse(&text).unwrap();
+        let took = start.elapsed();
+        let Json::Obj(m) = &v else { panic!("not an object") };
+        assert_eq!(m.len(), n);
+        assert_eq!(m[3], ("key3".to_owned(), Json::Int(-3)));
+        assert_eq!(m[40], ("key40".to_owned(), Json::Int(-40)));
+        assert_eq!(m[n - 1].0, format!("key{}", n - 1));
+        assert!(took < std::time::Duration::from_secs(2), "{took:?}");
     }
 
     #[test]

@@ -26,6 +26,9 @@ const HEAD_TIMEOUT: Duration = Duration::from_secs(20);
 /// A request body must arrive within this long of the head.
 const BODY_TIMEOUT: Duration = Duration::from_secs(120);
 const WRITE_TIMEOUT: Duration = Duration::from_secs(30);
+/// An HTTPS connection's TLS handshake (or a plain-HTTP request head on the HTTPS port) must be
+/// done within this long of the connection's start.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(20);
 /// The path that upgrades to the native WebSocket.
 pub const WS_PATH: &str = "/pa/ws";
 /// How long a WebSocket thread blocks in `read` before it looks for a new status tick, so a
@@ -164,14 +167,55 @@ pub(super) fn wake(addr: SocketAddr) {
 /// A client's connection: plain HTTP, or HTTPS once the TLS handshake is done.
 pub(super) enum Conn {
     Plain(TcpStream),
-    Tls(Box<tls::Stream<TcpStream>>),
+    Tls(Box<tls::Stream<Socket>>),
+}
+
+/// The socket under a TLS session. Until `deadline` (the handshake's, SEC-04) every read and
+/// write waits at most until then, so a client trickling its handshake a byte at a time cannot
+/// keep the connection longer than [`HANDSHAKE_TIMEOUT`] in all.
+pub(super) struct Socket {
+    tcp: TcpStream,
+    deadline: Option<Instant>,
+}
+
+impl Socket {
+    /// The time left before the deadline (`TimedOut` once it passed), set on the socket.
+    fn before_deadline(
+        &self,
+        set: impl Fn(&TcpStream, Option<Duration>) -> io::Result<()>,
+    ) -> io::Result<()> {
+        let Some(deadline) = self.deadline else { return Ok(()) };
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return Err(ErrorKind::TimedOut.into());
+        }
+        set(&self.tcp, Some(left))
+    }
+}
+
+impl Read for Socket {
+    fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.before_deadline(TcpStream::set_read_timeout)?;
+        self.tcp.read(buf)
+    }
+}
+
+impl Write for Socket {
+    fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.before_deadline(TcpStream::set_write_timeout)?;
+        self.tcp.write(buf)
+    }
+
+    fn flush(&mut self) -> io::Result<()> {
+        self.tcp.flush()
+    }
 }
 
 impl Conn {
     fn tcp(&self) -> &TcpStream {
         match self {
             Conn::Plain(s) => s,
-            Conn::Tls(s) => s.get_ref(),
+            Conn::Tls(s) => &s.get_ref().tcp,
         }
     }
 
@@ -216,26 +260,52 @@ fn write_out(stream: &mut Conn, data: &[u8]) -> bool {
     stream.write_all(data).is_ok() && stream.flush().is_ok()
 }
 
-/// The TLS handshake of an HTTPS connection, each read within [`HEAD_TIMEOUT`]. A client that
-/// speaks plain HTTP to the HTTPS port is sent to the `https://` address instead.
+/// The TLS handshake of an HTTPS connection, done within [`HANDSHAKE_TIMEOUT`] of its start. A
+/// client that speaks plain HTTP to the HTTPS port is sent to the `https://` address instead,
+/// within the same time.
 fn start_tls(stream: TcpStream, identity: &tls::Identity, shared: &Shared) -> Option<Conn> {
-    let _ = stream.set_read_timeout(Some(HEAD_TIMEOUT));
+    let deadline = Instant::now() + HANDSHAKE_TIMEOUT;
+    match handshake(stream, identity, deadline) {
+        Ok(tls) => Some(Conn::Tls(Box::new(tls))),
+        Err(Some(plain)) => {
+            redirect_to_https(Conn::Plain(plain), shared, deadline);
+            None
+        }
+        Err(None) => None,
+    }
+}
+
+/// Runs the server side of the handshake until `deadline` in all (SEC-04: each read had its own
+/// timeout before, so a byte every few seconds kept the connection for good). `Err` with the
+/// socket when the client did not start with a TLS record.
+fn handshake(
+    stream: TcpStream,
+    identity: &tls::Identity,
+    deadline: Instant,
+) -> Result<tls::Stream<Socket>, Option<TcpStream>> {
+    let left = deadline.saturating_duration_since(Instant::now());
+    let _ = stream.set_read_timeout(Some(left.max(Duration::from_millis(1))));
     let mut first = [0u8; 1];
     if !matches!(stream.peek(&mut first), Ok(1)) {
-        return None;
+        return Err(None);
     }
     // a TLS connection starts with a handshake record (22)
     if first[0] != 22 {
-        redirect_to_https(Conn::Plain(stream), shared);
-        return None;
+        return Err(Some(stream));
     }
-    let mut tls = tls::Stream::accept(stream, identity).ok()?;
-    tls.handshake().ok()?;
-    Some(Conn::Tls(Box::new(tls)))
+    let socket = Socket { tcp: stream, deadline: Some(deadline) };
+    let mut tls = tls::Stream::accept(socket, identity).map_err(|_| None)?;
+    tls.handshake().map_err(|_| None)?;
+    // the requests' own timeouts from here on
+    let socket = tls.get_mut();
+    socket.deadline = None;
+    let _ = socket.tcp.set_write_timeout(Some(WRITE_TIMEOUT));
+    Ok(tls)
 }
 
-/// Answers a plain-HTTP request on the HTTPS port with a redirect to the same host over HTTPS.
-fn redirect_to_https(mut stream: Conn, shared: &Shared) {
+/// Answers a plain-HTTP request on the HTTPS port with a redirect to the same host over HTTPS,
+/// if its head arrives before `deadline`.
+fn redirect_to_https(mut stream: Conn, shared: &Shared, deadline: Instant) {
     let mut buf = Vec::new();
     let head = loop {
         match parse_head(&buf, &shared.limits) {
@@ -243,6 +313,11 @@ fn redirect_to_https(mut stream: Conn, shared: &Shared) {
             Ok(None) => {}
             Err(_) => return,
         }
+        let left = deadline.saturating_duration_since(Instant::now());
+        if left.is_zero() {
+            return;
+        }
+        stream.set_read_timeout(left);
         if !matches!(read_more(&mut stream, &mut buf), ReadOutcome::Data) {
             return;
         }
@@ -610,5 +685,52 @@ mod tests {
             took >= LINGER - Duration::from_millis(200) && took < LINGER + Duration::from_secs(1),
             "{took:?}"
         );
+    }
+
+    /// SEC-04: a client trickling its TLS handshake a byte at a time (each byte well within a
+    /// read's timeout) is dropped at the handshake's deadline, not when it stops sending.
+    #[test]
+    fn a_trickling_tls_handshake_ends_at_its_deadline() {
+        let pem = tls::generate_self_signed(&["localhost"], 1).unwrap();
+        let identity = tls::Identity::from_pem(pem.cert_pem.as_bytes(), pem.key_pem.as_bytes()).unwrap();
+        // a real ClientHello, caught from a client session that writes into a buffer
+        struct Capture(Vec<u8>);
+        impl Read for Capture {
+            fn read(&mut self, _: &mut [u8]) -> io::Result<usize> {
+                Err(ErrorKind::WouldBlock.into())
+            }
+        }
+        impl Write for Capture {
+            fn write(&mut self, b: &[u8]) -> io::Result<usize> {
+                self.0.extend_from_slice(b);
+                Ok(b.len())
+            }
+            fn flush(&mut self) -> io::Result<()> {
+                Ok(())
+            }
+        }
+        let mut client = tls::Stream::connect(Capture(Vec::new()), "localhost", tls::Verify::System).unwrap();
+        let _ = client.handshake();
+        let hello = std::mem::take(&mut client.get_mut().0);
+        assert!(hello.len() > 50 && hello[0] == 22, "{} bytes", hello.len());
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        std::thread::spawn(move || {
+            let Ok(mut s) = TcpStream::connect(addr) else { return };
+            // a byte every 100 ms: 5 s and more for the hello alone
+            for b in hello {
+                if s.write_all(&[b]).is_err() {
+                    return;
+                }
+                std::thread::sleep(Duration::from_millis(100));
+            }
+            std::thread::sleep(Duration::from_secs(5));
+        });
+        let (stream, _) = l.accept().unwrap();
+        let start = Instant::now();
+        let r = handshake(stream, &identity, start + Duration::from_secs(1));
+        let took = start.elapsed();
+        assert!(matches!(r, Err(None)));
+        assert!(took < Duration::from_secs(3), "{took:?}");
     }
 }

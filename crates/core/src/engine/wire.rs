@@ -701,11 +701,12 @@ impl Engine {
 
     fn on_request(&mut self, slot: usize, piece: u32, start: u32, length: u32) {
         let max_in = self.settings.max_allowed_in_request_queue.max(1) as usize;
+        let watermark = self.settings.send_buffer_watermark;
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
         let Some(t) = t else { return };
         // Super seeding: only the offered pieces (libtorrent `incoming_request`).
         if p.superseed.is_some_and(|o| !o.contains(&Some(piece))) {
-            if p.supports_fast {
+            if p.supports_fast && super::room_for_reject(p, watermark) {
                 peer_wire::encode_block_msg(p.out(), msg::REJECT, piece, start, length);
                 self.to_flush.push(slot);
             }
@@ -719,8 +720,11 @@ impl Engine {
         let allowed = !p.am_choking || p.fast_set.contains(&piece);
         if !valid || !allowed || p.upload_queue.len() + p.reads_in_flight.len() >= max_in {
             if p.supports_fast {
-                peer_wire::encode_block_msg(p.out(), msg::REJECT, piece, start, length);
-                self.to_flush.push(slot);
+                // past the watermark the peer is not reading: a reject would only pile up
+                if super::room_for_reject(p, watermark) {
+                    peer_wire::encode_block_msg(p.out(), msg::REJECT, piece, start, length);
+                    self.to_flush.push(slot);
+                }
             } else if !valid && allowed {
                 p.close("invalid request", true);
             }

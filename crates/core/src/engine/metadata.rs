@@ -66,6 +66,7 @@ impl Engine {
     pub(super) fn on_metadata_message(&mut self, slot: usize, payload: &[u8]) {
         let now = Instant::now();
         let max_size = self.settings.max_metadata_size.max(0) as usize;
+        let watermark = self.settings.send_buffer_watermark;
         let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
         if p.meta.message_id == 0 || private(t) {
             return;
@@ -83,13 +84,17 @@ impl Engine {
                 let size = t.ti.as_ref().filter(|_| t.has_metadata()).map(|ti| ti.info_section().len());
                 let valid = size.and_then(|n| ut_metadata::block_range(n, piece)).is_some();
                 let ext_id = p.meta.message_id;
+                // past the watermark the peer is not reading: a reject would only pile up (SEC-10)
+                let reject = super::room_for_reject(p, watermark);
                 if !valid {
-                    ut_metadata::encode(p.out(), ext_id, msg::REJECT, piece, size, &[]);
+                    if reject {
+                        ut_metadata::encode(p.out(), ext_id, msg::REJECT, piece, size, &[]);
+                    }
                 } else if p.send_buffer_len() < ut_metadata::SEND_BUFFER_LIMIT {
                     send_block(p, t, piece as u32);
                 } else if p.meta.incoming_requests.len() < ut_metadata::MAX_INCOMING_REQUESTS {
                     p.meta.incoming_requests.push_back(piece as u32);
-                } else {
+                } else if reject {
                     ut_metadata::encode(p.out(), ext_id, msg::REJECT, piece, size, &[]);
                 }
                 self.to_flush.push(slot);

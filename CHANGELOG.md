@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_152737_1793114857: Security fix SEC-10: send buffers and the MSE handshake
+
+- **Rejects:** a REJECT (peer wire, super seeding, ut_metadata) is queued only while the peer's send buffer is below `send_buffer_watermark`; past it the peer is not reading, and each further request used to add 17 bytes for good.
+- **Backstop:** a peer whose send buffer passes `max(4 MiB, 4 × watermark)` is disconnected when it next sends ("peer does not read: send buffer full"); uploads and metadata stop near their own limits, so only a peer that does not read gets there.
+- **MSE:** the peer's Diffie-Hellman key must be in `2..=p-2` (`PeError::InvalidDhKey`), and the sync point must lie within the 512-byte pad even when it all arrives in one read.
+- Validation: a raw peer sending 1,000,000 invalid requests without reading gets about 30,000 rejects (all of them before); with the reject check disabled the test fails because the 4 MiB backstop drops the peer, so both layers are exercised. Unit tests for degenerate keys and pad offsets 0/512/513/5000. Core, frontend, nox and Win32 suites pass; workspace clippy and rustfmt clean.
+
 ## 2026-10-27_152058_1793114458: Security fix SEC-04: Web UI slots before login
 
 - **Lingering close:** both (after an error answer and after a WebSocket close) now stop after 2 s in all, not 2 s per read; one client trickling a byte every 1.9 s used to hold a slot for up to 1 MiB of reads, and 64 of them locked everyone out.

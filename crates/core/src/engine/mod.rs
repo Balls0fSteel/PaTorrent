@@ -102,6 +102,19 @@ const PIECE_TIMEOUT: Duration = Duration::from_secs(20);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(90);
 const MAX_READS_IN_FLIGHT: usize = 8;
 
+/// The most a peer's send buffer may hold before the peer is dropped: uploads stop near
+/// `send_buffer_watermark` and metadata near `ut_metadata::SEND_BUFFER_LIMIT`, so only a peer
+/// that does not read gets here (SEC-10).
+fn max_send_buffer(watermark: u32) -> usize {
+    (4 * 1024 * 1024).max(4 * watermark as usize)
+}
+
+/// Whether a REJECT may still be queued: past the upload watermark the peer is not reading,
+/// and answering every further request would only grow the buffer (SEC-10).
+fn room_for_reject(p: &peer::PeerConn, watermark: u32) -> bool {
+    p.send_buffer_len() < watermark.max(BLOCK_SIZE) as usize
+}
+
 /// A slab with stable indices (freed slots are reused).
 pub(crate) struct Slab<T> {
     entries: Vec<Option<T>>,
@@ -1127,11 +1140,18 @@ impl Engine {
 
     /// Reads at most `share` bytes: the peer's share when several wait for quota.
     fn do_read_capped(&mut self, slot: usize, mut share: usize) {
+        let send_cap = max_send_buffer(self.settings.send_buffer_watermark);
         loop {
             let backlogged = self.disk_backlogged();
             let class_quota = self.peer_quota(slot, peer_class::DOWNLOAD);
             let Some((p, _, utp, _)) = self.peer_io(slot) else { return };
             if p.closing.is_some() || p.state == PeerState::Connecting {
+                return;
+            }
+            // what it sends makes us answer; one that never reads what we answer would grow our
+            // send buffer until we run out of memory (SEC-10)
+            if p.send_buffer_len() > send_cap {
+                p.close("peer does not read: send buffer full", true);
                 return;
             }
             let quota = class_quota.min(share);

@@ -57,6 +57,8 @@ pub enum PeError {
     InvalidPadSize,
     /// `len(IA)` longer than a handshake.
     InvalidEncryptHandshake,
+    /// A Diffie-Hellman public key that pins the shared secret (0, 1, p-1 or out of range).
+    InvalidDhKey,
 }
 
 impl std::fmt::Display for PeError {
@@ -69,6 +71,7 @@ impl std::fmt::Display for PeError {
             PeError::UnsupportedEncryptionModeSelected => "peer selected unsupported encryption mode",
             PeError::InvalidPadSize => "invalid pad size",
             PeError::InvalidEncryptHandshake => "invalid encrypted handshake",
+            PeError::InvalidDhKey => "invalid Diffie-Hellman key",
         })
     }
 }
@@ -228,7 +231,9 @@ impl PeHandshake {
                     self.write_pe1_2_dhkey(out);
                 }
                 let remote: [u8; DH_KEY_LEN] = buf[..DH_KEY_LEN].try_into().expect("96 bytes");
-                self.dh.as_mut().expect("created").compute_secret(&remote);
+                if !self.dh.as_mut().expect("created").compute_secret(&remote) {
+                    return Err(PeError::InvalidDhKey);
+                }
                 if self.outgoing {
                     self.stage = Stage::SyncVc;
                     self.write_pe3_sync(out);
@@ -377,7 +382,12 @@ impl PeHandshake {
         }
         let (needle, _) = self.sync.expect("set by the caller");
         let needle = &needle[..len];
-        match buf.windows(len).position(|w| w == needle) {
+        // the pad before the sync point is at most 512 bytes, so it can start no later than
+        // that; searching all of a large read would accept it further on (SEC-10)
+        let max_start = 512usize.saturating_sub(self.sync_bytes_read);
+        let window = &buf[..buf.len().min(max_start + len)];
+        match window.windows(len).position(|w| w == needle) {
+            None if buf.len() >= max_start + len => Err(err),
             None => {
                 // Keep the last len - 1 bytes: the sync point may straddle two reads.
                 let processed = buf.len() - len;
@@ -624,6 +634,33 @@ mod tests {
         assert_eq!((n, step), (280, PeStep::Continue));
         let mut more = vec![0x33u8; 300];
         assert_eq!(b.feed(&mut more, &mut out, &mut none), Err(PeError::SyncHashNotFound));
+    }
+
+    /// SEC-10: the sync point must come within the 512-byte pad even when everything arrives
+    /// in one read; before, any offset in the read was accepted. And a peer's DH key that pins
+    /// the secret ends the handshake.
+    #[test]
+    fn the_sync_point_and_key_are_checked() {
+        for (pad, ok) in [(0, true), (512, true), (513, false), (5000, false)] {
+            let mut b = PeHandshake::incoming(EncLevel::Both, false);
+            b.sync = Some(([0xab; 20], 20));
+            b.stage = Stage::SyncHash;
+            let mut buf = vec![0x33u8; pad];
+            buf.extend_from_slice(&[0xab; 20]);
+            buf.extend_from_slice(&[0u8; 64]);
+            let r = b.sync_to(&buf, 20, Stage::SkeyVc, PeError::SyncHashNotFound);
+            assert_eq!(r.is_ok(), ok, "pad {pad}: {r:?}");
+            if ok {
+                assert_eq!(r.unwrap().0, pad + 20);
+            }
+        }
+
+        let mut b = PeHandshake::incoming(EncLevel::Both, false);
+        let mut none = |_: &Sha1Hash| None;
+        let mut out = Vec::new();
+        let mut one = vec![0u8; DH_KEY_LEN];
+        one[DH_KEY_LEN - 1] = 1;
+        assert_eq!(b.feed(&mut one, &mut out, &mut none), Err(PeError::InvalidDhKey));
     }
 
     #[test]

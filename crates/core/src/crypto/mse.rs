@@ -261,11 +261,20 @@ impl DhKeyExchange {
     }
 
     /// Derives the shared secret `remote ^ secret mod p` from the peer's public key, and the
-    /// xor mask `SHA-1("req3", S)` for the obfuscated stream-key hash.
-    pub fn compute_secret(&mut self, remote_pubkey: &[u8; DH_KEY_LEN]) {
+    /// xor mask `SHA-1("req3", S)` for the obfuscated stream-key hash. `false` (nothing derived)
+    /// for a key outside `2..=p-2`: 0, 1 and p-1 (or anything from p up) give a secret that
+    /// anyone can tell without our exponent (SEC-10).
+    pub fn compute_secret(&mut self, remote_pubkey: &[u8; DH_KEY_LEN]) -> bool {
         let remote = U768::from_be_bytes(remote_pubkey);
+        let two = U768([2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let mut p_minus_2 = montgomery().p;
+        p_minus_2.sub_assign(&two);
+        if remote.cmp(&two) == Ordering::Less || remote.cmp(&p_minus_2) == Ordering::Greater {
+            return false;
+        }
         self.shared_secret = montgomery().powm(&remote, &self.local_secret).to_be_bytes();
         self.xor_mask = req_hash(b"req3", &self.shared_secret);
+        true
     }
 
     /// The shared secret `S`, big-endian, after [`compute_secret`](Self::compute_secret).
@@ -487,8 +496,8 @@ mod tests {
             let mut dh1 = DhKeyExchange::new();
             let mut dh2 = DhKeyExchange::new();
             let (k1, k2) = (*dh1.local_key(), *dh2.local_key());
-            dh1.compute_secret(&k2);
-            dh2.compute_secret(&k1);
+            assert!(dh1.compute_secret(&k2));
+            assert!(dh2.compute_secret(&k1));
             assert_eq!(dh1.secret(), dh2.secret());
             assert_eq!(dh1.hash_xor_mask(), dh2.hash_xor_mask());
             assert_eq!(*dh1.hash_xor_mask(), req_hash(b"req3", dh1.secret()));
@@ -531,13 +540,35 @@ mod tests {
         assert_eq!(U768::from_be_bytes(&DH_PRIME).to_be_bytes(), DH_PRIME);
     }
 
+    /// SEC-10: public keys that pin the shared secret (0, 1, p-1, p and above) are refused.
+    #[test]
+    fn degenerate_public_keys_are_refused() {
+        let mut dh = DhKeyExchange::new();
+        let int = |v: u8| {
+            let mut k = [0u8; DH_KEY_LEN];
+            k[DH_KEY_LEN - 1] = v;
+            k
+        };
+        let p_minus = |d: u64| {
+            let mut v = U768::from_be_bytes(&DH_PRIME);
+            v.sub_assign(&U768([d, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0]));
+            v.to_be_bytes()
+        };
+        for bad in [int(0), int(1), p_minus(1), p_minus(0), [0xff; DH_KEY_LEN]] {
+            assert!(!dh.compute_secret(&bad));
+            assert_eq!(*dh.secret(), [0; DH_KEY_LEN], "nothing derived");
+        }
+        assert!(dh.compute_secret(&int(2)));
+        assert!(dh.compute_secret(&p_minus(2)));
+    }
+
     #[test]
     fn derived_keys_pair_up_across_the_connection() {
         let mut dh1 = DhKeyExchange::new();
         let mut dh2 = DhKeyExchange::new();
         let (k1, k2) = (*dh1.local_key(), *dh2.local_key());
-        dh1.compute_secret(&k2);
-        dh2.compute_secret(&k1);
+        assert!(dh1.compute_secret(&k2));
+        assert!(dh2.compute_secret(&k1));
         let ih = Sha1::digest(b"a torrent");
         let mut out = Rc4Handler::for_connection(dh1.secret(), &ih, true);
         let mut inc = Rc4Handler::for_connection(dh2.secret(), &ih, false);

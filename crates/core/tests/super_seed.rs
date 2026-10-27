@@ -370,6 +370,46 @@ fn request(c: &mut TcpStream, f: &Fixture, piece: u32) -> u8 {
     }
 }
 
+/// SEC-10: a peer that sends requests but never reads used to get a REJECT queued for every
+/// one, growing the seed's send buffer without end. Past the upload watermark (500 KiB) they
+/// are dropped, so of a million invalid requests only what fits arrives once it reads.
+#[test]
+fn a_peer_that_does_not_read_gets_no_endless_rejects() {
+    const N: usize = 1_000_000;
+    let f = fixture();
+    let seed = super_seed(&f);
+    let mut c = scripted(&f, seed.port);
+    let mut flood = Vec::with_capacity(N * 17);
+    for _ in 0..N {
+        flood.extend_from_slice(&13u32.to_be_bytes());
+        flood.push(6);
+        for v in [u32::MAX, 0, 16 * 1024] {
+            flood.extend_from_slice(&v.to_be_bytes());
+        }
+    }
+    c.write_all(&flood).unwrap();
+    // now read what came, until it goes quiet
+    c.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+    let mut r = std::io::BufReader::new(&c);
+    let mut rejects = 0;
+    loop {
+        let mut len = [0u8; 4];
+        if r.read_exact(&mut len).is_err() {
+            break;
+        }
+        let mut msg = vec![0u8; u32::from_be_bytes(len) as usize];
+        if r.read_exact(&mut msg).is_err() {
+            break;
+        }
+        rejects += usize::from(msg.first() == Some(&16));
+    }
+    assert!(rejects > 0, "rejects are still sent while there is room");
+    assert!(rejects < N / 2, "{rejects} rejects were queued for a peer that did not read");
+    eprintln!("{rejects} of {N} requests rejected");
+    seed.session.shutdown();
+    let _ = std::fs::remove_dir_all(seed.dir);
+}
+
 #[test]
 fn requests_for_pieces_not_offered_are_rejected_and_a_have_brings_the_next_offer() {
     let f = fixture();

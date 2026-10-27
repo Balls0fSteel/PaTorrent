@@ -1,6 +1,6 @@
 # Detailed backlog
 
-Last updated: 2026-10-26_212009_1793049609 (Europe/Budapest).
+Last updated: 2026-10-27_091619_1793088979 (Europe/Budapest).
 
 Start with [PLAN.md](../PLAN.md) for priorities and release gates. Load only the
 topic needed here. These are open checks, known limitations and conditional
@@ -467,6 +467,55 @@ That broad check does not establish that every detailed case below was tried.
   `github-pages` environment takes `main` and `v*` tags). The first release
   published after this will be the first release-event run. Its screenshots
   are from the Win32 demo; GTK and Web UI screenshots would help.
+
+## V1.1: importers, search and hooks
+
+Explored 2026-10-27_091619_1793088979 from the code and the owner's µTorrent
+folder; nothing is designed or built. PLAN.md "V1.1 goals" has the summary.
+
+- **qBittorrent `BT_backup`** (`%LOCALAPPDATA%\qBittorrent\BT_backup`,
+  `~/.local/share/qBittorrent/BT_backup`): `<hash>.torrent` plus
+  `<hash>.fastresume`, a libtorrent resume record. `resume.rs` already parses
+  libtorrent's keys (`pieces`, `unfinished`, totals, times, `file_priority`,
+  `mapped_files`, `trackers`, peers, limits). qBittorrent adds `qBt-savePath`,
+  `qBt-name`, `qBt-category`, `qBt-tags`, `qBt-ratioLimit`,
+  `qBt-seedingTimeLimit`, `qBt-contentLayout`, `qBt-firstLastPiecePrio` and the
+  stopped flag; check which versions write which (4.x vs 5.x) on real files.
+  Magnets without metadata have no `.torrent`. qBittorrent's optional SQLite
+  store (`torrents.db`) would need a dependency; out of scope unless asked.
+  Tags have no µTorrent equivalent: first tag as label, or category only?
+- **µTorrent `resume.dat`** (beside `settings.dat`): a dictionary keyed by the
+  `.torrent` file's name in the settings folder, plus `.fileguard`. Known
+  fields: `path`, `caption`, `label` / `labels`, `added_on`, `completed_on`,
+  `downloaded`, `uploaded`, `have` (piece bitfield), `prio` (one byte per file),
+  `trackers`, `started`, `seedtime`, `runtime`, `targets` (renamed files) and
+  per-torrent limits; confirm against a real 2.2.1 file. The copy in
+  `z_exclude_uTorrent/` holds only `.fileguard`: add a few torrents (single
+  file, multi-file, partial, renamed file, label, magnet) in that µTorrent to
+  make a test fixture. `settings.dat` could seed our Preferences too (port,
+  limits, folders); decide whether that is in scope.
+- **Shared importer:** a frontend module turning either source into engine
+  records plus labels; the engine needs a public way to add a torrent from a
+  resume record (`ResumeData` is `pub(crate)`), with the option to recheck
+  instead of trusting the source's bitfield. Entry points: File > Import in
+  both GUIs (µTorrent had none; wording to decide), a nox option and maybe
+  the first-run. Read-only on the source; refuse while the source client runs
+  (both rewrite their files on exit); report skipped torrents (missing data
+  folder, unreadable record, already in the list).
+- **Local search/filter:** `Filter` in `model.rs` is a category or a label; a
+  case-insensitive name filter there applies after it, for Win32, GTK and the
+  Web UI's per-client model alike. Measure at 100,000 rows (filter on every
+  keystroke vs debounced). 2.2.1's toolbar search box sent the text to a web
+  search engine chosen from its drop-down; options: a "this list" entry in that
+  drop-down, a separate field, or Ctrl+F. Also decide whether it matches only
+  the name or also label, tracker and save path.
+- **Plugin hooks:** compiled-in Rust traits need a concrete first user before an
+  API: a completion action beside Run Program, an RSS or search source, or a
+  custom column. Without one, move it to V2.0.
+- **Other V1.1 candidates from this backlog** (owner to choose): nox update
+  check; the installer built in `ci.yml`; a winget manifest; the qBittorrent
+  shim gaps Sonarr and Radarr need (tags, search, logs); remote-mode automation
+  conflicts; RSS conditional GET and gzip; BEP 44 / 51 / 55.
 
 ## Validation and development environment
 

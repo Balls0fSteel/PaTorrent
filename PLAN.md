@@ -1,8 +1,8 @@
 # PaTorrent plan
 
-Last updated: 2026-10-27_090712_1793088432
+Last updated: 2026-10-27_091619_1793088979
 
-Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D33](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
+Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D34](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
 ## Vision
 
@@ -19,7 +19,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 ## Current status
 
 - **1.0.0-rc.1 is published** (2026-10-27, tag `v1.0.0-rc.1` on `6ed8f6c2`, [release](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1), pre-release): Release run 40462743583 built all 13 files (121 MB) and the draft was checked and published. The release text is `docs/releases/1.0.0-rc.1.md`; the Windows zip was started here, the other files only on the runners. Bug reports from it feed the gates below.
-- Release candidate, working toward the full 1.0 scope (D19): Win32, GTK and nox; v2 / hybrid torrents; localisation; HTTPS and remote mode. These features are implemented; the remaining work is validation, release gates and specific follow-ups below. The owner ran the GTK GUI and found it fine on 2026-10-23; wider testers come with the release candidate.
+- **The next release is 1.0.0, not another candidate** (owner, D34, 2026-10-27): rc.1 runs fine. The full 1.0 scope (D19: Win32, GTK and nox; v2 / hybrid torrents; localisation; HTTPS and remote mode) is implemented; the open hand checks in Road to 1.0 continue as 1.0.x validation and no longer block the release. The owner ran the GTK GUI and found it fine on 2026-10-23; wider testers come with the release candidate.
 - Latest Win32 changes (2026-10-23): Add New Torrent uses the resizable one-column layout, separate Save In / Name fields, a remembered size and "Don't show this again"; dialogs use the system message font (Segoe UI 9 pt here). They are tested but not yet in a refreshed hand-test set. See the recent [changelog](CHANGELOG.md).
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), Windows built locally and Linux / Windows artifacts from Release `39950546995`. It carries the full-row selection, routed-interface UPnP and connected-peer-list fixes, but predates the latest dialog changes. Older sets remain in `dist/1.0-test-ad714b1/` and `dist/1.0-test/`. The first set's Linux binaries/AppImages passed a command-line smoke check; later sets were not desktop-smoked, and Flatpak was not installed.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
@@ -29,15 +29,15 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-1. Check CI on `73736841` and the rest of Release run 40470860315 (macOS, Flatpaks). Hand-test the installer on a clean machine: the wizard, all users through UAC, upgrade, uninstall (RELEASING.md, Windows installer).
-2. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
+1. **Release 1.0.0** (item 14, RELEASING.md): Release dry run 40470860315 passed every job (macOS and Flatpaks too), but no CI run has finished green since rc.1 (`9692f69f` and `73736841` were cancelled by newer pushes; `ddbac857` was running). Wait for a green CI, set version `1.0.0`, write `docs/releases/1.0.0.md` (what changed since rc.1: installer, update check, version display, website), tag and publish; then the Pages run puts `stable=1.0.0` in `update.txt`. 1.0.0 is the installer's first release: run its wizard and the all-users UAC path once on a real PC before tagging if possible.
+2. After 1.0.0: plan V1.1 (below) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 3. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 4. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
 5. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
 
 ## Road to 1.0
 
-Original gate numbers are retained for references in source comments and release docs. "Implemented" does not close a pending hand check. D19-D23 define the approved scope.
+Original gate numbers are retained for references in source comments and release docs. "Implemented" does not close a pending hand check. D19-D23 define the approved scope. Since D34 the open checks are 1.0.x validation, not release blockers; only item 14 stands between rc.1 and 1.0.0.
 
 | # | Gate | Remaining work |
 |---|---|---|
@@ -54,11 +54,11 @@ Original gate numbers are retained for references in source comments and release
 | 11 | Service integration | Run the nox Windows service under the real elevated SCM, including restart-on-failure and shutdown behavior. Install and exercise FreeBSD rc.d with root (only syntax-checked so far). |
 | 12 | Final interop rerun | Use release builds: plain, RC4, TCP, uTP, uTP-only and super-seed with qBittorrent, Transmission and Deluge; v2/hybrid where supported. Transmission/Deluge uTP and super-seed switches remain unverified. Known Linux results: Transmission rejects v2-only and stalls on hybrid pad-file expectations; qBittorrent/Deluge v1/v2/hybrid plain/RC4 passed. |
 | 13 | Web UI on a real phone | Android/iOS: detail/action sheets, drawer, sort, long-press multi-select, Back behavior, Properties and reconnection. Also verify desktop keyboard, selection, columns, Preferences and dark mode on the real engine. |
-| 14 | Release engineering | rc.1 is out with version `1.0.0-rc.1`, peer ID `-PA1000-` and `docs/releases/<version>.md` as the release text (RELEASING.md steps 1-2). For 1.0: set version `1.0.0` and peer ID `-PA1000-`, write release notes and inspect draft artifacts/checksums. Parser/security review and its fixes are recorded in SECURITY-REVIEW.md; keep parser review at each release. Register `PA` with libtorrent, Transmission, WebTorrent and the BEP 20 list. |
+| 14 | Release engineering | rc.1 is out with version `1.0.0-rc.1`, peer ID `-PA1000-` and `docs/releases/<version>.md` as the release text (RELEASING.md steps 1-2). For 1.0 (straight after rc.1, D34): set version `1.0.0` (peer ID stays `-PA1000-`), write release notes and inspect draft artifacts/checksums. Parser/security review and its fixes are recorded in SECURITY-REVIEW.md; keep parser review at each release. Register `PA` with libtorrent, Transmission, WebTorrent and the BEP 20 list. |
 
 ## Decisions and open questions
 
-The approved decisions D1-D33 remain active in [DECISIONS.md](docs/DECISIONS.md). Keep the one-thread mio engine, OS TLS, lazy shared-store persistence, minimal dependencies, static portable Windows binary (an installer beside the zip, D31) (an installer beside it, D31) and faithful 2.2.1 layout. Scale takes priority over empty-session memory. The PolyForm Noncommercial licence, PaTorrent identity and honest peer ID remain fixed. New dependencies need a written justification and changelog entry.
+The approved decisions D1-D34 remain active in [DECISIONS.md](docs/DECISIONS.md). Keep the one-thread mio engine, OS TLS, lazy shared-store persistence, minimal dependencies, static portable Windows binary (an installer beside the zip, D31) and faithful 2.2.1 layout. Scale takes priority over empty-session memory. The PolyForm Noncommercial licence, PaTorrent identity and honest peer ID remain fixed. New dependencies need a written justification and changelog entry.
 
 Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the [plan snapshot](docs/archive/PLAN-2026-10-23.md). Current testing constraints and setup notes are in [BACKLOG.md](docs/BACKLOG.md#validation-and-development-environment).
 
@@ -68,7 +68,15 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 
 
 ## V1.1 goals
-- Import µTorrent `resume.dat` and qBittorrent `BT_backup`; add local search/filter; consider compiled-in Rust plugin hooks.
+
+Owner goals, not designed yet. Explored 2026-10-27_091619_1793088979; the details and open questions are in [BACKLOG.md](docs/BACKLOG.md#v11-importers-search-and-hooks).
+
+1. **Import from qBittorrent `BT_backup`.** Its `.fastresume` files are libtorrent resume records, the format `crates/core/src/resume.rs` already reads under libtorrent's key names, so pieces, statistics, priorities and trackers carry over without a recheck; the `qBt-*` keys give save path, name, category (as label), limits and the stopped state. The cheapest of the four.
+2. **Import from µTorrent `resume.dat`.** One bencoded dictionary keyed by `.torrent` file name (path, caption, label, `have` bitfield, priorities, totals, dates, trackers). It is the audience's own client. The owner's copy in `z_exclude_uTorrent/` lists no torrents, so a populated test file has to be made first.
+3. **Local search/filter.** A name filter in `TorrentList` (`crates/frontend/src/model.rs`) serves Win32, GTK and the Web UI at once; it must stay fast at 100,000 rows. Open: where it lives, since 2.2.1's toolbar box searched the web.
+4. **Compiled-in Rust plugin hooks.** No concrete first user yet; define one (for example a completion action or a search provider) before an API, or move this to V2.0.
+
+Both importers share one frontend module, a GUI menu entry and a nox option, need a public engine call to add a torrent from a resume record (`ResumeData` is crate-private), leave the source client's files untouched and refuse while that client runs.
 
 ## V2.0 goals
 

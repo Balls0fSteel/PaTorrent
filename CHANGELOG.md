@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_091619_1793088979: 1.0.0 follows rc.1 directly (D34); V1.1 goals explored
+
+- **Decision D34** (owner): rc.1 runs fine, so the next release is 1.0.0, not rc.2. The open Road to 1.0 hand checks become 1.0.x validation; item 14 (version, notes, draft inspection) remains. PLAN.md's next step 1 is now the 1.0.0 release; no CI run has finished green since rc.1 (two were cancelled by newer pushes), so one must before tagging.
+- **V1.1 exploration** (PLAN.md "V1.1 goals", details in BACKLOG.md): qBittorrent's `.fastresume` files are libtorrent resume records, which `resume.rs` already reads, so that importer is the cheapest; µTorrent's `resume.dat` maps onto the same records but the owner's copy lists no torrents, so a test fixture has to be made; a name filter belongs in the frontend's `TorrentList` for all three UIs; plugin hooks need a first concrete use. Both importers need a public engine call to add from a resume record.
+- Fixed a doubled "installer beside it, D31" in PLAN.md.
+
 ## 2026-10-27_090712_1793088432: First CI run of the installer: green (Release dry run 40470860315)
 
 - Release started by hand on `73736841` (no release made). The windows job passed every step: NSIS 3.13's download matched the pinned SHA-256; makensis `/WX` built `patorrent-1.0.0-rc.1-dev.7373684-windows-x64-setup.exe` (2.7 MB, 35 language tables) from the 2 min 28 s release build; the silent per-user install with the desktop shortcut and both associations put the 5 files, both shortcuts, a correct Uninstall key (version, publisher, folder, 8.2 MB) and the `.torrent` / `magnet:` registrations in place, the installed nox printed `patorrent-nox 1.0.0-rc.1`, and the silent uninstall left no file, shortcut, key or association.

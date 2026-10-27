@@ -522,7 +522,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     if let Some(r) = remote {
         // the server's engine settings and default folder are this window's; the language
         // (picked in `run`) is every window's
-        if let Err(e) = std::fs::create_dir_all(&config) {
+        if let Err(e) = patorrent_core::util::private_file::create_dir_all(&config) {
             eprintln!("cannot create {}: {e}", config.display());
         }
         settings::store(&mut prefs, &r.hello.settings);

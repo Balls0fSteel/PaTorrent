@@ -23,6 +23,9 @@ ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
 TimeoutStopSec=60
+# what it writes is yours alone (webui.json holds the Web UI's password hash); downloads too,
+# so loosen this (0022) if other users of this machine should read them
+UMask=0077
 NoNewPrivileges=yes
 LockPersonality=yes
 RestrictRealtime=yes

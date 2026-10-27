@@ -232,13 +232,13 @@ impl RssDownloader {
         std::fs::read(path).ok().and_then(|b| RssDownloader::from_bencode(&b)).unwrap_or_default()
     }
 
-    /// Writes `path` through a temporary file, so a crash never leaves half of it.
+    /// Writes `path` through a temporary file, so a crash never leaves half of it; owner-only
+    /// on Unix, as a feed URL can carry a login or a key.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
+        use patorrent_core::util::private_file;
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+            private_file::create_dir_all(dir)?;
         }
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, self.to_bencode())?;
-        std::fs::rename(&tmp, path)
+        private_file::write(path, &self.to_bencode())
     }
 }

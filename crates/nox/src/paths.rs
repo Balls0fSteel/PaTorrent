@@ -163,7 +163,7 @@ pub fn migrate(from: &Path, to: &Path) -> io::Result<Vec<(PathBuf, bool)>> {
         if !old.is_file() || new.exists() {
             continue;
         }
-        std::fs::create_dir_all(to)?;
+        patorrent_core::util::private_file::create_dir_all(to)?;
         let moved = i == 0;
         if moved {
             // a rename across file systems fails: copy, then remove

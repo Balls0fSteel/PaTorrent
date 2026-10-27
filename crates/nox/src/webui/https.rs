@@ -67,7 +67,7 @@ pub fn load(source: &Certificate, now: i64) -> io::Result<Loaded> {
             if !current {
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 let pem = tls::generate_self_signed(&names, GENERATED_DAYS)?;
-                std::fs::create_dir_all(dir)?;
+                patorrent_core::util::private_file::create_dir_all(dir)?;
                 write_file(&key, pem.key_pem.as_bytes(), true)?;
                 write_file(&cert, pem.cert_pem.as_bytes(), false)?;
             }
@@ -94,12 +94,18 @@ fn write_file(path: &Path, data: &[u8], private: bool) -> io::Result<()> {
     #[cfg(unix)]
     if private {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600);
+        options.mode(0o600).custom_flags(patorrent_core::util::private_file::O_NOFOLLOW);
     }
     #[cfg(not(unix))]
     let _ = private;
     let named = |e: io::Error| io::Error::new(e.kind(), format!("{}: {e}", path.display()));
     let mut f = options.open(&tmp).map_err(named)?;
+    #[cfg(unix)]
+    if private {
+        // the mode above applies only to a new file, not to one a crash left behind
+        use std::os::unix::fs::PermissionsExt;
+        f.set_permissions(std::fs::Permissions::from_mode(0o600)).map_err(named)?;
+    }
     f.write_all(data).and_then(|()| f.sync_all()).map_err(named)?;
     drop(f);
     std::fs::rename(&tmp, path).map_err(named)

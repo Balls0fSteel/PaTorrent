@@ -34,6 +34,7 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+use patorrent_core::util::private_file;
 use patorrent_core::util::time::local_utc_offset;
 use patorrent_core::{
     Alert, AnnounceEntry, Bitfield, FileEntry, MoveCompleted, PartialPiece, PeerInfo, SessionHandle,
@@ -525,13 +526,11 @@ impl Shared {
             .with("torrent_categories", tc)
             .with("paused", Json::Arr(paused));
         if let Some(dir) = path.parent() {
-            let _ = std::fs::create_dir_all(dir);
+            let _ = private_file::create_dir_all(dir);
         }
-        // Write then rename, so a crash never leaves half a file.
-        let tmp = path.with_extension("json.tmp");
-        if std::fs::write(&tmp, doc.to_json()).is_ok() {
-            let _ = std::fs::rename(&tmp, path);
-        }
+        // Write then rename, so a crash never leaves half a file; owner-only on Unix (the
+        // password hash, and the proxy password, which is plain there).
+        let _ = private_file::write(path, doc.to_json().as_bytes());
     }
 
     /// Applies the global limits for the current alternative-speed mode, through the

@@ -135,7 +135,7 @@ impl Store {
     /// Opens (or creates) the store in `dir` and returns every saved torrent, in no particular
     /// order. Unreadable records are skipped and reported in the second list.
     pub fn open(dir: &Path) -> Result<(Store, Vec<ResumeData>, Vec<String>), Error> {
-        std::fs::create_dir_all(dir)?;
+        crate::util::private_file::create_dir_all(dir)?;
         let mut store = Store {
             dir: dir.to_owned(),
             saved: HashMap::new(),

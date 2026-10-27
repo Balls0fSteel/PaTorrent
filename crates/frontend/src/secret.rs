@@ -4,7 +4,8 @@
 //! entropy constant) and written as `dpapi:<base64>`, so a copied `patorrent.ini` read under
 //! another Windows account (or on another machine) gives an empty password instead of the
 //! user's. Elsewhere there is no DPAPI and secrets stay plain, as µTorrent kept them in
-//! `settings.dat` (libsecret is not used). Plain values written before are read on every
+//! `settings.dat` (libsecret is not used), in a file only its owner may read
+//! (`patorrent_core::util::private_file`). Plain values written before are read on every
 //! platform and sealed at the next save.
 
 /// The marker in front of a sealed value.

@@ -162,8 +162,10 @@ impl PidFile {
         o.read(true).write(true).create(true).truncate(false);
         #[cfg(unix)]
         {
+            // never through a symbolic link: in a shared folder (`/tmp`) another user could
+            // point one at a file of ours, which the lock would then truncate
             use std::os::unix::fs::OpenOptionsExt;
-            o.mode(0o644);
+            o.mode(0o644).custom_flags(patorrent_core::util::private_file::O_NOFOLLOW);
         }
         #[cfg(windows)]
         {
@@ -420,6 +422,19 @@ mod tests {
         drop(b);
         // a pid file in a folder that does not exist is an error, not a panic
         assert!(PidFile::lock(&d.join("none").join("x.pid")).is_err());
+        std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    #[cfg(unix)]
+    fn pid_file_is_not_opened_through_a_link() {
+        let d = temp("pid-link");
+        let target = d.join("victim");
+        std::fs::write(&target, "keep").unwrap();
+        let path = d.join("nox.pid");
+        std::os::unix::fs::symlink(&target, &path).unwrap();
+        assert!(PidFile::lock(&path).is_err());
+        assert_eq!(std::fs::read_to_string(&target).unwrap(), "keep");
         std::fs::remove_dir_all(&d).unwrap();
     }
 

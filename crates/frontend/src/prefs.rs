@@ -10,6 +10,8 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+use patorrent_core::util::private_file;
+
 use crate::columns::Column;
 
 /// The keys whose values are secrets, sealed in the file ([`crate::secret`]).
@@ -49,15 +51,14 @@ impl Prefs {
         self.path.as_deref()
     }
 
-    /// Writes the file (through a temporary file, so a crash never leaves half of it).
+    /// Writes the file (through a temporary file, so a crash never leaves half of it), readable
+    /// by its owner only on Unix, where the proxy password is plain ([`private_file`]).
     pub fn save(&self) -> std::io::Result<()> {
         let Some(path) = &self.path else { return Ok(()) };
         if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir)?;
+            private_file::create_dir_all(dir)?;
         }
-        let tmp = path.with_extension("tmp");
-        std::fs::write(&tmp, self.to_text())?;
-        std::fs::rename(&tmp, path)
+        private_file::write(path, self.to_text().as_bytes())
     }
 
     pub fn to_text(&self) -> String {

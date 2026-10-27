@@ -170,7 +170,9 @@ cache key carries the architecture.
   against `assets/patina-icons/app-icon.txt`) and `LICENSE.md` with the notices.
 - `io.github.balls0fsteel.PaTorrent.metainfo.xml`: the AppStream metadata. Its first
   `<release>` must be the workspace version (the job stops otherwise): add a release there in
-  step 2 of [Steps](#steps). The job validates it with `appstreamcli validate`.
+  step 2 of [Steps](#steps). The job validates it with `appstreamcli validate`. A pre-release is
+  written with a tilde (`1.0.0~rc.1` for `1.0.0-rc.1`): AppStream sorts `1.0.0-rc.1` after
+  `1.0.0`, and the validator fails on releases out of order (as the first `v1.0.0` run did).
 - `cargo-sources.json`: every crate in `Cargo.lock` as a flatpak-builder source, so the build
   needs no network. Regenerate it whenever `Cargo.lock` changes, with the generator from
   [flatpak-builder-tools](https://github.com/flatpak/flatpak-builder-tools) (the job pins its

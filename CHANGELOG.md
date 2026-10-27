@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_095101_1793091061: v1.0.0's Release run failed on the Flatpak metainfo; fixed
+
+- CI 40472951003, FreeBSD, Fuzz and Pages passed on `b40c2e58`; with the owner's go-ahead it was tagged `v1.0.0` and pushed. Release run 40475482914 built Windows, both Linux legs and macOS, but both Flatpak legs failed `appstreamcli validate`: `releases-not-in-order 1.0.0 << 1.0.0-rc.1`. AppStream sorts a `-rc.1` suffix after the plain version, so the draft release was skipped (nothing published).
+- Fix: the metainfo's rc.1 entry is now `1.0.0~rc.1` (a tilde sorts before), and the workflow's first-release check maps the crate version's `-` to `~`, so future pre-releases are written the same way (RELEASING.md, Flatpak). The `v1.0.0` tag still names `b40c2e58` and has to move to the fixed commit (owner's decision).
+- Moved the three oldest root entries verbatim to `docs/archive/CHANGELOG-2026-10-26--2026-10-26-rc1.md`.
+
 ## 2026-10-27_092114_1793089274: Version 1.0.0: notes, README and website wording (not tagged)
 
 - Version `1.0.0` in `Cargo.toml`, `Cargo.lock` and `fuzz/Cargo.lock` (only the workspace crates' versions changed); the peer ID stays `-PA1000-` and the Windows manifest `1.0.0.0`. The Flatpak metainfo's first `<release>` is 1.0.0, type stable.
@@ -53,39 +59,3 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - Checked here before publishing: the zip's SHA-256 matches SHA256SUMS; its `patorrent-nox.exe --version` prints `patorrent-nox 1.0.0-rc.1`; its `patorrent.exe` started in portable mode (an empty `patorrent.ini` beside it), showed the PaTorrent window and was still running after 8 s at a 21 MB working set. The macOS job's screenshot shows the window with the runner's local-network prompt in front of it (the known runner artifact) and the GUI running after 20 s; the `.app` needs macOS 15.0, nox 11.0 (arm64) and 10.12 (x86_64).
 - Published 2026-10-27T06:49:46Z as a pre-release: <https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1>.
 - Not verified: the Linux tarballs, AppImages and Flatpaks and the macOS files were only built and (for nox) started on the runners; nothing from this release has run on a Linux desktop or a real Mac. The zip was not tried on a clean Windows machine (SmartScreen).
-
-## 2026-10-26_215725_1793051845: RSS date parser: signed fields overflowed (fuzz crash)
-
-- Fuzz run 40404037267 (and the scheduled run 40296131012 that morning) crashed the `rss` target: `parse_rfc822` parsed the day, year and time fields as `i64`, so `0:-002074284530519326355:9` passed the `mi > 59` check and `mi * 60` overflowed (`crates/frontend/src/rss/feed.rs`). The fields are now unsigned (`u32` day and year, `u8` time), so a signed field is no date. A release build wrapped instead of panicking, so the shipped binaries were never crashable by a feed; the fuzz build has overflow checks.
-- Four regression cases in `feed::tests::dates`; the frontend RSS tests, clippy and rustfmt pass. `fuzz/Cargo.lock` now names the workspace crates at 1.0.0-rc.1.
-- CI run 40404037237 and FreeBSD 40404037325 on the release commit `9581087b` were green; the other 24 fuzz targets passed.
-
-## 2026-10-26_212009_1793049609: Release candidate 1.0.0-rc.1: version, notes, README and the tagged release path
-
-- Version `1.0.0-rc.1` (Road to 1.0 item 14): `Cargo.toml`, `Cargo.lock`, peer ID `-PA1000-` (a pre-release carries the version it leads to; the test now strips the suffix), the Windows manifest `1.0.0.0` and the Flatpak metainfo's first `<release>`. `cargo metadata --locked` and the core version tests pass.
-- `docs/releases/1.0.0-rc.1.md`: the release text (downloads per platform, first-run steps, what is in it, known limitations). The Release workflow now checks out the repository and uses `docs/releases/<version>.md` as the draft's notes when it exists, and marks a suffixed version as a pre-release. `docs/RELEASING.md` steps 1, 2, 4 and 5 record the manifest, the metainfo, the notes file and the pre-release tag.
-- README: the warning now describes a release candidate, the status paragraph matches the plan (GTK, v2, languages, remote mode are in), and a Download table lists the release files per platform.
-- Backlog: the Windows executables have no `VERSIONINFO` resource (Explorer shows no version); noted under Win32.
-- Not in this commit: `tools/swarm/src/interop.rs` carries an uncommitted qBittorrent-log wait for `lt-swarm interop` (uTP-only runs); it is unrelated to the release and left for its own change.
-- The tag `v1.0.0-rc.1` and the run's outcome are recorded in the next entry.
-
-## 2026-10-26_150634_1793023594: Integrate the bold artwork: 24 state icons and the toolbar (gate 10)
-
-- Both GUIs now use the revision 6 artwork. `crates/frontend/src/icons.rs` embeds the bold PNG exports from `assets/ui-icon-explorations/png{,-dark}/bold/`:
-  - the 24 runtime state icons at 16/20/24/32 px;
-  - the 11 toolbar images at 16/20/24/32/48 px.
-  The runtime-drawn toolbar vectors are removed.
-- **Win32:**
-  - The toolbar slot is 24 px scaled to the nearest export: 24, 24, 32 and 48 px at 100, 125, 150 and 200 %. Before it was 22 px drawn at run time.
-  - `toolbar_bgra` decodes the PNG for the normal and greyed image lists. A small in-tree reader handles 8-bit RGBA PNGs with core's existing inflater; no new dependency.
-- **GTK:**
-  - The toolbar uses the artwork (32 px drawn at 16 logical px) instead of desktop theme icons.
-  - State and toolbar icons switch to the dark palette when the GTK theme is dark (prefer-dark setting or a theme name containing "dark") and follow theme changes.
-- Tests check every embedded size and palette, PNG decoding, toolbar sizes, and that the icon lists match the artwork manifest's `runtime` and `toolbar` lists.
-- Validation:
-  - Win32 build, clippy and tests pass (frontend 174, Win32 59).
-  - A portable debug run was captured: bold toolbar, greyed disabled buttons and the globe network icon at 100 % DPI.
-- Not verified:
-  - The GTK client compiles only on Unix and WSL is unavailable here. After the push, CI run 40336848086 built and tested it on Ubuntu, macOS, Windows and MSRV, all green; it has not been run on a desktop.
-  - Non-100 % DPI, the GTK dark palette, the Trackers tab with real trackers and macOS are still hand checks.
-- Moved the six oldest root entries, verbatim, to `docs/archive/CHANGELOG-2026-10-23--2026-10-26.md`.

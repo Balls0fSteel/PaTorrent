@@ -75,7 +75,7 @@
         <p>First stable release. The window title and the tray tooltip show the version.</p>
       </description>
     </release>
-    <release version="1.0.0-rc.1" date="2026-10-26" type="development">
+    <release version="1.0.0~rc.1" date="2026-10-26" type="development">
       <description>
         <p>First public release candidate for 1.0.</p>
       </description>

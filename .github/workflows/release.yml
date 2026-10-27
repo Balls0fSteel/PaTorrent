@@ -292,9 +292,11 @@ jobs:
       CARGO_GENERATOR_SHA256: 0a2db6be87d75910facef28ab46d4d6460802e8419ab850d0caa6a364d26b380
     steps:
       - uses: actions/checkout@v7
+      # AppStream sorts 1.0.0-rc.1 after 1.0.0, so the metainfo writes a pre-release with a
+      # tilde (1.0.0~rc.1), which sorts before it
       - name: The metainfo's release is the workspace version
         run: |
-          crate=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2)
+          crate=$(grep -m1 '^version = ' Cargo.toml | cut -d'"' -f2 | sed 's/-/~/')
           meta=$(grep -m1 '<release ' "packaging/flatpak/$APP_ID.metainfo.xml" | sed 's/.*version="\([^"]*\)".*/\1/')
           if [ "$meta" != "$crate" ]; then
             echo "::error::the metainfo's first <release> is $meta, Cargo.toml has $crate"

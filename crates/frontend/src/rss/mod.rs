@@ -215,6 +215,9 @@ pub struct AddRequest {
     pub url: String,
     /// The feed's cookies, to send when fetching `url` (private trackers need them).
     pub cookies: String,
+    /// The feed's URL (without cookies): `url` may reach this machine or network only when
+    /// the feed is there too (SEC-26).
+    pub feed_url: String,
     /// Empty for the default download folder.
     pub save_path: String,
     /// Empty for none.
@@ -395,6 +398,7 @@ impl RssDownloader {
                 item_id: item_id.to_owned(),
                 title: item.title.clone(),
                 cookies: feed.cookies_for(&url),
+                feed_url: split_cookie(&feed.url).0.to_owned(),
                 url,
                 save_path: String::new(),
                 label: feed_label,
@@ -469,6 +473,7 @@ impl RssDownloader {
             item_id: item_id.to_owned(),
             title: item.title.clone(),
             cookies: f.cookies_for(&url),
+            feed_url: split_cookie(&f.url).0.to_owned(),
             url,
             save_path: String::new(),
             label: if label_from_feed { f.name().to_owned() } else { String::new() },

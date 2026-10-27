@@ -562,6 +562,47 @@ fn fetch_feed_over_http() {
     assert!(heads[0].contains("\r\nCookie: uid=1;pass=2\r\n"), "{}", heads[0]);
 }
 
+/// An item's `.torrent` URL reaches this machine only when its feed is here too (SEC-26): a
+/// feed on the internet cannot make the client fetch from the local network.
+#[test]
+fn feed_items_stay_off_the_local_network() {
+    use std::io::{Read, Write};
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let addr = l.local_addr().unwrap();
+    let server = std::thread::spawn(move || {
+        let mut served = 0;
+        // one connection is expected: the one from a local feed's item
+        l.set_nonblocking(false).unwrap();
+        while let Ok((mut s, _)) = l.accept() {
+            let mut head = Vec::new();
+            let mut b = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") && s.read(&mut b).unwrap_or(0) == 1 {
+                head.push(b[0]);
+            }
+            if head.starts_with(b"GET /stop") {
+                return served;
+            }
+            served += 1;
+            let _ = s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nd1:e");
+        }
+        served
+    });
+    let item = format!("http://{addr}/item.torrent");
+    for feed in ["https://8.8.8.8/rss", "http://feeds.example.invalid/rss", "not a url"] {
+        let e = fetch_download(&item, "", feed, None).unwrap_err();
+        assert!(e.contains("refused"), "{feed}: {e}");
+    }
+    for feed in [
+        format!("http://{addr}/rss"),
+        "http://localhost:9117/api".to_owned(),
+        "http://192.168.1.10/rss".into(),
+    ] {
+        assert_eq!(fetch_download(&item, "", &feed, None), Ok(Download::Torrent(b"d1:e".to_vec())), "{feed}");
+    }
+    let _ = std::net::TcpStream::connect(addr).and_then(|mut s| s.write_all(b"GET /stop HTTP/1.1\r\n\r\n"));
+    assert_eq!(server.join().unwrap(), 3, "only the local feeds' items were fetched");
+}
+
 /// Manual check of a real feed: `LT_RSS_FILE=feed.xml cargo test -p patorrent-frontend
 /// rss::tests::local_feed_file -- --ignored --nocapture` prints what the parser and the
 /// episode / quality detection make of it.

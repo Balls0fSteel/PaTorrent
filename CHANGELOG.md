@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_202906_1793129346: Security fix SEC-26: fetches stay off the local network unless the user named it
+
+- **Confirmed:** add-by-URL and RSS fetches connected wherever a URL or redirect pointed, so a feed operator could make the client request loopback or LAN URLs.
+- **Fix:** `FetchOptions::reach` (core `net/fetch.rs`). `Reach::User` (the default, for URLs the user gave) allows any address, but after a public address the redirects stay public. `Reach::Public`, for feed items unless their feed is itself local (`Reach::for_links_from`), allows public addresses only. `AddRequest` carries `feed_url`, and the worker's `Fetcher::download` now takes the request.
+- **Tests:** `public_addresses`, `content_urls_reach_public_addresses_only`, `a_public_server_cannot_redirect_into_the_network` and `feed_items_stay_off_the_local_network`, proven to fail without the address check or the redirect lock.
+
 ## 2026-10-27_201937_1793128777: Security fix SEC-25: forwarded torrents come only from equal or higher integrity
 
 - **Confirmed:** the main window let any process on the desktop send `WM_COPYDATA` (`MSGFLT_ALLOW`), so a sandboxed process could add magnets, URLs and paths, silently when the Add dialog is off. A null `lpData` reached `slice::from_raw_parts`.

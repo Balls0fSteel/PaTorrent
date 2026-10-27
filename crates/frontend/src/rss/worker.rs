@@ -13,7 +13,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
+use patorrent_core::fetch::{FetchOptions, FetchProxy, Reach, http_get};
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{AddTorrentParams, InfoHashes, TorrentFlags, TorrentSource};
 
@@ -60,13 +60,21 @@ impl AddRequest {
 }
 
 /// Fetches what an item names (blocking: call it from a worker thread): a magnet link as it
-/// is, else the `.torrent` behind the URL, sent with the feed's cookies.
-pub fn fetch_download(url: &str, cookies: &str, proxy: Option<FetchProxy>) -> Result<Download, String> {
+/// is, else the `.torrent` behind the URL, sent with the feed's cookies. The feed operator
+/// chose the URL: it reaches this machine or network only when `feed_url` is there too
+/// (SEC-26).
+pub fn fetch_download(
+    url: &str,
+    cookies: &str,
+    feed_url: &str,
+    proxy: Option<FetchProxy>,
+) -> Result<Download, String> {
     let url = url.trim();
     if url.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("magnet:")) {
         return Ok(Download::Magnet(url.to_owned()));
     }
-    let opts = FetchOptions { cookies: cookies.to_owned(), proxy, ..FetchOptions::default() };
+    let reach = Reach::for_links_from(feed_url);
+    let opts = FetchOptions { cookies: cookies.to_owned(), proxy, reach, ..FetchOptions::default() };
     let resp = http_get(url, &opts).map_err(|e| e.to_string())?;
     match resp.redirect() {
         Some(m) if m.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("magnet:")) => {
@@ -82,7 +90,7 @@ pub fn fetch_download(url: &str, cookies: &str, proxy: Option<FetchProxy>) -> Re
 /// How the worker fetches; the network by default, a fake in tests.
 pub trait Fetcher: Send + Sync {
     fn feed(&self, url: &str, proxy: Option<FetchProxy>) -> Result<Feed, String>;
-    fn download(&self, url: &str, cookies: &str, proxy: Option<FetchProxy>) -> Result<Download, String>;
+    fn download(&self, req: &AddRequest, proxy: Option<FetchProxy>) -> Result<Download, String>;
 }
 
 /// [`fetch_feed`] and [`fetch_download`].
@@ -93,8 +101,8 @@ impl Fetcher for Net {
         fetch_feed(url, proxy)
     }
 
-    fn download(&self, url: &str, cookies: &str, proxy: Option<FetchProxy>) -> Result<Download, String> {
-        fetch_download(url, cookies, proxy)
+    fn download(&self, req: &AddRequest, proxy: Option<FetchProxy>) -> Result<Download, String> {
+        fetch_download(&req.url, &req.cookies, &req.feed_url, proxy)
     }
 }
 
@@ -190,7 +198,7 @@ impl Worker {
                 (self.tx.clone(), self.notify.clone(), self.fetcher.clone(), proxy.cloned());
             std::thread::spawn(move || {
                 for req in files {
-                    let r = fetcher.download(&req.url, &req.cookies, proxy.clone());
+                    let r = fetcher.download(&req, proxy.clone());
                     if tx.send(Done::Download(req, r)).is_err() {
                         return;
                     }
@@ -273,12 +281,12 @@ mod tests {
             feeds.iter().find(|(u, _)| u == url).map(|(_, f)| f.clone()).ok_or_else(|| "HTTP 404".into())
         }
 
-        fn download(&self, url: &str, cookies: &str, _: Option<FetchProxy>) -> Result<Download, String> {
-            self.cookies.lock().unwrap().push(cookies.to_owned());
+        fn download(&self, req: &AddRequest, _: Option<FetchProxy>) -> Result<Download, String> {
+            self.cookies.lock().unwrap().push(req.cookies.clone());
             let files = self.files.lock().unwrap();
             files
                 .iter()
-                .find(|(u, _)| u == url)
+                .find(|(u, _)| *u == req.url)
                 .map(|(_, b)| Download::Torrent(b.clone()))
                 .ok_or_else(|| "HTTP 404".into())
         }
@@ -382,6 +390,7 @@ mod tests {
             title: "x".into(),
             url: "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567".into(),
             cookies: String::new(),
+            feed_url: "https://feeds.example.org/tv".into(),
             save_path: " D:\\tv ".into(),
             label: "tv".into(),
             top_priority: true,
@@ -400,6 +409,9 @@ mod tests {
         let m = Download::Magnet(req.url.clone());
         assert_eq!(m.info_hashes().unwrap().key_hex(), "0123456789abcdef0123456789abcdef01234567");
         assert_eq!(Download::Torrent(b"junk".to_vec()).info_hashes(), None);
-        assert_eq!(fetch_download(" MAGNET:?xt=x ", "", None), Ok(Download::Magnet("MAGNET:?xt=x".into())));
+        assert_eq!(
+            fetch_download(" MAGNET:?xt=x ", "", "", None),
+            Ok(Download::Magnet("MAGNET:?xt=x".into()))
+        );
     }
 }

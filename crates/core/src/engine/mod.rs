@@ -598,7 +598,10 @@ impl Engine {
             dht: dht::DhtSession::new(now),
             lsd: lsd::LsdSession::new(),
             portmap: portmap::PortmapSession::new(),
-            filters: ip_filter::Filters::default(),
+            filters: ip_filter::Filters {
+                privileged: settings.no_connect_privileged_ports,
+                ..ip_filter::Filters::default()
+            },
             peer_classes: peer_class::PeerClasses::default(),
             network,
             web: web_seed::WebConns::default(),
@@ -1653,7 +1656,9 @@ impl Engine {
         let listen_changed = listen::listen_settings_changed(&self.settings, &s);
         let buffers_changed = s.send_socket_buffer_size != self.settings.send_socket_buffer_size
             || s.recv_socket_buffer_size != self.settings.recv_socket_buffer_size;
+        let privileged = s.no_connect_privileged_ports;
         self.settings = s;
+        self.set_privileged_ports(privileged);
         if buffers_changed {
             self.update_socket_buffer_size();
         }

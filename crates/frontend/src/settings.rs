@@ -251,6 +251,7 @@ pub static TABLE: &[Entry] = &[
     entry!(max_retry_port_bind: u32),
     entry!(unchoke_slots_limit: i32),
     entry!(max_peerlist_size: i32),
+    entry!(no_connect_privileged_ports: bool),
     entry!(max_failcount: i32),
     entry!(min_reconnect_time: u32),
     entry!(max_paused_peerlist_size: i32),

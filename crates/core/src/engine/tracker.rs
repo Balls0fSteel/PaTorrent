@@ -304,6 +304,23 @@ fn is_this_host(ip: IpAddr) -> bool {
     ip.is_loopback() || ip.is_unspecified()
 }
 
+/// Peers that the tracker at `url` (reached at `ip`) may list (SEC-12, not in libtorrent):
+/// none on this machine (loopback or unspecified, IPv4-mapped forms too) unless the tracker
+/// runs here as well, so a tracker cannot make us connect to local services. Without an
+/// address (through a proxy) the URL's host decides: an address or `localhost`.
+fn drop_this_host_peers(peers: &mut Vec<SocketAddr>, url: &str, ip: Option<IpAddr>) {
+    let here = match ip {
+        Some(ip) => is_this_host(ip),
+        None => crate::util::string::parse_url_components(url).is_ok_and(|p| {
+            let host = p.host.trim_start_matches('[').trim_end_matches(']');
+            is_localhost_name(host) || host.parse().is_ok_and(is_this_host)
+        }),
+    };
+    if !here {
+        peers.retain(|p| !is_this_host(p.ip()));
+    }
+}
+
 /// `localhost` and its subdomains (RFC 6761), for a name a proxy would resolve.
 fn is_localhost_name(host: &str) -> bool {
     let host = host.trim_end_matches('.').to_ascii_lowercase();
@@ -524,7 +541,15 @@ impl TrackerManager {
     }
 
     pub fn take_results(&mut self) -> Vec<(TrackerJob, TrackerOutcome)> {
-        std::mem::take(&mut self.results)
+        let mut results = std::mem::take(&mut self.results);
+        if self.ssrf_mitigation {
+            for (job, outcome) in &mut results {
+                if let TrackerOutcome::Announce(r, ip) = outcome {
+                    drop_this_host_peers(&mut r.peers, &job.url, *ip);
+                }
+            }
+        }
+        results
     }
 
     fn fail(&mut self, job: TrackerJob, msg: impl Into<String>) {
@@ -1478,5 +1503,43 @@ mod tests {
     #[test]
     fn entry_is_compact() {
         assert_eq!(std::mem::size_of::<TrackerEntry>(), 48);
+    }
+
+    /// SEC-12: a tracker elsewhere cannot point our connections at this machine's services.
+    #[test]
+    fn trackers_elsewhere_cannot_list_peers_on_this_machine() {
+        let poll = mio::Poll::new().unwrap();
+        let mut m = TrackerManager::new(poll.registry(), "test".into());
+        let ep = |s: &str| s.parse::<SocketAddr>().unwrap();
+        let local =
+            ["127.0.0.1:6379", "[::ffff:127.0.0.1]:6379", "0.0.0.0:22", "[::1]:80", "[::]:445"].map(ep);
+        let others = ["192.168.1.5:6881", "1.2.3.4:6881", "[2001:db8::1]:6881"].map(ep);
+        let all = local.len() + others.len();
+        let peers = |m: &mut TrackerManager, url: &str, ip: Option<&str>| {
+            let r = AnnounceResponse {
+                peers: local.iter().chain(&others).copied().collect(),
+                ..Default::default()
+            };
+            let ip = ip.map(|t| t.parse().unwrap());
+            m.results.push((announce_job(url), TrackerOutcome::Announce(r, ip)));
+            match m.take_results().pop() {
+                Some((_, TrackerOutcome::Announce(r, _))) => r.peers,
+                o => panic!("{o:?}"),
+            }
+        };
+        let elsewhere = "http://t.example/announce";
+        assert_eq!(peers(&mut m, elsewhere, Some("1.2.3.4")), others);
+        assert_eq!(peers(&mut m, elsewhere, Some("192.168.1.1")), others, "the LAN is not this machine");
+        assert_eq!(peers(&mut m, elsewhere, None), others, "through a proxy the URL decides");
+        // the address it was reached at counts, not the name
+        assert_eq!(peers(&mut m, "http://localhost/announce", Some("1.2.3.4")), others);
+        // a tracker on this machine may list peers on it, as may any with ssrf_mitigation off
+        assert_eq!(peers(&mut m, elsewhere, Some("127.0.0.1")).len(), all);
+        assert_eq!(peers(&mut m, elsewhere, Some("::ffff:127.0.0.1")).len(), all);
+        assert_eq!(peers(&mut m, "http://localhost:8080/announce", None).len(), all);
+        assert_eq!(peers(&mut m, "udp://127.0.0.1:6969/announce", None).len(), all);
+        assert_eq!(peers(&mut m, "udp://[::1]:6969", None).len(), all);
+        m.set_options("test", 30, false);
+        assert_eq!(peers(&mut m, elsewhere, Some("1.2.3.4")).len(), all);
     }
 }

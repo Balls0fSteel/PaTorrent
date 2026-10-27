@@ -98,6 +98,10 @@ pub struct Settings {
     pub max_retry_port_bind: u32,
     pub unchoke_slots_limit: i32,
     pub max_peerlist_size: i32,
+    /// Peers on ports below 1024 are neither added nor connected to, and leave the peer list
+    /// when this is switched on (libtorrent `no_connect_privileged_ports`, off by default there
+    /// too): trackers, the DHT and PEX cannot then aim our connections at well-known services.
+    pub no_connect_privileged_ports: bool,
     /// A peer that failed this many times in a row is no longer tried (libtorrent
     /// `max_failcount`); a tracker listing it again takes one failure off.
     pub max_failcount: i32,
@@ -321,6 +325,7 @@ impl Default for Settings {
             max_retry_port_bind: 10,
             unchoke_slots_limit: 8,
             max_peerlist_size: 3000,
+            no_connect_privileged_ports: false,
             max_failcount: 3,
             min_reconnect_time: 60,
             max_paused_peerlist_size: 1000,

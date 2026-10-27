@@ -512,6 +512,7 @@ wire_struct!(Settings {
     max_retry_port_bind,
     unchoke_slots_limit,
     max_peerlist_size,
+    no_connect_privileged_ports,
     max_failcount,
     min_reconnect_time,
     max_paused_peerlist_size,

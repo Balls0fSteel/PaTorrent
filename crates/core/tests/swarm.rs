@@ -1905,6 +1905,25 @@ fn a_peer_on_a_blocked_port_is_never_connected() {
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 
+/// SEC-12: with `no_connect_privileged_ports` a peer below port 1024 is refused like one the
+/// port filter blocks.
+#[test]
+fn a_peer_on_a_privileged_port_is_refused_when_asked() {
+    let f = fixture(None);
+    let dir = temp_dir("priv-leech");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    leech.handle().apply_settings(Settings { no_connect_privileged_ports: true, ..settings() });
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    let service = SocketAddr::from(([127, 0, 0, 1], 1023));
+    leech.handle().torrent(id).connect_peer(service);
+    assert_eq!(blocked_alert(&mut w, "privileged port", Some(id), BlockReason::PortFilter), service);
+    assert_eq!(all_peers(&mut w, id), 0);
+    leech.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn an_incoming_connection_from_a_blocked_address_is_refused() {
     let f = fixture(None);

@@ -25,6 +25,8 @@ use crate::types::TorrentId;
 pub(super) struct Filters {
     pub ip: Arc<IpFilter>,
     pub port: PortFilter,
+    /// `no_connect_privileged_ports`: ports below 1024 are blocked as if by the port filter.
+    pub privileged: bool,
 }
 
 impl Filters {
@@ -34,7 +36,9 @@ impl Filters {
     fn check(&self, flags: TorrentFlags, addr: &SocketAddr, port: bool) -> Option<BlockReason> {
         if flags.contains(TorrentFlags::APPLY_IP_FILTER) && self.ip.is_blocked(addr.ip()) {
             Some(BlockReason::IpFilter)
-        } else if port && self.port.is_blocked(addr.port()) {
+        } else if port && (self.port.is_blocked(addr.port()) || (self.privileged && addr.port() < 1024)) {
+            // libtorrent posts `privileged_ports` for the latter; the remote protocol's alerts
+            // keep their reasons, so it shows as the port filter
             Some(BlockReason::PortFilter)
         } else {
             None
@@ -55,6 +59,18 @@ impl Engine {
         self.filters.port = filter;
         for id in self.torrent_ids() {
             self.ip_filter_updated(id);
+        }
+    }
+
+    /// libtorrent `update_privileged_ports`: switching `no_connect_privileged_ports` on drops
+    /// the peers on ports below 1024 from every torrent.
+    pub(super) fn set_privileged_ports(&mut self, refuse: bool) {
+        let on = refuse && !self.filters.privileged;
+        self.filters.privileged = refuse;
+        if on {
+            for id in self.torrent_ids() {
+                self.ip_filter_updated(id);
+            }
         }
     }
 
@@ -173,5 +189,26 @@ fn reason_name(r: BlockReason) -> &'static str {
         BlockReason::UtpDisabled => "uTP switch",
         BlockReason::TcpDisabled => "TCP switch",
         BlockReason::SsrfMitigation => "SSRF mitigation",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // SEC-12: libtorrent's `no_connect_privileged_ports`
+    #[test]
+    fn privileged_ports() {
+        let mut f = Filters::default();
+        let at = |port| SocketAddr::from(([1, 2, 3, 4], port));
+        let fl = TorrentFlags::empty();
+        assert!(!crate::settings::Settings::default().no_connect_privileged_ports, "off, as in libtorrent");
+        assert_eq!(f.check(fl, &at(80), true), None);
+        f.privileged = true;
+        for port in [1, 22, 80, 443, 1023] {
+            assert_eq!(f.check(fl, &at(port), true), Some(BlockReason::PortFilter), "{port}");
+        }
+        assert_eq!(f.check(fl, &at(1024), true), None);
+        assert_eq!(f.check(fl, &at(80), false), None, "an incoming peer's port is not its listen port");
     }
 }

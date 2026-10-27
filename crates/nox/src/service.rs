@@ -13,7 +13,8 @@
 //!   that exists already is taken only if it, its parents and its contents belong to trusted
 //!   owners and it holds no junctions; its ACL is then reset (SEC-23). Without `--save` the downloads go to its `Downloads` folder. Delayed
 //!   automatic start, restart 5 s / 30 s / 60 s after a failure (also after a clean exit with an
-//!   error code), 60 s for the shutdown when Windows shuts down (PRESHUTDOWN).
+//!   error code), 60 s for the shutdown when Windows shuts down (PRESHUTDOWN). A warning names
+//!   who else can change the exe or its folder, as they could run code as the service.
 //! - `service uninstall`, `service start` and `service stop` (waiting for the state change).
 //! - `service run` is what the SCM starts: `StartServiceCtrlDispatcherW` → [`service_main`] →
 //!   `RegisterServiceCtrlHandlerExW`. The status follows the points where `daemon` sends
@@ -658,6 +659,124 @@ fn owner_problem(path: &Path, trusted: &dyn Fn(&str) -> bool, owner: &Owner<'_>)
     }
 }
 
+/// ACE types and flags, and the rights that let someone replace a file or put a new one (a DLL
+/// beside the exe) in a folder: write or append data (add a file or a folder), delete (rename it
+/// away), delete a child, change the permissions or the owner, and the generic forms.
+const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
+const INHERIT_ONLY_ACE: u8 = 0x08;
+const WRITE_RIGHTS: u32 = 0x2 | 0x4 | 0x40 | 0x1_0000 | 0x4_0000 | 0x8_0000 | 0x1000_0000 | 0x4000_0000;
+/// CREATOR OWNER (only a template for inheritance) and OWNER RIGHTS (the owner, checked as
+/// such).
+const OWNER_SIDS: [&str; 2] = ["S-1-3-0", "S-1-3-4"];
+
+/// A SID as people know it: the well-known groups every user is in by name, others as they are.
+fn sid_name(sid: &str) -> String {
+    match sid {
+        "S-1-1-0" => "Everyone".into(),
+        "S-1-5-11" => "Authenticated Users".into(),
+        "S-1-5-32-545" => "Users".into(),
+        "S-1-5-4" => "INTERACTIVE".into(),
+        "S-1-5-2" => "NETWORK".into(),
+        "S-1-5-7" => "ANONYMOUS LOGON".into(),
+        "S-1-5-32-546" => "Guests".into(),
+        _ => sid.into(),
+    }
+}
+
+/// Who besides the trusted accounts can change `path` (SEC-23): its owner, when that is not
+/// trusted (an owner may always rewrite the permissions), and every SID an allow entry that
+/// applies to `path` itself grants a write right. Deny entries are not weighed, so this may
+/// name someone a deny entry stops. A missing DACL lets everyone in.
+fn untrusted_writers(path: &Path, trusted: &dyn Fn(&str) -> bool) -> io::Result<Vec<String>> {
+    use windows_sys::Win32::Security::{ACCESS_ALLOWED_ACE, ACE_HEADER, GetAce};
+    let name = wide(path);
+    let (mut owner, mut dacl): (PSID, *mut ACL) = (std::ptr::null_mut(), std::ptr::null_mut());
+    let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: a NUL-terminated path and out pointers; the owner and the DACL point into `sd`
+    let err = unsafe {
+        GetNamedSecurityInfoW(
+            name.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION | DACL_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            &mut dacl,
+            std::ptr::null_mut(),
+            &mut sd,
+        )
+    };
+    if err != NO_ERROR {
+        return Err(io::Error::from_raw_os_error(err as i32));
+    }
+    let mut out = Vec::new();
+    let mut read = || -> io::Result<()> {
+        if !owner.is_null() {
+            let sid = sid_string(owner)?;
+            if !trusted(&sid) {
+                out.push(sid);
+            }
+        }
+        if dacl.is_null() {
+            out.push("S-1-1-0".into());
+            return Ok(());
+        }
+        // SAFETY: a valid ACL from the descriptor
+        let count = u32::from(unsafe { (*dacl).AceCount });
+        for i in 0..count {
+            let mut ace: *mut c_void = std::ptr::null_mut();
+            // SAFETY: an index below the ACL's count and an out pointer into the ACL
+            if unsafe { GetAce(dacl, i, &mut ace) } == 0 {
+                return Err(io::Error::last_os_error());
+            }
+            // SAFETY: every ACE starts with its header
+            let header = unsafe { *ace.cast::<ACE_HEADER>() };
+            if header.AceType != ACCESS_ALLOWED_ACE_TYPE || header.AceFlags & INHERIT_ONLY_ACE != 0 {
+                continue;
+            }
+            let ace = ace.cast::<ACCESS_ALLOWED_ACE>();
+            // SAFETY: an allow ACE: its mask, then its SID from `SidStart` on
+            let (mask, sid) =
+                unsafe { ((*ace).Mask, sid_string(std::ptr::addr_of_mut!((*ace).SidStart).cast())?) };
+            if mask & WRITE_RIGHTS != 0 && !trusted(&sid) && !OWNER_SIDS.contains(&sid.as_str()) {
+                out.push(sid);
+            }
+        }
+        Ok(())
+    };
+    let res = read();
+    // SAFETY: allocated by GetNamedSecurityInfoW with LocalAlloc
+    unsafe { LocalFree(sd) };
+    res?;
+    let mut names: Vec<String> = Vec::new();
+    for name in out.iter().map(|s| sid_name(s)) {
+        if !names.contains(&name) {
+            names.push(name);
+        }
+    }
+    Ok(names)
+}
+
+/// A warning when users other than the trusted accounts can change the exe or its folder: they
+/// could replace it, or put a DLL beside it, and so run code as the service's account.
+fn exe_warning(exe: &Path, account: &str, trusted: &dyn Fn(&str) -> bool) -> Option<String> {
+    let mut found = Vec::new();
+    for p in [exe.parent(), Some(exe)].into_iter().flatten() {
+        match untrusted_writers(p, trusted) {
+            Ok(w) if w.is_empty() => {}
+            Ok(w) => found.push(format!("{} can be changed by {}", p.display(), w.join(", "))),
+            Err(e) => found.push(format!("{}: cannot read its permissions ({e})", p.display())),
+        }
+    }
+    (!found.is_empty()).then(|| {
+        format!(
+            "{}: whoever can change the exe or put a DLL beside it runs code as {account}; copy the \
+             exe to a folder only administrators can change, e.g. C:\\Program Files\\PaTorrent, and \
+             install from there",
+            found.join("; ")
+        )
+    })
+}
+
 /// `ChangeServiceConfig2W` with `info`; an error to print as a warning.
 fn config2<T>(s: &Sc, level: u32, info: &T, what: &str) -> Option<String> {
     // SAFETY: an open handle with SERVICE_CHANGE_CONFIG and the structure `level` names
@@ -777,6 +896,8 @@ fn install(i: &Install) -> Result<(), String> {
             exe.display(),
             i.account.name()
         );
+    } else if let Some(w) = exe_warning(&exe, i.account.name(), &trusted) {
+        println!("! {w}");
     }
     println!("* start it with: patorrent-nox service start (or sc start {NAME})");
     Ok(())
@@ -1540,6 +1661,45 @@ mod tests {
         assert!(dir.contains(";LS)"), "the service account can write it: {dir}");
         let file = dacl_of(&state.join("webui.json"));
         assert!(!file.contains(";BU)") && file.contains(";LS)"), "{file}");
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    #[test]
+    fn an_exe_folder_users_can_change_is_reported() {
+        let base = std::env::temp_dir().join(format!("nox-service-exe-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let me = current_user().unwrap();
+        let trusted = |sid: &str| TRUSTED_OWNERS.contains(&sid) || sid == me;
+        let admins_only = format!("D:P(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;{me})");
+        let safe = base.join("safe");
+        // an entry only subfolders inherit, CREATOR OWNER
+        create_dir_with_acl(&safe, &format!("{admins_only}(A;CIIO;FA;;;AU)(A;OICI;FA;;;CO)")).unwrap();
+        let exe = safe.join("patorrent-nox.exe");
+        std::fs::write(&exe, "MZ").unwrap();
+        // read and execute for users
+        secure_dir(&exe, &format!("{admins_only}(A;;FRFX;;;BU)")).unwrap();
+        assert_eq!(untrusted_writers(&safe, &trusted).unwrap(), Vec::<String>::new());
+        assert_eq!(untrusted_writers(&exe, &trusted).unwrap(), Vec::<String>::new());
+        assert_eq!(exe_warning(&exe, "LocalService", &trusted), None);
+        // a folder where users may add files (C:\ hands this down to folders made in it)
+        let open = base.join("open");
+        create_dir_with_acl(&open, &format!("{admins_only}(A;OICI;0x1301bf;;;AU)(A;;0x4;;;BU)")).unwrap();
+        let exe = open.join("patorrent-nox.exe");
+        std::fs::write(&exe, "MZ").unwrap();
+        assert_eq!(untrusted_writers(&open, &trusted).unwrap(), ["Authenticated Users", "Users"]);
+        assert_eq!(untrusted_writers(&exe, &trusted).unwrap(), ["Authenticated Users"]);
+        let w = exe_warning(&exe, "LocalService", &trusted).unwrap();
+        assert!(
+            w.contains("can be changed by Authenticated Users, Users") && w.contains("LocalService"),
+            "{w}"
+        );
+        // everyone may change the exe: no DACL at all; an owner who is not trusted
+        secure_dir(&safe.join("patorrent-nox.exe"), "D:NO_ACCESS_CONTROL").unwrap();
+        assert_eq!(untrusted_writers(&safe.join("patorrent-nox.exe"), &trusted).unwrap(), ["Everyone"]);
+        let owner = owner_of(&safe).unwrap().unwrap();
+        let only_system = |sid: &str| sid == "S-1-5-18";
+        assert_eq!(untrusted_writers(&safe, &only_system).unwrap()[0], owner);
         std::fs::remove_dir_all(&base).unwrap();
     }
 

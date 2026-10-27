@@ -9,6 +9,8 @@
 
 **PaTorrent** (long name **PatinaTorrent**) is a lean BitTorrent client in the spirit of µTorrent 2.2.1: tiny, fast, native, and comfortable with thousands of torrents. A patina is the good kind of rust.
 
+Website: <https://balls0fsteel.github.io/PaTorrent/>: downloads with how to start each file, an FAQ and links to the documentation.
+
 - **Engine:** our own Rust port of [libtorrent-rasterbar](https://github.com/arvidn/libtorrent) 2.0.11. libtorrent's code is the reference; nothing is linked.
 - **Frontends:** a native Win32 GUI (first), a headless daemon `patorrent-nox` with a Web UI, and a GTK 4 GUI for Linux, BSD and macOS.
 - **Goals:**
@@ -35,6 +37,8 @@ Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorr
 | macOS, headless | `patorrent-nox-<version>-macos-<arch>.tar.gz` | `patorrent-nox` for Apple silicon and Intel |
 
 The builds are not code-signed, so Windows SmartScreen and macOS Gatekeeper warn the first time. How the files are made: [docs/RELEASING.md](docs/RELEASING.md).
+
+**Updates.** From the release after 1.0.0-rc.1, the Windows and GTK GUIs check the website's list of releases 10 seconds after they start and every 12 hours. When a newer version is out, a note shows in the status bar for a minute and links to its release page; nothing is downloaded or installed for you. Help > Check for Updates asks at once; Preferences > General > Privacy turns the automatic check off. The Flatpak leaves updating to Flathub.
 
 ## Building
 

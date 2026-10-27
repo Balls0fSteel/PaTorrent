@@ -139,6 +139,13 @@ elevates through UAC and starts from a clean registry):
    tarball, the AppImages and the Flatpak on a Linux desktop;
    for macOS, the `macos-gui-start` screenshot, as nobody here has a Mac), compare
    `SHA256SUMS`, then publish the draft on GitHub (`gh release edit v1.0.0 --draft=false`).
+6. Publishing starts the Pages workflow, which rebuilds the website's download links and
+   `update.txt`, the list the GUIs' update check reads (D32, [WEBSITE.md](WEBSITE.md)). A few
+   minutes later, <https://balls0fsteel.github.io/PaTorrent/update.txt> names the new version
+   (`stable=` for a release, `prerelease=` for a suffixed one); from then on running copies
+   show it in their status bar. The file names above are the website's contract too:
+   `site/build.py` sorts a release's files into sections by name, so a new or renamed file
+   needs its pattern there.
 
 A dry run without a tag: Actions > Release > Run workflow builds the same files as one
 artifact per platform, named `<version>-dev.<commit>`, and makes no release.

@@ -102,10 +102,9 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
 - One old full Windows test run omitted the win32 result without a captured
   error; isolated and later full runs passed. If it recurs, capture exit code and
   full output to identify a crashing hidden-dialog test.
-- The Windows executables carry no `VERSIONINFO` resource, so Explorer's Details
-  tab shows no version or copyright; only the manifest's `assemblyIdentity`
-  names the version. `crates/win32/build.rs` already writes a `.res` for the
-  icon and could add one. Keep its four numbers in step with the crate version.
+- µTorrent's UI Settings "Show current speed in the title bar" (`[D: x U: y]`
+  before the name and version) is not implemented; the title is
+  "PaTorrent <version>" only.
 
 ## GTK desktop checks and limitations
 
@@ -437,6 +436,38 @@ That broad check does not establish that every detailed case below was tried.
   stored URLs are currently shown verbatim. Partial-file availability/per-file
   redirects can leave an unaligned boundary piece without a usable seed, as in
   libtorrent.
+
+## Updates, installer and website
+
+- The update check (D32) answers only once GitHub Pages serves `update.txt`
+  (docs/WEBSITE.md); until then each automatic check logs "Update check failed:
+  HTTP 404". Hand-checked on Win32 with `PATORRENT_UPDATE_URL`; not checked:
+  clicking the notice (opens the browser), the GTK link button and Help items on
+  a desktop (CI compiles them), macOS, a proxy, and a check across sleep/resume.
+- nox has no update check. Options: a server-side check shown in the Web UI's
+  status bar, or a Logger/console line; decide whether a headless daemon should
+  call out at all, and how a service would turn it off.
+- Serbian's Help menu: MenuAbout and MenuNotices both use the О mnemonic.
+- The new strings (update check, Help items) are machine translations like the
+  rest; a native speaker should review them with the tables (Localisation), and
+  the installer's own texts in `packaging/windows/strings.nsh`.
+- Installer (D31): only a silent per-user install, upgrade, busy-file abort and
+  uninstall were run (locally); the release job's build, NSIS checksum and smoke
+  test have not run on GitHub yet. Hand-check as RELEASING.md "Windows
+  installer" lists: the wizard and language dialog (RTL too), all users through
+  UAC (declining it, over-the-shoulder elevation, `/ALLUSERS`), the Finish
+  page's launch, `--associate` on a real registry, a running `PaTorrentNox`
+  service, Windows on Arm, SmartScreen on the unsigned setup.
+- Installer follow-ups: build it in `ci.yml` too so breakage shows before a tag;
+  associations of an all-users install are per user (HKLM or first-run
+  handling?); `--unregister` leaves `.torrent`'s `Content Type` and an empty
+  `OpenWithProgids`, as Preferences does; Authenticode signing of the exes and
+  the setup; a winget manifest.
+- Website (D33): the Pages workflow has not run. Pages is still in legacy
+  "deploy from `main`" mode, so the site URL shows the repository root; the
+  owner switches the source to GitHub Actions and adds a `v*` tag rule to the
+  `github-pages` environment (WEBSITE.md). Its screenshots are from the Win32
+  demo; GTK and Web UI screenshots would help.
 
 ## Validation and development environment
 

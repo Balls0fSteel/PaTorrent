@@ -48,14 +48,16 @@ use patorrent_core::metainfo::{
     CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, set_piece_hashes,
 };
 use patorrent_core::{
-    AddTorrentParams, Alert, EncLevel, EncPolicy, PeerFlags, PeerInfo, Session, SessionHandle, SessionParams,
-    Settings, Sha1Hash, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, AlertCategory, EncLevel, EncPolicy, PeerFlags, PeerInfo, Session, SessionHandle,
+    SessionParams, Settings, Sha1Hash, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const NAME: &str = "lt-interop";
 const PIECE: usize = 256 * 1024;
 const SEED_READY_LIMIT: Duration = Duration::from_secs(180);
 const DOWNLOAD_LIMIT: Duration = Duration::from_secs(300);
+/// How long after qBittorrent's log says the torrent is ready it takes peers (`wait_until_ready`).
+const QBT_LOG_GRACE: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Client {
@@ -670,9 +672,16 @@ fn probe(
     Ok((peer_id, have.iter().all(|&h| h)))
 }
 
+/// qBittorrent's own log (`--profile` keeps it in the fixture's profile).
+fn qbt_log(f: &Fixture) -> PathBuf {
+    f.work.join("qbt-profile").join("qBittorrent").join("data").join("logs").join("qbittorrent.log")
+}
+
 /// Waits until the client answers a handshake for the torrent and, when `seeding`, has every
 /// piece. Returns its peer-id; `None` when the client takes no TCP (`takes_tcp`) and cannot be
-/// probed: then it only has to stay up for a few seconds, and the engine retries its connects.
+/// probed: then qBittorrent's log says when the torrent is in and, when `seeding`, checked.
+/// A uTP connect it leaves unanswered before then times out and marks it TCP-only in our engine
+/// (libtorrent's fallback), and it takes no TCP: the run would hang.
 fn wait_until_ready(
     remote: &mut Remote,
     client: Client,
@@ -684,11 +693,22 @@ fn wait_until_ready(
         Ok(Some(status)) => Err(format!("the client exited ({status}); see {}", r.log.display())),
         _ => Ok(()),
     };
-    if !takes_tcp(client, opts) {
-        std::thread::sleep(Duration::from_secs(3));
-        return exited(remote).map(|()| None);
-    }
     let deadline = Instant::now() + SEED_READY_LIMIT;
+    if !takes_tcp(client, opts) {
+        let marker = if seeding { "Torrent download finished" } else { "Added new torrent" };
+        let log = qbt_log(f);
+        while Instant::now() < deadline {
+            exited(remote)?;
+            if std::fs::read_to_string(&log).is_ok_and(|s| s.contains(marker)) {
+                // the line comes before the torrent takes peers: a SYN sent at once went
+                // unanswered, with its resends, for the whole connect timeout (5.3.0, 2026-10-26)
+                std::thread::sleep(QBT_LOG_GRACE);
+                return Ok(None);
+            }
+            std::thread::sleep(Duration::from_millis(200));
+        }
+        return Err(format!("no \"{marker}\" in {} after {SEED_READY_LIMIT:?}", log.display()));
+    }
     let mut last = String::from("no answer");
     let encrypted = opts.encryption == Some(Encryption::Forced);
     while Instant::now() < deadline {
@@ -799,6 +819,10 @@ fn session(opts: &Options, peer: SocketAddr) -> Result<Session, String> {
     if let Some(t) = opts.transport {
         t.apply(&mut settings);
     }
+    // LT_INTEROP_TRACE also lists failed and closed connections
+    if std::env::var_os("LT_INTEROP_TRACE").is_some() {
+        settings.alert_mask = AlertCategory::all().bits();
+    }
     Session::start(SessionParams { settings, state_dir: None }).map_err(|e| e.to_string())
 }
 
@@ -849,6 +873,11 @@ fn download(f: &Fixture, from: SocketAddr, dir: &Path, opts: &Options) -> Result
         Alert::TorrentFinished { id: i } if *i == id => Some(()),
         Alert::TorrentError { error, .. } => {
             errors.push(error.to_string());
+            None
+        }
+        Alert::PeerDisconnected { addr, utp, reason, error, .. } if trace => {
+            let how = if *utp { "uTP" } else { "TCP" };
+            eprintln!("  {:>6} ms  {how} {addr} closed (error {error}): {reason}", t0.elapsed().as_millis());
             None
         }
         Alert::PeerInfo { id: i, peers } if *i == id => {

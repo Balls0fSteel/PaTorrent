@@ -326,6 +326,19 @@ fn inside_save_folder(path: &[u8]) -> String {
     out
 }
 
+/// A µTorrent path split into its folder and last part, as `Path::parent` and `file_name` do on
+/// Windows. µTorrent writes Windows paths, which `Path` on Unix does not split at `\`.
+fn split_windows_path(path: &str) -> (String, String) {
+    let path = path.trim_end_matches(['/', '\\']);
+    let Some(cut) = path.rfind(['/', '\\']) else { return (String::new(), path.to_owned()) };
+    let mut folder = path[..cut].to_owned();
+    // a root keeps its separator: `D:\x` is in `D:\`, `\x` in `\`
+    if folder.is_empty() || folder.ends_with(':') {
+        folder.push_str(&path[cut..=cut]);
+    }
+    (folder, path[cut + 1..].to_owned())
+}
+
 /// The record as bytes with the `.torrent`'s info dictionary as it was (so the info-hash
 /// holds) and its outer keys where the record has none; see [`distrust`] for what it loses.
 fn finish_record(mut rec: Entry, meta: &Metadata) -> Vec<u8> {
@@ -536,9 +549,7 @@ fn utorrent_torrent(dir: &Path, file: &str, r: Node<'_>) -> Result<Import, Strin
 
     // `path` is the torrent's own folder (multi-file) or file: its parent is the save path,
     // and a different last part means µTorrent renamed it
-    let content = Path::new(path);
-    let save_path = content.parent().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default();
-    let stored = content.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let (save_path, stored) = split_windows_path(path);
     let mut mapped: BTreeMap<u32, String> = BTreeMap::new();
     let root_name = if multi { ti.name() } else { files.file_name(0) };
     if !stored.is_empty() && stored != root_name {
@@ -685,6 +696,18 @@ mod tests {
     fn decoded(t: &Import) -> Entry {
         let TorrentSource::Resume(b) = &t.params.source else { panic!("not a resume record") };
         Entry::from_node(bdecode(b).unwrap().root().unwrap())
+    }
+
+    #[test]
+    fn utorrent_paths_split_as_on_windows() {
+        let split = split_windows_path;
+        let pair = |a: &str, b: &str| (a.to_owned(), b.to_owned());
+        assert_eq!(split(r"D:\dl\Show"), pair(r"D:\dl", "Show"));
+        assert_eq!(split(r"D:\dl\Show\"), pair(r"D:\dl", "Show"));
+        assert_eq!(split(r"D:\Show"), pair(r"D:\", "Show"));
+        assert_eq!(split("/home/x/Show"), pair("/home/x", "Show"));
+        assert_eq!(split(r"\Show"), pair(r"\", "Show"));
+        assert_eq!(split("Show"), pair("", "Show"));
     }
 
     #[test]
@@ -858,7 +881,9 @@ mod tests {
             .map(|m| m.as_str().unwrap().to_owned())
             .collect();
         for m in &mapped {
-            assert!(!Path::new(m).has_root() && !m.contains("..") && !m.contains(':'), "{m}");
+            assert!(!Path::new(m).has_root() && !m.contains(".."), "{m}");
+            // `:` names a drive or a stream only on Windows; elsewhere it is a plain character
+            assert!(!cfg!(windows) || !m.contains(':'), "{m}");
         }
         assert!(mapped[0].ends_with("Startup/x.bat"), "{mapped:?}");
         // relative targets are under the torrent's folder: `Show/../../../home/...`, cleaned

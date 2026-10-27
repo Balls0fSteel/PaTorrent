@@ -17,9 +17,9 @@ use patorrent_core::fetch::FetchProxy;
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::util::time::{local_utc_offset, unix_now};
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
-    SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, VERSION,
-    same_dir,
+    AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, NAME_VERSION, QueueMove,
+    RemoveFlags, Session, SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId,
+    TorrentSource, VERSION, same_dir,
 };
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
@@ -37,8 +37,9 @@ use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::{Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
+use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
 use patorrent_frontend::{actions, add, create, fmt, settings, tr};
-use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, WPARAM};
+use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -78,6 +79,9 @@ const WM_APP_COUNTDOWN: u32 = WM_APP + 5;
 const WM_APP_RSS: u32 = WM_APP + 7;
 /// A magnet added through the Add New Torrent dialog has its metadata: `App::awaiting` has it.
 const WM_APP_MAGNET: u32 = WM_APP + 8;
+/// An update check finished (posted from its worker thread); `lParam` is a
+/// `Box<Result<Manifest, String>>`.
+const WM_APP_UPDATE: u32 = WM_APP + 9;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
 pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
@@ -142,6 +146,8 @@ mod cmd {
     pub const ITEM_DOWNLOAD: u16 = 140;
     pub const CONNECT_REMOTE: u16 = 141;
     pub const NOTICES: u16 = 142;
+    pub const CHECK_UPDATES: u16 = 143;
+    pub const WEBSITE: u16 = 144;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -297,6 +303,10 @@ struct App {
     auto_shutdown: AutoShutdown,
     /// Standby or hibernation waiting for the engine's `ResumeDataSaved`.
     suspend_pending: Option<Power>,
+    /// The update check (Preferences > General > Privacy, Help > Check for Updates) with the
+    /// status bar's notice, and "Update to beta versions".
+    updates: Checker,
+    update_beta: bool,
 }
 
 thread_local! {
@@ -483,10 +493,11 @@ pub fn run(args: Args) -> i32 {
         wc.lpszClassName = PANEL_CLASS;
         RegisterClassExW(&wc);
 
+        let title = wide(NAME_VERSION);
         let hwnd = CreateWindowExW(
             WS_EX_ACCEPTFILES,
             class,
-            w!("PaTorrent"),
+            title.as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -505,7 +516,7 @@ pub fn run(args: Args) -> i32 {
             log_line(&p);
         }
         if let Some(r) = crate::remote_ui::get() {
-            let title = wide(&tr!(TitleRemote, label = r.label));
+            let title = wide(&tr!(TitleRemote, version = VERSION, label = r.label));
             SetWindowTextW(hwnd, title.as_ptr());
         }
         // the server applies its own block list
@@ -579,6 +590,11 @@ unsafe fn main_menu() -> HMENU {
         append(options, cmd::CLOSE_TO_TRAY, tr!(MenuCloseToTray));
         append(options, cmd::MIN_TO_TRAY, tr!(MenuMinimizeToTray));
         let help = CreatePopupMenu();
+        append(help, cmd::WEBSITE, tr!(MenuWebsite));
+        if update::AVAILABLE {
+            append(help, cmd::CHECK_UPDATES, tr!(MenuCheckUpdates));
+        }
+        separator(help);
         append(help, cmd::ABOUT, tr!(MenuAbout));
         append(help, cmd::NOTICES, tr!(MenuNotices));
         submenu(bar, file, tr!(MenuFile));
@@ -695,7 +711,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         }
         let piece_list = controls::create_report(pages[Page::Pieces.index()], IDC_PIECE_LIST, false);
         ShowWindow(piece_list, SW_SHOW);
-        let status = child(hwnd, STATUSCLASSNAMEW, "", WS_CHILD | SBARS_SIZEGRIP, 0, IDC_STATUS);
+        let status =
+            child(hwnd, STATUSCLASSNAMEW, "", WS_CHILD | SBARS_SIZEGRIP | SBARS_TOOLTIPS, 0, IDC_STATUS);
 
         let handle = session.handle();
         let target = hwnd as isize;
@@ -797,6 +814,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             feed_rows: Vec::new(),
             auto_shutdown: AutoShutdown::default(),
             suspend_pending: None,
+            updates: Checker::new(gui.check_updates, std::time::Instant::now()),
+            update_beta: gui.update_beta,
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -814,7 +833,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         controls::set_columns(piece_list, &cols);
         send(tabs, TCM_SETCURSEL, page.index(), 0);
         DragAcceptFiles(hwnd, 1);
-        tray::add(hwnd, icon_small, WM_APP_TRAY, "PaTorrent");
+        tray::add(hwnd, icon_small, WM_APP_TRAY, NAME_VERSION);
         // Accept forwarded arguments and dropped files from less privileged processes too.
         ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, null_mut());
         update_visibility(hwnd);
@@ -1055,6 +1074,7 @@ unsafe fn layout(hwnd: HWND) {
                 scale(a.tree_w, a.dpi),
                 scale(a.detail_h, a.dpi),
                 a.dpi,
+                a.updates.notice().map(|v| tr!(UpdateNotice, version = v)),
             )
         }) else {
             return;
@@ -1074,6 +1094,7 @@ unsafe fn layout(hwnd: HWND) {
             tree_w,
             detail_h,
             dpi,
+            notice,
         ) = a;
         let mut rc: RECT = zeroed();
         GetClientRect(hwnd, &mut rc);
@@ -1092,7 +1113,14 @@ unsafe fn layout(hwnd: HWND) {
             GetWindowRect(status, &mut r);
             bottom -= r.bottom - r.top;
             let w = rc.right;
-            let parts = [w - scale(560, dpi), w - scale(400, dpi), w - scale(200, dpi), -1];
+            let mut parts = vec![w - scale(560, dpi), w - scale(400, dpi), w - scale(200, dpi), -1];
+            if let Some(text) = notice {
+                // the update notice first, as wide as its icon and text, out of the network
+                // part's room: for its minute that part may shrink to its icon (a narrow
+                // window shows the rest of the notice as its tooltip)
+                let want = text_width(status, &text) + scale(36, dpi);
+                parts.insert(0, want.min(parts[0] - scale(28, dpi)).max(0));
+            }
             send(status, SB_SETPARTS, parts.len(), parts.as_ptr() as LPARAM);
         }
         top += gap / 2;
@@ -1586,11 +1614,18 @@ fn on_timer() {
         autoload(a);
         rss_timer(a);
         let list = &a.list;
-        let step = a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), std::time::Instant::now());
-        (a.hwnd, step)
+        let now = std::time::Instant::now();
+        let step = a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), now);
+        (a.hwnd, step, a.updates.due(now), a.updates.expire(now))
     });
     request_detail();
-    if let Some((hwnd, step)) = step {
+    if let Some((hwnd, step, check, notice_over)) = step {
+        if check {
+            start_update_check(hwnd);
+        }
+        if notice_over {
+            unsafe { show_update_notice(hwnd) };
+        }
         unsafe { auto_shutdown_step(hwnd, step) };
     }
 }
@@ -1833,7 +1868,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                 Alert::RemoteDisconnected { ref message } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     let label = crate::remote_ui::get().map_or("", |r| r.label.as_str());
-                    let title = wide(&tr!(TitleDisconnected, label));
+                    let title = wide(&tr!(TitleDisconnected, version = VERSION, label));
                     // SAFETY: the main window is live while the app state is.
                     unsafe { SetWindowTextW(a.hwnd, title.as_ptr()) };
                     errors.push(tr!(ErrRemoteLost, label, message));
@@ -1961,7 +1996,7 @@ unsafe fn on_alerts(hwnd: HWND) {
 }
 
 unsafe fn update_status_bar() {
-    let Some((status, hwnd, parts, tip, changed, net_icon)) = with_app(|a| {
+    let Some((status, hwnd, parts, tip, changed, net_icon, first)) = with_app(|a| {
         let s = &a.stats;
         let has = s.has_incoming_connections;
         let net_icon = (a.net_shown != Some(has)).then(|| {
@@ -1979,8 +2014,12 @@ unsafe fn update_status_bar() {
             tr!(BarDown, rate = fmt::speed_always(s.download_rate), total = fmt::size(s.recv_payload_bytes)),
             tr!(BarUp, rate = fmt::speed_always(s.upload_rate), total = fmt::size(s.sent_payload_bytes)),
         ];
-        let tip =
-            tr!(TrayTip, down = fmt::speed_always(s.download_rate), up = fmt::speed_always(s.upload_rate));
+        let tip = tr!(
+            TrayTip,
+            version = VERSION,
+            down = fmt::speed_always(s.download_rate),
+            up = fmt::speed_always(s.upload_rate)
+        );
         let changed = tip != a.tray_tip;
         if changed {
             a.tray_tip = tip.clone();
@@ -1993,17 +2032,19 @@ unsafe fn update_status_bar() {
             }
             a.status_texts[*i] = p.clone();
         }
-        (a.status, a.hwnd, parts, tip, changed, net_icon)
+        // the update notice, when there is one, is the first part
+        let first = usize::from(a.updates.notice().is_some());
+        (a.status, a.hwnd, parts, tip, changed, net_icon, first)
     }) else {
         return;
     };
     unsafe {
         if let Some(icon) = net_icon {
-            send(status, SB_SETICON, 0, icon as LPARAM);
+            send(status, SB_SETICON, first, icon as LPARAM);
         }
         for (i, text) in &parts {
             let w = wide(text);
-            send(status, SB_SETTEXTW, *i, w.as_ptr() as LPARAM);
+            send(status, SB_SETTEXTW, first + *i, w.as_ptr() as LPARAM);
         }
     }
     if changed {
@@ -2054,6 +2095,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_APP_MAGNET => {
                 magnet_dialogs(hwnd);
                 0
+            }
+            WM_APP_UPDATE => {
+                update_done(hwnd, *Box::from_raw(lparam as *mut Result<Manifest, String>));
+                0
+            }
+            WM_SETCURSOR if over_update_notice(wparam as HWND) => {
+                SetCursor(LoadCursorW(null_mut(), IDC_HAND));
+                1
             }
             WM_COMMAND => {
                 on_command(hwnd, crate::util::loword(wparam));
@@ -2191,8 +2240,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             m if m != 0 && Some(m) == with_app(|a| a.taskbar_created) => {
                 // Explorer restarted: the tray icon is gone.
-                if let Some(icon) = with_app(|a| a.icon_small) {
-                    tray::add(hwnd, icon, WM_APP_TRAY, "PaTorrent");
+                if let Some((icon, tip)) = with_app(|a| (a.icon_small, a.tray_tip.clone())) {
+                    tray::add(hwnd, icon, WM_APP_TRAY, if tip.is_empty() { NAME_VERSION } else { &tip });
                 }
                 0
             }
@@ -2551,6 +2600,12 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 ),
             ),
             cmd::NOTICES => crate::notices::show(hwnd),
+            cmd::WEBSITE => open_url(hwnd, update::WEBSITE_URL),
+            cmd::CHECK_UPDATES => {
+                if with_app(|a| a.updates.start_manual()) == Some(true) {
+                    start_update_check(hwnd);
+                }
+            }
             cmd::SHOW_TOOLBAR | cmd::SHOW_DETAILS | cmd::SHOW_STATUS | cmd::SHOW_TREE => {
                 with_app(|a| {
                     let v = match id {
@@ -3117,6 +3172,8 @@ fn apply_options(a: &mut App, o: &Options) {
     o.gui.update_move_completed(&mut a.move_completed);
     a.seeding_goal = o.gui.seeding_goal();
     a.torrent_folders = o.gui.torrent_folders.clone();
+    a.updates.set_automatic(o.gui.check_updates, std::time::Instant::now());
+    a.update_beta = o.gui.update_beta;
     if o.gui.pex != old.gui.pex {
         for id in a.list.ids() {
             let t = a.handle.torrent(id);
@@ -3391,6 +3448,117 @@ fn rss_file() -> PathBuf {
 /// tracker connections.
 fn rss_proxy(a: &App) -> Option<FetchProxy> {
     FetchProxy::from_settings(&Options::load(&a.prefs, &a.save_path).settings)
+}
+
+/// Asks the website for the releases on a worker thread (`update::fetch`, through the proxy
+/// the RSS feeds use), which posts the result back (`WM_APP_UPDATE`).
+fn start_update_check(hwnd: HWND) {
+    let target = hwnd as isize;
+    let proxy = with_app(|a| rss_proxy(a)).flatten();
+    std::thread::spawn(move || {
+        let result = Box::into_raw(Box::new(update::fetch(proxy)));
+        unsafe {
+            if PostMessageW(target as HWND, WM_APP_UPDATE, 0, result as LPARAM) == 0 {
+                drop(Box::from_raw(result));
+            }
+        }
+    });
+}
+
+/// `WM_APP_UPDATE`: an automatic check's newer version goes to the status bar for a minute and
+/// to the Logger, as does its failure (the Logger only); Help > Check for Updates answers in a
+/// message box.
+unsafe fn update_done(hwnd: HWND, result: Result<Manifest, String>) {
+    let current = Version::current();
+    let Some((kind, answer)) = with_app(|a| {
+        let (kind, answer) = a.updates.finish(result, &current, a.update_beta, std::time::Instant::now());
+        let line = match (&kind, &answer) {
+            (Kind::Automatic, Ok(Some(v))) => {
+                Some(tr!(LogUpdateAvailable, version = v, url = v.release_url()))
+            }
+            (Kind::Automatic, Err(e)) => Some(tr!(LogUpdateFailed, error = e)),
+            _ => None,
+        };
+        if let Some(line) = line {
+            a.detail.push_log(format!("{} {line}", now_hms()));
+        }
+        (kind, answer)
+    }) else {
+        return;
+    };
+    match (kind, answer) {
+        (Kind::Automatic, Ok(Some(_))) => unsafe { show_update_notice(hwnd) },
+        (Kind::Automatic, _) => {}
+        (Kind::Manual, Ok(Some(v))) => {
+            if dialogs::ask(hwnd, &tr!(UpdateNewer, version = v, current)) {
+                open_url(hwnd, &v.release_url());
+            }
+        }
+        (Kind::Manual, Ok(None)) => dialogs::info(hwnd, &tr!(UpdateNewest, version = current)),
+        (Kind::Manual, Err(e)) => dialogs::error(hwnd, &tr!(UpdateFailed, error = e)),
+    }
+}
+
+/// Shows or hides the status bar's update notice (`App::updates`): its own first part, with the
+/// application icon, before the network part; the other parts move along.
+unsafe fn show_update_notice(hwnd: HWND) {
+    let Some((status, notice, icon)) = with_app(|a| {
+        // every part's text and the network icon are sent again at their new places
+        a.status_texts.clear();
+        a.net_shown = None;
+        (a.status, a.updates.notice().map(|v| tr!(UpdateNotice, version = v)), a.icon_small)
+    }) else {
+        return;
+    };
+    unsafe {
+        layout(hwnd);
+        // the tooltip shows a part's text when it does not fit
+        let w = wide(notice.as_deref().unwrap_or_default());
+        send(status, SB_SETTIPTEXTW, 0, w.as_ptr() as LPARAM);
+        if notice.is_some() {
+            send(status, SB_SETTEXTW, 0, w.as_ptr() as LPARAM);
+            send(status, SB_SETICON, 0, icon as LPARAM);
+        }
+        update_status_bar();
+    }
+}
+
+/// Whether the mouse is over the status bar's update notice (`child` is the window under it).
+unsafe fn over_update_notice(child: HWND) -> bool {
+    let Some(Some(status)) = with_app(|a| a.updates.notice().is_some().then_some(a.status)) else {
+        return false;
+    };
+    if child != status {
+        return false;
+    }
+    unsafe {
+        let mut r: RECT = zeroed();
+        send(status, SB_GETRECT, 0, &mut r as *mut RECT as LPARAM);
+        let mut p: POINT = zeroed();
+        GetCursorPos(&mut p);
+        ScreenToClient(status, &mut p);
+        PtInRect(&r, p) != 0
+    }
+}
+
+/// How wide `text` is in `hwnd`'s font.
+unsafe fn text_width(hwnd: HWND, text: &str) -> i32 {
+    unsafe {
+        let dc = GetDC(hwnd);
+        let old = SelectObject(dc, send(hwnd, WM_GETFONT, 0, 0) as HGDIOBJ);
+        let w: Vec<u16> = text.encode_utf16().collect();
+        let mut size: SIZE = zeroed();
+        GetTextExtentPoint32W(dc, w.as_ptr(), w.len() as i32, &mut size);
+        SelectObject(dc, old);
+        ReleaseDC(hwnd, dc);
+        size.cx
+    }
+}
+
+/// Opens `url` in the default browser.
+fn open_url(hwnd: HWND, url: &str) {
+    let u = wide(url);
+    unsafe { ShellExecuteW(hwnd, w!("open"), u.as_ptr(), null(), null(), SW_SHOWNORMAL) };
 }
 
 /// Once a second: the refreshes that are due, and `rss.dat` when it changed.
@@ -3877,6 +4045,18 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
             }
             (IDC_LIST, LVN_ODSTATECHANGED) => {
                 selection_changed();
+                0
+            }
+            (IDC_STATUS, NM_CLICK) if (*(nm as *const NMMOUSE)).dwItemSpec == 0 => {
+                let url = with_app(|a| {
+                    let url = a.updates.notice().map(Version::release_url);
+                    a.updates.dismiss();
+                    url
+                });
+                if let Some(url) = url.flatten() {
+                    open_url(hwnd, &url);
+                    show_update_notice(hwnd);
+                }
                 0
             }
             (IDC_LIST, NM_DBLCLK) if with_app(|a| a.feed_view.is_some()) == Some(true) => {

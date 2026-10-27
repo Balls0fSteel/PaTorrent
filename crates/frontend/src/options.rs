@@ -73,6 +73,11 @@ pub struct GuiOptions {
     /// [`crate::lang::LANGUAGES`], or empty for the system's. Used from the next start
     /// (`lang::init`).
     pub language: String,
+    /// Preferences > General > Privacy: "Check for updates automatically" (`update.check`, on
+    /// by default as in µTorrent) and "Update to beta versions" (`update.beta`), see
+    /// [`crate::update`].
+    pub check_updates: bool,
+    pub update_beta: bool,
 }
 
 impl GuiOptions {
@@ -109,6 +114,8 @@ impl GuiOptions {
             ip_filter_path: prefs.get("ipfilter.path").unwrap_or_default().to_owned(),
             schedule: Schedule::load(prefs),
             language: prefs.get("ui.language").unwrap_or_default().trim().to_owned(),
+            check_updates: prefs.get_bool("update.check", true),
+            update_beta: prefs.get_bool("update.beta", false),
         }
     }
 
@@ -149,6 +156,8 @@ impl GuiOptions {
         } else {
             prefs.set("ui.language", self.language.trim());
         }
+        prefs.set_bool("update.check", self.check_updates);
+        prefs.set_bool("update.beta", self.update_beta);
     }
 
     /// The block list to load: the configured path, or `ipfilter.dat` in `settings_dir`.
@@ -262,6 +271,7 @@ mod tests {
         assert_eq!(o.gui.download_dir, r"C:\Downloads");
         assert!(o.gui.confirm_delete && o.gui.close_to_tray && !o.gui.minimize_to_tray && o.gui.pex);
         assert!(!o.gui.ip_filter && o.gui.show_add_dialog);
+        assert!(o.gui.check_updates && !o.gui.update_beta);
         assert_eq!(o.gui.seeding_goal(), SeedingGoal::default(), "150 %, no time, stop");
         assert_eq!(o.gui.property_defaults(), Defaults { upload_slots: 0, seed_goal: SeedGoal::default() });
         assert!(!o.gui.move_completed && o.gui.move_only_default && o.gui.completed_dir.is_empty());
@@ -302,6 +312,8 @@ mod tests {
             ip_filter_path: r"E:\lists\level1.p2p".into(),
             schedule: crate::scheduler::Schedule { enabled: true, limited_up_kib: 25, ..Default::default() },
             language: "en".into(),
+            check_updates: false,
+            update_beta: true,
         };
         changed.store(&mut prefs);
         let text = prefs.to_text();

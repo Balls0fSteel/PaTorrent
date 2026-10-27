@@ -485,7 +485,7 @@ mod sys {
                     target,
                     tooltip: RefCell::new(String::new()),
                 });
-                tray.set_tooltip("PaTorrent");
+                tray.set_tooltip(patorrent_core::NAME_VERSION);
                 tray.menu_changed();
                 CURRENT.with(|c| *c.borrow_mut() = Rc::downgrade(&tray));
                 // as the StatusNotifierItem's: after `start` has returned and the owner keeps it

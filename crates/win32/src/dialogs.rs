@@ -17,10 +17,10 @@ use windows_sys::Win32::UI::HiDpi::SystemParametersInfoForDpi;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BS_DEFPUSHBUTTON, BS_PUSHBUTTON, DLGTEMPLATE, DS_CENTER, DS_MODALFRAME, DialogBoxIndirectParamW,
     ES_AUTOHSCROLL, EndDialog, GetDlgItem, GetWindowLongPtrW, IDCANCEL, IDOK, IDYES, MB_ICONERROR,
-    MB_ICONINFORMATION, MB_ICONWARNING, MB_OK, MB_RIGHT, MB_RTLREADING, MB_USERICON, MB_YESNO, MSGBOXPARAMSW,
-    MessageBoxIndirectW, MessageBoxW, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS, SendMessageW,
-    SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_INITDIALOG, WS_BORDER, WS_CAPTION, WS_CHILD,
-    WS_EX_LAYOUTRTL, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_RIGHT, MB_RTLREADING, MB_USERICON,
+    MB_YESNO, MSGBOXPARAMSW, MessageBoxIndirectW, MessageBoxW, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
+    SendMessageW, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_INITDIALOG, WS_BORDER, WS_CAPTION,
+    WS_CHILD, WS_EX_LAYOUTRTL, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
 };
 
 use windows_sys::Win32::UI::Controls::EM_SETSEL;
@@ -91,6 +91,11 @@ pub fn info(owner: HWND, text: &str) {
 
 pub fn confirm(owner: HWND, text: &str) -> bool {
     message(owner, text, MB_YESNO | MB_ICONWARNING) == IDYES
+}
+
+/// A Yes / No question that risks nothing (Help > Check for Updates).
+pub fn ask(owner: HWND, text: &str) -> bool {
+    message(owner, text, MB_YESNO | MB_ICONQUESTION) == IDYES
 }
 
 fn message(owner: HWND, text: &str, flags: u32) -> i32 {

@@ -423,6 +423,8 @@
 
   function onHello(m) {
     hello = m;
+    // as µTorrent's window title did: the name and the version
+    document.title = "PaTorrent " + m.version;
     backoff = 1000;
     setConn("");
     labels = m.labels || [];

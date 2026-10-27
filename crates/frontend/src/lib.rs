@@ -23,6 +23,7 @@
 //! * [`seeding`]: the seeding goal: when a queued seed is stopped or held to an upload rate.
 //! * [`auto_shutdown`]: Options > Auto Shutdown (quit, standby, hibernate or shut down when done).
 //! * [`scrape`]: the periodic scrape that gives stopped and queued torrents their swarm counts.
+//! * [`update`]: the update check: when, what is newer, the status bar's notice.
 
 pub mod actions;
 pub mod add;
@@ -48,3 +49,4 @@ pub mod seeding;
 pub mod settings;
 pub mod status;
 pub mod torrent_folders;
+pub mod update;

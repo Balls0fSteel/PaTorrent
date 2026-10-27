@@ -127,6 +127,8 @@ pub struct Features {
     /// entry declares the types): their boxes are greyed under a note saying so. Autostart
     /// stays editable: the toolkit asks the package's own means (the Background portal).
     pub packaged: bool,
+    /// The update check ([`crate::update`]): General shows its Privacy group.
+    pub updates: bool,
 }
 
 const KB: i64 = 1024;
@@ -383,6 +385,23 @@ pub fn pages(features: Features) -> Vec<Page> {
             )
             .indent()
             .needs(&["assoc.autostart"])),
+        ]);
+    }
+    if features.updates {
+        general.extend([
+            Group(S::PrefPrivacy),
+            F(checkbox(
+                "update.check",
+                S::PrefCheckUpdates,
+                |o| o.gui.check_updates,
+                |o, v| o.gui.check_updates = v,
+            )),
+            F(checkbox(
+                "update.beta",
+                S::PrefUpdateBeta,
+                |o| o.gui.update_beta,
+                |o, v| o.gui.update_beta = v,
+            )),
         ]);
     }
     vec![
@@ -1052,7 +1071,7 @@ mod tests {
 
     #[test]
     fn keys_are_unique_and_every_value_round_trips() {
-        let pages = pages(Features { tray: true, desktop: true, packaged: false });
+        let pages = pages(Features { tray: true, desktop: true, packaged: false, updates: true });
         let mut seen = std::collections::HashSet::new();
         for f in fields(&pages) {
             assert!(seen.insert(f.key), "{} twice", f.key);
@@ -1074,10 +1093,12 @@ mod tests {
         let without = super::pages(Features::default());
         assert!(fields(&without).all(|f| !f.key.contains("tray") && f.key != "ui.balloons"));
         assert!(fields(&without).all(|f| !f.key.starts_with("assoc.") && f.key != "ui.check_assoc"));
+        assert!(fields(&without).all(|f| !f.key.starts_with("update.")));
+        assert_eq!(page_of(&pages, "update.beta").map(|p| p.key), Some("general"));
         assert_eq!(page_of(&pages, "assoc.minimized").map(|p| p.key), Some("general"));
         assert!(fields(&pages).all(|f| !f.fixed));
         // in a Flatpak the same boxes under the note, the associations greyed, autostart live
-        let packaged = super::pages(Features { tray: true, desktop: true, packaged: true });
+        let packaged = super::pages(Features { tray: true, desktop: true, packaged: true, updates: false });
         let desktop = |f: &&Field| f.key.starts_with("assoc.") || f.key == "ui.check_assoc";
         assert_eq!(fields(&packaged).filter(desktop).count(), 5);
         let associations = ["assoc.torrent", "assoc.magnet", "ui.check_assoc"];

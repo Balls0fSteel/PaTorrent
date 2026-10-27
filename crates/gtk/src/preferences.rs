@@ -127,6 +127,8 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
         desktop: crate::integration::AVAILABLE,
         packaged: crate::integration::packaged(),
         tray: hooks.tray,
+        // a Flatpak is updated by Flathub
+        updates: patorrent_frontend::update::AVAILABLE && !crate::integration::packaged(),
     });
     if !crate::integration::associations_settable() {
         // macOS outside PaTorrent.app: no bundle id to register, autostart still works

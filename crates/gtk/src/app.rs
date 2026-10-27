@@ -17,8 +17,9 @@ use gtk::{gio, glib};
 use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
-    SessionHandle, SessionParams, SessionStats, TorrentFlags, TorrentId, TorrentSource, same_dir,
+    AddTorrentParams, Alert, IpFilter, MoveCompleted, MoveFlags, NAME_VERSION, QueueMove, RemoveFlags,
+    Session, SessionHandle, SessionParams, SessionStats, TorrentFlags, TorrentId, TorrentSource, VERSION,
+    same_dir,
 };
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
@@ -36,6 +37,7 @@ use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::status_icon;
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
+use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
 use patorrent_frontend::{actions, add, create, fmt, settings, tr};
 
 use crate::detail::{Details, Visit};
@@ -99,6 +101,10 @@ struct App {
     feed_rows: Vec<ItemRow>,
     /// The feed a Feeds row's menu is for (`None`: the Feeds row).
     menu_feed: Option<FeedId>,
+    /// The update check (Preferences > General > Privacy, Help > Check for Updates) with the
+    /// status bar's notice, and "Update to beta versions".
+    updates: Checker,
+    update_beta: bool,
 }
 
 /// The widgets that draw from [`App`].
@@ -108,6 +114,8 @@ struct Ui {
     status: [gtk::Label; 4],
     /// The network indicator before the first status text.
     net_icon: gtk::Image,
+    /// The update notice at the status bar's start, shown for a minute (`App::updates`).
+    update_link: gtk::LinkButton,
     paned: gtk::Paned,
     details: Rc<Details>,
     /// The list over the detail tabs.
@@ -347,8 +355,16 @@ fn startup(app: &gtk::Application) {
     options.append_section(None, &auto_section);
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuOptions))), &options);
     let help = gio::Menu::new();
-    item(&help, tr!(MenuAbout), "win.about");
-    item(&help, tr!(MenuNotices), "win.notices");
+    let web = gio::Menu::new();
+    item(&web, tr!(MenuWebsite), "win.website");
+    if updates_here() {
+        item(&web, tr!(MenuCheckUpdates), "win.check-updates");
+    }
+    help.append_section(None, &web);
+    let about = gio::Menu::new();
+    item(&about, tr!(MenuAbout), "win.about");
+    item(&about, tr!(MenuNotices), "win.notices");
+    help.append_section(None, &about);
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuHelp))), &help);
     app.set_menubar(Some(&menubar));
 }
@@ -507,7 +523,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
-        .title("PaTorrent")
+        .title(NAME_VERSION)
         .default_width(prefs.get_i32("gtk.width").unwrap_or(1000).max(400))
         .default_height(prefs.get_i32("gtk.height").unwrap_or(620).max(300))
         .show_menubar(true)
@@ -516,7 +532,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         window.maximize();
     }
     if let Some(r) = remote {
-        window.set_title(Some(&tr!(TitleRemote, label = r.label)));
+        window.set_title(Some(&tr!(TitleRemote, version = VERSION, label = r.label)));
     }
 
     let started = match remote_session {
@@ -675,6 +691,16 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     paned.set_resize_start_child(false);
     paned.set_position(prefs.get_i32("gtk.sidebar").unwrap_or(180));
     let statusbar = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    let update_link = gtk::LinkButton::new(update::WEBSITE_URL);
+    update_link.set_visible(false);
+    update_link.set_margin_start(6);
+    // the link opens the release's page; the notice has done its job then
+    update_link.connect_activate_link(|_| {
+        with_app(|a| a.updates.dismiss());
+        glib::idle_add_local_once(show_update_notice);
+        glib::Propagation::Proceed
+    });
+    statusbar.append(&update_link);
     let net_icon = crate::icons::state_image();
     net_icon.set_margin_start(6);
     statusbar.append(&net_icon);
@@ -718,7 +744,18 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     add_actions(&window, &list);
     // magnets whose dialog was still to come at the last exit
     let awaiting = add::AwaitingMetadata::load(&prefs);
-    let ui = Rc::new(Ui { list, sidebar, status, net_icon, paned, details, split, list_scroll, feed_table });
+    let ui = Rc::new(Ui {
+        list,
+        sidebar,
+        status,
+        net_icon,
+        update_link,
+        paned,
+        details,
+        split,
+        list_scroll,
+        feed_table,
+    });
     UI.with(|u| *u.borrow_mut() = Some(ui));
     APP.with(|a| {
         *a.borrow_mut() = Some(App {
@@ -753,6 +790,8 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             feed_view: None,
             feed_rows: Vec::new(),
             menu_feed: None,
+            updates: Checker::new(opts.gui.check_updates && updates_here(), std::time::Instant::now()),
+            update_beta: opts.gui.update_beta,
         })
     });
     with_app(|a| {
@@ -781,9 +820,17 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             autoload(a);
             rss_timer(a);
             let list = &a.list;
-            a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), std::time::Instant::now())
+            let now = std::time::Instant::now();
+            let step = a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), now);
+            (step, a.updates.due(now), a.updates.expire(now))
         });
-        if let Some(step) = step {
+        if let Some((step, check, notice_over)) = step {
+            if check {
+                start_update_check();
+            }
+            if notice_over {
+                show_update_notice();
+            }
             auto_shutdown_step(step);
         }
         glib::ControlFlow::Continue
@@ -1117,7 +1164,7 @@ fn on_alerts() {
                 Alert::RemoteDisconnected { ref message } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     let label = crate::remote::get().map_or("", |r| r.label.as_str());
-                    a.window.set_title(Some(&tr!(TitleDisconnected, label)));
+                    a.window.set_title(Some(&tr!(TitleDisconnected, version = VERSION, label)));
                     errors.push((tr!(ErrRemoteLost, label, message), String::new()));
                 }
                 Alert::TorrentFinished { id } => {
@@ -1316,7 +1363,12 @@ fn update_status() {
     if let Some(t) = tray() {
         let tip = with_app(|a| {
             let s = &a.stats;
-            tr!(TrayTip, down = fmt::speed_always(s.download_rate), up = fmt::speed_always(s.upload_rate))
+            tr!(
+                TrayTip,
+                version = VERSION,
+                down = fmt::speed_always(s.download_rate),
+                up = fmt::speed_always(s.upload_rate)
+            )
         });
         if let Some(tip) = tip {
             t.set_tooltip(&tip);
@@ -1367,6 +1419,12 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
     });
     simple("about", about);
     simple("notices", third_party_notices);
+    simple("website", || open_uri(update::WEBSITE_URL));
+    simple("check-updates", || {
+        if with_app(|a| a.updates.start_manual()) == Some(true) {
+            start_update_check();
+        }
+    });
     simple("preferences", preferences);
     simple("properties", show_properties);
     simple("set-location", set_download_location);
@@ -2263,6 +2321,8 @@ fn apply_options(a: &mut App, o: &Options) {
     o.gui.update_move_completed(&mut a.move_completed);
     a.seeding_goal = o.gui.seeding_goal();
     a.torrent_folders = o.gui.torrent_folders.clone();
+    a.updates.set_automatic(o.gui.check_updates && updates_here(), std::time::Instant::now());
+    a.update_beta = o.gui.update_beta;
     if o.gui.pex != old.gui.pex {
         for id in a.list.ids() {
             let t = a.handle.torrent(id);
@@ -2320,6 +2380,92 @@ fn unix_now() -> i64 {
 /// tracker connections.
 fn rss_proxy(a: &App) -> Option<FetchProxy> {
     FetchProxy::from_settings(&Options::load(&a.prefs, &a.save_path).settings)
+}
+
+/// Whether this GUI checks for updates: not in a build without the check, nor in a Flatpak,
+/// which Flathub updates.
+fn updates_here() -> bool {
+    update::AVAILABLE && !crate::integration::packaged()
+}
+
+/// Asks the website for the releases on a worker thread (`update::fetch`, through the proxy
+/// the RSS feeds use); the result comes back on the main loop.
+fn start_update_check() {
+    let proxy = with_app(|a| rss_proxy(a)).flatten();
+    std::thread::spawn(move || {
+        let result = update::fetch(proxy);
+        glib::MainContext::default().invoke(move || update_done(result));
+    });
+}
+
+/// A check's result: an automatic check's newer version goes to the status bar for a minute and
+/// to the Logger, as does its failure (the Logger only); Help > Check for Updates answers in a
+/// dialog.
+fn update_done(result: Result<Manifest, String>) {
+    let current = Version::current();
+    let Some((kind, answer)) = with_app(|a| {
+        let (kind, answer) = a.updates.finish(result, &current, a.update_beta, std::time::Instant::now());
+        let line = match (&kind, &answer) {
+            (Kind::Automatic, Ok(Some(v))) => {
+                Some(tr!(LogUpdateAvailable, version = v, url = v.release_url()))
+            }
+            (Kind::Automatic, Err(e)) => Some(tr!(LogUpdateFailed, error = e)),
+            _ => None,
+        };
+        if let Some(line) = line {
+            a.detail.push_log(format!("{} {line}", now_hms()));
+        }
+        (kind, answer)
+    }) else {
+        return;
+    };
+    match (kind, answer) {
+        (Kind::Automatic, Ok(Some(_))) => show_update_notice(),
+        (Kind::Automatic, _) => {}
+        (Kind::Manual, Ok(Some(v))) => {
+            let Some(window) = with_app(|a| a.window.clone()) else { return };
+            let d = gtk::AlertDialog::builder()
+                .message(lang::plain(tr!(MenuCheckUpdates)))
+                .detail(tr!(UpdateNewer, version = v, current))
+                .buttons([tr!(BtnCancel), tr!(BtnOk)])
+                .cancel_button(0)
+                .default_button(1)
+                .modal(true)
+                .build();
+            let url = v.release_url();
+            d.choose(Some(&window), None::<&gio::Cancellable>, move |r| {
+                if r == Ok(1) {
+                    open_uri(&url);
+                }
+            });
+        }
+        (Kind::Manual, Ok(None)) => info(&tr!(UpdateNewest, version = current)),
+        (Kind::Manual, Err(e)) => error(&tr!(UpdateFailed, error = e), ""),
+    }
+}
+
+/// Shows the status bar's update notice for the newer version `App::updates` holds, or hides
+/// it.
+fn show_update_notice() {
+    let (Some(ui), Some(notice)) = (ui(), with_app(|a| a.updates.notice().cloned())) else { return };
+    match notice {
+        Some(v) => {
+            ui.update_link.set_uri(&v.release_url());
+            ui.update_link.set_label(&tr!(UpdateNotice, version = v));
+            ui.update_link.set_visible(true);
+        }
+        None => ui.update_link.set_visible(false),
+    }
+}
+
+/// Opens `uri` in the default browser.
+fn open_uri(uri: &str) {
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    gtk::UriLauncher::new(uri).launch(Some(&window), None::<&gio::Cancellable>, |r| {
+        if let Err(e) = r {
+            eprintln!("cannot open the link: {e}");
+        }
+    });
 }
 
 /// Once a second: the refreshes that are due, and `rss.dat` when it changed.

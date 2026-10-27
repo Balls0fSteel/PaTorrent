@@ -68,7 +68,7 @@ pub use status::{
 };
 pub use types::{InfoHashes, Sha1Hash, Sha256Hash, TorrentId};
 pub use util::bitfield::Bitfield;
-pub use version::{PEER_ID_PREFIX, USER_AGENT, VERSION};
+pub use version::{NAME_VERSION, PEER_ID_PREFIX, USER_AGENT, VERSION};
 
 #[cfg(feature = "mock")]
 pub use mock::MockConfig;

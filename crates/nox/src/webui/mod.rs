@@ -241,6 +241,9 @@ impl Prefs {
             ip_filter_path: self.ip_filter_path.clone(),
             schedule: self.schedule.clone(),
             language: self.language.clone(),
+            // nox checks for no updates; the GUIs' own settings keep these
+            check_updates: true,
+            update_beta: false,
         }
     }
 

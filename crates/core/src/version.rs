@@ -1,6 +1,10 @@
 /// PaTorrent version, from Cargo.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
+/// The name with the version, where µTorrent 2.2.1 showed "µTorrent 2.2.1": the main window's
+/// title and the tray icon's tooltip.
+pub const NAME_VERSION: &str = concat!("PaTorrent ", env!("CARGO_PKG_VERSION"));
+
 /// Default HTTP `User-Agent` for trackers and web seeds (libtorrent setting `user_agent`).
 pub const USER_AGENT: &str = concat!("PaTorrent/", env!("CARGO_PKG_VERSION"));
 

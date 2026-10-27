@@ -1,16 +1,16 @@
-//! Embeds the application manifest and the application icon with the MSVC linker (no resource
-//! compiler needed).
+//! Embeds the application manifest, the application icon and the version resource with the
+//! MSVC linker (no resource compiler needed).
 //!
 //! The icon is the PatinaTorrent family named in `assets/patina-icons/app-icon.txt` (see
 //! `assets/patina-icons/INTEGRATION.md`): its `.ico` from `exports/app/` becomes an RT_GROUP_ICON
 //! (ID 1, [`APP_ICON_ID`], which Explorer shows and `LoadImageW` finds) with one RT_ICON per
-//! frame, written here as a compiled resource file (`.res`) that `link.exe` takes as an input
-//! like an object file. The format is small: a header per resource, then its data, each padded
-//! to 4 bytes ("Resource File Formats" in the Win32 documentation).
+//! frame, written with the VERSIONINFO into a compiled resource file (`.res`, `res/resource.rs`).
 
 use std::env;
 use std::fs;
 use std::path::PathBuf;
+
+include!("res/resource.rs");
 
 /// The icon group's resource ID; `crates/win32/src/icons.rs` loads the same one.
 const APP_ICON_ID: u16 = 1;
@@ -24,6 +24,7 @@ fn main() {
     let dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
     let manifest = dir.join("res/patorrent.exe.manifest");
     println!("cargo:rerun-if-changed={}", manifest.display());
+    println!("cargo:rerun-if-changed={}", dir.join("res/resource.rs").display());
     let patina = dir.join("../../assets/patina-icons");
     let chosen = patina.join("app-icon.txt");
     println!("cargo:rerun-if-changed={}", chosen.display());
@@ -40,7 +41,8 @@ fn main() {
         println!("cargo:rustc-link-arg-bins=/MANIFESTUAC:NO");
 
         let bytes = fs::read(&ico).unwrap_or_else(|e| panic!("{}: {e}", ico.display()));
-        let res = icon_res(&bytes).unwrap_or_else(|e| panic!("{}: {e}", ico.display()));
+        let mut res = icon_res(&bytes).unwrap_or_else(|e| panic!("{}: {e}", ico.display()));
+        version_res(&mut res, "patorrent.exe", "PaTorrent");
         let out = PathBuf::from(env::var_os("OUT_DIR").expect("cargo sets OUT_DIR")).join("patorrent.res");
         fs::write(&out, res).unwrap_or_else(|e| panic!("{}: {e}", out.display()));
         println!("cargo:rustc-link-arg-bins={}", out.display());
@@ -55,23 +57,6 @@ fn u32_at(b: &[u8], i: usize) -> u32 {
     u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]])
 }
 
-/// One resource: its 32-byte header (numeric type and name), the data, padding to 4 bytes.
-fn resource(out: &mut Vec<u8>, kind: u16, id: u16, flags: u16, data: &[u8]) {
-    out.extend((data.len() as u32).to_le_bytes()); // DataSize
-    out.extend(32u32.to_le_bytes()); // HeaderSize
-    out.extend([0xff, 0xff]);
-    out.extend(kind.to_le_bytes()); // TYPE
-    out.extend([0xff, 0xff]);
-    out.extend(id.to_le_bytes()); // NAME
-    out.extend(0u32.to_le_bytes()); // DataVersion
-    out.extend(flags.to_le_bytes()); // MemoryFlags
-    out.extend(0u16.to_le_bytes()); // LanguageId: neutral
-    out.extend(0u32.to_le_bytes()); // Version
-    out.extend(0u32.to_le_bytes()); // Characteristics
-    out.extend(data);
-    out.resize(out.len().next_multiple_of(4), 0);
-}
-
 /// A `.res` with the `.ico` file's frames as RT_ICON 1..=n and their directory as
 /// RT_GROUP_ICON [`APP_ICON_ID`].
 fn icon_res(ico: &[u8]) -> Result<Vec<u8>, String> {
@@ -82,9 +67,7 @@ fn icon_res(ico: &[u8]) -> Result<Vec<u8>, String> {
     if count == 0 || ico.len() < 6 + 16 * count {
         return Err("no icon directory".into());
     }
-    let mut out = Vec::new();
-    // the empty entry every .res starts with
-    resource(&mut out, 0, 0, 0, &[]);
+    let mut out = res_start();
     let mut group = Vec::with_capacity(6 + 14 * count);
     group.extend(0u16.to_le_bytes());
     group.extend(1u16.to_le_bytes());

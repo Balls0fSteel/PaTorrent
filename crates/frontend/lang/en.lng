@@ -155,6 +155,13 @@ MenuAbout=&About PaTorrent
 # (THIRD-PARTY-NOTICES.md); without the mnemonic it is also the window's title.
 MenuNotices=Third-Party &Notices
 
+# Help menu: asks the project website whether a newer PaTorrent is out; without the &
+# it is also the title of the message box that answers.
+MenuCheckUpdates=Check for &Updates
+
+# Help menu: opens the project website in the browser.
+MenuWebsite=PaTorrent &Website
+
 # The Ctrl key, as menus write shortcuts (Ctrl+O).
 KeyCtrl=Ctrl
 MenuHide=&Hide PaTorrent
@@ -288,13 +295,13 @@ BarDown=D: {rate} T: {total}
 # U = upload, T = total.
 BarUp=U: {rate} T: {total}
 
-# The tray icon's tooltip; D = download, U = upload.
-TrayTip=PaTorrent\nD: {down} U: {up}
+# The tray icon's tooltip; D = download, U = upload; {version} is PaTorrent's (1.0.0).
+TrayTip=PaTorrent {version}\nD: {down} U: {up}
 BalloonComplete=Download Complete
 
 # The window title of a window connected to a patorrent-nox; {label} is host:port.
-TitleRemote=PaTorrent - {label} (remote)
-TitleDisconnected=PaTorrent - {label} (disconnected)
+TitleRemote=PaTorrent {version} - {label} (remote)
+TitleDisconnected=PaTorrent {version} - {label} (disconnected)
 LogAdded={name}: added
 LogFinished={name}: finished downloading
 LogMovingCompleted={name}: moving the completed download to {dir}
@@ -331,6 +338,10 @@ LogIpFilterKept=IP filter: {path}: {error} (the old rules stay)
 
 # {title} is an RSS item's title.
 LogRssAlreadyInList=RSS: {title}: already in the torrent list
+
+# {version} is a newer PaTorrent's version (1.0.1), {url} its download page.
+LogUpdateAvailable=PaTorrent {version} is available: {url}
+LogUpdateFailed=Update check failed: {error}
 
 # {what} is one of the two below.
 LogSeedingGoal={name}: seeding goal reached, {what}
@@ -402,6 +413,15 @@ MenuRemoveAndDelete=Remove &And Delete Data
 AboutShort=A BitTorrent client in the spirit of µTorrent 2.2.1, on a Rust port of libtorrent.
 AskDeleteFeed=Delete the feed "{name}"?
 ErrNotRunning=not running
+
+# In the status bar for a minute when a newer PaTorrent is out ({version}, like 1.0.1);
+# clicking it opens the download page.
+UpdateNotice=PaTorrent {version} is available - click here to download it
+
+# Help > Check for Updates; {version} is the newer one, {current} the running one.
+UpdateNewer=PaTorrent {version} is available. You have {current}.\n\nOpen its download page?
+UpdateNewest=You have the newest version, PaTorrent {version}.
+UpdateFailed=Could not check for updates: {error}
 
 # {version} is like 1.0.0, {path} the settings file. Keep the names and licences as they are.
 AboutText=PaTorrent (PatinaTorrent) {version}\n\nA re-creation of µTorrent 2.2.1, built on a Rust port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or run patorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, µTorrent or BitTorrent, Inc.\n\nSettings: {path}
@@ -551,6 +571,13 @@ PrefStartMinimized=Start minimized
 # Under Desktop Integration when the GTK client runs as a Flatpak (the boxes are greyed).
 PrefDesktopPackaged=PaTorrent runs as a Flatpak: the desktop offers it for .torrent files and magnet: links. Choose the default program in your desktop's settings.
 PrefDefaultApps=Default apps...
+
+# Preferences > General, as in µTorrent 2.2.1: the update check.
+PrefPrivacy=Privacy
+PrefCheckUpdates=Check for updates automatically
+
+# Pre-releases (release candidates) are offered too.
+PrefUpdateBeta=Update to beta versions
 PrefDisplay=Display Options
 PrefConfirmDelete=Confirm when deleting torrents
 PrefBalloons=Show balloon notifications in tray

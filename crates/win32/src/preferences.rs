@@ -82,6 +82,8 @@ const ID_AUTOSTART: u16 = id(0, 5);
 const ID_START_MIN: u16 = id(0, 6);
 const ID_ASSOC_NOTE: u16 = id(0, 7);
 const ID_DEFAULT_APPS: u16 = id(0, 8);
+const ID_CHECK_UPDATES: u16 = id(0, 9);
+const ID_UPDATE_BETA: u16 = id(0, 10);
 // UI Settings
 const ID_CONFIRM_DELETE: u16 = id(1, 1);
 const ID_BALLOONS: u16 = id(1, 2);
@@ -206,6 +208,8 @@ static FIELDS: &[Field] = &[
         get: |o| o.gui.check_association,
         set: |o, v| o.gui.check_association = v,
     },
+    Field::Check { id: ID_CHECK_UPDATES, get: |o| o.gui.check_updates, set: |o, v| o.gui.check_updates = v },
+    Field::Check { id: ID_UPDATE_BETA, get: |o| o.gui.update_beta, set: |o, v| o.gui.update_beta = v },
     Field::Check { id: ID_SCHED, get: |o| o.gui.schedule.enabled, set: |o, v| o.gui.schedule.enabled = v },
     Field::Num {
         id: ID_SCHED_UL,
@@ -672,6 +676,9 @@ fn template() -> Vec<u16> {
     b.ctl(BUTTON, ID_START_MIN, CHECK, [20, 109, 278, 10], tr!(PrefStartMinimized));
     b.ctl(STATIC, ID_ASSOC_NOTE, C, [8, 126, 206, 18], "");
     b.ctl(BUTTON, ID_DEFAULT_APPS, PUSH, [218, 127, 84, 14], tr!(PrefDefaultApps));
+    b.group([0, 158, W, 48], tr!(PrefPrivacy));
+    b.ctl(BUTTON, ID_CHECK_UPDATES, CHECK, [8, 172, 290, 10], tr!(PrefCheckUpdates));
+    b.ctl(BUTTON, ID_UPDATE_BETA, CHECK, [8, 186, 290, 10], tr!(PrefUpdateBeta));
 
     b.page(1);
     b.group([0, 0, W, 46], tr!(PrefDisplay));
@@ -922,6 +929,10 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
 
         st.integration = (st.hooks.integration)(None).unwrap_or_default();
         write_controls(dlg, st);
+        if !patorrent_frontend::update::AVAILABLE {
+            EnableWindow(item(dlg, ID_CHECK_UPDATES), 0);
+            EnableWindow(item(dlg, ID_UPDATE_BETA), 0);
+        }
         fill_advanced(dlg, st, None);
         send(tree, TVM_SELECTITEM, TVGN_CARET as usize, st.tree_items[0]);
         show_page(dlg, st, 0);

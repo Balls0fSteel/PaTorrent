@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-27_084916_1793087356
+Last updated: 2026-10-27_090124_1793088084
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D33](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -24,12 +24,12 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), Windows built locally and Linux / Windows artifacts from Release `39950546995`. It carries the full-row selection, routed-interface UPnP and connected-peer-list fixes, but predates the latest dialog changes. Older sets remain in `dist/1.0-test-ad714b1/` and `dist/1.0-test/`. The first set's Linux binaries/AppImages passed a command-line smoke check; later sets were not desktop-smoked, and Flatpak was not installed.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
-- **Since rc.1, unreleased** (2026-10-27): the window title, tray tooltip, Web UI tab and the exes' version resources show the version; an update check that only tells (D32: a minute in the status bar, Help > Check for Updates, Preferences > General > Privacy); a Windows installer beside the zip (D31, `packaging/windows/`); the project website on GitHub Pages with the `update.txt` the check reads (D33, `site/`, [WEBSITE.md](docs/WEBSITE.md)). Committed locally, not pushed: CI, the release job's installer build and the Pages workflow have not run.
+- **Since rc.1, unreleased** (2026-10-27): the window title, tray tooltip, Web UI tab and the exes' version resources show the version; an update check that only tells (D32: a minute in the status bar, Help > Check for Updates, Preferences > General > Privacy); a Windows installer beside the zip (D31, `packaging/windows/`); the project website on GitHub Pages with the `update.txt` the check reads (D33, `site/`, [WEBSITE.md](docs/WEBSITE.md)). Pushed as `9692f69f`; the website is live from the Pages workflow and the app's check reads its `update.txt` (verified end to end). Pending: CI 40470075192 (the first GTK build of the update check), and the release job's installer build, which has not run yet.
 - Verdigris (`01`) is provisionally integrated in the application and packaging through `assets/patina-icons/app-icon.txt`; the owner's final brand choice remains open. The candidate gallery is in `assets/patina-icons/`.
 
 ## Next steps
 
-1. Push, then let the owner switch Pages to GitHub Actions and add the `v*` tag rule (WEBSITE.md); run the Pages workflow and check `update.txt`. Run Release by hand (dry run) to build and smoke-test the installer on the runner, and check that CI builds the GTK update-check code. Then hand-test the installer (RELEASING.md, Windows installer).
+1. Check CI on `9692f69f` (the GTK update-check code compiles only there). Run Release by hand (a dry run) to build and smoke-test the installer on the runner, then hand-test it (RELEASING.md, Windows installer).
 2. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 3. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 4. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.

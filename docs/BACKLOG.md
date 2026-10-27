@@ -439,9 +439,9 @@ That broad check does not establish that every detailed case below was tried.
 
 ## Updates, installer and website
 
-- The update check (D32) answers only once GitHub Pages serves `update.txt`
-  (docs/WEBSITE.md); until then each automatic check logs "Update check failed:
-  HTTP 404". Hand-checked on Win32 with `PATORRENT_UPDATE_URL`; not checked:
+- The update check (D32) works end to end on Win32: Help > Check for Updates
+  read the live `update.txt` over HTTPS ("You have the newest version"), and the
+  notice was hand-checked with `PATORRENT_UPDATE_URL`. Not checked:
   clicking the notice (opens the browser), the GTK link button and Help items on
   a desktop (CI compiles them), macOS, a proxy, and a check across sleep/resume.
 - nox has no update check. Options: a server-side check shown in the Web UI's
@@ -463,11 +463,10 @@ That broad check does not establish that every detailed case below was tried.
   handling?); `--unregister` leaves `.torrent`'s `Content Type` and an empty
   `OpenWithProgids`, as Preferences does; Authenticode signing of the exes and
   the setup; a winget manifest.
-- Website (D33): the Pages workflow has not run. Pages is still in legacy
-  "deploy from `main`" mode, so the site URL shows the repository root; the
-  owner switches the source to GitHub Actions and adds a `v*` tag rule to the
-  `github-pages` environment (WEBSITE.md). Its screenshots are from the Win32
-  demo; GTK and Web UI screenshots would help.
+- Website (D33): live since 2026-10-27_090124_1793088084 (Pages source: GitHub Actions; the
+  `github-pages` environment takes `main` and `v*` tags). The first release
+  published after this will be the first release-event run. Its screenshots
+  are from the Win32 demo; GTK and Web UI screenshots would help.
 
 ## Validation and development environment
 

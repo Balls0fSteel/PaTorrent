@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_090124_1793088084: The website is live; the update check works end to end
+
+- Pushed `2717982d..9692f69f` (the owner's go-ahead). With the owner's approval, Pages was switched from the legacy "deploy from `main`" source to GitHub Actions and the `github-pages` environment got a `v*` tag rule (WEBSITE.md).
+- The push's Pages run 40470075159 deployed, but the legacy `pages-build-deployment` run, started by the same push before the switch, finished 23 s later and put the README back. A manual run, 40470559108, redeployed the site: every page, the screenshot and the stylesheet answer 200 and a missing page 404; `update.txt` is `prerelease=1.0.0-rc.1`. The CDN caches files for up to 10 minutes.
+- Help > Check for Updates in a portable debug build fetched the live file over HTTPS and answered "You have the newest version, PaTorrent 1.0.0-rc.1."
+- FreeBSD 40470075203 passed on `9692f69f`; CI 40470075192 and Fuzz 40470075130 were still running when this was written. The Release workflow (the installer job) has not run.
+
 ## 2026-10-27_084916_1793087356: Windows installer (D31) and the project website (D33)
 
 - **Installer** (commit `37b042de`, built by a subagent in its own worktree, reviewed and merged here): `packaging/windows/patorrent.nsi` (NSIS 3.13, Modern UI 2, the app's 34 languages; its own 13 texts in `strings.nsh`) builds `patorrent-<version>-windows-x64-setup.exe` beside the unchanged zip. Per user into `%LOCALAPPDATA%\Programs\PaTorrent` without elevation by default, or all users into Program Files by relaunching itself through UAC (MultiUser.nsh elevates at start). Start menu entry, optional desktop shortcut and associations, upgrades over the folder its Uninstall key names, Retry / Cancel instead of killing a running PaTorrent or a busy `patorrent-nox.exe` (the service), and an uninstaller that keeps `%APPDATA%\PaTorrent` unless asked.

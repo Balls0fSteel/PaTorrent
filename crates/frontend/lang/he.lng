@@ -367,6 +367,7 @@ RemoteHintNotNox=האם זה patorrent-nox עם ממשק הרשת שלו בפת�
 RemoteHintHttps=אם ממשק הרשת של השרת משתמש ב־HTTPS (‎--webui-https), סמנו "שימוש ב־HTTPS".
 RemoteNoHttps=לא ניתן להגיע אל {name} דרך HTTPS:\n{error}
 RemoteTrust={name} מציג אישור שמחשב זה אינו סומך עליו (אישור בחתימה עצמית, כמו זה ש־patorrent-nox --webui-https יוצר).\n\nטביעת אצבע SHA-256:\n{fingerprint}\n\nהשוו אותה לשורה "certificate SHA-256" ש־patorrent-nox הדפיס בעת ההפעלה. לסמוך על אישור זה עבור {name}?
+RemotePlaintext={name} הוא מחשב אחר, ובלי HTTPS שם המשתמש, הסיסמה וכל פקודה עוברים ברשת ללא הצפנה: כל מי שנמצא בה יכול לקרוא או לשנות אותם.\n\nלהתחבר בכל זאת בלי HTTPS?
 ErrStartPaTorrent=לא ניתן להפעיל את PaTorrent: {error}
 ShutdownTitle=כיבוי אוטומטי
 ShutdownDownloadsDone=כל ההורדות הושלמו.

@@ -367,6 +367,7 @@ RemoteHintNotNox=這是在此連接埠執行 Web UI 的 patorrent-nox 嗎（--we
 RemoteHintHttps=如果伺服器的 Web UI 使用 HTTPS（--webui-https），請勾選「使用 HTTPS」。
 RemoteNoHttps=無法透過 HTTPS 連到 {name}：\n{error}
 RemoteTrust={name} 提供了這台電腦不信任的憑證（自我簽署的憑證，就像 patorrent-nox --webui-https 產生的）。\n\nSHA-256 指紋：\n{fingerprint}\n\n請和 patorrent-nox 啟動時印出的「certificate SHA-256」那一行比對。要為 {name} 信任此憑證嗎？
+RemotePlaintext={name} 是另一台電腦，不使用 HTTPS 時，使用者名稱、密碼和每個命令都會以未加密的形式經過網路：網路上的任何人都能讀取或變更它們。\n\n仍要不使用 HTTPS 連線嗎？
 ErrStartPaTorrent=無法啟動 PaTorrent：{error}
 ShutdownTitle=自動關機
 ShutdownDownloadsDone=所有下載都已完成。

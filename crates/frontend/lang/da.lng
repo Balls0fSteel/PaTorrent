@@ -367,6 +367,7 @@ RemoteHintNotNox=Er det en patorrent-nox med sin Web UI på denne port (--webui)
 RemoteHintHttps=Hvis serverens Web UI bruger HTTPS (--webui-https), så markér Brug HTTPS.
 RemoteNoHttps=Kan ikke nå {name} over HTTPS:\n{error}
 RemoteTrust={name} viser et certifikat, som denne computer ikke stoler på (et selvsigneret, som patorrent-nox --webui-https laver).\n\nSHA-256-fingeraftryk:\n{fingerprint}\n\nSammenlign det med linjen "certificate SHA-256", som patorrent-nox skrev ved start. Stol på dette certifikat for {name}?
+RemotePlaintext={name} er en anden computer, og uden HTTPS sendes brugernavn, adgangskode og hver kommando ukrypteret over netværket: alle på det kan læse eller ændre dem.\n\nOpret forbindelse uden HTTPS alligevel?
 ErrStartPaTorrent=Kan ikke starte PaTorrent: {error}
 ShutdownTitle=Automatisk nedlukning
 ShutdownDownloadsDone=Alle downloads er færdige.

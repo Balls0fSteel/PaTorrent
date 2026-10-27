@@ -367,6 +367,7 @@ RemoteHintNotNox=Bu, Web UI'si bu bağlantı noktasında olan bir patorrent-nox 
 RemoteHintHttps=Sunucunun Web UI'si HTTPS kullanıyorsa (--webui-https), HTTPS kullan seçeneğini işaretleyin.
 RemoteNoHttps={name} HTTPS üzerinden ulaşılamıyor:\n{error}
 RemoteTrust={name}, bu bilgisayarın güvenmediği bir sertifika sunuyor (patorrent-nox --webui-https'in oluşturduğu gibi kendinden imzalı).\n\nSHA-256 parmak izi:\n{fingerprint}\n\nBunu patorrent-nox'un başlarken yazdığı "certificate SHA-256" satırıyla karşılaştırın. {name} için bu sertifikaya güvenilsin mi?
+RemotePlaintext={name} başka bir bilgisayar ve HTTPS olmadan kullanıcı adı, parola ve her komut ağda şifrelenmeden gider: ağdaki herkes bunları okuyabilir veya değiştirebilir.\n\nYine de HTTPS olmadan bağlanılsın mı?
 ErrStartPaTorrent=PaTorrent başlatılamıyor: {error}
 ShutdownTitle=Otomatik kapatma
 ShutdownDownloadsDone=Tüm indirmeler tamamlandı.

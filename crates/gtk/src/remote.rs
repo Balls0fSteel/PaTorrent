@@ -235,7 +235,22 @@ impl Dialog {
             .show(Some(&window));
     }
 
-    /// Connect: the certificate check, then the connection, off the main loop.
+    /// An OK/Cancel question over the dialog; true for OK.
+    async fn confirm(&self, text: &str) -> bool {
+        let Some(window) = self.window.upgrade() else { return false };
+        let ask = gtk::AlertDialog::builder()
+            .message(tr!(RemoteTitle))
+            .detail(text)
+            .buttons([tr!(BtnCancel), tr!(BtnOk)])
+            .cancel_button(0)
+            .default_button(0)
+            .modal(true)
+            .build();
+        ask.choose_future(Some(&window)).await == Ok(1)
+    }
+
+    /// Connect: the plain-HTTP question, the certificate check, then the connection, off the
+    /// main loop.
     fn start(self: &Rc<Self>) {
         let form = self.form();
         form.store(&mut self.prefs.borrow_mut());
@@ -248,6 +263,12 @@ impl Dialog {
         let d = self.clone();
         glib::spawn_future_local(async move {
             let mut target = target;
+            if form.needs_plaintext_consent(&target) {
+                if !d.confirm(&tr!(RemotePlaintext, name)).await {
+                    return d.set_busy(false);
+                }
+                target.allow_plaintext = true;
+            }
             if form.https {
                 match d.verify(&target, &name).await {
                     Some(v) => target.tls = Some(v),

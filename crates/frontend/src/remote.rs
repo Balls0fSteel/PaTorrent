@@ -41,7 +41,8 @@ impl Form {
             port: prefs.get("remote.port").unwrap_or("8080").to_owned(),
             user: prefs.get("remote.user").unwrap_or("admin").to_owned(),
             password: String::new(),
-            https: prefs.get_bool("remote.https", false),
+            // HTTPS unless the user turned it off before (SEC-14)
+            https: prefs.get_bool("remote.https", true),
         }
     }
 
@@ -67,8 +68,15 @@ impl Form {
             tls: None,
             username: self.user.clone(),
             password: self.password.clone(),
+            allow_plaintext: false,
         };
         Some((target, label(host, port)))
+    }
+
+    /// Whether the user must agree (`RemotePlaintext`) before connecting: plain HTTP to another
+    /// computer. On a yes, set [`Target::allow_plaintext`].
+    pub fn needs_plaintext_consent(&self, target: &Target) -> bool {
+        !self.https && !remote::is_loopback_host(&target.host)
     }
 }
 
@@ -198,12 +206,38 @@ mod tests {
         }
     }
 
+    /// SEC-14: HTTPS is the default; plain HTTP to another computer is asked about first.
+    #[test]
+    fn plain_http_off_this_computer_is_asked_about() {
+        let fresh = Form::load(&Prefs::default());
+        assert!(fresh.https, "HTTPS by default");
+        let mut prefs = Prefs::default();
+        Form { https: false, ..fresh.clone() }.store(&mut prefs);
+        assert!(!Form::load(&prefs).https, "a choice made before is kept");
+
+        let ask = |host: &str, https: bool| {
+            let form = Form { host: host.into(), port: "8080".into(), https, ..Form::default() };
+            let (target, _) = form.target().unwrap();
+            assert!(!target.allow_plaintext);
+            form.needs_plaintext_consent(&target)
+        };
+        assert!(ask("nas.lan", false));
+        assert!(ask("10.0.0.2", false));
+        assert!(!ask("nas.lan", true));
+        assert!(!ask("localhost", false));
+        assert!(!ask("127.0.0.1", false));
+        assert!(!ask("[::1]", false));
+    }
+
     #[test]
     fn the_form_and_pins_are_remembered_without_the_password() {
         let dir = std::env::temp_dir().join(format!("pa-remote-form-{}", std::process::id()));
         let path = dir.join(FILE_NAME);
         let mut prefs = Prefs::load(&path);
-        assert_eq!(Form::load(&prefs), Form { port: "8080".into(), user: "admin".into(), ..Form::default() });
+        assert_eq!(
+            Form::load(&prefs),
+            Form { port: "8080".into(), user: "admin".into(), https: true, ..Form::default() }
+        );
         let form = Form {
             host: "nas.lan".into(),
             port: "8443".into(),

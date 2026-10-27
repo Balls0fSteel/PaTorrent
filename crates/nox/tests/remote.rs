@@ -94,6 +94,7 @@ fn target(addr: SocketAddr, tls: Option<Verify>, password: &str) -> Target {
         tls,
         username: "admin".into(),
         password: password.into(),
+        allow_plaintext: false,
     }
 }
 

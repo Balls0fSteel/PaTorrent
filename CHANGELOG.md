@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_144050_1793112050: Security fix SEC-14: remote login over HTTPS
+
+- **Default:** Connect to Remote has Use HTTPS ticked unless the user turned it off before.
+- **Plain HTTP:** `remote::connect` refuses it to any host but `localhost` or a loopback address unless `Target::allow_plaintext` is set (`ConnectError::Plaintext`, nothing sent). The Win32 and GTK dialogs set it only after the new `RemotePlaintext` question; nox's own default is still HTTP, so a LAN setup keeps working after one Yes.
+- **Deadline:** reading the server's answer head now stops at the connect deadline; a server dripping one byte at a time held it for up to 16 KB of read timeouts.
+- **Strings:** `RemotePlaintext` in en and the other 34 tables; the translations are machine-made and need native review (as with V1.1's strings).
+- Validation: core tests for the refusal (nothing reaches a listener) and the dripping server (gives up at 1 s), and a frontend test for the default and the question; core, frontend, nox and Win32 suites and the language-table checks pass; workspace clippy and rustfmt clean; GTK clippy clean for Linux with a stand-in pkg-config. Not verified: either dialog by hand.
+
 ## 2026-10-27_142631_1793111191: Security fix SEC-06: cookies stay on their site
 
 - **Fetch:** `http_get` sends the `Cookie` header only to the first URL's origin (scheme, host, port). A redirect to another origin is followed without cookies, and with cookies set an https→http redirect is refused (`FetchError::Http`).

@@ -367,6 +367,7 @@ RemoteHintNotNox=Je to patorrent-nox s Web UI na tomto portu (--webui)?
 RemoteHintHttps=Pokud Web UI serveru používá HTTPS (--webui-https), zaškrtněte Použít HTTPS.
 RemoteNoHttps={name} není přes HTTPS dostupný:\n{error}
 RemoteTrust={name} předkládá certifikát, kterému tento počítač nedůvěřuje (podepsaný sám sebou, jaký vytváří patorrent-nox --webui-https).\n\nOtisk SHA-256:\n{fingerprint}\n\nPorovnejte ho s řádkem „certificate SHA-256“, který patorrent-nox vypsal při spuštění. Důvěřovat tomuto certifikátu pro {name}?
+RemotePlaintext={name} je jiný počítač a bez HTTPS putují uživatelské jméno, heslo i každý příkaz sítí nešifrovaně: kdokoli v ní je může přečíst nebo změnit.\n\nPřesto se připojit bez HTTPS?
 ErrStartPaTorrent=PaTorrent nelze spustit: {error}
 ShutdownTitle=Automatické vypnutí
 ShutdownDownloadsDone=Všechna stahování jsou dokončena.

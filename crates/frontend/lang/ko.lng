@@ -367,6 +367,7 @@ RemoteHintNotNox=이 포트에서 웹 UI를 실행 중인 patorrent-nox가 맞�
 RemoteHintHttps=서버의 웹 UI가 HTTPS를 쓴다면(--webui-https) HTTPS 사용을 선택하세요.
 RemoteNoHttps=HTTPS로 {name}에 연결할 수 없습니다:\n{error}
 RemoteTrust={name}이(가) 이 컴퓨터가 신뢰하지 않는 인증서를 보냈습니다(patorrent-nox --webui-https가 만드는 것 같은 자체 서명 인증서).\n\nSHA-256 지문:\n{fingerprint}\n\npatorrent-nox가 시작할 때 출력한 "certificate SHA-256" 줄과 비교하세요. {name}에 대해 이 인증서를 신뢰할까요?
+RemotePlaintext={name}은(는) 다른 컴퓨터이며, HTTPS 없이는 사용자 이름, 암호, 모든 명령이 암호화되지 않은 채 네트워크를 지나갑니다. 네트워크의 누구나 이를 읽거나 바꿀 수 있습니다.\n\n그래도 HTTPS 없이 연결하시겠습니까?
 ErrStartPaTorrent=PaTorrent를 시작할 수 없습니다: {error}
 ShutdownTitle=자동 종료
 ShutdownDownloadsDone=모든 다운로드가 완료되었습니다.

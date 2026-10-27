@@ -367,6 +367,7 @@ RemoteHintNotNox=Onko se patorrent-nox, jonka Web UI on tässä portissa (--webu
 RemoteHintHttps=Jos palvelimen Web UI käyttää HTTPS:ää (--webui-https), valitse Käytä HTTPS:ää.
 RemoteNoHttps=Kohdetta {name} ei tavoiteta HTTPS:llä:\n{error}
 RemoteTrust={name} esittää varmenteen, johon tämä tietokone ei luota (itse allekirjoitettu, kuten patorrent-nox --webui-https luo).\n\nSHA-256-sormenjälki:\n{fingerprint}\n\nVertaa sitä riviin "certificate SHA-256", jonka patorrent-nox tulosti käynnistyessään. Luotetaanko tähän varmenteeseen kohteelle {name}?
+RemotePlaintext={name} on toinen tietokone, ja ilman HTTPS:ää käyttäjänimi, salasana ja jokainen komento kulkevat verkossa salaamattomina: kuka tahansa verkossa voi lukea tai muuttaa niitä.\n\nYhdistetäänkö silti ilman HTTPS:ää?
 ErrStartPaTorrent=PaTorrentia ei voi käynnistää: {error}
 ShutdownTitle=Automaattinen sammutus
 ShutdownDownloadsDone=Kaikki lataukset ovat valmiit.

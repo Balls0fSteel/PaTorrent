@@ -201,6 +201,18 @@ pub struct Target {
     pub tls: Option<Verify>,
     pub username: String,
     pub password: String,
+    /// Plain HTTP to a host other than this computer: the login and every command would cross
+    /// the network readable and changeable, so [`connect`] refuses it unless the user agreed
+    /// (SEC-14).
+    pub allow_plaintext: bool,
+}
+
+/// Whether `host` names this computer: `localhost` or a loopback address. Plain HTTP stays on
+/// the machine there. A name that merely resolves to loopback does not count.
+pub fn is_loopback_host(host: &str) -> bool {
+    let host = host.trim_start_matches('[').trim_end_matches(']').trim_end_matches('.');
+    host.eq_ignore_ascii_case("localhost")
+        || host.parse::<std::net::IpAddr>().is_ok_and(|ip| ip.to_canonical().is_loopback())
 }
 
 /// Why [`connect`] failed.
@@ -214,6 +226,8 @@ pub enum ConnectError {
     Refused { status: u16, message: String },
     /// The server's answer made no sense.
     Protocol(String),
+    /// Plain HTTP to another computer without [`Target::allow_plaintext`]; nothing was sent.
+    Plaintext,
 }
 
 impl std::fmt::Display for ConnectError {
@@ -228,6 +242,9 @@ impl std::fmt::Display for ConnectError {
                 write!(f, "the server refused the connection (HTTP {status}): {message}")
             }
             ConnectError::Protocol(m) => write!(f, "not a PaTorrent remote session: {m}"),
+            ConnectError::Plaintext => {
+                f.write_str("refusing to send the login unencrypted to another computer; use HTTPS")
+            }
         }
     }
 }
@@ -314,6 +331,10 @@ fn host_header(host: &str, port: u16) -> String {
 /// `timeout` bounds the connection, the handshake and the login. Dropping the session (or
 /// [`Session::shutdown`]) closes the connection; the server's torrents keep running.
 pub fn connect(target: &Target, timeout: Duration) -> Result<(Session, Hello), ConnectError> {
+    if target.tls.is_none() && !target.allow_plaintext && !is_loopback_host(&target.host) {
+        return Err(ConnectError::Plaintext);
+    }
+    let deadline = Instant::now() + timeout;
     let sock = tcp_connect(&target.host, target.port, timeout)?;
     sock.set_nodelay(true)?;
     sock.set_read_timeout(Some(timeout))?;
@@ -336,8 +357,8 @@ pub fn connect(target: &Target, timeout: Duration) -> Result<(Session, Hello), C
     conn.write_all(request.as_bytes())?;
     conn.flush()?;
 
-    // the response head
-    let deadline = Instant::now() + timeout;
+    // the response head, within the same deadline: a server sending a byte at a time would
+    // otherwise hold the connect for up to 16 KB read timeouts (SEC-14)
     let mut reader = FrameReader::new(Vec::new(), MAX_FRAME);
     let end = loop {
         if let Some(p) = reader.buf.windows(4).position(|w| w == b"\r\n\r\n") {
@@ -345,6 +366,9 @@ pub fn connect(target: &Target, timeout: Duration) -> Result<(Session, Hello), C
         }
         if reader.buf.len() > 16 * 1024 {
             return Err(ConnectError::Protocol("an answer head over 16 KB".into()));
+        }
+        if Instant::now() >= deadline {
+            return Err(ConnectError::Io(io::ErrorKind::TimedOut.into()));
         }
         if !reader.read_from(&mut conn)? {
             return Err(ConnectError::Protocol("the server closed the connection".into()));

@@ -523,6 +523,8 @@ strings! {
     RemoteNoHttps = "Cannot reach {name} over HTTPS:\n{error}";
     /// {fingerprint} is a long hexadecimal number.
     RemoteTrust = "{name} presents a certificate that this computer does not trust (a self-signed one, as patorrent-nox --webui-https makes).\n\nSHA-256 fingerprint:\n{fingerprint}\n\nCompare it with the \"certificate SHA-256\" line patorrent-nox printed when it started. Trust this certificate for {name}?";
+    /// Asked before connecting without HTTPS to a host other than this computer.
+    RemotePlaintext = "{name} is another computer, and without HTTPS your user name, password and every command cross the network unencrypted: anyone on it can read or change them.\n\nConnect without HTTPS anyway?";
     ErrStartPaTorrent = "Cannot start PaTorrent: {error}";
 
     // ---- Auto Shutdown

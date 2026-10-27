@@ -367,6 +367,7 @@ RemoteHintNotNox=Ez egy patorrent-nox, amelynek webes felülete ezen a porton fu
 RemoteHintHttps=Ha a kiszolgáló webes felülete HTTPS-t használ (--webui-https), jelölje be a HTTPS használata lehetőséget.
 RemoteNoHttps={name} nem érhető el HTTPS-en:\n{error}
 RemoteTrust={name} olyan tanúsítványt mutat, amelyben ez a számítógép nem bízik (önaláírtat, amilyet a patorrent-nox --webui-https készít).\n\nSHA-256 ujjlenyomat:\n{fingerprint}\n\nHasonlítsa össze a patorrent-nox indításkor kiírt „certificate SHA-256” sorával. Megbízik ebben a tanúsítványban ennél: {name}?
+RemotePlaintext=A(z) {name} egy másik számítógép, és HTTPS nélkül a felhasználónév, a jelszó és minden parancs titkosítatlanul halad át a hálózaton: bárki a hálózaton elolvashatja vagy megváltoztathatja őket.\n\nCsatlakozik mégis HTTPS nélkül?
 ErrStartPaTorrent=A PaTorrent nem indítható: {error}
 ShutdownTitle=Automatikus leállítás
 ShutdownDownloadsDone=Minden letöltés befejeződött.

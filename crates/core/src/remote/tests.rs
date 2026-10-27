@@ -511,7 +511,57 @@ fn serve(
 }
 
 fn target(port: u16, tls: Option<Verify>) -> Target {
-    Target { host: "127.0.0.1".into(), port, tls, username: USER.into(), password: PASS.into() }
+    Target {
+        host: "127.0.0.1".into(),
+        port,
+        tls,
+        username: USER.into(),
+        password: PASS.into(),
+        allow_plaintext: false,
+    }
+}
+
+/// SEC-14: plain HTTP stays on this computer unless the user agreed; nothing is sent first.
+#[test]
+fn plaintext_to_another_computer_needs_consent() {
+    for host in ["localhost", "LOCALHOST.", "127.0.0.1", "127.8.9.10", "::1", "[::1]", "::ffff:127.0.0.1"] {
+        assert!(is_loopback_host(host), "{host}");
+    }
+    for host in ["10.0.0.2", "nas.lan", "localhost.attacker.example", "0.0.0.0", "::ffff:10.0.0.2"] {
+        assert!(!is_loopback_host(host), "{host}");
+    }
+    // a listener that would see a login if one were sent
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    l.set_nonblocking(true).unwrap();
+    let t =
+        Target { host: "localhost.attacker.example".into(), ..target(l.local_addr().unwrap().port(), None) };
+    assert!(matches!(connect(&t, Duration::from_secs(5)), Err(ConnectError::Plaintext)));
+    let t = Target { host: "10.0.0.2".into(), ..target(1, None) };
+    assert!(matches!(connect(&t, Duration::from_secs(5)), Err(ConnectError::Plaintext)));
+    assert!(l.accept().is_err(), "nothing connected");
+}
+
+/// SEC-14: a server dripping its answer one byte at a time is given up at the deadline, not
+/// after up to 16 KB of read timeouts.
+#[test]
+fn a_dripping_answer_head_times_out() {
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = l.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let (mut s, _) = l.accept().unwrap();
+        let mut req = [0u8; 4096];
+        let _ = s.read(&mut req);
+        for b in b"HTTP/1.1 101 Switching Protocols\r\nX-Slow: ".iter().chain(std::iter::repeat(&b'a')) {
+            if s.write_all(&[*b]).is_err() {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(100));
+        }
+    });
+    let start = Instant::now();
+    let r = connect(&target(port, None), Duration::from_secs(1));
+    assert!(matches!(&r, Err(ConnectError::Io(e)) if e.kind() == io::ErrorKind::TimedOut), "{:?}", r.err());
+    assert!(start.elapsed() < Duration::from_secs(4), "{:?}", start.elapsed());
 }
 
 /// Pops the client's alerts until `f` finds what it wants.

@@ -70,6 +70,12 @@ pub fn connect_interactive() -> Option<Session> {
             dialogs::error(null_mut(), tr!(RemoteBadAddress));
             continue;
         };
+        if form.needs_plaintext_consent(&target) {
+            if !dialogs::confirm(null_mut(), &tr!(RemotePlaintext, name)) {
+                continue;
+            }
+            target.allow_plaintext = true;
+        }
         if form.https {
             match verify(&mut prefs, &target, &name) {
                 Some(v) => target.tls = Some(v),

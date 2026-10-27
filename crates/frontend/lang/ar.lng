@@ -367,6 +367,7 @@ RemoteHintNotNox=هل هو patorrent-nox تعمل واجهة الويب الخا
 RemoteHintHttps=إن كانت واجهة الويب على الخادم تستخدم HTTPS (‎--webui-https)، فحدد استخدام HTTPS.
 RemoteNoHttps=تعذّر الوصول إلى {name} عبر HTTPS:\n{error}
 RemoteTrust=يقدّم {name} شهادة لا يثق بها هذا الحاسوب (شهادة موقّعة ذاتيًا، كالتي ينشئها patorrent-nox --webui-https).\n\nبصمة SHA-256:\n{fingerprint}\n\nقارنها بسطر «certificate SHA-256» الذي طبعه patorrent-nox عند بدئه. هل تثق بهذه الشهادة لـ {name}؟
+RemotePlaintext={name} حاسوب آخر، ومن دون HTTPS يمرّ اسم المستخدم وكلمة المرور وكل أمر عبر الشبكة دون تشفير: يستطيع أي شخص عليها قراءتها أو تغييرها.\n\nالاتصال من دون HTTPS على أي حال؟
 ErrStartPaTorrent=تعذّر تشغيل PaTorrent: {error}
 ShutdownTitle=إيقاف تلقائي
 ShutdownDownloadsDone=اكتملت كل التنزيلات.

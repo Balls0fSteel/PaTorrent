@@ -370,7 +370,10 @@ unchanged on top.
   after it.
 
 The Win32 GUI (`remote_ui.rs`): `patorrent.exe --remote`, or File > Connect to Remote... (which
-starts such a window beside the local one), asks for the host, port, login and HTTPS. A
+starts such a window beside the local one), asks for the host, port, login and HTTPS (on by
+default). Plain HTTP to a host other than this computer is asked about first, since the login
+and every command would cross the network unencrypted; `remote::connect` refuses it without
+that answer (`Target::allow_plaintext`). The GTK GUI asks the same. A
 certificate Windows does not trust is shown by its fingerprint and pinned once accepted; a
 pinned one that changes is refused with a warning and asked about again at the next attempt.
 The window then runs on the remote session with the server's engine settings and default

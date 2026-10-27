@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_201937_1793128777: Security fix SEC-25: forwarded torrents come only from equal or higher integrity
+
+- **Confirmed:** the main window let any process on the desktop send `WM_COPYDATA` (`MSGFLT_ALLOW`), so a sandboxed process could add magnets, URLs and paths, silently when the Add dialog is off. A null `lpData` reached `slice::from_raw_parts`.
+- **Fix:** `copydata_args` checks the pointer, alignment and size; the window sets `MSGFLT_DISALLOW`. A second instance that Windows refuses (access denied: the first runs as administrator) shows `ForwardRefused` instead of losing the torrent. The new string is in all 35 `.lng` files; the 34 translations are machine-made.
+- **Tests:** `copydata_args_checks_its_data` and `lower_integrity_processes_cannot_forward`, which starts the test binary at low integrity with `CreateProcessAsUserW` and checks a control window gets the message while the guarded one does not. Each was proven to fail without its part of the fix.
+
 ## 2026-10-27_201104_1793128264: Security fix SEC-24: a new Web UI password ends the other logins
 
 - **Confirmed:** a password change kept every SID session, open WebSocket and `/pa/remote` connection, so a stolen session survived the change meant to lock it out.

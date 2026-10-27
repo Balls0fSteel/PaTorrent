@@ -369,6 +369,7 @@ RemoteNoHttps={name} ist über HTTPS nicht erreichbar:\n{error}
 RemoteTrust={name} legt ein Zertifikat vor, dem dieser Computer nicht vertraut (ein selbstsigniertes, wie es patorrent-nox --webui-https erstellt).\n\nSHA-256-Fingerabdruck:\n{fingerprint}\n\nVergleichen Sie ihn mit der Zeile „certificate SHA-256“, die patorrent-nox beim Start ausgegeben hat. Diesem Zertifikat für {name} vertrauen?
 RemotePlaintext={name} ist ein anderer Computer, und ohne HTTPS gehen Benutzername, Passwort und jeder Befehl unverschlüsselt über das Netzwerk: Jeder darin kann sie lesen oder ändern.\n\nTrotzdem ohne HTTPS verbinden?
 ErrStartPaTorrent=PaTorrent kann nicht gestartet werden: {error}
+ForwardRefused=PaTorrent läuft bereits als Administrator, und Windows lässt diese Kopie ihm nicht übergeben, was hinzugefügt werden soll. Fügen Sie es im laufenden PaTorrent hinzu oder starten Sie PaTorrent ohne Administratorrechte.
 ShutdownTitle=Automatisch herunterfahren
 ShutdownDownloadsDone=Alle Downloads sind abgeschlossen.
 ShutdownEverythingDone=Alle Torrents sind abgeschlossen.

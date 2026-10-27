@@ -66,9 +66,11 @@ mod instance {
     //! its window with `WM_COPYDATA` and exit.
 
     use std::path::Path;
-    use std::ptr::null;
+    use std::ptr::{null, null_mut};
 
-    use windows_sys::Win32::Foundation::{ERROR_ALREADY_EXISTS, GetLastError};
+    use patorrent_frontend::lang;
+    use patorrent_frontend::prefs::Prefs;
+    use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError};
     use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
     use windows_sys::Win32::System::Threading::CreateMutexW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -118,7 +120,7 @@ mod instance {
                     lpData: payload.as_ptr() as *mut _,
                 };
                 let mut result = 0usize;
-                unsafe {
+                let sent = unsafe {
                     SendMessageTimeoutW(
                         hwnd,
                         WM_COPYDATA,
@@ -127,7 +129,14 @@ mod instance {
                         SMTO_ABORTIFHUNG,
                         5000,
                         &mut result,
-                    );
+                    )
+                };
+                // the first instance runs as administrator: Windows keeps this one's message
+                // from it (SEC-25); say so rather than drop the torrent silently
+                if sent == 0 && unsafe { GetLastError() } == ERROR_ACCESS_DENIED && !sources.is_empty() {
+                    let prefs = Prefs::load(data_dir().join("patorrent.ini"));
+                    lang::init(prefs.get("ui.language").unwrap_or_default());
+                    crate::dialogs::error(null_mut(), lang::text(lang::S::ForwardRefused));
                 }
                 return true;
             }

@@ -369,6 +369,7 @@ RemoteNoHttps=无法通过 HTTPS 访问 {name}：\n{error}
 RemoteTrust={name} 提供了这台计算机不信任的证书（自签名证书，就像 patorrent-nox --webui-https 生成的那样）。\n\nSHA-256 指纹：\n{fingerprint}\n\n请与 patorrent-nox 启动时打印的“certificate SHA-256”一行比较。要为 {name} 信任此证书吗？
 RemotePlaintext={name} 是另一台计算机，不使用 HTTPS 时，用户名、密码和每条命令都会以未加密的形式经过网络：网络上的任何人都能读取或更改它们。\n\n仍要不使用 HTTPS 连接吗？
 ErrStartPaTorrent=无法启动 PaTorrent：{error}
+ForwardRefused=PaTorrent 已以管理员身份运行，Windows 不允许此副本将要添加的内容交给它。请在正在运行的 PaTorrent 中添加，或在没有管理员权限的情况下启动 PaTorrent。
 ShutdownTitle=自动关机
 ShutdownDownloadsDone=所有下载均已完成。
 ShutdownEverythingDone=所有种子均已完成。

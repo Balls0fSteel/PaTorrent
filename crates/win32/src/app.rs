@@ -87,6 +87,26 @@ const WM_APP_MAGNET: u32 = WM_APP + 8;
 const WM_APP_UPDATE: u32 = WM_APP + 9;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
+
+/// The arguments a second instance forwarded, or `None` for another message or no data. A
+/// `WM_COPYDATA` with `cbData` 0 may carry a null `lpData` (SEC-25).
+pub(crate) fn copydata_args(cds: &COPYDATASTRUCT) -> Option<Vec<String>> {
+    if cds.dwData != COPYDATA_ARGS || cds.lpData.is_null() || cds.cbData < 2 || cds.lpData as usize % 2 != 0 {
+        return None;
+    }
+    // SAFETY: the sender's cbData bytes at lpData, valid while the message is handled
+    let words = unsafe { std::slice::from_raw_parts(cds.lpData as *const u16, cds.cbData as usize / 2) };
+    Some(dialogs::split_nul(words))
+}
+
+/// Takes `WM_COPYDATA` only from processes of this window's integrity level or above, the
+/// default that `MSGFLT_ALLOW` used to lift (SEC-25): forwarded sources may be added without a
+/// dialog, so a sandboxed (low integrity) process must not send them, nor a standard one to a
+/// PaTorrent running as administrator.
+pub(crate) unsafe fn refuse_lower_integrity_copydata(hwnd: HWND) {
+    unsafe { ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_DISALLOW, null_mut()) };
+}
+
 pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
 /// A remote window's class: a second local start looks for [`MAIN_CLASS`] only, so it never
 /// hands its torrents to a remote window.
@@ -874,8 +894,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         send(tabs, TCM_SETCURSEL, page.index(), 0);
         DragAcceptFiles(hwnd, 1);
         tray::add(hwnd, icon_small, WM_APP_TRAY, NAME_VERSION);
-        // Accept forwarded arguments and dropped files from less privileged processes too.
-        ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_ALLOW, null_mut());
+        refuse_lower_integrity_copydata(hwnd);
         update_visibility(hwnd);
         update_menu(hwnd);
         update_toolbar();
@@ -2338,12 +2357,10 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 0
             }
             WM_COPYDATA => {
-                let cds = &*(lparam as *const COPYDATASTRUCT);
-                if cds.dwData != COPYDATA_ARGS {
+                if lparam == 0 {
                     return 0;
                 }
-                let words = std::slice::from_raw_parts(cds.lpData as *const u16, cds.cbData as usize / 2);
-                let args = dialogs::split_nul(words);
+                let Some(args) = copydata_args(&*(lparam as *const COPYDATASTRUCT)) else { return 0 };
                 show_window(hwnd);
                 // The sender waits for this message to return: the Add New Torrent dialog must
                 // not run inside it.
@@ -4475,7 +4492,198 @@ unsafe extern "system" fn panel_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lpara
 
 #[cfg(test)]
 mod tests {
+    use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError, WAIT_OBJECT_0};
+
     use super::*;
+
+    /// A forwarded payload is read only when it is ours and has data (SEC-25).
+    #[test]
+    fn copydata_args_checks_its_data() {
+        let words: Vec<u16> = "magnet:?xt=urn:btih:x\0C:\\a.torrent\0\0".encode_utf16().collect();
+        let cds = |data: usize, bytes: u32, ptr: *const u16| COPYDATASTRUCT {
+            dwData: data,
+            cbData: bytes,
+            lpData: ptr as *mut c_void,
+        };
+        let all = (words.len() * 2) as u32;
+        assert_eq!(
+            copydata_args(&cds(COPYDATA_ARGS, all, words.as_ptr())),
+            Some(vec!["magnet:?xt=urn:btih:x".to_owned(), r"C:\a.torrent".to_owned()])
+        );
+        assert_eq!(copydata_args(&cds(COPYDATA_ARGS, 0, null())), None, "no data, a null pointer");
+        assert_eq!(copydata_args(&cds(COPYDATA_ARGS, all, null())), None, "a size with a null pointer");
+        assert_eq!(copydata_args(&cds(COPYDATA_ARGS, 1, words.as_ptr())), None, "less than one character");
+        assert_eq!(copydata_args(&cds(7, all, words.as_ptr())), None, "another sender's message");
+        let odd = (words.as_ptr() as *const u8).wrapping_add(1) as *const u16;
+        assert_eq!(copydata_args(&cds(COPYDATA_ARGS, 4, odd)), None, "misaligned");
+    }
+
+    /// `WM_COPYDATA` messages a test window took.
+    static COPIED: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+
+    unsafe extern "system" fn copy_target(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> LRESULT {
+        if msg == WM_COPYDATA {
+            COPIED.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            return 1;
+        }
+        unsafe { DefWindowProcW(hwnd, msg, wp, lp) }
+    }
+
+    /// A hidden top-level window that counts the `WM_COPYDATA` it gets.
+    fn copy_window() -> HWND {
+        static CLASS: std::sync::Once = std::sync::Once::new();
+        let class = w!("PaTorrentCopyDataTest");
+        unsafe {
+            CLASS.call_once(|| {
+                let wc = WNDCLASSW {
+                    lpfnWndProc: Some(copy_target),
+                    hInstance: GetModuleHandleW(null()),
+                    lpszClassName: class,
+                    ..std::mem::zeroed()
+                };
+                assert_ne!(RegisterClassW(&wc), 0);
+            });
+            let hwnd = CreateWindowExW(
+                0,
+                class,
+                w!(""),
+                WS_OVERLAPPEDWINDOW,
+                0,
+                0,
+                10,
+                10,
+                null_mut(),
+                null_mut(),
+                GetModuleHandleW(null()),
+                null(),
+            );
+            assert!(!hwnd.is_null());
+            hwnd
+        }
+    }
+
+    /// Runs [`copydata_sender`] at low integrity against `hwnd`, pumping this thread's messages
+    /// meanwhile; its exit code: 1 delivered, 2 refused by Windows (access denied).
+    fn send_from_low_integrity(hwnd: HWND) -> u32 {
+        use windows_sys::Win32::Security::{
+            DuplicateTokenEx, SID_AND_ATTRIBUTES, SecurityImpersonation, SetTokenInformation,
+            TOKEN_ADJUST_DEFAULT, TOKEN_ASSIGN_PRIMARY, TOKEN_DUPLICATE, TOKEN_MANDATORY_LABEL, TOKEN_QUERY,
+            TokenIntegrityLevel, TokenPrimary,
+        };
+        use windows_sys::Win32::System::Threading::{
+            CREATE_NO_WINDOW, CreateProcessAsUserW, GetCurrentProcess, GetExitCodeProcess, OpenProcessToken,
+            PROCESS_INFORMATION, STARTUPINFOW, WaitForSingleObject,
+        };
+        // S-1-16-4096, the low mandatory level
+        let mut low_sid: [u8; 12] = [1, 1, 0, 0, 0, 0, 0, 16, 0x00, 0x10, 0, 0];
+        unsafe {
+            let (mut own, mut low) = (null_mut(), null_mut());
+            let access = TOKEN_DUPLICATE | TOKEN_ADJUST_DEFAULT | TOKEN_QUERY | TOKEN_ASSIGN_PRIMARY;
+            assert_ne!(OpenProcessToken(GetCurrentProcess(), access, &mut own), 0);
+            assert_ne!(DuplicateTokenEx(own, 0, null(), SecurityImpersonation, TokenPrimary, &mut low), 0);
+            CloseHandle(own);
+            let label = TOKEN_MANDATORY_LABEL {
+                Label: SID_AND_ATTRIBUTES { Sid: low_sid.as_mut_ptr().cast(), Attributes: 0x20 }, // SE_GROUP_INTEGRITY
+            };
+            let size = (size_of::<TOKEN_MANDATORY_LABEL>() + low_sid.len()) as u32;
+            assert_ne!(SetTokenInformation(low, TokenIntegrityLevel, (&raw const label).cast(), size), 0);
+            let exe = std::env::current_exe().unwrap();
+            let mut cmd = wide(&format!(
+                "\"{}\" app::tests::copydata_sender --exact --ignored --test-threads=1 hwnd={}",
+                exe.display(),
+                hwnd as usize
+            ));
+            let si = STARTUPINFOW { cb: size_of::<STARTUPINFOW>() as u32, ..std::mem::zeroed() };
+            let mut pi: PROCESS_INFORMATION = std::mem::zeroed();
+            let ok = CreateProcessAsUserW(
+                low,
+                null(),
+                cmd.as_mut_ptr(),
+                null(),
+                null(),
+                0,
+                CREATE_NO_WINDOW,
+                null(),
+                null(),
+                &si,
+                &mut pi,
+            );
+            assert_ne!(ok, 0, "CreateProcessAsUserW: {}", std::io::Error::last_os_error());
+            CloseHandle(low);
+            let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+            while WaitForSingleObject(pi.hProcess, 20) != WAIT_OBJECT_0 {
+                assert!(std::time::Instant::now() < deadline, "the sender did not finish");
+                let mut msg: MSG = std::mem::zeroed();
+                while PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    DispatchMessageW(&msg);
+                }
+            }
+            let mut code = 0;
+            GetExitCodeProcess(pi.hProcess, &mut code);
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+            code
+        }
+    }
+
+    /// The low integrity half of [`lower_integrity_processes_cannot_forward`]: sends forwarded
+    /// arguments to the window named on the command line and exits with the outcome.
+    #[test]
+    #[ignore = "started by lower_integrity_processes_cannot_forward"]
+    fn copydata_sender() {
+        let Some(hwnd) =
+            std::env::args().find_map(|a| a.strip_prefix("hwnd=").and_then(|n| n.parse::<usize>().ok()))
+        else {
+            return;
+        };
+        let payload: Vec<u16> = "magnet:?xt=urn:btih:x\0\0".encode_utf16().collect();
+        let cds = COPYDATASTRUCT {
+            dwData: COPYDATA_ARGS,
+            cbData: (payload.len() * 2) as u32,
+            lpData: payload.as_ptr() as *mut c_void,
+        };
+        let mut result = 0;
+        let sent = unsafe {
+            SendMessageTimeoutW(
+                hwnd as HWND,
+                WM_COPYDATA,
+                0,
+                &raw const cds as LPARAM,
+                SMTO_ABORTIFHUNG,
+                10_000,
+                &mut result,
+            )
+        };
+        let denied = unsafe { GetLastError() } == ERROR_ACCESS_DENIED;
+        std::process::exit(if sent != 0 {
+            1
+        } else if denied {
+            2
+        } else {
+            3
+        });
+    }
+
+    /// A low integrity process (a sandboxed browser, say) cannot hand the main window sources to
+    /// add (SEC-25). The control window, which lifts the filter as the window used to, shows
+    /// that the sender does reach a window that lets it.
+    #[test]
+    fn lower_integrity_processes_cannot_forward() {
+        let open = copy_window();
+        unsafe { ChangeWindowMessageFilterEx(open, WM_COPYDATA, MSGFLT_ALLOW, null_mut()) };
+        let before = COPIED.load(std::sync::atomic::Ordering::SeqCst);
+        assert_eq!(send_from_low_integrity(open), 1, "the control window takes it");
+        assert_eq!(COPIED.load(std::sync::atomic::Ordering::SeqCst), before + 1);
+
+        let guarded = copy_window();
+        unsafe { refuse_lower_integrity_copydata(guarded) };
+        assert_eq!(send_from_low_integrity(guarded), 2, "Windows refuses it");
+        assert_eq!(COPIED.load(std::sync::atomic::Ordering::SeqCst), before + 1);
+        unsafe {
+            DestroyWindow(open);
+            DestroyWindow(guarded);
+        }
+    }
 
     #[test]
     fn the_command_line_takes_sources_and_switches() {

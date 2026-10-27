@@ -369,6 +369,7 @@ RemoteNoHttps=HTTPS で {name} に接続できません:\n{error}
 RemoteTrust={name} は このコンピューターが信頼していない証明書を提示しています (patorrent-nox --webui-https が作るような自己署名証明書)。\n\nSHA-256 フィンガープリント:\n{fingerprint}\n\npatorrent-nox が起動時に表示した「certificate SHA-256」の行と比べてください。{name} についてこの証明書を信頼しますか?
 RemotePlaintext={name} は別のコンピューターです。HTTPS を使わないと、ユーザー名、パスワード、すべてのコマンドが暗号化されずにネットワークを流れ、ネットワーク上の誰でも読み取ったり変更したりできます。\n\nそれでも HTTPS なしで接続しますか?
 ErrStartPaTorrent=PaTorrent を開始できません: {error}
+ForwardRefused=PaTorrent はすでに管理者として実行されており、Windows はこのコピーから追加する内容を渡すことを許可しません。実行中の PaTorrent から追加するか、管理者権限なしで PaTorrent を起動してください。
 ShutdownTitle=自動シャットダウン
 ShutdownDownloadsDone=すべてのダウンロードが完了しました。
 ShutdownEverythingDone=すべてのトレントが完了しました。

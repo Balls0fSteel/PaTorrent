@@ -369,6 +369,7 @@ RemoteNoHttps={name} nem érhető el HTTPS-en:\n{error}
 RemoteTrust={name} olyan tanúsítványt mutat, amelyben ez a számítógép nem bízik (önaláírtat, amilyet a patorrent-nox --webui-https készít).\n\nSHA-256 ujjlenyomat:\n{fingerprint}\n\nHasonlítsa össze a patorrent-nox indításkor kiírt „certificate SHA-256” sorával. Megbízik ebben a tanúsítványban ennél: {name}?
 RemotePlaintext=A(z) {name} egy másik számítógép, és HTTPS nélkül a felhasználónév, a jelszó és minden parancs titkosítatlanul halad át a hálózaton: bárki a hálózaton elolvashatja vagy megváltoztathatja őket.\n\nCsatlakozik mégis HTTPS nélkül?
 ErrStartPaTorrent=A PaTorrent nem indítható: {error}
+ForwardRefused=A PaTorrent már rendszergazdaként fut, és a Windows nem engedi, hogy ez a példány átadja neki, mit kell hozzáadni. Adja hozzá a futó PaTorrentben, vagy indítsa a PaTorrentet rendszergazdai jogok nélkül.
 ShutdownTitle=Automatikus leállítás
 ShutdownDownloadsDone=Minden letöltés befejeződött.
 ShutdownEverythingDone=Minden torrent befejeződött.

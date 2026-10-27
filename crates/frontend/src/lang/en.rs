@@ -526,6 +526,8 @@ strings! {
     /// Asked before connecting without HTTPS to a host other than this computer.
     RemotePlaintext = "{name} is another computer, and without HTTPS your user name, password and every command cross the network unencrypted: anyone on it can read or change them.\n\nConnect without HTTPS anyway?";
     ErrStartPaTorrent = "Cannot start PaTorrent: {error}";
+    /// A second copy was started with a torrent while the first runs with administrator rights.
+    ForwardRefused = "PaTorrent is already running as administrator, and Windows does not let this copy hand it what to add. Add it from the running PaTorrent, or start PaTorrent without administrator rights.";
 
     // ---- Auto Shutdown
 

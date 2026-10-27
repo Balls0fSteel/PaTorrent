@@ -369,6 +369,7 @@ RemoteNoHttps={name} nije dostupan preko HTTPS-a:\n{error}
 RemoteTrust={name} pokazuje certifikat kojem ovo računalo ne vjeruje (samopotpisani, kakav stvara patorrent-nox --webui-https).\n\nSHA-256 otisak:\n{fingerprint}\n\nUsporedite ga s retkom „certificate SHA-256” koji je patorrent-nox ispisao pri pokretanju. Vjerovati ovom certifikatu za {name}?
 RemotePlaintext={name} je drugo računalo, a bez HTTPS-a korisničko ime, lozinka i svaka naredba putuju mrežom nešifrirano: svatko na njoj ih može pročitati ili promijeniti.\n\nIpak se povezati bez HTTPS-a?
 ErrStartPaTorrent=PaTorrent se ne može pokrenuti: {error}
+ForwardRefused=PaTorrent se već izvodi kao administrator, a Windows ne dopušta ovoj kopiji da mu preda što treba dodati. Dodajte to u pokrenutom PaTorrentu ili pokrenite PaTorrent bez administratorskih prava.
 ShutdownTitle=Automatsko gašenje
 ShutdownDownloadsDone=Sva preuzimanja su završena.
 ShutdownEverythingDone=Svi torrenti su završeni.

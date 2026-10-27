@@ -369,6 +369,7 @@ RemoteNoHttps=Không truy cập được {name} qua HTTPS:\n{error}
 RemoteTrust={name} đưa ra một chứng chỉ mà máy tính này không tin cậy (loại tự ký, như patorrent-nox --webui-https tạo ra).\n\nDấu vân tay SHA-256:\n{fingerprint}\n\nSo sánh nó với dòng "certificate SHA-256" mà patorrent-nox in ra khi khởi động. Tin cậy chứng chỉ này cho {name}?
 RemotePlaintext={name} là một máy tính khác, và khi không có HTTPS, tên người dùng, mật khẩu và mọi lệnh đều đi qua mạng mà không được mã hóa: bất kỳ ai trên mạng đều có thể đọc hoặc thay đổi chúng.\n\nVẫn kết nối mà không dùng HTTPS?
 ErrStartPaTorrent=Không khởi động được PaTorrent: {error}
+ForwardRefused=PaTorrent đang chạy với quyền quản trị viên, và Windows không cho bản sao này chuyển cho nó nội dung cần thêm. Hãy thêm từ PaTorrent đang chạy, hoặc khởi động PaTorrent mà không có quyền quản trị viên.
 ShutdownTitle=Tự động tắt
 ShutdownDownloadsDone=Mọi bản tải xuống đã xong.
 ShutdownEverythingDone=Mọi torrent đã xong.

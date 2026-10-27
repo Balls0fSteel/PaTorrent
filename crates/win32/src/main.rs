@@ -4,7 +4,8 @@
 //! starting another forwards its arguments (`.torrent` paths, `magnet:` links, URLs) to the
 //! running one, as µTorrent does. `--minimized` starts in the tray (the autostart entry's
 //! "Start minimized"). `--demo N` runs the simulated engine with N synthetic torrents instead
-//! (scale testing). `--remote` drives a patorrent-nox elsewhere (`remote_ui`).
+//! (scale testing). `--remote` drives a patorrent-nox elsewhere (`remote_ui`). `--associate` and
+//! `--unregister` are the installer's (`setup`).
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -48,6 +49,9 @@ mod util;
 #[cfg(windows)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    if let Some(task) = setup::parse(&args) {
+        std::process::exit(setup::run(task));
+    }
     let parsed = app::parse_args(&args);
     // a remote window is not the single local instance, and takes no forwarded torrents
     if parsed.demo.is_none() && !parsed.remote && instance::forward(&parsed.sources) {
@@ -131,6 +135,107 @@ mod instance {
             std::thread::sleep(std::time::Duration::from_millis(100));
         }
         true
+    }
+}
+
+#[cfg(windows)]
+mod setup {
+    //! The installer's hidden flags (`packaging/windows/patorrent.nsi`): they change the
+    //! registration as Preferences > General does and exit without a window. `--associate
+    //! torrent,magnet` (either or both) makes this executable the program for `.torrent` files
+    //! and `magnet:` links; `--unregister` removes what names this executable (associations,
+    //! Default apps, autostart) before the uninstaller deletes it. The exit code is 0 when done,
+    //! 1 when the registry refused, 2 for a bad argument.
+
+    use patorrent_frontend::lang;
+    use patorrent_frontend::prefs::Prefs;
+
+    use crate::app::base_data_dir;
+    use crate::integration::{self, Keys};
+    use crate::util::exe_path;
+
+    #[derive(Debug, PartialEq, Eq)]
+    pub enum Task {
+        Associate { torrent: bool, magnet: bool },
+        Unregister,
+    }
+
+    /// The task when the first argument is one of the flags (`Err`: what is wrong with it).
+    pub fn parse(args: &[String]) -> Option<Result<Task, String>> {
+        let (flag, rest) = args.split_first()?;
+        match (flag.as_str(), rest) {
+            ("--associate", [list]) => Some(associate_list(list)),
+            ("--unregister", []) => Some(Ok(Task::Unregister)),
+            ("--associate" | "--unregister", _) => Some(Err(format!("{flag}: wrong arguments"))),
+            _ => None,
+        }
+    }
+
+    fn associate_list(list: &str) -> Result<Task, String> {
+        let (mut torrent, mut magnet) = (false, false);
+        for item in list.split(',') {
+            match item.trim().to_ascii_lowercase().as_str() {
+                "torrent" => torrent = true,
+                "magnet" => magnet = true,
+                _ => return Err(format!("--associate {list}: expected torrent, magnet or torrent,magnet")),
+            }
+        }
+        Ok(Task::Associate { torrent, magnet })
+    }
+
+    /// Does `task`; the exit code.
+    pub fn run(task: Result<Task, String>) -> i32 {
+        let (keys, exe) = (Keys::user(), exe_path());
+        let done = match task {
+            Ok(Task::Associate { torrent, magnet }) => {
+                // the type names it writes in the language chosen in Preferences, if any
+                let prefs = Prefs::load(base_data_dir().join("patorrent.ini"));
+                lang::init(prefs.get("ui.language").unwrap_or_default());
+                integration::associate(&keys, &exe, torrent, magnet)
+            }
+            Ok(Task::Unregister) => integration::unregister(&keys, &exe),
+            Err(e) => {
+                eprintln!("{e}");
+                return 2;
+            }
+        };
+        match done {
+            Ok(_) => 0,
+            Err(e) => {
+                eprintln!("{e}");
+                1
+            }
+        }
+    }
+}
+
+#[cfg(all(test, windows))]
+mod tests {
+    use super::setup::{Task, parse};
+
+    fn args(a: &[&str]) -> Vec<String> {
+        a.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn setup_flags() {
+        let both = Task::Associate { torrent: true, magnet: true };
+        assert_eq!(parse(&args(&["--associate", "torrent,magnet"])), Some(Ok(both)));
+        assert_eq!(
+            parse(&args(&["--associate", " Magnet "])),
+            Some(Ok(Task::Associate { torrent: false, magnet: true }))
+        );
+        assert_eq!(parse(&args(&["--unregister"])), Some(Ok(Task::Unregister)));
+        let bad: [&[&str]; 4] =
+            [&["--associate"], &["--associate", "torrent,rss"], &["--associate", ""], &["--unregister", "x"]];
+        for a in bad {
+            assert!(matches!(parse(&args(a)), Some(Err(_))), "{a:?}");
+        }
+        // anything else is the window's, the flags only first
+        let gui: [&[&str]; 4] = [&[], &["a.torrent"], &["--minimized"], &["a.torrent", "--unregister"]];
+        for a in gui {
+            assert_eq!(parse(&args(a)), None, "{a:?}");
+        }
     }
 }
 

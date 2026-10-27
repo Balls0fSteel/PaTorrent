@@ -275,6 +275,31 @@ pub fn write(keys: &Keys, exe: &Path, old: &Integration, want: &Integration) -> 
     Ok(read(keys, exe))
 }
 
+/// The installer's `--associate`: makes `exe` the program for `.torrent` files and/or `magnet:`
+/// links, as Preferences > General does; what is not asked for stays as it is.
+pub fn associate(keys: &Keys, exe: &Path, torrent: bool, magnet: bool) -> io::Result<Status> {
+    let old = read(keys, exe).set;
+    let want = Integration { torrent: old.torrent || torrent, magnet: old.magnet || magnet, ..old };
+    write(keys, exe, &old, &want)
+}
+
+/// The uninstaller's `--unregister`: removes the associations, the Default apps entry and the
+/// autostart entry where they name `exe`. Unlike [`read`], a ProgID of ours counts although
+/// `.torrent` or the scheme now names another program, so nothing is left behind that starts
+/// the deleted executable; another copy's registration stays.
+pub fn unregister(keys: &Keys, exe: &Path) -> io::Result<Status> {
+    let ours = |key: &str| {
+        get(&keys.class(&format!(r"{key}\shell\open\command")), None).is_some_and(|c| runs(&c, exe))
+    };
+    let old = Integration {
+        torrent: ours(PROGID_TORRENT),
+        magnet: ours(PROGID_MAGNET) || ours("magnet"),
+        autostart: get(&keys.path(RUN), Some(APP)).is_some_and(|c| runs(&c, exe)),
+        minimized: false,
+    };
+    write(keys, exe, &old, &Integration::default())
+}
+
 /// Opens Settings > Default apps, on PaTorrent's own page where Windows has one (Windows 11).
 pub fn open_default_apps(owner: HWND) {
     let target = wide(&format!("ms-settings:defaultapps?registeredAppUser={APP}"));
@@ -574,6 +599,61 @@ mod tests {
         // a choice is only reported while PaTorrent is registered
         let st = write(&s.keys, &exe(), &ALL, &Integration::default()).unwrap();
         assert_eq!(st, Status::default());
+    }
+
+    #[test]
+    fn associate_adds_to_what_is_there() {
+        let s = Scratch::new();
+        let autostart = Integration { autostart: true, ..Integration::default() };
+        write(&s.keys, &exe(), &Integration::default(), &autostart).unwrap();
+        let st = associate(&s.keys, &exe(), true, false).unwrap();
+        assert_eq!(st.set, Integration { torrent: true, ..autostart });
+        assert_eq!(s.get(r"Software\Classes\magnet", None), None);
+        // asking for magnets later keeps the torrent association
+        let st = associate(&s.keys, &exe(), false, true).unwrap();
+        assert_eq!(st.set, Integration { torrent: true, magnet: true, ..autostart });
+        // and another program's `.torrent` is taken over, as the General page does
+        s.set(r"Software\Classes\.torrent", None, "qBittorrent.File.Torrent");
+        assert!(associate(&s.keys, &exe(), true, false).unwrap().set.torrent);
+    }
+
+    #[test]
+    fn unregister_removes_what_names_this_copy() {
+        let s = Scratch::new();
+        write(&s.keys, &exe(), &Integration::default(), &ALL).unwrap();
+        // another client took `.torrent` and the scheme since: read() no longer counts them
+        s.set(r"Software\Classes\.torrent", None, "qBittorrent.File.Torrent");
+        s.set(r"Software\Classes\magnet\shell\open\command", None, r#""C:\qbt\qbittorrent.exe" "%1""#);
+        assert_eq!(
+            read(&s.keys, &exe()).set,
+            Integration { autostart: true, minimized: true, ..Integration::default() }
+        );
+        assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
+        // our ProgIDs, the Default apps entry and autostart are gone ...
+        assert_eq!(s.get(r"Software\Classes\PaTorrent.torrent\shell\open\command", None), None);
+        assert_eq!(s.get(r"Software\Classes\PaTorrent.magnet\shell\open\command", None), None);
+        assert_eq!(s.get(r"Software\Classes\.torrent\OpenWithProgids", Some(PROGID_TORRENT)), None);
+        assert_eq!(s.get(r"Software\RegisteredApplications", Some("PaTorrent")), None);
+        assert_eq!(s.get(r"Software\PaTorrent\Capabilities", Some("ApplicationName")), None);
+        assert_eq!(s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("PaTorrent")), None);
+        // ... the other client's are not
+        assert_eq!(s.get(r"Software\Classes\.torrent", None).as_deref(), Some("qBittorrent.File.Torrent"));
+        assert_eq!(
+            s.get(r"Software\Classes\magnet\shell\open\command", None).as_deref(),
+            Some(r#""C:\qbt\qbittorrent.exe" "%1""#)
+        );
+        // nothing left: a second run changes nothing
+        assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
+    }
+
+    #[test]
+    fn unregister_leaves_another_copy() {
+        let s = Scratch::new();
+        let other = Path::new(r"D:\portable\patorrent.exe");
+        write(&s.keys, other, &Integration::default(), &ALL).unwrap();
+        assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
+        assert_eq!(read(&s.keys, other).set, ALL);
+        assert!(s.get(r"Software\RegisteredApplications", Some("PaTorrent")).is_some());
     }
 
     #[test]

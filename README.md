@@ -21,11 +21,12 @@
 
 ## Download
 
-Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.0.0-rc.1](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1). Nothing to install: unpack and run. Each release has `SHA256SUMS` and notes with the first-run steps per platform.
+Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.0.0-rc.1](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1). The archives need no installation: unpack and run; Windows also has an installer (from the release after 1.0.0-rc.1). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
 
 | Platform | File | What is inside |
 |---|---|---|
 | Windows 10 / 11, x64 | `patorrent-<version>-windows-x64.zip` | `patorrent.exe` (the GUI) and `patorrent-nox.exe` (the daemon); statically linked, no runtime needed |
+| Windows 10 / 11, x64, installer | `patorrent-<version>-windows-x64-setup.exe` | the same two programs, installed for you (no administrator rights) or for all users, with a Start menu entry, optional desktop shortcut and `.torrent` / `magnet:` associations, and an uninstaller ([packaging/windows](packaging/windows/README.md)) |
 | Linux desktop, x86_64 or aarch64 | `PaTorrent-<version>-<arch>.AppImage` | the GTK 4 GUI with its libraries bundled (glibc 2.39 or newer: Ubuntu 24.04, Fedora 40, Debian 13) |
 | Linux desktop, Flatpak | `PaTorrent-<version>-<arch>.flatpak` | the GTK 4 GUI on the GNOME 51 runtime from Flathub |
 | Linux, plain binaries | `patorrent-<version>-linux-<arch>.tar.gz` | `patorrent-gtk`, `patorrent-nox`, the desktop entry and the systemd units; they use the system's GTK 4.12+ and OpenSSL 3 |

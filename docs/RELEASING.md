@@ -8,6 +8,7 @@ How a version goes out (PLAN.md D22, Road to 1.0 items 6, 7 and 14). The files a
 | File | What | Built on |
 |---|---|---|
 | `patorrent-<version>-windows-x64.zip` | `patorrent.exe`, `patorrent-nox.exe` (static CRT, nothing to install, D7), `LICENSE.md`, `THIRD-PARTY-NOTICES.md` | `windows-latest` |
+| `patorrent-<version>-windows-x64-setup.exe` | an installer of the same four files (NSIS, [`packaging/windows`](../packaging/windows/README.md)): for one user or all users, Start menu shortcut, optional desktop shortcut and associations, an uninstaller (see [Windows installer](#windows-installer)) | `windows-latest` |
 | `patorrent-<version>-linux-x86_64.tar.gz`, `-linux-aarch64.tar.gz` | `patorrent-nox`, `patorrent-gtk`, the desktop entry, the systemd units (`systemd/system`, `systemd/user`), the same two texts | `ubuntu-24.04`, `ubuntu-24.04-arm` |
 | `PaTorrent-<version>-x86_64.AppImage`, `-aarch64.AppImage` | the GTK GUI with GTK 4 and every library it needs but glibc (linuxdeploy and its GTK plugin) | `ubuntu-24.04`, `ubuntu-24.04-arm` |
 | `patorrent-nox-<version>-x86_64.AppImage`, `-aarch64.AppImage` | `patorrent-nox` with OpenSSL; a terminal program, kept out of the menus | `ubuntu-24.04`, `ubuntu-24.04-arm` |
@@ -22,6 +23,51 @@ libraries but glibc, so they need glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, 
 an AppImage started on a desktop without FUSE 2 needs `--appimage-extract-and-run`. The AppImage
 icon is provisional (the family `assets/patina-icons/app-icon.txt` names) until the owner picks
 one (Road to 1.0 item 10); the Flatpak and the macOS `.app` use the same one.
+
+### Windows installer
+
+The `windows` job builds the zip, then the installer from the same `target/release` executables
+with makensis (`/WX`, so a missing translation or any other warning fails it) and the app icon
+`app-icon.txt` names. NSIS is not on `windows-latest` (Windows Server 2025; only the 2022 image
+lists it), so the job downloads NSIS 3.13's own installer from SourceForge, checks its SHA-256
+against the value winget-pkgs publishes (`NSIS_URL` and `NSIS_SHA256` in the job) and installs
+it silently into the job's temporary folder. It then installs the new setup silently for the
+runner's user into a temporary folder, with the desktop shortcut and both associations, checks
+the files, the shortcuts, the Uninstall key and the associations, runs the installed
+`patorrent-nox.exe --version`, uninstalls silently as Settings > Apps would, and fails if a
+file, a shortcut, the key or an association is left. How it works and how to build it by hand:
+[packaging/windows/README.md](../packaging/windows/README.md).
+
+What a tester checks on a real Windows 10 or 11 PC (the runner has no desktop session, never
+elevates through UAC and starts from a clean registry):
+
+- **SmartScreen.** The setup exe is not signed (see [Not automated](#not-automated)): Windows
+  says "Windows protected your PC"; More info > Run anyway. The publisher shows as unknown, and
+  the UAC prompt of an installation for all users says "Unknown publisher" too.
+- **Install for me** (the default): no UAC prompt; files in `%LOCALAPPDATA%\Programs\PaTorrent`,
+  the Start menu entry, PaTorrent under Settings > Apps with its icon, version and publisher;
+  "Run PaTorrent" on the last page starts it.
+- **Install for anyone using this computer**: the Next button shows the UAC shield, Next asks
+  for administrator rights, and the setup goes on elevated (declining the prompt keeps the
+  Users page). Files in `C:\Program Files\PaTorrent`, the Start menu entry for every user.
+  "Run PaTorrent" must start it *not* elevated: Task Manager > Details > Elevated says No, and
+  dragging a `.torrent` file from Explorer onto its window works (an elevated window refuses
+  drops from Explorer).
+- **Upgrade**: install the previous release, run the new setup: it skips the Users and
+  Directory pages, installs over the same folder (no second entry in Settings > Apps), keeps
+  the settings, the torrent list and the associations, and the version in Settings > Apps is
+  the new one. With PaTorrent running, Setup asks to exit it (Retry / Cancel).
+- **Associations**: with the two boxes ticked, double-clicking a `.torrent` file and opening a
+  `magnet:` link in a browser start PaTorrent; Preferences > General shows both ticked. Windows
+  11 may still ask which app to use, or keep another program it was told to use (the General
+  page's Default apps note).
+- **Uninstall** from Settings > Apps: the files, the Start menu and desktop shortcuts, the
+  Settings > Apps entry and the associations (and the autostart entry, if set) are gone;
+  `%APPDATA%\PaTorrent` stays unless "Settings and torrent list" was ticked; the download folder
+  always stays. For an installation for all users the uninstaller asks for administrator rights.
+- **nox as a service** from the installation folder (`patorrent-nox service install`, see
+  [DAEMON.md](DAEMON.md)): while it runs, Setup asks to stop it; the uninstaller asks to remove
+  the service first.
 
 ### macOS
 
@@ -89,7 +135,8 @@ one (Road to 1.0 item 10); the Flatpak and the macOS `.app` use the same one.
 
 5. The Release workflow checks that the tag names the workspace version (and stops if not),
    builds the files above and opens a **draft** release with them. Download them, try them (the
-   Windows zip on a clean machine, a tarball, the AppImages and the Flatpak on a Linux desktop;
+   Windows zip on a clean machine, the setup as in [Windows installer](#windows-installer), a
+   tarball, the AppImages and the Flatpak on a Linux desktop;
    for macOS, the `macos-gui-start` screenshot, as nobody here has a Mac), compare
    `SHA256SUMS`, then publish the draft on GitHub (`gh release edit v1.0.0 --draft=false`).
 
@@ -262,7 +309,8 @@ before submitting. The `io.github.balls0fsteel` id needs the GitHub account
 
 ## Not automated
 
-- Code signing (Windows Authenticode, the macOS notarisation): none; the `.app` is ad-hoc
-  signed (D23), which proves nothing about who made it.
+- Code signing (Windows Authenticode, the macOS notarisation): none; the Windows executables,
+  the setup and its uninstaller are unsigned, and the `.app` is ad-hoc signed (D23), which
+  proves nothing about who made it.
 - The `PA` peer-id registrations and the parser security review before 1.0 (Road to 1.0
   item 14).

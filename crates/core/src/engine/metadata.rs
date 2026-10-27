@@ -115,11 +115,7 @@ impl Engine {
                     }
                     Received::HashFailed { sources, single_peer } => {
                         let from = if single_peer { now + SINGLE_PEER_PENALTY } else { now };
-                        for s in sources {
-                            if let Some(src) = self.peer_by_id(s).and_then(|s| self.peers.get_mut(s)) {
-                                src.meta.failed_hash_check(from);
-                            }
-                        }
+                        self.pause_metadata_sources(&sources, from);
                         self.alert(Alert::MetadataFailed { id, error: Error::MismatchingInfoHash });
                     }
                 }
@@ -154,6 +150,20 @@ impl Engine {
     /// Per-tick work for one peer (libtorrent peer plugin `tick`): new requests, and requests
     /// that waited for room in the send buffer.
     pub(super) fn metadata_tick(&mut self, slot: usize, now: Instant) {
+        let stalled = self.peer_and_torrent(slot).and_then(|(_, t)| {
+            let t = t?;
+            Some((t.id, t.fetch.as_mut()?.stalled(now)?))
+        });
+        if let Some((id, sources)) = stalled {
+            self.pause_metadata_sources(&sources, now);
+            self.out.push(Alert::Log {
+                id: Some(id),
+                message: "metadata download stalled: starting over".into(),
+            });
+            if let Some(t) = self.torrent(id) {
+                t.status_dirty = true;
+            }
+        }
         self.maybe_request_metadata(slot, now);
         let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
         if p.meta.incoming_requests.is_empty() || p.closing.is_some() {
@@ -164,6 +174,17 @@ impl Engine {
             send_block(p, t, piece);
         }
         self.to_flush.push(slot);
+    }
+
+    /// The peers whose metadata blocks were thrown away wait before we ask them again; replies
+    /// to what we already asked are no longer wanted.
+    fn pause_metadata_sources(&mut self, sources: &[u64], from: Instant) {
+        for &s in sources {
+            if let Some(src) = self.peer_by_id(s).and_then(|s| self.peers.get_mut(s)) {
+                src.meta.failed_hash_check(from);
+                src.meta.sent_requests.clear();
+            }
+        }
     }
 
     /// The info dictionary arrived and matches the info-hash (libtorrent `torrent::set_metadata`

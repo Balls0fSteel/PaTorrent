@@ -179,6 +179,9 @@ pub struct PeerMetadata {
     pub has_metadata: bool,
     /// No requests to this peer before this time (after a reject or bad data).
     pub request_limit: Option<Instant>,
+    /// The limit came from bad data, so it holds even for a peer that announced a size
+    /// (SEC-21); a reject's limit only holds for peers that announced none.
+    pub sent_bad_data: bool,
     /// Blocks we asked this peer for.
     pub sent_requests: Vec<i64>,
     /// Blocks the peer asked for while its send buffer was full.
@@ -191,6 +194,7 @@ impl Default for PeerMetadata {
             message_id: 0,
             has_metadata: true,
             request_limit: None,
+            sent_bad_data: false,
             sent_requests: Vec::new(),
             incoming_requests: std::collections::VecDeque::new(),
         }
@@ -202,7 +206,7 @@ impl PeerMetadata {
     pub fn may_request(&self, now: Instant) -> bool {
         self.message_id != 0
             && self.sent_requests.len() < MAX_SENT_REQUESTS
-            && (self.has_metadata || self.request_limit.is_none_or(|l| now > l))
+            && ((self.has_metadata && !self.sent_bad_data) || self.request_limit.is_none_or(|l| now > l))
     }
 
     /// The peer rejected a request.
@@ -225,10 +229,12 @@ impl PeerMetadata {
         }
     }
 
-    /// libtorrent `failed_hash_check`: a random pause of 20-70 s from `from`.
+    /// libtorrent `failed_hash_check`: a random pause of 20-70 s from `from`. Unlike
+    /// libtorrent, the pause also holds for a peer that announced a size (SEC-21).
     pub fn failed_hash_check(&mut self, from: Instant) {
         let secs = 20 + crate::util::random::random_below(50);
         self.request_limit = Some(from + Duration::from_secs(secs));
+        self.sent_bad_data = true;
     }
 }
 
@@ -257,11 +263,18 @@ pub enum Received {
     HashFailed { sources: Vec<u64>, single_peer: bool },
 }
 
+/// A fetch with some blocks in that gets no further for this long starts over (SEC-21).
+pub const STALL_TIMEOUT: Duration = Duration::from_secs(60);
+
 /// Downloading one torrent's info dictionary (libtorrent `ut_metadata_plugin`).
 #[derive(Clone, Debug, Default)]
 pub struct MetadataFetch {
     metadata: Vec<u8>,
     blocks: Vec<Block>,
+    /// Blocks stored so far.
+    stored: usize,
+    /// `stored` when [`MetadataFetch::stalled`] last saw it change, and when.
+    watch: Option<(usize, Instant)>,
 }
 
 impl MetadataFetch {
@@ -281,7 +294,45 @@ impl MetadataFetch {
         if self.metadata.len() != size {
             self.metadata = vec![0; size];
             self.blocks = vec![Block::default(); size.div_ceil(BLOCK_SIZE)];
+            self.stored = 0;
         }
+    }
+
+    /// Drops everything; the next data message decides the size again.
+    fn reset(&mut self) {
+        self.metadata = Vec::new();
+        self.blocks = Vec::new();
+        self.stored = 0;
+        self.watch = None;
+    }
+
+    /// Called on every tick. The first data message fixes the size, so one peer's false
+    /// `total_size` makes every honest block a mismatch (or a request past the real end) and
+    /// the fetch never finishes. When some blocks are in and none has followed for
+    /// [`STALL_TIMEOUT`], everything is dropped and the peers that sent the kept blocks are
+    /// returned, to be paused like after a failed hash check (SEC-21).
+    pub fn stalled(&mut self, now: Instant) -> Option<Vec<u64>> {
+        if self.stored == 0 {
+            self.watch = None;
+            return None;
+        }
+        match self.watch {
+            Some((n, since)) if n == self.stored => {
+                if now.saturating_duration_since(since) < STALL_TIMEOUT {
+                    return None;
+                }
+            }
+            _ => {
+                self.watch = Some((self.stored, now));
+                return None;
+            }
+        }
+        let mut sources: Vec<u64> =
+            self.blocks.iter().filter(|b| b.num_requests == HAVE).filter_map(|b| b.source).collect();
+        sources.sort_unstable();
+        sources.dedup();
+        self.reset();
+        Some(sources)
     }
 
     /// (blocks received, blocks in total); (0, 0) while the size is unknown.
@@ -349,21 +400,24 @@ impl MetadataFetch {
         }
         self.metadata[range].copy_from_slice(data);
         let b = &mut self.blocks[piece as usize];
+        if b.num_requests != HAVE {
+            self.stored += 1;
+        }
         b.num_requests = HAVE;
         b.source = Some(source);
-        if self.blocks.iter().any(|b| b.num_requests != HAVE) {
+        if self.stored < self.blocks.len() {
             return Received::Stored;
         }
         if verify(&self.metadata, info_hashes) {
-            self.blocks = Vec::new();
-            return Received::Complete(std::mem::take(&mut self.metadata));
+            let info = std::mem::take(&mut self.metadata);
+            self.reset();
+            return Received::Complete(info);
         }
         let single_peer = self.blocks.len() == 1;
         let mut sources: Vec<u64> = self.blocks.iter().filter_map(|b| b.source).collect();
         sources.sort_unstable();
         sources.dedup();
-        self.metadata = Vec::new();
-        self.blocks = Vec::new();
+        self.reset();
         Received::HashFailed { sources, single_peer }
     }
 }
@@ -498,6 +552,32 @@ mod tests {
         f.size_hint(70_000);
         assert_eq!(f.progress(), (0, 5));
         assert!(matches!(f.received(1, 0, 1000, &data, 1 << 20, &ih), Received::Complete(_)));
+    }
+
+    #[test]
+    fn a_false_size_cannot_stall_the_fetch() {
+        // SEC-21: one peer answers first with a 30 MiB total_size; the real info is one block.
+        let (data, ih) = info(1000);
+        let max = 32 << 20;
+        let now = Instant::now();
+        let mut f = MetadataFetch::new();
+        assert_eq!(f.received(66, 0, 30 << 20, &[0; BLOCK_SIZE], max, &ih), Received::Stored);
+        assert_eq!(f.received(1, 0, 1000, &data, max, &ih), Received::Rejected, "the size is fixed");
+        assert_eq!(f.stalled(now), None);
+        assert_eq!(f.stalled(now + STALL_TIMEOUT - Duration::from_secs(1)), None);
+        // Progress restarts the clock.
+        assert_eq!(f.received(66, 1, 30 << 20, &[0; BLOCK_SIZE], max, &ih), Received::Stored);
+        assert_eq!(f.stalled(now + STALL_TIMEOUT), None);
+        let later = now + STALL_TIMEOUT * 2;
+        assert_eq!(f.stalled(later), Some(vec![66]), "no progress for a while: start over");
+        assert_eq!(f.progress(), (0, 0));
+        assert_eq!(f.stalled(later + STALL_TIMEOUT), None, "nothing in, nothing to stall");
+        assert!(matches!(f.received(1, 0, 1000, &data, max, &ih), Received::Complete(_)));
+        // The source is paused even though it announced a size.
+        let mut p = PeerMetadata { message_id: 3, ..PeerMetadata::default() };
+        p.failed_hash_check(later);
+        assert!(!p.may_request(later));
+        assert!(p.may_request(later + Duration::from_secs(71)));
     }
 
     #[test]

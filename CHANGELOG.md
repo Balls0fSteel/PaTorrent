@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_183523_1793122523: Security fix SEC-21: a stalled metadata download starts over
+
+- **Confirmed:** the first data message fixed the metadata size, so one peer answering with a false `total_size` (up to 30 MiB) made every honest block a mismatch and the magnet stayed in "downloading metadata" until restart.
+- **Fix:** `MetadataFetch::stalled`, checked on each peer tick, drops a fetch whose blocks stopped coming for 60 s and pauses the peers that sent them (20-70 s, outstanding requests forgotten). The bad-data pause now also holds for peers that announced a `metadata_size`, where libtorrent's does not; this also changes the pause after a failed hash check.
+- **Test:** `a_false_size_cannot_stall_the_fetch`, proven to fail without the watchdog and without the pause change. No engine-level test: it would need a 60 s wait.
+
 ## 2026-10-27_160928_1793117368: Security fix SEC-20: seed mode checks each piece before it uploads it
 
 - **Confirmed:** `SEED_MODE` only marked every piece as had; nothing hashed them later, so a torrent added that way (Web UI `skip_checking`, the add dialogs) uploaded whatever the files held.

@@ -16,6 +16,11 @@ use crate::util::string::{ensure_trailing_slash, parse_url_components, string_be
 /// are not something a file server sends.
 pub const MAX_HEADER: usize = 16 * 1024;
 
+/// Longest chunk header we buffer: the size line with its extensions, or for the last chunk
+/// also its trailers. Servers send a few bytes; without a limit a server could stream an
+/// endless header (SEC-22).
+pub const MAX_CHUNK_HEADER: usize = 4 * 1024;
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ParseError {
     /// The response is malformed (libtorrent `http_parser` `error_state`).
@@ -235,8 +240,18 @@ pub enum Chunk {
 
 /// libtorrent `parse_chunk_header`: one optional CRLF (the end of the previous chunk), the hex
 /// size, an optional `;extension`, and for the last chunk the trailer headers up to a blank
-/// line. A size that is not hex, or does not fit, is an error (libtorrent reports size -1).
+/// line. A size that is not hex, or does not fit, is an error (libtorrent reports size -1), and
+/// so is a header longer than [`MAX_CHUNK_HEADER`], complete or not (SEC-22).
 pub fn parse_chunk_header(buf: &[u8]) -> Result<Chunk, ParseError> {
+    let too_long = Err(ParseError::Invalid("chunk header too long"));
+    match chunk_header(buf)? {
+        Chunk::Incomplete if buf.len() > MAX_CHUNK_HEADER => too_long,
+        Chunk::Header { header_len, .. } if header_len > MAX_CHUNK_HEADER => too_long,
+        c => Ok(c),
+    }
+}
+
+fn chunk_header(buf: &[u8]) -> Result<Chunk, ParseError> {
     let mut pos = 0;
     // ignore one optional new-line. This is since each chunk is terminated by a newline. we're
     // likely to see one before the actual header.
@@ -427,6 +442,24 @@ mod tests {
         assert!(parse_chunk_header(b"-53465234545\r\nfoobar").is_err());
         assert!(parse_chunk_header(b"ffffffffffffffffffff\r\n").is_err());
         assert!(parse_chunk_header(b"zz\r\n").is_err());
+    }
+
+    #[test]
+    fn chunk_headers_are_limited() {
+        // SEC-22: an endless extension, or endless trailers, fail once past the limit
+        let mut ext = b"1;".to_vec();
+        ext.resize(MAX_CHUNK_HEADER, b'x');
+        assert_eq!(parse_chunk_header(&ext), Ok(Chunk::Incomplete));
+        ext.push(b'x');
+        assert!(parse_chunk_header(&ext).is_err());
+        ext.extend_from_slice(b"\r\n");
+        assert!(parse_chunk_header(&ext).is_err(), "complete, but too long");
+        let mut trailers = b"0\r\n".to_vec();
+        while trailers.len() <= MAX_CHUNK_HEADER {
+            trailers.extend_from_slice(b"a: b\r\n");
+        }
+        assert!(parse_chunk_header(&trailers).is_err());
+        assert!(parse_chunk_header(&trailers[..100]).is_ok());
     }
 
     #[test]

@@ -17,8 +17,8 @@
 use std::collections::{HashMap, VecDeque};
 
 use super::http_parser::{
-    Chunk, ParseError, ResponseHead, is_ok_status, is_redirect, parse_chunk_header, parse_head,
-    resolve_redirect_location, split_url,
+    Chunk, MAX_CHUNK_HEADER, ParseError, ResponseHead, is_ok_status, is_redirect, parse_chunk_header,
+    parse_head, resolve_redirect_location, split_url,
 };
 use crate::disk::BLOCK_SIZE;
 use crate::metainfo::WebSeedKind;
@@ -114,6 +114,12 @@ pub struct WebPeer {
     received_body: u64,
     /// Payload bytes left in the current chunk.
     chunk_pos: u64,
+    /// Bytes of an incomplete chunk header already seen without a newline in them: only a new
+    /// newline can complete it, so the header is parsed again only then (SEC-22).
+    chunk_scanned: usize,
+    /// How often a chunk header was parsed.
+    #[cfg(test)]
+    chunk_parses: usize,
     num_responses: u32,
     server: String,
     /// The server closes the connection after the current response (libtorrent
@@ -186,6 +192,9 @@ impl WebPeer {
             head: None,
             received_body: 0,
             chunk_pos: 0,
+            chunk_scanned: 0,
+            #[cfg(test)]
+            chunk_parses: 0,
             num_responses: 0,
             server: String::new(),
             choked: false,
@@ -495,6 +504,7 @@ impl WebPeer {
                 self.server = if server.is_empty() { self.host.clone() } else { server.to_owned() };
                 self.received_body = 0;
                 self.chunk_pos = 0;
+                self.chunk_scanned = 0;
                 self.head = Some(h);
             }
             // we only received the header, no data
@@ -540,13 +550,28 @@ impl WebPeer {
                             break 'parse;
                         }
                     }
-                    match parse_chunk_header(&buf[pos..]) {
+                    let rest = &buf[pos..];
+                    let fresh = &rest[self.chunk_scanned.min(rest.len())..];
+                    let parsed = if rest.len() <= MAX_CHUNK_HEADER && !fresh.contains(&b'\n') {
+                        Ok(Chunk::Incomplete)
+                    } else {
+                        #[cfg(test)]
+                        {
+                            self.chunk_parses += 1;
+                        }
+                        parse_chunk_header(rest)
+                    };
+                    match parsed {
                         Err(_) => {
                             self.finish(WebEvent::Fail("invalid chunk header"));
                             break 'parse;
                         }
-                        Ok(Chunk::Incomplete) => break 'parse,
+                        Ok(Chunk::Incomplete) => {
+                            self.chunk_scanned = rest.len();
+                            break 'parse;
+                        }
                         Ok(Chunk::Header { size, header_len, .. }) => {
+                            self.chunk_scanned = 0;
                             pos += header_len;
                             self.chunk_pos = size;
                             // a chunk size of zero means the request is complete. Make sure
@@ -587,6 +612,7 @@ impl WebPeer {
         self.head = None;
         self.received_body = 0;
         self.chunk_pos = 0;
+        self.chunk_scanned = 0;
         // in between each file request, there may be an implicit pad-file request
         self.handle_padfile(fs);
     }
@@ -1049,6 +1075,35 @@ mod tests {
             "HTTP/1.1 206 OK\r\nContent-Range: bytes 0-9/10\r\nTransfer-Encoding: chunked\r\n\r\n10\r\n0123456789abcdef",
         );
         assert_eq!(ev, [WebEvent::Fail("invalid range in HTTP response")]);
+    }
+
+    #[test]
+    fn a_dripping_chunk_header_is_cut_off() {
+        // SEC-22: a 206 chunked answer whose chunk header never ends, a byte per read
+        let tiny = single(10, 16 * 1024);
+        let mut p = url_peer("http://a.b/f", "", &[], &tiny, "UA", false).unwrap();
+        p.write_request(&tiny, 0, 0, 10, &HashMap::new(), &mut None);
+        let head = "HTTP/1.1 206 OK\r\nContent-Range: bytes 0-9/10\r\nTransfer-Encoding: chunked\r\n\r\n";
+        assert!(feed_str(&mut p, &tiny, &format!("{head}1;")).is_empty());
+        let mut reads = 0;
+        while p.take_events().is_empty() {
+            reads += 1;
+            assert!(reads <= MAX_CHUNK_HEADER, "the header must fail before it passes the limit");
+            p.feed(&tiny, b"x");
+        }
+        assert!(p.done);
+        assert!(p.chunk_parses <= 2, "parsed {} times: the scan restarts on each read", p.chunk_parses);
+        // a header split over many reads still works, with one parse per newline
+        let mut p = url_peer("http://a.b/f", "", &[], &tiny, "UA", false).unwrap();
+        p.write_request(&tiny, 0, 0, 10, &HashMap::new(), &mut None);
+        assert!(feed_str(&mut p, &tiny, head).is_empty());
+        for c in b"a;ext\r\n0123456789\r\n0\r\nx: y\r\n\r\n" {
+            p.feed(&tiny, &[*c]);
+        }
+        let ev = p.take_events();
+        assert_eq!(ev, [WebEvent::Block { piece: 0, start: 0, data: b"0123456789".to_vec() }]);
+        assert!(!p.done);
+        assert!(p.chunk_parses <= 6, "parsed {} times", p.chunk_parses);
     }
 
     #[test]

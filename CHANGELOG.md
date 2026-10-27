@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_185951_1793123991: Security fix SEC-22: web seed chunk headers are limited
+
+- **Confirmed:** a web seed's chunk header (size line, extensions, last-chunk trailers) had no length limit and was rescanned from its start on every read, so a server sending `1;` and then endless bytes cost unbounded memory and quadratic CPU.
+- **Fix:** `parse_chunk_header` fails past `MAX_CHUNK_HEADER` (4 KiB), complete or not, and `WebPeer::feed` parses an incomplete header again only when a newline arrives (`chunk_scanned`). The other HTTP clients (`net/fetch`, `proto/http`) were already bounded.
+- **Tests:** `chunk_headers_are_limited` and `a_dripping_chunk_header_is_cut_off` (a parse counter in test builds), each proven to fail without its half of the fix.
+
 ## 2026-10-27_183523_1793122523: Security fix SEC-21: a stalled metadata download starts over
 
 - **Confirmed:** the first data message fixed the metadata size, so one peer answering with a false `total_size` (up to 30 MiB) made every honest block a mismatch and the magnet stayed in "downloading metadata" until restart.

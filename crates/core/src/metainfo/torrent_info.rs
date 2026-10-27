@@ -48,6 +48,27 @@ impl Default for LoadLimits {
     }
 }
 
+/// Most memory the Merkle trees of one v2 torrent may need: 32 bytes per node of each file's
+/// padded tree, about 64 bytes per 16 KiB block. Downloading a file expands its tree on the first
+/// block (as in libtorrent), and the torrent author knows valid hashes for any size, so a torrent
+/// whose trees would not fit is refused instead of an allocation of tens of gigabytes aborting the
+/// client (SEC-09). 2 GiB holds the trees of 256 to 512 GiB of v2 files. libtorrent has no such
+/// limit.
+pub const MAX_MERKLE_TREE_BYTES: u64 = 2 << 30;
+
+/// The memory the fully expanded Merkle trees of `files` would take (see
+/// [`MAX_MERKLE_TREE_BYTES`]).
+fn merkle_tree_bytes(files: &FileStorage) -> u64 {
+    (0..files.num_files())
+        .filter(|&f| !files.pad_file_at(f) && files.file_size(f) > 0)
+        .map(|f| {
+            // from the size, not file_num_blocks: that is a u32
+            let leafs = files.file_size(f).div_ceil(DEFAULT_BLOCK_SIZE as u64).next_power_of_two();
+            (2 * leafs - 1) * Sha256Hash::LEN as u64
+        })
+        .fold(0, u64::saturating_add)
+}
+
 bit_flags! {
     /// libtorrent `torrent_info_flags_t`.
     pub struct TorrentInfoFlags: u8 {
@@ -422,6 +443,10 @@ impl TorrentInfo {
 
         let pl = files.piece_length() as u64;
         if files.total_size() / pl > MAX_NUM_PIECES as u64 {
+            return Err(MetainfoError::TooManyPiecesInTorrent);
+        }
+        // the blocks are the pieces of the v2 trees (SEC-09)
+        if files.v2() && merkle_tree_bytes(&files) > MAX_MERKLE_TREE_BYTES {
             return Err(MetainfoError::TooManyPiecesInTorrent);
         }
         let num_pieces = files.total_size().div_ceil(pl);
@@ -1542,6 +1567,40 @@ mod tests {
         let ti = build(true).unwrap();
         assert!(ti.v1() && ti.v2());
         assert!(ti.hash_for_piece(0).is_some());
+    }
+
+    /// SEC-09: a v2 torrent whose Merkle trees would take more than MAX_MERKLE_TREE_BYTES once
+    /// expanded (the first downloaded block of a file expands its tree) is refused.
+    #[test]
+    fn v2_trees_too_large_for_memory_are_refused() {
+        const GIB: i64 = 1 << 30;
+        let build = |sizes: &[i64]| {
+            let mut tree = Entry::new_dict();
+            for (i, size) in sizes.iter().enumerate() {
+                let mut leaf = Entry::new_dict();
+                *leaf.key("length") = (*size).into();
+                *leaf.key("pieces root") = Entry::from(vec![7u8; 32]);
+                let mut file = Entry::new_dict();
+                *file.key("") = leaf;
+                *tree.key(format!("f{i}")) = file;
+            }
+            let mut info = Entry::new_dict();
+            *info.key("file tree") = tree;
+            *info.key("meta version") = 2.into();
+            *info.key("name") = "x".into();
+            *info.key("piece length") = (256 << 20).into();
+            TorrentInfo::from_info_section(&info.bencode(), LoadLimits::default())
+        };
+        // the finding: one file of about 16 TiB (the largest allowed), a 64 GiB tree
+        assert_eq!(build(&[(16 << 40) - (1 << 20)]).unwrap_err(), MetainfoError::TooManyPiecesInTorrent);
+        // 512 GiB is 2^25 blocks: 2^26 - 1 nodes, just under 2 GiB
+        assert!(build(&[512 * GIB]).is_ok());
+        assert_eq!(build(&[512 * GIB + 1]).unwrap_err(), MetainfoError::TooManyPiecesInTorrent);
+        // the limit is for the whole torrent
+        assert!(build(&[100 * GIB, 100 * GIB]).is_ok());
+        assert_eq!(build(&[300 * GIB, 300 * GIB]).unwrap_err(), MetainfoError::TooManyPiecesInTorrent);
+        assert_eq!(merkle_tree_bytes(build(&[16384]).unwrap().files()), 32);
+        assert_eq!(merkle_tree_bytes(build(&[3 * 16384]).unwrap().files()), 7 * 32);
     }
 
     #[test]

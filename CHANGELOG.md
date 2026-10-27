@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_201104_1793128264: Security fix SEC-24: a new Web UI password ends the other logins
+
+- **Confirmed:** a password change kept every SID session, open WebSocket and `/pa/remote` connection, so a stolen session survived the change meant to lock it out.
+- **Fix:** `prefs::commit` now takes the requester's session key (`apply_preferences`, `commands::serve` pass it). A new password drops every other session, whose WebSockets close at the next status tick, and disconnects every remote client (`Shared::end_remotes`; the remote client's `overflow` flag became `ended`).
+- **Tests:** `a_new_password_ends_the_other_logins` and `a_new_password_ends_remote_sessions`, each proven to fail without its part. Still open: asking for the old password.
+
 ## 2026-10-27_200447_1793127887: Security fix SEC-23: the service install checks an existing state folder
 
 - **Confirmed:** `service install` took an existing `%ProgramData%\PaTorrent\nox` as it was. Any user can make that folder first and keep owning it, so they could plant `webui.json`, read the log, or make `Downloads` a junction.

@@ -1195,14 +1195,15 @@ fn multipart_body(req: &Request) -> Result<(Vec<Part>, Json), CmdError> {
 }
 
 /// Answers a `/pa/...` request (`endpoint` is the path after `/pa/`), authenticated already.
-pub fn serve(shared: &Shared, endpoint: &str, req: &Request) -> Response {
-    match serve_inner(shared, endpoint, req) {
+/// `key` is the requester's session.
+pub fn serve(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Response {
+    match serve_inner(shared, endpoint, req, key) {
         Ok(r) => r,
         Err(e) => json_error(e),
     }
 }
 
-fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Response, CmdError> {
+fn serve_inner(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Result<Response, CmdError> {
     let read = matches!(req.head.method.as_str(), "GET" | "HEAD");
     // the RSS Downloader's own (`rss.rs`)
     if let Some(rest) = endpoint.strip_prefix("rss").filter(|r| r.is_empty() || r.starts_with('/')) {
@@ -1301,7 +1302,7 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request) -> Result<Respons
             let body = json_body(req)?;
             let changes = prefs::parse(&body).map_err(|(field, why)| err(400, format!("{field}: {why}")))?;
             let mut st = shared.lock();
-            prefs::commit(shared, &mut st, &changes)
+            prefs::commit(shared, &mut st, &changes, Some(key))
                 .map_err(|(field, why)| err(400, format!("{field}: {why}")))?;
             Ok(no_content())
         }

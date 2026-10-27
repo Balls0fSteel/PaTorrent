@@ -27,7 +27,8 @@ const MAX_QUEUED: usize = 100_000;
 #[derive(Default)]
 pub(crate) struct Client {
     queue: Mutex<VecDeque<Alert>>,
-    overflow: AtomicBool,
+    /// Disconnect it: its queue overflowed, or the password changed.
+    ended: AtomicBool,
 }
 
 impl Shared {
@@ -44,8 +45,15 @@ impl Shared {
             }
             if q.len() > MAX_QUEUED {
                 q.clear();
-                c.overflow.store(true, Ordering::SeqCst);
+                c.ended.store(true, Ordering::SeqCst);
             }
+        }
+    }
+
+    /// Disconnects every remote client, within a read timeout (the password changed, SEC-24).
+    pub(crate) fn end_remotes(&self) {
+        for c in self.remotes.lock().unwrap_or_else(|e| e.into_inner()).iter() {
+            c.ended.store(true, Ordering::SeqCst);
         }
     }
 }
@@ -186,7 +194,7 @@ pub(super) fn run(mut stream: Conn, buf: Vec<u8>, shared: &Shared) {
         for a in &queued {
             remote::alert_frame(a, &mut out);
         }
-        if client.overflow.load(Ordering::SeqCst) {
+        if client.ended.load(Ordering::SeqCst) {
             return;
         }
         if !out.is_empty() && stream.write_all(&out).and_then(|()| stream.flush()).is_err() {

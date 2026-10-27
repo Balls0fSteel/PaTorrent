@@ -254,6 +254,44 @@ fn the_login_is_checked_and_failures_count() {
     assert!(matches!(e, ConnectError::Refused { status: 403, .. }), "{e:?}");
 }
 
+/// A new password set in the Web UI disconnects the remote sessions; the old password no
+/// longer connects (SEC-24).
+#[test]
+fn a_new_password_ends_remote_sessions() {
+    let n = nox("password", false);
+    let addr = n.web.local_addr();
+    let (client, _) = remote::connect(&target(addr, None, PASS), TIMEOUT).unwrap();
+    let h = Client::new(client.handle());
+    let req = |r: String| {
+        let mut s = TcpStream::connect(addr).unwrap();
+        s.write_all(r.as_bytes()).unwrap();
+        let mut out = String::new();
+        s.read_to_string(&mut out).unwrap();
+        out
+    };
+    let post = |path: &str, cookie: &str, form: &str| {
+        req(format!(
+            "POST {path} HTTP/1.1\r\nHost: {addr}\r\nConnection: close\r\n{cookie}\
+             Content-Type: application/x-www-form-urlencoded\r\nContent-Length: {}\r\n\r\n{form}",
+            form.len()
+        ))
+    };
+    let login = post("/api/v2/auth/login", "", &format!("username=admin&password={PASS}"));
+    let sid = login.split("SID=").nth(1).unwrap().split(';').next().unwrap().to_owned();
+    let r = post(
+        "/api/v2/app/setPreferences",
+        &format!("Cookie: SID={sid}\r\n"),
+        "json=%7B%22web_ui_password%22%3A%22another-one%22%7D",
+    );
+    assert!(r.starts_with("HTTP/1.1 200"), "{r}");
+    h.wait_for(|a| matches!(a, Alert::RemoteDisconnected { .. }).then_some(()));
+    let e = remote::connect(&target(addr, None, PASS), TIMEOUT).err().unwrap();
+    assert!(matches!(e, ConnectError::Refused { status: 401, .. }), "{e:?}");
+    let (again, _) = remote::connect(&target(addr, None, "another-one"), TIMEOUT).unwrap();
+    again.shutdown();
+    client.shutdown();
+}
+
 #[test]
 fn the_upgrade_is_checked() {
     let n = nox("upgrade", false);

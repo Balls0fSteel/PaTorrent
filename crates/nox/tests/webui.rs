@@ -994,6 +994,49 @@ fn preferences_and_stored_credentials() {
     assert_eq!(t.get(&sid, "/api/v2/transfer/downloadLimit").text(), "102400");
 }
 
+/// A login with `password`; the session cookie.
+fn login_with(t: &Harness, password: &str) -> String {
+    let r =
+        t.req("POST", "/api/v2/auth/login", &[], Body::Form(&format!("username=admin&password={password}")));
+    assert_eq!(r.text(), "Ok.");
+    r.header("set-cookie").unwrap().split(';').next().unwrap().to_owned()
+}
+
+/// A new password ends every other login and its WebSocket; the session that changed it stays
+/// (SEC-24).
+#[test]
+fn a_new_password_ends_the_other_logins() {
+    let t = Harness::start("new-password");
+    let (mine, other) = (t.login(), t.login());
+    let (mut ws, _) = Ws::connect(&t, &other);
+    ws.send_text(r#"{"t":"view","columns":["name"]}"#);
+    assert_eq!(s(ws.recv_json().get("t")), "rows");
+    // a preference that is not the password leaves the sessions alone
+    let set = format!("json={}", enc(r#"{"dl_limit":100}"#));
+    assert_eq!(t.post(&mine, "/api/v2/app/setPreferences", &set).status, 200);
+    assert_eq!(t.get(&other, "/api/v2/app/version").status, 200);
+
+    let set = format!("json={}", enc(r#"{"web_ui_password":"another-one"}"#));
+    assert_eq!(t.post(&mine, "/api/v2/app/setPreferences", &set).status, 200);
+    assert_eq!(t.get(&mine, "/api/v2/app/version").status, 200, "the session that changed it stays");
+    assert_eq!(t.get(&other, "/api/v2/app/version").status, 403);
+    let close = loop {
+        match ws.recv_frame() {
+            Some((8, p)) => break p,
+            Some((1 | 9, _)) => continue,
+            other => panic!("expected a close frame, got {other:?}"),
+        }
+    };
+    assert_eq!(u16::from_be_bytes([close[0], close[1]]), 1008);
+
+    // the same through the native preferences
+    let (mine, other) = (login_with(&t, "another-one"), login_with(&t, "another-one"));
+    assert_eq!(t.pa(&mine, "/pa/prefs", r#"{"webui.password":"a-third-one"}"#).status, 204);
+    assert_eq!(t.get(&mine, "/api/v2/app/version").status, 200);
+    assert_eq!(t.get(&other, "/api/v2/app/version").status, 403);
+    login_with(&t, "a-third-one");
+}
+
 #[test]
 fn a_temporary_password_without_one_given() {
     let t = Harness::start_in(temp_dir("temp"), None);

@@ -295,7 +295,8 @@ As today: SID cookie, PBKDF2 password hash, failed-login ban (per IPv4 address, 
 IPv6), Host validation, bypass for local clients, CSRF checks on every `POST` and on the
 WebSocket handshake (`Origin` must match the request's own origin or the domain list). Added: `Content-Security-Policy: default-src 'self'`
 (so no inline script or style in the HTML), `X-Content-Type-Options: nosniff`,
-`Referrer-Policy: no-referrer`, `ETag` on the static files.
+`Referrer-Policy: no-referrer`, `ETag` on the static files. A new password ends every other
+login: their sessions, WebSockets and `/pa/remote` connections; the session that changed it stays.
 
 HTTPS (`--webui-https`, or `--webui-cert FILE [--webui-key FILE]`): the port serves TLS only,
 through the OS library (SChannel on Windows, OpenSSL on Unix: `patorrent_core::tls`), TLS 1.2

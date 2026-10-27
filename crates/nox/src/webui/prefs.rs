@@ -1143,8 +1143,15 @@ fn check_paths(w: &Working, old: &Working, policy: &PathPolicy) -> Result<(), Re
 /// Applies parsed changes to a working copy of `st`, checks it, and commits: engine settings
 /// through `apply_settings` (with the global limits of the mode in force), the IP filter loaded
 /// or cleared, peer exchange toggled on every torrent, a new password hashed, the folders
-/// handed to the owner's `MoveCompleted`, and everything stored in the state file.
-pub(crate) fn commit(shared: &Shared, st: &mut State, changes: &[Change]) -> Result<(), Refusal> {
+/// handed to the owner's `MoveCompleted`, and everything stored in the state file. A new
+/// password ends every login but `keep` (the session that changed it): the other sessions,
+/// their WebSockets and the remote connections (SEC-24).
+pub(crate) fn commit(
+    shared: &Shared,
+    st: &mut State,
+    changes: &[Change],
+    keep: Option<&str>,
+) -> Result<(), Refusal> {
     let mut w = Working::from_state(st);
     for (def, v) in changes {
         def.set(&mut w, v.clone());
@@ -1199,6 +1206,9 @@ pub(crate) fn commit(shared: &Shared, st: &mut State, changes: &[Change]) -> Res
     st.username = w.username.clone();
     if let Some(p) = &w.new_password {
         st.password = PasswordHash::new(p, shared.iterations);
+        // a WebSocket ends when its session is gone, at the next status tick
+        st.sessions.retain(|k, _| Some(k.as_str()) == keep);
+        shared.end_remotes();
     }
     let changed: Vec<&'static str> =
         TABLE.iter().filter(|e| e.get(&w.settings) != e.get(&old.settings)).map(|e| e.name).collect();
@@ -1226,7 +1236,7 @@ pub(crate) fn commit_settings(shared: &Shared, st: &mut State, new: &Settings) -
     if changes.is_empty() {
         return Ok(());
     }
-    commit(shared, st, &changes)
+    commit(shared, st, &changes, None)
 }
 
 /// Writes the preferences into `State::options` (the frontend's keys): the engine settings as

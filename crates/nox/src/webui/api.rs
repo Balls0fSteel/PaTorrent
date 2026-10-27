@@ -371,10 +371,10 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
     }
     if let Some(endpoint) = head.path.strip_prefix("/pa/") {
         // the native commands (docs/WEBUI.md "Commands"): JSON in, 204 or {"error"} out
-        if authenticate(&mut shared.lock(), head, ip, now).is_none() {
+        let Some(key) = authenticate(&mut shared.lock(), head, ip, now) else {
             return json_error(403, "forbidden");
-        }
-        return commands::serve(shared, endpoint, req);
+        };
+        return commands::serve(shared, endpoint, req, &key);
     }
     let Some(endpoint) = head.path.strip_prefix("/api/v2/") else {
         return Response::text(404, "Not Found");
@@ -463,7 +463,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             let Some(text) = p.get("json") else { return Response::text(400, "missing json") };
             let Ok(v @ Json::Obj(_)) = json::parse(text) else { return Response::text(400, "invalid json") };
             let mut st = shared.lock();
-            apply_preferences(shared, &mut st, &v);
+            apply_preferences(shared, &mut st, &v, Some(&key));
             shared.save(&st);
             Response::ok()
         }
@@ -902,7 +902,8 @@ fn preferences(st: &State, shared: &Shared) -> Json {
 /// the native Preferences ids (`prefs.rs`) and committing them together; a key that does not
 /// parse is skipped, and when the set fails the Win32 dialog's cross-field checks (a proxy type
 /// without a host), each change is tried on its own. Stored like every other preference.
-pub(crate) fn apply_preferences(shared: &Shared, st: &mut State, v: &Json) {
+/// `keep` is the session that sent them, kept when the password changes.
+pub(crate) fn apply_preferences(shared: &Shared, st: &mut State, v: &Json, keep: Option<&str>) {
     let kib = |j: &Json| {
         j.as_i64().map(|k| Json::from(if k <= 0 { 0 } else { k.min(u32::MAX as i64 / 1024) * 1024 }))
     };
@@ -975,9 +976,9 @@ pub(crate) fn apply_preferences(shared: &Shared, st: &mut State, v: &Json) {
     if changes.is_empty() {
         return;
     }
-    if prefs::commit(shared, st, &changes).is_err() {
+    if prefs::commit(shared, st, &changes, keep).is_err() {
         for c in changes {
-            let _ = prefs::commit(shared, st, &[c]);
+            let _ = prefs::commit(shared, st, &[c], keep);
         }
     }
 }

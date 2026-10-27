@@ -870,6 +870,38 @@ fn a_torrent_files_dht_nodes_join_the_routing_table() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+/// SEC-18: before the metadata arrives, `dn=` is the torrent's name, and Open Folder joins it to
+/// the save path; a UNC, absolute or `..` name must not point outside it.
+#[test]
+fn magnet_display_name_stays_inside_the_save_path() {
+    let dir = temp_dir("magnet-dn");
+    let leech = start(None);
+    let mut w = Watch::new(leech.handle());
+    let cases = [
+        ("%5C%5Cattacker%5Cshare%5Cx", None),
+        ("C%3A%5CWindows", None),
+        ("%2Fetc%2Fpasswd", Some("etcpasswd")),
+        ("..", Some("")),
+        ("a%22b%2F..%2F..", None),
+    ];
+    for (i, (dn, expected)) in cases.iter().enumerate() {
+        let uri = format!("magnet:?xt=urn:btih:{:040x}&dn={dn}", 0xa0 + i);
+        let id = add_magnet(&mut w, uri, &dir);
+        let st = wait_state(&mut w, id, TorrentState::DownloadingMetadata, 10);
+        assert!(!st.name.contains(['/', '\\']), "{dn}: {}", st.name);
+        assert!(!cfg!(windows) || !st.name.contains([':', '"']), "{dn}: {}", st.name);
+        assert_ne!(st.name, "..", "{dn}");
+        assert_eq!(dir.join(&st.name).parent(), Some(dir.as_path()), "{dn}: {}", st.name);
+        if let Some(expected) = expected {
+            let expected =
+                if expected.is_empty() { format!("{:040x}", 0xa0 + i) } else { expected.to_string() };
+            assert_eq!(st.name, expected, "{dn}");
+        }
+    }
+    leech.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
 #[test]
 fn magnet_without_peers_survives_a_restart_then_downloads() {
     let f = fixture(None);

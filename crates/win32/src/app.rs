@@ -2867,7 +2867,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             | cmd::DOWN
             | cmd::QUEUE_TOP
             | cmd::QUEUE_BOTTOM
-            | cmd::OPEN_FOLDER => torrent_action(hwnd, id),
+            | cmd::OPEN_FOLDER => torrent_action(id),
             _ => {}
         }
     }
@@ -3016,7 +3016,7 @@ fn set_label(label: &str) {
     }
 }
 
-unsafe fn torrent_action(hwnd: HWND, id: u16) {
+unsafe fn torrent_action(id: u16) {
     let ids = selected_ids();
     if ids.is_empty() {
         return;
@@ -3058,10 +3058,7 @@ unsafe fn torrent_action(hwnd: HWND, id: u16) {
                 cmd::QUEUE_TOP => t.queue_position(QueueMove::Top),
                 cmd::QUEUE_BOTTOM => t.queue_position(QueueMove::Bottom),
                 cmd::OPEN_FOLDER if folder.is_none() && !crate::remote_ui::is_remote() => {
-                    folder = a
-                        .list
-                        .get(tid)
-                        .map(|st| Path::new(&st.save_path).join(&st.name).to_string_lossy().into_owned());
+                    folder = a.list.get(tid).and_then(|st| open_folder_target(&st.save_path, &st.name));
                 }
                 _ => {}
             }
@@ -3071,9 +3068,48 @@ unsafe fn torrent_action(hwnd: HWND, id: u16) {
         folder
     })
     .flatten();
-    if let Some(path) = folder {
-        let args = wide(&format!("/select,\"{path}\""));
-        unsafe { ShellExecuteW(hwnd, w!("open"), w!("explorer.exe"), args.as_ptr(), null(), SW_SHOWNORMAL) };
+    if let Some((save_path, target)) = folder {
+        unsafe { show_in_explorer(&target, &save_path) };
+    }
+}
+
+/// What Open Folder selects: `<save path>\<name>`, or None when the name is more than one plain
+/// path component (a magnet's `dn=` is the name until the metadata arrives; SEC-18), so the target
+/// can never be a UNC share, another drive or a parent folder. Returns (save path, target).
+fn open_folder_target(save_path: &str, name: &str) -> Option<(PathBuf, PathBuf)> {
+    use std::path::Component;
+    let save = PathBuf::from(save_path);
+    if !save.is_absolute() {
+        return None;
+    }
+    let mut parts = Path::new(name).components();
+    let target = match (parts.next(), parts.next()) {
+        (Some(Component::Normal(n)), None) => save.join(n),
+        (None, _) => save.clone(),
+        _ => return None,
+    };
+    Some((save, target))
+}
+
+/// Opens Explorer on `target`'s folder with it selected (or on the save folder while the target
+/// does not exist yet). The shell API takes an item, not a command line, so nothing in the path is
+/// parsed as arguments.
+unsafe fn show_in_explorer(target: &Path, save_path: &Path) {
+    use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+    use windows_sys::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
+    unsafe {
+        let com = CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32) >= 0;
+        let mut pidl = ILCreateFromPathW(wide(&target.to_string_lossy()).as_ptr());
+        if pidl.is_null() {
+            pidl = ILCreateFromPathW(wide(&save_path.to_string_lossy()).as_ptr());
+        }
+        if !pidl.is_null() {
+            SHOpenFolderAndSelectItems(pidl, 0, null(), 0);
+            ILFree(pidl);
+        }
+        if com {
+            CoUninitialize();
+        }
     }
 }
 
@@ -4220,7 +4256,7 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 let done =
                     with_app(|a| ids.first().and_then(|id| a.list.get(*id)).is_some_and(|s| s.is_finished));
                 if done == Some(true) {
-                    torrent_action(hwnd, cmd::OPEN_FOLDER);
+                    torrent_action(cmd::OPEN_FOLDER);
                 } else if !ids.is_empty() {
                     show_properties(hwnd);
                 }
@@ -4495,6 +4531,20 @@ mod tests {
     use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError, WAIT_OBJECT_0};
 
     use super::*;
+
+    /// Open Folder stays inside the save path whatever the torrent's name is (SEC-18).
+    #[test]
+    fn open_folder_target_stays_in_the_save_path() {
+        let save = r"C:\Downloads";
+        let (s, t) = open_folder_target(save, "Some Show").unwrap();
+        assert_eq!((s.as_path(), t.as_path()), (Path::new(save), Path::new(r"C:\Downloads\Some Show")));
+        assert_eq!(open_folder_target(save, "").unwrap().1, Path::new(save));
+        for name in [r"\\attacker\share\x", r"C:\Windows", r"D:x", r"\x", "..", r"..\x", r"a\b", "a/b", "/x"]
+        {
+            assert_eq!(open_folder_target(save, name), None, "{name}");
+        }
+        assert_eq!(open_folder_target("relative", "x"), None);
+    }
 
     /// A forwarded payload is read only when it is ours and has data (SEC-25).
     #[test]

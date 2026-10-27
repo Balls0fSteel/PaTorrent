@@ -150,6 +150,16 @@ pub fn sanitize_append_path_element(path: &mut String, element: &[u8]) {
     }
 }
 
+/// A name from outside the metadata (a magnet's `dn=`, resume data) as one safe path element, as
+/// `info/name` would be: no separators, root, drive or `..`. Empty when nothing usable is left.
+pub fn sanitize_name(name: &str) -> String {
+    let mut out = String::new();
+    if !name.is_empty() {
+        sanitize_append_path_element(&mut out, name.as_bytes());
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     //! Ported from libtorrent-rasterbar 2.0.11 test/test_torrent_info.cpp (sanitize_path*).
@@ -288,6 +298,17 @@ mod tests {
         }
         assert!(super::is_reserved_device_name("lPt\u{b2}"));
         assert!(!super::is_reserved_device_name("COM\u{b4}"));
+    }
+
+    #[test]
+    fn names_from_outside_the_metadata() {
+        assert_eq!(sanitize_name(""), "");
+        assert_eq!(sanitize_name(".."), "");
+        assert_eq!(sanitize_name("\\\\host\\share\\x"), "hostsharex");
+        assert_eq!(sanitize_name("/etc/passwd"), "etcpasswd");
+        assert_eq!(sanitize_name("C:\\Windows"), if WIN { "C_Windows" } else { "C:Windows" });
+        assert_eq!(sanitize_name("a\"b"), if WIN { "a_b" } else { "a\"b" });
+        assert_eq!(sanitize_name("Some Show S01"), "Some Show S01");
     }
 
     #[test]

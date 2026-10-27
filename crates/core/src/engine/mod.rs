@@ -57,6 +57,7 @@ use crate::disk::{
     BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction, HashVerdict, MoveError, MoveStatus,
 };
 use crate::error::Error;
+use crate::metainfo::sanitize::sanitize_name;
 use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, WebSeedKind, parse_magnet_uri};
 use crate::net::ip_voter::{ExternalIp, SessionVoter, source};
 use crate::net::resolver::{Resolved, Resolver};
@@ -1860,13 +1861,14 @@ impl Engine {
             _ => unreachable!("only magnets and info-hashes come here"),
         };
         let info_hashes = m.info_hashes;
-        let user_named = p.name.as_deref().is_some_and(|n| !n.is_empty());
+        // the name is a path element until the metadata arrives (Open Folder joins it to the save
+        // path), so `dn=\\host\share` or `..` must not leave the save path
+        let user_name = sanitize_name(&fallback_name);
+        let user_named = !user_name.is_empty();
         let name = if user_named {
-            fallback_name
-        } else if !m.name.is_empty() {
-            m.name.clone()
+            user_name
         } else {
-            info_hashes.key_hex()
+            Some(sanitize_name(&m.name)).filter(|n| !n.is_empty()).unwrap_or_else(|| info_hashes.key_hex())
         };
         if let Some(&existing) = info_hashes.wire_hashes().find_map(|h| self.by_hash.get(&h)) {
             if p.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR) {
@@ -1933,7 +1935,7 @@ impl Engine {
         let mut t = Torrent::new(
             TorrentId::default(),
             r.info_hashes,
-            r.name.clone(),
+            sanitize_name(&r.name),
             self.intern_save_path(&r.save_path),
             TorrentFlags::empty(),
         );
@@ -3842,8 +3844,9 @@ fn t_is_seed(t: Option<&Torrent>, addr: &SocketAddr) -> bool {
 
 /// Copies fast-resume fields onto a torrent.
 fn apply_resume(t: &mut Torrent, r: &ResumeData) {
-    if !r.name.is_empty() {
-        t.name = r.name.clone();
+    let name = sanitize_name(&r.name);
+    if !name.is_empty() {
+        t.name = name;
     }
     if let Some(p) = &r.pieces {
         if t.num_pieces == 0 || p.len() == t.num_pieces as usize {

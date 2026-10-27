@@ -12,7 +12,8 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **Accepted, recorded in SECURITY.md:** any folder for a Web UI login without `--webui-save-root`, no OpenSSL revocation, no Keychain/libsecret, LAN peers and privileged ports as in libtorrent, giant v2 torrents refused.
 - **Validation:** fmt, clippy and the workspace tests pass on Windows; each new test was proven to fail with its fix reverted. On the Xubuntu VM the core, frontend and nox tests pass, the SEC-17 Unix tests included (2026-10-27_214505_1793133905). A portable client given a split `--shell` link opened locally and kept only the sanitized magnet. Secure Transport is compile-checked only; Open Folder was not clicked.
 - **Linux import fix:** two SEC-16 import tests had failed on Linux since that fix: µTorrent's Windows paths were not split at `\`, so the save folder was lost. `split_windows_path` splits them on every platform.
-- **Owner decision:** the remainders named in SEC-05, 07, 09, 12 and 17 are accepted as design choices.
+- **Owner decision:** the remainders named in SEC-05, 07, 09, 12 and 17 are accepted as design choices. The audit stays local (`SECURITY-AUDIT.md`, untracked); the 38 unpushed commits were rewritten so the tracked SECURITY.md is the policy only, then pushed.
+- **CI on the push (run 40581362457):** CI (macOS, Ubuntu, Windows, MSRV, fmt) and Fuzz green; the import fix also cleared the earlier macOS/Ubuntu failure. FreeBSD failed `the_control_url_stays_on_the_device`: it has no 127.0.0.2, so an accepted device was disabled by its failed connection. The test now checks that the external IP was asked for.
 
 ## 2026-10-27_205407_1793130847: Security fix SEC-07: TLS sessions stay failed, clients need TLS 1.2, feeds need close_notify
 

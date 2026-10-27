@@ -1552,9 +1552,14 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
             assert_eq!(upnp.devices.len(), 1);
             upnp.on_upnp_xml(0, Ok(description(control)), poll.registry(), now);
             let d = &upnp.devices[0];
-            assert_eq!(!d.disabled, ok, "{control}: {:?}", upnp.log);
+            // an accepted URL goes on to ask for the external IP; that request may then fail
+            // and disable the device too (FreeBSD has no 127.0.0.2), so it is not the signal
+            let asked = upnp.log.iter().any(|l| l == "getting external IP address");
+            assert_eq!(asked, ok, "{control}: {:?}", upnp.log);
             if ok {
                 assert_eq!(d.hostname, "127.0.0.2");
+            } else {
+                assert!(d.disabled, "{control}");
             }
         }
     }

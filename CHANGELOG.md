@@ -10,7 +10,9 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **Remainders closed:** SEC-04 (20 s TLS handshake deadline, linear JSON key check), SEC-05 (auto-load, IP filter outside the lock, save roots through links, generic fetch errors), SEC-07 (soft-fail revocation on SChannel and Secure Transport), SEC-12 (`no_connect_privileged_ports`, no loopback peers from trackers elsewhere; remote protocol 9), SEC-23 (warning for a user-writable exe folder), SEC-26 (no error oracle).
 - **SEC-03 test:** `parallel_guesses_stop_at_the_ban_limit` failed on every run: a login refused by the ban also said "Fails.". A client banned while its request waited now gets 403, as at accept.
 - **Accepted, recorded in SECURITY.md:** any folder for a Web UI login without `--webui-save-root`, no OpenSSL revocation, no Keychain/libsecret, LAN peers and privileged ports as in libtorrent, giant v2 torrents refused.
-- **Validation:** fmt, clippy and the workspace tests pass on Windows; each new test was proven to fail with its fix reverted. Unix-only tests (SEC-17) and Secure Transport are compile-checked only; Open Folder was not clicked in the running app.
+- **Validation:** fmt, clippy and the workspace tests pass on Windows; each new test was proven to fail with its fix reverted. On the Xubuntu VM the core, frontend and nox tests pass, the SEC-17 Unix tests included (2026-10-27_214505_1793133905). A portable client given a split `--shell` link opened locally and kept only the sanitized magnet. Secure Transport is compile-checked only; Open Folder was not clicked.
+- **Linux import fix:** two SEC-16 import tests had failed on Linux since that fix: µTorrent's Windows paths were not split at `\`, so the save folder was lost. `split_windows_path` splits them on every platform.
+- **Owner decision:** the remainders named in SEC-05, 07, 09, 12 and 17 are accepted as design choices.
 
 ## 2026-10-27_205407_1793130847: Security fix SEC-07: TLS sessions stay failed, clients need TLS 1.2, feeds need close_notify
 

@@ -39,7 +39,8 @@ pub struct FetchOptions {
     /// Redirects followed before giving up (default 5, libtorrent `http_connection`).
     pub max_redirects: u32,
     /// Sent as a `Cookie` header when not empty (`name=value; name2=value2`). Line breaks are
-    /// dropped. The same cookies go to every host a redirect leads to.
+    /// dropped. They go only to the first URL's origin (scheme, host and port): a redirect
+    /// elsewhere is followed without them, and one from https to http is refused (SEC-06).
     pub cookies: String,
     pub proxy: Option<FetchProxy>,
 }
@@ -158,9 +159,12 @@ pub fn http_get(url: &str, opts: &FetchOptions) -> Result<FetchResponse, FetchEr
     let deadline = Instant::now() + opts.timeout;
     let mut url = clean_url(url);
     let mut redirects = 0;
+    let has_cookies = !opts.cookies.trim().is_empty();
+    let mut origin = None;
     loop {
         let parsed = Url::parse(&url).ok_or_else(|| FetchError::InvalidUrl(url.clone()))?;
-        let resp = get_once(&parsed, opts, deadline)?;
+        let origin = origin.get_or_insert_with(|| Origin::of(&parsed));
+        let resp = get_once(&parsed, opts, has_cookies && *origin == Origin::of(&parsed), deadline)?;
         if (200..300).contains(&resp.status) {
             return Ok(FetchResponse { url, status: resp.status, headers: resp.headers, body: resp.body });
         }
@@ -178,6 +182,30 @@ pub fn http_get(url: &str, opts: &FetchOptions) -> Result<FetchResponse, FetchEr
         let next =
             http::resolve_redirect(&parsed, location).ok_or(FetchError::Http("invalid redirect location"))?;
         url = clean_url(&next);
+        if has_cookies && downgrades(&parsed, &url) {
+            return Err(FetchError::Http("refused a redirect from https to http"));
+        }
+    }
+}
+
+/// A redirect from https to plain http: refused when cookies are in play, since a site that
+/// hands them out over https does not send its users to http (and an on-path attacker could).
+fn downgrades(from: &Url, to: &str) -> bool {
+    from.scheme == "https" && Url::parse(to).is_some_and(|u| u.scheme == "http")
+}
+
+/// Where cookies may go: the scheme, host and port of the URL they were given for.
+#[derive(PartialEq, Eq)]
+struct Origin {
+    scheme: String,
+    host: String,
+    port: u16,
+}
+
+impl Origin {
+    fn of(url: &Url) -> Origin {
+        let host = url.host.trim_end_matches('.').to_ascii_lowercase();
+        Origin { scheme: url.scheme.clone(), host, port: url.port }
     }
 }
 
@@ -214,14 +242,14 @@ fn remaining(deadline: Instant) -> Result<Duration, FetchError> {
 }
 
 /// The request bytes: libtorrent's `GET` (or the absolute-URL form for an HTTP proxy), with the
-/// cookies added.
-fn request(url: &Url, opts: &FetchOptions, via_http_proxy: Option<&ProxyConfig>) -> Vec<u8> {
+/// cookies added when `cookies` says so.
+fn request(url: &Url, opts: &FetchOptions, cookies: bool, via_http_proxy: Option<&ProxyConfig>) -> Vec<u8> {
     let user_agent = opts.user_agent.replace(['\r', '\n'], "");
     let mut r = match via_http_proxy {
         Some(p) => http::proxy_get_request(url, &user_agent, p.creds()),
         None => http::get_request(url, &user_agent),
     };
-    let cookies = opts.cookies.replace(['\r', '\n'], "");
+    let cookies = if cookies { opts.cookies.replace(['\r', '\n'], "") } else { String::new() };
     if !cookies.trim().is_empty() {
         // before the blank line that ends the head
         r.truncate(r.len() - 2);
@@ -252,11 +280,16 @@ fn connect(addrs: &[SocketAddr], deadline: Instant) -> Result<TcpStream, FetchEr
 }
 
 /// One request and its response, without following redirects.
-fn get_once(url: &Url, opts: &FetchOptions, deadline: Instant) -> Result<http::Response, FetchError> {
+fn get_once(
+    url: &Url,
+    opts: &FetchOptions,
+    cookies: bool,
+    deadline: Instant,
+) -> Result<http::Response, FetchError> {
     let https = url.scheme == "https";
     let proxy = opts.proxy.as_ref().map(|p| &p.0);
     let plain_http_proxy = proxy.filter(|p| p.plain_http(https));
-    let req = request(url, opts, plain_http_proxy);
+    let req = request(url, opts, cookies, plain_http_proxy);
     let sock = match proxy {
         None => connect(&resolve(&url.host, url.port)?, deadline)?,
         Some(p) => {
@@ -460,6 +493,36 @@ mod tests {
         assert!(heads[2].starts_with("GET /dir/y.torrent "), "{heads:?}");
         let r = http_get(&base, &opts()).unwrap();
         assert_eq!((r.status, r.redirect()), (302, Some("magnet:?xt=urn:btih:abc")));
+    }
+
+    /// SEC-06: cookies go to the origin they were given for. A redirect to another origin (here
+    /// another port) is followed without them; one on the same origin keeps them.
+    #[test]
+    fn cookies_stay_on_their_origin() {
+        let (other, other_rx) = serve(vec![b"HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nd1".to_vec()]);
+        let (base, rx) = serve(vec![
+            b"HTTP/1.1 302 Found\r\nLocation: /dl/x.torrent\r\nContent-Length: 0\r\n\r\n".to_vec(),
+            format!("HTTP/1.1 302 Found\r\nLocation: {other}/steal\r\nContent-Length: 0\r\n\r\n")
+                .into_bytes(),
+        ]);
+        let o = FetchOptions { cookies: "uid=1; pass=secret".into(), ..opts() };
+        let r = http_get(&format!("{base}/start"), &o).unwrap();
+        assert_eq!(&r.body[..], b"d1");
+        let heads: Vec<String> = rx.try_iter().collect();
+        assert_eq!(heads.len(), 2);
+        assert!(heads.iter().all(|h| h.contains("\r\nCookie: uid=1; pass=secret\r\n")), "{heads:?}");
+        let stolen = other_rx.recv().unwrap();
+        assert!(stolen.starts_with("GET /steal ") && !stolen.contains("Cookie"), "{stolen}");
+    }
+
+    /// SEC-06: with cookies, an https page redirecting to http is refused rather than followed.
+    #[test]
+    fn https_to_http_redirects() {
+        let from = Url::parse("https://tracker.example/dl.php?id=1").unwrap();
+        assert!(downgrades(&from, "http://tracker.example/x.torrent"));
+        assert!(!downgrades(&from, "https://cdn.example/x.torrent"));
+        let plain = Url::parse("http://tracker.example/dl.php").unwrap();
+        assert!(!downgrades(&plain, "http://tracker.example/x.torrent"));
     }
 
     #[test]

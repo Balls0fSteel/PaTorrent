@@ -26,6 +26,7 @@ pub mod worker;
 use std::collections::{HashSet, VecDeque};
 
 use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
+use patorrent_core::util::string::parse_url_components;
 
 pub use episode::{Episode, EpisodeSpec, Quality, is_repack, parse_episode};
 pub use feed::{Enclosure, Feed, FeedItem, FeedKind, parse_date, parse_feed};
@@ -147,6 +148,27 @@ impl RssFeed {
     /// The URL to fetch and the cookies to send with it.
     pub fn fetch_url(&self) -> (&str, &str) {
         split_cookie(&self.url)
+    }
+
+    /// The feed's cookies for downloading `item_url`: only on the feed's own site (the same host,
+    /// or one a subdomain of the other) and not from an https feed to a plain http item, so a feed
+    /// item cannot carry a private tracker's login to another host (SEC-06).
+    pub fn cookies_for(&self, item_url: &str) -> String {
+        let (feed_url, cookies) = self.fetch_url();
+        let parts = |u: &str| {
+            parse_url_components(u)
+                .ok()
+                .map(|p| (p.protocol.to_ascii_lowercase(), p.host.trim_end_matches('.').to_ascii_lowercase()))
+        };
+        let (Some((feed_scheme, feed_host)), Some((item_scheme, item_host))) =
+            (parts(feed_url), parts(item_url))
+        else {
+            return String::new();
+        };
+        let related = |a: &str, b: &str| a == b || a.ends_with(&format!(".{b}"));
+        let same_site = related(&feed_host, &item_host) || related(&item_host, &feed_host);
+        let downgrade = feed_scheme == "https" && item_scheme != "https";
+        if same_site && !downgrade { cookies.to_owned() } else { String::new() }
     }
 }
 
@@ -372,8 +394,8 @@ impl RssDownloader {
                 filter: None,
                 item_id: item_id.to_owned(),
                 title: item.title.clone(),
+                cookies: feed.cookies_for(&url),
                 url,
-                cookies: feed.fetch_url().1.to_owned(),
                 save_path: String::new(),
                 label: feed_label,
                 top_priority: false,
@@ -440,13 +462,14 @@ impl RssDownloader {
         let label_from_feed = self.settings.feed_as_default_label;
         let f = self.feed_mut(feed)?;
         let item = f.items.iter().find(|i| i.id() == item_id)?;
+        let url = item.torrent_url()?;
         let req = AddRequest {
             feed,
             filter: None,
             item_id: item_id.to_owned(),
             title: item.title.clone(),
-            url: item.torrent_url()?,
-            cookies: f.fetch_url().1.to_owned(),
+            cookies: f.cookies_for(&url),
+            url,
             save_path: String::new(),
             label: if label_from_feed { f.name().to_owned() } else { String::new() },
             top_priority: false,

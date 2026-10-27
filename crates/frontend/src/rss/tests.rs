@@ -37,6 +37,43 @@ fn cookies_in_feed_urls() {
     assert_eq!(d.feed(id).unwrap().name(), "https://a.b/rss:COOKIE:uid=7");
 }
 
+/// SEC-06: a private tracker's feed cookies go only to downloads on its own site, never to a
+/// host an item names elsewhere or from https down to http.
+#[test]
+fn feed_cookies_stay_on_its_site() {
+    let mut d = RssDownloader::default();
+    let id = d.add_feed("https://tracker.example/rss.php:COOKIE:uid=1;pass=abc", "");
+    let feed = d.feed(id).unwrap();
+    for (item, cookies) in [
+        ("https://tracker.example/download.php?id=1", "uid=1;pass=abc"),
+        ("https://TRACKER.example./dl/1.torrent", "uid=1;pass=abc"),
+        ("https://dl.tracker.example/1.torrent", "uid=1;pass=abc"),
+        ("https://attacker.example/steal", ""),
+        ("https://tracker.example.attacker.example/x", ""),
+        ("https://eviltracker.example/x", ""),
+        ("http://tracker.example/download.php?id=1", ""),
+        ("not a url", ""),
+    ] {
+        assert_eq!(feed.cookies_for(item), cookies, "{item}");
+    }
+    // a feed on a subdomain shares with its parent site; plain http feeds keep plain http items
+    let sub = d.add_feed("http://rss.tracker.example/feed:COOKIE:k=v", "");
+    assert_eq!(d.feed(sub).unwrap().cookies_for("http://tracker.example/dl/1"), "k=v");
+
+    // and the requests a fetched feed makes carry them only for the feed's own items
+    let mut d = RssDownloader::default();
+    let f = d.add_feed("https://tracker.example/rss:COOKIE:uid=1", "");
+    d.feed_mut(f).unwrap().subscribe = true;
+    let mut away = item("Away 1.0", None);
+    away.link = "https://attacker.example/x.torrent".into();
+    let mut home = item("Home 1.0", None);
+    home.link = "https://tracker.example/dl/home.torrent".into();
+    let reqs = d.feed_fetched(f, NOW, Ok(doc(vec![away, home])));
+    let by_title = |t: &str| reqs.iter().find(|r| r.title == t).unwrap().cookies.clone();
+    assert_eq!(by_title("Away 1.0"), "");
+    assert_eq!(by_title("Home 1.0"), "uid=1");
+}
+
 #[test]
 fn refresh_schedule() {
     let mut d = RssDownloader::default();
@@ -66,7 +103,8 @@ fn refresh_schedule() {
 #[test]
 fn subscription_adds_everything_once() {
     let mut d = RssDownloader::default();
-    let f = d.add_feed("https://a/rss:COOKIE:uid=1", "Distros");
+    // the items are on the feed's host, so they get its cookies (`feed_cookies_stay_on_its_site`)
+    let f = d.add_feed("https://feeds.example.org/rss:COOKIE:uid=1", "Distros");
     d.feed_mut(f).unwrap().subscribe = true;
     // newest first, as feeds list them; no dates: document order reversed
     let items = vec![item("Distro 2.0", None), item("Distro 1.0", None)];

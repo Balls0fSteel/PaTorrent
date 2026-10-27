@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_142631_1793111191: Security fix SEC-06: cookies stay on their site
+
+- **Fetch:** `http_get` sends the `Cookie` header only to the first URL's origin (scheme, host, port). A redirect to another origin is followed without cookies, and with cookies set an https→http redirect is refused (`FetchError::Http`).
+- **RSS:** item downloads get the feed's `:COOKIE:` value only through `RssFeed::cookies_for`: an item on the feed's host or a parent/child subdomain of it, and not from an https feed to an http item. A feed item can no longer carry a private tracker's login to another host.
+- **Behaviour change:** downloads on a sibling subdomain of the feed (`rss.x.org` → `dl.x.org`) now go without cookies; telling siblings from unrelated sites under `co.uk` would need the public suffix list. The subscription test's feed moved to its items' host, since it used to expect cookies on a foreign host.
+- Validation: regression tests with two real servers (cookies on a same-origin redirect, none after a cross-origin one), the https→http decision, and the RSS rule end to end; core, frontend, nox and Win32 suites pass; workspace clippy and rustfmt clean. Moved three older entries to `docs/archive/CHANGELOG-2026-10-27--2026-10-27-release-1.0.md`.
+
 ## 2026-10-27_134446_1793108686: Security fix SEC-12: UPnP device URLs and the tracker loopback rule
 
 - **UPnP:** a search reply or NOTIFY is used only when its `LOCATION` host is the responder's own IP, and a control URL from the description must stay on that host; otherwise the device is ignored or disabled. A LAN host can no longer point us at 127.0.0.1 or another machine. Line breaks in either URL were already refused by the SEC-19 parser.
@@ -60,22 +67,3 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - 15 new strings in all 34 tables. The translations are machine-made (subagent); ar/fa/he mnemonics and wording in inflected languages need native review.
 - Validation: unit tests and three end-to-end tests on a real session (trusted pieces under a renamed folder, a full check when files are missing, a qBittorrent record as it is). A read-only dry run of the owner's real folders read all 47 qBittorrent torrents and the one µTorrent torrent with no skips. `nox run --import utorrent` against an isolated state folder, behind a dead proxy, added the torrent with its label. Workspace clippy (warnings denied) and fmt are clean; frontend, nox and Win32 tests pass; GTK clippy passes for Linux with the stand-in pkg-config. Not verified: the Win32 and GTK windows by hand (computer use is blocked for PaTorrent here).
 - Moved the three oldest root entries verbatim to `docs/archive/CHANGELOG-2026-10-27--2026-10-27-installer.md`.
-
-## 2026-10-27_104216_1793094136: Version 1.0.1: the first stable release instead of 1.0.0 (not tagged)
-
-- The metainfo fix `b2ce7c06` passed CI 40476434941, FreeBSD 40476435274 and Release dry run 40476448542 (every job, both Flatpaks included). The owner chose a new version over moving the pushed `v1.0.0` tag, which stays on `b40c2e58` without a release.
-- Version `1.0.1`: `Cargo.toml`, both lockfiles (workspace crates only), peer ID `-PA1010-`, Windows manifest `1.0.1.0`, the metainfo's first `<release>` (the unreleased 1.0.0 entry became 1.0.1). `docs/releases/1.0.0.md` became `1.0.1.md` and says why there is no 1.0.0; README, the site's Download and FAQ pages, WEBSITE.md and RELEASING.md's peer-ID example follow. D34 notes the change.
-- Validation: core version tests, frontend 180, nox and Win32 63 tests pass; debug `patorrent-nox --version` prints 1.0.1 and `patorrent.exe`'s file version is 1.0.1, not pre-release; rustfmt clean; site tests pass.
-
-## 2026-10-27_095101_1793091061: v1.0.0's Release run failed on the Flatpak metainfo; fixed
-
-- CI 40472951003, FreeBSD, Fuzz and Pages passed on `b40c2e58`; with the owner's go-ahead it was tagged `v1.0.0` and pushed. Release run 40475482914 built Windows, both Linux legs and macOS, but both Flatpak legs failed `appstreamcli validate`: `releases-not-in-order 1.0.0 << 1.0.0-rc.1`. AppStream sorts a `-rc.1` suffix after the plain version, so the draft release was skipped (nothing published).
-- Fix: the metainfo's rc.1 entry is now `1.0.0~rc.1` (a tilde sorts before), and the workflow's first-release check maps the crate version's `-` to `~`, so future pre-releases are written the same way (RELEASING.md, Flatpak). The `v1.0.0` tag still names `b40c2e58` and has to move to the fixed commit (owner's decision).
-- Moved the three oldest root entries verbatim to `docs/archive/CHANGELOG-2026-10-26--2026-10-26-rc1.md`.
-
-## 2026-10-27_092114_1793089274: Version 1.0.0: notes, README and website wording (not tagged)
-
-- Version `1.0.0` in `Cargo.toml`, `Cargo.lock` and `fuzz/Cargo.lock` (only the workspace crates' versions changed); the peer ID stays `-PA1000-` and the Windows manifest `1.0.0.0`. The Flatpak metainfo's first `<release>` is 1.0.0, type stable.
-- **In 1.0.0 since rc.1:** the Windows installer (D31), the update check (D32), the version in the title, tray tooltip, Web UI tab and the exes' file properties, Help > PaTorrent Website, and the website (D33). No state format changed, so rc.1's settings and torrents carry over.
-- `docs/releases/1.0.0.md` is the release text: what is new since rc.1, the installer row and first-run step, and the known limitations without the pre-release warnings. README's banner is a note about the first stable release, its status names 1.0 and the V1.1 importers; README, the site's Download and FAQ pages and WEBSITE.md say "from 1.0.0 on" instead of "the release after 1.0.0-rc.1".
-- Validation: core version tests (peer ID against the version) and the frontend update tests pass; a debug `patorrent-nox --version` prints `patorrent-nox 1.0.0`, and `patorrent.exe`'s file properties read 1.0.0 with the pre-release flag off; rustfmt clean; site tests pass; the metainfo parses. CI on this commit decides the tag.

@@ -1,0 +1,80 @@
+name: Pages
+
+# The project website, https://balls0fsteel.github.io/PaTorrent/ (docs/WEBSITE.md): the pages in
+# site/, the newest release's download links, and update.txt, the file PaTorrent's update check
+# reads. site/build.py writes all of it from the GitHub releases API, so the site changes when a
+# release does, not only when site/ does.
+#
+# One-time setup by the owner (docs/WEBSITE.md): Settings > Pages > Build and deployment >
+# Source: GitHub Actions; and Settings > Environments > github-pages > Deployment branches and
+# tags: add the tag rule `v*` beside `main`, because a release event's run is on the release's
+# tag, and the environment refuses to deploy from a ref it does not list.
+
+on:
+  push:
+    branches: [main]
+    # the icon the pages use is the family app-icon.txt names
+    paths: ["site/**", ".github/workflows/pages.yml", "assets/patina-icons/app-icon.txt"]
+  # Published, edited, deleted or unpublished releases change the download links and update.txt.
+  # These events fire when the owner acts (on github.com or with gh, with their own token);
+  # anything done with a workflow's GITHUB_TOKEN starts no workflow, so a release a workflow
+  # published itself would wait for the weekly run or a manual one. The Release workflow only
+  # makes drafts, and drafts trigger nothing here. Publishing sends `published` together with
+  # `released` or `prereleased`; the concurrency group below runs them one after another.
+  release:
+    types: [published, edited, deleted, unpublished, released, prereleased]
+  # weekly, in case an event was missed: Mondays 05:37 UTC
+  schedule:
+    - cron: "37 5 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deployment at a time. A run in progress finishes (a half-done deployment helps nobody); a
+# newer run waits, and replaces any run already waiting.
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      # A release event's run is on the release's tag; the site is built from main's site/ all
+      # the same, so an older tag never brings back older pages.
+      - uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event_name == 'release' && github.event.repository.default_branch || '' }}
+      # the runner's Python 3 is enough: the script uses the standard library only
+      - name: Test the build script
+        run: python3 -m unittest discover -s site -v
+      # --require-releases: if the API cannot be read, fail and keep the deployed site rather
+      # than replace it with one whose links point at the releases page and whose update.txt
+      # names no version (which would hide updates from every PaTorrent until the next run)
+      - name: Build
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 site/build.py --out _site --require-releases
+      - uses: actions/upload-pages-artifact@v5
+        with:
+          path: _site
+          # .nojekyll: since v4 the action leaves dotfiles out unless asked
+          include-hidden-files: true
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      # configure-pages only reads the Pages settings here (nothing in the build needs its
+      # outputs), so it runs in this job, which may read them, and the build keeps contents:
+      # read. It fails with a clear message if Pages is not set to GitHub Actions yet.
+      - uses: actions/configure-pages@v6
+      - id: deployment
+        uses: actions/deploy-pages@v5

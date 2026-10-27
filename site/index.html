@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaTorrent: a lean BitTorrent client in the spirit of µTorrent 2.2.1</title>
+<meta name="description" content="PaTorrent is a lean BitTorrent client in the spirit of µTorrent 2.2.1: a native Win32 GUI, a GTK 4 GUI for Linux, BSD and macOS, and a headless daemon with its own Web UI.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#004540">
+<link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="img/icon-16.png">
+<link rel="apple-touch-icon" href="img/icon-256.png">
+<link rel="stylesheet" href="css/style.css">
+<script src="js/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="./"><img src="img/icon-32.png" srcset="img/icon-64.png 2x" width="32" height="32" alt=""> PaTorrent</a>
+    <nav aria-label="Main">
+      <ul class="toolbar">
+        <li><a href="download.html"><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-download"/></svg>Download</a></li>
+        <li><a href="faq.html"><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-help"/></svg>FAQ</a></li>
+        <li><a href="docs.html"><svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Docs</a></li>
+        <li><a class="ext" href="https://github.com/Balls0fSteel/PaTorrent">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="hero" aria-labelledby="title">
+    <div class="wrap hero-in">
+      <img class="hero-icon" src="img/icon-128.png" srcset="img/icon-256.png 2x" width="112" height="112" alt="">
+      <div>
+        <p class="eyebrow">PatinaTorrent: a patina is the good kind of rust</p>
+        <h1 id="title">PaTorrent</h1>
+        <p class="lede">A lean BitTorrent client in the spirit of µTorrent 2.2.1: small native programs, low RAM and CPU use, and an interface that stays responsive with tens of thousands of torrents.</p>
+        <p>A native Win32 GUI on Windows, a GTK 4 GUI on Linux, BSD and macOS, and a headless daemon, <code>patorrent-nox</code>, with its own Web UI. The engine is our own Rust port of libtorrent-rasterbar 2.0.11.</p>
+        <!-- build:hero-download -->
+        <div class="cta"><p class="cta-buttons"><a class="btn btn-primary" href="https://github.com/Balls0fSteel/PaTorrent/releases">Download from GitHub</a> <a class="btn btn-ghost" href="download.html#which">Which file do I need?</a></p></div>
+        <!-- /build:hero-download -->
+      </div>
+    </div>
+  </section>
+
+  <div class="wrap">
+    <!-- build:if-prerelease -->
+    <aside class="callout" aria-label="Release candidate">
+      <svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-warning"/></svg>
+      <div>
+        <p><strong>Release candidate: pre-release software.</strong> PaTorrent works for its author but has had no wider testing yet. Settings and saved state may still change between versions, some features are only lightly tested, and nothing is code-signed.</p>
+        <p>Do not use it for torrents you care about, and not on private trackers: its client ID is not whitelisted anywhere yet. Feedback and <a href="https://github.com/Balls0fSteel/PaTorrent/issues">bug reports</a> are welcome.</p>
+      </div>
+    </aside>
+    <!-- /build:if-prerelease -->
+
+    <section class="section" aria-labelledby="look">
+      <h2 id="look">The µTorrent 2.2.1 window, recreated</h2>
+      <p class="lead">The Windows GUI is a faithful recreation of the µTorrent 2.2.1 main window: the category list, the torrent list with every column, the detail tabs, Preferences and the dialogs. It uses none of µTorrent's code or artwork.</p>
+      <div class="shots">
+        <figure class="shot">
+          <img src="img/screenshot-windows.png" alt="PaTorrent's main window on Windows, laid out like µTorrent 2.2.1: the toolbar, the category list, the torrent list and the detail tabs below it.">
+          <figcaption>The Windows GUI, <code>patorrent.exe</code>.</figcaption>
+        </figure>
+        <div class="shot-pair">
+          <figure class="shot">
+            <img src="img/add-new-torrent.png" width="646" height="458" loading="lazy" alt="The Add New Torrent dialog: the Save In folder, the torrent's name, the torrent options and a label on the left; the torrent's files with their sizes and priorities on the right.">
+            <figcaption>Add New Torrent: choose the folder, the files and their priorities.</figcaption>
+          </figure>
+          <div>
+            <h3>On every desktop</h3>
+            <p>On Linux, BSD and macOS the same main window and dialogs run on GTK 4, from the same frontend code as the Windows window.</p>
+            <p>Or leave the daemon running headless on a server and use it from a browser, or from either desktop GUI in remote mode.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="features">
+      <h2 id="features">What is in it</h2>
+      <ul class="features">
+        <li class="feature">
+          <h3><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-downloading"/></svg>A complete engine</h3>
+          <p>TCP and uTP; HTTP, HTTPS and UDP trackers; magnet links, DHT, peer exchange and local peer discovery; protocol encryption, web seeds, SOCKS and HTTP proxies, UPnP / NAT-PMP and IP filters; super-seeding, sequential download and per-torrent speed limits.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-bittorrent"/></svg>BitTorrent v2 and hybrid</h3>
+          <p>v2 and hybrid torrents (BEP 52): adding, downloading, seeding and creating them.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-all-torrents"/></svg>The whole 2.2.1 client</h3>
+          <p>Detail tabs (General, Trackers, Peers, Pieces, Files, Speed, Logger), Preferences, Add, Create and Properties, the RSS downloader, the scheduler, Auto Shutdown, the tray icon, and file and magnet associations.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-speed"/></svg>Built for scale</h3>
+          <p>The goal is 100,000 torrents on a modest PC with an instant UI. On the author's PC the Windows GUI lists 100,000 torrents in about a second, with idle GUI CPU under 0.1 %.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-web-ui"/></svg>Headless, with a Web UI</h3>
+          <p><code>patorrent-nox</code> runs as a daemon with its own Web UI (laid out for phones too), HTTPS, and a qBittorrent-compatible Web API subset so existing tools can talk to it. It runs as a service under systemd, FreeBSD's rc.d or Windows.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-remote"/></svg>Remote mode</h3>
+          <p>Either desktop GUI can drive a <code>patorrent-nox</code> on another machine: File &gt; Connect to Remote..., or start it with <code>--remote</code>.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-language"/></svg>English and 34 more languages</h3>
+          <p>Right-to-left layouts for Arabic, Hebrew and Persian included. The translations are machine-made and unreviewed, so corrections are welcome.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-tray"/></svg>Small and self-contained</h3>
+          <p>Single self-contained executables with minimal dependencies. On Windows: statically linked, no runtime to install, and a portable mode.</p>
+        </li>
+      </ul>
+    </section>
+
+    <section class="section" aria-labelledby="platforms">
+      <h2 id="platforms">Where it runs</h2>
+      <div class="platforms">
+        <div class="platform-card">
+          <h3>Windows</h3>
+          <p>Windows 10 and 11, x64. The native Win32 GUI and the daemon.</p>
+          <p><a href="download.html#windows">Windows downloads</a></p>
+        </div>
+        <div class="platform-card">
+          <h3>Linux</h3>
+          <p>x86_64 and aarch64. The GTK 4 GUI as an AppImage, a Flatpak or plain binaries; the daemon as an AppImage or in the tarball.</p>
+          <p><a href="download.html#linux">Linux downloads</a></p>
+        </div>
+        <div class="platform-card">
+          <h3>macOS</h3>
+          <p>The GTK 4 GUI for Apple silicon (macOS 15 or newer); the daemon for Apple silicon and Intel.</p>
+          <p><a href="download.html#macos">macOS downloads</a></p>
+        </div>
+        <div class="platform-card">
+          <h3>FreeBSD</h3>
+          <p>No ready-made files yet: the GTK GUI and the daemon build from source, and an rc.d script is included.</p>
+          <p><a href="https://github.com/Balls0fSteel/PaTorrent#building">Building from source</a></p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" aria-labelledby="free">
+      <h2 id="free">Free for noncommercial use</h2>
+      <p>PaTorrent is free for personal use, study, hobby projects, and use by charities, schools, research and public institutions, under the <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/LICENSE.md">PolyForm Noncommercial License 1.0.0</a>. You may share and change it on the same terms. Commercial use needs separate permission. More in the <a href="faq.html#license">FAQ</a>.</p>
+      <p class="note">PaTorrent is an independent project. It recreates the look and behaviour of µTorrent 2.2.1 but is not affiliated with, endorsed by or sponsored by µTorrent or BitTorrent, Inc., and uses none of their code, artwork or trademarks.</p>
+    </section>
+  </div>
+</main>
+
+<footer class="statusbar">
+  <div class="wrap">
+    <ul>
+      <li>Latest: <!-- build:latest-version --><a href="https://github.com/Balls0fSteel/PaTorrent/releases">Releases</a><!-- /build:latest-version --></li>
+      <li><a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/LICENSE.md">PolyForm Noncommercial 1.0.0</a></li>
+      <li>© 2026 <a href="https://dukecorp1996.x35.in/">DukeCorp1996</a></li>
+      <li class="grow"><a href="https://github.com/Balls0fSteel/PaTorrent/issues">Report a problem</a></li>
+    </ul>
+    <p>Not affiliated with µTorrent, BitTorrent, Inc., libtorrent or qBittorrent. This site sets no cookies and loads nothing from other sites.</p>
+  </div>
+</footer>
+</body>
+</html>

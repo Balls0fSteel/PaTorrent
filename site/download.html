@@ -1,0 +1,162 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Download PaTorrent</title>
+<meta name="description" content="Download PaTorrent for Windows, Linux and macOS: every file of the newest release, how to start it, checksums and how updating works.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#004540">
+<link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="img/icon-16.png">
+<link rel="apple-touch-icon" href="img/icon-256.png">
+<link rel="stylesheet" href="css/style.css">
+<script src="js/site.js" defer></script>
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="./"><img src="img/icon-32.png" srcset="img/icon-64.png 2x" width="32" height="32" alt=""> PaTorrent</a>
+    <nav aria-label="Main">
+      <ul class="toolbar">
+        <li><a href="download.html" aria-current="page"><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-download"/></svg>Download</a></li>
+        <li><a href="faq.html"><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-help"/></svg>FAQ</a></li>
+        <li><a href="docs.html"><svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Docs</a></li>
+        <li><a class="ext" href="https://github.com/Balls0fSteel/PaTorrent">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap">
+      <h1>Download PaTorrent</h1>
+      <!-- build:release -->
+      <p class="release-line">Every release is on the <a href="https://github.com/Balls0fSteel/PaTorrent/releases">releases page on GitHub</a>.</p>
+      <!-- /build:release -->
+    </div>
+  </div>
+
+  <div class="wrap">
+    <!-- build:if-prerelease -->
+    <aside class="callout" aria-label="Release candidate">
+      <svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-warning"/></svg>
+      <div>
+        <p><strong>This is a pre-release.</strong> It has had little testing beyond its author's machines, settings may still change before 1.0, and it should not be used on private trackers yet. Its release notes list the known limitations.</p>
+      </div>
+    </aside>
+    <!-- /build:if-prerelease -->
+
+    <section class="section" id="which" aria-labelledby="which-h">
+      <h2 id="which-h">Which file do I need?</h2>
+      <ul class="which">
+        <li><strong>Windows 10 or 11</strong> The installer sets PaTorrent up and later upgrades it in place (releases after 1.0.0-rc.1 have one). The portable zip installs nothing: unzip it and run.</li>
+        <li><strong>Linux desktop</strong> The AppImage carries its libraries and needs glibc 2.39 or newer (Ubuntu 24.04, Fedora 40, Debian 13 or later). Prefer Flatpak? Take the bundle. The plain binaries use your system's GTK 4 and OpenSSL 3.</li>
+        <li><strong>Linux server</strong> The <code>patorrent-nox</code> AppImage, or <code>patorrent-nox</code> from the plain binaries, with its <a href="#headless">Web UI</a>.</li>
+        <li><strong>Mac</strong> Apple silicon: the disk image. Intel Macs get the headless <code>patorrent-nox</code> only, for now.</li>
+      </ul>
+      <p><code>x64</code> and <code>x86_64</code> are Intel and AMD processors; <code>aarch64</code> and <code>arm64</code> are 64-bit ARM.</p>
+    </section>
+
+    <section class="platform" id="windows" aria-labelledby="windows-h">
+      <h2 id="windows-h">Windows <span class="yours" data-os="windows" hidden>Your system</span></h2>
+      <p class="req">Windows 10 or 11, 64-bit (x64).</p>
+      <!-- build:files-windows -->
+      <p class="note">The file list is filled in when the site is built. Every file is on the <a href="https://github.com/Balls0fSteel/PaTorrent/releases">releases page on GitHub</a>.</p>
+      <!-- /build:files-windows -->
+      <h3 id="smartscreen">SmartScreen</h3>
+      <p>The programs are not code-signed, so the first time Windows SmartScreen shows “Windows protected your PC”. Choose <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
+      <p>Settings and torrents go to <code>%APPDATA%\PaTorrent</code>. An empty <code>patorrent.ini</code> next to <code>patorrent.exe</code> keeps them in that folder instead (portable mode).</p>
+    </section>
+
+    <section class="platform" id="linux" aria-labelledby="linux-h">
+      <h2 id="linux-h">Linux <span class="yours" data-os="linux" hidden>Your system</span></h2>
+      <p class="req">x86_64 or aarch64.</p>
+      <!-- build:files-linux -->
+      <p class="note">The file list is filled in when the site is built. Every file is on the <a href="https://github.com/Balls0fSteel/PaTorrent/releases">releases page on GitHub</a>.</p>
+      <!-- /build:files-linux -->
+      <h3>Good to know</h3>
+      <ul>
+        <li>Settings are in <code>~/.config/patorrent/gtk</code>, torrents in <code>~/.local/share/patorrent/gtk</code>. The Flatpak keeps them under <code>~/.var/app/io.github.balls0fsteel.PaTorrent/</code>.</li>
+        <li>The Flatpak may write to your home folder, as a torrent client keeps writing to the folders you choose. A folder on another disk needs <code>flatpak override --user --filesystem=/mnt/data io.github.balls0fsteel.PaTorrent</code> (with your folder).</li>
+        <li>The daemon as a systemd service: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md#systemd">docs/DAEMON.md</a>.</li>
+      </ul>
+    </section>
+
+    <section class="platform" id="macos" aria-labelledby="macos-h">
+      <h2 id="macos-h">macOS <span class="yours" data-os="macos" hidden>Your system</span></h2>
+      <p class="req">The GUI: Apple silicon, macOS 15 or newer. The daemon: Apple silicon (macOS 11 or newer) and Intel (macOS 10.14 or newer).</p>
+      <!-- build:files-macos -->
+      <p class="note">The file list is filled in when the site is built. Every file is on the <a href="https://github.com/Balls0fSteel/PaTorrent/releases">releases page on GitHub</a>.</p>
+      <!-- /build:files-macos -->
+      <h3 id="gatekeeper">Gatekeeper</h3>
+      <p><code>PaTorrent.app</code> is ad-hoc signed and not notarised, so Gatekeeper refuses it the first time (“cannot be opened because the developer cannot be verified”). Right-click (or Control-click) the app, choose <strong>Open</strong>, then <strong>Open</strong> again. Or remove the quarantine flag after copying it to Applications:</p>
+      <pre class="cmd"><code>xattr -dr com.apple.quarantine /Applications/PaTorrent.app</code></pre>
+      <p>The GUI is for Apple silicon only for now; on an Intel Mac, use <code>patorrent-nox</code> and its Web UI. Settings and torrents are in <code>~/Library/Application Support/PaTorrent/gtk</code>.</p>
+    </section>
+
+    <!-- build:files-other --><!-- /build:files-other -->
+
+    <section class="section" id="headless" aria-labelledby="headless-h">
+      <h2 id="headless-h">Headless: <code>patorrent-nox</code></h2>
+      <p>The daemon is in the Windows zip, the Linux plain binaries, its own Linux AppImage and the macOS tarball. Start it with the Web UI on port 8080:</p>
+      <pre class="cmd"><code>patorrent-nox run --webui 8080 --webui-pass PASS</code></pre>
+      <p>Then open <code>http://127.0.0.1:8080</code> on the same machine and log in as <code>admin</code>. Without <code>--webui-pass</code> it prints a temporary password at the first start; set one in Preferences &gt; Web UI. The same port serves a qBittorrent-compatible Web API for existing tools.</p>
+      <p>From other machines: give an address, such as <code>--webui 0.0.0.0:8443</code>, and add <code>--webui-https</code> so the password does not travel in the clear (a self-signed certificate is made on first use). <code>patorrent-nox add file.torrent --save DIR</code> adds a torrent. Running it as a service (systemd, FreeBSD rc.d, a Windows service, <code>--daemon</code>) is in <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md">docs/DAEMON.md</a>.</p>
+    </section>
+
+    <section class="section" id="checksums" aria-labelledby="checksums-h">
+      <h2 id="checksums-h">Checking a download</h2>
+      <!-- build:checksums -->
+      <p>Each release on the <a href="https://github.com/Balls0fSteel/PaTorrent/releases">releases page</a> has a <code>SHA256SUMS</code> file.</p>
+      <!-- /build:checksums -->
+      <p>With <code>SHA256SUMS</code> in the same folder as your download:</p>
+      <div class="steps cols">
+        <div class="step">
+          <h3>Linux</h3>
+          <pre class="cmd"><code>sha256sum -c --ignore-missing SHA256SUMS</code></pre>
+        </div>
+        <div class="step">
+          <h3>macOS</h3>
+          <pre class="cmd"><code>shasum -a 256 PaTorrent-*.dmg</code></pre>
+          <p>Compare the result with the file's line in <code>SHA256SUMS</code>.</p>
+        </div>
+        <div class="step">
+          <h3>Windows (PowerShell)</h3>
+          <pre class="cmd"><code>Get-FileHash .\patorrent-*.zip</code></pre>
+          <p>Compare the hash with the file's line in <code>SHA256SUMS</code> (case does not matter).</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="section" id="updating" aria-labelledby="updating-h">
+      <h2 id="updating-h">Updating</h2>
+      <p>PaTorrent does not update itself. From the release after 1.0.0-rc.1 on, it shows a short note in its status bar when a newer release is out; download that from this page or from GitHub. The check reads one small file from this site and can be turned off (<a href="faq.html#privacy">what it sends</a>).</p>
+      <ul>
+        <li><strong>Installer:</strong> run the new installer. It upgrades the installed copy in place.</li>
+        <li><strong>Portable zip:</strong> quit PaTorrent, then replace <code>patorrent.exe</code> and <code>patorrent-nox.exe</code> with the new ones by hand. Your settings stay where they are (in portable mode, leave the rest of that folder as it is).</li>
+        <li><strong>AppImage:</strong> replace the old file with the new one.</li>
+        <li><strong>Flatpak:</strong> install the new bundle over the old one with <code>flatpak install --user --reinstall</code> and its file name.</li>
+        <li><strong>Plain binaries and the macOS tarball:</strong> unpack the new archive and use its programs.</li>
+        <li><strong>macOS:</strong> drag the new <code>PaTorrent.app</code> to Applications and replace the old one.</li>
+      </ul>
+      <p>Older versions and every pre-release are on the <a href="https://github.com/Balls0fSteel/PaTorrent/releases">releases page</a>. To build PaTorrent yourself, see <a href="https://github.com/Balls0fSteel/PaTorrent#building">Building</a> in the README.</p>
+    </section>
+  </div>
+</main>
+
+<footer class="statusbar">
+  <div class="wrap">
+    <ul>
+      <li>Latest: <!-- build:latest-version --><a href="https://github.com/Balls0fSteel/PaTorrent/releases">Releases</a><!-- /build:latest-version --></li>
+      <li><a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/LICENSE.md">PolyForm Noncommercial 1.0.0</a></li>
+      <li>© 2026 <a href="https://dukecorp1996.x35.in/">DukeCorp1996</a></li>
+      <li class="grow"><a href="https://github.com/Balls0fSteel/PaTorrent/issues">Report a problem</a></li>
+    </ul>
+    <p>Not affiliated with µTorrent, BitTorrent, Inc., libtorrent or qBittorrent. This site sets no cookies and loads nothing from other sites.</p>
+  </div>
+</footer>
+</body>
+</html>

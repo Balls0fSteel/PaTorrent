@@ -1,0 +1,559 @@
+[
+ {
+  "tag_name": "v1.2.0",
+  "name": "PaTorrent 1.2.0",
+  "draft": true,
+  "prerelease": false,
+  "published_at": null,
+  "html_url": "https://github.com/Balls0fSteel/PaTorrent/releases/tag/untagged-0123",
+  "assets": [
+   {
+    "name": "patorrent-1.2.0-windows-x64-setup.exe",
+    "state": "uploaded",
+    "size": 1000000,
+    "digest": "sha256:344d1705143d68baac1541cdba2e8709425de117822ea233a324e4a88b92f93f",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/patorrent-1.2.0-windows-x64-setup.exe"
+   },
+   {
+    "name": "patorrent-1.2.0-windows-x64.zip",
+    "state": "uploaded",
+    "size": 1731917,
+    "digest": "sha256:4d2a4cfdf5ddc15231e387d248edd28ec17d796951573034514831924d79d931",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/patorrent-1.2.0-windows-x64.zip"
+   },
+   {
+    "name": "patorrent-1.2.0-linux-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 2463834,
+    "digest": "sha256:a59a539834cab697a8b61841a45bb050f0e5875ef210885ff5f410059c0b886f",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/patorrent-1.2.0-linux-x86_64.tar.gz"
+   },
+   {
+    "name": "patorrent-1.2.0-linux-aarch64.tar.gz",
+    "state": "uploaded",
+    "size": 3195751,
+    "digest": "sha256:0621de472db69787a5b886eb1c2704cdcf48f4cec2e74b9eebc69f1f115ca1dc",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/patorrent-1.2.0-linux-aarch64.tar.gz"
+   },
+   {
+    "name": "PaTorrent-1.2.0-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 3927668,
+    "digest": "sha256:ad38b48439e0dcbd914b61a5768f4764368514652e93bfea219bf667a9a04308",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/PaTorrent-1.2.0-x86_64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.2.0-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 4659585,
+    "digest": "sha256:df950396a44ad1433abaf8e78306a0ff7dbfe73b6e3a5db6c6c361d88d8add16",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/PaTorrent-1.2.0-aarch64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.2.0-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 5391502,
+    "digest": "sha256:48326501e07db3e5622d1d5f01d47f03f5a046e4be16c306cc0425048e996ee7",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/patorrent-nox-1.2.0-x86_64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.2.0-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 6123419,
+    "digest": "sha256:b32a236c53f7efeb9ec4465ba574b2e8b02850ae2c920deaa00c112d721dafe6",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/patorrent-nox-1.2.0-aarch64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.2.0-x86_64.flatpak",
+    "state": "uploaded",
+    "size": 6855336,
+    "digest": "sha256:e01db02fe926072da6276d3e056fd1c4cd92733528a50e2d38757dc7eabf0cbc",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/PaTorrent-1.2.0-x86_64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.2.0-aarch64.flatpak",
+    "state": "uploaded",
+    "size": 7587253,
+    "digest": "sha256:2ead11a415bc3bdd077e22bb2cc94213378bc00c8401f1997cc4eb2b7b726063",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/PaTorrent-1.2.0-aarch64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.2.0-arm64.dmg",
+    "state": "uploaded",
+    "size": 8319170,
+    "digest": "sha256:a54a6e6bea2062c192618e10378aef6be932c9cbe372d49d7664203d710e9e7b",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/PaTorrent-1.2.0-arm64.dmg"
+   },
+   {
+    "name": "patorrent-nox-1.2.0-macos-arm64.tar.gz",
+    "state": "uploaded",
+    "size": 9051087,
+    "digest": "sha256:5da316d76baaf04e0e6cfa2afe524c89501e0bb3c8d8f1e39649c579422dc878",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/patorrent-nox-1.2.0-macos-arm64.tar.gz"
+   },
+   {
+    "name": "patorrent-nox-1.2.0-macos-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 9783004,
+    "digest": "sha256:192bd9b1c3a3ec9e329d30d82f5790b6ba706fda6cdfbb29359c90a88e4edab1",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/patorrent-nox-1.2.0-macos-x86_64.tar.gz"
+   },
+   {
+    "name": "SHA256SUMS",
+    "state": "uploaded",
+    "size": 10514921,
+    "digest": "sha256:2a4cb1ee111b1b6366e8672abb46062293235a1f80f5a4cf667f24346050eed5",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.0/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "nightly-2026-11-02",
+  "name": "PaTorrent nightly-2026-11-02",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-11-02T03:00:00Z",
+  "html_url": "https://github.com/Balls0fSteel/PaTorrent/releases/tag/nightly-2026-11-02",
+  "assets": [
+   {
+    "name": "patorrent-nightly-windows-x64.zip",
+    "state": "uploaded",
+    "size": 1000000,
+    "digest": "sha256:77fc299c57aedf31221266f36d26a3e3557e683caeb75f7874f96ac881aa88a6",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/nightly-2026-11-02/patorrent-nightly-windows-x64.zip"
+   }
+  ]
+ },
+ {
+  "tag_name": "v1.1.0-rc.2",
+  "name": "PaTorrent 1.1.0-rc.2",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-11-20T10:00:00Z",
+  "html_url": "https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.0-rc.2",
+  "assets": [
+   {
+    "name": "patorrent-1.1.0-rc.2-windows-x64-setup.exe",
+    "state": "uploaded",
+    "size": 1000000,
+    "digest": "sha256:535790c3f75f6d1a36d047fce808d29fd72eeb6e735e4235b8df0163e72aed4e",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/patorrent-1.1.0-rc.2-windows-x64-setup.exe"
+   },
+   {
+    "name": "patorrent-1.1.0-rc.2-windows-x64.zip",
+    "state": "uploaded",
+    "size": 1731917,
+    "digest": "sha256:8a8669cc619a7d3c300f695ead739e293c4170a0bb210c0a008942c44b62674f",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/patorrent-1.1.0-rc.2-windows-x64.zip"
+   },
+   {
+    "name": "patorrent-1.1.0-rc.2-linux-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 2463834,
+    "digest": "sha256:97bd276503fca651844f46343a7cf9806cffecf8a8343f6616687cbe99164bd4",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/patorrent-1.1.0-rc.2-linux-x86_64.tar.gz"
+   },
+   {
+    "name": "patorrent-1.1.0-rc.2-linux-aarch64.tar.gz",
+    "state": "uploaded",
+    "size": 3195751,
+    "digest": "sha256:3059b29bbcda085f849b629ec8356683dc60710464e415660bf742400776203f",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/patorrent-1.1.0-rc.2-linux-aarch64.tar.gz"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.2-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 3927668,
+    "digest": "sha256:da78e2743287f366fa9691d7bb529229d3ad5b02eeefd47872e2eadeaf35aba9",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/PaTorrent-1.1.0-rc.2-x86_64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.2-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 4659585,
+    "digest": "sha256:6cf0dc9b45d663c0dc6c756939edea9c00c49df4868ad0e80d4bd26ca23d2229",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/PaTorrent-1.1.0-rc.2-aarch64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.1.0-rc.2-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 5391502,
+    "digest": "sha256:a16a2532bdd49eb52a2fa0c53f2412a952118889df35242fc031b0667695c01e",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/patorrent-nox-1.1.0-rc.2-x86_64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.1.0-rc.2-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 6123419,
+    "digest": "sha256:b04003b374946e24a6da0f16e2687631e9624922f4860db44d5223d7d77a080b",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/patorrent-nox-1.1.0-rc.2-aarch64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.2-x86_64.flatpak",
+    "state": "uploaded",
+    "size": 6855336,
+    "digest": "sha256:09ee5fc8dfe2ce31c1bcc05ad6c48d8b4131e3e2541bfea80776995f50484bbc",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/PaTorrent-1.1.0-rc.2-x86_64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.2-aarch64.flatpak",
+    "state": "uploaded",
+    "size": 7587253,
+    "digest": "sha256:0cad2b9a6d6b03bc3f6d1d260de90f80094ff02a5b9b596caae5e630d721d4e5",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/PaTorrent-1.1.0-rc.2-aarch64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.2-arm64.dmg",
+    "state": "uploaded",
+    "size": 8319170,
+    "digest": "sha256:d137ca4eb290e93624b3401b58f87060babf17d8d7d8da1fed674e017a7f129b",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/PaTorrent-1.1.0-rc.2-arm64.dmg"
+   },
+   {
+    "name": "patorrent-nox-1.1.0-rc.2-macos-arm64.tar.gz",
+    "state": "uploaded",
+    "size": 9051087,
+    "digest": "sha256:a4376b869f5fc01fc1c41acb8aa745220417262ee55fe9bca44d57741df66f28",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/patorrent-nox-1.1.0-rc.2-macos-arm64.tar.gz"
+   },
+   {
+    "name": "patorrent-nox-1.1.0-rc.2-macos-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 9783004,
+    "digest": "sha256:459f39c964a92d2cb146c3b53adb9e199086d6bed3780a271e9cda195e8d6c45",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/patorrent-nox-1.1.0-rc.2-macos-x86_64.tar.gz"
+   },
+   {
+    "name": "SHA256SUMS",
+    "state": "uploaded",
+    "size": 10514921,
+    "digest": "sha256:1e04cf67f66ba9f665d0f7ccdb821c5e7f154b37233f9c28b1251b4254ce0a99",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.2/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v1.1.0-rc.10",
+  "name": "PaTorrent 1.1.0-rc.10",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-11-28T10:00:00Z",
+  "html_url": "https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.0-rc.10",
+  "assets": [
+   {
+    "name": "patorrent-1.1.0-rc.10-windows-x64-setup.exe",
+    "state": "uploaded",
+    "size": 1000000,
+    "digest": "sha256:40427e9b2d4432ab9022843057fa93f88f6ab7b38afd4b65b745a109c5c59727",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/patorrent-1.1.0-rc.10-windows-x64-setup.exe"
+   },
+   {
+    "name": "patorrent-1.1.0-rc.10-windows-x64.zip",
+    "state": "uploaded",
+    "size": 1731917,
+    "digest": "sha256:6f5b4c3c2cb3e7688d80017680059da1e557d170fa268a2e0f507d79a9b30720",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/patorrent-1.1.0-rc.10-windows-x64.zip"
+   },
+   {
+    "name": "patorrent-1.1.0-rc.10-linux-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 2463834,
+    "digest": "sha256:e62ec73501f411056e5bf3ecb1418e517dbed8ce6d03d475ea746c355225d409",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/patorrent-1.1.0-rc.10-linux-x86_64.tar.gz"
+   },
+   {
+    "name": "patorrent-1.1.0-rc.10-linux-aarch64.tar.gz",
+    "state": "uploaded",
+    "size": 3195751,
+    "digest": "sha256:d90f3a4e6b3eeffb891207a0eff5a88525a64d6adc0b57856b2f2ceefcec9552",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/patorrent-1.1.0-rc.10-linux-aarch64.tar.gz"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.10-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 3927668,
+    "digest": "sha256:adbf82924b64d14d6230d5a46d8caa7bc692b741df3a793260408224d39130ff",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/PaTorrent-1.1.0-rc.10-x86_64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.10-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 4659585,
+    "digest": "sha256:e59e186adcc103c85928ec96d7f9b09cd7d5033a859b3c82762988e66c0e120a",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/PaTorrent-1.1.0-rc.10-aarch64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.1.0-rc.10-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 5391502,
+    "digest": "sha256:da39a9ec8f10364e1ea3c114b7ebfc7bdb0dbedc275950042a7f7ff624809a43",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/patorrent-nox-1.1.0-rc.10-x86_64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.1.0-rc.10-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 6123419,
+    "digest": "sha256:8f95ac0ce7af55417f2d5b8a20947f0c7d5060320c604e2243b79c4c54985f0f",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/patorrent-nox-1.1.0-rc.10-aarch64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.10-x86_64.flatpak",
+    "state": "uploaded",
+    "size": 6855336,
+    "digest": "sha256:a6bba101fed5cadb1ffa37150b04e6b68714db66352b79ece5292a9bcf08b6ca",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/PaTorrent-1.1.0-rc.10-x86_64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.10-aarch64.flatpak",
+    "state": "uploaded",
+    "size": 7587253,
+    "digest": "sha256:5d69e84e1c5e82472e6d970d1bb2ebd4658692c1069da24508bd65f804388252",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/PaTorrent-1.1.0-rc.10-aarch64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.1.0-rc.10-arm64.dmg",
+    "state": "uploaded",
+    "size": 8319170,
+    "digest": "sha256:fdfd190459212b2e374d7b8ede134612f17a9c158deabd9520e51948e0f11bde",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/PaTorrent-1.1.0-rc.10-arm64.dmg"
+   },
+   {
+    "name": "patorrent-nox-1.1.0-rc.10-macos-arm64.tar.gz",
+    "state": "uploaded",
+    "size": 9051087,
+    "digest": "sha256:7449c9e51520fccbff03d76e81971ef0e7e654e4a76f9a9072e6104df02453be",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/patorrent-nox-1.1.0-rc.10-macos-arm64.tar.gz"
+   },
+   {
+    "name": "patorrent-nox-1.1.0-rc.10-macos-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 9783004,
+    "digest": "sha256:c82d3521f7e3044448583029d4fcd4dd5f2cbf911061fa5cca24891f137bb178",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/patorrent-nox-1.1.0-rc.10-macos-x86_64.tar.gz"
+   },
+   {
+    "name": "SHA256SUMS",
+    "state": "uploaded",
+    "size": 10514921,
+    "digest": "sha256:3d0b8a38aa1c858ff83070c9e47cab7ae8312b5cf29688991a4831a4f711d032",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.1.0-rc.10/SHA256SUMS"
+   }
+  ]
+ },
+ {
+  "tag_name": "v1.0.0",
+  "name": "PaTorrent 1.0.0",
+  "draft": false,
+  "prerelease": false,
+  "published_at": "2026-11-10T09:30:00Z",
+  "html_url": "https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0",
+  "assets": [
+   {
+    "name": "patorrent-1.0.0-windows-x64-setup.exe",
+    "state": "uploaded",
+    "size": 1000000,
+    "digest": "sha256:e80d36529a97c29d6216a4802c7c777d905bd59d9a49a7a89885a175709fb2e1",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/patorrent-1.0.0-windows-x64-setup.exe"
+   },
+   {
+    "name": "patorrent-1.0.0-windows-x64.zip",
+    "state": "uploaded",
+    "size": 1731917,
+    "digest": "sha256:b409c947d6427b6c292271f165f2838e11befbec475e0430a83df3563aeb4ec1",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/patorrent-1.0.0-windows-x64.zip"
+   },
+   {
+    "name": "patorrent-1.0.0-linux-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 2463834,
+    "digest": "sha256:a689efc282e3bdcef1872537bfa5c66c7e685cb5c10d149132c94995e481ad79",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/patorrent-1.0.0-linux-x86_64.tar.gz"
+   },
+   {
+    "name": "patorrent-1.0.0-linux-aarch64.tar.gz",
+    "state": "uploaded",
+    "size": 3195751,
+    "digest": "sha256:99664a5fcbe54e8f8d6f0b03ac9ed0029a64e4501f333c5417d0e2ea35db5087",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/patorrent-1.0.0-linux-aarch64.tar.gz"
+   },
+   {
+    "name": "PaTorrent-1.0.0-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 3927668,
+    "digest": "sha256:90ee9e2d684d1eef07c323468cfda6f3b6b73d63068459909580c32a9d964d6c",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/PaTorrent-1.0.0-x86_64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.0.0-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 4659585,
+    "digest": "sha256:3a928546efa537b43b228f02f60a36178c9f6ca8841876503a321589cad0d47d",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/PaTorrent-1.0.0-aarch64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.0.0-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 5391502,
+    "digest": "sha256:f56dc4640396d6acdf78af74894b00edd94d067108615923b8f93099294385df",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/patorrent-nox-1.0.0-x86_64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.0.0-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 6123419,
+    "digest": "sha256:ff8a5126ec3fd4885bb36dbaefbc939e3ab8669836b2926f4ea28fcae7b27346",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/patorrent-nox-1.0.0-aarch64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.0.0-x86_64.flatpak",
+    "state": "uploaded",
+    "size": 6855336,
+    "digest": "sha256:0fffebdf1a311deff8ca932e18933d9f4a0bf407b9c8cbccb5eafafc62f36d22",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/PaTorrent-1.0.0-x86_64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.0.0-aarch64.flatpak",
+    "state": "uploaded",
+    "size": 7587253,
+    "digest": "sha256:4fc5c2e8eaa27144b0fdb372b74f9a1bd97c5abe9854efcf3cbbf58b800c29c3",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/PaTorrent-1.0.0-aarch64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.0.0-arm64.dmg",
+    "state": "uploaded",
+    "size": 8319170,
+    "digest": "sha256:44426c68f5682e998d13ec4aa0eb8387e4621a8f31c8346c63045016b6a5c5f6",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/PaTorrent-1.0.0-arm64.dmg"
+   },
+   {
+    "name": "patorrent-nox-1.0.0-macos-arm64.tar.gz",
+    "state": "uploaded",
+    "size": 9051087,
+    "digest": "sha256:10ef81ac2e4a291551cb42bcf41070eb2f8a05e54b2d929be128209213f35a6b",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/patorrent-nox-1.0.0-macos-arm64.tar.gz"
+   },
+   {
+    "name": "patorrent-nox-1.0.0-macos-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 9783004,
+    "digest": "sha256:f0fdc99d798a70ca110a16027edb2a41b12b23f5572a59a499d3a2cdf4414ae0",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/patorrent-nox-1.0.0-macos-x86_64.tar.gz"
+   },
+   {
+    "name": "SHA256SUMS",
+    "state": "uploaded",
+    "size": 10514921,
+    "digest": "sha256:fea9dc7aa4c85d7ff9a0a6e18f24cef73534e1a38054f2d56684b18d1af6bf64",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/SHA256SUMS"
+   },
+   {
+    "name": "notes.txt",
+    "state": "uploaded",
+    "size": 11246838,
+    "digest": "sha256:91f1b2983095a9eb0980ff2167ec06eb7962848d978e812d76f6bfdd31e0df71",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0/notes.txt"
+   }
+  ]
+ },
+ {
+  "tag_name": "v1.0.0-rc.1",
+  "name": "PaTorrent 1.0.0-rc.1",
+  "draft": false,
+  "prerelease": true,
+  "published_at": "2026-10-27T06:49:46Z",
+  "html_url": "https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1",
+  "assets": [
+   {
+    "name": "patorrent-1.0.0-rc.1-windows-x64.zip",
+    "state": "uploaded",
+    "size": 1000000,
+    "digest": "sha256:73d4e1e6ba8c976b5af8937d3d2efdf2806d8bd96bf095ec0d5cb2a64f81f189",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/patorrent-1.0.0-rc.1-windows-x64.zip"
+   },
+   {
+    "name": "patorrent-1.0.0-rc.1-linux-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 1731917,
+    "digest": "sha256:582e10c678ec029a3cd3881f4db1268326d347df9df51e15e6710eeb642c096c",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/patorrent-1.0.0-rc.1-linux-x86_64.tar.gz"
+   },
+   {
+    "name": "patorrent-1.0.0-rc.1-linux-aarch64.tar.gz",
+    "state": "uploaded",
+    "size": 2463834,
+    "digest": "sha256:e05bad6b8f566b77c758457376ac49731af3b05a70372c21d6557739a7ca87bf",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/patorrent-1.0.0-rc.1-linux-aarch64.tar.gz"
+   },
+   {
+    "name": "PaTorrent-1.0.0-rc.1-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 3195751,
+    "digest": "sha256:c120d75ffd47313310d966082516da15be925a6c8fcfc215e6ce04a185e7c411",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/PaTorrent-1.0.0-rc.1-x86_64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.0.0-rc.1-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 3927668,
+    "digest": "sha256:54496d02edc7053d545d638aeb19e973cec4acfa451703698d1e564159ecbf0c",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/PaTorrent-1.0.0-rc.1-aarch64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.0.0-rc.1-x86_64.AppImage",
+    "state": "uploaded",
+    "size": 4659585,
+    "digest": "sha256:361e287efbeeb19c695a076ea7fd959eb93f6a98106d639dcababa8fd6b0de8f",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/patorrent-nox-1.0.0-rc.1-x86_64.AppImage"
+   },
+   {
+    "name": "patorrent-nox-1.0.0-rc.1-aarch64.AppImage",
+    "state": "uploaded",
+    "size": 5391502,
+    "digest": "sha256:706bf62b66bf28910ec0c8084e262b69bc8e4fdcc17c2df562b489ad05241f1c",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/patorrent-nox-1.0.0-rc.1-aarch64.AppImage"
+   },
+   {
+    "name": "PaTorrent-1.0.0-rc.1-x86_64.flatpak",
+    "state": "uploaded",
+    "size": 6123419,
+    "digest": "sha256:eb1dc6af6891ef9916b6397ad6d64c52bb03d48dc382360f6d78ac2d04f63830",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/PaTorrent-1.0.0-rc.1-x86_64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.0.0-rc.1-aarch64.flatpak",
+    "state": "uploaded",
+    "size": 6855336,
+    "digest": "sha256:2c9425c445003fc3f8d4baae563edd44e32262ea9115616f2dee74e78e552ec0",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/PaTorrent-1.0.0-rc.1-aarch64.flatpak"
+   },
+   {
+    "name": "PaTorrent-1.0.0-rc.1-arm64.dmg",
+    "state": "uploaded",
+    "size": 7587253,
+    "digest": "sha256:73d6395aa5ea54be7d7d4056c1f6193fdf66e2a97ca4616de665406ebe95523e",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/PaTorrent-1.0.0-rc.1-arm64.dmg"
+   },
+   {
+    "name": "patorrent-nox-1.0.0-rc.1-macos-arm64.tar.gz",
+    "state": "uploaded",
+    "size": 8319170,
+    "digest": "sha256:dc9d9431d31602c5f2450989b7755fd9e5dd738721cc41059c96f384d034e236",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/patorrent-nox-1.0.0-rc.1-macos-arm64.tar.gz"
+   },
+   {
+    "name": "patorrent-nox-1.0.0-rc.1-macos-x86_64.tar.gz",
+    "state": "uploaded",
+    "size": 9051087,
+    "digest": "sha256:d200ad951f8577d897af0d690ca6dd060fc17600a360b174be32408de2f5f59a",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/patorrent-nox-1.0.0-rc.1-macos-x86_64.tar.gz"
+   },
+   {
+    "name": "SHA256SUMS",
+    "state": "uploaded",
+    "size": 9783004,
+    "digest": "sha256:839a88ae2ee88f2550c4c2e6afe565c7efd8c427b282628771994d438befcc86",
+    "browser_download_url": "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.0.0-rc.1/SHA256SUMS"
+   }
+  ]
+ }
+]

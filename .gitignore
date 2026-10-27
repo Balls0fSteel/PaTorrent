@@ -1,11 +1,13 @@
 # Build output
 /target
 /dist
+/_site
 *.pdb
 
 # Logs and temporary files
 *.log
 *.tmp
+__pycache__/
 
 # Settings and state from running PaTorrent portable in the repo folder
 /patorrent.ini

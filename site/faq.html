@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaTorrent FAQ</title>
+<meta name="description" content="Questions about PaTorrent: its license in plain words, where settings are kept, portable mode, languages, remote mode and the Web UI, privacy and the update check.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#004540">
+<link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="img/icon-16.png">
+<link rel="apple-touch-icon" href="img/icon-256.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="./"><img src="img/icon-32.png" srcset="img/icon-64.png 2x" width="32" height="32" alt=""> PaTorrent</a>
+    <nav aria-label="Main">
+      <ul class="toolbar">
+        <li><a href="download.html"><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-download"/></svg>Download</a></li>
+        <li><a href="faq.html" aria-current="page"><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-help"/></svg>FAQ</a></li>
+        <li><a href="docs.html"><svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Docs</a></li>
+        <li><a class="ext" href="https://github.com/Balls0fSteel/PaTorrent">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap narrow">
+      <h1>Questions and answers</h1>
+      <p>About PaTorrent, its license, your settings and your privacy.</p>
+    </div>
+  </div>
+
+  <div class="wrap narrow">
+    <nav class="toc" aria-labelledby="toc-h">
+      <h2 id="toc-h">On this page</h2>
+      <ol>
+        <li><a href="#what">What is PaTorrent?</a></li>
+        <li><a href="#ready">Is it ready to use?</a></li>
+        <li><a href="#license">Is it free? What does the license allow?</a></li>
+        <li><a href="#settings">Where are my settings? What is portable mode?</a></li>
+        <li><a href="#languages">Which languages does it speak?</a></li>
+        <li><a href="#remote">How do the Web UI and remote mode work?</a></li>
+        <li><a href="#privacy">What does PaTorrent send, and to whom?</a></li>
+        <li><a href="#private-trackers">Can I use it on private trackers?</a></li>
+        <li><a href="#warnings">Why do Windows and macOS warn about it?</a></li>
+        <li><a href="#affiliation">Is it related to µTorrent or qBittorrent?</a></li>
+        <li><a href="#bugs">How do I report a problem?</a></li>
+      </ol>
+    </nav>
+
+    <section class="qa" id="what" aria-labelledby="what-h">
+      <h2 id="what-h">What is PaTorrent?</h2>
+      <p>A lean BitTorrent client in the spirit of µTorrent 2.2.1: small native programs, low RAM and CPU use, and a list that stays responsive with tens of thousands of torrents. The long name is PatinaTorrent; a patina is the good kind of rust, and PaTorrent is written in Rust.</p>
+      <p>There are three programs: <code>patorrent</code>, the native Windows GUI; <code>patorrent-gtk</code>, the GTK 4 GUI for Linux, BSD and macOS; and <code>patorrent-nox</code>, a headless daemon with its own Web UI for every platform. The engine is our own Rust port of libtorrent-rasterbar 2.0.11: libtorrent's code is the reference, nothing of it is linked.</p>
+      <p>PaTorrent is made by <a href="https://dukecorp1996.x35.in/">DukeCorp1996</a>. The source is on <a href="https://github.com/Balls0fSteel/PaTorrent">GitHub</a>.</p>
+    </section>
+
+    <section class="qa" id="ready" aria-labelledby="ready-h">
+      <h2 id="ready-h">Is it ready to use?</h2>
+      <p>Not quite: it is a release candidate for 1.0. The features planned for 1.0 are in (the Windows and GTK GUIs, the daemon, BitTorrent v2 and hybrid torrents, the translations, HTTPS and remote mode); what remains is testing on more machines. It works for its author, but has had little testing elsewhere, so keep a copy of anything you care about, and expect settings and saved state to possibly change before 1.0.</p>
+      <p>The road to 1.0 and what is still unchecked are in <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/PLAN.md">PLAN.md</a>; each release's notes list its known limitations.</p>
+    </section>
+
+    <section class="qa" id="license" aria-labelledby="license-h">
+      <h2 id="license-h">Is it free? What does the license allow?</h2>
+      <p>PaTorrent is free for <strong>noncommercial</strong> use under the <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/LICENSE.md">PolyForm Noncommercial License 1.0.0</a>. In plain words:</p>
+      <ul>
+        <li><strong>You may</strong> use it for personal use, study, hobby projects, and in charities, schools, research and public institutions, at no cost.</li>
+        <li><strong>You may</strong> share it and change it, on the same terms, keeping the license and its copyright notice with every copy.</li>
+        <li><strong>Commercial use</strong> needs separate permission from DukeCorp1996.</li>
+      </ul>
+      <p>That makes PaTorrent source-available rather than open source in the OSI sense, which is also why Linux distributions will not package it; its own AppImages, Flatpak and tarballs are the way to get it. The code ported from libtorrent stays available under libtorrent's BSD-3-Clause license as well (<a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/THIRD-PARTY-NOTICES.md">third-party notices</a>).</p>
+      <p>This is a summary; the license text is what counts.</p>
+    </section>
+
+    <section class="qa" id="settings" aria-labelledby="settings-h">
+      <h2 id="settings-h">Where are my settings? What is portable mode?</h2>
+      <table class="listview plain">
+        <caption class="vh">Where each program keeps its settings and torrents</caption>
+        <thead><tr><th scope="col">Program</th><th scope="col">Settings and torrents</th></tr></thead>
+        <tbody>
+          <tr><td>Windows GUI</td><td><code>%APPDATA%\PaTorrent</code></td></tr>
+          <tr><td>Windows GUI, portable mode</td><td>The folder of <code>patorrent.exe</code></td></tr>
+          <tr><td>GTK GUI on Linux and BSD</td><td>Settings in <code>~/.config/patorrent/gtk</code>, torrents in <code>~/.local/share/patorrent/gtk</code> (or under <code>$XDG_CONFIG_HOME</code> and <code>$XDG_DATA_HOME</code>)</td></tr>
+          <tr><td>GTK GUI as a Flatpak</td><td>The same, under <code>~/.var/app/io.github.balls0fsteel.PaTorrent/</code> (<code>config/</code> and <code>data/</code>)</td></tr>
+          <tr><td>GTK GUI on macOS</td><td><code>~/Library/Application Support/PaTorrent/gtk</code></td></tr>
+          <tr><td><code>patorrent-nox</code></td><td>A <code>nox</code> folder in the same places: <code>%APPDATA%\PaTorrent\nox</code>, <code>~/.config/patorrent/nox</code> and <code>~/.local/share/patorrent/nox</code>, or <code>~/Library/Application Support/PaTorrent/nox</code>; as a service, see <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md#files">docs/DAEMON.md</a></td></tr>
+        </tbody>
+      </table>
+      <p><strong>Portable mode</strong> (Windows): put an empty file named <code>patorrent.ini</code> next to <code>patorrent.exe</code>, and PaTorrent keeps its settings and torrents in that folder instead of <code>%APPDATA%</code>, as µTorrent did. That way the whole folder can live on a USB stick. <code>patorrent-nox.exe</code> follows the same rule, in a <code>nox</code> folder there. Portable mode on every platform is planned for a later version.</p>
+    </section>
+
+    <section class="qa" id="languages" aria-labelledby="languages-h">
+      <h2 id="languages-h">Which languages does it speak?</h2>
+      <p>English and 34 more: Arabic, Bulgarian, Catalan, Chinese (Simplified and Traditional), Croatian, Czech, Danish, Dutch, Finnish, French, German, Greek, Hebrew, Hungarian, Indonesian, Italian, Japanese, Korean, Norwegian Bokmål, Persian, Polish, Portuguese (Brazil and Portugal), Romanian, Russian, Serbian, Slovak, Spanish, Swedish, Thai, Turkish, Ukrainian and Vietnamese. Arabic, Hebrew and Persian use right-to-left layouts.</p>
+      <p>Every language is built into every program; there are no language files to download. By default PaTorrent follows your system's language; choose another in Preferences &gt; General &gt; Language (“User interface”), in the GUIs and in the Web UI alike.</p>
+      <p>The translations are machine-made and nobody has reviewed them yet. If yours reads oddly, please <a href="https://github.com/Balls0fSteel/PaTorrent/issues">open an issue</a> with a correction. Translators can try a table without rebuilding: <code>PATORRENT_LANG=file.lng</code> loads it.</p>
+    </section>
+
+    <section class="qa" id="remote" aria-labelledby="remote-h">
+      <h2 id="remote-h">How do the Web UI and remote mode work?</h2>
+      <p><code>patorrent-nox</code> is the headless daemon. With <code>--webui</code> it serves its own Web UI: the µTorrent 2.2.1 main window in a browser, with push updates instead of polling, keyboard shortcuts, a dark mode and a layout for phones.</p>
+      <pre class="cmd"><code>patorrent-nox run --webui 8080 --webui-pass PASS</code></pre>
+      <p>That listens on <code>127.0.0.1</code> only; open <code>http://127.0.0.1:8080</code> and log in as <code>admin</code>. To use it from other machines, give an address (<code>--webui 0.0.0.0:8443</code>) and serve it over HTTPS with <code>--webui-https</code>, which makes a self-signed certificate on first use; compare the fingerprint your browser shows with the <code>certificate SHA-256</code> line the daemon prints.</p>
+      <p><strong>Remote mode:</strong> either desktop GUI can drive a <code>patorrent-nox</code> on another machine, through the same port. Choose File &gt; Connect to Remote..., or start the GUI with <code>--remote</code>, and give the host, port, login and whether to use HTTPS. A certificate your system does not trust is shown by its fingerprint and remembered once you accept it. The window then works on the remote daemon's torrents; the password is never stored.</p>
+      <p>The same port also serves a subset of qBittorrent's Web API, for tools written for qBittorrent (such as Sonarr, Radarr or Prowlarr). It is a subset, so not every call is there. Running the daemon as a service: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md">docs/DAEMON.md</a>; the design: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/WEBUI.md">docs/WEBUI.md</a>.</p>
+    </section>
+
+    <section class="qa" id="privacy" aria-labelledby="privacy-h">
+      <h2 id="privacy-h">What does PaTorrent send, and to whom?</h2>
+      <p><strong>The update check.</strong> From the release after 1.0.0-rc.1 on, PaTorrent checks for a newer release when it starts and every 12 hours after that. It downloads one small text file, <code>https://balls0fsteel.github.io/PaTorrent/update.txt</code>, which names the newest versions, and compares them with its own. The request carries only the User-Agent <code>PaTorrent/&lt;version&gt;</code>: no ID, no settings, nothing about your torrents. As with any web request, GitHub, which hosts this site, sees your IP address. If a newer version is out, PaTorrent shows a short note in its status bar; it never downloads or installs anything by itself.</p>
+      <p>To turn the check off: Preferences &gt; General &gt; Privacy.</p>
+      <p><strong>BitTorrent itself.</strong> Like every BitTorrent client, PaTorrent tells the trackers, the DHT and the peers of your torrents your IP address, and they can see what you download and share. A proxy (Preferences &gt; Connection) can carry that traffic instead.</p>
+      <p><strong>This website</strong> sets no cookies, has no analytics or trackers, and loads nothing from other sites. GitHub Pages serves it, under <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a>.</p>
+    </section>
+
+    <section class="qa" id="private-trackers" aria-labelledby="private-trackers-h">
+      <h2 id="private-trackers-h">Can I use it on private trackers?</h2>
+      <p>Not yet. Private trackers accept only clients they have whitelisted, and PaTorrent's client ID, <code>PA</code>, is not whitelisted anywhere yet. PaTorrent always reports itself honestly as PaTorrent (it never borrows another client's ID), so using it there could get an account into trouble. Registering the ID is part of the work towards 1.0.</p>
+    </section>
+
+    <section class="qa" id="warnings" aria-labelledby="warnings-h">
+      <h2 id="warnings-h">Why do Windows and macOS warn about it?</h2>
+      <p>The programs are not code-signed. So Windows SmartScreen says “Windows protected your PC” the first time (More info &gt; Run anyway), and macOS Gatekeeper refuses the ad-hoc signed app until you open it with a right-click. The <a href="download.html#smartscreen">download page</a> has the steps. To check that a file is the one that was published, compare its <a href="download.html#checksums">checksum</a>.</p>
+    </section>
+
+    <section class="qa" id="affiliation" aria-labelledby="affiliation-h">
+      <h2 id="affiliation-h">Is it related to µTorrent or qBittorrent?</h2>
+      <p>No. PaTorrent is an independent project, not affiliated with, endorsed by or sponsored by any of these:</p>
+      <ul>
+        <li><strong>µTorrent and BitTorrent, Inc.</strong> PaTorrent recreates the look and behaviour of µTorrent 2.2.1, but uses none of its code, artwork, translations or trademarks.</li>
+        <li><strong>libtorrent-rasterbar.</strong> The engine is a port of libtorrent 2.0.11 and keeps its BSD-3-Clause license and copyright notices; the names of libtorrent and its authors are not used to promote PaTorrent.</li>
+        <li><strong>qBittorrent.</strong> PaTorrent contains no qBittorrent code, artwork or Web UI. Its compatible Web API follows qBittorrent's published documentation so that existing tools can talk to it.</li>
+      </ul>
+      <p>Other product names are trademarks of their owners and are used only to identify those products.</p>
+    </section>
+
+    <section class="qa" id="bugs" aria-labelledby="bugs-h">
+      <h2 id="bugs-h">How do I report a problem?</h2>
+      <p>Open an <a href="https://github.com/Balls0fSteel/PaTorrent/issues">issue on GitHub</a> with your system, the file you downloaded and what happened. For a crash or a stuck torrent, the Logger tab or the output of <code>patorrent-nox run --verbose</code> helps.</p>
+      <p>Looking for a manual? See <a href="docs.html">Documentation</a>; a proper user guide is planned for a later version.</p>
+    </section>
+  </div>
+</main>
+
+<footer class="statusbar">
+  <div class="wrap">
+    <ul>
+      <li>Latest: <!-- build:latest-version --><a href="https://github.com/Balls0fSteel/PaTorrent/releases">Releases</a><!-- /build:latest-version --></li>
+      <li><a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/LICENSE.md">PolyForm Noncommercial 1.0.0</a></li>
+      <li>© 2026 <a href="https://dukecorp1996.x35.in/">DukeCorp1996</a></li>
+      <li class="grow"><a href="https://github.com/Balls0fSteel/PaTorrent/issues">Report a problem</a></li>
+    </ul>
+    <p>Not affiliated with µTorrent, BitTorrent, Inc., libtorrent or qBittorrent. This site sets no cookies and loads nothing from other sites.</p>
+  </div>
+</footer>
+</body>
+</html>

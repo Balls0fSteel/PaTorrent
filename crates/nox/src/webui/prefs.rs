@@ -77,6 +77,9 @@ pub(crate) struct Working {
     pub prefs: Prefs,
     pub username: String,
     pub new_password: Option<String>,
+    /// The password the request says is the current one (`webui.current_password`, never
+    /// stored), needed to change the login and the Web UI's security settings (SEC-03).
+    pub current_password: Option<String>,
     pub listen: String,
 }
 
@@ -90,6 +93,7 @@ impl Working {
             prefs: st.prefs.clone(),
             username: st.username.clone(),
             new_password: None,
+            current_password: None,
             listen: st.listen_addr.to_string(),
         }
     }
@@ -101,6 +105,7 @@ impl Working {
             prefs: Prefs::defaults(&st.default_save_path, &Settings::default()),
             username: "admin".to_owned(),
             new_password: None,
+            current_password: None,
             listen: st.listen_addr.to_string(),
         }
     }
@@ -520,6 +525,18 @@ pub(crate) static FIELDS: &[Field] = &[
             let p = string(v);
             if !p.is_empty() {
                 w.new_password = Some(p);
+            }
+        }
+    ),
+    field!(
+        "webui.current_password",
+        Some(S::PrefCurrentPassword),
+        Kind::Password,
+        |_w| Value::Str(String::new()),
+        |w, v| {
+            let p = string(v);
+            if !p.is_empty() {
+                w.current_password = Some(p);
             }
         }
     ),
@@ -960,7 +977,12 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                 group(None, vec![stub(tr!(PrefWebUi)).with("on", true)]),
                 group(
                     Some(tr!(PrefAuthentication)),
-                    vec![f("webui.username"), f("webui.password"), f("webui.bypass_local_auth")],
+                    vec![
+                        f("webui.username"),
+                        f("webui.password"),
+                        f("webui.current_password"),
+                        f("webui.bypass_local_auth"),
+                    ],
                 ),
                 group(
                     Some(tr!(PrefConnectivity)),
@@ -1064,6 +1086,24 @@ pub(crate) type Refusal = (String, String);
 /// One parsed change.
 pub(crate) type Change = (Def, Value);
 
+/// The fields that guard the Web UI: changed only with the current password (SEC-03).
+const SECURITY_FIELDS: [&str; 8] = [
+    "webui.username",
+    "webui.bypass_local_auth",
+    "webui.host_header_validation",
+    "webui.domain_list",
+    "webui.csrf",
+    "webui.max_auth_fail_count",
+    "webui.ban_duration",
+    "webui.session_timeout",
+];
+
+/// Whether `w` changes the password or a [`SECURITY_FIELDS`] value.
+fn security_changed(w: &Working, old: &Working) -> bool {
+    w.new_password.is_some()
+        || SECURITY_FIELDS.iter().filter_map(|id| find(id)).any(|d| d.get(w) != d.get(old))
+}
+
 /// Parses one id and value.
 pub(crate) fn parse_one(id: &str, v: &Json) -> Result<Change, Refusal> {
     let def = find(id).ok_or_else(|| (id.to_owned(), "unknown preference".to_owned()))?;
@@ -1143,21 +1183,36 @@ fn check_paths(w: &Working, old: &Working, policy: &PathPolicy) -> Result<(), Re
 /// Applies parsed changes to a working copy of `st`, checks it, and commits: engine settings
 /// through `apply_settings` (with the global limits of the mode in force), the IP filter loaded
 /// or cleared, peer exchange toggled on every torrent, a new password hashed, the folders
-/// handed to the owner's `MoveCompleted`, and everything stored in the state file. A new
-/// password ends every login but `keep` (the session that changed it): the other sessions,
-/// their WebSockets and the remote connections (SEC-24).
+/// handed to the owner's `MoveCompleted`, and everything stored in the state file.
+///
+/// `from` is the session of the request that sent them; `None` for nox's own changes (the
+/// state file at start, a remote GUI's engine settings). A request changes the login and the
+/// Web UI's security settings only with the current password, and a wrong one ends its session
+/// (SEC-03). A new password ends every other login: the other sessions, their WebSockets and
+/// the remote connections (SEC-24).
 pub(crate) fn commit(
     shared: &Shared,
     st: &mut State,
     changes: &[Change],
-    keep: Option<&str>,
+    from: Option<&str>,
 ) -> Result<(), Refusal> {
+    let keep = from;
     let mut w = Working::from_state(st);
     for (def, v) in changes {
         def.set(&mut w, v.clone());
     }
     validate(&w)?;
     let old = Working::from_state(st);
+    if let Some(session) = from.filter(|_| security_changed(&w, &old)) {
+        let given = w.current_password.as_deref();
+        if !given.is_some_and(|p| st.password.verify(p)) {
+            // a stolen session cannot guess the password here: one wrong try ends it
+            if given.is_some() {
+                st.sessions.remove(session);
+            }
+            return Err(("webui.current_password".to_owned(), tr!(PrefNeedCurrentPassword).to_owned()));
+        }
+    }
     check_paths(&w, &old, &shared.path_policy)?;
 
     // the IP filter first: a block list that does not load refuses the whole change

@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_204307_1793130187: Security fix SEC-03: Web UI security settings need the current password; proxies get no bypass
+
+- **Current password:** the Web UI's login and security settings (`SECURITY_FIELDS` plus the password) change only with `webui.current_password`, a new write-only field in the Preferences dialog's Authentication group, or `web_ui_current_password` in the shim. A wrong one ends the requesting session. This also closes SEC-24's open part. New strings `PrefCurrentPassword` and `PrefNeedCurrentPassword`, machine-translated into the 34 languages.
+- **Reverse proxies:** forwarded requests (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`) never get the local-auth bypass; behind a loopback proxy the last `X-Forwarded-For` address is the client for bans.
+- **Ban race:** a login attempt counts as a failure before the PBKDF2 hash and is undone on success.
+- **Docs:** docs/WEBUI.md's Security section describes the Origin rule as coded.
+- **Tests:** three new Web UI tests, each part proven to fail when reverted. Existing tests that change the password or the domain list now send the current password. The harness takes a PBKDF2 iteration count.
+
 ## 2026-10-27_202906_1793129346: Security fix SEC-26: fetches stay off the local network unless the user named it
 
 - **Confirmed:** add-by-URL and RSS fetches connected wherever a URL or redirect pointed, so a feed operator could make the client request loopback or LAN URLs.

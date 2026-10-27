@@ -611,6 +611,8 @@ strings! {
     PrefAuthentication = "Authentication";
     PrefUsername = "Username:";
     PrefPassword = "Password:";
+    /// The Web UI's Preferences: needed to change the login or the security settings.
+    PrefCurrentPassword = "Current password:";
     PrefProxyNames = "Resolve hostnames through proxy";
     PrefProxyPeers = "Use proxy for peer-to-peer connections";
     PrefProxyTrackers = "Use proxy for tracker connections";
@@ -827,6 +829,7 @@ strings! {
     PrefDesktopOnly = "File associations and autostart belong to the desktop client.";
     PrefAdvancedNoteWeb = "libtorrent setting names; changed values are shown in bold. Values are applied with OK or Apply.";
     PrefNoUsername = "Please enter a user name.";
+    PrefNeedCurrentPassword = "Enter the current password to change the login or the Web UI's security settings.";
     /// {count} is the number of hours in a week.
     SettingBadSchedule = "expected {count} hours, each 0 (full speed), 1 (turn off), 2 (limited) or 3 (seeding only)";
 

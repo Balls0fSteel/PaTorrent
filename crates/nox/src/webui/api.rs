@@ -260,7 +260,7 @@ fn authenticate(st: &mut State, head: &Head, ip: IpAddr, now: Instant) -> Option
             st.sessions.remove(sid);
         }
     }
-    if st.is_loopback_bypass(ip) {
+    if st.is_loopback_bypass(ip) && !proxied(head) {
         let key = "local".to_owned();
         st.sessions
             .entry(key.clone())
@@ -269,6 +269,32 @@ fn authenticate(st: &mut State, head: &Head, ip: IpAddr, now: Instant) -> Option
         return Some(key);
     }
     None
+}
+
+/// A request a proxy forwarded: it names the client it came from. A reverse proxy on this
+/// machine makes every client a loopback one, so these never get the local-auth bypass
+/// (SEC-03).
+fn proxied(head: &Head) -> bool {
+    ["x-forwarded-for", "forwarded", "x-real-ip"].iter().any(|h| head.header(h).is_some())
+}
+
+/// The client a request is from: its peer, or for a peer on this machine (a reverse proxy)
+/// the last `X-Forwarded-For` address, the one the proxy added. Failed logins then count per
+/// client, not for everyone behind the proxy at once (SEC-03). A local program could name any
+/// address there, but it can reach the Web UI directly anyway.
+pub(super) fn client_ip(head: &Head, peer: IpAddr) -> IpAddr {
+    let peer = canonical(peer);
+    if !peer.is_loopback() {
+        return peer;
+    }
+    let last = head.header("x-forwarded-for").and_then(|v| v.rsplit(',').next()).map(str::trim);
+    let parsed = last.and_then(|a| {
+        a.parse::<IpAddr>()
+            .ok()
+            .or_else(|| a.parse::<std::net::SocketAddr>().ok().map(|s| s.ip()))
+            .or_else(|| a.trim_start_matches('[').trim_end_matches(']').parse().ok())
+    });
+    parsed.map_or(peer, canonical)
 }
 
 /// Whether a request may carry a large body (it is authenticated).
@@ -303,7 +329,7 @@ pub(super) fn websocket_handshake(
     head: &Head,
     ip: IpAddr,
 ) -> Result<(String, String), Response> {
-    let ip = canonical(ip);
+    let ip = client_ip(head, ip);
     let now = Instant::now();
     let mut st = shared.lock();
     if st.bans.is_banned(ip, now) {
@@ -339,7 +365,7 @@ pub fn serve(shared: &Shared, req: &Request) -> Response {
 
 fn serve_inner(shared: &Shared, req: &Request) -> Response {
     let head = &req.head;
-    let ip = canonical(req.peer);
+    let ip = client_ip(head, req.peer);
     let now = Instant::now();
     let (host_validation, csrf, domains) = {
         let mut st = shared.lock();
@@ -723,18 +749,21 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
 /// counting a failure towards the address's ban and clearing its count on success.
 pub(super) fn check_login(shared: &Shared, user: &str, pass: &str, ip: IpAddr, now: Instant) -> bool {
     let (expected_user, hash) = {
-        let st = shared.lock();
+        let mut st = shared.lock();
+        if st.bans.is_banned(ip, now) {
+            return false;
+        }
+        // counted as a failure before the slow hash, undone on success: parallel guesses
+        // cannot all pass the ban check first (SEC-03)
+        let (max, ban) = (st.prefs.max_auth_fail_count, Duration::from_secs(st.prefs.ban_duration));
+        st.bans.failed(ip, max, ban, now);
         (st.username.clone(), st.password.clone())
     };
     // The hash is checked even for a wrong user name, so the time taken does not tell.
     let pass_ok = hash.verify(pass);
     let ok = constant_time_eq(user.as_bytes(), expected_user.as_bytes()) & pass_ok;
-    let mut st = shared.lock();
     if ok {
-        st.bans.succeeded(ip);
-    } else {
-        let (max, ban) = (st.prefs.max_auth_fail_count, Duration::from_secs(st.prefs.ban_duration));
-        st.bans.failed(ip, max, ban, now);
+        shared.lock().bans.succeeded(ip);
     }
     ok
 }
@@ -958,6 +987,8 @@ pub(crate) fn apply_preferences(shared: &Shared, st: &mut State, v: &Json, keep:
             "proxy_peer_connections" => one("proxy_peer_connections", Some(val.clone())),
             "web_ui_username" => one("webui.username", Some(val.clone())),
             "web_ui_password" => one("webui.password", Some(val.clone())),
+            // ours: qBittorrent's API changes these without the current password (SEC-03)
+            "web_ui_current_password" => one("webui.current_password", Some(val.clone())),
             "bypass_local_auth" => one("webui.bypass_local_auth", Some(val.clone())),
             "web_ui_csrf_protection_enabled" => one("webui.csrf", Some(val.clone())),
             "web_ui_host_header_validation_enabled" => one("webui.host_header_validation", Some(val.clone())),
@@ -977,8 +1008,13 @@ pub(crate) fn apply_preferences(shared: &Shared, st: &mut State, v: &Json, keep:
         return;
     }
     if prefs::commit(shared, st, &changes, keep).is_err() {
-        for c in changes {
-            let _ = prefs::commit(shared, st, &[c], keep);
+        // one by one, each with the current password if one came
+        let (auth, rest): (Vec<_>, Vec<_>) =
+            changes.into_iter().partition(|(d, _)| d.id() == "webui.current_password");
+        for c in rest {
+            let mut one = auth.clone();
+            one.push(c);
+            let _ = prefs::commit(shared, st, &one, keep);
         }
     }
 }

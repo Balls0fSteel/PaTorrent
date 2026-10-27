@@ -14,7 +14,7 @@ use std::time::Instant;
 use patorrent_core::Alert;
 use patorrent_core::remote::{self, FrameReader, Hello, Request};
 
-use super::api::{canonical, check_login, host_allowed};
+use super::api::{check_login, host_allowed};
 use super::http::{Head, Response};
 use super::server::Conn;
 use super::{Shared, prefs};
@@ -64,7 +64,7 @@ impl Shared {
 /// login form (a failure counts towards the ban), or a valid session cookie, or a loopback
 /// client with the local-auth bypass on.
 pub(super) fn handshake(shared: &Shared, head: &Head, ip: IpAddr) -> Result<(), Response> {
-    let ip = canonical(ip);
+    let ip = super::api::client_ip(head, ip);
     let now = Instant::now();
     {
         let mut st = shared.lock();

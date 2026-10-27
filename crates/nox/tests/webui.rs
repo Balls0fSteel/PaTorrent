@@ -127,7 +127,15 @@ impl Harness {
     fn start_rooted(dir: PathBuf, password: Option<&str>, save_roots: Vec<PathBuf>) -> Harness {
         let settings = Harness::settings();
         let session = Session::start(SessionParams { settings: settings.clone(), state_dir: None }).unwrap();
-        Harness::with_session(dir, password, settings, session, save_roots)
+        Harness::with_session(dir, password, settings, session, save_roots, 2)
+    }
+
+    /// [`Harness::start`] with a password hash this many PBKDF2 rounds deep, so a login takes
+    /// a while.
+    fn start_slow(name: &str, iterations: u32) -> Harness {
+        let settings = Harness::settings();
+        let session = Session::start(SessionParams { settings: settings.clone(), state_dir: None }).unwrap();
+        Harness::with_session(temp_dir(name), Some(PASS), settings, session, Vec::new(), iterations)
     }
 
     /// A real session with `settings` that keeps its torrents in `dir/engine`, so a harness
@@ -135,7 +143,7 @@ impl Harness {
     fn start_with(dir: PathBuf, settings: Settings) -> Harness {
         let state_dir = Some(dir.join("engine"));
         let session = Session::start(SessionParams { settings: settings.clone(), state_dir }).unwrap();
-        Harness::with_session(dir, Some(PASS), settings, session, Vec::new())
+        Harness::with_session(dir, Some(PASS), settings, session, Vec::new(), 2)
     }
 
     /// The simulated engine with `n` synthetic torrents, `active` of them force-started; the
@@ -150,7 +158,7 @@ impl Harness {
         };
         let config = MockConfig { initial_torrents: n, active_fraction: active, ..MockConfig::default() };
         let session = Session::start_mock(settings.clone(), config);
-        Harness::with_session(temp_dir(name), Some(PASS), settings, session, Vec::new())
+        Harness::with_session(temp_dir(name), Some(PASS), settings, session, Vec::new(), 2)
     }
 
     fn with_session(
@@ -159,13 +167,14 @@ impl Harness {
         settings: Settings,
         session: Session,
         save_roots: Vec<PathBuf>,
+        iterations: u32,
     ) -> Harness {
         let h = session.handle();
         let mut c = Config::new("127.0.0.1:0".parse().unwrap(), settings, dir.join("dl").to_string_lossy());
         c.password = password.map(str::to_owned);
         c.save_roots = save_roots;
         c.state_dir = Some(dir.join("state"));
-        c.pbkdf2_iterations = 2;
+        c.pbkdf2_iterations = iterations;
         let web = Arc::new(WebUi::start(h.clone(), c).unwrap());
         let addr = web.local_addr();
         let stop = Arc::new(AtomicBool::new(false));
@@ -622,8 +631,8 @@ fn csrf_and_host_header_checks() {
     assert_eq!(parse_response(&out).0.status, 400);
 
     // ... accepted once the name is in the domain list
-    let prefs = r#"{"web_ui_domain_list":"*.example"}"#;
-    assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &format!("json={}", enc(prefs))).status, 200);
+    let prefs = format!(r#"{{"web_ui_domain_list":"*.example","web_ui_current_password":"{PASS}"}}"#);
+    assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &format!("json={}", enc(&prefs))).status, 200);
     let mut s = TcpStream::connect(t.addr).unwrap();
     s.write_all(
         format!("GET /api/v2/app/version HTTP/1.1\r\nHost: rebind.example:{}\r\nCookie: {sid}\r\nConnection: close\r\n\r\n", t.addr.port())
@@ -969,8 +978,10 @@ fn preferences_and_stored_credentials() {
         assert_eq!(p.get("web_ui_csrf_protection_enabled"), Some(&Json::Bool(true)));
         assert_eq!(p.get("bypass_local_auth"), Some(&Json::Bool(false)));
         assert!(p.get("web_ui_password").is_none());
-        let set = r#"{"dl_limit":100,"alt_up_limit":20,"save_path":"/data/new","web_ui_password":"another-one","no_such_key":1}"#;
-        assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &format!("json={}", enc(set))).status, 200);
+        let set = format!(
+            r#"{{"dl_limit":100,"alt_up_limit":20,"save_path":"/data/new","web_ui_password":"another-one","web_ui_current_password":"{PASS}","no_such_key":1}}"#
+        );
+        assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &format!("json={}", enc(&set))).status, 200);
         assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", "json=nope").status, 400);
         let p = t.get(&sid, "/api/v2/app/preferences").json();
         assert_eq!(p.get("dl_limit").and_then(Json::as_i64), Some(100));
@@ -1016,7 +1027,10 @@ fn a_new_password_ends_the_other_logins() {
     assert_eq!(t.post(&mine, "/api/v2/app/setPreferences", &set).status, 200);
     assert_eq!(t.get(&other, "/api/v2/app/version").status, 200);
 
-    let set = format!("json={}", enc(r#"{"web_ui_password":"another-one"}"#));
+    let set = format!(
+        "json={}",
+        enc(&format!(r#"{{"web_ui_password":"another-one","web_ui_current_password":"{PASS}"}}"#))
+    );
     assert_eq!(t.post(&mine, "/api/v2/app/setPreferences", &set).status, 200);
     assert_eq!(t.get(&mine, "/api/v2/app/version").status, 200, "the session that changed it stays");
     assert_eq!(t.get(&other, "/api/v2/app/version").status, 403);
@@ -1031,10 +1045,124 @@ fn a_new_password_ends_the_other_logins() {
 
     // the same through the native preferences
     let (mine, other) = (login_with(&t, "another-one"), login_with(&t, "another-one"));
-    assert_eq!(t.pa(&mine, "/pa/prefs", r#"{"webui.password":"a-third-one"}"#).status, 204);
+    let body = r#"{"webui.password":"a-third-one","webui.current_password":"another-one"}"#;
+    assert_eq!(t.pa(&mine, "/pa/prefs", body).status, 204);
     assert_eq!(t.get(&mine, "/api/v2/app/version").status, 200);
     assert_eq!(t.get(&other, "/api/v2/app/version").status, 403);
     login_with(&t, "a-third-one");
+}
+
+/// The Web UI's login and security settings change only with the current password; a wrong
+/// one ends the session that sent it (SEC-03).
+#[test]
+fn security_settings_need_the_current_password() {
+    let t = Harness::start("current-password");
+    let sid = t.login();
+    let csrf = |t: &Harness, sid: &str| {
+        t.get(sid, "/api/v2/app/preferences").json().get("web_ui_csrf_protection_enabled").cloned()
+    };
+    // other preferences need nothing
+    let set = format!("json={}", enc(r#"{"dl_limit":100,"web_ui_csrf_protection_enabled":false}"#));
+    assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &set).status, 200);
+    assert_eq!(t.get(&sid, "/api/v2/transfer/downloadLimit").text(), "102400");
+    assert_eq!(csrf(&t, &sid), Some(Json::Bool(true)), "not without the current password");
+    for body in [
+        r#"{"webui.csrf":false}"#,
+        r#"{"webui.bypass_local_auth":true}"#,
+        r#"{"webui.domain_list":"*"}"#,
+        r#"{"webui.host_header_validation":false}"#,
+        r#"{"webui.username":"other"}"#,
+        r#"{"webui.password":"another-one"}"#,
+        r#"{"webui.max_auth_fail_count":0}"#,
+        r#"{"webui.ban_duration":1}"#,
+        r#"{"webui.session_timeout":999999}"#,
+    ] {
+        let r = t.pa(&sid, "/pa/prefs", body);
+        assert_eq!(r.status, 400, "{body}");
+        assert!(r.text().contains("webui.current_password"), "{body}: {}", r.text());
+    }
+    // the right one
+    let r = t.pa(&sid, "/pa/prefs", &format!(r#"{{"webui.csrf":false,"webui.current_password":"{PASS}"}}"#));
+    assert_eq!(r.status, 204, "{}", r.text());
+    assert_eq!(csrf(&t, &sid), Some(Json::Bool(false)));
+    // the shim takes it under its own key
+    let set = format!(
+        "json={}",
+        enc(&format!(r#"{{"web_ui_csrf_protection_enabled":true,"web_ui_current_password":"{PASS}"}}"#))
+    );
+    assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &set).status, 200);
+    assert_eq!(csrf(&t, &sid), Some(Json::Bool(true)));
+    // a wrong one ends the session
+    let r = t.pa(&sid, "/pa/prefs", r#"{"webui.csrf":false,"webui.current_password":"guess"}"#);
+    assert_eq!(r.status, 400);
+    assert_eq!(t.get(&sid, "/api/v2/app/version").status, 403);
+    let sid = t.login();
+    assert_eq!(csrf(&t, &sid), Some(Json::Bool(true)));
+}
+
+/// A reverse proxy on this machine makes every client a loopback one: such requests never get
+/// the local-auth bypass, and failed logins count per forwarded client (SEC-03).
+#[test]
+fn a_reverse_proxy_gets_no_bypass_and_per_client_bans() {
+    let t = Harness::start("reverse-proxy");
+    let sid = t.login();
+    let r = t.pa(
+        &sid,
+        "/pa/prefs",
+        &format!(r#"{{"webui.bypass_local_auth":true,"webui.current_password":"{PASS}"}}"#),
+    );
+    assert_eq!(r.status, 204, "{}", r.text());
+    assert_eq!(t.req("GET", "/api/v2/app/version", &[], Body::None).status, 200, "the bypass is on");
+    for forwarded in [
+        ("X-Forwarded-For", "203.0.113.9"),
+        ("Forwarded", "for=203.0.113.9"),
+        ("X-Real-IP", "203.0.113.9"),
+        ("X-Forwarded-For", "127.0.0.1"),
+    ] {
+        assert_eq!(
+            t.req("GET", "/api/v2/app/version", &[forwarded], Body::None).status,
+            403,
+            "{forwarded:?}"
+        );
+    }
+    // five bad logins ban the forwarded client, not everyone behind the proxy
+    let login = |xff: &str, pass: &str| {
+        t.req(
+            "POST",
+            "/api/v2/auth/login",
+            &[("X-Forwarded-For", xff)],
+            Body::Form(&format!("username=admin&password={pass}")),
+        )
+    };
+    for _ in 0..5 {
+        assert_eq!(login("10.0.0.1, 203.0.113.9", "wrong").text(), "Fails.");
+    }
+    assert_eq!(login("10.0.0.1, 203.0.113.9", PASS).status, 403, "banned");
+    assert_eq!(login("203.0.113.10", PASS).text(), "Ok.", "another client behind the proxy");
+    // the last address counts: the one the proxy added, not one the client sent
+    assert_eq!(login("203.0.113.9, 198.51.100.7", PASS).text(), "Ok.");
+    assert_eq!(
+        t.req("GET", "/api/v2/app/version", &[], Body::None).status,
+        200,
+        "this machine is not banned"
+    );
+}
+
+/// Parallel guesses cannot all slip past the ban check while the slow hash runs (SEC-03).
+#[test]
+fn parallel_guesses_stop_at_the_ban_limit() {
+    let t = Arc::new(Harness::start_slow("parallel-guesses", 20_000));
+    let guesses: Vec<_> = (0..20)
+        .map(|_| {
+            let t = t.clone();
+            std::thread::spawn(move || {
+                t.req("POST", "/api/v2/auth/login", &[], Body::Form("username=admin&password=wrong")).text()
+            })
+        })
+        .collect();
+    let answers: Vec<String> = guesses.into_iter().map(|g| g.join().unwrap()).collect();
+    let tried = answers.iter().filter(|a| *a == "Fails.").count();
+    assert!(tried <= 5, "{tried} guesses were checked: {answers:?}");
 }
 
 #[test]
@@ -2539,7 +2667,7 @@ fn native_prefs_model_and_partial_post() {
     // a valid partial change: applied at once, seen natively and through the shim, persisted
     let elsewhere = t.dir.join("elsewhere");
     let body = format!(
-        r#"{{"connections_limit":77,"download_rate_limit":51200,"dir.download":"{}","webui.domain_list":"*.example","webui.password":"new-pass","ui.show_add_dialog":false,"bt.max_peers":50,"alt_up_limit":2048}}"#,
+        r#"{{"connections_limit":77,"download_rate_limit":51200,"dir.download":"{}","webui.domain_list":"*.example","webui.password":"new-pass","webui.current_password":"{PASS}","ui.show_add_dialog":false,"bt.max_peers":50,"alt_up_limit":2048}}"#,
         elsewhere.to_string_lossy().replace('\\', "\\\\")
     );
     let r = t.pa(&sid, "/pa/prefs", &body);
@@ -2584,7 +2712,8 @@ fn native_prefs_model_and_partial_post() {
     assert_eq!(r.text(), "Ok.");
 
     // the shim's setPreferences lands on the same state (and clamps as before)
-    let set = r#"{"max_connec":-5,"encryption":1,"web_ui_domain_list":""}"#;
+    let set =
+        r#"{"max_connec":-5,"encryption":1,"web_ui_domain_list":"","web_ui_current_password":"new-pass"}"#;
     assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &format!("json={}", enc(set))).status, 200);
     let m = t.get(&sid, "/pa/prefs").json();
     let fields = m.get("fields").unwrap();
@@ -2617,7 +2746,7 @@ fn native_prefs_survive_a_restart() {
         );
 
         let body = format!(
-            r#"{{"listen_port":{port},"dir.download":"{}","enable_lsd":true,"webui.session_timeout":120}}"#,
+            r#"{{"listen_port":{port},"dir.download":"{}","enable_lsd":true,"webui.session_timeout":120,"webui.current_password":"{PASS}"}}"#,
             download.to_string_lossy().replace('\\', "\\\\")
         );
         let r = t.pa(&sid, "/pa/prefs", &body);

@@ -293,10 +293,26 @@ directly.
 
 As today: SID cookie, PBKDF2 password hash, failed-login ban (per IPv4 address, per /64 for
 IPv6), Host validation, bypass for local clients, CSRF checks on every `POST` and on the
-WebSocket handshake (`Origin` must match the request's own origin or the domain list). Added: `Content-Security-Policy: default-src 'self'`
-(so no inline script or style in the HTML), `X-Content-Type-Options: nosniff`,
-`Referrer-Policy: no-referrer`, `ETag` on the static files. A new password ends every other
-login: their sessions, WebSockets and `/pa/remote` connections; the session that changed it stays.
+WebSocket handshake: the `Origin` (or, without one, the `Referer`) must name the request's own
+`Host`. The domain list is not consulted for this. A request with neither header passes,
+since only browsers send them and the SID cookie is `SameSite=Strict`. Added:
+`Content-Security-Policy: default-src 'self'` (so no inline script or style in the HTML),
+`X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `ETag` on the static files.
+A new password ends every other login: their sessions, WebSockets and `/pa/remote`
+connections; the session that changed it stays.
+
+The login, the password, the local-auth bypass, Host validation, the domain list, CSRF
+protection, the ban settings and the session timeout change only with the current password:
+`webui.current_password` in `/pa/prefs`, or `web_ui_current_password` in the shim's
+`setPreferences` (our key: qBittorrent's API has none, so its clients cannot change these). A
+wrong current password ends the session that sent it. A failed login is counted before the
+password is hashed, so parallel guesses stop at the ban limit.
+
+Behind a reverse proxy on the same machine every client connects from loopback. A request
+with `X-Forwarded-For`, `Forwarded` or `X-Real-IP` never gets the local-auth bypass, and
+from a loopback peer the last `X-Forwarded-For` address (the one the proxy added) is the
+client for bans, so one client's failed logins do not ban everyone. Configure the proxy to
+set or append that header.
 
 HTTPS (`--webui-https`, or `--webui-cert FILE [--webui-key FILE]`): the port serves TLS only,
 through the OS library (SChannel on Windows, OpenSSL on Unix: `patorrent_core::tls`), TLS 1.2

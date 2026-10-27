@@ -281,7 +281,9 @@ fn a_new_password_ends_remote_sessions() {
     let r = post(
         "/api/v2/app/setPreferences",
         &format!("Cookie: SID={sid}\r\n"),
-        "json=%7B%22web_ui_password%22%3A%22another-one%22%7D",
+        &format!(
+            "json=%7B%22web_ui_password%22%3A%22another-one%22%2C%22web_ui_current_password%22%3A%22{PASS}%22%7D"
+        ),
     );
     assert!(r.starts_with("HTTP/1.1 200"), "{r}");
     h.wait_for(|a| matches!(a, Alert::RemoteDisconnected { .. }).then_some(()));

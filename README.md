@@ -1,9 +1,7 @@
 # PaTorrent
 
-> [!WARNING]
-> **Release candidate. Pre-release software.**
->
-> PaTorrent 1.0.0-rc.1 is the first public build. It works for the author, but it has had no wider testing: settings and saved state may still change between versions, some features are only half tested, and nothing is code-signed. Do not use it for torrents you care about, and do not use it on private trackers: its client ID is not whitelisted anywhere yet.
+> [!NOTE]
+> **PaTorrent 1.0.0 is the first stable release.** It has been used mostly by its author so far, and nothing is code-signed. Do not use it on private trackers yet: its client ID is not whitelisted anywhere.
 >
 > Feedback and [bug reports](https://github.com/Balls0fSteel/PaTorrent/issues) are welcome.
 
@@ -19,11 +17,11 @@ Website: <https://balls0fsteel.github.io/PaTorrent/>: downloads with how to star
   - low RAM and CPU use
   - 100,000 torrents on a modest PC, with an instant UI
 
-**Status:** release candidate, working toward 1.0 (see "Road to 1.0" in [PLAN.md](PLAN.md)). The engine downloads and seeds over TCP and uTP, with HTTP, HTTPS and UDP trackers, magnet links, DHT, peer exchange, local peer discovery, encryption, web seeds, proxies, UPnP / NAT-PMP and IP filters. The Win32 GUI has the µTorrent 2.2.1 main window, Preferences, the Add and Create dialogs, RSS and the scheduler; `patorrent-nox` runs headless with its own Web UI and a qBittorrent-compatible API. The GTK 4 GUI runs on Linux, BSD and macOS. BitTorrent v2 and hybrid torrents, 34 languages, HTTPS and remote mode are in; what remains before 1.0 is validation on more machines. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
+**Status:** 1.0. The engine downloads and seeds over TCP and uTP, with HTTP, HTTPS and UDP trackers, magnet links, DHT, peer exchange, local peer discovery, encryption, web seeds, proxies, UPnP / NAT-PMP and IP filters. The Win32 GUI has the µTorrent 2.2.1 main window, Preferences, the Add and Create dialogs, RSS and the scheduler; `patorrent-nox` runs headless with its own Web UI and a qBittorrent-compatible API. The GTK 4 GUI runs on Linux, BSD and macOS. BitTorrent v2 and hybrid torrents, 34 languages, HTTPS and remote mode are in. Validation on more machines continues in 1.0.x; version 1.1 plans importers for µTorrent and qBittorrent torrents and a filter for the torrent list. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
 
 ## Download
 
-Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.0.0-rc.1](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1). The archives need no installation: unpack and run; Windows also has an installer (from the release after 1.0.0-rc.1). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
+Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.0.0](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0). The archives need no installation: unpack and run; Windows also has an installer (from 1.0.0 on). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
 
 | Platform | File | What is inside |
 |---|---|---|
@@ -38,7 +36,7 @@ Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorr
 
 The builds are not code-signed, so Windows SmartScreen and macOS Gatekeeper warn the first time. How the files are made: [docs/RELEASING.md](docs/RELEASING.md).
 
-**Updates.** From the release after 1.0.0-rc.1, the Windows and GTK GUIs check the website's list of releases 10 seconds after they start and every 12 hours. When a newer version is out, a note shows in the status bar for a minute and links to its release page; nothing is downloaded or installed for you. Help > Check for Updates asks at once; Preferences > General > Privacy turns the automatic check off. The Flatpak leaves updating to Flathub.
+**Updates.** From 1.0.0 on, the Windows and GTK GUIs check the website's list of releases 10 seconds after they start and every 12 hours. When a newer version is out, a note shows in the status bar for a minute and links to its release page; nothing is downloaded or installed for you. Help > Check for Updates asks at once; Preferences > General > Privacy turns the automatic check off. The Flatpak leaves updating to Flathub.
 
 ## Building
 

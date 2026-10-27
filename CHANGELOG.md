@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_092114_1793089274: Version 1.0.0: notes, README and website wording (not tagged)
+
+- Version `1.0.0` in `Cargo.toml`, `Cargo.lock` and `fuzz/Cargo.lock` (only the workspace crates' versions changed); the peer ID stays `-PA1000-` and the Windows manifest `1.0.0.0`. The Flatpak metainfo's first `<release>` is 1.0.0, type stable.
+- **In 1.0.0 since rc.1:** the Windows installer (D31), the update check (D32), the version in the title, tray tooltip, Web UI tab and the exes' file properties, Help > PaTorrent Website, and the website (D33). No state format changed, so rc.1's settings and torrents carry over.
+- `docs/releases/1.0.0.md` is the release text: what is new since rc.1, the installer row and first-run step, and the known limitations without the pre-release warnings. README's banner is a note about the first stable release, its status names 1.0 and the V1.1 importers; README, the site's Download and FAQ pages and WEBSITE.md say "from 1.0.0 on" instead of "the release after 1.0.0-rc.1".
+- Validation: core version tests (peer ID against the version) and the frontend update tests pass; a debug `patorrent-nox --version` prints `patorrent-nox 1.0.0`, and `patorrent.exe`'s file properties read 1.0.0 with the pre-release flag off; rustfmt clean; site tests pass; the metainfo parses. CI on this commit decides the tag.
+
 ## 2026-10-27_091619_1793088979: 1.0.0 follows rc.1 directly (D34); V1.1 goals explored
 
 - **Decision D34** (owner): rc.1 runs fine, so the next release is 1.0.0, not rc.2. The open Road to 1.0 hand checks become 1.0.x validation; item 14 (version, notes, draft inspection) remains. PLAN.md's next step 1 is now the 1.0.0 release; no CI run has finished green since rc.1 (two were cancelled by newer pushes), so one must before tagging.

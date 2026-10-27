@@ -127,7 +127,7 @@ a new release reaches `update.txt` a little after its run.
 
 ## update.txt
 
-The update check of PaTorrent (from the release after 1.0.0-rc.1) reads
+The update check of PaTorrent (from 1.0.0 on) reads
 <https://balls0fsteel.github.io/PaTorrent/update.txt> when it starts and every 12 hours, sending
 only the User-Agent `PaTorrent/<version>`; Preferences > General > Privacy turns it off. The
 app's parser follows this contract; change both together.

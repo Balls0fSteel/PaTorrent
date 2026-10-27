@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-27_091619_1793088979
+Last updated: 2026-10-27_092114_1793089274
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D34](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -29,7 +29,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-1. **Release 1.0.0** (item 14, RELEASING.md): Release dry run 40470860315 passed every job (macOS and Flatpaks too), but no CI run has finished green since rc.1 (`9692f69f` and `73736841` were cancelled by newer pushes; `ddbac857` was running). Wait for a green CI, set version `1.0.0`, write `docs/releases/1.0.0.md` (what changed since rc.1: installer, update check, version display, website), tag and publish; then the Pages run puts `stable=1.0.0` in `update.txt`. 1.0.0 is the installer's first release: run its wizard and the all-users UAC path once on a real PC before tagging if possible.
+1. **Release 1.0.0** (item 14, RELEASING.md): the version is `1.0.0` and `docs/releases/1.0.0.md` is written (2026-10-27_092114_1793089274). Wait for CI to pass on the version commit (none has passed since rc.1; earlier runs were cancelled by newer pushes), then the owner decides on the tag `v1.0.0`; inspect the draft and publish; then the Pages run puts `stable=1.0.0` in `update.txt`. 1.0.0 is the installer's first release: run its wizard and the all-users UAC path once on a real PC before tagging if possible.
 2. After 1.0.0: plan V1.1 (below) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 3. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 4. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.

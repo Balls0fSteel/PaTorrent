@@ -340,11 +340,35 @@ pub(crate) struct TlsStream<S, T = Session> {
     plain: Vec<u8>,
     plain_pos: usize,
     eof: bool,
+    /// The session failed (a bad record, a certificate that did not pass): every later call
+    /// returns this again, so nothing is ever sent to a server that failed its check, whatever
+    /// the session's own state says (SEC-07).
+    failed: Option<(io::ErrorKind, String)>,
 }
 
 impl<S: Read + Write, T: TlsSession> TlsStream<S, T> {
     pub fn new(sock: S, tls: T) -> TlsStream<S, T> {
-        TlsStream { sock, tls, plain: Vec::new(), plain_pos: 0, eof: false }
+        TlsStream { sock, tls, plain: Vec::new(), plain_pos: 0, eof: false, failed: None }
+    }
+
+    /// Whether the peer ended the session with close_notify. A connection that just closed did
+    /// not: an attacker on the path can cut it, so a body that only the end of the connection
+    /// frames is complete only when this is true (SEC-07).
+    pub fn closed_cleanly(&self) -> bool {
+        self.tls.closed()
+    }
+
+    fn check_failed(&self) -> io::Result<()> {
+        match &self.failed {
+            Some((kind, message)) => Err(io::Error::new(*kind, message.clone())),
+            None => Ok(()),
+        }
+    }
+
+    /// Notes a session error for good and returns it.
+    fn fail(&mut self, e: io::Error) -> io::Error {
+        self.failed = Some((e.kind(), e.to_string()));
+        e
     }
 
     pub fn get_mut(&mut self) -> &mut S {
@@ -353,6 +377,7 @@ impl<S: Read + Write, T: TlsSession> TlsStream<S, T> {
 
     /// Runs the handshake to its end: see [`Stream::handshake`].
     pub fn handshake(&mut self) -> io::Result<()> {
+        self.check_failed()?;
         loop {
             self.flush_tls()?;
             if !self.tls.outgoing().is_empty() {
@@ -400,13 +425,17 @@ impl<S: Read + Write, T: TlsSession> TlsStream<S, T> {
                 self.eof = true;
                 Ok(())
             }
-            n => self.tls.feed(&chunk[..n], &mut self.plain),
+            n => match self.tls.feed(&chunk[..n], &mut self.plain) {
+                Err(e) => Err(self.fail(e)),
+                ok => ok,
+            },
         }
     }
 }
 
 impl<S: Read + Write, T: TlsSession> Read for TlsStream<S, T> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        self.check_failed()?;
         loop {
             self.flush_tls()?;
             if self.plain_pos < self.plain.len() {
@@ -419,8 +448,9 @@ impl<S: Read + Write, T: TlsSession> Read for TlsStream<S, T> {
                 }
                 return Ok(n);
             }
-            // A close without close_notify is accepted as the end of the stream: HTTP bodies are
-            // framed by Content-Length or chunking, which catches truncation in practice.
+            // A close without close_notify ends the stream too: HTTP bodies are framed by
+            // Content-Length or chunking, which catches truncation. A body framed by the close
+            // alone needs `closed_cleanly` (SEC-07).
             if self.eof || self.tls.closed() {
                 return Ok(0);
             }
@@ -431,6 +461,7 @@ impl<S: Read + Write, T: TlsSession> Read for TlsStream<S, T> {
 
 impl<S: Read + Write, T: TlsSession> Write for TlsStream<S, T> {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+        self.check_failed()?;
         while self.tls.handshaking() {
             self.flush_tls()?;
             if self.eof || self.tls.closed() {
@@ -442,7 +473,9 @@ impl<S: Read + Write, T: TlsSession> Write for TlsStream<S, T> {
             self.read_sock()?;
         }
         let n = buf.len().min(16 * 1024);
-        self.tls.encrypt(&buf[..n])?;
+        if let Err(e) = self.tls.encrypt(&buf[..n]) {
+            return Err(self.fail(e));
+        }
         self.flush_tls()?;
         Ok(n)
     }
@@ -524,11 +557,14 @@ mod tests {
         handshaking: bool,
         out: Vec<u8>,
         closed: bool,
+        /// Fails the certificate check after marking the handshake done, the order SEC-07
+        /// found in the back ends.
+        reject: bool,
     }
 
     impl XorSession {
         fn new() -> XorSession {
-            XorSession { handshaking: true, out: b"H".to_vec(), closed: false }
+            XorSession { handshaking: true, out: b"H".to_vec(), closed: false, reject: false }
         }
     }
 
@@ -541,6 +577,9 @@ mod tests {
                 match data.split_first() {
                     Some((b'S', rest)) => {
                         self.handshaking = false;
+                        if self.reject {
+                            return Err(io::Error::other("the server's certificate is not the accepted one"));
+                        }
                         data = rest;
                     }
                     _ => return Err(io::Error::other("bad handshake")),
@@ -673,6 +712,38 @@ mod tests {
         let sock = FakeSock { write_room: 100, incoming: [Some(b"X".to_vec())].into(), ..Default::default() };
         let mut s = TlsStream::new(sock, XorSession::new());
         assert_eq!(s.write(b"x").unwrap_err().to_string(), "bad handshake");
+    }
+
+    /// A session that failed its check stays failed: a caller that tries again gets the error
+    /// again and nothing is encrypted, though the session itself thinks the handshake is done
+    /// (SEC-07).
+    #[test]
+    fn a_failed_session_stays_failed() {
+        let sock = FakeSock { write_room: 100, incoming: [Some(b"S".to_vec())].into(), ..Default::default() };
+        let mut s = TlsStream::new(sock, XorSession { reject: true, ..XorSession::new() });
+        let e = s.handshake().unwrap_err();
+        assert!(e.to_string().contains("not the accepted one"), "{e}");
+        assert!(!s.tls.handshaking(), "the session thinks it is done");
+        assert!(s.handshake().is_err());
+        assert!(s.write(b"password").is_err());
+        assert!(s.read(&mut [0; 8]).is_err());
+        assert_eq!(s.sock.written, b"H", "nothing but the hello went out");
+    }
+
+    /// The end of the connection is a clean close only after close_notify (SEC-07).
+    #[test]
+    fn a_close_without_close_notify_is_not_clean() {
+        for (tail, clean) in [(vec![], false), (vec![0], true)] {
+            let mut seg = b"S".to_vec();
+            seg.extend(xor(b"body"));
+            seg.extend(tail);
+            let sock = FakeSock { write_room: 100, incoming: [Some(seg)].into(), ..Default::default() };
+            let mut s = TlsStream::new(sock, XorSession::new());
+            let mut got = Vec::new();
+            s.read_to_end(&mut got).unwrap();
+            assert_eq!(got, b"body");
+            assert_eq!(s.closed_cleanly(), clean);
+        }
     }
 
     // --- The OS backend ---------------------------------------------------------------------
@@ -861,9 +932,21 @@ mod tests {
         assert!(e.to_string().contains(&id.fingerprint().to_string()), "{e}");
         assert!(server.join().unwrap().is_err());
         // verified against the system's roots: a self-signed certificate is not trusted
-        let (addr, server) = serve_once(id);
+        let (addr, server) = serve_once(id.clone());
         let e = fetch(addr, "localhost", Verify::System).unwrap_err();
         eprintln!("system verification: {e}");
+        assert!(server.join().unwrap().is_err());
+        // the back end does not mark the handshake done for a certificate that failed, and a
+        // second try fails too: nothing is encrypted for that server (SEC-07)
+        let (addr, server) = serve_once(id);
+        let sock = std::net::TcpStream::connect(addr).unwrap();
+        sock.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
+        let mut c = Stream::connect(sock, "localhost", Verify::Pinned(other.fingerprint())).unwrap();
+        assert!(c.handshake().is_err());
+        assert!(c.is_handshaking(), "the session must not count as established");
+        assert!(c.handshake().is_err());
+        assert!(c.write_all(b"ping").is_err());
+        drop(c);
         assert!(server.join().unwrap().is_err());
     }
 

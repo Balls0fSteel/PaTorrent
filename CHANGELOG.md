@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_205407_1793130847: Security fix SEC-07: TLS sessions stay failed, clients need TLS 1.2, feeds need close_notify
+
+- **Fix:** SChannel and OpenSSL clear `handshaking` only after the certificate check. `TlsStream` remembers a session error and returns it on every later call. Secure Transport requires its `verified` flag at the end of a client handshake. Clients require TLS 1.2 or later on all three back ends. `fetch` refuses an EOF-framed body when the TLS server closed without close_notify.
+- **Tests:** four regressions (mock session, stand-in stream, a real SChannel client pinned to the wrong certificate), each proven to fail when reverted. The live HTTPS tests (`LT_NETWORK_TESTS=1`) pass. The OpenSSL and Secure Transport changes are compile-checked only. Still open: revocation.
+
 ## 2026-10-27_204307_1793130187: Security fix SEC-03: Web UI security settings need the current password; proxies get no bypass
 
 - **Current password:** the Web UI's login and security settings (`SECURITY_FIELDS` plus the password) change only with `webui.current_password`, a new write-only field in the Preferences dialog's Authentication group, or `web_ui_current_password` in the shim. A wrong one ends the requesting session. This also closes SEC-24's open part. New strings `PrefCurrentPassword` and `PrefNeedCurrentPassword`, machine-translated into the 34 languages.

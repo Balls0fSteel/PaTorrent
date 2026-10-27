@@ -151,6 +151,10 @@ fn context() -> io::Result<Handle> {
                 return Err(last_error());
             }
             SSL_CTX_set_verify(ctx, SSL_VERIFY_PEER, ptr::null());
+            // TLS 1.2 and later: 1.0 and 1.1 are deprecated (RFC 8996, SEC-07)
+            if SSL_CTX_ctrl(ctx, SSL_CTRL_SET_MIN_PROTO_VERSION, TLS1_2_VERSION, ptr::null_mut()) != 1 {
+                return Err(last_error());
+            }
             Ok(Context(ctx))
         }
     });
@@ -335,7 +339,6 @@ impl Session {
             SSL_do_handshake(self.ssl)
         };
         if r == 1 {
-            self.handshaking = false;
             if let Check::Pinned(pin) = self.check {
                 let leaf = self.peer();
                 if leaf != Some(pin) {
@@ -346,6 +349,8 @@ impl Session {
                     )));
                 }
             }
+            // done only once the certificate passed (SEC-07)
+            self.handshaking = false;
         } else {
             // SAFETY: as above, with the return value of the call just made.
             let e = unsafe { SSL_get_error(self.ssl, r) };

@@ -38,8 +38,8 @@ use windows_sys::Win32::Security::Authentication::Identity::{
     SECBUFFER_VERSION, SECPKG_ATTR_REMOTE_CERT_CONTEXT, SECPKG_ATTR_STREAM_SIZES, SECPKG_CRED_INBOUND,
     SECPKG_CRED_OUTBOUND, SP_PROT_PCT1_CLIENT, SP_PROT_PCT1_SERVER, SP_PROT_SSL2_CLIENT, SP_PROT_SSL2_SERVER,
     SP_PROT_SSL3_CLIENT, SP_PROT_SSL3_SERVER, SP_PROT_TLS1_0_CLIENT, SP_PROT_TLS1_0_SERVER,
-    SP_PROT_TLS1_1_CLIENT, SP_PROT_TLS1_1_SERVER, SP_PROT_TLS1_2_SERVER, SecBuffer, SecBufferDesc,
-    SecPkgContext_StreamSizes, TLS_PARAMETERS, UNISP_NAME_W,
+    SP_PROT_TLS1_1_CLIENT, SP_PROT_TLS1_1_SERVER, SP_PROT_TLS1_2_CLIENT, SP_PROT_TLS1_2_SERVER, SecBuffer,
+    SecBufferDesc, SecPkgContext_StreamSizes, TLS_PARAMETERS, UNISP_NAME_W,
 };
 use windows_sys::Win32::Security::Credentials::SecHandle;
 use windows_sys::Win32::Security::Cryptography::{
@@ -89,15 +89,15 @@ fn client_credentials(pinned: bool) -> io::Result<SecHandle> {
         (&VERIFYING, SCH_CRED_AUTO_CRED_VALIDATION)
     };
     let flags = validation | SCH_CRED_NO_DEFAULT_CREDS | SCH_USE_STRONG_CRYPTO;
-    match *cell.get_or_init(|| acquire_credentials(SECPKG_CRED_OUTBOUND, flags, &mut [], false)) {
+    // TLS 1.2 and later, as for the server: 1.0 and 1.1 are deprecated (RFC 8996, SEC-07)
+    match *cell.get_or_init(|| acquire_credentials(SECPKG_CRED_OUTBOUND, flags, &mut [], true)) {
         Ok(h) => Ok(h),
         Err(code) => Err(error("TLS is not available", code)),
     }
 }
 
 /// Credentials for one direction; a server passes its certificate. `tls12` turns off what came
-/// before TLS 1.2, whatever the system allows (a client keeps the system's choice, for old
-/// trackers).
+/// before TLS 1.2, whatever the system allows.
 fn acquire_credentials(
     direction: u32,
     flags: u32,
@@ -135,7 +135,11 @@ fn acquire_credentials(
         cCreds: count,
         paCred: certs,
         dwFlags: flags,
-        grbitEnabledProtocols: if tls12 { SP_PROT_TLS1_2_SERVER } else { 0 },
+        grbitEnabledProtocols: match (tls12, direction == SECPKG_CRED_OUTBOUND) {
+            (false, _) => 0,
+            (true, true) => SP_PROT_TLS1_2_CLIENT,
+            (true, false) => SP_PROT_TLS1_2_SERVER,
+        },
         ..Default::default()
     };
     let mut status = 0;
@@ -357,9 +361,11 @@ impl Session {
                         self.input.drain(..used);
                     }
                     if status == SEC_E_OK {
-                        self.handshaking = false;
+                        // done only once the certificate passed (SEC-07)
                         self.query_sizes()?;
-                        return self.check_peer();
+                        self.check_peer()?;
+                        self.handshaking = false;
+                        return Ok(());
                     }
                     if hello {
                         return Ok(());

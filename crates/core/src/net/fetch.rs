@@ -424,9 +424,16 @@ fn get_once(
     };
     let resp = if https {
         let session = tls::client(&url.host)?;
-        exchange(TlsStream::new(sock, session), tls_socket, &req, opts.max_size, deadline)
+        exchange(
+            TlsStream::new(sock, session),
+            tls_socket,
+            TlsStream::closed_cleanly,
+            &req,
+            opts.max_size,
+            deadline,
+        )
     } else {
-        exchange(sock, plain_socket, &req, opts.max_size, deadline)
+        exchange(sock, plain_socket, |_| true, &req, opts.max_size, deadline)
     }?;
     Ok((resp, public))
 }
@@ -453,6 +460,7 @@ fn set_timeouts(sock: &TcpStream, deadline: Instant) -> Result<(), FetchError> {
 fn exchange<S: Read + Write>(
     mut s: S,
     sock: fn(&mut S) -> &TcpStream,
+    clean_close: fn(&S) -> bool,
     req: &[u8],
     max: usize,
     deadline: Instant,
@@ -474,6 +482,13 @@ fn exchange<S: Read + Write>(
             Err(e) => return Err(e.into()),
         };
         if n == 0 {
+            // a body only the end of the connection frames: over TLS that end must be the
+            // server's close_notify, or someone on the path could cut it short (SEC-07)
+            if framing.is_some_and(|(len, chunked, _)| len < 0 && !chunked) && !clean_close(&s) {
+                return Err(FetchError::Http(
+                    "the TLS connection ended without close_notify: the response may be cut short",
+                ));
+            }
             break parser.parse(&buf, true);
         }
         buf.extend_from_slice(&chunk[..n]);
@@ -704,6 +719,50 @@ mod tests {
         s.proxy_peer_connections = false;
         assert_eq!(FetchProxy::from_settings(&s).unwrap().label(), "socks5://127.0.0.1:1080");
         assert!(FetchProxy::from_settings(&Settings::default()).is_none());
+    }
+
+    /// A stand-in for a TLS stream (with a real socket for the timeouts): `data`, then the end
+    /// of the connection, with close_notify or without.
+    struct Ended {
+        tcp: TcpStream,
+        data: io::Cursor<Vec<u8>>,
+        clean: bool,
+    }
+
+    impl Read for Ended {
+        fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+            self.data.read(buf)
+        }
+    }
+
+    impl Write for Ended {
+        fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
+            Ok(buf.len())
+        }
+        fn flush(&mut self) -> io::Result<()> {
+            Ok(())
+        }
+    }
+
+    /// A body that only the end of the connection frames is taken over TLS only after
+    /// close_notify: an attacker on the path could otherwise cut a feed short (SEC-07).
+    #[test]
+    fn a_body_framed_by_the_close_needs_close_notify() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let tcp = TcpStream::connect(l.local_addr().unwrap()).unwrap();
+        let run = |resp: &[u8], clean: bool| {
+            let s = Ended { tcp: tcp.try_clone().unwrap(), data: io::Cursor::new(resp.to_vec()), clean };
+            let deadline = Instant::now() + Duration::from_secs(5);
+            exchange(s, |e| &e.tcp, |e| e.clean, b"GET / HTTP/1.1\r\n\r\n", 1 << 20, deadline)
+        };
+        let unframed = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n<rss>items</rss>";
+        let e = run(unframed, false).unwrap_err();
+        assert!(e.to_string().contains("close_notify"), "{e}");
+        assert_eq!(run(unframed, true).unwrap().body, b"<rss>items</rss>");
+        // a framed body needs no close_notify: its length tells when it is complete
+        assert_eq!(run(b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nbody", false).unwrap().body, b"body");
+        let chunked = b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nbody\r\n0\r\n\r\n";
+        assert_eq!(run(chunked, false).unwrap().body, b"body");
     }
 
     #[test]

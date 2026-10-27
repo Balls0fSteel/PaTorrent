@@ -297,6 +297,9 @@ pub(crate) struct Session {
     closed: bool,
     /// The server's certificate, as a client saw it.
     peer: Option<Fingerprint>,
+    /// A client checked the server's certificate. A handshake that ends without the
+    /// server-auth break never checked it, and fails (SEC-07).
+    verified: bool,
 }
 
 // SAFETY: the context and the buffers belong to this session alone and are only used through
@@ -312,8 +315,16 @@ impl Session {
         }
         let io = Box::into_raw(Box::new(Io { input: Vec::new(), pos: 0, out: Vec::new() }));
         // from here on Drop frees both
-        let s =
-            Session { ctx, io, client: None, handshaking: true, started: false, closed: false, peer: None };
+        let s = Session {
+            ctx,
+            io,
+            client: None,
+            handshaking: true,
+            started: false,
+            closed: false,
+            peer: None,
+            verified: false,
+        };
         // SAFETY: the context is live; the connection pointer stays valid until Drop releases
         // the context, and the callbacks treat it as the `Io` it is.
         let mut status = unsafe { SSLSetIOFuncs(ctx, read_func, write_func) };
@@ -334,6 +345,11 @@ impl Session {
         let mut s = Session::new(K_SSL_CLIENT_SIDE)?;
         // SAFETY: the context is live and not started; Secure Transport copies the name.
         let mut status = unsafe { SSLSetSessionOption(s.ctx, K_SSL_SESSION_OPTION_BREAK_ON_SERVER_AUTH, 1) };
+        // TLS 1.2 and later: 1.0 and 1.1 are deprecated (RFC 8996, SEC-07)
+        if status == NO_ERR {
+            // SAFETY: as above.
+            status = unsafe { SSLSetProtocolVersionMin(s.ctx, K_TLS_PROTOCOL_12) };
+        }
         // SNI names hosts, never addresses (RFC 6066)
         if status == NO_ERR && host.parse::<IpAddr>().is_err() {
             // SAFETY: as above; `host` is valid for its length.
@@ -374,11 +390,19 @@ impl Session {
             // SAFETY: the context is live; the callbacks use the session's `Io` only.
             match unsafe { SSLHandshake(self.ctx) } {
                 NO_ERR => {
+                    if self.client.is_some() && !self.verified {
+                        return Err(io::Error::other(
+                            "TLS handshake failed: the server's certificate was not checked",
+                        ));
+                    }
                     self.handshaking = false;
                     return Ok(());
                 }
                 ERR_SSL_WOULD_BLOCK => return Ok(()),
-                ERR_SSL_PEER_AUTH_COMPLETED => self.check_server()?,
+                ERR_SSL_PEER_AUTH_COMPLETED => {
+                    self.check_server()?;
+                    self.verified = true;
+                }
                 // a server asking for a client certificate gets none
                 ERR_SSL_CLIENT_CERT_REQUESTED => {}
                 e => return Err(error("TLS handshake failed", e)),

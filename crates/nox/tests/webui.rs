@@ -120,9 +120,14 @@ impl Harness {
     }
 
     fn start_in(dir: PathBuf, password: Option<&str>) -> Harness {
+        Harness::start_rooted(dir, password, Vec::new())
+    }
+
+    /// [`Harness::start_in`] with `--webui-save-root` folders.
+    fn start_rooted(dir: PathBuf, password: Option<&str>, save_roots: Vec<PathBuf>) -> Harness {
         let settings = Harness::settings();
         let session = Session::start(SessionParams { settings: settings.clone(), state_dir: None }).unwrap();
-        Harness::with_session(dir, password, settings, session)
+        Harness::with_session(dir, password, settings, session, save_roots)
     }
 
     /// A real session with `settings` that keeps its torrents in `dir/engine`, so a harness
@@ -130,7 +135,7 @@ impl Harness {
     fn start_with(dir: PathBuf, settings: Settings) -> Harness {
         let state_dir = Some(dir.join("engine"));
         let session = Session::start(SessionParams { settings: settings.clone(), state_dir }).unwrap();
-        Harness::with_session(dir, Some(PASS), settings, session)
+        Harness::with_session(dir, Some(PASS), settings, session, Vec::new())
     }
 
     /// The simulated engine with `n` synthetic torrents, `active` of them force-started; the
@@ -145,13 +150,20 @@ impl Harness {
         };
         let config = MockConfig { initial_torrents: n, active_fraction: active, ..MockConfig::default() };
         let session = Session::start_mock(settings.clone(), config);
-        Harness::with_session(temp_dir(name), Some(PASS), settings, session)
+        Harness::with_session(temp_dir(name), Some(PASS), settings, session, Vec::new())
     }
 
-    fn with_session(dir: PathBuf, password: Option<&str>, settings: Settings, session: Session) -> Harness {
+    fn with_session(
+        dir: PathBuf,
+        password: Option<&str>,
+        settings: Settings,
+        session: Session,
+        save_roots: Vec<PathBuf>,
+    ) -> Harness {
         let h = session.handle();
         let mut c = Config::new("127.0.0.1:0".parse().unwrap(), settings, dir.join("dl").to_string_lossy());
         c.password = password.map(str::to_owned);
+        c.save_roots = save_roots;
         c.state_dir = Some(dir.join("state"));
         c.pbkdf2_iterations = 2;
         let web = Arc::new(WebUi::start(h.clone(), c).unwrap());
@@ -3026,4 +3038,45 @@ fn url_adds_go_through_the_sessions_proxy() {
     assert_eq!(r.status, 204, "{}", r.text());
     assert_eq!(log.lock().unwrap().len(), 2);
     assert_eq!(log.lock().unwrap()[1], "GET http://indexer.invalid/get/2.torrent HTTP/1.1");
+}
+
+/// SEC-05: a Web UI login does not reach every path. Network, relative and `..` paths are
+/// refused everywhere; with `--webui-save-root` only those folders are used, for adding,
+/// moving and the Directories preferences alike.
+#[test]
+fn request_paths_follow_the_save_roots() {
+    let dir = temp_dir("save-roots");
+    let root = dir.join("media");
+    let t = Harness::start_rooted(dir.clone(), Some(PASS), vec![root.clone()]);
+    let sid = t.login();
+    let (bytes, hash) = torrent();
+    let outside = dir.join("outside");
+    let unc = if cfg!(windows) { r"\attacker\share\x" } else { "relative/dir" };
+    let traversal = root.join("..").join("outside");
+    for save in [outside.to_string_lossy(), unc.into(), traversal.to_string_lossy()] {
+        let (body, boundary) = multipart(&[("savepath", save.as_ref())], &bytes);
+        let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+        assert_eq!(r.status, 400, "add to {save}: {}", r.text());
+        let r =
+            t.post(&sid, "/api/v2/torrents/setLocation", &format!("hashes={hash}&location={}", enc(&save)));
+        assert_eq!(r.status, 400, "move to {save}");
+    }
+    assert!(!outside.exists(), "nothing is created outside the roots");
+
+    // inside the root works
+    let inside = root.join("films").to_string_lossy().into_owned();
+    let (body, boundary) = multipart(&[("savepath", &inside)], &bytes);
+    let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+    assert_eq!((r.status, r.text().as_str()), (200, "Ok."));
+    t.wait_for(&sid, &hash, "the added torrent", |x| s(x.get("save_path")).contains("films"));
+
+    // preferences: a folder outside the roots is refused, one inside is taken
+    let before = t.get(&sid, "/api/v2/app/defaultSavePath").text();
+    let set = |path: &str| {
+        let json = format!("{{\"save_path\":{}}}", Json::Str(path.into()).to_json());
+        assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &format!("json={}", enc(&json))).status, 200);
+        t.get(&sid, "/api/v2/app/defaultSavePath").text()
+    };
+    assert_eq!(set(&outside.to_string_lossy()), before);
+    assert_eq!(set(&inside), inside);
 }

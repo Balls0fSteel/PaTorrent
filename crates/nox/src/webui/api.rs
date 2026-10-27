@@ -657,6 +657,11 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
                 return Response::text(400, "category name is empty");
             }
             let save_path = p.get("savePath").unwrap_or("").to_owned();
+            if !save_path.trim().is_empty() {
+                if let Err(why) = shared.path_policy.check(&save_path) {
+                    return Response::text(400, why);
+                }
+            }
             let mut st = shared.lock();
             let exists = st.categories.contains_key(&name);
             if endpoint == "torrents/createCategory" {
@@ -783,6 +788,10 @@ fn set_location(shared: &Shared, p: &Params) -> Response {
     let dir = p.get("location").unwrap_or("").trim();
     if dir.is_empty() {
         return Response::text(400, "Save path is empty");
+    }
+    // before anything is created: a UNC path alone would connect out
+    if let Err(why) = shared.path_policy.check(dir) {
+        return Response::text(400, why);
     }
     if let Err(e) = std::fs::create_dir_all(dir) {
         return if e.kind() == std::io::ErrorKind::PermissionDenied {

@@ -101,7 +101,7 @@ pub fn unescape_string(s: &[u8]) -> Option<Vec<u8>> {
 /// Percent-encodes the path of `url` if it contains characters that need it, leaving
 /// already-valid URLs (and anything that doesn't parse as a URL) untouched.
 pub fn maybe_url_encode(url: &str) -> String {
-    let Ok(u) = parse_url_components(url) else { return url.to_owned() };
+    let Ok(u) = split_url(url) else { return url.to_owned() };
     if !need_encoding(u.path.as_bytes()) {
         return url.to_owned();
     }
@@ -223,9 +223,25 @@ pub enum UrlError {
     UnsupportedProtocol,
     ExpectedCloseBracket,
     InvalidPort,
+    /// A control character (CR, LF, NUL, ...) inside the URL. Our requests are built by
+    /// formatting URL parts into a request line, so one of these would split it (SEC-19).
+    InvalidCharacter,
 }
 
+/// libtorrent `parse_url_components`, refusing URLs with control characters, since the parts
+/// go straight into HTTP request lines. Surrounding whitespace is trimmed first, as torrents
+/// in the wild end announce URLs with a newline.
 pub fn parse_url_components(url: &str) -> Result<UrlParts, UrlError> {
+    let url = trim(url);
+    if url.bytes().any(|b| b < 0x20 || b == 0x7f) {
+        return Err(UrlError::InvalidCharacter);
+    }
+    split_url(url)
+}
+
+/// [`parse_url_components`] without the character check, for [`maybe_url_encode`], which
+/// escapes such characters instead.
+fn split_url(url: &str) -> Result<UrlParts, UrlError> {
     let url = ltrim(url);
     let colon = url.find(':').ok_or(UrlError::UnsupportedProtocol)?;
     let protocol = &url[..colon];
@@ -406,5 +422,22 @@ mod tests {
         assert_eq!(parse_url_components("http:/x"), Err(UrlError::UnsupportedProtocol));
         assert_eq!(parse_url_components("http://[::1"), Err(UrlError::ExpectedCloseBracket));
         assert_eq!(parse_url_components("http://h:8x/"), Err(UrlError::InvalidPort));
+    }
+
+    /// SEC-19: a percent-decoded magnet `tr=` must not smuggle lines into a request.
+    #[test]
+    fn url_control_characters_rejected() {
+        for url in [
+            "http://127.0.0.1:6379/announce\r\nCONFIG SET dir /tmp\r\n",
+            "http://127.0.0.1:6379/announce\nX",
+            "http://a.b/x\0y",
+            "http://a.b/x\x7fy",
+            "http://a\r\nb/announce",
+            "http://u\n:p@a.b/",
+        ] {
+            assert_eq!(parse_url_components(url), Err(UrlError::InvalidCharacter), "{url:?}");
+        }
+        // trailing whitespace, common in announce lists, is trimmed rather than refused
+        assert_eq!(parse_url_components("http://a.b/announce\r\n").unwrap().path, "/announce");
     }
 }

@@ -277,6 +277,10 @@ impl ResponseParser {
         let message = parts.next().unwrap_or_default().to_owned();
         let mut headers = Vec::new();
         for line in lines {
+            // a bare CR or LF would carry into a redirect's request line (SEC-19)
+            if line.contains(['\r', '\n']) {
+                return Err(ParseError::Invalid("invalid HTTP header"));
+            }
             if let Some((k, v)) = line.split_once(':') {
                 headers.push((k.trim().to_owned(), v.trim().to_owned()));
             }
@@ -432,6 +436,25 @@ mod tests {
         let resp = parse_response(eof, true).unwrap();
         assert_eq!((resp.status, &resp.body[..]), (404, &b"nope"[..]));
         assert!(matches!(parse_response(b"SSH-2.0\r\n\r\n", true), Err(ParseError::Invalid(_))));
+    }
+
+    /// SEC-19: neither a magnet's tracker nor a tracker's redirect can put a line break into the
+    /// request line we send (which would speak to Redis or similar on 127.0.0.1).
+    #[test]
+    fn no_line_breaks_reach_a_request() {
+        let magnet = crate::metainfo::magnet::parse_magnet_uri(
+            "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567\
+             &tr=http%3A%2F%2F127.0.0.1%3A6379%2Fannounce%0D%0ACONFIG%20SET%20dir%20%2Ftmp%0D%0A",
+        )
+        .unwrap();
+        assert!(magnet.trackers[0].contains("\r\n"));
+        assert!(Url::parse(&magnet.trackers[0]).is_none());
+
+        let redirect = b"HTTP/1.1 302 Found\r\nLocation: /announce\nFLUSHALL\r\n\r\n";
+        assert!(matches!(parse_response(redirect, true), Err(ParseError::Invalid(_))));
+        let base = Url::parse("http://127.0.0.1:6379/announce").unwrap();
+        let next = resolve_redirect(&base, "/announce\nFLUSHALL").unwrap();
+        assert!(Url::parse(&next).is_none());
     }
 
     /// Security review 2026-10-22: a header that never ends is refused once it passes

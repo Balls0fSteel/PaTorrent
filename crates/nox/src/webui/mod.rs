@@ -18,6 +18,7 @@ pub mod http;
 pub mod https;
 pub mod json;
 pub mod native;
+pub mod path_policy;
 pub(crate) mod prefs;
 mod remote;
 pub(crate) mod rss;
@@ -91,6 +92,9 @@ pub struct Config {
     pub ip_filter: Option<PathBuf>,
     /// Serve HTTPS with this certificate instead of plain HTTP.
     pub https: Option<https::Certificate>,
+    /// `--webui-save-root`: the folders requests may save, move and read in (none = any
+    /// absolute local path; see [`path_policy`]).
+    pub save_roots: Vec<PathBuf>,
 }
 
 impl Config {
@@ -107,6 +111,7 @@ impl Config {
             move_completed_dir: None,
             ip_filter: None,
             https: None,
+            save_roots: Vec::new(),
         }
     }
 }
@@ -412,6 +417,8 @@ pub(crate) struct Shared {
     pub rss: Mutex<rss::Rss>,
     /// The certificate when serving HTTPS.
     pub tls: Option<patorrent_core::tls::Identity>,
+    /// The paths requests may name; fixed at start.
+    pub path_policy: path_policy::PathPolicy,
     /// The connected remote sessions' alert queues ([`Shared::fan_out`]).
     pub(crate) remotes: Mutex<Vec<Arc<remote::Client>>>,
 }
@@ -725,6 +732,7 @@ impl WebUi {
                 config.state_dir.as_ref().map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
             )),
             tls: loaded.map(|l| l.identity),
+            path_policy: path_policy::PathPolicy::new(config.save_roots.clone()),
             remotes: Mutex::new(Vec::new()),
         });
         {

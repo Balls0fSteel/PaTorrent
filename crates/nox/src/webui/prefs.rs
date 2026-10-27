@@ -28,6 +28,7 @@ use patorrent_frontend::tr;
 
 use super::auth::PasswordHash;
 use super::json::Json;
+use super::path_policy::PathPolicy;
 use super::{Prefs, Shared, State, unix_now};
 
 /// A field's type, as the page sees it.
@@ -1117,6 +1118,28 @@ pub(crate) fn validate(w: &Working) -> Result<(), Refusal> {
     Ok(())
 }
 
+/// The folders and files a change names, against the path policy (SEC-05). Only paths that
+/// change are checked, so a relative folder given on the command line keeps working.
+fn check_paths(w: &Working, old: &Working, policy: &PathPolicy) -> Result<(), Refusal> {
+    let paths = |w: &Working| {
+        let tf = &w.prefs.torrent_folders;
+        [
+            ("dir.download", w.prefs.save_path.clone()),
+            ("dir.completed", w.prefs.completed_dir.clone()),
+            ("dir.torrents", tf.store_dir.clone()),
+            ("dir.finished_torrents", tf.finished_dir.clone()),
+            ("dir.autoload_dir", tf.autoload_dir.clone()),
+            ("ipfilter.path", w.prefs.ip_filter_path.clone()),
+        ]
+    };
+    for ((id, new), (_, was)) in paths(w).into_iter().zip(paths(old)) {
+        if new != was && !new.trim().is_empty() {
+            policy.check(&new).map_err(|why| (id.to_owned(), why.to_owned()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Applies parsed changes to a working copy of `st`, checks it, and commits: engine settings
 /// through `apply_settings` (with the global limits of the mode in force), the IP filter loaded
 /// or cleared, peer exchange toggled on every torrent, a new password hashed, the folders
@@ -1128,6 +1151,7 @@ pub(crate) fn commit(shared: &Shared, st: &mut State, changes: &[Change]) -> Res
     }
     validate(&w)?;
     let old = Working::from_state(st);
+    check_paths(&w, &old, &shared.path_policy)?;
 
     // the IP filter first: a block list that does not load refuses the whole change
     let filter = |w: &Working| (w.prefs.ip_filter, w.prefs.gui().ip_filter_file(&shared.settings_dir));

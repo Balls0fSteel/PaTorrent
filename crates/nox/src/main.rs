@@ -133,6 +133,10 @@ OPTIONS:
                       Web UI login (default user admin); the password is stored as a salted
                       PBKDF2 hash in the config directory. Without one, a temporary password
                       is printed at start
+    --webui-save-root DIR
+                      Repeatable. Web UI requests may only save, move, autoload and read in
+                      these folders (and below). Anyone with the Web UI login can otherwise
+                      use any absolute local path the daemon's account can reach
     --webui-https     Serve the Web UI over HTTPS with a self-signed certificate, made on first
                       use and kept in the config directory (webui-cert.pem, webui-key.pem;
                       renewed a month before it expires). Its fingerprint is printed at start
@@ -193,6 +197,7 @@ struct Opts {
     webui: Option<std::net::SocketAddr>,
     webui_user: Option<String>,
     webui_pass: Option<String>,
+    webui_save_roots: Vec<PathBuf>,
     webui_https: bool,
     webui_cert: Option<PathBuf>,
     webui_key: Option<PathBuf>,
@@ -230,6 +235,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         webui: None,
         webui_user: None,
         webui_pass: None,
+        webui_save_roots: Vec::new(),
         webui_https: false,
         webui_cert: None,
         webui_key: None,
@@ -279,6 +285,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--webui" => o.webui = Some(webui::parse_addr(&value("--webui")?)?),
             "--webui-user" => o.webui_user = Some(value("--webui-user")?),
             "--webui-pass" => o.webui_pass = Some(value("--webui-pass")?),
+            "--webui-save-root" => o.webui_save_roots.push(value("--webui-save-root")?.into()),
             "--webui-https" => o.webui_https = true,
             "--webui-cert" => o.webui_cert = Some(value("--webui-cert")?.into()),
             "--webui-key" => o.webui_key = Some(value("--webui-key")?.into()),
@@ -949,6 +956,7 @@ fn start_webui(
     let mut c = webui::Config::new(addr, settings, save);
     c.username = o.webui_user.clone().unwrap_or(c.username);
     c.password = o.webui_pass.clone();
+    c.save_roots = o.webui_save_roots.clone();
     // webui.json and the default ipfilter.dat live in the config directory (`paths`)
     c.state_dir = config_dir;
     c.move_completed_dir = move_dir.clone();

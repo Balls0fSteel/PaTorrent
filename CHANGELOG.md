@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_133305_1793107985: Security fixes SEC-19, SEC-09, SEC-05
+
+- **SEC-19 (fixed):** `parse_url_components` trims whitespace and refuses URLs with control characters, so a magnet `tr=`/`ws=`, an announce URL, a UPnP control URL or a redirect can no longer put CR/LF into a request line. `maybe_url_encode` keeps a lenient split. HTTP responses with a bare CR/LF in a header line are refused.
+- **SEC-09 (partly):** `MerkleTree::add_hashes` checks the proof read-only before expanding to the full tree, so a peer's junk `hashes` message no longer allocates gigabytes. A torrent author's own giant v2 file still expands on valid hashes or the first block, as in libtorrent; a memory cap remains open.
+- **SEC-05 (partly):** new `webui/path_policy.rs`: request paths must be rooted, without `..`, and on Windows plain drive paths (no UNC, `\\?\`, device or stream paths, which also stops NTLM leaks to `\\host`). New `nox run --webui-save-root DIR` (repeatable, command line only) limits adds, moves, category paths and the folder/IP-filter preferences to those folders. Only changed preference paths are checked, so existing relative CLI folders keep working. Refusal texts are English (like the other command errors), not translated.
+- **Issue met:** the first policy used `is_absolute`, which on Windows refused `/data/new` (rooted on the current drive) and broke two Web UI tests; it now requires `has_root` and still refuses `C:dir`.
+- Validation: a regression test for each (fails without the fix); core 739, nox (32 Web UI), frontend and Win32 suites pass; workspace clippy with warnings denied and rustfmt clean. The separate fuzz workspace has pre-existing `collapsible_if` clippy errors in untouched targets (`nox_http.rs`, `dht_message.rs`, `utp.rs`).
+
 ## 2026-10-27_132153_1793107313: Security review of SEC-01 to SEC-18
 
 - Seven parallel Opus reviewers read the code for the 18 targets (read-only, no runtime tests); the key claim of every High and Medium item was rechecked by hand. Findings filled in `SECURITY.md`, with eight new items (SEC-19 to SEC-26) and a fix-order table.

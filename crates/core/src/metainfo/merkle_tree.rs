@@ -330,8 +330,6 @@ impl MerkleTree {
             return None;
         }
 
-        self.allocate_full();
-
         let mut tree = vec![Sha256Hash::default(); merkle_num_nodes(leaf_count)];
         let tree_len = tree.len();
         tree[tree_len - leaf_count..tree_len - leaf_count + hashes.len()].copy_from_slice(hashes);
@@ -357,6 +355,12 @@ impl MerkleTree {
         let base_num_layers = merkle_num_layers(leaf_count);
         // the node where the subtree's root goes, which the uncle hashes prove
         let insert_root_idx = dest_start_idx >> base_num_layers;
+        // Check the proof against the storage as it is before expanding to the full tree: for a
+        // large file that is gigabytes, and any peer can send hashes (SEC-09).
+        if !self.proof_reaches_known_node(insert_root_idx, tree[0], uncle_hashes) {
+            return None;
+        }
+        self.allocate_full();
         if !merkle_validate_and_insert_proofs(&mut self.tree, insert_root_idx, &tree[0], uncle_hashes) {
             return None;
         }
@@ -492,6 +496,31 @@ impl MerkleTree {
             self.optimize_storage();
         }
         (SetBlockResult::Ok, leafs_start, leafs_size)
+    }
+
+    /// Whether `node`, placed at `idx` and hashed up with `uncle_hashes`, meets the first known
+    /// node on its way to the root with the right hash: what [`merkle_validate_and_insert_proofs`]
+    /// decides, without writing (or allocating) anything. Only the first known node is computed.
+    fn proof_reaches_known_node(
+        &self,
+        mut idx: usize,
+        node: Sha256Hash,
+        uncle_hashes: &[Sha256Hash],
+    ) -> bool {
+        if self.has_node(idx) {
+            return self.compare_node(idx, &node);
+        }
+        let mut hash = node;
+        for proof in uncle_hashes {
+            let sibling = merkle_get_sibling(idx);
+            hash =
+                if sibling < idx { merkle_hash_pair(proof, &hash) } else { merkle_hash_pair(&hash, proof) };
+            idx = merkle_get_parent(idx);
+            if self.has_node(idx) {
+                return self.compare_node(idx, &hash);
+            }
+        }
+        false
     }
 
     pub fn has_node(&self, idx: usize) -> bool {
@@ -1290,6 +1319,26 @@ mod tests {
             assert!(res.is_none());
             assert_eq!(t.verified_leafs(), none_set(NUM_BLOCKS));
             t.check_invariant();
+        }
+    }
+
+    /// SEC-09: junk hashes from a peer are refused before the tree grows to its full size.
+    /// Here 2^20 blocks (a 16 GiB file) would mean a 64 MiB full tree.
+    #[test]
+    fn invalid_hashes_do_not_allocate_the_full_tree() {
+        let num_blocks = 1 << 20;
+        let blocks_per_piece = 4;
+        let first_leaf = merkle_first_leaf(merkle_num_leafs(num_blocks));
+        for (index, hashes, proof) in [
+            // one block hash with no proof, as in the review's 97-byte message
+            (first_leaf, vec![rand_sha256()], vec![]),
+            // a piece's blocks with a made-up proof up to the root
+            (first_leaf, vec![rand_sha256(); 4], vec![rand_sha256(); 18]),
+        ] {
+            let mut t = MerkleTree::new(num_blocks, blocks_per_piece, rand_sha256());
+            assert!(t.add_hashes(index, 0, &hashes, &proof).is_none());
+            assert_eq!(t.mode, Mode::Empty);
+            assert!(t.tree.is_empty());
         }
     }
 

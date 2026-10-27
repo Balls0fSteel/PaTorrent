@@ -309,6 +309,7 @@ pub fn location(shared: &Shared, ids: &[TorrentId], dir: &str) -> Result<(), Cmd
     if dir.is_empty() {
         return Err(err(400, "missing path"));
     }
+    shared.path_policy.check(dir).map_err(|why| err(400, why))?;
     let moving: Vec<TorrentId> = {
         let st = shared.lock();
         ids.iter()
@@ -790,6 +791,9 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
     if !valid_label(label) {
         return Err(err(400, "invalid label"));
     }
+    if let Some(save) = &o.save {
+        shared.path_policy.check(save).map_err(|why| err(400, why))?;
+    }
     if let (Source::Magnet(m), true) = (&source, o.dialog) {
         return add_awaiting(shared, m.clone());
     }
@@ -939,6 +943,9 @@ pub fn finish_awaiting(shared: &Shared, hash: &str, o: &AddOptions, cancel: bool
     let label = o.label.trim();
     if !valid_label(label) {
         return Err(err(400, "invalid label"));
+    }
+    if let Some(save) = &o.save {
+        shared.path_policy.check(save).map_err(|why| err(400, why))?;
     }
     let mut st = shared.lock();
     let key = ready_key(&st, hash).ok_or_else(|| err(404, "no magnet waiting for the Add dialog"))?;

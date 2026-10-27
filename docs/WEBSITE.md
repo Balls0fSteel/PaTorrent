@@ -17,6 +17,7 @@ only) copies them to `_site/` and fills in the newest release from the GitHub re
 | `site/index.html` | Home: what PaTorrent is, the download button, screenshots, features, platforms |
 | `site/download.html` | Every file of the release on offer, how to start each, SmartScreen and Gatekeeper, the daemon, checksums, updating |
 | `site/faq.html` | The license in plain words, settings and portable mode, languages, the Web UI and remote mode, privacy and the update check, private trackers |
+| `site/benchmarks.html` | Measurements beside other clients ([BENCHMARKS.md](BENCHMARKS.md)); its charts and tables between `<!-- bench:NAME -->` markers are written by `tools/bench/summarize.py RESULTS --fill site/benchmarks.html` |
 | `site/docs.html` | Links to the documents in the repository, a command-line summary |
 | `site/404.html` | Served by Pages for any missing path; its `<base>` makes its links start at the site's root |
 | `site/css/style.css` | All styles: colour tokens for light and dark (`prefers-color-scheme`), layout down to 360 px |

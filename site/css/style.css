@@ -45,6 +45,8 @@
   --shadow: 0 1px 2px rgb(0 0 0 / 6%), 0 6px 20px rgb(0 0 0 / 7%);
   --radius: 6px;
   --mono: ui-monospace, "Cascadia Mono", "Cascadia Code", Consolas, "SF Mono", Menlo, "DejaVu Sans Mono", monospace;
+  --bar: #8e9894;
+  --bar-pa: #0b5f56;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -87,6 +89,8 @@
     --ico-amber: #ffd17a;
     --ico-orange: #ffb078;
     --shadow: 0 1px 2px rgb(0 0 0 / 40%), 0 6px 20px rgb(0 0 0 / 35%);
+    --bar: #66726f;
+    --bar-pa: #4fc4b3;
   }
 }
 
@@ -601,6 +605,43 @@ pre.sums { font-size: .78rem; white-space: pre-wrap; overflow-wrap: anywhere; }
 @media (prefers-reduced-motion: no-preference) {
   html { scroll-behavior: smooth; }
 }
+
+/* ---- benchmarks page ----------------------------------------------------------------------- */
+
+.chart { margin: 1.6rem 0; }
+.chart figcaption { margin-bottom: .6rem; }
+.chart figcaption span { color: var(--muted); font-size: .92rem; }
+.bars { list-style: none; padding: 0; margin: 0; display: grid; gap: 2px; }
+.bars li {
+  display: grid;
+  grid-template-columns: 7.5rem minmax(0, 1fr) 6.5rem;
+  align-items: center;
+  gap: .6rem;
+  margin: 0;
+}
+.bars .who { font-size: .95rem; }
+.bars .pa .who { font-weight: 700; }
+.bars .track { display: block; height: 20px; }
+.bars .bar { display: block; height: 100%; background: var(--bar); border-radius: 0 4px 4px 0; }
+.bars .pa .bar { background: var(--bar-pa); }
+.bars .val { text-align: end; font-size: .95rem; font-variant-numeric: tabular-nums; white-space: nowrap; }
+.bars .pa .val { font-weight: 700; }
+@media (max-width: 560px) {
+  .bars li { grid-template-columns: 6.2rem minmax(0, 1fr) 5.6rem; gap: .4rem; }
+  .bars .who, .bars .val { font-size: .88rem; }
+}
+@media (forced-colors: active) {
+  .bars .bar { background: CanvasText; }
+  .bars .pa .bar { background: Highlight; }
+}
+.table-scroll { overflow-x: auto; margin: 0 0 1.2rem; }
+.table-scroll .listview { margin: 0; }
+.listview.bench { table-layout: auto; min-width: 34rem; }
+.listview.bench td, .listview.bench th { white-space: nowrap; }
+.listview.bench .client { font-weight: 600; }
+.listview.bench .num { text-align: end; font-variant-numeric: tabular-nums; }
+.findings { padding-inline-start: 1.2em; }
+.findings li + li { margin-top: .6em; }
 
 @media print {
   .topbar nav, .skip, .cta-buttons { display: none; }

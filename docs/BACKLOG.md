@@ -514,6 +514,13 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   their settings/file verification and WSL wildcard binding. Debug uTP+RC4 has
   unexplained 0.4–0.8 s stalls (11–80 s vs 0.27 s release); benchmark release.
   Add rTorrent/2.2.1 and three-client PEX cases to the ongoing matrix.
+- Benchmarks against other clients (`tools/bench`, docs/BENCHMARKS.md): the 2026-10-27 run is
+  on the Xubuntu VM, where host load inflates CPU time; rerun on bare metal when possible, and
+  before releases. Not covered yet: 100,000 torrents (the corpus is ~3 GB of metadata, too big
+  for the 8 GB VM's libtorrent clients), multi-peer swarms, uTP, seeding CPU, a current rTorrent
+  (Ubuntu ships 0.9.8) and the GUIs (Win32 vs µTorrent 2.2.1 and qBittorrent on Windows). The
+  VM keeps `~/bench` (harness, PaTorrent 1.0.1, venv with deluge-client); the two tmpfs mounts
+  (`/mnt/benchram`, Transmission's downloads) do not survive a reboot.
 - Preserve parser review before each release and ongoing fuzzing. UDP tracker,
   resume-data and remote-wire targets already exist; do not list them as missing.
   ARMv8 SHA acceleration remains later with ARM64 CI.

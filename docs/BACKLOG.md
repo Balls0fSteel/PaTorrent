@@ -451,9 +451,9 @@ That broad check does not establish that every detailed case below was tried.
 - The new strings (update check, Help items) are machine translations like the
   rest; a native speaker should review them with the tables (Localisation), and
   the installer's own texts in `packaging/windows/strings.nsh`.
-- Installer (D31): only a silent per-user install, upgrade, busy-file abort and
-  uninstall were run (locally); the release job's build, NSIS checksum and smoke
-  test have not run on GitHub yet. Hand-check as RELEASING.md "Windows
+- Installer (D31): a silent per-user install, upgrade, busy-file abort and
+  uninstall were run locally, and the release job's build, NSIS checksum and
+  smoke test passed in dry run 40470860315. Hand-check as RELEASING.md "Windows
   installer" lists: the wizard and language dialog (RTL too), all users through
   UAC (declining it, over-the-shoulder elevation, `/ALLUSERS`), the Finish
   page's launch, `--associate` on a real registry, a running `PaTorrentNox`

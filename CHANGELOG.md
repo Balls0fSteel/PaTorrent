@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_090712_1793088432: First CI run of the installer: green (Release dry run 40470860315)
+
+- Release started by hand on `73736841` (no release made). The windows job passed every step: NSIS 3.13's download matched the pinned SHA-256; makensis `/WX` built `patorrent-1.0.0-rc.1-dev.7373684-windows-x64-setup.exe` (2.7 MB, 35 language tables) from the 2 min 28 s release build; the silent per-user install with the desktop shortcut and both associations put the 5 files, both shortcuts, a correct Uninstall key (version, publisher, folder, 8.2 MB) and the `.torrent` / `magnet:` registrations in place, the installed nox printed `patorrent-nox 1.0.0-rc.1`, and the silent uninstall left no file, shortcut, key or association.
+- Both Linux release jobs built `patorrent-gtk` with the update-check code, its first compile anywhere; macOS and the Flatpaks were still building. CI on `9692f69f` was cancelled by the newer push; CI on `73736841` was running. Still unverified: the installer's wizard, the all-users/UAC path and a hand test on a clean machine.
+
 ## 2026-10-27_090124_1793088084: The website is live; the update check works end to end
 
 - Pushed `2717982d..9692f69f` (the owner's go-ahead). With the owner's approval, Pages was switched from the legacy "deploy from `main`" source to GitHub Actions and the `github-pages` environment got a `v*` tag rule (WEBSITE.md).

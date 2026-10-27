@@ -1,6 +1,6 @@
 # Detailed backlog
 
-Last updated: 2026-10-27_091619_1793088979 (Europe/Budapest).
+Last updated: 2026-10-27_225501_1793138101 (Europe/Budapest).
 
 Start with [PLAN.md](../PLAN.md) for priorities and release gates. Load only the
 topic needed here. These are open checks, known limitations and conditional
@@ -44,6 +44,43 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
   file's origin/copyright header. Implement the qBittorrent API from published
   API documentation; do not copy its source or Web UI assets. Click Help >
   Third-Party Notices in both GUIs to check the embedded text.
+
+## Owner hand-test findings (2026-10-27_225501_1793138101)
+
+Reported by the owner on a Win32 build; not yet investigated or fixed.
+
+- **Toolbar icons:** Add Torrent from URL (magnet) still looks bad; Add Torrent
+  and Remove (trash) also look off: stroke widths are not uniform. Audit the
+  toolbar SVGs (`assets/ui-icon-explorations/bold`, `check-geometry.cjs`) for
+  mixed stroke widths and off-grid coordinates at the rendered 16/24 px sizes.
+- **Scheduler flicker:** the Preferences scheduler grid (`sched_grid.rs`)
+  flickers while the schedule is being edited (painting/dragging cells). Likely
+  needs double-buffered painting / no background erase.
+- **Scheduler colours:** the grid's colour scheme differs from µTorrent 2.2.1;
+  compare against `z_exclude_uTorrent/screenshots` (Scheduler page).
+- **No Add dialog:** adding a .torrent adds it straight away with no Add New
+  Torrent dialog (no file selection, save path). Check whether "Don't show this
+  again" / the Preferences show-dialog setting got set, and the add paths
+  (open, drag-drop, association, auto-load) that skip the dialog.
+- **Unclear state icon:** a black floppy with an orange mark shown for torrents
+  in "Checking 0.0 %" is unreadable at 16 px; probably `checking-resume-data` or
+  `queued-resume-checking`. Make the checking states recognisable (or closer to
+  2.2.1) at 16 px. Several newly added torrents also sat at "Checking 0.0 %"
+  together; confirm they progress (queued checks vs a stall).
+- **Invisible row:** after adding a download, a whole row can render blank
+  (selected row shows no text). Likely a virtual-list item whose data was not
+  ready or an invalidation/cache issue on insert.
+- **Stopped torrent shows a down speed:** a Stopped torrent showed "1009..." in
+  Down Speed; stopped rows should clear speeds (also check the column is not
+  just too narrow for its value).
+- **Alternating row colours:** the torrent list (and probably other list views)
+  needs alternate row shading.
+- **Version every change:** bump the version with every change set so builds
+  are distinguishable (1.0.2, 1.0.3, ... even into the hundreds). Note:
+  `PEER_ID_PREFIX` (`crates/core/src/version.rs`, `-PA1010-`) has four digits
+  and a test tying it to the version; decide how patch numbers above 9 map to
+  it (e.g. peer ID tracks major.minor only, or base-36 digits as Azureus style
+  allows) before automating the bump.
 
 ## Win32 layout and dialogs
 

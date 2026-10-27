@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-27_212434_1793132674
+Last updated: 2026-10-27_225501_1793138101
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D35](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -30,6 +30,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
+0. **Owner hand-test findings (2026-10-27_225501_1793138101):** toolbar icon strokes, scheduler flicker/colours, missing Add dialog, unclear checking icon, blank rows, alternating rows, a version bump per change. Details: [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
 1. **After 1.0.1:** confirm the website serves `stable=1.0.1` in `update.txt` (the Pages deploy finished; the CDN caches 10 min) and that an rc.1 build offers the update. 1.0.1 is the installer's first release: run its wizard and the all-users UAC path once on a real PC. Register `PA` with the client-ID lists (item 14).
 2. Rerun `tools/bench` before each release and on bare metal when one is free ([BACKLOG](docs/BACKLOG.md#validation-and-development-environment)).
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.

@@ -773,6 +773,28 @@ impl WebUi {
         self.temporary_password.as_deref()
     }
 
+    /// `run --import`: the imported torrents' labels (by hash; a torrent with one already keeps
+    /// it), their µTorrent Paused marks and the Logger lines, saved at once.
+    pub fn assign_imported(&self, labels: &[(String, String)], paused: &[String], log: &[String]) {
+        let mut st = self.shared.lock();
+        for (hash, label) in labels {
+            if st.torrent_categories.contains_key(hash) {
+                continue;
+            }
+            if !st.categories.contains_key(label) {
+                st.categories.insert(label.clone(), String::new());
+                st.categories_version += 1;
+            }
+            st.torrent_categories.insert(hash.clone(), label.clone());
+        }
+        st.user_paused.extend(paused.iter().cloned());
+        let now = unix_now();
+        for line in log {
+            st.push_log(None, line.clone(), now);
+        }
+        self.shared.save(&st);
+    }
+
     /// True once a client called `app/shutdown`.
     pub fn shutdown_requested(&self) -> bool {
         self.shared.lock().shutdown

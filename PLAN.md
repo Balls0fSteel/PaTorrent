@@ -1,8 +1,8 @@
 # PaTorrent plan
 
-Last updated: 2026-10-27_104216_1793094136
+Last updated: 2026-10-27_112013_1793096413
 
-Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D34](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
+Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D35](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
 ## Vision
 
@@ -30,7 +30,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 ## Next steps
 
 1. **Release 1.0.1** (item 14, RELEASING.md), the first stable release: the tag `v1.0.0` (on `b40c2e58`) failed in Release run 40475482914 on the Flatpak metainfo and has no release; it stays, and the version moved on to `1.0.1` (owner, 2026-10-27_104216_1793094136) with `docs/releases/1.0.1.md`. Wait for CI on the version commit, then the owner decides on the tag `v1.0.1`; inspect the draft and publish; then the Pages run puts `stable=1.0.1` in `update.txt`. It is the installer's first release: run its wizard and the all-users UAC path once on a real PC if possible.
-2. After 1.0.1: plan V1.1 (below) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
+2. After 1.0.1: hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 3. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 4. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
 5. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
@@ -58,7 +58,7 @@ Original gate numbers are retained for references in source comments and release
 
 ## Decisions and open questions
 
-The approved decisions D1-D34 remain active in [DECISIONS.md](docs/DECISIONS.md). Keep the one-thread mio engine, OS TLS, lazy shared-store persistence, minimal dependencies, static portable Windows binary (an installer beside the zip, D31) and faithful 2.2.1 layout. Scale takes priority over empty-session memory. The PolyForm Noncommercial licence, PaTorrent identity and honest peer ID remain fixed. New dependencies need a written justification and changelog entry.
+The approved decisions D1-D35 remain active in [DECISIONS.md](docs/DECISIONS.md). Keep the one-thread mio engine, OS TLS, lazy shared-store persistence, minimal dependencies, static portable Windows binary (an installer beside the zip, D31) and faithful 2.2.1 layout. Scale takes priority over empty-session memory. The PolyForm Noncommercial licence, PaTorrent identity and honest peer ID remain fixed. New dependencies need a written justification and changelog entry.
 
 Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the [plan snapshot](docs/archive/PLAN-2026-10-23.md). Current testing constraints and setup notes are in [BACKLOG.md](docs/BACKLOG.md#validation-and-development-environment).
 
@@ -67,16 +67,13 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text. Research before designing the V2.0 goals below.
 
 
-## V1.1 goals
+## V1.1
 
-Owner goals, not designed yet. Explored 2026-10-27_091619_1793088979; the details and open questions are in [BACKLOG.md](docs/BACKLOG.md#v11-importers-search-and-hooks).
+Scope D35 (search box, importers; plugin hooks moved to V2.0). Implemented 2026-10-27_112013_1793096413, unreleased; details in the [changelog](CHANGELOG.md) and open follow-ups in [BACKLOG.md](docs/BACKLOG.md#v11-importers-search-and-hooks).
 
-1. **Import from qBittorrent `BT_backup`.** Its `.fastresume` files are libtorrent resume records, the format `crates/core/src/resume.rs` already reads under libtorrent's key names, so pieces, statistics, priorities and trackers carry over without a recheck; the `qBt-*` keys give save path, name, category (as label), limits and the stopped state. The cheapest of the four.
-2. **Import from µTorrent `resume.dat`.** One bencoded dictionary keyed by `.torrent` file name (path, caption, label, `have` bitfield, priorities, totals, dates, trackers). It is the audience's own client. The owner's copy in `z_exclude_uTorrent/` lists no torrents, so a populated test file has to be made first.
-3. **Local search/filter.** A name filter in `TorrentList` (`crates/frontend/src/model.rs`) serves Win32, GTK and the Web UI at once; it must stay fast at 100,000 rows. Open: where it lives, since 2.2.1's toolbar box searched the web.
-4. **Compiled-in Rust plugin hooks.** No concrete first user yet; define one (for example a completion action or a search provider) before an API, or move this to V2.0.
-
-Both importers share one frontend module, a GUI menu entry and a nox option, need a public engine call to add a torrent from a resume record (`ResumeData` is crate-private), leave the source client's files untouched and refuse while that client runs.
+- Done: the name search (model, Win32 toolbar box, GTK `SearchEntry`, Web UI); File > Import from qBittorrent / µTorrent in both GUIs and `nox run --import`, with labels, statistics and trusted pieces; 15 new strings in all 34 tables.
+- To check by hand: the Win32 box at 100-200% DPI, its focus keys, and the import dialogs; the GTK entry and import flow on Linux; importing a stopped, a paused and a force-started µTorrent torrent to confirm the `started` mapping (0 stopped, 1 forced, 2 started, 3 paused is inferred); native review of the new translations (ar/fa/he mnemonics).
+- Release as 1.1.0 once those pass; bump the version and peer ID (`-PA1100-`) together.
 
 ## V2.0 goals
 
@@ -86,6 +83,7 @@ Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23; not designed yet
 2. Downloadable binaries on GitHub Releases: build on the tagged packaging workflow already started for 1.0 (items 6-8).
 3. Portable mode on every platform: settings, state and downloads relative to the portable folder. Research the model first and revisit D7 together with profiles.
 4. A multilingual wiki/user guide in the D24 languages, probably written and translated with Sonnet.
+5. Compiled-in Rust plugin hooks (moved from V1.1, D35), once a completion action, search source or custom column needs one.
 
 ## Future improvements
 

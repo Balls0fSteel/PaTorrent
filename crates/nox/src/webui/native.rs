@@ -421,9 +421,7 @@ impl Client {
     fn set_view(&mut self, view: View) {
         self.list.set_filter(view.filter.clone());
         self.list.set_sort(view.sort);
-        if self.view.as_ref().is_none_or(|v| v.search != view.search) {
-            self.rows_stale = true;
-        }
+        self.list.set_search(&view.search);
         self.view = Some(view);
     }
 
@@ -450,19 +448,9 @@ impl Client {
         }
         if self.list.refresh() || self.rows_stale {
             self.rows_stale = false;
-            let search = self.view.as_ref().map_or("", |v| v.search.as_str());
+            // the search is the list's own (TorrentList::set_search)
             self.rows.clear();
-            if search.is_empty() {
-                self.rows.extend_from_slice(self.list.view());
-            } else {
-                let list = &self.list;
-                self.rows.extend(
-                    list.view()
-                        .iter()
-                        .copied()
-                        .filter(|id| list.get(*id).is_some_and(|s| s.name.to_lowercase().contains(search))),
-                );
-            }
+            self.rows.extend_from_slice(self.list.view());
         }
     }
 

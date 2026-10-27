@@ -24,6 +24,7 @@
 //! * [`auto_shutdown`]: Options > Auto Shutdown (quit, standby, hibernate or shut down when done).
 //! * [`scrape`]: the periodic scrape that gives stopped and queued torrents their swarm counts.
 //! * [`update`]: the update check: when, what is newer, the status bar's notice.
+//! * [`import`]: File > Import: torrents from qBittorrent's `BT_backup` or µTorrent's `resume.dat`.
 
 pub mod actions;
 pub mod add;
@@ -33,6 +34,7 @@ pub mod create;
 pub mod detail;
 pub mod fmt;
 pub mod icons;
+pub mod import;
 pub mod integration;
 pub mod lang;
 pub mod model;

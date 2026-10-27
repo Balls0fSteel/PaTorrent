@@ -945,4 +945,32 @@ strings! {
     RssErrNotTorrent = "{url}: not a .torrent file";
     RssErrFeedRedirect = "{url}: redirected away from the feed";
     RssErrNotFeed = "{url}: not an RSS or Atom feed";
+
+    // ---- The toolbar's search box (it filters the torrent list by name)
+
+    /// The empty search box's grey hint.
+    SearchCue = "Search torrent names";
+
+    // ---- File > Import: torrents from another client; {client} is qBittorrent or µTorrent
+
+    MenuImportQbt = "Import from &qBittorrent...";
+    MenuImportUt = "Import from &µTorrent...";
+    /// The folder picker's title when the client's usual folder is not there.
+    ImportPickFolder = "Select the {client} folder";
+    ImportRunning = "{client} is running. Close it, then import again: it rewrites its files when it exits.";
+    ImportNoneFound = "No {client} torrents were found in {dir}.";
+    /// The question before importing; {count} is a number.
+    ImportConfirm = "Import {count} torrents from {client}?\n\nTheir data stays where it is and {client}'s files are not changed. Torrents already in the list are left out.";
+    /// The answer after importing; {added} is a number.
+    ImportDone = "Added {added} torrents from {client}.";
+    /// Follows ImportDone when some were not imported; {skipped} is a number.
+    ImportLeftOut = "{skipped} were left out; the Logger tab lists why.";
+    /// Logger lines; {name} is a torrent's name.
+    LogImported = "Imported from {client}: {name}";
+    LogImportSkipped = "Not imported from {client}: {name}: {reason}";
+    /// Reasons a torrent is not imported.
+    ImportInList = "already in the list";
+    ImportNoTorrentFile = "its .torrent file is missing";
+    ImportBadRecord = "its resume record cannot be read";
+    ImportBadTorrent = "its .torrent file cannot be read: {error}";
 }

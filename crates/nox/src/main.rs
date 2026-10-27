@@ -29,7 +29,7 @@ use patorrent_core::{
     VERSION,
 };
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Step, When};
-use patorrent_frontend::{fmt, status};
+use patorrent_frontend::{fmt, import, status};
 use patorrent_nox::webui;
 
 /// PaTorrent's own license and the third-party license texts, built into the binary so a
@@ -119,6 +119,12 @@ OPTIONS:
     --socks5-udp-local-ep
                       SOCKS5 UDP ASSOCIATE names our UDP address and port (only without a NAT
                       between us and the proxy); --no-socks5-udp-local-ep is the default
+    --import CLIENT   run: add the torrents of qBittorrent or uTorrent (CLIENT is qbittorrent or
+                      utorrent) at start, with their data where it is, pieces, statistics,
+                      priorities, trackers and labels; the client must not be running. Torrents
+                      already here are left as they are. Its files are only read
+    --import-dir DIR  The client's folder when not the usual one (qBittorrent's BT_backup or
+                      its data folder; uTorrent's folder with resume.dat)
     --verbose         Print tracker and peer events (each disconnect with its reason), and
                       every 10 s where the connected peers came from
     --webui [ADDR:]PORT  Serve the Web UI and qBittorrent-compatible WebAPI (ADDR defaults to
@@ -195,6 +201,9 @@ struct Opts {
     /// `run --mock-library N` (undocumented): the simulated engine with N synthetic torrents
     /// instead of the real one, to measure the Web UI against the 10,000-torrent profile.
     mock_library: usize,
+    /// `run --import`, `--import-dir`.
+    import: Option<import::Client>,
+    import_dir: Option<PathBuf>,
     sources: Vec<String>,
 }
 
@@ -227,6 +236,8 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         torrents: 1000,
         active: 0.02,
         mock_library: 0,
+        import: None,
+        import_dir: None,
         sources: Vec::new(),
     };
     let mut it = args.iter();
@@ -274,6 +285,14 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--torrents" => o.torrents = num("--torrents", value("--torrents")?)?,
             "--active" => o.active = num("--active", value("--active")?)?,
             "--mock-library" => o.mock_library = num("--mock-library", value("--mock-library")?)?,
+            "--import" => {
+                let v = value("--import")?;
+                o.import = Some(
+                    import::Client::from_id(&v)
+                        .ok_or_else(|| format!("--import {v}: expected qbittorrent or utorrent"))?,
+                );
+            }
+            "--import-dir" => o.import_dir = Some(value("--import-dir")?.into()),
             s if s.starts_with("--") => return Err(format!("unknown option {s}")),
             s => o.sources.push(s.to_owned()),
         }
@@ -676,6 +695,16 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         }
         w => w.and_then(Result::ok),
     };
+    if let Some(client) = o.import {
+        if mode != Mode::Run {
+            eprintln!("error: --import is an option of run");
+            return ExitCode::FAILURE;
+        }
+        if let Err(e) = import_torrents(client, o.import_dir.as_deref(), &h, web.as_ref()) {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+    }
     service.ready(&match &web {
         Some(w) => format!("running, Web UI on {}", w.url()),
         None => "running".to_owned(),
@@ -866,6 +895,46 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     } else {
         ExitCode::SUCCESS
     }
+}
+
+/// `run --import`: adds the client's torrents, and gives the Web UI their labels.
+fn import_torrents(
+    client: import::Client,
+    dir: Option<&std::path::Path>,
+    h: &patorrent_core::SessionHandle,
+    web: Option<&webui::WebUi>,
+) -> Result<(), String> {
+    if client.is_running() {
+        return Err(patorrent_frontend::tr!(ImportRunning, client = client.name()));
+    }
+    let dir = dir.map(std::path::Path::to_owned).or_else(|| client.default_dir()).ok_or_else(|| {
+        format!("--import {}: no {} folder found here; name it with --import-dir", client.id(), client.name())
+    })?;
+    let found = import::read(client, &dir)?;
+    let mut prefs = patorrent_frontend::prefs::Prefs::from_text("");
+    let done = import::finish(client, found, &mut prefs, |_| false);
+    let (mut labels, mut paused) = (Vec::new(), Vec::new());
+    for (k, v) in prefs.entries() {
+        let Some(key) = k.strip_prefix("torrent.") else { continue };
+        if let Some(hash) = key.strip_suffix(".label") {
+            labels.push((hash.to_owned(), v.to_owned()));
+        } else if let Some(hash) = key.strip_suffix(".paused") {
+            paused.push(hash.to_owned());
+        }
+    }
+    for line in &done.log {
+        println!("* {line}");
+    }
+    if let Some(w) = web {
+        w.assign_imported(&labels, &paused, &done.log);
+    }
+    for mut p in done.add {
+        // one restored from the state directory stays as it is, without an error
+        p.flags.remove(TorrentFlags::DUPLICATE_IS_ERROR);
+        h.add_torrent(p);
+    }
+    println!("* {}", done.summary);
+    Ok(())
 }
 
 fn start_webui(

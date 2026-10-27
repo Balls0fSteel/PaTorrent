@@ -25,6 +25,7 @@ use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, St
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{self, PRIORITIES};
 use patorrent_frontend::icons::{network_icon, toolbar_size, tracker_icon};
+use patorrent_frontend::import;
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
@@ -47,7 +48,9 @@ use windows_sys::Win32::System::SystemInformation::{GetLocalTime, GetSystemTime}
 use windows_sys::Win32::System::Time::SystemTimeToFileTime;
 use windows_sys::Win32::UI::Controls::*;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, SystemParametersInfoForDpi};
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture, VK_DELETE};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
+    GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL, VK_DELETE, VK_ESCAPE, VK_RETURN,
+};
 use windows_sys::Win32::UI::Shell::{
     DragAcceptFiles, DragFinish, DragQueryFileW, FOLDERID_Downloads, HDROP, SHGetKnownFolderPath,
     ShellExecuteW,
@@ -96,6 +99,8 @@ const IDC_TREE: usize = 11;
 const IDC_LIST: usize = 12;
 const IDC_TABS: usize = 13;
 const IDC_STATUS: usize = 14;
+/// The toolbar's search box.
+const IDC_SEARCH: usize = 15;
 const IDC_PAGE: usize = 20;
 /// The pieces list inside the Pieces panel.
 const IDC_PIECE_LIST: usize = 30;
@@ -148,6 +153,8 @@ mod cmd {
     pub const NOTICES: u16 = 142;
     pub const CHECK_UPDATES: u16 = 143;
     pub const WEBSITE: u16 = 144;
+    /// Ctrl+F: to the search box.
+    pub const FIND: u16 = 145;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -155,6 +162,8 @@ mod cmd {
     pub const FILE_PRIO_BASE: u16 = 3100;
     /// Options > Auto Shutdown, by `auto_shutdown::AutoMode::MENU` index.
     pub const AUTO_SHUTDOWN_BASE: u16 = 3200;
+    /// File > Import, by `import::Client::ALL` index.
+    pub const IMPORT_BASE: u16 = 3300;
 }
 
 use patorrent_frontend::actions::LIMITS;
@@ -216,6 +225,8 @@ struct App {
     net_shown: Option<bool>,
 
     toolbar: HWND,
+    /// The search box at the toolbar's right end.
+    search: HWND,
     tree: HWND,
     lv: HWND,
     tabs: HWND,
@@ -536,13 +547,19 @@ pub fn run(args: Args) -> i32 {
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'N' as u16, cmd: cmd::CREATE },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'P' as u16, cmd: cmd::PREFS },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'A' as u16, cmd: cmd::SELECT_ALL },
+            ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'F' as u16, cmd: cmd::FIND },
             ACCEL { fVirt: FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE },
             ACCEL { fVirt: FSHIFT | FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE_DATA },
         ];
         let haccel = CreateAcceleratorTableW(accels.as_ptr(), accels.len() as i32);
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
-            if TranslateAcceleratorW(hwnd, haccel, &msg) == 0 {
+            if search_key(&msg) {
+                continue;
+            }
+            // typing in the search box: Delete and Ctrl+A edit its text, not the list
+            let in_search = with_app(|a| a.search == msg.hwnd).unwrap_or(false);
+            if in_search || TranslateAcceleratorW(hwnd, haccel, &msg) == 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
@@ -563,6 +580,12 @@ unsafe fn main_menu() -> HMENU {
         append(file, cmd::ADD, &shortcut(tr!(MenuAddTorrent), 'O'));
         append(file, cmd::ADD_URL, &shortcut(tr!(MenuAddUrl), 'U'));
         append(file, cmd::CREATE, &shortcut(tr!(MenuCreate), 'N'));
+        separator(file);
+        // a remote server would read its own disk, not this computer's
+        let remote = crate::remote_ui::is_remote();
+        for (i, c) in import::Client::ALL.iter().enumerate() {
+            append_flags(file, grayed(remote), cmd::IMPORT_BASE + i as u16, c.menu_text());
+        }
         separator(file);
         append(file, cmd::CONNECT_REMOTE, tr!(MenuConnectRemote));
         separator(file);
@@ -642,7 +665,12 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             hwnd,
             TOOLBARCLASSNAMEW,
             "",
-            WS_CHILD | TBSTYLE_FLAT | TBSTYLE_TOOLTIPS | CCS_NODIVIDER as u32 | CCS_TOP as u32,
+            WS_CHILD
+                | WS_CLIPSIBLINGS
+                | TBSTYLE_FLAT
+                | TBSTYLE_TOOLTIPS
+                | CCS_NODIVIDER as u32
+                | CCS_TOP as u32,
             0,
             IDC_TOOLBAR,
         );
@@ -667,6 +695,17 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             })
             .collect();
         send(toolbar, TB_ADDBUTTONSW, buttons.len(), buttons.as_ptr() as LPARAM);
+        // where 2.2.1 had its web search box: here it filters the list by name
+        let search = child(
+            hwnd,
+            w!("EDIT"),
+            "",
+            WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            WS_EX_CLIENTEDGE,
+            IDC_SEARCH,
+        );
+        let cue = wide(tr!(SearchCue));
+        send(search, EM_SETCUEBANNER, 0, cue.as_ptr() as LPARAM);
 
         let tree = child(
             hwnd,
@@ -766,6 +805,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             net_icons: [null_mut(); 2],
             net_shown: None,
             toolbar,
+            search,
             tree,
             lv,
             tabs,
@@ -954,7 +994,7 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
             let old_states =
                 (std::mem::replace(&mut a.states, states).0, std::mem::replace(&mut a.net_icons, net_icons));
             a.net_shown = None;
-            let mut list = vec![a.tree, a.lv, a.tabs, a.status];
+            let mut list = vec![a.tree, a.lv, a.tabs, a.status, a.search];
             list.extend(a.pages);
             (old, old_states, list, a.toolbar, a.pages[Page::Trackers.index()])
         }) else {
@@ -1075,6 +1115,7 @@ unsafe fn layout(hwnd: HWND) {
                 scale(a.detail_h, a.dpi),
                 a.dpi,
                 a.updates.notice().map(|v| tr!(UpdateNotice, version = v)),
+                a.search,
             )
         }) else {
             return;
@@ -1095,6 +1136,7 @@ unsafe fn layout(hwnd: HWND) {
             detail_h,
             dpi,
             notice,
+            search,
         ) = a;
         let mut rc: RECT = zeroed();
         GetClientRect(hwnd, &mut rc);
@@ -1105,7 +1147,11 @@ unsafe fn layout(hwnd: HWND) {
             send(toolbar, TB_AUTOSIZE, 0, 0);
             let mut r: RECT = zeroed();
             GetWindowRect(toolbar, &mut r);
-            top += r.bottom - r.top;
+            let tb_h = r.bottom - r.top;
+            // the search box over the toolbar's right end, centred in its height
+            let (w, h) = (scale(200, dpi), scale(22, dpi).min(tb_h));
+            SetWindowPos(search, HWND_TOP, rc.right - w - gap, top + (tb_h - h) / 2, w, h, 0);
+            top += tb_h;
         }
         if show_st {
             send(status, WM_SIZE, 0, 0);
@@ -1177,6 +1223,7 @@ unsafe fn update_visibility(hwnd: HWND) {
                     (a.lv, true),
                     (a.tabs, a.show_details),
                     (a.status, a.show_status),
+                    (a.search, a.show_toolbar),
                 ],
                 a.pages,
                 a.page,
@@ -1698,6 +1745,79 @@ fn log_line(text: &str) {
     with_app(|a| a.detail.push_log(format!("{} {text}", now_hms())));
 }
 
+/// The search box's keys the edit control has no use for: Escape clears it, Enter goes to the
+/// list, Ctrl+A selects its text. Returns whether `msg` was one.
+unsafe fn search_key(msg: &MSG) -> bool {
+    unsafe {
+        if msg.message != WM_KEYDOWN {
+            return false;
+        }
+        let Some((search, lv)) = with_app(|a| (a.search, a.lv)) else { return false };
+        if msg.hwnd != search {
+            return false;
+        }
+        let ctrl = GetKeyState(VK_CONTROL as i32) < 0;
+        match msg.wParam as u16 {
+            VK_ESCAPE => {
+                SetWindowTextW(search, w!(""));
+                SetFocus(lv);
+            }
+            VK_RETURN => {
+                SetFocus(lv);
+            }
+            k if ctrl && k == b'A' as u16 => {
+                send(search, EM_SETSEL, 0, -1);
+            }
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// The search box changed: the list shows the names containing its text.
+fn on_search() {
+    let Some(search) = with_app(|a| a.search) else { return };
+    let text = unsafe { crate::util::window_text(search) };
+    with_app(|a| a.list.set_search(&text));
+    unsafe { refresh_list() };
+}
+
+/// File > Import: the client's torrents with their data, statistics and labels.
+unsafe fn import_from(hwnd: HWND, client: import::Client) {
+    let mut picked: Option<PathBuf> = None;
+    let found = loop {
+        match import::begin(client, picked.as_deref()) {
+            import::Begin::Refuse(e) => return dialogs::error(hwnd, &e),
+            import::Begin::PickFolder(title) => match unsafe { crate::create::pick_folder(hwnd, &title) } {
+                Some(dir) => picked = Some(PathBuf::from(dir)),
+                None => return,
+            },
+            import::Begin::Confirm(question, found) => {
+                if !dialogs::ask(hwnd, &question) {
+                    return;
+                }
+                break found;
+            }
+        }
+    };
+    let Some((done, handle)) = with_app(|a| {
+        let known: HashSet<String> =
+            a.list.ids().filter_map(|id| a.list.get(id)).map(|st| st.info_hashes.key_hex()).collect();
+        let done = import::finish(client, found, &mut a.prefs, |k| known.contains(k));
+        let _ = a.prefs.save();
+        (done, a.handle.clone())
+    }) else {
+        return;
+    };
+    for line in &done.log {
+        log_line(line);
+    }
+    for p in done.add {
+        handle.add_torrent(p);
+    }
+    dialogs::info(hwnd, &done.summary);
+}
+
 /// Preferences > Directories "Automatically load .torrents from": the new files in the folder
 /// are added without the Add New Torrent dialog, as µTorrent added them, and renamed to
 /// `.torrent.loaded` (or deleted) once the engine has them.
@@ -2103,6 +2223,12 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_SETCURSOR if over_update_notice(wparam as HWND) => {
                 SetCursor(LoadCursorW(null_mut(), IDC_HAND));
                 1
+            }
+            WM_COMMAND if crate::util::loword(wparam) as usize == IDC_SEARCH => {
+                if crate::util::hiword(wparam) as u32 == EN_CHANGE {
+                    on_search();
+                }
+                0
             }
             WM_COMMAND => {
                 on_command(hwnd, crate::util::loword(wparam));
@@ -2571,6 +2697,15 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 }
             }
             cmd::CREATE => create_torrent(hwnd),
+            cmd::FIND => {
+                if let Some(search) = with_app(|a| a.show_toolbar.then_some(a.search)).flatten() {
+                    SetFocus(search);
+                    send(search, EM_SETSEL, 0, -1);
+                }
+            }
+            id if (cmd::IMPORT_BASE..cmd::IMPORT_BASE + import::Client::ALL.len() as u16).contains(&id) => {
+                import_from(hwnd, import::Client::ALL[(id - cmd::IMPORT_BASE) as usize]);
+            }
             id if (cmd::AUTO_SHUTDOWN_BASE..cmd::AUTO_SHUTDOWN_BASE + AutoMode::MENU.len() as u16)
                 .contains(&id) =>
             {

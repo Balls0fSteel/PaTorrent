@@ -25,6 +25,7 @@ use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, St
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{Detail, PRIORITIES, Tab};
 use patorrent_frontend::icons::{Icon, network_icon};
+use patorrent_frontend::import::{self, Begin, Client};
 use patorrent_frontend::integration::{Integration, MINIMIZED};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::model::TorrentList;
@@ -123,6 +124,8 @@ struct Ui {
     /// Holds the torrent list, or a feed's items in its place.
     list_scroll: gtk::ScrolledWindow,
     feed_table: Table,
+    /// The toolbar's search box (Ctrl+F).
+    search: gtk::SearchEntry,
 }
 
 thread_local! {
@@ -316,20 +319,27 @@ fn startup(app: &gtk::Application) {
         ("win.add", &["<Control>o"][..]),
         ("win.add-url", &["<Control>u"]),
         ("win.create", &["<Control>n"]),
-        ("win.remove", &["Delete"]),
-        ("win.remove-data", &["<Shift>Delete"]),
-        ("win.select-all", &["<Control>a"]),
+        ("win.find", &["<Control>f"]),
         ("win.preferences", &["<Control>p"]),
         ("app.quit", &["<Control>q"]),
     ] {
         app.set_accels_for_action(action, keys);
     }
+    list_keys(app, true);
 
     let menubar = gio::Menu::new();
     let file = gio::Menu::new();
     item(&file, tr!(MenuAddTorrent), "win.add");
     item(&file, tr!(MenuAddUrl), "win.add-url");
     item(&file, tr!(MenuCreate), "win.create");
+    // a remote window's server would not have the other client's files and folders
+    if !crate::remote::requested() {
+        let import_section = gio::Menu::new();
+        for client in Client::ALL {
+            item(&import_section, client.menu_text(), &format!("win.import-{}", client.id()));
+        }
+        file.append_section(None, &import_section);
+    }
     let remote_section = gio::Menu::new();
     item(&remote_section, tr!(MenuConnectRemote), "app.connect-remote");
     file.append_section(None, &remote_section);
@@ -367,6 +377,21 @@ fn startup(app: &gtk::Application) {
     help.append_section(None, &about);
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuHelp))), &help);
     app.set_menubar(Some(&menubar));
+}
+
+/// The torrent list's shortcuts whose keys also edit text. Application shortcuts run before
+/// the focused widget sees the key, so they are taken off while the search box has the focus
+/// (Delete and Ctrl+A then edit its text) and put back when it loses it.
+const LIST_KEYS: [(&str, &[&str]); 3] = [
+    ("win.remove", &["Delete"]),
+    ("win.remove-data", &["<Shift>Delete"]),
+    ("win.select-all", &["<Control>a"]),
+];
+
+fn list_keys(app: &gtk::Application, on: bool) {
+    for (action, keys) in LIST_KEYS {
+        app.set_accels_for_action(action, if on { keys } else { &[] });
+    }
 }
 
 /// A menu item from a string table text (its `&` mnemonic as GTK's `_`).
@@ -665,6 +690,43 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             None => toolbar.append(&gtk::Separator::new(gtk::Orientation::Vertical)),
         }
     }
+    // the search box at the toolbar's end, as 2.2.1's: names containing the text (the entry
+    // waits for a pause in the typing before `search-changed`)
+    let search = gtk::SearchEntry::new();
+    search.set_placeholder_text(Some(tr!(SearchCue)));
+    search.set_width_chars(1);
+    search.set_size_request(200, -1);
+    search.set_hexpand(true);
+    search.set_halign(gtk::Align::End);
+    search.set_valign(gtk::Align::Center);
+    search.set_margin_end(4);
+    search.connect_search_changed(|e| {
+        let text = e.text();
+        with_app(|a| a.list.set_search(&text));
+        refresh();
+    });
+    // Escape empties it and gives the list the keyboard
+    search.connect_stop_search(|e| {
+        e.set_text("");
+        if let Some(ui) = ui() {
+            ui.list.view.grab_focus();
+        }
+    });
+    let focus = gtk::EventControllerFocus::new();
+    let a = app.downgrade();
+    focus.connect_enter(move |_| {
+        if let Some(app) = a.upgrade() {
+            list_keys(&app, false);
+        }
+    });
+    let a = app.downgrade();
+    focus.connect_leave(move |_| {
+        if let Some(app) = a.upgrade() {
+            list_keys(&app, true);
+        }
+    });
+    search.add_controller(focus);
+    toolbar.append(&search);
 
     let side_scroll = gtk::ScrolledWindow::builder()
         .child(&sidebar.widget)
@@ -755,6 +817,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         split,
         list_scroll,
         feed_table,
+        search,
     });
     UI.with(|u| *u.borrow_mut() = Some(ui));
     APP.with(|a| {
@@ -1402,6 +1465,18 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
     simple("add", add_files);
     simple("add-url", add_url);
     simple("create", create_torrent);
+    simple("find", || {
+        if let Some(ui) = ui() {
+            ui.search.grab_focus();
+        }
+    });
+    for client in Client::ALL {
+        let a = gio::SimpleAction::new(&format!("import-{}", client.id()), None);
+        a.connect_activate(move |_, _| import_from(client, None));
+        // the files and folders are this computer's, not a remote server's
+        a.set_enabled(!crate::remote::is_remote());
+        window.add_action(&a);
+    }
     simple("rss", || show_rss(None));
     simple("feed-item-download", download_feed_items);
     for name in ["feed-add", "feed-edit", "feed-toggle", "feed-update", "feed-remove", "feed-rss"] {
@@ -1936,6 +2011,64 @@ fn magnet_dialogs() {
         // the next one, if another is ready
         glib::idle_add_local_once(magnet_dialogs);
     });
+}
+
+/// File > Import from qBittorrent / µTorrent: the client's usual folder (or one picked), a
+/// yes/no question, then the torrents added with their resume data.
+fn import_from(client: Client, picked: Option<PathBuf>) {
+    if crate::remote::is_remote() {
+        return;
+    }
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    match import::begin(client, picked.as_deref()) {
+        Begin::Refuse(message) => info(&message),
+        Begin::PickFolder(title) => {
+            let dialog = gtk::FileDialog::builder().title(title).modal(true).build();
+            dialog.select_folder(Some(&window), None::<&gio::Cancellable>, move |r| {
+                if let Some(dir) = r.ok().and_then(|f| f.path()) {
+                    import_from(client, Some(dir));
+                }
+            });
+        }
+        Begin::Confirm(question, found) => {
+            let (message, detail) = question.split_once("\n\n").unwrap_or((&question, ""));
+            let d = gtk::AlertDialog::builder()
+                .message(message)
+                .detail(detail)
+                .buttons([tr!(BtnCancel), tr!(BtnOk)])
+                .cancel_button(0)
+                .default_button(1)
+                .modal(true)
+                .build();
+            d.choose(Some(&window), None::<&gio::Cancellable>, move |r| {
+                if r != Ok(1) {
+                    return;
+                }
+                let summary = with_app(|a| {
+                    let keys: HashSet<String> = a
+                        .list
+                        .ids()
+                        .filter_map(|id| a.list.get(id))
+                        .map(|s| s.info_hashes.key_hex())
+                        .collect();
+                    let done = import::finish(client, found, &mut a.prefs, |key| keys.contains(key));
+                    // the labels and pause marks are read when the torrents first show up
+                    save_prefs(a);
+                    for line in &done.log {
+                        a.detail.push_log(format!("{} {line}", now_hms()));
+                    }
+                    for p in done.add {
+                        add_to_session(a, p);
+                    }
+                    done.summary
+                });
+                refresh_details();
+                if let Some(summary) = summary {
+                    info(&summary);
+                }
+            });
+        }
+    }
 }
 
 /// Adds without the dialog, with the Preferences' defaults.

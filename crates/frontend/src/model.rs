@@ -1,5 +1,5 @@
 //! The torrent list as a frontend shows it: a row cache fed by [`Alert::StateUpdate`], filtered
-//! by a category and sorted by a column. Frontends draw [`TorrentList::view`] in a virtual list
+//! by a category and a name search and sorted by a column. Frontends draw [`TorrentList::view`] in a virtual list
 //! and keep their selection as torrent ids, so rows can move under it.
 //!
 //! Built for 100,000 rows (Road to 1.0 item 5, D21): every torrent is kept in sort order
@@ -46,6 +46,8 @@ pub struct TorrentList {
     /// The view before it last changed.
     previous_view: Vec<TorrentId>,
     filter: Filter,
+    /// The search box's text, lowercased: only names containing it are shown.
+    search: String,
     sort: Option<(Column, bool)>,
     /// Rows to (re)place in `order` at the next refresh: new ones and those whose sort key
     /// changed.
@@ -127,6 +129,19 @@ fn is_active(st: &TorrentStatus) -> bool {
     Category::Active.contains(st)
 }
 
+/// Whether `name` contains `needle` (lowercase), ignoring case. An ASCII needle is matched
+/// without allocating, so a keystroke over 100,000 names stays a few milliseconds.
+fn name_matches(name: &str, needle: &str) -> bool {
+    if needle.is_empty() {
+        return true;
+    }
+    if !needle.is_ascii() {
+        return name.to_lowercase().contains(needle);
+    }
+    let (h, n) = (name.as_bytes(), needle.as_bytes());
+    h.len() >= n.len() && h.windows(n.len()).any(|w| w.eq_ignore_ascii_case(n))
+}
+
 impl TorrentList {
     pub fn new() -> TorrentList {
         TorrentList::default()
@@ -149,6 +164,7 @@ impl TorrentList {
                     if let Filter::Category(c) = self.filter {
                         self.refilter |= c.contains(old) != c.contains(&st);
                     }
+                    self.refilter |= !self.search.is_empty() && old.name != st.name;
                 }
             }
             self.unfinished += usize::from(!st.is_finished);
@@ -269,6 +285,22 @@ impl TorrentList {
         }
     }
 
+    /// The search text as given to [`TorrentList::set_search`], trimmed and lowercased.
+    pub fn search(&self) -> &str {
+        &self.search
+    }
+
+    /// Shows only torrents whose name contains `text`, ignoring case; empty shows all. It
+    /// applies on top of the category or label filter.
+    pub fn set_search(&mut self, text: &str) {
+        let text = text.trim().to_lowercase();
+        if self.search != text {
+            self.search = text;
+            self.refilter = true;
+            self.dirty = true;
+        }
+    }
+
     /// `(column, descending)`; `None` keeps the order torrents arrived in.
     pub fn sort(&self) -> Option<(Column, bool)> {
         self.sort
@@ -374,14 +406,17 @@ impl TorrentList {
         self.removed = false;
         if reorder || self.refilter {
             self.refilter = false;
-            let (rows, labels) = (&self.rows, &self.labels);
+            let (rows, labels, search) = (&self.rows, &self.labels, self.search.as_str());
             let label = |id: &TorrentId| labels.get(id).map_or("", String::as_str);
+            let found = |id: &TorrentId| name_matches(&rows[id].name, search);
             let view: Vec<TorrentId> = match &self.filter {
-                Filter::Category(Category::All) => self.order.clone(),
+                Filter::Category(Category::All) if search.is_empty() => self.order.clone(),
                 Filter::Category(c) => {
-                    self.order.iter().copied().filter(|id| c.contains(&rows[id])).collect()
+                    self.order.iter().copied().filter(|id| c.contains(&rows[id]) && found(id)).collect()
                 }
-                Filter::Label(l) => self.order.iter().copied().filter(|id| label(id) == l).collect(),
+                Filter::Label(l) => {
+                    self.order.iter().copied().filter(|id| label(id) == l && found(id)).collect()
+                }
             };
             if view != self.view {
                 self.previous_view = std::mem::replace(&mut self.view, view);
@@ -520,6 +555,7 @@ mod tests {
                 Filter::Category(c) => c.contains(l.get(id).unwrap()),
                 Filter::Label(x) => l.extra(id).label == x,
             })
+            .filter(|&id| l.get(id).unwrap().name.to_lowercase().contains(l.search()))
             .collect();
         match l.sort() {
             Some((col, desc)) => ids.sort_by(|a, b| {
@@ -578,8 +614,10 @@ mod tests {
             Filter::Label("x".into()),
             Filter::Label(String::new()),
         ];
+        let searches = ["", "", "T1", "ep2", "t3 EP1"];
         for round in 0..400 {
-            match r.next(9) {
+            match r.next(10) {
+                9 => l.set_search(searches[r.next(searches.len() as u64) as usize]),
                 0 => l.set_sort(sorts[r.next(sorts.len() as u64) as usize]),
                 1 => l.set_filter(filters[r.next(filters.len() as u64) as usize].clone()),
                 2 => l.remove(TorrentId::from_raw(1 + r.next(400))),
@@ -610,6 +648,36 @@ mod tests {
                 assert_eq!(l.unlabeled(), unlabeled, "round {round}");
             }
         }
+    }
+
+    #[test]
+    fn search_filters_by_name() {
+        let mut l = TorrentList::new();
+        l.update([
+            st(1, "Ubuntu 24.04", 0, false),
+            st(2, "Debian 13", 0, true),
+            st(3, "Ünïcode ÄBC", 0, true),
+        ]);
+        l.set_search("  ubu ");
+        l.refresh();
+        assert_eq!(l.view(), [TorrentId::from_raw(1)]);
+        l.set_search("äbc");
+        l.refresh();
+        assert_eq!(l.view(), [TorrentId::from_raw(3)], "non-ASCII ignores case too");
+        l.set_search("e");
+        l.set_filter(Filter::Category(Category::Completed));
+        l.refresh();
+        assert_eq!(l.view(), [TorrentId::from_raw(2), TorrentId::from_raw(3)], "on top of the category");
+        // a rename moves a row into or out of the search
+        l.set_search("debian");
+        l.refresh();
+        l.update([st(2, "Fedora", 0, true)]);
+        l.refresh();
+        assert!(l.view().is_empty());
+        l.set_search("");
+        l.refresh();
+        assert_eq!(l.view().len(), 2);
+        assert!(name_matches("abc", "") && !name_matches("ab", "abc") && name_matches("xABCx", "abc"));
     }
 
     #[test]

@@ -2,8 +2,10 @@
 // filter_path_character, aux::sanitize_append_path_element)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: '/' is the separator on every platform; Windows-only rules apply under cfg(windows)
-// exactly as libtorrent applies them under TORRENT_WINDOWS. Reserved device names are not
-// rewritten because the disk layer uses \\?\ paths (libtorrent's default TORRENT_USE_UNC_PATHS).
+// exactly as libtorrent applies them under TORRENT_WINDOWS. On Windows, reserved device names (CON,
+// NUL, COM1, ...) get a '_' after their stem: std adds \\?\ only to paths of 248+ characters, so
+// `<save>\CON` would otherwise reach Win32 device parsing. Bidi isolates and the Arabic letter mark
+// are dropped along with the direction overrides.
 
 //! Turning untrusted path elements from metadata into safe, valid UTF-8 path components.
 
@@ -21,15 +23,32 @@ fn valid_path_character(c: u32) -> bool {
     !INVALID.contains(&(c as u8))
 }
 
-/// Characters dropped outright: separators, NUL, and Unicode direction overrides that can disguise
-/// file extensions.
+/// Characters dropped outright: separators, NUL, and Unicode direction controls (embeddings,
+/// overrides, isolates and marks) that can disguise file extensions.
 fn filter_path_character(c: u32) -> bool {
-    const BAD: [u32; 7] = [0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x200e, 0x200f];
+    const BAD: [u32; 12] =
+        [0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x200e, 0x200f, 0x2066, 0x2067, 0x2068, 0x2069, 0x061c];
     if BAD.contains(&c) {
         return true;
     }
     // libtorrent uses strchr("/\\", c), which also matches the terminating NUL
     matches!(c, 0x2f | 0x5c | 0)
+}
+
+/// Whether a file name stem (the part before the first '.') names a Win32 device: CON, PRN, AUX,
+/// NUL, CONIN$, CONOUT$, COM0-9 and LPT0-9 (also with superscript 1-3), in any case. Win32 ignores
+/// spaces between the stem and the extension.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn is_reserved_device_name(stem: &str) -> bool {
+    let stem = stem.trim_end_matches(' ').to_ascii_uppercase();
+    if matches!(stem.as_str(), "CON" | "PRN" | "AUX" | "NUL" | "CONIN$" | "CONOUT$") {
+        return true;
+    }
+    let Some(digit) = stem.strip_prefix("COM").or_else(|| stem.strip_prefix("LPT")) else {
+        return false;
+    };
+    let mut chars = digit.chars();
+    matches!((chars.next(), chars.next()), (Some('0'..='9' | '\u{b9}' | '\u{b2}' | '\u{b3}'), None))
 }
 
 /// Appends one untrusted path element to `path` (libtorrent `sanitize_append_path_element`):
@@ -117,6 +136,12 @@ pub fn sanitize_append_path_element(path: &mut String, element: &[u8]) {
         if added == 0 && added_separator == 1 {
             path.pop(); // the separator
             return;
+        }
+        // a device name with any extension opens the device, not a file: "NUL.txt" -> "NUL_.txt"
+        let start = path.len() - added;
+        let stem = &path[start..start + path[start..].find('.').unwrap_or(added)];
+        if is_reserved_device_name(stem) {
+            path.insert(start + stem.trim_end_matches(' ').len(), '_');
         }
     }
 
@@ -220,6 +245,49 @@ mod tests {
         // libtorrent's filter matches NUL (strchr), so embedded NULs vanish
         assert_eq!(s(&[b"\0foo"]), "foo");
         assert_eq!(s(&[b"\0\0\0\0"]), "");
+    }
+
+    #[test]
+    fn bidi_controls_are_dropped() {
+        // U+2067 RLI, U+2066 LRI, U+2068 FSI, U+2069 PDI, U+061C ALM, U+202E RLO
+        assert_eq!(s(&["x\u{2067}txt.exe".as_bytes()]), "xtxt.exe");
+        assert_eq!(s(&["a\u{2066}b\u{2068}c\u{2069}d\u{61c}e\u{202e}f".as_bytes()]), "abcdef");
+    }
+
+    #[test]
+    fn reserved_device_names() {
+        let cases: &[(&str, &str)] = &[
+            ("CON", "CON_"),
+            ("nul", "nul_"),
+            ("Aux.txt", "Aux_.txt"),
+            ("prn.tar.gz", "prn_.tar.gz"),
+            ("COM1", "COM1_"),
+            ("com0.log", "com0_.log"),
+            ("LPT9", "LPT9_"),
+            ("lpt\u{b9}", "lpt\u{b9}_"),
+            ("COM\u{b3}.bin", "COM\u{b3}_.bin"),
+            ("CONIN$", "CONIN$_"),
+            ("conout$.x", "conout$_.x"),
+            ("NUL .txt", "NUL_ .txt"),
+            // trailing dots and spaces are stripped first
+            ("con. . ", "con_"),
+            ("AUX...", "AUX_"),
+        ];
+        for (input, win) in cases {
+            let expected = if WIN { (*win).to_owned() } else { s(&[input.as_bytes()]) };
+            assert_eq!(s(&[input.as_bytes()]), expected, "{input}");
+            // as a directory, too
+            assert_eq!(s(&[b"a", input.as_bytes(), b"b"]), format!("a/{expected}/b"), "{input}");
+        }
+        if WIN {
+            assert_eq!(s(&[b"aux", b"nul"]), "aux_/nul_");
+        }
+        // names that only start like a device stay as they are
+        for name in ["CONSOLE", "COM10", "LPT", "COMA", "NULL.txt", "xCON", "con_", "a.CON"] {
+            assert_eq!(s(&[name.as_bytes()]), name);
+        }
+        assert!(super::is_reserved_device_name("lPt\u{b2}"));
+        assert!(!super::is_reserved_device_name("COM\u{b4}"));
     }
 
     #[test]

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-27_112013_1793096413
+Last updated: 2026-10-27_112333_1793096613
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D35](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -18,26 +18,26 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
-- **1.0.0-rc.1 is published** (2026-10-27, tag `v1.0.0-rc.1` on `6ed8f6c2`, [release](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1), pre-release): Release run 40462743583 built all 13 files (121 MB) and the draft was checked and published. The release text is `docs/releases/1.0.0-rc.1.md`; the Windows zip was started here, the other files only on the runners. Bug reports from it feed the gates below.
-- **The next release is 1.0.1, not another candidate** (owner, D34, 2026-10-27; 1.0.0's tagged build failed, see next steps): rc.1 runs fine. The full 1.0 scope (D19: Win32, GTK and nox; v2 / hybrid torrents; localisation; HTTPS and remote mode) is implemented; the open hand checks in Road to 1.0 continue as 1.0.x validation and no longer block the release. The owner ran the GTK GUI and found it fine on 2026-10-23; wider testers come with the release candidate.
+- **1.0.1 is published, the first stable release** (2026-10-27, tag `v1.0.1` on `afce628b`, [release](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.1), Latest): Release run 40485598989 built all 14 files (124 MB; every job green) and the draft was published at 10:21 UTC; Pages runs 40487838137 and 40487838045 built `update.txt` with `stable=1.0.1`. The tag `v1.0.0` (on `b40c2e58`) has no release: its build failed on the Flatpak metainfo (D34). rc.1 (`v1.0.0-rc.1`) stays as a pre-release. The full 1.0 scope (D19) is in it; the open Road to 1.0 hand checks continue as 1.0.x validation.
+- **V1.1 is implemented on `main`, unreleased** (D35, `4ee733fd`): search box and importers; see V1.1 below.
 - Latest Win32 changes (2026-10-23): Add New Torrent uses the resizable one-column layout, separate Save In / Name fields, a remembered size and "Don't show this again"; dialogs use the system message font (Segoe UI 9 pt here). They are tested but not yet in a refreshed hand-test set. See the recent [changelog](CHANGELOG.md).
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), Windows built locally and Linux / Windows artifacts from Release `39950546995`. It carries the full-row selection, routed-interface UPnP and connected-peer-list fixes, but predates the latest dialog changes. Older sets remain in `dist/1.0-test-ad714b1/` and `dist/1.0-test/`. The first set's Linux binaries/AppImages passed a command-line smoke check; later sets were not desktop-smoked, and Flatpak was not installed.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
-- **Since rc.1, unreleased** (2026-10-27): the window title, tray tooltip, Web UI tab and the exes' version resources show the version; an update check that only tells (D32: a minute in the status bar, Help > Check for Updates, Preferences > General > Privacy); a Windows installer beside the zip (D31, `packaging/windows/`); the project website on GitHub Pages with the `update.txt` the check reads (D33, `site/`, [WEBSITE.md](docs/WEBSITE.md)). Pushed as `9692f69f`; the website is live from the Pages workflow and the app's check reads its `update.txt` (verified end to end). The Release dry run 40470860315 built and smoke-tested the installer on the runner (green) and compiled the GTK client on Linux; CI on `73736841` was still running.
+- **New in 1.0.1 since rc.1** (2026-10-27): the window title, tray tooltip, Web UI tab and the exes' version resources show the version; an update check that only tells (D32: a minute in the status bar, Help > Check for Updates, Preferences > General > Privacy); a Windows installer beside the zip (D31, `packaging/windows/`); the project website on GitHub Pages with the `update.txt` the check reads (D33, `site/`, [WEBSITE.md](docs/WEBSITE.md)). The app's check reads the website's `update.txt` (verified end to end with rc.1); the installer is built and smoke-tested by the release job.
 - Verdigris (`01`) is provisionally integrated in the application and packaging through `assets/patina-icons/app-icon.txt`; the owner's final brand choice remains open. The candidate gallery is in `assets/patina-icons/`.
 
 ## Next steps
 
-1. **Release 1.0.1** (item 14, RELEASING.md), the first stable release: the tag `v1.0.0` (on `b40c2e58`) failed in Release run 40475482914 on the Flatpak metainfo and has no release; it stays, and the version moved on to `1.0.1` (owner, 2026-10-27_104216_1793094136) with `docs/releases/1.0.1.md`. Wait for CI on the version commit, then the owner decides on the tag `v1.0.1`; inspect the draft and publish; then the Pages run puts `stable=1.0.1` in `update.txt`. It is the installer's first release: run its wizard and the all-users UAC path once on a real PC if possible.
-2. After 1.0.1: hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
+1. **After 1.0.1:** confirm the website serves `stable=1.0.1` in `update.txt` (the Pages deploy finished; the CDN caches 10 min) and that an rc.1 build offers the update. 1.0.1 is the installer's first release: run its wizard and the all-users UAC path once on a real PC. Register `PA` with the client-ID lists (item 14).
+2. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 3. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 4. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
 5. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
 
 ## Road to 1.0
 
-Original gate numbers are retained for references in source comments and release docs. "Implemented" does not close a pending hand check. D19-D23 define the approved scope. Since D34 the open checks are 1.0.x validation, not release blockers; only item 14 stands between rc.1 and 1.0.1 (1.0.0's tagged build failed).
+Original gate numbers are retained for references in source comments and release docs. "Implemented" does not close a pending hand check. D19-D23 define the approved scope. Since D34 the open checks are 1.0.x validation, not release blockers; 1.0.1 shipped with them open (1.0.0's tagged build failed).
 
 | # | Gate | Remaining work |
 |---|---|---|
@@ -54,7 +54,7 @@ Original gate numbers are retained for references in source comments and release
 | 11 | Service integration | Run the nox Windows service under the real elevated SCM, including restart-on-failure and shutdown behavior. Install and exercise FreeBSD rc.d with root (only syntax-checked so far). |
 | 12 | Final interop rerun | Use release builds: plain, RC4, TCP, uTP, uTP-only and super-seed with qBittorrent, Transmission and Deluge; v2/hybrid where supported. Transmission/Deluge uTP and super-seed switches remain unverified. Known Linux results: Transmission rejects v2-only and stalls on hybrid pad-file expectations; qBittorrent/Deluge v1/v2/hybrid plain/RC4 passed. |
 | 13 | Web UI on a real phone | Android/iOS: detail/action sheets, drawer, sort, long-press multi-select, Back behavior, Properties and reconnection. Also verify desktop keyboard, selection, columns, Preferences and dark mode on the real engine. |
-| 14 | Release engineering | rc.1 is out with version `1.0.0-rc.1`, peer ID `-PA1000-` and `docs/releases/<version>.md` as the release text (RELEASING.md steps 1-2). For 1.0.1 (straight after rc.1, D34; 1.0.0 was tagged but its build failed): set version `1.0.1` and peer ID `-PA1010-` (done), write release notes and inspect draft artifacts/checksums. Parser/security review and its fixes are recorded in SECURITY-REVIEW.md; keep parser review at each release. Register `PA` with libtorrent, Transmission, WebTorrent and the BEP 20 list. |
+| 14 | Release engineering | rc.1 is out with version `1.0.0-rc.1`, peer ID `-PA1000-` and `docs/releases/<version>.md` as the release text (RELEASING.md steps 1-2). 1.0.1 (straight after rc.1, D34; 1.0.0 was tagged but its build failed) is published with version `1.0.1` and peer ID `-PA1010-`. Parser/security review and its fixes are recorded in SECURITY-REVIEW.md; keep parser review at each release. Register `PA` with libtorrent, Transmission, WebTorrent and the BEP 20 list. |
 
 ## Decisions and open questions
 

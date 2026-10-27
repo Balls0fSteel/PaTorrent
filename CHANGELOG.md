@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_112333_1793096613: 1.0.1 published (recorded after the fact)
+
+- The 1.0.1 release was tagged and published from a parallel session that did not record it: tag `v1.0.1` on `afce628b`, Release run 40485598989 green (8 of 8 jobs, 14 files, 124 MB), published as Latest at 10:21 UTC. Pages runs 40487838137 and 40487838045 built `update.txt` with `stable=1.0.1` and deployed; a fetch a minute later still had the old file (CDN `max-age=600`).
+- PLAN.md now shows 1.0.1 as published and V1.1 as the unreleased work on `main`; the V1.1 entry below was written while the plan still said 1.0.1 was untagged.
+
 ## 2026-10-27_112013_1793096413: V1.1: search box and importers from qBittorrent and µTorrent (D35)
 
 - **Decision D35** (owner): the toolbar's search box filters the torrent list by name; compiled-in plugin hooks move to V2.0 (no first user yet).

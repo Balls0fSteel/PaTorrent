@@ -3100,21 +3100,23 @@ fn open_folder_target(save_path: &str, name: &str) -> Option<(PathBuf, PathBuf)>
     Some((save, target))
 }
 
-/// Opens Explorer on `target`'s folder with it selected (or on the save folder while the target
-/// does not exist yet). The shell API takes an item, not a command line, so nothing in the path is
-/// parsed as arguments.
+/// Opens Explorer on `target`'s folder with it selected, or inside the save folder while the
+/// target does not exist yet (selecting the save folder would show its parent). The shell takes
+/// an item or a folder, not a command line, so nothing in the path is parsed as arguments.
 unsafe fn show_in_explorer(target: &Path, save_path: &Path) {
     use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
-    use windows_sys::Win32::UI::Shell::{ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems};
+    use windows_sys::Win32::UI::Shell::{
+        ILCreateFromPathW, ILFree, SHOpenFolderAndSelectItems, ShellExecuteW,
+    };
     unsafe {
         let com = CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32) >= 0;
-        let mut pidl = ILCreateFromPathW(wide(&target.to_string_lossy()).as_ptr());
-        if pidl.is_null() {
-            pidl = ILCreateFromPathW(wide(&save_path.to_string_lossy()).as_ptr());
-        }
+        let pidl = ILCreateFromPathW(wide(&target.to_string_lossy()).as_ptr());
         if !pidl.is_null() {
             SHOpenFolderAndSelectItems(pidl, 0, null(), 0);
             ILFree(pidl);
+        } else {
+            let (verb, folder) = (wide("explore"), wide(&save_path.to_string_lossy()));
+            ShellExecuteW(null_mut(), verb.as_ptr(), folder.as_ptr(), null(), null(), SW_SHOWNORMAL);
         }
         if com {
             CoUninitialize();

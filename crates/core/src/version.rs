@@ -15,7 +15,7 @@ pub const USER_AGENT: &str = concat!("PaTorrent/", env!("CARGO_PKG_VERSION"));
 /// The four version characters must be kept in sync with the crate version.
 /// A pre-release (`1.0.0-rc.1`) carries the version it leads to: the four characters have no room
 /// for its suffix.
-pub const PEER_ID_PREFIX: &str = "-PA1000-";
+pub const PEER_ID_PREFIX: &str = "-PA1010-";
 
 #[cfg(test)]
 mod tests {

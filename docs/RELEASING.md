@@ -111,7 +111,7 @@ elevates through UAC and starts from a clean registry):
 ## Steps
 
 1. Pick the version and set it in `Cargo.toml` (`[workspace.package] version`), in
-   `PEER_ID_PREFIX` in `crates/core/src/version.rs` (`-PA1000-` is 1.0.0; a pre-release such as
+   `PEER_ID_PREFIX` in `crates/core/src/version.rs` (`-PA1010-` is 1.0.1; a pre-release such as
    `1.0.0-rc.1` carries the version it leads to, and a test fails when the two differ), in the
    Windows manifest `crates/win32/res/patorrent.exe.manifest` (`assemblyIdentity version`, four
    numbers) and as the first `<release>` of the Flatpak metainfo ([Flatpak](#flatpak)).

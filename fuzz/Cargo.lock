@@ -89,7 +89,7 @@ dependencies = [
 
 [[package]]
 name = "patorrent-core"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "mio",
  "windows-sys",
@@ -97,7 +97,7 @@ dependencies = [
 
 [[package]]
 name = "patorrent-frontend"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "patorrent-core",
  "windows-sys",
@@ -115,7 +115,7 @@ dependencies = [
 
 [[package]]
 name = "patorrent-nox"
-version = "1.0.0"
+version = "1.0.1"
 dependencies = [
  "patorrent-core",
  "patorrent-frontend",

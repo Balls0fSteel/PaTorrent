@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_104216_1793094136: Version 1.0.1: the first stable release instead of 1.0.0 (not tagged)
+
+- The metainfo fix `b2ce7c06` passed CI 40476434941, FreeBSD 40476435274 and Release dry run 40476448542 (every job, both Flatpaks included). The owner chose a new version over moving the pushed `v1.0.0` tag, which stays on `b40c2e58` without a release.
+- Version `1.0.1`: `Cargo.toml`, both lockfiles (workspace crates only), peer ID `-PA1010-`, Windows manifest `1.0.1.0`, the metainfo's first `<release>` (the unreleased 1.0.0 entry became 1.0.1). `docs/releases/1.0.0.md` became `1.0.1.md` and says why there is no 1.0.0; README, the site's Download and FAQ pages, WEBSITE.md and RELEASING.md's peer-ID example follow. D34 notes the change.
+- Validation: core version tests, frontend 180, nox and Win32 63 tests pass; debug `patorrent-nox --version` prints 1.0.1 and `patorrent.exe`'s file version is 1.0.1, not pre-release; rustfmt clean; site tests pass.
+
 ## 2026-10-27_095101_1793091061: v1.0.0's Release run failed on the Flatpak metainfo; fixed
 
 - CI 40472951003, FreeBSD, Fuzz and Pages passed on `b40c2e58`; with the owner's go-ahead it was tagged `v1.0.0` and pushed. Release run 40475482914 built Windows, both Linux legs and macOS, but both Flatpak legs failed `appstreamcli validate`: `releases-not-in-order 1.0.0 << 1.0.0-rc.1`. AppStream sorts a `-rc.1` suffix after the plain version, so the draft release was skipped (nothing published).

@@ -1,7 +1,7 @@
 # PaTorrent
 
 > [!NOTE]
-> **PaTorrent 1.0.0 is the first stable release.** It has been used mostly by its author so far, and nothing is code-signed. Do not use it on private trackers yet: its client ID is not whitelisted anywhere.
+> **PaTorrent 1.0.1 is the first stable release.** It has been used mostly by its author so far, and nothing is code-signed. Do not use it on private trackers yet: its client ID is not whitelisted anywhere.
 >
 > Feedback and [bug reports](https://github.com/Balls0fSteel/PaTorrent/issues) are welcome.
 
@@ -21,7 +21,7 @@ Website: <https://balls0fsteel.github.io/PaTorrent/>: downloads with how to star
 
 ## Download
 
-Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.0.0](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0). The archives need no installation: unpack and run; Windows also has an installer (from 1.0.0 on). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
+Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.0.1](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.1). The archives need no installation: unpack and run; Windows also has an installer (from 1.0.1 on). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
 
 | Platform | File | What is inside |
 |---|---|---|
@@ -36,7 +36,7 @@ Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorr
 
 The builds are not code-signed, so Windows SmartScreen and macOS Gatekeeper warn the first time. How the files are made: [docs/RELEASING.md](docs/RELEASING.md).
 
-**Updates.** From 1.0.0 on, the Windows and GTK GUIs check the website's list of releases 10 seconds after they start and every 12 hours. When a newer version is out, a note shows in the status bar for a minute and links to its release page; nothing is downloaded or installed for you. Help > Check for Updates asks at once; Preferences > General > Privacy turns the automatic check off. The Flatpak leaves updating to Flathub.
+**Updates.** From 1.0.1 on, the Windows and GTK GUIs check the website's list of releases 10 seconds after they start and every 12 hours. When a newer version is out, a note shows in the status bar for a minute and links to its release page; nothing is downloaded or installed for you. Help > Check for Updates asks at once; Preferences > General > Privacy turns the automatic check off. The Flatpak leaves updating to Flathub.
 
 ## Building
 

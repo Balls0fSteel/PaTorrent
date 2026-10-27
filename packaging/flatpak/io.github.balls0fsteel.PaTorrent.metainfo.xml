@@ -70,7 +70,7 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
-    <release version="1.0.0" date="2026-10-27" type="stable">
+    <release version="1.0.1" date="2026-10-27" type="stable">
       <description>
         <p>First stable release. The window title and the tray tooltip show the version.</p>
       </description>

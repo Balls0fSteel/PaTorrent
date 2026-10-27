@@ -8,9 +8,10 @@
 //!   System32). The account is LocalService unless `--account` names NetworkService or
 //!   LocalSystem (built-in accounts need no password). Without `--state-dir` the state goes to
 //!   `%ProgramData%\PaTorrent\nox`, not the account's `%APPDATA%` (hidden under
-//!   `C:\Windows\ServiceProfiles`); a state directory that does not exist yet is created with a
-//!   protected ACL (SYSTEM, Administrators and the account only: `webui.json` and the log hold
-//!   the Web UI login). Without `--save` the downloads go to its `Downloads` folder. Delayed
+//!   `C:\Windows\ServiceProfiles`); the state directory gets a protected ACL (SYSTEM,
+//!   Administrators and the account only: `webui.json` and the log hold the Web UI login). One
+//!   that exists already is taken only if it, its parents and its contents belong to trusted
+//!   owners and it holds no junctions; its ACL is then reset (SEC-23). Without `--save` the downloads go to its `Downloads` folder. Delayed
 //!   automatic start, restart 5 s / 30 s / 60 s after a failure (also after a clean exit with an
 //!   error code), 60 s for the shutdown when Windows shuts down (PRESHUTDOWN).
 //! - `service uninstall`, `service start` and `service stop` (waiting for the state change).
@@ -35,6 +36,7 @@ use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
+use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_CALL_NOT_IMPLEMENTED, ERROR_FAILED_SERVICE_CONTROLLER_CONNECT,
     ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_EXISTS,
@@ -42,9 +44,14 @@ use windows_sys::Win32::Foundation::{
     NO_ERROR,
 };
 use windows_sys::Win32::Security::Authorization::{
-    ConvertStringSecurityDescriptorToSecurityDescriptorW, SDDL_REVISION_1,
+    ConvertSidToStringSidW, ConvertStringSecurityDescriptorToSecurityDescriptorW, GetNamedSecurityInfoW,
+    SDDL_REVISION_1, SE_FILE_OBJECT, SetNamedSecurityInfoW,
 };
-use windows_sys::Win32::Security::{PSECURITY_DESCRIPTOR, SECURITY_ATTRIBUTES};
+use windows_sys::Win32::Security::{
+    ACL, DACL_SECURITY_INFORMATION, GetSecurityDescriptorDacl, GetTokenInformation,
+    OWNER_SECURITY_INFORMATION, PROTECTED_DACL_SECURITY_INFORMATION, PSECURITY_DESCRIPTOR, PSID,
+    SECURITY_ATTRIBUTES, TOKEN_QUERY, TOKEN_USER, TokenUser,
+};
 use windows_sys::Win32::Storage::FileSystem::{CreateDirectoryW, DELETE};
 use windows_sys::Win32::System::Services::{
     ChangeServiceConfig2W, CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW,
@@ -60,6 +67,7 @@ use windows_sys::Win32::System::Services::{
     SERVICE_STOP, SERVICE_STOP_PENDING, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
     StartServiceCtrlDispatcherW, StartServiceW,
 };
+use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows_sys::core::PWSTR;
 
 use crate::signals::{self, ServiceControl};
@@ -438,6 +446,218 @@ fn create_dir_with_acl(dir: &Path, sddl: &str) -> io::Result<()> {
     if created { Ok(()) } else { Err(err) }
 }
 
+/// Owners trusted for a state directory, its parents and what is in it (SEC-23): SYSTEM,
+/// Administrators, LocalService, NetworkService and TrustedInstaller. Whoever runs the install
+/// (an administrator) is trusted too. Any other owner may be a user who made the directory
+/// before the install and can still change it.
+const TRUSTED_OWNERS: [&str; 5] = [
+    "S-1-5-18",
+    "S-1-5-32-544",
+    "S-1-5-19",
+    "S-1-5-20",
+    "S-1-5-80-956008885-3418522649-1831038044-1853292631-2271478464",
+];
+
+/// `FILE_ATTRIBUTE_REPARSE_POINT`: a junction or a symbolic link.
+const REPARSE_POINT: u32 = 0x400;
+
+/// A SID as text (`S-1-5-18`).
+fn sid_string(sid: PSID) -> io::Result<String> {
+    let mut s: PWSTR = std::ptr::null_mut();
+    // SAFETY: a valid SID and an out pointer; the string is allocated with LocalAlloc
+    if unsafe { ConvertSidToStringSidW(sid, &mut s) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // SAFETY: a NUL-terminated string from the call above, freed once read
+    let text = unsafe {
+        let len = (0..).take_while(|&i| *s.add(i) != 0).count();
+        let text = String::from_utf16_lossy(std::slice::from_raw_parts(s, len));
+        LocalFree(s.cast());
+        text
+    };
+    Ok(text)
+}
+
+/// The owner of `path` (not following a link at its end only if it is not one: callers refuse
+/// reparse points first); `None` when it has none, as on a FAT drive.
+fn owner_of(path: &Path) -> io::Result<Option<String>> {
+    let name = wide(path);
+    let mut owner: PSID = std::ptr::null_mut();
+    let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: a NUL-terminated path and out pointers; the owner points into `sd`
+    let err = unsafe {
+        GetNamedSecurityInfoW(
+            name.as_ptr(),
+            SE_FILE_OBJECT,
+            OWNER_SECURITY_INFORMATION,
+            &mut owner,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+            &mut sd,
+        )
+    };
+    if err != NO_ERROR {
+        return Err(io::Error::from_raw_os_error(err as i32));
+    }
+    let text = if owner.is_null() { Ok(None) } else { sid_string(owner).map(Some) };
+    // SAFETY: allocated by GetNamedSecurityInfoW with LocalAlloc
+    unsafe { LocalFree(sd) };
+    text
+}
+
+/// The SID of the user running this process.
+fn current_user() -> io::Result<String> {
+    let mut token: HANDLE = std::ptr::null_mut();
+    // SAFETY: the pseudo handle of this process and an out pointer
+    if unsafe { OpenProcessToken(GetCurrentProcess(), TOKEN_QUERY, &mut token) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    // TOKEN_USER and its SID; u64 for the alignment
+    let mut buf = [0u64; 64];
+    let mut len = 0;
+    // SAFETY: an open token and a buffer of the size given
+    let ok = unsafe {
+        GetTokenInformation(token, TokenUser, buf.as_mut_ptr().cast(), size_of_val(&buf) as u32, &mut len)
+    };
+    let err = io::Error::last_os_error();
+    // SAFETY: opened above
+    unsafe { CloseHandle(token) };
+    if ok == 0 {
+        return Err(err);
+    }
+    // SAFETY: the call filled the buffer with a TOKEN_USER, its SID pointing into the buffer
+    sid_string(unsafe { (*buf.as_ptr().cast::<TOKEN_USER>()).User.Sid })
+}
+
+/// Sets the protected ACL in `sddl` on `dir`; Windows hands its inherited entries down to
+/// everything inside, replacing what they inherited before.
+fn secure_dir(dir: &Path, sddl: &str) -> io::Result<()> {
+    let sddl = wide(sddl);
+    let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+    // SAFETY: a NUL-terminated string and a valid out pointer
+    let ok = unsafe {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW(
+            sddl.as_ptr(),
+            SDDL_REVISION_1,
+            &mut sd,
+            std::ptr::null_mut(),
+        )
+    };
+    if ok == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let (mut present, mut defaulted, mut dacl) = (0, 0, std::ptr::null_mut::<ACL>());
+    // SAFETY: the descriptor converted above; the ACL points into it
+    let ok = unsafe { GetSecurityDescriptorDacl(sd, &mut present, &mut dacl, &mut defaulted) };
+    let path = wide(dir);
+    let err = if ok == 0 || present == 0 {
+        Err(io::Error::other("no DACL in the descriptor"))
+    } else {
+        // SAFETY: a NUL-terminated path and the ACL from the live descriptor
+        match unsafe {
+            SetNamedSecurityInfoW(
+                path.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION | PROTECTED_DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                dacl,
+                std::ptr::null(),
+            )
+        } {
+            NO_ERROR => Ok(()),
+            e => Err(io::Error::from_raw_os_error(e as i32)),
+        }
+    };
+    // SAFETY: allocated by the conversion with LocalAlloc
+    unsafe { LocalFree(sd) };
+    err
+}
+
+/// Why `path` cannot be trusted, if it cannot: a junction or link, or an owner other than the
+/// trusted ones.
+fn distrust(path: &Path, trusted: &dyn Fn(&str) -> bool, owner: &Owner<'_>) -> Option<String> {
+    use std::os::windows::fs::MetadataExt;
+    let shown = path.display();
+    match std::fs::symlink_metadata(path) {
+        Ok(m) if m.file_attributes() & REPARSE_POINT != 0 => {
+            return Some(format!("{shown} is a junction or link"));
+        }
+        Ok(_) => {}
+        Err(e) => return Some(format!("{shown}: {e}")),
+    }
+    owner_problem(path, trusted, owner)
+}
+
+/// Looks up an owner; a parameter so tests can name other owners.
+type Owner<'a> = dyn Fn(&Path) -> io::Result<Option<String>> + 'a;
+
+/// Creates the state directory with the protected ACL in `sddl`, or takes one that exists
+/// (SEC-23). Any user can make folders under `%ProgramData%` and owns what they make, so a
+/// directory made before the install could hold a planted `webui.json` or a `Downloads`
+/// junction, or be renamed away by the owner of a parent. Its existing parents, the directory
+/// and everything in it must belong to a trusted owner and hold no junctions or links; the
+/// directory's ACL is then reset. True if it was created.
+fn prepare_state_dir(
+    state: &Path,
+    sddl: &str,
+    trusted: &dyn Fn(&str) -> bool,
+    owner: &Owner<'_>,
+) -> Result<bool, String> {
+    let refuse = |why: String| {
+        Err(format!(
+            "{why}: another user may have made it and could still change it. Remove it, or install \
+             with another --state-dir"
+        ))
+    };
+    for parent in state.ancestors().skip(1).filter(|p| !p.as_os_str().is_empty() && p.exists()) {
+        if let Some(why) = owner_problem(parent, trusted, owner) {
+            return refuse(why);
+        }
+    }
+    if std::fs::symlink_metadata(state).is_err() {
+        if let Some(parent) = state.parent() {
+            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
+        }
+        create_dir_with_acl(state, sddl).map_err(|e| format!("{}: {e}", state.display()))?;
+        return Ok(true);
+    }
+    if let Some(why) = distrust(state, trusted, owner) {
+        return refuse(why);
+    }
+    if !state.is_dir() {
+        return Err(format!("{} is not a directory", state.display()));
+    }
+    // first the ACL, so no new entries appear while the contents are checked
+    secure_dir(state, sddl).map_err(|e| format!("{}: cannot reset its permissions: {e}", state.display()))?;
+    let mut dirs = vec![state.to_path_buf()];
+    while let Some(dir) = dirs.pop() {
+        let entries = std::fs::read_dir(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+        for entry in entries {
+            let path = entry.map_err(|e| format!("{}: {e}", dir.display()))?.path();
+            if let Some(why) = distrust(&path, trusted, owner) {
+                return refuse(why);
+            }
+            if path.is_dir() {
+                dirs.push(path);
+            }
+        }
+    }
+    Ok(false)
+}
+
+/// A parent's owner only: the path to the state directory may pass through a junction.
+fn owner_problem(path: &Path, trusted: &dyn Fn(&str) -> bool, owner: &Owner<'_>) -> Option<String> {
+    let shown = path.display();
+    match owner(path) {
+        Ok(Some(sid)) if trusted(&sid) => None,
+        Ok(Some(sid)) => Some(format!("{shown} belongs to {sid}, not to SYSTEM, Administrators or you")),
+        Ok(None) => Some(format!("{shown} has no owner (a drive without permissions?)")),
+        Err(e) => Some(format!("{shown}: cannot read its owner: {e}")),
+    }
+}
+
 /// `ChangeServiceConfig2W` with `info`; an error to print as a warning.
 fn config2<T>(s: &Sc, level: u32, info: &T, what: &str) -> Option<String> {
     // SAFETY: an open handle with SERVICE_CHANGE_CONFIG and the structure `level` names
@@ -455,16 +675,9 @@ fn install(i: &Install) -> Result<(), String> {
     let m = manager(SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE)
         .map_err(|e| scm_error("service install", e))?;
 
-    let created = if i.state.exists() {
-        false
-    } else {
-        if let Some(parent) = i.state.parent() {
-            std::fs::create_dir_all(parent).map_err(|e| format!("{}: {e}", parent.display()))?;
-        }
-        create_dir_with_acl(&i.state, &i.account.state_dir_sddl())
-            .map_err(|e| format!("{}: {e}", i.state.display()))?;
-        true
-    };
+    let me = current_user().ok();
+    let trusted = |sid: &str| TRUSTED_OWNERS.contains(&sid) || me.as_deref() == Some(sid);
+    let created = prepare_state_dir(&i.state, &i.account.state_dir_sddl(), &trusted, &owner_of)?;
     if let Some(d) = &i.default_save {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
@@ -532,19 +745,8 @@ fn install(i: &Install) -> Result<(), String> {
         Account::LocalSystem => "SYSTEM and Administrators".to_owned(),
         a => format!("SYSTEM, Administrators and {}", a.name()),
     };
-    if created {
-        println!("* state: {} (created; only {who} can open it)", i.state.display());
-    } else {
-        println!("* state: {}", i.state.display());
-        if i.account != Account::LocalSystem {
-            println!(
-                "! it existed already: {} needs to write it, e.g. icacls \"{}\" /grant \"{}:(OI)(CI)M\"",
-                i.account.name(),
-                i.state.display(),
-                i.account.name()
-            );
-        }
-    }
+    let how = if created { "created" } else { "existed; its permissions were reset" };
+    println!("* state: {} ({how}; only {who} can open it)", i.state.display());
     match &i.default_save {
         Some(d) => println!("* downloads: {}", d.display()),
         None if i.account != Account::LocalSystem => {
@@ -1224,6 +1426,120 @@ mod tests {
         std::fs::write(d.join("f"), "x").unwrap();
         assert!(create_dir_with_acl(&d, "D:P(A;OICI;FA;;;SY)").is_err(), "exists");
         assert!(create_dir_with_acl(&base.join("bad"), "not sddl").is_err());
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// The DACL of `path` as SDDL.
+    fn dacl_of(path: &Path) -> String {
+        use windows_sys::Win32::Security::Authorization::ConvertSecurityDescriptorToStringSecurityDescriptorW;
+        let name = wide(path);
+        let mut sd: PSECURITY_DESCRIPTOR = std::ptr::null_mut();
+        // SAFETY: a NUL-terminated path and out pointers
+        let err = unsafe {
+            GetNamedSecurityInfoW(
+                name.as_ptr(),
+                SE_FILE_OBJECT,
+                DACL_SECURITY_INFORMATION,
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                &mut sd,
+            )
+        };
+        assert_eq!(err, NO_ERROR);
+        let mut s: PWSTR = std::ptr::null_mut();
+        // SAFETY: the descriptor read above and an out pointer; both freed once read
+        unsafe {
+            let ok = ConvertSecurityDescriptorToStringSecurityDescriptorW(
+                sd,
+                SDDL_REVISION_1,
+                DACL_SECURITY_INFORMATION,
+                &mut s,
+                std::ptr::null_mut(),
+            );
+            assert_ne!(ok, 0);
+            let len = (0..).take_while(|&i| *s.add(i) != 0).count();
+            let text = String::from_utf16_lossy(std::slice::from_raw_parts(s, len));
+            LocalFree(s.cast());
+            LocalFree(sd);
+            text
+        }
+    }
+
+    /// A state directory made by another user before the install is refused (SEC-23).
+    #[test]
+    fn a_state_dir_from_another_user_is_refused() {
+        let base = std::env::temp_dir().join(format!("nox-service-owner-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let state = base.join("nox");
+        std::fs::create_dir_all(state.join("sub")).unwrap();
+        let planted = state.join("sub").join("webui.json");
+        std::fs::write(&planted, "{}").unwrap();
+        let me = current_user().unwrap();
+        let trusted = |sid: &str| TRUSTED_OWNERS.contains(&sid) || sid == me;
+        let sddl = format!("{}(A;OICI;FA;;;OW)", Account::LocalService.state_dir_sddl());
+        // everything is this user's: taken, not created
+        assert_eq!(prepare_state_dir(&state, &sddl, &trusted, &owner_of), Ok(false));
+        // a planted file, the directory itself, or a parent that belongs to another user
+        let other = "S-1-5-21-1-2-3-1001";
+        for bad in [&planted, &state, &base] {
+            let fake = |p: &Path| if p == bad.as_path() { Ok(Some(other.to_owned())) } else { owner_of(p) };
+            let e = prepare_state_dir(&state, &sddl, &trusted, &fake).unwrap_err();
+            assert!(e.contains(other) && e.contains("another user"), "{}: {e}", bad.display());
+        }
+        let ownerless = |p: &Path| if p == state.as_path() { Ok(None) } else { owner_of(p) };
+        assert!(prepare_state_dir(&state, &sddl, &trusted, &ownerless).unwrap_err().contains("no owner"));
+        // a Downloads junction that points elsewhere
+        let target = base.join("elsewhere");
+        std::fs::create_dir(&target).unwrap();
+        let link = state.join("Downloads");
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(made.status.success(), "mklink: {made:?}");
+        let e = prepare_state_dir(&state, &sddl, &trusted, &owner_of).unwrap_err();
+        assert!(e.contains("junction"), "{e}");
+        std::fs::remove_dir(&link).unwrap();
+        // the state directory itself as a junction
+        let e = prepare_state_dir(&link, &sddl, &trusted, &owner_of);
+        assert_eq!(e, Ok(true), "a missing directory is created");
+        std::fs::remove_dir(&link).unwrap();
+        let made = std::process::Command::new("cmd")
+            .args(["/C", "mklink", "/J"])
+            .arg(&link)
+            .arg(&target)
+            .output()
+            .unwrap();
+        assert!(made.status.success());
+        assert!(prepare_state_dir(&link, &sddl, &trusted, &owner_of).unwrap_err().contains("junction"));
+        std::fs::remove_dir(&link).unwrap();
+        std::fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A state directory that is taken loses what it allowed before (SEC-23).
+    #[test]
+    fn an_existing_state_dir_gets_the_protected_acl() {
+        let base = std::env::temp_dir().join(format!("nox-service-reset-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        let state = base.join("nox");
+        std::fs::create_dir_all(&state).unwrap();
+        // made before the install, open to every user, with a file inside
+        secure_dir(&state, "D:(A;OICI;FA;;;BU)(A;OICI;FA;;;OW)(A;OICI;FA;;;SY)").unwrap();
+        std::fs::write(state.join("webui.json"), "{}").unwrap();
+        assert!(dacl_of(&state.join("webui.json")).contains(";BU)"));
+        let me = current_user().unwrap();
+        let trusted = |sid: &str| TRUSTED_OWNERS.contains(&sid) || sid == me;
+        let sddl = format!("{}(A;OICI;FA;;;OW)", Account::LocalService.state_dir_sddl());
+        assert_eq!(prepare_state_dir(&state, &sddl, &trusted, &owner_of), Ok(false));
+        let dir = dacl_of(&state);
+        assert!(dir.starts_with("D:P") && !dir.contains(";BU)"), "{dir}");
+        assert!(dir.contains(";LS)"), "the service account can write it: {dir}");
+        let file = dacl_of(&state.join("webui.json"));
+        assert!(!file.contains(";BU)") && file.contains(";LS)"), "{file}");
         std::fs::remove_dir_all(&base).unwrap();
     }
 

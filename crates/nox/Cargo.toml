@@ -21,6 +21,7 @@ windows-sys = { workspace = true, features = [
     "Win32_Storage_FileSystem",
     "Win32_System_Console",
     "Win32_System_Services",
+    "Win32_System_Threading",
 ] }
 
 # the service tests split command lines with Windows's own parser

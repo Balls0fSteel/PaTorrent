@@ -30,7 +30,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-0. **Owner hand-test findings (2026-10-27_225501_1793138101):** toolbar icon strokes, scheduler flicker/colours, unclear checking icon, blank rows, alternating rows, hotkey support, a version bump per change (and distinct test-build versions). Details: [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
+0. **Owner hand-test findings (2026-10-27_225501_1793138101):** toolbar icon strokes, scheduler flicker/colours, unclear checking icon, blank rows, alternating rows, hotkey support, a version bump per change and distinct test-build versions, with the peer ID decoupled (D37). Details: [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
 1. **After 1.0.1:** confirm the website serves `stable=1.0.1` in `update.txt` (the Pages deploy finished; the CDN caches 10 min) and that an rc.1 build offers the update. 1.0.1 is the installer's first release: run its wizard and the all-users UAC path once on a real PC. Register `PA` with the client-ID lists (item 14).
 2. Rerun `tools/bench` before each release and on bare metal when one is free ([BACKLOG](docs/BACKLOG.md#validation-and-development-environment)).
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
@@ -62,7 +62,7 @@ Original gate numbers are retained for references in source comments and release
 
 ## Decisions and open questions
 
-The approved decisions D1-D35 remain active in [DECISIONS.md](docs/DECISIONS.md). Keep the one-thread mio engine, OS TLS, lazy shared-store persistence, minimal dependencies, static portable Windows binary (an installer beside the zip, D31) and faithful 2.2.1 layout. Scale takes priority over empty-session memory. The PolyForm Noncommercial licence, PaTorrent identity and honest peer ID remain fixed. New dependencies need a written justification and changelog entry.
+The approved decisions D1-D37 remain active in [DECISIONS.md](docs/DECISIONS.md). Keep the one-thread mio engine, OS TLS, lazy shared-store persistence, minimal dependencies, static portable Windows binary (an installer beside the zip, D31) and faithful 2.2.1 layout. Scale takes priority over empty-session memory. The PolyForm Noncommercial licence, PaTorrent identity and honest peer ID remain fixed. New dependencies need a written justification and changelog entry.
 
 Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the [plan snapshot](docs/archive/PLAN-2026-10-23.md). Current testing constraints and setup notes are in [BACKLOG.md](docs/BACKLOG.md#validation-and-development-environment).
 
@@ -77,7 +77,7 @@ Scope D35 (search box, importers; plugin hooks moved to V2.0). Implemented 2026-
 
 - Done: the name search (model, Win32 toolbar box, GTK `SearchEntry`, Web UI); File > Import from qBittorrent / µTorrent in both GUIs and `nox run --import`, with labels and statistics (pieces checked, D36); 15 new strings in all 34 tables.
 - To check by hand: the Win32 box at 100-200% DPI, its focus keys, and the import dialogs; the GTK entry and import flow on Linux; importing a stopped, a paused and a force-started µTorrent torrent to confirm the `started` mapping (0 stopped, 1 forced, 2 started, 3 paused is inferred); native review of the new translations (ar/fa/he mnemonics).
-- Release as 1.1.0 once those pass; bump the version and peer ID (`-PA1100-`) together.
+- Release as 1.1.0 once those pass; bump the version; the peer ID changes only with an engine change (D37).
 
 ## V2.0 goals
 

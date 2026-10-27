@@ -72,11 +72,12 @@ Reported by the owner on a Win32 build; not yet investigated or fixed.
 - **Alternating row colours:** the torrent list (and probably other list views)
   needs alternate row shading.
 - **Version every change:** bump the version with every change set so builds
-  are distinguishable (1.0.2, 1.0.3, ... even into the hundreds). Note:
-  `PEER_ID_PREFIX` (`crates/core/src/version.rs`, `-PA1010-`) has four digits
-  and a test tying it to the version; decide how patch numbers above 9 map to
-  it (e.g. peer ID tracks major.minor only, or base-36 digits as Azureus style
-  allows) before automating the bump.
+  are distinguishable (1.0.2, 1.0.3, ... even into the hundreds). The peer ID is
+  decoupled from it (D37): change `PEER_ID_PREFIX` in
+  `crates/core/src/version.rs` only on an engine/core change, as a counter
+  (`-PA1010-` → `-PA1011-` → `-PA1012-` ...); replace the
+  `peer_id_prefix_tracks_version` test and its doc comment, and update
+  RELEASING.md step 2 and PLAN's V1.1 line.
   Test builds should also carry a distinct version string (e.g. a
   `-test.<n>` or commit suffix) shown in the title bar and About: a
   "missing Add dialog" report came from testing an older test build that

@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_133749_1793108269: Security fixes SEC-02, SEC-01: cryptographic randomness
+
+- **SEC-02 (fixed):** `util::random` is now a thread-local ChaCha20 generator (new `crypto/chacha20.rs`, RFC 8439 vector) keyed from the OS, with fast key erasure on every refill. The xorshift64* generator is gone, so MSE pads, peer IDs, tracker keys, UDP tracker/DHT/uTP ids, ISNs, the LSD cookie and node ids no longer follow from one leaked output; no call site changed. New `random_bytes`.
+- **SEC-01 (fixed):** `crypto_random_bytes` uses `getentropy` (no file descriptor) then `/dev/urandom` on Unix, `BCryptGenRandom` on Windows, and panics instead of falling back to a weak generator.
+- Tests: the review's state-recovery attack on generator output and on a real cleartext PadA, refills and threads, long OS reads, and the no-source panic. Core, frontend, nox and Win32 suites pass; workspace clippy and rustfmt clean; core clippy also clean for Linux, macOS and FreeBSD targets (not run on them).
+- Cost: each `random_u64` is now a ChaCha20 output (four blocks per 28 values) instead of three shifts; random numbers are not on a per-byte path, and the suites ran no slower.
+
 ## 2026-10-27_133305_1793107985: Security fixes SEC-19, SEC-09, SEC-05
 
 - **SEC-19 (fixed):** `parse_url_components` trims whitespace and refuses URLs with control characters, so a magnet `tr=`/`ws=`, an announce URL, a UPnP control URL or a redirect can no longer put CR/LF into a request line. `maybe_url_encode` keeps a lenient split. HTTP responses with a bare CR/LF in a header line are refused.

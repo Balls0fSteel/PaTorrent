@@ -550,6 +550,35 @@ mod tests {
         );
     }
 
+    /// SEC-02: the cleartext PadA after our DH key used to be raw xorshift64* output, whose
+    /// state is one multiplication away from any 8 bytes of it, so the next 8 bytes (and every
+    /// later peer, tracker, DHT and uTP id) followed. Now they do not.
+    #[test]
+    fn the_cleartext_pad_does_not_reveal_the_generator() {
+        const M: u64 = 0x2545_f491_4f6c_dd1d;
+        let mut inverse = M;
+        for _ in 0..5 {
+            inverse = inverse.wrapping_mul(2u64.wrapping_sub(M.wrapping_mul(inverse)));
+        }
+        let ih = Sha1::digest(b"torrent");
+        let mut checked = 0;
+        while checked < 200 {
+            let mut out = Vec::new();
+            let _ = PeHandshake::outgoing(ih, handshake_for(&ih), EncLevel::Both, false, &mut out);
+            let pad = &out[DH_KEY_LEN..];
+            if pad.len() < 16 {
+                continue;
+            }
+            let word = |b: &[u8]| u64::from_le_bytes(b[..8].try_into().unwrap());
+            let mut x = word(pad).wrapping_mul(inverse);
+            x ^= x >> 12;
+            x ^= x << 25;
+            x ^= x >> 27;
+            assert_ne!(x.wrapping_mul(M), word(&pad[8..]), "PadA predicts itself");
+            checked += 1;
+        }
+    }
+
     #[test]
     fn an_unknown_torrent_is_refused() {
         let ih = Sha1::digest(b"nobody has this");

@@ -1,11 +1,12 @@
 //! Hashing and checksums: SHA-1 (v1 pieces, info-hashes, DHT ids), SHA-256 (v2), CRC32C
-//! (BEP 42 node ids).
+//! (BEP 42 node ids); the ChaCha20 block function behind the random number generator.
 //!
 //! Each hash has a portable implementation ported from libtorrent's bundled fallback code and a
 //! hardware path (x86-64 SHA-NI, SSE4.2) chosen at runtime. Both paths are tested against the
 //! same vectors and against each other.
 
 mod block;
+pub mod chacha20;
 pub mod crc32c;
 pub mod mse;
 pub mod sha1;

@@ -35,7 +35,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 5. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
-6. **Security audit** (2026-10-27_131050_1793106650): [SECURITY.md](SECURITY.md) lists 18 flagged targets (SEC-01 to SEC-18), all Open. Next: a reviewer fills in each Finding, then fix the confirmed items in order. Keep the audit list out of the public repo until items are fixed; push only the policy section.
+6. **Security fixes** (reviewed 2026-10-27_132153_1793107313): [SECURITY.md](SECURITY.md) has 26 findings (3 High, 11 Medium, 11 Low, 1 ruled out), none fixed. Fix in the summary table's order, starting with SEC-19 (CRLF in tracker URLs), SEC-09 (v2 Merkle allocation) and SEC-05 (Web UI paths). Keep the audit out of the public repo until fixed; push only the policy section.
 7. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
 
 ## Road to 1.0

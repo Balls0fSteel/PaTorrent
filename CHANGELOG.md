@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_132153_1793107313: Security review of SEC-01 to SEC-18
+
+- Seven parallel Opus reviewers read the code for the 18 targets (read-only, no runtime tests); the key claim of every High and Medium item was rechecked by hand. Findings filled in `SECURITY.md`, with eight new items (SEC-19 to SEC-26) and a fix-order table.
+- **High:** CRLF from magnet `tr=`/`ws=` and announce URLs reaches the HTTP request line, so a magnet can send commands to local services such as Redis (SEC-19). `MerkleTree::add_hashes` allocates the full block tree before checking the proof, so one `hashes` message can abort the client (SEC-09). A Web UI login can write anywhere as the nox user (SEC-05).
+- **Notable Medium:** the cleartext MSE pad is raw xorshift output, which reveals the generator state behind peer IDs, tracker keys and DHT/UDP/uTP IDs (SEC-02); UPnP control-URL SSRF; cookies across redirects; plaintext remote auth; trusted imports; unbounded REJECT send buffers; seed mode without verification; metadata stall; web seed chunk-header growth; adopted ProgramData folder.
+- Ruled out: decompression is not reachable from the network (SEC-13); TLS pinning is checked before data on all back ends (SEC-07 keeps hardening items). Nothing fixed yet.
+
 ## 2026-10-27_131050_1793106650: SECURITY.md with flagged audit targets
 
 - **New:** `SECURITY.md`: reporting policy, threat model, and 18 audit targets (SEC-01 to SEC-18) with locations, what was seen, what to check, and an empty Finding for the reviewer. Nothing is verified yet.

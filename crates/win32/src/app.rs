@@ -421,6 +421,11 @@ pub fn parse_args(args: &[String]) -> Args {
         match a.as_str() {
             "--demo" => out.demo = it.next().and_then(|n| n.parse().ok()),
             "--remote" => out.remote = true,
+            // the shell's one argument; what follows is a link split at a raw `"` (SEC-18)
+            integration::SHELL => {
+                out.sources.extend(it.next().cloned());
+                break;
+            }
             s if s.eq_ignore_ascii_case(integration::MINIMIZED) => out.minimized = true,
             s if s.starts_with("--") => {}
             s => out.sources.push(s.to_owned()),
@@ -555,6 +560,10 @@ pub fn run(args: Args) -> i32 {
             with_app(|a| load_ip_filter(a, &opts.gui));
         }
         restore_placement(hwnd, args.minimized);
+        if local {
+            // an association from before `--shell` (SEC-18); failing leaves it as it was
+            let _ = integration::upgrade(&Keys::user(), &exe_path());
+        }
         // not at a login's minimized start, where nobody asked for the window
         if opts.gui.check_association && local && !args.minimized {
             check_association(hwnd);
@@ -4742,9 +4751,17 @@ mod tests {
         let a = parse_args(&args);
         assert!(a.minimized && a.demo.is_none());
         assert_eq!(a.sources, [r"C:\a.torrent", "magnet:?xt=urn:btih:x"]);
-        // the association's command line: "<exe>" "%1"
-        let a = parse_args(&["magnet:?xt=urn:btih:y".to_owned()]);
+        // the association's command line: "<exe>" --shell "%1"
+        let a = parse_args(&["--shell", "magnet:?xt=urn:btih:y"].map(String::from));
         assert!(!a.minimized);
+        assert_eq!(a.sources, ["magnet:?xt=urn:btih:y"]);
+        // a link with raw quotes, `magnet:?xt=urn:btih:y" --minimized "\\host\x.torrent`, split
+        // by Windows into more arguments: only the first is taken (SEC-18)
+        let a = parse_args(
+            &["--shell", "magnet:?xt=urn:btih:y", "--minimized", "--remote", r"\\host\x.torrent"]
+                .map(String::from),
+        );
+        assert!(!a.minimized && !a.remote);
         assert_eq!(a.sources, ["magnet:?xt=urn:btih:y"]);
     }
 

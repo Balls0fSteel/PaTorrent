@@ -8,7 +8,7 @@
 //!
 //! What is written, under `Software\Classes`:
 //! - the ProgIDs `PaTorrent.torrent` and `PaTorrent.magnet` (`shell\open\command` is
-//!   `"<exe>" "%1"`, which a second instance forwards to the running one);
+//!   `"<exe>" --shell "%1"`, which a second instance forwards to the running one);
 //! - `.torrent` naming `PaTorrent.torrent` (plus `OpenWithProgids` and the MIME type);
 //! - the `magnet` URL scheme itself (`URL Protocol`), as µTorrent and qBittorrent do;
 //! - `Software\PaTorrent\Capabilities` listed in `Software\RegisteredApplications`, so PaTorrent
@@ -124,9 +124,27 @@ fn exe_text(exe: &Path) -> String {
     s.strip_prefix(r"\\?\").unwrap_or(&s).to_owned()
 }
 
+/// The switch before the one argument the shell passes (`%1`). A raw `"` in a link splits it
+/// into more arguments; everything after [`SHELL`]'s one is dropped, so a link cannot add
+/// switches or files (SEC-18).
+pub const SHELL: &str = "--shell";
+
 /// The command that opens a `.torrent` file or a link with `exe`.
 pub fn open_command(exe: &Path) -> String {
-    format!("\"{}\" \"%1\"", exe_text(exe))
+    format!("\"{}\" {SHELL} \"%1\"", exe_text(exe))
+}
+
+/// Rewrites our open commands that run `exe` but predate [`SHELL`] (`"<exe>" "%1"`). Nothing
+/// else changes: what is not registered stays so.
+pub fn upgrade(keys: &Keys, exe: &Path) -> io::Result<()> {
+    let open = open_command(exe);
+    for progid in [PROGID_TORRENT, PROGID_MAGNET, "magnet"] {
+        let key = keys.class(&format!(r"{progid}\shell\open\command"));
+        if get(&key, None).is_some_and(|c| runs(&c, exe) && c != open) {
+            set(&key, None, &open)?;
+        }
+    }
+    Ok(())
 }
 
 /// The autostart entry's command.
@@ -464,7 +482,7 @@ mod tests {
         assert_eq!(st, Status { set: ALL, ..Status::default() });
         assert!(st.opens_torrents() && st.opens_magnets());
 
-        let open = r#""C:\Program Files\PaTorrent\patorrent.exe" "%1""#;
+        let open = r#""C:\Program Files\PaTorrent\patorrent.exe" --shell "%1""#;
         assert_eq!(s.get(r"Software\Classes\.torrent", None).as_deref(), Some(PROGID_TORRENT));
         assert_eq!(
             s.get(r"Software\Classes\.torrent", Some("Content Type")).as_deref(),
@@ -656,9 +674,29 @@ mod tests {
         assert!(s.get(r"Software\RegisteredApplications", Some("PaTorrent")).is_some());
     }
 
+    /// SEC-18: an association from before `--shell` is rewritten; anyone else's stays.
+    #[test]
+    fn old_open_commands_are_upgraded() {
+        let s = Scratch::new();
+        let old = r#""C:\Program Files\PaTorrent\patorrent.exe" "%1""#;
+        let qbt = r#""C:\qbt\qbittorrent.exe" "%1""#;
+        s.set(r"Software\Classes\PaTorrent.torrent\shell\open\command", None, old);
+        s.set(r"Software\Classes\magnet\shell\open\command", None, qbt);
+        upgrade(&s.keys, &exe()).unwrap();
+        assert_eq!(
+            s.get(r"Software\Classes\PaTorrent.torrent\shell\open\command", None),
+            Some(open_command(&exe()))
+        );
+        assert_eq!(s.get(r"Software\Classes\magnet\shell\open\command", None).as_deref(), Some(qbt));
+        assert_eq!(s.get(r"Software\Classes\PaTorrent.magnet\shell\open\command", None), None);
+    }
+
     #[test]
     fn commands() {
-        assert_eq!(open_command(Path::new(r"\\?\C:\a b\patorrent.exe")), r#""C:\a b\patorrent.exe" "%1""#);
+        assert_eq!(
+            open_command(Path::new(r"\\?\C:\a b\patorrent.exe")),
+            r#""C:\a b\patorrent.exe" --shell "%1""#
+        );
         assert_eq!(run_command(&exe(), false), r#""C:\Program Files\PaTorrent\patorrent.exe""#);
         assert!(runs(r#""c:\program files\patorrent\PATORRENT.EXE" "%1""#, &exe()));
         assert!(!runs(r#""C:\Program Files\PaTorrent\patorrent.exe.old" "%1""#, &exe()));

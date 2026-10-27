@@ -159,8 +159,11 @@ fn local_name(name: &str) -> &str {
 struct State {
     feed: Feed,
     found: bool,
-    /// Open elements (raw names).
+    /// Open elements (raw names), at most [`MAX_DEPTH`].
     stack: Vec<String>,
+    /// Elements open below [`MAX_DEPTH`]: only counted, so a document of endless start tags
+    /// costs no memory per tag, and each end tag closes one of them first (SEC-16).
+    too_deep: usize,
     /// The item being read and the depth of its element.
     item: Option<(FeedItem, usize)>,
     /// The field being read: which, its element's depth, the text so far.
@@ -242,6 +245,10 @@ impl State {
     }
 
     fn end(&mut self, name: &str) {
+        if self.too_deep > 0 {
+            self.too_deep -= 1;
+            return;
+        }
         // a stray end tag closes nothing; a missing one is implied by its parent's
         let Some(pos) = self.stack.iter().rposition(|n| n.eq_ignore_ascii_case(name)) else { return };
         self.stack.truncate(pos);
@@ -370,7 +377,7 @@ pub fn parse_feed(data: &[u8]) -> Option<Feed> {
                 st.start(name, false);
                 st.tag = Some((name.to_owned(), Vec::new()));
             }
-            Token::StartTag(name) => st.stack.push(name.to_owned()),
+            Token::StartTag(_) => st.too_deep += 1,
             Token::EmptyTag(name) => {
                 st.start(name, true);
                 st.tag = Some((name.to_owned(), Vec::new()));
@@ -649,6 +656,31 @@ mod tests {
     <item><title>Junk & unescaped</title><guid>junk</guid><pubDate>yesterday</pubDate></item>
   </channel>
 </rss>"#;
+
+    /// SEC-16: a feed of endless start tags then non-matching end tags used to keep every name
+    /// and search them all for each end tag (about 4e10 comparisons here). Elements past the
+    /// depth limit are now counted, and nesting that comes back up still parses.
+    #[test]
+    fn deep_and_unbalanced_tags_are_cheap() {
+        let n = 200_000;
+        let item = "<item><title>After</title><guid>g</guid></item>";
+        let doc = format!("<rss><channel>{}{}{item}</channel></rss>", "<a>".repeat(n), "</b>".repeat(n));
+        let start = std::time::Instant::now();
+        // the item is still inside the unclosed `<a>`s, past the depth limit, as before
+        assert!(parse_feed(doc.as_bytes()).is_some_and(|f| f.items.is_empty()));
+        assert!(start.elapsed() < std::time::Duration::from_secs(5), "{:?}", start.elapsed());
+
+        // closed again, deep nesting gives way to the item after it
+        for depth in [100, n] {
+            let deep = format!(
+                "<rss><channel>{}{}{item}</channel></rss>",
+                "<x>".repeat(depth),
+                "</x>".repeat(depth)
+            );
+            let f = parse_feed(deep.as_bytes()).unwrap();
+            assert_eq!(f.items.iter().map(|i| i.title.as_str()).collect::<Vec<_>>(), ["After"], "{depth}");
+        }
+    }
 
     #[test]
     fn rss2_with_torrent_namespace() {

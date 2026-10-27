@@ -120,9 +120,10 @@ OPTIONS:
                       SOCKS5 UDP ASSOCIATE names our UDP address and port (only without a NAT
                       between us and the proxy); --no-socks5-udp-local-ep is the default
     --import CLIENT   run: add the torrents of qBittorrent or uTorrent (CLIENT is qbittorrent or
-                      utorrent) at start, with their data where it is, pieces, statistics,
-                      priorities, trackers and labels; the client must not be running. Torrents
-                      already here are left as they are. Its files are only read
+                      utorrent) at start, with their data where it is (checked before it is
+                      trusted), statistics, priorities, trackers and labels; the client must not
+                      be running. Torrents already here are left as they are. Its files are only
+                      read
     --import-dir DIR  The client's folder when not the usual one (qBittorrent's BT_backup or
                       its data folder; uTorrent's folder with resume.dat)
     --verbose         Print tracker and peer events (each disconnect with its reason), and

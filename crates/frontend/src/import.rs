@@ -1,12 +1,11 @@
 //! File > Import: torrents from qBittorrent's `BT_backup` folder or µTorrent's `resume.dat`
-//! (V1.1), carried over with their pieces, statistics, priorities, trackers and labels so they
-//! need no recheck.
+//! (V1.1), carried over with their statistics, priorities, trackers and labels.
 //!
 //! Each source torrent becomes a libtorrent resume record with its info dictionary embedded,
-//! added as [`TorrentSource::Resume`]. The engine still checks that every file holding a piece
-//! the record claims exists and is long enough, and checks the files fully otherwise. The
-//! source client's files are only read; a running source client is refused, since both rewrite
-//! their files when they exit.
+//! added as [`TorrentSource::Resume`]. The source's claimed pieces are not trusted: the engine
+//! checks the files (SEC-16, [`distrust`]), and mapped file paths stay inside the save folder.
+//! The confirm question lists the save folders. The source client's files are only read; a
+//! running source client is refused, since both rewrite their files when they exit.
 //!
 //! * qBittorrent: `<hash>.fastresume` already is a libtorrent resume record (`resume.rs` reads
 //!   its keys); `<hash>.torrent` gives the info dictionary. `qBt-name` is the name,
@@ -23,6 +22,7 @@ use std::path::{Path, PathBuf};
 
 use patorrent_core::bencode::{Entry, Node, bdecode};
 use patorrent_core::metainfo::TorrentInfo;
+use patorrent_core::metainfo::sanitize::sanitize_append_path_element;
 use patorrent_core::{AddTorrentParams, InfoHashes, Sha1Hash, TorrentFlags, TorrentSource};
 
 use crate::lang::S;
@@ -213,10 +213,27 @@ pub fn begin(client: Client, picked: Option<&Path>) -> Begin {
             Begin::Refuse(crate::tr!(ImportNoneFound, client = name, dir = dir.display()))
         }
         Ok(found) => {
-            Begin::Confirm(crate::tr!(ImportConfirm, count = found.torrents.len(), client = name), found)
+            let mut text = crate::tr!(ImportConfirm, count = found.torrents.len(), client = name);
+            text.push_str("\n\n");
+            text.push_str(&save_folders(&found));
+            Begin::Confirm(text, found)
         }
     }
 }
+
+/// The folders the torrents would save to, one per line (at most [`MAX_FOLDERS_SHOWN`]): the
+/// confirm question shows them, since a folder copied from elsewhere decides where data goes.
+fn save_folders(found: &Found) -> String {
+    let folders: std::collections::BTreeSet<&str> =
+        found.torrents.iter().map(|t| t.params.save_path.as_str()).collect();
+    let mut lines: Vec<String> = folders.iter().take(MAX_FOLDERS_SHOWN).map(|f| (*f).to_owned()).collect();
+    if folders.len() > MAX_FOLDERS_SHOWN {
+        lines.push(format!("… (+{})", folders.len() - MAX_FOLDERS_SHOWN));
+    }
+    lines.join("\n")
+}
+
+const MAX_FOLDERS_SHOWN: usize = 12;
 
 /// What to do after the user said yes.
 pub struct Finished {
@@ -281,9 +298,38 @@ fn load_torrent(path: &Path) -> Result<Metadata, String> {
     Ok(Metadata { info, outer })
 }
 
+/// What an imported record may not decide (SEC-16): a folder copied from elsewhere could claim
+/// pieces of files it never had (and get a private file seeded, if it only exists and is long
+/// enough), or map files to any path on this computer. Claimed pieces are dropped, so the
+/// engine checks the files, and every mapped path is cleaned like a torrent's file names and
+/// stays inside the save folder (a file µTorrent relocated elsewhere is downloaded again there).
+fn distrust(rec: &mut Entry) {
+    let d = rec.dict_mut();
+    d.remove(b"pieces".as_slice());
+    d.remove(b"unfinished".as_slice());
+    if let Some(Entry::List(mapped)) = d.get_mut(b"mapped_files".as_slice()) {
+        for m in mapped {
+            if let Entry::Bytes(path) = m {
+                *path = inside_save_folder(path).into_bytes();
+            }
+        }
+    }
+}
+
+/// `path` as a relative path below the save folder: each element sanitized, `.`, `..`, roots and
+/// drive letters gone (`C:` becomes `C_`).
+fn inside_save_folder(path: &[u8]) -> String {
+    let mut out = String::new();
+    for part in path.split(|&c| c == b'/' || c == b'\\').filter(|p| !p.is_empty()) {
+        sanitize_append_path_element(&mut out, part);
+    }
+    out
+}
+
 /// The record as bytes with the `.torrent`'s info dictionary as it was (so the info-hash
-/// holds) and its outer keys where the record has none.
+/// holds) and its outer keys where the record has none; see [`distrust`] for what it loses.
 fn finish_record(mut rec: Entry, meta: &Metadata) -> Vec<u8> {
+    distrust(&mut rec);
     // a resume record uses the .torrent's own key names for these
     for (key, v) in &meta.outer {
         let have = rec.get(key).is_some_and(|e| !matches!(e, Entry::List(l) if l.is_empty()));
@@ -682,7 +728,7 @@ mod tests {
         assert_eq!(show.key, hashes.key_hex());
         let e = decoded(show);
         assert_eq!(e.get("save_path").unwrap().as_str(), Some("D:\\dl"));
-        assert_eq!(e.get("pieces").unwrap().as_bytes(), Some(&[1u8, 0, 1][..]), "LSB first");
+        assert!(e.get("pieces").is_none(), "claimed pieces are checked, not taken (SEC-16)");
         let prio: Vec<_> =
             e.get("file_priority").unwrap().as_list().unwrap().iter().map(|p| p.as_int()).collect();
         assert_eq!(prio, [Some(4), Some(0)]);
@@ -761,7 +807,7 @@ mod tests {
         let e = decoded(album);
         assert!(e.get("qBt-name").is_none());
         assert_eq!(e.get("name").unwrap().as_str(), Some("Best Album"));
-        assert_eq!(e.get("pieces").unwrap().as_bytes(), Some(&[1u8, 1, 0][..]));
+        assert!(e.get("pieces").is_none());
         assert_eq!(magnet.label, "linux");
         assert!(matches!(magnet.params.source, TorrentSource::InfoHash(_)));
 
@@ -774,6 +820,83 @@ mod tests {
         assert_eq!(prefs.get(&format!("torrent.{}.label", "09".repeat(20))), Some("linux"));
         assert!(add[0].params.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR));
         let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// SEC-16: an imported folder decides nothing outside its torrents' save folders. Mapped
+    /// files (µTorrent `targets`, qBittorrent `mapped_files`) are cleaned to relative paths,
+    /// claimed pieces and partial pieces go, and the confirm question lists the save folders.
+    #[test]
+    fn imported_paths_and_pieces_are_not_trusted() {
+        let dir = temp("ut-hostile");
+        let (bytes, _) = torrent("Show");
+        std::fs::write(dir.join("Show.torrent"), &bytes).unwrap();
+        let mut rec = Entry::new_dict();
+        *rec.key("path") = Entry::Bytes(b"D:\\dl\\Show".to_vec());
+        *rec.key("have") = Entry::Bytes(vec![0b111]);
+        *rec.key("targets") = Entry::List(vec![
+            Entry::List(vec![
+                Entry::Int(0),
+                Entry::Bytes(
+                    br"C:\Users\x\AppData\Roaming\Microsoft\Windows\Start Menu\Programs\Startup\x.bat"
+                        .to_vec(),
+                ),
+            ]),
+            Entry::List(vec![Entry::Int(1), Entry::Bytes(b"../../../home/x/.ssh/id_rsa".to_vec())]),
+        ]);
+        let mut root = Entry::new_dict();
+        *root.key("Show.torrent") = rec;
+        std::fs::write(dir.join("resume.dat"), root.bencode()).unwrap();
+        let found = read(Client::UTorrent, &dir).unwrap();
+        let e = decoded(&found.torrents[0]);
+        assert!(e.get("pieces").is_none());
+        let mapped: Vec<String> = e
+            .get("mapped_files")
+            .unwrap()
+            .as_list()
+            .unwrap()
+            .iter()
+            .map(|m| m.as_str().unwrap().to_owned())
+            .collect();
+        for m in &mapped {
+            assert!(!Path::new(m).has_root() && !m.contains("..") && !m.contains(':'), "{m}");
+        }
+        assert!(mapped[0].ends_with("Startup/x.bat"), "{mapped:?}");
+        // relative targets are under the torrent's folder: `Show/../../../home/...`, cleaned
+        assert_eq!(mapped[1], "Show/home/x/.ssh/id_rsa");
+
+        let mut rec = Entry::new_dict();
+        *rec.key("mapped_files") = Entry::List(vec![
+            Entry::Bytes(b"/etc/cron.d/x".to_vec()),
+            Entry::Bytes(b"\\\\attacker\\share\\x".to_vec()),
+            Entry::Bytes(b"Show/a.bin".to_vec()),
+        ]);
+        *rec.key("pieces") = Entry::Bytes(vec![1, 1, 1]);
+        *rec.key("unfinished") = Entry::List(vec![Entry::new_dict()]);
+        distrust(&mut rec);
+        assert!(rec.get("pieces").is_none() && rec.get("unfinished").is_none());
+        let mapped: Vec<_> =
+            rec.get("mapped_files").unwrap().as_list().unwrap().iter().map(|m| m.as_str()).collect();
+        assert_eq!(mapped, [Some("etc/cron.d/x"), Some("attacker/share/x"), Some("Show/a.bin")]);
+
+        assert_eq!(save_folders(&found), "D:\\dl");
+        let many = Found {
+            torrents: (0..20)
+                .map(|i| Import {
+                    name: i.to_string(),
+                    key: i.to_string(),
+                    label: String::new(),
+                    user_paused: false,
+                    params: AddTorrentParams::new(
+                        TorrentSource::InfoHash(InfoHashes::default()),
+                        format!("/d/{i:02}"),
+                    ),
+                })
+                .collect(),
+            skipped: Vec::new(),
+        };
+        let text = save_folders(&many);
+        assert_eq!(text.lines().count(), MAX_FOLDERS_SHOWN + 1);
+        assert!(text.starts_with("/d/00\n") && text.ends_with("… (+8)"), "{text}");
     }
 
     #[test]

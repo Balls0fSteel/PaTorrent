@@ -135,7 +135,7 @@ fn utorrent_dir(name: &str, torrent: &[u8], path: &Path, have: &[usize]) -> Path
 }
 
 #[test]
-fn utorrent_pieces_are_trusted_under_a_renamed_folder() {
+fn utorrent_pieces_are_checked_under_a_renamed_folder() {
     let (torrent, files) = fixture();
     let data = temp_dir("ut-data");
     // µTorrent moved the data into a folder of another name
@@ -144,8 +144,8 @@ fn utorrent_pieces_are_trusted_under_a_renamed_folder() {
     for (name, d) in &files {
         std::fs::write(content.join(name), d).unwrap();
     }
-    // the files are complete, but µTorrent only claims pieces 0, 1 and 4: a full check would
-    // find all five, so three shows the claim was trusted
+    // the files are complete, but µTorrent only claims pieces 0, 1 and 4: all five show the
+    // files were checked rather than the claim taken (SEC-16)
     let dir = utorrent_dir("ut", &torrent, &content, &[0, 1, 4]);
     let mut found = import::read(Client::UTorrent, &dir).unwrap();
     assert!(found.skipped.is_empty(), "{:?}", found.skipped);
@@ -155,13 +155,35 @@ fn utorrent_pieces_are_trusted_under_a_renamed_folder() {
     let (first, st) = add_and_settle(&s, add.remove(0));
     assert!(first.flags.contains(patorrent_core::TorrentFlags::PAUSED), "µTorrent's Stopped");
     assert_eq!(st.name, "My Show");
-    assert_eq!(st.num_pieces, 3, "the claimed pieces, without a full check");
+    assert_eq!(st.num_pieces, 5, "every piece, found by a full check");
     assert_eq!(st.all_time_upload, 777);
     assert_eq!(st.save_path, data.to_string_lossy());
     // the imported data stays as it was
     for (name, d) in &files {
         assert_eq!(&std::fs::read(content.join(name)).unwrap(), d);
     }
+    let _ = std::fs::remove_dir_all(&dir);
+    let _ = std::fs::remove_dir_all(&data);
+}
+
+/// SEC-16: files of the right size but other content (a private file a crafted import points
+/// at) are not taken as the torrent's data, however many pieces the record claims.
+#[test]
+fn claimed_pieces_over_other_data_are_not_trusted() {
+    let (torrent, files) = fixture();
+    let data = temp_dir("ut-other");
+    let content = data.join("Show");
+    std::fs::create_dir_all(&content).unwrap();
+    for (name, d) in &files {
+        std::fs::write(content.join(name), vec![0x5a; d.len()]).unwrap();
+    }
+    let dir = utorrent_dir("ut-other-src", &torrent, &content, &[0, 1, 2, 3, 4]);
+    let mut found = import::read(Client::UTorrent, &dir).unwrap();
+    let mut prefs = patorrent_frontend::prefs::Prefs::from_text("");
+    let mut add = import::prepare(&mut found, &mut prefs, |_| false);
+    let s = session();
+    let (_, st) = add_and_settle(&s, add.remove(0));
+    assert_eq!(st.num_pieces, 0, "nothing claimed is taken over the wrong data");
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&data);
 }
@@ -176,7 +198,7 @@ fn missing_files_mean_a_full_check() {
     let mut add = import::prepare(&mut found, &mut prefs, |_| false);
     let s = session();
     let (first, st) = add_and_settle(&s, add.remove(0));
-    assert_eq!(first.num_pieces, 5, "claimed until started");
+    assert_eq!(first.num_pieces, 0, "claimed pieces are not taken, even before the check");
     assert_eq!(st.num_pieces, 0, "nothing claimed without its files");
     let _ = std::fs::remove_dir_all(&dir);
     let _ = std::fs::remove_dir_all(&data);
@@ -213,7 +235,8 @@ fn qbittorrent_record_is_taken_as_it_is() {
     assert_eq!(prefs.get(&format!("torrent.{hex}.label")), Some("tv"));
     let s = session();
     let (_, st) = add_and_settle(&s, add.remove(0));
-    assert_eq!((st.name.as_str(), st.num_pieces, st.all_time_upload), ("Show", 4, 4242));
+    // the record claims four of the five pieces; the check finds all five
+    assert_eq!((st.name.as_str(), st.num_pieces, st.all_time_upload), ("Show", 5, 4242));
     let _ = std::fs::remove_dir_all(dir.parent().unwrap());
     let _ = std::fs::remove_dir_all(&data);
 }

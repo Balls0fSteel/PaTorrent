@@ -27,6 +27,12 @@ use crate::proto::upnp;
 /// libtorrent `max_global_mappings`, and the root device cap of `on_reply`.
 const MAX_MAPPINGS: usize = 50;
 const MAX_DEVICES: usize = 50;
+
+/// `host` (from a device URL) is the IP address `ip`. Routers announce IP literals, and names
+/// are not resolved here (`start_request`), so a name never matches.
+fn same_host(host: &str, ip: IpAddr) -> bool {
+    host.parse::<IpAddr>().is_ok_and(|h| h.to_canonical() == ip.to_canonical())
+}
 /// SSDP searches: 2 s, 4 s, ... apart, up to twelve (four once a device answered).
 const MAX_SEARCHES: u32 = 12;
 const SEARCHES_WITH_DEVICE: u32 = 4;
@@ -467,6 +473,12 @@ impl Upnp {
                 self.log.push(format!("unsupported protocol {} from {from}", parts.protocol));
                 return;
             }
+            // the description and every SOAP call go to this host: it must be the device that
+            // answered, or any host on the LAN could point us at 127.0.0.1 or elsewhere (SEC-12)
+            if !same_host(&parts.host, from.ip()) {
+                self.log.push(format!("ignoring {url} from {from}: not the responding device"));
+                return;
+            }
             let port = match parts.port {
                 Some(0) => {
                     self.log.push(format!("URL with port 0 from {from}"));
@@ -809,7 +821,14 @@ impl Upnp {
             "found control URL: {} namespace {} urlbase: {} in response from {url}",
             d.control_url, d.service_namespace, s.url_base
         ));
+        // the device host, which on_reply matched to the responder
+        let device_ip = d.hostname.parse::<IpAddr>().ok();
         match crate::util::string::parse_url_components(&d.control_url) {
+            Ok(p) if !device_ip.is_some_and(|ip| same_host(&p.host, ip)) => {
+                self.log.push(format!("ignoring control URL '{}': not on the device", d.control_url));
+                d.disabled = true;
+                return;
+            }
             Ok(p) if p.protocol.eq_ignore_ascii_case("http") => {
                 d.hostname = p.host;
                 d.port = p.port.unwrap_or(80);
@@ -1474,5 +1493,69 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
         assert_eq!(upnp.events.len(), 1);
         assert_eq!(upnp.events[0].error.as_deref(), Some("no router found on 127.0.0.1"));
         assert!(upnp.add_mapping(Protocol::Tcp, 501, 501, poll.registry(), now).is_none());
+    }
+
+    fn ssdp_reply(location: &str) -> Vec<u8> {
+        format!("HTTP/1.1 200 OK\r\nST: upnp:rootdevice\r\nLOCATION: {location}\r\n\r\n").into_bytes()
+    }
+
+    fn lan_upnp() -> Upnp {
+        let settings =
+            UpnpSettings { ignore_nonrouters: false, lease_duration: 3600, user_agent: "t".into() };
+        Upnp::new(settings, Ipv4Addr::LOCALHOST, Ipv4Addr::new(255, 0, 0, 0), 1000)
+    }
+
+    /// SEC-12: a reply (or unsolicited NOTIFY) may only name its own sender as the device, so a
+    /// host on the LAN cannot make us fetch from or POST to 127.0.0.1:6379 or anywhere else.
+    #[test]
+    fn a_device_url_must_name_the_responder() {
+        let poll = Poll::new().unwrap();
+        let now = Instant::now();
+        let mut upnp = lan_upnp();
+        let attacker: SocketAddr = "127.0.0.2:1900".parse().unwrap();
+        upnp.on_reply(&ssdp_reply("http://127.0.0.1:6379/x"), attacker, poll.registry(), now);
+        upnp.on_reply(&ssdp_reply("http://8.8.8.8/desc.xml"), attacker, poll.registry(), now);
+        assert!(upnp.devices.is_empty(), "{:?}", upnp.log);
+        // the device's own address is fine, also when the reply comes as IPv4-mapped IPv6
+        upnp.on_reply(&ssdp_reply("http://127.0.0.2:1/desc.xml"), attacker, poll.registry(), now);
+        let mapped: SocketAddr = "[::ffff:127.0.0.3]:1900".parse().unwrap();
+        upnp.on_reply(&ssdp_reply("http://127.0.0.3:1/desc.xml"), mapped, poll.registry(), now);
+        assert_eq!(upnp.devices.len(), 2);
+    }
+
+    /// SEC-12: the control URL from the description stays on the device. (The service type,
+    /// sent in SOAPAction, is only ever one of `WAN_SERVICES`.)
+    #[test]
+    fn the_control_url_stays_on_the_device() {
+        let poll = Poll::new().unwrap();
+        let now = Instant::now();
+        let description = |control: &str| http::Response {
+            status: 200,
+            message: "OK".into(),
+            headers: Vec::new(),
+            body: ROOT_XML
+                .replace("http://127.0.0.1:{port}", "http://127.0.0.2:1")
+                .replace("/WANIPConnection</controlURL>", &format!("{control}</controlURL>"))
+                .into_bytes(),
+        };
+        for (control, ok) in [
+            ("http://127.0.0.1:6379/x", false),
+            ("http://10.9.9.9/ctl", false),
+            // raw line breaks in the XML text (character references are not decoded)
+            ("http://127.0.0.2:1/x\r\nFLUSHALL", false),
+            ("/WANIPConnection", true),
+            ("http://127.0.0.2:1/ctl", true),
+        ] {
+            let mut upnp = lan_upnp();
+            let from: SocketAddr = "127.0.0.2:1900".parse().unwrap();
+            upnp.on_reply(&ssdp_reply("http://127.0.0.2:1/desc.xml"), from, poll.registry(), now);
+            assert_eq!(upnp.devices.len(), 1);
+            upnp.on_upnp_xml(0, Ok(description(control)), poll.registry(), now);
+            let d = &upnp.devices[0];
+            assert_eq!(!d.disabled, ok, "{control}: {:?}", upnp.log);
+            if ok {
+                assert_eq!(d.hostname, "127.0.0.2");
+            }
+        }
     }
 }

@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_134446_1793108686: Security fix SEC-12: UPnP device URLs and the tracker loopback rule
+
+- **UPnP:** a search reply or NOTIFY is used only when its `LOCATION` host is the responder's own IP, and a control URL from the description must stay on that host; otherwise the device is ignored or disabled. A LAN host can no longer point us at 127.0.0.1 or another machine. Line breaks in either URL were already refused by the SEC-19 parser.
+- **Trackers:** the SSRF rule (only `/announce` on this machine) now also catches `0.0.0.0`, `::` and IPv4-mapped loopback, and runs for targets handed to a proxy (an address, or `localhost` and its subdomains), which skipped local resolution before.
+- **Dropped during the work:** a check on the UPnP service type: the parser only ever takes one of the known WAN service names, so it could not carry a header; and a test case with `&#13;`, which the XML scanner does not decode.
+- Validation: three regression tests (each case connected or was accepted before the fix); core, frontend, nox and Win32 suites pass; workspace clippy and rustfmt clean; core clippy clean for Linux and macOS targets. Not covered: peer lists aimed at LAN services (SEC-12 item 3).
+
 ## 2026-10-27_133749_1793108269: Security fixes SEC-02, SEC-01: cryptographic randomness
 
 - **SEC-02 (fixed):** `util::random` is now a thread-local ChaCha20 generator (new `crypto/chacha20.rs`, RFC 8439 vector) keyed from the OS, with fast key erasure on every refill. The xorshift64* generator is gone, so MSE pads, peer IDs, tracker keys, UDP tracker/DHT/uTP ids, ISNs, the LSD cookie and node ids no longer follow from one leaked output; no call site changed. New `random_bytes`.

@@ -296,6 +296,20 @@ impl TrackerJob {
 /// libtorrent `errors::banned_by_ip_filter`.
 const BANNED_BY_IP_FILTER: &str = "banned by IP filter";
 
+/// Addresses that reach this machine's own services, for the SSRF rule: loopback and the
+/// unspecified address (`0.0.0.0` and `::` connect locally on Linux and macOS), also written as
+/// IPv4-mapped IPv6 (`::ffff:127.0.0.1`), which `is_loopback` alone misses (SEC-12).
+fn is_this_host(ip: IpAddr) -> bool {
+    let ip = ip.to_canonical();
+    ip.is_loopback() || ip.is_unspecified()
+}
+
+/// `localhost` and its subdomains (RFC 6761), for a name a proxy would resolve.
+fn is_localhost_name(host: &str) -> bool {
+    let host = host.trim_end_matches('.').to_ascii_lowercase();
+    host == "localhost" || host.ends_with(".localhost")
+}
+
 #[derive(Debug)]
 pub(crate) enum TrackerOutcome {
     /// The reply and the tracker address it came from (libtorrent `tracker_response`'s
@@ -632,6 +646,18 @@ impl TrackerManager {
                 return self.fail(job, BANNED_BY_IP_FILTER);
             }
         }
+        // the SSRF rule of `http_resolved` for targets the proxy is asked for, which skip it
+        // (and then reach the proxy host's own services)
+        if self.ssrf_mitigation && !string_begins_no_case(b"/announce", url.path.as_bytes()) {
+            let local = match &name {
+                Some(Target::Addr(a)) => is_this_host(a.ip()),
+                Some(Target::Host(h, _)) => is_localhost_name(h),
+                None => false,
+            };
+            if local {
+                return self.fail(job, BANNED_BY_IP_FILTER);
+            }
+        }
         let host = url.host.clone();
         let named = name.is_some();
         let slot = self.http.insert(HttpConn {
@@ -668,7 +694,7 @@ impl TrackerManager {
         // redirect, that resolves to loopback must use the conventional `/announce` path, so a
         // torrent or a tracker cannot make us send requests to other local services.
         if self.ssrf_mitigation && !string_begins_no_case(b"/announce", c.url.path.as_bytes()) {
-            ips.retain(|ip| !ip.is_loopback());
+            ips.retain(|ip| !is_this_host(*ip));
         }
         if any && ips.is_empty() {
             let c = self.http.remove(slot).expect("present");
@@ -1333,6 +1359,89 @@ mod tests {
                     "{path}"
                 );
                 assert_eq!(m.pending(), 0, "{path}");
+            }
+        }
+    }
+
+    fn announce_job(url: &str) -> TrackerJob {
+        TrackerJob {
+            torrent: TorrentId::new(0, 0),
+            tracker: Some(0),
+            url: url.to_owned(),
+            kind: JobKind::Announce(AnnounceRequest {
+                info_hash: Sha1Hash([1; 20]),
+                peer_id: [b'x'; 20],
+                port: 6881,
+                uploaded: 0,
+                downloaded: 0,
+                left: 0,
+                corrupt: 0,
+                event: Event::Started,
+                key: 0,
+                num_want: 50,
+                tracker_id: String::new(),
+            }),
+            filter: None,
+        }
+    }
+
+    /// SEC-12: the loopback rule also covers `0.0.0.0`, `::` and IPv4-mapped loopback, and
+    /// targets a proxy is asked for (an address or `localhost`), which never pass through local
+    /// resolution.
+    #[test]
+    fn ssrf_mitigation_covers_mapped_unspecified_and_proxied_targets() {
+        let poll = mio::Poll::new().unwrap();
+        let (tx, _rx) = std::sync::mpsc::channel();
+        let resolver = Resolver::new(tx, Arc::new(|| {}));
+        let now = Instant::now();
+        let refused = |m: &mut TrackerManager, url: &str| {
+            let results = m.take_results();
+            assert_eq!(results.len(), 1, "{url}: {results:?}");
+            assert!(matches!(&results[0].1, TrackerOutcome::Failed(e) if e == BANNED_BY_IP_FILTER), "{url}");
+            assert_eq!(m.pending(), 0, "{url}");
+        };
+
+        for url in ["http://[::ffff:127.0.0.1]:6379/admin", "http://0.0.0.0:6379/admin", "http://[::]:6379/x"]
+        {
+            let mut m = TrackerManager::new(poll.registry(), "test".into());
+            m.start(announce_job(url), &resolver, poll.registry(), now);
+            refused(&mut m, url);
+        }
+
+        let proxy = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let settings = crate::settings::Settings {
+            proxy_type: crate::settings::ProxyType::Socks5,
+            proxy_hostname: "127.0.0.1".into(),
+            proxy_port: proxy.local_addr().unwrap().port(),
+            proxy_hostnames: true,
+            proxy_tracker_connections: true,
+            ..Default::default()
+        };
+        let cfg = ProxyConfig::from_settings(&settings);
+        for (url, allowed) in [
+            ("http://127.0.0.1:6379/admin", false),
+            ("http://[::ffff:127.0.0.1]:6379/admin", false),
+            ("http://localhost:6379/admin", false),
+            ("http://LOCALHOST.:6379/admin", false),
+            ("http://redis.localhost:6379/admin", false),
+            ("http://localhost:6379/announce", true),
+            ("http://tracker.example:6969/admin", true),
+        ] {
+            let mut m = TrackerManager::new(poll.registry(), "test".into());
+            m.set_proxy(
+                cfg.clone(),
+                Some(proxy.local_addr().unwrap()),
+                None,
+                &resolver,
+                poll.registry(),
+                now,
+            );
+            m.start(announce_job(url), &resolver, poll.registry(), now);
+            if allowed {
+                assert!(m.take_results().is_empty(), "{url}");
+                assert_eq!(m.pending(), 1, "{url}: connecting to the proxy");
+            } else {
+                refused(&mut m, url);
             }
         }
     }

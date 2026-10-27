@@ -2107,7 +2107,8 @@ fn autoload(a: &mut App) {
             }
         };
         if in_list(a, &ti.info_hashes().key_hex()).is_some() {
-            let line = torrent_folders::loaded(ti.name(), &path, a.torrent_folders.autoload_delete);
+            let key = ti.info_hashes().key_hex();
+            let line = torrent_folders::loaded(ti.name(), &key, &path, a.torrent_folders.autoload_delete);
             a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAlreadyInList, line)));
             continue;
         }

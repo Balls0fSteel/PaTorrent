@@ -1857,7 +1857,7 @@ fn autoload(a: &mut App) {
         };
         let key = ti.info_hashes().key_hex();
         if a.list.ids().any(|id| a.list.get(id).is_some_and(|s| s.info_hashes.key_hex() == key)) {
-            let line = torrent_folders::loaded(ti.name(), &path, a.torrent_folders.autoload_delete);
+            let line = torrent_folders::loaded(ti.name(), &key, &path, a.torrent_folders.autoload_delete);
             a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAlreadyInList, line)));
             continue;
         }

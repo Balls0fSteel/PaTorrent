@@ -16,9 +16,10 @@
 //! preferences keys, saved in the state file) for [`restore`] at the next start. The compat
 //! shim's `app/setPreferences` maps its names onto these ids and takes the same path.
 
-use std::path::Path;
+use std::io;
+use std::path::{Path, PathBuf};
 
-use patorrent_core::{IpFilter, ProxyType, Settings, TorrentFlags};
+use patorrent_core::{IpFilter, IpFilterLoad, ProxyType, Settings, TorrentFlags};
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::options::{self, GuiOptions};
 use patorrent_frontend::pref_pages;
@@ -1180,10 +1181,61 @@ fn check_paths(w: &Working, old: &Working, policy: &PathPolicy) -> Result<(), Re
     Ok(())
 }
 
+/// A block list read ahead of a commit, without the State lock: the file and what reading it
+/// gave.
+type Read = Option<(PathBuf, io::Result<IpFilterLoad>)>;
+
+/// The IP filter's on switch and block list in `w`.
+fn ip_filter(shared: &Shared, w: &Working) -> (bool, PathBuf) {
+    (w.prefs.ip_filter, w.prefs.gui().ip_filter_file(&shared.settings_dir))
+}
+
+/// The block list committing `changes` onto `st` would read: the IP filter turned on or pointed
+/// at another file by changes that pass the checks (a path the policy refuses is never read).
+fn ip_filter_to_read(shared: &Shared, st: &State, changes: &[Change]) -> Option<PathBuf> {
+    let mut w = Working::from_state(st);
+    for (def, v) in changes {
+        def.set(&mut w, v.clone());
+    }
+    validate(&w).ok()?;
+    let old = Working::from_state(st);
+    check_paths(&w, &old, &shared.path_policy).ok()?;
+    let (on, file) = ip_filter(shared, &w);
+    (on && (on, &file) != (old.prefs.ip_filter, &ip_filter(shared, &old).1)).then_some(file)
+}
+
+/// [`commit`] for a request: a block list the changes turn on is read without the State lock,
+/// which every request and the alert loop wait for (SEC-05: a big list takes a while), with
+/// `read`; then the changes are committed under the lock. When the preferences changed in the
+/// meantime so that another file is wanted, that one is read the same way.
+pub(crate) fn commit_request(
+    shared: &Shared,
+    changes: &[Change],
+    from: &str,
+    read: impl Fn(&Path) -> io::Result<IpFilterLoad>,
+) -> Result<(), Refusal> {
+    let mut done: Read = None;
+    for _ in 0..3 {
+        let mut st = shared.lock();
+        let wanted = ip_filter_to_read(shared, &st, changes);
+        if wanted.as_ref() == done.as_ref().map(|(f, _)| f) {
+            return commit_read(shared, &mut st, changes, Some(from), done);
+        }
+        drop(st);
+        done = wanted.map(|f| {
+            let r = read(&f);
+            (f, r)
+        });
+    }
+    // still changing: the file is read under the lock
+    commit_read(shared, &mut shared.lock(), changes, Some(from), done)
+}
+
 /// Applies parsed changes to a working copy of `st`, checks it, and commits: engine settings
 /// through `apply_settings` (with the global limits of the mode in force), the IP filter loaded
 /// or cleared, peer exchange toggled on every torrent, a new password hashed, the folders
-/// handed to the owner's `MoveCompleted`, and everything stored in the state file.
+/// handed to the owner's `MoveCompleted`, and everything stored in the state file. A block list
+/// is read here, under the State lock; requests go through [`commit_request`].
 ///
 /// `from` is the session of the request that sent them; `None` for nox's own changes (the
 /// state file at start, a remote GUI's engine settings). A request changes the login and the
@@ -1195,6 +1247,17 @@ pub(crate) fn commit(
     st: &mut State,
     changes: &[Change],
     from: Option<&str>,
+) -> Result<(), Refusal> {
+    commit_read(shared, st, changes, from, None)
+}
+
+/// [`commit`], with the block list `read` already when it is the file wanted.
+fn commit_read(
+    shared: &Shared,
+    st: &mut State,
+    changes: &[Change],
+    from: Option<&str>,
+    read: Read,
 ) -> Result<(), Refusal> {
     let keep = from;
     let mut w = Working::from_state(st);
@@ -1216,13 +1279,21 @@ pub(crate) fn commit(
     check_paths(&w, &old, &shared.path_policy)?;
 
     // the IP filter first: a block list that does not load refuses the whole change
-    let filter = |w: &Working| (w.prefs.ip_filter, w.prefs.gui().ip_filter_file(&shared.settings_dir));
-    if filter(&w) != filter(&old) {
-        let (on, file) = filter(&w);
+    if ip_filter(shared, &w) != ip_filter(shared, &old) {
+        let (on, file) = ip_filter(shared, &w);
         if on {
-            match shared.handle.load_ip_filter(&file) {
-                Ok(n) => {
-                    st.push_log(None, tr!(LogIpFilterRules, count = n, path = file.display()), unix_now())
+            let list = match read {
+                Some((f, r)) if f == file => r,
+                _ => IpFilter::load(&file),
+            };
+            match list {
+                Ok(l) => {
+                    shared.handle.set_ip_filter(l.filter);
+                    st.push_log(
+                        None,
+                        tr!(LogIpFilterRules, count = l.rules, path = file.display()),
+                        unix_now(),
+                    )
                 }
                 Err(e) => return Err(("ipfilter.path".to_owned(), format!("{}: {e}", file.display()))),
             }
@@ -1671,5 +1742,46 @@ mod tests {
         let mut options = patorrent_frontend::prefs::Prefs::default();
         w.prefs.gui().store(&mut options);
         assert_eq!(options.get("ui.language"), Some("en"));
+    }
+
+    /// SEC-05: a request's block list is read while the State lock is free, once, and only
+    /// when the path policy allows it; the rules are in force after the commit.
+    #[test]
+    fn a_requests_ip_filter_is_read_without_the_lock() {
+        let dir = std::env::temp_dir().join(format!("nox-prefs-ipfilter-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let list = dir.join("list.dat");
+        std::fs::write(&list, "1.2.3.0 - 1.2.3.255 , 0 , x\n").unwrap();
+        let session = patorrent_core::Session::start_mock(Settings::default(), Default::default());
+        let shared = State::shared_for_tests(session.handle(), dir.clone());
+        *shared.lock() = state();
+        let reads = std::cell::Cell::new(0);
+        let read = |f: &Path| {
+            assert!(shared.state.try_lock().is_ok(), "read under the State lock");
+            reads.set(reads.get() + 1);
+            IpFilter::load(f)
+        };
+        let body =
+            Json::obj().with("ipfilter.enable", true).with("ipfilter.path", list.to_string_lossy().as_ref());
+        let changes = parse(&body).unwrap();
+        commit_request(&shared, &changes, "s", read).unwrap();
+        assert_eq!(reads.get(), 1);
+        assert!(shared.lock().prefs.ip_filter);
+        assert!(shared.lock().log.iter().any(|l| l.text.contains("list.dat")));
+        // the same again: nothing to read
+        commit_request(&shared, &changes, "s", read).unwrap();
+        assert_eq!(reads.get(), 1);
+        // a path the policy refuses is not read, and is refused
+        let changes = parse(&Json::obj().with("ipfilter.path", "relative.dat")).unwrap();
+        assert!(commit_request(&shared, &changes, "s", read).is_err());
+        assert_eq!(reads.get(), 1);
+        // a list that does not load refuses the change
+        let missing = dir.join("missing.dat");
+        let body = Json::obj().with("ipfilter.path", missing.to_string_lossy().as_ref());
+        let refused = commit_request(&shared, &parse(&body).unwrap(), "s", read).unwrap_err();
+        assert_eq!(refused.0, "ipfilter.path");
+        assert_eq!(reads.get(), 2);
+        assert_eq!(shared.lock().prefs.ip_filter_path, list.to_string_lossy());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

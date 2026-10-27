@@ -2844,6 +2844,37 @@ fn torrent_folders_store_copies_and_auto_load() {
     assert!(watch.join("broken.torrent").exists());
 }
 
+/// SEC-05: an auto-load folder stored before `--webui-save-root` was given, outside the roots,
+/// is not watched, so "Delete loaded .torrents" deletes nothing there.
+#[test]
+fn an_autoload_folder_outside_the_save_roots_is_not_watched() {
+    let dir = temp_dir("autoload-outside");
+    let (root, outside) = (dir.join("media"), dir.join("outside"));
+    std::fs::create_dir_all(&root).unwrap();
+    std::fs::create_dir_all(&outside).unwrap();
+    let state = dir.join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let options = Json::obj()
+        .with("dir.autoload", "1")
+        .with("dir.autoload_dir", outside.to_string_lossy().as_ref())
+        .with("dir.autoload_delete", "1");
+    std::fs::write(state.join(STATE_FILE), Json::obj().with("options", options).to_json()).unwrap();
+    let t = Harness::start_rooted(dir.clone(), Some(PASS), vec![root.clone()]);
+    let sid = t.login();
+    let (bytes, hash) = torrent_named("autoload-outside", None);
+    let file = outside.join("dropped.torrent");
+    std::fs::write(&file, &bytes).unwrap();
+    std::thread::sleep(Duration::from_secs(6));
+    assert!(file.exists(), "a file outside the roots was deleted");
+    let list = t.get(&sid, "/api/v2/torrents/info").text();
+    assert!(!list.contains(&hash), "{list}");
+    // the stored folder is still the preference: it is the watching that stopped
+    let m = t.get(&sid, "/pa/prefs").json();
+    let field = |id: &str| m.get("fields").unwrap().get(id).unwrap().get("value").cloned().unwrap();
+    assert_eq!(field("dir.autoload"), Json::Bool(true));
+    assert_eq!(field("dir.autoload_dir"), Json::Str(outside.to_string_lossy().into_owned()));
+}
+
 /// Properties on a selection larger than the reply cache: every torrent's tracker list is
 /// asked for and read back (a missing one would load the box blank).
 #[test]
@@ -3220,6 +3251,53 @@ fn url_adds_go_through_the_sessions_proxy() {
     assert_eq!(r.status, 204, "{}", r.text());
     assert_eq!(log.lock().unwrap().len(), 2);
     assert_eq!(log.lock().unwrap()[1], "GET http://indexer.invalid/get/2.torrent HTTP/1.1");
+}
+
+/// SEC-05: a URL that gives no torrent gets one answer whatever happened (nothing listening, an
+/// HTTP error, a page that is not a torrent, a redirect elsewhere), so the Web UI does not tell
+/// which addresses and ports answer. A URL that is not one says so (nothing was sent).
+#[test]
+fn a_url_that_gives_no_torrent_gets_one_answer() {
+    let closed = std::net::TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let server = l.local_addr().unwrap();
+    std::thread::spawn(move || {
+        for c in l.incoming() {
+            let Ok(mut c) = c else { continue };
+            let mut head = Vec::new();
+            let mut b = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                match c.read(&mut b) {
+                    Ok(1) => head.push(b[0]),
+                    _ => break,
+                }
+            }
+            let line = String::from_utf8_lossy(&head).lines().next().unwrap_or_default().to_owned();
+            let out = if line.contains("/page") {
+                "HTTP/1.1 200 OK\r\nContent-Length: 6\r\nConnection: close\r\n\r\n<html>".to_owned()
+            } else if line.contains("/moved") {
+                format!("HTTP/1.1 302 Found\r\nLocation: ftp://{closed}/x\r\nContent-Length: 0\r\n\r\n")
+            } else {
+                "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\nConnection: close\r\n\r\n".to_owned()
+            };
+            let _ = c.write_all(out.as_bytes());
+        }
+    });
+    let t = Harness::start("url-errors");
+    let sid = t.login();
+    for url in [
+        format!("http://{closed}/a.torrent"),
+        format!("http://{server}/missing.torrent"),
+        format!("http://{server}/page"),
+        format!("http://{server}/moved"),
+    ] {
+        let r = t.pa(&sid, "/pa/add", &format!(r#"{{"url":"{url}"}}"#));
+        assert_eq!(r.status, 400, "{url}");
+        assert_eq!(s(r.json().get("error")), format!("could not fetch {url}"));
+    }
+    let r = t.pa(&sid, "/pa/add", r#"{"url":"ftp://example.com/a.torrent"}"#);
+    assert_eq!(r.status, 400);
+    assert!(s(r.json().get("error")).contains("only http:// and https://"), "{}", r.text());
 }
 
 /// SEC-05: a Web UI login does not reach every path. Network, relative and `..` paths are

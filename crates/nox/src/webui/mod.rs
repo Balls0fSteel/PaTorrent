@@ -811,16 +811,19 @@ impl WebUi {
     /// BitTorrent page's file, else `ipfilter.dat` in the state directory. A list that does not
     /// load leaves the old rules in force. Returns the line it logged.
     pub fn reload_ip_filter(&self) -> Option<String> {
-        let mut st = self.shared.lock();
-        if !st.prefs.ip_filter {
-            return None;
-        }
-        let file = st.prefs.gui().ip_filter_file(&self.shared.settings_dir);
+        let file = {
+            let st = self.shared.lock();
+            if !st.prefs.ip_filter {
+                return None;
+            }
+            st.prefs.gui().ip_filter_file(&self.shared.settings_dir)
+        };
+        // read without the State lock (SEC-05)
         let line = match self.shared.handle.load_ip_filter(&file) {
             Ok(n) => tr!(LogIpFilterRules, count = n, path = file.display()),
             Err(e) => tr!(LogIpFilterKept, path = file.display(), error = e),
         };
-        st.push_log(None, line.clone(), unix_now());
+        self.shared.lock().push_log(None, line.clone(), unix_now());
         Some(line)
     }
 
@@ -962,7 +965,7 @@ impl WebUi {
                 let s = &mut *st;
                 s.scrapes.run(s.torrents.values().map(|e| &e.status), Instant::now(), &self.shared.handle);
             }
-            found = autoload(&mut st, now);
+            found = autoload(&mut st, &self.shared.path_policy, now);
         }
         drop(st);
         if replied {
@@ -1004,9 +1007,18 @@ impl Drop for WebUi {
 /// to add without the Add New Torrent dialog (they are renamed to `.torrent.loaded`, or
 /// deleted, once the engine has them). Files whose torrent is in the session already are
 /// finished at once.
-fn autoload(st: &mut State, now: i64) -> Vec<(PathBuf, commands::Source)> {
+///
+/// A folder the path policy refuses (one set before `--webui-save-root` was given) is not
+/// watched: loaded files may be deleted there (SEC-05).
+fn autoload(st: &mut State, policy: &path_policy::PathPolicy, now: i64) -> Vec<(PathBuf, commands::Source)> {
     let Some(dir) = st.prefs.torrent_folders.loads_from().map(PathBuf::from) else { return Vec::new() };
-    let paths = st.autoload.poll(&dir, Instant::now());
+    let paths = match policy.check(&dir.to_string_lossy()) {
+        Ok(()) => st.autoload.poll(&dir, Instant::now()),
+        Err(why) => {
+            st.autoload.refuse(&dir, why);
+            Vec::new()
+        }
+    };
     if let Some(e) = st.autoload.take_error() {
         st.push_log(None, tr!(LogAutoloadError, error = e), now);
     }
@@ -1020,7 +1032,9 @@ fn autoload(st: &mut State, now: i64) -> Vec<(PathBuf, commands::Source)> {
             }
         };
         if st.by_hash.contains_key(&torrent::hash_of(&ti.info_hashes())) {
-            let line = torrent_folders::loaded(ti.name(), &path, st.prefs.torrent_folders.autoload_delete);
+            let key = ti.info_hashes().key_hex();
+            let line =
+                torrent_folders::loaded(ti.name(), &key, &path, st.prefs.torrent_folders.autoload_delete);
             st.push_log(None, tr!(LogAlreadyInList, line), now);
             continue;
         }
@@ -1157,6 +1171,25 @@ impl State {
 
     pub fn is_loopback_bypass(&self, ip: IpAddr) -> bool {
         self.prefs.bypass_local_auth && ip.is_loopback()
+    }
+
+    /// A Web UI without a server for unit tests: `handle`'s engine, an empty cache, and
+    /// `settings_dir` for the default `ipfilter.dat`.
+    #[cfg(test)]
+    pub(crate) fn shared_for_tests(handle: SessionHandle, settings_dir: PathBuf) -> Shared {
+        Shared {
+            handle,
+            state: Mutex::new(State::for_tests()),
+            replied: Condvar::new(),
+            limits: http::Limits::default(),
+            iterations: 1,
+            state_file: None,
+            settings_dir,
+            rss: Mutex::new(rss::Rss::load(None)),
+            tls: None,
+            path_policy: path_policy::PathPolicy::default(),
+            remotes: Mutex::new(Vec::new()),
+        }
     }
 
     /// An empty cache for unit tests of the protocol code (no server, no engine).

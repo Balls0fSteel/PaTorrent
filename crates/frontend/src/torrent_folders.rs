@@ -227,7 +227,18 @@ pub fn read(path: &Path) -> Result<(Vec<u8>, TorrentInfo), String> {
 
 /// Done with an auto-loaded file: deleted, or renamed to `<file>.loaded` (replacing an older
 /// one). Returns the new name, `None` when deleted.
-pub fn finish_loaded(path: &Path, delete: bool) -> io::Result<Option<PathBuf>> {
+///
+/// Only the file that was loaded: still a plain file (not a link) holding the torrent whose
+/// info-hash key ([`InfoHashes::key_hex`](patorrent_core::InfoHashes::key_hex)) is `key`. A file
+/// that was replaced in the meantime is left as it is (SEC-05).
+pub fn finish_loaded(path: &Path, key: &str, delete: bool) -> io::Result<Option<PathBuf>> {
+    if !fs::symlink_metadata(path)?.is_file() {
+        return Err(io::Error::new(io::ErrorKind::InvalidInput, "not a plain file"));
+    }
+    let (_, ti) = read(path).map_err(|e| io::Error::new(io::ErrorKind::InvalidData, e))?;
+    if ti.info_hashes().key_hex() != key {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "a different torrent since it was loaded"));
+    }
     if delete {
         fs::remove_file(path)?;
         return Ok(None);
@@ -303,7 +314,9 @@ impl Poller {
             if !is_torrent_file(&path) {
                 continue;
             }
-            let Ok(md) = fs::metadata(&path) else { continue };
+            // links are not followed: only the folder's own files are loaded, renamed and
+            // deleted (SEC-05)
+            let Ok(md) = fs::symlink_metadata(&path) else { continue };
             if !md.is_file() {
                 continue;
             }
@@ -319,6 +332,19 @@ impl Poller {
         self.seen = now;
         out.sort();
         out
+    }
+
+    /// The folder may not be watched (`why`, the frontend's own rule): reported like a read
+    /// error, once, and nothing is handed out.
+    pub fn refuse(&mut self, dir: &Path, why: &str) {
+        if self.dir != dir {
+            *self = Poller { dir: dir.to_owned(), last: self.last, ..Poller::default() };
+        }
+        let msg = format!("{}: {why}", dir.display());
+        if self.error.as_ref().is_none_or(|(m, _)| *m != msg) {
+            self.error = Some((msg, false));
+        }
+        self.seen.clear();
     }
 
     /// Why the folder could not be read, once per new error.
@@ -421,7 +447,7 @@ impl TorrentFiles {
                     }
                 }
                 if let Some(path) = &p.loaded_from {
-                    log.push(loaded(name, path, folders.autoload_delete));
+                    log.push(loaded(name, &key, path, folders.autoload_delete));
                 }
             }
             Alert::AddTorrentFailed { name, error } => {
@@ -482,9 +508,10 @@ impl TorrentFiles {
     }
 }
 
-/// Renames or deletes an auto-loaded file whose torrent is in the session; the log line.
-pub fn loaded(name: &str, path: &Path, delete: bool) -> String {
-    match finish_loaded(path, delete) {
+/// Renames or deletes an auto-loaded file whose torrent (info-hash key `key`) is in the
+/// session; the log line.
+pub fn loaded(name: &str, key: &str, path: &Path, delete: bool) -> String {
+    match finish_loaded(path, key, delete) {
         Ok(Some(to)) => tr!(FoldersLoadedRenamed, name, path = path.display(), to = to.display()),
         Ok(None) => tr!(FoldersLoadedDeleted, name, path = path.display()),
         Err(e) => tr!(FoldersLoadedKept, name, path = path.display(), error = e),
@@ -647,10 +674,10 @@ mod tests {
         fs::write(dir.join("a.torrent"), torrent("a", 10)).unwrap();
         p.scan(&dir);
         assert_eq!(p.scan(&dir), [dir.join("a.torrent")]);
-        let renamed = finish_loaded(&dir.join("a.torrent"), false).unwrap().unwrap();
+        let renamed = finish_loaded(&dir.join("a.torrent"), &key(&torrent("a", 10)), false).unwrap().unwrap();
         assert_eq!(renamed, dir.join("a.torrent.loaded"));
         assert!(p.scan(&dir).is_empty());
-        assert_eq!(finish_loaded(&dir.join("B.TORRENT"), true).unwrap(), None);
+        assert_eq!(finish_loaded(&dir.join("B.TORRENT"), &key(&torrent("b", 0)), true).unwrap(), None);
         assert!(!dir.join("B.TORRENT").exists());
 
         // poll() keeps to the interval
@@ -666,6 +693,71 @@ mod tests {
         assert!(p.take_error().is_some_and(|e| e.contains("missing")));
         assert!(p.scan(&gone).is_empty());
         assert_eq!(p.take_error(), None);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// SEC-05: only the file that was loaded is renamed or deleted: not one replaced by another
+    /// torrent or by something else since, and links in the folder are never handed out (a
+    /// link's target outside the folder stays as it is).
+    #[test]
+    fn only_the_loaded_file_is_finished() {
+        let dir = temp("finish-only-loaded");
+        let path = dir.join("a.torrent");
+        fs::write(&path, torrent("a", 0)).unwrap();
+        let loaded_key = key(&torrent("a", 0));
+        // replaced by another torrent: kept
+        fs::write(&path, torrent("other", 0)).unwrap();
+        assert!(finish_loaded(&path, &loaded_key, true).is_err());
+        assert!(path.exists());
+        // replaced by something that is not a torrent: kept
+        fs::write(&path, "not bencode").unwrap();
+        assert!(finish_loaded(&path, &loaded_key, true).is_err());
+        assert!(path.exists());
+        // replaced by a folder: kept
+        fs::remove_file(&path).unwrap();
+        fs::create_dir(&path).unwrap();
+        assert!(finish_loaded(&path, &loaded_key, true).is_err());
+        assert!(path.is_dir());
+        fs::remove_dir(&path).unwrap();
+        // the same torrent: deleted
+        fs::write(&path, torrent("a", 0)).unwrap();
+        assert_eq!(finish_loaded(&path, &loaded_key, true).unwrap(), None);
+        assert!(!path.exists());
+
+        // a link to a torrent outside the folder
+        let outside = temp("finish-only-loaded-outside");
+        let target = outside.join("keep.torrent");
+        fs::write(&target, torrent("keep", 0)).unwrap();
+        let link = dir.join("link.torrent");
+        #[cfg(unix)]
+        let linked = std::os::unix::fs::symlink(&target, &link).is_ok();
+        #[cfg(windows)]
+        let linked = std::os::windows::fs::symlink_file(&target, &link).is_ok();
+        if linked {
+            let mut p = Poller::new();
+            assert!(p.scan(&dir).is_empty());
+            assert!(p.scan(&dir).is_empty(), "a link is not handed out");
+            assert!(finish_loaded(&link, &key(&torrent("keep", 0)), true).is_err());
+            assert!(finish_loaded(&link, &key(&torrent("keep", 0)), false).is_err());
+            assert!(link.symlink_metadata().is_ok() && target.exists());
+        } else {
+            eprintln!("symbolic links cannot be made here; the link case is not tested");
+        }
+        let _ = fs::remove_dir_all(&dir);
+        let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn a_refused_folder_is_reported_once() {
+        let dir = temp("poll-refused");
+        fs::write(dir.join("a.torrent"), torrent("a", 0)).unwrap();
+        let mut p = Poller::new();
+        p.refuse(&dir, "not allowed");
+        p.refuse(&dir, "not allowed");
+        assert!(p.take_error().is_some_and(|e| e.ends_with("not allowed")));
+        assert_eq!(p.take_error(), None);
+        assert!(p.scan(&dir).is_empty());
+        assert_eq!(p.scan(&dir), [dir.join("a.torrent")], "allowed again");
         let _ = fs::remove_dir_all(&dir);
     }
 

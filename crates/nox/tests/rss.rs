@@ -361,3 +361,30 @@ fn native_endpoints_and_the_shim_on_one_downloader() {
     assert_eq!(t.pa(&sid, "/pa/rss/nope", "{}").0, 404);
     assert_eq!(t.get(&sid, "/pa/rss/feed-add").0, 405);
 }
+
+/// SEC-05: a feed that does not load shows one error whatever happened (nothing listening, an
+/// HTTP error, a page that is not a feed), so the Web UI does not tell which addresses and
+/// ports answer.
+#[test]
+fn a_feed_that_does_not_load_shows_one_error() {
+    let closed = TcpListener::bind("127.0.0.1:0").unwrap().local_addr().unwrap();
+    let (server, _) = serve(vec![("/page".into(), b"<html></html>".to_vec())]);
+    let t = Harness::start("feed-errors");
+    let sid = t.login();
+    let urls =
+        [format!("http://{closed}/rss"), format!("http://{server}/missing"), format!("http://{server}/page")];
+    for url in &urls {
+        let (s, body) = t.pa(&sid, "/pa/rss/feed-add", &format!(r#"{{"url":"{url}"}}"#));
+        assert_eq!(s, 200, "{body}");
+    }
+    wait_until("the feeds fetched", || {
+        let m = t.get_json(&sid, "/pa/rss");
+        arr(m.get("feeds")).iter().all(|f| str_of(f, "status").starts_with("Error"))
+    });
+    let m = t.get_json(&sid, "/pa/rss");
+    let mut statuses: Vec<String> = arr(m.get("feeds")).iter().map(|f| str_of(f, "status")).collect();
+    statuses.sort();
+    let mut expected: Vec<String> = urls.iter().map(|u| format!("Error: could not fetch {u}")).collect();
+    expected.sort();
+    assert_eq!(statuses, expected);
+}

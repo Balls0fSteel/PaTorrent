@@ -709,14 +709,25 @@ impl Source {
         }
         let proxy = FetchProxy::from_settings(&shared.lock().settings);
         match fetch::fetch(url, proxy) {
-            Ok(fetch::Fetched::Torrent(bytes)) => Source::from_torrent_bytes(bytes),
+            Ok(fetch::Fetched::Torrent(bytes)) => {
+                Source::from_torrent_bytes(bytes).map_err(|e| not_fetched(url, &e.msg))
+            }
             Ok(fetch::Fetched::Magnet(m)) => match parse_magnet_uri(&m) {
                 Ok(_) => Ok(Source::Magnet(m)),
-                Err(_) => Err(err(400, "the URL redirected to an invalid magnet link")),
+                Err(_) => Err(not_fetched(url, "the URL redirected to an invalid magnet link")),
             },
-            Err(e) => Err(err(400, format!("could not fetch {url}: {e}"))),
+            Err(fetch::Failed::Url(e)) => Err(err(400, e)),
+            Err(fetch::Failed::Net(e)) => Err(not_fetched(url, &e)),
         }
     }
+}
+
+/// A URL that gave no torrent: one answer whatever happened (refused, timed out, an HTTP error,
+/// not a torrent, a redirect), so the Web UI does not tell which addresses and ports answer
+/// (SEC-05, SEC-26). The reason goes to the daemon's own output.
+fn not_fetched(url: &str, why: &str) -> CmdError {
+    eprintln!("! could not fetch {url}: {why}");
+    err(400, format!("could not fetch {url}"))
 }
 
 /// A bare info-hash (40 hex or 32 base32 characters) as a magnet link.
@@ -1301,8 +1312,7 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Res
             // a partial object of ids to values; 400 names the first bad field
             let body = json_body(req)?;
             let changes = prefs::parse(&body).map_err(|(field, why)| err(400, format!("{field}: {why}")))?;
-            let mut st = shared.lock();
-            prefs::commit(shared, &mut st, &changes, Some(key))
+            prefs::commit_request(shared, &changes, key, |f| patorrent_core::IpFilter::load(f))
                 .map_err(|(field, why)| err(400, format!("{field}: {why}")))?;
             Ok(no_content())
         }

@@ -12,12 +12,14 @@
 
 use std::collections::HashSet;
 use std::path::PathBuf;
-use std::sync::MutexGuard;
+use std::sync::{Arc, MutexGuard};
 
 use patorrent_core::fetch::FetchProxy;
 use patorrent_frontend::rss::view::{self, quality_text};
+use patorrent_frontend::rss::worker::{Fetcher, Net};
 use patorrent_frontend::rss::{
-    AddRequest, Download, FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter, Worker,
+    AddRequest, Download, Feed, FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter, Worker,
+    split_cookie,
 };
 use patorrent_frontend::{lang, tr};
 
@@ -42,7 +44,8 @@ impl Rss {
     pub fn load(file: Option<PathBuf>) -> Rss {
         let d = file.as_deref().map(RssDownloader::load).unwrap_or_default();
         // the tick collects the results; nothing needs waking
-        Rss { d, worker: Worker::new(|| {}), file, dirty: false, read: HashSet::new() }
+        let worker = Worker::with_fetcher(Arc::new(Quiet), || {});
+        Rss { d, worker, file, dirty: false, read: HashSet::new() }
     }
 
     fn save(&mut self) -> Option<String> {
@@ -50,6 +53,27 @@ impl Rss {
         let file = self.file.as_ref()?;
         self.d.save(file).err().map(|e| tr!(LogNotSaved, file = file.display(), error = e))
     }
+}
+
+/// The downloader's fetches ([`Net`]) with one error text whatever went wrong: a feed's error
+/// and the Logger's lines show in the Web UI, and the detail (refused, timed out, an HTTP
+/// status, not a feed, a redirect's target) would tell a login which addresses and ports
+/// answer (SEC-05, SEC-26). The detail goes to the daemon's own output.
+struct Quiet;
+
+impl Fetcher for Quiet {
+    fn feed(&self, url: &str, proxy: Option<FetchProxy>) -> Result<Feed, String> {
+        Net.feed(url, proxy).map_err(|e| not_fetched(split_cookie(url).0, &e))
+    }
+
+    fn download(&self, req: &AddRequest, proxy: Option<FetchProxy>) -> Result<Download, String> {
+        Net.download(req, proxy).map_err(|e| not_fetched(&req.url, &e))
+    }
+}
+
+fn not_fetched(url: &str, why: &str) -> String {
+    eprintln!("! RSS: could not fetch {url}: {why}");
+    format!("could not fetch {url}")
 }
 
 fn err(status: u16, msg: impl Into<String>) -> CmdError {

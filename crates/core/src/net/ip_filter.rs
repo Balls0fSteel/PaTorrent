@@ -169,19 +169,33 @@ impl IpFilter {
 
     /// Reads a block list in the `ipfilter.dat` or P2P format (see [`IpFilter::parse`]),
     /// gzip-compressed or not (lists are often published as `.gz`; the file's first bytes
-    /// decide, not its name). A list may inflate to at most [`IpFilter::MAX_LIST_SIZE`].
+    /// decide, not its name). The file must be a plain file (not a device or a pipe that never
+    /// ends), and the list at most [`IpFilter::MAX_LIST_SIZE`] as read and as inflated
+    /// (SEC-05: the path may come from a Web UI login).
     pub fn load(path: impl AsRef<std::path::Path>) -> std::io::Result<IpFilterLoad> {
-        let data = std::fs::read(path)?;
+        IpFilter::load_at_most(path.as_ref(), IpFilter::MAX_LIST_SIZE)
+    }
+
+    fn load_at_most(path: &std::path::Path, max: usize) -> std::io::Result<IpFilterLoad> {
+        use std::io::{Error, ErrorKind, Read};
+        if !std::fs::metadata(path)?.is_file() {
+            return Err(Error::new(ErrorKind::InvalidInput, "not a file"));
+        }
+        let mut data = Vec::new();
+        std::fs::File::open(path)?.take(max as u64 + 1).read_to_end(&mut data)?;
+        if data.len() > max {
+            return Err(Error::new(ErrorKind::InvalidData, format!("larger than {} MiB", max >> 20)));
+        }
         if crate::util::gzip::is_gzip(&data) {
-            let plain = crate::util::gzip::inflate_gzip(&data, IpFilter::MAX_LIST_SIZE)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+            let plain = crate::util::gzip::inflate_gzip(&data, max)
+                .map_err(|e| Error::new(ErrorKind::InvalidData, e))?;
             return Ok(IpFilter::parse(&plain));
         }
         Ok(IpFilter::parse(&data))
     }
 
-    /// The largest block list [`IpFilter::load`] inflates (the big public lists are some
-    /// tens of MB as text).
+    /// The largest block list [`IpFilter::load`] reads or inflates (the big public lists are
+    /// some tens of MB as text).
     pub const MAX_LIST_SIZE: usize = 512 << 20;
 
     /// Parses a block list. Each line is one of
@@ -360,6 +374,27 @@ mod tests {
         std::fs::write(&path, &gz[..50]).unwrap();
         let Err(e) = IpFilter::load(&path) else { panic!("a truncated list loaded") };
         assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    /// SEC-05: a list larger than the limit is refused before it is all read, and a path that
+    /// is not a plain file (a folder here; a device or a pipe that never ends elsewhere) is
+    /// refused before it is opened.
+    #[test]
+    fn a_list_is_a_plain_file_of_limited_size() {
+        let dir = std::env::temp_dir().join(format!("patorrent-ipfilter-size-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("list.dat");
+        let line = "1.2.3.0 - 1.2.3.255 , 0 , x\n";
+        std::fs::write(&path, line.repeat(10)).unwrap();
+        let max = line.len() * 10;
+        assert_eq!(IpFilter::load_at_most(&path, max).unwrap().rules, 10);
+        let Err(e) = IpFilter::load_at_most(&path, max - 1) else { panic!("a list over the limit loaded") };
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidData);
+        let Err(e) = IpFilter::load(&dir) else { panic!("a folder loaded") };
+        assert_eq!(e.kind(), std::io::ErrorKind::InvalidInput);
+        #[cfg(unix)]
+        assert!(IpFilter::load("/dev/zero").is_err());
         let _ = std::fs::remove_dir_all(dir);
     }
 

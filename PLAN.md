@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-26_150634_1793023594
+Last updated: 2026-10-27_065010_1793083810
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D30](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -18,7 +18,8 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
-- Pre-alpha, working toward the full 1.0 scope (D19): Win32, GTK and nox; v2 / hybrid torrents; localisation; HTTPS and remote mode. These features are implemented; the remaining work is validation, release gates and specific follow-ups below. The owner ran the GTK GUI and found it fine on 2026-10-23; wider testers come after 1.0.
+- **1.0.0-rc.1 is published** (2026-10-27, tag `v1.0.0-rc.1` on `6ed8f6c2`, [release](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1), pre-release): Release run 40462743583 built all 13 files (121 MB) and the draft was checked and published. The release text is `docs/releases/1.0.0-rc.1.md`; the Windows zip was started here, the other files only on the runners. Bug reports from it feed the gates below.
+- Release candidate, working toward the full 1.0 scope (D19): Win32, GTK and nox; v2 / hybrid torrents; localisation; HTTPS and remote mode. These features are implemented; the remaining work is validation, release gates and specific follow-ups below. The owner ran the GTK GUI and found it fine on 2026-10-23; wider testers come with the release candidate.
 - Latest Win32 changes (2026-10-23): Add New Torrent uses the resizable one-column layout, separate Save In / Name fields, a remembered size and "Don't show this again"; dialogs use the system message font (Segoe UI 9 pt here). They are tested but not yet in a refreshed hand-test set. See the recent [changelog](CHANGELOG.md).
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), Windows built locally and Linux / Windows artifacts from Release `39950546995`. It carries the full-row selection, routed-interface UPnP and connected-peer-list fixes, but predates the latest dialog changes. Older sets remain in `dist/1.0-test-ad714b1/` and `dist/1.0-test/`. The first set's Linux binaries/AppImages passed a command-line smoke check; later sets were not desktop-smoked, and Flatpak was not installed.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
@@ -43,7 +44,7 @@ Original gate numbers are retained for references in source comments and release
 | 3 | HTTPS Web UI and GUI remote mode | Implemented. Hand-check certificate pinning, reconnect/authentication failures and both GUIs driving nox. |
 | 4 | Localisation | 34 tables compiled in, language selection and RTL implemented. Check GTK in RTL, remaining long-text layouts and machine translations with native speakers when available. |
 | 5 | 100,000-torrent scale gate (D21) | Measure on low-end Windows and Linux (proposal: 2 cores, 4 GB RAM, HDD); measure GTK, the Web UI's per-client model and idle CPU, and bulk removal of 1,000 torrents (last observed 0.5-1.4 s of engine alerts). Fix measured bottlenecks. |
-| 6 | Windows release zip | Workflow builds the zip. Exercise a tagged run and inspect the draft release and artifacts; the tagged path has not been tested. |
+| 6 | Windows release zip | Done for rc.1: the tagged run 40462743583 built the zip and the draft release; it was inspected and published. Remaining: try the zip on a clean Windows machine (SmartScreen, first start, associations). |
 | 7 | Linux packages | x86_64/aarch64 tarballs, GUI/nox AppImages and Flatpaks build. Run desktop AppImage and Flatpak checks, including schemas, icons, tray, HTTPS, associations and the Background portal. Flathub still needs screenshots, submission changes and the owner's exception text; see RELEASING.md. |
 | 8 | macOS (D23) | Secure Transport, CI, arm64 GTK bundle/dmg, Apple events, Login Items, associations and NSStatusItem are implemented. A real Mac must validate window content, opening files/magnets, login and tray behavior. Intel engine/nox build; the Intel GTK bundle remains absent. Current bundle requires macOS 15. |
 | 9 | Manual GUI checks | Preferences (all pages, OK/Cancel/Apply, proxy and Advanced), Add (files/folders, priorities, labels, recent paths, real magnet OK/Cancel), Create, Properties (multi-select and DPI), RSS with a public feed, scheduler/hour boundary, Auto Shutdown with `PATORRENT_POWER_DRY_RUN=1`, Windows integration on the real registry, moving completed data / Set Download Location across drives, seeding goals and .torrent folders. Check Pieces progress and newly resized/font-changed dialogs. |
@@ -51,7 +52,7 @@ Original gate numbers are retained for references in source comments and release
 | 11 | Service integration | Run the nox Windows service under the real elevated SCM, including restart-on-failure and shutdown behavior. Install and exercise FreeBSD rc.d with root (only syntax-checked so far). |
 | 12 | Final interop rerun | Use release builds: plain, RC4, TCP, uTP, uTP-only and super-seed with qBittorrent, Transmission and Deluge; v2/hybrid where supported. Transmission/Deluge uTP and super-seed switches remain unverified. Known Linux results: Transmission rejects v2-only and stalls on hybrid pad-file expectations; qBittorrent/Deluge v1/v2/hybrid plain/RC4 passed. |
 | 13 | Web UI on a real phone | Android/iOS: detail/action sheets, drawer, sort, long-press multi-select, Back behavior, Properties and reconnection. Also verify desktop keyboard, selection, columns, Preferences and dark mode on the real engine. |
-| 14 | Release engineering | Set version `1.0.0` and peer ID `-PA1000-`, write release notes and inspect draft artifacts/checksums. Parser/security review and its fixes are recorded in SECURITY-REVIEW.md; keep parser review at each release. Register `PA` with libtorrent, Transmission, WebTorrent and the BEP 20 list. |
+| 14 | Release engineering | rc.1 is out with version `1.0.0-rc.1`, peer ID `-PA1000-` and `docs/releases/<version>.md` as the release text (RELEASING.md steps 1-2). For 1.0: set version `1.0.0` and peer ID `-PA1000-`, write release notes and inspect draft artifacts/checksums. Parser/security review and its fixes are recorded in SECURITY-REVIEW.md; keep parser review at each release. Register `PA` with libtorrent, Transmission, WebTorrent and the BEP 20 list. |
 
 ## Decisions and open questions
 
@@ -67,7 +68,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
   - Network trio: reads as an eye or a key, so the D29 globe fallback applies.
   - Tracker states and reannounce: read "A✓". Owner decision open: (a) a pylon in x 1–8 with arcs above it and the Trackers tab redrawn to match (recommended), (b) smaller tracker badges, (c) a non-tower base.
   The owner chose (a) and the globe (D30). Revision 6 (2026-10-26_143727_1793021847) redrew both bases and the Trackers tab; checks pass. Revision 6 review (2026-10-26_145432_1793022872, [report](assets/ui-icon-explorations/review-2026-10-26/revision6/REPORT.md)): all 131 pass, ready for integration. Integrated 2026-10-26_150634_1793023594 (gate 10); the GTK build and the platform checks remain. Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe. Optional: dedicated 48/64 px drawings for the pixel-art symbols.
-- Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison.
+- Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text. Research before designing the V2.0 goals below.
 
 

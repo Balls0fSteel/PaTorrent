@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_065010_1793083810: 1.0.0-rc.1 published: the first tagged release
+
+- Tag `v1.0.0-rc.1` on `6ed8f6c2` (CI 40408647551, FreeBSD 40408647459 and Fuzz 40408647609 green). Release run 40462743583 passed every job on its first try: version, Windows, Linux x86_64 and aarch64, both Flatpaks, macOS and the draft. The tagged path (Road to 1.0 item 6) works.
+- The draft had the 13 files RELEASING.md lists (121 MB in all: the Windows zip 4.5 MB, the Linux tarballs 4.6 / 4.2 MB, the GUI AppImages 37.1 / 36.3 MB, the nox AppImages 5.2 / 4.9 MB, the Flatpaks 2.2 / 2.0 MB, the dmg 16.0 MB, the macOS nox tarballs 2.0 / 2.2 MB, SHA256SUMS), was marked a pre-release and carried `docs/releases/1.0.0-rc.1.md` as its text.
+- Checked here before publishing: the zip's SHA-256 matches SHA256SUMS; its `patorrent-nox.exe --version` prints `patorrent-nox 1.0.0-rc.1`; its `patorrent.exe` started in portable mode (an empty `patorrent.ini` beside it), showed the PaTorrent window and was still running after 8 s at a 21 MB working set. The macOS job's screenshot shows the window with the runner's local-network prompt in front of it (the known runner artifact) and the GUI running after 20 s; the `.app` needs macOS 15.0, nox 11.0 (arm64) and 10.12 (x86_64).
+- Published 2026-10-27T06:49:46Z as a pre-release: <https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1>.
+- Not verified: the Linux tarballs, AppImages and Flatpaks and the macOS files were only built and (for nox) started on the runners; nothing from this release has run on a Linux desktop or a real Mac. The zip was not tried on a clean Windows machine (SmartScreen).
+
 ## 2026-10-26_215725_1793051845: RSS date parser: signed fields overflowed (fuzz crash)
 
 - Fuzz run 40404037267 (and the scheduled run 40296131012 that morning) crashed the `rss` target: `parse_rfc822` parsed the day, year and time fields as `i64`, so `0:-002074284530519326355:9` passed the `mi > 59` check and `mi * 60` overflowed (`crates/frontend/src/rss/feed.rs`). The fields are now unsigned (`u32` day and year, `u8` time), so a signed field is no date. A release build wrapped instead of panicking, so the shipped binaries were never crashable by a feed; the fuzz build has overflow checks.

@@ -771,6 +771,10 @@ pub(super) fn check_login(shared: &Shared, user: &str, pass: &str, ip: IpAddr, n
 fn login(shared: &Shared, p: &Params, ip: IpAddr, now: Instant) -> Response {
     let user = p.get("username").unwrap_or("");
     let pass = p.get("password").unwrap_or("");
+    // as at accept: a client banned while its request waited is told so, not "Fails."
+    if shared.lock().bans.is_banned(ip, now) {
+        return Response::text(403, BANNED);
+    }
     if !check_login(shared, user, pass, ip, now) {
         return Response::text(200, "Fails.");
     }

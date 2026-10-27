@@ -85,11 +85,11 @@ impl ProxyConfig {
     }
 
     /// Whether a host name goes to the proxy as is (SOCKS5 / SOCKS4a with `proxy_hostnames`, HTTP
-    /// CONNECT with `proxy_send_host_in_connect`) instead of being resolved locally first.
+    /// CONNECT with `proxy_send_host_in_connect` as well) instead of being resolved locally first.
     pub fn resolves_names(&self) -> bool {
         match self.kind {
             ProxyType::Socks4 | ProxyType::Socks5 | ProxyType::Socks5Pw => self.hostnames,
-            ProxyType::Http | ProxyType::HttpPw => self.send_host,
+            ProxyType::Http | ProxyType::HttpPw => self.hostnames && self.send_host,
             ProxyType::None => false,
         }
     }
@@ -843,7 +843,15 @@ mod tests {
         assert_eq!(c.label(), "socks5://proxy.example:1080");
         assert!(c.resolves_names() && c.peers && c.trackers);
         assert!(cfg(ProxyType::Socks4).resolves_names());
-        assert!(!cfg(ProxyType::Http).resolves_names(), "HTTP CONNECT names an address by default");
+        // SEC-15: HTTP CONNECT names the host by default, so the local resolver never sees it
+        assert!(cfg(ProxyType::Http).resolves_names(), "HTTP CONNECT names the host by default");
+        assert!(cfg(ProxyType::HttpPw).resolves_names());
+        let mut http = cfg(ProxyType::Http);
+        http.hostnames = false;
+        assert!(!http.resolves_names(), "proxy_hostnames off: resolved locally");
+        http.hostnames = true;
+        http.send_host = false;
+        assert!(!http.resolves_names());
         assert!(cfg(ProxyType::Http).plain_http(false) && !cfg(ProxyType::Http).plain_http(true));
         assert!(!cfg(ProxyType::Socks5).plain_http(false));
         let mut out = Vec::new();

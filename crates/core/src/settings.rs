@@ -278,7 +278,9 @@ pub struct Settings {
     pub proxy_username: String,
     pub proxy_password: String,
     /// Host names (trackers, web seeds) are resolved by the proxy instead of locally: SOCKS5
-    /// sends the name, SOCKS4 uses SOCKS4a. Plain HTTP proxy requests always carry the name.
+    /// sends the name, SOCKS4 uses SOCKS4a, HTTP CONNECT names the host (with
+    /// `proxy_send_host_in_connect`). Plain HTTP proxy requests always carry the name. DHT
+    /// bootstrap and node names are then not looked up at all.
     pub proxy_hostnames: bool,
     /// Peer and web seed connections go through the proxy. Incoming connections are then
     /// refused, no TCP listen socket is opened, and LSD and port mapping are off (libtorrent's
@@ -287,7 +289,9 @@ pub struct Settings {
     /// Tracker connections (HTTP and UDP) go through the proxy.
     pub proxy_tracker_connections: bool,
     /// HTTP CONNECT names the host (`CONNECT tracker.example:443`, with a `Host` header) rather
-    /// than the address it resolved to locally. Not in libtorrent 2.0.11.
+    /// than the address it resolved to locally, when `proxy_hostnames` is on too. Not in
+    /// libtorrent 2.0.11, which resolves locally; on by default so host names stay off the
+    /// local resolver (SEC-15).
     pub proxy_send_host_in_connect: bool,
     /// The SOCKS5 UDP ASSOCIATE command names our UDP socket's address and port, so the proxy
     /// can forward datagrams to us before we send any (wrong if there is a NAT in between).
@@ -423,7 +427,7 @@ impl Default for Settings {
             proxy_hostnames: true,
             proxy_peer_connections: true,
             proxy_tracker_connections: true,
-            proxy_send_host_in_connect: false,
+            proxy_send_host_in_connect: true,
             socks5_udp_send_local_ep: false,
         }
     }

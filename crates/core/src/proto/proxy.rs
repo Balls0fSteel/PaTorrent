@@ -178,6 +178,24 @@ enum Stage {
 /// Longest HTTP CONNECT response header we wait for.
 const MAX_HTTP_HEAD: usize = 8 * 1024;
 
+/// The status code of an HTTP/1.x status line (RFC 9112: `HTTP/1.1 200 OK`; `HTTP` is
+/// case-sensitive, one space on each side of the three-digit code, the reason phrase may be
+/// left out). libtorrent reads the number after the first space of the line, so it took
+/// replies such as `Foo 200` (SEC-15).
+fn status_code(line: &[u8]) -> Option<u16> {
+    let line = line.strip_suffix(b"\r").unwrap_or(line);
+    let rest = line.strip_prefix(b"HTTP/1.")?;
+    let (&minor, rest) = rest.split_first()?;
+    let (code, reason) = rest.strip_prefix(b" ")?.split_at_checked(3)?;
+    if !minor.is_ascii_digit() || !code.iter().all(u8::is_ascii_digit) {
+        return None;
+    }
+    if reason.first().is_some_and(|&b| b != b' ') {
+        return None;
+    }
+    Some(code.iter().fold(0, |a, &b| a * 10 + u16::from(b - b'0')))
+}
+
 /// One proxy handshake over a TCP connection to the proxy.
 #[derive(Clone, Debug)]
 pub struct Handshake {
@@ -464,17 +482,11 @@ impl Handshake {
                     return Ok(None);
                 }
                 let line = head.split(|&b| b == b'\n').next().unwrap_or_default();
-                let Some(sp) = line.iter().position(|&b| b == b' ') else {
+                let Some(code) = status_code(line) else {
                     return Err(ProxyError::InvalidReply);
                 };
-                // atoi: leading digits
-                let code = line[sp + 1..]
-                    .iter()
-                    .take_while(|b| b.is_ascii_digit())
-                    .take(5)
-                    .fold(0u32, |a, &b| a * 10 + (b - b'0') as u32);
                 if code != 200 {
-                    return Err(ProxyError::HttpStatus(code.min(u16::MAX as u32) as u16));
+                    return Err(ProxyError::HttpStatus(code));
                 }
                 self.stage = Stage::Done;
                 Ok(Some(Step::Done(None)))
@@ -727,6 +739,36 @@ mod tests {
         let mut hs = Handshake::http_connect(&t, None, false);
         let long = vec![b'a'; MAX_HTTP_HEAD + 10];
         assert_eq!(run(&mut hs, &long).1, Err(ProxyError::InvalidReply));
+    }
+
+    // SEC-15: only an HTTP/1.x status line with the code 200 opens the tunnel
+    #[test]
+    fn http_connect_needs_a_status_line() {
+        let t = Target::Addr(addr("1.2.3.4:6881"));
+        let reply = |r: &[u8]| run(&mut Handshake::http_connect(&t, None, false), r).1;
+        for bad in [
+            &b"Foo 200 OK\r\n\r\n"[..],
+            b"<html> 200\r\n\r\n",
+            b"http/1.1 200 OK\r\n\r\n",
+            b"HTTP/2 200\r\n\r\n",
+            b"HTTP/1.x 200 OK\r\n\r\n",
+            b"HTTP/1.1  200 OK\r\n\r\n",
+            b"HTTP/1.1 2000 OK\r\n\r\n",
+            b"HTTP/1.1 200OK\r\n\r\n",
+            b"HTTP/1.1 20\r\n\r\n",
+            b"X-Status: HTTP/1.1 200\r\n\r\n",
+        ] {
+            assert_eq!(reply(bad), Err(ProxyError::InvalidReply), "{}", String::from_utf8_lossy(bad));
+        }
+        for good in [
+            &b"HTTP/1.0 200\r\n\r\n"[..],
+            b"HTTP/1.1 200 \n\n",
+            b"HTTP/1.1 200 Connection established\r\n\r\n",
+        ] {
+            assert_eq!(reply(good), Ok(Step::Done(None)), "{}", String::from_utf8_lossy(good));
+        }
+        assert_eq!(reply(b"HTTP/1.1 502 Bad Gateway\r\n\r\n"), Err(ProxyError::HttpStatus(502)));
+        assert_eq!(reply(b"HTTP/1.0 407\n\n"), Err(ProxyError::HttpStatus(407)));
     }
 
     #[test]

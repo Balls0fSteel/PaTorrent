@@ -100,6 +100,27 @@ pub(super) fn parse_bootstrap_nodes(s: &str) -> Vec<(String, u16)> {
         .collect()
 }
 
+/// Whether DHT host names may go to the local resolver: not while a proxy resolves names for
+/// us, which would leak them to the local DNS (SEC-15; libtorrent resolves them locally
+/// anyway). Through an HTTP or SOCKS4 proxy the DHT cannot run at all; through SOCKS5 it
+/// starts from the saved nodes and IP-literal routers.
+fn may_resolve(proxy: Option<&proxy::ProxyConfig>) -> bool {
+    !proxy.is_some_and(proxy::ProxyConfig::resolves_names)
+}
+
+/// The bootstrap routers to look up, and how many names were skipped by [`may_resolve`].
+fn bootstrap_lookups(nodes: &str, proxy: Option<&proxy::ProxyConfig>) -> (Vec<(String, u16)>, usize) {
+    let all = parse_bootstrap_nodes(nodes);
+    let n = all.len();
+    let keep: Vec<(String, u16)> = if may_resolve(proxy) {
+        all
+    } else {
+        all.into_iter().filter(|(host, _)| host.parse::<std::net::IpAddr>().is_ok()).collect()
+    };
+    let skipped = n - keep.len();
+    (keep, skipped)
+}
+
 fn load_state(path: &Path) -> DhtState {
     match std::fs::read(path) {
         Ok(buf) => bdecode(&buf[..]).map(|d| read_dht_state(d.root())).unwrap_or_default(),
@@ -126,9 +147,13 @@ impl Engine {
         self.dht.state_path = path;
         self.dht.state = Some(state);
         self.dht.next_poll = now;
-        for (i, (host, port)) in
-            parse_bootstrap_nodes(&self.settings.dht_bootstrap_nodes).into_iter().enumerate()
-        {
+        let (routers, skipped) =
+            bootstrap_lookups(&self.settings.dht_bootstrap_nodes, self.proxy.cfg.as_ref());
+        if skipped > 0 {
+            let message = format!("DHT: {skipped} bootstrap router names not resolved outside the proxy");
+            self.alert(Alert::Log { id: None, message });
+        }
+        for (i, (host, port)) in routers.into_iter().enumerate() {
             match self.resolver.resolve(&host, DHT_COOKIE | ((port as u64) << 32) | i as u64) {
                 Some(ips) => self.dht.routers.extend(ips.into_iter().map(|ip| SocketAddr::new(ip, port))),
                 None => self.dht.pending_routers += 1,
@@ -326,7 +351,7 @@ impl Engine {
         if let Ok(ip) = host.parse::<std::net::IpAddr>() {
             return self.add_dht_node_ep(SocketAddr::new(ip, port));
         }
-        if host.is_empty() {
+        if host.is_empty() || !may_resolve(self.proxy.cfg.as_ref()) {
             return;
         }
         let cookie = DHT_COOKIE | DHT_NODE_COOKIE | ((port as u64) << 32);
@@ -470,5 +495,28 @@ mod tests {
                 ("2001:db8::1".to_owned(), 6881)
             ]
         );
+    }
+
+    #[test]
+    fn bootstrap_names_stay_with_a_name_resolving_proxy() {
+        use crate::settings::{ProxyType, Settings};
+        let nodes = "router.example:6881,1.2.3.4:6881,[2001:db8::1]:6881";
+        let cfg = |kind, hostnames| {
+            let s = Settings {
+                proxy_type: kind,
+                proxy_hostname: "proxy.example".into(),
+                proxy_hostnames: hostnames,
+                ..Settings::default()
+            };
+            proxy::ProxyConfig::from_settings(&s)
+        };
+        let literals = vec![("1.2.3.4".to_owned(), 6881), ("2001:db8::1".to_owned(), 6881)];
+        assert_eq!(bootstrap_lookups(nodes, None).0.len(), 3);
+        for kind in [ProxyType::Socks5, ProxyType::Socks4, ProxyType::Http, ProxyType::HttpPw] {
+            assert_eq!(bootstrap_lookups(nodes, cfg(kind, true).as_ref()), (literals.clone(), 1), "{kind:?}");
+            assert!(!may_resolve(cfg(kind, true).as_ref()));
+            // names resolved locally anyway: as before
+            assert_eq!(bootstrap_lookups(nodes, cfg(kind, false).as_ref()).0.len(), 3, "{kind:?}");
+        }
     }
 }

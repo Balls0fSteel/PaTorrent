@@ -100,6 +100,11 @@ fn assert_files(f: &Fixture, dir: &Path) {
 }
 
 fn start() -> Session {
+    start_in(None)
+}
+
+/// [`start`] keeping its torrents in `state_dir`.
+fn start_in(state_dir: Option<PathBuf>) -> Session {
     let settings = Settings {
         listen_interfaces: "127.0.0.1:0".into(),
         tick_interval: 100,
@@ -117,7 +122,7 @@ fn start() -> Session {
         enable_outgoing_utp: false,
         ..Settings::default()
     };
-    Session::start(SessionParams { settings, state_dir: None }).expect("session starts")
+    Session::start(SessionParams { settings, state_dir }).expect("session starts")
 }
 
 /// A session handle plus the alerts popped but not looked at yet (as in `tests/swarm.rs`).
@@ -368,6 +373,111 @@ fn request(c: &mut TcpStream, f: &Fixture, piece: u32) -> u8 {
             return msg[0];
         }
     }
+}
+
+/// A plain seed (no super seeding) added with `flags` over the fixture's files, or over files of
+/// the same sizes holding something else.
+fn seed_with(f: &Fixture, name: &str, flags: TorrentFlags, real_data: bool) -> Seed {
+    let dir = temp_dir(name);
+    if real_data {
+        write_files(f, &dir);
+    } else {
+        for (file, data) in &f.files {
+            let p = dir.join("superseed-test").join(file);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, vec![0x5a; data.len()]).unwrap();
+        }
+    }
+    let session = start();
+    let mut w = Watch { h: session.handle(), backlog: VecDeque::new() };
+    let port = listen_port(&mut w);
+    let id = add(&mut w, f, &dir, flags, 0);
+    status(&mut w, id, "seeding", |s| s.state == TorrentState::Seeding);
+    Seed { session, w, dir, port, id }
+}
+
+/// SEC-20: seed mode takes every piece on trust, but each is hashed before its first upload.
+/// Over the real data the upload goes ahead.
+#[test]
+fn seed_mode_uploads_a_piece_once_it_passed() {
+    let f = fixture();
+    let seed = seed_with(&f, "seed-mode-ok", TorrentFlags::SEED_MODE, true);
+    let mut c = scripted(&f, seed.port);
+    unchoked(&mut c);
+    assert_eq!(request(&mut c, &f, 0), 7, "the piece is sent after its check");
+    assert_eq!(request(&mut c, &f, 0), 7, "and again without one");
+    seed.session.shutdown();
+    let _ = std::fs::remove_dir_all(seed.dir);
+}
+
+/// SEC-20: over files that only have the right sizes (a private file a crafted add pointed at,
+/// say), the first requested piece fails its check: nothing of it is uploaded, seed mode ends
+/// and every piece is checked, which finds none.
+#[test]
+fn seed_mode_over_other_data_uploads_nothing() {
+    let f = fixture();
+    let mut seed = seed_with(&f, "seed-mode-bad", TorrentFlags::SEED_MODE, false);
+    let mut c = scripted(&f, seed.port);
+    unchoked(&mut c);
+    send(&mut c, 6, &[0, 0, 16 * 1024]);
+    c.set_read_timeout(Some(Duration::from_secs(10))).unwrap();
+    loop {
+        let mut len = [0u8; 4];
+        if c.read_exact(&mut len).is_err() {
+            break; // the recheck closed the connection
+        }
+        let mut msg = vec![0u8; u32::from_be_bytes(len) as usize];
+        if c.read_exact(&mut msg).is_err() {
+            break;
+        }
+        assert_ne!(msg.first(), Some(&7), "a piece of the wrong data was uploaded");
+    }
+    let id = seed.id;
+    let st = status(&mut seed.w, id, "rechecked", |s| {
+        !matches!(
+            s.state,
+            TorrentState::CheckingFiles | TorrentState::CheckingResumeData | TorrentState::Seeding
+        )
+    });
+    assert_eq!(st.num_pieces, 0, "the check found none of the torrent's pieces");
+    seed.session.shutdown();
+    let _ = std::fs::remove_dir_all(seed.dir);
+}
+
+/// SEC-20: a restart is no way around the check: seed mode's pieces are not saved as had, so
+/// the restored torrent checks its files (and finds nothing of the torrent in other data).
+#[test]
+fn seed_mode_pieces_are_not_saved_as_verified() {
+    let f = fixture();
+    let dir = temp_dir("seed-mode-restart");
+    for (file, data) in &f.files {
+        let p = dir.join("superseed-test").join(file);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(p, vec![0x5a; data.len()]).unwrap();
+    }
+    let state = temp_dir("seed-mode-state");
+    let session = start_in(Some(state.clone()));
+    let mut w = Watch { h: session.handle(), backlog: VecDeque::new() };
+    let id = add(&mut w, &f, &dir, TorrentFlags::SEED_MODE, 0);
+    status(&mut w, id, "seeding on trust", |s| s.state == TorrentState::Seeding);
+    session.shutdown();
+
+    let session = start_in(Some(state.clone()));
+    let mut w = Watch { h: session.handle(), backlog: VecDeque::new() };
+    let st = wait(&mut w, 30, "the restored torrent, checked", |a| match a {
+        Alert::StateUpdate(v) => v
+            .iter()
+            .find(|s| {
+                !matches!(s.state, TorrentState::CheckingFiles | TorrentState::CheckingResumeData)
+                    && s.state != TorrentState::Seeding
+            })
+            .cloned(),
+        _ => None,
+    });
+    assert_eq!(st.num_pieces, 0, "{:?}", st.state);
+    session.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(state);
 }
 
 /// SEC-10: a peer that sends requests but never reads used to get a REJECT queued for every

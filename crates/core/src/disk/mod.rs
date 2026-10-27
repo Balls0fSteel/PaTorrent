@@ -181,6 +181,11 @@ enum Job {
         length: u32,
         cookie: u64,
     },
+    /// Hash a piece already on disk (a seed-mode piece before its first upload).
+    Verify {
+        storage: Arc<Storage>,
+        piece: u32,
+    },
     Restore {
         storage: Arc<Storage>,
         piece: u32,
@@ -211,6 +216,7 @@ impl Job {
         match self {
             Job::Write { storage, .. }
             | Job::Read { storage, .. }
+            | Job::Verify { storage, .. }
             | Job::Restore { storage, .. }
             | Job::Check { storage, .. }
             | Job::Fence { storage, .. }
@@ -312,6 +318,12 @@ pub(crate) enum Completion {
         piece: u32,
         offset: u32,
         result: Result<Vec<u8>, Error>,
+    },
+    /// Answer to [`DiskIo::async_verify`].
+    Verified {
+        storage: u64,
+        piece: u32,
+        verdict: HashVerdict,
     },
     CheckProgress {
         storage: u64,
@@ -526,6 +538,12 @@ impl DiskIo {
             length,
             cookie,
         });
+    }
+
+    /// Hashes `piece` as it is on disk; answered by [`Completion::Verified`]. Seed mode trusts
+    /// a torrent's pieces until each is checked like this before its first upload (SEC-20).
+    pub fn async_verify(&self, storage: &Arc<Storage>, piece: u32) {
+        let _ = self.thread_for(piece).send(Job::Verify { storage: storage.clone(), piece });
     }
 
     /// Tells the piece's hash state that `blocks` are already on disk (restored from resume
@@ -774,6 +792,20 @@ impl Worker {
             Job::Read { storage, piece, offset, length, cookie } => {
                 let result = read_for_peer(&mut self.cache, &storage, ctx, piece, offset, length);
                 ctx.send(Completion::Read { storage: storage.id, cookie, piece, offset, result });
+            }
+            Job::Verify { storage, piece } => {
+                let mut buf = vec![0u8; storage.info.piece_size(piece) as usize];
+                let verdict = match read_into(&storage, &ctx.pool, piece, 0, &mut buf) {
+                    Ok(_) => {
+                        let mut hasher = PieceHasher::new(&storage.info, piece);
+                        for block in buf.chunks(BLOCK_SIZE as usize) {
+                            hasher.update(block);
+                        }
+                        hasher.verdict(&storage.info, piece, true)
+                    }
+                    Err(_) => HashVerdict::Failed,
+                };
+                ctx.send(Completion::Verified { storage: storage.id, piece, verdict });
             }
             Job::Check { storage, mode } => {
                 if !storage.abort.load(Ordering::Relaxed) {

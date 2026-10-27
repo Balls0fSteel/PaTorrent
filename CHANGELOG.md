@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_160928_1793117368: Security fix SEC-20: seed mode checks each piece before it uploads it
+
+- **Confirmed:** `SEED_MODE` only marked every piece as had; nothing hashed them later, so a torrent added that way (Web UI `skip_checking`, the add dialogs) uploaded whatever the files held.
+- **Fix:** a seed-mode torrent keeps the pieces it has verified. A request for an unverified piece waits while the disk hashes that piece once (new `DiskIo::async_verify`, the check's v1/v2 `PieceHasher`). A pass releases the waiting uploads; a failure ends seed mode with a full recheck (libtorrent `leave_seed_mode`). Once every piece passed, the torrent is an ordinary seed.
+- **Restart:** while seed mode lasts, resume data saves no `pieces`, so the next start checks the files rather than trusting them for good.
+- `Torrent` grew by 8 bytes (the boxed seed-mode state); the D21 size bound in `a_stopped_torrent_stays_compact` moved from 672 to 680.
+- Validation: three end-to-end tests in `tests/super_seed.rs` (real data is uploaded after its check; other data of the right size uploads nothing and ends with 0 pieces; a restart checks instead of seeding). The last two fail with their part of the fix taken out. Core, frontend, nox and Win32 suites pass; workspace clippy and rustfmt clean.
+
 ## 2026-10-27_152737_1793114857: Security fix SEC-10: send buffers and the MSE handshake
 
 - **Rejects:** a REJECT (peer wire, super seeding, ut_metadata) is queued only while the peer's send buffer is below `send_buffer_watermark`; past it the peer is not reading, and each further request used to add 17 bytes for good.

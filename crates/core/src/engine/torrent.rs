@@ -100,6 +100,20 @@ impl Created {
 /// metadata and piece-layer fetches, the PEX and smart-ban state) are boxed and absent until
 /// needed, as libtorrent holds `m_picker` and `m_peer_list` behind pointers made on demand.
 /// The engine keeps each `Torrent` in a box of its own, so its slot table stays small too.
+/// What seed mode has checked so far ([`Torrent::seed_mode`]).
+pub(crate) struct SeedMode {
+    /// Pieces hashed and found good.
+    pub verified: Bitfield,
+    /// Pieces being hashed now; their uploads wait.
+    pub hashing: HashSet<u32>,
+}
+
+impl SeedMode {
+    pub fn new(num_pieces: u32) -> SeedMode {
+        SeedMode { verified: Bitfield::new(num_pieces as usize, false), hashing: HashSet::new() }
+    }
+}
+
 pub(crate) struct Torrent {
     pub id: TorrentId,
     pub info_hashes: InfoHashes,
@@ -147,6 +161,10 @@ pub(crate) struct Torrent {
     pub smart_ban: Option<Box<SmartBan>>,
     /// The name came from the user; metadata does not replace it.
     pub user_named: bool,
+    /// [`TorrentFlags::SEED_MODE`]: every piece was taken as had without a check, so each is
+    /// hashed before its first upload (SEC-20). `None` once all passed or the torrent was
+    /// checked normally.
+    pub seed_mode: Option<Box<SeedMode>>,
     pub picker: Option<Box<PiecePicker>>,
     /// Pieces we have while there is no picker (stopped, or before the check finished). Set it
     /// through `set_have`, which keeps a complete set as `have_all` instead.
@@ -238,6 +256,7 @@ impl Torrent {
             pex: None,
             smart_ban: None,
             user_named: false,
+            seed_mode: None,
             picker: None,
             have: None,
             have_all: false,
@@ -669,7 +688,10 @@ impl Torrent {
             name: self.name.clone(),
             save_path: self.save_path.to_string(),
             // Only verified pieces are written, so a crash never makes us trust unchecked data.
-            pieces: if self.checked || self.picker.is_none() {
+            // In seed mode none are verified as a whole: the next start checks the files.
+            pieces: if self.seed_mode.is_some() {
+                None
+            } else if self.checked || self.picker.is_none() {
                 self.have_bits().map(HaveRef::to_bitfield)
             } else {
                 None
@@ -936,8 +958,9 @@ mod tests {
     #[test]
     fn a_stopped_torrent_stays_compact() {
         let size = std::mem::size_of::<Torrent>();
-        // 672: 664 plus the boxed `.torrent` text (`created`), which a stopped torrent keeps
-        assert!(size <= 672, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
+        // 680: 664 plus the boxed `.torrent` text (`created`), which a stopped torrent keeps, and
+        // the boxed seed-mode state (SEC-20)
+        assert!(size <= 680, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
         let mut t = Torrent::new(
             TorrentId::default(),
             InfoHashes::v1(crate::types::Sha1Hash([1; 20])),

@@ -16,7 +16,7 @@ use std::time::Instant;
 use super::Engine;
 use super::peer::{PeerState, Request};
 use crate::alert::Alert;
-use crate::disk::BLOCK_SIZE;
+use crate::disk::{BLOCK_SIZE, HashVerdict};
 use crate::error::Error;
 use crate::params::TorrentFlags;
 use crate::proto::pe_handshake::PeHandshake;
@@ -740,16 +740,62 @@ impl Engine {
         let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
         let Some(storage) = t.storage.clone() else { return };
         let mut reads = Vec::new();
+        let mut verify = None;
         while p.send_buffer_len() + p.reads_in_flight.len() * BLOCK_SIZE as usize <= watermark
             && p.reads_in_flight.len() < super::MAX_READS_IN_FLIGHT
         {
-            let Some(r) = p.upload_queue.pop_front() else { break };
+            let Some(&r) = p.upload_queue.front() else { break };
+            // seed mode: a piece is hashed before its first upload; the peer's requests wait
+            // until it passed (`on_verified`)
+            if let Some(sm) = t.seed_mode.as_mut().filter(|sm| !sm.verified.get(r.0 as usize)) {
+                if sm.hashing.insert(r.0) {
+                    verify = Some(r.0);
+                }
+                break;
+            }
+            p.upload_queue.pop_front();
             p.reads_in_flight.insert(r);
             reads.push(r);
         }
         let id = p.id;
+        if let Some(piece) = verify {
+            self.disk.async_verify(&storage, piece);
+        }
         for r in reads {
             self.disk.async_read(&storage, r.0, r.1, r.2, id);
+        }
+    }
+
+    /// A seed-mode piece hashed before its first upload (SEC-20): uploads of it go ahead, or a
+    /// piece that is not what the torrent says ends seed mode and every piece is checked
+    /// (libtorrent `torrent::leave_seed_mode` with `check_files`).
+    pub(super) fn on_verified(&mut self, storage: u64, piece: u32, verdict: HashVerdict) {
+        let Some(&id) = self.storages.get(&storage) else { return };
+        let Some(t) = self.torrent(id) else { return };
+        if t.storage.as_ref().is_none_or(|s| s.id != storage) {
+            return;
+        }
+        let Some(sm) = t.seed_mode.as_mut() else { return };
+        sm.hashing.remove(&piece);
+        if verdict != HashVerdict::Passed {
+            self.alert(Alert::Log {
+                id: Some(id),
+                message: format!(
+                    "piece {piece} is not the torrent's data: seed mode ends, checking every piece"
+                ),
+            });
+            self.force_recheck(id);
+            return;
+        }
+        sm.verified.set(piece as usize, true);
+        if sm.verified.all_set() {
+            // every piece checked: an ordinary seed from now on
+            t.seed_mode = None;
+            t.resume_dirty = true;
+        }
+        for slot in t.peers.clone() {
+            self.pump_uploads(slot);
+            self.to_flush.push(slot);
         }
     }
 

@@ -1818,6 +1818,10 @@ impl Engine {
         }
         if flags.contains(TorrentFlags::SEED_MODE) {
             t.set_have(Some(Bitfield::new(t.num_pieces as usize, true)));
+            // trusted for now, each piece hashed before it is first uploaded (SEC-20)
+            if t.num_pieces > 0 {
+                t.seed_mode = Some(Box::new(torrent::SeedMode::new(t.num_pieces)));
+            }
         }
         let name = t.name.clone();
         let key = t.key();
@@ -2482,6 +2486,7 @@ impl Engine {
 
     fn force_recheck(&mut self, id: TorrentId) {
         let Some(t) = self.torrent(id) else { return };
+        t.seed_mode = None;
         t.set_have(None);
         t.unfinished.clear();
         t.checked = false;
@@ -2534,6 +2539,10 @@ impl Engine {
                 let t = self.torrent(id).expect("exists");
                 t.checked = true;
                 t.checked_pieces = t.num_pieces;
+                if res.resume_failed {
+                    // the files were hashed after all: nothing is taken on trust
+                    t.seed_mode = None;
+                }
                 // libtorrent `files_checked`: super seeding is turned off for a non-seed.
                 if t.flags.contains(TorrentFlags::SUPER_SEEDING) && !t.is_seed() {
                     t.flags.remove(TorrentFlags::SUPER_SEEDING);
@@ -2882,6 +2891,7 @@ impl Engine {
             Completion::Read { storage, cookie, piece, offset, result } => {
                 self.on_read(storage, cookie, piece, offset, result)
             }
+            Completion::Verified { storage, piece, verdict } => self.on_verified(storage, piece, verdict),
             Completion::CheckProgress { storage, checked } => {
                 if let Some(&id) = self.storages.get(&storage) {
                     if let Some(t) = self.torrent(id) {

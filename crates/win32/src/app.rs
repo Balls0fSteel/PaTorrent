@@ -4555,6 +4555,23 @@ mod tests {
         assert_eq!(open_folder_target("relative", "x"), None);
     }
 
+    /// Open Folder as the menu runs it, for a hand check (opens Explorer windows; run with
+    /// `--ignored`): an existing item is selected in its folder, a missing one opens the save
+    /// folder, and a UNC name opens nothing (SEC-18).
+    #[test]
+    #[ignore]
+    fn open_folder_shows_the_item_in_explorer() {
+        let save = std::env::temp_dir().join(format!("patorrent-open-folder-{}", std::process::id()));
+        std::fs::create_dir_all(save.join("Some Show")).unwrap();
+        let save_s = save.to_string_lossy().into_owned();
+        for name in ["Some Show", "Not Yet There"] {
+            let (s, t) = open_folder_target(&save_s, name).unwrap();
+            unsafe { show_in_explorer(&t, &s) };
+        }
+        assert_eq!(open_folder_target(&save_s, r"\\attacker.invalid\share\x"), None);
+        println!("opened {}", save.display());
+    }
+
     /// A forwarded payload is read only when it is ours and has data (SEC-25).
     #[test]
     fn copydata_args_checks_its_data() {

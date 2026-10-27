@@ -14,6 +14,7 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **Linux import fix:** two SEC-16 import tests had failed on Linux since that fix: µTorrent's Windows paths were not split at `\`, so the save folder was lost. `split_windows_path` splits them on every platform.
 - **Owner decision:** the remainders named in SEC-05, 07, 09, 12 and 17 are accepted as design choices. The audit stays local (`SECURITY-AUDIT.md`, untracked); the 38 unpushed commits were rewritten so the tracked SECURITY.md is the policy only, then pushed.
 - **CI on the push (run 40581362457):** CI (macOS, Ubuntu, Windows, MSRV, fmt) and Fuzz green; the import fix also cleared the earlier macOS/Ubuntu failure. FreeBSD failed `the_control_url_stays_on_the_device`: it has no 127.0.0.2, so an accepted device was disabled by its failed connection. The test now checks that the external IP was asked for.
+- **Hand checks:** macOS (temporary branch, run 40587141481) refuses `revoked-rsa-dv.ssl.com` online and from the cache; `revoked.badssl.com` gets no status there (soft-fail). The owner's Open Folder check on a portable build reached no share but showed the save folder's parent for a torrent without files yet; that fallback now opens the save folder itself.
 
 ## 2026-10-27_205407_1793130847: Security fix SEC-07: TLS sessions stay failed, clients need TLS 1.2, feeds need close_notify
 

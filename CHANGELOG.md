@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_131050_1793106650: SECURITY.md with flagged audit targets
+
+- **New:** `SECURITY.md`: reporting policy, threat model, and 18 audit targets (SEC-01 to SEC-18) with locations, what was seen, what to check, and an empty Finding for the reviewer. Nothing is verified yet.
+- **Noted while flagging:** `crypto_random_bytes` silently falls back to xorshift if the OS RNG fails (SEC-01). Peer IDs, UDP tracker transaction IDs and uTP initial sequence numbers use the non-cryptographic generator (SEC-02). `csrf_ok` accepts requests with neither `Origin` nor `Referer` (SEC-03). `fetch` sends cookies to every redirect host (SEC-06).
+- Committed locally, not pushed: the list should stay private until the items are fixed.
+
 ## 2026-10-27_124501_1793105101: Benchmarks against qBittorrent, Transmission, Deluge and rTorrent
 
 - **New:** `tools/bench/bench.py` (Python, standard library; `deluge-client` for Deluge) measures daemons on one Linux machine: `many` (N generated torrents: add time, restart until all listed, RSS/PSS, idle CPU) and `transfer` (2 GiB from a reference qBittorrent seed over TCP via an in-harness tracker; speed and CPU per GiB between 10% and 80% from the kernel's `ss` byte counters; file SHA-1 checked). `summarize.py` writes medians as Markdown, HTML tables and bar charts, and fills `site/benchmarks.html` between `<!-- bench:NAME -->` markers. Method and limits: `docs/BENCHMARKS.md`; raw results: `docs/benchmarks/2026-10-27-ubuntu-vm.jsonl`.

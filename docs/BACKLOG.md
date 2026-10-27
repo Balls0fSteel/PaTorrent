@@ -58,10 +58,6 @@ Reported by the owner on a Win32 build; not yet investigated or fixed.
   needs double-buffered painting / no background erase.
 - **Scheduler colours:** the grid's colour scheme differs from µTorrent 2.2.1;
   compare against `z_exclude_uTorrent/screenshots` (Scheduler page).
-- **No Add dialog:** adding a .torrent adds it straight away with no Add New
-  Torrent dialog (no file selection, save path). Check whether "Don't show this
-  again" / the Preferences show-dialog setting got set, and the add paths
-  (open, drag-drop, association, auto-load) that skip the dialog.
 - **Unclear state icon:** a black floppy with an orange mark shown for torrents
   in "Checking 0.0 %" is unreadable at 16 px; probably `checking-resume-data` or
   `queued-resume-checking`. Make the checking states recognisable (or closer to
@@ -81,6 +77,15 @@ Reported by the owner on a Win32 build; not yet investigated or fixed.
   and a test tying it to the version; decide how patch numbers above 9 map to
   it (e.g. peer ID tracks major.minor only, or base-36 digits as Azureus style
   allows) before automating the bump.
+  Test builds should also carry a distinct version string (e.g. a
+  `-test.<n>` or commit suffix) shown in the title bar and About: a
+  "missing Add dialog" report came from testing an older test build that
+  looked identical to the current one.
+- **Hotkey support:** add keyboard shortcuts across the app, matching 2.2.1
+  where it had them (Ctrl+O add, Ctrl+U add from URL, Ctrl+N create, Ctrl+P
+  preferences, Del / Shift+Del remove, Ctrl+A, Enter for Properties, start /
+  stop / pause keys, F2 rename where applicable); inventory what exists today
+  (Ctrl+P and the search box's focus keys do) and show them in the menus.
 
 ## Win32 layout and dialogs
 

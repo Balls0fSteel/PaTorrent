@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-27_224006_1793137206: Interop harness waits for qBittorrent's log
+
+- `tools/swarm` (`lt-interop`): when the client takes no TCP, it waits for qBittorrent's log to report the torrent added (or finished, for a seed) plus 2 s, instead of a fixed 3 s; a uTP connect sent too early went unanswered for the whole connect timeout and hung the run. `LT_INTEROP_TRACE` also lists closed connections. Built and clippy-clean; not yet run against qBittorrent here.
+
 ## 2026-10-27_212434_1793132674: Security fixes: every SECURITY.md finding fixed or accepted
 
 - **Fixed:** SEC-08 (Windows device names and bidi isolates in file names), SEC-09 (v2 Merkle trees capped at 2 GiB per torrent), SEC-11 (DHT replies matched by port; no loopback/LAN/port-0 endpoints from internet nodes), SEC-15 (HTTP proxies get host names by default, no local DHT name lookups, strict CONNECT status line), SEC-17 (owner-only settings files and folders on Unix, `UMask=0077`, `O_NOFOLLOW` pid file), SEC-18 (sanitized magnet names, Open Folder through the shell API, `--shell "%1"` associations).

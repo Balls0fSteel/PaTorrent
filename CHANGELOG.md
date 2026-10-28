@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_235148_1793227908: Windows CI hang fixed; README and site name the GUI's Web UI
+
+- **Cause:** CI run 40732835265 on `afe557c3` sat in `test (windows-latest)` for hours (until the 6 h job limit): `preferences::tests::the_web_ui_page_runs_the_server` clicks Apply with a port that fails, and `apply_webui` then opens a modal error box nobody can close. Reproduced here; it hangs alone too.
+- **Fix:** `dialogs::message` (every error, warning and question box) records its text and answers OK under `cfg(test)` instead of opening a box (`dialogs::take_told`); the test checks the failure was told. Release builds are unchanged (`cfg!(test)` is false), so no version bump: 1.1.2 stays the release. Validation: the workspace's 1,336 tests pass here (Win32 70, 2 ignored, in 5 s), workspace clippy and fmt clean.
+- **Docs:** README's status says 1.1 and names the GUI's Web UI, the search box and the importers; the site's home page and FAQ ("How do the Web UI and remote mode work?") describe Preferences > Web UI in the Windows GUI. Site build `--strict` and its 24 tests pass.
+
 ## 2026-10-28_180808_1793207288: Release 1.1.2 prepared
 
 - **What is in it since 1.1.0:** the Windows GUI's own Web UI (hosted mode, D40, 1.1.2) and nox's `service install` improvements (hashed login, `--replace`, `--now`; 1.1.1, kept from D39). Release text: [docs/releases/1.1.2.md](docs/releases/1.1.2.md). The workspace version is already 1.1.2 (D37); the peer ID stays `-PA1011-`, nothing changed on the wire. The Flatpak metainfo's first `<release>` is 1.1.2; the README names it. `cargo-sources.json` needs no regeneration: `Cargo.lock` only changed in workspace crate versions and `patorrent`'s path dependency on `patorrent-nox`.

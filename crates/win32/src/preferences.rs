@@ -1929,8 +1929,11 @@ mod tests {
 
         // a server that cannot start: the page says why, and Apply tries again
         f.set(ID_WEBUI_PORT, "1");
+        dialogs::take_told();
         f.click(ID_APPLY);
-        assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiFailed, error = "port 1 is in use"));
+        let failed = tr!(WebUiFailed, error = "port 1 is in use");
+        assert_eq!(dialogs::take_told(), std::slice::from_ref(&failed));
+        assert_eq!(f.text(ID_WEBUI_STATUS), failed);
         assert!(!enabled(ID_WEBUI_OPEN));
         assert!(unsafe { webui_edit(f.dlg, &f.st) }.unwrap().is_some(), "tried again");
 

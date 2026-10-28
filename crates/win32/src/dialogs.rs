@@ -99,8 +99,32 @@ pub fn ask(owner: HWND, text: &str) -> bool {
 }
 
 fn message(owner: HWND, text: &str, flags: u32) -> i32 {
+    // a test has nobody to close a modal box: it is recorded and answered OK (never Yes)
+    if cfg!(test) {
+        told(text);
+        return IDOK;
+    }
     let (t, c) = (wide(text), wide("PaTorrent"));
     unsafe { MessageBoxW(owner, t.as_ptr(), c.as_ptr(), flags | rtl(MB_RTLREADING | MB_RIGHT)) }
+}
+
+#[cfg(test)]
+thread_local! {
+    static TOLD: std::cell::RefCell<Vec<String>> = const { std::cell::RefCell::new(Vec::new()) };
+}
+
+#[cfg(test)]
+fn told(text: &str) {
+    TOLD.with(|t| t.borrow_mut().push(text.to_owned()));
+}
+
+#[cfg(not(test))]
+fn told(_: &str) {}
+
+/// What this test thread's message boxes said since the last call.
+#[cfg(test)]
+pub fn take_told() -> Vec<String> {
+    TOLD.with(|t| t.take())
 }
 
 /// The clipboard's text, if any.

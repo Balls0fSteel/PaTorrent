@@ -1,5 +1,25 @@
 # PaTorrent
 
+## Short hand-written note by author
+
+Thank you for your interest in the project! You can see our project goals below and you can find benchmarks on the Github pages website. Please, help the project out by testing, making issue reports on our tracker, and getting it whitelisted on trackers.
+
+## Will the client get me banned on a private tracker?
+
+Before the very first public release the client has been thoroughly tested. It passes all interop tests (transfer to/from other clients) and regular tests. I've been using it since the first binary and had no issues whatsoever. But, for safety, we do use our own peerID.
+
+## Is it safe to use?
+
+Security is utmost importance for us. It has been designed with security in mind, but we also run proactive scans on the codebase as well. Still, if you have attack Claude access for example, feel free to comb through our code (please) and contact me on the security email address. I will be sure to fix any issues ASAP.
+
+## Was it written by LLMs?
+
+They heavily helped out, yes. Several LLM models were used to ensure speed and security. Porting an entire libtorrent engine and several other functionality is no simple task.
+
+## Donation
+
+Please donate - if you can. Your support means the world to us, but only give if you are comfortably able to do so. Your own financial well-being always comes first. Tokens are expensive. I have other projects too (published and work in progress), your support will be put to good use I assure you.
+
 > [!NOTE]
 > **PaTorrent 1.0.1 is the first stable release.** It has been used mostly by its author so far, and nothing is code-signed. Do not use it on private trackers yet: its client ID is not whitelisted anywhere.
 >

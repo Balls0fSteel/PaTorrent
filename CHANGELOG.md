@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_091820_1793175500: Win32 menu icons (1.0.5)
+
+- **Change:** the main menu, the torrent, tray, files, feed, feed-item and column menus, and the Add and RSS dialogs' menus show the bold symbols beside their commands (`UiIcon` gains 33 menu symbols; `bgra` and `PRIORITY_ICONS` in `patorrent_frontend::icons`). Win32 maps command IDs to icons in one table and applies them when a menu opens, as 32 bpp premultiplied bitmaps cached per size; greyed items get the grey copy. Check-marked items keep only their mark.
+- **Validation:** frontend (194 + 4) and Win32 (67) tests, clippy and fmt pass; the GTK crate type-checks. A portable `--demo 40` run, menus opened by window messages, shows File, Options and the torrent menu with upright, cleanly blended icons beside the check marks at 100 %.
+
 ## 2026-10-28_091009_1793175009: Win32 navigation icons (1.0.4)
 
 - **Change:** the category list, the detail tabs and the Preferences page tree draw the bold artwork's symbols: `UiIcon` (24, at 16/20/24/32 px in both palettes) with `category_icon`, `tab_icon` and `page_icon` in `patorrent_frontend::icons`, so GTK can use the same table. The state-icon macro now serves both enums. The main window rebuilds its list with the other images on a DPI change; Preferences makes its own at the dialog's DPI.

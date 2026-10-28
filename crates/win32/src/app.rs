@@ -23,7 +23,9 @@ use patorrent_core::{
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{self, PRIORITIES};
-use patorrent_frontend::icons::{UiIcon, category_icon, network_icon, tab_icon, toolbar_size, tracker_icon};
+use patorrent_frontend::icons::{
+    PRIORITY_ICONS, UiIcon, category_icon, network_icon, tab_icon, toolbar_size, tracker_icon,
+};
 use patorrent_frontend::import;
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::model::{Filter, TorrentList};
@@ -647,7 +649,7 @@ unsafe fn main_menu() -> HMENU {
                 separator(auto);
             }
         }
-        submenu(options, auto, tr!(MenuAutoShutdown));
+        submenu_icon(options, auto, tr!(MenuAutoShutdown), UiIcon::Power);
         separator(options);
         append(options, cmd::CLOSE_TO_TRAY, tr!(MenuCloseToTray));
         append(options, cmd::MIN_TO_TRAY, tr!(MenuMinimizeToTray));
@@ -709,6 +711,14 @@ unsafe fn separator(menu: HMENU) {
 unsafe fn submenu(menu: HMENU, sub: HMENU, text: &str) {
     let t = wide(text);
     unsafe { AppendMenuW(menu, MF_POPUP, sub as usize, t.as_ptr()) };
+}
+
+/// [`submenu`] with an icon beside its text.
+unsafe fn submenu_icon(menu: HMENU, sub: HMENU, text: &str, icon: UiIcon) {
+    unsafe {
+        submenu(menu, sub, text);
+        icons::tag_submenu(menu, icon);
+    }
 }
 
 fn checked(on: bool) -> u32 {
@@ -1086,6 +1096,7 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
         // the lists share the state icons (LVS_SHAREIMAGELISTS): the old ones go once replaced
         send(trackers, LVM_SETIMAGELIST, LVSIL_SMALL as usize, states.0);
         let (tree, tabs) = with_app(|a| (a.tree, a.tabs)).unwrap_or_default();
+        icons::menu_icons(GetMenu(hwnd), dpi, &command_icon);
         send(tree, TVM_SETIMAGELIST, TVSIL_NORMAL as usize, nav_images);
         send(tabs, TCM_SETIMAGELIST, 0, nav_images);
         rebuild_columns();
@@ -2526,8 +2537,47 @@ unsafe fn toggle_window(hwnd: HWND) {
     }
 }
 
+/// A menu command's icon. Check-marked commands (the Show and tray options, Initial Seeding,
+/// labels, limits, columns, Auto Shutdown modes) have none, nor do those without artwork yet.
+fn command_icon(id: u16) -> Option<UiIcon> {
+    Some(match id {
+        cmd::ADD => UiIcon::AddTorrent,
+        cmd::ADD_URL => UiIcon::AddUrl,
+        cmd::CREATE => UiIcon::CreateTorrent,
+        cmd::CONNECT_REMOTE => UiIcon::Remote,
+        cmd::PREFS => UiIcon::Preferences,
+        cmd::RSS => UiIcon::Feeds,
+        cmd::ABOUT => UiIcon::About,
+        cmd::OPEN_FOLDER => UiIcon::OpenFolder,
+        cmd::FORCE_START => UiIcon::ForceStart,
+        cmd::START | cmd::START_ALL => UiIcon::Start,
+        cmd::PAUSE => UiIcon::Pause,
+        cmd::STOP | cmd::STOP_ALL => UiIcon::Stop,
+        cmd::UP => UiIcon::QueueUp,
+        cmd::DOWN => UiIcon::QueueDown,
+        cmd::QUEUE_TOP => UiIcon::QueueTop,
+        cmd::QUEUE_BOTTOM => UiIcon::QueueBottom,
+        cmd::REMOVE | cmd::FEED_REMOVE => UiIcon::Remove,
+        cmd::REMOVE_DATA => UiIcon::DeleteData,
+        cmd::RECHECK => UiIcon::Recheck,
+        cmd::REANNOUNCE => UiIcon::Reannounce,
+        cmd::SET_LOCATION => UiIcon::SetLocation,
+        cmd::LABEL_NEW => UiIcon::NewLabel,
+        cmd::LABEL_NONE => UiIcon::RemoveLabel,
+        cmd::PROPERTIES => UiIcon::Properties,
+        cmd::FEED_ADD => UiIcon::AddFeed,
+        cmd::FEED_UPDATE => UiIcon::Refresh,
+        cmd::ITEM_DOWNLOAD => UiIcon::Download,
+        _ => {
+            let prio = id.checked_sub(cmd::FILE_PRIO_BASE)? as usize;
+            return PRIORITY_ICONS.get(prio).copied();
+        }
+    })
+}
+
 unsafe fn popup(hwnd: HWND, menu: HMENU, x: i32, y: i32) -> u16 {
     unsafe {
+        icons::menu_icons(menu, GetDpiForWindow(hwnd), &command_icon);
         let id =
             TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | rtl(TPM_LAYOUTRTL), x, y, 0, hwnd, null());
         DestroyMenu(menu);
@@ -2679,7 +2729,7 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
         let adv = CreatePopupMenu();
         append_flags(adv, grayed(moving), cmd::SET_LOCATION, tr!(MenuSetLocation));
         append_flags(adv, checked(super_seeding) | grayed(!seeds), cmd::SUPER_SEED, tr!(MenuInitialSeeding));
-        submenu(menu, adv, tr!(MenuAdvanced));
+        submenu_icon(menu, adv, tr!(MenuAdvanced), UiIcon::Advanced);
         let bw = CreatePopupMenu();
         let dl_menu = CreatePopupMenu();
         let ul_menu = CreatePopupMenu();
@@ -2688,9 +2738,9 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
             append_flags(dl_menu, checked(dl == kb * 1024), cmd::DL_LIMIT_BASE + i as u16, &text);
             append_flags(ul_menu, checked(ul == kb * 1024), cmd::UL_LIMIT_BASE + i as u16, &text);
         }
-        submenu(bw, dl_menu, tr!(MenuSetDownLimit));
-        submenu(bw, ul_menu, tr!(MenuSetUpLimit));
-        submenu(menu, bw, tr!(MenuBandwidth));
+        submenu_icon(bw, dl_menu, tr!(MenuSetDownLimit), UiIcon::DownloadLimit);
+        submenu_icon(bw, ul_menu, tr!(MenuSetUpLimit), UiIcon::UploadLimit);
+        submenu_icon(menu, bw, tr!(MenuBandwidth), UiIcon::Bandwidth);
         let lm = CreatePopupMenu();
         append(lm, cmd::LABEL_NEW, tr!(MenuNewLabel));
         append_flags(lm, grayed(current_label.as_deref() == Some("")), cmd::LABEL_NONE, tr!(MenuRemoveLabel));
@@ -2705,7 +2755,7 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
                 l,
             );
         }
-        submenu(menu, lm, tr!(MenuLabel));
+        submenu_icon(menu, lm, tr!(MenuLabel), UiIcon::Labels);
         separator(menu);
         append(menu, cmd::PROPERTIES, &shortcut(tr!(MenuProperties), Hotkey::Enter));
         let id = popup(hwnd, menu, p.x, p.y);

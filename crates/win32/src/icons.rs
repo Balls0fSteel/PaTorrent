@@ -4,6 +4,8 @@
 //! PNGs the frontend embeds (Windows decodes PNG icon images itself), as are the navigation
 //! symbols of the category list, the detail tabs and the Preferences pages.
 
+use std::cell::RefCell;
+use std::collections::HashMap;
 use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
 use std::ptr::{null, null_mut};
@@ -16,8 +18,9 @@ use windows_sys::Win32::UI::Controls::{
     HIMAGELIST, ILC_COLOR32, ILC_MIRROR, ImageList_Add, ImageList_Create, ImageList_ReplaceIcon,
 };
 use windows_sys::Win32::UI::WindowsAndMessaging::{
-    CreateIconFromResourceEx, DestroyIcon, HICON, IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR, LoadIconW,
-    LoadImageW,
+    CreateIconFromResourceEx, DestroyIcon, GetMenuItemCount, GetMenuItemInfoW, HICON, HMENU, IDI_APPLICATION,
+    IMAGE_ICON, LR_DEFAULTCOLOR, LoadIconW, LoadImageW, MENUITEMINFOW, MFS_DISABLED, MFT_SEPARATOR,
+    MIIM_BITMAP, MIIM_DATA, MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_SUBMENU, SetMenuItemInfoW,
 };
 
 pub use patorrent_frontend::icons::Icon;
@@ -117,6 +120,62 @@ pub fn state_images(size: usize) -> (HIMAGELIST, usize) {
             DestroyIcon(h);
         }
         (list, px as usize)
+    }
+}
+
+thread_local! {
+    /// Menu bitmaps by symbol, pixel size and disabled look. A menu only borrows its items'
+    /// bitmaps, so these stay for the life of the GUI thread: a few dozen per DPI in use.
+    static MENU_BITMAPS: RefCell<HashMap<(UiIcon, u32, bool), HBITMAP>> = RefCell::default();
+}
+
+fn menu_bitmap(icon: UiIcon, px: u32, gray: bool) -> HBITMAP {
+    MENU_BITMAPS.with(|m| {
+        *m.borrow_mut()
+            .entry((icon, px, gray))
+            .or_insert_with(|| unsafe { dib(px as usize, &icons::bgra(icon.png(px), px as usize, gray)) })
+    })
+}
+
+/// Gives the last item of `menu` (a submenu's) `icon`, which [`menu_icons`] then draws.
+pub unsafe fn tag_submenu(menu: HMENU, icon: UiIcon) {
+    unsafe {
+        let mut mii: MENUITEMINFOW = zeroed();
+        mii.cbSize = size_of::<MENUITEMINFOW>() as u32;
+        mii.fMask = MIIM_DATA;
+        mii.dwItemData = icon as usize + 1;
+        SetMenuItemInfoW(menu, (GetMenuItemCount(menu) - 1) as u32, 1, &mii);
+    }
+}
+
+/// Puts icons on `menu`'s items and its submenus', 16 px scaled to `dpi`: a command's from
+/// `icon_of`, a submenu's from [`tag_submenu`]. A greyed item gets the grey copy, as the
+/// themed menu draws the bitmap as it is. Check-marked items are left to `icon_of` to skip:
+/// the mark and the icon share a place.
+pub unsafe fn menu_icons(menu: HMENU, dpi: u32, icon_of: &dyn Fn(u16) -> Option<UiIcon>) {
+    let px = icons::state_size(crate::util::scale(16, dpi) as u32);
+    unsafe {
+        for i in 0..GetMenuItemCount(menu).max(0) as u32 {
+            let mut mii: MENUITEMINFOW = zeroed();
+            mii.cbSize = size_of::<MENUITEMINFOW>() as u32;
+            mii.fMask = MIIM_FTYPE | MIIM_ID | MIIM_SUBMENU | MIIM_DATA | MIIM_STATE;
+            if GetMenuItemInfoW(menu, i, 1, &mut mii) == 0 || mii.fType & MFT_SEPARATOR != 0 {
+                continue;
+            }
+            let icon = if mii.hSubMenu.is_null() {
+                icon_of(mii.wID as u16)
+            } else {
+                menu_icons(mii.hSubMenu, dpi, icon_of);
+                mii.dwItemData.checked_sub(1).and_then(|i| UiIcon::ALL.get(i).copied())
+            };
+            if let Some(icon) = icon {
+                let mut set: MENUITEMINFOW = zeroed();
+                set.cbSize = size_of::<MENUITEMINFOW>() as u32;
+                set.fMask = MIIM_BITMAP;
+                set.hbmpItem = menu_bitmap(icon, px, mii.fState & MFS_DISABLED != 0);
+                SetMenuItemInfoW(menu, i, 1, &set);
+            }
+        }
     }
 }
 

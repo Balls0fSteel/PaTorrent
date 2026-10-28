@@ -82,9 +82,17 @@ Preferences page list or menus (Win32 sets no tree, tab or menu image list), so 
 
 **Win32 done (1.0.4, 2026-10-28_091009_1793175009):** the category list, the detail tabs and
 the Preferences tree draw `UiIcon` (24 symbols, `patorrent_frontend::icons`). Label entries and
-No Label share [labels]; each feed shares [rss]. Still open: Win32 menus, the whole GTK side,
-a No Label symbol of its own, and a look at 125–200 % DPI (the Preferences list is made once
-at the dialog's DPI and is not rebuilt if it moves to another monitor).
+No Label share [labels]; each feed shares [rss]. Still open: the whole GTK side, a No Label
+symbol of its own, and a look at 125–200 % DPI (the Preferences list is made once at the
+dialog's DPI and is not rebuilt if it moves to another monitor).
+
+**Win32 menus done (1.0.5, 2026-10-28_091820_1793175500):** `command_icon` in `app.rs` maps
+command IDs to `UiIcon`; `icons::menu_icons` puts 32 bpp bitmaps on the main menu (again on a
+DPI change), every `popup()` menu, the Add dialog's file menu and the RSS dialog's feed menu.
+Greyed items get a grey copy. Submenus carry theirs in the item data (`tag_submenu`): Auto
+Shutdown, Advanced, Bandwidth and its two limits, Label. Left without: check-marked items, Exit
+and Remove And (no fitting symbol), and the nine not drawn yet. Not checked: RTL (mirrored
+menus may mirror the bitmaps), and the tray menu on screen (same `popup()` path).
 
 **Drawn, not wired** (artwork ID in brackets):
 - Category list: Torrents [all-torrents], Downloading [downloading], Completed [completed],

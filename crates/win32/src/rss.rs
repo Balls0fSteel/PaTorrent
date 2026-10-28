@@ -12,6 +12,7 @@
 use std::mem::zeroed;
 use std::ptr::{null, null_mut};
 
+use patorrent_frontend::icons::UiIcon;
 pub use patorrent_frontend::rss::view::FeedForm;
 use patorrent_frontend::rss::view::{self, quality_text};
 use patorrent_frontend::rss::{FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter};
@@ -989,6 +990,14 @@ unsafe fn feed_menu(dlg: HWND, st: &mut State<'_>, lp: LPARAM) {
         if lp == -1 {
             GetCursorPos(&mut p);
         }
+        let feed_icon = |id: u16| match id {
+            ID_FEED_ADD => Some(UiIcon::AddFeed),
+            ID_FEED_UPDATE => Some(UiIcon::Refresh),
+            ID_FEED_REMOVE => Some(UiIcon::Remove),
+            _ => None,
+        };
+        let dpi = windows_sys::Win32::UI::HiDpi::GetDpiForWindow(dlg);
+        crate::icons::menu_icons(menu, dpi, &feed_icon);
         let choice = TrackPopupMenu(
             menu,
             TPM_RETURNCMD | TPM_RIGHTBUTTON | rtl(TPM_LAYOUTRTL),

@@ -17,6 +17,7 @@ use std::ptr::{null, null_mut};
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_frontend::add::{self, AddChoice, Check, FileTree, Setup};
 use patorrent_frontend::detail::{PRIORITIES, priority_text};
+use patorrent_frontend::icons::PRIORITY_ICONS;
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::{fmt, lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
@@ -859,6 +860,9 @@ unsafe fn context_menu(dlg: HWND, st: &mut State, lp: LPARAM) {
         AppendMenuW(menu, MF_SEPARATOR, 0, null());
         AppendMenuW(menu, MF_STRING, MENU_CHECK, wide(tr!(MenuCheck)).as_ptr());
         AppendMenuW(menu, MF_STRING, MENU_UNCHECK, wide(tr!(MenuUncheck)).as_ptr());
+        let prio_icon =
+            |id: u16| (id as usize).checked_sub(MENU_PRIO).and_then(|i| PRIORITY_ICONS.get(i).copied());
+        crate::icons::menu_icons(menu, GetDpiForWindow(dlg), &prio_icon);
         let cmd = TrackPopupMenu(
             menu,
             TPM_RETURNCMD | TPM_RIGHTBUTTON | rtl(TPM_LAYOUTRTL),

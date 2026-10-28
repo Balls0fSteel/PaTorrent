@@ -135,9 +135,9 @@ small_icons! {
 }
 
 small_icons! {
-    /// A symbol beside a navigation entry's text: the category list, the detail tabs and the
-    /// Preferences pages ([`category_icon`], [`tab_icon`], [`page_icon`]). [`UiIcon::ALL`] is
-    /// in declaration order, so `icon as usize` is an index into it (the Win32 image lists').
+    /// A symbol beside a text: the category list, the detail tabs and the Preferences pages
+    /// ([`category_icon`], [`tab_icon`], [`page_icon`]), and menu items. [`UiIcon::ALL`] is in
+    /// declaration order, so `icon as usize` is an index into it (the Win32 image lists').
     UiIcon {
     // the category list
     AllTorrents => "all-torrents",
@@ -166,8 +166,46 @@ small_icons! {
     WebUi => "web-ui",
     Advanced => "advanced",
     DiskCache => "disk",
+    // menu items (with Labels, Feeds, Bandwidth and Advanced above)
+    AddTorrent => "add-torrent",
+    AddUrl => "add-url",
+    CreateTorrent => "create-torrent",
+    Remote => "remote",
+    Preferences => "preferences",
+    About => "about",
+    Power => "power",
+    OpenFolder => "open-folder",
+    ForceStart => "force-start",
+    Start => "start",
+    Pause => "pause",
+    Stop => "stop",
+    QueueUp => "queue-up",
+    QueueDown => "queue-down",
+    QueueTop => "queue-top",
+    QueueBottom => "queue-bottom",
+    Remove => "remove",
+    DeleteData => "delete-data",
+    Recheck => "recheck",
+    Reannounce => "reannounce",
+    SetLocation => "set-location",
+    DownloadLimit => "download-limit",
+    UploadLimit => "upload-limit",
+    NewLabel => "new-label",
+    RemoveLabel => "remove-label",
+    Properties => "properties",
+    AddFeed => "add-feed",
+    Refresh => "refresh",
+    Download => "download",
+    PriorityHigh => "priority-high",
+    PriorityNormal => "priority-normal",
+    PriorityLow => "priority-low",
+    Skip => "skip",
     }
 }
+
+/// The file priority menu items' icons, in [`crate::detail::PRIORITIES`] order.
+pub const PRIORITY_ICONS: [UiIcon; 4] =
+    [UiIcon::PriorityHigh, UiIcon::PriorityNormal, UiIcon::PriorityLow, UiIcon::Skip];
 
 /// A category list entry's icon ([`Category::All`] is the Torrents entry).
 pub fn category_icon(category: Category) -> UiIcon {
@@ -337,8 +375,14 @@ toolbar_icons! {
 /// disabled look. The light-palette image at [`toolbar_size`]`(size)`, centred when that is
 /// smaller than `size`.
 pub fn toolbar_bgra(icon: Icon, size: usize, gray: bool) -> Vec<u8> {
+    bgra(icon.png(size as u32, false), size, gray)
+}
+
+/// `png` as a `size` pixels square image: BGRA bytes, premultiplied, top-down, centred when
+/// smaller; `gray` for the disabled look (grey at half opacity).
+pub fn bgra(png: &[u8], size: usize, gray: bool) -> Vec<u8> {
     let mut out = vec![0u8; size * size * 4];
-    let Some((w, h, rgba)) = decode_png(icon.png(size as u32, false)) else { return out };
+    let Some((w, h, rgba)) = decode_png(png) else { return out };
     let (w, h) = (w as usize, h as usize);
     let (x0, y0) = (size.saturating_sub(w) / 2, size.saturating_sub(h) / 2);
     for y in 0..h.min(size) {
@@ -495,6 +539,10 @@ mod tests {
             assert!(page_icon(page.title).is_some(), "{:?}", page.key);
         }
         assert_eq!(page_icon(S::TabGeneral), None);
+        // the priority icons follow the menu's order: high first, Don't Download last
+        let prios = crate::detail::PRIORITIES.map(|(text, _)| text);
+        assert_eq!(prios, [S::PrioHighItem, S::PrioNormalItem, S::PrioLowItem, S::PrioDontDownload]);
+        assert_eq!(PRIORITY_ICONS[3], UiIcon::Skip);
     }
 
     /// Width, height, bit depth, colour type and interlace method from a PNG's IHDR.

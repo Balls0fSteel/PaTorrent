@@ -3,7 +3,7 @@ members = ["crates/core", "crates/frontend", "crates/win32", "crates/nox", "crat
 resolver = "3"
 
 [workspace.package]
-version = "1.0.4"
+version = "1.0.5"
 edition = "2024"
 rust-version = "1.85"
 repository = "https://github.com/Balls0fSteel/PaTorrent"

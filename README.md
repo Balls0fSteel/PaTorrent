@@ -21,7 +21,7 @@ They heavily helped out, yes. Several LLM models were used to ensure speed and s
 Please donate - if you can. Your support means the world to us, but only give if you are comfortably able to do so. Your own financial well-being always comes first. Tokens are expensive. I have other projects too (published and work in progress), your support will be put to good use I assure you.
 
 > [!NOTE]
-> **PaTorrent 1.0.1 is the first stable release.** It has been used mostly by its author so far, and nothing is code-signed. Do not use it on private trackers yet: its client ID is not whitelisted anywhere.
+> **PaTorrent 1.1.0 is the latest stable release.** It has been used mostly by its author so far, and nothing is code-signed. Do not use it on private trackers yet: its client ID is not whitelisted anywhere.
 >
 > Feedback and [bug reports](https://github.com/Balls0fSteel/PaTorrent/issues) are welcome.
 
@@ -41,7 +41,7 @@ Website: <https://balls0fsteel.github.io/PaTorrent/>: downloads with how to star
 
 ## Download
 
-Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.0.1](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.1). The archives need no installation: unpack and run; Windows also has an installer (from 1.0.1 on). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
+Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.1.0](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.0). The archives need no installation: unpack and run; Windows also has an installer (from 1.0.1 on). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
 
 | Platform | File | What is inside |
 |---|---|---|

@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_113636_1793183796: Release 1.1.0 prepared
+
+- **What is in it since 1.0.1:** V1.1's search box and importers (D35, D36), every security fix from the review (SEC-01 to SEC-26; remote protocol 9), the Win32 hand-test fixes and per-build version strings (1.0.2–1.0.3, D37), and the navigation and menu icons with artwork revision 8 (1.0.4–1.0.8). Release text: [docs/releases/1.1.0.md](docs/releases/1.1.0.md).
+- **Version 1.1.0** (owner's choice over 1.0.8, as it carries V1.1); peer ID `-PA1011-`, since the security fixes changed the engine's wire behaviour (D37). The Flatpak metainfo's first `<release>` is 1.1.0; the README names it.
+
 ## 2026-10-28_112815_1793183295: Revision 8 reviewed; three refinements (1.0.8)
 
 - **Review:** an independent reviewer passed all eight revision 8 symbols, with evidence sheets and a [report](assets/ui-icon-explorations/review-2026-10-28/revision8/REPORT.md). Applied from its optional notes: the notices C has a 4-row counter (it read as a heavy square at 20–32 px), the import bracket matches log out's height and is centred on the arrow, and the edit eraser gap is one clear pixel. Not applied: a grey × on the orange feed, as the renderer gives an icon one colour. It also corrected the README: four of the eight are vector paths, not pixel art.

@@ -601,7 +601,7 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   macOS CI runs each push/PR, but Intel is build-only for non-GTK targets and
   OpenBSD lacks CI. Do not infer desktop coverage from these jobs.
 - The version is bumped with every change set and the peer ID is a separate
-  counter (D37, `-PA1010-` since 1.0.1; bump it only for a wire-behaviour
+  counter (D37, `-PA1010-` with 1.0.1, `-PA1011-` since 1.1.0; bump it only for a wire-behaviour
   change). Make release notes/tagged draft artifacts and request `PA`
   recognition from libtorrent, Transmission, webtorrent's peer-id parser and
   the BEP20 list. Keep stats/intervals/identity honest for private trackers;

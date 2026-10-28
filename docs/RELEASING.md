@@ -115,7 +115,7 @@ elevates through UAC and starts from a clean registry):
    `crates/win32/res/patorrent.exe.manifest` (`assemblyIdentity version`, four numbers), so a
    release usually only confirms the current one. Add it as the first `<release>` of the
    Flatpak metainfo ([Flatpak](#flatpak)). `PEER_ID_PREFIX` in `crates/core/src/version.rs` is
-   a separate counter (`-PA1010-` went out with 1.0.1): bump it by one only when the release
+   a separate counter (`-PA1010-` went out with 1.0.1, `-PA1011-` with 1.1.0): bump it by one only when the release
    carries an engine change that alters how the client behaves on the wire. Builds that are not
    tagged show `<version>-dev.<commit>` (and `.dirty` from `build.bat`) in their title bars,
    About boxes and `--version`; the tagged build shows the plain version.

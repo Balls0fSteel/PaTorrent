@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_090116_1793174476: Icon coverage audit
+
+- 37 of the 131 bold symbols are embedded (toolbar and states). The category list, detail tabs, Preferences pages and menus show no icons, though about 60 of their symbols are already drawn. Nine are not drawn; each has MIT/ISC references (Pixelarticons, Lucide, Fluent) to redraw on the 16 px grid. Mapping and toolkit limits: [BACKLOG](docs/BACKLOG.md#ui-icon-coverage-audit-2026-10-28_090116_1793174476).
+
 ## 2026-10-28_083421_1793172861: Blank rows found and fixed: the list painted outside its paint cycle (1.0.3)
 
 - **Reported:** on the 1.0.2 test build the whole torrent list went blank after Select All (the owner); replayed on the `--demo` mock with a scripted click, Ctrl+A, Ctrl+T and mouse hover (a scratch PowerShell script taking screenshots): the hovered row lost every cell and its Done bar, and stayed so until a click repainted it.
@@ -42,36 +46,3 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 
 - **Fix:** SChannel and OpenSSL clear `handshaking` only after the certificate check. `TlsStream` remembers a session error and returns it on every later call. Secure Transport requires its `verified` flag at the end of a client handshake. Clients require TLS 1.2 or later on all three back ends. `fetch` refuses an EOF-framed body when the TLS server closed without close_notify.
 - **Tests:** four regressions (mock session, stand-in stream, a real SChannel client pinned to the wrong certificate), each proven to fail when reverted. The live HTTPS tests (`LT_NETWORK_TESTS=1`) pass. The OpenSSL and Secure Transport changes are compile-checked only. Still open: revocation.
-
-## 2026-10-27_204307_1793130187: Security fix SEC-03: Web UI security settings need the current password; proxies get no bypass
-
-- **Current password:** the Web UI's login and security settings (`SECURITY_FIELDS` plus the password) change only with `webui.current_password`, a new write-only field in the Preferences dialog's Authentication group, or `web_ui_current_password` in the shim. A wrong one ends the requesting session. This also closes SEC-24's open part. New strings `PrefCurrentPassword` and `PrefNeedCurrentPassword`, machine-translated into the 34 languages.
-- **Reverse proxies:** forwarded requests (`X-Forwarded-For`, `Forwarded`, `X-Real-IP`) never get the local-auth bypass; behind a loopback proxy the last `X-Forwarded-For` address is the client for bans.
-- **Ban race:** a login attempt counts as a failure before the PBKDF2 hash and is undone on success.
-- **Docs:** docs/WEBUI.md's Security section describes the Origin rule as coded.
-- **Tests:** three new Web UI tests, each part proven to fail when reverted. Existing tests that change the password or the domain list now send the current password. The harness takes a PBKDF2 iteration count.
-
-## 2026-10-27_202906_1793129346: Security fix SEC-26: fetches stay off the local network unless the user named it
-
-- **Confirmed:** add-by-URL and RSS fetches connected wherever a URL or redirect pointed, so a feed operator could make the client request loopback or LAN URLs.
-- **Fix:** `FetchOptions::reach` (core `net/fetch.rs`). `Reach::User` (the default, for URLs the user gave) allows any address, but after a public address the redirects stay public. `Reach::Public`, for feed items unless their feed is itself local (`Reach::for_links_from`), allows public addresses only. `AddRequest` carries `feed_url`, and the worker's `Fetcher::download` now takes the request.
-- **Tests:** `public_addresses`, `content_urls_reach_public_addresses_only`, `a_public_server_cannot_redirect_into_the_network` and `feed_items_stay_off_the_local_network`, proven to fail without the address check or the redirect lock.
-
-## 2026-10-27_201937_1793128777: Security fix SEC-25: forwarded torrents come only from equal or higher integrity
-
-- **Confirmed:** the main window let any process on the desktop send `WM_COPYDATA` (`MSGFLT_ALLOW`), so a sandboxed process could add magnets, URLs and paths, silently when the Add dialog is off. A null `lpData` reached `slice::from_raw_parts`.
-- **Fix:** `copydata_args` checks the pointer, alignment and size; the window sets `MSGFLT_DISALLOW`. A second instance that Windows refuses (access denied: the first runs as administrator) shows `ForwardRefused` instead of losing the torrent. The new string is in all 35 `.lng` files; the 34 translations are machine-made.
-- **Tests:** `copydata_args_checks_its_data` and `lower_integrity_processes_cannot_forward`, which starts the test binary at low integrity with `CreateProcessAsUserW` and checks a control window gets the message while the guarded one does not. Each was proven to fail without its part of the fix.
-
-## 2026-10-27_201104_1793128264: Security fix SEC-24: a new Web UI password ends the other logins
-
-- **Confirmed:** a password change kept every SID session, open WebSocket and `/pa/remote` connection, so a stolen session survived the change meant to lock it out.
-- **Fix:** `prefs::commit` now takes the requester's session key (`apply_preferences`, `commands::serve` pass it). A new password drops every other session, whose WebSockets close at the next status tick, and disconnects every remote client (`Shared::end_remotes`; the remote client's `overflow` flag became `ended`).
-- **Tests:** `a_new_password_ends_the_other_logins` and `a_new_password_ends_remote_sessions`, each proven to fail without its part. Still open: asking for the old password.
-
-## 2026-10-27_200447_1793127887: Security fix SEC-23: the service install checks an existing state folder
-
-- **Confirmed:** `service install` took an existing `%ProgramData%\PaTorrent\nox` as it was. Any user can make that folder first and keep owning it, so they could plant `webui.json`, read the log, or make `Downloads` a junction.
-- **Fix:** the install refuses when an existing parent, the folder or anything in it has an untrusted owner (anyone but SYSTEM, Administrators, the service accounts, TrustedInstaller or the installer), or holds a junction or link. Otherwise the folder's ACL is reset to the protected one before its contents are checked. Needs the `Win32_System_Threading` feature of windows-sys (`OpenProcessToken`).
-- **Tests:** `a_state_dir_from_another_user_is_refused` and `an_existing_state_dir_gets_the_protected_acl`, proven to fail with the old behaviour; the refusal test also fails without the contents walk. Still open: a warning for an exe folder that non-admins can write.
-- **Seen once:** core's `keys_left_by_processes_that_are_gone_are_swept` failed in one full run and passed alone three times and in the next full run; it uses a fixed key name in the user's key store.

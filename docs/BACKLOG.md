@@ -72,6 +72,52 @@ in its title bar. Still open from that round:
   and reruns when HEAD moves, so a plain cargo build in a dirty tree shows its last
   commit without `.dirty`; `build.bat` sets the exact suffix every time.
 
+## UI icon coverage (audit 2026-10-28_090116_1793174476)
+
+The GUIs embed 37 of the 131 bold symbols: the 11 toolbar actions (`Icon`) and the 26
+runtime states (`StateIcon`). Neither GUI gives icons to its category list, detail tabs,
+Preferences page list or menus (Win32 sets no tree, tab or menu image list), so most of the
+"missing" icons are drawn but not wired in. File-type icons come from the OS (Win32
+`SHGetFileInfoW`, GTK `content_type_get_icon`) and stay that way.
+
+**Drawn, not wired** (artwork ID in brackets):
+- Category list: Torrents [all-torrents], Downloading [downloading], Completed [completed],
+  Active [active], Inactive [inactive], Labels [labels], Feeds [rss].
+- Detail tabs: [general], [trackers], [peers], [pieces], [files], [speed], [logger].
+- Preferences pages: General [general], UI Settings [appearance], [directories],
+  [connection], [bandwidth], [bittorrent], [queueing], [scheduler], [web-ui], [advanced],
+  Disk Cache [disk].
+- Menus: Connect to Remote [remote], Exit [power], Auto Shutdown [power], About [about],
+  Open Containing Folder [open-folder], Force Start [force-start], the queue four,
+  Remove [remove], Delete Data [delete-data], Force Re-Check [recheck], Update Tracker
+  [reannounce], Set Download Location [set-location], Initial Seeding [initial-seeding],
+  Advanced [advanced], Bandwidth Allocation [bandwidth], limits [download-limit,
+  upload-limit, unlimited], New/Remove Label [new-label, remove-label], Properties
+  [properties], file priorities [priority-high/normal/low, skip], Select All / None
+  [select-all, clear-selection], feed menu Add / Update / Delete / Download [add-feed,
+  refresh, remove, download].
+- Check marks and radio items (Show Toolbar, Close/Minimize to Tray, Auto Shutdown modes)
+  take no icon: the menu's check mark sits in the same place.
+
+**Not drawn yet** (permissive references to redraw on the 16 px grid; MIT/ISC need a line
+in `THIRD-PARTY-NOTICES.md` only when an SVG is copied, not when it is redrawn):
+| Use | Symbol | References |
+|---|---|---|
+| Help > PaTorrent Website | external link | Pixelarticons `external-link`, Lucide `external-link`, Fluent `open` |
+| Help > Check for Updates | circular arrow over a down arrow | Fluent `arrow-sync-circle`, Lucide `refresh-ccw-dot` |
+| Help > Third-Party Notices | page with text lines | Pixelarticons `notes`, Lucide `file-text`, Fluent `document-text` |
+| File > Import from qBittorrent / µTorrent | arrow into a tray | Lucide `import`, Fluent `arrow-import` |
+| Tray Show / Hide PaTorrent | window, or eye / eye-off | Pixelarticons `eye`, `eye-closed`; Lucide `app-window` |
+| RSS Edit Feed | pencil | Pixelarticons `edit`, Lucide `pencil`, Fluent `edit` |
+| Files Check / Uncheck | checked / empty box | Pixelarticons `checkbox-on`, `checkbox`; Lucide `square-check`, `square` |
+| RSS Disable / Enable Feed | [rss] with the house × badge, plain [rss] | none: built from the set's badges |
+| Category No Label | [labels] with the × badge | none: built from the set's badges |
+
+**Toolkit limits to check before wiring:** Win32 menu icons need 32 bpp premultiplied
+`HBITMAP`s via `MIIM_BITMAP` per DPI; GTK 4 `PopoverMenu` shows icons only in
+horizontal-button sections or as `verb-icon`, so GTK menus may stay text only while the
+sidebar, tabs and Preferences list take icons. The Web UI (`nox`) was not audited.
+
 ## Win32 layout and dialogs
 
 - The system-message-font change needs visual checks on Properties, RSS,

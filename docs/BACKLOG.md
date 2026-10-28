@@ -82,8 +82,8 @@ Preferences page list or menus (Win32 sets no tree, tab or menu image list), so 
 
 **Win32 done (1.0.4, 2026-10-28_091009_1793175009):** the category list, the detail tabs and
 the Preferences tree draw `UiIcon` (24 symbols, `patorrent_frontend::icons`). Label entries and
-No Label share [labels]; each feed shares [rss]. Still open: the whole GTK side, a No Label
-symbol of its own, and a look at 125–200 % DPI (the Preferences list is made once at the
+No Label share [labels]; each feed shares [rss]. Still open: a No Label symbol of its own, and
+a look at 125–200 % DPI (the Preferences list is made once at the
 dialog's DPI and is not rebuilt if it moves to another monitor).
 
 **Win32 menus done (1.0.5, 2026-10-28_091820_1793175500):** `command_icon` in `app.rs` maps
@@ -93,6 +93,16 @@ Greyed items get a grey copy. Submenus carry theirs in the item data (`tag_subme
 Shutdown, Advanced, Bandwidth and its two limits, Label. Left without: check-marked items, Exit
 and Remove And (no fitting symbol), and the nine not drawn yet. Not checked: RTL (mirrored
 menus may mirror the bitmaps), and the tray menu on screen (same `popup()` path).
+
+**GTK done (1.0.6, 2026-10-28_110102_1793181662), not yet seen running:** the sidebar rows,
+the detail tabs and the Preferences page list show the same symbols (`icons::ui_image`, light
+or dark palette with the theme). Preferences' `StackSidebar` became a `ListBox` (a stack
+sidebar shows no icons) that follows the stack both ways; Disk Cache is indented by a margin
+instead of leading spaces. Tab labels are icon + label boxes, so each label switches its tab
+on its own mnemonic. Menus stay text only (GTK 4 popover menus show icons only in button
+rows; GNOME's guidelines also leave them out). Check on Linux: row heights and spacing in the
+sidebar and Preferences list, Alt+mnemonic on the tabs, the dark palette, and the error path
+that jumps to a Preferences page selecting its row.
 
 **Drawn, not wired** (artwork ID in brackets):
 - Category list: Torrents [all-torrents], Downloading [downloading], Completed [completed],

@@ -7,6 +7,7 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk::prelude::*;
+use patorrent_frontend::icons::{UiIcon, category_icon};
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::rss::FeedId;
 use patorrent_frontend::status::Category;
@@ -119,18 +120,19 @@ impl Sidebar {
             self.widget.remove(&row);
         }
         let mut rows = Vec::new();
-        let mut add = |pick: Option<Pick>, text: &str, indent: bool, heading: bool| {
+        let mut add = |pick: Option<Pick>, text: &str, icon: UiIcon, indent: bool, heading: bool| {
             let label = gtk::Label::new(Some(text));
             label.set_xalign(0.0);
             label.set_ellipsize(gtk::pango::EllipsizeMode::End);
+            let content = crate::icons::with_icon(icon, &label);
             if indent {
-                label.set_margin_start(14);
+                content.set_margin_start(14);
             }
             let row = gtk::ListBoxRow::new();
-            row.set_child(Some(&label));
+            row.set_child(Some(&content));
             if heading {
                 label.add_css_class("heading");
-                label.set_margin_top(8);
+                content.set_margin_top(8);
             }
             if pick.is_none() {
                 row.set_selectable(false);
@@ -140,17 +142,18 @@ impl Sidebar {
             rows.push((pick, label));
         };
         for (i, c) in Category::ALL.iter().enumerate() {
-            add(Some(Pick::Torrents(Filter::Category(*c))), c.label(), i > 0, false);
+            add(Some(Pick::Torrents(Filter::Category(*c))), c.label(), category_icon(*c), i > 0, false);
         }
-        add(None, tr!(CatLabels), false, true);
-        add(Some(Pick::Torrents(Filter::Label(String::new()))), tr!(CatNoLabel), true, false);
+        add(None, tr!(CatLabels), UiIcon::Labels, false, true);
+        let no_label = Some(Pick::Torrents(Filter::Label(String::new())));
+        add(no_label, tr!(CatNoLabel), UiIcon::Labels, true, false);
         for l in labels {
-            add(Some(Pick::Torrents(Filter::Label(l.clone()))), l, true, false);
+            add(Some(Pick::Torrents(Filter::Label(l.clone()))), l, UiIcon::Labels, true, false);
         }
         // the Feeds row lists every feed's items, as the Win32 tree's Feeds node
-        add(Some(Pick::Feed(None)), tr!(CatFeeds), false, true);
+        add(Some(Pick::Feed(None)), tr!(CatFeeds), UiIcon::Feeds, false, true);
         for (id, name) in feeds {
-            add(Some(Pick::Feed(Some(*id))), name, true, false);
+            add(Some(Pick::Feed(Some(*id))), name, UiIcon::Feeds, true, false);
         }
         let current = self.current.borrow().clone();
         let index = rows.iter().position(|(p, _)| p.as_ref() == Some(&current));

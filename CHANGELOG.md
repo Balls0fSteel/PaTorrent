@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_110102_1793181662: GTK navigation icons (1.0.6)
+
+- **Change:** the GTK sidebar, detail tabs and Preferences page list show the shared `UiIcon` symbols, following the light/dark theme like the toolbar (one registry for both). Preferences' `StackSidebar`, which cannot show icons, is now a `ListBox` kept in step with the stack; tab labels keep their mnemonics through a handler of their own. GTK menus stay text only (GTK 4 popover menus draw icons only in button rows).
+- **Validation:** `patorrent-gtk` type-checks and passes clippy (`--all-targets -D warnings`) through the stand-in pkg-config; fmt passes. Not run: no GTK display here, so layout, mnemonics and the dark palette wait for a Linux check (BACKLOG).
+
 ## 2026-10-28_091820_1793175500: Win32 menu icons (1.0.5)
 
 - **Change:** the main menu, the torrent, tray, files, feed, feed-item and column menus, and the Add and RSS dialogs' menus show the bold symbols beside their commands (`UiIcon` gains 33 menu symbols; `bgra` and `PRIORITY_ICONS` in `patorrent_frontend::icons`). Win32 maps command IDs to icons in one table and applies them when a menu opens, as 32 bpp premultiplied bitmaps cached per size; greyed items get the grey copy. Check-marked items keep only their mark.

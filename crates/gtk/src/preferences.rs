@@ -15,6 +15,7 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
+use patorrent_frontend::icons::page_icon;
 use patorrent_frontend::lang::{self, S, gtk_mnemonic};
 use patorrent_frontend::options::{self, Options};
 use patorrent_frontend::pref_pages::{
@@ -141,18 +142,57 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
     stack.set_vexpand(true);
 
     let mut b = Builder::default();
+    // the page list: a page's symbol and title (a StackSidebar shows titles only)
+    let list = gtk::ListBox::new();
+    list.set_selection_mode(gtk::SelectionMode::Single);
+    list.add_css_class("navigation-sidebar");
     for page in &pages {
         let child = b.page(page, &options);
-        let title = match page.parent {
-            // one level down, as under Advanced in µTorrent's tree
-            Some(_) => format!("    {}", lang::text(page.title)),
-            None => lang::text(page.title).to_owned(),
+        let title = lang::text(page.title);
+        stack.add_titled(&child, Some(page.key), title);
+        let label = gtk::Label::new(Some(title));
+        label.set_xalign(0.0);
+        let content = match page_icon(page.title) {
+            Some(icon) => crate::icons::with_icon(icon, &label).upcast::<gtk::Widget>(),
+            None => label.upcast(),
         };
-        stack.add_titled(&child, Some(page.key), &title);
+        if page.parent.is_some() {
+            // one level down, as under Advanced in µTorrent's tree
+            content.set_margin_start(18);
+        }
+        let row = gtk::ListBoxRow::new();
+        row.set_child(Some(&content));
+        row.set_widget_name(page.key);
+        list.append(&row);
     }
-    let sidebar = gtk::StackSidebar::new();
-    sidebar.set_stack(&stack);
-    sidebar.set_size_request(170, -1);
+    list.connect_row_selected({
+        let stack = stack.clone();
+        move |_, row| {
+            if let Some(row) = row {
+                stack.set_visible_child_name(row.widget_name().as_str());
+            }
+        }
+    });
+    // and back: a page shown by the dialog itself (an error's) selects its row
+    stack.connect_visible_child_name_notify({
+        let list = list.clone();
+        move |stack| {
+            let Some(name) = stack.visible_child_name() else { return };
+            let mut i = 0;
+            while let Some(row) = list.row_at_index(i) {
+                if row.widget_name() == name && !row.is_selected() {
+                    list.select_row(Some(&row));
+                }
+                i += 1;
+            }
+        }
+    });
+    list.select_row(list.row_at_index(0).as_ref());
+    let sidebar = gtk::ScrolledWindow::builder()
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .child(&list)
+        .width_request(170)
+        .build();
     let body_pages = gtk::Box::new(gtk::Orientation::Horizontal, 12);
     body_pages.set_vexpand(true);
     body_pages.append(&sidebar);

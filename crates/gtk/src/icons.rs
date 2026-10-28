@@ -9,8 +9,10 @@
 //!   desktop entries (`integration`). The AppImage and the Flatpak bring their own copy.
 //! - the tray's pixmaps ([`app_pixmaps`]), for hosts that draw the item's pixels.
 //! - the state icons of the torrent list, the Trackers tab and the status bar
-//!   ([`state_texture`]) and the toolbar images ([`toolbar_image`]): the artwork's light
-//!   palette, or its dark one while the GTK theme is dark ([`setup`] follows the theme).
+//!   ([`state_texture`]), the toolbar images ([`toolbar_image`]) and the symbols of the category
+//!   list, the detail tabs and the Preferences pages ([`ui_image`]): the artwork's light
+//!   palette, or its dark one while the GTK theme is dark ([`setup`] follows the theme). The
+//!   menus stay text only: GTK 4's popover menus show an icon only in a row of buttons.
 
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
@@ -18,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
-use patorrent_frontend::icons::{self, APP_SIZES, Icon, StateIcon};
+use patorrent_frontend::icons::{self, APP_SIZES, Icon, StateIcon, UiIcon};
 
 use crate::app::APP_ID;
 
@@ -29,8 +31,8 @@ thread_local! {
     static TEXTURES: RefCell<HashMap<StateIcon, gdk::Texture>> = RefCell::default();
     /// Whether the GTK theme is dark: the icons use the artwork's dark palette.
     static DARK: Cell<bool> = const { Cell::new(false) };
-    /// The toolbar's images, to repaint when the theme turns dark or light.
-    static TOOLBAR: RefCell<Vec<(Icon, glib::WeakRef<gtk::Image>)>> = RefCell::default();
+    /// The toolbar's and the navigation's images, to repaint when the theme turns dark or light.
+    static THEMED: RefCell<Vec<(Art, glib::WeakRef<gtk::Image>)>> = RefCell::default();
     /// The folder [`setup`] wrote the application icon into.
     static THEME_DIR: RefCell<Option<PathBuf>> = const { RefCell::new(None) };
 }
@@ -68,16 +70,51 @@ pub fn set_state(image: &gtk::Image, icon: StateIcon) {
     }
 }
 
-/// A toolbar button's image: the 32 px export drawn at [`STATE_PX`] logical pixels, as the
-/// state icons are, in the theme's palette (kept so when the theme changes).
-pub fn toolbar_image(icon: Icon) -> gtk::Image {
+/// What a theme-following image shows.
+#[derive(Clone, Copy)]
+enum Art {
+    Toolbar(Icon),
+    Ui(UiIcon),
+}
+
+impl Art {
+    /// The 32 px export, in the dark palette with `dark`.
+    fn png(self, dark: bool) -> &'static [u8] {
+        match self {
+            Art::Toolbar(icon) => icon.png(32, dark),
+            Art::Ui(icon) => icon.themed_png(32, dark),
+        }
+    }
+}
+
+/// `art` drawn at [`STATE_PX`] logical pixels, as the state icons are, in the theme's palette
+/// (kept so when the theme changes).
+fn themed_image(art: Art) -> gtk::Image {
     let image = gtk::Image::new();
     image.set_pixel_size(STATE_PX);
-    if let Some(tex) = texture(icon.png(32, DARK.get())) {
+    if let Some(tex) = texture(art.png(DARK.get())) {
         image.set_paintable(Some(&tex));
     }
-    TOOLBAR.with(|t| t.borrow_mut().push((icon, image.downgrade())));
+    THEMED.with(|t| t.borrow_mut().push((art, image.downgrade())));
     image
+}
+
+/// A toolbar button's image.
+pub fn toolbar_image(icon: Icon) -> gtk::Image {
+    themed_image(Art::Toolbar(icon))
+}
+
+/// A navigation symbol's image: a category list row's, a detail tab's, a Preferences page's.
+pub fn ui_image(icon: UiIcon) -> gtk::Image {
+    themed_image(Art::Ui(icon))
+}
+
+/// `label` after `icon`'s image: a navigation row's or a tab's content.
+pub fn with_icon(icon: UiIcon, label: &gtk::Label) -> gtk::Box {
+    let row = gtk::Box::new(gtk::Orientation::Horizontal, 6);
+    row.append(&ui_image(icon));
+    row.append(label);
+    row
 }
 
 /// Whether `settings` describe a dark theme: one asked for (`gtk-application-prefer-dark-theme`)
@@ -88,17 +125,17 @@ fn is_dark(settings: &gtk::Settings) -> bool {
 }
 
 /// Switches the icons to the palette for `settings`' theme. State icons follow at their next
-/// redraw (the list and the status bar redraw every refresh); the toolbar's are set here.
+/// redraw (the list and the status bar redraw every refresh); the themed images are set here.
 fn follow_theme(settings: &gtk::Settings) {
     let dark = is_dark(settings);
     if DARK.replace(dark) == dark {
         return;
     }
     TEXTURES.with(|t| t.borrow_mut().clear());
-    TOOLBAR.with(|t| {
-        t.borrow_mut().retain(|(icon, image)| {
+    THEMED.with(|t| {
+        t.borrow_mut().retain(|(art, image)| {
             let Some(image) = image.upgrade() else { return false };
-            if let Some(tex) = texture(icon.png(32, dark)) {
+            if let Some(tex) = texture(art.png(dark)) {
                 image.set_paintable(Some(&tex));
             }
             true

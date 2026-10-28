@@ -10,14 +10,14 @@
 use std::ops::Range;
 use std::rc::Rc;
 
-use gtk::gio;
 use gtk::prelude::*;
+use gtk::{gio, glib};
 use patorrent_core::TorrentStatus;
 use patorrent_frontend::detail::{
     self, BlockKind, Detail, PIECE_BLOCKS_COLUMN, PIECE_COLUMNS, PRIORITIES, PieceShade, SPEED_SAMPLES, Tab,
 };
 use patorrent_frontend::fmt;
-use patorrent_frontend::icons::tracker_icon;
+use patorrent_frontend::icons::{tab_icon, tracker_icon};
 use patorrent_frontend::lang::{self, gtk_mnemonic};
 use patorrent_frontend::tr;
 
@@ -193,7 +193,15 @@ impl Details {
                 Tab::Logger => logger_scroll.clone().upcast(),
             };
             let label = gtk::Label::with_mnemonic(&gtk_mnemonic(lang::text(t.title())));
-            notebook.append_page(&page, Some(&label));
+            // the notebook switches on its tab label's mnemonic, which is now the box's
+            let nb = notebook.downgrade();
+            label.connect_mnemonic_activate(move |_, _| {
+                if let Some(nb) = nb.upgrade() {
+                    nb.set_current_page(Some(t.index() as u32));
+                }
+                glib::Propagation::Stop
+            });
+            notebook.append_page(&page, Some(&crate::icons::with_icon(tab_icon(t), &label)));
         }
         notebook.set_current_page(Some(tab.index() as u32));
         // after the switch (`switch-page` runs before it)

@@ -18,8 +18,7 @@ static T0: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
 static LOG: std::sync::Mutex<Vec<String>> = std::sync::Mutex::new(Vec::new());
 
 /// Every alert the tests saw and what the fake tracker did, timed, for a timeout to print (all
-/// tests of the file write here). `a_tracker_reply_sets_the_external_address` once waited 15 s
-/// on macOS with no alert after the add (PLAN Known TODOs "macOS").
+/// tests of the file write here).
 fn note(what: String) {
     let t = T0.get_or_init(Instant::now).elapsed().as_secs_f64();
     LOG.lock().unwrap().push(format!("{t:8.3} {what}"));
@@ -72,6 +71,13 @@ fn start(f: impl FnOnce(&mut Settings)) -> Session {
     Session::start(SessionParams { settings, state_dir: None }).expect("session starts")
 }
 
+thread_local! {
+    /// Alerts popped but not yet looked at: a wait that ends mid-batch leaves the rest here for
+    /// the next one (each test runs one session on its own thread). Without it, an
+    /// `ExternalIp` popped together with `TorrentAdded` was lost on a slow macOS runner.
+    static BACKLOG: std::cell::RefCell<std::collections::VecDeque<Alert>> = Default::default();
+}
+
 /// Takes alerts until `f` returns `Some`; after `secs`, the messages of those it took.
 fn try_wait<T>(
     h: &SessionHandle,
@@ -81,9 +87,8 @@ fn try_wait<T>(
     let deadline = Instant::now() + Duration::from_secs(secs);
     let mut alerts = Vec::new();
     let mut seen = Vec::new();
-    while Instant::now() < deadline {
-        h.pop_alerts(&mut alerts);
-        for a in alerts.drain(..) {
+    loop {
+        while let Some(a) = BACKLOG.with_borrow_mut(|b| b.pop_front()) {
             if !matches!(a, Alert::StateUpdate(_)) {
                 seen.push(a.message());
                 note(a.message());
@@ -92,9 +97,13 @@ fn try_wait<T>(
                 return Ok(v);
             }
         }
+        if Instant::now() >= deadline {
+            return Err(seen);
+        }
         std::thread::sleep(Duration::from_millis(20));
+        h.pop_alerts(&mut alerts);
+        BACKLOG.with_borrow_mut(|b| b.extend(alerts.drain(..)));
     }
-    Err(seen)
 }
 
 fn timed_out(what: &str, seen: &[String]) -> ! {

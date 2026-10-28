@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_134318_1793194998: 1.1.0 published
+
+- **Published** on the owner's go-ahead at 13:42 UTC, marked Latest: [release v1.1.0](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.0) on `65a3d0ca`. The files were not hand-tried before publishing. Pages runs 40698837791 and 40698837651 passed; the site's `update.txt` says `stable=1.1.0`. CI run 40695861609 on `65a3d0ca` passed, macOS included, with the external-address test fix.
+
 ## 2026-10-28_132134_1793193694: Flaky macOS external-address test fixed
 
 - **Cause:** `crates/core/tests/external_ip.rs`'s alert helper dropped the rest of a popped batch when its wait matched. On a slow runner `ExternalIp` came in the same batch as `TorrentAdded` and was lost (CI run 40645656823; the timed log showed the tracker had answered). The other integration tests already keep a backlog; this file now does too (thread-local, one session per test thread). The "scrape failed: banned by IP filter" in that log is the expected SSRF rule for a loopback `/scrape`.

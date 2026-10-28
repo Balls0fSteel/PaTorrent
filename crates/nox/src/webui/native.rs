@@ -13,7 +13,7 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use patorrent_core::{DownloadPriority, PeerFlags, TorrentId, VERSION};
+use patorrent_core::{DownloadPriority, PeerFlags, TorrentId};
 use patorrent_frontend::columns::{Align, Column};
 use patorrent_frontend::detail::{self, ColumnDef};
 use patorrent_frontend::model::{Filter, TorrentList};
@@ -233,7 +233,7 @@ impl Client {
             .with("files", defs(&detail::FILE_COLUMNS));
         Json::obj()
             .with("t", "hello")
-            .with("version", VERSION)
+            .with("version", patorrent_frontend::BUILD)
             .with("columns", Json::Arr(columns))
             .with("categories", Json::Arr(categories))
             .with("labels", Json::Arr(labels))

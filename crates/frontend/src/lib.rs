@@ -26,6 +26,16 @@
 //! * [`update`]: the update check: when, what is newer, the status bar's notice.
 //! * [`import`]: File > Import: torrents from qBittorrent's `BT_backup` or µTorrent's `resume.dat`.
 
+/// The version a build shows (title bars, About, `--version`): [`patorrent_core::VERSION`] with
+/// `-dev.<commit>` when it is not a tagged release, and `.dirty` from `build.bat` when the tree
+/// had uncommitted changes (`build.rs`, D37). Protocol and update-check code keeps the plain
+/// version; this is for telling builds apart.
+pub const BUILD: &str = env!("PATORRENT_BUILD_VERSION");
+
+/// "PaTorrent <build>", where µTorrent 2.2.1 showed "µTorrent 2.2.1": the main window's title
+/// and the tray icon's tooltip.
+pub const NAME_BUILD: &str = concat!("PaTorrent ", env!("PATORRENT_BUILD_VERSION"));
+
 pub mod actions;
 pub mod add;
 pub mod auto_shutdown;

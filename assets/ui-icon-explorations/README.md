@@ -1,4 +1,4 @@
-# PaTorrent bold UI artwork — revision 6
+# PaTorrent bold UI artwork — revision 7
 
 Open [review.html](review.html) to inspect the **131-symbol bold set** at native 16/20/24/32/48/64 px. The gallery supports light/dark artwork, monochrome proofs, UI-area/search filters and shortlist export. The larger inspection image uses the separately fitted 48 px SVG. SVG downloads match the selected size.
 
@@ -11,6 +11,15 @@ Open [review.html](review.html) to inspect the **131-symbol bold set** at native
 - Colour describes operational state: downloads/metadata teal, seeding blue, checking/queueing/paused amber, stopped/inactive grey, errors red. Completion is a check shape; it never recolours paused or stopped variants.
 - About is a flat symbolic rendition of the currently selected Verdigris medallion and P/down-arrow. The existing app/window/tray/packaging brand remains selected; the twelve earlier app concepts are a historical discussion sheet.
 - `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. The network trio shares one base, a globe (D30), with check, ! and × badges.
+
+## Revision 7 (2026-10-28)
+
+Redraws what the owner's Win32 hand test (2026-10-27) flagged: mixed stroke widths on three toolbar symbols and an unreadable checking state. Every changed drawing is pixel art (`H.px`) with one 2 px stroke, so the 24 px fit is a uniform 3 px; the 1.5 px `large` page variant is gone.
+
+- **Add torrent, Create torrent:** a 7 × 12 page outline in x 1–8 with a dog-ear, the top-right corner cut three pixels deep along a 2 px diagonal (a two-pixel cut read as the letter D). The old page had a solid 4 px fold and its 1.5 px large variant gave a 3 px bottom edge beside 2 px sides at 24 px. Create torrent shares the page, so it changed too.
+- **Add URL:** an upright horseshoe magnet, the revision 4 review's alternative: a 7 px arch, equal 2 px arms and pole tips split off by a 1 px gap. The revision 5 chain link (D29) mixed 1 px loops with the 2 px bar and plus; the owner's finding named the symbol a magnet, so the magnet is back pending the owner's confirmation.
+- **Remove:** handle, lid, walls, three ribs and two slots are all 2 px, each centred on x 8 with an odd half-width so the 24 px fit stays centred. The old solid can had 1 px slots that fitted to 2 px and 1 px at 24 px, and its lid sat 1 px off centre.
+- **Checking states:** one checking lens (`H.lens`): an 11 px ring with a 2 px rim at x 1–12, a 2 px handle to (14, 14) and a 7 px hole for a mark with a 1 px gap to the rim. Checking files (and Recheck, the allowed reuse pair) carry a tick, checking resume data carries "…" (a quick look, not a verified result). The queued pair is the list with a 6 × 6 lens badge or the "…" badge. The floppy and the 1 px clocks, which the owner saw as "a black floppy with an orange mark", are gone. Checking files and checking resume data are 0.88 similar, a modifier pair like metadata/forced metadata.
 
 ## Revision 6 (2026-10-26)
 

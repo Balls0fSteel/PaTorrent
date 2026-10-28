@@ -110,11 +110,15 @@ elevates through UAC and starts from a clean registry):
 
 ## Steps
 
-1. Pick the version and set it in `Cargo.toml` (`[workspace.package] version`), in
-   `PEER_ID_PREFIX` in `crates/core/src/version.rs` (`-PA1010-` is 1.0.1; a pre-release such as
-   `1.0.0-rc.1` carries the version it leads to, and a test fails when the two differ), in the
-   Windows manifest `crates/win32/res/patorrent.exe.manifest` (`assemblyIdentity version`, four
-   numbers) and as the first `<release>` of the Flatpak metainfo ([Flatpak](#flatpak)).
+1. Pick the version. Since D37 the version is bumped with every change set (the patch number
+   may run high), in `Cargo.toml` (`[workspace.package] version`) and the Windows manifest
+   `crates/win32/res/patorrent.exe.manifest` (`assemblyIdentity version`, four numbers), so a
+   release usually only confirms the current one. Add it as the first `<release>` of the
+   Flatpak metainfo ([Flatpak](#flatpak)). `PEER_ID_PREFIX` in `crates/core/src/version.rs` is
+   a separate counter (`-PA1010-` went out with 1.0.1): bump it by one only when the release
+   carries an engine change that alters how the client behaves on the wire. Builds that are not
+   tagged show `<version>-dev.<commit>` (and `.dirty` from `build.bat`) in their title bars,
+   About boxes and `--version`; the tagged build shows the plain version.
 2. Give it a heading in `CHANGELOG.md` with what is in it since the last release, and write
    `docs/releases/<version>.md`: what it is, the files, how to start each, known limitations.
    The workflow makes that file the release's text.

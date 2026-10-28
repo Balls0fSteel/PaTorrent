@@ -229,6 +229,7 @@ impl Prefs {
             move_only_default: self.move_only_default,
             torrent_folders: self.torrent_folders.clone(),
             confirm_delete: self.confirm_delete,
+            alternate_rows: true,
             check_association: false,
             close_to_tray: true,
             minimize_to_tray: false,

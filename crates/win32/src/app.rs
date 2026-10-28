@@ -17,9 +17,8 @@ use patorrent_core::fetch::FetchProxy;
 use patorrent_core::metainfo::TorrentInfo;
 use patorrent_core::util::time::{local_utc_offset, unix_now};
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, NAME_VERSION, QueueMove,
-    RemoveFlags, Session, SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId,
-    TorrentSource, VERSION, same_dir,
+    AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
+    SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, same_dir,
 };
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
@@ -39,7 +38,7 @@ use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::{Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
-use patorrent_frontend::{actions, add, create, fmt, settings, tr};
+use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -488,6 +487,7 @@ pub fn run(args: Args) -> i32 {
         }
     }
     let mut opts = Options::load(&prefs, &downloads_folder());
+    controls::set_alternate_rows(opts.gui.alternate_rows);
     if opts.gui.random_port && local {
         // µTorrent's "Randomize port each start" keeps the new port as the configured one
         settings::set_listen_port(&mut opts.settings, options::random_port());
@@ -529,7 +529,7 @@ pub fn run(args: Args) -> i32 {
         wc.lpszClassName = PANEL_CLASS;
         RegisterClassExW(&wc);
 
-        let title = wide(NAME_VERSION);
+        let title = wide(NAME_BUILD);
         let hwnd = CreateWindowExW(
             WS_EX_ACCEPTFILES,
             class,
@@ -552,7 +552,7 @@ pub fn run(args: Args) -> i32 {
             log_line(&p);
         }
         if let Some(r) = crate::remote_ui::get() {
-            let title = wide(&tr!(TitleRemote, version = VERSION, label = r.label));
+            let title = wide(&tr!(TitleRemote, version = BUILD, label = r.label));
             SetWindowTextW(hwnd, title.as_ptr());
         }
         // the server applies its own block list
@@ -579,6 +579,11 @@ pub fn run(args: Args) -> i32 {
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'F' as u16, cmd: cmd::FIND },
             ACCEL { fVirt: FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE },
             ACCEL { fVirt: FSHIFT | FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE_DATA },
+            ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'S' as u16, cmd: cmd::START },
+            ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'T' as u16, cmd: cmd::STOP },
+            ACCEL { fVirt: FCONTROL | FSHIFT | FVIRTKEY, key: b'P' as u16, cmd: cmd::PAUSE },
+            // Properties; only from the torrent list, see the loop
+            ACCEL { fVirt: FVIRTKEY, key: VK_RETURN, cmd: cmd::PROPERTIES },
         ];
         let haccel = CreateAcceleratorTableW(accels.as_ptr(), accels.len() as i32);
         let mut msg: MSG = zeroed();
@@ -586,9 +591,12 @@ pub fn run(args: Args) -> i32 {
             if search_key(&msg) {
                 continue;
             }
-            // typing in the search box: Delete and Ctrl+A edit its text, not the list
-            let in_search = with_app(|a| a.search == msg.hwnd).unwrap_or(false);
-            if in_search || TranslateAcceleratorW(hwnd, haccel, &msg) == 0 {
+            // typing in the search box: Delete and Ctrl+A edit its text, not the list; Enter
+            // is the list's Properties key, every other control keeps its own Enter
+            let (in_search, in_list) =
+                with_app(|a| (a.search == msg.hwnd, a.lv == msg.hwnd)).unwrap_or((false, false));
+            let enter = msg.message == WM_KEYDOWN && msg.wParam as u16 == VK_RETURN;
+            if in_search || (enter && !in_list) || TranslateAcceleratorW(hwnd, haccel, &msg) == 0 {
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }
@@ -606,9 +614,9 @@ unsafe fn main_menu() -> HMENU {
     unsafe {
         let bar = CreateMenu();
         let file = CreatePopupMenu();
-        append(file, cmd::ADD, &shortcut(tr!(MenuAddTorrent), 'O'));
-        append(file, cmd::ADD_URL, &shortcut(tr!(MenuAddUrl), 'U'));
-        append(file, cmd::CREATE, &shortcut(tr!(MenuCreate), 'N'));
+        append(file, cmd::ADD, &shortcut(tr!(MenuAddTorrent), Hotkey::Ctrl('O')));
+        append(file, cmd::ADD_URL, &shortcut(tr!(MenuAddUrl), Hotkey::Ctrl('U')));
+        append(file, cmd::CREATE, &shortcut(tr!(MenuCreate), Hotkey::Ctrl('N')));
         separator(file);
         // a remote server would read its own disk, not this computer's
         let remote = crate::remote_ui::is_remote();
@@ -620,7 +628,7 @@ unsafe fn main_menu() -> HMENU {
         separator(file);
         append(file, cmd::EXIT, tr!(MenuExit));
         let options = CreatePopupMenu();
-        append(options, cmd::PREFS, &shortcut(tr!(MenuPreferences), 'P'));
+        append(options, cmd::PREFS, &shortcut(tr!(MenuPreferences), Hotkey::Ctrl('P')));
         append(options, cmd::RSS, tr!(MenuRss));
         separator(options);
         append(options, cmd::SHOW_TOOLBAR, tr!(MenuShowToolbar));
@@ -656,9 +664,31 @@ unsafe fn main_menu() -> HMENU {
     }
 }
 
-/// A menu item's text with its Ctrl shortcut after a tab.
-fn shortcut(text: &str, key: char) -> String {
-    format!("{text}\t{}+{key}", tr!(KeyCtrl))
+/// A keyboard shortcut as the menus write it, with the key names in the current language.
+#[derive(Clone, Copy)]
+enum Hotkey {
+    Ctrl(char),
+    CtrlShift(char),
+    Del,
+    ShiftDel,
+    Enter,
+}
+
+impl Hotkey {
+    fn label(self) -> String {
+        match self {
+            Hotkey::Ctrl(k) => format!("{}+{k}", tr!(KeyCtrl)),
+            Hotkey::CtrlShift(k) => format!("{}+{}+{k}", tr!(KeyCtrl), tr!(KeyShift)),
+            Hotkey::Del => tr!(KeyDel).to_owned(),
+            Hotkey::ShiftDel => format!("{}+{}", tr!(KeyShift), tr!(KeyDel)),
+            Hotkey::Enter => tr!(KeyEnter).to_owned(),
+        }
+    }
+}
+
+/// A menu item's text with its shortcut after a tab.
+fn shortcut(text: &str, keys: Hotkey) -> String {
+    format!("{text}\t{}", keys.label())
 }
 
 unsafe fn append(menu: HMENU, id: u16, text: &str) {
@@ -902,7 +932,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         controls::set_columns(piece_list, &cols);
         send(tabs, TCM_SETCURSEL, page.index(), 0);
         DragAcceptFiles(hwnd, 1);
-        tray::add(hwnd, icon_small, WM_APP_TRAY, NAME_VERSION);
+        tray::add(hwnd, icon_small, WM_APP_TRAY, NAME_BUILD);
         refuse_lower_integrity_copydata(hwnd);
         update_visibility(hwnd);
         update_menu(hwnd);
@@ -2016,7 +2046,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                 Alert::RemoteDisconnected { ref message } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     let label = crate::remote_ui::get().map_or("", |r| r.label.as_str());
-                    let title = wide(&tr!(TitleDisconnected, version = VERSION, label));
+                    let title = wide(&tr!(TitleDisconnected, version = BUILD, label));
                     // SAFETY: the main window is live while the app state is.
                     unsafe { SetWindowTextW(a.hwnd, title.as_ptr()) };
                     errors.push(tr!(ErrRemoteLost, label, message));
@@ -2164,7 +2194,7 @@ unsafe fn update_status_bar() {
         ];
         let tip = tr!(
             TrayTip,
-            version = VERSION,
+            version = BUILD,
             down = fmt::speed_always(s.download_rate),
             up = fmt::speed_always(s.upload_rate)
         );
@@ -2393,7 +2423,7 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             m if m != 0 && Some(m) == with_app(|a| a.taskbar_created) => {
                 // Explorer restarted: the tray icon is gone.
                 if let Some((icon, tip)) = with_app(|a| (a.icon_small, a.tray_tip.clone())) {
-                    tray::add(hwnd, icon, WM_APP_TRAY, if tip.is_empty() { NAME_VERSION } else { &tip });
+                    tray::add(hwnd, icon, WM_APP_TRAY, if tip.is_empty() { NAME_BUILD } else { &tip });
                 }
                 0
             }
@@ -2616,18 +2646,18 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
         );
         separator(menu);
         append(menu, cmd::FORCE_START, tr!(MenuForceStart));
-        append(menu, cmd::START, tr!(MenuStart));
-        append(menu, cmd::PAUSE, tr!(MenuPause));
-        append(menu, cmd::STOP, tr!(MenuStop));
+        append(menu, cmd::START, &shortcut(tr!(MenuStart), Hotkey::Ctrl('S')));
+        append(menu, cmd::PAUSE, &shortcut(tr!(MenuPause), Hotkey::CtrlShift('P')));
+        append(menu, cmd::STOP, &shortcut(tr!(MenuStop), Hotkey::Ctrl('T')));
         separator(menu);
         append(menu, cmd::UP, tr!(MenuQueueUp));
         append(menu, cmd::DOWN, tr!(MenuQueueDown));
         append(menu, cmd::QUEUE_TOP, tr!(MenuQueueTop));
         append(menu, cmd::QUEUE_BOTTOM, tr!(MenuQueueBottom));
         separator(menu);
-        append(menu, cmd::REMOVE, tr!(MenuRemove));
+        append(menu, cmd::REMOVE, &shortcut(tr!(MenuRemove), Hotkey::Del));
         let remove_and = CreatePopupMenu();
-        append(remove_and, cmd::REMOVE_DATA, tr!(MenuDeleteData));
+        append(remove_and, cmd::REMOVE_DATA, &shortcut(tr!(MenuDeleteData), Hotkey::ShiftDel));
         submenu(menu, remove_and, tr!(MenuRemoveAnd));
         separator(menu);
         append(menu, cmd::RECHECK, tr!(MenuRecheck));
@@ -2664,7 +2694,7 @@ unsafe fn torrent_menu(hwnd: HWND, p: POINT) {
         }
         submenu(menu, lm, tr!(MenuLabel));
         separator(menu);
-        append(menu, cmd::PROPERTIES, tr!(MenuProperties));
+        append(menu, cmd::PROPERTIES, &shortcut(tr!(MenuProperties), Hotkey::Enter));
         let id = popup(hwnd, menu, p.x, p.y);
         if id != 0 {
             on_command(hwnd, id);
@@ -2754,7 +2784,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 hwnd,
                 &tr!(
                     AboutText,
-                    version = VERSION,
+                    version = BUILD,
                     path = with_app(|a| a.prefs.path().map(|p| p.display().to_string()))
                         .flatten()
                         .unwrap_or_default()
@@ -2849,6 +2879,8 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 });
             }
             cmd::SET_LOCATION => set_download_location(hwnd),
+            // Enter on a feed item downloads it, as its double-click does
+            cmd::PROPERTIES if with_app(|a| a.feed_view.is_some()) == Some(true) => download_feed_items(),
             cmd::PROPERTIES => show_properties(hwnd),
             cmd::SUPER_SEED => {
                 let ids = selected_ids();
@@ -3366,6 +3398,11 @@ fn apply_options(a: &mut App, o: &Options) {
         }
     }
     a.save_path = o.gui.download_dir.clone();
+    if o.gui.alternate_rows != old.gui.alternate_rows {
+        // every list repaints with the new shading (deferred: the state is borrowed here)
+        // every list repaints with the new shading (deferred: the state is borrowed here)
+        unsafe { RedrawWindow(a.hwnd, null(), null_mut(), RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN) };
+    }
     a.schedule = o.gui.schedule.clone();
     run_scheduler(a, Some(o));
     o.gui.update_move_completed(&mut a.move_completed);
@@ -4207,9 +4244,16 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                             return Some(String::new());
                         }
                         Some(col.text(a.list.get(tid)?, a.list.extra(tid)))
-                    })
-                    .flatten()
-                    .unwrap_or_default();
+                    });
+                    // The state is borrowed: a paint that a call made while `App` was held
+                    // (a message box, a control updated) asks for cells now. They come out
+                    // blank, and a double-buffered list keeps them so until the row's next
+                    // repaint, which an idle row may never get. Paint it again once the
+                    // borrow is gone (InvalidateRect only marks: the paint is deferred).
+                    if text.is_none() {
+                        InvalidateRect((*nm).hwndFrom, null(), 0);
+                    }
+                    let text = text.flatten().unwrap_or_default();
                     copy_to(di.item.pszText, di.item.cchTextMax, &text);
                 }
                 0

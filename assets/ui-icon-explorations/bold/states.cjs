@@ -14,13 +14,16 @@ module.exports = (H) => {
   const list = r(1,2,6,2)+r(1,6,6,2)+r(1,10,6,2);
   const smallDown = p('M11 7h2v4h2l-3 4-3-4h2Z');
   const smallUp = p('M11 15h2v-4h2l-3-4-3 4h2Z');
-  const miniVerify = o(11,10,2)+s('M12 12l2 2');
-  const miniClock = o(11.5,11.5,2.5,1)+s('M11.5 9.5v2h2',1);
+  // Revision 7: the four checking states share the checking lens (H.lens). Checking
+  // files shows the tick in the hole; checking resume data shows "..." (a quick, pending
+  // look rather than a verified result). The queued pair is the list with the matching
+  // 6 x 6 lens badge or the "..." badge, so the floppy and the 1 px clock are gone.
+  const dotsInLens = H.px(4,6,['#.#.#','#.#.#']);
+  const miniLens = H.px(9,9,['.###.','#...#','#...#','#...#','.####','.....#']);
   const metadata = even('M1 1h4l3 3v8H1Z M3 3v7h3V5H4V3Z');
   const metadataLarge = even('M1 1h4l3 3v8H1Z M2.5 2.5v8h4V4.5h-2V2.5Z')+r(3.5,6,2,1)+r(3.5,8,2,1);
   const metadataDown = p('M11 8h2v3h2l-3 4-3-4h2Z');
   const metadataBolt = p('M12 1l-3 4h3l-2 2 5-4h-3l2-2Z');
-  const floppy = even('M1 2h6l1 1v8H1Z M3 2v3h3V2Z M3 8v1h3V8Z');
   // Revision 6 (D30): a globe (outline, equator, lens meridian). The arrow-into-port
   // base read as "?" (open ring) and then as an eye or key (closed ring) at 16 px.
   const globe = H.px(0,0,[
@@ -57,9 +60,9 @@ module.exports = (H) => {
       color:'teal'
     },
     'checking-files': {small:H.verify, color:'amber'},
-    'checking-resume-data': {small:floppy+miniClock, large:floppy+miniClock, color:'amber'},
-    'queued-checking': {small:list+miniVerify, large:r(1,2,6,1.5)+r(1,6,6,1.5)+r(1,10,6,1.5)+miniVerify, color:'amber'},
-    'queued-resume-checking': {small:list+miniClock, large:r(1,2,6,1.5)+r(1,6,6,1.5)+r(1,10,6,1.5)+miniClock, color:'amber'},
+    'checking-resume-data': {small:H.lens+dotsInLens, color:'amber'},
+    'queued-checking': {small:list+miniLens, large:r(1,2,6,1.5)+r(1,6,6,1.5)+r(1,10,6,1.5)+miniLens, color:'amber'},
+    'queued-resume-checking': {small:list+moreBadge, large:r(1,2,6,1.5)+r(1,6,6,1.5)+r(1,10,6,1.5)+moreBadge, color:'amber'},
     'queued-download': {small:list+smallDown, large:r(1,2,6,1.5)+r(1,6,6,1.5)+r(1,10,6,1.5)+smallDown, color:'amber'},
     'queued-seed': {small:list+smallUp, large:r(1,2,6,1.5)+r(1,6,6,1.5)+r(1,10,6,1.5)+smallUp, color:'amber'},
     'paused-incomplete': {small:H.pause, color:'amber'},

@@ -17,9 +17,8 @@ use gtk::{gio, glib};
 use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{
-    AddTorrentParams, Alert, IpFilter, MoveCompleted, MoveFlags, NAME_VERSION, QueueMove, RemoveFlags,
-    Session, SessionHandle, SessionParams, SessionStats, TorrentFlags, TorrentId, TorrentSource, VERSION,
-    same_dir,
+    AddTorrentParams, Alert, IpFilter, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
+    SessionHandle, SessionParams, SessionStats, TorrentFlags, TorrentId, TorrentSource, same_dir,
 };
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
@@ -39,7 +38,7 @@ use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::status_icon;
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
-use patorrent_frontend::{actions, add, create, fmt, settings, tr};
+use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
 
 use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
@@ -548,7 +547,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
-        .title(NAME_VERSION)
+        .title(NAME_BUILD)
         .default_width(prefs.get_i32("gtk.width").unwrap_or(1000).max(400))
         .default_height(prefs.get_i32("gtk.height").unwrap_or(620).max(300))
         .show_menubar(true)
@@ -557,7 +556,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         window.maximize();
     }
     if let Some(r) = remote {
-        window.set_title(Some(&tr!(TitleRemote, version = VERSION, label = r.label)));
+        window.set_title(Some(&tr!(TitleRemote, version = BUILD, label = r.label)));
     }
 
     let started = match remote_session {
@@ -1227,7 +1226,7 @@ fn on_alerts() {
                 Alert::RemoteDisconnected { ref message } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     let label = crate::remote::get().map_or("", |r| r.label.as_str());
-                    a.window.set_title(Some(&tr!(TitleDisconnected, version = VERSION, label)));
+                    a.window.set_title(Some(&tr!(TitleDisconnected, version = BUILD, label)));
                     errors.push((tr!(ErrRemoteLost, label, message), String::new()));
                 }
                 Alert::TorrentFinished { id } => {
@@ -1428,7 +1427,7 @@ fn update_status() {
             let s = &a.stats;
             tr!(
                 TrayTip,
-                version = VERSION,
+                version = BUILD,
                 down = fmt::speed_always(s.download_rate),
                 up = fmt::speed_always(s.upload_rate)
             )
@@ -2921,7 +2920,7 @@ fn about() {
         .modal(true)
         .program_name("PaTorrent")
         .logo_icon_name(APP_ID)
-        .version(patorrent_core::VERSION)
+        .version(BUILD)
         .comments(tr!(AboutShort))
         .website("https://github.com/Balls0fSteel/PaTorrent")
         .build()

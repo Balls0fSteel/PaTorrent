@@ -2472,6 +2472,11 @@ impl Engine {
         }
         t.checking = false;
         t.started_at = None;
+        // its stat ticks only while it runs: the rates would stay at their last values, and
+        // a Stopped row would keep showing a download speed
+        if let Some(s) = t.stat.as_deref_mut() {
+            s.reset_rates();
+        }
         t.status_dirty = true;
         t.resume_dirty = true;
         let max_paused = self.settings.max_paused_peerlist_size.max(0) as usize;

@@ -1,11 +1,12 @@
 //! Report-style list views (the torrent list and the detail tabs) and their columns.
 
 use std::mem::zeroed;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
-    COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, CreateSolidBrush, DeleteObject,
-    DrawFocusRect, FillRect, GetSysColor,
+    COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_HIGHLIGHT, COLOR_HIGHLIGHTTEXT, COLOR_WINDOW, CreateSolidBrush,
+    DeleteObject, DrawFocusRect, FillRect, GetSysColor,
 };
 use windows_sys::Win32::UI::Controls::{
     CDDS_ITEMPOSTPAINT, CDDS_ITEMPREPAINT, CDDS_PREPAINT, CDDS_SUBITEM, CDIS_FOCUS, CDIS_SELECTED,
@@ -167,20 +168,39 @@ pub unsafe fn cell_rect(lv: HWND, row: usize, sub: usize) -> RECT {
     }
 }
 
+/// Whether every other row is shaded (Preferences > UI Settings "Alternate list background
+/// color", `ui.alternate_rows`), for every list view painted through this module.
+static ALTERNATE_ROWS: AtomicBool = AtomicBool::new(true);
+
+pub fn set_alternate_rows(on: bool) {
+    ALTERNATE_ROWS.store(on, Ordering::Relaxed);
+}
+
+/// The background of an unselected row: the window colour, or for every other row (when
+/// shading is on) the window colour darkened a little, so it follows the system's colours.
+fn row_background(row: usize) -> COLORREF {
+    let window = unsafe { GetSysColor(COLOR_WINDOW) };
+    if row % 2 == 0 || !ALTERNATE_ROWS.load(Ordering::Relaxed) {
+        return window;
+    }
+    let shade = |c: u32| (c * 15 / 16) & 0xff;
+    shade(window & 0xff) | (shade((window >> 8) & 0xff) << 8) | (shade((window >> 16) & 0xff) << 16)
+}
+
 /// Paints µTorrent's selection at `CDDS_ITEMPREPAINT`: one solid bar across the row
 /// (`COLOR_HIGHLIGHT` while the list has the focus, `COLOR_BTNFACE` otherwise), not the theme's
 /// per-cell highlights with the column padding left white between them. The item loses its
 /// selected and focused states so the list view paints the cells' text over the bar with the
-/// colours set here; the focus rectangle spans the row ([`selection_post_paint`]). Returns the
-/// stage's result: the caller adds `CDRF_NOTIFYSUBITEMDRAW` when it draws cells of its own.
+/// colours set here; the focus rectangle spans the row ([`selection_post_paint`]). An unselected
+/// row gets its [`row_background`] the same way (the shaded bar spans the column padding too).
+/// Returns the stage's result: the caller adds `CDRF_NOTIFYSUBITEMDRAW` when it draws cells of
+/// its own.
 pub unsafe fn selection_pre_paint(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
     unsafe {
         let lv = cd.nmcd.hdr.hwndFrom;
         let row = cd.nmcd.dwItemSpec;
-        if !is_selected(lv, row) {
-            return CDRF_DODEFAULT as LRESULT;
-        }
-        let (bk, _) = selection_colours(lv);
+        let selected = is_selected(lv, row);
+        let bk = if selected { selection_colours(lv).0 } else { row_background(row) };
         let mut rc: RECT = zeroed();
         rc.left = LVIR_BOUNDS as i32;
         send(lv, LVM_GETITEMRECT, row, &mut rc as *mut _ as LPARAM);
@@ -188,16 +208,19 @@ pub unsafe fn selection_pre_paint(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
         FillRect(cd.nmcd.hdc, &rc, brush);
         DeleteObject(brush);
         selection_cell_colours(cd);
-        CDRF_NOTIFYPOSTPAINT as LRESULT
+        if selected { CDRF_NOTIFYPOSTPAINT as LRESULT } else { CDRF_DODEFAULT as LRESULT }
     }
 }
 
-/// At `CDDS_ITEMPREPAINT | CDDS_SUBITEM`: the selected row's text colours again (the list view
-/// restores the item's state for each cell).
+/// At `CDDS_ITEMPREPAINT | CDDS_SUBITEM`: the row's colours again (the list view restores the
+/// item's state and colours for each cell): the selection's, or the unselected row's
+/// background behind its text.
 pub unsafe fn selection_cell_colours(cd: &mut NMLVCUSTOMDRAW) {
     unsafe {
         let lv = cd.nmcd.hdr.hwndFrom;
-        if !is_selected(lv, cd.nmcd.dwItemSpec) {
+        let row = cd.nmcd.dwItemSpec;
+        if !is_selected(lv, row) {
+            cd.clrTextBk = row_background(row);
             return;
         }
         let (bk, text) = selection_colours(lv);

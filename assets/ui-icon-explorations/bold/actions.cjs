@@ -4,11 +4,59 @@
 module.exports = H => {
  const {r,p,s,c,o}=H;
  const even=d=>`<path d="${d}" fill="currentColor" fill-rule="evenodd"/>`;
- const page=even('M1 1h4l3 3v7H1Z M3 3v6h3V5H4V3Z');
- const pageLarge=even('M1 1h4l3 3v7H1Z M2.5 2.5v7h4V4.5H4V2.5Z');
+ // Revision 7: the page, magnet and trash are pixel art with one 2 px stroke each, so the
+ // 24 px fit is a uniform 3 px. The page is a 7 x 12 outline in x 1-8 with a dog-ear:
+ // its top-right corner is cut three pixels deep along a 2 px diagonal (a two-pixel cut
+ // read as the letter D; the old solid fold was a 4 px blob and its 1.5 px large variant
+ // gave a 3 px bottom edge beside 2 px sides at 24 px).
+ const page=H.px(1,1,[
+  '####',
+  '#####',
+  '##.###',
+  '##..###',
+  '##...##',
+  '##...##',
+  '##...##',
+  '##...##',
+  '##...##',
+  '##...##',
+  '#######',
+  '#######']);
  const plus=r(11,9,2,6)+r(9,11,6,2);
  const tag=even('M1 1h5l4 4-5 5-4-4Z M3 3v2h2V3Z');
- const trash=even('M4 6h8v9H4Z M6 8v5h1V8Z M9 8v5h1V8Z')+r(3,3,10,2)+r(6,1,4,2);
+ // Trash can: 2 px handle, lid, walls, ribs and slots, each centred on x 8 with an odd
+ // half-width so the 24 px fit stays centred. The old solid can had 1 px slots that
+ // became 2 px and 1 px at 24 px, under a lid that sat 1 px off centre.
+ const trash=H.px(1,1,[
+  '....######',
+  '....######',
+  '##############',
+  '##############',
+  '',
+  '..##########',
+  '..##########',
+  '..##..##..##',
+  '..##..##..##',
+  '..##..##..##',
+  '..##..##..##',
+  '..##..##..##',
+  '..##########',
+  '..##########']);
+ // Horseshoe magnet in x 1-8: a 7 px arch, 2 px arms and pole tips split off by a 1 px
+ // gap. Upright and with equal arms it is the shape the revision 4 review asked for;
+ // the revision 5 chain link had 1 px loops beside the 2 px bar and plus.
+ const magnet=H.px(1,1,[
+  '..###',
+  '.#####',
+  '##...##',
+  '##...##',
+  '##...##',
+  '##...##',
+  '##...##',
+  '##...##',
+  '',
+  '##...##',
+  '##...##']);
  const miniTrash=even('M2 6h5v8H2Z M4 8v4h1V8Z')+r(1,3,7,2)+r(3,1,3,2);
  const list=r(1,2,5,2)+r(1,7,5,2)+r(1,12,5,2);
  const upChevron=s('M9 9l2.5-3 2.5 3');
@@ -19,11 +67,9 @@ module.exports = H => {
  const bolt=p('M13 1l-3 7h2l-1 7 4-9h-3Z');
  const gauge=H.px(0,0,['','.....######','...##......##','..#..........#','.#........##..#','.#.......##...#','.#......##....#','.#.....##.....#','.##############']);
  return {
-  'add-torrent':{small:page+plus,large:pageLarge+plus,color:'teal'},
-  'add-url':{
-   // A chain link (D29): two open loops joined by a bar. Magnet links are URLs too.
-   small:H.px(0,0,['','..#####..#####','.##..........##','.#...######...#','.#...######...#','.##..........##','..#####..#####'])+plus,color:'teal'},
-  'create-torrent':{small:page+p('M9 12l4-4 2 2-4 4-3 1Z'),large:pageLarge+p('M9 12l4-4 2 2-4 4-3 1Z'),color:'teal'},
+  'add-torrent':{small:page+plus,color:'teal'},
+  'add-url':{small:magnet+plus,color:'teal'},
+  'create-torrent':{small:page+p('M9 12l4-4 2 2-4 4-3 1Z'),color:'teal'},
   remove:{small:trash,color:'red'},
   'delete-data':{small:miniTrash+s('M10 10l4 4m0-4-4 4'),large:miniTrash+s('M10 10l4 4m0-4-4 4'),color:'red'},
   start:{small:p('M3 2l11 6-11 6Z'),color:'teal'},

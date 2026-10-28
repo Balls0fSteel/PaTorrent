@@ -1,6 +1,6 @@
 # Detailed backlog
 
-Last updated: 2026-10-27_225501_1793138101 (Europe/Budapest).
+Last updated: 2026-10-28_075806_1793170686 (Europe/Budapest).
 
 Start with [PLAN.md](../PLAN.md) for priorities and release gates. Load only the
 topic needed here. These are open checks, known limitations and conditional
@@ -47,46 +47,36 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
 
 ## Owner hand-test findings (2026-10-27_225501_1793138101)
 
-Reported by the owner on a Win32 build; not yet investigated or fixed.
+Reported by the owner on a Win32 build; fixed 2026-10-28_075806_1793170686 (see the
+changelog) and awaiting the owner's re-test on a build that shows `1.0.2-dev.<commit>`
+in its title bar. Still open from that round:
 
-- **Toolbar icons:** Add Torrent from URL (magnet) still looks bad; Add Torrent
-  and Remove (trash) also look off: stroke widths are not uniform. Audit the
-  toolbar SVGs (`assets/ui-icon-explorations/bold`, `check-geometry.cjs`) for
-  mixed stroke widths and off-grid coordinates at the rendered 16/24 px sizes.
-- **Scheduler flicker:** the Preferences scheduler grid (`sched_grid.rs`)
-  flickers while the schedule is being edited (painting/dragging cells). Likely
-  needs double-buffered painting / no background erase.
-- **Scheduler colours:** the grid's colour scheme differs from µTorrent 2.2.1;
-  compare against `z_exclude_uTorrent/screenshots` (Scheduler page).
-- **Unclear state icon:** a black floppy with an orange mark shown for torrents
-  in "Checking 0.0 %" is unreadable at 16 px; probably `checking-resume-data` or
-  `queued-resume-checking`. Make the checking states recognisable (or closer to
-  2.2.1) at 16 px. Several newly added torrents also sat at "Checking 0.0 %"
-  together; confirm they progress (queued checks vs a stall).
-- **Invisible row:** after adding a download, a whole row can render blank
-  (selected row shows no text). Likely a virtual-list item whose data was not
-  ready or an invalidation/cache issue on insert.
-- **Stopped torrent shows a down speed:** a Stopped torrent showed "1009..." in
-  Down Speed; stopped rows should clear speeds (also check the column is not
-  just too narrow for its value).
-- **Alternating row colours:** the torrent list (and probably other list views)
-  needs alternate row shading.
-- **Version every change:** bump the version with every change set so builds
-  are distinguishable (1.0.2, 1.0.3, ... even into the hundreds). The peer ID is
-  decoupled from it (D37): change `PEER_ID_PREFIX` in
-  `crates/core/src/version.rs` only on an engine/core change, as a counter
-  (`-PA1010-` → `-PA1011-` → `-PA1012-` ...); replace the
-  `peer_id_prefix_tracks_version` test and its doc comment, and update
-  RELEASING.md step 2 and PLAN's V1.1 line.
-  Test builds should also carry a distinct version string (e.g. a
-  `-test.<n>` or commit suffix) shown in the title bar and About: a
-  "missing Add dialog" report came from testing an older test build that
-  looked identical to the current one.
-- **Hotkey support:** add keyboard shortcuts across the app, matching 2.2.1
-  where it had them (Ctrl+O add, Ctrl+U add from URL, Ctrl+N create, Ctrl+P
-  preferences, Del / Shift+Del remove, Ctrl+A, Enter for Properties, start /
-  stop / pause keys, F2 rename where applicable); inventory what exists today
-  (Ctrl+P and the search box's focus keys do) and show them in the menus.
+- **Re-test on Win32:** scheduler grid (no flicker while dragging; dark green / light
+  green / white / light red cells, black lines; greyed table when the scheduler is off),
+  toolbar Add / Add from URL / Remove and the four amber checking icons at 16 px and at
+  150 % DPI, alternate row shading in the torrent list and the detail tabs (UI Settings
+  box), a Stopped row's empty speed cells, no blank row after an add, and the new keys
+  (Ctrl+S / Ctrl+T / Ctrl+Shift+P start / stop / pause, Enter for Properties, Del and
+  Shift+Del shown on the context menu). Ctrl+Space was left to the list view, whose own
+  key it is (toggle the focused row's selection).
+- **Checking progress:** several newly added torrents sat at "Checking 0.0 %" together;
+  `active_checking` is 1, so confirm whether the rest should read "Queued for checking"
+  (auto-managed) or whether the checks stall. Not reproduced yet.
+- **Blank row cause:** the fix repaints a row whose cells were asked for while the app
+  state was borrowed (a modal box or a control updated inside `with_app`); the call that
+  borrowed it during the add was not identified. If a blank row recurs, find that caller.
+- **GTK:** no alternate row shading (a CSS `nth-child` rule on the column view's rows would
+  do; the UI Settings box is hidden there, `Features::alternate_rows`), and the new
+  Start / Stop / Pause / Enter keys exist on Win32 only. The scheduler colours are shared.
+- **Add from URL icon:** revision 7 draws a horseshoe magnet with the plus badge (the owner's
+  finding named a magnet), which contradicts D29's chain link. The owner decides; the chain
+  link with thickened loops is the alternative (its drawing is at `16b14bf0`). Record the
+  outcome as a D29 amendment.
+- **Alternate colour:** the shade is the window colour at 15/16 (about `0xF0F0F0` on
+  white), not sampled from 2.2.1; compare on the owner's machine.
+- **Build string:** `cargo build` without `PATORRENT_BUILD` reads git at build-script time
+  and reruns when HEAD moves, so a plain cargo build in a dirty tree shows its last
+  commit without `.dirty`; `build.bat` sets the exact suffix every time.
 
 ## Win32 layout and dialogs
 
@@ -590,10 +580,11 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
 - FreeBSD CI runs main/weekly; with a public repo it could run every push.
   macOS CI runs each push/PR, but Intel is build-only for non-GTK targets and
   OpenBSD lacks CI. Do not infer desktop coverage from these jobs.
-- At first public release, bump version and peer ID together (`-PA1000-` for
-  1.0.0; test enforces it), make release notes/tagged draft artifacts and request
-  `PA` recognition from libtorrent, Transmission, webtorrent's peer-id parser
-  and the BEP20 list. Keep stats/intervals/identity honest for private trackers;
+- The version is bumped with every change set and the peer ID is a separate
+  counter (D37, `-PA1010-` since 1.0.1; bump it only for a wire-behaviour
+  change). Make release notes/tagged draft artifacts and request `PA`
+  recognition from libtorrent, Transmission, webtorrent's peer-id parser and
+  the BEP20 list. Keep stats/intervals/identity honest for private trackers;
   staff need a stable tagged release and may never whitelist a new client.
 - The abandoned vcpkg cache (about 2 GB under `%LOCALAPPDATA%/vcpkg`) is an
   optional user cleanup only if no other project needs it.

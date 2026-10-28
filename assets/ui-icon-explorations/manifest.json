@@ -14,7 +14,7 @@
       "group": "Actions",
       "color": "teal",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "add-url",
@@ -30,7 +30,7 @@
       "group": "Actions",
       "color": "teal",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "remove",
@@ -606,7 +606,7 @@
       "group": "Torrent states",
       "color": "amber",
       "revised": true,
-      "largeDrawing": true
+      "largeDrawing": false
     },
     {
       "id": "queued-checking",

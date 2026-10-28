@@ -12,17 +12,18 @@ use patorrent_frontend::lang;
 use patorrent_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode, drag_line, hover_text};
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
-    BeginPaint, COLOR_BTNFACE, COLOR_BTNTEXT, CreateSolidBrush, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS,
-    DT_LEFT, DT_RTLREADING, DT_SINGLELINE, DT_VCENTER, DeleteObject, DrawTextW, EndPaint, FillRect,
-    FrameRect, GetSysColor, GetSysColorBrush, HFONT, HGDIOBJ, InvalidateRect, PAINTSTRUCT, SelectObject,
-    SetBkMode, SetTextColor, TRANSPARENT,
+    BeginPaint, BitBlt, COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_GRAYTEXT, CreateCompatibleBitmap,
+    CreateCompatibleDC, CreateSolidBrush, DT_CALCRECT, DT_CENTER, DT_END_ELLIPSIS, DT_LEFT, DT_RTLREADING,
+    DT_SINGLELINE, DT_VCENTER, DeleteDC, DeleteObject, DrawTextW, EndPaint, FillRect, FrameRect, GetSysColor,
+    GetSysColorBrush, HDC, HFONT, HGDIOBJ, InvalidateRect, PAINTSTRUCT, SRCCOPY, SelectObject, SetBkMode,
+    SetTextColor, TRANSPARENT,
 };
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-use windows_sys::Win32::UI::Input::KeyboardAndMouse::{ReleaseCapture, SetCapture};
+use windows_sys::Win32::UI::Input::KeyboardAndMouse::{IsWindowEnabled, ReleaseCapture, SetCapture};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     DefWindowProcW, GWLP_USERDATA, GetClientRect, GetParent, GetWindowLongPtrW, IDC_ARROW, LoadCursorW,
-    RegisterClassExW, SetWindowLongPtrW, WM_GETFONT, WM_LBUTTONDOWN, WM_LBUTTONUP, WM_MOUSEMOVE, WM_NCCREATE,
-    WM_NCDESTROY, WM_PAINT, WM_USER, WNDCLASSEXW,
+    RegisterClassExW, SetWindowLongPtrW, WM_ENABLE, WM_ERASEBKGND, WM_GETFONT, WM_LBUTTONDOWN, WM_LBUTTONUP,
+    WM_MOUSEMOVE, WM_NCCREATE, WM_NCDESTROY, WM_PAINT, WM_USER, WNDCLASSEXW,
 };
 
 use crate::util::{point_from_lparam, rtl, send, wide};
@@ -41,10 +42,25 @@ struct Grid {
     hover: Option<usize>,
 }
 
-/// A cell's colour as GDI wants it (BGR).
-fn color(m: Mode) -> COLORREF {
-    let c = m.rgb();
+/// `0xRRGGBB` as GDI wants it (BGR).
+fn bgr(c: u32) -> COLORREF {
     ((c & 0xff) << 16) | (c & 0xff00) | (c >> 16)
+}
+
+/// A cell's colour: the mode's while the scheduler is enabled; greyed, as µTorrent 2.2.1 draws
+/// the disabled table (its cells all white, its legend in greys: 0x38 Full speed, 0xa2 Limited,
+/// 0xd4 Seeding only).
+fn color(m: Mode, enabled: bool) -> COLORREF {
+    if enabled {
+        return bgr(m.rgb());
+    }
+    let g = match m {
+        Mode::Full => 0x38,
+        Mode::Limited => 0xa2,
+        Mode::Off => 0xff,
+        Mode::SeedOnly => 0xd4,
+    };
+    g | (g << 8) | (g << 16)
 }
 
 pub fn register() {
@@ -104,47 +120,70 @@ unsafe fn layout(hwnd: HWND) -> Layout {
 }
 
 /// How wide `s` is in `dc`'s font.
-unsafe fn text_width(dc: windows_sys::Win32::Graphics::Gdi::HDC, s: &str) -> i32 {
+unsafe fn text_width(dc: HDC, s: &str) -> i32 {
     let w: Vec<u16> = s.encode_utf16().collect();
     let mut r = RECT { left: 0, top: 0, right: 0, bottom: 0 };
     unsafe { DrawTextW(dc, w.as_ptr(), w.len() as i32, &mut r, DT_CALCRECT | DT_SINGLELINE) };
     r.right - r.left
 }
 
-unsafe fn text(dc: windows_sys::Win32::Graphics::Gdi::HDC, s: &str, rc: &RECT, flags: u32) {
+unsafe fn text(dc: HDC, s: &str, rc: &RECT, flags: u32) {
     let w: Vec<u16> = s.encode_utf16().collect();
     let mut r = *rc;
     let flags = flags | DT_SINGLELINE | DT_VCENTER | rtl(DT_RTLREADING);
     unsafe { DrawTextW(dc, w.as_ptr(), w.len() as i32, &mut r, flags) };
 }
 
+/// Paints the whole control into a memory bitmap, then copies it to the window in one go: the
+/// cells repaint at every mouse move while dragging, and painting them one by one on the
+/// screen flickered.
 unsafe fn paint(hwnd: HWND, g: &Grid) {
     unsafe {
         let mut ps: PAINTSTRUCT = zeroed();
-        let dc = BeginPaint(hwnd, &mut ps);
+        let window = BeginPaint(hwnd, &mut ps);
         let mut rc: RECT = zeroed();
         GetClientRect(hwnd, &mut rc);
-        FillRect(dc, &rc, GetSysColorBrush(COLOR_BTNFACE));
+        let (w, h) = (rc.right.max(1), rc.bottom.max(1));
+        let dc = CreateCompatibleDC(window);
+        let bmp = CreateCompatibleBitmap(window, w, h);
+        let old_bmp = SelectObject(dc, bmp as HGDIOBJ);
+        draw(hwnd, dc, &rc, g);
+        BitBlt(window, 0, 0, w, h, dc, 0, 0, SRCCOPY);
+        SelectObject(dc, old_bmp);
+        DeleteObject(bmp as HGDIOBJ);
+        DeleteDC(dc);
+        EndPaint(hwnd, &ps);
+    }
+}
+
+/// The control's picture in `dc`, `rc` being its client area. Disabled, it is drawn as
+/// µTorrent 2.2.1 draws it: white cells, grey legend swatches and grey text.
+unsafe fn draw(hwnd: HWND, dc: HDC, rc: &RECT, g: &Grid) {
+    unsafe {
+        let enabled = IsWindowEnabled(hwnd) != 0;
+        FillRect(dc, rc, GetSysColorBrush(COLOR_BTNFACE));
         let font = send(GetParent(hwnd), WM_GETFONT, 0, 0) as HFONT;
         let old_font = SelectObject(dc, font as HGDIOBJ);
         SetBkMode(dc, TRANSPARENT as i32);
-        SetTextColor(dc, GetSysColor(COLOR_BTNTEXT));
+        SetTextColor(dc, GetSysColor(if enabled { COLOR_BTNTEXT } else { COLOR_GRAYTEXT }));
         let l = Layout::new(rc.right, rc.bottom);
         for h in (0..HOURS).step_by(3) {
             let c = l.cell_rect(0, h);
             let r = RECT { left: c.left - l.cell_w, top: 0, right: c.left + 2 * l.cell_w, bottom: l.top };
             text(dc, &h.to_string(), &r, DT_CENTER);
         }
-        let frame = CreateSolidBrush(0x00808080);
-        let brushes = Mode::ALL.map(|m| CreateSolidBrush(color(m)));
+        // black grid lines, as µTorrent's
+        let frame = CreateSolidBrush(0x0000_0000);
+        let brushes = Mode::ALL.map(|m| CreateSolidBrush(color(m, enabled)));
         let brush = |m: Mode| brushes[Mode::ALL.iter().position(|&x| x == m).unwrap_or(0)];
+        let white = brush(Mode::Off);
         for (day, name) in DAY_NAMES.iter().enumerate() {
             let c = l.cell_rect(day, 0);
             let r = RECT { left: 0, top: c.top, right: l.label_w - 2, bottom: c.bottom };
             text(dc, lang::text(*name), &r, DT_LEFT);
             for hour in 0..HOURS {
                 let c = l.cell_rect(day, hour);
-                FillRect(dc, &c, brush(g.table[day * HOURS + hour]));
+                FillRect(dc, &c, if enabled { brush(g.table[day * HOURS + hour]) } else { white });
                 FrameRect(dc, &c, frame);
             }
         }
@@ -180,7 +219,6 @@ unsafe fn paint(hwnd: HWND, g: &Grid) {
             DeleteObject(b as HGDIOBJ);
         }
         SelectObject(dc, old_font);
-        EndPaint(hwnd, &ps);
     }
 }
 
@@ -213,6 +251,12 @@ unsafe extern "system" fn proc_(hwnd: HWND, msg: u32, wp: WPARAM, lp: LPARAM) ->
             }
             WM_PAINT => {
                 paint(hwnd, g);
+                0
+            }
+            // the bitmap covers the client area: clearing it first is what flickered
+            WM_ERASEBKGND => 1,
+            WM_ENABLE => {
+                InvalidateRect(hwnd, null(), 0);
                 0
             }
             WM_LBUTTONDOWN => {

@@ -216,6 +216,10 @@ impl Column {
             Column::Status => status_text(st, x.user_paused),
             Column::Seeds => swarm(st.num_seeds, st.num_complete),
             Column::Peers => swarm(st.num_peers.saturating_sub(st.num_seeds), st.num_incomplete),
+            // a stopped or queued torrent transfers nothing: no stale rate from before it
+            // stopped, however the engine's average decays
+            Column::DownSpeed if st.flags.contains(patorrent_core::TorrentFlags::PAUSED) => String::new(),
+            Column::UpSpeed if st.flags.contains(patorrent_core::TorrentFlags::PAUSED) => String::new(),
             Column::DownSpeed => fmt::speed(st.download_payload_rate),
             Column::UpSpeed => fmt::speed(st.upload_payload_rate),
             Column::Eta => {
@@ -566,5 +570,20 @@ mod tests {
         assert_eq!(Column::Peers.text(&st, x), "3");
         assert_eq!(Column::QueuePosition.text(&st, x), "1");
         assert_eq!(Column::DownSpeed.text(&st, x), "");
+    }
+
+    #[test]
+    fn stopped_rows_show_no_speed() {
+        let mut st = TorrentStatus {
+            download_payload_rate: 1_009_000,
+            upload_payload_rate: 2_000,
+            ..TorrentStatus::default()
+        };
+        let x = RowExtra::default();
+        assert_ne!(Column::DownSpeed.text(&st, x), "");
+        assert_ne!(Column::UpSpeed.text(&st, x), "");
+        st.flags |= patorrent_core::TorrentFlags::PAUSED;
+        assert_eq!(Column::DownSpeed.text(&st, x), "");
+        assert_eq!(Column::UpSpeed.text(&st, x), "");
     }
 }

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-27_225501_1793138101
+Last updated: 2026-10-28_075806_1793170686
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D35](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -30,7 +30,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-0. **Owner hand-test findings (2026-10-27_225501_1793138101):** toolbar icon strokes, scheduler flicker/colours, unclear checking icon, blank rows, alternating rows, hotkey support, a version bump per change and distinct test-build versions, with the peer ID decoupled (D37). Details: [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
+0. **Owner hand-test findings (2026-10-27):** fixed on `main` 2026-10-28_075806_1793170686 (scheduler flicker and colours, stale speed on stopped rows, blank rows, alternating rows, hotkeys with menu labels, redrawn toolbar/checking icons, version 1.0.2 with `-dev.<commit>` test-build strings, D37). The owner re-tests them on a fresh Win32 build; what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
 1. **After 1.0.1:** confirm the website serves `stable=1.0.1` in `update.txt` (the Pages deploy finished; the CDN caches 10 min) and that an rc.1 build offers the update. 1.0.1 is the installer's first release: run its wizard and the all-users UAC path once on a real PC. Register `PA` with the client-ID lists (item 14).
 2. Rerun `tools/bench` before each release and on bare metal when one is free ([BACKLOG](docs/BACKLOG.md#validation-and-development-environment)).
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.

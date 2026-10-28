@@ -1,8 +1,10 @@
-/// PaTorrent version, from Cargo.
+/// PaTorrent version, from Cargo. Bumped with every change set (D37), so every build is
+/// distinguishable; the frontend's `BUILD` adds a `-dev.<commit>` suffix to a build that is not
+/// a tagged release.
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
-/// The name with the version, where µTorrent 2.2.1 showed "µTorrent 2.2.1": the main window's
-/// title and the tray icon's tooltip.
+/// The name with the version. The GUIs' title bars and tray tooltips show the frontend's
+/// `NAME_BUILD` instead, which carries the development suffix.
 pub const NAME_VERSION: &str = concat!("PaTorrent ", env!("CARGO_PKG_VERSION"));
 
 /// Default HTTP `User-Agent` for trackers and web seeds (libtorrent setting `user_agent`).
@@ -12,9 +14,10 @@ pub const USER_AGENT: &str = concat!("PaTorrent/", env!("CARGO_PKG_VERSION"));
 ///
 /// `PA` is PaTorrent's own code (PLAN.md D16). It is free in libtorrent's `identify_client.cpp` and the
 /// BEP 20 list; `LR` there is the unrelated Android LibreTorrent.
-/// The four version characters must be kept in sync with the crate version.
-/// A pre-release (`1.0.0-rc.1`) carries the version it leads to: the four characters have no room
-/// for its suffix.
+/// The four characters are a counter, not the version (D37): `-PA1010-` went out with 1.0.1,
+/// and the number goes up by one (`-PA1011-`, `-PA1012-`, ...) only with an engine change that
+/// alters how the client behaves on the wire. Peers only need to tell engine behaviour apart,
+/// and the version moves with every change set, far faster than four characters can follow.
 pub const PEER_ID_PREFIX: &str = "-PA1010-";
 
 #[cfg(test)]
@@ -31,10 +34,10 @@ mod tests {
     }
 
     #[test]
-    fn peer_id_prefix_tracks_version() {
-        let release = VERSION.split('-').next().unwrap();
-        let mut parts = release.split('.').map(|p| p.parse::<u32>().unwrap());
-        let (major, minor, tiny) = (parts.next().unwrap(), parts.next().unwrap(), parts.next().unwrap());
-        assert_eq!(&PEER_ID_PREFIX[3..6], format!("{major}{minor}{tiny}"));
+    fn peer_id_prefix_is_a_pa_counter() {
+        // D37: `-PA` + a four-digit counter from 1010 on, not the version
+        assert!(PEER_ID_PREFIX.starts_with("-PA"));
+        let n: u32 = PEER_ID_PREFIX[3..7].parse().expect("four digits");
+        assert!(n >= 1010, "{n}");
     }
 }

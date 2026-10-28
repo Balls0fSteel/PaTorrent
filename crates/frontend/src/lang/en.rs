@@ -179,6 +179,12 @@ strings! {
     MenuWebsite = "PaTorrent &Website";
     /// The Ctrl key, as menus write shortcuts (Ctrl+O).
     KeyCtrl = "Ctrl";
+    /// The Shift key, as menus write shortcuts (Shift+Del).
+    KeyShift = "Shift";
+    /// The Delete key, as menus write shortcuts (Del).
+    KeyDel = "Del";
+    /// The Enter key, as menus write shortcuts (Enter).
+    KeyEnter = "Enter";
     MenuHide = "&Hide PaTorrent";
     MenuShow = "&Show PaTorrent";
     MenuStartAll = "S&tart All Torrents";
@@ -582,6 +588,8 @@ strings! {
     PrefUpdateBeta = "Update to beta versions";
     PrefDisplay = "Display Options";
     PrefConfirmDelete = "Confirm when deleting torrents";
+    /// Every other row of the torrent list (and the other lists) gets a light grey background.
+    PrefAlternateRows = "Alternate list background color";
     PrefBalloons = "Show balloon notifications in tray";
     PrefTray = "System Tray";
     PrefCloseToTray = "Close to tray";

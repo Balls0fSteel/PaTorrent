@@ -129,6 +129,8 @@ pub struct Features {
     pub packaged: bool,
     /// The update check ([`crate::update`]): General shows its Privacy group.
     pub updates: bool,
+    /// The lists shade every other row (`ui.alternate_rows`): UI Settings shows its box.
+    pub alternate_rows: bool,
 }
 
 const KB: i64 = 1024;
@@ -302,6 +304,14 @@ pub fn pages(features: Features) -> Vec<Page> {
             |o, v| o.gui.confirm_delete = v,
         )),
     ];
+    if features.alternate_rows {
+        ui.push(F(checkbox(
+            "ui.alternate_rows",
+            S::PrefAlternateRows,
+            |o| o.gui.alternate_rows,
+            |o, v| o.gui.alternate_rows = v,
+        )));
+    }
     if features.tray {
         ui.extend([
             F(checkbox("ui.balloons", S::PrefBalloons, |o| o.gui.balloons, |o, v| o.gui.balloons = v)),
@@ -1071,7 +1081,13 @@ mod tests {
 
     #[test]
     fn keys_are_unique_and_every_value_round_trips() {
-        let pages = pages(Features { tray: true, desktop: true, packaged: false, updates: true });
+        let pages = pages(Features {
+            tray: true,
+            desktop: true,
+            packaged: false,
+            updates: true,
+            alternate_rows: true,
+        });
         let mut seen = std::collections::HashSet::new();
         for f in fields(&pages) {
             assert!(seen.insert(f.key), "{} twice", f.key);
@@ -1098,7 +1114,13 @@ mod tests {
         assert_eq!(page_of(&pages, "assoc.minimized").map(|p| p.key), Some("general"));
         assert!(fields(&pages).all(|f| !f.fixed));
         // in a Flatpak the same boxes under the note, the associations greyed, autostart live
-        let packaged = super::pages(Features { tray: true, desktop: true, packaged: true, updates: false });
+        let packaged = super::pages(Features {
+            tray: true,
+            desktop: true,
+            packaged: true,
+            updates: false,
+            alternate_rows: false,
+        });
         let desktop = |f: &&Field| f.key.starts_with("assoc.") || f.key == "ui.check_assoc";
         assert_eq!(fields(&packaged).filter(desktop).count(), 5);
         let associations = ["assoc.torrent", "assoc.magnet", "ui.check_assoc"];

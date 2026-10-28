@@ -129,6 +129,8 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
         tray: hooks.tray,
         // a Flatpak is updated by Flathub
         updates: patorrent_frontend::update::AVAILABLE && !crate::integration::packaged(),
+        // GTK's lists have no alternate shading yet (BACKLOG, GTK desktop checks)
+        alternate_rows: false,
     });
     if !crate::integration::associations_settable() {
         // macOS outside PaTorrent.app: no bundle id to register, autostart still works

@@ -81,13 +81,14 @@ impl Mode {
         }
     }
 
-    /// The cell's colour as `0xRRGGBB`, µTorrent's: green, light green, white, blue.
+    /// The cell's colour as `0xRRGGBB`, µTorrent's (its manual: "dark green, light green,
+    /// white and light red" for Full speed, Limited, Turn off and Seeding only).
     pub fn rgb(self) -> u32 {
         match self {
-            Mode::Full => 0x40b040,
-            Mode::Limited => 0xa0e8a0,
+            Mode::Full => 0x008000,
+            Mode::Limited => 0x90ee90,
             Mode::Off => 0xffffff,
-            Mode::SeedOnly => 0x60a0e0,
+            Mode::SeedOnly => 0xffa0a0,
         }
     }
 }

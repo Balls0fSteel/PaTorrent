@@ -26,7 +26,6 @@ use std::time::{Duration, Instant};
 use patorrent_core::{
     AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, PeerFlags, PeerInfo, PeerSource, ProxyType,
     Session, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus,
-    VERSION,
 };
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Step, When};
 use patorrent_frontend::{fmt, import, status};
@@ -407,7 +406,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         "-V" | "--version" => {
-            println!("patorrent-nox {VERSION}");
+            println!("patorrent-nox {}", patorrent_frontend::BUILD);
             return ExitCode::SUCCESS;
         }
         "--license" => {

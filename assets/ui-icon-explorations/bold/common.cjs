@@ -17,7 +17,26 @@ H.up=p('M7 14V7H3l5-5 5 5H9v7Z');
 H.pause=r(3,2,3,12)+r(10,2,3,12);
 H.stop=r(3,3,10,10);
 H.check=s('M3 8l3 3 7-7');
-H.verify=o(6,6,4)+s('M9 9l5 5')+s('M4 6l1.5 1.5 3-3',1.5);
+// Checking lens (revision 7): an 11 px ring with a 2 px rim at x 1-12 and a 2 px handle
+// to (14,14), all pixel art so the rim and handle keep one width at 16 and 24 px. The
+// 7 px hole takes a mark with a 1 px gap to the rim: a tick for verify/checking files.
+H.lens=px(0,1,[
+ '....#####',
+ '...#######',
+ '..###...###',
+ '.###.....###',
+ '.##.......##',
+ '.##.......##',
+ '.##.......##',
+ '.###.....###',
+ '..###...###',
+ '...#########',
+ '....#####.###',
+ '...........###',
+ '............###',
+ '.............##']);
+H.tick=px(5,5,['...#','#.##','###.','.#..']);
+H.verify=H.lens+H.tick;
 H.filter=p('M1 2h14v2l-5 5v4l-4 2V9L1 4Z');
 // Shared primitives drawn pixel by pixel on the 16 px grid (revisions 4-5).
 // Badges are 5 x 5 at x 10-14, y 10-14 (refresh: x 10-14, y 9-14). Bases keep a 1 px

@@ -19,7 +19,22 @@ if /i "%~1"=="debug" (
     set FLAGS=
 )
 
-echo Building PaTorrent (%PROFILE%)...
+rem The version the programs show (D37): the crate version plus -dev.<commit>, and .dirty when
+rem the tree has uncommitted changes, so test builds can be told apart. A tagged release gets
+rem no suffix. Without git, cargo's own fallback applies (crates\frontend\build.rs).
+set PATORRENT_BUILD=
+set VERSION=
+set DIRTY=
+for /f "tokens=3" %%v in ('findstr /b /c:"version = " Cargo.toml') do if not defined VERSION set VERSION=%%~v
+where git >nul 2>nul || goto :versioned
+for /f %%h in ('git rev-parse --short=7 HEAD 2^>nul') do set PATORRENT_BUILD=-dev.%%h
+for /f %%t in ('git tag --points-at HEAD 2^>nul') do if "%%t"=="v%VERSION%" set PATORRENT_BUILD=
+if not defined PATORRENT_BUILD goto :versioned
+for /f "delims=" %%s in ('git status --porcelain --untracked-files=no 2^>nul') do set DIRTY=1
+if defined DIRTY set PATORRENT_BUILD=%PATORRENT_BUILD%.dirty
+:versioned
+
+echo Building PaTorrent %VERSION%%PATORRENT_BUILD% (%PROFILE%)...
 cargo build %FLAGS% --workspace
 if errorlevel 1 (
     echo.

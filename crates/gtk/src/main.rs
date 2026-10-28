@@ -59,7 +59,7 @@ fn main() -> std::process::ExitCode {
     // before GTK starts, so it needs no display: the macOS release job runs it to prove that
     // the libraries bundled in PaTorrent.app load
     if matches!(std::env::args().nth(1).as_deref(), Some("--version" | "-V")) {
-        println!("patorrent-gtk {}", patorrent_core::VERSION);
+        println!("patorrent-gtk {}", patorrent_frontend::BUILD);
         return std::process::ExitCode::SUCCESS;
     }
     app::run()

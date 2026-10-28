@@ -78,6 +78,14 @@ impl StatChannel {
     pub fn rate(&self) -> u32 {
         self.rate.min(u32::MAX as f64) as u32
     }
+
+    /// Forgets the rate (the lifetime total stays): a channel that will not tick for a while,
+    /// such as a stopped torrent's, would otherwise report its last rate for ever.
+    pub fn reset_rate(&mut self) {
+        self.counter = 0;
+        self.rate = 0.0;
+        self.warm = false;
+    }
 }
 
 /// Payload and protocol traffic in both directions (libtorrent `stat`).
@@ -105,6 +113,15 @@ impl Stat {
     pub fn sent(&mut self, payload: u64, protocol: u64) {
         self.upload_payload.add(payload);
         self.upload_protocol.add(protocol);
+    }
+
+    /// Every channel's rate back to zero; the totals stay. For a torrent that stops: its stat
+    /// ticks only while it runs, so the rates would stay at their last values.
+    pub fn reset_rates(&mut self) {
+        self.download_payload.reset_rate();
+        self.upload_payload.reset_rate();
+        self.download_protocol.reset_rate();
+        self.upload_protocol.reset_rate();
     }
 
     pub fn download_rate(&self) -> u32 {
@@ -197,5 +214,21 @@ mod tests {
         }
         assert_eq!(c.rate(), 0);
         assert_eq!(c.total, 1000 + 50 * 500);
+    }
+
+    #[test]
+    fn reset_rates_keeps_the_totals() {
+        let mut s = Stat::default();
+        s.received(1_009_000, 100);
+        s.sent(2_000, 50);
+        s.tick(1.0);
+        assert_eq!(s.download_payload.rate(), 1_009_000);
+        s.reset_rates();
+        assert_eq!((s.download_rate(), s.upload_rate()), (0, 0));
+        assert_eq!((s.total_download(), s.total_upload()), (1_009_100, 2_050));
+        // the next tick starts afresh rather than averaging with the old rate
+        s.received(400, 0);
+        s.tick(1.0);
+        assert_eq!(s.download_payload.rate(), 400);
     }
 }

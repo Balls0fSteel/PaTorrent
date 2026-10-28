@@ -366,8 +366,16 @@ That broad check does not establish that every detailed case below was tried.
   stop/uninstall, crash restart, preshutdown, LocalService state/log access and
   surviving user logoff. Start failures lack Event Log reporting; no per-service
   SID/reduced privilege list; progress heartbeat is capped at 2 min. Changing
-  options requires reinstalling. `--webui-pass` in ImagePath is readable via
-  `sc qc`. Console close/logoff/shutdown waiting is also untested.
+  options requires reinstalling (`install --replace --now` does it in one go;
+  the password is stored hashed since 1.1.1, no longer in the ImagePath).
+  Console close/logoff/shutdown waiting is also untested.
+- Preferences > Web UI (Win32, 1.1.1) was tested only through the dialog's fake
+  service hook: run the real path once (UAC prompt, install from
+  `%LOCALAPPDATA%\Programs\PaTorrent`, where LocalService must be able to read
+  the exe; the per-user install folder may need a grant), Open Web UI, a changed
+  port, the box turned off, and a declined prompt. The page cannot read the
+  stored login, so a reinstall from another folder keeps the old password unless
+  a new one is typed. GTK has no such page (systemd units instead).
 - FreeBSD rc.d is syntax-checked but not installed/run with root. Daemon state
   directories have no shared lock, so different pid files can open one database.
   `--daemon` startup stderr goes to the terminal rather than the log. systemd and

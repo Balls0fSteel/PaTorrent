@@ -45,6 +45,8 @@ mod shutdown;
 mod tray;
 #[cfg(windows)]
 mod util;
+#[cfg(windows)]
+mod webui_service;
 
 #[cfg(windows)]
 fn main() {

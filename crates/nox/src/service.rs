@@ -15,6 +15,10 @@
 //!   automatic start, restart 5 s / 30 s / 60 s after a failure (also after a clean exit with an
 //!   error code), 60 s for the shutdown when Windows shuts down (PRESHUTDOWN). A warning names
 //!   who else can change the exe or its folder, as they could run code as the service.
+//!   `--webui-pass` (with `--webui-user`) never reaches the image path, which every local user
+//!   can read: install hashes it into the state directory's `webui.json`, where `run` finds it.
+//!   `--replace` removes an installed service first (its state stays) and `--now` starts the
+//!   new one, so one elevated command does what the Windows GUI's Preferences > Web UI asks.
 //! - `service uninstall`, `service start` and `service stop` (waiting for the state change).
 //! - `service run` is what the SCM starts: `StartServiceCtrlDispatcherW` → [`service_main`] →
 //!   `RegisterServiceCtrlHandlerExW`. The status follows the points where `daemon` sends
@@ -200,9 +204,15 @@ struct Install {
     /// The downloads folder when `--save` was not given (inside the state directory).
     default_save: Option<PathBuf>,
     log: PathBuf,
-    /// `--webui-pass` ends up in the service's configuration, which every local user can read.
-    password_in_args: bool,
+    /// `--webui-user` / `--webui-pass`: stored in the state directory's `webui.json` (the
+    /// password as a hash), never in the image path, which every local user can read.
+    webui_user: Option<String>,
+    webui_pass: Option<String>,
     webui: bool,
+    /// `--replace`: an installed service is stopped and removed first.
+    replace: bool,
+    /// `--now`: started once installed.
+    now: bool,
 }
 
 /// Whether `run` takes a value after `opt`, asked of `run`'s own parser (so the two cannot
@@ -211,19 +221,26 @@ fn takes_value(opt: &str) -> bool {
     opt.starts_with("--") && crate::parse(&[opt.to_owned()]).err() == Some(format!("{opt} needs a value"))
 }
 
-/// Parses `service install`'s options: its own (`--account`, `--start`) and `run`'s, which are
-/// checked by `run`'s parser. `program_data` is `%ProgramData%`, for the default state.
+/// Parses `service install`'s options: its own (`--account`, `--start`, `--replace`, `--now`)
+/// and `run`'s, which are checked by `run`'s parser; `--webui-pass` is kept out of the image
+/// path. `program_data` is `%ProgramData%`, for the default state.
 fn parse_install(args: &[String], program_data: Option<PathBuf>) -> Result<Install, String> {
     let mut account = Account::LocalService;
     let mut start = StartType::Delayed;
     let mut out = Vec::new();
     let mut has_save = false;
+    let mut webui_pass = None;
+    let mut replace = false;
+    let mut now = false;
     let mut it = args.iter();
     while let Some(a) = it.next() {
         let mut value = || it.next().cloned().ok_or_else(|| format!("{a} needs a value"));
         match a.as_str() {
             "--account" => account = Account::parse(&value()?)?,
             "--start" => start = StartType::parse(&value()?)?,
+            "--replace" => replace = true,
+            "--now" => now = true,
+            "--webui-pass" => webui_pass = Some(value()?),
             _ if takes_value(a) => {
                 let v = value()?;
                 has_save |= a == "--save";
@@ -268,16 +285,51 @@ fn parse_install(args: &[String], program_data: Option<PathBuf>) -> Result<Insta
         out.push(d.to_string_lossy().into_owned());
         d
     });
+    if webui_pass.as_deref() == Some("") {
+        return Err("service install: --webui-pass needs a password".into());
+    }
     Ok(Install {
         account,
         start,
         log: o.service.log.clone().unwrap_or_else(|| state.join(LOG_FILE)),
         state,
         default_save,
-        password_in_args: o.webui_pass.is_some(),
+        webui_user: o.webui_user.clone(),
+        webui_pass,
         webui: o.webui.is_some(),
+        replace,
+        now,
         args: out,
     })
+}
+
+/// Stores the Web UI login in the state directory's `webui.json` (merged into what is there),
+/// the password hashed as `run` stores it, so the image path never carries it. A stored name
+/// wins over `--webui-user` once a password is stored, so the name goes there too.
+fn store_login(state: &Path, username: Option<&str>, password: Option<&str>) -> Result<(), String> {
+    use crate::webui::auth::{DEFAULT_ITERATIONS, PasswordHash};
+    use crate::webui::json::{self, Json};
+
+    if username.is_none() && password.is_none() {
+        return Ok(());
+    }
+    let path = state.join(crate::webui::STATE_FILE);
+    let mut doc = match std::fs::read_to_string(&path) {
+        Ok(s) => json::parse(&s).map_err(|e| format!("{}: {e}", path.display()))?,
+        Err(e) if e.kind() == io::ErrorKind::NotFound => Json::obj(),
+        Err(e) => return Err(format!("{}: {e}", path.display())),
+    };
+    if !matches!(doc, Json::Obj(_)) {
+        return Err(format!("{}: not a JSON object", path.display()));
+    }
+    // the name given, else the stored one, else `run`'s default
+    let stored = doc.get("username").and_then(Json::as_str).unwrap_or("admin").to_owned();
+    doc.set("username", username.unwrap_or(&stored));
+    if let Some(p) = password {
+        doc.set("password", PasswordHash::new(p, DEFAULT_ITERATIONS).to_string());
+    }
+    patorrent_core::util::private_file::write(&path, doc.to_json().as_bytes())
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Appends `arg` quoted the way `CommandLineToArgvW` and the MSVC runtime (and Rust's
@@ -793,6 +845,9 @@ fn install(i: &Install) -> Result<(), String> {
     // first, so an unelevated prompt fails before anything is created
     let m = manager(SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE)
         .map_err(|e| scm_error("service install", e))?;
+    if i.replace {
+        remove(true)?;
+    }
 
     let me = current_user().ok();
     let trusted = |sid: &str| TRUSTED_OWNERS.contains(&sid) || me.as_deref() == Some(sid);
@@ -800,6 +855,7 @@ fn install(i: &Install) -> Result<(), String> {
     if let Some(d) = &i.default_save {
         std::fs::create_dir_all(d).map_err(|e| format!("{}: {e}", d.display()))?;
     }
+    store_login(&i.state, i.webui_user.as_deref(), i.webui_pass.as_deref())?;
 
     let (name, display, path) = (wide(NAME), wide(DISPLAY_NAME), wide(&image));
     let account = (i.account != Account::LocalSystem).then(|| wide(i.account.name()));
@@ -877,11 +933,8 @@ fn install(i: &Install) -> Result<(), String> {
     for w in &warnings {
         println!("! {w}");
     }
-    if i.password_in_args {
-        println!(
-            "! --webui-pass is part of the service's command line, which every local user can read \
-             (sc qc {NAME}); set the password in the Web UI instead and install again without it"
-        );
+    if i.webui_pass.is_some() {
+        println!("* Web UI login stored (hashed) in {}", i.state.join(crate::webui::STATE_FILE).display());
     } else if i.webui {
         println!("* without a stored Web UI password the log shows a temporary one at each start");
     }
@@ -899,13 +952,28 @@ fn install(i: &Install) -> Result<(), String> {
     } else if let Some(w) = exe_warning(&exe, i.account.name(), &trusted) {
         println!("! {w}");
     }
+    if i.now {
+        drop(s);
+        return self::start();
+    }
     println!("* start it with: patorrent-nox service start (or sc start {NAME})");
     Ok(())
 }
 
 fn uninstall() -> Result<(), String> {
-    let s =
-        open(DELETE | SERVICE_STOP | SERVICE_QUERY_STATUS).map_err(|e| scm_error("service uninstall", e))?;
+    remove(false).map(|_| ())
+}
+
+/// Stops and removes the service. With `tolerate_missing`, one that is not installed gives
+/// `Ok(false)` (`install --replace`).
+fn remove(tolerate_missing: bool) -> Result<bool, String> {
+    let s = match open(DELETE | SERVICE_STOP | SERVICE_QUERY_STATUS) {
+        Ok(s) => s,
+        Err(e) if tolerate_missing && e.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST as i32) => {
+            return Ok(false);
+        }
+        Err(e) => return Err(scm_error("service uninstall", e)),
+    };
     let st = query(&s).map_err(|e| scm_error("service uninstall", e))?;
     if st.dwCurrentState != SERVICE_STOPPED {
         println!("* stopping {NAME}");
@@ -916,7 +984,7 @@ fn uninstall() -> Result<(), String> {
         return Err(scm_error("service uninstall", io::Error::last_os_error()));
     }
     println!("* removed the service {NAME}; its state directory and log are left in place");
-    Ok(())
+    Ok(true)
 }
 
 fn start() -> Result<(), String> {
@@ -1415,8 +1483,11 @@ mod tests {
                 state: state.clone(),
                 default_save: Some(state.join("Downloads")),
                 log: state.join("nox.log"),
-                password_in_args: false,
+                webui_user: None,
+                webui_pass: None,
                 webui: true,
+                replace: false,
+                now: false,
             }
         );
         // no %ProgramData%: --state-dir is needed
@@ -1441,10 +1512,14 @@ mod tests {
                 "x.log",
                 "--webui",
                 "0.0.0.0:8080",
+                "--webui-user",
+                "me",
                 "--webui-pass",
                 "a b",
                 "--start",
                 "manual",
+                "--replace",
+                "--now",
                 "--seed",
                 "-v",
                 "--dl-limit",
@@ -1454,6 +1529,7 @@ mod tests {
         )
         .unwrap();
         assert_eq!((i.account, i.start), (Account::NetworkService, StartType::Manual));
+        // the password is stored hashed, never put into the image path
         assert_eq!(
             i.args,
             args(&[
@@ -1467,8 +1543,8 @@ mod tests {
                 &abs("x.log"),
                 "--webui",
                 "0.0.0.0:8080",
-                "--webui-pass",
-                "a b",
+                "--webui-user",
+                "me",
                 "--seed",
                 "-v",
                 "--dl-limit",
@@ -1476,7 +1552,10 @@ mod tests {
             ])
         );
         assert_eq!((i.state, i.default_save, i.log), (abs("st").into(), None, abs("x.log").into()));
-        assert!(i.password_in_args && i.webui);
+        assert_eq!((i.webui_user.as_deref(), i.webui_pass.as_deref()), (Some("me"), Some("a b")));
+        assert!(i.webui && i.replace && i.now);
+        let e = parse_install(&args(&["--state-dir", r"D:\s", "--webui-pass", ""]), None).unwrap_err();
+        assert!(e.contains("needs a password"), "{e}");
 
         // the image path gives `run` the same options back
         let exe = Path::new(r"C:\pa\patorrent-nox.exe");
@@ -1487,9 +1566,55 @@ mod tests {
         let o = crate::parse(&back[3..]).unwrap();
         assert_eq!(o.save, abs("dl"));
         assert_eq!(o.state, Some(abs("st").into()));
-        assert_eq!(o.webui_pass.as_deref(), Some("a b"));
+        assert_eq!((o.webui_user.as_deref(), o.webui_pass), (Some("me"), None));
         assert_eq!(o.dl_limit, 100 * 1024);
         assert!(o.seed && o.verbose);
+    }
+
+    #[test]
+    fn the_login_is_stored_hashed_in_webui_json() {
+        use crate::webui::auth::PasswordHash;
+        use crate::webui::json::{self, Json};
+
+        let base = std::env::temp_dir().join(format!("nox-service-login-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(&base).unwrap();
+        let file = base.join(crate::webui::STATE_FILE);
+
+        // nothing to store: no file
+        store_login(&base, None, None).unwrap();
+        assert!(!file.exists());
+
+        // a fresh state: the given name, else run's default
+        store_login(&base, None, Some("secret")).unwrap();
+        let doc = json::parse(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(doc.get("username").and_then(Json::as_str), Some("admin"));
+        let hash = PasswordHash::parse(doc.get("password").and_then(Json::as_str).unwrap()).unwrap();
+        assert!(hash.verify("secret") && !hash.verify("Secret"));
+
+        // an existing file keeps its other keys; the name given wins
+        let existing =
+            Json::obj().with("username", "old").with("categories", Json::obj().with("tv", "D:\\tv"));
+        std::fs::write(&file, existing.to_json()).unwrap();
+        store_login(&base, Some("me"), Some("other")).unwrap();
+        let doc = json::parse(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(doc.get("username").and_then(Json::as_str), Some("me"));
+        assert!(doc.get("categories").and_then(|c| c.get("tv")).is_some());
+        let hash = PasswordHash::parse(doc.get("password").and_then(Json::as_str).unwrap()).unwrap();
+        assert!(hash.verify("other"));
+        // the stored name stays when none is given; a name alone keeps the password
+        store_login(&base, None, Some("third")).unwrap();
+        store_login(&base, Some("you"), None).unwrap();
+        let doc = json::parse(&std::fs::read_to_string(&file).unwrap()).unwrap();
+        assert_eq!(doc.get("username").and_then(Json::as_str), Some("you"));
+        let hash = PasswordHash::parse(doc.get("password").and_then(Json::as_str).unwrap()).unwrap();
+        assert!(hash.verify("third"));
+
+        // not an object: refused, nothing overwritten
+        std::fs::write(&file, "[1]").unwrap();
+        assert!(store_login(&base, None, Some("x")).unwrap_err().contains("JSON object"));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), "[1]");
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[test]

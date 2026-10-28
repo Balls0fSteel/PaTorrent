@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_142013_1793197213: Preferences > Web UI runs the nox service (1.1.1, D39)
+
+- **Request (owner):** "the regular installer also installs nox and thus the user can start/enable the Web UI". The installer (and the zip) shipped `patorrent-nox.exe` beside `patorrent.exe` since D31; what was missing was the GUI's Preferences > Web UI page, a greyed stub saying the Web UI comes with nox.
+- **Win32:** the page is real (`crates/win32/src/webui_service.rs`, `preferences.rs` page 8): Enable Web UI, user name and password (blank keeps the stored one), listening port, "Allow connections from other computers" (`0.0.0.0`), "Use HTTPS (self-signed certificate)", a status line read from the Service Control Manager (not installed / installed but stopped / running with the URL / runs another folder's exe / `patorrent-nox.exe` missing) and an Open Web UI button. Apply runs one elevated `patorrent-nox service` command (one UAC prompt, the dialog disabled and the window kept painting meanwhile): `install --replace --now ...` for a new or changed setup or a new password, `start` for a stopped one, `uninstall` when the box is off. The page's note says the service is a separate client with its own torrents (File > Connect to Remote drives it) and that other computers need a firewall rule. Design and the rejected alternative (hosting the Web UI server in the GUI): D39.
+- **nox:** `service install` stores `--webui-user` / `--webui-pass` hashed in the state directory's `webui.json` (`store_login`) and never puts the password into the image path, which every local user can read (closes the BACKLOG note); `--replace` stops and removes an installed service first, `--now` starts the new one. Usage text and [DAEMON.md](docs/DAEMON.md) updated.
+- **Strings:** `PrefWebUiNote` rewritten and 13 new keys (`PrefWebUiPassKeep` … `WebUiFailed`) in the 35 tables (34 machine translations).
+- **Validation:** nox service tests (16, including the stored-login round trip), Win32 tests (71, with `the_web_ui_page_drives_the_nox_service` against a fake service hook and the image-path / command-line round trips), clippy and fmt pass. Not run: the real UAC install on this PC (BACKLOG). Version 1.1.1.
+
 ## 2026-10-28_134318_1793194998: 1.1.0 published
 
 - **Published** on the owner's go-ahead at 13:42 UTC, marked Latest: [release v1.1.0](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.0) on `65a3d0ca`. The files were not hand-tried before publishing. Pages runs 40698837791 and 40698837651 passed; the site's `update.txt` says `stable=1.1.0`. CI run 40695861609 on `65a3d0ca` passed, macOS included, with the external-address test fix.

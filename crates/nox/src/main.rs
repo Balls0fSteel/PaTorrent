@@ -151,14 +151,18 @@ SERVICE OPTIONS (docs/DAEMON.md):
     --log FILE        Append all output to FILE (reopened on SIGHUP)
 
 WINDOWS SERVICE (docs/DAEMON.md; install, uninstall, start and stop need an administrator):
-    service install [--account A] [--start TYPE] [OPTIONS]
+    service install [--account A] [--start TYPE] [--replace] [--now] [OPTIONS]
                       Register the service PaTorrentNox (\"PaTorrent nox\"), which runs `run`
                       with OPTIONS (paths made absolute). The state defaults to
                       %ProgramData%\\PaTorrent\\nox (created so that only SYSTEM, Administrators
                       and the account can open it), the downloads to its Downloads folder and
-                      --log to nox.log there. Restarts after a failure
+                      --log to nox.log there. Restarts after a failure. --webui-pass (with
+                      --webui-user) is stored hashed in the state's webui.json, never in the
+                      service's command line
         --account A   LocalService (default), NetworkService or LocalSystem
         --start TYPE  delayed (default; automatic, after the boot), auto or manual
+        --replace     Stop and remove an installed PaTorrentNox first (its state stays)
+        --now         Start the service once installed
     service uninstall Stop and remove the service (the state directory stays)
     service start | stop
                       Start or stop it and wait until it runs or has stopped (sc start / sc stop)

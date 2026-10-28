@@ -3446,6 +3446,7 @@ unsafe fn show_preferences(hwnd: HWND) {
                 Some((old, new)) => integration::write(&keys, &exe, old, new).map_err(|e| e.to_string()),
             }
         }),
+        webui: Box::new(crate::webui_service::apply),
     };
     if crate::preferences::show(hwnd, opts, &dir, hooks) {
         unsafe { update_menu(hwnd) };
@@ -3864,7 +3865,7 @@ unsafe fn text_width(hwnd: HWND, text: &str) -> i32 {
 }
 
 /// Opens `url` in the default browser.
-fn open_url(hwnd: HWND, url: &str) {
+pub(crate) fn open_url(hwnd: HWND, url: &str) {
     let u = wide(url);
     unsafe { ShellExecuteW(hwnd, w!("open"), u.as_ptr(), null(), null(), SW_SHOWNORMAL) };
 }

@@ -163,6 +163,15 @@ reload` sends SIGHUP. Settings go in `/etc/rc.conf` (`sysrc`): `patorrent_nox_en
 name "PaTorrent nox") with the Service Control Manager. It runs `patorrent-nox run` with the
 given options; `install`, `uninstall`, `start` and `stop` need an administrator prompt.
 
+**From the Windows GUI:** Preferences > Web UI does all of this. The installer and the zip put
+`patorrent-nox.exe` beside `patorrent.exe`; "Enable Web UI" with a user name, a password, the
+port and the two boxes (other computers, HTTPS) installs and starts the service from that copy
+through one UAC prompt (`service install --replace --now ...`), a changed option installs it
+again, the box turned off removes it (`service uninstall`; its state stays), and "Open Web UI"
+opens the page. The page shows the service as the Service Control Manager has it. The GUI's own
+torrents stay its own: the service is a separate client (File > Connect to Remote... drives it
+from the window), and the Web UI shows the service's torrents.
+
 1. Put the exe where the service account can read it, e.g. `C:\Program Files\PaTorrent\`. A copy
    under your user profile (Downloads, Documents, a build folder) cannot be opened by
    LocalService; `install` warns about that.
@@ -174,8 +183,12 @@ given options; `install`, `uninstall`, `start` and `stop` need an administrator 
 
    Relative paths are made absolute (a service starts in `C:\Windows\System32`). Torrent files on
    the command line, `--daemon` and `--no-state` are refused. Install options of its own:
-   `--account LocalService|NetworkService|LocalSystem` (default LocalService) and
-   `--start delayed|auto|manual` (default delayed: automatic, after the boot has settled).
+   `--account LocalService|NetworkService|LocalSystem` (default LocalService),
+   `--start delayed|auto|manual` (default delayed: automatic, after the boot has settled),
+   `--replace` (an installed PaTorrentNox is stopped and removed first; its state stays) and
+   `--now` (started once installed). `--webui-pass` (with `--webui-user`) is stored hashed in
+   the state directory's `webui.json`, as the Web UI stores it, and never written into the
+   service's command line; `--webui-user` alone changes the stored name.
 3. `patorrent-nox service start` (or `sc start PaTorrentNox`, or the Services console) starts it
    and waits until it runs; it starts with Windows from then on.
 
@@ -205,9 +218,9 @@ console normally asks; a service cannot):
 netsh advfirewall firewall add rule name="PaTorrent nox" dir=in action=allow program="C:\Program Files\PaTorrent\patorrent-nox.exe"
 ```
 
-`--webui-pass` would become part of the image path, which every local user can read with `sc
-qc`: leave it out, log in with the temporary password from the log and set one in Preferences >
-Web UI.
+`--webui-pass` never becomes part of the image path (which every local user can read with `sc
+qc`): `install` hashes it into `webui.json`. Without it, log in with the temporary password from
+the log and set one in the Web UI's Preferences > Web UI.
 
 Controls:
 
@@ -237,6 +250,8 @@ mkdir "C:\Program Files\PaTorrent"
 copy target\release\patorrent-nox.exe "C:\Program Files\PaTorrent\"
 cd /d "C:\Program Files\PaTorrent"
 patorrent-nox service install --webui 127.0.0.1:8080
+rem or, with the login stored and the service started at once:
+rem patorrent-nox service install --now --webui 127.0.0.1:8080 --webui-user me --webui-pass "a long password"
 sc qc PaTorrentNox                         & rem user: image path, account, start type
 sc qfailure PaTorrentNox                   & rem user: the restart actions
 patorrent-nox service start

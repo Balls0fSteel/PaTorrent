@@ -4420,7 +4420,8 @@ unsafe fn list_custom_draw(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
                 let is_done = with_app(|a| {
                     a.feed_view.is_none() && a.shown.get(cd.iSubItem as usize) == Some(&Column::Done)
                 });
-                if is_done == Some(true) {
+                // the Done bar is painted only in a real paint (`controls::is_paint`)
+                if is_done == Some(true) && controls::is_paint(cd) {
                     CDRF_NOTIFYPOSTPAINT as LRESULT
                 } else {
                     CDRF_DODEFAULT as LRESULT
@@ -4499,7 +4500,7 @@ unsafe fn pieces_custom_draw(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
             }
             ITEM_SUB_PRE => {
                 controls::selection_cell_colours(cd);
-                if cd.iSubItem as usize == detail::PIECE_BLOCKS_COLUMN {
+                if cd.iSubItem as usize == detail::PIECE_BLOCKS_COLUMN && controls::is_paint(cd) {
                     CDRF_NOTIFYPOSTPAINT as LRESULT
                 } else {
                     CDRF_DODEFAULT as LRESULT

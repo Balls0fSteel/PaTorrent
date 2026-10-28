@@ -187,6 +187,16 @@ fn row_background(row: usize) -> COLORREF {
     shade(window & 0xff) | (shade((window >> 8) & 0xff) << 8) | (shade((window >> 16) & 0xff) << 16)
 }
 
+/// Whether a custom-draw notification is a paint of the item. The list view also sends the
+/// item stages with an empty `rc` and another device context while it measures a label for
+/// its in-place tooltip (`LVS_EX_LABELTIP`, the mouse over a truncated name); that context can
+/// be the window's own, outside any paint cycle, so a bar drawn there lands on the screen bare:
+/// a row with no text until something repaints it. Nothing is painted for those.
+pub fn is_paint(cd: &NMLVCUSTOMDRAW) -> bool {
+    let rc = cd.nmcd.rc;
+    rc.right > rc.left && rc.bottom > rc.top
+}
+
 /// Paints µTorrent's selection at `CDDS_ITEMPREPAINT`: one solid bar across the row
 /// (`COLOR_HIGHLIGHT` while the list has the focus, `COLOR_BTNFACE` otherwise), not the theme's
 /// per-cell highlights with the column padding left white between them. The item loses its
@@ -197,6 +207,9 @@ fn row_background(row: usize) -> COLORREF {
 /// its own.
 pub unsafe fn selection_pre_paint(cd: &mut NMLVCUSTOMDRAW) -> LRESULT {
     unsafe {
+        if !is_paint(cd) {
+            return CDRF_DODEFAULT as LRESULT;
+        }
         let lv = cd.nmcd.hdr.hwndFrom;
         let row = cd.nmcd.dwItemSpec;
         let selected = is_selected(lv, row);
@@ -236,7 +249,7 @@ pub unsafe fn selection_post_paint(cd: &NMLVCUSTOMDRAW) {
     unsafe {
         let lv = cd.nmcd.hdr.hwndFrom;
         let row = cd.nmcd.dwItemSpec;
-        if GetFocus() != lv || focused(lv) != Some(row) {
+        if !is_paint(cd) || GetFocus() != lv || focused(lv) != Some(row) {
             return;
         }
         let mut rc: RECT = zeroed();

@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_083421_1793172861: Blank rows found and fixed: the list painted outside its paint cycle (1.0.3)
+
+- **Reported:** on the 1.0.2 test build the whole torrent list went blank after Select All (the owner); replayed on the `--demo` mock with a scripted click, Ctrl+A, Ctrl+T and mouse hover (a scratch PowerShell script taking screenshots): the hovered row lost every cell and its Done bar, and stayed so until a click repainted it.
+- **Cause:** besides the real paints, the list view sends the custom-draw item stages with an empty `rc` and another device context while it measures a truncated name for its in-place tooltip (`LVS_EX_LABELTIP`); a trace showed `rc (0,0,0,0)` on a different `hdc` for the hovered row. `selection_pre_paint` filled the row's rectangle into that context, which is the window's own, outside any paint: a bare bar with no text. Before this morning only selected rows were painted that way (the owner's original "selected row shows no text"); the alternate-row shading extended it to every row, so hovering blanked them one by one.
+- **Fix:** `controls::is_paint` (a non-empty `rc`) gates the selection bar, the alternate shading, the focus rectangle, the Done bar and the Blocks bar. The borrowed-state invalidation from the morning stays as insurance; it was not the cause.
+- **Validation:** the replay shows every row intact while hovered after Select All and Stop; Win32 tests (67), clippy and fmt pass. Version 1.0.3.
+
 ## 2026-10-28_075806_1793170686: Owner hand-test findings fixed; version 1.0.2 and per-build version strings (D37)
 
 - **Stopped rows showed a speed:** a torrent's traffic statistics tick only while it runs, so a stopped torrent reported its last rate for ever ("1009 kB/s" in Down Speed). `stop_torrent` now resets the rates (`Stat::reset_rates`, totals kept), and the Down/Up Speed cells are empty for any paused or queued torrent. Tests: `reset_rates_keeps_the_totals`, `stopped_rows_show_no_speed`.

@@ -55,16 +55,14 @@ in its title bar. Still open from that round:
   green / white / light red cells, black lines; greyed table when the scheduler is off),
   toolbar Add / Add from URL / Remove and the four amber checking icons at 16 px and at
   150 % DPI, alternate row shading in the torrent list and the detail tabs (UI Settings
-  box), a Stopped row's empty speed cells, no blank row after an add, and the new keys
+  box), a Stopped row's empty speed cells, no blank row after an add or while hovering rows
+  (found and fixed 2026-10-28_083421_1793172861), and the new keys
   (Ctrl+S / Ctrl+T / Ctrl+Shift+P start / stop / pause, Enter for Properties, Del and
   Shift+Del shown on the context menu). Ctrl+Space was left to the list view, whose own
   key it is (toggle the focused row's selection).
 - **Checking progress:** several newly added torrents sat at "Checking 0.0 %" together;
   `active_checking` is 1, so confirm whether the rest should read "Queued for checking"
   (auto-managed) or whether the checks stall. Not reproduced yet.
-- **Blank row cause:** the fix repaints a row whose cells were asked for while the app
-  state was borrowed (a modal box or a control updated inside `with_app`); the call that
-  borrowed it during the add was not identified. If a blank row recurs, find that caller.
 - **GTK:** no alternate row shading (a CSS `nth-child` rule on the column view's rows would
   do; the UI Settings box is hidden there, `Features::alternate_rows`), and the new
   Start / Stop / Pause / Enter keys exist on Win32 only. The scheduler colours are shared.

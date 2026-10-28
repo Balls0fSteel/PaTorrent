@@ -8,7 +8,7 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 
 - **Cause:** `crates/core/tests/external_ip.rs`'s alert helper dropped the rest of a popped batch when its wait matched. On a slow runner `ExternalIp` came in the same batch as `TorrentAdded` and was lost (CI run 40645656823; the timed log showed the tracker had answered). The other integration tests already keep a backlog; this file now does too (thread-local, one session per test thread). The "scrape failed: banned by IP filter" in that log is the expected SSRF rule for a loopback `/scrape`.
 - **Validation:** the file's three tests pass five runs in a row on Windows; core clippy and fmt clean. Test-only, so no version bump.
-- **Release 1.1.0 not yet published:** the `v1.1.0` tag run failed on the old installer check (fixed in `a055a3c8`); the `workflow_dispatch` rerun from `main` built everything but skips the publishing job, which runs only for tags.
+- **Release 1.1.0 retagged:** the first `v1.1.0` tag run failed on the old installer check (fixed in `a055a3c8`; a `workflow_dispatch` rerun builds but skips the tag-only release job). Nothing had been published, so the owner had the tag moved to `65a3d0ca`; Release run 40695889139 passed every job and opened the draft release (14 files, 126 MB), not yet published.
 
 ## 2026-10-28_113636_1793183796: Release 1.1.0 prepared
 

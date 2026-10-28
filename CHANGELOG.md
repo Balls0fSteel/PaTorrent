@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_180808_1793207288: Release 1.1.2 prepared
+
+- **What is in it since 1.1.0:** the Windows GUI's own Web UI (hosted mode, D40, 1.1.2) and nox's `service install` improvements (hashed login, `--replace`, `--now`; 1.1.1, kept from D39). Release text: [docs/releases/1.1.2.md](docs/releases/1.1.2.md). The workspace version is already 1.1.2 (D37); the peer ID stays `-PA1011-`, nothing changed on the wire. The Flatpak metainfo's first `<release>` is 1.1.2; the README names it. `cargo-sources.json` needs no regeneration: `Cargo.lock` only changed in workspace crate versions and `patorrent`'s path dependency on `patorrent-nox`.
+- **Procedure (RELEASING.md):** push `main`, wait for CI on the release commit, tag `v1.1.2`, let the Release run open the draft, publish it. Outcomes are recorded in the next entry.
+
 ## 2026-10-28_174137_1793205697: The Windows GUI serves its own Web UI (1.1.2, D40)
 
 - **Request (owner):** mimic µTorrent and qBittorrent, "you have the client, and it can host a Web UI"; nox is an engine as a service. D39's page (1.1.1), which drove the nox service, showed another client's torrents; it is superseded the same day.

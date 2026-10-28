@@ -70,6 +70,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.1.2" date="2026-10-28" type="stable">
+      <description>
+        <p>The Windows GUI serves its own Web UI from Preferences, so a browser shows and drives that window's torrents. The daemon's Windows service command stores the Web UI login hashed and can replace and start an installed service in one step.</p>
+      </description>
+    </release>
     <release version="1.1.0" date="2026-10-28" type="stable">
       <description>
         <p>A search box that filters the torrent list by name, importing torrents from qBittorrent and µTorrent, security hardening across the engine, the Web UI and the remote mode, and icons beside the category list, the detail tabs and the Preferences pages.</p>

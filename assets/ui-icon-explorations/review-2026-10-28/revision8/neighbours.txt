@@ -1,0 +1,29 @@
+# 16 px: top 6 mask neighbours (IoU, alpha >= 128) of each revision 8 symbol
+website        random-port 0.58  web-ui 0.56  clear-selection 0.54  select-all 0.54  file-image 0.54  save 0.52
+check-updates  reannounce 0.40  tracker-updating 0.40  scheduler 0.36  file-image 0.35  delete-data 0.35  random-port 0.33
+notices        error 0.77  skip 0.64  general 0.63  about 0.58  appearance 0.58  copy 0.58
+import         unlock 0.41  privacy 0.38  save 0.36  file-video 0.36  error 0.36  notices 0.35
+window         file-video 0.66  clear-selection 0.65  disk 0.64  logger 0.63  random-port 0.60  folder 0.57
+edit           no-peers 0.41  start 0.41  stop 0.38  stopped-incomplete 0.38  close 0.37  file-audio 0.35
+feed-disabled  rss-rule 0.75  rss-history 0.69  add-feed 0.68  no-label 0.54  offline 0.43  wanted-complete 0.42
+no-label       new-label 0.75  remove-label 0.73  feed-disabled 0.54  wanted-complete 0.52  set-location 0.48  offline 0.48
+
+# 32 px: top 6 mask neighbours (IoU, alpha >= 128) of each revision 8 symbol
+website        random-port 0.58  clear-selection 0.54  select-all 0.54  file-image 0.54  scheduler 0.51  save 0.50
+check-updates  reannounce 0.40  tracker-updating 0.40  scheduler 0.36  file-image 0.35  delete-data 0.35  random-port 0.33
+notices        error 0.72  skip 0.61  general 0.60  copy 0.58  appearance 0.56  logger 0.55
+import         unlock 0.41  file-video 0.36  save 0.36  privacy 0.35  notices 0.35  statistics 0.34
+window         file-video 0.66  clear-selection 0.65  disk 0.64  logger 0.63  random-port 0.60  folder 0.57
+edit           start 0.42  no-peers 0.40  stop 0.38  stopped-incomplete 0.38  file-audio 0.36  close 0.34
+feed-disabled  rss-rule 0.58  no-label 0.56  rss-history 0.53  add-feed 0.53  offline 0.42  wanted-complete 0.41
+no-label       new-label 0.75  remove-label 0.73  feed-disabled 0.56  wanted-complete 0.52  set-location 0.50  offline 0.48
+
+# edge ink (alpha > 0 on the outer row/column) and badge gap (Chebyshev distance, 16 px, alpha >= 128; 2 = one clear pixel)
+website         edge 16:0 20:0 24:0 32:0 48:0 64:0  components 2  badge gap -
+check-updates   edge 16:0 20:0 24:0 32:0 48:0 64:0  components 3  badge gap 2
+notices         edge 16:0 20:0 24:0 32:0 48:0 64:0  components 2  badge gap -
+import          edge 16:0 20:0 24:0 32:0 48:0 64:0  components 2  badge gap -
+window          edge 16:0 20:0 24:0 32:0 48:0 64:0  components 1  badge gap -
+edit            edge 16:0 20:0 24:0 32:0 48:0 64:0  components 1  badge gap -
+feed-disabled   edge 16:0 20:0 24:0 32:0 48:0 64:0  components 2  badge gap 3
+no-label        edge 16:0 20:0 24:0 32:0 48:0 64:0  components 2  badge gap 4

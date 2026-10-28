@@ -90,7 +90,8 @@ the detail tabs, the Preferences pages and the menus. File-type icons stay the O
 - **Revision 8 artwork** (1.0.7, 2026-10-28_111544_1793182544): website, check-updates,
   notices, import, window, edit, feed-disabled and no-label, drawn here as pixel art (nothing
   copied, so no third-party notice). Check / Uncheck reuse select-all / clear-selection.
-  Geometry audit clean; independent review not yet done.
+  Geometry audit clean; the [independent review](../assets/ui-icon-explorations/review-2026-10-28/revision8/REPORT.md)
+  passed all eight, and three of its optional refinements went into 1.0.8.
 
 Still to check: GTK on Linux (sidebar and Preferences row spacing, Alt+mnemonics on the tabs,
 the dark palette, an error jumping to a Preferences page selecting its row); Win32 at

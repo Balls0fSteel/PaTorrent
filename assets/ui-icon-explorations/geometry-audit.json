@@ -1070,17 +1070,17 @@
     },
     {
       "id": "notices",
-      "ink": 102,
-      "opaque": 102,
+      "ink": 106,
+      "opaque": 106,
       "partial": 0,
       "partialFraction": 0
     },
     {
       "id": "import",
-      "ink": 72,
-      "opaque": 64,
+      "ink": 74,
+      "opaque": 66,
       "partial": 8,
-      "partialFraction": 0.1111
+      "partialFraction": 0.1081
     },
     {
       "id": "window",
@@ -1091,10 +1091,10 @@
     },
     {
       "id": "edit",
-      "ink": 72,
-      "opaque": 45,
-      "partial": 27,
-      "partialFraction": 0.375
+      "ink": 74,
+      "opaque": 37,
+      "partial": 37,
+      "partialFraction": 0.5
     },
     {
       "id": "feed-disabled",

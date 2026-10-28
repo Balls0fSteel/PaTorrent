@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_112815_1793183295: Revision 8 reviewed; three refinements (1.0.8)
+
+- **Review:** an independent reviewer passed all eight revision 8 symbols, with evidence sheets and a [report](assets/ui-icon-explorations/review-2026-10-28/revision8/REPORT.md). Applied from its optional notes: the notices C has a 4-row counter (it read as a heavy square at 20–32 px), the import bracket matches log out's height and is centred on the arrow, and the edit eraser gap is one clear pixel. Not applied: a grey × on the orange feed, as the renderer gives an icon one colour. It also corrected the README: four of the eight are vector paths, not pixel art.
+- **Validation:** rebuilt and re-audited (zero overflow, margin failures and unexpected masks; no new near matches); the frontend embed tests pass.
+
 ## 2026-10-28_111544_1793182544: Artwork revision 8, the last missing menu icons (1.0.7)
 
 - **Change:** eight symbols drawn in the house pixel art (website, check-updates, notices, import, window, edit, feed-disabled, no-label; [artwork README](assets/ui-icon-explorations/README.md)), so every menu command with a fitting meaning has an icon: Help's Website / Check for Updates / Notices, File > Import, the tray's Show / Hide, Edit Feed, Disable / Enable Feed (by state, through the item tag), the Add dialog's Check / Uncheck (select-all / clear-selection), and No Label in both GUIs' category lists. Nothing was copied from other icon sets.

@@ -128,24 +128,25 @@ module.exports = (H) => {
     '....##','....##','....##','....##','....##','....##','....##',
     '.########','..######','...####','....##','',
     '.########','.########'])+H.refreshBadge,'teal');
-  // Help > Third-Party Notices: a copyright mark, beside Help's and About's circles.
+  // Help > Third-Party Notices: a copyright mark, beside Help's and About's circles. The C
+  // spans y 4-11 so its counter is 4 rows (the review's fix for a heavy square C).
   add('notices',H.px(0,0,['',
     '.....######',
     '...##########',
     '..###......###',
-    '..##........##',
-    '.##...#####..##',
+    '..##..#####.##',
     '.##..######..##',
     '.##..##......##',
     '.##..##......##',
+    '.##..##......##',
+    '.##..##......##',
     '.##..######..##',
-    '.##...#####..##',
-    '..##........##',
+    '..##..#####.##',
     '..###......###',
     '...##########',
     '.....######']));
-  // File > Import: an arrow entering a bracket (log out's mirror image).
-  add('import',s('M8 2h5v11H8')+p('M1 7h5V4l4 4-4 4V9H1Z'),'teal');
+  // File > Import: an arrow entering a bracket as tall as log out's, centred on the arrow.
+  add('import',s('M8 2h5v12H8')+p('M1 7h5V4l4 4-4 4V9H1Z'),'teal');
   // The tray menu's Show / Hide: a window, its 4 px title bar holding a cut-out button (a
   // 3 px bar read as a plain frame at 16 px).
   add('window',H.px(0,0,['',
@@ -162,8 +163,8 @@ module.exports = (H) => {
     '.##..........##',
     '.##############',
     '.##############']));
-  // Edit Feed: a pencil, its eraser split off by a diagonal gap.
-  add('edit',p('M1 11 8 4l3 3-7 7H1Z')+p('M9 3l2-2 3 3-2 2Z'),'blue');
+  // Edit Feed: a pencil, its eraser split off by one clear diagonal pixel.
+  add('edit',p('M1 11 7.5 4.5l3 3L4 14H1Z')+p('M9 3l2-2 3 3-2 2Z'),'blue');
   // Disable Feed: the compact feed with the cross badge.
   add('feed-disabled',compactRss+H.crossBadge,'orange');
   // No Label: the compact tag of new/remove label, with the cross badge.

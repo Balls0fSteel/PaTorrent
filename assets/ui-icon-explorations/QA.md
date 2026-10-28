@@ -5,7 +5,8 @@
 - Eight new symbols (website, check-updates, notices, import, window, edit, feed-disabled, no-label), judged on an enlarged 16/20/24/32 px sheet in light and dark. The first window had a 3 px title bar and read as a plain frame; it was redrawn with a 4 px bar and a cut-out button, and compared with web-ui, desktop-integration and reset-columns.
 - `build.cjs` and `check-geometry.cjs` pass: 139 icons, 2,502 SVG/PNG each, zero overflow, margin failures and unexpected identical masks. No new near matches; the known pairs are unchanged. Median partial alpha at 16 px is 18.9 % (22.7 % before), as the new drawings are mostly pixel art.
 - Every existing export is byte-identical after the cross badge moved into `common.cjs`.
-- Seen in the Win32 demo at 100 %: File (import), Help (website, check-updates, about, notices) and the No Label tree row. Not yet independently reviewed; the proof pages were not regenerated.
+- Seen in the Win32 demo at 100 %: File (import), Help (website, check-updates, about, notices) and the No Label tree row. The proof pages were not regenerated.
+- Independent review: [revision 8 report](review-2026-10-28/revision8/REPORT.md). **All 8 pass.** Three of its four optional refinements were applied: a 4-row counter in the notices C, the import bracket at log out's height and centred on the arrow, and one clear pixel in the edit eraser gap. Rebuilt and re-audited: still zero overflow, margin failures and unexpected masks, and no new near matches. Not applied: a grey × on feed-disabled, as an icon has one colour in this renderer. The review also corrected the README: import, edit, feed-disabled and no-label are vector paths, not pixel art.
 
 ## Revision 6 (2026-10-26)
 

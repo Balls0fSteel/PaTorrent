@@ -14,14 +14,14 @@ Open [review.html](review.html) to inspect the **139-symbol bold set** at native
 
 ## Revision 8 (2026-10-28)
 
-Adds the eight menu and category symbols the [icon coverage audit](../../docs/BACKLOG.md#ui-icon-coverage-audit-2026-10-28_090116_1793174476) found missing. All are drawn here, in revision 7's pixel art with 2 px strokes (permissive sets were looked at for ideas only; nothing is copied). No existing drawing changed: the cross badge moved to `H.crossBadge`, with identical output.
+Adds the eight menu and category symbols the [icon coverage audit](../../docs/BACKLOG.md#ui-icon-coverage-audit-2026-10-28_090116_1793174476) found missing. All are drawn here (permissive sets were looked at for ideas only; nothing is copied): website, check-updates, notices and window as pixel art with 2 px strokes; import, edit and the two compact-base symbols as vector paths on the grid, with anti-aliased diagonals. No existing drawing changed: the cross badge moved to `H.crossBadge`, with identical output. The [revision 8 review](review-2026-10-28/revision8/REPORT.md) passed all eight; three of its optional refinements are applied (marked below).
 
 - **website** (Help > Website): an arrow leaving an open frame through its top-right corner.
 - **check-updates**: a download onto a line, with the shared refresh badge.
-- **notices** (Third-Party Notices): a copyright mark, a C in a 14 px ring, beside Help's and About's circles.
-- **import** (File > Import): an arrow entering a bracket, log out's mirror image.
+- **notices** (Third-Party Notices): a copyright mark, a C in a 14 px ring, beside Help's and About's circles. Refined: the C spans y 4–11, so its counter is 4 rows; with 2 it read as a heavy square at 20–32 px.
+- **import** (File > Import): an arrow entering a bracket. Refined: the bracket is 14 rows like log out's, centred on the arrow.
 - **window** (tray Show / Hide): a frame under a 4 px title bar with a cut-out button. A 3 px bar read as a plain frame at 16 px.
-- **edit** (Edit Feed): a pencil, its eraser split off by a diagonal gap.
+- **edit** (Edit Feed): a pencil, its eraser split off by one clear diagonal pixel (refined: the first gap let body and eraser touch at its ends).
 - **feed-disabled**, **no-label**: the compact feed and the compact label tag with the cross badge.
 - Check / Uncheck in the Add dialog reuse select-all / clear-selection.
 

@@ -74,11 +74,17 @@ in its title bar. Still open from that round:
 
 ## UI icon coverage (audit 2026-10-28_090116_1793174476)
 
-The GUIs embed 37 of the 131 bold symbols: the 11 toolbar actions (`Icon`) and the 26
+The GUIs embedded 35 of the 131 bold symbols: the 11 toolbar actions (`Icon`) and the 24
 runtime states (`StateIcon`). Neither GUI gives icons to its category list, detail tabs,
 Preferences page list or menus (Win32 sets no tree, tab or menu image list), so most of the
 "missing" icons are drawn but not wired in. File-type icons come from the OS (Win32
 `SHGetFileInfoW`, GTK `content_type_get_icon`) and stay that way.
+
+**Win32 done (1.0.4, 2026-10-28_091009_1793175009):** the category list, the detail tabs and
+the Preferences tree draw `UiIcon` (24 symbols, `patorrent_frontend::icons`). Label entries and
+No Label share [labels]; each feed shares [rss]. Still open: Win32 menus, the whole GTK side,
+a No Label symbol of its own, and a look at 125–200 % DPI (the Preferences list is made once
+at the dialog's DPI and is not rebuilt if it moves to another monitor).
 
 **Drawn, not wired** (artwork ID in brackets):
 - Category list: Torrents [all-torrents], Downloading [downloading], Completed [completed],

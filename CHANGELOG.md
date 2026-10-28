@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_091009_1793175009: Win32 navigation icons (1.0.4)
+
+- **Change:** the category list, the detail tabs and the Preferences page tree draw the bold artwork's symbols: `UiIcon` (24, at 16/20/24/32 px in both palettes) with `category_icon`, `tab_icon` and `page_icon` in `patorrent_frontend::icons`, so GTK can use the same table. The state-icon macro now serves both enums. The main window rebuilds its list with the other images on a DPI change; Preferences makes its own at the dialog's DPI.
+- **Correction:** the audit below counted 37 embedded symbols; it was 35 (24 states, not 26).
+- **Validation:** frontend (194 + 4) and Win32 (67) tests, clippy and fmt pass; the GTK crate type-checks with the stand-in pkg-config. A portable `--demo 40` run shows every tree entry, tab and Preferences page with its symbol at 100 %. Not checked: higher DPI, RTL.
+
 ## 2026-10-28_090116_1793174476: Icon coverage audit
 
 - 37 of the 131 bold symbols are embedded (toolbar and states). The category list, detail tabs, Preferences pages and menus show no icons, though about 60 of their symbols are already drawn. Nine are not drawn; each has MIT/ISC references (Pixelarticons, Lucide, Fluent) to redraw on the 16 px grid. Mapping and toolkit limits: [BACKLOG](docs/BACKLOG.md#ui-icon-coverage-audit-2026-10-28_090116_1793174476).

@@ -7,6 +7,8 @@
 //!   to asset name) is the same for both GUIs. Each comes in the light palette and the dark one
 //!   (for a dark GTK theme). The Win32 toolbar wants pixels, so [`toolbar_bgra`] decodes its
 //!   PNG ([`decode_png`]).
+//! - The navigation symbols ([`UiIcon`]): the category list's, the detail tabs' and the
+//!   Preferences pages', from the same exports.
 //! - The PatinaTorrent application icon's PNG exports ([`app_png`], for the GTK client's window,
 //!   tray and desktop entries). The Win32 client embeds the same family's `.ico` as the
 //!   executable's icon resource (`crates/win32/build.rs`). The family in use is named once, in
@@ -15,6 +17,10 @@
 //! Otherwise the PNGs are decoded by the toolkits (Windows' icon loader, GDK's texture loader).
 
 use patorrent_core::TrackerStatus;
+
+use crate::detail::Tab;
+use crate::lang::S;
+use crate::status::Category;
 
 /// The pixel sizes the state icons are embedded at.
 pub const STATE_SIZES: [u32; 4] = [16, 20, 24, 32];
@@ -41,23 +47,22 @@ macro_rules! bold_png {
     };
 }
 
-macro_rules! state_icons {
-    ($($(#[$doc:meta])* $variant:ident => $file:literal,)*) => {
-        /// A state icon, named after its artwork ID (`manifest.json`'s `id` and `runtime` list in
-        /// `assets/ui-icon-explorations`). [`StateIcon::ALL`] is in declaration order, so
-        /// `icon as usize` is an index into it (the Win32 image list's order).
+/// An enum of small icons embedded at [`STATE_SIZES`], each named after its artwork ID.
+macro_rules! small_icons {
+    ($(#[$enum_doc:meta])* $name:ident { $($(#[$doc:meta])* $variant:ident => $file:literal,)* }) => {
+        $(#[$enum_doc])*
         #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-        pub enum StateIcon {
+        pub enum $name {
             $($(#[$doc])* $variant,)*
         }
 
-        impl StateIcon {
-            pub const ALL: [StateIcon; 24] = [$(StateIcon::$variant,)*];
+        impl $name {
+            pub const ALL: [$name; [$($file),*].len()] = [$($name::$variant,)*];
 
             /// The artwork ID.
             pub fn name(self) -> &'static str {
                 match self {
-                    $(StateIcon::$variant => $file,)*
+                    $($name::$variant => $file,)*
                 }
             }
 
@@ -70,7 +75,7 @@ macro_rules! state_icons {
             pub fn themed_png(self, size: u32, dark: bool) -> &'static [u8] {
                 let i = STATE_SIZES.iter().position(|&s| s == state_size(size)).unwrap_or(0);
                 let all: [[&'static [u8]; 4]; 2] = match self {
-                    $(StateIcon::$variant => [
+                    $($name::$variant => [
                         [
                             bold_png!("png", 16, $file),
                             bold_png!("png", 20, $file),
@@ -91,7 +96,11 @@ macro_rules! state_icons {
     };
 }
 
-state_icons! {
+small_icons! {
+    /// A state icon (`manifest.json`'s `runtime` list in `assets/ui-icon-explorations`).
+    /// [`StateIcon::ALL`] is in declaration order, so `icon as usize` is an index into it (the
+    /// Win32 image list's order).
+    StateIcon {
     // torrents: the branches of `status::status_text`
     Downloading => "downloading",
     ForceDownloading => "force-downloading",
@@ -122,6 +131,84 @@ state_icons! {
     NetworkOk => "network-ok",
     /// None seen yet (not proof that the port is closed).
     NetworkNoIncoming => "network-no-incoming",
+    }
+}
+
+small_icons! {
+    /// A symbol beside a navigation entry's text: the category list, the detail tabs and the
+    /// Preferences pages ([`category_icon`], [`tab_icon`], [`page_icon`]). [`UiIcon::ALL`] is
+    /// in declaration order, so `icon as usize` is an index into it (the Win32 image lists').
+    UiIcon {
+    // the category list
+    AllTorrents => "all-torrents",
+    Downloading => "downloading",
+    Completed => "completed",
+    Active => "active",
+    Inactive => "inactive",
+    Labels => "labels",
+    Feeds => "rss",
+    // the detail tabs (General is also the Preferences page)
+    General => "general",
+    Trackers => "trackers",
+    Peers => "peers",
+    Pieces => "pieces",
+    Files => "files",
+    Speed => "speed",
+    Logger => "logger",
+    // the Preferences pages
+    Appearance => "appearance",
+    Directories => "directories",
+    Connection => "connection",
+    Bandwidth => "bandwidth",
+    BitTorrent => "bittorrent",
+    Queueing => "queueing",
+    Scheduler => "scheduler",
+    WebUi => "web-ui",
+    Advanced => "advanced",
+    DiskCache => "disk",
+    }
+}
+
+/// A category list entry's icon ([`Category::All`] is the Torrents entry).
+pub fn category_icon(category: Category) -> UiIcon {
+    match category {
+        Category::All => UiIcon::AllTorrents,
+        Category::Downloading => UiIcon::Downloading,
+        Category::Completed => UiIcon::Completed,
+        Category::Active => UiIcon::Active,
+        Category::Inactive => UiIcon::Inactive,
+    }
+}
+
+/// A detail tab's icon.
+pub fn tab_icon(tab: Tab) -> UiIcon {
+    match tab {
+        Tab::General => UiIcon::General,
+        Tab::Trackers => UiIcon::Trackers,
+        Tab::Peers => UiIcon::Peers,
+        Tab::Pieces => UiIcon::Pieces,
+        Tab::Files => UiIcon::Files,
+        Tab::Speed => UiIcon::Speed,
+        Tab::Logger => UiIcon::Logger,
+    }
+}
+
+/// A Preferences page's icon, by its title; `None` for a page without one.
+pub fn page_icon(title: S) -> Option<UiIcon> {
+    Some(match title {
+        S::PageGeneral => UiIcon::General,
+        S::PageUi => UiIcon::Appearance,
+        S::PageDirectories => UiIcon::Directories,
+        S::PageConnection => UiIcon::Connection,
+        S::PageBandwidth => UiIcon::Bandwidth,
+        S::PageBitTorrent => UiIcon::BitTorrent,
+        S::PageQueueing => UiIcon::Queueing,
+        S::PageScheduler => UiIcon::Scheduler,
+        S::PageWebUi => UiIcon::WebUi,
+        S::PageAdvanced => UiIcon::Advanced,
+        S::PageDiskCache => UiIcon::DiskCache,
+        _ => return None,
+    })
 }
 
 /// A tracker row's icon.
@@ -384,6 +471,30 @@ mod tests {
         let mut png = StateIcon::Error.png(16).to_vec();
         png[25] = 2; // colour type RGB
         assert!(decode_png(&png).is_none());
+    }
+
+    #[test]
+    fn ui_icons_are_embedded_and_mapped() {
+        for icon in UiIcon::ALL {
+            assert_eq!(UiIcon::ALL[icon as usize], icon);
+            for size in STATE_SIZES {
+                for dark in [false, true] {
+                    assert_eq!(
+                        ihdr(icon.themed_png(size, dark)),
+                        (size, size, 8, 6, 0),
+                        "{icon:?} at {size}"
+                    );
+                }
+            }
+        }
+        for c in Category::ALL {
+            category_icon(c);
+        }
+        assert_eq!(tab_icon(Tab::Logger), UiIcon::Logger);
+        for page in crate::pref_pages::pages(crate::pref_pages::Features::default()) {
+            assert!(page_icon(page.title).is_some(), "{:?}", page.key);
+        }
+        assert_eq!(page_icon(S::TabGeneral), None);
     }
 
     /// Width, height, bit depth, colour type and interlace method from a PNG's IHDR.

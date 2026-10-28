@@ -23,7 +23,7 @@ use patorrent_core::{
 use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
 use patorrent_frontend::columns::Column;
 use patorrent_frontend::detail::{self, PRIORITIES};
-use patorrent_frontend::icons::{network_icon, toolbar_size, tracker_icon};
+use patorrent_frontend::icons::{UiIcon, category_icon, network_icon, tab_icon, toolbar_size, tracker_icon};
 use patorrent_frontend::import;
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::model::{Filter, TorrentList};
@@ -240,6 +240,8 @@ struct App {
     states: (HIMAGELIST, usize),
     /// The status bar's network indicator: no incoming connection seen yet, one seen.
     net_icons: [HICON; 2],
+    /// The category list's and the detail tabs' symbols ([`UiIcon`] order).
+    nav_images: HIMAGELIST,
     /// Which of them the status bar shows (`None`: not since the icons were made).
     net_shown: Option<bool>,
 
@@ -789,8 +791,9 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             let i = page.index();
             let mut text = wide(lang::text(page.title()));
             let mut item: TCITEMW = zeroed();
-            item.mask = TCIF_TEXT;
+            item.mask = TCIF_TEXT | TCIF_IMAGE;
             item.pszText = text.as_mut_ptr();
+            item.iImage = tab_icon(page) as i32;
             send(tabs, TCM_INSERTITEMW, i, &item as *const _ as LPARAM);
             pages[i] = if page.is_list() {
                 controls::create_report(hwnd, IDC_PAGE + i, false)
@@ -862,6 +865,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             images: (0, 0),
             states: (0, 0),
             net_icons: [null_mut(); 2],
+            nav_images: 0,
             net_shown: None,
             toolbar,
             search,
@@ -1040,6 +1044,7 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
         let state_px = scale(16, dpi) as usize;
         let states = icons::state_images(state_px);
         let net_icons = [false, true].map(|on| icons::state_icon(network_icon(on), state_px));
+        let nav_images = icons::ui_images(state_px);
         let Some((old, old_states, controls_list, toolbar, trackers)) = with_app(|a| {
             // Keep column widths in 96-DPI units across the change.
             sync_columns(a);
@@ -1049,8 +1054,11 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
                 std::mem::replace(&mut a.bold, bold),
                 std::mem::replace(&mut a.images, images),
             );
-            let old_states =
-                (std::mem::replace(&mut a.states, states).0, std::mem::replace(&mut a.net_icons, net_icons));
+            let old_states = (
+                std::mem::replace(&mut a.states, states).0,
+                std::mem::replace(&mut a.net_icons, net_icons),
+                std::mem::replace(&mut a.nav_images, nav_images),
+            );
             a.net_shown = None;
             let mut list = vec![a.tree, a.lv, a.tabs, a.status, a.search];
             list.extend(a.pages);
@@ -1077,11 +1085,14 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
         }
         // the lists share the state icons (LVS_SHAREIMAGELISTS): the old ones go once replaced
         send(trackers, LVM_SETIMAGELIST, LVSIL_SMALL as usize, states.0);
+        let (tree, tabs) = with_app(|a| (a.tree, a.tabs)).unwrap_or_default();
+        send(tree, TVM_SETIMAGELIST, TVSIL_NORMAL as usize, nav_images);
+        send(tabs, TCM_SETIMAGELIST, 0, nav_images);
         rebuild_columns();
         update_status_bar();
-        let (old_states, old_net) = old_states;
-        if old_states != 0 {
-            ImageList_Destroy(old_states);
+        let (old_states, old_net, old_nav) = old_states;
+        for list in [old_states, old_nav].into_iter().filter(|&l| l != 0) {
+            ImageList_Destroy(list);
         }
         for icon in old_net.into_iter().filter(|i| !i.is_null()) {
             DestroyIcon(icon);
@@ -1340,15 +1351,15 @@ unsafe fn build_tree() {
         let Some(tree) = with_app(|a| a.tree) else { return };
         send(tree, TVM_DELETEITEM, 0, TVI_ROOT);
         let mut items = Vec::new();
-        let root = insert_tree(tree, TVI_ROOT, tr!(CatTorrents), 0);
+        let root = insert_tree(tree, TVI_ROOT, tr!(CatTorrents), 0, category_icon(Category::All));
         items.push((root, Filter::Category(Category::All)));
         for c in [Category::Downloading, Category::Completed, Category::Active, Category::Inactive] {
-            let h = insert_tree(tree, root, c.label(), items.len());
+            let h = insert_tree(tree, root, c.label(), items.len(), category_icon(c));
             items.push((h, Filter::Category(c)));
         }
-        let labels = insert_tree(tree, TVI_ROOT, tr!(CatLabels), items.len());
+        let labels = insert_tree(tree, TVI_ROOT, tr!(CatLabels), items.len(), UiIcon::Labels);
         items.push((labels, Filter::Category(Category::All)));
-        let none = insert_tree(tree, labels, tr!(CatNoLabel), items.len());
+        let none = insert_tree(tree, labels, tr!(CatNoLabel), items.len(), UiIcon::Labels);
         items.push((none, Filter::Label(String::new())));
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, root);
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, labels);
@@ -1363,15 +1374,17 @@ unsafe fn build_tree() {
     }
 }
 
-unsafe fn insert_tree(tree: HWND, parent: HTREEITEM, text: &str, param: usize) -> HTREEITEM {
+unsafe fn insert_tree(tree: HWND, parent: HTREEITEM, text: &str, param: usize, icon: UiIcon) -> HTREEITEM {
     let mut t = wide(text);
     unsafe {
         let mut ins: TVINSERTSTRUCTW = zeroed();
         ins.hParent = parent;
         ins.hInsertAfter = TVI_LAST;
-        ins.Anonymous.item.mask = TVIF_TEXT | TVIF_PARAM;
+        ins.Anonymous.item.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
         ins.Anonymous.item.pszText = t.as_mut_ptr();
         ins.Anonymous.item.lParam = param as isize;
+        ins.Anonymous.item.iImage = icon as i32;
+        ins.Anonymous.item.iSelectedImage = icon as i32;
         send(tree, TVM_INSERTITEMW, 0, &ins as *const _ as LPARAM)
     }
 }
@@ -1412,7 +1425,7 @@ unsafe fn update_tree() {
             }
             let mut new_items = Vec::new();
             for (i, (l, _)) in labels.iter().enumerate() {
-                let h = insert_tree(tree, parent, l, 7 + i);
+                let h = insert_tree(tree, parent, l, 7 + i, UiIcon::Labels);
                 new_items.push((h, Filter::Label(l.clone())));
             }
             let reselect = selected_label
@@ -4009,10 +4022,10 @@ unsafe fn update_feed_tree() {
         if let Some(&(root, _)) = current.first() {
             send(tree, TVM_DELETEITEM, 0, root);
         }
-        let root = insert_tree(tree, TVI_ROOT, tr!(CatFeeds), FEED_PARAM);
+        let root = insert_tree(tree, TVI_ROOT, tr!(CatFeeds), FEED_PARAM, UiIcon::Feeds);
         let mut items = vec![(root, None)];
         for (i, (id, name)) in feeds.iter().enumerate() {
-            items.push((insert_tree(tree, root, name, FEED_PARAM + i + 1), Some(*id)));
+            items.push((insert_tree(tree, root, name, FEED_PARAM + i + 1, UiIcon::Feeds), Some(*id)));
         }
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, root);
         let torrents = with_app(|a| {

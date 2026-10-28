@@ -1,7 +1,8 @@
 //! The Windows icons, at the window's DPI: the toolbar images from the artwork PNGs
 //! `patorrent_frontend::icons` embeds (decoded there, for the disabled copies), the application icon from the executable's icon resource
 //! (`build.rs` embeds the PatinaTorrent `.ico`), and the PatinaTorrent state icons from the
-//! PNGs the frontend embeds (Windows decodes PNG icon images itself).
+//! PNGs the frontend embeds (Windows decodes PNG icon images itself), as are the navigation
+//! symbols of the category list, the detail tabs and the Preferences pages.
 
 use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
@@ -20,7 +21,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 };
 
 pub use patorrent_frontend::icons::Icon;
-use patorrent_frontend::icons::{self, StateIcon};
+use patorrent_frontend::icons::{self, StateIcon, UiIcon};
 
 /// The application icon's resource ID (`build.rs`).
 const APP_ICON_ID: u16 = 1;
@@ -82,7 +83,11 @@ pub fn app_icon_resource() -> *const u16 {
 /// A state icon at [`icons::state_size`]`(size)` pixels, from its PNG. Free with `DestroyIcon`.
 pub fn state_icon(icon: StateIcon, size: usize) -> HICON {
     let size = icons::state_size(size as u32);
-    let png = icon.png(size);
+    png_icon(icon.png(size), size)
+}
+
+/// An icon from a PNG of `size` pixels. Free with `DestroyIcon`.
+fn png_icon(png: &[u8], size: u32) -> HICON {
     // 0x00030000: the icon format version every image since Windows 3 uses, PNG included
     unsafe {
         CreateIconFromResourceEx(
@@ -112,5 +117,22 @@ pub fn state_images(size: usize) -> (HIMAGELIST, usize) {
             DestroyIcon(h);
         }
         (list, px as usize)
+    }
+}
+
+/// Every navigation symbol in [`UiIcon::ALL`] order (`icon as i32` is its index), at the size
+/// for `size` pixels: the category list's and the detail tabs' (one list, shared), and the
+/// Preferences tree's. The caller destroys it.
+pub fn ui_images(size: usize) -> HIMAGELIST {
+    let px = icons::state_size(size as u32);
+    unsafe {
+        let flags = ILC_COLOR32 | crate::util::rtl(ILC_MIRROR);
+        let list = ImageList_Create(px as i32, px as i32, flags, UiIcon::ALL.len() as i32, 0);
+        for icon in UiIcon::ALL {
+            let h = png_icon(icon.png(px), px);
+            ImageList_ReplaceIcon(list, -1, h);
+            DestroyIcon(h);
+        }
+        list
     }
 }

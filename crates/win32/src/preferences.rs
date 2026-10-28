@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 use std::ptr::null;
 
 use patorrent_core::{EncPolicy, ProxyType};
+use patorrent_frontend::icons::{UiIcon, page_icon};
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::options::{self, Options};
 use patorrent_frontend::pref_pages::{PROXY_TYPES, proxy_from_ui, proxy_to_ui};
@@ -20,15 +21,17 @@ use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
-    BST_CHECKED, BST_UNCHECKED, HTREEITEM, LVCF_TEXT, LVCF_WIDTH, LVCOLUMNW, LVIF_STATE, LVIF_TEXT,
-    LVIS_FOCUSED, LVIS_SELECTED, LVITEMW, LVM_DELETEALLITEMS, LVM_ENSUREVISIBLE, LVM_GETNEXTITEM,
-    LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETEXTENDEDLISTVIEWSTYLE, LVM_SETITEMSTATE, LVM_SETITEMTEXTW,
-    LVN_ITEMCHANGED, LVNI_SELECTED, LVS_EX_FULLROWSELECT, LVS_NOSORTHEADER, LVS_REPORT, LVS_SHOWSELALWAYS,
-    LVS_SINGLESEL, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW, NMLVCUSTOMDRAW, NMTREEVIEWW, TVE_EXPAND, TVGN_CARET,
-    TVI_LAST, TVI_ROOT, TVIF_PARAM, TVIF_TEXT, TVINSERTSTRUCTW, TVM_EXPAND, TVM_INSERTITEMW, TVM_SELECTITEM,
-    TVN_SELCHANGEDW, TVS_DISABLEDRAGDROP, TVS_HASBUTTONS, TVS_HASLINES, TVS_LINESATROOT, TVS_NOHSCROLL,
-    TVS_SHOWSELALWAYS,
+    BST_CHECKED, BST_UNCHECKED, HIMAGELIST, HTREEITEM, I_IMAGENONE, ImageList_Destroy, LVCF_TEXT, LVCF_WIDTH,
+    LVCOLUMNW, LVIF_STATE, LVIF_TEXT, LVIS_FOCUSED, LVIS_SELECTED, LVITEMW, LVM_DELETEALLITEMS,
+    LVM_ENSUREVISIBLE, LVM_GETNEXTITEM, LVM_INSERTCOLUMNW, LVM_INSERTITEMW, LVM_SETEXTENDEDLISTVIEWSTYLE,
+    LVM_SETITEMSTATE, LVM_SETITEMTEXTW, LVN_ITEMCHANGED, LVNI_SELECTED, LVS_EX_FULLROWSELECT,
+    LVS_NOSORTHEADER, LVS_REPORT, LVS_SHOWSELALWAYS, LVS_SINGLESEL, NM_CUSTOMDRAW, NMHDR, NMLISTVIEW,
+    NMLVCUSTOMDRAW, NMTREEVIEWW, TVE_EXPAND, TVGN_CARET, TVI_LAST, TVI_ROOT, TVIF_IMAGE, TVIF_PARAM,
+    TVIF_SELECTEDIMAGE, TVIF_TEXT, TVINSERTSTRUCTW, TVM_EXPAND, TVM_INSERTITEMW, TVM_SELECTITEM,
+    TVM_SETIMAGELIST, TVN_SELCHANGEDW, TVS_DISABLEDRAGDROP, TVS_HASBUTTONS, TVS_HASLINES, TVS_LINESATROOT,
+    TVS_NOHSCROLL, TVS_SHOWSELALWAYS, TVSIL_NORMAL,
 };
+use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_GROUPBOX,
@@ -43,7 +46,7 @@ use crate::controls;
 use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_MSGRESULT, DWLP_USER, EDIT, STATIC, Template};
 use crate::integration::{Integration, Status};
 use crate::sched_grid;
-use crate::util::{hiword, loword, send, wide, window_text};
+use crate::util::{hiword, loword, scale, send, wide, window_text};
 
 /// The tree, in µTorrent 2.2.1's order; Disk Cache sits under Advanced.
 pub const PAGES: [S; 11] = [
@@ -556,6 +559,8 @@ struct State<'a> {
     integration: Status,
     /// The General page's language list: `(ui.language value, text)`.
     languages: Vec<(String, String)>,
+    /// The page tree's symbols ([`patorrent_frontend::icons::UiIcon`] order).
+    images: HIMAGELIST,
 }
 
 /// Shows the dialog modally. Returns whether anything was applied.
@@ -570,6 +575,9 @@ pub fn show(owner: HWND, opts: Options, settings_dir: &Path, hooks: Hooks<'_>) -
             Some(proc_),
             &mut st as *mut State<'_> as LPARAM,
         );
+        if st.images != 0 {
+            ImageList_Destroy(st.images);
+        }
     }
     st.applied
 }
@@ -587,6 +595,7 @@ impl<'a> State<'a> {
             applied: false,
             integration: Status::default(),
             languages: Vec::new(),
+            images: 0,
         }
     }
 }
@@ -886,10 +895,12 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
     unsafe {
         set_text(dlg, tr!(PrefTitle));
         let tree = item(dlg, ID_TREE);
+        st.images = crate::icons::ui_images(scale(16, GetDpiForWindow(dlg)) as usize);
+        send(tree, TVM_SETIMAGELIST, TVSIL_NORMAL as usize, st.images);
         let mut parent = TVI_ROOT;
         for (i, title) in PAGES.iter().enumerate() {
             let under = if i == PAGE_DISK_CACHE { parent } else { TVI_ROOT };
-            let h = insert_tree(tree, under, lang::text(*title), i);
+            let h = insert_tree(tree, under, lang::text(*title), i, page_icon(*title));
             if i == PAGE_ADVANCED {
                 parent = h;
             }
@@ -942,15 +953,24 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
     }
 }
 
-unsafe fn insert_tree(tree: HWND, parent: HTREEITEM, text: &str, page: usize) -> HTREEITEM {
+unsafe fn insert_tree(
+    tree: HWND,
+    parent: HTREEITEM,
+    text: &str,
+    page: usize,
+    icon: Option<UiIcon>,
+) -> HTREEITEM {
     let mut t = wide(text);
     unsafe {
         let mut ins: TVINSERTSTRUCTW = std::mem::zeroed();
         ins.hParent = parent;
         ins.hInsertAfter = TVI_LAST;
-        ins.Anonymous.item.mask = TVIF_TEXT | TVIF_PARAM;
+        ins.Anonymous.item.mask = TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE;
         ins.Anonymous.item.pszText = t.as_mut_ptr();
         ins.Anonymous.item.lParam = page as isize;
+        let image = icon.map_or(I_IMAGENONE, |i| i as i32);
+        ins.Anonymous.item.iImage = image;
+        ins.Anonymous.item.iSelectedImage = image;
         send(tree, TVM_INSERTITEMW, 0, &ins as *const _ as LPARAM)
     }
 }

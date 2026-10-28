@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-28_111544_1793182544: Artwork revision 8, the last missing menu icons (1.0.7)
+
+- **Change:** eight symbols drawn in the house pixel art (website, check-updates, notices, import, window, edit, feed-disabled, no-label; [artwork README](assets/ui-icon-explorations/README.md)), so every menu command with a fitting meaning has an icon: Help's Website / Check for Updates / Notices, File > Import, the tray's Show / Hide, Edit Feed, Disable / Enable Feed (by state, through the item tag), the Add dialog's Check / Uncheck (select-all / clear-selection), and No Label in both GUIs' category lists. Nothing was copied from other icon sets.
+- **Validation:** build and geometry audit clean (139 icons, no new near matches, existing exports byte-identical); frontend, Win32 tests and clippy, GTK clippy and fmt pass; the Win32 demo shows the Help and File menus and No Label at 100 %.
+
 ## 2026-10-28_110102_1793181662: GTK navigation icons (1.0.6)
 
 - **Change:** the GTK sidebar, detail tabs and Preferences page list show the shared `UiIcon` symbols, following the light/dark theme like the toolbar (one registry for both). Preferences' `StackSidebar`, which cannot show icons, is now a `ListBox` kept in step with the stack; tab labels keep their mnemonics through a handler of their own. GTK menus stay text only (GTK 4 popover menus draw icons only in button rows).

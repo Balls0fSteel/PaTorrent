@@ -85,4 +85,6 @@ H.towerFull=px(0,0,[
  '...##......##',
  '...##......##']);
 H.reannounce=H.tower+H.refreshBadge;
+// The 5 x 5 cross badge (tracker error, revision 8's disabled feed and no label).
+H.crossBadge=px(10,10,['##.##','.###.','..#..','.###.','##.##']);
 module.exports=H;

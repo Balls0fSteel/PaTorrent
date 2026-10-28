@@ -717,7 +717,7 @@ unsafe fn submenu(menu: HMENU, sub: HMENU, text: &str) {
 unsafe fn submenu_icon(menu: HMENU, sub: HMENU, text: &str, icon: UiIcon) {
     unsafe {
         submenu(menu, sub, text);
-        icons::tag_submenu(menu, icon);
+        icons::tag_item(menu, icon);
     }
 }
 
@@ -1370,7 +1370,7 @@ unsafe fn build_tree() {
         }
         let labels = insert_tree(tree, TVI_ROOT, tr!(CatLabels), items.len(), UiIcon::Labels);
         items.push((labels, Filter::Category(Category::All)));
-        let none = insert_tree(tree, labels, tr!(CatNoLabel), items.len(), UiIcon::Labels);
+        let none = insert_tree(tree, labels, tr!(CatNoLabel), items.len(), UiIcon::NoLabel);
         items.push((none, Filter::Label(String::new())));
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, root);
         send(tree, TVM_EXPAND, TVE_EXPAND as usize, labels);
@@ -2538,10 +2538,16 @@ unsafe fn toggle_window(hwnd: HWND) {
 }
 
 /// A menu command's icon. Check-marked commands (the Show and tray options, Initial Seeding,
-/// labels, limits, columns, Auto Shutdown modes) have none, nor do those without artwork yet.
+/// labels, limits, columns, Auto Shutdown modes) have none, nor do Exit and Remove And.
+/// Disable / Enable Feed is tagged where its menu is built ([`icons::tag_item`]).
 fn command_icon(id: u16) -> Option<UiIcon> {
     Some(match id {
         cmd::ADD => UiIcon::AddTorrent,
+        cmd::WEBSITE => UiIcon::Website,
+        cmd::CHECK_UPDATES => UiIcon::CheckUpdates,
+        cmd::NOTICES => UiIcon::Notices,
+        cmd::TRAY_TOGGLE => UiIcon::Window,
+        cmd::FEED_EDIT => UiIcon::Edit,
         cmd::ADD_URL => UiIcon::AddUrl,
         cmd::CREATE => UiIcon::CreateTorrent,
         cmd::CONNECT_REMOTE => UiIcon::Remote,
@@ -2568,6 +2574,9 @@ fn command_icon(id: u16) -> Option<UiIcon> {
         cmd::FEED_ADD => UiIcon::AddFeed,
         cmd::FEED_UPDATE => UiIcon::Refresh,
         cmd::ITEM_DOWNLOAD => UiIcon::Download,
+        _ if (cmd::IMPORT_BASE..cmd::IMPORT_BASE + import::Client::ALL.len() as u16).contains(&id) => {
+            UiIcon::Import
+        }
         _ => {
             let prio = id.checked_sub(cmd::FILE_PRIO_BASE)? as usize;
             return PRIORITY_ICONS.get(prio).copied();
@@ -4155,6 +4164,7 @@ unsafe fn tree_menu(hwnd: HWND, tree: HWND, p: POINT, keyboard: bool) {
         append_flags(menu, grayed(feed.is_none()), cmd::FEED_EDIT, tr!(MenuEditFeed));
         let toggle = if enabled { tr!(MenuDisableFeed) } else { tr!(MenuEnableFeed) };
         append_flags(menu, grayed(feed.is_none()), cmd::FEED_TOGGLE, toggle);
+        icons::tag_item(menu, if enabled { UiIcon::FeedDisabled } else { UiIcon::Feeds });
         append(menu, cmd::FEED_UPDATE, tr!(MenuUpdateFeed));
         append_flags(menu, grayed(feed.is_none()), cmd::FEED_REMOVE, tr!(MenuDeleteFeed));
         separator(menu);

@@ -40,7 +40,7 @@ module.exports = (H) => {
   // 5 x 5 pixel badges in the bottom-right corner, each clear of its base by 1 px.
   const okBadge = H.px(10,10,['....#','...##','#.##.','###..','.#...']);
   const bangBadge = H.px(12,10,['##','##','##','..','##']);
-  const crossBadge = H.px(10,10,['##.##','.###.','..#..','.###.','##.##']);
+  const crossBadge = H.crossBadge;
   const moreBadge = H.px(10,13,['#.#.#','#.#.#']);
   const person = c(4,4,2)+p('M1 14V10a3 3 0 0 1 6 0v4Z');
   const folder = even('M1 1h4l2 2h3v5H1Z M3 5v1h5V5Z');

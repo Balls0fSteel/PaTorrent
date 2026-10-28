@@ -1,6 +1,6 @@
-# PaTorrent bold UI artwork — revision 7
+# PaTorrent bold UI artwork — revision 8
 
-Open [review.html](review.html) to inspect the **131-symbol bold set** at native 16/20/24/32/48/64 px. The gallery supports light/dark artwork, monochrome proofs, UI-area/search filters and shortlist export. The larger inspection image uses the separately fitted 48 px SVG. SVG downloads match the selected size.
+Open [review.html](review.html) to inspect the **139-symbol bold set** at native 16/20/24/32/48/64 px. The gallery supports light/dark artwork, monochrome proofs, UI-area/search filters and shortlist export. The larger inspection image uses the separately fitted 48 px SVG. SVG downloads match the selected size.
 
 ## Design
 
@@ -11,6 +11,19 @@ Open [review.html](review.html) to inspect the **131-symbol bold set** at native
 - Colour describes operational state: downloads/metadata teal, seeding blue, checking/queueing/paused amber, stopped/inactive grey, errors red. Completion is a check shape; it never recolours paused or stopped variants.
 - About is a flat symbolic rendition of the currently selected Verdigris medallion and P/down-arrow. The existing app/window/tray/packaging brand remains selected; the twelve earlier app concepts are a historical discussion sheet.
 - `network-no-incoming` means no incoming connection has been observed; it is not a claim that the client is disconnected. The network trio shares one base, a globe (D30), with check, ! and × badges.
+
+## Revision 8 (2026-10-28)
+
+Adds the eight menu and category symbols the [icon coverage audit](../../docs/BACKLOG.md#ui-icon-coverage-audit-2026-10-28_090116_1793174476) found missing. All are drawn here, in revision 7's pixel art with 2 px strokes (permissive sets were looked at for ideas only; nothing is copied). No existing drawing changed: the cross badge moved to `H.crossBadge`, with identical output.
+
+- **website** (Help > Website): an arrow leaving an open frame through its top-right corner.
+- **check-updates**: a download onto a line, with the shared refresh badge.
+- **notices** (Third-Party Notices): a copyright mark, a C in a 14 px ring, beside Help's and About's circles.
+- **import** (File > Import): an arrow entering a bracket, log out's mirror image.
+- **window** (tray Show / Hide): a frame under a 4 px title bar with a cut-out button. A 3 px bar read as a plain frame at 16 px.
+- **edit** (Edit Feed): a pencil, its eraser split off by a diagonal gap.
+- **feed-disabled**, **no-label**: the compact feed and the compact label tag with the cross badge.
+- Check / Uncheck in the Add dialog reuse select-all / clear-selection.
 
 ## Revision 7 (2026-10-28)
 
@@ -58,7 +71,7 @@ The 18 symbols failed by the [revision 3 review](review-2026-10-26/revision3/REP
 
 | Path | Contents |
 |---|---|
-| `inventory.json` | Stable 131 IDs, labels and groups |
+| `inventory.json` | Stable 139 IDs, labels and groups |
 | `bold/{actions,states,misc}.cjs` | Editable small/large vector drawings |
 | `bold/common.cjs`, `bold/index.cjs` | Shared primitives, About mark and explicit reuse allowlist |
 | `bold/render.cjs` | Native-size SVG fitting and light/dark palette |
@@ -74,7 +87,7 @@ The 18 symbols failed by the [revision 3 review](review-2026-10-26/revision3/REP
 | `qa/revision3/runtime.png`, `gtk-logical.png` | The 24 shared runtime states and GTK 32-source-at-16-logical proof |
 | `geometry-audit.json`, `validation.json`, `QA.md` | Measured checks, visual review and remaining platform gates |
 
-**Active output: 2,358 SVGs + 2,358 PNGs** (131 × six sizes × three colour modes). Older outline/tile files, revision 2 proof pages and `refine.cjs`/`compare.cjs` remain for historical comparison and are not advertised by the active manifest. The dated [revision 2 report](review-2026-10-26/REPORT.md) explains the defects that prompted this redraw.
+**Active output: 2,502 SVGs + 2,502 PNGs** (139 × six sizes × three colour modes). Older outline/tile files, revision 2 proof pages and `refine.cjs`/`compare.cjs` remain for historical comparison and are not advertised by the active manifest. The dated [revision 2 report](review-2026-10-26/REPORT.md) explains the defects that prompted this redraw.
 
 ## Reproduce
 

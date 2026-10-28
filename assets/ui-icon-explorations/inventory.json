@@ -653,5 +653,45 @@
     "id": "tray",
     "label": "Tray transfer mark",
     "group": "Brand"
+  },
+  {
+    "id": "website",
+    "label": "Project website",
+    "group": "Utility"
+  },
+  {
+    "id": "check-updates",
+    "label": "Check for updates",
+    "group": "Utility"
+  },
+  {
+    "id": "notices",
+    "label": "Third-party notices",
+    "group": "Utility"
+  },
+  {
+    "id": "import",
+    "label": "Import torrents",
+    "group": "Actions"
+  },
+  {
+    "id": "window",
+    "label": "Show / hide window",
+    "group": "Utility"
+  },
+  {
+    "id": "edit",
+    "label": "Edit",
+    "group": "Actions"
+  },
+  {
+    "id": "feed-disabled",
+    "label": "Disable feed",
+    "group": "RSS"
+  },
+  {
+    "id": "no-label",
+    "label": "No label",
+    "group": "Navigation"
   }
 ]

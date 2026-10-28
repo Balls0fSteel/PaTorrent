@@ -146,7 +146,7 @@ impl Sidebar {
         }
         add(None, tr!(CatLabels), UiIcon::Labels, false, true);
         let no_label = Some(Pick::Torrents(Filter::Label(String::new())));
-        add(no_label, tr!(CatNoLabel), UiIcon::Labels, true, false);
+        add(no_label, tr!(CatNoLabel), UiIcon::NoLabel, true, false);
         for l in labels {
             add(Some(Pick::Torrents(Filter::Label(l.clone()))), l, UiIcon::Labels, true, false);
         }

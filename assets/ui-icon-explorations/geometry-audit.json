@@ -1,6 +1,6 @@
 {
   "revision": 3,
-  "checked": 786,
+  "checked": 834,
   "criterion": "No significant alpha outside canvas or on outermost pixel; silhouette comparisons threshold alpha at 128/255",
   "overflow": [],
   "margin": [],
@@ -135,7 +135,7 @@
       "iou": 0.9333
     }
   ],
-  "medianPartialFraction16": 0.1935,
+  "medianPartialFraction16": 0.1887,
   "stats": [
     {
       "id": "add-torrent",
@@ -1053,6 +1053,62 @@
       "opaque": 64,
       "partial": 8,
       "partialFraction": 0.1111
+    },
+    {
+      "id": "website",
+      "ink": 97,
+      "opaque": 97,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "check-updates",
+      "ink": 64,
+      "opaque": 64,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "notices",
+      "ink": 102,
+      "opaque": 102,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "import",
+      "ink": 72,
+      "opaque": 64,
+      "partial": 8,
+      "partialFraction": 0.1111
+    },
+    {
+      "id": "window",
+      "ink": 108,
+      "opaque": 108,
+      "partial": 0,
+      "partialFraction": 0
+    },
+    {
+      "id": "edit",
+      "ink": 72,
+      "opaque": 45,
+      "partial": 27,
+      "partialFraction": 0.375
+    },
+    {
+      "id": "feed-disabled",
+      "ink": 61,
+      "opaque": 27,
+      "partial": 34,
+      "partialFraction": 0.5574
+    },
+    {
+      "id": "no-label",
+      "ink": 70,
+      "opaque": 57,
+      "partial": 13,
+      "partialFraction": 0.1857
     }
   ]
 }

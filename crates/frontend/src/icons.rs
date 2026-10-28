@@ -200,6 +200,17 @@ small_icons! {
     PriorityNormal => "priority-normal",
     PriorityLow => "priority-low",
     Skip => "skip",
+    SelectAll => "select-all",
+    ClearSelection => "clear-selection",
+    // revision 8: drawn for the menus and No Label
+    Website => "website",
+    CheckUpdates => "check-updates",
+    Notices => "notices",
+    Import => "import",
+    Window => "window",
+    Edit => "edit",
+    FeedDisabled => "feed-disabled",
+    NoLabel => "no-label",
     }
 }
 

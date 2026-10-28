@@ -1,6 +1,6 @@
 {
   "revision": 3,
-  "icons": 131,
+  "icons": 139,
   "families": 1,
   "themes": [
     "light",
@@ -15,8 +15,8 @@
     48,
     64
   ],
-  "svgCount": 2358,
-  "pngCount": 2358,
+  "svgCount": 2502,
+  "pngCount": 2502,
   "separateLargeDrawings": 20,
   "checks": [
     "Every PNG decoded at its expected native dimensions",

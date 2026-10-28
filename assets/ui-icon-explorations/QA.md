@@ -1,5 +1,12 @@
 # Artwork QA
 
+## Revision 8 (2026-10-28)
+
+- Eight new symbols (website, check-updates, notices, import, window, edit, feed-disabled, no-label), judged on an enlarged 16/20/24/32 px sheet in light and dark. The first window had a 3 px title bar and read as a plain frame; it was redrawn with a 4 px bar and a cut-out button, and compared with web-ui, desktop-integration and reset-columns.
+- `build.cjs` and `check-geometry.cjs` pass: 139 icons, 2,502 SVG/PNG each, zero overflow, margin failures and unexpected identical masks. No new near matches; the known pairs are unchanged. Median partial alpha at 16 px is 18.9 % (22.7 % before), as the new drawings are mostly pixel art.
+- Every existing export is byte-identical after the cross badge moved into `common.cjs`.
+- Seen in the Win32 demo at 100 %: File (import), Help (website, check-updates, about, notices) and the No Label tree row. Not yet independently reviewed; the proof pages were not regenerated.
+
 ## Revision 6 (2026-10-26)
 
 - Redrew the network trio as a globe, and the tracker states, reannounce and the Trackers tab as an arcs-above pylon (D30). Each was chosen from several candidates, zoomed and at native 16/20/24/32 px. Rejected:

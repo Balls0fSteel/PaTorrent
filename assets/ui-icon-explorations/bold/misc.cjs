@@ -105,5 +105,68 @@ module.exports = (H) => {
   // A page carrying the app's P mark: "files of this type open in PaTorrent".
   add('association',H.px(0,1,['..########','..#########','..##......##','..##.####..##','..##.##.##.##','..##.##.##.##','..##.####..##','..##.##....##','..##.##....##','..##.##....##','..##.......##','..###########','..###########']),'teal');
   add('tray',s('M2 10v4h12v-4')+p('M7 1h2v6h3l-4 4-4-4h3Z'),'teal');
+  // Revision 8: the menu symbols the 2026-10-28 coverage audit found missing, pixel art with
+  // 2 px strokes like revision 7's.
+  // Help > Website: an arrow leaving an open frame through its top-right corner.
+  add('website',H.px(0,0,['',
+    '........#######',
+    '........#######',
+    '.######.....###',
+    '.######....####',
+    '.##.......##.##',
+    '.##......##..##',
+    '.##.....##...##',
+    '.##....##',
+    '.##...##...##',
+    '.##........##',
+    '.##........##',
+    '.##........##',
+    '.############',
+    '.############']),'blue');
+  // Help > Check for Updates: a download onto a line, with the shared refresh badge.
+  add('check-updates',H.px(0,0,['',
+    '....##','....##','....##','....##','....##','....##','....##',
+    '.########','..######','...####','....##','',
+    '.########','.########'])+H.refreshBadge,'teal');
+  // Help > Third-Party Notices: a copyright mark, beside Help's and About's circles.
+  add('notices',H.px(0,0,['',
+    '.....######',
+    '...##########',
+    '..###......###',
+    '..##........##',
+    '.##...#####..##',
+    '.##..######..##',
+    '.##..##......##',
+    '.##..##......##',
+    '.##..######..##',
+    '.##...#####..##',
+    '..##........##',
+    '..###......###',
+    '...##########',
+    '.....######']));
+  // File > Import: an arrow entering a bracket (log out's mirror image).
+  add('import',s('M8 2h5v11H8')+p('M1 7h5V4l4 4-4 4V9H1Z'),'teal');
+  // The tray menu's Show / Hide: a window, its 4 px title bar holding a cut-out button (a
+  // 3 px bar read as a plain frame at 16 px).
+  add('window',H.px(0,0,['',
+    '.##############',
+    '.##########..##',
+    '.##########..##',
+    '.##############',
+    '.##..........##',
+    '.##..........##',
+    '.##..........##',
+    '.##..........##',
+    '.##..........##',
+    '.##..........##',
+    '.##..........##',
+    '.##############',
+    '.##############']));
+  // Edit Feed: a pencil, its eraser split off by a diagonal gap.
+  add('edit',p('M1 11 8 4l3 3-7 7H1Z')+p('M9 3l2-2 3 3-2 2Z'),'blue');
+  // Disable Feed: the compact feed with the cross badge.
+  add('feed-disabled',compactRss+H.crossBadge,'orange');
+  // No Label: the compact tag of new/remove label, with the cross badge.
+  add('no-label',even('M1 1h5l4 4-5 5-4-4Z M3 3v2h2V3Z')+H.crossBadge);
   return result;
 };

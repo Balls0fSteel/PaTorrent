@@ -137,8 +137,9 @@ fn menu_bitmap(icon: UiIcon, px: u32, gray: bool) -> HBITMAP {
     })
 }
 
-/// Gives the last item of `menu` (a submenu's) `icon`, which [`menu_icons`] then draws.
-pub unsafe fn tag_submenu(menu: HMENU, icon: UiIcon) {
+/// Gives the last item of `menu` `icon`, which [`menu_icons`] then draws: a submenu's, or a
+/// command's whose icon depends on more than its ID (Disable / Enable Feed).
+pub unsafe fn tag_item(menu: HMENU, icon: UiIcon) {
     unsafe {
         let mut mii: MENUITEMINFOW = zeroed();
         mii.cbSize = size_of::<MENUITEMINFOW>() as u32;
@@ -149,7 +150,7 @@ pub unsafe fn tag_submenu(menu: HMENU, icon: UiIcon) {
 }
 
 /// Puts icons on `menu`'s items and its submenus', 16 px scaled to `dpi`: a command's from
-/// `icon_of`, a submenu's from [`tag_submenu`]. A greyed item gets the grey copy, as the
+/// `icon_of` or else [`tag_item`], a submenu's from [`tag_item`]. A greyed item gets the grey copy, as the
 /// themed menu draws the bitmap as it is. Check-marked items are left to `icon_of` to skip:
 /// the mark and the icon share a place.
 pub unsafe fn menu_icons(menu: HMENU, dpi: u32, icon_of: &dyn Fn(u16) -> Option<UiIcon>) {
@@ -162,11 +163,12 @@ pub unsafe fn menu_icons(menu: HMENU, dpi: u32, icon_of: &dyn Fn(u16) -> Option<
             if GetMenuItemInfoW(menu, i, 1, &mut mii) == 0 || mii.fType & MFT_SEPARATOR != 0 {
                 continue;
             }
+            let tagged = mii.dwItemData.checked_sub(1).and_then(|i| UiIcon::ALL.get(i).copied());
             let icon = if mii.hSubMenu.is_null() {
-                icon_of(mii.wID as u16)
+                icon_of(mii.wID as u16).or(tagged)
             } else {
                 menu_icons(mii.hSubMenu, dpi, icon_of);
-                mii.dwItemData.checked_sub(1).and_then(|i| UiIcon::ALL.get(i).copied())
+                tagged
             };
             if let Some(icon) = icon {
                 let mut set: MENUITEMINFOW = zeroed();

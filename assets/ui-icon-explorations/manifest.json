@@ -1055,6 +1055,70 @@
       "color": "teal",
       "revised": true,
       "largeDrawing": false
+    },
+    {
+      "id": "website",
+      "label": "Project website",
+      "group": "Utility",
+      "color": "blue",
+      "revised": true,
+      "largeDrawing": false
+    },
+    {
+      "id": "check-updates",
+      "label": "Check for updates",
+      "group": "Utility",
+      "color": "teal",
+      "revised": true,
+      "largeDrawing": false
+    },
+    {
+      "id": "notices",
+      "label": "Third-party notices",
+      "group": "Utility",
+      "color": "neutral",
+      "revised": true,
+      "largeDrawing": false
+    },
+    {
+      "id": "import",
+      "label": "Import torrents",
+      "group": "Actions",
+      "color": "teal",
+      "revised": true,
+      "largeDrawing": false
+    },
+    {
+      "id": "window",
+      "label": "Show / hide window",
+      "group": "Utility",
+      "color": "neutral",
+      "revised": true,
+      "largeDrawing": false
+    },
+    {
+      "id": "edit",
+      "label": "Edit",
+      "group": "Actions",
+      "color": "blue",
+      "revised": true,
+      "largeDrawing": false
+    },
+    {
+      "id": "feed-disabled",
+      "label": "Disable feed",
+      "group": "RSS",
+      "color": "orange",
+      "revised": true,
+      "largeDrawing": false
+    },
+    {
+      "id": "no-label",
+      "label": "No label",
+      "group": "Navigation",
+      "color": "neutral",
+      "revised": true,
+      "largeDrawing": false
     }
   ],
   "sizes": [

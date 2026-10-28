@@ -984,6 +984,8 @@ unsafe fn feed_menu(dlg: HWND, st: &mut State<'_>, lp: LPARAM) {
             if enabled == Some(false) { tr!(MenuEnableFeed) } else { tr!(MenuDisableFeed) },
             feed.is_some(),
         );
+        let toggle_icon = if enabled == Some(false) { UiIcon::Feeds } else { UiIcon::FeedDisabled };
+        crate::icons::tag_item(menu, toggle_icon);
         add(ID_FEED_UPDATE, tr!(MenuUpdateFeed), true);
         add(ID_FEED_REMOVE, tr!(MenuDeleteFeed), feed.is_some());
         let mut p = POINT { x: (lp & 0xffff) as i16 as i32, y: ((lp >> 16) & 0xffff) as i16 as i32 };
@@ -992,6 +994,7 @@ unsafe fn feed_menu(dlg: HWND, st: &mut State<'_>, lp: LPARAM) {
         }
         let feed_icon = |id: u16| match id {
             ID_FEED_ADD => Some(UiIcon::AddFeed),
+            ID_FEED_EDIT => Some(UiIcon::Edit),
             ID_FEED_UPDATE => Some(UiIcon::Refresh),
             ID_FEED_REMOVE => Some(UiIcon::Remove),
             _ => None,

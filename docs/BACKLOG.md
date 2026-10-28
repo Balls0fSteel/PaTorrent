@@ -74,73 +74,28 @@ in its title bar. Still open from that round:
 
 ## UI icon coverage (audit 2026-10-28_090116_1793174476)
 
-The GUIs embedded 35 of the 131 bold symbols: the 11 toolbar actions (`Icon`) and the 24
-runtime states (`StateIcon`). Neither GUI gives icons to its category list, detail tabs,
-Preferences page list or menus (Win32 sets no tree, tab or menu image list), so most of the
-"missing" icons are drawn but not wired in. File-type icons come from the OS (Win32
-`SHGetFileInfoW`, GTK `content_type_get_icon`) and stay that way.
+Before the audit the GUIs embedded 35 of the 131 bold symbols (11 toolbar, 24 runtime
+states). Now `patorrent_frontend::icons::UiIcon` (67 symbols) also covers the category list,
+the detail tabs, the Preferences pages and the menus. File-type icons stay the OS's (Win32
+`SHGetFileInfoW`, GTK `content_type_get_icon`).
 
-**Win32 done (1.0.4, 2026-10-28_091009_1793175009):** the category list, the detail tabs and
-the Preferences tree draw `UiIcon` (24 symbols, `patorrent_frontend::icons`). Label entries and
-No Label share [labels]; each feed shares [rss]. Still open: a No Label symbol of its own, and
-a look at 125–200 % DPI (the Preferences list is made once at the
-dialog's DPI and is not rebuilt if it moves to another monitor).
+- **Win32** (1.0.4–1.0.7): tree, tabs and Preferences tree via image lists; menus via
+  `command_icon` (`app.rs`) and `icons::menu_icons` on the main menu, every `popup()` menu and
+  the Add / RSS dialogs' menus. Greyed items get a grey copy; submenus and Disable / Enable
+  Feed carry theirs in the item data (`icons::tag_item`). Without icons on purpose:
+  check-marked items (the mark takes the place), Exit and Remove And.
+- **GTK** (1.0.6–1.0.7), not yet seen running: sidebar, tabs and the Preferences page list
+  (a `ListBox` in place of the `StackSidebar`, which shows no icons). Menus stay text only:
+  GTK 4 popover menus show icons only in button rows.
+- **Revision 8 artwork** (1.0.7, 2026-10-28_111544_1793182544): website, check-updates,
+  notices, import, window, edit, feed-disabled and no-label, drawn here as pixel art (nothing
+  copied, so no third-party notice). Check / Uncheck reuse select-all / clear-selection.
+  Geometry audit clean; independent review not yet done.
 
-**Win32 menus done (1.0.5, 2026-10-28_091820_1793175500):** `command_icon` in `app.rs` maps
-command IDs to `UiIcon`; `icons::menu_icons` puts 32 bpp bitmaps on the main menu (again on a
-DPI change), every `popup()` menu, the Add dialog's file menu and the RSS dialog's feed menu.
-Greyed items get a grey copy. Submenus carry theirs in the item data (`tag_submenu`): Auto
-Shutdown, Advanced, Bandwidth and its two limits, Label. Left without: check-marked items, Exit
-and Remove And (no fitting symbol), and the nine not drawn yet. Not checked: RTL (mirrored
-menus may mirror the bitmaps), and the tray menu on screen (same `popup()` path).
-
-**GTK done (1.0.6, 2026-10-28_110102_1793181662), not yet seen running:** the sidebar rows,
-the detail tabs and the Preferences page list show the same symbols (`icons::ui_image`, light
-or dark palette with the theme). Preferences' `StackSidebar` became a `ListBox` (a stack
-sidebar shows no icons) that follows the stack both ways; Disk Cache is indented by a margin
-instead of leading spaces. Tab labels are icon + label boxes, so each label switches its tab
-on its own mnemonic. Menus stay text only (GTK 4 popover menus show icons only in button
-rows; GNOME's guidelines also leave them out). Check on Linux: row heights and spacing in the
-sidebar and Preferences list, Alt+mnemonic on the tabs, the dark palette, and the error path
-that jumps to a Preferences page selecting its row.
-
-**Drawn, not wired** (artwork ID in brackets):
-- Category list: Torrents [all-torrents], Downloading [downloading], Completed [completed],
-  Active [active], Inactive [inactive], Labels [labels], Feeds [rss].
-- Detail tabs: [general], [trackers], [peers], [pieces], [files], [speed], [logger].
-- Preferences pages: General [general], UI Settings [appearance], [directories],
-  [connection], [bandwidth], [bittorrent], [queueing], [scheduler], [web-ui], [advanced],
-  Disk Cache [disk].
-- Menus: Connect to Remote [remote], Exit [power], Auto Shutdown [power], About [about],
-  Open Containing Folder [open-folder], Force Start [force-start], the queue four,
-  Remove [remove], Delete Data [delete-data], Force Re-Check [recheck], Update Tracker
-  [reannounce], Set Download Location [set-location], Initial Seeding [initial-seeding],
-  Advanced [advanced], Bandwidth Allocation [bandwidth], limits [download-limit,
-  upload-limit, unlimited], New/Remove Label [new-label, remove-label], Properties
-  [properties], file priorities [priority-high/normal/low, skip], Select All / None
-  [select-all, clear-selection], feed menu Add / Update / Delete / Download [add-feed,
-  refresh, remove, download].
-- Check marks and radio items (Show Toolbar, Close/Minimize to Tray, Auto Shutdown modes)
-  take no icon: the menu's check mark sits in the same place.
-
-**Not drawn yet** (permissive references to redraw on the 16 px grid; MIT/ISC need a line
-in `THIRD-PARTY-NOTICES.md` only when an SVG is copied, not when it is redrawn):
-| Use | Symbol | References |
-|---|---|---|
-| Help > PaTorrent Website | external link | Pixelarticons `external-link`, Lucide `external-link`, Fluent `open` |
-| Help > Check for Updates | circular arrow over a down arrow | Fluent `arrow-sync-circle`, Lucide `refresh-ccw-dot` |
-| Help > Third-Party Notices | page with text lines | Pixelarticons `notes`, Lucide `file-text`, Fluent `document-text` |
-| File > Import from qBittorrent / µTorrent | arrow into a tray | Lucide `import`, Fluent `arrow-import` |
-| Tray Show / Hide PaTorrent | window, or eye / eye-off | Pixelarticons `eye`, `eye-closed`; Lucide `app-window` |
-| RSS Edit Feed | pencil | Pixelarticons `edit`, Lucide `pencil`, Fluent `edit` |
-| Files Check / Uncheck | checked / empty box | Pixelarticons `checkbox-on`, `checkbox`; Lucide `square-check`, `square` |
-| RSS Disable / Enable Feed | [rss] with the house × badge, plain [rss] | none: built from the set's badges |
-| Category No Label | [labels] with the × badge | none: built from the set's badges |
-
-**Toolkit limits to check before wiring:** Win32 menu icons need 32 bpp premultiplied
-`HBITMAP`s via `MIIM_BITMAP` per DPI; GTK 4 `PopoverMenu` shows icons only in
-horizontal-button sections or as `verb-icon`, so GTK menus may stay text only while the
-sidebar, tabs and Preferences list take icons. The Web UI (`nox`) was not audited.
+Still to check: GTK on Linux (sidebar and Preferences row spacing, Alt+mnemonics on the tabs,
+the dark palette, an error jumping to a Preferences page selecting its row); Win32 at
+125–200 % (the Preferences list is made once at the dialog's DPI), RTL (mirrored menus may
+mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audited.
 
 ## Win32 layout and dialogs
 

@@ -143,7 +143,8 @@ jobs:
           if ($u.DisplayVersion -ne $version -or $u.InstallLocation -ne $dir) { Fail "the Uninstall key is wrong" }
           if ((Get-Item "$classes\.torrent").GetValue('') -ne 'PaTorrent.torrent') { Fail ".torrent is not associated" }
           $open = (Get-Item "$classes\magnet\shell\open\command").GetValue('')
-          if ($open -ne "`"$dir\patorrent.exe`" `"%1`"") { Fail "magnet: opens '$open'" }
+          # SEC-18: the shell passes links through --shell, so nothing after %1 becomes a switch
+          if ($open -ne "`"$dir\patorrent.exe`" --shell `"%1`"") { Fail "magnet: opens '$open'" }
           & "$dir\patorrent-nox.exe" --version
           if ($LASTEXITCODE -ne 0) { Fail "the installed patorrent-nox.exe did not run" }
 

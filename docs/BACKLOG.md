@@ -68,10 +68,6 @@ in its title bar. Still open from that round:
 - **GTK:** no alternate row shading (a CSS `nth-child` rule on the column view's rows would
   do; the UI Settings box is hidden there, `Features::alternate_rows`), and the new
   Start / Stop / Pause / Enter keys exist on Win32 only. The scheduler colours are shared.
-- **Add from URL icon:** revision 7 draws a horseshoe magnet with the plus badge (the owner's
-  finding named a magnet), which contradicts D29's chain link. The owner decides; the chain
-  link with thickened loops is the alternative (its drawing is at `16b14bf0`). Record the
-  outcome as a D29 amendment.
 - **Alternate colour:** the shade is the window colour at 15/16 (about `0xF0F0F0` on
   white), not sampled from 2.2.1; compare on the owner's machine.
 - **Build string:** `cargo build` without `PATORRENT_BUILD` reads git at build-script time

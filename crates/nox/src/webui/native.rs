@@ -239,6 +239,8 @@ impl Client {
             .with("labels", Json::Arr(labels))
             .with("detail", detail)
             .with("confirm_delete", st.prefs.confirm_delete)
+            // a desktop client hosts the Web UI: no RSS Downloader here (docs/WEBUI.md)
+            .with("hosted", st.hosted)
     }
 
     /// Handles one client message; the replies to send back, in order.
@@ -525,8 +527,9 @@ impl Client {
             out.set("no_label", no_label);
         }
         out.set("status", status_bar(st));
-        // the RSS Downloader changed: the page reloads its feeds (GET /pa/rss)
-        if st.rss_version != self.rss_sent {
+        // the RSS Downloader changed: the page reloads its feeds (GET /pa/rss); hosted, there
+        // is none
+        if !st.hosted && st.rss_version != self.rss_sent {
             self.rss_sent = st.rss_version;
             out.set("rss", st.rss_version);
         }

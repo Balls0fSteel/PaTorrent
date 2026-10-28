@@ -9,6 +9,11 @@
 //! request ever fetches while holding a lock, and the order is always the RSS lock, then the
 //! State lock (never the other way round). Every change bumps `State::rss_version`, which the
 //! WebSocket's `tick` carries (`rss`), so an open dialog reloads.
+//!
+//! Hosted by a desktop client (`Config::hosted`, D40) there is no downloader here: the RSS
+//! Downloader is the host's, the native endpoints and the shim's `rss/*` answer 404
+//! ([`HOSTED_NO_RSS`]), the tick does not run and carries no `rss`, and the page hides its
+//! entry points (`hello.hosted`).
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -28,6 +33,9 @@ use super::commands::{self, AddOptions, CmdError, Source, valid_label};
 use super::http::{Response, parse_urlencoded};
 use super::json::{self, Json};
 use super::{Shared, unix_now};
+
+/// The 404's reason while a desktop client hosts the Web UI.
+pub(crate) const HOSTED_NO_RSS: &str = "the RSS Downloader is the desktop client's";
 
 /// The downloader and what nox keeps around it.
 pub(crate) struct Rss {
@@ -156,7 +164,7 @@ fn add(shared: &Shared, req: AddRequest, d: Download) {
         Ok(hash) if req.paused => {
             let mut st = shared.lock();
             st.user_paused.insert(hash);
-            shared.save(&st);
+            shared.save(&mut st);
         }
         Ok(_) => {}
         Err(e) => shared.lock().push_log(None, format!("RSS: {}: {}", req.title, e.msg), now),

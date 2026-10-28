@@ -17,13 +17,33 @@ use crate::columns::Column;
 /// The keys whose values are secrets, sealed in the file ([`crate::secret`]).
 pub const SEALED: &[&str] = &["lt.proxy_password"];
 
-#[derive(Clone, Debug, Default)]
+#[derive(Debug, Default)]
 pub struct Prefs {
     path: Option<PathBuf>,
     /// Plain values.
     values: BTreeMap<String, String>,
     /// The stored (file) form of the [`SEALED`] keys that are set.
     sealed: BTreeMap<String, String>,
+    /// Every `set` and `remove` since [`Prefs::take_changes`], once [`Prefs::track_changes`]
+    /// turned it on: for a copy kept elsewhere (the Web UI a GUI hosts mirrors its
+    /// preferences, D40).
+    journal: Option<Vec<Change>>,
+}
+
+/// One recorded change: the key and its new plain value, `None` once removed.
+pub type Change = (String, Option<String>);
+
+impl Clone for Prefs {
+    /// A copy starts with an empty journal (tracking stays on): the original's pending changes
+    /// are the original's to hand on.
+    fn clone(&self) -> Prefs {
+        Prefs {
+            path: self.path.clone(),
+            values: self.values.clone(),
+            sealed: self.sealed.clone(),
+            journal: self.journal.as_ref().map(|_| Vec::new()),
+        }
+    }
 }
 
 impl Prefs {
@@ -115,15 +135,57 @@ impl Prefs {
                 crate::secret::seal(&plain)
             };
             self.sealed.insert(key.to_owned(), stored);
+            self.record(key, Some(&plain));
             self.values.insert(key.to_owned(), plain);
             return;
         }
+        self.record(key, Some(&value));
         self.values.insert(key.to_owned(), value);
     }
 
     pub fn remove(&mut self, key: &str) {
+        self.record(key, None);
         self.values.remove(key);
         self.sealed.remove(key);
+    }
+
+    /// Records a change for [`Prefs::take_changes`] when it is one (a value set to what it is
+    /// already is not).
+    fn record(&mut self, key: &str, value: Option<&str>) {
+        let Some(j) = &mut self.journal else { return };
+        if self.values.get(key).map(String::as_str) != value {
+            j.push((key.to_owned(), value.map(str::to_owned)));
+        }
+    }
+
+    /// Starts recording every change for a copy kept elsewhere ([`Prefs::take_changes`]).
+    pub fn track_changes(&mut self) {
+        if self.journal.is_none() {
+            self.journal = Some(Vec::new());
+        }
+    }
+
+    /// Stops recording (and drops what was recorded).
+    pub fn stop_tracking(&mut self) {
+        self.journal = None;
+    }
+
+    /// The changes since the last call, oldest first (empty unless [`Prefs::track_changes`]
+    /// was called): the plain values, for the same process.
+    pub fn take_changes(&mut self) -> Vec<Change> {
+        self.journal.as_mut().map(std::mem::take).unwrap_or_default()
+    }
+
+    /// Takes another copy's changes without recording them (they came from there).
+    pub fn apply_changes(&mut self, changes: &[Change]) {
+        let journal = self.journal.take();
+        for (k, v) in changes {
+            match v {
+                Some(v) => self.set(k, v),
+                None => self.remove(k),
+            }
+        }
+        self.journal = journal;
     }
 
     pub fn set_bool(&mut self, key: &str, value: bool) {
@@ -294,5 +356,45 @@ x=1
         assert_eq!(p.sort(), Some((Column::DownSpeed, true)));
         p.set_sort(None);
         assert_eq!(p.sort(), None);
+    }
+
+    #[test]
+    fn the_journal_records_changes_for_a_mirror() {
+        let mut p = Prefs::default();
+        p.set("a", "1");
+        assert!(p.take_changes().is_empty(), "nothing is recorded until asked");
+        p.track_changes();
+        p.set("a", "1");
+        p.set("a", "2");
+        p.set("b", "x");
+        p.remove("b");
+        p.remove("missing");
+        let changes = p.take_changes();
+        assert_eq!(
+            changes,
+            [
+                ("a".to_owned(), Some("2".to_owned())),
+                ("b".to_owned(), Some("x".to_owned())),
+                ("b".to_owned(), None)
+            ]
+        );
+        assert!(p.take_changes().is_empty());
+
+        // the other side takes them without recording them again; a copy starts empty
+        let mut mirror = Prefs::default();
+        mirror.track_changes();
+        mirror.set("c", "3");
+        mirror.apply_changes(&changes);
+        assert_eq!(mirror.get("a"), Some("2"));
+        assert_eq!(mirror.get("b"), None);
+        assert_eq!(mirror.take_changes(), [("c".to_owned(), Some("3".to_owned()))]);
+        p.set("d", "4");
+        let copy = p.clone();
+        assert_eq!(copy.get("d"), Some("4"));
+        let mut copy = copy;
+        assert!(copy.take_changes().is_empty());
+        copy.set("e", "5");
+        assert_eq!(copy.take_changes().len(), 1);
+        assert_eq!(p.take_changes().len(), 1);
     }
 }

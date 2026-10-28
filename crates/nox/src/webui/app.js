@@ -430,6 +430,8 @@
     labels = m.labels || [];
     labelCounts = new Map();
     confirmDelete = m.confirm_delete !== false;
+    // a desktop client hosts the Web UI: the RSS Downloader is the client's (no /pa/rss)
+    $("tb-rss").hidden = !!m.hosted;
     mergeColumns(m.columns);
     saveLayout();
     renderTree();
@@ -984,7 +986,7 @@
         { label: T("WebSortDescending"), chk: !!sort[1], run: () => setSort([sort[0], !sort[1]]) },
         "-",
         { label: T("MenuPreferences"), run: () => $("tb-prefs").click() },
-        { label: T("MenuRss"), run: () => openRss(0) },
+        ...(hello && hello.hosted ? [] : [{ label: T("MenuRss"), run: () => openRss(0) }]),
         { label: T("WebLogOut"), run: () => $("logout").click() },
       ],
       RTL ? r.right : r.left,
@@ -2759,7 +2761,7 @@
   function rssRenderTree() {
     const tree = $("tree");
     for (const e of tree.querySelectorAll(".rss-t")) e.remove();
-    if (!rssModel || !rssModel.feeds.length) return;
+    if (!rssModel || !rssModel.feeds.length || (hello && hello.hosted)) return;
     tree.appendChild(rssEl("div", "group rss-t", T("CatFeeds")));
     for (const f of rssModel.feeds) {
       const it = rssEl("div", "fitem rss-t");
@@ -2778,7 +2780,7 @@
   });
 
   async function openRss(feed, tab) {
-    if (rssDlg.open || $("app").hidden) return;
+    if (rssDlg.open || $("app").hidden || (hello && hello.hosted)) return;
     rssFeed = feed || 0;
     if (tab) rssTab = tab;
     rssDlg.showModal();

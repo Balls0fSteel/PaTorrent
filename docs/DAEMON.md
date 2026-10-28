@@ -163,14 +163,11 @@ reload` sends SIGHUP. Settings go in `/etc/rc.conf` (`sysrc`): `patorrent_nox_en
 name "PaTorrent nox") with the Service Control Manager. It runs `patorrent-nox run` with the
 given options; `install`, `uninstall`, `start` and `stop` need an administrator prompt.
 
-**From the Windows GUI:** Preferences > Web UI does all of this. The installer and the zip put
-`patorrent-nox.exe` beside `patorrent.exe`; "Enable Web UI" with a user name, a password, the
-port and the two boxes (other computers, HTTPS) installs and starts the service from that copy
-through one UAC prompt (`service install --replace --now ...`), a changed option installs it
-again, the box turned off removes it (`service uninstall`; its state stays), and "Open Web UI"
-opens the page. The page shows the service as the Service Control Manager has it. The GUI's own
-torrents stay its own: the service is a separate client (File > Connect to Remote... drives it
-from the window), and the Web UI shows the service's torrents.
+**The Windows GUI's own Web UI is not this.** Preferences > Web UI of `patorrent.exe` serves
+the Web UI from the window itself, over its own torrents, as µTorrent and qBittorrent do (D40;
+[WEBUI.md](WEBUI.md), "Hosted by a desktop client"); it runs only while the window does. The
+service below is for a client that runs without a window and starts with Windows; the window
+drives it through File > Connect to Remote...
 
 1. Put the exe where the service account can read it, e.g. `C:\Program Files\PaTorrent\`. A copy
    under your user profile (Downloads, Documents, a build folder) cannot be opened by

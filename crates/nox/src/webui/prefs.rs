@@ -15,6 +15,14 @@
 //! for the next request, and everything is stored in `State::options` (the frontend's
 //! preferences keys, saved in the state file) for [`restore`] at the next start. The compat
 //! shim's `app/setPreferences` maps its names onto these ids and takes the same path.
+//!
+//! Hosted by a desktop client (`Config::hosted`, D40): the same parsing, checks and `store`
+//! into `State::options`, which is the mirror of the host's preferences, and `Shared::save`
+//! hands the journal to the host; nothing goes to the engine from here (no `apply_settings`,
+//! IP filter, peer-exchange flags or language switch: the host applies its preferences
+//! itself), and `State::settings` means the host's configured settings (`settings::load` of
+//! the `lt.*` keys), which [`read_back`] refreshes when the host's journal comes in. The
+//! alternative speed limits do not exist there ([`HOSTED_NO_ALT`]).
 
 use std::io;
 use std::path::{Path, PathBuf};
@@ -796,9 +804,30 @@ fn page(id: &str, title: &str, groups: Vec<Json>) -> Json {
     Json::obj().with("id", id).with("title", title).with("groups", Json::Arr(groups))
 }
 
-/// The tree, in µTorrent 2.2.1's order; Disk Cache sits under Advanced.
-fn pages(settings_dir: &Path) -> Vec<Json> {
+/// The tree, in µTorrent 2.2.1's order; Disk Cache sits under Advanced. `hosted`: without the
+/// alternative speed limits (the host has none).
+fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
     let ipf_default = settings_dir.join("ipfilter.dat");
+    let mut bandwidth = vec![
+        group(Some(tr!(PrefUpLimiting)), vec![kb("upload_rate_limit")]),
+        group(Some(tr!(PrefDownLimiting)), vec![kb("download_rate_limit")]),
+        group(
+            Some(tr!(PrefConnections)),
+            vec![
+                ranged("connections_limit", 2, 65535),
+                f("bt.max_peers"),
+                f("bt.upload_slots"),
+                ranged("unchoke_slots_limit", -1, 65535),
+            ],
+        ),
+        group(None, vec![note(tr!(PrefPerTorrentNote))]),
+    ];
+    if !hosted {
+        bandwidth.push(group(
+            Some(tr!(PrefAltRates)),
+            vec![kb("alt_up_limit"), kb("alt_dl_limit"), f("alt_enabled")],
+        ));
+    }
     vec![
         page(
             "general",
@@ -889,28 +918,7 @@ fn pages(settings_dir: &Path) -> Vec<Json> {
                 ),
             ],
         ),
-        page(
-            "bandwidth",
-            tr!(PageBandwidth),
-            vec![
-                group(Some(tr!(PrefUpLimiting)), vec![kb("upload_rate_limit")]),
-                group(Some(tr!(PrefDownLimiting)), vec![kb("download_rate_limit")]),
-                group(
-                    Some(tr!(PrefConnections)),
-                    vec![
-                        ranged("connections_limit", 2, 65535),
-                        f("bt.max_peers"),
-                        f("bt.upload_slots"),
-                        ranged("unchoke_slots_limit", -1, 65535),
-                    ],
-                ),
-                group(None, vec![note(tr!(PrefPerTorrentNote))]),
-                group(
-                    Some(tr!(PrefAltRates)),
-                    vec![kb("alt_up_limit"), kb("alt_dl_limit"), f("alt_enabled")],
-                ),
-            ],
-        ),
+        page("bandwidth", tr!(PageBandwidth), bandwidth),
         page(
             "bittorrent",
             tr!(PageBitTorrent),
@@ -1074,7 +1082,7 @@ pub(crate) fn model(shared: &Shared, st: &State) -> Json {
     }
     let advanced: Vec<Json> = TABLE.iter().map(|e| Json::from(e.name)).collect();
     Json::obj()
-        .with("pages", Json::Arr(pages(&shared.settings_dir)))
+        .with("pages", Json::Arr(pages(&shared.settings_dir, st.hosted)))
         .with("fields", fields)
         .with("advanced", Json::Arr(advanced))
 }
@@ -1086,6 +1094,12 @@ pub(crate) type Refusal = (String, String);
 
 /// One parsed change.
 pub(crate) type Change = (Def, Value);
+
+/// Why the alternative speed limits are refused while a desktop client hosts the Web UI (it
+/// has no such mode): `POST /pa/prefs` answers 400 with it, `POST /pa/session/limits` and the
+/// shim's `toggleSpeedLimitsMode` / `setSpeedLimitsMode` 409.
+pub(crate) const HOSTED_NO_ALT: &str =
+    "alternative speed limits are not available: a desktop client hosts the Web UI";
 
 /// The fields that guard the Web UI: changed only with the current password (SEC-03).
 const SECURITY_FIELDS: [&str; 8] = [
@@ -1265,6 +1279,9 @@ fn commit_read(
         def.set(&mut w, v.clone());
     }
     validate(&w)?;
+    if st.hosted && w.prefs.alt_enabled {
+        return Err(("alt_enabled".to_owned(), HOSTED_NO_ALT.to_owned()));
+    }
     let old = Working::from_state(st);
     if let Some(session) = from.filter(|_| security_changed(&w, &old)) {
         let given = w.current_password.as_deref();
@@ -1278,8 +1295,9 @@ fn commit_read(
     }
     check_paths(&w, &old, &shared.path_policy)?;
 
-    // the IP filter first: a block list that does not load refuses the whole change
-    if ip_filter(shared, &w) != ip_filter(shared, &old) {
+    // the IP filter first: a block list that does not load refuses the whole change (hosted:
+    // the host loads its own; nothing here goes to the engine)
+    if !st.hosted && ip_filter(shared, &w) != ip_filter(shared, &old) {
         let (on, file) = ip_filter(shared, &w);
         if on {
             let list = match read {
@@ -1302,7 +1320,7 @@ fn commit_read(
             st.push_log(None, tr!(LogIpFilterOff).to_owned(), unix_now());
         }
     }
-    if w.prefs.pex != old.prefs.pex {
+    if !st.hosted && w.prefs.pex != old.prefs.pex {
         for id in st.torrents.keys() {
             let t = shared.handle.torrent(*id);
             if w.prefs.pex {
@@ -1336,12 +1354,18 @@ fn commit_read(
         st.sessions.retain(|k, _| Some(k.as_str()) == keep);
         shared.end_remotes();
     }
+    if st.hosted {
+        // the host stores the login (the hash; a login it hands back is taken as it is)
+        st.options.set("webui.username", &st.username);
+        st.options.set("webui.password", st.password.to_string());
+    }
     let changed: Vec<&'static str> =
         TABLE.iter().filter(|e| e.get(&w.settings) != e.get(&old.settings)).map(|e| e.name).collect();
     store(st, &changed);
     shared.save(st);
-    // the server's texts switch now; the page reloads for its own (`lang.js`)
-    if w.prefs.language != old.prefs.language {
+    // the server's texts switch now; the page reloads for its own (`lang.js`); hosted, the
+    // host's language is the process's and the host switches it
+    if !st.hosted && w.prefs.language != old.prefs.language {
         for p in lang::init(&w.prefs.language) {
             st.push_log(None, p, unix_now());
         }
@@ -1385,15 +1409,24 @@ fn store(st: &mut State, changed: &[&'static str]) {
             st.options.set(&format!("{}{}", settings::PREF_PREFIX, e.name), e.get(&normal));
         }
     }
-    st.prefs.gui().store(&mut st.options);
-    for k in ["ui.close_to_tray", "ui.minimize_to_tray", "ui.balloons"] {
-        st.options.remove(k);
+    if st.hosted {
+        // the host's own options (tray, updates) stay as they are; no alternative limits
+        let mut g = GuiOptions::load(&st.options, &st.default_save_path);
+        st.prefs.apply_to(&mut g);
+        g.store(&mut st.options);
+    } else {
+        st.prefs.gui().store(&mut st.options);
+        for k in ["ui.close_to_tray", "ui.minimize_to_tray", "ui.balloons"] {
+            st.options.remove(k);
+        }
     }
     let p = &st.prefs;
     let o = &mut st.options;
-    o.set("webui.alt_dl_limit", p.alt_dl_limit);
-    o.set("webui.alt_up_limit", p.alt_up_limit);
-    o.set_bool("webui.alt_enabled", p.alt_enabled);
+    if !st.hosted {
+        o.set("webui.alt_dl_limit", p.alt_dl_limit);
+        o.set("webui.alt_up_limit", p.alt_up_limit);
+        o.set_bool("webui.alt_enabled", p.alt_enabled);
+    }
     o.set_bool("webui.bypass_local_auth", p.bypass_local_auth);
     o.set_bool("webui.csrf", p.csrf_protection);
     o.set_bool("webui.host_header_validation", p.host_header_validation);
@@ -1403,35 +1436,45 @@ fn store(st: &mut State, changed: &[&'static str]) {
     o.set("webui.session_timeout", p.session_timeout);
 }
 
-/// At start: re-applies the stored preferences onto the settings the daemon was started with
-/// (so a stored value wins over the command line, a value never stored keeps the command
-/// line's), picks a random listen port when asked, and loads the IP filter unless the daemon
-/// loaded that same file already (`loaded_ip_filter`).
-pub(crate) fn restore(shared: &Shared, st: &mut State, loaded_ip_filter: Option<&Path>) {
-    let o = &st.options;
+/// Reads the stored preferences (`State::options`) back into `st.settings` and `st.prefs`,
+/// applying nothing: the engine settings from the `lt.*` keys, the `GuiOptions` keys and the
+/// Web UI's `webui.*` numbers. nox lays them over the current values (the command line's), so
+/// a value never stored keeps the command line's; hosted, they are the host's whole
+/// configuration, over the defaults (a key the host removed is back at its default). Returns
+/// whether an engine setting or a limit was read (nox applies them then).
+pub(crate) fn read_back(st: &mut State) -> bool {
     let mut changed = false;
-    for e in TABLE.iter().filter(|e| !e.name.starts_with("bt.")) {
-        if let Some(v) = o.get(&format!("{}{}", settings::PREF_PREFIX, e.name)) {
-            changed |= e.set(&mut st.settings, v).is_ok();
+    if st.hosted {
+        st.settings = settings::load(&st.options);
+        st.prefs = Prefs::defaults(&st.default_save_path, &st.settings);
+        st.prefs.set_gui(&GuiOptions::load(&st.options, &st.default_save_path));
+    } else {
+        let o = &st.options;
+        for e in TABLE.iter().filter(|e| !e.name.starts_with("bt.")) {
+            if let Some(v) = o.get(&format!("{}{}", settings::PREF_PREFIX, e.name)) {
+                changed |= e.set(&mut st.settings, v).is_ok();
+            }
         }
+        // the GuiOptions keys: the stored ones over the current values (the command line's)
+        let mut filled = patorrent_frontend::prefs::Prefs::default();
+        st.prefs.gui().store(&mut filled);
+        for (k, v) in o.entries() {
+            filled.set(k, v);
+        }
+        let gui = GuiOptions::load(&filled, &st.default_save_path);
+        st.prefs.set_gui(&gui);
     }
     st.prefs.dl_limit = st.settings.download_rate_limit;
     st.prefs.up_limit = st.settings.upload_rate_limit;
-    // the GuiOptions keys: the stored ones over the current values (the command line's)
-    let mut filled = patorrent_frontend::prefs::Prefs::default();
-    st.prefs.gui().store(&mut filled);
-    for (k, v) in o.entries() {
-        filled.set(k, v);
-    }
-    let gui = GuiOptions::load(&filled, &st.default_save_path);
-    st.prefs.set_gui(&gui);
+    let o = &st.options;
     let u32_of = |k: &str| o.get(k).and_then(|v| v.trim().parse::<u32>().ok());
     let u64_of = |k: &str| o.get(k).and_then(|v| v.trim().parse::<u64>().ok());
     let p = &st.prefs;
     let prefs = Prefs {
         alt_dl_limit: u32_of("webui.alt_dl_limit").unwrap_or(p.alt_dl_limit),
         alt_up_limit: u32_of("webui.alt_up_limit").unwrap_or(p.alt_up_limit),
-        alt_enabled: o.get_bool("webui.alt_enabled", p.alt_enabled),
+        // hosted: no alternative limits (the host has none)
+        alt_enabled: !st.hosted && o.get_bool("webui.alt_enabled", p.alt_enabled),
         bypass_local_auth: o.get_bool("webui.bypass_local_auth", p.bypass_local_auth),
         csrf_protection: o.get_bool("webui.csrf", p.csrf_protection),
         host_header_validation: o.get_bool("webui.host_header_validation", p.host_header_validation),
@@ -1444,6 +1487,15 @@ pub(crate) fn restore(shared: &Shared, st: &mut State, loaded_ip_filter: Option<
     changed |=
         prefs.alt_enabled || prefs.alt_dl_limit != p.alt_dl_limit || prefs.alt_up_limit != p.alt_up_limit;
     st.prefs = prefs;
+    changed
+}
+
+/// At start (nox): [`read_back`], then re-applies the stored preferences onto the settings the
+/// daemon was started with (so a stored value wins over the command line, a value never stored
+/// keeps the command line's), picks a random listen port when asked, and loads the IP filter
+/// unless the daemon loaded that same file already (`loaded_ip_filter`).
+pub(crate) fn restore(shared: &Shared, st: &mut State, loaded_ip_filter: Option<&Path>) {
+    let mut changed = read_back(st);
     if st.prefs.random_port {
         settings::set_listen_port(&mut st.settings, options::random_port());
         changed = true;
@@ -1535,7 +1587,7 @@ mod tests {
         for def in all() {
             fields.set(def.id(), json_of(&def.get(&w)));
         }
-        let pages_json = pages(Path::new("S"));
+        let pages_json = pages(Path::new("S"), false);
         let ids: Vec<String> =
             pages_json.iter().map(|p| p.get("id").and_then(Json::as_str).unwrap().to_owned()).collect();
         assert_eq!(
@@ -1735,7 +1787,7 @@ mod tests {
         let (id, why) = edited(&st, r#"{"ui.language": "xx"}"#).err().unwrap();
         assert_eq!(id, "ui.language");
         assert!(why.contains("\"xx\" is not one of en"), "{why}");
-        let general = &pages(Path::new("S"))[0];
+        let general = &pages(Path::new("S"), false)[0];
         assert!(general.to_json().contains(r#"{"f":"ui.language"}"#), "{}", general.to_json());
         let mut w = Working::from_state(&st);
         w.prefs.language = "en".to_owned();

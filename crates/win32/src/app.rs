@@ -7,11 +7,12 @@
 //! (list view selection changes, tree selection, message boxes, menus).
 
 use std::cell::RefCell;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
+use std::sync::Arc;
 
 use patorrent_core::fetch::FetchProxy;
 use patorrent_core::metainfo::TorrentInfo;
@@ -41,6 +42,7 @@ use patorrent_frontend::status::{Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
 use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
+use patorrent_nox::webui::WebUi;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -67,6 +69,7 @@ use crate::integration::{self, Integration, Keys};
 use crate::shutdown::{self, Outcome, Power};
 use crate::tray;
 use crate::util::{child, copy_to, exe_path, point_from_lparam, rtl, scale, send, unscale, wide};
+use crate::webui_host::{self, Edit, Setup as WebSetup, Status as WebStatus, View as WebView, WindowHost};
 
 #[path = "bench.rs"]
 mod bench;
@@ -86,6 +89,9 @@ const WM_APP_MAGNET: u32 = WM_APP + 8;
 /// An update check finished (posted from its worker thread); `lParam` is a
 /// `Box<Result<Manifest, String>>`.
 const WM_APP_UPDATE: u32 = WM_APP + 9;
+/// The Web UI this window serves: what a browser changed is queued (`wparam` 0), or a browser
+/// asked for the exit (`wparam` 1).
+pub(crate) const WM_APP_WEBUI: u32 = WM_APP + 10;
 /// `COPYDATASTRUCT::dwData` for arguments forwarded by a second instance.
 pub const COPYDATA_ARGS: usize = 0x4c54_4152;
 
@@ -341,6 +347,13 @@ struct App {
     /// status bar's notice, and "Update to beta versions".
     updates: Checker,
     update_beta: bool,
+    /// The Web UI this window serves (Preferences > Web UI, D40), its host side (what a
+    /// browser changed, queued for `WM_APP_WEBUI`), where it stands, and the torrents by
+    /// `InfoHashes::key_hex` for the `torrent.<key>.*` keys it hands back.
+    web: Option<WebUi>,
+    web_host: Arc<WindowHost>,
+    web_status: WebStatus,
+    keys: HashMap<String, TorrentId>,
 }
 
 thread_local! {
@@ -929,6 +942,10 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             suspend_pending: None,
             updates: Checker::new(gui.check_updates, std::time::Instant::now()),
             update_beta: gui.update_beta,
+            web: None,
+            web_host: WindowHost::new(hwnd),
+            web_status: WebStatus::Off,
+            keys: HashMap::new(),
         };
         APP.with(|a| *a.borrow_mut() = Some(app));
 
@@ -951,6 +968,11 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         update_visibility(hwnd);
         update_menu(hwnd);
         update_toolbar();
+        with_app(|a| {
+            if WebSetup::load(&a.prefs).enabled && !crate::remote_ui::is_remote() {
+                start_web(a);
+            }
+        });
         SetTimer(hwnd, TIMER_REFRESH, 1000, None);
         // Alerts queued before the notify callback was set never trigger it (it fires on
         // empty → non-empty only), so drain once now.
@@ -1742,6 +1764,7 @@ fn on_timer() {
         }
         autoload(a);
         rss_timer(a);
+        sync_web(a);
         let list = &a.list;
         let now = std::time::Instant::now();
         let step = a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), now);
@@ -1993,6 +2016,9 @@ unsafe fn on_alerts(hwnd: HWND) {
     let Some((lists_changed, removed_any, repaint_page)) = with_app(|a| {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
+        if let Some(w) = &a.web {
+            w.on_alerts(&alerts);
+        }
         let mut lists_changed = false;
         let mut removed_any = false;
         let generation = a.list.generation();
@@ -2023,6 +2049,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                             }
                             // First sight: restore what only the frontend knows.
                             let key = st.info_hashes.key_hex();
+                            a.keys.insert(key.clone(), st.id);
                             if let Some(l) = a.prefs.get(&format!("torrent.{key}.label")) {
                                 let l = l.to_owned();
                                 a.list.set_label(st.id, &l);
@@ -2062,6 +2089,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                     a.known.remove(&id);
                     a.downloading.remove(&id);
                     let key = info_hashes.key_hex();
+                    a.keys.remove(&key);
                     a.prefs.remove(&format!("torrent.{key}.label"));
                     a.prefs.remove(&format!("torrent.{key}.paused"));
                     SeedGoal::store_override(&mut a.prefs, &key, None);
@@ -2153,6 +2181,7 @@ unsafe fn on_alerts(hwnd: HWND) {
             }
         }
         a.alerts = alerts;
+        sync_web(a);
         // The General tab shows the selected torrent's status.
         repaint_page |= a.list.generation() != generation;
         (lists_changed, removed_any, repaint_page)
@@ -2300,6 +2329,16 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             }
             WM_APP_UPDATE => {
                 update_done(hwnd, *Box::from_raw(lparam as *mut Result<Manifest, String>));
+                0
+            }
+            WM_APP_WEBUI => {
+                if wparam == 0 {
+                    on_web_changes();
+                } else {
+                    // a browser's shutdown request: as File > Exit
+                    with_app(|a| a.quitting = true);
+                    DestroyWindow(hwnd);
+                }
                 0
             }
             WM_SETCURSOR if over_update_notice(wparam as HWND) => {
@@ -2499,6 +2538,10 @@ unsafe fn on_destroy(hwnd: HWND) {
         // RefCell first so nothing is borrowed while that blocks.
         let app = APP.with(|a| a.borrow_mut().take());
         if let Some(mut app) = app {
+            // the Web UI first: its threads hold a handle of the session
+            if let Some(w) = app.web.take() {
+                w.stop();
+            }
             app.handle.clear_alert_notify();
             if let Some(s) = app.session.take() {
                 s.shutdown();
@@ -3446,7 +3489,13 @@ unsafe fn show_preferences(hwnd: HWND) {
                 Some((old, new)) => integration::write(&keys, &exe, old, new).map_err(|e| e.to_string()),
             }
         }),
-        webui: Box::new(crate::webui_service::apply),
+        webui: Box::new(|edit: Option<&Edit>| {
+            with_app(|a| match edit {
+                None => web_view(a),
+                Some(e) => apply_web(a, e),
+            })
+            .unwrap_or_default()
+        }),
     };
     if crate::preferences::show(hwnd, opts, &dir, hooks) {
         unsafe { update_menu(hwnd) };
@@ -3456,6 +3505,11 @@ unsafe fn show_preferences(hwnd: HWND) {
 /// Stores `o` and hands it to the engine and the window.
 fn apply_options(a: &mut App, o: &Options) {
     let old = Options::load(&a.prefs, &a.save_path);
+    apply_options_from(a, &old, o);
+}
+
+/// [`apply_options`] with `old` as the options in force before it: what differs changes.
+fn apply_options_from(a: &mut App, old: &Options, o: &Options) {
     o.store(&mut a.prefs);
     if let Err(e) = a.prefs.save() {
         a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
@@ -3501,6 +3555,126 @@ fn apply_options(a: &mut App, o: &Options) {
             a.handle.set_ip_filter(IpFilter::new());
             a.detail.push_log(format!("{} {}", now_hms(), tr!(LogIpFilterOff)));
         }
+    }
+}
+
+/// Preferences > Web UI as the page shows it: the stored setup, whether a login is stored and
+/// where the server stands. A remote window serves nothing.
+fn web_view(a: &App) -> WebView {
+    if crate::remote_ui::is_remote() {
+        return WebView { status: WebStatus::Unavailable, ..WebView::default() };
+    }
+    WebView {
+        setup: WebSetup::load(&a.prefs),
+        has_password: webui_host::has_password(&a.prefs),
+        status: a.web_status.clone(),
+    }
+}
+
+/// Preferences > Web UI's Apply: stores the setup (a new password hashed), then restarts the
+/// server as asked.
+fn apply_web(a: &mut App, e: &Edit) -> WebView {
+    if crate::remote_ui::is_remote() {
+        return web_view(a);
+    }
+    e.setup.store(&mut a.prefs, e.password.as_deref());
+    if let Err(err) = a.prefs.save() {
+        a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = err)));
+    }
+    stop_web(a);
+    if e.setup.enabled {
+        start_web(a);
+    }
+    web_view(a)
+}
+
+/// Starts the Web UI over this window's engine from the stored setup; from now on the
+/// preferences are mirrored into it ([`sync_web`]) and what a browser changes comes back
+/// through `WM_APP_WEBUI`.
+fn start_web(a: &mut App) {
+    stop_web(a);
+    let setup = WebSetup::load(&a.prefs);
+    let settings = Options::load(&a.prefs, &a.save_path).settings;
+    a.prefs.track_changes();
+    let started = webui_host::start(
+        &setup,
+        &a.prefs,
+        settings,
+        &a.save_path,
+        &data_dir(),
+        a.handle.clone(),
+        a.web_host.clone(),
+    );
+    a.web_status = match started {
+        Ok(w) => {
+            let url = w.url();
+            a.web = Some(w);
+            WebStatus::Running(url)
+        }
+        Err(e) => {
+            a.prefs.stop_tracking();
+            WebStatus::Failed(e)
+        }
+    };
+    a.detail.push_log(format!("{} {}", now_hms(), a.web_status.text()));
+}
+
+/// Stops the Web UI; nothing is mirrored any more.
+fn stop_web(a: &mut App) {
+    if let Some(w) = a.web.take() {
+        w.stop();
+        a.prefs.stop_tracking();
+        a.web_status = WebStatus::Off;
+        a.detail.push_log(format!("{} {}", now_hms(), a.web_status.text()));
+    }
+}
+
+/// Hands the Web UI what changed in the preferences since the last time (a label, a pause
+/// mark, a seeding goal, Preferences > OK): its mirror follows. Once a second and after every
+/// alert batch.
+fn sync_web(a: &mut App) {
+    let Some(w) = &a.web else { return };
+    let changes = a.prefs.take_changes();
+    if !changes.is_empty() {
+        w.options_changed(&changes);
+    }
+}
+
+/// `WM_APP_WEBUI`: what a browser changed through the Web UI (its host's queue). The keys go
+/// into the preferences without being mirrored back, a label or a pause mark into the list as
+/// well, and anything the Preferences dialog edits is applied as its OK would. A label for a
+/// torrent not seen yet (one the browser is adding) waits in the preferences for its first
+/// sight.
+fn on_web_changes() {
+    let Some(changes) = with_app(|a| a.web_host.take()) else { return };
+    if changes.is_empty() {
+        return;
+    }
+    with_app(|a| {
+        let before = Options::load(&a.prefs, &a.save_path);
+        a.prefs.apply_changes(&changes);
+        for (k, v) in &changes {
+            let Some(rest) = k.strip_prefix("torrent.") else { continue };
+            if let Some(key) = rest.strip_suffix(".label") {
+                if let Some(&id) = a.keys.get(key) {
+                    a.list.set_label(id, v.as_deref().unwrap_or(""));
+                }
+            } else if let Some(key) = rest.strip_suffix(".paused") {
+                if let Some(&id) = a.keys.get(key) {
+                    a.list.set_user_paused(id, v.as_deref() == Some("1"));
+                }
+            }
+        }
+        let after = Options::load(&a.prefs, &a.save_path);
+        if after != before {
+            apply_options_from(a, &before, &after);
+        } else if let Err(e) = a.prefs.save() {
+            a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
+        }
+    });
+    unsafe {
+        refresh_list();
+        update_tree();
     }
 }
 

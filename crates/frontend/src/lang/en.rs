@@ -682,8 +682,8 @@ strings! {
     /// The scheduler grid's tooltip: {day}, {from} and {to} hours, {mode}.
     SchedHover = "{day} {from}:00 - {to}:00: {mode}";
     PrefWebUi = "Enable Web UI";
-    /// Preferences > Web UI (Windows): the page sets up the PaTorrent nox Windows service.
-    PrefWebUiNote = "The Web UI is served by the PaTorrent nox service, a separate client that runs in the background and starts with Windows; its torrents are its own. File > Connect to Remote drives it from this window. Changes here need an administrator's permission; connections from other computers also need a Windows Firewall rule for patorrent-nox.exe.";
+    /// Preferences > Web UI (Windows): this window serves the Web UI itself (D40).
+    PrefWebUiNote = "The Web UI shows this window's torrents in a browser while PaTorrent is running (close to the tray to keep it up). Connections from other computers also need a Windows Firewall rule for patorrent.exe. The RSS Downloader is this window's; the page has none.";
     /// Beside the password field: an empty field keeps the stored password.
     PrefWebUiPassKeep = "(blank: unchanged)";
     PrefWebUiConnectivity = "Connectivity";
@@ -692,17 +692,13 @@ strings! {
     PrefWebUiHttps = "Use HTTPS (self-signed certificate)";
     PrefWebUiOpen = "Open Web UI";
     /// The Web UI page's status line; {url} is the page's address.
-    WebUiRunning = "The PaTorrent nox service is running: {url}";
-    WebUiStopped = "The PaTorrent nox service is installed but not running; Apply starts it.";
-    WebUiAbsent = "The PaTorrent nox service is not installed.";
-    /// {path} is the patorrent-nox.exe the service runs, not the one beside this program.
-    WebUiElsewhere = "The PaTorrent nox service runs {path}; Apply replaces it with this folder's copy.";
-    WebUiNoExe = "patorrent-nox.exe was not found beside patorrent.exe; the Web UI needs it.";
+    WebUiRunning = "The Web UI is running: {url}";
+    WebUiStopped = "The Web UI is off.";
     WebUiNeedLogin = "Please enter a user name and a password for the Web UI.";
-    /// The UAC prompt was declined.
-    WebUiDeclined = "The PaTorrent nox service was not changed: an administrator's permission is needed.";
-    /// patorrent-nox exited with {code}; {command} is its command line.
-    WebUiFailed = "patorrent-nox could not change the service (exit code {code}). Run this from an administrator prompt to see why:\n{command}";
+    /// {error}: why the server could not start (the port is in use, a bad certificate).
+    WebUiFailed = "The Web UI could not start: {error}";
+    /// A window driving a patorrent-nox elsewhere (File > Connect to Remote) has no engine to serve.
+    WebUiRemoteWindow = "A remote window cannot serve the Web UI; use the local window's Preferences.";
     PrefFilter = "Filter:";
     PrefValue = "Value:";
     PrefTrue = "True";

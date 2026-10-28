@@ -67,7 +67,7 @@ it removes it) and the association boxes start unticked: the associations stay a
 **Files in use.** Nothing is killed. When PaTorrent's window is open, or `patorrent.exe` in the
 folder is busy (another user's session), the setup and the uninstaller ask to exit it, with
 Retry and Cancel. When `patorrent-nox.exe` in the folder is busy (the PaTorrent nox service
-installed from there by Preferences > Web UI or by hand, see
+installed from there by hand, see
 [docs/DAEMON.md](../../docs/DAEMON.md), or nox in a console), they ask
 to stop it (`sc stop PaTorrentNox` from an administrator prompt); start the service again after
 the upgrade. The uninstaller also asks to remove the service first

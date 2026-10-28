@@ -46,7 +46,7 @@ use crate::dialogs::{self, BUTTON, COMBOBOX, Class, DWLP_MSGRESULT, DWLP_USER, E
 use crate::integration::{Integration, Status};
 use crate::sched_grid;
 use crate::util::{hiword, loword, scale, send, wide, window_text};
-use crate::webui_service::{self, Change, Setup};
+use crate::webui_host::{Edit, Setup as WebSetup, Status as WebStatus, View as WebView};
 
 /// The tree, in µTorrent 2.2.1's order; Disk Cache sits under Advanced.
 pub const PAGES: [S; 11] = [
@@ -542,9 +542,9 @@ pub type ReloadIpFilter<'a> = Box<dyn FnMut(&Path) -> Result<usize, String> + 'a
 /// read) to `new`; either way the registry as found afterwards, or an error.
 pub type Integrate<'a> = Box<dyn FnMut(Option<(&Integration, &Integration)>) -> Result<Status, String> + 'a>;
 
-/// The Web UI page's service: `None` reads it, `Some(change)` changes it (one elevated
-/// command); either way the service as found afterwards, or the user's error text.
-pub type WebUiHook<'a> = Box<dyn FnMut(Option<&Change>) -> Result<webui_service::Status, String> + 'a>;
+/// The Web UI page: `None` reads the stored setup and where the server stands, `Some(edit)`
+/// stores the setup and restarts the server; either way what the page shows afterwards.
+pub type WebUiHook<'a> = Box<dyn FnMut(Option<&Edit>) -> WebView + 'a>;
 
 /// What the dialog asks of its owner.
 pub struct Hooks<'a> {
@@ -554,7 +554,7 @@ pub struct Hooks<'a> {
     pub reload_ip_filter: ReloadIpFilter<'a>,
     /// The General page's associations and autostart, which live in the registry.
     pub integration: Integrate<'a>,
-    /// The Web UI page's nox service.
+    /// The Web UI page: the server this window runs.
     pub webui: WebUiHook<'a>,
 }
 
@@ -574,8 +574,8 @@ struct State<'a> {
     applied: bool,
     /// The Windows integration as last read.
     integration: Status,
-    /// The nox service as last read.
-    webui: webui_service::Status,
+    /// The Web UI page as last read.
+    webui: WebView,
     /// The General page's language list: `(ui.language value, text)`.
     languages: Vec<(String, String)>,
     /// The page tree's symbols ([`patorrent_frontend::icons::UiIcon`] order).
@@ -613,7 +613,7 @@ impl<'a> State<'a> {
             rows: Vec::new(),
             applied: false,
             integration: Status::default(),
-            webui: webui_service::Status::default(),
+            webui: WebView::default(),
             languages: Vec::new(),
             images: 0,
         }
@@ -962,7 +962,7 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
         }
 
         st.integration = (st.hooks.integration)(None).unwrap_or_default();
-        st.webui = (st.hooks.webui)(None).unwrap_or_default();
+        st.webui = (st.hooks.webui)(None);
         write_controls(dlg, st);
         if !patorrent_frontend::update::AVAILABLE {
             EnableWindow(item(dlg, ID_CHECK_UPDATES), 0);
@@ -1141,47 +1141,46 @@ unsafe fn apply_integration(dlg: HWND, st: &mut State<'_>) -> bool {
     }
 }
 
-/// The Web UI page from the nox service as last read: the box is "installed", the fields show
-/// its command line's options (the defaults when there is none), the password field is empty
-/// (a new password only), the status line says where it stands.
+/// The Web UI page as last read: the box, the fields (the password field empty: a new
+/// password only), the status line. A remote window has the page greyed.
 unsafe fn write_webui(dlg: HWND, st: &State<'_>) {
     unsafe {
-        let s = &st.webui;
-        let setup = s.setup();
-        set_check(dlg, ID_WEBUI, s.installed());
-        set_text(item(dlg, ID_WEBUI_USER), &setup.username);
+        let v = &st.webui;
+        set_check(dlg, ID_WEBUI, v.setup.enabled);
+        set_text(item(dlg, ID_WEBUI_USER), &v.setup.username);
         set_text(item(dlg, ID_WEBUI_PASS), "");
-        set_text(item(dlg, ID_WEBUI_PORT), &setup.port.to_string());
-        set_check(dlg, ID_WEBUI_REMOTE, setup.remote);
-        set_check(dlg, ID_WEBUI_HTTPS, setup.https);
-        set_text(item(dlg, ID_WEBUI_STATUS), &s.text());
-        EnableWindow(item(dlg, ID_WEBUI), s.nox.is_some() as i32);
+        set_text(item(dlg, ID_WEBUI_PORT), &v.setup.port.to_string());
+        set_check(dlg, ID_WEBUI_REMOTE, v.setup.remote);
+        set_check(dlg, ID_WEBUI_HTTPS, v.setup.https);
+        set_text(item(dlg, ID_WEBUI_STATUS), &v.status.text());
+        EnableWindow(item(dlg, ID_WEBUI), (v.status != WebStatus::Unavailable) as i32);
         update_webui_controls(dlg, st);
     }
 }
 
 /// The login and connectivity fields follow "Enable Web UI"; Open Web UI needs a running
-/// service.
+/// server.
 unsafe fn update_webui_controls(dlg: HWND, st: &State<'_>) {
     unsafe {
-        let on = (checked(dlg, ID_WEBUI) && st.webui.nox.is_some()) as i32;
+        let on = (checked(dlg, ID_WEBUI) && st.webui.status != WebStatus::Unavailable) as i32;
         for id in [ID_WEBUI_USER, ID_WEBUI_PASS, ID_WEBUI_PORT, ID_WEBUI_REMOTE, ID_WEBUI_HTTPS] {
             EnableWindow(item(dlg, id), on);
         }
-        EnableWindow(item(dlg, ID_WEBUI_OPEN), st.webui.running() as i32);
+        EnableWindow(item(dlg, ID_WEBUI_OPEN), st.webui.status.running() as i32);
     }
 }
 
-/// What the Web UI page asks for, against the service as last read: nothing, or one change.
-/// `Err` is what to tell the user before anything runs.
-unsafe fn webui_change(dlg: HWND, st: &State<'_>) -> Result<Option<Change>, String> {
+/// What the Web UI page asks for, against the page as last read: nothing, or the setup to
+/// store (and a new password). `Err` is what to tell the user before anything changes.
+unsafe fn webui_edit(dlg: HWND, st: &State<'_>) -> Result<Option<Edit>, String> {
     unsafe {
-        let s = &st.webui;
-        if s.nox.is_none() {
+        let v = &st.webui;
+        if v.status == WebStatus::Unavailable {
             return Ok(None);
         }
         if !checked(dlg, ID_WEBUI) {
-            return Ok(s.installed().then_some(Change::Uninstall));
+            let setup = WebSetup { enabled: false, ..v.setup.clone() };
+            return Ok(v.setup.enabled.then_some(Edit { setup, password: None }));
         }
         let username = window_text(item(dlg, ID_WEBUI_USER)).trim().to_owned();
         let password = window_text(item(dlg, ID_WEBUI_PASS));
@@ -1189,58 +1188,49 @@ unsafe fn webui_change(dlg: HWND, st: &State<'_>) -> Result<Option<Change>, Stri
         let Some(port) = port else {
             return Err(tr!(PrefBadNumber, min = 1, max = u16::MAX));
         };
-        // a new service needs a password (the stored one, if any, cannot be read from here)
-        if username.is_empty() || (password.is_empty() && !s.installed()) {
+        // a login is needed once; the stored password cannot be read back, only replaced
+        if username.is_empty() || (password.is_empty() && !v.has_password) {
             return Err(tr!(WebUiNeedLogin).to_owned());
         }
-        let setup = Setup {
+        let setup = WebSetup {
+            enabled: true,
             username,
             port,
             remote: checked(dlg, ID_WEBUI_REMOTE),
             https: checked(dlg, ID_WEBUI_HTTPS),
         };
-        let same = s.service.as_ref().is_some_and(|x| x.setup == setup);
-        Ok(if !same || !password.is_empty() || s.elsewhere() {
-            Some(Change::Install { setup, password: (!password.is_empty()).then_some(password) })
-        } else if !s.running() {
-            Some(Change::Start)
-        } else {
-            None
-        })
+        // as stored and running: nothing to do; a server that could not start is tried again
+        if setup == v.setup && password.is_empty() && v.status.running() {
+            return Ok(None);
+        }
+        Ok(Some(Edit { setup, password: (!password.is_empty()).then_some(password) }))
     }
 }
 
-/// Changes the nox service if the Web UI page asks for it (an elevated command; the dialog is
-/// disabled meanwhile). False (after saying why) when it could not.
+/// Stores the Web UI page's setup and restarts the server if the page asks for it. False
+/// (after saying why) when it could not: the page is shown with the reason in its status
+/// line.
 unsafe fn apply_webui(dlg: HWND, st: &mut State<'_>) -> bool {
     unsafe {
-        let change = match webui_change(dlg, st) {
+        let edit = match webui_edit(dlg, st) {
             Ok(None) => return true,
-            Ok(Some(c)) => c,
+            Ok(Some(e)) => e,
             Err(text) => {
                 select_page(dlg, st, PAGE_WEBUI);
                 dialogs::error(dlg, &text);
                 return false;
             }
         };
-        EnableWindow(dlg, 0);
-        let r = (st.hooks.webui)(Some(&change));
-        EnableWindow(dlg, 1);
-        match r {
-            Ok(status) => {
-                st.webui = status;
-                write_webui(dlg, st);
-                true
-            }
-            Err(e) => {
-                if let Ok(status) = (st.hooks.webui)(None) {
-                    st.webui = status;
-                    write_webui(dlg, st);
-                }
+        st.webui = (st.hooks.webui)(Some(&edit));
+        write_webui(dlg, st);
+        match &st.webui.status {
+            WebStatus::Failed(why) => {
+                let why = why.clone();
                 select_page(dlg, st, PAGE_WEBUI);
-                dialogs::error(dlg, &e);
+                dialogs::error(dlg, &tr!(WebUiFailed, error = why));
                 false
             }
+            _ => true,
         }
     }
 }
@@ -1499,8 +1489,8 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
             ID_SCHED if code == BN_CLICKED => update_sched_controls(dlg),
             ID_WEBUI if code == BN_CLICKED => update_webui_controls(dlg, st),
             ID_WEBUI_OPEN if code == BN_CLICKED => {
-                if st.webui.running() {
-                    crate::app::open_url(dlg, &st.webui.setup().url());
+                if let Some(url) = st.webui.status.url() {
+                    crate::app::open_url(dlg, url);
                 }
             }
             ID_PROXY_TYPE if code == CBN_SELCHANGE => update_proxy_controls(dlg),
@@ -1716,14 +1706,9 @@ mod tests {
         /// The fake registry: what it reads as, and the changes asked for.
         registry: Rc<RefCell<Status>>,
         integrations: Rc<RefCell<Vec<(Integration, Integration)>>>,
-        /// The fake nox service: what it reads as, and the changes asked for.
-        service: Rc<RefCell<webui_service::Status>>,
-        service_changes: Rc<RefCell<Vec<Change>>>,
-    }
-
-    /// A fake nox beside the exe and no service installed.
-    fn no_service() -> webui_service::Status {
-        webui_service::Status { nox: Some(PathBuf::from(r"C:\pa\patorrent-nox.exe")), service: None }
+        /// The fake Web UI: what its page reads as, and the edits asked for.
+        web: Rc<RefCell<WebView>>,
+        web_edits: Rc<RefCell<Vec<Edit>>>,
     }
 
     impl Fixture {
@@ -1745,9 +1730,9 @@ mod tests {
             let registry = Rc::new(RefCell::new(registry));
             let integrations: Rc<RefCell<Vec<(Integration, Integration)>>> = Rc::default();
             let (reg, ints) = (registry.clone(), integrations.clone());
-            let service = Rc::new(RefCell::new(no_service()));
-            let service_changes: Rc<RefCell<Vec<Change>>> = Rc::default();
-            let (svc, changes) = (service.clone(), service_changes.clone());
+            let web: Rc<RefCell<WebView>> = Rc::default();
+            let web_edits: Rc<RefCell<Vec<Edit>>> = Rc::default();
+            let (w, edits) = (web.clone(), web_edits.clone());
             let hooks = Hooks {
                 integration: Box::new(move |change| {
                     if let Some((old, new)) = change {
@@ -1756,26 +1741,20 @@ mod tests {
                     }
                     Ok(reg.borrow().clone())
                 }),
-                // the fake SCM: an install runs the service from the exe beside ours
-                webui: Box::new(move |change| {
-                    let mut s = svc.borrow_mut();
-                    if let Some(c) = change {
-                        changes.borrow_mut().push(c.clone());
-                        match c {
-                            Change::Install { setup, .. } => {
-                                let exe = s.nox.clone().unwrap_or_default();
-                                s.service =
-                                    Some(webui_service::Service { exe, setup: setup.clone(), running: true });
-                            }
-                            Change::Start => {
-                                if let Some(x) = s.service.as_mut() {
-                                    x.running = true;
-                                }
-                            }
-                            Change::Uninstall => s.service = None,
-                        }
+                // the fake server: it runs as asked, except on port 1
+                webui: Box::new(move |edit| {
+                    let mut v = w.borrow_mut();
+                    if let Some(e) = edit {
+                        edits.borrow_mut().push(e.clone());
+                        v.setup = e.setup.clone();
+                        v.has_password |= e.password.is_some();
+                        v.status = match (e.setup.enabled, e.setup.port) {
+                            (false, _) => WebStatus::Off,
+                            (true, 1) => WebStatus::Failed("port 1 is in use".into()),
+                            (true, _) => WebStatus::Running(e.setup.url()),
+                        };
                     }
-                    Ok(s.clone())
+                    v.clone()
                 }),
                 apply: Box::new(move |o: &Options| a.borrow_mut().push(o.clone())),
                 reload_ip_filter: Box::new(move |p: &Path| {
@@ -1795,7 +1774,7 @@ mod tests {
                 )
             };
             assert!(!dlg.is_null(), "the template does not load");
-            Fixture { dlg, st, applied, reloads, registry, integrations, service, service_changes }
+            Fixture { dlg, st, applied, reloads, registry, integrations, web, web_edits }
         }
 
         fn click(&self, id: u16) {
@@ -1901,73 +1880,76 @@ mod tests {
     }
 
     #[test]
-    fn the_web_ui_page_drives_the_nox_service() {
+    fn the_web_ui_page_runs_the_server() {
         let mut f = Fixture::new(defaults());
         f.page(PAGE_WEBUI);
         let enabled = |id: u16| unsafe { IsWindowEnabled(item(f.dlg, id)) != 0 };
-        // no service: the box is off and its fields greyed, Open Web UI too
+        // off: the box is off and its fields greyed, Open Web UI too
         unsafe { assert!(!checked(f.dlg, ID_WEBUI)) };
         assert!(enabled(ID_WEBUI) && !enabled(ID_WEBUI_USER) && !enabled(ID_WEBUI_OPEN));
         assert_eq!(f.text(ID_WEBUI_USER), "admin");
         assert_eq!(f.text(ID_WEBUI_PORT), "8080");
-        assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiAbsent));
+        assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiStopped));
         // Apply with the box off asks nothing
         f.click(ID_APPLY);
-        assert!(f.service_changes.borrow().is_empty());
+        assert!(f.web_edits.borrow().is_empty());
 
-        // a new service needs a password; this is told, nothing runs
+        // a first start needs a password; this is told, nothing is stored
         f.check(ID_WEBUI, true);
         f.click(ID_WEBUI);
         assert!(enabled(ID_WEBUI_USER) && enabled(ID_WEBUI_PASS) && enabled(ID_WEBUI_PORT));
-        let e = unsafe { webui_change(f.dlg, &f.st) }.unwrap_err();
+        let e = unsafe { webui_edit(f.dlg, &f.st) }.unwrap_err();
         assert_eq!(e, tr!(WebUiNeedLogin));
         f.set(ID_WEBUI_PORT, "0");
-        assert!(unsafe { webui_change(f.dlg, &f.st) }.is_err());
+        assert!(unsafe { webui_edit(f.dlg, &f.st) }.is_err());
 
-        // installed with the fields' options and the password; the page then shows it running
+        // stored with the fields and the password; the page then shows it running
         f.set(ID_WEBUI_PORT, "8443");
         f.set(ID_WEBUI_PASS, "s3cret");
         f.check(ID_WEBUI_HTTPS, true);
         f.click(ID_APPLY);
-        let want = Setup { username: "admin".into(), port: 8443, remote: false, https: true };
+        let want =
+            WebSetup { enabled: true, username: "admin".into(), port: 8443, remote: false, https: true };
         assert_eq!(
-            f.service_changes.borrow().as_slice(),
-            [Change::Install { setup: want.clone(), password: Some("s3cret".into()) }]
+            f.web_edits.borrow().as_slice(),
+            [Edit { setup: want.clone(), password: Some("s3cret".into()) }]
         );
-        assert!(f.service.borrow().running());
         assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiRunning, url = "https://127.0.0.1:8443/"));
         assert_eq!(f.text(ID_WEBUI_PASS), "", "a password is never shown again");
         assert!(enabled(ID_WEBUI_OPEN));
         unsafe { assert!(checked(f.dlg, ID_WEBUI) && checked(f.dlg, ID_WEBUI_HTTPS)) };
 
-        // nothing changed: nothing runs; a stopped service is started
+        // nothing changed: nothing is asked; a changed option is stored without a password
         f.click(ID_APPLY);
-        assert_eq!(f.service_changes.borrow().len(), 1);
-        f.service.borrow_mut().service.as_mut().unwrap().running = false;
-        f.st.webui = f.service.borrow().clone();
-        f.click(ID_APPLY);
-        assert_eq!(f.service_changes.borrow().last(), Some(&Change::Start));
-
-        // a changed option installs again, without a password (the stored one stays)
+        assert_eq!(f.web_edits.borrow().len(), 1);
         f.check(ID_WEBUI_REMOTE, true);
         f.click(ID_APPLY);
-        let want = Setup { remote: true, ..want };
-        assert_eq!(f.service_changes.borrow().last(), Some(&Change::Install { setup: want, password: None }));
+        let want = WebSetup { remote: true, ..want };
+        assert_eq!(f.web_edits.borrow().last(), Some(&Edit { setup: want.clone(), password: None }));
 
-        // the box off removes it
+        // a server that cannot start: the page says why, and Apply tries again
+        f.set(ID_WEBUI_PORT, "1");
+        f.click(ID_APPLY);
+        assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiFailed, error = "port 1 is in use"));
+        assert!(!enabled(ID_WEBUI_OPEN));
+        assert!(unsafe { webui_edit(f.dlg, &f.st) }.unwrap().is_some(), "tried again");
+
+        // the box off turns it off
         f.check(ID_WEBUI, false);
         f.click(ID_APPLY);
-        assert_eq!(f.service_changes.borrow().last(), Some(&Change::Uninstall));
-        assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiAbsent));
-        assert!(!enabled(ID_WEBUI_OPEN));
+        let off = WebSetup { enabled: false, port: 1, ..want };
+        assert_eq!(f.web_edits.borrow().last(), Some(&Edit { setup: off, password: None }));
+        assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiStopped));
+        assert_eq!(f.web.borrow().status, WebStatus::Off);
 
-        // without patorrent-nox.exe the page is greyed
-        f.service.borrow_mut().nox = None;
-        f.st.webui = f.service.borrow().clone();
+        // a remote window: the page is greyed and Apply asks nothing
+        f.web.borrow_mut().status = WebStatus::Unavailable;
+        f.st.webui = f.web.borrow().clone();
         unsafe { write_webui(f.dlg, &f.st) };
         assert!(!enabled(ID_WEBUI) && !enabled(ID_WEBUI_USER));
-        assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiNoExe));
-        assert_eq!(unsafe { webui_change(f.dlg, &f.st) }.unwrap(), None);
+        assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiRemoteWindow));
+        f.check(ID_WEBUI, true);
+        assert!(unsafe { webui_edit(f.dlg, &f.st) }.unwrap().is_none());
     }
 
     #[test]

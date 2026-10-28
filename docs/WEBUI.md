@@ -414,6 +414,46 @@ question), as the Win32 window now does too, and completion notifications go to
 `GNotification`). The connect step itself (the form, the pins, the failure texts) is shared in
 `patorrent_frontend::remote`.
 
+### Hosted by a desktop client
+
+The Windows GUI serves the Web UI over its own engine (D40), as µTorrent and qBittorrent do:
+`patorrent_nox::webui::WebUi` started with `Config::hosted` (`Hosted { host, options }`), fed
+every alert batch the GUI pops, exactly as nox's main loop does. The host implements
+`webui::Host`: `options_changed(changes)` (called on a request thread with the Web UI's lock
+held: queue them) and `shutdown()`.
+
+- **The mirror.** The GUI is the application: it owns `patorrent.ini`, the labels
+  (`torrent.<key>.label`), the pause marks (`torrent.<key>.paused`), the seeding-goal
+  overrides, the engine settings (`lt.*`), its options and every automation. The Web UI keeps
+  a copy of those preferences (`State::options`, started from `Hosted::options`) and the two
+  sides exchange changes through `patorrent_frontend::prefs::Prefs`' journal: whatever a browser
+  changes (a label, a pause mark, a Preferences page, the session limits, a seeding goal, the
+  login as `webui.username` / `webui.password`, the hash) is written into the mirror as the
+  host's keys and handed to `Host::options_changed`; whatever the host changes comes back
+  through `WebUi::options_changed`, which updates the lists (clients see it at the next tick),
+  replaces the login (a new hash ends every session, SEC-24) and re-reads the settings and
+  options the Preferences pages show. The key is `InfoHashes::key_hex` (the v1 hash, else the
+  full v2 one); the Web UI keys torrents by their v1-compatible hash, so it keeps a second
+  index. A torrent's first sight takes the host's label and pause mark.
+- **Nothing on disk, nothing to the engine but commands.** No `webui.json`, no `rss.dat`: the
+  login comes from `webui.username` / `webui.password` in the options (a temporary password
+  when there is none, as nox makes one), the label list from the `torrent.*.label` keys. A
+  Preferences `POST` is parsed, checked and stored as always, but the host applies it: no
+  `apply_settings`, IP filter, peer-exchange flags or language switch here (the host's language
+  is the process's; the page's `lang.js` follows it). `State::settings` is the host's
+  configured settings (`settings::load` of the `lt.*` keys).
+- **Off.** The scheduler, seeding goal, scrapes, `.torrent` folders, auto-load, move-completed
+  and the RSS Downloader are the host's: `/pa/rss...` and the shim's `rss/*` answer 404 with
+  the reason, `hello` carries `"hosted": true` (false under nox) and the page hides the RSS
+  button, the phone menu's entry and the tree's Feeds branch; a `tick` carries no `rss`. The
+  alternative speed limits do not exist (the host has none): the Bandwidth page has no such
+  row, `alt_enabled` is refused (400 from `POST /pa/prefs`), `POST /pa/session/limits` with
+  `alt` / `alt_down` / `alt_up` and the shim's `toggleSpeedLimitsMode` / `setSpeedLimitsMode`
+  answer 409, `speedLimitsMode` is 0. The normal limits work and reach the host as
+  `lt.download_rate_limit` / `lt.upload_rate_limit`.
+- **Shutdown.** `app/shutdown` and `session/shutdown` call `Host::shutdown` (without the lock)
+  besides marking the Web UI shut down.
+
 ## Budgets (gates, like the desktop's)
 
 10,000 torrents loaded, measured with the `lt-swarm`-style synthetic profile against the real

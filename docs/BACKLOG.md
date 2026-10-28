@@ -369,13 +369,19 @@ That broad check does not establish that every detailed case below was tried.
   options requires reinstalling (`install --replace --now` does it in one go;
   the password is stored hashed since 1.1.1, no longer in the ImagePath).
   Console close/logoff/shutdown waiting is also untested.
-- Preferences > Web UI (Win32, 1.1.1) was tested only through the dialog's fake
-  service hook: run the real path once (UAC prompt, install from
-  `%LOCALAPPDATA%\Programs\PaTorrent`, where LocalService must be able to read
-  the exe; the per-user install folder may need a grant), Open Web UI, a changed
-  port, the box turned off, and a declined prompt. The page cannot read the
-  stored login, so a reinstall from another folder keeps the old password unless
-  a new one is typed. GTK has no such page (systemd units instead).
+- The Win32 GUI's hosted Web UI (1.1.2, D40) is tested through nox's hosted
+  integration tests, the dialog's fake hook and a demo screenshot: hand-check a
+  real session once (enable with a password, Open Web UI, log in, label and
+  pause a torrent from each side, change a rate limit from the browser, HTTPS,
+  the port in use, the box turned off, a browser `app/shutdown`). Not in hosted
+  mode: the RSS Downloader (the window's; a proxy to it is the follow-up),
+  alternative speed limits (the shim's `speedLimitsMode` answers 0), and a magnet
+  added from the browser without metadata survives a window restart only in the
+  window's Add dialog. The `--webui` daemon-only paths (`webui.json`) are
+  unchanged. GTK has no hosting page yet; the host side is in
+  `crates/win32/src/webui_host.rs` and could move to `frontend`. The
+  `patorrent-nox service` improvements of 1.1.1 (`--replace`, `--now`, the
+  hashed login) stay for the daemon; its UAC path is still a hand check.
 - FreeBSD rc.d is syntax-checked but not installed/run with root. Daemon state
   directories have no shared lock, so different pid files can open one database.
   `--daemon` startup stderr goes to the terminal rather than the log. systemd and

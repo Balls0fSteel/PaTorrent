@@ -186,14 +186,10 @@ fn set_paused_mark(shared: &Shared, ids: &[TorrentId], paused: bool) {
     let mut changed = false;
     for id in ids {
         let Some(hash) = st.torrents.get(id).map(|e| e.hash.clone()) else { continue };
-        let was = if paused { st.user_paused.insert(hash.clone()) } else { st.user_paused.remove(&hash) };
-        if was {
-            st.touch(&hash);
-            changed = true;
-        }
+        changed |= st.set_user_paused(&hash, paused);
     }
     if changed {
-        shared.save(&st);
+        shared.save(&mut st);
     }
 }
 
@@ -291,14 +287,9 @@ pub fn label(shared: &Shared, ids: &[TorrentId], label: &str) -> Result<(), CmdE
     }
     for id in ids {
         let Some(hash) = st.torrents.get(id).map(|e| e.hash.clone()) else { continue };
-        if label.is_empty() {
-            st.torrent_categories.remove(&hash);
-        } else {
-            st.torrent_categories.insert(hash.clone(), label.to_owned());
-        }
-        st.touch(&hash);
+        st.set_label(&hash, label);
     }
-    shared.save(&st);
+    shared.save(&mut st);
     Ok(())
 }
 
@@ -498,7 +489,7 @@ pub fn apply_properties(shared: &Shared, ids: &[TorrentId], changes: &Changes) {
         changes.store(&mut st.options, &key, &defaults);
     }
     if changes.seed_goal.is_some() {
-        shared.save(&st);
+        shared.save(&mut st);
     }
 }
 
@@ -574,7 +565,7 @@ pub fn share_limits(shared: &Shared, ids: &[TorrentId], ratio: f64, minutes: i64
         });
         SeedGoal::store_override(&mut st.options, &key, goal);
     }
-    shared.save(&st);
+    shared.save(&mut st);
 }
 
 /// The engine's file list, or the shim's 409 when the metadata is not there yet.
@@ -685,6 +676,14 @@ impl Source {
         match self {
             Source::Torrent(_, ti) => hash_of(&ti.info_hashes()),
             Source::Magnet(m) => parse_magnet_uri(m).map(|p| hash_of(&p.info_hashes)).unwrap_or_default(),
+        }
+    }
+
+    /// The host's key (`InfoHashes::key_hex`, the preferences' `torrent.<key>.*`).
+    pub fn key(&self) -> Option<String> {
+        match self {
+            Source::Torrent(_, ti) => Some(ti.info_hashes().key_hex()),
+            Source::Magnet(m) => parse_magnet_uri(m).ok().map(|p| p.info_hashes.key_hex()),
         }
     }
 
@@ -808,7 +807,7 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
     if let (Source::Magnet(m), true) = (&source, o.dialog) {
         return add_awaiting(shared, m.clone());
     }
-    let hash = source.hash();
+    let (hash, key) = (source.hash(), source.key());
     let mut st = shared.lock();
     let save_path = o.save.clone().unwrap_or_else(|| st.prefs.save_path.clone());
     let file_priorities = match &source {
@@ -852,12 +851,7 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
     params.download_limit = o.download_limit;
     params.upload_limit = o.upload_limit;
     if !label.is_empty() {
-        if !st.categories.contains_key(label) {
-            st.categories.insert(label.to_owned(), String::new());
-            st.categories_version += 1;
-        }
-        st.torrent_categories.insert(hash.clone(), label.to_owned());
-        st.touch(&hash);
+        st.set_label_keyed(&hash, key.as_deref(), label);
     }
     if let Some(m) = meta {
         st.meta.insert(hash.clone(), m);
@@ -866,7 +860,7 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
         st.pending_top.insert(hash.clone());
     }
     add::remember_dir(&mut st.options, &save_path);
-    shared.save(&st);
+    shared.save(&mut st);
     // a `.torrent`'s copy is stored once the engine has it (Directories > Store .torrents in)
     let folders = st.prefs.torrent_folders.clone();
     st.torrent_files.adding(&folders, &params);
@@ -914,7 +908,7 @@ pub fn add_awaiting(shared: &Shared, uri: String) -> Result<String, CmdError> {
     s.torrent_files.adding(&s.prefs.torrent_folders, &p);
     s.awaiting.insert(&mut s.options, &key, &save_path);
     s.adds_version += 1;
-    shared.save(&st);
+    shared.save(&mut st);
     drop(st);
     shared.handle.add_torrent(p);
     shared.handle.post_torrent_updates();
@@ -967,7 +961,7 @@ pub fn finish_awaiting(shared: &Shared, hash: &str, o: &AddOptions, cancel: bool
         let s = &mut *st;
         s.awaiting.finish(&mut s.options, &key);
         s.adds_version += 1;
-        shared.save(&st);
+        shared.save(&mut st);
         drop(st);
         shared.handle.remove_torrent(id, RemoveFlags::DELETE_PARTFILE);
         return Ok(());
@@ -983,12 +977,7 @@ pub fn finish_awaiting(shared: &Shared, hash: &str, o: &AddOptions, cancel: bool
         label: label.to_owned(),
     };
     if !label.is_empty() {
-        if !st.categories.contains_key(label) {
-            st.categories.insert(label.to_owned(), String::new());
-            st.categories_version += 1;
-        }
-        st.torrent_categories.insert(hash.to_owned(), label.to_owned());
-        st.touch(hash);
+        st.set_label(hash, label);
     }
     st.meta.insert(hash.to_owned(), meta_of(&ti));
     let seed_only = st.scheduler.mode() == Mode::SeedOnly;
@@ -996,7 +985,7 @@ pub fn finish_awaiting(shared: &Shared, hash: &str, o: &AddOptions, cancel: bool
     s.awaiting.finish(&mut s.options, &key);
     s.adds_version += 1;
     add::remember_dir(&mut s.options, &save_path);
-    shared.save(&st);
+    shared.save(&mut st);
     drop(st);
     if o.sequential {
         h.set_flags(TorrentFlags::SEQUENTIAL_DOWNLOAD);
@@ -1130,6 +1119,14 @@ pub fn set_session_limits(shared: &Shared, body: &Json) -> Result<(), CmdError> 
         Some(v) => Some(v.as_bool().ok_or(err(400, "alt must be a boolean"))?),
     };
     let mut st = shared.lock();
+    if st.hosted {
+        // no alternative limits; the normal ones take the Preferences' path, so the host gets
+        // them as `lt.download_rate_limit` / `lt.upload_rate_limit`
+        if alt == Some(true) || alt_down.is_some() || alt_up.is_some() {
+            return Err(err(409, prefs::HOSTED_NO_ALT));
+        }
+        return set_normal_limits(shared, &mut st, down, up);
+    }
     if let Some(a) = alt {
         st.prefs.alt_enabled = a;
     }
@@ -1148,6 +1145,26 @@ pub fn set_session_limits(shared: &Shared, body: &Json) -> Result<(), CmdError> 
     }
     shared.apply_limits(&mut st);
     Ok(())
+}
+
+/// Hosted: the normal global limits set through the Preferences' commit (stored in the mirror
+/// and journaled to the host, nothing sent to the engine).
+pub fn set_normal_limits(
+    shared: &Shared,
+    st: &mut State,
+    down: Option<u32>,
+    up: Option<u32>,
+) -> Result<(), CmdError> {
+    let changes: Vec<prefs::Change> = [("download_rate_limit", down), ("upload_rate_limit", up)]
+        .into_iter()
+        .filter_map(|(id, v)| {
+            Some((prefs::find(id)?, patorrent_frontend::settings::Value::Int(i64::from(v?))))
+        })
+        .collect();
+    if changes.is_empty() {
+        return Ok(());
+    }
+    prefs::commit(shared, st, &changes, None).map_err(|(field, why)| err(400, format!("{field}: {why}")))
 }
 
 // ---- the native endpoints -------------------------------------------------------------------
@@ -1218,6 +1235,9 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Res
     let read = matches!(req.head.method.as_str(), "GET" | "HEAD");
     // the RSS Downloader's own (`rss.rs`)
     if let Some(rest) = endpoint.strip_prefix("rss").filter(|r| r.is_empty() || r.starts_with('/')) {
+        if shared.is_hosted() {
+            return Err(err(404, super::rss::HOSTED_NO_RSS));
+        }
         if read {
             return super::rss::serve(shared, rest, req, None);
         }
@@ -1306,6 +1326,10 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Res
         }
         "session/shutdown" => {
             shared.lock().shutdown = true;
+            // hosted: the host exits (told without the lock)
+            if let Some(host) = shared.hosted() {
+                host.shutdown();
+            }
             Ok(no_content())
         }
         "prefs" => {

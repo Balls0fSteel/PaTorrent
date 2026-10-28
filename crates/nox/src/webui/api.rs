@@ -490,12 +490,16 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             let Ok(v @ Json::Obj(_)) = json::parse(text) else { return Response::text(400, "invalid json") };
             let mut st = shared.lock();
             apply_preferences(shared, &mut st, &v, Some(&key));
-            shared.save(&st);
+            shared.save(&mut st);
             Response::ok()
         }
         "app/defaultSavePath" => Response::text(200, shared.lock().prefs.save_path.clone()),
         "app/shutdown" => {
             shared.lock().shutdown = true;
+            // hosted: the host exits (told without the lock)
+            if let Some(host) = shared.hosted() {
+                host.shutdown();
+            }
             Response::ok()
         }
         "transfer/info" => {
@@ -507,6 +511,10 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
         }
         "transfer/toggleSpeedLimitsMode" | "transfer/setSpeedLimitsMode" => {
             let mut st = shared.lock();
+            if st.hosted {
+                // no alternative limits with a desktop client hosting (`speedLimitsMode` is 0)
+                return Response::text(409, prefs::HOSTED_NO_ALT);
+            }
             st.prefs.alt_enabled = if endpoint == "transfer/toggleSpeedLimitsMode" {
                 !st.prefs.alt_enabled
             } else {
@@ -532,6 +540,14 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             let Some(limit) = p.int("limit") else { return Response::text(400, "missing limit") };
             let limit = limit.clamp(0, u32::MAX as i64) as u32;
             let mut st = shared.lock();
+            if st.hosted {
+                let down = endpoint == "transfer/setDownloadLimit";
+                let (d, u) = if down { (Some(limit), None) } else { (None, Some(limit)) };
+                return match commands::set_normal_limits(shared, &mut st, d, u) {
+                    Ok(()) => Response::ok(),
+                    Err(e) => Response::text(e.status, e.msg),
+                };
+            }
             let alt = st.prefs.alt_enabled;
             let slot = match (endpoint == "transfer/setDownloadLimit", alt) {
                 (true, false) => &mut st.prefs.dl_limit,
@@ -695,7 +711,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             }
             st.categories.insert(name, save_path);
             st.categories_version += 1;
-            shared.save(&st);
+            shared.save(&mut st);
             Response::ok()
         }
         "torrents/removeCategories" => {
@@ -716,7 +732,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
                 st.touch(&h);
             }
             st.categories_version += 1;
-            shared.save(&st);
+            shared.save(&mut st);
             Response::ok()
         }
         "torrents/setCategory" => {
@@ -736,6 +752,9 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
         "torrents/tags" => Response::json(&Json::Arr(Vec::new())),
         e if e.starts_with("rss/") => {
             let e = &e["rss/".len()..];
+            if shared.is_hosted() {
+                return json_error(404, super::rss::HOSTED_NO_RSS);
+            }
             if read && super::rss::shim_post_only(e) {
                 return Response::text(405, "Method Not Allowed").with_header("Allow", "POST");
             }

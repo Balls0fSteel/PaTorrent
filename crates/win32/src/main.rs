@@ -46,7 +46,7 @@ mod tray;
 #[cfg(windows)]
 mod util;
 #[cfg(windows)]
-mod webui_service;
+mod webui_host;
 
 #[cfg(windows)]
 fn main() {

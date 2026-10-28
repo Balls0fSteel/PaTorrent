@@ -5,10 +5,17 @@
 //!
 //! Threads: one acceptor, one thread per connection (at most [`MAX_CONNECTIONS`]); a WebSocket
 //! keeps its connection thread. They never touch the engine directly. The owner of the
-//! session's alert queue (nox's main loop) hands every batch of alerts to [`WebUi::on_alerts`],
-//! which keeps a cache of torrent status, session stats and replies to `post_*` requests and
-//! counts a status tick per batch; requests read that cache and post commands through the
-//! [`SessionHandle`], WebSocket threads send what changed since their last tick.
+//! session's alert queue (nox's main loop, or the desktop client hosting the Web UI over its
+//! own engine, [`Host`]) hands every batch of alerts to [`WebUi::on_alerts`], which keeps a
+//! cache of torrent status, session stats and replies to `post_*` requests and counts a status
+//! tick per batch; requests read that cache and post commands through the [`SessionHandle`],
+//! WebSocket threads send what changed since their last tick.
+//!
+//! Hosted (D40, [`Config::hosted`]): the host owns the preferences, the labels, the pause
+//! marks and the automations; the Web UI keeps a mirror of its preferences in
+//! `State::options`, writes what a browser changed there and hands the journal to the host
+//! ([`Shared::save`]), and takes the host's changes through [`WebUi::options_changed`]. Nothing
+//! is written to disk and nothing but a request's own command goes to the engine.
 
 mod api;
 pub mod auth;
@@ -96,6 +103,44 @@ pub struct Config {
     /// `--webui-save-root`: the folders requests may save, move and read in (none = any
     /// absolute local path; see [`path_policy`]).
     pub save_roots: Vec<PathBuf>,
+    /// A desktop client hosting the Web UI over its own engine (D40): see [`Hosted`].
+    pub hosted: Option<Hosted>,
+}
+
+/// A desktop client that hosts the Web UI over its own engine (D40: the Windows GUI, as
+/// µTorrent and qBittorrent serve theirs). It owns the preferences (`patorrent.ini`), the
+/// labels, the pause marks and the automations (scheduler, seeding goal, scrapes, `.torrent`
+/// folders, RSS, moving completed downloads); the Web UI keeps a mirror of its preferences,
+/// shows and drives the same torrents, and reports what a browser changed. The Web UI stores
+/// nothing itself then, runs none of its own automations and has no RSS Downloader.
+pub trait Host: Send + Sync {
+    /// Preferences keys a request changed (`None`: removed), as the host's own keys
+    /// (`patorrent_frontend::prefs`): a label or a pause mark as `torrent.<key>.label` /
+    /// `torrent.<key>.paused` (`InfoHashes::key_hex`), a Preferences page's `lt.*` and option
+    /// keys, a seeding goal, the login as `webui.username` / `webui.password` (the hash).
+    /// Called on a request thread with the Web UI's lock held (or from [`WebUi::on_alerts`],
+    /// for a removed torrent's keys): queue them for the host's thread and return.
+    fn options_changed(&self, changes: Vec<patorrent_frontend::prefs::Change>);
+    /// `app/shutdown` (the shim) or `session/shutdown` (the page): the host exits. Called on
+    /// a request thread without the lock.
+    fn shutdown(&self);
+}
+
+/// How a desktop client hosts the Web UI ([`Config::hosted`]).
+#[derive(Clone)]
+pub struct Hosted {
+    pub host: Arc<dyn Host>,
+    /// The host's preferences, mirrored: the login (`webui.username`, `webui.password` as a
+    /// [`PasswordHash`] string), the labels and pause marks (`torrent.<key>.*`), the engine
+    /// settings (`lt.*`) and the options the Preferences pages show. The host hands later
+    /// changes to [`WebUi::options_changed`].
+    pub options: patorrent_frontend::prefs::Prefs,
+}
+
+impl std::fmt::Debug for Hosted {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Hosted").finish_non_exhaustive()
+    }
 }
 
 impl Config {
@@ -113,6 +158,7 @@ impl Config {
             ip_filter: None,
             https: None,
             save_roots: Vec::new(),
+            hosted: None,
         }
     }
 }
@@ -254,6 +300,22 @@ impl Prefs {
         }
     }
 
+    /// Writes these preferences into `g`, leaving the desktop-only options (tray, balloons,
+    /// updates) as they are: a host's options with the Web UI's changes on them.
+    pub fn apply_to(&self, g: &mut GuiOptions) {
+        let mine = self.gui();
+        *g = GuiOptions {
+            alternate_rows: g.alternate_rows,
+            check_association: g.check_association,
+            close_to_tray: g.close_to_tray,
+            minimize_to_tray: g.minimize_to_tray,
+            balloons: g.balloons,
+            check_updates: g.check_updates,
+            update_beta: g.update_beta,
+            ..mine
+        };
+    }
+
     pub fn set_gui(&mut self, g: &GuiOptions) {
         self.save_path = g.download_dir.clone();
         self.move_completed = g.move_completed;
@@ -343,6 +405,12 @@ pub(crate) struct Meta {
 pub(crate) struct State {
     pub torrents: HashMap<TorrentId, Entry>,
     pub by_hash: HashMap<String, TorrentId>,
+    /// `InfoHashes::key_hex` (the host's and the preferences' key, `torrent.<key>.*`) to id;
+    /// it differs from [`torrent::hash_of`] for a v2-only torrent.
+    pub by_key: HashMap<String, TorrentId>,
+    /// A desktop client hosts the Web UI ([`Config::hosted`]): `options` mirrors its
+    /// preferences, the labels and pause marks are kept there as its keys too.
+    pub hosted: bool,
     pub next_version: u64,
     pub stats: SessionStats,
     pub settings: Settings,
@@ -423,6 +491,9 @@ pub(crate) struct Shared {
     pub path_policy: path_policy::PathPolicy,
     /// The connected remote sessions' alert queues ([`Shared::fan_out`]).
     pub(crate) remotes: Mutex<Vec<Arc<remote::Client>>>,
+    /// The desktop client hosting the Web UI ([`Config::hosted`]), given the preferences
+    /// journal at every [`Shared::save`].
+    pub(crate) host: Option<Arc<dyn Host>>,
 }
 
 pub fn unix_now() -> i64 {
@@ -437,6 +508,15 @@ impl Shared {
 
     pub(crate) fn rss(&self) -> MutexGuard<'_, rss::Rss> {
         self.rss.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    /// The desktop client hosting the Web UI, if one does ([`Config::hosted`]).
+    pub(crate) fn hosted(&self) -> Option<&Arc<dyn Host>> {
+        self.host.as_ref()
+    }
+
+    pub(crate) fn is_hosted(&self) -> bool {
+        self.host.is_some()
     }
 
     /// Posts a request with `post` and waits for the engine's answer.
@@ -499,8 +579,17 @@ impl Shared {
         out
     }
 
-    /// Writes the state file (credentials as a hash, stored preferences, categories).
-    pub fn save(&self, st: &State) {
+    /// Writes the state file (credentials as a hash, stored preferences, categories). Hosted:
+    /// hands the preferences journal (what requests changed in `options` since the last call)
+    /// to the host instead; nothing is written.
+    pub fn save(&self, st: &mut State) {
+        if let Some(host) = &self.host {
+            let changes = st.options.take_changes();
+            if !changes.is_empty() {
+                host.options_changed(changes);
+            }
+            return;
+        }
         let Some(path) = &self.state_file else { return };
         let mut cats = Json::obj();
         for (name, path) in &st.categories {
@@ -535,8 +624,12 @@ impl Shared {
     }
 
     /// Applies the global limits for the current alternative-speed mode, through the
-    /// scheduler (its Limited hours override them).
+    /// scheduler (its Limited hours override them). Hosted: nothing (the host applies its
+    /// settings itself; a browser's limits reach it through the journal).
     pub fn apply_limits(&self, st: &mut State) {
+        if self.is_hosted() {
+            return;
+        }
         let (dl, up) = if st.prefs.alt_enabled {
             (st.prefs.alt_dl_limit, st.prefs.alt_up_limit)
         } else {
@@ -548,8 +641,12 @@ impl Shared {
     }
 
     /// Puts the scheduler's mode for this hour into effect; with `force` the settings are sent
-    /// even if the mode stays (they changed).
+    /// even if the mode stays (they changed). Hosted: nothing (the scheduler is the host's, so
+    /// the mode here stays Normal).
     pub(crate) fn run_scheduler(&self, st: &mut State, force: bool) {
+        if self.is_hosted() {
+            return;
+        }
         let now = unix_now();
         let offset = local_utc_offset(now);
         let old = st.scheduler.mode();
@@ -606,17 +703,29 @@ pub struct HttpsInfo {
 impl WebUi {
     /// Binds `config.addr` and starts serving.
     pub fn start(handle: SessionHandle, config: Config) -> std::io::Result<WebUi> {
-        let state_file = config.state_dir.as_ref().map(|d| d.join(STATE_FILE));
+        // hosted: no state file; the login, labels and pause marks come from the host's
+        // preferences (`torrent.<key>.*`, the host's keys)
+        let hosted = config.hosted.as_ref();
+        let state_file = match hosted {
+            Some(_) => None,
+            None => config.state_dir.as_ref().map(|d| d.join(STATE_FILE)),
+        };
         let stored = state_file
             .as_ref()
             .and_then(|p| std::fs::read_to_string(p).ok())
             .and_then(|s| json::parse(&s).ok())
             .unwrap_or_else(Json::obj);
+        let stored_login = |key: &str| -> Option<String> {
+            match hosted {
+                Some(h) => h.options.get(&format!("webui.{key}")).map(str::to_owned),
+                None => stored.get(key).and_then(Json::as_str).map(str::to_owned),
+            }
+        };
 
         let mut temporary_password = None;
-        let password = match (&config.password, stored.get("password").and_then(Json::as_str)) {
+        let password = match (&config.password, stored_login("password")) {
             (Some(p), _) => PasswordHash::new(p, config.pbkdf2_iterations),
-            (None, Some(h)) if PasswordHash::parse(h).is_some() => PasswordHash::parse(h).expect("checked"),
+            (None, Some(h)) if PasswordHash::parse(&h).is_some() => PasswordHash::parse(&h).expect("checked"),
             _ => {
                 let p = auth::random_hex(6);
                 let h = PasswordHash::new(&p, config.pbkdf2_iterations);
@@ -626,8 +735,8 @@ impl WebUi {
         };
         // A stored user name is the one set through setPreferences; the command line wins when
         // it gives a password too.
-        let username = match stored.get("username").and_then(Json::as_str) {
-            Some(u) if config.password.is_none() && temporary_password.is_none() => u.to_owned(),
+        let username = match stored_login("username") {
+            Some(u) if config.password.is_none() && temporary_password.is_none() => u,
             _ => config.username.clone(),
         };
         let mut categories = BTreeMap::new();
@@ -644,8 +753,21 @@ impl WebUi {
             Some(Json::Arr(v)) => v.iter().filter_map(Json::as_str).map(str::to_owned).collect(),
             _ => HashSet::new(),
         };
-        // the stored preferences (the frontend's keys), and the older `recent_dirs` list
-        let mut options = patorrent_frontend::prefs::Prefs::default();
+        // the stored preferences (the frontend's keys), and the older `recent_dirs` list; hosted,
+        // the host's preferences, mirrored (its labels make the label list complete at once)
+        let mut options = match hosted {
+            Some(h) => {
+                let mut o = h.options.clone();
+                o.track_changes();
+                for (k, v) in o.entries() {
+                    if k.starts_with("torrent.") && k.ends_with(".label") && !v.is_empty() {
+                        categories.entry(v.to_owned()).or_default();
+                    }
+                }
+                o
+            }
+            None => patorrent_frontend::prefs::Prefs::default(),
+        };
         for (k, v) in stored.get("options").map(Json::entries).unwrap_or_default() {
             if let Some(v) = v.as_str() {
                 options.set(k, v);
@@ -657,7 +779,11 @@ impl WebUi {
                 patorrent_frontend::add::remember_dir(&mut options, d);
             }
         }
-        let awaiting = patorrent_frontend::add::AwaitingMetadata::load(&options);
+        // hosted: the host handles its pending magnets after a restart
+        let awaiting = match hosted {
+            Some(_) => patorrent_frontend::add::AwaitingMetadata::default(),
+            None => patorrent_frontend::add::AwaitingMetadata::load(&options),
+        };
         let settings = config.settings.clone();
         let mut prefs = Prefs::defaults(&config.save_path, &settings);
         if let Some(d) = &config.move_completed_dir {
@@ -688,6 +814,8 @@ impl WebUi {
             state: Mutex::new(State {
                 torrents: HashMap::new(),
                 by_hash: HashMap::new(),
+                by_key: HashMap::new(),
+                hosted: hosted.is_some(),
                 next_version: 1,
                 stats: SessionStats::default(),
                 settings,
@@ -727,28 +855,47 @@ impl WebUi {
             iterations: config.pbkdf2_iterations,
             state_file,
             settings_dir,
-            // rss.dat beside webui.json, in the config directory
+            // rss.dat beside webui.json, in the config directory; hosted, no downloader
             rss: Mutex::new(rss::Rss::load(
-                config.state_dir.as_ref().map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
+                config
+                    .state_dir
+                    .as_ref()
+                    .filter(|_| hosted.is_none())
+                    .map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
             )),
             tls: loaded.map(|l| l.identity),
             path_policy: path_policy::PathPolicy::new(config.save_roots.clone()),
             remotes: Mutex::new(Vec::new()),
+            host: hosted.map(|h| h.host.clone()),
         });
         {
             let mut st = shared.lock();
-            // what the Web UI's preferences changed before this start, re-applied; the
-            // `preferences` object of state files written before slice 6 holds the shim's keys
-            prefs::restore(&shared, &mut st, config.ip_filter.as_deref());
-            // the Web UI's language (Preferences > General); PATORRENT_LANG over it
-            for p in patorrent_frontend::lang::init(&st.prefs.language) {
-                st.push_log(None, p, unix_now());
+            if st.hosted {
+                // the host's settings and options, read back for the Preferences pages; the
+                // host applied them itself, and its language is the process's already
+                prefs::read_back(&mut st);
+                // the mirror shows the login in force (not journaled: the host gave it, or it
+                // knows the password it passed and reads `temporary_password`)
+                let login = [
+                    ("webui.username".to_owned(), Some(st.username.clone())),
+                    ("webui.password".to_owned(), Some(st.password.to_string())),
+                ];
+                st.options.apply_changes(&login);
+            } else {
+                // what the Web UI's preferences changed before this start, re-applied; the
+                // `preferences` object of state files written before slice 6 holds the shim's
+                // keys
+                prefs::restore(&shared, &mut st, config.ip_filter.as_deref());
+                // the Web UI's language (Preferences > General); PATORRENT_LANG over it
+                for p in patorrent_frontend::lang::init(&st.prefs.language) {
+                    st.push_log(None, p, unix_now());
+                }
+                if let Some(legacy @ Json::Obj(_)) = stored.get("preferences") {
+                    api::apply_preferences(&shared, &mut st, legacy, None);
+                }
+                // keeps the stored file current (a new password hash, a first start)
+                shared.save(&mut st);
             }
-            if let Some(legacy @ Json::Obj(_)) = stored.get("preferences") {
-                api::apply_preferences(&shared, &mut st, legacy, None);
-            }
-            // keeps the stored file current (a new password hash, a first start)
-            shared.save(&st);
         }
         let stop = Arc::new(AtomicBool::new(false));
         let acceptor = server::spawn(listener, shared.clone(), stop.clone())?;
@@ -789,18 +936,16 @@ impl WebUi {
             if st.torrent_categories.contains_key(hash) {
                 continue;
             }
-            if !st.categories.contains_key(label) {
-                st.categories.insert(label.clone(), String::new());
-                st.categories_version += 1;
-            }
-            st.torrent_categories.insert(hash.clone(), label.clone());
+            st.set_label(hash, label);
         }
-        st.user_paused.extend(paused.iter().cloned());
+        for hash in paused {
+            st.set_user_paused(hash, true);
+        }
         let now = unix_now();
         for line in log {
             st.push_log(None, line.clone(), now);
         }
-        self.shared.save(&st);
+        self.shared.save(&mut st);
     }
 
     /// True once a client called `app/shutdown`.
@@ -841,6 +986,67 @@ impl WebUi {
         true
     }
 
+    /// Hosted ([`Config::hosted`]): the host's preferences changed (its journal,
+    /// `Prefs::take_changes`); the mirror follows. A label or a pause mark updates the lists
+    /// (clients see it at the next tick), the login replaces the one in force, settings and
+    /// option keys refresh what the Preferences pages show. Nothing goes to the engine: the
+    /// host applied it.
+    pub fn options_changed(&self, changes: &[patorrent_frontend::prefs::Change]) {
+        let mut st = self.shared.lock();
+        if !st.hosted {
+            return;
+        }
+        st.options.apply_changes(changes);
+        let mut other = false;
+        for (key, value) in changes {
+            if let Some(k) = key.strip_prefix("torrent.") {
+                if let Some(k) = k.strip_suffix(".label") {
+                    let label = value.as_deref().unwrap_or("");
+                    match st.by_key.get(k).and_then(|id| st.torrents.get(id)).map(|e| e.hash.clone()) {
+                        Some(hash) => st.label_cached(&hash, label),
+                        // not seen yet: the label joins the list now, the torrent takes it
+                        // at its first sight
+                        None if !label.is_empty() && !st.categories.contains_key(label) => {
+                            st.categories.insert(label.to_owned(), String::new());
+                            st.categories_version += 1;
+                        }
+                        None => {}
+                    }
+                } else if let Some(k) = k.strip_suffix(".paused") {
+                    let Some(hash) =
+                        st.by_key.get(k).and_then(|id| st.torrents.get(id)).map(|e| e.hash.clone())
+                    else {
+                        continue;
+                    };
+                    st.paused_cached(&hash, value.as_deref() == Some("1"));
+                }
+                // a seeding goal override is read from `options` when needed
+                continue;
+            }
+            match key.as_str() {
+                "webui.username" => {
+                    if let Some(u) = value.as_deref().map(str::trim).filter(|u| !u.is_empty()) {
+                        st.username = u.to_owned();
+                    }
+                }
+                "webui.password" => {
+                    let Some(h) = value.as_deref().and_then(PasswordHash::parse) else { continue };
+                    if h.to_string() != st.password.to_string() {
+                        st.password = h;
+                        // every login ends: the sessions, their WebSockets, the remotes (SEC-24)
+                        st.sessions.clear();
+                        self.shared.end_remotes();
+                    }
+                }
+                _ => other = true,
+            }
+        }
+        if other {
+            // the Preferences pages show the host's values
+            prefs::read_back(&mut st);
+        }
+    }
+
     /// Feeds a batch of alerts popped from the session.
     pub fn on_alerts(&self, alerts: &[Alert]) {
         self.shared.fan_out(alerts);
@@ -848,10 +1054,15 @@ impl WebUi {
         let mut replied = false;
         let mut ticked = false;
         let now = unix_now();
+        // hosted: the automations (`.torrent` folders, seeding goal, scheduler, scrapes,
+        // auto-load, RSS) are the host's; the cache, the replies and the Web UI's own adds stay
+        let hosted = st.hosted;
         let folders = st.prefs.torrent_folders.clone();
         for a in alerts {
-            for line in st.torrent_files.on_alert(a, &folders, &self.shared.handle) {
-                st.push_log(None, line, now);
+            if !hosted {
+                for line in st.torrent_files.on_alert(a, &folders, &self.shared.handle) {
+                    st.push_log(None, line, now);
+                }
             }
             let left = matches!(a, Alert::TorrentRemoved { id, .. } if st.awaiting.holds(*id));
             let s = &mut *st;
@@ -859,7 +1070,7 @@ impl WebUi {
                 s.adds_version += 1;
             }
             if left {
-                self.shared.save(&st);
+                self.shared.save(&mut st);
             }
             match a {
                 Alert::StateUpdate(v) => {
@@ -867,7 +1078,8 @@ impl WebUi {
                     for s in v {
                         // first sight of a restored torrent (they post no `TorrentAdded`) during
                         // Seeding only hours
-                        if !st.torrents.contains_key(&s.id)
+                        if !hosted
+                            && !st.torrents.contains_key(&s.id)
                             && st.scheduler.mode() == Mode::SeedOnly
                             && !s.flags.contains(TorrentFlags::UPLOAD_MODE)
                         {
@@ -875,7 +1087,7 @@ impl WebUi {
                         }
                         st.update(s.clone(), now);
                         // Queueing > Seeding Goal: stop or limit a queued seed past its goal
-                        if s.is_finished {
+                        if s.is_finished && !hosted {
                             let own = SeedGoal::load_override(&st.options, &s.info_hashes.key_hex());
                             if let Some(action) = goal.check(s, own) {
                                 action.apply(&self.shared.handle.torrent(s.id));
@@ -901,8 +1113,8 @@ impl WebUi {
                         };
                         st.update(s, now);
                     }
-                    // added by anyone during Seeding only hours
-                    if st.scheduler.mode() == Mode::SeedOnly {
+                    // added by anyone during Seeding only hours (the host's scheduler, hosted)
+                    if !hosted && st.scheduler.mode() == Mode::SeedOnly {
                         self.shared.handle.torrent(*id).set_flags(TorrentFlags::UPLOAD_MODE);
                     }
                     // "Add to top of queue" from the Add dialog, now that the id is known
@@ -916,11 +1128,18 @@ impl WebUi {
                         st.meta.remove(&e.hash);
                         st.removals += 1;
                         let key = e.status.info_hashes.key_hex();
+                        st.by_key.remove(&key);
                         let had_goal = SeedGoal::load_override(&st.options, &key).is_some();
                         SeedGoal::store_override(&mut st.options, &key, None);
                         let forget = st.torrent_categories.remove(&e.hash).is_some() | had_goal;
-                        if st.user_paused.remove(&e.hash) | forget {
-                            self.shared.save(&st);
+                        if hosted {
+                            // the host drops its own keys too; removing an absent key is not
+                            // journaled, and an empty journal is not handed on
+                            st.options.remove(&format!("torrent.{key}.label"));
+                            st.options.remove(&format!("torrent.{key}.paused"));
+                        }
+                        if st.user_paused.remove(&e.hash) | forget | hosted {
+                            self.shared.save(&mut st);
                         }
                     }
                     st.replies.retain(|(t, _), _| t != id);
@@ -960,6 +1179,8 @@ impl WebUi {
         if ticked {
             st.tick += 1;
             st.sample_speeds();
+        }
+        if ticked && !hosted {
             self.shared.run_scheduler(&mut st, false);
             // no scrapes while the scheduler has the session turned off
             if st.scheduler.mode() != Mode::Off {
@@ -978,7 +1199,7 @@ impl WebUi {
                 self.shared.lock().push_log(None, line, now);
             }
         }
-        if ticked {
+        if ticked && !hosted {
             rss::tick(&self.shared);
         }
     }
@@ -1125,6 +1346,7 @@ impl State {
         let version = self.next_version;
         self.next_version += 1;
         let hash = torrent::hash_of(&s.info_hashes);
+        let key = s.info_hashes.key_hex();
         let active = s.download_payload_rate > 0 || s.upload_payload_rate > 0;
         match self.torrents.get_mut(&s.id) {
             Some(e) => {
@@ -1135,17 +1357,102 @@ impl State {
                     self.by_hash.remove(&e.hash);
                     e.hash = hash.clone();
                 }
+                let old_key = e.status.info_hashes.key_hex();
+                if old_key != key {
+                    self.by_key.remove(&old_key);
+                }
                 e.status = s;
                 e.version = version;
                 self.by_hash.insert(hash, e.status.id);
+                self.by_key.insert(key, e.status.id);
             }
             None => {
                 let id = s.id;
                 let last_activity = if active { now } else { 0 };
                 self.by_hash.insert(hash.clone(), id);
-                self.torrents.insert(id, Entry { status: s, hash, version, last_activity });
+                self.by_key.insert(key.clone(), id);
+                self.torrents.insert(id, Entry { status: s, hash: hash.clone(), version, last_activity });
+                if self.hosted {
+                    // first sight: the host's label and pause mark for it
+                    let label = self.options.get(&format!("torrent.{key}.label")).map(str::to_owned);
+                    if let Some(label) = label.filter(|l| !l.is_empty()) {
+                        self.label_cached(&hash, &label);
+                    }
+                    if self.options.get_bool(&format!("torrent.{key}.paused"), false) {
+                        self.user_paused.insert(hash);
+                    }
+                }
             }
         }
+    }
+
+    /// The host's key (`InfoHashes::key_hex`) of a cached torrent.
+    pub(crate) fn key_of(&self, hash: &str) -> Option<String> {
+        self.by_hash.get(hash).and_then(|id| self.torrents.get(id)).map(|e| e.status.info_hashes.key_hex())
+    }
+
+    /// Sets a cached torrent's label in the lists (empty removes it; a new label joins the
+    /// label list) and bumps its version. Nothing is stored.
+    fn label_cached(&mut self, hash: &str, label: &str) {
+        if label.is_empty() {
+            self.torrent_categories.remove(hash);
+        } else {
+            if !self.categories.contains_key(label) {
+                self.categories.insert(label.to_owned(), String::new());
+                self.categories_version += 1;
+            }
+            self.torrent_categories.insert(hash.to_owned(), label.to_owned());
+        }
+        self.touch(hash);
+    }
+
+    /// Records (or clears) the user's Pause of a cached torrent and bumps its version. Nothing
+    /// is stored. Returns whether it changed.
+    fn paused_cached(&mut self, hash: &str, paused: bool) -> bool {
+        let changed =
+            if paused { self.user_paused.insert(hash.to_owned()) } else { self.user_paused.remove(hash) };
+        if changed {
+            self.touch(hash);
+        }
+        changed
+    }
+
+    /// Sets a torrent's label (empty removes it) and, hosted, writes it into the mirror as the
+    /// host's `torrent.<key>.label` for the next [`Shared::save`]. For a torrent in the cache;
+    /// [`State::set_label_keyed`] for one being added.
+    pub(crate) fn set_label(&mut self, hash: &str, label: &str) {
+        let key = self.key_of(hash);
+        self.set_label_keyed(hash, key.as_deref(), label);
+    }
+
+    /// [`State::set_label`] with the host's key given (a torrent not in the cache yet).
+    pub(crate) fn set_label_keyed(&mut self, hash: &str, key: Option<&str>, label: &str) {
+        self.label_cached(hash, label);
+        if let (true, Some(key)) = (self.hosted, key) {
+            let k = format!("torrent.{key}.label");
+            if label.is_empty() {
+                self.options.remove(&k);
+            } else {
+                self.options.set(&k, label);
+            }
+        }
+    }
+
+    /// Records (or clears) the user's Pause of a torrent and, hosted, the host's
+    /// `torrent.<key>.paused` mark in the mirror. Returns whether it changed.
+    pub(crate) fn set_user_paused(&mut self, hash: &str, paused: bool) -> bool {
+        let changed = self.paused_cached(hash, paused);
+        if self.hosted {
+            if let Some(key) = self.key_of(hash) {
+                let k = format!("torrent.{key}.paused");
+                if paused {
+                    self.options.set(&k, "1");
+                } else {
+                    self.options.remove(&k);
+                }
+            }
+        }
+        changed
     }
 
     /// The cached answer to a `post_*` request, if the engine answered one.
@@ -1190,6 +1497,7 @@ impl State {
             tls: None,
             path_policy: path_policy::PathPolicy::default(),
             remotes: Mutex::new(Vec::new()),
+            host: None,
         }
     }
 
@@ -1199,6 +1507,8 @@ impl State {
         State {
             torrents: HashMap::new(),
             by_hash: HashMap::new(),
+            by_key: HashMap::new(),
+            hosted: false,
             next_version: 1,
             stats: SessionStats::default(),
             settings: Settings::default(),
@@ -1233,5 +1543,73 @@ impl State {
             awaiting: Default::default(),
             adds_version: 1,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use patorrent_core::InfoHashes;
+    use patorrent_core::Sha1Hash;
+
+    fn status(id: u64, v1: u8) -> TorrentStatus {
+        TorrentStatus {
+            id: TorrentId::from_raw(id),
+            info_hashes: InfoHashes::v1(Sha1Hash([v1; 20])),
+            name: format!("t{id}"),
+            ..TorrentStatus::default()
+        }
+    }
+
+    /// Hosted: a torrent's first sight takes the host's label and pause mark, `by_key` finds
+    /// it by the host's key, and the Web UI's own changes land in the mirror as the host's keys
+    /// (only real changes, as the journal records them).
+    #[test]
+    fn hosted_state_mirrors_labels_and_pause_marks() {
+        let mut st = State::for_tests();
+        st.hosted = true;
+        st.options.track_changes();
+        let key = Sha1Hash([7; 20]).to_hex();
+        st.options.apply_changes(&[
+            (format!("torrent.{key}.label"), Some("tv".to_owned())),
+            (format!("torrent.{key}.paused"), Some("1".to_owned())),
+        ]);
+        st.update(status(1, 7), 0);
+        st.update(status(2, 8), 0);
+        let hash = torrent::hash_of(&InfoHashes::v1(Sha1Hash([7; 20])));
+        assert_eq!(hash, key, "a v1 torrent's key is its hash");
+        assert_eq!(st.by_key.get(&key), Some(&TorrentId::from_raw(1)));
+        assert_eq!(st.torrent_categories.get(&hash).map(String::as_str), Some("tv"));
+        assert!(st.categories.contains_key("tv") && st.user_paused.contains(&hash));
+        assert!(st.options.take_changes().is_empty(), "the host's own keys are not journaled");
+
+        // the Web UI's changes: the host's keys, removed keys as None
+        let other = torrent::hash_of(&InfoHashes::v1(Sha1Hash([8; 20])));
+        st.set_label(&other, "film");
+        st.set_label(&hash, "");
+        assert!(st.set_user_paused(&hash, false));
+        assert!(!st.set_user_paused(&hash, false), "unchanged");
+        assert!(st.set_user_paused(&other, true));
+        let other_key = Sha1Hash([8; 20]).to_hex();
+        assert_eq!(
+            st.options.take_changes(),
+            [
+                (format!("torrent.{other_key}.label"), Some("film".to_owned())),
+                (format!("torrent.{key}.label"), None),
+                (format!("torrent.{key}.paused"), None),
+                (format!("torrent.{other_key}.paused"), Some("1".to_owned())),
+            ]
+        );
+        assert_eq!(st.torrent_categories.get(&other).map(String::as_str), Some("film"));
+        assert!(!st.torrent_categories.contains_key(&hash) && !st.user_paused.contains(&hash));
+
+        // nox: the same calls keep the lists and write no keys
+        let mut st = State::for_tests();
+        st.options.track_changes();
+        st.update(status(1, 7), 0);
+        st.set_label(&hash, "tv");
+        st.set_user_paused(&hash, true);
+        assert_eq!(st.torrent_categories.get(&hash).map(String::as_str), Some("tv"));
+        assert!(st.options.take_changes().is_empty());
     }
 }

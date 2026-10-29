@@ -139,7 +139,7 @@ elevates through UAC and starts from a clean registry):
 
 5. The Release workflow checks that the tag names the workspace version (and stops if not),
    builds the files above and opens a **draft** release with them. Download them, try them (the
-   Windows zip on a clean machine, the setup as in [Windows installer](#windows-installer), a
+   Windows zip and setup on a clean machine with [tools/windows-clean](../tools/windows-clean/README.md), the setup as in [Windows installer](#windows-installer), a
    tarball, the AppImages and the Flatpak on a Linux desktop;
    for macOS, the `macos-gui-start` screenshot, as nobody here has a Mac), compare
    `SHA256SUMS`, then publish the draft on GitHub (`gh release edit v1.0.0 --draft=false`).

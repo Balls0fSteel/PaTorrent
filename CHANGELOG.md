@@ -7,7 +7,7 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 ## 2026-10-29_212936_1793309376: Real Sonarr, Radarr and Prowlarr against the Windows GUI
 
 - **Run (owner set the VMs to bridged):** a portable release `patorrent.exe` 1.1.6 on this PC (192.168.1.101) with its Web UI on `0.0.0.0:8080`; the apps in Docker on the Xubuntu VM (192.168.1.26), which now shares `/srv/media` over Samba (installed with the owner's approval), so the GUI saves to `\\192.168.1.26\media\downloads`. Passed: the three connection Tests by IP address; a `.torrent` grab from Sonarr and Radarr with the 1-minute seed time arriving (`ratio_limit -1`, `seeding_time_limit 1`) and the files checked complete over the share; the window's own goal stopping both at 60 s (`pausedUP`); both apps importing (Remote Path Mapping of the UNC path) and removing the torrents within 20 s; Prowlarr's search and grab into `prowlarr`.
-- **Harness:** `arr.py client` now deletes the old client before the Test (the Test refused a second "PaTorrent" as not unique); the README describes the Samba setup that ran. The Windows VM (192.168.1.153) was not reachable (no ping or SSH through its firewall), so it was not used. No program change, so no version bump.
+- **Harness:** `arr.py client` now deletes the old client before the Test (the Test refused a second "PaTorrent" as not unique); the README describes the Samba setup that ran. The Windows VM (192.168.1.153) was down during the run, so it was not used; it is up since and answers SSH (key login not set up yet). No program change, so no version bump.
 
 ## 2026-10-29_203414_1793306054: The hosted Web UI's *arr paths tested; removeCategories fixed there (1.1.6)
 

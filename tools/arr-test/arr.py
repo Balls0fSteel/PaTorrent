@@ -2,6 +2,7 @@
 """Drives Sonarr, Radarr and Prowlarr through their APIs for the PaTorrent shim test."""
 
 import json
+import os
 import re
 import sys
 import urllib.error
@@ -9,8 +10,11 @@ import urllib.request
 
 APPS = {"sonarr": (8989, "v3"), "radarr": (7878, "v3"), "prowlarr": (9696, "v1")}
 CATEGORY_FIELD = {"sonarr": "tvCategory", "radarr": "movieCategory", "prowlarr": "category"}
-NOX_PASS = "arr-test-pass"
-FAKEZNAB = "http://172.17.0.1:9117"
+# the client's Web UI as the apps reach it (the host is `client`'s argument); the defaults are nox's
+CLIENT_PORT = int(os.environ.get("PATORRENT_PORT", "8080"))
+CLIENT_USER = os.environ.get("PATORRENT_USER", "admin")
+NOX_PASS = os.environ.get("PATORRENT_PASS", "arr-test-pass")
+FAKEZNAB = os.environ.get("FAKEZNAB_URL", "http://172.17.0.1:9117")
 
 
 def key(app):
@@ -46,7 +50,7 @@ def fill(schema, values):
 def client(app, host):
     _, schemas = call(app, "GET", "downloadclient/schema")
     s = next(x for x in schemas if x["implementation"] == "QBittorrent")
-    values = {"host": host, "port": 8080, "useSsl": False, "username": "admin", "password": NOX_PASS,
+    values = {"host": host, "port": CLIENT_PORT, "useSsl": False, "username": CLIENT_USER, "password": NOX_PASS,
               CATEGORY_FIELD[app]: {"sonarr": "tv-sonarr", "radarr": "radarr", "prowlarr": "prowlarr"}[app]}
     s = fill(s, values)
     s.update(name="PaTorrent", enable=True, priority=1)
@@ -85,6 +89,16 @@ def indexer(app, seed_time=None, seed_ratio=None):
     print(f"{app} indexer: HTTP {st}", "" if st < 400 else json.dumps(res)[:1500])
 
 
+def pathmap(app, host, remote, local):
+    """A Remote Path Mapping: the client's folder `remote` on `host` is `local` in the app."""
+    _, existing = call(app, "GET", "remotepathmapping")
+    for e in existing:
+        if e["host"] == host:
+            call(app, "DELETE", f"remotepathmapping/{e['id']}")
+    st, res = call(app, "POST", "remotepathmapping", {"host": host, "remotePath": remote, "localPath": local})
+    print(f"{app} path mapping {remote} -> {local}: HTTP {st}", "" if st < 400 else json.dumps(res)[:1500])
+
+
 def get(app, path):
     st, res = call(app, "GET", path)
     print(json.dumps(res, indent=1)[:6000])
@@ -97,6 +111,8 @@ def main():
     elif cmd == "indexer":
         seed_time, seed_ratio = rest
         indexer(app, None if seed_time == "-" else int(seed_time), None if seed_ratio == "-" else float(seed_ratio))
+    elif cmd == "pathmap":
+        pathmap(app, *rest)
     elif cmd == "get":
         get(app, rest[0])
     elif cmd in ("post", "put", "delete"):

@@ -733,9 +733,9 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
                 .filter(|(_, c)| names.contains(c))
                 .map(|(h, _)| h.clone())
                 .collect();
+            // through `set_label`, so a host's `torrent.<key>.label` goes too
             for h in cleared {
-                st.torrent_categories.remove(&h);
-                st.touch(&h);
+                st.set_label(&h, "");
             }
             st.categories_version += 1;
             shared.save(&mut st);

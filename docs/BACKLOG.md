@@ -321,7 +321,9 @@ That broad check does not establish that every detailed case below was tried.
   add and the reported seed limits (Remove Completed) are fixed in 1.1.3. Decided: the strict
   Host check stays; its 400 names the setting (1.1.4). Real Sonarr, Radarr and Prowlarr
   passed against nox on Linux (2026-10-29, `tools/arr-test`), which found and fixed idle
-  seeds' frozen seeding time (1.1.5). Still to run: the Windows GUI's hosted Web UI, a magnet
+  seeds' frozen seeding time (1.1.5). The hosted Web UI's paths are tested (1.1.6; its
+  `removeCategories` now clears the window's label). Still to run: the live run against the Windows
+  GUI (`tools/arr-test` README), a magnet
   grab with real peers, "First" priority / Force Start, and a mobile qBittorrent remote. Other shim
   gaps: tags, search, logs, automatic management, cookies, the Bearer API key and a subnet
   whitelist; RSS exists but has the limitations in the RSS section.
@@ -384,7 +386,11 @@ That broad check does not establish that every detailed case below was tried.
   alternative speed limits (the shim's `speedLimitsMode` answers 0), and a magnet
   added from the browser without metadata survives a window restart only in the
   window's Add dialog. The `--webui` daemon-only paths (`webui.json`) are
-  unchanged. GTK has no hosting page yet; the host side is in
+  unchanged. Hosted, a created category that no torrent uses yet is lost when the Web UI
+  restarts (categories are rebuilt from `torrent.*.label`); a category's `savePath` is never used
+  for adds (nox too); the domain list (`webui.domain_list`) has no field in the Win32 page (an IP
+  address or the browser's Preferences works); a window-side `seed_*` change does not resend
+  the torrent in `sync/maindata`. GTK has no hosting page yet; the host side is in
   `crates/win32/src/webui_host.rs` and could move to `frontend`. The
   `patorrent-nox service` improvements of 1.1.1 (`--replace`, `--now`, the
   hashed login) stay for the daemon; its UAC path is still a hand check.

@@ -636,3 +636,75 @@ fn the_login_and_labels_come_from_the_hosts_options_and_nothing_is_written() {
     assert!(!t.dir.join("state").join(STATE_FILE).exists());
     assert!(!t.dir.join("state").exists());
 }
+
+// ---- Sonarr, Radarr and Prowlarr ------------------------------------------------------------
+
+/// What the *arr apps do (docs/INTEGRATIONS.md part 1) against the GUI's hosted Web UI: the
+/// window's seeding goal is the global share limit, an add's limits and category become the
+/// host's own `torrent.<key>.*` keys (the window stops the torrent), and removing a category or
+/// the torrent drops them again.
+#[test]
+fn the_arr_apps_limits_and_categories_are_the_hosts_keys() {
+    // the window's goal: no ratio, 30 minutes, then stop
+    let mut options = Prefs::default();
+    options.set("queue.seed_ratio", 0);
+    options.set("queue.seed_time", 30);
+    let t = Harness::start("arr", options, Some(PASS));
+    let sid = t.login();
+    let num = |v: Option<&Json>| v.and_then(Json::as_f64).unwrap_or(f64::NAN);
+    let limits = |x: &Json| (num(x.get("ratio_limit")), num(x.get("seeding_time_limit")));
+    let key = |h: &str, k: &str| t.host.value_of(&format!("torrent.{h}.{k}"));
+
+    let p = t.get(&sid, "/api/v2/app/preferences").json();
+    assert_eq!(p.get("max_ratio_enabled").and_then(Json::as_bool), Some(false));
+    assert_eq!(p.get("max_seeding_time_enabled").and_then(Json::as_bool), Some(true));
+    assert_eq!(num(p.get("max_seeding_time")), 30.0);
+    assert_eq!(num(p.get("max_ratio_act")), 0.0, "stop, never remove");
+
+    // an *arr's add: capitalised booleans, the limits and the category beside the magnet
+    let hash = "0123456789abcdef0123456789abcdef01234567";
+    let form = format!(
+        "urls=magnet%3A%3Fxt%3Durn%3Abtih%3A{hash}%26dn%3Darr&stopped=True&category=tv-sonarr\
+         &ratioLimit=2.5&seedingTimeLimit=60"
+    );
+    let r = t.post(&sid, "/api/v2/torrents/add", &form);
+    assert_eq!((r.status, r.text().as_str()), (200, "Ok."));
+    assert_eq!(key(hash, "label"), Some(Some("tv-sonarr".to_owned())));
+    assert_eq!(key(hash, "seed_ratio"), Some(Some("250".to_owned())));
+    assert_eq!(key(hash, "seed_time"), Some(Some("60".to_owned())));
+    let x = t.wait_for(&sid, hash, "the added torrent", |x| s(x.get("category")) == "tv-sonarr");
+    assert_eq!(limits(&x), (2.5, 60.0));
+
+    // `setShareLimits` takes the same path
+    t.host.clear();
+    let r = t.post(
+        &sid,
+        "/api/v2/torrents/setShareLimits",
+        &format!("hashes={hash}&ratioLimit=-1&seedingTimeLimit=90"),
+    );
+    assert_eq!(r.status, 200);
+    assert_eq!(key(hash, "seed_time"), Some(Some("90".to_owned())));
+    assert_eq!(
+        limits(&first(&t.get(&sid, &format!("/api/v2/torrents/info?hashes={hash}")).json())),
+        (-1.0, 90.0)
+    );
+
+    // removing the category drops the window's label too, so it does not come back
+    t.host.clear();
+    assert_eq!(t.post(&sid, "/api/v2/torrents/removeCategories", "categories=tv-sonarr").status, 200);
+    assert_eq!(key(hash, "label"), Some(None));
+    assert_eq!(category(&t, &sid, hash), "");
+    let cats = t.get(&sid, "/api/v2/torrents/categories").json().to_json();
+    assert!(!cats.contains("tv-sonarr"), "{cats}");
+
+    // Remove Completed: the torrent and its keys go
+    t.host.clear();
+    let r = t.post(&sid, "/api/v2/torrents/delete", &format!("hashes={hash}&deleteFiles=true"));
+    assert_eq!(r.status, 200);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while key(hash, "seed_ratio") != Some(None) {
+        assert!(Instant::now() < deadline, "the goal stayed: {:?}", t.host.changes());
+        std::thread::sleep(Duration::from_millis(50));
+    }
+    assert_eq!(t.get(&sid, &format!("/api/v2/torrents/info?hashes={hash}")).json().to_json(), "[]");
+}

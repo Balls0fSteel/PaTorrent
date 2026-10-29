@@ -56,14 +56,15 @@ def client(app, host):
     s.update(name="PaTorrent", enable=True, priority=1)
     if app != "prowlarr":
         s.update(removeCompletedDownloads=True, removeFailedDownloads=True)
+    # the previous client first: the Test also checks that the name is unique
+    _, existing = call(app, "GET", "downloadclient")
+    for e in existing:
+        call(app, "DELETE", f"downloadclient/{e['id']}")
     st, res = call(app, "POST", "downloadclient/test", s)
     print(f"{app} test against {host}: HTTP {st}")
     if st >= 400:
         print(json.dumps(res, indent=1)[:2000])
         return
-    _, existing = call(app, "GET", "downloadclient")
-    for e in existing:
-        call(app, "DELETE", f"downloadclient/{e['id']}")
     st, res = call(app, "POST", "downloadclient", s)
     print(f"{app} client saved: HTTP {st}")
 

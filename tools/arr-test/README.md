@@ -34,10 +34,12 @@ The containers reach nox as `patorrent`, a host name, so its Host check refuses 
 
 The same steps with `patorrent.exe` (D40) as the client instead of nox: the Docker host stays the Linux VM, the GUI runs on a Windows PC the VM can reach. `arr.py`, `nox.py` and `reset.sh` take the client from `PATORRENT_URL` (default `http://127.0.0.1:8080`), `PATORRENT_PORT`, `PATORRENT_USER` and `PATORRENT_PASS`; `FAKEZNAB_URL` overrides the indexer's address.
 
-1. On Windows: share the download folder (say `D:\arrtest\downloads`, the GUI's default save folder), then in Preferences > Web UI turn it on with user `admin`, a password, the port and "Allow connections from other computers" (binds `0.0.0.0`), and allow `patorrent.exe` inbound in Windows Firewall. For the time-only goal set Preferences > Queueing's ratio target to 0 and the time to anything; the per-torrent 1 minute arrives with the add.
-2. On the VM, mount the share where fakeznab writes the payloads, so the GUI finds them complete: `sudo mount -t cifs //<windows-ip>/downloads /srv/media/downloads -o username=<user>,uid=$(id -u),gid=$(id -g)`. Start fakeznab as above, but not nox.
-3. `export PATORRENT_URL=http://<windows-ip>:<port> PATORRENT_PORT=<port> PATORRENT_PASS=<password>`, then `python3 arr.py client <app> <windows-ip>` for each app. An IP address passes the Host check without a domain list.
-4. The GUI reports Windows paths, so map them in Sonarr and Radarr: `python3 arr.py pathmap sonarr <windows-ip> 'D:\arrtest\downloads\' /srv/media/downloads/` (and `radarr`).
-5. Steps 2-6 above. Expect the same limits and states; the window's own seeding goal stops the torrent, and the import is a copy (the share is another file system), not a hardlink.
+The downloads live on the VM, shared over Samba, so the GUI writes straight into `/srv/media/downloads`, fakeznab's payloads are already there, and the apps import by hardlink as with nox. First run 2026-10-29 (GUI on 192.168.1.101, VM on 192.168.1.26, bridged).
 
-`sh reset.sh` clears the queues and nox's torrents and regenerates the payloads; rescan the series and movie (`RescanSeries`, `RescanMovie` commands) before searching again, or the apps still think they have the files.
+1. On the VM: `sudo apt install samba`, a `[media]` share of `/srv/media` (`valid users = x`, `force user = x`, `read only = no`) and `sudo smbpasswd -a x`. On Windows: `cmdkey /add:<vm-ip> /user:x /pass` so `patorrent.exe` can write to `\\<vm-ip>\media`.
+2. On Windows, a portable `patorrent.exe` (an empty-or-prepared `patorrent.ini` beside it): Preferences > Web UI on with user `admin`, the harness password, port 8080 and "Allow connections from other computers" (binds `0.0.0.0`); Windows may ask to let it through the firewall. Save path `\\<vm-ip>\media\downloads`. For the time-only goal set Preferences > Queueing's ratio target to 0; the per-torrent 1 minute arrives with the add.
+3. On the VM, start fakeznab as above, but not nox. `export PATORRENT_URL=http://<windows-ip>:8080`, then `python3 arr.py client <app> <windows-ip>` for each app. An IP address passes the Host check without a domain list.
+4. The GUI reports its UNC paths, so map them in Sonarr and Radarr: `python3 arr.py pathmap sonarr <windows-ip> '\\<vm-ip>\media\downloads\' /srv/media/downloads/` (and `radarr`; from a script file, since nested quoting through ssh drops backslashes).
+5. Steps 2-6 above (`reset.sh` with `PATORRENT_URL` set). Expect the same limits and states; the window's own seeding goal stops the torrent.
+
+`sh reset.sh` clears the queues and the client's torrents and regenerates the payloads; rescan the series and movie (`RescanSeries`, `RescanMovie` commands) before searching again, or the apps still think they have the files.

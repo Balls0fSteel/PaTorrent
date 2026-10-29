@@ -322,8 +322,8 @@ That broad check does not establish that every detailed case below was tried.
   Host check stays; its 400 names the setting (1.1.4). Real Sonarr, Radarr and Prowlarr
   passed against nox on Linux (2026-10-29, `tools/arr-test`), which found and fixed idle
   seeds' frozen seeding time (1.1.5). The hosted Web UI's paths are tested (1.1.6; its
-  `removeCategories` now clears the window's label). Still to run: the live run against the Windows
-  GUI (`tools/arr-test` README), a magnet
+  `removeCategories` now clears the window's label), and the live run against the Windows GUI
+  passed (2026-10-29, `tools/arr-test` README). Still to run: a magnet
   grab with real peers, "First" priority / Force Start, and a mobile qBittorrent remote. Other shim
   gaps: tags, search, logs, automatic management, cookies, the Bearer API key and a subnet
   whitelist; RSS exists but has the limitations in the RSS section.

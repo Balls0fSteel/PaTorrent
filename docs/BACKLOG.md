@@ -316,9 +316,14 @@ That broad check does not establish that every detailed case below was tried.
 - A magnet's ready Add dialog appears in every page; first OK/Cancel wins and
   others close at the next tick. Other URL adds still bypass the page's Add
   dialog. Long-poll fallback is conditional on an actual deployment needing it.
-- Exercise Sonarr, Radarr and a mobile qBittorrent remote to establish which
-  shim gaps matter. Missing shim work includes tags, search, logs, automatic
-  management and cookies; RSS exists but has the limitations in the RSS section.
+- **Sonarr/Radarr/Prowlarr (audit 2026-10-29_161749_1793287069, from their source):**
+  the ordered gap list is in [INTEGRATIONS.md](INTEGRATIONS.md) part 1. To fix: share
+  limits on `torrents/add` are dropped; `ratio_limit`/`seeding_time_limit` are always `-2`
+  and `app/preferences` lacks `max_ratio_*`, so Remove Completed never fires; the default
+  Host check refuses Docker host names (owner choice). Then run a real Sonarr, Radarr and
+  Prowlarr against nox and the hosted Web UI, and a mobile qBittorrent remote. Other shim
+  gaps: tags, search, logs, automatic management, cookies, the Bearer API key and a subnet
+  whitelist; RSS exists but has the limitations in the RSS section.
   States use documented `pausedDL`/`pausedUP`; change to 5.x `stoppedDL`/`stoppedUP`
   if a client needs it. `sync/maindata` stores roughly 50 field values per torrent
   per logged-in client; consider change counters at large scale/many clients.
@@ -554,16 +559,17 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   (`qBt-ratioLimit`, `qBt-seedingTimeLimit`) and the incomplete folder (`qBt-downloadPath`)
   are not carried over: data stays at `save_path`. v2-only torrents come without piece
   layers and fetch them from peers.
-- **Search:** name only; the 2.2.1 drop-down of web search engines is not there (a later
-  "search the web" entry could join it). Win32 does not debounce (12-16 ms a keystroke at
+- **Search:** name only; the 2.2.1 drop-down of web search engines is not there. Proposed:
+  Torznab sources (Prowlarr, Jackett) in that drop-down, [INTEGRATIONS.md](INTEGRATIONS.md)
+  part 2 (D41 pending). Win32 does not debounce (12-16 ms a keystroke at
   100,000 rows); measure on the low-end machine (gate 5).
 - **Remote mode:** Import is disabled in both GUIs; importing into a remote nox goes through
   `nox run --import` on that machine.
 - **Plugin hooks:** moved to V2.0 (D35) until a completion action, search source or column
   needs one.
 - **Other V1.1 candidates** (owner to choose): nox update check; the installer built in
-  `ci.yml`; a winget manifest; the qBittorrent shim gaps Sonarr and Radarr need (tags,
-  search, logs); remote-mode automation conflicts; RSS conditional GET and gzip; BEP 44 / 51
+  `ci.yml`; a winget manifest; the qBittorrent shim gaps Sonarr and Radarr need (now listed
+  in INTEGRATIONS.md); remote-mode automation conflicts; RSS conditional GET and gzip; BEP 44 / 51
   / 55.
 
 ## Validation and development environment

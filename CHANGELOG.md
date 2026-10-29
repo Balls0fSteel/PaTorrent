@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-29_161749_1793287069: Sonarr/Radarr/Prowlarr audit and Torznab search proposal
+
+- **Request (owner):** pursue the *arr integration and a search that does not depend on qBittorrent's Python plugins. New [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md), written from Sonarr's, Radarr's and Prowlarr's qBittorrent client source (`develop`, 2026-10-29) and Prowlarr's and Jackett's Torznab controllers. Nothing was run against a real *arr; no code changed.
+- **Found:** because the shim reports WebAPI 2.11.2, the *arrs send share limits with `torrents/add`, which the shim drops; `torrents/info` reports no per-torrent limit and `app/preferences` no global one, so their Remove Completed never removes anything, although nox's seeding goal stops torrents. The strict Host check (empty domain list) refuses an *arr that names the client by a Docker host name. Smaller gaps (tags, Bearer API key, subnet whitelist, content layout) only cause warnings. The rest of their calls, the `True`/`False` booleans and the multipart form fields already work.
+- **Proposed D41:** search through the user's Prowlarr or Jackett over Torznab (RSS with `torznab:attr`), reusing the RSS parser, `http_get` and the RSS worker, from the toolbar search box's drop-down; no new dependency. Pending the owner.
+
 ## 2026-10-29_081713_1793258233: v1.1.2 tagged, draft release open
 
 - CI run 40783436672 and FreeBSD 40783436665 on `8b2546b4` passed (Windows included; Fuzz was not triggered, it passed on `afe557c3`). Tag `v1.1.2` on `8b2546b4`; Release run 40833738936 passed every job and opened the draft (14 files, 120 MB). Not yet published; the files were not hand-tried.

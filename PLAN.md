@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-29_081713_1793258233
+Last updated: 2026-10-29_161749_1793287069
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -14,7 +14,7 @@ A lean recreation of µTorrent 2.2.1: native look, small single-file binaries, a
 | `patorrent-nox` | All supported platforms | Daemon, native push API, Web UI, qBittorrent-compatible shim |
 | `patorrent-gtk` | Linux / BSD / macOS | GTK 4 GUI on the shared frontend model |
 
-Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), [WEBUI.md](docs/WEBUI.md). Release procedure: [RELEASING.md](docs/RELEASING.md).
+Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), [WEBUI.md](docs/WEBUI.md), [INTEGRATIONS.md](docs/INTEGRATIONS.md). Release procedure: [RELEASING.md](docs/RELEASING.md).
 
 ## Current status
 
@@ -27,7 +27,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), Windows built locally and Linux / Windows artifacts from Release `39950546995`. It carries the full-row selection, routed-interface UPnP and connected-peer-list fixes, but predates the latest dialog changes. Older sets remain in `dist/1.0-test-ad714b1/` and `dist/1.0-test/`. The first set's Linux binaries/AppImages passed a command-line smoke check; later sets were not desktop-smoked, and Flatpak was not installed.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
-- **New in 1.0.1 since rc.1** (2026-10-27): the window title, tray tooltip, Web UI tab and the exes' version resources show the version; an update check that only tells (D32: a minute in the status bar, Help > Check for Updates, Preferences > General > Privacy); a Windows installer beside the zip (D31, `packaging/windows/`); the project website on GitHub Pages with the `update.txt` the check reads (D33, `site/`, [WEBSITE.md](docs/WEBSITE.md)). The app's check reads the website's `update.txt` (verified end to end with rc.1); the installer is built and smoke-tested by the release job.
+- 1.0.1 added the version in titles and resources, the update check (D32), the installer (D31) and the website with `update.txt` (D33, [WEBSITE.md](docs/WEBSITE.md)); the check was verified end to end with rc.1.
 - Verdigris (`01`) is provisionally integrated in the application and packaging through `assets/patina-icons/app-icon.txt`; the owner's final brand choice remains open. The candidate gallery is in `assets/patina-icons/`.
 
 ## Next steps
@@ -39,7 +39,8 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 5. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
 6. **Security fixes** (reviewed 2026-10-27_132153_1793107313; all done 2026-10-27_212434_1793132674): every audit finding is Fixed or Ruled out; what stays is accepted and named in its Resolution notes. The owner accepted the named remainders (2026-10-27_214505_1793133905). The audit is kept out of the public repo (owner, 2026-10-27): the tracked [SECURITY.md](SECURITY.md) is the policy only, the full audit is the untracked `SECURITY-AUDIT.md` (in `.git/info/exclude`). Linux tests, a portable `--shell` run and Open Folder's shell path passed; macOS CI is the check for the Secure Transport revocation path. Machine translations needing native review: `RemotePlaintext`, `ForwardRefused`, `PrefCurrentPassword`, `PrefNeedCurrentPassword`. The remote protocol is now 9 (SEC-12): a GUI and nox must both be current.
-7. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
+7. **Sonarr/Radarr/Prowlarr and Torznab search** (chosen by the owner 2026-10-29_161749_1793287069): the shim audit and search design are in [INTEGRATIONS.md](docs/INTEGRATIONS.md). Next: fix gaps 1-2 (share limits on add; report seed limits so Remove Completed works), decide gap 3 (Host check vs Docker host names), then run real *arrs against nox and the hosted Web UI. Torznab search waits for D41.
+8. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
 
 ## Road to 1.0
 
@@ -70,6 +71,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 
 - UI artwork (D27-D30): the bold family passed its revision 6 review (131/131) and is integrated (gate 10); revisions 3-6 and their reviews are in the [changelog archive](docs/archive/README.md). Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
+- Proposed D41: search through the user's Prowlarr/Jackett over Torznab, in the toolbar search box's drop-down, with no Python plugins or scrapers of our own; also the proxy rule for local sources ([INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2).
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text. Research before designing the V2.0 goals below.
 
 
@@ -96,7 +98,7 @@ Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23; not designed yet
 - BEP 44 DHT items/ed25519, BEP 51 sample-infohash querying and BEP 55 holepunch after 1.0 unless cheap. Detailed remaining engine/test gaps are in the backlog.
 - Split `core` only if compile times justify it; consider io_uring disk/network on Linux and IOCP file I/O on Windows.
 - Continuous work: meaningful scale regression baselines, parser fuzzing, per-release security review and a wider interop matrix (including rTorrent and µTorrent).
-- qBittorrent web search support. Worth looking into, but qBittorrent always had a rough history with the search engines. They broke, the Python installations did not work, etc. I'm interested in something more robust - if there is anything. Also, users love the Sonarr, Radarr, Prowler integration - while I never used them myself. Either we could adopt support for their search engines and save us the work of maintaining the engines, or with your help we can easily come up with our own Rust or whatever search engine modules.
+- Web search without qBittorrent's fragile Python plugins, and Sonarr/Radarr/Prowlarr support: now Next steps item 7 and proposed D41.
 - Theming support: GTK4 takes up theme looks, so I think this might be Windows only. And, maybe its not even possible. But if we could, without extra resource use, it would be really cool and nice if we could have some nice looking themes included and third party support as well.
 
 ## Known TODOs

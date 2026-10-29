@@ -628,7 +628,11 @@ fn csrf_and_host_header_checks() {
     .unwrap();
     let mut out = Vec::new();
     s.read_to_end(&mut out).unwrap();
-    assert_eq!(parse_response(&out).0.status, 400);
+    let refused = parse_response(&out).0;
+    assert_eq!(refused.status, 400);
+    // the answer says where to allow the name (an *arr in Docker names its client by host name)
+    assert!(refused.text().contains("Server domains (webui.domain_list)"), "{}", refused.text());
+    assert!(!refused.text().contains("rebind"), "the refused name is not echoed");
 
     // ... accepted once the name is in the domain list
     let prefs = format!(r#"{{"web_ui_domain_list":"*.example","web_ui_current_password":"{PASS}"}}"#);

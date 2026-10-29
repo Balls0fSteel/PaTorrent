@@ -295,7 +295,11 @@ As today: SID cookie, PBKDF2 password hash, failed-login ban (per IPv4 address, 
 IPv6), Host validation, bypass for local clients, CSRF checks on every `POST` and on the
 WebSocket handshake: the `Origin` (or, without one, the `Referer`) must name the request's own
 `Host`. The domain list is not consulted for this. A request with neither header passes,
-since only browsers send them and the SID cookie is `SameSite=Strict`. Added:
+since only browsers send them and the SID cookie is `SameSite=Strict`. Host validation is on
+by default with an empty domain list (qBittorrent's default is `*`; owner's choice 2026-10-29:
+keep it strict), so only IP addresses and `localhost` pass; the 400 answer names Preferences >
+Web UI > Server domains (`webui.domain_list`), where a Docker or LAN host name is allowed
+([INTEGRATIONS.md](INTEGRATIONS.md) gap 3). Added:
 `Content-Security-Policy: default-src 'self'` (so no inline script or style in the HTML),
 `X-Content-Type-Options: nosniff`, `Referrer-Policy: no-referrer`, `ETag` on the static files.
 A new password ends every other login: their sessions, WebSockets and `/pa/remote`

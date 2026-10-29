@@ -318,8 +318,8 @@ That broad check does not establish that every detailed case below was tried.
   dialog. Long-poll fallback is conditional on an actual deployment needing it.
 - **Sonarr/Radarr/Prowlarr (audit 2026-10-29_161749_1793287069, from their source):**
   the ordered gap list is in [INTEGRATIONS.md](INTEGRATIONS.md) part 1. Share limits on
-  add and the reported seed limits (Remove Completed) are fixed in 1.1.3. Open: the default
-  Host check refuses Docker host names (owner choice). Then run a real Sonarr, Radarr and
+  add and the reported seed limits (Remove Completed) are fixed in 1.1.3. Decided: the strict
+  Host check stays; its 400 names the setting (1.1.4). Then run a real Sonarr, Radarr and
   Prowlarr against nox and the hosted Web UI, and a mobile qBittorrent remote. Other shim
   gaps: tags, search, logs, automatic management, cookies, the Bearer API key and a subnet
   whitelist; RSS exists but has the limitations in the RSS section.

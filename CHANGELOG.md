@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-29_163016_1793287816: The Host check stays strict and says how to allow a name (1.1.4)
+
+- **Decision (owner):** keep Host validation on with an empty domain list (qBittorrent ships `*`), INTEGRATIONS.md gap 3. The 400 answer of the Web UI, the shim and `/pa/remote` (`api::HOST_REFUSED`) now says to open the page by IP address or `localhost` and add the name in Preferences > Web UI > Server domains (`webui.domain_list`); it does not echo the refused name.
+- **Docs:** the site's FAQ has a new entry, "Can Sonarr, Radarr or Prowlarr use PaTorrent?" (login, host names in Docker, Remove Completed); WEBUI.md "Security" and DAEMON.md name the setting. Validation: `csrf_and_host_header_checks` checks the text; nox tests, clippy, fmt and the site's 24 tests pass. Version 1.1.4.
+
 ## 2026-10-29_162347_1793287427: The shim keeps and reports seed limits for the *arr apps (1.1.3)
 
 - **Fixed (INTEGRATIONS.md gaps 1-2):** `torrents/add` keeps `ratioLimit` / `seedingTimeLimit` as the torrent's own seeding goal (the *arr apps send them there, not via `setShareLimits`, at our WebAPI 2.11.2). `torrents/info` and `sync/maindata` report each torrent's `ratio_limit` / `seeding_time_limit` (`-2` without its own goal, `-1` for a target that is off), and `app/preferences` reports the global goal as `max_ratio_enabled`, `max_ratio`, `max_seeding_time_enabled`, `max_seeding_time` and `max_ratio_act: 0`. The limits are enabled only when the goal stops torrents, not when it caps their upload. With this, Sonarr's and Radarr's Remove Completed can remove a stopped torrent. `setShareLimits` now marks the torrent changed, so `sync/maindata` sends the new limits. `commands::share_goal` is shared by both paths.

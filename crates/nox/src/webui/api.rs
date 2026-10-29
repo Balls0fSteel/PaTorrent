@@ -34,6 +34,11 @@ pub const WEBAPI_VERSION: &str = "2.11.2";
 pub const UNAUTHENTICATED_BODY: usize = 64 * 1024;
 /// The answer to a banned address, qBittorrent's text.
 pub const BANNED: &str = "Your IP address has been banned after too many failed authentication attempts.";
+/// The answer to a `Host` the domain list does not name (DNS rebinding protection). It says
+/// where to allow a name, since Sonarr or Radarr in Docker reach the client by host name
+/// (docs/INTEGRATIONS.md gap 3); the refused name itself is not echoed.
+pub const HOST_REFUSED: &str = "Bad Request: unexpected Host header. Open the Web UI by IP address or localhost \
+     and add this host name to Preferences > Web UI > Server domains (webui.domain_list).";
 
 /// The Web UI page: three static files and the favicon (the application icon's 32 px PNG,
 /// `frontend::icons::app_png`) embedded in the binary (docs/WEBUI.md goal 3) and the
@@ -337,7 +342,7 @@ pub(super) fn websocket_handshake(
         return Err(Response::text(403, BANNED));
     }
     if st.prefs.host_header_validation && !host_allowed(head.header("host"), &st.prefs.domain_list) {
-        return Err(Response::text(400, "Bad Request: unexpected Host header"));
+        return Err(Response::text(400, HOST_REFUSED));
     }
     if st.prefs.csrf_protection && !csrf_ok(head) {
         return Err(Response::text(403, "Forbidden: origin not allowed"));
@@ -376,7 +381,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
         (st.prefs.host_header_validation, st.prefs.csrf_protection, st.prefs.domain_list.clone())
     };
     if host_validation && !host_allowed(head.header("host"), &domains) {
-        return Response::text(400, "Bad Request: unexpected Host header");
+        return Response::text(400, HOST_REFUSED);
     }
     let api = head.path.starts_with("/api/");
     if csrf && api && !csrf_ok(head) {

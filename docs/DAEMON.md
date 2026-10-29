@@ -12,7 +12,9 @@ patorrent-nox run --save /srv/torrents --webui 0.0.0.0:8080 --webui-pass 'a long
 Without `--webui-pass` and with no password stored yet, the first start prints a temporary
 password; log in with it and set one in Preferences > Web UI. A password given on the command
 line is visible to other local users in the process list, so prefer setting it in the page.
-For a LAN host name, add it to Preferences > Web UI > domain list (`web_ui_domain_list`).
+For a LAN host name, add it to Preferences > Web UI > Server domains (`webui.domain_list`, the
+shim's `web_ui_domain_list`); Sonarr, Radarr or Prowlarr in Docker that name the daemon by a
+service or host name need this too ([INTEGRATIONS.md](INTEGRATIONS.md)).
 
 On a network, serve the page over HTTPS so the password and the session cookie are not sent in
 the clear: `--webui-https` makes a self-signed certificate on first use and keeps it in the

@@ -75,7 +75,7 @@ pub(super) fn handshake(shared: &Shared, head: &Head, ip: IpAddr) -> Result<(), 
             ));
         }
         if st.prefs.host_header_validation && !host_allowed(head.header("host"), &st.prefs.domain_list) {
-            return Err(Response::text(400, "Bad Request: unexpected Host header"));
+            return Err(Response::text(400, super::api::HOST_REFUSED));
         }
         if st.prefs.csrf_protection && head.header("origin").is_some() && !super::api::csrf_ok(head) {
             return Err(Response::text(403, "Forbidden: origin not allowed"));

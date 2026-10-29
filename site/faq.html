@@ -47,6 +47,7 @@
         <li><a href="#settings">Where are my settings? What is portable mode?</a></li>
         <li><a href="#languages">Which languages does it speak?</a></li>
         <li><a href="#remote">How do the Web UI and remote mode work?</a></li>
+        <li><a href="#arr">Can Sonarr, Radarr or Prowlarr use PaTorrent?</a></li>
         <li><a href="#privacy">What does PaTorrent send, and to whom?</a></li>
         <li><a href="#private-trackers">Can I use it on private trackers?</a></li>
         <li><a href="#warnings">Why do Windows and macOS warn about it?</a></li>
@@ -112,6 +113,13 @@
       <p><strong>From the Windows GUI</strong> (1.1.2 and later): Preferences &gt; Web UI serves the same page from <code>patorrent.exe</code> itself, over that window's torrents, as µTorrent did. Tick Enable Web UI, set a password and OK; the page shows the URL (<code>http://127.0.0.1:8080/</code> by default). "Allow connections from other computers" listens on every address (let the port through the firewall), and "Use HTTPS" makes a self-signed certificate. Labels and settings changed in the browser show up in the window, and the other way round; the RSS Downloader and the alternative speed limits stay in the window. The GTK GUI has no such page yet.</p>
       <p><strong>Remote mode:</strong> either desktop GUI can drive a <code>patorrent-nox</code> on another machine, through the same port. Choose File &gt; Connect to Remote..., or start the GUI with <code>--remote</code>, and give the host, port, login and whether to use HTTPS. A certificate your system does not trust is shown by its fingerprint and remembered once you accept it. The window then works on the remote daemon's torrents; the password is never stored.</p>
       <p>The same port also serves a subset of qBittorrent's Web API, for tools written for qBittorrent (such as Sonarr, Radarr or Prowlarr). It is a subset, so not every call is there. Running the daemon as a service: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md">docs/DAEMON.md</a>; the design: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/WEBUI.md">docs/WEBUI.md</a>.</p>
+    </section>
+
+    <section class="qa" id="arr" aria-labelledby="arr-h">
+      <h2 id="arr-h">Can Sonarr, Radarr or Prowlarr use PaTorrent?</h2>
+      <p>Yes, as a qBittorrent download client: turn on the Web UI (above), then in Sonarr, Radarr or Prowlarr add a download client of type qBittorrent with PaTorrent's host, port, user name and password. Use the user name and password rather than an API key, which PaTorrent does not have. Series tags are not supported; categories are PaTorrent's labels.</p>
+      <p><strong>Host names, as in Docker:</strong> to block DNS rebinding attacks, the Web UI answers only requests addressed to an IP address, <code>localhost</code> or a name you allowed. If the other program reaches PaTorrent by a host name (<code>http://patorrent:8080</code>, <code>http://nas.lan:8080</code>), its connection test fails with "unexpected Host header". Open the Web UI by IP address, then add the name in Preferences &gt; Web UI &gt; Server domains (for example <code>patorrent;*.lan</code>). Or give the other program the IP address instead.</p>
+      <p><strong>Remove Completed</strong> (1.1.3 and later) removes a download once PaTorrent has stopped it at its seeding goal (Preferences &gt; Queueing &gt; Seeding Goal, or the ratio and time the indexer asks for). A goal set to limit the upload rate instead keeps the torrent seeding, so nothing is removed.</p>
     </section>
 
     <section class="qa" id="privacy" aria-labelledby="privacy-h">

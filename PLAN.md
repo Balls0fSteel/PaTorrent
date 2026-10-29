@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-28_235148_1793227908
+Last updated: 2026-10-29_081713_1793258233
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -20,7 +20,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **1.0.1 was the first stable release** (2026-10-27, tag `v1.0.1` on `afce628b`, [release](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.1)): the full 1.0 scope (D19). `v1.0.0` (on `b40c2e58`) has no release (its build failed on the Flatpak metainfo, D34); rc.1 stays as a pre-release. The open Road to 1.0 hand checks continue as 1.0.x validation.
 - **1.1.0 is published, Latest** (2026-10-28 13:42 UTC, tag `v1.1.0` on `65a3d0ca`, [release](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.0); Release run 40695889139, 14 files, 126 MB; the site serves `stable=1.1.0`): V1.1 (D35, search box and importers), the security fixes, the Win32 hand-test fixes and the new icons; peer ID `-PA1011-`. Release text [docs/releases/1.1.0.md](docs/releases/1.1.0.md); see V1.1 below.
-- **1.1.2 in release (2026-10-28_180808_1793207288):** the Windows GUI's own Web UI (D40) and nox's `service install` improvements, on top of 1.1.0; peer ID `-PA1011-` unchanged. Release text [docs/releases/1.1.2.md](docs/releases/1.1.2.md); the tag, Release run and publication are recorded in the [changelog](CHANGELOG.md).
+- **1.1.2 drafted (2026-10-29_081713_1793258233):** the Windows GUI's own Web UI (D40) and nox's `service install` improvements, on top of 1.1.0; peer ID `-PA1011-` unchanged. Tag `v1.1.2` on `8b2546b4`, Release run 40833738936 green, draft open (14 files, 120 MB), awaiting the owner's go-ahead to publish. Release text [docs/releases/1.1.2.md](docs/releases/1.1.2.md).
 - **The Windows GUI serves its own Web UI (1.1.2, D40, 2026-10-28_174137_1793205697):** Preferences > Web UI starts nox's Web UI server inside `patorrent.exe` over the window's engine, as µTorrent and qBittorrent do; the page shows this window's torrents, the login and port are `webui.*` keys in `patorrent.ini`, and the preferences are mirrored both ways (labels, pause marks, settings) through a change journal. D39's service-driving page (1.1.1) is superseded; nox's `service install --replace --now` and hashed login stay. Hand checks and what hosted mode lacks (RSS, alternative limits) are in [BACKLOG](docs/BACKLOG.md#automation-and-daemon-operations).
 - **Benchmarks against other clients** (2026-10-27): `tools/bench`, [BENCHMARKS.md](docs/BENCHMARKS.md) and the site's Benchmarks page, from 1.0.1 on the Xubuntu VM. 10,000 torrents after a restart: 60 MB vs qBittorrent 612 MB; one-peer download 3,592 MiB/s at 1.04 CPU s/GiB. Live on the website since `b83d28f0` (Pages run 40509213942).
 - Latest Win32 changes (2026-10-23): Add New Torrent uses the resizable one-column layout, separate Save In / Name fields, a remembered size and "Don't show this again"; dialogs use the system message font (Segoe UI 9 pt here). They are tested but not yet in a refreshed hand-test set. See the recent [changelog](CHANGELOG.md).

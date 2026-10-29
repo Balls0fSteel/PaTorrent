@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-29_081713_1793258233: v1.1.2 tagged, draft release open
+
+- CI run 40783436672 and FreeBSD 40783436665 on `8b2546b4` passed (Windows included; Fuzz was not triggered, it passed on `afe557c3`). Tag `v1.1.2` on `8b2546b4`; Release run 40833738936 passed every job and opened the draft (14 files, 120 MB). Not yet published; the files were not hand-tried.
+
 ## 2026-10-28_235148_1793227908: Windows CI hang fixed; README and site name the GUI's Web UI
 
 - **Cause:** CI run 40732835265 on `afe557c3` sat in `test (windows-latest)` for hours (until the 6 h job limit): `preferences::tests::the_web_ui_page_runs_the_server` clicks Apply with a port that fails, and `apply_webui` then opens a modal error box nobody can close. Reproduced here; it hangs alone too.

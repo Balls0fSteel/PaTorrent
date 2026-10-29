@@ -3162,16 +3162,13 @@ impl Engine {
         let settings = self.settings.clone();
         let Some(t) = self.torrent(id) else { return };
         t.stat.get_or_insert_with(Box::default).tick(dt);
-        if !t.checking {
-            t.active_secs += dt;
-            if t.is_finished() {
-                t.finished_secs += dt;
-            }
-            if t.is_seed() {
-                t.seeding_secs += dt;
-            }
-        }
-        if t.stat().download_rate() > 0 || t.stat().upload_rate() > 0 || !t.peers.is_empty() || t.checking {
+        let new_minute = !t.checking && t.add_running_time(dt);
+        if new_minute
+            || t.stat().download_rate() > 0
+            || t.stat().upload_rate() > 0
+            || !t.peers.is_empty()
+            || t.checking
+        {
             t.status_dirty = true;
         }
         let interest_dirty = std::mem::take(&mut t.interest_dirty);

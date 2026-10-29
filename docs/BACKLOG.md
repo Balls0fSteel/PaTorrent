@@ -319,8 +319,10 @@ That broad check does not establish that every detailed case below was tried.
 - **Sonarr/Radarr/Prowlarr (audit 2026-10-29_161749_1793287069, from their source):**
   the ordered gap list is in [INTEGRATIONS.md](INTEGRATIONS.md) part 1. Share limits on
   add and the reported seed limits (Remove Completed) are fixed in 1.1.3. Decided: the strict
-  Host check stays; its 400 names the setting (1.1.4). Then run a real Sonarr, Radarr and
-  Prowlarr against nox and the hosted Web UI, and a mobile qBittorrent remote. Other shim
+  Host check stays; its 400 names the setting (1.1.4). Real Sonarr, Radarr and Prowlarr
+  passed against nox on Linux (2026-10-29, `tools/arr-test`), which found and fixed idle
+  seeds' frozen seeding time (1.1.5). Still to run: the Windows GUI's hosted Web UI, a magnet
+  grab with real peers, "First" priority / Force Start, and a mobile qBittorrent remote. Other shim
   gaps: tags, search, logs, automatic management, cookies, the Bearer API key and a subnet
   whitelist; RSS exists but has the limitations in the RSS section.
   States use documented `pausedDL`/`pausedUP`; change to 5.x `stoppedDL`/`stoppedUP`

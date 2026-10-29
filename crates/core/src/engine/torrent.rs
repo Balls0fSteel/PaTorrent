@@ -473,6 +473,27 @@ impl Torrent {
         self.num_pieces > 0 && self.num_have() == self.num_pieces
     }
 
+    /// Adds `dt` seconds of running time to the active, finished and seeding times. Returns
+    /// whether the active or seeding time completed a whole minute.
+    ///
+    /// Our addition: libtorrent posts no status update for time passing, so an idle seed's
+    /// seeding time would stay as it was at its last transfer, and a frontend's time-based
+    /// seeding goal (PaTorrent's, or Sonarr's seed time through the Web API) would never be
+    /// reached. A status update a minute keeps them current at that granularity, staggered
+    /// across torrents by when each started.
+    pub fn add_running_time(&mut self, dt: f64) -> bool {
+        let minutes = |t: &Torrent| (t.active_secs as u64 / 60, t.seeding_secs as u64 / 60);
+        let before = minutes(self);
+        self.active_secs += dt;
+        if self.is_finished() {
+            self.finished_secs += dt;
+        }
+        if self.is_seed() {
+            self.seeding_secs += dt;
+        }
+        minutes(self) != before
+    }
+
     /// BEP 16 super seeding is in effect: the flag is set and we are a checked seed
     /// (libtorrent keeps `m_super_seeding` only for seeds, see `files_checked`).
     pub fn super_seeding(&self) -> bool {
@@ -859,6 +880,34 @@ fn ppm(done: u64, total: u64) -> u32 {
 mod tests {
     use super::*;
     use crate::disk::tests::make_torrent;
+
+    /// Time passing marks a whole minute, so an idle seed's status (and a time-based seeding
+    /// goal) does not stand still between transfers.
+    #[test]
+    fn running_time_reports_each_whole_minute() {
+        let (bytes, _) = make_torrent(&[("a", 20_000)], 16 * 1024);
+        let ti = Arc::new(TorrentInfo::from_bytes(&bytes).unwrap());
+        let mut t = Torrent::new(
+            TorrentId::default(),
+            ti.info_hashes(),
+            String::new(),
+            "/x".into(),
+            TorrentFlags::DEFAULT,
+        );
+        t.set_metadata(ti);
+        t.have = Some(Bitfield::new(2, true));
+        assert!(t.is_seed());
+        let ticks: Vec<bool> = (0..130).map(|_| t.add_running_time(1.0)).collect();
+        let minutes: Vec<usize> = ticks.iter().enumerate().filter(|(_, m)| **m).map(|(i, _)| i + 1).collect();
+        assert_eq!(minutes, [60, 120], "one update a minute, not every second");
+        assert_eq!((t.active_secs, t.finished_secs, t.seeding_secs), (130.0, 130.0, 130.0));
+
+        // a download in progress counts active time only
+        t.have = Some(Bitfield::new(2, false));
+        t.active_secs = 59.5;
+        assert!(t.add_running_time(1.0));
+        assert_eq!(t.seeding_secs, 130.0);
+    }
 
     #[test]
     fn priorities_progress_and_resume() {

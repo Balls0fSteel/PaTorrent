@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-29_162347_1793287427
+Last updated: 2026-10-29_170000_1793289600
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -39,7 +39,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 5. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
 6. **Security fixes** (reviewed 2026-10-27_132153_1793107313; all done 2026-10-27_212434_1793132674): every audit finding is Fixed or Ruled out; what stays is accepted and named in its Resolution notes. The owner accepted the named remainders (2026-10-27_214505_1793133905). The audit is kept out of the public repo (owner, 2026-10-27): the tracked [SECURITY.md](SECURITY.md) is the policy only, the full audit is the untracked `SECURITY-AUDIT.md` (in `.git/info/exclude`). Linux tests, a portable `--shell` run and Open Folder's shell path passed; macOS CI is the check for the Secure Transport revocation path. Machine translations needing native review: `RemotePlaintext`, `ForwardRefused`, `PrefCurrentPassword`, `PrefNeedCurrentPassword`. The remote protocol is now 9 (SEC-12): a GUI and nox must both be current.
-7. **Sonarr/Radarr/Prowlarr and Torznab search** (chosen by the owner 2026-10-29_161749_1793287069): the shim audit and search design are in [INTEGRATIONS.md](docs/INTEGRATIONS.md). Gaps 1-2 (share limits on add, seed limits for Remove Completed) are fixed in 1.1.3 (2026-10-29_162347_1793287427, unreleased). Gap 3: the Host check stays strict, its 400 names the setting (1.1.4). Next: run real *arrs against nox and the hosted Web UI. Torznab search waits for D41.
+7. **Sonarr/Radarr/Prowlarr and Torznab search** (chosen by the owner 2026-10-29_161749_1793287069): the shim audit and search design are in [INTEGRATIONS.md](docs/INTEGRATIONS.md). Gaps 1-2 (share limits on add, seed limits for Remove Completed) are fixed in 1.1.3 (2026-10-29_162347_1793287427, unreleased). Gap 3: the Host check stays strict, its 400 names the setting (1.1.4). Real Sonarr, Radarr and Prowlarr passed against nox on the Xubuntu VM (`tools/arr-test`); the run found idle seeds' frozen seeding time, fixed in the engine (1.1.5). Next: the hosted Web UI on Windows. Torznab search waits for D41. Unreleased since 1.1.2: 1.1.3-1.1.5.
 8. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
 
 ## Road to 1.0

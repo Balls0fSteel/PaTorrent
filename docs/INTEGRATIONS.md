@@ -1,13 +1,13 @@
 # Sonarr, Radarr, Prowlarr and Torznab search
 
-Status 2026-10-29_163016_1793287816: part 1's gaps 1 and 2 are fixed (1.1.3); gap 3 is decided (strict, 1.1.4); the rest are open. Part 2 is a proposal (D41 pending), nothing is built.
+Status 2026-10-29_170000_1793289600: part 1's gaps 1, 2 and 7 are fixed (1.1.3, 1.1.5) and gap 3 is decided (strict, 1.1.4). Real Sonarr, Radarr and Prowlarr passed against nox on Linux (gap 6); the rest are open. Part 2 is a proposal (D41 pending), nothing is built.
 
 Two ways PaTorrent meets the *arr tools:
 
 1. **As their download client.** Sonarr, Radarr and Prowlarr drive qBittorrent over its WebAPI v2, and nox (or the Windows GUI's hosted Web UI, D40) answers that API through the compatibility shim (D10, [WEBUI.md](WEBUI.md) "Compat"). Part 1 lists what they send and where the shim falls short.
 2. **As a search front end.** Instead of qBittorrent's Python search plugins or search modules of our own, PaTorrent asks the user's Prowlarr or Jackett over Torznab. Part 2 is the design.
 
-Sources: Sonarr, Radarr and Prowlarr `develop` (`src/NzbDrone.Core/Download/Clients/QBittorrent/`, read 2026-10-29; Sonarr's last change there `4b7fc91`), Prowlarr's `NewznabController.cs` / `NewznabResults.cs` and Jackett's `ResultsController.cs` / `ResultPage.cs`. Lidarr matches Radarr except for the category name. Nothing here was run against a real *arr yet.
+Sources: Sonarr, Radarr and Prowlarr `develop` (`src/NzbDrone.Core/Download/Clients/QBittorrent/`, read 2026-10-29; Sonarr's last change there `4b7fc91`), Prowlarr's `NewznabController.cs` / `NewznabResults.cs` and Jackett's `ResultsController.cs` / `ResultPage.cs`. Lidarr matches Radarr except for the category name. The live check (gap 6) used the current linuxserver.io images (Sonarr 4.0.20) and [tools/arr-test](../tools/arr-test/README.md).
 
 ## Part 1: the shim as an *arr download client
 
@@ -44,7 +44,14 @@ State mapping (Sonarr and Radarr): `pausedUP`/`stoppedUP`, `uploading`, `stalled
 3. **Decided 2026-10-29 (owner): stays strict; 1.1.4 says how to allow a name.** Host names are refused by default. Host header validation is on with an empty domain list, so only IP addresses and `localhost` pass. An *arr in Docker that names the client by service or host name (`http://patorrent:8080`) gets `400 unexpected Host header`, and the Test reports a connection failure. qBittorrent's default domain list is `*`. Owner choice: keep the safe default and make the cause obvious (the error text names `webui.domain_list`; WEBUI.md and the site's FAQ show the setting), or ship `*`. Recommended: the former.
 4. **No credential-free access from other machines.** Without a user name and password the *arrs rely on qBittorrent's localhost or subnet whitelist; the shim has only the loopback bypass, and a reverse proxy loses it (SEC-03). Workaround: give the *arr the login. A `bypass_auth_subnet_whitelist` is possible later; it needs a security note.
 5. **Small ones, warnings only:** `addTags` (Sonarr logs a warning per grab with series tags on; tags do not exist in µTorrent); the `Authorization: Bearer` API key (the *arrs' ApiKey field; use the login instead); `firstLastPiecePrio`, `contentLayout=Subfolder` and `inactiveSeedingTimeLimit` are ignored; a duplicate add answers `Ok.` rather than 409 (the *arr then tracks the existing torrent, which is fine).
-6. **To verify by running:** that a torrent added through the shim is visible to `torrents/properties` within the *arr's one second (the add is asynchronous: `commands::add` returns before the engine's alert); otherwise "First" priority and Force Start are silently skipped. Then a real Sonarr, Radarr and Prowlarr against nox and against the GUI's hosted Web UI: Test, a grab of a magnet and of a `.torrent`, an import, and Remove Completed after the seeding goal.
+6. **Run 2026-10-29 against real apps** (Docker on the Xubuntu VM, nox 1.1.4-1.1.5 debug build, [tools/arr-test](../tools/arr-test/README.md)). Passed:
+   - Sonarr, Radarr and Prowlarr's Test: refused by host name (Sonarr's log shows the 1.1.4 hint), passing once the name is allowed. The Tests created the `tv-sonarr`, `radarr` and `prowlarr` categories.
+   - A `.torrent` grab from each app, with an indexer seed time of 1 minute: the limit arrives (`seeding_time_limit 1`, gap 1).
+   - Import by hardlink, nox's seeding goal stopping the torrent about a minute after it finished, and Sonarr and Radarr removing the torrent and its download file within seconds (gap 2).
+   - Prowlarr's search and grab into its category.
+
+   Not covered: a magnet grab (the synthetic swarm has no peers to send metadata); "First" priority and Force Start, which depend on the add being visible to `torrents/properties` within the app's one second; the Windows GUI's hosted Web UI; Lidarr and Readarr.
+7. **Fixed in 1.1.5 (found by gap 6): an idle seed's seeding time stood still.** The engine posts a status update only when a torrent transfers, has peers or is checking, as libtorrent does, so a seed with no peers kept the seeding time of its last transfer. The time-based seeding goal, which nox and both GUIs check on status updates, was then never reached, and `seeding_time` in the Web API and the GUIs' columns stayed stale. Sonarr's grab sat seeding for minutes past its 1-minute limit; after a restart the restored time (386 s) stopped it at once. Fix (`Torrent::add_running_time`): a running torrent's status is also posted each time its active or seeding time completes a whole minute. With queueing only active torrents tick, so that is a few updates a second even with 100,000 torrents; with queueing off and many running seeds it is one update per torrent a minute.
 
 Gaps 1 and 2 were fixed in `crates/nox/src/webui/api.rs`, `commands.rs` and `torrent.rs` (1.1.3), tested by `the_arr_apps_share_limits_round_trip` in `crates/nox/tests/webui.rs`. `setShareLimits` now also marks the torrent changed, so `sync/maindata` sends the new limits. A ratio limit of 0 (qBittorrent: stop at once) is a target that is off here, as in µTorrent.
 

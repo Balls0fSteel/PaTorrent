@@ -317,9 +317,8 @@ That broad check does not establish that every detailed case below was tried.
   others close at the next tick. Other URL adds still bypass the page's Add
   dialog. Long-poll fallback is conditional on an actual deployment needing it.
 - **Sonarr/Radarr/Prowlarr (audit 2026-10-29_161749_1793287069, from their source):**
-  the ordered gap list is in [INTEGRATIONS.md](INTEGRATIONS.md) part 1. To fix: share
-  limits on `torrents/add` are dropped; `ratio_limit`/`seeding_time_limit` are always `-2`
-  and `app/preferences` lacks `max_ratio_*`, so Remove Completed never fires; the default
+  the ordered gap list is in [INTEGRATIONS.md](INTEGRATIONS.md) part 1. Share limits on
+  add and the reported seed limits (Remove Completed) are fixed in 1.1.3. Open: the default
   Host check refuses Docker host names (owner choice). Then run a real Sonarr, Radarr and
   Prowlarr against nox and the hosted Web UI, and a mobile qBittorrent remote. Other shim
   gaps: tags, search, logs, automatic management, cookies, the Bearer API key and a subnet

@@ -548,22 +548,31 @@ pub fn remove_trackers(shared: &Shared, ids: &[TorrentId], urls: &str) -> Result
     if removed { Ok(()) } else { Err(err(409, "All urls were not found")) }
 }
 
-/// The shim's `setShareLimits` on the seeding goal: `ratio` (-2 the default, -1 none) and
-/// `minutes` (the same) become the torrent's own goal; both -2 drop it.
+/// The shim's share limits as a torrent's own seeding goal: `ratio` (-2 the default, -1 none)
+/// and `minutes` (the same); both -2 is no goal of its own.
+pub fn share_goal(default: SeedGoal, ratio: f64, minutes: i64) -> Option<SeedGoal> {
+    (ratio != -2.0 || minutes != -2).then(|| SeedGoal {
+        ratio_pct: if ratio == -2.0 {
+            default.ratio_pct
+        } else {
+            (ratio.max(0.0) * 100.0).round().min(1e6) as u32
+        },
+        minutes: if minutes == -2 { default.minutes } else { minutes.clamp(0, 1_000_000) as u32 },
+    })
+}
+
+/// The shim's `setShareLimits` on the seeding goal ([`share_goal`]).
 pub fn share_limits(shared: &Shared, ids: &[TorrentId], ratio: f64, minutes: i64) {
     let mut st = shared.lock();
-    let default = st.prefs.seeding_goal.goal;
+    let goal = share_goal(st.prefs.seeding_goal.goal, ratio, minutes);
     for id in ids {
-        let Some(key) = st.torrents.get(id).map(|e| e.status.info_hashes.key_hex()) else { continue };
-        let goal = (ratio != -2.0 || minutes != -2).then(|| SeedGoal {
-            ratio_pct: if ratio == -2.0 {
-                default.ratio_pct
-            } else {
-                (ratio.max(0.0) * 100.0).round().min(1e6) as u32
-            },
-            minutes: if minutes == -2 { default.minutes } else { minutes.clamp(0, 1_000_000) as u32 },
-        });
+        let Some((key, hash)) = st.torrents.get(id).map(|e| (e.status.info_hashes.key_hex(), e.hash.clone()))
+        else {
+            continue;
+        };
         SeedGoal::store_override(&mut st.options, &key, goal);
+        // `ratio_limit` and `seeding_time_limit` changed: `sync/maindata` sends them again
+        st.touch(&hash);
     }
     shared.save(&mut st);
 }
@@ -754,6 +763,8 @@ pub struct AddOptions {
     pub sequential: bool,
     pub download_limit: u32,
     pub upload_limit: u32,
+    /// The torrent's own seeding goal (the shim's `ratioLimit` / `seedingTimeLimit`).
+    pub seed_goal: Option<SeedGoal>,
     /// A magnet: wait for its metadata in the session, then show the dialog
     /// ([`add_awaiting`]); the other choices come with [`finish_awaiting`].
     pub dialog: bool,
@@ -789,6 +800,7 @@ impl AddOptions {
             sequential: flag("sequential")?.unwrap_or(false),
             download_limit: limit("download_limit"),
             upload_limit: limit("upload_limit"),
+            seed_goal: None,
             dialog: flag("dialog")?.unwrap_or(false),
         })
     }
@@ -852,6 +864,9 @@ pub fn add(shared: &Shared, source: Source, o: &AddOptions) -> Result<String, Cm
     params.upload_limit = o.upload_limit;
     if !label.is_empty() {
         st.set_label_keyed(&hash, key.as_deref(), label);
+    }
+    if let (Some(goal), Some(key)) = (o.seed_goal, &key) {
+        SeedGoal::store_override(&mut st.options, key, Some(goal));
     }
     if let Some(m) = meta {
         st.meta.insert(hash.clone(), m);

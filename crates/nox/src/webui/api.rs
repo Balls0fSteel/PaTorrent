@@ -15,6 +15,7 @@ use patorrent_core::{
     TrackerStatus, VERSION,
 };
 use patorrent_frontend::detail::peer_flags;
+use patorrent_frontend::seeding::{GoalAction, SeedGoal};
 use patorrent_frontend::{icons, lang};
 
 use super::auth::{constant_time_eq, random_hex};
@@ -24,7 +25,7 @@ use super::http::{
 };
 use super::json::{self, Json};
 use super::torrent::{self, Extra};
-use super::{ClientSession, MAX_SESSIONS, Reply, ReplyKind, Shared, State, prefs};
+use super::{ClientSession, Entry, MAX_SESSIONS, Reply, ReplyKind, Shared, State, prefs};
 
 /// The qBittorrent release whose WebAPI (2.11.2) this implements; clients pick features by it.
 pub const COMPAT_VERSION: &str = "v5.0.0";
@@ -868,11 +869,12 @@ fn one(st: &State, p: &Params) -> Option<TorrentId> {
     st.by_hash.get(&p.get("hash")?.trim().to_ascii_lowercase()).copied()
 }
 
-fn extra<'a>(st: &'a State, hash: &str, last_activity: i64) -> Extra<'a> {
+fn extra<'a>(st: &'a State, e: &Entry) -> Extra<'a> {
     Extra {
-        category: st.torrent_categories.get(hash).map_or("", String::as_str),
-        last_activity,
-        private: st.meta.get(hash).is_some_and(|m| m.private),
+        category: st.torrent_categories.get(&e.hash).map_or("", String::as_str),
+        last_activity: e.last_activity,
+        private: st.meta.get(&e.hash).is_some_and(|m| m.private),
+        seed_goal: SeedGoal::load_override(&st.options, &e.status.info_hashes.key_hex()),
     }
 }
 
@@ -905,6 +907,12 @@ fn preferences(st: &State, shared: &Shared) -> Json {
     let s = &st.settings;
     let p = &st.prefs;
     let _ = shared;
+    // The seeding goal as qBittorrent's share limits, which the *arr apps read to know when a
+    // stopped download may be removed. Only a goal that stops counts: one that caps the upload
+    // keeps the torrent seeding. The goal needs every set target, qBittorrent's limits any one,
+    // so we stop later than this says, never earlier (docs/INTEGRATIONS.md gap 2).
+    let goal = p.seeding_goal.goal;
+    let stops = p.seeding_goal.action() == GoalAction::Stop;
     Json::obj()
         .with("locale", lang::current())
         .with("save_path", p.save_path.as_str())
@@ -930,6 +938,14 @@ fn preferences(st: &State, shared: &Shared) -> Json {
                 EncPolicy::Disabled => 2,
             },
         )
+        .with("max_ratio_enabled", stops && goal.ratio_pct > 0)
+        .with("max_ratio", if goal.ratio_pct > 0 { goal.ratio_pct as f64 / 100.0 } else { -1.0 })
+        .with("max_seeding_time_enabled", stops && goal.minutes > 0)
+        .with("max_seeding_time", if goal.minutes > 0 { goal.minutes as i64 } else { -1 })
+        .with("max_inactive_seeding_time_enabled", false)
+        .with("max_inactive_seeding_time", -1i64)
+        // 0: stop (qBittorrent's Pause); never 1 or 3 (remove), which the *arr Test refuses
+        .with("max_ratio_act", 0i64)
         .with("queueing_enabled", true)
         .with("max_active_downloads", s.active_downloads)
         .with("max_active_torrents", s.active_limit)
@@ -1095,7 +1111,7 @@ fn maindata(shared: &Shared, key: &str, rid: i64) -> Response {
                 snap_torrents.insert(e.hash.clone(), (v, vals));
                 continue;
             }
-            let now = torrent::fields(&e.status, &extra(st, &e.hash, e.last_activity));
+            let now = torrent::fields(&e.status, &extra(st, e));
             let mut diff = Json::obj();
             for ((name, new), old) in torrent::FIELDS.iter().zip(&now).zip(&vals) {
                 if new != old {
@@ -1107,7 +1123,7 @@ fn maindata(shared: &Shared, key: &str, rid: i64) -> Response {
             }
             snap_torrents.insert(e.hash.clone(), (e.version, now));
         } else {
-            let now = torrent::fields(&e.status, &extra(st, &e.hash, e.last_activity));
+            let now = torrent::fields(&e.status, &extra(st, e));
             torrents.set(
                 &e.hash,
                 Json::Obj(torrent::FIELDS.iter().map(|f| f.to_string()).zip(now.iter().cloned()).collect()),
@@ -1303,7 +1319,7 @@ fn torrents_info(shared: &Shared, p: &Params) -> Response {
         .filter(|e| {
             category.is_none_or(|c| st.torrent_categories.get(&e.hash).map_or("", String::as_str) == c)
         })
-        .map(|e| torrent::fields(&e.status, &extra(&st, &e.hash, e.last_activity)))
+        .map(|e| torrent::fields(&e.status, &extra(&st, e)))
         .collect();
     drop(st);
     let sort = p.get("sort").and_then(|s| torrent::FIELDS.iter().position(|f| *f == s));
@@ -1601,6 +1617,16 @@ fn add(shared: &Shared, p: &Params) -> Response {
     let category = p.get("category").map(str::trim).unwrap_or("");
     let start = p.get("stopped").or(p.get("paused")).map(|v| !v.eq_ignore_ascii_case("true"));
     let lim = |name: &str| p.int(name).map_or(0, |v| v.clamp(0, u32::MAX as i64) as u32);
+    // From WebAPI 2.8.1 the *arr apps send the share limits here, never `setShareLimits`;
+    // one left out is -2 (the default). `inactiveSeedingTimeLimit` has no seeding-goal match.
+    let ratio = p.get("ratioLimit").and_then(|v| v.trim().parse::<f64>().ok());
+    let minutes = p.int("seedingTimeLimit");
+    let seed_goal = if ratio.is_some() || minutes.is_some() {
+        let default = shared.lock().prefs.seeding_goal.goal;
+        commands::share_goal(default, ratio.unwrap_or(-2.0), minutes.unwrap_or(-2))
+    } else {
+        None
+    };
     let o = AddOptions {
         save: p.get("savepath").map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned),
         name: p.get("rename").map(str::trim).filter(|r| !r.is_empty()).map(str::to_owned),
@@ -1612,6 +1638,7 @@ fn add(shared: &Shared, p: &Params) -> Response {
         sequential: p.flag("sequentialDownload"),
         download_limit: lim("dlLimit"),
         upload_limit: lim("upLimit"),
+        seed_goal,
         dialog: false,
     };
     for source in sources {

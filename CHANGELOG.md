@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-29_162347_1793287427: The shim keeps and reports seed limits for the *arr apps (1.1.3)
+
+- **Fixed (INTEGRATIONS.md gaps 1-2):** `torrents/add` keeps `ratioLimit` / `seedingTimeLimit` as the torrent's own seeding goal (the *arr apps send them there, not via `setShareLimits`, at our WebAPI 2.11.2). `torrents/info` and `sync/maindata` report each torrent's `ratio_limit` / `seeding_time_limit` (`-2` without its own goal, `-1` for a target that is off), and `app/preferences` reports the global goal as `max_ratio_enabled`, `max_ratio`, `max_seeding_time_enabled`, `max_seeding_time` and `max_ratio_act: 0`. The limits are enabled only when the goal stops torrents, not when it caps their upload. With this, Sonarr's and Radarr's Remove Completed can remove a stopped torrent. `setShareLimits` now marks the torrent changed, so `sync/maindata` sends the new limits. `commands::share_goal` is shared by both paths.
+- **Validation:** new `the_arr_apps_share_limits_round_trip` (an *arr-style add with `True` and limits, `setShareLimits`, the maindata diff, the preferences with both goal actions); all nox tests pass (154), workspace clippy and fmt clean. Not yet run against a real Sonarr or Radarr. Version 1.1.3 (D37); peer ID unchanged.
+
 ## 2026-10-29_161749_1793287069: Sonarr/Radarr/Prowlarr audit and Torznab search proposal
 
 - **Request (owner):** pursue the *arr integration and a search that does not depend on qBittorrent's Python plugins. New [docs/INTEGRATIONS.md](docs/INTEGRATIONS.md), written from Sonarr's, Radarr's and Prowlarr's qBittorrent client source (`develop`, 2026-10-29) and Prowlarr's and Jackett's Torznab controllers. Nothing was run against a real *arr; no code changed.

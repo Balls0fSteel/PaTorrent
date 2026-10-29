@@ -3033,6 +3033,60 @@ fn torrent_properties_and_the_shims_tracker_and_share_limit_edits() {
     assert_eq!((pref("queue.seed_ratio"), pref("queue.seed_limit")), (Json::Int(0), Json::Bool(true)));
 }
 
+/// What Sonarr, Radarr and Prowlarr need for Remove Completed (docs/INTEGRATIONS.md gaps 1-2):
+/// the share limits they send with `torrents/add` become the torrent's own seeding goal, and
+/// `torrents/info`, `sync/maindata` and `app/preferences` report the limits back.
+#[test]
+fn the_arr_apps_share_limits_round_trip() {
+    let t = Harness::start("arr-limits");
+    let sid = t.login();
+    let num = |v: Option<&Json>| v.and_then(Json::as_f64).unwrap_or(f64::NAN);
+    let limits = |x: &Json| (num(x.get("ratio_limit")), num(x.get("seeding_time_limit")));
+
+    // the global seeding goal (150 %, then stop) as qBittorrent's share limits
+    let p = t.get(&sid, "/api/v2/app/preferences").json();
+    assert_eq!(p.get("max_ratio_enabled").and_then(Json::as_bool), Some(true));
+    assert_eq!(num(p.get("max_ratio")), 1.5);
+    assert_eq!(p.get("max_seeding_time_enabled").and_then(Json::as_bool), Some(false));
+    assert_eq!(num(p.get("max_seeding_time")), -1.0);
+    assert_eq!(num(p.get("max_ratio_act")), 0.0, "stop, never remove");
+
+    // as an *arr adds: capitalised booleans, limits beside the file
+    let (bytes, hash) = torrent_with(None);
+    let fields =
+        [("stopped", "True"), ("category", "tv-sonarr"), ("ratioLimit", "2.5"), ("seedingTimeLimit", "60")];
+    let (body, boundary) = multipart(&fields, &bytes);
+    let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+    assert_eq!((r.status, r.text()), (200, "Ok.".to_owned()));
+    let x = t.wait_for(&sid, &hash, "the added torrent", |x| s(x.get("name")) == "webui-test");
+    assert_eq!(limits(&x), (2.5, 60.0));
+    assert_eq!(s(x.get("category")), "tv-sonarr");
+
+    // `setShareLimits`: -1 is no target, -2 the default's (150 %, no time: -1 again)
+    let rid = t.get(&sid, "/api/v2/sync/maindata?rid=0").json().get("rid").and_then(Json::as_i64).unwrap();
+    let set = |q: &str| t.post(&sid, "/api/v2/torrents/setShareLimits", &format!("hashes={hash}&{q}")).status;
+    assert_eq!(set("ratioLimit=-1&seedingTimeLimit=90"), 200);
+    let info = || t.get(&sid, &format!("/api/v2/torrents/info?hashes={hash}")).json();
+    let first = |j: Json| match j {
+        Json::Arr(v) => v.into_iter().next().expect("the torrent"),
+        other => panic!("a list: {}", other.to_json()),
+    };
+    assert_eq!(limits(&first(info())), (-1.0, 90.0));
+    let md = t.get(&sid, &format!("/api/v2/sync/maindata?rid={rid}")).json();
+    let diff = md.get("torrents").and_then(|ts| ts.get(&hash)).cloned().expect("the change is sent");
+    assert_eq!(limits(&diff), (-1.0, 90.0));
+    assert_eq!(set("ratioLimit=3&seedingTimeLimit=-2"), 200);
+    assert_eq!(limits(&first(info())), (3.0, -1.0));
+    assert_eq!(set("ratioLimit=-2&seedingTimeLimit=-2"), 200);
+    assert_eq!(limits(&first(info())), (-2.0, -2.0), "the global limits apply");
+
+    // a goal that caps the upload keeps seeding: no limit the *arr could wait for
+    let r = t.pa(&sid, "/pa/prefs", r#"{"queue.seed_limit":true,"queue.seed_limit_kib":5}"#);
+    assert_eq!(r.status, 204, "{}", r.text());
+    let p = t.get(&sid, "/api/v2/app/preferences").json();
+    assert_eq!(p.get("max_ratio_enabled").and_then(Json::as_bool), Some(false));
+}
+
 /// A BEP 15 tracker that answers connects, and scrapes with 17 seeds and 23 peers for every
 /// info-hash. Returns its announce URL and the number of info-hashes it was asked about.
 fn scrape_tracker() -> (String, Arc<std::sync::atomic::AtomicUsize>) {

@@ -4,6 +4,7 @@
 use std::path::Path;
 
 use patorrent_core::{InfoHashes, TorrentFlags, TorrentState, TorrentStatus};
+use patorrent_frontend::seeding::SeedGoal;
 
 use super::json::Json;
 
@@ -25,6 +26,20 @@ pub struct Extra<'a> {
     /// Unix seconds of the last payload transfer; 0 = never.
     pub last_activity: i64,
     pub private: bool,
+    /// The torrent's own seeding goal, if it overrides the default.
+    pub seed_goal: Option<SeedGoal>,
+}
+
+/// `ratio_limit` and `seeding_time_limit` (minutes) of a torrent's own goal: -2 without one
+/// (the global limits apply), -1 for a target that is off.
+pub fn share_limits(goal: Option<SeedGoal>) -> (f64, i64) {
+    match goal {
+        None => (-2.0, -2),
+        Some(g) => (
+            if g.ratio_pct == 0 { -1.0 } else { g.ratio_pct as f64 / 100.0 },
+            if g.minutes == 0 { -1 } else { g.minutes as i64 },
+        ),
+    }
 }
 
 /// The documented `state` string.
@@ -208,6 +223,7 @@ pub fn fields(st: &TorrentStatus, x: &Extra<'_>) -> Vec<Json> {
     };
     let eta = st.eta().map_or(MAX_ETA, |e| (e as i64).min(MAX_ETA));
     let ratio = ratio(st);
+    let (ratio_limit, seeding_time_limit) = share_limits(x.seed_goal);
     vec![
         Json::Int(st.added_time),
         st.total_wanted.saturating_sub(st.total_wanted_done).into(),
@@ -240,11 +256,11 @@ pub fn fields(st: &TorrentStatus, x: &Extra<'_>) -> Vec<Json> {
         Json::Int(st.queue_position.map_or(0, |p| p as i64 + 1)),
         Json::Float(progress(st)),
         Json::Float(ratio),
-        Json::Float(-2.0),
+        Json::Float(ratio_limit),
         Json::Int(st.next_announce.map_or(0, i64::from)),
         st.save_path.clone().into(),
         st.seeding_duration.into(),
-        Json::Int(-2),
+        Json::Int(seeding_time_limit),
         Json::Int(if st.last_seen_complete > 0 { st.last_seen_complete } else { -1 }),
         st.flags.contains(TorrentFlags::SEQUENTIAL_DOWNLOAD).into(),
         st.total_wanted.into(),

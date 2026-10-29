@@ -1,6 +1,6 @@
 # Sonarr, Radarr, Prowlarr and Torznab search
 
-Status 2026-10-29_161749_1793287069: part 1 is an audit, nothing is fixed yet; part 2 is a proposal (D41 pending), nothing is built.
+Status 2026-10-29_162347_1793287427: part 1's gaps 1 and 2 are fixed (1.1.3); gap 3 awaits the owner and the rest are open. Part 2 is a proposal (D41 pending), nothing is built.
 
 Two ways PaTorrent meets the *arr tools:
 
@@ -19,11 +19,11 @@ All three use the same V2 proxy. Prowlarr only adds torrents; Sonarr and Radarr 
 |---|---|---|
 | `GET app/webapiVersion`, unauthenticated first | 403 or 200 means v2; then parsed as a .NET `Version` | 403, then `2.11.2`: three parts and no suffix, as required |
 | `POST auth/login` | only with both a user name and a password; any cookie is kept | `SID` |
-| `GET app/preferences` | `save_path`, `dht`, `queueing_enabled`, `max_ratio_enabled`, `max_ratio`, `max_seeding_time_enabled`, `max_seeding_time`, `max_inactive_seeding_time*`, `max_ratio_act` | `max_*` missing (gap 2) |
-| `GET torrents/info?category=` | `hash`, `name`, `size`, `progress`, `eta`, `state`, `category`, `save_path`, `content_path`, `ratio`, `ratio_limit`, `seeding_time_limit`, `inactive_seeding_time_limit`, `last_activity`, Sonarr `root_path` | limits always `-2` (gap 2) |
+| `GET app/preferences` | `save_path`, `dht`, `queueing_enabled`, `max_ratio_enabled`, `max_ratio`, `max_seeding_time_enabled`, `max_seeding_time`, `max_inactive_seeding_time*`, `max_ratio_act` | yes since 1.1.3 (gap 2) |
+| `GET torrents/info?category=` | `hash`, `name`, `size`, `progress`, `eta`, `state`, `category`, `save_path`, `content_path`, `ratio`, `ratio_limit`, `seeding_time_limit`, `inactive_seeding_time_limit`, `last_activity`, Sonarr `root_path` | yes since 1.1.3 (gap 2); no `root_path` or `inactive_*` (their defaults apply) |
 | `GET torrents/properties?hash=` | `save_path`, `seeding_time`; also the "is it added yet" probe after an add (10 tries, 100 ms apart) | yes |
 | `GET torrents/files?hash=` | `name`, for the root folder at import | yes |
-| `POST torrents/add` | `urls` (always a magnet: the *arr fetches `.torrent` files itself and uploads them as `torrents`), `category`, `stopped`/`paused` (`True`/`False`), `sequentialDownload`, `firstLastPiecePrio`, `contentLayout`, and from WebAPI 2.8.1 `ratioLimit`, `seedingTimeLimit` / Sonarr's `inactiveSeedingTimeLimit` | limits dropped (gap 1); the rest below |
+| `POST torrents/add` | `urls` (always a magnet: the *arr fetches `.torrent` files itself and uploads them as `torrents`), `category`, `stopped`/`paused` (`True`/`False`), `sequentialDownload`, `firstLastPiecePrio`, `contentLayout`, and from WebAPI 2.8.1 `ratioLimit`, `seedingTimeLimit` / Sonarr's `inactiveSeedingTimeLimit` | limits kept since 1.1.3 (gap 1); the rest below |
 | `POST torrents/delete` | `hashes`, `deleteFiles=true` | yes |
 | `GET torrents/categories`, `POST createCategory`, `POST setCategory` | the category must exist; keyed `savePath` | yes |
 | `POST setShareLimits` | only below WebAPI 2.8.1 | yes (stored as the torrent's seeding goal) |
@@ -38,15 +38,15 @@ State mapping (Sonarr and Radarr): `pausedUP`/`stoppedUP`, `uploading`, `stalled
 
 ### Gaps, in order
 
-1. **Share limits on add are dropped.** We report WebAPI 2.11.2, so the *arrs send `ratioLimit` / `seedingTimeLimit` with `torrents/add` and never call `setShareLimits` afterwards. `api::add` ignores them: Prowlarr's per-indexer seed ratio and time (private trackers' minimums) are lost. Fix: carry them into `AddOptions` and store them as the torrent's seeding-goal override, exactly as `commands::share_limits` does.
-2. **Remove Completed never fires.** `torrents/info` always says `ratio_limit: -2` and `seeding_time_limit: -2`, and `app/preferences` has no `max_ratio_*` keys, so the *arr sees no limit, while nox's default seeding goal (150 %, then Stop) does stop torrents as `pausedUP`. Completed downloads stay in the *arr's queue and in the client forever. Fix: report each torrent's override (ratio percent / 100, minutes; `-2` without one; `-1` for a target that is off), and report the global goal as `max_ratio_enabled` / `max_ratio` / `max_seeding_time_enabled` / `max_seeding_time` with `max_ratio_act: 0` (Pause), enabled only when the goal's action is Stop (with an upload cap the torrent keeps seeding, so no limit is "reached" for the *arr). Never report Remove (1) or Delete (3): the *arr's Test refuses those.
+1. **Fixed in 1.1.3: share limits on add were dropped.** We report WebAPI 2.11.2, so the *arrs send `ratioLimit` / `seedingTimeLimit` with `torrents/add` and never call `setShareLimits` afterwards. `api::add` ignores them: Prowlarr's per-indexer seed ratio and time (private trackers' minimums) are lost. Fix: carry them into `AddOptions` and store them as the torrent's seeding-goal override, exactly as `commands::share_limits` does.
+2. **Fixed in 1.1.3: Remove Completed never fired.** `torrents/info` always said `ratio_limit: -2` and `seeding_time_limit: -2`, and `app/preferences` has no `max_ratio_*` keys, so the *arr sees no limit, while nox's default seeding goal (150 %, then Stop) does stop torrents as `pausedUP`. Completed downloads stay in the *arr's queue and in the client forever. Fix: report each torrent's override (ratio percent / 100, minutes; `-2` without one; `-1` for a target that is off), and report the global goal as `max_ratio_enabled` / `max_ratio` / `max_seeding_time_enabled` / `max_seeding_time` with `max_ratio_act: 0` (Pause), enabled only when the goal's action is Stop (with an upload cap the torrent keeps seeding, so no limit is "reached" for the *arr). Never report Remove (1) or Delete (3): the *arr's Test refuses those.
    - Semantics differ: µTorrent's goal needs every set target (ratio **and** time), qBittorrent's either. The *arr may consider a limit reached earlier than we stop, but it removes only a stopped torrent, so ours is the stricter and safe side. Document it; do not change the seeding goal.
 3. **Host names are refused by default.** Host header validation is on with an empty domain list, so only IP addresses and `localhost` pass. An *arr in Docker that names the client by service or host name (`http://patorrent:8080`) gets `400 unexpected Host header`, and the Test reports a connection failure. qBittorrent's default domain list is `*`. Owner choice: keep the safe default and make the cause obvious (the error text names `webui.domain_list`; WEBUI.md and the site's FAQ show the setting), or ship `*`. Recommended: the former.
 4. **No credential-free access from other machines.** Without a user name and password the *arrs rely on qBittorrent's localhost or subnet whitelist; the shim has only the loopback bypass, and a reverse proxy loses it (SEC-03). Workaround: give the *arr the login. A `bypass_auth_subnet_whitelist` is possible later; it needs a security note.
 5. **Small ones, warnings only:** `addTags` (Sonarr logs a warning per grab with series tags on; tags do not exist in µTorrent); the `Authorization: Bearer` API key (the *arrs' ApiKey field; use the login instead); `firstLastPiecePrio`, `contentLayout=Subfolder` and `inactiveSeedingTimeLimit` are ignored; a duplicate add answers `Ok.` rather than 409 (the *arr then tracks the existing torrent, which is fine).
 6. **To verify by running:** that a torrent added through the shim is visible to `torrents/properties` within the *arr's one second (the add is asynchronous: `commands::add` returns before the engine's alert); otherwise "First" priority and Force Start are silently skipped. Then a real Sonarr, Radarr and Prowlarr against nox and against the GUI's hosted Web UI: Test, a grab of a magnet and of a `.torrent`, an import, and Remove Completed after the seeding goal.
 
-Gaps 1 and 2 are a small change in `crates/nox/src/webui/api.rs` and `torrent.rs` with tests in `crates/nox/tests/webui.rs`; they change program behaviour, so the patch version is bumped (D37).
+Gaps 1 and 2 were fixed in `crates/nox/src/webui/api.rs`, `commands.rs` and `torrent.rs` (1.1.3), tested by `the_arr_apps_share_limits_round_trip` in `crates/nox/tests/webui.rs`. `setShareLimits` now also marks the torrent changed, so `sync/maindata` sends the new limits. A ratio limit of 0 (qBittorrent: stop at once) is a target that is off here, as in µTorrent.
 
 ## Part 2: Torznab search (proposal, D41)
 

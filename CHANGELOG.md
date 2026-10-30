@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_090921_1793351361: Web UI API key and subnet whitelist, both off by default (1.1.10)
+
+- **API key (owner, "both, off by default"):** `Authorization: Bearer <key>` is accepted on the shim, `/pa/*`, the WebSocket and the remote handshake when `webui.api_key_enabled` is on. The key is at least 16 characters and is stored hashed (`webui.api_key`). It is verified outside the State lock once, and later requests compare a cached SHA-256 in constant time. A wrong key counts toward the ban. With keys on, a wrong key is refused even from loopback or a whitelisted subnet.
+- **Subnet whitelist:** `webui.bypass_auth_subnets` (CIDRs or bare addresses, IPv4 and IPv6) skips the login for those clients, never for a proxied request (SEC-03). The shim reports `bypass_auth_subnet_whitelist(_enabled)` read-only.
+- All three settings are SEC-03 security fields: changing them needs the current password. They are in Web UI Preferences > Authentication, with 5 new strings, machine-translated in all 34 tables. Docs: WEBUI.md "Security", INTEGRATIONS.md gaps 4-5.
+- **Tests:** subnet and Bearer unit tests, two webui tests and a hosted test; all nox (70 lib, 42 webui, 8 hosted, rest) and frontend tests pass. Built by a subagent in a worktree and reviewed before merging. Version 1.1.10.
+- **CI:** the merged `main` (run 41028782209) built the installer and passed its install and uninstall steps on the first GitHub run.
+
 ## 2026-10-30_085330_1793350410: Win32 Preferences > Web UI has a Server domains field (1.1.9)
 
 - **Win32:** the Connectivity group gains "Server domains (separate multiple entries with a semicolon):" (the Web UI's existing `WebDomains` string, so no new translation), stored as `webui.domain_list`; an empty field removes the key. An *arr in Docker that names this PC by a host name no longer needs the browser's Preferences to be allowed. The status line, Open Web UI and the note moved down; the demo screenshot shows the note's three lines within the page.

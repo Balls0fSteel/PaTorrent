@@ -216,6 +216,11 @@ pub(crate) struct Prefs {
     /// Preferences > General's language (`GuiOptions::language`): the Web UI's, the server's.
     pub language: String,
     pub bypass_local_auth: bool,
+    /// `Authorization: Bearer <key>` is accepted (with a key stored: `State::api_key`).
+    pub api_key_enabled: bool,
+    /// `;`-separated subnets (CIDR or bare addresses, IPv4 and IPv6) whose clients skip the
+    /// login (qBittorrent's `bypass_auth_subnet_whitelist`); empty = off.
+    pub auth_subnets: String,
     pub csrf_protection: bool,
     pub host_header_validation: bool,
     /// `;`-separated host names accepted in `Host` besides IP addresses and `localhost`
@@ -254,6 +259,8 @@ impl Prefs {
             schedule: Schedule::default(),
             language: String::new(),
             bypass_local_auth: false,
+            api_key_enabled: false,
+            auth_subnets: String::new(),
             csrf_protection: true,
             host_header_validation: true,
             domain_list: String::new(),
@@ -419,6 +426,11 @@ pub(crate) struct State {
     pub prefs: Prefs,
     pub username: String,
     pub password: PasswordHash,
+    /// The API key (`webui.api_key`, hashed like the password), when one is set.
+    pub api_key: Option<PasswordHash>,
+    /// The SHA-256 of the last key that verified against `api_key`, so the slow hash runs once
+    /// per key, not per request; cleared when the key changes.
+    pub api_key_verified: Option<[u8; 32]>,
     /// Category name -> save path.
     pub categories: BTreeMap<String, String>,
     pub categories_version: u64,
@@ -840,6 +852,8 @@ impl WebUi {
                 prefs,
                 username,
                 password,
+                api_key: None,
+                api_key_verified: None,
                 categories,
                 categories_version: 1,
                 torrent_categories,
@@ -1506,6 +1520,21 @@ impl State {
         self.prefs.bypass_local_auth && ip.is_loopback()
     }
 
+    /// Whether `ip` is in the subnet whitelist (`Prefs::auth_subnets`).
+    pub fn is_subnet_bypass(&self, ip: IpAddr) -> bool {
+        !self.prefs.auth_subnets.trim().is_empty() && auth::subnets_contain(&self.prefs.auth_subnets, ip)
+    }
+
+    /// Sets the API key; a different one forgets the verified key and ends the sessions the
+    /// old one opened.
+    pub fn set_api_key(&mut self, key: Option<PasswordHash>) {
+        if key != self.api_key {
+            self.api_key = key;
+            self.api_key_verified = None;
+            self.sessions.remove(api::APIKEY_SESSION);
+        }
+    }
+
     /// A Web UI without a server for unit tests: `handle`'s engine, an empty cache, and
     /// `settings_dir` for the default `ipfilter.dat`.
     #[cfg(test)]
@@ -1540,6 +1569,8 @@ impl State {
             prefs: Prefs { alt_dl_limit: 0, alt_up_limit: 0, ..Prefs::defaults("", &Settings::default()) },
             username: "admin".into(),
             password: PasswordHash::new("x", 1),
+            api_key: None,
+            api_key_verified: None,
             categories: BTreeMap::new(),
             categories_version: 1,
             torrent_categories: HashMap::new(),

@@ -855,6 +855,15 @@ strings! {
     PrefAdvancedNoteWeb = "libtorrent setting names; changed values are shown in bold. Values are applied with OK or Apply.";
     PrefNoUsername = "Please enter a user name.";
     PrefNeedCurrentPassword = "Enter the current password to change the login or the Web UI's security settings.";
+    /// "Bearer" and the header name are protocol words: keep them as they are.
+    WebApiKeyEnabled = "Accept an API key (Authorization: Bearer)";
+    /// A password field: left empty, the key stays as it is.
+    WebApiKey = "API key (at least 16 characters):";
+    WebAuthSubnets = "Bypass authentication for clients in these subnets (such as 192.168.1.0/24; separate multiple entries with a semicolon):";
+    /// {count} is the shortest length taken.
+    PrefApiKeyShort = "The API key must be at least {count} characters long.";
+    /// {entry} is the entry of the subnet list that does not parse.
+    PrefBadSubnet = "\"{entry}\" is not an IP address or a subnet (such as 192.168.1.0/24).";
     /// {count} is the number of hours in a week.
     SettingBadSchedule = "expected {count} hours, each 0 (full speed), 1 (turn off), 2 (limited) or 3 (seeding only)";
 

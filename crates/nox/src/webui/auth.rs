@@ -174,9 +174,143 @@ impl BanList {
     }
 }
 
+/// The shortest API key the Preferences take (`webui.api_key`).
+pub const API_KEY_MIN_LEN: usize = 16;
+
+/// The token of an `Authorization: Bearer <token>` header (the scheme in any case).
+pub fn bearer_token(authorization: &str) -> Option<&str> {
+    let (scheme, token) = authorization.trim().split_once(' ')?;
+    let token = token.trim();
+    (scheme.eq_ignore_ascii_case("bearer") && !token.is_empty()).then_some(token)
+}
+
+/// The SHA-256 of an API key: what the last key that verified is remembered as, so the
+/// PBKDF2 hash runs once per key rather than per request.
+pub fn key_digest(key: &str) -> [u8; 32] {
+    Sha256::digest(key.as_bytes()).0
+}
+
+/// One entry of the subnet whitelist (`webui.bypass_auth_subnets`): an address and the length
+/// of its network prefix. An IPv4-mapped IPv6 subnet is kept as its IPv4 one.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Subnet {
+    addr: IpAddr,
+    prefix: u8,
+}
+
+impl Subnet {
+    /// `a.b.c.d/n`, `x:y::z/n`, or a bare address (the whole prefix).
+    pub fn parse(s: &str) -> Option<Subnet> {
+        let s = s.trim();
+        let (addr, prefix) = match s.split_once('/') {
+            Some((a, p)) => {
+                if p.is_empty() || !p.bytes().all(|c| c.is_ascii_digit()) {
+                    return None;
+                }
+                (a.trim().parse::<IpAddr>().ok()?, Some(p.parse::<u8>().ok()?))
+            }
+            None => (s.parse::<IpAddr>().ok()?, None),
+        };
+        let max = if addr.is_ipv4() { 32 } else { 128 };
+        let prefix = prefix.unwrap_or(max);
+        if prefix > max {
+            return None;
+        }
+        Some(match addr {
+            IpAddr::V6(v6) if prefix >= 96 && v6.to_ipv4_mapped().is_some() => {
+                Subnet { addr: IpAddr::V4(v6.to_ipv4_mapped().expect("checked")), prefix: prefix - 96 }
+            }
+            _ => Subnet { addr, prefix },
+        })
+    }
+
+    /// Whether `ip` (IPv4-mapped counting as IPv4) is in this subnet.
+    pub fn contains(&self, ip: IpAddr) -> bool {
+        match (self.addr, ip.to_canonical()) {
+            (IpAddr::V4(net), IpAddr::V4(ip)) => {
+                let mask = u32::MAX.checked_shl(32 - u32::from(self.prefix)).unwrap_or(0);
+                u32::from(net) & mask == u32::from(ip) & mask
+            }
+            (IpAddr::V6(net), IpAddr::V6(ip)) => {
+                let mask = u128::MAX.checked_shl(128 - u32::from(self.prefix)).unwrap_or(0);
+                u128::from(net) & mask == u128::from(ip) & mask
+            }
+            _ => false,
+        }
+    }
+}
+
+/// The entries of a `;`- or `,`-separated subnet list, blanks skipped; the first entry that is
+/// not a subnet or an address is the error.
+pub fn parse_subnets(list: &str) -> Result<Vec<Subnet>, String> {
+    list.split([';', ',', '\n'])
+        .map(str::trim)
+        .filter(|e| !e.is_empty())
+        .map(|e| Subnet::parse(e).ok_or_else(|| e.to_owned()))
+        .collect()
+}
+
+/// Whether `ip` is in one of the list's subnets (entries that do not parse match nothing).
+pub fn subnets_contain(list: &str, ip: IpAddr) -> bool {
+    list.split([';', ',', '\n']).filter_map(Subnet::parse).any(|s| s.contains(ip))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn subnets_parse_and_match() {
+        let ip = |s: &str| -> IpAddr { s.parse().unwrap() };
+        let any4 = Subnet::parse("0.0.0.0/0").unwrap();
+        assert!(any4.contains(ip("1.2.3.4")) && any4.contains(ip("255.255.255.255")));
+        assert!(any4.contains(ip("::ffff:10.0.0.1")));
+        assert!(!any4.contains(ip("::1")));
+        let host = Subnet::parse("192.168.1.10/32").unwrap();
+        assert!(host.contains(ip("192.168.1.10")) && !host.contains(ip("192.168.1.11")));
+        assert_eq!(Subnet::parse(" 192.168.1.10 "), Some(host));
+        let lan = Subnet::parse("192.168.1.0/24").unwrap();
+        assert!(lan.contains(ip("192.168.1.0")) && lan.contains(ip("192.168.1.255")));
+        assert!(!lan.contains(ip("192.168.0.255")) && !lan.contains(ip("192.168.2.0")));
+        assert!(lan.contains(ip("::ffff:192.168.1.7")));
+        // host bits in the entry are ignored, as qBittorrent's parser does
+        assert!(Subnet::parse("10.1.2.3/8").unwrap().contains(ip("10.200.0.1")));
+        let v6 = Subnet::parse("2001:db8::/32").unwrap();
+        assert!(v6.contains(ip("2001:db8:ffff::1")) && !v6.contains(ip("2001:db9::1")));
+        assert!(!v6.contains(ip("10.0.0.1")));
+        assert!(Subnet::parse("::/0").unwrap().contains(ip("fe80::1")));
+        assert!(Subnet::parse("::1").unwrap().contains(ip("::1")));
+        // a mapped subnet is its IPv4 one
+        assert_eq!(Subnet::parse("::ffff:10.0.0.0/104"), Subnet::parse("10.0.0.0/8"));
+        for bad in [
+            "",
+            "10.0.0.0/33",
+            "::/129",
+            "10.0.0/8",
+            "10.0.0.0/",
+            "10.0.0.0/-1",
+            "host",
+            "1.2.3.4/8/8",
+            "1.2.3.4/+8",
+        ] {
+            assert_eq!(Subnet::parse(bad), None, "{bad}");
+        }
+        assert_eq!(parse_subnets(" 10.0.0.0/8; ;fd00::/8 , 127.0.0.1").map(|v| v.len()), Ok(3));
+        assert_eq!(parse_subnets("10.0.0.0/8;nope;also bad"), Err("nope".to_owned()));
+        assert_eq!(parse_subnets(""), Ok(Vec::new()));
+        assert!(subnets_contain("garbage; 127.0.0.0/8", ip("127.0.0.5")));
+        assert!(!subnets_contain("garbage", ip("127.0.0.5")));
+        assert!(!subnets_contain("", ip("127.0.0.5")));
+    }
+
+    #[test]
+    fn bearer_tokens() {
+        assert_eq!(bearer_token("Bearer abc"), Some("abc"));
+        assert_eq!(bearer_token("bearer  abc "), Some("abc"));
+        assert_eq!(bearer_token("Basic YTpi"), None);
+        assert_eq!(bearer_token("Bearer "), None);
+        assert_eq!(bearer_token("Bearer"), None);
+    }
 
     fn unhex_str(s: &str) -> Vec<u8> {
         unhex(&s.replace(' ', "")).unwrap()

@@ -325,8 +325,13 @@ That broad check does not establish that every detailed case below was tried.
   `removeCategories` now clears the window's label), and the live run against the Windows GUI
   passed (2026-10-29, `tools/arr-test` README). Still to run: a magnet
   grab with real peers, "First" priority / Force Start, and a mobile qBittorrent remote. Other shim
-  gaps: tags, search, logs, automatic management, cookies, the Bearer API key and a subnet
-  whitelist; RSS exists but has the limitations in the RSS section.
+  gaps: search, logs, automatic management and cookies (tags are accepted as no-ops since 1.1.8).
+  RSS exists but has the limitations described in the RSS section. The Bearer API key and the
+  subnet whitelist exist since 1.1.10 and are off by default. A wrong-key failure is counted
+  before the slow hash and undone on success, so a client's first burst of five or more parallel
+  requests with a correct key could be banned for a moment, until one of them verifies. Not seen
+  with the *arrs, which send their requests one at a time. Neither setting has controls in the
+  Win32 dialog; hosted, they are set from the browser's Preferences.
   States use documented `pausedDL`/`pausedUP`; change to 5.x `stoppedDL`/`stoppedUP`
   if a client needs it. `sync/maindata` stores roughly 50 field values per torrent
   per logged-in client; consider change counters at large scale/many clients.

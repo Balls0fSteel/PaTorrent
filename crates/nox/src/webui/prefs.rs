@@ -35,7 +35,7 @@ use patorrent_frontend::scheduler;
 use patorrent_frontend::settings::{self, Entry, Kind as SettingKind, TABLE, Value};
 use patorrent_frontend::tr;
 
-use super::auth::PasswordHash;
+use super::auth::{self, PasswordHash};
 use super::json::Json;
 use super::path_policy::PathPolicy;
 use super::{Prefs, Shared, State, unix_now};
@@ -86,6 +86,8 @@ pub(crate) struct Working {
     pub prefs: Prefs,
     pub username: String,
     pub new_password: Option<String>,
+    /// A new API key (`webui.api_key`, write-only like the password).
+    pub new_api_key: Option<String>,
     /// The password the request says is the current one (`webui.current_password`, never
     /// stored), needed to change the login and the Web UI's security settings (SEC-03).
     pub current_password: Option<String>,
@@ -102,6 +104,7 @@ impl Working {
             prefs: st.prefs.clone(),
             username: st.username.clone(),
             new_password: None,
+            new_api_key: None,
             current_password: None,
             listen: st.listen_addr.to_string(),
         }
@@ -114,6 +117,7 @@ impl Working {
             prefs: Prefs::defaults(&st.default_save_path, &Settings::default()),
             username: "admin".to_owned(),
             new_password: None,
+            new_api_key: None,
             current_password: None,
             listen: st.listen_addr.to_string(),
         }
@@ -557,6 +561,26 @@ pub(crate) static FIELDS: &[Field] = &[
         |w, v| w.prefs.bypass_local_auth = boolean(&v)
     ),
     field!(
+        "webui.api_key_enabled",
+        Some(S::WebApiKeyEnabled),
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.api_key_enabled),
+        |w, v| w.prefs.api_key_enabled = boolean(&v)
+    ),
+    field!("webui.api_key", Some(S::WebApiKey), Kind::Password, |_w| Value::Str(String::new()), |w, v| {
+        let k = string(v).trim().to_owned();
+        if !k.is_empty() {
+            w.new_api_key = Some(k);
+        }
+    }),
+    field!(
+        "webui.bypass_auth_subnets",
+        Some(S::WebAuthSubnets),
+        Kind::Text,
+        |w| Value::Str(w.prefs.auth_subnets.clone()),
+        |w, v| w.prefs.auth_subnets = string(v).trim().to_owned()
+    ),
+    field!(
         "webui.host_header_validation",
         Some(S::WebHostHeader),
         Kind::Bool,
@@ -991,6 +1015,9 @@ fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
                         f("webui.password"),
                         f("webui.current_password"),
                         f("webui.bypass_local_auth"),
+                        f("webui.api_key_enabled"),
+                        enabled_by(f("webui.api_key"), "webui.api_key_enabled"),
+                        f("webui.bypass_auth_subnets"),
                     ],
                 ),
                 group(
@@ -1102,9 +1129,11 @@ pub(crate) const HOSTED_NO_ALT: &str =
     "alternative speed limits are not available: a desktop client hosts the Web UI";
 
 /// The fields that guard the Web UI: changed only with the current password (SEC-03).
-const SECURITY_FIELDS: [&str; 8] = [
+const SECURITY_FIELDS: [&str; 10] = [
     "webui.username",
     "webui.bypass_local_auth",
+    "webui.api_key_enabled",
+    "webui.bypass_auth_subnets",
     "webui.host_header_validation",
     "webui.domain_list",
     "webui.csrf",
@@ -1113,9 +1142,10 @@ const SECURITY_FIELDS: [&str; 8] = [
     "webui.session_timeout",
 ];
 
-/// Whether `w` changes the password or a [`SECURITY_FIELDS`] value.
+/// Whether `w` changes the password, the API key or a [`SECURITY_FIELDS`] value.
 fn security_changed(w: &Working, old: &Working) -> bool {
     w.new_password.is_some()
+        || w.new_api_key.is_some()
         || SECURITY_FIELDS.iter().filter_map(|id| find(id)).any(|d| d.get(w) != d.get(old))
 }
 
@@ -1169,6 +1199,12 @@ pub(crate) fn validate(w: &Working) -> Result<(), Refusal> {
     }
     if w.username.is_empty() {
         return refuse("webui.username", tr!(PrefNoUsername));
+    }
+    if w.new_api_key.as_ref().is_some_and(|k| k.chars().count() < auth::API_KEY_MIN_LEN) {
+        return refuse("webui.api_key", &tr!(PrefApiKeyShort, count = auth::API_KEY_MIN_LEN));
+    }
+    if let Err(entry) = auth::parse_subnets(&w.prefs.auth_subnets) {
+        return refuse("webui.bypass_auth_subnets", &tr!(PrefBadSubnet, entry = entry));
     }
     Ok(())
 }
@@ -1354,6 +1390,15 @@ fn commit_read(
         st.sessions.retain(|k, _| Some(k.as_str()) == keep);
         shared.end_remotes();
     }
+    if let Some(k) = &w.new_api_key {
+        st.set_api_key(Some(PasswordHash::new(k, shared.iterations)));
+    }
+    if !w.prefs.api_key_enabled {
+        st.sessions.remove(super::api::APIKEY_SESSION);
+    }
+    if w.prefs.auth_subnets != old.prefs.auth_subnets {
+        st.sessions.remove("subnet");
+    }
     if st.hosted {
         // the host stores the login (the hash; a login it hands back is taken as it is)
         st.options.set("webui.username", &st.username);
@@ -1428,6 +1473,12 @@ fn store(st: &mut State, changed: &[&'static str]) {
         o.set_bool("webui.alt_enabled", p.alt_enabled);
     }
     o.set_bool("webui.bypass_local_auth", p.bypass_local_auth);
+    o.set_bool("webui.api_key_enabled", p.api_key_enabled);
+    o.set("webui.bypass_auth_subnets", &p.auth_subnets);
+    match &st.api_key {
+        Some(k) => o.set("webui.api_key", k.to_string()),
+        None => o.remove("webui.api_key"),
+    }
     o.set_bool("webui.csrf", p.csrf_protection);
     o.set_bool("webui.host_header_validation", p.host_header_validation);
     o.set("webui.domain_list", &p.domain_list);
@@ -1476,6 +1527,8 @@ pub(crate) fn read_back(st: &mut State) -> bool {
         // hosted: no alternative limits (the host has none)
         alt_enabled: !st.hosted && o.get_bool("webui.alt_enabled", p.alt_enabled),
         bypass_local_auth: o.get_bool("webui.bypass_local_auth", p.bypass_local_auth),
+        api_key_enabled: o.get_bool("webui.api_key_enabled", p.api_key_enabled),
+        auth_subnets: o.get("webui.bypass_auth_subnets").map_or(p.auth_subnets.clone(), str::to_owned),
         csrf_protection: o.get_bool("webui.csrf", p.csrf_protection),
         host_header_validation: o.get_bool("webui.host_header_validation", p.host_header_validation),
         domain_list: o.get("webui.domain_list").map_or(p.domain_list.clone(), str::to_owned),
@@ -1487,6 +1540,9 @@ pub(crate) fn read_back(st: &mut State) -> bool {
     changed |=
         prefs.alt_enabled || prefs.alt_dl_limit != p.alt_dl_limit || prefs.alt_up_limit != p.alt_up_limit;
     st.prefs = prefs;
+    // the API key's hash, stored like the password's (hosted: the host's)
+    let key = st.options.get("webui.api_key").and_then(PasswordHash::parse);
+    st.set_api_key(key);
     changed
 }
 

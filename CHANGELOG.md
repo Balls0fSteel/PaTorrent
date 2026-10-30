@@ -14,7 +14,7 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **Web UI:** a Find button beside the filter box opens Search Torrents. It has a query, a Newznab category, a source choice, per-source status lines, a sortable results table, Add, and a Manage Sources dialog with Test. Titles are set as text only, and the phone layout works. 38 new strings, translated in all 34 tables.
 - **Live run** against the Xubuntu VM's Prowlarr (`/2/api`, the fake indexer): Test answered "8 categories", a search returned 3 results, and an add put the torrent in the list. A wrong key shows "HTTP 401 Unauthorized". The key stayed out of output and commits. Captured Prowlarr results and caps (key replaced) are now fixtures; I checked that their 32-hex strings are info-hash prefixes, not keys. The browser pane check used a mock-library nox at desktop and 375 px.
 - **Open:**
-  - The page's static files are 208 KB with LF line endings, so the test limit went from 200 to 220 KB, pending the owner.
+  - The page's static files are 208 KB with LF line endings, so the test limit went from 200 to 220 KB (owner accepted).
   - No shim `search/*` yet.
   - `/pa/search/add` adds directly, without the Add dialog.
 - **Tests:** new `tests/search.rs` and a fake Prowlarr (`tests/support/torznab.rs`), plus a hosted test. nox, frontend (213 + 4) and Win32 (71) tests pass; clippy and fmt are clean. Built by a subagent in a worktree and reviewed before merging. Version 1.1.14.

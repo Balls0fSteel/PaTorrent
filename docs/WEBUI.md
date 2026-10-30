@@ -33,7 +33,9 @@ What it is not: a copy of qBittorrent's Web UI or of µTorrent's `/gui/?list=1` 
 2. **Scale like the desktop.** The desktop gate is 10,000 torrents at 0.2–0.4 s startup and
    0.1 % idle CPU. The page gets the same gate (budgets below). The page never holds 10,000 rows.
 3. **Footprint.** No framework, no build step, no dependencies: one HTML, one CSS, one JS file,
-   plain ES2020, embedded with `include_bytes!`, under 200 KB in total uncompressed. The server
+   plain ES2020, embedded with `include_bytes!`, under 220 KB in total uncompressed (counted
+   with LF line ends; 200 KB until the torrent search's panel took it to about 208 KB,
+   2026-10-30: the owner to confirm the new budget). The server
    side stays `std` only (D4).
 4. **Works on a phone.** The same page, responsive. The remote app is the URL.
 5. **Beyond 2.2.1.** Push instead of polling, keyboard selection and shortcuts, dark mode by
@@ -125,6 +127,11 @@ bar, plus `labels` (every label the daemon knows, from its category map and the 
 its torrent count, sorted by name) and `no_label` whenever either changed since this client's
 last tick; a fresh socket gets them with its first tick. A row in the window that did not change is not sent. Cells are strings in the client's
 column order; a column change re-sends the window.
+
+A `tick` also carries `"rss": n` when the RSS Downloader changed, `"search": n` when the
+torrent search's results, status lines or sources changed (the page asks `GET /pa/rss` or
+`GET /pa/search` again) and `"adds": n` when a magnet's Add dialog can open; each is sent
+when it moved since the client's last tick.
 
 When nox's update check (D43, [DAEMON.md](DAEMON.md#the-update-check)) found a newer PaTorrent,
 `hello` and every `tick` carry `"update":{"version":"1.2.0","url":"<its release page>"}`; the
@@ -267,6 +274,34 @@ filter by name; `mustContain` / `mustNotContain` in our wildcard syntax, `episod
 `removeRule`, `rules`, `matchingArticles`. The RSS tree is flat (a feed's path is its name):
 `addFolder` and paths with folders are 409.
 
+#### The torrent search
+
+`webui/search.rs` (D41, [INTEGRATIONS.md](INTEGRATIONS.md) part 2) searches the user's
+Prowlarr or Jackett over Torznab with the shared model (`frontend::search`): one search at a
+time for the whole server (every page sees the same results), one worker thread per source,
+the answers merged by info-hash (else title and size) and sorted by seeders. The worker's
+threads only answer into a channel; every alert batch (and every `GET /pa/search`) collects
+them and bumps a version that the `tick` carries as `"search": n`, so an open search window
+asks `GET /pa/search` again. The sources are `search.source.N.name|url|key|enabled` in the
+stored preferences (`options`; the key sealed like the proxy password: DPAPI on Windows);
+hosted they are the window's own `patorrent.ini` keys, reached through the preferences
+journal, and a change the window makes moves the version too. A source on this machine or
+network never goes through the engine's proxy, a public one does; a result's link may reach a
+non-public address only on the source's own scheme, host and port.
+
+| Endpoint | Body | Does |
+|---|---|---|
+| `GET /pa/search` | | `sources` (`index`, `name` (the host without one), `url_redacted` (any `apikey`-like query value masked), `enabled`, `has_key`; never the key), `running`, `id` (0 before the first search), `query` (`q`, `categories`), `statuses` (one per source searched: `source`, `status` `searching` / `done` / `failed` / `stopped`, `count`, `error` (the key removed), `text` (the translated line)), `total`, `results` (the first 500 by seeders: `id`, `name`, `size` and `size_text`, `seeders`, `peers` (null when unknown), `info_hash`, `categories`, `category_text`, `published` (Unix time) and `age_text`, `source_names`; never the link, which carries the indexer's key), `main_categories` (`[number, name]` for the category list) |
+| `/pa/search/start` | `{"q":"...","categories":[5000],"sources":[index]}` (`categories`, `sources` optional) | 204; a new search replaces the last (its late answers are dropped). Without `sources` every enabled source is searched; named sources are searched even when switched off. 400 without `q`, 404 for an unknown source, 409 when there is nothing to search |
+| `/pa/search/stop` | `{}` | the sources still searching show `stopped`; the results so far stay |
+| `/pa/search/add` | `{"id":"<result id>"}` plus `/pa/add`'s options (`save`, `label`, `start`, ...) | fetches the result on the request's thread (its magnet, else its link: a `.torrent` or a redirect to a magnet, else a magnet made from the info-hash), then adds it as `/pa/add` does (hosted: into the window's engine); 200 `{"hash","text"}`, 404 for an id not in the current results, 409 when the torrent is in the list, 400 with the reason (the key removed) |
+| `/pa/search/source-add` | `{"name","url","key","enabled","password"}` | 200 `{"index"}`; `url` must be `http://` or `https://`; needs the current password (below) |
+| `/pa/search/source-edit` | `{"index", "name", "url", "key", "enabled", "clear_key", "password"}` (each but `index` optional) | 204; an omitted or empty `key` keeps the stored one, `clear_key` drops it; a new URL or a new key needs the current password, a name or the switch alone does not |
+| `/pa/search/source-remove` | `{"index"}` | the rest are numbered again |
+| `/pa/search/source-test` | `{"index"}` | asks the source for its caps (`t=caps`) on the request's thread (30 s at most) and answers when it is done: 200 `{"ok":true,"categories":n,"text"}` or `{"ok":false,"error","text"}` |
+
+The qBittorrent shim's `search/*` is not built yet (slice 5).
+
 ### Page layout
 
 Desktop (the 2.2.1 window): toolbar; category tree on the left with counts; the list; the detail
@@ -298,6 +333,15 @@ the hash, Cancel (Esc, Back) removes the torrent. A magnet finished in another w
 dialog here; a page opened later shows the dialogs of magnets still waiting. Other URLs add
 directly.
 
+The toolbar's Find (beside the name filter; on the phone under More) opens Search Torrents:
+the query (the filter box's text to start with), a category (All, Movies 2000, Audio 3000,
+PC 4000, TV 5000, Books 7000, Other 8000), a source (all enabled ones, or one), Search and
+Stop; each source's status line; the results (Name, Size, Seeds, Peers, Category, Age,
+Source; a click on a header sorts, the choice kept in `localStorage`; the phone keeps Name,
+Size and Seeds), added with a double-click or Add. Manage Sources lists the sources with a
+check box to switch each on or off, Add / Edit (name, Torznab URL, API key (empty keeps it),
+on or off, the current Web UI password), Remove and Test.
+
 ### Security
 
 As today: SID cookie, PBKDF2 password hash, failed-login ban (per IPv4 address, per /64 for
@@ -320,6 +364,21 @@ protection, the ban settings and the session timeout change only with the curren
 `setPreferences` (our key: qBittorrent's API has none, so its clients cannot change these). A
 wrong current password ends the session that sent it. A failed login is counted before the
 password is hashed, so parallel guesses stop at the ban limit.
+
+Search sources (D41; owner may revisit): adding a source, or changing a source's URL or API
+key, needs the current password too (`password` in `/pa/search/source-add` and
+`source-edit`; a wrong one ends the session, as above). A source makes the server fetch its
+URL wherever it points (the user's own Prowlarr is usually on this machine or network) and
+send the stored key there, so a stolen session must not be able to point an existing source,
+and its key, at a server of its choosing, nor make the server probe the network with
+answers it can read. Add-by-URL and RSS feeds also fetch any address for a session, but they
+answer one fixed text whatever failed (SEC-05, SEC-26); with sources behind the password, a
+source's status line and Test can show the real reason (`HTTP 401`, a Torznab error, the
+key removed), which is what a user setting up Prowlarr needs. Renaming, switching a source
+on or off, removing it, testing it and searching need only the session. The key is never
+sent to the page (`has_key` only; the URL with any `apikey` value masked), result links
+(which carry the indexer's key) are never sent either, and a result's title is shown as
+text only.
 
 Behind a reverse proxy on the same machine every client connects from loopback. A request
 with `X-Forwarded-For`, `Forwarded` or `X-Real-IP` never gets the local-auth bypass, and

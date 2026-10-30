@@ -157,6 +157,8 @@ pub struct Client {
     labels_sent: Option<(Json, usize)>,
     /// `State::rss_version` as last sent (`rss` in a tick).
     rss_sent: u64,
+    /// `State::search_version` as last sent (`search` in a tick).
+    search_sent: u64,
     /// `State::adds_version` as last sent (`adds` in a tick).
     adds_sent: u64,
 }
@@ -182,6 +184,7 @@ impl Client {
             rows_stale: true,
             labels_sent: None,
             rss_sent: 0,
+            search_sent: 0,
             adds_sent: 0,
         }
     }
@@ -541,6 +544,12 @@ impl Client {
         if st.rss_version != self.rss_sent {
             self.rss_sent = st.rss_version;
             out.set("rss", st.rss_version);
+        }
+        // the torrent search's results, status lines or sources changed: an open search
+        // window asks GET /pa/search
+        if st.search_version != self.search_sent {
+            self.search_sent = st.search_version;
+            out.set("search", st.search_version);
         }
         // a magnet's Add dialog can open (or closed elsewhere): the page asks GET /pa/add
         if st.adds_version != self.adds_sent {

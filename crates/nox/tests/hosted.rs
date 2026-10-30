@@ -19,9 +19,13 @@ use patorrent_core::{MockConfig, Session, Settings};
 use patorrent_frontend::prefs::{Change, Prefs};
 use patorrent_frontend::rss::worker::Fetcher;
 use patorrent_frontend::rss::{AddRequest, Download, Feed, FeedItem, RssDownloader, Worker};
+use patorrent_frontend::search::{Source, load_sources, store_sources};
 use patorrent_nox::webui::auth::PasswordHash;
 use patorrent_nox::webui::json::{self, Json};
 use patorrent_nox::webui::{Config, Host, Hosted, Rss, STATE_FILE, WebUi};
+
+#[path = "support/torznab.rs"]
+mod torznab;
 
 const PASS: &str = "s3cret-pass";
 const MAGNET: &str = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Show";
@@ -929,4 +933,98 @@ fn the_arr_apps_limits_and_categories_are_the_hosts_keys() {
         std::thread::sleep(Duration::from_millis(50));
     }
     assert_eq!(t.get(&sid, &format!("/api/v2/torrents/info?hashes={hash}")).json().to_json(), "[]");
+}
+
+// ---- the torrent search ---------------------------------------------------------------------
+
+/// The `search` version of the next tick that carries one above `above`.
+fn search_version_above(ws: &mut Ws, above: i64) -> i64 {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let m = ws.recv();
+        if let Some(v) = m.get("search").and_then(Json::as_i64).filter(|&v| v > above) {
+            return v;
+        }
+        assert!(Instant::now() < deadline, "no search version above {above}: {}", m.to_json());
+    }
+}
+
+/// Hosted, the search sources are the window's (`search.source.N.*` in its options, the key
+/// sealed in its file): the page lists them without the key, a browser's new source reaches
+/// the host through the journal, the host's own changes move the tick's `search` version, and
+/// a result is added into the host's engine. The answers come in through the alert batches
+/// the host feeds.
+#[test]
+fn search_sources_are_the_hosts_and_results_go_to_its_engine() {
+    let fake = torznab::start();
+    let mut options = Prefs::default();
+    let mine = Source {
+        name: "Window's".into(),
+        url: fake.url("/1/api"),
+        api_key: torznab::KEY.into(),
+        enabled: true,
+    };
+    store_sources(&mut options, &[mine]);
+    let host_file = options.clone();
+    let t = Harness::start("search", options, Some(PASS));
+    let sid = t.login();
+    let r = t.get(&sid, "/pa/search");
+    assert_eq!(r.status, 200);
+    let m = r.json();
+    let Some(Json::Arr(srcs)) = m.get("sources") else { panic!("{}", m.to_json()) };
+    assert_eq!((s(srcs[0].get("name")), srcs[0].get("has_key")), ("Window's", Some(&Json::Bool(true))));
+    assert!(!r.text().contains(torznab::KEY));
+
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_text(r#"{"t":"view","sort":["name",false],"columns":["name"],"window":[0,10]}"#);
+    let v = search_version_above(&mut ws, 0);
+
+    // a browser's source: the host gets the keys (the plain key: the same process), and its
+    // file seals it
+    let body = format!(
+        r#"{{"name":"Browser","url":"{}","key":"K-browser-123","password":"{PASS}"}}"#,
+        fake.url("/9/api")
+    );
+    let r = t.pa(&sid, "/pa/search/source-add", &body);
+    assert_eq!(r.status, 200, "{}", r.text());
+    assert_eq!(t.host.value_of("search.source.1.key"), Some(Some("K-browser-123".to_owned())));
+    let mut file = host_file;
+    file.apply_changes(&t.host.changes());
+    let names: Vec<String> = load_sources(&file).into_iter().map(|s| s.name).collect();
+    assert_eq!(names, ["Window's", "Browser"]);
+    if cfg!(windows) {
+        let text = file.to_text();
+        assert!(!text.contains("K-browser-123") && !text.contains(torznab::KEY), "{text}");
+    }
+    let v = search_version_above(&mut ws, v);
+
+    // the window renames a source: the page is told to reload
+    t.web.options_changed(&[("search.source.0.name".to_owned(), Some("Renamed".to_owned()))]);
+    let v = search_version_above(&mut ws, v);
+    let m = t.get(&sid, "/pa/search").json();
+    assert!(m.to_json().contains(r#""name":"Renamed""#), "{}", m.to_json());
+
+    // a search: the answer is collected with the host's alert batches and moves the tick's
+    // version (no GET in between)
+    assert_eq!(t.pa(&sid, "/pa/search/start", r#"{"q":"night","sources":[0]}"#).status, 204);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let mut seen = v;
+    let collected = loop {
+        seen = search_version_above(&mut ws, seen);
+        // the start bumps once, the collected answer once more
+        if seen >= v + 2 {
+            break seen;
+        }
+        assert!(Instant::now() < deadline);
+    };
+    assert!(collected >= v + 2);
+    let m = t.get(&sid, "/pa/search").json();
+    assert_eq!(m.get("running"), Some(&Json::Bool(false)), "{}", m.to_json());
+    let Some(Json::Arr(results)) = m.get("results") else { panic!() };
+    let night = results.iter().find(|r| s(r.get("name")) == torznab::NIGHT).expect("found");
+    // added into the host's engine like any of the page's adds
+    let r = t.pa(&sid, "/pa/search/add", &format!(r#"{{"id":"{}"}}"#, s(night.get("id"))));
+    assert_eq!(r.status, 200, "{}", r.text());
+    let hash = torznab::night_magnet().1;
+    t.wait_for(&sid, &hash, "the added result", |_| true);
 }

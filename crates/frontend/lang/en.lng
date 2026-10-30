@@ -1043,3 +1043,85 @@ ImportInList=already in the list
 ImportNoTorrentFile=its .torrent file is missing
 ImportBadRecord=its resume record cannot be read
 ImportBadTorrent=its .torrent file cannot be read: {error}
+
+# The search window's title and the toolbar button's tooltip.
+SearchTitle=Search Torrents
+
+# The Web UI toolbar button that opens the search window (short).
+SearchFind=Find
+
+# The empty query box's grey hint.
+SearchQueryCue=Search with Prowlarr or Jackett
+
+# The category list: Newznab's main categories.
+SearchAllCategories=All categories
+SearchCatMovies=Movies
+SearchCatAudio=Audio
+
+# Software and games for computers.
+SearchCatPc=PC
+SearchCatTv=TV
+SearchCatBooks=Books
+SearchCatOther=Other
+
+# The source list's first choice: search every enabled source.
+SearchAllSources=All sources
+
+# Result list columns (Name, Size, Seeds and Peers are the torrent list's).
+SearchColCategory=Category
+
+# How long ago the indexer published the torrent.
+SearchColAge=Age
+
+# Which search source returned the result.
+SearchColSource=Source
+
+# A source's status line; {source} is its name.
+SearchSearching={source}: searching...
+
+# {count} is a number.
+SearchFound={source}: {count} results
+
+# {error} is the reason, often in English.
+SearchFailed={source}: {error}
+SearchStopped={source}: stopped
+
+# {count} is a number.
+SearchResultCount=Results: {count}
+SearchNoSources=No search sources yet: add your Prowlarr or Jackett under Manage Sources.
+
+# A torrent added from the results; {name} is its name.
+SearchAdded=Added: {name}
+SearchManage=Manage Sources...
+
+# The window listing the search sources.
+SearchSourcesTitle=Search Sources
+
+# Asks the source for its categories, to check its URL and API key.
+SearchTest=Test
+SearchTesting={source}: testing...
+
+# {count} is a number.
+SearchTestOk={source}: OK, {count} categories
+SearchAddSource=Add Search Source
+SearchEditSource=Edit Search Source
+SearchSourceName=Name:
+
+# Torznab is the protocol's name: do not translate it.
+SearchSourceUrl=Torznab URL:
+
+# Keep the URLs as they are.
+SearchSourceUrlHint=Prowlarr: http://host:9696/1/api (one per indexer). Jackett: http://host:9117/api/v2.0/indexers/all/results/torznab/
+SearchSourceKey=API key:
+
+# The empty API key box's grey hint when editing a source: the stored key stays.
+SearchSourceKeyKept=Unchanged
+SearchSourceEnabled=Search this source
+SearchNoUrl=Enter the source's Torznab URL.
+
+# {name} is a search source's name.
+AskRemoveSource=Remove the search source {name}?
+
+# The Web UI asks for its own password before a source is added or its address changed.
+WebSearchPassword=Current Web UI password:
+WebSearchNeedPassword=Enter the current Web UI password to add a search source or change its URL or API key.

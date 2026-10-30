@@ -108,7 +108,7 @@ Both take `t=caps` (capabilities and categories) and `t=search&q=&cat=&limit=&of
    - `search::worker`: `Search` (one thread per enabled source, answers merged on the caller's thread by `collect`, a search id so a replaced or stopped search's late answers are dropped), `merge`, `fetch_results`, `fetch_caps` (a source's Test), `fetch_download` (the magnet, else the link: a `.torrent` or a redirect to a magnet, `Reach::User` only on the source's own host), `proxy_for`.
    - The fixtures are written from Prowlarr's and Jackett's source, not captured from live servers; capturing real answers is left for slice 2's live test.
    - The `rss` fuzz target also feeds its input to the Torznab parsers.
-2. nox: native commands, the Web UI panel, the source settings.
+2. nox: native commands, the Web UI panel, the source settings. **Built** (see [WEBUI.md](WEBUI.md) "The torrent search"): `/pa/search...`, the tick's `search` version (the page asks `GET /pa/search` again rather than receiving a `search` message), adding or re-pointing a source behind the current password, hosted mode on the window's keys, Find in the toolbar; fixtures captured from a live Prowlarr (`frontend/src/search/fixtures`).
 3. Win32: the drop-down, Search Results and Manage Sources dialogs.
 4. GTK: the same.
 5. Optional: the shim's `search/*` endpoints.

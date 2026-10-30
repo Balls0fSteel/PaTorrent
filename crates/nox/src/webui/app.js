@@ -495,6 +495,7 @@
     if (m.counts) updateCounts(m.counts);
     if (m.labels) updateLabels(m.labels, m.no_label);
     if (m.rss !== undefined) rssChanged(m.rss);
+    if (m.search !== undefined) searchChanged(m.search);
     if (m.adds !== undefined) addsChanged(m.adds);
     if (m.status) updateStatus(m.status);
     updateNotice(m.update);
@@ -987,6 +988,7 @@
         "-",
         { label: T("MenuPreferences"), run: () => $("tb-prefs").click() },
         { label: T("MenuRss"), run: () => openRss(0) },
+        { label: T("SearchTitle"), run: openFind },
         { label: T("WebLogOut"), run: () => $("logout").click() },
       ],
       RTL ? r.right : r.left,
@@ -3119,6 +3121,286 @@
   $("rss-history-clear").addEventListener("click", async () => {
     await pa("rss/history-clear", {}).catch(() => {});
     rssLoad();
+  });
+
+  // ---- the torrent search (D41; pa/search, nox's webui/search.rs) ---------------------------
+  // The user's Prowlarr or Jackett over Torznab: a query, a category and a source (all by
+  // default), the per-source status lines and the merged results, sortable, added with a
+  // double-click or Add. One search runs for the whole server; the tick's `search` version
+  // says when to ask GET /pa/search again. Titles are the indexers' text: textContent only.
+  // Manage Sources lists the sources (never their keys) with Add, Edit, Remove and Test.
+  const findDlg = $("find");
+  const srcDlg = $("find-sources");
+  const srcEditDlg = $("find-edit");
+  const FIND_COLS = [
+    // [id, title key, cell, sort key, numeric, phone]
+    ["name", "ColName", (r) => r.name, (r) => r.name.toLowerCase(), false, true],
+    ["size", "ColSize", (r) => r.size_text, (r) => r.size ?? -1, true, true],
+    ["seeders", "ColSeeds", (r) => (r.seeders == null ? "" : String(r.seeders)), (r) => r.seeders ?? -1, true, true],
+    ["peers", "ColPeers", (r) => (r.peers == null ? "" : String(r.peers)), (r) => r.peers ?? -1, true, false],
+    ["category", "SearchColCategory", (r) => r.category_text, (r) => r.category_text, false, false],
+    ["age", "SearchColAge", (r) => r.age_text, (r) => -(r.published ?? -1e12), true, false],
+    ["source", "SearchColSource", (r) => r.source_names.join(", "), (r) => r.source_names.join(", "), false, false],
+  ];
+  let findModel = null;
+  let findVersion = 0;
+  let findPick = ""; // the picked result's id
+  let findSort = store.get("pa.findSort", ["seeders", true]); // [column, descending]
+  let srcPick = -1; // the source picked in Manage Sources
+  let srcEditing = -1; // the source the edit dialog edits, -1 = a new one
+
+  /// The tick's version: an open search window follows it.
+  function searchChanged(v) {
+    if (v === findVersion) return;
+    findVersion = v;
+    if (findDlg.open) findLoad();
+  }
+  async function findLoad() {
+    try {
+      findModel = await pa("search");
+    } catch (e) {
+      return;
+    }
+    findRender();
+    if (srcDlg.open) srcRender();
+  }
+  async function openFind() {
+    if (findDlg.open || $("app").hidden) return;
+    const typed = $("search").value.trim();
+    if (typed && !$("find-q").value) $("find-q").value = typed;
+    $("find-msg").textContent = "";
+    findDlg.showModal();
+    layerOpened(closeFind);
+    await findLoad();
+    $("find-q").focus();
+  }
+  function closeFind() {
+    if (!findDlg.open) return;
+    findDlg.close();
+    body.focus();
+  }
+  findDlg.addEventListener("close", () => layerClosed(closeFind));
+  findDlg.addEventListener("cancel", (ev) => {
+    ev.preventDefault();
+    if (!srcDlg.open && !srcEditDlg.open) closeFind();
+  });
+  $("find-close").addEventListener("click", closeFind);
+  $("tb-find").addEventListener("click", openFind);
+
+  function findRender() {
+    const m = findModel;
+    // the category and source lists, keeping the choices
+    const cat = $("find-cat");
+    if (!cat.options.length) {
+      cat.appendChild(new Option(T("SearchAllCategories"), ""));
+      for (const [id, name] of m.main_categories) cat.appendChild(new Option(name, id));
+    }
+    const src = $("find-src");
+    const was = src.value;
+    src.textContent = "";
+    src.appendChild(new Option(T("SearchAllSources"), ""));
+    for (const s of m.sources) src.appendChild(new Option(s.enabled ? s.name : T("WebFeedDisabled", { name: s.name }), s.index));
+    src.value = m.sources.some((s) => String(s.index) === was) ? was : "";
+    $("find-stop").disabled = !m.running;
+    const status = $("find-status");
+    status.textContent = "";
+    const lines = m.sources.length ? m.statuses.map((s) => s.text) : [T("SearchNoSources")];
+    for (const l of lines) status.appendChild(rssEl("div", "", l));
+    $("find-count").textContent = m.id ? T("SearchResultCount", { count: m.total }) : "";
+    findRenderResults();
+  }
+  function findRenderResults() {
+    const t = $("find-results");
+    t.textContent = "";
+    const head = rssEl("tr");
+    for (const [id, key, , , , onPhone] of FIND_COLS) {
+      const th = rssEl("th", "c-" + id + (onPhone ? "" : " opt"), T(key));
+      th.dataset.col = id;
+      if (findSort[0] === id) th.classList.add(findSort[1] ? "desc" : "asc");
+      head.appendChild(th);
+    }
+    t.appendChild(rssEl("thead")).appendChild(head);
+    const col = FIND_COLS.find((c) => c[0] === findSort[0]) || FIND_COLS[2];
+    const key = col[3];
+    const rows = findModel.results.slice();
+    rows.sort((a, b) => {
+      const x = key(a);
+      const y = key(b);
+      const c = col[4] ? x - y : String(x).localeCompare(String(y));
+      return findSort[1] ? -c : c;
+    });
+    const tb = t.appendChild(rssEl("tbody"));
+    for (const r of rows) {
+      const tr = rssEl("tr", r.id === findPick ? "on" : "");
+      tr.dataset.id = r.id;
+      tr.title = r.name;
+      for (const [id, , cell, , , onPhone] of FIND_COLS) tr.appendChild(rssEl("td", "c-" + id + (onPhone ? "" : " opt"), cell(r)));
+      tb.appendChild(tr);
+    }
+    if (!rows.some((r) => r.id === findPick)) findPick = "";
+    $("find-add").disabled = !findPick;
+  }
+  $("find-results").addEventListener("click", (ev) => {
+    const th = ev.target.closest("th");
+    if (th) {
+      const col = FIND_COLS.find((c) => c[0] === th.dataset.col);
+      findSort = [col[0], findSort[0] === col[0] ? !findSort[1] : col[4]];
+      store.set("pa.findSort", findSort);
+      findRenderResults();
+      return;
+    }
+    const tr = ev.target.closest("tbody tr");
+    if (!tr) return;
+    findPick = tr.dataset.id;
+    for (const x of $("find-results").querySelectorAll("tr.on")) x.classList.remove("on");
+    tr.classList.add("on");
+    $("find-add").disabled = false;
+  });
+  $("find-results").addEventListener("dblclick", (ev) => {
+    const tr = ev.target.closest("tbody tr");
+    if (!tr) return;
+    findPick = tr.dataset.id;
+    findAdd();
+  });
+  async function findAdd() {
+    if (!findPick) return;
+    const msg = $("find-msg");
+    msg.textContent = "";
+    try {
+      const r = await pa("search/add", { id: findPick });
+      msg.textContent = r.text;
+    } catch (e) {
+      msg.textContent = e.msg || "";
+    }
+  }
+  $("find-add").addEventListener("click", findAdd);
+  $("find-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const q = $("find-q").value.trim();
+    if (!q) return;
+    const b = { q };
+    if ($("find-cat").value) b.categories = [+$("find-cat").value];
+    if ($("find-src").value) b.sources = [+$("find-src").value];
+    $("find-msg").textContent = "";
+    findPick = "";
+    try {
+      await pa("search/start", b);
+    } catch (e) {
+      $("find-msg").textContent = e.msg || "";
+    }
+    findLoad();
+  });
+  $("find-stop").addEventListener("click", () => pa("search/stop", {}).then(findLoad, () => {}));
+
+  // ---- Manage Sources
+  function openSources() {
+    srcPick = findModel && findModel.sources.length ? Math.max(0, Math.min(srcPick, findModel.sources.length - 1)) : -1;
+    $("find-src-status").textContent = "";
+    srcDlg.showModal();
+    layerOpened(closeSources);
+    srcRender();
+  }
+  function closeSources() {
+    if (srcDlg.open) srcDlg.close();
+  }
+  srcDlg.addEventListener("close", () => layerClosed(closeSources));
+  srcDlg.addEventListener("cancel", (ev) => {
+    ev.preventDefault();
+    if (!srcEditDlg.open) closeSources();
+  });
+  $("find-manage").addEventListener("click", () => findModel && openSources());
+  $("find-src-close").addEventListener("click", closeSources);
+  function srcRender() {
+    const list = findModel.sources;
+    if (srcPick >= list.length) srcPick = list.length - 1;
+    rssList($("find-src-list"), list.map((s) => [s.index, s.name, s.enabled, s.url_redacted]), srcPick, true);
+    const s = list[srcPick];
+    for (const id of ["find-src-edit", "find-src-remove", "find-src-test"]) $(id).disabled = !s;
+  }
+  $("find-src-list").addEventListener("click", (ev) => {
+    const r = ev.target.closest(".rss-row");
+    if (!r) return;
+    srcPick = +r.dataset.key;
+    if (ev.target.type === "checkbox") {
+      pa("search/source-edit", { index: srcPick, enabled: ev.target.checked }).then(findLoad, findLoad);
+      return;
+    }
+    const s = findModel.sources[srcPick];
+    $("find-src-status").textContent = s ? s.url_redacted : "";
+    srcRender();
+  });
+  $("find-src-list").addEventListener("dblclick", (ev) => {
+    if (ev.target.type !== "checkbox" && srcPick >= 0) srcEditOpen(srcPick);
+  });
+  $("find-src-add").addEventListener("click", () => srcEditOpen(-1));
+  $("find-src-edit").addEventListener("click", () => srcPick >= 0 && srcEditOpen(srcPick));
+  $("find-src-remove").addEventListener("click", async () => {
+    const s = findModel.sources[srcPick];
+    if (!s || !confirm(T("AskRemoveSource", { name: s.name }))) return;
+    await pa("search/source-remove", { index: s.index }).catch(() => {});
+    findLoad();
+  });
+  $("find-src-test").addEventListener("click", async () => {
+    const s = findModel.sources[srcPick];
+    if (!s) return;
+    const st = $("find-src-status");
+    st.textContent = T("SearchTesting", { source: s.name });
+    try {
+      st.textContent = (await pa("search/source-test", { index: s.index })).text;
+    } catch (e) {
+      st.textContent = e.msg || "";
+    }
+  });
+
+  // the Add / Edit Search Source dialog: the key is never shown, empty keeps it; a new
+  // source, a new URL or a new key take the current password (docs/WEBUI.md "Security")
+  function srcEditOpen(index) {
+    const s = index >= 0 ? findModel.sources[index] : null;
+    srcEditing = s ? s.index : -1;
+    $("find-edit-title").textContent = T(s ? "SearchEditSource" : "SearchAddSource");
+    // set here, not in page.html: the page names no address (a test keeps it so)
+    $("find-e-hint").textContent = T("SearchSourceUrlHint");
+    $("find-e-name").value = s ? s.name : "";
+    $("find-e-url").value = s ? s.url_redacted : "";
+    $("find-e-key").value = "";
+    $("find-e-key").placeholder = s && s.has_key ? T("SearchSourceKeyKept") : "";
+    $("find-e-enabled").checked = s ? s.enabled : true;
+    $("find-e-pass").value = "";
+    $("find-e-msg").textContent = "";
+    srcEditDlg.showModal();
+    layerOpened(closeSrcEdit);
+    $(s ? "find-e-name" : "find-e-url").focus();
+  }
+  function closeSrcEdit() {
+    if (srcEditDlg.open) srcEditDlg.close();
+    $("find-e-pass").value = "";
+  }
+  srcEditDlg.addEventListener("close", () => layerClosed(closeSrcEdit));
+  $("find-e-cancel").addEventListener("click", closeSrcEdit);
+  $("find-edit-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    const url = $("find-e-url").value.trim();
+    if (!url) {
+      $("find-e-msg").textContent = T("SearchNoUrl");
+      return;
+    }
+    const b = { name: $("find-e-name").value.trim(), enabled: $("find-e-enabled").checked };
+    const old = srcEditing >= 0 ? findModel.sources.find((s) => s.index === srcEditing) : null;
+    // the URL as shown has the key masked: unchanged, it is not sent
+    if (!old || url !== old.url_redacted) b.url = url;
+    const key = $("find-e-key").value.trim();
+    if (key) b.key = key;
+    const pass = $("find-e-pass").value;
+    if (pass) b.password = pass;
+    try {
+      if (old) await pa("search/source-edit", { index: old.index, ...b });
+      else srcPick = (await pa("search/source-add", b)).index;
+    } catch (e) {
+      $("find-e-msg").textContent = e.msg || "";
+      return;
+    }
+    closeSrcEdit();
+    findLoad();
   });
 
   // ---- Preferences (docs/WEBUI.md slice 6) -------------------------------------------------

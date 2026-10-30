@@ -40,6 +40,7 @@
     <button type="button" id="tb-seldone" class="only-phone" title="End the selection" data-t-title="WebEndSelection" data-t="WebDone" hidden>Done</button>
     <button type="button" id="tb-more" class="only-phone" title="More" aria-label="More" data-t-title="WebMore" data-t-aria="WebMore">&#8943;</button>
     <input id="search" type="search" placeholder="Search" data-t-ph="WebSearch" autocomplete="off" aria-label="Search torrents" data-t-aria="WebSearchTorrents">
+    <button type="button" id="tb-find" class="only-desk" title="Search Torrents" data-t-title="SearchTitle" data-t="SearchFind">Find</button>
     <button type="button" id="logout" class="only-desk" title="Log out" data-t-title="WebLogOut" data-t="WebLogOut">Log out</button>
     <input id="file" type="file" accept=".torrent,application/x-bittorrent" multiple hidden>
   </div>
@@ -257,6 +258,54 @@
         <label class="rss-sub"><input type="checkbox" id="rss-f-smart"> <span data-t="RssSmartAuto">Use smart episode filter</span></label>
       </fieldset>
       <div class="rss-ok"><span id="rss-f-msg" role="status"></span><button type="submit" data-t="BtnOk">OK</button><button type="button" id="rss-f-cancel" data-t="BtnCancel">Cancel</button></div>
+    </form>
+  </dialog>
+</dialog>
+<!-- the torrent search through Prowlarr or Jackett (app.js "the torrent search") -->
+<dialog id="find" aria-labelledby="find-title">
+  <div id="find-body">
+    <h2 id="find-title" data-t="SearchTitle">Search Torrents</h2>
+    <form id="find-form" class="find-bar">
+      <input id="find-q" type="search" placeholder="Search with Prowlarr or Jackett" data-t-ph="SearchQueryCue" autocomplete="off" aria-label="Search Torrents" data-t-aria="SearchTitle">
+      <select id="find-cat" aria-label="Category" data-t-aria="SearchColCategory"></select>
+      <select id="find-src" aria-label="Source" data-t-aria="SearchColSource"></select>
+      <button type="submit" id="find-go" data-t="WebSearch">Search</button>
+      <button type="button" id="find-stop" data-t="ToolStop">Stop</button>
+    </form>
+    <div id="find-status" class="find-status" role="status"></div>
+    <div class="rss-table find-table"><table id="find-results"></table></div>
+    <div class="rss-ok find-btns">
+      <span id="find-count"></span>
+      <span id="find-msg" role="status"></span>
+      <button type="button" id="find-add" data-t="WebAdd">Add</button>
+      <button type="button" id="find-manage" data-t="SearchManage">Manage Sources...</button>
+      <button type="button" id="find-close" data-t="BtnClose">Close</button>
+    </div>
+  </div>
+  <dialog id="find-sources" aria-labelledby="find-sources-title">
+    <div id="find-sources-body">
+      <h2 id="find-sources-title" data-t="SearchSourcesTitle">Search Sources</h2>
+      <div id="find-src-list" class="rss-list" role="listbox" aria-label="Search Sources" data-t-aria="SearchSourcesTitle"></div>
+      <div id="find-src-status" class="rss-status" role="status"></div>
+      <div class="rss-btns">
+        <button type="button" id="find-src-add" data-t="RssFeedsAdd">Add...</button>
+        <button type="button" id="find-src-edit" data-t="RssFeedsEdit">Edit...</button>
+        <button type="button" id="find-src-remove" data-t="RssFeedsRemove">Remove</button>
+        <button type="button" id="find-src-test" data-t="SearchTest">Test</button>
+      </div>
+      <div class="rss-ok"><button type="button" id="find-src-close" data-t="BtnClose">Close</button></div>
+    </div>
+  </dialog>
+  <dialog id="find-edit" aria-labelledby="find-edit-title">
+    <form id="find-edit-form">
+      <h2 id="find-edit-title" data-t="SearchAddSource">Add Search Source</h2>
+      <label class="rss-line"><span data-t="SearchSourceName">Name:</span><input id="find-e-name" autocomplete="off"></label>
+      <label class="rss-line"><span data-t="SearchSourceUrl">Torznab URL:</span><input id="find-e-url" autocomplete="off" inputmode="url" spellcheck="false"></label>
+      <p class="find-hint" id="find-e-hint"></p>
+      <label class="rss-line"><span data-t="SearchSourceKey">API key:</span><input id="find-e-key" type="password" autocomplete="off" spellcheck="false"></label>
+      <label class="find-check"><input type="checkbox" id="find-e-enabled"> <span data-t="SearchSourceEnabled">Search this source</span></label>
+      <label class="rss-line"><span data-t="WebSearchPassword">Current Web UI password:</span><input id="find-e-pass" type="password" autocomplete="current-password"></label>
+      <div class="rss-ok"><span id="find-e-msg" role="status"></span><button type="submit" data-t="BtnOk">OK</button><button type="button" id="find-e-cancel" data-t="BtnCancel">Cancel</button></div>
     </form>
   </dialog>
 </dialog>

@@ -30,6 +30,7 @@ pub mod path_policy;
 pub(crate) mod prefs;
 mod remote;
 pub(crate) mod rss;
+mod search;
 mod server;
 
 pub use rss::Rss;
@@ -513,6 +514,9 @@ pub(crate) struct State {
     pub pending_top: commands::PendingTop,
     /// Bumped when the RSS Downloader changed (`rss.rs`); a WebSocket `tick` carries it.
     pub rss_version: u64,
+    /// Bumped when the search's results or status, or the search sources, changed
+    /// (`search.rs`); a WebSocket `tick` carries it.
+    pub search_version: u64,
     /// Magnets added through the Add dialog, waiting for their metadata or for the user's
     /// choice (kept in `options`), and a version a `tick` carries as `adds`.
     pub awaiting: patorrent_frontend::add::AwaitingMetadata,
@@ -535,6 +539,9 @@ pub(crate) struct Shared {
     /// The RSS Downloader (hosted, the host's: [`Hosted::rss`]); its lock comes before the
     /// State lock, never after it.
     pub rss: Arc<Mutex<rss::Rss>>,
+    /// The torrent search (`search.rs`): one for the server, hosted too; its lock is never
+    /// held with the State lock.
+    pub(crate) search: Mutex<patorrent_frontend::search::Search>,
     /// The certificate when serving HTTPS.
     pub tls: Option<patorrent_core::tls::Identity>,
     /// The paths requests may name; fixed at start.
@@ -572,6 +579,10 @@ impl Shared {
 
     pub(crate) fn rss(&self) -> MutexGuard<'_, rss::Rss> {
         self.rss.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn search(&self) -> MutexGuard<'_, patorrent_frontend::search::Search> {
+        self.search.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// The desktop client hosting the Web UI, if one does ([`Config::hosted`]).
@@ -915,6 +926,7 @@ impl WebUi {
                 user_paused,
                 pending_top: HashSet::new(),
                 rss_version: 1,
+                search_version: 1,
                 awaiting,
                 adds_version: 1,
                 update: None,
@@ -931,6 +943,7 @@ impl WebUi {
                     config.state_dir.as_ref().map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
                 ))),
             },
+            search: Mutex::new(search::new_search()),
             tls: loaded.map(|l| l.identity),
             path_policy: path_policy::PathPolicy::new(config.save_roots.clone()),
             remotes: Mutex::new(Vec::new()),
@@ -1073,6 +1086,10 @@ impl WebUi {
         }
         st.options.apply_changes(changes);
         let mut other = false;
+        if changes.iter().any(|(k, _)| k.starts_with("search.")) {
+            // the host's search sources: an open search window reloads them
+            st.search_version += 1;
+        }
         for (key, value) in changes {
             if let Some(k) = key.strip_prefix("torrent.") {
                 if let Some(k) = k.strip_suffix(".label") {
@@ -1132,7 +1149,12 @@ impl WebUi {
     /// Feeds a batch of alerts popped from the session.
     pub fn on_alerts(&self, alerts: &[Alert]) {
         self.shared.fan_out(alerts);
+        // the search's answers, taken before the State lock (never held together)
+        let searched = search::collect(&self.shared);
         let mut st = self.shared.lock();
+        if searched {
+            st.search_version += 1;
+        }
         let mut replied = false;
         let mut ticked = false;
         let now = unix_now();
@@ -1591,6 +1613,7 @@ impl State {
             state_file: None,
             settings_dir,
             rss: Arc::new(Mutex::new(rss::Rss::load(None))),
+            search: Mutex::new(search::new_search()),
             tls: None,
             path_policy: path_policy::PathPolicy::default(),
             remotes: Mutex::new(Vec::new()),
@@ -1639,6 +1662,7 @@ impl State {
             user_paused: HashSet::new(),
             pending_top: HashSet::new(),
             rss_version: 1,
+            search_version: 1,
             awaiting: Default::default(),
             adds_version: 1,
             update: None,

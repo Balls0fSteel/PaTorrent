@@ -248,6 +248,31 @@ pub struct Category {
     pub subcats: Vec<Category>,
 }
 
+/// Newznab's main categories a search can be limited to, with their names in the current
+/// language (the search window's category list; "All categories" is the empty choice).
+pub fn main_categories() -> [(u32, &'static str); 6] {
+    [
+        (2000, crate::tr!(SearchCatMovies)),
+        (3000, crate::tr!(SearchCatAudio)),
+        (4000, crate::tr!(SearchCatPc)),
+        (5000, crate::tr!(SearchCatTv)),
+        (7000, crate::tr!(SearchCatBooks)),
+        (8000, crate::tr!(SearchCatOther)),
+    ]
+}
+
+/// A result's Category cell: the name of the main category of its first standard category
+/// (5040 TV/HD is "TV"); the number itself for one outside the list, empty for none.
+/// Indexer-specific numbers (100000 and up) are skipped.
+pub fn category_text(categories: &[u32]) -> String {
+    let Some(&c) = categories.iter().find(|&&c| c < 100_000) else { return String::new() };
+    let main = c / 1000 * 1000;
+    main_categories()
+        .iter()
+        .find(|(id, _)| *id == main)
+        .map_or_else(|| c.to_string(), |(_, n)| (*n).to_owned())
+}
+
 /// The `<categories>` of a caps answer, `<category id= name=>` with their `<subcat id= name=/>`;
 /// an error document is the error, and an answer without a `<caps>` root is not Torznab.
 pub fn parse_caps(data: &[u8]) -> Result<Vec<Category>, SearchError> {
@@ -563,5 +588,43 @@ mod tests {
             "http://localhost:9696/5/api?t=caps&apikey=k"
         );
         assert_eq!(with_query("http://h.example.org/x", &[("q", "")]), "http://h.example.org/x");
+    }
+
+    /// Answers captured from Prowlarr 2026-10-30 (its Generic Torznab indexer over the
+    /// `tools/arr-test` fakeznab; the key replaced by `APIKEY`).
+    #[test]
+    fn captured_prowlarr_answers() {
+        let r = parse_results(include_bytes!("fixtures/prowlarr-results.xml")).unwrap();
+        let names: Vec<&str> = r.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(
+            names,
+            [
+                "Fawlty.Towers.S01E01.720p.WEB-DL.x264-PATEST",
+                "Night.of.the.Living.Dead.1968.720p.WEB-DL.x264-PATEST",
+                "PaTorrent.Prowlarr.Grab.Test.x264-PATEST"
+            ]
+        );
+        let a = &r[0];
+        assert_eq!((a.size, a.seeders, a.peers), (Some(122_170_147), Some(25), Some(30)));
+        assert_eq!(a.info_hash, "58cebaa968651dc2a241c495719f2b6cbec33e32");
+        assert_eq!(a.categories, [5000, 105000, 5040, 105040]);
+        assert_eq!(category_text(&a.categories), "TV");
+        assert!(a.link.starts_with("http://localhost:9696/2/download?apikey=APIKEY&link="), "{}", a.link);
+        assert!(a.magnet.is_empty());
+        assert_eq!(a.published, Some(1_793_351_163));
+        let caps = parse_caps(include_bytes!("fixtures/prowlarr-caps.xml")).unwrap();
+        let ids: Vec<(u32, usize)> = caps.iter().map(|c| (c.id, c.subcats.len())).collect();
+        assert_eq!(ids, [(2000, 1), (5000, 1), (102000, 0), (102040, 0), (105000, 0), (105040, 0)]);
+        assert_eq!(caps[1].subcats[0].name, "TV/HD");
+    }
+
+    #[test]
+    fn category_cells() {
+        assert_eq!(category_text(&[5040, 5000]), "TV");
+        assert_eq!(category_text(&[100004, 4000]), "PC");
+        assert_eq!(category_text(&[6000]), "6000");
+        assert_eq!(category_text(&[100004]), "");
+        assert_eq!(category_text(&[]), "");
+        assert_eq!(main_categories()[0], (2000, "Movies"));
     }
 }

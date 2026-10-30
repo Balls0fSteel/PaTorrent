@@ -13,5 +13,7 @@ pub mod torznab;
 pub mod worker;
 
 pub use source::{Source, load_sources, redact, remove_source, store_sources};
-pub use torznab::{Category, SearchError, SearchResult, parse_caps, parse_results};
+pub use torznab::{
+    Category, SearchError, SearchResult, category_text, main_categories, parse_caps, parse_results,
+};
 pub use worker::{Query, Search, SearchSource, SourceStatus, fetch_caps, fetch_download, merge, proxy_for};

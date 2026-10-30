@@ -70,6 +70,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.1.7" date="2026-10-30" type="stable">
+      <description>
+        <p>Sonarr, Radarr and Prowlarr work with PaTorrent as their download client: seed limits arrive with each grab and Remove Completed removes finished torrents. Idle seeds keep counting their seeding time, adding a torrent brings the window forward, and a torrent added stopped reads Stopped.</p>
+      </description>
+    </release>
     <release version="1.1.2" date="2026-10-28" type="stable">
       <description>
         <p>The Windows GUI serves its own Web UI from Preferences, so a browser shows and drives that window's torrents. The daemon's Windows service command stores the Web UI login hashed and can replace and start an installed service in one step.</p>

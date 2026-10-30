@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_072342_1793345022
+Last updated: 2026-10-30_075652_1793347012
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -20,17 +20,23 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **1.0.1 was the first stable release** (2026-10-27, tag `v1.0.1` on `afce628b`, [release](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.1)): the full 1.0 scope (D19). `v1.0.0` (on `b40c2e58`) has no release (its build failed on the Flatpak metainfo, D34); rc.1 stays as a pre-release. The open Road to 1.0 hand checks continue as 1.0.x validation.
 - **1.1.0 is published, Latest** (2026-10-28 13:42 UTC, tag `v1.1.0` on `65a3d0ca`, [release](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.0); Release run 40695889139, 14 files, 126 MB; the site serves `stable=1.1.0`): V1.1 (D35, search box and importers), the security fixes, the Win32 hand-test fixes and the new icons; peer ID `-PA1011-`. Release text [docs/releases/1.1.0.md](docs/releases/1.1.0.md); see V1.1 below.
-- **1.1.2 drafted (2026-10-29_081713_1793258233):** the Windows GUI's own Web UI (D40) and nox's `service install` improvements, on top of 1.1.0; peer ID `-PA1011-` unchanged. Tag `v1.1.2` on `8b2546b4`, Release run 40833738936 green, draft open (14 files, 120 MB), awaiting the owner's go-ahead to publish. Release text [docs/releases/1.1.2.md](docs/releases/1.1.2.md).
-- **The Windows GUI serves its own Web UI (1.1.2, D40, 2026-10-28_174137_1793205697):** Preferences > Web UI starts nox's Web UI server inside `patorrent.exe` over the window's engine, as µTorrent and qBittorrent do; the page shows this window's torrents, the login and port are `webui.*` keys in `patorrent.ini`, and the preferences are mirrored both ways (labels, pause marks, settings) through a change journal. D39's service-driving page (1.1.1) is superseded; nox's `service install --replace --now` and hashed login stay. Hand checks and what hosted mode lacks (RSS, alternative limits) are in [BACKLOG](docs/BACKLOG.md#automation-and-daemon-operations).
-- **Benchmarks against other clients** (2026-10-27): `tools/bench`, [BENCHMARKS.md](docs/BENCHMARKS.md) and the site's Benchmarks page, from 1.0.1 on the Xubuntu VM. 10,000 torrents after a restart: 60 MB vs qBittorrent 612 MB; one-peer download 3,592 MiB/s at 1.04 CPU s/GiB. Live on the website since `b83d28f0` (Pages run 40509213942).
-- Latest Win32 changes (2026-10-23): Add New Torrent uses the resizable one-column layout, separate Save In / Name fields, a remembered size and "Don't show this again"; dialogs use the system message font (Segoe UI 9 pt here). They are tested but not yet in a refreshed hand-test set. See the recent [changelog](CHANGELOG.md).
-- Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), Windows built locally and Linux / Windows artifacts from Release `39950546995`. It carries the full-row selection, routed-interface UPnP and connected-peer-list fixes, but predates the latest dialog changes. Older sets remain in `dist/1.0-test-ad714b1/` and `dist/1.0-test/`. The first set's Linux binaries/AppImages passed a command-line smoke check; later sets were not desktop-smoked, and Flatpak was not installed.
+- **1.1.7 being released (2026-10-30)** in place of the 1.1.2 draft (tag `v1.1.2` on `8b2546b4`, never published), release text [docs/releases/1.1.7.md](docs/releases/1.1.7.md). It adds the Windows GUI's own Web UI (D40: nox's server inside `patorrent.exe`, prefs mirrored both ways through a change journal; D39 superseded), nox's hashed service login and `--replace --now`, and 1.1.3-1.1.7. Hosted-mode hand checks and gaps are in [BACKLOG](docs/BACKLOG.md#automation-and-daemon-operations).
+- **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
+- Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored). It predates the 2026-10-23 dialog changes (the resizable Add dialog and the system message font), which are tested but not yet hand-tested from a refreshed set. Linux binaries were smoke-checked on the command line only.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
 - 1.0.1 added the version in titles and resources, the update check (D32), the installer (D31) and the website with `update.txt` (D33, [WEBSITE.md](docs/WEBSITE.md)); the check was verified end to end with rc.1.
 - Verdigris (`01`) is provisionally integrated in the application and packaging through `assets/patina-icons/app-icon.txt`; the owner's final brand choice remains open. The candidate gallery is in `assets/patina-icons/`.
 
 ## Next steps
+
+**Feature order chosen by the owner (2026-10-30_075652_1793347012):**
+
+- **A.** Release `main` as 1.1.7, replacing the unpublished 1.1.2 draft (`docs/releases/1.1.7.md`).
+- **B.** Small fixes: the installer built in `ci.yml`; the hosted window's `seed_*` changes reaching `sync/maindata`; a category's `savePath` used on add; hosted empty categories kept; a Server domains field in Win32 Preferences > Web UI; a Bearer API key and a subnet whitelist in the shim; tags accepted as no-ops; a nox update check.
+- **C.** Alternative speed limits in the Win32 GUI (ask the owner first: 2.2.1 has no toggle) and RSS in hosted mode; optionally a GTK hosting page.
+- **D.** Torznab search (D41, approved with the rule that a source on a non-public address bypasses the proxy), in the slices of [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2.
+- **E.** A V2.0 profiles and portable-mode design (`docs/PROFILES.md`, proposed D42); no code before the owner approves it.
 
 0. **Owner hand-test findings (2026-10-27):** fixed on `main` 2026-10-28_075806_1793170686 (scheduler flicker and colours, stale speed on stopped rows, blank rows, alternating rows, hotkeys with menu labels, redrawn toolbar/checking icons, version 1.0.2 with `-dev.<commit>` test-build strings, D37). The owner re-tests them on a fresh Win32 build, which also has the category, tab, Preferences and menu icons (1.0.7, with artwork revision 8; GTK's navigation icons need a Linux look, [BACKLOG](docs/BACKLOG.md#ui-icon-coverage-audit-2026-10-28_090116_1793174476)); what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
 1. **After 1.0.1:** confirm the website serves `stable=1.0.1` in `update.txt` (the Pages deploy finished; the CDN caches 10 min) and that an rc.1 build offers the update. 1.0.1 is the installer's first release: run its wizard and the all-users UAC path once on a real PC. Register `PA` with the client-ID lists (item 14).
@@ -39,7 +45,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 5. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
 6. **Security fixes** (reviewed 2026-10-27_132153_1793107313; all done 2026-10-27_212434_1793132674): every audit finding is Fixed or Ruled out; what stays is accepted and named in its Resolution notes. The owner accepted the named remainders (2026-10-27_214505_1793133905). The audit is kept out of the public repo (owner, 2026-10-27): the tracked [SECURITY.md](SECURITY.md) is the policy only, the full audit is the untracked `SECURITY-AUDIT.md` (in `.git/info/exclude`). Linux tests, a portable `--shell` run and Open Folder's shell path passed; macOS CI is the check for the Secure Transport revocation path. Machine translations needing native review: `RemotePlaintext`, `ForwardRefused`, `PrefCurrentPassword`, `PrefNeedCurrentPassword`. The remote protocol is now 9 (SEC-12): a GUI and nox must both be current.
-7. **Sonarr/Radarr/Prowlarr and Torznab search** (chosen by the owner 2026-10-29_161749_1793287069): the shim audit and search design are in [INTEGRATIONS.md](docs/INTEGRATIONS.md). Gaps 1-2 (share limits on add, seed limits for Remove Completed) are fixed in 1.1.3 (2026-10-29_162347_1793287427, unreleased). Gap 3: the Host check stays strict, its 400 names the setting (1.1.4). Real Sonarr, Radarr and Prowlarr passed against nox on the Xubuntu VM (`tools/arr-test`); the run found idle seeds' frozen seeding time, fixed in the engine (1.1.5). The hosted Web UI on Windows takes the same paths (read through and tested, 1.1.6, which fixed its `removeCategories`); the live run against `patorrent.exe` passed too (2026-10-29, VM over a bridged LAN). Still open: a magnet grab with real peers, "First" priority / Force Start. Torznab search waits for D41. Unreleased since 1.1.2: 1.1.3-1.1.7 (1.1.7: the window activates on add, "Activate the program window"; a torrent added stopped reads Stopped, 2026-10-30_072342_1793345022).
+7. **Sonarr/Radarr/Prowlarr** ([INTEGRATIONS.md](docs/INTEGRATIONS.md) part 1): gaps 1-3 are fixed or decided (1.1.3-1.1.4). Real apps passed against nox and against `patorrent.exe`'s hosted Web UI (2026-10-29, `tools/arr-test`); those runs led to the 1.1.5 and 1.1.6 fixes. Still open: a magnet grab with real peers, and "First" priority / Force Start. Torznab search is item D above.
 8. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
 
 ## Road to 1.0
@@ -77,11 +83,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 
 ## V1.1
 
-Scope D35 (search box, importers; plugin hooks moved to V2.0). Implemented 2026-10-27_112013_1793096413, unreleased; details in the [changelog](CHANGELOG.md) and open follow-ups in [BACKLOG.md](docs/BACKLOG.md#v11-importers-search-and-hooks).
-
-- Done: the name search (model, Win32 toolbar box, GTK `SearchEntry`, Web UI); File > Import from qBittorrent / µTorrent in both GUIs and `nox run --import`, with labels and statistics (pieces checked, D36); 15 new strings in all 34 tables.
-- To check by hand: the Win32 box at 100-200% DPI, its focus keys, and the import dialogs; the GTK entry and import flow on Linux; importing a stopped, a paused and a force-started µTorrent torrent to confirm the `started` mapping (0 stopped, 1 forced, 2 started, 3 paused is inferred); native review of the new translations (ar/fa/he mnemonics).
-- Release as 1.1.0 once those pass; bump the version; the peer ID changes only with an engine change (D37).
+Released in 1.1.0 (D35: the name search, and importers from qBittorrent / µTorrent with D36). Hand checks are still open: the Win32 box at 100-200% DPI and its keys, the import dialogs in both GUIs, the µTorrent `started` mapping, and native review of the new strings. See [BACKLOG.md](docs/BACKLOG.md#v11-importers-search-and-hooks).
 
 ## V2.0 goals
 

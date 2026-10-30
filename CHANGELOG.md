@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_075652_1793347012: 1.1.7 release prepared; next features planned
+
+- **Release (owner, 2026-10-30):** release `main` as 1.1.7 in place of the unpublished 1.1.2 draft. New `docs/releases/1.1.7.md` covers everything since 1.1.0: the hosted Web UI, the service login, the *arr fixes (1.1.3-1.1.6), activate on add and Stopped on add. There is a 1.1.7 `<release>` in the Flatpak metainfo. No program change, so no version bump.
+- **Plan (owner chose all four areas):** release first; then the small shim, ops and hosted fixes; then the hosted Web UI's alternative limits and RSS; then Torznab search (D41) with local sources bypassing the proxy; and a V2.0 profiles and portable design. Details are in [PLAN.md](PLAN.md) Next steps.
+
 ## 2026-10-30_072342_1793345022: Adding a torrent activates the window; a torrent added stopped reads Stopped (1.1.7)
 
 - **Bug (owner):** opening a `.torrent` or magnet while PaTorrent ran left its window behind. The running instance did call `SetForegroundWindow`, but Windows' foreground lock refuses a background process; the second instance (started by the user's click) now hands its right over with `AllowSetForegroundWindow` before forwarding. µTorrent 2.2.1 has this as UI Settings > When Adding Torrents > "Activate the program window" (on by default); PaTorrent gains it as `ui.activate_on_add` (Win32 and GTK Preferences, shared `pref_pages`). Off, only the Add New Torrent dialog comes up, which now raises itself. The Web UI keeps a host's value and does not show it.

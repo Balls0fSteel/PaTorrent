@@ -715,6 +715,9 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             } else if !exists {
                 return Response::text(409, "no such category");
             }
+            if st.hosted {
+                st.options.set(&super::category_key(&name), &save_path);
+            }
             st.categories.insert(name, save_path);
             st.categories_version += 1;
             shared.save(&mut st);
@@ -726,6 +729,9 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
                 p.get("categories").unwrap_or("").split('\n').map(|s| s.trim().to_owned()).collect();
             for n in &names {
                 st.categories.remove(n);
+                if st.hosted {
+                    st.options.remove(&super::category_key(n));
+                }
             }
             let cleared: Vec<String> = st
                 .torrent_categories
@@ -756,6 +762,11 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             }
         }
         "torrents/tags" => Response::json(&Json::Arr(Vec::new())),
+        // µTorrent has no tags: accepted and dropped, so a Sonarr with series tags does not log
+        // a failure at every grab (docs/INTEGRATIONS.md gap 5); the list stays empty
+        "torrents/addTags" | "torrents/removeTags" | "torrents/createTags" | "torrents/deleteTags" => {
+            Response::ok()
+        }
         e if e.starts_with("rss/") => {
             let e = &e["rss/".len()..];
             if shared.is_hosted() {
@@ -1632,10 +1643,19 @@ fn add(shared: &Shared, p: &Params) -> Response {
     } else {
         None
     };
+    let category = if valid_category(category) { category } else { "" };
+    // Without its own folder an add goes to its category's (qBittorrent does that under
+    // automatic management, which an explicit `autoTMM=false` turns off).
+    let save = p.get("savepath").map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned).or_else(|| {
+        if category.is_empty() || p.get("autoTMM").is_some_and(|v| v.eq_ignore_ascii_case("false")) {
+            return None;
+        }
+        shared.lock().categories.get(category).filter(|s| !s.is_empty()).cloned()
+    });
     let o = AddOptions {
-        save: p.get("savepath").map(str::trim).filter(|s| !s.is_empty()).map(str::to_owned),
+        save,
         name: p.get("rename").map(str::trim).filter(|r| !r.is_empty()).map(str::to_owned),
-        label: if valid_category(category) { category.to_owned() } else { String::new() },
+        label: category.to_owned(),
         start,
         skip_check: p.flag("skip_checking"),
         top: false,

@@ -498,6 +498,20 @@ pub(crate) struct Shared {
     pub(crate) host: Option<Arc<dyn Host>>,
 }
 
+/// Hosted, a category is the host's `webui.category.<name>` key (its save folder as the value),
+/// so one that no torrent uses yet survives a restart. `%` and `=` in the name are escaped:
+/// the preferences file is `key=value` lines.
+const CATEGORY_KEY: &str = "webui.category.";
+
+pub(crate) fn category_key(name: &str) -> String {
+    format!("{CATEGORY_KEY}{}", name.replace('%', "%25").replace('=', "%3D"))
+}
+
+fn category_from_key(key: &str) -> Option<String> {
+    let name = key.strip_prefix(CATEGORY_KEY)?.replace("%3D", "=").replace("%25", "%");
+    (!name.is_empty()).then_some(name)
+}
+
 pub fn unix_now() -> i64 {
     SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs() as i64)
 }
@@ -764,6 +778,8 @@ impl WebUi {
                 for (k, v) in o.entries() {
                     if k.starts_with("torrent.") && k.ends_with(".label") && !v.is_empty() {
                         categories.entry(v.to_owned()).or_default();
+                    } else if let Some(name) = category_from_key(k) {
+                        categories.insert(name, v.to_owned());
                     }
                 }
                 o
@@ -1021,8 +1037,15 @@ impl WebUi {
                         continue;
                     };
                     st.paused_cached(&hash, value.as_deref() == Some("1"));
+                } else if let Some(k) = k.strip_suffix(".seed_ratio").or_else(|| k.strip_suffix(".seed_time"))
+                {
+                    // the override is read from `options`; `sync/maindata` resends the torrent's
+                    // `ratio_limit` / `seeding_time_limit` only when its version moves
+                    let hash = st.by_key.get(k).and_then(|id| st.torrents.get(id)).map(|e| e.hash.clone());
+                    if let Some(hash) = hash {
+                        st.touch(&hash);
+                    }
                 }
-                // a seeding goal override is read from `options` when needed
                 continue;
             }
             match key.as_str() {

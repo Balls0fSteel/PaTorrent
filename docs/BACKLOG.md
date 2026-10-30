@@ -386,11 +386,13 @@ That broad check does not establish that every detailed case below was tried.
   alternative speed limits (the shim's `speedLimitsMode` answers 0), and a magnet
   added from the browser without metadata survives a window restart only in the
   window's Add dialog. The `--webui` daemon-only paths (`webui.json`) are
-  unchanged. Hosted, a created category that no torrent uses yet is lost when the Web UI
-  restarts (categories are rebuilt from `torrent.*.label`); a category's `savePath` is never used
-  for adds (nox too); the domain list (`webui.domain_list`) has no field in the Win32 page (an IP
-  address or the browser's Preferences works); a window-side `seed_*` change does not resend
-  the torrent in `sync/maindata`. GTK has no hosting page yet; the host side is in
+  unchanged. Fixed in 1.1.8:
+  - a created category that no torrent uses yet is kept as the host's `webui.category.<name>` key;
+  - an add without a folder takes its category's `savePath` (both modes);
+  - a window-side `seed_*` change resends the torrent in `sync/maindata`.
+
+  Still open: the domain list (`webui.domain_list`) has no field in the Win32 page; an IP address
+  or the browser's Preferences works meanwhile. GTK has no hosting page yet; the host side is in
   `crates/win32/src/webui_host.rs` and could move to `frontend`. The
   `patorrent-nox service` improvements of 1.1.1 (`--replace`, `--now`, the
   hashed login) stay for the daemon; its UAC path is still a hand check.

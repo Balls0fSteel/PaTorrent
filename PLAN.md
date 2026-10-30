@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_083153_1793349113
+Last updated: 2026-10-30_085028_1793350228
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -33,7 +33,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 **Feature order chosen by the owner (2026-10-30_075652_1793347012):**
 
 - **A.** Done: 1.1.7 is published (2026-10-30).
-- **B.** Small fixes: the installer built in `ci.yml` (done, not yet run on GitHub); the hosted window's `seed_*` changes reaching `sync/maindata`; a category's `savePath` used on add; hosted empty categories kept; a Server domains field in Win32 Preferences > Web UI; a Bearer API key and a subnet whitelist in the shim; tags accepted as no-ops; a nox update check.
+- **B.** Small fixes. Done in 1.1.8: the hosted window's `seed_*` changes reach `sync/maindata`, a category's `savePath` is used on add, hosted unused categories are kept, and tags are accepted as no-ops. The installer is built in `ci.yml`. Left: a Server domains field in Win32 Preferences > Web UI, a Bearer API key and a subnet whitelist in the shim, and a nox update check.
 - **C.** Alternative speed limits in the Win32 GUI (ask the owner first: 2.2.1 has no toggle) and RSS in hosted mode; optionally a GTK hosting page.
 - **D.** Torznab search (D41, approved with the rule that a source on a non-public address bypasses the proxy), in the slices of [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2.
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.

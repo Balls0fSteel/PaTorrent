@@ -3084,11 +3084,43 @@ fn the_arr_apps_share_limits_round_trip() {
     assert_eq!(set("ratioLimit=-2&seedingTimeLimit=-2"), 200);
     assert_eq!(limits(&first(info())), (-2.0, -2.0), "the global limits apply");
 
+    // tags (Sonarr's series tags): accepted and dropped
+    for e in ["addTags", "removeTags", "createTags", "deleteTags"] {
+        let r = t.post(&sid, &format!("/api/v2/torrents/{e}"), &format!("hashes={hash}&tags=tv"));
+        assert_eq!(r.status, 200, "{e}");
+    }
+    assert_eq!(t.get(&sid, "/api/v2/torrents/tags").text(), "[]");
+
     // a goal that caps the upload keeps seeding: no limit the *arr could wait for
     let r = t.pa(&sid, "/pa/prefs", r#"{"queue.seed_limit":true,"queue.seed_limit_kib":5}"#);
     assert_eq!(r.status, 204, "{}", r.text());
     let p = t.get(&sid, "/api/v2/app/preferences").json();
     assert_eq!(p.get("max_ratio_enabled").and_then(Json::as_bool), Some(false));
+}
+
+/// An add without a folder goes to its category's (`createCategory`'s `savePath`), unless it
+/// turns automatic management off; its own `savepath` always wins.
+#[test]
+fn an_add_without_a_folder_takes_its_categorys() {
+    let t = Harness::start("category-path");
+    let sid = t.login();
+    let films = t.dir.join("films").to_string_lossy().into_owned();
+    let form = format!("category=films&savePath={}", enc(&films));
+    assert_eq!(t.post(&sid, "/api/v2/torrents/createCategory", &form).status, 200);
+    let add = |name: &str, extra: &[(&str, &str)]| {
+        let (bytes, hash) = torrent_named(name, None);
+        let mut fields = vec![("stopped", "true"), ("category", "films")];
+        fields.extend_from_slice(extra);
+        let (body, boundary) = multipart(&fields, &bytes);
+        let r = t.req("POST", "/api/v2/torrents/add", &[("Cookie", &sid)], Body::Multipart(&body, boundary));
+        assert_eq!((r.status, r.text()), (200, "Ok.".to_owned()));
+        let x = t.wait_for(&sid, &hash, name, |x| s(x.get("name")) == name);
+        s(x.get("save_path")).to_owned()
+    };
+    assert!(add("cat-auto", &[]).contains("films"));
+    assert!(!add("cat-manual", &[("autoTMM", "false")]).contains("films"));
+    let own = t.dir.join("own").to_string_lossy().into_owned();
+    assert!(add("cat-own", &[("savepath", &own)]).ends_with("own"));
 }
 
 /// A BEP 15 tracker that answers connects, and scrapes with 17 seeds and 23 peers for every

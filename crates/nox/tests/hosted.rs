@@ -637,6 +637,29 @@ fn the_login_and_labels_come_from_the_hosts_options_and_nothing_is_written() {
     assert!(!t.dir.join("state").exists());
 }
 
+/// A category no torrent uses yet (an *arr's Test creates one) is the host's
+/// `webui.category.<name>` key, so the next start lists it again; removing it drops the key.
+#[test]
+fn an_unused_category_survives_a_restart() {
+    let t = Harness::start("unused-category", Prefs::default(), Some(PASS));
+    let sid = t.login();
+    let form = "category=tv%3Dsonarr&savePath=%2Fsrv%2Ftv";
+    assert_eq!(t.post(&sid, "/api/v2/torrents/createCategory", form).status, 200);
+    let key = "webui.category.tv%3Dsonarr";
+    assert_eq!(t.host.value_of(key), Some(Some("/srv/tv".to_owned())));
+
+    let mut options = options_with_login("admin", PASS);
+    options.set(key, "/srv/tv");
+    let t2 = Harness::start("unused-category-again", options, None);
+    let sid2 = t2.login();
+    let cats = t2.get(&sid2, "/api/v2/torrents/categories").json();
+    let tv = cats.get("tv=sonarr").unwrap_or_else(|| panic!("{}", cats.to_json()));
+    assert_eq!(s(tv.get("savePath")), "/srv/tv");
+
+    assert_eq!(t.post(&sid, "/api/v2/torrents/removeCategories", "categories=tv%3Dsonarr").status, 200);
+    assert_eq!(t.host.value_of(key), Some(None));
+}
+
 // ---- Sonarr, Radarr and Prowlarr ------------------------------------------------------------
 
 /// What the *arr apps do (docs/INTEGRATIONS.md part 1) against the GUI's hosted Web UI: the
@@ -688,6 +711,14 @@ fn the_arr_apps_limits_and_categories_are_the_hosts_keys() {
         limits(&first(&t.get(&sid, &format!("/api/v2/torrents/info?hashes={hash}")).json())),
         (-1.0, 90.0)
     );
+
+    // the window changes the goal (Properties): `sync/maindata` resends the torrent's limits
+    let maindata = |rid: i64| t.get(&sid, &format!("/api/v2/sync/maindata?rid={rid}")).json();
+    let rid = maindata(0).get("rid").and_then(Json::as_i64).unwrap();
+    t.web.options_changed(&[(format!("torrent.{hash}.seed_time"), Some("15".to_owned()))]);
+    let d = maindata(rid);
+    let x = d.get("torrents").and_then(|m| m.get(hash)).unwrap_or_else(|| panic!("{}", d.to_json()));
+    assert_eq!(num(x.get("seeding_time_limit")), 15.0, "{}", d.to_json());
 
     // removing the category drops the window's label too, so it does not come back
     t.host.clear();

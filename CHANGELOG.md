@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_085028_1793350228: Shim and hosted Web UI fixes: categories, seed limits, tags (1.1.8)
+
+- **Category folder on add (both modes):** a `torrents/add` without `savepath` saves to its category's `savePath`, as qBittorrent does under automatic management. `autoTMM=false` turns this off, and an explicit `savepath` always wins.
+- **Hosted categories survive a restart:** a category is also the host's `webui.category.<name>` key (`%` and `=` escaped), with the folder as its value. A category that no torrent uses yet (an *arr's Test creates one) is therefore listed again at the next start. Removing the category removes the key.
+- **Hosted seed limits resent:** a seeding-goal change made in the window (`torrent.<key>.seed_ratio` / `.seed_time`) bumps the torrent's version, so `sync/maindata` resends its `ratio_limit` / `seeding_time_limit`.
+- **Tags:** `addTags`, `removeTags`, `createTags` and `deleteTags` answer 200 and do nothing, so Sonarr stops logging a warning per grab (INTEGRATIONS.md gap 5).
+- **Tests:** new `an_add_without_a_folder_takes_its_categorys` (webui) and `an_unused_category_survives_a_restart` (hosted); the hosted *arr test checks the resend (it fails without the fix), and the *arr shim test covers the tag endpoints. All nox tests pass; clippy and fmt are clean. Version 1.1.8; the peer ID is unchanged.
+
 ## 2026-10-30_083153_1793349113: 1.1.7 published; the 1.1.2 draft deleted
 
 - **Release:** tag `v1.1.7` on `f7ed2f40`. Release run 41023963735 passed in 11 min with 14 files; every file matched `SHA256SUMS`, and the zip's `patorrent-nox --version` printed 1.1.7. CI, Fuzz and FreeBSD passed on the same commit. The release was published as Latest with the owner's go-ahead.

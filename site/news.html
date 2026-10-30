@@ -1,0 +1,145 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>PaTorrent news</title>
+<meta name="description" content="What changed in each PaTorrent release, newest first, in short: new features, fixes and what to know before updating.">
+<meta name="color-scheme" content="light dark">
+<meta name="theme-color" content="#004540">
+<link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="img/icon-16.png">
+<link rel="apple-touch-icon" href="img/icon-256.png">
+<link rel="alternate" type="application/atom+xml" title="PaTorrent news" href="news.atom">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+<header class="topbar">
+  <div class="wrap topbar-in">
+    <a class="brand" href="./"><img src="img/icon-32.png" srcset="img/icon-64.png 2x" width="32" height="32" alt=""> PaTorrent</a>
+    <nav aria-label="Main">
+      <ul class="toolbar">
+        <li><a href="download.html"><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-download"/></svg>Download</a></li>
+        <li><a href="news.html" aria-current="page"><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-rss"/></svg>News</a></li>
+        <li><a href="faq.html"><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-help"/></svg>FAQ</a></li>
+        <li><a href="benchmarks.html"><svg class="ico ico-orange" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-speed"/></svg>Benchmarks</a></li>
+        <li><a href="docs.html"><svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Docs</a></li>
+        <li><a class="ext" href="https://github.com/Balls0fSteel/PaTorrent">GitHub</a></li>
+      </ul>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <div class="page-head">
+    <div class="wrap narrow">
+      <h1>News</h1>
+      <p>What changed in each release, newest first and in short. Each entry links to the full release notes.</p>
+      <p class="feed-line"><a href="news.atom"><svg class="ico ico-sm" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-rss"/></svg>Atom feed</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/releases">All releases on GitHub</a></p>
+    </div>
+  </div>
+
+  <div class="wrap narrow">
+    <!-- Newest first. site/build.py makes news.atom and the home page's latest-news line from
+         these articles: keep the id, data-date, news-title and news-lede (docs/WEBSITE.md). -->
+
+    <article class="news-entry" id="v1.1.17" data-date="2026-10-30" aria-labelledby="v1.1.17-h">
+      <h2 id="v1.1.17-h"><a href="#v1.1.17"><time datetime="2026-10-30">Fri 30 Oct 2026</time> — <span class="news-title">PaTorrent 1.1.17</span></a></h2>
+      <p class="news-lede">Torrent search through your own Prowlarr or Jackett, in both GUIs and the Web UI. The Windows GUI's Web UI gains the RSS Downloader, and <code>patorrent-nox</code> now checks for updates too.</p>
+      <ul class="changes">
+        <li><span class="tag tag-area">Search</span><span class="vh">:</span> <span>Search for torrents through the Prowlarr or Jackett you already run (Torznab). PaTorrent has no search plugins or site scrapers of its own, so nothing breaks when a site changes.</span></li>
+        <li><span class="tag tag-plat">Windows</span><span class="vh">:</span> <span>The arrow beside the toolbar's search box picks a source or All sources; Enter opens Search Torrents, where results can be sorted and added.</span></li>
+        <li><span class="tag tag-plat">GTK</span><span class="vh">:</span> <span>The menu beside the search box does the same on Linux, BSD and macOS.</span></li>
+        <li><span class="tag tag-area">Web UI</span><span class="vh">:</span> <span>A Find button beside the filter box opens the same search.</span></li>
+        <li><span class="tag tag-area">Search</span><span class="vh">:</span> <span>Manage Sources adds, edits, tests and switches sources. API keys are stored encrypted on Windows. A source on this computer or your local network is reached directly; a public one goes through your proxy, if you set one.</span></li>
+        <li><span class="tag tag-area">RSS</span><span class="vh">:</span> <span>The Windows GUI's Web UI has the RSS Downloader: it edits the window's own feeds and filters.</span></li>
+        <li><span class="tag tag-sec">Security</span><span class="vh">:</span> <span>For Sonarr, Radarr and Prowlarr: an optional API key and an optional list of subnets that need no login (Web UI Preferences &gt; Authentication). Both are off by default and need the current password to change.</span></li>
+        <li><span class="tag tag-area">*arr</span><span class="vh">:</span> <span>An add without a folder goes to its category's folder; in the Windows GUI's Web UI, unused categories survive a restart; tags are accepted and ignored, so the apps stop logging warnings.</span></li>
+        <li><span class="tag tag-plat">Windows</span><span class="vh">:</span> <span>Preferences &gt; Web UI has a Server domains field, for apps that reach PaTorrent by a host name.</span></li>
+        <li><span class="tag tag-area">Daemon</span><span class="vh">:</span> <span><code>patorrent-nox</code> checks for a newer release like the GUIs: it prints a line and shows a link in the Web UI. <code>--no-update-check</code> or the Web UI's General &gt; Privacy turns it off.</span></li>
+      </ul>
+      <p class="news-note">Settings and torrents from 1.1.x carry over unchanged.</p>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.17">Download 1.1.17 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.1.17.md">Full release notes</a></p>
+    </article>
+
+    <article class="news-entry" id="v1.1.7" data-date="2026-10-30" aria-labelledby="v1.1.7-h">
+      <h2 id="v1.1.7-h"><a href="#v1.1.7"><time datetime="2026-10-30">Fri 30 Oct 2026</time> — <span class="news-title">PaTorrent 1.1.7</span></a></h2>
+      <p class="news-lede">The Windows GUI serves a Web UI of its own, and PaTorrent works as a download client for Sonarr, Radarr and Prowlarr.</p>
+      <ul class="changes">
+        <li><span class="tag tag-area">Web UI</span><span class="vh">:</span> <span>Preferences &gt; Web UI in the Windows GUI serves the same Web UI as <code>patorrent-nox</code>, over that window's torrents. It is off by default; the password is stored hashed, and HTTPS with a self-signed certificate is one tick.</span></li>
+        <li><span class="tag tag-area">Web UI</span><span class="vh">:</span> <span>From the browser: add, start, stop, pause, label and remove torrents, and change the rate limits and most preferences. Changes show in the window within a second, and the other way round.</span></li>
+        <li><span class="tag tag-area">*arr</span><span class="vh">:</span> <span>The seed ratio and seed time an indexer sends with a grab become that torrent's seeding goal.</span></li>
+        <li><span class="tag tag-area">*arr</span><span class="vh">:</span> <span>The limits are reported back, so the apps' Remove Completed removes a torrent once PaTorrent has stopped it.</span></li>
+        <li><span class="tag tag-fix">Fix</span><span class="vh">:</span> <span>A refused host name now gets an error that says how to allow it: Preferences &gt; Web UI &gt; Server domains.</span></li>
+        <li><span class="tag tag-fix">Fix</span><span class="vh">:</span> <span>A seed without peers keeps counting its seeding time, so a time-based seeding goal stops it on time.</span></li>
+        <li><span class="tag tag-plat">Windows</span><span class="vh">:</span> <span>Opening a <code>.torrent</code> or magnet while PaTorrent runs brings its window forward (on by default). A torrent added stopped reads Stopped.</span></li>
+        <li><span class="tag tag-sec">Security</span><span class="vh">:</span> <span><code>patorrent-nox service install</code> on Windows stores the Web UI login hashed, no longer on the service's command line, which every local user could read. <code>--replace</code> and <code>--now</code> make a changed setup one command.</span></li>
+      </ul>
+      <p class="news-note">1.1.2 was prepared but never published; its changes are in 1.1.7.</p>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.7">Download 1.1.7 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.1.7.md">Full release notes</a></p>
+    </article>
+
+    <article class="news-entry" id="v1.1.0" data-date="2026-10-28" aria-labelledby="v1.1.0-h">
+      <h2 id="v1.1.0-h"><a href="#v1.1.0"><time datetime="2026-10-28">Wed 28 Oct 2026</time> — <span class="news-title">PaTorrent 1.1.0</span></a></h2>
+      <p class="news-lede">A search box, importers from qBittorrent and µTorrent, and fixes across the engine, the Web UI and remote mode after a security review of the whole code base.</p>
+      <ul class="changes">
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>A search box in the toolbar filters the torrent list by name as you type; Ctrl+F jumps to it.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>File &gt; Import adds the torrents of qBittorrent (<code>BT_backup</code>) or µTorrent (<code>resume.dat</code>) with their save folders, labels and settings, and checks the files again. <code>patorrent-nox run --import</code> does the same.</span></li>
+        <li><span class="tag tag-sec">Security</span><span class="vh">:</span> <span>The DHT ignores replies it did not ask for, no peer connections go to ports below 1024, and feeds and redirects cannot reach your local network unless you added that address yourself.</span></li>
+        <li><span class="tag tag-sec">Security</span><span class="vh">:</span> <span>HTTPS needs TLS 1.2 and refuses revoked certificates. The Web UI limits connections before login, bans per client and asks for the current password before its security settings change.</span></li>
+        <li><span class="tag tag-sec">Security</span><span class="vh">:</span> <span>The GUIs connect to a <code>patorrent-nox</code> over HTTPS by default; plain HTTP to another computer needs your agreement first.</span></li>
+        <li><span class="tag tag-fix">Fix</span><span class="vh">:</span> <span>Windows: stopped torrents no longer show their last speed, rows no longer go blank after hovering or Select All, and the scheduler grid no longer flickers.</span></li>
+        <li><span class="tag tag-plat">Windows</span><span class="vh">:</span> <span>Alternating row shading, and Ctrl+S, Ctrl+T, Ctrl+Shift+P and Enter for Start, Stop, Pause and Properties.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>Icons beside the category list, the detail tabs and the Preferences pages (Windows and GTK), and beside the Windows menu commands.</span></li>
+      </ul>
+      <p class="news-note"><strong>Update both sides for remote mode:</strong> the remote protocol changed, so a GUI and a <code>patorrent-nox</code> must both be 1.1.0 or newer to work together.</p>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.0">Download 1.1.0 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.1.0.md">Full release notes</a></p>
+    </article>
+
+    <article class="news-entry" id="v1.0.1" data-date="2026-10-27" aria-labelledby="v1.0.1-h">
+      <h2 id="v1.0.1-h"><a href="#v1.0.1"><time datetime="2026-10-27">Tue 27 Oct 2026</time> — <span class="news-title">PaTorrent 1.0.1</span></a></h2>
+      <p class="news-lede">The first stable release, with a Windows installer and an update check that only tells.</p>
+      <ul class="changes">
+        <li><span class="tag tag-plat">Windows</span><span class="vh">:</span> <span>An installer beside the portable zip: for you alone or for all users, with a Start menu entry, <code>.torrent</code> and magnet associations, in-place upgrades and an uninstaller that keeps your settings unless you ask.</span></li>
+        <li><span class="tag tag-area">Updates</span><span class="vh">:</span> <span>The GUIs read a small list of releases from this website at the start and every 12 hours, and show a newer version in the status bar. Nothing is downloaded or installed for you.</span></li>
+        <li><span class="tag tag-area">Updates</span><span class="vh">:</span> <span>Help &gt; Check for Updates asks at once; Preferences &gt; General &gt; Privacy turns the automatic check off. The Flatpak leaves updating to Flathub.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>The version shows where µTorrent showed it: the window title, the tray tooltip, the Web UI's tab and the Windows files' properties.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>Help &gt; PaTorrent Website, and this website: downloads with how to start each file, the FAQ and the documentation.</span></li>
+      </ul>
+      <p class="news-note">There is no 1.0.0: its build stopped on a packaging check, and the version moved on. 1.0.0-rc.1 has no update check, so fetch 1.0.1 or newer by hand.</p>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.1">Download 1.0.1 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.0.1.md">Full release notes</a></p>
+    </article>
+
+    <article class="news-entry" id="v1.0.0-rc.1" data-date="2026-10-26" aria-labelledby="v1.0.0-rc.1-h">
+      <h2 id="v1.0.0-rc.1-h"><a href="#v1.0.0-rc.1"><time datetime="2026-10-26">Mon 26 Oct 2026</time> — <span class="news-title">PaTorrent 1.0.0-rc.1</span></a></h2>
+      <p class="news-lede">The first public build: a release candidate for 1.0, for people who want to try it and report what breaks.</p>
+      <ul class="changes">
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>The engine, our own Rust port of libtorrent-rasterbar 2.0.11: TCP and uTP, trackers, magnet links, DHT, peer exchange, encryption, web seeds, proxies, UPnP / NAT-PMP, IP filters, and BitTorrent v2 and hybrid torrents.</span></li>
+        <li><span class="tag tag-plat">Windows</span><span class="vh">:</span> <span>The µTorrent 2.2.1 main window with every column and detail tab, Preferences, the Add, Create and Properties dialogs, the RSS downloader, the scheduler and the tray icon. A portable zip, nothing to install.</span></li>
+        <li><span class="tag tag-plat">GTK</span><span class="vh">:</span> <span>The same main window and dialogs on GTK 4, for Linux, BSD and macOS.</span></li>
+        <li><span class="tag tag-plat">Linux</span><span class="vh">:</span> <span>An AppImage, a Flatpak bundle and plain binaries, for x86_64 and aarch64.</span></li>
+        <li><span class="tag tag-plat">macOS</span><span class="vh">:</span> <span>A disk image for Apple silicon; the headless daemon for Apple silicon and Intel.</span></li>
+        <li><span class="tag tag-area">Daemon</span><span class="vh">:</span> <span><code>patorrent-nox</code> runs headless with its own Web UI, HTTPS and a qBittorrent-compatible Web API subset, as a systemd, rc.d or Windows service.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>English and 34 more languages, right-to-left layouts included; the translations are machine-made and unreviewed.</span></li>
+      </ul>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1">Download 1.0.0-rc.1 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.0.0-rc.1.md">Full release notes</a></p>
+    </article>
+
+    <p class="note">Every change, with what was tested, is in the <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/CHANGELOG.md">changelog</a>.</p>
+  </div>
+</main>
+
+<footer class="statusbar">
+  <div class="wrap">
+    <ul>
+      <li>Latest: <!-- build:latest-version --><a href="https://github.com/Balls0fSteel/PaTorrent/releases">Releases</a><!-- /build:latest-version --></li>
+      <li><a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/LICENSE.md">PolyForm Noncommercial 1.0.0</a></li>
+      <li>© 2026 <a href="https://dukecorp1996.x35.in/">DukeCorp1996</a></li>
+      <li class="grow"><a href="https://github.com/Balls0fSteel/PaTorrent/issues">Report a problem</a></li>
+    </ul>
+    <p>Not affiliated with µTorrent, BitTorrent, Inc., libtorrent or qBittorrent. This site sets no cookies and loads nothing from other sites.</p>
+  </div>
+</footer>
+</body>
+</html>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>PaTorrent FAQ</title>
-<meta name="description" content="Questions about PaTorrent: its license in plain words, where settings are kept, portable mode, languages, remote mode and the Web UI, privacy and the update check.">
+<meta name="description" content="Questions about PaTorrent: its license in plain words, where settings are kept, portable mode, languages, remote mode and the Web UI, torrent search, Sonarr and Radarr, privacy and the update check.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#004540">
 <link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
@@ -20,6 +20,7 @@
     <nav aria-label="Main">
       <ul class="toolbar">
         <li><a href="download.html"><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-download"/></svg>Download</a></li>
+        <li><a href="news.html"><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-rss"/></svg>News</a></li>
         <li><a href="faq.html" aria-current="page"><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-help"/></svg>FAQ</a></li>
         <li><a href="benchmarks.html"><svg class="ico ico-orange" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-speed"/></svg>Benchmarks</a></li>
         <li><a href="docs.html"><svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Docs</a></li>
@@ -47,6 +48,7 @@
         <li><a href="#settings">Where are my settings? What is portable mode?</a></li>
         <li><a href="#languages">Which languages does it speak?</a></li>
         <li><a href="#remote">How do the Web UI and remote mode work?</a></li>
+        <li><a href="#search">How do I search for torrents?</a></li>
         <li><a href="#arr">Can Sonarr, Radarr or Prowlarr use PaTorrent?</a></li>
         <li><a href="#privacy">What does PaTorrent send, and to whom?</a></li>
         <li><a href="#private-trackers">Can I use it on private trackers?</a></li>
@@ -65,8 +67,8 @@
 
     <section class="qa" id="ready" aria-labelledby="ready-h">
       <h2 id="ready-h">Is it ready to use?</h2>
-      <p>Not quite: it is a release candidate for 1.0. The features planned for 1.0 are in (the Windows and GTK GUIs, the daemon, BitTorrent v2 and hybrid torrents, the translations, HTTPS and remote mode); what remains is testing on more machines. It works for its author, but has had little testing elsewhere, so keep a copy of anything you care about, and expect settings and saved state to possibly change before 1.0.</p>
-      <p>The road to 1.0 and what is still unchecked are in <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/PLAN.md">PLAN.md</a>; each release's notes list its known limitations.</p>
+      <p>Mostly. 1.0.1 was the first stable release, and settings and torrents carry over from one version to the next. But it has been used mostly by its author so far, and some dialogs and settings have had little use, so keep a copy of anything you care about elsewhere, and please report what breaks.</p>
+      <p>What changed in each release is on the <a href="news.html">News</a> page. Each release's notes list its known limitations, and what is still unchecked is in <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/PLAN.md">PLAN.md</a>.</p>
     </section>
 
     <section class="qa" id="license" aria-labelledby="license-h">
@@ -110,22 +112,35 @@
       <p><code>patorrent-nox</code> is the headless daemon. With <code>--webui</code> it serves its own Web UI: the µTorrent 2.2.1 main window in a browser, with push updates instead of polling, keyboard shortcuts, a dark mode and a layout for phones.</p>
       <pre class="cmd"><code>patorrent-nox run --webui 8080 --webui-pass PASS</code></pre>
       <p>That listens on <code>127.0.0.1</code> only; open <code>http://127.0.0.1:8080</code> and log in as <code>admin</code>. To use it from other machines, give an address (<code>--webui 0.0.0.0:8443</code>) and serve it over HTTPS with <code>--webui-https</code>, which makes a self-signed certificate on first use; compare the fingerprint your browser shows with the <code>certificate SHA-256</code> line the daemon prints.</p>
-      <p><strong>From the Windows GUI</strong> (1.1.2 and later): Preferences &gt; Web UI serves the same page from <code>patorrent.exe</code> itself, over that window's torrents, as µTorrent did. Tick Enable Web UI, set a password and OK; the page shows the URL (<code>http://127.0.0.1:8080/</code> by default). "Allow connections from other computers" listens on every address (let the port through the firewall), and "Use HTTPS" makes a self-signed certificate. Labels and settings changed in the browser show up in the window, and the other way round; the RSS Downloader and the alternative speed limits stay in the window. The GTK GUI has no such page yet.</p>
+      <p><strong>From the Windows GUI</strong> (1.1.7 and later): Preferences &gt; Web UI serves the same page from <code>patorrent.exe</code> itself, over that window's torrents, as µTorrent did. Tick Enable Web UI, set a password and OK; the page shows the URL (<code>http://127.0.0.1:8080/</code> by default). "Allow connections from other computers" listens on every address (let the port through the firewall), and "Use HTTPS" makes a self-signed certificate. Labels and settings changed in the browser show up in the window, and the other way round. From 1.1.17 the page's RSS Downloader edits the window's own feeds and filters; the alternative speed limits stay in the window. The GTK GUI has no such page yet.</p>
       <p><strong>Remote mode:</strong> either desktop GUI can drive a <code>patorrent-nox</code> on another machine, through the same port. Choose File &gt; Connect to Remote..., or start the GUI with <code>--remote</code>, and give the host, port, login and whether to use HTTPS. A certificate your system does not trust is shown by its fingerprint and remembered once you accept it. The window then works on the remote daemon's torrents; the password is never stored.</p>
       <p>The same port also serves a subset of qBittorrent's Web API, for tools written for qBittorrent (such as Sonarr, Radarr or Prowlarr). It is a subset, so not every call is there. Running the daemon as a service: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md">docs/DAEMON.md</a>; the design: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/WEBUI.md">docs/WEBUI.md</a>.</p>
     </section>
 
+    <section class="qa" id="search" aria-labelledby="search-h">
+      <h2 id="search-h">How do I search for torrents?</h2>
+      <p>From 1.1.17, through a Prowlarr or Jackett you run yourself. PaTorrent asks them over Torznab, the search API they share; it has no search plugins or site scrapers of its own, so nothing breaks when a site changes. Search works in the Windows GUI, the GTK GUI and the Web UI.</p>
+      <ol>
+        <li>Get a Torznab URL and the API key. In Prowlarr, copy an indexer's Torznab feed URL, and the API key from Settings &gt; General. In Jackett, use the <code>all</code> indexer's Torznab URL and Jackett's API key.</li>
+        <li>Open Manage Sources from the menu beside the search box (the arrow beside it on Windows; in the Web UI, Find &gt; Manage Sources), add the source and press Test.</li>
+        <li>Pick a source, or All sources, type in the search box and press Enter. In the results, sort them and add the ones you want.</li>
+      </ol>
+      <p>API keys are stored encrypted on Windows and never shown again. <strong>Proxy:</strong> a source on this computer or your local network is reached directly; a public one goes through the proxy, if you set one (Preferences &gt; Connection).</p>
+    </section>
+
     <section class="qa" id="arr" aria-labelledby="arr-h">
       <h2 id="arr-h">Can Sonarr, Radarr or Prowlarr use PaTorrent?</h2>
-      <p>Yes, as a qBittorrent download client: turn on the Web UI (above), then in Sonarr, Radarr or Prowlarr add a download client of type qBittorrent with PaTorrent's host, port, user name and password. Use the user name and password rather than an API key, which PaTorrent does not have. Series tags are not supported; categories are PaTorrent's labels.</p>
-      <p><strong>Host names, as in Docker:</strong> to block DNS rebinding attacks, the Web UI answers only requests addressed to an IP address, <code>localhost</code> or a name you allowed. If the other program reaches PaTorrent by a host name (<code>http://patorrent:8080</code>, <code>http://nas.lan:8080</code>), its connection test fails with "unexpected Host header". Open the Web UI by IP address, then add the name in Preferences &gt; Web UI &gt; Server domains (for example <code>patorrent;*.lan</code>). Or give the other program the IP address instead.</p>
-      <p><strong>Remove Completed</strong> (1.1.3 and later) removes a download once PaTorrent has stopped it at its seeding goal (Preferences &gt; Queueing &gt; Seeding Goal, or the ratio and time the indexer asks for). A goal set to limit the upload rate instead keeps the torrent seeding, so nothing is removed.</p>
+      <p>Yes, as a qBittorrent download client: turn on the Web UI (above), then in Sonarr, Radarr or Prowlarr add a download client of type qBittorrent with PaTorrent's host, port, user name and password. This works with <code>patorrent-nox</code> and with the Windows GUI's Web UI. Categories are PaTorrent's labels, and an add without a folder goes to its category's folder. Tags are accepted but not kept.</p>
+      <p><strong>API key and subnet whitelist</strong> (1.1.17 and later): Web UI Preferences &gt; Authentication has an optional API key, which the apps send as <code>Authorization: Bearer</code>, and an optional list of subnets whose requests need no login. Both are off by default and need the current password to change. The whitelist never applies to requests that come through a proxy.</p>
+      <p><strong>Host names, as in Docker:</strong> to block DNS rebinding attacks, the Web UI answers only requests addressed to an IP address, <code>localhost</code> or a name you allowed. If the other program reaches PaTorrent by a host name (<code>http://patorrent:8080</code>, <code>http://nas.lan:8080</code>), its connection test fails with "unexpected Host header". Open the Web UI by IP address, then add the name in Preferences &gt; Web UI &gt; Server domains (for example <code>patorrent;*.lan</code>); from 1.1.17 the Windows GUI's own Preferences &gt; Web UI has the same field. Or give the other program the IP address instead.</p>
+      <p><strong>Remove Completed</strong> (1.1.7 and later) removes a download once PaTorrent has stopped it at its seeding goal (Preferences &gt; Queueing &gt; Seeding Goal, or the ratio and time the indexer asks for). A goal set to limit the upload rate instead keeps the torrent seeding, so nothing is removed.</p>
     </section>
 
     <section class="qa" id="privacy" aria-labelledby="privacy-h">
       <h2 id="privacy-h">What does PaTorrent send, and to whom?</h2>
       <p><strong>The update check.</strong> From 1.0.1 on, PaTorrent checks for a newer release when it starts and every 12 hours after that. It downloads one small text file, <code>https://balls0fsteel.github.io/PaTorrent/update.txt</code>, which names the newest versions, and compares them with its own. The request carries only the User-Agent <code>PaTorrent/&lt;version&gt;</code>: no ID, no settings, nothing about your torrents. As with any web request, GitHub, which hosts this site, sees your IP address. If a newer version is out, PaTorrent shows a short note in its status bar; it never downloads or installs anything by itself.</p>
-      <p>To turn the check off: Preferences &gt; General &gt; Privacy.</p>
+      <p>To turn the check off: Preferences &gt; General &gt; Privacy. From 1.1.17 <code>patorrent-nox</code> checks too, prints a line and shows a link in its Web UI when a newer version is out; start it with <code>--no-update-check</code>, or turn it off in the Web UI's Preferences &gt; General &gt; Privacy.</p>
+      <p><strong>Torrent search</strong> asks only the Prowlarr or Jackett sources you added. A public source is reached through your proxy, if you set one; a source on your own machine or network is reached directly.</p>
       <p><strong>BitTorrent itself.</strong> Like every BitTorrent client, PaTorrent tells the trackers, the DHT and the peers of your torrents your IP address, and they can see what you download and share. A proxy (Preferences &gt; Connection) can carry that traffic instead.</p>
       <p><strong>This website</strong> sets no cookies, has no analytics or trackers, and loads nothing from other sites. GitHub Pages serves it, under <a href="https://docs.github.com/en/site-policy/privacy-policies/github-general-privacy-statement">GitHub's privacy statement</a>.</p>
     </section>

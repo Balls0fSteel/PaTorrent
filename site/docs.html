@@ -20,6 +20,7 @@
     <nav aria-label="Main">
       <ul class="toolbar">
         <li><a href="download.html"><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-download"/></svg>Download</a></li>
+        <li><a href="news.html"><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-rss"/></svg>News</a></li>
         <li><a href="faq.html"><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-help"/></svg>FAQ</a></li>
         <li><a href="benchmarks.html"><svg class="ico ico-orange" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-speed"/></svg>Benchmarks</a></li>
         <li><a href="docs.html" aria-current="page"><svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Docs</a></li>
@@ -50,6 +51,7 @@
       <ul class="doclist">
         <li><a href="download.html">Download</a><span>Every file of the newest release, how to start it, checksums and updating.</span></li>
         <li><!-- build:release-notes --><a href="https://github.com/Balls0fSteel/PaTorrent/releases">Release notes</a><!-- /build:release-notes --><span>What is in the release, the first start on each platform and its known limitations.</span></li>
+        <li><a href="news.html">News</a><span>What changed in each release, in short, newest first; also as an <a href="news.atom">Atom feed</a>.</span></li>
         <li><a href="faq.html">Questions and answers</a><span>The license in plain words, settings and portable mode, languages, remote mode, privacy.</span></li>
         <li><a href="benchmarks.html">Benchmarks</a><span>Memory, start time, download speed and CPU time beside qBittorrent, Transmission, Deluge and rTorrent, with <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/BENCHMARKS.md">the method</a>.</span></li>
         <li><a href="https://github.com/Balls0fSteel/PaTorrent#readme">README</a><span>The overview, the download table, building from source and the programs' main options.</span></li>
@@ -76,6 +78,7 @@
           <tr><td><code>patorrent-nox run --webui 8080 --webui-pass PASS</code></td><td>The same, with the Web UI and the qBittorrent-compatible Web API on <code>127.0.0.1:8080</code> (<code>--webui ADDR:PORT</code> for another address).</td></tr>
           <tr><td><code>--webui-https</code></td><td>Serves the Web UI over HTTPS with a self-signed certificate made on first use; <code>--webui-cert FILE --webui-key FILE</code> uses yours.</td></tr>
           <tr><td><code>patorrent-nox add file.torrent --save DIR</code></td><td>Downloads a torrent into DIR and exits when it is done (<code>--seed</code> keeps seeding until stopped).</td></tr>
+          <tr><td><code>--no-update-check</code></td><td>Starts the daemon without its check for a newer release (1.1.17 and later; the Web UI's Preferences &gt; General &gt; Privacy does the same).</td></tr>
           <tr><td><code>patorrent-nox run --verbose</code></td><td>Prints tracker and peer events, useful in a bug report.</td></tr>
           <tr><td><code>patorrent-nox --license</code></td><td>Prints the license and the third-party notices.</td></tr>
           <tr><td><code>patorrent --remote</code>, <code>patorrent-gtk --remote</code></td><td>Opens a window that drives a <code>patorrent-nox</code> elsewhere (File &gt; Connect to Remote... does the same).</td></tr>

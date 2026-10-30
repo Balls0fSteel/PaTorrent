@@ -9,6 +9,7 @@ import json
 import sys
 import tempfile
 import unittest
+import xml.etree.ElementTree as ET
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -223,6 +224,103 @@ class Pages(unittest.TestCase):
         self.assertEqual(b.human_size(512), "512 B")
 
 
+def article(eid, date, title=None, lede="Short.", body="<ul><li>x</li></ul>"):
+    title = title if title is not None else f"PaTorrent {eid[1:]}"
+    return (f'<article class="news-entry" id="{eid}" data-date="{date}">'
+            f'<h2><a href="#{eid}"><time>{date}</time> — <span class="news-title">{title}</span></a></h2>'
+            f'<p class="news-lede">{lede}</p>{body}</article>')
+
+
+class News(unittest.TestCase):
+    SITE_URL = "https://balls0fsteel.github.io/PaTorrent/"
+
+    def test_real_page(self):
+        entries = b.parse_news((HERE / "news.html").read_text(encoding="utf-8"))
+        ids = [e.id for e in entries]
+        self.assertEqual(len(ids), len(set(ids)))
+        for e in entries:
+            self.assertTrue(e.id.startswith("v") and b.version_of(e.id), e.id)
+            self.assertEqual(e.title, f"PaTorrent {e.id[1:]}")
+            self.assertTrue(e.lede)
+        # newest first, by date and, within a day, by version
+        self.assertEqual([e.date for e in entries], sorted((e.date for e in entries), reverse=True))
+        versions = [e.id[1:] for e in entries]
+        self.assertEqual(versions, sorted(versions, key=b.semver_key, reverse=True))
+
+    def test_parse(self):
+        text = "<main>" + article("v1.1.0", "2026-10-28", lede="A <code>x</code> &amp; y.") \
+               + '<article class="other">ignored</article>' + article("v1.0.1", "2026-10-27") + "</main>"
+        e1, e2 = b.parse_news(text)
+        self.assertEqual((e1.id, e1.date, e1.title), ("v1.1.0", "2026-10-28", "PaTorrent 1.1.0"))
+        self.assertEqual(e1.lede, "A <code>x</code> &amp; y.")
+        self.assertTrue(e1.body.startswith('<p class="news-lede">'))
+        self.assertEqual(e2.id, "v1.0.1")
+
+    def test_rejects(self):
+        bad = [
+            "<p>no entries</p>",
+            article("v1.0.0", "2026-10-26") + article("v1.0.1", "2026-10-27"),  # oldest first
+            article("v1.0.0", "2026-10-26") + article("v1.0.0", "2026-10-26"),  # same id twice
+            article("v1.0.0", "26 Oct 2026"),
+            article("v1.0.0", "2026-02-30"),
+            article("", "2026-10-26"),
+            article("v1.0.0", "2026-10-26").replace('class="news-lede"', 'class="x"'),
+            article("v1.0.0", "2026-10-26").replace("news-title", "x"),
+        ]
+        for text in bad:
+            with self.assertRaises(b.BuildError, msg=text):
+                b.parse_news(text)
+
+    def test_feed(self):
+        entries = b.parse_news(
+            article("v1.1.0", "2026-10-28", title="PaTorrent 1.1.0 &amp; &lt;more&gt;",
+                    body='<p><a href="faq.html#search">FAQ</a> <a href="#v1.0.1">older</a> '
+                         '<a href="https://example.com/x">out</a> <img src="img/a.png" alt=""></p>')
+            + article("v1.0.1", "2026-10-27"))
+        text = b.atom_feed(entries, self.SITE_URL)
+        root = ET.fromstring(text.encode("utf-8"))
+        ns = {"a": "http://www.w3.org/2005/Atom"}
+        for tag in ("title", "id", "updated", "author/a:name"):
+            self.assertIsNotNone(root.find(f"a:{tag}", ns), tag)
+        self.assertEqual(root.find("a:id", ns).text, "tag:balls0fsteel.github.io,2026:PaTorrent/news")
+        self.assertEqual(root.find("a:updated", ns).text, "2026-10-28T00:00:00Z")
+        self.assertEqual(root.find("a:link[@rel='self']", ns).get("href"), self.SITE_URL + "news.atom")
+        self.assertEqual(root.find("a:link[@rel='alternate']", ns).get("href"), self.SITE_URL + "news.html")
+        items = root.findall("a:entry", ns)
+        self.assertEqual(len(items), 2)
+        first = items[0]
+        self.assertEqual(first.find("a:title", ns).text, "PaTorrent 1.1.0 & <more>")
+        self.assertEqual(first.find("a:id", ns).text, "tag:balls0fsteel.github.io,2026:PaTorrent/news/v1.1.0")
+        self.assertEqual(first.find("a:link", ns).get("href"), self.SITE_URL + "news.html#v1.1.0")
+        for tag in ("id", "title", "updated", "published", "summary", "content"):
+            self.assertIsNotNone(first.find(f"a:{tag}", ns), tag)
+        content = first.find("a:content", ns)
+        self.assertEqual(content.get("type"), "html")
+        self.assertIn(f'href="{self.SITE_URL}faq.html#search"', content.text)
+        self.assertIn(f'href="{self.SITE_URL}news.html#v1.0.1"', content.text)
+        self.assertIn('href="https://example.com/x"', content.text)
+        self.assertIn(f'src="{self.SITE_URL}img/a.png"', content.text)
+        self.assertEqual(first.find("a:summary", ns).text, "Short.")
+        # ids do not depend on anything but the site and the entry
+        again = b.atom_feed(entries[1:], self.SITE_URL)
+        self.assertIn("<id>tag:balls0fsteel.github.io,2026:PaTorrent/news/v1.0.1</id>", again)
+
+    def test_site_url(self):
+        self.assertEqual(b.site_url_for("Balls0fSteel/PaTorrent"), self.SITE_URL)
+        root_feed = b.atom_feed(b.parse_news(article("v1.0.0", "2026-10-26")), "https://example.org/")
+        self.assertIn("<id>tag:example.org,2026:news</id>", root_feed)
+
+    def test_latest_news(self):
+        entries = b.parse_news(article("v1.1.17", "2026-10-30", lede="Search <code>x</code>.")
+                               + article("v1.1.7", "2026-10-30"))
+        line = b.latest_news_block(entries)
+        self.assertIn('href="news.html#v1.1.17"', line)
+        self.assertIn("PaTorrent 1.1.17", line)
+        self.assertIn('<time datetime="2026-10-30">30 October 2026</time>', line)
+        self.assertIn("Search <code>x</code>.", line)
+        self.assertNotIn("1.1.7<", line)
+
+
 class WholeBuild(unittest.TestCase):
     def test_build_from_sample(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -231,9 +329,23 @@ class WholeBuild(unittest.TestCase):
             self.assertEqual((out / "update.txt").read_bytes(), (
                 Manifest.HEAD + "stable=1.0.0\nprerelease=1.1.0-rc.10\n").encode("utf-8"))
             self.assertTrue((out / ".nojekyll").is_file())
-            for page in ("index.html", "download.html", "faq.html", "docs.html", "404.html"):
+            for page in ("index.html", "download.html", "faq.html", "docs.html", "404.html",
+                         "news.html", "benchmarks.html"):
                 text = (out / page).read_text(encoding="utf-8")
                 self.assertNotIn("<!-- build:", text, page)
+                nav = text.split("</nav>")[0]
+                self.assertIn('href="news.html"', nav, page)  # every page links the news
+
+            # the feed: well-formed Atom, an entry per news entry, newest first
+            news = b.parse_news((out / "news.html").read_text(encoding="utf-8"))
+            feed = ET.fromstring((out / "news.atom").read_bytes())
+            ns = {"a": "http://www.w3.org/2005/Atom"}
+            self.assertEqual(feed.tag, "{http://www.w3.org/2005/Atom}feed")
+            ids = [e.find("a:id", ns).text for e in feed.findall("a:entry", ns)]
+            self.assertEqual(ids, [f"tag:balls0fsteel.github.io,2026:PaTorrent/news/{e.id}" for e in news])
+            index = (out / "index.html").read_text(encoding="utf-8")
+            self.assertIn(f'<a href="news.html#{news[0].id}">{news[0].title}</a>', index)
+            self.assertIn('type="application/atom+xml"', (out / "news.html").read_text(encoding="utf-8"))
             for size in b.ICON_SIZES:
                 self.assertEqual(b.png_size(out / "img" / f"icon-{size}.png"), (size, size))
             self.assertFalse((out / "build.py").exists())

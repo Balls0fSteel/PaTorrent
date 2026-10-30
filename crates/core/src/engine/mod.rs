@@ -3856,8 +3856,14 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
         t.name = name;
     }
     if let Some(p) = &r.pieces {
-        if t.num_pieces == 0 || p.len() == t.num_pieces as usize {
-            t.set_have(Some(p.clone()));
+        let n = t.num_pieces as usize;
+        // A file-version 2 bitfield from another client comes in whole bytes.
+        if n == 0 || p.len() == n || (p.len() > n && p.len() == n.div_ceil(8) * 8) {
+            let mut p = p.clone();
+            if n > 0 {
+                p.resize(n, false);
+            }
+            t.set_have(Some(p));
             t.unfinished = r.unfinished.clone();
         }
     }

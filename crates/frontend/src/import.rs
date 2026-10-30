@@ -300,12 +300,14 @@ fn load_torrent(path: &Path) -> Result<Metadata, String> {
 
 /// What an imported record may not decide (SEC-16): a folder copied from elsewhere could claim
 /// pieces of files it never had (and get a private file seeded, if it only exists and is long
-/// enough), or map files to any path on this computer. Claimed pieces are dropped, so the
-/// engine checks the files, and every mapped path is cleaned like a torrent's file names and
-/// stays inside the save folder (a file µTorrent relocated elsewhere is downloaded again there).
+/// enough), or map files to any path on this computer. Claimed pieces (and file-version 2's
+/// `verified` pieces) are dropped, so the engine checks the files, and every mapped path is
+/// cleaned like a torrent's file names and stays inside the save folder (a file µTorrent
+/// relocated elsewhere is downloaded again there).
 fn distrust(rec: &mut Entry) {
     let d = rec.dict_mut();
     d.remove(b"pieces".as_slice());
+    d.remove(b"verified".as_slice());
     d.remove(b"unfinished".as_slice());
     if let Some(Entry::List(mapped)) = d.get_mut(b"mapped_files".as_slice()) {
         for m in mapped {
@@ -842,6 +844,32 @@ mod tests {
         assert!(prefs.get(&format!("torrent.{hex}.label")).is_none());
         assert_eq!(prefs.get(&format!("torrent.{}.label", "09".repeat(20))), Some("linux"));
         assert!(add[0].params.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR));
+        let _ = std::fs::remove_dir_all(&data);
+    }
+
+    /// qBittorrent on libtorrent 2.1 writes file-version 2 (packed `pieces`, `verified`): the
+    /// record goes on with its version, the piece claims dropped as for version 1.
+    #[test]
+    fn qbittorrent_file_version_2() {
+        let data = temp("qbt-v2");
+        let dir = data.join("BT_backup");
+        std::fs::create_dir_all(&dir).unwrap();
+        let (bytes, hashes) = torrent("Album");
+        let hex = hashes.key_hex();
+        std::fs::write(dir.join(format!("{hex}.torrent")), &bytes).unwrap();
+        let mut rec = Entry::new_dict();
+        *rec.key("file-format") = Entry::Bytes(b"libtorrent resume file".to_vec());
+        *rec.key("file-version") = Entry::Int(2);
+        *rec.key("info-hash") = Entry::Bytes(hashes.v1.unwrap().0.to_vec());
+        *rec.key("save_path") = Entry::Bytes(b"/data/music".to_vec());
+        *rec.key("pieces") = Entry::Bytes(vec![0b1100_0000]);
+        *rec.key("verified") = Entry::Bytes(vec![0b1110_0000]);
+        std::fs::write(dir.join(format!("{hex}.fastresume")), rec.bencode()).unwrap();
+        let found = read(Client::QBittorrent, &data).unwrap();
+        assert!(found.skipped.is_empty());
+        let e = decoded(&found.torrents[0]);
+        assert_eq!(e.get("file-version").and_then(Entry::as_int), Some(2));
+        assert!(e.get("pieces").is_none() && e.get("verified").is_none());
         let _ = std::fs::remove_dir_all(&data);
     }
 

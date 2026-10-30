@@ -654,6 +654,50 @@ mod tests {
         let _ = std::fs::remove_dir_all(dir);
     }
 
+    /// A `resume.db` and journal from before file-version 2 (a byte per piece) load, and the
+    /// next save writes the record over as version 2.
+    #[test]
+    fn version_1_records_load_and_are_saved_as_version_2() {
+        let dir = crate::disk::tests::temp_dir("store-v1");
+        let v1 = |i: u8, pieces: &[u8]| {
+            let mut e = rec(i).to_entry();
+            *e.key("file-version") = Entry::Int(1);
+            *e.key("pieces") = Entry::Bytes(pieces.to_vec());
+            *e.key("lt-num-pieces") = Entry::Int(pieces.len() as i64);
+            e.bencode()
+        };
+        let mut torrents = Entry::new_dict();
+        *torrents.key("a") = Entry::Preformatted(v1(1, &[1, 0, 1]));
+        let mut root = Entry::new_dict();
+        *root.key("file-format") = Entry::Bytes(DB_FORMAT.as_bytes().to_vec());
+        *root.key("file-version") = Entry::Int(1);
+        *root.key("torrents") = torrents;
+        std::fs::write(dir.join(RESUME_DB), root.bencode()).unwrap();
+        let mut log = Vec::new();
+        push_log_entry(&mut log, "b", Some(&v1(2, &[3; 9])));
+        std::fs::write(dir.join(RESUME_LOG), log).unwrap();
+        let pieces = |list: &[ResumeData], name: &str| -> Vec<bool> {
+            let r = list.iter().find(|r| r.name == name).unwrap();
+            r.pieces.as_ref().unwrap().iter().collect()
+        };
+        {
+            let (mut s, list, errors) = Store::open(&dir).unwrap();
+            assert!(errors.is_empty(), "{errors:?}");
+            assert_eq!(pieces(&list, "t1"), [true, false, true]);
+            assert_eq!(pieces(&list, "t2"), [true; 9]);
+            for (key, r) in [("a", &list[0]), ("b", &list[1])] {
+                s.put(key, r, None).unwrap();
+            }
+            assert!(s.is_dirty(), "rewritten as version 2");
+            s.flush().unwrap();
+        }
+        let (_, list, errors) = Store::open(&dir).unwrap();
+        assert!(errors.is_empty());
+        assert_eq!(pieces(&list, "t1"), [true, false, true]);
+        assert_eq!(pieces(&list, "t2"), [true; 9]);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     #[test]
     fn save_reload_remove_and_recover() {
         let dir = crate::disk::tests::temp_dir("store");

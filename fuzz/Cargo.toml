@@ -5,6 +5,8 @@
 name = "patorrent-fuzz"
 version = "0.0.0"
 edition = "2024"
+# the main workspace's MSRV, so clippy holds the targets to the same rules (no let-chains)
+rust-version = "1.85"
 publish = false
 license = "PolyForm-Noncommercial-1.0.0"
 authors = ["DukeCorp1996"]

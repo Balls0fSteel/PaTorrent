@@ -1,7 +1,8 @@
 // Ported from libtorrent-rasterbar 2.0.11: test/test_dht.cpp (the node and rpc tests)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: BEP 44 (put/get item) tests wait for Phase 8; traversal_done and read_only_node use
-// get_peers lookups instead of item lookups. Log-based assertions check behaviour instead.
+// get_peers lookups instead of item lookups. Log-based assertions check behaviour instead;
+// fixes from 2.1.1 (abc121b1e9).
 
 use std::collections::BTreeSet;
 
@@ -15,6 +16,7 @@ use crate::util::bloom_filter::BloomFilter;
 #[derive(Default)]
 struct MockSocket {
     sent: Vec<(SocketAddr, Entry)>,
+    filter: Option<IpFilter>,
 }
 
 impl SocketManager for MockSocket {
@@ -25,6 +27,10 @@ impl SocketManager for MockSocket {
     fn send_packet(&mut self, _local_v4: bool, e: &mut Entry, addr: SocketAddr, _now: Instant) -> bool {
         self.sent.push((addr, e.clone()));
         true
+    }
+
+    fn ip_filter(&self) -> Option<&IpFilter> {
+        self.filter.as_ref()
     }
 }
 
@@ -464,7 +470,7 @@ fn test_get_peers(rand_addr: fn() -> IpAddr) {
     let target = to_hash("1234876923549721020394873245098347598635");
     let initial_node = SocketAddr::new(rand_addr(), 1234);
     let initial_id = to_hash("1111111111222222222233333333334444444444");
-    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), now);
+    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), None, now);
     let args_ann = AnnounceArgs { port: 1234, seed: false, implied_port: false };
     t.node.announce(&mut t.sm, target, args_ann, now);
     assert_eq!(t.sm.sent.len(), 1);
@@ -539,7 +545,7 @@ fn traversal_done() {
     let target = to_hash("1234876923549721020394873245098347598635");
     let nodes = build_nodes(&target, now);
     for n in &nodes[..8] {
-        t.node.table.add_node(n.clone(), now);
+        t.node.table.add_node(n.clone(), None, now);
     }
     let args_ann = AnnounceArgs { port: 1234, seed: false, implied_port: false };
     t.node.announce(&mut t.sm, target, args_ann, now);
@@ -580,8 +586,8 @@ fn dht_dual_stack() {
     let mut sm = MockSocket::default();
     let mut storage = DhtStorage::default();
     let id = to_hash("3123456789abcdef01232456789abcdef0123456");
-    node4.table.node_seen(&id, "4.4.4.4:4440".parse().unwrap(), 10, now);
-    node6.table.node_seen(&id, "[4::4]:4441".parse().unwrap(), 10, now);
+    node4.table.node_seen(&id, "4.4.4.4:4440".parse().unwrap(), 10, None, now);
+    node6.table.node_seen(&id, "[4::4]:4441".parse().unwrap(), 10, None, now);
 
     let mut ask = |node: &mut Node, other: &mut Node, q: &str, a: Entry, src: SocketAddr| {
         let mut e = Entry::new_dict();
@@ -648,7 +654,7 @@ fn dht_dual_stack() {
 fn node_set_id() {
     let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));
     let old = t.node.nid();
-    t.node.update_node_id("237.0.0.1".parse().unwrap(), t.now);
+    t.node.update_node_id("237.0.0.1".parse().unwrap(), None, t.now);
     assert_ne!(old, t.node.nid());
     assert!(verify_id(&t.node.nid(), &"237.0.0.1".parse().unwrap()));
     // replies carry the new id
@@ -673,7 +679,7 @@ fn read_only_node() {
     // its queries carry ro=1
     let initial_node: SocketAddr = "4.4.4.4:1234".parse().unwrap();
     let initial_id = to_hash("1111111111222222222233333333334444444444");
-    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), now);
+    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), None, now);
     t.node.get_peers(&mut t.sm, generate_random_id(), false, now);
     assert_eq!(t.sm.sent.len(), 1);
     assert_eq!(t.sm.sent[0].0, initial_node);
@@ -759,6 +765,53 @@ fn multi_family_ping_reply_adds_node() {
     assert_eq!(t.node.observers.len, 0);
 }
 
+fn block(ip: &str) -> IpFilter {
+    let ip: IpAddr = ip.parse().unwrap();
+    let mut f = IpFilter::new();
+    f.add_rule(ip, ip, IpFilter::BLOCKED);
+    f
+}
+
+// libtorrent 2.1.1 test_dht.cpp: dht_node_add_node_ip_filter
+#[test]
+fn add_node_ip_filter() {
+    let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));
+    let now = t.now;
+    t.sm.filter = Some(block("4.4.4.4"));
+    // blocked by the IP filter: not pinged
+    t.node.add_node(&mut t.sm, "4.4.4.4:4".parse().unwrap(), now);
+    assert!(t.sm.sent.is_empty());
+    // not blocked: pinged
+    t.node.add_node(&mut t.sm, "5.5.5.5:4".parse().unwrap(), now);
+    assert_eq!(t.sm.sent.len(), 1);
+    // with the setting off the blocked address is pinged too
+    t.sm.sent.clear();
+    t.node.set_settings(DhtSettings { apply_filter_to_dht: false, ..test_settings() });
+    t.node.add_node(&mut t.sm, "4.4.4.4:4".parse().unwrap(), now);
+    assert_eq!(t.sm.sent.len(), 1);
+}
+
+/// Nodes a lookup hears of that the filter blocks are neither queried nor added to the
+/// routing table; the reply of an allowed node still is.
+#[test]
+fn traversal_skips_filtered_nodes() {
+    let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));
+    let now = t.now;
+    t.sm.filter = Some(block("4.4.4.4"));
+    let target = generate_random_id();
+    let first: SocketAddr = "5.5.5.5:5".parse().unwrap();
+    t.node.table.add_node(NodeEntry::new(generate_random_id(), first, 10, true, now), None, now);
+    t.node.get_peers(&mut t.sm, target, false, now);
+    let req = t.sm.take(&first).expect("queried");
+    let blocked = NodeEntry::new(generate_random_id(), "4.4.4.4:4".parse().unwrap(), 10, true, now);
+    let allowed = NodeEntry::new(generate_random_id(), "6.6.6.6:6".parse().unwrap(), 10, true, now);
+    t.respond(&req, first, with(args(), "nodes", nodes_entry(&[blocked.clone(), allowed.clone()])));
+    assert!(t.sm.find(&blocked.ep()).is_none(), "a blocked node is not queried");
+    assert!(t.sm.find(&allowed.ep()).is_some());
+    assert!(t.node.table.all_nodes().all(|n| n.ep() != blocked.ep()));
+    assert!(t.node.table.all_nodes().any(|n| n.ep() == allowed.ep()));
+}
+
 #[test]
 fn timeouts_fail_requests() {
     let mut t = Setup::new(SocketAddr::new(rand_v4(), 20));
@@ -766,7 +819,7 @@ fn timeouts_fail_requests() {
     let target = generate_random_id();
     let nodes = build_nodes(&target, now);
     for n in &nodes[..8] {
-        t.node.table.add_node(n.clone(), now);
+        t.node.table.add_node(n.clone(), None, now);
     }
     t.node.get_peers(&mut t.sm, target, false, now);
     let first = t.sm.sent.len();
@@ -807,7 +860,7 @@ fn obfuscated_get_peers() {
     let target = to_hash("1234876923549721020394873245098347598635");
     let initial_node = SocketAddr::new(rand_v4(), 1234);
     let initial_id = to_hash("1111111111222222222233333333334444444444");
-    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), now);
+    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), None, now);
     t.node.get_peers(&mut t.sm, target, false, now);
     assert_eq!(t.sm.sent.len(), 1);
     let req = t.sm.sent.remove(0).1;
@@ -870,7 +923,7 @@ fn a_global_node_cannot_point_lookups_at_the_local_network() {
     let target = to_hash("1234876923549721020394873245098347598635");
     let initial_node = SocketAddr::new(rand_v4(), 1234);
     let initial_id = to_hash("1111111111222222222233333333334444444444");
-    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), now);
+    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), None, now);
     t.node.get_peers(&mut t.sm, target, false, now);
     let req = t.sm.sent.remove(0).1;
 
@@ -902,7 +955,7 @@ fn a_lan_node_may_name_lan_nodes_and_peers() {
     let target = to_hash("1234876923549721020394873245098347598635");
     let initial_node: SocketAddr = "192.168.1.1:6881".parse().unwrap();
     let initial_id = to_hash("1111111111222222222233333333334444444444");
-    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), now);
+    t.node.table.add_node(NodeEntry::new(initial_id, initial_node, 10, true, now), None, now);
     t.node.get_peers(&mut t.sm, target, false, now);
     let req = t.sm.sent.remove(0).1;
     let lan_node: SocketAddr = "192.168.1.2:6881".parse().unwrap();

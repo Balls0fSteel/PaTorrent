@@ -4,7 +4,9 @@
 // Changes: sans-IO. The tracker owns at most one node per address family (libtorrent has one
 // per listen socket); asio timers become deadlines checked by `poll`; packets queue in an outbox
 // the reactor sends from the UDP sockets; the nodes' external-address votes go to the engine's
-// session voter (libtorrent's listen socket), which calls `update_node_id` when it changes.
+// session voter (libtorrent's listen socket), which calls `update_node_id` when it changes. The
+// session's IP filter is an argument of each call that runs the nodes (libtorrent asks the
+// observer, `get_dht_ip_filter`); fixes from 2.1.1 (abc121b1e9).
 
 //! The mainline DHT (BEP 5) with IPv6 (BEP 32), node-id security (BEP 42) and read-only mode
 //! (BEP 43).
@@ -22,6 +24,7 @@ use std::net::{IpAddr, SocketAddr};
 use std::time::{Duration, Instant};
 
 use crate::bencode::{Entry, bdecode_with_limits};
+use crate::net::ip_filter::IpFilter;
 use crate::types::Sha1Hash;
 use dos_blocker::DosBlocker;
 pub use node::{AnnounceArgs, DhtEvent, Msg, Node, SocketManager};
@@ -120,6 +123,26 @@ impl SocketManager for DhtIo {
     }
 }
 
+/// [`DhtIo`] with the session's IP filter of the current call.
+struct FilteredIo<'a> {
+    io: &'a mut DhtIo,
+    filter: &'a IpFilter,
+}
+
+impl SocketManager for FilteredIo<'_> {
+    fn has_quota(&mut self, now: Instant) -> bool {
+        self.io.has_quota(now)
+    }
+
+    fn send_packet(&mut self, local_v4: bool, e: &mut Entry, addr: SocketAddr, now: Instant) -> bool {
+        self.io.send_packet(local_v4, e, addr, now)
+    }
+
+    fn ip_filter(&self) -> Option<&IpFilter> {
+        Some(self.filter)
+    }
+}
+
 struct TrackerNode {
     node: Node,
     next_timeout: Instant,
@@ -164,8 +187,9 @@ impl DhtTracker {
 
     /// A UDP socket of this family is open: run a node on it (libtorrent `new_socket`).
     /// `external` is the family's external address if the session knows it; the node id is
-    /// derived from it (BEP 42).
-    pub fn new_socket(&mut self, is_v4: bool, external: Option<IpAddr>, now: Instant) {
+    /// derived from it (BEP 42). `filter`, here and in the other calls that run the nodes, is
+    /// the session's IP filter (applied with `apply_filter_to_dht`).
+    pub fn new_socket(&mut self, is_v4: bool, external: Option<IpAddr>, filter: &IpFilter, now: Instant) {
         if self.nodes.iter().any(|n| n.node.is_v4() == is_v4) {
             return;
         }
@@ -183,7 +207,7 @@ impl DhtTracker {
         }
         let mut n = TrackerNode { node, next_timeout: now + Duration::from_secs(1) };
         if self.running {
-            n.node.bootstrap(&mut self.io, &[], false, now);
+            n.node.bootstrap(&mut FilteredIo { io: &mut self.io, filter }, &[], false, now);
         }
         self.nodes.push(n);
     }
@@ -202,14 +226,14 @@ impl DhtTracker {
         }
     }
 
-    pub fn add_node(&mut self, ep: SocketAddr, now: Instant) {
+    pub fn add_node(&mut self, ep: SocketAddr, filter: &IpFilter, now: Instant) {
         for n in &mut self.nodes {
-            n.node.add_node(&mut self.io, ep, now);
+            n.node.add_node(&mut FilteredIo { io: &mut self.io, filter }, ep, now);
         }
     }
 
     /// Bootstraps every node from the saved nodes (its own family first).
-    pub fn start(&mut self, now: Instant) {
+    pub fn start(&mut self, filter: &IpFilter, now: Instant) {
         self.running = true;
         self.next_key_refresh = now + KEY_REFRESH;
         self.next_refresh = now + REFRESH_INTERVAL;
@@ -221,7 +245,7 @@ impl DhtTracker {
                 (&self.state.nodes6, &self.state.nodes)
             };
             let nodes: Vec<SocketAddr> = own.iter().chain(other.iter()).copied().collect();
-            n.node.bootstrap(&mut self.io, &nodes, true, now);
+            n.node.bootstrap(&mut FilteredIo { io: &mut self.io, filter }, &nodes, true, now);
         }
         self.state.clear();
     }
@@ -231,13 +255,13 @@ impl DhtTracker {
     }
 
     /// Runs the timers that are due; returns when to call again.
-    pub fn poll(&mut self, now: Instant) -> Instant {
+    pub fn poll(&mut self, filter: &IpFilter, now: Instant) -> Instant {
         if !self.running {
             return now + Duration::from_secs(3600);
         }
         for n in &mut self.nodes {
             if now >= n.next_timeout {
-                let d = n.node.connection_timeout(&mut self.io, now);
+                let d = n.node.connection_timeout(&mut FilteredIo { io: &mut self.io, filter }, now);
                 n.next_timeout = now + d;
             }
         }
@@ -247,7 +271,7 @@ impl DhtTracker {
         }
         if now >= self.next_refresh {
             for n in &mut self.nodes {
-                n.node.tick(&mut self.io, now);
+                n.node.tick(&mut FilteredIo { io: &mut self.io, filter }, now);
             }
             self.blocker.set_block_timer(self.settings.block_timeout);
             self.blocker.set_rate_limit(self.settings.block_ratelimit);
@@ -281,9 +305,9 @@ impl DhtTracker {
 
     /// libtorrent `dht_tracker::update_node_id`: the session's external address of this family
     /// changed, so the node takes a BEP 42 id for it unless its id already matches.
-    pub fn update_node_id(&mut self, is_v4: bool, external: IpAddr, now: Instant) {
+    pub fn update_node_id(&mut self, is_v4: bool, external: IpAddr, filter: &IpFilter, now: Instant) {
         for n in self.nodes.iter_mut().filter(|n| n.node.is_v4() == is_v4) {
-            n.node.update_node_id(external, now);
+            n.node.update_node_id(external, Some(filter), now);
         }
     }
 
@@ -291,8 +315,16 @@ impl DhtTracker {
         std::mem::take(&mut self.io.outbox)
     }
 
-    /// libtorrent `incoming_packet`: returns false if it wasn't a DHT message.
-    pub fn incoming_packet(&mut self, local_v4: bool, ep: SocketAddr, buf: &[u8], now: Instant) -> bool {
+    /// libtorrent `incoming_packet`: returns false if it wasn't a DHT message. Messages from
+    /// addresses `filter` blocks are dropped (with `apply_filter_to_dht`).
+    pub fn incoming_packet(
+        &mut self,
+        local_v4: bool,
+        ep: SocketAddr,
+        buf: &[u8],
+        filter: &IpFilter,
+        now: Instant,
+    ) -> bool {
         if buf.len() <= 20 || buf[0] != b'd' || buf[buf.len() - 1] != b'e' {
             return false;
         }
@@ -306,6 +338,9 @@ impl DhtTracker {
                 }
             }
         }
+        if self.settings.apply_filter_to_dht && filter.is_blocked(ep.ip()) {
+            return true;
+        }
         if !self.blocker.incoming(ep.ip(), now) {
             return true;
         }
@@ -318,20 +353,20 @@ impl DhtTracker {
         let (a, b) = self.nodes.split_at_mut(i);
         let (me, rest) = b.split_first_mut().expect("index valid");
         let other = a.first_mut().or(rest.first_mut()).map(|n| &mut n.node);
-        me.node.incoming(&mut self.io, &mut self.storage, &m, other, now);
+        me.node.incoming(&mut FilteredIo { io: &mut self.io, filter }, &mut self.storage, &m, other, now);
         self.collect_events();
         true
     }
 
-    pub fn get_peers(&mut self, ih: Sha1Hash, now: Instant) {
+    pub fn get_peers(&mut self, ih: Sha1Hash, filter: &IpFilter, now: Instant) {
         for n in &mut self.nodes {
-            n.node.get_peers(&mut self.io, ih, false, now);
+            n.node.get_peers(&mut FilteredIo { io: &mut self.io, filter }, ih, false, now);
         }
     }
 
-    pub fn announce(&mut self, ih: Sha1Hash, args: AnnounceArgs, now: Instant) {
+    pub fn announce(&mut self, ih: Sha1Hash, args: AnnounceArgs, filter: &IpFilter, now: Instant) {
         for n in &mut self.nodes {
-            n.node.announce(&mut self.io, ih, args, now);
+            n.node.announce(&mut FilteredIo { io: &mut self.io, filter }, ih, args, now);
         }
     }
 
@@ -419,12 +454,55 @@ mod tests {
     fn dark_internet_and_garbage() {
         let now = Instant::now();
         let mut t = DhtTracker::new(DhtSettings::default(), DhtState::default(), now);
-        t.new_socket(true, None, now);
-        assert!(!t.incoming_packet(true, "1.2.3.4:5".parse().unwrap(), b"x", now));
+        t.new_socket(true, None, &IpFilter::new(), now);
+        assert!(!t.incoming_packet(true, "1.2.3.4:5".parse().unwrap(), b"x", &IpFilter::new(), now));
         let ping = b"d1:ad2:id20:aaaaaaaaaaaaaaaaaaaae1:q4:ping1:t2:aa1:y1:qe";
-        assert!(t.incoming_packet(true, "3.2.3.4:5".parse().unwrap(), ping, now));
+        assert!(t.incoming_packet(true, "3.2.3.4:5".parse().unwrap(), ping, &IpFilter::new(), now));
         assert!(t.take_outgoing().is_empty(), "dark internet is ignored");
-        assert!(t.incoming_packet(true, "8.2.3.4:5".parse().unwrap(), ping, now));
+        assert!(t.incoming_packet(true, "8.2.3.4:5".parse().unwrap(), ping, &IpFilter::new(), now));
+        assert_eq!(t.take_outgoing().len(), 1);
+    }
+
+    // libtorrent 2.1.1 test_dht.cpp: dht_tracker_ip_filter, plus the setting switched off
+    #[test]
+    fn ip_filter_drops_incoming() {
+        let now = Instant::now();
+        let mut filter = IpFilter::new();
+        let blocked: SocketAddr = "4.4.4.4:4".parse().unwrap();
+        filter.add_rule(blocked.ip(), blocked.ip(), IpFilter::BLOCKED);
+        let mut t = DhtTracker::new(DhtSettings::default(), DhtState::default(), now);
+        t.new_socket(true, None, &filter, now);
+        let ping = b"d1:ad2:id20:aaaaaaaaaaaaaaaaaaaae1:q4:ping1:t2:aa1:y1:qe";
+        assert!(t.incoming_packet(true, blocked, ping, &filter, now));
+        assert!(t.take_outgoing().is_empty(), "a blocked source gets no answer");
+        // the same message from an address the filter allows is answered
+        assert!(t.incoming_packet(true, "4.4.4.5:4".parse().unwrap(), ping, &filter, now));
+        assert_eq!(t.take_outgoing().len(), 1);
+        let s = DhtSettings { apply_filter_to_dht: false, ..DhtSettings::default() };
+        t.set_settings(s);
+        assert!(t.incoming_packet(true, blocked, ping, &filter, now));
+        assert_eq!(t.take_outgoing().len(), 1);
+    }
+
+    /// Saved nodes and added nodes the filter blocks are not queried; routers are.
+    #[test]
+    fn ip_filter_bootstrap_and_add_node() {
+        let now = Instant::now();
+        let mut filter = IpFilter::new();
+        let blocked: SocketAddr = "4.4.4.4:4".parse().unwrap();
+        let router: SocketAddr = "4.4.4.5:4".parse().unwrap();
+        filter.add_rule(blocked.ip(), router.ip(), IpFilter::BLOCKED);
+        let state = DhtState { nodes: vec![blocked, "5.5.5.5:5".parse().unwrap()], ..DhtState::default() };
+        let mut t = DhtTracker::new(DhtSettings::default(), state, now);
+        t.new_socket(true, None, &filter, now);
+        t.add_router_node(router);
+        t.start(&filter, now);
+        let mut to: Vec<SocketAddr> = t.take_outgoing().iter().map(|p| p.to).collect();
+        to.sort();
+        assert_eq!(to, [router, "5.5.5.5:5".parse().unwrap()]);
+        t.add_node(blocked, &filter, now);
+        assert!(t.take_outgoing().is_empty());
+        t.add_node("5.5.5.6:5".parse().unwrap(), &filter, now);
         assert_eq!(t.take_outgoing().len(), 1);
     }
 
@@ -435,8 +513,8 @@ mod tests {
         let now = Instant::now();
         let ext: IpAddr = "51.1.1.1".parse().unwrap();
         let mut t = DhtTracker::new(DhtSettings::default(), DhtState::default(), now);
-        t.new_socket(true, Some(ext), now);
-        t.new_socket(false, None, now);
+        t.new_socket(true, Some(ext), &IpFilter::new(), now);
+        t.new_socket(false, None, &IpFilter::new(), now);
         assert!(verify_id(&t.nodes[0].node.nid(), &ext), "a known address gives a BEP 42 id");
         let v6_id = t.nodes[1].node.nid();
 
@@ -444,7 +522,7 @@ mod tests {
         let mut q = b"d1:ad2:id20:aaaaaaaaaaaaaaaaaaaae2:ip6:".to_vec();
         q.extend_from_slice(&[53, 3, 3, 3, 0x1a, 0xe1]);
         q.extend_from_slice(b"1:q4:ping1:t2:aa1:y1:qe");
-        assert!(t.incoming_packet(true, "8.2.3.4:5".parse().unwrap(), &q, now));
+        assert!(t.incoming_packet(true, "8.2.3.4:5".parse().unwrap(), &q, &IpFilter::new(), now));
         let votes: Vec<_> = t
             .take_events()
             .into_iter()
@@ -457,7 +535,7 @@ mod tests {
         assert!(verify_id(&t.nodes[0].node.nid(), &ext), "one vote doesn't change the id");
 
         let ext2: IpAddr = "53.3.3.3".parse().unwrap();
-        t.update_node_id(true, ext2, now);
+        t.update_node_id(true, ext2, &IpFilter::new(), now);
         assert!(verify_id(&t.nodes[0].node.nid(), &ext2));
         assert_eq!(t.nodes[1].node.nid(), v6_id, "the IPv6 node keeps its id");
     }

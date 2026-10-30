@@ -930,7 +930,7 @@ impl Engine {
             }
             if let Some(t) = self.dht.tracker.as_mut() {
                 if n > 20 && buf[0] == b'd' && buf[n - 1] == b'e' {
-                    t.incoming_packet(node_v4, from, buf, now);
+                    t.incoming_packet(node_v4, from, buf, &self.filters.ip, now);
                 }
             }
         }

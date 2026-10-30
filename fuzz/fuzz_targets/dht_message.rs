@@ -6,18 +6,22 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use libfuzzer_sys::fuzz_target;
+use patorrent_core::IpFilter;
 use patorrent_core::bencode::bdecode;
 use patorrent_core::fuzzing::{DhtSettings, DhtState, DhtTracker};
 
 fuzz_target!(|data: &[u8]| {
     let mut now = Instant::now();
     let router: SocketAddr = "8.8.8.8:6881".parse().unwrap();
+    // senders 9.9.0.1 to 9.9.15.1 are blocked (the IP filter applies to the DHT)
+    let mut filter = IpFilter::new();
+    filter.add_rule([9, 9, 0, 0].into(), [9, 9, 15, 255].into(), IpFilter::BLOCKED);
     let settings = DhtSettings { block_ratelimit: 1000, ..DhtSettings::default() };
     let mut dht = DhtTracker::new(settings, DhtState::default(), now);
-    dht.new_socket(true, None, now);
-    dht.new_socket(false, None, now);
+    dht.new_socket(true, None, &filter, now);
+    dht.new_socket(false, None, &filter, now);
     dht.add_router_node(router);
-    dht.start(now);
+    dht.start(&filter, now);
     // the transaction id of our bootstrap query, so replies can match it
     let tid = dht
         .take_outgoing()
@@ -39,9 +43,9 @@ fuzz_target!(|data: &[u8]| {
             1 => SocketAddr::new([9, 9, who, 1].into(), 1000 + who as u16),
             _ => SocketAddr::new([0x2001, 0xdb8, 0, 0, 0, 0, 0, who as u16].into(), 6881),
         };
-        dht.incoming_packet(from.is_ipv4(), from, &body, now);
+        dht.incoming_packet(from.is_ipv4(), from, &body, &filter, now);
         now += Duration::from_millis(300);
-        dht.poll(now);
+        dht.poll(&filter, now);
         let _ = dht.take_events();
         let _ = dht.take_outgoing();
     }

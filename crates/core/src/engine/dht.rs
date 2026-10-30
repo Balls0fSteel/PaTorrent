@@ -6,7 +6,9 @@
 // Changes: the DHT runs on the engine's UDP listen sockets (one per address family, shared with
 // uTP); the engine's UDP dispatch hands it the bencoded datagrams. The announce round-robin
 // covers running torrents only (libtorrent spreads the interval over every loaded torrent).
-// The DHT state is saved to `dht_state.dat` beside the session store.
+// The DHT state is saved to `dht_state.dat` beside the session store. The DHT gets the
+// session's IP filter with each call (libtorrent `get_dht_ip_filter`); fixes from 2.1.1
+// (abc121b1e9).
 
 //! The engine side of the DHT: sockets, bootstrap, announces and peers for torrents.
 
@@ -177,7 +179,7 @@ impl Engine {
         }
         let external = self.ip_voter.external_address(v4);
         if let Some(t) = self.dht.tracker.as_mut() {
-            t.new_socket(v4, external, Instant::now());
+            t.new_socket(v4, external, &self.filters.ip, Instant::now());
         }
     }
 
@@ -239,14 +241,14 @@ impl Engine {
         let state = self.dht.state.take().unwrap_or_default();
         let mut t = DhtTracker::new(DhtSettings::from(&self.settings), state, now);
         for u in &self.udp {
-            t.new_socket(u.v4, self.ip_voter.external_address(u.v4), now);
+            t.new_socket(u.v4, self.ip_voter.external_address(u.v4), &self.filters.ip, now);
         }
         for r in &self.dht.routers {
             t.add_router_node(*r);
         }
-        t.start(now);
+        t.start(&self.filters.ip, now);
         for n in std::mem::take(&mut self.dht.pending_nodes) {
-            t.add_node(n, now);
+            t.add_node(n, &self.filters.ip, now);
         }
         self.dht.tracker = Some(t);
         self.dht.next_poll = now;
@@ -271,7 +273,7 @@ impl Engine {
     pub(super) fn dht_service(&mut self, now: Instant) {
         let Some(t) = self.dht.tracker.as_mut() else { return };
         if now >= self.dht.next_poll {
-            self.dht.next_poll = t.poll(now);
+            self.dht.next_poll = t.poll(&self.filters.ip, now);
         }
         if self.dht.next_announce.is_some_and(|a| now >= a) {
             self.on_dht_announce(now);
@@ -364,7 +366,7 @@ impl Engine {
     /// replaced beyond that) until the DHT runs.
     fn add_dht_node_ep(&mut self, ep: SocketAddr) {
         match self.dht.tracker.as_mut() {
-            Some(t) => t.add_node(ep, Instant::now()),
+            Some(t) => t.add_node(ep, &self.filters.ip, Instant::now()),
             None if self.dht.pending_nodes.len() < 200 => self.dht.pending_nodes.push(ep),
             None => {
                 let i = crate::util::random::random_u64() as usize % self.dht.pending_nodes.len();
@@ -459,9 +461,9 @@ impl Engine {
         for ih in hashes {
             if port == 0 {
                 // nothing to announce: just look for peers
-                tracker.get_peers(ih, now);
+                tracker.get_peers(ih, &self.filters.ip, now);
             } else {
-                tracker.announce(ih, AnnounceArgs { port, seed, implied_port }, now);
+                tracker.announce(ih, AnnounceArgs { port, seed, implied_port }, &self.filters.ip, now);
             }
         }
     }

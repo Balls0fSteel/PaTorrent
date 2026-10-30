@@ -8,7 +8,8 @@
 // transaction; a lookup once it is done and has no observers left). Callbacks become
 // `DhtEvent`s and the follow-up announce is a field of the lookup. Outgoing packets go through
 // the `SocketManager` trait; the clock is passed in. BEP 44 / BEP 51 queries are answered like
-// `find_node` until Phase 8.
+// `find_node` until Phase 8. The session's IP filter comes with the `SocketManager` of each
+// call; fixes from 2.1.1 (abc121b1e9).
 
 //! One DHT node (one address family): answers queries, runs lookups, keeps its routing table.
 
@@ -29,6 +30,7 @@ use super::settings::DhtSettings;
 use super::storage::DhtStorage;
 use crate::bencode::{Entry, Node as BNode, NodeType};
 use crate::crypto::Sha1;
+use crate::net::ip_filter::IpFilter;
 use crate::net::ip_voter::is_local;
 use crate::types::Sha1Hash;
 use crate::util::random::crypto_random_bytes;
@@ -44,6 +46,10 @@ pub trait SocketManager {
     /// Adds the version key, encodes and sends `e`. `local_v4` is the family of the sending
     /// node's socket; a packet for the other family may go out on the other socket.
     fn send_packet(&mut self, local_v4: bool, e: &mut Entry, addr: SocketAddr, now: Instant) -> bool;
+    /// The session's IP filter, if any (libtorrent `dht_observer::get_dht_ip_filter`).
+    fn ip_filter(&self) -> Option<&IpFilter> {
+        None
+    }
 }
 
 /// Something the node reports to its owner.
@@ -349,12 +355,20 @@ impl Node {
     }
 
     /// Our external address changed: take a BEP 42 id for it unless ours already matches.
-    pub fn update_node_id(&mut self, external: IpAddr, now: Instant) {
+    /// The routing table is rebuilt, so `filter` (the session's IP filter) applies to its
+    /// nodes again.
+    pub fn update_node_id(&mut self, external: IpAddr, filter: Option<&IpFilter>, now: Instant) {
         if verify_id(&self.id, &external) {
             return;
         }
         self.id = generate_id(&external);
-        self.table.update_node_id(self.id, now);
+        self.table.update_node_id(self.id, filter, now);
+    }
+
+    /// libtorrent `traversal_algorithm::filtered`: `addr` is blocked by the session's IP
+    /// filter and `apply_filter_to_dht` is on.
+    fn filtered(&self, sm: &dyn SocketManager, addr: &SocketAddr) -> bool {
+        self.settings.apply_filter_to_dht && sm.ip_filter().is_some_and(|f| f.is_blocked(addr.ip()))
     }
 
     fn token_hash(&self, addr: &SocketAddr, info_hash: &Sha1Hash, secret: usize) -> Sha1Hash {
@@ -387,7 +401,7 @@ impl Node {
 
     /// Pings `ep`; it enters the routing table if it answers.
     pub fn add_node(&mut self, sm: &mut dyn SocketManager, ep: SocketAddr, now: Instant) {
-        if !self.native_address(&ep.ip()) {
+        if !self.native_address(&ep.ip()) || self.filtered(sm, &ep) {
             return;
         }
         let bucket = self.table.num_active_buckets();
@@ -407,6 +421,10 @@ impl Node {
         self.traversals.get_mut(t).notify_bootstrap = notify;
         self.last_self_refresh = Some(now);
         for n in nodes {
+            // saved or configured nodes: unlike those found by `traverse`, not filtered yet
+            if self.filtered(sm, n) {
+                continue;
+            }
             self.add_entry(t, NodeId::default(), *n, FLAG_INITIAL, now);
         }
         self.start(sm, t, now);
@@ -548,7 +566,7 @@ impl Node {
                 let Some(r) = m.message.dict_find_dict("r") else { return };
                 for (id, ep) in read_nodes(r, self.protocol_nodes_key(), !self.is_v4) {
                     if usable_endpoint(&ep, &m.addr.ip()) {
-                        self.table.heard_about(&id, ep, now);
+                        self.table.heard_about(&id, ep, sm.ip_filter(), now);
                     }
                 }
             }
@@ -610,7 +628,7 @@ impl Node {
         let t = self.observers.get(o).algorithm;
         for (id, ep) in read_nodes(r, self.protocol_nodes_key(), !self.is_v4) {
             if usable_endpoint(&ep, &m.addr.ip()) {
-                self.traverse(id, ep, t, now);
+                self.traverse(sm, id, ep, t, now);
             }
         }
         let Some(id) = r.dict_find_string("id").filter(|i| i.string_length() == 20) else {
@@ -727,7 +745,8 @@ impl Node {
                 self.add_entry(t, n.id, n.ep(), FLAG_INITIAL, now);
             }
         }
-        // an empty routing table: use the router nodes
+        // an empty routing table: use the router nodes (configured, trusted bootstrap
+        // endpoints: the IP filter does not apply to them)
         if self.traversals.get(t).results.len() < 3 {
             let routers: Vec<SocketAddr> = self.table.router_nodes().copied().collect();
             for r in routers {
@@ -740,12 +759,12 @@ impl Node {
         }
     }
 
-    fn traverse(&mut self, id: NodeId, addr: SocketAddr, t: usize, now: Instant) {
-        if self.traversals.get(t).done {
+    fn traverse(&mut self, sm: &dyn SocketManager, id: NodeId, addr: SocketAddr, t: usize, now: Instant) {
+        if self.traversals.get(t).done || self.filtered(sm, &addr) {
             return;
         }
         // let the routing table know this node may exist
-        self.table.heard_about(&id, addr, now);
+        self.table.heard_about(&id, addr, sm.ip_filter(), now);
         self.add_entry(t, id, addr, 0, now);
     }
 
@@ -1169,7 +1188,7 @@ impl Node {
         self.observer_reply(sm, o, m, now);
         let rtt = now.saturating_duration_since(sent).as_millis().min(0xfffe) as i32;
         // it answered our transaction id, so it isn't spoofed: add it to the table
-        self.table.node_seen(&nid, m.addr, rtt, now);
+        self.table.node_seen(&nid, m.addr, rtt, sm.ip_filter(), now);
         Some(nid)
     }
 
@@ -1212,20 +1231,22 @@ impl Node {
                     return;
                 }
                 let mut e = Entry::new_dict();
-                self.incoming_request(storage, m, &mut e, other, now);
+                self.incoming_request(storage, m, &mut e, other, sm.ip_filter(), now);
                 sm.send_packet(self.is_v4, &mut e, m.addr, now);
             }
             _ => {}
         }
     }
 
-    /// Builds the response to a query (libtorrent `node::incoming_request`).
+    /// Builds the response to a query (libtorrent `node::incoming_request`). `filter` is the
+    /// session's IP filter, for the routing table.
     pub fn incoming_request(
         &mut self,
         storage: &mut DhtStorage,
         m: &Msg<'_>,
         e: &mut Entry,
         mut other: Option<&mut Node>,
+        filter: Option<&IpFilter>,
         now: Instant,
     ) {
         *e = Entry::new_dict();
@@ -1250,7 +1271,7 @@ impl Node {
             return incoming_error(e, "invalid node ID", 203);
         }
         if !read_only {
-            self.table.heard_about(&id, m.addr, now);
+            self.table.heard_about(&id, m.addr, filter, now);
         }
         {
             let reply = e.key("r");
@@ -1321,7 +1342,7 @@ impl Node {
                     return incoming_error(e, "invalid token", 203);
                 }
                 // a correct token means it isn't spoofing its address: let it into the table
-                self.table.node_seen(&id, m.addr, 0xffff, now);
+                self.table.node_seen(&id, m.addr, 0xffff, filter, now);
                 let addr = SocketAddr::new(m.addr.ip(), port as u16);
                 let name = k[3].map(|n| n.string_value()).unwrap_or_default();
                 let seed = k[4].is_some_and(|n| n.int_value() != 0);

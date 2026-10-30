@@ -54,6 +54,11 @@ pub struct Setup {
     /// The host names the Host check lets through besides IP addresses and `localhost`
     /// (`webui.domain_list`, `;`-separated, `*` wildcards).
     pub domains: String,
+    /// Accept `Authorization: Bearer <key>` with the stored key (`webui.api_key_enabled`; the
+    /// key itself is write-only, hashed in `webui.api_key`).
+    pub api_key_enabled: bool,
+    /// The subnets whose clients skip the login (`webui.bypass_auth_subnets`, `;`-separated).
+    pub subnets: String,
 }
 
 impl Default for Setup {
@@ -65,12 +70,15 @@ impl Default for Setup {
             remote: false,
             https: false,
             domains: String::new(),
+            api_key_enabled: false,
+            subnets: String::new(),
         }
     }
 }
 
 impl Setup {
-    /// The stored setup (`webui.enabled`, `webui.username`, `webui.listen`, `webui.https`).
+    /// The stored setup (`webui.enabled`, `webui.username`, `webui.listen`, `webui.https`,
+    /// `webui.domain_list`, `webui.api_key_enabled`, `webui.bypass_auth_subnets`).
     pub fn load(prefs: &Prefs) -> Setup {
         let listen = prefs.get("webui.listen").and_then(|s| webui::parse_addr(s).ok());
         let username = prefs.get("webui.username").map(str::trim).filter(|u| !u.is_empty());
@@ -81,12 +89,14 @@ impl Setup {
             remote: listen.is_some_and(|a| a.ip().is_unspecified()),
             https: prefs.get_bool("webui.https", false),
             domains: prefs.get("webui.domain_list").unwrap_or("").trim().to_owned(),
+            api_key_enabled: prefs.get_bool("webui.api_key_enabled", false),
+            subnets: prefs.get("webui.bypass_auth_subnets").unwrap_or("").trim().to_owned(),
         }
     }
 
-    /// Stores the setup, and a new `password` hashed as `webui.password` (the Web UI reads
-    /// the hash; the password itself is never kept).
-    pub fn store(&self, prefs: &mut Prefs, password: Option<&str>) {
+    /// Stores the setup, and a new `password` and `api_key` hashed as `webui.password` and
+    /// `webui.api_key` (the Web UI reads the hashes; neither is kept itself).
+    pub fn store(&self, prefs: &mut Prefs, password: Option<&str>, api_key: Option<&str>) {
         prefs.set_bool("webui.enabled", self.enabled);
         prefs.set("webui.username", &self.username);
         prefs.set("webui.listen", self.addr());
@@ -96,8 +106,17 @@ impl Setup {
         } else {
             prefs.set("webui.domain_list", &self.domains);
         }
+        prefs.set_bool("webui.api_key_enabled", self.api_key_enabled);
+        if self.subnets.is_empty() {
+            prefs.remove("webui.bypass_auth_subnets");
+        } else {
+            prefs.set("webui.bypass_auth_subnets", &self.subnets);
+        }
         if let Some(p) = password {
             prefs.set("webui.password", PasswordHash::new(p, DEFAULT_ITERATIONS).to_string());
+        }
+        if let Some(k) = api_key {
+            prefs.set("webui.api_key", PasswordHash::new(k, DEFAULT_ITERATIONS).to_string());
         }
     }
 
@@ -117,6 +136,11 @@ impl Setup {
 /// Whether a login is stored (`webui.password` holds a hash the Web UI can read).
 pub fn has_password(prefs: &Prefs) -> bool {
     prefs.get("webui.password").is_some_and(|h| PasswordHash::parse(h).is_some())
+}
+
+/// Whether an API key is stored (`webui.api_key` holds a hash).
+pub fn has_api_key(prefs: &Prefs) -> bool {
+    prefs.get("webui.api_key").is_some_and(|h| PasswordHash::parse(h).is_some())
 }
 
 /// Where the server stands, for the page's status line.
@@ -156,19 +180,23 @@ impl Status {
     }
 }
 
-/// What the page shows: the stored setup, whether a login is stored, the server's state.
+/// What the page shows: the stored setup, whether a login and an API key are stored, the
+/// server's state.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct View {
     pub setup: Setup,
     pub has_password: bool,
+    pub has_api_key: bool,
     pub status: Status,
 }
 
-/// The page's Apply: the setup and a new password (`None` keeps the stored one).
+/// The page's Apply: the setup, a new password and a new API key (`None` keeps the stored
+/// one).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Edit {
     pub setup: Setup,
     pub password: Option<String>,
+    pub api_key: Option<String>,
 }
 
 /// The window as the Web UI's host: what a browser changed is queued here and the window
@@ -270,21 +298,39 @@ mod tests {
             remote: true,
             https: true,
             domains: "patorrent;*.lan".into(),
+            api_key_enabled: true,
+            subnets: "192.168.1.0/24;fd00::/8".into(),
         };
-        s.store(&mut p, Some("s3cret"));
+        assert!(!has_api_key(&p));
+        s.store(&mut p, Some("s3cret"), Some("0123456789abcdef"));
         assert_eq!(p.get("webui.listen"), Some("0.0.0.0:8443"));
         assert_eq!(p.get("webui.domain_list"), Some("patorrent;*.lan"));
         assert_eq!(p.get("webui.enabled"), Some("1"));
+        assert_eq!(p.get("webui.api_key_enabled"), Some("1"));
+        assert_eq!(p.get("webui.bypass_auth_subnets"), Some("192.168.1.0/24;fd00::/8"));
         assert!(has_password(&p), "a hash, never the password");
         assert!(!p.get("webui.password").unwrap().contains("s3cret"));
         assert!(PasswordHash::parse(p.get("webui.password").unwrap()).unwrap().verify("s3cret"));
+        // the key is hashed as the password is (the Web UI reads it so)
+        assert!(has_api_key(&p));
+        assert!(!p.get("webui.api_key").unwrap().contains("0123456789abcdef"));
+        assert!(PasswordHash::parse(p.get("webui.api_key").unwrap()).unwrap().verify("0123456789abcdef"));
         assert_eq!(Setup::load(&p), s);
         assert_eq!(s.url(), "https://127.0.0.1:8443/");
-        // the stored hash stays without a new password; a local setup binds the loopback
-        let local = Setup { remote: false, https: false, domains: String::new(), ..s.clone() };
-        local.store(&mut p, None);
+        // the stored hashes stay without new ones; a local setup binds the loopback
+        let local = Setup {
+            remote: false,
+            https: false,
+            domains: String::new(),
+            api_key_enabled: false,
+            subnets: String::new(),
+            ..s.clone()
+        };
+        local.store(&mut p, None, None);
         assert_eq!(p.get("webui.domain_list"), None);
-        assert!(has_password(&p));
+        assert_eq!(p.get("webui.bypass_auth_subnets"), None);
+        assert_eq!(p.get("webui.api_key_enabled"), Some("0"));
+        assert!(has_password(&p) && has_api_key(&p));
         assert_eq!(p.get("webui.listen"), Some("127.0.0.1:8443"));
         assert_eq!(local.url(), "http://127.0.0.1:8443/");
         assert_eq!(Setup::load(&p), local);

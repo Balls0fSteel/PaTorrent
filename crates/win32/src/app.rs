@@ -3809,17 +3809,18 @@ fn web_view(a: &App) -> WebView {
     WebView {
         setup: WebSetup::load(&a.prefs),
         has_password: webui_host::has_password(&a.prefs),
+        has_api_key: webui_host::has_api_key(&a.prefs),
         status: a.web_status.clone(),
     }
 }
 
-/// Preferences > Web UI's Apply: stores the setup (a new password hashed), then restarts the
-/// server as asked.
+/// Preferences > Web UI's Apply: stores the setup (a new password and API key hashed), then
+/// restarts the server as asked (the hosted server reads the key's hash from its options).
 fn apply_web(a: &mut App, e: &Edit) -> WebView {
     if crate::remote_ui::is_remote() {
         return web_view(a);
     }
-    e.setup.store(&mut a.prefs, e.password.as_deref());
+    e.setup.store(&mut a.prefs, e.password.as_deref(), e.api_key.as_deref());
     if let Err(err) = a.prefs.save() {
         a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = err)));
     }

@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_090053_1793347253: V2.0 profiles and portable-mode design (proposed D42)
+
+- **Design (plan item E):** new [docs/PROFILES.md](docs/PROFILES.md): `--profile NAME` on all three binaries, named profiles in `profiles/<name>` inside today's root (the default profile is the 1.x folder, so nothing migrates), per-profile Win32 window class and GTK application id, a `patorrent.lock` per profile, random listen ports for new profiles, per-profile nox services (SCM, a systemd template, rc.d profiles), associations owned by one profile, portable mode by `patorrent.ini` on every platform but Flatpak with relative paths inside the folder, and the installer's (D31) checks. Nine open questions for the owner; a brief comparison with µTorrent and qBittorrent from memory.
+- **Found while reading the code:** the Win32 second start's `FindWindowW("PaTorrentMainWnd")` is not keyed by data dir like its mutex, so with a portable and an installed copy both running a torrent can go to the wrong one; the GUI tests the portable marker with `exists()` and nox with `is_file()`. Both are step 1 of the design. Docs only, no version bump.
+
 ## 2026-10-30_075652_1793347012: 1.1.7 release prepared; next features planned
 
 - **Release (owner, 2026-10-30):** release `main` as 1.1.7 in place of the unpublished 1.1.2 draft. New `docs/releases/1.1.7.md` covers everything since 1.1.0: the hosted Web UI, the service login, the *arr fixes (1.1.3-1.1.6), activate on add and Stopped on add. There is a 1.1.7 `<release>` in the Flatpak metainfo. No program change, so no version bump.

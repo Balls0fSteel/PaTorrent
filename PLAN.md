@@ -1,8 +1,8 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_075652_1793347012
+Last updated: 2026-10-30_090053_1793347253
 
-Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
+Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
 ## Vision
 
@@ -36,7 +36,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **B.** Small fixes: the installer built in `ci.yml`; the hosted window's `seed_*` changes reaching `sync/maindata`; a category's `savePath` used on add; hosted empty categories kept; a Server domains field in Win32 Preferences > Web UI; a Bearer API key and a subnet whitelist in the shim; tags accepted as no-ops; a nox update check.
 - **C.** Alternative speed limits in the Win32 GUI (ask the owner first: 2.2.1 has no toggle) and RSS in hosted mode; optionally a GTK hosting page.
 - **D.** Torznab search (D41, approved with the rule that a source on a non-public address bypasses the proxy), in the slices of [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2.
-- **E.** A V2.0 profiles and portable-mode design (`docs/PROFILES.md`, proposed D42); no code before the owner approves it.
+- **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
 
 0. **Owner hand-test findings (2026-10-27):** fixed on `main` 2026-10-28_075806_1793170686 (scheduler flicker and colours, stale speed on stopped rows, blank rows, alternating rows, hotkeys with menu labels, redrawn toolbar/checking icons, version 1.0.2 with `-dev.<commit>` test-build strings, D37). The owner re-tests them on a fresh Win32 build, which also has the category, tab, Preferences and menu icons (1.0.7, with artwork revision 8; GTK's navigation icons need a Linux look, [BACKLOG](docs/BACKLOG.md#ui-icon-coverage-audit-2026-10-28_090116_1793174476)); what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
 1. **After 1.0.1:** confirm the website serves `stable=1.0.1` in `update.txt` (the Pages deploy finished; the CDN caches 10 min) and that an rc.1 build offers the update. 1.0.1 is the installer's first release: run its wizard and the all-users UAC path once on a real PC. Register `PA` with the client-ID lists (item 14).
@@ -78,7 +78,8 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 - UI artwork (D27-D30): the bold family passed its revision 6 review (131/131) and is integrated (gate 10); revisions 3-6 and their reviews are in the [changelog archive](docs/archive/README.md). Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
 - Proposed D41: search through the user's Prowlarr/Jackett over Torznab, in the toolbar search box's drop-down, with no Python plugins or scrapers of our own; also the proxy rule for local sources ([INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2).
-- Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text. Research before designing the V2.0 goals below.
+- Proposed D42: profiles and portable mode ([PROFILES.md](docs/PROFILES.md)).
+- Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
 
 
 ## V1.1
@@ -87,7 +88,7 @@ Released in 1.1.0 (D35: the name search, and importers from qBittorrent / µTorr
 
 ## V2.0 goals
 
-Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23; not designed yet.
+Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23. Goals 1 and 3 are designed in [PROFILES.md](docs/PROFILES.md) (2026-10-30_090053_1793347253, proposed D42, open questions Q1-Q9); no code before the owner approves.
 
 1. Profiles: separate settings, torrents and state, simultaneous instances, per-profile single-instance handling, ports and nox services.
 2. Downloadable binaries on GitHub Releases: build on the tagged packaging workflow already started for 1.0 (items 6-8).

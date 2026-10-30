@@ -578,7 +578,7 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   layers and fetch them from peers.
 - **Search:** name only; the 2.2.1 drop-down of web search engines is not there. Proposed:
   Torznab sources (Prowlarr, Jackett) in that drop-down, [INTEGRATIONS.md](INTEGRATIONS.md)
-  part 2 (D41 pending). Win32 does not debounce (12-16 ms a keystroke at
+  part 2 (D41 approved; the shared model is built, the UI is not). Win32 does not debounce (12-16 ms a keystroke at
   100,000 rows); measure on the low-end machine (gate 5).
 - **Remote mode:** Import is disabled in both GUIs; importing into a remote nox goes through
   `nox run --import` on that machine.

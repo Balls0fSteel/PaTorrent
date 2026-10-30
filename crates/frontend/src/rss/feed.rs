@@ -21,6 +21,8 @@ const MAX_DESCRIPTION: usize = 64 * 1024;
 pub const MAX_ITEMS: usize = 5000;
 /// Elements nested deeper than this are skipped.
 const MAX_DEPTH: usize = 64;
+/// `torznab:attr` / `newznab:attr` elements kept per item.
+pub const MAX_ATTRS: usize = 64;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FeedKind {
@@ -68,6 +70,11 @@ pub struct FeedItem {
     pub content_length: Option<u64>,
     /// `torrent:fileName`.
     pub file_name: String,
+    /// The RSS item's `size` element (Torznab results carry the torrent's size there).
+    pub size: Option<u64>,
+    /// `torznab:attr` / `newznab:attr` elements as `(name, value)`, in document order (at most
+    /// [`MAX_ATTRS`]): seeders, peers, infohash, category, magneturl and the like.
+    pub attrs: Vec<(String, String)>,
 }
 
 impl FeedItem {
@@ -126,6 +133,8 @@ enum Field {
     InfoHash,
     ContentLength,
     FileName,
+    /// RSS `size` (Torznab).
+    Size,
 }
 
 /// Which field an element of an item fills. Core RSS / Atom names count without a prefix (or
@@ -146,6 +155,7 @@ fn item_field(name: &str) -> Option<Field> {
         _ if is("infoHash") => Field::InfoHash,
         _ if is("contentLength") => Field::ContentLength,
         _ if is("fileName") => Field::FileName,
+        _ if prefix.is_empty() && is("size") => Field::Size,
         _ => return None,
     })
 }
@@ -275,7 +285,8 @@ impl State {
         }
     }
 
-    /// `enclosure` (RSS) and `link` (Atom) carry their data in attributes.
+    /// `enclosure` (RSS), `link` (Atom) and `torznab:attr` / `newznab:attr` carry their data in
+    /// attributes.
     fn tag_done(&mut self) {
         let Some((name, attrs)) = self.tag.take() else { return };
         let Some((item, item_depth)) = &mut self.item else { return };
@@ -287,7 +298,15 @@ impl State {
         let attr = |k: &str| attrs.iter().find(|(n, _)| n.eq_ignore_ascii_case(k)).map(|(_, v)| v.as_str());
         let local = local_name(&name);
         let core = !name.contains(':') || name.to_ascii_lowercase().starts_with("atom:");
-        if core && local.eq_ignore_ascii_case("enclosure") {
+        let prefix = name.rsplit_once(':').map_or("", |(p, _)| p);
+        let torznab = prefix.eq_ignore_ascii_case("torznab") || prefix.eq_ignore_ascii_case("newznab");
+        if torznab && local.eq_ignore_ascii_case("attr") {
+            if let (Some(n), Some(v)) = (attr("name"), attr("value")) {
+                if item.attrs.len() < MAX_ATTRS && !n.trim().is_empty() {
+                    item.attrs.push((clip(n.trim(), MAX_FIELD), clip(v.trim(), MAX_FIELD)));
+                }
+            }
+        } else if core && local.eq_ignore_ascii_case("enclosure") {
             if let Some(url) = attr("url").filter(|u| !u.is_empty()) {
                 set_enclosure(item, url, attr("type"), attr("length"));
             }
@@ -359,6 +378,11 @@ fn set_field(item: &mut FeedItem, field: Field, text: &str, updated: Option<i64>
             }
         }
         Field::FileName => first(&mut item.file_name),
+        Field::Size => {
+            if item.size.is_none() {
+                item.size = text.parse().ok();
+            }
+        }
     }
     updated
 }
@@ -886,5 +910,60 @@ mod tests {
         for (s, want) in cases {
             assert_eq!(parse_date(s), *want, "{s}");
         }
+    }
+
+    #[test]
+    fn torznab_size_and_attrs_are_read_at_item_level() {
+        let doc = r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed">
+  <channel>
+    <title>Indexer</title>
+    <torznab:attr name="channel-level" value="ignored"/>
+    <item>
+      <title>Linux.ISO.x64</title>
+      <size>1234567890</size>
+      <size>5</size>
+      <torznab:attr name="seeders" value="42"/>
+      <torznab:attr name="peers" value="50" />
+      <newznab:attr name="category" value="4000"></newznab:attr>
+      <TORZNAB:ATTR NAME="magneturl" VALUE="magnet:?xt=urn:btih:ABC&amp;dn=x"/>
+      <torznab:attr name="  " value="no name"/>
+      <torznab:attr value="no name either"/>
+      <other:attr name="foreign" value="skipped"/>
+      <description><torznab:attr name="nested" value="skipped"/></description>
+    </item>
+    <item><title>No size</title><size>lots</size></item>
+  </channel>
+</rss>"#;
+        let feed = parse_feed(doc.as_bytes()).unwrap();
+        let a = &feed.items[0];
+        assert_eq!(a.size, Some(1_234_567_890), "the first size counts");
+        let attrs: Vec<(&str, &str)> = a.attrs.iter().map(|(n, v)| (n.as_str(), v.as_str())).collect();
+        assert_eq!(
+            attrs,
+            [
+                ("seeders", "42"),
+                ("peers", "50"),
+                ("category", "4000"),
+                ("magneturl", "magnet:?xt=urn:btih:ABC&dn=x")
+            ]
+        );
+        assert_eq!(feed.items[1].size, None);
+        assert!(feed.items[1].attrs.is_empty());
+
+        // capped per item, and each value clipped
+        let mut many = String::from("<rss><channel><item><title>t</title>");
+        for i in 0..MAX_ATTRS + 10 {
+            many.push_str(&format!(r#"<torznab:attr name="a{i}" value="v"/>"#));
+        }
+        many.push_str(&format!(r#"<torznab:attr name="long" value="{}"/>"#, "x".repeat(MAX_FIELD * 2)));
+        many.push_str("</item></channel></rss>");
+        let feed = parse_feed(many.as_bytes()).unwrap();
+        assert_eq!(feed.items[0].attrs.len(), MAX_ATTRS);
+        let long = "<rss><channel><item><torznab:attr name=\"long\" value=\"".to_owned()
+            + &"é".repeat(MAX_FIELD)
+            + "\"/></item></channel></rss>";
+        let feed = parse_feed(long.as_bytes()).unwrap();
+        assert!(feed.items[0].attrs[0].1.len() <= MAX_FIELD);
     }
 }

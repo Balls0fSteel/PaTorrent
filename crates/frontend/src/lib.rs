@@ -56,6 +56,7 @@ pub mod remote;
 pub mod rss;
 pub mod scheduler;
 pub mod scrape;
+pub mod search;
 pub mod secret;
 pub mod seeding;
 pub mod settings;

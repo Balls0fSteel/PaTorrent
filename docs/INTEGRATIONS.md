@@ -1,6 +1,6 @@
 # Sonarr, Radarr, Prowlarr and Torznab search
 
-Status 2026-10-29_170000_1793289600: part 1's gaps 1, 2 and 7 are fixed (1.1.3, 1.1.5) and gap 3 is decided (strict, 1.1.4). Real Sonarr, Radarr and Prowlarr passed against nox on Linux and against the Windows GUI's hosted Web UI (gap 6); the rest are open. Part 2 is a proposal (D41 pending), nothing is built.
+Status 2026-10-29_170000_1793289600: part 1's gaps 1, 2 and 7 are fixed (1.1.3, 1.1.5) and gap 3 is decided (strict, 1.1.4). Real Sonarr, Radarr and Prowlarr passed against nox on Linux and against the Windows GUI's hosted Web UI (gap 6); the rest are open. Part 2 (D41) is approved (owner, 2026-10-30) with the proxy rule decided; slice 1, the shared model in `patorrent-frontend`, is built (2026-10-30_104340_1793353420), the user interfaces are not.
 
 Two ways PaTorrent meets the *arr tools:
 
@@ -57,7 +57,9 @@ State mapping (Sonarr and Radarr): `pausedUP`/`stoppedUP`, `uploading`, `stalled
 
 Gaps 1 and 2 were fixed in `crates/nox/src/webui/api.rs`, `commands.rs` and `torrent.rs` (1.1.3), tested by `the_arr_apps_share_limits_round_trip` in `crates/nox/tests/webui.rs`. `setShareLimits` now also marks the torrent changed, so `sync/maindata` sends the new limits. A ratio limit of 0 (qBittorrent: stop at once) is a target that is off here, as in µTorrent.
 
-## Part 2: Torznab search (proposal, D41)
+## Part 2: Torznab search (D41, approved 2026-10-30)
+
+Approved by the owner 2026-10-30: search through the user's Prowlarr or Jackett over Torznab, no Python plugins, no scrapers; a source on a non-public address never goes through the proxy, a public one does. Slice 1 is built (2026-10-30_104340_1793353420), see [Slices](#slices).
 
 ### Why Torznab
 
@@ -88,7 +90,7 @@ Both take `t=caps` (capabilities and categories) and `t=search&q=&cat=&limit=&of
 - **Reach (SEC-26)**: the source URL is the user's, so the query goes to any address, Prowlarr on `localhost` included. A result's link may be followed with `Reach::User` only when it points at the source's own host (both servers proxy their downloads through themselves); any other link gets `Reach::Public` (`Reach::for_links_from` already does this for Jackett-style local feeds).
 - **The API key** is stored like an RSS feed's cookies, never logged, and removed from any URL shown in an error or in the Web UI. The Web UI's native API returns sources without their keys.
 - Result titles and descriptions are untrusted text: shown as text, never as HTML.
-- **Proxy**: `http_get` uses the engine's proxy whenever one is set, which breaks a Prowlarr on this machine or this network. Proposed: a source on a non-public address never goes through the proxy; a public one does. Owner to confirm.
+- **Proxy** (decided 2026-10-30): `http_get` uses the engine's proxy whenever one is set, which would break a Prowlarr on this machine or this network. A source on a non-public address (loopback, private, link-local, `localhost`; `Reach::for_links_from` decides) never goes through the proxy; a public one does. A result's link follows the same rule by its own host (`search::worker::proxy_for`).
 
 ### User interface
 
@@ -99,7 +101,13 @@ Both take `t=caps` (capabilities and categories) and `t=search&q=&cat=&limit=&of
 
 ### Slices
 
-1. Frontend: sources, the Torznab parser and the merged search, with fixtures captured from Prowlarr and Jackett (results, caps, errors, a magnet redirect).
+1. Frontend: sources, the Torznab parser and the merged search, with fixtures captured from Prowlarr and Jackett (results, caps, errors, a magnet redirect). **Done** (2026-10-30_104340_1793353420), no strings, no UI:
+   - `rss::feed::FeedItem` gained `size` (the RSS `size` element) and `attrs` (`torznab:attr` / `newznab:attr` name-value pairs at item level, at most 64 an item, each clipped to the field cap).
+   - `search::source`: `Source {name, url, api_key, enabled}`, `load_sources` / `store_sources` / `remove_source` over `search.source.N.name|url|key|enabled` (renumbered without gaps), the key sealed like `lt.proxy_password` (`prefs::is_sealed_key`), `redact` (the key, as is and percent-encoded, and any `*apikey=` query value become `***`).
+   - `search::torznab`: `SearchResult` (name, size, seeders, peers, v1 info-hash from `infohash` or the magnet's btih, categories, date, link, magnet, source and all sources), `parse_results`, `parse_error`, `parse_caps` (categories with subcategories), `SearchError` (fetch failure, Torznab `code: description`, not Torznab), `search_url` / `caps_url` (the entered endpoint's query kept, our parameters replaced, values percent-encoded, `apikey=` last).
+   - `search::worker`: `Search` (one thread per enabled source, answers merged on the caller's thread by `collect`, a search id so a replaced or stopped search's late answers are dropped), `merge`, `fetch_results`, `fetch_caps` (a source's Test), `fetch_download` (the magnet, else the link: a `.torrent` or a redirect to a magnet, `Reach::User` only on the source's own host), `proxy_for`.
+   - The fixtures are written from Prowlarr's and Jackett's source, not captured from live servers; capturing real answers is left for slice 2's live test.
+   - The `rss` fuzz target also feeds its input to the Torznab parsers.
 2. nox: native commands, the Web UI panel, the source settings.
 3. Win32: the drop-down, Search Results and Manage Sources dialogs.
 4. GTK: the same.
@@ -109,7 +117,6 @@ About 20 new strings, in all 34 tables.
 
 ### Open choices for the owner
 
-- Approve D41 (Torznab sources as PaTorrent's search; no Python plugins, no scrapers of our own).
-- The proxy rule above.
+- ~~Approve D41~~ and ~~the proxy rule~~: approved 2026-10-30.
 - The Win32 drop-down and Search Results window as the place for it.
 - Gap 3's default (keep the strict Host check, recommended, or `*`).

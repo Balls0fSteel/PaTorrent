@@ -2,7 +2,8 @@
 //! folder). Unknown keys are kept, so older and newer builds can share one file. The engine's
 //! own settings are kept here too, as `lt.<name>` lines (see [`crate::settings`]).
 //!
-//! The keys in [`SEALED`] (the proxy password) are secrets: [`Prefs::get`] gives their plain
+//! The keys [`is_sealed_key`] names (the proxy password, the search sources' API keys) are
+//! secrets: [`Prefs::get`] gives their plain
 //! value, while [`Prefs::entries`] and the file hold them sealed ([`crate::secret`]: DPAPI on
 //! Windows, plain elsewhere). Every frontend's store (the GUIs' `patorrent.ini`, nox's
 //! `webui.json` `options`) goes through `set` / `entries`, so each gets the sealed form.
@@ -14,15 +15,25 @@ use patorrent_core::util::private_file;
 
 use crate::columns::Column;
 
-/// The keys whose values are secrets, sealed in the file ([`crate::secret`]).
+/// The fixed keys whose values are secrets, sealed in the file ([`crate::secret`]).
 pub const SEALED: &[&str] = &["lt.proxy_password"];
+
+/// Whether `key`'s value is a secret, sealed in the file: the [`SEALED`] keys and every
+/// search source's API key (`search.source.<n>.key`, [`crate::search::source`]).
+pub fn is_sealed_key(key: &str) -> bool {
+    SEALED.contains(&key)
+        || key
+            .strip_prefix("search.source.")
+            .and_then(|rest| rest.strip_suffix(".key"))
+            .is_some_and(|n| !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()))
+}
 
 #[derive(Debug, Default)]
 pub struct Prefs {
     path: Option<PathBuf>,
     /// Plain values.
     values: BTreeMap<String, String>,
-    /// The stored (file) form of the [`SEALED`] keys that are set.
+    /// The stored (file) form of the sealed keys ([`is_sealed_key`]) that are set.
     sealed: BTreeMap<String, String>,
     /// Every `set` and `remove` since [`Prefs::take_changes`], once [`Prefs::track_changes`]
     /// turned it on: for a copy kept elsewhere (the Web UI a GUI hosts mirrors its
@@ -98,7 +109,7 @@ impl Prefs {
         self.values.get(key).map(String::as_str)
     }
 
-    /// Every key and value as stored (the [`SEALED`] keys sealed), sorted by key. [`Prefs::set`]
+    /// Every key and value as stored (the [`is_sealed_key`] keys sealed), sorted by key. [`Prefs::set`]
     /// takes these back.
     pub fn entries(&self) -> impl Iterator<Item = (&str, &str)> {
         self.values.iter().map(|(k, v)| {
@@ -119,12 +130,12 @@ impl Prefs {
         }
     }
 
-    /// Sets a key. For a [`SEALED`] key the value is the plain one or a sealed one (as
+    /// Sets a key. For a sealed key ([`is_sealed_key`]) the value is the plain one or a sealed one (as
     /// [`Prefs::entries`] gives it); a sealed one that does not open here (another account's,
     /// corrupt) reads as empty.
     pub fn set(&mut self, key: &str, value: impl ToString) {
         let value = value.to_string();
-        if SEALED.contains(&key) {
+        if is_sealed_key(key) {
             let plain = crate::secret::open(&value);
             let stored = if crate::secret::is_sealed(&value) {
                 value
@@ -310,6 +321,25 @@ mod tests {
         assert_eq!(r.entries().find(|(k, _)| *k == "lt.proxy_password").unwrap().1, stored);
         r.remove("lt.proxy_password");
         assert!(!r.to_text().contains("proxy_password"));
+    }
+
+    #[test]
+    fn search_source_keys_are_sealed_too() {
+        assert!(is_sealed_key("lt.proxy_password"));
+        assert!(is_sealed_key("search.source.0.key") && is_sealed_key("search.source.17.key"));
+        for k in ["search.source.0.url", "search.source..key", "search.source.x.key", "search.source.0.keys"]
+        {
+            assert!(!is_sealed_key(k), "{k}");
+        }
+        let mut p = Prefs::default();
+        p.set("search.source.3.key", "0123abcd");
+        p.set("search.source.3.url", "http://localhost:9696/1/api");
+        assert_eq!(p.get("search.source.3.key"), Some("0123abcd"));
+        let text = p.to_text();
+        if cfg!(windows) {
+            assert!(!text.contains("0123abcd"), "{text}");
+        }
+        assert_eq!(Prefs::from_text(&text).get("search.source.3.key"), Some("0123abcd"));
     }
 
     #[test]

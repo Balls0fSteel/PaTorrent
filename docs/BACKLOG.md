@@ -388,7 +388,8 @@ That broad check does not establish that every detailed case below was tried.
   pause a torrent from each side, change a rate limit from the browser, HTTPS,
   the port in use, the box turned off, a browser `app/shutdown`). Not in hosted
   mode: the RSS Downloader (the window's; a proxy to it is the follow-up),
-  alternative speed limits (the shim's `speedLimitsMode` answers 0), and a magnet
+  alternative speed limits (the shim's `speedLimitsMode` answers 0; by design since the owner's
+  decision of 2026-10-30, because the Win32 GUI keeps 2.2.1's controls without such a toggle), and a magnet
   added from the browser without metadata survives a window restart only in the
   window's Add dialog. The `--webui` daemon-only paths (`webui.json`) are
   unchanged. Fixed in 1.1.8:

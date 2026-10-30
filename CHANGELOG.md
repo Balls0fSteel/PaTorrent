@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_103224_1793352744: No alternative speed limits in the Win32 GUI (owner)
+
+- **Decision (owner):** keep 2.2.1's controls; the Win32 GUI gets no alternative speed limits toggle. The hosted Web UI keeps refusing them (`speedLimitsMode` 0, `HOSTED_NO_ALT`), now by design. PLAN Phase C is RSS in hosted mode and optionally a GTK hosting page.
+
 ## 2026-10-30_091143_1793351503: nox checks for updates like the GUIs (1.1.11, D43)
 
 - **Owner choice ("on, like the GUIs"):** `patorrent-nox run` fetches the site's `update.txt` (frontend `update::Checker`) 10 s after start, then every 12 h, through the session's proxy.

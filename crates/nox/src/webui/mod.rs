@@ -280,6 +280,7 @@ impl Prefs {
             close_to_tray: true,
             minimize_to_tray: false,
             balloons: true,
+            activate_on_add: true,
             add_stopped: self.start_paused,
             show_add_dialog: self.show_add_dialog,
             random_port: self.random_port,
@@ -301,7 +302,7 @@ impl Prefs {
     }
 
     /// Writes these preferences into `g`, leaving the desktop-only options (tray, balloons,
-    /// updates) as they are: a host's options with the Web UI's changes on them.
+    /// window activation, updates) as they are: a host's options with the Web UI's changes on them.
     pub fn apply_to(&self, g: &mut GuiOptions) {
         let mine = self.gui();
         *g = GuiOptions {
@@ -310,6 +311,7 @@ impl Prefs {
             close_to_tray: g.close_to_tray,
             minimize_to_tray: g.minimize_to_tray,
             balloons: g.balloons,
+            activate_on_add: g.activate_on_add,
             check_updates: g.check_updates,
             update_beta: g.update_beta,
             ..mine

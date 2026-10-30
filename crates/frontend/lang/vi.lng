@@ -422,6 +422,7 @@ PrefCloseToTray=Đóng vào khay hệ thống
 PrefMinimizeToTray=Thu nhỏ vào khay hệ thống
 PrefWhenAdding=Khi thêm torrent
 PrefDontStart=Không tự động bắt đầu tải xuống
+PrefActivateWindow=Kích hoạt cửa sổ chương trình
 PrefShowAddDialog=Hiện cửa sổ liệt kê các tệp trong torrent
 PrefDownloadLocation=Vị trí các tệp đã tải
 PrefNewDownloadsIn=Đặt bản tải mới vào:

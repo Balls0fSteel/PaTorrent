@@ -9,6 +9,13 @@ use patorrent_core::{TorrentFlags, TorrentState, TorrentStatus};
 use crate::icons::StateIcon;
 use crate::{fmt, tr};
 
+/// A checking state that is (or is queued to be) checking. A torrent added stopped stays in
+/// `CheckingResumeData` until it first starts; stopped or paused, it shows as such.
+fn checking(st: &TorrentStatus) -> bool {
+    matches!(st.state, TorrentState::CheckingFiles | TorrentState::CheckingResumeData)
+        && (!st.flags.contains(TorrentFlags::PAUSED) || st.flags.contains(TorrentFlags::AUTO_MANAGED))
+}
+
 /// The text shown in the Status column.
 pub fn status_text(st: &TorrentStatus, user_paused: bool) -> String {
     if !st.error.is_empty() {
@@ -19,15 +26,12 @@ pub fn status_text(st: &TorrentStatus, user_paused: bool) -> String {
     }
     let paused = st.flags.contains(TorrentFlags::PAUSED);
     let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);
-    match st.state {
-        TorrentState::CheckingFiles | TorrentState::CheckingResumeData => {
-            return if paused && auto {
-                tr!(StatusQueuedForChecking).to_owned()
-            } else {
-                tr!(StatusChecking, percent = fmt::percent(st.progress_ppm))
-            };
-        }
-        _ => {}
+    if checking(st) {
+        return if paused {
+            tr!(StatusQueuedForChecking).to_owned()
+        } else {
+            tr!(StatusChecking, percent = fmt::percent(st.progress_ppm))
+        };
     }
     if paused {
         return match (auto, user_paused, st.is_finished) {
@@ -62,8 +66,8 @@ pub fn status_class(st: &TorrentStatus, user_paused: bool) -> &'static str {
     }
     let paused = st.flags.contains(TorrentFlags::PAUSED);
     let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);
-    if matches!(st.state, TorrentState::CheckingFiles | TorrentState::CheckingResumeData) {
-        return if paused && auto { "queued" } else { "checking" };
+    if checking(st) {
+        return if paused { "queued" } else { "checking" };
     }
     if paused {
         return match (auto, user_paused, st.is_finished) {
@@ -94,12 +98,13 @@ pub fn status_icon(st: &TorrentStatus, user_paused: bool) -> StateIcon {
     }
     let paused = st.flags.contains(TorrentFlags::PAUSED);
     let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);
-    match (st.state, paused && auto) {
-        (TorrentState::CheckingFiles, true) => return StateIcon::QueuedChecking,
-        (TorrentState::CheckingFiles, false) => return StateIcon::CheckingFiles,
-        (TorrentState::CheckingResumeData, true) => return StateIcon::QueuedResumeChecking,
-        (TorrentState::CheckingResumeData, false) => return StateIcon::CheckingResumeData,
-        _ => {}
+    if checking(st) {
+        return match (st.state, paused) {
+            (TorrentState::CheckingFiles, true) => StateIcon::QueuedChecking,
+            (TorrentState::CheckingFiles, false) => StateIcon::CheckingFiles,
+            (_, true) => StateIcon::QueuedResumeChecking,
+            (_, false) => StateIcon::CheckingResumeData,
+        };
     }
     if paused {
         return match (auto, user_paused, st.is_finished) {
@@ -197,6 +202,9 @@ mod tests {
         checking.progress_ppm = 453_000;
         assert_eq!(status_text(&checking, false), "Checking 45.3 %");
         assert_eq!(status_text(&st(am | p, CheckingFiles, false), false), "Queued for checking");
+        // added stopped: the engine has not begun its check
+        assert_eq!(status_text(&st(p, CheckingResumeData, false), false), "Stopped");
+        assert_eq!(status_text(&st(p, CheckingResumeData, false), true), "Paused");
 
         let mut err = st(am, Downloading, false);
         err.error = "disk full".into();
@@ -218,6 +226,8 @@ mod tests {
         assert_eq!(status_class(&st(am, DownloadingMetadata, false), false), "metadata");
         assert_eq!(status_class(&st(e, CheckingFiles, false), false), "checking");
         assert_eq!(status_class(&st(am | p, CheckingFiles, false), false), "queued");
+        assert_eq!(status_class(&st(p, CheckingResumeData, false), false), "stopped");
+        assert_eq!(status_class(&st(p, CheckingResumeData, false), true), "paused");
         let mut err = st(am, Downloading, false);
         err.error = "disk full".into();
         assert_eq!(status_class(&err, false), "error");
@@ -246,6 +256,8 @@ mod tests {
             (st(am, CheckingResumeData, false), false, I::CheckingResumeData),
             (st(am | p, CheckingFiles, false), false, I::QueuedChecking),
             (st(am | p, CheckingResumeData, false), false, I::QueuedResumeChecking),
+            (st(p, CheckingResumeData, false), false, I::StoppedIncomplete),
+            (st(p, CheckingFiles, false), true, I::PausedIncomplete),
             (st(am | p, Downloading, false), false, I::QueuedDownload),
             (st(am | p, Seeding, true), false, I::QueuedSeed),
             (st(p, Downloading, false), true, I::PausedIncomplete),

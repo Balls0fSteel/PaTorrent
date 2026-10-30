@@ -422,6 +422,7 @@ PrefCloseToTray=Zatvaraj u područje obavijesti
 PrefMinimizeToTray=Smanji u područje obavijesti
 PrefWhenAdding=Pri dodavanju torrenata
 PrefDontStart=Ne počinji preuzimanje automatski
+PrefActivateWindow=Aktiviraj prozor programa
 PrefShowAddDialog=Prikaži prozor s datotekama u torrentu
 PrefDownloadLocation=Mjesto preuzetih datoteka
 PrefNewDownloadsIn=Stavljaj nova preuzimanja u:

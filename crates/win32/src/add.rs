@@ -58,10 +58,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     DLGTEMPLATE, DeferWindowPos, DestroyMenu, DialogBoxIndirectParamW, ES_AUTOHSCROLL, EndDeferWindowPos,
     EndDialog, GWL_STYLE, GetClientRect, GetCursorPos, GetDlgItem, GetWindowLongPtrW, GetWindowPlacement,
     GetWindowRect, IDCANCEL, IDOK, MF_SEPARATOR, MF_STRING, MINMAXINFO, MapDialogRect, SIZE_MINIMIZED,
-    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetWindowLongPtrW, SetWindowPos,
-    SetWindowTextW, TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON, TrackPopupMenu, WINDOWPLACEMENT,
-    WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_GETFONT, WM_GETMINMAXINFO, WM_INITDIALOG, WM_NOTIFY, WM_SIZE,
-    WS_BORDER, WS_CHILD, WS_MAXIMIZEBOX, WS_POPUP, WS_TABSTOP, WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
+    SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE, SWP_NOZORDER, SetForegroundWindow,
+    SetWindowLongPtrW, SetWindowPos, SetWindowTextW, TPM_LAYOUTRTL, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+    TrackPopupMenu, WINDOWPLACEMENT, WM_COMMAND, WM_CONTEXTMENU, WM_DESTROY, WM_GETFONT, WM_GETMINMAXINFO,
+    WM_INITDIALOG, WM_NOTIFY, WM_SIZE, WS_BORDER, WS_CHILD, WS_MAXIMIZEBOX, WS_POPUP, WS_TABSTOP,
+    WS_THICKFRAME, WS_VISIBLE, WS_VSCROLL,
 };
 use windows_sys::core::w;
 
@@ -279,6 +280,9 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             tips(dlg, &mut *(lp as *mut State));
             resizable(dlg, &mut *(lp as *mut State));
             layout(dlg, &*(lp as *mut State));
+            // over other programs when a torrent came from one, also with the main window
+            // left hidden ("Activate the program window" off)
+            SetForegroundWindow(dlg);
             // focus is on OK (set by `init`)
             return 0;
         }

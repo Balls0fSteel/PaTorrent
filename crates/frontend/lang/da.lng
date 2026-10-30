@@ -422,6 +422,7 @@ PrefCloseToTray=Luk til meddelelsesområdet
 PrefMinimizeToTray=Minimer til meddelelsesområdet
 PrefWhenAdding=Når torrents tilføjes
 PrefDontStart=Start ikke downloadet automatisk
+PrefActivateWindow=Aktivér programvinduet
 PrefShowAddDialog=Vis et vindue med filerne i torrenten
 PrefDownloadLocation=Placering af hentede filer
 PrefNewDownloadsIn=Læg nye downloads i:

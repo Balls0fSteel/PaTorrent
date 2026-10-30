@@ -422,6 +422,7 @@ PrefCloseToTray=Fechar para a área de notificação
 PrefMinimizeToTray=Minimizar para a área de notificação
 PrefWhenAdding=Ao adicionar torrents
 PrefDontStart=Não iniciar a transferência automaticamente
+PrefActivateWindow=Ativar a janela do programa
 PrefShowAddDialog=Mostrar uma janela com os ficheiros do torrent
 PrefDownloadLocation=Localização dos ficheiros transferidos
 PrefNewDownloadsIn=Colocar novas transferências em:

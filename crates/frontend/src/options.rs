@@ -44,6 +44,9 @@ pub struct GuiOptions {
     pub minimize_to_tray: bool,
     /// Tray balloon when a download completes (`ui.balloons`).
     pub balloons: bool,
+    /// Bring the main window up when another program hands this one a torrent
+    /// (`ui.activate_on_add`; µTorrent's "Activate the program window", on by default as there).
+    pub activate_on_add: bool,
     /// Add torrents stopped instead of queued (`ui.add_stopped`).
     pub add_stopped: bool,
     /// Show the Add New Torrent dialog for `.torrent` files (`ui.show_add_dialog`; µTorrent's
@@ -102,6 +105,7 @@ impl GuiOptions {
             close_to_tray: prefs.get_bool("ui.close_to_tray", true),
             minimize_to_tray: prefs.get_bool("ui.minimize_to_tray", false),
             balloons: prefs.get_bool("ui.balloons", true),
+            activate_on_add: prefs.get_bool("ui.activate_on_add", true),
             add_stopped: prefs.get_bool("ui.add_stopped", false),
             show_add_dialog: prefs.get_bool("ui.show_add_dialog", true),
             random_port: prefs.get_bool("net.random_port", false),
@@ -139,6 +143,7 @@ impl GuiOptions {
         prefs.set_bool("ui.close_to_tray", self.close_to_tray);
         prefs.set_bool("ui.minimize_to_tray", self.minimize_to_tray);
         prefs.set_bool("ui.balloons", self.balloons);
+        prefs.set_bool("ui.activate_on_add", self.activate_on_add);
         prefs.set_bool("ui.add_stopped", self.add_stopped);
         prefs.set_bool("ui.show_add_dialog", self.show_add_dialog);
         prefs.set_bool("net.random_port", self.random_port);
@@ -275,7 +280,7 @@ mod tests {
         assert_eq!(o.settings, Settings::default());
         assert_eq!(o.gui.download_dir, r"C:\Downloads");
         assert!(o.gui.confirm_delete && o.gui.close_to_tray && !o.gui.minimize_to_tray && o.gui.pex);
-        assert!(!o.gui.ip_filter && o.gui.show_add_dialog);
+        assert!(!o.gui.ip_filter && o.gui.show_add_dialog && o.gui.activate_on_add);
         assert!(o.gui.check_updates && !o.gui.update_beta);
         assert_eq!(o.gui.seeding_goal(), SeedingGoal::default(), "150 %, no time, stop");
         assert_eq!(o.gui.property_defaults(), Defaults { upload_slots: 0, seed_goal: SeedGoal::default() });
@@ -304,6 +309,7 @@ mod tests {
             close_to_tray: false,
             minimize_to_tray: true,
             balloons: false,
+            activate_on_add: false,
             add_stopped: true,
             show_add_dialog: false,
             random_port: true,

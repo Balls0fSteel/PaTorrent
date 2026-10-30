@@ -422,6 +422,7 @@ PrefCloseToTray=Zamykaj do zasobnika
 PrefMinimizeToTray=Minimalizuj do zasobnika
 PrefWhenAdding=Przy dodawaniu torrentów
 PrefDontStart=Nie rozpoczynaj pobierania automatycznie
+PrefActivateWindow=Aktywuj okno programu
 PrefShowAddDialog=Pokazuj okno z plikami zawartymi w torrencie
 PrefDownloadLocation=Położenie pobranych plików
 PrefNewDownloadsIn=Umieszczaj nowe pobierania w:

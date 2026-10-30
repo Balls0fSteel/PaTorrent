@@ -422,6 +422,7 @@ PrefCloseToTray=Закрывать в трей
 PrefMinimizeToTray=Сворачивать в трей
 PrefWhenAdding=При добавлении торрентов
 PrefDontStart=Не начинать загрузку автоматически
+PrefActivateWindow=Активировать окно программы
 PrefShowAddDialog=Показывать окно с файлами торрента
 PrefDownloadLocation=Расположение загруженных файлов
 PrefNewDownloadsIn=Помещать новые загрузки в:

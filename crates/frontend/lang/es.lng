@@ -422,6 +422,7 @@ PrefCloseToTray=Cerrar a la bandeja
 PrefMinimizeToTray=Minimizar a la bandeja
 PrefWhenAdding=Al añadir torrents
 PrefDontStart=No iniciar la descarga automáticamente
+PrefActivateWindow=Activar la ventana del programa
 PrefShowAddDialog=Mostrar una ventana con los archivos del torrent
 PrefDownloadLocation=Ubicación de los archivos descargados
 PrefNewDownloadsIn=Poner las nuevas descargas en:

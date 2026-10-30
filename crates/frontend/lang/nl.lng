@@ -422,6 +422,7 @@ PrefCloseToTray=Sluiten naar het systeemvak
 PrefMinimizeToTray=Minimaliseren naar het systeemvak
 PrefWhenAdding=Bij het toevoegen van torrents
 PrefDontStart=De download niet automatisch starten
+PrefActivateWindow=Programmavenster activeren
 PrefShowAddDialog=Een venster met de bestanden in de torrent tonen
 PrefDownloadLocation=Locatie van gedownloade bestanden
 PrefNewDownloadsIn=Nieuwe downloads plaatsen in:

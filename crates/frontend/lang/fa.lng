@@ -422,6 +422,7 @@ PrefCloseToTray=بستن به سینی سیستم
 PrefMinimizeToTray=کوچک‌کردن به سینی سیستم
 PrefWhenAdding=هنگام افزودن تورنت‌ها
 PrefDontStart=بارگیری خودکار آغاز نشود
+PrefActivateWindow=فعال کردن پنجره برنامه
 PrefShowAddDialog=نمایش پنجره‌ای با پرونده‌های درون تورنت
 PrefDownloadLocation=جای پرونده‌های بارگیری‌شده
 PrefNewDownloadsIn=گذاشتن بارگیری‌های تازه در:

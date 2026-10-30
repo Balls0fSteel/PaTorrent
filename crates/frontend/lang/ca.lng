@@ -422,6 +422,7 @@ PrefCloseToTray=Tanca a la safata
 PrefMinimizeToTray=Minimitza a la safata
 PrefWhenAdding=En afegir torrents
 PrefDontStart=No iniciïs la baixada automàticament
+PrefActivateWindow=Activa la finestra del programa
 PrefShowAddDialog=Mostra una finestra amb els fitxers del torrent
 PrefDownloadLocation=Ubicació dels fitxers baixats
 PrefNewDownloadsIn=Posa les baixades noves a:

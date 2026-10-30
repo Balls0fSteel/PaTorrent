@@ -422,6 +422,7 @@ PrefCloseToTray=סגירה למגש המערכת
 PrefMinimizeToTray=מזעור למגש המערכת
 PrefWhenAdding=בעת הוספת טורנטים
 PrefDontStart=לא להתחיל את ההורדה אוטומטית
+PrefActivateWindow=הפעל את חלון התוכנית
 PrefShowAddDialog=הצגת חלון עם הקבצים שבטורנט
 PrefDownloadLocation=מיקום הקבצים שהורדו
 PrefNewDownloadsIn=הורדות חדשות יישמרו ב־:

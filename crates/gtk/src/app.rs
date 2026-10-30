@@ -232,7 +232,15 @@ pub fn run() -> ExitCode {
         {
             START_MINIMIZED.with(|m| m.set(true));
         }
-        app.activate();
+        // µTorrent's "Activate the program window": off, a running window stays where it is
+        // for torrents (their Add New Torrent dialog still opens)
+        let torrents = cmdline.arguments().iter().skip(1).any(|a| !a.to_string_lossy().starts_with("--"));
+        let stay = app.active_window().is_some()
+            && torrents
+            && with_app(|a| !GuiOptions::load(&a.prefs, &a.save_path).activate_on_add).unwrap_or(false);
+        if !stay {
+            app.activate();
+        }
         for arg in cmdline.arguments().iter().skip(1) {
             let arg = arg.to_string_lossy();
             if arg.starts_with("--") {

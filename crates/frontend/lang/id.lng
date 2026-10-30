@@ -422,6 +422,7 @@ PrefCloseToTray=Tutup ke baki
 PrefMinimizeToTray=Minimalkan ke baki
 PrefWhenAdding=Saat menambahkan torrent
 PrefDontStart=Jangan mulai unduhan secara otomatis
+PrefActivateWindow=Aktifkan jendela program
 PrefShowAddDialog=Tampilkan jendela berisi berkas di dalam torrent
 PrefDownloadLocation=Lokasi berkas yang diunduh
 PrefNewDownloadsIn=Taruh unduhan baru di:

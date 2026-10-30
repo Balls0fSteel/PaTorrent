@@ -96,6 +96,7 @@ const ID_MIN_TRAY: u16 = id(1, 4);
 const ID_ADD_STOPPED: u16 = id(1, 5);
 const ID_SHOW_ADD: u16 = id(1, 6);
 const ID_ALT_ROWS: u16 = id(1, 7);
+const ID_ACTIVATE: u16 = id(1, 8);
 // Directories
 const ID_DL_DIR: u16 = id(2, 1);
 const ID_DL_BROWSE: u16 = id(2, 2);
@@ -255,6 +256,7 @@ static FIELDS: &[Field] = &[
     Field::Check { id: ID_CLOSE_TRAY, get: |o| o.gui.close_to_tray, set: |o, v| o.gui.close_to_tray = v },
     Field::Check { id: ID_MIN_TRAY, get: |o| o.gui.minimize_to_tray, set: |o, v| o.gui.minimize_to_tray = v },
     Field::Check { id: ID_ADD_STOPPED, get: |o| o.gui.add_stopped, set: |o, v| o.gui.add_stopped = v },
+    Field::Check { id: ID_ACTIVATE, get: |o| o.gui.activate_on_add, set: |o, v| o.gui.activate_on_add = v },
     Field::Check { id: ID_SHOW_ADD, get: |o| o.gui.show_add_dialog, set: |o, v| o.gui.show_add_dialog = v },
     Field::Text { id: ID_DL_DIR, get: |o| o.gui.download_dir.clone(), set: |o, v| o.gui.download_dir = v },
     Field::Check { id: ID_MOVE, get: |o| o.gui.move_completed, set: |o, v| o.gui.move_completed = v },
@@ -712,9 +714,10 @@ fn template() -> Vec<u16> {
     b.group([0, 66, W, 46], tr!(PrefTray));
     b.ctl(BUTTON, ID_CLOSE_TRAY, CHECK, [8, 80, 290, 10], tr!(PrefCloseToTray));
     b.ctl(BUTTON, ID_MIN_TRAY, CHECK, [8, 94, 290, 10], tr!(PrefMinimizeToTray));
-    b.group([0, 118, W, 46], tr!(PrefWhenAdding));
+    b.group([0, 118, W, 60], tr!(PrefWhenAdding));
     b.ctl(BUTTON, ID_ADD_STOPPED, CHECK, [8, 132, 290, 10], tr!(PrefDontStart));
-    b.ctl(BUTTON, ID_SHOW_ADD, CHECK, [8, 146, 290, 10], tr!(PrefShowAddDialog));
+    b.ctl(BUTTON, ID_ACTIVATE, CHECK, [8, 146, 290, 10], tr!(PrefActivateWindow));
+    b.ctl(BUTTON, ID_SHOW_ADD, CHECK, [8, 160, 290, 10], tr!(PrefShowAddDialog));
 
     b.page(2);
     b.group([0, 0, W, 96], tr!(PrefDownloadLocation));

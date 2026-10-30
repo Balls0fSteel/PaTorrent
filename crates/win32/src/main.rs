@@ -76,7 +76,8 @@ mod instance {
     use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
     use windows_sys::Win32::System::Threading::CreateMutexW;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        FindWindowW, SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_COPYDATA,
+        AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, SMTO_ABORTIFHUNG,
+        SendMessageTimeoutW, WM_COPYDATA,
     };
 
     use crate::app::{COPYDATA_ARGS, MAIN_CLASS, data_dir};
@@ -116,6 +117,15 @@ mod instance {
         for _ in 0..50 {
             let hwnd = unsafe { FindWindowW(MAIN_CLASS, null()) };
             if !hwnd.is_null() {
+                // This process was started by the user's click and may take the foreground;
+                // the running one may not, so hand it the right to raise its window.
+                unsafe {
+                    let mut pid = 0u32;
+                    GetWindowThreadProcessId(hwnd, &mut pid);
+                    if pid != 0 {
+                        AllowSetForegroundWindow(pid);
+                    }
+                }
                 let cds = COPYDATASTRUCT {
                     dwData: COPYDATA_ARGS,
                     cbData: (payload.len() * 2) as u32,

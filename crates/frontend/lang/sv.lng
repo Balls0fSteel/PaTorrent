@@ -422,6 +422,7 @@ PrefCloseToTray=Stäng till meddelandefältet
 PrefMinimizeToTray=Minimera till meddelandefältet
 PrefWhenAdding=När torrenter läggs till
 PrefDontStart=Starta inte hämtningen automatiskt
+PrefActivateWindow=Aktivera programfönstret
 PrefShowAddDialog=Visa ett fönster med filerna i torrenten
 PrefDownloadLocation=Plats för hämtade filer
 PrefNewDownloadsIn=Lägg nya hämtningar i:

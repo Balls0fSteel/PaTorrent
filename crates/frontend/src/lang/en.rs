@@ -596,6 +596,7 @@ strings! {
     PrefMinimizeToTray = "Minimize to tray";
     PrefWhenAdding = "When Adding Torrents";
     PrefDontStart = "Don't start the download automatically";
+    PrefActivateWindow = "Activate the program window";
     PrefShowAddDialog = "Show a window that displays the files inside the torrent";
     PrefDownloadLocation = "Location of Downloaded Files";
     PrefNewDownloadsIn = "Put new downloads in:";

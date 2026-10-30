@@ -422,6 +422,7 @@ PrefCloseToTray=關閉時縮到通知區域
 PrefMinimizeToTray=最小化時縮到通知區域
 PrefWhenAdding=加入種子時
 PrefDontStart=不要自動開始下載
+PrefActivateWindow=啟用程式視窗
 PrefShowAddDialog=顯示列出種子內檔案的視窗
 PrefDownloadLocation=已下載檔案的位置
 PrefNewDownloadsIn=新下載放到：

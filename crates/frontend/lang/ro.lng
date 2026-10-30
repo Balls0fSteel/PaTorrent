@@ -422,6 +422,7 @@ PrefCloseToTray=Închide în zona de notificare
 PrefMinimizeToTray=Minimizează în zona de notificare
 PrefWhenAdding=La adăugarea torentelor
 PrefDontStart=Nu porni descărcarea automat
+PrefActivateWindow=Activează fereastra programului
 PrefShowAddDialog=Arată o fereastră cu fișierele din torent
 PrefDownloadLocation=Locul fișierelor descărcate
 PrefNewDownloadsIn=Pune descărcările noi în:

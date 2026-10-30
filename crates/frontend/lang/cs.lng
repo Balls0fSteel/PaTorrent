@@ -422,6 +422,7 @@ PrefCloseToTray=Zavírat do oznamovací oblasti
 PrefMinimizeToTray=Minimalizovat do oznamovací oblasti
 PrefWhenAdding=Při přidávání torrentů
 PrefDontStart=Nespouštět stahování automaticky
+PrefActivateWindow=Aktivovat okno programu
 PrefShowAddDialog=Zobrazit okno se soubory obsaženými v torrentu
 PrefDownloadLocation=Umístění stažených souborů
 PrefNewDownloadsIn=Ukládat nová stahování do:

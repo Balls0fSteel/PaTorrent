@@ -422,6 +422,7 @@ PrefCloseToTray=Κλείσιμο στην περιοχή ειδοποιήσεω�
 PrefMinimizeToTray=Ελαχιστοποίηση στην περιοχή ειδοποιήσεων
 PrefWhenAdding=Κατά την προσθήκη torrent
 PrefDontStart=Να μην ξεκινά αυτόματα η λήψη
+PrefActivateWindow=Ενεργοποίηση του παραθύρου του προγράμματος
 PrefShowAddDialog=Εμφάνιση παραθύρου με τα αρχεία του torrent
 PrefDownloadLocation=Θέση ληφθέντων αρχείων
 PrefNewDownloadsIn=Νέες λήψεις στο:

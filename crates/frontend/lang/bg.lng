@@ -422,6 +422,7 @@ PrefCloseToTray=Затваряй в системната област
 PrefMinimizeToTray=Минимизирай в системната област
 PrefWhenAdding=При добавяне на торенти
 PrefDontStart=Не започвай изтеглянето автоматично
+PrefActivateWindow=Активиране на прозореца на програмата
 PrefShowAddDialog=Показвай прозорец с файловете в торента
 PrefDownloadLocation=Място на изтеглените файлове
 PrefNewDownloadsIn=Слагай новите изтегляния в:

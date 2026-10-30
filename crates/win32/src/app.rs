@@ -2463,7 +2463,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                     return 0;
                 }
                 let Some(args) = copydata_args(&*(lparam as *const COPYDATASTRUCT)) else { return 0 };
-                show_window(hwnd);
+                // µTorrent's "Activate the program window"; without it only the Add New
+                // Torrent dialog comes up. A start without torrents always shows the window.
+                let activate = args.is_empty()
+                    || with_app(|a| GuiOptions::load(&a.prefs, &a.save_path).activate_on_add).unwrap_or(true);
+                if activate {
+                    show_window(hwnd);
+                }
                 // The sender waits for this message to return: the Add New Torrent dialog must
                 // not run inside it.
                 with_app(|a| a.pending_args.extend(args));

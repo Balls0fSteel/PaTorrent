@@ -422,6 +422,7 @@ PrefCloseToTray=Bezáráskor a tálcára
 PrefMinimizeToTray=Kis méretnél a tálcára
 PrefWhenAdding=Torrentek hozzáadásakor
 PrefDontStart=Ne indítsa el automatikusan a letöltést
+PrefActivateWindow=A program ablakának aktiválása
 PrefShowAddDialog=Ablak megjelenítése a torrentben lévő fájlokkal
 PrefDownloadLocation=A letöltött fájlok helye
 PrefNewDownloadsIn=Új letöltések helye:

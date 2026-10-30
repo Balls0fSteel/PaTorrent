@@ -422,6 +422,7 @@ PrefCloseToTray=ปิดแล้วไปที่ถาดระบบ
 PrefMinimizeToTray=ย่อแล้วไปที่ถาดระบบ
 PrefWhenAdding=เมื่อเพิ่มทอร์เรนต์
 PrefDontStart=ไม่เริ่มดาวน์โหลดโดยอัตโนมัติ
+PrefActivateWindow=เปิดใช้งานหน้าต่างโปรแกรม
 PrefShowAddDialog=แสดงหน้าต่างที่แสดงแฟ้มภายในทอร์เรนต์
 PrefDownloadLocation=ตำแหน่งของแฟ้มที่ดาวน์โหลด
 PrefNewDownloadsIn=เก็บดาวน์โหลดใหม่ไว้ใน:

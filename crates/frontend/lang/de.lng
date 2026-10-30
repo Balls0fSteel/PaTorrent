@@ -422,6 +422,7 @@ PrefCloseToTray=Beim Schließen in den Infobereich
 PrefMinimizeToTray=Beim Minimieren in den Infobereich
 PrefWhenAdding=Beim Hinzufügen von Torrents
 PrefDontStart=Download nicht automatisch starten
+PrefActivateWindow=Programmfenster aktivieren
 PrefShowAddDialog=Ein Fenster mit den Dateien im Torrent anzeigen
 PrefDownloadLocation=Ort der heruntergeladenen Dateien
 PrefNewDownloadsIn=Neue Downloads speichern in:

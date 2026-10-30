@@ -422,6 +422,7 @@ PrefCloseToTray=닫으면 알림 영역으로
 PrefMinimizeToTray=최소화하면 알림 영역으로
 PrefWhenAdding=토렌트를 추가할 때
 PrefDontStart=다운로드를 자동으로 시작하지 않음
+PrefActivateWindow=프로그램 창 활성화
 PrefShowAddDialog=토렌트 안의 파일을 보여 주는 창 표시
 PrefDownloadLocation=받은 파일의 위치
 PrefNewDownloadsIn=새 다운로드 저장 위치:

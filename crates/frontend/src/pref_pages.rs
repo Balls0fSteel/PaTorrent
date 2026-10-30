@@ -334,6 +334,12 @@ pub fn pages(features: Features) -> Vec<Page> {
         Group(S::PrefWhenAdding),
         F(checkbox("ui.add_stopped", S::PrefDontStart, |o| o.gui.add_stopped, |o, v| o.gui.add_stopped = v)),
         F(checkbox(
+            "ui.activate_on_add",
+            S::PrefActivateWindow,
+            |o| o.gui.activate_on_add,
+            |o, v| o.gui.activate_on_add = v,
+        )),
+        F(checkbox(
             "ui.show_add_dialog",
             S::PrefShowAddDialog,
             |o| o.gui.show_add_dialog,

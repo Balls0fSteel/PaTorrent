@@ -422,6 +422,7 @@ PrefCloseToTray=Chiudi nell'area di notifica
 PrefMinimizeToTray=Riduci nell'area di notifica
 PrefWhenAdding=All'aggiunta di torrent
 PrefDontStart=Non avviare il download automaticamente
+PrefActivateWindow=Attiva la finestra del programma
 PrefShowAddDialog=Mostra una finestra con i file contenuti nel torrent
 PrefDownloadLocation=Posizione dei file scaricati
 PrefNewDownloadsIn=Metti i nuovi download in:

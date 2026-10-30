@@ -422,6 +422,7 @@ PrefCloseToTray=关闭到托盘
 PrefMinimizeToTray=最小化到托盘
 PrefWhenAdding=添加种子时
 PrefDontStart=不要自动开始下载
+PrefActivateWindow=激活程序窗口
 PrefShowAddDialog=显示列出种子内文件的窗口
 PrefDownloadLocation=已下载文件的位置
 PrefNewDownloadsIn=新下载存放到：

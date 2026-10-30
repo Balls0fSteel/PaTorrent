@@ -422,6 +422,7 @@ PrefCloseToTray=Sulje ilmaisinalueelle
 PrefMinimizeToTray=Pienennä ilmaisinalueelle
 PrefWhenAdding=Torrentteja lisättäessä
 PrefDontStart=Älä aloita latausta automaattisesti
+PrefActivateWindow=Aktivoi ohjelman ikkuna
 PrefShowAddDialog=Näytä ikkuna, jossa on torrentin tiedostot
 PrefDownloadLocation=Ladattujen tiedostojen sijainti
 PrefNewDownloadsIn=Uudet lataukset kansioon:

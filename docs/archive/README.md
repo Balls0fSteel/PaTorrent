@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-10-27_212434_1793132674
+Last updated: 2026-10-30_072342_1793345022
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -22,6 +22,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-10-27 (interop harness, security close-out, SEC-07)](CHANGELOG-2026-10-27--2026-10-27-security-fixes-3.md) | `2026-10-27_205407_1793130847` through `2026-10-27_224006_1793137206` | Three entries moved verbatim from the root changelog on 2026-10-28: the SEC-07 fix, the security close-out and the interop harness's qBittorrent log wait. |
 | [Changelog, 2026-10-28 (hand-test fixes, icons, revision 8)](CHANGELOG-2026-10-28--2026-10-28-icons-hand-test.md) | `2026-10-28_075806_1793170686` through `2026-10-28_112815_1793183295` | Eight entries moved verbatim from the root changelog on 2026-10-28: the owner hand-test fixes (1.0.2, D37), the blank-rows fix (1.0.3), the icon audit, the navigation and menu icons (1.0.4-1.0.7) and the revision 8 review (1.0.8). |
 | [Changelog, 2026-10-28 (1.1.0 release, macOS test fix, 1.1.1)](CHANGELOG-2026-10-28--2026-10-28-v1.1.0-release.md) | `2026-10-28_113636_1793183796` through `2026-10-28_142013_1793197213` | Four entries moved verbatim from the root changelog on 2026-10-29: the 1.1.0 release preparation, the flaky macOS external-address test fix, 1.1.0 published and Preferences > Web UI driving the nox service (1.1.1, D39). |
+| [Changelog, 2026-10-28 (1.1.2, the Windows GUI's Web UI)](CHANGELOG-2026-10-28--2026-10-29-v1.1.2-web-ui.md) | `2026-10-28_174137_1793205697` through `2026-10-29_081713_1793258233` | 4 entries moved verbatim from the root changelog on 2026-10-30: the Windows GUI serving its own Web UI (D40), the 1.1.2 release preparation, the Windows CI hang fix and the v1.1.2 tag with its draft release. |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

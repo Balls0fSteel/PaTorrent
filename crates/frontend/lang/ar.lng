@@ -422,6 +422,7 @@ PrefCloseToTray=الإغلاق إلى علبة النظام
 PrefMinimizeToTray=التصغير إلى علبة النظام
 PrefWhenAdding=عند إضافة التورنتات
 PrefDontStart=لا تبدأ التنزيل تلقائيًا
+PrefActivateWindow=تنشيط نافذة البرنامج
 PrefShowAddDialog=إظهار نافذة بالملفات داخل التورنت
 PrefDownloadLocation=مكان الملفات المنزَّلة
 PrefNewDownloadsIn=وضع التنزيلات الجديدة في:

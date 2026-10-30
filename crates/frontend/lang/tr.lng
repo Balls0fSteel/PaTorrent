@@ -422,6 +422,7 @@ PrefCloseToTray=Kapatınca bildirim alanına
 PrefMinimizeToTray=Küçültünce bildirim alanına
 PrefWhenAdding=Torrent eklerken
 PrefDontStart=İndirmeyi kendiliğinden başlatma
+PrefActivateWindow=Program penceresini etkinleştir
 PrefShowAddDialog=Torrentteki dosyaları gösteren bir pencere aç
 PrefDownloadLocation=İndirilen dosyaların konumu
 PrefNewDownloadsIn=Yeni indirmeleri koy:

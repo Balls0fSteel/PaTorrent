@@ -422,6 +422,7 @@ PrefCloseToTray=Lukk til systemstatusfeltet
 PrefMinimizeToTray=Minimer til systemstatusfeltet
 PrefWhenAdding=Når torrenter legges til
 PrefDontStart=Ikke start nedlastingen automatisk
+PrefActivateWindow=Aktiver programvinduet
 PrefShowAddDialog=Vis et vindu med filene i torrenten
 PrefDownloadLocation=Plassering av nedlastede filer
 PrefNewDownloadsIn=Legg nye nedlastinger i:

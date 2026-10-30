@@ -422,6 +422,7 @@ PrefCloseToTray=閉じるとトレイに格納
 PrefMinimizeToTray=最小化でトレイに格納
 PrefWhenAdding=トレントを追加するとき
 PrefDontStart=ダウンロードを自動で開始しない
+PrefActivateWindow=プログラムのウィンドウをアクティブにする
 PrefShowAddDialog=トレント内のファイルを表示するウィンドウを出す
 PrefDownloadLocation=ダウンロードしたファイルの場所
 PrefNewDownloadsIn=新しいダウンロードの保存先:

@@ -422,6 +422,7 @@ PrefCloseToTray=Затварај у системску палету
 PrefMinimizeToTray=Умањи у системску палету
 PrefWhenAdding=При додавању торената
 PrefDontStart=Не почињи преузимање аутоматски
+PrefActivateWindow=Активирај прозор програма
 PrefShowAddDialog=Прикажи прозор са датотекама у торенту
 PrefDownloadLocation=Место преузетих датотека
 PrefNewDownloadsIn=Стављај нова преузимања у:

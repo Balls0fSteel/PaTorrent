@@ -4,6 +4,21 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_112341_1793355821: Torznab search, slice 2: nox and the Web UI (1.1.14, D41)
+
+- **nox:**
+  - New native commands `/pa/search`: GET, `start`, `stop`, `add`, and `source-add` / `-edit` / `-remove` / `-test`. The tick carries a `search` version.
+  - Sources are stored in the options, so hosted mode uses the window's `search.source.*` keys, sealed on Windows.
+  - Neither keys nor result links (Prowlarr's carry the key) ever reach the browser.
+  - Adding a source, or changing a source's URL or key, needs the current password: a source makes the server fetch any address with the stored key. Statuses can therefore name the real failure (WEBUI.md "Security").
+- **Web UI:** a Find button beside the filter box opens Search Torrents. It has a query, a Newznab category, a source choice, per-source status lines, a sortable results table, Add, and a Manage Sources dialog with Test. Titles are set as text only, and the phone layout works. 38 new strings, translated in all 34 tables.
+- **Live run** against the Xubuntu VM's Prowlarr (`/2/api`, the fake indexer): Test answered "8 categories", a search returned 3 results, and an add put the torrent in the list. A wrong key shows "HTTP 401 Unauthorized". The key stayed out of output and commits. Captured Prowlarr results and caps (key replaced) are now fixtures; I checked that their 32-hex strings are info-hash prefixes, not keys. The browser pane check used a mock-library nox at desktop and 375 px.
+- **Open:**
+  - The page's static files are 208 KB with LF line endings, so the test limit went from 200 to 220 KB, pending the owner.
+  - No shim `search/*` yet.
+  - `/pa/search/add` adds directly, without the Add dialog.
+- **Tests:** new `tests/search.rs` and a fake Prowlarr (`tests/support/torznab.rs`), plus a hosted test. nox, frontend (213 + 4) and Win32 (71) tests pass; clippy and fmt are clean. Built by a subagent in a worktree and reviewed before merging. Version 1.1.14.
+
 ## 2026-10-30_105007_1793353807: The Windows GUI's Web UI has the RSS Downloader (1.1.13)
 
 - **Design (option a, shared model):** the hosted Web UI runs nox's own RSS endpoints (`/pa/rss`, the shim's `rss/*`) against the window's model, an `Arc<Mutex<Rss>>` in `Hosted`. There is one model and one downloader; no request waits on the GUI thread.

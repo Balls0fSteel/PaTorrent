@@ -1,6 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/torrent.cpp (`handle_inconsistent_hashes`,
 // `get_hashes`, `initialize_merkle_trees`), src/bt_peer_connection.cpp (`on_hash_request`,
-// `on_hashes`, `on_hash_reject`)
+// `on_hashes`, `on_hash_reject`); a fix from 2.1.2 (37d1add171)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: v2 pieces are verified on the disk thread against the piece layers (see
 // `disk::PieceHasher`), so the torrent keeps no block hashes and its trees hold the piece layers
@@ -191,6 +191,14 @@ impl HashWorkBudget {
     }
 }
 
+/// Removes `req` from a peer's outstanding hash requests; false if it was not among them, so
+/// the hashes or reject answer nothing we asked that peer.
+fn take_hash_request(outstanding: &mut Vec<HashRequest>, req: &HashRequest) -> bool {
+    let before = outstanding.len();
+    outstanding.retain(|r| r != req);
+    outstanding.len() != before
+}
+
 impl Engine {
     /// libtorrent `on_hash_request`: a v2 peer asks for part of a file's merkle tree; it gets
     /// the hashes or a reject. Hash messages on a v1 connection end it.
@@ -230,10 +238,10 @@ impl Engine {
         self.to_flush.push(slot);
     }
 
-    /// libtorrent `on_hashes`: the reply to one of our requests (or unsolicited hashes, which
-    /// libtorrent takes too) goes into the trees while the piece layers are being fetched, and
-    /// is dropped otherwise. Hashes that do not prove out, or a malformed reply, end the
-    /// connection.
+    /// libtorrent `on_hashes`: the reply to one of our requests goes into the trees while the
+    /// piece layers are being fetched, and is dropped otherwise, as are hashes we did not ask
+    /// this peer for (2.1.2 37d1add171). Hashes that do not prove out, or a malformed reply, end
+    /// the connection.
     pub(super) fn on_hashes(&mut self, slot: usize, m: HashMsg, hashes: &[u8]) {
         let Some((p, t)) = self.peer_and_torrent(slot) else { return };
         if !p.protocol_v2 {
@@ -251,7 +259,9 @@ impl Engine {
             p.close("invalid hashes", true);
             return;
         }
-        p.hash_requests.retain(|r| *r != req);
+        if !take_hash_request(&mut p.hash_requests, &req) {
+            return;
+        }
         let Some(lf) = t.layer_fetch.as_mut() else { return };
         let hashes: Vec<Sha256Hash> =
             hashes.chunks_exact(32).map(|h| Sha256Hash(h.try_into().expect("32 bytes"))).collect();
@@ -279,13 +289,11 @@ impl Engine {
         let Some(ti) = t.ti.as_ref() else { return };
         let file = ti.orig_files().file_index_for_root(&m.root).unwrap_or(usize::MAX);
         let req = HashRequest::new(file, m.base, m.index, m.count, m.proof_layers);
-        let before = p.hash_requests.len();
-        p.hash_requests.retain(|r| *r != req);
-        if p.hash_requests.len() == before {
+        if !take_hash_request(&mut p.hash_requests, &req) {
             return;
         }
         let Some(lf) = t.layer_fetch.as_mut() else { return };
-        lf.picker.hashes_rejected(&req);
+        lf.picker.hashes_rejected(ti.orig_files(), &req);
         for peer in t.peers.clone() {
             self.maybe_send_hash_request(peer);
         }
@@ -455,6 +463,20 @@ mod tests {
         let mut out = Vec::new();
         write_hash_answer(&mut out, 0, &m, &[]);
         assert_eq!(out[4], msg::HASH_REJECT);
+    }
+
+    /// libtorrent 2.1.2 (37d1add171): hashes are only taken as the answer to a request still
+    /// outstanding with that peer; unsolicited ones, or a second answer, are dropped.
+    #[test]
+    fn only_requested_hashes_are_taken() {
+        let req = HashRequest::new(0, 2, 0, 512, 9);
+        let other = HashRequest::new(0, 2, 512, 512, 9);
+        let mut outstanding = vec![req, other];
+        assert!(take_hash_request(&mut outstanding, &req));
+        assert_eq!(outstanding, vec![other]);
+        assert!(!take_hash_request(&mut outstanding, &req), "answered already");
+        assert!(!take_hash_request(&mut outstanding, &HashRequest::new(0, 2, 1024, 512, 9)));
+        assert_eq!(outstanding, vec![other]);
     }
 
     const BLOCK: u32 = crate::metainfo::file_storage::DEFAULT_BLOCK_SIZE;

@@ -1,5 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/merkle.cpp, include/libtorrent/aux_/merkle.hpp,
-// test/test_merkle.cpp
+// test/test_merkle.cpp; `merkle_validate_and_insert_proofs` as of 2.0.15 (4a0dcf5cff, 04f3d7d769,
+// a6bd39eb03, 50c0450b22, 58f793b4c5)
 // Copyright (c) 2015, 2017, 2019-2021, Arvid Norberg; 2015, Mike Tzou; 2017, Steven Siloti.
 // BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 
@@ -249,8 +250,9 @@ pub fn merkle_pad(blocks: usize, mut pieces: usize) -> Sha256Hash {
 }
 
 /// Validates `node` at `target_node_idx` with the uncle hashes leading up to a known node of
-/// `target_tree`, and inserts the node and the proofs if they validate. Any non-zero hash met
-/// on the way is taken as valid and ends the walk, matching or not.
+/// `target_tree`, and inserts the node and the proofs if they validate. Any non-zero parent met
+/// on the way ends the walk, matching or not. On failure, what the call wrote is cleared again;
+/// hashes that were there before (a matching target or sibling) are kept.
 ///
 /// ```text
 ///            R
@@ -266,38 +268,77 @@ pub fn merkle_validate_and_insert_proofs(
     node: &Sha256Hash,
     uncle_hashes: &[Sha256Hash],
 ) -> bool {
-    if target_tree[target_node_idx] == *node {
-        return true;
-    }
-    if !target_tree[target_node_idx].is_zero() || uncle_hashes.is_empty() {
+    // zero means "unknown": never a node hash, and it would match an empty target slot
+    if node.is_zero() {
         return false;
     }
+    // nothing above the root to anchor a proof in
+    if target_node_idx == 0 && !uncle_hashes.is_empty() {
+        return false;
+    }
+    let target_matches = target_tree[target_node_idx] == *node;
+    if !target_matches && !target_tree[target_node_idx].is_zero() {
+        return false;
+    }
+    if uncle_hashes.is_empty() {
+        return target_matches;
+    }
 
+    // a matching target (a block hash stored before its proof) is walked too: only the proof
+    // validates it
     let mut cursor = target_node_idx;
     target_tree[cursor] = *node;
-    for proof in uncle_hashes {
-        let proof_idx = merkle_get_sibling(cursor);
-        debug_assert!(target_tree[proof_idx].is_zero());
-        target_tree[proof_idx] = *proof;
-        let left = proof_idx.min(cursor);
-        let hash = merkle_hash_pair(&target_tree[left], &target_tree[left + 1]);
-        cursor = merkle_get_parent(cursor);
-        if target_tree[cursor] == hash {
-            return true;
-        }
-        if !target_tree[cursor].is_zero() {
+    // one bit per step: whether this call wrote that step's sibling (an existing sibling equal
+    // to the proof is kept, and survives a failure)
+    let mut wrote_sibling: u64 = 0;
+    for (step, proof) in uncle_hashes.iter().enumerate() {
+        if cursor == 0 {
+            // more uncles than layers (the root is always known, so this is never reached)
             break;
         }
+        let proof_idx = merkle_get_sibling(cursor);
+        let parent = merkle_get_parent(cursor);
+        if target_tree[proof_idx].is_zero() {
+            target_tree[proof_idx] = *proof;
+            wrote_sibling |= 1 << step;
+        } else if target_tree[proof_idx] != *proof {
+            // a known sibling contradicts the proof
+            break;
+        }
+        let left = proof_idx.min(cursor);
+        let hash = merkle_hash_pair(&target_tree[left], &target_tree[left + 1]);
+        if target_tree[parent] == hash {
+            return true;
+        }
+        if !target_tree[parent].is_zero() {
+            // a known parent that does not match: undo this step's sibling, so the cleanup
+            // below has a uniform shape
+            if wrote_sibling & (1 << step) != 0 {
+                target_tree[proof_idx].clear();
+                wrote_sibling &= !(1 << step);
+            }
+            break;
+        }
+        cursor = parent;
         target_tree[cursor] = hash;
     }
 
-    // never reached a known hash: undo what was inserted
+    // never reached a known hash: undo what this call inserted, up to and including `cursor`
     let mut clear_cursor = target_node_idx;
+    let mut undo_step = 0;
     while clear_cursor > cursor {
         let proof_idx = merkle_get_sibling(clear_cursor);
-        target_tree[clear_cursor].clear();
-        target_tree[proof_idx].clear();
+        if clear_cursor != target_node_idx || !target_matches {
+            target_tree[clear_cursor].clear();
+        }
+        if wrote_sibling & (1 << undo_step) != 0 {
+            target_tree[proof_idx].clear();
+        }
         clear_cursor = merkle_get_parent(clear_cursor);
+        undo_step += 1;
+    }
+    if cursor != target_node_idx || !target_matches {
+        target_tree[cursor].clear();
     }
     false
 }
@@ -893,5 +934,72 @@ mod tests {
         let mut tree = with_root(ah);
         assert!(merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f, gh, ad, a, b, o, o]));
         assert_eq!(tree, vec![ah, ad, eh, o, o, ef, gh, o, o, o, o, e, f, o, o]);
+    }
+
+    // libtorrent 2.0.13-2.0.15 test_merkle.cpp (4a0dcf5cff, 04f3d7d769, a6bd39eb03, 50c0450b22,
+    // 58f793b4c5): what a failed proof leaves behind, and proofs meeting hashes already there.
+    #[test]
+    fn validate_and_insert_proofs_hardening() {
+        let Fixture { e, f, g, o, ef, gh, ad, eh, ah, .. } = fx();
+        let with_root = |r: Sha256Hash| {
+            let mut t = vec![o; 15];
+            t[0] = r;
+            t
+        };
+        let with = |set: &[(usize, Sha256Hash)]| {
+            let mut t = with_root(ah);
+            for &(i, h) in set {
+                t[i] = h;
+            }
+            t
+        };
+
+        // under length: the parent computed last is cleared too (2.0.11 left it in the tree)
+        let mut tree = with(&[(6, gh)]);
+        assert!(!merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f]));
+        assert_eq!(tree, with(&[(6, gh)]));
+
+        // a proof for the root has nothing to anchor in
+        let mut tree = with_root(ah);
+        assert!(!merkle_validate_and_insert_proofs(&mut tree, 0, &ah, &[ad]));
+        assert_eq!(tree, with_root(ah));
+
+        // a known sibling equal to the proof is kept
+        let mut tree = with(&[(12, f)]);
+        assert!(merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f, gh, ad]));
+        assert_eq!(tree, vec![ah, ad, eh, o, o, ef, gh, o, o, o, o, e, f, o, o]);
+
+        // a known sibling contradicting the proof fails, leaving the tree as it was
+        let mut tree = with(&[(12, g)]);
+        assert!(!merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f, gh, ad]));
+        assert_eq!(tree, with(&[(12, g)]));
+
+        // a failure higher up keeps the known sibling
+        let mut tree = with(&[(2, ad), (12, f)]);
+        assert!(!merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f, gh, ad]));
+        assert_eq!(tree, with(&[(2, ad), (12, f)]));
+
+        // so does running out of uncles
+        let mut tree = with(&[(12, f)]);
+        assert!(!merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f]));
+        assert_eq!(tree, with(&[(12, f)]));
+
+        // a matching target is walked and validated too
+        let mut tree = with(&[(11, e)]);
+        assert!(merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f, gh, ad]));
+        assert_eq!(tree, vec![ah, ad, eh, o, o, ef, gh, o, o, o, o, e, f, o, o]);
+
+        // and kept when its proof fails, higher up or at once
+        let mut tree = with(&[(2, ad), (11, e)]);
+        assert!(!merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f, gh, ad]));
+        assert_eq!(tree, with(&[(2, ad), (11, e)]));
+        let mut tree = with(&[(11, e), (12, g)]);
+        assert!(!merkle_validate_and_insert_proofs(&mut tree, 11, &e, &[f, gh, ad]));
+        assert_eq!(tree, with(&[(11, e), (12, g)]));
+
+        // a zero node is never taken, whatever the proof
+        let mut tree = with_root(ah);
+        assert!(!merkle_validate_and_insert_proofs(&mut tree, 11, &o, &[f, gh, ad]));
+        assert_eq!(tree, with_root(ah));
     }
 }

@@ -1,5 +1,5 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/merkle_tree.cpp, include/libtorrent/aux_/merkle_tree.hpp,
-// test/test_merkle_tree.cpp; fixes from 2.0.14 (114f65efc2)
+// test/test_merkle_tree.cpp; fixes from 2.0.14 (114f65efc2) and 2.0.15 (634105823d)
 // Copyright (c) 2020-2021, Arvid Norberg; 2020, Steven Siloti. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 
 //! The merkle tree of one file of a v2 torrent (libtorrent `aux::merkle_tree`).
@@ -337,11 +337,13 @@ impl MerkleTree {
         // the end of a file may need its leaf layer padded
         if leaf_count > hashes.len() {
             let leaf_layer_size = self.num_leafs();
-            // the uncle hashes lead to the root, which tells how many layers down this is
-            let insert_layer_size = u32::try_from(uncle_hashes.len())
-                .ok()
-                .and_then(|n| leaf_count.checked_shl(n))
-                .unwrap_or(usize::MAX);
+            // the uncle hashes lead to the root, which tells how many layers down this is; more
+            // than the layers above would shift the bits out (a zero layer size, on which
+            // `merkle_pad` never ends) (2.0.15 634105823d)
+            if uncle_hashes.len() > merkle_num_layers(leaf_layer_size) - merkle_num_layers(leaf_count) {
+                return None;
+            }
+            let insert_layer_size = leaf_count << uncle_hashes.len();
             if leaf_layer_size != insert_layer_size {
                 let pad_hash = merkle_pad(leaf_layer_size, insert_layer_size);
                 for h in &mut tree[tree_len - leaf_count + hashes.len()..] {
@@ -1525,12 +1527,27 @@ mod tests {
         assert_eq!(t.verified_leafs(), none_set(NUM_BLOCKS));
     }
 
+    // libtorrent 2.0.14 test_merkle_tree.cpp add_hashes_zero_block_hash (a6bd39eb03): a zero
+    // hash is what an unknown node holds, so inserting one is refused
+    #[test]
+    fn add_hashes_zero_block_hash() {
+        let mut t = MerkleTree::new(NUM_BLOCKS, 4, f()[0]);
+        let res =
+            t.add_hashes(merkle_first_leaf(num_leafs()) + 1, 0, &[Sha256Hash::default()], &[rand_sha256()]);
+        assert!(res.is_none());
+        assert_eq!(t.verified_leafs(), none_set(NUM_BLOCKS));
+    }
+
     #[test]
     fn hostile_add_hashes_and_get_hashes_do_not_panic() {
         let mut t = MerkleTree::new(NUM_BLOCKS, 4, f()[0]);
         assert!(t.add_hashes(1022, 1, range(511, 4), &[]).is_none());
         assert!(t.add_hashes(511, 1, &[], &[]).is_none());
         assert!(t.add_hashes(511, 1, range(511, 3), &[f()[1]; 70]).is_none());
+        // 4 << 62 wraps to 0: the padding loop used to spin forever (2.0.15 634105823d)
+        assert!(t.add_hashes(511, 1, range(511, 3), &[f()[1]; 62]).is_none());
+        // one uncle too many for the padded layer
+        assert!(t.add_hashes(511, 1, range(511, 3), &build_proof(f(), 127, 0).repeat(2)[..8]).is_none());
         t.check_invariant();
         assert!(t.get_hashes(20, 0, 1, 0).is_empty());
         assert!(t.get_hashes(0, 0, 1, 40).is_empty());

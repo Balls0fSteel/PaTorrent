@@ -1,5 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/hash_picker.cpp, include/libtorrent/hash_picker.hpp,
-// test/test_hash_picker.cpp; a test from 2.0.14 (114f65efc2)
+// test/test_hash_picker.cpp; a test from 2.0.14 (114f65efc2); fixes from 2.0.13-2.0.15 (b0f2691351,
+// ca4e621c2e, d09a0dc755, 485467b33e)
 // Copyright (c) 2017, Steven Siloti; 2017-2021, Arvid Norberg. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 
 //! Which merkle hashes of a v2 torrent to ask peers for (libtorrent `hash_picker`), and the
@@ -325,21 +326,14 @@ impl HashPicker {
             return AddHashesOutcome::invalid();
         }
         let (base, index, count) = (req.base as usize, req.index as usize, req.count as usize);
-        let file_num_pieces = files.file_num_pieces(req.file) as usize;
-        let unpadded_count = count.min(file_num_pieces.saturating_sub(index));
 
         if count + req.num_proof_hashes() != hashes.len() {
             return AddHashesOutcome::invalid();
         }
-        // piece hashes are only asked for in spans of 512 (or the rest of the file)
-        if base == self.piece_layer
-            && count != PIECES_PER_REQUEST
-            && (count > PIECES_PER_REQUEST || unpadded_count != file_num_pieces.saturating_sub(index))
-        {
-            return AddHashesOutcome::invalid();
-        }
-        // only the piece and block layers are taken
-        if base != self.piece_layer && base != 0 {
+        // only the two shapes we ask for are taken (both have base 0 when a piece is one block)
+        let piece_layer_request = self.matches_piece_layer_request(files, req);
+        let block_request = Self::matches_block_request(files, req);
+        if !piece_layer_request && !block_request {
             return AddHashesOutcome::invalid();
         }
 
@@ -352,10 +346,45 @@ impl HashPicker {
         let base_layer_idx = num_layers - base;
         let dest_start_idx = merkle_to_flat_index(base_layer_idx, index);
         let file_piece_offset = files.piece_index_at_file(req.file);
-        match trees[req.file].add_hashes(dest_start_idx, file_piece_offset, hashes, uncle_hashes) {
-            None => AddHashesOutcome::invalid(),
-            Some(r) => AddHashesOutcome { valid: true, hash_failed: r.failed, hash_passed: r.passed },
+        let Some(r) = trees[req.file].add_hashes(dest_start_idx, file_piece_offset, hashes, uncle_hashes)
+        else {
+            return AddHashesOutcome::invalid();
+        };
+        // not asked for again, by anyone (2.0.13 b0f2691351); block requests of pieces whose
+        // hashes are now known are dropped by `pick_hashes`
+        if piece_layer_request {
+            let spans = &mut self.piece_hash_requested[req.file];
+            let mut i = index;
+            while i < index + count {
+                if let Some(span) = spans.get_mut(i / PIECES_PER_REQUEST) {
+                    span.have = true;
+                }
+                i += PIECES_PER_REQUEST;
+            }
         }
+        AddHashesOutcome { valid: true, hash_failed: r.failed, hash_passed: r.passed }
+    }
+
+    /// `req` is a span of piece-layer hashes as `pick_hashes` asks for them: 512 from a multiple
+    /// of 512, or the rest of the file (libtorrent `matches_piece_layer_request`).
+    fn matches_piece_layer_request(&self, files: &FileStorage, req: &HashRequest) -> bool {
+        let num_pieces = files.file_num_pieces(req.file) as i64;
+        let (index, count) = (req.index as i64, req.count as i64);
+        req.base as usize == self.piece_layer
+            && index % PIECES_PER_REQUEST as i64 == 0
+            && index < num_pieces
+            && self.piece_hash_requested.get(req.file).is_some_and(|v| !v.is_empty())
+            && (count == PIECES_PER_REQUEST as i64
+                || (count <= PIECES_PER_REQUEST as i64 && count >= num_pieces - index))
+    }
+
+    /// `req` is the block hashes of one whole piece (libtorrent `matches_block_request`).
+    fn matches_block_request(files: &FileStorage, req: &HashRequest) -> bool {
+        let blocks_per_piece = (files.piece_length() / DEFAULT_BLOCK_SIZE) as i64;
+        req.base == 0
+            && req.index as i64 % blocks_per_piece == 0
+            && (req.index as i64) < files.file_num_blocks(req.file) as i64
+            && req.count as i64 == blocks_per_piece
     }
 
     /// Sets the hash of the block at `offset` in `piece`, computed from its data.
@@ -402,30 +431,35 @@ impl HashPicker {
         }
     }
 
-    /// A peer rejected `req` (one of ours): ask someone else.
-    pub fn hashes_rejected(&mut self, req: &HashRequest) {
-        if req.count <= 0 || req.index < 0 {
+    /// A peer rejected `req` (one of ours): ask someone else. Only the two shapes `pick_hashes`
+    /// asks for are looked up; with one block per piece a request can be both, and is taken as
+    /// a block request first, as `pick_hashes` would (2.0.14 ca4e621c2e, 2.0.15 d09a0dc755,
+    /// 485467b33e).
+    pub fn hashes_rejected(&mut self, files: &FileStorage, req: &HashRequest) {
+        if !validate_hash_request(req, files) {
             return;
         }
-        if req.base as usize == self.piece_layer && req.index as usize % PIECES_PER_REQUEST == 0 {
-            if let Some(spans) = self.piece_hash_requested.get_mut(req.file) {
-                let mut i = req.index as usize;
-                while i < req.index as usize + req.count as usize {
-                    if let Some(r) = spans.get_mut(i / PIECES_PER_REQUEST) {
-                        r.last_request = None;
-                        r.num_requests -= 1;
-                    }
-                    i += PIECES_PER_REQUEST;
-                }
+        if Self::matches_block_request(files, req) {
+            let blocks_per_piece = files.piece_length() / DEFAULT_BLOCK_SIZE;
+            let piece = req.index as u32 / blocks_per_piece;
+            // gone if another peer's answer resolved it first
+            if let Some(r) =
+                self.piece_block_requests.iter_mut().find(|r| r.file == req.file && r.piece == piece)
+            {
+                r.last_request = None;
+                r.num_requests = (r.num_requests - 1).max(0);
+                return;
             }
         }
-        if req.base == 0 {
-            // the block hashes of a failed piece (libtorrent only handles piece-layer rejects)
-            let piece = (req.index as usize >> self.piece_layer) as u32;
-            for r in &mut self.piece_block_requests {
-                if r.file == req.file && r.piece == piece {
+        if self.matches_piece_layer_request(files, req) {
+            let spans = &mut self.piece_hash_requested[req.file];
+            let mut i = req.index as usize;
+            while i < req.index as usize + req.count as usize {
+                if let Some(r) = spans.get_mut(i / PIECES_PER_REQUEST) {
                     r.last_request = None;
+                    r.num_requests = (r.num_requests - 1).max(0);
                 }
+                i += PIECES_PER_REQUEST;
             }
         }
     }
@@ -534,9 +568,82 @@ mod tests {
         let pieces = Bitfield::new(4 * 512, true);
         let now = Instant::now();
         let picked = picker.pick_hashes(&fs, &trees, &pieces, now).unwrap();
-        picker.hashes_rejected(&picked);
+        picker.hashes_rejected(&fs, &picked);
         let picked2 = picker.pick_hashes(&fs, &trees, &pieces, now).unwrap();
         assert_eq!(picked, picked2);
+    }
+
+    // libtorrent 2.0.14 test_hash_picker.cpp reject_block_hash_request (ca4e621c2e): the index
+    // of a block request counts blocks, not pieces, and must not reach the piece-layer spans
+    #[test]
+    fn reject_block_hash_request() {
+        let fs = fs_one_file(16 * BLOCK, 100 * 16 * BLOCK as u64);
+        let trees = vec![MerkleTree::new(100 * 16, 16, root1())];
+        let mut picker = HashPicker::new(&fs, &trees);
+        picker.verify_block_hashes(&fs, 40);
+        let pieces = Bitfield::new(100, true);
+        let now = Instant::now();
+        let picked = picker.pick_hashes(&fs, &trees, &pieces, now).unwrap();
+        assert_eq!((picked.base, picked.index, picked.count), (0, 40 * 16, 16));
+        picker.hashes_rejected(&fs, &picked);
+        assert_eq!(picker.pick_hashes(&fs, &trees, &pieces, now), Some(picked));
+    }
+
+    // libtorrent 2.0.15 test_hash_picker.cpp hashes_rejected_single_piece_file_does_not_crash
+    // (d09a0dc755): a file of one piece has no piece-layer spans. Its block request is not
+    // picked here (the root is the block hash, so the request is dropped as known), so the
+    // reject is made up.
+    #[test]
+    fn hashes_rejected_single_piece_file() {
+        let fs = fs_one_file(BLOCK, BLOCK as u64);
+        let trees = vec![MerkleTree::new(1, 1, root1())];
+        let mut picker = HashPicker::new(&fs, &trees);
+        picker.verify_block_hashes(&fs, 0);
+        picker.hashes_rejected(&fs, &HashRequest::new(0, 0, 0, 1, 0));
+        assert!(picker.piece_hash_requested[0].is_empty());
+    }
+
+    // libtorrent 2.0.15 test_hash_picker.cpp
+    // block_hash_request_retried_when_piece_and_block_layer_coincide (485467b33e): with one block
+    // per piece, the block request of piece 512 also has the shape of the last piece-layer span;
+    // a reject makes it due again at once, and leaves the span's count alone. (Upstream loads the
+    // whole tree first; here that would verify the block and drop the request.)
+    #[test]
+    fn block_hash_request_retried_when_piece_and_block_layer_coincide() {
+        let fs = fs_one_file(BLOCK, 513 * BLOCK as u64);
+        let trees = vec![MerkleTree::new(513, 1, root1())];
+        let mut picker = HashPicker::new(&fs, &trees);
+        picker.verify_block_hashes(&fs, 512);
+        let pieces = Bitfield::new(513, false);
+        let now = Instant::now();
+        let picked = picker.pick_hashes(&fs, &trees, &pieces, now).unwrap();
+        assert_eq!((picked.base, picked.index, picked.count), (0, 512, 1));
+        assert!(picker.matches_piece_layer_request(&fs, &picked));
+        picker.hashes_rejected(&fs, &picked);
+        assert_eq!(picker.pick_hashes(&fs, &trees, &pieces, now), Some(picked));
+        assert_eq!(picker.piece_hash_requested[0][1].num_requests, 0);
+    }
+
+    // libtorrent 2.0.13 test_hash_picker.cpp add_piece_hashes_marks_request_complete
+    // (b0f2691351): a span whose hashes arrived is not asked for again, even when its request
+    // had become due again
+    #[test]
+    fn add_piece_hashes_marks_request_complete() {
+        let fs = fs_one_file(4 * BLOCK, 4 * 512 * BLOCK as u64);
+        let full_tree = build_tree(4 * 512);
+        let mut trees = vec![MerkleTree::new(4 * 512, 4, full_tree[0])];
+        let mut picker = HashPicker::new(&fs, &trees);
+        let pieces = Bitfield::new(512, true);
+        let now = Instant::now();
+        let picked = picker.pick_hashes(&fs, &trees, &pieces, now).unwrap();
+        assert_eq!((picked.file, picked.base, picked.index, picked.count), (0, 2, 0, 512));
+        picker.hashes_rejected(&fs, &picked);
+
+        let pieces_start = merkle_num_nodes(512) - 512;
+        let hashes = &full_tree[pieces_start..pieces_start + 512];
+        assert!(picker.add_hashes(&fs, &mut trees, &picked, hashes).valid);
+        assert_eq!(picker.pick_hashes(&fs, &trees, &pieces, now), None);
+        assert_eq!(picker.pick_hashes(&fs, &trees, &pieces, now + MIN_REQUEST_INTERVAL * 2), None);
     }
 
     #[test]
@@ -869,7 +976,7 @@ mod tests {
         assert_eq!(picker.pick_hashes(&fs, &trees, &pieces, now), None);
 
         // rejected: asked again at once
-        picker.hashes_rejected(&req);
+        picker.hashes_rejected(&fs, &req);
         assert_eq!(picker.pick_hashes(&fs, &trees, &pieces, now), Some(req));
 
         // the hashes arrive (bad data had been hashed for block 1): the request is done

@@ -2,7 +2,7 @@
 // partition_listen_sockets, expand_unspecified_address, expand_devices, interface_to_endpoints),
 // src/string_util.cpp (parse_listen_interfaces, print_listen_interfaces, split_string_quotes),
 // include/libtorrent/aux_/session_impl.hpp (listen_socket_flags_t), test/test_listen_socket.cpp,
-// test/test_string.cpp (parse_interface, split_string_quotes)
+// test/test_string.cpp (parse_interface, split_string_quotes); fixes from 2.1.1 (922226ede4)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: routes name their interface by index, so the "internet route" test compares indices
 // where libtorrent compares device names. An IPv6 address with a `%scope` suffix is taken as a
@@ -291,7 +291,6 @@ pub(crate) fn expand_unspecified_address(
                 || is_link_local(&ipface.addr)
                 || ipface.loopback
                 || (!is_global(&ipface.addr)
-                    && !ipface.pointopoint
                     && any_internet
                     && !has_internet_route(ipface.index, v4, routes));
             let mut flags = uep.flags | ListenFlags::WAS_EXPANDED;
@@ -761,10 +760,22 @@ mod tests {
 
     #[test]
     fn expand_unspecified_ppp() {
-        let global = ACCEPT | EXPANDED;
-        let local = global | LOCAL;
-        assert_eq!(expand_with_flags(true, false, true), [ep("192.168.1.2", 6881, "", false, global)]);
+        let local = ACCEPT | EXPANDED | LOCAL;
+        // a point-to-point interface is judged by the same internet-route check as any other:
+        // eth0 has no route (the only one is on eth99), so it's local whether or not it's PPP
+        assert_eq!(expand_with_flags(true, false, true), [ep("192.168.1.2", 6881, "", false, local)]);
         assert_eq!(expand_with_flags(true, false, false), [ep("192.168.1.2", 6881, "", false, local)]);
+    }
+
+    #[test]
+    fn expand_unspecified_ppp_with_route() {
+        // a point-to-point interface (a dial-up or VPN connection) with a route to the internet
+        // on its own device is still global, as any other interface with such a route
+        let routes = [rt("0.0.0.0", "eth0", "0.0.0.0")];
+        let ifs = [IpInterface { pointopoint: true, ..ifc("192.168.1.2", "eth0", None) }];
+        let mut eps = vec![ep("0.0.0.0", 6881, "", false, ACCEPT)];
+        expand_unspecified_address(&ifs, &routes, &mut eps);
+        assert_eq!(eps, [ep("192.168.1.2", 6881, "", false, ACCEPT | EXPANDED)]);
     }
 
     #[test]

@@ -337,7 +337,7 @@ impl Engine {
         }
         self.connect_peers_for(id, 10);
         self.prioritize_dht(id);
-        self.lsd_announce(id, Instant::now());
+        self.prioritize_lsd(id);
     }
 
     /// Every piece layer arrived and proved out against the file roots: the metadata gets

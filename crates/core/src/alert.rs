@@ -450,7 +450,7 @@ impl Alert {
     }
 
     /// libtorrent's `static_category` of the alert (of the alert it stands for). Empty for the
-    /// alerts the mask never holds back ([`Alert::masked_by`]).
+    /// replies to requests, which the mask never holds back ([`Alert::masked_by`]).
     pub fn category(&self) -> AlertCategory {
         use Alert::*;
         type C = AlertCategory;
@@ -504,8 +504,13 @@ impl Alert {
     }
 
     /// Whether `mask` (`Settings::alert_mask`) holds the alert back: none of its categories is
-    /// in the mask. Replies to requests ([`Alert::category`] empty) always get through.
+    /// in the mask. Replies to requests ([`Alert::category`] empty) always get through, and so
+    /// do the answers to a file rename (libtorrent 2.0.12, f533c6f479: the rename's caller
+    /// waits for one).
     pub fn masked_by(&self, mask: AlertCategory) -> bool {
+        if matches!(self, Alert::FileRenamed { .. } | Alert::FileRenameFailed { .. }) {
+            return false;
+        }
         let c = self.category();
         !c.is_empty() && !c.intersects(mask)
     }
@@ -776,6 +781,18 @@ mod tests {
         assert!(!Alert::SessionStats(SessionStats::default()).masked_by(AlertCategory::empty()));
         assert!(!Alert::StateUpdate(Vec::new()).masked_by(AlertCategory::empty()));
         assert!(log(1).masked_by(AlertCategory::empty()));
+        // so are a rename's answers, whose category stays storage
+        let renamed = Alert::FileRenamed {
+            id: TorrentId::default(),
+            index: 0,
+            old_name: "a".into(),
+            new_name: "b".into(),
+        };
+        assert_eq!(renamed.category(), AlertCategory::STORAGE);
+        assert!(!renamed.masked_by(AlertCategory::empty()));
+        let error = Error::Io { kind: std::io::ErrorKind::PermissionDenied, message: "denied".into() };
+        let failed = Alert::FileRenameFailed { id: TorrentId::default(), index: 0, error };
+        assert!(!failed.masked_by(AlertCategory::empty()));
         // libtorrent's bit positions
         assert_eq!(AlertCategory::CONNECT.bits(), 1 << 5);
         assert_eq!(AlertCategory::PORT_MAPPING_LOG.bits(), 1 << 19);

@@ -1,6 +1,7 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/settings_pack.cpp (the dht_* settings and defaults)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
-// Changes: a plain struct copied out of `Settings` instead of string-keyed lookups.
+// Changes: a plain struct copied out of `Settings` instead of string-keyed lookups; fixes from
+// 2.1.1 (abc121b1e9).
 
 /// The DHT's settings (libtorrent `settings_pack::dht_*`), with libtorrent's defaults.
 #[derive(Clone, Debug, PartialEq)]
@@ -46,6 +47,8 @@ pub struct DhtSettings {
     pub sample_infohashes_interval: i32,
     /// BEP 51: info-hashes in a `sample_infohashes` reply.
     pub max_infohashes_sample_count: i32,
+    /// Apply the session's IP filter to the DHT (libtorrent `apply_filter_to_dht`).
+    pub apply_filter_to_dht: bool,
 }
 
 impl Default for DhtSettings {
@@ -73,6 +76,7 @@ impl Default for DhtSettings {
             announce_interval: 15 * 60,
             sample_infohashes_interval: 21600,
             max_infohashes_sample_count: 20,
+            apply_filter_to_dht: true,
         }
     }
 }
@@ -100,6 +104,7 @@ impl From<&crate::settings::Settings> for DhtSettings {
             announce_interval: s.dht_announce_interval.min(i32::MAX as u32) as i32,
             sample_infohashes_interval: s.dht_sample_infohashes_interval,
             max_infohashes_sample_count: s.dht_max_infohashes_sample_count,
+            apply_filter_to_dht: s.apply_filter_to_dht,
             ..DhtSettings::default()
         }
     }

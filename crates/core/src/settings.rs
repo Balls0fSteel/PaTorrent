@@ -140,6 +140,10 @@ pub struct Settings {
     pub dht_max_peers: i32,
     pub dht_block_timeout: i32,
     pub dht_block_ratelimit: i32,
+    /// The IP filter applies to the DHT too: messages from blocked addresses are dropped, and
+    /// the addresses are kept out of the routing table and lookups (libtorrent 2.1.1). Nodes
+    /// already in the table when the filter changes stay; bootstrap routers are exempt.
+    pub apply_filter_to_dht: bool,
     pub enable_lsd: bool,
     /// Seconds in which every running torrent is announced once on the local network (BEP 14).
     pub local_service_announce_interval: u32,
@@ -350,6 +354,7 @@ impl Default for Settings {
             dht_max_peers: 500,
             dht_block_timeout: 5 * 60,
             dht_block_ratelimit: 5,
+            apply_filter_to_dht: true,
             enable_lsd: true,
             local_service_announce_interval: 5 * 60,
             enable_upnp: true,

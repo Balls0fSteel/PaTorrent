@@ -3,7 +3,8 @@
 // include/libtorrent/kademlia/node_entry.hpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: buckets are plain vectors addressed by index; "never queried" is `None` instead of
-// `min_time()`; the clock is passed in; the table keeps its own copy of the DHT settings.
+// `min_time()`; the clock is passed in; the table keeps its own copy of the DHT settings and
+// the session's IP filter is passed to each insert; fixes from 2.1.1 (abc121b1e9).
 
 //! The Kademlia routing table: k-buckets plus replacement caches, split towards our own id.
 
@@ -13,6 +14,7 @@ use std::time::{Duration, Instant};
 
 use super::node_id::{NodeId, compare_ref, distance_exp, verify_id};
 use super::settings::DhtSettings;
+use crate::net::ip_filter::IpFilter;
 
 /// A node we know of (libtorrent `node_entry`).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -475,7 +477,13 @@ impl RoutingTable {
         self.ips.erase(&n.addr());
     }
 
-    pub fn add_node(&mut self, e: NodeEntry, now: Instant) -> bool {
+    /// Adds or updates `e`. `filter` is the session's IP filter: with `apply_filter_to_dht` the
+    /// addresses it blocks are refused (libtorrent checks in `add_node_impl`; the outcome is
+    /// the same, as nothing is changed before).
+    pub fn add_node(&mut self, e: NodeEntry, filter: Option<&IpFilter>, now: Instant) -> bool {
+        if self.settings.apply_filter_to_dht && filter.is_some_and(|f| f.is_blocked(e.addr())) {
+            return false;
+        }
         let mut s = self.add_node_impl(e.clone(), now);
         while s == AddNodeStatus::NeedBucketSplit {
             self.split_bucket();
@@ -693,18 +701,18 @@ impl RoutingTable {
     }
 
     /// Changes our id: every node is re-added, so some may be dropped.
-    pub fn update_node_id(&mut self, id: NodeId, now: Instant) {
+    pub fn update_node_id(&mut self, id: NodeId, filter: Option<&IpFilter>, now: Instant) {
         self.id = id;
         self.ips.clear();
         let old = std::mem::take(&mut self.buckets);
         for b in &old {
             for n in &b.live_nodes {
-                self.add_node(n.clone(), now);
+                self.add_node(n.clone(), filter, now);
             }
         }
         for b in &old {
             for n in &b.replacements {
-                self.add_node(n.clone(), now);
+                self.add_node(n.clone(), filter, now);
             }
         }
     }
@@ -772,16 +780,24 @@ impl RoutingTable {
     }
 
     /// We heard of this node but haven't talked to it: maybe add it, unpinged.
-    pub fn heard_about(&mut self, id: &NodeId, ep: SocketAddr, now: Instant) {
+    pub fn heard_about(&mut self, id: &NodeId, ep: SocketAddr, filter: Option<&IpFilter>, now: Instant) {
         if !self.verify_node_address(id, &ep.ip()) {
             return;
         }
-        self.add_node(NodeEntry::new(*id, ep, 0xffff, false, now), now);
+        self.add_node(NodeEntry::new(*id, ep, 0xffff, false, now), filter, now);
     }
 
     /// A node answered us: insert it or move it up. Returns whether it is in the table.
-    pub fn node_seen(&mut self, id: &NodeId, ep: SocketAddr, rtt: i32, now: Instant) -> bool {
-        self.verify_node_address(id, &ep.ip()) && self.add_node(NodeEntry::new(*id, ep, rtt, true, now), now)
+    pub fn node_seen(
+        &mut self,
+        id: &NodeId,
+        ep: SocketAddr,
+        rtt: i32,
+        filter: Option<&IpFilter>,
+        now: Instant,
+    ) -> bool {
+        self.verify_node_address(id, &ep.ip())
+            && self.add_node(NodeEntry::new(*id, ep, rtt, true, now), filter, now)
     }
 
     fn verify_node_address(&self, id: &NodeId, addr: &IpAddr) -> bool {
@@ -916,7 +932,7 @@ mod tests {
         };
         // a node with the same IP:port changing ID
         let tmp = generate_id_impl(&node_addr, 1);
-        table.node_seen(&tmp, SocketAddr::new(node_addr, 4), 10, now);
+        table.node_seen(&tmp, SocketAddr::new(node_addr, 4), 10, None, now);
         let nodes = table.find_node(&nid, false, 10);
         assert_eq!(table.bucket_len(0), 1);
         assert_eq!(table.size().0, 1);
@@ -932,19 +948,19 @@ mod tests {
         assert_eq!(nodes[0].timeout_count, 1);
 
         // the exact same node again resets the timeout count
-        table.node_seen(&tmp, SocketAddr::new(node_addr, 4), 10, now);
+        table.node_seen(&tmp, SocketAddr::new(node_addr, 4), 10, None, now);
         let nodes: Vec<_> = table.live_nodes().cloned().collect();
         assert_eq!(nodes.len(), 1);
         assert_eq!(nodes[0].timeout_count, 0);
 
         // the same id from a different port is ignored
-        table.node_seen(&tmp, SocketAddr::new(node_addr, 5), 10, now);
+        table.node_seen(&tmp, SocketAddr::new(node_addr, 5), 10, None, now);
         let nodes = table.find_node(&nid, false, 10);
         assert_eq!(table.bucket_len(0), 1);
         assert_eq!(nodes[0].port(), 4);
 
         // an IP very close to an existing one in the same bucket is ignored
-        table.node_seen(&tmp, SocketAddr::new(node_near_addr, 5), 10, now);
+        table.node_seen(&tmp, SocketAddr::new(node_near_addr, 5), 10, None, now);
         let nodes = table.find_node(&nid, false, 10);
         assert_eq!(table.bucket_len(0), 1);
         assert_eq!(nodes[0].addr(), node_addr);
@@ -952,18 +968,18 @@ mod tests {
 
         // the same IP:port with a new id removes the node
         let id = generate_id_impl(&node_addr, 2);
-        table.node_seen(&id, SocketAddr::new(node_addr, 4), 10, now);
+        table.node_seen(&id, SocketAddr::new(node_addr, 4), 10, None, now);
         let nodes = table.find_node(&id, false, 10);
         assert_eq!(table.bucket_len(0), 0);
         assert_eq!(nodes.len(), 0);
 
         table.settings.restrict_routing_ips = false;
         let e = rand_udp_ep(rand_addr);
-        table.node_seen(&generate_id_impl(&e.ip(), 2), e, 10, now);
+        table.node_seen(&generate_id_impl(&e.ip(), 2), e, 10, None, now);
         for _ in 0..10000 {
             let e = rand_udp_ep(rand_addr);
             let id = generate_id_impl(&e.ip(), 6);
-            table.node_seen(&id, e, 20 + id.0[19] as i32, now);
+            table.node_seen(&id, e, 20 + id.0[19] as i32, None, now);
         }
         let n = table.num_active_buckets();
         // libtorrent's test accepts 11 or 12, but the addresses and ids are random: over 600
@@ -1015,15 +1031,15 @@ mod tests {
         // libtorrent runs this with enforcement off (the default); with BEP 42 ids enforced,
         // the id must come from the address
         let tmp = generate_id_impl(&"4.4.4.4".parse().unwrap(), tmp.0[19] as u32);
-        table.node_seen(&tmp, ep("4.4.4.4:4"), 10, now);
+        table.node_seen(&tmp, ep("4.4.4.4:4"), 10, None, now);
         assert_eq!(table.size().0, 1);
         assert_eq!(table.find_node(&id, false, 10).len(), 1);
         // wrong IP for the id: ignored
-        table.node_seen(&tmp, ep("4.4.4.6:4"), 10, now);
+        table.node_seen(&tmp, ep("4.4.4.6:4"), 10, None, now);
         assert_eq!(table.size().0, 1);
         // a valid id for the address but a different one: the old entry is evicted
         let other = generate_id_impl(&"4.4.4.4".parse().unwrap(), 77);
-        table.node_seen(&other, ep("4.4.4.4:4"), 10, now);
+        table.node_seen(&other, ep("4.4.4.4:4"), 10, None, now);
         assert_eq!(table.size().0, 0);
         assert_eq!(table.find_node(&id, false, 10).len(), 0);
     }
@@ -1037,13 +1053,46 @@ mod tests {
         let mut table = RoutingTable::new(id, true, 8, s);
         let mut tmp = id;
         add_and_replace(&mut tmp, &to_hash("15764f7459456a9453f8719b09547c11d5f34061"));
-        table.node_seen(&tmp, ep("4.4.4.4:4"), 10, now);
+        table.node_seen(&tmp, ep("4.4.4.4:4"), 10, None, now);
         assert_eq!(table.size().0, 1);
-        table.node_seen(&tmp, ep("4.4.4.6:4"), 10, now);
+        table.node_seen(&tmp, ep("4.4.4.6:4"), 10, None, now);
         assert_eq!(table.size().0, 1);
         assert_eq!(table.find_node(&id, false, 10).len(), 1);
-        table.node_seen(&to_hash("0123456789abcdef01232456789abcdef0123456"), ep("4.4.4.4:4"), 10, now);
+        table.node_seen(&to_hash("0123456789abcdef01232456789abcdef0123456"), ep("4.4.4.4:4"), 10, None, now);
         assert_eq!(table.size().0, 0);
+    }
+
+    // libtorrent 2.1.1 test_dht.cpp: dht_ip_filter
+    #[test]
+    fn ip_filter() {
+        let now = Instant::now();
+        let mut filter = IpFilter::new();
+        let blocked: IpAddr = "4.4.4.4".parse().unwrap();
+        filter.add_rule(blocked, blocked, IpFilter::BLOCKED);
+        // IPs from unrelated /24s, so restrict_routing_ips doesn't interfere
+        let s = DhtSettings {
+            extended_routing_table: false,
+            restrict_routing_ips: false,
+            ..DhtSettings::default()
+        };
+        let id = to_hash("3123456789abcdef01232456789abcdef0123456");
+        let mut table = RoutingTable::new(id, true, 8, s);
+        let mut tmp = id;
+        let diff = to_hash("15764f7459456a9453f8719b09547c11d5f34061");
+        add_and_replace(&mut tmp, &diff);
+        // blocked by the IP filter: not added
+        table.node_seen(&tmp, ep("4.4.4.4:4"), 10, Some(&filter), now);
+        assert_eq!(table.size().0, 0);
+        table.heard_about(&tmp, ep("4.4.4.4:4"), Some(&filter), now);
+        assert_eq!(table.size(), (0, 0, 0));
+        // not blocked: added
+        table.node_seen(&tmp, ep("5.5.5.5:4"), 10, Some(&filter), now);
+        assert_eq!(table.size().0, 1);
+        // with the setting off the blocked address gets in too
+        table.settings.apply_filter_to_dht = false;
+        add_and_replace(&mut tmp, &diff);
+        table.node_seen(&tmp, ep("4.4.4.4:4"), 10, Some(&filter), now);
+        assert_eq!(table.size().0, 2);
     }
 
     fn rand_ep() -> SocketAddr {
@@ -1060,7 +1109,7 @@ mod tests {
         for i in (0..=255u8).rev() {
             add_and_replace(&mut id, &diff);
             id.0[0] ^= i;
-            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, now);
+            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, None, now);
             id.0[0] ^= i;
         }
         assert_eq!(tbl.num_active_buckets(), 6);
@@ -1075,7 +1124,7 @@ mod tests {
         let mut tbl = RoutingTable::new(id, true, 8, s);
         for i in 0..32u32 {
             id.0[0] = (i << 3) as u8;
-            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, now);
+            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, None, now);
         }
         assert_eq!(tbl.num_active_buckets(), 2);
     }
@@ -1092,7 +1141,7 @@ mod tests {
         for p in prefix {
             add_and_replace(&mut id, &diff);
             id.0[0] = p;
-            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, now);
+            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, None, now);
         }
         assert_eq!(tbl.num_active_buckets(), 6);
     }
@@ -1107,11 +1156,11 @@ mod tests {
         let mut tbl = RoutingTable::new(id, true, 8, s);
         for p in prefix {
             id.0[0] = p;
-            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, now);
+            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, None, now);
         }
         assert_eq!(tbl.num_active_buckets(), 6);
         let original: std::collections::BTreeSet<NodeId> = tbl.all_nodes().map(|n| n.id).collect();
-        tbl.update_node_id(NodeId::max(), now);
+        tbl.update_node_id(NodeId::max(), None, now);
         assert!(tbl.num_active_buckets() <= 4);
         let remaining: std::collections::BTreeSet<NodeId> = tbl.all_nodes().map(|n| n.id).collect();
         assert!(remaining.is_subset(&original));
@@ -1126,7 +1175,7 @@ mod tests {
         let mut tbl = RoutingTable::new(id, true, 2, s);
         for i in 0..32u32 {
             id.0[0] = (i << 3) as u8;
-            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, now);
+            tbl.node_seen(&id, rand_ep(), 20 + id.0[19] as i32, None, now);
         }
         let (nodes, replacements, _) = tbl.size();
         assert_eq!(tbl.num_active_buckets(), 2);

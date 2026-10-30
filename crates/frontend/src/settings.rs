@@ -276,6 +276,7 @@ pub static TABLE: &[Entry] = &[
     entry!(dht_max_peers: i32),
     entry!(dht_block_timeout: i32),
     entry!(dht_block_ratelimit: i32),
+    entry!(apply_filter_to_dht: bool),
     entry!(enable_lsd: bool),
     entry!(local_service_announce_interval: u32),
     entry!(enable_upnp: bool),

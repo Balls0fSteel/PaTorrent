@@ -870,6 +870,43 @@ fn a_torrent_files_dht_nodes_join_the_routing_table() {
     let _ = std::fs::remove_dir_all(dir);
 }
 
+#[test]
+fn the_ip_filter_applies_to_the_dht() {
+    // libtorrent 2.1.1 `apply_filter_to_dht`: a ping from a blocked address gets no answer
+    let (s, mut w, port) = start_dht(None);
+    s.handle().set_ip_filter(loopback_blocked());
+    // the stats come back after the filter is set (commands run in order)
+    s.handle().post_session_stats();
+    wait(&mut w, 5, "stats", |a| matches!(a, Alert::SessionStats(_)).then_some(()));
+    let u = UdpSocket::bind("127.0.0.1:0").unwrap();
+    u.set_read_timeout(Some(Duration::from_millis(300))).unwrap();
+    let ping = b"d1:ad2:id20:aaaaaaaaaaaaaaaaaaaae1:q4:ping1:t2:aa1:y1:qe";
+    let to = SocketAddr::from(([127, 0, 0, 1], port));
+    let mut buf = [0u8; 1500];
+    for _ in 0..5 {
+        u.send_to(ping, to).unwrap();
+        assert!(u.recv_from(&mut buf).is_err(), "a blocked address was answered");
+    }
+    // with the setting off the same ping is answered
+    s.handle().apply_settings(Settings {
+        enable_dht: true,
+        dht_bootstrap_nodes: String::new(),
+        dht_announce_interval: 2,
+        apply_filter_to_dht: false,
+        ..settings()
+    });
+    let deadline = Instant::now() + Duration::from_secs(10);
+    loop {
+        assert!(Instant::now() < deadline, "no answer with apply_filter_to_dht off");
+        u.send_to(ping, to).unwrap();
+        if let Ok((n, _)) = u.recv_from(&mut buf) {
+            assert!(buf[..n].starts_with(b"d"));
+            break;
+        }
+    }
+    s.shutdown();
+}
+
 /// SEC-18: before the metadata arrives, `dn=` is the torrent's name, and Open Folder joins it to
 /// the save path; a UNC, absolute or `..` name must not point outside it.
 #[test]

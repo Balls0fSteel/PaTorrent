@@ -537,6 +537,7 @@ wire_struct!(Settings {
     dht_max_peers,
     dht_block_timeout,
     dht_block_ratelimit,
+    apply_filter_to_dht,
     enable_lsd,
     local_service_announce_interval,
     enable_upnp,

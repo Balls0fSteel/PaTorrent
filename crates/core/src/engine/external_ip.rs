@@ -36,7 +36,7 @@ impl Engine {
             }
         }
         if let Some(t) = self.dht.tracker.as_mut() {
-            t.update_node_id(ext.is_ipv4(), ext, now);
+            t.update_node_id(ext.is_ipv4(), ext, &self.filters.ip, now);
         }
     }
 

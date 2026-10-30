@@ -4,7 +4,8 @@
 // and ban_peer), src/web_peer_connection.cpp (on_connected, disconnect, received_invalid_data,
 // the torrent side of handle_error, handle_redirect and disable), src/web_connection_base.cpp
 // (timeout, on_connected), src/http_seed_connection.cpp (on_connected, disconnect, the torrent
-// side of its redirects), src/ip_helpers.cpp (is_local, is_global), src/parse_url.cpp (is_idna)
+// side of its redirects), src/ip_helpers.cpp (is_local, is_global), src/parse_url.cpp (is_idna);
+// fixes from 2.0.13 (aa59c7c583, 8b8242fe9b)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: web seed connections live in a slab of their own beside the BitTorrent peers and are
 // driven by mio events like tracker connections; their HTTP side is the sans-IO
@@ -996,7 +997,7 @@ impl Engine {
         let len = data.len() as u64;
         let block = start / BLOCK_SIZE;
         let expected = (piece < t.num_pieces)
-            .then(|| (t.piece_size(piece) as u32).saturating_sub(start).min(BLOCK_SIZE));
+            .then(|| (t.piece_size_for_req(piece) as u32).saturating_sub(start).min(BLOCK_SIZE));
         let addr = c.addr;
         let Some(picker) =
             t.picker.as_mut().filter(|_| start % BLOCK_SIZE == 0 && expected == Some(len as u32))
@@ -1086,7 +1087,7 @@ impl Engine {
         let mut runs: Vec<(u32, u32, u64, usize)> = Vec::new();
         let mut next: Option<(u32, u32)> = None;
         for &(p, b) in &picks {
-            let len = (ti.piece_size(p) as u64 - b as u64 * BLOCK_SIZE as u64).min(BLOCK_SIZE as u64);
+            let len = (ti.piece_size_for_req(p) as u64 - b as u64 * BLOCK_SIZE as u64).min(BLOCK_SIZE as u64);
             match runs.last_mut() {
                 Some(run)
                     if next == Some((p, b)) && run.2 + len <= max_request && (!http_seed || run.0 == p) =>
@@ -1096,7 +1097,10 @@ impl Engine {
                 }
                 _ => runs.push((p, b * BLOCK_SIZE, len, 1)),
             }
-            next = Some(if b + 1 < picker.blocks_in_piece(p) { (p, b + 1) } else { (p + 1, 0) });
+            // a short block ends its file's data (v2-only), so a run of contiguous bytes ends
+            // there too: the pad bytes after it are not requested
+            next = (len == BLOCK_SIZE as u64)
+                .then(|| if b + 1 < picker.blocks_in_piece(p) { (p, b + 1) } else { (p + 1, 0) });
         }
         let room = max_runs - c.runs.len();
         for (n, &(piece, start, length, blocks)) in runs.iter().enumerate() {

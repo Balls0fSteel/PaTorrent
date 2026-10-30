@@ -3,7 +3,7 @@
 // src/peer_connection.cpp (incoming_request, incoming_piece, incoming_have, incoming_dont_have,
 // update_interest, send_block_requests, snub handling, the read error of
 // on_disk_read_complete, incoming_bitfield / incoming_have_all / incoming_have_none replacing an
-// earlier piece set), src/request_blocks.cpp
+// earlier piece set), src/request_blocks.cpp; fixes from 2.0.13 (aa59c7c583, 8b8242fe9b)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: handlers are engine methods taking a peer slot; messages are copied out of the
 // receive buffer once (piece payloads go straight to the disk job). The encrypted handshake
@@ -670,7 +670,7 @@ impl Engine {
         }
         for (piece, block) in picks {
             let start = block * BLOCK_SIZE;
-            let len = (t.piece_size(piece) as u32 - start).min(BLOCK_SIZE);
+            let len = (t.piece_size_for_req(piece) as u32 - start).min(BLOCK_SIZE);
             peer_wire::encode_block_msg(p.out(), msg::REQUEST, piece, start, len);
             p.requests.push(Request { piece, block });
         }
@@ -685,8 +685,9 @@ impl Engine {
         let reqs: Vec<Request> = std::mem::take(&mut p.requests);
         for r in &reqs {
             let start = r.block * BLOCK_SIZE;
-            let len =
-                t.as_ref().map_or(BLOCK_SIZE, |t| (t.piece_size(r.piece) as u32 - start).min(BLOCK_SIZE));
+            let len = t
+                .as_ref()
+                .map_or(BLOCK_SIZE, |t| (t.piece_size_for_req(r.piece) as u32 - start).min(BLOCK_SIZE));
             peer_wire::encode_block_msg(p.out(), msg::CANCEL, r.piece, start, len);
         }
         if let Some(pk) = t.and_then(|t| t.picker.as_mut()) {
@@ -863,7 +864,7 @@ impl Engine {
             .then(|| p.requests.iter().position(|r| r.piece == piece && r.block == block))
             .flatten();
         let expected = (piece < t.num_pieces)
-            .then(|| (t.piece_size(piece) as u32).saturating_sub(start).min(BLOCK_SIZE));
+            .then(|| (t.piece_size_for_req(piece) as u32).saturating_sub(start).min(BLOCK_SIZE));
         let Some(pos) = pos.filter(|_| expected == Some(data.len() as u32)) else {
             // Unrequested, cancelled earlier, or malformed: drop it.
             t.redundant_bytes += len;

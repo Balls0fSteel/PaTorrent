@@ -1,4 +1,5 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/torrent_info.cpp, include/libtorrent/torrent_info.hpp
+// Ported from libtorrent-rasterbar 2.0.11: src/torrent_info.cpp, include/libtorrent/torrent_info.hpp;
+// fixes from 2.0.13 (aa59c7c583, 8b8242fe9b)
 // Copyright (c) 2003-2022, Arvid Norberg, Alden Torres, Andrei Kurushin, Pavel Pimenov,
 // Steven Siloti and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: parsing returns `Result` instead of marking the object invalid; the info section is an
@@ -688,6 +689,13 @@ impl TorrentInfo {
 
     pub fn piece_size(&self, index: u32) -> u32 {
         self.files.piece_size(index)
+    }
+
+    /// The piece size requests are sized by (libtorrent 2.0.13 `piece_size_for_req`): pieces
+    /// at the end of files are shorter in v2-only torrents; v1 and hybrid torrents need full
+    /// pieces (but the last) to compute the SHA-1 piece hash.
+    pub fn piece_size_for_req(&self, index: u32) -> u32 {
+        if self.v1() { self.files.piece_size(index) } else { self.files.piece_size2(index) }
     }
 
     /// SHA-1 of piece `index` (v1 torrents).

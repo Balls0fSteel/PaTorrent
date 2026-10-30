@@ -14,7 +14,11 @@
 //! use it: an HTTP proxy is asked for `http://` URLs directly, everything else is tunnelled
 //! (SOCKS4/5, HTTP CONNECT).
 //!
-//! Call it from a worker thread: it blocks for up to the timeout.
+//! [`http_get_to`] is the same `GET` for a file too big to hold, such as a new version's setup
+//! (D45): the final answer's body goes to a [`Sink`] as it arrives, and the timeout then runs
+//! between reads instead of over the whole exchange.
+//!
+//! Call them from a worker thread: they block for up to the timeout.
 
 use std::fmt;
 use std::io::{self, Read, Write};
@@ -253,10 +257,39 @@ impl From<io::Error> for FetchError {
     }
 }
 
+/// Where [`http_get_to`] puts the body as it arrives: called with the body's length when the
+/// head named it (`None` otherwise) and the next bytes, in order. An error ends the download
+/// with [`FetchError::Io`] (a cancel: `io::ErrorKind::Interrupted`, say).
+pub type Sink<'a> = &'a mut dyn FnMut(Option<u64>, &[u8]) -> io::Result<()>;
+
 /// `GET url`. Returns 2xx answers, unfollowed redirects and, when [`FetchOptions::headers`]
 /// make the request conditional, a `304` (see [`FetchResponse`]); any other status is
 /// [`FetchError::Status`], a `304` to a plain request too.
 pub fn http_get(url: &str, opts: &FetchOptions) -> Result<FetchResponse, FetchError> {
+    http_get_inner(url, opts, None)
+}
+
+/// [`http_get`] with the 2xx answer's body handed to `sink` instead of returned (the answer's
+/// `body` is empty). A body with `Content-Length`, or one the end of the connection frames,
+/// goes to the sink read by read, under [`FetchOptions::max_size`] all the same, with
+/// [`FetchOptions::timeout`] between reads once the head is in; a chunked body is decoded
+/// whole first, as [`http_get`] has it, then handed over in one piece. The body is as sent
+/// (no gzip is asked for, whatever [`FetchOptions::gzip`] says).
+pub fn http_get_to(url: &str, opts: &FetchOptions, sink: Sink<'_>) -> Result<FetchResponse, FetchError> {
+    let opts = FetchOptions { gzip: false, ..opts.clone() };
+    let mut done = http_get_inner(url, &opts, Some(sink))?;
+    if !done.body.is_empty() && (200..300).contains(&done.status) {
+        let body = std::mem::take(&mut done.body);
+        sink(Some(body.len() as u64), &body)?;
+    }
+    Ok(done)
+}
+
+fn http_get_inner(
+    url: &str,
+    opts: &FetchOptions,
+    mut sink: Option<Sink<'_>>,
+) -> Result<FetchResponse, FetchError> {
     let deadline = Instant::now() + opts.timeout;
     let mut url = clean_url(url);
     let mut redirects = 0;
@@ -267,7 +300,7 @@ pub fn http_get(url: &str, opts: &FetchOptions) -> Result<FetchResponse, FetchEr
         let parsed = Url::parse(&url).ok_or_else(|| FetchError::InvalidUrl(url.clone()))?;
         let origin = origin.get_or_insert_with(|| Origin::of(&parsed));
         let cookies = has_cookies && *origin == Origin::of(&parsed);
-        let (resp, reached_public) = get_once(&parsed, opts, cookies, deadline, public_only)?;
+        let (resp, reached_public) = get_once(&parsed, opts, cookies, deadline, public_only, &mut sink)?;
         // a public server may not send the client into its own network (SEC-26)
         public_only |= reached_public;
         if (200..300).contains(&resp.status) {
@@ -443,13 +476,15 @@ fn named_target(host: &str) -> Vec<IpAddr> {
 }
 
 /// One request and its response, without following redirects; with whether the server's
-/// address is public. `public_only` refuses any other (SEC-26).
+/// address is public. `public_only` refuses any other (SEC-26). A 2xx body goes to `sink`
+/// when there is one ([`http_get_to`]).
 fn get_once(
     url: &Url,
     opts: &FetchOptions,
     cookies: bool,
     deadline: Instant,
     public_only: bool,
+    sink: &mut Option<Sink<'_>>,
 ) -> Result<(http::Response, bool), FetchError> {
     let https = url.scheme == "https";
     let proxy = opts.proxy.as_ref().map(|p| &p.0);
@@ -501,9 +536,11 @@ fn get_once(
             &req,
             opts.max_size,
             deadline,
+            sink,
+            opts.timeout,
         )
     } else {
-        exchange(sock, plain_socket, |_| true, &req, opts.max_size, deadline)
+        exchange(sock, plain_socket, |_| true, &req, opts.max_size, deadline, sink, opts.timeout)
     }?;
     Ok((resp, public))
 }
@@ -526,7 +563,10 @@ fn set_timeouts(sock: &TcpStream, deadline: Instant) -> Result<(), FetchError> {
 }
 
 /// Sends the request and reads until the response is complete: its `Content-Length` is in,
-/// the last chunk arrived, or the server closed the connection.
+/// the last chunk arrived, or the server closed the connection. With a `sink`, a 2xx body that
+/// is not chunked goes there as it arrives, with `idle` to wait between its reads, and the
+/// response comes back without it.
+#[allow(clippy::too_many_arguments)]
 fn exchange<S: Read + Write>(
     mut s: S,
     sock: fn(&mut S) -> &TcpStream,
@@ -534,6 +574,8 @@ fn exchange<S: Read + Write>(
     req: &[u8],
     max: usize,
     deadline: Instant,
+    sink: &mut Option<Sink<'_>>,
+    idle: Duration,
 ) -> Result<http::Response, FetchError> {
     set_timeouts(sock(&mut s), deadline)?;
     s.write_all(req)?;
@@ -542,9 +584,16 @@ fn exchange<S: Read + Write>(
     let mut chunk = [0u8; 16 * 1024];
     // the head, once it is in: (content length or -1, chunked, body offset)
     let mut framing: Option<(i64, bool, usize)> = None;
+    // the head of a body on its way to the sink, and how much of it went there
+    let mut streaming: Option<http_parser::ResponseHead> = None;
+    let mut streamed: u64 = 0;
+    let mut deadline = deadline;
     // keeps its place across reads, so a chunked body is decoded once, not after every read
     let mut parser = http::ResponseParser::new(max);
     let result = loop {
+        if streaming.is_some() {
+            deadline = Instant::now() + idle;
+        }
         set_timeouts(sock(&mut s), deadline)?;
         let n = match s.read(&mut chunk) {
             Ok(n) => n,
@@ -559,6 +608,12 @@ fn exchange<S: Read + Write>(
                     "the TLS connection ended without close_notify: the response may be cut short",
                 ));
             }
+            if let Some(head) = streaming {
+                if head.content_length >= 0 && streamed < head.content_length as u64 {
+                    break Err(ParseError::Incomplete);
+                }
+                break Ok(streamed_response(head));
+            }
             break parser.parse(&buf, true);
         }
         buf.extend_from_slice(&chunk[..n]);
@@ -566,12 +621,31 @@ fn exchange<S: Read + Write>(
             match http_parser::parse_head(&buf) {
                 // no body, whatever the head says (RFC 9112 6.3)
                 Ok(Some((head, _))) if matches!(head.status, 204 | 304) => break parser.parse(&buf, false),
-                Ok(Some((head, body))) => framing = Some((head.content_length, head.chunked, body)),
+                Ok(Some((head, body))) => {
+                    framing = Some((head.content_length, head.chunked, body));
+                    if sink.is_some() && (200..300).contains(&head.status) && !head.chunked {
+                        streaming = Some(head);
+                    }
+                }
                 Ok(None) => {}
                 Err(http_parser::ParseError::Invalid(e)) => return Err(FetchError::Http(e)),
             }
         }
         let Some((len, chunked, body)) = framing else { continue };
+        if let (Some(head), Some(sink)) = (&streaming, sink.as_mut()) {
+            if buf.len() > body {
+                sink((len >= 0).then_some(len as u64), &buf[body..])?;
+                streamed += (buf.len() - body) as u64;
+                buf.truncate(body);
+            }
+            if streamed > max as u64 || len > max as i64 {
+                return Err(FetchError::TooLarge);
+            }
+            if len >= 0 && streamed >= len as u64 {
+                break Ok(streamed_response(head.clone()));
+            }
+            continue;
+        }
         if buf.len() - body > max.saturating_add(64 * 1024) || (!chunked && len > max as i64) {
             return Err(FetchError::TooLarge);
         }
@@ -589,6 +663,16 @@ fn exchange<S: Read + Write>(
         Err(ParseError::Invalid("HTTP response too large")) => Err(FetchError::TooLarge),
         Err(ParseError::Invalid(e)) => Err(FetchError::Http(e)),
         Err(ParseError::Incomplete) => Err(FetchError::Http("truncated HTTP response")),
+    }
+}
+
+/// The response of a body that went to the sink: its head, no body.
+fn streamed_response(head: http_parser::ResponseHead) -> http::Response {
+    http::Response {
+        status: head.status.clamp(0, u16::MAX as i32) as u16,
+        message: head.message,
+        headers: head.headers,
+        body: Vec::new(),
     }
 }
 
@@ -640,6 +724,63 @@ mod tests {
         assert!(head.contains(&format!("\r\nUser-Agent: {}\r\n", crate::USER_AGENT)), "{head}");
         assert!(head.contains("\r\nCookie: uid=1; pass=xEvil: 1\r\n\r\n"), "{head}");
         assert!(!head.contains("\r\nEvil:"));
+    }
+
+    /// `http_get_to`: a body with a length goes to the sink as it arrives (with the length),
+    /// the answer comes back without it, and the timeout runs between reads, not over the
+    /// whole download; a chunked body arrives in one piece at the end.
+    #[test]
+    fn a_body_streams_to_the_sink() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        thread::spawn(move || {
+            // 2 s between the pieces: longer than the timeout, shorter than three of them
+            let (mut s, _) = l.accept().unwrap();
+            read_head(&mut s);
+            s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nabcd").unwrap();
+            for piece in [&b"efgh"[..], b"ijkl"] {
+                thread::sleep(Duration::from_millis(700));
+                s.write_all(piece).unwrap();
+            }
+            let (mut s, _) = l.accept().unwrap();
+            read_head(&mut s);
+            s.write_all(
+                b"HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n4\r\nWiki\r\n5\r\npedia\r\n0\r\n\r\n",
+            )
+            .unwrap();
+            let (mut s, _) = l.accept().unwrap();
+            read_head(&mut s);
+            s.write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 12\r\n\r\nabcd").unwrap();
+            thread::sleep(Duration::from_secs(3));
+        });
+        let o = FetchOptions { timeout: Duration::from_millis(1500), ..opts() };
+        let mut got = Vec::new();
+        let mut pieces = Vec::new();
+        let r = http_get_to(&base, &o, &mut |total, data| {
+            pieces.push((total, data.len()));
+            got.extend_from_slice(data);
+            Ok(())
+        })
+        .unwrap();
+        assert!(r.status == 200 && r.body.is_empty());
+        assert_eq!(got, b"abcdefghijkl");
+        assert_eq!(pieces, vec![(Some(12), 4), (Some(12), 4), (Some(12), 4)]);
+        // chunked: decoded whole, then handed over
+        let mut got = Vec::new();
+        let mut calls = 0;
+        http_get_to(&base, &o, &mut |total, data| {
+            calls += 1;
+            assert_eq!(total, Some(9));
+            got.extend_from_slice(data);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!((calls, &got[..]), (1, &b"Wikipedia"[..]));
+        // the sink's error ends the download
+        let e =
+            http_get_to(&base, &o, &mut |_, _| Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")))
+                .unwrap_err();
+        assert!(matches!(e, FetchError::Io(ref e) if e.to_string() == "cancelled"), "{e}");
     }
 
     /// The server keeps the connection open: the body's length (or its last chunk) ends it.
@@ -902,7 +1043,8 @@ mod tests {
         let run = |resp: &[u8], clean: bool| {
             let s = Ended { tcp: tcp.try_clone().unwrap(), data: io::Cursor::new(resp.to_vec()), clean };
             let deadline = Instant::now() + Duration::from_secs(5);
-            exchange(s, |e| &e.tcp, |e| e.clean, b"GET / HTTP/1.1\r\n\r\n", 1 << 20, deadline)
+            let (max, idle) = (1 << 20, Duration::ZERO);
+            exchange(s, |e| &e.tcp, |e| e.clean, b"GET / HTTP/1.1\r\n\r\n", max, deadline, &mut None, idle)
         };
         let unframed = b"HTTP/1.1 200 OK\r\nConnection: close\r\n\r\n<rss>items</rss>";
         let e = run(unframed, false).unwrap_err();

@@ -99,6 +99,7 @@ empty. Downloaded files are never touched.
 | `/CURRENTUSER`, `/ALLUSERS` | the mode, without the users page (default: the installation found, else just me). `/ALLUSERS` without administrator rights asks through UAC, also when silent |
 | `/DESKTOPSHORTCUT` | the desktop shortcut (a silent installation makes none otherwise) |
 | `/ASSOCIATE=torrent,magnet` | the associations (`torrent`, `magnet` or both); a silent installation or an upgrade leaves them as they are otherwise |
+| `/UPDATE=<pid>` | PaTorrent's own update (D45, with `/S`): waits up to a minute for that process, the PaTorrent that downloaded the setup and is exiting, before the files are checked, and starts `patorrent.exe` again at the end, as the user, whether the installation succeeded or not (a failed one leaves the old version, which is what starts then) |
 
 The uninstaller takes `/S`. `/ELEVATED`, `/CONTINUE` and `/LANG=<id>` are what a setup passes
 to its elevated copy.

@@ -23,6 +23,11 @@
 ;                               one user)
 ;   /DESKTOPSHORTCUT            a desktop shortcut (silent installs make none otherwise)
 ;   /ASSOCIATE=torrent,magnet   associate those (silent installs and upgrades leave them)
+;   /UPDATE=<pid>               PaTorrent's own update (D45): wait up to a minute for that
+;                               process (the PaTorrent that downloaded this setup and is
+;                               exiting) before checking the files, and start patorrent.exe
+;                               again at the end, as the user, whether the install succeeded or
+;                               not. Meant with /S.
 ; and internal ones, for the elevated copy: /ELEVATED, /CONTINUE, /LANG=<language id>.
 
 Unicode true
@@ -81,6 +86,7 @@ Var OptDesktop  ; 1: /DESKTOPSHORTCUT
 Var AssocGiven  ; 1: /ASSOCIATE= was given
 Var OptAssoc
 Var AssocList   ; what the association sections ask patorrent.exe for
+Var UpdatePid   ; /UPDATE=: the exiting PaTorrent to wait for; "" otherwise
 Var UsersMe
 Var UsersAll
 
@@ -378,6 +384,12 @@ Function .onInit
     StrCpy $AssocGiven 1
     StrCpy $OptAssoc $R1
   ${EndIf}
+  ClearErrors
+  ${GetOptions} $R0 "/UPDATE=" $R1
+  ${IfNot} ${Errors}
+    StrCpy $UpdatePid $R1
+    Call WaitForUpdatePid
+  ${EndIf}
   ${If} $INSTDIR != ""
     StrCpy $DirGiven 1
     StrCpy $GivenDir $INSTDIR
@@ -493,6 +505,11 @@ Function Elevate
     ${EndIf}
     HideWindow
     Call RunElevated
+    ; an update starts PaTorrent again from this copy, which runs as the user: the new version
+    ; after a successful install, else the one still there
+    ${If} $UpdatePid != ""
+      Call LaunchApp
+    ${EndIf}
     ${If} $1 != ""
       SetErrorLevel $1
       Quit
@@ -500,6 +517,32 @@ Function Elevate
     BringToFront
   ${EndIf}
   MessageBox MB_ICONEXCLAMATION "$(PT_ADMIN)" /SD IDOK
+FunctionEnd
+
+; /UPDATE=<pid>: waits up to a minute for that process to exit, so the files are free. A
+; process that is gone already, or cannot be opened, is not waited for; one still running after
+; the minute is CheckFiles' business (Retry / Cancel; silent: Cancel).
+Function WaitForUpdatePid
+  ; SYNCHRONIZE
+  System::Call 'kernel32::OpenProcess(i 0x00100000, i 0, i $UpdatePid) p .r0'
+  ${If} $0 P<> 0
+    System::Call 'kernel32::WaitForSingleObject(p r0, i 60000)'
+    System::Call 'kernel32::CloseHandle(p r0)'
+  ${EndIf}
+FunctionEnd
+
+; After an update's install (this copy's own, as one user): PaTorrent again. A failed one (the
+; files still busy, say) leaves the old version in place, so that is what starts.
+Function .onInstSuccess
+  ${If} $UpdatePid != ""
+    Call LaunchApp
+  ${EndIf}
+FunctionEnd
+
+Function .onInstFailed
+  ${If} $UpdatePid != ""
+    Call LaunchApp
+  ${EndIf}
 FunctionEnd
 
 Function SkipIfContinue

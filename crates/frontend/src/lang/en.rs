@@ -424,6 +424,17 @@ strings! {
     UpdateNewer = "PaTorrent {version} is available. You have {current}.\n\nOpen its download page?";
     UpdateNewest = "You have the newest version, PaTorrent {version}.";
     UpdateFailed = "Could not check for updates: {error}";
+    /// The same question on Windows for an installed PaTorrent, which can update itself: the
+    /// buttons are the two texts below and Cancel.
+    UpdateInstallAsk = "PaTorrent {version} is available. You have {current}.\n\nDownload and install it now?";
+    UpdateInstallBtn = "Download and install";
+    UpdateOpenPageBtn = "Open download page";
+    /// The title of the small window with the progress bar while the setup downloads.
+    UpdateDownloading = "Downloading PaTorrent {version}...";
+    /// {error} is the download's or the checksum's error, in English.
+    UpdateDownloadFailed = "Could not download PaTorrent {version}: {error}";
+    /// The setup is downloaded and checked; PaTorrent has to close for it to install.
+    UpdateInstallNow = "PaTorrent {version} is downloaded. To install it, PaTorrent closes now and starts again when Setup is done.\n\nClose and install now?";
     /// {version} is like 1.0.0, {path} the settings file. Keep the names and licences as they are.
     AboutText = "PaTorrent (PatinaTorrent) {version}\n\nA re-creation of µTorrent 2.2.1, built on a Rust port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or run patorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, µTorrent or BitTorrent, Inc.\n\nSettings: {path}";
 

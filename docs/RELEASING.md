@@ -57,6 +57,13 @@ elevates through UAC and starts from a clean registry):
   Directory pages, installs over the same folder (no second entry in Settings > Apps), keeps
   the settings, the torrent list and the associations, and the version in Settings > Apps is
   the new one. With PaTorrent running, Setup asks to exit it (Retry / Cancel).
+- **Update from PaTorrent** (D45): with the previous release installed and running, its update
+  box (10 s after the start, or Help > Check for Updates) offers "Download and install": the
+  progress window fills, "Close and install now?" Yes closes PaTorrent, the setup runs silently
+  (an all-users installation asks through UAC; "Unknown publisher") and the new version starts
+  by itself, not elevated, with the settings and the torrent list kept. Cancel in the progress
+  window leaves nothing in `%TEMP%\PaTorrent-update`. The release job checks `/UPDATE=` with a
+  stand-in process; this is the real thing.
 - **Associations**: with the two boxes ticked, double-clicking a `.torrent` file and opening a
   `magnet:` link in a browser start PaTorrent; Preferences > General shows both ticked. Windows
   11 may still ask which app to use, or keep another program it was told to use (the General

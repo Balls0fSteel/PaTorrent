@@ -604,9 +604,18 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   `9.9.10`, and Help > Check for Updates still answering in its box. A box 10 s after a
   `--minimized` start appears over the desktop; decide whether to hold it until the
   window is shown.
-- Seamless Windows update: proposed D45 (DECISIONS.md), no code until the owner decides.
-  Its prerequisites are listed there; Authenticode signing (below) would remove the
-  SmartScreen prompt the downloaded setup still gets.
+- The Windows GUI's own update (D45, 1.1.24): unit-tested (the streamed download in
+  `core::fetch`, `update::download_setup` against a loopback server with a wrong checksum
+  and a cancel, the Win32 folder comparison and setup arguments) and the setup's `/UPDATE=`
+  is exercised by the CI and release jobs with a stand-in process (the wait, the relaunch).
+  Not run end to end yet: on a PC with the previous release installed, the three-button box,
+  the progress window (a real download from GitHub through a proxy too), Cancel, "Close and
+  install now?", the silent upgrade for one user and for all users (UAC), the new version
+  starting again not elevated, and a failed install starting the old one (RELEASING.md
+  "Update from PaTorrent"). Also check `tools/windows-clean/setup-test.ps1` gets an
+  `/UPDATE=` case. Known limits: the box offers the install only when an Uninstall key names
+  the exe's folder (a copied installed folder counts as portable); the download goes to
+  `%TEMP%`; nothing resumes a broken download; the setup stays unsigned.
 - nox's update check (D43, 2026-10-30): unit- and Web UI-tested with fake
   fetchers and a refused local URL only. Not checked: a live `update.txt`, the
   page's status-bar link in a browser, a proxy. Without `--webui` only

@@ -70,6 +70,7 @@ use crate::integration::{self, Integration, Keys};
 use crate::search::{self as search_ui, SearchMode};
 use crate::shutdown::{self, Outcome, Power};
 use crate::tray;
+use crate::updater;
 use crate::util::{child, copy_to, exe_path, point_from_lparam, rtl, scale, send, unscale, wide};
 use crate::webui_host::{self, Edit, Setup as WebSetup, Status as WebStatus, View as WebView, WindowHost};
 
@@ -4458,23 +4459,56 @@ unsafe fn update_done(hwnd: HWND, result: Result<Manifest, String>) {
     }) else {
         return;
     };
-    let ask = |v: &Version| {
-        if dialogs::ask(hwnd, &tr!(UpdateNewer, version = v, current)) {
-            open_url(hwnd, &v.release_url());
-        }
-    };
     match (f.kind, f.answer) {
         (Kind::Automatic, Ok(Some(v))) => {
             unsafe { show_update_notice(hwnd) };
             if f.announce {
-                ask(&v);
+                unsafe { offer_update(hwnd, &v) };
             }
         }
         (Kind::Automatic, Ok(None)) => unsafe { show_update_notice(hwnd) },
         (Kind::Automatic, Err(_)) => {}
-        (Kind::Manual, Ok(Some(v))) => ask(&v),
+        (Kind::Manual, Ok(Some(v))) => unsafe { offer_update(hwnd, &v) },
         (Kind::Manual, Ok(None)) => dialogs::info(hwnd, &tr!(UpdateNewest, version = current)),
         (Kind::Manual, Err(e)) => dialogs::error(hwnd, &tr!(UpdateFailed, error = e)),
+    }
+}
+
+/// The box for a newer version `v`: a PaTorrent the setup installed offers to download and
+/// install it (D45, `updater`), a portable one to open its download page.
+unsafe fn offer_update(hwnd: HWND, v: &Version) {
+    let current = Version::current();
+    let Some(mode) = updater::installed() else {
+        if dialogs::ask(hwnd, &tr!(UpdateNewer, version = v, current)) {
+            open_url(hwnd, &v.release_url());
+        }
+        return;
+    };
+    let text = tr!(UpdateInstallAsk, version = v, current);
+    match dialogs::choose(hwnd, &text, &[tr!(UpdateInstallBtn), tr!(UpdateOpenPageBtn)]) {
+        Some(0) => unsafe { install_update(hwnd, v, mode) },
+        Some(_) => open_url(hwnd, &v.release_url()),
+        None => {}
+    }
+}
+
+/// Downloads `v`'s setup (a progress dialog), asks to close, starts the setup and exits: the
+/// setup waits for this process, installs and starts the new version.
+unsafe fn install_update(hwnd: HWND, v: &Version, mode: updater::InstallMode) {
+    let proxy = with_app(|a| rss_proxy(a)).flatten();
+    let Some(path) = updater::download(hwnd, v, proxy) else { return };
+    if !dialogs::ask(hwnd, &tr!(UpdateInstallNow, version = v)) {
+        return;
+    }
+    match updater::run_setup(&path, mode) {
+        Ok(()) => {
+            with_app(|a| a.quitting = true);
+            unsafe { DestroyWindow(hwnd) };
+        }
+        Err(e) => {
+            let error = format!("{}: {e}", path.display());
+            dialogs::error(hwnd, &tr!(UpdateDownloadFailed, version = v, error));
+        }
     }
 }
 
@@ -5089,14 +5123,19 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 0
             }
             (IDC_STATUS, NM_CLICK) if (*(nm as *const NMMOUSE)).dwItemSpec == 0 => {
-                let url = with_app(|a| {
-                    let url = a.updates.notice().map(Version::release_url);
+                // the notice has done its job; an installed PaTorrent gets the update offer
+                let version = with_app(|a| {
+                    let v = a.updates.notice().cloned();
                     a.updates.dismiss();
-                    url
+                    v
                 });
-                if let Some(url) = url.flatten() {
-                    open_url(hwnd, &url);
+                if let Some(v) = version.flatten() {
                     show_update_notice(hwnd);
+                    if updater::installed().is_some() {
+                        offer_update(hwnd, &v);
+                    } else {
+                        open_url(hwnd, &v.release_url());
+                    }
                 }
                 0
             }

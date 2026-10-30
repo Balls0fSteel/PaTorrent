@@ -2,7 +2,7 @@
 //! compiler).
 
 use std::mem::{size_of, zeroed};
-use std::ptr::null;
+use std::ptr::{null, null_mut};
 
 use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
@@ -24,7 +24,10 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     WS_THICKFRAME, WS_VISIBLE,
 };
 
-use windows_sys::Win32::UI::Controls::EM_SETSEL;
+use windows_sys::Win32::UI::Controls::{
+    EM_SETSEL, TASKDIALOG_BUTTON, TASKDIALOGCONFIG, TDCBF_CANCEL_BUTTON, TDF_ALLOW_DIALOG_CANCELLATION,
+    TDF_POSITION_RELATIVE_TO_WINDOW, TDF_RTL_LAYOUT, TDF_SIZE_TO_CONTENT, TaskDialogIndirect,
+};
 
 use crate::util::{from_wide, from_wide_ptr, loword, rtl, wide, window_text};
 
@@ -97,6 +100,45 @@ pub fn confirm(owner: HWND, text: &str) -> bool {
 /// A Yes / No question that risks nothing (Help > Check for Updates).
 pub fn ask(owner: HWND, text: &str) -> bool {
     message(owner, text, MB_YESNO | MB_ICONQUESTION) == IDYES
+}
+
+/// A question with buttons of its own, the first the default, and Cancel: the index of the
+/// button chosen, `None` for Cancel, Escape or the close box (a task dialog, with the
+/// application icon; the update's "Download and install" / "Open download page").
+pub fn choose(owner: HWND, text: &str, buttons: &[&str]) -> Option<usize> {
+    if cfg!(test) {
+        told(text);
+        return None;
+    }
+    let (t, c) = (wide(text), wide("PaTorrent"));
+    let texts: Vec<Vec<u16>> = buttons.iter().map(|b| wide(b)).collect();
+    let buttons: Vec<TASKDIALOG_BUTTON> = texts
+        .iter()
+        .enumerate()
+        .map(|(i, b)| TASKDIALOG_BUTTON { nButtonID: 100 + i as i32, pszButtonText: b.as_ptr() })
+        .collect();
+    unsafe {
+        let mut cfg: TASKDIALOGCONFIG = zeroed();
+        cfg.cbSize = size_of::<TASKDIALOGCONFIG>() as u32;
+        cfg.hwndParent = owner;
+        cfg.hInstance = GetModuleHandleW(null());
+        cfg.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION
+            | TDF_POSITION_RELATIVE_TO_WINDOW
+            | TDF_SIZE_TO_CONTENT
+            | rtl(TDF_RTL_LAYOUT as u32) as i32;
+        cfg.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+        cfg.pszWindowTitle = c.as_ptr();
+        cfg.Anonymous1.pszMainIcon = crate::icons::app_icon_resource();
+        cfg.pszContent = t.as_ptr();
+        cfg.cButtons = buttons.len() as u32;
+        cfg.pButtons = buttons.as_ptr();
+        cfg.nDefaultButton = 100;
+        let mut pressed = 0i32;
+        if TaskDialogIndirect(&cfg, &mut pressed, null_mut(), null_mut()) < 0 {
+            return None;
+        }
+        (pressed >= 100).then(|| (pressed - 100) as usize)
+    }
 }
 
 fn message(owner: HWND, text: &str, flags: u32) -> i32 {

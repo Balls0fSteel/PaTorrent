@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_192440_1793384680
+Last updated: 2026-10-30_195156_1793386316
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -22,7 +22,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
   - 1.0.1 (2026-10-27) was the first stable release, with the full 1.0 scope (D19). `v1.0.0` has no release because its build failed (D34). The open Road to 1.0 hand checks continue as 1.0.x validation.
   - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.
 - **1.1.17 is published, Latest** (2026-10-30, tag `v1.1.17`, [notes](docs/releases/1.1.17.md)): Torznab search in all three GUIs, RSS in the Windows GUI's Web UI, the API key and subnet whitelist, and nox's update check. The website has a News page (`site/news.html`, `news.atom`).
-- **Unreleased, 1.1.18-1.1.23** (peer ID `-PA1012-`, remote protocol 11): libtorrent 2.0.12-2.1.2 fixes, every commit triaged ([PORTING.md](docs/PORTING.md#upstream-fixes-after-2011)); engine options (160-bit DH exponent, `dont_count_slow_torrents`, NAT-PMP gateway and lease); the shim's `search/*`; Win32 Web UI key and whitelist controls, title-bar speed, RSS conditional GET and gzip, qBittorrent share limits on import; the update box once per version with a standing notice (1.1.23, D44). Open: interop reruns (v2-only odd sizes, v2 hashes, MSE, slow-torrent queueing) against libtorrent 2.0.15 / 2.1.x, and the hand checks in [BACKLOG](docs/BACKLOG.md).
+- **Unreleased, 1.1.18-1.1.24** (peer ID `-PA1012-`, remote protocol 11): libtorrent 2.0.12-2.1.2 fixes, every commit triaged ([PORTING.md](docs/PORTING.md#upstream-fixes-after-2011)); engine options (160-bit DH exponent, `dont_count_slow_torrents`, NAT-PMP gateway and lease); the shim's `search/*`; Win32 Web UI key and whitelist controls, title-bar speed, RSS conditional GET and gzip, qBittorrent share limits on import; the update box once per version with a standing notice (1.1.23, D44); the Windows GUI updating itself (1.1.24, D45). Open: interop reruns (v2-only odd sizes, v2 hashes, MSE, slow-torrent queueing) against libtorrent 2.0.15 / 2.1.x, and the hand checks in [BACKLOG](docs/BACKLOG.md).
 - **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored). It predates the 2026-10-23 dialog changes (the resizable Add dialog and the system message font), which are tested but not yet hand-tested from a refreshed set. Linux binaries were smoke-checked on the command line only.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
@@ -42,7 +42,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 **Owner notes (2026-10-30_192440_1793384680):**
 
 - **Update pop-up once, then the status bar text:** done in 1.1.23 (D44): the automatic check asks once per new version in the Yes/No box, remembers it as `update.seen`, and the status-bar notice stays until clicked. Hand check in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website).
-- **Seamless Windows update** (say yes, download the x64 setup, start it, offer to close PaTorrent): possible; written up as proposed D45 in [DECISIONS.md](docs/DECISIONS.md#proposed-not-approved) with what it needs (a streaming download in `core::fetch`, a task dialog, two setup switches) and the open choices (silent or wizard, checksum source, SmartScreen until signing). No code before the owner decides.
+- **Seamless Windows update** (say yes, download the x64 setup, start it, offer to close PaTorrent): done in 1.1.24 (D45, approved with "silent, then relaunch" and `SHA256SUMS`): an installed PaTorrent downloads the setup behind a progress window, checks it, closes and starts the setup with `/S /UPDATE=<pid>`, which waits for it, upgrades in place and starts the new version. Hand check on a real PC in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website) and RELEASING.md.
 - **Progress for a long startup or shutdown** (NAS drives): investigated, findings in [BACKLOG](docs/BACKLOG.md#startup-and-shutdown-investigated-2026-10-30_192440_1793384680). Startup needs none (the window is up at once, checks show per torrent); the auto-load folder poll on the GUI thread is the one startup-side NAS risk. Shutdown is the case: the window vanishes while the engine waits without bound (moves, disk threads, a stat pass on a share), a relaunch meanwhile exits silently, and Windows logoff/shutdown is not handled (`WM_QUERYENDSESSION`). Next: the code-ready pieces listed there; the owner decides whether waits get a bound.
 
 0. **Owner hand-test findings (2026-10-27):** fixed in 1.0.2-1.0.8. The owner re-tests them on a fresh Win32 build; what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
@@ -84,7 +84,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 
 - UI artwork (D27-D30): the bold family passed its revision 6 review (131/131) and is integrated (gate 10); revisions 3-6 and their reviews are in the [changelog archive](docs/archive/README.md). Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
-- Proposed D42: profiles and portable mode ([PROFILES.md](docs/PROFILES.md)). Proposed D45: the seamless Windows update (above).
+- Proposed D42: profiles and portable mode ([PROFILES.md](docs/PROFILES.md)).
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
 
 

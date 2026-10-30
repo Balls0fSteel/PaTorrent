@@ -14,6 +14,12 @@
 //! * The box is shown once per version: the newest version it was shown for is kept as
 //!   `update.seen` in the GUI's settings ([`Checker::seen`]), so a later start or a later check
 //!   finding the same version only shows the status bar's notice.
+//! * On Windows, an installed PaTorrent (the setup's, D31) can update itself (D45): the box
+//!   offers to download the release's setup, [`download_setup`] fetches it and the release's
+//!   `SHA256SUMS` from GitHub and checks the file against the list, and the GUI starts the
+//!   setup silently (`/S /UPDATE=<pid>`: it waits for the exiting PaTorrent, installs over the
+//!   same folder and starts the new version). A portable copy keeps the download page. For a
+//!   hand test, `PATORRENT_UPDATE_FILES` names a folder URL holding the two files.
 //! * A pre-release is offered when "Update to beta versions" is on, or when the running version
 //!   is a pre-release itself: a release candidate's tester hears of the next candidate.
 //! * A build with `PATORRENT_NO_UPDATE_CHECK` set has no check at all ([`AVAILABLE`]), for
@@ -23,9 +29,13 @@
 
 use std::cmp::Ordering;
 use std::fmt;
+use std::io::{self, Write};
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
+use patorrent_core::Sha256Hash;
+use patorrent_core::crypto::Sha256;
+use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get, http_get_to};
 
 /// Where the releases are listed (the project website, D33).
 pub const MANIFEST_URL: &str = "https://balls0fsteel.github.io/PaTorrent/update.txt";
@@ -96,6 +106,90 @@ impl Version {
     pub fn release_url(&self) -> String {
         format!("{RELEASES_URL}/tag/v{}", self.text)
     }
+
+    /// The release's Windows setup, as `.github/workflows/release.yml` names it (D31).
+    pub fn setup_name(&self) -> String {
+        format!("patorrent-{}-windows-x64-setup.exe", self.text)
+    }
+
+    /// Where the release's file `name` is: the release's files on GitHub, or the folder
+    /// `PATORRENT_UPDATE_FILES` names.
+    pub fn file_url(&self, name: &str) -> String {
+        match std::env::var("PATORRENT_UPDATE_FILES") {
+            Ok(base) => format!("{}/{name}", base.trim_end_matches('/')),
+            Err(_) => format!("{RELEASES_URL}/download/v{}/{name}", self.text),
+        }
+    }
+}
+
+/// The SHA-256 a `SHA256SUMS` file (`sha256sum`'s `<hex>  <name>` lines, a `*` before a binary
+/// name) gives for `name`, if it lists it.
+pub fn expected_sha256(sums: &str, name: &str) -> Option<Sha256Hash> {
+    sums.lines().find_map(|line| {
+        let (hex, file) = line.trim().split_once(' ')?;
+        let file = file.trim_start().trim_start_matches('*');
+        (file == name).then(|| Sha256Hash::from_hex(hex)).flatten()
+    })
+}
+
+/// The setup's size at most: the release's is about 10 MB.
+const SETUP_MAX: usize = 64 << 20;
+
+/// Downloads `v`'s Windows setup into `dir` (made if missing) and checks it against the
+/// release's `SHA256SUMS`, both over HTTPS through the session's proxy; the setup's path on
+/// success. `progress` hears each piece's running total and the size when known, and ends the
+/// download by answering `false`. The file is written as `<name>.part` and renamed once it is
+/// checked; a failed or stopped download leaves nothing behind. Blocking: a worker thread's.
+pub fn download_setup(
+    v: &Version,
+    proxy: Option<FetchProxy>,
+    dir: &Path,
+    progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
+) -> Result<PathBuf, String> {
+    let name = v.setup_name();
+    let opts = FetchOptions { proxy, max_size: 64 * 1024, ..FetchOptions::default() };
+    let sums = http_get(&v.file_url("SHA256SUMS"), &opts).map_err(|e| format!("SHA256SUMS: {e}"))?;
+    if sums.redirect().is_some() {
+        return Err(format!("SHA256SUMS: HTTP {}", sums.status));
+    }
+    let expected = expected_sha256(&String::from_utf8_lossy(&sums.body), &name)
+        .ok_or_else(|| format!("SHA256SUMS does not list {name}"))?;
+
+    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let part = dir.join(format!("{name}.part"));
+    let path = dir.join(&name);
+    let result = (|| {
+        let mut file = std::fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
+        let mut hash = Sha256::new();
+        let mut got = 0u64;
+        let opts = FetchOptions { max_size: SETUP_MAX, ..opts };
+        let resp = http_get_to(&v.file_url(&name), &opts, &mut |total, data| {
+            file.write_all(data)?;
+            hash.update(data);
+            got += data.len() as u64;
+            if progress(got, total) {
+                Ok(())
+            } else {
+                Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled"))
+            }
+        })
+        .map_err(|e| e.to_string())?;
+        if resp.redirect().is_some() {
+            return Err(format!("HTTP {}", resp.status));
+        }
+        file.sync_all().map_err(|e| e.to_string())?;
+        drop(file);
+        if hash.finalize() != expected {
+            return Err("the downloaded file's checksum does not match SHA256SUMS".to_owned());
+        }
+        let _ = std::fs::remove_file(&path);
+        std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))?;
+        Ok(path)
+    })();
+    if result.is_err() {
+        let _ = std::fs::remove_file(&part);
+    }
+    result.map_err(|e| format!("{name}: {e}"))
 }
 
 impl fmt::Display for Version {
@@ -480,6 +574,79 @@ mod tests {
         let mut c = Checker::new(true, t0, Some(v("1.0.0-rc.1")));
         assert!(c.due(t0 + FIRST_CHECK));
         assert!(c.finish(newer("1.0.1"), &current, false).announce);
+    }
+
+    #[test]
+    fn setup_names_and_the_checksum_list() {
+        let v = v("1.2.3");
+        assert_eq!(v.setup_name(), "patorrent-1.2.3-windows-x64-setup.exe");
+        assert_eq!(
+            v.file_url("SHA256SUMS"),
+            "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.3/SHA256SUMS"
+        );
+        let sums = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  patorrent-1.2.3-windows-x64.zip\n\
+                    fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210 *patorrent-1.2.3-windows-x64-setup.exe\r\n\
+                    not-a-hash  other\n";
+        let h = expected_sha256(sums, "patorrent-1.2.3-windows-x64-setup.exe").unwrap();
+        assert_eq!(h.to_hex(), "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210");
+        assert!(expected_sha256(sums, "patorrent-1.2.3-windows-x64.zip").is_some());
+        assert!(expected_sha256(sums, "other").is_none());
+        assert!(expected_sha256(sums, "patorrent-1.2.4-windows-x64-setup.exe").is_none());
+    }
+
+    /// The setup downloads from the folder `PATORRENT_UPDATE_FILES` names, checked against
+    /// SHA256SUMS; a wrong checksum or a cancel leaves no file.
+    #[test]
+    fn the_setup_downloads_and_is_checked() {
+        use std::io::Read;
+        use std::net::TcpListener;
+        let setup = vec![7u8; 100_000];
+        let good = Sha256::digest(&setup).to_hex();
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        let name = v("9.9.9").setup_name();
+        let sums_ok = format!("{good}  {name}\n");
+        let sums_bad = format!("{}  {name}\n", "0".repeat(64));
+        let body = setup.clone();
+        std::thread::spawn(move || {
+            // SHA256SUMS then the setup, three times: good, bad checksum, cancelled
+            for sums in [&sums_ok, &sums_bad, &sums_ok] {
+                for file in [sums.as_bytes(), &body[..]] {
+                    let (mut s, _) = l.accept().unwrap();
+                    let mut head = Vec::new();
+                    let mut b = [0u8; 1];
+                    while !head.ends_with(b"\r\n\r\n") && s.read(&mut b).unwrap_or(0) == 1 {
+                        head.push(b[0]);
+                    }
+                    let _ = s.write_all(
+                        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", file.len()).as_bytes(),
+                    );
+                    let _ = s.write_all(file);
+                }
+            }
+        });
+        // the env var is process-wide: this is the one test that sets it
+        unsafe { std::env::set_var("PATORRENT_UPDATE_FILES", &base) };
+        let dir = std::env::temp_dir().join(format!("patorrent-update-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut seen = Vec::new();
+        let path = download_setup(&v("9.9.9"), None, &dir, &mut |got, total| {
+            seen.push((got, total));
+            true
+        })
+        .unwrap();
+        assert_eq!(path, dir.join(&name));
+        assert_eq!(std::fs::read(&path).unwrap(), setup);
+        assert_eq!(seen.last(), Some(&(100_000, Some(100_000))));
+        assert!(seen.iter().all(|(_, t)| *t == Some(100_000)));
+        let e = download_setup(&v("9.9.9"), None, &dir, &mut |_, _| true).unwrap_err();
+        assert!(e.contains("checksum"), "{e}");
+        assert!(!dir.join(format!("{name}.part")).exists());
+        let e = download_setup(&v("9.9.9"), None, &dir, &mut |_, _| false).unwrap_err();
+        assert!(e.contains("cancelled"), "{e}");
+        assert!(!dir.join(format!("{name}.part")).exists());
+        unsafe { std::env::remove_var("PATORRENT_UPDATE_FILES") };
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

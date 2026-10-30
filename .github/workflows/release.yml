@@ -148,6 +148,23 @@ jobs:
           & "$dir\patorrent-nox.exe" --version
           if ($LASTEXITCODE -ne 0) { Fail "the installed patorrent-nox.exe did not run" }
 
+          # D45, PaTorrent updating itself: /S /UPDATE=<pid> waits for that process (the
+          # exiting PaTorrent; here a sleep the setup must outwait), installs over the
+          # installation found and starts patorrent.exe again
+          $sleeper = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 8'
+          $clock = [Diagnostics.Stopwatch]::StartNew()
+          $p = Start-Process ".\patorrent-$version-windows-x64-setup.exe" -Wait -PassThru `
+            -ArgumentList '/S', '/CURRENTUSER', "/UPDATE=$($sleeper.Id)"
+          if ($p.ExitCode -ne 0) { Fail "the update setup exited with $($p.ExitCode)" }
+          if (-not $sleeper.HasExited -or $clock.Elapsed.TotalSeconds -lt 7) { Fail "the update setup did not wait for /UPDATE's process" }
+          $app = $null
+          for ($i = 0; $i -lt 30 -and -not $app; $i++) { Start-Sleep 1; $app = Get-Process patorrent -ErrorAction SilentlyContinue }
+          if (-not $app) { Fail "the update setup did not start PaTorrent again" }
+          if ($app.Path -ne "$dir\patorrent.exe") { Fail "the restarted PaTorrent is $($app.Path)" }
+          Stop-Process -Id $app.Id -Force
+          Wait-Process -Id $app.Id -ErrorAction SilentlyContinue
+          echo "updated with /UPDATE: waited $([int]$clock.Elapsed.TotalSeconds) s, PaTorrent started again"
+
           $p = Start-Process "$dir\uninstall.exe" -ArgumentList '/S' -Wait -PassThru
           # it goes on from a copy of itself in %TEMP%: wait for that
           for ($i = 0; $i -lt 60 -and ((Test-Path $key) -or (Test-Path $dir)); $i++) { Start-Sleep 1 }

@@ -344,27 +344,25 @@ fn ptr(w: &Option<Vec<u16>>) -> *const u16 {
 
 /// A string value (`None` = the key's default value).
 fn get(path: &str, name: Option<&str>) -> Option<String> {
+    get_in(HKEY_CURRENT_USER, path, name)
+}
+
+/// A string value under `root` (`None` = the key's default value); the 64-bit view, as the
+/// process is 64-bit.
+pub(crate) fn get_in(root: HKEY, path: &str, name: Option<&str>) -> Option<String> {
     let p = wide(path);
     let n = opt_wide(name);
     let flags = RRF_RT_REG_SZ | RRF_RT_REG_EXPAND_SZ;
     unsafe {
         let mut bytes = 0u32;
-        let e =
-            RegGetValueW(HKEY_CURRENT_USER, p.as_ptr(), ptr(&n), flags, null_mut(), null_mut(), &mut bytes);
+        let e = RegGetValueW(root, p.as_ptr(), ptr(&n), flags, null_mut(), null_mut(), &mut bytes);
         if e != ERROR_SUCCESS {
             return None;
         }
         let mut buf = vec![0u16; (bytes as usize).div_ceil(2) + 1];
         bytes = (buf.len() * 2) as u32;
-        let e = RegGetValueW(
-            HKEY_CURRENT_USER,
-            p.as_ptr(),
-            ptr(&n),
-            flags,
-            null_mut(),
-            buf.as_mut_ptr().cast(),
-            &mut bytes,
-        );
+        let e =
+            RegGetValueW(root, p.as_ptr(), ptr(&n), flags, null_mut(), buf.as_mut_ptr().cast(), &mut bytes);
         (e == ERROR_SUCCESS).then(|| crate::util::from_wide(&buf))
     }
 }

@@ -300,7 +300,45 @@ non-public address only on the source's own scheme, host and port.
 | `/pa/search/source-remove` | `{"index"}` | the rest are numbered again |
 | `/pa/search/source-test` | `{"index"}` | asks the source for its caps (`t=caps`) on the request's thread (30 s at most) and answers when it is done: 200 `{"ok":true,"categories":n,"text"}` or `{"ok":false,"error","text"}` |
 
-The qBittorrent shim's `search/*` is not built yet (slice 5).
+The shim's `search/*` (D41 slice 5, written from qBittorrent's `searchcontroller.cpp`) run
+their own searches over the same sources, so a qBittorrent remote app's search tab works in
+both modes (hosted: the window's sources and engine). Each source is a **plugin**: `name` is
+`torznab-` and 8 hex digits of a SHA-1 of its URL with the key masked (stable while sources
+are renumbered or re-keyed; a twin URL gets `-2`, ...), `fullName` its name (the host without
+one), `url` its scheme, host and port only, `version` `1.0`, `enabled`, and
+`supportedCategories` `[{id,name}]`: `all`, `anime` (Newznab 5070), `books` (7000), `games`
+(1000, 4050), `movies` (2000), `music` (3000), `software` (4000), `tv` (5000); any other
+category searches everything.
+
+- `start` (`pattern`, `category`, `plugins`; 400 without one) answers `{"id":n}` (from 1,
+  counting up). `plugins=enabled` (or `multi`) searches the enabled sources; `all` and plugins
+  named with `|` are searched even when switched off, as in `/pa/search/start`; 409 when that
+  leaves nothing, and 409 `Unable to create more than 5 concurrent searches.` with five still
+  running (qBittorrent's limit). Searches are kept until `delete` (in memory: a restart drops
+  them); past 32 a new one drops the oldest finished one.
+- `status` (`id`, or none or 0 for all) answers `[{id, status: "Running"|"Stopped", pattern,
+  category, plugins, total}]`; `stop` and `delete` (`id`) 200, 404 for an unknown id.
+- `results` (`id`, `limit`, `offset`) answers `{status, results, total}`, the results in the
+  order they first came (merging re-sorts the native list; clients page by offset), with
+  qBittorrent's paging (a negative `offset` counts from the end, 409 past the end). Each has
+  `fileName`, `fileUrl`, `fileSize`, `nbSeeders`, `nbLeechers` (peers less seeders), `engineName`
+  (the plugin), `engineFullName`, `siteUrl` (the plugin's `url`), `descrLink` (empty: the
+  model keeps no details page) and `pubDate` (Unix time); -1 for a number the indexer did not
+  give.
+- **`fileUrl` never holds the indexer's link** (it carries the API key): it is the result's
+  magnet, or one made from its info-hash when it has no link, else
+  `patorrent-search:<id>/<result id>`. `torrents/add` (`urls`) and `downloadTorrent`
+  (`torrentUrl`; `pluginName` is ignored) take that URL back and fetch the result on the
+  request's thread as `/pa/search/add` does (the link on the source's own origin may reach a
+  non-public address, the proxy rule included); it works while its search is kept. Other
+  `torrentUrl`s are added as `torrents/add` adds a URL.
+- `enablePlugin` (`names` with `|`, `enable`) and `uninstallPlugin` (`names`) switch off or
+  remove sources as the native switch and `source-remove` do (no password: neither points a
+  source or its key anywhere new); unknown names are ignored. `installPlugin` is 409 (sources
+  are added in the Web UI's search window, behind the password); `updatePlugins` is 200 and
+  does nothing.
+- `start`, `stop`, `delete`, `downloadTorrent` and the plugin changes take POST only; `status`,
+  `results` and `plugins` GET too. Answers are collected on every alert batch and request.
 
 ### Page layout
 

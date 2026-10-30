@@ -19,7 +19,7 @@ use patorrent_nox::webui::{Config, STATE_FILE, WebUi};
 #[path = "support/torznab.rs"]
 mod torznab;
 
-use torznab::{FAWLTY, GRAB, KEY, NIGHT};
+use torznab::{FAWLTY, GRAB, KEY, MAGNET_ONLY, NIGHT};
 
 const PASS: &str = "search-pass";
 
@@ -73,6 +73,17 @@ impl Harness {
     }
 
     fn req(&self, method: &str, path: &str, headers: &[(&str, &str)], body: &str) -> (u16, String) {
+        self.req_as(method, path, headers, "application/json", body)
+    }
+
+    fn req_as(
+        &self,
+        method: &str,
+        path: &str,
+        headers: &[(&str, &str)],
+        content_type: &str,
+        body: &str,
+    ) -> (u16, String) {
         let mut s = TcpStream::connect(self.addr).unwrap();
         s.set_read_timeout(Some(Duration::from_secs(40))).unwrap();
         let mut r = format!("{method} {path} HTTP/1.1\r\nHost: {}\r\nConnection: close\r\n", self.addr);
@@ -80,7 +91,7 @@ impl Harness {
             r.push_str(&format!("{n}: {v}\r\n"));
         }
         if !body.is_empty() {
-            r.push_str("Content-Type: application/json\r\n");
+            r.push_str(&format!("Content-Type: {content_type}\r\n"));
         }
         r.push_str(&format!("Content-Length: {}\r\n\r\n{body}", body.len()));
         s.write_all(r.as_bytes()).unwrap();
@@ -137,6 +148,31 @@ impl Harness {
                 return m;
             }
             assert!(Instant::now() < deadline, "timed out waiting for {what}: {}", m.to_json());
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    }
+
+    /// A qBittorrent shim call: a form POST, the session cookie only.
+    fn shim(&self, sid: &str, path: &str, form: &str) -> (u16, String) {
+        self.req_as("POST", path, &[("Cookie", sid)], "application/x-www-form-urlencoded", form)
+    }
+
+    fn shim_json(&self, sid: &str, path: &str, form: &str) -> Json {
+        let (st, body) = self.shim(sid, path, form);
+        assert_eq!(st, 200, "{path} {form}: {body}");
+        json::parse(&body).unwrap_or_else(|e| panic!("{e}: {body}"))
+    }
+
+    /// The listed torrents' hashes.
+    fn hashes(&self, sid: &str) -> Vec<String> {
+        let (_, body) = self.get(sid, "/api/v2/torrents/info");
+        arr(Some(&json::parse(&body).unwrap())).iter().map(|t| s(t.get("hash")).to_owned()).collect()
+    }
+
+    fn wait_for_hash(&self, sid: &str, hash: &str) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        while !self.hashes(sid).iter().any(|h| h == hash) {
+            assert!(Instant::now() < deadline, "{hash} never listed: {:?}", self.hashes(sid));
             std::thread::sleep(Duration::from_millis(50));
         }
     }
@@ -333,6 +369,176 @@ fn sources_search_and_add() {
     let (st, _) = t.req("POST", "/pa/search/stop", &[("Cookie", &sid)], "{}");
     assert_eq!(st, 403);
     assert_eq!(t.get(&sid, "/pa/search/stop").0, 405);
+}
+
+/// A form value, percent-encoded.
+fn enc(v: &str) -> String {
+    v.bytes()
+        .map(|b| if b.is_ascii_alphanumeric() { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect()
+}
+
+/// qBittorrent's `search/*` on the shim: each source a plugin (a stable name, no key), searches
+/// as jobs (start, status, results paged by offset in arrival order, stop, delete, at most
+/// five running), plugins switched off and uninstalled, installing refused, and results added
+/// through their `fileUrl` (a magnet, or the opaque `patorrent-search:` URL the server fetches
+/// itself) with `torrents/add` and `search/downloadTorrent`. The key is in no answer.
+#[test]
+fn qbittorrent_search_shim() {
+    let fake = torznab::start();
+    let t = Harness::start("shim");
+    let sid = t.login();
+    let src = |name: &str, path: &str, key: &str| {
+        let body =
+            format!(r#"{{"name":"{name}","url":"{}","key":"{key}","password":"{PASS}"}}"#, fake.url(path));
+        assert_eq!(t.pa(&sid, "/pa/search/source-add", &body).0, 200);
+    };
+    // nothing to search yet
+    assert_eq!(t.shim(&sid, "/api/v2/search/start", "pattern=x&category=all&plugins=enabled").0, 409);
+    src("Prowlarr", "/1/api", KEY);
+    src("Bad key", "/9/api", "K2-secret");
+    src("Magnets", "/mag/api", KEY);
+    src("Slow", "/slow/api", KEY);
+    assert_eq!(t.pa(&sid, "/pa/search/source-edit", r#"{"index":3,"enabled":false}"#).0, 204);
+
+    // ---- the sources as plugins
+    let (st, body) = t.get(&sid, "/api/v2/search/plugins");
+    assert_eq!(st, 200, "{body}");
+    let plugins = json::parse(&body).unwrap();
+    let plugins = arr(Some(&plugins));
+    assert_eq!(plugins.len(), 4);
+    let names: Vec<String> = plugins.iter().map(|p| s(p.get("name")).to_owned()).collect();
+    for n in &names {
+        assert!(n.starts_with("torznab-") && n.len() == 16, "{n}");
+    }
+    assert_eq!(names.iter().collect::<std::collections::HashSet<_>>().len(), 4, "{names:?}");
+    let (prowlarr, bad, magnets, slow) = (&names[0], &names[1], &names[2], &names[3]);
+    assert_eq!(s(plugins[0].get("fullName")), "Prowlarr");
+    assert_eq!(s(plugins[0].get("url")), format!("http://{}", fake.addr));
+    assert_eq!(plugins[0].get("enabled"), Some(&Json::Bool(true)));
+    assert_eq!(plugins[3].get("enabled"), Some(&Json::Bool(false)));
+    let cats: Vec<&str> = arr(plugins[0].get("supportedCategories")).iter().map(|c| s(c.get("id"))).collect();
+    assert_eq!(cats, ["all", "anime", "books", "games", "movies", "music", "software", "tv"]);
+    assert_eq!(t.shim(&sid, "/api/v2/search/installPlugin", "sources=http%3A%2F%2Fx%2Fp.py").0, 409);
+    assert_eq!(t.shim(&sid, "/api/v2/search/updatePlugins", "").0, 200);
+    assert_eq!(t.get(&sid, "/api/v2/search/start?pattern=x&category=all&plugins=all").0, 405);
+    assert_eq!(t.shim(&sid, "/api/v2/search/start", "pattern=x").0, 400);
+    assert_eq!(t.shim(&sid, "/api/v2/search/start", "pattern=x&category=all&plugins=nope").0, 409);
+
+    // ---- a search over the enabled plugins
+    let r = t.shim_json(&sid, "/api/v2/search/start", "pattern=fawlty%20towers&category=tv&plugins=enabled");
+    assert_eq!(int(r.get("id")), 1);
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let status = loop {
+        let st = t.shim_json(&sid, "/api/v2/search/status", "id=1");
+        let st = arr(Some(&st))[0].clone();
+        if s(st.get("status")) == "Stopped" {
+            break st;
+        }
+        assert!(Instant::now() < deadline, "{}", st.to_json());
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_eq!(int(status.get("total")), 4, "{}", status.to_json());
+    assert_eq!((s(status.get("pattern")), s(status.get("category"))), ("fawlty towers", "tv"));
+    let used: Vec<&str> = arr(status.get("plugins")).iter().map(|p| s(Some(p))).collect();
+    assert_eq!(used, [prowlarr.as_str(), bad.as_str(), magnets.as_str()], "the switched-off one is left out");
+    let asked = fake.requests.lock().unwrap().clone();
+    assert!(asked.iter().any(|r| r.starts_with("/1/api?t=search&q=fawlty%20towers&cat=5000&")), "{asked:?}");
+    // GET works for the readers; no id lists every search
+    let (st, body) = t.get(&sid, "/api/v2/search/status");
+    assert_eq!(st, 200);
+    assert_eq!(arr(Some(&json::parse(&body).unwrap())).len(), 1);
+
+    let all = t.shim_json(&sid, "/api/v2/search/results", "id=1");
+    assert_eq!((s(all.get("status")), int(all.get("total"))), ("Stopped", 4));
+    let results = arr(all.get("results"));
+    assert_eq!(results.len(), 4);
+    let find = |name: &str| results.iter().find(|r| s(r.get("fileName")) == name).expect(name).clone();
+    let fawlty = find(FAWLTY);
+    assert!(s(fawlty.get("fileUrl")).starts_with("patorrent-search:1/"), "{}", fawlty.to_json());
+    assert_eq!(int(fawlty.get("fileSize")), 122_170_147);
+    assert_eq!((int(fawlty.get("nbSeeders")), int(fawlty.get("nbLeechers"))), (25, 5));
+    assert_eq!(s(fawlty.get("engineName")), prowlarr);
+    assert_eq!(s(fawlty.get("engineFullName")), "Prowlarr");
+    assert_eq!(s(fawlty.get("siteUrl")), format!("http://{}", fake.addr));
+    assert!(int(fawlty.get("pubDate")) > 1_700_000_000);
+    let magnet = find(MAGNET_ONLY);
+    assert_eq!(s(magnet.get("fileUrl")), torznab::magnet_only().0);
+    assert_eq!((int(magnet.get("nbSeeders")), int(magnet.get("nbLeechers"))), (3, -1));
+    assert_eq!(s(magnet.get("engineName")), magnets);
+    // paging: arrival order, offset from the end, out of range
+    let page = t.shim_json(&sid, "/api/v2/search/results", "id=1&offset=1&limit=2");
+    assert_eq!(arr(page.get("results")), &results[1..3]);
+    assert_eq!(int(page.get("total")), 4);
+    let last = t.shim_json(&sid, "/api/v2/search/results", "id=1&offset=-1");
+    assert_eq!(arr(last.get("results")), &results[3..]);
+    assert_eq!(arr(t.shim_json(&sid, "/api/v2/search/results", "id=1&offset=4").get("results")).len(), 0);
+    assert_eq!(t.shim(&sid, "/api/v2/search/results", "id=1&offset=5").0, 409);
+    assert_eq!(t.shim(&sid, "/api/v2/search/results", "id=99").0, 404);
+    assert_eq!(t.shim(&sid, "/api/v2/search/status", "id=99").0, 404);
+
+    // ---- adding by fileUrl: the opaque URL with torrents/add and downloadTorrent, a magnet
+    let (st, body) = t.shim(&sid, "/api/v2/torrents/add", &format!("urls={}", enc(s(fawlty.get("fileUrl")))));
+    assert_eq!((st, body.as_str()), (200, "Ok."));
+    t.wait_for_hash(&sid, &torznab::torrent("fawlty").1);
+    let night = find(NIGHT);
+    let form = format!("torrentUrl={}&pluginName={prowlarr}", enc(s(night.get("fileUrl"))));
+    assert_eq!(t.shim(&sid, "/api/v2/search/downloadTorrent", &form).0, 200);
+    t.wait_for_hash(&sid, &torznab::night_magnet().1);
+    let form = format!("torrentUrl={}&pluginName={magnets}", enc(s(magnet.get("fileUrl"))));
+    assert_eq!(t.shim(&sid, "/api/v2/search/downloadTorrent", &form).0, 200);
+    t.wait_for_hash(&sid, &torznab::magnet_only().1);
+    // a link that gives no torrent, and a URL of no search
+    let grab = find(GRAB);
+    let form = format!("torrentUrl={}&pluginName={prowlarr}", enc(s(grab.get("fileUrl"))));
+    assert_eq!(t.shim(&sid, "/api/v2/search/downloadTorrent", &form).0, 400);
+    let (st, body) = t.shim(&sid, "/api/v2/torrents/add", "urls=patorrent-search%3A99%2Fx");
+    assert_eq!((st, body.as_str()), (200, "Fails."));
+
+    // ---- a named plugin is searched even when switched off; stop; five running at most
+    let slow_form = format!("pattern=slow&category=all&plugins={slow}");
+    let id = int(t.shim_json(&sid, "/api/v2/search/start", &slow_form).get("id"));
+    assert_eq!(id, 2);
+    let st = t.shim_json(&sid, "/api/v2/search/status", "id=2");
+    assert_eq!(s(arr(Some(&st))[0].get("status")), "Running");
+    assert_eq!(t.shim(&sid, "/api/v2/search/stop", "id=2").0, 200);
+    let st = t.shim_json(&sid, "/api/v2/search/status", "id=2");
+    assert_eq!(s(arr(Some(&st))[0].get("status")), "Stopped");
+    assert_eq!(t.shim(&sid, "/api/v2/search/stop", "id=42").0, 404);
+    for want in 3..=7 {
+        assert_eq!(int(t.shim_json(&sid, "/api/v2/search/start", &slow_form).get("id")), want);
+    }
+    let (st, body) = t.shim(&sid, "/api/v2/search/start", &slow_form);
+    assert_eq!((st, body.as_str()), (409, "Unable to create more than 5 concurrent searches."));
+    assert_eq!(t.shim(&sid, "/api/v2/search/delete", "id=7").0, 200);
+    assert_eq!(int(t.shim_json(&sid, "/api/v2/search/start", &slow_form).get("id")), 8);
+    assert_eq!(t.shim(&sid, "/api/v2/search/delete", "id=1").0, 200);
+    assert_eq!(t.shim(&sid, "/api/v2/search/results", "id=1").0, 404);
+    assert_eq!(t.shim(&sid, "/api/v2/search/delete", "id=1").0, 404);
+    let all_jobs = t.shim_json(&sid, "/api/v2/search/status", "");
+    let ids: Vec<i64> = arr(Some(&all_jobs)).iter().map(|j| int(j.get("id"))).collect();
+    assert_eq!(ids, [2, 3, 4, 5, 6, 8]);
+
+    // ---- switching off and uninstalling: the native sources follow, the other names stay
+    let form = format!("names={bad}&enable=false");
+    assert_eq!(t.shim(&sid, "/api/v2/search/enablePlugin", &form).0, 200);
+    let m = t.model(&sid);
+    assert_eq!(arr(m.get("sources"))[1].get("enabled"), Some(&Json::Bool(false)));
+    assert_eq!(t.shim(&sid, "/api/v2/search/enablePlugin", &format!("names={bad}")).0, 400);
+    assert_eq!(t.get(&sid, &format!("/api/v2/search/uninstallPlugin?names={prowlarr}")).0, 405);
+    let form = format!("names={prowlarr}%7C{bad}");
+    assert_eq!(t.shim(&sid, "/api/v2/search/uninstallPlugin", &form).0, 200);
+    let (_, body) = t.get(&sid, "/api/v2/search/plugins");
+    let left: Vec<String> =
+        arr(Some(&json::parse(&body).unwrap())).iter().map(|p| s(p.get("name")).to_owned()).collect();
+    assert_eq!(left, [magnets.clone(), slow.clone()]);
+    let m = t.model(&sid);
+    let srcs: Vec<&str> = arr(m.get("sources")).iter().map(|x| s(x.get("name"))).collect();
+    assert_eq!(srcs, ["Magnets", "Slow"]);
+
+    for b in t.bodies.lock().unwrap().iter() {
+        assert!(!b.contains(KEY) && !b.contains("K2-secret"), "{b}");
+    }
 }
 
 #[test]

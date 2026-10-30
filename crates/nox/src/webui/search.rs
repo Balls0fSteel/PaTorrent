@@ -10,17 +10,24 @@
 //! and bumps `State::search_version`, which the WebSocket's `tick` carries as `search`, so an
 //! open search window asks `GET /pa/search` again.
 //!
-//! Locks: the search's own lock ([`Shared::search`]) and the State lock are never held
-//! together, and neither is held while anything is fetched.
+//! The qBittorrent shim's `search/*` ([`shim`]) runs its own searches over the same sources,
+//! each source a plugin: up to five at once, as qBittorrent, kept until deleted
+//! ([`ShimSearches`]) and collected with the native one.
+//!
+//! Locks: the search's own lock ([`Shared::search`]), the shim's ([`Shared::shim_searches`])
+//! and the State lock are never held together, and none is held while anything is fetched.
 //!
 //! Security (docs/WEBUI.md "Security"): a source's API key never leaves the server (the page
 //! gets `has_key` and the URL with the key masked; result links, which carry the indexer's
-//! key, are never sent), and adding a source or changing its URL or key needs the current
-//! password, since a source makes the server fetch its URL with the stored key.
+//! key, are never sent: the shim's `fileUrl` is a magnet or a [`FILE_URL_SCHEME`] URL), and
+//! adding a source or changing its URL or key needs the current password, since a source
+//! makes the server fetch its URL with the stored key.
 
 use std::collections::hash_map::DefaultHasher;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
+use patorrent_core::crypto::Sha1;
 use patorrent_core::fetch::FetchProxy;
 use patorrent_frontend::rss::Download;
 use patorrent_frontend::search::{
@@ -396,5 +403,428 @@ pub(crate) fn serve(
         }
         "/source-test" => Ok(Response::json(&test(shared, &body)?)),
         _ => Err(err(404, "no such endpoint")),
+    }
+}
+
+// ---- the qBittorrent shim's `search/*` --------------------------------------------------------
+
+/// Searches the shim runs at once (qBittorrent's limit).
+const MAX_RUNNING_JOBS: usize = 5;
+/// Searches the shim keeps; a new one past it drops the oldest finished one.
+const MAX_JOBS: usize = 32;
+/// A shim result's `fileUrl` when it has no magnet of its own: `patorrent-search:<job>/<result
+/// id>`. The indexer's link carries its API key, so it never leaves the server; `torrents/add`
+/// and `search/downloadTorrent` take this URL back and fetch the result as `/pa/search/add`
+/// does ([`fetch_download`], the proxy rule included).
+pub const FILE_URL_SCHEME: &str = "patorrent-search:";
+
+/// qBittorrent's search categories the shim offers (id, qBittorrent's name) and the Newznab
+/// categories each one searches; any other id searches every category.
+const CATEGORIES: [(&str, &str, &[u32]); 7] = [
+    ("anime", "Anime", &[5070]),
+    ("books", "Books", &[7000]),
+    ("games", "Games", &[1000, 4050]),
+    ("movies", "Movies", &[2000]),
+    ("music", "Music", &[3000]),
+    ("software", "Software", &[4000]),
+    ("tv", "TV shows", &[5000]),
+];
+
+/// One `search/start`.
+pub(crate) struct ShimJob {
+    id: u32,
+    pattern: String,
+    category: String,
+    /// The plugin names of `search`'s sources, in its order ([`SearchResult::source`]).
+    plugins: Vec<String>,
+    search: Search,
+    /// The results' ids in the order they first came: merging re-sorts the search's list, and
+    /// clients page through `search/results` by offset.
+    order: Vec<String>,
+    seen: HashSet<String>,
+}
+
+/// The shim's searches ([`Shared::shim_searches`]); their lock is never held with the State
+/// lock or the native search's.
+#[derive(Default)]
+pub(crate) struct ShimSearches {
+    last_id: u32,
+    jobs: Vec<ShimJob>,
+}
+
+impl ShimSearches {
+    /// Takes every job's answers, appending the new results' ids.
+    fn collect(&mut self) {
+        for j in &mut self.jobs {
+            if j.search.collect() {
+                for r in j.search.results() {
+                    let id = result_id(r);
+                    if j.seen.insert(id.clone()) {
+                        j.order.push(id);
+                    }
+                }
+            }
+        }
+    }
+
+    fn job(&self, id: i64) -> Option<&ShimJob> {
+        self.jobs.iter().find(|j| i64::from(j.id) == id)
+    }
+}
+
+/// Takes the shim's searches' answers (the alert batches call it beside [`collect`]).
+pub(crate) fn collect_shim(shared: &Shared) {
+    shared.shim_searches().collect();
+}
+
+/// The sources' plugin names: `torznab-` and 8 hex digits of a SHA-1 of the URL with its key
+/// masked, so a name stays while sources are removed or renumbered (a twin URL gets `-2`, ...).
+fn plugin_names(sources: &[Source]) -> Vec<String> {
+    let mut out: Vec<String> = Vec::with_capacity(sources.len());
+    for s in sources {
+        let hex = Sha1::digest(redact(s.url.trim(), &s.api_key).as_bytes()).to_hex();
+        let base = format!("torznab-{}", &hex[..8]);
+        let (mut name, mut n) = (base.clone(), 1);
+        while out.contains(&name) {
+            n += 1;
+            name = format!("{base}-{n}");
+        }
+        out.push(name);
+    }
+    out
+}
+
+/// A source's site: its scheme, host and port, nothing that could hold the key.
+fn site_url(url: &str) -> String {
+    let Some((scheme, host, port)) = search::source::url_origin(url) else { return String::new() };
+    let host = if host.contains(':') { format!("[{host}]") } else { host };
+    match (scheme.as_str(), port) {
+        ("http", 80) | ("https", 443) => format!("{scheme}://{host}"),
+        _ => format!("{scheme}://{host}:{port}"),
+    }
+}
+
+/// A result's `fileUrl`: its magnet, or one made from its info-hash when it has no link (what
+/// [`fetch_download`] would add), else the [`FILE_URL_SCHEME`] URL; never anything holding the
+/// source's key.
+fn file_url(job: u32, r: &SearchResult, key: &str) -> String {
+    let clean = |m: String| (redact(&m, key) == m).then_some(m);
+    let direct = if !r.magnet.is_empty() {
+        clean(r.magnet.clone())
+    } else if r.link.trim().is_empty() {
+        r.magnet_link().and_then(clean)
+    } else {
+        None
+    };
+    direct.unwrap_or_else(|| format!("{FILE_URL_SCHEME}{job}/{}", result_id(r)))
+}
+
+/// What a [`FILE_URL_SCHEME`] URL adds, fetched on the request's thread (no lock held); `None`
+/// for any other URL.
+pub(crate) fn shim_download(shared: &Shared, url: &str) -> Option<Result<commands::Source, CmdError>> {
+    let rest = url.trim().strip_prefix(FILE_URL_SCHEME)?;
+    Some(resolve(shared, rest))
+}
+
+fn resolve(shared: &Shared, rest: &str) -> Result<commands::Source, CmdError> {
+    let gone = || err(404, "no such search result");
+    let (job, id) = rest.split_once('/').ok_or_else(gone)?;
+    let job: i64 = job.parse().map_err(|_| gone())?;
+    let (result, source) = {
+        let mut jobs = shared.shim_searches();
+        jobs.collect();
+        let j = jobs.job(job).ok_or_else(gone)?;
+        let r = j.search.results().iter().find(|r| result_id(r) == id).ok_or_else(gone)?;
+        (r.clone(), j.search.source_of(r).cloned().ok_or_else(gone)?)
+    };
+    let proxy = proxy(shared);
+    let d = fetch_download(&result, &source, proxy.as_ref()).map_err(|e| {
+        let e = source.redact(&e);
+        eprintln!("! search: {}: {e}", result.name);
+        err(400, tr!(SearchFailed, source = source.label(), error = e))
+    })?;
+    match d {
+        Download::Magnet(m) => commands::Source::from_url(shared, &m),
+        Download::Torrent(b) => commands::Source::from_torrent_bytes(b),
+    }
+}
+
+fn plugin_json(s: &Source, name: &str) -> Json {
+    let mut cats = vec![Json::obj().with("id", "all").with("name", "All categories")];
+    cats.extend(CATEGORIES.iter().map(|(id, n, _)| Json::obj().with("id", *id).with("name", *n)));
+    Json::obj()
+        .with("name", name)
+        .with("version", "1.0")
+        .with("fullName", s.label())
+        .with("url", site_url(&s.url))
+        .with("supportedCategories", Json::Arr(cats))
+        .with("enabled", s.enabled)
+}
+
+fn running(j: &ShimJob) -> &'static str {
+    if j.search.is_running() { "Running" } else { "Stopped" }
+}
+
+fn job_json(j: &ShimJob) -> Json {
+    Json::obj()
+        .with("id", j.id)
+        .with("status", running(j))
+        .with("pattern", j.pattern.as_str())
+        .with("category", j.category.as_str())
+        .with("plugins", Json::Arr(j.plugins.iter().map(|p| Json::from(p.as_str())).collect()))
+        .with("total", j.order.len())
+}
+
+/// A `search/results` entry with qBittorrent's fields (-1 for a number the indexer did not
+/// give).
+fn result_json(j: &ShimJob, r: &SearchResult) -> Json {
+    let source = j.search.sources().get(r.source).map(|s| &s.source);
+    let num = |v: Option<u32>| v.map_or(-1, i64::from);
+    let leechers = match (r.seeders, r.peers) {
+        (Some(s), Some(p)) => i64::from(p.saturating_sub(s)),
+        _ => -1,
+    };
+    Json::obj()
+        .with("fileName", r.name.as_str())
+        .with("fileUrl", file_url(j.id, r, source.map_or("", |s| s.api_key.as_str())))
+        .with("fileSize", r.size.map_or(-1, |s| i64::try_from(s).unwrap_or(i64::MAX)))
+        .with("nbSeeders", num(r.seeders))
+        .with("nbLeechers", leechers)
+        .with("engineName", j.plugins.get(r.source).map_or("", String::as_str))
+        .with("engineFullName", source.map(Source::label).unwrap_or_default())
+        .with("siteUrl", source.map(|s| site_url(&s.url)).unwrap_or_default())
+        .with("descrLink", "")
+        .with("pubDate", r.published.unwrap_or(-1))
+}
+
+/// `search/start`.
+fn shim_start(shared: &Shared, param: &dyn Fn(&str) -> Option<String>) -> Response {
+    let (Some(pattern), Some(category), Some(plugins)) =
+        (param("pattern"), param("category"), param("plugins"))
+    else {
+        return Response::text(400, "missing pattern, category or plugins");
+    };
+    let pattern: String = pattern.trim().chars().take(MAX_QUERY).collect();
+    if pattern.is_empty() {
+        return Response::text(400, "missing pattern");
+    }
+    let category = category.trim().to_owned();
+    let categories =
+        CATEGORIES.iter().find(|c| c.0.eq_ignore_ascii_case(&category)).map_or(Vec::new(), |c| c.2.to_vec());
+    let all = load_sources(&shared.lock().options);
+    let names = plugin_names(&all);
+    let wanted: Vec<&str> = plugins.split('|').map(str::trim).filter(|p| !p.is_empty()).collect();
+    let forced = |s: &Source| Source { enabled: true, ..s.clone() };
+    // "all" and plugins named one by one are searched even when switched off, as a source
+    // named in `/pa/search/start` is
+    let picked: Vec<(Source, String)> = match wanted.as_slice() {
+        [one] if one.eq_ignore_ascii_case("all") => all.iter().map(forced).zip(names).collect(),
+        [one] if one.eq_ignore_ascii_case("enabled") || one.eq_ignore_ascii_case("multi") => {
+            all.into_iter().zip(names).filter(|(s, _)| s.enabled).collect()
+        }
+        list => all
+            .iter()
+            .zip(names)
+            .filter(|(_, n)| list.contains(&n.as_str()))
+            .map(|(s, n)| (forced(s), n))
+            .collect(),
+    };
+    if picked.is_empty() {
+        return Response::text(409, tr!(SearchNoSources));
+    }
+    let (sources, plugins): (Vec<Source>, Vec<String>) = picked.into_iter().unzip();
+    let proxy = proxy(shared);
+    let mut jobs = shared.shim_searches();
+    jobs.collect();
+    if jobs.jobs.iter().filter(|j| j.search.is_running()).count() >= MAX_RUNNING_JOBS {
+        return Response::text(
+            409,
+            format!("Unable to create more than {MAX_RUNNING_JOBS} concurrent searches."),
+        );
+    }
+    while jobs.jobs.len() >= MAX_JOBS {
+        let Some(i) = jobs.jobs.iter().position(|j| !j.search.is_running()) else { break };
+        jobs.jobs.remove(i);
+    }
+    jobs.last_id += 1;
+    let id = jobs.last_id;
+    let mut search = new_search();
+    search.start(&sources, Query { text: pattern.clone(), categories }, proxy.as_ref());
+    jobs.jobs.push(ShimJob {
+        id,
+        pattern,
+        category,
+        plugins,
+        search,
+        order: Vec::new(),
+        seen: HashSet::new(),
+    });
+    Response::json(&Json::obj().with("id", id))
+}
+
+/// `search/results`, qBittorrent's paging: `offset` may count from the end, a `limit` of 0 or
+/// less is everything.
+fn shim_results(j: &ShimJob, param: &dyn Fn(&str) -> Option<String>) -> Response {
+    let int = |k: &str| param(k).and_then(|v| v.trim().parse::<i64>().ok()).unwrap_or(0);
+    let total = j.order.len() as i64;
+    let mut offset = int("offset");
+    if offset < 0 {
+        offset += total;
+    }
+    if !(0..=total).contains(&offset) {
+        return Response::text(409, "Offset is out of range");
+    }
+    let limit = int("limit");
+    let limit = if limit <= 0 { usize::MAX } else { limit as usize };
+    let by_id: HashMap<String, &SearchResult> =
+        j.search.results().iter().map(|r| (result_id(r), r)).collect();
+    let results: Vec<Json> = j
+        .order
+        .iter()
+        .skip(offset as usize)
+        .take(limit)
+        .filter_map(|id| by_id.get(id))
+        .map(|r| result_json(j, r))
+        .collect();
+    Response::json(
+        &Json::obj().with("status", running(j)).with("results", Json::Arr(results)).with("total", total),
+    )
+}
+
+/// One `api/v2/search/<endpoint>` (docs/WEBUI.md "The torrent search"): each search source is
+/// a plugin; `param` reads the request's parameters.
+pub(crate) fn shim(shared: &Shared, endpoint: &str, param: &dyn Fn(&str) -> Option<String>) -> Response {
+    let id = || param("id").and_then(|v| v.trim().parse::<i64>().ok());
+    let missing = |what: &str| Response::text(400, format!("missing {what}"));
+    let not_found = || Response::text(404, "Not Found");
+    match endpoint {
+        "start" => shim_start(shared, param),
+        "stop" | "delete" => {
+            let Some(id) = id() else { return missing("id") };
+            let mut jobs = shared.shim_searches();
+            let Some(i) = jobs.jobs.iter().position(|j| i64::from(j.id) == id) else { return not_found() };
+            if endpoint == "stop" {
+                jobs.jobs[i].search.stop();
+            } else {
+                jobs.jobs.remove(i);
+            }
+            Response::ok()
+        }
+        "status" => {
+            let mut jobs = shared.shim_searches();
+            jobs.collect();
+            match id().filter(|&i| i != 0) {
+                Some(i) => {
+                    jobs.job(i).map_or_else(not_found, |j| Response::json(&Json::Arr(vec![job_json(j)])))
+                }
+                None => Response::json(&Json::Arr(jobs.jobs.iter().map(job_json).collect())),
+            }
+        }
+        "results" => {
+            let Some(id) = id() else { return missing("id") };
+            let mut jobs = shared.shim_searches();
+            jobs.collect();
+            jobs.job(id).map_or_else(not_found, |j| shim_results(j, param))
+        }
+        "downloadTorrent" => {
+            let Some(url) = param("torrentUrl") else { return missing("torrentUrl") };
+            let source =
+                shim_download(shared, &url).unwrap_or_else(|| commands::Source::from_url(shared, &url));
+            match source.and_then(|s| commands::add(shared, s, &AddOptions::default())) {
+                Ok(_) => Response::ok(),
+                Err(e) => Response::text(e.status, e.msg),
+            }
+        }
+        "plugins" => {
+            let sources = load_sources(&shared.lock().options);
+            let names = plugin_names(&sources);
+            Response::json(&Json::Arr(sources.iter().zip(&names).map(|(s, n)| plugin_json(s, n)).collect()))
+        }
+        "enablePlugin" | "uninstallPlugin" => {
+            let Some(names) = param("names") else { return missing("names") };
+            let names: Vec<&str> = names.split('|').map(str::trim).collect();
+            let enable = match (endpoint, param("enable")) {
+                ("uninstallPlugin", _) => None,
+                (_, Some(v)) => Some(v.trim().eq_ignore_ascii_case("true") || v.trim() == "1"),
+                (_, None) => return missing("enable"),
+            };
+            // as the native switch and source-remove: no password (neither points a source,
+            // or its key, anywhere new)
+            let all = load_sources(&shared.lock().options);
+            let plugins = plugin_names(&all);
+            let mut sources = Vec::with_capacity(all.len());
+            for (mut s, name) in all.iter().cloned().zip(&plugins) {
+                let named = names.contains(&name.as_str());
+                match enable {
+                    Some(e) if named => s.enabled = e,
+                    None if named => continue,
+                    _ => {}
+                }
+                sources.push(s);
+            }
+            if sources != all {
+                store(shared, &sources);
+            }
+            Response::ok()
+        }
+        "installPlugin" => Response::text(
+            409,
+            "Search plugins are not supported: PaTorrent searches Torznab sources (Prowlarr, Jackett), \
+             added in its Web UI's search window",
+        ),
+        // nothing to update: a source is the user's own server
+        "updatePlugins" => Response::ok(),
+        _ => not_found(),
+    }
+}
+
+/// The shim's `search/*` that change something (POST only).
+pub(crate) fn shim_post_only(endpoint: &str) -> bool {
+    !matches!(endpoint, "status" | "results" | "plugins")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn source(url: &str, key: &str) -> Source {
+        Source { url: url.into(), api_key: key.into(), ..Source::default() }
+    }
+
+    /// A plugin's name does not move with the key or the source's place; twins get a suffix.
+    #[test]
+    fn plugin_names_are_stable() {
+        let a = source("http://prowlarr:9696/1/api", "k1");
+        let b = source("http://prowlarr:9696/2/api", "k1");
+        let names = plugin_names(&[a.clone(), b.clone()]);
+        assert_ne!(names[0], names[1]);
+        assert_eq!(plugin_names(&[b, source("http://prowlarr:9696/1/api", "other")])[1], names[0]);
+        let in_url = source("http://j/api?apikey=k1", "k1");
+        let twins = plugin_names(&[in_url.clone(), source("http://j/api?apikey=k2", "k2"), in_url]);
+        assert_eq!(twins[1], format!("{}-2", twins[0]));
+        assert_eq!(twins[2], format!("{}-3", twins[0]));
+    }
+
+    #[test]
+    fn site_urls_hold_only_the_origin() {
+        assert_eq!(site_url("https://user:pw@idx.example/api?apikey=k"), "https://idx.example");
+        assert_eq!(site_url("http://[::1]:9696/1/api"), "http://[::1]:9696");
+        assert_eq!(site_url("not a url"), "");
+    }
+
+    /// The magnet, else one from the info-hash when there is no link, else the opaque URL; a
+    /// magnet holding the key is never sent.
+    #[test]
+    fn file_urls_never_hold_the_key() {
+        let hash = "58cebaa968651dc2a241c495719f2b6cbec33e32";
+        let r = SearchResult { name: "x".into(), info_hash: hash.into(), ..SearchResult::default() };
+        assert!(file_url(1, &r, "k").starts_with(&format!("magnet:?xt=urn:btih:{hash}")));
+        let linked = SearchResult { link: "http://idx/dl?apikey=k".into(), ..r.clone() };
+        assert_eq!(file_url(3, &linked, "k"), format!("{FILE_URL_SCHEME}3/{}", result_id(&linked)));
+        let m =
+            SearchResult { magnet: "magnet:?xt=urn:btih:aa&tr=http://t/announce".into(), ..linked.clone() };
+        assert_eq!(file_url(3, &m, "k"), m.magnet);
+        let keyed = SearchResult { magnet: "magnet:?xt=urn:btih:aa&tr=http://idx/K3Y".into(), ..linked };
+        assert!(file_url(3, &keyed, "K3Y").starts_with(FILE_URL_SCHEME));
     }
 }

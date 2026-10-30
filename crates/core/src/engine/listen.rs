@@ -674,7 +674,11 @@ impl Engine {
             if !t.is_active() {
                 continue;
             }
-            t.trackers.iter_mut().for_each(super::tracker::TrackerEntry::announce_now);
+            // a hybrid announces both info-hashes
+            t.trackers
+                .iter_mut()
+                .chain(&mut t.trackers_v2)
+                .for_each(super::tracker::TrackerEntry::announce_now);
         }
         self.dht_reannounce_all();
     }

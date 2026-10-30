@@ -1,19 +1,23 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/lsd.cpp (lsd::start, announce_impl,
 // resend_announce, on_announce), src/session_impl.cpp (start_lsd, stop_lsd, on_lsd_announce,
-// announce_lsd, on_lsd_peer, expand_unspecified_address), src/torrent.cpp (lsd_announce)
+// announce_lsd, on_lsd_peer, expand_unspecified_address), src/torrent.cpp (lsd_announce);
+// fixes from 2.1.0 (d3f942f5d9: prioritize_lsd, update_lsd_announce_interval)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: libtorrent runs one LSD socket per listen socket, after expanding wildcard listen
 // addresses into every local address. We do the same expansion but open one socket per
 // interface and family (an interface's other addresses only widen the subnet filter), and the
 // IPv6 socket joins the group on that interface's index rather than the address's scope id
-// (0 for global addresses, which means "any"). One session-wide resend timer stands in for
-// the per-socket ones, which all fired together anyway. The announce round-robin covers
-// running torrents only, as the DHT's does. After a network change the sockets are reopened
-// when the set of interfaces they would cover changed (libtorrent: per listen socket).
+// (0 for global addresses, which means "any"). One session-wide list of resends stands in for
+// the per-socket timers, which all fired together anyway; it keeps every announce's resends
+// where libtorrent's single timer lets a newer announce cancel the older one's. The announce
+// round-robin and its interval cover running torrents only, as the DHT's do. After a network
+// change the sockets are reopened when the set of interfaces they would cover changed
+// (libtorrent: per listen socket), and the running torrents are queued for a first announce.
 
 //! Local service discovery (BEP 14): multicast announces of running torrents to the local
 //! network, and peers from other clients' announces.
 
+use std::collections::VecDeque;
 use std::io;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV6};
 use std::time::{Duration, Instant};
@@ -57,9 +61,14 @@ pub(super) struct LsdSession {
     /// Marks our own announces, which multicast loopback brings back.
     cookie: u32,
     next_torrent: usize,
+    /// Torrents waiting for their first announce (libtorrent `m_lsd_torrents`).
+    prioritized: VecDeque<TorrentId>,
+    /// The running torrents when the interval was last set (libtorrent
+    /// `m_lsd_interval_update_torrents`).
+    interval_torrents: usize,
     next_announce: Option<Instant>,
-    /// The last announce's next send: when, the info-hash, the port and how many went out.
-    resend: Option<(Instant, Sha1Hash, u16, u32)>,
+    /// The announces' next sends: when, the info-hash, the port and how many went out.
+    resends: Vec<(Instant, Sha1Hash, u16, u32)>,
     buf: Vec<u8>,
 }
 
@@ -69,10 +78,58 @@ impl LsdSession {
             socks: Vec::new(),
             cookie: (crate::util::random::random_u64() as u32) & 0x7fff_ffff,
             next_torrent: 0,
+            prioritized: VecDeque::new(),
+            interval_torrents: 0,
             next_announce: None,
-            resend: None,
+            resends: Vec::new(),
             buf: vec![0; 1500],
         }
+    }
+
+    /// libtorrent `prioritize_lsd`: the torrent announces next. The first one in an empty queue
+    /// announces right away; the timer then keeps the rest at most 4 s apart.
+    fn prioritize(&mut self, id: TorrentId, now: Instant) {
+        if self.socks.is_empty() || self.prioritized.contains(&id) {
+            return;
+        }
+        self.prioritized.push_back(id);
+        if self.prioritized.len() == 1 {
+            self.next_announce = Some(now);
+        }
+    }
+
+    /// libtorrent `update_lsd_announce_interval`: `interval` (seconds) spread over the
+    /// `running` torrents, in milliseconds; at most 4 s while torrents wait for their first
+    /// announce.
+    fn update_interval(&mut self, interval: u32, running: usize, now: Instant) {
+        if self.socks.is_empty() {
+            return;
+        }
+        self.interval_torrents = running;
+        let mut delay = (1000 * interval as u64 / running.max(1) as u64).max(1);
+        if !self.prioritized.is_empty() {
+            delay = delay.min(4000);
+        }
+        self.next_announce = Some(now + Duration::from_millis(delay));
+    }
+
+    /// Schedules an announce's next send, `2 * sent` seconds on; none after the third.
+    fn schedule_resend(&mut self, ih: Sha1Hash, port: u16, sent: u32, now: Instant) {
+        if sent < SENDS_PER_ANNOUNCE {
+            self.resends.push((now + Duration::from_secs(2 * sent as u64), ih, port, sent));
+        }
+    }
+
+    /// The resends due at `now`, taken off the list.
+    fn due_resends(&mut self, now: Instant) -> Vec<(Sha1Hash, u16, u32)> {
+        let mut due = Vec::new();
+        self.resends.retain(|&(at, ih, port, sent)| {
+            if now >= at {
+                due.push((ih, port, sent));
+            }
+            now < at
+        });
+        due
     }
 
     pub fn is_running(&self) -> bool {
@@ -84,7 +141,7 @@ impl LsdSession {
         if self.socks.is_empty() {
             return None;
         }
-        let resend = self.resend.map(|r| r.0);
+        let resend = self.resends.iter().map(|r| r.0).min();
         match (self.next_announce, resend) {
             (Some(a), Some(r)) => Some(a.min(r)),
             (a, r) => a.or(r),
@@ -239,17 +296,14 @@ impl Engine {
         }
         let n = self.lsd.socks.len();
         self.alert(Alert::Log { id: None, message: format!("LSD started on {n} interfaces") });
-        self.lsd.next_announce = Some(now + self.lsd_interval());
-        // when LSD is switched on at runtime, running torrents announce now rather than waiting
-        // for the round-robin
-        let running: Vec<TorrentId> = self
-            .torrent_ids()
-            .into_iter()
-            .filter(|&id| self.torrent_ref(id).is_some_and(|t| t.is_active()))
-            .collect();
-        for id in running {
-            self.lsd_announce(id, now);
+        // when LSD is switched on at runtime, running torrents announce first rather than
+        // waiting for the round-robin, as new ones do
+        for id in self.lsd_running() {
+            if !self.lsd.prioritized.contains(&id) {
+                self.lsd.prioritized.push_back(id);
+            }
         }
+        self.update_lsd_announce_interval(now);
     }
 
     /// After a network change or a listen-socket reopen (libtorrent `update_lsd`, which runs
@@ -281,47 +335,72 @@ impl Engine {
             let _ = self.poll.registry().deregister(&mut s.sock);
         }
         self.lsd.next_announce = None;
-        self.lsd.resend = None;
+        self.lsd.prioritized.clear();
+        self.lsd.resends.clear();
     }
 
-    /// libtorrent `on_lsd_announce`'s delay: the interval spread over the running torrents.
-    fn lsd_interval(&self) -> Duration {
-        let running = self
-            .torrent_ids()
-            .iter()
-            .filter(|&&id| self.torrent_ref(id).is_some_and(|t| t.is_active()))
-            .count();
-        let secs = (self.settings.local_service_announce_interval as u64 / running.max(1) as u64).max(1);
-        Duration::from_secs(secs)
+    fn lsd_running(&self) -> Vec<TorrentId> {
+        self.torrent_ids()
+            .into_iter()
+            .filter(|&id| self.torrent_ref(id).is_some_and(|t| t.is_active()))
+            .collect()
     }
 
-    /// Runs the announce round-robin and the resends.
+    /// A torrent just started: announce it soon (libtorrent `prioritize_lsd`).
+    pub(super) fn prioritize_lsd(&mut self, id: TorrentId) {
+        self.lsd.prioritize(id, Instant::now());
+    }
+
+    /// libtorrent `update_lsd_announce_interval`: the interval spread over the running torrents.
+    fn update_lsd_announce_interval(&mut self, now: Instant) {
+        let running = self.lsd_running().len();
+        self.lsd.update_interval(self.settings.local_service_announce_interval, running, now);
+    }
+
+    /// libtorrent `on_tick`'s part: while there are few torrents, a change in their number sets
+    /// the interval again.
+    pub(super) fn lsd_tick(&mut self, now: Instant) {
+        if self.lsd.socks.is_empty() || self.lsd.interval_torrents >= 40 {
+            return;
+        }
+        if self.lsd.interval_torrents != self.lsd_running().len() {
+            self.update_lsd_announce_interval(now);
+        }
+    }
+
+    /// Runs the announces and the resends.
     pub(super) fn lsd_service(&mut self, now: Instant) {
         if self.lsd.next_announce.is_some_and(|a| now >= a) {
-            self.lsd.next_announce = Some(now + self.lsd_interval());
-            let running: Vec<TorrentId> = self
-                .torrent_ids()
-                .into_iter()
-                .filter(|&id| self.torrent_ref(id).is_some_and(|t| t.is_active()))
-                .collect();
-            if !running.is_empty() {
-                if self.lsd.next_torrent >= running.len() {
-                    self.lsd.next_torrent = 0;
-                }
-                let id = running[self.lsd.next_torrent];
-                self.lsd.next_torrent += 1;
+            self.on_lsd_announce(now);
+        }
+        for (ih, port, sent) in self.lsd.due_resends(now) {
+            self.lsd_send(ih, port, sent, now);
+        }
+    }
+
+    /// libtorrent `on_lsd_announce`: the next prioritized torrent, else the next running one.
+    fn on_lsd_announce(&mut self, now: Instant) {
+        self.update_lsd_announce_interval(now);
+        while let Some(id) = self.lsd.prioritized.pop_front() {
+            if self.torrent_ref(id).is_some() {
                 self.lsd_announce(id, now);
+                return;
             }
         }
-        if let Some((at, ih, port, sent)) = self.lsd.resend {
-            if now >= at {
-                self.lsd_send(ih, port, sent, now);
-            }
+        let running = self.lsd_running();
+        if running.is_empty() {
+            return;
         }
+        if self.lsd.next_torrent >= running.len() {
+            self.lsd.next_torrent = 0;
+        }
+        let id = running[self.lsd.next_torrent];
+        self.lsd.next_torrent += 1;
+        self.lsd_announce(id, now);
     }
 
     /// libtorrent `torrent::lsd_announce`.
-    pub(super) fn lsd_announce(&mut self, id: TorrentId, now: Instant) {
+    fn lsd_announce(&mut self, id: TorrentId, now: Instant) {
         if !self.lsd.is_running() || self.listen_port == 0 {
             return;
         }
@@ -346,7 +425,7 @@ impl Engine {
     }
 
     /// libtorrent `lsd::announce_impl`: one packet per socket, then a resend 2 s and 4 s later.
-    /// A newer announce replaces the pending resends, as libtorrent's single timer does.
+    /// A new announce of the same info-hash starts its resends over.
     fn lsd_send(&mut self, ih: Sha1Hash, port: u16, sent: u32, now: Instant) {
         let cookie = self.lsd.cookie;
         let mut failed = Vec::new();
@@ -367,9 +446,12 @@ impl Engine {
         for (address, e) in failed {
             self.alert(Alert::LsdError { address, error: e.into() });
         }
-        let sent = sent + 1;
-        self.lsd.resend = (sent < SENDS_PER_ANNOUNCE && self.lsd.is_running())
-            .then(|| (now + Duration::from_secs(2 * sent as u64), ih, port, sent));
+        if sent == 0 {
+            self.lsd.resends.retain(|r| (r.1, r.2) != (ih, port));
+        }
+        if self.lsd.is_running() {
+            self.lsd.schedule_resend(ih, port, sent + 1, now);
+        }
     }
 
     /// libtorrent `lsd::on_announce`: reads announces from an LSD socket.
@@ -476,5 +558,85 @@ mod tests {
         assert!(in_network(&nets, "[fe80::9%7]:6771".parse().unwrap()));
         assert!(!in_network(&nets, "[fe80::9%8]:6771".parse().unwrap()), "same prefix, other link");
         assert!(!in_network(&nets, "[2001:db8::1]:6771".parse().unwrap()));
+    }
+
+    /// A session with one (unused) loopback socket, so the scheduler runs.
+    fn session() -> LsdSession {
+        let mut l = LsdSession::new();
+        l.socks.push(LsdSocket {
+            sock: UdpSocket::bind("127.0.0.1:0".parse().unwrap()).unwrap(),
+            index: 1,
+            v4: true,
+            local: Ipv4Addr::LOCALHOST.into(),
+            nets: Vec::new(),
+            disabled: false,
+        });
+        l
+    }
+
+    #[test]
+    fn the_interval_is_spread_in_milliseconds() {
+        let mut l = session();
+        let now = Instant::now();
+        let delay = |l: &LsdSession| l.next_announce.unwrap() - now;
+        l.update_interval(300, 1000, now);
+        assert_eq!(delay(&l), Duration::from_millis(300), "not rounded to whole seconds");
+        l.update_interval(300, 1_000_000, now);
+        assert_eq!(delay(&l), Duration::from_millis(1));
+        l.update_interval(300, 2, now);
+        assert_eq!(delay(&l), Duration::from_secs(150));
+        assert_eq!(l.interval_torrents, 2);
+        // a torrent waiting for its first announce: right away, then at most 4 s
+        l.prioritize(TorrentId::new(1, 1), now);
+        assert_eq!(delay(&l), Duration::ZERO);
+        l.update_interval(300, 2, now);
+        assert_eq!(delay(&l), Duration::from_secs(4));
+        // without sockets there is nothing to schedule
+        let mut off = LsdSession::new();
+        off.prioritize(TorrentId::new(1, 1), now);
+        off.update_interval(300, 2, now);
+        assert!(off.prioritized.is_empty() && off.next_announce.is_none());
+    }
+
+    /// Many torrents started at once announce from the queue, spaced by the timer rather than
+    /// in a burst, and each announce keeps its two resends.
+    #[test]
+    fn a_burst_of_new_torrents_is_staggered_and_keeps_its_resends() {
+        const N: u32 = 50;
+        let mut l = session();
+        let t0 = Instant::now();
+        let ih = |id: TorrentId| Sha1Hash([id.index() as u8; 20]);
+        for i in 0..N {
+            l.prioritize(TorrentId::new(i, 1), t0);
+        }
+        // the engine's loop: on_lsd_announce and the resends of lsd_send, at each deadline
+        let mut firsts = Vec::new();
+        let mut sends: std::collections::HashMap<Sha1Hash, Vec<Instant>> = Default::default();
+        while !l.prioritized.is_empty() || !l.resends.is_empty() {
+            let now = l.deadline().unwrap();
+            if l.next_announce.is_some_and(|a| now >= a) {
+                l.update_interval(300, N as usize, now);
+                if let Some(id) = l.prioritized.pop_front() {
+                    firsts.push(now);
+                    sends.entry(ih(id)).or_default().push(now);
+                    l.schedule_resend(ih(id), 6881, 1, now);
+                }
+            }
+            for (h, port, sent) in l.due_resends(now) {
+                sends.entry(h).or_default().push(now);
+                l.schedule_resend(h, port, sent + 1, now);
+            }
+        }
+        assert_eq!(firsts.len(), N as usize);
+        assert_eq!(firsts[0], t0, "the first announces at once");
+        // 300 s over 50 torrents is 6 s: the queue keeps them 4 s apart
+        for w in firsts.windows(2) {
+            assert_eq!(w[1] - w[0], Duration::from_secs(4));
+        }
+        assert_eq!(sends.len(), N as usize);
+        for times in sends.values() {
+            let offsets: Vec<Duration> = times.iter().map(|&t| t - times[0]).collect();
+            assert_eq!(offsets, [Duration::ZERO, Duration::from_secs(2), Duration::from_secs(6)]);
+        }
     }
 }

@@ -613,14 +613,18 @@ fn percent_decode(s: &str) -> Vec<u8> {
 }
 
 type Swarms = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<Vec<u8>, Vec<u16>>>>;
+type Announces = std::sync::Arc<std::sync::Mutex<std::collections::HashMap<Vec<u8>, usize>>>;
 
 /// An HTTP tracker with one swarm per info-hash, as real trackers keep them: each announcer gets
-/// the other ports of its own hash on 127.0.0.1. Runs until the test process ends.
-fn swarm_tracker() -> (String, Swarms) {
+/// the other ports of its own hash on 127.0.0.1. Also counts the announces per info-hash. Runs
+/// until the test process ends.
+fn swarm_tracker() -> (String, Swarms, Announces) {
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let url = format!("http://{}/announce", l.local_addr().unwrap());
     let swarms: Swarms = Default::default();
+    let announces: Announces = Default::default();
     let shared = swarms.clone();
+    let counts = announces.clone();
     std::thread::spawn(move || {
         use std::io::{Read, Write};
         for conn in l.incoming() {
@@ -642,6 +646,7 @@ fn swarm_tracker() -> (String, Swarms) {
             };
             let ih = percent_decode(param("info_hash"));
             let port: u16 = param("port").parse().unwrap_or(0);
+            *counts.lock().unwrap().entry(ih.clone()).or_default() += 1;
             let mut peers = Vec::new();
             {
                 let mut s = shared.lock().unwrap();
@@ -663,7 +668,7 @@ fn swarm_tracker() -> (String, Swarms) {
             let _ = c.write_all(&body);
         }
     });
-    (url, swarms)
+    (url, swarms, announces)
 }
 
 /// A hybrid announces under both of its hashes, each with its own tracker state, so a peer that
@@ -677,7 +682,7 @@ fn a_hybrid_is_announced_under_both_hashes() {
     let torrent = make_torrent(&src, CreateFlags::empty());
     let ti = TorrentInfo::from_bytes(&torrent).unwrap();
     let ih = ti.info_hashes();
-    let (url, swarms) = swarm_tracker();
+    let (url, swarms, _) = swarm_tracker();
 
     let seed_dir = temp_dir("dual-seed");
     write_files(&files, &seed_dir);
@@ -724,4 +729,44 @@ fn a_hybrid_is_announced_under_both_hashes() {
     for d in [src, seed_dir, dir] {
         let _ = std::fs::remove_dir_all(d);
     }
+}
+
+/// A forced reannounce of a hybrid announces under both of its hashes, not only the v1 one.
+#[test]
+fn a_forced_reannounce_of_a_hybrid_announces_both_hashes() {
+    let files = files(10);
+    let dir = temp_dir("reannounce-hybrid");
+    write_files(&files, &dir);
+    let torrent = make_torrent(&dir, CreateFlags::empty());
+    let ih = TorrentInfo::from_bytes(&torrent).unwrap().info_hashes();
+    let (v1, v2) = (ih.v1.unwrap().as_bytes().to_vec(), ih.truncated_v2().unwrap().as_bytes().to_vec());
+    let (url, _, announces) = swarm_tracker();
+    let count = |h: &[u8]| announces.lock().unwrap().get(h).copied().unwrap_or(0);
+    let wait_for = |n: usize, what: &str| {
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while count(&v1) < n || count(&v2) < n {
+            assert!(Instant::now() < deadline, "{what}: v1 {}, v2 {}", count(&v1), count(&v2));
+            std::thread::sleep(Duration::from_millis(50));
+        }
+    };
+
+    let s = start(None);
+    let mut w = Watch::new(s.handle());
+    let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(torrent), dir.to_string_lossy());
+    p.flags = TorrentFlags::empty();
+    p.trackers = vec![url];
+    s.handle().add_torrent(p);
+    let id = wait(&mut w, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    wait_state(&mut w, id, TorrentState::Seeding, 20);
+    wait_for(1, "the first announces");
+    // the replies ask for 30 minutes: only the forced reannounce comes before that
+    std::thread::sleep(Duration::from_millis(500));
+    assert_eq!((count(&v1), count(&v2)), (1, 1));
+    s.handle().torrent(id).force_reannounce();
+    wait_for(2, "the forced reannounces");
+    s.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
 }

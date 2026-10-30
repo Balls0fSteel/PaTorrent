@@ -1448,7 +1448,8 @@ impl Engine {
             Command::ForceRecheck(id) => self.force_recheck(id),
             Command::ForceReannounce(id) => {
                 if let Some(t) = self.torrent(id) {
-                    t.trackers.iter_mut().for_each(TrackerEntry::announce_now);
+                    // a hybrid announces both info-hashes
+                    t.trackers.iter_mut().chain(&mut t.trackers_v2).for_each(TrackerEntry::announce_now);
                 }
             }
             Command::ScrapeTracker(id, index) => self.scrape_tracker(id, index),
@@ -2345,7 +2346,7 @@ impl Engine {
             self.set_state(id, TorrentState::DownloadingMetadata);
             self.connect_peers_for(id, 10);
             self.prioritize_dht(id);
-            self.lsd_announce(id, Instant::now());
+            self.prioritize_lsd(id);
             return;
         }
         let t = self.torrent(id).expect("exists");
@@ -2587,7 +2588,7 @@ impl Engine {
                 self.needs_auto_manage = true;
                 self.connect_peers_for(id, 10);
                 self.prioritize_dht(id);
-                self.lsd_announce(id, Instant::now());
+                self.prioritize_lsd(id);
                 self.maybe_stop_when_ready(id);
             }
         }
@@ -3113,6 +3114,7 @@ impl Engine {
             self.utp.tick(&mut io, now);
         }
         self.utp_dispatch(now);
+        self.lsd_tick(now);
 
         let running = self.active_ids();
         for (_, p) in self.peers.iter_mut() {
@@ -3161,14 +3163,12 @@ impl Engine {
     fn tick_torrent(&mut self, id: TorrentId, now: Instant, dt: f64) {
         let settings = self.settings.clone();
         let Some(t) = self.torrent(id) else { return };
+        // the rates are read before the tick, so the update where they decay to zero is sent
+        // too (libtorrent 2.0.14, 8cfbb4615f)
+        let transferring = t.stat().download_rate() > 0 || t.stat().upload_rate() > 0;
         t.stat.get_or_insert_with(Box::default).tick(dt);
         let new_minute = !t.checking && t.add_running_time(dt);
-        if new_minute
-            || t.stat().download_rate() > 0
-            || t.stat().upload_rate() > 0
-            || !t.peers.is_empty()
-            || t.checking
-        {
+        if new_minute || transferring || !t.peers.is_empty() || t.checking {
             t.status_dirty = true;
         }
         let interest_dirty = std::mem::take(&mut t.interest_dirty);

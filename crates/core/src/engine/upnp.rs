@@ -1,5 +1,5 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/upnp.cpp, include/libtorrent/upnp.hpp,
-// test/test_upnp.cpp (the loopback IGD test)
+// test/test_upnp.cpp (the loopback IGD test); fixes from 2.0.14 (4138b27d57)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: the asio timers are deadlines polled by `service`; `http_connection` is a small
 // non-blocking client of its own (one request per root device at a time, IP-literal hosts
@@ -255,9 +255,11 @@ impl Upnp {
         };
         let (mcast, ucast) = (send(&self.multicast), send(&self.unicast));
         if let (Err(m), Err(u)) = (&mcast, &ucast) {
-            self.log.push(format!("multicast send failed: \"{m}\" and \"{u}\". Aborting."));
-            self.disable(m.to_string());
-            return;
+            if !search_dropped(m) && !search_dropped(u) {
+                self.log.push(format!("multicast send failed: \"{m}\" and \"{u}\". Aborting."));
+                self.disable(m.to_string());
+                return;
+            }
         }
         self.retry_count += 1;
         self.broadcast_at = Some(now + Duration::from_secs(2 * self.retry_count as u64));
@@ -1176,6 +1178,11 @@ impl Upnp {
             self.map_first(di, registry, now);
         }
     }
+}
+
+/// A full send buffer drops the M-SEARCH, as UDP may anyway: the next one is sent on the retry.
+fn search_dropped(e: &io::Error) -> bool {
+    e.kind() == io::ErrorKind::WouldBlock
 }
 
 #[cfg(test)]

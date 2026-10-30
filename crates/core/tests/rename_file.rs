@@ -245,8 +245,13 @@ fn a_seed_renames_while_seeding_and_stopped_and_keeps_the_names() {
         assert_file(&f, 0, &dir.join("alpha-outside.bin"));
         assert!(!root.join("alpha.bin").exists());
 
-        // Errors: no such file, an empty name.
+        // Errors: no such file, an empty name, a name taken by another file (libtorrent 2.0.12
+        // does not overwrite it).
         assert!(rename(&mut w, id, 9, "x").is_err());
+        let e = rename(&mut w, id, 2, "rename-test/moved/beta-2.bin").expect_err("taken");
+        assert!(e.contains("exists"), "{e}");
+        assert_file(&f, 1, &root.join("moved/beta-2.bin"));
+        assert_file(&f, 2, &root.join("sub/gamma.txt"));
         assert!(rename(&mut w, id, 2, "").is_err());
         s.shutdown();
     }

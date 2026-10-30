@@ -352,6 +352,7 @@ body.drag-size { cursor: col-resize; user-select: none; }
 #statusbar > span:empty { display: none; }
 #statusbar > .grow { border: 0; }
 #st-conn.bad { color: var(--err); }
+#st-update a { color: var(--accent); }
 
 /* menus */
 .menu {

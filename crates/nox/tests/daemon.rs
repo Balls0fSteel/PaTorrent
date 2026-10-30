@@ -20,10 +20,12 @@ fn temp_dir(name: &str) -> PathBuf {
     d
 }
 
-/// `patorrent-nox run` with nothing saved, listening on loopback only.
+/// `patorrent-nox run` with nothing saved, listening on loopback only, without the update check.
 fn nox(dir: &Path) -> Command {
     let mut c = Command::new(env!("CARGO_BIN_EXE_patorrent-nox"));
-    c.args(["run", "--no-state", "--listen", "127.0.0.1:0"]).current_dir(dir).stdin(Stdio::null());
+    c.args(["run", "--no-state", "--no-update-check", "--listen", "127.0.0.1:0"])
+        .current_dir(dir)
+        .stdin(Stdio::null());
     c.env_remove("NOTIFY_SOCKET");
     c
 }
@@ -219,7 +221,16 @@ mod windows {
     fn service_debug_reports_the_status_an_scm_would_see() {
         let dir = temp_dir("svc");
         let mut child = Command::new(env!("CARGO_BIN_EXE_patorrent-nox"))
-            .args(["service", "debug", "--no-state", "--listen", "127.0.0.1:0", "--webui", "127.0.0.1:0"])
+            .args([
+                "service",
+                "debug",
+                "--no-state",
+                "--no-update-check",
+                "--listen",
+                "127.0.0.1:0",
+                "--webui",
+                "127.0.0.1:0",
+            ])
             .current_dir(&dir)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

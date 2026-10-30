@@ -205,6 +205,21 @@ pub(crate) static FIELDS: &[Field] = &[
         |w| Value::Str(w.prefs.language.clone()),
         |w, v| w.prefs.language = string(v).trim().to_owned()
     ),
+    // nox's update check (D43; not on the page hosted: the host's own options)
+    field!(
+        "update.check",
+        Some(S::PrefCheckUpdates),
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.check_updates),
+        |w, v| w.prefs.check_updates = boolean(&v)
+    ),
+    field!(
+        "update.beta",
+        Some(S::PrefUpdateBeta),
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.update_beta),
+        |w, v| w.prefs.update_beta = boolean(&v)
+    ),
     // Directories
     field!(
         "dir.download",
@@ -852,23 +867,24 @@ fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
             vec![kb("alt_up_limit"), kb("alt_dl_limit"), f("alt_enabled")],
         ));
     }
-    vec![
-        page(
-            "general",
-            tr!(PageGeneral),
+    let mut general = vec![
+        group(Some(tr!(PrefLanguage)), vec![f("ui.language")]),
+        group(
+            Some(tr!(PrefIntegration)),
             vec![
-                group(Some(tr!(PrefLanguage)), vec![f("ui.language")]),
-                group(
-                    Some(tr!(PrefIntegration)),
-                    vec![
-                        stub(tr!(PrefAssocTorrent)),
-                        stub(tr!(PrefAssocMagnet)),
-                        stub(tr!(PrefAutostart)),
-                        note(tr!(PrefDesktopOnly)),
-                    ],
-                ),
+                stub(tr!(PrefAssocTorrent)),
+                stub(tr!(PrefAssocMagnet)),
+                stub(tr!(PrefAutostart)),
+                note(tr!(PrefDesktopOnly)),
             ],
         ),
+    ];
+    if !hosted {
+        // nox's update check (D43); hosted, the host's Preferences have its own
+        general.push(group(Some(tr!(PrefPrivacy)), vec![f("update.check"), f("update.beta")]));
+    }
+    vec![
+        page("general", tr!(PageGeneral), general),
         page(
             "ui",
             tr!(PageUi),

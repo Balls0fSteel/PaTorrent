@@ -126,6 +126,13 @@ its torrent count, sorted by name) and `no_label` whenever either changed since 
 last tick; a fresh socket gets them with its first tick. A row in the window that did not change is not sent. Cells are strings in the client's
 column order; a column change re-sends the window.
 
+When nox's update check (D43, [DAEMON.md](DAEMON.md#the-update-check)) found a newer PaTorrent,
+`hello` and every `tick` carry `"update":{"version":"1.2.0","url":"<its release page>"}`; the
+page shows it as a link in the status bar (the `UpdateNotice` text) and hides the link when a
+`tick` comes without it (the newest version again, or the check turned off in Preferences >
+General > Privacy). Hosted (D40), the desktop client checks for itself and `update` is never
+sent.
+
 Ids are the info-hash in hex, as in the shim (`State::by_hash`); the slab `TorrentId` is not
 stable across restarts. Hybrid torrents (Phase 8) use the v1 hash, else the truncated v2 hash,
 as qBittorrent does, so both APIs agree.

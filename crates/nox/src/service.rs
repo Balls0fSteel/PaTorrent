@@ -1522,6 +1522,7 @@ mod tests {
                 "--now",
                 "--seed",
                 "-v",
+                "--no-update-check",
                 "--dl-limit",
                 "100",
             ]),
@@ -1547,6 +1548,7 @@ mod tests {
                 "me",
                 "--seed",
                 "-v",
+                "--no-update-check",
                 "--dl-limit",
                 "100",
             ])

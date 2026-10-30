@@ -1,5 +1,5 @@
 // Error codes and messages from libtorrent-rasterbar 2.0.11: include/libtorrent/error_code.hpp,
-// src/error_code.cpp. Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause.
+// src/error_code.cpp; torrent_directory_too_deep from 2.1.0. Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause.
 
 use std::fmt;
 
@@ -36,6 +36,9 @@ pub enum MetainfoError {
     TorrentInvalidPadFile,
     /// errors::torrent_inconsistent_hashes: a hybrid piece passed its v1 or its v2 hash only.
     TorrentInconsistentHashes,
+    /// errors::torrent_directory_too_deep (2.1.0): a file path or symlink target has more
+    /// elements than [`LoadLimits::max_directory_depth`](super::LoadLimits).
+    TorrentDirectoryTooDeep,
     FileTooLarge,
     FilenameTooLong,
     InvalidEscapedString,
@@ -72,6 +75,7 @@ impl MetainfoError {
             TorrentMissingPiecesRoot => "a v2 file entry has no root hash",
             TorrentInvalidPadFile => "a file in the v2 metadata has the pad attribute set",
             TorrentInconsistentHashes => "v1 and v2 hashes do not describe the same data",
+            TorrentDirectoryTooDeep => "directory structure in torrent file exceeds depth limit",
             FileTooLarge => "File too large",
             FilenameTooLong => "Filename too long",
             InvalidEscapedString => "invalid escaped string",

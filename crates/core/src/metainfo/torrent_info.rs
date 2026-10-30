@@ -1,4 +1,6 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/torrent_info.cpp, include/libtorrent/torrent_info.hpp
+// Ported from libtorrent-rasterbar 2.0.11: src/torrent_info.cpp, include/libtorrent/torrent_info.hpp,
+// is_valid_tracker_url from src/parse_url.cpp; fixes from 2.0.12 (invalid filenames become "_"),
+// 2.0.13 (stricter checking of tracker URLs) and 2.1.0 (max_directory_depth, remap_files removed)
 // Copyright (c) 2003-2022, Arvid Norberg, Alden Torres, Andrei Kurushin, Pavel Pimenov,
 // Steven Siloti and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: parsing returns `Result` instead of marking the object invalid; the info section is an
@@ -16,7 +18,7 @@ use super::file_storage::{
     files_compatible,
 };
 use super::magnet::parse_magnet_uri;
-use super::sanitize::sanitize_append_path_element;
+use super::sanitize::{sanitize_append_forced_path_element, sanitize_append_path_element};
 use crate::bencode::{Bdecoded, Node, bdecode, bdecode_with_limits};
 use crate::crypto::crc32c::Crc32c;
 use crate::crypto::{Sha1, Sha256};
@@ -24,7 +26,10 @@ use crate::flags::bit_flags;
 use crate::types::{InfoHashes, Sha1Hash, Sha256Hash};
 use crate::util::path::{combine_path, extension, remove_extension};
 use crate::util::random::shuffle;
-use crate::util::string::{ensure_trailing_slash, ltrim, maybe_url_encode, string_equal_no_case};
+use crate::util::string::{
+    ensure_trailing_slash, ltrim, maybe_url_encode, parse_url_components, string_begins_no_case,
+    string_equal_no_case,
+};
 use crate::util::utf8::verify_encoding;
 
 /// libtorrent `load_torrent_limits`.
@@ -35,6 +40,9 @@ pub struct LoadLimits {
     pub max_pieces: u32,
     pub max_decode_depth: usize,
     pub max_decode_tokens: usize,
+    /// Most elements in a file path or symlink target, and most levels of a v2 file tree
+    /// (2.1.0). It protects against torrents with a deeply nested directory structure.
+    pub max_directory_depth: usize,
 }
 
 impl Default for LoadLimits {
@@ -44,6 +52,7 @@ impl Default for LoadLimits {
             max_pieces: 0x200000,
             max_decode_depth: 100,
             max_decode_tokens: 3_000_000,
+            max_directory_depth: 100,
         }
     }
 }
@@ -87,6 +96,40 @@ pub enum TrackerSource {
     Client,
     MagnetLink,
     TrackerExchange,
+}
+
+/// libtorrent `is_valid_tracker_url` (2.0.13): an http, https or udp URL without control
+/// characters or spaces (RFC 3986 requires both to be percent-encoded, and control characters
+/// enable header injection) whose host is a non-empty RFC 952/1123 LDH name or IP address. IPv6
+/// literals may also hold ':', '%' (RFC 6874 zone separator), '_' and '~'.
+pub fn is_valid_tracker_url(url: &str) -> bool {
+    if url.is_empty() || url.bytes().any(|c| c <= 0x20 || c == 0x7f) {
+        return false;
+    }
+    let u = url.as_bytes();
+    if !string_begins_no_case(b"http://", u)
+        && !string_begins_no_case(b"https://", u)
+        && !string_begins_no_case(b"udp://", u)
+    {
+        return false;
+    }
+    let Ok(parts) = parse_url_components(url) else { return false };
+    // libtorrent does this check inside parse_url_components; here it applies to tracker URLs
+    // only. Whether the host was bracketed, found the way parse_url_components finds it.
+    let rest = &url[url.find("://").expect("scheme checked") + 3..];
+    let end = rest.find(['/', '?', '#']).unwrap_or(rest.len());
+    let start = match (rest.find('@'), rest.find(':')) {
+        (Some(at), Some(c)) if c < at && at < end => at + 1,
+        _ => 0,
+    };
+    let ipv6_literal = rest[start..end].starts_with('[');
+    !parts.host.is_empty()
+        && parts.host.bytes().all(|c| {
+            c.is_ascii_alphanumeric()
+                || c == b'-'
+                || c == b'.'
+                || (ipv6_literal && matches!(c, b':' | b'%' | b'_' | b'~'))
+        })
 }
 
 /// A tracker URL from the metadata (the static part of libtorrent `announce_entry`).
@@ -156,7 +199,7 @@ impl TorrentInfo {
         let tree = bdecode_with_limits(buf, limits.max_decode_depth, limits.max_decode_tokens)
             .map_err(|e| MetainfoError::Bdecode(e.kind))?;
         let root = tree.root().ok_or(MetainfoError::TorrentIsNoDict)?;
-        TorrentInfo::parse_torrent_file(root, limits.max_pieces)
+        TorrentInfo::parse_torrent_file(root, &limits)
     }
 
     /// Reads and parses a `.torrent` file.
@@ -181,12 +224,12 @@ impl TorrentInfo {
             .map_err(|e| MetainfoError::Bdecode(e.kind))?;
         let info = tree.root().ok_or(MetainfoError::TorrentInfoNoDict)?;
         let mut ti = TorrentInfo::default();
-        ti.parse_info_section(info, limits.max_pieces)?;
+        ti.parse_info_section(info, &limits)?;
         ti.resolve_duplicate_filenames();
         Ok(ti)
     }
 
-    fn parse_torrent_file(root: Node<'_>, piece_limit: u32) -> Result<TorrentInfo, MetainfoError> {
+    fn parse_torrent_file(root: Node<'_>, limits: &LoadLimits) -> Result<TorrentInfo, MetainfoError> {
         if !root.is_dict() {
             return Err(MetainfoError::TorrentIsNoDict);
         }
@@ -208,7 +251,7 @@ impl TorrentInfo {
             return Err(MetainfoError::TorrentMissingInfo);
         };
 
-        ti.parse_info_section(info, piece_limit)?;
+        ti.parse_info_section(info, limits)?;
         ti.resolve_duplicate_filenames();
 
         if ti.info_hashes.has_v2() {
@@ -238,7 +281,7 @@ impl TorrentInfo {
                 for url in tier.list_iter() {
                     let url = String::from_utf8_lossy(url.string_value());
                     let url = ltrim(&url);
-                    if url.is_empty() {
+                    if !is_valid_tracker_url(url) {
                         continue;
                     }
                     ti.trackers.push(AnnounceUrl {
@@ -254,7 +297,7 @@ impl TorrentInfo {
         if ti.trackers.is_empty() {
             let url = String::from_utf8_lossy(root.dict_find_string_value("announce").unwrap_or_default());
             let url = ltrim(&url);
-            if !url.is_empty() {
+            if is_valid_tracker_url(url) {
                 ti.trackers.push(AnnounceUrl {
                     url: url.to_owned(),
                     tier: 0,
@@ -331,7 +374,8 @@ impl TorrentInfo {
     }
 
     /// libtorrent `parse_info_section`.
-    fn parse_info_section(&mut self, info: Node<'_>, max_pieces: u32) -> Result<(), MetainfoError> {
+    fn parse_info_section(&mut self, info: Node<'_>, limits: &LoadLimits) -> Result<(), MetainfoError> {
+        let max_pieces = limits.max_pieces;
         if !info.is_dict() {
             return Err(MetainfoError::TorrentInfoNoDict);
         }
@@ -391,7 +435,7 @@ impl TorrentInfo {
 
         let files_node = info.dict_find_list("files");
         let file_tree = info.dict_find_dict("file tree");
-        let ctx = ExtractCtx { span: &span };
+        let ctx = ExtractCtx { span: &span, max_directory_depth: limits.max_directory_depth };
         let mut multifile = self.flags.contains(TorrentInfoFlags::MULTIFILE);
         if version >= 2 {
             let Some(tree) = file_tree else { return Err(MetainfoError::TorrentMissingFileTree) };
@@ -650,18 +694,6 @@ impl TorrentInfo {
         self.files.rename_file(index, new_name);
     }
 
-    /// Replaces the file layout (same total size required).
-    pub fn remap_files(&mut self, f: &FileStorage) {
-        if self.files.total_size() != f.total_size() {
-            return;
-        }
-        self.copy_on_write();
-        let (np, pl) = (self.orig_files().num_pieces(), self.orig_files().piece_length());
-        self.files = f.clone();
-        self.files.set_num_pieces(np);
-        self.files.set_piece_length(pl);
-    }
-
     pub fn is_valid(&self) -> bool {
         self.files.is_valid()
     }
@@ -721,7 +753,7 @@ impl TorrentInfo {
     }
 
     pub fn add_tracker(&mut self, url: &str, tier: u8, source: TrackerSource) {
-        if url.is_empty() || self.trackers.iter().any(|t| t.url == url) {
+        if self.trackers.iter().any(|t| t.url == url) || !is_valid_tracker_url(url) {
             return;
         }
         self.trackers.push(AnnounceUrl { url: url.to_owned(), tier, source });
@@ -903,6 +935,8 @@ impl TorrentInfo {
 struct ExtractCtx<'a> {
     /// Maps a string node to its `(offset, len)` within the info-section copy.
     span: &'a dyn Fn(Node<'_>) -> (u32, u32),
+    /// [`LoadLimits::max_directory_depth`].
+    max_directory_depth: usize,
 }
 
 fn file_attributes(dict: Node<'_>) -> FileFlags {
@@ -931,8 +965,11 @@ fn path_length(p: Node<'_>) -> Result<usize, MetainfoError> {
     Ok(len)
 }
 
-fn symlink_path(dict: Node<'_>) -> Result<Option<String>, MetainfoError> {
+fn symlink_path(dict: Node<'_>, ctx: &ExtractCtx<'_>) -> Result<Option<String>, MetainfoError> {
     let Some(sp) = dict.dict_find_list("symlink path") else { return Ok(None) };
+    if sp.list_size() > ctx.max_directory_depth {
+        return Err(MetainfoError::TorrentDirectoryTooDeep);
+    }
     let mut out = String::with_capacity(path_length(sp)?);
     for e in sp.list_iter() {
         sanitize_append_path_element(&mut out, e.string_value());
@@ -991,16 +1028,15 @@ fn extract_single_file(
         let p = dict.dict_find_list("path.utf-8").or_else(|| dict.dict_find_list("path"));
         match p {
             Some(p) if p.list_size() > 0 => {
-                let orig_len = path.len();
+                if p.list_size() > ctx.max_directory_depth {
+                    return Err(MetainfoError::TorrentDirectoryTooDeep);
+                }
                 path.reserve(path_length(p)?);
                 let mut last = None;
                 for e in p.list_iter() {
-                    sanitize_append_path_element(&mut path, e.string_value());
+                    // every element adds something: invalid names become "_"
+                    sanitize_append_forced_path_element(&mut path, e.string_value());
                     last = Some(e);
-                }
-                // everything sanitized away: use a placeholder name
-                if path.len() == orig_len {
-                    path.push_str("/_");
                 }
                 name = last.and_then(|e| borrowable(e, &path, ctx));
             }
@@ -1024,7 +1060,7 @@ fn extract_single_file(
 
     let mut link = String::new();
     if flags.contains(FileFlags::SYMLINK) {
-        match symlink_path(dict)? {
+        match symlink_path(dict, ctx)? {
             Some(l) => link = l,
             // technically invalid: a symlink must have a target
             None => flags.remove(FileFlags::SYMLINK),
@@ -1043,7 +1079,6 @@ fn extract_single_file2(
     name: Option<(u32, u32)>,
     ctx: &ExtractCtx<'_>,
 ) -> Result<(), MetainfoError> {
-    let _ = ctx;
     if !dict.is_dict() {
         return Err(MetainfoError::TorrentFileParseFailed);
     }
@@ -1063,7 +1098,7 @@ fn extract_single_file2(
     let mtime = dict.dict_find_int_value("mtime").unwrap_or(0);
 
     let link = if flags.contains(FileFlags::SYMLINK) {
-        symlink_path(dict)?.unwrap_or_default()
+        symlink_path(dict, ctx)?.unwrap_or_default()
     } else {
         String::new()
     };
@@ -1083,17 +1118,21 @@ fn extract_single_file2(
     Ok(())
 }
 
-/// Walks the v2 "file tree" recursively (at most 100 levels deep).
+/// Walks the v2 "file tree" recursively (at most `max_directory_depth` levels deep, which also
+/// bounds the stack; the bdecode depth limit bounds it further).
 fn extract_files2(
     tree: Node<'_>,
     target: &mut FileStorage,
     root_dir: &str,
     has_files: bool,
-    depth: u32,
+    depth: usize,
     ctx: &ExtractCtx<'_>,
 ) -> Result<(), MetainfoError> {
-    if !tree.is_dict() || depth > 100 {
+    if !tree.is_dict() {
         return Err(MetainfoError::TorrentFileParseFailed);
+    }
+    if depth > ctx.max_directory_depth {
+        return Err(MetainfoError::TorrentDirectoryTooDeep);
     }
     let size = tree.dict_size();
     for (key, value) in tree.dict_iter().nodes() {
@@ -1103,7 +1142,7 @@ fn extract_files2(
         let leaf = value.dict_size() == 1 && value.dict_at(0).is_some_and(|(k, _)| k.is_empty());
         let single_file = leaf && !has_files && size == 1;
         let mut path = if single_file { String::new() } else { root_dir.to_owned() };
-        sanitize_append_path_element(
+        sanitize_append_forced_path_element(
             &mut path,
             key.string_value().strip_prefix(b"/").unwrap_or(key.string_value()),
         );
@@ -1220,6 +1259,7 @@ mod tests {
         "v2_multipiece_file.torrent",
         "v2_only.torrent",
         "v2_invalid_filename.torrent",
+        "v2_invalid_filename2.torrent",
         "v2_multiple_files.torrent",
         "v2_symlinks.torrent",
         "v2_hybrid.torrent",
@@ -1250,10 +1290,10 @@ mod tests {
     fn fixture_expectations() {
         let ti = load("slash_path.torrent");
         assert_eq!(ti.num_files(), 1);
-        assert_eq!(ti.files().file_path(0, ""), "temp/bar");
+        assert_eq!(ti.files().file_path(0, ""), "temp/_/_/bar");
 
         let ti = load("slash_path2.torrent");
-        assert_eq!(ti.files().file_path(0, ""), "temp/abc....def/bar");
+        assert_eq!(ti.files().file_path(0, ""), "temp/abc....def/_/bar");
 
         let ti = load("slash_path3.torrent");
         assert_eq!(ti.files().file_path(0, ""), "temp....abc");
@@ -1376,6 +1416,12 @@ mod tests {
 
         assert_eq!(load("v2_invalid_filename.torrent").files().file_path(0, ""), "_estMB");
 
+        let ti = load("v2_invalid_filename2.torrent");
+        assert_eq!(ti.num_files(), 3);
+        assert_eq!(ti.files().file_path(0, ""), "test/_");
+        assert_eq!(ti.files().file_path(1, ""), "test/_.1");
+        assert_eq!(ti.files().file_path(2, ""), "test/stress_test2");
+
         let mut ti = load("v2_multiple_files.torrent");
         assert!(ti.v2_piece_hashes_verified());
         assert_eq!(ti.num_files(), 5);
@@ -1443,6 +1489,7 @@ mod tests {
             ("v2_invalid_pad_file.torrent", TorrentInvalidPadFile),
             ("v2_zero_root.torrent", TorrentMissingPiecesRoot),
             ("v2_zero_root_small.torrent", TorrentMissingPiecesRoot),
+            ("v2_empty_filename.torrent", TorrentFileParseFailed),
         ];
         let mut failures = Vec::new();
         for &(name, expected) in cases {
@@ -1601,6 +1648,163 @@ mod tests {
         assert_eq!(build(&[300 * GIB, 300 * GIB]).unwrap_err(), MetainfoError::TooManyPiecesInTorrent);
         assert_eq!(merkle_tree_bytes(build(&[16384]).unwrap().files()), 32);
         assert_eq!(merkle_tree_bytes(build(&[3 * 16384]).unwrap().files()), 7 * 32);
+    }
+
+    /// A v1 torrent with one file `depth` path elements deep (libtorrent 2.1.0
+    /// make_v1_torrent_with_path_depth); `symlink` makes it a symlink with a target as deep.
+    fn torrent_with_path_depth(depth: usize, symlink: bool) -> Vec<u8> {
+        let mut path: Vec<Entry> = (1..depth).map(|_| Entry::from("d")).collect();
+        path.push(Entry::from("file.txt"));
+        let mut file = Entry::new_dict();
+        *file.key("length") = 1.into();
+        *file.key("path") = Entry::from(path.clone());
+        let mut files = vec![file];
+        if symlink {
+            let mut link = Entry::new_dict();
+            *link.key("attr") = "l".into();
+            *link.key("path") = Entry::from(vec![Entry::from("link")]);
+            *link.key("symlink path") = Entry::from(path);
+            // the file itself is not too deep
+            *files[0].key("path") = Entry::from(vec![Entry::from("file.txt")]);
+            files.push(link);
+        }
+        let mut info = Entry::new_dict();
+        *info.key("name") = "root".into();
+        *info.key("piece length") = (16 * 1024).into();
+        *info.key("pieces") = "aaaaaaaaaaaaaaaaaaaa".into();
+        *info.key("files") = Entry::from(files);
+        let mut t = Entry::new_dict();
+        *t.key("info") = info;
+        t.bencode()
+    }
+
+    /// libtorrent 2.1.0 load_torrent_directory_depth_v1_*.
+    #[test]
+    fn directory_depth_limit() {
+        let small = LoadLimits { max_directory_depth: 5, ..LoadLimits::default() };
+        for symlink in [false, true] {
+            TorrentInfo::from_bytes(&torrent_with_path_depth(50, symlink)).unwrap();
+            TorrentInfo::from_bytes(&torrent_with_path_depth(100, symlink)).unwrap();
+            assert_eq!(
+                TorrentInfo::from_bytes(&torrent_with_path_depth(200, symlink)).unwrap_err(),
+                MetainfoError::TorrentDirectoryTooDeep
+            );
+            assert_eq!(
+                TorrentInfo::from_bytes_with_limits(&torrent_with_path_depth(20, symlink), small)
+                    .unwrap_err(),
+                MetainfoError::TorrentDirectoryTooDeep
+            );
+            assert!(TorrentInfo::from_bytes_with_limits(&torrent_with_path_depth(5, symlink), small).is_ok());
+        }
+
+        // the v2 file tree
+        let mut tree = Entry::new_dict();
+        *tree.key("") = {
+            let mut f = Entry::new_dict();
+            *f.key("length") = 16384.into();
+            *f.key("pieces root") = Entry::from(vec![1u8; 32]);
+            f
+        };
+        for i in 0..10 {
+            let mut parent = Entry::new_dict();
+            *parent.key(format!("d{i}")) = tree;
+            tree = parent;
+        }
+        let mut info = Entry::new_dict();
+        *info.key("file tree") = tree;
+        *info.key("meta version") = 2.into();
+        *info.key("name") = "root".into();
+        *info.key("piece length") = (16 * 1024).into();
+        let info = info.bencode();
+        assert!(TorrentInfo::from_info_section(&info, LoadLimits::default()).is_ok());
+        assert_eq!(
+            TorrentInfo::from_info_section(&info, small).unwrap_err(),
+            MetainfoError::TorrentDirectoryTooDeep
+        );
+    }
+
+    /// libtorrent 2.0.13 test_http_parser (is_valid_tracker_url, and the hostname cases
+    /// parse_url_components rejects there).
+    #[test]
+    fn valid_tracker_urls() {
+        for url in [
+            "http://example.com/announce",
+            "https://example.com/announce",
+            "udp://example.com:1337",
+            "http://192.168.0.1:8080/announce",
+            "http://[2001:ff00::1]:42/announce",
+            "HTTP://EXAMPLE.COM/announce",
+            "http://[fe80::1%25eth0]:42/path",
+            "http://user:pass@example.com/announce",
+        ] {
+            assert!(is_valid_tracker_url(url), "{url}");
+        }
+        for url in [
+            "",
+            "ftp://example.com/",
+            "example.com/announce",
+            "http://example.com/\r\nX-evil: 1",
+            "http://example.com/\n",
+            "http://example.com/\t",
+            "http://exa mple.com/announce",
+            "http://example.com/path with space",
+            "http://example.com/announce key=value",
+            " http://example.com/announce",
+            "http://example.com/announce ",
+            "http://",
+            "https://",
+            "udp://",
+            "http:///path",
+            "http://:8080/path",
+            "http://[]/path",
+            "http://under_score.example/announce",
+            "http://test\r\n.com/path",
+            "http://test.com:42abc",
+            "http://[::1/announce",
+        ] {
+            assert!(!is_valid_tracker_url(url), "{url:?}");
+        }
+    }
+
+    /// libtorrent 2.0.13 add_tracker_reject_invalid_url.
+    #[test]
+    fn add_tracker_reject_invalid_url() {
+        let mut ti = TorrentInfo::from_info_hashes(InfoHashes::v1(Sha1Hash(*b"                    ")));
+        assert_eq!(ti.trackers().len(), 0);
+        let cases = [
+            ("http://test.com/announce", 1),
+            // random text is invalid
+            ("invalid url", 1),
+            ("https://test.com/announce", 2),
+            // ftp scheme is invalid
+            ("ftp://test.com", 2),
+            ("udp://test.com/announce", 3),
+            ("httpfoo://test.com/announce", 3),
+            ("http://foo.com/announce", 4),
+        ];
+        for (url, n) in cases {
+            ti.add_tracker(url, 0, TrackerSource::Client);
+            assert_eq!(ti.trackers().len(), n, "{url}");
+        }
+        ti.clear_trackers();
+        assert_eq!(ti.trackers().len(), 0);
+    }
+
+    /// Invalid announce and announce-list URLs in a .torrent are dropped.
+    #[test]
+    fn invalid_tracker_urls_in_metadata() {
+        let ti = TorrentInfo::from_bytes(&single_file_torrent(|t, _| {
+            *t.key("announce") = "ftp://tracker.example/announce".into();
+        }))
+        .unwrap();
+        assert!(ti.trackers().is_empty());
+        let ti = TorrentInfo::from_bytes(&single_file_torrent(|t, _| {
+            let tier = vec![Entry::from("http://a_b/announce"), Entry::from("udp://tracker.example:80")];
+            *t.key("announce-list") = Entry::from(vec![Entry::from(tier)]);
+        }))
+        .unwrap();
+        assert_eq!(ti.trackers().len(), 1);
+        assert_eq!(ti.trackers()[0].url, "udp://tracker.example:80");
     }
 
     #[test]

@@ -1,4 +1,5 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/magnet_uri.cpp (parse_magnet_uri, make_magnet_uri)
+// Ported from libtorrent-rasterbar 2.0.11: src/magnet_uri.cpp (parse_magnet_uri, make_magnet_uri);
+// fixes from 2.0.13 (invalid tracker URLs are rejected)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: parses into `MagnetUri` instead of `add_torrent_params`; a 40-character btih with
 // non-hex characters is rejected (libtorrent ignores the from_hex failure and keeps garbage).
@@ -8,7 +9,7 @@
 use std::net::SocketAddr;
 
 use super::error::MetainfoError;
-use super::torrent_info::{TorrentInfo, WebSeedKind};
+use super::torrent_info::{TorrentInfo, WebSeedKind, is_valid_tracker_url};
 use crate::params::DownloadPriority;
 use crate::types::{InfoHashes, Sha1Hash, Sha256Hash};
 use crate::util::string::{base32decode, escape_string, split_string, string_equal_no_case, unescape_string};
@@ -57,7 +58,7 @@ pub fn parse_magnet_uri(uri: &str) -> Result<MagnetUri, MetainfoError> {
         if is("dn") {
             display_name = unescape(value).unwrap_or_default();
         } else if is("tr") {
-            if let Some(tracker) = unescape(value).filter(|t| !t.is_empty()) {
+            if let Some(tracker) = unescape(value).filter(|t| is_valid_tracker_url(t)) {
                 p.trackers.push(tracker);
                 p.tracker_tiers.push(tier);
                 tier += 1;
@@ -395,6 +396,28 @@ mod tests {
             parse("magnet:?tr.a=udp://1&tr.1=http://2&xt=urn:btih:c352cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd");
         assert_eq!(p.trackers, ["http://2"]);
         assert_eq!(p.tracker_tiers, [0]);
+    }
+
+    /// libtorrent 2.0.13 reject_invalid_tracker_url.
+    #[test]
+    fn reject_invalid_tracker_url() {
+        let p = parse(concat!(
+            "magnet:?xt=urn:btih:cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "&tr=ftp://1",
+            "&tr=HTTP://2",
+            "&tr=udp://4",
+            "&tr=wss://4",
+            "&tr=https://5",
+            "&tr=magnet:?xt=urn:btih:abc123",
+            "&tr=http%3A%2F%2Ffoo",
+            "&tr=<!DOCTYPE html><html>",
+            "&tr=httpabc",
+            "&tr=udpabc",
+            "&tr=",
+            "&tr=garbage",
+        ));
+        assert_eq!(p.trackers, ["HTTP://2", "udp://4", "https://5", "http://foo"]);
+        assert_eq!(p.tracker_tiers, [0, 1, 2, 3]);
     }
 
     fn with_v1() -> MagnetUri {

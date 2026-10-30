@@ -17,5 +17,7 @@ pub use create_torrent::{CreateFlags, CreateTorrent, CreateTorrentError, add_fil
 pub use error::MetainfoError;
 pub use file_storage::{FileFlags, FileSlice, FileStorage, PeerRequest};
 pub use magnet::{MagnetUri, make_magnet_uri, make_magnet_uri_from_info, parse_magnet_uri};
-pub use torrent_info::{AnnounceUrl, LoadLimits, TorrentInfo, TrackerSource, WebSeed, WebSeedKind};
+pub use torrent_info::{
+    AnnounceUrl, LoadLimits, TorrentInfo, TrackerSource, WebSeed, WebSeedKind, is_valid_tracker_url,
+};
 pub use write_torrent::write_torrent_file;

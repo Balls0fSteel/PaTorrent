@@ -447,8 +447,9 @@ mod tests {
              &tr=http%3A%2F%2F127.0.0.1%3A6379%2Fannounce%0D%0ACONFIG%20SET%20dir%20%2Ftmp%0D%0A",
         )
         .unwrap();
-        assert!(magnet.trackers[0].contains("\r\n"));
-        assert!(Url::parse(&magnet.trackers[0]).is_none());
+        // the magnet parser drops it already (libtorrent 2.0.13 is_valid_tracker_url)
+        assert!(magnet.trackers.is_empty());
+        assert!(Url::parse("http://127.0.0.1:6379/announce\r\nCONFIG SET dir /tmp\r\n").is_none());
 
         let redirect = b"HTTP/1.1 302 Found\r\nLocation: /announce\nFLUSHALL\r\n\r\n";
         assert!(matches!(parse_response(redirect, true), Err(ParseError::Invalid(_))));

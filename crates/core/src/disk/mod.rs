@@ -1366,8 +1366,14 @@ fn rename_file(storage: &Storage, ctx: &Ctx, file: usize, name: &str) -> Result<
             } else {
                 PathBuf::from(storage.save_path()).join(name)
             };
-            // An existing file is never overwritten (libtorrent 2.0.12), not even by itself.
-            if matches!(new.try_exists(), Ok(true)) {
+            // An existing file is never overwritten (libtorrent 2.0.12), not even by itself. On
+            // Windows a change of case only finds the file itself, and is let through
+            // (libtorrent refuses it).
+            let case_only = cfg!(windows) && old != new && {
+                let key = |p: &Path| p.to_string_lossy().replace('/', "\\").to_lowercase();
+                key(&old) == key(&new)
+            };
+            if !case_only && matches!(new.try_exists(), Ok(true)) {
                 let e = io::Error::new(io::ErrorKind::AlreadyExists, "file already exists");
                 return fail(&new, e);
             }
@@ -2236,6 +2242,17 @@ pub(crate) mod tests {
         let e = file_pool::rename_no_replace(&a, &b).unwrap_err();
         assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
         assert_eq!(std::fs::read(&a).unwrap(), r.contents[1]);
+        // On Windows a change of case is a rename of the file itself, and goes through.
+        if cfg!(windows) {
+            r.disk.async_rename_file(&r.storage, 1, "test/renamed/TWO.tmp".into());
+            let e = renamed(&r.rx).2;
+            assert!(e.is_none(), "{e:?}");
+            let names: Vec<_> = std::fs::read_dir(new.join("test/renamed"))
+                .unwrap()
+                .map(|e| e.unwrap().file_name())
+                .collect();
+            assert!(names.iter().any(|n| n == "TWO.tmp"), "{names:?}");
+        }
         drop(r.disk);
         let _ = std::fs::remove_dir_all(&r.dir);
     }

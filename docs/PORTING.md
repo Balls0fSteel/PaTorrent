@@ -246,3 +246,38 @@ The ChangeLog entries of 2.0.12-2.0.15 and 2.1.0-2.1.2 were triaged against this
 - Ours, found in the triage: web seeds request the original file names (`orig_files`), and a forced or network-change reannounce of a hybrid announces both info-hashes.
 
 Already right here, not applicable (i2p, SSL torrents, mmap, WebTorrent, C++ API) or deferred: see BACKLOG.md "libtorrent 2.0.12-2.1.2 follow-ups".
+
+Bug-fix commits of v2.0.13..v2.1.2 triaged one by one (parsing, web seeds, trackers, port mapping, engine), 2026-10-30. Paths are under `crates/core/src/`:
+
+- 9176d18d97 negative compact peer list length: not affected, slice lengths are unsigned and `chunks_exact` drops a remainder (proto/tracker.rs:129).
+- 553327636f bitfield bit order in test_fast_extension's helper (test only): not affected, our scripted peers use `0x80 >> (i % 8)` (`crates/core/tests/swarm.rs:500`).
+- 56382ae798 bdecode read past a truncated `l`/`d` (legacy `entry` decoder): not affected, bounds-checked token parser (bencode/bdecode.rs:672); regression test `truncated_containers` added.
+- 5e86f8fe47 `from_hex` read past an odd digit count: not affected, `decode_into` checks the length first (util/hex.rs:17).
+- ca5a92e4f8 out-of-range numbers truncated by `atoi`: ported, `parse_decimal` (util/string.rs) for magnet `so=`/`dht=` (metainfo/magnet.rs) and the UPnP `<errorCode>` (proto/upnp.rs, which still trims whitespace); ports, endpoints and the CONNECT status already used checked parsing.
+- 4ec307a319 signed overflow sizing resume bitfields: not affected, `usize` lengths, bitfields as long as the string (resume.rs:245, 265).
+- 7c0b819ae3 hybrid torrent without `pieces`: not affected, already rejected (metainfo/torrent_info.rs:507).
+- 97be0f1ec5 redirects with a query or fragment: ported, proto/http_parser.rs `resolve_redirect_location`.
+- 8d4a89270b web seed fails early on bytes that can't start a response: ported, proto/http_parser.rs `parse_head` (a request line was already an error).
+- cafd4d1c85 web seed response or redirect without a request: not affected, already "unexpected HTTP response" (proto/web_peer.rs:525, 632).
+- 30f3f689ac use after free disabling an ephemeral web seed: not affected, seeds are looked up by id (engine/web_seed.rs:1252, 1320).
+- 05c44cc4ee, d2d1a44c0e legacy Transmission `-TRXYYR-` ids: ported, proto/peer_wire.rs `identify_client`.
+- 32fae40b1a, 1cc8632d44 stuck UDP announce when aborting a tracker with several IPs: not affected, a UDP announce uses one resolved address (engine/tracker.rs:958).
+- 517daad904, 6da7b9a5c2 empty tracker tiers saved as non-lists: not affected, tiers are built from present trackers only (engine/torrent.rs:701).
+- 2ccfa19484 UPnP SSDP Location naming loopback/link-local/multicast: not affected, stricter SEC-12 check, the Location host must be the responder (engine/upnp.rs:480).
+- 39548837e8 ut_holepunch connect to local addresses: not affected, ut_holepunch messages are not implemented (proto/ut_pex.rs:39 is only the PEX flag).
+- 69463c4d03, fe06f0ede9 BEP 21 `upload_only` not kept on the peer list: not affected, we don't act on a peer's `upload_only` (parsed only, proto/peer_wire.rs:475); seeds are kept and skipped when finished (engine/peer_list.rs:58).
+- 208458699c write-failed piece unlocked before the disk cleanup: not affected, no locked-piece state, and a write error stops the torrent (engine/mod.rs:2846).
+- 8af093d3bb smart_ban/picker kept `torrent_peer*` after `clear_peers`: not affected, peers are addresses checked against the peer list (engine/smart_ban.rs:136).
+- 8de7a294ef pad blocks hid a lone downloader from blame: ported, engine/smart_ban.rs `lone_downloader`.
+- 3f4b1386aa, 9309496ff2 invalid `allowed_enc_level`, enc policies, seed choking, mixed mode: not affected, enums (settings.rs:10, 21); the frontend maps unknown levels to Both.
+- d918e4152a short writes in the copy-file fallbacks: not affected, `std::fs::copy` (disk/mod.rs:1489, disk/part_file.rs:382) and `write_at` loops.
+- 578c9c9870 DHT `canonical_string` overflow on a large salt: latent, no BEP 44; take it (and the 64-byte salt limit) with BEP 44.
+- c5578ee20a `banned_peers` resume off-by-one: not affected, banned peers are not read or written (resume.rs).
+- 2f9ba7f4ec DHT reply endpoint match: not affected, SEC-11 checks address and port (dht/node.rs:1151).
+- 1a508234f4 `whole_pieces_threshold` overflow: not affected, not ported; web seed requests are sized in `u64`.
+- e7049d21d3 DH secret padding: not affected, `U768::to_be_bytes` is fixed width (crypto/mse.rs:72).
+- c32f6e058a, 43c9633272 short reads: not affected, `read_at` loops (disk/file_pool.rs:174) and a short part file read is an error (disk/part_file.rs:244). `export_file` keeps zero-filling (disk/part_file.rs:303): a partly downloaded piece in the last slot is short legitimately, and an error there would fail the priority change.
+- f6fdabb299 uTP double detach on shutdown: not affected, `destroy` returns early once detached (utp/socket.rs:493).
+- 7a77b2fa40 non-hex magnet info-hashes: not affected, rejected (metainfo/magnet.rs:82).
+- 546c5dd433, cb6fe6b9c2 negative or huge resume times: not affected, negatives read as 0 (resume.rs:195) and times are `f64` (engine/mod.rs:3872).
+- b8d878d3bb UPnP content-type matched with `find_first_of`: not affected, substring match (proto/upnp.rs:376).

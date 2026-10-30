@@ -784,3 +784,7 @@ SearchNoUrl=Ange källans Torznab-URL.
 AskRemoveSource=Ta bort sökkällan {name}?
 WebSearchPassword=Nuvarande lösenord för webbgränssnittet:
 WebSearchNeedPassword=Ange det nuvarande lösenordet för webbgränssnittet för att lägga till en sökkälla eller ändra dess URL eller API-nyckel.
+SearchFilterTorrents=Filtrera torrenter
+SearchCueSource=Sök i {source}
+SearchCueAll=Sök i alla källor
+SearchModeTip=Filtrera listan eller sök i dina källor

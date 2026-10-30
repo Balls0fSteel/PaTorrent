@@ -784,3 +784,7 @@ SearchNoUrl=Введите URL Torznab источника.
 AskRemoveSource=Удалить источник поиска {name}?
 WebSearchPassword=Текущий пароль Web UI:
 WebSearchNeedPassword=Введите текущий пароль Web UI, чтобы добавить источник поиска или изменить его URL или ключ API.
+SearchFilterTorrents=Фильтр торрентов
+SearchCueSource=Искать в {source}
+SearchCueAll=Искать во всех источниках
+SearchModeTip=Отфильтровать список или искать в ваших источниках

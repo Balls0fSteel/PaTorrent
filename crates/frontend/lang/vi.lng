@@ -784,3 +784,7 @@ SearchNoUrl=Hãy nhập URL Torznab của nguồn tìm kiếm.
 AskRemoveSource=Gỡ bỏ nguồn tìm kiếm {name}?
 WebSearchPassword=Mật khẩu Web UI hiện tại:
 WebSearchNeedPassword=Hãy nhập mật khẩu Web UI hiện tại để thêm nguồn tìm kiếm hoặc đổi URL hay khóa API của nguồn.
+SearchFilterTorrents=Lọc torrent
+SearchCueSource=Tìm trong {source}
+SearchCueAll=Tìm trong tất cả nguồn
+SearchModeTip=Lọc danh sách hoặc tìm trong các nguồn của bạn

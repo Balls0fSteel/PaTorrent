@@ -784,3 +784,7 @@ SearchNoUrl=Zadajte Torznab URL zdroja.
 AskRemoveSource=Odstrániť zdroj hľadania {name}?
 WebSearchPassword=Súčasné heslo k Web UI:
 WebSearchNeedPassword=Zadajte súčasné heslo k Web UI, ak chcete pridať zdroj hľadania alebo zmeniť jeho URL či kľúč API.
+SearchFilterTorrents=Filtrovať torrenty
+SearchCueSource=Hľadať v {source}
+SearchCueAll=Hľadať vo všetkých zdrojoch
+SearchModeTip=Filtrovať zoznam alebo hľadať vo vašich zdrojoch

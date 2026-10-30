@@ -784,3 +784,7 @@ SearchNoUrl=Adja meg a forrás Torznab URL-jét.
 AskRemoveSource=Eltávolítja a(z) {name} keresési forrást?
 WebSearchPassword=A webes felület jelenlegi jelszava:
 WebSearchNeedPassword=Adja meg a webes felület jelenlegi jelszavát keresési forrás hozzáadásához, illetve URL-jének vagy API-kulcsának módosításához.
+SearchFilterTorrents=Torrentek szűrése
+SearchCueSource=Keresés itt: {source}
+SearchCueAll=Keresés minden forrásban
+SearchModeTip=A lista szűrése vagy keresés a forrásaiban

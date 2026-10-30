@@ -40,6 +40,8 @@ mod rss;
 #[cfg(windows)]
 mod sched_grid;
 #[cfg(windows)]
+mod search;
+#[cfg(windows)]
 mod shutdown;
 #[cfg(windows)]
 mod tray;

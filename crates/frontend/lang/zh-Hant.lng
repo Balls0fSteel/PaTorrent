@@ -784,3 +784,7 @@ SearchNoUrl=請輸入來源的 Torznab URL。
 AskRemoveSource=要移除搜尋來源 {name} 嗎？
 WebSearchPassword=目前的 Web UI 密碼：
 WebSearchNeedPassword=請輸入目前的 Web UI 密碼，以加入搜尋來源或變更其 URL 或 API 金鑰。
+SearchFilterTorrents=篩選種子
+SearchCueSource=在 {source} 中搜尋
+SearchCueAll=在所有來源中搜尋
+SearchModeTip=篩選清單或在您的來源中搜尋

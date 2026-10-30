@@ -784,3 +784,7 @@ SearchNoUrl=Voer de Torznab-URL van de bron in.
 AskRemoveSource=De zoekbron {name} verwijderen?
 WebSearchPassword=Huidig wachtwoord van de Web UI:
 WebSearchNeedPassword=Voer het huidige wachtwoord van de Web UI in om een zoekbron toe te voegen of de URL of API-sleutel ervan te wijzigen.
+SearchFilterTorrents=Torrents filteren
+SearchCueSource=Zoeken in {source}
+SearchCueAll=Zoeken in alle bronnen
+SearchModeTip=De lijst filteren of in je bronnen zoeken

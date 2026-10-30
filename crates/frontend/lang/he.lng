@@ -784,3 +784,7 @@ SearchNoUrl=נא להזין את כתובת ה-Torznab של המקור.
 AskRemoveSource=להסיר את מקור החיפוש {name}?
 WebSearchPassword=הסיסמה הנוכחית של ממשק הרשת:
 WebSearchNeedPassword=נא להזין את הסיסמה הנוכחית של ממשק הרשת כדי להוסיף מקור חיפוש או לשנות את הכתובת או את מפתח ה-API שלו.
+SearchFilterTorrents=סינון טורנטים
+SearchCueSource=חיפוש ב־{source}
+SearchCueAll=חיפוש בכל המקורות
+SearchModeTip=סינון הרשימה או חיפוש במקורות שלך

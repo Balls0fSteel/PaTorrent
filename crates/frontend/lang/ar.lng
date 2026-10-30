@@ -784,3 +784,7 @@ SearchNoUrl=أدخل عنوان URL لـ Torznab الخاص بالمصدر.
 AskRemoveSource=هل تريد إزالة مصدر البحث {name}؟
 WebSearchPassword=كلمة مرور واجهة الويب الحالية:
 WebSearchNeedPassword=أدخل كلمة مرور واجهة الويب الحالية لإضافة مصدر بحث أو تغيير عنوان URL أو مفتاح API الخاص به.
+SearchFilterTorrents=تصفية التورنتات
+SearchCueSource=البحث في {source}
+SearchCueAll=البحث في كل المصادر
+SearchModeTip=صفِّ القائمة أو ابحث في مصادرك

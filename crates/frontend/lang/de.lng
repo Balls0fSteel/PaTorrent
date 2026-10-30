@@ -784,3 +784,7 @@ SearchNoUrl=Bitte geben Sie die Torznab-URL der Quelle ein.
 AskRemoveSource=Die Suchquelle {name} entfernen?
 WebSearchPassword=Aktuelles Passwort der Web-UI:
 WebSearchNeedPassword=Geben Sie das aktuelle Passwort der Web-UI ein, um eine Suchquelle hinzuzufügen oder ihre URL oder ihren API-Schlüssel zu ändern.
+SearchFilterTorrents=Torrents filtern
+SearchCueSource=In {source} suchen
+SearchCueAll=In allen Quellen suchen
+SearchModeTip=Liste filtern oder in Ihren Quellen suchen

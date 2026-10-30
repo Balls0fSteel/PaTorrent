@@ -784,3 +784,7 @@ SearchNoUrl=Kaynağın Torznab URL'sini girin.
 AskRemoveSource={name} arama kaynağı kaldırılsın mı?
 WebSearchPassword=Geçerli Web UI parolası:
 WebSearchNeedPassword=Arama kaynağı eklemek veya URL'sini ya da API anahtarını değiştirmek için geçerli Web UI parolasını girin.
+SearchFilterTorrents=Torrentleri süz
+SearchCueSource={source} içinde ara
+SearchCueAll=Tüm kaynaklarda ara
+SearchModeTip=Listeyi süz veya kaynaklarınızda arayın

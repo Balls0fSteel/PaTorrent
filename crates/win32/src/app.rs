@@ -37,6 +37,7 @@ use patorrent_frontend::rss::view::{self as rss_view, ItemRow};
 use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::scrape::Scrapes;
+use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::{Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
@@ -52,7 +53,7 @@ use windows_sys::Win32::System::Time::SystemTimeToFileTime;
 use windows_sys::Win32::UI::Controls::*;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, SystemParametersInfoForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL, VK_DELETE, VK_ESCAPE, VK_RETURN,
+    GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_RETURN,
 };
 use windows_sys::Win32::UI::Shell::{
     DragAcceptFiles, DragFinish, DragQueryFileW, FOLDERID_Downloads, HDROP, SHGetKnownFolderPath,
@@ -66,6 +67,7 @@ use crate::details::{Detail, Page, PaintCtx};
 use crate::dialogs;
 use crate::icons::{self, Icon};
 use crate::integration::{self, Integration, Keys};
+use crate::search::{self as search_ui, SearchMode};
 use crate::shutdown::{self, Outcome, Power};
 use crate::tray;
 use crate::util::{child, copy_to, exe_path, point_from_lparam, rtl, scale, send, unscale, wide};
@@ -128,6 +130,8 @@ const IDC_TABS: usize = 13;
 const IDC_STATUS: usize = 14;
 /// The toolbar's search box.
 const IDC_SEARCH: usize = 15;
+/// The arrow beside it that opens its drop-down (filter, or search a source; D41).
+const IDC_SEARCH_MENU: usize = 16;
 const IDC_PAGE: usize = 20;
 /// The pieces list inside the Pieces panel.
 const IDC_PIECE_LIST: usize = 30;
@@ -182,6 +186,8 @@ mod cmd {
     pub const WEBSITE: u16 = 144;
     /// Ctrl+F: to the search box.
     pub const FIND: u16 = 145;
+    /// The search box's drop-down: Manage Sources.
+    pub const SEARCH_MANAGE: u16 = 146;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -191,6 +197,8 @@ mod cmd {
     pub const AUTO_SHUTDOWN_BASE: u16 = 3200;
     /// File > Import, by `import::Client::ALL` index.
     pub const IMPORT_BASE: u16 = 3300;
+    /// The search box's drop-down, by `search::mode_menu` index (at most 2 + 256 entries).
+    pub const SEARCH_MODE_BASE: u16 = 3400;
 }
 
 use patorrent_frontend::actions::LIMITS;
@@ -254,8 +262,14 @@ struct App {
     net_shown: Option<bool>,
 
     toolbar: HWND,
-    /// The search box at the toolbar's right end.
+    /// The search box at the toolbar's right end, the arrow beside it (a one-button toolbar)
+    /// and what Enter in it does (`ui.search_source`).
     search: HWND,
+    search_menu: HWND,
+    search_mode: SearchMode,
+    /// The Search Results window and the Search Sources dialog while they are open.
+    search_window: HWND,
+    search_sources: HWND,
     tree: HWND,
     lv: HWND,
     tabs: HWND,
@@ -608,6 +622,12 @@ pub fn run(args: Args) -> i32 {
             if search_key(&msg) {
                 continue;
             }
+            // the modeless Search Results window's Tab, Enter and Esc (and none of the main
+            // window's shortcuts while it has the focus)
+            let results = with_app(|a| a.search_window).unwrap_or(null_mut());
+            if !results.is_null() && IsDialogMessageW(results, &msg) != 0 {
+                continue;
+            }
             // typing in the search box: Delete and Ctrl+A edit its text, not the list; Enter
             // is the list's Properties key, every other control keeps its own Enter
             let (in_search, in_list) =
@@ -788,7 +808,35 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             WS_EX_CLIENTEDGE,
             IDC_SEARCH,
         );
-        let cue = wide(tr!(SearchCue));
+        // and 2.2.1's drop-down beside it: filter, or search a source (D41)
+        let search_menu = child(
+            hwnd,
+            TOOLBARCLASSNAMEW,
+            "",
+            WS_CHILD
+                | WS_CLIPSIBLINGS
+                | TBSTYLE_FLAT
+                | TBSTYLE_TOOLTIPS
+                | CCS_NODIVIDER as u32
+                | CCS_NORESIZE as u32
+                | CCS_NOPARENTALIGN as u32,
+            0,
+            IDC_SEARCH_MENU,
+        );
+        send(search_menu, TB_BUTTONSTRUCTSIZE, size_of::<TBBUTTON>(), 0);
+        send(search_menu, TB_SETEXTENDEDSTYLE, 0, TBSTYLE_EX_DRAWDDARROWS as LPARAM);
+        send(search_menu, TB_SETMAXTEXTROWS, 0, 0);
+        send(search_menu, TB_SETBITMAPSIZE, 0, 0);
+        let mut arrow: TBBUTTON = zeroed();
+        arrow.iBitmap = I_IMAGENONE;
+        arrow.idCommand = IDC_SEARCH_MENU as i32;
+        arrow.fsState = TBSTATE_ENABLED as u8;
+        arrow.fsStyle = (BTNS_BUTTON | BTNS_WHOLEDROPDOWN) as u8;
+        // the toolbar keeps the pointer (its tooltip): leaked once
+        arrow.iString = Box::leak(wide(tr!(SearchModeTip)).into_boxed_slice()).as_ptr() as isize;
+        send(search_menu, TB_ADDBUTTONSW, 1, &arrow as *const TBBUTTON as LPARAM);
+        let search_mode = SearchMode::load(&prefs).resolve(&load_sources(&prefs));
+        let cue = wide(&search_mode.cue(&load_sources(&prefs)));
         send(search, EM_SETCUEBANNER, 0, cue.as_ptr() as LPARAM);
 
         let tree = child(
@@ -894,6 +942,10 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             net_shown: None,
             toolbar,
             search,
+            search_menu,
+            search_mode,
+            search_window: null_mut(),
+            search_sources: null_mut(),
             tree,
             lv,
             tabs,
@@ -1217,7 +1269,7 @@ unsafe fn layout(hwnd: HWND) {
                 scale(a.detail_h, a.dpi),
                 a.dpi,
                 a.updates.notice().map(|v| tr!(UpdateNotice, version = v)),
-                a.search,
+                (a.search, a.search_menu),
             )
         }) else {
             return;
@@ -1238,7 +1290,7 @@ unsafe fn layout(hwnd: HWND) {
             detail_h,
             dpi,
             notice,
-            search,
+            (search, search_menu),
         ) = a;
         let mut rc: RECT = zeroed();
         GetClientRect(hwnd, &mut rc);
@@ -1250,9 +1302,17 @@ unsafe fn layout(hwnd: HWND) {
             let mut r: RECT = zeroed();
             GetWindowRect(toolbar, &mut r);
             let tb_h = r.bottom - r.top;
-            // the search box over the toolbar's right end, centred in its height
+            // the search box over the toolbar's right end, centred in its height, with its
+            // drop-down arrow on its right
             let (w, h) = (scale(200, dpi), scale(22, dpi).min(tb_h));
-            SetWindowPos(search, HWND_TOP, rc.right - w - gap, top + (tb_h - h) / 2, w, h, 0);
+            let arrow_w = scale(16, dpi);
+            send(search_menu, TB_SETBUTTONSIZE, 0, ((h as isize) << 16) | arrow_w as isize);
+            let mut b: RECT = zeroed();
+            send(search_menu, TB_GETITEMRECT, 0, &mut b as *mut RECT as LPARAM);
+            let arrow_w = (b.right - b.left).max(arrow_w);
+            let x = rc.right - gap - arrow_w;
+            SetWindowPos(search_menu, HWND_TOP, x, top + (tb_h - h) / 2, arrow_w, h, 0);
+            SetWindowPos(search, HWND_TOP, x - w, top + (tb_h - h) / 2, w, h, 0);
             top += tb_h;
         }
         if show_st {
@@ -1326,6 +1386,7 @@ unsafe fn update_visibility(hwnd: HWND) {
                     (a.tabs, a.show_details),
                     (a.status, a.show_status),
                     (a.search, a.show_toolbar),
+                    (a.search_menu, a.show_toolbar),
                 ],
                 a.pages,
                 a.page,
@@ -1851,21 +1912,38 @@ fn log_line(text: &str) {
 }
 
 /// The search box's keys the edit control has no use for: Escape clears it, Enter goes to the
-/// list, Ctrl+A selects its text. Returns whether `msg` was one.
+/// list (or, with a source picked in its drop-down, searches), Alt+Down opens the drop-down,
+/// Ctrl+A selects its text. Returns whether `msg` was one.
 unsafe fn search_key(msg: &MSG) -> bool {
     unsafe {
-        if msg.message != WM_KEYDOWN {
+        if msg.message != WM_KEYDOWN && msg.message != WM_SYSKEYDOWN {
             return false;
         }
-        let Some((search, lv)) = with_app(|a| (a.search, a.lv)) else { return false };
+        let Some((search, lv, hwnd, mode)) = with_app(|a| (a.search, a.lv, a.hwnd, a.search_mode.clone()))
+        else {
+            return false;
+        };
         if msg.hwnd != search {
             return false;
+        }
+        if msg.message == WM_SYSKEYDOWN {
+            if msg.wParam as u16 != VK_DOWN {
+                return false;
+            }
+            search_menu(hwnd);
+            return true;
         }
         let ctrl = GetKeyState(VK_CONTROL as i32) < 0;
         match msg.wParam as u16 {
             VK_ESCAPE => {
                 SetWindowTextW(search, w!(""));
                 SetFocus(lv);
+            }
+            VK_RETURN if mode != SearchMode::Filter => {
+                let text = crate::util::window_text(search);
+                if !text.trim().is_empty() {
+                    open_search(hwnd, text.trim(), search_ui::Pick::of(&mode));
+                }
             }
             VK_RETURN => {
                 SetFocus(lv);
@@ -1879,12 +1957,159 @@ unsafe fn search_key(msg: &MSG) -> bool {
     }
 }
 
-/// The search box changed: the list shows the names containing its text.
+/// The search box changed: the list shows the names containing its text (unless its
+/// drop-down picked a source: then Enter searches and the list stays whole).
 fn on_search() {
-    let Some(search) = with_app(|a| a.search) else { return };
-    let text = unsafe { crate::util::window_text(search) };
+    let Some((search, filter)) = with_app(|a| (a.search, a.search_mode == SearchMode::Filter)) else {
+        return;
+    };
+    let text = if filter { unsafe { crate::util::window_text(search) } } else { String::new() };
     with_app(|a| a.list.set_search(&text));
     unsafe { refresh_list() };
+}
+
+// ---- Torrent search (D41) ---------------------------------------------------------------
+// The search box's drop-down picks what Enter does (`search::SearchMode`); the Search Results
+// window and the Search Sources dialog (`crate::search`) reach the window through
+// [`WindowSearch`]. A remote window searches from this computer with its own sources and adds
+// what it finds to the remote server, as Add Torrent from URL does.
+
+/// The search box's drop-down under its arrow: Filter torrents, each enabled source, All
+/// sources, Manage Sources.
+unsafe fn search_menu(hwnd: HWND) {
+    unsafe {
+        let Some((arrow, entries)) =
+            with_app(|a| (a.search_menu, search_ui::mode_menu(&load_sources(&a.prefs), &a.search_mode)))
+        else {
+            return;
+        };
+        let menu = CreatePopupMenu();
+        for (i, e) in entries.iter().enumerate() {
+            let flags = checked(e.checked) | grayed(!e.enabled) | MFT_RADIOCHECK;
+            append_flags(menu, flags, cmd::SEARCH_MODE_BASE + i as u16, &e.text.replace('&', "&&"));
+        }
+        separator(menu);
+        append(menu, cmd::SEARCH_MANAGE, tr!(SearchManage));
+        let mut r: RECT = zeroed();
+        GetWindowRect(arrow, &mut r);
+        // under the box and its arrow, right-aligned with them
+        TrackPopupMenu(
+            menu,
+            TPM_RIGHTALIGN | TPM_LEFTBUTTON | rtl(TPM_LAYOUTRTL),
+            r.right,
+            r.bottom,
+            0,
+            hwnd,
+            null(),
+        );
+        DestroyMenu(menu);
+    }
+}
+
+/// The drop-down's entry `i` was picked.
+unsafe fn search_mode_picked(i: usize) {
+    let mode = with_app(|a| search_ui::mode_menu(&load_sources(&a.prefs), &a.search_mode))
+        .and_then(|m| m.into_iter().nth(i))
+        .filter(|e| e.enabled)
+        .map(|e| e.mode);
+    if let Some(mode) = mode {
+        unsafe { set_search_mode(mode) };
+    }
+}
+
+/// Puts `mode` into effect: remembered, the box's hint, and the list filtered by the box only
+/// in Filter mode.
+unsafe fn set_search_mode(mode: SearchMode) {
+    let Some(search) = with_app(|a| {
+        let changed = a.search_mode != mode;
+        a.search_mode = mode;
+        if changed {
+            a.search_mode.store(&mut a.prefs);
+            if let Err(e) = a.prefs.save() {
+                a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
+            }
+        }
+        let cue = wide(&a.search_mode.cue(&load_sources(&a.prefs)));
+        unsafe { send(a.search, EM_SETCUEBANNER, 0, cue.as_ptr() as LPARAM) };
+        a.search
+    }) else {
+        return;
+    };
+    unsafe { InvalidateRect(search, null(), 1) };
+    on_search();
+}
+
+/// The search sources changed (here or in a browser): the drop-down's choice still has to be
+/// there, and the open windows fill their lists again.
+unsafe fn search_sources_changed() {
+    let Some((mode, windows)) = with_app(|a| {
+        (a.search_mode.clone().resolve(&load_sources(&a.prefs)), [a.search_window, a.search_sources])
+    }) else {
+        return;
+    };
+    unsafe {
+        set_search_mode(mode);
+        for w in windows {
+            if !w.is_null() {
+                PostMessageW(w, search_ui::WM_SEARCH_SOURCES, 0, 0);
+            }
+        }
+    }
+}
+
+/// Searches for `query` in the Search Results window, opening it if it is not open.
+unsafe fn open_search(hwnd: HWND, query: &str, pick: search_ui::Pick) {
+    let open = with_app(|a| a.search_window).unwrap_or(null_mut());
+    if open.is_null() {
+        search_ui::open(hwnd, Box::new(WindowSearch { main: hwnd }), query, pick);
+    } else {
+        search_ui::start_in(open, query, pick);
+    }
+}
+
+/// The search windows' way into this window ([`search_ui::Host`]).
+struct WindowSearch {
+    main: HWND,
+}
+
+impl search_ui::Host for WindowSearch {
+    fn sources(&mut self) -> Vec<SearchSource> {
+        with_app(|a| load_sources(&a.prefs)).unwrap_or_default()
+    }
+
+    /// Into `patorrent.ini` (the keys sealed) and, through the preferences' journal, into the
+    /// Web UI this window serves.
+    fn store_sources(&mut self, sources: &[SearchSource]) {
+        with_app(|a| {
+            store_sources(&mut a.prefs, sources);
+            if let Err(e) = a.prefs.save() {
+                a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
+            }
+            sync_web(a);
+        });
+        unsafe { search_sources_changed() };
+    }
+
+    fn proxy(&mut self) -> Option<FetchProxy> {
+        with_app(|a| rss_proxy(a)).flatten()
+    }
+
+    /// As File > Add Torrent from URL adds: the Add dialog unless Preferences turned it off.
+    fn add(&mut self, owner: HWND, d: Download, _name: &str) {
+        let owner = if owner.is_null() { self.main } else { owner };
+        match d {
+            Download::Torrent(bytes) => add_torrent_file(owner, bytes),
+            Download::Magnet(uri) => add_magnet(owner, &uri),
+        }
+    }
+
+    fn set_results_window(&mut self, dlg: HWND) {
+        with_app(|a| a.search_window = dlg);
+    }
+
+    fn set_sources_dialog(&mut self, dlg: HWND) {
+        with_app(|a| a.search_sources = dlg);
+    }
 }
 
 /// File > Import: the client's torrents with their data, statistics and labels.
@@ -2882,6 +3107,15 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                     send(search, EM_SETSEL, 0, -1);
                 }
             }
+            cmd::SEARCH_MANAGE => {
+                // modal; nothing is borrowed across it
+                search_ui::manage(hwnd, &mut WindowSearch { main: hwnd });
+            }
+            id if (cmd::SEARCH_MODE_BASE..cmd::SEARCH_MODE_BASE + 2 + search_ui::MAX_SOURCES as u16)
+                .contains(&id) =>
+            {
+                search_mode_picked((id - cmd::SEARCH_MODE_BASE) as usize);
+            }
             id if (cmd::IMPORT_BASE..cmd::IMPORT_BASE + import::Client::ALL.len() as u16).contains(&id) => {
                 import_from(hwnd, import::Client::ALL[(id - cmd::IMPORT_BASE) as usize]);
             }
@@ -3659,6 +3893,7 @@ fn on_web_changes() {
     if changes.is_empty() {
         return;
     }
+    let sources = changes.iter().any(|(k, _)| k.starts_with("search."));
     with_app(|a| {
         let before = Options::load(&a.prefs, &a.save_path);
         a.prefs.apply_changes(&changes);
@@ -3684,6 +3919,10 @@ fn on_web_changes() {
     unsafe {
         refresh_list();
         update_tree();
+        if sources {
+            // a browser changed the search sources: the drop-down and the search windows
+            search_sources_changed();
+        }
     }
 }
 
@@ -3921,6 +4160,161 @@ mod url_tests {
             DestroyWindow(hwnd);
         }
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+/// The search box's drop-down end to end, in a hidden main window over the simulated engine
+/// and a fake indexer: picking a source changes the hint and is remembered, Enter opens Search
+/// Results, and Add puts the result into the list through the window's add path.
+#[cfg(test)]
+mod search_tests {
+    use std::time::{Duration, Instant};
+
+    use patorrent_frontend::search::worker::Fetcher;
+    use patorrent_frontend::search::{Query, SearchError, SearchResult};
+
+    use super::*;
+
+    const HASH: &str = "0123456789abcdef0123456789abcdef01234567";
+
+    struct Fake;
+
+    impl Fetcher for Fake {
+        fn search(
+            &self,
+            _: &SearchSource,
+            query: &Query,
+            _: Option<&FetchProxy>,
+        ) -> Result<Vec<SearchResult>, SearchError> {
+            Ok(vec![SearchResult {
+                name: format!("{} found", query.text),
+                seeders: Some(3),
+                info_hash: HASH.into(),
+                magnet: format!("magnet:?xt=urn:btih:{HASH}&dn=found"),
+                ..SearchResult::default()
+            }])
+        }
+    }
+
+    fn pump_until(mut done: impl FnMut() -> bool) -> bool {
+        let start = Instant::now();
+        while start.elapsed() < Duration::from_secs(15) {
+            unsafe {
+                let mut msg: MSG = zeroed();
+                while PeekMessageW(&mut msg, null_mut(), 0, 0, PM_REMOVE) != 0 {
+                    TranslateMessage(&msg);
+                    DispatchMessageW(&msg);
+                }
+            }
+            if done() {
+                return true;
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        false
+    }
+
+    fn cue(edit: HWND) -> String {
+        let mut buf = [0u16; 128];
+        unsafe { send(edit, EM_GETCUEBANNER, buf.as_mut_ptr() as WPARAM, buf.len() as LPARAM) };
+        crate::util::from_wide(&buf)
+    }
+
+    #[test]
+    fn the_drop_down_picks_a_source_and_enter_searches_and_adds() {
+        unsafe {
+            let icc = INITCOMMONCONTROLSEX {
+                dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
+                dwICC: ICC_WIN95_CLASSES
+                    | ICC_BAR_CLASSES
+                    | ICC_TAB_CLASSES
+                    | ICC_LISTVIEW_CLASSES
+                    | ICC_TREEVIEW_CLASSES,
+            };
+            InitCommonControlsEx(&icc);
+            let instance = GetModuleHandleW(null());
+            let mut wc: WNDCLASSEXW = zeroed();
+            wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
+            wc.lpfnWndProc = Some(wndproc);
+            wc.hInstance = instance;
+            wc.lpszClassName = w!("PaTorrentSearchTestWnd");
+            RegisterClassExW(&wc);
+            wc.lpfnWndProc = Some(panel_proc);
+            wc.lpszClassName = PANEL_CLASS;
+            RegisterClassExW(&wc);
+            let hwnd = CreateWindowExW(
+                0,
+                w!("PaTorrentSearchTestWnd"),
+                w!("PaTorrent search test"),
+                WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                0,
+                0,
+                900,
+                600,
+                null_mut(),
+                null_mut(),
+                instance,
+                null(),
+            );
+            assert!(!hwnd.is_null());
+            let session = Session::start_mock(
+                Settings::default(),
+                MockConfig { initial_torrents: 0, active_fraction: 0.0, ..MockConfig::default() },
+            );
+            let mut prefs = Prefs::default();
+            prefs.set_bool("ui.show_add_dialog", false);
+            prefs.set("dir.download", std::env::temp_dir().to_string_lossy());
+            let source = SearchSource {
+                name: "Indexer".into(),
+                url: "http://127.0.0.1:9/1/api".into(),
+                api_key: "k3y".into(),
+                enabled: true,
+            };
+            store_sources(&mut prefs, std::slice::from_ref(&source));
+            init(hwnd, session, prefs);
+            search_ui::TEST_FETCHER.with(|f| *f.borrow_mut() = Some(Arc::new(Fake)));
+            let search = with_app(|a| a.search).unwrap();
+            assert_eq!(cue(search), "Search torrent names");
+
+            // the drop-down: Filter torrents, Indexer, All sources; pick Indexer
+            on_command(hwnd, cmd::SEARCH_MODE_BASE + 1);
+            let id = search_ui::source_id(&source);
+            assert_eq!(with_app(|a| a.search_mode.clone()), Some(SearchMode::Source(id.clone())));
+            assert_eq!(
+                with_app(|a| a.prefs.get(search_ui::MODE_PREF).map(str::to_owned)).flatten(),
+                Some(id)
+            );
+            assert_eq!(cue(search), "Search Indexer");
+
+            // typing no longer filters; Enter searches
+            SetWindowTextW(search, w!("ubuntu"));
+            let enter = MSG { hwnd: search, message: WM_KEYDOWN, wParam: VK_RETURN as WPARAM, ..zeroed() };
+            assert!(search_key(&enter));
+            let dlg = with_app(|a| a.search_window).unwrap();
+            assert!(!dlg.is_null(), "Search Results opened");
+            let results = GetDlgItem(dlg, search_ui::ID_LIST as i32);
+            assert!(pump_until(|| send(results, LVM_GETITEMCOUNT, 0, 0) == 1));
+
+            // Add: the magnet goes into the session as Add Torrent from URL would add it
+            controls::set_state(results, Some(0), true, true);
+            let add = GetDlgItem(dlg, search_ui::ID_ADD as i32);
+            SendMessageW(dlg, WM_COMMAND, search_ui::ID_ADD as usize, add as LPARAM);
+            let hashes = || {
+                with_app(|a| {
+                    a.list.ids().filter_map(|id| a.list.get(id)).map(|s| s.info_hashes.key_hex()).collect()
+                })
+                .unwrap_or_else(Vec::new)
+            };
+            assert!(pump_until(|| hashes().iter().any(|h| h == HASH)), "{:?}", hashes());
+
+            // back to Filter torrents: forgotten, the box filters again
+            on_command(hwnd, cmd::SEARCH_MODE_BASE);
+            assert_eq!(with_app(|a| a.prefs.get(search_ui::MODE_PREF).is_none()), Some(true));
+            assert_eq!(cue(search), "Search torrent names");
+            DestroyWindow(dlg);
+            assert!(with_app(|a| a.search_window.is_null()).unwrap());
+            DestroyWindow(hwnd);
+        }
     }
 }
 
@@ -4727,6 +5121,10 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                     copy_to(di.item.pszText, di.item.cchTextMax, &text);
                 }
                 0
+            }
+            (IDC_SEARCH_MENU, TBN_DROPDOWN) => {
+                search_menu(hwnd);
+                TBDDRET_DEFAULT as LRESULT
             }
             _ => 0,
         }

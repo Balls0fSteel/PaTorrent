@@ -784,3 +784,7 @@ SearchNoUrl=Unesite Torznab URL izvora.
 AskRemoveSource=Ukloniti izvor pretraživanja {name}?
 WebSearchPassword=Trenutačna lozinka za Web UI:
 WebSearchNeedPassword=Unesite trenutačnu lozinku za Web UI kako biste dodali izvor pretraživanja ili promijenili njegov URL ili API ključ.
+SearchFilterTorrents=Filtriraj torrente
+SearchCueSource=Traži u {source}
+SearchCueAll=Traži u svim izvorima
+SearchModeTip=Filtriraj popis ili traži u svojim izvorima

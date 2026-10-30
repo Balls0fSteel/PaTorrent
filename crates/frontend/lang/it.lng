@@ -784,3 +784,7 @@ SearchNoUrl=Inserisci l'URL Torznab della fonte.
 AskRemoveSource=Rimuovere la fonte di ricerca {name}?
 WebSearchPassword=Password attuale della Web UI:
 WebSearchNeedPassword=Inserisci la password attuale della Web UI per aggiungere una fonte di ricerca o cambiarne l'URL o la chiave API.
+SearchFilterTorrents=Filtra i torrent
+SearchCueSource=Cerca in {source}
+SearchCueAll=Cerca in tutte le fonti
+SearchModeTip=Filtra l'elenco o cerca nelle tue fonti

@@ -784,3 +784,7 @@ SearchNoUrl=لطفاً نشانی Torznab منبع را وارد کنید.
 AskRemoveSource=منبع جست‌وجوی {name} برداشته شود؟
 WebSearchPassword=گذرواژهٔ کنونی رابط وب:
 WebSearchNeedPassword=برای افزودن منبع جست‌وجو یا تغییر نشانی یا کلید API آن، گذرواژهٔ کنونی رابط وب را وارد کنید.
+SearchFilterTorrents=پالایش تورنت‌ها
+SearchCueSource=جست‌وجو در {source}
+SearchCueAll=جست‌وجو در همهٔ منابع
+SearchModeTip=پالایش فهرست یا جست‌وجو در منابع شما

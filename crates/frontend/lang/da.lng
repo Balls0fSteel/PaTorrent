@@ -784,3 +784,7 @@ SearchNoUrl=Angiv kildens Torznab-URL.
 AskRemoveSource=Fjern søgekilden {name}?
 WebSearchPassword=Nuværende adgangskode til Web UI'en:
 WebSearchNeedPassword=Angiv den nuværende adgangskode til Web UI'en for at tilføje en søgekilde eller ændre dens URL eller API-nøgle.
+SearchFilterTorrents=Filtrér torrents
+SearchCueSource=Søg i {source}
+SearchCueAll=Søg i alle kilder
+SearchModeTip=Filtrér listen eller søg i dine kilder

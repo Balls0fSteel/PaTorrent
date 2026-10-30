@@ -784,3 +784,7 @@ SearchNoUrl=Masukkan URL Torznab sumber.
 AskRemoveSource=Hapus sumber pencarian {name}?
 WebSearchPassword=Kata sandi Web UI saat ini:
 WebSearchNeedPassword=Masukkan kata sandi Web UI saat ini untuk menambah sumber pencarian atau mengubah URL atau kunci API-nya.
+SearchFilterTorrents=Saring torrent
+SearchCueSource=Cari di {source}
+SearchCueAll=Cari di semua sumber
+SearchModeTip=Saring daftar atau cari di sumber Anda

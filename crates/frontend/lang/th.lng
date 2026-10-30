@@ -784,3 +784,7 @@ SearchNoUrl=โปรดป้อน URL ของ Torznab ของแหล่
 AskRemoveSource=เอาแหล่งค้นหา {name} ออกหรือไม่?
 WebSearchPassword=รหัสผ่าน Web UI ปัจจุบัน:
 WebSearchNeedPassword=โปรดป้อนรหัสผ่าน Web UI ปัจจุบันเพื่อเพิ่มแหล่งค้นหา หรือเปลี่ยน URL หรือคีย์ API ของแหล่งค้นหา
+SearchFilterTorrents=กรองทอร์เรนต์
+SearchCueSource=ค้นหาใน {source}
+SearchCueAll=ค้นหาในทุกแหล่ง
+SearchModeTip=กรองรายการหรือค้นหาในแหล่งของคุณ

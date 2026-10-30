@@ -20,7 +20,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     MB_ICONINFORMATION, MB_ICONQUESTION, MB_ICONWARNING, MB_OK, MB_RIGHT, MB_RTLREADING, MB_USERICON,
     MB_YESNO, MSGBOXPARAMSW, MessageBoxIndirectW, MessageBoxW, NONCLIENTMETRICSW, SPI_GETNONCLIENTMETRICS,
     SendMessageW, SetWindowLongPtrW, SetWindowTextW, WM_COMMAND, WM_INITDIALOG, WS_BORDER, WS_CAPTION,
-    WS_CHILD, WS_EX_LAYOUTRTL, WS_POPUP, WS_SYSMENU, WS_TABSTOP, WS_VISIBLE,
+    WS_CHILD, WS_EX_LAYOUTRTL, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_TABSTOP,
+    WS_THICKFRAME, WS_VISIBLE,
 };
 
 use windows_sys::Win32::UI::Controls::EM_SETSEL;
@@ -319,6 +320,17 @@ impl Template {
         }
         self.text(label);
         self.t.push(0); // no creation data
+    }
+
+    /// A window the user can resize and maximize (the Search Results window) instead of a
+    /// fixed dialog frame; its procedure lays the controls out on `WM_SIZE`.
+    pub fn resizable(&mut self) {
+        let style = (self.t[0] as u32 | (self.t[1] as u32) << 16) & !(DS_MODALFRAME as u32)
+            | WS_THICKFRAME
+            | WS_MAXIMIZEBOX
+            | WS_MINIMIZEBOX;
+        self.t[0] = style as u16;
+        self.t[1] = (style >> 16) as u16;
     }
 
     pub fn finish(self) -> Vec<u16> {

@@ -784,3 +784,7 @@ SearchNoUrl=Anna lähteen Torznab-URL.
 AskRemoveSource=Poistetaanko hakulähde {name}?
 WebSearchPassword=Web UI:n nykyinen salasana:
 WebSearchNeedPassword=Anna Web UI:n nykyinen salasana, jotta voit lisätä hakulähteen tai muuttaa sen URL-osoitetta tai API-avainta.
+SearchFilterTorrents=Suodata torrentit
+SearchCueSource=Hae lähteestä {source}
+SearchCueAll=Hae kaikista lähteistä
+SearchModeTip=Suodata luetteloa tai hae lähteistäsi

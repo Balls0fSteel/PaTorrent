@@ -784,3 +784,7 @@ SearchNoUrl=Introduceți URL-ul Torznab al sursei.
 AskRemoveSource=Eliminați sursa de căutare {name}?
 WebSearchPassword=Parola actuală pentru Web UI:
 WebSearchNeedPassword=Introduceți parola actuală pentru Web UI pentru a adăuga o sursă de căutare sau a-i schimba URL-ul sau cheia API.
+SearchFilterTorrents=Filtrează torentele
+SearchCueSource=Caută în {source}
+SearchCueAll=Caută în toate sursele
+SearchModeTip=Filtrează lista sau caută în sursele tale

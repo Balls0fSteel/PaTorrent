@@ -784,3 +784,7 @@ SearchNoUrl=ソースの Torznab URL を入力してください。
 AskRemoveSource=検索ソース {name} を削除しますか?
 WebSearchPassword=現在の Web UI のパスワード:
 WebSearchNeedPassword=検索ソースを追加する、または URL や API キーを変更するには、現在の Web UI のパスワードを入力してください。
+SearchFilterTorrents=トレントを絞り込む
+SearchCueSource={source} で検索
+SearchCueAll=すべてのソースで検索
+SearchModeTip=一覧を絞り込むか、ソースで検索します

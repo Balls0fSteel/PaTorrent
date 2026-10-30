@@ -784,3 +784,7 @@ SearchNoUrl=Escriviu l'URL de Torznab de la font.
 AskRemoveSource=Voleu eliminar la font de cerca {name}?
 WebSearchPassword=Contrasenya actual de la interfície web:
 WebSearchNeedPassword=Escriviu la contrasenya actual de la interfície web per afegir una font de cerca o canviar-ne l'URL o la clau d'API.
+SearchFilterTorrents=Filtra els torrents
+SearchCueSource=Cerca a {source}
+SearchCueAll=Cerca a totes les fonts
+SearchModeTip=Filtra la llista o cerca a les teves fonts

@@ -1077,4 +1077,15 @@ strings! {
     /// The Web UI asks for its own password before a source is added or its address changed.
     WebSearchPassword = "Current Web UI password:";
     WebSearchNeedPassword = "Enter the current Web UI password to add a search source or change its URL or API key.";
+
+    // Search (Win32)
+
+    /// The toolbar search box's drop-down: typing filters the torrent list by name.
+    SearchFilterTorrents = "Filter torrents";
+    /// The toolbar search box's grey hint when Enter searches one source; {source} is its name.
+    SearchCueSource = "Search {source}";
+    /// The toolbar search box's grey hint when Enter searches every source.
+    SearchCueAll = "Search all sources";
+    /// The tooltip of the arrow beside the toolbar search box, which opens its drop-down.
+    SearchModeTip = "Filter the list or search your sources";
 }

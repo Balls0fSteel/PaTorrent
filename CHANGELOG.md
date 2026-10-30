@@ -4,6 +4,16 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_122955_1793359795: Torznab search, slice 4: the GTK GUI (1.1.15, D41)
+
+- **GTK:**
+  - A menu button joined to the toolbar's `SearchEntry` offers the name filter (as before), each enabled source, "All sources" and "Manage Sources...". With a source picked, Enter opens Search Torrents. That window is not modal and has sortable columns, a status line per source, and Add by button, double-click or Enter.
+  - Search Sources lets you switch, add, edit (an empty key keeps the stored one), remove and Test sources, saved in the window's ini.
+  - Downloads are fetched off the main thread, then go through the app's normal add path with the Add dialog. Remote windows search from this computer and add on the server, as their RSS does.
+  - No new strings.
+- **Run on the Xubuntu VM:** under Xvfb against the VM's Prowlarr: 3 results, a wrong key's 401, sorting, a double-click Add through the Add dialog, Test, and the Edit dialog. A GTK size warning in the Edit dialog was fixed there. `cargo test -p patorrent-gtk` passes 28 tests, 8 of them new. The VM has no clippy; the Windows stand-in lint (`--target x86_64-unknown-linux-gnu -D warnings`) is clean on the merged tree. The key stayed out of output, and the VM was left clean.
+- **Open:** no way to clear a stored key except removing the source; the search mode is not remembered between runs. Built by a subagent in a worktree; the screenshots were reviewed. Version 1.1.15.
+
 ## 2026-10-30_112341_1793355821: Torznab search, slice 2: nox and the Web UI (1.1.14, D41)
 
 - **nox:**

@@ -1,4 +1,5 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/create_torrent.cpp, include/libtorrent/create_torrent.hpp
+// Ported from libtorrent-rasterbar 2.0.11: src/create_torrent.cpp, include/libtorrent/create_torrent.hpp,
+// lexically_relative_normal from src/path.cpp; fixes from 2.0.13 (symlinks stored per BEP 47)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: errors are `Result`s instead of exceptions; `set_piece_hashes` reads the files itself
 // (one reader, a few hashing threads) instead of going through a disk_interface; directory entries
@@ -803,7 +804,22 @@ fn add_files_impl(
     let file_flags =
         if flags.contains(CreateFlags::NO_ATTRIBUTES) { FileFlags::empty() } else { get_file_attributes(&f) };
     if file_flags.contains(FileFlags::SYMLINK) && flags.contains(CreateFlags::SYMLINKS) {
-        let sym_path = get_symlink_path(&f);
+        // readlink() returns the target either as an absolute path or relative to the link's
+        // parent directory. BEP 47 stores symlink paths relative to the torrent root, so
+        // translate the on-disk target into that frame of reference.
+        let Ok(sym_path) = get_symlink_path(&f) else { return Ok(()) };
+        let sym_path = f.parent().unwrap_or(p).join(sym_path);
+        let torrent_root = p.join(lsplit_path(l).0);
+        // drop symlinks whose target is outside the torrent root
+        let Some(sym_path) = lexically_relative_normal(&torrent_root, &sym_path) else { return Ok(()) };
+        if sym_path.is_empty() {
+            return Ok(());
+        }
+        // give the predicate a chance to filter on the resolved target as well (e.g. to reject
+        // symlinks pointing at files the predicate excluded earlier)
+        if !pred(&torrent_root.join(&sym_path)) {
+            return Ok(());
+        }
         fs.add_file(l, 0, file_flags, mtime, &sym_path, None)?;
     } else {
         fs.add_file(l, s.len(), file_flags, mtime, "", None)?;
@@ -842,12 +858,43 @@ pub fn get_file_attributes(p: &Path) -> FileFlags {
     }
 }
 
-/// libtorrent `aux::get_symlink_path`: the link target as stored (empty on Windows).
-fn get_symlink_path(p: &Path) -> String {
+/// libtorrent `aux::get_symlink_path`: the link target as stored. Unsupported on Windows.
+fn get_symlink_path(p: &Path) -> io::Result<PathBuf> {
     if cfg!(windows) {
-        return String::new();
+        return Err(io::ErrorKind::Unsupported.into());
     }
-    std::fs::read_link(p).ok().and_then(|t| t.to_str().map(str::to_owned)).unwrap_or_default()
+    std::fs::read_link(p)
+}
+
+/// libtorrent `lexically_relative_normal` (2.0.13): `target` relative to `base`, resolving "."
+/// and ".." in `target` on the way, with '/' separators. `None` if `target` lies outside `base`
+/// or a ".." steps above it (and for a non-UTF-8 component). Both should be absolute.
+fn lexically_relative_normal(base: &Path, target: &Path) -> Option<String> {
+    use std::path::Component;
+    // strip shared leading components from base and target
+    let mut b = base.components().peekable();
+    let mut t = target.components().peekable();
+    while b.peek().is_some() && b.peek() == t.peek() {
+        b.next();
+        t.next();
+    }
+    // any leftover in base means target lies outside base (sibling, ancestor or other root)
+    if b.next().is_some() {
+        return None;
+    }
+    // resolve the remainder of target into a component stack
+    let mut components = Vec::new();
+    for c in t {
+        match c {
+            Component::CurDir => {}
+            Component::ParentDir => {
+                components.pop()?;
+            }
+            Component::Normal(s) => components.push(s.to_str()?),
+            Component::RootDir | Component::Prefix(_) => return None,
+        }
+    }
+    Some(components.join("/"))
 }
 
 /// libtorrent `set_piece_hashes`: reads the files from `base` (the directory that holds the
@@ -1848,14 +1895,30 @@ mod tests {
         std::fs::write(root.join("d/file-2"), vec![0u8; 1000]).unwrap();
         symlink("../a/b/c/file-1", root.join("d/test-link-1")).unwrap();
         symlink("a/b/c/file-1", root.join("test-link-2")).unwrap();
-        symlink("a/b/c/file-1", root.join("a/b/c/test-link-3")).unwrap();
+        symlink("file-1", root.join("a/b/c/test-link-3")).unwrap();
         symlink("../../../d/file-2", root.join("a/b/c/test-link-4")).unwrap();
 
         let mut fs = FileStorage::new();
         add_files(&mut fs, &root, &mut |_| true, CreateFlags::SYMLINKS).unwrap();
         let mut t = CreateTorrent::new(fs, 16 * 1024, CreateFlags::SYMLINKS).unwrap();
         set_piece_hashes(&mut t, &dir.0, &mut |_| true).unwrap();
-        let ti = TorrentInfo::from_bytes(&generate_buf(&t)).unwrap();
+        let buf = generate_buf(&t);
+
+        // the stored "symlink path" entries are relative to the torrent root and do not start
+        // with the torrent's own name
+        let e = crate::bencode::bdecode(&buf).unwrap();
+        let files = e.root().unwrap().dict_find_dict("info").unwrap().dict_find_list("files").unwrap();
+        let mut direct_found = 0;
+        for f in files.list_iter() {
+            let Some(sympath) = f.dict_find_list("symlink path") else { continue };
+            assert!(sympath.list_size() > 0);
+            assert_ne!(sympath.list_at(0).unwrap().string_value(), b"test-torrent");
+            assert!(sympath.list_iter().all(|e| e.string_value() != b".."));
+            direct_found += 1;
+        }
+        assert_eq!(direct_found, 4);
+
+        let ti = TorrentInfo::from_bytes(&buf).unwrap();
 
         let mut found = 0;
         for i in 0..ti.num_files() {
@@ -1872,6 +1935,110 @@ mod tests {
             }
         }
         assert_eq!(found, 4);
+    }
+
+    /// libtorrent 2.0.13 create_torrent_symlink_escape: links reaching outside the torrent root
+    /// are left out.
+    #[cfg(unix)]
+    #[test]
+    fn create_torrent_symlink_escape() {
+        use std::os::unix::fs::symlink;
+        let dir = TempDir::new("symlink-escape");
+        let root = dir.0.join("escape-torrent");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/inside-file"), vec![0u8; 1000]).unwrap();
+        symlink("../../outside", root.join("escape-1")).unwrap();
+        symlink("../../../some/other/file", root.join("sub/escape-2")).unwrap();
+        symlink("/tmp/elsewhere", root.join("escape-3")).unwrap();
+        // the torrent root itself is not a valid target either
+        symlink("..", root.join("sub/escape-4")).unwrap();
+        symlink("inside-file", root.join("sub/inside-link")).unwrap();
+
+        let mut fs = FileStorage::new();
+        add_files(&mut fs, &root, &mut |_| true, CreateFlags::SYMLINKS).unwrap();
+        let mut t = CreateTorrent::new(fs, 16 * 1024, CreateFlags::SYMLINKS).unwrap();
+        set_piece_hashes(&mut t, &dir.0, &mut |_| true).unwrap();
+        let ti = TorrentInfo::from_bytes(&generate_buf(&t)).unwrap();
+
+        let fs = ti.files();
+        let files: Vec<usize> = (0..fs.num_files()).filter(|&i| !fs.pad_file_at(i)).collect();
+        let paths: Vec<String> = files.iter().map(|&i| fs.file_path(i, "")).collect();
+        assert_eq!(paths, ["escape-torrent/sub/inside-file", "escape-torrent/sub/inside-link"]);
+        assert_eq!(fs.symlink(files[1]), "escape-torrent/sub/inside-file");
+    }
+
+    /// libtorrent 2.0.13 create_torrent_symlink_pred: the predicate also sees a link's resolved
+    /// target.
+    #[cfg(unix)]
+    #[test]
+    fn create_torrent_symlink_pred() {
+        use std::os::unix::fs::symlink;
+        let dir = TempDir::new("symlink-pred");
+        let root = dir.0.join("pred-torrent");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("sub/keep-me"), vec![0u8; 1000]).unwrap();
+        std::fs::write(root.join("sub/skip-me"), vec![0u8; 1000]).unwrap();
+        symlink("sub/keep-me", root.join("link-keep")).unwrap();
+        symlink("sub/skip-me", root.join("link-skip")).unwrap();
+
+        let mut fs = FileStorage::new();
+        let mut pred = |p: &Path| !p.to_string_lossy().contains("skip-me");
+        add_files(&mut fs, &root, &mut pred, CreateFlags::SYMLINKS).unwrap();
+        let mut t = CreateTorrent::new(fs, 16 * 1024, CreateFlags::SYMLINKS).unwrap();
+        set_piece_hashes(&mut t, &dir.0, &mut |_| true).unwrap();
+        let ti = TorrentInfo::from_bytes(&generate_buf(&t)).unwrap();
+
+        let fs = ti.files();
+        let files: Vec<usize> = (0..fs.num_files()).filter(|&i| !fs.pad_file_at(i)).collect();
+        let paths: Vec<String> = files.iter().map(|&i| fs.file_path(i, "")).collect();
+        assert_eq!(paths, ["pred-torrent/link-keep", "pred-torrent/sub/keep-me"]);
+        assert_eq!(fs.symlink(files[0]), "pred-torrent/sub/keep-me");
+    }
+
+    /// libtorrent 2.0.13 test_file.cpp lexically_relative_normal.
+    #[test]
+    fn lexically_relative_normal_cases() {
+        let rel = |b: &str, t: &str| lexically_relative_normal(Path::new(b), Path::new(t));
+        let ok = |b: &str, t: &str| rel(b, t).unwrap_or_else(|| panic!("{b} {t}"));
+        // target equals base
+        assert_eq!(ok("/a/b", "/a/b"), "");
+        // target inside base
+        assert_eq!(ok("/a/b", "/a/b/c"), "c");
+        assert_eq!(ok("/a/b", "/a/b/c/d"), "c/d");
+        assert_eq!(ok("/a", "/a/b/c/d"), "b/c/d");
+        // "." in target is skipped
+        assert_eq!(ok("/a/b", "/a/b/./c"), "c");
+        assert_eq!(ok("/a/b", "/a/b/c/."), "c");
+        assert_eq!(ok("/a/b", "/a/b/././c"), "c");
+        // ".." resolves against the preceding component after the common prefix
+        assert_eq!(ok("/a/b", "/a/b/c/.."), "");
+        assert_eq!(ok("/a/b", "/a/b/c/../d"), "d");
+        assert_eq!(ok("/a/b", "/a/b/c/d/.."), "c");
+        assert_eq!(ok("/a/b", "/a/b/c/d/../.."), "");
+        assert_eq!(ok("/a/b", "/a/b/c/d/../../e"), "e");
+        // trailing separator on either side
+        assert_eq!(ok("/a/b/", "/a/b/c"), "c");
+        assert_eq!(ok("/a/b", "/a/b/c/"), "c");
+        // base is just the root
+        assert_eq!(ok("/", "/"), "");
+        assert_eq!(ok("/", "/a"), "a");
+        assert_eq!(ok("/", "/a/b"), "a/b");
+        assert_eq!(ok("/", "/a/./b"), "a/b");
+        assert_eq!(ok("/", "/a/../b"), "b");
+        assert_eq!(rel("/", "/.."), None);
+        // target sibling of base
+        assert_eq!(rel("/a/b", "/a/c"), None);
+        assert_eq!(rel("/a/b/x", "/a/b/y"), None);
+        // target above base
+        assert_eq!(rel("/a/b", "/a"), None);
+        assert_eq!(rel("/a/b/c", "/a"), None);
+        assert_eq!(rel("/a/b", "/"), None);
+        // target on a different root
+        assert_eq!(rel("/a/b", "/x/y"), None);
+        // ".." underflows the in-target stack
+        assert_eq!(rel("/a/b", "/a/b/.."), None);
+        assert_eq!(rel("/a/b", "/a/b/c/../../.."), None);
+        assert_eq!(rel("/a/b", "/a/b/c/../.."), None);
     }
 
     #[cfg(unix)]

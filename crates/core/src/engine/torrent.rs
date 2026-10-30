@@ -19,7 +19,7 @@ use super::web_seed::WebSeeds;
 use crate::disk::{BLOCK_SIZE, Storage};
 use crate::metainfo::file_storage::FileFlags;
 use crate::metainfo::merkle_tree::MerkleTree;
-use crate::metainfo::{TorrentInfo, WebSeedKind};
+use crate::metainfo::{TorrentInfo, WebSeedKind, is_valid_tracker_url};
 use crate::net::Bucket;
 use crate::params::{DownloadPriority, TorrentFlags};
 use crate::proto::ut_metadata::MetadataFetch;
@@ -389,10 +389,10 @@ impl Torrent {
     /// Adds a tracker, keeping the list sorted by tier and free of duplicates; the URL comes
     /// from `urls`, shared with the other torrents. The list grows one entry at a time: a
     /// doubling `Vec` would hold four entries for the usual two trackers, in every stopped
-    /// torrent.
+    /// torrent. Invalid tracker URLs are dropped (libtorrent 2.0.13 `is_valid_tracker_url`).
     pub fn add_tracker(&mut self, url: &str, tier: u32, urls: &mut StrPool) {
         let url = url.trim();
-        if url.is_empty() || self.trackers.iter().any(|t| &*t.url == url) {
+        if self.trackers.iter().any(|t| &*t.url == url) || !is_valid_tracker_url(url) {
             return;
         }
         let pos = self.trackers.iter().position(|t| t.tier > tier).unwrap_or(self.trackers.len());

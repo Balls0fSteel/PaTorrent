@@ -1,5 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/torrent_info.cpp (valid_path_character,
-// filter_path_character, aux::sanitize_append_path_element)
+// filter_path_character, aux::sanitize_append_path_element); fixes from 2.0.12 (force_element:
+// invalid filenames become "_")
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: '/' is the separator on every platform; Windows-only rules apply under cfg(windows)
 // exactly as libtorrent applies them under TORRENT_WINDOWS. On Windows, reserved device names (CON,
@@ -56,7 +57,19 @@ fn is_reserved_device_name(stem: &str) -> bool {
 /// rejects become '_', "." and ".." disappear, and long names are cut to about 240 bytes while
 /// keeping the file extension.
 pub fn sanitize_append_path_element(path: &mut String, element: &[u8]) {
-    if element == b"." {
+    append_path_element(path, element, false);
+}
+
+/// Like [`sanitize_append_path_element`], but every call adds a path element, even for an invalid
+/// name (libtorrent's `force_element`): ".", ".." and elements sanitized to nothing become "_".
+/// An empty element has special meaning in v2 torrents (the previous element was the file name),
+/// and the torrent name of a multi-file torrent must be a directory.
+pub fn sanitize_append_forced_path_element(path: &mut String, element: &[u8]) {
+    append_path_element(path, element, true);
+}
+
+fn append_path_element(path: &mut String, element: &[u8], force_element: bool) {
+    if element == b"." && !force_element {
         return;
     }
     let added_separator = if path.is_empty() {
@@ -121,8 +134,14 @@ pub fn sanitize_append_path_element(path: &mut String, element: &[u8]) {
     }
 
     if added == num_dots && added <= 2 {
-        // "." or "..": revert everything, including the separator
-        path.truncate(path.len() - added - added_separator);
+        if force_element {
+            // revert the invalid filename and replace it with an underscore
+            path.truncate(path.len() - added);
+            path.push('_');
+        } else {
+            // "." or "..": revert everything, including the separator
+            path.truncate(path.len() - added - added_separator);
+        }
         return;
     }
 
@@ -132,6 +151,10 @@ pub fn sanitize_append_path_element(path: &mut String, element: &[u8]) {
         while path.ends_with([' ', '.']) && added > 0 {
             path.pop();
             added -= 1;
+        }
+        if force_element && added == 0 {
+            path.push('_');
+            return;
         }
         if added == 0 && added_separator == 1 {
             path.pop(); // the separator
@@ -248,6 +271,56 @@ mod tests {
         // direction overrides are removed
         assert_eq!(s(&[b"foo\xe2\x80\x8ebar"]), "foobar");
         assert_eq!(s(&[b"foo\xe2\x80\xabbar"]), "foobar");
+    }
+
+    fn f(parts: &[&[u8]]) -> String {
+        let mut p = String::new();
+        for part in parts {
+            sanitize_append_forced_path_element(&mut p, part);
+        }
+        p
+    }
+
+    /// libtorrent 2.0.12 sanitize_path_force.
+    #[test]
+    fn sanitize_path_force() {
+        assert_eq!(f(&[b""]), "_"); // "\0\0\xed\0\x80" as a C string
+        assert_eq!(f(&[b"/a/", b"b", b"c"]), "a/b/c");
+        assert_eq!(f(&[b"a...b"]), "a...b");
+        assert_eq!(f(&[b"a", b"..", b"c"]), "a/_/c");
+        assert_eq!(f(&[b"a", b".."]), "a/_");
+        assert_eq!(f(&[b"/..", b".", b"c"]), "_/_/c");
+        assert_eq!(f(&[b"dev:"]), if WIN { "dev_" } else { "dev:" });
+        assert_eq!(f(&[b"c:", b"b"]), if WIN { "c_/b" } else { "c:/b" });
+        assert_eq!(f(&[b"c:", b".", b"c"]), if WIN { "c_/_/c" } else { "c:/_/c" });
+        assert_eq!(f(&[b"\\c", b".", b"c"]), "c/_/c");
+        assert_eq!(f(&[b"\x08"]), "_");
+        assert_eq!(f(&[b"\x08", b"filename"]), "_/filename");
+        assert_eq!(f(&[b"filename", b"\x08"]), "filename/_");
+        assert_eq!(f(&[b"abc", b""]), "abc/_");
+        assert_eq!(f(&[b"abc", b"   "]), if WIN { "abc/_" } else { "abc/   " });
+        assert_eq!(f(&[b"", b"abc"]), "_/abc");
+        assert_eq!(f(&[b"\x08?filename=4"]), if WIN { "__filename=4" } else { "_?filename=4" });
+        assert_eq!(f(&[b"filename=4"]), "filename=4");
+        assert_eq!(f(&[b"filename\xc2\xa1"]), "filename\u{a1}");
+        assert_eq!(f(&[b"filename\xc2"]), "filename_");
+        assert_eq!(f(&[b"filename\xe2\x9f\xb9"]), "filename\u{27f9}");
+        assert_eq!(f(&[b"filename\xe2\x9f"]), "filename_");
+        assert_eq!(f(&[b"filename\xe2"]), "filename_");
+        assert_eq!(f(&[b"filename\xf0\x9f\x92\x88"]), "filename\u{1f488}");
+        assert_eq!(f(&[b"filename\xf0\x9f\x92"]), "filename_");
+        assert_eq!(f(&[b"filename\xf8\x9f\x9f\x9f\x9ffoobar"]), "filename_foobar");
+        assert_eq!(f(&[b"filename\xc0\xae"]), "filename_");
+        assert_eq!(f(&[b"filename\xe0\x80\xae"]), "filename_");
+        assert_eq!(f(&[b"filename\xf0\x80\x80\xae"]), "filename_");
+        // every character filtered: replaced by an underscore
+        assert_eq!(f(&[b"//\\"]), "_");
+        assert_eq!(f(&[b"a", b"//\\"]), "a/_");
+        assert_eq!(f(&[b"foo\xe2\x80\x8ebar"]), "foobar");
+        assert_eq!(f(&[b"foo\xe2\x80\xabbar"]), "foobar");
+        if WIN {
+            assert_eq!(f(&[b"a", b". . ."]), "a/_");
+        }
     }
 
     #[test]

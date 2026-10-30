@@ -21,13 +21,13 @@ They heavily helped out, yes. Several LLM models were used to ensure speed and s
 Please donate - if you can. Your support means the world to us, but only give if you are comfortably able to do so. Your own financial well-being always comes first. Tokens are expensive. I have other projects too (published and work in progress), your support will be put to good use I assure you.
 
 > [!NOTE]
-> **PaTorrent 1.1.2 is the latest stable release.** It has been used mostly by its author so far, and nothing is code-signed. Do not use it on private trackers yet: its client ID is not whitelisted anywhere.
+> **PaTorrent 1.1.17 is the latest stable release.** It has been used mostly by its author so far, and nothing is code-signed. Do not use it on private trackers yet: its client ID is not whitelisted anywhere.
 >
 > Feedback and [bug reports](https://github.com/Balls0fSteel/PaTorrent/issues) are welcome.
 
 **PaTorrent** (long name **PatinaTorrent**) is a lean BitTorrent client in the spirit of µTorrent 2.2.1: tiny, fast, native, and comfortable with thousands of torrents. A patina is the good kind of rust.
 
-Website: <https://balls0fsteel.github.io/PaTorrent/>: downloads with how to start each file, an FAQ and links to the documentation.
+Website: <https://balls0fsteel.github.io/PaTorrent/>: downloads with how to start each file, the [News](https://balls0fsteel.github.io/PaTorrent/news.html) page (a short changelog per release), an FAQ and links to the documentation.
 
 - **Engine:** our own Rust port of [libtorrent-rasterbar](https://github.com/arvidn/libtorrent) 2.0.11. libtorrent's code is the reference; nothing is linked.
 - **Frontends:** a native Win32 GUI (first), a headless daemon `patorrent-nox` with a Web UI, and a GTK 4 GUI for Linux, BSD and macOS.
@@ -37,11 +37,17 @@ Website: <https://balls0fsteel.github.io/PaTorrent/>: downloads with how to star
   - low RAM and CPU use
   - 100,000 torrents on a modest PC, with an instant UI
 
-**Status:** 1.1. The engine downloads and seeds over TCP and uTP, with HTTP, HTTPS and UDP trackers, magnet links, DHT, peer exchange, local peer discovery, encryption, web seeds, proxies, UPnP / NAT-PMP and IP filters. The Win32 GUI has the µTorrent 2.2.1 main window, Preferences, the Add and Create dialogs, RSS, the scheduler and, since 1.1.2, a Web UI of its own (Preferences > Web UI); `patorrent-nox` runs headless with its own Web UI and a qBittorrent-compatible API. The GTK 4 GUI runs on Linux, BSD and macOS. BitTorrent v2 and hybrid torrents, 34 languages, HTTPS and remote mode are in; 1.1 added a search box for the torrent list and importers for µTorrent and qBittorrent torrents. Validation on more machines continues. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
+**Status:** 1.1. The engine downloads and seeds over TCP and uTP, with HTTP, HTTPS and UDP trackers, magnet links, DHT, peer exchange, local peer discovery, encryption, web seeds, proxies, UPnP / NAT-PMP and IP filters. The Win32 GUI has:
+- the µTorrent 2.2.1 main window, Preferences, the Add and Create dialogs, RSS and the scheduler;
+- since 1.1.7, a Web UI of its own (Preferences > Web UI), which since 1.1.17 includes the RSS Downloader.
+
+`patorrent-nox` runs headless with its own Web UI and a qBittorrent-compatible API that Sonarr, Radarr and Prowlarr use as a download client. The GTK 4 GUI runs on Linux, BSD and macOS. BitTorrent v2 and hybrid torrents, 34 languages, HTTPS and remote mode are in.
+
+1.1 added a search box for the torrent list and importers for µTorrent and qBittorrent torrents. 1.1.17 adds torrent search through your own Prowlarr or Jackett (Torznab), in all three interfaces, with no search plugins or scrapers of our own. Validation on more machines continues. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
 
 ## Download
 
-Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.1.2](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.2). The archives need no installation: unpack and run; Windows also has an installer (from 1.0.1 on). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
+Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorrent/releases); the newest is [1.1.17](https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.17). What changed in each release: the website's [News](https://balls0fsteel.github.io/PaTorrent/news.html) page, or the release notes in [docs/releases](docs/releases). The archives need no installation: unpack and run; Windows also has an installer (from 1.0.1 on). Each release has `SHA256SUMS` and notes with the first-run steps per platform.
 
 | Platform | File | What is inside |
 |---|---|---|
@@ -56,7 +62,7 @@ Release builds are on the [Releases page](https://github.com/Balls0fSteel/PaTorr
 
 The builds are not code-signed, so Windows SmartScreen and macOS Gatekeeper warn the first time. How the files are made: [docs/RELEASING.md](docs/RELEASING.md).
 
-**Updates.** From 1.0.1 on, the Windows and GTK GUIs check the website's list of releases 10 seconds after they start and every 12 hours. When a newer version is out, a note shows in the status bar for a minute and links to its release page; nothing is downloaded or installed for you. Help > Check for Updates asks at once; Preferences > General > Privacy turns the automatic check off. The Flatpak leaves updating to Flathub.
+**Updates.** From 1.0.1 on, the Windows and GTK GUIs check the website's list of releases 10 seconds after they start and every 12 hours. When a newer version is out, a note shows in the status bar for a minute and links to its release page; nothing is downloaded or installed for you. Help > Check for Updates asks at once; Preferences > General > Privacy turns the automatic check off. The Flatpak leaves updating to Flathub. From 1.1.17 on, `patorrent-nox` checks too: it prints a line and shows a link in its Web UI. `--no-update-check` or the Web UI's General > Privacy setting turns it off.
 
 ## Building
 
@@ -81,9 +87,9 @@ Settings and torrents go to `%APPDATA%\PaTorrent`. An empty `patorrent.ini` besi
 
 | Binary | What it is today |
 |---|---|
-| `patorrent` | Windows GUI: the µTorrent 2.2.1 main window on the real engine (Phase 3, in progress). `patorrent --demo 10000` loads 10,000 simulated torrents instead; `patorrent --remote` (File > Connect to Remote...) drives a `patorrent-nox` elsewhere through its Web UI port; Preferences > Web UI serves the Web UI from the window itself (the same page nox serves, over this window's torrents, [docs/WEBUI.md](docs/WEBUI.md)). |
-| `patorrent-gtk` | Linux / BSD GUI on GTK 4 (Phase 7; not yet run on Linux, built by CI): the main window (category list, the torrent list with every column, toolbar, menus, status bar, detail tabs) on the real engine; the dialogs (Add New Torrent, Preferences, Torrent Properties, Create New Torrent, RSS Downloader, Auto Shutdown); the tray, file associations and autostart; `patorrent-gtk --remote` (File > Connect to Remote...) drives a `patorrent-nox` elsewhere. Needs GTK 4.12 or later (`libgtk-4-dev` to build). Settings in `~/.config/patorrent/gtk`, torrents in `~/.local/share/patorrent/gtk`. |
-| `patorrent-nox` | Command-line client: `patorrent-nox add file.torrent --save DIR [--seed]`, `patorrent-nox run` to resume saved torrents, `patorrent-nox run --webui 8080 --webui-pass PASS` for the Web UI and a qBittorrent-compatible WebAPI subset (`--webui-https` for HTTPS with a self-signed certificate, or `--webui-cert` / `--webui-key` for yours). As a service (systemd units, a FreeBSD rc.d script, `--daemon`, signals, where its files go): [docs/DAEMON.md](docs/DAEMON.md) |
+| `patorrent` | Windows GUI: the µTorrent 2.2.1 main window on the real engine. The arrow beside the toolbar's search box searches your Prowlarr or Jackett ([docs/INTEGRATIONS.md](docs/INTEGRATIONS.md)). `patorrent --demo 10000` loads 10,000 simulated torrents instead; `patorrent --remote` (File > Connect to Remote...) drives a `patorrent-nox` elsewhere through its Web UI port; Preferences > Web UI serves the Web UI from the window itself (the same page nox serves, over this window's torrents, [docs/WEBUI.md](docs/WEBUI.md)). |
+| `patorrent-gtk` | Linux / BSD GUI on GTK 4 (built and tested by CI; run on Linux under Xvfb, not yet used on a desktop): the main window (category list, the torrent list with every column, toolbar, menus, status bar, detail tabs) on the real engine; the dialogs (Add New Torrent, Preferences, Torrent Properties, Create New Torrent, RSS Downloader, Auto Shutdown, Search Torrents and Search Sources); the tray, file associations and autostart; `patorrent-gtk --remote` (File > Connect to Remote...) drives a `patorrent-nox` elsewhere. Needs GTK 4.12 or later (`libgtk-4-dev` to build). Settings in `~/.config/patorrent/gtk`, torrents in `~/.local/share/patorrent/gtk`. |
+| `patorrent-nox` | Command-line client: `patorrent-nox add file.torrent --save DIR [--seed]`, `patorrent-nox run` to resume saved torrents, `patorrent-nox run --webui 8080 --webui-pass PASS` for the Web UI and a qBittorrent-compatible WebAPI subset that Sonarr, Radarr and Prowlarr can use ([docs/INTEGRATIONS.md](docs/INTEGRATIONS.md); `--webui-https` for HTTPS with a self-signed certificate, or `--webui-cert` / `--webui-key` for yours; `--no-update-check` turns the update check off). As a service (systemd units, a FreeBSD rc.d script, `--daemon`, signals, where its files go): [docs/DAEMON.md](docs/DAEMON.md) |
 | `lt-swarm` | Benchmarks: `lt-swarm loopback`, `lt-swarm load --count 10000`, `lt-swarm scale --torrents 100000`, or `lt-swarm gen --out corpus` then `lt-swarm parse corpus`. Interop: `lt-swarm interop` downloads from qBittorrent, Transmission and Deluge (`--encryption`, `--version` v1, hybrid or v2, `--transport` tcp, utp or utp-only), or with `--super-seed` super-seeds to them and reports the copies uploaded (setup: PLAN.md Q10) |
 
 ## License

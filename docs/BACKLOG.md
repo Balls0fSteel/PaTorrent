@@ -190,6 +190,17 @@ That broad check does not establish that every detailed case below was tried.
   Quality, ordering, History/Clear, tree feeds/items, download double-click,
   menus/deleting the displayed feed and `rss.dat` persistence. While feed items
   show, torrent toolbar buttons still act on the hidden torrent selection.
+- Torrent search (D41 slice 4, 2026-10-30_122748_1793359668): tried under Xvfb
+  on Xubuntu against its Prowlarr (menu, All sources, results, a wrong key's
+  401, header sort, double-click to the Add dialog, Test, Edit, a check box).
+  Still check on a real desktop: GNOME/KDE themes, the menu button linked to
+  the entry, keyboard-only use (Enter in the box, the menu by keyboard, Enter
+  on a row, Escape), Stop while a slow source answers, closing the window
+  mid-search, the Add dialog turned off (magnet and `.torrent`), a result
+  already in the list, a Jackett `all` source, a source behind the proxy,
+  RTL, long source names, a remote window (sources are its own, searched from
+  this computer) and Add/Remove keeping the picked mode. No source can drop its
+  stored key (the Web UI's `clear_key`): remove and add it again.
 - Detail tabs: check narrow General layout, tab sizes, map height and scrolling,
   Blocks cells, dark-theme graph, Files priority menu/readback, Logger tailing
   only at the end, restored tab/split positions. The piece map now renders visible

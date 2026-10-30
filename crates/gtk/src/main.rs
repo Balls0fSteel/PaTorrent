@@ -43,6 +43,8 @@ mod rss;
 #[cfg(unix)]
 mod sched_grid;
 #[cfg(unix)]
+mod search;
+#[cfg(unix)]
 mod shutdown;
 #[cfg(unix)]
 mod sidebar;

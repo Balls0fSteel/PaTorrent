@@ -1,6 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/torrent.cpp (state, file priorities, progress,
-// status, resume data), src/torrent_status.cpp, src/file_progress.cpp; fixes from 2.0.13
-// (aa59c7c583, 8b8242fe9b)
+// status, resume data, is_inactive), src/torrent_status.cpp, src/file_progress.cpp; fixes from
+// 2.0.13 (aa59c7c583, 8b8242fe9b) and 2.0.14 (51e2d70dcd)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: plain data plus helpers; the engine drives transitions. Metadata, the piece picker
 // and storage exist only while the torrent runs (PLAN.md D5); a stopped torrent keeps its piece
@@ -9,6 +9,7 @@
 //! One torrent's state.
 
 use std::collections::{BTreeMap, HashSet};
+use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::Instant;
 
@@ -26,6 +27,7 @@ use crate::params::{DownloadPriority, TorrentFlags};
 use crate::proto::ut_metadata::MetadataFetch;
 use crate::proto::ut_pex::TorrentPex;
 use crate::resume::ResumeData;
+use crate::settings::Settings;
 use crate::status::{FileEntry, TorrentState, TorrentStatus};
 use crate::types::{InfoHashes, TorrentId};
 use crate::util::bitfield::Bitfield;
@@ -223,6 +225,12 @@ pub(crate) struct Torrent {
     /// Downloaded payload in this session (decides the tracker `completed` event).
     pub downloaded_in_session: bool,
     pub started_at: Option<Instant>,
+    /// Slow enough not to count against the auto-manager's type limits (libtorrent
+    /// `m_inactive`); false while stopped.
+    pub inactive: bool,
+    /// When a pending change of `inactive` is applied, on the `run_clock` (libtorrent
+    /// `m_inactivity_timer`).
+    pub inactive_change_at: Option<NonZeroU32>,
 }
 
 impl Torrent {
@@ -294,6 +302,8 @@ impl Torrent {
             interest_dirty: false,
             downloaded_in_session: false,
             started_at: None,
+            inactive: false,
+            inactive_change_at: None,
         }
     }
 
@@ -493,6 +503,66 @@ impl Torrent {
             self.seeding_secs += dt;
         }
         minutes(self) != before
+    }
+
+    /// Runs without counting against `active_downloads` / `active_seeds` (libtorrent
+    /// `is_inactive`).
+    pub fn is_inactive(&self, s: &Settings) -> bool {
+        s.dont_count_slow_torrents && self.inactive
+    }
+
+    /// The payload rate is below the inactivity threshold of its direction (libtorrent
+    /// `is_inactive_internal`).
+    fn below_inactive_rate(&self, s: &Settings) -> bool {
+        let stat = self.stat();
+        if self.is_finished() {
+            (stat.upload_payload.rate() as i64) < s.inactive_up_rate as i64
+        } else {
+            (stat.download_payload.rate() as i64) < s.inactive_down_rate as i64
+        }
+    }
+
+    /// The inactivity part of libtorrent `second_tick` and `on_inactivity_tick`, called each
+    /// tick while running. Becoming inactive waits `auto_manage_startup` seconds of slowness;
+    /// becoming active again applies at once (2.0.14 51e2d70dcd). Returns whether the
+    /// auto-manager should reconsider (a change while `dont_count_slow_torrents` is on).
+    pub fn update_inactive(&mut self, now: Instant, s: &Settings) -> bool {
+        let inactive = self.below_inactive_rate(s);
+        let clock = self.run_clock(now);
+        if s.dont_count_slow_torrents {
+            if inactive == self.inactive {
+                self.inactive_change_at = None;
+            } else if self.inactive_change_at.is_none() {
+                let delay = if inactive { s.auto_manage_startup } else { 0 };
+                let at = clock.get().saturating_add(delay.saturating_mul(10));
+                self.inactive_change_at = NonZeroU32::new(at);
+            }
+        }
+        match self.inactive_change_at {
+            Some(at) if clock >= at => {
+                self.inactive_change_at = None;
+                if inactive == self.inactive {
+                    return false;
+                }
+                self.inactive = inactive;
+                s.dont_count_slow_torrents
+            }
+            _ => false,
+        }
+    }
+
+    /// `inactive_change_at`'s clock: tenths of a second since the torrent started, plus one
+    /// (a `u32` rather than an `Instant` keeps a stopped torrent compact).
+    fn run_clock(&self, now: Instant) -> NonZeroU32 {
+        let tenths = self.started_at.map_or(0, |at| now.saturating_duration_since(at).as_millis() / 100);
+        NonZeroU32::new((tenths.min(u32::MAX as u128 - 1) + 1) as u32).expect("plus one")
+    }
+
+    /// Takes the inactivity state as it is now, dropping a pending change (libtorrent
+    /// `on_inactivity_tick` as `update_count_slow` calls it when the setting changes).
+    pub fn settle_inactive(&mut self, s: &Settings) {
+        self.inactive_change_at = None;
+        self.inactive = self.below_inactive_rate(s);
     }
 
     /// BEP 16 super seeding is in effect: the flag is set and we are a checked seed
@@ -917,6 +987,78 @@ mod tests {
         t.active_secs = 59.5;
         assert!(t.add_running_time(1.0));
         assert_eq!(t.seeding_secs, 130.0);
+    }
+
+    /// libtorrent `second_tick` / `on_inactivity_tick` with 2.0.14's 51e2d70dcd: a torrent
+    /// counts as inactive after `auto_manage_startup` seconds below the rate threshold, a
+    /// short slow spell does not count, and a recovery applies at once.
+    #[test]
+    fn inactivity_is_debounced_one_way() {
+        let (bytes, _) = make_torrent(&[("a", 20_000)], 16 * 1024);
+        let ti = Arc::new(TorrentInfo::from_bytes(&bytes).unwrap());
+        let mut t = Torrent::new(
+            TorrentId::default(),
+            ti.info_hashes(),
+            String::new(),
+            "/x".into(),
+            TorrentFlags::DEFAULT,
+        );
+        t.set_metadata(ti);
+        t.have = Some(Bitfield::new(2, false));
+        let s = Settings { auto_manage_startup: 10, ..Settings::default() };
+        let t0 = Instant::now();
+        t.started_at = Some(t0);
+        let at = |secs: u64| t0 + std::time::Duration::from_secs(secs);
+        let fast = |t: &mut Torrent| {
+            let stat = t.stat.get_or_insert_with(Box::default);
+            stat.received(100_000, 0);
+            stat.tick(1.0);
+        };
+        let slow = |t: &mut Torrent| t.stat.get_or_insert_with(Box::default).reset_rates();
+
+        // slow from the start: inactive once auto_manage_startup has passed
+        assert!(!t.update_inactive(at(0), &s));
+        assert!(!t.update_inactive(at(9), &s));
+        assert!(!t.is_inactive(&s));
+        assert!(t.update_inactive(at(10), &s), "the auto-manager reconsiders");
+        assert!(t.is_inactive(&s));
+        assert!(!t.update_inactive(at(11), &s));
+
+        // back above inactive_down_rate: active again in the same tick
+        fast(&mut t);
+        assert!(t.update_inactive(at(12), &s));
+        assert!(!t.is_inactive(&s));
+
+        // a slow spell shorter than auto_manage_startup changes nothing, and restarts the wait
+        slow(&mut t);
+        assert!(!t.update_inactive(at(13), &s));
+        fast(&mut t);
+        assert!(!t.update_inactive(at(18), &s));
+        slow(&mut t);
+        assert!(!t.update_inactive(at(19), &s));
+        assert!(!t.update_inactive(at(23), &s), "the first spell's deadline is gone");
+        assert!(!t.is_inactive(&s));
+        assert!(t.update_inactive(at(29), &s));
+        assert!(t.is_inactive(&s));
+
+        // a finished torrent is judged by its upload rate
+        t.have = Some(Bitfield::new(2, true));
+        fast(&mut t);
+        t.settle_inactive(&s);
+        assert!(t.is_inactive(&s), "downloading fast says nothing about a seed");
+        t.stat.get_or_insert_with(Box::default).sent(100_000, 0);
+        t.stat.get_or_insert_with(Box::default).tick(1.0);
+        assert!(t.update_inactive(at(30), &s));
+        assert!(!t.is_inactive(&s));
+
+        // with dont_count_slow_torrents off nothing is pending and nothing counts as inactive
+        let off = Settings { dont_count_slow_torrents: false, ..s };
+        slow(&mut t);
+        for secs in 31..100 {
+            assert!(!t.update_inactive(at(secs), &off));
+        }
+        assert!(!t.is_inactive(&off));
+        assert_eq!(t.inactive_change_at, None);
     }
 
     #[test]

@@ -88,7 +88,15 @@ pub struct Settings {
     pub active_tracker_limit: i32,
     pub active_lsd_limit: i32,
     pub active_limit: i32,
+    /// Slow torrents run without counting against `active_downloads` / `active_seeds` (still
+    /// against `active_limit`): a download below `inactive_down_rate`, or a finished torrent
+    /// below `inactive_up_rate`, bytes/s of payload, for `auto_manage_startup` seconds.
     pub dont_count_slow_torrents: bool,
+    pub inactive_down_rate: i32,
+    pub inactive_up_rate: i32,
+    /// Seconds a torrent must stay slow before it counts as inactive; becoming active again
+    /// applies at once (libtorrent 2.0.14).
+    pub auto_manage_startup: u32,
     pub auto_manage_interval: u32,
 
     pub connections_limit: i32,
@@ -323,6 +331,9 @@ impl Default for Settings {
             active_lsd_limit: 60,
             active_limit: 500,
             dont_count_slow_torrents: true,
+            inactive_down_rate: 2048,
+            inactive_up_rate: 2048,
+            auto_manage_startup: 60,
             auto_manage_interval: 30,
             connections_limit: 200,
             connection_speed: 30,

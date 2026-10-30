@@ -1651,6 +1651,7 @@ impl Engine {
         let queue_changed = s.active_downloads != self.settings.active_downloads
             || s.active_seeds != self.settings.active_seeds
             || s.active_limit != self.settings.active_limit;
+        let count_slow_changed = s.dont_count_slow_torrents != self.settings.dont_count_slow_torrents;
         let lsd_changed = s.enable_lsd != self.settings.enable_lsd;
         let natpmp_changed = s.enable_natpmp != self.settings.enable_natpmp;
         let upnp_changed = s.enable_upnp != self.settings.enable_upnp;
@@ -1668,6 +1669,16 @@ impl Engine {
             self.on_listen_settings_changed(close_all);
         }
         if queue_changed {
+            self.needs_auto_manage = true;
+        }
+        // libtorrent `update_count_slow`: each running torrent is judged as it is now
+        if count_slow_changed {
+            let settings = self.settings.clone();
+            for id in self.active_ids() {
+                if let Some(t) = self.torrent(id) {
+                    t.settle_inactive(&settings);
+                }
+            }
             self.needs_auto_manage = true;
         }
         // libtorrent `update_lsd`
@@ -2473,6 +2484,9 @@ impl Engine {
         }
         t.checking = false;
         t.started_at = None;
+        // libtorrent `do_pause`: a stopped torrent is not inactive, nor about to become so
+        t.inactive = false;
+        t.inactive_change_at = None;
         // its stat ticks only while it runs: the rates would stay at their last values, and
         // a Stopped row would keep showing a download speed
         if let Some(s) = t.stat.as_deref_mut() {
@@ -2740,7 +2754,8 @@ impl Engine {
     /// and are paused beyond that. Errored torrents don't take a slot. Of the ones that run,
     /// downloads first, the first `active_dht_limit` announce on the DHT, the first
     /// `active_tracker_limit` to their trackers and the first `active_lsd_limit` on LSD
-    /// (libtorrent `auto_manage_torrents`).
+    /// (libtorrent `auto_manage_torrents`). With `dont_count_slow_torrents`, an inactive
+    /// torrent runs without taking a download or seed slot, but counts against `active_limit`.
     fn auto_manage(&mut self) {
         self.needs_auto_manage = false;
         self.last_auto_manage = Instant::now();
@@ -2758,9 +2773,10 @@ impl Engine {
             if !t.flags.contains(TorrentFlags::AUTO_MANAGED) || t.error.is_some() {
                 continue;
             }
-            let run = active_dl < dl_limit && active_total < total_limit;
+            let inactive = t.is_inactive(&self.settings);
+            let run = (inactive || active_dl < dl_limit) && active_total < total_limit;
             if run {
-                active_dl += 1;
+                active_dl += usize::from(!inactive);
                 active_total += 1;
             }
             decisions.push((id, run));
@@ -2775,9 +2791,10 @@ impl Engine {
             {
                 continue;
             }
-            let run = active_seeds < seed_limit && active_total < total_limit;
+            let inactive = t.is_inactive(&self.settings);
+            let run = (inactive || active_seeds < seed_limit) && active_total < total_limit;
             if run {
-                active_seeds += 1;
+                active_seeds += usize::from(!inactive);
                 active_total += 1;
             }
             decisions.push((id, run));
@@ -3167,6 +3184,10 @@ impl Engine {
         // too (libtorrent 2.0.14, 8cfbb4615f)
         let transferring = t.stat().download_rate() > 0 || t.stat().upload_rate() > 0;
         t.stat.get_or_insert_with(Box::default).tick(dt);
+        if t.update_inactive(now, &settings) {
+            self.needs_auto_manage = true;
+        }
+        let Some(t) = self.torrent(id) else { return };
         let new_minute = !t.checking && t.add_running_time(dt);
         if new_minute || transferring || !t.peers.is_empty() || t.checking {
             t.status_dirty = true;

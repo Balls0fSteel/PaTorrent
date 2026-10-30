@@ -1,9 +1,10 @@
 //! Loopback tests for BitTorrent v2 (BEP 52): v2-only and hybrid torrents made by
 //! `create_torrent` are checked against their piece layers, seeded and downloaded (a v2-only
-//! torrent's block requests ending at the end of each file's data); a v2 torrent
-//! keeps its piece layers in the session store across a restart and passes a recheck there, and
-//! a corrupted piece fails it; a hybrid whose v1 and v2 hashes describe different data stops with
-//! libtorrent's "inconsistent hashes" error; a v2-only torrent without piece layers is refused.
+//! torrent's block requests and download queue piece sizes ending at the end of each file's
+//! data); a v2 torrent keeps its piece layers in the session store across a restart and passes
+//! a recheck there, and a corrupted piece fails it; a hybrid whose v1 and v2 hashes describe
+//! different data stops with libtorrent's "inconsistent hashes" error; a v2-only torrent without
+//! piece layers is refused.
 
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -15,8 +16,8 @@ use patorrent_core::metainfo::{
     CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, set_piece_hashes,
 };
 use patorrent_core::{
-    AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId,
-    TorrentSource, TorrentState, TorrentStatus,
+    AddTorrentParams, Alert, DownloadPriority, Session, SessionHandle, SessionParams, Settings, TorrentFlags,
+    TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
 
 const PIECE: u32 = 32 * 1024;
@@ -316,6 +317,106 @@ fn file_tail_requests_are_sized_by_the_v2_piece_size() {
         // alpha.bin, beta.bin and gamma.txt end mid-block; the last of them ends the torrent
         assert_eq!(file_tails, if ti.v1() { 0 } else { 2 }, "{name}: {requests:?}");
     }
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+/// Forwards one connection to `port` with every `piece` message from the seed dropped, so the
+/// connecting side's requests stay outstanding. Plaintext only.
+fn piece_dropper(port: u16) -> u16 {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let relay_port = listener.local_addr().unwrap().port();
+    std::thread::spawn(move || {
+        let Ok((mut down, _)) = listener.accept() else { return };
+        let mut up = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let (mut down_w, mut up_r) = (down.try_clone().unwrap(), up.try_clone().unwrap());
+        std::thread::spawn(move || {
+            let _ = std::io::copy(&mut down, &mut up);
+        });
+        let mut hs = [0u8; 68];
+        if up_r.read_exact(&mut hs).is_err() || down_w.write_all(&hs).is_err() {
+            return;
+        }
+        loop {
+            let mut len = [0u8; 4];
+            if up_r.read_exact(&mut len).is_err() {
+                return;
+            }
+            let mut m = vec![0u8; u32::from_be_bytes(len) as usize];
+            if up_r.read_exact(&mut m).is_err() {
+                return;
+            }
+            if m.first() == Some(&7) {
+                continue;
+            }
+            if down_w.write_all(&len).and_then(|_| down_w.write_all(&m)).is_err() {
+                return;
+            }
+        }
+    });
+    relay_port
+}
+
+/// The download queue of a v2-only torrent gives a piece at a file's end its v2 size, the data
+/// left in the file (libtorrent 2.0.13 `piece_size_for_req`), not the padded piece length.
+#[test]
+fn partial_pieces_report_the_v2_piece_size() {
+    // two one-piece files: the first one's piece is followed by padding
+    let files: Vec<(String, Vec<u8>)> =
+        files(8).into_iter().take(2).map(|(n, d)| (n, d[..20_000].to_vec())).collect();
+    let seed_dir = temp_dir("partial-seed");
+    write_files(&files, &seed_dir);
+    let torrent = make_torrent(&seed_dir, CreateFlags::V2_ONLY);
+    let ti = TorrentInfo::from_bytes(&torrent).unwrap();
+    let fs = ti.files();
+    let first = (0..fs.num_files()).find(|&f| !fs.pad_file_at(f)).unwrap();
+    let tail = fs.piece_index_at_file(first);
+    assert_eq!((fs.piece_size2(tail), fs.piece_size(tail)), (20_000, PIECE), "the piece ends before padding");
+
+    let seed = start(None);
+    let mut sw = Watch::new(seed.handle());
+    let port = listen_port(&mut sw);
+    let sid = add(&mut sw, &torrent, &seed_dir).unwrap();
+    wait_state(&mut sw, sid, TorrentState::Seeding, 20);
+
+    let relay = piece_dropper(port);
+    let dir = temp_dir("partial-leech");
+    let leech = Session::start(SessionParams {
+        settings: Settings { out_enc_policy: patorrent_core::EncPolicy::Disabled, ..settings() },
+        state_dir: None,
+    })
+    .unwrap();
+    let mut w = Watch::new(leech.handle());
+    let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(torrent.clone()), dir.to_string_lossy());
+    p.flags = TorrentFlags::empty();
+    p.file_priorities = (0..fs.num_files())
+        .map(|f| if f == first { DownloadPriority::NORMAL } else { DownloadPriority::DONT_DOWNLOAD })
+        .collect();
+    w.h.add_torrent(p);
+    let id = wait(&mut w, 5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        _ => None,
+    });
+    leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], relay)));
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let downloading = loop {
+        leech.handle().torrent(id).post_piece_info();
+        let downloading = wait(&mut w, 5, "piece info", |a| match a {
+            Alert::PieceInfo { id: i, downloading, .. } if *i == id => Some(downloading.clone()),
+            _ => None,
+        });
+        if downloading.iter().any(|pp| pp.piece == tail) || Instant::now() >= deadline {
+            break downloading;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    };
+    leech.shutdown();
+    seed.shutdown();
+    assert!(downloading.iter().any(|pp| pp.piece == tail), "the tail piece is requested: {downloading:?}");
+    for pp in &downloading {
+        assert_eq!(pp.size, fs.piece_size2(pp.piece), "piece {}", pp.piece);
+    }
+    let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 

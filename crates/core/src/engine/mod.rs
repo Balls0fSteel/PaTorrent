@@ -1569,7 +1569,7 @@ impl Engine {
                     let (availability, downloading) = match &t.picker {
                         Some(p) => (
                             (0..t.num_pieces).map(|i| p.availability(i)).collect(),
-                            p.partial_pieces(|i| t.piece_size(i) as u32),
+                            p.partial_pieces(|i| t.piece_size_for_req(i) as u32),
                         ),
                         None => (vec![0; t.num_pieces as usize], Vec::new()),
                     };

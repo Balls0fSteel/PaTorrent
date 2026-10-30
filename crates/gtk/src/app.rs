@@ -106,6 +106,8 @@ struct App {
     /// status bar's notice, and "Update to beta versions".
     updates: Checker,
     update_beta: bool,
+    /// "Show current speed in the title bar" (`ui.title_speed`).
+    title_speed: bool,
 }
 
 /// The widgets that draw from [`App`].
@@ -888,6 +890,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             menu_feed: None,
             updates: Checker::new(opts.gui.check_updates && updates_here(), std::time::Instant::now()),
             update_beta: opts.gui.update_beta,
+            title_speed: opts.gui.title_speed,
         })
     });
     with_app(|a| {
@@ -1437,6 +1440,23 @@ pub(crate) fn popup_menu(menu: &gio::Menu, parent: &gtk::Widget, widget: &gtk::W
     popover.popup();
 }
 
+/// The main window's title: with "Show current speed in the title bar" µTorrent's
+/// `D:… U:… - PaTorrent …`, else the name; set when it changes. A remote window's title names
+/// its server (or says it is disconnected) and is left as it is.
+fn sync_title(a: &App) {
+    if crate::remote::is_remote() {
+        return;
+    }
+    let title = if a.title_speed {
+        fmt::title_speed(a.stats.download_rate, a.stats.upload_rate, NAME_BUILD)
+    } else {
+        NAME_BUILD.to_owned()
+    };
+    if a.window.title().as_deref() != Some(title.as_str()) {
+        a.window.set_title(Some(&title));
+    }
+}
+
 fn update_status() {
     let Some(ui) = ui() else { return };
     let Some((texts, has_incoming)) = with_app(|a| {
@@ -1451,6 +1471,7 @@ fn update_status() {
             tr!(BarDown, rate = fmt::speed_always(s.download_rate), total = fmt::size(s.recv_payload_bytes)),
             tr!(BarUp, rate = fmt::speed_always(s.upload_rate), total = fmt::size(s.sent_payload_bytes)),
         ];
+        sync_title(a);
         (texts, s.has_incoming_connections)
     }) else {
         return;
@@ -2506,6 +2527,9 @@ fn apply_options(a: &mut App, o: &Options) {
     a.torrent_folders = o.gui.torrent_folders.clone();
     a.updates.set_automatic(o.gui.check_updates && updates_here(), std::time::Instant::now());
     a.update_beta = o.gui.update_beta;
+    // the title gains or loses the speeds now, not at the next second
+    a.title_speed = o.gui.title_speed;
+    sync_title(a);
     if o.gui.pex != old.gui.pex {
         for id in a.list.ids() {
             let t = a.handle.torrent(id);

@@ -315,6 +315,7 @@ impl Prefs {
             torrent_folders: self.torrent_folders.clone(),
             confirm_delete: self.confirm_delete,
             alternate_rows: true,
+            title_speed: false,
             check_association: false,
             close_to_tray: true,
             minimize_to_tray: false,
@@ -340,11 +341,12 @@ impl Prefs {
     }
 
     /// Writes these preferences into `g`, leaving the desktop-only options (tray, balloons,
-    /// window activation, updates) as they are: a host's options with the Web UI's changes on them.
+    /// window activation and title, updates) as they are: a host's options with the Web UI's changes on them.
     pub fn apply_to(&self, g: &mut GuiOptions) {
         let mine = self.gui();
         *g = GuiOptions {
             alternate_rows: g.alternate_rows,
+            title_speed: g.title_speed,
             check_association: g.check_association,
             close_to_tray: g.close_to_tray,
             minimize_to_tray: g.minimize_to_tray,

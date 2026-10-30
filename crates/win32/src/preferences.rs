@@ -98,6 +98,7 @@ const ID_ADD_STOPPED: u16 = id(1, 5);
 const ID_SHOW_ADD: u16 = id(1, 6);
 const ID_ALT_ROWS: u16 = id(1, 7);
 const ID_ACTIVATE: u16 = id(1, 8);
+const ID_TITLE_SPEED: u16 = id(1, 9);
 // Directories
 const ID_DL_DIR: u16 = id(2, 1);
 const ID_DL_BROWSE: u16 = id(2, 2);
@@ -257,6 +258,7 @@ static FIELDS: &[Field] = &[
         set: |o, v| o.gui.confirm_delete = v,
     },
     Field::Check { id: ID_ALT_ROWS, get: |o| o.gui.alternate_rows, set: |o, v| o.gui.alternate_rows = v },
+    Field::Check { id: ID_TITLE_SPEED, get: |o| o.gui.title_speed, set: |o, v| o.gui.title_speed = v },
     Field::Check { id: ID_BALLOONS, get: |o| o.gui.balloons, set: |o, v| o.gui.balloons = v },
     Field::Check { id: ID_CLOSE_TRAY, get: |o| o.gui.close_to_tray, set: |o, v| o.gui.close_to_tray = v },
     Field::Check { id: ID_MIN_TRAY, get: |o| o.gui.minimize_to_tray, set: |o, v| o.gui.minimize_to_tray = v },
@@ -712,17 +714,18 @@ fn template() -> Vec<u16> {
     b.ctl(BUTTON, ID_UPDATE_BETA, CHECK, [8, 186, 290, 10], tr!(PrefUpdateBeta));
 
     b.page(1);
-    b.group([0, 0, W, 60], tr!(PrefDisplay));
+    b.group([0, 0, W, 74], tr!(PrefDisplay));
     b.ctl(BUTTON, ID_CONFIRM_DELETE, CHECK, [8, 14, 290, 10], tr!(PrefConfirmDelete));
     b.ctl(BUTTON, ID_ALT_ROWS, CHECK, [8, 28, 290, 10], tr!(PrefAlternateRows));
-    b.ctl(BUTTON, ID_BALLOONS, CHECK, [8, 42, 290, 10], tr!(PrefBalloons));
-    b.group([0, 66, W, 46], tr!(PrefTray));
-    b.ctl(BUTTON, ID_CLOSE_TRAY, CHECK, [8, 80, 290, 10], tr!(PrefCloseToTray));
-    b.ctl(BUTTON, ID_MIN_TRAY, CHECK, [8, 94, 290, 10], tr!(PrefMinimizeToTray));
-    b.group([0, 118, W, 60], tr!(PrefWhenAdding));
-    b.ctl(BUTTON, ID_ADD_STOPPED, CHECK, [8, 132, 290, 10], tr!(PrefDontStart));
-    b.ctl(BUTTON, ID_ACTIVATE, CHECK, [8, 146, 290, 10], tr!(PrefActivateWindow));
-    b.ctl(BUTTON, ID_SHOW_ADD, CHECK, [8, 160, 290, 10], tr!(PrefShowAddDialog));
+    b.ctl(BUTTON, ID_TITLE_SPEED, CHECK, [8, 42, 290, 10], tr!(PrefTitleSpeed));
+    b.ctl(BUTTON, ID_BALLOONS, CHECK, [8, 56, 290, 10], tr!(PrefBalloons));
+    b.group([0, 80, W, 46], tr!(PrefTray));
+    b.ctl(BUTTON, ID_CLOSE_TRAY, CHECK, [8, 94, 290, 10], tr!(PrefCloseToTray));
+    b.ctl(BUTTON, ID_MIN_TRAY, CHECK, [8, 108, 290, 10], tr!(PrefMinimizeToTray));
+    b.group([0, 132, W, 60], tr!(PrefWhenAdding));
+    b.ctl(BUTTON, ID_ADD_STOPPED, CHECK, [8, 146, 290, 10], tr!(PrefDontStart));
+    b.ctl(BUTTON, ID_ACTIVATE, CHECK, [8, 160, 290, 10], tr!(PrefActivateWindow));
+    b.ctl(BUTTON, ID_SHOW_ADD, CHECK, [8, 174, 290, 10], tr!(PrefShowAddDialog));
 
     b.page(2);
     b.group([0, 0, W, 96], tr!(PrefDownloadLocation));
@@ -2125,6 +2128,7 @@ mod tests {
         f.check(ID_CONFIRM_DELETE, false);
         assert!(unsafe { checked(f.dlg, ID_ALT_ROWS) }, "alternate rows are on by default, as in µTorrent");
         f.check(ID_ALT_ROWS, false);
+        f.check(ID_TITLE_SPEED, true);
         unsafe { send(item(f.dlg, ID_ENC_OUT), CB_SETCURSEL, 0, 0) };
         f.click(ID_APPLY);
 
@@ -2150,6 +2154,7 @@ mod tests {
         assert_eq!(o.gui.ip_filter_path, r"D:\level1.dat");
         assert_eq!(o.gui.upload_slots_per_torrent, 4);
         assert!(!o.gui.pex && o.gui.add_stopped && !o.gui.confirm_delete && !o.gui.alternate_rows);
+        assert!(o.gui.title_speed, "Show current speed in the title bar");
         let goal = o.gui.seeding_goal();
         assert_eq!(
             (goal.goal.ratio_pct, goal.goal.minutes, goal.limit_upload, goal.limit_kib),

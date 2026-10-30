@@ -313,6 +313,9 @@ struct App {
     /// Selection is being restored after a re-sort; ignore the change notifications.
     restoring: bool,
     tray_tip: String,
+    /// "Show current speed in the title bar" (`ui.title_speed`), and the title last set.
+    title_speed: bool,
+    title: String,
     status_texts: Vec<String>,
     quitting: bool,
     taskbar_created: u32,
@@ -969,6 +972,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             alerts: Vec::new(),
             restoring: false,
             tray_tip: String::new(),
+            title_speed: gui.title_speed,
+            title: NAME_BUILD.to_owned(),
             status_texts: Vec::new(),
             quitting: false,
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
@@ -2451,6 +2456,26 @@ unsafe fn on_alerts(hwnd: HWND) {
     }
 }
 
+/// The main window's title: with "Show current speed in the title bar" µTorrent's
+/// `D:… U:… - PaTorrent …`, else the name; set when it changes. A remote window's title names
+/// its server (or says it is disconnected) and is left as it is.
+fn sync_title(a: &mut App) {
+    if crate::remote_ui::is_remote() {
+        return;
+    }
+    let title = if a.title_speed {
+        fmt::title_speed(a.stats.download_rate, a.stats.upload_rate, NAME_BUILD)
+    } else {
+        NAME_BUILD.to_owned()
+    };
+    if title != a.title {
+        let w = wide(&title);
+        // SAFETY: the main window is live while the app state is.
+        unsafe { SetWindowTextW(a.hwnd, w.as_ptr()) };
+        a.title = title;
+    }
+}
+
 unsafe fn update_status_bar() {
     let Some((status, hwnd, parts, tip, changed, net_icon, first)) = with_app(|a| {
         let s = &a.stats;
@@ -2480,6 +2505,7 @@ unsafe fn update_status_bar() {
         if changed {
             a.tray_tip = tip.clone();
         }
+        sync_title(a);
         let parts: Vec<(usize, String)> =
             parts.into_iter().enumerate().filter(|(i, p)| a.status_texts.get(*i) != Some(p)).collect();
         for (i, p) in &parts {
@@ -3767,6 +3793,9 @@ fn apply_options_from(a: &mut App, old: &Options, o: &Options) {
         }
     }
     a.save_path = o.gui.download_dir.clone();
+    // the title gains or loses the speeds now, not at the next second
+    a.title_speed = o.gui.title_speed;
+    sync_title(a);
     if o.gui.alternate_rows != old.gui.alternate_rows {
         // every list repaints with the new shading (deferred: the state is borrowed here)
         // every list repaints with the new shading (deferred: the state is borrowed here)
@@ -4157,6 +4186,23 @@ mod url_tests {
             let err = URL_ERRORS.with(|e| e.borrow()[0].clone());
             assert!(err.contains("http://127.0.0.1:1/x.torrent"), "{err}");
             assert_eq!(names().len(), 1);
+
+            // Show current speed in the title bar: the title follows the option, both ways
+            let title = || crate::util::window_text(hwnd);
+            with_app(|a| {
+                a.title_speed = true;
+                sync_title(a);
+            });
+            assert!(
+                title().starts_with("D:") && title().ends_with(&format!(" - {NAME_BUILD}")),
+                "{}",
+                title()
+            );
+            with_app(|a| {
+                a.title_speed = false;
+                sync_title(a);
+            });
+            assert_eq!(title(), NAME_BUILD);
 
             DestroyWindow(hwnd);
         }

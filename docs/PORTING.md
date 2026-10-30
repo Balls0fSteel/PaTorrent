@@ -246,3 +246,21 @@ The ChangeLog entries of 2.0.12-2.0.15 and 2.1.0-2.1.2 were triaged against this
 - Ours, found in the triage: web seeds request the original file names (`orig_files`), and a forced or network-change reannounce of a hybrid announces both info-hashes.
 
 Already right here, not applicable (i2p, SSL torrents, mmap, WebTorrent, C++ API) or deferred: see BACKLOG.md "libtorrent 2.0.12-2.1.2 follow-ups".
+
+v2 / merkle / uTP / overflows sweep (commits without ChangeLog lines, v2.0.13..v2.1.2):
+
+- 2e2cec4f81 (2.1.0) a v2 piece could pass twice when its block hashes arrived after it completed: latent; v2 pieces pass only from the disk hash job (`engine/mod.rs:2878`), `AddHashesOutcome::hash_passed` is unused. Needs `!have_piece` once block-hash trees are used.
+- 4a0dcf5cff (2.0.13) proof cleanup left the last computed parent in the tree: ported with 04f3d7d769, `metainfo/merkle.rs`.
+- 04f3d7d769 (2.0.14) an existing sibling equal to the proof is kept, a contradicting one fails, a failure keeps hashes that were there: ported, `metainfo/merkle.rs` (with 50c0450b22's walk of a matching target).
+- a6bd39eb03 (2.0.14) refuse an all-zero node hash: ported, `metainfo/merkle.rs` (`merkle_tree.rs`'s pre-check `proof_reaches_known_node` already refused it).
+- 58f793b4c5 (2.0.15) a proof for the root fails instead of asserting: ported, `metainfo/merkle.rs`.
+- 37d1add171 (2.1.2) hashes not requested from that peer are dropped (we took them, as 2.0.11 did): ported, `engine/v2.rs` `take_hash_request`.
+- 634105823d / 4e523096a5 (2.0.15 / 2.1.2) merkle_tree `add_hashes` bounds: the span check was already here (`metainfo/merkle_tree.rs:326-328`); the uncle-count bound is ported (`leaf_count << uncles` could wrap to 0 and hang `merkle_pad`; callers cap uncles via `validate_hash_request`).
+- ca4e621c2e (2.0.14) OOB write in `hashes_rejected` for block requests: not affected, spans are reached with `get_mut` (`engine/hash_picker.rs:458`); shape check ported with 485467b33e.
+- d09a0dc755, 485467b33e (2.0.15) `hashes_rejected` matches the two request shapes (block request first), counts never go negative: ported, `engine/hash_picker.rs` (block requests latent: `verify_block_hashes` is unused).
+- b0f2691351 (2.0.13, found here) received piece-layer spans are marked had: ported, `engine/hash_picker.rs`. We re-asked for them after 3 s while other spans were outstanding.
+- ea998e754c, f4778634fd (2.1.1, 2.0.14) uTP packet buffer wrapped range checks: modulo distance already here; indices above 0xffff now refused, `utp/packet_buffer.rs` (callers mask to 16 bits).
+- 507c60005b (2.0.14) uTP use-after-free on failure shutdown: not affected; the write buffer lives for one call (`utp/mod.rs:355`), `socket_drained` passes none (`utp/mod.rs:720`), reads copy out.
+- 0699430139 (2.1.0) `sliding_average` overflow: ported (saturates), `util/stat.rs`; unreachable today (i64, uTP RTT samples in ms).
+- 3925f28520 (2.0.14) `download_queue_time` / desired queue overflow: not affected; u64 arithmetic from a u32 rate, clamped (`engine/peer.rs:443`), no `download_queue_time`.
+- 9790e106c3 (2.1.1) `m_queued_time_critical` overflow: not affected, time-critical pieces (deadlines) not ported.

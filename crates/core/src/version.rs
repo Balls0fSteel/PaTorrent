@@ -16,7 +16,8 @@ pub const USER_AGENT: &str = concat!("PaTorrent/", env!("CARGO_PKG_VERSION"));
 /// BEP 20 list; `LR` there is the unrelated Android LibreTorrent.
 /// The four characters are a counter, not the version (D37): `-PA1010-` went out with 1.0.1,
 /// `-PA1011-` with 1.1.0 (the security fixes' wire changes), `-PA1012-` with 1.1.18 (libtorrent
-/// 2.0.13's v2 request sizes and the other upstream fixes), and the number goes up by one only
+/// 2.0.13's v2 request sizes and the other upstream fixes; still unreleased, it also covers
+/// 1.1.20's v2 hash-request fixes), and the number goes up by one only
 /// with an engine change that alters how the client behaves on the wire. Peers only need to
 /// tell engine behaviour apart, and the version moves with every change set, far faster than
 /// four characters can follow.

@@ -158,6 +158,17 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
 - µTorrent's UI Settings "Show current speed in the title bar" (`[D: x U: y]`
   before the name and version) is not implemented; the title is
   "PaTorrent <version>" only.
+- Torrent search (D41 slice 3, 2026-10-30_123154_1793359914): tried at 100 %
+  in a portable `--demo 40` copy against the VM's Prowlarr (the drop-down's
+  hint, Enter to Search Results, live results, Test "OK, 8 categories", the
+  Edit dialog's empty key box). Still check by hand: real 150 % and 200 % DPI
+  and a second monitor's `WM_DPICHANGED` on the resizable Search Results
+  window; the translations' lengths in the arrow's menu, the hints and the
+  results window's buttons (they widen to their text; the source dialogs use
+  `fit_texts`); a live Add in a real session (the Add dialog on and off, a
+  magnet and a `.torrent`, a result already in the list); the drop-down's
+  look beside the box under other themes; Alt+Down and Escape in the box; RTL.
+  As in GTK, no source can drop its stored key: remove and add it again.
 
 ## GTK desktop checks and limitations
 

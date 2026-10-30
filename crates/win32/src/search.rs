@@ -200,7 +200,7 @@ pub(crate) const ID_ADD: u16 = 108;
 
 /// The result list's columns: title, width in dialog units, right-aligned.
 const COLUMNS: [(Col, i32, bool); 7] = [
-    (Col::Name, 190, false),
+    (Col::Name, 170, false),
     (Col::Size, 44, true),
     (Col::Seeds, 32, true),
     (Col::Peers, 32, true),

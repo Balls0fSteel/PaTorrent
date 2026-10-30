@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_075840_1793347120: CI builds and smoke-tests the Windows installer
+
+- **CI (Phase 1 item 1):** `ci.yml`'s `release-windows` job now installs the pinned NSIS 3.13, builds the setup (`/WX`) and installs and uninstalls it silently, with the same steps and checks as `release.yml`'s `windows` job, so installer breakage shows on every push and PR instead of only at a tag. Its version is `<workspace version>-dev.<commit>` from `cargo metadata`, as `release.yml` names an untagged build. The setup joins the existing `patorrent-windows-x64` artifact. Checked locally: the YAML parses, every PowerShell step parses, the version step gives `1.1.7-dev.<sha>`; actionlint was not available, and the job has not run on GitHub yet. CI only, so no version bump.
+
 ## 2026-10-30_075652_1793347012: 1.1.7 release prepared; next features planned
 
 - **Release (owner, 2026-10-30):** release `main` as 1.1.7 in place of the unpublished 1.1.2 draft. New `docs/releases/1.1.7.md` covers everything since 1.1.0: the hosted Web UI, the service login, the *arr fixes (1.1.3-1.1.6), activate on add and Stopped on add. There is a 1.1.7 `<release>` in the Flatpak metainfo. No program change, so no version bump.

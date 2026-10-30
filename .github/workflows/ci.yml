@@ -77,9 +77,15 @@ jobs:
       - run: sudo apt-get update && sudo apt-get install -y libgtk-4-dev
       - run: cargo check --workspace --all-targets
 
+  # the release build, its slow tests and reports, and the installer that release.yml makes
+  # (built, installed and uninstalled here too, so installer breakage shows before a tag)
   release-windows:
     needs: test
     runs-on: windows-latest
+    env:
+      # NSIS as release.yml pins it (see there); keep the two in step
+      NSIS_URL: https://downloads.sourceforge.net/project/nsis/NSIS%203/3.13/nsis-3.13-setup.exe
+      NSIS_SHA256: DB9A1038BBC0E53FEF24F423FD609979BD578E942F1BE1198DB186D1C42652A3
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
@@ -105,6 +111,94 @@ jobs:
           $lines += (& ./target/release/lt-swarm.exe parse corpus)
           $lines += '```'
           $lines | Out-File -Append -Encoding utf8 $env:GITHUB_STEP_SUMMARY
+      # as release.yml names a build that is not a tag: <workspace version>-dev.<commit>
+      - id: version
+        name: Version
+        shell: pwsh
+        run: |
+          $crate = ((cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages |
+            Where-Object name -eq patorrent).version
+          if (-not $crate) { echo "::error::cargo metadata gave no version for patorrent"; exit 1 }
+          "version=$crate-dev.$($env:GITHUB_SHA.Substring(0, 7))" >> $env:GITHUB_OUTPUT
+      # The installer steps below are release.yml's, with this job's version.
+      - name: NSIS
+        shell: pwsh
+        timeout-minutes: 10
+        run: |
+          $setup = Join-Path $env:RUNNER_TEMP nsis-setup.exe
+          curl.exe -fsSL --retry 5 --retry-all-errors -o $setup $env:NSIS_URL
+          if ($LASTEXITCODE -ne 0) { echo "::error::could not download $env:NSIS_URL"; exit 1 }
+          $hash = (Get-FileHash -Algorithm SHA256 $setup).Hash
+          if ($hash -ne $env:NSIS_SHA256) {
+            echo "::error::$env:NSIS_URL has SHA-256 $hash, expected $env:NSIS_SHA256"
+            exit 1
+          }
+          $dir = Join-Path $env:RUNNER_TEMP nsis
+          $p = Start-Process $setup -ArgumentList '/S', "/D=$dir" -Wait -PassThru
+          if ($p.ExitCode -ne 0 -or -not (Test-Path "$dir\makensis.exe")) {
+            echo "::error::the NSIS installer failed (exit code $($p.ExitCode))"
+            exit 1
+          }
+          & "$dir\makensis.exe" -VERSION
+          "MAKENSIS=$dir\makensis.exe" >> $env:GITHUB_ENV
+      - name: Installer
+        shell: pwsh
+        run: |
+          $version = "${{ steps.version.outputs.version }}"
+          $family = (Get-Content assets/patina-icons/app-icon.txt -Raw).Trim()
+          $icon = "assets\patina-icons\exports\app\$family.ico"
+          if (-not $family -or -not (Test-Path $icon)) {
+            echo "::error file=assets/patina-icons/app-icon.txt::names '$family', which has no $icon"
+            exit 1
+          }
+          & $env:MAKENSIS /NOCD /WX "/DVERSION=$version" "/DBINDIR=target\release" "/DICON=$icon" `
+            "/DOUTFILE=patorrent-$version-windows-x64-setup.exe" packaging\windows\patorrent.nsi
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          Get-Item "patorrent-$version-windows-x64-setup.exe" | Format-List Name, Length, VersionInfo
+      - name: Install and uninstall
+        shell: pwsh
+        # a hung setup or patorrent.exe --associate must not hold the job for hours
+        timeout-minutes: 10
+        run: |
+          function Fail($m) { echo "::error::$m"; exit 1 }
+          $version = "${{ steps.version.outputs.version }}"
+          $dir = Join-Path $env:RUNNER_TEMP "PaTorrent test"
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PaTorrent'
+          $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\PaTorrent.lnk"
+          $desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) PaTorrent.lnk
+          $classes = 'HKCU:\Software\Classes'
+          $p = Start-Process ".\patorrent-$version-windows-x64-setup.exe" -Wait -PassThru `
+            -ArgumentList '/S', '/DESKTOPSHORTCUT', '/ASSOCIATE=torrent,magnet', "/D=$dir"
+          if ($p.ExitCode -ne 0) { Fail "Setup exited with $($p.ExitCode)" }
+          foreach ($f in 'patorrent.exe', 'patorrent-nox.exe', 'LICENSE.md', 'THIRD-PARTY-NOTICES.md', 'uninstall.exe') {
+            if (-not (Test-Path "$dir\$f")) { Fail "$f was not installed" }
+          }
+          if (-not (Test-Path $menu)) { Fail "no Start menu shortcut" }
+          if (-not (Test-Path $desktop)) { Fail "no desktop shortcut" }
+          $u = Get-ItemProperty $key
+          $u | Format-List DisplayName, DisplayVersion, Publisher, DisplayIcon, InstallLocation, EstimatedSize, QuietUninstallString
+          if ($u.DisplayVersion -ne $version -or $u.InstallLocation -ne $dir) { Fail "the Uninstall key is wrong" }
+          if ((Get-Item "$classes\.torrent").GetValue('') -ne 'PaTorrent.torrent') { Fail ".torrent is not associated" }
+          $open = (Get-Item "$classes\magnet\shell\open\command").GetValue('')
+          # SEC-18: the shell passes links through --shell, so nothing after %1 becomes a switch
+          if ($open -ne "`"$dir\patorrent.exe`" --shell `"%1`"") { Fail "magnet: opens '$open'" }
+          & "$dir\patorrent-nox.exe" --version
+          if ($LASTEXITCODE -ne 0) { Fail "the installed patorrent-nox.exe did not run" }
+
+          $p = Start-Process "$dir\uninstall.exe" -ArgumentList '/S' -Wait -PassThru
+          # it goes on from a copy of itself in %TEMP%: wait for that
+          for ($i = 0; $i -lt 60 -and ((Test-Path $key) -or (Test-Path $dir)); $i++) { Start-Sleep 1 }
+          if (Test-Path $dir) { Get-ChildItem -Recurse $dir; Fail "the folder is still there" }
+          if (Test-Path $key) { Fail "the Uninstall key is still there" }
+          if ((Test-Path $menu) -or (Test-Path $desktop)) { Fail "a shortcut is still there" }
+          if ((Test-Path "$classes\PaTorrent.torrent") -or (Test-Path "$classes\PaTorrent.magnet") -or (Test-Path "$classes\magnet")) {
+            Fail "an association is still there"
+          }
+          if ((Get-Item "$classes\.torrent" -ErrorAction SilentlyContinue)?.GetValue('')) { Fail ".torrent still names a program" }
+          if ((Get-ItemProperty 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue).PaTorrent) {
+            Fail "PaTorrent is still in RegisteredApplications"
+          }
+          echo "installed, associated, uninstalled: nothing left"
       - uses: actions/upload-artifact@v7
         with:
           name: patorrent-windows-x64
@@ -113,4 +207,5 @@ jobs:
             target/release/patorrent-nox.exe
             LICENSE.md
             THIRD-PARTY-NOTICES.md
+            patorrent-*-setup.exe
           retention-days: 14

@@ -537,9 +537,10 @@ That broad check does not establish that every detailed case below was tried.
   UAC (declining it, over-the-shoulder elevation, `/ALLUSERS`), the Finish
   page's launch, `--associate` on a real registry, a running `PaTorrentNox`
   service, Windows on Arm, SmartScreen on the unsigned setup.
-- Installer follow-ups: build it in `ci.yml` too so breakage shows before a tag;
-  associations of an all-users install are per user (HKLM or first-run
-  handling?); `--unregister` leaves `.torrent`'s `Content Type` and an empty
+- Installer follow-ups (`ci.yml`'s `release-windows` builds, installs and
+  uninstalls it since 2026-10-30_075840_1793347120 with a copy of
+  `release.yml`'s steps: keep the two in step): associations of an all-users
+  install are per user (HKLM or first-run handling?); `--unregister` leaves `.torrent`'s `Content Type` and an empty
   `OpenWithProgids`, as Preferences does; Authenticode signing of the exes and
   the setup; a winget manifest.
 - Website (D33): live since 2026-10-27_090124_1793088084 (Pages source: GitHub Actions; the

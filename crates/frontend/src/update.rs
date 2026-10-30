@@ -1,5 +1,6 @@
-//! The update check (D32): PaTorrent asks the project website which releases exist and, when a
-//! newer one is out, says so for a minute in the status bar, linking to the release's page on
+//! The update check (D32, D44): PaTorrent asks the project website which releases exist and,
+//! when a newer one is out, asks once in a message box whether to open its download page, and
+//! says so in the status bar until that notice is clicked, linking to the release's page on
 //! GitHub. Nothing is downloaded or installed here: the user fetches the new version (the
 //! installer upgrades in place, the zip is replaced by hand).
 //!
@@ -10,6 +11,9 @@
 //! * [`Checker`] decides when: [`FIRST_CHECK`] after the start, then every [`INTERVAL`], while
 //!   Preferences > General "Check for updates automatically" is on; Help > Check for Updates
 //!   asks at once and answers in a message box. The GUI runs [`fetch`] on a worker thread.
+//! * The box is shown once per version: the newest version it was shown for is kept as
+//!   `update.seen` in the GUI's settings ([`Checker::seen`]), so a later start or a later check
+//!   finding the same version only shows the status bar's notice.
 //! * A pre-release is offered when "Update to beta versions" is on, or when the running version
 //!   is a pre-release itself: a release candidate's tester hears of the next candidate.
 //! * A build with `PATORRENT_NO_UPDATE_CHECK` set has no check at all ([`AVAILABLE`]), for
@@ -36,8 +40,6 @@ pub const AVAILABLE: bool = option_env!("PATORRENT_NO_UPDATE_CHECK").is_none();
 pub const FIRST_CHECK: Duration = Duration::from_secs(10);
 /// Between automatic checks, for a PaTorrent left running.
 pub const INTERVAL: Duration = Duration::from_secs(12 * 60 * 60);
-/// How long the status bar shows a newer version.
-pub const NOTICE_TIME: Duration = Duration::from_secs(60);
 
 /// A release's version: `MAJOR.MINOR.PATCH` with an optional `-pre.release` suffix, ordered as
 /// Semantic Versioning orders them (`1.0.0-rc.2` < `1.0.0-rc.10` < `1.0.0`). Displayed as
@@ -205,10 +207,21 @@ pub enum Kind {
 /// A check's answer: the newer version, `None` when the running one is the newest.
 pub type Answer = Result<Option<Version>, String>;
 
+/// What [`Checker::finish`] makes of a check's result.
+#[derive(Debug, PartialEq, Eq)]
+pub struct Finished {
+    /// Who asked.
+    pub kind: Kind,
+    pub answer: Answer,
+    /// An automatic check found a version the box has not been shown for yet: show it once,
+    /// and save [`Checker::seen`].
+    pub announce: bool,
+}
+
 /// When the checks run, and the status bar's notice. The GUI calls [`Checker::due`] from its
 /// timer and runs [`fetch`] on a thread when it says so (or for [`Checker::start_manual`]),
-/// hands the result to [`Checker::finish`], and hides the notice when [`Checker::expire`]
-/// says it is over.
+/// hands the result to [`Checker::finish`], shows the box when it says `announce`, and shows
+/// the status bar's [`Checker::notice`] until it is clicked ([`Checker::dismiss`]).
 #[derive(Debug)]
 pub struct Checker {
     /// When the next automatic check is due; `None` while they are off.
@@ -216,14 +229,17 @@ pub struct Checker {
     /// A check is on a worker thread; a manual request during an automatic one makes it
     /// manual.
     running: Option<Kind>,
-    /// The newer version the status bar shows, until when.
-    notice: Option<(Version, Instant)>,
+    /// The newer version the status bar shows.
+    notice: Option<Version>,
+    /// The newest version a box was shown for (`update.seen`).
+    seen: Option<Version>,
 }
 
 impl Checker {
-    /// With automatic checks `on` (and [`AVAILABLE`]), the first [`FIRST_CHECK`] from `now`.
-    pub fn new(on: bool, now: Instant) -> Checker {
-        Checker { next: (on && AVAILABLE).then(|| now + FIRST_CHECK), running: None, notice: None }
+    /// With automatic checks `on` (and [`AVAILABLE`]), the first [`FIRST_CHECK`] from `now`;
+    /// `seen` is the stored `update.seen`, the newest version already announced in a box.
+    pub fn new(on: bool, now: Instant, seen: Option<Version>) -> Checker {
+        Checker { next: (on && AVAILABLE).then(|| now + FIRST_CHECK), running: None, notice: None, seen }
     }
 
     /// Preferences changed: turning the automatic check on checks soon, off stops it (a check
@@ -257,34 +273,40 @@ impl Checker {
     }
 
     /// A check's result: who asked, and the answer for `current` with `beta`. An automatic
-    /// check that finds a newer version puts it in the status bar for [`NOTICE_TIME`].
-    pub fn finish(
-        &mut self,
-        result: Result<Manifest, String>,
-        current: &Version,
-        beta: bool,
-        now: Instant,
-    ) -> (Kind, Answer) {
+    /// check that finds a newer version puts it in the status bar, and says `announce` when no
+    /// box has been shown for it (or a newer one) yet; one that finds nothing newer takes the
+    /// notice down. A version shown in either box counts as seen.
+    pub fn finish(&mut self, result: Result<Manifest, String>, current: &Version, beta: bool) -> Finished {
         let kind = self.running.take().unwrap_or(Kind::Automatic);
         let answer = result.map(|m| m.newer(current, beta).cloned());
-        if let (Kind::Automatic, Ok(Some(v))) = (kind, &answer) {
-            self.notice = Some((v.clone(), now + NOTICE_TIME));
+        let mut announce = false;
+        match (kind, &answer) {
+            (Kind::Automatic, Ok(Some(v))) => {
+                self.notice = Some(v.clone());
+                announce = self.seen.as_ref().is_none_or(|s| v > s);
+                self.mark_seen(v);
+            }
+            (Kind::Automatic, Ok(None)) => self.notice = None,
+            (Kind::Manual, Ok(Some(v))) => self.mark_seen(v),
+            _ => {}
         }
-        (kind, answer)
+        Finished { kind, answer, announce }
+    }
+
+    fn mark_seen(&mut self, v: &Version) {
+        if self.seen.as_ref().is_none_or(|s| v > s) {
+            self.seen = Some(v.clone());
+        }
+    }
+
+    /// The newest version a box was shown for, to store as `update.seen`.
+    pub fn seen(&self) -> Option<&Version> {
+        self.seen.as_ref()
     }
 
     /// The newer version the status bar shows now.
     pub fn notice(&self) -> Option<&Version> {
-        self.notice.as_ref().map(|(v, _)| v)
-    }
-
-    /// `true` once, when the notice's time is over: the GUI hides it.
-    pub fn expire(&mut self, now: Instant) -> bool {
-        if self.notice.as_ref().is_some_and(|(_, until)| now >= *until) {
-            self.notice = None;
-            return true;
-        }
-        false
+        self.notice.as_ref()
     }
 
     /// Hides the notice now (it was clicked).
@@ -388,12 +410,15 @@ mod tests {
         assert_eq!(Manifest::default().newer(&v("1.0.0"), true), None);
     }
 
+    fn newer(s: &str) -> Result<Manifest, String> {
+        Ok(Manifest { stable: Some(v(s)), prerelease: None })
+    }
+
     #[test]
     fn automatic_checks_and_the_notice() {
         let t0 = Instant::now();
         let current = v("1.0.0");
-        let newer = || Ok(Manifest { stable: Some(v("1.0.1")), prerelease: None });
-        let mut c = Checker::new(true, t0);
+        let mut c = Checker::new(true, t0, None);
         if !AVAILABLE {
             assert!(!c.due(t0 + FIRST_CHECK));
             return;
@@ -402,43 +427,75 @@ mod tests {
         assert!(c.due(t0 + FIRST_CHECK));
         // one at a time
         assert!(!c.due(t0 + FIRST_CHECK + INTERVAL));
-        let t1 = t0 + FIRST_CHECK + Duration::from_secs(1);
-        assert_eq!(c.finish(newer(), &current, false, t1), (Kind::Automatic, Ok(Some(v("1.0.1")))));
+        // the first newer version: the box once, and the notice until it is clicked
+        assert_eq!(
+            c.finish(newer("1.0.1"), &current, false),
+            Finished { kind: Kind::Automatic, answer: Ok(Some(v("1.0.1"))), announce: true }
+        );
         assert_eq!(c.notice(), Some(&v("1.0.1")));
-        assert!(!c.expire(t1 + NOTICE_TIME - Duration::from_secs(1)));
-        assert!(c.expire(t1 + NOTICE_TIME));
-        assert!(!c.expire(t1 + NOTICE_TIME), "once");
-        assert_eq!(c.notice(), None);
-        // the next one an interval after the last started, and it shows the notice again
+        assert_eq!(c.seen(), Some(&v("1.0.1")));
+        // the next one an interval after the last started; the same version is no news
         assert!(!c.due(t0 + FIRST_CHECK + INTERVAL - Duration::from_secs(1)));
         let t2 = t0 + FIRST_CHECK + INTERVAL;
         assert!(c.due(t2));
-        assert_eq!(c.finish(newer(), &current, false, t2).1, Ok(Some(v("1.0.1"))));
-        assert!(c.notice().is_some());
+        let f = c.finish(newer("1.0.1"), &current, false);
+        assert!(!f.announce && f.answer == Ok(Some(v("1.0.1"))));
+        assert_eq!(c.notice(), Some(&v("1.0.1")), "the notice stays");
         c.dismiss();
         assert_eq!(c.notice(), None);
-        // a failure or nothing newer shows nothing
+        // a newer one still: the box again, and the notice is back
         assert!(c.due(t2 + INTERVAL));
-        assert_eq!(
-            c.finish(Err("timed out".into()), &current, false, t2),
-            (Kind::Automatic, Err("timed out".into()))
-        );
+        assert!(c.finish(newer("1.0.2"), &current, false).announce);
+        assert_eq!((c.notice(), c.seen()), (Some(&v("1.0.2")), Some(&v("1.0.2"))));
+        // a failure leaves the notice; nothing newer takes it down
         assert!(c.due(t2 + INTERVAL * 2));
-        assert_eq!(c.finish(Ok(Manifest::default()), &current, false, t2), (Kind::Automatic, Ok(None)));
+        assert_eq!(
+            c.finish(Err("timed out".into()), &current, false),
+            Finished { kind: Kind::Automatic, answer: Err("timed out".into()), announce: false }
+        );
+        assert_eq!(c.notice(), Some(&v("1.0.2")));
+        assert!(c.due(t2 + INTERVAL * 3));
+        assert_eq!(
+            c.finish(Ok(Manifest::default()), &current, false),
+            Finished { kind: Kind::Automatic, answer: Ok(None), announce: false }
+        );
         assert_eq!(c.notice(), None);
+        assert_eq!(c.seen(), Some(&v("1.0.2")), "seen is never forgotten");
+    }
+
+    #[test]
+    fn the_box_is_shown_once_per_version_across_starts() {
+        let t0 = Instant::now();
+        let current = v("1.0.0");
+        if !AVAILABLE {
+            return;
+        }
+        // the next start, with update.seen stored: the notice only
+        let mut c = Checker::new(true, t0, Some(v("1.0.1")));
+        assert!(c.due(t0 + FIRST_CHECK));
+        let f = c.finish(newer("1.0.1"), &current, false);
+        assert!(!f.announce);
+        assert_eq!(c.notice(), Some(&v("1.0.1")));
+        // an older stored version does not cover a newer release
+        let mut c = Checker::new(true, t0, Some(v("1.0.0-rc.1")));
+        assert!(c.due(t0 + FIRST_CHECK));
+        assert!(c.finish(newer("1.0.1"), &current, false).announce);
     }
 
     #[test]
     fn manual_checks_and_switching_off() {
         let t0 = Instant::now();
         let current = v("1.0.0");
-        let mut c = Checker::new(false, t0);
+        let mut c = Checker::new(false, t0, None);
         assert!(!c.due(t0 + INTERVAL * 2), "off");
         assert!(c.start_manual());
         assert!(!c.start_manual(), "one is on its way");
-        let newer = Ok(Manifest { stable: Some(v("1.0.1")), prerelease: None });
-        assert_eq!(c.finish(newer, &current, false, t0), (Kind::Manual, Ok(Some(v("1.0.1")))));
+        assert_eq!(
+            c.finish(newer("1.0.1"), &current, false),
+            Finished { kind: Kind::Manual, answer: Ok(Some(v("1.0.1"))), announce: false }
+        );
         assert_eq!(c.notice(), None, "a manual check answers in its message box");
+        assert_eq!(c.seen(), Some(&v("1.0.1")), "and that box counts as seen");
         if !AVAILABLE {
             return;
         }
@@ -446,9 +503,13 @@ mod tests {
         c.set_automatic(true, t0);
         assert!(c.due(t0 + FIRST_CHECK));
         assert!(!c.start_manual());
-        assert_eq!(c.finish(Ok(Manifest::default()), &current, false, t0).0, Kind::Manual);
+        assert_eq!(c.finish(Ok(Manifest::default()), &current, false).kind, Kind::Manual);
+        // the version the manual box showed is no news to the automatic check
         c.set_automatic(true, t0 + FIRST_CHECK);
         assert!(!c.due(t0 + FIRST_CHECK * 2), "switching on again keeps the schedule");
+        assert!(c.due(t0 + FIRST_CHECK + INTERVAL));
+        assert!(!c.finish(newer("1.0.1"), &current, false).announce);
+        assert_eq!(c.notice(), Some(&v("1.0.1")));
         c.set_automatic(false, t0);
         assert!(!c.due(t0 + INTERVAL * 3));
     }

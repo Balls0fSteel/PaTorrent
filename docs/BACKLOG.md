@@ -1,6 +1,6 @@
 # Detailed backlog
 
-Last updated: 2026-10-28_075806_1793170686 (Europe/Budapest).
+Last updated: 2026-10-30_192440_1793384680 (Europe/Budapest).
 
 Start with [PLAN.md](../PLAN.md) for priorities and release gates. Load only the
 topic needed here. These are open checks, known limitations and conditional
@@ -596,6 +596,17 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   notice was hand-checked with `PATORRENT_UPDATE_URL`. Not checked:
   clicking the notice (opens the browser), the GTK link button and Help items on
   a desktop (CI compiles them), macOS, a proxy, and a check across sleep/resume.
+- The box once per version and the standing notice (D44, 1.1.23) are unit-tested
+  (`update::tests`) and compiled in both GUIs; GTK was linted only. Hand check with
+  `PATORRENT_UPDATE_URL` and a local `update.txt` of `stable=9.9.9`: the box about 10 s
+  after the first start (Yes opens the release page), the notice staying and clearing on
+  click, `update.seen=9.9.9` in the ini, no box on the second start, a box again for
+  `9.9.10`, and Help > Check for Updates still answering in its box. A box 10 s after a
+  `--minimized` start appears over the desktop; decide whether to hold it until the
+  window is shown.
+- Seamless Windows update: proposed D45 (DECISIONS.md), no code until the owner decides.
+  Its prerequisites are listed there; Authenticode signing (below) would remove the
+  SmartScreen prompt the downloaded setup still gets.
 - nox's update check (D43, 2026-10-30): unit- and Web UI-tested with fake
   fetchers and a refused local URL only. Not checked: a live `update.txt`, the
   page's status-bar link in a browser, a proxy. Without `--webui` only
@@ -622,6 +633,43 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   `github-pages` environment takes `main` and `v*` tags). The first release
   published after this will be the first release-event run. Its screenshots
   are from the Win32 demo; GTK and Web UI screenshots would help.
+
+## Startup and shutdown (investigated 2026-10-30_192440_1793384680)
+
+The owner asked whether a progress indicator is needed when a start or an exit takes long
+(NAS and network drives). Findings from the code, not from a measured slow case:
+
+- **Startup needs no progress bar.** The Win32 window is up at once (`Session::start`
+  returns immediately); the restore runs on `lt-network` without touching data files
+  (100,000 torrents listed in 1.16 s), and file checks run one at a time on `lt-hash`,
+  each shown as "Checking x%". The list is empty until the restore and the first
+  auto-manage pass finish; a status-bar "Restoring N torrents" until
+  `Alert::TorrentsRestored` (ignored by both GUIs today) would be cheap. Synchronous
+  GUI-thread I/O at start: the IP filter and `rss.dat` (settings folder, local).
+- **The auto-load folder poll runs on the GUI thread every timer tick** (`app.rs`
+  `autoload` → `torrent_folders::read`, GTK the same): a watch folder on a slow share
+  stalls the UI once a second. Move it to a worker (the RSS `Worker` pattern).
+- **Shutdown is the real case.** Win32 `on_destroy` hides the window and the tray icon at
+  once, then blocks the GUI thread in `Session::shutdown` (a join); GTK blocks with the
+  window still visible (looks hung). The engine waits for in-flight moves and renames with
+  no bound, saves every torrent's resume data, waits `stop_tracker_timeout` (5 s) for the
+  stopped announces, then joins the disk threads and `lt-hash` with no bound. A check's
+  stat pass (`resume_matches_files`, `export_unskipped`) ignores `abort`, so one in
+  progress on a slow share runs to its end; pending writes and file closes on the share
+  wait too. No alert reaches the GUI during this, so there is no phase to show. A relaunch
+  meanwhile finds the mutex but no window: `instance::forward` gives up after 5 s and the
+  new instance exits silently.
+- **No `WM_QUERYENDSESSION` / `WM_ENDSESSION` handling** in the Win32 GUI: at a Windows
+  logoff or shutdown the process gets the system's few seconds and is killed, possibly
+  before the resume data is saved. nox's service asks for 60 s (PRESHUTDOWN).
+- Code-ready: `WM_QUERYENDSESSION`/`WM_ENDSESSION` with `ShutdownBlockReasonCreate`
+  ("Saving torrent state"); `abort` checks in the stat pass; a relaunch during shutdown
+  waiting for the mutex instead of exiting; the auto-load poll off the GUI thread. With a
+  small design: run `Session::shutdown` on a worker thread and keep a small "Shutting down:
+  <phase>" window with the elapsed time (phases through a shared atomic set by the
+  engine: stopping, waiting for a move, saving resume data, closing files), GTK the same.
+- Owner's choice: whether the waits get a bound, e.g. a "Quit now" button after 30 s that
+  abandons an unfinished move (today the wait is unbounded, as libtorrent's).
 
 ## V1.1: importers, search and hooks
 

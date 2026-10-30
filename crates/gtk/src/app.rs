@@ -117,7 +117,7 @@ struct Ui {
     status: [gtk::Label; 4],
     /// The network indicator before the first status text.
     net_icon: gtk::Image,
-    /// The update notice at the status bar's start, shown for a minute (`App::updates`).
+    /// The update notice at the status bar's start, shown until clicked (`App::updates`).
     update_link: gtk::LinkButton,
     paned: gtk::Paned,
     details: Rc<Details>,
@@ -840,6 +840,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     add_actions(&window, &list);
     // magnets whose dialog was still to come at the last exit
     let awaiting = add::AwaitingMetadata::load(&prefs);
+    let update_seen = prefs.get("update.seen").and_then(Version::parse);
     let ui = Rc::new(Ui {
         list,
         sidebar,
@@ -888,7 +889,11 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             feed_view: None,
             feed_rows: Vec::new(),
             menu_feed: None,
-            updates: Checker::new(opts.gui.check_updates && updates_here(), std::time::Instant::now()),
+            updates: Checker::new(
+                opts.gui.check_updates && updates_here(),
+                std::time::Instant::now(),
+                update_seen,
+            ),
             update_beta: opts.gui.update_beta,
             title_speed: opts.gui.title_speed,
         })
@@ -921,14 +926,11 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             let list = &a.list;
             let now = std::time::Instant::now();
             let step = a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), now);
-            (step, a.updates.due(now), a.updates.expire(now))
+            (step, a.updates.due(now))
         });
-        if let Some((step, check, notice_over)) = step {
+        if let Some((step, check)) = step {
             if check {
                 start_update_check();
-            }
-            if notice_over {
-                show_update_notice();
             }
             auto_shutdown_step(step);
         }
@@ -2605,14 +2607,15 @@ fn start_update_check() {
     });
 }
 
-/// A check's result: an automatic check's newer version goes to the status bar for a minute and
-/// to the Logger, as does its failure (the Logger only); Help > Check for Updates answers in a
-/// dialog.
+/// A check's result: an automatic check's newer version goes to the status bar (until clicked)
+/// and to the Logger, and once per version into a dialog (D44); its failure goes to the Logger
+/// only. Help > Check for Updates answers in a dialog. The newest version a dialog was shown
+/// for is kept as `update.seen`.
 fn update_done(result: Result<Manifest, String>) {
     let current = Version::current();
-    let Some((kind, answer)) = with_app(|a| {
-        let (kind, answer) = a.updates.finish(result, &current, a.update_beta, std::time::Instant::now());
-        let line = match (&kind, &answer) {
+    let Some(f) = with_app(|a| {
+        let f = a.updates.finish(result, &current, a.update_beta);
+        let line = match (&f.kind, &f.answer) {
             (Kind::Automatic, Ok(Some(v))) => {
                 Some(tr!(LogUpdateAvailable, version = v, url = v.release_url()))
             }
@@ -2622,33 +2625,45 @@ fn update_done(result: Result<Manifest, String>) {
         if let Some(line) = line {
             a.detail.push_log(format!("{} {line}", now_hms()));
         }
-        (kind, answer)
+        if let Some(seen) = a.updates.seen() {
+            a.prefs.set("update.seen", seen.to_string());
+        }
+        f
     }) else {
         return;
     };
-    match (kind, answer) {
-        (Kind::Automatic, Ok(Some(_))) => show_update_notice(),
-        (Kind::Automatic, _) => {}
-        (Kind::Manual, Ok(Some(v))) => {
-            let Some(window) = with_app(|a| a.window.clone()) else { return };
-            let d = gtk::AlertDialog::builder()
-                .message(lang::plain(tr!(MenuCheckUpdates)))
-                .detail(tr!(UpdateNewer, version = v, current))
-                .buttons([tr!(BtnCancel), tr!(BtnOk)])
-                .cancel_button(0)
-                .default_button(1)
-                .modal(true)
-                .build();
-            let url = v.release_url();
-            d.choose(Some(&window), None::<&gio::Cancellable>, move |r| {
-                if r == Ok(1) {
-                    open_uri(&url);
-                }
-            });
+    match (f.kind, f.answer) {
+        (Kind::Automatic, Ok(Some(v))) => {
+            show_update_notice();
+            if f.announce {
+                ask_open_release(&v, &current);
+            }
         }
+        (Kind::Automatic, Ok(None)) => show_update_notice(),
+        (Kind::Automatic, Err(_)) => {}
+        (Kind::Manual, Ok(Some(v))) => ask_open_release(&v, &current),
         (Kind::Manual, Ok(None)) => info(&tr!(UpdateNewest, version = current)),
         (Kind::Manual, Err(e)) => error(&tr!(UpdateFailed, error = e), ""),
     }
+}
+
+/// "PaTorrent {v} is available. Open its download page?": OK opens the release's page.
+fn ask_open_release(v: &Version, current: &Version) {
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    let d = gtk::AlertDialog::builder()
+        .message(lang::plain(tr!(MenuCheckUpdates)))
+        .detail(tr!(UpdateNewer, version = v, current))
+        .buttons([tr!(BtnCancel), tr!(BtnOk)])
+        .cancel_button(0)
+        .default_button(1)
+        .modal(true)
+        .build();
+    let url = v.release_url();
+    d.choose(Some(&window), None::<&gio::Cancellable>, move |r| {
+        if r == Ok(1) {
+            open_uri(&url);
+        }
+    });
 }
 
 /// Shows the status bar's update notice for the newer version `App::updates` holds, or hides

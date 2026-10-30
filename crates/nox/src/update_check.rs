@@ -68,7 +68,8 @@ impl UpdateCheck {
 
     pub fn with(on: bool, now: Instant, wake: Sender<()>, current: Version, fetch: Fetch) -> UpdateCheck {
         let (done_tx, done_rx) = mpsc::channel();
-        UpdateCheck { checker: Checker::new(on, now), current, on, fetch, done_tx, done_rx, wake }
+        // a daemon has no box to show once, so nothing is "seen"
+        UpdateCheck { checker: Checker::new(on, now, None), current, on, fetch, done_tx, done_rx, wake }
     }
 
     /// Follows the switch (`on`, with `beta` versions offered), hands back a finished check,
@@ -89,7 +90,7 @@ impl UpdateCheck {
             }
         }
         if let Ok(result) = self.done_rx.try_recv() {
-            let (_, answer) = self.checker.finish(result, &self.current, beta, now);
+            let answer = self.checker.finish(result, &self.current, beta).answer;
             // one on its way when the check was turned off answers into the void
             if self.on {
                 out = Some(match answer {

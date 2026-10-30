@@ -417,7 +417,7 @@ strings! {
     AboutShort = "A BitTorrent client in the spirit of µTorrent 2.2.1, on a Rust port of libtorrent.";
     AskDeleteFeed = "Delete the feed \"{name}\"?";
     ErrNotRunning = "not running";
-    /// In the status bar for a minute when a newer PaTorrent is out ({version}, like 1.0.1);
+    /// In the status bar, until clicked, when a newer PaTorrent is out ({version}, like 1.0.1);
     /// clicking it opens the download page.
     UpdateNotice = "PaTorrent {version} is available - click here to download it";
     /// Help > Check for Updates; {version} is the newer one, {current} the running one.

@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_192440_1793384680: The update box once per version (1.1.23, D44); D45 proposed; startup/shutdown findings
+
+- **Owner's notes:** the update should pop up once per new version and then only show the status-bar text; could Windows update itself after a yes; is a progress indicator needed for a slow start or exit (NAS drives). The owner chose the Yes/No box of the manual check as the pop-up and a notice that stays until clicked.
+- **1.1.23 (D44):** `update::Checker` keeps the newest version a box was shown for (`update.seen` in `patorrent.ini` / the GTK ini) and `finish` now returns `Finished { kind, answer, announce }`. An automatic check announces a version newer than the seen one in the Yes/No box (Yes opens the release page), always refreshes the standing status-bar notice, and takes the notice down when nothing is newer; the manual box marks its version seen too. `NOTICE_TIME` and `expire` are gone from both GUIs' timers. nox is unchanged (it passes no seen version). No new strings.
+- **Checked:** `update::tests` (7, two rewritten and one new) pass; Win32 and nox type-check with all targets. GTK was edited the same way and only linted (no GTK here). Not hand-checked: see BACKLOG "Updates, installer and website".
+- **Proposed D45, the seamless Windows update:** installed builds only, the setup and `SHA256SUMS` downloaded from the release behind a progress dialog, a "close PaTorrent now?" question, then the setup; needs a streaming `http_get_to_file` (today's `fetch` is in memory under a 30 s whole-exchange timeout), a `/WAITPID` setup switch and a relaunch after a silent install. Written up with its open choices; no code.
+- **Startup and shutdown, investigated** (new BACKLOG section): startup needs no progress bar; the auto-load poll on the GUI thread is the one NAS risk at start. Shutdown hides the window and then waits without bound (moves, disk-thread join, a check's stat pass that ignores `abort`), a relaunch during it exits silently after 5 s, and the Win32 GUI handles no `WM_QUERYENDSESSION`, so a Windows logoff can kill it before the resume data is saved. The code-ready fixes are listed there; bounding the waits is the owner's call.
+
 ## 2026-10-30_151918_1793369958: The code-ready rest of PLAN.md (1.1.19-1.1.22, remote protocol 11)
 
 - **Owner's pick:** the four chunks of PLAN.md that need no hand check or decision, built in five parallel worktree branches and merged one by one, each with its own version.

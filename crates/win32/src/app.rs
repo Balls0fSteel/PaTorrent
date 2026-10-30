@@ -902,6 +902,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         let seeding_goal = gui.seeding_goal();
         let schedule = Schedule::load(&prefs);
         let awaiting = add::AwaitingMetadata::load(&prefs);
+        let update_seen = prefs.get("update.seen").and_then(Version::parse);
         let mut list = TorrentList::new();
         list.set_sort(prefs.sort());
         let page =
@@ -997,7 +998,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             feed_rows: Vec::new(),
             auto_shutdown: AutoShutdown::default(),
             suspend_pending: None,
-            updates: Checker::new(gui.check_updates, std::time::Instant::now()),
+            updates: Checker::new(gui.check_updates, std::time::Instant::now(), update_seen),
             update_beta: gui.update_beta,
             web: None,
             web_host: WindowHost::new(hwnd),
@@ -1834,15 +1835,12 @@ fn on_timer() {
         let list = &a.list;
         let now = std::time::Instant::now();
         let step = a.auto_shutdown.check(list.ids().filter_map(|id| list.get(id)), now);
-        (a.hwnd, step, a.updates.due(now), a.updates.expire(now))
+        (a.hwnd, step, a.updates.due(now))
     });
     request_detail();
-    if let Some((hwnd, step, check, notice_over)) = step {
+    if let Some((hwnd, step, check)) = step {
         if check {
             start_update_check(hwnd);
-        }
-        if notice_over {
-            unsafe { show_update_notice(hwnd) };
         }
         unsafe { auto_shutdown_step(hwnd, step) };
     }
@@ -4435,14 +4433,15 @@ fn start_update_check(hwnd: HWND) {
     });
 }
 
-/// `WM_APP_UPDATE`: an automatic check's newer version goes to the status bar for a minute and
-/// to the Logger, as does its failure (the Logger only); Help > Check for Updates answers in a
-/// message box.
+/// `WM_APP_UPDATE`: an automatic check's newer version goes to the status bar (until clicked)
+/// and to the Logger, and once per version into the message box (D44); its failure goes to
+/// the Logger only. Help > Check for Updates answers in a message box. The newest version a
+/// box was shown for is kept as `update.seen`.
 unsafe fn update_done(hwnd: HWND, result: Result<Manifest, String>) {
     let current = Version::current();
-    let Some((kind, answer)) = with_app(|a| {
-        let (kind, answer) = a.updates.finish(result, &current, a.update_beta, std::time::Instant::now());
-        let line = match (&kind, &answer) {
+    let Some(f) = with_app(|a| {
+        let f = a.updates.finish(result, &current, a.update_beta);
+        let line = match (&f.kind, &f.answer) {
             (Kind::Automatic, Ok(Some(v))) => {
                 Some(tr!(LogUpdateAvailable, version = v, url = v.release_url()))
             }
@@ -4452,18 +4451,28 @@ unsafe fn update_done(hwnd: HWND, result: Result<Manifest, String>) {
         if let Some(line) = line {
             a.detail.push_log(format!("{} {line}", now_hms()));
         }
-        (kind, answer)
+        if let Some(seen) = a.updates.seen() {
+            a.prefs.set("update.seen", seen.to_string());
+        }
+        f
     }) else {
         return;
     };
-    match (kind, answer) {
-        (Kind::Automatic, Ok(Some(_))) => unsafe { show_update_notice(hwnd) },
-        (Kind::Automatic, _) => {}
-        (Kind::Manual, Ok(Some(v))) => {
-            if dialogs::ask(hwnd, &tr!(UpdateNewer, version = v, current)) {
-                open_url(hwnd, &v.release_url());
+    let ask = |v: &Version| {
+        if dialogs::ask(hwnd, &tr!(UpdateNewer, version = v, current)) {
+            open_url(hwnd, &v.release_url());
+        }
+    };
+    match (f.kind, f.answer) {
+        (Kind::Automatic, Ok(Some(v))) => {
+            unsafe { show_update_notice(hwnd) };
+            if f.announce {
+                ask(&v);
             }
         }
+        (Kind::Automatic, Ok(None)) => unsafe { show_update_notice(hwnd) },
+        (Kind::Automatic, Err(_)) => {}
+        (Kind::Manual, Ok(Some(v))) => ask(&v),
         (Kind::Manual, Ok(None)) => dialogs::info(hwnd, &tr!(UpdateNewest, version = current)),
         (Kind::Manual, Err(e)) => dialogs::error(hwnd, &tr!(UpdateFailed, error = e)),
     }

@@ -1,6 +1,7 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/bt_peer_connection.cpp (message framing,
 // handshake, BEP 6 fast extension, BEP 10 extension handshake, the BEP 54 `lt_donthave`
-// message), src/identify_client.cpp (subset), src/generate_peer_id.cpp
+// message), src/identify_client.cpp (subset; legacy Transmission ids from 05c44cc4ee, d2d1a44c0e),
+// src/generate_peer_id.cpp
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: a sans-IO codec. `decode` borrows messages straight out of the receive buffer and
 // `encode_*` append to a send buffer; the connection logic lives in `engine::peer`.
@@ -600,14 +601,28 @@ pub fn identify_client(peer_id: &[u8; 20]) -> String {
         (b"XX", "Xtorrent"),
         (b"ZT", "ZipTorrent"),
     ];
+    let ver = |c: u8| match c {
+        b'0'..=b'9' => (c - b'0') as u32,
+        b'A'..=b'Z' => (c - b'A') as u32 + 10,
+        b'a'..=b'z' => (c - b'a') as u32 + 10,
+        _ => 0,
+    };
+    // Transmission 0.80-3.00's "-TRXYYR-": a one-digit major, a two-digit minor and a tag
+    // (libtorrent 05c44cc4ee, d2d1a44c0e), not three Azureus-style digits
+    if peer_id.starts_with(b"-TR")
+        && peer_id[7] == b'-'
+        && (b'0'..=b'3').contains(&peer_id[3])
+        && peer_id[4..6].iter().all(u8::is_ascii_digit)
+        && (peer_id[6].is_ascii_digit() || peer_id[6].is_ascii_uppercase())
+    {
+        let (major, minor, tag) = (ver(peer_id[3]), ver(peer_id[4]) * 10 + ver(peer_id[5]), ver(peer_id[6]));
+        return match tag {
+            0 => format!("Transmission {major}.{minor}.0"),
+            _ => format!("Transmission {major}.{minor}.0.{tag}"),
+        };
+    }
     if peer_id[0] == b'-' && peer_id[7] == b'-' && peer_id[3..7].iter().all(u8::is_ascii_alphanumeric) {
         let code: [u8; 2] = [peer_id[1], peer_id[2]];
-        let ver = |c: u8| match c {
-            b'0'..=b'9' => (c - b'0') as u32,
-            b'A'..=b'Z' => (c - b'A') as u32 + 10,
-            b'a'..=b'z' => (c - b'a') as u32 + 10,
-            _ => 0,
-        };
         let version = format!("{}.{}.{}", ver(peer_id[3]), ver(peer_id[4]), ver(peer_id[5]));
         if let Some((_, name)) = NAMES.iter().find(|(c, _)| **c == code) {
             return format!("{name} {version}");
@@ -756,6 +771,12 @@ mod tests {
         assert_eq!(identify_client(&id), "PaTorrent 0.1.0");
         assert_eq!(identify_client(b"-qB4650-abcdefghijkl"), "qBittorrent 4.6.5");
         assert_eq!(identify_client(b"-TR4060-abcdefghijkl"), "Transmission 4.0.6");
+        // Transmission's legacy "-TRXYYR-" (libtorrent 05c44cc4ee, d2d1a44c0e)
+        assert_eq!(identify_client(b"-TR2210-abcdefghijkl"), "Transmission 2.21.0");
+        assert_eq!(identify_client(b"-TR2830-abcdefghijkl"), "Transmission 2.83.0");
+        assert_eq!(identify_client(b"-TR3000-abcdefghijkl"), "Transmission 3.0.0");
+        assert_eq!(identify_client(b"-TR300Z-abcdefghijkl"), "Transmission 3.0.0.35");
+        assert_eq!(identify_client(b"-TR300!-abcdefghijkl"), "-TR300!-");
         assert_eq!(identify_client(b"-lt0D80-abcdefghijkl"), "rTorrent 0.13.8");
         assert_eq!(identify_client(b"-DE211s-abcdefghijkl"), "Deluge 2.1.1");
         assert_eq!(identify_client(b"-BI3100-abcdefghijkl"), "BiglyBT 3.1.0");

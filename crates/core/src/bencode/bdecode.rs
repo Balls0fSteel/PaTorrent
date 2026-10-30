@@ -1160,6 +1160,15 @@ mod tests {
     }
 
     #[test]
+    fn truncated_containers() {
+        // after libtorrent 56382ae798 (its legacy `entry` decoder read past the end here)
+        for b in [&b"l"[..], b"d", b"ll", b"ld", b"dl", b"dd"] {
+            decode(b).1.expect("expected an error");
+        }
+        assert!(decode(b"le").1.is_none() && decode(b"de").1.is_none());
+    }
+
+    #[test]
     fn unexpected_eof2() {
         assert_eq!(err(b"l2:..0"), BdecodeError { kind: UnexpectedEof, pos: 6 });
     }

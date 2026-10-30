@@ -1,7 +1,8 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/upnp.cpp (discover_device_impl's M-SEARCH,
 // on_reply's header checks, find_control_url, find_error_code, find_ip_address, the SOAP
 // bodies of post / create_port_mapping / delete_port_mapping / get_ip_address, the error
-// table), include/libtorrent/upnp.hpp (parse_state), test/test_xml.cpp (upnp_parser1-5)
+// table), include/libtorrent/upnp.hpp (parse_state), test/test_xml.cpp (upnp_parser1-5);
+// fixes from 2.1.1 (ca5a92e4f8: an `<errorCode>` that isn't an int is ignored)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: sans-IO; SSDP datagrams are read by a small header parser of their own instead of
 // the general `http_parser`.
@@ -13,6 +14,7 @@ use std::net::Ipv4Addr;
 
 use crate::alert::Protocol;
 use crate::proto::xml::{self, Token};
+use crate::util::string::{parse_decimal, trim};
 
 pub const SSDP_MULTICAST: Ipv4Addr = Ipv4Addr::new(239, 255, 255, 250);
 pub const SSDP_PORT: u16 = 1900;
@@ -180,20 +182,6 @@ impl ErrorCodeState {
     }
 }
 
-/// C `atoi`: leading whitespace, a sign, digits; 0 otherwise.
-fn atoi(s: &str) -> i32 {
-    let s = s.trim_start_matches([' ', '\t', '\n', '\r', '\x0b', '\x0c']);
-    let (neg, s) = match s.as_bytes().first() {
-        Some(b'-') => (true, &s[1..]),
-        Some(b'+') => (false, &s[1..]),
-        _ => (false, s),
-    };
-    let digits: String = s.chars().take_while(char::is_ascii_digit).collect();
-    let v = digits.parse::<i64>().unwrap_or(if digits.is_empty() { 0 } else { i64::MAX });
-    let v = if neg { -v } else { v };
-    v.clamp(i32::MIN as i64, i32::MAX as i64) as i32
-}
-
 /// libtorrent `find_error_code`: the `<errorCode>` of a SOAP fault.
 pub fn find_error_code(token: Token<'_>, state: &mut ErrorCodeState) {
     if state.exit {
@@ -202,7 +190,12 @@ pub fn find_error_code(token: Token<'_>, state: &mut ErrorCodeState) {
     match token {
         Token::StartTag("errorCode") => state.in_error_code = true,
         Token::String(s) if state.in_error_code => {
-            state.error_code = atoi(s);
+            // left at -1 if the device sent something that isn't a number, or one that doesn't
+            // fit in an int (ca5a92e4f8). Unlike libtorrent, whitespace around the number (a
+            // pretty-printed reply) is allowed, as `atoi` allowed it before.
+            if let Some(code) = parse_decimal(trim(s)) {
+                state.error_code = code;
+            }
             state.exit = true;
         }
         _ => {}
@@ -675,8 +668,11 @@ urn:schemas-upnp-org:service:LANHostConfigManagement:1
         assert_eq!(parse_error_code(UPNP_XML3), 402);
         assert_eq!(parse_error_code("<a>1</a>"), -1);
         assert_eq!(parse_error_code("<errorCode> 718x</errorCode>"), 718);
-        assert_eq!(parse_error_code("<errorCode>x</errorCode>"), 0);
-        assert_eq!(parse_error_code("<errorCode>99999999999999999999</errorCode>"), i32::MAX);
+        assert_eq!(parse_error_code("<errorCode>\n  718\n</errorCode>"), 718);
+        // ca5a92e4f8: not a number, or out of range, leaves the code at -1
+        assert_eq!(parse_error_code("<errorCode>x</errorCode>"), -1);
+        assert_eq!(parse_error_code("<errorCode>99999999999999999999</errorCode>"), -1);
+        assert_eq!(parse_error_code("<errorCode>4294967014</errorCode>"), -1);
     }
 
     #[test]

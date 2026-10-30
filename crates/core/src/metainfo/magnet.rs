@@ -1,5 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/magnet_uri.cpp (parse_magnet_uri, make_magnet_uri);
-// fixes from 2.0.13 (invalid tracker URLs are rejected)
+// fixes from 2.0.13 (invalid tracker URLs are rejected) and 2.1.1 (ca5a92e4f8: numbers that are out of
+// range are rejected)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: parses into `MagnetUri` instead of `add_torrent_params`; a 40-character btih with
 // non-hex characters is rejected (libtorrent ignores the from_hex failure and keeps garbage).
@@ -12,7 +13,9 @@ use super::error::MetainfoError;
 use super::torrent_info::{TorrentInfo, WebSeedKind, is_valid_tracker_url};
 use crate::params::DownloadPriority;
 use crate::types::{InfoHashes, Sha1Hash, Sha256Hash};
-use crate::util::string::{base32decode, escape_string, split_string, string_equal_no_case, unescape_string};
+use crate::util::string::{
+    base32decode, escape_string, parse_decimal, split_string, string_equal_no_case, unescape_string,
+};
 
 /// The contents of a magnet link.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -101,8 +104,8 @@ pub fn parse_magnet_uri(uri: &str) -> Result<MagnetUri, MetainfoError> {
             }
         } else if is("dht") {
             if let Some(div) = value.rfind(':') {
-                let port = atoi(&value[div + 1..]);
-                if port > 0 && port < u16::MAX as i64 {
+                let port = parse_decimal(&value[div + 1..]);
+                if let Some(port) = port.filter(|&p| p > 0 && p < u16::MAX as i32) {
                     p.dht_nodes.push((value[..div].to_owned(), port as u16));
                 }
             }
@@ -124,21 +127,23 @@ fn parse_select_only(value: &str, p: &mut MagnetUri) {
         return;
     }
     // can't risk running out of memory on absurd indices
-    const MAX_INDEX: i64 = 10000;
+    const MAX_INDEX: i32 = 10000;
     p.default_dont_download = true;
     for token in value.split(',') {
         if token.is_empty() {
             continue;
         }
+        // an index that is not a number, or out of range, skips the entry (ca5a92e4f8)
         let (first, last) = match token.find('-') {
             Some(0) => continue,                         // no start index
             Some(d) if d == token.len() - 1 => continue, // no end index
-            Some(d) => (atoi(&token[..d]), atoi(&token[d + 1..])),
+            Some(d) => (parse_decimal(&token[..d]), parse_decimal(&token[d + 1..])),
             None => {
-                let i = atoi(token);
+                let i = parse_decimal(token);
                 (i, i)
             }
         };
+        let (Some(first), Some(last)) = (first, last) else { continue };
         if !(0..=MAX_INDEX).contains(&first) || !(0..=MAX_INDEX).contains(&last) || first > last {
             continue;
         }
@@ -148,13 +153,6 @@ fn parse_select_only(value: &str, p: &mut MagnetUri) {
         }
         p.file_priorities[first..=last].fill(DownloadPriority::NORMAL);
     }
-}
-
-/// C `atoi`: leading decimal digits, saturating instead of overflowing.
-fn atoi(s: &str) -> i64 {
-    s.bytes()
-        .take_while(u8::is_ascii_digit)
-        .fold(0i64, |acc, d| acc.saturating_mul(10).saturating_add((d - b'0') as i64))
 }
 
 impl MagnetUri {
@@ -383,6 +381,16 @@ mod tests {
         assert_eq!(so("&so=&dht=10.0.0.1:1337&so="), [] as [u8; 0]);
         assert_eq!(so("&so=&dht=10.0.0.1:1337&so=,,1"), [0, 4]);
         assert_eq!(so("&so=\"1,2\""), [] as [u8; 0]);
+        // ca5a92e4f8: a negative end index or one too large for an int skips the entry
+        assert_eq!(so("&so=0--2,1"), [0, 4]);
+        assert_eq!(so("&so=4294967297,0"), [4]);
+    }
+
+    #[test]
+    fn dht_node_port_out_of_range() {
+        // ca5a92e4f8: 4294967376 is 80 when truncated to an int
+        let p = parse(&format!("magnet:?xt=urn:btih:{CD}&dht=10.0.0.1:4294967376&dht=10.0.0.2:-1&dht=a:1"));
+        assert_eq!(p.dht_nodes, [("a".to_owned(), 1)]);
     }
 
     #[test]

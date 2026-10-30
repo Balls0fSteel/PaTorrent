@@ -831,6 +831,13 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
             }
             super::rss::shim(shared, e, &|k| p.get(k).map(str::to_owned))
         }
+        e if e.starts_with("search/") => {
+            let e = &e["search/".len()..];
+            if read && super::search::shim_post_only(e) {
+                return Response::text(405, "Method Not Allowed").with_header("Allow", "POST");
+            }
+            super::search::shim(shared, e, &|k| p.get(k).map(str::to_owned))
+        }
         _ => Response::text(404, "Not Found"),
     }
 }
@@ -1679,7 +1686,9 @@ fn add(shared: &Shared, p: &Params) -> Response {
     let mut sources: Vec<Source> = Vec::new();
     let mut invalid_file = false;
     for url in p.get("urls").unwrap_or("").split('\n').map(str::trim).filter(|u| !u.is_empty()) {
-        if let Ok(s) = Source::from_url(shared, url) {
+        // a `search/results` fileUrl without a magnet is fetched as the search's own add
+        let s = super::search::shim_download(shared, url).unwrap_or_else(|| Source::from_url(shared, url));
+        if let Ok(s) = s {
             sources.push(s);
         }
     }

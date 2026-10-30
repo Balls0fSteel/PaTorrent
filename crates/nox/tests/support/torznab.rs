@@ -5,6 +5,7 @@
 //! - `/1/api`: `t=caps` the caps, else the three results; 401 without `apikey=KEY`.
 //! - `/9/api`: a Torznab error document with HTTP 200 (Jackett's way).
 //! - `/slow/api`: the results after 3 s.
+//! - `/mag/api`: one result whose link is a magnet (`MAGNET_ONLY`); 401 without the key.
 //! - `/2/download?...&file=<title>`: Fawlty Towers is a `.torrent`, Night of the Living Dead a
 //!   302 to a magnet, anything else 404; 401 without the key.
 
@@ -45,6 +46,26 @@ pub fn torrent(name: &str) -> (Vec<u8>, String) {
 pub fn night_magnet() -> (String, String) {
     let hash = torrent("night").1;
     (format!("magnet:?xt=urn:btih:{hash}&dn=Night"), hash)
+}
+
+/// The one result of `/mag/api`, whose link is a magnet (Jackett's way for some indexers).
+pub const MAGNET_ONLY: &str = "Magnet.Only.x264-PATEST";
+
+/// `MAGNET_ONLY`'s magnet and its hash.
+pub fn magnet_only() -> (String, String) {
+    let hash = torrent("magnet-only").1;
+    (format!("magnet:?xt=urn:btih:{hash}&dn=Magnet"), hash)
+}
+
+fn magnet_results() -> String {
+    format!(
+        r#"<?xml version="1.0" encoding="UTF-8"?>
+<rss version="2.0" xmlns:torznab="http://torznab.com/schemas/2015/feed"><channel><title>Magnets</title>
+<item><title>{MAGNET_ONLY}</title><guid>m1</guid><link>{}</link><size>4096</size>
+<torznab:attr name="category" value="2000" /><torznab:attr name="seeders" value="3" /></item>
+</channel></rss>"#,
+        magnet_only().0.replace('&', "&amp;")
+    )
 }
 
 pub struct Fake {
@@ -91,7 +112,8 @@ pub fn start() -> Fake {
                 let (path, query) = target.split_once('?').unwrap_or((&target, ""));
                 let keyed = query.split('&').any(|kv| kv == format!("apikey={KEY}"));
                 let out = match path {
-                    "/1/api" | "/slow/api" if !keyed => reply("401 Unauthorized", "", b""),
+                    "/1/api" | "/slow/api" | "/mag/api" if !keyed => reply("401 Unauthorized", "", b""),
+                    "/mag/api" => reply("200 OK", "", magnet_results().as_bytes()),
                     "/1/api" if query.contains("t=caps") => reply("200 OK", "", CAPS.as_bytes()),
                     "/1/api" => reply("200 OK", "", results.as_bytes()),
                     "/slow/api" => {

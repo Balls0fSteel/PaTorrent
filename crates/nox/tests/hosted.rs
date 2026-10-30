@@ -1027,4 +1027,39 @@ fn search_sources_are_the_hosts_and_results_go_to_its_engine() {
     assert_eq!(r.status, 200, "{}", r.text());
     let hash = torznab::night_magnet().1;
     t.wait_for(&sid, &hash, "the added result", |_| true);
+
+    // the shim's search/* over the same sources: the window's source is a plugin, its result's
+    // fileUrl (the opaque one: the link carries the key) goes into the host's engine
+    let r = t.get(&sid, "/api/v2/search/plugins");
+    assert_eq!(r.status, 200);
+    assert!(!r.text().contains(torznab::KEY));
+    let Json::Arr(plugins) = r.json() else { panic!() };
+    assert_eq!(s(plugins[0].get("fullName")), "Renamed");
+    let form = format!("pattern=fawlty&category=all&plugins={}", s(plugins[0].get("name")));
+    let r = t.post(&sid, "/api/v2/search/start", &form);
+    assert_eq!(r.status, 200, "{}", r.text());
+    let id = r.json().get("id").and_then(Json::as_i64).unwrap();
+    let deadline = Instant::now() + Duration::from_secs(20);
+    let results = loop {
+        // collected by the host's alert batches as well as by this request
+        let r = t.get(&sid, &format!("/api/v2/search/results?id={id}"));
+        assert!(!r.text().contains(torznab::KEY));
+        let m = r.json();
+        if s(m.get("status")) == "Stopped" {
+            break m;
+        }
+        assert!(Instant::now() < deadline, "{}", m.to_json());
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    let Some(Json::Arr(results)) = results.get("results") else { panic!() };
+    let fawlty = results.iter().find(|r| s(r.get("fileName")) == torznab::FAWLTY).expect("found");
+    let url = s(fawlty.get("fileUrl"));
+    assert!(url.starts_with("patorrent-search:"), "{url}");
+    let r = t.post(
+        &sid,
+        "/api/v2/torrents/add",
+        &format!("urls={}", url.replace(':', "%3A").replace('/', "%2F")),
+    );
+    assert_eq!((r.status, r.text().as_str()), (200, "Ok."));
+    t.wait_for(&sid, &torznab::torrent("fawlty").1, "the shim's added result", |_| true);
 }

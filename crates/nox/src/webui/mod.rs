@@ -542,6 +542,9 @@ pub(crate) struct Shared {
     /// The torrent search (`search.rs`): one for the server, hosted too; its lock is never
     /// held with the State lock.
     pub(crate) search: Mutex<patorrent_frontend::search::Search>,
+    /// The qBittorrent shim's searches (`search/start`); never held with the State lock or
+    /// the search's.
+    pub(crate) shim_searches: Mutex<search::ShimSearches>,
     /// The certificate when serving HTTPS.
     pub tls: Option<patorrent_core::tls::Identity>,
     /// The paths requests may name; fixed at start.
@@ -583,6 +586,10 @@ impl Shared {
 
     pub(crate) fn search(&self) -> MutexGuard<'_, patorrent_frontend::search::Search> {
         self.search.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn shim_searches(&self) -> MutexGuard<'_, search::ShimSearches> {
+        self.shim_searches.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// The desktop client hosting the Web UI, if one does ([`Config::hosted`]).
@@ -944,6 +951,7 @@ impl WebUi {
                 ))),
             },
             search: Mutex::new(search::new_search()),
+            shim_searches: Mutex::default(),
             tls: loaded.map(|l| l.identity),
             path_policy: path_policy::PathPolicy::new(config.save_roots.clone()),
             remotes: Mutex::new(Vec::new()),
@@ -1151,6 +1159,7 @@ impl WebUi {
         self.shared.fan_out(alerts);
         // the search's answers, taken before the State lock (never held together)
         let searched = search::collect(&self.shared);
+        search::collect_shim(&self.shared);
         let mut st = self.shared.lock();
         if searched {
             st.search_version += 1;
@@ -1614,6 +1623,7 @@ impl State {
             settings_dir,
             rss: Arc::new(Mutex::new(rss::Rss::load(None))),
             search: Mutex::new(search::new_search()),
+            shim_searches: Mutex::default(),
             tls: None,
             path_policy: path_policy::PathPolicy::default(),
             remotes: Mutex::new(Vec::new()),

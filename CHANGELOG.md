@@ -9,6 +9,10 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **Release:** tag `v1.1.7` on `f7ed2f40`. Release run 41023963735 passed in 11 min with 14 files; every file matched `SHA256SUMS`, and the zip's `patorrent-nox --version` printed 1.1.7. CI, Fuzz and FreeBSD passed on the same commit. The release was published as Latest with the owner's go-ahead.
 - **1.1.2:** the never-published draft and its tag were deleted (owner).
 
+## 2026-10-30_075840_1793347120: CI builds and smoke-tests the Windows installer
+
+- **CI (Phase 1 item 1):** `ci.yml`'s `release-windows` job now installs the pinned NSIS 3.13, builds the setup (`/WX`) and installs and uninstalls it silently, with the same steps and checks as `release.yml`'s `windows` job, so installer breakage shows on every push and PR instead of only at a tag. Its version is `<workspace version>-dev.<commit>` from `cargo metadata`, as `release.yml` names an untagged build. The setup joins the existing `patorrent-windows-x64` artifact. Checked locally: the YAML parses, every PowerShell step parses, the version step gives `1.1.7-dev.<sha>`; actionlint was not available, and the job has not run on GitHub yet. CI only, so no version bump.
+
 ## 2026-10-30_075652_1793347012: 1.1.7 release prepared; next features planned
 
 - **Release (owner, 2026-10-30):** release `main` as 1.1.7 in place of the unpublished 1.1.2 draft. New `docs/releases/1.1.7.md` covers everything since 1.1.0: the hosted Web UI, the service login, the *arr fixes (1.1.3-1.1.6), activate on add and Stopped on add. There is a 1.1.7 `<release>` in the Flatpak metainfo. No program change, so no version bump.

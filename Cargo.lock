@@ -409,7 +409,7 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lt-swarm"
-version = "1.1.15"
+version = "1.1.16"
 dependencies = [
  "patorrent-core",
  "windows-sys",
@@ -468,7 +468,7 @@ dependencies = [
 
 [[package]]
 name = "patorrent"
-version = "1.1.15"
+version = "1.1.16"
 dependencies = [
  "patorrent-core",
  "patorrent-frontend",
@@ -478,7 +478,7 @@ dependencies = [
 
 [[package]]
 name = "patorrent-core"
-version = "1.1.15"
+version = "1.1.16"
 dependencies = [
  "mio",
  "windows-sys",
@@ -486,7 +486,7 @@ dependencies = [
 
 [[package]]
 name = "patorrent-frontend"
-version = "1.1.15"
+version = "1.1.16"
 dependencies = [
  "patorrent-core",
  "windows-sys",
@@ -494,7 +494,7 @@ dependencies = [
 
 [[package]]
 name = "patorrent-gtk"
-version = "1.1.15"
+version = "1.1.16"
 dependencies = [
  "gtk4",
  "patorrent-core",
@@ -503,7 +503,7 @@ dependencies = [
 
 [[package]]
 name = "patorrent-nox"
-version = "1.1.15"
+version = "1.1.16"
 dependencies = [
  "patorrent-core",
  "patorrent-frontend",

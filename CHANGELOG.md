@@ -4,6 +4,20 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_123456_1793360096: Torznab search, slice 3: the Win32 GUI (1.1.16, D41)
+
+- **Win32:**
+  - A drop-down arrow beside the toolbar's search box (`TBN_DROPDOWN`, Alt+Down) offers "Filter torrents" (as before), each enabled source, "All sources" and "Manage Sources...". The choice is remembered as `ui.search_source`, with any key masked, and the box's hint shows the mode.
+  - With a source picked, Enter opens Search Torrents: a resizable, modeless window with a status line per source, a sortable owner-data list, and Add by button, double-click or Enter. A download is fetched on a thread, then goes through the normal add path and Add dialog.
+  - Search Sources lets you switch, add, edit (an empty key keeps the stored one), remove and Test sources, saved sealed. Changes from the hosted Web UI refresh the drop-down.
+  - Remote windows search from this computer and add on the server, as GTK does. 4 new strings, in all 34 tables.
+- **Checked:** a portable `--demo` copy run live against the VM's Prowlarr: 3 results, Test "OK, 8 categories", and the Edit dialog. The results list showed a horizontal scrollbar, so Name was narrowed afterwards; that change was not captured again.
+- **Not checked:**
+  - Whether the key is actually sealed in the saved ini: the check was refused as credential access, and the slice-1 unit test covers it.
+  - A live Add (demo mode has no engine).
+  - Real 150/200% DPI (BACKLOG).
+- **Tests:** Win32 79 (8 new), frontend 213 + 4 and nox pass; clippy and fmt are clean. Built by a subagent in a worktree; the screenshots were reviewed. Version 1.1.16. With this, D41's slices 1-4 are done.
+
 ## 2026-10-30_122955_1793359795: Torznab search, slice 4: the GTK GUI (1.1.15, D41)
 
 - **GTK:**

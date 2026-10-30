@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_122955_1793359795
+Last updated: 2026-10-30_123456_1793360096
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -36,7 +36,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **A.** Done: 1.1.7 is published (2026-10-30).
 - **B.** Small fixes. Done in 1.1.8: the hosted window's `seed_*` changes reach `sync/maindata`, a category's `savePath` is used on add, hosted unused categories are kept, and tags are accepted as no-ops. The installer is built and smoke-tested in `ci.yml`. Win32 Preferences > Web UI has a Server domains field (1.1.9). The Bearer API key and the subnet whitelist are in 1.1.10. nox checks for updates (1.1.11, D43). Phase B is done.
 - **C.** RSS in hosted mode is done (1.1.13: the browser edits the window's own RSS model; hand check pending). Optional: a GTK hosting page. The owner decided against alternative speed limits in the Win32 GUI (2026-10-30_103224_1793352744): keep 2.2.1's controls. The hosted Web UI keeps refusing them, by design.
-- **D.** Torznab search (D41, approved; a source on a non-public address bypasses the proxy), in the slices of [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2. Slices 1-2 are done: the frontend model (1.1.12), and nox with the Web UI, run live against the VM's Prowlarr (1.1.14). Slice 4 (GTK) is done (1.1.15). Next: slice 3 (Win32). Optional: the shim's `search/*`.
+- **D.** Torznab search (D41, approved; a source on a non-public address bypasses the proxy), in the slices of [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2. Slices 1-2 are done: the frontend model (1.1.12), and nox with the Web UI, run live against the VM's Prowlarr (1.1.14). Slice 4 (GTK, 1.1.15) and slice 3 (Win32, 1.1.16) are done, so all four slices are in. Left: hand checks (BACKLOG) and the optional shim `search/*`. Optional: the shim's `search/*`.
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
 
 0. **Owner hand-test findings (2026-10-27):** fixed in 1.0.2-1.0.8. The owner re-tests them on a fresh Win32 build; what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).

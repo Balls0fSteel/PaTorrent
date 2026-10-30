@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_083153_1793349113: 1.1.7 published; the 1.1.2 draft deleted
+
+- **Release:** tag `v1.1.7` on `f7ed2f40`. Release run 41023963735 passed in 11 min with 14 files; every file matched `SHA256SUMS`, and the zip's `patorrent-nox --version` printed 1.1.7. CI, Fuzz and FreeBSD passed on the same commit. The release was published as Latest with the owner's go-ahead.
+- **1.1.2:** the never-published draft and its tag were deleted (owner).
+
 ## 2026-10-30_075652_1793347012: 1.1.7 release prepared; next features planned
 
 - **Release (owner, 2026-10-30):** release `main` as 1.1.7 in place of the unpublished 1.1.2 draft. New `docs/releases/1.1.7.md` covers everything since 1.1.0: the hosted Web UI, the service login, the *arr fixes (1.1.3-1.1.6), activate on add and Stopped on add. There is a 1.1.7 `<release>` in the Flatpak metainfo. No program change, so no version bump.

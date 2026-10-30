@@ -4,7 +4,8 @@
 // and ban_peer), src/web_peer_connection.cpp (on_connected, disconnect, received_invalid_data,
 // the torrent side of handle_error, handle_redirect and disable), src/web_connection_base.cpp
 // (timeout, on_connected), src/http_seed_connection.cpp (on_connected, disconnect, the torrent
-// side of its redirects), src/ip_helpers.cpp (is_local, is_global), src/parse_url.cpp (is_idna)
+// side of its redirects), src/ip_helpers.cpp (is_local, is_global), src/parse_url.cpp (is_idna);
+// fixes from 2.0.13 (e7e37dbf47)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: web seed connections live in a slab of their own beside the BitTorrent peers and are
 // driven by mio events like tracker connections; their HTTP side is the sans-IO
@@ -47,7 +48,7 @@ use crate::status::{PeerFlags, PeerInfo, PeerSource};
 use crate::types::TorrentId;
 use crate::util::bitfield::Bitfield;
 use crate::util::stat::Stat;
-use crate::util::string::parse_url_components;
+use crate::util::string::{parse_url_components, same_origin};
 
 /// Reactor tokens of web seed connections.
 pub(crate) const WEB_TOKEN_BASE: usize = 0x6000_0000;
@@ -649,8 +650,9 @@ impl Engine {
             return self.alert(Alert::PeerBlocked { id: Some(id), addr, reason });
         }
         let ih = t.info_hashes.best_v1_compatible();
-        let proto =
-            WebPeer::new(&url, w.kind, ih, &w.auth, &w.extra_headers, ti.files(), &user_agent, always_ua);
+        // web seeds serve the torrent's own file names, not the renamed or deduplicated ones
+        let fs = ti.orig_files();
+        let proto = WebPeer::new(&url, w.kind, ih, &w.auth, &w.extra_headers, fs, &user_agent, always_ua);
         let mut proto = match proto {
             Ok(p) => p,
             Err(_) => {
@@ -926,7 +928,7 @@ impl Engine {
                 }
                 Ok(n) => {
                     c.last_receive = now;
-                    let payload = c.proto.feed(ti.files(), &buf[..n]);
+                    let payload = c.proto.feed(ti.orig_files(), &buf[..n]);
                     let protocol = n as u64 - payload;
                     c.stat.received(payload, protocol);
                     t.stat.get_or_insert_with(Box::default).received(payload, protocol);
@@ -1101,7 +1103,8 @@ impl Engine {
         let room = max_runs - c.runs.len();
         for (n, &(piece, start, length, blocks)) in runs.iter().enumerate() {
             if n < room {
-                c.proto.write_request(ti.files(), piece, start, length as u32, &w.redirects, &mut w.restart);
+                let fs = ti.orig_files();
+                c.proto.write_request(fs, piece, start, length as u32, &w.redirects, &mut w.restart);
                 c.runs.push_back(blocks);
             } else {
                 let first = start / BLOCK_SIZE;
@@ -1170,7 +1173,7 @@ impl Engine {
         let Some(i) = t.web_seeds.index_of(c.seed) else { return };
         let (kind, auth, headers) = {
             let w = &t.web_seeds.list[i];
-            (w.kind, w.auth.clone(), w.extra_headers.clone())
+            (w.kind, redirect_auth(c.proto.url(), base, &w.auth), w.extra_headers.clone())
         };
         let id = c.torrent;
         let message = format!("redirected to {base}{path}");
@@ -1525,9 +1528,28 @@ impl Engine {
     }
 }
 
+/// The auth value a redirected web seed inherits (libtorrent `handle_redirect`, 2.0.13).
+fn redirect_auth(url: &str, location: &str, auth: &str) -> String {
+    // Don't forward our credentials (the web seed's auth value, sent as the Authorization
+    // header) to a different origin. The redirect target may be a third party server that
+    // should not see them. The extra headers are still forwarded
+    if same_origin(url, location) { auth.to_owned() } else { String::new() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn redirect_auth_stays_with_its_origin() {
+        // after libtorrent 2.0.13 (e7e37dbf47) test_web_seed.cpp's redirect cases
+        let url = "http://2.2.2.2:8080/file1";
+        assert_eq!(redirect_auth(url, "http://2.2.2.2:8080/file1_redirected", "Bearer x"), "Bearer x");
+        assert_eq!(redirect_auth(url, "HTTP://2.2.2.2:8080", "Bearer x"), "Bearer x");
+        assert_eq!(redirect_auth(url, "http://3.3.3.3:4444/file1_redirected", "Bearer x"), "");
+        assert_eq!(redirect_auth(url, "http://2.2.2.2/file1", "Bearer x"), "");
+        assert_eq!(redirect_auth(url, "https://2.2.2.2:8080/file1", "Bearer x"), "");
+    }
 
     #[test]
     fn local_and_global_addresses() {

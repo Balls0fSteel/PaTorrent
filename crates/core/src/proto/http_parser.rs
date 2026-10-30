@@ -1,6 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/http_parser.cpp (the response header state
 // machine of `incoming`, `parse_chunk_header`, `header_duration`, `is_ok_status`, `is_redirect`,
-// `resolve_redirect_location`), src/parse_url.cpp (`split_url`)
+// `resolve_redirect_location`), src/parse_url.cpp (`split_url`); fixes from 2.0.13 (1da2e16473)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: the header is parsed in one call once its blank line is in the buffer (instead of
 // line by line across calls); the body is left to the caller (web seeds use libtorrent's
@@ -155,7 +155,14 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(ResponseHead, usize)>, ParseErro
             return Err(ParseError::Invalid("not an HTTP response"));
         }
         head.protocol = String::from_utf8_lossy(protocol).into_owned();
-        head.status = atol(&String::from_utf8_lossy(read_until(&mut rest, b' '))) as i32;
+        // require a non-negative status code that consumed the full substring. negative values
+        // would also collide with the -1 sentinel meaning "status line not yet parsed"
+        let code = read_until(&mut rest, b' ');
+        let (n, used) = strtoll(code);
+        if code.is_empty() || used != code.len() || n < 0 || n > i32::MAX as i64 {
+            return Err(ParseError::Invalid("invalid HTTP status code"));
+        }
+        head.status = n as i32;
         head.message = String::from_utf8_lossy(read_until(&mut rest, b'\r')).into_owned();
         // HTTP 1.0 always closes the connection after each request
         head.connection_close = head.protocol == "HTTP/1.0";
@@ -379,6 +386,32 @@ mod tests {
         assert!(matches!(head("\n"), Err(ParseError::Invalid(_))));
         let big = format!("HTTP/1.1 200 OK\r\nX: {}", "a".repeat(MAX_HEADER));
         assert!(matches!(head(&big), Err(ParseError::Invalid(_))));
+    }
+
+    #[test]
+    fn strict_status_code() {
+        // after 1da2e16473: the status must be a whole, non-negative number (strtoll rules)
+        for r in [
+            "HTTP/1.1 200abc OK\r\n\r\n",
+            "HTTP/1.1 -200 OK\r\n\r\n",
+            "HTTP/1.1 abc OK\r\n\r\n",
+            "HTTP/1.1  200 OK\r\n\r\n",
+            "HTTP/1.1 2.00 OK\r\n\r\n",
+            "HTTP/1.1 + OK\r\n\r\n",
+            "HTTP/1.1 2147483648 OK\r\n\r\n",
+            "HTTP/1.1 99999999999999999999999 OK\r\n\r\n",
+            "HTTP/1.1\r\n\r\n",
+        ] {
+            assert!(matches!(head(r), Err(ParseError::Invalid(_))), "{r:?}");
+        }
+        for (r, status) in [
+            ("HTTP/1.1 200\r\n\r\n", 200),
+            ("HTTP/1.1 +206 OK\r\n\r\n", 206),
+            ("HTTP/1.1 0 OK\r\n\r\n", 0),
+            ("HTTP/1.1 2147483647 OK\r\n\r\n", i32::MAX),
+        ] {
+            assert_eq!(head(r).unwrap().unwrap().0.status, status, "{r:?}");
+        }
     }
 
     #[test]

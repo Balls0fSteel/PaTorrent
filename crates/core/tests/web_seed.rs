@@ -2,7 +2,9 @@
 //! test/web_seed_suite.cpp and test_web_seed*.cpp: a tiny HTTP/1.1 server in the test serves
 //! the torrent's files with byte ranges, keep-alive and pipelining; the session downloads from
 //! it alone. Cases: a multi-file torrent from its `url-list`, a single file with the file name
-//! left out of the URL, chunked bodies, per-file redirects to another path, a single-file
+//! left out of the URL (a single-file torrent and one file in multi-file mode), files renamed
+//! here still fetched by their original paths, credentials that follow a redirect only to the
+//! same origin, chunked bodies, per-file redirects to another path, a single-file
 //! redirect, a server that answers 503 before it serves, an HTTP/1.0 server closing after each
 //! response, a BEP 17 seed, the peer list showing the seeds, a seed with corrupt data banned
 //! while the download completes from a good one, a seed the IP filter blocks, web seeds
@@ -49,7 +51,19 @@ fn data(seed: u32, size: usize) -> Vec<u8> {
 /// A torrent of `files` (`name` is the torrent name; one file without a '/' makes a
 /// single-file torrent), with `url-list` and `httpseeds` entries.
 fn fixture(name: &str, files: &[(&str, usize)], url_list: &[String], http_seeds: &[String]) -> Fixture {
-    let single = files.len() == 1 && !files[0].0.contains('/');
+    fixture_in(name, files, url_list, http_seeds, false)
+}
+
+/// [`fixture`]; `multi_file` keeps the BEP 3 `files` list (under the `name` directory) even for
+/// a single file.
+fn fixture_in(
+    name: &str,
+    files: &[(&str, usize)],
+    url_list: &[String],
+    http_seeds: &[String],
+    multi_file: bool,
+) -> Fixture {
+    let single = files.len() == 1 && !files[0].0.contains('/') && !multi_file;
     let mut all = Vec::new();
     let mut out = Vec::new();
     for (i, (path, size)) in files.iter().enumerate() {
@@ -104,6 +118,8 @@ struct Request {
     path: String,
     raw: String,
     range: Option<(u64, u64)>,
+    /// The `Authorization` header's value.
+    auth: Option<String>,
     /// Requests the server has seen before this one.
     seq: usize,
 }
@@ -209,10 +225,13 @@ fn serve_conn(
         let mut lines = head.split("\r\n");
         let path = lines.next().unwrap_or_default().split(' ').nth(1).unwrap_or_default().to_owned();
         let mut range = None;
+        let mut auth = None;
         for l in lines {
             if let Some(r) = l.strip_prefix("Range: bytes=") {
                 let (a, b) = r.split_once('-').unwrap();
                 range = Some((a.parse().unwrap(), b.parse().unwrap()));
+            } else if let Some(a) = l.strip_prefix("Authorization: ") {
+                auth = Some(a.to_owned());
             }
         }
         let seq = hits.fetch_add(1, Ordering::SeqCst);
@@ -221,6 +240,7 @@ fn serve_conn(
             path: String::from_utf8_lossy(&percent_decode(&path)).into_owned(),
             raw: path,
             range,
+            auth,
             seq,
         };
         let (resp, close) = match handler(&req) {
@@ -430,6 +450,105 @@ fn single_file_with_the_name_left_out_of_the_url() {
     let (w, _, dir, _) = download(&f, &[srv.url("/files/")], 60);
     assert!(srv.hits.load(Ordering::SeqCst) > 0);
     finish(w, &f, dir);
+}
+
+#[test]
+fn single_file_in_multi_file_mode_with_the_path_left_out_of_the_url() {
+    // after libtorrent 2.0.14 (5498efd3f6) web_seed_suite test case 7: one file under the
+    // torrent's directory; the seed URL ends with '/', so the file's whole path is appended
+    let f = fixture_in("torrent_dir", &[("single file2", 200_000)], &[], &[], true);
+    let file = f.files[0].1.clone();
+    let srv = server(Mode::Plain, move |r| {
+        if r.path == "/files/torrent_dir/single file2" { Reply::File(file.clone()) } else { not_found() }
+    });
+    let (w, _, dir, _) = download(&f, &[srv.url("/files/")], 60);
+    let log = srv.log.lock().unwrap().clone();
+    assert!(log.iter().all(|l| l.starts_with("/files/torrent_dir/single%20file2 ")), "{log:?}");
+    finish(w, &f, dir);
+}
+
+#[test]
+fn renamed_files_are_still_fetched_from_their_original_paths() {
+    // web seeds serve the torrent's own file names (libtorrent `orig_files`), whatever the
+    // files are stored as here
+    let base = Arc::new(Mutex::new(HashMap::new()));
+    let b2 = base.clone();
+    let srv = server(Mode::Plain, move |r| match b2.lock().unwrap().get(&r.path) {
+        Some(d) => Reply::File(Vec::clone(d)),
+        None => not_found(),
+    });
+    let f = fixture("web-renamed", &multi_files(), &[], &[]);
+    *base.lock().unwrap() = files_at(&f, "/ws/");
+    let dir = temp_dir("renamed");
+    let mut w = Watch::start(settings());
+    let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
+    p.url_seeds = vec![srv.url("/ws/")];
+    p.renamed_files.insert(0, "web-renamed/renamed.bin".into());
+    p.renamed_files.insert(1, "web-renamed/other/beta.bin".into());
+    w.h.add_torrent(p);
+    let id = w.wait(5, "add", |a| match a {
+        Alert::TorrentAdded { id, .. } => Some(*id),
+        Alert::AddTorrentFailed { error, .. } => panic!("add failed: {error}"),
+        _ => None,
+    });
+    let st = w.finished(id, 60);
+    assert_eq!((st.total_failed_bytes, st.total_wanted_done), (0, st.total_wanted));
+    let log = srv.log.lock().unwrap().clone();
+    assert!(log.iter().all(|l| !l.contains("renamed.bin") && !l.contains("other/")), "{log:?}");
+    w.s.shutdown();
+    for (name, data) in &f.files {
+        let stored = match name.as_str() {
+            "web-renamed/alpha.bin" => "web-renamed/renamed.bin",
+            "web-renamed/sub/beta file.bin" => "web-renamed/other/beta.bin",
+            n => n,
+        };
+        let got = std::fs::read(dir.join(stored)).unwrap_or_else(|e| panic!("{stored}: {e}"));
+        assert!(got == *data, "{stored} differs");
+    }
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// A single-file download whose seed URL carries `user:pass`, redirected by its server to
+/// `location` (on `other` when `cross`); returns the `Authorization` headers the target saw.
+fn redirect_auth(cross: bool) -> Vec<Option<String>> {
+    let f = fixture("auth.bin", &[("auth.bin", 100_000)], &[], &[]);
+    let file = f.files[0].1.clone();
+    let seen = Arc::new(Mutex::new(Vec::new()));
+    let (s2, file2) = (seen.clone(), file.clone());
+    let other = server(Mode::Plain, move |r| {
+        s2.lock().unwrap().push(r.auth.clone());
+        if r.path == "/target" { Reply::File(file2.clone()) } else { not_found() }
+    });
+    let location = if cross { other.url("/target") } else { "/target".to_owned() };
+    let s3 = seen.clone();
+    let srv = server(Mode::Plain, move |r| match r.path.as_str() {
+        "/redirect" => {
+            assert_eq!(r.auth.as_deref(), Some("Basic dXNlcjpwYXNz"), "the origin gets the credentials");
+            raw(&format!("HTTP/1.1 301 Moved\r\nLocation: {location}\r\nContent-Length: 0\r\n\r\n"), false)
+        }
+        "/target" => {
+            s3.lock().unwrap().push(r.auth.clone());
+            Reply::File(file.clone())
+        }
+        _ => not_found(),
+    });
+    let url = format!("http://user:pass@{}/redirect", srv.addr);
+    let (w, _, dir, _) = download(&f, &[url], 60);
+    finish(w, &f, dir);
+    let v = seen.lock().unwrap().clone();
+    assert!(!v.is_empty());
+    v
+}
+
+#[test]
+fn web_seed_credentials_follow_a_same_origin_redirect() {
+    // after libtorrent 2.0.13 (188c5226f7, e7e37dbf47) test_web_seed.cpp
+    assert!(redirect_auth(false).iter().all(|a| a.as_deref() == Some("Basic dXNlcjpwYXNz")));
+}
+
+#[test]
+fn web_seed_credentials_do_not_follow_a_cross_origin_redirect() {
+    assert!(redirect_auth(true).iter().all(Option::is_none));
 }
 
 #[test]

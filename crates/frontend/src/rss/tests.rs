@@ -87,7 +87,7 @@ fn refresh_schedule() {
     assert_eq!(d.due_feeds(NOW), [a, b], "never fetched: due at once");
     assert_eq!(d.next_due(), Some(i64::MIN));
     d.feed_fetched(a, NOW, Ok(doc(vec![])));
-    d.feed_fetched(b, NOW, Err("HTTP 503".into()));
+    d.feed_fetched(b, NOW, Err::<Feed, _>("HTTP 503".into()));
     assert_eq!(d.feed(b).unwrap().last_error, "HTTP 503");
     assert!(d.due_feeds(NOW + 14 * 60).is_empty());
     assert_eq!(d.next_due(), Some(NOW + 15 * 60));
@@ -332,9 +332,42 @@ fn sample() -> RssDownloader {
         ..RssFilter::default()
     });
     d.add_filter(RssFilter { name: "Off".into(), enabled: false, ..RssFilter::default() });
-    d.feed_fetched(a, NOW, Ok(doc(vec![item("Show.S01E02.720p.HDTV", None), item("other thing", None)])));
-    d.feed_fetched(b, NOW, Err("timed out".into()));
+    let items = vec![item("Show.S01E02.720p.HDTV", None), item("other thing", None)];
+    d.feed_fetched(a, NOW, Ok(Fetched::Changed(doc(items), validators())));
+    d.feed_fetched(b, NOW, Err::<Feed, _>("timed out".into()));
     d
+}
+
+fn validators() -> Validators {
+    Validators { etag: "\"v1\"".into(), last_modified: "Thu, 29 Oct 2026 10:00:00 GMT".into() }
+}
+
+/// A fetch that answers "not modified" keeps the items and runs them again (a download that
+/// failed is tried again); validators go back only while the items are in memory.
+#[test]
+fn not_modified_keeps_the_items() {
+    let mut d = RssDownloader::default();
+    let f = d.add_feed("https://feeds.example.org/rss", "");
+    d.feed_mut(f).unwrap().subscribe = true;
+    assert_eq!(d.feed(f).unwrap().validators(), Validators::default(), "nothing fetched yet");
+    let reqs = d.feed_fetched(f, NOW, Ok(Fetched::Changed(doc(vec![item("a", None)]), validators())));
+    assert_eq!(titles(&reqs), ["a"]);
+    assert_eq!(d.feed(f).unwrap().validators(), validators());
+    d.forget(f, &reqs[0].item_id);
+    d.feed_fetched(f, NOW + 1, Err::<Feed, _>("timed out".into()));
+    assert_eq!(titles(&d.feed_fetched(f, NOW + 900, Ok(Fetched::NotModified))), ["a"], "retried");
+    let feed = d.feed(f).unwrap();
+    assert_eq!((feed.items.len(), feed.last_refresh, feed.last_error.as_str()), (1, Some(NOW + 900), ""));
+    assert!(d.feed_fetched(f, NOW + 1800, Ok(Fetched::NotModified)).is_empty(), "nothing twice");
+    // a bare document has no validators; a new URL is a new feed
+    d.feed_fetched(f, NOW + 2700, Ok(doc(vec![item("a", None)])));
+    assert_eq!(d.feed(f).unwrap().validators(), Validators::default());
+    d.feed_fetched(f, NOW + 3600, Ok(Fetched::Changed(doc(vec![item("a", None)]), validators())));
+    d.edit_feed(f, "https://feeds.example.org/other", "");
+    let feed = d.feed(f).unwrap();
+    assert!(
+        feed.validators() == Validators::default() && feed.etag.is_empty() && feed.last_modified.is_empty()
+    );
 }
 
 #[test]
@@ -349,6 +382,12 @@ fn persistence_round_trip() {
         f.items.clear();
     }
     assert_eq!(back, want);
+    // the validators are kept, but go back only once the items are in memory again
+    assert_eq!(
+        (back.feeds[0].etag.as_str(), back.feeds[0].last_modified.as_str()),
+        ("\"v1\"", "Thu, 29 Oct 2026 10:00:00 GMT")
+    );
+    assert_eq!(back.feeds[0].validators(), Validators::default());
     assert_eq!(back.to_bencode(), bytes, "canonical");
     // ids keep counting from where they were
     let mut back = back;
@@ -531,16 +570,32 @@ fn dates_and_titles_never_panic() {
     }
 }
 
-/// A loopback feed server: `fetch_feed` sends the `:COOKIE:` part as a Cookie header and parses
+/// A loopback feed server: `fetch_feed` sends the `:COOKIE:` part as a Cookie header, takes a
+/// gzipped body and its validators, asks again conditionally and takes the 304, and parses
 /// what comes back.
 #[test]
 fn fetch_feed_over_http() {
     use std::io::{Read, Write};
+    let mut gzipped = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+    gzipped.extend(patorrent_core::util::deflate::deflate(RSS_SAMPLE.as_bytes()));
+    gzipped.extend([0; 8]);
+    let mut first = format!(
+        "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nETag: \"v1\"\r\nLast-Modified: Thu, 29 Oct 2026 10:00:00 GMT\r\nContent-Length: {}\r\n\r\n",
+        gzipped.len()
+    )
+    .into_bytes();
+    first.extend(gzipped);
+    let html = "<html>no feed</html>";
+    let answers = [
+        first,
+        b"HTTP/1.1 304 Not Modified\r\nETag: \"v1\"\r\n\r\n".to_vec(),
+        format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{html}", html.len()).into_bytes(),
+    ];
     let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
     let addr = l.local_addr().unwrap();
     let server = std::thread::spawn(move || {
         let mut heads = Vec::new();
-        for body in [RSS_SAMPLE, "<html>no feed</html>"] {
+        for resp in answers {
             let (mut s, _) = l.accept().unwrap();
             let mut head = Vec::new();
             let mut b = [0u8; 1];
@@ -548,18 +603,26 @@ fn fetch_feed_over_http() {
                 head.push(b[0]);
             }
             heads.push(String::from_utf8(head).unwrap());
-            let resp = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n{body}", body.len());
-            s.write_all(resp.as_bytes()).unwrap();
+            s.write_all(&resp).unwrap();
         }
         heads
     });
-    let f = fetch_feed(&format!("http://{addr}/rss.xml:COOKIE:uid=1;pass=2"), None).unwrap();
+    let url = format!("http://{addr}/rss.xml:COOKIE:uid=1;pass=2");
+    let Fetched::Changed(f, v) = fetch_feed(&url, &Validators::default(), None).unwrap() else {
+        panic!("a document")
+    };
     assert_eq!((f.title.as_str(), f.items.len()), ("T & U", 2));
-    let e = fetch_feed(&format!("http://{addr}/page"), None).unwrap_err();
+    assert_eq!(v, validators());
+    assert_eq!(fetch_feed(&url, &v, None), Ok(Fetched::NotModified));
+    let e = fetch_feed(&format!("http://{addr}/page"), &Validators::default(), None).unwrap_err();
     assert!(e.ends_with("not an RSS or Atom feed"), "{e}");
     let heads = server.join().unwrap();
     assert!(heads[0].starts_with("GET /rss.xml HTTP/1.1\r\n"), "{}", heads[0]);
     assert!(heads[0].contains("\r\nCookie: uid=1;pass=2\r\n"), "{}", heads[0]);
+    assert!(heads[0].contains("\r\nAccept-Encoding: gzip\r\n"), "{}", heads[0]);
+    assert!(!heads[0].contains("If-None-Match") && !heads[2].contains("If-None-Match"), "{}", heads[0]);
+    assert!(heads[1].contains("\r\nIf-None-Match: \"v1\"\r\n"), "{}", heads[1]);
+    assert!(heads[1].contains("\r\nIf-Modified-Since: Thu, 29 Oct 2026 10:00:00 GMT\r\n"), "{}", heads[1]);
 }
 
 /// An item's `.torrent` URL reaches this machine only when its feed is here too (SEC-26): a

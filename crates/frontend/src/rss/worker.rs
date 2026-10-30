@@ -17,7 +17,7 @@ use patorrent_core::fetch::{FetchOptions, FetchProxy, Reach, http_get};
 use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
 use patorrent_core::{AddTorrentParams, InfoHashes, TorrentFlags, TorrentSource};
 
-use super::{AddRequest, Feed, FeedId, RssDownloader, fetch_feed};
+use super::{AddRequest, FeedId, Fetched, RssDownloader, Validators, fetch_feed};
 use crate::tr;
 
 /// What an item's URL gave: a `.torrent` file, or a magnet link (named by the item, or where
@@ -89,7 +89,8 @@ pub fn fetch_download(
 
 /// How the worker fetches; the network by default, a fake in tests.
 pub trait Fetcher: Send + Sync {
-    fn feed(&self, url: &str, proxy: Option<FetchProxy>) -> Result<Feed, String>;
+    /// `since` is the feed's [`Validators`] (empty: fetch the whole document).
+    fn feed(&self, url: &str, since: &Validators, proxy: Option<FetchProxy>) -> Result<Fetched, String>;
     fn download(&self, req: &AddRequest, proxy: Option<FetchProxy>) -> Result<Download, String>;
 }
 
@@ -97,8 +98,8 @@ pub trait Fetcher: Send + Sync {
 pub struct Net;
 
 impl Fetcher for Net {
-    fn feed(&self, url: &str, proxy: Option<FetchProxy>) -> Result<Feed, String> {
-        fetch_feed(url, proxy)
+    fn feed(&self, url: &str, since: &Validators, proxy: Option<FetchProxy>) -> Result<Fetched, String> {
+        fetch_feed(url, since, proxy)
     }
 
     fn download(&self, req: &AddRequest, proxy: Option<FetchProxy>) -> Result<Download, String> {
@@ -107,7 +108,7 @@ impl Fetcher for Net {
 }
 
 enum Done {
-    Feed(FeedId, Result<Feed, String>),
+    Feed(FeedId, Result<Fetched, String>),
     Download(AddRequest, Result<Download, String>),
     /// A download batch is through.
     Batch,
@@ -171,11 +172,11 @@ impl Worker {
         if !self.busy.insert(id) {
             return false;
         }
-        let url = feed.url.clone();
+        let (url, since) = (feed.url.clone(), feed.validators());
         let (tx, notify, fetcher, proxy) =
             (self.tx.clone(), self.notify.clone(), self.fetcher.clone(), proxy.cloned());
         std::thread::spawn(move || {
-            let r = fetcher.feed(&url, proxy);
+            let r = fetcher.feed(&url, &since, proxy);
             if tx.send(Done::Feed(id, r)).is_ok() {
                 notify();
             }
@@ -261,7 +262,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
 
-    use super::super::{FeedItem, RssFilter};
+    use super::super::{Feed, FeedItem, RssFilter};
     use super::*;
 
     const NOW: i64 = 1_800_000_000;
@@ -272,13 +273,20 @@ mod tests {
         feeds: Mutex<Vec<(String, Feed)>>,
         files: Mutex<Vec<(String, Vec<u8>)>>,
         cookies: Mutex<Vec<String>>,
+        /// The validators each feed fetch was sent.
+        since: Mutex<Vec<Validators>>,
     }
 
     impl Fetcher for Fake {
-        fn feed(&self, url: &str, _: Option<FetchProxy>) -> Result<Feed, String> {
+        fn feed(&self, url: &str, since: &Validators, _: Option<FetchProxy>) -> Result<Fetched, String> {
+            self.since.lock().unwrap().push(since.clone());
             let url = super::super::split_cookie(url).0;
             let feeds = self.feeds.lock().unwrap();
-            feeds.iter().find(|(u, _)| u == url).map(|(_, f)| f.clone()).ok_or_else(|| "HTTP 404".into())
+            feeds
+                .iter()
+                .find(|(u, _)| u == url)
+                .map(|(_, f)| f.clone().into())
+                .ok_or_else(|| "HTTP 404".into())
         }
 
         fn download(&self, req: &AddRequest, _: Option<FetchProxy>) -> Result<Download, String> {
@@ -379,6 +387,27 @@ mod tests {
         assert_eq!(c.log, ["RSS: Nowhere: HTTP 404"]);
         assert_eq!(d.feed(id).unwrap().last_error, "HTTP 404");
         assert_eq!(d.feed(id).unwrap().last_refresh, Some(NOW));
+    }
+
+    /// A refresh sends the feed's validators once its items are in memory.
+    #[test]
+    fn a_refresh_sends_the_validators() {
+        let fake = Arc::new(Fake::default());
+        let mut w = Worker::with_fetcher(fake.clone(), || {});
+        let mut d = RssDownloader::default();
+        let id = d.add_feed("https://nowhere/rss", "");
+        let v = Validators { etag: "\"v1\"".into(), last_modified: String::new() };
+        d.feed_mut(id).unwrap().etag = v.etag.clone();
+        w.refresh(&d, id, None);
+        collect_until(&mut w, &mut d, 0);
+        d.feed_fetched(
+            id,
+            NOW,
+            Ok(Fetched::Changed(Feed { items: vec![item("a", "x")], ..Feed::default() }, v.clone())),
+        );
+        w.refresh(&d, id, None);
+        collect_until(&mut w, &mut d, 0);
+        assert_eq!(*fake.since.lock().unwrap(), [Validators::default(), v]);
     }
 
     #[test]

@@ -27,8 +27,8 @@ use patorrent_core::fetch::FetchProxy;
 use patorrent_frontend::rss::view::{self, quality_text};
 use patorrent_frontend::rss::worker::{Fetcher, Net};
 use patorrent_frontend::rss::{
-    AddRequest, Download, Feed, FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter, Worker,
-    split_cookie,
+    AddRequest, Download, FeedId, Fetched, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter,
+    Validators, Worker, split_cookie,
 };
 use patorrent_frontend::{lang, tr};
 
@@ -81,8 +81,8 @@ impl Rss {
 struct Quiet;
 
 impl Fetcher for Quiet {
-    fn feed(&self, url: &str, proxy: Option<FetchProxy>) -> Result<Feed, String> {
-        Net.feed(url, proxy).map_err(|e| not_fetched(split_cookie(url).0, &e))
+    fn feed(&self, url: &str, since: &Validators, proxy: Option<FetchProxy>) -> Result<Fetched, String> {
+        Net.feed(url, since, proxy).map_err(|e| not_fetched(split_cookie(url).0, &e))
     }
 
     fn download(&self, req: &AddRequest, proxy: Option<FetchProxy>) -> Result<Download, String> {

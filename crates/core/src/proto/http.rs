@@ -288,7 +288,11 @@ impl ResponseParser {
         let resp = Response { status, message, headers, body: Vec::new() };
         let chunked =
             resp.header("transfer-encoding").is_some_and(|v| v.to_ascii_lowercase().contains("chunked"));
-        let framing = if chunked {
+        let framing = if matches!(status, 204 | 304) {
+            // no body, whatever the head says: a 304's Content-Length is the cached copy's
+            // (RFC 9112 6.3)
+            Framing::Eof
+        } else if chunked {
             Framing::Chunked
         } else if let Some(len) = resp.header("content-length") {
             let len: usize = len.parse().map_err(|_| ParseError::Invalid("invalid content-length"))?;
@@ -435,6 +439,10 @@ mod tests {
         assert_eq!(parse_response(eof, false), Err(ParseError::Incomplete));
         let resp = parse_response(eof, true).unwrap();
         assert_eq!((resp.status, &resp.body[..]), (404, &b"nope"[..]));
+        // a 304's Content-Length (the cached copy's) frames no body
+        let resp =
+            parse_response(b"HTTP/1.1 304 Not Modified\r\nContent-Length: 4096\r\n\r\n", false).unwrap();
+        assert_eq!((resp.status, resp.body.len()), (304, 0));
         assert!(matches!(parse_response(b"SSH-2.0\r\n\r\n", true), Err(ParseError::Invalid(_))));
     }
 

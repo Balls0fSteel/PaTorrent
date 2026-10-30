@@ -6,7 +6,8 @@
 //! A blocking HTTP / HTTPS `GET` for frontends: `.torrent` downloads and RSS feeds.
 //!
 //! [`http_get`] follows redirects (up to [`FetchOptions::max_redirects`]), decodes chunked
-//! bodies, caps the body at [`FetchOptions::max_size`] and gives up after
+//! bodies (and gzip ones when asked for, [`FetchOptions::gzip`]), caps the body at
+//! [`FetchOptions::max_size`] and gives up after
 //! [`FetchOptions::timeout`] for the whole exchange, redirects included. HTTPS goes through the
 //! OS TLS layer with certificate and host name checks (PLAN.md D9). A proxy from the engine's
 //! settings ([`FetchProxy::from_settings`]: whenever one is set) is used the way HTTP trackers
@@ -26,6 +27,8 @@ use crate::proto::http::{self, ParseError, Url};
 use crate::proto::http_parser;
 use crate::proto::proxy::Target;
 use crate::settings::{ProxyType, Settings};
+use crate::util::gzip::{GzipError, inflate_gzip};
+use crate::util::puff::InflateError;
 
 /// What [`http_get`] does; [`FetchOptions::default`] suits `.torrent` files and feeds.
 #[derive(Clone, Debug)]
@@ -42,6 +45,13 @@ pub struct FetchOptions {
     /// dropped. They go only to the first URL's origin (scheme, host and port): a redirect
     /// elsewhere is followed without them, and one from https to http is refused (SEC-06).
     pub cookies: String,
+    /// More request headers, sent to every URL of the exchange (line breaks dropped). With
+    /// `If-None-Match` or `If-Modified-Since` among them a `304 Not Modified` is an answer,
+    /// not an error (see [`http_get`]).
+    pub headers: Vec<(String, String)>,
+    /// Ask for `Accept-Encoding: gzip` and inflate a `Content-Encoding: gzip` body, at most
+    /// `max_size` bytes either way (default off: `identity`, as libtorrent asks).
+    pub gzip: bool,
     pub proxy: Option<FetchProxy>,
     /// Which addresses it may connect to (SEC-26).
     pub reach: Reach,
@@ -120,9 +130,22 @@ impl Default for FetchOptions {
             max_size: 16 * 1024 * 1024,
             max_redirects: http::MAX_REDIRECTS,
             cookies: String::new(),
+            headers: Vec::new(),
+            gzip: false,
             proxy: None,
             reach: Reach::User,
         }
+    }
+}
+
+impl FetchOptions {
+    /// Whether the request is conditional (`If-None-Match`, `If-Modified-Since`), so that a
+    /// `304 Not Modified` answers it.
+    fn conditional(&self) -> bool {
+        self.headers.iter().any(|(k, _)| {
+            k.trim().eq_ignore_ascii_case("if-none-match")
+                || k.trim().eq_ignore_ascii_case("if-modified-since")
+        })
     }
 }
 
@@ -151,8 +174,9 @@ impl FetchProxy {
     }
 }
 
-/// A finished exchange: a 2xx answer, or a redirect to something other than `http(s)://` (an
-/// indexer handing out a `magnet:` link), see [`FetchResponse::redirect`].
+/// A finished exchange: a 2xx answer, a redirect to something other than `http(s)://` (an
+/// indexer handing out a `magnet:` link, see [`FetchResponse::redirect`]), or a `304` to a
+/// conditional request ([`FetchResponse::not_modified`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct FetchResponse {
     /// The URL that answered, after redirects.
@@ -171,6 +195,11 @@ impl FetchResponse {
     /// The `Location` of a redirect that was not followed (a `magnet:` link, say).
     pub fn redirect(&self) -> Option<&str> {
         if (300..400).contains(&self.status) { self.header("location") } else { None }
+    }
+
+    /// A `304 Not Modified`: what the conditional request named is still current (no body).
+    pub fn not_modified(&self) -> bool {
+        self.status == 304
     }
 }
 
@@ -224,8 +253,9 @@ impl From<io::Error> for FetchError {
     }
 }
 
-/// `GET url`. Returns 2xx answers and unfollowed redirects (see [`FetchResponse`]); any other
-/// status is [`FetchError::Status`].
+/// `GET url`. Returns 2xx answers, unfollowed redirects and, when [`FetchOptions::headers`]
+/// make the request conditional, a `304` (see [`FetchResponse`]); any other status is
+/// [`FetchError::Status`], a `304` to a plain request too.
 pub fn http_get(url: &str, opts: &FetchOptions) -> Result<FetchResponse, FetchError> {
     let deadline = Instant::now() + opts.timeout;
     let mut url = clean_url(url);
@@ -241,7 +271,12 @@ pub fn http_get(url: &str, opts: &FetchOptions) -> Result<FetchResponse, FetchEr
         // a public server may not send the client into its own network (SEC-26)
         public_only |= reached_public;
         if (200..300).contains(&resp.status) {
-            return Ok(FetchResponse { url, status: resp.status, headers: resp.headers, body: resp.body });
+            let mut done = FetchResponse { url, status: resp.status, headers: resp.headers, body: resp.body };
+            decode(&mut done, opts)?;
+            return Ok(done);
+        }
+        if resp.status == 304 && opts.conditional() {
+            return Ok(FetchResponse { url, status: 304, headers: resp.headers, body: Vec::new() });
         }
         if !resp.is_redirect() {
             return Err(FetchError::Status(resp.status, resp.message));
@@ -261,6 +296,21 @@ pub fn http_get(url: &str, opts: &FetchOptions) -> Result<FetchResponse, FetchEr
             return Err(FetchError::Http("refused a redirect from https to http"));
         }
     }
+}
+
+/// The body as sent: a `Content-Encoding: gzip` one inflated (without that header) when
+/// `opts.gzip` asked for it, under the same size limit.
+fn decode(resp: &mut FetchResponse, opts: &FetchOptions) -> Result<(), FetchError> {
+    let gzip = |v: &str| v.trim().eq_ignore_ascii_case("gzip") || v.trim().eq_ignore_ascii_case("x-gzip");
+    let i = resp.headers.iter().position(|(k, v)| k.eq_ignore_ascii_case("content-encoding") && gzip(v));
+    let Some(i) = i.filter(|_| opts.gzip && !resp.body.is_empty()) else { return Ok(()) };
+    resp.body = match inflate_gzip(&resp.body, opts.max_size) {
+        Ok(b) => b,
+        Err(GzipError::Inflate(InflateError::TooLarge)) => return Err(FetchError::TooLarge),
+        Err(_) => return Err(FetchError::Http("invalid gzip body")),
+    };
+    resp.headers.remove(i);
+    Ok(())
 }
 
 /// A redirect from https to plain http: refused when cookies are in play, since a site that
@@ -316,19 +366,37 @@ fn remaining(deadline: Instant) -> Result<Duration, FetchError> {
     if left.is_zero() { Err(FetchError::TimedOut) } else { Ok(left) }
 }
 
-/// The request bytes: libtorrent's `GET` (or the absolute-URL form for an HTTP proxy), with the
-/// cookies added when `cookies` says so.
+/// The request bytes: libtorrent's `GET` (or the absolute-URL form for an HTTP proxy), asking
+/// for gzip when `opts.gzip` does, with the extra headers, and the cookies when `cookies` says
+/// so.
 fn request(url: &Url, opts: &FetchOptions, cookies: bool, via_http_proxy: Option<&ProxyConfig>) -> Vec<u8> {
     let user_agent = opts.user_agent.replace(['\r', '\n'], "");
     let mut r = match via_http_proxy {
         Some(p) => http::proxy_get_request(url, &user_agent, p.creds()),
         None => http::get_request(url, &user_agent),
     };
+    if opts.gzip {
+        const IDENTITY: &[u8] = b"\r\nAccept-Encoding: identity\r\n";
+        if let Some(at) = r.windows(IDENTITY.len()).position(|w| w == IDENTITY) {
+            r.splice(at..at + IDENTITY.len(), b"\r\nAccept-Encoding: gzip\r\n".iter().copied());
+        }
+    }
+    let mut extra = String::new();
+    for (k, v) in &opts.headers {
+        let (k, v) = (k.replace(['\r', '\n', ':'], ""), v.replace(['\r', '\n'], ""));
+        if !k.trim().is_empty() {
+            extra.push_str(&format!("{}: {}\r\n", k.trim(), v.trim()));
+        }
+    }
     let cookies = if cookies { opts.cookies.replace(['\r', '\n'], "") } else { String::new() };
     if !cookies.trim().is_empty() {
+        extra.push_str(&format!("Cookie: {}\r\n", cookies.trim()));
+    }
+    if !extra.is_empty() {
         // before the blank line that ends the head
         r.truncate(r.len() - 2);
-        r.extend_from_slice(format!("Cookie: {}\r\n\r\n", cookies.trim()).as_bytes());
+        r.extend_from_slice(extra.as_bytes());
+        r.extend_from_slice(b"\r\n");
     }
     r
 }
@@ -496,6 +564,8 @@ fn exchange<S: Read + Write>(
         buf.extend_from_slice(&chunk[..n]);
         if framing.is_none() {
             match http_parser::parse_head(&buf) {
+                // no body, whatever the head says (RFC 9112 6.3)
+                Ok(Some((head, _))) if matches!(head.status, 204 | 304) => break parser.parse(&buf, false),
                 Ok(Some((head, body))) => framing = Some((head.content_length, head.chunked, body)),
                 Ok(None) => {}
                 Err(http_parser::ParseError::Invalid(e)) => return Err(FetchError::Http(e)),
@@ -595,6 +665,83 @@ mod tests {
         assert_eq!(http_get(&base, &o).unwrap().body, b"abc");
         assert_eq!(http_get(&base, &o).unwrap().body, b"Wikipedia");
         assert!(t.elapsed() < Duration::from_secs(2));
+    }
+
+    /// A conditional request's 304 is an answer, at once even from a server that keeps the
+    /// connection open and names the cached copy's length; to a plain request it is an error.
+    #[test]
+    fn not_modified_answers_a_conditional_request() {
+        let l = TcpListener::bind("127.0.0.1:0").unwrap();
+        let base = format!("http://{}", l.local_addr().unwrap());
+        let (tx, rx) = mpsc::channel();
+        thread::spawn(move || {
+            let mut keep = Vec::new();
+            for _ in 0..2 {
+                let (mut s, _) = l.accept().unwrap();
+                let _ = tx.send(read_head(&mut s));
+                s.write_all(b"HTTP/1.1 304 Not Modified\r\nETag: \"v2\"\r\nContent-Length: 120\r\n\r\n")
+                    .unwrap();
+                keep.push(s);
+            }
+            thread::sleep(Duration::from_secs(5));
+        });
+        let headers = vec![
+            ("If-None-Match".to_owned(), "\"v2\"".to_owned()),
+            ("If-Modified-Since\r\nEvil".to_owned(), "Thu, 29 Oct 2026 10:00:00 GMT\r\nEvil: 1".to_owned()),
+        ];
+        let o = FetchOptions { timeout: Duration::from_secs(3), headers, ..opts() };
+        let t = Instant::now();
+        let r = http_get(&base, &o).unwrap();
+        assert!(r.not_modified() && r.body.is_empty() && r.redirect().is_none());
+        assert_eq!(r.header("etag"), Some("\"v2\""));
+        assert!(t.elapsed() < Duration::from_secs(2));
+        let head = rx.recv().unwrap();
+        assert!(head.contains("\r\nIf-None-Match: \"v2\"\r\n"), "{head}");
+        assert!(
+            head.contains("\r\nIf-Modified-SinceEvil: Thu, 29 Oct 2026 10:00:00 GMTEvil: 1\r\n"),
+            "{head}"
+        );
+        assert!(head.contains("\r\nAccept-Encoding: identity\r\n"), "{head}");
+        // without a conditional header a 304 is no answer
+        let o = FetchOptions { timeout: Duration::from_secs(3), ..opts() };
+        assert!(matches!(http_get(&base, &o), Err(FetchError::Status(304, _))));
+    }
+
+    /// `body` as a gzip member (the trailer's CRC and size are not checked, as libtorrent).
+    fn gzipped(body: &[u8]) -> Vec<u8> {
+        let mut out = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
+        out.extend(crate::util::deflate::deflate(body));
+        out.extend([0; 8]);
+        out
+    }
+
+    #[test]
+    fn gzip_bodies_when_asked_for() {
+        let feed = b"<rss><channel><title>gzip</title></channel></rss>".repeat(20);
+        let packed = gzipped(&feed);
+        let answer = |body: &[u8]| {
+            let mut r = format!(
+                "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Length: {}\r\n\r\n",
+                body.len()
+            )
+            .into_bytes();
+            r.extend_from_slice(body);
+            r
+        };
+        let (base, rx) = serve(vec![answer(&packed), answer(&packed), answer(&packed), answer(b"not gzip")]);
+        let o = FetchOptions { gzip: true, ..opts() };
+        let r = http_get(&base, &o).unwrap();
+        assert_eq!(r.body, feed);
+        assert_eq!(r.header("content-encoding"), None, "decoded");
+        let head = rx.recv().unwrap();
+        assert!(head.contains("\r\nAccept-Encoding: gzip\r\n") && !head.contains("identity"), "{head}");
+        // not asked for: the body as sent
+        let r = http_get(&base, &opts()).unwrap();
+        assert_eq!((&r.body, r.header("content-encoding")), (&packed, Some("gzip")));
+        // the limit is on the inflated body too, and a bad body is an error
+        let small = FetchOptions { max_size: feed.len() - 1, ..o.clone() };
+        assert!(matches!(http_get(&base, &small), Err(FetchError::TooLarge)));
+        assert!(matches!(http_get(&base, &o), Err(FetchError::Http("invalid gzip body"))));
     }
 
     #[test]

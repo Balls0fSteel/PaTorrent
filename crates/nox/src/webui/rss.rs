@@ -10,10 +10,14 @@
 //! State lock (never the other way round). Every change bumps `State::rss_version`, which the
 //! WebSocket's `tick` carries (`rss`), so an open dialog reloads.
 //!
-//! Hosted by a desktop client (`Config::hosted`, D40) there is no downloader here: the RSS
-//! Downloader is the host's, the native endpoints and the shim's `rss/*` answer 404
-//! ([`HOSTED_NO_RSS`]), the tick does not run and carries no `rss`, and the page hides its
-//! entry points (`hello.hosted`).
+//! Hosted by a desktop client (`Config::hosted`, D40) the endpoints edit the host's own model
+//! (`Hosted::rss`, the same [`Rss`] behind the same lock): one RSS Downloader, the host's.
+//! The host runs the worker (its fetches tell the host, not the tick, which does not run
+//! here), adds the torrents through its own add path (`Host::rss_download`) and saves
+//! `rss.dat` when [`Rss::dirty`]; a browser's change is announced to it
+//! (`Host::rss_changed`), and its own changes move the tick's `rss` through
+//! `WebUi::rss_changed`. The lock order is the same: the RSS lock, then the State lock; the
+//! host's methods only queue and post, so a request thread never waits on the host's thread.
 
 use std::collections::HashSet;
 use std::path::PathBuf;
@@ -34,22 +38,29 @@ use super::http::{Response, parse_urlencoded};
 use super::json::{self, Json};
 use super::{Shared, unix_now};
 
-/// The 404's reason while a desktop client hosts the Web UI.
-pub(crate) const HOSTED_NO_RSS: &str = "the RSS Downloader is the desktop client's";
-
-/// The downloader and what nox keeps around it.
-pub(crate) struct Rss {
+/// The RSS Downloader and what goes with it: the model, the worker fetching for it, whether
+/// `rss.dat` needs saving. nox's own (daemon mode), or a desktop client's shared with the
+/// Web UI it hosts (`Hosted::rss`, behind a `Mutex`).
+pub struct Rss {
     pub d: RssDownloader,
     pub worker: Worker,
-    /// `rss.dat`; `None` without a config directory (nothing is saved).
+    /// `rss.dat` when nox saves it itself (daemon mode with a config directory); `None`
+    /// otherwise (a host saves its own).
     pub file: Option<PathBuf>,
+    /// The model changed since `rss.dat` was saved (whoever saves it clears this).
     pub dirty: bool,
     /// Articles the shim's `rss/markAsRead` marked, as (feed, item id); not saved.
     pub read: HashSet<(FeedId, String)>,
 }
 
 impl Rss {
-    pub fn load(file: Option<PathBuf>) -> Rss {
+    /// A host's downloader: its model and its worker (whose `notify` tells the host's thread
+    /// to collect). Nothing is saved here.
+    pub fn new(d: RssDownloader, worker: Worker) -> Rss {
+        Rss { d, worker, file: None, dirty: false, read: HashSet::new() }
+    }
+
+    pub(crate) fn load(file: Option<PathBuf>) -> Rss {
         let d = file.as_deref().map(RssDownloader::load).unwrap_or_default();
         // the tick collects the results; nothing needs waking
         let worker = Worker::with_fetcher(Arc::new(Quiet), || {});
@@ -92,7 +103,8 @@ fn proxy(shared: &Shared) -> Option<FetchProxy> {
     FetchProxy::from_settings(&shared.lock().settings)
 }
 
-/// Lines for the Logger, and a bump of the version the page watches.
+/// Lines for the Logger, and a bump of the version the page watches; hosted, the host is
+/// told of a change. Called without the RSS lock.
 fn after_change(shared: &Shared, log: Vec<String>, changed: bool) {
     if log.is_empty() && !changed {
         return;
@@ -104,6 +116,10 @@ fn after_change(shared: &Shared, log: Vec<String>, changed: bool) {
     }
     if changed {
         st.rss_version += 1;
+    }
+    drop(st);
+    if let (true, Some(host)) = (changed, shared.hosted()) {
+        host.rss_changed();
     }
 }
 
@@ -171,9 +187,9 @@ fn add(shared: &Shared, req: AddRequest, d: Download) {
     }
 }
 
-/// Starts the downloads `reqs` ask for; the magnet links are added at once.
+/// Starts the downloads `reqs` ask for; the magnet links are added at once. Hosted, the host
+/// adds them (`Host::rss_download`).
 fn download(shared: &Shared, mut r: MutexGuard<'_, Rss>, reqs: Vec<AddRequest>) {
-    let proxy = proxy(shared);
     let log: Vec<String> = reqs
         .iter()
         .map(|q| {
@@ -181,8 +197,15 @@ fn download(shared: &Shared, mut r: MutexGuard<'_, Rss>, reqs: Vec<AddRequest>) 
             format!("RSS: {feed}: downloading {}", q.title)
         })
         .collect();
-    let now = r.worker.download(reqs, proxy.as_ref());
     r.dirty = true;
+    if let Some(host) = shared.hosted() {
+        drop(r);
+        after_change(shared, log, true);
+        host.rss_download(reqs);
+        return;
+    }
+    let proxy = proxy(shared);
+    let now = r.worker.download(reqs, proxy.as_ref());
     drop(r);
     after_change(shared, log, true);
     for (req, d) in now {
@@ -238,9 +261,20 @@ fn filter_json(f: &RssFilter) -> Json {
         .with("paused", f.paused)
 }
 
+/// A feed's state line. Hosted, the host's worker keeps a failed fetch's detail (refused,
+/// timed out, an HTTP status), which the host's own window may show but a login must not see
+/// (SEC-05, SEC-26): the page gets nox's one error text instead.
+fn feed_status(f: &patorrent_frontend::rss::RssFeed, updating: bool, hosted: bool) -> String {
+    if hosted && !updating && f.enabled && !f.last_error.is_empty() {
+        return tr!(RssError, error = format!("could not fetch {}", f.fetch_url().0));
+    }
+    view::feed_status(f, updating)
+}
+
 /// `GET /pa/rss`: the feeds, the filters, the History and the dialog's fixed lists.
 fn model(shared: &Shared) -> Json {
     let labels: Vec<Json> = shared.lock().categories.keys().map(|l| Json::Str(l.clone())).collect();
+    let hosted = shared.is_hosted();
     let r = shared.rss();
     let feeds: Vec<Json> =
         r.d.feeds
@@ -257,7 +291,7 @@ fn model(shared: &Shared) -> Json {
                     .with("smart", f.subscribe_smart)
                     .with("items", f.items.len())
                     .with("updating", updating)
-                    .with("status", view::feed_status(f, updating))
+                    .with("status", feed_status(f, updating, hosted))
             })
             .collect();
     let filters: Vec<Json> = r.d.filters.iter().map(filter_json).collect();

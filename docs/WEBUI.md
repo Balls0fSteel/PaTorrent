@@ -241,7 +241,9 @@ the alert or HTTP threads; the tick collects the results and adds through the sa
 state" as the page's Pause). `rss.dat` lives in the config directory beside `webui.json`. The
 downloader has its own lock, always taken before the State lock. Every change bumps a version
 that the `tick` message carries as `"rss": n` (sent when it changed since the client's last
-tick), so an open dialog and the tree's Feeds branch reload `GET /pa/rss`.
+tick), so an open dialog and the tree's Feeds branch reload `GET /pa/rss`. Hosted by the
+Windows GUI the same endpoints edit the window's own downloader (see "Hosted by a desktop
+client" below).
 
 | Endpoint | Body | Does |
 |---|---|---|
@@ -471,10 +473,29 @@ held: queue them) and `shutdown()`.
   `apply_settings`, IP filter, peer-exchange flags or language switch here (the host's language
   is the process's; the page's `lang.js` follows it). `State::settings` is the host's
   configured settings (`settings::load` of the `lt.*` keys).
-- **Off.** The scheduler, seeding goal, scrapes, `.torrent` folders, auto-load, move-completed
-  and the RSS Downloader are the host's: `/pa/rss...` and the shim's `rss/*` answer 404 with
-  the reason, `hello` carries `"hosted": true` (false under nox) and the page hides the RSS
-  button, the phone menu's entry and the tree's Feeds branch; a `tick` carries no `rss`. The
+- **The RSS Downloader is the host's own, shared, not proxied**. Two designs were weighed:
+  (a) the host's model behind an `Arc<Mutex<..>>` that the request threads lock, or
+  (b) `Host` methods marshalling each RSS request to the host's thread and waiting for its
+  JSON. (a) was chosen: `frontend::rss` is UI-independent (the model and its worker know no
+  window), so the endpoint code of `rss.rs` runs unchanged against the host's model, nothing
+  waits on the host's thread (no round trip, no timeout, no deadlock with a modal dialog's
+  loop), and there is one model, never two downloaders. `Hosted::rss` is the window's
+  `Arc<Mutex<Rss>>` (`Rss`: the `RssDownloader`, its `Worker`, `dirty`); `Shared::rss` is that
+  same `Arc`. The window keeps the worker (its fetches post to the window, which collects
+  them; nox's tick does not run), the downloads and `rss.dat` (saved by its timer when
+  `Rss::dirty`). A browser's change calls `Host::rss_changed` and its downloads (an item's
+  Download, the filters run by `process`, a shim rule) go to `Host::rss_download`: the model
+  has marked them added and logged them in the History, and the window adds them through its
+  own RSS add path (label, top of queue, paused, the Add dialog's defaults, as for its own
+  RSS adds). The window's own changes (a fetch, its dialog, the tree's Feeds menu) call
+  `WebUi::rss_changed`, which moves the `tick`'s `rss`. **Lock order, every thread: the RSS
+  lock, then the Web UI's State lock**; the window never holds the RSS lock across a dialog,
+  a message loop or a call that locks it again, and the `Host` methods only queue and post
+  (`WM_APP_WEBUI`), so a request thread never waits on the window. A feed's error text is
+  nox's one line (`could not fetch <url>`) in the page, not the window worker's detail
+  (SEC-05, SEC-26).
+- **Off.** The scheduler, seeding goal, scrapes, `.torrent` folders, auto-load and
+  move-completed are the host's; `hello` carries `"hosted": true` (false under nox). The
   alternative speed limits do not exist (the host has none): the Bandwidth page has no such
   row, `alt_enabled` is refused (400 from `POST /pa/prefs`), `POST /pa/session/limits` with
   `alt` / `alt_down` / `alt_up` and the shim's `toggleSpeedLimitsMode` / `setSpeedLimitsMode`

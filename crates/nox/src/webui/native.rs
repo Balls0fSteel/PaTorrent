@@ -239,7 +239,7 @@ impl Client {
             .with("labels", Json::Arr(labels))
             .with("detail", detail)
             .with("confirm_delete", st.prefs.confirm_delete)
-            // a desktop client hosts the Web UI: no RSS Downloader here (docs/WEBUI.md)
+            // a desktop client hosts the Web UI (docs/WEBUI.md)
             .with("hosted", st.hosted);
         // a newer PaTorrent nox's update check found (never hosted)
         if let Some(u) = super::update::json(st) {
@@ -536,9 +536,9 @@ impl Client {
         if let Some(u) = super::update::json(st) {
             out.set("update", u);
         }
-        // the RSS Downloader changed: the page reloads its feeds (GET /pa/rss); hosted, there
-        // is none
-        if !st.hosted && st.rss_version != self.rss_sent {
+        // the RSS Downloader changed (hosted, the host's too): the page reloads its feeds
+        // (GET /pa/rss)
+        if st.rss_version != self.rss_sent {
             self.rss_sent = st.rss_version;
             out.set("rss", st.rss_version);
         }

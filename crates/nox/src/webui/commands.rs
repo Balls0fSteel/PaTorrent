@@ -1250,9 +1250,6 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Res
     let read = matches!(req.head.method.as_str(), "GET" | "HEAD");
     // the RSS Downloader's own (`rss.rs`)
     if let Some(rest) = endpoint.strip_prefix("rss").filter(|r| r.is_empty() || r.starts_with('/')) {
-        if shared.is_hosted() {
-            return Err(err(404, super::rss::HOSTED_NO_RSS));
-        }
         if read {
             return super::rss::serve(shared, rest, req, None);
         }

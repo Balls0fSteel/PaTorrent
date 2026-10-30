@@ -1,6 +1,6 @@
 //! RSS and Atom feeds as a feed server would send them, through the parser, the episode,
 //! quality and date readers and the RSS Downloader's matching; and the same bytes as an
-//! `rss.dat` state file.
+//! `rss.dat` state file; and as a Torznab search answer, error document and caps (D41).
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
@@ -8,8 +8,21 @@ use patorrent_frontend::rss::{
     EpisodeSpec, FeedItem, Quality, RssDownloader, RssFilter, is_repack, parse_date, parse_episode,
     parse_feed, wildcard_match,
 };
+use patorrent_frontend::search;
 
 fuzz_target!(|data: &[u8]| {
+    if let Ok(results) = search::parse_results(data) {
+        let mut merged = Vec::new();
+        search::merge(&mut merged, results.clone());
+        search::merge(&mut merged, results);
+        for r in &merged {
+            let _ = r.magnet_link();
+        }
+    }
+    let _ = search::parse_caps(data);
+    let text = String::from_utf8_lossy(data);
+    let _ = search::torznab::search_url(&text, &text, &text, &[2000]);
+    let _ = search::redact(&text, "key");
     if let Some(d) = RssDownloader::from_bencode(data) {
         let _ = RssDownloader::from_bencode(&d.to_bencode()).expect("a saved state loads");
         let _ = d.due_feeds(0);

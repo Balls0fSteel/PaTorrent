@@ -4,6 +4,20 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_104643_1793353603: Torznab search, slice 1: the shared model (1.1.12, D41)
+
+- **D41 approved (owner):** search through the user's Prowlarr or Jackett over Torznab, with no plugins and no scrapers. A source on a non-public address never uses the proxy.
+- **Slice 1, `patorrent-frontend` only, no UI yet:**
+  - `rss::feed` reads an item's `<size>` and its `torznab:attr` / `newznab:attr` values (at most 64 per item).
+  - New `search` module:
+    - `torznab`: results, the error document, caps, and URL building for both servers.
+    - `source`: sources stored as `search.source.N.*`, with the API key sealed like the proxy password (`prefs::is_sealed_key`) and redacted from every message.
+    - `worker`: a merged multi-source search in the RSS worker's model, de-duplicated by info-hash, else title and size, and sorted by seeders. It also has the source's Test and the download of a result.
+  - The fuzz target `rss` also feeds the Torznab parsers.
+- **Reviewed before merging:** a result's link may reach non-public addresses only on the source's own scheme, host **and port** (`source::url_origin`; the agent's version compared hosts only), so a poisoned link cannot reach another local service.
+- **Open:** the fixtures are written from the servers' documentation, not captured (slice 2 runs against the VM's Prowlarr). An HTTP 4xx answer's `<error>` text is lost because `http_get` drops error bodies, and a stopped search's requests run to their 30 s timeout.
+- **Tests:** frontend 211 + 4 pass, with clippy and fmt clean. Built by a subagent in a worktree. Version 1.1.12.
+
 ## 2026-10-30_103224_1793352744: No alternative speed limits in the Win32 GUI (owner)
 
 - **Decision (owner):** keep 2.2.1's controls; the Win32 GUI gets no alternative speed limits toggle. The hosted Web UI keeps refusing them (`speedLimitsMode` 0, `HOSTED_NO_ALT`), now by design. PLAN Phase C is RSS in hosted mode and optionally a GTK hosting page.

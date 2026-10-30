@@ -1,4 +1,5 @@
-//! Secrets kept in the preferences file (today only `lt.proxy_password`).
+//! Secrets kept in the preferences file (`lt.proxy_password` and the search sources' API keys,
+//! `search.source.<n>.key`, [`crate::prefs::is_sealed_key`]).
 //!
 //! On Windows a secret is sealed with DPAPI (`CryptProtectData`, current-user scope, with an
 //! entropy constant) and written as `dpapi:<base64>`, so a copied `patorrent.ini` read under

@@ -1,4 +1,5 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/natpmp.cpp, include/libtorrent/natpmp.hpp
+// Ported from libtorrent-rasterbar 2.0.11: src/natpmp.cpp, include/libtorrent/natpmp.hpp;
+// natpmp_lease_duration from 2.0.13 (455e9da7f1)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: the asio timers are deadlines polled by `service`; the callback is a queue of
 // `PortmapEvent`s and log lines the engine drains; the gateway is looked up by the caller.
@@ -74,6 +75,8 @@ pub(super) struct NatPmp {
     refresh_at: Option<(Instant, usize)>,
     disabled: bool,
     abort: bool,
+    /// `natpmp_lease_duration`: seconds a mapping is asked for, 0 for the default.
+    lease_duration: u32,
     buf: Vec<u8>,
     pub events: Vec<PortmapEvent>,
     pub log: Vec<String>,
@@ -94,10 +97,21 @@ impl NatPmp {
             refresh_at: None,
             disabled: false,
             abort: false,
+            lease_duration: natpmp::MAP_TTL,
             buf: vec![0; natpmp::MAX_PACKET],
             events: Vec::new(),
             log: Vec::new(),
         }
+    }
+
+    /// Takes effect with the next request and expiry check, as libtorrent reads the setting.
+    pub fn set_lease_duration(&mut self, secs: u32) {
+        self.lease_duration = secs;
+    }
+
+    /// The lifetime a mapping is asked for: `natpmp_lease_duration`, or an hour for 0.
+    fn lease(&self) -> u32 {
+        if self.lease_duration > 0 { self.lease_duration } else { natpmp::MAP_TTL }
     }
 
     #[cfg(test)]
@@ -287,7 +301,7 @@ impl NatPmp {
         let m = &self.mappings[i];
         debug_assert!(m.act != Action::None);
         let Some(protocol) = m.protocol else { return };
-        let ttl = if m.act == Action::Add { natpmp::MAP_TTL } else { 0 };
+        let ttl = if m.act == Action::Add { self.lease() } else { 0 };
         let packet = if self.version == natpmp::VERSION_NATPMP {
             natpmp::map_request_natpmp(protocol, m.local_port, m.external_port, ttl)
         } else {
@@ -502,7 +516,7 @@ impl NatPmp {
             return;
         }
         let now = now + Duration::from_millis(100);
-        let mut min_expire = now + Duration::from_secs(3600);
+        let mut min_expire = now + Duration::from_secs(self.lease() as u64);
         let mut min_index = None;
         for i in 0..self.mappings.len() {
             let m = &self.mappings[i];
@@ -627,10 +641,15 @@ mod tests {
     }
 
     fn run(pcp: bool) -> (Vec<PortmapEvent>, Vec<Vec<u8>>) {
+        run_with_lease(pcp, natpmp::MAP_TTL)
+    }
+
+    fn run_with_lease(pcp: bool, lease: u32) -> (Vec<PortmapEvent>, Vec<Vec<u8>>) {
         let (gw, seen) = fake_gateway(pcp);
         let mut poll = Poll::new().unwrap();
         let mut events = Events::with_capacity(16);
         let mut n = NatPmp::new();
+        n.set_lease_duration(lease);
         let now = Instant::now();
         n.start(poll.registry(), Token(1), "127.0.0.1".parse().unwrap(), gw, now);
         assert!(n.is_open());
@@ -702,6 +721,50 @@ mod tests {
         assert!(seen.iter().any(|r| r[0] == 0 && r[1] == 0), "public address request");
         let deletes = seen.iter().filter(|r| r[0] == 0 && r[1] != 0 && r[8..12] == [0, 0, 0, 0]).count();
         assert_eq!(deletes, 2);
+    }
+
+    /// libtorrent 2.0.13 `natpmp_lease_duration`: map requests ask for the configured lifetime
+    /// (PCP and NAT-PMP alike), 0 for the default hour; deletes still ask for 0.
+    #[test]
+    fn map_requests_ask_for_the_lease_duration() {
+        let lifetimes = |seen: &[Vec<u8>]| -> Vec<u32> {
+            seen.iter()
+                .filter_map(|r| match (r[0], r[1]) {
+                    (2, 1) => Some(u32::from_be_bytes(r[4..8].try_into().unwrap())),
+                    (0, 1 | 2) => Some(u32::from_be_bytes(r[8..12].try_into().unwrap())),
+                    _ => None,
+                })
+                .collect()
+        };
+        for (pcp, lease, want) in [(true, 600, 600), (false, 7200, 7200), (true, 0, natpmp::MAP_TTL)] {
+            let (got, seen) = run_with_lease(pcp, lease);
+            assert_eq!(got.len(), 2);
+            let all = lifetimes(&seen);
+            let maps: Vec<u32> = all.iter().copied().filter(|&l| l != 0).collect();
+            assert!(maps.len() >= 2, "{all:?}");
+            assert!(maps.iter().all(|&l| l == want), "pcp {pcp}, lease {lease}: {all:?}");
+            assert_eq!(all.len() - maps.len(), 2, "two deletes: {all:?}");
+        }
+    }
+
+    /// Without a mapping to refresh sooner, the expiry check waits one lease.
+    #[test]
+    fn the_expiry_check_waits_one_lease() {
+        let mut n = NatPmp::new();
+        n.set_lease_duration(120);
+        let now = Instant::now();
+        n.mappings.push(Mapping::new());
+        n.mappings[0].protocol = Some(Protocol::Tcp);
+        n.mappings[0].expires = Some(now + Duration::from_secs(100));
+        n.update_expiration_timer(now);
+        assert_eq!(n.refresh_at.map(|(_, i)| i), Some(0), "100 s is within the 120 s lease");
+        let mut n = NatPmp::new();
+        n.set_lease_duration(60);
+        n.mappings.push(Mapping::new());
+        n.mappings[0].protocol = Some(Protocol::Tcp);
+        n.mappings[0].expires = Some(now + Duration::from_secs(100));
+        n.update_expiration_timer(now);
+        assert_eq!(n.refresh_at, None, "past the 60 s lease: checked again later");
     }
 
     #[test]

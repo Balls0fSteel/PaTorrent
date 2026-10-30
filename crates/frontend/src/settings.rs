@@ -286,6 +286,8 @@ pub static TABLE: &[Entry] = &[
     entry!(enable_natpmp: bool),
     entry!(upnp_ignore_nonrouters: bool),
     entry!(upnp_lease_duration: u32),
+    entry!(natpmp_gateway: str),
+    entry!(natpmp_lease_duration: u32),
     entry!(enable_incoming_tcp: bool),
     entry!(enable_outgoing_tcp: bool),
     entry!(enable_incoming_utp: bool),

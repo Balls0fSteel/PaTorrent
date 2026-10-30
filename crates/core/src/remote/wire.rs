@@ -547,6 +547,8 @@ wire_struct!(Settings {
     enable_natpmp,
     upnp_ignore_nonrouters,
     upnp_lease_duration,
+    natpmp_gateway,
+    natpmp_lease_duration,
     enable_incoming_tcp,
     enable_outgoing_tcp,
     enable_incoming_utp,

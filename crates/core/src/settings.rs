@@ -161,6 +161,11 @@ pub struct Settings {
     pub upnp_ignore_nonrouters: bool,
     /// Seconds a UPnP mapping is leased for; 0 asks for a permanent one.
     pub upnp_lease_duration: u32,
+    /// The NAT-PMP / PCP gateway's address, instead of the routing table's default gateway
+    /// (libtorrent 2.0.12); empty: from the routing table. Read when NAT-PMP starts.
+    pub natpmp_gateway: String,
+    /// Seconds a NAT-PMP / PCP mapping is asked for (libtorrent 2.0.13); 0 means 3600.
+    pub natpmp_lease_duration: u32,
     pub enable_incoming_tcp: bool,
     pub enable_outgoing_tcp: bool,
     pub enable_incoming_utp: bool,
@@ -372,6 +377,8 @@ impl Default for Settings {
             enable_natpmp: true,
             upnp_ignore_nonrouters: false,
             upnp_lease_duration: 3600,
+            natpmp_gateway: String::new(),
+            natpmp_lease_duration: 3600,
             enable_incoming_tcp: true,
             enable_outgoing_tcp: true,
             enable_incoming_utp: true,

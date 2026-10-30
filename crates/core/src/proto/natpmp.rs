@@ -19,7 +19,7 @@ pub const VERSION_NATPMP: u8 = 0;
 pub const VERSION_PCP: u8 = 2;
 /// PCP opcodes (RFC 6887 section 19.2).
 pub const OPCODE_MAP: u8 = 1;
-/// A mapping lives an hour; 0 deletes it.
+/// A mapping lives an hour unless `natpmp_lease_duration` says otherwise; 0 deletes it.
 pub const MAP_TTL: u32 = 3600;
 /// 1100 octets is the largest PCP packet.
 pub const MAX_PACKET: usize = 1100;

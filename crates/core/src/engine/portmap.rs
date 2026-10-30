@@ -1,6 +1,7 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/session_impl.cpp (start_natpmp, start_upnp,
 // stop_natpmp, stop_upnp, remap_ports / map_port, on_port_mapping, update_upnp,
-// update_natpmp), include/libtorrent/aux_/portmap.hpp (portmap_action, portmap_callback)
+// update_natpmp), include/libtorrent/aux_/portmap.hpp (portmap_action, portmap_callback);
+// natpmp_gateway from 2.0.12 (d69c360e6d, f656c76dbb)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: libtorrent runs one mapper pair per listen socket; here a mapper pair runs per
 // address of libtorrent's expanded listen list that reaches the internet (the engine binds a
@@ -8,6 +9,7 @@
 // NAT-PMP needs a default gateway; IPv6 addresses get NAT-PMP / PCP only, as in libtorrent. A
 // network change closes and starts only the mappers whose interface or gateway changed. A
 // mapper that is being closed stays in a `closing` list until its delete requests are answered.
+// A `natpmp_gateway` of the other address family than an interface is not used for it.
 
 //! Port forwarding through the router: a NAT-PMP / PCP and a UPnP mapper per interface, each
 //! asked to forward the TCP listen port and the DHT's UDP port.
@@ -124,6 +126,13 @@ impl PortmapSession {
         self.next_http_block += HTTP_TOKENS_PER_MAPPER;
         t
     }
+}
+
+/// The `natpmp_gateway` setting for an interface: its address, unless empty, not an address
+/// (libtorrent then looks the gateway up as usual) or of the other family than `iface`.
+pub(crate) fn natpmp_gateway(setting: &str, iface: IpAddr) -> Option<IpAddr> {
+    let gateway: IpAddr = setting.trim().parse().ok()?;
+    (gateway.is_ipv4() == iface.is_ipv4()).then_some(gateway)
 }
 
 impl Engine {
@@ -284,7 +293,9 @@ impl Engine {
             if m.natpmp.is_some() {
                 continue;
             }
-            let Some(gateway) = m.gateway else {
+            // libtorrent `start_natpmp`: a configured gateway is used instead of the route's
+            let Some(gateway) = natpmp_gateway(&self.settings.natpmp_gateway, m.iface.addr).or(m.gateway)
+            else {
                 let message = format!("no default gateway on {}; not started", m.iface.addr);
                 self.alert(Alert::PortmapLog { transport: PortmapTransport::NatPmp, message });
                 continue;
@@ -298,6 +309,7 @@ impl Engine {
                 _ => SocketAddr::new(gateway, natpmp::PORT),
             };
             let mut n = NatPmp::new();
+            n.set_lease_duration(self.settings.natpmp_lease_duration);
             n.start(self.poll.registry(), Token(m.natpmp_token), m.iface.addr, nat_endpoint, now);
             m.natpmp = Some(n);
             self.remap_ports(mi, NATPMP, now);
@@ -337,11 +349,16 @@ impl Engine {
         self.drain_portmap();
     }
 
-    /// Hands changed UPnP settings (lease, subnet filter, description) to the running mappers.
+    /// Hands changed UPnP settings (lease, subnet filter, description) and the NAT-PMP lease
+    /// to the running mappers.
     pub(super) fn update_upnp_settings(&mut self) {
         let settings = self.upnp_settings();
         for u in self.portmap.mappers.iter_mut().filter_map(|m| m.upnp.as_mut()) {
             u.set_settings(settings.clone());
+        }
+        let lease = self.settings.natpmp_lease_duration;
+        for n in self.portmap.mappers.iter_mut().filter_map(|m| m.natpmp.as_mut()) {
+            n.set_lease_duration(lease);
         }
     }
 
@@ -542,5 +559,27 @@ impl Engine {
             protocol: e.protocol,
             external_port: e.external_port,
         });
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// libtorrent 2.0.12 `natpmp_gateway`: an address replaces the route's gateway; empty or
+    /// unparsable leaves the route's, as does one of the other family.
+    #[test]
+    fn natpmp_gateway_setting() {
+        let v4: IpAddr = "192.168.1.20".parse().unwrap();
+        let v6: IpAddr = "2001:db8::20".parse().unwrap();
+        assert_eq!(natpmp_gateway("", v4), None);
+        assert_eq!(natpmp_gateway("192.168.1.1", v4), Some("192.168.1.1".parse().unwrap()));
+        assert_eq!(natpmp_gateway(" 10.0.0.1 ", v4), Some("10.0.0.1".parse().unwrap()));
+        assert_eq!(natpmp_gateway("2001:db8::1", v6), Some("2001:db8::1".parse().unwrap()));
+        assert_eq!(natpmp_gateway("fe80::1", v6), Some("fe80::1".parse().unwrap()));
+        assert_eq!(natpmp_gateway("192.168.1.1", v6), None);
+        assert_eq!(natpmp_gateway("2001:db8::1", v4), None);
+        assert_eq!(natpmp_gateway("router.local", v4), None);
+        assert_eq!(natpmp_gateway("192.168.1.1:5351", v4), None);
     }
 }

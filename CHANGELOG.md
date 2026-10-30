@@ -4,6 +4,19 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_131301_1793362381: 1.1.17 release prepared; README and a News page for the website
+
+- **Release (owner: release before describing the new features):**
+  - `docs/releases/1.1.17.md` covers everything since 1.1.7: Torznab search in all three interfaces, RSS in the Windows GUI's Web UI, the API key and subnet whitelist, the *arr fixes and nox's update check.
+  - Flatpak metainfo has a 1.1.17 `<release>`. The peer ID stays `-PA1011-`.
+- **README:** 1.1.17 is the latest release, with the search, the *arr support, nox's update check and a link to the News page. The outdated "Phase 3, in progress" and "not yet run on Linux" labels are gone, and the Windows GUI's own Web UI is now dated 1.1.7, since 1.1.2 was never published.
+- **Website (owner: a short changelog like qBittorrent's News page):**
+  - New `site/news.html`, with a dated, tagged entry per published release, and `news.atom`, which `build.py` generates and checks.
+  - A News link on every page, and a build-filled "Latest news" line on the home page.
+  - Home and FAQ content for search and the *arr apps, and fixes to stale FAQ answers.
+  - 30 site tests pass and the strict build is clean. Built by a subagent and checked in the browser pane, light and dark, desktop and 375 px.
+  - The site branch is merged only after 1.1.17 is published, because a `site/` push deploys at once. RELEASING.md gained the news step.
+
 ## 2026-10-30_125841_1793361521: A merged search result names its sources in source order (1.1.17)
 
 - **CI failure (run 41050620708, Windows):** `search::tests::results_fill_sort_and_add` expected "Prowlarr, jackett.lan" and got "jackett.lan, Prowlarr". The merged result listed its sources in the order their parallel answers arrived, so the Source column (Win32, GTK and the Web UI's `source_names`) and two frontend tests depended on timing.

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_125841_1793361521
+Last updated: 2026-10-30_131301_1793362381
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 

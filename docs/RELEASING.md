@@ -122,6 +122,14 @@ elevates through UAC and starts from a clean registry):
 2. Give it a heading in `CHANGELOG.md` with what is in it since the last release, and write
    `docs/releases/<version>.md`: what it is, the files, how to start each, known limitations.
    The workflow makes that file the release's text.
+   - **Website news.** Add an entry for the release at the top of `site/news.html` (format in
+     [WEBSITE.md](WEBSITE.md#news)): `id="vX.Y.Z"`, `data-date` the publication date, a one- or
+     two-sentence summary and 5-12 tagged bullets from the release notes' "New since" section,
+     with links to the GitHub release and `docs/releases/X.Y.Z.md`. Check with
+     `python3 site/build.py --releases-json site/testdata/releases.json --strict` and
+     `python3 -m unittest discover -s site`. A push to `main` that changes `site/` deploys at
+     once, so keep the entry on a branch and push it when the release is published, not before;
+     the build then updates `news.atom` and the home page's latest-news line.
 3. Check that CI is green on `main` for the commit to be released (Windows, Linux, macOS,
    FreeBSD, MSRV, fuzzing).
 4. Tag and push the tag:

@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_085330_1793350410: Win32 Preferences > Web UI has a Server domains field (1.1.9)
+
+- **Win32:** the Connectivity group gains "Server domains (separate multiple entries with a semicolon):" (the Web UI's existing `WebDomains` string, so no new translation), stored as `webui.domain_list`; an empty field removes the key. An *arr in Docker that names this PC by a host name no longer needs the browser's Preferences to be allowed. The status line, Open Web UI and the note moved down; the demo screenshot shows the note's three lines within the page.
+- **Tests:** the page test applies a domain list, and `the_setup_round_trips_through_the_preferences` stores and clears it. Win32 tests (70) pass; clippy and fmt are clean. Version 1.1.9.
+
 ## 2026-10-30_085028_1793350228: Shim and hosted Web UI fixes: categories, seed limits, tags (1.1.8)
 
 - **Category folder on add (both modes):** a `torrents/add` without `savepath` saves to its category's `savePath`, as qBittorrent does under automatic management. `autoTMM=false` turns this off, and an explicit `savepath` always wins.

@@ -391,8 +391,8 @@ That broad check does not establish that every detailed case below was tried.
   - an add without a folder takes its category's `savePath` (both modes);
   - a window-side `seed_*` change resends the torrent in `sync/maindata`.
 
-  Still open: the domain list (`webui.domain_list`) has no field in the Win32 page; an IP address
-  or the browser's Preferences works meanwhile. GTK has no hosting page yet; the host side is in
+  Since 1.1.9 the Win32 page has a Server domains field (`webui.domain_list`). GTK has no
+  hosting page yet; the host side is in
   `crates/win32/src/webui_host.rs` and could move to `frontend`. The
   `patorrent-nox service` improvements of 1.1.1 (`--replace`, `--now`, the
   hashed login) stay for the daemon; its UAC path is still a hand check.

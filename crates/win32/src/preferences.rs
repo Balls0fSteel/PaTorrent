@@ -170,6 +170,7 @@ const ID_WEBUI_REMOTE: u16 = id(8, 5);
 const ID_WEBUI_HTTPS: u16 = id(8, 6);
 const ID_WEBUI_STATUS: u16 = id(8, 7);
 const ID_WEBUI_OPEN: u16 = id(8, 8);
+const ID_WEBUI_DOMAINS: u16 = id(8, 9);
 const ID_SCHED_GRID: u16 = id(7, 2);
 const ID_SCHED_UL: u16 = id(7, 3);
 const ID_SCHED_DL: u16 = id(7, 4);
@@ -823,13 +824,16 @@ fn template() -> Vec<u16> {
     b.label([8, 47, 50, 9], tr!(PrefPassword));
     b.ctl(EDIT, ID_WEBUI_PASS, LINE | ES_PASSWORD as u32, [60, 45, 120, 13], "");
     b.label([184, 47, 120, 9], tr!(PrefWebUiPassKeep));
-    b.group([0, 68, W, 64], tr!(PrefWebUiConnectivity));
+    b.group([0, 68, W, 92], tr!(PrefWebUiConnectivity));
     b.number(81, ID_WEBUI_PORT, NUMBER, tr!(PrefWebUiPort));
     b.ctl(BUTTON, ID_WEBUI_REMOTE, CHECK, [8, 99, 290, 10], tr!(PrefWebUiRemote));
     b.ctl(BUTTON, ID_WEBUI_HTTPS, CHECK, [8, 115, 290, 10], tr!(PrefWebUiHttps));
-    b.ctl(STATIC, ID_WEBUI_STATUS, C, [0, 140, W, 18], "");
-    b.ctl(BUTTON, ID_WEBUI_OPEN, PUSH, [0, 162, 80, 14], tr!(PrefWebUiOpen));
-    b.label([0, 184, W, 50], tr!(PrefWebUiNote));
+    // the host names the Host check lets through (an *arr in Docker names the PC so)
+    b.label([8, 131, 290, 9], tr!(WebDomains));
+    b.ctl(EDIT, ID_WEBUI_DOMAINS, LINE, [8, 142, 290, 13], "");
+    b.ctl(STATIC, ID_WEBUI_STATUS, C, [0, 165, W, 16], "");
+    b.ctl(BUTTON, ID_WEBUI_OPEN, PUSH, [0, 183, 80, 14], tr!(PrefWebUiOpen));
+    b.label([0, 201, W, 40], tr!(PrefWebUiNote));
 
     b.page(PAGE_ADVANCED);
     b.label([0, 2, 24, 9], tr!(PrefFilter));
@@ -1155,6 +1159,7 @@ unsafe fn write_webui(dlg: HWND, st: &State<'_>) {
         set_text(item(dlg, ID_WEBUI_PORT), &v.setup.port.to_string());
         set_check(dlg, ID_WEBUI_REMOTE, v.setup.remote);
         set_check(dlg, ID_WEBUI_HTTPS, v.setup.https);
+        set_text(item(dlg, ID_WEBUI_DOMAINS), &v.setup.domains);
         set_text(item(dlg, ID_WEBUI_STATUS), &v.status.text());
         EnableWindow(item(dlg, ID_WEBUI), (v.status != WebStatus::Unavailable) as i32);
         update_webui_controls(dlg, st);
@@ -1166,7 +1171,9 @@ unsafe fn write_webui(dlg: HWND, st: &State<'_>) {
 unsafe fn update_webui_controls(dlg: HWND, st: &State<'_>) {
     unsafe {
         let on = (checked(dlg, ID_WEBUI) && st.webui.status != WebStatus::Unavailable) as i32;
-        for id in [ID_WEBUI_USER, ID_WEBUI_PASS, ID_WEBUI_PORT, ID_WEBUI_REMOTE, ID_WEBUI_HTTPS] {
+        for id in
+            [ID_WEBUI_USER, ID_WEBUI_PASS, ID_WEBUI_PORT, ID_WEBUI_REMOTE, ID_WEBUI_HTTPS, ID_WEBUI_DOMAINS]
+        {
             EnableWindow(item(dlg, id), on);
         }
         EnableWindow(item(dlg, ID_WEBUI_OPEN), st.webui.status.running() as i32);
@@ -1201,6 +1208,7 @@ unsafe fn webui_edit(dlg: HWND, st: &State<'_>) -> Result<Option<Edit>, String> 
             port,
             remote: checked(dlg, ID_WEBUI_REMOTE),
             https: checked(dlg, ID_WEBUI_HTTPS),
+            domains: window_text(item(dlg, ID_WEBUI_DOMAINS)).trim().to_owned(),
         };
         // as stored and running: nothing to do; a server that could not start is tried again
         if setup == v.setup && password.is_empty() && v.status.running() {
@@ -1911,8 +1919,14 @@ mod tests {
         f.set(ID_WEBUI_PASS, "s3cret");
         f.check(ID_WEBUI_HTTPS, true);
         f.click(ID_APPLY);
-        let want =
-            WebSetup { enabled: true, username: "admin".into(), port: 8443, remote: false, https: true };
+        let want = WebSetup {
+            enabled: true,
+            username: "admin".into(),
+            port: 8443,
+            remote: false,
+            https: true,
+            domains: String::new(),
+        };
         assert_eq!(
             f.web_edits.borrow().as_slice(),
             [Edit { setup: want.clone(), password: Some("s3cret".into()) }]
@@ -1928,6 +1942,11 @@ mod tests {
         f.check(ID_WEBUI_REMOTE, true);
         f.click(ID_APPLY);
         let want = WebSetup { remote: true, ..want };
+        assert_eq!(f.web_edits.borrow().last(), Some(&Edit { setup: want.clone(), password: None }));
+        // the server domains (an *arr in Docker names this PC by a host name)
+        f.set(ID_WEBUI_DOMAINS, " patorrent;*.lan ");
+        f.click(ID_APPLY);
+        let want = WebSetup { domains: "patorrent;*.lan".into(), ..want };
         assert_eq!(f.web_edits.borrow().last(), Some(&Edit { setup: want.clone(), password: None }));
 
         // a server that cannot start: the page says why, and Apply tries again

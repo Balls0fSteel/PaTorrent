@@ -33,6 +33,9 @@ pub struct Setup {
     /// Serve HTTPS with a self-signed certificate, made on first use and kept in the settings
     /// folder (`webui-cert.pem`, `webui-key.pem`).
     pub https: bool,
+    /// The host names the Host check lets through besides IP addresses and `localhost`
+    /// (`webui.domain_list`, `;`-separated, `*` wildcards).
+    pub domains: String,
 }
 
 impl Default for Setup {
@@ -43,6 +46,7 @@ impl Default for Setup {
             port: DEFAULT_PORT,
             remote: false,
             https: false,
+            domains: String::new(),
         }
     }
 }
@@ -58,6 +62,7 @@ impl Setup {
             port: listen.map_or(DEFAULT_PORT, |a| a.port()),
             remote: listen.is_some_and(|a| a.ip().is_unspecified()),
             https: prefs.get_bool("webui.https", false),
+            domains: prefs.get("webui.domain_list").unwrap_or("").trim().to_owned(),
         }
     }
 
@@ -68,6 +73,11 @@ impl Setup {
         prefs.set("webui.username", &self.username);
         prefs.set("webui.listen", self.addr());
         prefs.set_bool("webui.https", self.https);
+        if self.domains.is_empty() {
+            prefs.remove("webui.domain_list");
+        } else {
+            prefs.set("webui.domain_list", &self.domains);
+        }
         if let Some(p) = password {
             prefs.set("webui.password", PasswordHash::new(p, DEFAULT_ITERATIONS).to_string());
         }
@@ -213,9 +223,17 @@ mod tests {
         let mut p = Prefs::default();
         assert_eq!(Setup::load(&p), Setup::default());
         assert!(!has_password(&p));
-        let s = Setup { enabled: true, username: "me".into(), port: 8443, remote: true, https: true };
+        let s = Setup {
+            enabled: true,
+            username: "me".into(),
+            port: 8443,
+            remote: true,
+            https: true,
+            domains: "patorrent;*.lan".into(),
+        };
         s.store(&mut p, Some("s3cret"));
         assert_eq!(p.get("webui.listen"), Some("0.0.0.0:8443"));
+        assert_eq!(p.get("webui.domain_list"), Some("patorrent;*.lan"));
         assert_eq!(p.get("webui.enabled"), Some("1"));
         assert!(has_password(&p), "a hash, never the password");
         assert!(!p.get("webui.password").unwrap().contains("s3cret"));
@@ -223,8 +241,9 @@ mod tests {
         assert_eq!(Setup::load(&p), s);
         assert_eq!(s.url(), "https://127.0.0.1:8443/");
         // the stored hash stays without a new password; a local setup binds the loopback
-        let local = Setup { remote: false, https: false, ..s.clone() };
+        let local = Setup { remote: false, https: false, domains: String::new(), ..s.clone() };
         local.store(&mut p, None);
+        assert_eq!(p.get("webui.domain_list"), None);
         assert!(has_password(&p));
         assert_eq!(p.get("webui.listen"), Some("127.0.0.1:8443"));
         assert_eq!(local.url(), "http://127.0.0.1:8443/");

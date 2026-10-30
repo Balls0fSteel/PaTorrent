@@ -70,6 +70,11 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="1.1.17" date="2026-10-30" type="stable">
+      <description>
+        <p>Torrent search through your own Prowlarr or Jackett, the RSS Downloader in the Windows client's Web UI, an optional API key and subnet whitelist for Sonarr, Radarr and Prowlarr, and an update check in the headless daemon.</p>
+      </description>
+    </release>
     <release version="1.1.7" date="2026-10-30" type="stable">
       <description>
         <p>Sonarr, Radarr and Prowlarr work with PaTorrent as their download client: seed limits arrive with each grab and Remove Completed removes finished torrents. Idle seeds keep counting their seeding time, adding a torrent brings the window forward, and a torrent added stopped reads Stopped.</p>

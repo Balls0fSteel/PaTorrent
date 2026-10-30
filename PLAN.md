@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_140531_1793365531
+Last updated: 2026-10-30_151918_1793369958
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -22,13 +22,11 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
   - 1.0.1 (2026-10-27) was the first stable release, with the full 1.0 scope (D19). `v1.0.0` has no release because its build failed (D34). The open Road to 1.0 hand checks continue as 1.0.x validation.
   - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.
 - **1.1.17 is published, Latest** (2026-10-30, tag `v1.1.17`, [notes](docs/releases/1.1.17.md)): Torznab search in all three GUIs, RSS in the Windows GUI's Web UI, the API key and subnet whitelist, and nox's update check. The website has a News page (`site/news.html`, `news.atom`).
-- **1.1.7 was published** (2026-10-30, tag `v1.1.7`, [notes](docs/releases/1.1.7.md)), replacing the never-published 1.1.2 draft: the Windows GUI's own Web UI (D40), nox's hashed service login and `--replace --now`.
-- **libtorrent 2.0.12-2.1.2 fixes** (1.1.18, unreleased, peer ID `-PA1012-`): the relevant upstream fixes are ported, and the reference stays 2.0.11 ([PORTING.md](docs/PORTING.md#upstream-fixes-after-2011)). Open: an interop rerun with v2-only odd-size torrents against libtorrent 2.0.15 / 2.1.x, and the untriaged commits ([BACKLOG](docs/BACKLOG.md#libtorrent-2012-212-follow-ups-triaged-2026-10-30_140531_1793365531))
+- **Unreleased, 1.1.18-1.1.22** (peer ID `-PA1012-`, remote protocol 11): libtorrent 2.0.12-2.1.2 fixes, every commit triaged ([PORTING.md](docs/PORTING.md#upstream-fixes-after-2011)); engine options (160-bit DH exponent, `dont_count_slow_torrents`, NAT-PMP gateway and lease); the shim's `search/*`; Win32 Web UI key and whitelist controls, title-bar speed, RSS conditional GET and gzip, qBittorrent share limits on import. Open: interop reruns (v2-only odd sizes, v2 hashes, MSE, slow-torrent queueing) against libtorrent 2.0.15 / 2.1.x, and the hand checks in [BACKLOG](docs/BACKLOG.md).
 - **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored). It predates the 2026-10-23 dialog changes (the resizable Add dialog and the system message font), which are tested but not yet hand-tested from a refreshed set. Linux binaries were smoke-checked on the command line only.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
-- 1.0.1 added the version in titles and resources, the update check (D32), the installer (D31) and the website with `update.txt` (D33, [WEBSITE.md](docs/WEBSITE.md)); the check was verified end to end with rc.1.
 - Verdigris (`01`) is provisionally integrated in the application and packaging through `assets/patina-icons/app-icon.txt`; the owner's final brand choice remains open. The candidate gallery is in `assets/patina-icons/`.
 
 ## Next steps
@@ -38,7 +36,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **A.** Done: 1.1.7 is published (2026-10-30).
 - **B.** Small fixes. Done in 1.1.8: the hosted window's `seed_*` changes reach `sync/maindata`, a category's `savePath` is used on add, hosted unused categories are kept, and tags are accepted as no-ops. The installer is built and smoke-tested in `ci.yml`. Win32 Preferences > Web UI has a Server domains field (1.1.9). The Bearer API key and the subnet whitelist are in 1.1.10. nox checks for updates (1.1.11, D43). Phase B is done.
 - **C.** RSS in hosted mode is done (1.1.13: the browser edits the window's own RSS model; hand check pending). Optional: a GTK hosting page. The owner decided against alternative speed limits in the Win32 GUI (2026-10-30_103224_1793352744): keep 2.2.1's controls. The hosted Web UI keeps refusing them, by design.
-- **D.** Torznab search (D41, approved; a source on a non-public address bypasses the proxy), in the slices of [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2. Slices 1-2 are done: the frontend model (1.1.12), and nox with the Web UI, run live against the VM's Prowlarr (1.1.14). Slice 4 (GTK, 1.1.15) and slice 3 (Win32, 1.1.16) are done, so all four slices are in. Left: hand checks (BACKLOG) and the optional shim `search/*`. Optional: the shim's `search/*`.
+- **D.** Torznab search (D41, approved; a source on a non-public address bypasses the proxy), in the slices of [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2. All five slices are in: the model (1.1.12), nox and the Web UI (1.1.14, live against the VM's Prowlarr), GTK (1.1.15), Win32 (1.1.16) and the shim's `search/*` (1.1.19). Left: hand checks (BACKLOG).
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
 
 0. **Owner hand-test findings (2026-10-27):** fixed in 1.0.2-1.0.8. The owner re-tests them on a fresh Win32 build; what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
@@ -80,7 +78,6 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 
 - UI artwork (D27-D30): the bold family passed its revision 6 review (131/131) and is integrated (gate 10); revisions 3-6 and their reviews are in the [changelog archive](docs/archive/README.md). Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
-- Proposed D41: search through the user's Prowlarr/Jackett over Torznab, in the toolbar search box's drop-down, with no Python plugins or scrapers of our own; also the proxy rule for local sources ([INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2).
 - Proposed D42: profiles and portable mode ([PROFILES.md](docs/PROFILES.md)).
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
 
@@ -104,7 +101,6 @@ Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23. Goals 1 and 3 ar
 - BEP 44 DHT items/ed25519, BEP 51 sample-infohash querying and BEP 55 holepunch after 1.0 unless cheap. Detailed remaining engine/test gaps are in the backlog.
 - Split `core` only if compile times justify it; consider io_uring disk/network on Linux and IOCP file I/O on Windows.
 - Continuous work: meaningful scale regression baselines, parser fuzzing, per-release security review and a wider interop matrix (including rTorrent and µTorrent).
-- Web search without qBittorrent's fragile Python plugins, and Sonarr/Radarr/Prowlarr support: now Next steps item 7 and proposed D41.
 - Theming support: GTK4 takes up theme looks, so I think this might be Windows only. And, maybe its not even possible. But if we could, without extra resource use, it would be really cool and nice if we could have some nice looking themes included and third party support as well.
 
 ## Known TODOs

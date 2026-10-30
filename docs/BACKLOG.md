@@ -155,9 +155,11 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
 - One old full Windows test run omitted the win32 result without a captured
   error; isolated and later full runs passed. If it recurs, capture exit code and
   full output to identify a crashing hidden-dialog test.
-- µTorrent's UI Settings "Show current speed in the title bar" (`[D: x U: y]`
-  before the name and version) is not implemented; the title is
-  "PaTorrent <version>" only.
+- "Show current speed in the title bar" (`ui.title_speed`, 1.1.22, off by default;
+  `D:x U:y - PaTorrent <version>` as 2.2.1) is tested on the hidden main window and in a
+  demo screenshot; check it live in both GUIs. Remote windows keep their own title. The
+  Preferences dialog grew 30 dialog units for the Web UI page's new fields (1.1.22): check
+  that every page still looks right at 100-200 % DPI.
 - Torrent search (D41 slice 3, 2026-10-30_123154_1793359914): tried at 100 %
   in a portable `--demo 40` copy against the VM's Prowlarr (the drop-down's
   hint, Enter to Search Results, live results, Test "OK, 8 categories", the
@@ -347,13 +349,17 @@ That broad check does not establish that every detailed case below was tried.
   `removeCategories` now clears the window's label), and the live run against the Windows GUI
   passed (2026-10-29, `tools/arr-test` README). Still to run: a magnet
   grab with real peers, "First" priority / Force Start, and a mobile qBittorrent remote. Other shim
-  gaps: search, logs, automatic management and cookies (tags are accepted as no-ops since 1.1.8).
+  gaps: logs, automatic management and cookies (tags are accepted as no-ops since 1.1.8).
+  The shim's `search/*` is in since 1.1.19 (WEBUI.md): try it with a real qBittorrent remote
+  app; its searches are in memory only, `descrLink` is empty and every source offers the
+  same fixed categories.
   RSS exists but has the limitations described in the RSS section. The Bearer API key and the
   subnet whitelist exist since 1.1.10 and are off by default. A wrong-key failure is counted
   before the slow hash and undone on success, so a client's first burst of five or more parallel
   requests with a correct key could be banned for a moment, until one of them verifies. Not seen
-  with the *arrs, which send their requests one at a time. Neither setting has controls in the
-  Win32 dialog; hosted, they are set from the browser's Preferences.
+  with the *arrs, which send their requests one at a time. Since 1.1.22 the Win32 Preferences >
+  Web UI page sets both (tested in the dialog's test and a screenshot; hand-check a real key
+  and subnet against the hosted server).
   States use documented `pausedDL`/`pausedUP`; change to 5.x `stoppedDL`/`stoppedUP`
   if a client needs it. `sync/maindata` stores roughly 50 field values per torrent
   per logged-in client; consider change counters at large scale/many clients.
@@ -380,8 +386,9 @@ That broad check does not establish that every detailed case below was tried.
   added. Shim read marks are not persisted, `useRegex` is ignored,
   `mustContain` uses our wildcard syntax and RSS folders return 409. nox runs RSS
   only with `--webui`, with no persistence under `--no-state`. Feed fetches ignore
-  the IP filter, lack conditional GET/ETag and gzip, and Atom HTML titles are not
-  decoded twice. Check URL add and HTTPS CONNECT fetching with the session proxy.
+  the IP filter, and Atom HTML titles are not decoded twice. Conditional GET (ETag,
+  Last-Modified, kept in `rss.dat`, sent only while the feed's items are in memory) and gzip
+  are in since 1.1.22; try them against real feeds. Check URL add and HTTPS CONNECT fetching with the session proxy.
 - Auto Shutdown: test real power calls/privileges on a test machine after dry
   runs; hibernate availability, tray/modal-dialog countdown, standby wake and
   cancellation. Compare 2.2.1 wording/separators/countdown/Quit/arming rules,
@@ -555,33 +562,32 @@ That broad check does not establish that every detailed case below was tried.
 
 What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
 
-- Not triaged yet (commits with no ChangeLog line, v2.0.11..v2.0.13):
-  c5578ee20a (banned peers from resume, off by one), 2f9ba7f4ec (DHT rpc
-  endpoint matching), 1a508234f4 (whole-piece prefetch overflow), e7049d21d3
-  (DH secret padding), c32f6e058a / 43c9633272 (short reads in part_file and
-  pread_all), f6fdabb299 (uTP shutdown), 7a77b2fa40 (stricter magnet parsing),
-  546c5dd433 / cb6fe6b9c2 (add_torrent_params sanitising), b8d878d3bb (UPnP
-  content type). The 2.0.13..2.1.2 range was not swept for such commits.
+- The commits without ChangeLog lines (v2.0.11..v2.1.2, about 55) were triaged one by one
+  on 2026-10-30_151918_1793369958 (1.1.20); verdicts are in PORTING.md. Latent from that
+  sweep: 2e2cec4f81 (a v2 piece passing twice, needs `!have_piece` with block-hash trees).
+  Our engine ignores a peer's BEP 21 `upload_only`, so upload-only partial seeds are never
+  treated as redundant connections. Commits of the range not named as fixes were not read.
 - Latent until v2 block-hash trees are used: merkle block-pass reporting
   (aa07b2349f, 12b662c938, 50c0450b22, af430f8973), the hash picker's
   `proof_layers` for block requests (b1f7172f5d), block requests with one
   block per piece (40851bd4b1, 8c0eba3462, 7be6ebc70b). `v2::hash_request_cost`
   still models the old proof indexing (slightly low for one-hash requests).
 - With BEP 44: refuse mutable items whose salt exceeds 64 bytes (2.1.1).
-- Optional: `natpmp_gateway` and `natpmp_lease_duration` settings; uTP
-  `needs_resend` list; a 160-bit DH exponent (40d5f869cc, about 4-5x cheaper
-  MSE handshakes); `dont_count_slow_torrents` (the setting exists, nothing reads
-  it; take 2.0.14's debounce); `peer_dscp`; a configurable part-file path;
+- Ported in 1.1.21: `natpmp_gateway`, `natpmp_lease_duration`, the 160-bit DH exponent,
+  `dont_count_slow_torrents` with 2.0.14's debounce (new `inactive_down_rate`,
+  `inactive_up_rate`, `auto_manage_startup`; Advanced table only, no Queueing-page
+  controls), and v2 partial-piece sizes in the download queue. Optional still: uTP
+  `needs_resend` list; `peer_dscp`; a configurable part-file path;
   skipping v1 hashes of hybrids; `post_file_status`; `ip_ban_alert` with the
   DHT secret-id check; `proxy_hostnames` alone (without
   `proxy_send_host_in_connect`) keeping an HTTPS web seed's name off local DNS.
 - Tracker URL host checks cover tracker URLs only; upstream checks every URL in
-  `parse_url_components`. The download queue's partial-piece sizes still use
-  `piece_size`, not `piece_size_for_req`. WebTorrent (2.1.0) is out of scope.
+  `parse_url_components`. WebTorrent (2.1.0) is out of scope.
 - `TorrentStatus::total` counts pad bytes (`total_size`); upstream reports
   `size_on_disk`. Check which the GUIs should show.
 - Interop: rerun v2-only torrents with odd file sizes against libtorrent 2.0.15
-  / 2.1.x (qBittorrent 5.x) to confirm the new request sizes.
+  / 2.1.x (qBittorrent 5.x) to confirm the new request sizes and the stricter v2 hash
+  handling (1.1.20); rerun MSE (160-bit exponent) and queueing with slow torrents (1.1.21).
 
 ## Updates, installer and website
 
@@ -631,10 +637,14 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   `~uTorrentPartFile_*.dat`, which is not read, so they are downloaded again (seen with the
   owner's torrent: its two wanted pieces were rechecked to 0). Reading that format would
   avoid it; low priority.
-- **qBittorrent:** 4.x records (libtorrent 1.2) checked on 47 real files; 5.x keys
-  (`qBt-stopped`?) and the SQLite store (`torrents.db`) are not handled. Seeding limits
-  (`qBt-ratioLimit`, `qBt-seedingTimeLimit`) and the incomplete folder (`qBt-downloadPath`)
-  are not carried over: data stays at `save_path`. v2-only torrents come without piece
+- **qBittorrent:** 4.x records (libtorrent 1.2) checked on 47 real files. There is no
+  `qBt-stopped` key: stopped is libtorrent `paused` without `auto_managed` in 4.6 and 5.x
+  (checked in qBittorrent's source), imported as our Stopped. The SQLite store
+  (`torrents.db`) is not handled. Since 1.1.22 `qBt-ratioLimit` and `qBt-seedingTimeLimit`
+  become per-torrent seeding goals; with both set only the ratio is taken (qBittorrent stops
+  at either, ours needs both) unless 5.x `qBt-shareLimitsMode` is MatchAll. Not mapped: the
+  inactive seeding time and the at-limit action. The incomplete folder (`qBt-downloadPath`)
+  is not carried over: data stays at `save_path`. v2-only torrents come without piece
   layers and fetch them from peers.
 - **Search:** name only; the 2.2.1 drop-down of web search engines is not there. Proposed:
   Torznab sources (Prowlarr, Jackett) in that drop-down, [INTEGRATIONS.md](INTEGRATIONS.md)
@@ -646,7 +656,7 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   needs one.
 - **Other V1.1 candidates** (owner to choose): the installer built in
   `ci.yml`; a winget manifest; the qBittorrent shim gaps Sonarr and Radarr need (now listed
-  in INTEGRATIONS.md); remote-mode automation conflicts; RSS conditional GET and gzip; BEP 44 / 51
+  in INTEGRATIONS.md); remote-mode automation conflicts; BEP 44 / 51
   / 55.
 
 ## Validation and development environment

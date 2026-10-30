@@ -4,6 +4,31 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_151918_1793369958: The code-ready rest of PLAN.md (1.1.19-1.1.22, remote protocol 11)
+
+- **Owner's pick:** the four chunks of PLAN.md that need no hand check or decision, built in five parallel worktree branches and merged one by one, each with its own version.
+- **1.1.19, the qBittorrent shim's `search/*` (D41 slice 5):**
+  - Each Torznab source is a plugin named `torznab-<hash of its URL without the key>`. Up to five searches run at once, with append-only results for offset paging.
+  - `fileUrl` is a magnet or an opaque `patorrent-search:` URL that `torrents/add` and `downloadTorrent` resolve on the server, so the indexer key never leaves it. `installPlugin` is refused.
+  - Tested in nox and in hosted mode against the fake Prowlarr.
+- **1.1.20, libtorrent triage:** every fix-like commit without a ChangeLog line in v2.0.11..v2.1.2 (about 55) was read against our code; the verdicts are in PORTING.md.
+  - Ported: checked decimal parsing (magnet `so=`/`dht=`, UPnP error codes), redirects with a query or fragment, early failure on non-HTTP bytes, legacy Transmission peer IDs, and smart-ban blame with pad blocks.
+  - v2 hashes: stricter merkle proof checks, unsolicited HASHES ignored, received piece-layer spans no longer asked for again, and `hashes_rejected` matching.
+  - Hardening: uTP packet-buffer indices, a saturating `sliding_average`, and the merkle uncle-count bound.
+  - The v2 hash changes alter what we send. The peer ID stays `-PA1012-` because it has not been released yet; its comment now covers these changes.
+- **1.1.21, engine options:**
+  - 160-bit MSE DH exponent, so the handshake is cheaper; interop with full-width peers is unchanged.
+  - The download queue reports v2-only tail pieces at their v2 size.
+  - `dont_count_slow_torrents` now works, with 2.0.14's debounce and the new settings `inactive_down_rate`, `inactive_up_rate` and `auto_manage_startup`.
+  - New settings `natpmp_gateway` and `natpmp_lease_duration`. The remote protocol is now 11, so a GUI and nox must both be current.
+- **1.1.22, small gaps:**
+  - The Win32 Preferences > Web UI page sets the API key (hashed, write-only) and the subnet whitelist. The Preferences dialog is 30 units taller to fit them.
+  - "Show current speed in the title bar" (`ui.title_speed`, off) in both GUIs, with two new strings in all 35 tables.
+  - RSS uses conditional GET (ETag and Last-Modified in `rss.dat`) and gzip. A 304 counts only when a validator was sent, and the shared HTTP parser no longer waits for a body on a 204 or 304.
+  - The qBittorrent importer maps `qBt-ratioLimit` and `qBt-seedingTimeLimit` to seeding goals, taking only the ratio when both are set unless `MatchAll`.
+- **Fixed:** the fuzz workspace failed stable clippy (let-chain suggestions), because it had no MSRV. It now sets `rust-version = "1.85"`, and its stale `Cargo.lock` is synced.
+- **Checked:** on merged `main`, `cargo fmt --check`, clippy `-D warnings` (workspace without GTK, and the fuzz workspace) and the workspace tests (without GTK) all pass. GTK was linted from Windows with the stand-in pkg-config; its tests and UI were not run. No interop run against libtorrent 2.0.15 / 2.1.x; that is in BACKLOG.
+
 ## 2026-10-30_140531_1793365531: Fixes from libtorrent 2.0.12-2.1.2 (1.1.18, peer ID `-PA1012-`)
 
 - **Triage (owner asked):** every ChangeLog entry from libtorrent 2.0.12 to 2.1.2 (about 100) was checked against the upstream diff and our code. About 45 do not apply (i2p, SSL torrents, mmap, WebTorrent, C++ API) and about 25 were already right here. The reference stays 2.0.11 with the fixes cherry-picked: v2.0.11 to v2.1.0 is 1,161 commits, mostly reorganisation. The list is in PORTING.md "Upstream fixes after 2.0.11"; deferred and untriaged items are in BACKLOG.md.

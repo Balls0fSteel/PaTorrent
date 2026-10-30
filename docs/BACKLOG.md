@@ -551,6 +551,38 @@ That broad check does not establish that every detailed case below was tried.
   redirects can leave an unaligned boundary piece without a usable seed, as in
   libtorrent.
 
+### libtorrent 2.0.12-2.1.2 follow-ups (triaged 2026-10-30_140531_1793365531)
+
+What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
+
+- Not triaged yet (commits with no ChangeLog line, v2.0.11..v2.0.13):
+  c5578ee20a (banned peers from resume, off by one), 2f9ba7f4ec (DHT rpc
+  endpoint matching), 1a508234f4 (whole-piece prefetch overflow), e7049d21d3
+  (DH secret padding), c32f6e058a / 43c9633272 (short reads in part_file and
+  pread_all), f6fdabb299 (uTP shutdown), 7a77b2fa40 (stricter magnet parsing),
+  546c5dd433 / cb6fe6b9c2 (add_torrent_params sanitising), b8d878d3bb (UPnP
+  content type). The 2.0.13..2.1.2 range was not swept for such commits.
+- Latent until v2 block-hash trees are used: merkle block-pass reporting
+  (aa07b2349f, 12b662c938, 50c0450b22, af430f8973), the hash picker's
+  `proof_layers` for block requests (b1f7172f5d), block requests with one
+  block per piece (40851bd4b1, 8c0eba3462, 7be6ebc70b). `v2::hash_request_cost`
+  still models the old proof indexing (slightly low for one-hash requests).
+- With BEP 44: refuse mutable items whose salt exceeds 64 bytes (2.1.1).
+- Optional: `natpmp_gateway` and `natpmp_lease_duration` settings; uTP
+  `needs_resend` list; a 160-bit DH exponent (40d5f869cc, about 4-5x cheaper
+  MSE handshakes); `dont_count_slow_torrents` (the setting exists, nothing reads
+  it; take 2.0.14's debounce); `peer_dscp`; a configurable part-file path;
+  skipping v1 hashes of hybrids; `post_file_status`; `ip_ban_alert` with the
+  DHT secret-id check; `proxy_hostnames` alone (without
+  `proxy_send_host_in_connect`) keeping an HTTPS web seed's name off local DNS.
+- Tracker URL host checks cover tracker URLs only; upstream checks every URL in
+  `parse_url_components`. The download queue's partial-piece sizes still use
+  `piece_size`, not `piece_size_for_req`. WebTorrent (2.1.0) is out of scope.
+- `TorrentStatus::total` counts pad bytes (`total_size`); upstream reports
+  `size_on_disk`. Check which the GUIs should show.
+- Interop: rerun v2-only torrents with odd file sizes against libtorrent 2.0.15
+  / 2.1.x (qBittorrent 5.x) to confirm the new request sizes.
+
 ## Updates, installer and website
 
 - The update check (D32) works end to end on Win32: Help > Check for Updates

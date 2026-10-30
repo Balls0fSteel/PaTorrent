@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-10-30_123508_1793360108
+Last updated: 2026-10-30_140531_1793365531
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -25,6 +25,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-10-28 (1.1.2, the Windows GUI's Web UI)](CHANGELOG-2026-10-28--2026-10-29-v1.1.2-web-ui.md) | `2026-10-28_174137_1793205697` through `2026-10-29_081713_1793258233` | 4 entries moved verbatim from the root changelog on 2026-10-30: the Windows GUI serving its own Web UI (D40), the 1.1.2 release preparation, the Windows CI hang fix and the v1.1.2 tag with its draft release. |
 | [Changelog, 2026-10-29 (Sonarr, Radarr, Prowlarr; 1.1.3-1.1.6)](CHANGELOG-2026-10-29--2026-10-29-arr.md) | `2026-10-29_161749_1793287069` through `2026-10-29_214347_1793310227` | 7 entries moved verbatim from the root changelog on 2026-10-30: the *arr audit and Torznab proposal, the shim's seed limits (1.1.3), the strict Host check's hint (1.1.4), the real-app runs against nox and the Windows GUI with the idle-seed fix (1.1.5) and `removeCategories` (1.1.6), and 1.1.2's clean-VM check. |
 | [Changelog, 2026-10-30 (1.1.7 release, installer CI, profiles design)](CHANGELOG-2026-10-30--2026-10-30-v1.1.7-release.md) | `2026-10-30_082342_1793345022` through `2026-10-30_090053_1793347253` | 4 entries moved verbatim from the root changelog on 2026-10-30: activate-on-add and Stopped-on-add (1.1.7), the 1.1.7 release preparation and the next-features plan, the installer built in CI, and the V2.0 profiles design (proposed D42). |
+| [Changelog, 2026-10-30 (1.1.8-1.1.14, Torznab slices 1-2)](CHANGELOG-2026-10-30--2026-10-30-v1.1.8-search.md) | `2026-10-30_093153_1793349113` through `2026-10-30_112341_1793355821` | 9 entries moved verbatim from the root changelog on 2026-10-30_140531_1793365531: 1.1.7's publication, the shim and hosted Web UI fixes (1.1.8), the Server domains field (1.1.9), the API key and subnet whitelist (1.1.10), nox's update check (1.1.11, D43), the owner's no-alternative-limits decision, RSS in the Windows GUI's Web UI (1.1.13) and Torznab slices 1-2 (1.1.12, 1.1.14). |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

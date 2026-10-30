@@ -239,9 +239,9 @@ Record each one here with the reason.
 
 The ChangeLog entries of 2.0.12-2.0.15 and 2.1.0-2.1.2 were triaged against this port (2026-10-30). Ported, with their commits in the files' provenance headers:
 
-- 2.0.12: renaming never overwrites (3417f6479d, with 2.1.2's 36582475fc); file-rename alerts ignore the mask (f533c6f479); invalid path elements become `_` (2b2929af7d).
-- 2.0.13: v2 request sizes (aa59c7c583, 8b8242fe9b); web seed basic auth dropped on cross-origin redirects (188c5226f7, e7e37dbf47); stricter tracker URLs (481c33e9d8, 79ef5380d3); strict HTTP status codes (1da2e16473); SOCKS5 reply versions; BEP 47 symlinks in `create_torrent` (b6750b694e).
-- 2.0.14 / 2.1.1: merkle `get_hashes` with one hash (114f65efc2); single-file web seed URLs in multi-file mode (5498efd3f6); UPnP sends that would block (4138b27d57); the rate decay of idle torrents (8cfbb4615f); point-to-point interfaces without a route are local (922226ede4); the IP filter applies to the DHT (abc121b1e9, ba21c04872).
+- 2.0.12: renaming never overwrites (3417f6479d, with 2.1.2's 36582475fc); file-rename alerts ignore the mask (f533c6f479); invalid path elements become `_` (2b2929af7d); `natpmp_gateway` (d69c360e6d, f656c76dbb).
+- 2.0.13: v2 request sizes (aa59c7c583, 8b8242fe9b), and the download queue's piece sizes with them; web seed basic auth dropped on cross-origin redirects (188c5226f7, e7e37dbf47); stricter tracker URLs (481c33e9d8, 79ef5380d3); strict HTTP status codes (1da2e16473); SOCKS5 reply versions; BEP 47 symlinks in `create_torrent` (b6750b694e); `natpmp_lease_duration` (455e9da7f1).
+- 2.0.14 / 2.1.1: merkle `get_hashes` with one hash (114f65efc2); single-file web seed URLs in multi-file mode (5498efd3f6); UPnP sends that would block (4138b27d57); the rate decay of idle torrents (8cfbb4615f); point-to-point interfaces without a route are local (922226ede4); the IP filter applies to the DHT (abc121b1e9, ba21c04872); a 160-bit MSE secret exponent (40d5f869cc); a slow torrent that speeds up counts against the queue limits at once (51e2d70dcd), with `dont_count_slow_torrents` itself (a 2.0.11 setting nothing read before) and its `inactive_down_rate`, `inactive_up_rate` and `auto_manage_startup`.
 - 2.1.0: `max_directory_depth` (4ecc54c44f); `remap_files` removed; LSD staggering (d3f942f5d9); resume `file-version` 2 (bf6c5e546b).
 - Ours, found in the triage: web seeds request the original file names (`orig_files`), and a forced or network-change reannounce of a hybrid announces both info-hashes.
 

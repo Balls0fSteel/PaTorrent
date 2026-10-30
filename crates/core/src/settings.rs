@@ -88,7 +88,15 @@ pub struct Settings {
     pub active_tracker_limit: i32,
     pub active_lsd_limit: i32,
     pub active_limit: i32,
+    /// Slow torrents run without counting against `active_downloads` / `active_seeds` (still
+    /// against `active_limit`): a download below `inactive_down_rate`, or a finished torrent
+    /// below `inactive_up_rate`, bytes/s of payload, for `auto_manage_startup` seconds.
     pub dont_count_slow_torrents: bool,
+    pub inactive_down_rate: i32,
+    pub inactive_up_rate: i32,
+    /// Seconds a torrent must stay slow before it counts as inactive; becoming active again
+    /// applies at once (libtorrent 2.0.14).
+    pub auto_manage_startup: u32,
     pub auto_manage_interval: u32,
 
     pub connections_limit: i32,
@@ -153,6 +161,11 @@ pub struct Settings {
     pub upnp_ignore_nonrouters: bool,
     /// Seconds a UPnP mapping is leased for; 0 asks for a permanent one.
     pub upnp_lease_duration: u32,
+    /// The NAT-PMP / PCP gateway's address, instead of the routing table's default gateway
+    /// (libtorrent 2.0.12); empty: from the routing table. Read when NAT-PMP starts.
+    pub natpmp_gateway: String,
+    /// Seconds a NAT-PMP / PCP mapping is asked for (libtorrent 2.0.13); 0 means 3600.
+    pub natpmp_lease_duration: u32,
     pub enable_incoming_tcp: bool,
     pub enable_outgoing_tcp: bool,
     pub enable_incoming_utp: bool,
@@ -323,6 +336,9 @@ impl Default for Settings {
             active_lsd_limit: 60,
             active_limit: 500,
             dont_count_slow_torrents: true,
+            inactive_down_rate: 2048,
+            inactive_up_rate: 2048,
+            auto_manage_startup: 60,
             auto_manage_interval: 30,
             connections_limit: 200,
             connection_speed: 30,
@@ -361,6 +377,8 @@ impl Default for Settings {
             enable_natpmp: true,
             upnp_ignore_nonrouters: false,
             upnp_lease_duration: 3600,
+            natpmp_gateway: String::new(),
+            natpmp_lease_duration: 3600,
             enable_incoming_tcp: true,
             enable_outgoing_tcp: true,
             enable_incoming_utp: true,

@@ -5,6 +5,7 @@
 // Changes: the 768-bit modular exponentiation runs on a fixed-width Montgomery multiplier of our
 // own instead of boost::multiprecision; the secret exponent comes from the OS RNG; the xor mask
 // hashes the secret at its full 96 bytes (libtorrent hashes an unpadded export, see PORTING.md).
+// The 160-bit secret exponent is libtorrent 2.0.14's 40d5f869cc.
 
 //! MSE/PE ("Message Stream Encryption") primitives: RC4 as the protocol uses it, the fixed
 //! 768-bit Diffie-Hellman exchange and the SHA-1 derived keys. The handshake itself is
@@ -18,6 +19,9 @@ use crate::util::random;
 
 /// Public keys and the shared secret are exchanged as 96 big-endian bytes.
 pub const DH_KEY_LEN: usize = 96;
+/// Random bytes in our secret exponent: 160 bits, as libtorrent 2.0.14 (40d5f869cc) and the
+/// MSE spec recommend. Peers cannot tell; it only makes [`DhKeyExchange::new`] cheaper.
+const DH_SECRET_LEN: usize = 20;
 
 const LIMBS: usize = DH_KEY_LEN / 8;
 
@@ -235,10 +239,10 @@ impl Default for DhKeyExchange {
 }
 
 impl DhKeyExchange {
-    /// A random secret and its public key `2 ^ secret mod p`.
+    /// A random 160-bit secret and its public key `2 ^ secret mod p`.
     pub fn new() -> DhKeyExchange {
         let mut secret = [0u8; DH_KEY_LEN];
-        random::crypto_random_bytes(&mut secret);
+        random::crypto_random_bytes(&mut secret[DH_KEY_LEN - DH_SECRET_LEN..]);
         DhKeyExchange::from_secret(&secret)
     }
 
@@ -560,6 +564,26 @@ mod tests {
         }
         assert!(dh.compute_secret(&int(2)));
         assert!(dh.compute_secret(&p_minus(2)));
+    }
+
+    /// 40d5f869cc: the exponent is below 2^160, and such a side still agrees with one that
+    /// uses a full 768-bit exponent (as libtorrent before 2.0.14 does).
+    #[test]
+    fn short_secret_agrees_with_a_full_width_one() {
+        for _ in 0..8 {
+            let mut new_style = DhKeyExchange::new();
+            assert!(new_style.local_secret.bits() <= 8 * DH_SECRET_LEN);
+            let mut secret = [0u8; DH_KEY_LEN];
+            random::crypto_random_bytes(&mut secret);
+            secret[0] |= 0x40; // well above 2^160
+            let mut old_style = DhKeyExchange::from_secret(&secret);
+            assert!(old_style.local_secret.bits() > 8 * DH_SECRET_LEN);
+            let (k1, k2) = (*new_style.local_key(), *old_style.local_key());
+            assert!(new_style.compute_secret(&k2));
+            assert!(old_style.compute_secret(&k1));
+            assert_eq!(new_style.secret(), old_style.secret());
+            assert_eq!(new_style.hash_xor_mask(), old_style.hash_xor_mask());
+        }
     }
 
     #[test]

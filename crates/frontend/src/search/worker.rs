@@ -320,12 +320,12 @@ pub fn merge(results: &mut Vec<SearchResult>, found: Vec<SearchResult>) {
                 if r.seeders.map_or(-1, i64::from) > old.seeders.map_or(-1, i64::from) {
                     let prev_magnet = std::mem::take(&mut old.magnet);
                     *old = r;
-                    old.sources = first_then(&old.sources, prev);
+                    old.sources = union(&old.sources, prev);
                     if old.magnet.is_empty() {
                         old.magnet = prev_magnet;
                     }
                 } else {
-                    old.sources = first_then(&prev, r.sources);
+                    old.sources = union(&prev, r.sources);
                     // a magnet the kept entry lacks is still useful
                     if old.magnet.is_empty() {
                         old.magnet = r.magnet;
@@ -341,9 +341,13 @@ pub fn merge(results: &mut Vec<SearchResult>, found: Vec<SearchResult>) {
     results.sort_by(|a, b| b.seeders.map_or(-1, i64::from).cmp(&a.seeders.map_or(-1, i64::from)));
 }
 
-/// `first`, then those of `then` not in it.
-fn first_then(first: &[usize], then: Vec<usize>) -> Vec<usize> {
-    first.iter().copied().chain(then.into_iter().filter(|s| !first.contains(s))).collect()
+/// Both lists' sources once each, in source order: the column reads the same whichever source
+/// answered first (the searches run in parallel).
+fn union(a: &[usize], b: Vec<usize>) -> Vec<usize> {
+    let mut all: Vec<usize> = a.iter().copied().chain(b).collect();
+    all.sort_unstable();
+    all.dedup();
+    all
 }
 
 #[cfg(test)]
@@ -401,10 +405,10 @@ mod tests {
         assert_eq!(
             names,
             [
-                ("linux iso (renamed)", Some(50), &[1, 0][..]),
+                ("linux iso (renamed)", Some(50), &[0, 1][..]),
                 ("Show S01", Some(8), &[0, 1][..]),
                 ("Show S01", Some(1), &[1][..]),
-                ("Other", Some(0), &[1, 0][..]),
+                ("Other", Some(0), &[0, 1][..]),
             ]
         );
         assert_eq!(all[0].source, 1, "the entry with the most seeders is kept");
@@ -571,7 +575,7 @@ mod tests {
         let r: Vec<(&str, Option<u32>, usize)> =
             s.results().iter().map(|r| (r.name.as_str(), r.seeders, r.source)).collect();
         assert_eq!(r, [("Two", Some(9), 0), ("one", Some(4), 1)]);
-        assert_eq!(s.results()[1].sources, [1, 0]);
+        assert_eq!(s.results()[1].sources, [0, 1], "in source order, whichever answered first");
         assert_eq!(s.source_of(&s.results()[1]).unwrap().url, "http://b/api");
         assert_eq!(s.query().text, "linux");
         assert!(!s.collect(), "nothing new");

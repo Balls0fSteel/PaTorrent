@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_125841_1793361521: A merged search result names its sources in source order (1.1.17)
+
+- **CI failure (run 41050620708, Windows):** `search::tests::results_fill_sort_and_add` expected "Prowlarr, jackett.lan" and got "jackett.lan, Prowlarr". The merged result listed its sources in the order their parallel answers arrived, so the Source column (Win32, GTK and the Web UI's `source_names`) and two frontend tests depended on timing.
+- **Fix (`frontend::search::worker::merge`):** a merged result's `sources` are now the union in source order. Its `source` (the one to download from, the entry with most seeders) is unchanged. The frontend tests' expectations were updated; frontend 213 + 4 and Win32 79 pass, and the failing test passed 5 runs in a row. Version 1.1.17.
+
 ## 2026-10-30_123456_1793360096: Torznab search, slice 3: the Win32 GUI (1.1.16, D41)
 
 - **Win32:**

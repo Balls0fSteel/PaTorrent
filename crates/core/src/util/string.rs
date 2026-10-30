@@ -1,5 +1,5 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/string_util.cpp, src/escape_string.cpp,
-// src/parse_url.cpp
+// src/parse_url.cpp; fixes from 2.0.13 (188c5226f7)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: byte-slice based; errors are `Option`/`Result` instead of `error_code`.
 
@@ -277,6 +277,30 @@ fn split_url(url: &str) -> Result<UrlParts, UrlError> {
     Ok(UrlParts { protocol: protocol.to_owned(), auth: auth.to_owned(), host: host.to_owned(), port, path })
 }
 
+/// libtorrent `same_origin`: true if the two URLs have the same origin, i.e. the same scheme,
+/// host and (effective) port. Scheme and host are compared case-insensitively. This is meant
+/// for http/https URLs: a missing port is treated as 443 for "https" and 80 otherwise. False if
+/// either URL fails to parse. Decides whether credentials may be forwarded across a redirect.
+pub fn same_origin(a: &str, b: &str) -> bool {
+    // userinfo, path and query are not part of the origin
+    let origin = |u: &str| {
+        let p = parse_url_components(u).ok()?;
+        let port =
+            p.port.unwrap_or(if string_equal_no_case(p.protocol.as_bytes(), b"https") { 443 } else { 80 });
+        Some((p.protocol, p.host, port))
+    };
+    match (origin(a), origin(b)) {
+        (Some(oa), Some(ob)) => {
+            // parsed successfully (host non-empty)
+            !oa.1.is_empty()
+                && string_equal_no_case(oa.0.as_bytes(), ob.0.as_bytes())
+                && string_equal_no_case(oa.1.as_bytes(), ob.1.as_bytes())
+                && oa.2 == ob.2
+        }
+        _ => false,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     //! Ported from libtorrent-rasterbar 2.0.11 test/test_string.cpp.
@@ -439,5 +463,33 @@ mod tests {
         }
         // trailing whitespace, common in announce lists, is trimmed rather than refused
         assert_eq!(parse_url_components("http://a.b/announce\r\n").unwrap().path, "/announce");
+    }
+
+    #[test]
+    fn same_origin_cases() {
+        // after libtorrent 2.0.13 test/test_http_parser.cpp (188c5226f7)
+        // identical, and path/query/fragment differences don't matter
+        assert!(same_origin("http://example.com/a", "http://example.com/a"));
+        assert!(same_origin("http://example.com/a", "http://example.com/b?x=1#y"));
+        assert!(same_origin("http://example.com", "http://example.com/b"));
+        // scheme and host are case-insensitive
+        assert!(same_origin("http://Example.COM/a", "HTTP://example.com/b"));
+        // an explicit well-known port equals the implicit default
+        assert!(same_origin("http://example.com/a", "http://example.com:80/b"));
+        assert!(same_origin("https://example.com/a", "https://example.com:443/b"));
+        // userinfo is not part of the origin
+        assert!(same_origin("http://user:pass@example.com/a", "http://example.com/b"));
+
+        // different host, scheme or port is a different origin
+        assert!(!same_origin("http://example.com/a", "http://evil.com/a"));
+        assert!(!same_origin("http://example.com/a", "http://example.com.evil.com/a"));
+        assert!(!same_origin("http://example.com/a", "https://example.com/a"));
+        assert!(!same_origin("http://example.com/a", "http://example.com:8080/a"));
+        // an explicit non-default port differs from the implicit default
+        assert!(!same_origin("https://example.com/a", "https://example.com:80/a"));
+        // a redirect that smuggles a new host via userinfo is a different origin
+        assert!(!same_origin("http://example.com/a", "http://example.com@evil.com/a"));
+        // unparseable URLs are never same-origin
+        assert!(!same_origin("not a url", "not a url"));
     }
 }

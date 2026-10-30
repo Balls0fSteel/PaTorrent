@@ -1,7 +1,7 @@
 // Ported from libtorrent-rasterbar 2.0.11: include/libtorrent/socks5_stream.hpp (SOCKS4 and
 // SOCKS5 connect, the socks_error codes), src/socks5_stream.cpp (their messages),
 // include/libtorrent/http_stream.hpp (HTTP CONNECT), src/udp_socket.cpp (the SOCKS5 UDP
-// ASSOCIATE exchange, `wrap` and `unwrap`)
+// ASSOCIATE exchange, `wrap` and `unwrap`); fixes from 2.0.13 (bf2f3388cc)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: sans-IO state machines that say how many bytes they need next, so a caller that
 // reads exactly that much never reads past the proxy's reply into the tunnelled stream (asio's
@@ -383,7 +383,7 @@ impl Handshake {
             }
             Stage::Method => {
                 // libtorrent `handshake2`
-                if buf[0] < 5 {
+                if buf[0] != 5 {
                     return Err(ProxyError::UnsupportedVersion);
                 }
                 match buf[1] {
@@ -414,7 +414,7 @@ impl Handshake {
             }
             Stage::ReplyHead => {
                 // libtorrent `connect2`, version 5
-                if buf[0] < 5 {
+                if buf[0] != 5 {
                     return Err(ProxyError::UnsupportedVersion);
                 }
                 match buf[1] {
@@ -689,6 +689,9 @@ mod tests {
         assert_eq!(fail(Some(("u", "p")), &[5, 2, 0, 0]), Err(ProxyError::UnsupportedAuthenticationVersion));
         assert_eq!(fail(Some(("u", "p")), &[5, 2, 1, 1]), Err(ProxyError::AuthenticationError));
         assert_eq!(fail(None, &[5, 0, 4, 0, 0, 1]), Err(ProxyError::UnsupportedVersion));
+        // 2.0.13 (bf2f3388cc): the version must be exactly 5, not at least 5
+        assert_eq!(fail(None, &[6, 0]), Err(ProxyError::UnsupportedVersion));
+        assert_eq!(fail(None, &[5, 0, 6, 0, 0, 1]), Err(ProxyError::UnsupportedVersion));
         for (code, e) in [
             (1, ProxyError::GeneralFailure),
             (2, ProxyError::NoPermission),

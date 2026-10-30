@@ -2,7 +2,8 @@
 // handling, write_request, on_receive, incoming_payload, incoming_zeroes, maybe_harvest_piece,
 // handle_padfile, the restart data of disconnect, handle_error / handle_redirect up to their
 // torrent calls, get_range), src/web_connection_base.cpp (add_headers),
-// src/http_seed_connection.cpp (write_request and the response checks of on_receive)
+// src/http_seed_connection.cpp (write_request and the response checks of on_receive); fixes
+// from 2.0.14 (5498efd3f6)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: sans-IO. Requests are bytes in `out`, received bytes go in through `feed`, and what
 // libtorrent does to the torrent (incoming_piece, retry_web_seed, add_web_seed, disable) comes
@@ -164,7 +165,7 @@ impl WebPeer {
         } else {
             // handle .torrent files that don't include the filename in the url
             if path.ends_with('/') {
-                path.push_str(&escape_string(fs.name().as_bytes()));
+                path.push_str(&escape_file_path(fs, 0));
             }
             if url.ends_with('/') {
                 url.push_str(&escape_file_path(fs, 0));
@@ -958,6 +959,15 @@ mod tests {
                 BlockRequest { piece: 2, start: 16384, length: 16384 }
             ]
         );
+
+        // a single file in multi-file mode (2.0.14, 5498efd3f6): the file's path under the
+        // torrent's directory is appended, not just the torrent's name
+        let one = storage(&[(100_000, false)], 32 * 1024);
+        let mut p = url_peer("http://h.example/files/", "", &[], &one, "UA", false).unwrap();
+        assert_eq!(p.url(), "http://h.example/files/torrent_dir/0");
+        p.write_request(&one, 0, 0, 16384, &HashMap::new(), &mut None);
+        let r = String::from_utf8(std::mem::take(p.out())).unwrap();
+        assert!(r.starts_with("GET /files/torrent_dir/0 HTTP/1.1\r\n"), "{r}");
 
         // through an HTTP proxy (libtorrent `using_proxy`): absolute URLs, the proxy's
         // credentials, keep-alive on every request

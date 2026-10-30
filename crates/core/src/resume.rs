@@ -1,11 +1,14 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/write_resume_data.cpp, src/read_resume_data.cpp
+// Ported from libtorrent-rasterbar 2.0.11: src/write_resume_data.cpp, src/read_resume_data.cpp;
+// file-version 2 from 2.1.0 (bf6c5e546b)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: a plain struct instead of `add_torrent_params`; only the fields this engine uses are
 // read and written, under libtorrent's key names, so records stay readable by libtorrent tools.
 // Extra `lt-` keys (queue position, total size, piece count and length) let a stopped
 // torrent be listed without loading its metadata (PLAN.md D5). `comment`, `created by` and
 // `creation date` are kept under the `.torrent` file's own key names, since the session store
-// holds only the info dictionary and a restored torrent would lose them.
+// holds only the info dictionary and a restored torrent would lose them. Records are written
+// as file-version 2 (`pieces` a packed bitfield); version 1 records (one byte per piece) still
+// load. Neither version's verified-piece bits (seed mode) nor merkle trees are carried.
 
 //! Fast-resume records.
 
@@ -21,7 +24,8 @@ pub(crate) struct ResumeData {
     pub info_hashes: InfoHashes,
     pub name: String,
     pub save_path: String,
-    /// Pieces we have; `None` if unknown (the files must be checked).
+    /// Pieces we have; `None` if unknown (the files must be checked). A file-version 2 record
+    /// without `lt-num-pieces` gives whole bytes: up to 7 spare bits past the last piece.
     pub pieces: Option<Bitfield>,
     /// Partly downloaded pieces: piece index and its finished blocks (libtorrent `unfinished`).
     pub unfinished: Vec<(u32, Bitfield)>,
@@ -75,7 +79,7 @@ impl ResumeData {
         let int = |v: i64| Entry::Int(v);
         let s = |v: &str| Entry::Bytes(v.as_bytes().to_vec());
         *e.key("file-format") = s("libtorrent resume file");
-        *e.key("file-version") = int(1);
+        *e.key("file-version") = int(2);
         *e.key("libtorrent-version") = s(crate::VERSION);
         if let Some(v1) = self.info_hashes.v1 {
             *e.key("info-hash") = Entry::Bytes(v1.0.to_vec());
@@ -85,8 +89,9 @@ impl ResumeData {
         }
         *e.key("name") = s(&self.name);
         *e.key("save_path") = s(&self.save_path);
-        if let Some(p) = &self.pieces {
-            *e.key("pieces") = Entry::Bytes(p.iter().map(u8::from).collect());
+        // libtorrent 2.1: the have bitfield's bytes, MSB first, instead of a byte per piece.
+        if let Some(p) = self.pieces.as_ref().filter(|p| !p.is_empty()) {
+            *e.key("pieces") = Entry::Bytes(p.as_bytes().to_vec());
         }
         if !self.unfinished.is_empty() {
             // libtorrent's layout: the bitmask is the block bitfield's bytes, MSB first.
@@ -182,6 +187,10 @@ impl ResumeData {
         if root.dict_find_str("file-format") != Some("libtorrent resume file") {
             return Err(bad("invalid file format tag"));
         }
+        let version = root.dict_find_int_value("file-version").unwrap_or(1);
+        if version != 1 && version != 2 {
+            return Err(bad(&format!("unsupported file-version {version}")));
+        }
         let int = |k: &str| root.dict_find_int_value(k).unwrap_or(0);
         let uint = |k: &str| root.dict_find_int_value(k).filter(|&v| v >= 0).unwrap_or(0) as u64;
         let opt =
@@ -225,10 +234,22 @@ impl ResumeData {
             ..Default::default()
         };
         if let Some(p) = root.dict_find_string_value("pieces") {
-            let mut bf = Bitfield::new(p.len(), false);
-            for (i, &b) in p.iter().enumerate() {
-                bf.set(i, b & 1 != 0);
-            }
+            let bf = if version == 1 {
+                // A byte per piece: bit 0 have, bit 1 verified (not carried).
+                let mut bf = Bitfield::new(p.len(), false);
+                for (i, &b) in p.iter().enumerate() {
+                    bf.set(i, b & 1 != 0);
+                }
+                bf
+            } else {
+                let mut bf = Bitfield::from_bytes(p, p.len() * 8).expect("length matches");
+                // Our own records know the piece count: drop the byte's spare bits.
+                let n = r.num_pieces as usize;
+                if n > 0 && n <= bf.len() && bf.len() - n < 8 {
+                    bf.resize(n, false);
+                }
+                bf
+            };
             r.pieces = Some(bf);
         }
         if let Some(l) = root.dict_find_list("unfinished") {
@@ -505,7 +526,8 @@ mod tests {
         let root = doc.root().unwrap();
         assert_eq!(root.dict_find_str("created by"), Some("mktorrent"));
         assert_eq!(root.dict_find_int_value("creation date"), Some(951_782_400));
-        assert_eq!(root.dict_find_string_value("pieces").unwrap(), &[0, 0, 0, 1, 0, 0, 0, 0, 0, 1]);
+        assert_eq!(root.dict_find_int_value("file-version"), Some(2));
+        assert_eq!(root.dict_find_string_value("pieces").unwrap(), &[0b0001_0000, 0b0100_0000]);
         assert_eq!(root.dict_find_int_value("max_uploads"), Some(-1));
         // libtorrent's layout: one string per file up to the last renamed one.
         let mapped = root.dict_find_list("mapped_files").unwrap();
@@ -530,5 +552,78 @@ mod tests {
 
         assert!(ResumeData::decode(b"d11:file-format3:fooe").is_err());
         assert!(ResumeData::decode(b"d11:file-format22:libtorrent resume filee").is_err(), "no info-hash");
+    }
+
+    /// A record as 2.0.11 and our releases before file-version 2 wrote it.
+    fn v1_record(pieces: &[u8], num_pieces: Option<i64>) -> Vec<u8> {
+        let mut e = Entry::new_dict();
+        *e.key("file-format") = Entry::Bytes(b"libtorrent resume file".to_vec());
+        *e.key("file-version") = Entry::Int(1);
+        *e.key("info-hash") = Entry::Bytes(vec![7; 20]);
+        *e.key("pieces") = Entry::Bytes(pieces.to_vec());
+        if let Some(n) = num_pieces {
+            *e.key("lt-num-pieces") = Entry::Int(n);
+        }
+        e.bencode()
+    }
+
+    #[test]
+    fn file_versions() {
+        // Version 1: a byte per piece, bit 0 have, bit 1 verified (ignored).
+        let r = ResumeData::decode(&v1_record(&[1, 0, 3, 2, 1], Some(5))).unwrap();
+        let have: Vec<bool> = r.pieces.as_ref().unwrap().iter().collect();
+        assert_eq!(have, [true, false, true, false, true]);
+        // It saves as version 2 and loads back the same.
+        let again = ResumeData::decode(&r.encode()).unwrap();
+        assert_eq!(again, r);
+        // No `file-version` means 1 (libtorrent's default).
+        let entry = |b: Vec<u8>| Entry::from_node(bdecode(&b[..]).unwrap().root().unwrap());
+        let mut e = entry(v1_record(&[1, 1], None));
+        e.dict_mut().remove(b"file-version".as_slice());
+        assert_eq!(ResumeData::decode(&e.bencode()).unwrap().pieces, Some(Bitfield::new(2, true)));
+
+        // Version 2 from another client (no `lt-num-pieces`): whole bytes, MSB first; the
+        // `verified` bitfield is not carried.
+        let mut e = entry(v1_record(&[], None));
+        *e.key("file-version") = Entry::Int(2);
+        *e.key("pieces") = Entry::Bytes(vec![0b1010_0000, 0b0000_0001]);
+        *e.key("verified") = Entry::Bytes(vec![0xff, 0xff]);
+        let r = ResumeData::decode(&e.bencode()).unwrap();
+        let p = r.pieces.unwrap();
+        assert_eq!((p.len(), p.count(), p.get(0), p.get(2), p.get(15)), (16, 3, true, true, true));
+        *e.key("lt-num-pieces") = Entry::Int(10);
+        *e.key("pieces") = Entry::Bytes(vec![0xff, 0b1100_0000]);
+        assert_eq!(ResumeData::decode(&e.bencode()).unwrap().pieces, Some(Bitfield::new(10, true)));
+
+        // Other versions are refused.
+        for v in [0, 3, -1] {
+            *e.key("file-version") = Entry::Int(v);
+            let err = ResumeData::decode(&e.bencode()).unwrap_err().to_string();
+            assert!(err.contains(&format!("file-version {v}")), "{err}");
+        }
+    }
+
+    #[test]
+    fn version_2_is_smaller() {
+        // A seed of 2,000 pieces, as the engine saves one.
+        let r = ResumeData {
+            info_hashes: InfoHashes::v1(Sha1Hash([5; 20])),
+            name: "a seed".into(),
+            save_path: "C:/dl".into(),
+            pieces: Some(Bitfield::new(2000, true)),
+            num_pieces: 2000,
+            piece_length: 262_144,
+            total_size: 2000 * 262_144,
+            ..Default::default()
+        };
+        let v2 = r.encode();
+        let mut e = r.to_entry();
+        *e.key("file-version") = Entry::Int(1);
+        *e.key("pieces") = Entry::Bytes(vec![1; 2000]);
+        let v1 = e.bencode();
+        assert_eq!(ResumeData::decode(&v1).unwrap(), r);
+        assert_eq!(ResumeData::decode(&v2).unwrap(), r);
+        eprintln!("2,000-piece seed record: version 1 {} bytes, version 2 {} bytes", v1.len(), v2.len());
+        assert_eq!(v1.len() - v2.len(), 2000 - 250 + 1, "pieces: 2000:… -> 250:…");
     }
 }

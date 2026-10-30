@@ -1,5 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/mmap_disk_io.cpp (job, fence and thread-pool
-// structure), src/posix_storage.cpp, src/storage_utils.cpp, src/disk_job_fence.cpp
+// structure), src/posix_storage.cpp, src/storage_utils.cpp, src/disk_job_fence.cpp;
+// fixes from 2.0.12 (3417f6479d) and 2.1.2 (36582475fc)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: positional read/write instead of mmap (PLAN.md D3). Jobs for a piece always run on
 // the same thread (piece % threads), so per-piece hash state needs no locks; a fence is a job
@@ -1347,7 +1348,9 @@ fn is_not_found<T>(r: io::Result<T>) -> bool {
 
 /// libtorrent `posix_storage::rename_file`: renames the file if it is on disk (making the
 /// directories the new name lands in), then uses the new name for every later job. A file not
-/// downloaded yet only changes its name. Runs with no other job of `storage` in flight.
+/// downloaded yet only changes its name. A file on disk is never renamed over an existing one:
+/// that fails with `AlreadyExists` (libtorrent `file_exists`). Runs with no other job of
+/// `storage` in flight.
 fn rename_file(storage: &Storage, ctx: &Ctx, file: usize, name: &str) -> Result<(), (String, Error)> {
     let fs = storage.info.files();
     if file >= fs.num_files() {
@@ -1363,6 +1366,11 @@ fn rename_file(storage: &Storage, ctx: &Ctx, file: usize, name: &str) -> Result<
             } else {
                 PathBuf::from(storage.save_path()).join(name)
             };
+            // An existing file is never overwritten (libtorrent 2.0.12), not even by itself.
+            if matches!(new.try_exists(), Ok(true)) {
+                let e = io::Error::new(io::ErrorKind::AlreadyExists, "file already exists");
+                return fail(&new, e);
+            }
             if let Some(dir) = new.parent().filter(|d| !d.as_os_str().is_empty()) {
                 if let Err(e) = std::fs::create_dir_all(dir) {
                     return fail(dir, e);
@@ -1370,9 +1378,10 @@ fn rename_file(storage: &Storage, ctx: &Ctx, file: usize, name: &str) -> Result<
             }
             // Open files cannot be renamed on Windows.
             ctx.pool.release(storage.id);
-            match std::fs::rename(&old, &new) {
+            match file_pool::rename_no_replace(&old, &new) {
                 Ok(()) => {}
                 Err(e) if e.kind() == io::ErrorKind::NotFound => {}
+                Err(e) if e.kind() == io::ErrorKind::AlreadyExists => return fail(&new, e),
                 Err(e) => return fail(&old, e),
             }
         }
@@ -2211,6 +2220,22 @@ pub(crate) mod tests {
         assert_eq!(std::fs::read(new.join("test/renamed/two.tmp")).unwrap(), r.contents[1]);
         r.disk.async_rename_file(&r.storage, 99, "x".into());
         assert!(renamed(&r.rx).2.is_some());
+
+        // An existing file is not replaced (libtorrent 2.0.12), nor is the file itself.
+        std::fs::write(new.join("taken.tmp"), b"mine").unwrap();
+        for name in ["taken.tmp", "test/renamed/two.tmp"] {
+            r.disk.async_rename_file(&r.storage, 1, name.into());
+            let (path, error) = renamed(&r.rx).2.expect("file exists");
+            assert!(Path::new(&path).ends_with(name), "{path}");
+            assert!(matches!(error, Error::Io { kind: io::ErrorKind::AlreadyExists, .. }), "{error:?}");
+        }
+        assert_eq!(std::fs::read(new.join("taken.tmp")).unwrap(), b"mine");
+        assert_eq!(std::fs::read(new.join("test/renamed/two.tmp")).unwrap(), r.contents[1]);
+        // The race-free primitive refuses too.
+        let (a, b) = (new.join("test/renamed/two.tmp"), new.join("taken.tmp"));
+        let e = file_pool::rename_no_replace(&a, &b).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
+        assert_eq!(std::fs::read(&a).unwrap(), r.contents[1]);
         drop(r.disk);
         let _ = std::fs::remove_dir_all(&r.dir);
     }

@@ -1,4 +1,5 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/file_view_pool.cpp, src/file.cpp
+// Ported from libtorrent-rasterbar 2.0.11: src/file_view_pool.cpp, src/file.cpp;
+// fixes from 2.0.12 (3417f6479d)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: pools plain file handles for positional I/O instead of memory-mapped views; LRU by a
 // use counter in a hash map (the pool is small, so eviction scans it).
@@ -134,6 +135,40 @@ fn set_sparse(file: &File) {
 
 #[cfg(not(windows))]
 fn set_sparse(_file: &File) {}
+
+/// Renames `old` to `new` unless `new` exists, which fails with `AlreadyExists` (libtorrent
+/// 2.0.12 checks first and then renames; this closes the gap where it can). Windows moves
+/// without `MOVEFILE_REPLACE_EXISTING`; elsewhere a hard link plus unlinking the old name,
+/// falling back to a plain rename where links are unsupported (FAT, some network shares).
+#[cfg(windows)]
+pub(crate) fn rename_no_replace(old: &Path, new: &Path) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
+    let wide = |p: &Path| p.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();
+    let (old, new) = (wide(old), wide(new));
+    // SAFETY: both buffers are NUL-terminated UTF-16 strings that outlive the call; flags 0
+    // means no replace, no copy across volumes, no delayed move.
+    if unsafe { MoveFileExW(old.as_ptr(), new.as_ptr(), 0) } == 0 {
+        return Err(io::Error::last_os_error());
+    }
+    Ok(())
+}
+
+#[cfg(not(windows))]
+pub(crate) fn rename_no_replace(old: &Path, new: &Path) -> io::Result<()> {
+    match std::fs::hard_link(old, new) {
+        Ok(()) => std::fs::remove_file(old).inspect_err(|_| {
+            let _ = std::fs::remove_file(new);
+        }),
+        Err(e) if matches!(e.kind(), io::ErrorKind::AlreadyExists | io::ErrorKind::NotFound) => Err(e),
+        // No hard links here: check, then rename (the gap libtorrent leaves too).
+        Err(_) => match std::fs::symlink_metadata(new) {
+            Ok(_) => Err(io::Error::new(io::ErrorKind::AlreadyExists, "file already exists")),
+            Err(e) if e.kind() == io::ErrorKind::NotFound => std::fs::rename(old, new),
+            Err(e) => Err(e),
+        },
+    }
+}
 
 /// Reads until `buf` is full or the file ends. Returns the bytes read.
 pub(crate) fn read_at(file: &File, mut buf: &mut [u8], mut offset: u64) -> io::Result<usize> {

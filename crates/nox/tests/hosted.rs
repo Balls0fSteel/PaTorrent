@@ -2,33 +2,89 @@
 //! by a raw HTTP client and a fake host that collects the preferences journal: labels and
 //! pause marks reach the host as its `torrent.<key>.*` keys and come back from it, a
 //! Preferences change reaches it as `lt.*` without touching the engine, the login comes from
-//! its options, no state file is written, the RSS Downloader and the alternative speed limits
-//! are off, and `app/shutdown` tells the host.
+//! its options, no state file is written, the RSS endpoints edit the host's own RSS
+//! Downloader (its downloads handed to the host, its changes moving the tick's version), the
+//! alternative speed limits are off, and `app/shutdown` tells the host.
 
 use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::path::PathBuf;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
+use patorrent_core::fetch::FetchProxy;
 use patorrent_core::{MockConfig, Session, Settings};
 use patorrent_frontend::prefs::{Change, Prefs};
+use patorrent_frontend::rss::worker::Fetcher;
+use patorrent_frontend::rss::{AddRequest, Download, Feed, FeedItem, RssDownloader, Worker};
 use patorrent_nox::webui::auth::PasswordHash;
 use patorrent_nox::webui::json::{self, Json};
-use patorrent_nox::webui::{Config, Host, Hosted, STATE_FILE, WebUi};
+use patorrent_nox::webui::{Config, Host, Hosted, Rss, STATE_FILE, WebUi};
 
 const PASS: &str = "s3cret-pass";
+const MAGNET: &str = "magnet:?xt=urn:btih:0123456789abcdef0123456789abcdef01234567&dn=Show";
 
-/// The desktop client: every journal batch, and whether it was told to exit.
-#[derive(Default)]
+/// The desktop client: every journal batch, whether it was told to exit, and its own RSS
+/// Downloader with what the Web UI told it about it.
 struct FakeHost {
     batches: Mutex<Vec<Vec<Change>>>,
     shutdown: AtomicBool,
+    rss: Arc<Mutex<Rss>>,
+    rss_changes: AtomicUsize,
+    downloads: Mutex<Vec<AddRequest>>,
+}
+
+/// The host's fetches: every feed has one episode, as a magnet link.
+struct FakeFeeds;
+
+impl Fetcher for FakeFeeds {
+    fn feed(&self, _: &str, _: Option<FetchProxy>) -> Result<Feed, String> {
+        let item = FeedItem {
+            title: "Show S01E01".into(),
+            guid: "ep1".into(),
+            magnet: MAGNET.into(),
+            ..FeedItem::default()
+        };
+        Ok(Feed { title: "Fetched".into(), items: vec![item], ..Feed::default() })
+    }
+
+    fn download(&self, req: &AddRequest, _: Option<FetchProxy>) -> Result<Download, String> {
+        Ok(Download::Magnet(req.url.clone()))
+    }
 }
 
 impl FakeHost {
+    fn new() -> FakeHost {
+        let worker = Worker::with_fetcher(Arc::new(FakeFeeds), || {});
+        FakeHost {
+            batches: Mutex::default(),
+            shutdown: AtomicBool::new(false),
+            rss: Arc::new(Mutex::new(Rss::new(RssDownloader::default(), worker))),
+            rss_changes: AtomicUsize::new(0),
+            downloads: Mutex::default(),
+        }
+    }
+
+    /// Takes the finished fetches into the model, as the window does on `WM_APP_RSS`, until
+    /// `f` holds.
+    fn collect_until(&self, what: &str, f: impl Fn(&RssDownloader) -> bool) {
+        let deadline = Instant::now() + Duration::from_secs(20);
+        loop {
+            {
+                let mut g = self.rss.lock().unwrap();
+                let r = &mut *g;
+                let c = r.worker.collect(&mut r.d, 1_700_000_000, None);
+                r.dirty |= c.changed;
+                if f(&r.d) {
+                    return;
+                }
+            }
+            assert!(Instant::now() < deadline, "timed out waiting for {what}");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+    }
     /// Every change handed over so far, flattened.
     fn changes(&self) -> Vec<Change> {
         self.batches.lock().unwrap().iter().flatten().cloned().collect()
@@ -50,6 +106,14 @@ impl Host for FakeHost {
 
     fn shutdown(&self) {
         self.shutdown.store(true, Ordering::SeqCst);
+    }
+
+    fn rss_changed(&self) {
+        self.rss_changes.fetch_add(1, Ordering::SeqCst);
+    }
+
+    fn rss_download(&self, reqs: Vec<AddRequest>) {
+        self.downloads.lock().unwrap().extend(reqs);
     }
 }
 
@@ -91,12 +155,12 @@ impl Harness {
         let session = Session::start_mock(settings.clone(), mock);
         let h = session.handle();
         let dir = temp_dir(name);
-        let host = Arc::new(FakeHost::default());
+        let host = Arc::new(FakeHost::new());
         let mut c = Config::new("127.0.0.1:0".parse().unwrap(), settings, dir.join("dl").to_string_lossy());
         c.password = password.map(str::to_owned);
         c.state_dir = Some(dir.join("state"));
         c.pbkdf2_iterations = 2;
-        c.hosted = Some(Hosted { host: host.clone(), options });
+        c.hosted = Some(Hosted { host: host.clone(), options, rss: host.rss.clone() });
         let web = Arc::new(WebUi::start(h.clone(), c).unwrap());
         let addr = web.local_addr();
         let stop = Arc::new(AtomicBool::new(false));
@@ -593,22 +657,101 @@ fn a_preferences_change_reaches_the_host_and_not_the_engine() {
 
 // ---- what is off --------------------------------------------------------------------------------
 
+/// The `rss` version of the next tick that carries one above `above`.
+fn rss_version_above(ws: &mut Ws, above: i64) -> i64 {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        let m = ws.recv();
+        if let Some(v) = m.get("rss").and_then(Json::as_i64).filter(|&v| v > above) {
+            return v;
+        }
+        assert!(Instant::now() < deadline, "no rss version above {above}: {}", m.to_json());
+    }
+}
+
 #[test]
-fn rss_and_alternative_limits_are_off_and_shutdown_tells_the_host() {
+fn the_rss_endpoints_edit_the_hosts_own_downloader() {
+    let t = Harness::start("rss", Prefs::default(), Some(PASS));
+    let sid = t.login();
+    // the host's own feed, with a failed fetch's detail the window may show
+    let mine = {
+        let mut r = t.host.rss.lock().unwrap();
+        let id = r.d.add_feed("http://10.0.0.5:22/rss", "Mine");
+        r.d.feed_mut(id).unwrap().last_error = "connection refused".into();
+        r.d.feed_mut(id).unwrap().last_refresh = Some(1);
+        id
+    };
+
+    // (a) the browser sees the host's feeds; a fetch's detail stays the host's (SEC-05)
+    let m = t.get(&sid, "/pa/rss").json();
+    let Some(Json::Arr(feeds)) = m.get("feeds") else { panic!("{}", m.to_json()) };
+    assert_eq!(feeds.len(), 1, "{}", m.to_json());
+    assert_eq!(s(feeds[0].get("name")), "Mine");
+    let status = s(feeds[0].get("status"));
+    assert!(
+        status.contains("could not fetch http://10.0.0.5:22/rss") && !status.contains("refused"),
+        "{status}"
+    );
+
+    // (b) a feed added from the browser goes into the host's model, which the host is told
+    // to save and redraw; the host's worker fetches it
+    let (mut ws, _) = Ws::connect(&t, &sid);
+    ws.send_text(r#"{"t":"view","sort":["name",false],"columns":["name"],"window":[0,10]}"#);
+    let before = rss_version_above(&mut ws, 0);
+    let r = t.pa(&sid, "/pa/rss/feed-add", r#"{"url":"http://feeds.example/rss","alias":"Browser"}"#);
+    assert_eq!(r.status, 200, "{}", r.text());
+    let added = r.json().get("id").and_then(Json::as_i64).unwrap() as u32;
+    assert!(t.host.rss_changes.load(Ordering::SeqCst) > 0);
+    {
+        let r = t.host.rss.lock().unwrap();
+        assert!(r.dirty);
+        assert_eq!(r.d.feed(added).map(|f| f.alias.as_str()), Some("Browser"));
+    }
+    t.host
+        .collect_until("the browser's feed fetched", |d| d.feed(added).is_some_and(|f| !f.items.is_empty()));
+    let m = t.get(&sid, "/pa/rss").json();
+    let Some(Json::Arr(feeds)) = m.get("feeds") else { panic!() };
+    assert_eq!(feeds.len(), 2, "{}", m.to_json());
+    assert_eq!(feeds[1].get("items"), Some(&Json::Int(1)), "{}", m.to_json());
+    let before = rss_version_above(&mut ws, before);
+
+    // (c) a download from the browser goes to the host's add path, marked added in its model
+    let body = format!(r#"{{"feed":{added},"item":"ep1"}}"#);
+    assert_eq!(t.pa(&sid, "/pa/rss/download", &body).status, 204);
+    let downloads = t.host.downloads.lock().unwrap().clone();
+    assert_eq!(downloads.len(), 1, "{downloads:?}");
+    assert_eq!((downloads[0].url.as_str(), downloads[0].label.as_str()), (MAGNET, "Browser"));
+    {
+        let r = t.host.rss.lock().unwrap();
+        assert!(r.d.feed(added).unwrap().downloaded.contains("ep1"));
+        assert_eq!(r.d.history.len(), 1);
+    }
+    let r = t.pa(&sid, "/pa/rss/download", r#"{"feed":12345,"item":"x"}"#);
+    assert_eq!(r.status, 404, "{}", r.text());
+
+    // (d) the shim reads and edits the same model
+    let items = t.get(&sid, "/api/v2/rss/items").json();
+    assert!(items.get("Mine").is_some() && items.get("Browser").is_some(), "{}", items.to_json());
+    assert_eq!(t.post(&sid, "/api/v2/rss/removeItem", "path=Mine").status, 200);
+    assert!(t.host.rss.lock().unwrap().d.feed(mine).is_none());
+
+    // (e) the host's own change moves the tick's version: the page reloads
+    let v = rss_version_above(&mut ws, before);
+    t.host.rss.lock().unwrap().d.add_feed("http://host.example/rss", "Host's");
+    t.web.rss_changed();
+    rss_version_above(&mut ws, v);
+    let m = t.get(&sid, "/pa/rss").json();
+    assert!(m.to_json().contains("Host's"), "{}", m.to_json());
+}
+
+#[test]
+fn alternative_limits_are_off_and_shutdown_tells_the_host() {
     let t = Harness::start("off", Prefs::default(), Some(PASS));
     let sid = t.login();
 
     // (d) the page learns it from the hello
     let (_ws, hello) = Ws::connect(&t, &sid);
     assert_eq!(hello.get("hosted"), Some(&Json::Bool(true)), "{}", hello.to_json());
-    // no RSS Downloader: 404 with the reason, natively and through the shim
-    let r = t.get(&sid, "/pa/rss");
-    assert_eq!(r.status, 404, "{}", r.text());
-    assert!(s(r.json().get("error")).contains("desktop client"), "{}", r.text());
-    assert_eq!(t.pa(&sid, "/pa/rss/feed-add", r#"{"url":"http://x/"}"#).status, 404);
-    let r = t.get(&sid, "/api/v2/rss/items");
-    assert_eq!(r.status, 404, "{}", r.text());
-    assert!(s(r.json().get("error")).contains("desktop client"), "{}", r.text());
     // no alternative speed limits: the Bandwidth page has no such row, and switching them on
     // is refused (400 names the field; 409 from the limits and the shim)
     let m = t.get(&sid, "/pa/prefs").json();

@@ -15,7 +15,8 @@
 //! marks and the automations; the Web UI keeps a mirror of its preferences in
 //! `State::options`, writes what a browser changed there and hands the journal to the host
 //! ([`Shared::save`]), and takes the host's changes through [`WebUi::options_changed`]. Nothing
-//! is written to disk and nothing but a request's own command goes to the engine.
+//! is written to disk and nothing but a request's own command goes to the engine. The RSS
+//! Downloader the pages edit is the host's own model ([`Hosted::rss`], `rss.rs`).
 
 mod api;
 pub mod auth;
@@ -30,6 +31,8 @@ pub(crate) mod prefs;
 mod remote;
 pub(crate) mod rss;
 mod server;
+
+pub use rss::Rss;
 pub mod torrent;
 mod update;
 pub mod ws;
@@ -113,7 +116,11 @@ pub struct Config {
 /// labels, the pause marks and the automations (scheduler, seeding goal, scrapes, `.torrent`
 /// folders, RSS, moving completed downloads); the Web UI keeps a mirror of its preferences,
 /// shows and drives the same torrents, and reports what a browser changed. The Web UI stores
-/// nothing itself then, runs none of its own automations and has no RSS Downloader.
+/// nothing itself then and runs none of its own automations; its RSS endpoints edit the
+/// host's RSS Downloader ([`Hosted::rss`]).
+///
+/// No method may wait on the host's own thread (queue, post a message and return): a request
+/// thread may hold the Web UI's lock while it calls one.
 pub trait Host: Send + Sync {
     /// Preferences keys a request changed (`None`: removed), as the host's own keys
     /// (`patorrent_frontend::prefs`): a label or a pause mark as `torrent.<key>.label` /
@@ -125,6 +132,16 @@ pub trait Host: Send + Sync {
     /// `app/shutdown` (the shim) or `session/shutdown` (the page): the host exits. Called on
     /// a request thread without the lock.
     fn shutdown(&self);
+    /// A browser changed the host's RSS Downloader ([`Hosted::rss`]: a feed, a filter, the
+    /// History, a refresh started): the host redraws what shows it, and saves `rss.dat` when
+    /// [`Rss::dirty`] is set. Called on a request thread without either lock.
+    fn rss_changed(&self);
+    /// A browser asked for these RSS downloads (an item's Download, the filters run when the
+    /// dialog closed, a shim rule): the host adds them as it adds its own RSS downloads (its
+    /// worker fetches the `.torrent` files; its Add dialog's rules apply). The model has
+    /// marked them added and put them in the History already. Called on a request thread
+    /// without either lock.
+    fn rss_download(&self, reqs: Vec<patorrent_frontend::rss::AddRequest>);
 }
 
 /// How a desktop client hosts the Web UI ([`Config::hosted`]).
@@ -136,6 +153,13 @@ pub struct Hosted {
     /// settings (`lt.*`) and the options the Preferences pages show. The host hands later
     /// changes to [`WebUi::options_changed`].
     pub options: patorrent_frontend::prefs::Prefs,
+    /// The host's RSS Downloader, which the RSS endpoints (`/pa/rss...`, the shim's `rss/*`)
+    /// read and edit: one model, the host's, never a second downloader. The host keeps running
+    /// its worker, collecting the fetches, adding the torrents and saving `rss.dat`
+    /// ([`Rss::dirty`]), and calls [`WebUi::rss_changed`] when it changed the model itself.
+    /// Lock order on every thread: this lock before the Web UI's own, never the other way
+    /// round.
+    pub rss: Arc<Mutex<Rss>>,
 }
 
 impl std::fmt::Debug for Hosted {
@@ -508,8 +532,9 @@ pub(crate) struct Shared {
     /// Where `ipfilter.dat` is looked for when the IP filter has no path: the state directory,
     /// else the working directory.
     pub settings_dir: PathBuf,
-    /// The RSS Downloader; its lock comes before the State lock, never after it.
-    pub rss: Mutex<rss::Rss>,
+    /// The RSS Downloader (hosted, the host's: [`Hosted::rss`]); its lock comes before the
+    /// State lock, never after it.
+    pub rss: Arc<Mutex<rss::Rss>>,
     /// The certificate when serving HTTPS.
     pub tls: Option<patorrent_core::tls::Identity>,
     /// The paths requests may name; fixed at start.
@@ -899,14 +924,13 @@ impl WebUi {
             iterations: config.pbkdf2_iterations,
             state_file,
             settings_dir,
-            // rss.dat beside webui.json, in the config directory; hosted, no downloader
-            rss: Mutex::new(rss::Rss::load(
-                config
-                    .state_dir
-                    .as_ref()
-                    .filter(|_| hosted.is_none())
-                    .map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
-            )),
+            // rss.dat beside webui.json, in the config directory; hosted, the host's downloader
+            rss: match hosted {
+                Some(h) => h.rss.clone(),
+                None => Arc::new(Mutex::new(rss::Rss::load(
+                    config.state_dir.as_ref().map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
+                ))),
+            },
             tls: loaded.map(|l| l.identity),
             path_policy: path_policy::PathPolicy::new(config.save_roots.clone()),
             remotes: Mutex::new(Vec::new()),
@@ -1028,6 +1052,13 @@ impl WebUi {
         *seen = st.gui_version;
         st.prefs.gui().update_move_completed(current);
         true
+    }
+
+    /// Hosted ([`Config::hosted`]): the host changed its RSS Downloader ([`Hosted::rss`])
+    /// itself (a fetch came in, the user edited a feed or a filter): the pages reload it after
+    /// the next tick. Takes the Web UI's lock only, so the RSS lock may be held.
+    pub fn rss_changed(&self) {
+        self.shared.lock().rss_version += 1;
     }
 
     /// Hosted ([`Config::hosted`]): the host's preferences changed (its journal,
@@ -1559,7 +1590,7 @@ impl State {
             iterations: 1,
             state_file: None,
             settings_dir,
-            rss: Mutex::new(rss::Rss::load(None)),
+            rss: Arc::new(Mutex::new(rss::Rss::load(None))),
             tls: None,
             path_policy: path_policy::PathPolicy::default(),
             remotes: Mutex::new(Vec::new()),

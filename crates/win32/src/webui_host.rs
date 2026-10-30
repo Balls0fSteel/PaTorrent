@@ -5,6 +5,14 @@
 //! page edits the `webui.*` keys of `patorrent.ini`; the server starts with the window when
 //! enabled and is restarted on Apply. A remote window (File > Connect to Remote) has no engine
 //! of its own and serves nothing.
+//!
+//! The RSS Downloader is shared, not proxied: the window's own model (`Rss`, behind an
+//! `Arc<Mutex<..>>`) is the one the Web UI's RSS endpoints lock and edit (`Hosted::rss`). The
+//! window keeps the worker, the downloads and `rss.dat`; a browser's change comes back as
+//! `POST_RSS` (to redraw, and with the downloads it asked for, which go through the window's
+//! own RSS add path), and the window's own changes go to `WebUi::rss_changed`. Lock order on
+//! every thread: the RSS lock, then the Web UI's; the request threads never wait on the
+//! window's thread (everything here queues and posts).
 
 use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
@@ -12,14 +20,24 @@ use std::sync::{Arc, Mutex};
 
 use patorrent_core::{SessionHandle, Settings};
 use patorrent_frontend::prefs::{Change, Prefs};
+use patorrent_frontend::rss::AddRequest;
 use patorrent_frontend::tr;
 use patorrent_nox::webui::auth::{DEFAULT_ITERATIONS, PasswordHash};
 use patorrent_nox::webui::https::{Certificate, default_names};
-use patorrent_nox::webui::{self, Config, Host, Hosted, WebUi};
+use patorrent_nox::webui::{self, Config, Host, Hosted, Rss, WebUi};
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::PostMessageW;
 
 pub const DEFAULT_PORT: u16 = 8080;
+
+/// `WM_APP_WEBUI`'s `wparam`: preferences keys a browser changed are queued
+/// ([`WindowHost::take`]).
+pub const POST_CHANGES: usize = 0;
+/// `WM_APP_WEBUI`'s `wparam`: a browser asked the window to exit.
+pub const POST_SHUTDOWN: usize = 1;
+/// `WM_APP_WEBUI`'s `wparam`: a browser changed the RSS Downloader, maybe with downloads
+/// queued ([`WindowHost::take_rss_downloads`]).
+pub const POST_RSS: usize = 2;
 const DEFAULT_USER: &str = "admin";
 
 /// What the page edits: the `webui.*` keys of the preferences.
@@ -154,21 +172,31 @@ pub struct Edit {
 }
 
 /// The window as the Web UI's host: what a browser changed is queued here and the window
-/// told with `WM_APP_WEBUI` (`wparam` 0; 1 asks it to exit), so it is taken on its own
-/// thread.
+/// told with `WM_APP_WEBUI` ([`POST_CHANGES`], [`POST_SHUTDOWN`], [`POST_RSS`]), so it is
+/// taken on its own thread.
 pub struct WindowHost {
     hwnd: isize,
     pending: Mutex<Vec<Change>>,
+    rss_downloads: Mutex<Vec<AddRequest>>,
 }
 
 impl WindowHost {
     pub fn new(hwnd: HWND) -> Arc<WindowHost> {
-        Arc::new(WindowHost { hwnd: hwnd as isize, pending: Mutex::new(Vec::new()) })
+        Arc::new(WindowHost {
+            hwnd: hwnd as isize,
+            pending: Mutex::new(Vec::new()),
+            rss_downloads: Mutex::new(Vec::new()),
+        })
     }
 
     /// The queued changes, oldest first.
     pub fn take(&self) -> Vec<Change> {
         std::mem::take(&mut *self.pending.lock().unwrap_or_else(|e| e.into_inner()))
+    }
+
+    /// The RSS downloads a browser asked for, oldest first.
+    pub fn take_rss_downloads(&self) -> Vec<AddRequest> {
+        std::mem::take(&mut *self.rss_downloads.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     fn post(&self, what: usize) {
@@ -180,17 +208,28 @@ impl WindowHost {
 impl Host for WindowHost {
     fn options_changed(&self, changes: Vec<Change>) {
         self.pending.lock().unwrap_or_else(|e| e.into_inner()).extend(changes);
-        self.post(0);
+        self.post(POST_CHANGES);
     }
 
     fn shutdown(&self) {
-        self.post(1);
+        self.post(POST_SHUTDOWN);
+    }
+
+    fn rss_changed(&self) {
+        self.post(POST_RSS);
+    }
+
+    fn rss_download(&self, reqs: Vec<AddRequest>) {
+        self.rss_downloads.lock().unwrap_or_else(|e| e.into_inner()).extend(reqs);
+        self.post(POST_RSS);
     }
 }
 
 /// Starts the server for `setup` over `handle`: `prefs` is mirrored into it (the login hash
 /// included), `settings` and `save_path` are this window's, `dir` the settings folder (the
-/// certificate, `ipfilter.dat`).
+/// certificate, `ipfilter.dat`), `rss` the window's RSS Downloader, which the server's RSS
+/// endpoints edit.
+#[allow(clippy::too_many_arguments)]
 pub fn start(
     setup: &Setup,
     prefs: &Prefs,
@@ -199,6 +238,7 @@ pub fn start(
     dir: &Path,
     handle: SessionHandle,
     host: Arc<WindowHost>,
+    rss: Arc<Mutex<Rss>>,
 ) -> Result<WebUi, String> {
     if !has_password(prefs) {
         return Err(tr!(WebUiNeedLogin).to_owned());
@@ -210,7 +250,7 @@ pub fn start(
     if setup.https {
         c.https = Some(Certificate::Generated { dir: Some(dir.to_path_buf()), names: default_names(addr) });
     }
-    c.hosted = Some(Hosted { host, options: prefs.clone() });
+    c.hosted = Some(Hosted { host, options: prefs.clone(), rss });
     WebUi::start(handle, c).map_err(|e| e.to_string())
 }
 
@@ -253,6 +293,34 @@ mod tests {
         p.set("webui.listen", "nonsense");
         assert_eq!(Setup::load(&p).username, "admin");
         assert_eq!(Setup::load(&p).port, DEFAULT_PORT);
+    }
+
+    #[test]
+    fn a_browsers_rss_downloads_wait_for_the_window_in_order() {
+        // no window: the posts go nowhere
+        let host = WindowHost::new(std::ptr::null_mut());
+        let req = |title: &str| AddRequest {
+            feed: 1,
+            filter: None,
+            item_id: title.into(),
+            title: title.into(),
+            url: format!("magnet:?dn={title}"),
+            cookies: String::new(),
+            feed_url: "http://feed/".into(),
+            save_path: String::new(),
+            label: String::new(),
+            top_priority: false,
+            paused: false,
+        };
+        host.rss_changed();
+        assert!(host.take_rss_downloads().is_empty());
+        host.rss_download(vec![req("a"), req("b")]);
+        host.rss_download(vec![req("c")]);
+        let titles: Vec<String> = host.take_rss_downloads().into_iter().map(|r| r.title).collect();
+        assert_eq!(titles, ["a", "b", "c"]);
+        assert!(host.take_rss_downloads().is_empty());
+        // the preferences queue is its own
+        assert!(host.take().is_empty());
     }
 
     #[test]

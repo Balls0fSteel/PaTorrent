@@ -826,9 +826,6 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
         }
         e if e.starts_with("rss/") => {
             let e = &e["rss/".len()..];
-            if shared.is_hosted() {
-                return json_error(404, super::rss::HOSTED_NO_RSS);
-            }
             if read && super::rss::shim_post_only(e) {
                 return Response::text(405, "Method Not Allowed").with_header("Allow", "POST");
             }

@@ -4,6 +4,17 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_105007_1793353807: The Windows GUI's Web UI has the RSS Downloader (1.1.13)
+
+- **Design (option a, shared model):** the hosted Web UI runs nox's own RSS endpoints (`/pa/rss`, the shim's `rss/*`) against the window's model, an `Arc<Mutex<Rss>>` in `Hosted`. There is one model and one downloader; no request waits on the GUI thread.
+  - The window keeps the worker, the downloads and the saving of `rss.dat`.
+  - New `Host::rss_changed` / `rss_download` calls queue work and post `WM_APP_WEBUI`, so a browser's Download goes through the window's `rss_add` and follows its label, paused, queue-top and Add dialog rules.
+  - `WebUi::rss_changed` moves the tick's `rss` version after window-side changes.
+  - Lock order: the RSS lock, then the Web UI State, never the reverse (WEBUI.md).
+- Removed `HOSTED_NO_RSS`, its 404s and `app.js`'s RSS hiding. The alternative limits stay out (owner). `PrefWebUiNote` now ends "The page's RSS Downloader edits this window's feeds and filters.", machine-translated in all 34 tables. D40 has an amendment note.
+- **Tests:** new hosted test `the_rss_endpoints_edit_the_hosts_own_downloader` (a fake host owning the model) and Win32 `a_browsers_rss_downloads_wait_for_the_window_in_order`. Win32 71, nox (lib 71, hosted 9, webui 43, others) and frontend tests pass; clippy and fmt are clean. Reviewed: the window releases the lock before adds, redraws and notifications.
+- **Not yet run:** a real window with a browser. The redraws, `rss.dat` saving after a browser change and an open RSS dialog refreshing are a hand check (BACKLOG). Built by a subagent in a worktree. Version 1.1.13.
+
 ## 2026-10-30_104643_1793353603: Torznab search, slice 1: the shared model (1.1.12, D41)
 
 - **D41 approved (owner):** search through the user's Prowlarr or Jackett over Torznab, with no plugins and no scrapers. A source on a non-public address never uses the proxy.

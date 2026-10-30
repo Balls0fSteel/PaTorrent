@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_104643_1793353603
+Last updated: 2026-10-30_105007_1793353807
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -35,7 +35,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **A.** Done: 1.1.7 is published (2026-10-30).
 - **B.** Small fixes. Done in 1.1.8: the hosted window's `seed_*` changes reach `sync/maindata`, a category's `savePath` is used on add, hosted unused categories are kept, and tags are accepted as no-ops. The installer is built and smoke-tested in `ci.yml`. Win32 Preferences > Web UI has a Server domains field (1.1.9). The Bearer API key and the subnet whitelist are in 1.1.10. nox checks for updates (1.1.11, D43). Phase B is done.
-- **C.** RSS in hosted mode; optionally a GTK hosting page. The owner decided against alternative speed limits in the Win32 GUI (2026-10-30_103224_1793352744): keep 2.2.1's controls. The hosted Web UI keeps refusing them, by design.
+- **C.** RSS in hosted mode is done (1.1.13: the browser edits the window's own RSS model; hand check pending). Optional: a GTK hosting page. The owner decided against alternative speed limits in the Win32 GUI (2026-10-30_103224_1793352744): keep 2.2.1's controls. The hosted Web UI keeps refusing them, by design.
 - **D.** Torznab search (D41, approved; a source on a non-public address bypasses the proxy), in the slices of [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2. Slice 1, the frontend model, is done (1.1.12). Next: slice 2 (nox and the Web UI, with a live run against the VM's Prowlarr), then Win32 and GTK.
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
 

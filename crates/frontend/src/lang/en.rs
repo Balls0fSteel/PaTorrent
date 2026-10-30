@@ -684,7 +684,7 @@ strings! {
     SchedHover = "{day} {from}:00 - {to}:00: {mode}";
     PrefWebUi = "Enable Web UI";
     /// Preferences > Web UI (Windows): this window serves the Web UI itself (D40).
-    PrefWebUiNote = "The Web UI shows this window's torrents in a browser while PaTorrent is running (close to the tray to keep it up). Connections from other computers also need a Windows Firewall rule for patorrent.exe. The RSS Downloader is this window's; the page has none.";
+    PrefWebUiNote = "The Web UI shows this window's torrents in a browser while PaTorrent is running (close to the tray to keep it up). Connections from other computers also need a Windows Firewall rule for patorrent.exe. The page's RSS Downloader edits this window's feeds and filters.";
     /// Beside the password field: an empty field keeps the stored password.
     PrefWebUiPassKeep = "(blank: unchanged)";
     PrefWebUiConnectivity = "Connectivity";

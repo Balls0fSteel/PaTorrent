@@ -12,7 +12,7 @@ use std::ffi::c_void;
 use std::mem::{size_of, zeroed};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, MutexGuard};
 
 use patorrent_core::fetch::FetchProxy;
 use patorrent_core::metainfo::TorrentInfo;
@@ -42,7 +42,7 @@ use patorrent_frontend::status::{Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
 use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
-use patorrent_nox::webui::WebUi;
+use patorrent_nox::webui::{Rss, WebUi};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -325,11 +325,11 @@ struct App {
     /// The periodic scrape that gives stopped and queued torrents their swarm counts (run from
     /// the timer).
     scrapes: Scrapes,
-    /// The RSS Downloader (`rss.dat` beside `patorrent.ini`), its fetches, whether it changed
-    /// since it was saved, and its dialog while that is open.
-    rss: RssDownloader,
-    rss_worker: Worker,
-    rss_dirty: bool,
+    /// The RSS Downloader (`rss.dat` beside `patorrent.ini`) with its fetches and whether it
+    /// changed since it was saved (`Rss::dirty`), shared with the Web UI this window serves
+    /// (`Hosted::rss`: one model, edited from both sides; see [`rss_lock`]), and its dialog
+    /// while that is open.
+    rss: Arc<Mutex<Rss>>,
     rss_dialog: HWND,
     /// The tree's Feeds branch: the Feeds node (`None`), then one node per feed.
     feed_tree: Vec<(HTREEITEM, Option<FeedId>)>,
@@ -855,11 +855,13 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         list.set_sort(prefs.sort());
         let page =
             Page::ALL.into_iter().find(|p| prefs.get("ui.tab") == Some(p.key())).unwrap_or(Page::General);
-        let rss = RssDownloader::load(&rss_file());
-        // Runs on a fetch's worker thread: only post a message.
-        let rss_worker = Worker::new(move || {
-            PostMessageW(target as HWND, WM_APP_RSS, 0, 0);
-        });
+        // The worker's notify runs on a fetch's worker thread: only post a message.
+        let rss = Arc::new(Mutex::new(Rss::new(
+            RssDownloader::load(&rss_file()),
+            Worker::new(move || {
+                PostMessageW(target as HWND, WM_APP_RSS, 0, 0);
+            }),
+        )));
         let icon_big = icons::app_icon(scale(32, dpi) as usize);
         let icon_small = icons::app_icon(scale(16, dpi) as usize);
         SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, icon_big as LPARAM);
@@ -931,8 +933,6 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             seeding_goal,
             scrapes: Scrapes::default(),
             rss,
-            rss_worker,
-            rss_dirty: false,
             rss_dialog: null_mut(),
             feed_tree: Vec::new(),
             feed_tree_busy: false,
@@ -2332,12 +2332,14 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 0
             }
             WM_APP_WEBUI => {
-                if wparam == 0 {
-                    on_web_changes();
-                } else {
-                    // a browser's shutdown request: as File > Exit
-                    with_app(|a| a.quitting = true);
-                    DestroyWindow(hwnd);
+                match wparam {
+                    webui_host::POST_CHANGES => on_web_changes(),
+                    webui_host::POST_RSS => on_web_rss(),
+                    _ => {
+                        // a browser's shutdown request: as File > Exit
+                        with_app(|a| a.quitting = true);
+                        DestroyWindow(hwnd);
+                    }
                 }
                 0
             }
@@ -2536,7 +2538,7 @@ unsafe fn on_destroy(hwnd: HWND) {
             if let Err(e) = a.prefs.save() {
                 eprintln!("cannot save preferences: {e}");
             }
-            if let Err(e) = a.rss.save(&rss_file()) {
+            if let Err(e) = rss_lock(&a.rss).d.save(&rss_file()) {
                 eprintln!("cannot save {}: {e}", rss_file().display());
             }
         });
@@ -3610,6 +3612,7 @@ fn start_web(a: &mut App) {
         &data_dir(),
         a.handle.clone(),
         a.web_host.clone(),
+        a.rss.clone(),
     );
     a.web_status = match started {
         Ok(w) => {
@@ -3928,6 +3931,43 @@ mod url_tests {
 // picking one shows its items in the torrent list (µTorrent's way), where a double-click
 // downloads one.
 
+/// Locks the RSS Downloader, which the Web UI's request threads lock too (`Hosted::rss`).
+/// Hold it briefly and never across a dialog, a message loop or a call that locks it again
+/// (`rss_update`, `rss_download`); the lock order is this lock before the Web UI's own
+/// ([`web_rss_changed`] may run under it), and the Web UI's threads never wait on this one.
+fn rss_lock(rss: &Mutex<Rss>) -> MutexGuard<'_, Rss> {
+    rss.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+/// The window changed the RSS Downloader: a browser's page reloads it after the next tick.
+fn web_rss_changed(a: &App) {
+    if let Some(w) = &a.web {
+        w.rss_changed();
+    }
+}
+
+/// `WM_APP_WEBUI` (`POST_RSS`): a browser changed the RSS Downloader. Its downloads go
+/// through this window's own RSS add path ([`rss_download`]); the Feeds branch, the feed items
+/// and an open RSS Downloader dialog are redrawn; `rss.dat` is saved by the timer
+/// (`Rss::dirty`).
+unsafe fn on_web_rss() {
+    let Some(dialog) = with_app(|a| {
+        let reqs = a.web_host.take_rss_downloads();
+        rss_download(a, reqs);
+        a.rss_dialog
+    }) else {
+        return;
+    };
+    unsafe {
+        update_feed_tree();
+        refresh_feed_rows();
+        update_detail_lists();
+        if !dialog.is_null() {
+            PostMessageW(dialog, crate::rss::WM_RSS_CHANGED, 0, 0);
+        }
+    }
+}
+
 /// `rss.dat`, beside `patorrent.ini`.
 fn rss_file() -> PathBuf {
     data_dir().join(patorrent_frontend::rss::store::FILE_NAME)
@@ -4053,47 +4093,64 @@ pub(crate) fn open_url(hwnd: HWND, url: &str) {
 /// Once a second: the refreshes that are due, and `rss.dat` when it changed.
 fn rss_timer(a: &mut App) {
     let now = unix_now();
-    if a.rss.next_due().is_some_and(|t| t <= now)
-        && a.rss.due_feeds(now).iter().any(|&id| !a.rss_worker.is_busy(id))
+    let mut guard = rss_lock(&a.rss);
+    let r = &mut *guard;
+    if r.d.next_due().is_some_and(|t| t <= now) && r.d.due_feeds(now).iter().any(|&id| !r.worker.is_busy(id))
     {
         let proxy = rss_proxy(a);
-        a.rss_worker.refresh_due(&a.rss, now, proxy.as_ref());
+        r.worker.refresh_due(&r.d, now, proxy.as_ref());
     }
-    if a.rss_dirty {
-        a.rss_dirty = false;
-        if let Err(e) = a.rss.save(&rss_file()) {
-            let line = tr!(LogNotSaved, file = rss_file().display(), error = e);
-            a.detail.push_log(format!("{} {line}", now_hms()));
-        }
+    let error = if r.dirty {
+        r.dirty = false;
+        r.d.save(&rss_file()).err()
+    } else {
+        None
+    };
+    drop(guard);
+    if let Some(e) = error {
+        let line = tr!(LogNotSaved, file = rss_file().display(), error = e);
+        a.detail.push_log(format!("{} {line}", now_hms()));
     }
 }
 
 /// Starts refreshing feed `feed` now (`None`: every enabled feed).
 fn rss_update(a: &mut App, feed: Option<FeedId>) {
     let proxy = rss_proxy(a);
+    let mut guard = rss_lock(&a.rss);
+    let r = &mut *guard;
     let ids: Vec<FeedId> = match feed {
         Some(id) => vec![id],
-        None => a.rss.feeds.iter().filter(|f| f.enabled).map(|f| f.id).collect(),
+        None => r.d.feeds.iter().filter(|f| f.enabled).map(|f| f.id).collect(),
     };
     for id in ids {
-        a.rss_worker.refresh(&a.rss, id, proxy.as_ref());
+        r.worker.refresh(&r.d, id, proxy.as_ref());
     }
+    drop(guard);
+    web_rss_changed(a);
 }
 
 /// `WM_APP_RSS`: the finished fetches into the downloader, and their torrents into the session.
 unsafe fn rss_collect() {
     let Some((changed, logged, dialog)) = with_app(|a| {
         let proxy = rss_proxy(a);
-        let c = a.rss_worker.collect(&mut a.rss, unix_now(), proxy.as_ref());
-        let logged = !c.log.is_empty();
+        let c = {
+            let mut guard = rss_lock(&a.rss);
+            let r = &mut *guard;
+            let c = r.worker.collect(&mut r.d, unix_now(), proxy.as_ref());
+            r.dirty |= c.changed;
+            c
+        };
+        let (changed, logged) = (c.changed, !c.log.is_empty());
         for line in c.log {
             a.detail.push_log(format!("{} {line}", now_hms()));
         }
         for (req, d) in c.adds {
             rss_add(a, req, d);
         }
-        a.rss_dirty |= c.changed;
-        (c.changed, logged, a.rss_dialog)
+        if changed {
+            web_rss_changed(a);
+        }
+        (changed, logged, a.rss_dialog)
     }) else {
         return;
     };
@@ -4146,20 +4203,33 @@ fn rss_add(a: &mut App, req: AddRequest, d: Download) {
     }
 }
 
-/// Starts the downloads `reqs` ask for (the magnet links are added at once).
+/// Starts the downloads `reqs` ask for (the magnet links are added at once): the window's own
+/// (a filter, a double-click on an item) and a browser's (`on_web_rss`) alike.
 fn rss_download(a: &mut App, reqs: Vec<AddRequest>) {
     if reqs.is_empty() {
         return;
     }
-    for r in &reqs {
-        let feed = a.rss.feed(r.feed).map(|f| f.name().to_owned()).unwrap_or_default();
-        a.detail.push_log(format!("{} {}", now_hms(), tr!(RssLogDownloading, name = feed, title = r.title)));
-    }
     let proxy = rss_proxy(a);
-    for (req, d) in a.rss_worker.download(reqs, proxy.as_ref()) {
+    let (lines, now) = {
+        let mut r = rss_lock(&a.rss);
+        let lines: Vec<String> = reqs
+            .iter()
+            .map(|q| {
+                let feed = r.d.feed(q.feed).map(|f| f.name().to_owned()).unwrap_or_default();
+                tr!(RssLogDownloading, name = feed, title = q.title)
+            })
+            .collect();
+        let now = r.worker.download(reqs, proxy.as_ref());
+        r.dirty = true;
+        (lines, now)
+    };
+    for line in lines {
+        a.detail.push_log(format!("{} {line}", now_hms()));
+    }
+    for (req, d) in now {
         rss_add(a, req, d);
     }
-    a.rss_dirty = true;
+    web_rss_changed(a);
 }
 
 /// Shows feed items in the list (`Some(None)`: every feed's) or, with `None`, the torrents.
@@ -4172,7 +4242,7 @@ unsafe fn show_feed_items(view: Option<Option<FeedId>>) {
                 sync_columns(a);
             }
             a.feed_view = view;
-            a.feed_rows = view.map(|f| rss_view::item_rows(&a.rss, f)).unwrap_or_default();
+            a.feed_rows = view.map(|f| rss_view::item_rows(&rss_lock(&a.rss).d, f)).unwrap_or_default();
             (a.lv, was)
         }) else {
             return;
@@ -4219,7 +4289,7 @@ unsafe fn set_feed_columns() {
 unsafe fn refresh_feed_rows() {
     let Some((lv, n)) = with_app(|a| {
         let view = a.feed_view?;
-        a.feed_rows = rss_view::item_rows(&a.rss, view);
+        a.feed_rows = rss_view::item_rows(&rss_lock(&a.rss).d, view);
         Some((a.lv, a.feed_rows.len()))
     })
     .flatten() else {
@@ -4237,7 +4307,7 @@ unsafe fn update_feed_tree() {
     unsafe {
         let Some((tree, feeds, current, view)) = with_app(|a| {
             let feeds: Vec<(FeedId, String)> =
-                a.rss.feeds.iter().map(|f| (f.id, f.name().to_owned())).collect();
+                rss_lock(&a.rss).d.feeds.iter().map(|f| (f.id, f.name().to_owned())).collect();
             (a.tree, feeds, a.feed_tree.clone(), a.feed_view)
         }) else {
             return;
@@ -4311,8 +4381,10 @@ unsafe fn download_feed_items() {
         let now = unix_now();
         let picked: Vec<(FeedId, String)> =
             rows.iter().filter_map(|&r| a.feed_rows.get(r)).map(|r| (r.feed, r.id.clone())).collect();
-        let reqs: Vec<AddRequest> =
-            picked.into_iter().filter_map(|(feed, id)| a.rss.request_item(feed, &id, now)).collect();
+        let reqs: Vec<AddRequest> = {
+            let mut r = rss_lock(&a.rss);
+            picked.into_iter().filter_map(|(feed, id)| r.d.request_item(feed, &id, now)).collect()
+        };
         rss_download(a, reqs);
     });
     unsafe {
@@ -4335,7 +4407,8 @@ unsafe fn tree_menu(hwnd: HWND, tree: HWND, p: POINT, keyboard: bool) {
         };
         let Some((feed, enabled)) = with_app(|a| {
             let feed = a.feed_tree.iter().find(|(x, _)| *x == h)?.1;
-            Some((feed, feed.and_then(|id| a.rss.feed(id)).is_none_or(|f| f.enabled)))
+            let enabled = feed.and_then(|id| rss_lock(&a.rss).d.feed(id).map(|f| f.enabled)).unwrap_or(true);
+            Some((feed, enabled))
         })
         .flatten() else {
             return;
@@ -4364,29 +4437,39 @@ unsafe fn feed_command(hwnd: HWND, id: u16, feed: Option<FeedId>) {
                     crate::rss::FeedForm { url: crate::rss::url_from_clipboard(hwnd), ..Default::default() };
                 let Some(form) = crate::rss::feed_dialog(hwnd, tr!(RssAddFeed), form) else { return };
                 with_app(|a| {
-                    let id = form.add_to(&mut a.rss);
-                    a.rss_dirty = true;
+                    let id = {
+                        let mut r = rss_lock(&a.rss);
+                        r.dirty = true;
+                        form.add_to(&mut r.d)
+                    };
                     rss_update(a, Some(id));
                 });
             }
             cmd::FEED_EDIT => {
                 let Some(id) = feed else { return };
-                let Some(form) = with_app(|a| a.rss.feed(id).map(crate::rss::FeedForm::of)).flatten() else {
+                let Some(form) =
+                    with_app(|a| rss_lock(&a.rss).d.feed(id).map(crate::rss::FeedForm::of)).flatten()
+                else {
                     return;
                 };
                 let Some(form) = crate::rss::feed_dialog(hwnd, tr!(RssEditFeed), form) else { return };
                 with_app(|a| {
-                    if form.store(&mut a.rss, id) {
+                    let moved = {
+                        let mut r = rss_lock(&a.rss);
+                        r.dirty = true;
+                        form.store(&mut r.d, id)
+                    };
+                    if moved {
                         rss_update(a, Some(id));
                     }
-                    a.rss_dirty = true;
                 });
             }
             cmd::FEED_TOGGLE => {
                 with_app(|a| {
-                    if let Some(f) = feed.and_then(|id| a.rss.feed_mut(id)) {
+                    let mut r = rss_lock(&a.rss);
+                    if let Some(f) = feed.and_then(|id| r.d.feed_mut(id)) {
                         f.enabled = !f.enabled;
-                        a.rss_dirty = true;
+                        r.dirty = true;
                     }
                 });
             }
@@ -4395,19 +4478,22 @@ unsafe fn feed_command(hwnd: HWND, id: u16, feed: Option<FeedId>) {
             }
             cmd::FEED_REMOVE => {
                 let Some(id) = feed else { return };
-                let name =
-                    with_app(|a| a.rss.feed(id).map(|f| f.name().to_owned())).flatten().unwrap_or_default();
+                let name = with_app(|a| rss_lock(&a.rss).d.feed(id).map(|f| f.name().to_owned()))
+                    .flatten()
+                    .unwrap_or_default();
                 if !dialogs::confirm(hwnd, &tr!(AskDeleteFeed, name)) {
                     return;
                 }
                 with_app(|a| {
-                    a.rss.remove_feed(id);
-                    a.rss_dirty = true;
+                    let mut r = rss_lock(&a.rss);
+                    r.d.remove_feed(id);
+                    r.dirty = true;
                 });
             }
             cmd::RSS => return show_rss(hwnd, feed),
             _ => return,
         }
+        with_app(|a| web_rss_changed(a));
         update_feed_tree();
         refresh_feed_rows();
     }
@@ -4420,10 +4506,14 @@ unsafe fn show_rss(hwnd: HWND, feed: Option<FeedId>) {
     crate::rss::show(hwnd, &mut AppHost, feed);
     with_app(|a| {
         let now = unix_now();
-        let ids: Vec<FeedId> = a.rss.feeds.iter().map(|f| f.id).collect();
-        let reqs: Vec<AddRequest> = ids.into_iter().flat_map(|id| a.rss.process(id, now)).collect();
+        let reqs: Vec<AddRequest> = {
+            let mut r = rss_lock(&a.rss);
+            r.dirty = true;
+            let ids: Vec<FeedId> = r.d.feeds.iter().map(|f| f.id).collect();
+            ids.into_iter().flat_map(|id| r.d.process(id, now)).collect()
+        };
         rss_download(a, reqs);
-        a.rss_dirty = true;
+        web_rss_changed(a);
     });
     unsafe {
         update_feed_tree();
@@ -4437,18 +4527,22 @@ struct AppHost;
 
 impl crate::rss::Host for AppHost {
     fn view(&mut self, f: &mut dyn FnMut(&RssDownloader)) {
-        with_app(|a| f(&a.rss));
+        with_app(|a| f(&rss_lock(&a.rss).d));
     }
 
     fn edit(&mut self, f: &mut dyn FnMut(&mut RssDownloader)) {
         with_app(|a| {
-            f(&mut a.rss);
-            a.rss_dirty = true;
+            {
+                let mut r = rss_lock(&a.rss);
+                f(&mut r.d);
+                r.dirty = true;
+            }
+            web_rss_changed(a);
         });
     }
 
     fn updating(&mut self, id: FeedId) -> bool {
-        with_app(|a| a.rss_worker.is_busy(id)).unwrap_or(false)
+        with_app(|a| rss_lock(&a.rss).worker.is_busy(id)).unwrap_or(false)
     }
 
     fn update(&mut self, id: Option<FeedId>) {

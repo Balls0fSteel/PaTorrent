@@ -386,10 +386,15 @@ That broad check does not establish that every detailed case below was tried.
   integration tests, the dialog's fake hook and a demo screenshot: hand-check a
   real session once (enable with a password, Open Web UI, log in, label and
   pause a torrent from each side, change a rate limit from the browser, HTTPS,
-  the port in use, the box turned off, a browser `app/shutdown`). Not in hosted
-  mode: the RSS Downloader (the window's; a proxy to it is the follow-up),
-  alternative speed limits (the shim's `speedLimitsMode` answers 0; by design since the owner's
-  decision of 2026-10-30, because the Win32 GUI keeps 2.2.1's controls without such a toggle), and a magnet
+  the port in use, the box turned off, a browser `app/shutdown`). The page's RSS
+  Downloader edits the window's own model (shared `Arc<Mutex<Rss>>`, WEBUI.md
+  "Hosted by a desktop client"); hand-check it too: add, edit and remove a feed
+  and a filter from the browser with the window's RSS dialog open and closed, an
+  item's Download from the browser (label, paused, top of queue as the window's
+  own RSS adds), a window-side fetch reloading the page's dialog, `rss.dat`
+  saved after a browser change. Not in hosted mode: alternative speed limits
+  (owner, 2026-10-30: the Win32 GUI gets none; the shim's `speedLimitsMode`
+  answers 0), and a magnet
   added from the browser without metadata survives a window restart only in the
   window's Add dialog. The `--webui` daemon-only paths (`webui.json`) are
   unchanged. Fixed in 1.1.8:

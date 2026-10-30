@@ -9,6 +9,11 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **Release:** tag `v1.1.7` on `f7ed2f40`. Release run 41023963735 passed in 11 min with 14 files; every file matched `SHA256SUMS`, and the zip's `patorrent-nox --version` printed 1.1.7. CI, Fuzz and FreeBSD passed on the same commit. The release was published as Latest with the owner's go-ahead.
 - **1.1.2:** the never-published draft and its tag were deleted (owner).
 
+## 2026-10-30_080053_1793347253: V2.0 profiles and portable-mode design (proposed D42)
+
+- **Design (plan item E):** new [docs/PROFILES.md](docs/PROFILES.md): `--profile NAME` on all three binaries, named profiles in `profiles/<name>` inside today's root (the default profile is the 1.x folder, so nothing migrates), per-profile Win32 window class and GTK application id, a `patorrent.lock` per profile, random listen ports for new profiles, per-profile nox services (SCM, a systemd template, rc.d profiles), associations owned by one profile, portable mode by `patorrent.ini` on every platform but Flatpak with relative paths inside the folder, and the installer's (D31) checks. Nine open questions for the owner; a brief comparison with µTorrent and qBittorrent from memory.
+- **Found while reading the code:** the Win32 second start's `FindWindowW("PaTorrentMainWnd")` is not keyed by data dir like its mutex, so with a portable and an installed copy both running a torrent can go to the wrong one; the GUI tests the portable marker with `exists()` and nox with `is_file()`. Both are step 1 of the design. Docs only, no version bump.
+
 ## 2026-10-30_075840_1793347120: CI builds and smoke-tests the Windows installer
 
 - **CI (Phase 1 item 1):** `ci.yml`'s `release-windows` job now installs the pinned NSIS 3.13, builds the setup (`/WX`) and installs and uninstalls it silently, with the same steps and checks as `release.yml`'s `windows` job, so installer breakage shows on every push and PR instead of only at a tag. Its version is `<workspace version>-dev.<commit>` from `cargo metadata`, as `release.yml` names an untagged build. The setup joins the existing `patorrent-windows-x64` artifact. Checked locally: the YAML parses, every PowerShell step parses, the version step gives `1.1.7-dev.<sha>`; actionlint was not available, and the job has not run on GitHub yet. CI only, so no version bump.

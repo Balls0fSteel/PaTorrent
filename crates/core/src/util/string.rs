@@ -1,5 +1,5 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/string_util.cpp, src/escape_string.cpp,
-// src/parse_url.cpp; fixes from 2.0.13 (188c5226f7)
+// src/parse_url.cpp; fixes from 2.0.13 (188c5226f7) and 2.1.1 (ca5a92e4f8's parse_decimal)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: byte-slice based; errors are `Option`/`Result` instead of `error_code`.
 
@@ -28,6 +28,25 @@ pub fn ltrim(s: &str) -> &str {
 /// Removes leading and trailing whitespace (libtorrent `trim`).
 pub fn trim(s: &str) -> &str {
     s.trim_matches(|c: char| c.is_ascii() && is_space(c as u8))
+}
+
+/// libtorrent `parse_decimal` (ca5a92e4f8, replacing `atoi`): the leading decimal number of
+/// `s` (`std::from_chars` rules: an optional `-`, then digits; no whitespace or `+`). `None` if
+/// there is no number or it does not fit in an `i32`, so an out-of-range value can never pass
+/// a range check the way a truncating or saturating `atoi` lets it.
+pub fn parse_decimal(s: &str) -> Option<i32> {
+    let (neg, digits) = match s.strip_prefix('-') {
+        Some(rest) => (true, rest),
+        None => (false, s),
+    };
+    let n = digits.bytes().take_while(u8::is_ascii_digit).count();
+    if n == 0 {
+        return None;
+    }
+    let v: i64 = digits[..n].bytes().try_fold(0i64, |a, d| {
+        a.checked_mul(10)?.checked_add(i64::from(d - b'0')).filter(|&v| v <= i64::from(i32::MAX) + 1)
+    })?;
+    i32::try_from(if neg { -v } else { v }).ok()
 }
 
 pub fn ensure_trailing_slash(url: &mut String) {
@@ -305,6 +324,28 @@ pub fn same_origin(a: &str, b: &str) -> bool {
 mod tests {
     //! Ported from libtorrent-rasterbar 2.0.11 test/test_string.cpp.
     use super::*;
+
+    #[test]
+    fn parse_decimal_cases() {
+        // after ca5a92e4f8's test_string.cpp parse_decimal
+        for (s, v) in [
+            ("0", 0),
+            ("80", 80),
+            ("65535", 65535),
+            ("2147483647", i32::MAX),
+            ("-2147483648", i32::MIN),
+            ("-4", -4),
+            ("-1", -1),
+            ("200 OK", 200),
+            ("80/announce", 80),
+        ] {
+            assert_eq!(parse_decimal(s), Some(v), "{s:?}");
+        }
+        for s in ["", "abc", " 80", "+80", "-", "2147483648", "4294967376", "4294967496 Forbidden"] {
+            assert_eq!(parse_decimal(s), None, "{s:?}");
+        }
+        assert_eq!(parse_decimal("99999999999999999999"), None);
+    }
 
     #[test]
     fn maybe_url_encode_cases() {

@@ -1,5 +1,5 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/smart_ban.cpp, src/torrent.cpp (piece_failed,
-// penalize_peers, the trust points of piece_passed, ban_peer)
+// penalize_peers, the trust points of piece_passed, ban_peer); fixes from 2.1.2 (8de7a294ef)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: the plugin is a struct on the torrent, driven by engine methods, and its disk reads
 // come back through the engine's read completions (cookies with the top bit set) instead of
@@ -199,6 +199,9 @@ impl Engine {
             return;
         }
         t.failed_bytes += t.piece_size(piece);
+        // did we receive this piece from a single peer? Then we know it sent bad data.
+        let payload = t.picker.as_ref().map_or(downloaders.len(), |p| p.payload_blocks(piece));
+        let known_bad_peer = lone_downloader(&downloaders, payload, peers.len());
         if let Some(storage) = t.storage.clone() {
             let size = t.piece_size_for_req(piece);
             for block in t.smart_ban.get_or_insert_with(Box::default).on_piece_failed(piece, &downloaders) {
@@ -207,8 +210,6 @@ impl Engine {
                 self.disk.async_read(&storage, piece, start, len, SMART_BAN_COOKIE);
             }
         }
-        // did we receive this piece from a single peer? Then we know it sent bad data.
-        let known_bad_peer = peers.len() == 1;
         let mut banned = Vec::new();
         for addr in peers {
             let Some(t) = self.torrent(id) else { return };
@@ -319,9 +320,28 @@ impl Engine {
     }
 }
 
+/// libtorrent `piece_failed` (8de7a294ef): did the piece come from one peer alone? `peers` is
+/// the number of known downloaders. Pad blocks (the trailing ones past `payload`) are never
+/// downloaded, so their empty entries don't count; an empty entry among the payload blocks is a
+/// downloader we no longer know, a participant all the same.
+fn lone_downloader(downloaders: &[Option<SocketAddr>], payload: usize, peers: usize) -> bool {
+    let payload = &downloaders[..payload.min(downloaders.len())];
+    peers == 1 && payload.iter().all(Option::is_some)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pad_blocks_do_not_hide_a_lone_downloader() {
+        // after 8de7a294ef: two payload blocks from A, then two pad blocks
+        assert!(lone_downloader(&[Some(A), Some(A), None, None], 2, 1));
+        // a payload block from a downloader we don't know is someone else
+        assert!(!lone_downloader(&[Some(A), None, None, None], 2, 1));
+        assert!(!lone_downloader(&[Some(A), Some(C), None, None], 2, 2));
+        assert!(lone_downloader(&[Some(A), Some(A)], 2, 1));
+    }
 
     const A: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 1)), 6881);
     const C: SocketAddr = SocketAddr::new(std::net::IpAddr::V4(std::net::Ipv4Addr::new(10, 0, 0, 2)), 6881);

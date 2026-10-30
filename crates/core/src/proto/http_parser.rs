@@ -1,6 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/http_parser.cpp (the response header state
 // machine of `incoming`, `parse_chunk_header`, `header_duration`, `is_ok_status`, `is_redirect`,
-// `resolve_redirect_location`), src/parse_url.cpp (`split_url`); fixes from 2.0.13 (1da2e16473)
+// `resolve_redirect_location`), src/parse_url.cpp (`split_url`); fixes from 2.0.13 (1da2e16473), 2.1.0 (8d4a89270b) and 2.1.2 (97be0f1ec5)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: the header is parsed in one call once its blank line is in the buffer (instead of
 // line by line across calls); the body is left to the caller (web seeds use libtorrent's
@@ -138,6 +138,10 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(ResponseHead, usize)>, ParseErro
         let Some((line, next)) = next_line(buf, pos) else {
             return if buf.len() > MAX_HEADER {
                 Err(ParseError::Invalid("HTTP header too large"))
+            } else if buf.get(pos).is_some_and(|&c| c != b'H') {
+                // bytes that don't start with 'H' can never form a status line: fail now
+                // rather than buffering a header's worth of garbage (libtorrent 8d4a89270b)
+                Err(ParseError::Invalid("not an HTTP response"))
             } else {
                 Ok(None)
             };
@@ -320,15 +324,30 @@ pub fn resolve_redirect_location(referrer: &str, location: &str) -> String {
     let mut url = referrer.to_owned();
     // the referrer must have a URL scheme, otherwise return the location verbatim
     let Some(scheme) = url.find("://") else { return location.to_owned() };
+    let authority = scheme + 3;
+    // where the path ends: the query string and fragment are not part of it
+    let path_end = url[authority..].find(['?', '#']).map_or(url.len(), |i| authority + i);
     if location.starts_with('/') {
-        // an absolute path: replace the path component of the referrer
-        if let Some(i) = url[scheme + 3..].find('/') {
-            url.truncate(scheme + 3 + i);
+        // an absolute path: replace the path component of the referrer, finding the end of
+        // the authority without the slashes of a query string or fragment
+        let path_start = url[authority..].find('/').map_or(url.len(), |i| authority + i);
+        url.truncate(path_start.min(path_end));
+        url.push_str(location);
+    } else if location.starts_with('?') {
+        // a query reference replaces the current query and fragment
+        url.truncate(path_end);
+        url.push_str(location);
+    } else if location.starts_with('#') {
+        // a fragment reference keeps the current path and query
+        if let Some(i) = url[authority..].find('#') {
+            url.truncate(authority + i);
         }
         url.push_str(location);
     } else {
-        // some web servers send out relative paths in the location header: remove the leaf
-        // filename. If the last '/' is part of the scheme, there is no '/' in the path.
+        // some web servers send out relative paths in the location header: remove the query
+        // string, fragment and leaf filename. If the last '/' is part of the scheme, there is
+        // no '/' in the path.
+        url.truncate(path_end);
         if let Some(end) = url.rfind('/').filter(|&e| e > scheme + 2) {
             url.truncate(end);
         }
@@ -412,6 +431,18 @@ mod tests {
         ] {
             assert_eq!(head(r).unwrap().unwrap().0.status, status, "{r:?}");
         }
+    }
+
+    #[test]
+    fn garbage_fails_before_the_status_line_ends() {
+        // after 8d4a89270b: a partial line that can't be a status line fails at once
+        assert!(matches!(head("GET / HT"), Err(ParseError::Invalid(_))));
+        assert!(matches!(head("\x00\x01"), Err(ParseError::Invalid(_))));
+        assert!(matches!(head("HTT"), Ok(None)));
+        assert!(matches!(head(""), Ok(None)));
+        // the same after a 100 Continue
+        assert!(matches!(head("HTTP/1.1 100 Continue\r\n\r\nx"), Err(ParseError::Invalid(_))));
+        assert!(matches!(head("HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1"), Ok(None)));
     }
 
     #[test]
@@ -529,6 +560,16 @@ mod tests {
         assert_eq!(r("http://example.com", "d"), "http://example.com/d");
         assert_eq!(r("my-custom-scheme://example.com/a/b", "/d"), "my-custom-scheme://example.com/d");
         assert_eq!(r("my-custom-scheme://example.com/a/b", "c/d"), "my-custom-scheme://example.com/a/c/d");
+        // query strings and fragments are not part of the path (97be0f1ec5)
+        assert_eq!(r("http://example.com?path=/old", "/new"), "http://example.com/new");
+        assert_eq!(r("http://example.com#path=/old", "/new"), "http://example.com/new");
+        assert_eq!(r("http://example.com/a/b?path=/old", "new"), "http://example.com/a/new");
+        assert_eq!(r("http://example.com/a/b#path=/old", "new"), "http://example.com/a/new");
+        assert_eq!(r("http://example.com/a/b?old=1#old", "?new=/path"), "http://example.com/a/b?new=/path");
+        assert_eq!(
+            r("http://example.com/a/b?old=1#old", "#new/path"),
+            "http://example.com/a/b?old=1#new/path"
+        );
         // if the referrer is invalid, just respond the verbatim location
         assert_eq!(r("example.com/a/b", "/c/d"), "/c/d");
         assert_eq!(r("http://example.com/a", ""), "http://example.com/a");

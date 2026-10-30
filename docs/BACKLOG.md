@@ -325,8 +325,9 @@ That broad check does not establish that every detailed case below was tried.
   `removeCategories` now clears the window's label), and the live run against the Windows GUI
   passed (2026-10-29, `tools/arr-test` README). Still to run: a magnet
   grab with real peers, "First" priority / Force Start, and a mobile qBittorrent remote. Other shim
-  gaps: tags, search, logs, automatic management, cookies, the Bearer API key and a subnet
-  whitelist; RSS exists but has the limitations in the RSS section.
+  gaps: tags, search, logs, automatic management, cookies; RSS exists but has the limitations
+  in the RSS section. The Bearer API key and the subnet whitelist exist (2026-10-30, off by
+  default).
   States use documented `pausedDL`/`pausedUP`; change to 5.x `stoppedDL`/`stoppedUP`
   if a client needs it. `sync/maindata` stores roughly 50 field values per torrent
   per logged-in client; consider change counters at large scale/many clients.

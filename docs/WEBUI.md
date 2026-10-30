@@ -318,6 +318,24 @@ from a loopback peer the last `X-Forwarded-For` address (the one the proxy added
 client for bans, so one client's failed logins do not ban everyone. Configure the proxy to
 set or append that header.
 
+Two more ways in, both off by default (owner decision 2026-10-30), both changed only with the
+current password, and reported read-only by the shim's `app/preferences`:
+
+- **API key** (`webui.api_key_enabled`, `webui.api_key`): `Authorization: Bearer <key>` stands
+  in for a login (the *arrs' ApiKey field). The key is at least 16 characters, write-only, and
+  stored as a PBKDF2 hash like the password; the SHA-256 of the last key that verified is kept
+  in memory so the hash runs once per key, not per request. A wrong key counts as a failed
+  login towards the client's ban, and a request that names a key is refused when it is wrong
+  even from a whitelisted address. It works through a reverse proxy.
+- **Subnet whitelist** (`webui.bypass_auth_subnets`, qBittorrent's
+  `bypass_auth_subnet_whitelist`): `;`-separated CIDRs or bare addresses, IPv4 and IPv6 (an
+  IPv4-mapped client counts as its IPv4 address); an entry that does not parse is refused.
+  Like the local-auth bypass it never matches a proxied request (`X-Forwarded-For`,
+  `Forwarded`, `X-Real-IP`), since behind a proxy the peer address says nothing about the
+  client. Anyone on a whitelisted network can do everything a logged-in user can, including
+  adding torrents that write to the save roots: whitelist only networks you trust as much as
+  the login.
+
 HTTPS (`--webui-https`, or `--webui-cert FILE [--webui-key FILE]`): the port serves TLS only,
 through the OS library (SChannel on Windows, OpenSSL on Unix: `patorrent_core::tls`), TLS 1.2
 and 1.3. `--webui-https` alone makes a self-signed certificate on first use (ECDSA P-256, 825

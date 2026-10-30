@@ -479,6 +479,46 @@ fn the_hosts_changes_show_in_the_lists_and_a_new_hash_ends_the_sessions() {
     assert_eq!(t.login_as("bob", "other-pass").status, 200);
 }
 
+/// The API key is one of the host's keys (hashed): the host's key works from the start, a key
+/// the host changes takes effect at once, and a browser's new key reaches the host as a hash.
+#[test]
+fn the_api_key_is_the_hosts_and_follows_its_changes() {
+    const KEY1: &str = "first-key-0123456789";
+    const KEY2: &str = "second-key-0123456789";
+    let mut o = options_with_login("admin", PASS);
+    o.set("webui.api_key_enabled", "1");
+    o.set("webui.api_key", PasswordHash::new(KEY1, 2).to_string());
+    let t = Harness::start("api-key", o, None);
+    let bearer = |key: &str| {
+        let auth = format!("Bearer {key}");
+        t.req("GET", "/api/v2/app/version", &[("Authorization", &auth)], Body::None).status
+    };
+    assert_eq!(bearer(KEY1), 200);
+    // a new key from the host: the old one stops working
+    t.web.options_changed(&[("webui.api_key".to_owned(), Some(PasswordHash::new(KEY2, 2).to_string()))]);
+    assert_eq!(bearer(KEY1), 403);
+    assert_eq!(bearer(KEY2), 200);
+    // switched off by the host
+    t.web.options_changed(&[("webui.api_key_enabled".to_owned(), Some("0".to_owned()))]);
+    assert_eq!(bearer(KEY2), 403);
+    t.web.options_changed(&[("webui.api_key_enabled".to_owned(), Some("1".to_owned()))]);
+    assert_eq!(bearer(KEY2), 200);
+
+    // a browser's new key: the host stores the hash, not the key
+    let sid = t.login();
+    t.host.clear();
+    let body = format!(r#"{{"webui.api_key":"{KEY1}","webui.current_password":"{PASS}"}}"#);
+    let r = t.pa(&sid, "/pa/prefs", &body);
+    assert_eq!(r.status, 204, "{}", r.text());
+    let stored = t.host.value_of("webui.api_key").flatten().expect("the hash");
+    assert!(
+        !stored.contains(KEY1) && PasswordHash::parse(&stored).is_some_and(|h| h.verify(KEY1)),
+        "{stored}"
+    );
+    assert_eq!(bearer(KEY1), 200);
+    assert_eq!(bearer(KEY2), 403);
+}
+
 // ---- preferences ------------------------------------------------------------------------------
 
 #[test]

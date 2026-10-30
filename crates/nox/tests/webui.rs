@@ -1152,6 +1152,146 @@ fn a_reverse_proxy_gets_no_bypass_and_per_client_bans() {
     );
 }
 
+const API_KEY: &str = "an-api-key-0123456789";
+
+fn bearer(t: &Harness, key: &str, path: &str) -> Resp {
+    let auth = format!("Bearer {key}");
+    t.req("GET", path, &[("Authorization", &auth)], Body::None)
+}
+
+/// The API key (`Authorization: Bearer`): off by default, set and switched on only with the
+/// current password, at least 16 characters, stored as a hash; a wrong key counts towards the
+/// ban like a failed login.
+#[test]
+fn an_api_key_is_accepted_only_when_switched_on() {
+    let t = Harness::start("api-key");
+    let sid = t.login();
+    let version = "/api/v2/app/version";
+    assert_eq!(bearer(&t, API_KEY, version).status, 403, "off by default");
+    for body in [
+        format!(r#"{{"webui.api_key":"{API_KEY}"}}"#),
+        r#"{"webui.api_key_enabled":true}"#.to_owned(),
+        r#"{"webui.bypass_auth_subnets":"10.0.0.0/8"}"#.to_owned(),
+    ] {
+        let r = t.pa(&sid, "/pa/prefs", &body);
+        assert_eq!(r.status, 400, "{body}");
+        assert!(r.text().contains("webui.current_password"), "{body}: {}", r.text());
+    }
+    // too short
+    let r = t.pa(
+        &sid,
+        "/pa/prefs",
+        &format!(r#"{{"webui.api_key":"short-key","webui.current_password":"{PASS}"}}"#),
+    );
+    assert_eq!(r.status, 400);
+    assert!(r.text().contains("webui.api_key") && r.text().contains("16"), "{}", r.text());
+    // set but not switched on: refused
+    let r = t.pa(
+        &sid,
+        "/pa/prefs",
+        &format!(r#"{{"webui.api_key":"{API_KEY}","webui.current_password":"{PASS}"}}"#),
+    );
+    assert_eq!(r.status, 204, "{}", r.text());
+    assert_eq!(bearer(&t, API_KEY, version).status, 403, "not switched on");
+    let r = t.pa(
+        &sid,
+        "/pa/prefs",
+        &format!(r#"{{"webui.api_key_enabled":true,"webui.current_password":"{PASS}"}}"#),
+    );
+    assert_eq!(r.status, 204, "{}", r.text());
+    // the key works for the shim, the native commands and the large bodies, in any scheme case
+    let r = bearer(&t, API_KEY, version);
+    assert_eq!((r.status, r.header("set-cookie")), (200, None), "{}", r.text());
+    assert_eq!(bearer(&t, API_KEY, "/pa/prefs").status, 200);
+    let r = t.req("GET", version, &[("Authorization", &format!("bearer {API_KEY}"))], Body::None);
+    assert_eq!(r.status, 200);
+    let (data, _) = torrent();
+    let (body, boundary) = multipart(&[], &data);
+    let auth = format!("Bearer {API_KEY}");
+    let r =
+        t.req("POST", "/api/v2/torrents/add", &[("Authorization", &auth)], Body::Multipart(&body, boundary));
+    assert_eq!(r.status, 200, "{}", r.text());
+    // never shown, stored as a hash
+    let m = t.get(&sid, "/pa/prefs").json();
+    let field = |id: &str| m.get("fields").unwrap().get(id).unwrap().get("value").cloned().unwrap();
+    assert_eq!(field("webui.api_key"), Json::Str(String::new()));
+    assert_eq!(field("webui.api_key_enabled"), Json::Bool(true));
+    let file = std::fs::read_to_string(t.dir.join("state").join(STATE_FILE)).unwrap();
+    assert!(file.contains(r#""webui.api_key":"pbkdf2-sha256:"#) && !file.contains(API_KEY), "{file}");
+    // the shim does not change the security settings it reports
+    let set = format!(
+        "json={}",
+        enc(&format!(
+            r#"{{"bypass_auth_subnet_whitelist_enabled":true,"bypass_auth_subnet_whitelist":"0.0.0.0/0","web_ui_current_password":"{PASS}"}}"#
+        ))
+    );
+    assert_eq!(t.post(&sid, "/api/v2/app/setPreferences", &set).status, 200);
+    let p = t.get(&sid, "/api/v2/app/preferences").json();
+    assert_eq!(p.get("bypass_auth_subnet_whitelist_enabled"), Some(&Json::Bool(false)));
+    assert_eq!(s(p.get("bypass_auth_subnet_whitelist")), "");
+
+    // a wrong key is a failed login: five of them ban the address
+    for _ in 0..5 {
+        assert_eq!(bearer(&t, "a-wrong-key-0123456789", version).status, 403);
+    }
+    let r = bearer(&t, API_KEY, version);
+    assert_eq!(r.status, 403);
+    assert!(r.text().contains("banned"), "{}", r.text());
+}
+
+/// The subnet whitelist skips the login for its clients (here loopback, with the local-auth
+/// bypass off), never for a proxied request; an entry that is not a subnet is refused.
+#[test]
+fn a_subnet_whitelist_skips_the_login_unless_proxied() {
+    let t = Harness::start("subnets");
+    let sid = t.login();
+    let version = "/api/v2/app/version";
+    assert_eq!(t.req("GET", version, &[], Body::None).status, 403);
+    let r = t.pa(
+        &sid,
+        "/pa/prefs",
+        &format!(
+            r#"{{"webui.bypass_auth_subnets":"10.0.0.0/8;10.0.0.0/33","webui.current_password":"{PASS}"}}"#
+        ),
+    );
+    assert_eq!(r.status, 400);
+    assert!(
+        r.text().contains("webui.bypass_auth_subnets") && r.text().contains("10.0.0.0/33"),
+        "{}",
+        r.text()
+    );
+    let r = t.pa(
+        &sid,
+        "/pa/prefs",
+        &format!(
+            r#"{{"webui.bypass_auth_subnets":"10.0.0.0/8; 127.0.0.0/8","webui.current_password":"{PASS}"}}"#
+        ),
+    );
+    assert_eq!(r.status, 204, "{}", r.text());
+    let p = t.get(&sid, "/api/v2/app/preferences").json();
+    assert_eq!(p.get("bypass_local_auth"), Some(&Json::Bool(false)));
+    assert_eq!(p.get("bypass_auth_subnet_whitelist_enabled"), Some(&Json::Bool(true)));
+    assert_eq!(s(p.get("bypass_auth_subnet_whitelist")), "10.0.0.0/8\n127.0.0.0/8");
+    assert_eq!(t.req("GET", version, &[], Body::None).status, 200, "whitelisted");
+    for forwarded in
+        [("X-Forwarded-For", "127.0.0.1"), ("Forwarded", "for=10.0.0.1"), ("X-Real-IP", "10.0.0.1")]
+    {
+        assert_eq!(t.req("GET", version, &[forwarded], Body::None).status, 403, "{forwarded:?}");
+    }
+    // a whitelisted client may still send a wrong API key: refused
+    let r = t.pa(&sid, "/pa/prefs", &format!(r#"{{"webui.api_key":"{API_KEY}","webui.api_key_enabled":true,"webui.current_password":"{PASS}"}}"#));
+    assert_eq!(r.status, 204, "{}", r.text());
+    assert_eq!(bearer(&t, "a-wrong-key-0123456789", version).status, 403);
+    // emptied: off again
+    let r = t.pa(
+        &sid,
+        "/pa/prefs",
+        &format!(r#"{{"webui.bypass_auth_subnets":"","webui.current_password":"{PASS}"}}"#),
+    );
+    assert_eq!(r.status, 204, "{}", r.text());
+    assert_eq!(t.req("GET", version, &[], Body::None).status, 403);
+}
+
 /// Parallel guesses cannot all slip past the ban check while the slow hash runs (SEC-03).
 #[test]
 fn parallel_guesses_stop_at_the_ban_limit() {

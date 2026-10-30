@@ -18,7 +18,7 @@ use patorrent_frontend::detail::peer_flags;
 use patorrent_frontend::seeding::{GoalAction, SeedGoal};
 use patorrent_frontend::{icons, lang};
 
-use super::auth::{constant_time_eq, random_hex};
+use super::auth::{self, constant_time_eq, random_hex};
 use super::commands::{self, AddOptions, Source};
 use super::http::{
     Head, Part, Response, cookie, multipart_boundary, parse_header_params, parse_multipart, parse_urlencoded,
@@ -253,8 +253,49 @@ pub fn csrf_ok(head: &Head) -> bool {
     true
 }
 
-/// The session key of an authenticated request: its SID, or a fixed key for loopback clients
-/// when the local-auth bypass is on.
+/// The session key of requests authenticated by the API key.
+pub(super) const APIKEY_SESSION: &str = "apikey";
+
+/// The API key a request carries (`Authorization: Bearer <key>`), when keys are accepted and
+/// one is stored.
+fn offered_key<'a>(st: &State, head: &'a Head) -> Option<&'a str> {
+    if !st.prefs.api_key_enabled || st.api_key.is_none() {
+        return None;
+    }
+    head.header("authorization").and_then(auth::bearer_token)
+}
+
+/// Verifies a request's API key ahead of [`authenticate`], outside the State lock (the hash is
+/// slow on purpose), and remembers it when it is right. A wrong key counts as a failed login
+/// towards the client's ban, like [`check_login`]; a key already verified costs a SHA-256.
+/// Runs once per request: in [`authorized`] (every plain request passes there before
+/// [`serve`]) and in [`websocket_handshake`].
+fn verify_api_key(shared: &Shared, head: &Head, ip: IpAddr, now: Instant) {
+    let (key, hash) = {
+        let mut st = shared.lock();
+        let Some(key) = offered_key(&st, head) else { return };
+        let digest = auth::key_digest(key);
+        if st.api_key_verified.is_some_and(|v| constant_time_eq(&v, &digest)) || st.bans.is_banned(ip, now) {
+            return;
+        }
+        // counted before the slow hash, undone on success (SEC-03)
+        let (max, ban) = (st.prefs.max_auth_fail_count, Duration::from_secs(st.prefs.ban_duration));
+        st.bans.failed(ip, max, ban, now);
+        (key, st.api_key.clone().expect("offered_key checked"))
+    };
+    if hash.verify(key) {
+        let mut st = shared.lock();
+        st.bans.succeeded(ip);
+        // the key may have changed meanwhile
+        if st.api_key.as_ref() == Some(&hash) {
+            st.api_key_verified = Some(auth::key_digest(key));
+        }
+    }
+}
+
+/// The session key of an authenticated request: its SID; a fixed key for a verified API key
+/// ([`verify_api_key`]); a fixed key for loopback clients when the local-auth bypass is on, and
+/// for clients in the subnet whitelist (neither for a proxied request).
 fn authenticate(st: &mut State, head: &Head, ip: IpAddr, now: Instant) -> Option<String> {
     let timeout = Duration::from_secs(st.prefs.session_timeout.max(1));
     if let Some(sid) = head.header("cookie").and_then(|c| cookie(c, "SID")) {
@@ -266,15 +307,27 @@ fn authenticate(st: &mut State, head: &Head, ip: IpAddr, now: Instant) -> Option
             st.sessions.remove(sid);
         }
     }
-    if st.is_loopback_bypass(ip) && !proxied(head) {
-        let key = "local".to_owned();
-        st.sessions
-            .entry(key.clone())
-            .or_insert(ClientSession { last_used: now, maindata: None, peers: None })
-            .last_used = now;
-        return Some(key);
-    }
-    None
+    let key = if let Some(offered) = offered_key(st, head) {
+        // a key given is the credential: a wrong one is refused, whatever the address
+        let digest = auth::key_digest(offered);
+        if !st.api_key_verified.is_some_and(|v| constant_time_eq(&v, &digest)) {
+            return None;
+        }
+        APIKEY_SESSION
+    } else if proxied(head) {
+        return None;
+    } else if st.is_loopback_bypass(ip) {
+        "local"
+    } else if st.is_subnet_bypass(ip) {
+        "subnet"
+    } else {
+        return None;
+    };
+    st.sessions
+        .entry(key.to_owned())
+        .or_insert(ClientSession { last_used: now, maindata: None, peers: None })
+        .last_used = now;
+    Some(key.to_owned())
 }
 
 /// A request a proxy forwarded: it names the client it came from. A reverse proxy on this
@@ -304,9 +357,12 @@ pub(super) fn client_ip(head: &Head, peer: IpAddr) -> IpAddr {
 }
 
 /// Whether a request may carry a large body (it is authenticated).
+/// Also verifies the request's API key, for [`serve`] after it.
 pub fn authorized(shared: &Shared, head: &Head, ip: IpAddr) -> bool {
+    let now = Instant::now();
+    verify_api_key(shared, head, client_ip(head, ip), now);
     let mut st = shared.lock();
-    authenticate(&mut st, head, canonical(ip), Instant::now()).is_some()
+    authenticate(&mut st, head, canonical(ip), now).is_some()
 }
 
 /// The headers every response carries (docs/WEBUI.md "Security"), unless the response set
@@ -337,6 +393,7 @@ pub(super) fn websocket_handshake(
 ) -> Result<(String, String), Response> {
     let ip = client_ip(head, ip);
     let now = Instant::now();
+    verify_api_key(shared, head, ip, now);
     let mut st = shared.lock();
     if st.bans.is_banned(ip, now) {
         return Err(Response::text(403, BANNED));
@@ -963,6 +1020,18 @@ fn preferences(st: &State, shared: &Shared) -> Json {
         .with("proxy_peer_connections", s.proxy_peer_connections)
         .with("web_ui_username", st.username.as_str())
         .with("bypass_local_auth", p.bypass_local_auth)
+        // read-only here: setPreferences does not take them (SEC-03); our list is on when it
+        // has entries
+        .with("bypass_auth_subnet_whitelist_enabled", !p.auth_subnets.trim().is_empty())
+        .with(
+            "bypass_auth_subnet_whitelist",
+            p.auth_subnets
+                .split([';', ',', '\n'])
+                .map(str::trim)
+                .filter(|e| !e.is_empty())
+                .collect::<Vec<_>>()
+                .join("\n"),
+        )
         .with("web_ui_csrf_protection_enabled", p.csrf_protection)
         .with("web_ui_host_header_validation_enabled", p.host_header_validation)
         .with("web_ui_domain_list", p.domain_list.as_str())

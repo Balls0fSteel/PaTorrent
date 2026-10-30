@@ -16,6 +16,7 @@ mod paths;
 #[cfg(windows)]
 mod service;
 mod signals;
+mod update_check;
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -127,6 +128,10 @@ OPTIONS:
                       its data folder; uTorrent's folder with resume.dat)
     --verbose         Print tracker and peer events (each disconnect with its reason), and
                       every 10 s where the connected peers came from
+    --no-update-check run: do not ask the project website for newer releases. By default
+                      `run` fetches update.txt from it (HTTPS, through the proxy, nothing
+                      about this installation sent) 10 s after the start and twice a day, and
+                      logs a newer version; the Web UI's Preferences > General can turn it off
     --webui [ADDR:]PORT  Serve the Web UI and qBittorrent-compatible WebAPI (ADDR defaults to
                       127.0.0.1; `run --webui 8080`)
     --webui-user NAME --webui-pass PASS
@@ -198,6 +203,8 @@ struct Opts {
     /// in the order given (the last one of a row wins).
     proxy_switches: Vec<(&'static str, bool)>,
     verbose: bool,
+    /// `run --no-update-check`: no update check (D43).
+    no_update_check: bool,
     webui: Option<std::net::SocketAddr>,
     webui_user: Option<String>,
     webui_pass: Option<String>,
@@ -236,6 +243,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         proxy: None,
         proxy_switches: Vec::new(),
         verbose: false,
+        no_update_check: false,
         webui: None,
         webui_user: None,
         webui_pass: None,
@@ -271,6 +279,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             }
             "--move-on-complete" => o.move_on_complete = Some(value("--move-on-complete")?),
             "--verbose" | "-v" => o.verbose = true,
+            "--no-update-check" => o.no_update_check = true,
             "--seconds" => o.seconds = Some(num("--seconds", value("--seconds")?)?),
             "--exit-when-done" => {
                 o.exit_when_done = Some(match value("--exit-when-done")?.as_str() {
@@ -659,6 +668,9 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             }
         }
     }
+    // the update check's worker wakes the loop too; its proxy without the Web UI (D43)
+    let update_wake = wake_tx.clone();
+    let cli_proxy = patorrent_core::fetch::FetchProxy::from_settings(&settings);
     h.set_alert_notify(move || {
         let _ = wake_tx.send(());
     });
@@ -745,6 +757,13 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     let mut next_report = Instant::now();
     let mut reported = false;
     let mut next_peer_report = Instant::now() + PEER_REPORT_INTERVAL;
+    // `run`'s update check (D43): on unless --no-update-check or the Web UI's update.check
+    let update_on = |web: Option<&webui::WebUi>| {
+        let (check, beta) = web.map_or((true, false), webui::WebUi::update_options);
+        (!o.no_update_check && check, beta)
+    };
+    let mut updates = (mode == Mode::Run)
+        .then(|| update_check::UpdateCheck::new(update_on(web.as_ref()).0, Instant::now(), update_wake));
     loop {
         let now = Instant::now();
         if now >= next_report {
@@ -759,6 +778,13 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             next_peer_report = now + PEER_REPORT_INTERVAL;
         }
         let _ = wake_rx.recv_timeout(next_report.saturating_duration_since(Instant::now()));
+        if let Some(u) = updates.as_mut() {
+            let (on, beta) = update_on(web.as_ref());
+            let proxy = || web.as_ref().map_or_else(|| cli_proxy.clone(), webui::WebUi::update_proxy);
+            if let Some(out) = u.poll(on, beta, Instant::now(), proxy) {
+                report_update(&out, web.as_ref());
+            }
+        }
         h.pop_alerts(&mut alerts);
         if let Some(w) = &web {
             w.on_alerts(&alerts);
@@ -905,6 +931,26 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         ExitCode::FAILURE
     } else {
         ExitCode::SUCCESS
+    }
+}
+
+/// An update check's answer: its one line (a newer version on stdout, a failure on stderr) and
+/// the Web UI's Logger and status bar.
+fn report_update(out: &update_check::Outcome, web: Option<&webui::WebUi>) {
+    let line = out.line();
+    match (out, &line) {
+        (update_check::Outcome::Failed(_), Some(l)) => eprintln!("! {l}"),
+        (_, Some(l)) => println!("* {l}"),
+        _ => {}
+    }
+    if let Some(w) = web {
+        // a failure leaves the status bar as it was
+        if let Some(shown) = out.shown() {
+            w.set_update(shown);
+        }
+        if let Some(l) = line {
+            w.log_line(l);
+        }
     }
 }
 
@@ -1213,6 +1259,13 @@ mod tests {
         assert_eq!(parse(&args(&[])).unwrap().exit_when_done, None);
         assert!(parse(&args(&["--exit-when-done", "seeds"])).is_err());
         assert!(parse(&args(&["--exit-when-done"])).is_err());
+    }
+
+    #[test]
+    fn the_update_check_is_on_unless_turned_off() {
+        assert!(!parse(&args(&[])).unwrap().no_update_check);
+        assert!(parse(&args(&["--no-update-check", "--seed"])).unwrap().no_update_check);
+        assert!(USAGE.contains("--no-update-check"));
     }
 
     #[test]

@@ -864,6 +864,33 @@ fn torrent_lifecycle_and_maindata_diffs() {
     assert_eq!(t.get(&sid, "/api/v2/torrents/info").json(), Json::Arr(vec![]));
 }
 
+/// nox's update check (D43): Preferences > General > Privacy switches it, stored as the GUIs'
+/// keys; a newer version found goes into the page's `hello` (no network here: the daemon's
+/// loop does the fetching).
+#[test]
+fn update_check_preferences_and_the_hello() {
+    let t = Harness::start("update");
+    let sid = t.login();
+    assert_eq!(t.web.update_options(), (true, false));
+    let r = t.pa(&sid, "/pa/prefs", r#"{"update.check":false,"update.beta":true}"#);
+    assert_eq!(r.status, 204, "{}", r.text());
+    assert_eq!(t.web.update_options(), (false, true));
+    let file = std::fs::read_to_string(t.dir.join("state").join(STATE_FILE)).unwrap();
+    assert!(file.contains(r#""update.check":"0""#) && file.contains(r#""update.beta":"1""#), "{file}");
+
+    let (_, hello) = Ws::connect(&t, &sid);
+    assert!(hello.get("update").is_none());
+    t.web.set_update(patorrent_frontend::update::Version::parse("99.0.0").as_ref());
+    t.web.log_line("PaTorrent 99.0.0 is available".into());
+    let (_, hello) = Ws::connect(&t, &sid);
+    let u = hello.get("update").expect("the newer version");
+    assert_eq!(u.get("version").and_then(Json::as_str), Some("99.0.0"));
+    assert!(u.get("url").and_then(Json::as_str).unwrap().ends_with("/releases/tag/v99.0.0"));
+    t.web.set_update(None);
+    let (_, hello) = Ws::connect(&t, &sid);
+    assert!(hello.get("update").is_none());
+}
+
 #[test]
 fn adds_magnets_and_refuses_bad_torrents() {
     let t = Harness::start("magnet");

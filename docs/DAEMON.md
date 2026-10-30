@@ -58,6 +58,30 @@ Connection instead. In `webui.json` (and the GUI's `patorrent.ini`) the proxy pa
 sealed with DPAPI on Windows (`dpapi:...`, readable only by the same Windows account) and plain
 elsewhere.
 
+## The update check
+
+As the desktop clients do (D32, D43), `run` asks the project website which releases exist: it
+fetches `https://balls0fsteel.github.io/PaTorrent/update.txt` (a few lines, `stable=` and
+`prerelease=`) 10 seconds after the start and every 12 hours, through the proxy when trackers
+go through it (as the RSS feeds do). The request is a plain HTTPS GET with PaTorrent's
+User-Agent; nothing about the installation, its torrents or its settings is sent, and nothing
+is downloaded or installed. A newer version is one line on stdout (and in the Web UI's Logger,
+with a link in the page's status bar):
+
+```text
+* PaTorrent 1.2.0 is available: https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.2.0
+```
+
+A failed check is one `! Update check failed: ...` line on stderr; the next try is 12 hours
+later. Pre-releases are offered with Preferences > General > Privacy "Update to beta versions"
+(`update.beta`), or when the running version is one.
+
+It is on by default. `--no-update-check` turns it off for that run (`service install` keeps it
+in the service's command line, as it keeps the other `run` options); with the Web UI, so does
+Preferences > General > Privacy "Check for updates automatically" (`update.check` in
+`webui.json`). Builds made with `PATORRENT_NO_UPDATE_CHECK` set (for a package manager's
+updates) have no check at all.
+
 ## Files
 
 | What | Linux / BSD | Windows | macOS |

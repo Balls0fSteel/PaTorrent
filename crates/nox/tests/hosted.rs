@@ -586,6 +586,14 @@ fn rss_and_alternative_limits_are_off_and_shutdown_tells_the_host() {
     assert_eq!(t.post(&sid, "/api/v2/transfer/setSpeedLimitsMode", "mode=1").status, 409);
     assert_eq!(t.get(&sid, "/api/v2/transfer/speedLimitsMode").text(), "0");
     assert_eq!(t.get(&sid, "/pa/session/limits").json().get("alt"), Some(&Json::Bool(false)));
+    // no update check of nox's (D43): the host checks; the General page leaves it out and a
+    // version handed in is not shown
+    let general = pages.iter().find(|p| s(p.get("id")) == "general").unwrap().to_json();
+    assert!(!general.contains("update.check") && general.contains("ui.language"), "{general}");
+    assert!(!t.web.update_options().0);
+    t.web.set_update(patorrent_frontend::update::Version::parse("99.0.0").as_ref());
+    let (_ws, hello) = Ws::connect(&t, &sid);
+    assert!(hello.get("update").is_none(), "{}", hello.to_json());
 
     // (e) shutdown: the host is told
     assert!(!t.host.shutdown.load(Ordering::SeqCst));

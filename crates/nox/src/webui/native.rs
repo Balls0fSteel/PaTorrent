@@ -231,7 +231,7 @@ impl Client {
             .with("peers", defs(&detail::PEER_COLUMNS))
             .with("pieces", defs(&detail::PIECE_COLUMNS))
             .with("files", defs(&detail::FILE_COLUMNS));
-        Json::obj()
+        let mut hello = Json::obj()
             .with("t", "hello")
             .with("version", patorrent_frontend::BUILD)
             .with("columns", Json::Arr(columns))
@@ -240,7 +240,12 @@ impl Client {
             .with("detail", detail)
             .with("confirm_delete", st.prefs.confirm_delete)
             // a desktop client hosts the Web UI: no RSS Downloader here (docs/WEBUI.md)
-            .with("hosted", st.hosted)
+            .with("hosted", st.hosted);
+        // a newer PaTorrent nox's update check found (never hosted)
+        if let Some(u) = super::update::json(st) {
+            hello.set("update", u);
+        }
+        hello
     }
 
     /// Handles one client message; the replies to send back, in order.
@@ -527,6 +532,10 @@ impl Client {
             out.set("no_label", no_label);
         }
         out.set("status", status_bar(st));
+        // a newer PaTorrent, every tick while there is one: left out, the page hides its link
+        if let Some(u) = super::update::json(st) {
+            out.set("update", u);
+        }
         // the RSS Downloader changed: the page reloads its feeds (GET /pa/rss); hosted, there
         // is none
         if !st.hosted && st.rss_version != self.rss_sent {
@@ -1254,6 +1263,25 @@ mod tests {
         assert_eq!(peers[3].get("right"), Some(&Json::from(true)));
         assert_eq!(d.get("trackers").map(|t| matches!(t, Json::Arr(v) if v.len() == 6)), Some(true));
         assert_eq!(d.get("files").map(|t| matches!(t, Json::Arr(v) if v.len() == 7)), Some(true));
+    }
+
+    #[test]
+    fn hello_and_tick_carry_a_newer_version_but_not_hosted() {
+        let mut st = crate::webui::State::for_tests();
+        let mut c = Client::new();
+        assert!(c.hello(&st).get("update").is_none(), "nothing found: left out");
+        st.update = patorrent_frontend::update::Version::parse("99.1.0");
+        let u = c.hello(&st).get("update").cloned().unwrap();
+        assert_eq!(u.get("version"), Some(&Json::from("99.1.0")));
+        assert_eq!(
+            u.get("url").and_then(Json::as_str),
+            Some("https://github.com/Balls0fSteel/PaTorrent/releases/tag/v99.1.0")
+        );
+        assert_eq!(c.tick_message(&st).get("update"), Some(&u));
+        // a desktop client hosting the Web UI checks for itself
+        st.hosted = true;
+        assert!(c.hello(&st).get("update").is_none());
+        assert!(c.tick_message(&st).get("update").is_none());
     }
 
     #[test]

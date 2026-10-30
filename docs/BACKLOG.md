@@ -523,9 +523,11 @@ That broad check does not establish that every detailed case below was tried.
   notice was hand-checked with `PATORRENT_UPDATE_URL`. Not checked:
   clicking the notice (opens the browser), the GTK link button and Help items on
   a desktop (CI compiles them), macOS, a proxy, and a check across sleep/resume.
-- nox has no update check. Options: a server-side check shown in the Web UI's
-  status bar, or a Logger/console line; decide whether a headless daemon should
-  call out at all, and how a service would turn it off.
+- nox's update check (D43, 2026-10-30): unit- and Web UI-tested with fake
+  fetchers and a refused local URL only. Not checked: a live `update.txt`, the
+  page's status-bar link in a browser, a proxy. Without `--webui` only
+  `--no-update-check` turns it off (a stored `update.check` in `webui.json` is
+  read only when the Web UI runs); nox has no manual "check now".
 - Serbian's Help menu: MenuAbout and MenuNotices both use the О mnemonic.
 - The new strings (update check, Help items) are machine translations like the
   rest; a native speaker should review them with the tables (Localisation), and
@@ -575,7 +577,7 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   `nox run --import` on that machine.
 - **Plugin hooks:** moved to V2.0 (D35) until a completion action, search source or column
   needs one.
-- **Other V1.1 candidates** (owner to choose): nox update check; the installer built in
+- **Other V1.1 candidates** (owner to choose): the installer built in
   `ci.yml`; a winget manifest; the qBittorrent shim gaps Sonarr and Radarr need (now listed
   in INTEGRATIONS.md); remote-mode automation conflicts; RSS conditional GET and gzip; BEP 44 / 51
   / 55.

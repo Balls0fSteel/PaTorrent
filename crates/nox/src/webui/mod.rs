@@ -31,6 +31,7 @@ mod remote;
 pub(crate) mod rss;
 mod server;
 pub mod torrent;
+mod update;
 pub mod ws;
 
 use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
@@ -213,6 +214,10 @@ pub(crate) struct Prefs {
     pub ip_filter_path: String,
     /// Preferences > Scheduler (`GuiOptions::schedule`).
     pub schedule: Schedule,
+    /// Preferences > General > Privacy: nox's update check (`GuiOptions::check_updates`,
+    /// `update_beta`; D43). Hosted, the host's own.
+    pub check_updates: bool,
+    pub update_beta: bool,
     /// Preferences > General's language (`GuiOptions::language`): the Web UI's, the server's.
     pub language: String,
     pub bypass_local_auth: bool,
@@ -252,6 +257,8 @@ impl Prefs {
             ip_filter: false,
             ip_filter_path: String::new(),
             schedule: Schedule::default(),
+            check_updates: true,
+            update_beta: false,
             language: String::new(),
             bypass_local_auth: false,
             csrf_protection: true,
@@ -295,9 +302,8 @@ impl Prefs {
             ip_filter_path: self.ip_filter_path.clone(),
             schedule: self.schedule.clone(),
             language: self.language.clone(),
-            // nox checks for no updates; the GUIs' own settings keep these
-            check_updates: true,
-            update_beta: false,
+            check_updates: self.check_updates,
+            update_beta: self.update_beta,
         }
     }
 
@@ -335,6 +341,8 @@ impl Prefs {
         self.ip_filter = g.ip_filter;
         self.ip_filter_path = g.ip_filter_path.clone();
         self.schedule = g.schedule.clone();
+        self.check_updates = g.check_updates;
+        self.update_beta = g.update_beta;
         self.language = g.language.clone();
     }
 }
@@ -473,6 +481,9 @@ pub(crate) struct State {
     /// choice (kept in `options`), and a version a `tick` carries as `adds`.
     pub awaiting: patorrent_frontend::add::AwaitingMetadata,
     pub adds_version: u64,
+    /// The newer PaTorrent nox's update check found (`update.rs`), for the page's status bar;
+    /// never set hosted (the host checks).
+    pub update: Option<patorrent_frontend::update::Version>,
 }
 
 pub(crate) struct Shared {
@@ -851,6 +862,7 @@ impl WebUi {
                 rss_version: 1,
                 awaiting,
                 adds_version: 1,
+                update: None,
             }),
             replied: Condvar::new(),
             limits: config.limits,
@@ -1544,6 +1556,7 @@ impl State {
             rss_version: 1,
             awaiting: Default::default(),
             adds_version: 1,
+            update: None,
         }
     }
 }

@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_131301_1793362381
+Last updated: 2026-10-30_132816_1793363296
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -21,7 +21,8 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **Releases:**
   - 1.0.1 (2026-10-27) was the first stable release, with the full 1.0 scope (D19). `v1.0.0` has no release because its build failed (D34). The open Road to 1.0 hand checks continue as 1.0.x validation.
   - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.
-- **1.1.7 is published, Latest** (2026-10-30 08:31 UTC, tag `v1.1.7` on `f7ed2f40`, Release run 41023963735, 14 files, checksums verified). It replaces the 1.1.2 draft, which was deleted with its tag and never published. Release text [docs/releases/1.1.7.md](docs/releases/1.1.7.md). It adds the Windows GUI's own Web UI (D40: nox's server inside `patorrent.exe`, prefs mirrored both ways through a change journal; D39 superseded), nox's hashed service login and `--replace --now`, and 1.1.3-1.1.7. Hosted-mode hand checks and gaps are in [BACKLOG](docs/BACKLOG.md#automation-and-daemon-operations).
+- **1.1.17 is published, Latest** (2026-10-30, tag `v1.1.17`, [notes](docs/releases/1.1.17.md)): Torznab search in all three GUIs, RSS in the Windows GUI's Web UI, the API key and subnet whitelist, and nox's update check. The website has a News page (`site/news.html`, `news.atom`).
+- **1.1.7 was published** (2026-10-30 08:31 UTC, tag `v1.1.7` on `f7ed2f40`, Release run 41023963735, 14 files, checksums verified). It replaces the 1.1.2 draft, which was deleted with its tag and never published. Release text [docs/releases/1.1.7.md](docs/releases/1.1.7.md). It adds the Windows GUI's own Web UI (D40: nox's server inside `patorrent.exe`, prefs mirrored both ways through a change journal; D39 superseded), nox's hashed service login and `--replace --now`, and 1.1.3-1.1.7. Hosted-mode hand checks and gaps are in [BACKLOG](docs/BACKLOG.md#automation-and-daemon-operations).
 - **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored). It predates the 2026-10-23 dialog changes (the resizable Add dialog and the system message font), which are tested but not yet hand-tested from a refreshed set. Linux binaries were smoke-checked on the command line only.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green. This is recorded evidence, not a live check. macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.

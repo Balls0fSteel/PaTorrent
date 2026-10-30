@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-10-30_132816_1793363296: 1.1.17 published; the website's News page is live
+
+- **Release:** tag `v1.1.17` on `381432a5`. Release run 41054110247 built 14 files; all 13 artifacts matched `SHA256SUMS`, and the zip's `patorrent-nox --version` printed 1.1.17. CI had passed on `2ed9f708`, which has the same code. The release was published as Latest with the owner's go-ahead.
+- **Website:** the site branch was merged after publishing (`17c933cb`) and Pages deployed it. `update.txt` reads `stable=1.1.17`; `news.html` and `news.atom` answer 200, and the live News page was looked at in the browser pane.
+
 ## 2026-10-30_131301_1793362381: 1.1.17 release prepared; README and a News page for the website
 
 - **Release (owner: release before describing the new features):**

@@ -1,11 +1,12 @@
 //! Loopback tests for web seeds (BEP 19 `url-list`, BEP 17 `httpseeds`), after libtorrent's
 //! test/web_seed_suite.cpp and test_web_seed*.cpp: a tiny HTTP/1.1 server in the test serves
 //! the torrent's files with byte ranges, keep-alive and pipelining; the session downloads from
-//! it alone. Cases: a multi-file torrent from its `url-list`, a single file with the file name
-//! left out of the URL (a single-file torrent and one file in multi-file mode), files renamed
-//! here still fetched by their original paths, credentials that follow a redirect only to the
-//! same origin, chunked bodies, per-file redirects to another path, a single-file
-//! redirect, a server that answers 503 before it serves, an HTTP/1.0 server closing after each
+//! it alone. Cases: a multi-file torrent from its `url-list` (and a v2-only one, whose ranges end
+//! at the end of each file), a single file with the file name left out of the URL (a single-file
+//! torrent and one file in multi-file mode), files renamed here still fetched by their original
+//! paths, credentials that follow a redirect only to the same origin, chunked bodies, per-file
+//! redirects to another path, a single-file redirect, a server that answers 503 before it
+//! serves, an HTTP/1.0 server closing after each
 //! response, a BEP 17 seed, the peer list showing the seeds, a seed with corrupt data banned
 //! while the download completes from a good one, a seed the IP filter blocks, web seeds
 //! added and removed through the handle and kept across a restart, and a local seed with a query
@@ -437,6 +438,62 @@ fn multi_file_torrent_from_its_url_list() {
     let (urls, http) = w.web_seeds(id);
     // a multi-file torrent's url-list entries get the trailing slash (libtorrent too)
     assert_eq!((urls, http.len()), (vec![srv.url("/ws/")], 0));
+    finish(w, &f, dir);
+}
+
+/// A v2-only torrent from its url-list: the files end mid-block, and the block at each end is
+/// asked for only up to the end of the file (libtorrent 2.0.13 `piece_size_for_req`), so no
+/// range runs past a file and no pad byte is downloaded. alpha.bin ends in the last block of a
+/// piece: a run of blocks must not go on into the next file across the padding.
+#[test]
+fn v2_only_torrent_from_its_url_list() {
+    use patorrent_core::metainfo::{CreateFlags, CreateTorrent, FileStorage, add_files, set_piece_hashes};
+    let base = Arc::new(Mutex::new(HashMap::new()));
+    let b2 = base.clone();
+    let srv = server(Mode::Plain, move |r| match b2.lock().unwrap().get(&r.path) {
+        Some(d) => Reply::File(Vec::clone(d)),
+        None => not_found(),
+    });
+    let src = temp_dir("v2-src");
+    let sizes =
+        [("alpha.bin", 9 * PIECE + 20_000), ("sub/beta file.bin", 400_000), ("sub/gamma.txt", 12_345)];
+    let files: Vec<(String, Vec<u8>)> = sizes
+        .iter()
+        .enumerate()
+        .map(|(i, (p, size))| (format!("web-v2/{p}"), data(i as u32, *size)))
+        .collect();
+    for (p, d) in &files {
+        std::fs::create_dir_all(src.join(p).parent().unwrap()).unwrap();
+        std::fs::write(src.join(p), d).unwrap();
+    }
+    let mut fs = FileStorage::new();
+    add_files(&mut fs, &src.join("web-v2"), &mut |_| true, CreateFlags::empty()).unwrap();
+    let mut t = CreateTorrent::new(fs, PIECE as u32, CreateFlags::V2_ONLY).unwrap();
+    set_piece_hashes(&mut t, &src, &mut |_| true).unwrap();
+    t.add_url_seed(&srv.url("/ws"));
+    let f = Fixture { torrent: t.generate_buf().unwrap(), files, info_hash: [0; 20] };
+    let _ = std::fs::remove_dir_all(src);
+    *base.lock().unwrap() = files_at(&f, "/ws/");
+
+    let (w, _, dir, st) = download(&f, &[], 60);
+    let payload: usize = f.files.iter().map(|(_, d)| d.len()).sum();
+    assert_eq!(st.total_payload_download, payload as u64, "the file data and no padding");
+    let sizes: HashMap<String, u64> =
+        files_at(&f, "/ws/").into_iter().map(|(p, d)| (p, d.len() as u64)).collect();
+    let log = srv.log.lock().unwrap().clone();
+    for l in &log {
+        let (path, range) = l.split_once(' ').unwrap();
+        let path = String::from_utf8_lossy(&percent_decode(path)).into_owned();
+        let end: u64 = range
+            .trim_start_matches("Some((")
+            .split(", ")
+            .nth(1)
+            .unwrap()
+            .trim_end_matches("))")
+            .parse()
+            .unwrap();
+        assert!(end < sizes[&path], "{l} runs past the file ({log:?})");
+    }
     finish(w, &f, dir);
 }
 

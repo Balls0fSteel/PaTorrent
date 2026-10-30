@@ -1,5 +1,6 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/torrent.cpp (state, file priorities, progress,
-// status, resume data), src/torrent_status.cpp, src/file_progress.cpp
+// status, resume data), src/torrent_status.cpp, src/file_progress.cpp; fixes from 2.0.13
+// (aa59c7c583, 8b8242fe9b)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: plain data plus helpers; the engine drives transitions. Metadata, the piece picker
 // and storage exist only while the torrent runs (PLAN.md D5); a stopped torrent keeps its piece
@@ -522,6 +523,15 @@ impl Torrent {
             self.total_size - self.piece_length as u64 * (self.num_pieces as u64 - 1)
         } else {
             self.piece_length as u64
+        }
+    }
+
+    /// The piece size block requests are sized by: shorter at file ends in v2-only torrents
+    /// ([`TorrentInfo::piece_size_for_req`]).
+    pub fn piece_size_for_req(&self, piece: u32) -> u64 {
+        match &self.ti {
+            Some(ti) => ti.piece_size_for_req(piece) as u64,
+            None => self.piece_size(piece),
         }
     }
 

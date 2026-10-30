@@ -200,7 +200,7 @@ impl Engine {
         }
         t.failed_bytes += t.piece_size(piece);
         if let Some(storage) = t.storage.clone() {
-            let size = t.piece_size(piece);
+            let size = t.piece_size_for_req(piece);
             for block in t.smart_ban.get_or_insert_with(Box::default).on_piece_failed(piece, &downloaders) {
                 let start = block * BLOCK_SIZE;
                 let len = (size - start as u64).min(BLOCK_SIZE as u64) as u32;
@@ -242,7 +242,7 @@ impl Engine {
         let Some(t) = self.torrent(id) else { return };
         let reads = t.smart_ban.as_mut().map_or_else(Vec::new, |s| s.on_piece_pass(piece));
         if let Some(storage) = t.storage.clone().filter(|_| !reads.is_empty()) {
-            let size = t.piece_size(piece);
+            let size = t.piece_size_for_req(piece);
             for block in reads {
                 let start = block * BLOCK_SIZE;
                 let len = (size - start as u64).min(BLOCK_SIZE as u64) as u32;

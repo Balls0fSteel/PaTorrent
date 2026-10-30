@@ -1,5 +1,6 @@
 //! Loopback tests for BitTorrent v2 (BEP 52): v2-only and hybrid torrents made by
-//! `create_torrent` are checked against their piece layers, seeded and downloaded; a v2 torrent
+//! `create_torrent` are checked against their piece layers, seeded and downloaded (a v2-only
+//! torrent's block requests ending at the end of each file's data); a v2 torrent
 //! keeps its piece layers in the session store across a restart and passes a recheck there, and
 //! a corrupted piece fails it; a hybrid whose v1 and v2 hashes describe different data stops with
 //! libtorrent's "inconsistent hashes" error; a v2-only torrent without piece layers is refused.
@@ -191,12 +192,15 @@ fn seed_and_download(name: &str, torrent: &[u8], files: &[(String, Vec<u8>)], se
     let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
     assert_eq!(st.total_wanted_done, st.total_wanted, "{name}");
     assert_eq!(st.total_failed_bytes, 0, "{name}: no piece failed its check");
-    // blocks wholly in pad files are not downloaded (libtorrent's pad blocks)
+    // blocks wholly in pad files are not downloaded (libtorrent's pad blocks), and a v2-only
+    // torrent's requests end at the end of each file (libtorrent 2.0.13 `piece_size_for_req`):
+    // no pad byte is downloaded at all
     let ti = TorrentInfo::from_bytes(torrent).unwrap();
-    let pad_blocks: u64 =
-        ti.files().pad_bytes_per_piece().iter().map(|&(_, b)| (b / 0x4000 * 0x4000) as u64).sum();
+    let pads = ti.files().pad_bytes_per_piece();
+    let pad_blocks: u64 = pads.iter().map(|&(_, b)| (b / 0x4000 * 0x4000) as u64).sum();
     assert!(pad_blocks > 0, "{name}: the layout has pad blocks");
-    assert_eq!(st.total_payload_download, st.total - pad_blocks, "{name}: payload without the pad blocks");
+    let not_downloaded = if ti.v1() { pad_blocks } else { pads.iter().map(|&(_, b)| b as u64).sum() };
+    assert_eq!(st.total_payload_download, st.total - not_downloaded, "{name}: payload without the padding");
     leech.shutdown();
     seed.shutdown();
     assert_files(files, &dir);
@@ -214,6 +218,103 @@ fn v2_only_and_hybrid_torrents_seed_and_download() {
         assert!(ti.v2());
         assert_eq!(ti.v1(), flags.is_empty(), "{name}");
         seed_and_download(name, &torrent, &files, &seed_dir);
+    }
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+/// Forwards one connection to `port` and records the `request` messages (piece, start, length)
+/// the connecting side sends. Plaintext only.
+type Requests = std::sync::Arc<std::sync::Mutex<Vec<(u32, u32, u32)>>>;
+
+fn request_recorder(port: u16) -> (u16, Requests) {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let relay_port = listener.local_addr().unwrap().port();
+    let requests = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+    let log = requests.clone();
+    std::thread::spawn(move || {
+        let Ok((mut down, _)) = listener.accept() else { return };
+        let mut up = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let (mut down_r, mut up_w) = (down.try_clone().unwrap(), up.try_clone().unwrap());
+        std::thread::spawn(move || {
+            let _ = std::io::copy(&mut up, &mut down);
+        });
+        let mut hs = [0u8; 68];
+        if down_r.read_exact(&mut hs).is_err() || up_w.write_all(&hs).is_err() {
+            return;
+        }
+        assert_eq!(hs[0], 19, "a plaintext handshake");
+        loop {
+            let mut len = [0u8; 4];
+            if down_r.read_exact(&mut len).is_err() {
+                return;
+            }
+            let mut m = vec![0u8; u32::from_be_bytes(len) as usize];
+            if down_r.read_exact(&mut m).is_err() {
+                return;
+            }
+            if m.len() == 13 && m[0] == 6 {
+                let int = |i: usize| u32::from_be_bytes(m[i..i + 4].try_into().unwrap());
+                log.lock().unwrap().push((int(1), int(5), int(9)));
+            }
+            if up_w.write_all(&len).and_then(|_| up_w.write_all(&m)).is_err() {
+                return;
+            }
+        }
+    });
+    (relay_port, requests)
+}
+
+/// A v2-only torrent asks for the data of each file and not the padding after it (libtorrent
+/// 2.0.13 `piece_size_for_req`): the block at a file's end is requested exactly as long as the
+/// data left in it, and a hybrid asks for whole blocks (the SHA-1 piece hash covers the pads).
+#[test]
+fn file_tail_requests_are_sized_by_the_v2_piece_size() {
+    let files = files(7);
+    let seed_dir = temp_dir("tail-seed");
+    write_files(&files, &seed_dir);
+    for (name, flags) in [("v2", CreateFlags::V2_ONLY), ("hybrid", CreateFlags::empty())] {
+        let torrent = make_torrent(&seed_dir, flags);
+        let ti = TorrentInfo::from_bytes(&torrent).unwrap();
+        let seed = start(None);
+        let mut sw = Watch::new(seed.handle());
+        let port = listen_port(&mut sw);
+        let sid = add(&mut sw, &torrent, &seed_dir).unwrap();
+        wait_state(&mut sw, sid, TorrentState::Seeding, 20);
+
+        let (relay, requests) = request_recorder(port);
+        let dir = temp_dir(&format!("tail-{name}-leech"));
+        let leech = Session::start(SessionParams {
+            settings: Settings { out_enc_policy: patorrent_core::EncPolicy::Disabled, ..settings() },
+            state_dir: None,
+        })
+        .unwrap();
+        let mut w = Watch::new(leech.handle());
+        let id = add(&mut w, &torrent, &dir).unwrap();
+        wait_state(&mut w, id, TorrentState::Downloading, 10);
+        leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], relay)));
+        wait(&mut w, 60, "finished", |a| {
+            matches!(a, Alert::TorrentFinished { id: i } if *i == id).then_some(())
+        });
+        leech.shutdown();
+        seed.shutdown();
+        assert_files(&files, &dir);
+        let _ = std::fs::remove_dir_all(dir);
+
+        let fs = ti.files();
+        let requests = requests.lock().unwrap();
+        assert!(!requests.is_empty(), "{name}");
+        let mut file_tails = 0;
+        for &(piece, start, length) in requests.iter() {
+            let size = if ti.v1() { fs.piece_size(piece) } else { fs.piece_size2(piece) };
+            assert!(start < size, "{name}: ({piece}, {start}, {length}) past the data");
+            assert_eq!(length, (size - start).min(0x4000), "{name}: ({piece}, {start}, {length})");
+            if length < 0x4000 && piece + 1 < fs.num_pieces() {
+                file_tails += 1;
+            }
+        }
+        // alpha.bin, beta.bin and gamma.txt end mid-block; the last of them ends the torrent
+        assert_eq!(file_tails, if ti.v1() { 0 } else { 2 }, "{name}: {requests:?}");
     }
     let _ = std::fs::remove_dir_all(seed_dir);
 }

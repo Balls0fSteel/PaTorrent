@@ -1,5 +1,5 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/hash_picker.cpp, include/libtorrent/hash_picker.hpp,
-// test/test_hash_picker.cpp
+// test/test_hash_picker.cpp; a test from 2.0.14 (114f65efc2)
 // Copyright (c) 2017, Steven Siloti; 2017-2021, Arvid Norberg. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 
 //! Which merkle hashes of a v2 torrent to ask peers for (libtorrent `hash_picker`), and the
@@ -603,6 +603,85 @@ mod tests {
             let r = picker.add_hashes(&fs, &mut trees, &HashRequest::new(0, 2, 1024, count, 10), &hashes);
             assert!(r.valid, "count {count}");
             trees[0].check_invariant();
+        }
+    }
+
+    // when blocks_per_piece == 1, a block-hash request is always for a lone leaf (count == 1).
+    // get_hashes must return the right number of uncle hashes for that shape whenever a real,
+    // non-zero proof is needed
+    #[test]
+    fn add_hashes_lone_leaf_with_proof() {
+        let fs = fs_one_file(BLOCK, 10 * BLOCK as u64);
+        let full_tree = build_tree(10);
+
+        // a fully populated reference tree, standing in for a peer that can answer any request
+        let mut server_tree = MerkleTree::new(10, 1, full_tree[0]);
+        server_tree.load_tree(&full_tree, &Bitfield::new(merkle_num_leafs(10), false));
+
+        let mut trees = vec![MerkleTree::new(10, 1, full_tree[0])];
+        let mut picker = HashPicker::new(&fs, &trees);
+
+        // piece 5 failed verification; nothing else is known yet, so the resulting block-hash
+        // request needs a real, non-trivial proof
+        picker.verify_block_hashes(&fs, 5);
+
+        let pieces = Bitfield::new(10, false);
+        let picked = picker.pick_hashes(&fs, &trees, &pieces, Instant::now()).unwrap();
+        assert_eq!((picked.base, picked.index, picked.count), (0, 5, 1));
+        assert!(picked.proof_layers > 0);
+
+        let hashes = server_tree.get_hashes(
+            picked.base as usize,
+            picked.index as usize,
+            picked.count as usize,
+            picked.proof_layers as usize,
+        );
+        // a legitimate, correctly sized response; it must be accepted. libtorrent passes it to
+        // the picker's add_hashes, whose check of the block-request shape for one block per
+        // piece (piece layer == block layer) came in later fixes not ported here; the tree
+        // takes it directly
+        assert_eq!(hashes.len(), 1 + picked.num_proof_hashes());
+        let (hashes, uncle_hashes) = hashes.split_at(1);
+        let dest_start_idx = merkle_first_leaf(merkle_num_leafs(10)) + 5;
+        assert!(trees[0].add_hashes(dest_start_idx, 0, hashes, uncle_hashes).is_some());
+        assert!(trees[0].blocks_verified(5, 1));
+    }
+
+    // a file of 513 pieces: its second span of piece hashes is a single piece (count == 1),
+    // whose reply carries that piece's own (padding) sibling as the first proof hash
+    #[test]
+    fn piece_layer_round_trip_513_pieces() {
+        const PIECES: usize = 513;
+        let fs = fs_one_file(4 * BLOCK, (4 * PIECES) as u64 * BLOCK as u64);
+        let full_tree = build_tree(4 * PIECES);
+        let piece_layer_start = merkle_num_nodes(merkle_num_leafs(PIECES)) - merkle_num_leafs(PIECES);
+        let piece_layer = &full_tree[piece_layer_start..piece_layer_start + PIECES];
+
+        // a seed: the full tree, or the piece layer from a .torrent
+        let mut full_seed = MerkleTree::new(4 * PIECES, 4, full_tree[0]);
+        full_seed.load_tree(&full_tree, &Bitfield::new(merkle_num_leafs(4 * PIECES), false));
+        let mut layer_seed = MerkleTree::new(4 * PIECES, 4, full_tree[0]);
+        assert!(layer_seed.load_piece_layer(&piece_layer.iter().flat_map(|h| h.0).collect::<Vec<u8>>()));
+
+        for seed in [&full_seed, &layer_seed] {
+            let mut trees = vec![MerkleTree::new(4 * PIECES, 4, full_tree[0])];
+            let mut picker = HashPicker::new(&fs, &trees);
+            let pieces = Bitfield::new(PIECES, true);
+            let now = Instant::now();
+            let mut spans = Vec::new();
+            while let Some(req) = picker.pick_hashes(&fs, &trees, &pieces, now) {
+                let hashes = seed.get_hashes(
+                    req.base as usize,
+                    req.index as usize,
+                    req.count as usize,
+                    req.proof_layers as usize,
+                );
+                assert_eq!(hashes.len(), req.count as usize + req.num_proof_hashes(), "{req:?}");
+                assert!(picker.add_hashes(&fs, &mut trees, &req, &hashes).valid, "{req:?}");
+                spans.push((req.index, req.count));
+            }
+            assert_eq!(spans, [(0, 512), (512, 1)]);
+            assert_eq!(trees[0].get_piece_layer(), piece_layer);
         }
     }
 

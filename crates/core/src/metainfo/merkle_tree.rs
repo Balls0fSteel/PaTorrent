@@ -1,5 +1,5 @@
 // Ported from libtorrent-rasterbar 2.0.11: src/merkle_tree.cpp, include/libtorrent/aux_/merkle_tree.hpp,
-// test/test_merkle_tree.cpp
+// test/test_merkle_tree.cpp; fixes from 2.0.14 (114f65efc2)
 // Copyright (c) 2020-2021, Arvid Norberg; 2020, Steven Siloti. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 
 //! The merkle tree of one file of a v2 torrent (libtorrent `aux::merkle_tree`).
@@ -792,24 +792,37 @@ impl MerkleTree {
             }
         }
 
-        // the layers above the base computable from the base hashes (the base layer excluded)
-        let base_tree_layers = merkle_num_layers(merkle_num_leafs(count)) as isize - 1;
+        // proof_idx climbs one layer per iteration, starting at layer_start_idx (i == 0). Its
+        // sibling at a layer is implied by the `count` hashes gathered above while still inside
+        // the subtree they form on their own (`implied_layers` tall); from there up to
+        // `proof_layers` (inclusive) each sibling is sent. `count == 1` forms no subtree, so
+        // even the leaf's own sibling (i == 0) is sent
+        let implied_layers = merkle_num_layers(merkle_num_leafs(count));
         let mut proof_idx = layer_start_idx;
-        for i in 0..proof_layers {
+        for _ in 0..implied_layers {
+            // the requester set proof_layers too high (libtorrent asserts)
             if proof_idx == 0 {
                 return Vec::new();
             }
             proof_idx = merkle_get_parent(proof_idx);
-            if i as isize >= base_tree_layers {
-                if proof_idx == 0 {
-                    return Vec::new();
-                }
-                let sibling = merkle_get_sibling(proof_idx);
-                if !self.has_node(proof_idx) || !self.has_node(sibling) {
-                    return Vec::new();
-                }
-                ret.push(self.get_impl(sibling, &mut scratch_space));
+        }
+        for i in implied_layers..=proof_layers {
+            if proof_idx == 0 {
+                return Vec::new();
             }
+            let sibling = merkle_get_sibling(proof_idx);
+            // a sibling past the last real block is a padding leaf, always the all-zero leaf
+            // pad and never a stored node; padding only exists at the leaf layer
+            let sibling_is_real = i > 0 || base != 0 || sibling < self.num_blocks + layer_start_idx - index;
+            if !self.has_node(proof_idx) || (sibling_is_real && !self.has_node(sibling)) {
+                return Vec::new();
+            }
+            ret.push(if sibling_is_real {
+                self.get_impl(sibling, &mut scratch_space)
+            } else {
+                Sha256Hash::default()
+            });
+            proof_idx = merkle_get_parent(proof_idx);
         }
         ret
     }
@@ -1224,6 +1237,12 @@ mod tests {
 
         // no proof hashes asked for
         assert_eq!(t.get_hashes(1, 128, 64, 0), range(255 + 128, 64));
+
+        // a single leaf (count == 1) has no internal subtree of its own, so its immediate
+        // sibling must be included as the first proof hash
+        let h = t.get_hashes(0, 0, 1, 8);
+        assert_eq!(&h[..1], range(511, 1));
+        assert_eq!(&h[1..], build_proof(f(), 511, 0));
     }
 
     // the layers of the 259-block tree:

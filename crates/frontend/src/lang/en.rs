@@ -320,6 +320,9 @@ strings! {
     /// The window title of a window connected to a patorrent-nox; {label} is host:port.
     TitleRemote = "PaTorrent {version} - {label} (remote)";
     TitleDisconnected = "PaTorrent {version} - {label} (disconnected)";
+    /// The main window's title with "Show current speed in the title bar" on: D = download,
+    /// U = upload; {title} is the normal title (PaTorrent 1.0.0).
+    TitleSpeed = "D:{down} U:{up} - {title}";
 
     // ---- Logger lines the frontends write ({name} is a torrent's name)
 
@@ -590,6 +593,8 @@ strings! {
     PrefConfirmDelete = "Confirm when deleting torrents";
     /// Every other row of the torrent list (and the other lists) gets a light grey background.
     PrefAlternateRows = "Alternate list background color";
+    /// The main window's title starts with the download and upload speeds (TitleSpeed).
+    PrefTitleSpeed = "Show current speed in the title bar";
     PrefBalloons = "Show balloon notifications in tray";
     PrefTray = "System Tray";
     PrefCloseToTray = "Close to tray";

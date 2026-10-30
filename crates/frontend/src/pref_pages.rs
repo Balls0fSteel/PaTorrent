@@ -312,6 +312,12 @@ pub fn pages(features: Features) -> Vec<Page> {
             |o, v| o.gui.alternate_rows = v,
         )));
     }
+    ui.push(F(checkbox(
+        "ui.title_speed",
+        S::PrefTitleSpeed,
+        |o| o.gui.title_speed,
+        |o, v| o.gui.title_speed = v,
+    )));
     if features.tray {
         ui.extend([
             F(checkbox("ui.balloons", S::PrefBalloons, |o| o.gui.balloons, |o, v| o.gui.balloons = v)),

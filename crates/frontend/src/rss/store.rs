@@ -8,7 +8,8 @@
 //! settings  { interval, smart_repack, feed_label }
 //! next_id
 //! feeds     [ { id, url, alias, enabled, interval (0 = default), subscribe, subscribe_smart,
-//!               title, last_refresh, last_error, downloaded [ids], seen [ids], episodes [keys] } ]
+//!               title, last_refresh, last_error, etag, last_modified, downloaded [ids],
+//!               seen [ids], episodes [keys] } ]
 //! filters   [ { id, name, enabled, pattern, not, save_in, feed (0 = all), quality, episodes,
 //!               label, min_interval, smart, top_priority, paused, last_match, seen_episodes } ]
 //! history   [ { title, url, feed, time } ]
@@ -63,6 +64,8 @@ impl RssDownloader {
                     ("title", f.title.as_str().into()),
                     ("last_refresh", Entry::Int(f.last_refresh.unwrap_or(0))),
                     ("last_error", f.last_error.as_str().into()),
+                    ("etag", f.etag.as_str().into()),
+                    ("last_modified", f.last_modified.as_str().into()),
                     ("downloaded", strings(f.downloaded.iter())),
                     ("seen", strings(f.seen.iter())),
                     ("episodes", strings(f.episodes.iter())),
@@ -181,6 +184,8 @@ impl RssDownloader {
                 title: text(&f, "title"),
                 last_refresh: int(&f, "last_refresh").filter(|&t| t > 0),
                 last_error: text(&f, "last_error"),
+                etag: text(&f, "etag"),
+                last_modified: text(&f, "last_modified"),
                 downloaded: set(&f, "downloaded", MAX_FEED_HISTORY * 4),
                 seen: set(&f, "seen", MAX_FEED_HISTORY * 4),
                 episodes: set(&f, "episodes", MAX_EPISODES),

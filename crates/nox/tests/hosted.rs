@@ -18,7 +18,9 @@ use patorrent_core::fetch::FetchProxy;
 use patorrent_core::{MockConfig, Session, Settings};
 use patorrent_frontend::prefs::{Change, Prefs};
 use patorrent_frontend::rss::worker::Fetcher;
-use patorrent_frontend::rss::{AddRequest, Download, Feed, FeedItem, RssDownloader, Worker};
+use patorrent_frontend::rss::{
+    AddRequest, Download, Feed, FeedItem, Fetched, RssDownloader, Validators, Worker,
+};
 use patorrent_frontend::search::{Source, load_sources, store_sources};
 use patorrent_nox::webui::auth::PasswordHash;
 use patorrent_nox::webui::json::{self, Json};
@@ -44,14 +46,14 @@ struct FakeHost {
 struct FakeFeeds;
 
 impl Fetcher for FakeFeeds {
-    fn feed(&self, _: &str, _: Option<FetchProxy>) -> Result<Feed, String> {
+    fn feed(&self, _: &str, _: &Validators, _: Option<FetchProxy>) -> Result<Fetched, String> {
         let item = FeedItem {
             title: "Show S01E01".into(),
             guid: "ep1".into(),
             magnet: MAGNET.into(),
             ..FeedItem::default()
         };
-        Ok(Feed { title: "Fetched".into(), items: vec![item], ..Feed::default() })
+        Ok(Feed { title: "Fetched".into(), items: vec![item], ..Feed::default() }.into())
     }
 
     fn download(&self, req: &AddRequest, _: Option<FetchProxy>) -> Result<Download, String> {

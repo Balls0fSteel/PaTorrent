@@ -4,7 +4,8 @@
 //! ([`store`]).
 //!
 //! The model is pure: a frontend asks [`RssDownloader::due_feeds`] which feeds to refresh,
-//! fetches them on a worker thread ([`fetch_feed`]), hands the parsed document to
+//! fetches them on a worker thread ([`fetch_feed`]: gzip accepted, and a conditional request
+//! while the last items are in memory), hands the parsed document (or "not modified") to
 //! [`RssDownloader::feed_fetched`] and adds the [`AddRequest`]s that come back. Nothing in the
 //! model starts threads or timers; [`worker`] is the shared helper that runs those fetches for
 //! a frontend, and [`view`] formats what the dialogs and the feed item list show.
@@ -129,6 +130,11 @@ pub struct RssFeed {
     pub last_refresh: Option<i64>,
     /// Why the last fetch failed; empty after a success.
     pub last_error: String,
+    /// The `ETag` and `Last-Modified` of the last document fetched, sent back as
+    /// `If-None-Match` and `If-Modified-Since` while its items are in memory
+    /// ([`RssFeed::validators`]), so that an unchanged feed answers `304 Not Modified`.
+    pub etag: String,
+    pub last_modified: String,
     /// Ids ([`FeedItem::id`]) of the items added from this feed.
     pub downloaded: RecentSet,
     /// Ids of every item seen in this feed (the UI marks the others as new).
@@ -140,6 +146,16 @@ pub struct RssFeed {
 }
 
 impl RssFeed {
+    /// What the next fetch sends to be told "not modified": the last document's validators,
+    /// only while its items are in memory (they are not in `rss.dat`, so the first fetch of a
+    /// session always takes the whole document).
+    pub fn validators(&self) -> Validators {
+        if self.items.is_empty() {
+            return Validators::default();
+        }
+        Validators { etag: self.etag.clone(), last_modified: self.last_modified.clone() }
+    }
+
     /// The alias, else the feed's title, else its URL.
     pub fn name(&self) -> &str {
         [&self.alias, &self.title].into_iter().find(|s| !s.trim().is_empty()).unwrap_or(&self.url)
@@ -290,6 +306,8 @@ impl RssDownloader {
             f.title.clear();
             f.last_error.clear();
             f.last_refresh = None;
+            f.etag.clear();
+            f.last_modified.clear();
         }
         f.alias = alias.trim().to_owned();
         true
@@ -353,16 +371,29 @@ impl RssDownloader {
             .min()
     }
 
-    /// Takes the result of fetching feed `id` at `now`: remembers its items (or the error) and
-    /// returns what to add.
-    pub fn feed_fetched(&mut self, id: FeedId, now: i64, result: Result<Feed, String>) -> Vec<AddRequest> {
+    /// Takes the result of fetching feed `id` at `now` (a [`Fetched`], or a bare [`Feed`]):
+    /// remembers its items and validators (or the error) and returns what to add. "Not
+    /// modified" keeps the items and runs them again, so a download that failed is retried as
+    /// after a full fetch.
+    pub fn feed_fetched<F: Into<Fetched>>(
+        &mut self,
+        id: FeedId,
+        now: i64,
+        result: Result<F, String>,
+    ) -> Vec<AddRequest> {
         let Some(feed) = self.feed_mut(id) else { return Vec::new() };
         feed.last_refresh = Some(now);
-        match result {
-            Ok(doc) => {
+        match result.map(Into::into) {
+            Ok(Fetched::Changed(doc, v)) => {
                 feed.last_error.clear();
                 feed.title = doc.title;
                 feed.items = doc.items;
+                feed.etag = v.etag;
+                feed.last_modified = v.last_modified;
+                self.process(id, now)
+            }
+            Ok(Fetched::NotModified) => {
+                feed.last_error.clear();
                 self.process(id, now)
             }
             Err(e) => {
@@ -559,16 +590,54 @@ fn smart_take(seen: &mut RecentSet, episode: Option<Episode>, repack: bool) -> b
     true
 }
 
+/// A feed document's cache validators (`ETag`, `Last-Modified`); empty when it had none.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Validators {
+    pub etag: String,
+    pub last_modified: String,
+}
+
+/// What fetching a feed gave.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Fetched {
+    /// The document, with the validators it came with.
+    Changed(Feed, Validators),
+    /// `304 Not Modified`: the items in memory are still the feed's.
+    NotModified,
+}
+
+impl From<Feed> for Fetched {
+    /// A document without validators.
+    fn from(doc: Feed) -> Fetched {
+        Fetched::Changed(doc, Validators::default())
+    }
+}
+
 /// Fetches and parses a feed (blocking: call it from a worker thread). The URL may carry
-/// µTorrent's `:COOKIE:` suffix.
-pub fn fetch_feed(url: &str, proxy: Option<FetchProxy>) -> Result<Feed, String> {
+/// µTorrent's `:COOKIE:` suffix. With validators (the feed's items are in memory,
+/// [`RssFeed::validators`]) the request is conditional and an unchanged feed answers
+/// [`Fetched::NotModified`]; the body may come gzipped.
+pub fn fetch_feed(url: &str, since: &Validators, proxy: Option<FetchProxy>) -> Result<Fetched, String> {
     let (url, cookies) = split_cookie(url);
-    let opts = FetchOptions { cookies: cookies.to_owned(), proxy, ..FetchOptions::default() };
+    let mut headers = Vec::new();
+    if !since.etag.is_empty() {
+        headers.push(("If-None-Match".to_owned(), since.etag.clone()));
+    }
+    if !since.last_modified.is_empty() {
+        headers.push(("If-Modified-Since".to_owned(), since.last_modified.clone()));
+    }
+    let opts =
+        FetchOptions { cookies: cookies.to_owned(), headers, gzip: true, proxy, ..FetchOptions::default() };
     let resp = http_get(url, &opts).map_err(|e| e.to_string())?;
+    if resp.not_modified() {
+        return Ok(Fetched::NotModified);
+    }
     if resp.redirect().is_some() {
         return Err(crate::tr!(RssErrFeedRedirect, url));
     }
-    parse_feed(&resp.body).ok_or_else(|| crate::tr!(RssErrNotFeed, url))
+    let doc = parse_feed(&resp.body).ok_or_else(|| crate::tr!(RssErrNotFeed, url))?;
+    let header = |name| resp.header(name).unwrap_or_default().trim().to_owned();
+    Ok(Fetched::Changed(doc, Validators { etag: header("etag"), last_modified: header("last-modified") }))
 }
 
 #[cfg(test)]

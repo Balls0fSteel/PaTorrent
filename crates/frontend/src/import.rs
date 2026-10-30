@@ -10,7 +10,10 @@
 //! * qBittorrent: `<hash>.fastresume` already is a libtorrent resume record (`resume.rs` reads
 //!   its keys); `<hash>.torrent` gives the info dictionary. `qBt-name` is the name,
 //!   `qBt-category` (or the first tag) the label. `save_path` is where the data is now, so a
-//!   torrent qBittorrent keeps in its incomplete folder stays there.
+//!   torrent qBittorrent keeps in its incomplete folder stays there. `qBt-ratioLimit` and
+//!   `qBt-seedingTimeLimit` become the torrent's own seeding goal ([`qbittorrent_goal`]); its
+//!   stopped state is libtorrent's `paused` without `auto_managed` ([`qbittorrent_flags`]).
+//!   Checked against qBittorrent's `bencoderesumedatastorage.cpp` (v4_6_x and master, 5.x).
 //! * µTorrent: `resume.dat` is one dictionary keyed by the `.torrent` file's name in the same
 //!   folder. Read from a real 2.2.1 file: `path` is the torrent's folder (or single file),
 //!   `have` its pieces (least significant bit first), `prio` one byte per file (`0x80` and
@@ -27,6 +30,7 @@ use patorrent_core::{AddTorrentParams, InfoHashes, Sha1Hash, TorrentFlags, Torre
 
 use crate::lang::S;
 use crate::prefs::Prefs;
+use crate::seeding::SeedGoal;
 
 /// A client to import from.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -133,6 +137,9 @@ pub struct Import {
     pub label: String,
     /// µTorrent's Paused rather than Stopped (the frontend's `torrent.<key>.paused`).
     pub user_paused: bool,
+    /// The torrent's own seeding goal (`torrent.<key>.seed_ratio` and `.seed_time`), when the
+    /// source client had one.
+    pub seed_goal: Option<SeedGoal>,
     pub params: AddTorrentParams,
 }
 
@@ -161,7 +168,7 @@ pub fn read(client: Client, dir: &Path) -> Result<Found, String> {
     Ok(found)
 }
 
-/// Writes the labels and pause marks of the torrents not yet in the list (`known` tells by
+/// Writes the labels, pause marks and seeding goals of the torrents not yet in the list (`known` tells by
 /// [`Import::key`]) and returns the ones to add, with [`TorrentFlags::DUPLICATE_IS_ERROR`] set;
 /// the others go to `found.skipped`. The caller saves `prefs` and adds the torrents.
 pub fn prepare(found: &mut Found, prefs: &mut Prefs, known: impl Fn(&str) -> bool) -> Vec<Import> {
@@ -179,6 +186,9 @@ pub fn prepare(found: &mut Found, prefs: &mut Prefs, known: impl Fn(&str) -> boo
         }
         if t.user_paused {
             prefs.set_bool(&format!("torrent.{}.paused", t.key), true);
+        }
+        if t.seed_goal.is_some() {
+            SeedGoal::store_override(prefs, &t.key, t.seed_goal);
         }
         t.params.flags.insert(TorrentFlags::DUPLICATE_IS_ERROR);
         out.push(t);
@@ -389,6 +399,7 @@ fn qbittorrent_torrent(path: &Path) -> Result<Import, (Option<String>, String)> 
     let save_path = root.dict_find_str("save_path").unwrap_or_default().to_owned();
     let tag = root.dict_find_list("qBt-tags").and_then(|l| l.list_at(0)).and_then(|n| n.str_value());
     let label = root.dict_find_str("qBt-category").filter(|c| !c.is_empty()).or(tag).unwrap_or_default();
+    let seed_goal = qbittorrent_goal(root);
     // only libtorrent's keys go on; the engine ignores the rest anyway
     rec.dict_mut().retain(|k, _| !k.starts_with(b"qBt-"));
 
@@ -411,15 +422,16 @@ fn qbittorrent_torrent(path: &Path) -> Result<Import, (Option<String>, String)> 
                         .collect()
                 })
                 .unwrap_or_default();
-            if root.dict_find_int_value("paused").unwrap_or(0) != 0 {
-                p.flags.insert(TorrentFlags::PAUSED);
-                p.flags.remove(TorrentFlags::AUTO_MANAGED);
-            }
+            // the full record carries these flags itself
+            let (paused, auto_managed) = qbittorrent_flags(root);
+            p.flags.set(TorrentFlags::PAUSED, paused);
+            p.flags.set(TorrentFlags::AUTO_MANAGED, auto_managed);
             return Ok(Import {
                 name: name.unwrap_or_else(|| hashes.key_hex()),
                 key: hashes.key_hex(),
                 label: label.to_owned(),
                 user_paused: false,
+                seed_goal,
                 params: p,
             });
         }
@@ -431,9 +443,89 @@ fn qbittorrent_torrent(path: &Path) -> Result<Import, (Option<String>, String)> 
         key: hashes.key_hex(),
         label: label.to_owned(),
         user_paused: false,
+        seed_goal,
         params: params(finish_record(rec, &meta), &save_path),
         name,
     })
+}
+
+/// A qBittorrent torrent's run state as its own loader reads it, in 4.x and 5.x alike (no key
+/// of its own): `paused` without `auto_managed` is stopped, neither is forced, else queued
+/// (paused and auto-managed: the queue decides). 4.x calls the stopped state "Paused", 5.x
+/// "Stopped"; it is this list's Stopped (paused outside the queue), not µTorrent's Pause, so
+/// no pause mark is written for it.
+fn qbittorrent_flags(root: Node<'_>) -> (bool, bool) {
+    let flag = |k: &str| root.dict_find_int_value(k).unwrap_or(0) != 0;
+    let (paused, auto_managed) = (flag("paused"), flag("auto_managed"));
+    if paused && !auto_managed {
+        (true, false)
+    } else if !paused && !auto_managed {
+        (false, false)
+    } else {
+        (true, true)
+    }
+}
+
+/// A qBittorrent share limit: its "use the global one" (-2), "none" (-1), or a value.
+#[derive(Clone, Copy, PartialEq, Debug)]
+enum QbtLimit {
+    Global,
+    None,
+    Value(f64),
+}
+
+impl QbtLimit {
+    fn of(v: f64) -> QbtLimit {
+        if v == -1.0 {
+            QbtLimit::None
+        } else if v < 0.0 || !v.is_finite() {
+            // -2, or anything else qBittorrent would not write
+            QbtLimit::Global
+        } else {
+            QbtLimit::Value(v)
+        }
+    }
+
+    /// This goal's target: `None` for the global one, 0 (off) for none, else the value; a
+    /// limit of 0 (stop at once) becomes the smallest target, since 0 switches ours off.
+    fn target(self) -> Option<u32> {
+        match self {
+            QbtLimit::Global => None,
+            QbtLimit::None => Some(0),
+            QbtLimit::Value(v) => Some((v.round() as u32).max(1)),
+        }
+    }
+}
+
+/// The torrent's own seeding goal from `qBt-ratioLimit` (the ratio ×1000 as an integer, or
+/// a decimal string, which older files have) and `qBt-seedingTimeLimit` (minutes); both -2 for
+/// "use the global limit" (`None`: our default goal applies), -1 for "no limit". qBittorrent's
+/// inactive seeding time and what it does at the limit (stop, remove, super-seed) have no
+/// equivalent: our goal stops the torrent or limits its upload as the Preferences say.
+fn qbittorrent_goal(root: Node<'_>) -> Option<SeedGoal> {
+    let ratio = match root.dict_find_str("qBt-ratioLimit") {
+        Some(s) => s.trim().parse::<f64>().map_or(QbtLimit::Global, QbtLimit::of),
+        None => root
+            .dict_find_int_value("qBt-ratioLimit")
+            .map_or(QbtLimit::Global, |v| QbtLimit::of(v as f64 / 1000.0)),
+    };
+    let ratio = match ratio {
+        QbtLimit::Value(r) => QbtLimit::Value(r * 100.0),
+        other => other,
+    };
+    let time =
+        root.dict_find_int_value("qBt-seedingTimeLimit").map_or(QbtLimit::Global, |v| QbtLimit::of(v as f64));
+    let (ratio_pct, minutes) = match (ratio.target(), time.target()) {
+        (None, None) => return None,
+        // one global: that side has no target here (our goal cannot name qBittorrent's)
+        (r, t) => (r.unwrap_or(0), t.unwrap_or(0)),
+    };
+    // qBittorrent acts when EITHER limit is reached ("MatchAny", the only behaviour before
+    // 5.0 and its default since); ours needs BOTH. With both set only the ratio is taken, the
+    // target qBittorrent users set most. 5.x's "MatchAll" mode is ours: both are taken.
+    let all = root.dict_find_str("qBt-shareLimitsMode") == Some("MatchAll");
+    let minutes = if ratio_pct > 0 && minutes > 0 && !all { 0 } else { minutes };
+    Some(SeedGoal { ratio_pct, minutes })
 }
 
 fn record_hashes(root: Node<'_>) -> Option<InfoHashes> {
@@ -539,6 +631,7 @@ fn utorrent_torrent(dir: &Path, file: &str, r: Node<'_>) -> Result<Import, Strin
                 key: hashes.key_hex(),
                 label,
                 user_paused: started == 3,
+                seed_goal: None,
                 params: p,
             });
         }
@@ -619,6 +712,7 @@ fn utorrent_torrent(dir: &Path, file: &str, r: Node<'_>) -> Result<Import, Strin
         key: hashes.key_hex(),
         label,
         user_paused: started == 3,
+        seed_goal: None,
         params: params(finish_record(rec, &meta), &save_path),
         name,
     })
@@ -809,12 +903,18 @@ mod tests {
         *rec.key("qBt-category") = Entry::Bytes(Vec::new());
         *rec.key("qBt-tags") = Entry::List(vec![Entry::Bytes(b"flac".to_vec())]);
         *rec.key("qBt-name") = Entry::Bytes(b"Best Album".to_vec());
+        *rec.key("qBt-ratioLimit") = Entry::Int(1500);
+        *rec.key("qBt-seedingTimeLimit") = Entry::Int(-2);
         std::fs::write(dir.join(format!("{hex}.fastresume")), rec.bencode()).unwrap();
-        // a magnet without metadata
+        // a magnet without metadata, queued, never to stop seeding
         let mut m = Entry::new_dict();
         *m.key("info-hash") = Entry::Bytes(vec![9; 20]);
         *m.key("save_path") = Entry::Bytes(b"/data".to_vec());
         *m.key("qBt-category") = Entry::Bytes(b"linux".to_vec());
+        *m.key("paused") = Entry::Int(1);
+        *m.key("auto_managed") = Entry::Int(1);
+        *m.key("qBt-ratioLimit") = Entry::Int(-1000);
+        *m.key("qBt-seedingTimeLimit") = Entry::Int(-1);
         std::fs::write(dir.join(format!("{}.fastresume", "09".repeat(20))), m.bencode()).unwrap();
         std::fs::write(dir.join("broken.fastresume"), b"d3:foo").unwrap();
 
@@ -835,6 +935,17 @@ mod tests {
         assert!(e.get("pieces").is_none());
         assert_eq!(magnet.label, "linux");
         assert!(matches!(magnet.params.source, TorrentSource::InfoHash(_)));
+        // stopped stays stopped (in the record), queued stays in the queue; no pause marks
+        assert_eq!(
+            (e.get("paused").unwrap().as_int(), e.get("auto_managed").unwrap().as_int()),
+            (Some(1), Some(0))
+        );
+        let queued = TorrentFlags::PAUSED | TorrentFlags::AUTO_MANAGED;
+        assert!(magnet.params.flags.contains(queued));
+        assert!(!album.user_paused && !magnet.user_paused);
+        // the share limits as the torrents' own seeding goals
+        assert_eq!(album.seed_goal, Some(SeedGoal { ratio_pct: 150, minutes: 0 }));
+        assert_eq!(magnet.seed_goal, Some(SeedGoal { ratio_pct: 0, minutes: 0 }), "seed forever");
 
         // already in the list: left out, no label written for it
         let mut prefs = Prefs::from_text("");
@@ -842,7 +953,11 @@ mod tests {
         assert_eq!(add.len(), 1);
         assert_eq!(found.skipped.len(), 2);
         assert!(prefs.get(&format!("torrent.{hex}.label")).is_none());
+        assert!(SeedGoal::load_override(&prefs, &hex).is_none());
         assert_eq!(prefs.get(&format!("torrent.{}.label", "09".repeat(20))), Some("linux"));
+        let goal = SeedGoal::load_override(&prefs, &"09".repeat(20));
+        assert_eq!(goal, Some(SeedGoal { ratio_pct: 0, minutes: 0 }));
+        assert!(prefs.get(&format!("torrent.{}.paused", "09".repeat(20))).is_none());
         assert!(add[0].params.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR));
         let _ = std::fs::remove_dir_all(&data);
     }
@@ -939,6 +1054,7 @@ mod tests {
                     key: i.to_string(),
                     label: String::new(),
                     user_paused: false,
+                    seed_goal: None,
                     params: AddTorrentParams::new(
                         TorrentSource::InfoHash(InfoHashes::default()),
                         format!("/d/{i:02}"),
@@ -950,6 +1066,47 @@ mod tests {
         let text = save_folders(&many);
         assert_eq!(text.lines().count(), MAX_FOLDERS_SHOWN + 1);
         assert!(text.starts_with("/d/00\n") && text.ends_with("… (+8)"), "{text}");
+    }
+
+    /// qBittorrent's share limits (`bencoderesumedatastorage.cpp`): the ratio ×1000 (or a
+    /// string), minutes, -2 global, -1 none; it stops at either limit, ours at both.
+    #[test]
+    fn qbittorrent_share_limits() {
+        let goal = |pairs: &[(&str, Entry)]| {
+            let mut d = Entry::new_dict();
+            for (k, v) in pairs {
+                *d.key(k) = v.clone();
+            }
+            let bytes = d.bencode();
+            let doc = bdecode(&bytes).unwrap();
+            qbittorrent_goal(doc.root().unwrap()).map(|g| (g.ratio_pct, g.minutes))
+        };
+        let (r, t, int) = ("qBt-ratioLimit", "qBt-seedingTimeLimit", Entry::Int);
+        assert_eq!(goal(&[]), None);
+        assert_eq!(goal(&[(r, int(-2000)), (t, int(-2))]), None, "the global limits");
+        assert_eq!(goal(&[(r, int(1504)), (t, int(-2))]), Some((150, 0)));
+        assert_eq!(goal(&[(r, Entry::Bytes(b"1.25".to_vec()))]), Some((125, 0)), "the old string");
+        assert_eq!(goal(&[(r, int(-1000)), (t, int(-1))]), Some((0, 0)), "no limit: seed forever");
+        assert_eq!(goal(&[(r, int(-1000)), (t, int(-2))]), Some((0, 0)));
+        assert_eq!(goal(&[(r, int(-2000)), (t, int(90))]), Some((0, 90)));
+        assert_eq!(goal(&[(r, int(0)), (t, int(0))]), Some((1, 0)), "0 is at once, not off");
+        // either limit in qBittorrent, both in ours: the ratio only, unless 5.x matches all
+        assert_eq!(goal(&[(r, int(2000)), (t, int(120))]), Some((200, 0)));
+        let all = ("qBt-shareLimitsMode", Entry::Bytes(b"MatchAll".to_vec()));
+        assert_eq!(goal(&[(r, int(2000)), (t, int(120)), all.clone()]), Some((200, 120)));
+        let any = ("qBt-shareLimitsMode", Entry::Bytes(b"MatchAny".to_vec()));
+        assert_eq!(goal(&[(r, int(2000)), (t, int(120)), any]), Some((200, 0)));
+
+        let flags = |paused: i64, auto: i64| {
+            let mut d = Entry::new_dict();
+            *d.key("paused") = int(paused);
+            *d.key("auto_managed") = int(auto);
+            let bytes = d.bencode();
+            qbittorrent_flags(bdecode(&bytes).unwrap().root().unwrap())
+        };
+        assert_eq!(flags(1, 0), (true, false), "stopped (4.x: paused)");
+        assert_eq!(flags(0, 0), (false, false), "forced");
+        assert_eq!([flags(1, 1), flags(0, 1)], [(true, true); 2], "queued");
     }
 
     #[test]

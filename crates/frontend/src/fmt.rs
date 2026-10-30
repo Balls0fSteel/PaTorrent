@@ -48,6 +48,12 @@ pub fn speed_always(bytes_per_sec: u32) -> String {
     }
 }
 
+/// The main window's title with "Show current speed in the title bar" (`ui.title_speed`):
+/// `D:1.2 MB/s U:0.0 kB/s - PaTorrent 1.0.0`, µTorrent 2.2.1's `D:%s U:%s - %s`.
+pub fn title_speed(down: u32, up: u32, title: &str) -> String {
+    tr!(TitleSpeed, down = speed_always(down), up = speed_always(up), title)
+}
+
 /// Remaining time: `45s`, `12m 5s`, `3h 2m`, `2d 5h`, `3w 2d`; `∞` for unknown or a year and up.
 pub fn eta(secs: Option<u64>) -> String {
     match secs {
@@ -149,6 +155,7 @@ mod tests {
         assert_eq!(speed(400), "0.4 kB/s");
         assert_eq!(speed(312 * 1024), "312.0 kB/s");
         assert_eq!(speed(1258 * 1024), "1.2 MB/s");
+        assert_eq!(title_speed(1258 * 1024, 0, "PaTorrent 1.0.0"), "D:1.2 MB/s U:0.0 kB/s - PaTorrent 1.0.0");
     }
 
     #[test]

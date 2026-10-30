@@ -36,6 +36,9 @@ pub struct GuiOptions {
     /// Shade every other row of the lists (`ui.alternate_rows`; µTorrent's "Alternate list
     /// background color", on by default as there).
     pub alternate_rows: bool,
+    /// The main window's title starts with the transfer speeds (`ui.title_speed`; µTorrent's
+    /// "Show current speed in the title bar", off by default as there).
+    pub title_speed: bool,
     /// Ask at start when PaTorrent does not open `.torrent` files and `magnet:` links
     /// (`ui.check_assoc`; µTorrent's "Check association on startup"). Off by default here.
     pub check_association: bool,
@@ -101,6 +104,7 @@ impl GuiOptions {
             torrent_folders: TorrentFolders::load(prefs),
             confirm_delete: prefs.get_bool("ui.confirm_delete", true),
             alternate_rows: prefs.get_bool("ui.alternate_rows", true),
+            title_speed: prefs.get_bool("ui.title_speed", false),
             check_association: prefs.get_bool("ui.check_assoc", false),
             close_to_tray: prefs.get_bool("ui.close_to_tray", true),
             minimize_to_tray: prefs.get_bool("ui.minimize_to_tray", false),
@@ -139,6 +143,7 @@ impl GuiOptions {
         self.torrent_folders.store(prefs);
         prefs.set_bool("ui.confirm_delete", self.confirm_delete);
         prefs.set_bool("ui.alternate_rows", self.alternate_rows);
+        prefs.set_bool("ui.title_speed", self.title_speed);
         prefs.set_bool("ui.check_assoc", self.check_association);
         prefs.set_bool("ui.close_to_tray", self.close_to_tray);
         prefs.set_bool("ui.minimize_to_tray", self.minimize_to_tray);
@@ -305,6 +310,7 @@ mod tests {
             },
             confirm_delete: false,
             alternate_rows: false,
+            title_speed: true,
             check_association: true,
             close_to_tray: false,
             minimize_to_tray: true,

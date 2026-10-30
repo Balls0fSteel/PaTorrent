@@ -18,6 +18,7 @@ use patorrent_frontend::pref_pages::{PROXY_TYPES, proxy_from_ui, proxy_to_ui};
 use patorrent_frontend::scheduler::{self, Mode};
 use patorrent_frontend::settings::{self, Entry, Kind, Value};
 use patorrent_frontend::tr;
+use patorrent_nox::webui::auth;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
@@ -97,6 +98,7 @@ const ID_ADD_STOPPED: u16 = id(1, 5);
 const ID_SHOW_ADD: u16 = id(1, 6);
 const ID_ALT_ROWS: u16 = id(1, 7);
 const ID_ACTIVATE: u16 = id(1, 8);
+const ID_TITLE_SPEED: u16 = id(1, 9);
 // Directories
 const ID_DL_DIR: u16 = id(2, 1);
 const ID_DL_BROWSE: u16 = id(2, 2);
@@ -171,6 +173,9 @@ const ID_WEBUI_HTTPS: u16 = id(8, 6);
 const ID_WEBUI_STATUS: u16 = id(8, 7);
 const ID_WEBUI_OPEN: u16 = id(8, 8);
 const ID_WEBUI_DOMAINS: u16 = id(8, 9);
+const ID_WEBUI_KEY_ON: u16 = id(8, 10);
+const ID_WEBUI_KEY: u16 = id(8, 11);
+const ID_WEBUI_SUBNETS: u16 = id(8, 12);
 const ID_SCHED_GRID: u16 = id(7, 2);
 const ID_SCHED_UL: u16 = id(7, 3);
 const ID_SCHED_DL: u16 = id(7, 4);
@@ -253,6 +258,7 @@ static FIELDS: &[Field] = &[
         set: |o, v| o.gui.confirm_delete = v,
     },
     Field::Check { id: ID_ALT_ROWS, get: |o| o.gui.alternate_rows, set: |o, v| o.gui.alternate_rows = v },
+    Field::Check { id: ID_TITLE_SPEED, get: |o| o.gui.title_speed, set: |o, v| o.gui.title_speed = v },
     Field::Check { id: ID_BALLOONS, get: |o| o.gui.balloons, set: |o, v| o.gui.balloons = v },
     Field::Check { id: ID_CLOSE_TRAY, get: |o| o.gui.close_to_tray, set: |o, v| o.gui.close_to_tray = v },
     Field::Check { id: ID_MIN_TRAY, get: |o| o.gui.minimize_to_tray, set: |o, v| o.gui.minimize_to_tray = v },
@@ -678,7 +684,7 @@ impl Builder {
 fn template() -> Vec<u16> {
     // the Scheduler page names the grid's class
     sched_grid::register();
-    let mut b = Builder { t: Template::new(431, 271), page: 0, next_label: 50 };
+    let mut b = Builder { t: Template::new(431, 301), page: 0, next_label: 50 };
     let tree_style = TAB
         | WS_BORDER
         | windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE
@@ -689,7 +695,7 @@ fn template() -> Vec<u16> {
         // a long page name runs to the edge (its tooltip shows it all) rather than scroll
         | TVS_NOHSCROLL
         | TVS_DISABLEDRAGDROP;
-    b.t.item(Class::Name("SysTreeView32"), ID_TREE, tree_style, [7, 7, 100, 236], "");
+    b.t.item(Class::Name("SysTreeView32"), ID_TREE, tree_style, [7, 7, 100, 266], "");
 
     b.page(0);
     b.group([0, 0, W, 34], tr!(PrefLanguage));
@@ -708,17 +714,18 @@ fn template() -> Vec<u16> {
     b.ctl(BUTTON, ID_UPDATE_BETA, CHECK, [8, 186, 290, 10], tr!(PrefUpdateBeta));
 
     b.page(1);
-    b.group([0, 0, W, 60], tr!(PrefDisplay));
+    b.group([0, 0, W, 74], tr!(PrefDisplay));
     b.ctl(BUTTON, ID_CONFIRM_DELETE, CHECK, [8, 14, 290, 10], tr!(PrefConfirmDelete));
     b.ctl(BUTTON, ID_ALT_ROWS, CHECK, [8, 28, 290, 10], tr!(PrefAlternateRows));
-    b.ctl(BUTTON, ID_BALLOONS, CHECK, [8, 42, 290, 10], tr!(PrefBalloons));
-    b.group([0, 66, W, 46], tr!(PrefTray));
-    b.ctl(BUTTON, ID_CLOSE_TRAY, CHECK, [8, 80, 290, 10], tr!(PrefCloseToTray));
-    b.ctl(BUTTON, ID_MIN_TRAY, CHECK, [8, 94, 290, 10], tr!(PrefMinimizeToTray));
-    b.group([0, 118, W, 60], tr!(PrefWhenAdding));
-    b.ctl(BUTTON, ID_ADD_STOPPED, CHECK, [8, 132, 290, 10], tr!(PrefDontStart));
-    b.ctl(BUTTON, ID_ACTIVATE, CHECK, [8, 146, 290, 10], tr!(PrefActivateWindow));
-    b.ctl(BUTTON, ID_SHOW_ADD, CHECK, [8, 160, 290, 10], tr!(PrefShowAddDialog));
+    b.ctl(BUTTON, ID_TITLE_SPEED, CHECK, [8, 42, 290, 10], tr!(PrefTitleSpeed));
+    b.ctl(BUTTON, ID_BALLOONS, CHECK, [8, 56, 290, 10], tr!(PrefBalloons));
+    b.group([0, 80, W, 46], tr!(PrefTray));
+    b.ctl(BUTTON, ID_CLOSE_TRAY, CHECK, [8, 94, 290, 10], tr!(PrefCloseToTray));
+    b.ctl(BUTTON, ID_MIN_TRAY, CHECK, [8, 108, 290, 10], tr!(PrefMinimizeToTray));
+    b.group([0, 132, W, 60], tr!(PrefWhenAdding));
+    b.ctl(BUTTON, ID_ADD_STOPPED, CHECK, [8, 146, 290, 10], tr!(PrefDontStart));
+    b.ctl(BUTTON, ID_ACTIVATE, CHECK, [8, 160, 290, 10], tr!(PrefActivateWindow));
+    b.ctl(BUTTON, ID_SHOW_ADD, CHECK, [8, 174, 290, 10], tr!(PrefShowAddDialog));
 
     b.page(2);
     b.group([0, 0, W, 96], tr!(PrefDownloadLocation));
@@ -818,22 +825,30 @@ fn template() -> Vec<u16> {
 
     b.page(PAGE_WEBUI);
     b.ctl(BUTTON, ID_WEBUI, CHECK, [0, 0, 200, 10], tr!(PrefWebUi));
-    b.group([0, 16, W, 46], tr!(PrefAuthentication));
+    b.group([0, 16, W, 110], tr!(PrefAuthentication));
     b.label([8, 31, 50, 9], tr!(PrefUsername));
     b.ctl(EDIT, ID_WEBUI_USER, LINE, [60, 29, 120, 13], "");
     b.label([8, 47, 50, 9], tr!(PrefPassword));
     b.ctl(EDIT, ID_WEBUI_PASS, LINE | ES_PASSWORD as u32, [60, 45, 120, 13], "");
     b.label([184, 47, 120, 9], tr!(PrefWebUiPassKeep));
-    b.group([0, 68, W, 92], tr!(PrefWebUiConnectivity));
-    b.number(81, ID_WEBUI_PORT, NUMBER, tr!(PrefWebUiPort));
-    b.ctl(BUTTON, ID_WEBUI_REMOTE, CHECK, [8, 99, 290, 10], tr!(PrefWebUiRemote));
-    b.ctl(BUTTON, ID_WEBUI_HTTPS, CHECK, [8, 115, 290, 10], tr!(PrefWebUiHttps));
+    // a Bearer key for scripts and *arr apps (write-only, as the password), and the subnets
+    // whose clients skip the login
+    b.ctl(BUTTON, ID_WEBUI_KEY_ON, CHECK, [8, 62, 290, 10], tr!(WebApiKeyEnabled));
+    b.label([20, 77, 140, 9], tr!(WebApiKey));
+    b.ctl(EDIT, ID_WEBUI_KEY, LINE | ES_PASSWORD as u32, [164, 75, 134, 13], "");
+    b.label([8, 91, 290, 17], tr!(WebAuthSubnets));
+    b.ctl(EDIT, ID_WEBUI_SUBNETS, LINE, [8, 109, 290, 13], "");
+    b.group([0, 131, W, 86], tr!(PrefWebUiConnectivity));
+    b.number(144, ID_WEBUI_PORT, NUMBER, tr!(PrefWebUiPort));
+    b.ctl(BUTTON, ID_WEBUI_REMOTE, CHECK, [8, 161, 290, 10], tr!(PrefWebUiRemote));
+    b.ctl(BUTTON, ID_WEBUI_HTTPS, CHECK, [8, 175, 290, 10], tr!(PrefWebUiHttps));
     // the host names the Host check lets through (an *arr in Docker names the PC so)
-    b.label([8, 131, 290, 9], tr!(WebDomains));
-    b.ctl(EDIT, ID_WEBUI_DOMAINS, LINE, [8, 142, 290, 13], "");
-    b.ctl(STATIC, ID_WEBUI_STATUS, C, [0, 165, W, 16], "");
-    b.ctl(BUTTON, ID_WEBUI_OPEN, PUSH, [0, 183, 80, 14], tr!(PrefWebUiOpen));
-    b.label([0, 201, W, 40], tr!(PrefWebUiNote));
+    b.label([8, 189, 290, 9], tr!(WebDomains));
+    b.ctl(EDIT, ID_WEBUI_DOMAINS, LINE, [8, 199, 290, 13], "");
+    // the status beside Open Web UI, so that the note keeps its lines on the tallest page
+    b.ctl(STATIC, ID_WEBUI_STATUS, C, [0, 221, W - 86, 18], "");
+    b.ctl(BUTTON, ID_WEBUI_OPEN, PUSH, [W - 80, 222, 80, 14], tr!(PrefWebUiOpen));
+    b.label([0, 241, W, 32], tr!(PrefWebUiNote));
 
     b.page(PAGE_ADVANCED);
     b.label([0, 2, 24, 9], tr!(PrefFilter));
@@ -864,9 +879,9 @@ fn template() -> Vec<u16> {
 
     let mut t = b.t;
     let vis = windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE;
-    t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 250, 50, 14], tr!(BtnOk));
-    t.item(BUTTON, IDCANCEL as u16, PUSH | vis, [317, 250, 50, 14], tr!(BtnCancel));
-    t.item(BUTTON, ID_APPLY, PUSH | vis, [371, 250, 53, 14], tr!(BtnApply));
+    t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 280, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, PUSH | vis, [317, 280, 50, 14], tr!(BtnCancel));
+    t.item(BUTTON, ID_APPLY, PUSH | vis, [371, 280, 53, 14], tr!(BtnApply));
     t.finish()
 }
 
@@ -1160,28 +1175,40 @@ unsafe fn write_webui(dlg: HWND, st: &State<'_>) {
         set_check(dlg, ID_WEBUI_REMOTE, v.setup.remote);
         set_check(dlg, ID_WEBUI_HTTPS, v.setup.https);
         set_text(item(dlg, ID_WEBUI_DOMAINS), &v.setup.domains);
+        set_check(dlg, ID_WEBUI_KEY_ON, v.setup.api_key_enabled);
+        set_text(item(dlg, ID_WEBUI_KEY), "");
+        set_text(item(dlg, ID_WEBUI_SUBNETS), &v.setup.subnets);
         set_text(item(dlg, ID_WEBUI_STATUS), &v.status.text());
         EnableWindow(item(dlg, ID_WEBUI), (v.status != WebStatus::Unavailable) as i32);
         update_webui_controls(dlg, st);
     }
 }
 
-/// The login and connectivity fields follow "Enable Web UI"; Open Web UI needs a running
-/// server.
+/// The login and connectivity fields follow "Enable Web UI", the API key its own box too;
+/// Open Web UI needs a running server.
 unsafe fn update_webui_controls(dlg: HWND, st: &State<'_>) {
     unsafe {
-        let on = (checked(dlg, ID_WEBUI) && st.webui.status != WebStatus::Unavailable) as i32;
-        for id in
-            [ID_WEBUI_USER, ID_WEBUI_PASS, ID_WEBUI_PORT, ID_WEBUI_REMOTE, ID_WEBUI_HTTPS, ID_WEBUI_DOMAINS]
-        {
-            EnableWindow(item(dlg, id), on);
+        let on = checked(dlg, ID_WEBUI) && st.webui.status != WebStatus::Unavailable;
+        for id in [
+            ID_WEBUI_USER,
+            ID_WEBUI_PASS,
+            ID_WEBUI_KEY_ON,
+            ID_WEBUI_SUBNETS,
+            ID_WEBUI_PORT,
+            ID_WEBUI_REMOTE,
+            ID_WEBUI_HTTPS,
+            ID_WEBUI_DOMAINS,
+        ] {
+            EnableWindow(item(dlg, id), on as i32);
         }
+        EnableWindow(item(dlg, ID_WEBUI_KEY), (on && checked(dlg, ID_WEBUI_KEY_ON)) as i32);
         EnableWindow(item(dlg, ID_WEBUI_OPEN), st.webui.status.running() as i32);
     }
 }
 
 /// What the Web UI page asks for, against the page as last read: nothing, or the setup to
-/// store (and a new password). `Err` is what to tell the user before anything changes.
+/// store (and a new password or API key). `Err` is what to tell the user before anything
+/// changes.
 unsafe fn webui_edit(dlg: HWND, st: &State<'_>) -> Result<Option<Edit>, String> {
     unsafe {
         let v = &st.webui;
@@ -1190,7 +1217,7 @@ unsafe fn webui_edit(dlg: HWND, st: &State<'_>) -> Result<Option<Edit>, String> 
         }
         if !checked(dlg, ID_WEBUI) {
             let setup = WebSetup { enabled: false, ..v.setup.clone() };
-            return Ok(v.setup.enabled.then_some(Edit { setup, password: None }));
+            return Ok(v.setup.enabled.then_some(Edit { setup, password: None, api_key: None }));
         }
         let username = window_text(item(dlg, ID_WEBUI_USER)).trim().to_owned();
         let password = window_text(item(dlg, ID_WEBUI_PASS));
@@ -1202,6 +1229,22 @@ unsafe fn webui_edit(dlg: HWND, st: &State<'_>) -> Result<Option<Edit>, String> 
         if username.is_empty() || (password.is_empty() && !v.has_password) {
             return Err(tr!(WebUiNeedLogin).to_owned());
         }
+        // the key as the password: write-only, and needed once its box is on (the greyed
+        // field's leftover text is not taken)
+        let api_key_enabled = checked(dlg, ID_WEBUI_KEY_ON);
+        let key = window_text(item(dlg, ID_WEBUI_KEY));
+        let key = (api_key_enabled && !key.is_empty()).then_some(key);
+        let short = match &key {
+            Some(k) => k.chars().count() < auth::API_KEY_MIN_LEN,
+            None => api_key_enabled && !v.has_api_key,
+        };
+        if short {
+            return Err(tr!(PrefApiKeyShort, count = auth::API_KEY_MIN_LEN));
+        }
+        let subnets = window_text(item(dlg, ID_WEBUI_SUBNETS)).trim().to_owned();
+        if let Err(entry) = auth::parse_subnets(&subnets) {
+            return Err(tr!(PrefBadSubnet, entry = entry));
+        }
         let setup = WebSetup {
             enabled: true,
             username,
@@ -1209,12 +1252,14 @@ unsafe fn webui_edit(dlg: HWND, st: &State<'_>) -> Result<Option<Edit>, String> 
             remote: checked(dlg, ID_WEBUI_REMOTE),
             https: checked(dlg, ID_WEBUI_HTTPS),
             domains: window_text(item(dlg, ID_WEBUI_DOMAINS)).trim().to_owned(),
+            api_key_enabled,
+            subnets,
         };
         // as stored and running: nothing to do; a server that could not start is tried again
-        if setup == v.setup && password.is_empty() && v.status.running() {
+        if setup == v.setup && password.is_empty() && key.is_none() && v.status.running() {
             return Ok(None);
         }
-        Ok(Some(Edit { setup, password: (!password.is_empty()).then_some(password) }))
+        Ok(Some(Edit { setup, password: (!password.is_empty()).then_some(password), api_key: key }))
     }
 }
 
@@ -1498,7 +1543,7 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
                 }
             }
             ID_SCHED if code == BN_CLICKED => update_sched_controls(dlg),
-            ID_WEBUI if code == BN_CLICKED => update_webui_controls(dlg, st),
+            ID_WEBUI | ID_WEBUI_KEY_ON if code == BN_CLICKED => update_webui_controls(dlg, st),
             ID_WEBUI_OPEN if code == BN_CLICKED => {
                 if let Some(url) = st.webui.status.url() {
                     crate::app::open_url(dlg, url);
@@ -1759,6 +1804,7 @@ mod tests {
                         edits.borrow_mut().push(e.clone());
                         v.setup = e.setup.clone();
                         v.has_password |= e.password.is_some();
+                        v.has_api_key |= e.api_key.is_some();
                         v.status = match (e.setup.enabled, e.setup.port) {
                             (false, _) => WebStatus::Off,
                             (true, 1) => WebStatus::Failed("port 1 is in use".into()),
@@ -1926,10 +1972,12 @@ mod tests {
             remote: false,
             https: true,
             domains: String::new(),
+            api_key_enabled: false,
+            subnets: String::new(),
         };
         assert_eq!(
             f.web_edits.borrow().as_slice(),
-            [Edit { setup: want.clone(), password: Some("s3cret".into()) }]
+            [Edit { setup: want.clone(), password: Some("s3cret".into()), api_key: None }]
         );
         assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiRunning, url = "https://127.0.0.1:8443/"));
         assert_eq!(f.text(ID_WEBUI_PASS), "", "a password is never shown again");
@@ -1942,12 +1990,56 @@ mod tests {
         f.check(ID_WEBUI_REMOTE, true);
         f.click(ID_APPLY);
         let want = WebSetup { remote: true, ..want };
-        assert_eq!(f.web_edits.borrow().last(), Some(&Edit { setup: want.clone(), password: None }));
+        let kept = |setup: &WebSetup| Some(Edit { setup: setup.clone(), password: None, api_key: None });
+        assert_eq!(f.web_edits.borrow().last().cloned(), kept(&want));
         // the server domains (an *arr in Docker names this PC by a host name)
         f.set(ID_WEBUI_DOMAINS, " patorrent;*.lan ");
         f.click(ID_APPLY);
         let want = WebSetup { domains: "patorrent;*.lan".into(), ..want };
-        assert_eq!(f.web_edits.borrow().last(), Some(&Edit { setup: want.clone(), password: None }));
+        assert_eq!(f.web_edits.borrow().last().cloned(), kept(&want));
+
+        // the API key: its field follows its box; on, a key of 16 characters is needed once
+        assert!(enabled(ID_WEBUI_KEY_ON) && !enabled(ID_WEBUI_KEY));
+        f.check(ID_WEBUI_KEY_ON, true);
+        f.click(ID_WEBUI_KEY_ON);
+        assert!(enabled(ID_WEBUI_KEY));
+        let short = tr!(PrefApiKeyShort, count = 16);
+        assert_eq!(unsafe { webui_edit(f.dlg, &f.st) }.unwrap_err(), short);
+        f.set(ID_WEBUI_KEY, "too short");
+        assert_eq!(unsafe { webui_edit(f.dlg, &f.st) }.unwrap_err(), short);
+        f.set(ID_WEBUI_KEY, "0123456789abcdef");
+        f.click(ID_APPLY);
+        let want = WebSetup { api_key_enabled: true, ..want };
+        assert_eq!(
+            f.web_edits.borrow().last(),
+            Some(&Edit { setup: want.clone(), password: None, api_key: Some("0123456789abcdef".into()) })
+        );
+        assert_eq!(f.text(ID_WEBUI_KEY), "", "a key is never shown again");
+        unsafe { assert!(checked(f.dlg, ID_WEBUI_KEY_ON)) };
+        // stored: nothing changed asks nothing, the box off keeps the key without taking text
+        let n = f.web_edits.borrow().len();
+        f.click(ID_APPLY);
+        assert_eq!(f.web_edits.borrow().len(), n);
+        f.check(ID_WEBUI_KEY_ON, false);
+        f.click(ID_WEBUI_KEY_ON);
+        assert!(!enabled(ID_WEBUI_KEY));
+        f.set(ID_WEBUI_KEY, "left over");
+        f.click(ID_APPLY);
+        let want = WebSetup { api_key_enabled: false, ..want };
+        assert_eq!(f.web_edits.borrow().last().cloned(), kept(&want));
+
+        // the subnet whitelist: a bad entry is told, nothing is stored
+        f.set(ID_WEBUI_SUBNETS, "192.168.1.0/24; nonsense");
+        let n = f.web_edits.borrow().len();
+        dialogs::take_told();
+        f.click(ID_APPLY);
+        assert_eq!(dialogs::take_told(), [tr!(PrefBadSubnet, entry = "nonsense")]);
+        assert_eq!(f.web_edits.borrow().len(), n);
+        f.set(ID_WEBUI_SUBNETS, " 192.168.1.0/24;fd00::/8 ");
+        f.click(ID_APPLY);
+        let want = WebSetup { subnets: "192.168.1.0/24;fd00::/8".into(), ..want };
+        assert_eq!(f.web_edits.borrow().last().cloned(), kept(&want));
+        assert_eq!(f.text(ID_WEBUI_SUBNETS), "192.168.1.0/24;fd00::/8");
 
         // a server that cannot start: the page says why, and Apply tries again
         f.set(ID_WEBUI_PORT, "1");
@@ -1963,7 +2055,7 @@ mod tests {
         f.check(ID_WEBUI, false);
         f.click(ID_APPLY);
         let off = WebSetup { enabled: false, port: 1, ..want };
-        assert_eq!(f.web_edits.borrow().last(), Some(&Edit { setup: off, password: None }));
+        assert_eq!(f.web_edits.borrow().last().cloned(), kept(&off));
         assert_eq!(f.text(ID_WEBUI_STATUS), tr!(WebUiStopped));
         assert_eq!(f.web.borrow().status, WebStatus::Off);
 
@@ -2036,6 +2128,7 @@ mod tests {
         f.check(ID_CONFIRM_DELETE, false);
         assert!(unsafe { checked(f.dlg, ID_ALT_ROWS) }, "alternate rows are on by default, as in µTorrent");
         f.check(ID_ALT_ROWS, false);
+        f.check(ID_TITLE_SPEED, true);
         unsafe { send(item(f.dlg, ID_ENC_OUT), CB_SETCURSEL, 0, 0) };
         f.click(ID_APPLY);
 
@@ -2061,6 +2154,7 @@ mod tests {
         assert_eq!(o.gui.ip_filter_path, r"D:\level1.dat");
         assert_eq!(o.gui.upload_slots_per_torrent, 4);
         assert!(!o.gui.pex && o.gui.add_stopped && !o.gui.confirm_delete && !o.gui.alternate_rows);
+        assert!(o.gui.title_speed, "Show current speed in the title bar");
         let goal = o.gui.seeding_goal();
         assert_eq!(
             (goal.goal.ratio_pct, goal.goal.minutes, goal.limit_upload, goal.limit_kib),

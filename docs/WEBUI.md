@@ -442,6 +442,11 @@ current password, and reported read-only by the shim's `app/preferences`:
   adding torrents that write to the save roots: whitelist only networks you trust as much as
   the login.
 
+The Windows GUI's own Preferences > Web UI > Authentication sets both as well: the key's box,
+a password field for a new key (left empty, the stored key stays; a key is needed once the box
+is on) and the whitelist, checked as above before anything is stored. Hosted, the server
+reads them from the window's `patorrent.ini` keys when Apply restarts it.
+
 HTTPS (`--webui-https`, or `--webui-cert FILE [--webui-key FILE]`): the port serves TLS only,
 through the OS library (SChannel on Windows, OpenSSL on Unix: `patorrent_core::tls`), TLS 1.2
 and 1.3. `--webui-https` alone makes a self-signed certificate on first use (ECDSA P-256, 825

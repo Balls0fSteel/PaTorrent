@@ -1,4 +1,5 @@
-// Ported from libtorrent-rasterbar 2.0.11: include/libtorrent/sliding_average.hpp, src/stat.cpp
+// Ported from libtorrent-rasterbar 2.0.11: include/libtorrent/sliding_average.hpp, src/stat.cpp;
+// a fix from 2.1.0 (0699430139)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: `stat_channel` keeps a running byte counter plus an exponential average updated per
 // tick with the real elapsed time, instead of a fixed one-second second_tick.
@@ -19,7 +20,15 @@ pub struct SlidingAverage<const N: i64> {
 
 impl<const N: i64> SlidingAverage<N> {
     pub fn add_sample(&mut self, s: i64) {
-        let s = s * 64;
+        // a sample too large for the fixed point arithmetic counts as the largest one that fits
+        // (2.1.0 0699430139)
+        let s = if s >= i64::MAX / 64 / 4 {
+            i64::MAX / 4
+        } else if s <= i64::MIN / 64 / 4 {
+            i64::MIN / 4
+        } else {
+            s * 64
+        };
         let deviation = if self.num_samples > 0 { (self.mean - s).abs() } else { 0 };
         if self.num_samples < N {
             self.num_samples += 1;
@@ -196,6 +205,25 @@ mod tests {
         avg.add_sample(0);
         assert!((avg.mean() - 250).abs() < 50);
         assert!((avg.avg_deviation() - 250).abs() < 80);
+    }
+
+    // libtorrent 2.1.0 test_sliding_average.cpp positive_overflow, negative_overflow, overflow
+    // (0699430139), with i64 limits: out-of-range samples saturate instead of overflowing
+    #[test]
+    fn sliding_average_saturates() {
+        let mut avg = SlidingAverage::<10>::default();
+        avg.add_sample(i64::MAX);
+        assert_eq!(avg.mean(), (i64::MAX / 4 + 32) / 64);
+
+        let mut avg = SlidingAverage::<10>::default();
+        avg.add_sample(i64::MIN);
+        assert_eq!(avg.mean(), (i64::MIN / 4 + 32) / 64);
+
+        let mut avg = SlidingAverage::<10>::default();
+        (0..20).for_each(|_| avg.add_sample(i64::MIN));
+        avg.add_sample(i64::MAX);
+        assert!(avg.mean() < 0);
+        assert!(avg.avg_deviation() > 0);
     }
 
     #[test]

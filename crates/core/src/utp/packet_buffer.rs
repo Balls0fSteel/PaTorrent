@@ -1,10 +1,12 @@
-// Ported from libtorrent-rasterbar 2.0.11: src/packet_buffer.cpp, include/libtorrent/aux_/packet_buffer.hpp
+// Ported from libtorrent-rasterbar 2.0.11: src/packet_buffer.cpp, include/libtorrent/aux_/packet_buffer.hpp;
+// a fix from 2.0.14 / 2.1.1 (f4778634fd, ea998e754c)
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: slots hold `Option<Box<Packet>>` in a Vec instead of pooled `packet_ptr`s; otherwise
 // the same power-of-two circular buffer over 16-bit sequence numbers. An index's distance from
 // the cursor is taken modulo 0x10000 (`in_range`, `insert`): libtorrent compares the raw numbers,
 // so an index that had wrapped past the end of the buffer found the slot of a packet held from
-// before the wrap. A receiver then dropped new packets as duplicates of held ones.
+// before the wrap. A receiver then dropped new packets as duplicates of held ones. 2.0.14 takes
+// the same modulo distance (ea998e754c, f4778634fd) and refuses indices above 0xffff.
 
 //! A circular buffer indexed by (wrapping) 16-bit sequence numbers: the packets we sent and
 //! wait to have acknowledged, and the ones we received out of order.
@@ -52,10 +54,11 @@ impl PacketBuffer {
         self.capacity().wrapping_sub(1)
     }
 
-    /// Whether `idx` has a slot: from the cursor on, less than the capacity ahead of it (the
-    /// next lap of a slot belongs to another index).
+    /// Whether `idx` has a slot: a 16-bit index (2.0.14 f4778634fd), from the cursor on, less
+    /// than the capacity ahead of it (the next lap of a slot belongs to another index).
     fn in_range(&self, idx: u32) -> bool {
-        (idx.wrapping_sub(self.first) & 0xffff) < self.capacity()
+        idx <= 0xffff
+            && (idx.wrapping_sub(self.first) & 0xffff) < self.capacity()
             && !compare_less_wrap(idx, self.first, 0xffff)
     }
 
@@ -289,6 +292,38 @@ mod tests {
         assert!(pb.at(0xfff3).is_none());
         assert_eq!(get_val(pb.at(new_index)), 2);
         pb.insert(0xffff, make_pkt(3));
+    }
+
+    // libtorrent 2.0.14 test_packet_buffer.cpp wrap_outside_range, wrap_range_boundaries
+    // (ea998e754c, f4778634fd)
+    #[test]
+    fn wrap_range_boundaries() {
+        let mut pb = PacketBuffer::default();
+        let first = 0xfffe;
+        pb.insert(first, make_pkt(1));
+        let capacity = pb.capacity();
+        let last = (first + capacity - 1) & 0xffff;
+        pb.insert(last, make_pkt(2));
+
+        let before = (first - 1) & 0xffff;
+        let after = (first + capacity) & 0xffff;
+        let out_of_domain = first + 0x10000;
+
+        assert_eq!(get_val(pb.at(first)), 1);
+        assert_eq!(get_val(pb.at(last)), 2);
+        assert!(pb.at(before).is_none());
+        assert!(pb.at(after).is_none());
+        assert!(pb.at(out_of_domain).is_none());
+        assert!(pb.at_mut(out_of_domain).is_none());
+
+        assert!(pb.remove(before).is_none());
+        assert!(pb.remove(after).is_none());
+        assert!(pb.remove(out_of_domain).is_none());
+        assert_eq!(pb.len(), 2);
+        assert_eq!(pb.cursor(), first);
+        assert_eq!(pb.span(), capacity);
+        assert_eq!(get_val(pb.at(first)), 1);
+        assert_eq!(get_val(pb.at(last)), 2);
     }
 
     // Not in libtorrent's tests (its buffer fails both).

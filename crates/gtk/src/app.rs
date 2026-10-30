@@ -34,6 +34,7 @@ use patorrent_frontend::properties::{self, Properties, TorrentProps};
 use patorrent_frontend::rss::view::{self as rss_view, FeedForm, ItemRow};
 use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
+use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::status_icon;
 use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
@@ -123,8 +124,10 @@ struct Ui {
     /// Holds the torrent list, or a feed's items in its place.
     list_scroll: gtk::ScrolledWindow,
     feed_table: Table,
-    /// The toolbar's search box (Ctrl+F).
+    /// The toolbar's search box (Ctrl+F), and the menu beside it that picks what Enter in it
+    /// does (`crate::search`).
     search: gtk::SearchEntry,
+    search_menu: gtk::MenuButton,
 }
 
 thread_local! {
@@ -703,14 +706,24 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     search.set_placeholder_text(Some(tr!(SearchCue)));
     search.set_width_chars(1);
     search.set_size_request(200, -1);
-    search.set_hexpand(true);
-    search.set_halign(gtk::Align::End);
     search.set_valign(gtk::Align::Center);
-    search.set_margin_end(4);
     search.connect_search_changed(|e| {
+        // with a search source picked the text is a query, not a filter
+        if crate::search::mode() != crate::search::Mode::Filter {
+            return;
+        }
         let text = e.text();
         with_app(|a| a.list.set_search(&text));
         refresh();
+    });
+    // with a search source picked, Enter searches it (D41)
+    search.connect_activate(|e| {
+        let mode = crate::search::mode();
+        if mode == crate::search::Mode::Filter {
+            return;
+        }
+        let Some(window) = with_app(|a| a.window.clone()) else { return };
+        crate::search::search(&window, Rc::new(SearchHost), &e.text(), mode);
     });
     // Escape empties it and gives the list the keyboard
     search.connect_stop_search(|e| {
@@ -733,7 +746,19 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         }
     });
     search.add_controller(focus);
-    toolbar.append(&search);
+    // the menu beside it: the name filter, the search sources, Manage Sources
+    let search_menu = gtk::MenuButton::new();
+    search_menu.set_valign(gtk::Align::Center);
+    search_menu.set_tooltip_text(Some(tr!(SearchTitle)));
+    search_menu.set_menu_model(Some(&crate::search::toolbar_menu(&load_sources(&prefs))));
+    let search_box = gtk::Box::new(gtk::Orientation::Horizontal, 0);
+    search_box.add_css_class("linked");
+    search_box.set_hexpand(true);
+    search_box.set_halign(gtk::Align::End);
+    search_box.set_margin_end(4);
+    search_box.append(&search);
+    search_box.append(&search_menu);
+    toolbar.append(&search_box);
 
     let side_scroll = gtk::ScrolledWindow::builder()
         .child(&sidebar.widget)
@@ -825,6 +850,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         list_scroll,
         feed_table,
         search,
+        search_menu,
     });
     UI.with(|u| *u.borrow_mut() = Some(ui));
     APP.with(|a| {
@@ -1485,6 +1511,22 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
         window.add_action(&a);
     }
     simple("rss", || show_rss(None));
+    // the toolbar search box's menu (`crate::search::toolbar_menu`)
+    let search_mode = gio::SimpleAction::new_stateful(
+        "search-mode",
+        Some(glib::VariantTy::STRING),
+        &crate::search::Mode::Filter.target().to_variant(),
+    );
+    search_mode.connect_activate(|_, v| {
+        if let Some(t) = v.and_then(|v| v.get::<String>()) {
+            set_search_mode(crate::search::Mode::from_target(&t));
+        }
+    });
+    window.add_action(&search_mode);
+    simple("search-sources", || {
+        let Some(window) = with_app(|a| a.window.clone()) else { return };
+        crate::search::show_sources(window.upcast_ref(), Rc::new(SearchHost));
+    });
     simple("feed-item-download", download_feed_items);
     for name in ["feed-add", "feed-edit", "feed-toggle", "feed-update", "feed-remove", "feed-rss"] {
         let a = gio::SimpleAction::new(name, None);
@@ -2895,6 +2937,71 @@ impl crate::rss::Host for AppHost {
 
     fn labels(&self) -> Vec<String> {
         with_app(|a| labels(a)).unwrap_or_default()
+    }
+}
+
+// The torrent search (D41, `crate::search`): the toolbar search box's menu picks what Enter in
+// it does; the sources are this window's preferences (`search.source.N.*`; a remote window's
+// own, as its RSS feeds are), searched from this computer.
+
+/// Picks what Enter in the toolbar's search box does: the menu's radio item, the box's hint,
+/// and the list's name filter (only the filter mode filters).
+fn set_search_mode(mode: crate::search::Mode) {
+    crate::search::set_mode(mode);
+    let Some(ui) = ui() else { return };
+    if let Some(window) = with_app(|a| a.window.clone()) {
+        if let Some(a) = window.lookup_action("search-mode").and_downcast::<gio::SimpleAction>() {
+            a.set_state(&mode.target().to_variant());
+        }
+    }
+    let filter = mode == crate::search::Mode::Filter;
+    ui.search.set_placeholder_text(Some(if filter { tr!(SearchCue) } else { tr!(SearchQueryCue) }));
+    let text = if filter { ui.search.text().to_string() } else { String::new() };
+    with_app(|a| a.list.set_search(&text));
+    refresh();
+    ui.search.grab_focus();
+}
+
+/// What the search windows ask of the main window.
+struct SearchHost;
+
+impl crate::search::Host for SearchHost {
+    fn sources(&self) -> Vec<SearchSource> {
+        with_app(|a| load_sources(&a.prefs)).unwrap_or_default()
+    }
+
+    fn store(&self, sources: &[SearchSource]) {
+        let Some(old) = with_app(|a| {
+            let old = load_sources(&a.prefs);
+            store_sources(&mut a.prefs, sources);
+            save_prefs(a);
+            old
+        }) else {
+            return;
+        };
+        if let Some(ui) = ui() {
+            ui.search_menu.set_menu_model(Some(&crate::search::toolbar_menu(sources)));
+        }
+        let mode = crate::search::mode();
+        let now = crate::search::remap(mode, &old, sources);
+        if now != mode {
+            set_search_mode(now);
+        }
+    }
+
+    fn proxy(&self) -> Option<FetchProxy> {
+        with_app(|a| rss_proxy(a)).flatten()
+    }
+
+    fn in_list(&self, info_hash: &str) -> Option<String> {
+        with_app(|a| in_list(a, info_hash)).flatten()
+    }
+
+    fn add(&self, download: Download) {
+        match download {
+            Download::Torrent(bytes) => add_torrent_file(bytes),
+            Download::Magnet(uri) => add_magnet(uri),
+        }
     }
 }
 

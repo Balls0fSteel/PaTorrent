@@ -114,7 +114,7 @@ impl PiecePicker {
     }
 
     /// The blocks of `piece` that hold data (libtorrent's `payload_blocks`).
-    fn payload_blocks(&self, piece: u32) -> usize {
+    pub fn payload_blocks(&self, piece: u32) -> usize {
         (self.blocks_in_piece(piece) - self.pad_blocks.get(&piece).copied().unwrap_or(0)) as usize
     }
 

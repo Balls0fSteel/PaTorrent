@@ -548,7 +548,7 @@ That broad check does not establish that every detailed case below was tried.
   page's launch, `--associate` on a real registry, a running `PaTorrentNox`
   service, Windows on Arm, SmartScreen on the unsigned setup.
 - Installer follow-ups (`ci.yml`'s `release-windows` builds, installs and
-  uninstalls it since 2026-10-30_075840_1793347120 with a copy of
+  uninstalls it since 2026-10-30_085840_1793347120 with a copy of
   `release.yml`'s steps: keep the two in step): associations of an all-users
   install are per user (HKLM or first-run handling?); `--unregister` leaves `.torrent`'s `Content Type` and an empty
   `OpenWithProgids`, as Preferences does; Authenticode signing of the exes and

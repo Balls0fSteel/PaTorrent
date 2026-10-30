@@ -1,6 +1,6 @@
 # Profiles and portable mode (V2.0 design)
 
-Status 2026-10-30_080053_1793347253: **proposal, proposed D42** ([DECISIONS.md](DECISIONS.md)). Nothing here is implemented; no code changes until the owner approves. V2.0 goals 1 and 3 in [PLAN.md](../PLAN.md); it revisits D7 and touches D16, D22, D31 and D40.
+Status 2026-10-30_090053_1793347253: **proposal, proposed D42** ([DECISIONS.md](DECISIONS.md)). Nothing here is implemented; no code changes until the owner approves. V2.0 goals 1 and 3 in [PLAN.md](../PLAN.md); it revisits D7 and touches D16, D22, D31 and D40.
 
 ## Goals
 

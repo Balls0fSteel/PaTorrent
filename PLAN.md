@@ -31,7 +31,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**Feature order chosen by the owner (2026-10-30_075652_1793347012):**
+**Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
 - **A.** Done: 1.1.7 is published (2026-10-30).
 - **B.** Small fixes. Done in 1.1.8: the hosted window's `seed_*` changes reach `sync/maindata`, a category's `savePath` is used on add, hosted unused categories are kept, and tags are accepted as no-ops. The installer is built and smoke-tested in `ci.yml`. Win32 Preferences > Web UI has a Server domains field (1.1.9). The Bearer API key and the subnet whitelist are in 1.1.10. nox checks for updates (1.1.11, D43). Phase B is done.
@@ -89,7 +89,7 @@ Released in 1.1.0 (D35: the name search, and importers from qBittorrent / µTorr
 
 ## V2.0 goals
 
-Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23. Goals 1 and 3 are designed in [PROFILES.md](docs/PROFILES.md) (2026-10-30_080053_1793347253, proposed D42, open questions Q1-Q9); no code before the owner approves.
+Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23. Goals 1 and 3 are designed in [PROFILES.md](docs/PROFILES.md) (2026-10-30_090053_1793347253, proposed D42, open questions Q1-Q9); no code before the owner approves.
 
 1. Profiles: separate settings, torrents and state, simultaneous instances, per-profile single-instance handling, ports and nox services.
 2. Downloadable binaries on GitHub Releases: build on the tagged packaging workflow already started for 1.0 (items 6-8).

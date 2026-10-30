@@ -1,7 +1,7 @@
 # The website
 
 <https://balls0fsteel.github.io/PaTorrent/> is PaTorrent's project site: what it is, the
-downloads of the newest release, questions and answers, and pointers to the documentation, until
+downloads of the newest release, a short changelog (News, with an Atom feed), questions and answers, and pointers to the documentation, until
 a user guide comes with a later version (PLAN.md, V2.0 goal 4). It also serves `update.txt`, the
 file PaTorrent's update check reads.
 
@@ -15,14 +15,16 @@ only) copies them to `_site/` and fills in the newest release from the GitHub re
 | Path | What |
 |---|---|
 | `site/index.html` | Home: what PaTorrent is, the download button, screenshots, features, platforms |
+| `site/news.html` | News: a short entry per release, newest first (below) |
+| `news.atom` (built) | The Atom feed of the news entries, written by the build from `news.html`; linked from `news.html` and the home page |
 | `site/download.html` | Every file of the release on offer, how to start each, SmartScreen and Gatekeeper, the daemon, checksums, updating |
-| `site/faq.html` | The license in plain words, settings and portable mode, languages, the Web UI and remote mode, privacy and the update check, private trackers |
+| `site/faq.html` | The license in plain words, settings and portable mode, languages, the Web UI and remote mode, torrent search, Sonarr and Radarr, privacy and the update check, private trackers |
 | `site/benchmarks.html` | Measurements beside other clients ([BENCHMARKS.md](BENCHMARKS.md)); its charts and tables between `<!-- bench:NAME -->` markers are written by `tools/bench/summarize.py RESULTS --fill site/benchmarks.html` |
 | `site/docs.html` | Links to the documents in the repository, a command-line summary |
 | `site/404.html` | Served by Pages for any missing path; its `<base>` makes its links start at the site's root |
 | `site/css/style.css` | All styles: colour tokens for light and dark (`prefers-color-scheme`), layout down to 360 px |
 | `site/js/site.js` | The only script (about 20 lines): shows the visitor's own system's download line and marks its section; the pages work without it |
-| `site/img/icons.svg` | A sprite of 15 of the app's own UI symbols (the bold family, `assets/ui-icon-explorations/svg-size/bold/24`); the page sets their colour |
+| `site/img/icons.svg` | A sprite of 15 of the app's own UI symbols (the bold family, `assets/ui-icon-explorations/svg-size/bold/24`); the page sets their colour. News uses `i-rss` |
 | `site/img/add-new-torrent.png` | A copy of `docs/screenshots/add-new-torrent.png` |
 | `site/img/screenshot-windows.png` | The main window on Windows, shown on the home page (added separately; the build warns while it is missing) |
 | `site/build.py` | The build (below) |
@@ -77,6 +79,7 @@ markers is what the raw file shows, and the build replaces it. An unknown name f
 | `checksums` | download | the `SHA256SUMS` link and the SHA-256 GitHub recorded for each file |
 | `latest-version` | every footer | the version on offer |
 | `release-notes` | docs | a link to the release's notes |
+| `latest-news` | home | a line with the newest `news.html` entry's date, title, first paragraph and links |
 | `if-prerelease` | home, download | its own contents, kept only while the release on offer is a pre-release (or there is none) |
 | `base` | 404 | `<base href="/PaTorrent/">` (`--base-path`) |
 
@@ -104,6 +107,46 @@ release without a file simply has no link to it:
 A new kind of file needs a `Kind` in `KINDS` in `site/build.py` (pattern, section, title,
 description, and its start steps in `how_to_start`) and a line in `Classification` in the tests.
 If the releases cannot be read, every block links to the releases page on GitHub instead.
+
+## News
+
+`site/news.html` is the short changelog: one entry per published release, newest first, for
+people who want to follow PaTorrent without reading the commit history or the full release
+notes. The build reads its entries, writes `news.atom` (Atom, RFC 4287) and fills the home page's
+`latest-news` line, so both follow the page. Each entry is:
+
+```html
+<article class="news-entry" id="v1.2.3" data-date="2026-11-20" aria-labelledby="v1.2.3-h">
+  <h2 id="v1.2.3-h"><a href="#v1.2.3"><time datetime="2026-11-20">Fri 20 Nov 2026</time> — <span class="news-title">PaTorrent 1.2.3</span></a></h2>
+  <p class="news-lede">One or two plain sentences: what the release is about.</p>
+  <ul class="changes">
+    <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>One short, user-facing line.</span></li>
+  </ul>
+  <p class="news-note">Optional: what to know before updating.</p>
+  <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.2.3">Download 1.2.3 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.2.3.md">Full release notes</a></p>
+</article>
+```
+
+- `id` is `v` and the version, and never changes: it is the page's anchor and part of the feed
+  entry's id (`tag:balls0fsteel.github.io,2026:PaTorrent/news/v1.2.3`), so a changed id shows up
+  in feed readers as a new entry. `data-date` is the release's publication date, `YYYY-MM-DD`;
+  the heading shows it as `Fri 20 Nov 2026`.
+- 5 to 12 bullets, taken from the release notes' "New since" section and nothing beyond them.
+  The tags are words, so they read without colour: `tag-new` (New), `tag-fix` (Fix),
+  `tag-sec` (Security), `tag-plat` (Windows, GTK, Linux, macOS) and `tag-area` (Search, Web UI,
+  RSS, \*arr, Daemon, Updates). The hidden colon keeps the line readable in feed readers.
+- A release that was prepared but never published gets no entry; the next entry's note says it
+  covers it.
+
+The build fails if an entry has no usable `id`, a bad `data-date`, no `news-title` or
+`news-lede`, a repeated id, or entries out of date order. The tests check that the entries are
+newest first by version too.
+
+**When releasing:** write the entry at the top of `site/news.html` together with the release
+notes, dated the day the release will be published. A push to `main` that changes `site/`
+deploys at once, so push the entry when the release is published, not before (or the site
+announces a release whose files are not there yet). Check it with
+`python3 site/build.py --releases-json site/testdata/releases.json --strict` and the tests.
 
 ## Deploying
 

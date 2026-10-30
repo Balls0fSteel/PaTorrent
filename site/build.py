@@ -17,7 +17,9 @@ What it does:
 3. Writes update.txt, the manifest PaTorrent's update check reads (the contract is in
    docs/WEBSITE.md): `stable=` the highest published non-pre-release, `prerelease=` the highest
    published pre-release, each left out when there is none.
-4. Writes .nojekyll, gives every local PNG <img> without a size its width and height, and checks
+4. Reads the entries of news.html (`<article class="news-entry" id=... data-date=...>`, newest
+   first), writes news.atom, the Atom feed of them, and fills the home page's latest-news line.
+5. Writes .nojekyll, gives every local PNG <img> without a size its width and height, and checks
    that every local link, image and #anchor in the pages resolves inside the output.
 
 Python 3.9+ standard library only; it runs on the Pages workflow's Ubuntu runner and on Windows.
@@ -37,6 +39,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass, field
 from datetime import datetime
 from html.parser import HTMLParser
@@ -583,6 +586,151 @@ def fill(text: str, blocks: dict, where: str = "") -> str:
 
 
 # ---------------------------------------------------------------------------------------------
+# News and its Atom feed
+
+
+NEWS_PAGE = "news.html"
+NEWS_FEED = "news.atom"
+# The year the feed began: part of every entry's tag: URI, so ids never change (RFC 4151).
+NEWS_SINCE = "2026"
+NEWS_AUTHOR = ("DukeCorp1996", "https://dukecorp1996.x35.in/")
+
+ARTICLE_RE = re.compile(r"<article\b([^>]*)>(.*?)</article>", re.S)
+ATTR_RE = re.compile(r'([a-z-]+)="([^"]*)"')
+NEWS_ID_RE = re.compile(r"[A-Za-z][A-Za-z0-9._-]*")
+
+
+@dataclass
+class NewsEntry:
+    id: str
+    date: str  # YYYY-MM-DD
+    title: str  # plain text
+    lede: str  # HTML: the entry's first paragraph
+    body: str  # HTML: everything after the heading
+
+
+class _Text(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.parts = []
+
+    def handle_data(self, data):
+        self.parts.append(data)
+
+
+def plain_text(fragment: str) -> str:
+    p = _Text()
+    p.feed(fragment)
+    p.close()
+    return re.sub(r"\s+", " ", "".join(p.parts)).strip()
+
+
+def site_url_for(repo: str) -> str:
+    """The Pages address of `repo`: https://<owner>.github.io/<name>/."""
+    owner, _, name = repo.partition("/")
+    return f"https://{owner.lower()}.github.io/{name}/"
+
+
+def parse_news(text: str, where: str = NEWS_PAGE) -> list:
+    """The entries of news.html, newest first. Each is
+    `<article class="news-entry" id="v1.2.3" data-date="YYYY-MM-DD">` holding an <h2> with a
+    `<span class="news-title">`, then a `<p class="news-lede">` and the rest. Fails the build on
+    a malformed entry, a repeated id or entries out of order."""
+    entries, seen = [], set()
+    for m in ARTICLE_RE.finditer(text):
+        attrs = dict(ATTR_RE.findall(m.group(1)))
+        if "news-entry" not in attrs.get("class", "").split():
+            continue
+        inner = m.group(2)
+        eid, date = attrs.get("id", ""), attrs.get("data-date", "")
+        if not NEWS_ID_RE.fullmatch(eid):
+            raise BuildError(f"{where}: a news entry has no usable id ({eid!r})")
+        if eid in seen:
+            raise BuildError(f"{where}: two news entries have the id {eid}")
+        seen.add(eid)
+        try:
+            if datetime.strptime(date, "%Y-%m-%d").strftime("%Y-%m-%d") != date:
+                raise ValueError
+        except ValueError:
+            raise BuildError(f"{where}: news entry {eid}: data-date {date!r} is not YYYY-MM-DD") from None
+        title = re.search(r'<span class="news-title">(.*?)</span>', inner, re.S)
+        lede = re.search(r'<p class="news-lede">(.*?)</p>', inner, re.S)
+        head_end = inner.find("</h2>")
+        if not title or not lede or head_end < 0:
+            raise BuildError(f"{where}: news entry {eid} needs an <h2> with a news-title and a news-lede paragraph")
+        entries.append(NewsEntry(id=eid, date=date, title=plain_text(title.group(1)),
+                                 lede=lede.group(1).strip(), body=inner[head_end + 5:].strip()))
+    if not entries:
+        raise BuildError(f"{where}: no news entries")
+    for newer, older in zip(entries, entries[1:]):
+        if newer.date < older.date:
+            raise BuildError(f"{where}: news entry {older.id} ({older.date}) is newer than "
+                             f"{newer.id} ({newer.date}) above it; keep the newest first")
+    return entries
+
+
+def absolute_links(fragment: str, page_url: str) -> str:
+    """The fragment with its relative href and src made absolute against `page_url`."""
+    def repl(m):
+        ref = html.unescape(m.group(2))
+        if urllib.parse.urlsplit(ref).scheme or ref.startswith("//"):
+            return m.group(0)
+        return f'{m.group(1)}="{esc(urllib.parse.urljoin(page_url, ref))}"'
+    return re.sub(r'\b(href|src)="([^"]*)"', repl, fragment)
+
+
+def atom_feed(entries: list, site_url: str) -> str:
+    """The Atom feed (RFC 4287) of the news entries."""
+    page_url = site_url + NEWS_PAGE
+    url = urllib.parse.urlsplit(site_url)
+    path = url.path.strip("/")
+    tag_base = f"tag:{url.hostname},{NEWS_SINCE}:{path + '/' if path else ''}news"
+
+    def x(s: str) -> str:
+        return html.escape(s, quote=True)
+
+    lines = [
+        '<?xml version="1.0" encoding="utf-8"?>',
+        '<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">',
+        "  <title>PaTorrent news</title>",
+        "  <subtitle>What changed in each PaTorrent release, newest first.</subtitle>",
+        f"  <id>{x(tag_base)}</id>",
+        f'  <link rel="self" type="application/atom+xml" href="{x(site_url + NEWS_FEED)}"/>',
+        f'  <link rel="alternate" type="text/html" href="{x(page_url)}"/>',
+        f"  <updated>{entries[0].date}T00:00:00Z</updated>",
+        f"  <author><name>{x(NEWS_AUTHOR[0])}</name><uri>{x(NEWS_AUTHOR[1])}</uri></author>",
+        f"  <icon>{x(site_url + 'img/icon-64.png')}</icon>",
+    ]
+    for e in entries:
+        lines += [
+            "  <entry>",
+            f"    <title>{x(e.title)}</title>",
+            f"    <id>{x(tag_base)}/{x(e.id)}</id>",
+            f'    <link rel="alternate" type="text/html" href="{x(page_url)}#{x(e.id)}"/>',
+            f"    <published>{e.date}T00:00:00Z</published>",
+            f"    <updated>{e.date}T00:00:00Z</updated>",
+            f"    <summary>{x(plain_text(e.lede))}</summary>",
+            f'    <content type="html">{x(absolute_links(e.body, page_url))}</content>',
+            "  </entry>",
+        ]
+    lines.append("</feed>")
+    text = "\n".join(lines) + "\n"
+    ET.fromstring(text.encode("utf-8"))  # well-formed, or the build stops here
+    return text
+
+
+def latest_news_block(entries: list) -> str:
+    """The home page's line pointing at the newest news entry."""
+    e = entries[0]
+    iso, nice = nice_date(e.date)
+    return ('<p class="latest-news"><svg class="ico ico-sm ico-purple" aria-hidden="true" '
+            'focusable="false"><use href="img/icons.svg#i-rss"/></svg>'
+            f'<span><strong>Latest news, <time datetime="{iso}">{nice}</time>:</strong> '
+            f'<a href="{NEWS_PAGE}#{esc(e.id)}">{esc(e.title)}</a>. {e.lede} '
+            f'<a href="{NEWS_PAGE}">All news</a></span></p>')
+
+
+# ---------------------------------------------------------------------------------------------
 # Images and links
 
 
@@ -725,8 +873,14 @@ def build(out: Path, releases: Optional[list], repo: str, base_path: str) -> lis
     for size in ICON_SIZES:
         shutil.copyfile(family / f"{size}.png", out / "img" / f"icon-{size}.png")
 
+    news_page = out / NEWS_PAGE
+    if not news_page.is_file():
+        raise BuildError(f"site/{NEWS_PAGE} is missing")
+    news = parse_news(news_page.read_text(encoding="utf-8"))
+
     blocks = blocks_for(releases, repo)
     blocks["base"] = f'<base href="{esc(base_path)}">'
+    blocks["latest-news"] = latest_news_block(news)
     for page in sorted(out.rglob("*.html")):
         text = page.read_text(encoding="utf-8")
         text = fill(text, blocks, str(page.relative_to(out)))
@@ -736,6 +890,8 @@ def build(out: Path, releases: Optional[list], repo: str, base_path: str) -> lis
     stable, pre = pick(parse_releases(releases)) if releases is not None else (None, None)
     with open(out / "update.txt", "w", encoding="utf-8", newline="\n") as f:
         f.write(update_manifest(stable, pre, repo))
+    with open(out / NEWS_FEED, "w", encoding="utf-8", newline="\n") as f:
+        f.write(atom_feed(news, site_url_for(repo)))
     (out / ".nojekyll").write_bytes(b"")
 
     warnings.extend(check_links(out, base_path))
@@ -800,6 +956,8 @@ def main(argv=None) -> int:
         return 1
 
     report = summary(releases)
+    news = parse_news((args.out / NEWS_PAGE).read_text(encoding="utf-8"))
+    report += f"\nnews: {len(news)} entries, newest {news[0].id} ({news[0].date}), {NEWS_FEED} written"
     print(report)
     print("update.txt:\n  " + (args.out / "update.txt").read_text(encoding="utf-8").rstrip("\n")
           .replace("\n", "\n  "))

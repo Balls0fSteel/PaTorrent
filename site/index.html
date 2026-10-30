@@ -10,6 +10,7 @@
 <link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="img/icon-16.png">
 <link rel="apple-touch-icon" href="img/icon-256.png">
+<link rel="alternate" type="application/atom+xml" title="PaTorrent news" href="news.atom">
 <link rel="stylesheet" href="css/style.css">
 <script src="js/site.js" defer></script>
 </head>
@@ -21,6 +22,7 @@
     <nav aria-label="Main">
       <ul class="toolbar">
         <li><a href="download.html"><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-download"/></svg>Download</a></li>
+        <li><a href="news.html"><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-rss"/></svg>News</a></li>
         <li><a href="faq.html"><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-help"/></svg>FAQ</a></li>
         <li><a href="benchmarks.html"><svg class="ico ico-orange" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-speed"/></svg>Benchmarks</a></li>
         <li><a href="docs.html"><svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Docs</a></li>
@@ -47,6 +49,10 @@
   </section>
 
   <div class="wrap">
+    <!-- build:latest-news -->
+    <p class="latest-news"><svg class="ico ico-sm ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-rss"/></svg><span><a href="news.html">News</a>: what changed in each release.</span></p>
+    <!-- /build:latest-news -->
+
     <!-- build:if-prerelease -->
     <aside class="callout" aria-label="Release candidate">
       <svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-warning"/></svg>
@@ -100,7 +106,15 @@
         </li>
         <li class="feature">
           <h3><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-web-ui"/></svg>Headless, with a Web UI</h3>
-          <p><code>patorrent-nox</code> runs as a daemon with its own Web UI (laid out for phones too), HTTPS, and a qBittorrent-compatible Web API subset so existing tools can talk to it. It runs as a service under systemd, FreeBSD's rc.d or Windows. The Windows GUI serves the same Web UI over its own torrents: Preferences &gt; Web UI.</p>
+          <p><code>patorrent-nox</code> runs as a daemon with its own Web UI (laid out for phones too), HTTPS, and a qBittorrent-compatible Web API subset so existing tools can talk to it. It runs as a service under systemd, FreeBSD's rc.d or Windows. The Windows GUI serves the same Web UI over its own torrents, RSS Downloader included: Preferences &gt; Web UI.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-rss"/></svg>Search and RSS</h3>
+          <p>Search for torrents through the Prowlarr or Jackett you already run (Torznab), from either GUI or the Web UI. No search plugins of its own, so nothing breaks when a site changes. The RSS downloader picks up new releases by your filters.</p>
+        </li>
+        <li class="feature">
+          <h3><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-downloading"/></svg>Sonarr, Radarr, Prowlarr</h3>
+          <p>Add PaTorrent to them as a qBittorrent download client, against <code>patorrent-nox</code> or the Windows GUI. Indexer seed goals arrive with each grab and Remove Completed works; an API key and a subnet whitelist are there if you want them.</p>
         </li>
         <li class="feature">
           <h3><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-remote"/></svg>Remote mode</h3>

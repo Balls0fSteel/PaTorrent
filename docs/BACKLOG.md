@@ -638,6 +638,10 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   install are per user (HKLM or first-run handling?); `--unregister` leaves `.torrent`'s `Content Type` and an empty
   `OpenWithProgids`, as Preferences does; Authenticode signing of the exes and
   the setup; a winget manifest.
+- Microsoft Store (proposed D46, [STORE.md](STORE.md)): nothing built. The MSIX
+  flavour's open checks are listed there (AppData virtualisation, associations
+  from the manifest, the startup task, the firewall prompt, moves to NAS shares).
+  Signing the setup would also serve an EXE Store listing.
 - Website (D33): live since 2026-10-27_090124_1793088084 (Pages source: GitHub Actions; the
   `github-pages` environment takes `main` and `v*` tags). The first release
   published after this will be the first release-event run. Its screenshots

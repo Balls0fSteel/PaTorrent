@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-01_070555_1793513155: Microsoft Store release planned (proposed D46)
+
+- **Owner's question:** what a Store release needs, whether listing is free, and whether the Store build can be paid while GitHub stays free.
+- **Findings (checked on the web 2026-11-01):** registration is free for individuals and, since May 2026, companies; MSIX is signed and hosted by the Store for free and must not self-update; an EXE listing needs our own Authenticode signing and, as far as documented, our own payments; the 2022 open-source sales ban was withdrawn. The owner is the sole copyright holder (PolyForm Noncommercial binds others), so a paid build is allowed.
+- **Docs:** [STORE.md](docs/STORE.md) (an MSIX `PATORRENT_STORE` flavour, the package, the listing, Q1-Q6), D46 proposed in DECISIONS.md, PLAN item F, a BACKLOG note. No code; no version bump (docs only).
+
 ## 2026-10-30_195156_1793386316: The Windows GUI updates itself (1.1.24, D45)
 
 - **Owner's choices:** D45 approved as proposed, silent install with a relaunch, the setup checked against the release's `SHA256SUMS` (no `update.txt` change).

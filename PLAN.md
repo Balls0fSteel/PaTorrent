@@ -1,8 +1,8 @@
 # PaTorrent plan
 
-Last updated: 2026-10-30_195156_1793386316
+Last updated: 2026-11-01_070555_1793513155
 
-Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D40 and proposed D42](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
+Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D45 and proposed D42, D46](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
 ## Vision
 
@@ -38,6 +38,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **C.** RSS in hosted mode: done (1.1.13, hand check pending). Optional: a GTK hosting page. The owner decided against alternative speed limits in the Win32 GUI (2026-10-30_103224_1793352744): keep 2.2.1's controls; the hosted Web UI keeps refusing them.
 - **D.** Torznab search (D41, [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2): all five slices are in (model 1.1.12, nox and Web UI 1.1.14, GTK 1.1.15, Win32 1.1.16, the shim's `search/*` 1.1.19). Left: hand checks (BACKLOG).
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
+- **F.** Microsoft Store release (2026-11-01_070555_1793513155): planned in [STORE.md](docs/STORE.md), proposed D46 (an MSIX Store flavour without self-update; free or paid). Awaiting the owner's answers to Q1-Q6. No code before approval.
 
 **Owner notes (2026-10-30_192440_1793384680):**
 
@@ -85,6 +86,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 - UI artwork (D27-D30): the bold family passed its revision 6 review (131/131) and is integrated (gate 10); revisions 3-6 and their reviews are in the [changelog archive](docs/archive/README.md). Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
 - Proposed D42: profiles and portable mode ([PROFILES.md](docs/PROFILES.md)).
+- Proposed D46: the Microsoft Store release ([STORE.md](docs/STORE.md)), Q1-Q6.
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
 
 

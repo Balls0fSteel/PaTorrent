@@ -1,8 +1,8 @@
 # PaTorrent plan
 
-Last updated: 2026-11-02_092152_1793607712
+Last updated: 2026-11-02_110639_1793613999
 
-Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D47 and proposed D42, D46](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
+Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D47 and proposed D42, D46, D48](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
 ## Vision
 
@@ -33,16 +33,14 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
-- **A, B.** Done: 1.1.7 published; small fixes in 1.1.8-1.1.11 (D43).
 - **C.** RSS in hosted mode: done (1.1.13, hand check pending). Optional: a GTK hosting page. The owner decided against alternative speed limits in the Win32 GUI (2026-10-30_103224_1793352744): keep 2.2.1's controls; the hosted Web UI keeps refusing them.
 - **D.** Torznab search (D41, [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2): all five slices are in (model 1.1.12, nox and Web UI 1.1.14, GTK 1.1.15, Win32 1.1.16, the shim's `search/*` 1.1.19). Left: hand checks (BACKLOG).
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
 - **F.** Microsoft Store release (2026-11-01_070555_1793513155): planned in [STORE.md](docs/STORE.md), proposed D46 (an MSIX Store flavour without self-update; free or paid). Awaiting the owner's answers to Q1-Q6. No code before approval.
+- **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): designed in [DISKIO.md](docs/DISKIO.md), proposed D48 (low-priority and per-drive rechecks, SSD / HDD / NAS detection, slowing down when the disk is busy; a new Advanced > Disk I/O page). Awaiting Q1-Q8. No code before approval.
+- **H.** Reviewed 2026-11-02, owner to choose: 2.2.1's web search engines (worth it with an empty default list) and themes (icon skins first, dark mode a separate decision); details in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999).
 
-**Owner notes (2026-10-30_192440_1793384680):**
-
-- **Update pop-up once, then the status bar text:** done in 1.1.23 (D44). **Seamless Windows update:** done in 1.1.24 (D45: download, `SHA256SUMS` check, `/S /UPDATE=<pid>`, relaunch). Hand checks for both on a real PC in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website) and RELEASING.md.
-- **Progress for a long startup or shutdown** (NAS drives): [findings](docs/BACKLOG.md#startup-and-shutdown-investigated-2026-10-30_192440_1793384680). Startup needs none. Shutdown fixes in 1.1.25; the closing window with Quit Now in 1.1.26-1.1.27 (D47: what it waits for, a scrollable list of moves, what Quit Now gives up; the resume save always finishes). GTK has it too since 1.1.28 (run on the Linux VM; Xfce refuses the logout inhibit). Hand checks in BACKLOG.
+**Owner notes (2026-10-30_192440_1793384680):** all done. The update pop-up once (1.1.23, D44) and the seamless Windows update (1.1.24, D45); the closing window in both GUIs (1.1.25-1.1.28, D47; [findings](docs/BACKLOG.md#startup-and-shutdown-investigated-2026-10-30_192440_1793384680)). Hand checks on a real PC in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website) and RELEASING.md.
 
 0. **Owner hand-test findings (2026-10-27):** fixed in 1.0.2-1.0.8. The owner re-tests them on a fresh Win32 build; what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
 1. Run the installer's wizard and the all-users UAC path once on a real PC, and register `PA` with the client-ID lists (item 14). `update.txt` serves `stable=1.1.7` (2026-10-30).
@@ -50,7 +48,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.
 5. Finish the outstanding platform, scale and interop checks in items 5-8 and 11-13. Record what was actually run and what remains unverified.
-6. **Security fixes** (all done 2026-10-27_212434_1793132674; the owner accepted the named remainders 2026-10-27_214505_1793133905): every audit finding is Fixed or Ruled out. The tracked [SECURITY.md](SECURITY.md) is the policy only; the full audit is the untracked `SECURITY-AUDIT.md` (`.git/info/exclude`). macOS CI is the check for the Secure Transport revocation path. Machine translations needing native review: `RemotePlaintext`, `ForwardRefused`, `PrefCurrentPassword`, `PrefNeedCurrentPassword`. The remote protocol has moved since (now 11): a GUI and nox must both be current.
+6. **Security fixes** (done 2026-10-27; remainders accepted by the owner): every audit finding is Fixed or Ruled out. [SECURITY.md](SECURITY.md) is the policy; the full audit is the untracked `SECURITY-AUDIT.md`. macOS CI checks the Secure Transport revocation path. Machine translations needing native review: `RemotePlaintext`, `ForwardRefused`, `PrefCurrentPassword`, `PrefNeedCurrentPassword`. The remote protocol has moved since (now 11): a GUI and nox must both be current.
 7. **Sonarr/Radarr/Prowlarr** ([INTEGRATIONS.md](docs/INTEGRATIONS.md) part 1): gaps 1-3 are fixed or decided (1.1.3-1.1.4); real apps passed against nox and the hosted Web UI (2026-10-29, `tools/arr-test`). Still open: a magnet grab with real peers, and "First" priority / Force Start. Torznab search is item D above.
 8. Keep Windows, Linux, macOS and FreeBSD CI green. MSRV is 1.85; avoid let-chains. Before pushing code, use stable clippy and rustfmt, including the separate fuzz workspace. Interop reruns are needed after peer-wire, picker or disk changes.
 
@@ -85,6 +83,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
 - Proposed D42: profiles and portable mode ([PROFILES.md](docs/PROFILES.md)).
 - Proposed D46: the Microsoft Store release ([STORE.md](docs/STORE.md)), Q1-Q6.
+- Proposed D48: smart disk I/O ([DISKIO.md](docs/DISKIO.md)), Q1-Q8.
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
 
 
@@ -107,7 +106,7 @@ Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23. Goals 1 and 3 ar
 - BEP 44 DHT items/ed25519, BEP 51 sample-infohash querying and BEP 55 holepunch after 1.0 unless cheap. Detailed remaining engine/test gaps are in the backlog.
 - Split `core` only if compile times justify it; consider io_uring disk/network on Linux and IOCP file I/O on Windows.
 - Continuous work: meaningful scale regression baselines, parser fuzzing, per-release security review and a wider interop matrix (including rTorrent and µTorrent).
-- Theming support: GTK4 takes up theme looks, so I think this might be Windows only. And, maybe its not even possible. But if we could, without extra resource use, it would be really cool and nice if we could have some nice looking themes included and third party support as well.
+- Theming (owner's wish: included and third-party themes, no extra resource use): researched, options in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999); next step H.
 
 ## Known TODOs
 

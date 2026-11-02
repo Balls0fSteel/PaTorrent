@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_110639_1793613999: Smart disk I/O proposal (D48), search engines and themes reviewed
+
+- **Owner's idea:** smart recheck, throttling reads and writes on high disk I/O, SSD / HDD / NAS detection. Written up as [DISKIO.md](docs/DISKIO.md), proposed D48, questions Q1-Q8; no code.
+- **Findings that shaped it:** all checks run on the one `lt-hash` thread, one after another for every drive, at normal priority and uncapped; `active_checking` is in `Settings` but unused; the `aio_threads` take jobs by `piece % threads`, so all ten can seek on one HDD; the write back-pressure (`disk_backlogged`) slows downloads to the disk's pace but leaves no room for other programs; nothing detects drive types.
+- **Search engines:** 2.2.1's "Search Engines [name|URL]" list (Advanced > UI Extras) is not built; worth it with an empty default list (BACKLOG "V1.1"). The BACKLOG's search entry still said the Torznab UI was not built; corrected.
+- **Themes:** options recorded in BACKLOG "Themes": icon skins first, a colour file, Win32 dark mode as a separate decision (undocumented `uxtheme` calls). 2.2.1's skin file names could not be read from its UPX-packed exe.
+- Docs only, no version bump.
+
 ## 2026-11-02_092152_1793607712: The closing window in the GTK GUI (1.1.28, D47)
 
 - **Owner's request:** build the GTK part.

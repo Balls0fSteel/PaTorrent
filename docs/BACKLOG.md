@@ -242,6 +242,28 @@ That broad check does not establish that every detailed case below was tried.
   provisionally Verdigris via `app-icon.txt`; non-MSVC Windows builds retain a
   generic icon and Explorer may cache an old icon after a swap.
 
+## Themes (researched 2026-11-02_110639_1793613999)
+
+The owner's wish (PLAN, Future improvements): included themes and third-party ones, with no
+extra resource use, probably Windows only. Findings, cheapest first; owner to choose.
+
+- **GTK** follows the desktop theme (our drawn widgets switch light/dark already, except the
+  bars and maps above); **the Web UI** has a dark mode, and CSS themes would be easy. The real
+  choice is Win32.
+- **Icon skins (recommended first):** 2.2.1 read replacement images from its settings folder
+  (`toolbar.bmp`, `tstatus.bmp` and, from memory, others: confirm against the owner's copy;
+  its exe is UPX-packed, so the names were not read from it) and people shared packs. We
+  would load PNG strips from the settings folder at start, falling back to the built-in
+  icons; nothing is loaded or kept when no pack is there.
+- **A colour file** for what we draw ourselves (graphs, the pieces bar, progress bars, list
+  colours): a small text file beside the skin; pairs with dark mode.
+- **Dark mode:** the dark title bar is documented (`DWMWA_USE_IMMERSIVE_DARK_MODE`), but dark
+  common controls still need undocumented `uxtheme.dll` ordinals (133
+  `AllowDarkModeForWindow`, 135 `SetPreferredAppMode`) and the `DarkMode_Explorer` theme for
+  list and tree views; menus, tabs, headers, group boxes and buttons need custom drawing in
+  every dialog. Chromium and Notepad++ do it; it is a lot of work and may break with a Windows
+  update. A separate decision.
+
 ## Localisation
 
 - Native speakers should review the 34 machine-translated tables; automated
@@ -735,10 +757,16 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   inactive seeding time and the at-limit action. The incomplete folder (`qBt-downloadPath`)
   is not carried over: data stays at `save_path`. v2-only torrents come without piece
   layers and fetch them from peers.
-- **Search:** name only; the 2.2.1 drop-down of web search engines is not there. Proposed:
-  Torznab sources (Prowlarr, Jackett) in that drop-down, [INTEGRATIONS.md](INTEGRATIONS.md)
-  part 2 (D41 approved; the shared model is built, the UI is not). Win32 does not debounce (12-16 ms a keystroke at
-  100,000 rows); measure on the low-end machine (gate 5).
+- **Search:** the drop-down offers the name filter and the Torznab sources (D41, built in all
+  three GUIs, 1.1.12-1.1.19). Win32 does not debounce (12-16 ms a keystroke at 100,000 rows);
+  measure on the low-end machine (gate 5).
+- **Web search engines** (2.2.1's Advanced > UI Extras "Search Engines [Format: name|URL]",
+  reviewed 2026-11-02_110639_1793613999): not built; our UI Extras page has no such list.
+  Worth it as a small faithful piece, with an **empty default list**: 2.2.1's defaults were
+  Infospace (an ad partner) and Mininova (gone), and any default today would be dead, an ad
+  partner or a piracy site, which also matters for the Store (D46). Cost: one multi-line box,
+  the entries below the Torznab sources, Enter opens the browser at the URL plus the
+  URL-encoded query. No engine change. Owner to approve.
 - **Remote mode:** Import is disabled in both GUIs; importing into a remote nox goes through
   `nox run --import` on that machine.
 - **Plugin hooks:** moved to V2.0 (D35) until a completion action, search source or column

@@ -11,6 +11,17 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
 
 ## Security and TLS
 
+- Open from the 1.1.32 review (2026-11-02_220138_1793653298; details and proposals in
+  [SECURITY-REVIEW.md](SECURITY-REVIEW.md#open-2)): the self-update's checksum and setup share
+  one origin (sign `SHA256SUMS` or the setup); the all-users setup's elevated re-launch reads
+  the file from `%TEMP%` after our lock ends, and a shared `TEMP` lets another user plant
+  files there (download into `%LOCALAPPDATA%\PaTorrent\update` instead);
+  `PATORRENT_UPDATE_URL` / `_FILES` work in release builds and over plain http; `http_get_to`
+  has no overall deadline; search fetch threads outlive their jobs; a merged search result's
+  info-hash is not checked against the fetched torrent; v2 file trees can make about 210× their
+  size in path strings; fake uTP delays from one host can hold keep ping low's caps at their
+  floors when no pings answer (count hosts, not sockets); no fuzz target for the merkle tree
+  or hash picker.
 - [SECURITY-REVIEW.md](SECURITY-REVIEW.md): fuzz runs are short (120 s per target
   per push). A peer's hash-work budget resets on reconnect; the reconnect delay
   bounds this. Spoofed uTP SYNs hold peer slots until the handshake timeout, as in
@@ -623,9 +634,24 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   `parse_url_components`. WebTorrent (2.1.0) is out of scope.
 - `TorrentStatus::total` counts pad bytes (`total_size`); upstream reports
   `size_on_disk`. Check which the GUIs should show.
-- Interop: rerun v2-only torrents with odd file sizes against libtorrent 2.0.15
-  / 2.1.x (qBittorrent 5.x) to confirm the new request sizes and the stricter v2 hash
-  handling (1.1.20); rerun MSE (160-bit exponent) and queueing with slow torrents (1.1.21).
+- Interop rerun 2026-11-02_221313_1793653993 (`tools/qbt-interop`, qBittorrent 5.3.0 on
+  libtorrent 2.0.15 and 2.1.2, loopback on the Xubuntu VM): v2-only and hybrid with ten odd
+  file sizes, our and qBittorrent's creator, 16 KiB / 4 MiB / 16 MiB pieces, both directions:
+  48/48 (files equal, rechecks 100%, nothing wasted); RC4 forced, both directions: 8/8;
+  slow-torrent queueing as specified (with `inactive_down_rate` raised: at the default 2048 B/s
+  a 1 KiB/s source reads as active whenever a 16 KiB block lands, upstream the same). Not run:
+  TCP-only / uTP-only matrices, Transmission and Deluge.
+- **Owner's choice, uTP refused by qBittorrent:** in about 3 of 4 runs where we connect,
+  qBittorrent answers our uTP SYN with a FIN at once (one of libtorrent's incoming rejection
+  paths; its log names none). Our socket, like libtorrent 2.0.11-2.1.2, ignores a FIN before
+  the SYN-ACK, so the connect waits `peer_connect_timeout` (15 s) and then falls back to TCP.
+  A deliberate divergence would take such a FIN as a refusal and try TCP at once. Also seen:
+  uTP from qBittorrent into us on loopback reports high loss counters (824 lost, 8 timeouts)
+  while still finishing 38.5 MB in 1.5-12 s; not investigated.
+- Older queueing gaps seen in the rerun: a queued auto-managed torrent that never started
+  shows `checkingResumeData` in the shim where qBittorrent shows `queuedDL`; `active_checking`
+  is not implemented, so a complete torrent queued behind downloads is checked only when it
+  gets a download slot.
 
 ## Updates, installer and website
 
@@ -646,12 +672,14 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   `core::fetch`, `update::download_setup` against a loopback server with a wrong checksum
   and a cancel, the Win32 folder comparison and setup arguments) and the setup's `/UPDATE=`
   is exercised by the CI and release jobs with a stand-in process (the wait, the relaunch).
-  Not run end to end yet: on a PC with the previous release installed, the three-button box,
-  the progress window (a real download from GitHub through a proxy too), Cancel, "Close and
-  install now?", the silent upgrade for one user and for all users (UAC), the new version
-  starting again not elevated, and a failed install starting the old one (RELEASING.md
-  "Update from PaTorrent"). Also check `tools/windows-clean/setup-test.ps1` gets an
-  `/UPDATE=` case. Known limits: the box offers the install only when an Uninstall key names
+  Run end to end on the Windows 11 VM 2026-11-02_221313_1793653993
+  (`tools/windows-clean/desktop/drive-update.ps1`, a local "1.1.33" release): the box, the
+  progress window ("24.1 % (768 kB / 3.11 MB)"), Cancel (no file left), "Close and install
+  now?" Yes, the old PaTorrent gone within a second, the setup over the same folder for one
+  user, the new one started not elevated. Still by hand: an all-users install (the UAC prompt
+  is on the secure desktop), a real download from GitHub and through a proxy, and a failed
+  install starting the old one. The downloaded setup stays in `%TEMP%\PaTorrent-update` until
+  the next update clears it. Known limits: the box offers the install only when an Uninstall key names
   the exe's folder (a copied installed folder counts as portable); the download goes to
   `%TEMP%`; nothing resumes a broken download; the setup stays unsigned.
 - nox's update check (D43, 2026-10-30): unit- and Web UI-tested with fake
@@ -728,7 +756,13 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   once at a sign-out: the step, each move's bytes and destination with a bar, the time, and
   Quit Now with a question listing what it gives up. Moves cancel cleanly (copies deleted,
   old folder kept); the resume data is always saved first. `PATORRENT_DEMO_SLOW_EXIT=<secs>`
-  with `--demo N` simulates a slow exit to look at it. Hand checks: a real move to a NAS
+  with `--demo N` simulates a slow exit to look at it. Run on the Windows 11 VM
+  2026-11-02_221313_1793653993 (`tools/windows-clean/desktop/drive-closing.ps1`, 12 GB and
+  4 GB moved to a virtual disk): the window 2-3 s after Exit, "Waiting for files to finish
+  moving", the question naming both moves, Quit Now ending 1 s after Yes with both copies
+  deleted and the files whole in the old folder, a restart seeding from there; without Quit
+  Now the exit waits for the moves (26 s). Its move list is not visible to UI Automation, so
+  its rows were not read. Hand checks left: a real move to a NAS
   closed mid-way (Quit Now, then the old folder intact and the destination clean), a sign-out
   from the tray during a move (does Windows list PaTorrent and wait?), RTL and long
   translations in the window.

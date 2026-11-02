@@ -37,6 +37,10 @@ fuzz_target!(|data: &[u8]| {
     let _ = parse_chunk_header(data);
     if let Ok(s) = std::str::from_utf8(data) {
         let _ = resolve_redirect_location("http://a.example/b/c", s);
+        // and a referrer of the input's own (its query and fragment, 2026-11-02)
+        if let Some((referrer, location)) = s.split_once('\n') {
+            let _ = resolve_redirect_location(referrer, location);
+        }
         let _ = split_url(s);
     }
     let Some((&mode, rest)) = data.split_first() else { return };

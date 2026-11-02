@@ -234,7 +234,7 @@ impl ResumeData {
             ..Default::default()
         };
         if let Some(p) = root.dict_find_string_value("pieces") {
-            let bf = if version == 1 {
+            let mut bf = if version == 1 {
                 // A byte per piece: bit 0 have, bit 1 verified (not carried).
                 let mut bf = Bitfield::new(p.len(), false);
                 for (i, &b) in p.iter().enumerate() {
@@ -242,15 +242,17 @@ impl ResumeData {
                 }
                 bf
             } else {
-                let mut bf = Bitfield::from_bytes(p, p.len() * 8).expect("length matches");
-                // Our own records know the piece count: drop the byte's spare bits.
-                let n = r.num_pieces as usize;
-                if n > 0 && n <= bf.len() && bf.len() - n < 8 {
-                    bf.resize(n, false);
-                }
-                bf
+                Bitfield::from_bytes(p, p.len() * 8).expect("length matches")
             };
-            r.pieces = Some(bf);
+            // Whole bytes, as file-version 2 saves them, cut to the piece count when that ends
+            // in the last byte (our own records know it). A version 1 record of another length
+            // gets the same shape, so it reads back the same once saved as version 2 (the
+            // `resume_data` fuzz target's round trip; security review 2026-11-02).
+            let n = r.num_pieces as usize;
+            let whole = bf.len().div_ceil(8) * 8;
+            bf.resize(if n > 0 && n <= whole && whole - n < 8 { n } else { whole }, false);
+            // no bits saves as no `pieces`
+            r.pieces = (!bf.is_empty()).then_some(bf);
         }
         if let Some(l) = root.dict_find_list("unfinished") {
             for e in l.list_iter().filter(|e| e.is_dict()) {
@@ -578,9 +580,12 @@ mod tests {
         assert_eq!(again, r);
         // No `file-version` means 1 (libtorrent's default).
         let entry = |b: Vec<u8>| Entry::from_node(bdecode(&b[..]).unwrap().root().unwrap());
+        // Without `lt-num-pieces` (libtorrent's records) the bits fill whole bytes, as a
+        // version 2 record from another client does.
         let mut e = entry(v1_record(&[1, 1], None));
         e.dict_mut().remove(b"file-version".as_slice());
-        assert_eq!(ResumeData::decode(&e.bencode()).unwrap().pieces, Some(Bitfield::new(2, true)));
+        let p = ResumeData::decode(&e.bencode()).unwrap().pieces.unwrap();
+        assert_eq!((p.len(), p.count(), p.get(0), p.get(1)), (8, 2, true, true));
 
         // Version 2 from another client (no `lt-num-pieces`): whole bytes, MSB first; the
         // `verified` bitfield is not carried.
@@ -601,6 +606,40 @@ mod tests {
             let err = ResumeData::decode(&e.bencode()).unwrap_err().to_string();
             assert!(err.contains(&format!("file-version {v}")), "{err}");
         }
+    }
+
+    /// Security review (2026-11-02): the `resume_data` fuzz target asserts that whatever
+    /// decodes saves (now as version 2) and reads back the same. Version 1 bitfields whose
+    /// length is not the piece count, and empty ones, did not.
+    #[test]
+    fn every_pieces_field_reads_back_the_same_once_saved() {
+        let mut ones = vec![1u8; 20];
+        ones[19] = 0;
+        for (pieces, num_pieces) in [
+            (&[1u8, 0, 1, 1, 1][..], None),
+            (&[1, 0, 1, 1, 1][..], Some(3)),
+            (&[1, 0, 1, 1, 1][..], Some(5)),
+            (&ones[..], Some(3)),
+            (&ones[..], Some(20)),
+            (&ones[..], Some(21)),
+            (&[][..], None),
+            (&[][..], Some(4)),
+        ] {
+            for version in [1, 2] {
+                let mut e =
+                    Entry::from_node(bdecode(&v1_record(pieces, num_pieces)[..]).unwrap().root().unwrap());
+                *e.key("file-version") = Entry::Int(version);
+                let r = ResumeData::decode(&e.bencode()).unwrap();
+                let again = ResumeData::decode(&r.encode()).unwrap();
+                assert_eq!(again, r, "{pieces:?} {num_pieces:?} version {version}");
+                if pieces.is_empty() {
+                    assert_eq!(r.pieces, None);
+                }
+            }
+        }
+        // a version 1 record of the piece count keeps it exactly
+        let r = ResumeData::decode(&v1_record(&ones, Some(20))).unwrap();
+        assert_eq!(r.pieces.as_ref().map(|p| (p.len(), p.count())), Some((20, 19)));
     }
 
     #[test]

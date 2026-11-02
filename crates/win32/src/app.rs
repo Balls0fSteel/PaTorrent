@@ -4539,17 +4539,17 @@ unsafe fn offer_update(hwnd: HWND, v: &Version) {
 /// setup waits for this process, installs and starts the new version.
 unsafe fn install_update(hwnd: HWND, v: &Version, mode: updater::InstallMode) {
     let proxy = with_app(|a| rss_proxy(a)).flatten();
-    let Some(path) = updater::download(hwnd, v, proxy) else { return };
+    let Some(setup) = updater::download(hwnd, v, proxy) else { return };
     if !dialogs::ask(hwnd, &tr!(UpdateInstallNow, version = v)) {
         return;
     }
-    match updater::run_setup(&path, mode) {
+    match updater::run_setup(&setup, mode) {
         Ok(()) => {
             with_app(|a| a.quitting = true);
             unsafe { DestroyWindow(hwnd) };
         }
         Err(e) => {
-            let error = format!("{}: {e}", path.display());
+            let error = format!("{}: {e}", setup.path.display());
             dialogs::error(hwnd, &tr!(UpdateDownloadFailed, version = v, error));
         }
     }

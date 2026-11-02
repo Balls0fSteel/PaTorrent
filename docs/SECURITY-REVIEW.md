@@ -7,8 +7,8 @@ then a read of each parser and of the engine code that acts on its output (bound
 indices and offsets, allocation driven by length fields, repeated work per read, what a remote
 side can make us store or send). Compared with libtorrent 2.0.11 where the code is a port.
 
-Every parser below has a cargo-fuzz target in `fuzz/fuzz_targets` (25 targets since the
-remote protocol's was added on 2026-10-22, all in `.github/workflows/fuzz.yml`); the CI fuzzes each for 120 s per push and 30
+Every parser below has a cargo-fuzz target in `fuzz/fuzz_targets` (26 targets since the ICMP
+replies' was added on 2026-11-02, all in `.github/workflows/fuzz.yml`); the CI fuzzes each for 120 s per push and 30
 minutes weekly. Panics on malformed input are the fuzzers' job, so the read concentrated on
 limits and on logic the fuzzers cannot judge.
 
@@ -160,3 +160,129 @@ socket index, the unlimited-connections bound, wide LEDBAT arithmetic).
 - Not run against other implementations since these changes: the SYN-resend handling with
   libutp clients (µTorrent, Transmission), and `MAX_OUTSTANDING` is never reached against real
   receivers (about 1 MiB windows). The fuzz target has had one 120 s local run.
+
+## Release 1.1.32 (since v1.1.17)
+
+Date: 2026-11-02_220138_1793653298. Scope: every parser of network or file input, and every
+handler of untrusted downloaded data, added or changed in `git diff v1.1.17..HEAD`: keep ping
+low's probes (`net/probe.rs`, D49) and its use of the uTP delays (`engine/auto_limit.rs`,
+`UtpManager::shared_delays`); the Windows self-update (`net/fetch.rs` streaming,
+`frontend/update.rs`, `win32/updater.rs`, D45) and `update.txt` (D43, nox and GTK); RSS
+conditional GET and gzip, Torznab and the shim's `search/*`, the qBittorrent import,
+watched folders; the libtorrent 2.0.12-2.1.2 ports (NAT-PMP gateway and lease, merkle proofs
+and the hash picker, torrent metadata, HTTP parsing, web seeds, UPnP, proxies, LSD, the DHT's
+IP filter, resume data). Method as above; ports compared with libtorrent.
+
+### Found and fixed
+
+| Severity | Where | Problem | Fix | Test |
+|---|---|---|---|---|
+| Low | `win32/src/updater.rs` `run_setup`, `frontend/src/update.rs` `download_setup` | The setup's SHA-256 was taken while it was written to `%TEMP%\PaTorrent-update`, and the file was run by path after the "install now?" box, which can stay open for any time. Another process of the user (or of another user with a shared `TEMP`) could swap it between the check and the start; for an all-users install the user would then approve the UAC prompt of whatever was swapped in. | `download_setup` returns `Setup { path, sha256 }`; `spawn_checked` opens the file with `FILE_SHARE_READ` only (`open_locked`: no one can write, rename or delete it), hashes it again and starts it while holding that handle; a changed file is refused. | `updater::tests::the_setup_runs_only_as_checked`, `update::tests::the_setup_downloads_and_is_checked` |
+| Low | `frontend/src/update.rs` `download_setup` | The part file was opened with `File::create`, which writes through a hard link or symlink planted at `<name>.part` and truncates its target. | The old `.part` is removed, then the file is opened with `create_new`. | `update::tests::the_setup_downloads_and_is_checked` (a planted hard link keeps its target's bytes) |
+| Low | `net/fetch.rs` `exchange` (`http_get_to`, streaming to a sink) | Bytes after `Content-Length` in the same read were written into the setup file; a `Content-Length` over `max_size` was refused only after the first read reached the sink; a close-framed body could pass the limit by one read (16 KiB). | A `Content-Length` over the limit is refused before anything reaches the sink; each read hands over at most what is left of the named length; the limit is checked before the sink is called. | `net::fetch::tests::a_streamed_body_stops_at_its_length_and_the_limit` |
+| Low (hardening) | `net/fetch.rs` `http_get_inner`, `frontend/update.rs` | A redirect from https to plain http was refused only when cookies were sent: a redirect in the `update.txt` / `SHA256SUMS` / setup chain could drop to clear text, where both the checksum list and the setup can be substituted. Needs GitHub itself to redirect so. | `FetchOptions::no_downgrade` (off by default: RSS and add-by-URL unchanged), set by the update check and the setup download. | `net::fetch::tests::https_to_http_redirects` (extended) |
+| Low (hardening) | `frontend/update.rs` `Version::parse` | A version of any length up to the 64 KiB body was accepted; it goes into message boxes, URLs and the setup's file name. | At most 64 bytes (`VERSION_MAX`). | `update::tests::versions_parse_and_print_as_written` |
+| Low | `frontend/search/source.rs` `url_origin` (`worker.rs` `download_reach`: `/pa/search/add`, the shim's `search/downloadTorrent`, `torrents/add` with `patorrent-search:` URLs) | SEC-26 bypass by a parser mismatch, older than v1.1.17 (the shim adds ways to reach it). `download_reach` split a result link with the frontend's own parser (host after the last `@`); the fetch connects by `parse_url_components` (libtorrent's: an `@` ends userinfo only after a `:`, and only the first). `http://[127.0.0.1]@idx.example.org/x` looked like the source's origin and got `Reach::User`, but the fetch went to 127.0.0.1:80: a blind GET to loopback or the LAN from an indexer's link once the user adds that result. | `url_origin` reads URLs with `parse_url_components` (host lowercased, trailing dot dropped, the scheme's default port), the parser the fetch connects by; `clean_url` (the fetch's escaping) touches none of `@ : [ ] / ?` and cuts at `#`, which also ends the authority there. | `search::worker::tests::the_proxy_rule` (extended; fails on the old code) |
+| Low | `frontend/torrent_folders.rs` `read`, `find`, `place`, `move_copy` (watched folders in all three frontends) | `fs::read` loaded the whole file before `TorrentInfo::from_bytes` refused anything over 10 MB: any `*.torrent` landing in a watched folder (a downloads folder, a share) was read whole, again after every restart since a failed file stays (on Unix `/dev/zero` for ever). | `read_torrent_file`: refused when the open file is over `LoadLimits::max_buffer_size`, and at most the limit + 1 bytes read. | `torrent_folders::tests::an_oversized_torrent_file_is_refused_without_reading_it` |
+| Low (hardening) | `frontend/import.rs` `QbtLimit::target` | A huge qBittorrent `qBt-ratioLimit` / `qBt-seedingTimeLimit` saturated to `u32::MAX`, which `SeedGoal::load_override` reads back with `get_i32`: the ratio read as missing (default goal), the time as 0 (off). Local files. | Clamped to `1..=i32::MAX`. | `import::tests::qbittorrent_share_limits` (NaN, inf, 1e300, `i64::MAX`, a round trip at `i32::MAX`) |
+| Low (hardening) | `frontend/rss/mod.rs` `fetch_feed` | A feed's `ETag` / `Last-Modified` were stored in `rss.dat` and sent back on every refresh at any length up to the 16 KiB head, control characters included (CR/LF were already stripped by `fetch::request`). | `validator()`: trimmed; dropped (no conditional request) over 1 KiB (`MAX_VALIDATOR`) or with control characters. | `rss::tests::oversized_or_odd_validators_are_not_kept` |
+| Low | `metainfo/torrent_info.rs` `resolve_duplicate_filenames_slow` | Older than v1.1.17, libtorrent the same: `n` files of one name tried about `n²/2` names (8,000 in a 192 KB info section: 29.8 s in a debug build), and names forged to one CRC32C were all compared with each other; on the engine thread (`got_metadata`, adding a torrent). | Entries keyed by (CRC32C, keyed SipHash of the lowercase name); each base and extension remembers its last counter. Results equal libtorrent's. | `metainfo::torrent_info::tests::duplicate_names_resolve_in_linear_work` (3,000 duplicates: N-1 tries; 3,000 names forged to one CRC32C: none) |
+| Low (fuzz CI) | `resume.rs` `from_node` (`pieces`) | Since records are saved as file-version 2, version-1 `pieces` whose length is not `lt-num-pieces`, or an empty one, did not read back the same once saved: the `resume_data` target's round trip would fail within seconds. | Both versions decode to the shape a version-2 save gives back (whole bytes, cut to `lt-num-pieces`; no bits is `None`). | `resume::tests::every_pieces_field_reads_back_the_same_once_saved` |
+| Low (hardening) | `net/probe.rs` `parse_icmp` (Linux, macOS) | An echo reply was taken from whichever host sent it. macOS hands every echo reply on the machine to each socket (our identifier is the process id), Linux checks only its own identifier, and our sequence numbers count up: a forged reply could become the "router" the search found (then pinged four times a second) or a round trip. | A reply counts only from the address pinged (RFC 1122 3.2.2.6). A forged time-exceeded answer cannot be told apart (any router may send one). Windows matches replies itself, unchanged. | `net::probe::tests::an_echo_reply_counts_only_from_the_address_pinged` |
+| Low (hardening) | `net/probe.rs` `ip_header_len` | The IHL was used without checking the version or that it covers a header (0 to 16 bytes): a router's time-exceeded answer quoting something else (version 6, IHL 5) was read as quoting our echo. | Version 4 and at least 20 bytes, or `None`. | `net::probe::tests::ip_headers_are_checked_before_their_length_is_used` (fails on the old code) |
+| Low (hardening) | `net/probe.rs` Linux `read_error` (`recvmsg` on the error queue) | The control-message walk added each `cmsg_len` unchecked (a length near `usize::MAX` overflowed: a panic in debug, a backwards slice in release), and the queued packet's sequence number was read from the 576-byte buffer whatever `recvmsg` returned (a short packet matched sequence 0). Kernel data, not remote. | The walk is now `parse_error_queue`, a safe function on byte slices (fuzzed, tested on every platform) with checked offsets; the packet is cut to the bytes received. The `unsafe` is left to `recvmsg` with its buffers. | `net::probe::tests::the_error_queue_is_read_within_its_bounds` |
+| Low | `engine/v2.rs` `hash_request_cost` | The estimate summed proof siblings for layers `k+1..=P`, but `MerkleTree::get_hashes` sends `k..=P` (`k` the layers the `count` hashes imply): the first sibling was never counted, so a piece-layer request with `count = 2^k` and `proof_layers = k` was estimated at 0 but cost `2^k - 1` SHA-256 (8,191 for 8,192 hashes) and never drained the `HashWorkBudget`; bounded only by the 1 MiB send-buffer guard and the upload rate. Fixed after the review (the file was in another change set). | The loop runs over `k..=proof_layers` at height `height + i`, as `get_hashes` sends. A libtorrent client fetching every piece layer now measures `P × (log2(P) - 8)` (81,858 hashes for 16,384 pieces), still inside the `P × log2(P)` burst. | `engine::v2::tests::repeated_root_level_hash_requests_are_rejected_beyond_the_budget` (count 512, `proof_layers` 9 at the piece layer: 511; one node with `proof_layers` 1 now counts its own sibling), `a_client_fetching_piece_layers_stays_within_the_hash_budget` |
+
+### New fuzz targets
+
+- `icmp` (`fuzz/fuzz_targets/icmp.rs`, through `fuzzing::icmp` = `net::probe::fuzz_icmp`): the
+  input as an echo socket's message through `parse_icmp` (with and without the IPv4 header,
+  with and without an identifier, from the address pinged and another), as an error-queue entry
+  through `parse_error_queue`, and through the checksum. A reply must come from the address
+  pinged and carry our sequence number; a filled-in checksum must sum to zero. One local run on
+  Windows (`fuzz.bat icmp 120`, empty corpus): 10,787,825 runs, coverage 219 edges, no findings.
+- `web_seed` also resolves a `Location` against a referrer from the input (the referrer's query
+  and fragment handling of 2.0.12+ was not reached with a fixed referrer): 248,509 runs in 60 s,
+  no findings. `resume_data` ran 60 s after the `pieces` fix: no findings.
+
+### Reviewed and judged fine
+
+| Parser or area | File | Limits and checks | Notes |
+|---|---|---|---|
+| ICMP replies, Windows | `net/probe.rs` `IcmpPinger` | `IcmpSendEcho2Ex` / `Icmp6SendEcho2` synchronous; replies read only when the call returns a count above 0, from the buffer's start; the 256-byte buffer is asserted at compile time to hold the documented minimum (structure, 32-byte payload, 8 bytes, `IO_STATUS_BLOCK`); a longer reply fails the call; the structures' pointers are not followed | The system matches replies to its requests. |
+| ICMP replies, Linux and macOS | `net/probe.rs` | 1,500-byte receive buffer; `parse_icmp` and the quoted header bounds-checked with `get`; the sequence number (and on macOS the identifier) must match; time-exceeded answers count in the expiring mode only from the router found; `poll` with the remaining time, so a flood of foreign messages ends at the 1 s timeout | Forging needs the sequence number (sequential) and, off the path, the identifier: a fake round trip only misleads the cap (below). |
+| uTP delay signal | `utp/socket.rs`, `utp/mod.rs` `shared_delays`, `engine/auto_limit.rs` | delays from connected sockets only, clamped to the RTT where one is known; negative values count as 0; the lowest of at least three sockets that measured in the last 2 s; combined with the pings by the lower | See "Keep ping low and fake delays" below. |
+| `update.txt` | `frontend/update.rs` `Manifest::parse`, `fetch` | 64 KiB; only `stable=` / `prerelease=`; SemVer core plus `[0-9A-Za-z-]` identifiers, now at most 64 bytes; only versions above the running one | The version can only name a release tag of the fixed repository. |
+| `SHA256SUMS`, setup name | `update.rs` `expected_sha256`, `setup_name` | 64 KiB over HTTPS from `github.com/<repo>/releases/download/v<ver>/`; exact file-name match; a full 32-byte digest; the file name is a fixed pattern | No path or quoting characters can reach the name. |
+| Setup download and start | `fetch.rs` `http_get_to`, `win32/updater.rs` | 64 MiB; 30 s to the head, then 30 s between reads (Cancel ends it at once); SEC-26 reach rules; 5 redirects; checked before the rename; `CreateProcess` with an absolute path and fixed arguments (`/S`, `/CURRENTUSER` or `/ALLUSERS`, `/UPDATE=<pid>`); no elevation by PaTorrent | Nothing from `update.txt` or the server reaches the command line. |
+| nox and GTK update checks | `nox/src/update_check.rs`, `gtk/src/app.rs` | check only, no download; the Web UI writes the version as text and links `https://` URLs only | |
+| RSS conditional GET, gzip | `frontend/rss/` | validators sent only while the items are in memory, cleared when the URL changes; a 304 counts only for a conditional request; gzip inflated under `max_size` (16 MiB) | |
+| Torznab, shim `search/*` | `frontend/search/torznab.rs`, `nox/webui/search.rs` | through the RSS parser (5,000 items, 8 KiB fields); caps 2,000 categories; pattern 512 characters, 5 running and 32 kept jobs; `fileUrl` only a checked `magnet:` or the opaque `patorrent-search:` URL; `.torrent` 16 MiB, then `LoadLimits`; query values percent-encoded | Authenticated. Fuzzed by `rss`. |
+| qBittorrent import | `frontend/import.rs` | default bdecode limits; `pieces`, `verified`, `unfinished` dropped; `mapped_files` sanitized | Local files. |
+| NAT-PMP / PCP | `proto/natpmp.rs`, `engine/natpmp.rs`, `engine/portmap.rs` | lease a local setting (0 is 3,600); the router's lifetime × 3/4 in `u64`; the gateway setting an IP literal of the interface's family | |
+| Merkle proofs, hash picker | `metainfo/merkle.rs`, `merkle_tree.rs`, `engine/hash_picker.rs` | zero nodes refused; uncle count checked before `leaf_count << n` (the old spin fixed by the port); reply length `count + num_proof_hashes()`; `add_hashes` validates first | |
+| Metadata, magnets | `metainfo/torrent_info.rs`, `sanitize.rs`, `magnet.rs` | depth 100 on v1 paths, symlink targets and v2 trees; `is_valid_tracker_url`; `parse_decimal` overflow-checked; `dht=` ports 1-65,534 | |
+| HTTP, web seeds, proxies, UPnP | `proto/http_parser.rs`, `http.rs`, `web_peer.rs`, `engine/web_seed.rs`, `proxy.rs`, `upnp.rs` | strict status codes; redirect query and fragment sliced on ASCII; credentials dropped across origins (`same_origin`); SOCKS version exactly 5 | |
+| DHT IP filter, LSD | `dht/`, `engine/lsd.rs` | the filter before the DoS blocker and bdecode, on nodes from replies, bootstrap and `add_node`; LSD resends bounded | Routers deliberately unfiltered (libtorrent). |
+| Peer wire, v2 blocks | `engine/wire.rs`, `smart_ban.rs`, `engine/peer.rs` | `piece_size_for_req - start` reached only for blocks we requested; v2 blocks kept below the piece's size | Read only (another change set was open there). |
+
+### Keep ping low and fake delays
+
+A peer controls both of its delays: `recv_delay` comes from the timestamps it sends, and
+`send_delay` from the timestamp differences it echoes. What it can do with them:
+
+- **Claim no delay.** With pings, the lower of the pings' queue and the uTP peers' is used, and
+  the uTP figure is the lowest among the sockets: one peer claiming zero, among three that
+  measured, hides a direction's queue, and the caps do not cut. The cost is the user's: the line
+  bloats as without the feature. libtorrent's LEDBAT has the same exposure per socket.
+- **Claim a large delay.** It only raises that peer's own figure; the minimum ignores it while
+  any other uTP socket measured, and with pings the lower of the two ignores it too. It moves
+  the caps only when there are no pings (FreeBSD, OpenBSD, Linux outside `ping_group_range`,
+  nothing answering) and the attacker holds every uTP socket that measured in the last two
+  seconds, at least three. Then a direction we use at half its cap or more is cut every three
+  seconds to its floor: 10 kB/s or 5% of the highest rate seen on this network, and it grows
+  back 5% a second once they go. This is wider than libtorrent's exposure (a fake delay there
+  slows only that socket) but bounded by the floor, needs the pings to be missing, and is off by
+  default. Accepted; see Open.
+
+A forged ICMP reply (now only from the address pinged) or time-exceeded answer can likewise
+only show a lower round trip, with the same effect as a zero delay.
+
+### Open
+
+- **v2 file-tree path memory (libtorrent the same).** `FileStorage::paths` stores each directory
+  path in full while the tree pays for each element once: a 180 KB info section can make 37.8 MB
+  of paths (about 210×), about 2 GB at the 3 M token limit, more from a magnet's metadata
+  (`max_metadata_size` 30 MiB; `from_info_section` does not check `max_buffer_size`).
+  Proposed: a `LoadLimits` cap on the total unique directory-path bytes, a policy decision.
+- **Self-update: the checksum and the setup share one origin.** A compromised GitHub account
+  or release workflow defeats the check. Proposed: an offline Ed25519 key signing `SHA256SUMS`,
+  its public key in the binary; or Authenticode with a pinned publisher (`WinVerifyTrust`).
+- **Self-update: the setup's own elevated re-launch.** For all users the NSIS setup re-launches
+  `$EXEPATH` with `runas`; the file in `%TEMP%` can be swapped in that gap, after PaTorrent's
+  lock ended. With a shared `TEMP` (`TMP=C:\Temp`) another user can also pre-create
+  `PaTorrent-update` and plant DLLs beside the setup. Proposed: download into
+  `%LOCALAPPDATA%\PaTorrent\update` (or a fresh random folder whose owner is checked), or have
+  the setup copy itself to an admin-only folder before elevating.
+- **`PATORRENT_UPDATE_URL` / `PATORRENT_UPDATE_FILES` are live in release builds** and accept
+  plain http. Whoever sets the user's environment already runs code as the user, but for an
+  all-users install this chooses the next update's UAC prompt. Proposed: debug builds only, or
+  https only.
+- **`http_get_to` has no overall deadline**: a server trickling a byte every 29 s is ended only
+  by Cancel (fine for the dialog; a future caller without one would need a minimum rate).
+- **Search fetch threads outlive their jobs.** A stopped or deleted shim job, or a replaced
+  native search, leaves its per-source fetches running until their 30 s timeout: an
+  authenticated client looping `search/start` + `search/delete` gets unbounded concurrent
+  threads (each up to 16 MiB from the user's own indexers). Proposed: a shared in-flight
+  counter in `frontend/search/worker.rs`.
+- **A merged search result** keeps the link of the source with most seeders, and
+  `fetch_download` does not check the fetched torrent's info-hash against the result's: one
+  indexer can answer for another's hash (older than v1.1.17).
+- **Fake uTP delays without pings** (above): counting distinct hosts (IPv4 address, IPv6 /64)
+  instead of sockets for the three would stop a single host; not done, as the bloated-line and
+  loopback tests run their swarms from one address and would need distinct ones.
+- **Fuzzing gaps:** no target reaches the merkle tree and hash picker (`MerkleTree::add_hashes`
+  / `get_hashes` and `merkle_validate_and_insert_proofs` on a small tree built from the input,
+  honest replies must verify, altered ones must not); `import.rs`'s `qbittorrent_goal` /
+  `qbittorrent_flags` are private behind a file-based entry. The new runs are one short local
+  run each.

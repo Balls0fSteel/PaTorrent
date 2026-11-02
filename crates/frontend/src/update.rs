@@ -29,7 +29,7 @@
 
 use std::cmp::Ordering;
 use std::fmt;
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
@@ -61,10 +61,17 @@ pub struct Version {
     pre: Vec<String>,
 }
 
+/// The longest version text taken: it goes into message boxes, the status bar, URLs and the
+/// setup's file name.
+const VERSION_MAX: usize = 64;
+
 impl Version {
     /// `1.0.0`, `1.0.0-rc.1`; `None` for anything else (a leading `v`, build metadata, empty
-    /// identifiers).
+    /// identifiers, more than [`VERSION_MAX`] bytes).
     pub fn parse(s: &str) -> Option<Version> {
+        if s.len() > VERSION_MAX {
+            return None;
+        }
         let (core_text, pre_text) = match s.split_once('-') {
             Some((c, p)) => (c, Some(p)),
             None => (s, None),
@@ -135,19 +142,53 @@ pub fn expected_sha256(sums: &str, name: &str) -> Option<Sha256Hash> {
 /// The setup's size at most: the release's is about 10 MB.
 const SETUP_MAX: usize = 64 << 20;
 
+/// A downloaded setup and the SHA-256 it was checked against, to check it again just before it
+/// runs ([`Setup::matches`]): the file sits in a folder for as long as the user takes to say
+/// "install now".
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Setup {
+    pub path: PathBuf,
+    pub sha256: Sha256Hash,
+}
+
+impl Setup {
+    /// Whether `file` (the setup, opened) still has the checked contents.
+    pub fn matches(&self, file: impl Read) -> io::Result<bool> {
+        Ok(sha256_of(file)? == self.sha256)
+    }
+}
+
+/// The SHA-256 of everything `r` reads.
+pub fn sha256_of(mut r: impl Read) -> io::Result<Sha256Hash> {
+    let mut hash = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        match r.read(&mut buf) {
+            Ok(0) => return Ok(hash.finalize()),
+            Ok(n) => {
+                hash.update(&buf[..n]);
+            }
+            Err(e) if e.kind() == io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(e),
+        }
+    }
+}
+
 /// Downloads `v`'s Windows setup into `dir` (made if missing) and checks it against the
-/// release's `SHA256SUMS`, both over HTTPS through the session's proxy; the setup's path on
-/// success. `progress` hears each piece's running total and the size when known, and ends the
-/// download by answering `false`. The file is written as `<name>.part` and renamed once it is
-/// checked; a failed or stopped download leaves nothing behind. Blocking: a worker thread's.
+/// release's `SHA256SUMS`, both over HTTPS (a redirect to plain http is refused) through the
+/// session's proxy; the setup's path and checksum on success. `progress` hears each piece's
+/// running total and the size when known, and ends the download by answering `false`. The
+/// file is written as a new `<name>.part` (whatever had that name goes first, so a link
+/// planted there is not written through) and renamed once it is checked; a failed or stopped
+/// download leaves nothing behind. Blocking: a worker thread's.
 pub fn download_setup(
     v: &Version,
     proxy: Option<FetchProxy>,
     dir: &Path,
     progress: &mut dyn FnMut(u64, Option<u64>) -> bool,
-) -> Result<PathBuf, String> {
+) -> Result<Setup, String> {
     let name = v.setup_name();
-    let opts = FetchOptions { proxy, max_size: 64 * 1024, ..FetchOptions::default() };
+    let opts = FetchOptions { proxy, max_size: 64 * 1024, no_downgrade: true, ..FetchOptions::default() };
     let sums = http_get(&v.file_url("SHA256SUMS"), &opts).map_err(|e| format!("SHA256SUMS: {e}"))?;
     if sums.redirect().is_some() {
         return Err(format!("SHA256SUMS: HTTP {}", sums.status));
@@ -159,7 +200,12 @@ pub fn download_setup(
     let part = dir.join(format!("{name}.part"));
     let path = dir.join(&name);
     let result = (|| {
-        let mut file = std::fs::File::create(&part).map_err(|e| format!("{}: {e}", part.display()))?;
+        let _ = std::fs::remove_file(&part);
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .open(&part)
+            .map_err(|e| format!("{}: {e}", part.display()))?;
         let mut hash = Sha256::new();
         let mut got = 0u64;
         let opts = FetchOptions { max_size: SETUP_MAX, ..opts };
@@ -184,7 +230,7 @@ pub fn download_setup(
         }
         let _ = std::fs::remove_file(&path);
         std::fs::rename(&part, &path).map_err(|e| format!("{}: {e}", path.display()))?;
-        Ok(path)
+        Ok(Setup { path, sha256: expected })
     })();
     if result.is_err() {
         let _ = std::fs::remove_file(&part);
@@ -279,7 +325,7 @@ impl Manifest {
 /// Fetches and reads `update.txt` (blocking: call it from a worker thread), through the
 /// session's proxy as the RSS feeds go.
 pub fn fetch(proxy: Option<FetchProxy>) -> Result<Manifest, String> {
-    let opts = FetchOptions { proxy, max_size: 64 * 1024, ..FetchOptions::default() };
+    let opts = FetchOptions { proxy, max_size: 64 * 1024, no_downgrade: true, ..FetchOptions::default() };
     let url = std::env::var("PATORRENT_UPDATE_URL").unwrap_or_else(|_| MANIFEST_URL.to_owned());
     let resp = http_get(&url, &opts).map_err(|e| e.to_string())?;
     if let Some(to) = resp.redirect() {
@@ -438,6 +484,11 @@ mod tests {
         ] {
             assert!(Version::parse(bad).is_none(), "{bad}");
         }
+        // a tampered update.txt's version of any length was taken, into boxes and file names
+        let long = format!("1.0.0-{}", "a".repeat(VERSION_MAX - 6));
+        assert_eq!(v(&long).to_string(), long);
+        assert!(Version::parse(&format!("{long}a")).is_none());
+        assert_eq!(Manifest::parse(&format!("prerelease={long}a\n")), Manifest::default());
         let current = Version::current();
         assert_eq!(current.to_string(), patorrent_core::VERSION);
         assert_eq!(
@@ -629,16 +680,26 @@ mod tests {
         unsafe { std::env::set_var("PATORRENT_UPDATE_FILES", &base) };
         let dir = std::env::temp_dir().join(format!("patorrent-update-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
+        // a link planted as the part file is not written through: its target keeps its bytes
+        std::fs::create_dir_all(&dir).unwrap();
+        let victim = dir.join("victim.txt");
+        std::fs::write(&victim, b"keep").unwrap();
+        std::fs::hard_link(&victim, dir.join(format!("{name}.part"))).unwrap();
         let mut seen = Vec::new();
-        let path = download_setup(&v("9.9.9"), None, &dir, &mut |got, total| {
+        let got = download_setup(&v("9.9.9"), None, &dir, &mut |got, total| {
             seen.push((got, total));
             true
         })
         .unwrap();
-        assert_eq!(path, dir.join(&name));
-        assert_eq!(std::fs::read(&path).unwrap(), setup);
+        assert_eq!(got, Setup { path: dir.join(&name), sha256: Sha256::digest(&setup) });
+        assert_eq!(std::fs::read(&got.path).unwrap(), setup);
+        assert_eq!(std::fs::read(&victim).unwrap(), b"keep");
         assert_eq!(seen.last(), Some(&(100_000, Some(100_000))));
         assert!(seen.iter().all(|(_, t)| *t == Some(100_000)));
+        // checked again before it runs: a file changed since no longer matches
+        assert!(got.matches(std::fs::File::open(&got.path).unwrap()).unwrap());
+        std::fs::OpenOptions::new().append(true).open(&got.path).unwrap().write_all(b"x").unwrap();
+        assert!(!got.matches(std::fs::File::open(&got.path).unwrap()).unwrap());
         let e = download_setup(&v("9.9.9"), None, &dir, &mut |_, _| true).unwrap_err();
         assert!(e.contains("checksum"), "{e}");
         assert!(!dir.join(format!("{name}.part")).exists());

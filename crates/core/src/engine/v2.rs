@@ -136,9 +136,11 @@ pub(super) fn hash_request_cost(fs: &FileStorage, m: &HashMsg) -> u64 {
     let count = m.count.max(1) as u64;
     let mut cost = count.saturating_mul(node(height));
     let base_tree_layers = count.next_power_of_two().trailing_zeros();
-    // past 64 layers every node costs `u64::MAX` already: no need to walk two billion of them
-    for i in base_tree_layers..(m.proof_layers.max(0) as u32).min(64) {
-        cost = cost.saturating_add(node(height.saturating_add(i + 1)));
+    // the proofs are the siblings at layers `base_tree_layers..=proof_layers` above the base, as
+    // `MerkleTree::get_hashes` sends them; past 64 layers every node costs `u64::MAX` already: no
+    // need to walk two billion of them
+    for i in base_tree_layers..=(m.proof_layers.max(0) as u32).min(64) {
+        cost = cost.saturating_add(node(height.saturating_add(i)));
     }
     cost
 }
@@ -152,7 +154,7 @@ pub(super) fn hash_request_cost(fs: &FileStorage, m: &HashMsg) -> u64 {
 /// Why this size: a client fetching a file's piece layer from us (libtorrent's hash picker:
 /// 512 pieces per request, two outstanding) asks for proof hashes up to the first node of its
 /// tree it knows, so the subtrees beside its path get hashed once per level: the whole layer
-/// costs us about `P × (log2(P) - 9)` (measured by
+/// costs us about `P × (log2(P) - 8)` (measured by
 /// `a_client_fetching_piece_layers_stays_within_the_hash_budget`), and over several files no
 /// more than for one file of all the pieces. The burst covers that with no time passing, so a
 /// well-behaved client never hits the limit, while a peer repeating requests near the root
@@ -554,9 +556,9 @@ mod tests {
                 assert!(picker.add_hashes(&fs, &mut theirs, &req, &hashes).valid);
             }
             assert_eq!(theirs[0].get_piece_layer(), ours.get_piece_layer(), "{pieces} pieces");
-            // about `P × (log2(P) - 9)`: 65,506 hashes for 16,384 pieces, 393,090 for 65,536
+            // about `P × (log2(P) - 8)`: 81,858 hashes for 16,384 pieces
             let padded = u64::from(pieces).next_power_of_two();
-            let levels = u64::from(padded.trailing_zeros().saturating_sub(9));
+            let levels = u64::from(padded.trailing_zeros().saturating_sub(8));
             assert!(spent <= padded * levels, "{pieces} pieces: {spent} in {requests} requests");
         }
     }
@@ -569,12 +571,13 @@ mod tests {
         let pieces = 1 << 14;
         let (fs, _) = one_file(pieces);
         // the piece layer is 2 layers above the blocks; ask for one node 12 layers above it,
-        // with its proof up to the root (one layer below the root's children)
+        // with its proof up to the root: its own sibling and the one a layer up (the root's
+        // children)
         let m = HashMsg { root: Sha256Hash::default(), base: 2 + 12, index: 0, count: 1, proof_layers: 1 };
         let req = HashRequest::new(0, m.base, m.index, m.count, m.proof_layers);
         assert!(validate_hash_request(&req, &fs));
         let cost = hash_request_cost(&fs, &m);
-        assert_eq!(cost, (1 << 12) - 1 + (1 << 13) - 1);
+        assert_eq!(cost, 2 * ((1 << 12) - 1) + (1 << 13) - 1);
         let burst = HashWorkBudget::burst(fs.num_pieces());
         assert_eq!(burst, 14 << 14);
 
@@ -591,6 +594,10 @@ mod tests {
         let cheap = HashMsg { base: 2, count: 512, proof_layers: 0, ..m };
         assert_eq!(hash_request_cost(&fs, &cheap), 0);
         assert!(budget.try_spend(hash_request_cost(&fs, &cheap), burst, t1 + Duration::from_millis(10)));
+        // with a proof: the first sibling sent is the 512 hashes' own root's, 9 layers up
+        // (security review 2026-11-02: the estimate began a layer higher and said 0)
+        let proved = HashMsg { proof_layers: 9, ..cheap };
+        assert_eq!(hash_request_cost(&fs, &proved), (1 << 9) - 1);
         // costs saturate instead of overflowing
         let silly = HashMsg { base: i32::MAX, count: i32::MAX, proof_layers: i32::MAX, ..m };
         assert_eq!(hash_request_cost(&fs, &silly), u64::MAX);

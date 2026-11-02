@@ -370,6 +370,19 @@ fn not_modified_keeps_the_items() {
     );
 }
 
+/// A feed server's validators are stored in `rss.dat` and sent back on every refresh: only
+/// plausible ones are kept (the response head may be 16 KiB).
+#[test]
+fn oversized_or_odd_validators_are_not_kept() {
+    assert_eq!(validator(Some("  \"v1\" ")), "\"v1\"");
+    assert_eq!(validator(None), "");
+    let long = "x".repeat(MAX_VALIDATOR);
+    assert_eq!(validator(Some(&long)), long);
+    assert_eq!(validator(Some(&format!("{long}x"))), "");
+    assert_eq!(validator(Some("W/\"a\u{0}b\"")), "");
+    assert_eq!(validator(Some("a\tb")), "");
+}
+
 #[test]
 fn persistence_round_trip() {
     let d = sample();

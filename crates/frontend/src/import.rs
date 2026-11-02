@@ -487,12 +487,15 @@ impl QbtLimit {
     }
 
     /// This goal's target: `None` for the global one, 0 (off) for none, else the value; a
-    /// limit of 0 (stop at once) becomes the smallest target, since 0 switches ours off.
+    /// limit of 0 (stop at once) becomes the smallest target, since 0 switches ours off. A
+    /// huge value is held to `i32::MAX`, the most the preferences read back
+    /// ([`SeedGoal::load_override`]): beyond it the override would read as missing and the
+    /// default goal (150 %) apply instead.
     fn target(self) -> Option<u32> {
         match self {
             QbtLimit::Global => None,
             QbtLimit::None => Some(0),
-            QbtLimit::Value(v) => Some((v.round() as u32).max(1)),
+            QbtLimit::Value(v) => Some((v.round() as u32).clamp(1, i32::MAX as u32)),
         }
     }
 }
@@ -1096,6 +1099,18 @@ mod tests {
         assert_eq!(goal(&[(r, int(2000)), (t, int(120)), all.clone()]), Some((200, 120)));
         let any = ("qBt-shareLimitsMode", Entry::Bytes(b"MatchAny".to_vec()));
         assert_eq!(goal(&[(r, int(2000)), (t, int(120)), any]), Some((200, 0)));
+        // values qBittorrent would not write: NaN and infinity are the global limit, a huge
+        // one is held to what the preferences read back
+        let text = |s: &str| Entry::Bytes(s.as_bytes().to_vec());
+        assert_eq!(goal(&[(r, text("NaN")), (t, int(-2))]), None);
+        assert_eq!(goal(&[(r, text("inf")), (t, int(-2))]), None);
+        let max = i32::MAX as u32;
+        let huge = goal(&[(r, int(i64::MAX)), (t, int(i64::MAX)), all.clone()]);
+        assert_eq!(huge, Some((max, max)));
+        assert_eq!(goal(&[(r, text("1e300")), (t, int(-2))]), Some((max, 0)));
+        let mut prefs = Prefs::from_text("");
+        SeedGoal::store_override(&mut prefs, "k", Some(SeedGoal { ratio_pct: max, minutes: max }));
+        assert_eq!(SeedGoal::load_override(&prefs, "k"), Some(SeedGoal { ratio_pct: max, minutes: max }));
 
         let flags = |paused: i64, auto: i64| {
             let mut d = Entry::new_dict();

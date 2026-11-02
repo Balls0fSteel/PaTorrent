@@ -12,9 +12,10 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 use patorrent_core::fetch::FetchProxy;
-use patorrent_frontend::tr;
-use patorrent_frontend::update::{self, Version};
+use patorrent_frontend::update::{self, Setup, Version};
+use patorrent_frontend::{fmt, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
+use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Registry::{HKEY, HKEY_CURRENT_USER, HKEY_LOCAL_MACHINE};
 use windows_sys::Win32::UI::Controls::{PBM_SETMARQUEE, PBM_SETPOS, PBM_SETRANGE32, PBS_MARQUEE, PBS_SMOOTH};
@@ -87,15 +88,36 @@ pub fn download_dir() -> PathBuf {
 }
 
 /// Starts the setup for the update; it runs on while PaTorrent exits.
-pub fn run_setup(path: &Path, mode: InstallMode) -> io::Result<()> {
-    std::process::Command::new(path).args(setup_args(mode, std::process::id())).spawn().map(drop)
+pub fn run_setup(setup: &Setup, mode: InstallMode) -> io::Result<()> {
+    spawn_checked(setup, &setup_args(mode, std::process::id())).map(drop)
+}
+
+/// Opens `path` for reading so that nobody can write to it, rename it or delete it while the
+/// handle is open (Windows still lets a process start from it: the loader only reads).
+fn open_locked(path: &Path) -> io::Result<std::fs::File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    std::fs::OpenOptions::new().read(true).share_mode(FILE_SHARE_READ).open(path)
+}
+
+/// Starts `setup` with `args` only if it still has the contents its download was checked
+/// against: the file is checked again under [`open_locked`] and stays locked until the process
+/// has started, so what runs is what was checked, however long the setup waited in `%TEMP%`
+/// for the user's "install now".
+fn spawn_checked(setup: &Setup, args: &[String]) -> io::Result<std::process::Child> {
+    let file = open_locked(&setup.path)?;
+    if !setup.matches(&file)? {
+        return Err(io::Error::new(io::ErrorKind::InvalidData, "the file changed after it was checked"));
+    }
+    let child = std::process::Command::new(&setup.path).args(args).spawn();
+    drop(file);
+    child
 }
 
 // ---- The download dialog
 
 /// `wParam` = KiB so far, `lParam` = KiB in all (0 while unknown).
 const WM_APP_PROGRESS: u32 = WM_APP + 22;
-/// `lParam` = `Box<Result<PathBuf, String>>`.
+/// `lParam` = `Box<Result<Setup, String>>`.
 const WM_APP_DONE: u32 = WM_APP + 23;
 const ID_NAME: u16 = 100;
 const ID_PROGRESS: u16 = 101;
@@ -107,12 +129,12 @@ struct State {
     cancel: Arc<AtomicBool>,
     /// Cancelled: end once the worker has stopped.
     closing: bool,
-    result: Option<Result<PathBuf, String>>,
+    result: Option<Result<Setup, String>>,
 }
 
-/// Downloads `v`'s setup behind a modal progress dialog: its path once checked, `None` when
-/// cancelled or failed (a failure is shown first).
-pub fn download(owner: HWND, v: &Version, proxy: Option<FetchProxy>) -> Option<PathBuf> {
+/// Downloads `v`'s setup behind a modal progress dialog: its path and checksum once checked,
+/// `None` when cancelled or failed (a failure is shown first).
+pub fn download(owner: HWND, v: &Version, proxy: Option<FetchProxy>) -> Option<Setup> {
     let mut st = State {
         version: v.clone(),
         proxy,
@@ -131,7 +153,7 @@ pub fn download(owner: HWND, v: &Version, proxy: Option<FetchProxy>) -> Option<P
         );
     }
     match st.result? {
-        Ok(path) => Some(path),
+        Ok(setup) => Some(setup),
         Err(e) => {
             dialogs::error(owner, &tr!(UpdateDownloadFailed, version = v, error = e));
             None
@@ -185,13 +207,14 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                     send(bar, PBM_SETRANGE32, 0, total as isize);
                     send(bar, PBM_SETPOS, done as usize, 0);
                 }
+                let size = |kib: u32| fmt::size(u64::from(kib) * 1024);
                 let text = match total {
-                    0 => format!("{} MB", done / 1024),
+                    0 => size(done),
                     _ => format!(
-                        "{:.1} % ({} / {} MB)",
+                        "{:.1} % ({} / {})",
                         done as f64 * 100.0 / total as f64,
-                        done / 1024,
-                        total / 1024
+                        size(done),
+                        size(total)
                     ),
                 };
                 let w = wide(&text);
@@ -199,7 +222,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 1
             }
             WM_APP_DONE => {
-                let result = *Box::from_raw(lp as *mut Result<PathBuf, String>);
+                let result = *Box::from_raw(lp as *mut Result<Setup, String>);
                 // a cancelled download is no failure to report
                 st.result = if st.closing { None } else { Some(result) };
                 EndDialog(dlg, if st.closing { IDCANCEL as isize } else { 1 });
@@ -271,5 +294,35 @@ mod tests {
         // whatever this machine has: the lookup itself must not fail
         let _ = installed();
         assert!(download_dir().ends_with("PaTorrent-update"));
+    }
+
+    /// The setup runs only with the contents it was checked with, and nobody can change or
+    /// replace the file between that check and the start (a copy of `cmd.exe` stands in for
+    /// it: its exit code shows it ran with the arguments).
+    #[test]
+    fn the_setup_runs_only_as_checked() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("patorrent-updater-test-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("setup.exe");
+        let system = std::env::var_os("SystemRoot").unwrap_or_else(|| "C:\\Windows".into());
+        std::fs::copy(Path::new(&system).join("System32").join("cmd.exe"), &path).unwrap();
+        let sha256 = update::sha256_of(std::fs::File::open(&path).unwrap()).unwrap();
+        let setup = Setup { path: path.clone(), sha256 };
+        let args = ["/c".to_owned(), "exit".to_owned(), "7".to_owned()];
+        let status = spawn_checked(&setup, &args).unwrap().wait().unwrap();
+        assert_eq!(status.code(), Some(7));
+        // while checked, the file cannot be written to, renamed or deleted
+        let locked = open_locked(&path).unwrap();
+        assert!(std::fs::OpenOptions::new().append(true).open(&path).is_err());
+        assert!(std::fs::rename(&path, dir.join("moved.exe")).is_err());
+        assert!(std::fs::remove_file(&path).is_err());
+        drop(locked);
+        // changed after the download's check: refused, nothing started
+        std::fs::OpenOptions::new().append(true).open(&path).unwrap().write_all(b"x").unwrap();
+        let e = spawn_checked(&setup, &args).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::InvalidData, "{e}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

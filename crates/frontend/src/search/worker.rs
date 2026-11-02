@@ -461,6 +461,28 @@ mod tests {
         assert_eq!(download_reach("https://localhost:9696/x", "http://localhost:9696/5/api"), Reach::Public);
         assert_eq!(download_reach("http://[::1]:9117/dl/x", "http://[::1]:9117/api/v2.0/x"), Reach::User);
         assert_eq!(download_reach("http://jackett/dl/x", "http://jackett:80/api"), Reach::User);
+        // a link's origin is what the fetch connects to: an `@` the fetch's parser does not
+        // take for the end of userinfo (none without a `:` before it, only the first) does not
+        // hide another host behind the source's name; these went to port 80 there with `User`
+        for (link, connects_to) in [
+            ("http://[127.0.0.1]@idx.example.org/x", "127.0.0.1"),
+            ("http://a:b@[192.168.1.1]@idx.example.org/x", "192.168.1.1"),
+            ("http://[127.0.0.1]@localhost:9696/x", "127.0.0.1"),
+        ] {
+            let parsed = patorrent_core::util::string::parse_url_components(link).unwrap();
+            assert_eq!(parsed.host, connects_to, "{link}");
+            let source = if link.contains("localhost") {
+                "http://localhost:9696/5/api"
+            } else {
+                "http://idx.example.org/api"
+            };
+            assert_eq!(download_reach(link, source), Reach::Public, "{link}");
+        }
+        assert_eq!(
+            download_reach("http://u:p@idx.example.org/x", "http://idx.example.org/api"),
+            Reach::User,
+            "real userinfo"
+        );
     }
 
     #[test]

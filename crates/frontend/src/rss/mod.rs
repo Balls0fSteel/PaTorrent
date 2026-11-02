@@ -636,8 +636,19 @@ pub fn fetch_feed(url: &str, since: &Validators, proxy: Option<FetchProxy>) -> R
         return Err(crate::tr!(RssErrFeedRedirect, url));
     }
     let doc = parse_feed(&resp.body).ok_or_else(|| crate::tr!(RssErrNotFeed, url))?;
-    let header = |name| resp.header(name).unwrap_or_default().trim().to_owned();
+    let header = |name| validator(resp.header(name));
     Ok(Fetched::Changed(doc, Validators { etag: header("etag"), last_modified: header("last-modified") }))
+}
+
+/// Longest `ETag` or `Last-Modified` kept: real ones are tens of bytes, and whatever is kept
+/// is stored in `rss.dat` and sent with every refresh.
+const MAX_VALIDATOR: usize = 1024;
+
+/// A response's validator as kept: trimmed; dropped (no conditional request) when longer than
+/// [`MAX_VALIDATOR`] or holding control characters, which a valid one never does.
+fn validator(value: Option<&str>) -> String {
+    let v = value.unwrap_or_default().trim();
+    if v.len() > MAX_VALIDATOR || v.chars().any(char::is_control) { String::new() } else { v.to_owned() }
 }
 
 #[cfg(test)]

@@ -4,6 +4,8 @@
 //! ([`crate::prefs::is_sealed_key`]) and never shown: [`redact`] takes it out of any URL or
 //! message.
 
+use patorrent_core::util::string::parse_url_components;
+
 use crate::prefs::Prefs;
 
 /// Sources kept.
@@ -174,24 +176,23 @@ pub fn url_host(url: &str) -> Option<String> {
 /// A URL's scheme, host and port (the scheme's default when none is given), for comparing
 /// where two URLs lead: `http://localhost/` and `http://localhost:80/` are one origin,
 /// `http://localhost:8080/` another.
+///
+/// Read with the parser the fetch connects by (`patorrent_core`'s `parse_url_components`,
+/// libtorrent's), so that what this says about a URL is where a request to it goes: a search
+/// result's link reaches this machine and network only when its origin is the source's
+/// ([`super::worker::download_reach`]), and a parser of its own could be told one host while
+/// the fetch connects to another (`http://[::1]@idx.example/` is `::1` port 80 to the fetch).
 pub fn url_origin(url: &str) -> Option<(String, String, u16)> {
-    let (scheme, rest) = url.trim().split_once("://")?;
-    let scheme = scheme.to_ascii_lowercase();
-    let authority = rest.split(['/', '?', '#']).next()?;
-    let hostport = authority.rsplit_once('@').map_or(authority, |(_, h)| h);
-    let port = match hostport.strip_prefix('[') {
-        Some(v6) => v6.split_once(']')?.1.strip_prefix(':'),
-        None => hostport.split_once(':').map(|(_, p)| p),
+    let p = parse_url_components(url).ok()?;
+    let scheme = p.protocol.to_ascii_lowercase();
+    let port = match (p.port, scheme.as_str()) {
+        (Some(port), _) => port,
+        (None, "http") => 80,
+        (None, "https") => 443,
+        (None, _) => return None,
     };
-    let port = match port {
-        Some(p) => p.parse().ok()?,
-        None => match scheme.as_str() {
-            "http" => 80,
-            "https" => 443,
-            _ => return None,
-        },
-    };
-    Some((scheme, url_host(url)?, port))
+    let host = p.host.trim_end_matches('.').to_ascii_lowercase();
+    (!host.is_empty()).then_some((scheme, host, port))
 }
 
 #[cfg(test)]

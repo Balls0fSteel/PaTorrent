@@ -278,6 +278,14 @@ mod imp {
     }
 
     const PAYLOAD: [u8; 32] = *b"PaTorrent keep-ping-low probe...";
+    /// The reply buffer's size.
+    const REPLY_BUFFER: usize = 256;
+    // the documentation's minimum, for which the reads below rely on one reply at the buffer's
+    // start: the reply structure, the request's data, an ICMP error's 8 bytes and an
+    // IO_STATUS_BLOCK (16 bytes on 64-bit, 8 on 32-bit)
+    const _: () = assert!(std::mem::size_of::<ICMP_ECHO_REPLY>() + PAYLOAD.len() + 8 + 16 <= REPLY_BUFFER);
+    const _: () =
+        assert!(std::mem::size_of::<ICMPV6_ECHO_REPLY_LH>() + PAYLOAD.len() + 8 + 16 <= REPLY_BUFFER);
 
     fn sockaddr6(a: std::net::Ipv6Addr) -> SOCKADDR_IN6 {
         let s = SocketAddrV6::new(a, 0, 0, 0);
@@ -292,8 +300,9 @@ mod imp {
         fn echo(&mut self, to: IpAddr, ttl: u8, timeout: Duration) -> Echo {
             let timeout = timeout.as_millis().min(u32::MAX as u128) as u32;
             let options = IP_OPTION_INFORMATION { Ttl: ttl, ..Default::default() };
-            // room for one reply, its data and an ICMP error's 8 bytes (as the documentation asks)
-            let mut buf = [0u8; 256];
+            // room for one reply, its data and an ICMP error's 8 bytes (as the documentation asks);
+            // a longer reply fails the call (IP_BUF_TOO_SMALL, 0 replies)
+            let mut buf = [0u8; REPLY_BUFFER];
             match to {
                 IpAddr::V4(a) => {
                     // SAFETY: the handle is open, the buffers outlive the synchronous call
@@ -316,7 +325,8 @@ mod imp {
                     if n == 0 {
                         return Echo::Lost;
                     }
-                    // SAFETY: the call wrote at least one reply at the start of the buffer
+                    // SAFETY: the call wrote at least one reply (n > 0) at the start of the buffer,
+                    // which is large enough for it (asserted above); its pointers are not followed
                     let r: ICMP_ECHO_REPLY = unsafe { std::ptr::read_unaligned(buf.as_ptr().cast()) };
                     let from = IpAddr::V4(Ipv4Addr::from(r.Address.to_ne_bytes()));
                     let ms = r.RoundTripTime as f64;
@@ -413,20 +423,25 @@ fn internet_checksum(data: &[u8]) -> u16 {
     !(sum as u16)
 }
 
-/// The header length of the IPv4 packet `d` starts with.
+/// The header length of the IPv4 packet `d` starts with; `None` unless it starts with one
+/// (version 4, at least the 20 bytes of a header without options).
 #[cfg_attr(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")), allow(dead_code))]
 fn ip_header_len(d: &[u8]) -> Option<usize> {
-    Some((*d.first()? & 0x0f) as usize * 4)
+    let first = *d.first()?;
+    let len = (first & 0x0f) as usize * 4;
+    (first >> 4 == 4 && len >= 20).then_some(len)
 }
 
-/// Reads an ICMP message an echo socket received from `from`: our echo's reply, or (IPv4) a
-/// router's time-exceeded answer quoting our echo. `ip_header`: the message starts with the
-/// IPv4 header (macOS); `check_id`: the identifier to check (`None` on Linux, whose kernel sets
-/// it and hands a ping socket only its own replies).
+/// Reads an ICMP message an echo socket received from `from` after an echo to `to`: our echo's
+/// reply (only from `to`: an echo is answered by the address it went to), or (IPv4) a router's
+/// time-exceeded answer quoting our echo. `ip_header`: the message starts with the IPv4 header
+/// (macOS); `check_id`: the identifier to check (`None` on Linux, whose kernel sets it and hands
+/// a ping socket only its own replies).
 #[cfg_attr(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")), allow(dead_code))]
 fn parse_icmp(
     data: &[u8],
     from: IpAddr,
+    to: IpAddr,
     ip_header: bool,
     check_id: Option<u16>,
     seq: u16,
@@ -440,7 +455,7 @@ fn parse_icmp(
     };
     match *icmp.first()? {
         // echo reply, ICMPv6 echo reply
-        0 | 129 => ours(icmp)?.then_some(Echo::Reply { from, ms }),
+        0 | 129 => (from == to && ours(icmp)?).then_some(Echo::Reply { from, ms }),
         // time exceeded: the router quotes our packet's IP header and first 8 bytes
         11 => {
             let quoted = icmp.get(8..)?;
@@ -449,6 +464,99 @@ fn parse_icmp(
         }
         _ => None,
     }
+}
+
+/// One entry of Linux's error queue (`IP_RECVERR`, `MSG_ERRQUEUE`): `data` the queued packet
+/// (our echo request, as the router quoted it), `control` the control messages `recvmsg`
+/// returned (`struct cmsghdr` with a `size_t` length, aligned to `size_t`). The router's address
+/// when it is a time-exceeded answer to echo `seq`.
+#[cfg_attr(not(any(target_os = "linux", target_os = "android")), allow(dead_code))]
+fn parse_error_queue(data: &[u8], control: &[u8], seq: u16) -> Option<IpAddr> {
+    const SOL_IP: i32 = 0;
+    const IP_RECVERR: i32 = 11;
+    const SO_EE_ORIGIN_ICMP: u8 = 2;
+    const ICMP_TIME_EXCEEDED: u8 = 11;
+    const AF_INET: u16 = 2;
+    // the queued packet is our echo request: its sequence number says which
+    if data.get(6..8)? != seq.to_be_bytes() {
+        return None;
+    }
+    let word = std::mem::size_of::<usize>();
+    // CMSG_ALIGN(sizeof(struct cmsghdr))
+    let head = (word + 8).next_multiple_of(word);
+    let mut at = 0usize;
+    while let Some(h) = control.get(at..at.checked_add(head)?) {
+        let len = usize::from_ne_bytes(h[..word].try_into().ok()?);
+        let level = i32::from_ne_bytes(h[word..word + 4].try_into().ok()?);
+        let ty = i32::from_ne_bytes(h[word + 4..word + 8].try_into().ok()?);
+        // a length shorter than the header or past the buffer ends the walk
+        let body = control.get(at + head..at.checked_add(len)?)?;
+        // struct sock_extended_err (16 bytes), then the offender's sockaddr_in
+        if level == SOL_IP && ty == IP_RECVERR && body.len() >= 24 {
+            let (origin, kind) = (body[4], body[5]);
+            let family = u16::from_ne_bytes([body[16], body[17]]);
+            if origin == SO_EE_ORIGIN_ICMP && kind == ICMP_TIME_EXCEEDED && family == AF_INET {
+                return Some(IpAddr::V4(Ipv4Addr::new(body[20], body[21], body[22], body[23])));
+            }
+        }
+        // `len` is within the buffer, so this cannot overflow, and it moves on (len >= head)
+        at += len.next_multiple_of(word);
+    }
+    None
+}
+
+/// The `icmp` fuzz target (security review, 2026-11-02): the input as an echo socket's message
+/// (with and without the IPv4 header, with and without an identifier to check, from the
+/// address pinged and from another) and as an error-queue entry (packet and control messages
+/// split at a byte of the input). A reply must come from the address pinged and carry our
+/// sequence number; the checksum of any message with its checksum filled in must be zero.
+/// Returns how many parsed.
+#[cfg(feature = "fuzzing")]
+#[doc(hidden)]
+pub fn fuzz_icmp(data: &[u8]) -> usize {
+    if data.len() < 5 {
+        return 0;
+    }
+    let seq = u16::from_be_bytes([data[0], data[1]]);
+    let id = u16::from_be_bytes([data[2], data[3]]);
+    let split = data[4] as usize;
+    let packet = &data[5..];
+    let to = IpAddr::V4(Ipv4Addr::new(84, 0, 0, 1));
+    let mut parsed = 0;
+    for from in [to, IpAddr::V4(Ipv4Addr::new(84, 0, 0, 2))] {
+        for ip_header in [false, true] {
+            for check_id in [None, Some(id)] {
+                match parse_icmp(packet, from, to, ip_header, check_id, seq, 1.0) {
+                    Some(Echo::Reply { from: f, .. }) => {
+                        assert_eq!(f, to, "a reply from another address");
+                        let icmp = if ip_header { &packet[ip_header_len(packet).unwrap()..] } else { packet };
+                        assert!(matches!(icmp[0], 0 | 129));
+                        assert_eq!(icmp[6..8], seq.to_be_bytes());
+                        parsed += 1;
+                    }
+                    Some(Echo::TtlExpired { from: f, .. }) => {
+                        assert_eq!(f, from);
+                        parsed += 1;
+                    }
+                    Some(Echo::Lost) => unreachable!("never parsed"),
+                    None => {}
+                }
+            }
+        }
+    }
+    let (queued, control) = packet.split_at(split.min(packet.len()));
+    if parse_error_queue(queued, control, seq).is_some() {
+        assert_eq!(queued[6..8], seq.to_be_bytes());
+        parsed += 1;
+    }
+    let mut message = packet.to_vec();
+    if message.len() >= 4 {
+        message[2..4].fill(0);
+        let sum = internet_checksum(&message);
+        message[2..4].copy_from_slice(&sum.to_be_bytes());
+        assert_eq!(internet_checksum(&message), 0, "a filled-in checksum sums to zero");
+    }
+    parsed
 }
 
 #[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
@@ -571,7 +679,7 @@ mod imp {
                     // reply on the machine: ours carry our identifier
                     let (ip_header, check_id) =
                         if cfg!(target_vendor = "apple") { (!v6, Some(self.id)) } else { (false, None) };
-                    if let Some(e) = parse_icmp(&buf[..n], from.ip(), ip_header, check_id, seq, ms) {
+                    if let Some(e) = parse_icmp(&buf[..n], from.ip(), to, ip_header, check_id, seq, ms) {
                         return e;
                     }
                 }
@@ -584,16 +692,15 @@ mod imp {
     mod linux {
         use std::ffi::{c_int, c_void};
         use std::io;
-        use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+        use std::net::{IpAddr, UdpSocket};
         use std::os::fd::AsRawFd;
+
+        use super::super::parse_error_queue;
 
         const SOL_IP: c_int = 0;
         const IP_RECVERR: c_int = 11;
         const MSG_DONTWAIT: c_int = 0x40;
         const MSG_ERRQUEUE: c_int = 0x2000;
-        const SO_EE_ORIGIN_ICMP: u8 = 2;
-        const ICMP_TIME_EXCEEDED: u8 = 11;
-        const AF_INET: u16 = 2;
 
         #[repr(C)]
         struct IoVec {
@@ -611,13 +718,6 @@ mod imp {
             control: *mut c_void,
             controllen: usize,
             flags: c_int,
-        }
-
-        #[repr(C)]
-        struct CmsgHdr {
-            len: usize,
-            level: c_int,
-            ty: c_int,
         }
 
         unsafe extern "C" {
@@ -652,33 +752,11 @@ mod imp {
             if n < 0 {
                 return None;
             }
-            // the queued packet is our echo request: its sequence number says which
-            let ours = data.get(6..8).is_some_and(|s| u16::from_be_bytes([s[0], s[1]]) == seq);
+            // only what the call wrote: a short packet leaves the rest of `data` zero
+            let data = &data[..(n as usize).min(data.len())];
             let bytes: Vec<u8> = control.iter().flat_map(|w| w.to_ne_bytes()).collect();
             let bytes = &bytes[..msg.controllen.min(bytes.len())];
-            let word = std::mem::size_of::<usize>();
-            let head = std::mem::size_of::<CmsgHdr>().next_multiple_of(word);
-            let mut at = 0;
-            while at + head <= bytes.len() {
-                let len = usize::from_ne_bytes(bytes[at..at + word].try_into().ok()?);
-                let level = c_int::from_ne_bytes(bytes[at + word..at + word + 4].try_into().ok()?);
-                let ty = c_int::from_ne_bytes(bytes[at + word + 4..at + word + 8].try_into().ok()?);
-                if len < head || at + len > bytes.len() {
-                    break;
-                }
-                let body = &bytes[at + head..at + len];
-                // struct sock_extended_err (16 bytes), then the offender's sockaddr_in
-                if level == SOL_IP && ty == IP_RECVERR && body.len() >= 24 {
-                    let (origin, kind) = (body[4], body[5]);
-                    let family = u16::from_ne_bytes([body[16], body[17]]);
-                    if ours && origin == SO_EE_ORIGIN_ICMP && kind == ICMP_TIME_EXCEEDED && family == AF_INET
-                    {
-                        return Some(Some(IpAddr::V4(Ipv4Addr::new(body[20], body[21], body[22], body[23]))));
-                    }
-                }
-                at += len.next_multiple_of(word);
-            }
-            Some(None)
+            Some(parse_error_queue(data, bytes, seq))
         }
     }
 }
@@ -711,16 +789,16 @@ mod tests {
         reply[0] = 0;
         // Linux: no IP header, the kernel's identifier
         assert_eq!(
-            parse_icmp(&reply, router, false, None, 7, 3.0),
+            parse_icmp(&reply, router, router, false, None, 7, 3.0),
             Some(Echo::Reply { from: router, ms: 3.0 })
         );
-        assert_eq!(parse_icmp(&reply, router, false, None, 8, 3.0), None);
+        assert_eq!(parse_icmp(&reply, router, router, false, None, 8, 3.0), None);
         // macOS: an IPv4 header first, and another program's echo is not ours
         let mut with_ip = vec![0x45; 1];
         with_ip.extend_from_slice(&[0; 19]);
         with_ip.extend_from_slice(&reply);
-        assert!(parse_icmp(&with_ip, router, true, Some(0x1234), 7, 3.0).is_some());
-        assert_eq!(parse_icmp(&with_ip, router, true, Some(0x9999), 7, 3.0), None);
+        assert!(parse_icmp(&with_ip, router, router, true, Some(0x1234), 7, 3.0).is_some());
+        assert_eq!(parse_icmp(&with_ip, router, router, true, Some(0x9999), 7, 3.0), None);
         // a router's time exceeded quoting our echo behind its IP header
         let mut quoted = vec![0x45];
         quoted.extend_from_slice(&[0; 19]);
@@ -730,17 +808,108 @@ mod tests {
         let mut packet = vec![0x45];
         packet.extend_from_slice(&[0; 19]);
         packet.extend_from_slice(&exceeded);
+        // the router is not the address the echo went to
         assert_eq!(
-            parse_icmp(&packet, router, true, Some(0x1234), 7, 4.0),
+            parse_icmp(&packet, router, TRACE_TO, true, Some(0x1234), 7, 4.0),
             Some(Echo::TtlExpired { from: router, ms: 4.0 })
         );
         // ICMPv6 echo reply
         let mut v6 = echo_request(true, 1, 2);
         v6[0] = 129;
-        assert!(parse_icmp(&v6, ip("2001:db8::1"), false, None, 2, 1.0).is_some());
+        let host = ip("2001:db8::1");
+        assert!(parse_icmp(&v6, host, host, false, None, 2, 1.0).is_some());
         // short or foreign messages
-        assert_eq!(parse_icmp(&[0, 0], router, false, None, 7, 1.0), None);
-        assert_eq!(parse_icmp(&[3, 1, 0, 0, 0, 0, 0, 7], router, false, None, 7, 1.0), None);
+        assert_eq!(parse_icmp(&[0, 0], router, router, false, None, 7, 1.0), None);
+        assert_eq!(parse_icmp(&[3, 1, 0, 0, 0, 0, 0, 7], router, router, false, None, 7, 1.0), None);
+    }
+
+    #[test]
+    fn an_echo_reply_counts_only_from_the_address_pinged() {
+        // Security review (2026-11-02): any host could answer an echo to another (macOS hands
+        // every echo reply on the machine to each socket; Linux checks only the identifier),
+        // so a forged reply could be the "router" the search found, or a round trip.
+        let router = ip("84.0.0.1");
+        let mut reply = echo_request(false, 0x1234, 7);
+        reply[0] = 0;
+        assert_eq!(parse_icmp(&reply, ip("203.0.113.9"), router, false, None, 7, 1.0), None);
+        let mut v6 = echo_request(true, 1, 2);
+        v6[0] = 129;
+        assert_eq!(parse_icmp(&v6, ip("2001:db8::2"), ip("2001:db8::1"), false, None, 2, 1.0), None);
+        assert!(parse_icmp(&reply, router, router, false, None, 7, 1.0).is_some());
+    }
+
+    #[test]
+    fn ip_headers_are_checked_before_their_length_is_used() {
+        // a header length under 20 bytes, or another version, is not an IPv4 header
+        assert_eq!(ip_header_len(&[0x45]), Some(20));
+        assert_eq!(ip_header_len(&[0x4f]), Some(60));
+        for first in [0x40, 0x44, 0x65, 0x05, 0x08] {
+            assert_eq!(ip_header_len(&[first]), None, "{first:#x}");
+        }
+        assert_eq!(ip_header_len(&[]), None);
+        // a time-exceeded answer quoting something other than an IPv4 header is not read as
+        // quoting our echo
+        let router = ip("84.0.0.1");
+        let req = echo_request(false, 0x1234, 7);
+        for first in [0x45, 0x65] {
+            let mut exceeded = vec![11, 0, 0, 0, 0, 0, 0, 0, first];
+            exceeded.extend_from_slice(&[0; 19]);
+            exceeded.extend_from_slice(&req[..8]);
+            let parsed = parse_icmp(&exceeded, router, TRACE_TO, false, None, 7, 1.0);
+            assert_eq!(parsed.is_some(), first == 0x45, "{first:#x}");
+        }
+    }
+
+    /// One control message as Linux writes it: `cmsghdr` (`size_t` length), then the body,
+    /// padded to `size_t`.
+    fn cmsg(len: usize, level: i32, ty: i32, body: &[u8]) -> Vec<u8> {
+        let word = std::mem::size_of::<usize>();
+        let mut out = len.to_ne_bytes().to_vec();
+        out.extend_from_slice(&level.to_ne_bytes());
+        out.extend_from_slice(&ty.to_ne_bytes());
+        out.resize(out.len().next_multiple_of(word), 0);
+        out.extend_from_slice(body);
+        out.resize(out.len().next_multiple_of(word), 0);
+        out
+    }
+
+    #[test]
+    fn the_error_queue_is_read_within_its_bounds() {
+        // Security review (2026-11-02): the walk added the control message's length unchecked
+        // (a length near usize::MAX overflowed, then sliced backwards), and the queued packet
+        // was read past what recvmsg wrote (a short one matched sequence number 0).
+        let word = std::mem::size_of::<usize>();
+        let head = (word + 8).next_multiple_of(word);
+        // sock_extended_err: errno, origin ICMP, type time exceeded; then sockaddr_in 84.0.0.1
+        let mut err = vec![0u8; 16];
+        err[4] = 2;
+        err[5] = 11;
+        err.extend_from_slice(&2u16.to_ne_bytes());
+        err.extend_from_slice(&[0, 0, 84, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0]);
+        let ok = cmsg(head + err.len(), 0, 11, &err);
+        let req = echo_request(false, 1, 7);
+        assert_eq!(parse_error_queue(&req, &ok, 7), Some(ip("84.0.0.1")));
+        // another echo's error, a short packet (sequence 0), other origins
+        assert_eq!(parse_error_queue(&req, &ok, 8), None);
+        assert_eq!(parse_error_queue(&req[..6], &ok, 0), None);
+        let mut unreachable = err.clone();
+        unreachable[5] = 3;
+        assert_eq!(parse_error_queue(&req, &cmsg(head + unreachable.len(), 0, 11, &unreachable), 7), None);
+        // a message of another level first, then ours
+        let mut two = cmsg(head + 4, 1, 29, &[1, 2, 3, 4]);
+        two.extend_from_slice(&ok);
+        assert_eq!(parse_error_queue(&req, &two, 7), Some(ip("84.0.0.1")));
+        // lengths that do not fit: shorter than the header, past the buffer, or near the
+        // address space's end
+        for len in [0, head - 1, 2 * ok.len() + 1, usize::MAX, usize::MAX - head + 1] {
+            let mut bad = cmsg(len, 0, 11, &err);
+            bad.extend_from_slice(&ok);
+            assert_eq!(parse_error_queue(&req, &bad, 7), None, "{len}");
+        }
+        // truncated control data
+        for cut in 0..ok.len() {
+            let _ = parse_error_queue(&req, &ok[..cut], 7);
+        }
     }
 
     #[test]

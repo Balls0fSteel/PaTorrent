@@ -59,6 +59,9 @@ pub struct FetchOptions {
     pub proxy: Option<FetchProxy>,
     /// Which addresses it may connect to (SEC-26).
     pub reach: Reach,
+    /// Refuse a redirect from https to plain http even without cookies (default off): for the
+    /// update's files (D45), whose integrity rests on what came over https.
+    pub no_downgrade: bool,
 }
 
 /// Which addresses a fetch may connect to (SEC-26). Loopback, private, link-local and other
@@ -138,6 +141,7 @@ impl Default for FetchOptions {
             gzip: false,
             proxy: None,
             reach: Reach::User,
+            no_downgrade: false,
         }
     }
 }
@@ -325,7 +329,7 @@ fn http_get_inner(
         let next =
             http::resolve_redirect(&parsed, location).ok_or(FetchError::Http("invalid redirect location"))?;
         url = clean_url(&next);
-        if has_cookies && downgrades(&parsed, &url) {
+        if downgrade_refused(&parsed, &url, has_cookies, opts) {
             return Err(FetchError::Http("refused a redirect from https to http"));
         }
     }
@@ -347,9 +351,16 @@ fn decode(resp: &mut FetchResponse, opts: &FetchOptions) -> Result<(), FetchErro
 }
 
 /// A redirect from https to plain http: refused when cookies are in play, since a site that
-/// hands them out over https does not send its users to http (and an on-path attacker could).
+/// hands them out over https does not send its users to http (and an on-path attacker could),
+/// and with [`FetchOptions::no_downgrade`].
 fn downgrades(from: &Url, to: &str) -> bool {
     from.scheme == "https" && Url::parse(to).is_some_and(|u| u.scheme == "http")
+}
+
+/// Whether the redirect from `from` to `to` is refused as a [`downgrades`] (`cookies`: the
+/// exchange carries some).
+fn downgrade_refused(from: &Url, to: &str, cookies: bool, opts: &FetchOptions) -> bool {
+    (cookies || opts.no_downgrade) && downgrades(from, to)
 }
 
 /// Where cookies may go: the scheme, host and port of the URL they were given for.
@@ -633,13 +644,23 @@ fn exchange<S: Read + Write>(
         }
         let Some((len, chunked, body)) = framing else { continue };
         if let (Some(head), Some(sink)) = (&streaming, sink.as_mut()) {
-            if buf.len() > body {
-                sink((len >= 0).then_some(len as u64), &buf[body..])?;
-                streamed += (buf.len() - body) as u64;
-                buf.truncate(body);
-            }
-            if streamed > max as u64 || len > max as i64 {
+            // the limit holds before anything reaches the sink: a length over it is refused
+            // from the head, and a body only the close frames stops at the limit
+            if len > max as i64 {
                 return Err(FetchError::TooLarge);
+            }
+            if buf.len() > body {
+                let mut take = buf.len() - body;
+                if len >= 0 {
+                    // what follows the length named is not this body
+                    take = take.min(usize::try_from(len as u64 - streamed).unwrap_or(usize::MAX));
+                }
+                if streamed + take as u64 > max as u64 {
+                    return Err(FetchError::TooLarge);
+                }
+                sink((len >= 0).then_some(len as u64), &buf[body..body + take])?;
+                streamed += take as u64;
+                buf.truncate(body);
             }
             if len >= 0 && streamed >= len as u64 {
                 break Ok(streamed_response(head.clone()));
@@ -781,6 +802,37 @@ mod tests {
             http_get_to(&base, &o, &mut |_, _| Err(io::Error::new(io::ErrorKind::Interrupted, "cancelled")))
                 .unwrap_err();
         assert!(matches!(e, FetchError::Io(ref e) if e.to_string() == "cancelled"), "{e}");
+    }
+
+    /// `http_get_to` hands the sink no more than the body: not the bytes after its
+    /// `Content-Length`, nothing of a body whose length is over the limit, and no more than the
+    /// limit of one the close frames (the setup's file got all three before).
+    #[test]
+    fn a_streamed_body_stops_at_its_length_and_the_limit() {
+        let (base, _rx) = serve(vec![
+            b"HTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\nabcdEXTRA".to_vec(),
+            b"HTTP/1.1 200 OK\r\nContent-Length: 100\r\n\r\n0123456789".to_vec(),
+            b"HTTP/1.0 200 OK\r\n\r\n0123456789abcdefghij".to_vec(),
+        ]);
+        let o = FetchOptions { max_size: 10, ..opts() };
+        let mut got = Vec::new();
+        http_get_to(&base, &o, &mut |_, data| {
+            got.extend_from_slice(data);
+            Ok(())
+        })
+        .unwrap();
+        assert_eq!(got, b"abcd");
+        // a length over the limit: nothing; a close-framed body: at most the limit
+        for most in [0, 10] {
+            let mut got = Vec::new();
+            let e = http_get_to(&base, &o, &mut |_, data| {
+                got.extend_from_slice(data);
+                Ok(())
+            })
+            .unwrap_err();
+            assert!(matches!(e, FetchError::TooLarge), "{e}");
+            assert!(got.len() <= most, "{} bytes reached the sink", got.len());
+        }
     }
 
     /// The server keeps the connection open: the body's length (or its last chunk) ends it.
@@ -939,6 +991,14 @@ mod tests {
         assert!(!downgrades(&from, "https://cdn.example/x.torrent"));
         let plain = Url::parse("http://tracker.example/dl.php").unwrap();
         assert!(!downgrades(&plain, "http://tracker.example/x.torrent"));
+        // refused with cookies, or without them when `no_downgrade` asks (the update's files)
+        let to = "http://tracker.example/x.torrent";
+        assert!(!downgrade_refused(&from, to, false, &opts()));
+        assert!(downgrade_refused(&from, to, true, &opts()));
+        let strict = FetchOptions { no_downgrade: true, ..opts() };
+        assert!(downgrade_refused(&from, to, false, &strict));
+        assert!(!downgrade_refused(&from, "https://cdn.example/x", false, &strict));
+        assert!(!downgrade_refused(&plain, to, false, &strict), "a test server's plain http stays usable");
     }
 
     #[test]

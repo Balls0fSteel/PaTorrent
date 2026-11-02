@@ -33,7 +33,7 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::time::{Duration, Instant, SystemTime};
 
-use patorrent_core::metainfo::TorrentInfo;
+use patorrent_core::metainfo::{LoadLimits, MetainfoError, TorrentInfo};
 use patorrent_core::{AddTorrentParams, Alert, SessionHandle, TorrentId, TorrentSource};
 
 use crate::prefs::Prefs;
@@ -157,7 +157,7 @@ pub fn place(dir: &Path, name: &str, bytes: &[u8]) -> io::Result<PathBuf> {
                 return Ok(path);
             }
             Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
-                if fs::read(&path).is_ok_and(|b| b == bytes) {
+                if read_torrent_file(&path).is_ok_and(|b| b == bytes) {
                     return Ok(path);
                 }
             }
@@ -173,13 +173,15 @@ pub fn find(dir: &Path, name: &str, key: &str) -> Option<PathBuf> {
     let mut misses = 0;
     for file in candidates(name) {
         let path = dir.join(file);
-        match fs::read(&path) {
+        match read_torrent_file(&path) {
             Ok(b) => {
                 misses = 0;
                 if TorrentInfo::from_bytes(&b).is_ok_and(|ti| ti.info_hashes().key_hex() == key) {
                     return Some(path);
                 }
             }
+            // a file too large to be a `.torrent`: there, but not the copy
+            Err(e) if e.kind() == io::ErrorKind::InvalidData => misses = 0,
             // a gap left by a moved copy; a few in a row end the search
             Err(_) => {
                 misses += 1;
@@ -204,7 +206,7 @@ pub fn move_copy(from: &Path, to: &Path, name: &str, key: &str) -> io::Result<Op
     // the name the copy would get there, without writing it yet
     let target = candidates(name)
         .map(|f| to.join(f))
-        .find(|p| !p.exists() || fs::read(p).is_ok_and(|b| b == bytes))
+        .find(|p| !p.exists() || read_torrent_file(p).is_ok_and(|b| b == bytes))
         .ok_or_else(|| io::Error::new(io::ErrorKind::AlreadyExists, "too many copies of the same name"))?;
     if target.exists() {
         fs::remove_file(&src)?;
@@ -220,11 +222,32 @@ fn same_dir(a: &Path, b: &Path) -> bool {
     patorrent_core::same_dir(&a.to_string_lossy(), &b.to_string_lossy())
 }
 
-/// Reads and parses a `.torrent` the poller handed out.
+/// Reads and parses a `.torrent` the poller handed out. A file longer than a `.torrent` may be
+/// ([`LoadLimits::max_buffer_size`]) is refused without being read into memory: anything can
+/// land in a watched folder (a browser's downloads, a shared folder), whatever its size.
 pub fn read(path: &Path) -> Result<(Vec<u8>, TorrentInfo), String> {
-    let bytes = fs::read(path).map_err(|e| e.to_string())?;
+    let bytes = read_torrent_file(path).map_err(|e| e.to_string())?;
     let ti = TorrentInfo::from_bytes(&bytes).map_err(|e| e.to_string())?;
     Ok((bytes, ti))
+}
+
+/// A file's bytes, at most [`LoadLimits::max_buffer_size`] of them: a longer file is an
+/// error, read no further than one byte past the limit (it may grow while it is read).
+fn read_torrent_file(path: &Path) -> io::Result<Vec<u8>> {
+    use std::io::Read as _;
+    let max = LoadLimits::default().max_buffer_size;
+    let too_large =
+        || io::Error::new(io::ErrorKind::InvalidData, MetainfoError::MetadataTooLarge.to_string());
+    let f = fs::File::open(path)?;
+    if f.metadata()?.len() > max as u64 {
+        return Err(too_large());
+    }
+    let mut bytes = Vec::new();
+    f.take(max as u64 + 1).read_to_end(&mut bytes)?;
+    if bytes.len() > max {
+        return Err(too_large());
+    }
+    Ok(bytes)
 }
 
 /// Done with an auto-loaded file: deleted, or renamed to `<file>.loaded` (replacing an older
@@ -848,6 +871,27 @@ mod tests {
 
         let scan = wait(&mut w, &dir.join("missing"), t + POLL_INTERVAL);
         assert!(scan.files.is_empty() && scan.error.is_some_and(|e| e.contains("missing")));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    /// A file in the watched folder larger than a `.torrent` may be is refused unread (any
+    /// size can land there), and a copy's search goes past one.
+    #[test]
+    fn an_oversized_torrent_file_is_refused_without_reading_it() {
+        let dir = temp("oversized");
+        let big = dir.join("big.torrent");
+        let max = LoadLimits::default().max_buffer_size as u64;
+        fs::File::create(&big).unwrap().set_len(max + 1).unwrap();
+        let e = read(&big).unwrap_err();
+        assert!(e.contains("metadata too large"), "{e}");
+        // a file that never ends and claims no length: read to the limit, not for ever
+        #[cfg(unix)]
+        assert!(read(Path::new("/dev/zero")).unwrap_err().contains("metadata too large"));
+        // a copy's name taken by such a file: the next name is the copy
+        let bytes = torrent("big", 0);
+        fs::write(dir.join("big.1.torrent"), &bytes).unwrap();
+        assert_eq!(find(&dir, "big", &key(&bytes)), Some(dir.join("big.1.torrent")));
+        assert_eq!(place(&dir, "big", &bytes).unwrap(), dir.join("big.1.torrent"));
         let _ = fs::remove_dir_all(&dir);
     }
 

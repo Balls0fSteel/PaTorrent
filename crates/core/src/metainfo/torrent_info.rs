@@ -10,7 +10,9 @@
 
 //! A parsed `.torrent` file (libtorrent `torrent_info`).
 
+use std::collections::hash_map::{DefaultHasher, RandomState};
 use std::collections::{HashMap, HashSet};
+use std::hash::{BuildHasher, Hasher};
 use std::sync::Arc;
 
 use super::error::MetainfoError;
@@ -592,7 +594,19 @@ impl TorrentInfo {
         }
     }
 
-    fn resolve_duplicate_filenames_slow(&mut self) {
+    /// libtorrent `resolve_duplicate_filenames_slow`: every directory and file goes in a table
+    /// by its CRC32C, and a file whose name (compared in full) is there already gets the first
+    /// free ".1", ".2", ... Returns how many new names were tried and how many names were
+    /// compared, for the tests.
+    ///
+    /// The work is linear in the number of files, where libtorrent's is quadratic (security
+    /// review, 2026-11-02): an entry is looked up by its CRC32C and a keyed 64-bit hash of its
+    /// name together, so names made to share a CRC32C (four chosen bytes fix one) are not
+    /// compared with each other, and each name remembers the last counter it took, so a name
+    /// that `n` files share tries `n` new names instead of `n² / 2`. The results are
+    /// libtorrent's: equal names have equal hashes, and a counter below the last one taken was
+    /// taken then and still is.
+    fn resolve_duplicate_filenames_slow(&mut self) -> (usize, usize) {
         #[derive(Clone, Copy)]
         enum Entry {
             /// A directory: `len` bytes of `paths[index]`.
@@ -602,44 +616,83 @@ impl TorrentInfo {
             },
             File(usize),
         }
-        let mut table: HashMap<u32, Vec<Entry>> = HashMap::new();
+        fn feed(h: &mut DefaultHasher, s: &str) {
+            s.bytes().for_each(|c| h.write_u8(c.to_ascii_lowercase()));
+        }
+        let state = RandomState::new();
+        let key_of = |s: &str| {
+            let mut h = state.build_hasher();
+            feed(&mut h, s);
+            h.finish()
+        };
+        // every entry's CRC32C (a new name must not take one), and the entries by their CRC32C
+        // and the key of the name `other_name` gives them
+        let mut crcs: HashSet<u32> = HashSet::new();
+        let mut table: HashMap<(u32, u64), Vec<Entry>> = HashMap::new();
         let lower =
             |crc: &mut Crc32c, s: &str| s.bytes().for_each(|c| crc.update_byte(c.to_ascii_lowercase()));
 
+        let name = self.files.name().to_owned();
         let mut base = Crc32c::new();
-        lower(&mut base, self.files.name());
+        lower(&mut base, &name);
+        // a directory's name is `combine_path(name, prefix)`, its key streamed with the CRC:
+        // `head` is what precedes the prefix; an empty or "." prefix leaves the name alone
+        let plain_name = name.is_empty() || name == ".";
+        let name_key = key_of(&name);
+        let mut head = state.build_hasher();
+        if !plain_name {
+            feed(&mut head, &name);
+            if !name.ends_with('/') {
+                head.write_u8(b'/');
+            }
+        }
+        let dir_key = |prefix: &str, h: &DefaultHasher| {
+            if !plain_name && (prefix.is_empty() || prefix == ".") { name_key } else { h.finish() }
+        };
         let paths = self.files.paths().to_vec();
         for (index, path) in paths.iter().enumerate() {
             let mut crc = base;
             if !path.is_empty() {
                 crc.update_byte(b'/');
             }
+            let mut h = head.clone();
             for (count, c) in path.bytes().enumerate() {
                 if c == b'/' {
-                    table.entry(crc.checksum()).or_default().push(Entry::Dir { index, len: count });
+                    let key = (crc.checksum(), dir_key(&path[..count], &h));
+                    crcs.insert(key.0);
+                    table.entry(key).or_default().push(Entry::Dir { index, len: count });
                 }
                 crc.update_byte(c.to_ascii_lowercase());
+                h.write_u8(c.to_ascii_lowercase());
             }
-            table.entry(crc.checksum()).or_default().push(Entry::Dir { index, len: path.len() });
+            let key = (crc.checksum(), dir_key(path, &h));
+            crcs.insert(key.0);
+            table.entry(key).or_default().push(Entry::Dir { index, len: path.len() });
         }
 
+        // the last counter of each name (by the key of its base and extension)
+        let mut counters: HashMap<u64, u32> = HashMap::new();
+        let (mut tried, mut compared) = (0, 0);
         for i in 0..self.files.num_files() {
             let hash = self.files.file_path_hash(i, "");
             let my_path = self.files.file_path(i, "");
+            let my_key = (hash, key_of(&my_path));
             let other_name = |e: &Entry, fs: &FileStorage| match *e {
                 Entry::Dir { index, len } => combine_path(fs.name(), &paths[index][..len]),
                 Entry::File(f) => fs.file_path(f, ""),
             };
             let matched = table
-                .get(&hash)
+                .get(&my_key)
                 .and_then(|v| {
                     v.iter().find(|e| {
+                        compared += 1;
                         string_equal_no_case(other_name(e, &self.files).as_bytes(), my_path.as_bytes())
                     })
                 })
                 .copied();
             let Some(m) = matched else {
-                table.entry(hash).or_default().push(Entry::File(i));
+                crcs.insert(hash);
+                table.entry(my_key).or_default().push(Entry::File(i));
                 continue;
             };
             // pad files may collide with each other, if they have the same size
@@ -653,21 +706,32 @@ impl TorrentInfo {
             }
             let base_name = remove_extension(&my_path).to_owned();
             let ext = extension(&my_path).to_owned();
-            let mut cnt = 0;
-            let new_name = loop {
-                cnt += 1;
+            let group = {
+                let mut h = state.build_hasher();
+                feed(&mut h, &base_name);
+                h.write_u8(0xff); // never in UTF-8
+                feed(&mut h, &ext);
+                h.finish()
+            };
+            let cnt = counters.entry(group).or_insert(0);
+            let (new_name, new_hash) = loop {
+                *cnt += 1;
+                tried += 1;
                 let candidate = format!("{base_name}.{cnt}{ext}");
                 let mut crc = Crc32c::new();
                 lower(&mut crc, &candidate);
                 let h = crc.checksum();
-                if !table.contains_key(&h) {
-                    table.entry(h).or_default().push(Entry::File(i));
-                    break candidate;
+                if crcs.insert(h) {
+                    break (candidate, h);
                 }
             };
             self.copy_on_write();
             self.files.rename_file(i, &new_name);
+            // under the name `other_name` will give it
+            let key = (new_hash, key_of(&self.files.file_path(i, "")));
+            table.entry(key).or_default().push(Entry::File(i));
         }
+        (tried, compared)
     }
 
     fn copy_on_write(&mut self) {
@@ -1684,6 +1748,110 @@ mod tests {
         let mut t = Entry::new_dict();
         *t.key("info") = info;
         t.bencode()
+    }
+
+    /// A v1 info section of one-byte files at `names` (under "root"), parsed without resolving
+    /// duplicate names yet.
+    fn unresolved(names: &[String]) -> TorrentInfo {
+        let files: Vec<Entry> = names
+            .iter()
+            .map(|n| {
+                let mut f = Entry::new_dict();
+                *f.key("length") = 1.into();
+                *f.key("path") = Entry::from(n.split('/').map(Entry::from).collect::<Vec<_>>());
+                f
+            })
+            .collect();
+        let mut info = Entry::new_dict();
+        *info.key("name") = "root".into();
+        *info.key("piece length") = (16 * 1024).into();
+        *info.key("pieces") = "aaaaaaaaaaaaaaaaaaaa".into();
+        *info.key("files") = Entry::from(files);
+        let buf = info.bencode();
+        let tree = bdecode(&buf).unwrap();
+        let mut ti = TorrentInfo::default();
+        ti.parse_info_section(tree.root().unwrap(), &LoadLimits::default()).unwrap();
+        ti
+    }
+
+    /// `n` distinct names of 'a' and 'c' whose paths under "root" share one CRC32C: the CRC is
+    /// affine in the message bits, and 'a' and 'c' differ in one bit, so the choices that
+    /// leave it unchanged are the kernel of a 32-row matrix over GF(2).
+    fn crc_colliding_names(n: usize) -> Vec<String> {
+        const LEN: usize = 48;
+        let crc = |name: &[u8]| crate::crypto::crc32c::crc32c(&[b"root/", name].concat());
+        let all_a = [b'a'; LEN];
+        let mut basis: [Option<(u32, u64)>; 32] = [None; 32];
+        let mut kernel = Vec::new();
+        for j in 0..LEN {
+            let mut flipped = all_a;
+            flipped[j] = b'c';
+            let (mut v, mut rep) = (crc(&flipped) ^ crc(&all_a), 1u64 << j);
+            for b in (0..32).rev() {
+                if v >> b & 1 == 0 {
+                    continue;
+                }
+                match basis[b] {
+                    Some((bv, br)) => (v, rep) = (v ^ bv, rep ^ br),
+                    None => {
+                        basis[b] = Some((v, rep));
+                        break;
+                    }
+                }
+            }
+            if v == 0 {
+                kernel.push(rep);
+            }
+        }
+        assert!(n <= 1 << kernel.len());
+        let names: Vec<String> = (0..n)
+            .map(|k| {
+                let mask = (0..kernel.len()).filter(|i| k >> i & 1 != 0).fold(0, |m, i| m ^ kernel[i]);
+                (0..LEN).map(|j| if mask >> j & 1 != 0 { 'c' } else { 'a' }).collect()
+            })
+            .collect();
+        assert!(names.iter().all(|s| crc(s.as_bytes()) == crc(&all_a)));
+        names
+    }
+
+    /// Security review (2026-11-02): resolving `n` files of one name tried `n² / 2` new names
+    /// (8000 files took 30 s in a debug build), and names sharing a CRC32C were all compared
+    /// with each other. Either stalled the engine thread on a crafted torrent or magnet.
+    #[test]
+    fn duplicate_names_resolve_in_linear_work() {
+        const N: usize = 3000;
+        let mut ti = unresolved(&vec!["dir/a.txt".to_owned(); N]);
+        let (tried, compared) = ti.resolve_duplicate_filenames_slow();
+        assert_eq!(tried, N - 1, "one new name per duplicate");
+        assert_eq!(compared, N - 1, "one comparison per duplicate");
+        assert_eq!(ti.files().file_path(0, ""), "root/dir/a.txt");
+        assert_eq!(ti.files().file_path(1, ""), "root/dir/a.1.txt");
+        assert_eq!(ti.files().file_path(N - 1, ""), format!("root/dir/a.{}.txt", N - 1));
+
+        // a name a renamed file took is skipped by the next ones, as libtorrent's search does
+        let names: Vec<String> = ["a", "a.2", "a", "a", "A"].iter().map(|s| s.to_string()).collect();
+        let mut ti = unresolved(&names);
+        ti.resolve_duplicate_filenames_slow();
+        let paths: Vec<String> = (0..5).map(|i| ti.files().file_path(i, "")).collect();
+        assert_eq!(paths, ["root/a", "root/a.2", "root/a.1", "root/a.3", "root/A.4"]);
+
+        // distinct names with one CRC32C: kept, and none compared with another
+        let names = crc_colliding_names(N);
+        let mut ti = unresolved(&names);
+        let (tried, compared) = ti.resolve_duplicate_filenames_slow();
+        assert_eq!((tried, compared), (0, 0));
+        assert!((0..N).all(|i| ti.files().file_path(i, "") == format!("root/{}", names[i])));
+        // and the same through the parser's own check, which takes the slow path for them
+        let mut ti = unresolved(&names);
+        ti.resolve_duplicate_filenames();
+        assert_eq!(ti.files().file_path(N - 1, ""), format!("root/{}", names[N - 1]));
+
+        // a file named like a directory is still renamed
+        let names: Vec<String> = ["d/x", "d", "D"].iter().map(|s| s.to_string()).collect();
+        let mut ti = unresolved(&names);
+        ti.resolve_duplicate_filenames_slow();
+        let paths: Vec<String> = (0..3).map(|i| ti.files().file_path(i, "")).collect();
+        assert_eq!(paths, ["root/d/x", "root/d.1", "root/D.2"]);
     }
 
     /// libtorrent 2.1.0 load_torrent_directory_depth_v1_*.

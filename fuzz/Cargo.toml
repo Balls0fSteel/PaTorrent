@@ -200,3 +200,10 @@ path = "fuzz_targets/remote_wire.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "icmp"
+path = "fuzz_targets/icmp.rs"
+test = false
+doc = false
+bench = false

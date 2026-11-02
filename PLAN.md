@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-11-02_211916_1793650756
+Last updated: 2026-11-02_221313_1793653993
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D47, D49 and proposed D42, D46, D48](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -22,9 +22,9 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
   - 1.0.1 (2026-10-27) was the first stable release, with the full 1.0 scope (D19). `v1.0.0` has no release because its build failed (D34). The open Road to 1.0 hand checks continue as 1.0.x validation.
   - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.
 - **1.1.17 is published, Latest** (2026-10-30, tag `v1.1.17`, [notes](docs/releases/1.1.17.md)): Torznab search in all three GUIs, RSS in the Windows GUI's Web UI, the API key and subnet whitelist, and nox's update check. The website has a News page (`site/news.html`, `news.atom`).
-- **Unreleased, 1.1.18-1.1.32** (peer ID `-PA1012-`, remote protocol 12): libtorrent 2.0.12-2.1.2 fixes, every commit triaged ([PORTING.md](docs/PORTING.md#upstream-fixes-after-2011)); engine options; the shim's `search/*`; Win32 Web UI key and whitelist, title-bar speed, RSS conditional GET and gzip, qBittorrent share limits on import; updates (1.1.23-1.1.24, D44-D45); exit fixes and the closing window (1.1.25-1.1.28, D47); keep ping low (1.1.29-1.1.32, D49). Open: interop reruns (v2-only odd sizes, v2 hashes, MSE, slow-torrent queueing) against libtorrent 2.0.15 / 2.1.x, and the hand checks in [BACKLOG](docs/BACKLOG.md).
+- **Unreleased, 1.1.18-1.1.33** (peer ID `-PA1012-`, remote protocol 12): libtorrent 2.0.12-2.1.2 fixes, every commit triaged ([PORTING.md](docs/PORTING.md#upstream-fixes-after-2011)); engine options; the shim's `search/*`; Win32 Web UI key and whitelist, title-bar speed, RSS conditional GET and gzip, qBittorrent share limits on import; updates (1.1.23-1.1.24, D44-D45); exit fixes and the closing window (1.1.25-1.1.28, D47); keep ping low (1.1.29-1.1.32, D49); the release review's fixes (1.1.33). Passed 2026-11-02: interop with libtorrent 2.0.15 / 2.1.2, the parser/security review, the Windows upgrade from 1.1.17, self-update and closing window on the VM. **To release:** `docs/releases/1.1.33.md`, the Flatpak metainfo, the news entry, push for CI, `tools/bench`. Open: the owner's uTP choice and the hand checks in [BACKLOG](docs/BACKLOG.md).
 - **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
-- Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored). It predates the 2026-10-23 dialog changes (the resizable Add dialog and the system message font), which are tested but not yet hand-tested from a refreshed set. Linux binaries were smoke-checked on the command line only.
+- Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), older than the 2026-10-23 dialog changes (resizable Add dialog, system message font). Linux binaries: command-line smoke checks only.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check). macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
 - Verdigris (`01`) is the provisional brand in the application and packaging (`assets/patina-icons/app-icon.txt`, the candidates beside it); the owner's final choice remains open.
@@ -42,7 +42,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 **Owner notes (2026-10-30_192440_1793384680):** all done. The update pop-up once (1.1.23, D44) and the seamless Windows update (1.1.24, D45); the closing window in both GUIs (1.1.25-1.1.28, D47; [findings](docs/BACKLOG.md#startup-and-shutdown-investigated-2026-10-30_192440_1793384680)). Hand checks on a real PC in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website) and RELEASING.md.
 
 0. **Owner hand-test findings (2026-10-27):** fixed in 1.0.2-1.0.8. The owner re-tests them on a fresh Win32 build; what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
-1. Run the installer's wizard and the all-users UAC path once on a real PC, and register `PA` with the client-ID lists (item 14). `update.txt` serves `stable=1.1.7` (2026-10-30).
+1. Run the installer's wizard and the all-users UAC path once on a real PC, and register `PA` with the client-ID lists (item 14). `update.txt` serves `stable=1.1.17`.
 2. Rerun `tools/bench` before each release and on bare metal when one is free ([BACKLOG](docs/BACKLOG.md#validation-and-development-environment)).
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.

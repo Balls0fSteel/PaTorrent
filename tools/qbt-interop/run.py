@@ -397,6 +397,12 @@ def transfer(direction, torrent, name, src_parent, files, qbt, nox, limit=600):
     leech_api.add(torrent, leech_dir)
     seed = wait_for("seed checked", lambda: complete(seed_api, name), 120)
     leech = wait_for("leech added", lambda: leech_api.by_name(name), 30)
+    # qBittorrent keeps a just-checked torrent paused in libtorrent for a few seconds while its
+    # API already says stalledUP; with no other torrent active, libtorrent drops every incoming
+    # connection meanwhile ("no active torrents"), a uTP SYN with an immediate FIN that we, like
+    # libtorrent, wait out for 15 s before trying TCP. Measured 2026-11-02: 5 s is enough.
+    if direction == "down":
+        time.sleep(5)
     h_seed, h_leech = seed["hash"], leech["hash"]
     t0 = time.time()
     leech_api.add_peer(h_leech, seed_port)

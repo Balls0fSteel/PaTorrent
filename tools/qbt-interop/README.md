@@ -24,6 +24,10 @@ for the libtorrent 2.0.12-2.1.2 ports ([BACKLOG](../../docs/BACKLOG.md) "libtorr
   reads above the default 2048 B/s whenever a block lands and counts again at once (upstream
   behaves the same).
 
+A `down` run waits 5 s after qBittorrent reports the seed checked: qBittorrent keeps a new
+torrent paused in libtorrent for a moment after its check, and libtorrent then drops incoming
+connections when no torrent is active (a uTP connect then waits 15 s; BACKLOG has the details).
+
 Everything is on 127.0.0.1: nox listens on loopback, the container uses the host network with
 DHT, LSD, PeX and port forwarding off, and the torrents have no trackers.
 

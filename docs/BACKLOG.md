@@ -641,13 +641,22 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   slow-torrent queueing as specified (with `inactive_down_rate` raised: at the default 2048 B/s
   a 1 KiB/s source reads as active whenever a 16 KiB block lands, upstream the same). Not run:
   TCP-only / uTP-only matrices, Transmission and Deluge.
-- **Owner's choice, uTP refused by qBittorrent:** in about 3 of 4 runs where we connect,
-  qBittorrent answers our uTP SYN with a FIN at once (one of libtorrent's incoming rejection
-  paths; its log names none). Our socket, like libtorrent 2.0.11-2.1.2, ignores a FIN before
-  the SYN-ACK, so the connect waits `peer_connect_timeout` (15 s) and then falls back to TCP.
-  A deliberate divergence would take such a FIN as a refusal and try TCP at once. Also seen:
-  uTP from qBittorrent into us on loopback reports high loss counters (824 lost, 8 timeouts)
-  while still finishing 38.5 MB in 1.5-12 s; not investigated.
+- **uTP "refused" by qBittorrent: explained (2026-11-02_223318_1793655198), a harness artefact.** For a few seconds after
+  its check, qBittorrent keeps a newly added torrent paused inside libtorrent while its API
+  already reports `stalledUP`. With no other torrent active, libtorrent's
+  `session_impl::incoming_connection` drops every incoming connection ("rejected, no active
+  torrents"; no alert, so nothing in qBittorrent's log). For uTP the socket was already created
+  by the SYN, so dropping it sends a FIN that acks the SYN (seen in a capture, 0.1 ms after
+  it); our socket, like libtorrent's, ignores a FIN before the SYN-ACK and waits
+  `peer_connect_timeout` (15 s), then TCP gets in. The harness connected right after "checked":
+  31 of 34 "down" runs. Shown by: a 5 s pause before connecting, or one unrelated active
+  torrent in qBittorrent (then libtorrent accepts, closes the handshake for the paused torrent,
+  and our reconnect succeeds within 1.5 s), each making every run connect over uTP at once;
+  plain libtorrent 2.1.1 accepts our uTP every time. `tools/qbt-interop` now waits 5 s. Real
+  peers hit this only when all their torrents are paused, where TCP is refused too. Optional
+  divergence, not needed: take a FIN that acks our SYN as a refusal and count the attempt as
+  failed at once instead of after 15 s. Not investigated: high loss counters on uTP from
+  qBittorrent into us on loopback (824 lost, 8 timeouts) while 38.5 MB still finished in 1.5-12 s.
 - Older queueing gaps seen in the rerun: a queued auto-managed torrent that never started
   shows `checkingResumeData` in the shim where qBittorrent shows `queuedDL`; `active_checking`
   is not implemented, so a complete torrent queued behind downloads is checked only when it

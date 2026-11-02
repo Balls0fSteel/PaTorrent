@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_085028_1793605828: The closing window (1.1.26, D47)
+
+- **Owner's request:** show what PaTorrent is doing while it closes instead of looking stuck, and have Quit Now say what it abandons; a flush of written data may need its own treatment.
+- **Findings that shaped it:** the resume data records only blocks already written (`unfinished_pieces` takes `Finished` blocks), our write queue is capped by `max_queued_disk_bytes` (1 MiB by default, peers stop reading above it), and data handed to Windows is written out by Windows even after the process ends. So the queue can be abandoned (those blocks are downloaded again); the step that must finish is saving the resume data, which gets its own text and no Quit Now. A cross-volume move copies every file before deleting any source, so a move cancelled inside the engine leaves the old folder whole.
+- **core:** `Session::begin_shutdown` returns an `Exit` (`status`, `hurry`, `is_finished`, `wait`, `abandon`); the engine publishes `ExitPhase` (Stopping, Moving, Saving, Trackers, Closing), the moves in flight (`DiskIo::moves`) and the unwritten bytes. `hurry` cancels the moves (`DiskIo::cancel_moves`: the copy stops, copies are deleted, renames rolled back, the torrent keeps its folder, `StorageMovedFailed` with `Interrupted`) and skips the trackers' wait. Cross-volume copies use `CopyFileExW` with a progress routine on Windows and a 4 MiB chunked copy elsewhere. A failed move now also deletes the copies it made. `MockConfig::slow_exit` simulates a slow exit for `--demo` (`PATORRENT_DEMO_SLOW_EXIT`).
+- **Win32:** new `closing` module: a modal "PaTorrent is closing" window after 1 s (at once at a sign-out, carrying the block reason, so a tray-only PaTorrent is waited for too), refreshed every 200 ms: the step's sentence, one line per move ("name: 2.01 GB of 8.00 GB to folder") with a bar, "Closing for m:ss", and Quit Now (also the close box), which asks with the list of what it gives up. 13 new strings in all 35 tables (the 34 translations by a subagent, checked for placeholders, escapes and access keys).
+- **Checked:** new tests for the cancelled move, the cancellable copy, the background shutdown (`tests/exit.rs`) and the window's texts; workspace tests without GTK, clippy `-D warnings` (also core for the Linux target and GTK with the stand-in pkg-config) and fmt pass. Seen on screen with the demo's slow exit: the window after 1.1 s, the move line and bar, the Quit Now question, Saving with the button disabled, and the process gone 2 s after Yes. Not run: a real move to a NAS, a real sign-out (BACKLOG).
+
 ## 2026-11-02_083027_1793604627: Safer exit, sign-out and relaunch (1.1.25)
 
 - **Picked from PLAN:** the code-ready startup/shutdown fixes from the 2026-10-30 findings (BACKLOG "Startup and shutdown"). The bound on the waits and a shutdown progress window stay open.
@@ -37,46 +45,3 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **Checked:** `update::tests` (7, two rewritten and one new) pass; Win32 and nox type-check with all targets. GTK was edited the same way and only linted (no GTK here). Not hand-checked: see BACKLOG "Updates, installer and website".
 - **Proposed D45, the seamless Windows update:** installed builds only, the setup and `SHA256SUMS` downloaded from the release behind a progress dialog, a "close PaTorrent now?" question, then the setup; needs a streaming `http_get_to_file` (today's `fetch` is in memory under a 30 s whole-exchange timeout), a `/WAITPID` setup switch and a relaunch after a silent install. Written up with its open choices; no code.
 - **Startup and shutdown, investigated** (new BACKLOG section): startup needs no progress bar; the auto-load poll on the GUI thread is the one NAS risk at start. Shutdown hides the window and then waits without bound (moves, disk-thread join, a check's stat pass that ignores `abort`), a relaunch during it exits silently after 5 s, and the Win32 GUI handles no `WM_QUERYENDSESSION`, so a Windows logoff can kill it before the resume data is saved. The code-ready fixes are listed there; bounding the waits is the owner's call.
-
-## 2026-10-30_151918_1793369958: The code-ready rest of PLAN.md (1.1.19-1.1.22, remote protocol 11)
-
-- **Owner's pick:** the four chunks of PLAN.md that need no hand check or decision, built in five parallel worktree branches and merged one by one, each with its own version.
-- **1.1.19, the qBittorrent shim's `search/*` (D41 slice 5):**
-  - Each Torznab source is a plugin named `torznab-<hash of its URL without the key>`. Up to five searches run at once, with append-only results for offset paging.
-  - `fileUrl` is a magnet or an opaque `patorrent-search:` URL that `torrents/add` and `downloadTorrent` resolve on the server, so the indexer key never leaves it. `installPlugin` is refused.
-  - Tested in nox and in hosted mode against the fake Prowlarr.
-- **1.1.20, libtorrent triage:** every fix-like commit without a ChangeLog line in v2.0.11..v2.1.2 (about 55) was read against our code; the verdicts are in PORTING.md.
-  - Ported: checked decimal parsing (magnet `so=`/`dht=`, UPnP error codes), redirects with a query or fragment, early failure on non-HTTP bytes, legacy Transmission peer IDs, and smart-ban blame with pad blocks.
-  - v2 hashes: stricter merkle proof checks, unsolicited HASHES ignored, received piece-layer spans no longer asked for again, and `hashes_rejected` matching.
-  - Hardening: uTP packet-buffer indices, a saturating `sliding_average`, and the merkle uncle-count bound.
-  - The v2 hash changes alter what we send. The peer ID stays `-PA1012-` because it has not been released yet; its comment now covers these changes.
-- **1.1.21, engine options:**
-  - 160-bit MSE DH exponent, so the handshake is cheaper; interop with full-width peers is unchanged.
-  - The download queue reports v2-only tail pieces at their v2 size.
-  - `dont_count_slow_torrents` now works, with 2.0.14's debounce and the new settings `inactive_down_rate`, `inactive_up_rate` and `auto_manage_startup`.
-  - New settings `natpmp_gateway` and `natpmp_lease_duration`. The remote protocol is now 11, so a GUI and nox must both be current.
-- **1.1.22, small gaps:**
-  - The Win32 Preferences > Web UI page sets the API key (hashed, write-only) and the subnet whitelist. The Preferences dialog is 30 units taller to fit them.
-  - "Show current speed in the title bar" (`ui.title_speed`, off) in both GUIs, with two new strings in all 35 tables.
-  - RSS uses conditional GET (ETag and Last-Modified in `rss.dat`) and gzip. A 304 counts only when a validator was sent, and the shared HTTP parser no longer waits for a body on a 204 or 304.
-  - The qBittorrent importer maps `qBt-ratioLimit` and `qBt-seedingTimeLimit` to seeding goals, taking only the ratio when both are set unless `MatchAll`.
-- **Fixed:** the fuzz workspace failed stable clippy (let-chain suggestions), because it had no MSRV. It now sets `rust-version = "1.85"`, and its stale `Cargo.lock` is synced.
-- **Checked:** on merged `main`, `cargo fmt --check`, clippy `-D warnings` (workspace without GTK, and the fuzz workspace) and the workspace tests (without GTK) all pass. GTK was linted from Windows with the stand-in pkg-config; its tests and UI were not run. No interop run against libtorrent 2.0.15 / 2.1.x; that is in BACKLOG.
-
-## 2026-10-30_140531_1793365531: Fixes from libtorrent 2.0.12-2.1.2 (1.1.18, peer ID `-PA1012-`)
-
-- **Triage (owner asked):** every ChangeLog entry from libtorrent 2.0.12 to 2.1.2 (about 100) was checked against the upstream diff and our code. About 45 do not apply (i2p, SSL torrents, mmap, WebTorrent, C++ API) and about 25 were already right here. The reference stays 2.0.11 with the fixes cherry-picked: v2.0.11 to v2.1.0 is 1,161 commits, mostly reorganisation. The list is in PORTING.md "Upstream fixes after 2.0.11"; deferred and untriaged items are in BACKLOG.md.
-- **Ported, in six parallel worktree branches:**
-  - **v2:** requests sized by `piece_size2` for v2-only torrents (libtorrent 2.0.13+ peers reject padded tail requests), and merkle `get_hashes` with one hash (a file with 513 pieces could not have its piece layer fetched from us).
-  - **Disk:** renaming never overwrites an existing file. On Windows `MoveFileExW` is called without replace, and a change of case only goes through. Resume data is written as `file-version` 2, with packed `pieces`: a 2,000-piece seed went from 2,623 to 872 bytes. Versions 1 and 2 are read, and older builds recheck on a v2 record.
-  - **Web seeds:** the original file names are requested (`orig_files`, our bug). The single-file-in-multi-file URL is fixed. Basic auth is dropped on cross-origin redirects. HTTP status codes and SOCKS5 versions are parsed strictly.
-  - **DHT:** `apply_filter_to_dht` (default on) applies the IP filter to the DHT. It is in the Advanced table, and the remote protocol is now 10.
-  - **Metainfo:** invalid path elements become `_`, tracker URLs are validated, there is a `max_directory_depth` of 100, BEP 47 symlinks are made relative in created torrents, and `remap_files` is removed.
-  - **Engine:**
-    - LSD first announces are staggered at most 4 s apart and keep their resends.
-    - A forced or network-change reannounce of a hybrid announces both hashes (our bug).
-    - Point-to-point interfaces without a route are local.
-    - A UPnP send that would block no longer disables UPnP.
-    - Idle torrents post their last zero rate.
-    - File-rename alerts ignore the mask.
-- **Checked:** on the merged tree, the core, frontend and nox test suites all pass; `cargo fmt --check` and clippy `-D warnings` (core, frontend, nox, Win32) are clean. The fuzz workspace was only `cargo check`ed for the DHT and web seed targets. The new unix-only symlink tests compiled but were not run (Windows). There was no interop run against a real libtorrent 2.0.15 / 2.1.x peer; that is in BACKLOG.

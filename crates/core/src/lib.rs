@@ -23,6 +23,7 @@ mod dht;
 mod disk;
 mod engine;
 mod error;
+mod exit;
 mod flags;
 pub mod metainfo;
 mod move_completed;
@@ -49,6 +50,7 @@ pub use alert::{
 /// Peer classes (libtorrent `peer_class_t`, `peer_class_info`, `peer_class_type_filter`).
 pub use engine::peer_class::{PeerClassId, PeerClassInfo, PeerClassTypeFilter, SocketType};
 pub use error::Error;
+pub use exit::{Exit, ExitMove, ExitPhase, ExitStatus};
 pub use move_completed::{MoveCompleted, same_dir};
 /// A blocking HTTP / HTTPS `GET` for frontends (Add Torrent from URL, RSS feeds).
 pub use net::fetch;

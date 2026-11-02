@@ -63,6 +63,7 @@ use windows_sys::Win32::UI::Shell::{
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 use windows_sys::core::{PCWSTR, w};
 
+use crate::closing;
 use crate::controls;
 use crate::details::{Detail, Page, PaintCtx};
 use crate::dialogs;
@@ -538,7 +539,16 @@ pub fn run(args: Args) -> i32 {
         (Some(s), _) => s,
         (None, Some(n)) => Session::start_mock(
             Settings::default(),
-            MockConfig { initial_torrents: n, active_fraction: 0.02, ..MockConfig::default() },
+            MockConfig {
+                initial_torrents: n,
+                active_fraction: 0.02,
+                // to look at the closing window (D47)
+                slow_exit: std::env::var("PATORRENT_DEMO_SLOW_EXIT")
+                    .ok()
+                    .and_then(|s| s.parse().ok())
+                    .map(std::time::Duration::from_secs),
+                ..MockConfig::default()
+            },
         ),
         (None, None) => {
             let settings = opts.settings.clone();
@@ -2744,8 +2754,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 0
             }
             WM_QUERYENDSESSION => {
-                // Windows may end the session: name what the wait at WM_ENDSESSION is for. It
-                // waits for a visible window; a hidden one (the tray) gets a few seconds.
+                // Windows may end the session: name what the wait at WM_ENDSESSION is for.
+                // Windows waits only for a visible window, so that wait shows the closing one.
                 if with_app(|_| ()).is_some() {
                     ShutdownBlockReasonCreate(hwnd, wide(tr!(EndSessionSaving)).as_ptr());
                 }
@@ -2754,8 +2764,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             WM_ENDSESSION => {
                 if wparam != 0 {
                     // The process may be ended as soon as this returns: save everything now,
-                    // with the window left as it is so that Windows keeps waiting.
-                    close_session(hwnd);
+                    // behind the closing window, which holds Windows up while it is shown.
+                    close_session(hwnd, true);
                     ShutdownBlockReasonDestroy(hwnd);
                     DestroyWindow(hwnd);
                 } else {
@@ -2797,15 +2807,16 @@ unsafe fn on_destroy(hwnd: HWND) {
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
         tray::remove(hwnd);
-        close_session(hwnd);
+        close_session(hwnd, false);
         RemovePropW(hwnd, EXITING_PROP);
         PostQuitMessage(0);
     }
 }
 
 /// Saves the window's settings and stops the engine, which saves the resume data; returns when
-/// it is done. Once: later calls find no app.
-unsafe fn close_session(hwnd: HWND) {
+/// it is done, or once Quit Now has got it past saving (D47, the closing window: after a
+/// second, or at once for a Windows sign-out, `end_session`). Once: later calls find no app.
+unsafe fn close_session(hwnd: HWND, end_session: bool) {
     unsafe {
         SetPropW(hwnd, EXITING_PROP, std::ptr::without_provenance_mut(1));
         KillTimer(hwnd, TIMER_REFRESH);
@@ -2829,8 +2840,8 @@ unsafe fn close_session(hwnd: HWND) {
                 eprintln!("cannot save {}: {e}", rss_file().display());
             }
         });
-        // Dropping the session saves resume data and stops the engine; take it out of the
-        // RefCell first so nothing is borrowed while that blocks.
+        // Stopping the session saves resume data; take it out of the RefCell first so nothing
+        // is borrowed while the closing window runs its message loop.
         let app = APP.with(|a| a.borrow_mut().take());
         if let Some(mut app) = app {
             // the Web UI first: its threads hold a handle of the session
@@ -2839,7 +2850,7 @@ unsafe fn close_session(hwnd: HWND) {
             }
             app.handle.clear_alert_notify();
             if let Some(s) = app.session.take() {
-                s.shutdown();
+                closing::wait(s.begin_shutdown(), end_session);
             }
             DeleteObject(app.font);
             DeleteObject(app.bold);

@@ -42,6 +42,9 @@ pub struct MockConfig {
     pub max_rate: u32,
     /// Save path reported for synthetic torrents. Nothing is ever written there.
     pub save_path: String,
+    /// A shutdown that takes this long, moving a torrent's files (simulated), for looking at a
+    /// GUI's closing window (D47); `None` ends at once.
+    pub slow_exit: Option<Duration>,
 }
 
 impl Default for MockConfig {
@@ -52,6 +55,7 @@ impl Default for MockConfig {
             seed: 0x5eed_1e55,
             max_rate: 4 << 20,
             save_path: std::env::temp_dir().join("patorrent-mock").to_string_lossy().into_owned(),
+            slow_exit: None,
         }
     }
 }
@@ -89,6 +93,9 @@ pub(crate) fn run(rx: mpsc::Receiver<Command>, shared: Arc<Shared>, settings: Se
             }
         }
         mock.flush();
+    }
+    if let Some(time) = mock.config.slow_exit {
+        mock.slow_exit(time);
     }
 }
 
@@ -132,6 +139,44 @@ struct Mock {
     needs_auto_manage: bool,
     ticks: u64,
     stats: SessionStats,
+}
+
+impl Mock {
+    /// [`MockConfig::slow_exit`]: the phases of a real shutdown, a move taking `time`, honouring
+    /// [`crate::Exit::hurry`] as the engine does.
+    fn slow_exit(&self, time: Duration) {
+        use crate::exit::{ExitMove, ExitPhase};
+        let exit = &self.shared.exit;
+        let unwritten = Arc::new(std::sync::atomic::AtomicU64::new(3 << 20));
+        exit.watch_unwritten(unwritten.clone());
+        let name =
+            self.slots.iter().find_map(|s| s.torrent.as_ref()).map_or("demo".into(), |t| t.st.name.clone());
+        let (start, total) = (Instant::now(), 8u64 << 30);
+        while start.elapsed() < time && !exit.hurried() {
+            let done = (total as f64 * start.elapsed().as_secs_f64() / time.as_secs_f64()) as u64;
+            exit.set_phase(ExitPhase::Moving);
+            exit.set_moves(vec![ExitMove {
+                name: name.clone(),
+                from: self.config.save_path.clone(),
+                to: std::env::temp_dir().join("patorrent-mock-done").to_string_lossy().into_owned(),
+                done,
+                total,
+            }]);
+            std::thread::sleep(Duration::from_millis(100));
+        }
+        exit.set_phase(ExitPhase::Saving);
+        std::thread::sleep(Duration::from_secs(1));
+        exit.set_phase(ExitPhase::Trackers);
+        let trackers = Instant::now();
+        while trackers.elapsed() < Duration::from_secs(2) && !exit.hurried() {
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        exit.set_phase(ExitPhase::Closing);
+        for left in (0..3u64).rev() {
+            std::thread::sleep(Duration::from_millis(500));
+            unwritten.store(left << 20, std::sync::atomic::Ordering::Relaxed);
+        }
+    }
 }
 
 const CHECK_TICKS: u32 = 6;

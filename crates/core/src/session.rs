@@ -9,6 +9,7 @@ use std::thread::JoinHandle;
 
 use crate::alert::{Alert, AlertQueue};
 use crate::engine::peer_class::{PeerClassId, PeerClassInfo, PeerClassTypeFilter};
+use crate::exit::{Exit, ExitState};
 use crate::net::ip_filter::{IpFilter, PortFilter};
 use crate::params::{AddTorrentParams, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags};
 use crate::settings::Settings;
@@ -95,8 +96,10 @@ pub(crate) enum PeerClassCommand {
 pub(crate) struct Shared {
     tx: mpsc::Sender<Command>,
     /// Wakes the engine thread after a command is queued (a `mio::Waker` for the real engine).
-    wake: Box<dyn Fn() + Send + Sync>,
+    pub(crate) wake: Box<dyn Fn() + Send + Sync>,
     pub(crate) alerts: AlertQueue,
+    /// What the engine does while it shuts down ([`Session::begin_shutdown`]).
+    pub(crate) exit: ExitState,
 }
 
 /// How to start a [`Session`] (libtorrent `session_params`).
@@ -145,7 +148,12 @@ impl Session {
         engine: impl FnOnce(mpsc::Receiver<Command>, Arc<Shared>, Settings) + Send + 'static,
     ) -> Session {
         let (tx, rx) = mpsc::channel();
-        let shared = Arc::new(Shared { tx, wake, alerts: AlertQueue::new(settings.alert_queue_size) });
+        let shared = Arc::new(Shared {
+            tx,
+            wake,
+            alerts: AlertQueue::new(settings.alert_queue_size),
+            exit: ExitState::default(),
+        });
         let engine_shared = shared.clone();
         let thread = std::thread::Builder::new()
             .name("lt-network".into())
@@ -159,8 +167,18 @@ impl Session {
     }
 
     /// Stops the engine and waits for it to finish (also done on drop).
-    pub fn shutdown(mut self) {
-        self.stop();
+    pub fn shutdown(self) {
+        self.begin_shutdown().wait();
+    }
+
+    /// Stops the engine and returns at once; the [`Exit`] shows what it is waiting for and can
+    /// cut the waits short (D47).
+    pub fn begin_shutdown(mut self) -> Exit {
+        let thread = self.thread.take();
+        if thread.is_some() {
+            self.handle.send(Command::Shutdown);
+        }
+        Exit { shared: self.handle.shared.clone(), thread }
     }
 
     fn stop(&mut self) {

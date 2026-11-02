@@ -686,10 +686,18 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   (resume data saved? the reason listed?), double-click a `.torrent` while a slow exit runs,
   an auto-load folder on an unplugged share. Windows only waits for a visible window; a
   tray-only PaTorrent still gets the system's few seconds.
-- Still open, with a small design: run `Session::shutdown` on a worker thread and keep a
-  small "Shutting down: <phase>" window with the elapsed time (phases through a shared atomic
-  set by the engine: stopping, waiting for a move, saving resume data, closing files), GTK
-  the same. A relaunch waiting meanwhile shows nothing. GTK has no session-end handling.
+- **Done in 1.1.26 (2026-11-02_085028_1793605828, D47):** the Win32 closing window, shown after a second or at
+  once at a sign-out: the step, each move's bytes and destination with a bar, the time, and
+  Quit Now with a question listing what it gives up. Moves cancel cleanly (copies deleted,
+  old folder kept); the resume data is always saved first. `PATORRENT_DEMO_SLOW_EXIT=<secs>`
+  with `--demo N` simulates a slow exit to look at it. Hand checks: a real move to a NAS
+  closed mid-way (Quit Now, then the old folder intact and the destination clean), a sign-out
+  from the tray during a move (does Windows list PaTorrent and wait?), RTL and long
+  translations in the window.
+- Still open: GTK has neither the closing window nor session-end handling (its exit blocks
+  with the window visible). A relaunch waiting during an exit shows nothing of its own. Moves
+  across volumes no longer use `std::fs::copy` on Unix (a chunked copy with progress), so a
+  copy-on-write clone (`copy_file_range`, reflinks) is not used there; measure if it matters.
 - Owner's choice: whether the waits get a bound, e.g. a "Quit now" button after 30 s that
   abandons an unfinished move (today the wait is unbounded, as libtorrent's).
 

@@ -371,8 +371,61 @@ pub(crate) struct DiskIo {
     queued_write_bytes: Arc<AtomicU64>,
     read_cache: Arc<read_cache::Limits>,
     stats: Arc<DiskStats>,
+    moves: Arc<Moves>,
     next_storage_id: u64,
     next_barrier: u64,
+}
+
+/// The storage moves running on the disk threads, for a closing session's window (D47), and the
+/// switch that cancels them.
+#[derive(Default)]
+struct Moves {
+    running: Mutex<Vec<MoveProgress>>,
+    cancel: AtomicBool,
+}
+
+/// A move in flight: bytes moved of the files' total, to `to`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct MoveProgress {
+    pub storage: u64,
+    pub to: String,
+    pub done: u64,
+    pub total: u64,
+}
+
+impl Moves {
+    fn running(&self) -> MutexGuard<'_, Vec<MoveProgress>> {
+        self.running.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    fn start(&self, storage: u64, to: &str, total: u64) {
+        self.running().push(MoveProgress { storage, to: to.to_owned(), done: 0, total });
+    }
+
+    /// `bytes` more of `storage`'s move are across.
+    fn add(&self, storage: u64, bytes: u64) {
+        if let Some(m) = self.running().iter_mut().find(|m| m.storage == storage) {
+            m.done = (m.done + bytes).min(m.total);
+        }
+    }
+
+    fn done(&self, storage: u64) -> u64 {
+        self.running().iter().find(|m| m.storage == storage).map_or(0, |m| m.done)
+    }
+
+    fn set_done(&self, storage: u64, done: u64) {
+        if let Some(m) = self.running().iter_mut().find(|m| m.storage == storage) {
+            m.done = done.min(m.total);
+        }
+    }
+
+    fn end(&self, storage: u64) {
+        self.running().retain(|m| m.storage != storage);
+    }
+
+    fn cancelled(&self) -> bool {
+        self.cancel.load(Ordering::Relaxed)
+    }
 }
 
 /// Counters of reads for peers (libtorrent `disk.num_blocks_read`, `disk.num_read_ops`,
@@ -415,6 +468,7 @@ struct Ctx {
     queued_write_bytes: Arc<AtomicU64>,
     read_cache: Arc<read_cache::Limits>,
     stats: Arc<DiskStats>,
+    moves: Arc<Moves>,
     /// Every thread's queue, for [`Job::Unblock`].
     queues: Arc<OnceLock<Vec<mpsc::Sender<Job>>>>,
     /// Index of this thread in `queues`.
@@ -444,6 +498,7 @@ impl DiskIo {
         let n = threads.clamp(1, 64);
         let read_cache = Arc::new(read_cache::Limits::default());
         let stats = Arc::new(DiskStats::new(n + 1));
+        let moves = Arc::new(Moves::default());
         let ctx = |index| Ctx {
             pool: pool.clone(),
             done: done.clone(),
@@ -451,6 +506,7 @@ impl DiskIo {
             queued_write_bytes: queued_write_bytes.clone(),
             read_cache: read_cache.clone(),
             stats: stats.clone(),
+            moves: moves.clone(),
             queues: queues.clone(),
             index,
         };
@@ -479,6 +535,7 @@ impl DiskIo {
             queued_write_bytes,
             read_cache,
             stats,
+            moves,
             next_storage_id: 1,
             next_barrier: 1,
         }
@@ -603,6 +660,22 @@ impl DiskIo {
     /// while this exceeds `max_queued_disk_bytes` (libtorrent's disk-queue back-pressure).
     pub fn queued_write_bytes(&self) -> u64 {
         self.queued_write_bytes.load(Ordering::Relaxed)
+    }
+
+    /// The counter behind [`DiskIo::queued_write_bytes`], which outlives the engine.
+    pub fn queued_write_counter(&self) -> Arc<AtomicU64> {
+        self.queued_write_bytes.clone()
+    }
+
+    /// The moves running now.
+    pub fn moves(&self) -> Vec<MoveProgress> {
+        self.moves.running.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Cancels the moves running and every later one: each stops at the next file or copied
+    /// chunk, deletes its copies and keeps the old folder (a closing session's "Quit now").
+    pub fn cancel_moves(&self) {
+        self.moves.cancel.store(true, Ordering::Relaxed);
     }
 }
 
@@ -1347,6 +1420,98 @@ pub(crate) fn complete(path: &str) -> String {
     std::path::absolute(p).map_or_else(|_| p.to_owned(), |a| a.to_string_lossy().into_owned())
 }
 
+/// The error of a move cancelled by [`DiskIo::cancel_moves`].
+fn cancelled() -> io::Error {
+    io::Error::new(io::ErrorKind::Interrupted, "move cancelled at exit")
+}
+
+/// Copies `from` to `to` (a move across volumes), passing the bytes copied to `progress` as
+/// they go. Once `cancel` is set it stops with [`cancelled`] and leaves no partial copy.
+#[cfg(windows)]
+fn copy_file(from: &Path, to: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(u64)) -> io::Result<()> {
+    use std::os::windows::ffi::OsStrExt;
+    use windows_sys::Win32::Foundation::{ERROR_REQUEST_ABORTED, HANDLE};
+    use windows_sys::Win32::Storage::FileSystem::{
+        CopyFileExW, LPPROGRESS_ROUTINE_CALLBACK_REASON, PROGRESS_CANCEL, PROGRESS_CONTINUE,
+    };
+
+    struct Progress<'a> {
+        cancel: &'a AtomicBool,
+        progress: &'a mut dyn FnMut(u64),
+        reported: u64,
+    }
+    #[allow(clippy::too_many_arguments)]
+    unsafe extern "system" fn routine(
+        _total: i64,
+        transferred: i64,
+        _stream_size: i64,
+        _stream_transferred: i64,
+        _stream: u32,
+        _reason: LPPROGRESS_ROUTINE_CALLBACK_REASON,
+        _src: HANDLE,
+        _dst: HANDLE,
+        data: *const std::ffi::c_void,
+    ) -> u32 {
+        // SAFETY: `data` is the `Progress` below, alive for the whole CopyFileExW call, which
+        // runs this routine on the calling thread.
+        let p = unsafe { &mut *(data as *mut Progress<'_>) };
+        let now = transferred.max(0) as u64;
+        (p.progress)(now.saturating_sub(p.reported));
+        p.reported = now;
+        if p.cancel.load(Ordering::Relaxed) { PROGRESS_CANCEL } else { PROGRESS_CONTINUE }
+    }
+
+    let wide = |p: &Path| p.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
+    let (src, dst) = (wide(from), wide(to));
+    let mut p = Progress { cancel, progress, reported: 0 };
+    // CopyFileExW is what `std::fs::copy` calls: the same attributes, and a share may copy on
+    // the server. A cancelled copy deletes its partial file.
+    let ok = unsafe {
+        CopyFileExW(
+            src.as_ptr(),
+            dst.as_ptr(),
+            Some(routine),
+            &mut p as *mut Progress<'_> as *const std::ffi::c_void,
+            std::ptr::null_mut(),
+            0,
+        )
+    };
+    if ok != 0 {
+        return Ok(());
+    }
+    let e = io::Error::last_os_error();
+    if e.raw_os_error() == Some(ERROR_REQUEST_ABORTED as i32) { Err(cancelled()) } else { Err(e) }
+}
+
+/// Copies `from` to `to` (a move across volumes), passing the bytes copied to `progress` as
+/// they go. Once `cancel` is set it stops with [`cancelled`] and leaves no partial copy.
+#[cfg(not(windows))]
+fn copy_file(from: &Path, to: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(u64)) -> io::Result<()> {
+    use std::io::{Read, Write};
+    let mut copy = || -> io::Result<()> {
+        let mut src = std::fs::File::open(from)?;
+        let mut dst = std::fs::File::create(to)?;
+        let mut buf = vec![0u8; 4 << 20];
+        loop {
+            if cancel.load(Ordering::Relaxed) {
+                return Err(cancelled());
+            }
+            let n = match src.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => n,
+                Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
+                Err(e) => return Err(e),
+            };
+            dst.write_all(&buf[..n])?;
+            progress(n as u64);
+        }
+        dst.set_permissions(src.metadata()?.permissions())
+    };
+    copy().inspect_err(|_| {
+        let _ = std::fs::remove_file(to);
+    })
+}
+
 /// libtorrent `move_file`: creates the destination's directory, then renames.
 fn move_file(old: &Path, new: &Path) -> Result<(), (FileOperation, io::Error)> {
     std::fs::metadata(old).map_err(|e| (FileOperation::FileStat, e))?;
@@ -1481,15 +1646,23 @@ fn move_storage(
 
     let mut status = MoveStatus::NoError;
     // Files we renamed (rolled back on an error) and files we copied (their sources are deleted
-    // once everything is across).
+    // once everything is across, the copies on an error).
     let mut renamed = vec![false; fs.num_files()];
     let mut copied = vec![false; fs.num_files()];
     let mut error = None;
+    let (moves, id) = (&ctx.moves, storage.id);
+    moves.start(id, &new_save_path, (0..fs.num_files()).filter(movable).map(|i| fs.file_size(i)).sum());
     for i in (0..fs.num_files()).filter(movable) {
+        if moves.cancelled() {
+            error = Some((i, FileOperation::FileCopy, cancelled()));
+            break;
+        }
         let old = PathBuf::from(fs.file_path(i, &save_path));
         let new = PathBuf::from(fs.file_path(i, &new_save_path));
+        let done = moves.done(id) + fs.file_size(i);
         if flags == MoveFlags::DontReplace && new.exists() {
             status = MoveStatus::NeedFullCheck;
+            moves.set_done(id, done);
             continue;
         }
         match move_file(&old, &new) {
@@ -1503,15 +1676,18 @@ fn move_storage(
                 break;
             }
             // Renaming across volumes fails (EXDEV, ERROR_NOT_SAME_DEVICE): copy instead.
-            Err(_) => match std::fs::copy(&old, &new) {
-                Ok(_) => copied[i] = true,
+            Err(_) => match copy_file(&old, &new, &moves.cancel, &mut |n| moves.add(id, n)) {
+                Ok(()) => copied[i] = true,
                 Err(e) => {
                     error = Some((i, FileOperation::FileCopy, e));
                     break;
                 }
             },
         }
+        // the file's whole size, whatever the copy reported
+        moves.set_done(id, done);
     }
+    moves.end(id);
     let mut error = error.map(|(i, operation, e)| MoveError {
         file: fs.file_path(i, &save_path),
         operation,
@@ -1541,10 +1717,15 @@ fn move_storage(
 
     if let Some(error) = error {
         // Roll back. libtorrent moves back every file before the failing one; only the ones
-        // renamed are moved here, so a destination file kept by `DontReplace` stays put.
-        for i in (0..fs.num_files()).rev().filter(|&i| renamed[i]) {
+        // renamed are moved here, so a destination file kept by `DontReplace` stays put. The
+        // copies are deleted: their sources are all still there.
+        for i in (0..fs.num_files()).rev() {
             let new = PathBuf::from(fs.file_path(i, &new_save_path));
-            let _ = move_file(&new, Path::new(&fs.file_path(i, &save_path)));
+            if renamed[i] {
+                let _ = move_file(&new, Path::new(&fs.file_path(i, &save_path)));
+            } else if copied[i] {
+                let _ = std::fs::remove_file(&new);
+            }
         }
         return (MoveStatus::FatalDiskError, save_path, Some(error));
     }
@@ -2070,6 +2251,7 @@ pub(crate) mod tests {
             queued_write_bytes: Arc::new(AtomicU64::new(0)),
             read_cache: Arc::default(),
             stats: Arc::new(DiskStats::new(1)),
+            moves: Arc::default(),
             queues: Arc::new(OnceLock::new()),
             index: 0,
         };
@@ -2104,6 +2286,7 @@ pub(crate) mod tests {
             queued_write_bytes: Arc::new(AtomicU64::new(0)),
             read_cache: Arc::default(),
             stats: Arc::new(DiskStats::new(1)),
+            moves: Arc::default(),
             queues: Arc::new(OnceLock::new()),
             index: 0,
         };
@@ -2348,6 +2531,48 @@ pub(crate) mod tests {
         assert!(!new.join("test").exists());
         drop(r.disk);
         let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    /// D47: "Quit now" at exit cancels a move; the torrent keeps its folder and its files.
+    #[test]
+    fn a_cancelled_move_keeps_the_old_folder() {
+        let mut r = move_rig("move-cancel", Vec::new());
+        let (old, new) = (r.dir.join("save"), r.dir.join("save2"));
+        r.disk.cancel_moves();
+        r.disk.async_move_storage(&r.storage, s(&new), MoveFlags::AlwaysReplaceFiles);
+        let (status, path, error) = moved(&r.rx);
+        assert_eq!((status, path.as_str()), (MoveStatus::FatalDiskError, s(&old).as_str()));
+        let kind = error.map(|e| e.error);
+        assert!(matches!(kind, Some(Error::Io { kind: io::ErrorKind::Interrupted, .. })), "{kind:?}");
+        assert_eq!(r.storage.save_path(), s(&old));
+        for (i, (name, _)) in MOVE_FILES.iter().enumerate() {
+            assert_eq!(std::fs::read(old.join("test").join(name)).unwrap(), r.contents[i], "{name}");
+            assert!(!new.join("test").join(name).exists(), "{name}");
+        }
+        assert!(r.disk.moves().is_empty(), "nothing left running");
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    #[test]
+    fn copies_report_progress_and_stop_when_cancelled() {
+        let dir = temp_dir("copy-file");
+        let (src, dst) = (dir.join("a"), dir.join("b"));
+        let data: Vec<u8> = (0..300_000u32).map(|i| (i % 251) as u8).collect();
+        std::fs::write(&src, &data).unwrap();
+        let cancel = AtomicBool::new(false);
+        let mut copied = 0;
+        copy_file(&src, &dst, &cancel, &mut |n| copied += n).unwrap();
+        assert_eq!(copied, data.len() as u64);
+        assert_eq!(std::fs::read(&dst).unwrap(), data);
+        std::fs::remove_file(&dst).unwrap();
+
+        cancel.store(true, Ordering::Relaxed);
+        let e = copy_file(&src, &dst, &cancel, &mut |_| {}).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::Interrupted);
+        assert!(!dst.exists(), "no partial copy");
+        assert!(src.exists());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

@@ -57,6 +57,7 @@ use crate::disk::{
     BLOCK_SIZE, CheckMode, CheckResult, Completion, DiskIo, FenceAction, HashVerdict, MoveError, MoveStatus,
 };
 use crate::error::Error;
+use crate::exit::{ExitMove, ExitPhase};
 use crate::metainfo::sanitize::sanitize_name;
 use crate::metainfo::{LoadLimits, MagnetUri, TorrentInfo, WebSeedKind, parse_magnet_uri};
 use crate::net::ip_voter::{ExternalIp, SessionVoter, source};
@@ -649,7 +650,14 @@ impl Engine {
         }
     }
 
+    /// Stops everything and saves the resume data, publishing each step for a closing GUI (D47,
+    /// [`crate::Exit`]). The disk threads finish their queues when the engine is dropped
+    /// ([`ExitPhase::Closing`]).
     fn shutdown(&mut self, events: &mut Events) {
+        let exit = self.shared.clone();
+        let exit = &exit.exit;
+        exit.watch_unwritten(self.disk.queued_write_counter());
+        exit.set_phase(ExitPhase::Stopping);
         self.stop_ip_notifier();
         self.save_dht_state();
         let ids: Vec<TorrentId> = self.torrent_ids();
@@ -658,12 +666,19 @@ impl Engine {
         }
         self.reap_peers();
         // A move in flight changes the save path saved below: wait for it (the disk threads
-        // finish it anyway).
+        // finish it anyway). "Quit now" cancels it: the torrent keeps its old folder.
+        let mut cancelled = false;
         while self
             .slots
             .iter()
             .any(|s| s.torrent.as_deref().is_some_and(|t| t.moves_pending > 0 || t.renames_pending > 0))
         {
+            exit.set_phase(ExitPhase::Moving);
+            exit.set_moves(self.exit_moves());
+            if exit.hurried() && !cancelled {
+                self.disk.cancel_moves();
+                cancelled = true;
+            }
             match self.disk_rx.recv_timeout(Duration::from_millis(100)) {
                 Ok(Completion::Moved { storage, status, save_path, error }) => {
                     self.on_storage_moved(storage, status, save_path, error, false)
@@ -675,13 +690,18 @@ impl Engine {
                 Err(mpsc::RecvTimeoutError::Disconnected) => break,
             }
         }
+        exit.set_phase(ExitPhase::Saving);
         self.save_resume(true);
+        exit.set_phase(ExitPhase::Trackers);
         // the router forgets our ports (libtorrent `session_impl::abort` closes the mappers)
         self.close_portmap();
         // Give "stopped" announces and UPnP's delete requests a few seconds (libtorrent
         // `stop_tracker_timeout`).
         let deadline = Instant::now() + Duration::from_secs(self.settings.stop_tracker_timeout as u64);
-        while (self.trackers.pending() > 0 || self.portmap.pending()) && Instant::now() < deadline {
+        while (self.trackers.pending() > 0 || self.portmap.pending())
+            && Instant::now() < deadline
+            && !exit.hurried()
+        {
             let _ = self.poll.poll(events, Some(Duration::from_millis(100)));
             for ev in events.iter() {
                 self.on_event(ev.token(), true, ev.is_writable());
@@ -697,6 +717,25 @@ impl Engine {
             self.trackers.tick(self.poll.registry(), Instant::now());
             self.trackers.take_results();
         }
+        exit.set_phase(ExitPhase::Closing);
+    }
+
+    /// The moves running on the disk threads, with their torrents' names and folders.
+    fn exit_moves(&self) -> Vec<ExitMove> {
+        self.disk
+            .moves()
+            .into_iter()
+            .filter_map(|m| {
+                let t = self.torrent_ref(*self.storages.get(&m.storage)?)?;
+                Some(ExitMove {
+                    name: t.name.clone(),
+                    from: t.save_path.to_string(),
+                    to: m.to,
+                    done: m.done,
+                    total: m.total,
+                })
+            })
+            .collect()
     }
 
     // --- Helpers ------------------------------------------------------------------------------

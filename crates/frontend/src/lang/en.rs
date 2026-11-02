@@ -552,6 +552,31 @@ strings! {
     /// state.
     EndSessionSaving = "Saving the torrent list and progress...";
 
+    // ---- The window shown while PaTorrent closes (after a second, or at a Windows sign-out)
+
+    ExitTitle = "PaTorrent is closing";
+    /// {time} is minutes:seconds, like 1:05.
+    ExitElapsed = "Closing for {time}";
+    ExitStopping = "Stopping the torrents...";
+    ExitMoving = "Waiting for files to finish moving. Closing in the middle could leave a torrent half in one folder and half in another, so PaTorrent waits.";
+    /// One line per torrent whose files are being moved; {done} and {total} are sizes like
+    /// 1.2 GB, {folder} where the files go.
+    ExitMoveLine = "{name}: {done} of {total} to {folder}";
+    ExitSaving = "Saving the torrent list and progress. This step always finishes, so that nothing already downloaded is lost.";
+    ExitTrackers = "Telling the trackers that PaTorrent stopped...";
+    /// {size} is like 3.2 MB.
+    ExitWriting = "Writing the last downloaded data to disk and closing files ({size} left)...";
+    /// The button; the same & rules as the menus.
+    ExitQuitNow = "&Quit Now";
+    /// Asked after Quit Now; {list} is one or more of the lines below, each starting with "• ".
+    ExitAskQuit = "Quit now, without waiting?\n\n{list}\n\nThe torrent list and progress are saved first in any case.";
+    /// {name} is the torrent, {folder} where its files stay, {dest} where they were going.
+    /// "Set Download Location" is the menu item MenuSetLocation.
+    ExitAbortMove = "• \"{name}\" stops moving. Its files stay in {folder}; what was already copied to {dest} is deleted. Move it again later with Set Download Location.";
+    ExitAbortTrackers = "• The trackers are not told that PaTorrent stopped; they forget it by themselves after a while.";
+    /// {size} is like 3.2 MB.
+    ExitAbortWrites = "• {size} that was downloaded but not yet written is downloaded again next time. Nothing already on disk is affected.";
+
     // ---- Auto Shutdown
 
     ShutdownTitle = "Auto Shutdown";

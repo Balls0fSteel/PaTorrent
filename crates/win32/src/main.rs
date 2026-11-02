@@ -14,6 +14,8 @@ mod add;
 #[cfg(windows)]
 mod app;
 #[cfg(windows)]
+mod closing;
+#[cfg(windows)]
 mod controls;
 #[cfg(windows)]
 mod create;

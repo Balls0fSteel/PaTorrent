@@ -315,6 +315,11 @@ TitleDisconnected=PaTorrent {version} - {label} (disconnected)
 # The main window's title with "Show current speed in the title bar" on: D = download,
 # U = upload; {title} is the normal title (PaTorrent 1.0.0).
 TitleSpeed=D:{down} U:{up} - {title}
+
+# BarDown and BarUp while Keep ping low limits the speed: {cap} is the automatic limit,
+# a speed like 450 kB/s.
+BarDownAuto=D: {rate} (auto {cap}) T: {total}
+BarUpAuto=U: {rate} (auto {cap}) T: {total}
 LogAdded={name}: added
 LogFinished={name}: finished downloading
 LogMovingCompleted={name}: moving the completed download to {dir}
@@ -823,6 +828,18 @@ PrefCacheExpire=Remove blocks unused for more than (seconds):
 
 # {mb} is the automatic cache size in MB. read_cache_line_size is a setting's name: keep it.
 PrefReadCacheNote=PaTorrent caches disk reads: a block a peer asks for is read together with the blocks around it (read_cache_line_size on the Advanced page), which saves disk seeks when seeding. The automatic size is {mb} MB. Writes are left to the system's cache.
+
+# Preferences > Bandwidth: µTorrent 2.2.1's group and its boxes, then PaTorrent's own.
+PrefRateOptions=Global Rate Limit Options
+PrefRateOverhead=Apply rate limit to transport overhead
+PrefRateUtp=Apply rate limit to uTP connections
+
+# Lowers the upload and download speeds while they make the internet line's queue (and
+# so the ping of games and calls) grow.
+PrefKeepPingLow=Keep ping low (limit speeds automatically)
+
+# auto_limit_probe_hosts is a setting's name: keep it. SQM and QoS are router features.
+PrefKeepPingLowNote=Keep ping low pings the first router past your line, or else the hosts in auto_limit_probe_hosts on the Advanced page, whose operators see those pings. A router with SQM or gaming QoS does this better, for every device.
 RssTitle=RSS Downloader
 RssAddFeed=Add RSS Feed
 RssEditFeed=Edit RSS Feed

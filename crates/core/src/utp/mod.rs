@@ -122,7 +122,9 @@ impl Default for UtpSettings {
 impl From<&Settings> for UtpSettings {
     fn from(s: &Settings) -> UtpSettings {
         UtpSettings {
-            target_delay: s.utp_target_delay.saturating_mul(1000),
+            // keep ping low (D49): uTP gives way before the automatic caps have to
+            target_delay: if s.auto_rate_limit { s.utp_target_delay.min(25) } else { s.utp_target_delay }
+                .saturating_mul(1000),
             gain_factor: s.utp_gain_factor,
             min_timeout: s.utp_min_timeout,
             syn_resends: s.utp_syn_resends,

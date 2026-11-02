@@ -851,6 +851,15 @@ fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
         group(Some(tr!(PrefUpLimiting)), vec![kb("upload_rate_limit")]),
         group(Some(tr!(PrefDownLimiting)), vec![kb("download_rate_limit")]),
         group(
+            Some(tr!(PrefRateOptions)),
+            vec![
+                f("rate_limit_ip_overhead"),
+                f("rate_limit_utp"),
+                f("auto_rate_limit"),
+                note(tr!(PrefKeepPingLowNote)),
+            ],
+        ),
+        group(
             Some(tr!(PrefConnections)),
             vec![
                 ranged("connections_limit", 2, 65535),

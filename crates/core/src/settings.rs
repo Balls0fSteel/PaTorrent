@@ -79,6 +79,26 @@ pub struct Settings {
     /// Bytes per second; 0 = unlimited.
     pub download_rate_limit: u32,
     pub upload_rate_limit: u32,
+    /// The global rate limits also count the TCP/IP headers of peer traffic, estimated per
+    /// 1500-byte packet and its ACK (libtorrent 1.x `rate_limit_ip_overhead`; libtorrent 2.0
+    /// only warns with it). Off by default, as µTorrent 2.2.1's "Apply rate limit to transport
+    /// overhead".
+    pub rate_limit_ip_overhead: bool,
+    /// uTP peers are in the global class, so the session's rate limits apply to them
+    /// (libtorrent 1.x `rate_limit_utp`, µTorrent's "Apply rate limit to uTP connections",
+    /// both on by default). Off, uTP peers join no global class from then on and those already
+    /// connected leave it: only uTP's own delay control slows them.
+    pub rate_limit_utp: bool,
+    /// Keep ping low (D49, a PaTorrent extension): the engine measures the line's queue (pings
+    /// to the first router past the home line, `docs/LOWPING.md`) and caps the upload and the
+    /// download while it grows; the caps never raise the limits above. While on,
+    /// `utp_target_delay` is at most 25 ms.
+    pub auto_rate_limit: bool,
+    /// The queue, in milliseconds above the line's idle ping, that `auto_rate_limit` allows.
+    pub auto_limit_delay_ms: i32,
+    /// Comma-separated IP addresses `auto_rate_limit` pings when no router past the line
+    /// answers.
+    pub auto_limit_probe_hosts: String,
 
     /// Queueing limits; -1 = unlimited.
     pub active_downloads: i32,
@@ -328,6 +348,12 @@ impl Default for Settings {
             dht_bootstrap_nodes: "dht.libtorrent.org:25401".to_owned(),
             download_rate_limit: 0,
             upload_rate_limit: 0,
+            // libtorrent 2.0 defaults to true but only posts warnings with it
+            rate_limit_ip_overhead: false,
+            rate_limit_utp: true,
+            auto_rate_limit: false,
+            auto_limit_delay_ms: 15,
+            auto_limit_probe_hosts: "1.1.1.1,8.8.8.8,9.9.9.9".to_owned(),
             active_downloads: 3,
             active_seeds: 5,
             active_checking: 1,

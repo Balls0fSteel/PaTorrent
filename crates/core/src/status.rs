@@ -223,6 +223,10 @@ pub struct SessionStats {
     pub disk_cache_hits: u64,
     /// Bytes held by the read cache.
     pub read_cache_bytes: u64,
+    /// Keep ping low's caps, bytes per second, while they are below the session's own limits
+    /// (`Settings::auto_rate_limit`); 0 when there is none.
+    pub auto_upload_limit: u32,
+    pub auto_download_limit: u32,
 }
 
 bit_flags! {

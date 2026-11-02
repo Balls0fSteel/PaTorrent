@@ -138,6 +138,9 @@ const ID_CONNECTIONS: u16 = id(4, 3);
 const ID_PEERS_PER_TORRENT: u16 = id(4, 4);
 const ID_SLOTS_PER_TORRENT: u16 = id(4, 5);
 const ID_UNCHOKE: u16 = id(4, 6);
+const ID_RATE_OVERHEAD: u16 = id(4, 7);
+const ID_RATE_UTP: u16 = id(4, 8);
+const ID_KEEP_PING_LOW: u16 = id(4, 9);
 // BitTorrent
 const ID_DHT: u16 = id(5, 1);
 const ID_LSD: u16 = id(5, 2);
@@ -404,6 +407,21 @@ static FIELDS: &[Field] = &[
         max: 65535,
         get: |o| Some(o.settings.unchoke_slots_limit as i64),
         set: |o, v| o.settings.unchoke_slots_limit = v as i32,
+    },
+    Field::Check {
+        id: ID_RATE_OVERHEAD,
+        get: |o| o.settings.rate_limit_ip_overhead,
+        set: |o, v| o.settings.rate_limit_ip_overhead = v,
+    },
+    Field::Check {
+        id: ID_RATE_UTP,
+        get: |o| o.settings.rate_limit_utp,
+        set: |o, v| o.settings.rate_limit_utp = v,
+    },
+    Field::Check {
+        id: ID_KEEP_PING_LOW,
+        get: |o| o.settings.auto_rate_limit,
+        set: |o, v| o.settings.auto_rate_limit = v,
     },
     Field::Check { id: ID_DHT, get: |o| o.settings.enable_dht, set: |o, v| o.settings.enable_dht = v },
     Field::Check { id: ID_LSD, get: |o| o.settings.enable_lsd, set: |o, v| o.settings.enable_lsd = v },
@@ -777,12 +795,17 @@ fn template() -> Vec<u16> {
     b.number(13, ID_UL_RATE, NUMBER, tr!(PrefUpRate));
     b.group([0, 38, W, 32], tr!(PrefDownLimiting));
     b.number(51, ID_DL_RATE, NUMBER, tr!(PrefDownRate));
-    b.group([0, 76, W, 82], tr!(PrefConnections));
-    b.number(89, ID_CONNECTIONS, NUMBER, tr!(PrefMaxConnections));
-    b.number(105, ID_PEERS_PER_TORRENT, NUMBER, tr!(PrefPeersPerTorrent));
-    b.number(121, ID_SLOTS_PER_TORRENT, NUMBER, tr!(PrefSlotsPerTorrent));
-    b.number(137, ID_UNCHOKE, LINE, tr!(PrefGlobalSlots));
-    b.label([0, 164, W, 9], tr!(PrefPerTorrentNote));
+    b.group([0, 76, W, 52], tr!(PrefRateOptions));
+    b.ctl(BUTTON, ID_RATE_OVERHEAD, CHECK, [8, 89, 290, 10], tr!(PrefRateOverhead));
+    b.ctl(BUTTON, ID_RATE_UTP, CHECK, [8, 102, 290, 10], tr!(PrefRateUtp));
+    b.ctl(BUTTON, ID_KEEP_PING_LOW, CHECK, [8, 115, 290, 10], tr!(PrefKeepPingLow));
+    b.group([0, 134, W, 82], tr!(PrefConnections));
+    b.number(147, ID_CONNECTIONS, NUMBER, tr!(PrefMaxConnections));
+    b.number(163, ID_PEERS_PER_TORRENT, NUMBER, tr!(PrefPeersPerTorrent));
+    b.number(179, ID_SLOTS_PER_TORRENT, NUMBER, tr!(PrefSlotsPerTorrent));
+    b.number(195, ID_UNCHOKE, LINE, tr!(PrefGlobalSlots));
+    b.label([0, 222, W, 9], tr!(PrefPerTorrentNote));
+    b.label([0, 235, W, 36], tr!(PrefKeepPingLowNote));
 
     b.page(5);
     b.group([0, 0, W, 72], tr!(PrefBasicFeatures));

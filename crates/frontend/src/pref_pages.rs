@@ -658,6 +658,26 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| Some(o.settings.download_rate_limit as i64 / KB),
                     |o, v| o.settings.download_rate_limit = (v * KB) as u32,
                 )),
+                Group(S::PrefRateOptions),
+                F(checkbox(
+                    "rate_limit_ip_overhead",
+                    S::PrefRateOverhead,
+                    |o| o.settings.rate_limit_ip_overhead,
+                    |o, v| o.settings.rate_limit_ip_overhead = v,
+                )),
+                F(checkbox(
+                    "rate_limit_utp",
+                    S::PrefRateUtp,
+                    |o| o.settings.rate_limit_utp,
+                    |o, v| o.settings.rate_limit_utp = v,
+                )),
+                F(checkbox(
+                    "auto_rate_limit",
+                    S::PrefKeepPingLow,
+                    |o| o.settings.auto_rate_limit,
+                    |o, v| o.settings.auto_rate_limit = v,
+                )),
+                Note(|| tr_owned(S::PrefKeepPingLowNote)),
                 Group(S::PrefConnections),
                 F(number(
                     "connections_limit",

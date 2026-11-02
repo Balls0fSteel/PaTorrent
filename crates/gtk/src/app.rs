@@ -36,7 +36,7 @@ use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worke
 use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
-use patorrent_frontend::status::status_icon;
+use patorrent_frontend::status::{self, status_icon};
 use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
 use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
@@ -1488,14 +1488,15 @@ fn update_status() {
     let Some((texts, has_incoming)) = with_app(|a| {
         let s = &a.stats;
         let net = if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) };
+        let [down, up] = status::bar_rates(s);
         let texts = [
             match a.scheduler.status_text() {
                 Some(sched) => format!("{net} | {sched}"),
                 None => net.to_owned(),
             },
             tr!(BarDht, count = s.dht_nodes),
-            tr!(BarDown, rate = fmt::speed_always(s.download_rate), total = fmt::size(s.recv_payload_bytes)),
-            tr!(BarUp, rate = fmt::speed_always(s.upload_rate), total = fmt::size(s.sent_payload_bytes)),
+            down,
+            up,
         ];
         sync_title(a);
         (texts, s.has_incoming_connections)

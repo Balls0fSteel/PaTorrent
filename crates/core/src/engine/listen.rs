@@ -316,6 +316,7 @@ impl Engine {
         self.reopen_with(&ifs, &routes, false);
         self.after_listen_change(&old_expanded, old_port, &ifs, force, now);
         self.close_stale_connections(&ifs);
+        self.auto_limit_network_changed();
     }
 
     /// libtorrent `reopen_listen_sockets`: the endpoints for these interfaces; sockets that

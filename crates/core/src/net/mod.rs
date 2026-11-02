@@ -8,6 +8,7 @@ pub(crate) mod ip_filter;
 pub(crate) mod ip_notifier;
 pub(crate) mod ip_voter;
 pub(crate) mod listen;
+pub(crate) mod probe;
 pub(crate) mod resolver;
 pub(crate) mod sys;
 pub mod tls;

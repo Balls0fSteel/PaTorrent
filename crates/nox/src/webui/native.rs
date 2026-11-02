@@ -868,6 +868,9 @@ fn status_bar(st: &State) -> Json {
         // the global limits in force (empty when unlimited), shown in brackets
         .with("down_limit", fmt::speed(st.settings.download_rate_limit))
         .with("up_limit", fmt::speed(st.settings.upload_rate_limit))
+        // keep ping low's caps while they are below those limits (empty: none)
+        .with("down_auto", fmt::speed(s.auto_download_limit))
+        .with("up_auto", fmt::speed(s.auto_upload_limit))
 }
 
 fn error(msg: &str) -> Json {

@@ -1250,8 +1250,11 @@
     setText("st-dht", T("BarDht", { count: s.dht }));
     // the global limit in brackets while one is set
     const limit = (rate, l) => rate + (l ? " [" + l + "]" : "");
-    setText("st-down", T("BarDown", { rate: limit(s.down, s.down_limit), total: s.down_total }));
-    setText("st-up", T("BarUp", { rate: limit(s.up, s.up_limit), total: s.up_total }));
+    // keep ping low's cap, while it is below the global limit
+    const bar = (key, rate, l, cap, total) =>
+      cap ? T(key + "Auto", { rate: rate, cap: cap, total: total }) : T(key, { rate: limit(rate, l), total: total });
+    setText("st-down", bar("BarDown", s.down, s.down_limit, s.down_auto, s.down_total));
+    setText("st-up", bar("BarUp", s.up, s.up_limit, s.up_auto, s.up_total));
   }
   /// nox's update check found a newer PaTorrent ({version, url}; undefined: none, or hosted):
   /// a link to its release page in the status bar.

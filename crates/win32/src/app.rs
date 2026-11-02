@@ -39,7 +39,7 @@ use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
-use patorrent_frontend::status::{Category, status_icon};
+use patorrent_frontend::status::{self, Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
 use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
@@ -2504,12 +2504,8 @@ unsafe fn update_status_bar() {
             Some(sched) => format!("{net} | {sched}"),
             None => net.to_owned(),
         };
-        let parts = [
-            net,
-            tr!(BarDht, count = s.dht_nodes),
-            tr!(BarDown, rate = fmt::speed_always(s.download_rate), total = fmt::size(s.recv_payload_bytes)),
-            tr!(BarUp, rate = fmt::speed_always(s.upload_rate), total = fmt::size(s.sent_payload_bytes)),
-        ];
+        let [down, up] = status::bar_rates(s);
+        let parts = [net, tr!(BarDht, count = s.dht_nodes), down, up];
         let tip = tr!(
             TrayTip,
             version = BUILD,

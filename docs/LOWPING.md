@@ -1,6 +1,6 @@
 # Keep ping low (D49)
 
-Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109 and approved the rest as proposed on 2026-11-02_123805_1793619485 (Q1 the slices in this order, Q2 off by default, Q6 the 25 ms uTP target while on). Approved; slice 1 is next. The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
+Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109 and approved the rest as proposed on 2026-11-02_123805_1793619485 (Q1 the slices in this order, Q2 off by default, Q6 the 25 ms uTP target while on). Approved. Slice 1 is in 1.1.29 (2026-11-02_130357_1793621037); what it left out is under "Slice 1 status" below. The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
 
 ## Why ping rises
 
@@ -99,6 +99,12 @@ Medium to large, in slices, each a patch version (D37):
 1. The "Global Rate Limit Options" group (overhead, uTP, user interaction), then the cap plumbing, the controller for both directions, the status bar and Logger texts, and the probes with the fallback hosts on Windows (most gamers).
 2. Probes on Linux and macOS.
 3. The uTP signal, as a second signal and the FreeBSD one.
+
+## Slice 1 status (1.1.29, 2026-11-02_130357_1793621037)
+
+- **Done:** the settings (`auto_rate_limit`, `auto_limit_delay_ms`, `auto_limit_probe_hosts`, `rate_limit_ip_overhead`, `rate_limit_utp`; remote protocol 12), the Bandwidth page's group in all three frontends, the probes on Windows (`net::probe`: TTL search, direct echoes or expired ones from a router that ignores its own, the fallback hosts each against its own idle round trip), the controller for both directions (`engine::auto_limit`), the 25 ms uTP target, the status bar's "(auto ...)" in both GUIs and the Web UI, and Logger lines. Checked on this PC: the first router past the line found at hop 2, 1-2 ms round trips.
+- **Changed while building:** a new target starts with four seconds at half the current rate, so the idle round trip shows even when the line is already full; and a cut waits while the queue from the last cut is still draining, so a deep modem buffer does not drive the caps to the floor (the Tixati lesson). The automatic caps count what the global limits count: the measured feedback makes up for the headers, and the transport overhead box decides whether they are counted.
+- **Left out:** "Stop transfers on user interaction". 2.2.1 stores it as `sched_interaction` among its scheduler keys (found in the unpacked exe), off by default, and nothing online says what it does; the owner's copy should show it before it is built. Also not yet: the per-network memory of the caps (keyed by the gateway's hardware address), the status bar tooltip saying why, and the lab VM test with a shaped, bloated uplink.
 
 ## Questions for the owner
 

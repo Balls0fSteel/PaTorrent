@@ -506,10 +506,15 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 
 ## Engine networking and protocol follow-ups
 
-- **Low ping while seeding** (owner's question 2026-11-02_111330_1793614410): proposed as
-  [LOWPING.md](LOWPING.md), D49 (2026-11-02_111726_1793614646); no game list.
-- **2.2.1 Bandwidth gap:** its "Global Rate Limit Options" group comes with D49 (owner, 2026-11-02_112509_1793615109;
-  [LOWPING.md](LOWPING.md)).
+- **Keep ping low** (D49, [LOWPING.md](LOWPING.md)): slice 1 in 1.1.29 (2026-11-02_130357_1793621037).
+  Open: slice 2 (Linux and macOS probes: unprivileged ICMP sockets, `ping_group_range`,
+  `IP_RECVERR`) and slice 3 (the uTP delay signal, FreeBSD's only one); the per-network memory
+  of the caps; the status bar tooltip; the Xubuntu VM test with `tc` shaping a bloated uplink,
+  then the owner's line with a game.
+- **2.2.1's "Stop transfers on user interaction"** (`sched_interaction`, a scheduler key, off by
+  default): the last box of the Bandwidth group, not built. Nothing online documents it; try it
+  in the owner's 2.2.1 (does it stop or limit, after how long idle, with the scheduler on only?)
+  before building it (input idle time: Win32 `GetLastInputInfo`).
 - Proxies: real Dante/Squid/Tor/ssh-D/3proxy runs; HTTPS tracker/web-seed TLS
   over tunnels, IPv6 proxy/relay and incoming uTP over relay remain untested.
   `proxy_send_host_in_connect` (not in 2.0.11) now defaults to true (SEC-15);

@@ -461,6 +461,8 @@ wire_struct!(SessionStats {
     disk_read_ops,
     disk_cache_hits,
     read_cache_bytes,
+    auto_upload_limit,
+    auto_download_limit,
 });
 wire_struct!(PeerInfo {
     ip,
@@ -498,6 +500,11 @@ wire_struct!(Settings {
     dht_bootstrap_nodes,
     download_rate_limit,
     upload_rate_limit,
+    rate_limit_ip_overhead,
+    rate_limit_utp,
+    auto_rate_limit,
+    auto_limit_delay_ms,
+    auto_limit_probe_hosts,
     active_downloads,
     active_seeds,
     active_checking,

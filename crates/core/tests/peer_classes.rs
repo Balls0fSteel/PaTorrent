@@ -463,6 +463,56 @@ fn utp_peers_taken_out_of_the_global_class_skip_its_limit() {
 }
 
 #[test]
+fn rate_limit_utp_off_frees_utp_peers_from_the_global_limit() {
+    // µTorrent's "Apply rate limit to uTP connections" unchecked, from the start
+    let f = fixture("utp-setting");
+    let (seed, seed_dir, port) = seeder(&f, utp_only);
+    timed_download(
+        &f,
+        &[port],
+        |s| {
+            utp_only(s);
+            s.download_rate_limit = 40_000;
+            s.rate_limit_utp = false;
+        },
+        |_, _| {},
+        15,
+    );
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
+fn rate_limit_utp_off_applies_to_connected_peers() {
+    // unchecked while the uTP peer downloads at 20 kB/s (which would take a minute): the peer
+    // leaves the global class at once
+    let f = fixture("utp-setting-live");
+    let (seed, seed_dir, port) = seeder(&f, utp_only);
+    let cfg = |s: &mut Settings| {
+        utp_only(s);
+        s.download_rate_limit = 20_000;
+    };
+    timed_download(
+        &f,
+        &[port],
+        cfg,
+        |h, _| {
+            let h = h.clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(3));
+                let mut s = settings();
+                cfg(&mut s);
+                s.rate_limit_utp = false;
+                h.apply_settings(s);
+            });
+        },
+        20,
+    );
+    seed.shutdown();
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
+#[test]
 fn local_class_peers_skip_the_global_limit() {
     // libtorrent's default filter: loopback in the local class only, outside the global limit
     let f = fixture("local");
@@ -597,4 +647,25 @@ fn local_class_peers_are_unchoked_outside_the_unchoke_slots() {
     }
     seed.shutdown();
     let _ = std::fs::remove_dir_all(dir);
+}
+
+#[test]
+#[ignore = "pings the network"]
+fn keep_ping_low_finds_the_router() {
+    // `cargo test -p patorrent-core --test peer_classes keep_ping_low -- --ignored --nocapture`
+    let ses = start_with(|s| s.auto_rate_limit = true);
+    let mut w = Watch::new(ses.handle());
+    let found = wait(&mut w, 20, "the probe target", |a| match a {
+        Alert::Log { id: None, message } if message.starts_with("Keep ping low: ") => Some(message.clone()),
+        _ => None,
+    });
+    println!("{found}");
+    assert!(found.contains("pinging"), "{found}");
+    let mut s = settings();
+    s.auto_rate_limit = false;
+    ses.handle().apply_settings(s);
+    wait(&mut w, 5, "off", |a| {
+        matches!(a, Alert::Log { id: None, message } if message == "Keep ping low: off").then_some(())
+    });
+    ses.shutdown();
 }

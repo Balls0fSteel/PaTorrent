@@ -4,7 +4,7 @@
 //! `AUTO_MANAGED`. µTorrent distinguishes them, so frontends track the user's intent
 //! (`user_paused`) and pass it in. It will be persisted with the torrent in `core::store` (Phase 2).
 
-use patorrent_core::{TorrentFlags, TorrentState, TorrentStatus};
+use patorrent_core::{SessionStats, TorrentFlags, TorrentState, TorrentStatus};
 
 use crate::icons::StateIcon;
 use crate::{fmt, tr};
@@ -14,6 +14,23 @@ use crate::{fmt, tr};
 fn checking(st: &TorrentStatus) -> bool {
     matches!(st.state, TorrentState::CheckingFiles | TorrentState::CheckingResumeData)
         && (!st.flags.contains(TorrentFlags::PAUSED) || st.flags.contains(TorrentFlags::AUTO_MANAGED))
+}
+
+/// The status bar's download and upload parts, with Keep ping low's cap while it limits a
+/// direction (D49).
+pub fn bar_rates(s: &SessionStats) -> [String; 2] {
+    let down = (fmt::speed_always(s.download_rate), fmt::size(s.recv_payload_bytes));
+    let up = (fmt::speed_always(s.upload_rate), fmt::size(s.sent_payload_bytes));
+    [
+        match s.auto_download_limit {
+            0 => tr!(BarDown, rate = down.0, total = down.1),
+            cap => tr!(BarDownAuto, rate = down.0, cap = fmt::speed_always(cap), total = down.1),
+        },
+        match s.auto_upload_limit {
+            0 => tr!(BarUp, rate = up.0, total = up.1),
+            cap => tr!(BarUpAuto, rate = up.0, cap = fmt::speed_always(cap), total = up.1),
+        },
+    ]
 }
 
 /// The text shown in the Status column.

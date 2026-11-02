@@ -13,6 +13,7 @@
 
 //! The real network engine (PLAN.md Phase 2).
 
+mod auto_limit;
 mod dht;
 mod external_ip;
 mod ip_filter;
@@ -428,6 +429,8 @@ pub(crate) struct Engine {
     /// The peer classes and the filters that assign them (libtorrent `m_classes`,
     /// `m_peer_class_filter`, `m_peer_class_type_filter`).
     peer_classes: peer_class::PeerClasses,
+    /// Keep ping low (D49), while `auto_rate_limit` is on.
+    auto_limit: Option<auto_limit::AutoLimit>,
     network: listen::NetworkState,
     /// Web seed connections (BEP 19 / BEP 17).
     web: web_seed::WebConns,
@@ -603,7 +606,8 @@ impl Engine {
                 privileged: settings.no_connect_privileged_ports,
                 ..ip_filter::Filters::default()
             },
-            peer_classes: peer_class::PeerClasses::default(),
+            peer_classes: peer_class::PeerClasses::new(settings.rate_limit_utp),
+            auto_limit: None,
             network,
             web: web_seed::WebConns::default(),
             proxy: proxy::ProxyState::default(),
@@ -1226,6 +1230,7 @@ impl Engine {
             if n > 0 {
                 p.last_receive = Instant::now();
                 self.use_quota(slot, peer_class::DOWNLOAD, n);
+                self.use_ip_overhead(slot, n);
                 let payload = self.process_messages(slot);
                 let protocol = (n as u64).saturating_sub(payload);
                 self.stat.received(0, protocol);
@@ -1278,6 +1283,7 @@ impl Engine {
             Err(e) => p.close(format!("write error: {e}"), false),
         }
         self.use_quota(slot, peer_class::UPLOAD, sent);
+        self.use_ip_overhead(slot, sent);
         self.pump_uploads(slot);
     }
 
@@ -1703,7 +1709,11 @@ impl Engine {
         let buffers_changed = s.send_socket_buffer_size != self.settings.send_socket_buffer_size
             || s.recv_socket_buffer_size != self.settings.recv_socket_buffer_size;
         let privileged = s.no_connect_privileged_ports;
+        let utp_limited_changed = s.rate_limit_utp != self.settings.rate_limit_utp;
         self.settings = s;
+        if utp_limited_changed {
+            self.apply_rate_limit_utp();
+        }
         self.set_privileged_ports(privileged);
         if buffers_changed {
             self.update_socket_buffer_size();
@@ -3168,6 +3178,7 @@ impl Engine {
         self.last_tick = now;
         self.stat.tick(dt);
         self.update_mixed_mode();
+        self.update_auto_limit(now);
         self.trackers.tick(self.poll.registry(), now);
         self.apply_tracker_results();
         {
@@ -3851,6 +3862,8 @@ impl Engine {
             disk_read_ops: disk.read_ops,
             disk_cache_hits: disk.cache_hits,
             read_cache_bytes: disk.cache_bytes,
+            auto_upload_limit: self.auto_caps()[peer_class::UPLOAD],
+            auto_download_limit: self.auto_caps()[peer_class::DOWNLOAD],
             ..SessionStats::default()
         };
         st.num_torrents = (self.slots.len() - self.free_slots.len()) as u32;

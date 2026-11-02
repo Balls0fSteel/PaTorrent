@@ -252,9 +252,6 @@ impl PeerClassSet {
         self.iter().any(|x| x == c)
     }
 
-    // ported with libtorrent's set; no caller shrinks a set yet (a torrent's own class is its
-    // pair of buckets here, not a pool entry it would drop)
-    #[allow(dead_code)]
     pub fn remove_class(&mut self, pool: &mut PeerClassPool, c: PeerClassId) {
         let Some(idx) = self.iter().position(|x| x == c) else { return };
         let last = self.size as usize - 1;
@@ -370,14 +367,23 @@ pub(super) struct PeerClasses {
     pub type_filter: PeerClassTypeFilter,
 }
 
-impl Default for PeerClasses {
-    fn default() -> PeerClasses {
-        PeerClasses {
-            pool: PeerClassPool::with_defaults(),
-            filter: default_peer_class_filter(),
-            type_filter: default_peer_class_type_filter(),
+impl PeerClasses {
+    /// The default classes and filters; without `rate_limit_utp`, uTP sockets never join the
+    /// global class.
+    pub fn new(rate_limit_utp: bool) -> PeerClasses {
+        let mut type_filter = default_peer_class_type_filter();
+        if !rate_limit_utp {
+            type_filter.disallow(SocketType::Utp, PeerClassId::GLOBAL);
         }
+        PeerClasses { pool: PeerClassPool::with_defaults(), filter: default_peer_class_filter(), type_filter }
     }
+}
+
+/// libtorrent `trancieve_ip_packet`: the header bytes of moving `bytes` over TCP (or uTP), one
+/// IP and TCP (or UDP and uTP) header per 1500-byte packet and one for its ACK.
+fn ip_overhead(bytes: usize, ipv6: bool, utp: bool) -> usize {
+    let header = if ipv6 { 40 } else { 20 } + if utp { 8 + 20 } else { 20 };
+    bytes.div_ceil(1500 - header).max(1) * header
 }
 
 /// A torrent's own class: its pair of buckets (libtorrent `torrent::m_peer_class`, created on
@@ -592,6 +598,47 @@ impl Engine {
                 if let Some(pc) = self.peer_classes.pool.at_mut(c) {
                     pc.channel[channel].set_limit(limit);
                 }
+            }
+        }
+    }
+
+    /// libtorrent 1.x `rate_limit_ip_overhead`: the headers of `bytes` moved by peer `slot`
+    /// are taken from the global class's quota in both directions (the packets one way, the
+    /// ACKs the other), when the peer is in that class.
+    pub(super) fn use_ip_overhead(&mut self, slot: usize, bytes: usize) {
+        if !self.settings.rate_limit_ip_overhead || bytes == 0 {
+            return;
+        }
+        let Some(p) = self.peers.get(slot) else { return };
+        if !p.classes.has_class(PeerClassId::GLOBAL) {
+            return;
+        }
+        let overhead = ip_overhead(bytes, p.addr.is_ipv6(), p.sock.is_utp());
+        self.upload_bucket.consume(overhead);
+        self.download_bucket.consume(overhead);
+    }
+
+    /// `rate_limit_utp` changed: uTP sockets join the global class or stop joining it, and the
+    /// uTP peers already connected follow (libtorrent's filters only apply to new connections;
+    /// µTorrent's checkbox applies at once).
+    pub(super) fn apply_rate_limit_utp(&mut self) {
+        let limit = self.settings.rate_limit_utp;
+        let pc = &mut self.peer_classes;
+        if limit {
+            pc.type_filter.allow(SocketType::Utp, PeerClassId::GLOBAL);
+        } else {
+            pc.type_filter.disallow(SocketType::Utp, PeerClassId::GLOBAL);
+        }
+        for (_, p) in self.peers.iter_mut() {
+            if !p.sock.is_utp() {
+                continue;
+            }
+            let mask = pc.type_filter.apply(SocketType::Utp, pc.filter.access(p.addr.ip()));
+            let wanted = mask & PeerClassId::GLOBAL.mask() != 0;
+            if wanted && !p.classes.has_class(PeerClassId::GLOBAL) {
+                p.classes.add_class(&mut pc.pool, PeerClassId::GLOBAL);
+            } else if !wanted && p.classes.has_class(PeerClassId::GLOBAL) {
+                p.classes.remove_class(&mut pc.pool, PeerClassId::GLOBAL);
             }
         }
     }
@@ -873,6 +920,26 @@ mod tests {
         assert_eq!(peer_proportional_limits([[1, 1], [9, 9]], [1000, 1000]), [5000, 30000]);
         // per channel
         assert_eq!(peer_proportional_limits([[2, 0], [3, 0]], [100_000, 100_000]), [160_000, 0]);
+    }
+
+    #[test]
+    fn ip_overhead_per_packet_and_ack() {
+        // one 40-byte TCP/IPv4 header per 1460 bytes
+        assert_eq!(ip_overhead(1, false, false), 40);
+        assert_eq!(ip_overhead(1460, false, false), 40);
+        assert_eq!(ip_overhead(1461, false, false), 80);
+        assert_eq!(ip_overhead(16384, true, false), 12 * 60);
+        // UDP, IP and uTP headers
+        assert_eq!(ip_overhead(1452, false, true), 48);
+        assert_eq!(ip_overhead(1453, false, true), 96);
+    }
+
+    #[test]
+    fn utp_outside_the_global_class() {
+        let t = PeerClasses::new(false).type_filter;
+        assert_eq!(t.apply(SocketType::Utp, 1), 0);
+        assert_eq!(t.apply(SocketType::Tcp, 1), 0b11);
+        assert_eq!(PeerClasses::new(true).type_filter, default_peer_class_type_filter());
     }
 
     #[test]

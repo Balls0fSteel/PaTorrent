@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_130357_1793621037: Version 1.1.29: keep ping low, slice 1 (D49)
+
+- **Bandwidth page:** 2.2.1's "Global Rate Limit Options" group in all three frontends, with "Apply rate limit to transport overhead" (libtorrent 1.x's `rate_limit_ip_overhead`, ported; off), "Apply rate limit to uTP connections" (`rate_limit_utp`, on; switching it moves connected uTP peers too) and "Keep ping low (limit speeds automatically)" (`auto_rate_limit`, off). Defaults from the owner's 2.2.1 `settings.dat` and screenshot. Advanced: `auto_limit_delay_ms` (15), `auto_limit_probe_hosts`. Remote protocol 12.
+- **Engine:** `net::probe` finds the first router past the line (TTL 1-6) and pings it four times a second on its own thread (Windows `IcmpSendEcho2Ex` / `Icmp6SendEcho2`; elsewhere a Logger line says pings are not available yet), or the fallback hosts. `engine::auto_limit` caps each direction from the queue (median of five round trips above the three-minute minimum): 80% / 75% of its rate when the queue passes the allowance and the rate is near its cap, +5% a second when it clears, floors 10 kB/s or 5% of the peak. Added while building: a four-second half-rate start on a new target, and no further cuts while the queue drains. uTP's target is 25 ms while on. Status bars show "U: ... (auto 450 kB/s)".
+- **Not built:** "Stop transfers on user interaction" (2.2.1's `sched_interaction`; its behaviour is undocumented, to try in the owner's copy), the per-network memory, the status bar tooltip; Linux and macOS pings are slice 2.
+- **Tests:** controller simulation against a bloated line, meter, probe search and fallback with a fake route, overhead estimate, and two swarm tests for the uTP box (from the start and while connected). Live on this PC: router at hop 2, 1-2 ms. The 34 translations were written by subagents and checked by the language tests.
+
 ## 2026-11-02_123805_1793619485: Keep ping low approved (D49)
 
 - **Owner:** "Approve as proposed": Q1 the slices in the proposed order (the Global Rate Limit Options group, the controller and Windows probes; then Linux and macOS probes; then the uTP signal), Q2 off by default, Q6 `utp_target_delay` 25 ms while on. D49 moved to the active decisions; LOWPING.md marked approved. D49 builds the shared controller that D48 part 4 would reuse.

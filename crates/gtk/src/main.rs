@@ -15,6 +15,8 @@ mod app;
 #[cfg(unix)]
 mod canvas;
 #[cfg(unix)]
+mod closing;
+#[cfg(unix)]
 mod create;
 #[cfg(unix)]
 mod detail;

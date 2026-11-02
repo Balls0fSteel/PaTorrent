@@ -140,6 +140,8 @@ thread_local! {
     static START_MINIMIZED: Cell<bool> = const { Cell::new(false) };
     /// Quitting: the window closes instead of going into the tray.
     static QUITTING: Cell<bool> = const { Cell::new(false) };
+    /// The desktop session is ending (`query-end`): the closing window shows at once.
+    static LOGOUT: Cell<bool> = const { Cell::new(false) };
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     /// Torrents from the command line that came before the window (a remote window's, while
     /// it connects): opened once it is built.
@@ -221,6 +223,23 @@ pub fn run() -> ExitCode {
     }
     let app = gtk::Application::builder().application_id(APP_ID).flags(flags).build();
     app.connect_startup(startup);
+    // A logout asks first (`query-end`, through the session manager or the portal): quit as
+    // File > Exit does, and the closing window holds the logout up until the state is saved
+    // (D47). `register-session` is on by itself from GTK 4.20.
+    app.set_register_session(true);
+    app.connect_query_end(|_| {
+        LOGOUT.with(|l| l.set(true));
+        quit_app();
+    });
+    // A plain SIGTERM (systemd ending the session or the unit, `kill`) or Ctrl+C in a terminal
+    // quits the same way instead of dying with the resume data unsaved. 15 and 2 on Linux,
+    // the BSDs and macOS.
+    for signal in [15, 2] {
+        glib::unix_signal_add_local(signal, || {
+            quit_app();
+            glib::ControlFlow::Break
+        });
+    }
     app.connect_activate(move |app| {
         if let Some(w) = app.active_window() {
             w.present();
@@ -1161,7 +1180,8 @@ fn apply_integration(o: &Options) {
     }
 }
 
-/// Saves the layout, then stops the engine (it saves its state).
+/// Saves the layout, then stops the engine (it saves its state; D47's closing window shows what
+/// it waits for).
 fn shutdown() {
     let Some(ui) = ui() else { return };
     let (layout, sort, sidebar) = (ui.list.layout(), ui.list.sort(), ui.paned.position());
@@ -1185,7 +1205,11 @@ fn shutdown() {
     }
     app.handle.clear_alert_notify();
     if let Some(s) = app.session.take() {
-        s.shutdown();
+        // behind the closing window when it takes long; the application lives until it is done
+        match app.window.application() {
+            Some(gtk_app) => crate::closing::start(&gtk_app, s.begin_shutdown(), LOGOUT.with(Cell::get)),
+            None => s.shutdown(),
+        }
     }
     UI.with(|u| u.borrow_mut().take());
 }

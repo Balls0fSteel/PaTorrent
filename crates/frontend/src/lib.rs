@@ -39,6 +39,7 @@ pub const NAME_BUILD: &str = concat!("PaTorrent ", env!("PATORRENT_BUILD_VERSION
 pub mod actions;
 pub mod add;
 pub mod auto_shutdown;
+pub mod closing;
 pub mod columns;
 pub mod create;
 pub mod detail;

@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_092152_1793607712: The closing window in the GTK GUI (1.1.28, D47)
+
+- **Owner's request:** build the GTK part.
+- **frontend:** new `closing` module with the window's texts and rules (step, rows, the bar's fraction, what Quit Now gives up, when it is offered, when the window can go); the Win32 window now uses it, and its tests moved there.
+- **GTK:** new `closing` module: `shutdown()` hands `Session::begin_shutdown` to it; it holds the application, inhibits logout and suspend (reason `EndSessionSaving`), shows "PaTorrent is closing" after a second (at once after `query-end`) with the step, a scrollable grid of moves (names cut at the end, folders in the middle, tooltips), one bar (pulsing for steps it cannot measure), the time and Quit Now (also the close button), which asks in an `AlertDialog`. `register-session` and `query-end` quit as File > Exit does; so do SIGTERM and SIGINT, which killed the GUI before with the resume data unsaved.
+- **Run on Linux** (Xubuntu VM, GTK 4.22, debug build; `tools/closing-test`, new): real moves to a loop-mounted filesystem with reads throttled to 25 MB/s. SIGTERM brought the window up with one move running and one waiting; left alone, the moves finished and the app ended cleanly; Quit Now listed three moves, deleted the partial copy, kept the sources and exited 2.2 s after the click; a restart found every torrent seeding. Xfce's portal refuses logout inhibits, so an Xfce logout does not wait (BACKLOG). A first try with a 200 MB memory cap got the debug build OOM-killed in the scope: the sources were intact and only a partial copy was left at the destination, as a crash should leave it.
+- **Checked:** all workspace tests without GTK here, GTK's 28 tests on the VM, clippy (core for Linux and GTK with all targets) and fmt.
+
 ## 2026-11-02_090224_1793606544: The closing window lists many moves (1.1.27, D47 amended)
 
 - **Owner's question:** what if 15-20 torrents are stuck moving at exit? The moves were one static text, which would overflow, and the Quit Now question named every move.

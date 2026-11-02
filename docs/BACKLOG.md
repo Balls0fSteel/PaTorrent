@@ -698,8 +698,15 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   destination) that also shows queued moves, not only running ones; the Quit Now question
   names two moves and counts the rest. Seen in the demo with 20 moves in English and
   Hungarian; the Yes/No buttons of the question follow the Windows language, not PaTorrent's.
-- Still open: GTK has neither the closing window nor session-end handling (its exit blocks
-  with the window visible). A relaunch waiting during an exit shows nothing of its own. Moves
+- **GTK, 1.1.28 (2026-11-02_092152_1793607712):** the closing window (shared texts in `frontend::closing`), the
+  application held until the engine is done, `gtk_application_inhibit` for logout and
+  suspend, `register-session` + `query-end` and SIGTERM / SIGINT quitting cleanly. Run on the
+  Xubuntu VM with real slow moves (`tools/closing-test`): SIGTERM, the list (one running, one
+  "Waiting"), a clean exit after the moves, Quit Now (partial copy deleted, sources kept,
+  exit 2.2 s after Yes), and a restart with every torrent seeding. Xfce's portal refuses the
+  logout inhibit ("Inhibiting other than idle not supported"), so on Xfce a logout does not
+  wait; GNOME and KDE not tried. macOS's GTK build gets the window but no logout handling.
+- Still open: a relaunch waiting during an exit shows nothing of its own. Moves
   across volumes no longer use `std::fs::copy` on Unix (a chunked copy with progress), so a
   copy-on-write clone (`copy_file_range`, reflinks) is not used there; measure if it matters.
 - Owner's choice: whether the waits get a bound, e.g. a "Quit now" button after 30 s that

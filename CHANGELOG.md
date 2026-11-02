@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_123805_1793619485: Keep ping low approved (D49)
+
+- **Owner:** "Approve as proposed": Q1 the slices in the proposed order (the Global Rate Limit Options group, the controller and Windows probes; then Linux and macOS probes; then the uTP signal), Q2 off by default, Q6 `utp_target_delay` 25 ms while on. D49 moved to the active decisions; LOWPING.md marked approved. D49 builds the shared controller that D48 part 4 would reuse.
+
 ## 2026-11-02_112509_1793615109: Keep ping low: the owner's answers (D49)
 
 - **Q3:** the checkbox goes on the Bandwidth page; the Advanced table is only for what people should not touch. **Q4:** when no router past the line answers, probe an editable Advanced list, default `1.1.1.1,8.8.8.8,9.9.9.9`. **Q5:** the download is limited too, under the same checkbox. **Q7:** 2.2.1's "Global Rate Limit Options" group (transport overhead, uTP connections, stop transfers on user interaction) comes in the same change.

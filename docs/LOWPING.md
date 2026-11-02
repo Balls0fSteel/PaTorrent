@@ -1,6 +1,6 @@
-# Keep ping low (proposed D49)
+# Keep ping low (D49)
 
-Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109. A proposal, not approved; no code before the owner answers the remaining questions at the end. The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
+Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109 and approved the rest as proposed on 2026-11-02_123805_1793619485 (Q1 the slices in this order, Q2 off by default, Q6 the 25 ms uTP target while on). Approved; slice 1 is next. The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
 
 ## Why ping rises
 
@@ -46,15 +46,15 @@ The probe's delay, minus its lowest value of the last three minutes, is the queu
 - **Grow:** while the queue stays under half the allowance and our upload uses at least 75% of the cap, the cap grows 5% a second.
 - **Floors:** never below 10 kB/s or 5% of the highest rate seen on this network, so a noisy Wi-Fi or a busy sibling's upload cannot starve PaTorrent (the Tixati lesson). If the queue is high while we send little, someone else fills the line and the cap does not move.
 - **Memory:** the cap learned on a network (keyed by the gateway's hardware address where the system reports it, since many homes share `192.168.1.1`) is saved with the session state and is the starting point next time, so a restart does not begin with a burst.
-- **Shared with D48 part 4:** the same baseline-and-cap controller, fed with disk delays there and network delays here; the engine applies the lowest cap of all.
+- **Shared with D48 part 4:** the same baseline-and-cap controller, fed with disk delays there and network delays here; the engine applies the lowest cap of all. D49 is approved first, so it builds the controller and D48 part 4, if approved, reuses it.
 
 ### Download (Q5, answered: yes, under the same checkbox)
 
 The same controller on the download channel. A round trip cannot say which direction is queued, so the direction is chosen from what we do: the one near its cap is cut (both, if both are); the uTP peers' `send_delay` and `recv_delay` tell the directions apart where available. The download reacts more slowly, because the senders' TCP needs a few round trips to notice that we read more slowly, so its cut keeps a little more margin (75% instead of 80%).
 
-### uTP's own target (Q6)
+### uTP's own target (Q6, answered: yes)
 
-While the setting is on, `utp_target_delay` could drop from 100 ms to 25 ms, so uTP peers give way before the controller has to act. No message changes; uTP connections simply yield sooner. `PEER_ID_PREFIX` stays.
+While the setting is on, `utp_target_delay` drops from 100 ms to 25 ms (the user's own value returns when it is turned off), so uTP peers give way before the controller has to act. No message changes; uTP connections simply yield sooner. `PEER_ID_PREFIX` stays.
 
 ### What the user sees
 
@@ -102,12 +102,14 @@ Medium to large, in slices, each a patch version (D37):
 
 ## Questions for the owner
 
-- **Q1.** Approve, with the slices in this order?
-- **Q2.** Off by default (proposed)?
+All answered.
+
+- **Q1.** Answered: approved, with the slices in this order.
+- **Q2.** Answered: off by default.
 - **Q3.** Answered: the Bandwidth page; the Advanced table only holds what people should not touch.
 - **Q4.** Answered: fallback hosts in the Advanced table, default `1.1.1.1,8.8.8.8,9.9.9.9`, editable.
 - **Q5.** Answered: the download too, for gaming (under the same checkbox).
-- **Q6.** Lower uTP's target delay to 25 ms while the setting is on?
+- **Q6.** Answered: yes, uTP's target delay is 25 ms while the setting is on.
 - **Q7.** Answered: yes, 2.2.1's "Global Rate Limit Options" group comes in the same change.
 
 ## Sources

@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_211916_1793650756: Version 1.1.32: keep ping low against a bloated line (D49)
+
+- **The test:** `tools/bloated-line/line.sh` builds a 4 / 8 Mbit/s line with half a second of buffer in network namespaces on the Xubuntu VM; `crates/core/tests/bloated_line.rs` (ignored) runs a four-session swarm and the client, a minute without keep ping low, then three with it. Ping to the first router past the line: ~480 ms without (TCP; uTP's own 108 ms), 9-10 ms median with, at 92% / 80% of the line's TCP upload / download rate and 90% / 83% with uTP. Results in `docs/LOWPING.md`.
+- **Found and fixed:** the idle round trip was learned from the full line (the router is found before any rate is measured, so the half-rate learning did nothing; it now waits for the first measured second and lasts until the lowest round trip stops falling, 4-20 s); a cut could raise the cap (the rate counts what the send buffers took); the 100 ms bandwidth tick sent bursts that alone queued on a slow line (25 ms while keep ping low caps).
+- **Byte counting:** under a rate limit the session's (and torrents' and peers') protocol bytes counted the part of a block a write or read ended in, then the whole block again as payload, so totals and total rates ran about half again above the line. `PeerConn::protocol_bytes` carries the difference; the totals now match the interface's bytes.
+
 ## 2026-11-02_170156_1793635316: Version 1.1.31: keep ping low, slice 3 (D49)
 
 - **The uTP signal:** uTP sockets record when they last measured their upload (`send_delay`) and download (`recv_delay`) queueing delays; `UtpManager::shared_delays` gives the lowest per direction among those measured in the last two seconds. With three or more such peers, a direction's queue is the lower of the pings' and theirs, so the uTP peers place a ping's queue in one direction; without pings they are the only signal (FreeBSD, OpenBSD, nothing answering). Logger: "uTP peers' delays in use", and the no-pings texts now say the uTP peers are used instead of "no automatic limits".

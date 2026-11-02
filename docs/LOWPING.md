@@ -1,6 +1,6 @@
 # Keep ping low (D49)
 
-Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109 and approved the rest as proposed on 2026-11-02_123805_1793619485 (Q1 the slices in this order, Q2 off by default, Q6 the 25 ms uTP target while on). Approved. Slice 1 is in 1.1.29 (2026-11-02_130357_1793621037); what it left out is under "Slice 1 status" below. Slice 2 is in 1.1.30 (2026-11-02_162406_1793633046), under "Slice 2 status"; slice 3 in 1.1.31 (2026-11-02_170156_1793635316), under "Slice 3 status". The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
+Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109 and approved the rest as proposed on 2026-11-02_123805_1793619485 (Q1 the slices in this order, Q2 off by default, Q6 the 25 ms uTP target while on). Approved. Slice 1 is in 1.1.29 (2026-11-02_130357_1793621037); what it left out is under "Slice 1 status" below. Slice 2 is in 1.1.30 (2026-11-02_162406_1793633046), under "Slice 2 status"; slice 3 in 1.1.31 (2026-11-02_170156_1793635316), under "Slice 3 status"; the bloated-line test and its fixes in 1.1.32 (2026-11-02_211916_1793650756). The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
 
 ## Why ping rises
 
@@ -116,7 +116,25 @@ Medium to large, in slices, each a patch version (D37):
 
 - **Done:** each uTP socket now records when it last measured `send_delay` (from the peer's acknowledgements of our data) and `recv_delay` (from the timestamps of any packet the peer sends, so an upload's acknowledgements count for the download too). `UtpManager::shared_delays` gives, per direction, the lowest delay among the sockets that measured one in the last two seconds and how many did; with at least three, that direction's queue is the lower of the pings' and the uTP peers', so the uTP peers tell which direction a ping's queue is in, and without pings (FreeBSD, OpenBSD, or nothing answering) they are the only signal. The Logger says "uTP peers' delays in use" once.
 - **Checked:** a simulated uTP transfer (the sender measures both directions, the receiver the download only); the combining rule; three uTP seeds on loopback reach the Logger line here (with pings) and on the FreeBSD VM (15.1, uTP only).
-- **Still open:** the queue-and-cut behaviour against a real bloated line (the `tc` test), for both signals.
+- **Still open:** the queue-and-cut behaviour against a real bloated line (the `tc` test), for both signals. Done in 1.1.32, below.
+
+## The bloated-line test (1.1.32, 2026-11-02_211916_1793650756)
+
+`tools/bloated-line/line.sh` builds a line in Linux network namespaces on the Xubuntu VM: home (192.168.77.2) → a modem whose upload is a 4 Mbit/s token bucket with half a second of buffer → the ISP router 84.1.1.1 (hop 2, past the line) whose 8 Mbit/s download to the modem has the same → four swarm sessions at 203.0.113.10. Idle round trip 8.5 ms. `crates/core/tests/bloated_line.rs` (ignored) runs the swarm and the client; the client spends a minute without keep ping low, then three with it, and prints each second's rates, caps, its own `ping` to the router and the bytes on the home interface.
+
+| Run | Without: rate, ping median / 90% | With: rate, ping median / 90% |
+|---|---|---|
+| Upload, TCP | 479 kB/s, 478 / 508 ms | 440 kB/s (92%), 9 / 69 ms |
+| Download, TCP | 948 kB/s, 473 / 512 ms | 756 kB/s (80%), 9 / 23 ms |
+| Upload, uTP | 475 kB/s, 108 / 109 ms | 429 kB/s (90%), 9 / 30 ms |
+| Download, uTP | 952 kB/s, 108 / 108 ms | 788 kB/s (83%), 10 / 46 ms |
+
+(Each phase's last two thirds. uTP alone holds the queue at its 100 ms target; keep ping low brings it to idle.) The first runs failed, and found four faults, fixed in 1.1.32:
+
+- **The idle round trip was learned from a full line.** The router is found before the first one-second step measured a rate, so the half-rate learning saw a rate of 0 and did nothing; the idle value then came from a 400 ms line, and the queue looked like noise. Learning now waits for the first step's rate.
+- **Four seconds of half rate did not drain the line.** The system's send buffers (Linux sizes them to the bloated round trip) hold seconds of data that still leave at the line's rate. Learning now lasts until the lowest round trip stops falling (at least 4 s, at most 20 s).
+- **The session counted upload and download bytes half again too high under a rate limit.** Payload counts per whole 16 KiB block, and a write or read that ended inside one counted its part as protocol, then the whole block as payload once it finished. `PeerConn::protocol_bytes` now carries the difference, so the totals match the bytes on the interface (they affected the session and torrent byte counts and rates everywhere, not only this feature). Separately, a cut is never above the current cap: the rate counts what the send buffers took, which can exceed the cap for a while.
+- **The 100 ms bandwidth tick sent each tenth of a second's quota at once**, a queue on a slow line by itself: the cap could not pass ~80% of the line. While keep ping low holds a cap the tick is 25 ms.
 
 ## Questions for the owner
 

@@ -512,9 +512,12 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   `keep_ping_low_finds_the_router` (all `--ignored`); check `ping_group_range` on Debian, Alpine
   and for nox's system user.
   Slice 3 (the uTP delay signal, FreeBSD's only one) in 1.1.31 (2026-11-02_170156_1793635316, run on the FreeBSD VM).
-  Open: the per-network memory
-  of the caps; the status bar tooltip; the Xubuntu VM test with `tc` shaping a bloated uplink,
-  then the owner's line with a game.
+  The bloated-line test (`tools/bloated-line/line.sh`, Xubuntu VM) passed in 1.1.32
+  (2026-11-02_211916_1793650756): ping ~480 ms to 9 ms at 80-92% of the line, TCP and uTP.
+  Open: the owner's line with a game; the per-network memory of the caps; the status bar
+  tooltip; a run with both directions busy at once (the test drives one); the upload's
+  90% ping (69 ms) comes from the cap probing past the line, a gentler growth near the last cut
+  could lower it.
 - **2.2.1's "Stop transfers on user interaction"** (`sched_interaction`, a scheduler key, off by
   default): the last box of the Bandwidth group, not built. Nothing online documents it; try it
   in the owner's 2.2.1 (does it stop or limit, after how long idle, with the scheduler on only?)

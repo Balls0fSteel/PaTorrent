@@ -35,8 +35,11 @@ const STEP: Duration = Duration::from_secs(1);
 /// Seconds after a cut before the next one: the queue needs time to drain.
 const HOLD_AFTER_CUT: u32 = 2;
 /// Seconds of half rate when a new target is found, so its idle round trip is seen even while
-/// the line is full.
+/// the line is full: at least [`LEARN_SECS`], then until the lowest round trip stops falling (the
+/// system's send buffers can hold seconds of data that still drain at the line's rate), at most
+/// [`LEARN_MAX_SECS`].
 const LEARN_SECS: u32 = 4;
+const LEARN_MAX_SECS: u32 = 20;
 /// The lowest cap: 10 kB/s, or 5% of the highest rate seen.
 const MIN_CAP: u32 = 10_000;
 /// The Logger hears of a cap change of more than 20%, at most once a minute.
@@ -118,6 +121,43 @@ impl QueueMeter {
         let queues: Vec<f64> = self.targets.iter().filter_map(|t| t.queue(now)).collect();
         (!queues.is_empty()).then(|| median(queues))
     }
+
+    /// The idle round trip so far, in milliseconds.
+    pub fn idle(&self) -> Option<f64> {
+        let idle: Vec<f64> = self
+            .targets
+            .iter()
+            .filter(|t| !t.window.is_empty())
+            .map(|t| t.window.iter().map(|&(_, ms)| ms).fold(f64::INFINITY, f64::min))
+            .collect();
+        (!idle.is_empty()).then(|| median(idle))
+    }
+}
+
+/// The half-rate seconds after a new target is found.
+#[derive(Default)]
+pub(super) struct Learning {
+    secs: u32,
+    /// The idle round trip a second ago.
+    idle: Option<f64>,
+    /// Seconds it has not fallen.
+    flat: u32,
+}
+
+impl Learning {
+    /// One second with `idle` the idle round trip so far; true once it is known: it stopped
+    /// falling (or there are no pings), or the time is up.
+    pub fn step(&mut self, idle: Option<f64>) -> bool {
+        self.secs += 1;
+        let fell = match (self.idle, idle) {
+            (Some(was), Some(now)) => now < was - (was * 0.05).max(1.0),
+            (None, Some(_)) => true,
+            _ => false,
+        };
+        self.flat = if fell { 0 } else { self.flat + 1 };
+        self.idle = idle.or(self.idle);
+        (self.secs >= LEARN_SECS && self.flat >= 2) || self.secs >= LEARN_MAX_SECS
+    }
 }
 
 /// One direction's cap.
@@ -150,12 +190,18 @@ impl Controller {
         self.peak = 0;
     }
 
-    /// Half the rate for a few seconds, so the idle round trip shows (a new target).
+    /// Half the rate until [`Controller::learned`], at most [`LEARN_MAX_SECS`], so the idle round
+    /// trip shows (a new target).
     pub fn learn(&mut self, rate: u32) {
         if rate > self.floor() {
             self.cap = Some(self.floor().max(rate / 2));
-            self.hold = LEARN_SECS;
+            self.hold = LEARN_MAX_SECS;
         }
+    }
+
+    /// The idle round trip is known: act again.
+    pub fn learned(&mut self) {
+        self.hold = 0;
     }
 
     /// One second: `queue` the line's queue in milliseconds (`None`: unknown), `rate` our bytes
@@ -175,7 +221,9 @@ impl Controller {
             // the queue is ours only while we move about as much as we may
             let draining = self.cut_queue.is_some_and(|q| queue < q * 0.9);
             if rate as f64 >= reference as f64 * 0.5 && rate > floor && !draining {
-                self.cap = Some(floor.max((rate as f64 * self.factor) as u32));
+                // the rate counts what the system's send buffers took, which can be more than
+                // the cap for a while: a cut never raises it
+                self.cap = Some(floor.max((rate.min(current) as f64 * self.factor) as u32));
                 self.hold = HOLD_AFTER_CUT;
                 self.cut_queue = Some(queue);
             }
@@ -208,6 +256,10 @@ pub(super) struct AutoLimit {
     logged: [(Option<u32>, Option<Instant>); 2],
     /// The Logger heard that the uTP peers' delays are in use.
     utp_logged: bool,
+    /// A new target: the next step halves the rates, once it knows them (the target is usually
+    /// found before the first step measured anything).
+    learn: bool,
+    learning: Option<Learning>,
 }
 
 impl AutoLimit {
@@ -268,6 +320,8 @@ impl Engine {
                 rate: [0; 2],
                 logged: [(None, None); 2],
                 utp_logged: false,
+                learn: false,
+                learning: None,
             });
         }
         let Some(mut a) = self.auto_limit.take() else { return };
@@ -293,8 +347,8 @@ impl Engine {
                         // a new network: its rates and idle round trip are learned afresh
                         for ch in [UPLOAD, DOWNLOAD] {
                             a.ctl[ch].forget();
-                            a.ctl[ch].learn(a.rate[ch]);
                         }
+                        a.learn = true;
                     }
                     a.target = addr;
                 }
@@ -315,7 +369,20 @@ impl Engine {
             let limits = self.user_limits();
             for ch in [UPLOAD, DOWNLOAD] {
                 a.rate[ch] = ((totals[ch] - a.totals[ch]) as f64 / elapsed).min(u32::MAX as f64) as u32;
-                a.ctl[ch].step(combine(probe, utp[ch]), allowance, a.rate[ch], limits[ch]);
+                if a.learn {
+                    a.ctl[ch].learn(a.rate[ch]);
+                } else {
+                    a.ctl[ch].step(combine(probe, utp[ch]), allowance, a.rate[ch], limits[ch]);
+                }
+            }
+            if std::mem::take(&mut a.learn) {
+                a.learning = Some(Learning::default());
+            }
+            if a.learning.as_mut().is_some_and(|l| l.step(a.meter.idle())) {
+                a.learning = None;
+                for ch in [UPLOAD, DOWNLOAD] {
+                    a.ctl[ch].learned();
+                }
             }
             a.totals = totals;
         }
@@ -477,8 +544,38 @@ mod tests {
         for _ in 0..LEARN_SECS {
             assert_eq!(c.step(Some(500.0), 15.0, 200_000, 0), Some(200_000));
         }
+        c.learned();
         assert_eq!(c.step(None, 15.0, 200_000, 0), Some(200_000));
         assert_eq!(c.step(Some(0.0), 15.0, 200_000, 0), Some(210_000));
+    }
+
+    #[test]
+    fn a_cut_never_raises_the_cap() {
+        // the send buffers took more than the cap this second
+        let mut c = Controller::new(0.8);
+        c.cap = Some(300_000);
+        c.peak = 600_000;
+        assert_eq!(c.step(Some(400.0), 15.0, 600_000, 0), Some(240_000));
+    }
+
+    #[test]
+    fn learning_lasts_until_the_line_drained() {
+        // the idle round trip falls while the buffers drain, then stays
+        let mut l = Learning::default();
+        let rtts = [480.0, 400.0, 300.0, 200.0, 100.0, 20.0, 9.0, 8.8, 8.7];
+        let done: Vec<bool> = rtts.iter().map(|&r| l.step(Some(r))).collect();
+        assert_eq!(done, [false, false, false, false, false, false, false, false, true]);
+        // an idle line: four seconds
+        let mut l = Learning::default();
+        assert!(!(0..3).any(|_| l.step(Some(8.0))));
+        assert!(l.step(Some(8.0)));
+        // no pings: four seconds too; and never more than the most
+        let mut l = Learning::default();
+        assert!(!(0..3).any(|_| l.step(None)));
+        assert!(l.step(None));
+        let mut l = Learning::default();
+        assert!(!(1..LEARN_MAX_SECS).any(|i| l.step(Some(1000.0 - i as f64 * 45.0))));
+        assert!(l.step(Some(80.0)));
     }
 
     #[test]

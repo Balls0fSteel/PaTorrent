@@ -90,6 +90,9 @@ pub(crate) struct PeerConn {
     /// Stream offset where each queued piece payload ends, with its size, so upload payload is
     /// counted when it actually leaves.
     payload_marks: VecDeque<(u64, u32)>,
+    /// Per direction (sent, received): bytes counted as protocol that turned out to be payload,
+    /// not yet taken back (see [`PeerConn::protocol_bytes`]).
+    protocol_carry: [i64; 2],
 
     pub am_choking: bool,
     pub am_interested: bool,
@@ -196,6 +199,7 @@ impl PeerConn {
             enc_pos: 0,
             send_base: 0,
             payload_marks: VecDeque::new(),
+            protocol_carry: [0; 2],
             am_choking: true,
             am_interested: false,
             peer_choking: true,
@@ -334,6 +338,18 @@ impl PeerConn {
     /// Marks that the last `len` bytes appended were piece payload.
     pub fn mark_payload(&mut self, len: u32) {
         self.payload_marks.push_back((self.send_base + self.send.len() as u64, len));
+    }
+
+    /// The protocol bytes among `raw` bytes sent (`received` false) or received, `payload` of
+    /// them counted as payload. Payload counts per whole block, so a write or read that ends
+    /// inside one counts its part of it as protocol; the one that finishes the block takes that
+    /// back from what it and the next ones would count, instead of counting it twice (the
+    /// session's byte totals ran half again above what the line carried under a rate limit).
+    pub fn protocol_bytes(&mut self, received: bool, raw: usize, payload: u64) -> u64 {
+        let carry = &mut self.protocol_carry[usize::from(received)];
+        let balance = *carry + raw as i64 - payload as i64;
+        *carry = balance.min(0);
+        balance.max(0) as u64
     }
 
     pub fn send_buffer_len(&self) -> usize {
@@ -482,5 +498,31 @@ mod tests {
         let mut got = [0u8; 100];
         remote.read_exact(&mut got).unwrap();
         assert!(got.iter().all(|&b| b == 7));
+    }
+
+    #[test]
+    fn blocks_split_across_writes_count_once() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let out = std::net::TcpStream::connect(addr).unwrap();
+        let mut p = PeerConn::new(
+            1,
+            Transport::Tcp(TcpStream::from_std(out)),
+            addr,
+            true,
+            PeerSource::TRACKER,
+            Instant::now(),
+        );
+        // a hundred piece messages (13 bytes of header, a 16 KiB block), each in two writes
+        // that split the block, as small rate-limit quotas do
+        let mut protocol = 0;
+        for _ in 0..100 {
+            protocol += p.protocol_bytes(false, 13 + 8000, 0);
+            protocol += p.protocol_bytes(false, 16384 - 8000, 16384);
+        }
+        // the first split block counts once more, not every one
+        assert_eq!(protocol, 100 * 13 + 8000);
+        // the other direction keeps its own account
+        assert_eq!(p.protocol_bytes(true, 100, 0), 100);
     }
 }

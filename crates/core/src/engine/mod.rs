@@ -96,6 +96,9 @@ const UDP_RECV_BUFFER: usize = 64 * 1024;
 const PEER_TOKEN_BASE: usize = 0x1000_0000;
 
 const BANDWIDTH_TICK: Duration = Duration::from_millis(100);
+/// The bandwidth tick while keep ping low caps a rate: each tick's quota leaves at once, and a
+/// tenth of a second of it is already a queue on a slow line.
+const BANDWIDTH_TICK_FINE: Duration = Duration::from_millis(25);
 const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 /// Adds and removals reach `resume.db` within this delay, so bulk adds rewrite it once.
 const STORE_FLUSH_DELAY: Duration = Duration::from_secs(2);
@@ -455,8 +458,9 @@ pub(crate) fn run(
         let now = Instant::now();
         let tick = Duration::from_millis(e.settings.tick_interval.max(10) as u64);
         let mut next = e.last_tick + tick;
+        let bandwidth_tick = if e.auto_caps() != [0; 2] { BANDWIDTH_TICK_FINE } else { BANDWIDTH_TICK };
         if e.bandwidth_tick_needed() {
-            next = next.min(e.last_bandwidth + BANDWIDTH_TICK);
+            next = next.min(e.last_bandwidth + bandwidth_tick);
         }
         if let Some(d) = e.dht.deadline() {
             next = next.min(d);
@@ -498,7 +502,7 @@ pub(crate) fn run(
         e.network_service(now);
         e.proxy_service(now);
         e.flush_tracker_udp();
-        if e.bandwidth_tick_needed() && now >= e.last_bandwidth + BANDWIDTH_TICK {
+        if e.bandwidth_tick_needed() && now >= e.last_bandwidth + bandwidth_tick {
             e.bandwidth_tick(now);
         }
         if now >= e.last_tick + tick {
@@ -1232,7 +1236,10 @@ impl Engine {
                 self.use_quota(slot, peer_class::DOWNLOAD, n);
                 self.use_ip_overhead(slot, n);
                 let payload = self.process_messages(slot);
-                let protocol = (n as u64).saturating_sub(payload);
+                let protocol = match self.peers.get_mut(slot) {
+                    Some(p) => p.protocol_bytes(true, n, payload),
+                    None => (n as u64).saturating_sub(payload),
+                };
                 self.stat.received(0, protocol);
                 if let Some((p, t)) = self.peer_and_torrent(slot) {
                     p.stat.received(0, protocol);
@@ -1272,7 +1279,7 @@ impl Engine {
                 if raw > 0 {
                     p.last_sent = Instant::now();
                 }
-                let protocol = raw.saturating_sub(payload) as u64;
+                let protocol = p.protocol_bytes(false, raw, payload as u64);
                 p.stat.sent(payload as u64, protocol);
                 if let Some(t) = t {
                     t.stat.get_or_insert_with(Box::default).sent(payload as u64, protocol);

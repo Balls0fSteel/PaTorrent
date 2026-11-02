@@ -1,0 +1,108 @@
+# Keep ping low (proposed D49)
+
+Written 2026-11-02_111726_1793614646. A proposal, not approved; no code before the owner answers the questions at the end. The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
+
+## Why ping rises
+
+The home line's upload is the narrowest link. When PaTorrent sends faster than the line, the packets wait in the modem's or router's queue, and every other packet waits behind them: a game's, a video call's, a DNS query's. A few hundred milliseconds of queue is common (bufferbloat). Sending a little slower than the line keeps the queue empty and the ping at its idle value, whatever program is playing. So the feature does not need to know that a game runs; it needs to notice the queue.
+
+The download direction has the same problem at the provider's end of the line. We can only steer it indirectly (by reading more slowly, so the senders' TCP backs off), with a delay.
+
+## What we have
+
+- **The cap's place:** the global peer class holds the session's `upload_rate_limit` / `download_rate_limit` (`crates/core/src/engine/peer_class.rs`), and `update_mixed_mode` already sets the tcp class's limits every tick. An automatic cap fits in the same tick.
+- **uTP already measures the queue.** Every uTP socket keeps `send_delay` and `recv_delay`: the one-way delay above that connection's lowest seen delay, per direction (LEDBAT, `crates/core/src/utp/socket.rs`). uTP slows itself when it reaches `utp_target_delay` (100 ms), which is too late for games, and TCP peers never slow down for delay.
+- **Network changes** are already noticed (the IP notifier), which is when a learned speed stops being valid.
+- Nothing pings, and no limit changes by itself.
+
+## Prior art
+
+- **Tixati** has an "auto throttle" that pings or traceroutes and aims at a target ping. Its forum shows the risks: limits that sink far below the line (one report: 150 / 300 KB/s on a 1000 / 3500 KB/s line), fixed later by averaging longer before cutting.
+- **Azureus/Vuze** had an AutoSpeed plugin of the same kind.
+- **cake-autorate** (OpenWrt) does this on the router for all traffic: several ping targets, a continuous probe stream, and one-way delay where ICMP timestamp requests (type 13) are answered, which many networks block.
+- A 2009 write-up of the method: treat the lowest latency of the last three minutes as the baseline and everything above it as queue.
+- A router with SQM (CAKE) or a working gaming QoS does all of this better and for every device; the Help text says so.
+
+## Proposal
+
+One setting, **"Keep ping low (limit the upload automatically)"**, off by default. When on, the engine learns an automatic cap and applies the lower of it and the user's own limit. The user's limit is never changed.
+
+### Signals
+
+1. **Probes (the main signal).** Four ICMP echo requests a second (about 250 bytes a second) to the first router past the home line:
+   - **Finding it:** at start, at every network change and every 30 minutes, TTL-limited echoes (TTL 1-6). The target is the first hop that answers from an address that is not private (not RFC 1918, link-local or ULA; carrier-grade NAT 100.64/10 counts as past the line). Its delay includes the line's queue and little else. Double NAT (a provider router behind ours) is skipped the same way.
+   - **Windows:** `IcmpSendEcho2Ex` / `Icmp6SendEcho2` with the TTL in `IP_OPTION_INFORMATION`; no administrator rights (as `tracert`). On a small thread of its own, so the engine thread never waits.
+   - **Linux:** unprivileged ICMP sockets (`SOCK_DGRAM`, `IPPROTO_ICMP`), allowed when the process's group is inside `net.ipv4.ping_group_range` (open by default on current systemd distributions; to verify on Debian, Alpine and for nox's system user). Time-exceeded answers through `IP_RECVERR` (to verify on ping sockets; `tracepath`'s UDP method is the fallback). Registered with the mio reactor like the IP notifier.
+   - **macOS:** `SOCK_DGRAM` ICMP sockets are open to every user; the time-exceeded path is to verify.
+   - **FreeBSD:** no unprivileged ICMP; the uTP signal only.
+   - If no hop past the line answers, the probes stop and only the uTP signal is used (Q4: or a public host).
+2. **uTP (free, no extra traffic).** The lowest `send_delay` among at least three busy uTP peers: a peer's own congestion only raises its own sample, so the minimum is the queue they all share, which is ours. The same with `recv_delay` for the download. It needs uTP peers to be busy; seeding to TCP-only peers gives nothing.
+
+The probe's delay, minus its lowest value of the last three minutes, is the queue. The median of the last five probes is used, so one late answer (routers answer pings when they have time) cuts nothing.
+
+### The controller
+
+- **Cut:** when the queue stays above the allowance (15 ms by default; an Advanced setting) for one second *and* our upload is at least half the current cap (so the queue is probably ours), the cap becomes 80% of our upload rate over the last second.
+- **Grow:** while the queue stays under half the allowance and our upload uses at least 75% of the cap, the cap grows 5% a second.
+- **Floors:** never below 10 kB/s or 5% of the highest rate seen on this network, so a noisy Wi-Fi or a busy sibling's upload cannot starve PaTorrent (the Tixati lesson). If the queue is high while we send little, someone else fills the line and the cap does not move.
+- **Memory:** the cap learned on a network (keyed by the gateway's hardware address where the system reports it, since many homes share `192.168.1.1`) is saved with the session state and is the starting point next time, so a restart does not begin with a burst.
+- **Shared with D48 part 4:** the same baseline-and-cap controller, fed with disk delays there and network delays here; the engine applies the lowest cap of all.
+
+### Download (Q5)
+
+The same controller on the download channel, fed with the probe's delay while our download is near its cap, or the uTP peers' `recv_delay`. It reacts more slowly because the senders' TCP takes a few round trips to notice. Proposed as a second checkbox, off by default, or left out.
+
+### uTP's own target (Q6)
+
+While the setting is on, `utp_target_delay` could drop from 100 ms to 25 ms, so uTP peers give way before the controller has to act. No message changes; uTP connections simply yield sooner. `PEER_ID_PREFIX` stays.
+
+### What the user sees
+
+- Bandwidth page, under the upload limit: `[ ] Keep ping low (limit the upload automatically)` (Q3 for the place).
+- While the automatic cap is below the user's limit, the status bar's upload reads "U: 412 kB/s (auto 450)" and its tooltip says why; the Web UI shows the same. The Logger notes the target hop found, and each change of the cap by more than 20% (at most one line a minute).
+- Advanced table: the allowance in ms, and an optional probe host (an address or name) for people who know better.
+
+### Not proposed
+
+- **A game list** (owner's idea, set aside): it would need a list kept up to date, a download from GitHub and scanning the running processes; the queue measurement covers every game, video calls and anything else without knowing them.
+- **Full-screen detection** (owner, D48 Q3: not wanted).
+- Shaping other programs' traffic: only a router can.
+
+## Settings, wire and scale
+
+- New `Settings` fields (PaTorrent extensions, not libtorrent names): `auto_upload_limit` (bool), `auto_download_limit` (bool), `auto_limit_delay_ms` (15), `auto_limit_probe_host` (empty). Remote protocol 12 (shared with D48 if they land together); the Web UI gets the checkbox; the qBittorrent shim has no equivalent and does not expose it.
+- No new dependencies (`windows-sys` features `Win32_NetworkManagement_IpHelper` and `Win32_Networking_WinSock` are already in core; Unix through `extern "C"` as `net/sys.rs`).
+- Per session, not per torrent: nothing is added to a torrent (D21).
+
+## Testing
+
+- **Controller:** unit tests against a simulated line (a queue drained at a fixed rate, with a game's ping through it): the cap must settle within 10-20% under the line's rate without oscillating, recover when another program's upload stops, and respect the floors.
+- **Real:** on the Xubuntu VM, `tc` shaping the uplink to a few Mbit/s with a deep `tbf` queue (bufferbloat on purpose), PaTorrent seeding to the lab's clients, a steady ping through the same link: idle ping, ping with the setting off, ping with it on, and the upload rate reached. Then the owner's own line with a game.
+- **Probes:** hop discovery on this PC (Windows), the VM (Linux), behind double NAT and with an ISP that drops TTL-expired answers.
+
+## Order and size
+
+Medium to large, in slices, each a patch version (D37):
+
+1. The cap plumbing, the controller, the status bar and Logger texts, and the probes on Windows (most gamers).
+2. Probes on Linux and macOS.
+3. The uTP signal, as a second signal and the FreeBSD one.
+4. The download direction, if Q5 says so.
+
+## Questions for the owner
+
+- **Q1.** Approve, with the slices in this order?
+- **Q2.** Off by default (proposed), shown as one checkbox?
+- **Q3.** Where: the Bandwidth page under the upload limit (proposed; one line more than 2.2.1's page), or only in the Advanced table?
+- **Q4.** When no router past the home line answers: the uTP signal only (proposed: no third party involved), or pinging a public host (`1.1.1.1`, `9.9.9.9`), which then sees our pings?
+- **Q5.** The download direction too, as a second checkbox, or upload only?
+- **Q6.** Lower uTP's target delay to 25 ms while the setting is on?
+- **Q7.** Build 2.2.1's missing "Global Rate Limit Options" group (transport overhead, uTP connections, stop transfers on user interaction) in the same change, since the Bandwidth page is touched anyway?
+
+## Sources
+
+- [Tixati forum: auto bandwidth limiter reports](https://forum.tixati.com/support/7651)
+- [Tribler: upload speed estimation and earlier work (Azureus AutoSpeed, eMule USS)](https://tribler.org/UploadSpeed)
+- [cake-autorate](https://github.com/lynxthecat/cake-autorate)
+- [apenwarr, "Stuffing the stuff" (2009): baseline latency over three minutes](https://apenwarr.ca/log/20091029)
+- [IcmpSendEcho2Ex](https://learn.microsoft.com/windows/win32/api/icmpapi/nf-icmpapi-icmpsendecho2ex)

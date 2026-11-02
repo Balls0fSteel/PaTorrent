@@ -91,7 +91,7 @@ Proposed defaults: gentle checks and drive tuning on, the busy-disk throttle off
 - The write cache D3 describes (still not implemented) and 2.2.1's "Disable Windows caching of disk writes/reads" boxes (unbuffered I/O); they are Disk Cache questions.
 - Changing what a check reads: it already reads each piece once.
 - CPU load and full-screen detection (owner, Q3: disk I/O only).
-- Keeping game ping low by limiting the upload: a network question, not a disk one; recorded in BACKLOG "Engine networking and protocol follow-ups".
+- Keeping game ping low by limiting the upload: a network question, not a disk one; proposed separately as [LOWPING.md](LOWPING.md) (D49).
 
 ## Order and size
 
@@ -108,7 +108,7 @@ Each part bumps the patch version (D37) when it lands. None touches the peer wir
 - **Q2.** Defaults: gentle checks and drive tuning on, the busy-disk throttle off?
 - **Q3.** Answered: disk I/O only; CPU load is fine.
 - **Q4.** Busy signal: our own timings only (every platform, includes NAS), or also the OS counters on Windows and Linux to react only to other programs?
-- **Q5.** May the busy-disk throttle slow uploads (it would defer the *disk reads* for seeding while the disk is busy, which lowers the ratio on private trackers), or only downloads? This is about the disk, not about ping; see BACKLOG for the ping question.
+- **Q5.** May the busy-disk throttle slow uploads (it would defer the *disk reads* for seeding while the disk is busy, which lowers the ratio on private trackers), or only downloads? This is about the disk, not about ping; ping is [LOWPING.md](LOWPING.md).
 - **Q6.** Per-drive overrides in the UI, in the Advanced table only, or not at all?
 - **Q7.** The page: a new "Disk I/O" under Advanced (proposed), or the checking options on Disk Cache?
 - **Q8.** Answered: "smart recheck" means gentle checks (lower I/O priority, slower, every tool a platform has), not fewer; part 1 is written that way.

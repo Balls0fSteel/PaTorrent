@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_111726_1793614646: Keep ping low proposal (D49)
+
+- **Owner's request:** make the game-ping question a proposal. Written as [LOWPING.md](docs/LOWPING.md), proposed D49, questions Q1-Q7; no code.
+- **Design:** one setting, off by default. ICMP probes to the first router past the home line (found by TTL; no admin rights needed on Windows, Linux and macOS, FreeBSD has none) plus the uTP peers' one-way delays (`send_delay` / `recv_delay`, already measured); the upload is capped at 80% of its rate when the queue stays over 15 ms and grows back 5% a second, with floors. It reuses D48 part 4's controller. No game list: the queue covers every game and call.
+- **Prior art checked:** Tixati's auto throttle (caps sinking far too low, fixed by longer averages), Azureus AutoSpeed, cake-autorate on routers.
+
 ## 2026-11-02_111330_1793614410: Smart disk I/O: the owner's first answers (D48)
 
 - **Q3:** disk I/O only; CPU load is fine. **Q8:** "smart recheck" means gentle, not fewer. DISKIO.md part 1 now uses every platform tool: background I/O and memory priority (Windows), `ioprio_set` idle per thread (what `ionice -c 3` does; Linux), `IOPOL_THROTTLE` (macOS); keeping other programs' file cache (`posix_fadvise`, `F_NOCACHE`); giving way when the check's own reads slow down, which works on NVMe and a NAS where the priorities do nothing; and the cap.

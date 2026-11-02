@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_112509_1793615109: Keep ping low: the owner's answers (D49)
+
+- **Q3:** the checkbox goes on the Bandwidth page; the Advanced table is only for what people should not touch. **Q4:** when no router past the line answers, probe an editable Advanced list, default `1.1.1.1,8.8.8.8,9.9.9.9`. **Q5:** the download is limited too, under the same checkbox. **Q7:** 2.2.1's "Global Rate Limit Options" group (transport overhead, uTP connections, stop transfers on user interaction) comes in the same change.
+- LOWPING.md updated: the Bandwidth page layout, the fallback hosts, the direction chosen from which of our rates is near its cap, the settings. Found while writing: the overhead option needs porting (libtorrent 1.x `rate_limit_ip_overhead`), the uTP option already exists underneath, and "stop on user interaction" is GUI-side and may be Windows only. Open: Q1, Q2, Q6.
+
 ## 2026-11-02_111726_1793614646: Keep ping low proposal (D49)
 
 - **Owner's request:** make the game-ping question a proposal. Written as [LOWPING.md](docs/LOWPING.md), proposed D49, questions Q1-Q7; no code.

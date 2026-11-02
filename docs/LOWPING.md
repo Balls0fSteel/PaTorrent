@@ -1,6 +1,6 @@
 # Keep ping low (proposed D49)
 
-Written 2026-11-02_111726_1793614646. A proposal, not approved; no code before the owner answers the questions at the end. The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
+Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109. A proposal, not approved; no code before the owner answers the remaining questions at the end. The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
 
 ## Why ping rises
 
@@ -25,7 +25,7 @@ The download direction has the same problem at the provider's end of the line. W
 
 ## Proposal
 
-One setting, **"Keep ping low (limit the upload automatically)"**, off by default. When on, the engine learns an automatic cap and applies the lower of it and the user's own limit. The user's limit is never changed.
+One setting, **"Keep ping low (limit speeds automatically)"**, on the Bandwidth page. When on, the engine learns an automatic cap for the upload and for the download (owner, Q5: both, for gaming) and applies the lower of it and the user's own limit. The user's limit is never changed.
 
 ### Signals
 
@@ -35,7 +35,7 @@ One setting, **"Keep ping low (limit the upload automatically)"**, off by defaul
    - **Linux:** unprivileged ICMP sockets (`SOCK_DGRAM`, `IPPROTO_ICMP`), allowed when the process's group is inside `net.ipv4.ping_group_range` (open by default on current systemd distributions; to verify on Debian, Alpine and for nox's system user). Time-exceeded answers through `IP_RECVERR` (to verify on ping sockets; `tracepath`'s UDP method is the fallback). Registered with the mio reactor like the IP notifier.
    - **macOS:** `SOCK_DGRAM` ICMP sockets are open to every user; the time-exceeded path is to verify.
    - **FreeBSD:** no unprivileged ICMP; the uTP signal only.
-   - If no hop past the line answers, the probes stop and only the uTP signal is used (Q4: or a public host).
+   - **Fallback hosts** (owner, Q4): if no hop past the line answers, the probes go to a list in the Advanced table, `auto_limit_probe_hosts`, default `1.1.1.1,8.8.8.8,9.9.9.9`, which the user can edit if those stop answering (IPv6 addresses are accepted too). The probes are spread over the list (about one a second per host) and the median taken, since such hosts answer pings late now and then. Their longer path does not matter: its fixed delay is in the baseline, and only rises count. Those operators see our pings; the Help text says so. If none answers either, the uTP signal is used alone.
 2. **uTP (free, no extra traffic).** The lowest `send_delay` among at least three busy uTP peers: a peer's own congestion only raises its own sample, so the minimum is the queue they all share, which is ours. The same with `recv_delay` for the download. It needs uTP peers to be busy; seeding to TCP-only peers gives nothing.
 
 The probe's delay, minus its lowest value of the last three minutes, is the queue. The median of the last five probes is used, so one late answer (routers answer pings when they have time) cuts nothing.
@@ -48,9 +48,9 @@ The probe's delay, minus its lowest value of the last three minutes, is the queu
 - **Memory:** the cap learned on a network (keyed by the gateway's hardware address where the system reports it, since many homes share `192.168.1.1`) is saved with the session state and is the starting point next time, so a restart does not begin with a burst.
 - **Shared with D48 part 4:** the same baseline-and-cap controller, fed with disk delays there and network delays here; the engine applies the lowest cap of all.
 
-### Download (Q5)
+### Download (Q5, answered: yes, under the same checkbox)
 
-The same controller on the download channel, fed with the probe's delay while our download is near its cap, or the uTP peers' `recv_delay`. It reacts more slowly because the senders' TCP takes a few round trips to notice. Proposed as a second checkbox, off by default, or left out.
+The same controller on the download channel. A round trip cannot say which direction is queued, so the direction is chosen from what we do: the one near its cap is cut (both, if both are); the uTP peers' `send_delay` and `recv_delay` tell the directions apart where available. The download reacts more slowly, because the senders' TCP needs a few round trips to notice that we read more slowly, so its cut keeps a little more margin (75% instead of 80%).
 
 ### uTP's own target (Q6)
 
@@ -58,9 +58,21 @@ While the setting is on, `utp_target_delay` could drop from 100 ms to 25 ms, so 
 
 ### What the user sees
 
-- Bandwidth page, under the upload limit: `[ ] Keep ping low (limit the upload automatically)` (Q3 for the place).
+- The Bandwidth page (owner, Q3: Advanced is only for what people should not touch) gets 2.2.1's missing "Global Rate Limit Options" group (owner, Q7) with the new box at its end:
+
+```
+Global Rate Limit Options
+  [ ] Apply rate limit to transport overhead
+  [ ] Apply rate limit to uTP connections
+  [ ] Stop transfers on user interaction
+  [ ] Keep ping low (limit speeds automatically)
+```
+
+  - **Transport overhead:** counts the TCP/IP and uTP headers against the limits (libtorrent 1.x `rate_limit_ip_overhead`, dropped in 2.0); to port. The automatic cap always counts them, since the line carries them.
+  - **uTP connections:** the engine already can (the global class allowed or disallowed for uTP sockets through the peer class type filter, PORTING.md); this box sets it.
+  - **Stop transfers on user interaction:** compare its exact behaviour with the owner's 2.2.1 before building it. It is a GUI feature (input idle time: Win32 `GetLastInputInfo`; GTK has no portable equivalent, so it may be Windows only); nox and the Web UI do not show it.
 - While the automatic cap is below the user's limit, the status bar's upload reads "U: 412 kB/s (auto 450)" and its tooltip says why; the Web UI shows the same. The Logger notes the target hop found, and each change of the cap by more than 20% (at most one line a minute).
-- Advanced table: the allowance in ms, and an optional probe host (an address or name) for people who know better.
+- Advanced table: the allowance in ms and the fallback probe hosts.
 
 ### Not proposed
 
@@ -70,7 +82,7 @@ While the setting is on, `utp_target_delay` could drop from 100 ms to 25 ms, so 
 
 ## Settings, wire and scale
 
-- New `Settings` fields (PaTorrent extensions, not libtorrent names): `auto_upload_limit` (bool), `auto_download_limit` (bool), `auto_limit_delay_ms` (15), `auto_limit_probe_host` (empty). Remote protocol 12 (shared with D48 if they land together); the Web UI gets the checkbox; the qBittorrent shim has no equivalent and does not expose it.
+- New `Settings` fields (PaTorrent extensions, not libtorrent names): `auto_rate_limit` (bool, both directions), `auto_limit_delay_ms` (15), `auto_limit_probe_hosts` (`1.1.1.1,8.8.8.8,9.9.9.9`), the overhead box, and the uTP box as a setting over the existing type filter; "stop on user interaction" is a GUI setting. Remote protocol 12 (shared with D48 if they land together); the Web UI gets the checkbox; the qBittorrent shim has no equivalent and does not expose it.
 - No new dependencies (`windows-sys` features `Win32_NetworkManagement_IpHelper` and `Win32_Networking_WinSock` are already in core; Unix through `extern "C"` as `net/sys.rs`).
 - Per session, not per torrent: nothing is added to a torrent (D21).
 
@@ -84,20 +96,19 @@ While the setting is on, `utp_target_delay` could drop from 100 ms to 25 ms, so 
 
 Medium to large, in slices, each a patch version (D37):
 
-1. The cap plumbing, the controller, the status bar and Logger texts, and the probes on Windows (most gamers).
+1. The "Global Rate Limit Options" group (overhead, uTP, user interaction), then the cap plumbing, the controller for both directions, the status bar and Logger texts, and the probes with the fallback hosts on Windows (most gamers).
 2. Probes on Linux and macOS.
 3. The uTP signal, as a second signal and the FreeBSD one.
-4. The download direction, if Q5 says so.
 
 ## Questions for the owner
 
 - **Q1.** Approve, with the slices in this order?
-- **Q2.** Off by default (proposed), shown as one checkbox?
-- **Q3.** Where: the Bandwidth page under the upload limit (proposed; one line more than 2.2.1's page), or only in the Advanced table?
-- **Q4.** When no router past the home line answers: the uTP signal only (proposed: no third party involved), or pinging a public host (`1.1.1.1`, `9.9.9.9`), which then sees our pings?
-- **Q5.** The download direction too, as a second checkbox, or upload only?
+- **Q2.** Off by default (proposed)?
+- **Q3.** Answered: the Bandwidth page; the Advanced table only holds what people should not touch.
+- **Q4.** Answered: fallback hosts in the Advanced table, default `1.1.1.1,8.8.8.8,9.9.9.9`, editable.
+- **Q5.** Answered: the download too, for gaming (under the same checkbox).
 - **Q6.** Lower uTP's target delay to 25 ms while the setting is on?
-- **Q7.** Build 2.2.1's missing "Global Rate Limit Options" group (transport overhead, uTP connections, stop transfers on user interaction) in the same change, since the Bandwidth page is touched anyway?
+- **Q7.** Answered: yes, 2.2.1's "Global Rate Limit Options" group comes in the same change.
 
 ## Sources
 

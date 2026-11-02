@@ -508,12 +508,8 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 
 - **Low ping while seeding** (owner's question 2026-11-02_111330_1793614410): proposed as
   [LOWPING.md](LOWPING.md), D49 (2026-11-02_111726_1793614646); no game list.
-- **2.2.1 Bandwidth gap:** its "Global Rate Limit Options" group (Apply rate limit to
-  transport overhead, Apply rate limit to uTP connections, Stop transfers on user
-  interaction) is not on our Bandwidth page. The engine has the first two underneath
-  (`PORTING.md`: `rate_limit_utp` through peer class filters); compare the third's behaviour
-  with the owner's copy before building it.
-
+- **2.2.1 Bandwidth gap:** its "Global Rate Limit Options" group comes with D49 (owner, 2026-11-02_112509_1793615109;
+  [LOWPING.md](LOWPING.md)).
 - Proxies: real Dante/Squid/Tor/ssh-D/3proxy runs; HTTPS tracker/web-seed TLS
   over tunnels, IPv6 proxy/relay and incoming uTP over relay remain untested.
   `proxy_send_host_in_connect` (not in 2.0.11) now defaults to true (SEC-15);

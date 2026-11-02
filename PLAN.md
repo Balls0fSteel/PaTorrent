@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-11-02_111726_1793614646
+Last updated: 2026-11-02_112509_1793615109
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D47 and proposed D42, D46, D48, D49](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -36,7 +36,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **C, D.** RSS in hosted mode (1.1.13) and Torznab search (D41, all five slices, 1.1.12-1.1.19): done; hand checks in BACKLOG. Optional: a GTK hosting page. No alternative speed limits in the Win32 GUI (owner, 2026-10-30).
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
 - **F.** Microsoft Store release (2026-11-01_070555_1793513155): planned in [STORE.md](docs/STORE.md), proposed D46 (an MSIX Store flavour without self-update; free or paid). Awaiting the owner's answers to Q1-Q6. No code before approval.
-- **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): designed in [DISKIO.md](docs/DISKIO.md), proposed D48 (gentle and per-drive rechecks, SSD / HDD / NAS detection, slowing down when the disk is busy; a new Advanced > Disk I/O page). Q3 and Q8 answered; awaiting the rest. **Keep ping low** (owner's question): [LOWPING.md](docs/LOWPING.md), proposed D49 (an automatic upload cap from measured line delay, no game list); awaiting Q1-Q7. No code before approval.
+- **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): designed in [DISKIO.md](docs/DISKIO.md), proposed D48 (gentle and per-drive rechecks, SSD / HDD / NAS detection, slowing down when the disk is busy; a new Advanced > Disk I/O page). Q3 and Q8 answered; awaiting the rest. **Keep ping low** (owner's question): [LOWPING.md](docs/LOWPING.md), proposed D49 (automatic upload and download caps from measured line delay, no game list, with 2.2.1's Global Rate Limit Options); awaiting Q1, Q2, Q6. No code before approval.
 - **H.** Reviewed 2026-11-02, owner to choose: 2.2.1's web search engines (worth it with an empty default list) and themes (icon skins first, dark mode a separate decision); details in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999).
 
 **Owner notes (2026-10-30_192440_1793384680):** all done. The update pop-up once (1.1.23, D44) and the seamless Windows update (1.1.24, D45); the closing window in both GUIs (1.1.25-1.1.28, D47; [findings](docs/BACKLOG.md#startup-and-shutdown-investigated-2026-10-30_192440_1793384680)). Hand checks on a real PC in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website) and RELEASING.md.
@@ -82,7 +82,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
 - Proposed D42: profiles and portable mode ([PROFILES.md](docs/PROFILES.md)).
 - Proposed D46: the Microsoft Store release ([STORE.md](docs/STORE.md)), Q1-Q6.
-- Proposed D48: smart disk I/O ([DISKIO.md](docs/DISKIO.md)), Q1, Q2, Q4-Q7. Proposed D49: keep ping low ([LOWPING.md](docs/LOWPING.md)), Q1-Q7.
+- Proposed D48: smart disk I/O ([DISKIO.md](docs/DISKIO.md)), Q1, Q2, Q4-Q7. Proposed D49: keep ping low ([LOWPING.md](docs/LOWPING.md)), Q1, Q2, Q6.
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
 
 

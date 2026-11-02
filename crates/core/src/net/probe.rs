@@ -382,9 +382,9 @@ mod imp {
 
 /// The Logger's text when this system gives no pings.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub(crate) const UNAVAILABLE: &str = "this system does not let PaTorrent ping (its group must be in net.ipv4.ping_group_range); no automatic limits";
+pub(crate) const UNAVAILABLE: &str = "this system does not let PaTorrent ping (its group must be in net.ipv4.ping_group_range); only the uTP peers' delays";
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
-pub(crate) const UNAVAILABLE: &str = "pings are not available on this system yet; no automatic limits";
+pub(crate) const UNAVAILABLE: &str = "pings are not available on this system; only the uTP peers' delays";
 
 /// An ICMP echo request: type, code 0, checksum, identifier, sequence and the payload. The
 /// checksum is filled for IPv4 (Linux recomputes it, macOS does not); ICMPv6's is always the

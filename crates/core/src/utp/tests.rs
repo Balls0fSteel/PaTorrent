@@ -248,6 +248,25 @@ fn connects_and_transfers() {
 }
 
 #[test]
+fn queue_delays_are_measured_where_data_flows() {
+    // keep ping low's uTP signal: the sender measures its upload delay from the
+    // acknowledgements and the download delay from their timestamps; the receiver only the
+    // download delay, since it sent no data
+    let mut sim = Sim::new();
+    let (sa, sb) = sim.connect();
+    let start = sim.now;
+    sim.transfer(addr(A), sa, sb, &payload(200_000), 10_000);
+    let [up, down] = sim.a.shared_delays(start);
+    assert_eq!((up.1, down.1), (1, 1));
+    let [up, down] = sim.b.shared_delays(start);
+    assert_eq!((up.1, down.1), (0, 1));
+    // the simulated network has no queue: a delay of at most a few milliseconds
+    assert!(sim.a.shared_delays(start)[0].0 < 5_000);
+    // nothing measured after the transfer
+    assert_eq!(sim.a.shared_delays(sim.now + TICK).map(|d| d.1), [0, 0]);
+}
+
+#[test]
 fn transfers_both_ways_at_once() {
     let mut sim = Sim::new();
     let (sa, sb) = sim.connect();

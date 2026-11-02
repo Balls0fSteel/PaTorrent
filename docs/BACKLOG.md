@@ -511,7 +511,8 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   VM (2026-11-02_165221_1793634741). Still to run on a Mac: `probe::tests::real_trace`, `real_pings` and
   `keep_ping_low_finds_the_router` (all `--ignored`); check `ping_group_range` on Debian, Alpine
   and for nox's system user.
-  Open: slice 3 (the uTP delay signal, FreeBSD's only one); the per-network memory
+  Slice 3 (the uTP delay signal, FreeBSD's only one) in 1.1.31 (2026-11-02_170156_1793635316, run on the FreeBSD VM).
+  Open: the per-network memory
   of the caps; the status bar tooltip; the Xubuntu VM test with `tc` shaping a bloated uplink,
   then the owner's line with a game.
 - **2.2.1's "Stop transfers on user interaction"** (`sched_interaction`, a scheduler key, off by

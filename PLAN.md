@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-11-02_165221_1793634741
+Last updated: 2026-11-02_170156_1793635316
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D47, D49 and proposed D42, D46, D48](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -36,7 +36,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **C, D.** RSS in hosted mode (1.1.13) and Torznab search (D41, all five slices, 1.1.12-1.1.19): done; hand checks in BACKLOG. Optional: a GTK hosting page. No alternative speed limits in the Win32 GUI (owner, 2026-10-30).
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
 - **F.** Microsoft Store release (2026-11-01_070555_1793513155): planned in [STORE.md](docs/STORE.md), proposed D46 (an MSIX Store flavour without self-update; free or paid). Awaiting the owner's answers to Q1-Q6. No code before approval.
-- **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): designed in [DISKIO.md](docs/DISKIO.md), proposed D48 (gentle and per-drive rechecks, SSD / HDD / NAS detection, slowing down when the disk is busy; a new Advanced > Disk I/O page). Q3 and Q8 answered; awaiting the rest. No code before approval. **Keep ping low** (owner's question): [LOWPING.md](docs/LOWPING.md), D49 approved; slice 1 in 1.1.29 (the options group, the controller, Windows pings), slice 2 in 1.1.30 (Linux and macOS pings; run on Linux, a Mac still to try). Next: slice 3 (the uTP signal); open items in BACKLOG, including 2.2.1's "Stop transfers on user interaction", to try in the owner's copy first.
+- **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): designed in [DISKIO.md](docs/DISKIO.md), proposed D48 (gentle and per-drive rechecks, SSD / HDD / NAS detection, slowing down when the disk is busy; a new Advanced > Disk I/O page). Q3 and Q8 answered; awaiting the rest. No code before approval. **Keep ping low** (owner's question): [LOWPING.md](docs/LOWPING.md), D49 approved; slice 1 in 1.1.29 (the options group, the controller, Windows pings), slice 2 in 1.1.30 (Linux and macOS pings; run on Linux, a Mac still to try). Slice 3 (the uTP signal) in 1.1.31: all three slices done. Next: the `tc` test against a bloated line; open items in BACKLOG, including 2.2.1's "Stop transfers on user interaction", to try in the owner's copy first.
 - **H.** Reviewed 2026-11-02, owner to choose: 2.2.1's web search engines (worth it with an empty default list) and themes (icon skins first, dark mode a separate decision); details in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999).
 
 **Owner notes (2026-10-30_192440_1793384680):** all done. The update pop-up once (1.1.23, D44) and the seamless Windows update (1.1.24, D45); the closing window in both GUIs (1.1.25-1.1.28, D47; [findings](docs/BACKLOG.md#startup-and-shutdown-investigated-2026-10-30_192440_1793384680)). Hand checks on a real PC in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website) and RELEASING.md.

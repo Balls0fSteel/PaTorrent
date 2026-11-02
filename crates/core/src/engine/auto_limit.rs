@@ -9,6 +9,11 @@
 //! rate is at least half its cap, so a queue another program fills moves nothing. A cap grows
 //! 5% a second while the queue stays under half the allowance and the rate uses it, and never
 //! falls below 10 kB/s or 5% of the highest rate seen on this network.
+//!
+//! uTP peers measure the queue too, per direction (`UtpManager::shared_delays`): with at least
+//! three busy ones, a direction's queue is the lower of the pings' and theirs, so a queue only
+//! the other direction has does not cut this one. Without pings (none answer, or the system
+//! gives none, as FreeBSD), the uTP peers' delays are the only signal.
 
 use std::collections::VecDeque;
 use std::net::IpAddr;
@@ -36,6 +41,20 @@ const LEARN_SECS: u32 = 4;
 const MIN_CAP: u32 = 10_000;
 /// The Logger hears of a cap change of more than 20%, at most once a minute.
 const LOG_INTERVAL: Duration = Duration::from_secs(60);
+/// uTP peers count for a direction while they measured its delay this recently.
+const UTP_FRESH: Duration = Duration::from_secs(2);
+/// uTP peers needed for their delays to say something about the line.
+const UTP_PEERS: usize = 3;
+
+/// A direction's queue in milliseconds from the pings' (both directions) and the uTP peers'
+/// (this direction): the lower of the two when both measure, so the uTP peers tell which
+/// direction a ping's queue is in; else whichever there is.
+fn combine(probe: Option<f64>, utp: Option<f64>) -> Option<f64> {
+    match (probe, utp) {
+        (Some(p), Some(u)) => Some(p.min(u)),
+        (p, u) => p.or(u),
+    }
+}
 
 /// One target's round trips.
 #[derive(Default)]
@@ -187,6 +206,8 @@ pub(super) struct AutoLimit {
     rate: [u32; 2],
     /// Per channel, the cap last logged and when.
     logged: [(Option<u32>, Option<Instant>); 2],
+    /// The Logger heard that the uTP peers' delays are in use.
+    utp_logged: bool,
 }
 
 impl AutoLimit {
@@ -246,6 +267,7 @@ impl Engine {
                 totals: self.totals(),
                 rate: [0; 2],
                 logged: [(None, None); 2],
+                utp_logged: false,
             });
         }
         let Some(mut a) = self.auto_limit.take() else { return };
@@ -264,7 +286,8 @@ impl Engine {
                             let list: Vec<String> = hosts.iter().map(IpAddr::to_string).collect();
                             format!("no router past the line answers; pinging {}", list.join(", "))
                         }
-                        _ => "nothing answers pings; no automatic limits until the network changes".into(),
+                        _ => "nothing answers pings; only the uTP peers' delays until the network changes"
+                            .into(),
                     });
                     if addr != a.target || addr.is_none() {
                         // a new network: its rates and idle round trip are learned afresh
@@ -282,12 +305,17 @@ impl Engine {
             let elapsed = now.duration_since(a.next_step - STEP).as_secs_f64().max(0.001);
             a.next_step = now + STEP;
             let totals = self.totals();
-            let queue = a.meter.queue(now);
+            let probe = a.meter.queue(now);
+            let utp = self.utp_queues(now);
+            if !a.utp_logged && utp.iter().any(Option::is_some) {
+                a.utp_logged = true;
+                log.push("uTP peers' delays in use".into());
+            }
             let allowance = self.settings.auto_limit_delay_ms.max(1) as f64;
             let limits = self.user_limits();
             for ch in [UPLOAD, DOWNLOAD] {
                 a.rate[ch] = ((totals[ch] - a.totals[ch]) as f64 / elapsed).min(u32::MAX as f64) as u32;
-                a.ctl[ch].step(queue, allowance, a.rate[ch], limits[ch]);
+                a.ctl[ch].step(combine(probe, utp[ch]), allowance, a.rate[ch], limits[ch]);
             }
             a.totals = totals;
         }
@@ -312,6 +340,18 @@ impl Engine {
         for m in log {
             self.auto_log(m);
         }
+    }
+
+    /// Per channel, the queue the busy uTP peers share, in milliseconds (`None` with fewer
+    /// than [`UTP_PEERS`] of them).
+    fn utp_queues(&self, now: Instant) -> [Option<f64>; 2] {
+        let since = now.checked_sub(UTP_FRESH).unwrap_or(now);
+        // the manager's order is upload, download: the channels'
+        let delays = self.utp.shared_delays(since);
+        let mut out = [None; 2];
+        out[UPLOAD] = (delays[0].1 >= UTP_PEERS).then(|| delays[0].0 as f64 / 1000.0);
+        out[DOWNLOAD] = (delays[1].1 >= UTP_PEERS).then(|| delays[1].0 as f64 / 1000.0);
+        out
     }
 
     /// The session's own limits per channel.
@@ -439,6 +479,19 @@ mod tests {
         }
         assert_eq!(c.step(None, 15.0, 200_000, 0), Some(200_000));
         assert_eq!(c.step(Some(0.0), 15.0, 200_000, 0), Some(210_000));
+    }
+
+    #[test]
+    fn utp_delays_tell_the_directions_apart() {
+        // the pings see a queue, the uTP peers place it in the download
+        assert_eq!(combine(Some(80.0), Some(2.0)), Some(2.0));
+        assert_eq!(combine(Some(80.0), Some(70.0)), Some(70.0));
+        // the pings say the line is idle: a single peer's path does not overrule them
+        assert_eq!(combine(Some(1.0), Some(40.0)), Some(1.0));
+        // one signal alone
+        assert_eq!(combine(None, Some(40.0)), Some(40.0));
+        assert_eq!(combine(Some(40.0), None), Some(40.0));
+        assert_eq!(combine(None, None), None);
     }
 
     #[test]

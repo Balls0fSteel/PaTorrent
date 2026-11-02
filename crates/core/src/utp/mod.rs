@@ -460,6 +460,22 @@ impl UtpManager {
         self.sockets.len() - self.free.len()
     }
 
+    /// Per direction (upload, download), the lowest queueing delay in microseconds among the
+    /// sockets that measured one since `since`, and how many did. A peer's own congestion only
+    /// raises its own delay, so the lowest is the queue all of them share: ours (keep ping
+    /// low's uTP signal, D49).
+    pub fn shared_delays(&self, since: Instant) -> [(u32, usize); 2] {
+        let mut out = [(u32::MAX, 0); 2];
+        for s in self.sockets.iter().flatten() {
+            for (o, (delay, at)) in out.iter_mut().zip(s.queue_delays()) {
+                if at.is_some_and(|at| at >= since) {
+                    *o = (o.0.min(delay.max(0) as u32), o.1 + 1);
+                }
+            }
+        }
+        out
+    }
+
     pub fn get(&self, id: SockId) -> Option<&UtpSocket> {
         self.sockets.get(id).and_then(|s| s.as_deref())
     }

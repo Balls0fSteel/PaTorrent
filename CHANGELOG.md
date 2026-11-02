@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_170156_1793635316: Version 1.1.31: keep ping low, slice 3 (D49)
+
+- **The uTP signal:** uTP sockets record when they last measured their upload (`send_delay`) and download (`recv_delay`) queueing delays; `UtpManager::shared_delays` gives the lowest per direction among those measured in the last two seconds. With three or more such peers, a direction's queue is the lower of the pings' and theirs, so the uTP peers place a ping's queue in one direction; without pings they are the only signal (FreeBSD, OpenBSD, nothing answering). Logger: "uTP peers' delays in use", and the no-pings texts now say the uTP peers are used instead of "no automatic limits".
+- **Fix while testing:** a download delay of zero is a measurement too (it was taken for "none").
+- **Tests:** a simulated transfer (who measures what), the combining rule, and an ignored swarm test with three uTP seeds, passing here and on the FreeBSD VM (FreeBSD 15.1, reached over SSH for the first time; its host key is now known). The router test skips on systems without pings.
+
 ## 2026-11-02_165221_1793634741: Keep ping low runs on Linux (D49)
 
 - **Xubuntu VM (Ubuntu 26.04):** the probe and session tests pass. A new ignored test, `probe::tests::real_trace`, prints each hop's answer: the same path as from Windows (home router, the ISP's router at hop 2, 1.1.1.1 at hop 6), the time-exceeded answers arriving through `IP_RECVERR`; round trips 1.5-2 ms with sub-millisecond resolution. With `net.ipv4.ping_group_range` at `1 0` (restored afterwards) the Logger names the setting. macOS is still unrun.

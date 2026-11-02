@@ -660,7 +660,10 @@ fn keep_ping_low_finds_the_router() {
         _ => None,
     });
     println!("{found}");
-    assert!(found.contains("pinging"), "{found}");
+    // FreeBSD and OpenBSD give no pings: the uTP peers' delays are the only signal there
+    if !found.ends_with("only the uTP peers' delays") {
+        assert!(found.contains("pinging"), "{found}");
+    }
     let mut s = settings();
     s.auto_rate_limit = false;
     ses.handle().apply_settings(s);
@@ -668,4 +671,44 @@ fn keep_ping_low_finds_the_router() {
         matches!(a, Alert::Log { id: None, message } if message == "Keep ping low: off").then_some(())
     });
     ses.shutdown();
+}
+
+#[test]
+#[ignore = "pings the network"]
+fn keep_ping_low_reads_busy_utp_peers() {
+    // three uTP seeds sending to the leech: their delays (about zero on loopback) become the
+    // second signal; `--ignored --nocapture` shows the Logger lines
+    let f = fixture("utp-signal");
+    let seeds: Vec<_> = (0..3)
+        .map(|_| {
+            seeder(&f, |s| {
+                utp_only(s);
+                s.upload_rate_limit = 200_000;
+            })
+        })
+        .collect();
+    let dir = temp_dir("leech");
+    let leech = start_with(|s| {
+        utp_only(s);
+        s.auto_rate_limit = true;
+    });
+    let mut w = Watch::new(leech.handle());
+    let id = add(&mut w, &f, &dir);
+    wait_state(&mut w, id, TorrentState::Downloading, 10);
+    for (_, _, port) in &seeds {
+        leech.handle().torrent(id).connect_peer(loopback(*port));
+    }
+    wait(&mut w, 20, "the uTP signal", |a| match a {
+        Alert::Log { id: None, message } if message.starts_with("Keep ping low: ") => {
+            println!("{message}");
+            (message == "Keep ping low: uTP peers' delays in use").then_some(())
+        }
+        _ => None,
+    });
+    leech.shutdown();
+    for (s, d, _) in seeds {
+        s.shutdown();
+        let _ = std::fs::remove_dir_all(d);
+    }
+    let _ = std::fs::remove_dir_all(dir);
 }

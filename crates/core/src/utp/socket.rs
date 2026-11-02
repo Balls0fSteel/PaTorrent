@@ -178,6 +178,8 @@ pub struct UtpSocket {
     out_packets: u32,
     send_delay: i32,
     recv_delay: i32,
+    /// When `send_delay` and `recv_delay` were last measured (keep ping low's uTP signal).
+    delays_at: [Option<Instant>; 2],
     rtt: SlidingAverage<16>,
     send_id: u16,
     recv_id: u16,
@@ -316,6 +318,7 @@ impl UtpSocket {
             out_packets: 0,
             send_delay: 0,
             recv_delay: 0,
+            delays_at: [None; 2],
             rtt: SlidingAverage::default(),
             send_id,
             recv_id,
@@ -348,6 +351,13 @@ impl UtpSocket {
 
     pub fn state(&self) -> State {
         self.state
+    }
+
+    /// The upload and download queueing delays in microseconds (`send_delay`: our packets'
+    /// one-way delay above its lowest, from the peer's acknowledgements of our data;
+    /// `recv_delay`: the peer's packets' to us), each with when it was last measured.
+    pub fn queue_delays(&self) -> [(i32, Option<Instant>); 2] {
+        [(self.send_delay, self.delays_at[0]), (self.recv_delay, self.delays_at[1])]
     }
 
     pub fn error(&self) -> Option<UtpError> {
@@ -1482,7 +1492,8 @@ impl UtpSocket {
         // this is the difference between their send time and our receive time. 0 means no
         // sample yet
         let mut their_delay = 0u32;
-        if ph.timestamp_microseconds != 0 {
+        let measured = ph.timestamp_microseconds != 0;
+        if measured {
             let timestamp = ctx.micros();
             self.reply_micro = timestamp.wrapping_sub(ph.timestamp_microseconds);
             let prev_base =
@@ -1757,8 +1768,12 @@ impl UtpSocket {
                     }
                     self.do_ledbat(ctx, acked_bytes, delay as i64, prev_bytes_in_flight);
                     self.send_delay = delay as i32;
+                    self.delays_at[0] = Some(ctx.now);
                 }
                 self.recv_delay = their_delay.min(min_rtt) as i32;
+                if measured {
+                    self.delays_at[1] = Some(ctx.now);
+                }
                 self.consume_incoming_data(ctx, &ph, payload);
                 // the parameter to send_pkt tells it if we're acking data. If we are, we'll
                 // send an ACK regardless of if we have any space left in our send window or

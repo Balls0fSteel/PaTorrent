@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_111330_1793614410: Smart disk I/O: the owner's first answers (D48)
+
+- **Q3:** disk I/O only; CPU load is fine. **Q8:** "smart recheck" means gentle, not fewer. DISKIO.md part 1 now uses every platform tool: background I/O and memory priority (Windows), `ioprio_set` idle per thread (what `ionice -c 3` does; Linux), `IOPOL_THROTTLE` (macOS); keeping other programs' file cache (`posix_fadvise`, `F_NOCACHE`); giving way when the check's own reads slow down, which works on NVMe and a NAS where the priorities do nothing; and the cap.
+- **Ping for games:** answered in BACKLOG (networking): a delay-measuring upload limit works without a game list; uTP's LEDBAT already backs off but at 100 ms. Also recorded: our Bandwidth page lacks 2.2.1's "Global Rate Limit Options" group.
+
 ## 2026-11-02_110639_1793613999: Smart disk I/O proposal (D48), search engines and themes reviewed
 
 - **Owner's idea:** smart recheck, throttling reads and writes on high disk I/O, SSD / HDD / NAS detection. Written up as [DISKIO.md](docs/DISKIO.md), proposed D48, questions Q1-Q8; no code.

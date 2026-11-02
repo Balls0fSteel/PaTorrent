@@ -506,6 +506,31 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 
 ## Engine networking and protocol follow-ups
 
+- **Low ping while seeding** (owner's question 2026-11-02_111330_1793614410: can the upload
+  speed be found reliably so games keep a low ping; a "gamer mode" from a game `.exe` list on
+  GitHub is probably not worth it). Findings:
+  - Ping rises because our upload fills the router's upload queue (bufferbloat). Keeping the
+    upload below the line's real rate keeps the queue empty, whatever the game.
+  - uTP already does this (LEDBAT, `utp_target_delay` 100 ms), but 100 ms of added delay is
+    too much for games, and TCP peers ignore delay.
+  - Reliable enough automatically: measure delay ourselves, as `cake-autorate` does. Ping a
+    host just past the home line (the ISP's first hop) a few times a second, take the minimum
+    as the baseline, cut the upload limit when the delay rises about 15 ms above it, raise it
+    slowly. Windows `IcmpSendEcho2` needs no admin; Linux and macOS have unprivileged ICMP
+    sockets (Linux within `net.ipv4.ping_group_range`); our uTP peers' delay samples are a
+    free second signal. Caveats: Wi-Fi jitter, routers answering ICMP late (use the median of
+    several hosts), and the download direction, which we steer only indirectly. A router with
+    SQM (CAKE, OpenWrt) or gaming QoS does all this better.
+  - No game list needed: the delay shows a game's problem without knowing the game, and helps
+    video calls too. A list would need upkeep, a download and process scanning.
+  - If wanted: one Bandwidth checkbox, "Keep ping low (limit the upload automatically)", off
+    by default. Size about that of DISKIO.md part 4. Owner to decide.
+- **2.2.1 Bandwidth gap:** its "Global Rate Limit Options" group (Apply rate limit to
+  transport overhead, Apply rate limit to uTP connections, Stop transfers on user
+  interaction) is not on our Bandwidth page. The engine has the first two underneath
+  (`PORTING.md`: `rate_limit_utp` through peer class filters); compare the third's behaviour
+  with the owner's copy before building it.
+
 - Proxies: real Dante/Squid/Tor/ssh-D/3proxy runs; HTTPS tracker/web-seed TLS
   over tunnels, IPv6 proxy/relay and incoming uTP over relay remain untested.
   `proxy_send_host_in_connect` (not in 2.0.11) now defaults to true (SEC-15);

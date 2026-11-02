@@ -1,6 +1,6 @@
 # Smart disk I/O (proposed D48)
 
-Written 2026-11-02_110639_1793613999. A proposal, not approved; no code before the owner answers the questions at the end. The owner's idea: "Smart recheck. Throttle write and/or read speeds upon high disk IO detection. Same for download speed/upload speed. We could also check if the storage is SSD, HDD or NAS." It goes beyond 2.2.1, so it gets its own Preferences page.
+Written 2026-11-02_110639_1793613999; the owner answered Q3 and Q8 on 2026-11-02_111330_1793614410. A proposal, not approved; no code before the owner answers the remaining questions at the end. The owner's idea: "Smart recheck. Throttle write and/or read speeds upon high disk IO detection. Same for download speed/upload speed. We could also check if the storage is SSD, HDD or NAS." It goes beyond 2.2.1, so it gets its own Preferences page.
 
 ## What the engine does today
 
@@ -14,16 +14,24 @@ Written 2026-11-02_110639_1793613999. A proposal, not approved; no code before t
 
 Four parts, each usable alone and approvable separately, cheapest and most useful first. All of it lives in `core` with settings in `Settings`, so nox, the Web UI and both GUIs get it, and the page is declared once in `frontend::pref_pages`. Nothing changes on the wire: `PEER_ID_PREFIX` stays; the remote protocol moves to 12 for the new settings. No new dependencies: Windows calls through the `windows-sys` features core already has (`Win32_System_Ioctl`, `Win32_Storage_FileSystem`, `Win32_System_Threading`), Unix calls through `extern "C"` blocks as `net/sys.rs` does.
 
-### 1. Rechecks at low disk priority, with an optional cap
+### 1. Gentle rechecks
 
-- The checking thread runs at background I/O priority:
-  - **Windows:** `SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN)` on `lt-hash`. Its I/O and memory priority drop to very low; another program's disk use wins at once.
-  - **Linux:** `ioprio_set(IOPRIO_WHO_PROCESS, tid, IOPRIO_CLASS_IDLE)`. BFQ honours it, `mq-deadline` only partly (priority classes since Linux 5.14), and `none` (the usual NVMe default) not at all, so on Linux the cap below matters more.
+The owner's meaning of "smart recheck" (2026-11-02_111330_1793614410): not checking less, but checking gently, with whatever each platform offers. So a check uses every tool below that its platform has; each is a no-op where it does not exist.
+
+- **Low I/O priority** for the checking thread:
+  - **Windows:** `SetThreadPriority(GetCurrentThread(), THREAD_MODE_BACKGROUND_BEGIN)` on `lt-hash`. Its I/O priority and its memory priority drop to very low; another program's disk use wins at once.
+  - **Linux:** `ioprio_set(IOPRIO_WHO_PROCESS, tid, IOPRIO_CLASS_IDLE)`, the call `ionice -c 3` makes, for the one thread instead of the whole process. BFQ honours it, `mq-deadline` only partly (priority classes since Linux 5.14), and `none` (the usual NVMe default) not at all. A cgroup's `io.weight` (systemd `IOWeight=`) has the same scheduler limits and covers the whole daemon, so it is not used.
   - **macOS:** `setiopolicy_np(IOPOL_TYPE_DISK, IOPOL_SCOPE_THREAD, IOPOL_THROTTLE)`.
-  - **FreeBSD:** no per-thread I/O priority; the cap only.
+  - **FreeBSD:** no per-thread I/O priority.
   - A NAS never sees any of these: the server schedules its own disks.
+- **Leave other programs' file cache alone.** A check of a 500 GB library otherwise pushes everything else out of the OS cache, and the whole machine feels slow afterwards.
+  - **Windows:** the background mode above already puts the pages the check reads on the low-priority standby list, which is emptied first.
+  - **Linux and FreeBSD:** `posix_fadvise(POSIX_FADV_SEQUENTIAL)` on the check's files (more read-ahead, fewer seeks), then `POSIX_FADV_DONTNEED` on each piece's range once it is hashed, unless the torrent is seeding from those pages.
+  - **macOS:** `fcntl(F_NOCACHE)` and `F_RDAHEAD` on the check's file handles.
+  - The check opens its own handles for this instead of the shared file pool's, so peers' reads keep the normal cache behaviour.
+- **Yield on delay (every platform, including NVMe on Linux and a NAS):** the check times its own reads (the same measurement as part 4). When a piece takes clearly longer than the drive's recent baseline, someone else is using the disk: the check sleeps for as long as that read took before the next piece, so it uses at most about half of a busy disk, and runs at full speed on an idle one. This is the one tool that works where the OS priorities do nothing.
 - **Cap:** "Limit checking to N MB/s" (off by default), a token bucket in the `check_files` loop. Someone asked qBittorrent for exactly this (issue 17632: a recheck made a SATA SSD lag; they wanted about 100 MB/s).
-- **Cost:** a background check can take much longer while something else uses the disk; that is the point. A check with resume data (`CheckMode::Resume`) reads no data and is unaffected.
+- **Cost:** a gentle check takes much longer while something else uses the disk; that is the point. A check with resume data (`CheckMode::Resume`) reads no data and is unaffected. CPU use is not limited (owner: CPU load is fine).
 
 ### 2. One check per drive, drives in parallel
 
@@ -66,7 +74,7 @@ A new page beside Disk Cache, in all three GUIs and the Web UI (proposed texts):
 
 ```
 Checking
-  [x] Check torrents at low disk priority
+  [x] Check torrents gently (low priority, give way to other programs)
   [ ] Limit checking to [ 100 ] MB/s
   Check up to [ 4 ] drives at once (one torrent per drive)
 Drives
@@ -76,17 +84,18 @@ When the disk is busy
   [ ] Slow uploads down (disk reads)
 ```
 
-Proposed defaults: low-priority checks and drive tuning on, the busy-disk throttle off until it has been measured. The detected drives are listed in the Logger at start; per-drive overrides ("treat E: as a hard disk") stay out of the lean UI unless the owner wants them (Q6), and would go in the Advanced table first.
+Proposed defaults: gentle checks and drive tuning on, the busy-disk throttle off until it has been measured. The detected drives are listed in the Logger at start; per-drive overrides ("treat E: as a hard disk") stay out of the lean UI unless the owner wants them (Q6), and would go in the Advanced table first.
 
 ## Not in this proposal
 
 - The write cache D3 describes (still not implemented) and 2.2.1's "Disable Windows caching of disk writes/reads" boxes (unbuffered I/O); they are Disk Cache questions.
 - Changing what a check reads: it already reads each piece once.
-- CPU load or full-screen detection, unless the owner wants it (Q3).
+- CPU load and full-screen detection (owner, Q3: disk I/O only).
+- Keeping game ping low by limiting the upload: a network question, not a disk one; recorded in BACKLOG "Engine networking and protocol follow-ups".
 
 ## Order and size
 
-1. Part 1: small, one patch version; immediately useful on Windows and macOS.
+1. Part 1: small to medium, one or two patch versions; the priorities help at once on Windows and macOS, the delay-based yielding everywhere.
 2. Part 2: medium (the check queue and its threads, drive keys).
 3. Part 3: medium, mostly per-platform detection code and tests on the real machines (this PC, the test lab's Samba share, the Xubuntu VM, a USB disk).
 4. Part 4: the largest; needs measurements before choosing its numbers.
@@ -96,13 +105,13 @@ Each part bumps the patch version (D37) when it lands. None touches the peer wir
 ## Questions for the owner
 
 - **Q1.** Approve the four parts, and the order 1, 2, 3, 4?
-- **Q2.** Defaults: low-priority checks and drive tuning on, the busy-disk throttle off?
-- **Q3.** Does "high load" mean only the disk, or also CPU load, or a full-screen game (Windows reports it: `SHQueryUserNotificationState` = `QUNS_RUNNING_D3D_FULL_SCREEN` / `QUNS_BUSY`)?
+- **Q2.** Defaults: gentle checks and drive tuning on, the busy-disk throttle off?
+- **Q3.** Answered: disk I/O only; CPU load is fine.
 - **Q4.** Busy signal: our own timings only (every platform, includes NAS), or also the OS counters on Windows and Linux to react only to other programs?
-- **Q5.** May the throttle slow uploads, given ratio trackers, or only downloads?
+- **Q5.** May the busy-disk throttle slow uploads (it would defer the *disk reads* for seeding while the disk is busy, which lowers the ratio on private trackers), or only downloads? This is about the disk, not about ping; see BACKLOG for the ping question.
 - **Q6.** Per-drive overrides in the UI, in the Advanced table only, or not at all?
 - **Q7.** The page: a new "Disk I/O" under Advanced (proposed), or the checking options on Disk Cache?
-- **Q8.** Does "smart recheck" also mean checking less? Two candidates: "Recheck this file" in the Files tab (only the pieces of the chosen files, including the pieces they share with neighbours), and remembering each file's size and modification time in the resume data so a forced recheck can say which files changed since the last save.
+- **Q8.** Answered: "smart recheck" means gentle checks (lower I/O priority, slower, every tool a platform has), not fewer; part 1 is written that way.
 
 ## Sources
 

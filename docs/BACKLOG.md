@@ -675,12 +675,21 @@ The owner asked whether a progress indicator is needed when a start or an exit t
 - **No `WM_QUERYENDSESSION` / `WM_ENDSESSION` handling** in the Win32 GUI: at a Windows
   logoff or shutdown the process gets the system's few seconds and is killed, possibly
   before the resume data is saved. nox's service asks for 60 s (PRESHUTDOWN).
-- Code-ready: `WM_QUERYENDSESSION`/`WM_ENDSESSION` with `ShutdownBlockReasonCreate`
-  ("Saving torrent state"); `abort` checks in the stat pass; a relaunch during shutdown
-  waiting for the mutex instead of exiting; the auto-load poll off the GUI thread. With a
-  small design: run `Session::shutdown` on a worker thread and keep a small "Shutting down:
-  <phase>" window with the elapsed time (phases through a shared atomic set by the
-  engine: stopping, waiting for a move, saving resume data, closing files), GTK the same.
+- **Done in 1.1.25 (2026-11-02_083027_1793604627):** the Win32 GUI handles
+  `WM_QUERYENDSESSION` (`ShutdownBlockReasonCreate`, "Saving the torrent list and
+  progress...") and `WM_ENDSESSION` (stops the engine there, window left as it is, then
+  `DestroyWindow`); a check's stat pass, empty-file creation and part-file export stop at the
+  next file once the torrent is stopped; a relaunch during shutdown waits for the first
+  instance to end (the mutex is owned until exit, the window is marked `PaTorrent.Exiting`)
+  and then starts as the first; both GUIs scan and read the auto-load folder on a thread
+  (`torrent_folders::Watcher`). Hand checks: sign out with PaTorrent visible and in the tray
+  (resume data saved? the reason listed?), double-click a `.torrent` while a slow exit runs,
+  an auto-load folder on an unplugged share. Windows only waits for a visible window; a
+  tray-only PaTorrent still gets the system's few seconds.
+- Still open, with a small design: run `Session::shutdown` on a worker thread and keep a
+  small "Shutting down: <phase>" window with the elapsed time (phases through a shared atomic
+  set by the engine: stopping, waiting for a move, saving resume data, closing files), GTK
+  the same. A relaunch waiting meanwhile shows nothing. GTK has no session-end handling.
 - Owner's choice: whether the waits get a bound, e.g. a "Quit now" button after 30 s that
   abandons an unfinished move (today the wait is unbounded, as libtorrent's).
 

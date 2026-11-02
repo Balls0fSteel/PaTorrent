@@ -380,6 +380,7 @@ RemoteTrust={name}, bu bilgisayarın güvenmediği bir sertifika sunuyor (patorr
 RemotePlaintext={name} başka bir bilgisayar ve HTTPS olmadan kullanıcı adı, parola ve her komut ağda şifrelenmeden gider: ağdaki herkes bunları okuyabilir veya değiştirebilir.\n\nYine de HTTPS olmadan bağlanılsın mı?
 ErrStartPaTorrent=PaTorrent başlatılamıyor: {error}
 ForwardRefused=PaTorrent zaten yönetici olarak çalışıyor ve Windows bu kopyanın ona eklenecek şeyi iletmesine izin vermiyor. Çalışan PaTorrent'ten ekleyin veya PaTorrent'i yönetici hakları olmadan başlatın.
+EndSessionSaving=Torrent listesi ve ilerleme kaydediliyor...
 ShutdownTitle=Otomatik kapatma
 ShutdownDownloadsDone=Tüm indirmeler tamamlandı.
 ShutdownEverythingDone=Tüm torrentler tamamlandı.

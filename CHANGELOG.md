@@ -4,6 +4,15 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_083027_1793604627: Safer exit, sign-out and relaunch (1.1.25)
+
+- **Picked from PLAN:** the code-ready startup/shutdown fixes from the 2026-10-30 findings (BACKLOG "Startup and shutdown"). The bound on the waits and a shutdown progress window stay open.
+- **Windows sign-out and shutdown:** `WM_QUERYENDSESSION` registers `ShutdownBlockReasonCreate` with the new string `EndSessionSaving` ("Saving the torrent list and progress...", all 35 tables, 34 translated here); `WM_ENDSESSION` saves the settings and stops the engine (resume data first) before returning, with the window left visible so that Windows keeps waiting, then destroys it. `on_destroy` and this share `close_session`. Windows waits only for a visible window; from the tray PaTorrent still has the system's few seconds.
+- **Relaunch during an exit:** the first instance now owns its mutex until the process ends and marks its window with the `PaTorrent.Exiting` property while it closes. A second start that finds the mark, or a window that stopped answering and is closing, waits for the mutex (no bound: an exit may wait for a move) and runs as the first instance, keeping its torrents; before, it gave up after 5 s and exited silently. A starting first instance is now waited for on the mutex instead of a sleep.
+- **core:** a check stops at the next file once its torrent is stopped (shutdown fences every torrent): the resume stat pass, the "any file on disk" scan, empty-file creation and the part-file export (which leaves the rest in the part file for the next check). Before, only the hashing loop looked. No wire change, peer ID unchanged.
+- **Auto-load off the GUI thread:** `torrent_folders::Watcher` runs the `Poller` scan and reads the handed-out files on a thread, one scan at a time, collected on a later tick; the Win32 and GTK GUIs use it (nox keeps the `Poller`, its loop is not a GUI).
+- **Checked:** new tests `a_stopped_check_touches_no_more_files` (core) and `the_watcher_scans_and_reads_off_the_calling_thread` (frontend); workspace tests without GTK, stable clippy `-D warnings` and fmt pass; GTK linted from Windows with the stand-in pkg-config. Not run: a real sign-out, a relaunch during a slow exit, a folder on an unplugged share (BACKLOG hand checks).
+
 ## 2026-11-01_070555_1793513155: Microsoft Store release planned (proposed D46)
 
 - **Owner's question:** what a Store release needs, whether listing is free, and whether the Store build can be paid while GitHub stays free.

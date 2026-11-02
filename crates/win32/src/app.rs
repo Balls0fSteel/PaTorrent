@@ -40,7 +40,7 @@ use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::{Category, status_icon};
-use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
+use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
 use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
 use patorrent_nox::webui::{Rss, WebUi};
@@ -48,6 +48,7 @@ use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, W
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
+use windows_sys::Win32::System::Shutdown::{ShutdownBlockReasonCreate, ShutdownBlockReasonDestroy};
 use windows_sys::Win32::System::SystemInformation::{GetLocalTime, GetSystemTime};
 use windows_sys::Win32::System::Time::SystemTimeToFileTime;
 use windows_sys::Win32::UI::Controls::*;
@@ -118,6 +119,10 @@ pub(crate) unsafe fn refuse_lower_integrity_copydata(hwnd: HWND) {
 }
 
 pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
+/// Set on the main window while it saves its state and stops the engine: a second instance
+/// then waits for this one to exit and starts in its place (`instance` in `main.rs`), as the
+/// window takes no torrents any more.
+pub const EXITING_PROP: PCWSTR = w!("PaTorrent.Exiting");
 /// A remote window's class: a second local start looks for [`MAIN_CLASS`] only, so it never
 /// hands its torrents to a remote window.
 const REMOTE_CLASS: PCWSTR = w!("PaTorrentRemoteWnd");
@@ -337,7 +342,7 @@ struct App {
     /// copies (fed every alert) and the auto-load folder's watcher (run from the timer).
     torrent_folders: TorrentFolders,
     torrent_files: TorrentFiles,
-    autoload: Poller,
+    autoload: Watcher,
     /// Preferences > Queueing "Seeding Goal", checked on every status update.
     seeding_goal: SeedingGoal,
     /// The periodic scrape that gives stopped and queued torrents their swarm counts (run from
@@ -988,7 +993,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             scheduler: Scheduler::new(),
             torrent_folders: gui.torrent_folders,
             torrent_files: TorrentFiles::new(),
-            autoload: Poller::new(),
+            autoload: Watcher::new(),
             seeding_goal,
             scrapes: Scrapes::default(),
             rss,
@@ -2157,12 +2162,13 @@ unsafe fn import_from(hwnd: HWND, client: import::Client) {
 /// `.torrent.loaded` (or deleted) once the engine has them.
 fn autoload(a: &mut App) {
     let Some(dir) = a.torrent_folders.loads_from().map(PathBuf::from) else { return };
-    let found = a.autoload.poll(&dir, std::time::Instant::now());
-    if let Some(e) = a.autoload.take_error() {
+    // scanned and read on a thread of its own: the folder may be on a slow share
+    let Some(scan) = a.autoload.poll(&dir, std::time::Instant::now()) else { return };
+    if let Some(e) = scan.error {
         a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAutoloadError, error = e)));
     }
-    for path in found {
-        let (bytes, ti) = match torrent_folders::read(&path) {
+    for (path, read) in scan.files {
+        let (bytes, ti) = match read {
             Ok(r) => r,
             Err(e) => {
                 let line = tr!(FoldersNotLoaded, path = path.display(), error = e);
@@ -2737,6 +2743,26 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
                 0
             }
+            WM_QUERYENDSESSION => {
+                // Windows may end the session: name what the wait at WM_ENDSESSION is for. It
+                // waits for a visible window; a hidden one (the tray) gets a few seconds.
+                if with_app(|_| ()).is_some() {
+                    ShutdownBlockReasonCreate(hwnd, wide(tr!(EndSessionSaving)).as_ptr());
+                }
+                1
+            }
+            WM_ENDSESSION => {
+                if wparam != 0 {
+                    // The process may be ended as soon as this returns: save everything now,
+                    // with the window left as it is so that Windows keeps waiting.
+                    close_session(hwnd);
+                    ShutdownBlockReasonDestroy(hwnd);
+                    DestroyWindow(hwnd);
+                } else {
+                    ShutdownBlockReasonDestroy(hwnd);
+                }
+                0
+            }
             WM_DESTROY => {
                 on_destroy(hwnd);
                 0
@@ -2769,9 +2795,20 @@ fn split_at(x: i32, y: i32) -> Option<Split> {
 
 unsafe fn on_destroy(hwnd: HWND) {
     unsafe {
-        KillTimer(hwnd, TIMER_REFRESH);
         ShowWindow(hwnd, SW_HIDE);
         tray::remove(hwnd);
+        close_session(hwnd);
+        RemovePropW(hwnd, EXITING_PROP);
+        PostQuitMessage(0);
+    }
+}
+
+/// Saves the window's settings and stops the engine, which saves the resume data; returns when
+/// it is done. Once: later calls find no app.
+unsafe fn close_session(hwnd: HWND) {
+    unsafe {
+        SetPropW(hwnd, EXITING_PROP, std::ptr::without_provenance_mut(1));
+        KillTimer(hwnd, TIMER_REFRESH);
         with_app(|a| {
             sync_columns(a);
             save_placement(a);
@@ -2813,7 +2850,6 @@ unsafe fn on_destroy(hwnd: HWND) {
                 DestroyIcon(icon);
             }
         }
-        PostQuitMessage(0);
     }
 }
 

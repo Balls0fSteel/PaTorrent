@@ -37,7 +37,7 @@ use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::status_icon;
-use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
+use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
 use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
 
@@ -85,7 +85,7 @@ struct App {
     /// auto-load folder's watch.
     torrent_folders: TorrentFolders,
     torrent_files: TorrentFiles,
-    autoload: Poller,
+    autoload: Watcher,
     /// Preferences > Scheduler, and the mode put into effect.
     schedule: Schedule,
     scheduler: Scheduler,
@@ -877,7 +877,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             seeding_goal: opts.gui.seeding_goal(),
             torrent_folders: opts.gui.torrent_folders.clone(),
             torrent_files: TorrentFiles::new(),
-            autoload: Poller::new(),
+            autoload: Watcher::new(),
             schedule: opts.gui.schedule.clone(),
             scheduler: Scheduler::new(),
             auto_shutdown: AutoShutdown::default(),
@@ -2165,12 +2165,13 @@ fn add_to_session(a: &mut App, mut p: AddTorrentParams) {
 /// `.torrent.loaded` (or deleted) once the engine has them.
 fn autoload(a: &mut App) {
     let Some(dir) = a.torrent_folders.loads_from().map(PathBuf::from) else { return };
-    let found = a.autoload.poll(&dir, std::time::Instant::now());
-    if let Some(e) = a.autoload.take_error() {
+    // scanned and read on a thread of its own: the folder may be on a slow share
+    let Some(scan) = a.autoload.poll(&dir, std::time::Instant::now()) else { return };
+    if let Some(e) = scan.error {
         a.detail.push_log(format!("{} {}", now_hms(), tr!(LogAutoloadError, error = e)));
     }
-    for path in found {
-        let (bytes, ti) = match torrent_folders::read(&path) {
+    for (path, read) in scan.files {
+        let (bytes, ti) = match read {
             Ok(r) => r,
             Err(e) => {
                 let line = tr!(FoldersNotLoaded, path = path.display(), error = e);

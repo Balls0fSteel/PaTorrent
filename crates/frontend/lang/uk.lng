@@ -380,6 +380,7 @@ RemoteTrust={name} пред'являє сертифікат, якому цей �
 RemotePlaintext={name} — інший комп'ютер, і без HTTPS ім'я користувача, пароль і кожна команда передаються мережею без шифрування: будь-хто в ній може їх прочитати або змінити.\n\nВсе одно підключитися без HTTPS?
 ErrStartPaTorrent=Не вдається запустити PaTorrent: {error}
 ForwardRefused=PaTorrent уже запущено від імені адміністратора, і Windows не дозволяє цій копії передати йому, що додати. Додайте це в запущеному PaTorrent або запустіть PaTorrent без прав адміністратора.
+EndSessionSaving=Збереження списку торрентів і поступу...
 ShutdownTitle=Автовимкнення
 ShutdownDownloadsDone=Усі завантаження завершено.
 ShutdownEverythingDone=Усі торренти завершено.

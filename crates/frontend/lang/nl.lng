@@ -380,6 +380,7 @@ RemoteTrust={name} biedt een certificaat aan dat deze computer niet vertrouwt (e
 RemotePlaintext={name} is een andere computer, en zonder HTTPS gaan gebruikersnaam, wachtwoord en elke opdracht onversleuteld over het netwerk: iedereen daarop kan ze lezen of wijzigen.\n\nToch verbinden zonder HTTPS?
 ErrStartPaTorrent=Kan PaTorrent niet starten: {error}
 ForwardRefused=PaTorrent draait al als beheerder, en Windows laat deze kopie niet doorgeven wat er moet worden toegevoegd. Voeg het toe in de draaiende PaTorrent, of start PaTorrent zonder beheerdersrechten.
+EndSessionSaving=Torrentlijst en voortgang worden opgeslagen...
 ShutdownTitle=Automatisch uitschakelen
 ShutdownDownloadsDone=Alle downloads zijn voltooid.
 ShutdownEverythingDone=Alle torrents zijn voltooid.

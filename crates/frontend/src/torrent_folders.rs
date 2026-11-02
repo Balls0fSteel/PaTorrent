@@ -3,10 +3,11 @@
 //! for new `.torrent` files to add.
 //!
 //! [`TorrentFolders`] is what the page edits. [`Poller`] watches the auto-load folder and hands
-//! out the files that stopped changing; [`TorrentFiles`] follows the session's alerts to store
-//! the copies once the engine has added a torrent, move them when it finishes and rename (or
-//! delete) the auto-loaded files once they are in the session. Toolkit-independent: the Win32
-//! GUI and nox drive them from their own timers and alert loops.
+//! out the files that stopped changing; [`Watcher`] runs it, and reads the files, on a thread of
+//! its own for the GUIs. [`TorrentFiles`] follows the session's alerts to store the copies once
+//! the engine has added a torrent, move them when it finishes and rename (or delete) the
+//! auto-loaded files once they are in the session. Toolkit-independent: the GUIs and nox drive
+//! them from their own timers and alert loops.
 //!
 //! What µTorrent did and what is done here:
 //!
@@ -29,6 +30,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
+use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::time::{Duration, Instant, SystemTime};
 
 use patorrent_core::metainfo::TorrentInfo;
@@ -282,11 +284,16 @@ impl Poller {
     /// Scans `dir` when [`POLL_INTERVAL`] has passed since the last scan (or the folder
     /// changed); see [`Poller::scan`].
     pub fn poll(&mut self, dir: &Path, now: Instant) -> Vec<PathBuf> {
-        if self.dir == dir && self.last.is_some_and(|t| now < t + POLL_INTERVAL) {
+        if !self.due(dir, now) {
             return Vec::new();
         }
         self.last = Some(now);
         self.scan(dir)
+    }
+
+    /// Whether [`Poller::poll`] would scan `dir` at `now`.
+    pub fn due(&self, dir: &Path, now: Instant) -> bool {
+        self.dir != dir || self.last.is_none_or(|t| now >= t + POLL_INTERVAL)
     }
 
     /// The `*.torrent` files in `dir` that have the same size and modification time as at the
@@ -356,6 +363,72 @@ impl Poller {
             }
             _ => None,
         }
+    }
+}
+
+/// A `.torrent` read and parsed by [`read`].
+pub type Read = Result<(Vec<u8>, TorrentInfo), String>;
+
+/// What one [`Watcher`] scan found.
+#[derive(Debug, Default)]
+pub struct Scan {
+    /// The files handed out, each with what [`read`] made of it.
+    pub files: Vec<(PathBuf, Read)>,
+    /// The folder's error, once per new error ([`Poller::take_error`]).
+    pub error: Option<String>,
+}
+
+/// A [`Poller`] whose scans and reads run on a thread of their own, so an auto-load folder on
+/// a slow share never holds up a GUI thread. One scan at a time; its result comes from the
+/// first [`Watcher::poll`] after it is done.
+#[derive(Debug)]
+pub struct Watcher {
+    /// Here while no scan runs.
+    poller: Option<Poller>,
+    busy: Option<Receiver<(Poller, Scan)>>,
+}
+
+impl Default for Watcher {
+    fn default() -> Watcher {
+        Watcher { poller: Some(Poller::new()), busy: None }
+    }
+}
+
+impl Watcher {
+    pub fn new() -> Watcher {
+        Watcher::default()
+    }
+
+    /// The finished scan, if one is; otherwise starts one when it is due (see
+    /// [`Poller::poll`]).
+    pub fn poll(&mut self, dir: &Path, now: Instant) -> Option<Scan> {
+        if let Some(rx) = &self.busy {
+            return match rx.try_recv() {
+                Ok((poller, scan)) => {
+                    (self.poller, self.busy) = (Some(poller), None);
+                    Some(scan)
+                }
+                Err(TryRecvError::Empty) => None,
+                // the scan panicked: start over
+                Err(TryRecvError::Disconnected) => {
+                    (self.poller, self.busy) = (Some(Poller::new()), None);
+                    None
+                }
+            };
+        }
+        if !self.poller.as_ref().is_some_and(|p| p.due(dir, now)) {
+            return None;
+        }
+        let mut poller = self.poller.take()?;
+        let (tx, rx) = sync_channel(1);
+        let dir = dir.to_owned();
+        std::thread::spawn(move || {
+            let files = poller.poll(&dir, now).into_iter().map(|p| (p.clone(), read(&p))).collect();
+            let error = poller.take_error();
+            let _ = tx.send((poller, Scan { files, error }));
+        });
+        self.busy = Some(rx);
+        None
     }
 }
 
@@ -745,6 +818,37 @@ mod tests {
         }
         let _ = fs::remove_dir_all(&dir);
         let _ = fs::remove_dir_all(&outside);
+    }
+
+    #[test]
+    fn the_watcher_scans_and_reads_off_the_calling_thread() {
+        let dir = temp("watch");
+        fs::write(dir.join("a.torrent"), torrent("a", 0)).unwrap();
+        fs::write(dir.join("bad.torrent"), "not bencode").unwrap();
+        // polls at `t` until the scan it starts comes back
+        fn wait(w: &mut Watcher, dir: &Path, t: Instant) -> Scan {
+            loop {
+                if let Some(scan) = w.poll(dir, t) {
+                    return scan;
+                }
+                std::thread::sleep(Duration::from_millis(5));
+            }
+        }
+        let mut w = Watcher::new();
+        let t = Instant::now();
+        let first = wait(&mut w, &dir, t);
+        assert!(first.files.is_empty() && first.error.is_none(), "first sight: not yet");
+        assert!(w.poll(&dir, t + Duration::from_secs(1)).is_none(), "keeps to the interval");
+        assert!(w.poll(&dir, t + Duration::from_secs(1)).is_none(), "and started nothing");
+        let second = wait(&mut w, &dir, t + POLL_INTERVAL);
+        let names: Vec<_> = second.files.iter().map(|(p, _)| p.file_name().unwrap().to_owned()).collect();
+        assert_eq!(names, ["a.torrent", "bad.torrent"]);
+        assert!(second.files[0].1.as_ref().is_ok_and(|(b, ti)| *b == torrent("a", 0) && ti.name() == "a"));
+        assert!(second.files[1].1.is_err());
+
+        let scan = wait(&mut w, &dir.join("missing"), t + POLL_INTERVAL);
+        assert!(scan.files.is_empty() && scan.error.is_some_and(|e| e.contains("missing")));
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]

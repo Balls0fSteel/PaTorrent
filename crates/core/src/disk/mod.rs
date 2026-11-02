@@ -809,7 +809,7 @@ impl Worker {
                 ctx.send(Completion::Verified { storage: storage.id, piece, verdict });
             }
             Job::Check { storage, mode } => {
-                if !storage.abort.load(Ordering::Relaxed) {
+                if !aborted(&storage) {
                     let result = check_files(&storage, ctx, mode);
                     ctx.send(Completion::Checked { storage: storage.id, result });
                 }
@@ -1112,6 +1112,9 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
     // Empty files hold no pieces, so nothing else would ever create them. Skipped ones are not
     // created.
     for (f, &skip) in skipped.iter().enumerate() {
+        if aborted(storage) {
+            break;
+        }
         if fs.file_size(f) == 0 && !storage.skip_file(f) && !skip {
             let path = storage.file_path(f);
             if !path.exists() {
@@ -1128,18 +1131,19 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
     }
 
     let mut have = Bitfield::new(num_pieces as usize, false);
-    // Nothing on disk: nothing to hash.
+    // Nothing on disk: nothing to hash. Stopped meanwhile: nobody wants the result.
     let any_file = storage.lock_files().part.as_ref().is_some_and(|p| !p.is_empty())
-        || (0..fs.num_files())
-            .any(|f| fs.file_size(f) > 0 && !storage.skip_file(f) && storage.file_path(f).exists());
-    if !any_file {
+        || (0..fs.num_files()).any(|f| {
+            !aborted(storage) && fs.file_size(f) > 0 && !storage.skip_file(f) && storage.file_path(f).exists()
+        });
+    if !any_file || aborted(storage) {
         return Ok(CheckResult { have, resume_failed, inconsistent: None });
     }
     let mut buf = vec![0u8; storage.info.piece_length() as usize];
     let report_every = (num_pieces / 100).max(16);
     let mut inconsistent = None;
     for piece in 0..num_pieces {
-        if storage.abort.load(Ordering::Relaxed) {
+        if aborted(storage) {
             break;
         }
         let size = storage.info.piece_size(piece) as usize;
@@ -1166,6 +1170,13 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
     Ok(CheckResult { have, resume_failed, inconsistent })
 }
 
+/// The torrent was stopped or removed ([`DiskIo::async_fence`]), at shutdown too: a check
+/// stops at the next file or piece, so one on a slow share does not hold up the exit. Its
+/// result is dropped (the storage is no longer the torrent's).
+fn aborted(storage: &Storage) -> bool {
+    storage.abort.load(Ordering::Relaxed)
+}
+
 /// libtorrent `posix_storage::verify_resume_data`, reduced to what pread storage needs: every
 /// file that holds part of a piece we claim to have must exist and reach that far. Where
 /// libtorrent exempts skipped files, the part file must hold the piece.
@@ -1188,7 +1199,9 @@ fn resume_matches_files(storage: &Storage, have: &Bitfield) -> bool {
         debug_assert!(piece as u64 * piece_len < fs.total_size());
     }
     need.iter().enumerate().all(|(f, &n)| {
-        n == 0 || storage.skip_file(f) || std::fs::metadata(storage.file_path(f)).is_ok_and(|m| m.len() >= n)
+        n == 0
+            || storage.skip_file(f)
+            || (!aborted(storage) && std::fs::metadata(storage.file_path(f)).is_ok_and(|m| m.len() >= n))
     })
 }
 
@@ -1313,6 +1326,10 @@ fn export_unskipped(storage: &Storage, ctx: &Ctx) -> Result<(), (String, Error)>
         return Ok(());
     }
     for f in 0..fs.num_files() {
+        // the part file keeps what was not exported yet; the next check goes on
+        if aborted(storage) {
+            return Ok(());
+        }
         if st.priority[f] != 0
             && !storage.skip_file(f)
             && fs.file_size(f) > 0
@@ -2034,6 +2051,43 @@ pub(crate) mod tests {
         r.disk.async_fence(&r.storage, FenceAction::Release);
         while !matches!(next(&r.rx), Completion::Fenced { .. }) {}
         assert!(!part.exists(), "a released part file is not written back after the delete");
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    /// A check of a stopped torrent (shutdown) touches no more files: an abort is seen before
+    /// each file's stat, not only between pieces.
+    #[test]
+    fn a_stopped_check_touches_no_more_files() {
+        let r = rig("disk-check-abort", &[("empty", 0), ("data", 40_000)], 32 * 1024);
+        std::fs::create_dir_all(r.dir.join("test")).unwrap();
+        std::fs::write(r.dir.join("test/data"), &r.contents[1]).unwrap();
+        let (tx, _rx) = mpsc::channel();
+        let ctx = Ctx {
+            pool: Arc::new(FilePool::new(4)),
+            done: tx,
+            wake: Arc::new(|| {}),
+            queued_write_bytes: Arc::new(AtomicU64::new(0)),
+            read_cache: Arc::default(),
+            stats: Arc::new(DiskStats::new(1)),
+            queues: Arc::new(OnceLock::new()),
+            index: 0,
+        };
+        let s = &r.storage;
+        let all = Bitfield::new(s.info.num_pieces() as usize, true);
+        let fresh = || Storage::new(78, s.save_path(), s.info.clone(), Vec::new(), Arc::default());
+
+        let stopped = fresh();
+        stopped.abort.store(true, Ordering::Relaxed);
+        assert!(!resume_matches_files(&stopped, &all));
+        let res = check_files(&stopped, &ctx, CheckMode::Resume(all.clone())).unwrap();
+        assert!(res.have.none_set());
+        assert!(!r.dir.join("test/empty").exists(), "the empty file was not made");
+
+        let res = check_files(&fresh(), &ctx, CheckMode::Resume(all.clone())).unwrap();
+        assert!(!res.resume_failed && res.have.all_set());
+        assert!(r.dir.join("test/empty").exists());
+        ctx.pool.release(78);
         drop(r.disk);
         let _ = std::fs::remove_dir_all(&r.dir);
     }

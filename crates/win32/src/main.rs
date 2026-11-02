@@ -69,22 +69,27 @@ fn main() {
 #[cfg(windows)]
 mod instance {
     //! Single instance: a named mutex marks the first one; later ones send their arguments to
-    //! its window with `WM_COPYDATA` and exit.
+    //! its window with `WM_COPYDATA` and exit. The first one owns the mutex until its process
+    //! ends, so a start while it shuts down (its window marked [`EXITING_PROP`], or gone) waits
+    //! for that and then runs as the first, instead of handing its torrents to a window that
+    //! takes none any more.
 
     use std::path::Path;
     use std::ptr::{null, null_mut};
 
     use patorrent_frontend::lang;
     use patorrent_frontend::prefs::Prefs;
-    use windows_sys::Win32::Foundation::{ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError};
+    use windows_sys::Win32::Foundation::{
+        ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, WAIT_ABANDONED, WAIT_OBJECT_0,
+    };
     use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
-    use windows_sys::Win32::System::Threading::CreateMutexW;
+    use windows_sys::Win32::System::Threading::{CreateMutexW, INFINITE, WaitForSingleObject};
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        AllowSetForegroundWindow, FindWindowW, GetWindowThreadProcessId, SMTO_ABORTIFHUNG,
-        SendMessageTimeoutW, WM_COPYDATA,
+        AllowSetForegroundWindow, FindWindowW, GetPropW, GetWindowThreadProcessId, IsWindow,
+        SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_COPYDATA,
     };
 
-    use crate::app::{COPYDATA_ARGS, MAIN_CLASS, data_dir};
+    use crate::app::{COPYDATA_ARGS, EXITING_PROP, MAIN_CLASS, data_dir};
     use crate::util::wide;
 
     /// Returns true if another instance took the arguments.
@@ -97,12 +102,11 @@ mod instance {
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect();
         let name = wide(&format!(r"Local\PaTorrent-{key}"));
-        unsafe {
-            // Leaked on purpose: the mutex lives as long as the process.
-            let m = CreateMutexW(null(), 0, name.as_ptr());
-            if m.is_null() || GetLastError() != ERROR_ALREADY_EXISTS {
-                return false;
-            }
+        // Leaked on purpose: the mutex lives as long as the process. A new one is owned by
+        // this (the main) thread; an existing one is not.
+        let m = unsafe { CreateMutexW(null(), 1, name.as_ptr()) };
+        if m.is_null() || unsafe { GetLastError() } != ERROR_ALREADY_EXISTS {
+            return false;
         }
         // Paths are relative to this process's directory; the other instance has its own.
         let mut payload: Vec<u16> = Vec::new();
@@ -120,6 +124,9 @@ mod instance {
         payload.push(0);
         for _ in 0..50 {
             let hwnd = unsafe { FindWindowW(MAIN_CLASS, null()) };
+            if !hwnd.is_null() && exiting(hwnd) {
+                return !take_over(m);
+            }
             if !hwnd.is_null() {
                 // This process was started by the user's click and may take the foreground;
                 // the running one may not, so hand it the right to raise its window.
@@ -154,12 +161,35 @@ mod instance {
                     lang::init(prefs.get("ui.language").unwrap_or_default());
                     crate::dialogs::error(null_mut(), lang::text(lang::S::ForwardRefused));
                 }
+                // it began to shut down meanwhile
+                if sent == 0 && (unsafe { IsWindow(hwnd) } == 0 || exiting(hwnd)) {
+                    return !take_over(m);
+                }
                 return true;
             }
-            // The first instance is still starting up.
-            std::thread::sleep(std::time::Duration::from_millis(100));
+            // The first instance is still starting up, or has closed its window: then the
+            // mutex is free once its process has ended.
+            if acquired(m, 100) {
+                return false;
+            }
         }
         true
+    }
+
+    /// The window is saving its state and stopping the engine.
+    fn exiting(hwnd: HWND) -> bool {
+        !unsafe { GetPropW(hwnd, EXITING_PROP) }.is_null()
+    }
+
+    /// Waits, without a bound (a shutdown waits for moves in progress), for the first instance
+    /// to end; true when this one owns the mutex then.
+    fn take_over(m: HANDLE) -> bool {
+        acquired(m, INFINITE)
+    }
+
+    /// Whether this thread got the mutex within `ms`; an abandoned one (its owner ended) counts.
+    fn acquired(m: HANDLE, ms: u32) -> bool {
+        matches!(unsafe { WaitForSingleObject(m, ms) }, WAIT_OBJECT_0 | WAIT_ABANDONED)
     }
 }
 

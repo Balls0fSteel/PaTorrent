@@ -380,6 +380,7 @@ RemoteTrust={name} показује сертификат коме овај ра�
 RemotePlaintext={name} је други рачунар, а без HTTPS-а корисничко име, лозинка и свака команда путују мрежом нешифровано: свако на њој може да их прочита или промени.\n\nИпак се повезати без HTTPS-а?
 ErrStartPaTorrent=PaTorrent се не може покренути: {error}
 ForwardRefused=PaTorrent се већ извршава као администратор, а Windows не дозвољава овој копији да му преда шта треба додати. Додајте то у покренутом PaTorrent-у или покрените PaTorrent без администраторских права.
+EndSessionSaving=Чување списка торената и напретка...
 ShutdownTitle=Аутоматско гашење
 ShutdownDownloadsDone=Сва преузимања су завршена.
 ShutdownEverythingDone=Сви торенти су завршени.

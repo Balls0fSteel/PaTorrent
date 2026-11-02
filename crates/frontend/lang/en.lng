@@ -560,6 +560,10 @@ ErrStartPaTorrent=Cannot start PaTorrent: {error}
 
 # A second copy was started with a torrent while the first runs with administrator rights.
 ForwardRefused=PaTorrent is already running as administrator, and Windows does not let this copy hand it what to add. Add it from the running PaTorrent, or start PaTorrent without administrator rights.
+
+# Windows lists it beside PaTorrent while it holds up a sign-out or shutdown to save its
+# state.
+EndSessionSaving=Saving the torrent list and progress...
 ShutdownTitle=Auto Shutdown
 ShutdownDownloadsDone=All downloads have completed.
 ShutdownEverythingDone=All torrents have completed.

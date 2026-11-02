@@ -380,6 +380,7 @@ RemoteTrust={name} esittää varmenteen, johon tämä tietokone ei luota (itse a
 RemotePlaintext={name} on toinen tietokone, ja ilman HTTPS:ää käyttäjänimi, salasana ja jokainen komento kulkevat verkossa salaamattomina: kuka tahansa verkossa voi lukea tai muuttaa niitä.\n\nYhdistetäänkö silti ilman HTTPS:ää?
 ErrStartPaTorrent=PaTorrentia ei voi käynnistää: {error}
 ForwardRefused=PaTorrent on jo käynnissä järjestelmänvalvojana, eikä Windows anna tämän kopion välittää sille lisättävää. Lisää se käynnissä olevassa PaTorrentissa tai käynnistä PaTorrent ilman järjestelmänvalvojan oikeuksia.
+EndSessionSaving=Tallennetaan torrent-luetteloa ja edistymistä...
 ShutdownTitle=Automaattinen sammutus
 ShutdownDownloadsDone=Kaikki lataukset ovat valmiit.
 ShutdownEverythingDone=Kaikki torrentit ovat valmiit.

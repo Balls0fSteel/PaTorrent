@@ -694,6 +694,10 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   closed mid-way (Quit Now, then the old folder intact and the destination clean), a sign-out
   from the tray during a move (does Windows list PaTorrent and wait?), RTL and long
   translations in the window.
+- **1.1.27 (2026-11-02_090224_1793606544):** the moves are a scrollable list (name, done of total or "Waiting",
+  destination) that also shows queued moves, not only running ones; the Quit Now question
+  names two moves and counts the rest. Seen in the demo with 20 moves in English and
+  Hungarian; the Yes/No buttons of the question follow the Windows language, not PaTorrent's.
 - Still open: GTK has neither the closing window nor session-end handling (its exit blocks
   with the window visible). A relaunch waiting during an exit shows nothing of its own. Moves
   across volumes no longer use `std::fs::copy` on Unix (a chunked copy with progress), so a

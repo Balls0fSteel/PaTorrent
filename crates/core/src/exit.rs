@@ -44,13 +44,15 @@ pub struct ExitMove {
     /// Bytes moved of `total` (a file renamed on the same volume counts whole at once).
     pub done: u64,
     pub total: u64,
+    /// Running now; the others wait for a disk thread (or for the torrent's earlier move).
+    pub started: bool,
 }
 
 /// What a closing session is doing.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct ExitStatus {
     pub phase: ExitPhase,
-    /// In [`ExitPhase::Moving`]: the moves still running.
+    /// In [`ExitPhase::Moving`]: the moves still to finish, the running ones first.
     pub moves: Vec<ExitMove>,
     /// Downloaded bytes handed to the disk threads and not written yet.
     pub unwritten: u64,

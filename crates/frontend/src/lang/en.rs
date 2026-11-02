@@ -559,9 +559,11 @@ strings! {
     ExitElapsed = "Closing for {time}";
     ExitStopping = "Stopping the torrents...";
     ExitMoving = "Waiting for files to finish moving. Closing in the middle could leave a torrent half in one folder and half in another, so PaTorrent waits.";
-    /// One line per torrent whose files are being moved; {done} and {total} are sizes like
-    /// 1.2 GB, {folder} where the files go.
-    ExitMoveLine = "{name}: {done} of {total} to {folder}";
+    /// The list of moves: a column title, then its cells. {done} and {total} are sizes like
+    /// 1.2 GB; a move that has not started yet shows ExitMoveWaiting.
+    ExitColMoveTo = "Moving to";
+    ExitMoveProgress = "{done} of {total}";
+    ExitMoveWaiting = "Waiting";
     ExitSaving = "Saving the torrent list and progress. This step always finishes, so that nothing already downloaded is lost.";
     ExitTrackers = "Telling the trackers that PaTorrent stopped...";
     /// {size} is like 3.2 MB.
@@ -573,6 +575,8 @@ strings! {
     /// {name} is the torrent, {folder} where its files stay, {dest} where they were going.
     /// "Set Download Location" is the menu item MenuSetLocation.
     ExitAbortMove = "• \"{name}\" stops moving. Its files stay in {folder}; what was already copied to {dest} is deleted. Move it again later with Set Download Location.";
+    /// After two ExitAbortMove lines when more torrents are moving; {count} is 2 or more.
+    ExitAbortMoreMoves = "• {count} more torrents stop moving in the same way.";
     ExitAbortTrackers = "• The trackers are not told that PaTorrent stopped; they forget it by themselves after a while.";
     /// {size} is like 3.2 MB.
     ExitAbortWrites = "• {size} that was downloaded but not yet written is downloaded again next time. Nothing already on disk is affected.";

@@ -376,21 +376,24 @@ pub(crate) struct DiskIo {
     next_barrier: u64,
 }
 
-/// The storage moves running on the disk threads, for a closing session's window (D47), and the
-/// switch that cancels them.
+/// The storage moves queued and running on the disk threads, for a closing session's window
+/// (D47), and the switch that cancels them. Empty while nothing moves, so it costs a torrent
+/// nothing.
 #[derive(Default)]
 struct Moves {
     running: Mutex<Vec<MoveProgress>>,
     cancel: AtomicBool,
 }
 
-/// A move in flight: bytes moved of the files' total, to `to`.
+/// A move asked for: bytes moved of the files' total, to `to`; `started` once a disk thread
+/// runs it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct MoveProgress {
     pub storage: u64,
     pub to: String,
     pub done: u64,
     pub total: u64,
+    pub started: bool,
 }
 
 impl Moves {
@@ -398,29 +401,48 @@ impl Moves {
         self.running.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// A move of `storage` was queued.
+    fn queue(&self, storage: u64, to: String, total: u64) {
+        self.running().push(MoveProgress { storage, to, done: 0, total, started: false });
+    }
+
+    /// A disk thread runs `storage`'s first queued move, of `total` bytes, to `to`.
     fn start(&self, storage: u64, to: &str, total: u64) {
-        self.running().push(MoveProgress { storage, to: to.to_owned(), done: 0, total });
+        let mut running = self.running();
+        let m = MoveProgress { storage, to: to.to_owned(), done: 0, total, started: true };
+        match running.iter_mut().find(|m| m.storage == storage && !m.started) {
+            Some(queued) => *queued = m,
+            None => running.push(m),
+        }
+    }
+
+    /// The running move of `storage`.
+    fn find(running: &mut [MoveProgress], storage: u64) -> Option<&mut MoveProgress> {
+        running.iter_mut().find(|m| m.storage == storage && m.started)
     }
 
     /// `bytes` more of `storage`'s move are across.
     fn add(&self, storage: u64, bytes: u64) {
-        if let Some(m) = self.running().iter_mut().find(|m| m.storage == storage) {
+        if let Some(m) = Moves::find(&mut self.running(), storage) {
             m.done = (m.done + bytes).min(m.total);
         }
     }
 
     fn done(&self, storage: u64) -> u64 {
-        self.running().iter().find(|m| m.storage == storage).map_or(0, |m| m.done)
+        Moves::find(&mut self.running(), storage).map_or(0, |m| m.done)
     }
 
     fn set_done(&self, storage: u64, done: u64) {
-        if let Some(m) = self.running().iter_mut().find(|m| m.storage == storage) {
+        if let Some(m) = Moves::find(&mut self.running(), storage) {
             m.done = done.min(m.total);
         }
     }
 
     fn end(&self, storage: u64) {
-        self.running().retain(|m| m.storage != storage);
+        let mut running = self.running();
+        if let Some(i) = running.iter().position(|m| m.storage == storage && m.started) {
+            running.remove(i);
+        }
     }
 
     fn cancelled(&self) -> bool {
@@ -637,6 +659,7 @@ impl DiskIo {
     /// before any queued later (libtorrent `async_move_storage`, a fence job). Answered by
     /// [`Completion::Moved`].
     pub fn async_move_storage(&mut self, storage: &Arc<Storage>, path: String, flags: MoveFlags) {
+        self.moves.queue(storage.id, complete(&path), storage.info.total_size());
         self.barrier(storage, BarrierAction::Move { path, flags });
     }
 
@@ -667,7 +690,7 @@ impl DiskIo {
         self.queued_write_bytes.clone()
     }
 
-    /// The moves running now.
+    /// The moves queued and running now.
     pub fn moves(&self) -> Vec<MoveProgress> {
         self.moves.running.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -2552,6 +2575,31 @@ pub(crate) mod tests {
         assert!(r.disk.moves().is_empty(), "nothing left running");
         drop(r.disk);
         let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
+    /// D47's list of moves: queued ones wait with no progress; a running one counts its bytes;
+    /// a second move of the same storage stays queued behind the first.
+    #[test]
+    fn moves_are_listed_queued_then_running() {
+        let m = Moves::default();
+        m.queue(1, "D:\\a".into(), 100);
+        m.queue(2, "D:\\b".into(), 50);
+        m.queue(1, "E:\\a".into(), 100);
+        assert!(m.running().iter().all(|p| !p.started && p.done == 0));
+        m.start(1, "D:\\a", 90);
+        m.add(1, 30);
+        m.add(1, 100);
+        let list = m.running().clone();
+        assert_eq!((list[0].started, list[0].done, list[0].total), (true, 90, 90), "capped at the total");
+        assert!(!list[1].started && !list[2].started);
+        m.end(1);
+        let left: Vec<(u64, String, bool)> =
+            m.running().iter().map(|p| (p.storage, p.to.clone(), p.started)).collect();
+        assert_eq!(left, [(2, "D:\\b".to_owned(), false), (1, "E:\\a".to_owned(), false)]);
+        // a move nobody queued (a test calling move_storage directly) is listed while it runs
+        m.start(3, "F:\\", 10);
+        m.end(3);
+        assert_eq!(m.running().len(), 2);
     }
 
     #[test]

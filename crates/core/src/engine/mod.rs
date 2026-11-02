@@ -720,9 +720,11 @@ impl Engine {
         exit.set_phase(ExitPhase::Closing);
     }
 
-    /// The moves running on the disk threads, with their torrents' names and folders.
+    /// Every move still to finish, with its torrent's name and folders: the ones running on the
+    /// disk threads with their progress first, then the ones queued behind them.
     fn exit_moves(&self) -> Vec<ExitMove> {
-        self.disk
+        let mut out: Vec<ExitMove> = self
+            .disk
             .moves()
             .into_iter()
             .filter_map(|m| {
@@ -733,9 +735,12 @@ impl Engine {
                     to: m.to,
                     done: m.done,
                     total: m.total,
+                    started: m.started,
                 })
             })
-            .collect()
+            .collect();
+        out.sort_by_key(|m| !m.started);
+        out
     }
 
     // --- Helpers ------------------------------------------------------------------------------

@@ -149,19 +149,34 @@ impl Mock {
         let exit = &self.shared.exit;
         let unwritten = Arc::new(std::sync::atomic::AtomicU64::new(3 << 20));
         exit.watch_unwritten(unwritten.clone());
-        let name =
-            self.slots.iter().find_map(|s| s.torrent.as_ref()).map_or("demo".into(), |t| t.st.name.clone());
+        // up to 20 torrents' moves, three at a time (the disk threads), each taking `time / 3`
+        let names: Vec<String> = self
+            .slots
+            .iter()
+            .filter_map(|s| s.torrent.as_ref())
+            .take(20)
+            .map(|t| t.st.name.clone())
+            .collect();
+        let to = std::env::temp_dir().join("patorrent-mock-done").to_string_lossy().into_owned();
         let (start, total) = (Instant::now(), 8u64 << 30);
+        let each = time.as_secs_f64() / 3.0;
         while start.elapsed() < time && !exit.hurried() {
-            let done = (total as f64 * start.elapsed().as_secs_f64() / time.as_secs_f64()) as u64;
+            let t = start.elapsed().as_secs_f64();
+            let finished = ((t / each) as usize * 3).min(names.len());
+            let moves = names[finished..]
+                .iter()
+                .enumerate()
+                .map(|(i, name)| ExitMove {
+                    name: name.clone(),
+                    from: self.config.save_path.clone(),
+                    to: to.clone(),
+                    done: if i < 3 { (total as f64 * (t % each) / each) as u64 } else { 0 },
+                    total,
+                    started: i < 3,
+                })
+                .collect();
             exit.set_phase(ExitPhase::Moving);
-            exit.set_moves(vec![ExitMove {
-                name: name.clone(),
-                from: self.config.save_path.clone(),
-                to: std::env::temp_dir().join("patorrent-mock-done").to_string_lossy().into_owned(),
-                done,
-                total,
-            }]);
+            exit.set_moves(moves);
             std::thread::sleep(Duration::from_millis(100));
         }
         exit.set_phase(ExitPhase::Saving);

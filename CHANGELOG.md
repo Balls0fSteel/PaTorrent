@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_090224_1793606544: The closing window lists many moves (1.1.27, D47 amended)
+
+- **Owner's question:** what if 15-20 torrents are stuck moving at exit? The moves were one static text, which would overflow, and the Quit Now question named every move.
+- **Win32:** the moves are a scrollable owner-data list view (Name, Done, Moving to; label tips show truncated paths), hidden when there are none; one bar shows all the moves together. The question names two moves and then "{count} more torrents stop moving in the same way." The window is 300 x 160 dialog units.
+- **core:** queued moves are listed too ("Waiting"): `DiskIo::async_move_storage` registers the move (destination, the torrent's size) and the disk thread marks it started, so the engine's list needs nothing per torrent. A first try kept the destination in `Torrent` and failed the D21 size test (`a_stopped_torrent_stays_compact`, 24 bytes per torrent); the registry is empty while nothing moves. `ExitMove::started` is new. The demo's slow exit now moves 20 torrents three at a time.
+- **Strings:** `ExitMoveLine` replaced by `ExitColMoveTo`, `ExitMoveProgress` and `ExitMoveWaiting`; new `ExitAbortMoreMoves` (count-neutral wording in languages without a single plural, by the translation subagent); all 35 tables.
+- **Checked:** the new registry test and the window's text tests, all workspace tests without GTK, clippy (also core for Linux and GTK) and fmt pass; screenshots of the 20-move list and the shortened question in English and Hungarian.
+
 ## 2026-11-02_085028_1793605828: The closing window (1.1.26, D47)
 
 - **Owner's request:** show what PaTorrent is doing while it closes instead of looking stuck, and have Quit Now say what it abandons; a flush of written data may need its own treatment.

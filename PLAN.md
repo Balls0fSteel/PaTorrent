@@ -33,8 +33,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
-- **C.** RSS in hosted mode: done (1.1.13, hand check pending). Optional: a GTK hosting page. The owner decided against alternative speed limits in the Win32 GUI (2026-10-30_103224_1793352744): keep 2.2.1's controls; the hosted Web UI keeps refusing them.
-- **D.** Torznab search (D41, [INTEGRATIONS.md](docs/INTEGRATIONS.md) part 2): all five slices are in (model 1.1.12, nox and Web UI 1.1.14, GTK 1.1.15, Win32 1.1.16, the shim's `search/*` 1.1.19). Left: hand checks (BACKLOG).
+- **C, D.** RSS in hosted mode (1.1.13) and Torznab search (D41, all five slices, 1.1.12-1.1.19): done; hand checks in BACKLOG. Optional: a GTK hosting page. No alternative speed limits in the Win32 GUI (owner, 2026-10-30).
 - **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
 - **F.** Microsoft Store release (2026-11-01_070555_1793513155): planned in [STORE.md](docs/STORE.md), proposed D46 (an MSIX Store flavour without self-update; free or paid). Awaiting the owner's answers to Q1-Q6. No code before approval.
 - **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): designed in [DISKIO.md](docs/DISKIO.md), proposed D48 (gentle and per-drive rechecks, SSD / HDD / NAS detection, slowing down when the disk is busy; a new Advanced > Disk I/O page). Q3 and Q8 answered; awaiting the rest. **Keep ping low** (owner's question): [LOWPING.md](docs/LOWPING.md), proposed D49 (an automatic upload cap from measured line delay, no game list); awaiting Q1-Q7. No code before approval.

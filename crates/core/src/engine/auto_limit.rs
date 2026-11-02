@@ -235,7 +235,7 @@ impl Engine {
             let hosts = probe::parse_hosts(&self.settings.auto_limit_probe_hosts);
             let prober = Prober::start(hosts);
             if prober.is_none() {
-                self.auto_log("pings are not available on this system yet; no automatic limits".into());
+                self.auto_log(probe::UNAVAILABLE.into());
             }
             self.auto_limit = Some(AutoLimit {
                 prober,

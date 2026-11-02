@@ -3,9 +3,12 @@
 //! answers, it pings the fallback hosts in turn. The engine reads the round trips from a channel
 //! on its tick, so it never waits for the network.
 //!
-//! ICMP needs no administrator rights on Windows (`IcmpSendEcho2Ex`, as `tracert`). Linux and
-//! macOS (unprivileged ICMP sockets) are the next slice; elsewhere [`Prober::start`] reports
-//! that pings are unavailable and the engine sets no caps.
+//! ICMP needs no administrator rights on Windows (`IcmpSendEcho2Ex`, as `tracert`), on Linux
+//! (ping sockets, `SOCK_DGRAM` / `IPPROTO_ICMP`, allowed to the groups in
+//! `net.ipv4.ping_group_range`; routers' time-exceeded answers come through `IP_RECVERR`) and
+//! on macOS (the same sockets, open to every user, which also receive time-exceeded answers).
+//! Elsewhere (FreeBSD, OpenBSD) [`Prober::start`] reports that pings are unavailable and the
+//! engine sets no caps.
 
 use std::net::{IpAddr, Ipv4Addr};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -25,6 +28,8 @@ pub(crate) enum ProbeEvent {
 
 /// One echo's outcome.
 #[derive(Clone, Copy, Debug, PartialEq)]
+// FreeBSD and OpenBSD have no pinger yet
+#[cfg_attr(not(any(windows, target_os = "linux", target_os = "android", target_vendor = "apple")), allow(dead_code))]
 pub(crate) enum Echo {
     /// `from` answered the echo.
     Reply { from: IpAddr, ms: f64 },
@@ -372,7 +377,310 @@ mod imp {
     }
 }
 
-#[cfg(not(windows))]
+/// The Logger's text when this system gives no pings.
+#[cfg(any(target_os = "linux", target_os = "android"))]
+pub(crate) const UNAVAILABLE: &str = "this system does not let PaTorrent ping (its group must be in net.ipv4.ping_group_range); no automatic limits";
+#[cfg(not(any(target_os = "linux", target_os = "android")))]
+pub(crate) const UNAVAILABLE: &str = "pings are not available on this system yet; no automatic limits";
+
+/// An ICMP echo request: type, code 0, checksum, identifier, sequence and the payload. The
+/// checksum is filled for IPv4 (Linux recomputes it, macOS does not); ICMPv6's is always the
+/// kernel's.
+#[cfg_attr(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")), allow(dead_code))]
+fn echo_request(v6: bool, id: u16, seq: u16) -> Vec<u8> {
+    let mut p = vec![if v6 { 128 } else { 8 }, 0, 0, 0];
+    p.extend_from_slice(&id.to_be_bytes());
+    p.extend_from_slice(&seq.to_be_bytes());
+    p.extend_from_slice(b"PaTorrent keep-ping-low probe...");
+    if !v6 {
+        let sum = internet_checksum(&p);
+        p[2..4].copy_from_slice(&sum.to_be_bytes());
+    }
+    p
+}
+
+/// RFC 1071.
+#[cfg_attr(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")), allow(dead_code))]
+fn internet_checksum(data: &[u8]) -> u16 {
+    let mut sum: u32 =
+        data.chunks(2).map(|c| u16::from_be_bytes([c[0], *c.get(1).unwrap_or(&0)]) as u32).sum();
+    while sum >> 16 != 0 {
+        sum = (sum & 0xffff) + (sum >> 16);
+    }
+    !(sum as u16)
+}
+
+/// The header length of the IPv4 packet `d` starts with.
+#[cfg_attr(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")), allow(dead_code))]
+fn ip_header_len(d: &[u8]) -> Option<usize> {
+    Some((*d.first()? & 0x0f) as usize * 4)
+}
+
+/// Reads an ICMP message an echo socket received from `from`: our echo's reply, or (IPv4) a
+/// router's time-exceeded answer quoting our echo. `ip_header`: the message starts with the
+/// IPv4 header (macOS); `check_id`: the identifier to check (`None` on Linux, whose kernel sets
+/// it and hands a ping socket only its own replies).
+#[cfg_attr(not(any(target_os = "linux", target_os = "android", target_vendor = "apple")), allow(dead_code))]
+fn parse_icmp(
+    data: &[u8],
+    from: IpAddr,
+    ip_header: bool,
+    check_id: Option<u16>,
+    seq: u16,
+    ms: f64,
+) -> Option<Echo> {
+    let icmp = if ip_header { data.get(ip_header_len(data)?..)? } else { data };
+    let ours = |m: &[u8]| -> Option<bool> {
+        let id = u16::from_be_bytes([*m.get(4)?, *m.get(5)?]);
+        let s = u16::from_be_bytes([*m.get(6)?, *m.get(7)?]);
+        Some(s == seq && check_id.is_none_or(|want| want == id))
+    };
+    match *icmp.first()? {
+        // echo reply, ICMPv6 echo reply
+        0 | 129 => ours(icmp)?.then_some(Echo::Reply { from, ms }),
+        // time exceeded: the router quotes our packet's IP header and first 8 bytes
+        11 => {
+            let quoted = icmp.get(8..)?;
+            let echo = quoted.get(ip_header_len(quoted)?..)?;
+            (*echo.first()? == 8 && ours(echo)?).then_some(Echo::TtlExpired { from, ms })
+        }
+        _ => None,
+    }
+}
+
+#[cfg(any(target_os = "linux", target_os = "android", target_vendor = "apple"))]
+mod imp {
+    use std::ffi::c_int;
+    use std::io;
+    use std::net::{IpAddr, SocketAddr, UdpSocket};
+    use std::os::fd::{AsRawFd, FromRawFd};
+    use std::time::{Duration, Instant};
+
+    use super::{Echo, Pinger, echo_request, parse_icmp};
+
+    const AF_INET: c_int = 2;
+    #[cfg(target_vendor = "apple")]
+    const AF_INET6: c_int = 30;
+    #[cfg(not(target_vendor = "apple"))]
+    const AF_INET6: c_int = 10;
+    const SOCK_DGRAM: c_int = 2;
+    #[cfg(not(target_vendor = "apple"))]
+    const SOCK_CLOEXEC: c_int = 0x80000;
+    // macOS has no SOCK_CLOEXEC; PaTorrent starts no child processes that could inherit it
+    #[cfg(target_vendor = "apple")]
+    const SOCK_CLOEXEC: c_int = 0;
+    const IPPROTO_ICMP: c_int = 1;
+    const IPPROTO_ICMPV6: c_int = 58;
+    const POLLIN: i16 = 1;
+    #[cfg(not(target_vendor = "apple"))]
+    const POLLERR: i16 = 8;
+    #[cfg(target_vendor = "apple")]
+    type NFds = u32;
+    #[cfg(not(target_vendor = "apple"))]
+    type NFds = std::ffi::c_ulong;
+
+    #[repr(C)]
+    struct PollFd {
+        fd: c_int,
+        events: i16,
+        revents: i16,
+    }
+
+    unsafe extern "C" {
+        fn socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
+        fn poll(fds: *mut PollFd, n: NFds, timeout: c_int) -> c_int;
+    }
+
+    /// Echo sockets for IPv4 and (when the system allows) IPv6.
+    struct IcmpPinger {
+        v4: UdpSocket,
+        v6: Option<UdpSocket>,
+        id: u16,
+        seq: u16,
+    }
+
+    fn open(v6: bool) -> io::Result<UdpSocket> {
+        let (af, proto) = if v6 { (AF_INET6, IPPROTO_ICMPV6) } else { (AF_INET, IPPROTO_ICMP) };
+        // SAFETY: plain socket creation
+        let fd = unsafe { socket(af, SOCK_DGRAM | SOCK_CLOEXEC, proto) };
+        if fd < 0 {
+            return Err(io::Error::last_os_error());
+        }
+        // SAFETY: `fd` is a fresh socket we own; the calls made on it (TTL, sendto, recvfrom)
+        // are a datagram socket's, as UdpSocket makes them
+        let s = unsafe { UdpSocket::from_raw_fd(fd) };
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        if !v6 {
+            linux::recv_errors(&s)?;
+        }
+        Ok(s)
+    }
+
+    pub(super) fn pinger() -> Option<Box<dyn Pinger>> {
+        let v4 = open(false).ok()?;
+        let v6 = open(true).ok();
+        Some(Box::new(IcmpPinger { v4, v6, id: std::process::id() as u16, seq: 0 }))
+    }
+
+    impl Pinger for IcmpPinger {
+        fn echo(&mut self, to: IpAddr, ttl: u8, timeout: Duration) -> Echo {
+            self.seq = self.seq.wrapping_add(1);
+            let (seq, v6) = (self.seq, to.is_ipv6());
+            let Some(sock) = (if v6 { self.v6.as_ref() } else { Some(&self.v4) }) else { return Echo::Lost };
+            // IPv6 targets are fallback hosts, pinged with the default hop limit
+            if !v6 && sock.set_ttl(ttl.into()).is_err() {
+                return Echo::Lost;
+            }
+            let sent = Instant::now();
+            if sock.send_to(&echo_request(v6, self.id, seq), SocketAddr::new(to, 0)).is_err() {
+                return Echo::Lost;
+            }
+            let deadline = sent + timeout;
+            let mut buf = [0u8; 1500];
+            loop {
+                let left = deadline.saturating_duration_since(Instant::now());
+                if left.is_zero() {
+                    return Echo::Lost;
+                }
+                let mut p = PollFd { fd: sock.as_raw_fd(), events: POLLIN, revents: 0 };
+                // SAFETY: one valid pollfd
+                let n = unsafe { poll(&mut p, 1, left.as_millis().clamp(1, c_int::MAX as u128) as c_int) };
+                if n < 0 && io::Error::last_os_error().kind() == io::ErrorKind::Interrupted {
+                    continue;
+                }
+                if n <= 0 {
+                    return Echo::Lost;
+                }
+                let ms = sent.elapsed().as_secs_f64() * 1000.0;
+                // Linux queues a router's time-exceeded answer as an error of the socket
+                #[cfg(any(target_os = "linux", target_os = "android"))]
+                if p.revents & POLLERR != 0 {
+                    match linux::read_error(sock, seq) {
+                        Some(Some(from)) => return Echo::TtlExpired { from, ms },
+                        Some(None) => continue,
+                        None => return Echo::Lost,
+                    }
+                }
+                if p.revents & POLLIN != 0 {
+                    // a pending socket error (Linux) fails the read: POLLERR comes next
+                    let Ok((n, from)) = sock.recv_from(&mut buf) else { continue };
+                    // macOS hands IPv4 messages over with their IP header, and every echo
+                    // reply on the machine: ours carry our identifier
+                    let (ip_header, check_id) =
+                        if cfg!(target_vendor = "apple") { (!v6, Some(self.id)) } else { (false, None) };
+                    if let Some(e) = parse_icmp(&buf[..n], from.ip(), ip_header, check_id, seq, ms) {
+                        return e;
+                    }
+                }
+            }
+        }
+    }
+
+    /// The error queue of Linux's ping sockets (`IP_RECVERR`, `MSG_ERRQUEUE`).
+    #[cfg(any(target_os = "linux", target_os = "android"))]
+    mod linux {
+        use std::ffi::{c_int, c_void};
+        use std::io;
+        use std::net::{IpAddr, Ipv4Addr, UdpSocket};
+        use std::os::fd::AsRawFd;
+
+        const SOL_IP: c_int = 0;
+        const IP_RECVERR: c_int = 11;
+        const MSG_DONTWAIT: c_int = 0x40;
+        const MSG_ERRQUEUE: c_int = 0x2000;
+        const SO_EE_ORIGIN_ICMP: u8 = 2;
+        const ICMP_TIME_EXCEEDED: u8 = 11;
+        const AF_INET: u16 = 2;
+
+        #[repr(C)]
+        struct IoVec {
+            base: *mut c_void,
+            len: usize,
+        }
+
+        /// glibc's `struct msghdr` (musl pads its two narrower fields to the same layout).
+        #[repr(C)]
+        struct MsgHdr {
+            name: *mut c_void,
+            namelen: u32,
+            iov: *mut IoVec,
+            iovlen: usize,
+            control: *mut c_void,
+            controllen: usize,
+            flags: c_int,
+        }
+
+        #[repr(C)]
+        struct CmsgHdr {
+            len: usize,
+            level: c_int,
+            ty: c_int,
+        }
+
+        unsafe extern "C" {
+            fn setsockopt(fd: c_int, level: c_int, name: c_int, value: *const c_void, len: u32) -> c_int;
+            fn recvmsg(fd: c_int, msg: *mut MsgHdr, flags: c_int) -> isize;
+        }
+
+        pub(super) fn recv_errors(s: &UdpSocket) -> io::Result<()> {
+            let on: c_int = 1;
+            // SAFETY: `on` is a valid int for the call
+            let r = unsafe { setsockopt(s.as_raw_fd(), SOL_IP, IP_RECVERR, (&raw const on).cast(), 4) };
+            if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+        }
+
+        /// One queued error: `Some(Some(router))` for a time-exceeded answer to echo `seq`,
+        /// `Some(None)` for anything else, `None` when the queue cannot be read.
+        pub(super) fn read_error(s: &UdpSocket, seq: u16) -> Option<Option<IpAddr>> {
+            let mut data = [0u8; 576];
+            let mut control = [0u64; 64];
+            let mut iov = IoVec { base: data.as_mut_ptr().cast(), len: data.len() };
+            let mut msg = MsgHdr {
+                name: std::ptr::null_mut(),
+                namelen: 0,
+                iov: &mut iov,
+                iovlen: 1,
+                control: control.as_mut_ptr().cast(),
+                controllen: std::mem::size_of_val(&control),
+                flags: 0,
+            };
+            // SAFETY: every buffer outlives the call and is described by its length
+            let n = unsafe { recvmsg(s.as_raw_fd(), &mut msg, MSG_ERRQUEUE | MSG_DONTWAIT) };
+            if n < 0 {
+                return None;
+            }
+            // the queued packet is our echo request: its sequence number says which
+            let ours = data.get(6..8).is_some_and(|s| u16::from_be_bytes([s[0], s[1]]) == seq);
+            let bytes: Vec<u8> = control.iter().flat_map(|w| w.to_ne_bytes()).collect();
+            let bytes = &bytes[..msg.controllen.min(bytes.len())];
+            let word = std::mem::size_of::<usize>();
+            let head = std::mem::size_of::<CmsgHdr>().next_multiple_of(word);
+            let mut at = 0;
+            while at + head <= bytes.len() {
+                let len = usize::from_ne_bytes(bytes[at..at + word].try_into().ok()?);
+                let level = c_int::from_ne_bytes(bytes[at + word..at + word + 4].try_into().ok()?);
+                let ty = c_int::from_ne_bytes(bytes[at + word + 4..at + word + 8].try_into().ok()?);
+                if len < head || at + len > bytes.len() {
+                    break;
+                }
+                let body = &bytes[at + head..at + len];
+                // struct sock_extended_err (16 bytes), then the offender's sockaddr_in
+                if level == SOL_IP && ty == IP_RECVERR && body.len() >= 24 {
+                    let (origin, kind) = (body[4], body[5]);
+                    let family = u16::from_ne_bytes([body[16], body[17]]);
+                    if ours && origin == SO_EE_ORIGIN_ICMP && kind == ICMP_TIME_EXCEEDED && family == AF_INET
+                    {
+                        return Some(Some(IpAddr::V4(Ipv4Addr::new(body[20], body[21], body[22], body[23]))));
+                    }
+                }
+                at += len.next_multiple_of(word);
+            }
+            Some(None)
+        }
+    }
+}
+
+#[cfg(not(any(windows, target_os = "linux", target_os = "android", target_vendor = "apple")))]
 mod imp {
     pub(super) fn pinger() -> Option<Box<dyn super::Pinger>> {
         None
@@ -384,6 +692,53 @@ mod tests {
     use super::*;
     use std::collections::HashMap;
     use std::net::Ipv6Addr;
+
+    #[test]
+    fn echo_requests_and_their_answers() {
+        let req = echo_request(false, 0x1234, 7);
+        assert_eq!(&req[..2], &[8, 0]);
+        assert_eq!(&req[4..8], &[0x12, 0x34, 0, 7]);
+        // a correct checksum sums to zero
+        assert_eq!(internet_checksum(&req), 0);
+        // ICMPv6: the kernel's checksum
+        assert_eq!(&echo_request(true, 1, 2)[..4], &[128, 0, 0, 0]);
+
+        let router = ip("84.0.0.1");
+        let mut reply = req.clone();
+        reply[0] = 0;
+        // Linux: no IP header, the kernel's identifier
+        assert_eq!(
+            parse_icmp(&reply, router, false, None, 7, 3.0),
+            Some(Echo::Reply { from: router, ms: 3.0 })
+        );
+        assert_eq!(parse_icmp(&reply, router, false, None, 8, 3.0), None);
+        // macOS: an IPv4 header first, and another program's echo is not ours
+        let mut with_ip = vec![0x45; 1];
+        with_ip.extend_from_slice(&[0; 19]);
+        with_ip.extend_from_slice(&reply);
+        assert!(parse_icmp(&with_ip, router, true, Some(0x1234), 7, 3.0).is_some());
+        assert_eq!(parse_icmp(&with_ip, router, true, Some(0x9999), 7, 3.0), None);
+        // a router's time exceeded quoting our echo behind its IP header
+        let mut quoted = vec![0x45];
+        quoted.extend_from_slice(&[0; 19]);
+        quoted.extend_from_slice(&req[..8]);
+        let mut exceeded = vec![11, 0, 0, 0, 0, 0, 0, 0];
+        exceeded.extend_from_slice(&quoted);
+        let mut packet = vec![0x45];
+        packet.extend_from_slice(&[0; 19]);
+        packet.extend_from_slice(&exceeded);
+        assert_eq!(
+            parse_icmp(&packet, router, true, Some(0x1234), 7, 4.0),
+            Some(Echo::TtlExpired { from: router, ms: 4.0 })
+        );
+        // ICMPv6 echo reply
+        let mut v6 = echo_request(true, 1, 2);
+        v6[0] = 129;
+        assert!(parse_icmp(&v6, ip("2001:db8::1"), false, None, 2, 1.0).is_some());
+        // short or foreign messages
+        assert_eq!(parse_icmp(&[0, 0], router, false, None, 7, 1.0), None);
+        assert_eq!(parse_icmp(&[3, 1, 0, 0, 0, 0, 0, 7], router, false, None, 7, 1.0), None);
+    }
 
     #[test]
     fn the_line_is_where_private_addresses_end() {

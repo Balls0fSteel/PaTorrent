@@ -27,6 +27,10 @@ pub struct GuiOptions {
     /// Move only torrents saved in `download_dir` (`dir.move_only_default`; µTorrent's "Only
     /// move from the default download directory", on by default as there).
     pub move_only_default: bool,
+    /// Move a labelled torrent into its label's folder under `completed_dir`
+    /// (`dir.move_add_label`; µTorrent's "Append the torrent's label", off by default as
+    /// there; [`patorrent_core::label_dir`]).
+    pub move_add_label: bool,
     /// "Location of .torrents": stored copies, finished jobs, auto-load (`dir.store_torrents`,
     /// `dir.torrents`, `dir.move_torrents`, `dir.finished_torrents`, `dir.autoload`,
     /// `dir.autoload_dir`, `dir.autoload_delete`).
@@ -101,6 +105,7 @@ impl GuiOptions {
             move_completed: prefs.get_bool("dir.move_completed", false),
             completed_dir: prefs.get("dir.completed").unwrap_or_default().to_owned(),
             move_only_default: prefs.get_bool("dir.move_only_default", true),
+            move_add_label: prefs.get_bool("dir.move_add_label", false),
             torrent_folders: TorrentFolders::load(prefs),
             confirm_delete: prefs.get_bool("ui.confirm_delete", true),
             alternate_rows: prefs.get_bool("ui.alternate_rows", true),
@@ -140,6 +145,7 @@ impl GuiOptions {
             prefs.set("dir.completed", self.completed_dir.trim());
         }
         prefs.set_bool("dir.move_only_default", self.move_only_default);
+        prefs.set_bool("dir.move_add_label", self.move_add_label);
         self.torrent_folders.store(prefs);
         prefs.set_bool("ui.confirm_delete", self.confirm_delete);
         prefs.set_bool("ui.alternate_rows", self.alternate_rows);
@@ -192,6 +198,7 @@ impl GuiOptions {
         }
         let mut m = MoveCompleted::new(dir);
         m.only_from = self.move_only_default.then(|| self.download_dir.clone());
+        m.append_label = self.move_add_label;
         Some(m)
     }
 
@@ -202,6 +209,7 @@ impl GuiOptions {
             (Some(m), Some(new)) => {
                 m.dir = new.dir;
                 m.only_from = new.only_from;
+                m.append_label = new.append_label;
             }
             (_, new) => *current = new,
         }
@@ -290,6 +298,7 @@ mod tests {
         assert_eq!(o.gui.seeding_goal(), SeedingGoal::default(), "150 %, no time, stop");
         assert_eq!(o.gui.property_defaults(), Defaults { upload_slots: 0, seed_goal: SeedGoal::default() });
         assert!(!o.gui.move_completed && o.gui.move_only_default && o.gui.completed_dir.is_empty());
+        assert!(!o.gui.move_add_label, "off by default, as in µTorrent");
         assert!(o.gui.move_completed().is_none());
         assert_eq!(o.gui.ip_filter_file(Path::new("S")), Path::new("S").join("ipfilter.dat"));
 
@@ -301,6 +310,7 @@ mod tests {
             move_completed: true,
             completed_dir: r"D:\done".into(),
             move_only_default: false,
+            move_add_label: true,
             torrent_folders: TorrentFolders {
                 store: true,
                 store_dir: r"D:\torrents".into(),
@@ -360,14 +370,22 @@ mod tests {
         let m = g.move_completed().unwrap();
         assert_eq!(m.dir, r"D:\done");
         assert_eq!(m.only_from.as_deref(), Some(r"C:\in"));
+        assert!(!m.append_label);
         g.move_only_default = false;
         assert_eq!(g.move_completed().unwrap().only_from, None);
+        g.move_add_label = true;
+        assert!(g.move_completed().unwrap().append_label);
 
         let mut current = Some(m);
         g.completed_dir = r"E:\finished".into();
         g.update_move_completed(&mut current);
         let m = current.as_ref().unwrap();
         assert_eq!((m.dir.as_str(), m.only_from.as_deref()), (r"E:\finished", None));
+        assert!(m.append_label, "carried to the running mover");
+        g.move_add_label = false;
+        g.update_move_completed(&mut current);
+        assert!(!current.as_ref().unwrap().append_label);
+        g.move_add_label = true;
         g.move_completed = false;
         g.update_move_completed(&mut current);
         assert!(current.is_none());
@@ -379,6 +397,8 @@ mod tests {
         g.store(&mut prefs);
         assert!(prefs.to_text().contains("dir.completed=E:\\finished\n"));
         assert!(prefs.to_text().contains("dir.move_only_default=0\n"));
+        assert!(prefs.to_text().contains("dir.move_add_label=1\n"));
+        assert!(GuiOptions::load(&prefs, "x").move_add_label);
         g.completed_dir = String::new();
         g.store(&mut prefs);
         assert_eq!(prefs.get("dir.completed"), None);

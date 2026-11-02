@@ -448,6 +448,15 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.gui.move_completed,
                     |o, v| o.gui.move_completed = v,
                 )),
+                // to its right, as in µTorrent
+                F(checkbox(
+                    "dir.move_add_label",
+                    S::PrefMoveAddLabel,
+                    |o| o.gui.move_add_label,
+                    |o, v| o.gui.move_add_label = v,
+                )
+                .needs(&["dir.move_completed"])
+                .beside()),
                 F(text(
                     "dir.completed",
                     None,

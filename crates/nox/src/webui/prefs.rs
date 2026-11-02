@@ -235,6 +235,13 @@ pub(crate) static FIELDS: &[Field] = &[
         |w| Value::Bool(w.prefs.move_completed),
         |w, v| w.prefs.move_completed = boolean(&v)
     ),
+    field!(
+        "dir.move_add_label",
+        Some(S::PrefMoveAddLabel),
+        Kind::Bool,
+        |w| Value::Bool(w.prefs.move_add_label),
+        |w, v| w.prefs.move_add_label = boolean(&v)
+    ),
     field!("dir.completed", None, Kind::Folder, |w| Value::Str(w.prefs.completed_dir.clone()), |w, v| w
         .prefs
         .completed_dir =
@@ -910,7 +917,11 @@ fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
                     Some(tr!(PrefDownloadLocation)),
                     vec![
                         f("dir.download"),
-                        f("dir.move_completed"),
+                        // "Append the torrent's label" to its right, as in µTorrent
+                        row(vec![
+                            f("dir.move_completed"),
+                            enabled_by(f("dir.move_add_label"), "dir.move_completed"),
+                        ]),
                         enabled_by(f("dir.completed"), "dir.move_completed"),
                         enabled_by(f("dir.move_only_default"), "dir.move_completed"),
                     ],
@@ -1391,8 +1402,15 @@ fn commit_read(
             }
         }
     }
-    let folders =
-        |p: &Prefs| (p.move_completed, p.completed_dir.clone(), p.move_only_default, p.save_path.clone());
+    let folders = |p: &Prefs| {
+        (
+            p.move_completed,
+            p.completed_dir.clone(),
+            p.move_only_default,
+            p.move_add_label,
+            p.save_path.clone(),
+        )
+    };
     if folders(&w.prefs) != folders(&old.prefs) {
         st.gui_version += 1;
     }
@@ -1804,6 +1822,7 @@ mod tests {
         st.settings.download_rate_limit = 1; // the alternative mode's value, not stored
         st.prefs.completed_dir = "/done".to_owned();
         st.prefs.move_completed = true;
+        st.prefs.move_add_label = true;
         st.prefs.domain_list = "*.example".to_owned();
         store(&mut st, &["enable_lsd"]);
         let o = &st.options;
@@ -1813,6 +1832,7 @@ mod tests {
         assert_eq!(o.get("lt.enable_lsd"), Some("true"), "a row set to its default on purpose is");
         assert_eq!(o.get("dir.completed"), Some("/done"));
         assert_eq!(o.get("dir.move_completed"), Some("1"));
+        assert_eq!(o.get("dir.move_add_label"), Some("1"));
         assert_eq!(o.get("ui.close_to_tray"), None, "desktop-only keys are not written");
         assert_eq!(o.get("webui.domain_list"), Some("*.example"));
         assert_eq!(o.get("webui.csrf"), Some("1"));
@@ -1916,5 +1936,29 @@ mod tests {
         assert_eq!(reads.get(), 2);
         assert_eq!(shared.lock().prefs.ip_filter_path, list.to_string_lossy());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// "Append the torrent's label" reaches the owner's mover: committing it bumps the
+    /// version `WebUi::sync_move_completed` watches.
+    #[test]
+    fn append_label_reaches_the_mover() {
+        let dir = std::env::temp_dir().join(format!("nox-prefs-add-label-{}", std::process::id()));
+        let session = patorrent_core::Session::start_mock(Settings::default(), Default::default());
+        let shared = State::shared_for_tests(session.handle(), dir.clone());
+        *shared.lock() = state();
+        let done = dir.join("done");
+        let body = Json::obj()
+            .with("dir.move_completed", true)
+            .with("dir.completed", done.to_string_lossy().as_ref())
+            .with("dir.move_add_label", true);
+        let read = |f: &Path| IpFilter::load(f);
+        commit_request(&shared, &parse(&body).unwrap(), "s", read).unwrap();
+        let seen = shared.lock().gui_version;
+        let m = shared.lock().prefs.gui().move_completed().expect("a mover");
+        assert!(m.append_label);
+        let body = Json::obj().with("dir.move_add_label", false);
+        commit_request(&shared, &parse(&body).unwrap(), "s", read).unwrap();
+        assert!(shared.lock().gui_version > seen, "the mover is told");
+        assert!(!shared.lock().prefs.move_add_label);
     }
 }

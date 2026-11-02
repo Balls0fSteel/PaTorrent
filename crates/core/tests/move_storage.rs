@@ -444,24 +444,28 @@ fn move_completed_moves_a_finished_download() {
     let mut w = Watch::new(leech.handle());
     let mut mover = MoveCompleted::new(done.to_string_lossy());
     mover.only_from = Some(dir.to_string_lossy().into_owned());
+    // "Append the torrent's label": into the label's folder, which never climbs out
+    mover.append_label = true;
+    let labelled = done.join("tv").join("Linux_ISOs");
     let id = add(&mut w, &f, &dir);
     leech.handle().torrent(id).connect_peer(local(port));
     let h = leech.handle();
     let mut asked = false;
     let new = wait(&mut w, 60, "moved", |a| {
-        asked |= mover.on_alert(a, &h) == Some(id);
+        let label = |i| (i == id).then(|| "tv/../Linux:ISOs".to_owned());
+        asked |= mover.on_alert(a, &h, label).is_some_and(|(i, to)| i == id && same(&to, &labelled));
         match a {
             Alert::StorageMoved { id: i, new, .. } if *i == id => Some(new.clone()),
             _ => None,
         }
     });
-    assert!(asked && same(&new, &done));
+    assert!(asked && same(&new, &labelled));
     let st = wait_state(&mut w, id, TorrentState::Seeding, 10);
-    assert!(same(&st.save_path, &done));
-    assert!(!mover.wants(&st.save_path), "not moved again");
+    assert!(same(&st.save_path, &labelled));
+    assert!(!mover.wants(&st.save_path, &mover.target("tv/../Linux:ISOs")), "not moved again");
     leech.shutdown();
     seed.shutdown();
-    assert_files(&f, &done);
+    assert_files(&f, &labelled);
     let _ = std::fs::remove_dir_all(dir);
     let _ = std::fs::remove_dir_all(seed_dir);
 }

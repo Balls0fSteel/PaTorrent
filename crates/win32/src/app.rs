@@ -195,6 +195,9 @@ mod cmd {
     pub const FIND: u16 = 145;
     /// The search box's drop-down: Manage Sources.
     pub const SEARCH_MANAGE: u16 = 146;
+    /// The Files tab's menu: Open and Open Containing Folder.
+    pub const FILE_OPEN: u16 = 147;
+    pub const FILE_OPEN_FOLDER: u16 = 148;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -2269,10 +2272,9 @@ unsafe fn on_alerts(hwnd: HWND) {
         let generation = a.list.generation();
         let mut repaint_page = false;
         for alert in alerts.drain(..) {
-            if let Some((id, dir)) = a
-                .move_completed
-                .as_mut()
-                .and_then(|m| m.on_alert(&alert, &a.handle).map(|id| (id, m.dir.clone())))
+            let label_of = |id| Some(a.list.extra(id).label.to_owned());
+            if let Some((id, dir)) =
+                a.move_completed.as_mut().and_then(|m| m.on_alert(&alert, &a.handle, label_of))
             {
                 let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
                 a.detail.push_log(format!("{} {}", now_hms(), tr!(LogMovingCompleted, name, dir)));
@@ -2898,7 +2900,7 @@ fn command_icon(id: u16) -> Option<UiIcon> {
         cmd::PREFS => UiIcon::Preferences,
         cmd::RSS => UiIcon::Feeds,
         cmd::ABOUT => UiIcon::About,
-        cmd::OPEN_FOLDER => UiIcon::OpenFolder,
+        cmd::OPEN_FOLDER | cmd::FILE_OPEN_FOLDER => UiIcon::OpenFolder,
         cmd::FORCE_START => UiIcon::ForceStart,
         cmd::START | cmd::START_ALL => UiIcon::Start,
         cmd::PAUSE => UiIcon::Pause,
@@ -3125,10 +3127,20 @@ unsafe fn files_menu(hwnd: HWND, files_lv: HWND, p: POINT) {
             return;
         }
         let menu = CreatePopupMenu();
+        // as µTorrent's; a remote window's files are on the other machine
+        if !crate::remote_ui::is_remote() {
+            append(menu, cmd::FILE_OPEN, tr!(MenuOpenFile));
+            append(menu, cmd::FILE_OPEN_FOLDER, tr!(MenuOpenFolder));
+            separator(menu);
+        }
         for (i, (text, _)) in PRIORITIES.iter().enumerate() {
             append(menu, cmd::FILE_PRIO_BASE + i as u16, lang::text(*text));
         }
         let id = popup(hwnd, menu, p.x, p.y);
+        if matches!(id, cmd::FILE_OPEN | cmd::FILE_OPEN_FOLDER) {
+            open_file(hwnd, rows[0], id == cmd::FILE_OPEN_FOLDER);
+            return;
+        }
         if id < cmd::FILE_PRIO_BASE || (id - cmd::FILE_PRIO_BASE) as usize >= PRIORITIES.len() {
             return;
         }
@@ -3145,6 +3157,46 @@ unsafe fn files_menu(hwnd: HWND, files_lv: HWND, p: POINT) {
             a.files_requested = None;
         });
         request_detail();
+    }
+}
+
+/// The Files tab's Open (a double click, Enter, the menu) and Open Containing Folder for its
+/// row `row`. Open hands the file to the shell as Explorer's double click does (its default
+/// program); a file not on disk yet does nothing. The folder is the nearest one inside the save
+/// path that exists, with the file selected once it does.
+unsafe fn open_file(hwnd: HWND, row: usize, folder: bool) {
+    if crate::remote_ui::is_remote() {
+        return;
+    }
+    let Some((save, path)) = with_app(|a| {
+        let st = a.list.get(a.detail.id?)?;
+        Some((PathBuf::from(&st.save_path), a.detail.file_path(row, &st.save_path)?))
+    })
+    .flatten() else {
+        return;
+    };
+    unsafe {
+        if folder {
+            let shown = path.ancestors().skip(1).take_while(|p| p.starts_with(&save)).find(|p| p.is_dir());
+            show_in_explorer(&path, shown.unwrap_or(&save));
+        } else if path.is_file() {
+            use windows_sys::Win32::System::Com::{COINIT_APARTMENTTHREADED, CoInitializeEx, CoUninitialize};
+            let com = CoInitializeEx(null(), COINIT_APARTMENTTHREADED as u32) >= 0;
+            let dir = path.parent().map(|d| wide(&d.to_string_lossy()));
+            let file = wide(&path.to_string_lossy());
+            // no verb: the default one, which is what Explorer runs
+            ShellExecuteW(
+                hwnd,
+                null(),
+                file.as_ptr(),
+                null(),
+                dir.as_ref().map_or(null(), |d| d.as_ptr()),
+                SW_SHOWNORMAL,
+            );
+            if com {
+                CoUninitialize();
+            }
+        }
     }
 }
 
@@ -5239,6 +5291,14 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 0
             }
             (IDC_PIECE_LIST, NM_CUSTOMDRAW) => pieces_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW)),
+            // a double click or Enter on a file opens it, as in µTorrent and Explorer
+            (i, LVN_ITEMACTIVATE) if i == IDC_PAGE + Page::Files.index() => {
+                let row = (*(nm as *const NMITEMACTIVATE)).iItem;
+                if row >= 0 {
+                    open_file(hwnd, row as usize, false);
+                }
+                0
+            }
             (i, NM_CUSTOMDRAW) if (IDC_PAGE..IDC_PAGE + Page::ALL.len()).contains(&i) => {
                 controls::selection_custom_draw(&mut *(nm as *mut NMLVCUSTOMDRAW))
             }

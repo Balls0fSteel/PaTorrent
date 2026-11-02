@@ -116,6 +116,7 @@ const ID_AUTOLOAD: u16 = id(2, 13);
 const ID_AUTOLOAD_DIR: u16 = id(2, 14);
 const ID_AUTOLOAD_BROWSE: u16 = id(2, 15);
 const ID_AUTOLOAD_DELETE: u16 = id(2, 16);
+const ID_MOVE_ADD_LABEL: u16 = id(2, 17);
 // Connection
 const ID_PORT: u16 = id(3, 1);
 const ID_RANDOM_PORT: u16 = id(3, 2);
@@ -279,6 +280,11 @@ static FIELDS: &[Field] = &[
         id: ID_MOVE_ONLY_DEFAULT,
         get: |o| o.gui.move_only_default,
         set: |o, v| o.gui.move_only_default = v,
+    },
+    Field::Check {
+        id: ID_MOVE_ADD_LABEL,
+        get: |o| o.gui.move_add_label,
+        set: |o, v| o.gui.move_add_label = v,
     },
     Field::Check {
         id: ID_STORE,
@@ -750,7 +756,9 @@ fn template() -> Vec<u16> {
     b.label([8, 14, 290, 9], tr!(PrefNewDownloadsIn));
     b.ctl(EDIT, ID_DL_DIR, LINE, [8, 26, 272, 13], "");
     b.ctl(BUTTON, ID_DL_BROWSE, PUSH, [284, 26, 18, 13], "...");
-    b.ctl(BUTTON, ID_MOVE, CHECK, [8, 46, 290, 10], tr!(PrefMoveCompleted));
+    // "Append the torrent's label" to its right, as in µTorrent (`fit` makes room for longer texts)
+    b.ctl(BUTTON, ID_MOVE, CHECK, [8, 46, 180, 10], tr!(PrefMoveCompleted));
+    b.ctl(BUTTON, ID_MOVE_ADD_LABEL, CHECK, [192, 46, 110, 10], tr!(PrefMoveAddLabel));
     b.ctl(EDIT, ID_MOVE_DIR, LINE, [8, 59, 272, 13], "");
     b.ctl(BUTTON, ID_MOVE_BROWSE, PUSH, [284, 59, 18, 13], "...");
     b.ctl(BUTTON, ID_MOVE_ONLY_DEFAULT, CHECK, [8, 78, 290, 10], tr!(PrefMoveOnlyDefault));
@@ -1331,11 +1339,12 @@ unsafe fn sched_table(dlg: HWND) -> [Mode; scheduler::CELLS] {
     table
 }
 
-/// The folder and "Only move from ..." follow "Move completed downloads to", as in µTorrent.
+/// The folder, "Only move from ..." and "Append the torrent's label" follow "Move completed
+/// downloads to", as in µTorrent.
 unsafe fn update_move_controls(dlg: HWND) {
     unsafe {
         let on = checked(dlg, ID_MOVE) as i32;
-        for id in [ID_MOVE_DIR, ID_MOVE_BROWSE, ID_MOVE_ONLY_DEFAULT] {
+        for id in [ID_MOVE_DIR, ID_MOVE_BROWSE, ID_MOVE_ONLY_DEFAULT, ID_MOVE_ADD_LABEL] {
             EnableWindow(item(dlg, id), on);
         }
     }
@@ -2515,19 +2524,22 @@ mod tests {
         let mut f = Fixture::new(defaults());
         f.page(2);
         unsafe {
-            for id in [ID_MOVE, ID_MOVE_DIR, ID_MOVE_BROWSE, ID_MOVE_ONLY_DEFAULT] {
+            for id in [ID_MOVE, ID_MOVE_DIR, ID_MOVE_BROWSE, ID_MOVE_ONLY_DEFAULT, ID_MOVE_ADD_LABEL] {
                 assert!(shown(item(f.dlg, id)), "control {id}");
             }
             assert!(!checked(f.dlg, ID_MOVE));
             assert!(checked(f.dlg, ID_MOVE_ONLY_DEFAULT), "on by default, as in µTorrent");
+            assert!(!checked(f.dlg, ID_MOVE_ADD_LABEL), "off by default, as in µTorrent");
             assert_eq!(IsWindowEnabled(item(f.dlg, ID_MOVE_DIR)), 0, "greyed while off");
             assert_eq!(IsWindowEnabled(item(f.dlg, ID_MOVE_ONLY_DEFAULT)), 0);
+            assert_eq!(IsWindowEnabled(item(f.dlg, ID_MOVE_ADD_LABEL)), 0);
         }
         f.check(ID_MOVE, true);
         f.click(ID_MOVE);
         unsafe {
             assert_ne!(IsWindowEnabled(item(f.dlg, ID_MOVE_DIR)), 0);
             assert_ne!(IsWindowEnabled(item(f.dlg, ID_MOVE_BROWSE)), 0);
+            assert_ne!(IsWindowEnabled(item(f.dlg, ID_MOVE_ADD_LABEL)), 0);
         }
         // on without a folder is refused on the Directories page
         let err = unsafe { read_controls(f.dlg, &mut f.st) }.unwrap_err();
@@ -2535,12 +2547,13 @@ mod tests {
 
         f.set(ID_MOVE_DIR, r" D:\Done ");
         f.check(ID_MOVE_ONLY_DEFAULT, false);
+        f.check(ID_MOVE_ADD_LABEL, true);
         f.click(ID_APPLY);
         let o = f.last_applied();
-        assert!(o.gui.move_completed && !o.gui.move_only_default);
+        assert!(o.gui.move_completed && !o.gui.move_only_default && o.gui.move_add_label);
         assert_eq!(o.gui.completed_dir, r"D:\Done");
         let m = o.gui.move_completed().expect("a mover");
-        assert_eq!((m.dir.as_str(), m.only_from), (r"D:\Done", None));
+        assert_eq!((m.dir.as_str(), m.only_from, m.append_label), (r"D:\Done", None, true));
         let mut prefs = Prefs::default();
         o.store(&mut prefs);
         let text = prefs.to_text();
@@ -2552,6 +2565,7 @@ mod tests {
         assert_eq!(g.text(ID_MOVE_DIR), r"D:\Done");
         unsafe {
             assert!(checked(g.dlg, ID_MOVE) && !checked(g.dlg, ID_MOVE_ONLY_DEFAULT));
+            assert!(checked(g.dlg, ID_MOVE_ADD_LABEL));
             assert_ne!(IsWindowEnabled(item(g.dlg, ID_MOVE_DIR)), 0);
         }
         g.check(ID_MOVE, false);

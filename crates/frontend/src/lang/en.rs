@@ -192,6 +192,8 @@ strings! {
     /// Shown when one finished torrent is selected.
     MenuOpenFolder = "Open &Containing Folder";
     MenuOpenFolderMany = "Open Containing &Folder";
+    /// The Files tab's menu: opens the file in its default program.
+    MenuOpenFile = "&Open";
     MenuForceStart = "&Force Start";
     MenuStart = "&Start";
     MenuPause = "&Pause";
@@ -654,6 +656,8 @@ strings! {
     PrefNewDownloadsIn = "Put new downloads in:";
     PrefMoveCompleted = "Move completed downloads to:";
     PrefMoveOnlyDefault = "Only move from the default download directory";
+    /// Under "Move completed downloads to:": moves into a sub-folder named after the label.
+    PrefMoveAddLabel = "Append the torrent's label";
     PrefTorrentLocation = "Location of .torrents";
     PrefStoreTorrents = "Store .torrents in:";
     PrefMoveTorrents = "Move .torrents for finished jobs to:";

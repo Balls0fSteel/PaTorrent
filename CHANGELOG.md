@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_225455_1793656495: Version 1.1.34: the Files tab's Open, and label folders
+
+- **Files tab (Win32, GTK):** a double click or Enter on a file opens it in its default program, and the menu starts with µTorrent's Open and Open Containing Folder (the folder selects the file, or opens the nearest existing folder inside the save path while it is not on disk yet). A file not on disk does nothing. Paths come from `detail::file_path`, which takes only plain names under an absolute save path (as SEC-18's Open Folder). Hidden in a remote window. Not run by hand: an agent cannot open programs on this desktop.
+- **"Append the torrent's label"** (µTorrent's `dir_add_label`, default off; the owner's own settings had it on): beside "Move completed downloads to:" in Win32, GTK and the Web UI (`dir.move_add_label`). A labelled torrent that finishes moves to `<completed>\<label>`; none or an empty label, to `<completed>`. `label_dir` keeps a label inside the folder: `/` and `\` nest, Windows-forbidden characters become `_`, `.`/`..`/empty names drop, device names get a `_`, names stop at 255 bytes. `MoveCompleted::on_alert` takes a label lookup and returns the destination. A real labelled move passes in `tests/move_storage.rs`.
+- **Strings:** `MenuOpenFile`, `PrefMoveAddLabel` in all 35 languages (machine translations).
+
 ## 2026-11-02_223318_1793655198: Why qBittorrent "refused" our uTP connections
 
 - **Cause:** right after a torrent's check, qBittorrent keeps it paused in libtorrent for a few seconds while its API says `stalledUP`; with no other active torrent libtorrent drops incoming connections ("no active torrents", no alert), which for uTP is a FIN acking our SYN, and we then wait 15 s before TCP, as libtorrent does. Found from libtorrent's source, a capture, a 5 s pause and an unrelated active "keeper" torrent (each makes every run connect over uTP at once), and plain libtorrent 2.1.1 accepting every time. No engine change: `tools/qbt-interop` waits 5 s after "checked" (then 0.5-1 s "down" runs over uTP on 2.0.15). BACKLOG records the optional quicker give-up.

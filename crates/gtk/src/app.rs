@@ -632,7 +632,6 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         }
     });
     let list = List::new(&prefs.columns(), prefs.sort(), render, popup);
-    let files_menu = crate::detail::files_menu();
     let details = Details::new(
         peek,
         prefs.get("ui.tab").and_then(Tab::from_key).unwrap_or(Tab::General),
@@ -643,10 +642,13 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         Rc::new(move |widget, x, y| {
             // the menu hangs off the notebook, which outlives the table's cells
             if let Some(ui) = ui() {
-                popup_menu(&files_menu, ui.details.notebook.upcast_ref(), widget, x, y);
+                let menu = crate::detail::files_menu(!crate::remote::is_remote());
+                popup_menu(&menu, ui.details.notebook.upcast_ref(), widget, x, y);
             }
         }),
     );
+    // a double click or Enter on a file opens it, as in µTorrent
+    details.connect_file_activate(|row| open_file(row, false));
     let sidebar = Sidebar::new(
         |pick| match pick {
             Pick::Torrents(filter) => {
@@ -1223,10 +1225,9 @@ fn on_alerts() {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
         for alert in alerts.drain(..) {
-            if let Some((id, dir)) = a
-                .move_completed
-                .as_mut()
-                .and_then(|m| m.on_alert(&alert, &a.handle).map(|id| (id, m.dir.clone())))
+            let label_of = |id| Some(a.list.extra(id).label.to_owned());
+            if let Some((id, dir)) =
+                a.move_completed.as_mut().and_then(|m| m.on_alert(&alert, &a.handle, label_of))
             {
                 let name = a.list.get(id).map(|st| st.name.clone()).unwrap_or_default();
                 a.detail.push_log(format!("{} {}", now_hms(), tr!(LogMovingCompleted, name, dir)));
@@ -1649,6 +1650,15 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
             }
         }
     });
+    for (name, folder) in [("file-open", false), ("file-open-folder", true)] {
+        let a = gio::SimpleAction::new(name, None);
+        a.connect_activate(move |_, _| {
+            if let Some(row) = ui().and_then(|ui| ui.details.selected_files().first().copied()) {
+                open_file(row, folder);
+            }
+        });
+        window.add_action(&a);
+    }
     for (i, &(_, prio)) in PRIORITIES.iter().enumerate() {
         let a = gio::SimpleAction::new(&format!("file-prio-{i}"), None);
         a.connect_activate(move |_, _| {
@@ -1962,6 +1972,39 @@ fn open_folder(ids: &[TorrentId]) {
             eprintln!("cannot open the folder: {e}");
         }
     });
+}
+
+/// The Files tab's Open (a double click, Enter, the menu) and Open Containing Folder for its
+/// row `row`. Open hands the file to its default program; a file not on disk yet does nothing.
+/// The folder shows the file once it exists, else the nearest folder inside the save path that
+/// does.
+fn open_file(row: usize, folder: bool) {
+    if crate::remote::is_remote() {
+        return;
+    }
+    let Some((window, save, path)) = with_app(|a| {
+        let st = a.list.get(a.detail.id?)?;
+        Some((a.window.clone(), PathBuf::from(&st.save_path), a.detail.file_path(row, &st.save_path)?))
+    })
+    .flatten() else {
+        return;
+    };
+    let done = |r: Result<(), glib::Error>| {
+        if let Err(e) = r {
+            eprintln!("cannot open the file: {e}");
+        }
+    };
+    if folder && path.exists() {
+        let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(&path)));
+        launcher.open_containing_folder(Some(&window), None::<&gio::Cancellable>, done);
+    } else if folder {
+        let shown = path.ancestors().skip(1).take_while(|p| p.starts_with(&save)).find(|p| p.is_dir());
+        let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(shown.unwrap_or(&save))));
+        launcher.launch(Some(&window), None::<&gio::Cancellable>, done);
+    } else if path.is_file() {
+        let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(&path)));
+        launcher.launch(Some(&window), None::<&gio::Cancellable>, done);
+    }
 }
 
 fn add_files() {

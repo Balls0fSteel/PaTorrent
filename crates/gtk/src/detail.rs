@@ -245,6 +245,11 @@ impl Details {
         self.files.selected()
     }
 
+    /// `f` gets the Files tab row the user double-clicked or pressed Enter on.
+    pub fn connect_file_activate(&self, f: impl Fn(usize) + 'static) {
+        self.files.view.connect_activate(move |_, position| f(position as usize));
+    }
+
     /// Redraws the tab on screen from the data.
     pub fn refresh(&self) {
         let peek = self.peek;
@@ -600,12 +605,22 @@ fn speed_graph(w: &gtk::Widget, s: &gtk::Snapshot, width: f32, height: f32, d: &
     }
 }
 
-/// The Files tab's menu: the priorities (`win.file-prio-N`, N into [`PRIORITIES`]).
-pub fn files_menu() -> gio::Menu {
+/// The Files tab's menu, as µTorrent's: Open and Open Containing Folder (`win.file-open`,
+/// `win.file-open-folder`) when the files are on this machine, then the priorities
+/// (`win.file-prio-N`, N into [`PRIORITIES`]).
+pub fn files_menu(local: bool) -> gio::Menu {
     let menu = gio::Menu::new();
-    for (i, (text, _)) in PRIORITIES.iter().enumerate() {
-        menu.append(Some(&gtk_mnemonic(lang::text(*text))), Some(&format!("win.file-prio-{i}")));
+    if local {
+        let open = gio::Menu::new();
+        open.append(Some(&gtk_mnemonic(tr!(MenuOpenFile))), Some("win.file-open"));
+        open.append(Some(&gtk_mnemonic(tr!(MenuOpenFolder))), Some("win.file-open-folder"));
+        menu.append_section(None, &open);
     }
+    let prios = gio::Menu::new();
+    for (i, (text, _)) in PRIORITIES.iter().enumerate() {
+        prios.append(Some(&gtk_mnemonic(lang::text(*text))), Some(&format!("win.file-prio-{i}")));
+    }
+    menu.append_section(None, &prios);
     menu
 }
 

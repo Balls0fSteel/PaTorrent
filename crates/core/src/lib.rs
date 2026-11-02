@@ -51,7 +51,7 @@ pub use alert::{
 pub use engine::peer_class::{PeerClassId, PeerClassInfo, PeerClassTypeFilter, SocketType};
 pub use error::Error;
 pub use exit::{Exit, ExitMove, ExitPhase, ExitStatus};
-pub use move_completed::{MoveCompleted, same_dir};
+pub use move_completed::{MoveCompleted, label_dir, same_dir};
 /// A blocking HTTP / HTTPS `GET` for frontends (Add Torrent from URL, RSS feeds).
 pub use net::fetch;
 pub use net::ip_filter::{IpFilter, IpFilterLoad, IpRange, PortFilter};

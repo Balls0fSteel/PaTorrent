@@ -218,6 +218,8 @@ pub(crate) struct Prefs {
     pub move_completed: bool,
     pub completed_dir: String,
     pub move_only_default: bool,
+    /// Into the label's folder under `completed_dir` (`GuiOptions::move_add_label`).
+    pub move_add_label: bool,
     /// "Location of .torrents" (Directories page): stored copies, finished jobs, auto-load.
     pub torrent_folders: TorrentFolders,
     /// The page asks before removing torrents.
@@ -276,6 +278,7 @@ impl Prefs {
             move_completed: false,
             completed_dir: String::new(),
             move_only_default: true,
+            move_add_label: false,
             torrent_folders: TorrentFolders::default(),
             confirm_delete: true,
             show_add_dialog: true,
@@ -312,6 +315,7 @@ impl Prefs {
             move_completed: self.move_completed,
             completed_dir: self.completed_dir.clone(),
             move_only_default: self.move_only_default,
+            move_add_label: self.move_add_label,
             torrent_folders: self.torrent_folders.clone(),
             confirm_delete: self.confirm_delete,
             alternate_rows: true,
@@ -363,6 +367,7 @@ impl Prefs {
         self.move_completed = g.move_completed;
         self.completed_dir = g.completed_dir.clone();
         self.move_only_default = g.move_only_default;
+        self.move_add_label = g.move_add_label;
         self.torrent_folders = g.torrent_folders.clone();
         self.confirm_delete = g.confirm_delete;
         self.start_paused = g.add_stopped;
@@ -1075,6 +1080,13 @@ impl WebUi {
         *seen = st.gui_version;
         st.prefs.gui().update_move_completed(current);
         true
+    }
+
+    /// A torrent's label (`None`: none, or not in the lists yet), for "Append the torrent's
+    /// label" ([`MoveCompleted::on_alert`]).
+    pub fn label_of(&self, id: TorrentId) -> Option<String> {
+        let st = self.shared.lock();
+        st.torrents.get(&id).and_then(|e| st.torrent_categories.get(&e.hash)).cloned()
     }
 
     /// Hosted ([`Config::hosted`]): the host changed its RSS Downloader ([`Hosted::rss`])

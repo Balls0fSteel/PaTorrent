@@ -4,6 +4,7 @@
 //! cell text. The drawing is the toolkit's.
 
 use std::collections::VecDeque;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use patorrent_core::{
@@ -181,6 +182,34 @@ impl Detail {
         self.file_rows.get(row).map(|&i| i as u32)
     }
 
+    /// Where a Files tab row's file is on disk, for Open and Open Containing Folder; see
+    /// [`file_path`].
+    pub fn file_path(&self, row: usize, save_path: &str) -> Option<PathBuf> {
+        let i = *self.file_rows.get(row)?;
+        file_path(save_path, &self.files.as_ref()?.get(i)?.path)
+    }
+}
+
+/// `<save path>/<path>` for a file's `/`-separated path in its torrent, or None when the save
+/// path is not absolute or the path is anything but plain names, so what Open runs can never
+/// be outside the save path (as Open Folder's target, SEC-18).
+pub fn file_path(save_path: &str, path: &str) -> Option<PathBuf> {
+    use std::path::{Component, Path};
+    let mut full = PathBuf::from(save_path);
+    if !full.is_absolute() || path.is_empty() {
+        return None;
+    }
+    for part in path.split('/') {
+        let mut c = Path::new(part).components();
+        match (c.next(), c.next()) {
+            (Some(Component::Normal(n)), None) => full.push(n),
+            _ => return None,
+        }
+    }
+    Some(full)
+}
+
+impl Detail {
     /// The piece map's colour for piece `i`: on disk, being downloaded, or by how many peers
     /// have it.
     pub fn piece_shade(&self, i: usize) -> PieceShade {
@@ -646,6 +675,36 @@ mod tests {
         assert_eq!(file_cell(&f, None, 4), "4");
         assert_eq!(file_cell(&f, None, 6), "Normal");
         assert_eq!(priority_text(DownloadPriority::TOP), "High");
+    }
+
+    /// Open stays inside the save path whatever the torrent's file paths are.
+    #[test]
+    fn file_paths_stay_in_the_save_path() {
+        let save = if cfg!(windows) { r"C:\Downloads" } else { "/downloads" };
+        let p = file_path(save, "Show/Season 1/e01.mkv").unwrap();
+        assert_eq!(p, PathBuf::from(save).join("Show").join("Season 1").join("e01.mkv"));
+        for bad in ["", "..", "a/../b", "a//b", "/x", "a/", "./a", r"\\host\share\x", r"C:\x", "C:x", r"a\b"]
+        {
+            // a backslash is a plain name character off Windows
+            if cfg!(windows) || !bad.contains('\\') {
+                assert_eq!(file_path(save, bad), None, "{bad}");
+            }
+        }
+        assert_eq!(file_path("relative", "a"), None);
+
+        let mut d = Detail::default();
+        let entry = |path: &str, pad_file| FileEntry {
+            path: path.into(),
+            size: 1,
+            offset: 0,
+            first_piece: 0,
+            last_piece: 0,
+            pad_file,
+            priority: DownloadPriority::NORMAL,
+        };
+        d.set_files(vec![entry("T/.pad/1", true), entry("T/a.txt", false)].into());
+        assert_eq!(d.file_path(0, save), Some(PathBuf::from(save).join("T").join("a.txt")));
+        assert_eq!(d.file_path(1, save), None);
     }
 
     #[test]

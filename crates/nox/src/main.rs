@@ -798,7 +798,8 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         let mut changed: Vec<TorrentId> = Vec::new();
         let mut updated = false;
         for a in alerts.drain(..) {
-            if let Some(id) = move_completed.as_mut().and_then(|m| m.on_alert(&a, &h)) {
+            let label_of = |id| web.as_ref().and_then(|w| w.label_of(id));
+            if let Some((id, _)) = move_completed.as_mut().and_then(|m| m.on_alert(&a, &h, label_of)) {
                 moving.insert(id);
             }
             match a {

@@ -857,6 +857,22 @@ mod tests {
         assert!(rtts > 0, "no round trips");
     }
 
+    /// What each hop answers on this machine (`cargo test -p patorrent-core --lib
+    /// probe::tests::real_trace -- --ignored --nocapture`).
+    #[test]
+    #[ignore = "pings the network"]
+    fn real_trace() {
+        let Some(mut p) = imp::pinger() else {
+            println!("no pings on this platform: {UNAVAILABLE}");
+            return;
+        };
+        for ttl in 1..=MAX_HOP {
+            println!("ttl {ttl}: {:?}", p.echo(TRACE_TO, ttl, TIMEOUT));
+        }
+        println!("direct: {:?}", p.echo(TRACE_TO, 64, TIMEOUT));
+        println!("ipv6: {:?}", p.echo("2606:4700:4700::1111".parse().unwrap(), 64, TIMEOUT));
+    }
+
     #[test]
     fn without_a_router_the_fallback_hosts_take_turns() {
         let answers = HashMap::from([(ip("1.1.1.1"), 12.0), (ip("9.9.9.9"), 20.0)]);

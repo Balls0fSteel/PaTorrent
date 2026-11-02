@@ -109,7 +109,8 @@ Medium to large, in slices, each a patch version (D37):
 ## Slice 2 status (1.1.30, 2026-11-02_162406_1793633046)
 
 - **Done:** pings on Linux and macOS through unprivileged ICMP sockets (`SOCK_DGRAM` / `IPPROTO_ICMP`, and `IPPROTO_ICMPV6` for IPv6 fallback hosts), made by hand-declared `socket` and `poll` calls and used through `std::net::UdpSocket` (D4: no libc crate). Linux: the kernel sets the identifier and hands a socket only its own replies; routers' time-exceeded answers are read from the error queue (`IP_RECVERR`, `recvmsg` with `MSG_ERRQUEUE`, the offender's address after `sock_extended_err`). macOS: the IPv4 messages arrive with their IP header and every echo reply on the machine does, so ours are told by identifier and sequence; time-exceeded answers arrive on the socket itself, quoting our echo. When Linux refuses the socket, the Logger names `net.ipv4.ping_group_range`. Unit tests for the packets and their parsing; type-checked and linted for Linux, macOS (both architectures) and FreeBSD.
-- **Not yet run for real:** the Linux pinger on the Xubuntu VM (it was off), and macOS on any Mac (none in the lab), so the `IP_RECVERR` path and macOS's time-exceeded delivery are unverified; also whether Debian, Alpine and nox's system user allow ping sockets by default.
+- **Run on Linux (2026-11-02_165221_1793634741):** on the Xubuntu VM (Ubuntu 26.04, bridged, `ping_group_range` `0 2147483647`) the trace saw the same hops as Windows, the routers' time-exceeded answers coming through `IP_RECVERR`; the first router past the line was found at hop 2 and answered in 1.5-2 ms, and a session logged it. With `ping_group_range` set to `1 0` the Logger named the setting.
+- **Not yet run:** macOS (no Mac in the lab), so its time-exceeded delivery is unverified; and whether Debian, Alpine and nox's system user allow ping sockets by default.
 
 ## Questions for the owner
 

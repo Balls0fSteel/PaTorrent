@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_165221_1793634741: Keep ping low runs on Linux (D49)
+
+- **Xubuntu VM (Ubuntu 26.04):** the probe and session tests pass. A new ignored test, `probe::tests::real_trace`, prints each hop's answer: the same path as from Windows (home router, the ISP's router at hop 2, 1.1.1.1 at hop 6), the time-exceeded answers arriving through `IP_RECVERR`; round trips 1.5-2 ms with sub-millisecond resolution. With `net.ipv4.ping_group_range` at `1 0` (restored afterwards) the Logger names the setting. macOS is still unrun.
+- **Lab:** the VMs had no network; VMware's bridge (VMnet0, "Automatic") had to be pointed at the physical Ethernet adapter, since this PC also has VPN, VirtualBox and Hyper-V adapters. Test code and docs only, no version bump.
+
 ## 2026-11-02_162406_1793633046: Version 1.1.30: keep ping low, slice 2 (D49)
 
 - **Linux and macOS pings:** unprivileged ICMP sockets (`SOCK_DGRAM` / `IPPROTO_ICMP`, ICMPv6 for IPv6 fallback hosts) through hand-declared `socket` and `poll` and `std::net::UdpSocket` (no libc crate, D4). Linux reads routers' time-exceeded answers from the error queue (`IP_RECVERR`, `MSG_ERRQUEUE`); macOS gets them on the socket, IPv4 with the IP header, and tells our echoes by identifier and sequence. A refused socket on Linux names `net.ipv4.ping_group_range` in the Logger. FreeBSD and OpenBSD still have none (slice 3's uTP signal).

@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-10-30_140531_1793365531
+Last updated: 2026-11-02_111330_1793614410
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -28,6 +28,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-10-30 (1.1.8-1.1.14, Torznab slices 1-2)](CHANGELOG-2026-10-30--2026-10-30-v1.1.8-search.md) | `2026-10-30_093153_1793349113` through `2026-10-30_112341_1793355821` | 9 entries moved verbatim from the root changelog on 2026-10-30_140531_1793365531: 1.1.7's publication, the shim and hosted Web UI fixes (1.1.8), the Server domains field (1.1.9), the API key and subnet whitelist (1.1.10), nox's update check (1.1.11, D43), the owner's no-alternative-limits decision, RSS in the Windows GUI's Web UI (1.1.13) and Torznab slices 1-2 (1.1.12, 1.1.14). |
 | [Changelog, 2026-10-30 (1.1.15-1.1.17, Torznab slices 3-4, the 1.1.17 release)](CHANGELOG-2026-10-30--2026-10-30-v1.1.15-release.md) | `2026-10-30_122955_1793359795` through `2026-10-30_132816_1793363296` | 5 entries moved verbatim from the root changelog on 2026-10-30_195156_1793386316: Torznab search in the GTK (1.1.15) and Win32 (1.1.16) GUIs, the merged result source-order fix (1.1.17), the 1.1.17 release preparation with the README and the website News page, and its publication. |
 | [Changelog, 2026-10-30 (1.1.18-1.1.22, libtorrent fixes)](CHANGELOG-2026-10-30--2026-10-30-v1.1.18-libtorrent-fixes.md) | `2026-10-30_140531_1793365531` through `2026-10-30_151918_1793369958` | 2 entries moved verbatim from the root changelog on 2026-11-02_085028_1793605828: the libtorrent 2.0.12-2.1.2 fixes (1.1.18, peer ID `-PA1012-`) and the code-ready rest of PLAN.md (1.1.19-1.1.22: the shim's `search/*`, the libtorrent triage, engine options, small gaps). |
+| [Changelog, 2026-10-30 (1.1.23-1.1.24, updates)](CHANGELOG-2026-10-30--2026-10-30-v1.1.23-updates.md) | `2026-10-30_192440_1793384680` through `2026-10-30_195156_1793386316` | 2 entries moved verbatim from the root changelog on 2026-11-02_111330_1793614410: the update box once per version (1.1.23, D44, D45 proposed, the startup and shutdown findings) and the Windows GUI updating itself (1.1.24, D45). |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

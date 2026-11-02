@@ -1,6 +1,6 @@
 @echo off
-rem Runs one cargo-fuzz target on Windows: fuzz.bat <target> [seconds]   (default 60 s)
-rem fuzz.bat with no arguments lists the targets. Needs the nightly toolchain and cargo-fuzz.
+rem Runs one cargo-fuzz target on Windows: 5_fuzz.bat <target> [seconds]   (default 60 s)
+rem 5_fuzz.bat with no arguments lists the targets. Needs the nightly toolchain and cargo-fuzz.
 rem The AddressSanitizer runtime DLL comes from Visual Studio; this script puts it on PATH.
 rem Crashes land in fuzz\artifacts\<target>\, the growing corpus in fuzz\corpus\<target>\.
 

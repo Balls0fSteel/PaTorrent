@@ -82,7 +82,7 @@ in its title bar. Still open from that round:
   white), not sampled from 2.2.1; compare on the owner's machine.
 - **Build string:** `cargo build` without `PATORRENT_BUILD` reads git at build-script time
   and reruns when HEAD moves, so a plain cargo build in a dirty tree shows its last
-  commit without `.dirty`; `build.bat` sets the exact suffix every time.
+  commit without `.dirty`; `1_build.bat` sets the exact suffix every time.
 
 ## UI icon coverage (audit 2026-10-28_090116_1793174476)
 
@@ -871,7 +871,7 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   arm64 for stable. Stable macOS clippy excludes GTK here (no SDK). A stand-in
   pkg-config with `PKG_CONFIG_ALLOW_CROSS=1` permits GTK cross checks only, not
   linking/runtime proof. Build and test GTK with real GTK libraries in CI/Linux.
-- Windows fuzzing needs Visual Studio's ASan DLL (`fuzz.bat` finds it via
+- Windows fuzzing needs Visual Studio's ASan DLL (`5_fuzz.bat` finds it via
   vswhere); `-s none` does not link on MSVC. cargo-fuzz 0.13 needs 1.91+, so use
   stable for its install. CI's installed musl cargo-fuzz needs an explicit
   `--target x86_64-unknown-linux-gnu` for these jobs.

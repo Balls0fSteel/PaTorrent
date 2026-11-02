@@ -1,7 +1,7 @@
 @echo off
 rem Builds PaTorrent (release) and copies the programs into dist\.
-rem   build.bat          release build (small, optimized; takes about a minute)
-rem   build.bat debug    debug build (faster to compile; the GUI gets a console window)
+rem   1_build.bat          release build (small, optimized; takes about a minute)
+rem   1_build.bat debug    debug build (faster to compile; the GUI gets a console window)
 
 setlocal
 cd /d "%~dp0"
@@ -21,16 +21,17 @@ if /i "%~1"=="debug" (
 
 rem The version the programs show (D37): the crate version plus -dev.<commit>, and .dirty when
 rem the tree has uncommitted changes, so test builds can be told apart. A tagged release gets
-rem no suffix. Without git, cargo's own fallback applies (crates\frontend\build.rs).
+rem no suffix. Without git, cargo's own fallback applies (crates\frontend\build.rs). Inside
+rem for /f's command an = must be written ^=, or cmd passes a space instead.
 set PATORRENT_BUILD=
 set VERSION=
 set DIRTY=
 for /f "tokens=3" %%v in ('findstr /b /c:"version = " Cargo.toml') do if not defined VERSION set VERSION=%%~v
 where git >nul 2>nul || goto :versioned
-for /f %%h in ('git rev-parse --short=7 HEAD 2^>nul') do set PATORRENT_BUILD=-dev.%%h
+for /f %%h in ('git rev-parse --short^=7 HEAD 2^>nul') do set PATORRENT_BUILD=-dev.%%h
 for /f %%t in ('git tag --points-at HEAD 2^>nul') do if "%%t"=="v%VERSION%" set PATORRENT_BUILD=
 if not defined PATORRENT_BUILD goto :versioned
-for /f "delims=" %%s in ('git status --porcelain --untracked-files=no 2^>nul') do set DIRTY=1
+for /f "delims=" %%s in ('git status --porcelain --untracked-files^=no 2^>nul') do set DIRTY=1
 if defined DIRTY set PATORRENT_BUILD=%PATORRENT_BUILD%.dirty
 :versioned
 
@@ -55,5 +56,5 @@ copy /y THIRD-PARTY-NOTICES.md dist\ >nul
 
 echo.
 echo Done. Programs are in %CD%\dist:
-dir /b dist\*.exe
+dir /b dist\patorrent.exe dist\patorrent-nox.exe dist\lt-swarm.exe
 endlocal

@@ -54,7 +54,7 @@ fn main() {
 
 /// The version the programs show in their title bars, About boxes and `--version` (D37): the
 /// crate version, with a suffix for a build that is not a release, so two test builds can be
-/// told apart. `PATORRENT_BUILD` names the suffix when set (`build.bat` sets `-dev.<commit>`
+/// told apart. `PATORRENT_BUILD` names the suffix when set (`1_build.bat` sets `-dev.<commit>`
 /// and `.dirty`; an empty value means none). Otherwise git decides: a tag `v<version>` at HEAD
 /// is a release and gets no suffix, anything else gets `-dev.<short commit>`, as the release
 /// workflow names its dry-run artifacts. Without git, the crate version alone.

@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-11-02_111330_1793614410
+Last updated: 2026-11-02_231601_1793657761
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -30,6 +30,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-10-30 (1.1.18-1.1.22, libtorrent fixes)](CHANGELOG-2026-10-30--2026-10-30-v1.1.18-libtorrent-fixes.md) | `2026-10-30_140531_1793365531` through `2026-10-30_151918_1793369958` | 2 entries moved verbatim from the root changelog on 2026-11-02_085028_1793605828: the libtorrent 2.0.12-2.1.2 fixes (1.1.18, peer ID `-PA1012-`) and the code-ready rest of PLAN.md (1.1.19-1.1.22: the shim's `search/*`, the libtorrent triage, engine options, small gaps). |
 | [Changelog, 2026-10-30 (1.1.23-1.1.24, updates)](CHANGELOG-2026-10-30--2026-10-30-v1.1.23-updates.md) | `2026-10-30_192440_1793384680` through `2026-10-30_195156_1793386316` | 2 entries moved verbatim from the root changelog on 2026-11-02_111330_1793614410: the update box once per version (1.1.23, D44, D45 proposed, the startup and shutdown findings) and the Windows GUI updating itself (1.1.24, D45). |
 | [Changelog, 2026-11-01 to 2026-11-02 (1.1.25-1.1.28, closing window)](CHANGELOG-2026-11-01--2026-11-02-v1.1.25-closing.md) | `2026-11-01_070555_1793513155` through `2026-11-02_092152_1793607712` | 5 entries moved verbatim from the root changelog on 2026-11-02_162406_1793633046: the Microsoft Store plan (proposed D46), the safer exit, sign-out and relaunch (1.1.25) and the closing window (1.1.26-1.1.28, D47). |
+| [Changelog, 2026-11-02 (smart disk I/O and keep ping low proposals)](CHANGELOG-2026-11-02--2026-11-02-d48-d49-proposals.md) | `2026-11-02_110639_1793613999` through `2026-11-02_123805_1793619485` | 5 entries moved verbatim from the root changelog on 2026-11-02_231601_1793657761: the smart disk I/O proposal (D48) with the search engine and theme reviews, the owner's first D48 answers, and the keep ping low proposal, the owner's answers and its approval (D49). |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

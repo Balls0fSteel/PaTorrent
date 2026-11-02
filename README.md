@@ -75,13 +75,15 @@ cargo build --release
 
 The libtorrent submodule is reference material only and is not needed to build.
 
-On Windows, three scripts in the repository root do the same with a double-click:
+On Windows, scripts in the repository root do the same with a double-click (from a prompt, type `.\1_build.bat`: cmd does not run a name that starts with a digit without the `.\`):
 
 | Script | What it does |
 |---|---|
-| `build.bat` | Release build of everything, copied into `dist\` (`build.bat debug` for a debug build) |
-| `run.bat` | Starts `dist\patorrent.exe` (building first if needed); arguments are passed on |
-| `run-demo.bat` | Starts the window on the simulated engine with 2,000 fake torrents (`run-demo.bat 10000` for more) |
+| `1_build.bat` | Release build of everything, copied into `dist\` (`1_build.bat debug` for a debug build) |
+| `2_run.bat` | Starts `dist\patorrent.exe` (building first if needed); arguments are passed on |
+| `3_build_and_setup.bat` | Release build, then makes the installer and runs it: upgrades the PaTorrent installed on this PC to this code (`/S` for a silent one). Needs NSIS 3 (`makensis`); the setup stays in `dist\` |
+| `4_run_demo.bat` | Starts the window on the simulated engine with 2,000 fake torrents (`4_run_demo.bat 10000` for more) |
+| `5_fuzz.bat` | Runs a fuzz target (`5_fuzz.bat <target> [seconds]`; nightly Rust, cargo-fuzz and Visual Studio's AddressSanitizer) |
 
 Settings and torrents go to `%APPDATA%\PaTorrent`. An empty `patorrent.ini` beside the exe keeps them in that folder instead (portable mode).
 

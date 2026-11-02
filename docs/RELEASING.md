@@ -124,7 +124,7 @@ elevates through UAC and starts from a clean registry):
    Flatpak metainfo ([Flatpak](#flatpak)). `PEER_ID_PREFIX` in `crates/core/src/version.rs` is
    a separate counter (`-PA1010-` went out with 1.0.1, `-PA1011-` with 1.1.0): bump it by one only when the release
    carries an engine change that alters how the client behaves on the wire. Builds that are not
-   tagged show `<version>-dev.<commit>` (and `.dirty` from `build.bat`) in their title bars,
+   tagged show `<version>-dev.<commit>` (and `.dirty` from `1_build.bat`) in their title bars,
    About boxes and `--version`; the tagged build shows the plain version.
 2. Give it a heading in `CHANGELOG.md` with what is in it since the last release, and write
    `docs/releases/<version>.md`: what it is, the files, how to start each, known limitations.

@@ -29,7 +29,10 @@ pub(crate) enum ProbeEvent {
 /// One echo's outcome.
 #[derive(Clone, Copy, Debug, PartialEq)]
 // FreeBSD and OpenBSD have no pinger yet
-#[cfg_attr(not(any(windows, target_os = "linux", target_os = "android", target_vendor = "apple")), allow(dead_code))]
+#[cfg_attr(
+    not(any(windows, target_os = "linux", target_os = "android", target_vendor = "apple")),
+    allow(dead_code)
+)]
 pub(crate) enum Echo {
     /// `from` answered the echo.
     Reply { from: IpAddr, ms: f64 },

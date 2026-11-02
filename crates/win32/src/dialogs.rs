@@ -2,6 +2,7 @@
 //! compiler).
 
 use std::mem::{size_of, zeroed};
+use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
 use patorrent_frontend::tr;
@@ -11,7 +12,8 @@ use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Memory::{GlobalLock, GlobalUnlock};
 use windows_sys::Win32::System::Ole::CF_UNICODETEXT;
 use windows_sys::Win32::UI::Controls::Dialogs::{
-    GetOpenFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER, OFN_FILEMUSTEXIST, OFN_HIDEREADONLY, OPENFILENAMEW,
+    GetOpenFileNameW, GetSaveFileNameW, OFN_ALLOWMULTISELECT, OFN_EXPLORER, OFN_FILEMUSTEXIST,
+    OFN_HIDEREADONLY, OFN_NOCHANGEDIR, OFN_PATHMUSTEXIST, OPENFILENAMEW,
 };
 use windows_sys::Win32::UI::HiDpi::SystemParametersInfoForDpi;
 use windows_sys::Win32::UI::WindowsAndMessaging::{
@@ -57,6 +59,35 @@ pub fn open_torrents(owner: HWND) -> Vec<String> {
         [one] => vec![one.clone()],
         [dir, names @ ..] => names.iter().map(|n| format!("{}\\{n}", dir.trim_end_matches('\\'))).collect(),
     }
+}
+
+/// The Files tab's Relocate: where file `current` should be, starting at it (its folder when
+/// that exists). Choosing an existing file does not ask to replace it: the torrent is pointed
+/// at it, and the engine never overwrites one (see `TorrentHandle::rename_file`).
+pub fn relocate_file(owner: HWND, current: &Path) -> Option<PathBuf> {
+    let filter = wide(&all_files_filter());
+    let title = wide(tr!(PickRelocate));
+    let dir = current.parent().filter(|d| d.is_dir()).map(|d| wide(&d.to_string_lossy()));
+    let mut buf = vec![0u16; 32 * 1024];
+    let name = current.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    for (i, c) in name.encode_utf16().take(buf.len() - 1).enumerate() {
+        buf[i] = c;
+    }
+    unsafe {
+        let mut ofn: OPENFILENAMEW = zeroed();
+        ofn.lStructSize = size_of::<OPENFILENAMEW>() as u32;
+        ofn.hwndOwner = owner;
+        ofn.lpstrFilter = filter.as_ptr();
+        ofn.lpstrFile = buf.as_mut_ptr();
+        ofn.nMaxFile = buf.len() as u32;
+        ofn.lpstrTitle = title.as_ptr();
+        ofn.lpstrInitialDir = dir.as_ref().map_or(null(), |d| d.as_ptr());
+        ofn.Flags = OFN_EXPLORER | OFN_PATHMUSTEXIST | OFN_HIDEREADONLY | OFN_NOCHANGEDIR;
+        if GetSaveFileNameW(&mut ofn) == 0 {
+            return None;
+        }
+    }
+    Some(PathBuf::from(from_wide(&buf)))
 }
 
 /// The file dialogs' filter: `.torrent` files, then all files.

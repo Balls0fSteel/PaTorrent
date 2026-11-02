@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-02_230210_1793656930: Version 1.1.35: the Files tab's menu as µTorrent 2.2.1's
+
+- **Win32 and GTK:** Open, Open Containing Folder | Prioritize by File Order, Priority (High, Normal, Low) | Don't Download | Relocate..., from the owner's 2.2.1 screenshot. Left out: Scan for viruses (no scanner to run). Open, Open Containing Folder and Relocate are hidden in a remote window; Relocate takes one file.
+- **Prioritize by File Order** (`detail::by_file_order`): the selected files, in the torrent's order, get priorities 7 down to 1 (shown as High, Normal, Low), so they finish in order; more than seven share levels in runs.
+- **Relocate** asks for a path (no replace prompt on Win32) and calls `rename_file` with it: a file on disk moves (never over an existing file); a missing one is looked for there, and a Force Re-check counts it.
+- **Checked:** the Win32 menu and its submenu captured on the hidden desktop from the demo (popup menus are tool windows, which `run_hidden`'s own screenshots skip). GTK type-checked and linted only. Strings `MenuPrioritizeByOrder`, `MenuRelocate`, `PickRelocate` in all 35 languages (machine translations).
+
 ## 2026-11-02_225455_1793656495: Version 1.1.34: the Files tab's Open, and label folders
 
 - **Files tab (Win32, GTK):** a double click or Enter on a file opens it in its default program, and the menu starts with µTorrent's Open and Open Containing Folder (the folder selects the file, or opens the nearest existing folder inside the save path while it is not on disk yet). A file not on disk does nothing. Paths come from `detail::file_path`, which takes only plain names under an absolute save path (as SEC-18's Open Folder). Hidden in a remote window. Not run by hand: an agent cannot open programs on this desktop.

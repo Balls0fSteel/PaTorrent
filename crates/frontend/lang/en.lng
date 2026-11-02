@@ -184,6 +184,13 @@ MenuOpenFolderMany=Open Containing &Folder
 
 # The Files tab's menu: opens the file in its default program.
 MenuOpenFile=&Open
+
+# The Files tab's menu: the selected files download in their order in the torrent.
+MenuPrioritizeByOrder=Prioritize by File Order
+
+# The Files tab's menu: moves the file, or points it at where it is now.
+MenuRelocate=Relocate...
+PickRelocate=Select the file's new location
 MenuForceStart=&Force Start
 MenuStart=&Start
 MenuPause=&Pause

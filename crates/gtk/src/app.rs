@@ -642,6 +642,13 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         Rc::new(move |widget, x, y| {
             // the menu hangs off the notebook, which outlives the table's cells
             if let Some(ui) = ui() {
+                // Relocate takes one file, as in µTorrent
+                let one = ui.details.selected_files().len() == 1;
+                if let Some(a) = with_app(|a| a.window.lookup_action("file-relocate")).flatten() {
+                    if let Some(a) = a.downcast_ref::<gio::SimpleAction>() {
+                        a.set_enabled(one);
+                    }
+                }
                 let menu = crate::detail::files_menu(!crate::remote::is_remote());
                 popup_menu(&menu, ui.details.notebook.upcast_ref(), widget, x, y);
             }
@@ -1659,14 +1666,28 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
         });
         window.add_action(&a);
     }
-    for (i, &(_, prio)) in PRIORITIES.iter().enumerate() {
-        let a = gio::SimpleAction::new(&format!("file-prio-{i}"), None);
+    let relocate = gio::SimpleAction::new("file-relocate", None);
+    relocate.connect_activate(|_, _| {
+        if let Some(row) = ui().and_then(|ui| ui.details.selected_files().first().copied()) {
+            relocate_file(row);
+        }
+    });
+    window.add_action(&relocate);
+    // None: Prioritize by File Order
+    let prios = PRIORITIES.iter().enumerate().map(|(i, &(_, prio))| (format!("file-prio-{i}"), Some(prio)));
+    for (name, prio) in prios.chain([("file-by-order".to_owned(), None)]) {
+        let a = gio::SimpleAction::new(&name, None);
         a.connect_activate(move |_, _| {
             let Some(rows) = ui().map(|ui| ui.details.selected_files()) else { return };
             with_app(|a| {
                 let Some(id) = a.detail.id else { return };
                 let t = a.handle.torrent(id);
-                for f in rows.iter().filter_map(|&r| a.detail.file_index(r)) {
+                let files: Vec<u32> = rows.iter().filter_map(|&r| a.detail.file_index(r)).collect();
+                let set = match prio {
+                    Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),
+                    None => patorrent_frontend::detail::by_file_order(&files),
+                };
+                for (f, prio) in set {
                     t.set_file_priority(f, prio);
                 }
                 // read the list back to show the new priorities
@@ -2005,6 +2026,39 @@ fn open_file(row: usize, folder: bool) {
         let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(&path)));
         launcher.launch(Some(&window), None::<&gio::Cancellable>, done);
     }
+}
+
+/// The Files tab's Relocate for its row `row`: the file moves where the user picks, or, when it
+/// is not on disk, the torrent looks for it there (a Force Re-check counts what is there).
+fn relocate_file(row: usize) {
+    if crate::remote::is_remote() {
+        return;
+    }
+    let Some((window, id, file, path)) = with_app(|a| {
+        let id = a.detail.id?;
+        let st = a.list.get(id)?;
+        Some((a.window.clone(), id, a.detail.file_index(row)?, a.detail.file_path(row, &st.save_path)?))
+    })
+    .flatten() else {
+        return;
+    };
+    let mut dialog = gtk::FileDialog::builder().title(tr!(PickRelocate)).modal(true);
+    if let Some(name) = path.file_name() {
+        dialog = dialog.initial_name(name.to_string_lossy().as_ref());
+    }
+    let dialog = dialog.build();
+    if let Some(dir) = path.parent().filter(|d| d.is_dir()) {
+        dialog.set_initial_folder(Some(&gio::File::for_path(dir)));
+    }
+    // the file chooser asks before "replacing" a file; the engine never overwrites one
+    dialog.save(Some(&window), None::<&gio::Cancellable>, move |r| {
+        let Some(to) = r.ok().and_then(|f| f.path()).filter(|to| *to != path) else { return };
+        with_app(|a| {
+            a.handle.torrent(id).rename_file(file, to.to_string_lossy().into_owned());
+            a.files_requested = None;
+        });
+        request_detail();
+    });
 }
 
 fn add_files() {

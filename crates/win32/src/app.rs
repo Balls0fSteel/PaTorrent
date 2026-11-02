@@ -195,9 +195,11 @@ mod cmd {
     pub const FIND: u16 = 145;
     /// The search box's drop-down: Manage Sources.
     pub const SEARCH_MANAGE: u16 = 146;
-    /// The Files tab's menu: Open and Open Containing Folder.
+    /// The Files tab's menu: Open, Open Containing Folder, Prioritize by File Order, Relocate.
     pub const FILE_OPEN: u16 = 147;
     pub const FILE_OPEN_FOLDER: u16 = 148;
+    pub const FILE_BY_ORDER: u16 = 149;
+    pub const FILE_RELOCATE: u16 = 150;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -3126,34 +3128,77 @@ unsafe fn files_menu(hwnd: HWND, files_lv: HWND, p: POINT) {
         if rows.is_empty() {
             return;
         }
+        // as µTorrent 2.2.1's (but for Scan for Viruses: there is no scanner to run); a remote
+        // window's files are on the other machine
+        let local = !crate::remote_ui::is_remote();
         let menu = CreatePopupMenu();
-        // as µTorrent's; a remote window's files are on the other machine
-        if !crate::remote_ui::is_remote() {
+        if local {
             append(menu, cmd::FILE_OPEN, tr!(MenuOpenFile));
             append(menu, cmd::FILE_OPEN_FOLDER, tr!(MenuOpenFolder));
             separator(menu);
         }
-        for (i, (text, _)) in PRIORITIES.iter().enumerate() {
-            append(menu, cmd::FILE_PRIO_BASE + i as u16, lang::text(*text));
+        append(menu, cmd::FILE_BY_ORDER, tr!(MenuPrioritizeByOrder));
+        let (levels, skip) = PRIORITIES.split_at(PRIORITIES.len() - 1);
+        let sub = CreatePopupMenu();
+        for (i, &(_, prio)) in levels.iter().enumerate() {
+            append(sub, cmd::FILE_PRIO_BASE + i as u16, detail::priority_text(prio));
+        }
+        submenu(menu, sub, tr!(ColPriority));
+        separator(menu);
+        append(menu, cmd::FILE_PRIO_BASE + levels.len() as u16, detail::priority_text(skip[0].1));
+        if local {
+            separator(menu);
+            append_flags(menu, grayed(rows.len() != 1), cmd::FILE_RELOCATE, tr!(MenuRelocate));
         }
         let id = popup(hwnd, menu, p.x, p.y);
-        if matches!(id, cmd::FILE_OPEN | cmd::FILE_OPEN_FOLDER) {
-            open_file(hwnd, rows[0], id == cmd::FILE_OPEN_FOLDER);
-            return;
-        }
-        if id < cmd::FILE_PRIO_BASE || (id - cmd::FILE_PRIO_BASE) as usize >= PRIORITIES.len() {
-            return;
-        }
-        let prio = PRIORITIES[(id - cmd::FILE_PRIO_BASE) as usize].1;
+        let prio = match id {
+            cmd::FILE_OPEN | cmd::FILE_OPEN_FOLDER => {
+                return open_file(hwnd, rows[0], id == cmd::FILE_OPEN_FOLDER);
+            }
+            cmd::FILE_RELOCATE => return relocate_file(hwnd, rows[0]),
+            cmd::FILE_BY_ORDER => None,
+            _ => match PRIORITIES.get(id.wrapping_sub(cmd::FILE_PRIO_BASE) as usize) {
+                Some(&(_, prio)) => Some(prio),
+                None => return,
+            },
+        };
         with_app(|a| {
             let Some(tid) = a.detail.id else { return };
             let t = a.handle.torrent(tid);
-            for r in &rows {
-                if let Some(f) = a.detail.file_index(*r) {
-                    t.set_file_priority(f, prio);
-                }
+            let files: Vec<u32> = rows.iter().filter_map(|&r| a.detail.file_index(r)).collect();
+            let set = match prio {
+                Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),
+                None => detail::by_file_order(&files),
+            };
+            for (f, prio) in set {
+                t.set_file_priority(f, prio);
             }
             // Read the list back to show the new priorities.
+            a.files_requested = None;
+        });
+        request_detail();
+    }
+}
+
+/// The Files tab's Relocate for its row `row`: the file moves where the user picks, or, when
+/// it is not on disk, the torrent looks for it there (a Force Re-check counts what is there).
+unsafe fn relocate_file(hwnd: HWND, row: usize) {
+    if crate::remote_ui::is_remote() {
+        return;
+    }
+    let Some((tid, file, path)) = with_app(|a| {
+        let tid = a.detail.id?;
+        let st = a.list.get(tid)?;
+        Some((tid, a.detail.file_index(row)?, a.detail.file_path(row, &st.save_path)?))
+    })
+    .flatten() else {
+        return;
+    };
+    // modal; nothing is borrowed across it
+    let Some(to) = dialogs::relocate_file(hwnd, &path) else { return };
+    if to != path {
+        with_app(|a| {
+            a.handle.torrent(tid).rename_file(file, to.to_string_lossy().into_owned());
             a.files_requested = None;
         });
         request_detail();

@@ -56,7 +56,7 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
   API documentation; do not copy its source or Web UI assets. Click Help >
   Third-Party Notices in both GUIs to check the embedded text.
 
-- Files tab menu (2026-11-02_225455_1793656495): Open and Open Containing Folder are in (1.1.34). µTorrent 2.2.1's menu also has Scan for viruses (greyed without a scanner), Prioritize by File Order, the priorities as a Priority submenu (High, Normal, Low) with Don't Download beside it, and Relocate...; ours lists the four priorities flat. Hand-check Open on a real PC (an `.exe` in a torrent runs, as in µTorrent and Explorer).
+- Files tab menu (2026-11-02_230210_1793656930): matches µTorrent 2.2.1's since 1.1.35 but for Scan for viruses (no scanner to run; 2.2.1 greys it without one). Hand-check on a real PC: Open (an `.exe` in a torrent runs, as in µTorrent and Explorer), Relocate of a file on disk and of a missing one, and the GTK popover's Priority submenu.
 ## Owner hand-test findings (2026-10-27_225501_1793138101)
 
 Reported by the owner on a Win32 build; fixed 2026-10-28_075806_1793170686 (see the

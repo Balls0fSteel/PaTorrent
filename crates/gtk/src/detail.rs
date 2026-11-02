@@ -605,22 +605,39 @@ fn speed_graph(w: &gtk::Widget, s: &gtk::Snapshot, width: f32, height: f32, d: &
     }
 }
 
-/// The Files tab's menu, as µTorrent's: Open and Open Containing Folder (`win.file-open`,
-/// `win.file-open-folder`) when the files are on this machine, then the priorities
-/// (`win.file-prio-N`, N into [`PRIORITIES`]).
+/// The Files tab's menu, as µTorrent 2.2.1's (but for Scan for Viruses: there is no scanner to
+/// run): Open and Open Containing Folder (`win.file-open`, `win.file-open-folder`) when the
+/// files are on this machine; Prioritize by File Order (`win.file-by-order`); the Priority
+/// submenu and Don't Download (`win.file-prio-N`, N into [`PRIORITIES`]); Relocate
+/// (`win.file-relocate`) when local.
 pub fn files_menu(local: bool) -> gio::Menu {
     let menu = gio::Menu::new();
+    let item = |section: &gio::Menu, text: &str, action: &str| {
+        section.append(Some(&gtk_mnemonic(text)), Some(action));
+    };
     if local {
         let open = gio::Menu::new();
-        open.append(Some(&gtk_mnemonic(tr!(MenuOpenFile))), Some("win.file-open"));
-        open.append(Some(&gtk_mnemonic(tr!(MenuOpenFolder))), Some("win.file-open-folder"));
+        item(&open, tr!(MenuOpenFile), "win.file-open");
+        item(&open, tr!(MenuOpenFolder), "win.file-open-folder");
         menu.append_section(None, &open);
     }
-    let prios = gio::Menu::new();
-    for (i, (text, _)) in PRIORITIES.iter().enumerate() {
-        prios.append(Some(&gtk_mnemonic(lang::text(*text))), Some(&format!("win.file-prio-{i}")));
+    let order = gio::Menu::new();
+    item(&order, tr!(MenuPrioritizeByOrder), "win.file-by-order");
+    let levels = gio::Menu::new();
+    let last = PRIORITIES.len() - 1;
+    for (i, &(_, prio)) in PRIORITIES[..last].iter().enumerate() {
+        item(&levels, detail::priority_text(prio), &format!("win.file-prio-{i}"));
     }
-    menu.append_section(None, &prios);
+    order.append_submenu(Some(&gtk_mnemonic(tr!(ColPriority))), &levels);
+    menu.append_section(None, &order);
+    let skip = gio::Menu::new();
+    item(&skip, detail::priority_text(PRIORITIES[last].1), &format!("win.file-prio-{last}"));
+    menu.append_section(None, &skip);
+    if local {
+        let relocate = gio::Menu::new();
+        item(&relocate, tr!(MenuRelocate), "win.file-relocate");
+        menu.append_section(None, &relocate);
+    }
     menu
 }
 

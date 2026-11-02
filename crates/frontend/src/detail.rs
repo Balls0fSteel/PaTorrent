@@ -551,13 +551,27 @@ pub fn priority_text(p: DownloadPriority) -> &'static str {
     }
 }
 
-/// The priorities the Files tab's menu offers, in menu order.
+/// The priorities the Files tab's menu offers, in menu order. As µTorrent 2.2.1's, the menu
+/// has the first three in a Priority submenu by their short names ([`priority_text`]) and
+/// Don't Download after it.
 pub const PRIORITIES: [(S, DownloadPriority); 4] = [
     (S::PrioHighItem, DownloadPriority::TOP),
     (S::PrioNormalItem, DownloadPriority::NORMAL),
     (S::PrioLowItem, DownloadPriority::LOW),
     (S::PrioDontDownload, DownloadPriority::DONT_DOWNLOAD),
 ];
+
+/// "Prioritize by File Order" for `files` (indices into the torrent's file list): the first in
+/// the torrent gets the top priority and each later one the same or a lower one, down to Low,
+/// so the piece picker finishes them in that order. More than seven files share the levels in
+/// runs.
+pub fn by_file_order(files: &[u32]) -> Vec<(u32, DownloadPriority)> {
+    let mut files = files.to_vec();
+    files.sort_unstable();
+    files.dedup();
+    let (n, top) = (files.len(), DownloadPriority::TOP.0 as usize);
+    files.into_iter().enumerate().map(|(i, f)| (f, DownloadPriority((top - i * top / n) as u8))).collect()
+}
 
 #[cfg(test)]
 mod tests {
@@ -675,6 +689,21 @@ mod tests {
         assert_eq!(file_cell(&f, None, 4), "4");
         assert_eq!(file_cell(&f, None, 6), "Normal");
         assert_eq!(priority_text(DownloadPriority::TOP), "High");
+    }
+
+    #[test]
+    fn prioritize_by_file_order() {
+        let levels =
+            |files: &[u32]| by_file_order(files).into_iter().map(|(f, p)| (f, p.0)).collect::<Vec<_>>();
+        assert_eq!(levels(&[]), []);
+        assert_eq!(levels(&[5]), [(5, 7)]);
+        assert_eq!(levels(&[9, 2, 4, 2]), [(2, 7), (4, 5), (9, 3)], "in the torrent's order, once each");
+        let seven: Vec<u8> = levels(&[0, 1, 2, 3, 4, 5, 6]).into_iter().map(|(_, p)| p).collect();
+        assert_eq!(seven, [7, 6, 5, 4, 3, 2, 1]);
+        let many = levels(&(0..100).collect::<Vec<_>>());
+        assert!(many.windows(2).all(|w| w[0].1 >= w[1].1));
+        assert_eq!((many[0].1, many[99].1), (7, 1), "never Don't Download");
+        assert_eq!(priority_text(DownloadPriority(6)), "High");
     }
 
     /// Open stays inside the save path whatever the torrent's file paths are.

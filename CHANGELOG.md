@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_082759_1793690879: 1.1.35 release prepared
+
+- **Release (owner: draft the notes, metainfo and news):** `docs/releases/1.1.35.md` covers everything since 1.1.17 (1.1.18-1.1.35): keep ping low, the Windows self-update and the once-per-version box, the closing window and safer sign-out in both GUIs, the Files tab's 2.2.1 menu, label folders, the libtorrent 2.0.12-2.1.2 fixes, the engine options and the release review's security fixes. Peer ID `-PA1012-`, remote protocol 12.
+- Flatpak metainfo has a 1.1.35 `<release>` dated 2026-11-03; change the date if it is published later. The news entry is on the branch `news-1.1.35`, to push when the release is published (RELEASING.md step 2).
+- Docs only, no version bump. Still to do before tagging: push for CI, rerun `tools/bench`, and a hand look at the 1.1.34-1.1.35 Files tab changes, which came after the release review.
+
 ## 2026-11-02_231601_1793657761: Numbered Windows scripts and 3_build_and_setup.bat
 
 - **Owner's request:** a script to build and run the setup, to upgrade the PaTorrent installed on this PC, and numbered script names. `build.bat`, `run.bat`, `run-demo.bat` and `fuzz.bat` are now `1_build.bat`, `2_run.bat`, `4_run_demo.bat` and `5_fuzz.bat`.

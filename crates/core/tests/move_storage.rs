@@ -107,7 +107,7 @@ fn settings() -> Settings {
 fn start_with(state_dir: Option<PathBuf>, f: impl FnOnce(&mut Settings)) -> Session {
     let mut s = settings();
     f(&mut s);
-    Session::start(SessionParams { settings: s, state_dir }).expect("session starts")
+    Session::start(SessionParams { settings: s, state_dir, ..Default::default() }).expect("session starts")
 }
 
 /// A session handle plus the alerts popped but not looked at yet.

@@ -108,6 +108,10 @@ pub struct SessionParams {
     pub settings: Settings,
     /// Directory for `resume.db` and `metadata.pack`; `None` keeps nothing between runs.
     pub state_dir: Option<std::path::PathBuf>,
+    /// This session's name in other programs' lists: the UPnP port mappings' description on
+    /// the router (`PaTorrent (work)` for a profile, D42). `None`: `settings.user_agent`, as
+    /// libtorrent does.
+    pub label: Option<String>,
 }
 
 /// Owns the engine thread. Dropping it shuts the engine down and waits for it, like
@@ -124,13 +128,15 @@ impl Session {
         let poll = mio::Poll::new()?;
         let waker = Arc::new(mio::Waker::new(poll.registry(), crate::engine::WAKER_TOKEN)?);
         let wake = waker.clone();
-        let state_dir = params.state_dir;
+        let (state_dir, label) = (params.state_dir, params.label);
         Ok(Session::spawn(
             params.settings,
             Box::new(move || {
                 let _ = wake.wake();
             }),
-            move |rx, shared, settings| crate::engine::run(poll, waker, rx, shared, settings, state_dir),
+            move |rx, shared, settings| {
+                crate::engine::run(poll, waker, rx, shared, settings, state_dir, label)
+            },
         ))
     }
 

@@ -181,8 +181,8 @@ fn run_once(o: &Options, dir: &Path, data: &Path, torrent: &[u8], cache: bool) -
     s.cache_size = o.cache_blocks.unwrap_or(s.cache_size);
     // Room for every downloader in the choker, and the default disk threads.
     s.unchoke_slots_limit = o.peers as i32 + 1;
-    let seed =
-        Session::start(SessionParams { settings: s.clone(), state_dir: None }).map_err(|e| e.to_string())?;
+    let seed = Session::start(SessionParams { settings: s.clone(), state_dir: None, ..Default::default() })
+        .map_err(|e| e.to_string())?;
     let sh = seed.handle();
     let port = wait(&sh, Duration::from_secs(5), |a| match a {
         Alert::ListenSucceeded { address, .. } => Some(address.port()),
@@ -220,7 +220,8 @@ fn run_once(o: &Options, dir: &Path, data: &Path, torrent: &[u8], cache: bool) -
         let ldir = temp_dir(&format!("seed-disk-leech{i}"));
         let mut ls = settings();
         ls.use_read_cache = cache;
-        let l = Session::start(SessionParams { settings: ls, state_dir: None }).map_err(|e| e.to_string())?;
+        let l = Session::start(SessionParams { settings: ls, state_dir: None, ..Default::default() })
+            .map_err(|e| e.to_string())?;
         let lh = l.handle();
         let mut p =
             AddTorrentParams::new(TorrentSource::TorrentFile(torrent.to_vec()), ldir.to_string_lossy());

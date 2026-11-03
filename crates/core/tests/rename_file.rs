@@ -97,7 +97,7 @@ fn start(state_dir: Option<PathBuf>) -> Session {
         enable_natpmp: false,
         ..Settings::default()
     };
-    Session::start(SessionParams { settings, state_dir }).expect("session starts")
+    Session::start(SessionParams { settings, state_dir, ..Default::default() }).expect("session starts")
 }
 
 /// A session handle plus the alerts popped but not looked at yet.

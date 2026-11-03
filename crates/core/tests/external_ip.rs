@@ -68,7 +68,7 @@ fn start(f: impl FnOnce(&mut Settings)) -> Session {
         ..Settings::default()
     };
     f(&mut settings);
-    Session::start(SessionParams { settings, state_dir: None }).expect("session starts")
+    Session::start(SessionParams { settings, state_dir: None, ..Default::default() }).expect("session starts")
 }
 
 thread_local! {

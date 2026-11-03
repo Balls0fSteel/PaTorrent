@@ -169,6 +169,12 @@ impl Profile {
         self.name.as_ref().map_or("PaTorrent".to_owned(), |n| format!("PaTorrent ({n})"))
     }
 
+    /// The engine's `SessionParams::label` (the routers' port mapping description): the
+    /// [`label`](Self::label) for a named profile, `None` (the user agent) for the default one.
+    pub fn engine_label(&self) -> Option<String> {
+        self.name.as_ref().map(|_| self.label())
+    }
+
     /// The arguments that start another process of this profile: `--profile <name>`, none for
     /// the default one.
     pub fn args(&self) -> Vec<String> {
@@ -196,6 +202,28 @@ pub fn init(name: Option<String>) -> &'static Profile {
 /// This process's profile; the default one if [`init`] was not called.
 pub fn current() -> &'static Profile {
     init(None)
+}
+
+/// The first start of a named profile or of a portable folder, whose settings file has no keys
+/// yet: a random listen port (10000-60000) goes into `s` and `prefs`, so it does not take the
+/// 6881 another PaTorrent may already listen on (D42). The default profile keeps 6881 (firewall
+/// rules name it). True when it did.
+pub fn first_run_settings(prefs: &mut crate::prefs::Prefs, s: &mut patorrent_core::Settings) -> bool {
+    let p = current();
+    if (p.is_default() && p.portable_root.is_none()) || prefs.entries().next().is_some() {
+        return false;
+    }
+    crate::settings::set_listen_port(s, crate::options::random_port());
+    crate::settings::store(prefs, s);
+    true
+}
+
+/// A listen port of a nox profile's own, from its name (10000-60000): nox keeps no settings
+/// file outside the Web UI, so the port must come out the same at every start.
+pub fn name_port(name: &str) -> u16 {
+    let hash =
+        name.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    10_000 + (hash % 50_001) as u16
 }
 
 /// [`crate::BUILD`] with the profile's tag: the `{version}` of titles and tooltips.
@@ -293,5 +321,16 @@ mod tests {
         assert_eq!(work.label(), "PaTorrent (my-work)");
         assert_eq!(work.args(), args(&["--profile", "my-work"]));
         assert_eq!(work.app_id("io.x.PaTorrent"), "io.x.PaTorrent.profile_my_work");
+        assert_eq!(work.engine_label().as_deref(), Some("PaTorrent (my-work)"));
+        assert_eq!(default.engine_label(), None);
+    }
+
+    #[test]
+    fn a_nox_profiles_port_comes_from_its_name() {
+        assert_eq!(name_port("work"), name_port("work"));
+        assert_ne!(name_port("work"), name_port("vpn"));
+        for n in ["a", "work", "zzzzzzzzzzzzzzzzzzzzzzzzzzzzzzzz"] {
+            assert!((10_000..=60_000).contains(&name_port(n)), "{n}");
+        }
     }
 }

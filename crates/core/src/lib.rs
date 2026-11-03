@@ -45,7 +45,7 @@ mod version;
 mod mock;
 
 pub use alert::{
-    Alert, AlertCategory, AlertPriority, AlertQueue, BlockReason, FileOperation, ProxyOperation,
+    Alert, AlertCategory, AlertPriority, AlertQueue, BlockReason, FileOperation, Protocol, ProxyOperation,
 };
 /// Peer classes (libtorrent `peer_class_t`, `peer_class_info`, `peer_class_type_filter`).
 pub use engine::peer_class::{PeerClassId, PeerClassInfo, PeerClassTypeFilter, SocketType};

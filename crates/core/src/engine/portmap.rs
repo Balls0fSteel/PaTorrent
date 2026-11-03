@@ -141,6 +141,7 @@ impl Engine {
             ignore_nonrouters: self.settings.upnp_ignore_nonrouters,
             lease_duration: self.settings.upnp_lease_duration,
             user_agent: self.settings.user_agent.clone(),
+            description: self.label.clone().unwrap_or_else(|| self.settings.user_agent.clone()),
         }
     }
 

@@ -136,7 +136,8 @@ fn settings() -> Settings {
 }
 
 fn start(state_dir: Option<PathBuf>) -> Session {
-    Session::start(SessionParams { settings: settings(), state_dir }).expect("session starts")
+    Session::start(SessionParams { settings: settings(), state_dir, ..Default::default() })
+        .expect("session starts")
 }
 
 /// A session handle plus the alerts popped but not looked at yet. `pop_alerts` hands over
@@ -787,7 +788,8 @@ fn start_dht(router: Option<u16>) -> (Session, Watch, u16) {
         dht_announce_interval: 2,
         ..settings()
     };
-    let s = Session::start(SessionParams { settings, state_dir: None }).expect("session starts");
+    let s = Session::start(SessionParams { settings, state_dir: None, ..Default::default() })
+        .expect("session starts");
     let mut w = Watch::new(s.handle());
     let port = listen_port(&mut w);
     // the DHT's UDP socket shares the TCP listen port
@@ -1038,7 +1040,8 @@ fn bad_magnets_and_garbage_are_rejected_cleanly() {
 fn dropped_state_updates_are_reported_again() {
     const N: usize = 20;
     let settings = Settings { alert_queue_size: 2, ..settings() };
-    let s = Session::start(SessionParams { settings, state_dir: None }).expect("session starts");
+    let s = Session::start(SessionParams { settings, state_dir: None, ..Default::default() })
+        .expect("session starts");
     let h = s.handle();
     let dir = temp_dir("dropped-updates");
     for i in 0..N {
@@ -1141,6 +1144,7 @@ fn a_new_peer_gets_download_quota_while_another_saturates_the_limit() {
     let leech = Session::start(SessionParams {
         settings: Settings { download_rate_limit: 20_000, ..settings() },
         state_dir: None,
+        ..Default::default()
     })
     .expect("session starts");
     let mut w = Watch::new(leech.handle());
@@ -1200,6 +1204,7 @@ fn a_leech_finds_the_seed_through_local_service_discovery() {
         Session::start(SessionParams {
             settings: Settings { enable_lsd: true, ..settings() },
             state_dir: None,
+            ..Default::default()
         })
         .expect("session starts")
     };
@@ -1249,6 +1254,7 @@ fn a_second_connection_to_the_same_peer_is_closed() {
     let seed = Session::start(SessionParams {
         settings: Settings { listen_interfaces: "0.0.0.0:0".into(), ..settings() },
         state_dir: None,
+        ..Default::default()
     })
     .expect("session starts");
     let mut sw = Watch::new(seed.handle());
@@ -1389,7 +1395,8 @@ fn the_announce_limits_leave_the_last_running_torrents_out() {
 fn start_with(f: impl FnOnce(&mut Settings)) -> (Session, Watch, u16) {
     let mut settings = settings();
     f(&mut settings);
-    let s = Session::start(SessionParams { settings, state_dir: None }).expect("session starts");
+    let s = Session::start(SessionParams { settings, state_dir: None, ..Default::default() })
+        .expect("session starts");
     let mut w = Watch::new(s.handle());
     let port = listen_port(&mut w);
     (s, w, port)

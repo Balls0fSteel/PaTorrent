@@ -64,6 +64,8 @@ pub const PAGES: [S; 12] = [
     S::PageDiskCache,
     S::PageDiskIo,
 ];
+/// Connection: where a listen failure in the status bar leads.
+pub const PAGE_CONNECTION: usize = 3;
 const PAGE_WEBUI: usize = 8;
 const PAGE_ADVANCED: usize = 9;
 const PAGE_DISK_CACHE: usize = 10;
@@ -665,9 +667,11 @@ struct State<'a> {
     images: HIMAGELIST,
 }
 
-/// Shows the dialog modally. Returns whether anything was applied.
-pub fn show(owner: HWND, opts: Options, settings_dir: &Path, hooks: Hooks<'_>) -> bool {
+/// Shows the dialog modally at `page` (a [`PAGES`] index). Returns whether anything was
+/// applied.
+pub fn show_at(owner: HWND, opts: Options, settings_dir: &Path, hooks: Hooks<'_>, page: usize) -> bool {
     let mut st = State::new(opts, settings_dir, hooks);
+    st.page = page.min(PAGES.len() - 1);
     let template = template();
     unsafe {
         DialogBoxIndirectParamW(
@@ -1086,8 +1090,9 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
             EnableWindow(item(dlg, ID_UPDATE_BETA), 0);
         }
         fill_advanced(dlg, st, None);
-        send(tree, TVM_SELECTITEM, TVGN_CARET as usize, st.tree_items[0]);
-        show_page(dlg, st, 0);
+        let page = st.page;
+        send(tree, TVM_SELECTITEM, TVGN_CARET as usize, st.tree_items[page]);
+        show_page(dlg, st, page);
     }
 }
 

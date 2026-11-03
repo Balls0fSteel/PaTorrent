@@ -328,7 +328,8 @@ impl Watch {
     }
 
     fn start_in(settings: Settings, state_dir: Option<PathBuf>) -> Watch {
-        let s = Session::start(SessionParams { settings, state_dir }).expect("session starts");
+        let s = Session::start(SessionParams { settings, state_dir, ..Default::default() })
+            .expect("session starts");
         let h = s.handle();
         Watch { s, h, backlog: Default::default(), seen: Vec::new() }
     }

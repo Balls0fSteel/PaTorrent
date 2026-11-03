@@ -634,7 +634,7 @@ mod tests {
             enable_natpmp: false,
             ..Settings::default()
         };
-        let s = Session::start(SessionParams { settings, state_dir: None }).unwrap();
+        let s = Session::start(SessionParams { settings, state_dir: None, ..Default::default() }).unwrap();
         let h = s.handle();
         h.add_torrent(seed_params(c.bytes, &save));
         let deadline = Instant::now() + Duration::from_secs(20);

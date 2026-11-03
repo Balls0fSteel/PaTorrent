@@ -98,7 +98,7 @@ fn start() -> Session {
         recv_socket_buffer_size: 96 * 1024,
         ..Settings::default()
     };
-    Session::start(SessionParams { settings, state_dir: None }).expect("session starts")
+    Session::start(SessionParams { settings, state_dir: None, ..Default::default() }).expect("session starts")
 }
 
 /// Takes alerts, handing each to `f`, until `f` returns true.

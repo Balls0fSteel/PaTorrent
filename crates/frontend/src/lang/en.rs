@@ -316,6 +316,9 @@ strings! {
 
     NetOk = "Network OK";
     NetNoIncoming = "No incoming connections";
+    /// The listen port is held by another program (often another PaTorrent profile); a click
+    /// opens Preferences > Connection.
+    NetPortInUse = "Port {port} in use";
     BarDht = "DHT: {count} nodes";
     /// D = download, T = total.
     BarDown = "D: {rate} T: {total}";
@@ -766,6 +769,8 @@ strings! {
     WebUiNeedLogin = "Please enter a user name and a password for the Web UI.";
     /// {error}: why the server could not start (the port is in use, a bad certificate).
     WebUiFailed = "The Web UI could not start: {error}";
+    /// `WebUiFailed`'s `{error}` when its port is taken (D42).
+    WebUiPortInUse = "port {port} is in use, perhaps by another PaTorrent profile";
     /// A window driving a patorrent-nox elsewhere (File > Connect to Remote) has no engine to serve.
     WebUiRemoteWindow = "A remote window cannot serve the Web UI; use the local window's Preferences.";
     PrefFilter = "Filter:";

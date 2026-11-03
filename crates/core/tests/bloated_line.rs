@@ -95,8 +95,12 @@ fn settings(addr: IpAddr, port: u16, proto: &str) -> Settings {
 }
 
 fn session(addr: IpAddr, port: u16, proto: &str) -> Session {
-    Session::start(SessionParams { settings: settings(addr, port, proto), state_dir: None })
-        .expect("session starts")
+    Session::start(SessionParams {
+        settings: settings(addr, port, proto),
+        state_dir: None,
+        ..Default::default()
+    })
+    .expect("session starts")
 }
 
 fn add(h: &SessionHandle, t: &[u8], dir: &Path) -> TorrentId {

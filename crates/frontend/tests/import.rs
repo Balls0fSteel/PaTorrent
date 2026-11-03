@@ -69,7 +69,7 @@ fn session() -> Session {
         enable_natpmp: false,
         ..Settings::default()
     };
-    Session::start(SessionParams { settings, state_dir: None }).expect("session starts")
+    Session::start(SessionParams { settings, state_dir: None, ..Default::default() }).expect("session starts")
 }
 
 /// Adds the import: its first status (as the source left it), then starts it (a stopped

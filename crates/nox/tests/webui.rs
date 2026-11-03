@@ -126,7 +126,12 @@ impl Harness {
     /// [`Harness::start_in`] with `--webui-save-root` folders.
     fn start_rooted(dir: PathBuf, password: Option<&str>, save_roots: Vec<PathBuf>) -> Harness {
         let settings = Harness::settings();
-        let session = Session::start(SessionParams { settings: settings.clone(), state_dir: None }).unwrap();
+        let session = Session::start(SessionParams {
+            settings: settings.clone(),
+            state_dir: None,
+            ..Default::default()
+        })
+        .unwrap();
         Harness::with_session(dir, password, settings, session, save_roots, 2)
     }
 
@@ -134,7 +139,12 @@ impl Harness {
     /// a while.
     fn start_slow(name: &str, iterations: u32) -> Harness {
         let settings = Harness::settings();
-        let session = Session::start(SessionParams { settings: settings.clone(), state_dir: None }).unwrap();
+        let session = Session::start(SessionParams {
+            settings: settings.clone(),
+            state_dir: None,
+            ..Default::default()
+        })
+        .unwrap();
         Harness::with_session(temp_dir(name), Some(PASS), settings, session, Vec::new(), iterations)
     }
 
@@ -142,7 +152,9 @@ impl Harness {
     /// started again on `dir` restores them.
     fn start_with(dir: PathBuf, settings: Settings) -> Harness {
         let state_dir = Some(dir.join("engine"));
-        let session = Session::start(SessionParams { settings: settings.clone(), state_dir }).unwrap();
+        let session =
+            Session::start(SessionParams { settings: settings.clone(), state_dir, ..Default::default() })
+                .unwrap();
         Harness::with_session(dir, Some(PASS), settings, session, Vec::new(), 2)
     }
 

@@ -644,6 +644,14 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     if let Some(l) = &o.listen {
         settings.listen_interfaces = l.clone();
     }
+    // a named profile has a port of its own, the same at every start, so it does not fight
+    // the default profile for 6881 (D42); nox keeps no settings file to hold a random one
+    if let (None, None, Some(name)) = (o.port, &o.listen, &o.profile) {
+        patorrent_frontend::settings::set_listen_port(
+            &mut settings,
+            patorrent_frontend::profile::name_port(name),
+        );
+    }
     apply_proxy(&mut settings, &o);
     if let Some(p) = &o.proxy {
         let scope = |on: bool, what: &str| if on { String::new() } else { format!(", {what} direct") };
@@ -682,7 +690,11 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             },
         )
     } else {
-        match Session::start(SessionParams { settings: settings.clone(), state_dir: state_dir.clone() }) {
+        match Session::start(SessionParams {
+            settings: settings.clone(),
+            state_dir: state_dir.clone(),
+            label: patorrent_frontend::profile::current().engine_label(),
+        }) {
             Ok(s) => s,
             Err(e) => {
                 eprintln!("error: cannot start the engine: {e}");
@@ -759,6 +771,13 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         .webui
         .map(|addr| start_webui(&o, addr, &h, settings, dirs.config.clone(), &save, &move_dir))
     {
+        Some(Err(e)) if e.kind() == std::io::ErrorKind::AddrInUse => {
+            let port = o.webui.map_or(0, |a| a.port());
+            eprintln!(
+                "error: cannot start the Web UI: port {port} is in use, perhaps by another PaTorrent profile"
+            );
+            return ExitCode::FAILURE;
+        }
         Some(Err(e)) => {
             eprintln!("error: cannot start the Web UI: {e}");
             return ExitCode::FAILURE;

@@ -269,15 +269,16 @@ impl Options {
     }
 }
 
-/// A listen port for "Random port" and "Randomize port each start": 10000..=65000, as µTorrent
-/// picks, from the OS-seeded hasher (no RNG dependency).
+/// A listen port for "Random port", "Randomize port each start" and a new profile (D42):
+/// 10000..=60000, below the systems' ephemeral range (49152 up on Windows and macOS, 32768 up on
+/// Linux reaches lower, a known overlap), from the OS-seeded hasher (no RNG dependency).
 pub fn random_port() -> u16 {
     use std::hash::{BuildHasher, Hasher};
     let mut h = std::collections::hash_map::RandomState::new().build_hasher();
     h.write_u128(
         std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos(),
     );
-    10_000 + (h.finish() % 55_001) as u16
+    10_000 + (h.finish() % 50_001) as u16
 }
 
 #[cfg(test)]
@@ -427,7 +428,7 @@ mod tests {
     #[test]
     fn random_ports_are_in_range() {
         for _ in 0..100 {
-            assert!((10_000..=65_000).contains(&random_port()));
+            assert!((10_000..=60_000).contains(&random_port()));
         }
     }
 }

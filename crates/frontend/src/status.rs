@@ -4,7 +4,7 @@
 //! `AUTO_MANAGED`. µTorrent distinguishes them, so frontends track the user's intent
 //! (`user_paused`) and pass it in. It will be persisted with the torrent in `core::store` (Phase 2).
 
-use patorrent_core::{SessionStats, TorrentFlags, TorrentState, TorrentStatus};
+use patorrent_core::{Alert, Protocol, SessionStats, TorrentFlags, TorrentState, TorrentStatus};
 
 use crate::icons::StateIcon;
 use crate::{fmt, tr};
@@ -31,6 +31,68 @@ pub fn bar_rates(s: &SessionStats) -> [String; 2] {
             cap => tr!(BarUpAuto, rate = up.0, cap = fmt::speed_always(cap), total = up.1),
         },
     ]
+}
+
+/// The configured listen port another program holds (another profile, D42), for the status
+/// bar's network part. The engine then listens on a later port (libtorrent's
+/// `max_retry_port_bind`), where nobody forwards anything: a TCP `ListenSucceeded` on another
+/// port than the configured one marks its IP, as does a TCP `ListenFailed` for "address in
+/// use"; a `ListenSucceeded` on the configured port clears it.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct ListenProblem {
+    /// The port from the settings; `None` or 0 when any port will do.
+    configured: Option<u16>,
+    in_use: Vec<std::net::SocketAddr>,
+}
+
+impl ListenProblem {
+    pub fn new(configured: Option<u16>) -> ListenProblem {
+        ListenProblem { configured, in_use: Vec::new() }
+    }
+
+    /// The settings changed: the sockets are opened again and report anew.
+    pub fn set_configured(&mut self, port: Option<u16>) {
+        if self.configured != port {
+            self.configured = port;
+            self.in_use.clear();
+        }
+    }
+
+    /// Follows `a`; true when the text changed.
+    pub fn on_alert(&mut self, a: &Alert) -> bool {
+        let before = self.in_use.clone();
+        let wanted = self.configured.filter(|&p| p != 0);
+        match a {
+            Alert::ListenFailed {
+                address,
+                protocol: Protocol::Tcp,
+                error: patorrent_core::Error::Io { kind: std::io::ErrorKind::AddrInUse, .. },
+            } => {
+                if let Ok(addr) = address.parse::<std::net::SocketAddr>() {
+                    self.in_use.retain(|a| a.ip() != addr.ip());
+                    self.in_use.push(addr);
+                }
+            }
+            Alert::ListenSucceeded { address, protocol: Protocol::Tcp } => {
+                self.in_use.retain(|a| a.ip() != address.ip());
+                if let Some(p) = wanted.filter(|&p| p != address.port()) {
+                    self.in_use.push(std::net::SocketAddr::new(address.ip(), p));
+                }
+            }
+            _ => {}
+        }
+        self.in_use != before
+    }
+
+    /// The port that could not be opened, if any.
+    pub fn port(&self) -> Option<u16> {
+        self.in_use.first().map(std::net::SocketAddr::port)
+    }
+
+    /// "Port 6881 in use", in place of the network part's usual text.
+    pub fn text(&self) -> Option<String> {
+        self.port().map(|port| tr!(NetPortInUse, port))
+    }
 }
 
 /// The text shown in the Status column.
@@ -191,6 +253,48 @@ mod tests {
 
     fn st(flags: TorrentFlags, state: TorrentState, finished: bool) -> TorrentStatus {
         TorrentStatus { flags, state, is_finished: finished, ..TorrentStatus::default() }
+    }
+
+    #[test]
+    fn a_port_in_use() {
+        let in_use = |address: &str| Alert::ListenFailed {
+            address: address.into(),
+            protocol: Protocol::Tcp,
+            error: std::io::Error::from(std::io::ErrorKind::AddrInUse).into(),
+        };
+        let mut p = ListenProblem::new(Some(6881));
+        assert_eq!(p.text(), None);
+        // UDP and other failures are the Logger's
+        let udp = Alert::ListenFailed {
+            address: "0.0.0.0:6881".into(),
+            protocol: Protocol::Udp,
+            error: std::io::Error::from(std::io::ErrorKind::AddrInUse).into(),
+        };
+        let other = Alert::ListenFailed {
+            address: "eth9:6881".into(),
+            protocol: Protocol::Tcp,
+            error: std::io::Error::from(std::io::ErrorKind::InvalidInput).into(),
+        };
+        assert!(!p.on_alert(&udp) && !p.on_alert(&other));
+        assert!(p.on_alert(&in_use("0.0.0.0:6881")));
+        assert_eq!(p.port(), Some(6881));
+        assert!(p.text().unwrap().contains("6881"));
+        // IPv6 bound: the IPv4 problem stays
+        let ok = |a: &str| Alert::ListenSucceeded { address: a.parse().unwrap(), protocol: Protocol::Tcp };
+        assert!(!p.on_alert(&ok("[::]:6881")));
+        // the configured port bound later clears it
+        assert!(p.on_alert(&ok("0.0.0.0:6881")));
+        assert_eq!(p.text(), None);
+        // the engine moved on to the next port: the configured one is in use
+        assert!(p.on_alert(&ok("0.0.0.0:6882")));
+        assert_eq!(p.port(), Some(6881));
+        // Preferences picked another port, which bound
+        p.set_configured(Some(7000));
+        assert_eq!(p.text(), None);
+        assert!(!p.on_alert(&ok("0.0.0.0:7000")));
+        // any port will do: nothing to say
+        let mut any = ListenProblem::new(Some(0));
+        assert!(!any.on_alert(&ok("0.0.0.0:51413")));
     }
 
     #[test]

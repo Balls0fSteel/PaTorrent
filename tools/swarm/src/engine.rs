@@ -96,7 +96,8 @@ pub fn loopback(mb: usize, piece_kib: usize, cpu: fn() -> Option<Duration>) -> E
     drop(data);
 
     let start = |dir: &Path| {
-        let s = Session::start(SessionParams { settings: settings(), state_dir: None }).expect("session");
+        let s = Session::start(SessionParams { settings: settings(), state_dir: None, ..Default::default() })
+            .expect("session");
         let h = s.handle();
         let port = wait(&h, Duration::from_secs(5), |a| match a {
             Alert::ListenSucceeded { address, .. } => Some(address.port()),
@@ -198,8 +199,12 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
         // the count is whatever the store holds
         count = usize::MAX;
     } else {
-        let s = Session::start(SessionParams { settings: settings(), state_dir: Some(state.clone()) })
-            .expect("session");
+        let s = Session::start(SessionParams {
+            settings: settings(),
+            state_dir: Some(state.clone()),
+            ..Default::default()
+        })
+        .expect("session");
         let h = s.handle();
         let mut rng = crate::corpus::Rng::new(7);
         for i in 0..count {
@@ -230,8 +235,12 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
     let rss0 = rss();
     let heap0 = crate::heap::live();
     let t0 = Instant::now();
-    let s = Session::start(SessionParams { settings: settings(), state_dir: Some(state.clone()) })
-        .expect("session");
+    let s = Session::start(SessionParams {
+        settings: settings(),
+        state_dir: Some(state.clone()),
+        ..Default::default()
+    })
+    .expect("session");
     let h = s.handle();
     if reuse {
         // answered once the store is restored: its count

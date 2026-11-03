@@ -92,7 +92,8 @@ fn settings() -> Settings {
 }
 
 fn start(state_dir: Option<PathBuf>) -> Session {
-    Session::start(SessionParams { settings: settings(), state_dir }).expect("session starts")
+    Session::start(SessionParams { settings: settings(), state_dir, ..Default::default() })
+        .expect("session starts")
 }
 
 struct Watch {
@@ -288,6 +289,7 @@ fn file_tail_requests_are_sized_by_the_v2_piece_size() {
         let leech = Session::start(SessionParams {
             settings: Settings { out_enc_policy: patorrent_core::EncPolicy::Disabled, ..settings() },
             state_dir: None,
+            ..Default::default()
         })
         .unwrap();
         let mut w = Watch::new(leech.handle());
@@ -384,6 +386,7 @@ fn partial_pieces_report_the_v2_piece_size() {
     let leech = Session::start(SessionParams {
         settings: Settings { out_enc_policy: patorrent_core::EncPolicy::Disabled, ..settings() },
         state_dir: None,
+        ..Default::default()
     })
     .unwrap();
     let mut w = Watch::new(leech.handle());

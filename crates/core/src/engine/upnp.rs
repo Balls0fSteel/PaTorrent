@@ -46,8 +46,10 @@ const MAX_FAILCOUNT: u32 = 5;
 pub(super) struct UpnpSettings {
     pub ignore_nonrouters: bool,
     pub lease_duration: u32,
-    /// The mapping's description on the router.
+    /// The HTTP requests' `User-Agent`.
     pub user_agent: String,
+    /// The mapping's description on the router: the user agent, or the session's label.
+    pub description: String,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -616,7 +618,7 @@ impl Upnp {
                     m.protocol.unwrap_or(Protocol::Tcp),
                     m.local_port,
                     &local.to_string(),
-                    &self.settings.user_agent,
+                    &self.settings.description,
                     lease,
                 );
                 upnp::post_request(
@@ -1360,6 +1362,7 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
                 ignore_nonrouters: false,
                 lease_duration: 3600,
                 user_agent: "test agent".into(),
+                description: "test agent".into(),
             };
             let mut upnp = Upnp::new(settings, Ipv4Addr::LOCALHOST, Ipv4Addr::new(255, 0, 0, 0), 1000);
             upnp.start(poll.registry(), Token(1), Token(2), Instant::now());
@@ -1464,8 +1467,12 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
 
     #[test]
     fn max_mappings() {
-        let settings =
-            UpnpSettings { ignore_nonrouters: false, lease_duration: 3600, user_agent: "t".into() };
+        let settings = UpnpSettings {
+            ignore_nonrouters: false,
+            lease_duration: 3600,
+            user_agent: "t".into(),
+            description: "t".into(),
+        };
         let poll = Poll::new().unwrap();
         let mut upnp = Upnp::new(settings, Ipv4Addr::LOCALHOST, Ipv4Addr::new(255, 0, 0, 0), 1000);
         let now = Instant::now();
@@ -1480,8 +1487,12 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
 
     #[test]
     fn no_router_disables_the_mapper() {
-        let settings =
-            UpnpSettings { ignore_nonrouters: false, lease_duration: 3600, user_agent: "t".into() };
+        let settings = UpnpSettings {
+            ignore_nonrouters: false,
+            lease_duration: 3600,
+            user_agent: "t".into(),
+            description: "t".into(),
+        };
         let poll = Poll::new().unwrap();
         let mut upnp = Upnp::new(settings, Ipv4Addr::LOCALHOST, Ipv4Addr::new(255, 0, 0, 0), 1000);
         let mut now = Instant::now();
@@ -1507,8 +1518,12 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
     }
 
     fn lan_upnp() -> Upnp {
-        let settings =
-            UpnpSettings { ignore_nonrouters: false, lease_duration: 3600, user_agent: "t".into() };
+        let settings = UpnpSettings {
+            ignore_nonrouters: false,
+            lease_duration: 3600,
+            user_agent: "t".into(),
+            description: "t".into(),
+        };
         Upnp::new(settings, Ipv4Addr::LOCALHOST, Ipv4Addr::new(255, 0, 0, 0), 1000)
     }
 

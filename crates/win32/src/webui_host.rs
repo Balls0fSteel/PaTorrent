@@ -82,10 +82,18 @@ impl Setup {
     pub fn load(prefs: &Prefs) -> Setup {
         let listen = prefs.get("webui.listen").and_then(|s| webui::parse_addr(s).ok());
         let username = prefs.get("webui.username").map(str::trim).filter(|u| !u.is_empty());
+        let enabled = prefs.get_bool("webui.enabled", false);
+        // not serving yet on the default: the first port no other program (another profile's
+        // Web UI, D42) holds is proposed instead
+        let port = match listen.map(|a| a.port()) {
+            Some(p) if enabled || p != DEFAULT_PORT => p,
+            None if enabled => DEFAULT_PORT,
+            _ => first_free_port(DEFAULT_PORT),
+        };
         Setup {
-            enabled: prefs.get_bool("webui.enabled", false),
+            enabled,
             username: username.unwrap_or(DEFAULT_USER).to_owned(),
-            port: listen.map_or(DEFAULT_PORT, |a| a.port()),
+            port,
             remote: listen.is_some_and(|a| a.ip().is_unspecified()),
             https: prefs.get_bool("webui.https", false),
             domains: prefs.get("webui.domain_list").unwrap_or("").trim().to_owned(),
@@ -130,6 +138,25 @@ impl Setup {
     #[cfg(test)]
     pub fn url(&self) -> String {
         format!("{}://127.0.0.1:{}/", if self.https { "https" } else { "http" }, self.port)
+    }
+}
+
+/// The first port from `from` up (at most 100 tried) that this computer's loopback and every
+/// address can both bind now; `from` when none can.
+pub fn first_free_port(from: u16) -> u16 {
+    let free = |p: u16| {
+        [Ipv4Addr::LOCALHOST, Ipv4Addr::UNSPECIFIED]
+            .iter()
+            .all(|ip| std::net::TcpListener::bind(SocketAddr::new((*ip).into(), p)).is_ok())
+    };
+    (from..from.saturating_add(100)).find(|&p| free(p)).unwrap_or(from)
+}
+
+/// Why the server did not start, for the page: a port in use is named, with its likely cause.
+fn start_error(e: &std::io::Error, port: u16) -> String {
+    match e.kind() {
+        std::io::ErrorKind::AddrInUse => tr!(WebUiPortInUse, port),
+        _ => e.to_string(),
     }
 }
 
@@ -279,7 +306,7 @@ pub fn start(
         c.https = Some(Certificate::Generated { dir: Some(dir.to_path_buf()), names: default_names(addr) });
     }
     c.hosted = Some(Hosted { host, options: prefs.clone(), rss });
-    WebUi::start(handle, c).map_err(|e| e.to_string())
+    WebUi::start(handle, c).map_err(|e| start_error(&e, addr.port()))
 }
 
 #[cfg(test)]
@@ -289,7 +316,7 @@ mod tests {
     #[test]
     fn the_setup_round_trips_through_the_preferences() {
         let mut p = Prefs::default();
-        assert_eq!(Setup::load(&p), Setup::default());
+        assert_eq!(Setup::load(&p), Setup { port: first_free_port(DEFAULT_PORT), ..Setup::default() });
         assert!(!has_password(&p));
         let s = Setup {
             enabled: true,
@@ -339,6 +366,22 @@ mod tests {
         p.set("webui.listen", "nonsense");
         assert_eq!(Setup::load(&p).username, "admin");
         assert_eq!(Setup::load(&p).port, DEFAULT_PORT);
+    }
+
+    /// Another profile's Web UI holds a port: the page proposes the next one, and a server
+    /// that cannot bind says which port (D42).
+    #[test]
+    fn a_port_in_use_is_skipped_and_named() {
+        let held = std::net::TcpListener::bind((Ipv4Addr::LOCALHOST, 0)).unwrap();
+        let port = held.local_addr().unwrap().port();
+        assert_ne!(first_free_port(port), port);
+        let mut p = Prefs::default();
+        p.set("webui.listen", format!("127.0.0.1:{port}"));
+        // a port the user chose stays
+        assert_eq!(Setup::load(&p).port, port);
+        let e = std::io::Error::from(std::io::ErrorKind::AddrInUse);
+        assert_eq!(start_error(&e, port), tr!(WebUiPortInUse, port));
+        assert_eq!(start_error(&std::io::Error::other("x"), port), "x");
     }
 
     #[test]

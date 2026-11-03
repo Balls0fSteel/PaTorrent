@@ -115,6 +115,7 @@ fn two_downloads(name: &str, settings: Settings) -> (Session, Queue, TorrentId, 
             ..settings
         },
         state_dir: None,
+        ..Default::default()
     })
     .unwrap();
     let mut q = Queue { h: session.handle(), backlog: VecDeque::new(), running: HashMap::new() };

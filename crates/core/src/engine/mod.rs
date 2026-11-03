@@ -449,6 +449,8 @@ pub(crate) struct Engine {
     web: web_seed::WebConns,
     /// The proxy server and its SOCKS5 UDP associate.
     proxy: proxy::ProxyState,
+    /// `SessionParams::label`.
+    label: Option<String>,
 }
 
 /// The network thread's entry point.
@@ -459,8 +461,10 @@ pub(crate) fn run(
     shared: Arc<Shared>,
     settings: Settings,
     state_dir: Option<PathBuf>,
+    label: Option<String>,
 ) {
     let mut e = Engine::new(poll, waker, rx, shared, settings);
+    e.label = label;
     e.start(state_dir);
     e.flush_alerts();
     let mut events = Events::with_capacity(1024);
@@ -627,6 +631,7 @@ impl Engine {
             network,
             web: web_seed::WebConns::default(),
             proxy: proxy::ProxyState::default(),
+            label: None,
             settings,
         }
     }

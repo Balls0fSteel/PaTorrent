@@ -14,7 +14,7 @@ fn session() -> Session {
         enable_natpmp: false,
         ..Settings::default()
     };
-    Session::start(SessionParams { settings, state_dir: None }).unwrap()
+    Session::start(SessionParams { settings, state_dir: None, ..Default::default() }).unwrap()
 }
 
 #[test]

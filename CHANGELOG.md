@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_123456_1793705696: Version 1.1.45: ports for profiles (D42 slice 2)
+
+- **Listen port:** a new named profile, or a portable folder whose `patorrent.ini` is still empty, writes a random port (10000-60000, `random_port()` narrowed from 65000, the Web UI's button too) at its first start; the default profile keeps 6881. nox keeps no settings file outside the Web UI, so a named nox profile without `--port`/`--listen` takes a port from its name (FNV-1a, 10000-60000, the same at every start).
+- **Port in use:** the engine does not fail on a taken port, it moves to the next one (as libtorrent's `max_retry_port_bind`), where nothing is forwarded. Both GUIs' network part now says "Port N in use" when TCP bound elsewhere than the configured port (or failed with "address in use"); a click opens Preferences at Connection (Win32 `preferences::show_at`, GTK `show(.., page)`). `status::ListenProblem`, `NetPortInUse`.
+- **UPnP:** `SessionParams.label` (`PaTorrent (work)`) is the routers' mapping description for a named profile; the default profile keeps the user agent. `Protocol` is exported from core; every `SessionParams` literal gained `..Default::default()`.
+- **Web UI:** the Win32 page proposes the first free port from 8080 up while the Web UI is off and the stored port is the default; a bind failure says "port N is in use, perhaps by another PaTorrent profile" (`WebUiPortInUse`), nox prints the same.
+- **Checked:** unit tests (the listen tracker, free port, name port, labels); 1,536 workspace tests; clippy for four targets. Hidden desktop: two copies set to port 45123, the second (profile `work`, bound on 45124) shows "Port 45123 in use"; a fresh portable folder wrote `lt.listen_interfaces=0.0.0.0:19763,...` at its first start. Not clicked on the hidden desktop; GTK not run.
+
 ## 2026-11-03_121953_1793704793: Version 1.1.44: `--profile` in all three programs (D42 slice 1)
 
 - **New:** `--profile NAME` (or `--profile=NAME`, anywhere before `--shell`, never a torrent) runs a profile of its own: `profiles/<name>` before the program's folder (`%APPDATA%\PaTorrent\profiles\work`, `~/.config/patorrent/profiles/work/gtk`, `.../profiles/work/nox`, the same inside a portable folder). Names are 1-32 of `a-z`, `0-9`, `-`, starting with a letter, case ignored; `default` is the default profile, whose folders do not change.

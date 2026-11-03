@@ -115,8 +115,9 @@ struct Dialog {
     hooks: Hooks,
 }
 
-/// Shows the dialog over `parent`, editing `options` as stored.
-pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
+/// Shows the dialog over `parent`, editing `options` as stored, at the page whose key is `page`
+/// (the first page for `None` or a key it does not have).
+pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks, page: Option<&str>) {
     let window = gtk::Window::builder()
         .title(tr!(PrefTitle))
         .transient_for(parent)
@@ -187,7 +188,8 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks) {
             }
         }
     });
-    list.select_row(list.row_at_index(0).as_ref());
+    let first = page.and_then(|key| pages.iter().position(|p| p.key == key)).unwrap_or(0);
+    list.select_row(list.row_at_index(first as i32).as_ref());
     let sidebar = gtk::ScrolledWindow::builder()
         .hscrollbar_policy(gtk::PolicyType::Never)
         .child(&list)

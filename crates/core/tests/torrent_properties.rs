@@ -99,7 +99,8 @@ fn settings() -> Settings {
 }
 
 fn start(settings: Settings, state_dir: Option<PathBuf>) -> (Session, Watch) {
-    let s = Session::start(SessionParams { settings, state_dir }).expect("session starts");
+    let s =
+        Session::start(SessionParams { settings, state_dir, ..Default::default() }).expect("session starts");
     let w = Watch { h: s.handle(), backlog: VecDeque::new() };
     (s, w)
 }

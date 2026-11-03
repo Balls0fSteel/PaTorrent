@@ -104,7 +104,9 @@ fn request(host: &str, method: &str, path: &str, extra: &str, body: &str) -> Vec
 #[test]
 fn the_web_ui_over_https() {
     let dir = temp_dir("serve");
-    let session = Session::start(SessionParams { settings: settings(), state_dir: None }).unwrap();
+    let session =
+        Session::start(SessionParams { settings: settings(), state_dir: None, ..Default::default() })
+            .unwrap();
     let web = start(&session, &dir, generated(&dir));
     let info = web.https().expect("serving HTTPS").clone();
     assert!(info.generated);
@@ -206,7 +208,9 @@ fn the_web_ui_over_https() {
 fn a_certificate_that_does_not_load_stops_the_start() {
     let dir = temp_dir("bad");
     let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../core/tests/fixtures/tls");
-    let session = Session::start(SessionParams { settings: settings(), state_dir: None }).unwrap();
+    let session =
+        Session::start(SessionParams { settings: settings(), state_dir: None, ..Default::default() })
+            .unwrap();
     let mut c = Config::new("127.0.0.1:0".parse().unwrap(), settings(), dir.join("dl").to_string_lossy());
     c.password = Some(PASS.into());
     c.pbkdf2_iterations = 2;

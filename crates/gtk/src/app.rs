@@ -106,6 +106,8 @@ struct App {
     /// status bar's notice, and "Update to beta versions".
     updates: Checker,
     update_beta: bool,
+    /// A listen port another program holds (another profile, D42): the network part says so.
+    listen: status::ListenProblem,
     /// "Show current speed in the title bar" (`ui.title_speed`).
     title_speed: bool,
 }
@@ -657,6 +659,12 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         .to_string_lossy()
         .into_owned();
     let mut opts = Options::load(&prefs, &downloads);
+    // a new profile or portable folder: a port of its own, kept from now on (D42)
+    if remote.is_none() && profile::first_run_settings(&mut prefs, &mut opts.settings) {
+        if let Err(e) = prefs.save() {
+            eprintln!("cannot save {}: {e}", config.display());
+        }
+    }
     // the server keeps its own port
     if opts.gui.random_port && remote.is_none() {
         // µTorrent's "Randomize port each start" keeps the new port as the configured one
@@ -684,10 +692,12 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     let started = match remote_session {
         Some(s) => Ok(s),
         None => match lock_library(&data) {
-            Ok(()) => {
-                Session::start(SessionParams { settings: opts.settings.clone(), state_dir: Some(data) })
-                    .map_err(|e| (tr!(CannotStartEngine).to_owned(), e.to_string()))
-            }
+            Ok(()) => Session::start(SessionParams {
+                settings: opts.settings.clone(),
+                state_dir: Some(data),
+                label: patorrent_frontend::profile::current().engine_label(),
+            })
+            .map_err(|e| (tr!(CannotStartEngine).to_owned(), e.to_string())),
             Err(in_use) => Err((in_use, String::new())),
         },
     };
@@ -927,6 +937,14 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         l.set_hexpand(i == 0);
         statusbar.append(l);
     }
+    // "Port N in use" (another profile holds it, D42): a click leads to the port
+    let net_click = gtk::GestureClick::new();
+    net_click.connect_released(|_, _, _, _| {
+        if with_app(|a| a.listen.port().is_some()) == Some(true) {
+            preferences_at(Some("connection"));
+        }
+    });
+    status[0].add_controller(net_click);
     statusbar.set_margin_top(2);
     statusbar.set_margin_bottom(2);
     let root = gtk::Box::new(gtk::Orientation::Vertical, 0);
@@ -1015,6 +1033,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
                 update_seen,
             ),
             update_beta: opts.gui.update_beta,
+            listen: status::ListenProblem::new(settings::listen_port(&opts.settings)),
             title_speed: opts.gui.title_speed,
         })
     });
@@ -1336,6 +1355,7 @@ fn on_alerts() {
                 a.detail.push_log(format!("{} {line}", now_hms()));
             }
             magnet_ready |= a.awaiting.on_alert(&alert, &a.handle, &mut a.prefs);
+            a.listen.on_alert(&alert);
             match alert {
                 Alert::StateUpdate(v) => {
                     for st in &v {
@@ -1587,12 +1607,16 @@ fn update_status() {
     let Some(ui) = ui() else { return };
     let Some((texts, has_incoming)) = with_app(|a| {
         let s = &a.stats;
-        let net = if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) };
+        let net = match a.listen.text() {
+            Some(t) => t,
+            None if s.has_incoming_connections => tr!(NetOk).to_owned(),
+            None => tr!(NetNoIncoming).to_owned(),
+        };
         let [down, up] = status::bar_rates(s);
         let texts = [
             match a.scheduler.status_text() {
                 Some(sched) => format!("{net} | {sched}"),
-                None => net.to_owned(),
+                None => net,
             },
             tr!(BarDht, count = s.dht_nodes),
             down,
@@ -2694,6 +2718,11 @@ fn add_url() {
 
 /// Options > Preferences. OK and Apply store the options and apply them without a restart.
 fn preferences() {
+    preferences_at(None);
+}
+
+/// [`preferences`] at the page whose key is `page`.
+fn preferences_at(page: Option<&str>) {
     let Some((window, mut options)) = with_app(|a| (a.window.clone(), Options::load(&a.prefs, &a.save_path)))
     else {
         return;
@@ -2716,12 +2745,13 @@ fn preferences() {
         settings_dir: paths::settings_dir(),
         tray: tray_shown(),
     };
-    crate::preferences::show(&window, options, hooks);
+    crate::preferences::show(&window, options, hooks, page);
 }
 
 /// Stores `o` and hands it to the engine and the window.
 fn apply_options(a: &mut App, o: &Options) {
     let old = Options::load(&a.prefs, &a.save_path);
+    a.listen.set_configured(settings::listen_port(&o.settings));
     o.store(&mut a.prefs);
     save_prefs(a);
     if crate::remote::is_remote() && o.gui.language != old.gui.language {

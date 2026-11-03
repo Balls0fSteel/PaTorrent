@@ -111,7 +111,8 @@ fn settings() -> Settings {
 fn start_with(f: impl FnOnce(&mut Settings)) -> Session {
     let mut s = settings();
     f(&mut s);
-    Session::start(SessionParams { settings: s, state_dir: None }).expect("session starts")
+    Session::start(SessionParams { settings: s, state_dir: None, ..Default::default() })
+        .expect("session starts")
 }
 
 fn tcp_only(s: &mut Settings) {

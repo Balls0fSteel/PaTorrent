@@ -826,7 +826,8 @@ mod session_tests {
             enable_natpmp: false,
             ..Settings::default()
         };
-        Session::start(SessionParams { settings, state_dir: None }).expect("session starts")
+        Session::start(SessionParams { settings, state_dir: None, ..Default::default() })
+            .expect("session starts")
     }
 
     thread_local! {

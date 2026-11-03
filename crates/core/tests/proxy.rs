@@ -159,7 +159,8 @@ fn finished(w: &mut Watch, id: TorrentId, secs: u64) {
 fn seeder(f: &Fixture) -> (Session, PathBuf, u16) {
     let dir = temp_dir("seed");
     std::fs::write(dir.join(NAME), &f.data).unwrap();
-    let s = Session::start(SessionParams { settings: settings(), state_dir: None }).unwrap();
+    let s = Session::start(SessionParams { settings: settings(), state_dir: None, ..Default::default() })
+        .unwrap();
     let mut w = Watch::new(s.handle());
     let port = wait(&mut w, 5, "listen", |a| match a {
         Alert::ListenSucceeded { address, .. } => Some(address.port()),
@@ -172,7 +173,8 @@ fn seeder(f: &Fixture) -> (Session, PathBuf, u16) {
 
 /// A proxied session: the alerts until its listen sockets are up must show no TCP listener.
 fn leech(s: Settings) -> (Session, Watch) {
-    let session = Session::start(SessionParams { settings: s, state_dir: None }).unwrap();
+    let session =
+        Session::start(SessionParams { settings: s, state_dir: None, ..Default::default() }).unwrap();
     let mut w = Watch::new(session.handle());
     wait(&mut w, 5, "UDP listen socket", |a| match a {
         Alert::ListenSucceeded { protocol, .. } if format!("{protocol:?}") == "Udp" => Some(()),

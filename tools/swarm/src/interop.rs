@@ -823,7 +823,8 @@ fn session(opts: &Options, peer: SocketAddr) -> Result<Session, String> {
     if std::env::var_os("LT_INTEROP_TRACE").is_some() {
         settings.alert_mask = AlertCategory::all().bits();
     }
-    Session::start(SessionParams { settings, state_dir: None }).map_err(|e| e.to_string())
+    Session::start(SessionParams { settings, state_dir: None, ..Default::default() })
+        .map_err(|e| e.to_string())
 }
 
 /// Adds the fixture's torrent to `h` with `flags`, saving to (or seeding from) `dir`.

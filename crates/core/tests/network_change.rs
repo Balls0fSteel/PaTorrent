@@ -81,7 +81,12 @@ fn has_ipv6_loopback() -> bool {
 
 #[test]
 fn listen_interfaces_changes_reopen_only_what_changed() {
-    let s = Session::start(SessionParams { settings: settings("127.0.0.1:0"), state_dir: None }).unwrap();
+    let s = Session::start(SessionParams {
+        settings: settings("127.0.0.1:0"),
+        state_dir: None,
+        ..Default::default()
+    })
+    .unwrap();
     let mut alerts = Alerts { h: s.handle(), pending: VecDeque::new() };
     let v4 = alerts.wait(5, "IPv4 listener", tcp_listening);
     assert_eq!(v4.ip(), IpAddr::V4(Ipv4Addr::LOCALHOST));
@@ -124,7 +129,12 @@ fn listen_interfaces_changes_reopen_only_what_changed() {
 
 #[test]
 fn incoming_tcp_can_be_switched_off_and_on() {
-    let s = Session::start(SessionParams { settings: settings("127.0.0.1:0"), state_dir: None }).unwrap();
+    let s = Session::start(SessionParams {
+        settings: settings("127.0.0.1:0"),
+        state_dir: None,
+        ..Default::default()
+    })
+    .unwrap();
     let mut alerts = Alerts { h: s.handle(), pending: VecDeque::new() };
     let tcp = alerts.wait(5, "listener", tcp_listening);
     alerts.drain_for(200);

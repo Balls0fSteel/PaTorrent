@@ -3780,7 +3780,7 @@
       // frontend::options::random_port's range
       const inp = $("prefs-page").querySelector('[data-id="listen_port"]');
       if (!inp) return;
-      inp.value = 10000 + Math.floor(Math.random() * 55001);
+      inp.value = 10000 + Math.floor(Math.random() * 50001);
       inp.dispatchEvent(new Event("input", { bubbles: true }));
     }
   });

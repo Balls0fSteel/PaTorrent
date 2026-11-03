@@ -135,7 +135,8 @@ fn wait<T>(
 fn leech(tag: &str) -> (Session, TorrentId, [u8; 20], PathBuf) {
     let (torrent, info_hash) = fixture(tag);
     let dir = temp_dir(tag);
-    let s = Session::start(SessionParams { settings: settings(), state_dir: None }).expect("session starts");
+    let s = Session::start(SessionParams { settings: settings(), state_dir: None, ..Default::default() })
+        .expect("session starts");
     let h = s.handle();
     let mut p = AddTorrentParams::new(TorrentSource::TorrentFile(torrent), dir.to_string_lossy());
     p.flags = TorrentFlags::empty();

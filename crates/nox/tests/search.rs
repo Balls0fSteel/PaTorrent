@@ -46,7 +46,12 @@ impl Harness {
             enable_natpmp: false,
             ..Settings::default()
         };
-        let session = Session::start(SessionParams { settings: settings.clone(), state_dir: None }).unwrap();
+        let session = Session::start(SessionParams {
+            settings: settings.clone(),
+            state_dir: None,
+            ..Default::default()
+        })
+        .unwrap();
         let h = session.handle();
         let mut c = Config::new("127.0.0.1:0".parse().unwrap(), settings, dir.join("dl").to_string_lossy());
         c.password = Some(PASS.into());

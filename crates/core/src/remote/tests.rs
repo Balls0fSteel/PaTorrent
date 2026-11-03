@@ -393,7 +393,7 @@ fn engine() -> Session {
         tick_interval: 100,
         ..Default::default()
     };
-    Session::start(SessionParams { settings, state_dir: None }).unwrap()
+    Session::start(SessionParams { settings, state_dir: None, ..Default::default() }).unwrap()
 }
 
 trait Stream: Read + Write + Send {}

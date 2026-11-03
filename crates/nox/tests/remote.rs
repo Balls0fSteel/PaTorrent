@@ -59,7 +59,9 @@ fn settings() -> Settings {
 fn nox(name: &str, https: bool) -> Nox {
     let dir = std::env::temp_dir().join(format!("patorrent-remote-test-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
-    let session = Session::start(SessionParams { settings: settings(), state_dir: None }).unwrap();
+    let session =
+        Session::start(SessionParams { settings: settings(), state_dir: None, ..Default::default() })
+            .unwrap();
     let h = session.handle();
     let mut c = Config::new("127.0.0.1:0".parse().unwrap(), settings(), dir.join("dl").to_string_lossy());
     c.password = Some(PASS.into());

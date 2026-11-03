@@ -303,6 +303,8 @@ struct App {
     nav_images: HIMAGELIST,
     /// Which of them the status bar shows (`None`: not since the icons were made).
     net_shown: Option<bool>,
+    /// A listen port another program holds (another profile, D42): the network part says so.
+    listen: status::ListenProblem,
 
     toolbar: HWND,
     /// The search box at the toolbar's right end, the arrow beside it (a one-button toolbar)
@@ -624,6 +626,10 @@ pub fn run(args: Args) -> i32 {
     }
     let mut opts = Options::load(&prefs, &downloads_folder());
     controls::set_alternate_rows(opts.gui.alternate_rows);
+    // a new profile or portable folder: a port of its own, kept from now on (D42)
+    if local && profile::first_run_settings(&mut prefs, &mut opts.settings) {
+        let _ = prefs.save();
+    }
     if opts.gui.random_port && local {
         // µTorrent's "Randomize port each start" keeps the new port as the configured one
         settings::set_listen_port(&mut opts.settings, options::random_port());
@@ -647,7 +653,11 @@ pub fn run(args: Args) -> i32 {
         ),
         (None, None) => {
             let settings = opts.settings.clone();
-            match Session::start(SessionParams { settings, state_dir: Some(dir.join("state")) }) {
+            match Session::start(SessionParams {
+                settings,
+                state_dir: Some(dir.join("state")),
+                label: patorrent_frontend::profile::current().engine_label(),
+            }) {
                 Ok(s) => s,
                 Err(e) => {
                     dialogs::error(null_mut(), &tr!(ErrEngineStart, error = e));
@@ -693,6 +703,7 @@ pub fn run(args: Args) -> i32 {
             return 1;
         }
         init(hwnd, session, prefs);
+        with_app(|a| a.listen.set_configured(settings::listen_port(&opts.settings)));
         for p in lang_problems {
             log_line(&p);
         }
@@ -1055,6 +1066,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             net_icons: [null_mut(); 2],
             nav_images: 0,
             net_shown: None,
+            listen: status::ListenProblem::default(),
             toolbar,
             search,
             search_menu,
@@ -2376,6 +2388,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                 a.detail.push_log(format!("{} {line}", now_hms()));
             }
             magnet_ready |= a.awaiting.on_alert(&alert, &a.handle, &mut a.prefs);
+            a.listen.on_alert(&alert);
             match alert {
                 Alert::StateUpdate(v) => {
                     for st in &v {
@@ -2593,10 +2606,14 @@ unsafe fn update_status_bar() {
             a.net_shown = Some(has);
             a.net_icons[has as usize]
         });
-        let net = if s.has_incoming_connections { tr!(NetOk) } else { tr!(NetNoIncoming) };
+        let net = match a.listen.text() {
+            Some(t) => t,
+            None if s.has_incoming_connections => tr!(NetOk).to_owned(),
+            None => tr!(NetNoIncoming).to_owned(),
+        };
         let net = match a.scheduler.status_text() {
             Some(sched) => format!("{net} | {sched}"),
-            None => net.to_owned(),
+            None => net,
         };
         let [down, up] = status::bar_rates(s);
         let parts = [net, tr!(BarDht, count = s.dht_nodes), down, up];
@@ -3964,6 +3981,11 @@ fn add_torrent_file(hwnd: HWND, bytes: Vec<u8>) {
 
 /// Options → Preferences. OK and Apply store the options and apply them without a restart.
 unsafe fn show_preferences(hwnd: HWND) {
+    unsafe { show_preferences_at(hwnd, 0) }
+}
+
+/// Preferences at `page` (`preferences::PAGES` index).
+unsafe fn show_preferences_at(hwnd: HWND, page: usize) {
     let Some(mut opts) = with_app(|a| Options::load(&a.prefs, &a.save_path)) else { return };
     opts.gui.language = language_choice();
     let dir = data_dir();
@@ -3995,7 +4017,7 @@ unsafe fn show_preferences(hwnd: HWND) {
             .unwrap_or_default()
         }),
     };
-    if crate::preferences::show(hwnd, opts, &dir, hooks) {
+    if crate::preferences::show_at(hwnd, opts, &dir, hooks, page) {
         unsafe { update_menu(hwnd) };
     }
 }
@@ -4008,6 +4030,7 @@ fn apply_options(a: &mut App, o: &Options) {
 
 /// [`apply_options`] with `old` as the options in force before it: what differs changes.
 fn apply_options_from(a: &mut App, old: &Options, o: &Options) {
+    a.listen.set_configured(settings::listen_port(&o.settings));
     o.store(&mut a.prefs);
     if let Err(e) = a.prefs.save() {
         a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
@@ -5351,6 +5374,17 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
             }
             (IDC_LIST, LVN_ODSTATECHANGED) => {
                 selection_changed();
+                0
+            }
+            // the network part, while it says the listen port is in use
+            (IDC_STATUS, NM_CLICK)
+                if with_app(|a| {
+                    a.listen.port().is_some()
+                        && (*(nm as *const NMMOUSE)).dwItemSpec == usize::from(a.updates.notice().is_some())
+                })
+                .unwrap_or(false) =>
+            {
+                show_preferences_at(hwnd, crate::preferences::PAGE_CONNECTION);
                 0
             }
             (IDC_STATUS, NM_CLICK) if (*(nm as *const NMMOUSE)).dwItemSpec == 0 => {

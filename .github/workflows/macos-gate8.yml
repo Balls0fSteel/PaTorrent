@@ -75,6 +75,8 @@ jobs:
           app="$GITHUB_WORKSPACE/PaTorrent.app/Contents/MacOS/PaTorrent"
           agents="$RUNNER_TEMP/agents"
           mkdir -p "$agents"
+          # autostart is set from a profile that exists (else its "Create it?" question waits)
+          mkdir -p "$HOME/Library/Application Support/PaTorrent/profiles/work/gtk"
           for p in default work; do
             label=io.github.balls0fsteel.PaTorrent
             args="<string>$app</string>"
@@ -100,9 +102,12 @@ jobs:
           ps -axo pid,command | grep '[p]atorrent-gtk' | tee -a "$OUT/launchagents.txt"
           for f in "$agents"/*.plist; do launchctl bootout "gui/$(id -u)" "$f" || true; done
           pkill -f patorrent-gtk || true
-          ls "$HOME/Library/Application Support/PaTorrent" "$HOME/Library/Application Support/PaTorrent/profiles" | tee -a "$OUT/launchagents.txt"
+          find "$HOME/Library/Application Support/PaTorrent" | sort | tee -a "$OUT/launchagents.txt"
           grep -q -- '--profile work' "$OUT/launchagents.txt"
           [ "$(grep -c '[p]atorrent-gtk' "$OUT/launchagents.txt")" -ge 2 ]
+          # each started its own library
+          grep -q 'PaTorrent/gtk/patorrent.lock$' "$OUT/launchagents.txt"
+          grep -q 'PaTorrent/profiles/work/gtk/patorrent.lock$' "$OUT/launchagents.txt"
 
       # (before the step below, which may hang on Gatekeeper)
       - uses: actions/upload-artifact@v7
@@ -114,31 +119,44 @@ jobs:
 
       # A quarantined download opened where it was unpacked: Gatekeeper translocates it to a
       # random read-only folder, where patorrent.ini beside it is not seen; the app says so.
-      # (The first run hung here for 45 minutes: every call has a time limit now.)
+      # (The first run hung here for 45 minutes: every call has a time limit now.) Plain, an
+      # unsigned app is refused ("Not Opened"); then as a user's "Open Anyway" would allow it:
+      # the quarantine's user-approved flag (0x40), and Gatekeeper's own exception list.
       - name: Translocated
         if: always()
-        timeout-minutes: 4
+        timeout-minutes: 6
         run: |
           t() { perl -e 'alarm shift; exec @ARGV' "$@"; }
-          dl="$RUNNER_TEMP/Downloads/PaTorrent"
-          mkdir -p "$dl"
-          ditto PaTorrent.app "$dl/PaTorrent.app"
-          : > "$dl/patorrent.ini"
-          now=$(printf '%x' "$(date +%s)")
-          xattr -w com.apple.quarantine "0083;$now;Safari;" "$dl/PaTorrent.app"
-          xattr -l "$dl/PaTorrent.app"
-          echo "== spctl"
-          t 30 spctl --assess --verbose=4 --type execute "$dl/PaTorrent.app" 2>&1 || echo "(spctl: $?)"
-          echo "== open"
-          t 30 open "$dl/PaTorrent.app" 2>&1 || echo "::warning::open failed or timed out ($?)"
-          sleep 25
-          t 20 screencapture -x "$OUT/translocated.png" || echo "::warning::screencapture failed"
-          ps -axo pid,command | grep -i -E '[p]atorrent|[A]ppTranslocation|[C]oreServicesUIAgent' | tee "$OUT/translocated.txt"
-          ls -la "$dl" | tee -a "$OUT/translocated.txt"
-          pkill -f patorrent-gtk || true
-          pkill -f PaTorrent.app || true
-          grep -q AppTranslocation "$OUT/translocated.txt" \
-            || echo "::warning::not translocated here (Gatekeeper may have refused the unsigned app)"
+          try() {
+            name=$1 flags=$2
+            dl="$RUNNER_TEMP/Downloads/$name/PaTorrent"
+            mkdir -p "$dl"
+            ditto PaTorrent.app "$dl/PaTorrent.app"
+            : > "$dl/patorrent.ini"
+            xattr -w com.apple.quarantine "$flags;$(printf '%x' "$(date +%s)");Safari;" "$dl/PaTorrent.app"
+            if [ "$name" = spctl-add ]; then
+              t 30 sudo spctl --add --label PaTorrentGate8 "$dl/PaTorrent.app" 2>&1 || echo "(spctl --add: $?)"
+            fi
+            echo "== $name"
+            t 30 spctl --assess --verbose=4 --type execute "$dl/PaTorrent.app" 2>&1 || echo "(spctl: $?)"
+            t 30 open "$dl/PaTorrent.app" 2>&1 || echo "(open: $?)"
+            sleep 25
+            t 20 screencapture -x "$OUT/translocated-$name.png" || echo "::warning::screencapture failed"
+            ps -axo pid,command | grep -i -E '[p]atorrent|[A]ppTranslocation' | tee "$OUT/translocated-$name.txt"
+            ls -la "$dl" | tee -a "$OUT/translocated-$name.txt"
+            pkill -f patorrent-gtk || true
+            pkill -f PaTorrent.app || true
+            pkill -x CoreServicesUIAgent || true
+            sleep 2
+          }
+          try plain 0083
+          try approved 00c3
+          try spctl-add 0083
+          if grep -l 'AppTranslocation.*patorrent-gtk' "$OUT"/translocated-*.txt; then
+            echo "the GUI ran translocated: see its screenshot for the notice"
+          else
+            echo "::warning::the GUI never ran translocated here"
+          fi
 
       - uses: actions/upload-artifact@v7
         if: always()

@@ -288,6 +288,24 @@ pub struct Settings {
     pub cache_size: i32,
     pub read_cache_line_size: i32,
     pub cache_expiry: u32,
+    /// Smart disk I/O (D48, PaTorrent extensions, `docs/DISKIO.md`). Gentle checks: a check
+    /// runs at the system's background I/O priority, leaves other programs' file cache alone and
+    /// gives way while its reads are slower than the drive's usual.
+    pub check_gently: bool,
+    /// Caps checking at `check_rate_mb` MB/s (per check).
+    pub check_rate_limit: bool,
+    pub check_rate_mb: i32,
+    /// Per-drive tuning by the detected drive type (SSD, hard disk, network, removable): disk
+    /// jobs in flight on a hard disk or a share are limited. `active_checking` checks run at
+    /// once, one per drive.
+    pub tune_for_drive: bool,
+    /// Types for drives detection gets wrong: comma-separated `path=type` pairs, the type one
+    /// of `ssd`, `hdd`, `network`, `removable` (`E:\=hdd, /mnt/nas=network`).
+    pub drive_overrides: String,
+    /// Slow downloads (disk writes) / uploads (disk reads) down while a drive answers more
+    /// slowly than its usual.
+    pub disk_slow_downloads: bool,
+    pub disk_slow_uploads: bool,
     /// Web seeds (libtorrent's `urlseed_*` and web seed settings): BEP 17 requests in flight
     /// per connection (we also cap BEP 19 request runs by it).
     pub urlseed_pipeline_size: i32,
@@ -356,7 +374,7 @@ impl Default for Settings {
             auto_limit_probe_hosts: "1.1.1.1,8.8.8.8,9.9.9.9".to_owned(),
             active_downloads: 3,
             active_seeds: 5,
-            active_checking: 1,
+            active_checking: 4,
             active_dht_limit: 88,
             active_tracker_limit: 1600,
             active_lsd_limit: 60,
@@ -463,6 +481,13 @@ impl Default for Settings {
             cache_size: -1,
             read_cache_line_size: 32,
             cache_expiry: 300,
+            check_gently: true,
+            check_rate_limit: false,
+            check_rate_mb: 100,
+            tune_for_drive: true,
+            drive_overrides: String::new(),
+            disk_slow_downloads: false,
+            disk_slow_uploads: false,
             urlseed_pipeline_size: 5,
             urlseed_timeout: 20,
             urlseed_wait_retry: 30,

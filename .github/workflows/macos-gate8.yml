@@ -22,7 +22,7 @@ jobs:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - run: brew install gtk4 adwaita-icon-theme librsvg pkgconf
-      - run: cargo build --release --locked -p patorrent-gtk
+      - run: cargo build --release --locked -p patorrent-gtk -p patorrent-nox
       - name: PaTorrent.app
         run: |
           family=$(tr -d '[:space:]' < assets/patina-icons/app-icon.txt)
@@ -65,6 +65,51 @@ jobs:
           done
           [ ! -e "$HOME/Library/Application Support/PaTorrent" ] || { echo "::error::wrote to ~/Library/Application Support/PaTorrent"; ok=0; }
           [ "$(wc -l < "$OUT/portable-ps.txt")" -ge 2 ] || { echo "::error::two windows (default and work) were not both running"; ok=0; }
+          [ "$ok" = 1 ]
+
+      # A stick as people format them: exFAT (a disk image). The GUI runs from it and takes
+      # its lock there; nox adds a torrent saved on it; mounted elsewhere (another Mac, another
+      # name), nox finds its data again without a recheck
+      - name: exFAT stick
+        if: always()
+        timeout-minutes: 6
+        run: |
+          export HOME="$RUNNER_TEMP/home-exfat"
+          mkdir -p "$HOME"
+          img="$RUNNER_TEMP/stick.dmg"
+          hdiutil create -size 300m -fs ExFAT -volname PTSTICK "$img"
+          m1="$RUNNER_TEMP/mnt1"; m2="$RUNNER_TEMP/mnt2"
+          mkdir -p "$m1" "$m2"
+          hdiutil attach -nobrowse -mountpoint "$m1" "$img"
+          mount | grep "$m1" | tee "$OUT/exfat.txt"
+          ditto PaTorrent.app "$m1/PaTorrent.app"
+          cp target/release/patorrent-nox "$m1/"
+          : > "$m1/patorrent.ini"
+          "$m1/PaTorrent.app/Contents/MacOS/PaTorrent" > "$OUT/exfat-gui.log" 2>&1 &
+          sleep 20
+          perl -e 'alarm 20; exec @ARGV' screencapture -x "$OUT/exfat.png" || echo "::warning::screencapture failed"
+          pkill -f patorrent-gtk || true
+          sleep 3
+          mkdir -p "$m1/Downloads"
+          head -c 300000 /dev/urandom > "$m1/Downloads/data.bin"
+          cd "$m1"
+          ./patorrent-nox create "$m1/Downloads/data.bin" -o data.torrent --v1
+          ./patorrent-nox add data.torrent --save "$m1/Downloads" --listen 127.0.0.1:0 --no-update-check --seconds 15 > "$OUT/exfat-nox1.log" 2>&1
+          cd "$RUNNER_TEMP"
+          find "$m1" -maxdepth 2 -not -path '*/PaTorrent.app/*' | sort | tee -a "$OUT/exfat.txt"
+          hdiutil detach "$m1"
+          hdiutil attach -nobrowse -mountpoint "$m2" "$img"
+          "$m2/patorrent-nox" run --listen 127.0.0.1:0 --no-update-check --seconds 6 > "$OUT/exfat-nox2.log" 2>&1
+          hdiutil detach "$m2"
+          cat "$OUT/exfat-nox1.log" "$OUT/exfat-nox2.log" | grep -E 'state|restored|data.bin|error' | tee -a "$OUT/exfat.txt"
+          ok=1
+          for f in patorrent.lock metadata.pack nox/patorrent.lock; do
+            grep -q "$m1/$f\$" "$OUT/exfat.txt" || { echo "::error::$f was not made on the exFAT stick"; ok=0; }
+          done
+          grep -q "state: $m2/nox" "$OUT/exfat-nox2.log" || { echo "::error::nox did not use the stick at its new place"; ok=0; }
+          grep -q 'restored 1 torrents' "$OUT/exfat-nox2.log" || { echo "::error::the torrent was not restored"; ok=0; }
+          grep -q '100.0 %  \[F\] Seeding' "$OUT/exfat-nox2.log" || { echo "::error::the data was not found at the new place"; ok=0; }
+          grep -q 'Checking' "$OUT/exfat-nox2.log" && { echo "::error::rechecked after the move"; ok=0; }
           [ "$ok" = 1 ]
 
       # What Preferences > "Start PaTorrent at login" writes, once per profile

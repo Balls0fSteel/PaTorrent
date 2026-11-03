@@ -550,6 +550,19 @@ fn lock_state(dir: &std::path::Path) -> Result<Option<lockfile::Lock>, String> {
             "{} is in use by another patorrent-nox, on this computer or another one sharing the folder",
             dir.display()
         )),
+        // a portable folder never falls back to the user's own (D42)
+        Err(e)
+            if patorrent_frontend::profile::current()
+                .portable_root
+                .as_deref()
+                .is_some_and(|r| dir.starts_with(r)) =>
+        {
+            Err(format!(
+                "the portable folder cannot be written: {}: {e} (move it where you can write, or remove \
+             patorrent.ini beside the program)",
+                dir.display()
+            ))
+        }
         Err(e) => {
             eprintln!("! {}: {e}", dir.join(lockfile::FILE_NAME).display());
             Ok(None)
@@ -702,6 +715,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             settings: settings.clone(),
             state_dir: state_dir.clone(),
             label: patorrent_frontend::profile::current().engine_label(),
+            portable_root: patorrent_frontend::profile::current().portable_root.clone(),
         }) {
             Ok(s) => s,
             Err(e) => {

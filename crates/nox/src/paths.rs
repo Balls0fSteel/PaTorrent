@@ -21,7 +21,9 @@
 //! (`$STATE_DIRECTORY`, `$CONFIGURATION_DIRECTORY`) come before XDG.
 //!
 //! On Windows both are `%APPDATA%\PaTorrent\nox`, or `nox` beside the exe in portable mode
-//! (`patorrent.ini` beside the exe, the GUI's rule: `patorrent_frontend::profile`).
+//! (`patorrent.ini` beside the exe, the GUI's rule: `patorrent_frontend::profile`). Portable
+//! mode works the same on Linux and the BSDs (beside the binary, or beside the `.AppImage`),
+//! where `nox` in the portable folder takes the place of the XDG directories.
 //!
 //! On macOS both are `~/Library/Application Support/PaTorrent/nox`, where Apple puts an
 //! application's own files; XDG variables are not read there. A launchd job's
@@ -63,14 +65,33 @@ pub struct Dirs {
 /// The directories for this OS from the command line's choices and the process environment.
 pub fn resolve(state: Option<PathBuf>, config: Option<PathBuf>, profile: Option<&str>) -> Dirs {
     let env = |k: &str| std::env::var_os(k);
+    let portable = patorrent_frontend::profile::current().portable_root.clone();
     if cfg!(windows) {
-        let portable = patorrent_frontend::profile::current().portable_root.clone();
         resolve_windows(state, config, env, portable, profile)
     } else if cfg!(target_os = "macos") {
         resolve_macos(state, config, env, profile)
+    } else if let Some(root) = portable {
+        resolve_portable_unix(state, config, env, &root, profile)
     } else {
         resolve_unix(state, config, env, profile)
     }
+}
+
+/// Linux and the BSDs in portable mode (D42): the flags, else systemd's directories, else
+/// `nox` in the portable folder (a profile's `profiles/<name>` before it) for both, as on
+/// Windows; XDG is not read.
+pub fn resolve_portable_unix(
+    state: Option<PathBuf>,
+    config: Option<PathBuf>,
+    env: impl Fn(&str) -> Option<OsString>,
+    root: &Path,
+    profile: Option<&str>,
+) -> Dirs {
+    let state = state
+        .or_else(|| systemd_dir(&env, "STATE_DIRECTORY"))
+        .or_else(|| Some(within(root, profile).join(APP[1])));
+    let config = config.or_else(|| systemd_dir(&env, "CONFIGURATION_DIRECTORY")).or_else(|| state.clone());
+    Dirs { state, config, legacy_config: None }
 }
 
 /// Windows: the flags, else portable mode, else `%APPDATA%\PaTorrent\nox` (a profile's
@@ -216,6 +237,26 @@ mod tests {
         portable: Option<PathBuf>,
     ) -> Dirs {
         super::resolve_windows(s, c, env, portable, None)
+    }
+
+    #[test]
+    fn portable_on_unix_keeps_everything_beside_the_program() {
+        let root = Path::new("/media/stick/PaTorrent");
+        let vars = [("HOME", "/h"), ("XDG_DATA_HOME", "/d")];
+        let d = resolve_portable_unix(None, None, env(&vars), root, None);
+        assert_eq!(
+            d,
+            Dirs {
+                state: join("/media/stick/PaTorrent", &["nox"]),
+                config: join("/media/stick/PaTorrent", &["nox"]),
+                legacy_config: None
+            }
+        );
+        let d = resolve_portable_unix(None, None, env(&vars), root, Some("work"));
+        assert_eq!(d.state, join("/media/stick/PaTorrent", &["profiles", "work", "nox"]));
+        // the flags still win
+        let d = resolve_portable_unix(p("/s"), None, env(&vars), root, None);
+        assert_eq!((d.state, d.config), (p("/s"), p("/s")));
     }
 
     #[test]

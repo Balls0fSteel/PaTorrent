@@ -14,6 +14,10 @@
 //!
 //! A named profile (D42, `--profile work`) puts `profiles/work` before `gtk` in both:
 //! `~/.config/patorrent/profiles/work/gtk`, `~/.local/share/patorrent/profiles/work/gtk`.
+//!
+//! Portable mode (`patorrent.ini` beside the program or the `.AppImage`,
+//! `patorrent_frontend::profile::portable_root`) keeps both in that folder (a named profile's in
+//! its `profiles/<name>`), as the Windows GUI does, and reads no XDG variable.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
@@ -25,14 +29,20 @@ const APP: [&str; 2] = ["patorrent", "gtk"];
 
 /// The settings folder.
 pub fn config_dir() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        return macos_dir(&|k| std::env::var_os(k), profile_name());
-    }
-    dir(&|k| std::env::var_os(k), "XDG_CONFIG_HOME", &[".config"], profile_name())
+    config_dir_of(profile_name())
+}
+
+/// The portable folder, when there is one (D42): settings and library both live in it (in
+/// `profiles/<name>` for a named profile), as the Windows GUI's do, and nothing in XDG's.
+fn portable() -> Option<&'static std::path::Path> {
+    profile::current().portable_root.as_deref()
 }
 
 /// [`config_dir`] of the profile `name` (`None`: the default one).
 pub fn config_dir_of(name: Option<&str>) -> PathBuf {
+    if let Some(root) = portable() {
+        return profile::within(root, name);
+    }
     if cfg!(target_os = "macos") {
         return macos_dir(&|k| std::env::var_os(k), name);
     }
@@ -41,6 +51,9 @@ pub fn config_dir_of(name: Option<&str>) -> PathBuf {
 
 /// [`data_dir`] of the profile `name`.
 pub fn data_dir_of(name: Option<&str>) -> PathBuf {
+    if let Some(root) = portable() {
+        return profile::within(root, name);
+    }
     if cfg!(target_os = "macos") {
         return macos_dir(&|k| std::env::var_os(k), name);
     }
@@ -49,6 +62,9 @@ pub fn data_dir_of(name: Option<&str>) -> PathBuf {
 
 /// The folder whose `profiles/` holds the named profiles' settings (File > Profiles lists them).
 pub fn config_root() -> PathBuf {
+    if let Some(root) = portable() {
+        return root.to_path_buf();
+    }
     config_dir_of(None).parent().map(PathBuf::from).unwrap_or_default()
 }
 
@@ -77,10 +93,7 @@ pub fn background_file() -> PathBuf {
 
 /// The torrent library's folder.
 pub fn data_dir() -> PathBuf {
-    if cfg!(target_os = "macos") {
-        return macos_dir(&|k| std::env::var_os(k), profile_name());
-    }
-    dir(&|k| std::env::var_os(k), "XDG_DATA_HOME", &[".local", "share"], profile_name())
+    data_dir_of(profile_name())
 }
 
 /// `<base>/patorrent[/profiles/<name>]/gtk`.

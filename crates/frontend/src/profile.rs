@@ -1,8 +1,12 @@
 //! Profiles and portable mode (D42, docs/PROFILES_PLAN.md).
 //!
-//! Portable mode (D7): a `patorrent.ini` file beside the executable makes its folder the
-//! application root, so settings and state travel with the program, as µTorrent's
-//! `settings.dat` beside `uTorrent.exe` did. One test for every frontend: [`portable_root`].
+//! Portable mode (D7): a `patorrent.ini` file beside the executable (beside the `.AppImage`)
+//! makes its folder the application root, so settings and state travel with the program, as
+//! µTorrent's `settings.dat` beside `uTorrent.exe` did. One test for every frontend:
+//! [`portable_root`]. The paths inside the folder are written relative to it
+//! (`patorrent_core::util::portable`: [`crate::prefs`], `rss.dat`, the engine's `resume.db`),
+//! so it can move to another drive or computer; the first start there downloads to its
+//! `Downloads` folder ([`first_run_settings`]).
 //!
 //! A **profile** is a whole PaTorrent of its own: `--profile NAME` inserts `profiles/<name>`
 //! between the application root and the program's folder, so a profile looks exactly like a
@@ -34,14 +38,28 @@ pub const MAX_LEN: usize = 32;
 /// come before it.
 const STOP: &str = "--shell";
 
-/// The portable root: the executable's folder when [`PORTABLE_MARKER`] is a file there. Windows
-/// only for now; the other platforms follow with slice 6 of the plan.
+/// The portable root: the folder [`portable_candidate`] names, when [`PORTABLE_MARKER`] is a
+/// file there.
 pub fn portable_root() -> Option<PathBuf> {
-    if !cfg!(windows) {
+    let env = |k: &str| std::env::var_os(k);
+    portable_root_in(&portable_candidate(&env, std::env::current_exe().ok()?.parent()?)?)
+}
+
+/// Where a portable marker would make this program portable: the executable's folder (Windows,
+/// a Linux or BSD tarball); for an AppImage the folder holding the `.AppImage` file (`$APPIMAGE`'s,
+/// as the executable is inside its read-only mount); none in a Flatpak, whose sandbox cannot see
+/// beside itself, nor on macOS yet (slice 7: the folder holding `PaTorrent.app`).
+pub fn portable_candidate(
+    env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
+    exe_dir: &Path,
+) -> Option<PathBuf> {
+    if cfg!(target_os = "macos") || env("FLATPAK_ID").is_some() {
         return None;
     }
-    let exe = std::env::current_exe().ok()?;
-    portable_root_in(exe.parent()?)
+    match env("APPIMAGE").filter(|a| !cfg!(windows) && !a.is_empty()) {
+        Some(image) => Path::new(&image).parent().map(Path::to_path_buf),
+        None => Some(exe_dir.to_path_buf()),
+    }
 }
 
 /// `dir` when it holds the portable marker as a file (a folder of that name does not count).
@@ -233,7 +251,27 @@ pub fn first_run_settings(prefs: &mut crate::prefs::Prefs, s: &mut patorrent_cor
     }
     crate::settings::set_listen_port(s, crate::options::random_port());
     crate::settings::store(prefs, s);
+    // a portable folder downloads into itself (`./Downloads` in the file)
+    if let Some(root) = &p.portable_root {
+        prefs.set("dir.download", root.join("Downloads").to_string_lossy());
+    }
     true
+}
+
+/// The keys of `patorrent.ini` whose values are paths, written relative to a portable folder
+/// ([`crate::prefs`]): the folders of Preferences > Directories, the IP filter's file, the Add
+/// dialog's recent folders (`|`-separated) and the save folders of magnets awaiting metadata.
+pub fn is_path_key(key: &str) -> bool {
+    matches!(
+        key,
+        "dir.download"
+            | "dir.completed"
+            | "dir.torrents"
+            | "dir.finished_torrents"
+            | "dir.autoload_dir"
+            | "ipfilter.path"
+            | "add.recent_dirs"
+    ) || (key.starts_with("torrent.") && key.ends_with(".awaiting"))
 }
 
 /// A listen port of a nox profile's own, from its name (10000-60000): nox keeps no settings
@@ -341,6 +379,24 @@ mod tests {
         assert_eq!(work.app_id("io.x.PaTorrent"), "io.x.PaTorrent.profile_my_work");
         assert_eq!(work.engine_label().as_deref(), Some("PaTorrent (my-work)"));
         assert_eq!(default.engine_label(), None);
+    }
+
+    #[test]
+    fn where_portable_mode_is_looked_for() {
+        let env = |vars: &'static [(&'static str, &'static str)]| {
+            move |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| std::ffi::OsString::from(v))
+        };
+        let exe_dir = Path::new("/opt/patorrent");
+        if cfg!(target_os = "macos") {
+            assert_eq!(portable_candidate(&env(&[]), exe_dir), None);
+            return;
+        }
+        assert_eq!(portable_candidate(&env(&[]), exe_dir), Some(exe_dir.to_path_buf()));
+        // a Flatpak never; an AppImage beside its file, not in its mount
+        assert_eq!(portable_candidate(&env(&[("FLATPAK_ID", "io.x")]), exe_dir), None);
+        let image = env(&[("APPIMAGE", "/home/u/Apps/PaTorrent.AppImage")]);
+        let want = if cfg!(windows) { exe_dir.to_path_buf() } else { PathBuf::from("/home/u/Apps") };
+        assert_eq!(portable_candidate(&image, exe_dir), Some(want));
     }
 
     #[test]

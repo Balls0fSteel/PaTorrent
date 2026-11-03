@@ -398,6 +398,7 @@ RemotePlaintext={name} הוא מחשב אחר, ובלי HTTPS שם המשתמש,
 ErrStartPaTorrent=לא ניתן להפעיל את PaTorrent: {error}
 ForwardRefused=PaTorrent כבר פועל כמנהל, ו-Windows אינו מאפשר לעותק זה להעביר לו מה להוסיף. הוסיפו זאת מתוך PaTorrent הפועל, או הפעילו את PaTorrent ללא הרשאות מנהל.
 FolderInUse=PaTorrent אחר כבר משתמש בתיקייה זו, בהפעלה אחרת או במחשב אחר שמשתף אותה:\n\n{folder}\n\nסגרו קודם את ה-PaTorrent ההוא.
+PortableReadOnly=PaTorrent נייד זה אינו יכול לכתוב לתיקייה שלו:\n\n{folder}\n{error}\n\nהעבירו את התיקייה למקום שאפשר לכתוב בו, או הסירו את patorrent.ini שליד התוכנית כדי לשמור את ההגדרות בתיקיית המשתמש.
 ProfileBadName="{name}" אינו יכול להיות שם פרופיל. שם פרופיל מכיל 1 עד 32 תווים: אותיות a-z, ספרות ומקפים (-), ומתחיל באות.
 ProfileCreate=הפרופיל "{name}" עדיין לא קיים. ליצור אותו?\n\nהוא מתחיל ריק, כמו התקנה חדשה, בתיקייה:\n{folder}
 EndSessionSaving=שומר את רשימת הטורנטים וההתקדמות...

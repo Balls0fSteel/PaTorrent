@@ -398,6 +398,7 @@ RemotePlaintext={name} é outro computador e, sem HTTPS, o nome de utilizador, a
 ErrStartPaTorrent=Não é possível iniciar o PaTorrent: {error}
 ForwardRefused=O PaTorrent já está em execução como administrador e o Windows não permite que esta cópia lhe passe o que adicionar. Adicione a partir do PaTorrent em execução ou inicie o PaTorrent sem direitos de administrador.
 FolderInUse=Outro PaTorrent já está a utilizar esta pasta, noutra sessão ou noutro computador que a partilha:\n\n{folder}\n\nFeche primeiro esse PaTorrent.
+PortableReadOnly=Este PaTorrent portátil não consegue escrever na sua pasta:\n\n{folder}\n{error}\n\nMova a pasta para um local onde possa escrever, ou remova o patorrent.ini junto ao programa para guardar as definições na sua pasta de utilizador.
 ProfileBadName="{name}" não pode ser um nome de perfil. Um nome de perfil tem de 1 a 32 carateres: letras a-z, algarismos e hífenes (-), e começa por uma letra.
 ProfileCreate=O perfil "{name}" ainda não existe. Criá-lo?\n\nComeça vazio, como uma instalação nova, em:\n{folder}
 EndSessionSaving=A guardar a lista de torrents e o progresso...

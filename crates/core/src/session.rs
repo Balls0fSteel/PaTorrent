@@ -112,6 +112,9 @@ pub struct SessionParams {
     /// the router (`PaTorrent (work)` for a profile, D42). `None`: `settings.user_agent`, as
     /// libtorrent does.
     pub label: Option<String>,
+    /// The portable folder this session runs in (D42): `resume.db` keeps the save paths inside
+    /// it relative to it, so the folder can move (`util::portable`).
+    pub portable_root: Option<std::path::PathBuf>,
 }
 
 /// Owns the engine thread. Dropping it shuts the engine down and waits for it, like
@@ -128,15 +131,17 @@ impl Session {
         let poll = mio::Poll::new()?;
         let waker = Arc::new(mio::Waker::new(poll.registry(), crate::engine::WAKER_TOKEN)?);
         let wake = waker.clone();
-        let (state_dir, label) = (params.state_dir, params.label);
+        let start = crate::engine::Start {
+            state_dir: params.state_dir,
+            label: params.label,
+            portable_root: params.portable_root,
+        };
         Ok(Session::spawn(
             params.settings,
             Box::new(move || {
                 let _ = wake.wake();
             }),
-            move |rx, shared, settings| {
-                crate::engine::run(poll, waker, rx, shared, settings, state_dir, label)
-            },
+            move |rx, shared, settings| crate::engine::run(poll, waker, rx, shared, settings, start),
         ))
     }
 

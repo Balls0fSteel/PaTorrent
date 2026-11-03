@@ -580,6 +580,9 @@ strings! {
     /// The folder's `patorrent.lock` is held: another user session, or another computer that
     /// opened the same folder over a share (D42).
     FolderInUse = "Another PaTorrent is already using this folder, in another session or on another computer that shares it:\n\n{folder}\n\nClose that PaTorrent first.";
+    /// Portable mode (a `patorrent.ini` beside the program) in a folder that cannot be written
+    /// (D42): PaTorrent does not fall back to the user's own folder.
+    PortableReadOnly = "This portable PaTorrent cannot write to its folder:\n\n{folder}\n{error}\n\nMove the folder where you can write, or remove patorrent.ini beside the program to keep the settings in your user folder.";
     /// `--profile` with a name that cannot be used (D42); `{name}` is what was given.
     ProfileBadName = "\"{name}\" cannot be a profile name. A profile name has 1 to 32 characters: letters a-z, digits and hyphens (-), starting with a letter.";
     /// Asked at the first start of a named profile, before its folder is made.

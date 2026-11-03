@@ -398,6 +398,7 @@ RemotePlaintext={name} حاسوب آخر، ومن دون HTTPS يمرّ اسم �
 ErrStartPaTorrent=تعذّر تشغيل PaTorrent: {error}
 ForwardRefused=PaTorrent يعمل بالفعل كمسؤول، ولا يسمح Windows لهذه النسخة بأن تمرّر إليه ما يجب إضافته. أضفه من PaTorrent الذي يعمل، أو شغّل PaTorrent دون صلاحيات المسؤول.
 FolderInUse=يستخدم PaTorrent آخر هذا المجلد بالفعل، في جلسة أخرى أو على كمبيوتر آخر يشاركه:\n\n{folder}\n\nأغلق PaTorrent ذلك أولاً.
+PortableReadOnly=لا يستطيع PaTorrent المحمول هذا الكتابة في مجلده:\n\n{folder}\n{error}\n\nانقل المجلد إلى مكان يمكنك الكتابة فيه، أو احذف patorrent.ini بجوار البرنامج للاحتفاظ بالإعدادات في مجلد المستخدم.
 ProfileBadName=لا يمكن أن يكون "{name}" اسم ملف تعريف. يتكون اسم ملف التعريف من 1 إلى 32 حرفًا: أحرف a-z وأرقام وشرطات (-)، ويبدأ بحرف.
 ProfileCreate=ملف التعريف "{name}" غير موجود بعد. هل تريد إنشاءه؟\n\nيبدأ فارغًا، مثل تثبيت جديد، في:\n{folder}
 EndSessionSaving=جارٍ حفظ قائمة التورنتات والتقدم...

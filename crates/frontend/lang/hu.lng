@@ -398,6 +398,7 @@ RemotePlaintext=A(z) {name} egy másik számítógép, és HTTPS nélkül a felh
 ErrStartPaTorrent=A PaTorrent nem indítható: {error}
 ForwardRefused=A PaTorrent már rendszergazdaként fut, és a Windows nem engedi, hogy ez a példány átadja neki, mit kell hozzáadni. Adja hozzá a futó PaTorrentben, vagy indítsa a PaTorrentet rendszergazdai jogok nélkül.
 FolderInUse=Egy másik PaTorrent már használja ezt a mappát, egy másik munkamenetben vagy egy másik, a mappát megosztó számítógépen:\n\n{folder}\n\nElőbb zárja be azt a PaTorrentet.
+PortableReadOnly=Ez a hordozható PaTorrent nem tud írni a mappájába:\n\n{folder}\n{error}\n\nHelyezze át a mappát írható helyre, vagy törölje a program melletti patorrent.ini fájlt, hogy a beállítások a felhasználói mappájába kerüljenek.
 ProfileBadName=A(z) "{name}" nem lehet profilnév. A profilnév 1–32 karakterből áll: a-z betűkből, számjegyekből és kötőjelekből (-), és betűvel kezdődik.
 ProfileCreate=A(z) "{name}" profil még nem létezik. Létrehozza?\n\nÜresen indul, mint egy új telepítés, itt:\n{folder}
 EndSessionSaving=A torrentlista és a haladás mentése...

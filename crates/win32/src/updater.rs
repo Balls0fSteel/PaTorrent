@@ -50,9 +50,14 @@ impl InstallMode {
 }
 
 /// Whether this executable is one the setup installed: the Uninstall key (one user's first,
-/// then all users') whose `InstallLocation` is its folder.
+/// then all users') whose `InstallLocation` is its folder. A portable copy made inside an
+/// install folder (`patorrent.ini` beside it, D42) is not: it is offered the release page, as
+/// the setup would refuse its folder.
 pub fn installed() -> Option<InstallMode> {
     let exe = exe_path();
+    if patorrent_frontend::profile::portable_root_in(exe.parent()?).is_some() {
+        return None;
+    }
     let dir = exe.parent()?.to_string_lossy().into_owned();
     let roots: [(HKEY, InstallMode); 2] =
         [(HKEY_CURRENT_USER, InstallMode::CurrentUser), (HKEY_LOCAL_MACHINE, InstallMode::AllUsers)];

@@ -39,6 +39,9 @@ pub struct Prefs {
     /// turned it on: for a copy kept elsewhere (the Web UI a GUI hosts mirrors its
     /// preferences, D40).
     journal: Option<Vec<Change>>,
+    /// The portable folder (D42): the path keys ([`crate::profile::is_path_key`]) inside it are
+    /// written relative to it and read back absolute, so in memory every path is absolute.
+    root: Option<PathBuf>,
 }
 
 /// One recorded change: the key and its new plain value, `None` once removed.
@@ -53,29 +56,53 @@ impl Clone for Prefs {
             values: self.values.clone(),
             sealed: self.sealed.clone(),
             journal: self.journal.as_ref().map(|_| Vec::new()),
+            root: self.root.clone(),
         }
     }
 }
 
 impl Prefs {
     /// Loads `path`; a missing or unreadable file gives empty preferences that save to `path`.
+    /// In portable mode its paths are relative to the portable folder ([`Prefs::in_root`]).
     pub fn load(path: impl Into<PathBuf>) -> Prefs {
+        Prefs::load_in(path, crate::profile::current().portable_root.as_deref())
+    }
+
+    /// [`Prefs::load`] with the paths inside `root` written relative to it (`None`: absolute).
+    pub fn load_in(path: impl Into<PathBuf>, root: Option<&Path>) -> Prefs {
         let path = path.into();
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        Prefs::from_raw(Some(path), parse(&text))
+        Prefs::from_raw(Some(path), parse(&text), root)
     }
 
     /// Preferences from `key=value` text, as [`Prefs::to_text`] writes it, with no file.
     pub fn from_text(text: &str) -> Prefs {
-        Prefs::from_raw(None, parse(text))
+        Prefs::from_raw(None, parse(text), None)
     }
 
-    fn from_raw(path: Option<PathBuf>, raw: BTreeMap<String, String>) -> Prefs {
-        let mut p = Prefs { path, ..Prefs::default() };
+    fn from_raw(path: Option<PathBuf>, raw: BTreeMap<String, String>, root: Option<&Path>) -> Prefs {
+        let mut p = Prefs { path, root: root.map(Path::to_path_buf), ..Prefs::default() };
         for (k, v) in raw {
+            let v = p.path_value(&k, &v, patorrent_core::util::portable::load);
             p.set(&k, v);
         }
         p
+    }
+
+    /// The portable folder its paths are written relative to, if any.
+    pub fn in_root(&self) -> Option<&Path> {
+        self.root.as_deref()
+    }
+
+    /// `value` of `key` through `convert` (each `|`-separated part of the recent folders) when
+    /// it is a path key and there is a portable folder; as it is otherwise.
+    fn path_value(&self, key: &str, value: &str, convert: fn(Option<&Path>, &str) -> String) -> String {
+        match &self.root {
+            Some(root) if crate::profile::is_path_key(key) => {
+                value.split('|').map(|part| convert(Some(root), part)).collect::<Vec<_>>().join("|")
+            }
+            _ => value.to_owned(),
+        }
     }
 
     pub fn path(&self) -> Option<&Path> {
@@ -95,6 +122,7 @@ impl Prefs {
     pub fn to_text(&self) -> String {
         let mut s = String::from("# PaTorrent preferences\n");
         for (k, v) in self.entries() {
+            let v = self.path_value(k, v, patorrent_core::util::portable::store);
             s.push_str(k);
             s.push('=');
             // Verbatim, so Windows paths stay readable and hand-editable. Line breaks cannot
@@ -285,6 +313,47 @@ mod tests {
         assert_eq!(hand.get("dir").map(String::as_str), Some(r"\\server\new\x"));
         assert!(q.get_bool("tray", false));
         assert_eq!(q.get_i32("w"), Some(640));
+    }
+
+    /// A portable folder (D42): its paths are written relative to it and read back absolute;
+    /// paths outside it and other keys stay as they are.
+    #[test]
+    fn paths_inside_a_portable_folder_are_written_relative() {
+        let dir = std::env::temp_dir().join(format!("pa-prefs-{}", std::process::id()));
+        let root = dir.join("Stick");
+        let path = root.join("patorrent.ini");
+        let inside = |rest: &str| root.join(rest).to_string_lossy().into_owned();
+        let outside = std::env::temp_dir().join("other").to_string_lossy().into_owned();
+        let mut p = Prefs::load_in(&path, Some(&root));
+        p.set("dir.download", inside("Downloads"));
+        p.set("dir.completed", &outside);
+        p.set("add.recent_dirs", format!("{}|{outside}", inside("TV")));
+        p.set("torrent.abc.awaiting", inside("Movies"));
+        p.set("list.sort", inside("not a path key"));
+        p.save().unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains("dir.download=./Downloads\n"), "{text}");
+        assert!(text.contains(&format!("dir.completed={outside}\n")), "{text}");
+        assert!(text.contains(&format!("add.recent_dirs=./TV|{outside}\n")), "{text}");
+        assert!(text.contains("torrent.abc.awaiting=./Movies\n"), "{text}");
+        assert!(text.contains(&format!("list.sort={}\n", inside("not a path key"))), "{text}");
+        // the folder moved: the paths follow it
+        let moved = dir.join("Moved");
+        std::fs::create_dir_all(&moved).unwrap();
+        std::fs::rename(&path, moved.join("patorrent.ini")).unwrap();
+        let q = Prefs::load_in(moved.join("patorrent.ini"), Some(&moved));
+        assert_eq!(q.get("dir.download"), Some(moved.join("Downloads").to_string_lossy().as_ref()));
+        assert_eq!(q.get("dir.completed"), Some(outside.as_str()));
+        assert_eq!(
+            q.get("add.recent_dirs").unwrap(),
+            format!("{}|{outside}", moved.join("TV").to_string_lossy())
+        );
+        // not portable: the relative text is kept as it is
+        assert_eq!(
+            Prefs::load_in(moved.join("patorrent.ini"), None).get("dir.download"),
+            Some("./Downloads")
+        );
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

@@ -179,6 +179,30 @@ impl ResumeData {
         self.to_entry().bencode()
     }
 
+    /// The save path and the files stored by absolute path, as written in the portable folder
+    /// `root` (D42): relative to it when inside it (`./Downloads`), as they are otherwise.
+    /// libtorrent's relative mapped files (inside the save path) are never touched.
+    pub(crate) fn store_paths(&mut self, root: &std::path::Path) {
+        use crate::util::portable;
+        self.save_path = portable::store(Some(root), &self.save_path);
+        for f in self.mapped_files.values_mut() {
+            if let Some(rel) = portable::relative_to(root, f) {
+                *f = rel;
+            }
+        }
+    }
+
+    /// [`ResumeData::store_paths`] undone against where the portable folder is now.
+    pub(crate) fn resolve_paths(&mut self, root: &std::path::Path) {
+        use crate::util::portable;
+        self.save_path = portable::load(Some(root), &self.save_path);
+        for f in self.mapped_files.values_mut() {
+            if let Some(abs) = portable::resolve(root, f) {
+                *f = abs.to_string_lossy().into_owned();
+            }
+        }
+    }
+
     pub fn decode(buf: &[u8]) -> Result<ResumeData, Error> {
         let doc = bdecode(buf).map_err(|e| Error::InvalidResumeData(e.kind.message().into()))?;
         let root = doc.root().ok_or_else(|| Error::InvalidResumeData("empty".into()))?;

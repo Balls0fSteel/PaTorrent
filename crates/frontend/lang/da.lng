@@ -398,6 +398,7 @@ RemotePlaintext={name} er en anden computer, og uden HTTPS sendes brugernavn, ad
 ErrStartPaTorrent=Kan ikke starte PaTorrent: {error}
 ForwardRefused=PaTorrent kører allerede som administrator, og Windows lader ikke denne kopi give den, hvad der skal tilføjes. Tilføj det fra den kørende PaTorrent, eller start PaTorrent uden administratorrettigheder.
 FolderInUse=En anden PaTorrent bruger allerede denne mappe, i en anden session eller på en anden computer, der deler den:\n\n{folder}\n\nLuk den PaTorrent først.
+PortableReadOnly=Denne bærbare PaTorrent kan ikke skrive til sin mappe:\n\n{folder}\n{error}\n\nFlyt mappen et sted hen, hvor du kan skrive, eller fjern patorrent.ini ved siden af programmet for at gemme indstillingerne i din brugermappe.
 ProfileBadName="{name}" kan ikke være et profilnavn. Et profilnavn har 1 til 32 tegn: bogstaverne a-z, cifre og bindestreger (-), og begynder med et bogstav.
 ProfileCreate=Profilen "{name}" findes ikke endnu. Vil du oprette den?\n\nDen starter tom, som en ny installation, i:\n{folder}
 EndSessionSaving=Gemmer torrentlisten og fremskridtet...

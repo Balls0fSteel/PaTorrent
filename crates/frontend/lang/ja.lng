@@ -398,6 +398,7 @@ RemotePlaintext={name} は別のコンピューターです。HTTPS を使わな
 ErrStartPaTorrent=PaTorrent を開始できません: {error}
 ForwardRefused=PaTorrent はすでに管理者として実行されており、Windows はこのコピーから追加する内容を渡すことを許可しません。実行中の PaTorrent から追加するか、管理者権限なしで PaTorrent を起動してください。
 FolderInUse=別の PaTorrent がこのフォルダーをすでに使用しています (別のセッション、またはこのフォルダーを共有している別のコンピューター):\n\n{folder}\n\n先にその PaTorrent を終了してください。
+PortableReadOnly=このポータブル版 PaTorrent は自分のフォルダーに書き込めません:\n\n{folder}\n{error}\n\n書き込みできる場所にフォルダーを移動するか、プログラムの横にある patorrent.ini を削除して設定をユーザー フォルダーに保存してください。
 ProfileBadName="{name}" はプロファイル名に使用できません。プロファイル名は 1～32 文字で、英小文字 a-z、数字、ハイフン (-) を使い、英字で始めます。
 ProfileCreate=プロファイル "{name}" はまだありません。作成しますか?\n\n新しくインストールしたときと同じく空の状態で、次の場所に作成されます:\n{folder}
 EndSessionSaving=トレントの一覧と進行状況を保存しています...

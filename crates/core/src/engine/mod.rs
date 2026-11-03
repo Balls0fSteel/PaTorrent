@@ -451,6 +451,15 @@ pub(crate) struct Engine {
     proxy: proxy::ProxyState,
     /// `SessionParams::label`.
     label: Option<String>,
+    /// `SessionParams::portable_root`.
+    portable_root: Option<PathBuf>,
+}
+
+/// What `SessionParams` gives the engine besides its settings.
+pub(crate) struct Start {
+    pub state_dir: Option<PathBuf>,
+    pub label: Option<String>,
+    pub portable_root: Option<PathBuf>,
 }
 
 /// The network thread's entry point.
@@ -460,12 +469,12 @@ pub(crate) fn run(
     rx: mpsc::Receiver<Command>,
     shared: Arc<Shared>,
     settings: Settings,
-    state_dir: Option<PathBuf>,
-    label: Option<String>,
+    start: Start,
 ) {
     let mut e = Engine::new(poll, waker, rx, shared, settings);
-    e.label = label;
-    e.start(state_dir);
+    e.label = start.label;
+    e.portable_root = start.portable_root;
+    e.start(start.state_dir);
     e.flush_alerts();
     let mut events = Events::with_capacity(1024);
     loop {
@@ -632,6 +641,7 @@ impl Engine {
             web: web_seed::WebConns::default(),
             proxy: proxy::ProxyState::default(),
             label: None,
+            portable_root: None,
             settings,
         }
     }
@@ -649,7 +659,7 @@ impl Engine {
         // after the DHT, whose UDP port the mappers forward too
         self.start_portmap();
         if let Some(dir) = state_dir {
-            match Store::open(&dir) {
+            match Store::open_in(&dir, self.portable_root.as_deref()) {
                 Ok((store, records, errors)) => {
                     for e in errors {
                         self.out

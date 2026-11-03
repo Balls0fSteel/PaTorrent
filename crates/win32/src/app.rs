@@ -566,14 +566,19 @@ fn language_choice() -> String {
 }
 
 /// `patorrent.lock` in `dir`, held until the process ends; `Err` after telling the user that
-/// another process has it, `None` when it cannot be made (a read-only folder fails later, and
-/// says so, where the settings are written).
+/// another process has it, or that a portable folder cannot be written (never a fall-back to
+/// `%APPDATA%`, which would split one user's data in two); `None` when it cannot be made
+/// otherwise (a read-only folder fails later, and says so, where the settings are written).
 fn lock_folder(dir: &Path) -> Result<Option<lockfile::Lock>, ()> {
-    let _ = patorrent_core::util::private_file::create_dir_all(dir);
-    match lockfile::Lock::take(&dir.join(lockfile::FILE_NAME)) {
+    let made = patorrent_core::util::private_file::create_dir_all(dir);
+    match made.and_then(|()| lockfile::Lock::take(&dir.join(lockfile::FILE_NAME))) {
         Ok(l) => Ok(Some(l)),
         Err(e) if lockfile::is_taken(&e) => {
             dialogs::error(null_mut(), &tr!(FolderInUse, folder = dir.display()));
+            Err(())
+        }
+        Err(e) if profile::current().portable_root.is_some() => {
+            dialogs::error(null_mut(), &tr!(PortableReadOnly, folder = dir.display(), error = e));
             Err(())
         }
         Err(_) => Ok(None),
@@ -632,9 +637,11 @@ pub fn run(args: Args) -> i32 {
     }
     let mut opts = Options::load(&prefs, &downloads_folder());
     controls::set_alternate_rows(opts.gui.alternate_rows);
-    // a new profile or portable folder: a port of its own, kept from now on (D42)
+    // a new profile or portable folder: a port of its own (and the portable folder's
+    // Downloads), kept from now on (D42)
     if local && profile::first_run_settings(&mut prefs, &mut opts.settings) {
         let _ = prefs.save();
+        opts = Options::load(&prefs, &downloads_folder());
     }
     if opts.gui.random_port && local {
         // µTorrent's "Randomize port each start" keeps the new port as the configured one
@@ -663,6 +670,7 @@ pub fn run(args: Args) -> i32 {
                 settings,
                 state_dir: Some(dir.join("state")),
                 label: patorrent_frontend::profile::current().engine_label(),
+                portable_root: patorrent_frontend::profile::current().portable_root.clone(),
             }) {
                 Ok(s) => s,
                 Err(e) => {

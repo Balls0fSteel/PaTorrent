@@ -398,6 +398,7 @@ RemotePlaintext={name} başka bir bilgisayar ve HTTPS olmadan kullanıcı adı, 
 ErrStartPaTorrent=PaTorrent başlatılamıyor: {error}
 ForwardRefused=PaTorrent zaten yönetici olarak çalışıyor ve Windows bu kopyanın ona eklenecek şeyi iletmesine izin vermiyor. Çalışan PaTorrent'ten ekleyin veya PaTorrent'i yönetici hakları olmadan başlatın.
 FolderInUse=Başka bir PaTorrent bu klasörü zaten kullanıyor, başka bir oturumda veya klasörü paylaşan başka bir bilgisayarda:\n\n{folder}\n\nÖnce o PaTorrent'i kapatın.
+PortableReadOnly=Bu taşınabilir PaTorrent kendi klasörüne yazamıyor:\n\n{folder}\n{error}\n\nKlasörü yazabileceğiniz bir yere taşıyın veya ayarların kullanıcı klasörünüzde tutulması için programın yanındaki patorrent.ini dosyasını kaldırın.
 ProfileBadName="{name}" bir profil adı olamaz. Profil adı 1 ile 32 karakter arasıdır: a-z harfleri, rakamlar ve kısa çizgiler (-), ve bir harfle başlar.
 ProfileCreate="{name}" profili henüz yok. Oluşturulsun mu?\n\nYeni bir kurulum gibi boş başlar, şurada:\n{folder}
 EndSessionSaving=Torrent listesi ve ilerleme kaydediliyor...

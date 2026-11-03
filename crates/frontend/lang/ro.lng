@@ -398,6 +398,7 @@ RemotePlaintext={name} este alt calculator, iar fără HTTPS numele de utilizato
 ErrStartPaTorrent=PaTorrent nu poate porni: {error}
 ForwardRefused=PaTorrent rulează deja ca administrator, iar Windows nu permite acestei copii să-i transmită ce trebuie adăugat. Adăugați din PaTorrent care rulează sau porniți PaTorrent fără drepturi de administrator.
 FolderInUse=Un alt PaTorrent folosește deja acest dosar, într-o altă sesiune sau pe alt computer care îl partajează:\n\n{folder}\n\nÎnchideți mai întâi acel PaTorrent.
+PortableReadOnly=Acest PaTorrent portabil nu poate scrie în dosarul său:\n\n{folder}\n{error}\n\nMutați dosarul unde puteți scrie sau eliminați patorrent.ini de lângă program pentru a păstra setările în dosarul dvs. de utilizator.
 ProfileBadName="{name}" nu poate fi numele unui profil. Numele unui profil are între 1 și 32 de caractere: litere a-z, cifre și cratime (-), și începe cu o literă.
 ProfileCreate=Profilul "{name}" nu există încă. Îl creați?\n\nPornește gol, ca o instalare nouă, în:\n{folder}
 EndSessionSaving=Se salvează lista de torrente și progresul...

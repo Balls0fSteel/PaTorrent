@@ -19,6 +19,7 @@ use std::collections::VecDeque;
 use std::path::Path;
 
 use patorrent_core::bencode::{Entry, bdecode_with_limits};
+use patorrent_core::util::portable;
 
 use super::{
     HistoryEntry, MAX_EPISODES, MAX_FEED_HISTORY, MAX_HISTORY, Quality, RecentSet, RssDownloader, RssFeed,
@@ -48,6 +49,12 @@ fn flag(b: bool) -> Entry {
 impl RssDownloader {
     /// The bencoded `rss.dat`.
     pub fn to_bencode(&self) -> Vec<u8> {
+        self.to_bencode_in(None)
+    }
+
+    /// [`RssDownloader::to_bencode`] with the filters' save folders inside the portable folder
+    /// `root` written relative to it (D42).
+    pub fn to_bencode_in(&self, root: Option<&Path>) -> Vec<u8> {
         let s = &self.settings;
         let feeds = self
             .feeds
@@ -82,7 +89,7 @@ impl RssDownloader {
                     ("enabled", flag(f.enabled)),
                     ("pattern", f.pattern.as_str().into()),
                     ("not", f.not.as_str().into()),
-                    ("save_in", f.save_in.as_str().into()),
+                    ("save_in", portable::store(root, &f.save_in).as_str().into()),
                     ("feed", Entry::Int(f.feed.unwrap_or(0).into())),
                     ("quality", Entry::Int(f.quality.0.into())),
                     ("episodes", f.episodes.as_str().into()),
@@ -234,7 +241,14 @@ impl RssDownloader {
 
     /// Loads `path`; a missing or unreadable file gives an empty downloader.
     pub fn load(path: &Path) -> RssDownloader {
-        std::fs::read(path).ok().and_then(|b| RssDownloader::from_bencode(&b)).unwrap_or_default()
+        let mut d =
+            std::fs::read(path).ok().and_then(|b| RssDownloader::from_bencode(&b)).unwrap_or_default();
+        // the save folders inside a portable folder were written relative to it (D42)
+        let root = crate::profile::current().portable_root.as_deref();
+        for f in &mut d.filters {
+            f.save_in = portable::load(root, &f.save_in);
+        }
+        d
     }
 
     /// Writes `path` through a temporary file, so a crash never leaves half of it; owner-only
@@ -244,6 +258,25 @@ impl RssDownloader {
         if let Some(dir) = path.parent() {
             private_file::create_dir_all(dir)?;
         }
-        private_file::write(path, &self.to_bencode())
+        private_file::write(path, &self.to_bencode_in(crate::profile::current().portable_root.as_deref()))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A portable folder (D42): a filter's save folder inside it is written relative to it.
+    #[test]
+    fn save_folders_inside_a_portable_folder_are_written_relative() {
+        let root = std::env::temp_dir().join("Stick");
+        let mut d = RssDownloader::default();
+        let inside = root.join("TV").to_string_lossy().into_owned();
+        d.filters.push(RssFilter { id: 1, save_in: inside.clone(), ..RssFilter::default() });
+        let text = String::from_utf8_lossy(&d.to_bencode_in(Some(&root))).into_owned();
+        assert!(text.contains("7:save_in4:./TV"), "{text}");
+        assert!(!String::from_utf8_lossy(&d.to_bencode()).contains("./TV"));
+        let back = RssDownloader::from_bencode(&d.to_bencode_in(Some(&root))).unwrap();
+        assert_eq!(portable::load(Some(&root), &back.filters[0].save_in), inside);
     }
 }

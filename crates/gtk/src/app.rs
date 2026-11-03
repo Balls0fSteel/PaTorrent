@@ -735,13 +735,17 @@ fn lock_library(dir: &std::path::Path) -> Result<(), String> {
     thread_local! {
         static LOCK: RefCell<Option<lockfile::Lock>> = const { RefCell::new(None) };
     }
-    let _ = patorrent_core::util::private_file::create_dir_all(dir);
-    match lockfile::Lock::take(&dir.join(lockfile::FILE_NAME)) {
+    let made = patorrent_core::util::private_file::create_dir_all(dir);
+    match made.and_then(|()| lockfile::Lock::take(&dir.join(lockfile::FILE_NAME))) {
         Ok(l) => {
             LOCK.with(|k| *k.borrow_mut() = Some(l));
             Ok(())
         }
         Err(e) if lockfile::is_taken(&e) => Err(tr!(FolderInUse, folder = dir.display())),
+        // a portable folder never falls back to the user's own (D42)
+        Err(e) if profile::current().portable_root.is_some() => {
+            Err(tr!(PortableReadOnly, folder = dir.display(), error = e))
+        }
         Err(_) => Ok(()),
     }
 }
@@ -783,6 +787,8 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         if let Err(e) = prefs.save() {
             eprintln!("cannot save {}: {e}", config.display());
         }
+        // a portable folder's Downloads too
+        opts = Options::load(&prefs, &downloads);
     }
     // the server keeps its own port
     if opts.gui.random_port && remote.is_none() {
@@ -815,6 +821,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
                 settings: opts.settings.clone(),
                 state_dir: Some(data),
                 label: patorrent_frontend::profile::current().engine_label(),
+                portable_root: patorrent_frontend::profile::current().portable_root.clone(),
             })
             .map_err(|e| (tr!(CannotStartEngine).to_owned(), e.to_string())),
             Err(in_use) => Err((in_use, String::new())),

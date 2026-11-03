@@ -129,14 +129,25 @@ pub(crate) struct Store {
     db_len: u64,
     pack: Option<File>,
     pack_len: u64,
+    /// The portable folder (D42): records keep the paths inside it relative to it
+    /// (`crate::util::portable`), resolved again at load.
+    root: Option<PathBuf>,
 }
 
 impl Store {
     /// Opens (or creates) the store in `dir` and returns every saved torrent, in no particular
     /// order. Unreadable records are skipped and reported in the second list.
+    #[cfg(test)]
     pub fn open(dir: &Path) -> Result<(Store, Vec<ResumeData>, Vec<String>), Error> {
+        Store::open_in(dir, None)
+    }
+
+    /// [`Store::open`] for a session in the portable folder `root`, if any: the saved paths inside
+    /// it are resolved against where it is now.
+    pub fn open_in(dir: &Path, root: Option<&Path>) -> Result<(Store, Vec<ResumeData>, Vec<String>), Error> {
         crate::util::private_file::create_dir_all(dir)?;
         let mut store = Store {
+            root: root.map(Path::to_path_buf),
             dir: dir.to_owned(),
             saved: HashMap::new(),
             layers: HashMap::new(),
@@ -158,10 +169,13 @@ impl Store {
                     None => Err("empty record".to_owned()),
                 });
             match decoded {
-                Ok(r) => {
+                Ok(mut r) => {
                     store
                         .saved
                         .insert(StoreKey::new(key), Saved { hash: record_hash(bytes), info: PackLoc::NONE });
+                    if let Some(root) = &store.root {
+                        r.resolve_paths(root);
+                    }
                     torrents.push(r);
                 }
                 Err(e) => errors.push(format!("{key}: {e}")),
@@ -378,6 +392,11 @@ impl Store {
     pub fn put(&mut self, key: &str, record: &ResumeData, info: Option<&[u8]>) -> Result<(), Error> {
         let mut rec = record.clone();
         rec.info = None;
+        // an absolute path inside the portable folder is written relative to it, so the record
+        // differs from the last one written (and is written again) only when the path did
+        if let Some(root) = &self.root {
+            rec.store_paths(root);
+        }
         let bytes = rec.encode();
         let hash = record_hash(&bytes);
         let saved =
@@ -575,6 +594,45 @@ mod tests {
         // resume.db: not ours, and not bencode
         assert!(parse_db(b"d11:file-format3:fooe", &mut BTreeMap::new()).is_err());
         assert!(parse_db(b"d8:torrents", &mut BTreeMap::new()).is_err());
+    }
+
+    /// A portable folder (D42): save paths and absolute mapped files inside it are written
+    /// relative to it and resolved against where it is at the next start; paths outside it and
+    /// libtorrent's relative mapped files are written as they are.
+    #[test]
+    fn paths_inside_a_portable_folder_move_with_it() {
+        let dir = crate::disk::tests::temp_dir("store-portable");
+        let (old, new) = (dir.join("old"), dir.join("new"));
+        let inside = |root: &Path, rest: &str| {
+            rest.split('/').fold(root.to_path_buf(), |p, c| p.join(c)).to_string_lossy().into_owned()
+        };
+        let elsewhere = std::env::temp_dir().join("elsewhere").to_string_lossy().into_owned();
+        {
+            let (mut s, _, _) = Store::open_in(&dir.join("state"), Some(&old)).unwrap();
+            let mut r = rec(1);
+            r.save_path = inside(&old, "Downloads");
+            r.mapped_files = [(0, inside(&old, "Elsewhere/a.bin")), (1, "sub/b.bin".to_owned())].into();
+            s.put("k1", &r, None).unwrap();
+            let mut far = rec(2);
+            far.save_path = elsewhere.clone();
+            s.put("k2", &far, None).unwrap();
+            s.flush().unwrap();
+        }
+        let db = std::fs::read(dir.join("state").join(RESUME_LOG)).unwrap();
+        let text = String::from_utf8_lossy(&db);
+        assert!(text.contains("9:save_path11:./Downloads"), "{text}");
+        assert!(text.contains("./Elsewhere/a.bin") && text.contains("sub/b.bin"), "{text}");
+        let (_, list, errors) = Store::open_in(&dir.join("state"), Some(&new)).unwrap();
+        assert!(errors.is_empty());
+        let r = list.iter().find(|r| r.name == "t1").unwrap();
+        assert_eq!(r.save_path, inside(&new, "Downloads"));
+        assert_eq!(r.mapped_files[&0], inside(&new, "Elsewhere/a.bin"));
+        assert_eq!(r.mapped_files[&1], "sub/b.bin");
+        assert_eq!(list.iter().find(|r| r.name == "t2").unwrap().save_path, elsewhere);
+        // without a portable folder the relative text stays as it was written
+        let (_, list, _) = Store::open(&dir.join("state")).unwrap();
+        assert_eq!(list.iter().find(|r| r.name == "t1").unwrap().save_path, "./Downloads");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     /// Saves append the changed records to the journal only; it is replayed over `resume.db`

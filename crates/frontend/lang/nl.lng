@@ -398,6 +398,7 @@ RemotePlaintext={name} is een andere computer, en zonder HTTPS gaan gebruikersna
 ErrStartPaTorrent=Kan PaTorrent niet starten: {error}
 ForwardRefused=PaTorrent draait al als beheerder, en Windows laat deze kopie niet doorgeven wat er moet worden toegevoegd. Voeg het toe in de draaiende PaTorrent, of start PaTorrent zonder beheerdersrechten.
 FolderInUse=Een andere PaTorrent gebruikt deze map al, in een andere sessie of op een andere computer die de map deelt:\n\n{folder}\n\nSluit die PaTorrent eerst.
+PortableReadOnly=Deze draagbare PaTorrent kan niet naar zijn map schrijven:\n\n{folder}\n{error}\n\nVerplaats de map naar een plek waar u kunt schrijven, of verwijder patorrent.ini naast het programma om de instellingen in uw gebruikersmap te bewaren.
 ProfileBadName="{name}" kan geen profielnaam zijn. Een profielnaam heeft 1 tot 32 tekens: letters a-z, cijfers en koppeltekens (-), en begint met een letter.
 ProfileCreate=Het profiel "{name}" bestaat nog niet. Aanmaken?\n\nHet begint leeg, zoals een nieuwe installatie, in:\n{folder}
 EndSessionSaving=Torrentlijst en voortgang worden opgeslagen...

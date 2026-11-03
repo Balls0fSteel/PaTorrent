@@ -44,6 +44,25 @@
     <!-- Newest first. site/build.py makes news.atom and the home page's latest-news line from
          these articles: keep the id, data-date, news-title and news-lede (docs/WEBSITE.md). -->
 
+    <article class="news-entry" id="v1.1.35" data-date="2026-11-03" aria-labelledby="v1.1.35-h">
+      <h2 id="v1.1.35-h"><a href="#v1.1.35"><time datetime="2026-11-03">Tue 3 Nov 2026</time> — <span class="news-title">PaTorrent 1.1.35</span></a></h2>
+      <p class="news-lede">PaTorrent can keep your ping low while it downloads, and the Windows GUI now updates itself. Both GUIs show what they are doing while they close, and the engine carries the applicable fixes from libtorrent 2.0.12 to 2.1.2.</p>
+      <ul class="changes">
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>Keep ping low (Preferences &gt; Bandwidth, off by default) slows uploads and downloads down as soon as your line starts to queue. On a test line the ping fell from about 480 ms to 10 ms at 80-92% of the line's speed.</span></li>
+        <li><span class="tag tag-area">Updates</span><span class="vh">:</span> <span>An installed Windows copy downloads the new setup, checks it, installs it and starts again. The update box appears once per version; after that a notice stays in the status bar.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>A window shows what PaTorrent is doing while it closes: moves, saving, trackers. Quit Now cancels the moves and leaves every torrent in its old folder.</span></li>
+        <li><span class="tag tag-plat">Windows</span><span class="vh">:</span> <span>Signing out or shutting down waits while PaTorrent saves its torrents and progress. Starting it again while it closes no longer gives up after 5 seconds.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>The Files tab has µTorrent 2.2.1's menu: Open, Open Containing Folder, Prioritize by File Order, Priority, Don't Download and Relocate. A double click opens a file.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>"Append the torrent's label" moves a finished labelled torrent into a folder named after its label.</span></li>
+        <li><span class="tag tag-fix">Fix</span><span class="vh">:</span> <span>Fixes from libtorrent 2.0.12 to 2.1.2: v2 requests and piece layers, hybrid reannounces, renames that never overwrite, smaller resume data, web seed file names, the IP filter on the DHT.</span></li>
+        <li><span class="tag tag-fix">Fix</span><span class="vh">:</span> <span>Transfer totals no longer count part of the traffic twice under a rate limit.</span></li>
+        <li><span class="tag tag-area">RSS</span><span class="vh">:</span> <span>Feeds are fetched with conditional requests and gzip, so an unchanged feed costs almost nothing.</span></li>
+        <li><span class="tag tag-sec">Security</span><span class="vh">:</span> <span>The release review fixed 15 low-severity findings, each with a test.</span></li>
+      </ul>
+      <p class="news-note">Settings and torrents from 1.1.x carry over unchanged. A GUI and the <code>patorrent-nox</code> it drives remotely must both be 1.1.35. An installed 1.1.17 still needs this setup run by hand once.</p>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.1.35">Download 1.1.35 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.1.35.md">Full release notes</a></p>
+    </article>
+
     <article class="news-entry" id="v1.1.17" data-date="2026-10-30" aria-labelledby="v1.1.17-h">
       <h2 id="v1.1.17-h"><a href="#v1.1.17"><time datetime="2026-10-30">Fri 30 Oct 2026</time> — <span class="news-title">PaTorrent 1.1.17</span></a></h2>
       <p class="news-lede">Torrent search through your own Prowlarr or Jackett, in both GUIs and the Web UI. The Windows GUI's Web UI gains the RSS Downloader, and <code>patorrent-nox</code> now checks for updates too.</p>

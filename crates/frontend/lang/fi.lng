@@ -264,6 +264,7 @@ AssocMagnet=Windows avaa magnet:-linkit yhä ohjelmalla {program}.
 AssocBoth=Windows avaa .torrent-tiedostot ja magnet:-linkit yhä ohjelmalla {program}.
 AssocEach=Windows avaa .torrent-tiedostot yhä ohjelmalla {torrent} ja magnet:-linkit ohjelmalla {magnet}.
 AssocChoose={note} Valitse PaTorrent kohdassa Oletussovellukset.
+AssocOtherProfile=PaTorrent-profiili "{profile}" avaa ne nyt; ruudun valitseminen saa tämän profiilin avaamaan ne.
 AssocTorrentType=Torrent-tiedosto
 AssocMagnetType=Magnet-linkki
 AppDescription=BitTorrent-ohjelma

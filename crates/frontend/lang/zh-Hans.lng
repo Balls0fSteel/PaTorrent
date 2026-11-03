@@ -264,6 +264,7 @@ AssocMagnet=Windows 仍用 {program} 打开 magnet: 链接。
 AssocBoth=Windows 仍用 {program} 打开 .torrent 文件和 magnet: 链接。
 AssocEach=Windows 仍用 {torrent} 打开 .torrent 文件，用 {magnet} 打开 magnet: 链接。
 AssocChoose={note}请在“默认应用”中选择 PaTorrent。
+AssocOtherProfile=现在由 PaTorrent 配置文件“{profile}”打开它们；勾选一个复选框可改为由此配置文件打开。
 AssocTorrentType=种子文件
 AssocMagnetType=磁力链接
 AppDescription=BitTorrent 客户端

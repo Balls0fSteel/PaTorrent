@@ -264,6 +264,7 @@ AssocMagnet=Windows stále otvára odkazy magnet: programom {program}.
 AssocBoth=Windows stále otvára súbory .torrent a odkazy magnet: programom {program}.
 AssocEach=Windows stále otvára súbory .torrent programom {torrent} a odkazy magnet: programom {magnet}.
 AssocChoose={note} Vyberte PaTorrent v Predvolených aplikáciách.
+AssocOtherProfile=Teraz ich otvára profil PaTorrentu "{profile}"; začiarknutím políčka ich bude otvárať tento profil.
 AssocTorrentType=Súbor torrent
 AssocMagnetType=Odkaz magnet
 AppDescription=Klient BitTorrent

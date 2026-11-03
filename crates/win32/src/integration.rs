@@ -8,11 +8,16 @@
 //!
 //! What is written, under `Software\Classes`:
 //! - the ProgIDs `PaTorrent.torrent` and `PaTorrent.magnet` (`shell\open\command` is
-//!   `"<exe>" --shell "%1"`, which a second instance forwards to the running one);
+//!   `"<exe>" --shell "%1"`, which a second instance forwards to the running one; a named
+//!   profile's is `"<exe>" --profile <name> --shell "%1"`, D42);
 //! - `.torrent` naming `PaTorrent.torrent` (plus `OpenWithProgids` and the MIME type);
 //! - the `magnet` URL scheme itself (`URL Protocol`), as µTorrent and qBittorrent do;
 //! - `Software\PaTorrent\Capabilities` listed in `Software\RegisteredApplications`, so PaTorrent
 //!   appears in Settings > Default apps.
+//!
+//! Profiles (D42): only one program, so one profile, opens `.torrent` files and `magnet:` links;
+//! ticking the box in a profile takes them over from another, and the page names the profile
+//! that has them. Autostart is a `Run` value per profile (`PaTorrent`, `PaTorrent (work)`).
 //!
 //! Since Windows 8 a choice the user made in Windows itself ("Always use this app", Default
 //! apps) is kept in a hash-protected `UserChoice` key that programs cannot write; it wins over
@@ -26,9 +31,9 @@ use std::ptr::{null, null_mut};
 use patorrent_frontend::tr;
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, WIN32_ERROR};
 use windows_sys::Win32::System::Registry::{
-    HKEY, HKEY_CURRENT_USER, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_EXPAND_SZ, RRF_RT_REG_SZ,
-    RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteTreeW, RegDeleteValueW, RegGetValueW,
-    RegOpenKeyExW, RegSetValueExW,
+    HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_EXPAND_SZ,
+    RRF_RT_REG_SZ, RegCloseKey, RegCreateKeyExW, RegDeleteKeyW, RegDeleteTreeW, RegDeleteValueW,
+    RegEnumValueW, RegGetValueW, RegOpenKeyExW, RegSetValueExW,
 };
 use windows_sys::Win32::UI::Shell::{SHCNE_ASSOCCHANGED, SHCNF_IDLIST, SHChangeNotify, ShellExecuteW};
 use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
@@ -54,13 +59,16 @@ const REGISTERED: &str = r"Software\RegisteredApplications";
 /// The registry as found.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Status {
-    /// What is registered for this executable.
+    /// What is registered for this executable and profile.
     pub set: Integration,
     /// The ProgID of another program that Windows' own per-user choice opens `.torrent` files
     /// with although PaTorrent is registered.
     pub torrent_choice: Option<String>,
     /// The same for `magnet:` links.
     pub magnet_choice: Option<String>,
+    /// Another profile of this executable that opens `.torrent` files or `magnet:` links
+    /// (`default` for the default profile; D42: one profile at a time owns them).
+    pub other_profile: Option<String>,
 }
 
 impl Status {
@@ -83,6 +91,11 @@ impl Status {
             (Some(t), Some(m)) if t == m => tr!(AssocBoth, program = t),
             (Some(t), Some(m)) => tr!(AssocEach, torrent = t, magnet = m),
         }
+    }
+
+    /// One line for the General page when another profile owns the associations.
+    pub fn profile_note(&self) -> String {
+        self.other_profile.as_ref().map_or(String::new(), |profile| tr!(AssocOtherProfile, profile))
     }
 }
 
@@ -129,18 +142,27 @@ fn exe_text(exe: &Path) -> String {
 /// switches or files (SEC-18).
 pub const SHELL: &str = "--shell";
 
-/// The command that opens a `.torrent` file or a link with `exe`.
-pub fn open_command(exe: &Path) -> String {
-    format!("\"{}\" {SHELL} \"%1\"", exe_text(exe))
+/// `"<exe>"` and, for a named profile, `--profile <name>` (D42).
+fn start(exe: &Path, profile: Option<&str>) -> String {
+    match profile {
+        Some(p) => format!("\"{}\" {} {p}", exe_text(exe), patorrent_frontend::profile::SWITCH),
+        None => format!("\"{}\"", exe_text(exe)),
+    }
 }
 
-/// Rewrites our open commands that run `exe` but predate [`SHELL`] (`"<exe>" "%1"`). Nothing
-/// else changes: what is not registered stays so.
-pub fn upgrade(keys: &Keys, exe: &Path) -> io::Result<()> {
-    let open = open_command(exe);
+/// The command that opens a `.torrent` file or a link with `exe` in `profile`; the profile comes
+/// before [`SHELL`], after which nothing is read.
+pub fn open_command(exe: &Path, profile: Option<&str>) -> String {
+    format!("{} {SHELL} \"%1\"", start(exe, profile))
+}
+
+/// Rewrites `profile`'s open commands that run `exe` but predate [`SHELL`] (`"<exe>" "%1"`).
+/// Nothing else changes: what is not registered stays so, another profile's command too.
+pub fn upgrade(keys: &Keys, exe: &Path, profile: Option<&str>) -> io::Result<()> {
+    let open = open_command(exe, profile);
     for progid in [PROGID_TORRENT, PROGID_MAGNET, "magnet"] {
         let key = keys.class(&format!(r"{progid}\shell\open\command"));
-        if get(&key, None).is_some_and(|c| runs(&c, exe) && c != open) {
+        if get(&key, None).is_some_and(|c| runs(&c, exe, profile) && c != open) {
             set(&key, None, &open)?;
         }
     }
@@ -148,8 +170,8 @@ pub fn upgrade(keys: &Keys, exe: &Path) -> io::Result<()> {
 }
 
 /// The autostart entry's command.
-pub fn run_command(exe: &Path, minimized: bool) -> String {
-    let mut s = format!("\"{}\"", exe_text(exe));
+pub fn run_command(exe: &Path, profile: Option<&str>, minimized: bool) -> String {
+    let mut s = start(exe, profile);
     if minimized {
         s.push(' ');
         s.push_str(MINIMIZED);
@@ -157,9 +179,41 @@ pub fn run_command(exe: &Path, minimized: bool) -> String {
     s
 }
 
-/// Whether a command line starts `exe` (quoted, compared without regard to case).
-fn runs(command: &str, exe: &Path) -> bool {
+/// The `Run` value of `profile`: `PaTorrent`, `PaTorrent (work)`, so profiles start apart.
+pub fn run_value(profile: Option<&str>) -> String {
+    match profile {
+        Some(p) => format!("{APP} ({p})"),
+        None => APP.to_owned(),
+    }
+}
+
+/// Whether a command line starts `exe` (quoted, compared without regard to case), in any profile.
+fn runs_exe(command: &str, exe: &Path) -> bool {
     command.to_lowercase().contains(&format!("\"{}\"", exe_text(exe).to_lowercase()))
+}
+
+/// The profile a command of ours names before [`SHELL`]: `None` for the default one.
+fn command_profile(command: &str) -> Option<String> {
+    let mut it = command.split_whitespace();
+    while let Some(t) = it.next() {
+        let name = if t.eq_ignore_ascii_case(patorrent_frontend::profile::SWITCH) {
+            it.next()
+        } else if let Some(v) = t.strip_prefix("--profile=") {
+            Some(v)
+        } else if t == SHELL {
+            break;
+        } else {
+            continue;
+        };
+        let name = name?.trim_matches('"').to_ascii_lowercase();
+        return (name != patorrent_frontend::profile::DEFAULT_NAME).then_some(name);
+    }
+    None
+}
+
+/// Whether a command line starts `exe` in `profile`.
+fn runs(command: &str, exe: &Path, profile: Option<&str>) -> bool {
+    runs_exe(command, exe) && command_profile(command).as_deref() == profile
 }
 
 /// A ProgID Windows' choice may name that is PaTorrent too: ours, or the "Open with > Choose
@@ -170,14 +224,23 @@ fn is_ours(progid: &str, ours: &str, exe: &Path) -> bool {
         || (!name.is_empty() && progid.to_lowercase().ends_with(&format!("\\{name}")))
 }
 
-/// Reads what is registered for `exe`.
-pub fn read(keys: &Keys, exe: &Path) -> Status {
+/// Reads what is registered for `exe` in `profile`.
+pub fn read(keys: &Keys, exe: &Path, profile: Option<&str>) -> Status {
     let command = |progid: &str| get(&keys.class(&format!(r"{progid}\shell\open\command")), None);
-    let ours = |progid: &str| command(progid).is_some_and(|c| runs(&c, exe));
-    let torrent = get(&keys.class(".torrent"), None).is_some_and(|p| p.eq_ignore_ascii_case(PROGID_TORRENT))
-        && ours(PROGID_TORRENT);
+    let ours = |progid: &str| command(progid).is_some_and(|c| runs(&c, exe, profile));
+    let torrent_ext =
+        get(&keys.class(".torrent"), None).is_some_and(|p| p.eq_ignore_ascii_case(PROGID_TORRENT));
+    let torrent = torrent_ext && ours(PROGID_TORRENT);
     let magnet = ours("magnet");
-    let run = get(&keys.path(RUN), Some(APP)).filter(|c| runs(c, exe));
+    // this executable in another profile
+    let other = |progid: &str| {
+        command(progid).filter(|c| runs_exe(c, exe) && !runs(c, exe, profile)).map(|c| {
+            command_profile(&c).unwrap_or_else(|| patorrent_frontend::profile::DEFAULT_NAME.to_owned())
+        })
+    };
+    let other_profile =
+        if torrent_ext && !torrent { other(PROGID_TORRENT) } else { None }.or_else(|| other("magnet"));
+    let run = get(&keys.path(RUN), Some(&run_value(profile))).filter(|c| runs(c, exe, profile));
     let set = Integration {
         torrent,
         magnet,
@@ -196,17 +259,25 @@ pub fn read(keys: &Keys, exe: &Path) -> Status {
         } else {
             None
         },
+        other_profile,
     }
 }
 
-/// Changes the registration from `old` (as [`read`] found it) to `want`, then reads it back.
-/// Only what differs is written; turning an association off removes only what names PaTorrent.
-pub fn write(keys: &Keys, exe: &Path, old: &Integration, want: &Integration) -> io::Result<Status> {
+/// Changes `profile`'s registration from `old` (as [`read`] found it) to `want`, then reads it
+/// back. Only what differs is written; turning an association off removes only what names
+/// PaTorrent in this profile. Turning one on takes it over from another profile.
+pub fn write(
+    keys: &Keys,
+    exe: &Path,
+    profile: Option<&str>,
+    old: &Integration,
+    want: &Integration,
+) -> io::Result<Status> {
     let want = want.normalized();
     let old = old.normalized();
     let exe_s = exe_text(exe);
     let icon = format!("\"{exe_s}\",0");
-    let open = open_command(exe);
+    let open = open_command(exe, profile);
     let mut assoc_changed = false;
 
     if want.torrent != old.torrent {
@@ -241,7 +312,7 @@ pub fn write(keys: &Keys, exe: &Path, old: &Integration, want: &Integration) -> 
                 set(&format!(r"{key}\shell\open\command"), None, &open)?;
             }
         } else {
-            if get(&format!(r"{scheme}\shell\open\command"), None).is_some_and(|c| runs(&c, exe)) {
+            if get(&format!(r"{scheme}\shell\open\command"), None).is_some_and(|c| runs(&c, exe, profile)) {
                 delete_tree(&scheme)?;
             }
             delete_tree(&progid)?;
@@ -278,44 +349,59 @@ pub fn write(keys: &Keys, exe: &Path, old: &Integration, want: &Integration) -> 
     }
 
     if want.autostart != old.autostart || want.minimized != old.minimized {
-        let run = keys.path(RUN);
+        let (run, value) = (keys.path(RUN), run_value(profile));
         if want.autostart {
-            set(&run, Some(APP), &run_command(exe, want.minimized))?;
-        } else if get(&run, Some(APP)).is_some_and(|c| runs(&c, exe)) {
+            set(&run, Some(&value), &run_command(exe, profile, want.minimized))?;
+        } else if get(&run, Some(&value)).is_some_and(|c| runs(&c, exe, profile)) {
             // another copy's entry stays
-            delete_value(&run, Some(APP))?;
+            delete_value(&run, Some(&value))?;
         }
     }
 
     if assoc_changed && keys.is_real() {
         unsafe { SHChangeNotify(SHCNE_ASSOCCHANGED as i32, SHCNF_IDLIST, null(), null()) };
     }
-    Ok(read(keys, exe))
+    Ok(read(keys, exe, profile))
 }
 
-/// The installer's `--associate`: makes `exe` the program for `.torrent` files and/or `magnet:`
-/// links, as Preferences > General does; what is not asked for stays as it is.
+/// The installer's `--associate`: makes `exe`'s default profile the program for `.torrent`
+/// files and/or `magnet:` links, as Preferences > General does; what is not asked for stays as
+/// it is.
 pub fn associate(keys: &Keys, exe: &Path, torrent: bool, magnet: bool) -> io::Result<Status> {
-    let old = read(keys, exe).set;
+    let old = read(keys, exe, None).set;
     let want = Integration { torrent: old.torrent || torrent, magnet: old.magnet || magnet, ..old };
-    write(keys, exe, &old, &want)
+    write(keys, exe, None, &old, &want)
 }
 
-/// The uninstaller's `--unregister`: removes the associations, the Default apps entry and the
-/// autostart entry where they name `exe`. Unlike [`read`], a ProgID of ours counts although
-/// `.torrent` or the scheme now names another program, so nothing is left behind that starts
-/// the deleted executable; another copy's registration stays.
+/// The uninstaller's `--unregister`: removes the associations, the Default apps entry and every
+/// profile's autostart entry where they name `exe`. Unlike [`read`], a ProgID of ours counts
+/// although `.torrent` or the scheme now names another program, and whatever profile it names,
+/// so nothing is left behind that starts the deleted executable; another copy's registration
+/// stays.
 pub fn unregister(keys: &Keys, exe: &Path) -> io::Result<Status> {
-    let ours = |key: &str| {
-        get(&keys.class(&format!(r"{key}\shell\open\command")), None).is_some_and(|c| runs(&c, exe))
+    // each association is removed as the profile that holds it
+    let holder = |key: &str| {
+        get(&keys.class(&format!(r"{key}\shell\open\command")), None)
+            .filter(|c| runs_exe(c, exe))
+            .map(|c| command_profile(&c))
     };
-    let old = Integration {
-        torrent: ours(PROGID_TORRENT),
-        magnet: ours(PROGID_MAGNET) || ours("magnet"),
-        autostart: get(&keys.path(RUN), Some(APP)).is_some_and(|c| runs(&c, exe)),
-        minimized: false,
-    };
-    write(keys, exe, &old, &Integration::default())
+    let off = Integration::default();
+    if let Some(p) = holder(PROGID_TORRENT) {
+        write(keys, exe, p.as_deref(), &Integration { torrent: true, ..off }, &off)?;
+    }
+    for key in ["magnet", PROGID_MAGNET] {
+        if let Some(p) = holder(key) {
+            write(keys, exe, p.as_deref(), &Integration { magnet: true, ..off }, &off)?;
+        }
+    }
+    let run = keys.path(RUN);
+    for (name, command) in values(&run) {
+        let ours = name == APP || (name.starts_with(&format!("{APP} (")) && name.ends_with(')'));
+        if ours && runs_exe(&command, exe) {
+            delete_value(&run, Some(&name))?;
+        }
+    }
+    Ok(read(keys, exe, None))
 }
 
 /// Opens Settings > Default apps, on PaTorrent's own page where Windows has one (Windows 11).
@@ -365,6 +451,41 @@ pub(crate) fn get_in(root: HKEY, path: &str, name: Option<&str>) -> Option<Strin
             RegGetValueW(root, p.as_ptr(), ptr(&n), flags, null_mut(), buf.as_mut_ptr().cast(), &mut bytes);
         (e == ERROR_SUCCESS).then(|| crate::util::from_wide(&buf))
     }
+}
+
+/// A key's string values, by name (none when the key is missing).
+fn values(path: &str) -> Vec<(String, String)> {
+    let p = wide(path);
+    let mut out = Vec::new();
+    unsafe {
+        let mut key: HKEY = null_mut();
+        if RegOpenKeyExW(HKEY_CURRENT_USER, p.as_ptr(), 0, KEY_READ, &mut key) != ERROR_SUCCESS {
+            return out;
+        }
+        for i in 0.. {
+            let mut name = vec![0u16; 16_384];
+            let mut len = name.len() as u32;
+            let e = RegEnumValueW(
+                key,
+                i,
+                name.as_mut_ptr(),
+                &mut len,
+                null(),
+                null_mut(),
+                null_mut(),
+                null_mut(),
+            );
+            if e != ERROR_SUCCESS {
+                break;
+            }
+            let name = String::from_utf16_lossy(&name[..len as usize]);
+            if let Some(v) = get(path, Some(&name)) {
+                out.push((name, v));
+            }
+        }
+        RegCloseKey(key);
+    }
+    out
 }
 
 /// Sets a string value, creating the key.
@@ -470,13 +591,13 @@ mod tests {
     #[test]
     fn nothing_registered_reads_as_off() {
         let s = Scratch::new();
-        assert_eq!(read(&s.keys, &exe()), Status::default());
+        assert_eq!(read(&s.keys, &exe(), None), Status::default());
     }
 
     #[test]
     fn everything_on_and_off_again() {
         let s = Scratch::new();
-        let st = write(&s.keys, &exe(), &Integration::default(), &ALL).unwrap();
+        let st = write(&s.keys, &exe(), None, &Integration::default(), &ALL).unwrap();
         assert_eq!(st, Status { set: ALL, ..Status::default() });
         assert!(st.opens_torrents() && st.opens_magnets());
 
@@ -517,7 +638,7 @@ mod tests {
             Some(r#""C:\Program Files\PaTorrent\patorrent.exe" --minimized"#)
         );
 
-        let st = write(&s.keys, &exe(), &ALL, &Integration::default()).unwrap();
+        let st = write(&s.keys, &exe(), None, &ALL, &Integration::default()).unwrap();
         assert_eq!(st, Status::default());
         assert_eq!(s.get(r"Software\Classes\.torrent", None), None);
         assert_eq!(s.get(r"Software\Classes\PaTorrent.torrent", None), None);
@@ -531,17 +652,17 @@ mod tests {
     fn only_what_changed_is_written() {
         let s = Scratch::new();
         let torrent = Integration { torrent: true, ..Integration::default() };
-        write(&s.keys, &exe(), &Integration::default(), &torrent).unwrap();
+        write(&s.keys, &exe(), None, &Integration::default(), &torrent).unwrap();
         // another client took the magnet scheme meanwhile; turning autostart on leaves it alone
         s.set(r"Software\Classes\magnet\shell\open\command", None, r#""C:\qbt\qbittorrent.exe" "%1""#);
-        let st = write(&s.keys, &exe(), &torrent, &Integration { autostart: true, ..torrent }).unwrap();
+        let st = write(&s.keys, &exe(), None, &torrent, &Integration { autostart: true, ..torrent }).unwrap();
         assert_eq!(st.set, Integration { torrent: true, autostart: true, ..Integration::default() });
         assert_eq!(
             s.get(r"Software\Classes\magnet\shell\open\command", None).as_deref(),
             Some(r#""C:\qbt\qbittorrent.exe" "%1""#)
         );
         // and turning magnets off does not delete the other client's scheme
-        write(&s.keys, &exe(), &Integration { magnet: true, ..torrent }, &torrent).unwrap();
+        write(&s.keys, &exe(), None, &Integration { magnet: true, ..torrent }, &torrent).unwrap();
         assert!(s.get(r"Software\Classes\magnet\shell\open\command", None).is_some());
     }
 
@@ -549,49 +670,50 @@ mod tests {
     fn minimized_follows_autostart() {
         let s = Scratch::new();
         let want = Integration { autostart: true, ..Integration::default() };
-        let st = write(&s.keys, &exe(), &Integration::default(), &want).unwrap();
+        let st = write(&s.keys, &exe(), None, &Integration::default(), &want).unwrap();
         assert_eq!(st.set, want);
         assert_eq!(
             s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("PaTorrent")).as_deref(),
             Some(r#""C:\Program Files\PaTorrent\patorrent.exe""#)
         );
         let min = Integration { minimized: true, ..want };
-        assert_eq!(write(&s.keys, &exe(), &want, &min).unwrap().set, min);
+        assert_eq!(write(&s.keys, &exe(), None, &want, &min).unwrap().set, min);
         // without autostart the switch means nothing
         let st =
-            write(&s.keys, &exe(), &min, &Integration { minimized: true, ..Integration::default() }).unwrap();
+            write(&s.keys, &exe(), None, &min, &Integration { minimized: true, ..Integration::default() })
+                .unwrap();
         assert_eq!(st.set, Integration::default());
     }
 
     #[test]
     fn another_copy_is_not_this_one() {
         let s = Scratch::new();
-        write(&s.keys, Path::new(r"D:\portable\patorrent.exe"), &Integration::default(), &ALL).unwrap();
-        assert_eq!(read(&s.keys, &exe()).set, Integration::default());
+        write(&s.keys, Path::new(r"D:\portable\patorrent.exe"), None, &Integration::default(), &ALL).unwrap();
+        assert_eq!(read(&s.keys, &exe(), None).set, Integration::default());
         // so unchecking here (nothing to do) and checking again takes them over
-        let st = write(&s.keys, &exe(), &Integration::default(), &ALL).unwrap();
+        let st = write(&s.keys, &exe(), None, &Integration::default(), &ALL).unwrap();
         assert_eq!(st.set, ALL);
         // the paths compare without regard to case
         let upper = PathBuf::from(exe().to_string_lossy().to_uppercase());
-        assert_eq!(read(&s.keys, &upper).set, ALL);
+        assert_eq!(read(&s.keys, &upper, None).set, ALL);
         // turning autostart off in another copy leaves this copy's entry
         let other = Path::new(r"D:\portable\patorrent.exe");
         let back = Integration { autostart: false, minimized: false, ..ALL };
-        write(&s.keys, other, &ALL, &back).unwrap();
-        assert!(read(&s.keys, &exe()).set.autostart);
+        write(&s.keys, other, None, &ALL, &back).unwrap();
+        assert!(read(&s.keys, &exe(), None).set.autostart);
     }
 
     #[test]
     fn windows_own_choice_is_reported() {
         let s = Scratch::new();
-        let st = write(&s.keys, &exe(), &Integration::default(), &ALL).unwrap();
+        let st = write(&s.keys, &exe(), None, &Integration::default(), &ALL).unwrap();
         assert_eq!(st.note(), "");
         s.set(
             r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.torrent\UserChoice",
             Some("ProgId"),
             "qBittorrent.File.Torrent",
         );
-        let st = read(&s.keys, &exe());
+        let st = read(&s.keys, &exe(), None);
         assert_eq!(st.torrent_choice.as_deref(), Some("qBittorrent.File.Torrent"));
         assert!(!st.opens_torrents() && st.opens_magnets());
         assert_eq!(st.note(), "Windows still opens .torrent files with qBittorrent.File.Torrent.");
@@ -602,7 +724,7 @@ mod tests {
                 Some("ProgId"),
                 ours,
             );
-            assert!(read(&s.keys, &exe()).opens_torrents(), "{ours}");
+            assert!(read(&s.keys, &exe(), None).opens_torrents(), "{ours}");
         }
         for (choice, ours) in [(PROGID_MAGNET, true), ("magnet", true), ("qBittorrent.Url.Magnet", false)] {
             s.set(
@@ -610,10 +732,10 @@ mod tests {
                 Some("ProgId"),
                 choice,
             );
-            assert_eq!(read(&s.keys, &exe()).opens_magnets(), ours, "{choice}");
+            assert_eq!(read(&s.keys, &exe(), None).opens_magnets(), ours, "{choice}");
         }
         // a choice is only reported while PaTorrent is registered
-        let st = write(&s.keys, &exe(), &ALL, &Integration::default()).unwrap();
+        let st = write(&s.keys, &exe(), None, &ALL, &Integration::default()).unwrap();
         assert_eq!(st, Status::default());
     }
 
@@ -621,7 +743,7 @@ mod tests {
     fn associate_adds_to_what_is_there() {
         let s = Scratch::new();
         let autostart = Integration { autostart: true, ..Integration::default() };
-        write(&s.keys, &exe(), &Integration::default(), &autostart).unwrap();
+        write(&s.keys, &exe(), None, &Integration::default(), &autostart).unwrap();
         let st = associate(&s.keys, &exe(), true, false).unwrap();
         assert_eq!(st.set, Integration { torrent: true, ..autostart });
         assert_eq!(s.get(r"Software\Classes\magnet", None), None);
@@ -636,12 +758,12 @@ mod tests {
     #[test]
     fn unregister_removes_what_names_this_copy() {
         let s = Scratch::new();
-        write(&s.keys, &exe(), &Integration::default(), &ALL).unwrap();
+        write(&s.keys, &exe(), None, &Integration::default(), &ALL).unwrap();
         // another client took `.torrent` and the scheme since: read() no longer counts them
         s.set(r"Software\Classes\.torrent", None, "qBittorrent.File.Torrent");
         s.set(r"Software\Classes\magnet\shell\open\command", None, r#""C:\qbt\qbittorrent.exe" "%1""#);
         assert_eq!(
-            read(&s.keys, &exe()).set,
+            read(&s.keys, &exe(), None).set,
             Integration { autostart: true, minimized: true, ..Integration::default() }
         );
         assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
@@ -666,9 +788,9 @@ mod tests {
     fn unregister_leaves_another_copy() {
         let s = Scratch::new();
         let other = Path::new(r"D:\portable\patorrent.exe");
-        write(&s.keys, other, &Integration::default(), &ALL).unwrap();
+        write(&s.keys, other, None, &Integration::default(), &ALL).unwrap();
         assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
-        assert_eq!(read(&s.keys, other).set, ALL);
+        assert_eq!(read(&s.keys, other, None).set, ALL);
         assert!(s.get(r"Software\RegisteredApplications", Some("PaTorrent")).is_some());
     }
 
@@ -680,10 +802,10 @@ mod tests {
         let qbt = r#""C:\qbt\qbittorrent.exe" "%1""#;
         s.set(r"Software\Classes\PaTorrent.torrent\shell\open\command", None, old);
         s.set(r"Software\Classes\magnet\shell\open\command", None, qbt);
-        upgrade(&s.keys, &exe()).unwrap();
+        upgrade(&s.keys, &exe(), None).unwrap();
         assert_eq!(
             s.get(r"Software\Classes\PaTorrent.torrent\shell\open\command", None),
-            Some(open_command(&exe()))
+            Some(open_command(&exe(), None))
         );
         assert_eq!(s.get(r"Software\Classes\magnet\shell\open\command", None).as_deref(), Some(qbt));
         assert_eq!(s.get(r"Software\Classes\PaTorrent.magnet\shell\open\command", None), None);
@@ -692,11 +814,52 @@ mod tests {
     #[test]
     fn commands() {
         assert_eq!(
-            open_command(Path::new(r"\\?\C:\a b\patorrent.exe")),
+            open_command(Path::new(r"\\?\C:\a b\patorrent.exe"), None),
             r#""C:\a b\patorrent.exe" --shell "%1""#
         );
-        assert_eq!(run_command(&exe(), false), r#""C:\Program Files\PaTorrent\patorrent.exe""#);
-        assert!(runs(r#""c:\program files\patorrent\PATORRENT.EXE" "%1""#, &exe()));
-        assert!(!runs(r#""C:\Program Files\PaTorrent\patorrent.exe.old" "%1""#, &exe()));
+        assert_eq!(run_command(&exe(), None, false), r#""C:\Program Files\PaTorrent\patorrent.exe""#);
+        assert!(runs(r#""c:\program files\patorrent\PATORRENT.EXE" "%1""#, &exe(), None));
+        assert!(!runs(r#""C:\Program Files\PaTorrent\patorrent.exe.old" "%1""#, &exe(), None));
+        // a profile comes before --shell, after which nothing counts (D42, SEC-18)
+        let work = open_command(&exe(), Some("work"));
+        assert_eq!(work, r#""C:\Program Files\PaTorrent\patorrent.exe" --profile work --shell "%1""#);
+        assert!(runs(&work, &exe(), Some("work")) && !runs(&work, &exe(), None));
+        assert_eq!(command_profile(r#""x.exe" --shell "--profile" work"#), None);
+        assert_eq!(command_profile(r#""x.exe" --profile=Default --shell "%1""#), None);
+        assert_eq!(
+            run_command(&exe(), Some("vpn"), true),
+            r#""C:\Program Files\PaTorrent\patorrent.exe" --profile vpn --minimized"#
+        );
+        assert_eq!((run_value(None), run_value(Some("vpn"))), ("PaTorrent".into(), "PaTorrent (vpn)".into()));
+    }
+
+    /// One profile at a time owns the associations; each profile has its own autostart (D42).
+    #[test]
+    fn profiles_take_associations_over_and_start_apart() {
+        let s = Scratch::new();
+        let work = Some("work");
+        write(&s.keys, &exe(), None, &Integration::default(), &ALL).unwrap();
+        // the work profile sees them as another profile's
+        let st = read(&s.keys, &exe(), work);
+        assert_eq!(st.set, Integration::default());
+        assert_eq!(st.other_profile.as_deref(), Some("default"));
+        assert!(st.profile_note().contains("default"));
+        // ticking them there takes them over; autostart is its own value
+        let st = write(&s.keys, &exe(), work, &Integration::default(), &ALL).unwrap();
+        assert_eq!((st.set, st.other_profile), (ALL, None));
+        assert_eq!(
+            s.get(r"Software\Classes\PaTorrent.torrent\shell\open\command", None).as_deref(),
+            Some(r#""C:\Program Files\PaTorrent\patorrent.exe" --profile work --shell "%1""#)
+        );
+        let default = read(&s.keys, &exe(), None);
+        assert_eq!(default.set, Integration { autostart: true, minimized: true, ..Integration::default() });
+        assert_eq!(default.other_profile.as_deref(), Some("work"));
+        // the default profile's upgrade leaves work's commands alone
+        upgrade(&s.keys, &exe(), None).unwrap();
+        assert!(read(&s.keys, &exe(), work).set.torrent);
+        // the uninstaller removes every profile's
+        assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
+        assert_eq!(read(&s.keys, &exe(), work), Status::default());
+        assert_eq!(s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("PaTorrent (work)")), None);
     }
 }

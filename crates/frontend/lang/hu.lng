@@ -264,6 +264,7 @@ AssocMagnet=A Windows még mindig ezzel nyitja meg a magnet: hivatkozásokat: {p
 AssocBoth=A Windows még mindig ezzel nyitja meg a .torrent fájlokat és a magnet: hivatkozásokat: {program}.
 AssocEach=A Windows még mindig ezzel nyitja meg a .torrent fájlokat: {torrent}, a magnet: hivatkozásokat pedig ezzel: {magnet}.
 AssocChoose={note} Válassza a PaTorrentet az Alapértelmezett alkalmazásokban.
+AssocOtherProfile=Most a(z) "{profile}" PaTorrent-profil nyitja meg őket; egy jelölőnégyzet bejelölésével ez a profil fogja megnyitni őket.
 AssocTorrentType=Torrent fájl
 AssocMagnetType=Magnet hivatkozás
 AppDescription=BitTorrent kliens

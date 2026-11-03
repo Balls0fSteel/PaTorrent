@@ -1207,7 +1207,7 @@ unsafe fn write_integration(dlg: HWND, st: &State<'_>) {
         set_check(dlg, ID_AUTOSTART, set.autostart);
         set_check(dlg, ID_START_MIN, set.minimized);
         let note = st.integration.note();
-        let note = if note.is_empty() { note } else { tr!(AssocChoose, note) };
+        let note = if note.is_empty() { st.integration.profile_note() } else { tr!(AssocChoose, note) };
         set_text(item(dlg, ID_ASSOC_NOTE), &note);
         update_autostart_controls(dlg);
     }

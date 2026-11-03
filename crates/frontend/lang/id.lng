@@ -264,6 +264,7 @@ AssocMagnet=Windows masih membuka tautan magnet: dengan {program}.
 AssocBoth=Windows masih membuka berkas .torrent dan tautan magnet: dengan {program}.
 AssocEach=Windows masih membuka berkas .torrent dengan {torrent}, dan tautan magnet: dengan {magnet}.
 AssocChoose={note} Pilih PaTorrent di Aplikasi default.
+AssocOtherProfile=Profil PaTorrent "{profile}" membukanya sekarang; mencentang kotak membuat profil ini yang membukanya.
 AssocTorrentType=Berkas torrent
 AssocMagnetType=Tautan magnet
 AppDescription=Klien BitTorrent

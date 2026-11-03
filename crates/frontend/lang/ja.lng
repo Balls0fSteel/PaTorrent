@@ -264,6 +264,7 @@ AssocMagnet=Windows はまだ magnet: リンクを {program} で開きます。
 AssocBoth=Windows はまだ .torrent ファイルと magnet: リンクを {program} で開きます。
 AssocEach=Windows はまだ .torrent ファイルを {torrent} で、magnet: リンクを {magnet} で開きます。
 AssocChoose={note} 既定のアプリで PaTorrent を選んでください。
+AssocOtherProfile=現在は PaTorrent のプロファイル "{profile}" がこれらを開きます。チェックを入れると、代わりにこのプロファイルが開くようになります。
 AssocTorrentType=トレント ファイル
 AssocMagnetType=Magnet リンク
 AppDescription=BitTorrent クライアント

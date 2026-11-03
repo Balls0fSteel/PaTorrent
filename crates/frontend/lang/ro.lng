@@ -264,6 +264,7 @@ AssocMagnet=Windows deschide încă legăturile magnet: cu {program}.
 AssocBoth=Windows deschide încă fișierele .torrent și legăturile magnet: cu {program}.
 AssocEach=Windows deschide încă fișierele .torrent cu {torrent}, iar legăturile magnet: cu {magnet}.
 AssocChoose={note} Alegeți PaTorrent în Aplicații implicite.
+AssocOtherProfile=Acum le deschide profilul PaTorrent "{profile}"; bifarea unei casete face ca acest profil să le deschidă.
 AssocTorrentType=Fișier torent
 AssocMagnetType=Legătură magnet
 AppDescription=Client BitTorrent

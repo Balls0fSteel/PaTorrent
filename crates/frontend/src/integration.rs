@@ -59,15 +59,24 @@ pub enum EntryKind {
 }
 
 /// A desktop entry for `command` (the program and any arguments it always takes, as plain
-/// text) with icon `icon` (a theme name).
+/// text) with icon `icon` (a theme name). A command with `--profile <name>` (D42) makes a named
+/// profile's entry: `Name=PaTorrent (name)` and, for its application entry, `NoDisplay=true`
+/// (the desktop matches the profile's windows to it; File > Profiles makes it a menu item).
 pub fn entry(command: &[String], icon: &str, kind: EntryKind) -> String {
+    entry_shown(command, icon, kind, false)
+}
+
+/// [`entry`], with a named profile's application entry in the menu when `shown`.
+pub fn entry_shown(command: &[String], icon: &str, kind: EntryKind, shown: bool) -> String {
+    let profile = command_profile(command);
     let mut args: Vec<String> = command.iter().map(|a| exec_arg(a)).collect();
     match kind {
         EntryKind::App => args.push("%U".into()),
         EntryKind::Autostart { minimized: true } => args.push(MINIMIZED.into()),
         EntryKind::Autostart { minimized: false } => {}
     }
-    let mut s = String::from("[Desktop Entry]\nType=Application\nVersion=1.5\nName=PaTorrent\n");
+    let name = profile.as_ref().map_or("PaTorrent".to_owned(), |p| format!("PaTorrent ({p})"));
+    let mut s = format!("[Desktop Entry]\nType=Application\nVersion=1.5\nName={}\n", string_value(&name));
     s += "GenericName=BitTorrent Client\n";
     s += &format!("Comment={}\n", string_value(tr!(AboutShort)));
     s += &format!("Exec={}\n", args.join(" "));
@@ -76,10 +85,23 @@ pub fn entry(command: &[String], icon: &str, kind: EntryKind) -> String {
     match kind {
         EntryKind::App => {
             s += &format!("MimeType={MIME_TORRENT};{MIME_MAGNET};\nStartupNotify=true\n");
+            if profile.is_some() && !shown {
+                s += "NoDisplay=true\n";
+            }
         }
         EntryKind::Autostart { .. } => s += "X-GNOME-Autostart-enabled=true\n",
     }
     s
+}
+
+/// The profile a command names with `--profile` (`None`: the default profile, or a bad name).
+fn command_profile(command: &[String]) -> Option<String> {
+    crate::profile::split_args(command).ok().and_then(|(name, _)| name)
+}
+
+/// Whether a desktop entry's text is a menu item (not `NoDisplay=true`).
+pub fn shown(text: &str) -> bool {
+    !text.lines().any(|l| l.trim() == "NoDisplay=true")
 }
 
 /// A value of type string: backslash, newline, tab and carriage return escaped.
@@ -183,9 +205,12 @@ fn unescape_string(s: &str) -> String {
     out
 }
 
-/// Whether a desktop entry's text starts `command` (its first arguments are `command`'s).
+/// Whether a desktop entry's text starts `command` (its first arguments are `command`'s) in the
+/// same profile: the default profile's command does not start a named profile's entry.
 pub fn starts(text: &str, command: &[String]) -> bool {
-    !command.is_empty() && exec_args(text).is_some_and(|a| a.starts_with(command))
+    !command.is_empty()
+        && exec_args(text)
+            .is_some_and(|a| a.starts_with(command) && command_profile(&a) == command_profile(command))
 }
 
 #[cfg(test)]
@@ -230,6 +255,23 @@ mod tests {
         let plain = entry(&flatpak, "x", EntryKind::Autostart { minimized: false });
         assert!(!exec_args(&plain).unwrap().iter().any(|a| a == MINIMIZED));
         assert!(starts(&plain, &flatpak));
+    }
+
+    /// A named profile's entry (D42): its own name, hidden from the menu until asked, and
+    /// told apart from the default profile's.
+    #[test]
+    fn a_profiles_entry() {
+        let work = cmd(&["/usr/bin/patorrent-gtk", "--profile", "work"]);
+        let default = cmd(&["/usr/bin/patorrent-gtk"]);
+        let app = entry(&work, APP_ID, EntryKind::App);
+        assert!(app.contains("\nName=PaTorrent (work)\n") && app.contains("\nNoDisplay=true\n"));
+        assert!(!shown(&app) && shown(&entry_shown(&work, APP_ID, EntryKind::App, true)));
+        assert!(app.contains("\nExec=/usr/bin/patorrent-gtk --profile work %U\n"));
+        assert!(starts(&app, &work) && !starts(&app, &default));
+        let plain = entry(&default, APP_ID, EntryKind::App);
+        assert!(!starts(&plain, &work) && starts(&plain, &default) && shown(&plain));
+        let auto = entry(&work, APP_ID, EntryKind::Autostart { minimized: true });
+        assert!(!auto.contains("NoDisplay") && auto.contains("\nName=PaTorrent (work)\n"));
     }
 
     #[test]

@@ -37,6 +37,13 @@
 //! dialog's Apply does not wait: the boxes show the granted state the next time it opens, and a
 //! refusal or failure shows the usual error.
 //!
+//! Profiles (D42): a named profile has a desktop entry of its own, `<app id>.profile_<name>.desktop`
+//! (its application id's, so a Wayland desktop finds the profile's windows' icon), hidden from
+//! the menu (`NoDisplay=true`) and written at its first start ([`profile_entry`]), in the host's
+//! `applications/` in a Flatpak too. Its associations and autostart entry name it, so one
+//! profile at a time opens the types and each starts at login apart. In a Flatpak only the
+//! default profile can start at login (the portal keeps one autostart per application).
+//!
 //! macOS (`crate::macos`, PLAN.md D23) keeps the same boxes in its own places:
 //! - "Start PaTorrent on system startup" is a LaunchAgent, `~/Library/LaunchAgents/<app id>.plist`
 //!   with `RunAtLoad`, whose `ProgramArguments` are the bundle's executable (PaTorrent.app's
@@ -55,11 +62,12 @@
 pub const AVAILABLE: bool = true;
 
 /// Whether the `.torrent` and `magnet:` associations can be changed from here: not in a
-/// Flatpak, and on macOS only from PaTorrent.app (LaunchServices names programs by bundle id).
+/// Flatpak, and on macOS only from PaTorrent.app (LaunchServices names programs by bundle id)
+/// in its default profile (LaunchServices opens the bundle, never a profile).
 pub fn associations_settable() -> bool {
     #[cfg(target_os = "macos")]
     {
-        crate::macos::bundle_id().is_some()
+        crate::macos::bundle_id().is_some() && patorrent_frontend::profile::current().is_default()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -72,7 +80,7 @@ pub fn packaged() -> bool {
     std::env::var_os("FLATPAK_ID").is_some()
 }
 
-pub use imp::{read, write};
+pub use imp::{profile_entry, read, write};
 
 #[cfg(not(target_os = "macos"))]
 mod imp {
@@ -83,24 +91,66 @@ mod imp {
     use patorrent_frontend::integration::{
         self, EntryKind, Integration, MIME_MAGNET, MIME_TORRENT, MINIMIZED,
     };
+    use patorrent_frontend::profile;
 
     use crate::app::APP_ID;
 
+    /// The desktop entry's id: the application id, so a named profile's (D42) is its own
+    /// (`<APP_ID>.profile_work.desktop`), which the desktop matches to the profile's windows.
     fn desktop_id() -> String {
-        format!("{APP_ID}.desktop")
+        format!("{}.desktop", profile::current().app_id(APP_ID))
     }
 
-    /// The command that starts this program: the AppImage file when run from one, else this
-    /// executable (never asked in a Flatpak).
+    /// The command that starts this program in this profile: the AppImage file when run from
+    /// one, else this executable; in a Flatpak (only a named profile's entry asks) `flatpak run`.
     pub fn command() -> Vec<String> {
-        if let Some(image) = std::env::var_os("APPIMAGE") {
-            return vec![image.to_string_lossy().into_owned()];
+        let mut c = if super::packaged() {
+            ["flatpak", "run", "--command=patorrent-gtk", APP_ID].map(str::to_owned).to_vec()
+        } else if let Some(image) = std::env::var_os("APPIMAGE") {
+            vec![image.to_string_lossy().into_owned()]
+        } else {
+            match std::env::current_exe() {
+                Ok(p) => vec![p.to_string_lossy().into_owned()],
+                Err(_) => return Vec::new(),
+            }
+        };
+        c.extend(profile::current().args());
+        c
+    }
+
+    /// `applications/` in the user's data folder: the host's in a Flatpak (its home is
+    /// visible, `--filesystem=home`), where the sandbox's own would be seen by nobody.
+    fn applications_dir() -> PathBuf {
+        if super::packaged() {
+            return glib::home_dir().join(".local").join("share").join("applications");
         }
-        std::env::current_exe().map(|p| vec![p.to_string_lossy().into_owned()]).unwrap_or_default()
+        glib::user_data_dir().join("applications")
     }
 
     fn app_entry_path() -> PathBuf {
-        glib::user_data_dir().join("applications").join(desktop_id())
+        applications_dir().join(desktop_id())
+    }
+
+    /// A named profile's application entry, written at its start when missing or not starting
+    /// this program (a moved AppImage), hidden from the menu unless File > Profiles showed it:
+    /// without it a Wayland desktop finds no entry for the profile's windows and shows a
+    /// generic icon. Nothing for the default profile, whose entry the package installs.
+    pub fn profile_entry() -> Result<(), String> {
+        if profile::current().is_default() {
+            return Ok(());
+        }
+        let (path, command) = (app_entry_path(), command());
+        let old = std::fs::read_to_string(&path).ok();
+        if command.is_empty() || old.as_deref().is_some_and(|t| integration::starts(t, &command)) {
+            return Ok(());
+        }
+        let shown = old.as_deref().is_some_and(integration::shown);
+        write_file(&path, &integration::entry_shown(&command, APP_ID, EntryKind::App, shown))?;
+        // a Flatpak exports its icon itself
+        if !super::packaged() {
+            install_icon()?;
+        }
+        Ok(())
     }
 
     fn autostart_path() -> PathBuf {
@@ -163,8 +213,13 @@ mod imp {
             return Err("the path of this program is not known".into());
         }
         if (want.torrent && !old.torrent) || (want.magnet && !old.magnet) {
-            // written again, so it starts this program (a moved AppImage, a new build)
-            write_file(&app_entry_path(), &integration::entry(&command, APP_ID, EntryKind::App))?;
+            // written again, so it starts this program (a moved AppImage, a new build); a
+            // profile's entry stays in or out of the menu as it was
+            let shown = std::fs::read_to_string(app_entry_path()).map_or(true, |t| integration::shown(&t));
+            write_file(
+                &app_entry_path(),
+                &integration::entry_shown(&command, APP_ID, EntryKind::App, shown),
+            )?;
             install_icon()?;
             let id = desktop_id();
             let info = gio::DesktopAppInfo::new(&id)
@@ -217,10 +272,12 @@ mod imp {
             Prefs::load(crate::paths::background_file())
         }
 
-        /// Autostart as the portal last granted it; never an association.
+        /// Autostart as the portal last granted it; never an association. The portal keeps one
+        /// autostart per application: the default profile's (D42).
         pub fn read() -> Integration {
             let s = state();
-            let autostart = s.get_bool("autostart", false);
+            let autostart =
+                s.get_bool("autostart", false) && patorrent_frontend::profile::current().is_default();
             Integration {
                 autostart,
                 minimized: autostart && s.get_bool("minimized", false),
@@ -242,6 +299,11 @@ mod imp {
         /// next time; a refusal or failure is reported when it comes.
         pub fn write(old: &Integration, want: &Integration) -> Result<Integration, String> {
             if (want.autostart, want.minimized) != (old.autostart, old.minimized) {
+                if !patorrent_frontend::profile::current().is_default() {
+                    return Err("in the Flatpak only the default profile can start at login: the \
+                         Background portal keeps one autostart per application"
+                        .into());
+                }
                 let (autostart, minimized) = (want.autostart, want.minimized);
                 let reason = tr!(PrefAutostart).replace('&', "");
                 crate::portal::request_autostart(autostart, commandline(minimized), reason, move |r| {
@@ -304,24 +366,40 @@ mod imp {
     use crate::macos;
 
     /// What the LaunchAgent starts: the bundle's own executable inside PaTorrent.app (starting
-    /// `patorrent-gtk` there directly would skip the launcher's paths), else this executable.
+    /// `patorrent-gtk` there directly would skip the launcher's paths), else this executable;
+    /// in a named profile with `--profile <name>` (D42).
     pub fn command() -> Vec<String> {
-        macos::bundle_executable()
-            .or_else(|| std::env::current_exe().ok())
-            .map(|p| vec![p.to_string_lossy().into_owned()])
-            .unwrap_or_default()
+        let Some(program) = macos::bundle_executable().or_else(|| std::env::current_exe().ok()) else {
+            return Vec::new();
+        };
+        let mut c = vec![program.to_string_lossy().into_owned()];
+        c.extend(patorrent_frontend::profile::current().args());
+        c
+    }
+
+    /// The LaunchAgent's label: the application id, `<APP_ID>.<name>` for a named profile, so
+    /// each profile starts at login apart from the others.
+    fn agent_label() -> String {
+        match &patorrent_frontend::profile::current().name {
+            Some(n) => format!("{APP_ID}.{n}"),
+            None => APP_ID.to_owned(),
+        }
     }
 
     fn agent_path() -> PathBuf {
-        glib::home_dir().join("Library").join("LaunchAgents").join(format!("{APP_ID}.plist"))
+        glib::home_dir().join("Library").join("LaunchAgents").join(format!("{}.plist", agent_label()))
     }
 
-    /// The LaunchAgent's arguments after the program, when it starts this program.
+    /// Nothing on macOS: LaunchServices names the bundle, never a profile's entry.
+    pub fn profile_entry() -> Result<(), String> {
+        Ok(())
+    }
+
+    /// The LaunchAgent's arguments after the program and profile, when it starts this program.
     fn agent_args(command: &[String]) -> Option<Vec<String>> {
         let text = std::fs::read_to_string(agent_path()).ok()?;
         let args = macos::launch_agent_arguments(&text)?;
-        let program = command.first()?;
-        (args.first() == Some(program)).then(|| args[1..].to_vec())
+        (!command.is_empty() && args.starts_with(command)).then(|| args[command.len()..].to_vec())
     }
 
     /// LaunchServices may hand bundle ids back lowercased.
@@ -369,7 +447,7 @@ mod imp {
                 if let Some(dir) = path.parent() {
                     std::fs::create_dir_all(dir).map_err(fail)?;
                 }
-                std::fs::write(&path, macos::launch_agent(APP_ID, &program)).map_err(fail)?;
+                std::fs::write(&path, macos::launch_agent(&agent_label(), &program)).map_err(fail)?;
             } else {
                 match std::fs::remove_file(&path) {
                     Ok(()) => {}

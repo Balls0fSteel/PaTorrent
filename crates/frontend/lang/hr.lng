@@ -264,6 +264,7 @@ AssocMagnet=Windows i dalje otvara magnet: poveznice programom {program}.
 AssocBoth=Windows i dalje otvara .torrent datoteke i magnet: poveznice programom {program}.
 AssocEach=Windows i dalje otvara .torrent datoteke programom {torrent}, a magnet: poveznice programom {magnet}.
 AssocChoose={note} Odaberite PaTorrent u Zadanim aplikacijama.
+AssocOtherProfile=Sada ih otvara profil PaTorrenta "{profile}"; označavanjem okvira otvarat će ih ovaj profil.
 AssocTorrentType=Torrent datoteka
 AssocMagnetType=Magnet poveznica
 AppDescription=BitTorrent klijent

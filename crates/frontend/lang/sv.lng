@@ -264,6 +264,7 @@ AssocMagnet=Windows öppnar fortfarande magnet:-länkar med {program}.
 AssocBoth=Windows öppnar fortfarande .torrent-filer och magnet:-länkar med {program}.
 AssocEach=Windows öppnar fortfarande .torrent-filer med {torrent} och magnet:-länkar med {magnet}.
 AssocChoose={note} Välj PaTorrent under Standardappar.
+AssocOtherProfile=PaTorrent-profilen "{profile}" öppnar dem nu; markerar du en ruta öppnar den här profilen dem i stället.
 AssocTorrentType=Torrentfil
 AssocMagnetType=Magnetlänk
 AppDescription=BitTorrent-klient

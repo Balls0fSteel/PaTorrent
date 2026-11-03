@@ -659,6 +659,12 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         .to_string_lossy()
         .into_owned();
     let mut opts = Options::load(&prefs, &downloads);
+    // a named profile's desktop entry, which the desktop matches to its windows (D42)
+    if remote.is_none() {
+        if let Err(e) = crate::integration::profile_entry() {
+            eprintln!("the profile's desktop entry: {e}");
+        }
+    }
     // a new profile or portable folder: a port of its own, kept from now on (D42)
     if remote.is_none() && profile::first_run_settings(&mut prefs, &mut opts.settings) {
         if let Err(e) = prefs.save() {

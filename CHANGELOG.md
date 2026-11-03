@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_124252_1793706172: Version 1.1.46: associations and autostart per profile (D42 slice 3)
+
+- **Windows:** a profile's open command is `"<exe>" --profile <name> --shell "%1"` (the profile before `--shell`, SEC-18) and its autostart a `Run` value of its own (`PaTorrent (work)`). A box is checked only in the profile the command names, so one profile at a time owns `.torrent` and `magnet:`; ticking it in another takes it over, and the General page then names the owner (`AssocOtherProfile`, 34 machine translations). `upgrade` rewrites only its own profile's commands; the installer's `--associate` writes the default profile; `--unregister` removes every profile's associations and `Run` values for this exe.
+- **Linux/BSD:** a named profile writes `<APP_ID>.profile_<name>.desktop` at its start (its application id, so Wayland finds the window's icon; `Name=PaTorrent (work)`, `NoDisplay=true`, `Icon=<APP_ID>`), in the host's `~/.local/share/applications` inside the Flatpak (`flatpak run --command=patorrent-gtk <APP_ID> --profile <name>`). The MIME defaults and the autostart entry name it; `integration::starts` compares the profile. In the Flatpak only the default profile can autostart (one portal grant per application); the page says so when asked.
+- **macOS:** a LaunchAgent per profile (`<APP_ID>.<name>.plist`, label likewise); a named profile cannot take the associations (Launch Services opens the bundle), its boxes are greyed.
+- **Checked:** new tests on a scratch registry tree (take-over, per-profile `Run`, upgrade, unregister of every profile) and for the profile's desktop entry; 1,538 workspace tests; clippy for four targets. Not checked on a desktop: GNOME/KDE dock icons, the Flatpak's host entry, the real registry.
+
 ## 2026-11-03_123456_1793705696: Version 1.1.45: ports for profiles (D42 slice 2)
 
 - **Listen port:** a new named profile, or a portable folder whose `patorrent.ini` is still empty, writes a random port (10000-60000, `random_port()` narrowed from 65000, the Web UI's button too) at its first start; the default profile keeps 6881. nox keeps no settings file outside the Web UI, so a named nox profile without `--port`/`--listen` takes a port from its name (FNV-1a, 10000-60000, the same at every start).

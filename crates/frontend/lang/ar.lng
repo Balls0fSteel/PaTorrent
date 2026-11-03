@@ -264,6 +264,7 @@ AssocMagnet=ما زال Windows يفتح روابط magnet:‎ بـ {program}.
 AssocBoth=ما زال Windows يفتح ملفات ‎.torrent وروابط magnet:‎ بـ {program}.
 AssocEach=ما زال Windows يفتح ملفات ‎.torrent بـ {torrent}، وروابط magnet:‎ بـ {magnet}.
 AssocChoose={note} اختر PaTorrent في التطبيقات الافتراضية.
+AssocOtherProfile=يفتحها الآن ملف تعريف PaTorrent "{profile}"؛ تحديد مربع يجعل ملف التعريف هذا يفتحها بدلاً منه.
 AssocTorrentType=ملف تورنت
 AssocMagnetType=رابط magnet
 AppDescription=برنامج BitTorrent

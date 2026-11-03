@@ -264,6 +264,7 @@ AssocMagnet=Windows все още отваря magnet: връзките с {prog
 AssocBoth=Windows все още отваря .torrent файловете и magnet: връзките с {program}.
 AssocEach=Windows все още отваря .torrent файловете с {torrent}, а magnet: връзките с {magnet}.
 AssocChoose={note} Изберете PaTorrent в Приложения по подразбиране.
+AssocOtherProfile=Профилът на PaTorrent "{profile}" ги отваря сега; отметката на поле кара този профил да ги отваря вместо него.
 AssocTorrentType=Торент файл
 AssocMagnetType=Magnet връзка
 AppDescription=BitTorrent клиент

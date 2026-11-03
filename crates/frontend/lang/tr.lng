@@ -264,6 +264,7 @@ AssocMagnet=Windows magnet: bağlantılarını hâlâ {program} ile açıyor.
 AssocBoth=Windows .torrent dosyalarını ve magnet: bağlantılarını hâlâ {program} ile açıyor.
 AssocEach=Windows .torrent dosyalarını hâlâ {torrent}, magnet: bağlantılarını {magnet} ile açıyor.
 AssocChoose={note} Varsayılan uygulamalarda PaTorrent'i seçin.
+AssocOtherProfile=Şu anda bunları PaTorrent profili "{profile}" açıyor; bir kutuyu işaretlemek bunları bu profilin açmasını sağlar.
 AssocTorrentType=Torrent dosyası
 AssocMagnetType=Magnet bağlantısı
 AppDescription=BitTorrent istemcisi

@@ -264,6 +264,7 @@ AssocMagnet=Windows가 아직 magnet: 링크를 {program}(으)로 엽니다.
 AssocBoth=Windows가 아직 .torrent 파일과 magnet: 링크를 {program}(으)로 엽니다.
 AssocEach=Windows가 아직 .torrent 파일은 {torrent}(으)로, magnet: 링크는 {magnet}(으)로 엽니다.
 AssocChoose={note} 기본 앱에서 PaTorrent를 선택하세요.
+AssocOtherProfile=지금은 PaTorrent 프로필 "{profile}"이(가) 이를 엽니다. 확인란을 선택하면 대신 이 프로필이 엽니다.
 AssocTorrentType=토렌트 파일
 AssocMagnetType=Magnet 링크
 AppDescription=BitTorrent 클라이언트

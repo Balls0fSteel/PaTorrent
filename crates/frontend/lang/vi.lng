@@ -264,6 +264,7 @@ AssocMagnet=Windows vẫn mở liên kết magnet: bằng {program}.
 AssocBoth=Windows vẫn mở tệp .torrent và liên kết magnet: bằng {program}.
 AssocEach=Windows vẫn mở tệp .torrent bằng {torrent}, liên kết magnet: bằng {magnet}.
 AssocChoose={note} Chọn PaTorrent trong Ứng dụng mặc định.
+AssocOtherProfile=Hiện hồ sơ PaTorrent "{profile}" đang mở chúng; đánh dấu một ô sẽ để hồ sơ này mở chúng thay thế.
 AssocTorrentType=Tệp torrent
 AssocMagnetType=Liên kết magnet
 AppDescription=Ứng dụng BitTorrent

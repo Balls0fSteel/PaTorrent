@@ -264,6 +264,7 @@ AssocMagnet=Windows ยังเปิดลิงก์ magnet: ด้วย {p
 AssocBoth=Windows ยังเปิดแฟ้ม .torrent และลิงก์ magnet: ด้วย {program}
 AssocEach=Windows ยังเปิดแฟ้ม .torrent ด้วย {torrent} และลิงก์ magnet: ด้วย {magnet}
 AssocChoose={note} เลือก PaTorrent ในแอปเริ่มต้น
+AssocOtherProfile=ตอนนี้โปรไฟล์ PaTorrent "{profile}" เป็นผู้เปิดรายการเหล่านี้ การทำเครื่องหมายในช่องจะให้โปรไฟล์นี้เปิดแทน
 AssocTorrentType=แฟ้มทอร์เรนต์
 AssocMagnetType=ลิงก์ magnet
 AppDescription=โปรแกรม BitTorrent

@@ -264,6 +264,7 @@ AssocMagnet=Windows encara obre els enllaços magnet: amb {program}.
 AssocBoth=Windows encara obre els fitxers .torrent i els enllaços magnet: amb {program}.
 AssocEach=Windows encara obre els fitxers .torrent amb {torrent} i els enllaços magnet: amb {magnet}.
 AssocChoose={note} Trieu PaTorrent a Aplicacions per defecte.
+AssocOtherProfile=Ara els obre el perfil de PaTorrent "{profile}"; si marqueu una casella, els obrirà aquest perfil.
 AssocTorrentType=Fitxer torrent
 AssocMagnetType=Enllaç magnet
 AppDescription=Client BitTorrent

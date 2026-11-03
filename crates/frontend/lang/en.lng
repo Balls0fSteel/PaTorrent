@@ -395,6 +395,10 @@ AssocEach=Windows still opens .torrent files with {torrent}, magnet: links with 
 # {note} is one of the four above.
 AssocChoose={note} Choose PaTorrent in Default apps.
 
+# Another profile of this PaTorrent owns the associations (D42); `{profile}` is its name
+# (`default` for the default profile).
+AssocOtherProfile=The PaTorrent profile "{profile}" opens them now; ticking a box makes this profile open them instead.
+
 # Windows' name for the .torrent file type (Explorer's Type column).
 AssocTorrentType=Torrent File
 

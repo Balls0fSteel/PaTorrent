@@ -718,7 +718,7 @@ pub fn run(args: Args) -> i32 {
         restore_placement(hwnd, args.minimized);
         if local {
             // an association from before `--shell` (SEC-18); failing leaves it as it was
-            let _ = integration::upgrade(&Keys::user(), &exe_path());
+            let _ = integration::upgrade(&Keys::user(), &exe_path(), profile::current().name.as_deref());
         }
         // not at a login's minimized start, where nobody asked for the window
         if opts.gui.check_association && local && !args.minimized {
@@ -1167,7 +1167,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
 /// for `.torrent` files and `magnet:` links when it is not.
 fn check_association(hwnd: HWND) {
     let (keys, exe) = (Keys::user(), exe_path());
-    let status = integration::read(&keys, &exe);
+    let status = integration::read(&keys, &exe, profile::current().name.as_deref());
     if status.opens_torrents() && status.opens_magnets() {
         return;
     }
@@ -1175,7 +1175,7 @@ fn check_association(hwnd: HWND) {
         return;
     }
     let want = Integration { torrent: true, magnet: true, ..status.set };
-    match integration::write(&keys, &exe, &status.set, &want) {
+    match integration::write(&keys, &exe, profile::current().name.as_deref(), &status.set, &want) {
         Ok(after) if !(after.opens_torrents() && after.opens_magnets()) => {
             if dialogs::confirm(hwnd, &tr!(AskDefaultApps, note = after.note())) {
                 integration::open_default_apps(hwnd);
@@ -4005,8 +4005,11 @@ unsafe fn show_preferences_at(hwnd: HWND, page: usize) {
         integration: Box::new(|change| {
             let (keys, exe) = (Keys::user(), exe_path());
             match change {
-                None => Ok(integration::read(&keys, &exe)),
-                Some((old, new)) => integration::write(&keys, &exe, old, new).map_err(|e| e.to_string()),
+                None => Ok(integration::read(&keys, &exe, profile::current().name.as_deref())),
+                Some((old, new)) => {
+                    integration::write(&keys, &exe, profile::current().name.as_deref(), old, new)
+                        .map_err(|e| e.to_string())
+                }
             }
         }),
         webui: Box::new(|edit: Option<&Edit>| {

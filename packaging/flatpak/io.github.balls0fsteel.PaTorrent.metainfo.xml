@@ -70,9 +70,9 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
-    <release version="1.1.35" date="2026-11-03" type="stable">
+    <release version="1.1.39" date="2026-11-03" type="stable">
       <description>
-        <p>Keep ping low slows transfers down automatically when your line starts to queue. A window shows what PaTorrent is doing while it closes, the Files tab has µTorrent 2.2.1's menu, completed downloads can move into a folder named after their label, and the engine carries the applicable fixes from libtorrent 2.0.12 to 2.1.2.</p>
+        <p>A gamer mode keeps your ping low by slowing transfers down when your line starts to queue. Smart disk I/O checks torrents gently, one per drive, tells SSDs, hard disks and network shares apart, and can slow down while a disk is busy. A window shows what PaTorrent is doing while it closes, the Files tab has µTorrent 2.2.1's menu, completed downloads can move into a folder named after their label, and the engine carries the applicable fixes from libtorrent 2.0.12 to 2.1.2.</p>
       </description>
     </release>
     <release version="1.1.17" date="2026-10-30" type="stable">

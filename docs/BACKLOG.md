@@ -478,6 +478,13 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 
 ## Disk and storage
 
+- Smart disk I/O (D48, 1.1.36-1.1.39, [DISKIO.md](DISKIO.md#implementation-status)): measure
+  the busy-disk throttle on a real hard disk, the Samba share and a USB disk before choosing
+  final allowances (SSD 10 ms, HDD/unknown 50 ms, network 100 ms) or turning it on by default;
+  check that a gentle recheck leaves a game or a copy responsive on Windows and Linux; run drive
+  detection on a real Mac and on FreeBSD hardware; FreeBSD's `da*` on umass is not detected as
+  removable. Not built: whole-piece read cache lines for hard disks, two checks at once on one
+  NVMe drive, a per-drive "slowed for the disk" tooltip.
 - Block-buffer pooling and preallocation are deferred; sparse files reduce the
   immediate need. The timer wheel is conditional on profiles showing tick cost.
   A full session-counter table remains open. D3 records the approved write-back

@@ -1,0 +1,132 @@
+name: macOS gate 8
+
+# Profiles and portable mode on a Mac (D42, docs/PROFILES_PLAN.md gate 8), run by hand: a
+# portable PaTorrent.app beside patorrent.ini, a named profile in it, per-profile LaunchAgents
+# started by launchd, and a quarantined copy for App Translocation's notice. Screenshots and a
+# report are uploaded; a check that fails fails its step.
+
+on:
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  gate8:
+    runs-on: macos-15
+    env:
+      CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: -C link-arg=-Wl,-headerpad_max_install_names
+      OUT: ${{ github.workspace }}/gate8
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+      - run: brew install gtk4 adwaita-icon-theme librsvg pkgconf
+      - run: cargo build --release --locked -p patorrent-gtk
+      - name: PaTorrent.app
+        run: |
+          family=$(tr -d '[:space:]' < assets/patina-icons/app-icon.txt)
+          version=$(sed -n 's/^version = "\(.*\)"/\1/p' Cargo.toml | head -1)
+          python3 .github/scripts/macos_bundle.py app \
+            --binary target/release/patorrent-gtk \
+            --prefix "$(brew --prefix)" \
+            --icon-dir "assets/patina-icons/exports/app/$family" \
+            --app-id io.github.balls0fsteel.PaTorrent \
+            --version "$version" \
+            --minos-file macos-minos.txt \
+            --out PaTorrent.app
+          xattr -cr PaTorrent.app
+          codesign --force --deep --sign - PaTorrent.app
+          mkdir -p "$OUT"
+
+      # A folder with PaTorrent.app and patorrent.ini, as on a USB stick: the default profile
+      # and `work` run side by side, each keeping everything in the folder and nothing in
+      # ~/Library
+      - name: Portable
+        run: |
+          export HOME="$RUNNER_TEMP/home-portable"
+          mkdir -p "$HOME"
+          stick="$RUNNER_TEMP/stick"
+          mkdir -p "$stick/profiles/work"
+          ditto PaTorrent.app "$stick/PaTorrent.app"
+          : > "$stick/patorrent.ini"
+          "$stick/PaTorrent.app/Contents/MacOS/PaTorrent" > "$OUT/portable-default.log" 2>&1 &
+          "$stick/PaTorrent.app/Contents/MacOS/PaTorrent" --profile work > "$OUT/portable-work.log" 2>&1 &
+          sleep 25
+          perl -e 'alarm 20; exec @ARGV' screencapture -x "$OUT/portable.png" || echo "::warning::screencapture failed"
+          ps -axo pid,command | grep '[p]atorrent-gtk' | tee "$OUT/portable-ps.txt"
+          find "$stick" -maxdepth 3 -not -path '*/PaTorrent.app/*' | sort | tee "$OUT/portable-files.txt"
+          ls -la "$HOME/Library/Application Support" 2>&1 | tee -a "$OUT/portable-files.txt"
+          pkill -f patorrent-gtk || true
+          sleep 3
+          ok=1
+          for f in patorrent.lock metadata.pack profiles/work/patorrent.lock profiles/work/metadata.pack; do
+            [ -e "$stick/$f" ] || { echo "::error::$f is not in the portable folder"; ok=0; }
+          done
+          [ ! -e "$HOME/Library/Application Support/PaTorrent" ] || { echo "::error::wrote to ~/Library/Application Support/PaTorrent"; ok=0; }
+          [ "$(wc -l < "$OUT/portable-ps.txt")" -ge 2 ] || { echo "::error::two windows (default and work) were not both running"; ok=0; }
+          [ "$ok" = 1 ]
+
+      # What Preferences > "Start PaTorrent at login" writes, once per profile
+      # (crates/gtk/src/macos.rs launch_agent): launchd starts both, each in its profile
+      - name: LaunchAgents per profile
+        if: always()
+        run: |
+          app="$GITHUB_WORKSPACE/PaTorrent.app/Contents/MacOS/PaTorrent"
+          agents="$RUNNER_TEMP/agents"
+          mkdir -p "$agents"
+          for p in default work; do
+            label=io.github.balls0fsteel.PaTorrent
+            args="<string>$app</string>"
+            if [ "$p" != default ]; then
+              label="$label.$p"
+              args="$args<string>--profile</string><string>$p</string>"
+            fi
+            printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?>' \
+              '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">' \
+              '<plist version="1.0"><dict>' \
+              "<key>Label</key><string>$label</string>" \
+              "<key>ProgramArguments</key><array>$args</array>" \
+              '<key>RunAtLoad</key><true/>' \
+              '<key>LimitLoadToSessionType</key><string>Aqua</string>' \
+              '<key>ProcessType</key><string>Interactive</string>' \
+              '</dict></plist>' > "$agents/$label.plist"
+            plutil -lint "$agents/$label.plist"
+            launchctl bootstrap "gui/$(id -u)" "$agents/$label.plist"
+          done
+          sleep 25
+          perl -e 'alarm 20; exec @ARGV' screencapture -x "$OUT/launchagents.png" || echo "::warning::screencapture failed"
+          launchctl list | grep -i patorrent | tee "$OUT/launchagents.txt"
+          ps -axo pid,command | grep '[p]atorrent-gtk' | tee -a "$OUT/launchagents.txt"
+          for f in "$agents"/*.plist; do launchctl bootout "gui/$(id -u)" "$f" || true; done
+          pkill -f patorrent-gtk || true
+          ls "$HOME/Library/Application Support/PaTorrent" "$HOME/Library/Application Support/PaTorrent/profiles" | tee -a "$OUT/launchagents.txt"
+          grep -q -- '--profile work' "$OUT/launchagents.txt"
+          [ "$(grep -c '[p]atorrent-gtk' "$OUT/launchagents.txt")" -ge 2 ]
+
+      # A quarantined download opened where it was unpacked: Gatekeeper translocates it to a
+      # random read-only folder, where patorrent.ini beside it is not seen; the app says so
+      - name: Translocated
+        if: always()
+        run: |
+          dl="$RUNNER_TEMP/Downloads/PaTorrent"
+          mkdir -p "$dl"
+          ditto PaTorrent.app "$dl/PaTorrent.app"
+          : > "$dl/patorrent.ini"
+          now=$(printf '%x' "$(date +%s)")
+          xattr -w com.apple.quarantine "0083;$now;Safari;" "$dl/PaTorrent.app"
+          xattr -l "$dl/PaTorrent.app"
+          spctl --assess --verbose=4 --type execute "$dl/PaTorrent.app" 2>&1 || true
+          open "$dl/PaTorrent.app" 2>&1 || echo "::warning::open failed"
+          sleep 25
+          perl -e 'alarm 20; exec @ARGV' screencapture -x "$OUT/translocated.png" || echo "::warning::screencapture failed"
+          ps -axo pid,command | grep '[p]atorrent-gtk' | tee "$OUT/translocated.txt"
+          ls -la "$dl" | tee -a "$OUT/translocated.txt"
+          pkill -f patorrent-gtk || true
+          grep -q AppTranslocation "$OUT/translocated.txt" \
+            || echo "::warning::not translocated here (Gatekeeper may have refused the unsigned app)"
+
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: macos-gate8
+          path: gate8

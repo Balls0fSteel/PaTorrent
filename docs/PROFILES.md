@@ -1,6 +1,6 @@
 # Profiles and portable mode (V2.0 design)
 
-Status 2026-10-30_090053_1793347253: **proposal, proposed D42** ([DECISIONS.md](DECISIONS.md)). Nothing here is implemented; no code changes until the owner approves. V2.0 goals 1 and 3 in [PLAN.md](../PLAN.md); it revisits D7 and touches D16, D22, D31 and D40.
+Status 2026-10-30_090053_1793347253: **proposal, proposed D42** ([DECISIONS.md](DECISIONS.md)). V2.0 goals 1 and 3 in [PLAN.md](../PLAN.md); it revisits D7 and touches D16, D22, D31 and D40. **2026-11-03_115032_1793703032: approved with [PROFILES_PLAN.md](PROFILES_PLAN.md)**, which answers Q1-Q9, replaces "Order of work" below and corrects this design where the code differs (relative paths are converted in core, since `resume.db` is the engine's). Nothing is implemented yet.
 
 ## Goals
 

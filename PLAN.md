@@ -1,8 +1,8 @@
 # PaTorrent plan
 
-Last updated: 2026-11-03_113345_1793702025
+Last updated: 2026-11-03_115032_1793703032
 
-Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D49 and proposed D42, D46](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
+Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D49 and proposed D46](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
 ## Vision
 
@@ -35,7 +35,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
 - **C, D.** RSS in hosted mode (1.1.13) and Torznab search (D41, all five slices, 1.1.12-1.1.19): done; hand checks in BACKLOG. Optional: a GTK hosting page. No alternative speed limits in the Win32 GUI (owner, 2026-10-30).
-- **E.** A V2.0 profiles and portable-mode design: written ([PROFILES.md](docs/PROFILES.md), proposed D42); awaiting the owner's review of Q1-Q9. No code before approval.
+- **E.** Profiles and portable mode (D42, approved 2026-11-03_115032_1793703032): design in [PROFILES.md](docs/PROFILES.md), the plan with Q1-Q9 answered in [PROFILES_PLAN.md](docs/PROFILES_PLAN.md): slices 0-8, slice 0 (the keyed window class, one portable test, `patorrent.lock`) first and shippable in 1.1.x. Next: build slice 0.
 - **F.** Microsoft Store release (2026-11-01_070555_1793513155): planned in [STORE.md](docs/STORE.md), proposed D46 (an MSIX Store flavour without self-update; free or paid). Awaiting the owner's answers to Q1-Q6. No code before approval.
 - **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): approved and built (D48, [DISKIO.md](docs/DISKIO.md), 1.1.36-1.1.40); real-disk measurements of the busy-disk throttle in BACKLOG "Disk and storage". **Keep ping low** (D49, [LOWPING.md](docs/LOWPING.md)): built in 1.1.29-1.1.31; 1.1.32 passed a bloated-line test (ping ~480 ms to 9 ms at 80-92% of the line). Next: the owner's line with a game, a Mac run; the rest in BACKLOG, including 2.2.1's "Stop transfers on user interaction".
 - **H.** Reviewed 2026-11-02, owner to choose: 2.2.1's web search engines (worth it with an empty default list) and themes (icon skins first, dark mode a separate decision); details in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999).
@@ -81,7 +81,6 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 
 - UI artwork (D27-D30): the bold family passed its revision 6 review (131/131) and is integrated (gate 10); revisions 3-6 and their reviews are in the [changelog archive](docs/archive/README.md). Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
-- Proposed D42: profiles and portable mode ([PROFILES.md](docs/PROFILES.md)).
 - Proposed D46: the Microsoft Store release ([STORE.md](docs/STORE.md)), Q1-Q6.
 - Proposed D48: smart disk I/O ([DISKIO.md](docs/DISKIO.md)), Q1, Q2, Q4-Q7.
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
@@ -93,7 +92,7 @@ Released in 1.1.0 (D35: the name search, and importers from qBittorrent / µTorr
 
 ## V2.0 goals
 
-Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23. Goals 1 and 3 are designed in [PROFILES.md](docs/PROFILES.md) (2026-10-30_090053_1793347253, proposed D42, open questions Q1-Q9); no code before the owner approves.
+Owner priorities recorded 2026-10-21 and reaffirmed 2026-10-23. Goals 1 and 3 are designed in [PROFILES.md](docs/PROFILES.md) and planned in [PROFILES_PLAN.md](docs/PROFILES_PLAN.md) (D42, approved 2026-11-03); step E above.
 
 1. Profiles: separate settings, torrents and state, simultaneous instances, per-profile single-instance handling, ports and nox services.
 2. Downloadable binaries on GitHub Releases: build on the tagged packaging workflow already started for 1.0 (items 6-8).

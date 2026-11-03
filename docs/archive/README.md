@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-11-02_231601_1793657761
+Last updated: 2026-11-03_115032_1793703032
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -32,6 +32,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-11-01 to 2026-11-02 (1.1.25-1.1.28, closing window)](CHANGELOG-2026-11-01--2026-11-02-v1.1.25-closing.md) | `2026-11-01_070555_1793513155` through `2026-11-02_092152_1793607712` | 5 entries moved verbatim from the root changelog on 2026-11-02_162406_1793633046: the Microsoft Store plan (proposed D46), the safer exit, sign-out and relaunch (1.1.25) and the closing window (1.1.26-1.1.28, D47). |
 | [Changelog, 2026-11-02 (smart disk I/O and keep ping low proposals)](CHANGELOG-2026-11-02--2026-11-02-d48-d49-proposals.md) | `2026-11-02_110639_1793613999` through `2026-11-02_123805_1793619485` | 5 entries moved verbatim from the root changelog on 2026-11-02_231601_1793657761: the smart disk I/O proposal (D48) with the search engine and theme reviews, the owner's first D48 answers, and the keep ping low proposal, the owner's answers and its approval (D49). |
 | [Changelog, 2026-11-02 (1.1.29-1.1.32, keep ping low)](CHANGELOG-2026-11-02--2026-11-02-v1.1.29-keep-ping-low.md) | `2026-11-02_130357_1793621037` through `2026-11-02_211916_1793650756` | 5 entries moved verbatim from the root changelog on 2026-11-03_090534_1793693134: keep ping low's three slices (1.1.29-1.1.31, D49), its first Linux run and the bloated-line test with its fixes (1.1.32). |
+| [Changelog, 2026-11-02 (1.1.33-1.1.35, release checks, Files tab, numbered scripts)](CHANGELOG-2026-11-02--2026-11-02-v1.1.33-files-tab.md) | `2026-11-02_221313_1793653993` through `2026-11-02_231601_1793657761` | 5 entries moved verbatim from the root changelog on 2026-11-03_115032_1793703032: the 1.1.18-1.1.32 release checks (1.1.33), why qBittorrent refused our uTP, the Files tab's Open and label folders (1.1.34), its 2.2.1 menu (1.1.35) and the numbered Windows scripts. |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_231320_1793744000: The 1.1.54 hold in the Flatpak
+
+- The Flatpak, rebuilt from 1.1.54 with flatpak-builder on the Xubuntu VM, under headless GNOME 50. A fresh `fp` profile's first window was matched to its own `….profile_fp.desktop` (`Exec=flatpak run --command=patorrent-gtk … --profile fp %U`) and had PaTorrent's badge. Before the hold, a first start was grouped under the default app. Docs only.
+- On the Mac VM, `screencapture` returns only the menu bar even when started by a LaunchAgent inside the logged-in session, so it is not SSH's permission. Most likely the VM has no GPU acceleration. The VMware window on the host shows the screen.
+
 ## 2026-11-03_230801_1793743681: Version 1.1.54: a profile's first window waits for GNOME
 
 - **GTK:** when a named profile's desktop entry is written at its start (its first start, or after the program moved), under GNOME (`XDG_CURRENT_DESKTOP`) the window shows 6 s later. GNOME Shell reads a new entry about 5 s late, and a window shown sooner kept a generic badge in the overview (in the Flatpak, the default app's group). This was the owner's choice over leaving it.

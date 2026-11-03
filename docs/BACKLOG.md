@@ -774,8 +774,9 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
   `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only.
 - **GNOME's late read of a new entry** (about 5 s; GIO in the program sees it within 1 ms): since
   1.1.54 a profile's first window waits 6 s under GNOME, the owner's choice
-  (2026-11-03_230801_1793743681). Checked natively under headless GNOME 50; the Flatpak gets the
-  same code but was not rebuilt to check it.
+  (2026-11-03_230801_1793743681). Checked under headless GNOME 50, natively and in the Flatpak
+  rebuilt from 1.1.54 (2026-11-03_231320_1793744000): a profile's first window gets its own entry
+  and PaTorrent's badge.
 
 ## Startup and shutdown (investigated 2026-10-30_192440_1793384680)
 

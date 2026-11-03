@@ -40,6 +40,14 @@ Run on the VMware VM described under Limits; raw results in `docs/benchmarks/202
 | Deluge | 517 | 5.76 | 701 | 686 | 0.28 | 68.4 |
 | rTorrent | 24.7 | 22.62 | 2,142 | 2,132 | 1.25 | 16.4 |
 
+## Release check, 1.1.40 (2026-11-03)
+
+The same VM, now with 4 GB of RAM instead of 8, so the transfer was 1 GiB (the 2 GiB one does not fit in tmpfs twice); PaTorrent and qBittorrent only, with the published 1.0.1 binary run beside 1.1.40 the same day as the control. Raw results: `docs/benchmarks/2026-11-03-ubuntu-vm-4gb-1.1.40.jsonl`. The tables above stay the published comparison.
+
+- **Transfer, 1 GiB, 10 runs each, alternating:** 1.1.40 2,123 MiB/s and 1.17 CPU s/GiB, 1.0.1 2,099 MiB/s and 1.23: the same. Both are lower than the published 2 GiB run, and so is qBittorrent (1,256 MiB/s, 2.23 s/GiB): the smaller VM and payload.
+- **10,000 torrents, add:** three alternating runs each, 1.0.1 1.37-1.84 s (median 1.68), 1.1.40 1.71-2.16 s (median 1.78): within run-to-run noise. Start with all listed, memory after adding and idle CPU unchanged.
+- **Memory after a restart:** 66 MB at 10,000 torrents (60 for 1.0.1), 21 MB at 1,000 (15), 15.5 MB empty (9.5). The difference is `patorrent-nox`'s update check (since 1.1.17): its one HTTPS request 10-20 s after start adds about 5.5 MB that stays (10.4 MB with `--no-update-check`, measured at 40 s). The smart disk I/O threads add about 0.1 MB.
+
 ## What is measured
 
 **Many torrents** (`bench.py many --count N`). Every client gets the same N generated torrents,

@@ -486,6 +486,10 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 
 ## Disk and storage
 
+- Memory: `patorrent-nox`'s update check (1.1.17) leaves about 5.5 MB resident after its one
+  HTTPS request on Linux (empty session 15.5 MB, 10.4 MB with `--no-update-check`; BENCHMARKS.md
+  "Release check, 1.1.40"). Find what stays (OpenSSL's state, allocator arenas of the fetch
+  thread) and release it, or fetch in a short-lived thread whose arena is returned.
 - Smart disk I/O (D48, 1.1.36-1.1.39, [DISKIO.md](DISKIO.md#implementation-status)): measure
   the busy-disk throttle on a real hard disk, the Samba share and a USB disk before choosing
   final allowances (SSD 10 ms, HDD/unknown 50 ms, network 100 ms) or turning it on by default;

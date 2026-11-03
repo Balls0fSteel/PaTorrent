@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_102201_1793697721: 1.1.40 release checks
+
+- **CI** found three tests that only held on this PC, none a product bug, all fixed without a version bump: the drive override test assumed the temp folder is not on a hard disk (GitHub's Ubuntu runner's is); the Files tab path test expected `C:x` to be refused off Windows, where it is a plain name (since 1.1.34, first pushed now); the release job's live tests failed where nothing answers pings (GitHub's Windows runner) and outside the bloated-line setup, which now skip. CI, FreeBSD and Fuzz green on `b300136e`, tagged `v1.1.40`; the Release workflow built all 14 files.
+- **Clean Windows VM, the draft's files** (checked against `SHA256SUMS`): `zip-test.ps1` all ok (both programs run, Web UI logins, portable mode leaves `%APPDATA%` alone, no Defender detections); `setup-test.ps1 -OldVersion 1.1.17` 0 failures (upgrade, refusal while running, one Apps entry, uninstall, all users). The VM was left clean.
+- **Benchmarks** on the Xubuntu VM (now 4 GB): no regression against 1.0.1 run the same day; the empty session's extra 6 MB is nox's update check (1.1.17), recorded in BACKLOG. Details in BENCHMARKS.md.
+
 ## 2026-11-03_090534_1793693134: Version 1.1.40: FreeBSD hard disks; the VM checks
 
 - **Fixed:** FreeBSD never told a hard disk from an SSD: `kern.geom.confxml` puts `<rotationrate>` in the provider's `<config>`, and the parser only read the geom's own (the test fixture had it there). It now searches the whole geom; a fixture shaped like FreeBSD 15.1's output and the VM's real XML (da0, 15000 rpm: HDD) pass.

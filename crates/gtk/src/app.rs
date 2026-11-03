@@ -785,11 +785,11 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         .into_owned();
     let mut opts = Options::load(&prefs, &downloads);
     // a named profile's desktop entry, which the desktop matches to its windows (D42)
-    if remote.is_none() {
-        if let Err(e) = crate::integration::profile_entry() {
+    let entry_written = remote.is_none()
+        && crate::integration::profile_entry().unwrap_or_else(|e| {
             eprintln!("the profile's desktop entry: {e}");
-        }
-    }
+            false
+        });
     // a new profile or portable folder: a port of its own, kept from now on (D42)
     if remote.is_none() && profile::first_run_settings(&mut prefs, &mut opts.settings) {
         if let Err(e) = prefs.save() {
@@ -1229,7 +1229,15 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         glib::Propagation::Proceed
     });
     update_status();
-    window.present();
+    // GNOME Shell reads a new desktop entry about 5 s after it appears, and a window shown
+    // before then keeps a generic icon in the overview (in the Flatpak, the default app's
+    // group): a profile's first window waits for it there (D42). Other desktops show it at once.
+    if entry_written && !START_MINIMIZED.with(|m| m.get()) && gnome_shell() {
+        let w = window.clone();
+        glib::timeout_add_local_once(std::time::Duration::from_secs(6), move || w.present());
+    } else {
+        window.present();
+    }
     // macOS runs a quarantined app from a random read-only copy, where a portable marker beside
     // PaTorrent.app is not seen (D42): say how to get it run from where it is
     #[cfg(target_os = "macos")]
@@ -1251,6 +1259,11 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     for source in PENDING.with(|p| p.take()) {
         open(source);
     }
+}
+
+/// The desktop is GNOME's (`XDG_CURRENT_DESKTOP` names it, as in Ubuntu's `ubuntu:GNOME`).
+fn gnome_shell() -> bool {
+    std::env::var("XDG_CURRENT_DESKTOP").is_ok_and(|d| d.split(':').any(|s| s.eq_ignore_ascii_case("GNOME")))
 }
 
 // ---- the tray ---------------------------------------------------------------------------------

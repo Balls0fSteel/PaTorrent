@@ -134,15 +134,16 @@ mod imp {
     /// A named profile's application entry, written at its start when missing or not starting
     /// this program (a moved AppImage), hidden from the menu unless File > Profiles showed it:
     /// without it a Wayland desktop finds no entry for the profile's windows and shows a
-    /// generic icon. Nothing for the default profile, whose entry the package installs.
-    pub fn profile_entry() -> Result<(), String> {
+    /// generic icon. Nothing for the default profile, whose entry the package installs. True
+    /// when it wrote the entry just now.
+    pub fn profile_entry() -> Result<bool, String> {
         if profile::current().is_default() {
-            return Ok(());
+            return Ok(false);
         }
         let (path, command) = (app_entry_path(), command());
         let old = std::fs::read_to_string(&path).ok();
         if command.is_empty() || old.as_deref().is_some_and(|t| integration::starts(t, &command)) {
-            return Ok(());
+            return Ok(false);
         }
         let shown = old.as_deref().is_some_and(integration::shown);
         write_file(&path, &integration::entry_shown(&command, APP_ID, EntryKind::App, shown))?;
@@ -150,7 +151,7 @@ mod imp {
         if !super::packaged() {
             install_icon()?;
         }
-        Ok(())
+        Ok(true)
     }
 
     /// File > Profiles > Create Shortcut: the named profile's entry in the applications menu
@@ -405,8 +406,8 @@ mod imp {
     }
 
     /// Nothing on macOS: LaunchServices names the bundle, never a profile's entry.
-    pub fn profile_entry() -> Result<(), String> {
-        Ok(())
+    pub fn profile_entry() -> Result<bool, String> {
+        Ok(false)
     }
 
     /// Not on macOS (its menu item is greyed): the Dock keeps the bundle.

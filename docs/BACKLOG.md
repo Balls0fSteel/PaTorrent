@@ -771,12 +771,11 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
   silicon and are not affected; fix both if Intel bundles are ever made from MacPorts.
 - **Left out on purpose:** the Web UI's categories (`webui.json`) stay absolute in portable mode;
   the GTK Preferences page does not name the profile that owns the associations (Windows does);
-  `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only. A profile's very first window in
-  GNOME: the shell reads a new desktop entry about 5 s late (measured headless; GIO in the
-  program sees it within 1 ms), so that one start gets a generic badge in the overview (in the
-  Flatpak, the default app's group); the dock icon is right and later starts are fully right.
-  Holding the first window back 5 s, or hiding and showing it again, would cost more than it
-  fixes, so nothing waits. Any of these can be revisited if users ask.
+  `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only.
+- **GNOME's late read of a new entry** (about 5 s; GIO in the program sees it within 1 ms): since
+  1.1.54 a profile's first window waits 6 s under GNOME, the owner's choice
+  (2026-11-03_230801_1793743681). Checked natively under headless GNOME 50; the Flatpak gets the
+  same code but was not rebuilt to check it.
 
 ## Startup and shutdown (investigated 2026-10-30_192440_1793384680)
 

@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_230801_1793743681: Version 1.1.54: a profile's first window waits for GNOME
+
+- **GTK:** when a named profile's desktop entry is written at its start (its first start, or after the program moved), under GNOME (`XDG_CURRENT_DESKTOP`) the window shows 6 s later. GNOME Shell reads a new entry about 5 s late, and a window shown sooner kept a generic badge in the overview (in the Flatpak, the default app's group). This was the owner's choice over leaving it.
+- Checked under headless GNOME 50 on the Xubuntu VM: a fresh `work` profile's window got PaTorrent's badge and its own entry, where the build before still showed a gear. Started minimized, or on other desktops, nothing waits. Clippy for Linux and macOS clean; GTK tests pass.
+
 ## 2026-11-03_223519_1793741719: D42 on a real Mac: a login starting the agents, Open Anyway
 
 On the owner's Intel macOS 15.8.2 VM (VMware), with 1.1.53 built there from MacPorts' GTK 4.22 (Quartz):

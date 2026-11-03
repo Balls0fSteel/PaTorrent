@@ -20,6 +20,11 @@
 //!   `--replace` removes an installed service first (its state stays) and `--now` starts the
 //!   new one, so one elevated command does what the Windows GUI's Preferences > Web UI asks.
 //! - `service uninstall`, `service start` and `service stop` (waiting for the state change).
+//! - Profiles (D42): `--profile NAME` on each of them names the profile's own service,
+//!   `PaTorrentNox_NAME` ("PaTorrent nox (NAME)", state in `%ProgramData%\PaTorrent\profiles\
+//!   NAME\nox`); `service status [--profile NAME | --all [--in DIR]]` lists services and their
+//!   image paths (exit 0 when one or more, 4 when none: the uninstaller's test), and `service
+//!   uninstall --all` removes every profile's that runs this exe.
 //! - `service run` is what the SCM starts: `StartServiceCtrlDispatcherW` → [`service_main`] →
 //!   `RegisterServiceCtrlHandlerExW`. The status follows the points where `daemon` sends
 //!   systemd its notifications ([`notify`]): START_PENDING until `READY=1` (session started,
@@ -44,7 +49,7 @@ use std::time::{Duration, Instant};
 use windows_sys::Win32::Foundation::{CloseHandle, HANDLE};
 use windows_sys::Win32::Foundation::{
     ERROR_ACCESS_DENIED, ERROR_CALL_NOT_IMPLEMENTED, ERROR_FAILED_SERVICE_CONTROLLER_CONNECT,
-    ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_EXISTS,
+    ERROR_MORE_DATA, ERROR_SERVICE_ALREADY_RUNNING, ERROR_SERVICE_DOES_NOT_EXIST, ERROR_SERVICE_EXISTS,
     ERROR_SERVICE_MARKED_FOR_DELETE, ERROR_SERVICE_NOT_ACTIVE, ERROR_SERVICE_SPECIFIC_ERROR, LocalFree,
     NO_ERROR,
 };
@@ -59,27 +64,46 @@ use windows_sys::Win32::Security::{
 };
 use windows_sys::Win32::Storage::FileSystem::{CreateDirectoryW, DELETE};
 use windows_sys::Win32::System::Services::{
-    ChangeServiceConfig2W, CloseServiceHandle, ControlService, CreateServiceW, DeleteService, OpenSCManagerW,
-    OpenServiceW, QueryServiceStatus, RegisterServiceCtrlHandlerExW, SC_ACTION, SC_ACTION_RESTART, SC_HANDLE,
-    SC_MANAGER_CONNECT, SC_MANAGER_CREATE_SERVICE, SERVICE_ACCEPT_PARAMCHANGE, SERVICE_ACCEPT_PRESHUTDOWN,
+    ChangeServiceConfig2W, CloseServiceHandle, ControlService, CreateServiceW, DeleteService,
+    ENUM_SERVICE_STATUS_PROCESSW, EnumServicesStatusExW, OpenSCManagerW, OpenServiceW, QUERY_SERVICE_CONFIGW,
+    QueryServiceConfigW, QueryServiceStatus, RegisterServiceCtrlHandlerExW, SC_ACTION, SC_ACTION_RESTART,
+    SC_ENUM_PROCESS_INFO, SC_HANDLE, SC_MANAGER_CONNECT, SC_MANAGER_CREATE_SERVICE,
+    SC_MANAGER_ENUMERATE_SERVICE, SERVICE_ACCEPT_PARAMCHANGE, SERVICE_ACCEPT_PRESHUTDOWN,
     SERVICE_ACCEPT_SHUTDOWN, SERVICE_ACCEPT_STOP, SERVICE_ALL_ACCESS, SERVICE_AUTO_START,
     SERVICE_CONFIG_DELAYED_AUTO_START_INFO, SERVICE_CONFIG_DESCRIPTION, SERVICE_CONFIG_FAILURE_ACTIONS,
     SERVICE_CONFIG_FAILURE_ACTIONS_FLAG, SERVICE_CONFIG_PRESHUTDOWN_INFO, SERVICE_CONTROL_INTERROGATE,
     SERVICE_CONTROL_PARAMCHANGE, SERVICE_CONTROL_PRESHUTDOWN, SERVICE_CONTROL_SHUTDOWN, SERVICE_CONTROL_STOP,
     SERVICE_DELAYED_AUTO_START_INFO, SERVICE_DEMAND_START, SERVICE_DESCRIPTIONW, SERVICE_ERROR_NORMAL,
-    SERVICE_FAILURE_ACTIONS_FLAG, SERVICE_FAILURE_ACTIONSW, SERVICE_PRESHUTDOWN_INFO, SERVICE_QUERY_STATUS,
-    SERVICE_RUNNING, SERVICE_START, SERVICE_START_PENDING, SERVICE_STATUS, SERVICE_STATUS_HANDLE,
-    SERVICE_STOP, SERVICE_STOP_PENDING, SERVICE_STOPPED, SERVICE_TABLE_ENTRYW, SERVICE_WIN32_OWN_PROCESS,
-    StartServiceCtrlDispatcherW, StartServiceW,
+    SERVICE_FAILURE_ACTIONS_FLAG, SERVICE_FAILURE_ACTIONSW, SERVICE_PRESHUTDOWN_INFO, SERVICE_QUERY_CONFIG,
+    SERVICE_QUERY_STATUS, SERVICE_RUNNING, SERVICE_START, SERVICE_START_PENDING, SERVICE_STATE_ALL,
+    SERVICE_STATUS, SERVICE_STATUS_HANDLE, SERVICE_STOP, SERVICE_STOP_PENDING, SERVICE_STOPPED,
+    SERVICE_TABLE_ENTRYW, SERVICE_WIN32, SERVICE_WIN32_OWN_PROCESS, StartServiceCtrlDispatcherW,
+    StartServiceW,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, OpenProcessToken};
 use windows_sys::core::PWSTR;
 
 use crate::signals::{self, ServiceControl};
 
-/// The service's name (`sc query PaTorrentNox`).
+/// The default profile's service name (`sc query PaTorrentNox`).
 pub const NAME: &str = "PaTorrentNox";
 const DISPLAY_NAME: &str = "PaTorrent nox";
+
+/// The service of `profile` (D42): [`NAME`], or `PaTorrentNox_<name>` for a named profile.
+pub fn service_name(profile: Option<&str>) -> String {
+    profile.map_or(NAME.to_owned(), |p| format!("{NAME}_{p}"))
+}
+
+/// Its display name: "PaTorrent nox", "PaTorrent nox (work)".
+fn display_name(profile: Option<&str>) -> String {
+    profile.map_or(DISPLAY_NAME.to_owned(), |p| format!("{DISPLAY_NAME} ({p})"))
+}
+
+/// Whether `name` is one of ours, in any profile.
+fn is_ours(name: &str) -> bool {
+    name.eq_ignore_ascii_case(NAME)
+        || name.get(..NAME.len() + 1).is_some_and(|p| p.eq_ignore_ascii_case(&format!("{NAME}_")))
+}
 const DESCRIPTION: &str =
     "Headless PaTorrent BitTorrent client (patorrent-nox run), driven through its Web UI.";
 /// The log file in the state directory when no `--log` is given.
@@ -104,17 +128,55 @@ const PATH_OPTIONS: [&str; 10] = [
     "--webui-key",
 ];
 
-const USAGE: &str = "install, uninstall, start, stop, run or debug (patorrent-nox --help)";
+const USAGE: &str = "install, uninstall, start, stop, status, run or debug (patorrent-nox --help)";
+
+/// `service status`'s exit code when no service matched (0: one or more did).
+const EXIT_NONE: u8 = 4;
+
+/// The choice of services after `uninstall`, `start`, `stop` and `status`.
+#[derive(Debug, PartialEq, Eq)]
+enum Which {
+    /// One profile's (`--profile NAME`, none for the default profile).
+    One(Option<String>),
+    /// Every profile's (`--all`), those whose program is in `in_dir` when given (`--in DIR`).
+    All { in_dir: Option<PathBuf> },
+}
+
+/// Parses `--profile NAME`, `--all` and (with `all_ok`) `--in DIR`.
+fn parse_which(cmd: &str, args: &[String], all_ok: bool) -> Result<Which, String> {
+    let (mut profile, mut all, mut in_dir) = (None, false, None);
+    let mut it = args.iter();
+    while let Some(a) = it.next() {
+        let mut value = || it.next().cloned().ok_or_else(|| format!("{a} needs a value"));
+        match a.as_str() {
+            "--profile" => profile = crate::profile_name(&value()?)?,
+            s if s.starts_with("--profile=") => profile = crate::profile_name(&s["--profile=".len()..])?,
+            "--all" if all_ok => all = true,
+            "--in" if all_ok => in_dir = Some(PathBuf::from(value()?)),
+            _ => return Err(format!("service {cmd}: unknown option {a}")),
+        }
+    }
+    match (all, profile.is_some() || in_dir.is_none()) {
+        (true, _) if profile.is_some() => Err(format!("service {cmd}: --all or --profile, not both")),
+        (true, _) => Ok(Which::All { in_dir }),
+        (false, true) => Ok(Which::One(profile)),
+        (false, false) => Err(format!("service {cmd}: --in goes with --all")),
+    }
+}
 
 /// `patorrent-nox service ...`. `Err` is a usage error; failures are printed and give exit 1.
 pub fn main(args: &[String]) -> Result<ExitCode, String> {
     let (cmd, rest) = args.split_first().ok_or_else(|| format!("service: {USAGE}"))?;
-    let no_args = || if rest.is_empty() { Ok(()) } else { Err(format!("service {cmd} takes no options")) };
+    let one = |w: Which| match w {
+        Which::One(p) => p,
+        Which::All { .. } => unreachable!("not offered"),
+    };
     match cmd.as_str() {
         "install" => parse_install(rest, program_data()).map(|i| outcome(install(&i))),
-        "uninstall" | "remove" => no_args().map(|()| outcome(uninstall())),
-        "start" => no_args().map(|()| outcome(start())),
-        "stop" => no_args().map(|()| outcome(stop())),
+        "uninstall" | "remove" => parse_which(cmd, rest, true).map(|w| outcome(uninstall(&w))),
+        "start" => parse_which(cmd, rest, false).map(|w| outcome(start(&service_name(one(w).as_deref())))),
+        "stop" => parse_which(cmd, rest, false).map(|w| outcome(stop(&service_name(one(w).as_deref())))),
+        "status" => parse_which(cmd, rest, true).map(|w| status(&w)),
         "run" => Ok(dispatch(rest)),
         "debug" => {
             Ok(if serve(Box::new(NoScm), rest, false) == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE })
@@ -213,6 +275,8 @@ struct Install {
     replace: bool,
     /// `--now`: started once installed.
     now: bool,
+    /// `--profile NAME` (D42): the service is `PaTorrentNox_<name>`; it stays in the image path.
+    profile: Option<String>,
 }
 
 /// Whether `run` takes a value after `opt`, asked of `run`'s own parser (so the two cannot
@@ -273,7 +337,7 @@ fn parse_install(args: &[String], program_data: Option<PathBuf>) -> Result<Insta
         None => {
             let base =
                 program_data.ok_or("service install: %ProgramData% is not set; give --state-dir DIR")?;
-            let s = base.join("PaTorrent").join("nox");
+            let s = default_state(&base, o.profile.as_deref());
             out.push("--state-dir".into());
             out.push(s.to_string_lossy().into_owned());
             s
@@ -299,8 +363,15 @@ fn parse_install(args: &[String], program_data: Option<PathBuf>) -> Result<Insta
         webui: o.webui.is_some(),
         replace,
         now,
+        profile: o.profile.clone(),
         args: out,
     })
+}
+
+/// A service's state directory when none is given: `%ProgramData%\PaTorrent\nox`, a named
+/// profile's `%ProgramData%\PaTorrent\profiles\<name>\nox`.
+fn default_state(program_data: &Path, profile: Option<&str>) -> PathBuf {
+    patorrent_frontend::profile::within(&program_data.join("PaTorrent"), profile).join("nox")
 }
 
 /// Stores the Web UI login in the state directory's `webui.json` (merged into what is there),
@@ -400,9 +471,9 @@ fn manager(access: u32) -> io::Result<Sc> {
     if h.is_null() { Err(io::Error::last_os_error()) } else { Ok(Sc(h)) }
 }
 
-fn open(access: u32) -> io::Result<Sc> {
+fn open(name: &str, access: u32) -> io::Result<Sc> {
     let m = manager(SC_MANAGER_CONNECT)?;
-    let name = wide(NAME);
+    let name = wide(name);
     // SAFETY: an open manager handle and a NUL-terminated name
     let h = unsafe { OpenServiceW(m.0, name.as_ptr(), access) };
     if h.is_null() { Err(io::Error::last_os_error()) } else { Ok(Sc(h)) }
@@ -415,8 +486,8 @@ fn query(s: &Sc) -> io::Result<SERVICE_STATUS> {
     if unsafe { QueryServiceStatus(s.0, &mut st) } == 0 { Err(io::Error::last_os_error()) } else { Ok(st) }
 }
 
-/// Polls the service while it is in `pending`; returns the status it ended in.
-fn wait_while(s: &Sc, pending: u32, timeout: Duration) -> Result<SERVICE_STATUS, String> {
+/// Polls the service `name` while it is in `pending`; returns the status it ended in.
+fn wait_while(s: &Sc, name: &str, pending: u32, timeout: Duration) -> Result<SERVICE_STATUS, String> {
     let deadline = Instant::now() + timeout;
     loop {
         let st = query(s).map_err(|e| scm_error("querying the service", e))?;
@@ -424,7 +495,7 @@ fn wait_while(s: &Sc, pending: u32, timeout: Duration) -> Result<SERVICE_STATUS,
             return Ok(st);
         }
         if Instant::now() >= deadline {
-            return Err(format!("{NAME} still {} after {} s", state_name(pending), timeout.as_secs()));
+            return Err(format!("{name} still {} after {} s", state_name(pending), timeout.as_secs()));
         }
         std::thread::sleep(Duration::from_millis(250));
     }
@@ -454,12 +525,12 @@ fn state_name(state: u32) -> &'static str {
     }
 }
 
-/// Why a service stopped, from its exit codes.
-fn exit_text(win32: u32, specific: u32) -> String {
+/// Why the service `name` stopped, from its exit codes.
+fn exit_text(name: &str, win32: u32, specific: u32) -> String {
     match (win32, specific) {
         (NO_ERROR, _) => "exit code 0".into(),
         (ERROR_SERVICE_SPECIFIC_ERROR, EXIT_ARGS) => {
-            format!("exit code {EXIT_ARGS}: its command line is invalid (sc qc {NAME} shows it)")
+            format!("exit code {EXIT_ARGS}: its command line is invalid (sc qc {name} shows it)")
         }
         (ERROR_SERVICE_SPECIFIC_ERROR, EXIT_LOG) => {
             format!("exit code {EXIT_LOG}: it cannot open its log file")
@@ -845,8 +916,9 @@ fn install(i: &Install) -> Result<(), String> {
     // first, so an unelevated prompt fails before anything is created
     let m = manager(SC_MANAGER_CONNECT | SC_MANAGER_CREATE_SERVICE)
         .map_err(|e| scm_error("service install", e))?;
+    let (service, display_name) = (service_name(i.profile.as_deref()), display_name(i.profile.as_deref()));
     if i.replace {
-        remove(true)?;
+        remove(&service, true)?;
     }
 
     let me = current_user().ok();
@@ -857,7 +929,7 @@ fn install(i: &Install) -> Result<(), String> {
     }
     store_login(&i.state, i.webui_user.as_deref(), i.webui_pass.as_deref())?;
 
-    let (name, display, path) = (wide(NAME), wide(DISPLAY_NAME), wide(&image));
+    let (name, display, path) = (wide(&service), wide(&display_name), wide(&image));
     let account = (i.account != Account::LocalSystem).then(|| wide(i.account.name()));
     let empty = wide("");
     let start_type = if i.start == StartType::Manual { SERVICE_DEMAND_START } else { SERVICE_AUTO_START };
@@ -914,7 +986,7 @@ fn install(i: &Install) -> Result<(), String> {
         StartType::Auto => "automatic start",
         StartType::Manual => "manual start",
     };
-    println!("* installed the service {NAME} (\"{DISPLAY_NAME}\"), {start}, as {}", i.account.name());
+    println!("* installed the service {service} (\"{display_name}\"), {start}, as {}", i.account.name());
     println!("* command line: {image}");
     let who = match i.account {
         Account::LocalSystem => "SYSTEM and Administrators".to_owned(),
@@ -954,20 +1026,184 @@ fn install(i: &Install) -> Result<(), String> {
     }
     if i.now {
         drop(s);
-        return self::start();
+        return self::start(&service);
     }
-    println!("* start it with: patorrent-nox service start (or sc start {NAME})");
+    let profile = i.profile.as_ref().map_or(String::new(), |p| format!(" --profile {p}"));
+    println!("* start it with: patorrent-nox service start{profile} (or sc start {service})");
     Ok(())
 }
 
-fn uninstall() -> Result<(), String> {
-    remove(false).map(|_| ())
+/// `service uninstall`: one profile's service, or with `--all` every profile's that runs this
+/// exe (or one in `--in DIR`).
+fn uninstall(which: &Which) -> Result<(), String> {
+    match which {
+        Which::One(p) => remove(&service_name(p.as_deref()), false).map(|_| ()),
+        Which::All { in_dir } => {
+            let dir = match in_dir {
+                Some(d) => d.clone(),
+                None => this_dir()?,
+            };
+            let found = installed().map_err(|e| scm_error("service uninstall", e))?;
+            let mine: Vec<_> = found.into_iter().filter(|s| s.runs_from(&dir)).collect();
+            if mine.is_empty() {
+                println!("* no PaTorrent nox service runs from {}", dir.display());
+            }
+            mine.iter().try_for_each(|s| remove(&s.name, false).map(|_| ()))
+        }
+    }
 }
 
-/// Stops and removes the service. With `tolerate_missing`, one that is not installed gives
-/// `Ok(false)` (`install --replace`).
-fn remove(tolerate_missing: bool) -> Result<bool, String> {
-    let s = match open(DELETE | SERVICE_STOP | SERVICE_QUERY_STATUS) {
+/// This exe's folder.
+fn this_dir() -> Result<PathBuf, String> {
+    let exe = std::env::current_exe().map_err(|e| format!("cannot find this exe: {e}"))?;
+    let exe = PathBuf::from(exe.to_string_lossy().trim_start_matches(r"\\?\"));
+    Ok(exe.parent().map(Path::to_path_buf).unwrap_or_default())
+}
+
+/// An installed service of ours.
+#[derive(Debug)]
+struct Installed {
+    name: String,
+    state: u32,
+    image: String,
+}
+
+impl Installed {
+    /// Whether its image path starts an exe in `dir` (not below it).
+    fn runs_from(&self, dir: &Path) -> bool {
+        image_exe(&self.image).is_some_and(|exe| {
+            let lower = |p: &Path| p.to_string_lossy().trim_end_matches('\\').to_lowercase();
+            exe.parent().is_some_and(|p| lower(p) == lower(dir))
+        })
+    }
+}
+
+/// The exe an image path starts: the quoted first part, or up to the first space.
+fn image_exe(image: &str) -> Option<PathBuf> {
+    let image = image.trim_start();
+    let exe = match image.strip_prefix('"') {
+        Some(rest) => rest.split('"').next()?,
+        None => image.split(' ').next()?,
+    };
+    (!exe.is_empty()).then(|| PathBuf::from(exe))
+}
+
+/// Every installed `PaTorrentNox` and `PaTorrentNox_*` service, with its state and image path.
+fn installed() -> io::Result<Vec<Installed>> {
+    let m = manager(SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE)?;
+    let mut names = Vec::new();
+    let mut resume = 0u32;
+    loop {
+        let mut buf = vec![0u8; 64 * 1024];
+        let (mut needed, mut count) = (0u32, 0u32);
+        // SAFETY: an open manager handle, a buffer of the size given and valid out pointers
+        let ok = unsafe {
+            EnumServicesStatusExW(
+                m.0,
+                SC_ENUM_PROCESS_INFO,
+                SERVICE_WIN32,
+                SERVICE_STATE_ALL,
+                buf.as_mut_ptr(),
+                buf.len() as u32,
+                &mut needed,
+                &mut count,
+                &mut resume,
+                std::ptr::null(),
+            )
+        };
+        let more = ok == 0 && io::Error::last_os_error().raw_os_error() == Some(ERROR_MORE_DATA as i32);
+        if ok == 0 && !more {
+            return Err(io::Error::last_os_error());
+        }
+        let entries = buf.as_ptr() as *const ENUM_SERVICE_STATUS_PROCESSW;
+        for i in 0..count as usize {
+            // SAFETY: `count` entries the call wrote, their strings inside the buffer
+            let (name, state) = unsafe {
+                let e = &*entries.add(i);
+                (from_wide_ptr(e.lpServiceName), e.ServiceStatusProcess.dwCurrentState)
+            };
+            if is_ours(&name) {
+                names.push((name, state));
+            }
+        }
+        if !more {
+            break;
+        }
+    }
+    let mut out = Vec::new();
+    for (name, state) in names {
+        let image = open(&name, SERVICE_QUERY_CONFIG).ok().and_then(|s| image_path(&s)).unwrap_or_default();
+        out.push(Installed { name, state, image });
+    }
+    out.sort_by(|a, b| a.name.cmp(&b.name));
+    Ok(out)
+}
+
+/// A service's image path (`QueryServiceConfigW`).
+fn image_path(s: &Sc) -> Option<String> {
+    let mut needed = 0u32;
+    // SAFETY: asks for the size only
+    unsafe { QueryServiceConfigW(s.0, std::ptr::null_mut(), 0, &mut needed) };
+    let mut buf = vec![0u64; (needed as usize).div_ceil(8).max(1)];
+    // SAFETY: an aligned buffer of at least `needed` bytes
+    let ok =
+        unsafe { QueryServiceConfigW(s.0, buf.as_mut_ptr().cast(), (buf.len() * 8) as u32, &mut needed) };
+    // SAFETY: the call filled a QUERY_SERVICE_CONFIGW with its strings after it
+    (ok != 0)
+        .then(|| unsafe { from_wide_ptr((*(buf.as_ptr() as *const QUERY_SERVICE_CONFIGW)).lpBinaryPathName) })
+}
+
+/// A NUL-terminated UTF-16 string, or "" for null.
+///
+/// # Safety
+/// `p` is null or points to a NUL-terminated string.
+unsafe fn from_wide_ptr(p: *const u16) -> String {
+    if p.is_null() {
+        return String::new();
+    }
+    let mut n = 0;
+    // SAFETY: up to the NUL the caller promises
+    unsafe {
+        while *p.add(n) != 0 {
+            n += 1;
+        }
+        String::from_utf16_lossy(std::slice::from_raw_parts(p, n))
+    }
+}
+
+/// `service status`: prints the services asked for with their state and image path. Exit 0
+/// when one or more are installed, [`EXIT_NONE`] when none is (the installer's test), 1 when
+/// the Service Control Manager could not be asked.
+fn status(which: &Which) -> ExitCode {
+    let found = match installed() {
+        Ok(f) => f,
+        Err(e) => {
+            eprintln!("error: {}", scm_error("service status", e));
+            return ExitCode::FAILURE;
+        }
+    };
+    let shown: Vec<&Installed> = match which {
+        Which::One(p) => {
+            let name = service_name(p.as_deref());
+            found.iter().filter(|s| s.name.eq_ignore_ascii_case(&name)).collect()
+        }
+        Which::All { in_dir: None } => found.iter().collect(),
+        Which::All { in_dir: Some(d) } => found.iter().filter(|s| s.runs_from(d)).collect(),
+    };
+    for s in &shown {
+        println!("{}: {}: {}", s.name, state_name(s.state), s.image);
+    }
+    if shown.is_empty() {
+        println!("* no PaTorrent nox service matches");
+        return ExitCode::from(EXIT_NONE);
+    }
+    ExitCode::SUCCESS
+}
+
+/// Stops and removes the service `name`. With `tolerate_missing`, one that is not installed
+/// gives `Ok(false)` (`install --replace`).
+fn remove(name: &str, tolerate_missing: bool) -> Result<bool, String> {
+    let s = match open(name, DELETE | SERVICE_STOP | SERVICE_QUERY_STATUS) {
         Ok(s) => s,
         Err(e) if tolerate_missing && e.raw_os_error() == Some(ERROR_SERVICE_DOES_NOT_EXIST as i32) => {
             return Ok(false);
@@ -976,66 +1212,66 @@ fn remove(tolerate_missing: bool) -> Result<bool, String> {
     };
     let st = query(&s).map_err(|e| scm_error("service uninstall", e))?;
     if st.dwCurrentState != SERVICE_STOPPED {
-        println!("* stopping {NAME}");
-        stop_and_wait(&s)?;
+        println!("* stopping {name}");
+        stop_and_wait(&s, name)?;
     }
     // SAFETY: an open handle with DELETE
     if unsafe { DeleteService(s.0) } == 0 {
         return Err(scm_error("service uninstall", io::Error::last_os_error()));
     }
-    println!("* removed the service {NAME}; its state directory and log are left in place");
+    println!("* removed the service {name}; its state directory and log are left in place");
     Ok(true)
 }
 
-fn start() -> Result<(), String> {
-    let s = open(SERVICE_START | SERVICE_QUERY_STATUS).map_err(|e| scm_error("service start", e))?;
+fn start(name: &str) -> Result<(), String> {
+    let s = open(name, SERVICE_START | SERVICE_QUERY_STATUS).map_err(|e| scm_error("service start", e))?;
     // SAFETY: an open handle with SERVICE_START; no service arguments
     if unsafe { StartServiceW(s.0, 0, std::ptr::null()) } == 0 {
         let e = io::Error::last_os_error();
         if e.raw_os_error() == Some(ERROR_SERVICE_ALREADY_RUNNING as i32) {
-            println!("* {NAME} is running already");
+            println!("* {name} is running already");
             return Ok(());
         }
         return Err(scm_error("service start", e));
     }
-    println!("* starting {NAME}");
-    let st = wait_while(&s, SERVICE_START_PENDING, Duration::from_secs(150))?;
+    println!("* starting {name}");
+    let st = wait_while(&s, name, SERVICE_START_PENDING, Duration::from_secs(150))?;
     match st.dwCurrentState {
         SERVICE_RUNNING => {
-            println!("* {NAME} is running");
+            println!("* {name} is running");
             Ok(())
         }
         SERVICE_STOPPED => Err(format!(
-            "{NAME} stopped while starting: {}",
-            exit_text(st.dwWin32ExitCode, st.dwServiceSpecificExitCode)
+            "{name} stopped while starting: {}",
+            exit_text(name, st.dwWin32ExitCode, st.dwServiceSpecificExitCode)
         )),
-        other => Err(format!("{NAME} is {}", state_name(other))),
+        other => Err(format!("{name} is {}", state_name(other))),
     }
 }
 
-fn stop() -> Result<(), String> {
-    let s = open(SERVICE_STOP | SERVICE_QUERY_STATUS).map_err(|e| scm_error("service stop", e))?;
-    stop_and_wait(&s)
+fn stop(name: &str) -> Result<(), String> {
+    let s = open(name, SERVICE_STOP | SERVICE_QUERY_STATUS).map_err(|e| scm_error("service stop", e))?;
+    stop_and_wait(&s, name)
 }
 
-fn stop_and_wait(s: &Sc) -> Result<(), String> {
+fn stop_and_wait(s: &Sc, name: &str) -> Result<(), String> {
     // SAFETY: zeroes are a valid SERVICE_STATUS
     let mut st: SERVICE_STATUS = unsafe { std::mem::zeroed() };
     // SAFETY: an open handle with SERVICE_STOP and a valid out pointer
     if unsafe { ControlService(s.0, SERVICE_CONTROL_STOP, &mut st) } == 0 {
         let e = io::Error::last_os_error();
         if e.raw_os_error() == Some(ERROR_SERVICE_NOT_ACTIVE as i32) {
-            println!("* {NAME} is not running");
+            println!("* {name} is not running");
             return Ok(());
         }
         return Err(scm_error("service stop", e));
     }
-    println!("* stopping {NAME} (resume data is saved, port mappings deleted)");
-    let st = wait_while(s, SERVICE_STOP_PENDING, Duration::from_secs(90))?;
+    println!("* stopping {name} (resume data is saved, port mappings deleted)");
+    let st = wait_while(s, name, SERVICE_STOP_PENDING, Duration::from_secs(90))?;
     println!(
-        "* {NAME} is {} ({})",
+        "* {name} is {} ({})",
         state_name(st.dwCurrentState),
-        exit_text(st.dwWin32ExitCode, st.dwServiceSpecificExitCode)
+        exit_text(name, st.dwWin32ExitCode, st.dwServiceSpecificExitCode)
     );
     Ok(())
 }
@@ -1295,7 +1531,7 @@ static EXIT: AtomicU32 = AtomicU32::new(0);
 /// and returns once the service has stopped.
 fn dispatch(args: &[String]) -> ExitCode {
     let _ = ARGS.set(args.to_vec());
-    let mut name = wide(NAME);
+    let mut name = wide(run_name());
     let table = [
         SERVICE_TABLE_ENTRYW { lpServiceName: name.as_mut_ptr(), lpServiceProc: Some(service_main) },
         SERVICE_TABLE_ENTRYW { lpServiceName: std::ptr::null_mut(), lpServiceProc: None },
@@ -1318,8 +1554,14 @@ fn dispatch(args: &[String]) -> ExitCode {
     if EXIT.load(Ordering::SeqCst) == 0 { ExitCode::SUCCESS } else { ExitCode::FAILURE }
 }
 
+/// The running service's name, from its `--profile` (the image path's).
+fn run_name() -> String {
+    let profile = ARGS.get().and_then(|a| crate::parse(a).ok()).and_then(|o| o.profile);
+    service_name(profile.as_deref())
+}
+
 unsafe extern "system" fn service_main(_argc: u32, _argv: *mut PWSTR) {
-    let name = wide(NAME);
+    let name = wide(run_name());
     // SAFETY: a NUL-terminated name and a handler with the documented signature
     let h = unsafe { RegisterServiceCtrlHandlerExW(name.as_ptr(), Some(on_control), std::ptr::null()) };
     if h.is_null() {
@@ -1385,7 +1627,7 @@ fn prepare(args: &[String], service: bool) -> Result<crate::Opts, (u32, String)>
     if service && o.service.log.is_none() {
         let state = crate::paths::resolve(o.state.clone(), o.config_dir.clone(), o.profile.as_deref())
             .state
-            .or_else(|| program_data().map(|d| d.join("PaTorrent").join("nox")));
+            .or_else(|| program_data().map(|d| default_state(&d, o.profile.as_deref())));
         o.service.log = state.map(|s| s.join(LOG_FILE));
     }
     if let Some(log) = &o.service.log {
@@ -1488,7 +1730,17 @@ mod tests {
                 webui: true,
                 replace: false,
                 now: false,
+                profile: None,
             }
+        );
+        // a profile's service keeps its own state, and its name in the image path (D42)
+        let i = parse_install(&args(&["--profile", "work", "--webui", "8081"]), pd.clone()).unwrap();
+        let work = PathBuf::from(r"C:\ProgramData\PaTorrent\profiles\work\nox");
+        assert_eq!((i.profile.as_deref(), &i.state), (Some("work"), &work));
+        assert_eq!(i.args[..2], args(&["--profile", "work"])[..]);
+        assert_eq!(
+            (service_name(Some("work")), display_name(Some("work"))),
+            ("PaTorrentNox_work".into(), "PaTorrent nox (work)".into())
         );
         // no %ProgramData%: --state-dir is needed
         let e = parse_install(&[], None).unwrap_err();
@@ -1925,11 +2177,53 @@ mod tests {
         assert_eq!(Status::stopped(0).to_win().dwWin32ExitCode, NO_ERROR);
     }
 
+    /// `--profile`, `--all` and `--in` after uninstall, start, stop and status (D42).
+    #[test]
+    fn which_services() {
+        assert_eq!(parse_which("stop", &[], false), Ok(Which::One(None)));
+        assert_eq!(
+            parse_which("stop", &args(&["--profile", "Work"]), false),
+            Ok(Which::One(Some("work".into())))
+        );
+        assert_eq!(parse_which("start", &args(&["--profile=default"]), false), Ok(Which::One(None)));
+        assert_eq!(parse_which("status", &args(&["--all"]), true), Ok(Which::All { in_dir: None }));
+        assert_eq!(
+            parse_which("status", &args(&["--all", "--in", r"C:\P"]), true),
+            Ok(Which::All { in_dir: Some(PathBuf::from(r"C:\P")) })
+        );
+        for (cmd, a, all_ok) in [
+            ("stop", &["--all"][..], false),
+            ("status", &["--all", "--profile", "w"][..], true),
+            ("status", &["--in", r"C:\P"][..], true),
+            ("start", &["--profile", "a b"][..], false),
+            ("start", &["--now"][..], false),
+        ] {
+            assert!(parse_which(cmd, &args(a), all_ok).is_err(), "{cmd} {a:?}");
+        }
+        // the services and their programs
+        assert!(is_ours("PaTorrentNox") && is_ours("patorrentnox_work") && !is_ours("PaTorrentNoxy"));
+        assert_eq!(
+            image_exe(r#""C:\P T\patorrent-nox.exe" service run"#),
+            Some(PathBuf::from(r"C:\P T\patorrent-nox.exe"))
+        );
+        assert_eq!(
+            image_exe(r"C:\P\patorrent-nox.exe service run"),
+            Some(PathBuf::from(r"C:\P\patorrent-nox.exe"))
+        );
+        let s = Installed {
+            name: NAME.into(),
+            state: SERVICE_STOPPED,
+            image: r#""C:\P T\patorrent-nox.exe" service run"#.into(),
+        };
+        assert!(s.runs_from(Path::new(r"c:\p t")) && s.runs_from(Path::new(r"C:\P T\")));
+        assert!(!s.runs_from(Path::new(r"C:\P")) && !s.runs_from(Path::new(r"C:\")));
+    }
+
     #[test]
     fn exit_codes_are_explained() {
-        assert_eq!(exit_text(NO_ERROR, 0), "exit code 0");
-        assert!(exit_text(ERROR_SERVICE_SPECIFIC_ERROR, EXIT_ARGS).contains("sc qc PaTorrentNox"));
-        assert!(exit_text(ERROR_SERVICE_SPECIFIC_ERROR, EXIT_FAILED).contains("nox.log"));
+        assert_eq!(exit_text(NAME, NO_ERROR, 0), "exit code 0");
+        assert!(exit_text(NAME, ERROR_SERVICE_SPECIFIC_ERROR, EXIT_ARGS).contains("sc qc PaTorrentNox"));
+        assert!(exit_text(NAME, ERROR_SERVICE_SPECIFIC_ERROR, EXIT_FAILED).contains("nox.log"));
         assert!(scm_error("service install", io::Error::from_raw_os_error(5)).contains("administrator"));
     }
 

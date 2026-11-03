@@ -104,6 +104,33 @@ updates) have no check at all.
   `* moved ...` line in the output.
 - `webui.json` belongs to the running daemon, which rewrites it on every change made in the Web
   UI: edit it only while the daemon is stopped.
+- `patorrent.lock` in the state directory keeps it to one process at a time, on this computer or
+  another one that opened the same folder over a share (D42): a second `run` exits with
+  "... is in use by another patorrent-nox". The file stays after exit; the lock goes with the
+  process.
+
+## Profiles
+
+`--profile NAME` (D42; 1-32 letters `a-z`, digits and `-`, starting with a letter) runs a
+separate daemon: its own state, config, Web UI login, service and, unless `--port` or
+`--listen` says otherwise, a BitTorrent listen port of its own taken from its name (10000-60000,
+the same at every start), so it does not fight the default profile for 6881. The router's UPnP
+mappings are described as `PaTorrent (NAME)`. `--profile default` is the default profile.
+
+| | default profile | `--profile work` |
+|---|---|---|
+| Linux / BSD | `~/.local/share/patorrent/nox`, `~/.config/patorrent/nox` | `.../patorrent/profiles/work/nox` in both |
+| Windows | `%APPDATA%\PaTorrent\nox` | `%APPDATA%\PaTorrent\profiles\work\nox` |
+| macOS | `~/Library/Application Support/PaTorrent/nox` | `.../PaTorrent/profiles/work/nox` |
+| Windows service | `PaTorrentNox`, `%ProgramData%\PaTorrent\nox` | `PaTorrentNox_work`, `%ProgramData%\PaTorrent\profiles\work\nox` |
+| systemd | `patorrent-nox.service` | `patorrent-nox@work.service` |
+| FreeBSD rc.d | `patorrent_nox_*` | `patorrent_nox_profiles="work"`, `patorrent_nox_work_*` |
+
+The profile only changes the defaults: `--state-dir`, `--config-dir` and systemd's directories
+still win, and the `* state (profile work): ...` line says where it went. Each daemon's Web UI
+needs a port of its own (`--webui 127.0.0.1:8081`); a port in use stops it with "port N is in
+use, perhaps by another PaTorrent profile". A GUI profile and a nox profile with the same name
+are unrelated programs that only share the `profiles/work` folder.
 
 ## Stopping and reloading
 
@@ -137,6 +164,12 @@ ReadWritePaths=/srv/torrents
 `contrib/systemd/user/patorrent-nox.service` is the same for one user (`systemctl --user`),
 with the XDG directories above; `loginctl enable-linger $USER` keeps it running after logout.
 
+Profiles have templates beside them: `patorrent-nox@.service` (system and user) runs `run
+--profile %i`, so `systemctl enable --now patorrent-nox@work` starts the profile `work`, with
+`StateDirectory=patorrent-nox/work` for the system one and the profile's XDG folders for the
+user one. They have no default `--webui`: two instances cannot share a port, so each gets its own
+in a drop-in (`systemctl edit patorrent-nox@work`, steps at the top of the files).
+
 Both are `Type=notify`: the daemon sends `READY=1` (with a `STATUS=` line naming the Web UI
 address) once the session runs and the Web UI listens, `RELOADING=1` / `READY=1` around a
 SIGHUP, and `STOPPING=1` when it shuts down, over `$NOTIFY_SOCKET` (the protocol of
@@ -152,6 +185,12 @@ journal; no `--log` is needed.
 reload` sends SIGHUP. Settings go in `/etc/rc.conf` (`sysrc`): `patorrent_nox_enable`,
 `patorrent_nox_args` (more `run` options, default `--webui 127.0.0.1:8080`),
 `patorrent_nox_user`, `patorrent_nox_dir`, `patorrent_nox_save`, `patorrent_nox_log`.
+
+Profiles follow rc.subr's usual way: `patorrent_nox_profiles="work vpn-1"` runs each as `run
+--profile <name>` with `patorrent_nox_<p>_dir` (default `/var/db/patorrent-nox/profiles/<p>`),
+`_save`, `_log` (`/var/log/patorrent-nox-<p>.log`), `_args` (empty: no Web UI unless given a
+port) and a pid file of its own; a `-` in the name is `_` in the variables. `service patorrent_nox
+start` starts them all, `service patorrent_nox start work` one.
 
 ## Other init systems: `--daemon`, `--pid-file`, `--log`
 
@@ -261,6 +300,16 @@ SERVICE_EXIT_CODE (with WIN32_EXIT_CODE 1066): 1 it failed (see the log), 2 its 
 invalid, 3 the log cannot be opened.
 
 `patorrent-nox service uninstall` stops and removes it; the state folder and log stay.
+
+**Profiles** (D42): `service install --profile work [OPTIONS]` registers `PaTorrentNox_work`
+("PaTorrent nox (work)") with its state in `%ProgramData%\PaTorrent\profiles\work\nox`; the
+image path carries `--profile work`, which also gives it a listen port of its own. `uninstall`,
+`start` and `stop` take `--profile work` too. `service status [--profile NAME]` prints the
+service's state and image path (no elevation needed); `service status --all [--in DIR]` lists
+every `PaTorrentNox` and `PaTorrentNox_*` service (those whose program is in DIR), with exit code
+0 when one or more are listed and 4 when none is: the uninstaller runs it to find services left
+in its folder. `service uninstall --all [--in DIR]` removes every profile's service that runs
+this exe (or one in DIR).
 `patorrent-nox service debug [OPTIONS]` runs the service's body in a console, without the SCM,
 printing the states it would report (and keeping output on the console unless `--log` is given):
 handy to try the options before installing. `service run` is the entry the SCM starts; in a

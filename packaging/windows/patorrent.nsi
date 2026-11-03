@@ -108,6 +108,7 @@ Var UsersAll
 Page custom UsersPage UsersPageLeave
 !insertmacro MUI_PAGE_COMPONENTS
 !define MUI_PAGE_CUSTOMFUNCTION_PRE SkipIfUpgrade
+!define MUI_PAGE_CUSTOMFUNCTION_LEAVE DirLeave
 !insertmacro MUI_PAGE_DIRECTORY
 !insertmacro MUI_PAGE_INSTFILES
 !define MUI_FINISHPAGE_RUN
@@ -231,12 +232,11 @@ Function ${UN}CheckFiles
     ${EndIf}
   !if "${UN}" == "un."
   service:
-    ; `service install` writes the image path as "<exe>" service run ...
-    ReadRegStr $1 HKLM "SYSTEM\CurrentControlSet\Services\PaTorrentNox" "ImagePath"
-    StrCpy $2 '"$INSTDIR\patorrent-nox.exe"'
-    StrLen $3 $2
-    StrCpy $1 $1 $3
-    ${If} $1 == $2
+    ; every profile's service (PaTorrentNox, PaTorrentNox_<profile>, D42) whose program is in
+    ; this folder: `service status` exits 0 when it lists one, 4 when none (nsExec: no console)
+    nsExec::Exec '"$INSTDIR\patorrent-nox.exe" service status --all --in "$INSTDIR"'
+    Pop $1
+    ${If} $1 == 0
       MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(PT_NOX_SERVICE)" /SD IDCANCEL IDRETRY service
       Abort
     ${EndIf}
@@ -253,6 +253,20 @@ FunctionEnd
 !insertmacro CHECK_FILES ""
 !insertmacro CHECK_FILES "un."
 
+; A folder with patorrent.ini is someone's portable PaTorrent (D7, D42): the setup refuses it
+; rather than turning it into an installed one.
+Function CheckPortable
+  ${If} ${FileExists} "$INSTDIR\patorrent.ini"
+    MessageBox MB_ICONSTOP "$(PT_PORTABLE_DIR)" /SD IDOK
+    Abort
+  ${EndIf}
+FunctionEnd
+
+; The Directory page's Next: stays on the page for a portable folder.
+Function DirLeave
+  Call CheckPortable
+FunctionEnd
+
 !macro IS_ADMIN
   UserInfo::GetAccountType
   Pop $0
@@ -268,6 +282,8 @@ FunctionEnd
 
 Section "PaTorrent" SecMain
   SectionIn RO
+  ; a silent install's /D= is not checked by the Directory page
+  Call CheckPortable
   Call CheckFiles
   SetOutPath "$INSTDIR"
   File "${BINDIR}\patorrent.exe"
@@ -713,13 +729,16 @@ SectionEnd
 ; Unticked by default, as uTorrent's uninstaller had it. What PaTorrent keeps in
 ; %APPDATA%\PaTorrent (the user's who runs this), by name: the GUI's settings, its torrent list
 ; and resume data (state), RSS feeds, remote connections and their windows' folders, the default
-; IP filter, and nox's state when it ran from a console. The folder itself goes only when that
-; leaves it empty, so a download folder someone put inside it stays.
+; IP filter, nox's state when it ran from a console, and the profiles (D42), each a folder like
+; this one. The folder itself goes only when that leaves it empty, so a download folder someone
+; put inside it stays.
 Section /o "un.$(PT_UN_DATA)" SecUnData
   SetShellVarContext current
   StrCpy $0 "$APPDATA\PaTorrent"
   Delete "$0\patorrent.ini"
   Delete "$0\patorrent.tmp"
+  Delete "$0\patorrent.lock"
+  RMDir /r "$0\profiles"
   Delete "$0\remote.ini"
   Delete "$0\remote.tmp"
   Delete "$0\rss.dat"

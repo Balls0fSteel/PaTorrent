@@ -15,6 +15,18 @@
 #   /var/log/patorrent-nox.log  patorrent:patorrent  600  7  1000  *  JC  /var/run/patorrent-nox/patorrent-nox.pid
 #
 # Use patorrent_nox_args, not patorrent_nox_flags: rc.subr puts the flags before `run`.
+#
+# Profiles (D42), rc.subr's usual way: name them, and each runs as `patorrent-nox run --profile
+# <name>` with its own directory, downloads, log, pid file and arguments (a variable's profile
+# part has `-` as `_`; `default` is the plain variables above):
+#
+#   sysrc patorrent_nox_profiles="work vpn-1"
+#   sysrc patorrent_nox_work_args="--webui 127.0.0.1:8081"
+#   sysrc patorrent_nox_vpn_1_args="--webui 127.0.0.1:8082 --listen tun0:51413"
+#   service patorrent_nox start          (every profile; `service patorrent_nox start work` one)
+#
+# Defaults: patorrent_nox_<p>_dir=/var/db/patorrent-nox/profiles/<p>, _save=<dir>/downloads,
+# _log=/var/log/patorrent-nox-<p>.log, _args="" (no Web UI: give each a port of its own).
 
 # PROVIDE: patorrent_nox
 # REQUIRE: LOGIN NETWORKING
@@ -37,8 +49,37 @@ load_rc_config "$name"
 : ${patorrent_nox_args:="--webui 127.0.0.1:8080"}
 
 pidfile="/var/run/patorrent-nox/patorrent-nox.pid"
+profile_arg=""
+
+if [ -n "$2" ]; then
+	profile="$2"
+	if [ -n "${patorrent_nox_profiles}" ] && [ "${profile}" != "default" ]; then
+		var=$(echo "${profile}" | tr '-' '_')
+		eval patorrent_nox_dir=\"\${patorrent_nox_${var}_dir:-/var/db/patorrent-nox/profiles/${profile}}\"
+		eval patorrent_nox_save=\"\${patorrent_nox_${var}_save:-${patorrent_nox_dir}/downloads}\"
+		eval patorrent_nox_log=\"\${patorrent_nox_${var}_log:-/var/log/patorrent-nox-${profile}.log}\"
+		eval patorrent_nox_args=\"\${patorrent_nox_${var}_args:-}\"
+		pidfile="/var/run/patorrent-nox/patorrent-nox-${profile}.pid"
+		profile_arg="--profile ${profile}"
+	elif [ -z "${patorrent_nox_profiles}" ]; then
+		echo "$0: extra argument ignored"
+	fi
+elif [ -n "${patorrent_nox_profiles}" ] && [ -n "$1" ]; then
+	for profile in ${patorrent_nox_profiles}; do
+		echo "===> patorrent_nox profile: ${profile}"
+		/usr/local/etc/rc.d/patorrent_nox "$1" "${profile}"
+		retcode="$?"
+		if [ "${retcode}" -ne 0 ]; then
+			failed="${profile} (${retcode}) ${failed:-}"
+		else
+			success="${profile} ${success:-}"
+		fi
+	done
+	exit 0
+fi
+
 command="/usr/local/bin/patorrent-nox"
-command_args="run --daemon --pid-file ${pidfile} --log ${patorrent_nox_log} --state-dir ${patorrent_nox_dir} --save ${patorrent_nox_save} ${patorrent_nox_args}"
+command_args="run ${profile_arg} --daemon --pid-file ${pidfile} --log ${patorrent_nox_log} --state-dir ${patorrent_nox_dir} --save ${patorrent_nox_save} ${patorrent_nox_args}"
 extra_commands="reload"
 start_precmd="patorrent_nox_prestart"
 

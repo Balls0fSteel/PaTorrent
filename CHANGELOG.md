@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_125404_1793706844: Version 1.1.47: nox services per profile, the installer's checks (D42 slice 4)
+
+- **Windows service:** `service install --profile work` registers `PaTorrentNox_work` ("PaTorrent nox (work)", state `%ProgramData%\PaTorrent\profiles\work\nox`, `--profile work` in the image path); `uninstall`, `start` and `stop` take `--profile`. New `service status [--profile NAME | --all [--in DIR]]` (state and image path, exit 0 listed / 4 none; no elevation) and `service uninstall --all [--in DIR]`. The running service registers under its profile's name.
+- **systemd / FreeBSD:** `contrib/systemd/{system,user}/patorrent-nox@.service` templates (`run --profile %i`, `StateDirectory=patorrent-nox/%i` for the system one, no default `--webui`); the rc.d script has rc.subr profiles (`patorrent_nox_profiles`, `patorrent_nox_<p>_dir/_save/_log/_args`, a pid file each).
+- **Installer:** the uninstaller asks `patorrent-nox.exe service status --all --in "$INSTDIR"` (nsExec, no console) instead of reading `PaTorrentNox`'s ImagePath, so a profile's service is found too, and its hint says `service uninstall --all`; the setup refuses a folder holding `patorrent.ini` (`PT_PORTABLE_DIR`, 35 languages; the Directory page and silent installs); "remove settings" also removes `profiles\` and `patorrent.lock`.
+- DAEMON.md: a Profiles section, the templates, rc.d profiles, the service's profile options.
+- **Checked:** unit tests (the choice of services, image paths, the profile's default state); 1,539 workspace tests; clippy for four targets; `sh -n` on the rc.d script; makensis builds the setup; `service status --all` / `--profile work` against this PC's SCM (exit 4, none installed). Not run: an elevated install of a profile's service, systemd on the Xubuntu VM, the setup on the Windows VM.
+
 ## 2026-11-03_124252_1793706172: Version 1.1.46: associations and autostart per profile (D42 slice 3)
 
 - **Windows:** a profile's open command is `"<exe>" --profile <name> --shell "%1"` (the profile before `--shell`, SEC-18) and its autostart a `Run` value of its own (`PaTorrent (work)`). A box is checked only in the profile the command names, so one profile at a time owns `.torrent` and `magnet:`; ticking it in another takes it over, and the General page then names the owner (`AssocOtherProfile`, 34 machine translations). `upgrade` rewrites only its own profile's commands; the installer's `--associate` writes the default profile; `--unregister` removes every profile's associations and `Run` values for this exe.

@@ -1,0 +1,47 @@
+# patorrent-nox profiles as user services, one instance per profile (D42, docs/DAEMON.md):
+# `patorrent-nox@work` runs `patorrent-nox run --profile work` as you. The instance name is the
+# profile's: 1-32 letters a-z, digits and hyphens, starting with a letter.
+#
+#   install -m 755 patorrent-nox ~/.local/bin/
+#   install -D -m 644 patorrent-nox@.service ~/.config/systemd/user/patorrent-nox@.service
+#   systemctl --user daemon-reload
+#   systemctl --user edit patorrent-nox@work     (the Web UI's port: see below)
+#   systemctl --user enable --now patorrent-nox@work
+#   journalctl --user -u patorrent-nox@work     (the Web UI's temporary password on the first start)
+#   loginctl enable-linger "$USER"               (keep them running while you are logged out)
+#
+# There is no default Web UI port: two instances cannot share one. Give each its own in a
+# drop-in (`systemctl --user edit patorrent-nox@work`):
+#
+#   [Service]
+#   ExecStart=
+#   ExecStart=%h/.local/bin/patorrent-nox run --profile %i --save %h/Downloads/%i --webui 127.0.0.1:8081
+#
+# Each profile's state and config follow XDG with the profile before `nox`:
+# ~/.local/share/patorrent/profiles/<profile>/nox and ~/.config/patorrent/profiles/<profile>/nox.
+# It listens on a BitTorrent port of its own, taken from the profile's name unless --port or
+# --listen says otherwise.
+
+[Unit]
+Description=PaTorrent BitTorrent daemon (patorrent-nox), profile %i
+Documentation=https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md
+
+[Service]
+Type=notify
+NotifyAccess=main
+ExecStart=%h/.local/bin/patorrent-nox run --profile %i --save %h/Downloads/%i
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=60
+# what it writes is yours alone (webui.json holds the Web UI's password hash); downloads too,
+# so loosen this (0022) if other users of this machine should read them
+UMask=0077
+NoNewPrivileges=yes
+LockPersonality=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+SystemCallArchitectures=native
+
+[Install]
+WantedBy=default.target

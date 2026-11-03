@@ -46,7 +46,7 @@ USAGE:
     patorrent-nox run [OPTIONS]
     patorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
     patorrent-nox create <file or dir> [-o OUT] [CREATE OPTIONS]
-    patorrent-nox service install [--account A] [--start TYPE] [OPTIONS] | uninstall | start | stop
+    patorrent-nox service install [--account A] [--start TYPE] [OPTIONS] | uninstall | start | stop | status
     patorrent-nox --version | --help | --license
 
 COMMANDS:
@@ -173,9 +173,17 @@ WINDOWS SERVICE (docs/DAEMON.md; install, uninstall, start and stop need an admi
         --start TYPE  delayed (default; automatic, after the boot), auto or manual
         --replace     Stop and remove an installed PaTorrentNox first (its state stays)
         --now         Start the service once installed
-    service uninstall Stop and remove the service (the state directory stays)
-    service start | stop
+        --profile NAME
+                      The profile's own service PaTorrentNox_NAME (\"PaTorrent nox (NAME)\"),
+                      state in %ProgramData%\\PaTorrent\\profiles\\NAME\\nox
+    service uninstall [--profile NAME | --all [--in DIR]]
+                      Stop and remove the service (the state directory stays); --all: every
+                      profile's service that runs this exe (or one in DIR)
+    service start | stop [--profile NAME]
                       Start or stop it and wait until it runs or has stopped (sc start / sc stop)
+    service status [--profile NAME | --all [--in DIR]]
+                      Print the services' state and command line; exit code 0 when one or more
+                      are installed, 4 when none is (--all: every profile's, or those in DIR)
     service run       What the Service Control Manager starts; not for a console
     service debug [OPTIONS]
                       `service run` in this console, printing the status it would report

@@ -749,18 +749,16 @@ tests, on this PC's hidden desktop and on the three VMs (CHANGELOG 2026-11-03_13
 both `tools/windows-clean` scripts, a profile's service under the real SCM, GTK profiles, File >
 Profiles and portable mode under Xvfb, the systemd template, the rc.d profile variables). Open:
 
-- **Windows, a real desktop:** "Remove settings" taking `profiles\` (the wizard; silent
-  uninstalls leave it unticked); the setup's refusal in the wizard's Directory page; a desktop
-  shortcut from File > Profiles; a double-clicked `.torrent` reaching the profile that owns the
-  association; the status bar's "Port N in use" click opening Preferences at Connection; an
-  installed copy and a portable one forwarding at once.
+- **Windows:** done on the VM and this PC (CHANGELOG 2026-11-03_140153_1793710913: the wizard,
+  "Remove settings", a shell-opened `.torrent`, installed and portable forwarding, the "Port N in
+  use" click, the Samba move). Left: File > Profiles > Create Shortcut clicked in the GUI (the
+  `.lnk` itself is made by a test).
 - **Linux desktops:** the dock icon from the profile's own desktop entry on GNOME and KDE (Xvfb
   has no dock) and in the Flatpak (whose entry is written to the host's
   `~/.local/share/applications`); portable mode beside an AppImage; the rc.d profiles started
   as root on the FreeBSD VM.
-- **Moving a portable folder** with a torrent downloading into `./Downloads` to another drive
-  letter and to the Linux VM over the Samba share: resumes without a recheck (the nox test moved
-  one folder on one machine).
+- **Moving a portable folder:** done for a finished torrent (Windows -> the Samba share -> Linux
+  -> another drive letter, no recheck); left: one still downloading, and the GUI's own move.
 - **macOS (gate 8):** a portable `PaTorrent.app` beside `patorrent.ini`, the translocation
   notice, per-profile LaunchAgents.
 - **Left out on purpose:** the Web UI's categories (`webui.json`) stay absolute in portable mode;

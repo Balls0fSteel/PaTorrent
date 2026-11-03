@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_140153_1793710913: D42 desktop checks: the wizard, double-clicks, the Samba move
+
+- **Windows VM, the console session** (`tools/windows-clean/desktop/wizard-profiles.ps1`, new): the setup wizard given a folder holding `patorrent.ini` shows `PT_PORTABLE_DIR`, stays on its Directory page and installs nothing; the interactive uninstaller with "Remove settings" ticked removes `%APPDATA%\PaTorrent` with `profiles\` and `patorrent.lock` (unticked, they stay). UIA sees only panes on a locked desktop, so the folder box is set with `WM_SETTEXT` and the box ticked with a posted Space on the components tree.
+- **Windows VM:** a `.torrent` opened through the shell (as a double-click) with the association held by profile `work` started `patorrent.exe --profile work --shell ...`; a second one went to that window; `work` saved the torrent. An installed and a portable copy running at once each got only their own second start's torrent.
+- **This PC:** a click on "Port 45200 in use" opened Preferences at Connection.
+- **The Samba move:** a portable nox folder with a finished 100 MB torrent, made here, copied to the VM's share, run there by the Linux binary from `/srv/media`, then copied back and run from another drive letter (`subst P:`): both found it at 100 % without a recheck (proved by changing the file's bytes but not its size and time: still 100 % Seeding). Windows does not run programs from that share (access denied), hence the copy back.
+- Docs and scripts only, no version bump. Still open: a Mac (gate 8), GNOME/KDE dock icons and the Flatpak, beside an AppImage, rc.d started as root.
+
 ## 2026-11-03_134710_1793710030: Version 1.1.51: the D42 checks on the VMs, two GTK fixes
 
 - **Windows VM (clean, 1.1.50's zip and setup built here):** `zip-test.ps1` all ok, a profile beside the default one (its own port, `./Downloads`), a portable nox writing `./Downloads`, no Defender detections; `setup-test.ps1 -OldVersion 1.1.40` 0 failures, among them `PaTorrentNox_x` holding the silent uninstall until `service uninstall --all` and a portable target refused. `service install --profile work --now` under the real SCM: `PaTorrentNox_work` running, state in `%ProgramData%\PaTorrent\profiles\work\nox`, its own port, stopped and removed; the VM left clean.

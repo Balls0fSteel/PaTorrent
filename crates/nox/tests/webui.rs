@@ -2795,7 +2795,8 @@ fn native_prefs_model_and_partial_post() {
             "scheduler",
             "webui",
             "advanced",
-            "diskcache"
+            "diskcache",
+            "diskio"
         ]
     );
     let fields = m.get("fields").expect("fields");

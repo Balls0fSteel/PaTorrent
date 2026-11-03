@@ -49,8 +49,8 @@ use crate::sched_grid;
 use crate::util::{hiword, loword, scale, send, wide, window_text};
 use crate::webui_host::{Edit, Setup as WebSetup, Status as WebStatus, View as WebView};
 
-/// The tree, in µTorrent 2.2.1's order; Disk Cache sits under Advanced.
-pub const PAGES: [S; 11] = [
+/// The tree, in µTorrent 2.2.1's order; Disk Cache and PaTorrent's Disk I/O sit under Advanced.
+pub const PAGES: [S; 12] = [
     S::PageGeneral,
     S::PageUi,
     S::PageDirectories,
@@ -62,10 +62,12 @@ pub const PAGES: [S; 11] = [
     S::PageWebUi,
     S::PageAdvanced,
     S::PageDiskCache,
+    S::PageDiskIo,
 ];
 const PAGE_WEBUI: usize = 8;
 const PAGE_ADVANCED: usize = 9;
 const PAGE_DISK_CACHE: usize = 10;
+const PAGE_DISK_IO: usize = 11;
 
 const fn id(page: u16, n: u16) -> u16 {
     1000 + page * 100 + n
@@ -202,6 +204,14 @@ const ID_CACHE_OVERRIDE: u16 = id(10, 6);
 const ID_CACHE_MB: u16 = id(10, 7);
 const ID_CACHE_EXPIRE: u16 = id(10, 8);
 const ID_CACHE_EXPIRY: u16 = id(10, 9);
+// Disk I/O
+const ID_CHECK_GENTLY: u16 = id(11, 1);
+const ID_CHECK_RATE_LIMIT: u16 = id(11, 2);
+const ID_CHECK_RATE_MB: u16 = id(11, 3);
+const ID_ACTIVE_CHECKING: u16 = id(11, 4);
+const ID_TUNE_FOR_DRIVE: u16 = id(11, 5);
+const ID_DISK_SLOW_DL: u16 = id(11, 6);
+const ID_DISK_SLOW_UL: u16 = id(11, 7);
 
 /// "Outgoing" encryption, in the combo's order.
 const ENC_OUT: [(S, EncPolicy); 3] = [
@@ -566,6 +576,46 @@ static FIELDS: &[Field] = &[
         get: |o| Some(o.settings.hashing_threads as i64),
         set: |o, v| o.settings.hashing_threads = v as u32,
     },
+    Field::Check {
+        id: ID_CHECK_GENTLY,
+        get: |o| o.settings.check_gently,
+        set: |o, v| o.settings.check_gently = v,
+    },
+    Field::Check {
+        id: ID_CHECK_RATE_LIMIT,
+        get: |o| o.settings.check_rate_limit,
+        set: |o, v| o.settings.check_rate_limit = v,
+    },
+    Field::Num {
+        id: ID_CHECK_RATE_MB,
+        min: 1,
+        max: 100_000,
+        get: |o| Some(o.settings.check_rate_mb as i64),
+        set: |o, v| o.settings.check_rate_mb = v as i32,
+    },
+    // the engine checks with at most 8 threads; -1 (no limit) stays on Advanced
+    Field::Num {
+        id: ID_ACTIVE_CHECKING,
+        min: 1,
+        max: 8,
+        get: |o| Some(o.settings.active_checking as i64),
+        set: |o, v| o.settings.active_checking = v as i32,
+    },
+    Field::Check {
+        id: ID_TUNE_FOR_DRIVE,
+        get: |o| o.settings.tune_for_drive,
+        set: |o, v| o.settings.tune_for_drive = v,
+    },
+    Field::Check {
+        id: ID_DISK_SLOW_DL,
+        get: |o| o.settings.disk_slow_downloads,
+        set: |o, v| o.settings.disk_slow_downloads = v,
+    },
+    Field::Check {
+        id: ID_DISK_SLOW_UL,
+        get: |o| o.settings.disk_slow_uploads,
+        set: |o, v| o.settings.disk_slow_uploads = v,
+    },
 ];
 
 /// Loads a block list: the number of rules or an error.
@@ -908,6 +958,20 @@ fn template() -> Vec<u16> {
     b.number(133, ID_HASH_THREADS, NUMBER, tr!(PrefHashThreads));
     b.label([0, 160, W, 45], &tr!(PrefReadCacheNote, mb = settings::AUTO_CACHE_MB));
 
+    // each box before its number, as on Disk Cache; per-drive types are on Advanced only
+    b.page(PAGE_DISK_IO);
+    b.group([0, 0, W, 64], tr!(PrefChecking));
+    b.ctl(BUTTON, ID_CHECK_GENTLY, CHECK, [8, 13, 290, 10], tr!(PrefCheckGently));
+    b.ctl(BUTTON, ID_CHECK_RATE_LIMIT, CHECK, [8, 29, 228, 10], tr!(PrefCheckRateLimit));
+    b.ctl(EDIT, ID_CHECK_RATE_MB, NUMBER, [240, 27, 54, 13], "");
+    b.number(45, ID_ACTIVE_CHECKING, NUMBER, tr!(PrefActiveChecking));
+    b.group([0, 72, W, 30], tr!(PrefDrives));
+    b.ctl(BUTTON, ID_TUNE_FOR_DRIVE, CHECK, [8, 85, 290, 10], tr!(PrefTuneForDrive));
+    b.group([0, 110, W, 44], tr!(PrefDiskBusy));
+    b.ctl(BUTTON, ID_DISK_SLOW_DL, CHECK, [8, 123, 290, 10], tr!(PrefDiskSlowDownloads));
+    b.ctl(BUTTON, ID_DISK_SLOW_UL, CHECK, [8, 137, 290, 10], tr!(PrefDiskSlowUploads));
+    b.label([0, 162, W, 27], tr!(PrefDiskIoNote));
+
     let mut t = b.t;
     let vis = windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE;
     t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 280, 50, 14], tr!(BtnOk));
@@ -972,7 +1036,7 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
         send(tree, TVM_SETIMAGELIST, TVSIL_NORMAL as usize, st.images);
         let mut parent = TVI_ROOT;
         for (i, title) in PAGES.iter().enumerate() {
-            let under = if i == PAGE_DISK_CACHE { parent } else { TVI_ROOT };
+            let under = if i == PAGE_DISK_CACHE || i == PAGE_DISK_IO { parent } else { TVI_ROOT };
             let h = insert_tree(tree, under, lang::text(*title), i, page_icon(*title));
             if i == PAGE_ADVANCED {
                 parent = h;
@@ -1124,6 +1188,7 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         update_torrent_folder_controls(dlg);
         update_sched_controls(dlg);
         update_cache_controls(dlg);
+        update_check_rate_controls(dlg);
         update_proxy_controls(dlg);
     }
 }
@@ -1365,6 +1430,11 @@ unsafe fn update_cache_controls(dlg: HWND) {
     }
 }
 
+/// The checking cap's number follows its box.
+unsafe fn update_check_rate_controls(dlg: HWND) {
+    unsafe { EnableWindow(item(dlg, ID_CHECK_RATE_MB), checked(dlg, ID_CHECK_RATE_LIMIT) as i32) };
+}
+
 /// The Proxy Server box greys as µTorrent's did (`pref_pages`' `needs` for the proxy fields):
 /// everything after Type while it is "(none)", the user name and password while
 /// "Authentication" is off.
@@ -1560,6 +1630,7 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
             ID_READ_CACHE | ID_CACHE_OVERRIDE | ID_CACHE_EXPIRE if code == BN_CLICKED => {
                 update_cache_controls(dlg)
             }
+            ID_CHECK_RATE_LIMIT if code == BN_CLICKED => update_check_rate_controls(dlg),
             ID_STORE | ID_MOVE_TORRENTS | ID_AUTOLOAD if code == BN_CLICKED => {
                 update_torrent_folder_controls(dlg)
             }
@@ -2517,6 +2588,63 @@ mod tests {
         g.click(ID_APPLY);
         let s = &g.last_applied().settings;
         assert_eq!((s.use_read_cache, s.cache_size, s.cache_expiry), (true, -1, 300));
+    }
+
+    #[test]
+    fn disk_io_controls_under_advanced() {
+        let mut f = Fixture::new(defaults());
+        f.page(PAGE_DISK_IO);
+        let enabled = |f: &Fixture, id| unsafe { IsWindowEnabled(item(f.dlg, id)) != 0 };
+        let all = [
+            ID_CHECK_GENTLY,
+            ID_CHECK_RATE_LIMIT,
+            ID_CHECK_RATE_MB,
+            ID_ACTIVE_CHECKING,
+            ID_TUNE_FOR_DRIVE,
+            ID_DISK_SLOW_DL,
+            ID_DISK_SLOW_UL,
+        ];
+        unsafe {
+            for id in all {
+                assert!(shown(item(f.dlg, id)), "control {id}");
+            }
+            // gentle checks and drive tuning on, the cap and the busy-disk throttle off
+            assert!(checked(f.dlg, ID_CHECK_GENTLY) && checked(f.dlg, ID_TUNE_FOR_DRIVE));
+            assert!(!checked(f.dlg, ID_CHECK_RATE_LIMIT));
+            assert!(!checked(f.dlg, ID_DISK_SLOW_DL) && !checked(f.dlg, ID_DISK_SLOW_UL));
+        }
+        assert_eq!((f.text(ID_CHECK_RATE_MB), f.text(ID_ACTIVE_CHECKING)), ("100".into(), "4".into()));
+        assert!(!enabled(&f, ID_CHECK_RATE_MB), "greyed while its box is off");
+
+        // the box and its number changed together
+        f.check(ID_CHECK_RATE_LIMIT, true);
+        f.click(ID_CHECK_RATE_LIMIT);
+        assert!(enabled(&f, ID_CHECK_RATE_MB));
+        f.set(ID_CHECK_RATE_MB, "250");
+        f.set(ID_ACTIVE_CHECKING, "2");
+        f.check(ID_CHECK_GENTLY, false);
+        f.check(ID_TUNE_FOR_DRIVE, false);
+        f.check(ID_DISK_SLOW_DL, true);
+        f.check(ID_DISK_SLOW_UL, true);
+        f.click(ID_APPLY);
+        let o = f.last_applied();
+        let s = &o.settings;
+        assert!(!s.check_gently && s.check_rate_limit && !s.tune_for_drive);
+        assert_eq!((s.check_rate_mb, s.active_checking), (250, 2));
+        assert!(s.disk_slow_downloads && s.disk_slow_uploads);
+        let mut prefs = Prefs::default();
+        o.store(&mut prefs);
+        assert_eq!(Options::load(&prefs, "unused"), o);
+
+        // up to 8 drives on the page, refused there; -1 set on Advanced survives untouched
+        f.set(ID_ACTIVE_CHECKING, "9");
+        let err = unsafe { read_controls(f.dlg, &mut f.st) }.unwrap_err();
+        assert_eq!((err.0, page_of(err.0)), (ID_ACTIVE_CHECKING, Some(PAGE_DISK_IO)));
+        let mut o = defaults();
+        o.settings.active_checking = -1;
+        let g = Fixture::new(o);
+        g.click(ID_APPLY);
+        assert_eq!(g.last_applied().settings.active_checking, -1);
     }
 
     #[test]

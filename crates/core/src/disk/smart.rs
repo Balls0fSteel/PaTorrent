@@ -475,10 +475,12 @@ mod tests {
         let first = drives.for_path(&config, &dir);
         assert!(Arc::ptr_eq(&first, &drives.for_path(&config, &dir)));
         assert_eq!(drives.take_found().len(), 1);
-        config.set(true, None, 4, true, &format!("{dir}=hdd"));
+        // a type other than the detected one (CI's temp folder may well be on a hard disk)
+        let other = if first.id.kind == DriveKind::Hdd { DriveKind::Ssd } else { DriveKind::Hdd };
+        config.set(true, None, 4, true, &format!("{dir}={}", other.as_str()));
         let d = drives.for_path(&config, &dir);
-        assert_eq!(d.id.kind, DriveKind::Hdd);
-        assert!(d.id.describe.ends_with("set to hdd"), "{}", d.id.describe);
+        assert_eq!(d.id.kind, other);
+        assert!(d.id.describe.ends_with(&format!("set to {}", other.as_str())), "{}", d.id.describe);
     }
 
     #[test]

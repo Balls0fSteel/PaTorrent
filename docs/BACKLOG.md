@@ -755,12 +755,7 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
   profile's window).
 - **Linux desktops and FreeBSD:** done 2026-11-03_145919_1793714359: GNOME 50, KDE 6.6, the
   Flatpak, real AppImages, rc.d as root. The AppImage's X11-only start and `AppRun.wrapped`
-  window class were fixed in 1.1.52 (2026-11-03_151244_1793715164). Left as it is:
-  - A profile's very first start: GNOME Shell takes about 5 s to read a new desktop entry,
-    measured headless (GIO in the program sees it within 1 ms). A window shown sooner keeps a
-    generic badge in the overview, and in the Flatpak it is grouped under the default app; the
-    icon is right and the next start is fully right. Holding the first window back 5 s would be
-    worse, so nothing waits.
+  window class were fixed in 1.1.52 (2026-11-03_151244_1793715164).
 - **Moving a portable folder:** done for a finished torrent (Windows -> the Samba share -> Linux
   -> another drive letter) and an unfinished one (another drive letter), no recheck either time.
 - **macOS (gate 8):** done on GitHub's macOS 15 runner (2026-11-03_203047_1793734247,
@@ -776,7 +771,12 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
   silicon and are not affected; fix both if Intel bundles are ever made from MacPorts.
 - **Left out on purpose:** the Web UI's categories (`webui.json`) stay absolute in portable mode;
   the GTK Preferences page does not name the profile that owns the associations (Windows does);
-  `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only.
+  `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only. A profile's very first window in
+  GNOME: the shell reads a new desktop entry about 5 s late (measured headless; GIO in the
+  program sees it within 1 ms), so that one start gets a generic badge in the overview (in the
+  Flatpak, the default app's group); the dock icon is right and later starts are fully right.
+  Holding the first window back 5 s, or hiding and showing it again, would cost more than it
+  fixes, so nothing waits. Any of these can be revisited if users ask.
 
 ## Startup and shutdown (investigated 2026-10-30_192440_1793384680)
 

@@ -4,6 +4,16 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_203047_1793734247: Version 1.1.53: gate 8 on a macOS runner; two portable fixes
+
+- **Gate 8 (D42), run on GitHub's macOS 15 runner by the new hand-run workflow `macos-gate8.yml`:**
+  - **Portable:** a `PaTorrent.app` beside `patorrent.ini` ran the default profile and `[work]` side by side, kept both libraries in that folder and wrote nothing to `~/Library`.
+  - **LaunchAgents:** the per-profile LaunchAgents, as Preferences writes them, were started by launchd, each with its own library.
+  - **Translocation:** a quarantined copy opened where it was unpacked was translocated. Unapproved, Gatekeeper refused the ad-hoc-signed app ("Not Opened"). With the user-approved flag that Open Anyway sets, the GUI ran from `AppTranslocation`, showed the move-the-app notice and wrote nothing beside itself.
+  - The first run hung 45 minutes on the Gatekeeper prompt; the step now has time limits. One run waited in vain for a runner.
+- **Fix (CI, macOS):** nox beside `patorrent.ini` on macOS used `~/Library` (its path code checked macOS before portable mode). It is portable there now, as slice 7 meant.
+- **Fix (CI, Windows):** a save path inside the portable folder was stored absolute when spelt another way than the program's own path (the runner's `C:\Users\RUNNER~1` temp folder). Paths are now also compared resolved on disk (links, short names, a folder not made yet). New test; CI green on all platforms.
+
 ## 2026-11-03_151244_1793715164: Version 1.1.52: the GTK AppImage on Wayland, window classes per profile
 
 - **AppImage:** the release workflow drops linuxdeploy's GTK hook line `export GDK_BACKEND=x11`, so the GUI runs on Wayland without Xwayland. Under headless GNOME 50 with no X11, the AppImage's `vpn-1` window ran next to native default and `work` windows, each matched to its own entry. On X11 under Xvfb it still starts.
@@ -63,16 +73,3 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **First start of a portable folder:** downloads go to its `Downloads` (and a random port, 1.1.45). The update offer treats a portable copy inside an install folder as portable (the release page, not the setup).
 - **Downgrade note:** a portable folder written by this version needs it or later: 1.1.48 and earlier would read `./Downloads` against their working directory.
 - **Checked:** unit tests (the path rules, UNC and other drives, `..` refused, the store, `Prefs`, `rss.dat`, the candidate folder), a nox integration test (a copied binary with `patorrent.ini`: state in `nox`, `resume` holds `./Downloads`, the folder renamed and started from elsewhere finds its data and seeds), 1,549 workspace tests, clippy for four targets; a fresh portable `patorrent.exe` wrote `dir.download=./Downloads`. Left out: the Web UI's categories (`webui.json`). Not run: Linux portable (tarball, AppImage), the Samba move.
-
-## 2026-11-03_130347_1793707427: Version 1.1.48: File > Profiles (D42 slice 5)
-
-- **New:** File > Profiles in both GUIs: the default profile and every named one (this one checked; Win32 refills it each time it opens, so a profile made elsewhere shows), each starting its own process (`--profile`; a running one comes to the front); New Profile (a name box, validated, makes the folders and starts it); Create Shortcut (Windows: `PaTorrent (work).lnk` on the desktop through the shell's `ShellLink`, declared by hand in `shortcut.rs` as windows-sys has no COM interfaces; Linux/BSD: the named profile's desktop entry joins the applications menu, greyed for the default profile and on macOS); Open Profile Folder. 9 strings, machine-translated into the 34 tables.
-- **Checked:** the `.lnk` test (writes and reads back a shortcut with `--profile work`), 1,540 workspace tests, clippy for four targets; File > Profiles captured on the hidden desktop (Default, vpn-1 made by hand, work checked and greyed). GTK not run on a desktop.
-
-## 2026-11-03_125404_1793706844: Version 1.1.47: nox services per profile, the installer's checks (D42 slice 4)
-
-- **Windows service:** `service install --profile work` registers `PaTorrentNox_work` ("PaTorrent nox (work)", state `%ProgramData%\PaTorrent\profiles\work\nox`, `--profile work` in the image path); `uninstall`, `start` and `stop` take `--profile`. New `service status [--profile NAME | --all [--in DIR]]` (state and image path, exit 0 listed / 4 none; no elevation) and `service uninstall --all [--in DIR]`. The running service registers under its profile's name.
-- **systemd / FreeBSD:** `contrib/systemd/{system,user}/patorrent-nox@.service` templates (`run --profile %i`, `StateDirectory=patorrent-nox/%i` for the system one, no default `--webui`); the rc.d script has rc.subr profiles (`patorrent_nox_profiles`, `patorrent_nox_<p>_dir/_save/_log/_args`, a pid file each).
-- **Installer:** the uninstaller asks `patorrent-nox.exe service status --all --in "$INSTDIR"` (nsExec, no console) instead of reading `PaTorrentNox`'s ImagePath, so a profile's service is found too, and its hint says `service uninstall --all`; the setup refuses a folder holding `patorrent.ini` (`PT_PORTABLE_DIR`, 35 languages; the Directory page and silent installs); "remove settings" also removes `profiles\` and `patorrent.lock`.
-- DAEMON.md: a Profiles section, the templates, rc.d profiles, the service's profile options.
-- **Checked:** unit tests (the choice of services, image paths, the profile's default state); 1,539 workspace tests; clippy for four targets; `sh -n` on the rc.d script; makensis builds the setup; `service status --all` / `--profile work` against this PC's SCM (exit 4, none installed). Not run: an elevated install of a profile's service, systemd on the Xubuntu VM, the setup on the Windows VM.

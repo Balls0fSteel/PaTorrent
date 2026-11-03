@@ -763,8 +763,10 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
     worse, so nothing waits.
 - **Moving a portable folder:** done for a finished torrent (Windows -> the Samba share -> Linux
   -> another drive letter) and an unfinished one (another drive letter), no recheck either time.
-- **macOS (gate 8):** a portable `PaTorrent.app` beside `patorrent.ini`, the translocation
-  notice, per-profile LaunchAgents.
+- **macOS (gate 8):** done on GitHub's macOS 15 runner (2026-11-03_203047_1793734247,
+  `.github/workflows/macos-gate8.yml`, run by hand). Not covered there: a real login starting
+  the LaunchAgents (they were bootstrapped), the Open Anyway click itself (its quarantine flag
+  was set), and a stick formatted exFAT.
 - **Left out on purpose:** the Web UI's categories (`webui.json`) stay absolute in portable mode;
   the GTK Preferences page does not name the profile that owns the associations (Windows does);
   `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only.

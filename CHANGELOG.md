@@ -4,6 +4,15 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_085337_1793692417: Versions 1.1.36-1.1.39: smart disk I/O (D48)
+
+- **Owner's choices:** build D48 before the release, all four parts; gentle checks and drive tuning on, the busy-disk throttle off; our own timings only; uploads and downloads as separate boxes; overrides in the Advanced table only; a new Disk I/O page. Details and what was simplified: [DISKIO.md](docs/DISKIO.md#implementation-status).
+- **1.1.36:** the settings (`check_gently`, `check_rate_limit` / `check_rate_mb`, `tune_for_drive`, `drive_overrides`, `disk_slow_downloads` / `_uploads`), `active_checking` default 4, remote protocol 13.
+- **1.1.37, engine** (`disk/smart.rs`, `engine/disk_limit.rs`): `lt-hash` routes each check to one of eight `lt-check-N` threads by drive (one check per drive, `active_checking` drives at once); gentle checks run at background I/O priority on their own handles with read-ahead/forget hints, wait after a read twice as slow as usual, and keep under the MB/s cap; hard disks and removable drives take two jobs at once, a share's server four; with a throttle box on, writes and peer reads are timed per drive and a busy drive halves the download or upload (one global cap, merged with keep ping low's, the lower wins; "(auto ...)" in the status bar, Logger lines). The drive is cached on the storage and nothing is timed while both boxes are off.
+- **1.1.38:** Preferences > Advanced > Disk I/O in Win32, GTK and the Web UI, 11 strings in all 35 tables (machine translations; Win32 page seen in 9 languages, nothing clipped). Fixed on the way: the Web UI's Bandwidth page showed `rate_limit_ip_overhead`, `rate_limit_utp` and `auto_rate_limit` by their raw names (since 1.1.29).
+- **1.1.39, detection** (`disk/drive.rs`, `disk/gentle.rs`): Windows by volume extents and seek penalty (no elevation; UNC and mapped drives are Network without touching the server), Linux by `statfs` and sysfs (`rotational`, partitions, `dm`/`md` slaves, USB as removable), macOS by IOKit's medium type, FreeBSD by `kern.geom.confxml`'s rotation rate. This PC: C: and L: SSD, the mapped V: network.
+- **Checked:** core, frontend, nox and Win32 tests; clippy for Windows, Linux, FreeBSD and macOS (core), GTK from Windows with the stand-in pkg-config. Linux, macOS and FreeBSD detection were only cross-linted here; the VM runs are below once done.
+
 ## 2026-11-03_082759_1793690879: 1.1.35 release prepared
 
 - **Release (owner: draft the notes, metainfo and news):** `docs/releases/1.1.35.md` covers everything since 1.1.17 (1.1.18-1.1.35): keep ping low, the Windows self-update and the once-per-version box, the closing window and safer sign-out in both GUIs, the Files tab's 2.2.1 menu, label folders, the libtorrent 2.0.12-2.1.2 fixes, the engine options and the release review's security fixes. Peer ID `-PA1012-`, remote protocol 12.

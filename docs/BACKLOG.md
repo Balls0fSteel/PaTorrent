@@ -186,6 +186,14 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
 
 ## GTK desktop checks and limitations
 
+- Hand check of the Files tab menu and label folders (Xubuntu, 2026-11-03_090534_1793693134,
+  all passed). UX notes: after the file chooser's "Replace?" a refused Relocate shows only in the
+  Logger; Prioritize by File Order on three files gives High, High, Low (priorities 7, 5, 3, and
+  5 reads High); a torrent whose data checks complete on add logs "finished downloading" and
+  notifies "Download Complete"; the torrent menu is taller than a 620 px window (Label and
+  Properties need scrolling); Ctrl+A does not select all in the Files list. Not checked: the
+  remote-window case, an empty label, nested labels.
+
 CI builds/tests the GTK client, and the owner found the GUI fine on 2026-10-23.
 That broad check does not establish that every detailed case below was tried.
 

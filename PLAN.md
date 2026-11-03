@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-11-03_111113_1793700673
+Last updated: 2026-11-03_113345_1793702025
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D49 and proposed D42, D46](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -23,7 +23,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
   - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.
 - **1.1.17** was published (2026-10-30, tag `v1.1.17`, [notes](docs/releases/1.1.17.md)): Torznab search in all three GUIs, RSS in the Windows GUI's Web UI, the API key and subnet whitelist, and nox's update check. The website has a News page (`site/news.html`, `news.atom`).
 - **1.1.40 is published, Latest** (2026-11-03, tag `v1.1.40`, [notes](docs/releases/1.1.40.md); peer ID `-PA1012-`, remote protocol 13): everything since 1.1.17, including keep ping low / gamer mode (D49), smart disk I/O (D48), the closing window (D47), the Windows self-update (D44-D45), the Files tab menu and label folders, and the libtorrent 2.0.12-2.1.2 fixes. The website has the gamer mode and smart disk I/O highlights; `update.txt` serves `stable=1.1.40`. Release checks: CHANGELOG 2026-11-03. Open: the hand checks in [BACKLOG](docs/BACKLOG.md), real-disk numbers for the busy-disk throttle.
-- **1.1.41** (unreleased): a stopped partial download counts only its selected files (it showed e.g. 5 % until started); CHANGELOG 2026-11-03_111113.
+- **1.1.41-1.1.42** (unreleased): a stopped partial download counts only its selected files (owner confirmed on a real PC); the closing window no longer shows for the trackers' wait and is sized to its content (GTK not yet run on a desktop). CHANGELOG 2026-11-03.
 - **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), older than the 2026-10-23 dialog changes. Linux binaries: command-line smoke checks only.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check). macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.

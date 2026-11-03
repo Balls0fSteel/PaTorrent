@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_113345_1793702025: Version 1.1.42: the closing window skips the trackers and fits its content
+
+- **Owner:** the 1.1.41 fix works on a real PC. The closing window (D47, amended) showed for the trackers' "stopped" announces, with a large empty area where the moves' list was hidden.
+- **When it shows** (`frontend::closing::ShowTimer`, both GUIs): once one step has taken a second, each step starting the clock again, and never for the trackers' wait (at most `stop_tracker_timeout`, 5 s; a second start meanwhile already waits for this one to end). A window already shown stays; a Windows sign-out or desktop logout shows it at once as before.
+- **Size:** Win32 lays the window out for what it shows: the step's text as tall as its lines, the list only while there are moves, the window's height to fit, centred where it was. GTK has no fixed height any more and shrinks back when the list goes (type-checked and linted only; not run on a desktop).
+- **Checked:** the demo's slow exit captured on the hidden desktop: 541×321 with the list, 158 for a two-line step, 145 for one line; without moves nothing showed during saving and the trackers' 2 s. Workspace tests (1,525), clippy, GTK lint for Linux.
+
 ## 2026-11-03_111113_1793700673: Version 1.1.41: a stopped partial download counts only its selected files
 
 - **Owner's note:** a torrent with one file of a hundred selected showed 5 % when stopped and 100 % when started. **Cause:** with a session store, stopping drops the metadata (D5), and without it `wanted()` and `is_finished()` fell back to the whole torrent, so Done, Size and Remaining counted every file and the torrent was not Finished (also for sidebar categories, seeding goals and auto-shutdown). A restored stopped torrent, which never loads its metadata, had the same problem. µTorrent and qBittorrent count only the selected files, stopped or not, as our running state already did.

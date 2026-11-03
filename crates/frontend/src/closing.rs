@@ -2,14 +2,37 @@
 //! one row per move still to finish, and what Quit Now gives up. The Win32 GUI (`closing.rs`)
 //! and the GTK GUI (`closing.rs`) draw it and drive [`patorrent_core::Exit`] themselves.
 
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use patorrent_core::{Exit, ExitPhase, ExitStatus};
 
 use crate::{fmt, tr};
 
-/// How long a shutdown may take before the window shows.
+/// How long one step of a shutdown may take before the window shows.
 pub const SHOW_AFTER: Duration = Duration::from_secs(1);
+
+/// When the window shows: once one step has taken [`SHOW_AFTER`], each step starting the clock
+/// again. The trackers' "stopped" announces never show it (owner, 2026-11-03): they end within
+/// `stop_tracker_timeout` (5 s) whatever happens, and a second start meanwhile waits for this
+/// one to end. A window already shown stays until the end.
+pub struct ShowTimer {
+    phase: ExitPhase,
+    since: Instant,
+}
+
+impl ShowTimer {
+    pub fn new(now: Instant) -> ShowTimer {
+        ShowTimer { phase: ExitPhase::Stopping, since: now }
+    }
+
+    pub fn due(&mut self, s: &ExitStatus, now: Instant) -> bool {
+        if s.phase != self.phase {
+            self.phase = s.phase;
+            self.since = now;
+        }
+        s.phase != ExitPhase::Trackers && now.saturating_duration_since(self.since) >= SHOW_AFTER
+    }
+}
 
 /// How often the window looks again.
 pub const REFRESH: Duration = Duration::from_millis(200);
@@ -133,6 +156,24 @@ mod tests {
         assert!(phase_text(&closing).contains("1.00 MB"), "{}", phase_text(&closing));
         assert_eq!(fraction(&closing), None);
         assert_eq!(elapsed_text(65), "Closing for 1:05");
+    }
+
+    #[test]
+    fn the_window_waits_for_a_slow_step_but_never_for_the_trackers() {
+        let t0 = Instant::now();
+        let at = |ms: u64| t0 + Duration::from_millis(ms);
+        let phase = |phase| ExitStatus { phase, ..Default::default() };
+        let mut timer = ShowTimer::new(t0);
+        assert!(!timer.due(&phase(ExitPhase::Stopping), at(900)));
+        // a new step starts the clock again
+        assert!(!timer.due(&phase(ExitPhase::Saving), at(950)));
+        assert!(!timer.due(&phase(ExitPhase::Saving), at(1900)));
+        assert!(timer.due(&phase(ExitPhase::Saving), at(1950)));
+        let mut timer = ShowTimer::new(t0);
+        assert!(!timer.due(&phase(ExitPhase::Trackers), at(100)));
+        assert!(!timer.due(&phase(ExitPhase::Trackers), at(5100)), "the trackers' wait shows nothing");
+        assert!(!timer.due(&phase(ExitPhase::Closing), at(5200)), "nor does the end of it");
+        assert!(timer.due(&phase(ExitPhase::Closing), at(6200)), "but a slow end does");
     }
 
     #[test]

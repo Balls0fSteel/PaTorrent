@@ -2814,8 +2814,8 @@ unsafe fn on_destroy(hwnd: HWND) {
 }
 
 /// Saves the window's settings and stops the engine, which saves the resume data; returns when
-/// it is done, or once Quit Now has got it past saving (D47, the closing window: after a
-/// second, or at once for a Windows sign-out, `end_session`). Once: later calls find no app.
+/// it is done, or once Quit Now has got it past saving (D47, the closing window: once a step
+/// takes a second, or at once for a Windows sign-out, `end_session`). Once: later calls find no app.
 unsafe fn close_session(hwnd: HWND, end_session: bool) {
     unsafe {
         SetPropW(hwnd, EXITING_PROP, std::ptr::without_provenance_mut(1));

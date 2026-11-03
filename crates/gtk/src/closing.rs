@@ -1,6 +1,7 @@
 //! The window shown while PaTorrent closes (D47), as in the Windows GUI: the engine stops on its
-//! own thread ([`Session::begin_shutdown`](patorrent_core::Session::begin_shutdown)); when that
-//! takes more than a second, or at once when the desktop session is ending, this window says
+//! own thread ([`Session::begin_shutdown`](patorrent_core::Session::begin_shutdown)); when one
+//! step of that takes more than a second (never the trackers' "stopped" announces,
+//! [`ShowTimer`]), or at once when the desktop session is ending, this window says
 //! what it is waiting for, lists the moves still to finish (the list scrolls) with their
 //! progress and destination, and for how long. Quit Now lists what quitting early gives up and
 //! asks; it is not offered while the torrent list and progress are being saved. The texts and
@@ -17,9 +18,12 @@ use std::time::Instant;
 use gtk::prelude::*;
 use gtk::{gio, glib, pango};
 use patorrent_core::{Exit, ExitStatus};
-use patorrent_frontend::closing::{self, SHOW_AFTER};
+use patorrent_frontend::closing::{self, ShowTimer};
 use patorrent_frontend::lang::{gtk_mnemonic, plain};
 use patorrent_frontend::tr;
+
+/// The window's width; its height follows what it shows.
+const WIDTH: i32 = 620;
 
 struct Shown {
     window: gtk::Window,
@@ -35,6 +39,7 @@ struct State {
     app: gtk::Application,
     exit: Option<Exit>,
     start: Instant,
+    timer: ShowTimer,
     /// The session is ending: show at once.
     logout: bool,
     shown: Option<Shown>,
@@ -54,10 +59,12 @@ pub fn start(app: &gtk::Application, exit: Exit, logout: bool) {
         gtk::ApplicationInhibitFlags::LOGOUT | gtk::ApplicationInhibitFlags::SUSPEND,
         Some(tr!(EndSessionSaving)),
     );
+    let start = Instant::now();
     let st = Rc::new(RefCell::new(State {
         app: app.clone(),
         exit: Some(exit),
-        start: Instant::now(),
+        start,
+        timer: ShowTimer::new(start),
         logout,
         shown: None,
         last: None,
@@ -82,8 +89,9 @@ fn tick(st: &Rc<RefCell<State>>) -> glib::ControlFlow {
         return glib::ControlFlow::Break;
     };
     let show = {
-        let state = st.borrow();
-        state.shown.is_none() && (state.logout || state.start.elapsed() >= SHOW_AFTER)
+        let mut state = st.borrow_mut();
+        let due = state.timer.due(&s, Instant::now());
+        state.shown.is_none() && (state.logout || due)
     };
     if show {
         build(st);
@@ -110,12 +118,8 @@ fn finish(st: &Rc<RefCell<State>>) {
 
 fn build(st: &Rc<RefCell<State>>) {
     let app = st.borrow().app.clone();
-    let window = gtk::Window::builder()
-        .application(&app)
-        .title(tr!(ExitTitle))
-        .default_width(620)
-        .default_height(360)
-        .build();
+    // as tall as what it shows (`refresh` shrinks it again when the list goes)
+    let window = gtk::Window::builder().application(&app).title(tr!(ExitTitle)).default_width(WIDTH).build();
     let phase = gtk::Label::new(None);
     phase.set_xalign(0.0);
     phase.set_wrap(true);
@@ -123,6 +127,7 @@ fn build(st: &Rc<RefCell<State>>) {
     let scroller = gtk::ScrolledWindow::builder()
         .child(&grid)
         .vexpand(true)
+        .visible(false)
         .min_content_height(160)
         .hscrollbar_policy(gtk::PolicyType::Never)
         .has_frame(true)
@@ -191,7 +196,12 @@ fn refresh(st: &Rc<RefCell<State>>, s: ExitStatus) {
         fill(&w.grid, &rows);
         *shown_rows = rows;
     }
-    w.scroller.set_visible(!shown_rows.is_empty());
+    let list = !shown_rows.is_empty();
+    if w.scroller.is_visible() != list {
+        w.scroller.set_visible(list);
+        // back to the height the content needs: a window keeps its size when content goes
+        w.window.set_default_size(WIDTH, -1);
+    }
     w.quit.set_sensitive(closing::quit_offered(&s));
     *last = Some((s, secs));
 }

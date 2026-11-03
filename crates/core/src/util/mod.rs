@@ -6,6 +6,7 @@ pub mod bloom_filter;
 pub mod deflate;
 pub mod gzip;
 pub mod hex;
+pub mod lockfile;
 pub mod path;
 pub mod private_file;
 pub mod puff;

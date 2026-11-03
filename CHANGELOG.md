@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_120646_1793704006: Version 1.1.43: one window per folder, `patorrent.lock` (D42 slice 0)
+
+- **Fixed (1.x bug):** a second start of the installed copy could hand its torrent to a running portable copy, or the other way round: both looked for the window class `PaTorrentMainWnd`. Every folder but `%APPDATA%\PaTorrent` now has its own class (`PaTorrentMainWnd.<FNV-1a 64 of the folder>`); the installer's check still finds the installed copy.
+- **New:** `patorrent.lock` in the settings folder (Win32), the library folder (GTK) and the state directory (nox), held for the process's life (share mode 0 on Windows, `flock` on Unix, both honoured over shares). A folder opened from another session or computer shows "Another PaTorrent is already using this folder" (`FolderInUse`, 34 machine translations) and exits; nox says so on stderr.
+- One portable test for the GUI and nox (`frontend::profile::portable_root`, `patorrent.ini` must be a file).
+- **Checked:** workspace tests (new: the class name, the lock, the marker); clippy for Windows, Linux (GTK too), macOS and FreeBSD; a second `patorrent-nox run` on a held state directory exits 1 with the message; a portable `patorrent.exe` with its lock held from another process shows the message on the hidden desktop.
+
 ## 2026-11-03_115032_1793703032: Profiles and portable mode approved: the plan (D42)
 
 - **Owner's request:** the best approach for [PROFILES.md](docs/PROFILES.md) by use case, and a plan to implement. [PROFILES_PLAN.md](docs/PROFILES_PLAN.md) answers Q1-Q9 (the `profiles/<name>` rule, `[a-z][a-z0-9-]{0,31}` names, a File > Profiles menu and no environment variable, random ports for new profiles and the default's 6881 kept, associations owned by one profile, profiles in the Flatpak, relative paths converted on write in portable mode only, macOS portable mode last, slice 0 in 1.1.x) and lays out slices 0-8 with the files and functions each touches. D42 moved to the active decisions; D7 amended.

@@ -386,6 +386,7 @@ RemoteTrust={name} menunjukkan sertifikat yang tidak dipercaya komputer ini (yan
 RemotePlaintext={name} adalah komputer lain, dan tanpa HTTPS nama pengguna, kata sandi, dan setiap perintah melewati jaringan tanpa enkripsi: siapa pun di jaringan itu dapat membaca atau mengubahnya.\n\nTetap sambungkan tanpa HTTPS?
 ErrStartPaTorrent=Tidak dapat memulai PaTorrent: {error}
 ForwardRefused=PaTorrent sudah berjalan sebagai administrator, dan Windows tidak mengizinkan salinan ini menyerahkan apa yang harus ditambahkan. Tambahkan dari PaTorrent yang sedang berjalan, atau jalankan PaTorrent tanpa hak administrator.
+FolderInUse=PaTorrent lain sudah menggunakan folder ini, di sesi lain atau di komputer lain yang membagikannya:\n\n{folder}\n\nTutup PaTorrent tersebut terlebih dahulu.
 EndSessionSaving=Menyimpan daftar torrent dan kemajuan...
 ExitTitle=PaTorrent sedang ditutup
 ExitElapsed=Menutup selama {time}

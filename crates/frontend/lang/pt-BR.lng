@@ -386,6 +386,7 @@ RemoteTrust={name} apresenta um certificado em que este computador não confia (
 RemotePlaintext={name} é outro computador e, sem HTTPS, o nome de usuário, a senha e cada comando passam pela rede sem criptografia: qualquer pessoa nela pode lê-los ou alterá-los.\n\nConectar mesmo assim sem HTTPS?
 ErrStartPaTorrent=Não é possível iniciar o PaTorrent: {error}
 ForwardRefused=O PaTorrent já está em execução como administrador, e o Windows não permite que esta cópia passe a ele o que adicionar. Adicione pelo PaTorrent em execução ou inicie o PaTorrent sem direitos de administrador.
+FolderInUse=Outro PaTorrent já está usando esta pasta, em outra sessão ou em outro computador que a compartilha:\n\n{folder}\n\nFeche esse PaTorrent primeiro.
 EndSessionSaving=Salvando a lista de torrents e o progresso...
 ExitTitle=O PaTorrent está fechando
 ExitElapsed=Fechando há {time}

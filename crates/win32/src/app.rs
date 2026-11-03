@@ -16,6 +16,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use patorrent_core::fetch::FetchProxy;
 use patorrent_core::metainfo::TorrentInfo;
+use patorrent_core::util::lockfile;
 use patorrent_core::util::time::{local_utc_offset, unix_now};
 use patorrent_core::{
     AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
@@ -119,12 +120,42 @@ pub(crate) unsafe fn refuse_lower_integrity_copydata(hwnd: HWND) {
     unsafe { ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_DISALLOW, null_mut()) };
 }
 
-pub const MAIN_CLASS: PCWSTR = w!("PaTorrentMainWnd");
+/// The main window's class for the installed copy's folder (`%APPDATA%\PaTorrent`), which the
+/// installer looks for (`FindWindow` in `patorrent.nsi`).
+const DEFAULT_MAIN_CLASS: &str = "PaTorrentMainWnd";
+
+/// The main window's class, keyed by its settings folder ([`main_class_name`]), so a second
+/// start hands its torrents to the window of its own folder (`instance` in `main.rs`) and
+/// never to a portable copy's, or the other way round.
+pub fn main_class() -> PCWSTR {
+    static CLASS: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    CLASS
+        .get_or_init(|| {
+            let portable = patorrent_frontend::profile::portable_root().is_some();
+            wide(&main_class_name(&base_data_dir(), !portable))
+        })
+        .as_ptr()
+}
+
+/// [`DEFAULT_MAIN_CLASS`] for the default folder; for any other, the name with `.` and 16 hex
+/// digits of the FNV-1a 64 hash of the folder in lower case (Windows paths ignore case).
+pub(crate) fn main_class_name(dir: &Path, default: bool) -> String {
+    if default {
+        return DEFAULT_MAIN_CLASS.to_owned();
+    }
+    let hash = dir
+        .to_string_lossy()
+        .to_lowercase()
+        .bytes()
+        .fold(0xcbf2_9ce4_8422_2325u64, |h, b| (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3));
+    format!("{DEFAULT_MAIN_CLASS}.{hash:016x}")
+}
+
 /// Set on the main window while it saves its state and stops the engine: a second instance
 /// then waits for this one to exit and starts in its place (`instance` in `main.rs`), as the
 /// window takes no torrents any more.
 pub const EXITING_PROP: PCWSTR = w!("PaTorrent.Exiting");
-/// A remote window's class: a second local start looks for [`MAIN_CLASS`] only, so it never
+/// A remote window's class: a second local start looks for [`main_class`] only, so it never
 /// hands its torrents to a remote window.
 const REMOTE_CLASS: PCWSTR = w!("PaTorrentRemoteWnd");
 const PANEL_CLASS: PCWSTR = w!("PaTorrentPanel");
@@ -403,12 +434,12 @@ pub fn data_dir() -> PathBuf {
 }
 
 /// The settings folder: beside the exe when `patorrent.ini` is there (portable, like
-/// µTorrent's `settings.dat`), else `%APPDATA%\PaTorrent`.
+/// µTorrent's `settings.dat`; `patorrent_frontend::profile`), else `%APPDATA%\PaTorrent`.
 pub fn base_data_dir() -> PathBuf {
-    let exe_dir = exe_path().parent().map(Path::to_path_buf).unwrap_or_default();
-    if exe_dir.join("patorrent.ini").exists() {
-        return exe_dir;
+    if let Some(root) = patorrent_frontend::profile::portable_root() {
+        return root;
     }
+    let exe_dir = exe_path().parent().map(Path::to_path_buf).unwrap_or_default();
     std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("PaTorrent")).unwrap_or(exe_dir)
 }
 
@@ -496,6 +527,21 @@ fn language_choice() -> String {
     Prefs::load(base_data_dir().join("patorrent.ini")).get("ui.language").unwrap_or_default().to_owned()
 }
 
+/// `patorrent.lock` in `dir`, held until the process ends; `Err` after telling the user that
+/// another process has it, `None` when it cannot be made (a read-only folder fails later, and
+/// says so, where the settings are written).
+fn lock_folder(dir: &Path) -> Result<Option<lockfile::Lock>, ()> {
+    let _ = patorrent_core::util::private_file::create_dir_all(dir);
+    match lockfile::Lock::take(&dir.join(lockfile::FILE_NAME)) {
+        Ok(l) => Ok(Some(l)),
+        Err(e) if lockfile::is_taken(&e) => {
+            dialogs::error(null_mut(), &tr!(FolderInUse, folder = dir.display()));
+            Err(())
+        }
+        Err(_) => Ok(None),
+    }
+}
+
 pub fn run(args: Args) -> i32 {
     // before any window or message box
     let lang_problems = init_language();
@@ -520,6 +566,12 @@ pub fn run(args: Args) -> i32 {
     };
     let local = args.demo.is_none() && remote_session.is_none();
     let dir = data_dir();
+    // one process per folder, also from another session or a computer sharing it (D42); a
+    // second start in this session has already handed its torrents over (`instance`)
+    let _lock = match local.then(|| lock_folder(&dir)) {
+        Some(Err(())) => return 1,
+        l => l.and_then(Result::ok).flatten(),
+    };
     let mut prefs = Prefs::load(dir.join("patorrent.ini"));
     if let Some(r) = crate::remote_ui::get() {
         // the server's engine settings and default folder are this window's
@@ -575,7 +627,7 @@ pub fn run(args: Args) -> i32 {
         wc.hInstance = instance;
         wc.hCursor = LoadCursorW(null_mut(), IDC_ARROW);
         wc.hbrBackground = (COLOR_BTNFACE + 1) as usize as HBRUSH;
-        let class = if crate::remote_ui::is_remote() { REMOTE_CLASS } else { MAIN_CLASS };
+        let class = if crate::remote_ui::is_remote() { REMOTE_CLASS } else { main_class() };
         wc.lpszClassName = class;
         RegisterClassExW(&wc);
         wc.lpfnWndProc = Some(panel_proc);
@@ -5576,6 +5628,20 @@ mod tests {
     use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError, WAIT_OBJECT_0};
 
     use super::*;
+
+    /// The installed copy keeps the name the installer looks for; every other folder has its
+    /// own, the same whatever the case of its path (D42).
+    #[test]
+    fn main_class_keyed_by_folder() {
+        let appdata = Path::new(r"C:\Users\u\AppData\Roaming\PaTorrent");
+        assert_eq!(main_class_name(appdata, true), "PaTorrentMainWnd");
+        let a = main_class_name(Path::new(r"D:\Portable\PaTorrent"), false);
+        assert!(a.starts_with("PaTorrentMainWnd.") && a.len() == "PaTorrentMainWnd.".len() + 16, "{a}");
+        assert_eq!(a, main_class_name(Path::new(r"d:\portable\patorrent"), false));
+        assert_ne!(a, main_class_name(Path::new(r"E:\Portable\PaTorrent"), false));
+        // FNV-1a 64 of "a"
+        assert_eq!(main_class_name(Path::new("A"), false), "PaTorrentMainWnd.af63dc4c8601ec8c");
+    }
 
     /// Open Folder stays inside the save path whatever the torrent's name is (SEC-18).
     #[test]

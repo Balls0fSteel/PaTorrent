@@ -386,6 +386,7 @@ RemoteTrust={name} předkládá certifikát, kterému tento počítač nedůvě�
 RemotePlaintext={name} je jiný počítač a bez HTTPS putují uživatelské jméno, heslo i každý příkaz sítí nešifrovaně: kdokoli v ní je může přečíst nebo změnit.\n\nPřesto se připojit bez HTTPS?
 ErrStartPaTorrent=PaTorrent nelze spustit: {error}
 ForwardRefused=PaTorrent už běží jako správce a Windows nedovolí této kopii předat mu, co má přidat. Přidejte to ve spuštěném PaTorrentu, nebo spusťte PaTorrent bez práv správce.
+FolderInUse=Tuto složku už používá jiný PaTorrent, v jiné relaci nebo na jiném počítači, který ji sdílí:\n\n{folder}\n\nNejprve ukončete ten PaTorrent.
 EndSessionSaving=Ukládání seznamu torrentů a průběhu...
 ExitTitle=PaTorrent se zavírá
 ExitElapsed=Zavírání trvá {time}

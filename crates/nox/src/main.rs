@@ -24,6 +24,7 @@ use std::process::ExitCode;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
+use patorrent_core::util::lockfile;
 use patorrent_core::{
     AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, PeerFlags, PeerInfo, PeerSource, ProxyType,
     Session, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus,
@@ -513,6 +514,23 @@ fn state_dirs(o: &Opts) -> paths::Dirs {
     dirs
 }
 
+/// `patorrent.lock` in the state directory: an error when another process holds it; `None`
+/// when it cannot be made (an unwritable folder fails later, where the state is written).
+fn lock_state(dir: &std::path::Path) -> Result<Option<lockfile::Lock>, String> {
+    let _ = patorrent_core::util::private_file::create_dir_all(dir);
+    match lockfile::Lock::take(&dir.join(lockfile::FILE_NAME)) {
+        Ok(l) => Ok(Some(l)),
+        Err(e) if lockfile::is_taken(&e) => Err(format!(
+            "{} is in use by another patorrent-nox, on this computer or another one sharing the folder",
+            dir.display()
+        )),
+        Err(e) => {
+            eprintln!("! {}: {e}", dir.join(lockfile::FILE_NAME).display());
+            Ok(None)
+        }
+    }
+}
+
 /// SIGHUP: the `--log` file reopened and the IP filter's block list read again (the Web UI's
 /// BitTorrent page choice when it runs, else `--ip-filter`). `webui.json` is not re-read: the
 /// running daemon owns it (it rewrites it on every change made in the Web UI).
@@ -590,6 +608,15 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     }
     let dirs = state_dirs(&o);
     let state_dir = dirs.state.clone();
+    // one process per state directory, here or on another computer sharing it (D42); held
+    // until we exit
+    let _lock = match state_dir.as_deref().map(lock_state) {
+        Some(Err(e)) => {
+            eprintln!("error: {e}");
+            return ExitCode::FAILURE;
+        }
+        l => l.and_then(Result::ok).flatten(),
+    };
     let mut settings =
         Settings { download_rate_limit: o.dl_limit, upload_rate_limit: o.ul_limit, ..Settings::default() };
     if let Some(p) = o.port {

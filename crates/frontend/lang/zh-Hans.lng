@@ -386,6 +386,7 @@ RemoteTrust={name} 提供了这台计算机不信任的证书（自签名证书�
 RemotePlaintext={name} 是另一台计算机，不使用 HTTPS 时，用户名、密码和每条命令都会以未加密的形式经过网络：网络上的任何人都能读取或更改它们。\n\n仍要不使用 HTTPS 连接吗？
 ErrStartPaTorrent=无法启动 PaTorrent：{error}
 ForwardRefused=PaTorrent 已以管理员身份运行，Windows 不允许此副本将要添加的内容交给它。请在正在运行的 PaTorrent 中添加，或在没有管理员权限的情况下启动 PaTorrent。
+FolderInUse=另一个 PaTorrent 已在使用此文件夹（在另一个会话中，或在共享此文件夹的另一台计算机上）：\n\n{folder}\n\n请先关闭那个 PaTorrent。
 EndSessionSaving=正在保存种子列表和进度...
 ExitTitle=PaTorrent 正在关闭
 ExitElapsed=正在关闭，已用时 {time}

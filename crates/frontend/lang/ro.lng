@@ -386,6 +386,7 @@ RemoteTrust={name} prezintă un certificat în care acest computer nu are încre
 RemotePlaintext={name} este alt calculator, iar fără HTTPS numele de utilizator, parola și fiecare comandă trec prin rețea necriptate: oricine din rețea le poate citi sau modifica.\n\nConectați totuși fără HTTPS?
 ErrStartPaTorrent=PaTorrent nu poate porni: {error}
 ForwardRefused=PaTorrent rulează deja ca administrator, iar Windows nu permite acestei copii să-i transmită ce trebuie adăugat. Adăugați din PaTorrent care rulează sau porniți PaTorrent fără drepturi de administrator.
+FolderInUse=Un alt PaTorrent folosește deja acest dosar, într-o altă sesiune sau pe alt computer care îl partajează:\n\n{folder}\n\nÎnchideți mai întâi acel PaTorrent.
 EndSessionSaving=Se salvează lista de torrente și progresul...
 ExitTitle=PaTorrent se închide
 ExitElapsed=Se închide de {time}

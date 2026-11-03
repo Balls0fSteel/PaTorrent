@@ -124,4 +124,6 @@ Each is one change set with a patch bump; `cargo test --workspace`, clippy and r
 
 ## Implementation status
 
-Nothing built yet. Each slice adds its status here (done, changed while building, left out), as LOWPING.md and DISKIO.md do.
+Each slice adds its status here (done, changed while building, left out), as LOWPING.md and DISKIO.md do.
+
+- **Slice 0, 1.1.43 (2026-11-03): done.** `frontend::profile::portable_root()` (Windows; `is_file()`) is the one test for Win32's `base_data_dir()` and nox's paths. `app::main_class()` keys the class by folder (`main_class_name`, FNV-1a 64), used by `instance::forward` and the window. `patorrent_core::util::lockfile` (`Lock::take`, `is_taken`, `FILE_NAME`); Win32 takes it in `app::run` for a local window (not demo, not remote) and shows `FolderInUse`; GTK in `build()` for a local window (`lock_library`, in the library folder, the message instead of the engine's start); nox in `run` in the state directory (with `--no-state`, none). The lock file stays after exit (removing it races with a second opener). Changed: nox's error is English, as its other `error:` lines; `tools/windows-clean/desktop/uia.ps1` accepts the keyed class.

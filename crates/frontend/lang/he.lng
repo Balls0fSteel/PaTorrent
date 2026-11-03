@@ -386,6 +386,7 @@ RemoteTrust={name} מציג אישור שמחשב זה אינו סומך עלי�
 RemotePlaintext={name} הוא מחשב אחר, ובלי HTTPS שם המשתמש, הסיסמה וכל פקודה עוברים ברשת ללא הצפנה: כל מי שנמצא בה יכול לקרוא או לשנות אותם.\n\nלהתחבר בכל זאת בלי HTTPS?
 ErrStartPaTorrent=לא ניתן להפעיל את PaTorrent: {error}
 ForwardRefused=PaTorrent כבר פועל כמנהל, ו-Windows אינו מאפשר לעותק זה להעביר לו מה להוסיף. הוסיפו זאת מתוך PaTorrent הפועל, או הפעילו את PaTorrent ללא הרשאות מנהל.
+FolderInUse=PaTorrent אחר כבר משתמש בתיקייה זו, בהפעלה אחרת או במחשב אחר שמשתף אותה:\n\n{folder}\n\nסגרו קודם את ה-PaTorrent ההוא.
 EndSessionSaving=שומר את רשימת הטורנטים וההתקדמות...
 ExitTitle=PaTorrent נסגר
 ExitElapsed=נסגר כבר {time}

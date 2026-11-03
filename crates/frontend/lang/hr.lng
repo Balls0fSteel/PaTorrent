@@ -386,6 +386,7 @@ RemoteTrust={name} pokazuje certifikat kojem ovo računalo ne vjeruje (samopotpi
 RemotePlaintext={name} je drugo računalo, a bez HTTPS-a korisničko ime, lozinka i svaka naredba putuju mrežom nešifrirano: svatko na njoj ih može pročitati ili promijeniti.\n\nIpak se povezati bez HTTPS-a?
 ErrStartPaTorrent=PaTorrent se ne može pokrenuti: {error}
 ForwardRefused=PaTorrent se već izvodi kao administrator, a Windows ne dopušta ovoj kopiji da mu preda što treba dodati. Dodajte to u pokrenutom PaTorrentu ili pokrenite PaTorrent bez administratorskih prava.
+FolderInUse=Drugi PaTorrent već koristi ovu mapu, u drugoj sesiji ili na drugom računalu koje je dijeli:\n\n{folder}\n\nNajprije zatvorite taj PaTorrent.
 EndSessionSaving=Spremanje popisa torrenata i napretka...
 ExitTitle=PaTorrent se zatvara
 ExitElapsed=Zatvaranje traje {time}

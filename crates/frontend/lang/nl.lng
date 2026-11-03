@@ -386,6 +386,7 @@ RemoteTrust={name} biedt een certificaat aan dat deze computer niet vertrouwt (e
 RemotePlaintext={name} is een andere computer, en zonder HTTPS gaan gebruikersnaam, wachtwoord en elke opdracht onversleuteld over het netwerk: iedereen daarop kan ze lezen of wijzigen.\n\nToch verbinden zonder HTTPS?
 ErrStartPaTorrent=Kan PaTorrent niet starten: {error}
 ForwardRefused=PaTorrent draait al als beheerder, en Windows laat deze kopie niet doorgeven wat er moet worden toegevoegd. Voeg het toe in de draaiende PaTorrent, of start PaTorrent zonder beheerdersrechten.
+FolderInUse=Een andere PaTorrent gebruikt deze map al, in een andere sessie of op een andere computer die de map deelt:\n\n{folder}\n\nSluit die PaTorrent eerst.
 EndSessionSaving=Torrentlijst en voortgang worden opgeslagen...
 ExitTitle=PaTorrent wordt afgesloten
 ExitElapsed=Afsluiten duurt al {time}

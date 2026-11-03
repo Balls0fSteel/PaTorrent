@@ -543,6 +543,25 @@ fn super_seed_state(a: &App, ids: &[TorrentId]) -> (bool, bool) {
     (all(&|s| s.is_seeding), all(&|s| s.super_seeding))
 }
 
+/// `patorrent.lock` in the library's folder, held until the process ends; the message for the
+/// user when another process has it. One that cannot be made is let go: an unwritable folder
+/// fails at the engine's start, which says why.
+fn lock_library(dir: &std::path::Path) -> Result<(), String> {
+    use patorrent_core::util::lockfile;
+    thread_local! {
+        static LOCK: RefCell<Option<lockfile::Lock>> = const { RefCell::new(None) };
+    }
+    let _ = patorrent_core::util::private_file::create_dir_all(dir);
+    match lockfile::Lock::take(&dir.join(lockfile::FILE_NAME)) {
+        Ok(l) => {
+            LOCK.with(|k| *k.borrow_mut() = Some(l));
+            Ok(())
+        }
+        Err(e) if lockfile::is_taken(&e) => Err(tr!(FolderInUse, folder = dir.display())),
+        Err(_) => Ok(()),
+    }
+}
+
 /// The main window, on a new engine session, or on `remote_session` in remote mode
 /// (`crate::remote`).
 fn build(app: &gtk::Application, remote_session: Option<Session>) {
@@ -591,19 +610,23 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         window.set_title(Some(&tr!(TitleRemote, version = BUILD, label = r.label)));
     }
 
+    // one process per library, also from another session or a computer sharing the folder
+    // (D42); a second start in this session reached the first through D-Bus instead
     let started = match remote_session {
         Some(s) => Ok(s),
-        None => Session::start(SessionParams { settings: opts.settings.clone(), state_dir: Some(data) }),
+        None => match lock_library(&data) {
+            Ok(()) => {
+                Session::start(SessionParams { settings: opts.settings.clone(), state_dir: Some(data) })
+                    .map_err(|e| (tr!(CannotStartEngine).to_owned(), e.to_string()))
+            }
+            Err(in_use) => Err((in_use, String::new())),
+        },
     };
     let session = match started {
         Ok(s) => s,
-        Err(e) => {
+        Err((message, detail)) => {
             window.present();
-            let d = gtk::AlertDialog::builder()
-                .message(tr!(CannotStartEngine))
-                .detail(e.to_string())
-                .modal(true)
-                .build();
+            let d = gtk::AlertDialog::builder().message(message).detail(detail).modal(true).build();
             let w = window.clone();
             d.choose(Some(&window), None::<&gio::Cancellable>, move |_| w.close());
             return;

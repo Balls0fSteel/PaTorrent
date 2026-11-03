@@ -386,6 +386,7 @@ RemoteTrust={name}, bu bilgisayarın güvenmediği bir sertifika sunuyor (patorr
 RemotePlaintext={name} başka bir bilgisayar ve HTTPS olmadan kullanıcı adı, parola ve her komut ağda şifrelenmeden gider: ağdaki herkes bunları okuyabilir veya değiştirebilir.\n\nYine de HTTPS olmadan bağlanılsın mı?
 ErrStartPaTorrent=PaTorrent başlatılamıyor: {error}
 ForwardRefused=PaTorrent zaten yönetici olarak çalışıyor ve Windows bu kopyanın ona eklenecek şeyi iletmesine izin vermiyor. Çalışan PaTorrent'ten ekleyin veya PaTorrent'i yönetici hakları olmadan başlatın.
+FolderInUse=Başka bir PaTorrent bu klasörü zaten kullanıyor, başka bir oturumda veya klasörü paylaşan başka bir bilgisayarda:\n\n{folder}\n\nÖnce o PaTorrent'i kapatın.
 EndSessionSaving=Torrent listesi ve ilerleme kaydediliyor...
 ExitTitle=PaTorrent kapanıyor
 ExitElapsed={time} süredir kapanıyor

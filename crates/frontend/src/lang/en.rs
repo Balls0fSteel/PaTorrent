@@ -559,6 +559,9 @@ strings! {
     ErrStartPaTorrent = "Cannot start PaTorrent: {error}";
     /// A second copy was started with a torrent while the first runs with administrator rights.
     ForwardRefused = "PaTorrent is already running as administrator, and Windows does not let this copy hand it what to add. Add it from the running PaTorrent, or start PaTorrent without administrator rights.";
+    /// The folder's `patorrent.lock` is held: another user session, or another computer that
+    /// opened the same folder over a share (D42).
+    FolderInUse = "Another PaTorrent is already using this folder, in another session or on another computer that shares it:\n\n{folder}\n\nClose that PaTorrent first.";
     /// Windows lists it beside PaTorrent while it holds up a sign-out or shutdown to save its
     /// state.
     EndSessionSaving = "Saving the torrent list and progress...";

@@ -386,6 +386,7 @@ RemoteTrust={name} olyan tanúsítványt mutat, amelyben ez a számítógép nem
 RemotePlaintext=A(z) {name} egy másik számítógép, és HTTPS nélkül a felhasználónév, a jelszó és minden parancs titkosítatlanul halad át a hálózaton: bárki a hálózaton elolvashatja vagy megváltoztathatja őket.\n\nCsatlakozik mégis HTTPS nélkül?
 ErrStartPaTorrent=A PaTorrent nem indítható: {error}
 ForwardRefused=A PaTorrent már rendszergazdaként fut, és a Windows nem engedi, hogy ez a példány átadja neki, mit kell hozzáadni. Adja hozzá a futó PaTorrentben, vagy indítsa a PaTorrentet rendszergazdai jogok nélkül.
+FolderInUse=Egy másik PaTorrent már használja ezt a mappát, egy másik munkamenetben vagy egy másik, a mappát megosztó számítógépen:\n\n{folder}\n\nElőbb zárja be azt a PaTorrentet.
 EndSessionSaving=A torrentlista és a haladás mentése...
 ExitTitle=A PaTorrent bezárul
 ExitElapsed=Bezárás folyamatban: {time}

@@ -21,7 +21,7 @@
 //! (`$STATE_DIRECTORY`, `$CONFIGURATION_DIRECTORY`) come before XDG.
 //!
 //! On Windows both are `%APPDATA%\PaTorrent\nox`, or `nox` beside the exe in portable mode
-//! (`patorrent.ini` beside the exe, the GUI's rule).
+//! (`patorrent.ini` beside the exe, the GUI's rule: `patorrent_frontend::profile`).
 //!
 //! On macOS both are `~/Library/Application Support/PaTorrent/nox`, where Apple puts an
 //! application's own files; XDG variables are not read there. A launchd job's
@@ -58,19 +58,12 @@ pub struct Dirs {
 pub fn resolve(state: Option<PathBuf>, config: Option<PathBuf>) -> Dirs {
     let env = |k: &str| std::env::var_os(k);
     if cfg!(windows) {
-        resolve_windows(state, config, env, portable_dir())
+        resolve_windows(state, config, env, patorrent_frontend::profile::portable_root())
     } else if cfg!(target_os = "macos") {
         resolve_macos(state, config, env)
     } else {
         resolve_unix(state, config, env)
     }
-}
-
-/// The exe's folder when `patorrent.ini` is beside it (portable mode, D7).
-fn portable_dir() -> Option<PathBuf> {
-    let exe = std::env::current_exe().ok()?;
-    let dir = exe.parent()?;
-    dir.join("patorrent.ini").is_file().then(|| dir.to_path_buf())
 }
 
 /// Windows: the flags, else portable mode, else `%APPDATA%\PaTorrent\nox`; the config follows

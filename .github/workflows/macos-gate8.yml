@@ -14,6 +14,7 @@ env:
 jobs:
   gate8:
     runs-on: macos-15
+    timeout-minutes: 40
     env:
       CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: -C link-arg=-Wl,-headerpad_max_install_names
       OUT: ${{ github.workspace }}/gate8
@@ -103,11 +104,22 @@ jobs:
           grep -q -- '--profile work' "$OUT/launchagents.txt"
           [ "$(grep -c '[p]atorrent-gtk' "$OUT/launchagents.txt")" -ge 2 ]
 
+      # (before the step below, which may hang on Gatekeeper)
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: macos-gate8-portable
+          path: gate8
+          overwrite: true
+
       # A quarantined download opened where it was unpacked: Gatekeeper translocates it to a
-      # random read-only folder, where patorrent.ini beside it is not seen; the app says so
+      # random read-only folder, where patorrent.ini beside it is not seen; the app says so.
+      # (The first run hung here for 45 minutes: every call has a time limit now.)
       - name: Translocated
         if: always()
+        timeout-minutes: 4
         run: |
+          t() { perl -e 'alarm shift; exec @ARGV' "$@"; }
           dl="$RUNNER_TEMP/Downloads/PaTorrent"
           mkdir -p "$dl"
           ditto PaTorrent.app "$dl/PaTorrent.app"
@@ -115,18 +127,22 @@ jobs:
           now=$(printf '%x' "$(date +%s)")
           xattr -w com.apple.quarantine "0083;$now;Safari;" "$dl/PaTorrent.app"
           xattr -l "$dl/PaTorrent.app"
-          spctl --assess --verbose=4 --type execute "$dl/PaTorrent.app" 2>&1 || true
-          open "$dl/PaTorrent.app" 2>&1 || echo "::warning::open failed"
+          echo "== spctl"
+          t 30 spctl --assess --verbose=4 --type execute "$dl/PaTorrent.app" 2>&1 || echo "(spctl: $?)"
+          echo "== open"
+          t 30 open "$dl/PaTorrent.app" 2>&1 || echo "::warning::open failed or timed out ($?)"
           sleep 25
-          perl -e 'alarm 20; exec @ARGV' screencapture -x "$OUT/translocated.png" || echo "::warning::screencapture failed"
-          ps -axo pid,command | grep '[p]atorrent-gtk' | tee "$OUT/translocated.txt"
+          t 20 screencapture -x "$OUT/translocated.png" || echo "::warning::screencapture failed"
+          ps -axo pid,command | grep -i -E '[p]atorrent|[A]ppTranslocation|[C]oreServicesUIAgent' | tee "$OUT/translocated.txt"
           ls -la "$dl" | tee -a "$OUT/translocated.txt"
           pkill -f patorrent-gtk || true
+          pkill -f PaTorrent.app || true
           grep -q AppTranslocation "$OUT/translocated.txt" \
             || echo "::warning::not translocated here (Gatekeeper may have refused the unsigned app)"
 
       - uses: actions/upload-artifact@v7
         if: always()
         with:
-          name: macos-gate8
+          name: macos-gate8-all
           path: gate8
+          overwrite: true

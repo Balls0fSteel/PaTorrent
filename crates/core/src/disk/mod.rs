@@ -2301,9 +2301,9 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn drives_check_at_once_and_a_cap_paces_them() {
-        // 1 MB on each of two "drives" (two folders: the stand-in detection keys by path), at
-        // most 1 MB/s a check: a second each side by side, two seconds one after the other.
+    fn a_drive_checks_one_torrent_at_a_time_and_a_cap_paces_it() {
+        // 1 MB in each of two folders on one drive, at most 1 MB/s a check: two seconds, as the
+        // drive keeps its checks on one thread however many may run at once.
         let r = rig("disk-checks-a", &[("data", 1_000_000)], 64 * 1024);
         let dir_b = temp_dir("disk-checks-b");
         let mut disk = r.disk;
@@ -2313,22 +2313,18 @@ pub(crate) mod tests {
             std::fs::create_dir_all(dir.join("test")).unwrap();
             std::fs::write(dir.join("test/data"), &r.contents[0]).unwrap();
         }
-        let run = |disk: &DiskIo, checks: i32| {
-            disk.set_smart(true, Some(1), checks, true, "", false);
-            let started = Instant::now();
-            disk.async_check(&a, CheckMode::Full);
-            disk.async_check(&b, CheckMode::Full);
-            for _ in 0..2 {
-                assert!(checked(&r.rx).have.all_set());
-            }
-            started.elapsed()
-        };
-        let together = run(&disk, 2);
-        assert!(together < Duration::from_millis(1700), "{together:?}");
-        assert!(together >= Duration::from_millis(900), "the cap holds: {together:?}");
-        let serial = run(&disk, 1);
-        assert!(serial >= Duration::from_millis(1800), "{serial:?}");
-        assert_eq!(disk.drives_found().iter().filter(|m| m.starts_with("drive ")).count(), 2);
+        disk.set_smart(true, Some(1), 4, true, "", false);
+        let started = Instant::now();
+        disk.async_check(&a, CheckMode::Full);
+        disk.async_check(&b, CheckMode::Full);
+        assert!(checked(&r.rx).have.all_set());
+        let first = started.elapsed();
+        assert!(checked(&r.rx).have.all_set());
+        let both = started.elapsed();
+        assert!(first >= Duration::from_millis(900), "the cap holds: {first:?}");
+        assert!(both >= Duration::from_millis(1800), "one after the other: {both:?}");
+        let found = disk.drives_found();
+        assert_eq!(found.iter().filter(|m| m.starts_with("drive ")).count(), 1, "{found:?}");
         drop(disk);
         let _ = std::fs::remove_dir_all(&r.dir);
         let _ = std::fs::remove_dir_all(&dir_b);

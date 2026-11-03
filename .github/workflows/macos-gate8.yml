@@ -109,7 +109,9 @@ jobs:
           grep -q "state: $m2/nox" "$OUT/exfat-nox2.log" || { echo "::error::nox did not use the stick at its new place"; ok=0; }
           grep -q 'restored 1 torrents' "$OUT/exfat-nox2.log" || { echo "::error::the torrent was not restored"; ok=0; }
           grep -q '100.0 %  \[F\] Seeding' "$OUT/exfat-nox2.log" || { echo "::error::the data was not found at the new place"; ok=0; }
-          grep -q 'Checking' "$OUT/exfat-nox2.log" && { echo "::error::rechecked after the move"; ok=0; }
+          # ("Checking" at 0 s is the resume data's own check, which every start shows; a
+          # recheck of the files logs this)
+          grep -q 'resume data did not match' "$OUT/exfat-nox2.log" && { echo "::error::rechecked after the move"; ok=0; }
           [ "$ok" = 1 ]
 
       # What Preferences > "Start PaTorrent at login" writes, once per profile

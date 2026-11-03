@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_140518_1793711118: D42: AppImage rule, Create Shortcut, an unfinished torrent moved
+
+- **Beside an AppImage (Xubuntu VM):** with `$APPIMAGE` naming a `.AppImage` file beside `patorrent.ini` and the binary elsewhere (as in the AppImage's mount), nox kept its state beside the `.AppImage`. A real AppImage was not built (that needs `linuxdeploy` downloaded).
+- **Create Shortcut (Windows VM, console session):** File > Profiles > Create Shortcut in a `--profile work` window made `PaTorrent (work).lnk` on the desktop, target the exe, arguments `--profile work`.
+- **An unfinished torrent moved:** a portable folder with a torrent at 50 % moved to another drive letter resumed at 50 % Downloading, although the missing half had been filled in behind its back: no recheck.
+- Docs only. Still open: a Mac (gate 8); dock icons under GNOME, KDE and the Flatpak; the rc.d profiles started as root.
+
 ## 2026-11-03_140153_1793710913: D42 desktop checks: the wizard, double-clicks, the Samba move
 
 - **Windows VM, the console session** (`tools/windows-clean/desktop/wizard-profiles.ps1`, new): the setup wizard given a folder holding `patorrent.ini` shows `PT_PORTABLE_DIR`, stays on its Directory page and installs nothing; the interactive uninstaller with "Remove settings" ticked removes `%APPDATA%\PaTorrent` with `profiles\` and `patorrent.lock` (unticked, they stay). UIA sees only panes on a locked desktop, so the folder box is set with `WM_SETTEXT` and the box ticked with a posted Space on the components tree.

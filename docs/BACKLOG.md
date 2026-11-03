@@ -751,14 +751,14 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
 
 - **Windows:** done on the VM and this PC (CHANGELOG 2026-11-03_140153_1793710913: the wizard,
   "Remove settings", a shell-opened `.torrent`, installed and portable forwarding, the "Port N in
-  use" click, the Samba move). Left: File > Profiles > Create Shortcut clicked in the GUI (the
-  `.lnk` itself is made by a test).
+  use" click, the Samba move) and 2026-11-03_140518_1793711118 (Create Shortcut clicked in a
+  profile's window).
 - **Linux desktops:** the dock icon from the profile's own desktop entry on GNOME and KDE (Xvfb
   has no dock) and in the Flatpak (whose entry is written to the host's
-  `~/.local/share/applications`); portable mode beside an AppImage; the rc.d profiles started
-  as root on the FreeBSD VM.
+  `~/.local/share/applications`); a real AppImage build (the `$APPIMAGE` rule itself was checked
+  2026-11-03_140518_1793711118); the rc.d profiles started as root on the FreeBSD VM.
 - **Moving a portable folder:** done for a finished torrent (Windows -> the Samba share -> Linux
-  -> another drive letter, no recheck); left: one still downloading, and the GUI's own move.
+  -> another drive letter) and an unfinished one (another drive letter), no recheck either time.
 - **macOS (gate 8):** a portable `PaTorrent.app` beside `patorrent.ini`, the translocation
   notice, per-profile LaunchAgents.
 - **Left out on purpose:** the Web UI's categories (`webui.json`) stay absolute in portable mode;

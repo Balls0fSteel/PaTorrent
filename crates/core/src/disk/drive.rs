@@ -231,10 +231,20 @@ fn geom_rotating(xml: &str, disk: &str) -> Option<bool> {
     // Geoms hold `<class ref=.../>` but never `</class>`, so this is the whole DISK class.
     let class = &xml[xml.find("<name>DISK</name>")?..];
     let class = &class[..class.find("</class>").unwrap_or(class.len())];
-    let name = format!("<name>{disk}</name>");
-    // `<geom id=...>` opens a geom; providers and consumers refer back with `<geom ref=.../>`.
-    let geom =
-        class.split("<geom ").filter(|g| g.starts_with("id=")).find(|g| g.find("<name>") == g.find(&name))?;
+    // `<geom id=...>` opens a geom, up to its `</geom>`; its providers inside refer back with
+    // `<geom ref=.../>`. FreeBSD puts `<rotationrate>` in the provider's `<config>`, not the
+    // geom's, so the whole geom is searched.
+    let mut rest = class;
+    let geom = loop {
+        let at = rest.find("<geom id=")?;
+        let g = &rest[at..];
+        let g = &g[..g.find("</geom>").unwrap_or(g.len())];
+        let first_name = g.split("<name>").nth(1).and_then(|n| n.split('<').next());
+        if first_name.map(str::trim) == Some(disk) {
+            break g;
+        }
+        rest = &rest[at + "<geom id=".len()..];
+    };
     let rate = geom.split("<rotationrate>").nth(1)?.split('<').next()?.trim();
     match rate.parse::<u32>() {
         Ok(0) => Some(false),
@@ -1188,6 +1198,20 @@ mod tests {
         assert_eq!(geom_rotating(xml, "vtbd0"), None);
         assert_eq!(geom_rotating(xml, "da9"), None);
         assert_eq!(geom_rotating("<mesh/>", "ada0"), None);
+
+        // As FreeBSD 15.1 writes it: the geom's own config is empty, the provider's holds the rate.
+        let real = r#"<mesh><class id="0x1"><name>DISK</name>
+            <geom id="0x1200"><class ref="0x1"/><name>da0</name><rank>1</rank><config> </config>
+            <provider id="0x1100"><geom ref="0x1200"/><mode>r1w1e2</mode><name>da0</name>
+            <config><fwheads>255</fwheads><rotationrate>15000</rotationrate><ident>(null)</ident></config></provider></geom>
+            <geom id="0x2200"><class ref="0x1"/><name>nvd0</name><rank>1</rank><config> </config>
+            <provider id="0x2100"><geom ref="0x2200"/><name>nvd0</name><config><rotationrate>0</rotationrate></config></provider></geom>
+            <geom id="0x3200"><class ref="0x1"/><name>cd0</name><rank>1</rank><config> </config>
+            <provider id="0x3100"><geom ref="0x3200"/><name>cd0</name><config><rotationrate>unknown</rotationrate></config></provider></geom>
+            </class></mesh>"#;
+        assert_eq!(geom_rotating(real, "da0"), Some(true));
+        assert_eq!(geom_rotating(real, "nvd0"), Some(false));
+        assert_eq!(geom_rotating(real, "cd0"), None);
     }
 
     #[test]

@@ -31,6 +31,27 @@ pub fn config_dir() -> PathBuf {
     dir(&|k| std::env::var_os(k), "XDG_CONFIG_HOME", &[".config"], profile_name())
 }
 
+/// [`config_dir`] of the profile `name` (`None`: the default one).
+pub fn config_dir_of(name: Option<&str>) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        return macos_dir(&|k| std::env::var_os(k), name);
+    }
+    dir(&|k| std::env::var_os(k), "XDG_CONFIG_HOME", &[".config"], name)
+}
+
+/// [`data_dir`] of the profile `name`.
+pub fn data_dir_of(name: Option<&str>) -> PathBuf {
+    if cfg!(target_os = "macos") {
+        return macos_dir(&|k| std::env::var_os(k), name);
+    }
+    dir(&|k| std::env::var_os(k), "XDG_DATA_HOME", &[".local", "share"], name)
+}
+
+/// The folder whose `profiles/` holds the named profiles' settings (File > Profiles lists them).
+pub fn config_root() -> PathBuf {
+    config_dir_of(None).parent().map(PathBuf::from).unwrap_or_default()
+}
+
 fn profile_name() -> Option<&'static str> {
     profile::current().name.as_deref()
 }

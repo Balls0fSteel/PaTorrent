@@ -231,6 +231,12 @@ mod cmd {
     pub const FILE_OPEN_FOLDER: u16 = 148;
     pub const FILE_BY_ORDER: u16 = 149;
     pub const FILE_RELOCATE: u16 = 150;
+    /// File > Profiles (D42): New Profile, Create Shortcut, Open Profile Folder.
+    pub const PROFILE_NEW: u16 = 151;
+    pub const PROFILE_SHORTCUT: u16 = 152;
+    pub const PROFILE_FOLDER: u16 = 153;
+    /// File > Profiles' list, by `profile::menu` index (at most 256 entries).
+    pub const PROFILE_BASE: u16 = 3700;
     pub const LABEL_BASE: u16 = 1000;
     pub const DL_LIMIT_BASE: u16 = 2000;
     pub const UL_LIMIT_BASE: u16 = 2100;
@@ -786,6 +792,9 @@ unsafe fn main_menu() -> HMENU {
             append_flags(file, grayed(remote), cmd::IMPORT_BASE + i as u16, c.menu_text());
         }
         separator(file);
+        let profiles = CreatePopupMenu();
+        fill_profiles(profiles);
+        submenu(file, profiles, tr!(MenuProfiles));
         append(file, cmd::CONNECT_REMOTE, tr!(MenuConnectRemote));
         separator(file);
         append(file, cmd::EXIT, tr!(MenuExit));
@@ -823,6 +832,72 @@ unsafe fn main_menu() -> HMENU {
         submenu(bar, options, tr!(MenuOptions));
         submenu(bar, help, tr!(MenuHelp));
         bar
+    }
+}
+
+thread_local! {
+    /// File > Profiles' submenu and the profiles it lists, by [`cmd::PROFILE_BASE`] offset.
+    static PROFILES: RefCell<(HMENU, Vec<Option<String>>)> = const { RefCell::new((null_mut(), Vec::new())) };
+}
+
+/// Fills File > Profiles (D42): the default profile and the named ones in the application
+/// root (this one checked and greyed), then New Profile, Create Shortcut and Open Profile
+/// Folder. Filled again whenever it opens, so a profile made elsewhere shows.
+unsafe fn fill_profiles(menu: HMENU) {
+    unsafe {
+        while GetMenuItemCount(menu) > 0 {
+            DeleteMenu(menu, 0, MF_BYPOSITION);
+        }
+        let entries: Vec<_> = profile::menu(&app_root()).into_iter().take(256).collect();
+        for (i, (name, me)) in entries.iter().enumerate() {
+            let text = name.as_deref().unwrap_or(tr!(MenuProfileDefault));
+            append_flags(menu, checked(*me) | grayed(*me), cmd::PROFILE_BASE + i as u16, text);
+        }
+        separator(menu);
+        append(menu, cmd::PROFILE_NEW, tr!(MenuProfileNew));
+        append(menu, cmd::PROFILE_SHORTCUT, tr!(MenuProfileShortcut));
+        append(menu, cmd::PROFILE_FOLDER, tr!(MenuProfileFolder));
+        PROFILES.with(|p| *p.borrow_mut() = (menu, entries.into_iter().map(|(n, _)| n).collect()));
+    }
+}
+
+/// Starts another PaTorrent in profile `name` (`None`: the default one); a running one of that
+/// profile comes to the front instead.
+fn start_profile(hwnd: HWND, name: Option<&str>) {
+    if let Err(e) = std::process::Command::new(exe_path()).args(profile::args_for(name)).spawn() {
+        dialogs::error(hwnd, &tr!(ErrStartPaTorrent, error = e));
+    }
+}
+
+/// File > Profiles > New Profile: asks a name, makes its folder and starts it.
+fn new_profile(hwnd: HWND) {
+    let Some(text) = dialogs::input(hwnd, tr!(ProfileNewTitle), tr!(ProfileNewPrompt), "") else { return };
+    let text = text.trim();
+    if text.is_empty() {
+        return;
+    }
+    match profile::validate(text) {
+        Err(e) => dialogs::error(hwnd, &tr!(ProfileBadName, name = e.given())),
+        Ok(n) if n == profile::DEFAULT_NAME => start_profile(hwnd, None),
+        Ok(n) => {
+            let dir = profile::within(&app_root(), Some(&n));
+            match patorrent_core::util::private_file::create_dir_all(&dir) {
+                Ok(()) => start_profile(hwnd, Some(&n)),
+                Err(e) => dialogs::error(hwnd, &format!("{}: {e}", dir.display())),
+            }
+        }
+    }
+}
+
+/// File > Profiles > Create Shortcut: a desktop shortcut that starts this profile.
+fn profile_shortcut(hwnd: HWND) {
+    let p = profile::current();
+    let Some(desktop) = crate::shortcut::desktop() else { return };
+    let link = desktop.join(crate::shortcut::file_name(p.name.as_deref()));
+    let args = profile::args_for(p.name.as_deref()).join(" ");
+    match crate::shortcut::create(&link, &exe_path(), &args, &p.label()) {
+        Ok(()) => dialogs::info(hwnd, &tr!(ProfileShortcutDesktop, path = link.display())),
+        Err(e) => dialogs::error(hwnd, &format!("{}: {e}", link.display())),
     }
 }
 
@@ -2696,6 +2771,11 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 rss_collect();
                 0
             }
+            // File > Profiles opening: the profiles as they are now
+            WM_INITMENUPOPUP if PROFILES.with(|p| p.borrow().0) == wparam as HMENU => {
+                fill_profiles(wparam as HMENU);
+                0
+            }
             WM_APP_MAGNET => {
                 magnet_dialogs(hwnd);
                 0
@@ -3410,6 +3490,15 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 DestroyWindow(hwnd);
             }
             cmd::CONNECT_REMOTE => crate::remote_ui::start_remote_window(hwnd),
+            cmd::PROFILE_NEW => new_profile(hwnd),
+            cmd::PROFILE_SHORTCUT => profile_shortcut(hwnd),
+            cmd::PROFILE_FOLDER => open_url(hwnd, &base_data_dir().to_string_lossy()),
+            id if (cmd::PROFILE_BASE..cmd::PROFILE_BASE + 256).contains(&id) => {
+                let name = PROFILES.with(|p| p.borrow().1.get((id - cmd::PROFILE_BASE) as usize).cloned());
+                if let Some(name) = name {
+                    start_profile(hwnd, name.as_deref());
+                }
+            }
             cmd::ABOUT => dialogs::about(
                 hwnd,
                 &tr!(

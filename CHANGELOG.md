@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_130347_1793707427: Version 1.1.48: File > Profiles (D42 slice 5)
+
+- **New:** File > Profiles in both GUIs: the default profile and every named one (this one checked; Win32 refills it each time it opens, so a profile made elsewhere shows), each starting its own process (`--profile`; a running one comes to the front); New Profile (a name box, validated, makes the folders and starts it); Create Shortcut (Windows: `PaTorrent (work).lnk` on the desktop through the shell's `ShellLink`, declared by hand in `shortcut.rs` as windows-sys has no COM interfaces; Linux/BSD: the named profile's desktop entry joins the applications menu, greyed for the default profile and on macOS); Open Profile Folder. 9 strings, machine-translated into the 34 tables.
+- **Checked:** the `.lnk` test (writes and reads back a shortcut with `--profile work`), 1,540 workspace tests, clippy for four targets; File > Profiles captured on the hidden desktop (Default, vpn-1 made by hand, work checked and greyed). GTK not run on a desktop.
+
 ## 2026-11-03_125404_1793706844: Version 1.1.47: nox services per profile, the installer's checks (D42 slice 4)
 
 - **Windows service:** `service install --profile work` registers `PaTorrentNox_work` ("PaTorrent nox (work)", state `%ProgramData%\PaTorrent\profiles\work\nox`, `--profile work` in the image path); `uninstall`, `start` and `stop` take `--profile`. New `service status [--profile NAME | --all [--in DIR]]` (state and image path, exit 0 listed / 4 none; no elevation) and `service uninstall --all [--in DIR]`. The running service registers under its profile's name.

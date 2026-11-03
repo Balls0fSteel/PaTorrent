@@ -144,6 +144,24 @@ pub fn list(root: &Path) -> Vec<String> {
     names
 }
 
+/// File > Profiles' list: the default profile (`None`), then the named ones under `root`, each
+/// with whether it is this process's.
+pub fn menu(root: &Path) -> Vec<(Option<String>, bool)> {
+    let current = current().name.clone();
+    std::iter::once(None)
+        .chain(list(root).into_iter().map(Some))
+        .map(|n| {
+            let me = n == current;
+            (n, me)
+        })
+        .collect()
+}
+
+/// The arguments that start another process in profile `name` (`None`: the default one).
+pub fn args_for(name: Option<&str>) -> Vec<String> {
+    name.map_or(Vec::new(), |n| vec![SWITCH.to_owned(), n.to_owned()])
+}
+
 /// This process's profile.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Profile {

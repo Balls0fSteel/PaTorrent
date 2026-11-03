@@ -80,7 +80,7 @@ pub fn packaged() -> bool {
     std::env::var_os("FLATPAK_ID").is_some()
 }
 
-pub use imp::{profile_entry, read, write};
+pub use imp::{profile_entry, read, show_profile_entry, write};
 
 #[cfg(not(target_os = "macos"))]
 mod imp {
@@ -147,6 +147,20 @@ mod imp {
         let shown = old.as_deref().is_some_and(integration::shown);
         write_file(&path, &integration::entry_shown(&command, APP_ID, EntryKind::App, shown))?;
         // a Flatpak exports its icon itself
+        if !super::packaged() {
+            install_icon()?;
+        }
+        Ok(())
+    }
+
+    /// File > Profiles > Create Shortcut: the named profile's entry in the applications menu
+    /// (`NoDisplay` dropped), as `PaTorrent (name)`.
+    pub fn show_profile_entry() -> Result<(), String> {
+        let command = command();
+        if profile::current().is_default() || command.is_empty() {
+            return Err("only a named profile has an entry of its own".into());
+        }
+        write_file(&app_entry_path(), &integration::entry_shown(&command, APP_ID, EntryKind::App, true))?;
         if !super::packaged() {
             install_icon()?;
         }
@@ -393,6 +407,11 @@ mod imp {
     /// Nothing on macOS: LaunchServices names the bundle, never a profile's entry.
     pub fn profile_entry() -> Result<(), String> {
         Ok(())
+    }
+
+    /// Not on macOS (its menu item is greyed): the Dock keeps the bundle.
+    pub fn show_profile_entry() -> Result<(), String> {
+        Err("macOS starts profiles from the command line or a script".into())
     }
 
     /// The LaunchAgent's arguments after the program and profile, when it starts this program.

@@ -417,6 +417,31 @@ fn startup(app: &gtk::Application) {
         }
     });
     app.add_action(&remote);
+    // File > Profiles: the items name a profile ("" the default one); this one's is checked
+    let current = profile::current().name.clone().unwrap_or_default();
+    let switch =
+        gio::SimpleAction::new_stateful("profile", Some(glib::VariantTy::STRING), &current.to_variant());
+    switch.connect_activate(|_, v| {
+        let name = v.and_then(|v| v.str()).unwrap_or_default();
+        if Some(name) != profile::current().name.as_deref().or(Some("")) {
+            start_profile((!name.is_empty()).then_some(name));
+        }
+    });
+    app.add_action(&switch);
+    let actions: [(&str, fn()); 3] = [
+        ("profile-new", new_profile),
+        ("profile-shortcut", profile_shortcut),
+        ("profile-folder", profile_folder),
+    ];
+    for (name, f) in actions {
+        let a = gio::SimpleAction::new(name, None);
+        a.connect_activate(move |_, _| f());
+        // a menu item is for a named profile's entry (the default one has the package's), not on macOS
+        if name == "profile-shortcut" {
+            a.set_enabled(!profile::current().is_default() && cfg!(not(target_os = "macos")));
+        }
+        app.add_action(&a);
+    }
     for (action, keys) in [
         ("win.add", &["<Control>o"][..]),
         ("win.add-url", &["<Control>u"]),
@@ -443,6 +468,11 @@ fn startup(app: &gtk::Application) {
         file.append_section(None, &import_section);
     }
     let remote_section = gio::Menu::new();
+    // File > Profiles (D42)
+    let profiles = gio::Menu::new();
+    fill_profiles(&profiles);
+    PROFILES_MENU.with(|m| *m.borrow_mut() = Some(profiles.clone()));
+    remote_section.append_submenu(Some(&gtk_mnemonic(tr!(MenuProfiles))), &profiles);
     item(&remote_section, tr!(MenuConnectRemote), "app.connect-remote");
     file.append_section(None, &remote_section);
     let quit_section = gio::Menu::new();
@@ -494,6 +524,89 @@ fn list_keys(app: &gtk::Application, on: bool) {
     for (action, keys) in LIST_KEYS {
         app.set_accels_for_action(action, if on { keys } else { &[] });
     }
+}
+
+thread_local! {
+    /// File > Profiles' submenu, filled again after New Profile.
+    static PROFILES_MENU: RefCell<Option<gio::Menu>> = const { RefCell::new(None) };
+}
+
+/// Fills File > Profiles (D42): the default profile and the named ones, then New Profile,
+/// Create Shortcut (a named profile's menu item) and Open Profile Folder.
+fn fill_profiles(menu: &gio::Menu) {
+    menu.remove_all();
+    let list = gio::Menu::new();
+    for (name, _) in profile::menu(&paths::config_root()) {
+        let text = name.clone().unwrap_or_else(|| lang::plain(tr!(MenuProfileDefault)));
+        let i = gio::MenuItem::new(Some(&text), None);
+        i.set_action_and_target_value(Some("app.profile"), Some(&name.unwrap_or_default().to_variant()));
+        list.append_item(&i);
+    }
+    menu.append_section(None, &list);
+    let more = gio::Menu::new();
+    item(&more, tr!(MenuProfileNew), "app.profile-new");
+    item(&more, tr!(MenuProfileShortcut), "app.profile-shortcut");
+    item(&more, tr!(MenuProfileFolder), "app.profile-folder");
+    menu.append_section(None, &more);
+}
+
+/// Starts another PaTorrent in profile `name` (`None`: the default one): this executable, or the
+/// AppImage file; a running one of that profile comes to the front instead.
+fn start_profile(name: Option<&str>) {
+    let program = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok());
+    let started = match program {
+        Some(p) => std::process::Command::new(p).args(profile::args_for(name)).spawn(),
+        None => Err(std::io::Error::other("the program's path is not known")),
+    };
+    match started {
+        // reaped when it ends, so it leaves no zombie behind
+        Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
+        Err(e) => error(&tr!(ErrStartPaTorrent, error = e), ""),
+    }
+}
+
+/// File > Profiles > New Profile: asks a name, makes its folders and starts it.
+fn new_profile() {
+    input(tr!(ProfileNewTitle), tr!(ProfileNewPrompt), "", |text| {
+        if text.is_empty() {
+            return;
+        }
+        match profile::validate(&text) {
+            Err(e) => error(&tr!(ProfileBadName, name = e.given()), ""),
+            Ok(n) if n == profile::DEFAULT_NAME => start_profile(None),
+            Ok(n) => {
+                let dirs = [paths::config_dir_of(Some(&n)), paths::data_dir_of(Some(&n))];
+                match dirs.iter().try_for_each(|d| patorrent_core::util::private_file::create_dir_all(d)) {
+                    Ok(()) => {
+                        PROFILES_MENU.with(|m| m.borrow().as_ref().map(fill_profiles));
+                        start_profile(Some(&n));
+                    }
+                    Err(e) => error(&tr!(ErrStartPaTorrent, error = e), ""),
+                }
+            }
+        }
+    });
+}
+
+/// File > Profiles > Create Shortcut: the named profile's desktop entry joins the applications
+/// menu.
+fn profile_shortcut() {
+    let label = profile::current().label();
+    match crate::integration::show_profile_entry() {
+        Ok(()) => info(&tr!(ProfileShortcutMenu, name = label)),
+        Err(e) => error(&tr!(ErrDesktopIntegration, error = e), ""),
+    }
+}
+
+/// File > Profiles > Open Profile Folder: this profile's settings folder.
+fn profile_folder() {
+    let Some(window) = with_app(|a| a.window.clone()) else { return };
+    let launcher = gtk::FileLauncher::new(Some(&gio::File::for_path(paths::config_dir())));
+    launcher.launch(Some(&window), None::<&gio::Cancellable>, |r| {
+        if let Err(e) = r {
+            eprintln!("cannot open the folder: {e}");
+        }
+    });
 }
 
 /// A menu item from a string table text (its `&` mnemonic as GTK's `_`).

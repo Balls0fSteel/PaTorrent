@@ -158,6 +158,18 @@ strings! {
     MenuCreate = "&Create New Torrent...";
     /// Connect this window to a patorrent-nox on another computer.
     MenuConnectRemote = "Connect to &Remote...";
+    /// File > Profiles (D42): the profiles, each started in a window of its own.
+    MenuProfiles = "Pro&files";
+    /// The default profile's item in File > Profiles (the named ones show their names).
+    MenuProfileDefault = "Default";
+    MenuProfileNew = "&New Profile...";
+    /// A desktop shortcut (Windows) or an applications menu item (Linux) for this profile.
+    MenuProfileShortcut = "Create &Shortcut...";
+    MenuProfileFolder = "&Open Profile Folder";
+    ProfileNewTitle = "New Profile";
+    ProfileNewPrompt = "Name (letters a-z, digits and hyphens):";
+    ProfileShortcutDesktop = "The shortcut is on your desktop:\n{path}";
+    ProfileShortcutMenu = "{name} is in your applications menu now.";
     MenuExit = "E&xit";
     MenuPreferences = "&Preferences";
     MenuRss = "&RSS Downloader...";

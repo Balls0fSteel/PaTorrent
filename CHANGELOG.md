@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_103712_1793698632: 1.1.40 published
+
+- **Owner's go-ahead:** the draft published as Latest (2026-11-03); the website branch merged into `main` and deployed: the "It shares your PC" section with the gamer mode and smart disk I/O cards, the 1.1.40 news entry. Checked live: `update.txt` `stable=1.1.40`, the home page's download button and section, `news.atom`.
+- The release notes and metainfo moved from 1.1.35 (drafted first) to 1.1.40 as smart disk I/O landed before the release; 1.1.35-1.1.39 were never published.
+
 ## 2026-11-03_102201_1793697721: 1.1.40 release checks
 
 - **CI** found three tests that only held on this PC, none a product bug, all fixed without a version bump: the drive override test assumed the temp folder is not on a hard disk (GitHub's Ubuntu runner's is); the Files tab path test expected `C:x` to be refused off Windows, where it is a plain name (since 1.1.34, first pushed now); the release job's live tests failed where nothing answers pings (GitHub's Windows runner) and outside the bloated-line setup, which now skip. CI, FreeBSD and Fuzz green on `b300136e`, tagged `v1.1.40`; the Release workflow built all 14 files.

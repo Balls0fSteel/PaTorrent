@@ -1,6 +1,6 @@
 # PaTorrent plan
 
-Last updated: 2026-11-03_090534_1793693134
+Last updated: 2026-11-03_103712_1793698632
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D49 and proposed D42, D46](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -21,8 +21,8 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - **Releases:**
   - 1.0.1 (2026-10-27) was the first stable release, with the full 1.0 scope (D19). `v1.0.0` has no release because its build failed (D34). The open Road to 1.0 hand checks continue as 1.0.x validation.
   - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.
-- **1.1.17 is published, Latest** (2026-10-30, tag `v1.1.17`, [notes](docs/releases/1.1.17.md)): Torznab search in all three GUIs, RSS in the Windows GUI's Web UI, the API key and subnet whitelist, and nox's update check. The website has a News page (`site/news.html`, `news.atom`).
-- **To release: 1.1.40** (peer ID `-PA1012-`, remote protocol 13), everything since 1.1.17: libtorrent 2.0.12-2.1.2 fixes ([PORTING.md](docs/PORTING.md#upstream-fixes-after-2011)), engine options, the shim's `search/*`, updates (D44-D45), the closing window (D47), keep ping low / gamer mode (D49), the release review's fixes (1.1.33), the Files tab menu and label folders (1.1.34-1.1.35), smart disk I/O (1.1.36-1.1.40, D48). Passed: interop with libtorrent 2.0.15 / 2.1.2, the parser/security review and the Windows VM checks (2026-11-02, for 1.1.18-1.1.32); the GTK hand check of 1.1.34-1.1.35 and the D48 runs on Xubuntu and FreeBSD (2026-11-03). Notes `docs/releases/1.1.40.md`, metainfo, website highlights and news on branch `news-1.1.40` (merge and push on publication). **Left:** CI, `tools/bench`, tag, the draft's check on the clean Windows VM, publish. D48 itself was not security-reviewed; it reads no network input.
+- **1.1.17** was published (2026-10-30, tag `v1.1.17`, [notes](docs/releases/1.1.17.md)): Torznab search in all three GUIs, RSS in the Windows GUI's Web UI, the API key and subnet whitelist, and nox's update check. The website has a News page (`site/news.html`, `news.atom`).
+- **1.1.40 is published, Latest** (2026-11-03, tag `v1.1.40`, [notes](docs/releases/1.1.40.md); peer ID `-PA1012-`, remote protocol 13): everything since 1.1.17, including keep ping low / gamer mode (D49), smart disk I/O (D48), the closing window (D47), the Windows self-update (D44-D45), the Files tab menu and label folders, and the libtorrent 2.0.12-2.1.2 fixes. The website has the gamer mode and smart disk I/O highlights; `update.txt` serves `stable=1.1.40`. Release checks: CHANGELOG 2026-11-03. Open: the hand checks in [BACKLOG](docs/BACKLOG.md), real-disk numbers for the busy-disk throttle.
 - **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), older than the 2026-10-23 dialog changes. Linux binaries: command-line smoke checks only.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check). macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
@@ -42,7 +42,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 **Owner notes (2026-10-30_192440_1793384680):** all done. The update pop-up once (1.1.23, D44) and the seamless Windows update (1.1.24, D45); the closing window in both GUIs (1.1.25-1.1.28, D47; [findings](docs/BACKLOG.md#startup-and-shutdown-investigated-2026-10-30_192440_1793384680)). Hand checks on a real PC in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website) and RELEASING.md.
 
 0. **Owner hand-test findings (2026-10-27):** fixed in 1.0.2-1.0.8. The owner re-tests them on a fresh Win32 build; what stays open is in [BACKLOG](docs/BACKLOG.md#owner-hand-test-findings-2026-10-27_225501_1793138101).
-1. Run the installer's wizard and the all-users UAC path once on a real PC, and register `PA` with the client-ID lists (item 14). `update.txt` serves `stable=1.1.17`.
+1. Run the installer's wizard and the all-users UAC path once on a real PC, and register `PA` with the client-ID lists (item 14). `update.txt` serves `stable=1.1.40`.
 2. Rerun `tools/bench` before each release and on bare metal when one is free ([BACKLOG](docs/BACKLOG.md#validation-and-development-environment)).
 3. Hand-check V1.1 (below, implemented) and keep the 1.0.x validation going. Refresh the hand-test set with the latest Win32 dialog changes, then check the remaining dialogs for clipped translations and layout problems in the new font.
 4. Complete the manual checks in Road to 1.0 item 9, starting with Add Torrent from URL, Preferences and the changed Add dialog. Use [BACKLOG.md](docs/BACKLOG.md) for the relevant feature's exact gaps.

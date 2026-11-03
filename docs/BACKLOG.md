@@ -754,17 +754,13 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
   use" click, the Samba move) and 2026-11-03_140518_1793711118 (Create Shortcut clicked in a
   profile's window).
 - **Linux desktops and FreeBSD:** done 2026-11-03_145919_1793714359: GNOME 50, KDE 6.6, the
-  Flatpak, real AppImages, rc.d as root. Follow-ups:
-  - A profile's first start: its entry is written just before the window. GNOME sees the window
-    before it re-reads the folder, so that start gets a generic badge in the overview (the
-    Flatpak's window is grouped under the default app). Writing the entry earlier would fix it,
-    for instance before the "Create it?" question or by File > Profiles > New Profile before it
-    starts the process.
-  - The GTK AppImage: linuxdeploy's GTK hook forces `GDK_BACKEND=x11`, so it needs Xwayland and
-    its `WM_CLASS` is `AppRun.wrapped` in every profile (`_GTK_APPLICATION_ID` is right). A dock
-    that matches on `WM_CLASS` alone misses its entry. `glib::set_prgname` with the profile's
-    id would make it match, and dropping the hook's override would allow native Wayland once
-    tested.
+  Flatpak, real AppImages, rc.d as root. The AppImage's X11-only start and `AppRun.wrapped`
+  window class were fixed in 1.1.52 (2026-11-03_151244_1793715164). Left as it is:
+  - A profile's very first start: GNOME Shell takes about 5 s to read a new desktop entry,
+    measured headless (GIO in the program sees it within 1 ms). A window shown sooner keeps a
+    generic badge in the overview, and in the Flatpak it is grouped under the default app; the
+    icon is right and the next start is fully right. Holding the first window back 5 s would be
+    worse, so nothing waits.
 - **Moving a portable folder:** done for a finished torrent (Windows -> the Samba share -> Linux
   -> another drive letter) and an unfinished one (another drive letter), no recheck either time.
 - **macOS (gate 8):** a portable `PaTorrent.app` beside `patorrent.ini`, the translocation

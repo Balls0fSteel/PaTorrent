@@ -144,6 +144,9 @@ thread_local! {
     static QUITTING: Cell<bool> = const { Cell::new(false) };
     /// The desktop session is ending (`query-end`): the closing window shows at once.
     static LOGOUT: Cell<bool> = const { Cell::new(false) };
+    /// The first window is on its way (after the new profile's question or a remote window's
+    /// connection): another start before it comes makes no second one.
+    static WINDOW_COMING: Cell<bool> = const { Cell::new(false) };
     static TRAY: RefCell<Option<Rc<Tray>>> = const { RefCell::new(None) };
     /// Torrents from the command line that came before the window (a remote window's, while
     /// it connects): opened once it is built.
@@ -238,6 +241,11 @@ pub fn run() -> ExitCode {
     }
     // one instance per profile; `APP_ID` stays the icon's, the desktop entry's and the tray's
     let id = profile::current().app_id(APP_ID);
+    // X11's WM_CLASS is the program name, which a dock matches to a desktop entry's name: the
+    // profile's id, not the executable's (`AppRun.wrapped` in an AppImage). Wayland's app id is
+    // the application's own.
+    glib::set_prgname(Some(id.as_str()));
+    glib::set_application_name("PaTorrent");
     let app = gtk::Application::builder().application_id(id).flags(flags).build();
     app.connect_startup(startup);
     // A logout asks first (`query-end`, through the session manager or the portal): quit as
@@ -260,7 +268,7 @@ pub fn run() -> ExitCode {
     app.connect_activate(move |app| {
         if let Some(w) = app.active_window() {
             w.present();
-        } else {
+        } else if !WINDOW_COMING.with(|c| c.replace(true)) {
             let a = app.clone();
             create_profile(app, move || match remote {
                 true => {

@@ -245,13 +245,19 @@ jobs:
           cp "$APP_ICON_DIR/256.png" "$icons/$app_id.png"
           cp "$APP_ICON_DIR/256.png" "$icons/$app_id.Nox.png"
 
-          # the GTK GUI, GTK 4 bundled (the plugin sets GTK's module, schema and loader paths)
-          DEPLOY_GTK_VERSION=4 LDAI_OUTPUT="PaTorrent-$version-$arch.AppImage" linuxdeploy \
+          # the GTK GUI, GTK 4 bundled (the plugin sets GTK's module, schema and loader paths).
+          # Its hook's `GDK_BACKEND=x11` goes: GTK 4 runs on Wayland (checked under GNOME 50),
+          # and forced X11 needs Xwayland
+          DEPLOY_GTK_VERSION=4 linuxdeploy \
             --appdir AppDir-gtk \
             --executable target/release/patorrent-gtk \
             --desktop-file "contrib/linux/$app_id.desktop" \
             --icon-file "$icons/$app_id.png" \
-            --plugin gtk --output appimage
+            --plugin gtk
+          hook=AppDir-gtk/apprun-hooks/linuxdeploy-plugin-gtk.sh
+          grep -q '^export GDK_BACKEND=x11' "$hook"
+          sed -i '/^export GDK_BACKEND=x11/d' "$hook"
+          LDAI_OUTPUT="PaTorrent-$version-$arch.AppImage" linuxdeploy --appdir AppDir-gtk --output appimage
 
           # nox: a terminal program, kept out of the menus; OpenSSL bundled
           cat > "$RUNNER_TEMP/$app_id.Nox.desktop" <<EOF

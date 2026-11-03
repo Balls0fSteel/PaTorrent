@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_151244_1793715164: Version 1.1.52: the GTK AppImage on Wayland, window classes per profile
+
+- **AppImage:** the release workflow drops linuxdeploy's GTK hook line `export GDK_BACKEND=x11`, so the GUI runs on Wayland without Xwayland. Under headless GNOME 50 with no X11, the AppImage's `vpn-1` window ran next to native default and `work` windows, each matched to its own entry. On X11 under Xvfb it still starts.
+- **GTK:** the program name is the profile's application id, so X11's `WM_CLASS` matches its desktop entry (it was `patorrent-gtk`, `AppRun.wrapped` in an AppImage). The application name stays "PaTorrent".
+- **Fix:** a second start while a new profile's "Create it?" question was up asked a second time. Now the first window is awaited (checked with and without the change under Xvfb).
+- **Not changed:** the first start's generic overview badge in GNOME. The shell takes about 5 s to read a new entry, so waiting would cost more than it fixes (BACKLOG).
+- Clippy for Linux and macOS (GTK) is clean; GTK and frontend tests pass on the Xubuntu VM.
+
 ## 2026-11-03_145919_1793714359: D42 on real desktops: GNOME, KDE, the Flatpak, an AppImage, rc.d as root
 
 - **FreeBSD 15.1, rc.d as root:** `patorrent_nox_profiles="default work vpn-1"` started three daemons as `patorrent`, each with its own state, downloads, log, pid file and Web UI port (8080-8082; listen ports 6881, 48807, 58905). `reload work`, `stop work` / `start work`, stop-all and the boot path (`faststart` / `faststop`) all worked. Cleaned up afterwards.

@@ -670,7 +670,17 @@ const LABELS: &[(&str, S)] = &[
     ("aio_threads", S::PrefAioThreads),
     ("hashing_threads", S::PrefHashThreads),
     ("use_read_cache", S::PrefReadCacheEnable),
+    ("check_gently", S::PrefCheckGently),
+    ("check_rate_limit", S::PrefCheckRateLimit),
+    ("active_checking", S::PrefActiveChecking),
+    ("tune_for_drive", S::PrefTuneForDrive),
+    ("disk_slow_downloads", S::PrefDiskSlowDownloads),
+    ("disk_slow_uploads", S::PrefDiskSlowUploads),
 ];
+
+/// Engine settings the pages show without a caption: a number beside its check box, whose
+/// text ends in the unit (as `cache.size_mb` beside `cache.override`).
+const UNLABELLED: &[&str] = &["check_rate_mb"];
 
 /// One editable thing: an engine setting row or one of [`FIELDS`].
 #[derive(Clone, Copy)]
@@ -689,6 +699,7 @@ impl Def {
 
     fn label(&self) -> &'static str {
         match self {
+            Def::Setting(e) if UNLABELLED.contains(&e.name) => "",
             Def::Setting(e) => {
                 LABELS.iter().find(|(n, _)| *n == e.name).map_or(e.name, |(_, l)| lang::text(*l))
             }
@@ -850,8 +861,8 @@ fn page(id: &str, title: &str, groups: Vec<Json>) -> Json {
     Json::obj().with("id", id).with("title", title).with("groups", Json::Arr(groups))
 }
 
-/// The tree, in µTorrent 2.2.1's order; Disk Cache sits under Advanced. `hosted`: without the
-/// alternative speed limits (the host has none).
+/// The tree, in µTorrent 2.2.1's order; Disk Cache and PaTorrent's Disk I/O sit under
+/// Advanced. `hosted`: without the alternative speed limits (the host has none).
 fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
     let ipf_default = settings_dir.join("ipfilter.dat");
     let mut bandwidth = vec![
@@ -1101,6 +1112,26 @@ fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
                     ],
                 ),
                 group(None, vec![note(tr!(PrefReadCacheNote, mb = settings::AUTO_CACHE_MB))]),
+            ],
+        )
+        .with("under", "advanced"),
+        // smart disk I/O (D48); the per-drive types (drive_overrides) are on Advanced only
+        page(
+            "diskio",
+            tr!(PageDiskIo),
+            vec![
+                group(
+                    Some(tr!(PrefChecking)),
+                    vec![
+                        f("check_gently"),
+                        row(vec![f("check_rate_limit"), enabled_by(f("check_rate_mb"), "check_rate_limit")]),
+                        // the engine checks with at most 8 threads; -1 (no limit) is Advanced's
+                        ranged("active_checking", 1, 8),
+                    ],
+                ),
+                group(Some(tr!(PrefDrives)), vec![f("tune_for_drive")]),
+                group(Some(tr!(PrefDiskBusy)), vec![f("disk_slow_downloads"), f("disk_slow_uploads")]),
+                group(None, vec![note(tr!(PrefDiskIoNote))]),
             ],
         )
         .with("under", "advanced"),
@@ -1702,13 +1733,16 @@ mod tests {
                 "scheduler",
                 "webui",
                 "advanced",
-                "diskcache"
+                "diskcache",
+                "diskio"
             ]
         );
         let titles: Vec<&str> =
             pages_json.iter().map(|p| p.get("title").and_then(Json::as_str).unwrap()).collect();
         assert_eq!(titles[1], "UI Settings");
+        assert_eq!(titles[11], "Disk I/O");
         assert_eq!(pages_json[10].get("under").and_then(Json::as_str), Some("advanced"));
+        assert_eq!(pages_json[11].get("under").and_then(Json::as_str), Some("advanced"));
         assert_eq!(pages_json[9].get("advanced"), Some(&Json::Bool(true)));
         let mut placed = Vec::new();
         fn walk(items: &[Json], placed: &mut Vec<String>) {
@@ -1839,6 +1873,39 @@ mod tests {
         // the model's values follow what is stored
         let w = Working::from_state(&st);
         assert_eq!(find("download_rate_limit").unwrap().get(&w), Value::Int(4096));
+    }
+
+    /// Preferences > Advanced > Disk I/O: the engine's rows under 2.2.1-style captions, the MB/s
+    /// number beside its box, stored as `lt.*` keys like any setting.
+    #[test]
+    fn the_disk_io_page_edits_the_disk_settings() {
+        let label = |id: &str| find(id).unwrap().label();
+        assert_eq!(label("check_gently"), tr!(PrefCheckGently));
+        assert_eq!(label("check_rate_limit"), tr!(PrefCheckRateLimit));
+        assert_eq!(label("check_rate_mb"), "", "the number beside its box has no caption");
+        assert_eq!(label("active_checking"), tr!(PrefActiveChecking));
+        assert_eq!(label("disk_slow_uploads"), tr!(PrefDiskSlowUploads));
+        assert_eq!(label("drive_overrides"), "drive_overrides", "Advanced only");
+
+        let mut st = state();
+        let w = Working::from_state(&st);
+        let get = |w: &Working, id: &str| find(id).unwrap().get(w);
+        assert_eq!(get(&w, "check_gently"), Value::Bool(true));
+        assert_eq!(get(&w, "check_rate_mb"), Value::Int(100));
+        assert_eq!(get(&w, "active_checking"), Value::Int(4));
+        let body = r#"{"check_gently":false,"check_rate_limit":true,"check_rate_mb":250,"active_checking":2,
+            "tune_for_drive":false,"disk_slow_downloads":true,"disk_slow_uploads":true}"#;
+        let w = edited(&st, body).unwrap();
+        let s = &w.settings;
+        assert!(!s.check_gently && s.check_rate_limit && !s.tune_for_drive);
+        assert_eq!((s.check_rate_mb, s.active_checking), (250, 2));
+        assert!(s.disk_slow_downloads && s.disk_slow_uploads);
+        assert!(edited(&st, r#"{"check_rate_mb":0}"#).err().unwrap().1.contains("outside"));
+        st.settings = w.settings;
+        store(&mut st, &[]);
+        assert_eq!(st.options.get("lt.check_rate_mb"), Some("250"));
+        assert_eq!(st.options.get("lt.disk_slow_uploads"), Some("true"));
+        assert_eq!(st.options.get("lt.check_gently"), Some("false"));
     }
 
     #[test]

@@ -1012,6 +1012,68 @@ pub fn pages(features: Features) -> Vec<Page> {
                 Note(|| crate::tr!(PrefReadCacheNote, mb = settings::AUTO_CACHE_MB)),
             ],
         },
+        // smart disk I/O (D48, docs/DISKIO.md); per-drive types (drive_overrides) are on
+        // Advanced only
+        Page {
+            key: "disk_io",
+            title: S::PageDiskIo,
+            parent: Some("advanced"),
+            items: vec![
+                Group(S::PrefChecking),
+                F(checkbox(
+                    "check_gently",
+                    S::PrefCheckGently,
+                    |o| o.settings.check_gently,
+                    |o, v| o.settings.check_gently = v,
+                )),
+                F(checkbox(
+                    "check_rate_limit",
+                    S::PrefCheckRateLimit,
+                    |o| o.settings.check_rate_limit,
+                    |o, v| o.settings.check_rate_limit = v,
+                )),
+                F(number(
+                    "check_rate_mb",
+                    None,
+                    1,
+                    100_000,
+                    |o| Some(o.settings.check_rate_mb.into()),
+                    |o, v| o.settings.check_rate_mb = v as i32,
+                )
+                .beside()
+                .needs(&["check_rate_limit"])),
+                // the engine checks with at most 8 threads; -1 (no limit) stays on Advanced
+                F(number(
+                    "active_checking",
+                    Some(S::PrefActiveChecking),
+                    1,
+                    8,
+                    |o| Some(o.settings.active_checking.into()),
+                    |o, v| o.settings.active_checking = v as i32,
+                )),
+                Group(S::PrefDrives),
+                F(checkbox(
+                    "tune_for_drive",
+                    S::PrefTuneForDrive,
+                    |o| o.settings.tune_for_drive,
+                    |o, v| o.settings.tune_for_drive = v,
+                )),
+                Group(S::PrefDiskBusy),
+                F(checkbox(
+                    "disk_slow_downloads",
+                    S::PrefDiskSlowDownloads,
+                    |o| o.settings.disk_slow_downloads,
+                    |o, v| o.settings.disk_slow_downloads = v,
+                )),
+                F(checkbox(
+                    "disk_slow_uploads",
+                    S::PrefDiskSlowUploads,
+                    |o| o.settings.disk_slow_uploads,
+                    |o, v| o.settings.disk_slow_uploads = v,
+                )),
+                Note(|| tr_owned(S::PrefDiskIoNote)),
+            ],
+        },
     ]
 }
 
@@ -1173,7 +1235,53 @@ mod tests {
         assert_eq!(page_of(&without, "cache.mb").map(|p| p.key), Some("disk_cache"));
         assert_eq!(without.iter().find(|p| p.key == "disk_cache").unwrap().parent, Some("advanced"));
         let order: Vec<&str> = without.iter().map(|p| p.key).collect();
-        assert_eq!(order[6..], ["queueing", "scheduler", "advanced", "disk_cache"]);
+        assert_eq!(order[6..], ["queueing", "scheduler", "advanced", "disk_cache", "disk_io"]);
+        assert_eq!(page_of(&without, "check_gently").map(|p| p.key), Some("disk_io"));
+        assert_eq!(without.iter().find(|p| p.key == "disk_io").unwrap().parent, Some("advanced"));
+    }
+
+    #[test]
+    fn the_disk_io_page_edits_the_disk_settings() {
+        let pages = pages(Features::default());
+        let o = opts();
+        let mut form = Form::default();
+        let shown: HashMap<_, _> = form.write(&pages, &o).into_iter().collect();
+        // the defaults: gentle checks and drive tuning on, the cap and the busy-disk throttle off
+        assert_eq!((shown["check_gently"].as_str(), shown["tune_for_drive"].as_str()), ("true", "true"));
+        assert_eq!((shown["check_rate_limit"].as_str(), shown["check_rate_mb"].as_str()), ("false", "100"));
+        assert_eq!(shown["active_checking"], "4");
+        assert_eq!(
+            (shown["disk_slow_downloads"].as_str(), shown["disk_slow_uploads"].as_str()),
+            ("false", "false")
+        );
+        // the MB/s number follows its box
+        let mb = fields(&pages).find(|f| f.key == "check_rate_mb").unwrap();
+        assert!(mb.beside && !mb.enabled(|_| false) && mb.enabled(|k| k == "check_rate_limit"));
+        // a box and its number changed together both count
+        let edited = |k: &str| match k {
+            "check_gently" => "false".to_owned(),
+            "check_rate_limit" => "true".to_owned(),
+            "check_rate_mb" => "250".to_owned(),
+            "active_checking" => "2".to_owned(),
+            "tune_for_drive" => "false".to_owned(),
+            "disk_slow_downloads" => "true".to_owned(),
+            "disk_slow_uploads" => "true".to_owned(),
+            _ => shown[k].clone(),
+        };
+        let s = form.read(&pages, &o, edited).unwrap().settings;
+        assert!(!s.check_gently && s.check_rate_limit && !s.tune_for_drive);
+        assert_eq!((s.check_rate_mb, s.active_checking), (250, 2));
+        assert!(s.disk_slow_downloads && s.disk_slow_uploads);
+        // up to 8 drives on the page; a value set on Advanced (-1: no limit) survives untouched
+        let too_many = |k: &str| if k == "active_checking" { "9".to_owned() } else { shown[k].clone() };
+        assert_eq!(form.read(&pages, &o, too_many).unwrap_err().0, "active_checking");
+        let mut o = opts();
+        o.settings.active_checking = -1;
+        let shown: HashMap<_, _> = form.write(&pages, &o).into_iter().collect();
+        assert_eq!(form.read(&pages, &o, |k| shown[k].clone()).unwrap().settings.active_checking, -1);
+        // the per-drive types are on Advanced only
+        assert!(fields(&pages).all(|f| f.key != "drive_overrides"));
+        assert!(advanced_rows("drive_overrides").len() == 1);
     }
 
     #[test]

@@ -809,6 +809,29 @@ strings! {
     PrefKeepPingLow = "Keep ping low (limit speeds automatically)";
     /// auto_limit_probe_hosts is a setting's name: keep it. SQM and QoS are router features.
     PrefKeepPingLowNote = "Keep ping low pings the first router past your line, or else the hosts in auto_limit_probe_hosts on the Advanced page, whose operators see those pings. A router with SQM or gaming QoS does this better, for every device.";
+    /// Preferences > Advanced > Disk I/O (a PaTorrent page beside Disk Cache): how checking
+    /// (hashing a torrent's files) and the disk threads treat the drives. I/O is input/output.
+    PageDiskIo = "Disk I/O";
+    /// Group title: checking a torrent's files against their hashes (Force Re-Check).
+    PrefChecking = "Checking";
+    /// Checks run at the system's background disk priority and wait while other programs use
+    /// the disk.
+    PrefCheckGently = "Check torrents gently (low priority, give way to other programs)";
+    /// A check box with a number field beside it.
+    PrefCheckRateLimit = "Limit checking to (MB/s):";
+    /// A number field: how many checks run at once, each on its own drive.
+    PrefActiveChecking = "Drives checked at once (one torrent per drive):";
+    /// Group title.
+    PrefDrives = "Drives";
+    /// Disk work is tuned per drive by its detected type: a solid-state drive, a hard disk or
+    /// a network share.
+    PrefTuneForDrive = "Tune for the drive type (SSD, hard disk, network)";
+    /// Group title: while a drive answers more slowly than usual.
+    PrefDiskBusy = "When the Disk Is Busy";
+    PrefDiskSlowDownloads = "Slow downloads down (disk writes)";
+    PrefDiskSlowUploads = "Slow uploads down (disk reads)";
+    /// drive_overrides is a setting's name: keep it.
+    PrefDiskIoNote = "To correct a drive whose type is detected wrongly, set it in drive_overrides on the Advanced page.";
 
     // ---- RSS Downloader
 

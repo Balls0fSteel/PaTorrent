@@ -255,7 +255,8 @@ pub fn page_icon(title: S) -> Option<UiIcon> {
         S::PageScheduler => UiIcon::Scheduler,
         S::PageWebUi => UiIcon::WebUi,
         S::PageAdvanced => UiIcon::Advanced,
-        S::PageDiskCache => UiIcon::DiskCache,
+        // both disk pages show the disk
+        S::PageDiskCache | S::PageDiskIo => UiIcon::DiskCache,
         _ => return None,
     })
 }

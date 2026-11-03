@@ -16,6 +16,12 @@ Security is utmost importance for us. It has been designed with security in mind
 
 They heavily helped out, yes. Several LLM models were used to ensure speed and security. Porting an entire libtorrent engine and several other functionality is no simple task.
 
+## How can I help?
+
+- Test, test, test! If you encounter any issues, please open a ticket and include all the details, reproduction tests.
+- If you are a company who rents out Apple machines (such as Mac Mini), please contact me. I'd love to have a remote Mac for testing.
+- If you are a seedbox company - just contact me. Our license do not allow just stealing the code or hosting PaTorrent, but I'm more than willing to allow this. It's our goal to make it the best client out there. Just contact me, we will work something out. Even a tiny percentage, or a donation if there is enough users - anything works. Just to keep the project alive and help pay us the bills.
+
 ## Donation
 
 Please donate - if you can. Your support means the world to us, but only give if you are comfortably able to do so. Your own financial well-being always comes first. Tokens are expensive. I have other projects too (published and work in progress), your support will be put to good use I assure you.

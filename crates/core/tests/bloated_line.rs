@@ -314,6 +314,8 @@ fn bloated_line() {
     match env("LINE_ROLE", "").as_str() {
         "swarm" => swarm(),
         "client" => client(),
+        // `--ignored` runs elsewhere (CI's slow tests) have no such network
+        "" => println!("LINE_ROLE is not set: run tools/bloated-line/line.sh"),
         r => panic!("LINE_ROLE is {r:?}: run tools/bloated-line/line.sh"),
     }
 }

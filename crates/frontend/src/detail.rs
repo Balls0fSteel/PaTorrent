@@ -714,8 +714,8 @@ mod tests {
         assert_eq!(p, PathBuf::from(save).join("Show").join("Season 1").join("e01.mkv"));
         for bad in ["", "..", "a/../b", "a//b", "/x", "a/", "./a", r"\\host\share\x", r"C:\x", "C:x", r"a\b"]
         {
-            // a backslash is a plain name character off Windows
-            if cfg!(windows) || !bad.contains('\\') {
+            // a backslash and a colon are plain name characters off Windows
+            if cfg!(windows) || !bad.contains(['\\', ':']) {
                 assert_eq!(file_path(save, bad), None, "{bad}");
             }
         }

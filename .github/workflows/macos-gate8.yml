@@ -7,16 +7,21 @@ name: macOS gate 8
 
 on:
   workflow_dispatch:
+    inputs:
+      runner:
+        description: "macos-15 (Apple silicon) or macos-15-intel; the app is uploaded too, for a Mac to try"
+        default: macos-15
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
   gate8:
-    runs-on: macos-15
+    runs-on: ${{ inputs.runner }}
     timeout-minutes: 40
     env:
       CARGO_TARGET_AARCH64_APPLE_DARWIN_RUSTFLAGS: -C link-arg=-Wl,-headerpad_max_install_names
+      CARGO_TARGET_X86_64_APPLE_DARWIN_RUSTFLAGS: -C link-arg=-Wl,-headerpad_max_install_names
       OUT: ${{ github.workspace }}/gate8
     steps:
       - uses: actions/checkout@v7
@@ -38,6 +43,14 @@ jobs:
           xattr -cr PaTorrent.app
           codesign --force --deep --sign - PaTorrent.app
           mkdir -p "$OUT"
+          # the app and nox for a Mac to try by hand (ditto keeps the bundle's links and signature)
+          ditto -c -k --keepParent PaTorrent.app "$RUNNER_TEMP/PaTorrent-app.zip"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: macos-app-${{ inputs.runner }}
+          path: |
+            ${{ runner.temp }}/PaTorrent-app.zip
+            target/release/patorrent-nox
 
       # A folder with PaTorrent.app and patorrent.ini, as on a USB stick: the default profile
       # and `work` run side by side, each keeping everything in the folder and nothing in

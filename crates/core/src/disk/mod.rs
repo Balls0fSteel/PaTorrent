@@ -18,7 +18,9 @@
 //! Disk I/O: a thread pool doing file reads, writes, piece hashing and file checking for the
 //! network thread.
 
+pub(crate) mod drive;
 pub(crate) mod file_pool;
+pub(crate) mod gentle;
 pub(crate) mod part_file;
 pub(crate) mod read_cache;
 

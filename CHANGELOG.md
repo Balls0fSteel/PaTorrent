@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_204931_1793735371: D42 gate 8: an exFAT stick
+
+- `macos-gate8.yml` gained an exFAT disk image as the stick (macOS 15's FSKit exFAT). The GUI ran from it and took its lock and library there. nox added a torrent saved on it; mounted at another path, nox found its state and the data, seeding with no recheck. The whole job passed (run 41705583119).
+- The first try flagged a recheck by mistake: "Checking" at 0 s is the resume data's own check. A real recheck logs "resume data did not match the files", which the job now looks for.
+- Docs and CI only.
+
 ## 2026-11-03_203047_1793734247: Version 1.1.53: gate 8 on a macOS runner; two portable fixes
 
 - **Gate 8 (D42), run on GitHub's macOS 15 runner by the new hand-run workflow `macos-gate8.yml`:**

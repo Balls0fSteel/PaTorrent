@@ -429,8 +429,29 @@ impl Engine {
         l
     }
 
-    /// Sets the global class's limits to the lower of the user's and the caps.
-    fn apply_auto_caps(&mut self, caps: [Option<u32>; 2]) {
+    /// Keep ping low's caps.
+    pub(super) fn ping_caps(&self) -> [Option<u32>; 2] {
+        let caps = self.auto_limit.as_ref().map_or([0; 2], |a| a.caps(self.user_limits()));
+        caps.map(|c| (c > 0).then_some(c))
+    }
+
+    /// Keep ping low's `caps` and the busy disk's together: the lower of each.
+    fn merged_caps(&self, caps: [Option<u32>; 2]) -> [Option<u32>; 2] {
+        let disk = self.disk_limit.caps();
+        let mut out = [None; 2];
+        for ch in [UPLOAD, DOWNLOAD] {
+            out[ch] = match (caps[ch], disk[ch]) {
+                (Some(a), Some(b)) => Some(a.min(b)),
+                (a, b) => a.or(b),
+            };
+        }
+        out
+    }
+
+    /// Sets the global class's limits to the lower of the user's and the caps (keep ping low's
+    /// `caps` and the busy disk's).
+    pub(super) fn apply_auto_caps(&mut self, caps: [Option<u32>; 2]) {
+        let caps = self.merged_caps(caps);
         let limits = self.user_limits();
         for ch in [UPLOAD, DOWNLOAD] {
             let want = match caps[ch] {
@@ -450,9 +471,9 @@ impl Engine {
         }
     }
 
-    /// The caps for the session stats (0: none).
+    /// The caps for the session stats, keep ping low's and the busy disk's (0: none).
     pub(super) fn auto_caps(&self) -> [u32; 2] {
-        self.auto_limit.as_ref().map_or([0; 2], |a| a.caps(self.user_limits()))
+        self.merged_caps(self.ping_caps()).map(|c| c.unwrap_or(0))
     }
 }
 

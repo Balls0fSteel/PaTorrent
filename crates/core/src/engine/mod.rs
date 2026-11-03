@@ -15,6 +15,7 @@
 
 mod auto_limit;
 mod dht;
+mod disk_limit;
 mod external_ip;
 mod ip_filter;
 mod listen;
@@ -113,6 +114,13 @@ const MAX_READS_IN_FLIGHT: usize = 8;
 /// that does not read gets here (SEC-10).
 fn max_send_buffer(watermark: u32) -> usize {
     (4 * 1024 * 1024).max(4 * watermark as usize)
+}
+
+/// Hands the smart disk I/O settings (D48) to the disk threads.
+fn set_smart_disk(disk: &DiskIo, s: &Settings) {
+    let rate = s.check_rate_limit.then_some(s.check_rate_mb.max(1) as u32);
+    let measure = s.disk_slow_downloads || s.disk_slow_uploads;
+    disk.set_smart(s.check_gently, rate, s.active_checking, s.tune_for_drive, &s.drive_overrides, measure);
 }
 
 /// Whether a REJECT may still be queued: past the upload watermark the peer is not reading,
@@ -434,6 +442,8 @@ pub(crate) struct Engine {
     peer_classes: peer_class::PeerClasses,
     /// Keep ping low (D49), while `auto_rate_limit` is on.
     auto_limit: Option<auto_limit::AutoLimit>,
+    /// Slowing down for a busy disk (D48).
+    disk_limit: disk_limit::DiskLimit,
     network: listen::NetworkState,
     /// Web seed connections (BEP 19 / BEP 17).
     web: web_seed::WebConns,
@@ -543,6 +553,7 @@ impl Engine {
             settings.read_cache_line_size,
             settings.cache_expiry,
         );
+        set_smart_disk(&disk, &settings);
         let (res_tx, resolve_rx) = mpsc::channel();
         let network = listen::NetworkState::new(wake.clone());
         let resolver = Resolver::new(res_tx, wake);
@@ -612,6 +623,7 @@ impl Engine {
             },
             peer_classes: peer_class::PeerClasses::new(settings.rate_limit_utp),
             auto_limit: None,
+            disk_limit: disk_limit::DiskLimit::default(),
             network,
             web: web_seed::WebConns::default(),
             proxy: proxy::ProxyState::default(),
@@ -1701,6 +1713,7 @@ impl Engine {
         self.utp.set_settings(UtpSettings::from(&s));
         self.disk.set_file_pool_size(s.file_pool_size as usize);
         self.disk.set_read_cache(s.use_read_cache, s.cache_size, s.read_cache_line_size, s.cache_expiry);
+        set_smart_disk(&self.disk, &s);
         self.trackers.set_options(&s.user_agent, s.tracker_completion_timeout, s.ssrf_mitigation);
         if let Some(t) = self.dht.tracker.as_mut() {
             t.set_settings(crate::dht::DhtSettings::from(&s));
@@ -3186,6 +3199,7 @@ impl Engine {
         self.stat.tick(dt);
         self.update_mixed_mode();
         self.update_auto_limit(now);
+        self.update_disk_limit(now);
         self.trackers.tick(self.poll.registry(), now);
         self.apply_tracker_results();
         {

@@ -18,9 +18,12 @@
 //! Disk I/O: a thread pool doing file reads, writes, piece hashing and file checking for the
 //! network thread.
 
+pub(crate) mod drive;
 pub(crate) mod file_pool;
+pub(crate) mod gentle;
 pub(crate) mod part_file;
 pub(crate) mod read_cache;
+pub(crate) mod smart;
 
 use std::collections::HashMap;
 use std::io;
@@ -42,6 +45,7 @@ use crate::util::bitfield::Bitfield;
 use file_pool::{FilePool, read_at, write_at};
 use part_file::{PartFile, PartFiles};
 use read_cache::ReadCache;
+use smart::{CheckThreads, Config, Drive, Drives, MAX_CHECKS, Pacer};
 
 /// The BitTorrent block size (libtorrent `default_block_size`).
 pub(crate) const BLOCK_SIZE: u32 = 16 * 1024;
@@ -65,6 +69,9 @@ pub(crate) struct Storage {
     pub abort: AtomicBool,
     files: Mutex<FileState>,
     part_files: Arc<PartFiles>,
+    /// The drive the save path is on, with the overrides' generation it was found under;
+    /// dropped when the save path changes.
+    drive: RwLock<Option<(u64, Arc<Drive>)>>,
 }
 
 /// libtorrent `posix_storage::m_file_priority`, `m_use_partfile` and `m_part_file`.
@@ -89,7 +96,8 @@ impl Storage {
         let files = Mutex::new(FileState { priority, use_partfile: vec![true; n], part: None });
         let save_path = RwLock::new(save_path);
         let mapped = RwLock::new(None);
-        Storage { id, save_path, info, mapped, abort: AtomicBool::new(false), files, part_files }
+        let drive = RwLock::new(None);
+        Storage { id, save_path, info, mapped, abort: AtomicBool::new(false), files, part_files, drive }
     }
 
     pub fn save_path(&self) -> String {
@@ -364,6 +372,7 @@ pub(crate) enum Completion {
 
 pub(crate) struct DiskIo {
     threads: Vec<mpsc::Sender<Job>>,
+    /// The checking threads' router: checks, fences and barriers, in order.
     hasher: mpsc::Sender<Job>,
     handles: Vec<JoinHandle<()>>,
     pool: Arc<FilePool>,
@@ -372,6 +381,8 @@ pub(crate) struct DiskIo {
     read_cache: Arc<read_cache::Limits>,
     stats: Arc<DiskStats>,
     moves: Arc<Moves>,
+    config: Arc<Config>,
+    drives: Arc<Drives>,
     next_storage_id: u64,
     next_barrier: u64,
 }
@@ -491,7 +502,9 @@ struct Ctx {
     read_cache: Arc<read_cache::Limits>,
     stats: Arc<DiskStats>,
     moves: Arc<Moves>,
-    /// Every thread's queue, for [`Job::Unblock`].
+    config: Arc<Config>,
+    drives: Arc<Drives>,
+    /// Every thread's queue but the router's, for [`Job::Unblock`].
     queues: Arc<OnceLock<Vec<mpsc::Sender<Job>>>>,
     /// Index of this thread in `queues`.
     index: usize,
@@ -503,11 +516,29 @@ impl Ctx {
             (self.wake)();
         }
     }
+
+    fn drive(&self, storage: &Storage) -> Arc<Drive> {
+        let generation = self.config.generation();
+        if let Some((g, d)) = &*storage.drive.read().unwrap_or_else(|e| e.into_inner()) {
+            if *g == generation {
+                return d.clone();
+            }
+        }
+        let d = self.drives.for_path(&self.config, &storage.save_path());
+        *storage.drive.write().unwrap_or_else(|e| e.into_inner()) = Some((generation, d.clone()));
+        d
+    }
+
+    /// The drive of `storage` when a job there needs it: to wait for a place among the drive's
+    /// jobs in flight, or to be timed for the busy-disk throttle. `None` costs nothing.
+    fn drive_for_job(&self, storage: &Storage) -> Option<Arc<Drive>> {
+        (self.config.tune() || self.config.measure()).then(|| self.drive(storage))
+    }
 }
 
 impl DiskIo {
-    /// Starts `threads` I/O threads plus one checking thread. Completions go to `done`, followed
-    /// by a call to `wake`.
+    /// Starts `threads` I/O threads, [`MAX_CHECKS`] checking threads and the router that hands
+    /// them checks by drive. Completions go to `done`, followed by a call to `wake`.
     pub fn new(
         threads: usize,
         file_pool_size: usize,
@@ -519,8 +550,10 @@ impl DiskIo {
         let queues = Arc::new(OnceLock::new());
         let n = threads.clamp(1, 64);
         let read_cache = Arc::new(read_cache::Limits::default());
-        let stats = Arc::new(DiskStats::new(n + 1));
+        let stats = Arc::new(DiskStats::new(n + MAX_CHECKS));
         let moves = Arc::new(Moves::default());
+        let config = Arc::new(Config::default());
+        let drives = Arc::new(Drives::default());
         let ctx = |index| Ctx {
             pool: pool.clone(),
             done: done.clone(),
@@ -529,6 +562,8 @@ impl DiskIo {
             read_cache: read_cache.clone(),
             stats: stats.clone(),
             moves: moves.clone(),
+            config: config.clone(),
+            drives: drives.clone(),
             queues: queues.clone(),
             index,
         };
@@ -545,9 +580,21 @@ impl DiskIo {
             handles.push(spawn(format!("lt-disk-{i}"), rx, ctx(i)));
             senders.push(tx);
         }
+        let mut checkers = Vec::new();
+        for i in 0..MAX_CHECKS {
+            let (tx, rx) = mpsc::channel();
+            handles.push(spawn(format!("lt-check-{i}"), rx, ctx(n + i)));
+            checkers.push(tx);
+        }
+        let _ = queues.set(senders.iter().chain(&checkers).cloned().collect());
         let (hasher, rx) = mpsc::channel();
-        handles.push(spawn("lt-hash".into(), rx, ctx(n)));
-        let _ = queues.set(senders.iter().chain([&hasher]).cloned().collect());
+        let router = ctx(usize::MAX);
+        handles.push(
+            std::thread::Builder::new()
+                .name("lt-hash".into())
+                .spawn(move || check_router(rx, router, checkers))
+                .expect("failed to spawn a disk thread"),
+        );
         DiskIo {
             threads: senders,
             hasher,
@@ -558,9 +605,51 @@ impl DiskIo {
             read_cache,
             stats,
             moves,
+            config,
+            drives,
             next_storage_id: 1,
             next_barrier: 1,
         }
+    }
+
+    /// The smart disk I/O settings (D48): gentle checks, the checking cap in MB/s (`None`: no
+    /// cap), checks at once (`active_checking`), tuning for the drive type and its overrides.
+    /// `measure`: time writes and reads for the busy-disk throttle.
+    pub fn set_smart(
+        &self,
+        gentle: bool,
+        check_rate_mb: Option<u32>,
+        checks: i32,
+        tune: bool,
+        overrides: &str,
+        measure: bool,
+    ) {
+        self.config.set(gentle, check_rate_mb, checks, tune, overrides);
+        self.config.set_measure(measure);
+    }
+
+    /// Drives seen for the first time since the last call, and notes, for the Logger.
+    pub fn drives_found(&self) -> Vec<String> {
+        self.drives.take_found()
+    }
+
+    /// A drive whose writes, and one whose reads, are slower than usual now (described).
+    pub fn busy_drives(&self, now: Instant) -> [Option<String>; 2] {
+        let mut out = [None, None];
+        for d in self.drives.all() {
+            let busy = d.busy(now);
+            for (slot, b) in out.iter_mut().zip(busy) {
+                if b && slot.is_none() {
+                    *slot = Some(d.id.describe.clone());
+                }
+            }
+        }
+        out
+    }
+
+    /// Fences and barriers count every thread that sees them: the I/O and checking threads.
+    fn fenced_threads(&self) -> usize {
+        self.threads.len() + MAX_CHECKS
     }
 
     /// A storage for `info` in `save_path`. Files whose `file_priority` is 0 keep their blocks
@@ -641,7 +730,7 @@ impl DiskIo {
     /// `disk_job_fence`). Answered by [`Completion::Fenced`].
     pub fn async_fence(&self, storage: &Arc<Storage>, action: FenceAction) {
         storage.abort.store(true, Ordering::Relaxed);
-        let fence = Arc::new(Fence { remaining: AtomicUsize::new(self.threads.len() + 1), action });
+        let fence = Arc::new(Fence { remaining: AtomicUsize::new(self.fenced_threads()), action });
         for tx in self.threads.iter().chain([&self.hasher]) {
             let _ = tx.send(Job::Fence { storage: storage.clone(), fence: fence.clone() });
         }
@@ -673,7 +762,7 @@ impl DiskIo {
     fn barrier(&mut self, storage: &Arc<Storage>, action: BarrierAction) {
         let seq = self.next_barrier;
         self.next_barrier += 1;
-        let barrier = Arc::new(Barrier { remaining: AtomicUsize::new(self.threads.len() + 1), seq, action });
+        let barrier = Arc::new(Barrier { remaining: AtomicUsize::new(self.fenced_threads()), seq, action });
         for tx in self.threads.iter().chain([&self.hasher]) {
             let _ = tx.send(Job::Barrier { storage: storage.clone(), barrier: barrier.clone() });
         }
@@ -837,6 +926,47 @@ fn disk_thread(rx: mpsc::Receiver<Job>, ctx: Ctx) {
     }
 }
 
+/// The checking threads' router (`lt-hash`): a check goes to the thread of its drive, so a drive
+/// checks one torrent at a time while other drives check theirs, up to `active_checking` at once
+/// (D48). Fences, barriers and the shutdown go to every checking thread in the order they came,
+/// so each thread sees a storage's jobs in order.
+fn check_router(rx: mpsc::Receiver<Job>, ctx: Ctx, checkers: Vec<mpsc::Sender<Job>>) {
+    let mut threads = CheckThreads::default();
+    while let Ok(job) = rx.recv() {
+        match job {
+            Job::Check { storage, mode } => {
+                // a stopped torrent's check is dropped unread; no need to find its drive
+                let t = if aborted(&storage) {
+                    0
+                } else {
+                    threads.thread_for(&ctx.drive(&storage).id.key, ctx.config.checks())
+                };
+                let _ = checkers[t].send(Job::Check { storage, mode });
+            }
+            Job::Fence { storage, fence } => {
+                for tx in &checkers {
+                    let _ = tx.send(Job::Fence { storage: storage.clone(), fence: fence.clone() });
+                }
+            }
+            Job::Barrier { storage, barrier } => {
+                for tx in &checkers {
+                    let _ = tx.send(Job::Barrier { storage: storage.clone(), barrier: barrier.clone() });
+                }
+            }
+            Job::Shutdown => {
+                for tx in &checkers {
+                    let _ = tx.send(Job::Shutdown);
+                }
+                break;
+            }
+            // nothing else is sent to the router
+            other => {
+                let _ = checkers[0].send(other);
+            }
+        }
+    }
+}
+
 impl Worker {
     fn handle(&mut self, job: Job, ctx: &Ctx) {
         if job.storage_id().is_some_and(|id| self.blocked.contains_key(&id)) {
@@ -849,7 +979,14 @@ impl Worker {
             Job::Write { storage, piece, offset, data } => {
                 self.cache.drop_piece(storage.id, piece);
                 let length = data.len() as u32;
+                let drive = ctx.drive_for_job(&storage);
+                let slot = drive.as_ref().map(|d| d.enter(ctx.config.tune()));
+                let started = Instant::now();
                 let result = write_block(&storage, ctx, partial, cached_bytes, piece, offset, data);
+                if let Some(d) = drive.as_ref().filter(|_| ctx.config.measure()) {
+                    d.record(true, started.elapsed());
+                }
+                drop(slot);
                 ctx.queued_write_bytes.fetch_sub(length as u64, Ordering::Relaxed);
                 match result {
                     Ok(hashed) => {
@@ -887,12 +1024,18 @@ impl Worker {
                 }
             }
             Job::Read { storage, piece, offset, length, cookie } => {
-                let result = read_for_peer(&mut self.cache, &storage, ctx, piece, offset, length);
+                let drive = ctx.drive_for_job(&storage);
+                let result =
+                    read_for_peer(&mut self.cache, &storage, ctx, drive.as_deref(), piece, offset, length);
                 ctx.send(Completion::Read { storage: storage.id, cookie, piece, offset, result });
             }
             Job::Verify { storage, piece } => {
                 let mut buf = vec![0u8; storage.info.piece_size(piece) as usize];
-                let verdict = match read_into(&storage, &ctx.pool, piece, 0, &mut buf) {
+                let drive = ctx.drive_for_job(&storage);
+                let slot = drive.as_ref().map(|d| d.enter(ctx.config.tune()));
+                let read = read_into(&storage, &ctx.pool, piece, 0, &mut buf);
+                drop(slot);
+                let verdict = match read {
                     Ok(_) => {
                         let mut hasher = PieceHasher::new(&storage.info, piece);
                         for block in buf.chunks(BLOCK_SIZE as usize) {
@@ -1099,24 +1242,37 @@ fn read_for_peer(
     cache: &mut ReadCache,
     storage: &Storage,
     ctx: &Ctx,
+    drive: Option<&Drive>,
     piece: u32,
     offset: u32,
     length: u32,
 ) -> Result<Vec<u8>, Error> {
     let stats = &ctx.stats;
     stats.blocks_read.fetch_add(1, Ordering::Relaxed);
+    // A file read: within the drive's jobs in flight, and timed for its busy signal.
+    let file_read = |buf: &mut [u8], at: u32| {
+        stats.read_ops.fetch_add(1, Ordering::Relaxed);
+        let _slot = drive.map(|d| d.enter(ctx.config.tune()));
+        let started = Instant::now();
+        let r = read_into(storage, &ctx.pool, piece, at, buf);
+        if let Some(d) = drive.filter(|_| ctx.config.measure()) {
+            d.record(false, started.elapsed());
+        }
+        r
+    };
+    let block = |buf: &mut Vec<u8>| file_read(buf, offset);
     let Some((limit, line)) = ctx.read_cache.get() else {
         cache.trim(0);
-        stats.read_ops.fetch_add(1, Ordering::Relaxed);
-        return read_block(storage, &ctx.pool, piece, offset, length);
+        let mut buf = vec![0u8; length as usize];
+        return block(&mut buf).map(|_| buf);
     };
     cache.trim(limit);
     let piece_size = storage.info.piece_size(piece);
     let start = offset / line * line;
     let end = start.saturating_add(line).min(piece_size);
     if offset.saturating_add(length) > end || length == 0 {
-        stats.read_ops.fetch_add(1, Ordering::Relaxed);
-        return read_block(storage, &ctx.pool, piece, offset, length);
+        let mut buf = vec![0u8; length as usize];
+        return block(&mut buf).map(|_| buf);
     }
     let key = (storage.id, piece, start);
     let now = Instant::now();
@@ -1124,11 +1280,10 @@ fn read_for_peer(
         stats.cache_hits.fetch_add(1, Ordering::Relaxed);
         return Ok(data);
     }
-    stats.read_ops.fetch_add(1, Ordering::Relaxed);
     let mut buf = vec![0u8; (end - start) as usize];
-    if read_into(storage, &ctx.pool, piece, start, &mut buf).is_err() {
-        stats.read_ops.fetch_add(1, Ordering::Relaxed);
-        return read_block(storage, &ctx.pool, piece, offset, length);
+    if file_read(&mut buf, start).is_err() {
+        let mut buf = vec![0u8; length as usize];
+        return block(&mut buf).map(|_| buf);
     }
     let at = (offset - start) as usize;
     let out = buf[at..at + length as usize].to_vec();
@@ -1238,12 +1393,40 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
     let mut buf = vec![0u8; storage.info.piece_length() as usize];
     let report_every = (num_pieces / 100).max(16);
     let mut inconsistent = None;
+    // Gently (D48): background I/O priority, the check's own file handles so the system can be
+    // told to read ahead and then forget what was read, and waits while the drive is slow.
+    let gentle = ctx.config.gentle();
+    let background = gentle.then(gentle::BackgroundIo::begin);
+    if background.as_ref().is_some_and(|b| !b.active()) {
+        ctx.drives.no_background_io();
+    }
+    let pool = FilePool::new(8);
+    let mut advised = std::collections::HashSet::new();
+    let mut pacer = Pacer::new(&ctx.config, Instant::now());
     for piece in 0..num_pieces {
         if aborted(storage) {
             break;
         }
         let size = storage.info.piece_size(piece) as usize;
-        if read_into(storage, &ctx.pool, piece, 0, &mut buf[..size]).is_ok() {
+        let started = Instant::now();
+        let read = read_into(storage, &pool, piece, 0, &mut buf[..size]);
+        let now = Instant::now();
+        let wait = pacer.after_read(size, now.duration_since(started), now);
+        if gentle {
+            for slice in fs.map_block(piece, 0, size as u64) {
+                let f = slice.file_index;
+                if storage.skip_file(f) || storage.part_file_for(f).is_some() {
+                    continue;
+                }
+                if let Ok(file) = pool.open(storage.id, f as u32, &storage.file_path(f), false) {
+                    if advised.insert(f) {
+                        gentle::advise_sequential(&file);
+                    }
+                    gentle::advise_done(&file, slice.offset, slice.size);
+                }
+            }
+        }
+        if read.is_ok() {
             let mut hasher = PieceHasher::new(&storage.info, piece);
             for block in buf[..size].chunks(BLOCK_SIZE as usize) {
                 hasher.update(block);
@@ -1260,6 +1443,7 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
         if (piece + 1) % report_every == 0 {
             ctx.send(Completion::CheckProgress { storage: storage.id, checked: piece + 1 });
         }
+        pause(storage, wait);
     }
     // Checking may open hundreds of files; don't keep them all.
     ctx.pool.release(storage.id);
@@ -1271,6 +1455,18 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
 /// result is dropped (the storage is no longer the torrent's).
 fn aborted(storage: &Storage) -> bool {
     storage.abort.load(Ordering::Relaxed)
+}
+
+/// Waits `wait`, or less if the torrent is stopped meanwhile.
+fn pause(storage: &Storage, wait: Duration) {
+    let until = Instant::now() + wait;
+    loop {
+        let left = until.saturating_duration_since(Instant::now());
+        if left.is_zero() || aborted(storage) {
+            return;
+        }
+        std::thread::sleep(left.min(Duration::from_millis(100)));
+    }
 }
 
 /// libtorrent `posix_storage::verify_resume_data`, reduced to what pread storage needs: every
@@ -1653,8 +1849,10 @@ fn move_storage(
         }
     }
 
-    let set_save_path =
-        |p: &str| *storage.save_path.write().unwrap_or_else(|e| e.into_inner()) = p.to_owned();
+    let set_save_path = |p: &str| {
+        *storage.save_path.write().unwrap_or_else(|e| e.into_inner()) = p.to_owned();
+        *storage.drive.write().unwrap_or_else(|e| e.into_inner()) = None;
+    };
     match flags {
         MoveFlags::ResetSavePath => {
             set_save_path(&new_save_path);
@@ -2102,6 +2300,40 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&r.dir);
     }
 
+    #[test]
+    fn drives_check_at_once_and_a_cap_paces_them() {
+        // 1 MB on each of two "drives" (two folders: the stand-in detection keys by path), at
+        // most 1 MB/s a check: a second each side by side, two seconds one after the other.
+        let r = rig("disk-checks-a", &[("data", 1_000_000)], 64 * 1024);
+        let dir_b = temp_dir("disk-checks-b");
+        let mut disk = r.disk;
+        let a = r.storage.clone();
+        let b = disk.new_storage(dir_b.to_string_lossy().into_owned(), a.info.clone(), Vec::new());
+        for dir in [&r.dir, &dir_b] {
+            std::fs::create_dir_all(dir.join("test")).unwrap();
+            std::fs::write(dir.join("test/data"), &r.contents[0]).unwrap();
+        }
+        let run = |disk: &DiskIo, checks: i32| {
+            disk.set_smart(true, Some(1), checks, true, "", false);
+            let started = Instant::now();
+            disk.async_check(&a, CheckMode::Full);
+            disk.async_check(&b, CheckMode::Full);
+            for _ in 0..2 {
+                assert!(checked(&r.rx).have.all_set());
+            }
+            started.elapsed()
+        };
+        let together = run(&disk, 2);
+        assert!(together < Duration::from_millis(1700), "{together:?}");
+        assert!(together >= Duration::from_millis(900), "the cap holds: {together:?}");
+        let serial = run(&disk, 1);
+        assert!(serial >= Duration::from_millis(1800), "{serial:?}");
+        assert_eq!(disk.drives_found().iter().filter(|m| m.starts_with("drive ")).count(), 2);
+        drop(disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+        let _ = std::fs::remove_dir_all(&dir_b);
+    }
+
     fn checked(rx: &mpsc::Receiver<Completion>) -> CheckResult {
         loop {
             if let Completion::Checked { result, .. } = next(rx) {
@@ -2275,6 +2507,8 @@ pub(crate) mod tests {
             read_cache: Arc::default(),
             stats: Arc::new(DiskStats::new(1)),
             moves: Arc::default(),
+            config: Arc::default(),
+            drives: Arc::default(),
             queues: Arc::new(OnceLock::new()),
             index: 0,
         };
@@ -2310,6 +2544,8 @@ pub(crate) mod tests {
             read_cache: Arc::default(),
             stats: Arc::new(DiskStats::new(1)),
             moves: Arc::default(),
+            config: Arc::default(),
+            drives: Arc::default(),
             queues: Arc::new(OnceLock::new()),
             index: 0,
         };

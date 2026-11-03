@@ -1,6 +1,6 @@
 # Smart disk I/O (proposed D48)
 
-Written 2026-11-02_110639_1793613999; the owner answered Q3 and Q8 on 2026-11-02_111330_1793614410. A proposal, not approved; no code before the owner answers the remaining questions at the end. The owner's idea: "Smart recheck. Throttle write and/or read speeds upon high disk IO detection. Same for download speed/upload speed. We could also check if the storage is SSD, HDD or NAS." It goes beyond 2.2.1, so it gets its own Preferences page.
+Written 2026-11-02_110639_1793613999; the owner answered Q3 and Q8 on 2026-11-02_111330_1793614410. The owner answered the rest and approved it on 2026-11-03_084209_1793691729 (answers under the questions); built in 1.1.37-1.1.39, see "Implementation status" at the end. The owner's idea: "Smart recheck. Throttle write and/or read speeds upon high disk IO detection. Same for download speed/upload speed. We could also check if the storage is SSD, HDD or NAS." It goes beyond 2.2.1, so it gets its own Preferences page.
 
 ## What the engine does today
 
@@ -112,6 +112,18 @@ Each part bumps the patch version (D37) when it lands. None touches the peer wir
 - **Q6.** Per-drive overrides in the UI, in the Advanced table only, or not at all?
 - **Q7.** The page: a new "Disk I/O" under Advanced (proposed), or the checking options on Disk Cache?
 - **Q8.** Answered: "smart recheck" means gentle checks (lower I/O priority, slower, every tool a platform has), not fewer; part 1 is written that way.
+
+Answers of 2026-11-03_084209_1793691729: Q1 all four parts, in that order, before the next release; Q2 as proposed (gentle checks and drive tuning on, the throttle off); Q4 our own timings only; Q5 both, as two separate boxes; Q6 the Advanced table only (`drive_overrides`); Q7 a new Advanced > Disk I/O page.
+
+## Implementation status
+
+Settings in 1.1.36 (remote protocol 13): `check_gently`, `check_rate_limit` / `check_rate_mb`, `tune_for_drive`, `drive_overrides`, `disk_slow_downloads`, `disk_slow_uploads`; `active_checking` now defaults to 4. The engine in 1.1.37 (`disk/smart.rs`, `engine/disk_limit.rs`):
+
+- **Checks:** the `lt-hash` thread is now a router that finds each check's drive and hands it to one of eight `lt-check-N` threads, the same thread for the same drive, new drives taking the first `active_checking` threads in turn; fences and barriers go to every checking thread in order. One check per drive, also on an NVMe drive (the proposal allowed two there).
+- **Gentle checks:** background I/O priority for the check, the check's own file handles with read-ahead and forget hints, and a wait as long as the read after a piece read more than twice the check's usual time per byte (reads faster than 4 GB/s count as the system's cache and are left out). The MB/s cap paces the check from its start. Waits stop at once when the torrent is stopped.
+- **Drive tuning:** a hard disk or removable drive takes two disk jobs at once, a share's server four; the jobs wait on the I/O threads. The detected drives go to the Logger ("Disk I/O: drive D: (HDD, SATA)"). Not built: whole-piece read cache lines for hard disks (the read cache's line size stays one setting).
+- **Busy disk:** writes (whole write jobs) and file reads for peers are timed per drive; a drive is busy while the 90th percentile of its last two seconds is more than its allowance above the lowest per-second 10th percentile of three minutes. The engine then halves the download (writes) or upload (reads) rate, holds three seconds, halves again while busy, grows 5% a second when quiet and drops the cap after 30 quiet seconds, never below 50 kB/s. It is one global cap per direction, merged with keep ping low's (the lower wins), shown as the status bar's "(auto ...)" and in the Logger, not a per-drive factor or a "slowed for the disk" tooltip.
+- **Open:** measured numbers for the allowances and the throttle on real disks (a hard disk, the Samba share, a USB disk), and drive detection on macOS and FreeBSD hardware (BACKLOG "Disk and storage").
 
 ## Sources
 

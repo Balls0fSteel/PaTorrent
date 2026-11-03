@@ -744,23 +744,20 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
 
 ## Profiles and portable mode (D42)
 
-Built in 1.1.43-1.1.50 ([PROFILES_PLAN.md](PROFILES_PLAN.md#implementation-status)); checked by
-unit and integration tests and on this PC's hidden desktop. Open (2026-11-03_132148_1793708508):
+Built in 1.1.43-1.1.51 ([PROFILES_PLAN.md](PROFILES_PLAN.md#implementation-status)); checked by
+tests, on this PC's hidden desktop and on the three VMs (CHANGELOG 2026-11-03_134710_1793710030:
+both `tools/windows-clean` scripts, a profile's service under the real SCM, GTK profiles, File >
+Profiles and portable mode under Xvfb, the systemd template, the rc.d profile variables). Open:
 
-- **Windows VM** (`tools/windows-clean`, both scripts carry the new checks): two portable copies
-  and an installed one at once, a second start of each adding its torrent to its own window; one
-  folder opened from two processes (the `FolderInUse` message); the setup's refusal of a portable
-  folder in the wizard; "Remove settings" taking `profiles\` (by hand: silent uninstalls leave
-  it unticked); `service install --profile work` under the real SCM and the uninstaller's
-  `service status --all --in` test with it; a desktop shortcut from File > Profiles; a
-  double-clicked `.torrent` reaching the profile that owns the association; the status bar's
-  "Port N in use" click opening Preferences at Connection.
-- **Linux (Xubuntu VM), GTK not yet run with any of it:** `--profile work` (the question, the
-  title, File > Profiles, New Profile), the dock icon from the profile's own desktop entry on
-  GNOME and KDE and in the Flatpak (whose entry is written to the host's
-  `~/.local/share/applications`), Create Shortcut putting it in the menu; portable mode from a
-  tarball and beside an AppImage; `systemctl --user enable --now patorrent-nox@work`; the rc.d
-  profiles on the FreeBSD VM (only `sh -n` so far).
+- **Windows, a real desktop:** "Remove settings" taking `profiles\` (the wizard; silent
+  uninstalls leave it unticked); the setup's refusal in the wizard's Directory page; a desktop
+  shortcut from File > Profiles; a double-clicked `.torrent` reaching the profile that owns the
+  association; the status bar's "Port N in use" click opening Preferences at Connection; an
+  installed copy and a portable one forwarding at once.
+- **Linux desktops:** the dock icon from the profile's own desktop entry on GNOME and KDE (Xvfb
+  has no dock) and in the Flatpak (whose entry is written to the host's
+  `~/.local/share/applications`); portable mode beside an AppImage; the rc.d profiles started
+  as root on the FreeBSD VM.
 - **Moving a portable folder** with a torrent downloading into `./Downloads` to another drive
   letter and to the Linux VM over the Samba share: resumes without a recheck (the nox test moved
   one folder on one machine).

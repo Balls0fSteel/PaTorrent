@@ -824,7 +824,11 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
                 portable_root: patorrent_frontend::profile::current().portable_root.clone(),
             })
             .map_err(|e| (tr!(CannotStartEngine).to_owned(), e.to_string())),
-            Err(in_use) => Err((in_use, String::new())),
+            // its first paragraph is the dialog's heading, the rest the text below it
+            Err(text) => Err(match text.split_once("\n\n") {
+                Some((head, rest)) => (head.to_owned(), rest.to_owned()),
+                None => (text, String::new()),
+            }),
         },
     };
     let session = match started {
@@ -1346,7 +1350,13 @@ fn tray_command(c: TrayCommand) {
 /// saves and stops the session on the way.
 fn quit_app() {
     QUITTING.with(|q| q.set(true));
-    let Some(app) = with_app(|a| a.window.application()).flatten() else { return };
+    let Some(app) = with_app(|a| a.window.application()).flatten() else {
+        // nothing started yet (a start-up question or error is up): nothing to save
+        if let Some(app) = gio::Application::default() {
+            app.quit();
+        }
+        return;
+    };
     for w in app.windows() {
         w.close();
     }

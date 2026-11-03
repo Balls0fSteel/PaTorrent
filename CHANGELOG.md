@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_134710_1793710030: Version 1.1.51: the D42 checks on the VMs, two GTK fixes
+
+- **Windows VM (clean, 1.1.50's zip and setup built here):** `zip-test.ps1` all ok, a profile beside the default one (its own port, `./Downloads`), a portable nox writing `./Downloads`, no Defender detections; `setup-test.ps1 -OldVersion 1.1.40` 0 failures, among them `PaTorrentNox_x` holding the silent uninstall until `service uninstall --all` and a portable target refused. `service install --profile work --now` under the real SCM: `PaTorrentNox_work` running, state in `%ProgramData%\PaTorrent\profiles\work\nox`, its own port, stopped and removed; the VM left clean.
+- **This PC, hidden desktop:** two portable copies at once; a second start of one with a `.torrent` added it to that copy's window only (the other showed "Port 6881 in use", both kept the default port).
+- **Xubuntu VM (Xvfb, a private D-Bus):** 1,465 Linux tests and the portable nox test; nox `--profile` folders and name-derived port, the lock between two processes, a bad name, `systemctl --user start patorrent-nox@d42test` running. GTK: a bad name's message, the creation question (nothing made before the answer), `[d42gtk]` in the title, a second start reaching the first, the default profile running beside it, the hidden desktop entry, File > Profiles (the current profile checked) starting `vpn-1` in its own window, Create Shortcut putting `PaTorrent (vpn-1)` in the menu, portable mode beside a copied binary (`./Downloads`, files beside it), a read-only portable folder's message. **FreeBSD VM:** the rc.d script's profile variables traced with `sh -x` (no root there to start it).
+- **Fixed (GTK):** SIGTERM did nothing while a start-up error or question was up (no window state to close): the application now quits. The read-only and folder-in-use messages were one bold heading: the first paragraph is the heading now, the rest the text.
+- Still open: a Mac (gate 8), dock icons under GNOME/KDE and the Flatpak, the Samba move, a double-clicked `.torrent` on a real desktop.
+
 ## 2026-11-03_132346_1793708626: Profiles and portable mode: docs and the VM scripts (D42 slice 8)
 
 - RELEASING.md: the profile, association, portable, service and downgrade checks for a draft. DAEMON.md: portable on every platform with relative paths. PROFILES.md: implemented. BACKLOG: a "Profiles and portable mode (D42)" section with every open hand check (Windows VM, GTK on Linux, the Samba move, macOS) and what was left out.

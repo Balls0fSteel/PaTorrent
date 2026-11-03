@@ -27,7 +27,7 @@
 //!
 //! On macOS both are `~/Library/Application Support/PaTorrent/nox`, where Apple puts an
 //! application's own files; XDG variables are not read there. A launchd job's
-//! `--state-dir` still wins.
+//! `--state-dir` still wins. Portable mode works there too, beside the binary.
 //!
 //! `--profile NAME` (D42) puts `profiles/<name>` before `nox` in each default:
 //! `~/.local/share/patorrent/profiles/work/nox`, `%APPDATA%\PaTorrent\profiles\work\nox`. The
@@ -68,16 +68,17 @@ pub fn resolve(state: Option<PathBuf>, config: Option<PathBuf>, profile: Option<
     let portable = patorrent_frontend::profile::current().portable_root.clone();
     if cfg!(windows) {
         resolve_windows(state, config, env, portable, profile)
+    } else if let Some(root) = portable {
+        // macOS too: a bare nox from a tarball is portable beside itself (D42)
+        resolve_portable_unix(state, config, env, &root, profile)
     } else if cfg!(target_os = "macos") {
         resolve_macos(state, config, env, profile)
-    } else if let Some(root) = portable {
-        resolve_portable_unix(state, config, env, &root, profile)
     } else {
         resolve_unix(state, config, env, profile)
     }
 }
 
-/// Linux and the BSDs in portable mode (D42): the flags, else systemd's directories, else
+/// Linux, the BSDs and macOS in portable mode (D42): the flags, else systemd's directories, else
 /// `nox` in the portable folder (a profile's `profiles/<name>` before it) for both, as on
 /// Windows; XDG is not read.
 pub fn resolve_portable_unix(

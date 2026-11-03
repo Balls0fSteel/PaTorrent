@@ -63,7 +63,30 @@ pub fn resolve(root: &Path, stored: &str) -> Option<PathBuf> {
 
 /// What to write for `path`: relative when it is inside `root` (and there is one), else as it is.
 pub fn store(root: Option<&Path>, path: &str) -> String {
-    root.and_then(|r| relative_to(r, path)).unwrap_or_else(|| path.to_owned())
+    root.and_then(|r| relative_to(r, path).or_else(|| relative_resolved(r, path)))
+        .unwrap_or_else(|| path.to_owned())
+}
+
+/// [`relative_to`] after both are resolved on disk: the same folder spelt two ways, through a
+/// link (macOS's `/var` is `/private/var`) or a Windows short name (`C:\Users\RUNNER~1`), is
+/// still inside. A path not made yet is resolved from its nearest existing folder.
+fn relative_resolved(root: &Path, path: &str) -> Option<String> {
+    let path = Path::new(path);
+    if !path.is_absolute() {
+        return None;
+    }
+    let root = std::fs::canonicalize(root).ok()?;
+    let mut missing = Vec::new();
+    let mut existing = path;
+    let resolved = loop {
+        if let Ok(p) = std::fs::canonicalize(existing) {
+            break p;
+        }
+        missing.push(existing.file_name()?);
+        existing = existing.parent()?;
+    };
+    let full = missing.iter().rev().fold(resolved, |p, part| p.join(part));
+    relative_to(&root, full.to_str()?)
 }
 
 /// What a written `stored` means: resolved inside `root` when it is relative to it, else as it is.
@@ -127,6 +150,31 @@ mod tests {
             assert_eq!(resolve(&r, s), None, "{s:?}");
         }
         assert_eq!(relative_to(&r, "relative/path"), None);
+    }
+
+    #[test]
+    fn the_same_folder_spelt_another_way_is_inside() {
+        let base = std::env::temp_dir().join(format!("portable-spelling-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&base);
+        std::fs::create_dir_all(base.join("Stick").join("Downloads")).unwrap();
+        // the root as the program finds itself (resolved: `\\?\C:\...`, `/private/var/...`)
+        let r = std::fs::canonicalize(base.join("Stick")).unwrap();
+        // and the paths as a user or a temp variable spells them; on Unix through a link too
+        let spellings = [base.join("Stick"), base.join("Link")];
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(base.join("Stick"), base.join("Link")).unwrap();
+        #[cfg(not(unix))]
+        let spellings = &spellings[..1];
+        for s in spellings {
+            let dl = s.join("Downloads").to_string_lossy().into_owned();
+            assert_eq!(store(Some(&r), &dl), "./Downloads", "{dl}");
+            // a folder not made yet
+            let new = s.join("Downloads").join("new").to_string_lossy().into_owned();
+            assert_eq!(store(Some(&r), &new), "./Downloads/new", "{new}");
+        }
+        let elsewhere = base.join("Other").to_string_lossy().into_owned();
+        assert_eq!(store(Some(&r), &elsewhere), elsewhere);
+        let _ = std::fs::remove_dir_all(&base);
     }
 
     #[cfg(windows)]

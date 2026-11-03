@@ -169,6 +169,27 @@ elevates through UAC and starts from a clean registry):
 A dry run without a tag: Actions > Release > Run workflow builds the same files as one
 artifact per platform, named `<version>-dev.<commit>`, and makes no release.
 
+### Profiles and portable mode (D42)
+
+While trying the draft (step 5), beside the scripts' own checks (`zip-test.ps1`: a profile
+beside the default one, a portable nox writing `./Downloads`; `setup-test.ps1`: a profile's
+service holding the uninstall, a portable target refused):
+
+- **Profiles:** `patorrent.exe --profile work` asks before making the profile, its title shows
+  `[work]`, it runs beside the default profile with another listen port, and File > Profiles
+  lists both; `--profile Work!` is refused. On Linux, `patorrent-gtk --profile work` shows the
+  profile's own icon in the dock (GNOME and KDE; the Flatpak too).
+- **Associations:** ticking them in `work` takes them over (the General page then names `work`
+  in the default profile); a double-clicked `.torrent` opens in `work`.
+- **Portable:** an empty `patorrent.ini` beside the program (the zip, a Linux tarball, beside
+  an AppImage) keeps everything in that folder; a torrent downloading into `./Downloads` still
+  resumes without a recheck after the folder moves to another drive letter or computer (the
+  Samba share between the VMs). A portable folder in Program Files is refused with a message.
+- **Services:** `patorrent-nox service install --profile work` under the real SCM;
+  `systemctl --user enable --now patorrent-nox@work` on the Xubuntu VM.
+- **Downgrade:** a portable folder written by 1.1.49 or later needs 1.1.49 or later (older
+  versions read `./Downloads` against their working directory); the release notes say so.
+
 ## Flatpak
 
 `packaging/flatpak/` holds what the `flatpak` job builds and what a Flathub submission would

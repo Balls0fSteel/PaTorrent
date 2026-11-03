@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_132346_1793708626: Profiles and portable mode: docs and the VM scripts (D42 slice 8)
+
+- RELEASING.md: the profile, association, portable, service and downgrade checks for a draft. DAEMON.md: portable on every platform with relative paths. PROFILES.md: implemented. BACKLOG: a "Profiles and portable mode (D42)" section with every open hand check (Windows VM, GTK on Linux, the Samba move, macOS) and what was left out.
+- `tools/windows-clean`: `zip-test.ps1` starts a profile beside the default one and checks a portable nox writes `./Downloads`; `setup-test.ps1` registers `PaTorrentNox_x` and expects the silent uninstall to refuse until `service uninstall --all`, expects a portable target folder refused, and keeps `profiles\` on a silent uninstall. Both parse; not run on the VM yet.
+- **Website:** the FAQ's settings answer and the download page's settings lines are on the branch `site-profiles`, to merge when the release with profiles is published (a push to `main` that changes `site/` deploys at once, RELEASING.md step 2).
+- Docs and scripts only, no version bump.
+
 ## 2026-11-03_132148_1793708508: Version 1.1.50: macOS portable mode (D42 slice 7)
 
 - **New, not run on a Mac:** `patorrent.ini` in the folder holding `PaTorrent.app` (never inside the bundle, which would break its signature) makes it portable; a bare binary (nox) is portable beside itself, as on Linux. A quarantined app that macOS runs translocated (from a random read-only copy, where the marker is not seen) says so once its window is up and asks to move `PaTorrent.app` with Finder (`MacTranslocated`, 34 machine translations). `profile::app_bundle_parent`, `translocated`.

@@ -1,6 +1,7 @@
 # Clean-machine check of the Windows setup (run on the VM over SSH, Windows PowerShell 5.1):
 # $OldVersion for the user with shortcuts and associations, $Version over it (refused while the GUI runs),
-# the silent uninstall, then $Version for all users and its uninstall.
+# a profile's nox service holding the uninstall, the silent uninstall, a portable target refused, then
+# $Version for all users and its uninstall. The SSH login is elevated (service install needs it).
 param([string]$Version = '1.1.2', [string]$OldVersion = '1.1.0', [string]$Root = 'C:\Users\x\patest')
 $old = Join-Path $root "patorrent-$OldVersion-windows-x64-setup.exe"
 $new = Join-Path $root "patorrent-$Version-windows-x64-setup.exe"
@@ -67,9 +68,24 @@ Check ([bool](Get-Process -Id $g.Id -ErrorAction SilentlyContinue)) "installed $
 Stop-Process -Id $g.Id -Force
 Start-Sleep 1
 
-Step 'silent uninstall (as Settings > Apps)'
+Step "a profile's nox service holds the uninstall (D42, 1.1.47 and later)"
+$nox = "$dir\patorrent-nox.exe"
+& $nox service install --profile x --start manual --state-dir "$root\noxsvc-x" | Out-Null
+Check ($LASTEXITCODE -eq 0) 'service install --profile x'
+Check ((sc.exe query PaTorrentNox_x | Out-String) -match 'PaTorrentNox_x') 'PaTorrentNox_x registered'
+& $nox service status --all --in $dir | Out-Null
+Check ($LASTEXITCODE -eq 0) 'service status --all --in finds it'
 $q = $u.QuietUninstallString
 $exe = ($q -split '"')[1]
+Start-Process $exe -ArgumentList '/S' -Wait
+Start-Sleep 5
+Check (Test-Path "$dir\patorrent-nox.exe") 'the silent uninstall refuses (Cancel) while the service is registered'
+& $nox service uninstall --all | Out-Null
+Check ($LASTEXITCODE -eq 0 -and -not ((sc.exe query PaTorrentNox_x | Out-String) -match 'RUNNING|STOPPED')) 'service uninstall --all'
+Remove-Item -Recurse -Force "$root\noxsvc-x" -ErrorAction SilentlyContinue
+New-Item -ItemType Directory -Force "$settings\profiles\work" | Out-Null
+
+Step 'silent uninstall (as Settings > Apps)'
 Start-Process $exe -ArgumentList '/S' -Wait
 WaitGone @($key, $dir)
 Check (-not (Test-Path $dir)) 'folder gone'
@@ -77,7 +93,18 @@ Check (-not (Test-Path $key)) 'entry gone'
 Check (-not (Test-Path $menu) -and -not (Test-Path $desktop)) 'shortcuts gone'
 Check (-not (Default "$classes\.torrent") -and -not (Test-Path "$classes\magnet")) 'associations gone'
 Check (Test-Path "$settings\patorrent.ini") 'settings stay (not asked to remove them)'
+# "Remove settings" (unticked by default) also removes profiles\: a check by hand in the wizard
+Check (Test-Path "$settings\profiles\work") 'profiles stay too'
 Remove-Item -Recurse -Force $settings
+
+Step 'the setup refuses a portable folder (D42, 1.1.47 and later)'
+$pf = Join-Path $root 'portable-target'
+New-Item -ItemType Directory -Force $pf | Out-Null
+Set-Content -Encoding ascii "$pf\patorrent.ini" ''
+$code = Run $new '/S', '/CURRENTUSER', "/D=$pf"
+Check ($code -ne 0 -and -not (Test-Path "$pf\patorrent.exe")) "refused: exit $code, nothing installed"
+Check (-not (Test-Path $key)) 'no Settings > Apps entry'
+Remove-Item -Recurse -Force $pf
 
 Step "$Version for all users"
 $pdir = "$env:ProgramFiles\PaTorrent"

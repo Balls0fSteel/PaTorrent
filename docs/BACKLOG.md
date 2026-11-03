@@ -742,6 +742,34 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   published after this will be the first release-event run. Its screenshots
   are from the Win32 demo; GTK and Web UI screenshots would help.
 
+## Profiles and portable mode (D42)
+
+Built in 1.1.43-1.1.50 ([PROFILES_PLAN.md](PROFILES_PLAN.md#implementation-status)); checked by
+unit and integration tests and on this PC's hidden desktop. Open (2026-11-03_132148_1793708508):
+
+- **Windows VM** (`tools/windows-clean`, both scripts carry the new checks): two portable copies
+  and an installed one at once, a second start of each adding its torrent to its own window; one
+  folder opened from two processes (the `FolderInUse` message); the setup's refusal of a portable
+  folder in the wizard; "Remove settings" taking `profiles\` (by hand: silent uninstalls leave
+  it unticked); `service install --profile work` under the real SCM and the uninstaller's
+  `service status --all --in` test with it; a desktop shortcut from File > Profiles; a
+  double-clicked `.torrent` reaching the profile that owns the association; the status bar's
+  "Port N in use" click opening Preferences at Connection.
+- **Linux (Xubuntu VM), GTK not yet run with any of it:** `--profile work` (the question, the
+  title, File > Profiles, New Profile), the dock icon from the profile's own desktop entry on
+  GNOME and KDE and in the Flatpak (whose entry is written to the host's
+  `~/.local/share/applications`), Create Shortcut putting it in the menu; portable mode from a
+  tarball and beside an AppImage; `systemctl --user enable --now patorrent-nox@work`; the rc.d
+  profiles on the FreeBSD VM (only `sh -n` so far).
+- **Moving a portable folder** with a torrent downloading into `./Downloads` to another drive
+  letter and to the Linux VM over the Samba share: resumes without a recheck (the nox test moved
+  one folder on one machine).
+- **macOS (gate 8):** a portable `PaTorrent.app` beside `patorrent.ini`, the translocation
+  notice, per-profile LaunchAgents.
+- **Left out on purpose:** the Web UI's categories (`webui.json`) stay absolute in portable mode;
+  the GTK Preferences page does not name the profile that owns the associations (Windows does);
+  `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only.
+
 ## Startup and shutdown (investigated 2026-10-30_192440_1793384680)
 
 The owner asked whether a progress indicator is needed when a start or an exit takes long

@@ -97,8 +97,11 @@ updates) have no check at all.
   `$CONFIGURATION_DIRECTORY`) come first; the system unit uses `/var/lib/patorrent-nox`.
 - `--state-dir DIR` (or the older `--state DIR`) puts the state in DIR, and the config too unless
   `--config-dir DIR` is also given; `--no-state` keeps nothing.
-- Windows portable mode: with a `patorrent.ini` beside the exe (the GUI's rule, D7), both go to
-  `nox` beside the exe.
+- Portable mode: with a `patorrent.ini` beside the exe (the GUI's rule, D7; on Linux and the
+  BSDs beside the binary or the `.AppImage`, on macOS beside a bare binary; never in a
+  Flatpak), both go to `nox` beside it, and the save paths inside that folder are written
+  relative to it (`./Downloads`), so the folder can move (D42). A portable folder that cannot be
+  written stops nox with an error instead of falling back to the folders above.
 - Until 2026-10-19 Unix kept `webui.json` in the state directory. On the first start with the
   default directories it is moved to the config directory (and `ipfilter.dat` copied), with a
   `* moved ...` line in the output.

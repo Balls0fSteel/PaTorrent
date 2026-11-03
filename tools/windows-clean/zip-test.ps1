@@ -64,7 +64,28 @@ Start-Sleep 2
 "GUI still running after start: " + [bool](Get-Process -Id $g.Id -ErrorAction SilentlyContinue)
 "portable files: " + ((Get-ChildItem $guiDir -Name) -join ', ')
 "appdata untouched: " + (-not (Test-Path "$env:APPDATA\PaTorrent"))
+
+Step 'a profile beside it (D42, 1.1.44 and later)'
+# made beforehand, so no question; it runs beside the default profile's window
+New-Item -ItemType Directory -Force (Join-Path $guiDir 'profiles\work') | Out-Null
+$w = Start-Process -FilePath $gui -WorkingDirectory $guiDir -ArgumentList '--profile', 'work' -PassThru
+Start-Sleep 5
+"both running: " + [bool](Get-Process -Id $g.Id -ErrorAction SilentlyContinue) + ' ' + [bool](Get-Process -Id $w.Id -ErrorAction SilentlyContinue)
+"profile files: " + ((Get-ChildItem (Join-Path $guiDir 'profiles\work') -Name) -join ', ')
+"profile's first-run settings: " + ((Get-Content (Join-Path $guiDir 'profiles\work\patorrent.ini') -ErrorAction SilentlyContinue | Where-Object { $_ -like 'dir.download=*' -or $_ -like 'lt.listen_interfaces=*' }) -join '; ')
+Stop-Process -Id $w.Id -Force -ErrorAction SilentlyContinue
 Stop-Process -Id $g.Id -Force -ErrorAction SilentlyContinue
+
+Step 'portable nox: paths relative to the folder (D42, 1.1.49 and later)'
+$dl = Join-Path $guiDir 'Downloads'
+New-Item -ItemType Directory -Force $dl | Out-Null
+[IO.File]::WriteAllBytes((Join-Path $dl 'data.bin'), (New-Object byte[] 100000))
+Push-Location $guiDir
+& $nox create (Join-Path $dl 'data.bin') -o data.torrent --v1 | Out-Null
+& $nox add data.torrent --save $dl --listen 127.0.0.1:0 --seconds 20 | Select-String 'state'
+Pop-Location
+$saved = (Get-ChildItem (Join-Path $guiDir 'nox') -Filter 'resume.*' | ForEach-Object { [IO.File]::ReadAllText($_.FullName) }) -join ''
+"resume holds ./Downloads: " + $saved.Contains('9:save_path11:./Downloads')
 
 Step 'Defender'
 $t = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -match 'patorrent' }

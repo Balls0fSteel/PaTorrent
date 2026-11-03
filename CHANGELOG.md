@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_223519_1793741719: D42 on a real Mac: a login starting the agents, Open Anyway
+
+On the owner's Intel macOS 15.8.2 VM (VMware), with 1.1.53 built there from MacPorts' GTK 4.22 (Quartz):
+
+- **Real login:** both profiles' LaunchAgents in `~/Library/LaunchAgents`, as Preferences writes them, pointed at `/Applications/PaTorrent.app`. After a reboot and automatic login, launchd started `PaTorrent 1.1.53` and `PaTorrent 1.1.53 [work]`, each holding its own library's lock. The first reboot also showed the single-instance rule: macOS reopened a second copy of the app left running before it, which took the default profile's folder, so the agent's default start got the "folder in use" message.
+- **Open Anyway:** a quarantined copy in `~/Downloads/PaTorrent` beside `patorrent.ini` was refused ("“PaTorrent” Not Opened"). Clicking Open Anyway in Privacy & Security, then in the "Open “PaTorrent”?" dialog, and the owner's password ran it from `AppTranslocation`. The quarantine became `00c3`, the flag CI set by hand. The app showed its notice dialog and used `~/Library`, since the marker beside it cannot be seen from there.
+- Found: bundling from MacPorts fails on its SVG loader (no header padding), and the bundler's signing pass failed on that VM (BACKLOG). Docs only.
+
 ## 2026-11-03_204931_1793735371: D42 gate 8: an exFAT stick
 
 - `macos-gate8.yml` gained an exFAT disk image as the stick (macOS 15's FSKit exFAT). The GUI ran from it and took its lock and library there. nox added a torrent saved on it; mounted at another path, nox found its state and the data, seeding with no recheck. The whole job passed (run 41705583119).

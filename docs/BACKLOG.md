@@ -765,9 +765,15 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
   -> another drive letter) and an unfinished one (another drive letter), no recheck either time.
 - **macOS (gate 8):** done on GitHub's macOS 15 runner (2026-11-03_203047_1793734247,
   `.github/workflows/macos-gate8.yml`, run by hand), an exFAT stick too
-  (2026-11-03_204931_1793735371). A runner cannot log in again or click: a real login starting
-  the LaunchAgents (launchd was handed the same files) and the Open Anyway button itself (its
-  quarantine flag was set) wait for anyone with a Mac.
+  (2026-11-03_204931_1793735371). The owner's Intel macOS 15 VM did the rest
+  (2026-11-03_223519_1793741719): a real login started both profiles' LaunchAgents, and Open
+  Anyway, clicked with the owner's password, ran the app translocated with its notice.
+- **Building on an Intel Mac:** Homebrew no longer installs there, so the VM uses MacPorts
+  (`gtk4 +quartz -x11`). `macos_bundle.py` cannot bundle MacPorts' SVG pixbuf loader (built
+  without `-headerpad_max_install_names`, so `install_name_tool` has no room), and its own
+  signing pass on that VM failed with "subcomponent not signed" (the launcher before
+  `patorrent-gtk`); `codesign --deep` afterwards signed it. Releases use Homebrew on Apple
+  silicon and are not affected; fix both if Intel bundles are ever made from MacPorts.
 - **Left out on purpose:** the Web UI's categories (`webui.json`) stay absolute in portable mode;
   the GTK Preferences page does not name the profile that owns the associations (Windows does);
   `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only.

@@ -3,8 +3,8 @@
 // Copyright (c) 2003-2020, Arvid Norberg and contributors. BSD-3-Clause, see THIRD-PARTY-NOTICES.md.
 // Changes: a plain struct instead of `add_torrent_params`; only the fields this engine uses are
 // read and written, under libtorrent's key names, so records stay readable by libtorrent tools.
-// Extra `lt-` keys (queue position, total size, piece count and length) let a stopped
-// torrent be listed without loading its metadata (PLAN.md D5). `comment`, `created by` and
+// Extra `lt-` keys (queue position, total size, piece count and length, wanted pieces) let a
+// stopped torrent be listed without loading its metadata (PLAN.md D5). `comment`, `created by` and
 // `creation date` are kept under the `.torrent` file's own key names, since the session store
 // holds only the info dictionary and a restored torrent would lose them. Records are written
 // as file-version 2 (`pieces` a packed bitfield); version 1 records (one byte per piece) still
@@ -46,6 +46,10 @@ pub(crate) struct ResumeData {
     pub disable_lsd: bool,
     pub disable_pex: bool,
     pub file_priority: Vec<u8>,
+    /// The pieces a downloaded file touches (`lt-wanted-pieces`, packed as `pieces`); `None`
+    /// when every piece is wanted. Lets a stopped torrent count only its selected files without
+    /// loading its metadata. Whole bytes, cut to the piece count as `pieces` is.
+    pub wanted_pieces: Option<Bitfield>,
     /// Files stored under another name (libtorrent `mapped_files`).
     pub mapped_files: std::collections::BTreeMap<u32, String>,
     /// Tracker URLs per tier.
@@ -152,6 +156,9 @@ impl ResumeData {
         *e.key("lt-total-size") = int(self.total_size as i64);
         *e.key("lt-num-pieces") = int(self.num_pieces as i64);
         *e.key("lt-piece-length") = int(self.piece_length as i64);
+        if let Some(w) = self.wanted_pieces.as_ref().filter(|w| !w.is_empty()) {
+            *e.key("lt-wanted-pieces") = Entry::Bytes(w.as_bytes().to_vec());
+        }
         if !self.comment.is_empty() {
             *e.key("comment") = s(&self.comment);
         }
@@ -248,11 +255,14 @@ impl ResumeData {
             // in the last byte (our own records know it). A version 1 record of another length
             // gets the same shape, so it reads back the same once saved as version 2 (the
             // `resume_data` fuzz target's round trip; security review 2026-11-02).
-            let n = r.num_pieces as usize;
-            let whole = bf.len().div_ceil(8) * 8;
-            bf.resize(if n > 0 && n <= whole && whole - n < 8 { n } else { whole }, false);
+            cut_to_pieces(&mut bf, r.num_pieces);
             // no bits saves as no `pieces`
             r.pieces = (!bf.is_empty()).then_some(bf);
+        }
+        if let Some(w) = root.dict_find_string_value("lt-wanted-pieces").filter(|w| !w.is_empty()) {
+            let mut bf = Bitfield::from_bytes(w, w.len() * 8).expect("length matches");
+            cut_to_pieces(&mut bf, r.num_pieces);
+            r.wanted_pieces = Some(bf);
         }
         if let Some(l) = root.dict_find_list("unfinished") {
             for e in l.list_iter().filter(|e| e.is_dict()) {
@@ -307,6 +317,13 @@ impl ResumeData {
         }
         Ok(r)
     }
+}
+
+/// A bitfield read as whole bytes, cut to `num_pieces` when that ends in its last byte.
+fn cut_to_pieces(bf: &mut Bitfield, num_pieces: u32) {
+    let n = num_pieces as usize;
+    let whole = bf.len().div_ceil(8) * 8;
+    bf.resize(if n > 0 && n <= whole && whole - n < 8 { n } else { whole }, false);
 }
 
 /// Peers saved in resume data, in the compact form they are saved in (libtorrent's `peers`

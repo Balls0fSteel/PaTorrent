@@ -2143,6 +2143,61 @@ fn a_created_torrent_seeds_and_downloads() {
     let _ = std::fs::remove_dir_all(seed_dir);
 }
 
+/// A stopped torrent with a skipped file counts only the selected files, as a running one does:
+/// stopping drops its metadata, and a restart restores it without loading the metadata. It
+/// showed the whole torrent's size and its share done (5 % for 5 GB of 100 GB) until 1.1.41.
+#[test]
+fn a_stopped_partial_download_counts_only_the_selected_files() {
+    use patorrent_core::DownloadPriority;
+    let f = fixture(None);
+    let (seed, seed_dir, port, _) = seeder(&f);
+    let dir = temp_dir("leech-stopped-partial");
+    let state = temp_dir("state-stopped-partial");
+    let check = |st: &TorrentStatus, wanted: u64, what: &str| {
+        assert_eq!((st.total_wanted, st.total_wanted_done), (wanted, wanted), "{what}");
+        assert!(wanted < st.total, "{what}: the skipped file is left out");
+        assert_eq!(st.progress_ppm, 1_000_000, "{what}");
+        assert!(st.is_finished, "{what}");
+        assert_eq!(st.state, TorrentState::Finished, "{what}");
+    };
+    let wanted = {
+        let leech = start(Some(state.clone()));
+        let mut w = Watch::new(leech.handle());
+        let mut p =
+            AddTorrentParams::new(TorrentSource::TorrentFile(f.torrent.clone()), dir.to_string_lossy());
+        p.flags = TorrentFlags::empty();
+        p.file_priorities = vec![DownloadPriority::NORMAL, DownloadPriority::DONT_DOWNLOAD];
+        leech.handle().add_torrent(p);
+        let id = wait(&mut w, 5, "add", |a| match a {
+            Alert::TorrentAdded { id, .. } => Some(*id),
+            _ => None,
+        });
+        wait_state(&mut w, id, TorrentState::Downloading, 10);
+        leech.handle().torrent(id).connect_peer(SocketAddr::from(([127, 0, 0, 1], port)));
+        let st = wait_state(&mut w, id, TorrentState::Finished, 60);
+        let wanted = st.total_wanted;
+        check(&st, wanted, "running");
+        leech.handle().torrent(id).pause();
+        let st = wait(&mut w, 10, "stopped", |a| {
+            status_of(a, id).filter(|s| s.flags.contains(TorrentFlags::PAUSED))
+        });
+        check(&st, wanted, "stopped");
+        leech.shutdown();
+        wanted
+    };
+    seed.shutdown();
+
+    let leech = start(Some(state.clone()));
+    let mut w = Watch::new(leech.handle());
+    let st = first_restored(&mut w);
+    assert!(st.flags.contains(TorrentFlags::PAUSED));
+    check(&st, wanted, "restored stopped");
+    leech.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+    let _ = std::fs::remove_dir_all(state);
+    let _ = std::fs::remove_dir_all(seed_dir);
+}
+
 #[test]
 fn a_skipped_file_stays_in_the_part_file_until_it_is_unskipped() {
     use patorrent_core::{DownloadPriority, RemoveFlags};

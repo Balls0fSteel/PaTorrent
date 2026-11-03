@@ -183,6 +183,11 @@ pub(crate) struct Torrent {
     pub checking: bool,
     pub checked_pieces: u32,
     pub file_priority: Vec<u8>,
+    /// The pieces a downloaded file touches, kept while `ti` is not loaded and some piece is
+    /// not wanted (`None` otherwise, or when unknown): a stopped torrent's progress, size and
+    /// finished state then count only the selected files, as a running one's do. Saved as
+    /// `lt-wanted-pieces`.
+    pub wanted_pieces: Option<Box<Bitfield>>,
 
     pub peers: Vec<usize>,
     pub peer_list: PeerList,
@@ -274,6 +279,7 @@ impl Torrent {
             checking: false,
             checked_pieces: 0,
             file_priority: Vec::new(),
+            wanted_pieces: None,
             peers: Vec::new(),
             peer_list: PeerList::default(),
             trackers: Vec::new(),
@@ -334,7 +340,17 @@ impl Torrent {
         }
         self.ti = Some(ti);
         self.merkle_trees = None;
+        self.wanted_pieces = None;
         self.apply_renames();
+    }
+
+    /// Drops the metadata of a torrent that is not running (it stays in the session store),
+    /// keeping which pieces are wanted.
+    pub fn drop_metadata(&mut self) {
+        if let Some(ti) = self.ti.take() {
+            self.wanted_pieces = wanted_mask(&ti, &self.file_priority).map(Box::new);
+        }
+        self.merkle_trees = None;
     }
 
     /// Gives `ti` the names in `renamed_files` (libtorrent `torrent::init`, "MAPPED FILES").
@@ -579,6 +595,10 @@ impl Torrent {
                 let prio = piece_priorities(ti, &self.file_priority);
                 (0..have.len()).all(|i| prio[i] == 0 || have.get(i))
             }
+            (None, Some(have), None) if self.wanted_pieces.is_some() => {
+                let w = self.wanted_pieces.as_deref().expect("checked");
+                (0..have.len()).all(|i| !w.get(i) || have.get(i))
+            }
             (None, Some(have), None) => {
                 // Without metadata we can only tell for "download everything".
                 have.all_set()
@@ -624,19 +644,17 @@ impl Torrent {
 
     /// (wanted bytes, wanted bytes done), at piece granularity.
     pub fn wanted(&self) -> (u64, u64) {
-        let Some(ti) = &self.ti else {
-            let done = self.total_done();
-            return (self.total_size, done);
-        };
-        let prio = match &self.picker {
-            Some(p) => (0..self.num_pieces).map(|i| p.piece_priority(i)).collect(),
-            None => piece_priorities(ti, &self.file_priority),
+        let prio: Vec<bool> = match (&self.picker, &self.ti, &self.wanted_pieces) {
+            (Some(p), _, _) => (0..self.num_pieces).map(|i| p.piece_priority(i) > 0).collect(),
+            (None, Some(ti), _) => piece_priorities(ti, &self.file_priority).iter().map(|&p| p > 0).collect(),
+            (None, None, Some(w)) => (0..w.len()).map(|i| w.get(i)).collect(),
+            (None, None, None) => return (self.total_size, self.total_done()),
         };
         let have = self.have_bits();
         let mut wanted = 0;
         let mut done = 0;
         for i in 0..self.num_pieces {
-            if prio[i as usize] > 0 {
+            if prio[i as usize] {
                 let size = self.piece_size(i);
                 wanted += size;
                 if have.is_some_and(|h| h.get(i as usize)) {
@@ -818,6 +836,10 @@ impl Torrent {
             disable_lsd: self.flags.contains(TorrentFlags::DISABLE_LSD),
             disable_pex: self.flags.contains(TorrentFlags::DISABLE_PEX),
             file_priority: self.file_priority.clone(),
+            wanted_pieces: match &self.ti {
+                Some(ti) => wanted_mask(ti, &self.file_priority),
+                None => self.wanted_pieces.as_deref().cloned(),
+            },
             mapped_files: self.renamed_files.clone(),
             trackers,
             peers: self.peer_list.resume_peers(100),
@@ -952,6 +974,20 @@ pub(crate) fn piece_priorities(ti: &TorrentInfo, file_priority: &[u8]) -> Vec<u8
     prio
 }
 
+/// The pieces some downloaded file touches, as [`piece_priorities`] gives them; `None` when
+/// every piece is wanted.
+pub(crate) fn wanted_mask(ti: &TorrentInfo, file_priority: &[u8]) -> Option<Bitfield> {
+    let prio = piece_priorities(ti, file_priority);
+    if prio.iter().all(|&p| p > 0) {
+        return None;
+    }
+    let mut mask = Bitfield::new(prio.len(), false);
+    for (i, &p) in prio.iter().enumerate() {
+        mask.set(i, p > 0);
+    }
+    Some(mask)
+}
+
 fn ppm(done: u64, total: u64) -> u32 {
     if total == 0 { 0 } else { (done as u128 * 1_000_000 / total as u128).min(1_000_000) as u32 }
 }
@@ -1061,6 +1097,55 @@ mod tests {
         assert_eq!(t.inactive_change_at, None);
     }
 
+    /// A torrent without its metadata (stopped, or restored from the store) still counts only
+    /// the pieces its downloaded files touch, from `wanted_pieces`, which resume data carries.
+    #[test]
+    fn wanted_pieces_outlive_the_metadata() {
+        let (bytes, _) = make_torrent(&[("a", 20_000), ("b", 30_000), ("c", 10_000)], 16 * 1024);
+        let ti = Arc::new(TorrentInfo::from_bytes(&bytes).unwrap());
+        let new = || {
+            Torrent::new(
+                TorrentId::default(),
+                ti.info_hashes(),
+                String::new(),
+                "/x".into(),
+                TorrentFlags::DEFAULT,
+            )
+        };
+        let mut t = new();
+        t.set_metadata(ti.clone());
+        // only c, which is piece 3 (49152..60000)
+        t.file_priority = vec![0, 0, 4];
+        let mut have = Bitfield::new(4, false);
+        have.set(3, true);
+        t.have = Some(have);
+        let loaded = (t.wanted(), t.is_finished());
+        assert_eq!(loaded, ((10_848, 10_848), true));
+        t.drop_metadata();
+        assert!(t.ti.is_none());
+        assert_eq!((t.wanted(), t.is_finished()), loaded);
+
+        let r = ResumeData::decode(&t.resume_data().encode()).unwrap();
+        let mut restored = new();
+        (restored.total_size, restored.num_pieces, restored.piece_length) =
+            (r.total_size, r.num_pieces, r.piece_length);
+        super::super::apply_resume(&mut restored, &r);
+        assert_eq!((restored.wanted(), restored.is_finished()), loaded, "restored without metadata");
+
+        // b wanted too: piece 1 is missing, so not finished
+        t.set_metadata(ti.clone());
+        assert!(t.wanted_pieces.is_none(), "the metadata says it while loaded");
+        t.file_priority = vec![0, 4, 4];
+        t.drop_metadata();
+        assert_eq!((t.wanted(), t.is_finished()), ((60_000 - 16_384, 10_848), false));
+        // every piece wanted: nothing kept or saved
+        t.set_metadata(ti.clone());
+        t.file_priority = vec![4, 1, 7];
+        t.drop_metadata();
+        assert!(t.wanted_pieces.is_none());
+        assert_eq!(t.resume_data().wanted_pieces, None);
+    }
+
     #[test]
     fn priorities_progress_and_resume() {
         // Pieces of 16 KiB: file a covers pieces 0-1, b covers 1-3, c covers 3.
@@ -1159,9 +1244,10 @@ mod tests {
     #[test]
     fn a_stopped_torrent_stays_compact() {
         let size = std::mem::size_of::<Torrent>();
-        // 680: 664 plus the boxed `.torrent` text (`created`), which a stopped torrent keeps, and
-        // the boxed seed-mode state (SEC-20)
-        assert!(size <= 680, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
+        // 688: 664 plus the boxed `.torrent` text (`created`), which a stopped torrent keeps, the
+        // boxed seed-mode state (SEC-20) and the boxed `wanted_pieces`, which only a stopped one
+        // uses
+        assert!(size <= 688, "Torrent grew to {size} bytes: box what a stopped torrent does not use");
         let mut t = Torrent::new(
             TorrentId::default(),
             InfoHashes::v1(crate::types::Sha1Hash([1; 20])),

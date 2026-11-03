@@ -2052,8 +2052,18 @@ impl Engine {
                 None => t.error = Some("metadata missing from the session store".into()),
             }
         }
+        // A record from before 1.1.41 does not say which pieces are wanted: worked out once from
+        // the metadata and saved, so a stopped partial download does not count the whole torrent.
+        let mut migrated = false;
+        if t.ti.is_none() && t.wanted_pieces.is_none() && t.file_priority.contains(&0) && has_meta {
+            if let Some(ti) = self.load_info(&t.key()) {
+                t.set_metadata(ti);
+                t.drop_metadata();
+                migrated = true;
+            }
+        }
         t.state = t.settled_state();
-        t.resume_dirty = false;
+        t.resume_dirty = migrated;
         // no `TorrentAdded`: `TorrentsRestored` follows the lot, and `status_dirty` puts it in
         // the next status update
         self.insert_torrent(t);
@@ -2262,8 +2272,7 @@ impl Engine {
         }
         if let Some((s, true)) = t.moving.take() {
             if !keep_metadata && !t.is_active() {
-                t.ti = None;
-                t.merkle_trees = None;
+                t.drop_metadata();
             }
             self.disk.async_fence(&s, FenceAction::Release);
         }
@@ -2572,8 +2581,7 @@ impl Engine {
         let t = self.torrent(id).expect("exists");
         t.peer_list.trim(max_paused);
         if !keep_metadata && !shutting_down {
-            t.ti = None;
-            t.merkle_trees = None;
+            t.drop_metadata();
         }
         let state = t.settled_state();
         let now = Instant::now();
@@ -2701,6 +2709,8 @@ impl Engine {
     }
 
     fn set_file_priorities(&mut self, id: TorrentId, prios: Vec<u8>) {
+        // the metadata tells which pieces the new priorities want (`wanted_pieces`)
+        self.ensure_metadata(id);
         let Some(t) = self.torrent(id) else { return };
         let was_finished = t.is_finished();
         t.file_priority = prios;
@@ -3989,6 +3999,13 @@ fn apply_resume(t: &mut Torrent, r: &ResumeData) {
         let n = t.file_priority.len().max(r.file_priority.len());
         t.file_priority = r.file_priority.clone();
         t.file_priority.resize(n, DownloadPriority::NORMAL.0);
+    }
+    if t.ti.is_none() {
+        t.wanted_pieces = r
+            .wanted_pieces
+            .clone()
+            .filter(|w| t.num_pieces > 0 && w.len() == t.num_pieces as usize)
+            .map(Box::new);
     }
     // kept compact until the torrent starts (`PeerList::Saved`)
     t.peer_list.restore(r.peers.clone());

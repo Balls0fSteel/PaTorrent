@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_111113_1793700673: Version 1.1.41: a stopped partial download counts only its selected files
+
+- **Owner's note:** a torrent with one file of a hundred selected showed 5 % when stopped and 100 % when started. **Cause:** with a session store, stopping drops the metadata (D5), and without it `wanted()` and `is_finished()` fell back to the whole torrent, so Done, Size and Remaining counted every file and the torrent was not Finished (also for sidebar categories, seeding goals and auto-shutdown). A restored stopped torrent, which never loads its metadata, had the same problem. µTorrent and qBittorrent count only the selected files, stopped or not, as our running state already did.
+- **Fix:** `Torrent::drop_metadata` keeps `wanted_pieces` (the pieces a downloaded file touches, boxed, only when some piece is not wanted), saved as `lt-wanted-pieces` beside the other `lt-` listing keys. Records from before 1.1.41 with a skipped file have their metadata loaded once at start to work it out and are saved again. Changing file priorities on a stopped torrent loads its metadata first. `Torrent` grows 8 bytes (688).
+- **Checked:** new swarm test (running, stopped, restored stopped; it fails without the fix with 1,312,345 wanted bytes against 362,073) and unit test (no metadata, resume round trip); workspace tests, clippy, the fuzz workspace.
+
 ## 2026-11-03_103712_1793698632: 1.1.40 published
 
 - **Owner's go-ahead:** the draft published as Latest (2026-11-03); the website branch merged into `main` and deployed: the "It shares your PC" section with the gamer mode and smart disk I/O cards, the 1.1.40 news entry. Checked live: `update.txt` `stable=1.1.40`, the home page's download button and section, `news.atom`.

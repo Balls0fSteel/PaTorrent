@@ -401,6 +401,7 @@ FolderInUse=Egy másik PaTorrent már használja ezt a mappát, egy másik munka
 PortableReadOnly=Ez a hordozható PaTorrent nem tud írni a mappájába:\n\n{folder}\n{error}\n\nHelyezze át a mappát írható helyre, vagy törölje a program melletti patorrent.ini fájlt, hogy a beállítások a felhasználói mappájába kerüljenek.
 ProfileBadName=A(z) "{name}" nem lehet profilnév. A profilnév 1–32 karakterből áll: a-z betűkből, számjegyekből és kötőjelekből (-), és betűvel kezdődik.
 ProfileCreate=A(z) "{name}" profil még nem létezik. Létrehozza?\n\nÜresen indul, mint egy új telepítés, itt:\n{folder}
+MacTranslocated=A macOS ideiglenes másolatból futtatja a PaTorrentet, ezért a PaTorrent.app melletti patorrent.ini nem látszik. Helyezze át a PaTorrent.app-ot a Finderrel a kívánt mappába (vagy az Alkalmazások közé), és indítsa újra.
 EndSessionSaving=A torrentlista és a haladás mentése...
 ExitTitle=A PaTorrent bezárul
 ExitElapsed=Bezárás folyamatban: {time}

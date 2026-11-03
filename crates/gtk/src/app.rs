@@ -1218,6 +1218,12 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     });
     update_status();
     window.present();
+    // macOS runs a quarantined app from a random read-only copy, where a portable marker beside
+    // PaTorrent.app is not seen (D42): say how to get it run from where it is
+    #[cfg(target_os = "macos")]
+    if std::env::current_exe().ok().and_then(|e| e.parent().map(profile::translocated)) == Some(true) {
+        info(tr!(MacTranslocated));
+    }
     start_tray(&window);
     if START_MINIMIZED.with(|m| m.get()) {
         // into the tray once it is there (`tray_shown`); minimized until then, or for good

@@ -401,6 +401,7 @@ FolderInUse=PaTorrent אחר כבר משתמש בתיקייה זו, בהפעלה
 PortableReadOnly=PaTorrent נייד זה אינו יכול לכתוב לתיקייה שלו:\n\n{folder}\n{error}\n\nהעבירו את התיקייה למקום שאפשר לכתוב בו, או הסירו את patorrent.ini שליד התוכנית כדי לשמור את ההגדרות בתיקיית המשתמש.
 ProfileBadName="{name}" אינו יכול להיות שם פרופיל. שם פרופיל מכיל 1 עד 32 תווים: אותיות a-z, ספרות ומקפים (-), ומתחיל באות.
 ProfileCreate=הפרופיל "{name}" עדיין לא קיים. ליצור אותו?\n\nהוא מתחיל ריק, כמו התקנה חדשה, בתיקייה:\n{folder}
+MacTranslocated=macOS מריץ את PaTorrent מעותק זמני, ולכן קובץ patorrent.ini שליד PaTorrent.app אינו נראה. העבירו את PaTorrent.app בעזרת Finder לתיקייה הרצויה (או ליישומים) והפעילו אותו שוב.
 EndSessionSaving=שומר את רשימת הטורנטים וההתקדמות...
 ExitTitle=PaTorrent נסגר
 ExitElapsed=נסגר כבר {time}

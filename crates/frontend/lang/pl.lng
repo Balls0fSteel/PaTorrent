@@ -401,6 +401,7 @@ FolderInUse=Inny PaTorrent już używa tego folderu, w innej sesji lub na innym 
 PortableReadOnly=Ten przenośny PaTorrent nie może zapisywać w swoim folderze:\n\n{folder}\n{error}\n\nPrzenieś folder tam, gdzie można zapisywać, albo usuń patorrent.ini obok programu, aby ustawienia były przechowywane w folderze użytkownika.
 ProfileBadName="{name}" nie może być nazwą profilu. Nazwa profilu ma od 1 do 32 znaków: litery a-z, cyfry i łączniki (-), i zaczyna się od litery.
 ProfileCreate=Profil "{name}" jeszcze nie istnieje. Utworzyć go?\n\nZacznie się pusty, jak nowa instalacja, w:\n{folder}
+MacTranslocated=macOS uruchamia PaTorrent z tymczasowej kopii, więc plik patorrent.ini obok PaTorrent.app nie jest widoczny. Przenieś PaTorrent.app za pomocą Findera do wybranego folderu (lub do Aplikacji) i uruchom ponownie.
 EndSessionSaving=Zapisywanie listy torrentów i postępu...
 ExitTitle=PaTorrent się zamyka
 ExitElapsed=Zamykanie trwa {time}

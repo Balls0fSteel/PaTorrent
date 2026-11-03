@@ -401,6 +401,7 @@ FolderInUse=Een andere PaTorrent gebruikt deze map al, in een andere sessie of o
 PortableReadOnly=Deze draagbare PaTorrent kan niet naar zijn map schrijven:\n\n{folder}\n{error}\n\nVerplaats de map naar een plek waar u kunt schrijven, of verwijder patorrent.ini naast het programma om de instellingen in uw gebruikersmap te bewaren.
 ProfileBadName="{name}" kan geen profielnaam zijn. Een profielnaam heeft 1 tot 32 tekens: letters a-z, cijfers en koppeltekens (-), en begint met een letter.
 ProfileCreate=Het profiel "{name}" bestaat nog niet. Aanmaken?\n\nHet begint leeg, zoals een nieuwe installatie, in:\n{folder}
+MacTranslocated=macOS voert PaTorrent uit vanuit een tijdelijke kopie, dus een patorrent.ini naast PaTorrent.app wordt niet gezien. Verplaats PaTorrent.app met de Finder naar de gewenste map (of naar Apps) en start het opnieuw.
 EndSessionSaving=Torrentlijst en voortgang worden opgeslagen...
 ExitTitle=PaTorrent wordt afgesloten
 ExitElapsed=Afsluiten duurt al {time}

@@ -401,6 +401,7 @@ FolderInUse=另一个 PaTorrent 已在使用此文件夹（在另一个会话中
 PortableReadOnly=此便携版 PaTorrent 无法写入其文件夹：\n\n{folder}\n{error}\n\n请将文件夹移到可写入的位置，或删除程序旁的 patorrent.ini，让设置保存在您的用户文件夹中。
 ProfileBadName=“{name}”不能用作配置文件名称。配置文件名称为 1 到 32 个字符：字母 a-z、数字和连字符 (-)，并以字母开头。
 ProfileCreate=配置文件“{name}”尚不存在。是否创建？\n\n它会像全新安装一样从空白开始，位置：\n{folder}
+MacTranslocated=macOS 正在从临时副本运行 PaTorrent，因此看不到 PaTorrent.app 旁边的 patorrent.ini。请用访达将 PaTorrent.app 移到所需文件夹（或“应用程序”）后重新启动。
 EndSessionSaving=正在保存种子列表和进度...
 ExitTitle=PaTorrent 正在关闭
 ExitElapsed=正在关闭，已用时 {time}

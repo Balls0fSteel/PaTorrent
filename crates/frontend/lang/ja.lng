@@ -401,6 +401,7 @@ FolderInUse=別の PaTorrent がこのフォルダーをすでに使用してい
 PortableReadOnly=このポータブル版 PaTorrent は自分のフォルダーに書き込めません:\n\n{folder}\n{error}\n\n書き込みできる場所にフォルダーを移動するか、プログラムの横にある patorrent.ini を削除して設定をユーザー フォルダーに保存してください。
 ProfileBadName="{name}" はプロファイル名に使用できません。プロファイル名は 1～32 文字で、英小文字 a-z、数字、ハイフン (-) を使い、英字で始めます。
 ProfileCreate=プロファイル "{name}" はまだありません。作成しますか?\n\n新しくインストールしたときと同じく空の状態で、次の場所に作成されます:\n{folder}
+MacTranslocated=macOS は PaTorrent を一時的なコピーから実行しているため、PaTorrent.app の横にある patorrent.ini が認識されません。Finder で PaTorrent.app を目的のフォルダー (またはアプリケーション) に移動してから、もう一度起動してください。
 EndSessionSaving=トレントの一覧と進行状況を保存しています...
 ExitTitle=PaTorrent を終了しています
 ExitElapsed=終了処理中 ({time} 経過)

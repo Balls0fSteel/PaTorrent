@@ -401,6 +401,7 @@ FolderInUse=Drugi PaTorrent već koristi ovu mapu, u drugoj sesiji ili na drugom
 PortableReadOnly=Ovaj prijenosni PaTorrent ne može pisati u svoju mapu:\n\n{folder}\n{error}\n\nPremjestite mapu na mjesto u koje možete pisati ili uklonite patorrent.ini pokraj programa kako bi se postavke čuvale u vašoj korisničkoj mapi.
 ProfileBadName="{name}" ne može biti naziv profila. Naziv profila ima od 1 do 32 znaka: slova a-z, znamenke i crtice (-), i počinje slovom.
 ProfileCreate=Profil "{name}" još ne postoji. Stvoriti ga?\n\nPočinje prazan, kao nova instalacija, u:\n{folder}
+MacTranslocated=macOS pokreće PaTorrent iz privremene kopije pa se patorrent.ini pokraj PaTorrent.app ne vidi. Premjestite PaTorrent.app pomoću Findera u željenu mapu (ili u Aplikacije) i ponovno ga pokrenite.
 EndSessionSaving=Spremanje popisa torrenata i napretka...
 ExitTitle=PaTorrent se zatvara
 ExitElapsed=Zatvaranje traje {time}

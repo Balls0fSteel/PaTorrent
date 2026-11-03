@@ -401,6 +401,7 @@ FolderInUse=PaTorrent lain sudah menggunakan folder ini, di sesi lain atau di ko
 PortableReadOnly=PaTorrent portabel ini tidak dapat menulis ke foldernya:\n\n{folder}\n{error}\n\nPindahkan folder ke tempat yang dapat Anda tulisi, atau hapus patorrent.ini di samping program agar pengaturan disimpan di folder pengguna Anda.
 ProfileBadName="{name}" tidak dapat menjadi nama profil. Nama profil terdiri dari 1 hingga 32 karakter: huruf a-z, angka, dan tanda hubung (-), dan diawali huruf.
 ProfileCreate=Profil "{name}" belum ada. Buat sekarang?\n\nProfil dimulai kosong, seperti instalasi baru, di:\n{folder}
+MacTranslocated=macOS menjalankan PaTorrent dari salinan sementara, sehingga patorrent.ini di samping PaTorrent.app tidak terlihat. Pindahkan PaTorrent.app ke folder yang Anda inginkan (atau ke Aplikasi) dengan Finder lalu jalankan lagi.
 EndSessionSaving=Menyimpan daftar torrent dan kemajuan...
 ExitTitle=PaTorrent sedang ditutup
 ExitElapsed=Menutup selama {time}

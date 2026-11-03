@@ -401,6 +401,7 @@ FolderInUse=另一個 PaTorrent 已在使用此資料夾（在另一個工作階
 PortableReadOnly=此可攜式 PaTorrent 無法寫入其資料夾：\n\n{folder}\n{error}\n\n請將資料夾移到可寫入的位置，或刪除程式旁的 patorrent.ini，讓設定儲存在您的使用者資料夾中。
 ProfileBadName=「{name}」不能作為設定檔名稱。設定檔名稱為 1 到 32 個字元：字母 a-z、數字和連字號 (-)，並以字母開頭。
 ProfileCreate=設定檔「{name}」尚不存在。是否建立？\n\n它會像全新安裝一樣從空白開始，位置：\n{folder}
+MacTranslocated=macOS 正從暫存副本執行 PaTorrent，因此看不到 PaTorrent.app 旁邊的 patorrent.ini。請用 Finder 將 PaTorrent.app 移到所需資料夾（或「應用程式」）後重新啟動。
 EndSessionSaving=正在儲存種子清單與進度...
 ExitTitle=PaTorrent 正在關閉
 ExitElapsed=正在關閉，已經過 {time}

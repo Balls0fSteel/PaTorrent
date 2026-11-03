@@ -401,6 +401,7 @@ FolderInUse=Други PaTorrent већ користи ову фасциклу, 
 PortableReadOnly=Овај преносиви PaTorrent не може да пише у своју фасциклу:\n\n{folder}\n{error}\n\nПреместите фасциклу тамо где можете да пишете или уклоните patorrent.ini поред програма да би се подешавања чувала у вашој корисничкој фасцикли.
 ProfileBadName="{name}" не може бити назив профила. Назив профила има од 1 до 32 знака: слова a-z, цифре и цртице (-), и почиње словом.
 ProfileCreate=Профил "{name}" још не постоји. Направити га?\n\nПочиње празан, као нова инсталација, у:\n{folder}
+MacTranslocated=macOS покреће PaTorrent из привремене копије, па се patorrent.ini поред PaTorrent.app не види. Преместите PaTorrent.app помоћу Finder-а у жељену фасциклу (или у Апликације) и поново га покрените.
 EndSessionSaving=Чување списка торената и напретка...
 ExitTitle=PaTorrent се затвара
 ExitElapsed=Затварање траје {time}

@@ -401,6 +401,7 @@ FolderInUse=En anden PaTorrent bruger allerede denne mappe, i en anden session e
 PortableReadOnly=Denne bærbare PaTorrent kan ikke skrive til sin mappe:\n\n{folder}\n{error}\n\nFlyt mappen et sted hen, hvor du kan skrive, eller fjern patorrent.ini ved siden af programmet for at gemme indstillingerne i din brugermappe.
 ProfileBadName="{name}" kan ikke være et profilnavn. Et profilnavn har 1 til 32 tegn: bogstaverne a-z, cifre og bindestreger (-), og begynder med et bogstav.
 ProfileCreate=Profilen "{name}" findes ikke endnu. Vil du oprette den?\n\nDen starter tom, som en ny installation, i:\n{folder}
+MacTranslocated=macOS kører PaTorrent fra en midlertidig kopi, så en patorrent.ini ved siden af PaTorrent.app ses ikke. Flyt PaTorrent.app til den ønskede mappe (eller til Programmer) med Finder, og start den igen.
 EndSessionSaving=Gemmer torrentlisten og fremskridtet...
 ExitTitle=PaTorrent lukker
 ExitElapsed=Lukningen har varet {time}

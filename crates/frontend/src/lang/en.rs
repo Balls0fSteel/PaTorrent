@@ -580,6 +580,9 @@ strings! {
     /// The folder's `patorrent.lock` is held: another user session, or another computer that
     /// opened the same folder over a share (D42).
     FolderInUse = "Another PaTorrent is already using this folder, in another session or on another computer that shares it:\n\n{folder}\n\nClose that PaTorrent first.";
+    /// macOS runs a quarantined PaTorrent.app from a temporary read-only copy (App
+    /// Translocation), where a portable `patorrent.ini` beside it is not seen (D42).
+    MacTranslocated = "macOS is running PaTorrent from a temporary copy, so a patorrent.ini beside PaTorrent.app is not seen. Move PaTorrent.app to the folder you want (or to Applications) with Finder and start it again.";
     /// Portable mode (a `patorrent.ini` beside the program) in a folder that cannot be written
     /// (D42): PaTorrent does not fall back to the user's own folder.
     PortableReadOnly = "This portable PaTorrent cannot write to its folder:\n\n{folder}\n{error}\n\nMove the folder where you can write, or remove patorrent.ini beside the program to keep the settings in your user folder.";

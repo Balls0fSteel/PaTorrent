@@ -401,6 +401,7 @@ FolderInUse=PaTorrent อีกตัวกำลังใช้โฟลเด�
 PortableReadOnly=PaTorrent แบบพกพานี้เขียนลงโฟลเดอร์ของตนเองไม่ได้:\n\n{folder}\n{error}\n\nย้ายโฟลเดอร์ไปยังที่ที่คุณเขียนได้ หรือลบ patorrent.ini ที่อยู่ข้างโปรแกรมเพื่อเก็บการตั้งค่าไว้ในโฟลเดอร์ผู้ใช้ของคุณ
 ProfileBadName="{name}" ใช้เป็นชื่อโปรไฟล์ไม่ได้ ชื่อโปรไฟล์มี 1 ถึง 32 อักขระ ได้แก่ ตัวอักษร a-z ตัวเลข และขีดกลาง (-) และต้องขึ้นต้นด้วยตัวอักษร
 ProfileCreate=ยังไม่มีโปรไฟล์ "{name}" ต้องการสร้างหรือไม่\n\nโปรไฟล์จะเริ่มต้นว่างเปล่าเหมือนการติดตั้งใหม่ ใน:\n{folder}
+MacTranslocated=macOS กำลังเรียกใช้ PaTorrent จากสำเนาชั่วคราว จึงมองไม่เห็น patorrent.ini ที่อยู่ข้าง PaTorrent.app โปรดย้าย PaTorrent.app ไปยังโฟลเดอร์ที่ต้องการ (หรือ Applications) ด้วย Finder แล้วเปิดใหม่
 EndSessionSaving=กำลังบันทึกรายการทอร์เรนต์และความคืบหน้า...
 ExitTitle=PaTorrent กำลังปิด
 ExitElapsed=กำลังปิดมาแล้ว {time}

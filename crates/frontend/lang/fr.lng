@@ -401,6 +401,7 @@ FolderInUse=Un autre PaTorrent utilise déjà ce dossier, dans une autre session
 PortableReadOnly=Ce PaTorrent portable ne peut pas écrire dans son dossier :\n\n{folder}\n{error}\n\nDéplacez le dossier là où vous pouvez écrire, ou supprimez patorrent.ini à côté du programme pour garder les paramètres dans votre dossier utilisateur.
 ProfileBadName=« {name} » ne peut pas être un nom de profil. Un nom de profil compte de 1 à 32 caractères : lettres a-z, chiffres et traits d'union (-), et commence par une lettre.
 ProfileCreate=Le profil « {name} » n'existe pas encore. Le créer ?\n\nIl démarre vide, comme une nouvelle installation, dans :\n{folder}
+MacTranslocated=macOS exécute PaTorrent depuis une copie temporaire : un patorrent.ini à côté de PaTorrent.app n'est donc pas vu. Déplacez PaTorrent.app dans le dossier voulu (ou dans Applications) avec le Finder et relancez-le.
 EndSessionSaving=Enregistrement de la liste des torrents et de la progression...
 ExitTitle=Fermeture de PaTorrent
 ExitElapsed=Fermeture depuis {time}

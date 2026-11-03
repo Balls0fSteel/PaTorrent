@@ -401,6 +401,7 @@ FolderInUse=يستخدم PaTorrent آخر هذا المجلد بالفعل، ف�
 PortableReadOnly=لا يستطيع PaTorrent المحمول هذا الكتابة في مجلده:\n\n{folder}\n{error}\n\nانقل المجلد إلى مكان يمكنك الكتابة فيه، أو احذف patorrent.ini بجوار البرنامج للاحتفاظ بالإعدادات في مجلد المستخدم.
 ProfileBadName=لا يمكن أن يكون "{name}" اسم ملف تعريف. يتكون اسم ملف التعريف من 1 إلى 32 حرفًا: أحرف a-z وأرقام وشرطات (-)، ويبدأ بحرف.
 ProfileCreate=ملف التعريف "{name}" غير موجود بعد. هل تريد إنشاءه؟\n\nيبدأ فارغًا، مثل تثبيت جديد، في:\n{folder}
+MacTranslocated=يشغّل macOS برنامج PaTorrent من نسخة مؤقتة، لذا لا يُرى ملف patorrent.ini بجوار PaTorrent.app. انقل PaTorrent.app إلى المجلد الذي تريده (أو إلى التطبيقات) باستخدام Finder وشغّله مرة أخرى.
 EndSessionSaving=جارٍ حفظ قائمة التورنتات والتقدم...
 ExitTitle=يجري إغلاق PaTorrent
 ExitElapsed=جارٍ الإغلاق منذ {time}

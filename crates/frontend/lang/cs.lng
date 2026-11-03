@@ -401,6 +401,7 @@ FolderInUse=Tuto složku už používá jiný PaTorrent, v jiné relaci nebo na 
 PortableReadOnly=Tento přenosný PaTorrent nemůže zapisovat do své složky:\n\n{folder}\n{error}\n\nPřesuňte složku tam, kam můžete zapisovat, nebo odstraňte patorrent.ini vedle programu, aby se nastavení ukládalo do vaší uživatelské složky.
 ProfileBadName="{name}" nemůže být názvem profilu. Název profilu má 1 až 32 znaků: písmena a-z, číslice a pomlčky (-) a začíná písmenem.
 ProfileCreate=Profil "{name}" zatím neexistuje. Vytvořit ho?\n\nZačne prázdný, jako nová instalace, ve složce:\n{folder}
+MacTranslocated=macOS spouští PaTorrent z dočasné kopie, takže soubor patorrent.ini vedle PaTorrent.app není vidět. Přesuňte PaTorrent.app pomocí Finderu do požadované složky (nebo do Aplikací) a spusťte jej znovu.
 EndSessionSaving=Ukládání seznamu torrentů a průběhu...
 ExitTitle=PaTorrent se zavírá
 ExitElapsed=Zavírání trvá {time}

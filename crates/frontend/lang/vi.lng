@@ -401,6 +401,7 @@ FolderInUse=Một PaTorrent khác đang dùng thư mục này, trong phiên khá
 PortableReadOnly=PaTorrent di động này không thể ghi vào thư mục của nó:\n\n{folder}\n{error}\n\nHãy chuyển thư mục đến nơi bạn có thể ghi, hoặc xóa patorrent.ini bên cạnh chương trình để giữ cài đặt trong thư mục người dùng của bạn.
 ProfileBadName="{name}" không thể là tên hồ sơ. Tên hồ sơ có từ 1 đến 32 ký tự: chữ cái a-z, chữ số và dấu gạch nối (-), và bắt đầu bằng một chữ cái.
 ProfileCreate=Hồ sơ "{name}" chưa tồn tại. Tạo hồ sơ này?\n\nHồ sơ bắt đầu trống, như một bản cài đặt mới, tại:\n{folder}
+MacTranslocated=macOS đang chạy PaTorrent từ một bản sao tạm thời, nên không thấy patorrent.ini bên cạnh PaTorrent.app. Hãy dùng Finder chuyển PaTorrent.app đến thư mục bạn muốn (hoặc Ứng dụng) rồi khởi động lại.
 EndSessionSaving=Đang lưu danh sách torrent và tiến độ...
 ExitTitle=PaTorrent đang đóng
 ExitElapsed=Đang đóng được {time}

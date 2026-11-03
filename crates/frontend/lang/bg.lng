@@ -401,6 +401,7 @@ FolderInUse=Друг PaTorrent вече използва тази папка, в
 PortableReadOnly=Този преносим PaTorrent не може да записва в папката си:\n\n{folder}\n{error}\n\nПреместете папката там, където можете да записвате, или премахнете patorrent.ini до програмата, за да пазите настройките в потребителската си папка.
 ProfileBadName="{name}" не може да бъде име на профил. Името на профил има от 1 до 32 знака: букви a-z, цифри и тирета (-), и започва с буква.
 ProfileCreate=Профилът "{name}" все още не съществува. Да бъде ли създаден?\n\nТой започва празен, като нова инсталация, в:\n{folder}
+MacTranslocated=macOS изпълнява PaTorrent от временно копие, затова patorrent.ini до PaTorrent.app не се вижда. Преместете PaTorrent.app в желаната папка (или в Applications) с Finder и го стартирайте отново.
 EndSessionSaving=Записване на списъка с торенти и напредъка...
 ExitTitle=PaTorrent се затваря
 ExitElapsed=Затваряне от {time}

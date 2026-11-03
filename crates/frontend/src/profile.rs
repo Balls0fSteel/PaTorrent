@@ -47,19 +47,40 @@ pub fn portable_root() -> Option<PathBuf> {
 
 /// Where a portable marker would make this program portable: the executable's folder (Windows,
 /// a Linux or BSD tarball); for an AppImage the folder holding the `.AppImage` file (`$APPIMAGE`'s,
-/// as the executable is inside its read-only mount); none in a Flatpak, whose sandbox cannot see
-/// beside itself, nor on macOS yet (slice 7: the folder holding `PaTorrent.app`).
+/// as the executable is inside its read-only mount); on macOS the folder holding `PaTorrent.app`
+/// ([`app_bundle_parent`]: never inside the bundle, which would break its signature); none in a
+/// Flatpak, whose sandbox cannot see beside itself.
 pub fn portable_candidate(
     env: &dyn Fn(&str) -> Option<std::ffi::OsString>,
     exe_dir: &Path,
 ) -> Option<PathBuf> {
-    if cfg!(target_os = "macos") || env("FLATPAK_ID").is_some() {
+    if env("FLATPAK_ID").is_some() {
         return None;
+    }
+    if cfg!(target_os = "macos") {
+        // a bare executable (nox from a tarball) is portable beside itself, as on Linux
+        return app_bundle_parent(exe_dir).or_else(|| Some(exe_dir.to_path_buf()));
     }
     match env("APPIMAGE").filter(|a| !cfg!(windows) && !a.is_empty()) {
         Some(image) => Path::new(&image).parent().map(Path::to_path_buf),
         None => Some(exe_dir.to_path_buf()),
     }
+}
+
+/// The folder holding an app bundle whose executable is in `exe_dir` (`X.app/Contents/MacOS`,
+/// three levels down); `None` outside a bundle.
+pub fn app_bundle_parent(exe_dir: &Path) -> Option<PathBuf> {
+    let contents = exe_dir.parent().filter(|_| exe_dir.file_name().is_some_and(|n| n == "MacOS"))?;
+    let bundle = contents.parent().filter(|_| contents.file_name().is_some_and(|n| n == "Contents"))?;
+    let is_app = bundle.extension().is_some_and(|e| e.eq_ignore_ascii_case("app"));
+    is_app.then(|| bundle.parent().map(Path::to_path_buf)).flatten()
+}
+
+/// Whether macOS runs this app translocated (a quarantined download started where it was
+/// unpacked: Gatekeeper runs it from a random read-only folder, where a portable marker beside
+/// the bundle is not seen). The user is told to move the app instead (D42).
+pub fn translocated(exe_dir: &Path) -> bool {
+    exe_dir.components().any(|c| c.as_os_str() == "AppTranslocation")
 }
 
 /// `dir` when it holds the portable marker as a file (a folder of that name does not count).
@@ -386,9 +407,19 @@ mod tests {
         let env = |vars: &'static [(&'static str, &'static str)]| {
             move |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| std::ffi::OsString::from(v))
         };
+        // macOS: the folder holding the bundle, never inside it; nothing outside a bundle
+        let in_bundle = Path::new("/Volumes/Stick/PaTorrent.app/Contents/MacOS");
+        assert_eq!(app_bundle_parent(in_bundle), Some(PathBuf::from("/Volumes/Stick")));
+        assert_eq!(app_bundle_parent(Path::new("/usr/local/bin")), None);
+        assert_eq!(app_bundle_parent(Path::new("/x/Folder/Contents/MacOS")), None);
+        assert!(translocated(Path::new(
+            "/private/var/folders/x/T/AppTranslocation/ABC/d/PaTorrent.app/Contents/MacOS"
+        )));
+        assert!(!translocated(in_bundle));
         let exe_dir = Path::new("/opt/patorrent");
         if cfg!(target_os = "macos") {
-            assert_eq!(portable_candidate(&env(&[]), exe_dir), None);
+            assert_eq!(portable_candidate(&env(&[]), in_bundle), Some(PathBuf::from("/Volumes/Stick")));
+            assert_eq!(portable_candidate(&env(&[]), exe_dir), Some(exe_dir.to_path_buf()));
             return;
         }
         assert_eq!(portable_candidate(&env(&[]), exe_dir), Some(exe_dir.to_path_buf()));

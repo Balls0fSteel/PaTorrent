@@ -229,7 +229,7 @@ mod sni {
                 connection: connection.clone(),
                 flatpak: std::env::var_os("FLATPAK_ID").is_some(),
                 hooks,
-                tooltip: RefCell::new((patorrent_frontend::NAME_BUILD.into(), String::new())),
+                tooltip: RefCell::new((patorrent_frontend::profile::name_build(), String::new())),
                 pixmaps: crate::icons::app_pixmaps(),
                 revision: Cell::new(1),
                 owning: Cell::new(Owning::Pending),

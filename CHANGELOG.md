@@ -4,6 +4,13 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-03_121953_1793704793: Version 1.1.44: `--profile` in all three programs (D42 slice 1)
+
+- **New:** `--profile NAME` (or `--profile=NAME`, anywhere before `--shell`, never a torrent) runs a profile of its own: `profiles/<name>` before the program's folder (`%APPDATA%\PaTorrent\profiles\work`, `~/.config/patorrent/profiles/work/gtk`, `.../profiles/work/nox`, the same inside a portable folder). Names are 1-32 of `a-z`, `0-9`, `-`, starting with a letter, case ignored; `default` is the default profile, whose folders do not change.
+- **GUIs:** a profile without a folder is made after a question (`ProfileCreate`); a bad name is refused with a message (`ProfileBadName`); both machine-translated into the 34 tables. Titles, tray tooltips and About show `[work]`. Win32: its own mutex, window class and taskbar id (`PaTorrent.work`); GTK: its own application id (`<APP_ID>.profile_work`) and skips the name in a second start's arguments. Remote windows start in the same profile.
+- **nox:** `--profile` changes the default state and config directories only (the flags and systemd's still win), created without asking; the `* state` line names the profile.
+- **Checked:** new unit tests (names, argument scanning, folders, nox's and GTK's paths, nox's parser); 1,533 workspace tests; clippy for Windows, Linux (GTK), macOS (GTK) and FreeBSD. On the hidden desktop, a portable copy asked before making `profiles\work`, refused `Work!`, and ran `--profile work` (title `PaTorrent 1.1.43-dev [work]`, its own `patorrent.lock`) beside the default copy; `patorrent-nox run --profile work` used `profiles\work\nox`. GTK not run on a desktop.
+
 ## 2026-11-03_120646_1793704006: Version 1.1.43: one window per folder, `patorrent.lock` (D42 slice 0)
 
 - **Fixed (1.x bug):** a second start of the installed copy could hand its torrent to a running portable copy, or the other way round: both looked for the window class `PaTorrentMainWnd`. Every folder but `%APPDATA%\PaTorrent` now has its own class (`PaTorrentMainWnd.<FNV-1a 64 of the folder>`); the installer's check still finds the installed copy.

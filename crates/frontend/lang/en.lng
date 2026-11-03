@@ -580,6 +580,12 @@ ForwardRefused=PaTorrent is already running as administrator, and Windows does n
 # opened the same folder over a share (D42).
 FolderInUse=Another PaTorrent is already using this folder, in another session or on another computer that shares it:\n\n{folder}\n\nClose that PaTorrent first.
 
+# `--profile` with a name that cannot be used (D42); `{name}` is what was given.
+ProfileBadName="{name}" cannot be a profile name. A profile name has 1 to 32 characters: letters a-z, digits and hyphens (-), starting with a letter.
+
+# Asked at the first start of a named profile, before its folder is made.
+ProfileCreate=The profile "{name}" does not exist yet. Create it?\n\nIt starts empty, like a new installation, in:\n{folder}
+
 # Windows lists it beside PaTorrent while it holds up a sign-out or shutdown to save its
 # state.
 EndSessionSaving=Saving the torrent list and progress...

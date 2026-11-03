@@ -351,7 +351,11 @@ impl Dialog {
 pub fn start_remote_window(parent: &impl IsA<gtk::Window>) {
     let program = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok());
     let started = match program {
-        Some(p) => std::process::Command::new(p).arg(SWITCH).spawn(),
+        // in this window's profile, whose folder keeps its connections
+        Some(p) => std::process::Command::new(p)
+            .args(patorrent_frontend::profile::current().args())
+            .arg(SWITCH)
+            .spawn(),
         None => Err(std::io::Error::other("the program's path is not known")),
     };
     match started {

@@ -11,18 +11,28 @@
 //!
 //! On macOS both are `~/Library/Application Support/PaTorrent/gtk` (their file names differ),
 //! where Apple puts an application's own files; the XDG variables are not read there.
+//!
+//! A named profile (D42, `--profile work`) puts `profiles/work` before `gtk` in both:
+//! `~/.config/patorrent/profiles/work/gtk`, `~/.local/share/patorrent/profiles/work/gtk`.
 
 use std::ffi::OsString;
 use std::path::PathBuf;
 
+use patorrent_frontend::profile;
+
+/// The application's folder below the base directories, and the program's below that.
 const APP: [&str; 2] = ["patorrent", "gtk"];
 
 /// The settings folder.
 pub fn config_dir() -> PathBuf {
     if cfg!(target_os = "macos") {
-        return macos_dir(&|k| std::env::var_os(k));
+        return macos_dir(&|k| std::env::var_os(k), profile_name());
     }
-    dir(&|k| std::env::var_os(k), "XDG_CONFIG_HOME", &[".config"])
+    dir(&|k| std::env::var_os(k), "XDG_CONFIG_HOME", &[".config"], profile_name())
+}
+
+fn profile_name() -> Option<&'static str> {
+    profile::current().name.as_deref()
 }
 
 /// This window's settings folder: [`config_dir`], or a remote window's own folder in it
@@ -47,12 +57,13 @@ pub fn background_file() -> PathBuf {
 /// The torrent library's folder.
 pub fn data_dir() -> PathBuf {
     if cfg!(target_os = "macos") {
-        return macos_dir(&|k| std::env::var_os(k));
+        return macos_dir(&|k| std::env::var_os(k), profile_name());
     }
-    dir(&|k| std::env::var_os(k), "XDG_DATA_HOME", &[".local", "share"])
+    dir(&|k| std::env::var_os(k), "XDG_DATA_HOME", &[".local", "share"], profile_name())
 }
 
-fn dir(env: &dyn Fn(&str) -> Option<OsString>, var: &str, fallback: &[&str]) -> PathBuf {
+/// `<base>/patorrent[/profiles/<name>]/gtk`.
+fn dir(env: &dyn Fn(&str) -> Option<OsString>, var: &str, fallback: &[&str], name: Option<&str>) -> PathBuf {
     let base = match env(var).map(PathBuf::from) {
         Some(p) if p.is_absolute() => p,
         _ => {
@@ -60,13 +71,14 @@ fn dir(env: &dyn Fn(&str) -> Option<OsString>, var: &str, fallback: &[&str]) -> 
             fallback.iter().fold(home, |p, c| p.join(c))
         }
     };
-    APP.iter().fold(base, |p, c| p.join(c))
+    profile::within(&base.join(APP[0]), name).join(APP[1])
 }
 
-/// `$HOME/Library/Application Support/PaTorrent/gtk`.
-fn macos_dir(env: &dyn Fn(&str) -> Option<OsString>) -> PathBuf {
+/// `$HOME/Library/Application Support/PaTorrent[/profiles/<name>]/gtk`.
+fn macos_dir(env: &dyn Fn(&str) -> Option<OsString>, name: Option<&str>) -> PathBuf {
     let home = env("HOME").map(PathBuf::from).unwrap_or_else(|| PathBuf::from("."));
-    ["Library", "Application Support", "PaTorrent", APP[1]].iter().fold(home, |p, c| p.join(c))
+    let root = ["Library", "Application Support", "PaTorrent"].iter().fold(home, |p, c| p.join(c));
+    profile::within(&root, name).join(APP[1])
 }
 
 #[cfg(test)]
@@ -79,15 +91,35 @@ mod tests {
             move |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| OsString::from(v))
         };
         let e = env(&[("HOME", "/home/u"), ("XDG_CONFIG_HOME", "/cfg")]);
-        assert_eq!(dir(&e, "XDG_CONFIG_HOME", &[".config"]), PathBuf::from("/cfg/patorrent/gtk"));
+        assert_eq!(dir(&e, "XDG_CONFIG_HOME", &[".config"], None), PathBuf::from("/cfg/patorrent/gtk"));
         let e = env(&[("HOME", "/home/u"), ("XDG_DATA_HOME", "rel")]);
         assert_eq!(
-            dir(&e, "XDG_DATA_HOME", &[".local", "share"]),
+            dir(&e, "XDG_DATA_HOME", &[".local", "share"], None),
             PathBuf::from("/home/u/.local/share/patorrent/gtk")
         );
         let e = env(&[("HOME", "/home/u"), ("XDG_CONFIG_HOME", "")]);
-        assert_eq!(dir(&e, "XDG_CONFIG_HOME", &[".config"]), PathBuf::from("/home/u/.config/patorrent/gtk"));
+        assert_eq!(
+            dir(&e, "XDG_CONFIG_HOME", &[".config"], None),
+            PathBuf::from("/home/u/.config/patorrent/gtk")
+        );
         let e = env(&[("HOME", "/Users/u"), ("XDG_CONFIG_HOME", "/cfg")]);
-        assert_eq!(macos_dir(&e), PathBuf::from("/Users/u/Library/Application Support/PaTorrent/gtk"));
+        assert_eq!(macos_dir(&e, None), PathBuf::from("/Users/u/Library/Application Support/PaTorrent/gtk"));
+    }
+
+    #[test]
+    fn a_profile_goes_before_gtk() {
+        let e = |k: &str| (k == "HOME").then(|| OsString::from("/home/u"));
+        assert_eq!(
+            dir(&e, "XDG_CONFIG_HOME", &[".config"], Some("work")),
+            PathBuf::from("/home/u/.config/patorrent/profiles/work/gtk")
+        );
+        assert_eq!(
+            dir(&e, "XDG_DATA_HOME", &[".local", "share"], Some("work")),
+            PathBuf::from("/home/u/.local/share/patorrent/profiles/work/gtk")
+        );
+        assert_eq!(
+            macos_dir(&e, Some("vpn")),
+            PathBuf::from("/home/u/Library/Application Support/PaTorrent/profiles/vpn/gtk")
+        );
     }
 }

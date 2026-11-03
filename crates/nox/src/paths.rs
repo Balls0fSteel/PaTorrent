@@ -27,6 +27,10 @@
 //! application's own files; XDG variables are not read there. A launchd job's
 //! `--state-dir` still wins.
 //!
+//! `--profile NAME` (D42) puts `profiles/<name>` before `nox` in each default:
+//! `~/.local/share/patorrent/profiles/work/nox`, `%APPDATA%\PaTorrent\profiles\work\nox`. The
+//! flags and systemd's directories still win over it, as they win over XDG.
+//!
 //! `--state-dir` (or `--state`) and `--config-dir` override; a state directory given on the
 //! command line or by systemd holds the config too unless a config directory is also given,
 //! so `--state DIR` keeps everything in one folder as before.
@@ -36,6 +40,8 @@
 use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
+
+use patorrent_frontend::profile::within;
 
 /// The folder below the XDG base directories (and `%APPDATA%\PaTorrent`).
 const APP: [&str; 2] = ["patorrent", "nox"];
@@ -55,59 +61,65 @@ pub struct Dirs {
 }
 
 /// The directories for this OS from the command line's choices and the process environment.
-pub fn resolve(state: Option<PathBuf>, config: Option<PathBuf>) -> Dirs {
+pub fn resolve(state: Option<PathBuf>, config: Option<PathBuf>, profile: Option<&str>) -> Dirs {
     let env = |k: &str| std::env::var_os(k);
     if cfg!(windows) {
-        resolve_windows(state, config, env, patorrent_frontend::profile::portable_root())
+        let portable = patorrent_frontend::profile::current().portable_root.clone();
+        resolve_windows(state, config, env, portable, profile)
     } else if cfg!(target_os = "macos") {
-        resolve_macos(state, config, env)
+        resolve_macos(state, config, env, profile)
     } else {
-        resolve_unix(state, config, env)
+        resolve_unix(state, config, env, profile)
     }
 }
 
-/// Windows: the flags, else portable mode, else `%APPDATA%\PaTorrent\nox`; the config follows
-/// the state.
+/// Windows: the flags, else portable mode, else `%APPDATA%\PaTorrent\nox` (a profile's
+/// `profiles\<name>` before `nox`); the config follows the state.
 pub fn resolve_windows(
     state: Option<PathBuf>,
     config: Option<PathBuf>,
     env: impl Fn(&str) -> Option<OsString>,
     portable: Option<PathBuf>,
+    profile: Option<&str>,
 ) -> Dirs {
-    let default = portable.map(|d| d.join(APP[1])).or_else(|| {
-        env("APPDATA").filter(|v| !v.is_empty()).map(|d| PathBuf::from(d).join("PaTorrent").join(APP[1]))
-    });
+    let root = portable
+        .or_else(|| env("APPDATA").filter(|v| !v.is_empty()).map(|d| PathBuf::from(d).join("PaTorrent")));
+    let default = root.map(|r| within(&r, profile).join(APP[1]));
     let state = state.or(default);
     let config = config.or_else(|| state.clone());
     Dirs { state, config, legacy_config: None }
 }
 
-/// macOS: the flags, else `$HOME/Library/Application Support/PaTorrent/nox`; the config follows
-/// the state, as on Windows.
+/// macOS: the flags, else `$HOME/Library/Application Support/PaTorrent/nox` (a profile's
+/// `profiles/<name>` before `nox`); the config follows the state, as on Windows.
 pub fn resolve_macos(
     state: Option<PathBuf>,
     config: Option<PathBuf>,
     env: impl Fn(&str) -> Option<OsString>,
+    profile: Option<&str>,
 ) -> Dirs {
     let default = env("HOME").filter(|v| unix_absolute(v)).map(|home| {
-        ["Library", "Application Support", "PaTorrent", APP[1]]
+        let root = ["Library", "Application Support", "PaTorrent"]
             .iter()
-            .fold(PathBuf::from(home), |p, c| p.join(c))
+            .fold(PathBuf::from(home), |p, c| p.join(c));
+        within(&root, profile).join(APP[1])
     });
     let state = state.or(default);
     let config = config.or_else(|| state.clone());
     Dirs { state, config, legacy_config: None }
 }
 
-/// Linux and the BSDs: the flags, else systemd's directories, else XDG (see the module docs).
+/// Linux and the BSDs: the flags, else systemd's directories, else XDG (see the module docs; a
+/// profile only changes the XDG defaults).
 pub fn resolve_unix(
     state: Option<PathBuf>,
     config: Option<PathBuf>,
     env: impl Fn(&str) -> Option<OsString>,
+    profile: Option<&str>,
 ) -> Dirs {
     let explicit_state = state.or_else(|| systemd_dir(&env, "STATE_DIRECTORY"));
     let explicit_config = config.or_else(|| systemd_dir(&env, "CONFIGURATION_DIRECTORY"));
-    let xdg_state = xdg_dir(&env, "XDG_DATA_HOME", &[".local", "share"]);
+    let xdg_state = xdg_dir(&env, "XDG_DATA_HOME", &[".local", "share"], profile);
     let legacy_config = match (&explicit_state, &explicit_config) {
         // webui.json used to sit in the default state directory
         (None, None) => xdg_state.clone(),
@@ -115,7 +127,7 @@ pub fn resolve_unix(
     };
     let config = explicit_config
         .or_else(|| explicit_state.clone())
-        .or_else(|| xdg_dir(&env, "XDG_CONFIG_HOME", &[".config"]));
+        .or_else(|| xdg_dir(&env, "XDG_CONFIG_HOME", &[".config"], profile));
     let state = explicit_state.or(xdg_state);
     let legacy_config = legacy_config.filter(|l| Some(l) != config.as_ref());
     Dirs { state, config, legacy_config }
@@ -127,13 +139,18 @@ fn unix_absolute(v: &OsStr) -> bool {
     v.as_encoded_bytes().first() == Some(&b'/')
 }
 
-/// `$XDG_*_HOME/patorrent/nox`, else `$HOME/<fallback>/patorrent/nox`.
-fn xdg_dir(env: &impl Fn(&str) -> Option<OsString>, var: &str, fallback: &[&str]) -> Option<PathBuf> {
+/// `$XDG_*_HOME/patorrent[/profiles/<name>]/nox`, else the same under `$HOME/<fallback>`.
+fn xdg_dir(
+    env: &impl Fn(&str) -> Option<OsString>,
+    var: &str,
+    fallback: &[&str],
+    profile: Option<&str>,
+) -> Option<PathBuf> {
     let base = env(var).filter(|v| unix_absolute(v)).map(PathBuf::from).or_else(|| {
         let home = env("HOME").filter(|v| unix_absolute(v))?;
         Some(fallback.iter().fold(PathBuf::from(home), |p, c| p.join(c)))
     })?;
-    Some(APP.iter().fold(base, |p, c| p.join(c)))
+    Some(within(&base.join(APP[0]), profile).join(APP[1]))
 }
 
 /// systemd's `$STATE_DIRECTORY` / `$CONFIGURATION_DIRECTORY`: a `:`-separated list of the
@@ -183,6 +200,47 @@ mod tests {
 
     fn p(s: &str) -> Option<PathBuf> {
         Some(PathBuf::from(s))
+    }
+
+    // the default profile's rules; `a_profile_changes_only_the_defaults` tests the others
+    fn resolve_unix(s: Option<PathBuf>, c: Option<PathBuf>, env: impl Fn(&str) -> Option<OsString>) -> Dirs {
+        super::resolve_unix(s, c, env, None)
+    }
+    fn resolve_macos(s: Option<PathBuf>, c: Option<PathBuf>, env: impl Fn(&str) -> Option<OsString>) -> Dirs {
+        super::resolve_macos(s, c, env, None)
+    }
+    fn resolve_windows(
+        s: Option<PathBuf>,
+        c: Option<PathBuf>,
+        env: impl Fn(&str) -> Option<OsString>,
+        portable: Option<PathBuf>,
+    ) -> Dirs {
+        super::resolve_windows(s, c, env, portable, None)
+    }
+
+    #[test]
+    fn a_profile_changes_only_the_defaults() {
+        let w = Some("work");
+        let d = super::resolve_unix(None, None, env(&[("HOME", "/h")]), w);
+        assert_eq!(d.state, join("/h", &[".local", "share", "patorrent", "profiles", "work", "nox"]));
+        assert_eq!(d.config, join("/h", &[".config", "patorrent", "profiles", "work", "nox"]));
+        // systemd and the flags still win
+        let d = super::resolve_unix(None, None, env(&[("HOME", "/h"), ("STATE_DIRECTORY", "/var/lib/x")]), w);
+        assert_eq!((d.state, d.config), (p("/var/lib/x"), p("/var/lib/x")));
+        let d = super::resolve_unix(p("/s"), None, env(&[("HOME", "/h")]), w);
+        assert_eq!(d.state, p("/s"));
+
+        let appdata = [("APPDATA", r"C:\Users\u\AppData\Roaming")];
+        let d = super::resolve_windows(None, None, env(&appdata), None, w);
+        assert_eq!(d.state, join(r"C:\Users\u\AppData\Roaming", &["PaTorrent", "profiles", "work", "nox"]));
+        let d = super::resolve_windows(None, None, env(&appdata), p(r"D:\pa"), w);
+        assert_eq!(d.config, join(r"D:\pa", &["profiles", "work", "nox"]));
+
+        let d = super::resolve_macos(None, None, env(&[("HOME", "/Users/u")]), w);
+        assert_eq!(
+            d.state,
+            join("/Users/u", &["Library", "Application Support", "PaTorrent", "profiles", "work", "nox"])
+        );
     }
 
     fn join(base: &str, parts: &[&str]) -> Option<PathBuf> {

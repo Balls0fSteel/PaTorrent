@@ -88,6 +88,10 @@ OPTIONS:
     --config-dir DIR  Web UI login and preferences (webui.json), default ipfilter.dat (default:
                       $XDG_CONFIG_HOME/patorrent/nox or ~/.config/patorrent/nox; the state
                       directory on Windows and macOS)
+    --profile NAME    A profile of its own (1-32 letters a-z, digits and hyphens): the default
+                      state and config directories get profiles/NAME before nox
+                      (~/.local/share/patorrent/profiles/NAME/nox); --state-dir, --config-dir
+                      and systemd's directories still win. `default` is the default profile
     --no-state        Do not load or save any session state
     --seed            After downloading, keep seeding until stopped
     --super-seed      Super seed (BEP 16, \"initial seeding\") torrents that are complete;
@@ -186,6 +190,8 @@ struct Opts {
     save: String,
     state: Option<PathBuf>,
     config_dir: Option<PathBuf>,
+    /// `--profile NAME` (D42): `None` for the default profile.
+    profile: Option<String>,
     no_state: bool,
     /// `--daemon`, `--pid-file`, `--log`.
     service: daemon::Options,
@@ -229,6 +235,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         save: ".".into(),
         state: None,
         config_dir: None,
+        profile: None,
         no_state: false,
         service: daemon::Options::default(),
         seed: false,
@@ -269,6 +276,8 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--save" => o.save = value("--save")?,
             "--state" | "--state-dir" => o.state = Some(value(a.as_str())?.into()),
             "--config-dir" => o.config_dir = Some(value("--config-dir")?.into()),
+            "--profile" => o.profile = profile_name(&value("--profile")?)?,
+            s if s.starts_with("--profile=") => o.profile = profile_name(&s["--profile=".len()..])?,
             "--no-state" => o.no_state = true,
             "--daemon" => o.service.daemon = true,
             "--pid-file" => o.service.pid_file = Some(value("--pid-file")?.into()),
@@ -322,6 +331,15 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         return Err("--webui-key needs --webui-cert".into());
     }
     Ok(o)
+}
+
+/// `--profile`'s value: `None` for `default`.
+fn profile_name(v: &str) -> Result<Option<String>, String> {
+    use patorrent_frontend::profile;
+    match profile::validate(v).map_err(|e| e.to_string())? {
+        n if n == profile::DEFAULT_NAME => Ok(None),
+        n => Ok(Some(n)),
+    }
 }
 
 /// The proxy switches: `--[no-]proxy-peers`, `--[no-]proxy-trackers`, `--[no-]proxy-hostnames`
@@ -489,7 +507,7 @@ fn state_dirs(o: &Opts) -> paths::Dirs {
     if o.no_state {
         return paths::Dirs::default();
     }
-    let dirs = paths::resolve(o.state.clone(), o.config_dir.clone());
+    let dirs = paths::resolve(o.state.clone(), o.config_dir.clone(), o.profile.as_deref());
     if dirs.state.is_none() {
         eprintln!("! no state directory (HOME / APPDATA not set): nothing is saved; use --state-dir DIR");
     }
@@ -584,6 +602,7 @@ fn stdin_lines() -> mpsc::Receiver<String> {
 }
 
 fn run(mut o: Opts, mode: Mode) -> ExitCode {
+    patorrent_frontend::profile::init(o.profile.clone());
     if o.service.daemon {
         absolutize(&mut o);
     }
@@ -671,11 +690,12 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             }
         }
     };
+    let of_profile = o.profile.as_ref().map_or(String::new(), |n| format!(" (profile {n})"));
     if let Some(d) = &state_dir {
-        println!("* state: {}", d.display());
+        println!("* state{of_profile}: {}", d.display());
     }
     if let Some(c) = dirs.config.as_ref().filter(|&c| Some(c) != state_dir.as_ref()) {
-        println!("* config: {}", c.display());
+        println!("* config{of_profile}: {}", c.display());
     }
     let h = session.handle();
     if let Some(path) = &o.ip_filter {
@@ -1251,6 +1271,20 @@ mod tests {
             assert_eq!(e, format!("{flag} needs a value"));
         }
         assert!(parse(&args(&["--deamon"])).is_err());
+    }
+
+    #[test]
+    fn profiles() {
+        let o = parse(&args(&["--profile", "Work", "a.torrent"])).unwrap();
+        assert_eq!(
+            (o.profile.as_deref(), o.sources.as_slice()),
+            (Some("work"), &["a.torrent".to_owned()][..])
+        );
+        assert_eq!(parse(&args(&["--profile=vpn-1"])).unwrap().profile.as_deref(), Some("vpn-1"));
+        assert_eq!(parse(&args(&["--profile", "default"])).unwrap().profile, None);
+        let e = parse(&args(&["--profile", "a b"])).err().unwrap();
+        assert!(e.contains("profile name"), "{e}");
+        assert_eq!(parse(&args(&["--profile"])).err().unwrap(), "--profile needs a value");
     }
 
     #[test]

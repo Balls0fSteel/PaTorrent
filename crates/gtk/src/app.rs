@@ -39,7 +39,7 @@ use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::{self, status_icon};
 use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
-use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
+use patorrent_frontend::{actions, add, create, fmt, profile, settings, tr};
 
 use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
@@ -197,6 +197,15 @@ fn now_hms() -> String {
 }
 
 pub fn run() -> ExitCode {
+    // first: the folders and the application id depend on it (D42)
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    let bad_profile = match profile::split_args(&args) {
+        Ok((name, _)) => {
+            profile::init(name);
+            None
+        }
+        Err(e) => Some(e),
+    };
     // before the menu bar is built (`startup`); no Logger yet, so problems go to stderr
     let prefs = Prefs::load(paths::config_dir().join("patorrent.ini"));
     if let Ok(now) = glib::DateTime::now_local() {
@@ -204,6 +213,10 @@ pub fn run() -> ExitCode {
     }
     for p in lang::init(prefs.get("ui.language").unwrap_or_default()) {
         eprintln!("{p}");
+    }
+    if let Some(e) = bad_profile {
+        eprintln!("{e}");
+        return say_and_quit(tr!(ProfileBadName, name = e.given()));
     }
     // the raw command line, so links reach us as typed (GIO's file handling would turn a
     // `magnet:` argument into a file); a second start hands it to the first. A remote window
@@ -221,7 +234,9 @@ pub fn run() -> ExitCode {
     if cfg!(target_os = "macos") {
         flags |= gio::ApplicationFlags::HANDLES_OPEN;
     }
-    let app = gtk::Application::builder().application_id(APP_ID).flags(flags).build();
+    // one instance per profile; `APP_ID` stays the icon's, the desktop entry's and the tray's
+    let id = profile::current().app_id(APP_ID);
+    let app = gtk::Application::builder().application_id(id).flags(flags).build();
     app.connect_startup(startup);
     // A logout asks first (`query-end`, through the session manager or the portal): quit as
     // File > Exit does, and the closing window holds the logout up until the state is saved
@@ -243,11 +258,15 @@ pub fn run() -> ExitCode {
     app.connect_activate(move |app| {
         if let Some(w) = app.active_window() {
             w.present();
-        } else if remote {
-            let a = app.clone();
-            crate::remote::connect(app, move |session| build(&a, Some(session)));
         } else {
-            build(app, None);
+            let a = app.clone();
+            create_profile(app, move || match remote {
+                true => {
+                    let b = a.clone();
+                    crate::remote::connect(&a, move |session| build(&b, Some(session)));
+                }
+                false => build(&a, None),
+            });
         }
     });
     app.connect_command_line(|app, cmdline| {
@@ -258,23 +277,26 @@ pub fn run() -> ExitCode {
         }
         // µTorrent's "Activate the program window": off, a running window stays where it is
         // for torrents (their Add New Torrent dialog still opens)
-        let torrents = cmdline.arguments().iter().skip(1).any(|a| !a.to_string_lossy().starts_with("--"));
+        // `--profile NAME` chose this instance; its name is never a torrent
+        let args: Vec<String> =
+            cmdline.arguments().iter().skip(1).map(|a| a.to_string_lossy().into_owned()).collect();
+        let args = profile::split_args(&args).map_or(args, |(_, rest)| rest);
+        let torrents = args.iter().any(|a| !a.starts_with("--"));
         let stay = app.active_window().is_some()
             && torrents
             && with_app(|a| !GuiOptions::load(&a.prefs, &a.save_path).activate_on_add).unwrap_or(false);
         if !stay {
             app.activate();
         }
-        for arg in cmdline.arguments().iter().skip(1) {
-            let arg = arg.to_string_lossy();
+        for arg in &args {
             if arg.starts_with("--") {
                 continue;
             }
             if arg.starts_with("magnet:") || arg.starts_with("http://") || arg.starts_with("https://") {
-                open(Source::Link(arg.into_owned()));
+                open(Source::Link(arg.clone()));
             } else {
                 // relative to the directory of the process that was started
-                open(Source::File(cmdline.create_file_for_arg(&*arg)));
+                open(Source::File(cmdline.create_file_for_arg(arg)));
             }
         }
         glib::ExitCode::SUCCESS
@@ -298,6 +320,53 @@ pub fn run() -> ExitCode {
         eprintln!("{e}");
     }
     ExitCode::from(u8::from(code))
+}
+
+/// Shows `text` in a window of its own and ends: a message for a start that cannot go on before
+/// the application has a window (a bad `--profile`).
+fn say_and_quit(text: String) -> ExitCode {
+    let app = gtk::Application::builder().flags(gio::ApplicationFlags::NON_UNIQUE).build();
+    app.connect_activate(move |app| {
+        let hold = app.hold();
+        let d = gtk::AlertDialog::builder().message(text.as_str()).modal(true).build();
+        d.choose(None::<&gtk::Window>, None::<&gio::Cancellable>, move |_| drop(hold));
+    });
+    // GTK must not read our arguments as its own
+    app.run_with_args::<&str>(&[]);
+    ExitCode::from(2)
+}
+
+/// Runs `then` when this process's profile has its folders: at once for the default profile
+/// and an existing named one; after a yes for a named one that has none yet, made then (a
+/// mistyped name should not start an empty client, D42). A no ends the application.
+fn create_profile(app: &gtk::Application, then: impl FnOnce() + 'static) {
+    let Some(name) = profile::current().name.clone() else { return then() };
+    let (config, data) = (paths::config_dir(), paths::data_dir());
+    if config.exists() || data.exists() {
+        return then();
+    }
+    let hold = app.hold();
+    let d = gtk::AlertDialog::builder()
+        .message(tr!(ProfileCreate, name, folder = config.display()))
+        .buttons([tr!(BtnCancel), tr!(BtnOk)])
+        .cancel_button(0)
+        .default_button(1)
+        .modal(true)
+        .build();
+    d.choose(None::<&gtk::Window>, None::<&gio::Cancellable>, move |r| {
+        let made = r == Ok(1)
+            && [&config, &data].iter().all(|d| match patorrent_core::util::private_file::create_dir_all(d) {
+                Ok(()) => true,
+                Err(e) => {
+                    eprintln!("cannot create {}: {e}", d.display());
+                    false
+                }
+            });
+        if made {
+            then();
+        }
+        drop(hold);
+    });
 }
 
 /// A URL from a `GURL` Apple event (a `magnet:` link clicked in a browser), through the `open`
@@ -598,7 +667,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
 
     let window = gtk::ApplicationWindow::builder()
         .application(app)
-        .title(NAME_BUILD)
+        .title(profile::name_build())
         .default_width(prefs.get_i32("gtk.width").unwrap_or(1000).max(400))
         .default_height(prefs.get_i32("gtk.height").unwrap_or(620).max(300))
         .show_menubar(true)
@@ -607,7 +676,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         window.maximize();
     }
     if let Some(r) = remote {
-        window.set_title(Some(&tr!(TitleRemote, version = BUILD, label = r.label)));
+        window.set_title(Some(&tr!(TitleRemote, version = profile::version(), label = r.label)));
     }
 
     // one process per library, also from another session or a computer sharing the folder
@@ -1320,7 +1389,7 @@ fn on_alerts() {
                 Alert::RemoteDisconnected { ref message } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     let label = crate::remote::get().map_or("", |r| r.label.as_str());
-                    a.window.set_title(Some(&tr!(TitleDisconnected, version = BUILD, label)));
+                    a.window.set_title(Some(&tr!(TitleDisconnected, version = profile::version(), label)));
                     errors.push((tr!(ErrRemoteLost, label, message), String::new()));
                 }
                 Alert::TorrentFinished { id } => {
@@ -1505,9 +1574,9 @@ fn sync_title(a: &App) {
         return;
     }
     let title = if a.title_speed {
-        fmt::title_speed(a.stats.download_rate, a.stats.upload_rate, NAME_BUILD)
+        fmt::title_speed(a.stats.download_rate, a.stats.upload_rate, &profile::name_build())
     } else {
-        NAME_BUILD.to_owned()
+        profile::name_build()
     };
     if a.window.title().as_deref() != Some(title.as_str()) {
         a.window.set_title(Some(&title));
@@ -1540,7 +1609,7 @@ fn update_status() {
             let s = &a.stats;
             tr!(
                 TrayTip,
-                version = BUILD,
+                version = profile::version(),
                 down = fmt::speed_always(s.download_rate),
                 up = fmt::speed_always(s.upload_rate)
             )
@@ -3220,7 +3289,7 @@ fn about() {
         .modal(true)
         .program_name("PaTorrent")
         .logo_icon_name(APP_ID)
-        .version(BUILD)
+        .version(profile::version())
         .comments(tr!(AboutShort))
         .website("https://github.com/Balls0fSteel/PaTorrent")
         .build()

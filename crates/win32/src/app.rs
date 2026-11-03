@@ -43,7 +43,7 @@ use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::{self, Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
-use patorrent_frontend::{BUILD, NAME_BUILD, actions, add, create, fmt, settings, tr};
+use patorrent_frontend::{actions, add, create, fmt, profile, settings, tr};
 use patorrent_nox::webui::{Rss, WebUi};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
@@ -131,8 +131,8 @@ pub fn main_class() -> PCWSTR {
     static CLASS: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
     CLASS
         .get_or_init(|| {
-            let portable = patorrent_frontend::profile::portable_root().is_some();
-            wide(&main_class_name(&base_data_dir(), !portable))
+            let p = profile::current();
+            wide(&main_class_name(&base_data_dir(), p.is_default() && p.portable_root.is_none()))
         })
         .as_ptr()
 }
@@ -433,14 +433,44 @@ pub fn data_dir() -> PathBuf {
     }
 }
 
-/// The settings folder: beside the exe when `patorrent.ini` is there (portable, like
-/// µTorrent's `settings.dat`; `patorrent_frontend::profile`), else `%APPDATA%\PaTorrent`.
+/// The settings folder: the profile's folder ([`profile::within`]) in [`app_root`].
 pub fn base_data_dir() -> PathBuf {
-    if let Some(root) = patorrent_frontend::profile::portable_root() {
-        return root;
+    profile::within(&app_root(), profile::current().name.as_deref())
+}
+
+/// The application root: beside the exe when `patorrent.ini` is there (portable, like
+/// µTorrent's `settings.dat`; `patorrent_frontend::profile`), else `%APPDATA%\PaTorrent`. The
+/// default profile's folder, holding `profiles\` for the others.
+pub fn app_root() -> PathBuf {
+    if let Some(root) = &profile::current().portable_root {
+        return root.clone();
     }
     let exe_dir = exe_path().parent().map(Path::to_path_buf).unwrap_or_default();
     std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("PaTorrent")).unwrap_or(exe_dir)
+}
+
+/// Says that `--profile` was given no usable name, in the default profile's language.
+pub fn bad_profile(e: &profile::NameError) {
+    let prefs = Prefs::load(app_root().join("patorrent.ini"));
+    lang::init(prefs.get("ui.language").unwrap_or_default());
+    dialogs::error(null_mut(), &tr!(ProfileBadName, name = e.given()));
+}
+
+/// A named profile that has no folder yet is made after a question, so a mistyped name does
+/// not start an empty client (D42); false when the user said no.
+fn create_profile(dir: &Path) -> bool {
+    let Some(name) = &profile::current().name else { return true };
+    if dir.exists() {
+        return true;
+    }
+    if !dialogs::ask(null_mut(), &tr!(ProfileCreate, name, folder = dir.display())) {
+        return false;
+    }
+    if let Err(e) = patorrent_core::util::private_file::create_dir_all(dir) {
+        dialogs::error(null_mut(), &format!("{}: {e}", dir.display()));
+        return false;
+    }
+    true
 }
 
 fn downloads_folder() -> String {
@@ -557,6 +587,14 @@ pub fn run(args: Args) -> i32 {
         InitCommonControlsEx(&icc);
     }
     fmt::set_utc_offset(utc_offset());
+    if !create_profile(&base_data_dir()) {
+        return 0;
+    }
+    if let Some(name) = &profile::current().name {
+        // the taskbar groups and pins each profile's windows apart from the others'
+        let id = wide(&format!("PaTorrent.{name}"));
+        unsafe { windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(id.as_ptr()) };
+    }
     let remote_session = match args.remote {
         true => match crate::remote_ui::connect_interactive() {
             Some(s) => Some(s),
@@ -636,7 +674,7 @@ pub fn run(args: Args) -> i32 {
         wc.lpszClassName = PANEL_CLASS;
         RegisterClassExW(&wc);
 
-        let title = wide(NAME_BUILD);
+        let title = wide(&profile::name_build());
         let hwnd = CreateWindowExW(
             WS_EX_ACCEPTFILES,
             class,
@@ -659,7 +697,7 @@ pub fn run(args: Args) -> i32 {
             log_line(&p);
         }
         if let Some(r) = crate::remote_ui::get() {
-            let title = wide(&tr!(TitleRemote, version = BUILD, label = r.label));
+            let title = wide(&tr!(TitleRemote, version = profile::version(), label = r.label));
             SetWindowTextW(hwnd, title.as_ptr());
         }
         // the server applies its own block list
@@ -1047,7 +1085,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             restoring: false,
             tray_tip: String::new(),
             title_speed: gui.title_speed,
-            title: NAME_BUILD.to_owned(),
+            title: profile::name_build(),
             status_texts: Vec::new(),
             quitting: false,
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
@@ -1094,7 +1132,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         controls::set_columns(piece_list, &cols);
         send(tabs, TCM_SETCURSEL, page.index(), 0);
         DragAcceptFiles(hwnd, 1);
-        tray::add(hwnd, icon_small, WM_APP_TRAY, NAME_BUILD);
+        tray::add(hwnd, icon_small, WM_APP_TRAY, &profile::name_build());
         refuse_lower_integrity_copydata(hwnd);
         update_visibility(hwnd);
         update_menu(hwnd);
@@ -2399,7 +2437,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                 Alert::RemoteDisconnected { ref message } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     let label = crate::remote_ui::get().map_or("", |r| r.label.as_str());
-                    let title = wide(&tr!(TitleDisconnected, version = BUILD, label));
+                    let title = wide(&tr!(TitleDisconnected, version = profile::version(), label));
                     // SAFETY: the main window is live while the app state is.
                     unsafe { SetWindowTextW(a.hwnd, title.as_ptr()) };
                     errors.push(tr!(ErrRemoteLost, label, message));
@@ -2535,9 +2573,9 @@ fn sync_title(a: &mut App) {
         return;
     }
     let title = if a.title_speed {
-        fmt::title_speed(a.stats.download_rate, a.stats.upload_rate, NAME_BUILD)
+        fmt::title_speed(a.stats.download_rate, a.stats.upload_rate, &profile::name_build())
     } else {
-        NAME_BUILD.to_owned()
+        profile::name_build()
     };
     if title != a.title {
         let w = wide(&title);
@@ -2564,7 +2602,7 @@ unsafe fn update_status_bar() {
         let parts = [net, tr!(BarDht, count = s.dht_nodes), down, up];
         let tip = tr!(
             TrayTip,
-            version = BUILD,
+            version = profile::version(),
             down = fmt::speed_always(s.download_rate),
             up = fmt::speed_always(s.upload_rate)
         );
@@ -2832,7 +2870,8 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
             m if m != 0 && Some(m) == with_app(|a| a.taskbar_created) => {
                 // Explorer restarted: the tray icon is gone.
                 if let Some((icon, tip)) = with_app(|a| (a.icon_small, a.tray_tip.clone())) {
-                    tray::add(hwnd, icon, WM_APP_TRAY, if tip.is_empty() { NAME_BUILD } else { &tip });
+                    let tip = if tip.is_empty() { profile::name_build() } else { tip };
+                    tray::add(hwnd, icon, WM_APP_TRAY, &tip);
                 }
                 0
             }
@@ -3358,7 +3397,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 hwnd,
                 &tr!(
                     AboutText,
-                    version = BUILD,
+                    version = profile::version(),
                     path = with_app(|a| a.prefs.path().map(|p| p.display().to_string()))
                         .flatten()
                         .unwrap_or_default()
@@ -4385,7 +4424,7 @@ mod url_tests {
                 sync_title(a);
             });
             assert!(
-                title().starts_with("D:") && title().ends_with(&format!(" - {NAME_BUILD}")),
+                title().starts_with("D:") && title().ends_with(&format!(" - {}", profile::name_build())),
                 "{}",
                 title()
             );
@@ -4393,7 +4432,7 @@ mod url_tests {
                 a.title_speed = false;
                 sync_title(a);
             });
-            assert_eq!(title(), NAME_BUILD);
+            assert_eq!(title(), profile::name_build());
 
             DestroyWindow(hwnd);
         }

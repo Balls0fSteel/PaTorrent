@@ -5,7 +5,8 @@
 //! running one, as µTorrent does. `--minimized` starts in the tray (the autostart entry's
 //! "Start minimized"). `--demo N` runs the simulated engine with N synthetic torrents instead
 //! (scale testing). `--remote` drives a patorrent-nox elsewhere (`remote_ui`). `--associate` and
-//! `--unregister` are the installer's (`setup`).
+//! `--unregister` are the installer's (`setup`). `--profile NAME` runs a profile of its own
+//! (D42, `patorrent_frontend::profile`), with its own folder, window and instance.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -57,6 +58,17 @@ mod webui_host;
 #[cfg(windows)]
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
+    // first: every folder below depends on it (D42); never a source
+    let args = match patorrent_frontend::profile::split_args(&args) {
+        Ok((name, rest)) => {
+            patorrent_frontend::profile::init(name);
+            rest
+        }
+        Err(e) => {
+            app::bad_profile(&e);
+            std::process::exit(2);
+        }
+    };
     if let Some(task) = setup::parse(&args) {
         std::process::exit(setup::run(task));
     }

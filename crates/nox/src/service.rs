@@ -1383,7 +1383,7 @@ fn serve(scm: Box<dyn Scm>, args: &[String], service: bool) -> u32 {
 fn prepare(args: &[String], service: bool) -> Result<crate::Opts, (u32, String)> {
     let mut o = crate::parse(args).map_err(|e| (EXIT_ARGS, e))?;
     if service && o.service.log.is_none() {
-        let state = crate::paths::resolve(o.state.clone(), o.config_dir.clone())
+        let state = crate::paths::resolve(o.state.clone(), o.config_dir.clone(), o.profile.as_deref())
             .state
             .or_else(|| program_data().map(|d| d.join("PaTorrent").join("nox")));
         o.service.log = state.map(|s| s.join(LOG_FILE));

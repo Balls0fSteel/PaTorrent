@@ -222,9 +222,12 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
     }
 }
 
-/// Starts another PaTorrent window in remote mode (File > Connect to Remote...).
+/// Starts another PaTorrent window in remote mode (File > Connect to Remote...), in this
+/// window's profile, whose folder keeps its connections.
 pub fn start_remote_window(owner: HWND) {
-    if let Err(e) = std::process::Command::new(crate::util::exe_path()).arg("--remote").spawn() {
+    let profile = patorrent_frontend::profile::current().args();
+    if let Err(e) = std::process::Command::new(crate::util::exe_path()).args(profile).arg("--remote").spawn()
+    {
         dialogs::error(owner, &tr!(ErrStartPaTorrent, error = e));
     }
 }

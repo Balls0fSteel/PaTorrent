@@ -753,10 +753,18 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
   "Remove settings", a shell-opened `.torrent`, installed and portable forwarding, the "Port N in
   use" click, the Samba move) and 2026-11-03_140518_1793711118 (Create Shortcut clicked in a
   profile's window).
-- **Linux desktops:** the dock icon from the profile's own desktop entry on GNOME and KDE (Xvfb
-  has no dock) and in the Flatpak (whose entry is written to the host's
-  `~/.local/share/applications`); a real AppImage build (the `$APPIMAGE` rule itself was checked
-  2026-11-03_140518_1793711118); the rc.d profiles started as root on the FreeBSD VM.
+- **Linux desktops and FreeBSD:** done 2026-11-03_145919_1793714359: GNOME 50, KDE 6.6, the
+  Flatpak, real AppImages, rc.d as root. Follow-ups:
+  - A profile's first start: its entry is written just before the window. GNOME sees the window
+    before it re-reads the folder, so that start gets a generic badge in the overview (the
+    Flatpak's window is grouped under the default app). Writing the entry earlier would fix it,
+    for instance before the "Create it?" question or by File > Profiles > New Profile before it
+    starts the process.
+  - The GTK AppImage: linuxdeploy's GTK hook forces `GDK_BACKEND=x11`, so it needs Xwayland and
+    its `WM_CLASS` is `AppRun.wrapped` in every profile (`_GTK_APPLICATION_ID` is right). A dock
+    that matches on `WM_CLASS` alone misses its entry. `glib::set_prgname` with the profile's
+    id would make it match, and dropping the hook's override would allow native Wayland once
+    tested.
 - **Moving a portable folder:** done for a finished torrent (Windows -> the Samba share -> Linux
   -> another drive letter) and an unfinished one (another drive letter), no recheck either time.
 - **macOS (gate 8):** a portable `PaTorrent.app` beside `patorrent.ini`, the translocation

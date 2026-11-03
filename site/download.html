@@ -70,7 +70,7 @@
       <!-- /build:files-windows -->
       <h3 id="smartscreen">SmartScreen</h3>
       <p>The programs are not code-signed, so the first time Windows SmartScreen shows “Windows protected your PC”. Choose <strong>More info</strong>, then <strong>Run anyway</strong>.</p>
-      <p>Settings and torrents go to <code>%APPDATA%\PaTorrent</code>. An empty <code>patorrent.ini</code> next to <code>patorrent.exe</code> keeps them in that folder instead (portable mode).</p>
+      <p>Settings and torrents go to <code>%APPDATA%\PaTorrent</code>. An empty <code>patorrent.ini</code> next to <code>patorrent.exe</code> keeps them in that folder instead, with downloads in its <code>Downloads</code> (portable mode, <a href="faq.html#settings">more</a>). <code>--profile work</code> or File &gt; Profiles runs a separate PaTorrent beside the usual one.</p>
     </section>
 
     <section class="platform" id="linux" aria-labelledby="linux-h">
@@ -81,7 +81,7 @@
       <!-- /build:files-linux -->
       <h3>Good to know</h3>
       <ul>
-        <li>Settings are in <code>~/.config/patorrent/gtk</code>, torrents in <code>~/.local/share/patorrent/gtk</code>. The Flatpak keeps them under <code>~/.var/app/io.github.balls0fsteel.PaTorrent/</code>.</li>
+        <li>Settings are in <code>~/.config/patorrent/gtk</code>, torrents in <code>~/.local/share/patorrent/gtk</code>. The Flatpak keeps them under <code>~/.var/app/io.github.balls0fsteel.PaTorrent/</code>. An empty <code>patorrent.ini</code> next to <code>patorrent-gtk</code> or the <code>.AppImage</code> keeps everything in that folder instead (portable mode, not in the Flatpak).</li>
         <li>The Flatpak may write to your home folder, as a torrent client keeps writing to the folders you choose. A folder on another disk needs <code>flatpak override --user --filesystem=/mnt/data io.github.balls0fsteel.PaTorrent</code> (with your folder).</li>
         <li>The daemon as a systemd service: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md#systemd">docs/DAEMON.md</a>.</li>
       </ul>

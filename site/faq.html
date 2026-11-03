@@ -45,7 +45,7 @@
         <li><a href="#what">What is PaTorrent?</a></li>
         <li><a href="#ready">Is it ready to use?</a></li>
         <li><a href="#license">Is it free? What does the license allow?</a></li>
-        <li><a href="#settings">Where are my settings? What is portable mode?</a></li>
+        <li><a href="#settings">Where are my settings? What are portable mode and profiles?</a></li>
         <li><a href="#languages">Which languages does it speak?</a></li>
         <li><a href="#remote">How do the Web UI and remote mode work?</a></li>
         <li><a href="#search">How do I search for torrents?</a></li>
@@ -84,20 +84,21 @@
     </section>
 
     <section class="qa" id="settings" aria-labelledby="settings-h">
-      <h2 id="settings-h">Where are my settings? What is portable mode?</h2>
+      <h2 id="settings-h">Where are my settings? What are portable mode and profiles?</h2>
       <table class="listview plain">
         <caption class="vh">Where each program keeps its settings and torrents</caption>
         <thead><tr><th scope="col">Program</th><th scope="col">Settings and torrents</th></tr></thead>
         <tbody>
           <tr><td>Windows GUI</td><td><code>%APPDATA%\PaTorrent</code></td></tr>
-          <tr><td>Windows GUI, portable mode</td><td>The folder of <code>patorrent.exe</code></td></tr>
+          <tr><td>Portable mode, any platform</td><td>The folder of the program (below)</td></tr>
           <tr><td>GTK GUI on Linux and BSD</td><td>Settings in <code>~/.config/patorrent/gtk</code>, torrents in <code>~/.local/share/patorrent/gtk</code> (or under <code>$XDG_CONFIG_HOME</code> and <code>$XDG_DATA_HOME</code>)</td></tr>
           <tr><td>GTK GUI as a Flatpak</td><td>The same, under <code>~/.var/app/io.github.balls0fsteel.PaTorrent/</code> (<code>config/</code> and <code>data/</code>)</td></tr>
           <tr><td>GTK GUI on macOS</td><td><code>~/Library/Application Support/PaTorrent/gtk</code></td></tr>
           <tr><td><code>patorrent-nox</code></td><td>A <code>nox</code> folder in the same places: <code>%APPDATA%\PaTorrent\nox</code>, <code>~/.config/patorrent/nox</code> and <code>~/.local/share/patorrent/nox</code>, or <code>~/Library/Application Support/PaTorrent/nox</code>; as a service, see <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md#files">docs/DAEMON.md</a></td></tr>
         </tbody>
       </table>
-      <p><strong>Portable mode</strong> (Windows): put an empty file named <code>patorrent.ini</code> next to <code>patorrent.exe</code>, and PaTorrent keeps its settings and torrents in that folder instead of <code>%APPDATA%</code>, as µTorrent did. That way the whole folder can live on a USB stick. <code>patorrent-nox.exe</code> follows the same rule, in a <code>nox</code> folder there. Portable mode on every platform is planned for a later version.</p>
+      <p><strong>Portable mode</strong>: put an empty file named <code>patorrent.ini</code> next to the program, and PaTorrent keeps its settings and torrents in that folder instead, as µTorrent did: next to <code>patorrent.exe</code> on Windows, next to <code>patorrent-gtk</code> or the <code>.AppImage</code> file on Linux and BSD, next to <code>PaTorrent.app</code> on a Mac (not in the Flatpak). <code>patorrent-nox</code> follows the same rule, in a <code>nox</code> folder there. The first start downloads into the folder's <code>Downloads</code>, and paths inside the folder are kept relative to it, so the whole folder can live on a USB stick or move to another computer and the torrents carry on without a recheck. A portable folder written by this version needs this version or a later one.</p>
+      <p><strong>Profiles</strong>: start a program with <code>--profile work</code> (or use File &gt; Profiles) to run a separate PaTorrent with its own settings, torrents, listen port and window, next to the usual one: one behind a VPN, one for private trackers, one to try a new setting. Each profile lives in <code>profiles/work</code> inside the folders above. The <code>.torrent</code> and <code>magnet:</code> associations belong to one profile at a time, the one where you ticked them. <code>patorrent-nox --profile work</code> works the same way, with its own Windows service or <code>patorrent-nox@work</code> systemd unit; see <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md#profiles">docs/DAEMON.md</a>.</p>
     </section>
 
     <section class="qa" id="languages" aria-labelledby="languages-h">

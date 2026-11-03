@@ -85,6 +85,23 @@
       </div>
     </section>
 
+    <section class="section" aria-labelledby="share">
+      <h2 id="share">It shares your PC</h2>
+      <p class="lead">A torrent client should not be the reason a game lags or the whole computer feels slow. PaTorrent can step aside on its own, for your line and for your disks.</p>
+      <ul class="spotlights">
+        <li class="spotlight">
+          <h3><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-speed"/></svg>Gamer mode: keep your ping low</h3>
+          <p>Tick <strong>Keep ping low</strong> in Preferences &gt; Bandwidth. PaTorrent finds the first router past your line and watches its ping while it downloads and uploads. As soon as the line starts to queue, it slows itself down, then speeds up again when the queue clears, so games and video calls stay responsive. There is no game list and nothing to set up.</p>
+          <p class="spotlight-fact">On a test line with half a second of buffer, the ping fell from about 480&nbsp;ms to 10&nbsp;ms while PaTorrent kept 80-92&nbsp;% of the line's speed. It works on Windows, Linux and macOS; on BSD it goes by the delays its uTP peers measure.</p>
+        </li>
+        <li class="spotlight">
+          <h3><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Smart disk I/O</h3>
+          <p>Rechecks run gently: at the system's background disk priority, without pushing other programs' files out of memory, and giving way whenever another program needs the disk. PaTorrent tells SSDs, hard disks and network shares apart. It checks one torrent per drive, several drives at once, and gives a hard disk only two jobs at a time so it doesn't spend its time seeking.</p>
+          <p class="spotlight-fact">If you want it, it also slows downloads or uploads down while a disk is busy, and caps checking at a speed you choose: Preferences &gt; Advanced &gt; Disk I/O.</p>
+        </li>
+      </ul>
+    </section>
+
     <section class="section" aria-labelledby="features">
       <h2 id="features">What is in it</h2>
       <ul class="features">

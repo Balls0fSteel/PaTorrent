@@ -39,7 +39,7 @@ use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::{self, status_icon};
 use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
-use patorrent_frontend::{actions, add, create, fmt, help, profile, settings, tr};
+use patorrent_frontend::{actions, add, create, fmt, help, profile, settings, setup_guide, tr};
 
 use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
@@ -460,6 +460,7 @@ fn startup(app: &gtk::Application) {
         ("win.create", &["<Control>n"]),
         ("win.find", &["<Control>f"]),
         ("win.preferences", &["<Control>p"]),
+        ("win.setup-guide", &["<Control>g"]),
         ("app.quit", &["<Control>q"]),
     ] {
         app.set_accels_for_action(action, keys);
@@ -493,6 +494,7 @@ fn startup(app: &gtk::Application) {
     menubar.append_submenu(Some(&gtk_mnemonic(tr!(MenuFile))), &file);
     let options = gio::Menu::new();
     item(&options, tr!(MenuPreferences), "win.preferences");
+    item(&options, tr!(MenuSetupGuide), "win.setup-guide");
     item(&options, tr!(MenuRss), "win.rss");
     // Disabled | the client | the computer
     let auto = gio::Menu::new();
@@ -789,6 +791,59 @@ fn lock_library(dir: &std::path::Path) -> Result<(), String> {
     }
 }
 
+/// A profile's first start (D53): the Setup Guide as the only window; Finish stores its answers
+/// (the desktop integration in the system's places), Skip nothing; either way the guide is
+/// marked as seen and the main window is built.
+fn first_start_guide(app: &gtk::Application, mut opts: Options, prefs: Prefs, entry_written: bool) {
+    opts.integration = crate::integration::read();
+    let a = app.clone();
+    // nothing else holds the application while the guide waits for GNOME (below)
+    let hold = app.hold();
+    let open = move || {
+        let b = a.clone();
+        crate::setup_guide::show(&a, None, opts, move |answer| {
+            let mut prefs = prefs;
+            if let Some(o) = &answer {
+                o.store(&mut prefs);
+                let set = crate::integration::read();
+                if o.integration.normalized() != set {
+                    if let Err(e) = crate::integration::write(&set, &o.integration) {
+                        eprintln!("{}", tr!(ErrDesktopIntegration, error = e));
+                    }
+                }
+            }
+            setup_guide::mark_seen(&mut prefs);
+            if let Err(e) = prefs.save() {
+                eprintln!("cannot save the settings: {e}");
+            }
+            build(&b, None);
+        });
+        drop(hold);
+    };
+    // as the main window does: GNOME Shell reads a profile's new desktop entry about 5 s late
+    if entry_written && gnome_shell() {
+        glib::timeout_add_local_once(std::time::Duration::from_secs(6), open);
+    } else {
+        open();
+    }
+}
+
+/// Options > Setup Guide (D53): its answers go the way Preferences' OK goes.
+fn setup_guide_later() {
+    let Some((window, mut options)) = with_app(|a| (a.window.clone(), Options::load(&a.prefs, &a.save_path)))
+    else {
+        return;
+    };
+    options.integration = crate::integration::read();
+    let Some(app) = window.application() else { return };
+    crate::setup_guide::show(&app, Some(window.upcast_ref::<gtk::Window>()), options, |answer| {
+        if let Some(o) = answer {
+            with_app(|a| apply_options(a, &o));
+            apply_integration(&o);
+        }
+    });
+}
+
 /// The main window, on a new engine session, or on `remote_session` in remote mode
 /// (`crate::remote`).
 fn build(app: &gtk::Application, remote_session: Option<Session>) {
@@ -815,6 +870,9 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         .to_string_lossy()
         .into_owned();
     let mut opts = Options::load(&prefs, &downloads);
+    // the first start of a profile, the default one included (D53): asked before
+    // `first_run_settings` writes the first keys
+    let first_start = remote.is_none() && setup_guide::should_show(&prefs);
     // a named profile's desktop entry, which the desktop matches to its windows (D42)
     let entry_written = remote.is_none()
         && crate::integration::profile_entry().unwrap_or_else(|e| {
@@ -823,11 +881,20 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         });
     // a new profile or portable folder: a port of its own, kept from now on (D42)
     if remote.is_none() && profile::first_run_settings(&mut prefs, &mut opts.settings) {
-        if let Err(e) = prefs.save() {
-            eprintln!("cannot save {}: {e}", config.display());
+        // with the guide, saved once it closes: quitting it leaves the file empty, to ask again
+        if !first_start {
+            if let Err(e) = prefs.save() {
+                eprintln!("cannot save {}: {e}", config.display());
+            }
         }
         // a portable folder's Downloads too
         opts = Options::load(&prefs, &downloads);
+    }
+    if first_start {
+        // the Setup Guide before the engine starts, so nothing downloads before the answers;
+        // then this again, which finds the file no longer empty
+        first_start_guide(app, opts, prefs, entry_written);
+        return;
     }
     // the server keeps its own port
     if opts.gui.random_port && remote.is_none() {
@@ -1936,6 +2003,7 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
         }
     });
     simple("preferences", preferences);
+    simple("setup-guide", setup_guide_later);
     simple("properties", show_properties);
     simple("set-location", set_download_location);
     simple("label-new", || {

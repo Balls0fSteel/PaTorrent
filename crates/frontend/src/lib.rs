@@ -27,6 +27,7 @@
 //! * [`import`]: File > Import: torrents from qBittorrent's `BT_backup` or µTorrent's `resume.dat`.
 //! * [`profile`]: profiles and portable mode: which folder this process keeps its files in.
 //! * [`network`]: "Use only this network" (D54): the adapters, the rule's controls, the status.
+//! * [`setup_guide`]: the Setup Guide (D53): the first start's questions and what they set.
 
 /// The version a build shows (title bars, About, `--version`): [`patorrent_core::VERSION`] with
 /// `-dev.<commit>` when it is not a tagged release, and `.dirty` from `1_build.bat` when the tree
@@ -66,6 +67,7 @@ pub mod search;
 pub mod secret;
 pub mod seeding;
 pub mod settings;
+pub mod setup_guide;
 pub mod status;
 pub mod torrent_folders;
 pub mod update;

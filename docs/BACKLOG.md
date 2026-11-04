@@ -891,6 +891,21 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   in INTEGRATIONS.md); remote-mode automation conflicts; BEP 44 / 51
   / 55.
 
+## Setup Guide (D53; built 2026-11-04, 1.1.62)
+
+- Not run: a real Finish or Skip at a first start in either GUI (the registry and XDG writes,
+  the main window afterwards, the D42 keys saved only when the guide closes); Ctrl+G and the menu
+  item at run time; GTK's Next, Back, Finish and Skip under Xvfb; the Win32 dialog at 150-200 %
+  DPI and in RTL. The translations are unreviewed machine output; mnemonics may clash within the
+  guide's buttons (sk, hr, sr).
+- A second start during the first-start guide (a `.torrent` or link handed over) has no main
+  window to reach yet in either GUI: probably lost. Queue them until the window exists.
+- An installed Windows copy hides page 4 at a first start, also for a new named profile the
+  setup never asked about; Ctrl+G always shows it. The `GuideRouter` tooltip largely repeats
+  the page's own text. The smart-disk box shows ticked only while all four D48 settings are on.
+- The owner's answers to the D53 questions (pages, the older-router numbers, the default
+  profile) are still wanted; each is a small change.
+
 ## Search helper (D51; built 2026-11-04, 1.1.59)
 
 - **The real Jackett run has not happened** (the agent was not allowed to download or run

@@ -251,6 +251,9 @@ strings! {
     MenuUncheck = "Uncheck";
     MenuSelectAll = "Select &All";
     MenuSelectNone = "Select N&one";
+    /// Options menu (D53): opens the Setup Guide, the few questions asked at a profile's first
+    /// start; µTorrent 2.2.1's item.
+    MenuSetupGuide = "Setup &Guide";
 
     // ---- Toolbar buttons (tooltips)
 
@@ -1308,4 +1311,34 @@ strings! {
     /// The status line after an install or update; {version} is the release.
     SearchHelperInstalled = "Search helper {version} is installed.";
     SearchHelperRemoved = "The search helper was removed.";
+    // ---- Options > Setup Guide (D53): a few questions at a profile's first start
+    /// The guide's window title.
+    GuideTitle = "Setup Guide";
+    /// Above each page's title; {step} and {count} are numbers.
+    GuideStep = "Step {step} of {count}";
+    /// The guide's buttons; Skip closes it and keeps the default settings.
+    GuideBack = "< &Back";
+    GuideNext = "&Next >";
+    GuideFinish = "&Finish";
+    GuideSkip = "&Skip";
+    /// Page 1: the download folder.
+    GuidePageDownloads = "Where downloads go";
+    GuideDownloadsText = "Pick the folder new downloads are saved in. Finished downloads can also move to another folder by themselves, from a fast disk to a big one, for example. Preferences > Directories has more.";
+    /// Page 2: the router's connection table.
+    GuidePageRouter = "Your router";
+    GuideRouterText = "Every connection to a peer takes a place in your router's connection table, and DHT and uTP add many short ones. When a small table fills up, the router drops connections, slows down the whole house or restarts. Older routers and the basic boxes of internet providers have small tables.";
+    /// The question above the two answers below.
+    GuideRouter = "Which router do you have?";
+    GuideRouterModern = "Modern (bought after about 2015), or not sure";
+    GuideRouterOlder = "Older, or the internet provider's basic box";
+    /// {total}, {per_torrent} and {per_second} are numbers.
+    GuideRouterNote = "The older choice lowers the connections to {total} in all, {per_torrent} per torrent and {per_second} new ones a second: a starting point that Preferences > Bandwidth and Advanced change later. For games and calls, Keep ping low holds the speeds down while the line is busy.";
+    /// Page 3: smart disk I/O.
+    GuidePageDisks = "Your disks";
+    GuideDisksText = "Smart disk I/O keeps the computer responsive while PaTorrent reads and writes: checks run at the system's background priority, each drive is tuned for its type, and transfers slow down while a disk answers slowly. Checks take longer while something else uses the disk.";
+    GuideSmartDisk = "Use smart disk I/O";
+    GuideDisksNote = "Gentle checks and per-drive tuning are on from the start; the box adds the slow-down while a disk is busy. Preferences > Advanced > Disk I/O sets each one.";
+    /// Page 4: starting with the system and opening .torrent files and magnet: links.
+    GuidePageComputer = "This computer";
+    GuideComputerText = "PaTorrent can start when you sign in, and open .torrent files and magnet: links from your browser and file manager. Preferences > General changes this later.";
 }

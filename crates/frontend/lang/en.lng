@@ -247,6 +247,10 @@ MenuCheck=Check
 MenuUncheck=Uncheck
 MenuSelectAll=Select &All
 MenuSelectNone=Select N&one
+
+# Options menu (D53): opens the Setup Guide, the few questions asked at a profile's first
+# start; µTorrent 2.2.1's item.
+MenuSetupGuide=Setup &Guide
 ToolAddTorrent=Add Torrent
 ToolAddUrl=Add Torrent from URL
 ToolCreate=Create New Torrent
@@ -1425,6 +1429,44 @@ SearchHelperRemoveConfirm=Remove the search helper and its search source? Its fo
 SearchHelperInstalled=Search helper {version} is installed.
 SearchHelperRemoved=The search helper was removed.
 
+# The guide's window title.
+GuideTitle=Setup Guide
+
+# Above each page's title; {step} and {count} are numbers.
+GuideStep=Step {step} of {count}
+
+# The guide's buttons; Skip closes it and keeps the default settings.
+GuideBack=< &Back
+GuideNext=&Next >
+GuideFinish=&Finish
+GuideSkip=&Skip
+
+# Page 1: the download folder.
+GuidePageDownloads=Where downloads go
+GuideDownloadsText=Pick the folder new downloads are saved in. Finished downloads can also move to another folder by themselves, from a fast disk to a big one, for example. Preferences > Directories has more.
+
+# Page 2: the router's connection table.
+GuidePageRouter=Your router
+GuideRouterText=Every connection to a peer takes a place in your router's connection table, and DHT and uTP add many short ones. When a small table fills up, the router drops connections, slows down the whole house or restarts. Older routers and the basic boxes of internet providers have small tables.
+
+# The question above the two answers below.
+GuideRouter=Which router do you have?
+GuideRouterModern=Modern (bought after about 2015), or not sure
+GuideRouterOlder=Older, or the internet provider's basic box
+
+# {total}, {per_torrent} and {per_second} are numbers.
+GuideRouterNote=The older choice lowers the connections to {total} in all, {per_torrent} per torrent and {per_second} new ones a second: a starting point that Preferences > Bandwidth and Advanced change later. For games and calls, Keep ping low holds the speeds down while the line is busy.
+
+# Page 3: smart disk I/O.
+GuidePageDisks=Your disks
+GuideDisksText=Smart disk I/O keeps the computer responsive while PaTorrent reads and writes: checks run at the system's background priority, each drive is tuned for its type, and transfers slow down while a disk answers slowly. Checks take longer while something else uses the disk.
+GuideSmartDisk=Use smart disk I/O
+GuideDisksNote=Gentle checks and per-drive tuning are on from the start; the box adds the slow-down while a disk is busy. Preferences > Advanced > Disk I/O sets each one.
+
+# Page 4: starting with the system and opening .torrent files and magnet: links.
+GuidePageComputer=This computer
+GuideComputerText=PaTorrent can start when you sign in, and open .torrent files and magnet: links from your browser and file manager. Preferences > General changes this later.
+
 # ---- Help texts (D55): tooltips, the Preferences description pane and F1, one to three
 # sentences each. Optional in a translation: a missing one shows in English.
 help.PrefUiLanguage=The language of menus, dialogs and the Web UI. The first choice follows the system's language. The desktop windows switch at their next start.
@@ -1541,6 +1583,8 @@ help.PrefActiveChecking=How many drives are checked at the same time, one torren
 help.PrefTuneForDrive=Detects whether each save folder is on an SSD, a hard disk, a removable drive or a network share, and lets a hard disk or removable drive do two disk jobs at once, a network server four. drive_overrides on the Advanced page corrects a wrong guess.
 help.PrefDiskSlowDownloads=While a drive answers writes clearly slower than usual, halves the download rate step by step, never below 50 kB/s, and lets it grow again once the disk is quiet. It never raises your own limits.
 help.PrefDiskSlowUploads=While a drive answers reads clearly slower than usual, halves the upload rate step by step, never below 50 kB/s, and lets it grow again once the disk is quiet. Seeding then uploads less.
+help.GuideRouter=The older choice lowers the connections to 100 in all, 40 per new torrent and 8 new connection attempts a second, so a small router keeps up. The modern choice keeps the defaults: 200, no limit per torrent and 30 a second.
+help.GuideSmartDisk=Turns on gentle checks, per-drive tuning and the slow-down of downloads and uploads while a disk answers slowly. It shows ticked only while all four are on; unticking it then turns them off.
 help.AdvUserAgent=The program name sent to HTTP trackers and to UPnP routers, which also show it as the description of the port mapping. Some private trackers only accept certain clients; otherwise it rarely needs changing.
 help.AdvPeerFingerprint=The prefix of the peer ID that tells other peers and trackers which client this is. A new peer ID is drawn from it at each start, so a change applies at the next start. Rarely needs changing.
 help.AdvListenInterfaces=Comma-separated addresses and ports to accept peers on, written ip:port, with IPv6 addresses in square brackets. 0.0.0.0 and [::] mean every interface. The listen sockets reopen at once when it changes.
@@ -1685,6 +1729,7 @@ help.ShutdownShutDownDownloads=Shuts down the computer after a 30 second countdo
 help.ShutdownShutDownEverything=Shuts down the computer after a 30 second countdown once no started torrent is downloading or seeding any more.
 help.MenuCloseToTray=When on, closing the window hides PaTorrent to its tray icon and the torrents keep running. Exit still quits.
 help.MenuMinimizeToTray=When on, minimizing the window hides it from the taskbar, leaving only the tray icon.
+help.MenuSetupGuide=Asks again the few questions of the first start: the download folder, the router, smart disk I/O and, where offered, starting with the system and the file associations.
 help.MenuWebsite=Opens the PaTorrent website in your web browser.
 help.MenuCheckUpdates=Asks the PaTorrent website whether a newer version is out and tells you the answer.
 help.MenuAbout=Shows PaTorrent's version, copyright and licence, and where its settings file is.

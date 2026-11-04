@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_091839_1793780319: Six proposals drafted for discussion (D50-D55)
+
+- [docs/PROPOSALS.md](docs/PROPOSALS.md), from the owner's points: a Files tab quick filter (a shared row-to-file map over both virtual lists); a search helper that downloads the upstream Jackett release at the user's click and runs it on loopback only for a search (Jackett is GPL-2.0 and Prowlarr GPL-3.0, read from GitHub; bundling rejected, a Rust Cardigann interpreter kept as the later option); a native AppKit GUI as a fourth crate, after gate 8; a first-start Setup Guide reusing 2.2.1's menu entry (router age, smart disk I/O, folders); network binding as a rule (adapter, address range or "any VPN adapter") with pause-all when the network is missing, since WireGuard does create an adapter but not a stable one; help text as one keyed table with hover, a Preferences pane and F1, no per-control marker. PLAN step I.
+- Docs only, no version bump. D48's smart disk I/O questions were answered 2026-11-03 and leave the plan's open list.
+
 ## 2026-11-04_083614_1793777774: Version 1.1.55: the GTK GUI's windows as files (`PATORRENT_SNAPSHOTS`)
 
 - **New test aid:** with `PATORRENT_SNAPSHOTS=<folder>`, the GTK GUI draws each of its windows into `window-<n>.png` there every 2 s (GTK renders them itself) and lists their titles and label texts in `windows.txt`, dialogs included. It is for machines whose screen cannot be captured or read over SSH. On the Mac VM it gave the main window, the "folder in use" message and its text. Under Xvfb on Linux it gave the "Create it?" question as a clean picture with its text. On the slow VM the first files come about 15 s after the start. Documented in RELEASING.md.

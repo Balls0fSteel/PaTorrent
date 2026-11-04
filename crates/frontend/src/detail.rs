@@ -99,8 +99,11 @@ pub struct Detail {
     pub peers: Vec<PeerInfo>,
     pub trackers: Vec<AnnounceEntry>,
     pub files: Option<Arc<[FileEntry]>>,
-    /// Indices into `files` without pad files.
-    pub file_rows: Vec<usize>,
+    /// The Files tab's rows: indices into `files` without pad files, only those
+    /// [`Detail::file_filter`] lets through.
+    pub file_rows: Vec<u32>,
+    /// The Files tab's quick filter (D50). Kept while the selection moves to another torrent.
+    pub file_filter: FileFilter,
     pub file_done: Vec<u64>,
     pub have: Option<Bitfield>,
     pub availability: Vec<u32>,
@@ -128,8 +131,37 @@ impl Detail {
     }
 
     pub fn set_files(&mut self, files: Arc<[FileEntry]>) {
-        self.file_rows = (0..files.len()).filter(|&i| !files[i].pad_file).collect();
+        self.file_rows = self.file_filter.rows(&files);
         self.files = Some(files);
+    }
+
+    /// Sets the Files tab's filter text; true when the visible rows may have changed.
+    pub fn set_file_filter(&mut self, text: &str) -> bool {
+        if !self.file_filter.set_text(text) {
+            return false;
+        }
+        if let Some(files) = &self.files {
+            self.file_rows = self.file_filter.rows(files);
+        }
+        true
+    }
+
+    /// The torrent's files without pad files, for "Prioritize by File Order", which orders the
+    /// whole torrent whatever the filter shows.
+    pub fn all_files(&self) -> Vec<u32> {
+        self.files.as_deref().map(|f| FileFilter::default().rows(f)).unwrap_or_default()
+    }
+
+    /// The count beside the Files tab's filter box while a filter is on ("12 of 3,400
+    /// files"), empty otherwise.
+    pub fn file_filter_count(&self) -> String {
+        match &self.files {
+            Some(files) if self.file_filter.is_on() => {
+                let total = files.iter().filter(|f| !f.pad_file).count();
+                tr!(FilesFilterCount, shown = fmt::count(self.file_rows.len()), total = fmt::count(total))
+            }
+            _ => String::new(),
+        }
     }
 
     pub fn push_log(&mut self, line: String) {
@@ -168,8 +200,8 @@ impl Detail {
             Tab::Peers => self.peers.get(row).map(|p| peer_cell(p, col)),
             Tab::Pieces => self.partial.get(row).map(|p| piece_cell(p, col)),
             Tab::Files => self.file_rows.get(row).and_then(|&i| {
-                let f = &self.files.as_ref()?[i];
-                Some(file_cell(f, self.file_done.get(i).copied(), col))
+                let f = self.files.as_ref()?.get(i as usize)?;
+                Some(file_cell(f, self.file_done.get(i as usize).copied(), col))
             }),
             Tab::Logger => self.log.get(row).cloned(),
             _ => None,
@@ -179,14 +211,59 @@ impl Detail {
 
     /// File index (into the torrent's file list) of a Files tab row.
     pub fn file_index(&self, row: usize) -> Option<u32> {
-        self.file_rows.get(row).map(|&i| i as u32)
+        self.file_rows.get(row).copied()
     }
 
     /// Where a Files tab row's file is on disk, for Open and Open Containing Folder; see
     /// [`file_path`].
     pub fn file_path(&self, row: usize, save_path: &str) -> Option<PathBuf> {
-        let i = *self.file_rows.get(row)?;
+        let i = *self.file_rows.get(row)? as usize;
         file_path(save_path, &self.files.as_ref()?.get(i)?.path)
+    }
+}
+
+/// The Files tab's quick filter (D50): the box's words, each matched case-insensitively
+/// anywhere in a file's path as the tab shows it (folders included), all of them needed, as
+/// the toolbar's torrent filter matches a name (D35).
+#[derive(Clone, Default, Debug)]
+pub struct FileFilter {
+    /// The box's text as given.
+    text: String,
+    /// Its words, lowercased.
+    words: Vec<String>,
+}
+
+impl FileFilter {
+    pub fn text(&self) -> &str {
+        &self.text
+    }
+
+    /// Whether the filter hides anything (the box has a word).
+    pub fn is_on(&self) -> bool {
+        !self.words.is_empty()
+    }
+
+    /// Sets the box's text; true when the words changed, so the rows must be rebuilt.
+    pub fn set_text(&mut self, text: &str) -> bool {
+        let words: Vec<String> = text.split_whitespace().map(str::to_lowercase).collect();
+        self.text = text.to_owned();
+        if words == self.words {
+            return false;
+        }
+        self.words = words;
+        true
+    }
+
+    /// Whether a file's path passes.
+    pub fn matches(&self, path: &str) -> bool {
+        self.words.iter().all(|w| crate::model::name_matches(path, w))
+    }
+
+    /// The visible rows of `files`: the indices of the files that are not padding and pass, in
+    /// the torrent's order.
+    pub fn rows(&self, files: &[FileEntry]) -> Vec<u32> {
+        let pass = |f: &FileEntry| !f.pad_file && self.matches(&f.path);
+        (0..files.len() as u32).filter(|&i| pass(&files[i as usize])).collect()
     }
 }
 
@@ -704,6 +781,69 @@ mod tests {
         assert!(many.windows(2).all(|w| w[0].1 >= w[1].1));
         assert_eq!((many[0].1, many[99].1), (7, 1), "never Don't Download");
         assert_eq!(priority_text(DownloadPriority(6)), "High");
+    }
+
+    fn file(path: &str, pad_file: bool) -> FileEntry {
+        FileEntry {
+            path: path.into(),
+            size: 1,
+            offset: 0,
+            first_piece: 0,
+            last_piece: 0,
+            pad_file,
+            priority: DownloadPriority::NORMAL,
+        }
+    }
+
+    #[test]
+    fn the_file_filter_matches_every_word_in_the_path() {
+        let files: Arc<[FileEntry]> = Arc::from(vec![
+            file("Show/Season 1/Show.S01E03.mkv", false),
+            file("Show/.pad/0", true),
+            file("Show/Subs/S01E03.ENG.srt", false),
+            file("Show/Season 1/Show.S01E04.mkv", false),
+            file("Show/Ünïcode Ä.txt", false),
+        ]);
+        let rows = |text: &str| {
+            let mut f = FileFilter::default();
+            f.set_text(text);
+            f.rows(&files)
+        };
+        let none: [u32; 0] = [];
+        assert_eq!(rows(""), [0, 2, 3, 4], "no filter: every file but the padding");
+        assert_eq!(rows("   "), [0, 2, 3, 4]);
+        assert_eq!(rows("s01e03"), [0, 2], "ignores case");
+        assert_eq!(rows("subs/"), [2], "folders count");
+        assert_eq!(rows("show mkv  e04"), [3], "every word must match, in any order");
+        assert_eq!(rows("ä"), [4], "non-ASCII ignores case too");
+        assert_eq!(rows("pad"), none, "padding never shows");
+        assert_eq!(rows("nothing"), none);
+        let mut f = FileFilter::default();
+        assert!(!f.is_on() && !f.set_text(" "), "spaces are no filter");
+        assert!(f.set_text("Show") && f.is_on() && f.text() == "Show");
+        assert!(!f.set_text("show "), "the same words: nothing to rebuild");
+    }
+
+    #[test]
+    fn the_files_tab_maps_rows_through_the_filter() {
+        let files: Arc<[FileEntry]> =
+            Arc::from(vec![file("a/one.mkv", false), file("pad", true), file("b/two.mkv", false)]);
+        let mut d = Detail::default();
+        assert!(d.set_file_filter("TWO"), "a filter before any file list");
+        d.set_files(files.clone());
+        assert_eq!((d.rows(Tab::Files), d.file_index(0)), (1, Some(2)));
+        assert_eq!(d.cell(Tab::Files, 0, 0), "b/two.mkv");
+        assert_eq!(d.file_filter_count(), "1 of 2 files");
+        assert_eq!(d.all_files(), [0, 2], "Prioritize by File Order takes them all");
+        // the text stays with another torrent and applies to its files
+        d.select(Some(TorrentId::from_raw(7)));
+        assert_eq!((d.rows(Tab::Files), d.file_filter.text()), (0, "TWO"));
+        d.set_files(files);
+        assert_eq!(d.file_index(0), Some(2));
+        assert!(d.set_file_filter(""));
+        assert_eq!((d.rows(Tab::Files), d.file_index(1)), (2, Some(2)));
+        assert_eq!(d.file_filter_count(), "", "no count without a filter");
+        assert!(!d.set_file_filter(""));
     }
 
     /// Open stays inside the save path whatever the torrent's file paths are.

@@ -112,6 +112,19 @@ pub fn date_time(unix: i64) -> String {
     format!("{y:04}-{m:02}-{d:02} {:02}:{:02}:{:02}", secs / 3600, secs % 3600 / 60, secs % 60)
 }
 
+/// `3,400`: a count with its thousands grouped, as the Files tab's filter count shows it.
+pub fn count(n: usize) -> String {
+    let digits = n.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3);
+    for (i, c) in digits.chars().enumerate() {
+        if i > 0 && (digits.len() - i) % 3 == 0 {
+            out.push(',');
+        }
+        out.push(c);
+    }
+    out
+}
+
 /// Days since 1970-01-01 to a proleptic Gregorian date (Howard Hinnant's algorithm).
 fn civil_from_days(z: i64) -> (i64, u32, u32) {
     let z = z + 719_468;
@@ -179,5 +192,14 @@ mod tests {
         assert_eq!(percent(1_000_000), "100.0 %");
         assert_eq!(availability(Some(1.5)), "1.500");
         assert_eq!(availability(None), "");
+    }
+
+    #[test]
+    fn counts() {
+        assert_eq!(count(0), "0");
+        assert_eq!(count(999), "999");
+        assert_eq!(count(3400), "3,400");
+        assert_eq!(count(100_000), "100,000");
+        assert_eq!(count(1_234_567), "1,234,567");
     }
 }

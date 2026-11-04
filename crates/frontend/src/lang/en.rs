@@ -1118,6 +1118,13 @@ strings! {
     /// The empty search box's grey hint.
     SearchCue = "Search torrent names";
 
+    // ---- The Files tab's quick filter (D50)
+
+    /// The empty filter box's grey hint, at the Files tab's top right.
+    FilesFilterCue = "Filter files";
+    /// Beside the filter box while it filters: {shown} files listed of the torrent's {total}.
+    FilesFilterCount = "{shown} of {total} files";
+
     // ---- File > Import: torrents from another client; {client} is qBittorrent or µTorrent
 
     MenuImportQbt = "Import from &qBittorrent...";

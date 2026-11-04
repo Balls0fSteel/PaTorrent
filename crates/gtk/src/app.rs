@@ -536,6 +536,33 @@ fn list_keys(app: &gtk::Application, on: bool) {
     }
 }
 
+/// Takes the [`LIST_KEYS`] off while `entry` has the focus.
+fn list_keys_off_in(app: &gtk::Application, entry: &impl IsA<gtk::Widget>) {
+    let focus = gtk::EventControllerFocus::new();
+    let a = app.downgrade();
+    focus.connect_enter(move |_| {
+        if let Some(app) = a.upgrade() {
+            list_keys(&app, false);
+        }
+    });
+    let a = app.downgrade();
+    focus.connect_leave(move |_| {
+        if let Some(app) = a.upgrade() {
+            list_keys(&app, true);
+        }
+    });
+    entry.add_controller(focus);
+}
+
+/// The Files tab's filter box got `text` (D50): the rows it lets through, the count beside it.
+fn set_file_filter(text: &str) {
+    if with_app(|a| a.detail.set_file_filter(text)) == Some(true) {
+        if let Some(ui) = ui() {
+            ui.details.files_filter_changed();
+        }
+    }
+}
+
 thread_local! {
     /// File > Profiles' submenu, filled again after New Profile.
     static PROFILES_MENU: RefCell<Option<gio::Menu>> = const { RefCell::new(None) };
@@ -898,6 +925,18 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     );
     // a double click or Enter on a file opens it, as in µTorrent
     details.connect_file_activate(|row| open_file(row, false));
+    // the Files tab's quick filter (D50): the entry waits for a pause in the typing; the text
+    // is never stored
+    details.files_filter.connect_search_changed(|e| set_file_filter(&e.text()));
+    // Escape empties it and gives the Files list the keyboard
+    details.files_filter.connect_stop_search(|e| {
+        e.set_text("");
+        set_file_filter("");
+        if let Some(ui) = ui() {
+            ui.details.focus_files();
+        }
+    });
+    list_keys_off_in(app, &details.files_filter);
     let sidebar = Sidebar::new(
         |pick| match pick {
             Pick::Torrents(filter) => {
@@ -1004,20 +1043,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             ui.list.view.grab_focus();
         }
     });
-    let focus = gtk::EventControllerFocus::new();
-    let a = app.downgrade();
-    focus.connect_enter(move |_| {
-        if let Some(app) = a.upgrade() {
-            list_keys(&app, false);
-        }
-    });
-    let a = app.downgrade();
-    focus.connect_leave(move |_| {
-        if let Some(app) = a.upgrade() {
-            list_keys(&app, true);
-        }
-    });
-    search.add_controller(focus);
+    list_keys_off_in(app, &search);
     // the menu beside it: the name filter, the search sources, Manage Sources
     let search_menu = gtk::MenuButton::new();
     search_menu.set_valign(gtk::Align::Center);
@@ -1835,9 +1861,14 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
     simple("add", add_files);
     simple("add-url", add_url);
     simple("create", create_torrent);
+    // Ctrl+F: in the Files tab its filter box (D50), elsewhere the toolbar's search box
     simple("find", || {
         if let Some(ui) = ui() {
-            ui.search.grab_focus();
+            if ui.details.focus_in_files() {
+                ui.details.files_filter.grab_focus();
+            } else {
+                ui.search.grab_focus();
+            }
         }
     });
     for client in Client::ALL {
@@ -1873,9 +1904,14 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
     simple("remove", || remove(false));
     simple("remove-data", || remove(true));
     simple("open-folder", || open_folder(&selected()));
+    // Ctrl+A: in the Files list the rows its filter shows, elsewhere the torrents
     simple("select-all", || {
         if let Some(ui) = ui() {
-            ui.list.selection.select_all();
+            if ui.details.focus_in_files() {
+                ui.details.select_all_files();
+            } else {
+                ui.list.selection.select_all();
+            }
         }
     });
     simple("about", about);
@@ -1963,7 +1999,12 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
             with_app(|a| {
                 let Some(id) = a.detail.id else { return };
                 let t = a.handle.torrent(id);
-                let files: Vec<u32> = rows.iter().filter_map(|&r| a.detail.file_index(r)).collect();
+                // by file order takes the whole torrent while the filter hides some (D50)
+                let files: Vec<u32> = if prio.is_none() && a.detail.file_filter.is_on() {
+                    a.detail.all_files()
+                } else {
+                    rows.iter().filter_map(|&r| a.detail.file_index(r)).collect()
+                };
                 let set = match prio {
                     Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),
                     None => patorrent_frontend::detail::by_file_order(&files),

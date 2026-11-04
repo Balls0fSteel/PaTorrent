@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_102555_1793784355: Version 1.1.59: the search helper, Jackett downloaded at a click (D51, Win32 and GTK)
+
+- **D51 (built by an Opus 5.5 agent, reviewed and merged):** Options > Search Sources > "Get the Search Helper (Jackett)..." downloads Jackett's own release from GitHub at the user's click (the release API's asset SHA-256 `digest` checked; new zip and tar.gz readers on the engine's inflater that refuse absolute paths, drives, `..`, NUL and links; unpacked into `<profile>/search-helper/`) and adds the source "Search helper (all)" with a generated key. The first search starts it on a free 127.0.0.1 port with `--NoUpdates --NoRestart --ListenPrivate --DataFolder` (no `--Port`: on Windows that asks for elevation; the port, loopback bind, API key, SHA-512 password hash and our proxy go into its `ServerConfig.json`, the rest kept), no console window, health-checked, stopped after 10 idle minutes and killed at exit. Site picker: public indexers, nothing ticked, FlareSolverr sites greyed; ticked ones configured through Jackett's admin API (cookie sign-in). "Open the Helper's Page" (the password to the clipboard), Update and Remove. Off in the Flatpak, `PATORRENT_NO_UPDATE_CHECK` and `PATORRENT_STORE` builds, and on FreeBSD. 28 strings in every table; `docs/SEARCH_HELPER.md` (the licence position, the flags and API calls with the Jackett source files they were read from, an 11-point checklist for the real run). The updater's progress dialog is now the generic `updater::run`.
+- **Checked:** fmt, clippy, the frontend, nox and Win32 tests (20 helper tests: the asset choice, the archive readers against hostile names and truncation, the config merge, SHA-512 known answers, a fake GitHub and Jackett server for the download, a wrong checksum, cancel, sign-in, the listing, configure, delete and a Torznab search; the process runner against a stand-in child: start, reuse, idle stop, shutdown, kill at exit, a child that never answers); GTK clippy and 9 search tests on the Xubuntu VM. **Not run: a real Jackett.** The agent was kept from downloading or running third-party code; the owner's go-ahead is needed for that run (the checklist in SEARCH_HELPER.md). Also unseen: the new Win32 button row and the GTK window.
+
 ## 2026-11-04_102209_1793784129: Version 1.1.58: "Use only this network", binding torrent traffic for VPNs (D54)
 
 - **D54 (built by an Opus 5.5 agent, reviewed and merged):** Preferences > Connection > "Use only this network": a rule (any VPN adapter; an adapter by its GUID or device name; an address range such as 10.2.0.0/16) binds every socket carrying torrent traffic to the matched adapter's addresses: listening, uTP, DHT, LSD, outgoing peers, HTTP and UDP trackers, web seeds (`core::net::bind`, `engine::network_rule`, after libtorrent's `bind_outgoing_socket`). Re-evaluated on every network change; a v4-only tunnel turns IPv6 off; no port mapping is asked of a tunnel; a rule that cannot be parsed binds to nothing. Proxy connections, the Web UI and the remote protocol stay unbound. VPN detection: Windows IfType 23/53/131 or Wintun, TAP-Windows, WireGuard in the description; Unix `wg*`, `tun*`, `tap*`, `utun*`; point-to-point adapters.
@@ -32,54 +37,3 @@ Earlier history: [archive index](docs/archive/README.md), including all 148 orig
 - **New test aid:** with `PATORRENT_SNAPSHOTS=<folder>`, the GTK GUI draws each of its windows into `window-<n>.png` there every 2 s (GTK renders them itself) and lists their titles and label texts in `windows.txt`, dialogs included. It is for machines whose screen cannot be captured or read over SSH. On the Mac VM it gave the main window, the "folder in use" message and its text. Under Xvfb on Linux it gave the "Create it?" question as a clean picture with its text. On the slow VM the first files come about 15 s after the start. Documented in RELEASING.md.
 - **Correction (2026-11-03_231320_1793744000):** the Mac VM's `screencapture` showing only the menu bar is not the missing GPU. The owner's TightVNC to the VM's Screen Sharing gives a perfect picture. It is macOS hiding window contents from a program without Screen Recording permission (SSH runs as `/usr/libexec/sshd-keygen-wrapper`).
 - Clippy for Linux and macOS clean.
-
-## 2026-11-03_231320_1793744000: The 1.1.54 hold in the Flatpak
-
-- The Flatpak, rebuilt from 1.1.54 with flatpak-builder on the Xubuntu VM, under headless GNOME 50. A fresh `fp` profile's first window was matched to its own `….profile_fp.desktop` (`Exec=flatpak run --command=patorrent-gtk … --profile fp %U`) and had PaTorrent's badge. Before the hold, a first start was grouped under the default app. Docs only.
-- On the Mac VM, `screencapture` returns only the menu bar even when started by a LaunchAgent inside the logged-in session, so it is not SSH's permission. Most likely the VM has no GPU acceleration. The VMware window on the host shows the screen.
-
-## 2026-11-03_230801_1793743681: Version 1.1.54: a profile's first window waits for GNOME
-
-- **GTK:** when a named profile's desktop entry is written at its start (its first start, or after the program moved), under GNOME (`XDG_CURRENT_DESKTOP`) the window shows 6 s later. GNOME Shell reads a new entry about 5 s late, and a window shown sooner kept a generic badge in the overview (in the Flatpak, the default app's group). This was the owner's choice over leaving it.
-- Checked under headless GNOME 50 on the Xubuntu VM: a fresh `work` profile's window got PaTorrent's badge and its own entry, where the build before still showed a gear. Started minimized, or on other desktops, nothing waits. Clippy for Linux and macOS clean; GTK tests pass.
-
-## 2026-11-03_223519_1793741719: D42 on a real Mac: a login starting the agents, Open Anyway
-
-On the owner's Intel macOS 15.8.2 VM (VMware), with 1.1.53 built there from MacPorts' GTK 4.22 (Quartz):
-
-- **Real login:** both profiles' LaunchAgents in `~/Library/LaunchAgents`, as Preferences writes them, pointed at `/Applications/PaTorrent.app`. After a reboot and automatic login, launchd started `PaTorrent 1.1.53` and `PaTorrent 1.1.53 [work]`, each holding its own library's lock. The first reboot also showed the single-instance rule: macOS reopened a second copy of the app left running before it, which took the default profile's folder, so the agent's default start got the "folder in use" message.
-- **Open Anyway:** a quarantined copy in `~/Downloads/PaTorrent` beside `patorrent.ini` was refused ("“PaTorrent” Not Opened"). Clicking Open Anyway in Privacy & Security, then in the "Open “PaTorrent”?" dialog, and the owner's password ran it from `AppTranslocation`. The quarantine became `00c3`, the flag CI set by hand. The app showed its notice ("macOS is running PaTorrent from a temporary copy, so a patorrent.ini beside PaTorrent.app is not seen. Move PaTorrent.app to the folder you want (or to Applications) with Finder and start it again.", read from the VMware window) and used `~/Library`, since the marker beside it cannot be seen from there.
-- Found: bundling from MacPorts fails on its SVG loader (no header padding), and the bundler's signing pass failed on that VM (BACKLOG). Docs only.
-
-## 2026-11-03_204931_1793735371: D42 gate 8: an exFAT stick
-
-- `macos-gate8.yml` gained an exFAT disk image as the stick (macOS 15's FSKit exFAT). The GUI ran from it and took its lock and library there. nox added a torrent saved on it; mounted at another path, nox found its state and the data, seeding with no recheck. The whole job passed (run 41705583119).
-- The first try flagged a recheck by mistake: "Checking" at 0 s is the resume data's own check. A real recheck logs "resume data did not match the files", which the job now looks for.
-- Docs and CI only.
-
-## 2026-11-03_203047_1793734247: Version 1.1.53: gate 8 on a macOS runner; two portable fixes
-
-- **Gate 8 (D42), run on GitHub's macOS 15 runner by the new hand-run workflow `macos-gate8.yml`:**
-  - **Portable:** a `PaTorrent.app` beside `patorrent.ini` ran the default profile and `[work]` side by side, kept both libraries in that folder and wrote nothing to `~/Library`.
-  - **LaunchAgents:** the per-profile LaunchAgents, as Preferences writes them, were started by launchd, each with its own library.
-  - **Translocation:** a quarantined copy opened where it was unpacked was translocated. Unapproved, Gatekeeper refused the ad-hoc-signed app ("Not Opened"). With the user-approved flag that Open Anyway sets, the GUI ran from `AppTranslocation`, showed the move-the-app notice and wrote nothing beside itself.
-  - The first run hung 45 minutes on the Gatekeeper prompt; the step now has time limits. One run waited in vain for a runner.
-- **Fix (CI, macOS):** nox beside `patorrent.ini` on macOS used `~/Library` (its path code checked macOS before portable mode). It is portable there now, as slice 7 meant.
-- **Fix (CI, Windows):** a save path inside the portable folder was stored absolute when spelt another way than the program's own path (the runner's `C:\Users\RUNNER~1` temp folder). Paths are now also compared resolved on disk (links, short names, a folder not made yet). New test; CI green on all platforms.
-
-## 2026-11-03_151244_1793715164: Version 1.1.52: the GTK AppImage on Wayland, window classes per profile
-
-- **AppImage:** the release workflow drops linuxdeploy's GTK hook line `export GDK_BACKEND=x11`, so the GUI runs on Wayland without Xwayland. Under headless GNOME 50 with no X11, the AppImage's `vpn-1` window ran next to native default and `work` windows, each matched to its own entry. On X11 under Xvfb it still starts.
-- **GTK:** the program name is the profile's application id, so X11's `WM_CLASS` matches its desktop entry (it was `patorrent-gtk`, `AppRun.wrapped` in an AppImage). The application name stays "PaTorrent".
-- **Fix:** a second start while a new profile's "Create it?" question was up asked a second time. Now the first window is awaited (checked with and without the change under Xvfb).
-- **Not changed:** the first start's generic overview badge in GNOME. The shell takes about 5 s to read a new entry, so waiting would cost more than it fixes (BACKLOG).
-- Clippy for Linux and macOS (GTK) is clean; GTK and frontend tests pass on the Xubuntu VM.
-
-## 2026-11-03_145919_1793714359: D42 on real desktops: GNOME, KDE, the Flatpak, an AppImage, rc.d as root
-
-- **FreeBSD 15.1, rc.d as root:** `patorrent_nox_profiles="default work vpn-1"` started three daemons as `patorrent`, each with its own state, downloads, log, pid file and Web UI port (8080-8082; listen ports 6881, 48807, 58905). `reload work`, `stop work` / `start work`, stop-all and the boot path (`faststart` / `faststop`) all worked. Cleaned up afterwards.
-- **A real AppImage (Xubuntu 26.04):** both AppImages built with the release workflow's pinned linuxdeploy. Beside `patorrent.ini`, nox kept its state there with and without `--profile`, through FUSE and extract-and-run; without the file it used XDG. The GTK one under Xvfb showed `[work]`, kept its state in the folder, and wrote an entry that starts the `.AppImage` file. Under X11 its window has `_GTK_APPLICATION_ID` = the profile's id but `WM_CLASS` `AppRun.wrapped`. linuxdeploy's GTK hook forces `GDK_BACKEND=x11`, so it needs Xwayland (BACKLOG).
-- **GNOME Shell 50 (headless, Wayland):** the window tracker gave the default window `io.github.balls0fsteel.PaTorrent.desktop` and the `work` window `….profile_work.desktop`, both with PaTorrent's icon. The dash showed two PaTorrent icons. On a profile's first start the overview badged its window with a generic icon, as the window came before GNOME re-read the new entry. From the next start it was right.
-- **KDE (KWin 6.6, Wayland):** KWin gave the windows `desktopFileName` = the default id and `….profile_work`, the names Plasma's task manager looks up. No screenshot: KWin cancels them in a virtual session.
-- **Flatpak (GNOME 51 runtime, built by flatpak-builder from this tree):** `--profile fp` kept its folders under `~/.var/app`. It wrote `….profile_fp.desktop` to the host's `~/.local/share/applications`, with `Exec=flatpak run --command=patorrent-gtk … --profile fp %U`. From the second start GNOME matched the window to it, with the right icon. On the first start the window was grouped under the default Flatpak app.
-- Docs only. Left: gate 8 on a Mac.

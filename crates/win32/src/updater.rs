@@ -5,6 +5,7 @@
 //! installs over the same folder and starts the new version. A portable copy (no Uninstall key
 //! naming this folder) is sent to the release's page as before.
 
+use std::any::Any;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::ptr::null;
@@ -122,27 +123,41 @@ fn spawn_checked(setup: &Setup, args: &[String]) -> io::Result<std::process::Chi
 
 /// `wParam` = KiB so far, `lParam` = KiB in all (0 while unknown).
 const WM_APP_PROGRESS: u32 = WM_APP + 22;
-/// `lParam` = `Box<Result<Setup, String>>`.
+/// `lParam` = `Box<Result<Box<dyn Any + Send>, String>>`.
 const WM_APP_DONE: u32 = WM_APP + 23;
 const ID_NAME: u16 = 100;
 const ID_PROGRESS: u16 = 101;
 const ID_PERCENT: u16 = 102;
 
+/// The work behind a progress dialog: it hears the running total and the size when known
+/// through its callback, which answers `false` once the user cancelled.
+pub type Job =
+    Box<dyn FnOnce(&mut dyn FnMut(u64, Option<u64>) -> bool) -> Result<Box<dyn Any + Send>, String> + Send>;
+
 struct State {
-    version: Version,
-    proxy: Option<FetchProxy>,
+    title: String,
+    name: String,
+    job: Option<Job>,
     cancel: Arc<AtomicBool>,
     /// Cancelled: end once the worker has stopped.
     closing: bool,
-    result: Option<Result<Setup, String>>,
+    result: Option<Result<Box<dyn Any + Send>, String>>,
 }
 
-/// Downloads `v`'s setup behind a modal progress dialog: its path and checksum once checked,
-/// `None` when cancelled or failed (a failure is shown first).
-pub fn download(owner: HWND, v: &Version, proxy: Option<FetchProxy>) -> Option<Setup> {
+/// Runs `job` on a worker thread behind a modal progress dialog titled `title`, with `name`
+/// above the bar (a marquee until the job names a size): its result, `None` when cancelled.
+/// The updater's download and the search helper's steps (D51) use it.
+pub fn run<T: Send + 'static>(
+    owner: HWND,
+    title: &str,
+    name: &str,
+    job: impl FnOnce(&mut dyn FnMut(u64, Option<u64>) -> bool) -> Result<T, String> + Send + 'static,
+) -> Option<Result<T, String>> {
+    let job: Job = Box::new(move |progress| job(progress).map(|t| Box::new(t) as Box<dyn Any + Send>));
     let mut st = State {
-        version: v.clone(),
-        proxy,
+        title: title.to_owned(),
+        name: name.to_owned(),
+        job: Some(job),
         cancel: Arc::new(AtomicBool::new(false)),
         closing: false,
         result: None,
@@ -157,7 +172,17 @@ pub fn download(owner: HWND, v: &Version, proxy: Option<FetchProxy>) -> Option<S
             &mut st as *mut State as LPARAM,
         );
     }
-    match st.result? {
+    Some(st.result?.map(|b| *b.downcast::<T>().expect("the job's own type")))
+}
+
+/// Downloads `v`'s setup behind a modal progress dialog: its path and checksum once checked,
+/// `None` when cancelled or failed (a failure is shown first).
+pub fn download(owner: HWND, v: &Version, proxy: Option<FetchProxy>) -> Option<Setup> {
+    let version = v.clone();
+    let result = run(owner, &tr!(UpdateDownloading, version = v), &v.setup_name(), move |progress| {
+        update::download_setup(&version, proxy, &download_dir(), progress)
+    });
+    match result? {
         Ok(setup) => Some(setup),
         Err(e) => {
             dialogs::error(owner, &tr!(UpdateDownloadFailed, version = v, error = e));
@@ -181,9 +206,9 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         if msg == WM_INITDIALOG {
             SetWindowLongPtrW(dlg, DWLP_USER, lp);
             let st = &mut *(lp as *mut State);
-            let title = wide(&tr!(UpdateDownloading, version = st.version));
+            let title = wide(&st.title);
             SetWindowTextW(dlg, title.as_ptr());
-            let name = wide(&st.version.setup_name());
+            let name = wide(&st.name);
             SetWindowTextW(GetDlgItem(dlg, ID_NAME as i32), name.as_ptr());
             send(GetDlgItem(dlg, ID_PROGRESS as i32), PBM_SETMARQUEE, 1, 0);
             crate::fit::fit_texts(dlg, |_| Some(0));
@@ -227,7 +252,7 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
                 1
             }
             WM_APP_DONE => {
-                let result = *Box::from_raw(lp as *mut Result<Setup, String>);
+                let result = *Box::from_raw(lp as *mut Result<Box<dyn Any + Send>, String>);
                 // a cancelled download is no failure to report
                 st.result = if st.closing { None } else { Some(result) };
                 EndDialog(dlg, if st.closing { IDCANCEL as isize } else { 1 });
@@ -240,12 +265,12 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
 
 /// Fetches on a worker thread; ends in `WM_APP_DONE`.
 unsafe fn start(dlg: HWND, st: &mut State) {
-    let (v, proxy, cancel) = (st.version.clone(), st.proxy.take(), st.cancel.clone());
+    let Some(job) = st.job.take() else { return };
+    let cancel = st.cancel.clone();
     let target = dlg as isize;
     std::thread::spawn(move || {
-        let dir = download_dir();
         let mut shown = u64::MAX;
-        let result = update::download_setup(&v, proxy, &dir, &mut |got, total| {
+        let result = job(&mut |got, total| {
             // about 500 updates at most
             let step = total.map_or(got >> 16, |t| got * 500 / t.max(1));
             if step != shown {

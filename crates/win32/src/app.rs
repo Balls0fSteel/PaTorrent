@@ -2444,6 +2444,18 @@ impl search_ui::Host for WindowSearch {
     fn set_sources_dialog(&mut self, dlg: HWND) {
         with_app(|a| a.search_sources = dlg);
     }
+
+    /// The profile's own folder (a remote window's searches run here too) and the session's
+    /// proxy, which the search helper is given for its own fetches.
+    fn helper(&mut self) -> Option<(PathBuf, Option<patorrent_frontend::search::helper::HelperProxy>)> {
+        let proxy = with_app(|a| {
+            patorrent_frontend::search::helper::HelperProxy::from_settings(
+                &Options::load(&a.prefs, &a.save_path).settings,
+            )
+        })
+        .flatten();
+        Some((base_data_dir(), proxy))
+    }
 }
 
 /// File > Import: the client's torrents with their data, statistics and labels.
@@ -3169,6 +3181,8 @@ unsafe fn on_destroy(hwnd: HWND) {
     unsafe {
         ShowWindow(hwnd, SW_HIDE);
         tray::remove(hwnd);
+        // the search helper (D51) never outlives the window
+        patorrent_frontend::search::helper::shutdown();
         close_session(hwnd, false);
         RemovePropW(hwnd, EXITING_PROP);
         PostQuitMessage(0);

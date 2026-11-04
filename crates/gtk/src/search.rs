@@ -32,6 +32,7 @@ use patorrent_core::fetch::FetchProxy;
 use patorrent_frontend::detail::ColumnDef;
 use patorrent_frontend::lang::{S, gtk_mnemonic};
 use patorrent_frontend::rss::Download;
+use patorrent_frontend::search::helper::HelperProxy;
 use patorrent_frontend::search::source::url_host;
 use patorrent_frontend::search::{
     Query, Search, SearchResult, SearchSource, Source, SourceStatus, category_text, fetch_caps,
@@ -54,6 +55,11 @@ pub trait Host {
     fn in_list(&self, info_hash: &str) -> Option<String>;
     /// Adds what a result fetched, the way an opened `.torrent` or a magnet link is added.
     fn add(&self, download: Download);
+    /// The profile folder the search helper (D51) lives in and the proxy it is given; `None`
+    /// where this window offers no helper (the default).
+    fn helper(&self) -> Option<(std::path::PathBuf, Option<HelperProxy>)> {
+        None
+    }
 }
 
 /// The longest query sent (as the Web UI's).
@@ -339,6 +345,8 @@ fn start(host: &dyn Host, text: &str, categories: Vec<u32>, mode: Mode) -> Resul
     };
     let text: String = text.trim().chars().take(MAX_QUERY).collect();
     let proxy = host.proxy();
+    // the search helper's source starts it: it needs the folder and the proxy
+    helper_ui::configure(host);
     with_search(|s| s.start(&sources, Query { text, categories }, proxy.as_ref()));
     Ok(())
 }
@@ -714,9 +722,14 @@ struct Manager {
     edit: gtk::Button,
     remove: gtk::Button,
     test: gtk::Button,
+    /// The search helper's buttons (D51).
+    helper: helper_ui::Buttons,
     /// The rows are being filled: their check boxes' signals are not edits.
     loading: Cell<bool>,
 }
+
+#[path = "search_helper.rs"]
+mod helper_ui;
 
 /// Shows the Search Sources window over `parent` (the open one, when there is one).
 pub fn show_sources(parent: &gtk::Window, host: Rc<dyn Host>) {
@@ -745,6 +758,7 @@ pub fn show_sources(parent: &gtk::Window, host: Rc<dyn Host>) {
         edit: button(tr!(RssFeedsEdit)),
         remove: button(tr!(RssFeedsRemove)),
         test: button(tr!(SearchTest)),
+        helper: helper_ui::Buttons::new(),
         loading: Cell::new(false),
     });
     SOURCES.with(|o| *o.borrow_mut() = Some(Rc::downgrade(&m)));
@@ -766,10 +780,13 @@ pub fn show_sources(parent: &gtk::Window, host: Rc<dyn Host>) {
     let body = gtk::Box::new(gtk::Orientation::Vertical, 6);
     margins(&body, 12);
     body.append(&scroll);
+    body.append(&m.helper.row);
     body.append(&m.status);
     body.append(&buttons);
     window.set_child(Some(&body));
     escape_closes(&window);
+    m.helper.connect(&m);
+    m.helper.show(m.host.as_ref());
 
     let w = Rc::downgrade(&m);
     add.connect_clicked(move |_| {

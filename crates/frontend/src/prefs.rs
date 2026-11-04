@@ -16,7 +16,9 @@ use patorrent_core::util::private_file;
 use crate::columns::Column;
 
 /// The fixed keys whose values are secrets, sealed in the file ([`crate::secret`]).
-pub const SEALED: &[&str] = &["lt.proxy_password"];
+/// The search helper's generated API key and admin password are kept in its own `helper.ini`
+/// ([`crate::search::helper::config`]) under the last two.
+pub const SEALED: &[&str] = &["lt.proxy_password", "helper.api_key", "helper.password"];
 
 /// Whether `key`'s value is a secret, sealed in the file: the [`SEALED`] keys and every
 /// search source's API key (`search.source.<n>.key`, [`crate::search::source`]).

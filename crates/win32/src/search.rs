@@ -28,6 +28,7 @@ use patorrent_core::fetch::FetchProxy;
 use patorrent_core::util::time::unix_now;
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::rss::Download;
+use patorrent_frontend::search::helper::HelperProxy;
 use patorrent_frontend::search::source::url_host;
 use patorrent_frontend::search::worker::Fetcher;
 use patorrent_frontend::search::{
@@ -83,7 +84,15 @@ pub trait Host {
     fn set_results_window(&mut self, dlg: HWND);
     /// The Search Sources dialog while it is open, null once it closes.
     fn set_sources_dialog(&mut self, dlg: HWND);
+    /// The profile folder the search helper (D51) lives in and the proxy it is given; `None`
+    /// where this window offers no helper (the default).
+    fn helper(&mut self) -> Option<(std::path::PathBuf, Option<HelperProxy>)> {
+        None
+    }
 }
+
+#[path = "search_helper.rs"]
+mod helper_ui;
 
 // ---- the toolbar search box's mode ------------------------------------------------------
 
@@ -763,6 +772,8 @@ unsafe fn go(dlg: HWND, st: &mut Results) {
             return;
         }
         let proxy = st.host.proxy();
+        // the search helper's source starts it: it needs the folder and the proxy
+        helper_ui::configure(st.host.as_mut());
         if let Some(s) = st.search.as_mut() {
             s.start(&picked, Query { text, categories }, proxy.as_ref());
         }
@@ -947,15 +958,21 @@ fn sources_template() -> Vec<u16> {
     const TAB: u32 = C | WS_TABSTOP;
     const PUSH: u32 = TAB | BS_PUSHBUTTON as u32;
     const LISTVIEW: Class = Class::Name("SysListView32");
-    let mut t = Template::new(360, 200);
+    let mut t = Template::new(360, 218);
     let list = TAB | WS_BORDER | LVS_REPORT | LVS_SHOWSELALWAYS | LVS_SINGLESEL;
     t.item(LISTVIEW, ID_SOURCES, list, [7, 7, 290, 152], "");
     t.item(BUTTON, ID_SRC_ADD, PUSH, [303, 7, 50, 14], tr!(RssFeedsAdd));
     t.item(BUTTON, ID_SRC_EDIT, PUSH, [303, 25, 50, 14], tr!(RssFeedsEdit));
     t.item(BUTTON, ID_SRC_REMOVE, PUSH, [303, 43, 50, 14], tr!(RssFeedsRemove));
     t.item(BUTTON, ID_SRC_TEST, PUSH, [303, 67, 50, 14], tr!(SearchTest));
-    t.item(STATIC, ID_SRC_STATUS, C | SS_NOPREFIX, [7, 163, 346, 18], "");
-    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [303, 181, 50, 14], tr!(BtnClose));
+    // the search helper (D51): Get alone, or the other four once it is installed
+    t.item(BUTTON, helper_ui::ID_GET, PUSH, [7, 163, 160, 14], tr!(SearchHelperGet));
+    t.item(BUTTON, helper_ui::ID_SITES, PUSH, [7, 163, 84, 14], tr!(SearchHelperSites));
+    t.item(BUTTON, helper_ui::ID_PAGE, PUSH, [95, 163, 84, 14], tr!(SearchHelperOpenPage));
+    t.item(BUTTON, helper_ui::ID_UPDATE, PUSH, [183, 163, 84, 14], tr!(SearchHelperUpdate));
+    t.item(BUTTON, helper_ui::ID_REMOVE, PUSH, [271, 163, 82, 14], tr!(SearchHelperRemove));
+    t.item(STATIC, ID_SRC_STATUS, C | SS_NOPREFIX, [7, 181, 346, 18], "");
+    t.item(BUTTON, IDOK as u16, TAB | BS_DEFPUSHBUTTON as u32, [303, 199, 50, 14], tr!(BtnClose));
     t.finish()
 }
 
@@ -1035,6 +1052,7 @@ unsafe fn sources_init(dlg: HWND, st: &mut Sources<'_>) {
         let ex = LVS_EX_FULLROWSELECT | LVS_EX_LABELTIP | LVS_EX_DOUBLEBUFFER | LVS_EX_CHECKBOXES;
         send(lv, LVM_SETEXTENDEDLISTVIEWSTYLE, ex as usize, ex as isize);
         fill_sources(dlg, st, Some(0));
+        helper_ui::show_buttons(dlg, st.host);
     }
 }
 
@@ -1135,6 +1153,7 @@ unsafe fn sources_command(dlg: HWND, st: &mut Sources<'_>, id: u16) -> bool {
                 }
             }
             ID_SRC_TEST => test_source(dlg, st),
+            _ if helper_ui::command(dlg, st, id) => {}
             _ if id == IDOK as u16 || id == IDCANCEL as u16 => {
                 EndDialog(dlg, IDOK as isize);
             }
@@ -1385,6 +1404,7 @@ mod tests {
         adds: Vec<(String, String)>,
         results_window: Option<HWND>,
         sources_dialog: Option<HWND>,
+        helper_dir: Option<std::path::PathBuf>,
     }
 
     struct TestHost(Rc<RefCell<Shared>>);
@@ -1414,6 +1434,50 @@ mod tests {
         fn set_sources_dialog(&mut self, dlg: HWND) {
             self.0.borrow_mut().sources_dialog = (!dlg.is_null()).then_some(dlg);
         }
+        fn helper(&mut self) -> Option<(std::path::PathBuf, Option<HelperProxy>)> {
+            self.0.borrow().helper_dir.clone().map(|d| (d, None))
+        }
+    }
+
+    /// The helper's buttons: none without a helper folder, Get before the install, the other
+    /// four after it (an install made by hand: `helper.ini` and the program's file).
+    #[test]
+    fn the_helper_buttons_follow_the_install() {
+        use patorrent_frontend::search::helper::{self, Layout, State};
+        let mut f = Fixture::new(sources());
+        // the dialog itself stays hidden: the buttons' own style bit says what would show
+        let visible = |f: &Fixture, id: u16| unsafe {
+            GetWindowLongW(item(f.dlg, id), GWL_STYLE) as u32 & WS_VISIBLE != 0
+        };
+        let all = [
+            helper_ui::ID_GET,
+            helper_ui::ID_SITES,
+            helper_ui::ID_PAGE,
+            helper_ui::ID_UPDATE,
+            helper_ui::ID_REMOVE,
+        ];
+        let shown = |f: &Fixture| all.iter().map(|&id| visible(f, id)).collect::<Vec<_>>();
+        unsafe { helper_ui::show_buttons(f.dlg, f.st().host) };
+        assert_eq!(shown(&f), [false; 5]);
+        if !helper::available() {
+            return; // a build without the update check
+        }
+        let dir = std::env::temp_dir().join(format!("patorrent-win32-helper-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        f.shared.borrow_mut().helper_dir = Some(dir.clone());
+        unsafe { helper_ui::show_buttons(f.dlg, f.st().host) };
+        assert_eq!(shown(&f), [true, false, false, false, false]);
+        let layout = Layout::new(&dir);
+        let exe = layout.app().join("Jackett").join("JackettConsole.exe");
+        std::fs::create_dir_all(exe.parent().unwrap()).unwrap();
+        std::fs::write(&exe, b"stand-in").unwrap();
+        State::generate("v1").save(&layout).unwrap();
+        // the frontend reads the state when the folder changes: point it elsewhere and back
+        helper::configure(&std::env::temp_dir().join("patorrent-win32-helper-none"), None);
+        unsafe { helper_ui::show_buttons(f.dlg, f.st().host) };
+        assert_eq!(shown(&f), [false, true, true, true, true]);
+        unsafe { DestroyWindow(f.dlg) };
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     const KEY: &str = "s3cr3tk3y";

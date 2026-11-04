@@ -891,6 +891,20 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   in INTEGRATIONS.md); remote-mode automation conflicts; BEP 44 / 51
   / 55.
 
+## Search helper (D51; built 2026-11-04, 1.1.59)
+
+- **The real Jackett run has not happened** (the agent was not allowed to download or run
+  third-party code): the 11-point checklist in [SEARCH_HELPER.md](SEARCH_HELPER.md) on Windows,
+  Linux and macOS. Known risks: a UAC prompt from `--DataFolder` / `--ListenPrivate` on Windows,
+  and Jackett's `%APPDATA%\Jackett` migration relaunching itself elevated when an old Jackett
+  folder exists.
+- No automatic "Update" offer when the helper fails to start (the error is shown, the button is
+  beside it). No Windows job object: a PaTorrent crash could leave Jackett running until the
+  next start.
+- nox and the Web UI get the buttons in a second slice. Screenshots of the new Win32 button row
+  (four 84-DLU buttons, long translations may crowd them) and the GTK window.
+- Website: the FAQ paragraph from the agent's report is not on the site yet.
+
 ## Network binding for VPNs (D54; built 2026-11-04, 1.1.58)
 
 - Run against a real VPN on Windows (WireGuard/Wintun, OpenVPN TAP, a vendor app such as

@@ -322,6 +322,8 @@ pub fn run() -> ExitCode {
         }
     });
     let code = app.run();
+    // the search helper (D51) never outlives the program
+    patorrent_frontend::search::helper::shutdown();
     // the tray goes while the toolkit is still there, not with the thread's locals at exit: on
     // macOS its NSStatusItem leaves the menu bar through AppKit
     TRAY.with(|t| t.borrow_mut().take());
@@ -3506,6 +3508,18 @@ impl crate::search::Host for SearchHost {
             Download::Torrent(bytes) => add_torrent_file(bytes),
             Download::Magnet(uri) => add_magnet(uri),
         }
+    }
+
+    /// The profile's data folder (a program of 100 MB and more is data, not settings) and the
+    /// session's proxy, which the search helper is given for its own fetches.
+    fn helper(&self) -> Option<(PathBuf, Option<patorrent_frontend::search::helper::HelperProxy>)> {
+        let proxy = with_app(|a| {
+            patorrent_frontend::search::helper::HelperProxy::from_settings(
+                &Options::load(&a.prefs, &a.save_path).settings,
+            )
+        })
+        .flatten();
+        Some((crate::paths::data_dir(), proxy))
     }
 }
 

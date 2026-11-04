@@ -59,12 +59,16 @@ pub fn fetch_results(
     query: &Query,
     proxy: Option<&FetchProxy>,
 ) -> Result<Vec<SearchResult>, SearchError> {
+    let routed = super::helper::route(source).map_err(SearchError::Fetch)?;
+    let source = routed.as_ref().unwrap_or(source);
     let url = search_url(&source.url, &source.api_key, &query.text, &query.categories);
     fetch_torznab(source, &url, proxy, parse_results)
 }
 
 /// Fetches a source's categories (`t=caps`, its Test; blocking).
 pub fn fetch_caps(source: &Source, proxy: Option<&FetchProxy>) -> Result<Vec<Category>, SearchError> {
+    let routed = super::helper::route(source).map_err(SearchError::Fetch)?;
+    let source = routed.as_ref().unwrap_or(source);
     let url = caps_url(&source.url, &source.api_key);
     fetch_torznab(source, &url, proxy, parse_caps)
 }
@@ -102,6 +106,9 @@ pub fn fetch_download(
     if link.is_empty() {
         return result.magnet_link().map(Download::Magnet).ok_or_else(|| tr!(RssErrNotTorrent, url = ""));
     }
+    // the search helper's links lead through it: it runs (again) and its source is where it is
+    let routed = super::helper::route(source)?;
+    let source = routed.as_ref().unwrap_or(source);
     let opts = FetchOptions {
         proxy: proxy_for(link, proxy),
         reach: download_reach(link, &source.url),

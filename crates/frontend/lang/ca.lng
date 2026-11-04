@@ -613,6 +613,7 @@ PrefDiskBusy=Quan el disc està ocupat
 PrefDiskSlowDownloads=Alenteix les baixades (escriptures al disc)
 PrefDiskSlowUploads=Alenteix les pujades (lectures del disc)
 PrefDiskIoNote=Per corregir una unitat amb el tipus detectat malament, indiqueu-lo a drive_overrides de la pàgina Avançat.
+PrefHelpHint=Passeu el ratolí per sobre d'una opció per veure'n l'ajuda, F1 per a la guia
 RssTitle=Baixador RSS
 RssAddFeed=Afegeix un canal RSS
 RssEditFeed=Edita el canal RSS

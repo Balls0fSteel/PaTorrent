@@ -3,7 +3,10 @@
 //! A shipped table is the texts alone, one line each (still `.lng`-escaped), in the key order
 //! of `lang/en.lng`, which a test keeps equal to `en.rs`; an empty line is a text the table
 //! lacks. Without the key names the tables deflate to two thirds. `OUT_DIR/keys.txt` is that
-//! key order, for a test to compare with `en.rs`.
+//! key order, for a test to compare with `en.rs`. The help texts (D55) are `en.lng`'s `help.<Key>`
+//! lines after the strings: a translation ships them in the same way (most lines empty, since
+//! translations need not have them), and the English ones are deflated alone into
+//! `OUT_DIR/help-en.z`, the only form the binaries carry them in.
 //!
 //! The encoder is core's, included by path: a build script cannot use a crate it builds beside.
 //!
@@ -37,6 +40,10 @@ fn main() {
     let english = fs::read_to_string("lang/en.lng").expect("crates/frontend/lang/en.lng");
     let keys: Vec<&str> = entries(&english).map(|(k, _)| k).collect();
     fs::write(out.join("keys.txt"), keys.join("\n")).expect("OUT_DIR/keys.txt");
+    // the English help texts (D55), which en.rs keeps out of the binaries' literals
+    let help: Vec<&str> = entries(&english).filter(|(k, _)| k.starts_with("help.")).map(|(_, v)| v).collect();
+    fs::write(out.join("help-en.z"), deflate::deflate(help.join("\n").as_bytes()))
+        .expect("OUT_DIR/help-en.z");
     let mut tables: Vec<PathBuf> = fs::read_dir("lang")
         .expect("crates/frontend/lang")
         .map(|e| e.expect("crates/frontend/lang").path())

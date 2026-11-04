@@ -18,6 +18,7 @@ macro_rules! strings {
 
         pub(super) const KEYS: &[&str] = &[$(stringify!($key)),*];
         pub(super) const ENGLISH: &[&str] = &[$($text),*];
+        #[cfg(test)]
         pub(super) const NOTES: &[&str] = &[$(concat!($($note, "\n"),*)),*];
     };
 }
@@ -865,6 +866,9 @@ strings! {
     PrefDiskSlowUploads = "Slow uploads down (disk reads)";
     /// drive_overrides is a setting's name: keep it.
     PrefDiskIoNote = "To correct a drive whose type is detected wrongly, set it in drive_overrides on the Advanced page.";
+    /// The one line at the bottom of Preferences saying where help is (D55): pointing at a
+    /// setting shows its help in the box above, F1 on a setting shows it beside the setting.
+    PrefHelpHint = "Hover a setting for help, F1 for the guide";
 
     // ---- RSS Downloader
 

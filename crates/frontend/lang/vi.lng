@@ -613,6 +613,7 @@ PrefDiskBusy=Khi đĩa đang bận
 PrefDiskSlowDownloads=Làm chậm tải xuống (ghi đĩa)
 PrefDiskSlowUploads=Làm chậm tải lên (đọc đĩa)
 PrefDiskIoNote=Để sửa một ổ đĩa bị nhận sai loại, hãy đặt loại của nó trong drive_overrides trên trang Nâng cao.
+PrefHelpHint=Di chuột lên một thiết lập để xem trợ giúp, F1 để mở hướng dẫn
 RssTitle=Trình tải RSS
 RssAddFeed=Thêm nguồn tin RSS
 RssEditFeed=Sửa nguồn tin RSS

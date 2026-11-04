@@ -613,6 +613,7 @@ PrefDiskBusy=Gdy dysk jest zajęty
 PrefDiskSlowDownloads=Spowalniaj pobieranie (zapisy na dysk)
 PrefDiskSlowUploads=Spowalniaj wysyłanie (odczyty z dysku)
 PrefDiskIoNote=Aby poprawić dysk, którego typ wykryto błędnie, ustaw go w drive_overrides na stronie Zaawansowane.
+PrefHelpHint=Najedź na ustawienie, aby zobaczyć pomoc, F1 otwiera przewodnik
 RssTitle=Pobieranie RSS
 RssAddFeed=Dodaj kanał RSS
 RssEditFeed=Edytuj kanał RSS

@@ -613,6 +613,7 @@ PrefDiskBusy=ディスクが混んでいるとき
 PrefDiskSlowDownloads=ダウンロードを遅くする (ディスクへの書き込み)
 PrefDiskSlowUploads=アップロードを遅くする (ディスクからの読み取り)
 PrefDiskIoNote=ドライブの種類が誤って検出された場合は、詳細ページの drive_overrides で指定してください。
+PrefHelpHint=設定にマウスを合わせるとヘルプ、F1 でガイド
 RssTitle=RSS ダウンローダー
 RssAddFeed=RSS フィードを追加
 RssEditFeed=RSS フィードを編集

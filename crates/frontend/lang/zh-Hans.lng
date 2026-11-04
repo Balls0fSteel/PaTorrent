@@ -613,6 +613,7 @@ PrefDiskBusy=磁盘繁忙时
 PrefDiskSlowDownloads=减慢下载（磁盘写入）
 PrefDiskSlowUploads=减慢上传（磁盘读取）
 PrefDiskIoNote=若驱动器类型检测有误，请在“高级”页面的 drive_overrides 中设置。
+PrefHelpHint=将鼠标悬停在设置上查看帮助，按 F1 查看指南
 RssTitle=RSS 下载器
 RssAddFeed=添加 RSS 订阅源
 RssEditFeed=编辑 RSS 订阅源

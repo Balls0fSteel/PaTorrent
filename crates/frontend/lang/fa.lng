@@ -613,6 +613,7 @@ PrefDiskBusy=هنگامی که دیسک مشغول است
 PrefDiskSlowDownloads=کندکردن بارگیری‌ها (نوشتن روی دیسک)
 PrefDiskSlowUploads=کندکردن بارگذاری‌ها (خواندن از دیسک)
 PrefDiskIoNote=برای اصلاح درایوی که نوعش نادرست تشخیص داده شده، آن را در drive_overrides در صفحهٔ پیشرفته تعیین کنید.
+PrefHelpHint=برای راهنما نشانگر را روی یک تنظیم نگه دارید، F1 برای راهنمای کامل
 RssTitle=بارگیر RSS
 RssAddFeed=افزودن خوراک RSS
 RssEditFeed=ویرایش خوراک RSS

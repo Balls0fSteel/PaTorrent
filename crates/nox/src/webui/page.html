@@ -135,7 +135,11 @@
     <h2 id="prefs-title" data-t="PrefTitle">Preferences</h2>
     <div class="prefs-cols">
       <nav id="prefs-tree" role="tree" aria-label="Preference pages" data-t-aria="WebPrefPages"></nav>
-      <div id="prefs-page"></div>
+      <div class="prefs-right">
+        <div id="prefs-page"></div>
+        <!-- D55: the help of the focused control, or of the hovered one -->
+        <div id="prefs-help"></div>
+      </div>
     </div>
     <div class="prefs-btns">
       <span id="prefs-msg" role="status"></span>
@@ -143,6 +147,7 @@
       <button type="button" id="prefs-cancel" data-t="BtnCancel">Cancel</button>
       <button type="button" id="prefs-apply" data-t="BtnApply">Apply</button>
     </div>
+    <p id="prefs-hint" data-t="PrefHelpHint">Hover a setting for help, F1 for the guide</p>
   </form>
 </dialog>
 <!-- Torrent Properties: the Win32 dialog's General tab (frontend::properties) -->

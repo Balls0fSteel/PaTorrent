@@ -12,7 +12,7 @@ use std::collections::HashMap;
 
 use patorrent_core::{EncPolicy, ProxyType, Settings};
 
-use crate::lang::{self, S};
+use crate::lang::{self, H, S};
 use crate::options::Options;
 use crate::settings::{self, Entry};
 
@@ -72,6 +72,9 @@ pub struct Field {
     pub needs: &'static [&'static str],
     /// Always greyed: shown, never edited (what a package manages, [`Features::packaged`]).
     pub fixed: bool,
+    /// Its help text (D55) when not the one named like its label ([`Field::help`]): a field
+    /// without a label shares its check box's, a label two fields share gets one each.
+    pub help: Option<H>,
 }
 
 /// A button a toolkit acts on.
@@ -197,7 +200,7 @@ fn language_choices(o: &Options) -> Vec<(String, String)> {
 }
 
 const fn field(key: &'static str, label: Option<S>, control: Control) -> Field {
-    Field { key, label, control, indent: false, beside: false, needs: &[], fixed: false }
+    Field { key, label, control, indent: false, beside: false, needs: &[], fixed: false, help: None }
 }
 
 const fn checkbox(
@@ -249,6 +252,17 @@ impl Field {
     const fn fixed(mut self, on: bool) -> Field {
         self.fixed = on;
         self
+    }
+
+    const fn help(mut self, h: H) -> Field {
+        self.help = Some(h);
+        self
+    }
+
+    /// Its help text's key (D55): the one set with the field, else the one named like its
+    /// label (`S::PrefDht` has `H::PrefDht`). Every field has one (a test).
+    pub fn help_key(&self) -> Option<H> {
+        self.help.or_else(|| self.label.and_then(H::for_label))
     }
 
     /// The value as its control shows it: `true` / `false`, the number (empty for none), the
@@ -464,6 +478,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.gui.completed_dir.clone(),
                     |o, v| o.gui.completed_dir = v.trim().to_owned(),
                 )
+                .help(H::PrefMoveCompleted)
                 .needs(&["dir.move_completed"])),
                 F(checkbox(
                     "dir.move_only_default",
@@ -486,6 +501,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.gui.torrent_folders.store_dir.clone(),
                     |o, v| o.gui.torrent_folders.store_dir = v.trim().to_owned(),
                 )
+                .help(H::PrefStoreTorrents)
                 .needs(&["dir.store_torrents"])),
                 F(checkbox(
                     "dir.move_torrents",
@@ -502,6 +518,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.gui.torrent_folders.finished_dir.clone(),
                     |o, v| o.gui.torrent_folders.finished_dir = v.trim().to_owned(),
                 )
+                .help(H::PrefMoveTorrents)
                 .indent()
                 .needs(&["dir.store_torrents", "dir.move_torrents"])),
                 F(checkbox(
@@ -517,6 +534,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.gui.torrent_folders.autoload_dir.clone(),
                     |o, v| o.gui.torrent_folders.autoload_dir = v.trim().to_owned(),
                 )
+                .help(H::PrefAutoload)
                 .needs(&["dir.autoload"])),
                 F(checkbox(
                     "dir.autoload_delete",
@@ -610,6 +628,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.settings.proxy_username.clone(),
                     |o, v| o.settings.proxy_username = v,
                 )
+                .help(H::PrefProxyUsername)
                 .indent()
                 .needs(&[PROXY_TYPE, PROXY_AUTH])),
                 F(text(
@@ -619,6 +638,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| o.settings.proxy_password.clone(),
                     |o, v| o.settings.proxy_password = v,
                 )
+                .help(H::PrefProxyPassword)
                 .indent()
                 .needs(&[PROXY_TYPE, PROXY_AUTH])),
                 F(checkbox(
@@ -794,7 +814,8 @@ pub fn pages(features: Features) -> Vec<Page> {
                     TextKind::File(S::PrefIpFilter),
                     |o| o.gui.ip_filter_path.clone(),
                     |o, v| o.gui.ip_filter_path = v.trim().to_owned(),
-                )),
+                )
+                .help(H::PrefIpFilterEnable)),
                 Item::Button { action: Action::ReloadIpFilter, label: S::PrefReload },
                 Item::IpFilterStatus,
             ],
@@ -867,6 +888,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| Some(o.gui.seed_limit_kib.into()),
                     |o, v| o.gui.seed_limit_kib = v as u32,
                 )
+                .help(H::PrefGoalLimit)
                 .beside()),
             ],
         },
@@ -951,6 +973,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                         settings::set_cache_size(&mut o.settings, on, v as u32)
                     },
                 )
+                .help(H::PrefCacheOverride)
                 .beside()
                 .needs(&["use_read_cache", "cache.override"])),
                 F(checkbox(
@@ -974,6 +997,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                         settings::set_cache_expiry(&mut o.settings, on, v as u32)
                     },
                 )
+                .help(H::PrefCacheExpire)
                 .beside()
                 .needs(&["use_read_cache", "cache.expire"])),
                 Group(S::PrefDiskQueue),
@@ -1040,6 +1064,7 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o| Some(o.settings.check_rate_mb.into()),
                     |o, v| o.settings.check_rate_mb = v as i32,
                 )
+                .help(H::PrefCheckRateLimit)
                 .beside()
                 .needs(&["check_rate_limit"])),
                 // the engine checks with at most 8 threads; -1 (no limit) stays on Advanced
@@ -1083,6 +1108,17 @@ pub fn fields(pages: &[Page]) -> impl Iterator<Item = &Field> {
         Item::Field(f) => Some(f),
         _ => None,
     })
+}
+
+/// The help text's key of a page item a toolkit gives a tooltip (D55): a field's
+/// ([`Field::help_key`]), a button's (named like its label) and the Scheduler's table.
+pub fn item_help(item: &Item) -> Option<H> {
+    match item {
+        Item::Field(f) => f.help_key(),
+        Item::Button { label, .. } => H::for_label(*label),
+        Item::SchedTable => Some(H::PrefSchedTable),
+        _ => None,
+    }
 }
 
 /// The page holding the field `key`.
@@ -1382,6 +1418,40 @@ mod tests {
         assert!(f.enabled(|k| k == "use_read_cache" || k == "cache.override"));
         assert!(!f.enabled(|k| k == "use_read_cache"));
         assert!(fields(&pages).find(|f| f.key == "port").unwrap().enabled(|_| false));
+    }
+
+    /// Every control of every page has a help text (D55), so a setting added without one fails
+    /// here; and every row of the Advanced table has one too.
+    #[test]
+    fn every_control_has_a_help_text() {
+        let all =
+            Features { tray: true, desktop: true, packaged: false, updates: true, alternate_rows: true };
+        for page in pages(all).iter().chain(&pages(Features { packaged: true, ..all })) {
+            for item in &page.items {
+                let needs = matches!(item, Item::Field(_) | Item::Button { .. } | Item::SchedTable);
+                if needs {
+                    let h = item_help(item);
+                    let name = match item {
+                        Item::Field(f) => f.key,
+                        _ => page.key,
+                    };
+                    assert!(h.is_some_and(|h| !h.english().is_empty()), "{name} has no help text");
+                }
+            }
+        }
+        // the proxy's and the Web UI's user names share a label, not a text
+        let fields = pages(all);
+        let user = fields_by(&fields, "proxy_username").help_key();
+        assert_eq!(user, Some(H::PrefProxyUsername));
+        assert_eq!(fields_by(&fields, "dir.completed").help_key(), Some(H::PrefMoveCompleted));
+        assert_eq!(fields_by(&fields, "enable_dht").help_key(), Some(H::PrefDht));
+        for e in settings::TABLE {
+            assert!(crate::help::for_setting(e.name).is_some(), "Advanced row {} has no help text", e.name);
+        }
+    }
+
+    fn fields_by<'a>(pages: &'a [Page], key: &str) -> &'a Field {
+        fields(pages).find(|f| f.key == key).unwrap()
     }
 
     #[test]

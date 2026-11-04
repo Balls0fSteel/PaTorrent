@@ -613,6 +613,7 @@ PrefDiskBusy=عندما يكون القرص مشغولًا
 PrefDiskSlowDownloads=إبطاء التنزيلات (الكتابة على القرص)
 PrefDiskSlowUploads=إبطاء الرفع (القراءة من القرص)
 PrefDiskIoNote=لتصحيح قرص اكتُشف نوعه خطأً، اضبط نوعه في drive_overrides في صفحة متقدم.
+PrefHelpHint=مرّر المؤشر فوق إعداد لعرض المساعدة، واضغط F1 للدليل
 RssTitle=منزِّل RSS
 RssAddFeed=إضافة خلاصة RSS
 RssEditFeed=تحرير خلاصة RSS

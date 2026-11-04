@@ -613,6 +613,7 @@ PrefDiskBusy=Keď je disk vyťažený
 PrefDiskSlowDownloads=Spomaliť sťahovanie (zápisy na disk)
 PrefDiskSlowUploads=Spomaliť odosielanie (čítanie z disku)
 PrefDiskIoNote=Ak je typ disku rozpoznaný nesprávne, opravte ho v drive_overrides na stránke Rozšírené.
+PrefHelpHint=Prejdite myšou na nastavenie pre pomocníka, F1 pre sprievodcu
 RssTitle=Sťahovanie RSS
 RssAddFeed=Pridať kanál RSS
 RssEditFeed=Upraviť kanál RSS

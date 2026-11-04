@@ -2953,6 +2953,13 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 0
             }
             WM_NOTIFY => on_notify(hwnd, lparam as *const NMHDR),
+            // the highlighted menu item's help in the status bar (D55)
+            WM_MENUSELECT => {
+                if let Some(status) = with_app(|a| a.status) {
+                    crate::help::menu_select(status, wparam, lparam);
+                }
+                0
+            }
             WM_CONTEXTMENU => {
                 on_context_menu(hwnd, wparam as HWND, lparam);
                 0
@@ -5847,6 +5854,17 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 }
                 0
             }
+            // the button under the pointer described in the status bar, as a menu item is (D55)
+            (IDC_TOOLBAR, TBN_HOTITEMCHANGE) => {
+                let hot = &*(nm as *const NMTBHOTITEM);
+                let button = (hot.dwFlags & HICF_LEAVING == 0)
+                    .then(|| TOOLBAR.iter().flatten().find(|b| b.1 as i32 == hot.idNew).map(|b| b.2))
+                    .flatten();
+                if let Some(status) = with_app(|a| a.status) {
+                    crate::help::toolbar_hot(status, button);
+                }
+                0
+            }
             (IDC_SEARCH_MENU, TBN_DROPDOWN) => {
                 search_menu(hwnd);
                 TBDDRET_DEFAULT as LRESULT
@@ -6058,6 +6076,44 @@ mod tests {
     use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError, WAIT_OBJECT_0};
 
     use super::*;
+
+    /// Every item of the menu bar, its submenus included, and every toolbar button has a help
+    /// text for the status bar (D55), but the profiles File > Profiles lists by name.
+    #[test]
+    fn every_menu_item_has_help() {
+        unsafe fn walk(menu: HMENU, missing: &mut Vec<String>, seen: &mut usize) {
+            unsafe {
+                for i in 0..GetMenuItemCount(menu).max(0) {
+                    let mut buf = [0u16; 260];
+                    let n = GetMenuStringW(menu, i as u32, buf.as_mut_ptr(), buf.len() as i32, MF_BYPOSITION);
+                    let text = String::from_utf16_lossy(&buf[..n.max(0) as usize]);
+                    let id = GetMenuItemID(menu, i);
+                    let profile = (cmd::PROFILE_BASE as u32..cmd::PROFILE_BASE as u32 + 256).contains(&id);
+                    if !text.is_empty() && !profile {
+                        *seen += 1;
+                        if crate::help::for_menu_text(&text).is_none() {
+                            missing.push(text);
+                        }
+                    }
+                    let sub = GetSubMenu(menu, i);
+                    if !sub.is_null() {
+                        walk(sub, missing, seen);
+                    }
+                }
+            }
+        }
+        let (mut missing, mut seen) = (Vec::new(), 0);
+        unsafe {
+            let bar = main_menu();
+            walk(bar, &mut missing, &mut seen);
+            DestroyMenu(bar);
+        }
+        assert!(missing.is_empty(), "no help for {missing:?}");
+        assert!(seen > 30, "{seen}");
+        for (_, _, s) in TOOLBAR.iter().flatten() {
+            assert!(patorrent_frontend::lang::H::for_label(*s).is_some(), "{s:?} has no help");
+        }
+    }
 
     /// The installed copy keeps the name the installer looks for; every other folder has its
     /// own, the same whatever the case of its path (D42).

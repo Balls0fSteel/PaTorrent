@@ -613,6 +613,7 @@ PrefDiskBusy=磁碟忙碌時
 PrefDiskSlowDownloads=減慢下載（磁碟寫入）
 PrefDiskSlowUploads=減慢上傳（磁碟讀取）
 PrefDiskIoNote=若磁碟機類型偵測有誤，請在「進階」頁面的 drive_overrides 中設定。
+PrefHelpHint=將滑鼠停在設定上查看說明，按 F1 查看指南
 RssTitle=RSS 下載器
 RssAddFeed=加入 RSS 訂閱來源
 RssEditFeed=編輯 RSS 訂閱來源

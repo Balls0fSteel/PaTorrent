@@ -613,6 +613,7 @@ PrefDiskBusy=Kun levy on kiireinen
 PrefDiskSlowDownloads=Hidasta latauksia (levylle kirjoitukset)
 PrefDiskSlowUploads=Hidasta lähetyksiä (levyltä luvut)
 PrefDiskIoNote=Jos aseman tyyppi tunnistetaan väärin, korjaa se asetuksella drive_overrides Lisäasetukset-sivulla.
+PrefHelpHint=Vie osoitin asetuksen päälle nähdäksesi ohjeen, F1 avaa oppaan
 RssTitle=RSS-lataaja
 RssAddFeed=Lisää RSS-syöte
 RssEditFeed=Muokkaa RSS-syötettä

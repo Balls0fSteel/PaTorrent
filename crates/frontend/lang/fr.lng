@@ -613,6 +613,7 @@ PrefDiskBusy=Quand le disque est occupé
 PrefDiskSlowDownloads=Ralentir les téléchargements (écritures sur le disque)
 PrefDiskSlowUploads=Ralentir les envois (lectures sur le disque)
 PrefDiskIoNote=Pour corriger un lecteur dont le type est mal détecté, indiquez-le dans drive_overrides dans la page Avancé.
+PrefHelpHint=Survolez un réglage pour l'aide, F1 pour le guide
 RssTitle=Téléchargeur RSS
 RssAddFeed=Ajouter un flux RSS
 RssEditFeed=Modifier le flux RSS

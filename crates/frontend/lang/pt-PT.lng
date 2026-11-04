@@ -613,6 +613,7 @@ PrefDiskBusy=Quando o disco está ocupado
 PrefDiskSlowDownloads=Abrandar as receções (escritas no disco)
 PrefDiskSlowUploads=Abrandar os envios (leituras do disco)
 PrefDiskIoNote=Para corrigir uma unidade cujo tipo foi mal detetado, defina-o em drive_overrides na página Avançado.
+PrefHelpHint=Passe o rato sobre uma opção para ver a ajuda, F1 para o guia
 RssTitle=Transferidor de RSS
 RssAddFeed=Adicionar feed RSS
 RssEditFeed=Editar feed RSS

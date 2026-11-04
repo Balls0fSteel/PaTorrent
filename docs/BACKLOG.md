@@ -891,6 +891,22 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   in INTEGRATIONS.md); remote-mode automation conflicts; BEP 44 / 51
   / 55.
 
+## Files tab filter and help text (D50, D55; built 2026-11-04)
+
+- **D50 Files tab filter** (1.1.56): run the Web UI's box in a browser (layout, Ctrl+F against the
+  browser's own, the phone layout); Prioritize by File Order with a filter on in both GUIs; a
+  remote window; Win32 at 150-200 % DPI and under the classic theme.
+- **D55 help text** (1.1.57): the Win32 hover tooltips and the real F1 key were checked only by
+  unit tests (the hidden desktop cannot move the cursor); GTK's pane and F1 and the Web UI's page
+  (F1 against the browser's, phone, dark mode, RTL) not seen. The other dialogs (Add, Properties,
+  RSS) and GTK's main-menu items have no help yet; `docs/HELP_TEXTS.md` is for the owner's review
+  against the code. Translations of the help texts come with the wiki (fall back to English).
+- **Found while writing the texts:** `hashing_threads` is read by nothing although its label
+  promises "used from the next start"; `tracker_receive_timeout` and `request_timeout` are unused;
+  `max_queued_disk_bytes` acts as at least 4 MB, so the 1 MB default means 4 MB;
+  `min_announce_interval` only matters when a tracker asks for less than a minute. Decide whether
+  to wire them or drop the rows.
+
 ## Validation and development environment
 
 - The remaining 100k measurements are a low-end 2-core/4 GB/HDD machine on

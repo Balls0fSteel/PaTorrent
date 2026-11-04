@@ -613,6 +613,7 @@ PrefDiskBusy=Коли диск зайнятий
 PrefDiskSlowDownloads=Сповільнювати завантаження (запис на диск)
 PrefDiskSlowUploads=Сповільнювати віддачу (читання з диска)
 PrefDiskIoNote=Якщо тип диска визначено неправильно, задайте його в drive_overrides на сторінці «Додатково».
+PrefHelpHint=Наведіть вказівник на параметр, щоб побачити довідку, F1 — посібник
 RssTitle=Завантажувач RSS
 RssAddFeed=Додати стрічку RSS
 RssEditFeed=Змінити стрічку RSS

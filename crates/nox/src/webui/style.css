@@ -446,7 +446,8 @@ body.drag-size { cursor: col-resize; user-select: none; }
 #prefs-tree .pt.on { background: var(--sel); color: var(--sel-fg); }
 #prefs-tree .pt:hover:not(.on) { background: var(--bg2); }
 #prefs-tree:focus-visible { outline: 2px solid var(--focus); }
-#prefs-page { overflow: auto; min-height: 0; padding-inline-end: 4px; display: flex; flex-direction: column; gap: 8px; align-content: start; }
+.prefs-right { display: flex; flex-direction: column; gap: 8px; min-height: 0; min-width: 0; }
+#prefs-page { flex: 1 1 auto; overflow: auto; min-height: 0; padding-inline-end: 4px; display: flex; flex-direction: column; gap: 8px; align-content: start; }
 #prefs-page.adv { overflow: hidden; }
 #prefs-page > * { flex: none; }
 #prefs-page.adv > .adv-list { flex: 1 1 auto; }
@@ -498,6 +499,20 @@ div.pg { border: 0; padding: 0 8px; }
 .prefs-btns button { min-width: 72px; }
 #prefs-msg { flex: 1; color: var(--muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 #prefs-msg.bad { color: var(--err); }
+/* D55: the description pane (about three lines, scrolls if longer) and the hint under the buttons */
+#prefs-help {
+  flex: none;
+  height: calc(4.2em + 10px);
+  line-height: 1.4;
+  overflow: auto;
+  padding: 4px 6px;
+  border: 1px solid var(--line);
+  border-radius: 3px;
+  background: var(--bg2);
+  white-space: pre-line;
+  text-align: start;
+}
+#prefs-hint { margin: -4px 0 0; color: var(--muted); font-size: 0.9em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 @media (max-width: 700px) {
   .prefs-cols { grid-template-columns: minmax(0, 1fr); grid-template-rows: auto minmax(0, 1fr); }
   #prefs-tree { display: flex; overflow-x: auto; }

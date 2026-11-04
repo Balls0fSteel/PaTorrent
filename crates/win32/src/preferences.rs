@@ -6,15 +6,19 @@
 //! Advanced table edit one working [`Options`]: page controls are written from it when shown and
 //! read back on Apply (only the controls the user changed, so a value set on the Advanced page
 //! that a page shows rounded, such as a rate that is not a whole kB/s, survives).
+//!
+//! Help (D55): every setting has a tooltip (`crate::help::Tips`), the description pane under
+//! the pages shows the hovered control's help, else the focused one's (the Advanced table: the
+//! selected row's), and F1 shows the focused control's help beside it.
 
 use std::path::{Path, PathBuf};
 use std::ptr::null;
 
 use patorrent_core::{EncPolicy, ProxyType};
 use patorrent_frontend::icons::{UiIcon, page_icon};
-use patorrent_frontend::lang::{self, S};
+use patorrent_frontend::lang::{self, H, S};
 use patorrent_frontend::options::{self, Options};
-use patorrent_frontend::pref_pages::{PROXY_TYPES, proxy_from_ui, proxy_to_ui};
+use patorrent_frontend::pref_pages::{self, Features, PROXY_TYPES, proxy_from_ui, proxy_to_ui};
 use patorrent_frontend::scheduler::{self, Mode};
 use patorrent_frontend::settings::{self, Entry, Kind, Value};
 use patorrent_frontend::tr;
@@ -38,8 +42,9 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_GROUPBOX,
     BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, DLGTEMPLATE,
     DialogBoxIndirectParamW, EN_CHANGE, ES_AUTOHSCROLL, ES_NUMBER, ES_PASSWORD, EndDialog, GetDlgItem,
-    GetWindowLongPtrW, IDCANCEL, IDOK, MapDialogRect, SW_HIDE, SW_SHOW, SetWindowLongPtrW, SetWindowTextW,
-    ShowWindow, WM_COMMAND, WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD, WS_GROUP, WS_TABSTOP, WS_VSCROLL,
+    GetWindowLongPtrW, IDCANCEL, IDOK, MapDialogRect, SW_HIDE, SW_SHOW, SetTimer, SetWindowLongPtrW,
+    SetWindowTextW, ShowWindow, WM_COMMAND, WM_HELP, WM_INITDIALOG, WM_NOTIFY, WM_TIMER, WS_BORDER, WS_CHILD,
+    WS_GROUP, WS_TABSTOP, WS_VSCROLL,
 };
 
 use crate::controls;
@@ -81,6 +86,13 @@ fn page_of(id: u16) -> Option<usize> {
 
 const ID_TREE: u16 = 900;
 const ID_APPLY: u16 = 901;
+// the help pane under the pages, its frame and the hint line (on every page)
+const ID_HELP_FRAME: u16 = 902;
+const ID_HELP_PANE: u16 = 903;
+const ID_HELP_HINT: u16 = 904;
+/// Checks what the pointer is over and what has the focus, for the help pane.
+const HELP_TIMER: usize = 1;
+const HELP_TIMER_MS: u32 = 100;
 
 // General
 const ID_LANG: u16 = id(0, 1);
@@ -235,6 +247,154 @@ impl Field {
             Field::Num { id, .. } | Field::Check { id, .. } | Field::Text { id, .. } => id,
         }
     }
+}
+
+/// Each control bound to a `pref_pages` field, by the field's key: its help is the field's
+/// ([`pref_pages::Field::help_key`]). Every field the Win32 dialog shows is here (a test).
+const FIELD_KEYS: &[(u16, &str)] = &[
+    (ID_LANG, "ui.language"),
+    (ID_ASSOC_TORRENT, "assoc.torrent"),
+    (ID_ASSOC_MAGNET, "assoc.magnet"),
+    (ID_CHECK_ASSOC, "ui.check_assoc"),
+    (ID_AUTOSTART, "assoc.autostart"),
+    (ID_START_MIN, "assoc.minimized"),
+    (ID_CHECK_UPDATES, "update.check"),
+    (ID_UPDATE_BETA, "update.beta"),
+    (ID_CONFIRM_DELETE, "ui.confirm_delete"),
+    (ID_ALT_ROWS, "ui.alternate_rows"),
+    (ID_TITLE_SPEED, "ui.title_speed"),
+    (ID_BALLOONS, "ui.balloons"),
+    (ID_CLOSE_TRAY, "ui.close_to_tray"),
+    (ID_MIN_TRAY, "ui.minimize_to_tray"),
+    (ID_ADD_STOPPED, "ui.add_stopped"),
+    (ID_ACTIVATE, "ui.activate_on_add"),
+    (ID_SHOW_ADD, "ui.show_add_dialog"),
+    (ID_DL_DIR, "dir.download"),
+    (ID_MOVE, "dir.move_completed"),
+    (ID_MOVE_ADD_LABEL, "dir.move_add_label"),
+    (ID_MOVE_DIR, "dir.completed"),
+    (ID_MOVE_ONLY_DEFAULT, "dir.move_only_default"),
+    (ID_STORE, "dir.store_torrents"),
+    (ID_STORE_DIR, "dir.torrents"),
+    (ID_MOVE_TORRENTS, "dir.move_torrents"),
+    (ID_MOVE_TORRENTS_DIR, "dir.finished_torrents"),
+    (ID_AUTOLOAD, "dir.autoload"),
+    (ID_AUTOLOAD_DIR, "dir.autoload_dir"),
+    (ID_AUTOLOAD_DELETE, "dir.autoload_delete"),
+    (ID_PORT, "port"),
+    (ID_RANDOMIZE, "net.random_port"),
+    (ID_UPNP, "enable_upnp"),
+    (ID_NATPMP, "enable_natpmp"),
+    (ID_PROXY_TYPE, pref_pages::PROXY_TYPE),
+    (ID_PROXY_HOST, "proxy_hostname"),
+    (ID_PROXY_PORT, "proxy_port"),
+    (ID_PROXY_AUTH, pref_pages::PROXY_AUTH),
+    (ID_PROXY_USER, "proxy_username"),
+    (ID_PROXY_PASS, "proxy_password"),
+    (ID_PROXY_NAMES, "proxy_hostnames"),
+    (ID_PROXY_PEERS, "proxy_peer_connections"),
+    (ID_PROXY_TRACKERS, "proxy_tracker_connections"),
+    (ID_UL_RATE, "upload_rate_limit"),
+    (ID_DL_RATE, "download_rate_limit"),
+    (ID_RATE_OVERHEAD, "rate_limit_ip_overhead"),
+    (ID_RATE_UTP, "rate_limit_utp"),
+    (ID_KEEP_PING_LOW, "auto_rate_limit"),
+    (ID_CONNECTIONS, "connections_limit"),
+    (ID_PEERS_PER_TORRENT, "bt.max_peers"),
+    (ID_SLOTS_PER_TORRENT, "bt.upload_slots"),
+    (ID_UNCHOKE, "unchoke_slots_limit"),
+    (ID_DHT, "enable_dht"),
+    (ID_LSD, "enable_lsd"),
+    (ID_PEX, "bt.pex"),
+    (ID_UTP, "utp"),
+    (ID_ENC_OUT, "enc.out"),
+    (ID_ENC_LEGACY, "enc.legacy"),
+    (ID_IPF, "ipfilter.enable"),
+    (ID_IPF_PATH, "ipfilter.path"),
+    (ID_ACTIVE, "active_limit"),
+    (ID_ACTIVE_DL, "active_downloads"),
+    (ID_ACTIVE_SEEDS, "active_seeds"),
+    (ID_SLOW, "dont_count_slow_torrents"),
+    (ID_SEED_RATIO, "queue.seed_ratio"),
+    (ID_SEED_TIME, "queue.seed_time"),
+    (ID_SEED_LIMIT, "queue.seed_limit"),
+    (ID_SEED_LIMIT_KIB, "queue.seed_limit_kib"),
+    (ID_SCHED, pref_pages::SCHED_ENABLE),
+    (ID_SCHED_UL, "sched.ul_rate"),
+    (ID_SCHED_DL, "sched.dl_rate"),
+    (ID_SCHED_DHT, "sched.dis_dht"),
+    (ID_READ_CACHE, "use_read_cache"),
+    (ID_CACHE_OVERRIDE, "cache.override"),
+    (ID_CACHE_MB, "cache.mb"),
+    (ID_CACHE_EXPIRE, "cache.expire"),
+    (ID_CACHE_EXPIRY, "cache.expiry"),
+    (ID_DISK_QUEUE, "max_queued_disk_bytes"),
+    (ID_FILE_POOL, "file_pool_size"),
+    (ID_AIO, "aio_threads"),
+    (ID_HASH_THREADS, "hashing_threads"),
+    (ID_CHECK_GENTLY, "check_gently"),
+    (ID_CHECK_RATE_LIMIT, "check_rate_limit"),
+    (ID_CHECK_RATE_MB, "check_rate_mb"),
+    (ID_ACTIVE_CHECKING, "active_checking"),
+    (ID_TUNE_FOR_DRIVE, "tune_for_drive"),
+    (ID_DISK_SLOW_DL, "disk_slow_downloads"),
+    (ID_DISK_SLOW_UL, "disk_slow_uploads"),
+];
+
+/// The help of the controls that are not `pref_pages` fields: the Win32-only buttons, the
+/// scheduler's table, the Web UI page and the Advanced page's own controls.
+const EXTRA_HELP: &[(u16, H)] = &[
+    (ID_DEFAULT_APPS, H::PrefDefaultApps),
+    (ID_RANDOM_PORT, H::PrefRandomPort),
+    (ID_IPF_RELOAD, H::PrefReload),
+    (ID_SCHED_GRID, H::PrefSchedTable),
+    (ID_WEBUI, H::PrefWebUi),
+    (ID_WEBUI_USER, H::PrefWebUiUsername),
+    (ID_WEBUI_PASS, H::PrefWebUiPassword),
+    (ID_WEBUI_KEY_ON, H::WebApiKeyEnabled),
+    (ID_WEBUI_KEY, H::WebApiKey),
+    (ID_WEBUI_SUBNETS, H::WebAuthSubnets),
+    (ID_WEBUI_PORT, H::PrefWebUiPort),
+    (ID_WEBUI_REMOTE, H::PrefWebUiRemote),
+    (ID_WEBUI_HTTPS, H::PrefWebUiHttps),
+    (ID_WEBUI_DOMAINS, H::WebDomains),
+    (ID_WEBUI_OPEN, H::PrefWebUiOpen),
+    (ID_ADV_FILTER, H::PrefFilter),
+    (ID_ADV_VALUE, H::PrefValue),
+    (ID_ADV_TRUE, H::PrefTrue),
+    (ID_ADV_FALSE, H::PrefFalse),
+    (ID_ADV_SET, H::PrefSet),
+    (ID_ADV_RESET, H::PrefReset),
+];
+
+/// Controls that show another one's help: the "..." buttons their folder's.
+const SHARES: &[(u16, u16)] = &[
+    (ID_DL_BROWSE, ID_DL_DIR),
+    (ID_MOVE_BROWSE, ID_MOVE_DIR),
+    (ID_STORE_BROWSE, ID_STORE_DIR),
+    (ID_MOVE_TORRENTS_BROWSE, ID_MOVE_TORRENTS_DIR),
+    (ID_AUTOLOAD_BROWSE, ID_AUTOLOAD_DIR),
+    (ID_IPF_BROWSE, ID_IPF_PATH),
+];
+
+/// Every control with a help text, the labels in front of fields included (`labels`: label id
+/// and the field it names, from [`build`]).
+fn control_help(labels: &[(u16, u16)]) -> Vec<(u16, H)> {
+    let all = Features { tray: true, desktop: true, packaged: false, updates: true, alternate_rows: true };
+    let pages = pref_pages::pages(all);
+    let mut out: Vec<(u16, H)> = FIELD_KEYS
+        .iter()
+        .filter_map(|&(id, key)| {
+            pref_pages::fields(&pages).find(|f| f.key == key).and_then(|f| f.help_key()).map(|h| (id, h))
+        })
+        .collect();
+    out.extend_from_slice(EXTRA_HELP);
+    for &(other, of) in labels.iter().chain(SHARES) {
+        if let Some(&(_, h)) = out.iter().find(|(i, _)| *i == of) {
+            out.push((other, h));
+        }
+    }
+    out
 }
 
 const KB: i64 = 1024;
@@ -665,6 +825,16 @@ struct State<'a> {
     languages: Vec<(String, String)>,
     /// The page tree's symbols ([`patorrent_frontend::icons::UiIcon`] order).
     images: HIMAGELIST,
+    /// The help tooltips and the F1 tip (D55).
+    tips: Option<crate::help::Tips>,
+    /// Every control with a help text ([`control_help`]).
+    help: Vec<(u16, H)>,
+    /// What the help pane shows.
+    pane: String,
+    /// The control the F1 tip is showing beside, until the focus moves.
+    f1_for: HWND,
+    /// When the F1 tip was shown.
+    f1_at: Option<std::time::Instant>,
 }
 
 /// Shows the dialog modally at `page` (a [`PAGES`] index). Returns whether anything was
@@ -703,6 +873,11 @@ impl<'a> State<'a> {
             webui: WebView::default(),
             languages: Vec::new(),
             images: 0,
+            tips: None,
+            help: Vec::new(),
+            pane: String::new(),
+            f1_for: std::ptr::null_mut(),
+            f1_at: None,
         }
     }
 }
@@ -725,6 +900,8 @@ struct Builder {
     t: Template,
     page: u16,
     next_label: u16,
+    /// Each label in front of a field, with the field's id: it shows the field's help.
+    labels: Vec<(u16, u16)>,
 }
 
 impl Builder {
@@ -752,17 +929,28 @@ impl Builder {
         self.ctl(STATIC, id, C, rect, text);
     }
 
+    /// A label naming the field `of`, whose help it shows.
+    fn label_for(&mut self, rect: [i16; 4], text: &str, of: u16) {
+        self.labels.push((self.next_label + 1 + 1000 + self.page * 100, of));
+        self.label(rect, text);
+    }
+
     /// A label and a number field on one row of a group.
     fn number(&mut self, y: i16, id: u16, style: u32, text: &str) {
-        self.label([8, y + 2, 228, 9], text);
+        self.label_for([8, y + 2, 228, 9], text, id);
         self.ctl(EDIT, id, style, [240, y, 54, 13], "");
     }
 }
 
 fn template() -> Vec<u16> {
+    build().0
+}
+
+/// The template, and which label names which field ([`Builder::labels`]).
+fn build() -> (Vec<u16>, Vec<(u16, u16)>) {
     // the Scheduler page names the grid's class
     sched_grid::register();
-    let mut b = Builder { t: Template::new(431, 301), page: 0, next_label: 50 };
+    let mut b = Builder { t: Template::new(431, 343), page: 0, next_label: 50, labels: Vec::new() };
     let tree_style = TAB
         | WS_BORDER
         | windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE
@@ -773,11 +961,11 @@ fn template() -> Vec<u16> {
         // a long page name runs to the edge (its tooltip shows it all) rather than scroll
         | TVS_NOHSCROLL
         | TVS_DISABLEDRAGDROP;
-    b.t.item(Class::Name("SysTreeView32"), ID_TREE, tree_style, [7, 7, 100, 266], "");
+    b.t.item(Class::Name("SysTreeView32"), ID_TREE, tree_style, [7, 7, 100, 309], "");
 
     b.page(0);
     b.group([0, 0, W, 34], tr!(PrefLanguage));
-    b.label([8, 15, 100, 9], tr!(PrefUiLanguage));
+    b.label_for([8, 15, 100, 9], tr!(PrefUiLanguage), ID_LANG);
     b.ctl(COMBOBOX, ID_LANG, COMBO, [112, 13, 180, 120], "");
     b.group([0, 40, W, 112], tr!(PrefIntegration));
     b.ctl(BUTTON, ID_ASSOC_TORRENT, CHECK, [8, 53, 290, 10], tr!(PrefAssocTorrent));
@@ -807,7 +995,7 @@ fn template() -> Vec<u16> {
 
     b.page(2);
     b.group([0, 0, W, 96], tr!(PrefDownloadLocation));
-    b.label([8, 14, 290, 9], tr!(PrefNewDownloadsIn));
+    b.label_for([8, 14, 290, 9], tr!(PrefNewDownloadsIn), ID_DL_DIR);
     b.ctl(EDIT, ID_DL_DIR, LINE, [8, 26, 272, 13], "");
     b.ctl(BUTTON, ID_DL_BROWSE, PUSH, [284, 26, 18, 13], "...");
     // "Append the torrent's label" to its right, as in µTorrent (`fit` makes room for longer texts)
@@ -830,23 +1018,23 @@ fn template() -> Vec<u16> {
 
     b.page(3);
     b.group([0, 0, W, 78], tr!(PrefListeningPort));
-    b.label([8, 15, 128, 9], tr!(PrefPort));
+    b.label_for([8, 15, 128, 9], tr!(PrefPort), ID_PORT);
     b.ctl(EDIT, ID_PORT, NUMBER, [140, 13, 40, 13], "");
     b.ctl(BUTTON, ID_RANDOM_PORT, PUSH, [186, 12, 60, 14], tr!(PrefRandomPort));
     b.ctl(BUTTON, ID_RANDOMIZE, CHECK, [8, 32, 290, 10], tr!(PrefRandomize));
     b.ctl(BUTTON, ID_UPNP, CHECK, [8, 46, 290, 10], tr!(PrefUpnp));
     b.ctl(BUTTON, ID_NATPMP, CHECK, [8, 60, 290, 10], tr!(PrefNatPmp));
     b.group([0, 84, W, 118], tr!(PrefProxyServer));
-    b.label([8, 98, 30, 9], tr!(PrefProxyType));
+    b.label_for([8, 98, 30, 9], tr!(PrefProxyType), ID_PROXY_TYPE);
     b.ctl(COMBOBOX, ID_PROXY_TYPE, COMBO, [40, 96, 70, 60], "");
-    b.label([118, 98, 24, 9], tr!(PrefProxy));
+    b.label_for([118, 98, 24, 9], tr!(PrefProxy), ID_PROXY_HOST);
     b.ctl(EDIT, ID_PROXY_HOST, LINE, [144, 96, 100, 13], "");
-    b.label([250, 98, 18, 9], tr!(PrefProxyPort));
+    b.label_for([250, 98, 18, 9], tr!(PrefProxyPort), ID_PROXY_PORT);
     b.ctl(EDIT, ID_PROXY_PORT, NUMBER, [270, 96, 32, 13], "");
     b.ctl(BUTTON, ID_PROXY_AUTH, CHECK, [8, 114, 290, 10], tr!(PrefAuthentication));
-    b.label([8, 130, 40, 9], tr!(PrefUsername));
+    b.label_for([8, 130, 40, 9], tr!(PrefUsername), ID_PROXY_USER);
     b.ctl(EDIT, ID_PROXY_USER, LINE, [50, 128, 90, 13], "");
-    b.label([150, 130, 40, 9], tr!(PrefPassword));
+    b.label_for([150, 130, 40, 9], tr!(PrefPassword), ID_PROXY_PASS);
     b.ctl(EDIT, ID_PROXY_PASS, LINE | ES_PASSWORD as u32, [192, 128, 110, 13], "");
     b.ctl(BUTTON, ID_PROXY_NAMES, CHECK, [8, 146, 290, 10], tr!(PrefProxyNames));
     b.ctl(BUTTON, ID_PROXY_PEERS, CHECK, [8, 160, 290, 10], tr!(PrefProxyPeers));
@@ -876,7 +1064,7 @@ fn template() -> Vec<u16> {
     b.ctl(BUTTON, ID_PEX, CHECK, [8, 41, 290, 10], tr!(PrefPex));
     b.ctl(BUTTON, ID_UTP, CHECK, [8, 55, 290, 10], tr!(PrefUtp));
     b.group([0, 78, W, 46], tr!(PrefEncryption));
-    b.label([8, 93, 36, 9], tr!(PrefOutgoing));
+    b.label_for([8, 93, 36, 9], tr!(PrefOutgoing), ID_ENC_OUT);
     b.ctl(COMBOBOX, ID_ENC_OUT, COMBO, [46, 91, 80, 60], "");
     b.ctl(BUTTON, ID_ENC_LEGACY, CHECK, [8, 108, 290, 10], tr!(PrefLegacy));
     b.group([0, 130, W, 62], tr!(PrefIpFilter));
@@ -911,24 +1099,24 @@ fn template() -> Vec<u16> {
     b.page(PAGE_WEBUI);
     b.ctl(BUTTON, ID_WEBUI, CHECK, [0, 0, 200, 10], tr!(PrefWebUi));
     b.group([0, 16, W, 110], tr!(PrefAuthentication));
-    b.label([8, 31, 50, 9], tr!(PrefUsername));
+    b.label_for([8, 31, 50, 9], tr!(PrefUsername), ID_WEBUI_USER);
     b.ctl(EDIT, ID_WEBUI_USER, LINE, [60, 29, 120, 13], "");
-    b.label([8, 47, 50, 9], tr!(PrefPassword));
+    b.label_for([8, 47, 50, 9], tr!(PrefPassword), ID_WEBUI_PASS);
     b.ctl(EDIT, ID_WEBUI_PASS, LINE | ES_PASSWORD as u32, [60, 45, 120, 13], "");
     b.label([184, 47, 120, 9], tr!(PrefWebUiPassKeep));
     // a Bearer key for scripts and *arr apps (write-only, as the password), and the subnets
     // whose clients skip the login
     b.ctl(BUTTON, ID_WEBUI_KEY_ON, CHECK, [8, 62, 290, 10], tr!(WebApiKeyEnabled));
-    b.label([20, 77, 140, 9], tr!(WebApiKey));
+    b.label_for([20, 77, 140, 9], tr!(WebApiKey), ID_WEBUI_KEY);
     b.ctl(EDIT, ID_WEBUI_KEY, LINE | ES_PASSWORD as u32, [164, 75, 134, 13], "");
-    b.label([8, 91, 290, 17], tr!(WebAuthSubnets));
+    b.label_for([8, 91, 290, 17], tr!(WebAuthSubnets), ID_WEBUI_SUBNETS);
     b.ctl(EDIT, ID_WEBUI_SUBNETS, LINE, [8, 109, 290, 13], "");
     b.group([0, 131, W, 86], tr!(PrefWebUiConnectivity));
     b.number(144, ID_WEBUI_PORT, NUMBER, tr!(PrefWebUiPort));
     b.ctl(BUTTON, ID_WEBUI_REMOTE, CHECK, [8, 161, 290, 10], tr!(PrefWebUiRemote));
     b.ctl(BUTTON, ID_WEBUI_HTTPS, CHECK, [8, 175, 290, 10], tr!(PrefWebUiHttps));
     // the host names the Host check lets through (an *arr in Docker names the PC so)
-    b.label([8, 189, 290, 9], tr!(WebDomains));
+    b.label_for([8, 189, 290, 9], tr!(WebDomains), ID_WEBUI_DOMAINS);
     b.ctl(EDIT, ID_WEBUI_DOMAINS, LINE, [8, 199, 290, 13], "");
     // the status beside Open Web UI, so that the note keeps its lines on the tallest page
     b.ctl(STATIC, ID_WEBUI_STATUS, C, [0, 221, W - 86, 18], "");
@@ -936,11 +1124,11 @@ fn template() -> Vec<u16> {
     b.label([0, 241, W, 32], tr!(PrefWebUiNote));
 
     b.page(PAGE_ADVANCED);
-    b.label([0, 2, 24, 9], tr!(PrefFilter));
+    b.label_for([0, 2, 24, 9], tr!(PrefFilter), ID_ADV_FILTER);
     b.ctl(EDIT, ID_ADV_FILTER, LINE, [28, 0, W - 28, 13], "");
     let list = TAB | WS_BORDER | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER;
     b.ctl(Class::Name("SysListView32"), ID_ADV_LIST, list, [0, 18, W, 172], "");
-    b.label([0, 199, 26, 9], tr!(PrefValue));
+    b.label_for([0, 199, 26, 9], tr!(PrefValue), ID_ADV_VALUE);
     b.ctl(EDIT, ID_ADV_VALUE, LINE, [28, 197, 170, 13], "");
     b.ctl(BUTTON, ID_ADV_TRUE, TAB | WS_GROUP | BS_AUTORADIOBUTTON as u32, [28, 198, 40, 10], tr!(PrefTrue));
     b.ctl(BUTTON, ID_ADV_FALSE, C | BS_AUTORADIOBUTTON as u32, [72, 198, 40, 10], tr!(PrefFalse));
@@ -976,13 +1164,21 @@ fn template() -> Vec<u16> {
     b.ctl(BUTTON, ID_DISK_SLOW_UL, CHECK, [8, 137, 290, 10], tr!(PrefDiskSlowUploads));
     b.label([0, 162, W, 27], tr!(PrefDiskIoNote));
 
+    let labels = b.labels;
     let mut t = b.t;
     let vis = windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE;
-    t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 280, 50, 14], tr!(BtnOk));
-    t.item(BUTTON, IDCANCEL as u16, PUSH | vis, [317, 280, 50, 14], tr!(BtnCancel));
-    t.item(BUTTON, ID_APPLY, PUSH | vis, [371, 280, 53, 14], tr!(BtnApply));
-    t.finish()
+    // the help pane under the pages (D55): four lines in a frame, then the hint beside the buttons
+    t.item(BUTTON, ID_HELP_FRAME, C | vis | BS_GROUPBOX as u32, [X0, 274, W, 42], "");
+    t.item(STATIC, ID_HELP_PANE, C | vis | SS_NOPREFIX, [X0 + 6, 282, W - 12, 32], "");
+    t.item(STATIC, ID_HELP_HINT, C | vis | SS_NOPREFIX, [7, 324, 250, 9], tr!(PrefHelpHint));
+    t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 322, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, PUSH | vis, [317, 322, 50, 14], tr!(BtnCancel));
+    t.item(BUTTON, ID_APPLY, PUSH | vis, [371, 322, 53, 14], tr!(BtnApply));
+    (t.finish(), labels)
 }
+
+/// `SS_NOPREFIX`: a help text's `&` is not a mnemonic.
+const SS_NOPREFIX: u32 = 0x80;
 
 unsafe fn item(dlg: HWND, id: u16) -> HWND {
     unsafe { GetDlgItem(dlg, id as i32) }
@@ -1008,6 +1204,9 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
             init(dlg, &mut *(lp as *mut State<'_>));
             // the pages share the dialog: each fits among its own controls
             crate::fit::fit_texts(dlg, |id| page_of(id).map(|p| p as i32));
+            // the greyed controls' tooltips where `fit` left the controls
+            let st = &mut *(lp as *mut State<'_>);
+            place_tips(dlg, st);
             return 1;
         }
         let st = GetWindowLongPtrW(dlg, DWLP_USER) as *mut State<'_>;
@@ -1016,6 +1215,14 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         }
         let st = &mut *st;
         match msg {
+            WM_TIMER if wp == HELP_TIMER => {
+                update_help_pane(dlg, st);
+                1
+            }
+            WM_HELP => {
+                f1(dlg, st);
+                1
+            }
             WM_COMMAND => command(dlg, st, loword(wp), hiword(wp) as u32) as isize,
             WM_NOTIFY => {
                 let nm = &*(lp as *const NMHDR);
@@ -1090,9 +1297,107 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
             EnableWindow(item(dlg, ID_UPDATE_BETA), 0);
         }
         fill_advanced(dlg, st, None);
+        // help (D55): a tooltip on each control and label with a text, and the pane's timer
+        st.help = control_help(&build().1);
+        let tips = crate::help::Tips::new(dlg);
+        for &(id, h) in &st.help {
+            tips.add(dlg, item(dlg, id), id, lang::help(h));
+        }
+        st.tips = Some(tips);
+        SetTimer(dlg, HELP_TIMER, HELP_TIMER_MS, None);
         let page = st.page;
         send(tree, TVM_SELECTITEM, TVGN_CARET as usize, st.tree_items[page]);
         show_page(dlg, st, page);
+    }
+}
+
+/// The help of control `id`: its own, or for the Advanced table its selected row's.
+unsafe fn help_of(dlg: HWND, st: &State<'_>, id: u16) -> Option<H> {
+    if id == ID_ADV_LIST {
+        let row = unsafe { selected_row(dlg) };
+        return row.and_then(|i| st.rows.get(i)).and_then(|e| patorrent_frontend::help::for_setting(e.name));
+    }
+    st.help.iter().find(|(i, _)| *i == id).map(|&(_, h)| h)
+}
+
+/// The control of this dialog that has the focus, with its id.
+unsafe fn focused(dlg: HWND) -> Option<(HWND, u16)> {
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetDlgCtrlID, IsChild};
+    unsafe {
+        let f = GetFocus();
+        (!f.is_null() && IsChild(dlg, f) != 0).then(|| (f, GetDlgCtrlID(f) as u16))
+    }
+}
+
+/// The help pane: the help of the control under the pointer on the shown page, else of the
+/// focused one. Also hides the F1 tip once the focus moves on.
+unsafe fn update_help_pane(dlg: HWND, st: &mut State<'_>) {
+    use windows_sys::Win32::Foundation::POINT;
+    use windows_sys::Win32::Graphics::Gdi::PtInRect;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{GetCursorPos, GetWindowRect, IsWindowVisible};
+    unsafe {
+        let mut pt = POINT { x: 0, y: 0 };
+        GetCursorPos(&mut pt);
+        let hovered = st
+            .help
+            .iter()
+            .map(|&(id, _)| id)
+            .chain([ID_ADV_LIST])
+            .filter(|&id| page_of(id) == Some(st.page))
+            .find(|&id| {
+                let h = item(dlg, id);
+                let mut r: RECT = std::mem::zeroed();
+                !h.is_null()
+                    && IsWindowVisible(h) != 0
+                    && GetWindowRect(h, &mut r) != 0
+                    && PtInRect(&r, pt) != 0
+            })
+            .and_then(|id| help_of(dlg, st, id));
+        let focus = focused(dlg);
+        let shown = hovered.or_else(|| focus.and_then(|(_, id)| help_of(dlg, st, id)));
+        let text = shown.map_or("", lang::help);
+        if text != st.pane {
+            st.pane = text.to_owned();
+            set_text(item(dlg, ID_HELP_PANE), text);
+        }
+        // the F1 tip goes with the focus, or after the hover tips' 20 s
+        let expired = st.f1_at.is_some_and(|t| t.elapsed() >= crate::help::TIP_SHOW);
+        if !st.f1_for.is_null() && (expired || focus.map(|f| f.0) != Some(st.f1_for)) {
+            if let Some(t) = &st.tips {
+                t.hide_f1(dlg);
+            }
+            st.f1_for = std::ptr::null_mut();
+            st.f1_at = None;
+        }
+    }
+}
+
+/// F1 (`WM_HELP`): the focused control's help beside it and in the pane, and its wiki page
+/// once there is one (`frontend::help::WIKI_URL`).
+unsafe fn f1(dlg: HWND, st: &mut State<'_>) {
+    unsafe {
+        let Some((ctl, id)) = focused(dlg) else { return };
+        let Some(h) = help_of(dlg, st, id) else { return };
+        let text = lang::help(h);
+        if let Some(t) = &st.tips {
+            t.show_f1(dlg, ctl, text);
+        }
+        st.f1_for = ctl;
+        st.f1_at = Some(std::time::Instant::now());
+        st.pane = text.to_owned();
+        set_text(item(dlg, ID_HELP_PANE), text);
+        if let Some(url) = patorrent_frontend::help::wiki_url(h) {
+            crate::app::open_url(dlg, &url);
+        }
+    }
+}
+
+/// Puts the greyed controls' tooltip rectangles over the shown page's controls and takes them
+/// off the hidden pages'.
+unsafe fn place_tips(dlg: HWND, st: &State<'_>) {
+    let Some(tips) = &st.tips else { return };
+    for &(id, _) in &st.help {
+        unsafe { tips.place(dlg, item(dlg, id), id, page_of(id) == Some(st.page)) };
     }
 }
 
@@ -1134,6 +1439,7 @@ unsafe fn show_page(dlg: HWND, st: &mut State<'_>, page: usize) {
         if page == PAGE_ADVANCED {
             show_value_controls(dlg, st);
         }
+        place_tips(dlg, st);
     }
 }
 
@@ -2041,6 +2347,60 @@ mod tests {
                 assert!(on_page && !other, "page {page}");
             }
             assert_eq!(send(item(dlg, ID_ADV_LIST), LVM_GETITEMCOUNT, 0, 0) as usize, settings::TABLE.len());
+        }
+    }
+
+    /// Every setting the dialog shows has a help text (D55): each `pref_pages` field has its
+    /// control here, every control and label with a text has a tooltip, and the pane follows
+    /// the focus (the Advanced table: the selected row).
+    #[test]
+    fn every_setting_has_help() {
+        let all =
+            Features { tray: true, desktop: true, packaged: false, updates: true, alternate_rows: true };
+        let pages = pref_pages::pages(all);
+        for f in pref_pages::fields(&pages) {
+            assert!(FIELD_KEYS.iter().any(|(_, k)| *k == f.key), "{} has no control in FIELD_KEYS", f.key);
+        }
+        let mut f = Fixture::new(defaults());
+        let dlg = f.dlg;
+        for field in FIELDS {
+            assert!(f.st.help.iter().any(|(id, _)| *id == field.id()), "control {} has no help", field.id());
+        }
+        // the labels in front of fields show their field's help
+        let (_, labels) = build();
+        assert!(labels.len() >= 30, "{}", labels.len());
+        for (label, of) in &labels {
+            let h = f.st.help.iter().find(|(i, _)| i == of).map(|x| x.1);
+            assert_eq!(f.st.help.iter().find(|(i, _)| i == label).map(|x| x.1), h, "label {label}");
+            assert!(unsafe { !item(dlg, *label).is_null() }, "label {label}");
+        }
+        assert_eq!(f.text(ID_HELP_HINT), tr!(PrefHelpHint));
+        unsafe {
+            // the pane follows the focus
+            f.page(5);
+            SetFocus(item(dlg, ID_DHT));
+            update_help_pane(dlg, &mut f.st);
+            assert_eq!(f.text(ID_HELP_PANE), patorrent_frontend::help!(PrefDht));
+            // F1 puts the focused control's help in the pane and beside it
+            f.page(3);
+            SetFocus(item(dlg, ID_PORT));
+            SendMessageW(dlg, WM_HELP, 0, 0);
+            assert_eq!(f.text(ID_HELP_PANE), patorrent_frontend::help!(PrefPort));
+            assert_eq!(f.st.f1_for, item(dlg, ID_PORT));
+            let tips = f.st.tips.as_ref().unwrap();
+            use windows_sys::Win32::UI::Controls::TTM_GETTOOLCOUNT;
+            assert_eq!(send(tips.f1, TTM_GETTOOLCOUNT, 0, 0), 1);
+            // each control and label: its own tool and its rectangle for when it is greyed
+            assert_eq!(send(tips.hover, TTM_GETTOOLCOUNT, 0, 0) as usize, 2 * f.st.help.len());
+            assert!(windows_sys::Win32::UI::WindowsAndMessaging::IsWindowVisible(tips.f1) != 0, "F1 tip");
+            // the Advanced table: the selected row's
+            f.page(PAGE_ADVANCED);
+            let row = f.advanced_row("connection_speed");
+            f.select_row(row);
+            SetFocus(item(dlg, ID_ADV_LIST));
+            update_help_pane(dlg, &mut f.st);
+            assert_eq!(f.text(ID_HELP_PANE), patorrent_frontend::help!(AdvConnectionSpeed));
+            assert!(f.st.f1_for.is_null(), "the F1 tip goes with the focus");
         }
     }
 

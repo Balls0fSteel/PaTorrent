@@ -613,6 +613,7 @@ PrefDiskBusy=כשהדיסק עמוס
 PrefDiskSlowDownloads=האטת ההורדות (כתיבה לדיסק)
 PrefDiskSlowUploads=האטת ההעלאות (קריאה מהדיסק)
 PrefDiskIoNote=כדי לתקן כונן שסוגו זוהה בטעות, הגדירו את סוגו ב־drive_overrides בדף מתקדם.
+PrefHelpHint=רחפו מעל הגדרה לקבלת עזרה, F1 למדריך
 RssTitle=מוריד RSS
 RssAddFeed=הוספת הזנת RSS
 RssEditFeed=עריכת הזנת RSS

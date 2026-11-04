@@ -291,6 +291,12 @@ helps! {
     /// engine: docs/DISKIO.md (part 4, implementation status), crates/core/src/engine/disk_limit.rs
     PrefDiskSlowUploads = "While a drive answers reads clearly slower than usual, halves the upload rate step by step, never below 50 kB/s, and lets it grow again once the disk is quiet. Seeding then uploads less.";
 
+    // ---- Options > Setup Guide (D53)
+    /// frontend setup_guide.rs (router_choice: OLDER_CONNECTIONS, OLDER_PER_TORRENT, OLDER_CONNECTION_SPEED; Settings connections_limit, connection_speed; GuiOptions max_peers_per_torrent)
+    GuideRouter = "The older choice lowers the connections to 100 in all, 40 per new torrent and 8 new connection attempts a second, so a small router keeps up. The modern choice keeps the defaults: 200, no limit per torrent and 30 a second.";
+    /// frontend setup_guide.rs (smart_disk: check_gently, tune_for_drive, disk_slow_downloads, disk_slow_uploads), docs/DISKIO.md
+    GuideSmartDisk = "Turns on gentle checks, per-drive tuning and the slow-down of downloads and uploads while a disk answers slowly. It shows ticked only while all four are on; unticking it then turns them off.";
+
     // ======== The Advanced table: network, queue, DHT, transports
 
     /// engine: crates/core/src/engine/tracker.rs (TrackerManager::set_options), engine/upnp.rs, engine/portmap.rs (upnp_settings)
@@ -592,6 +598,8 @@ helps! {
     MenuCloseToTray = "When on, closing the window hides PaTorrent to its tray icon and the torrents keep running. Exit still quits.";
     /// win32 app.rs cmd::MIN_TO_TRAY -> toggles pref ui.minimize_to_tray
     MenuMinimizeToTray = "When on, minimizing the window hides it from the taskbar, leaving only the tray icon.";
+    /// win32 app.rs cmd::SETUP_GUIDE -> show_setup_guide -> setup_guide::show; frontend setup_guide.rs
+    MenuSetupGuide = "Asks again the few questions of the first start: the download folder, the router, smart disk I/O and, where offered, starting with the system and the file associations.";
 
     // ---- Menu: Help
     /// win32 app.rs cmd::WEBSITE -> open_url(update::WEBSITE_URL)

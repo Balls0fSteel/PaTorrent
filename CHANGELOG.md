@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_214652_1793825212: FreeBSD CI: the helper's download tests skip where Jackett has no build
+
+- **Failed:** the FreeBSD workflow on `0b278fbb`: `downloads_checks_and_installs` and `a_wrong_checksum_or_a_cancel_installs_nothing` unwrapped `release::latest_from`, which rightly refuses with "Jackett has no build for this system" on FreeBSD. Both now return early when `platform_asset()` is `None`; the second checks that refusal first. The same run's macOS CI job was cancelled because no hosted runner took it (GitHub's macOS arm64 capacity), not a code failure.
+- **No version bump:** tests only.
+
 ## 2026-11-04_211029_1793823029: The user guide on the GitHub wiki
 
 - **28 pages** in `docs/wiki/`, pushed to the [wiki](https://github.com/Balls0fSteel/PaTorrent/wiki): getting started (installing, the Setup Guide, where files live and portable mode, profiles, updating), everyday use (adding torrents, the main window, managing torrents, detail tabs and files, creating, importing, searching, RSS), speed and network (limits and scheduler, keep ping low, ports/firewall/VPN/proxy, queueing and seeding, disk, Auto Shutdown), remote (Web UI, remote control, `patorrent-nox` and services, Sonarr/Radarr/Prowlarr) and reference (every Preferences page, shortcuts, tray and startup, troubleshooting/FAQ), with a sidebar and footer. Windows first, then the GTK and Web UI differences; features newer than 1.1.40 are marked. Written by six parallel agents from `en.rs`, `HELP_TEXTS.md` and the code under `docs/wiki/BRIEF.md`; links, anchors and images checked by a script.

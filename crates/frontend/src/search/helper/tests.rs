@@ -189,8 +189,17 @@ fn good_fake() -> Fake {
     fake(archive, digest)
 }
 
+/// Jackett publishes no build for some systems (FreeBSD among them); there `latest_from`
+/// rightly refuses, so the download and install tests have nothing to fetch.
+fn no_jackett_build() -> bool {
+    release::platform_asset().is_none()
+}
+
 #[test]
 fn downloads_checks_and_installs() {
+    if no_jackett_build() {
+        return;
+    }
     let f = good_fake();
     let r = release::latest_from(&f.url("/repos/Jackett/Jackett/releases/latest"), None).unwrap();
     assert_eq!(r.version, "v9.9.9");
@@ -242,6 +251,10 @@ fn downloads_checks_and_installs() {
 
 #[test]
 fn a_wrong_checksum_or_a_cancel_installs_nothing() {
+    if no_jackett_build() {
+        assert!(release::latest_from("http://127.0.0.1:1/", None).unwrap_err().contains("no build"));
+        return;
+    }
     let f = fake(release_archive(), format!("sha256:{}", "0".repeat(64)));
     let r = release::latest_from(&f.url("/repos/Jackett/Jackett/releases/latest"), None).unwrap();
     let e = release::download(&r, None, &mut |_, _| true).unwrap_err();

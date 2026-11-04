@@ -900,8 +900,9 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   guide's buttons (sk, hr, sr).
 - A second start during the first-start guide (a `.torrent` or link handed over): fixed in Win32
   in 1.1.64 (a hidden `<main class>.Waiting` window takes them, added when the main window
-  exists; unit-tested, not run with two real processes). GTK already queued them in `PENDING`
-  (read in the code, not run).
+  exists); GTK already queued them in `PENDING`. Both run with two real processes 2026-11-04
+  (Win32 on the hidden desktop, GTK under Xvfb on the Xubuntu VM): the second start exits at
+  once, and after Skip the torrent's Add New Torrent dialog comes. Not run: a magnet link.
 - An installed Windows copy hides page 4 at a first start, also for a new named profile the
   setup never asked about; Ctrl+G always shows it. The `GuideRouter` tooltip largely repeats
   the page's own text. The smart-disk box shows ticked only while all four D48 settings are on.
@@ -946,7 +947,8 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   browser's own, the phone layout); Prioritize by File Order with a filter on in both GUIs; a
   remote window; Win32 at 150-200 % DPI and under the classic theme. The × that empties the box
   (Win32 1.1.64; GTK's search entry and the Web UI's `type="search"` box have their own, except in
-  Firefox) is unit-tested but not seen on screen.
+  Firefox) was seen on the hidden desktop at 100 % (shown while filtering, empties the box,
+  hides); not at higher DPI or under the classic theme.
 - **D55 help text** (1.1.57): the Win32 hover tooltips and the real F1 key were checked only by
   unit tests (the hidden desktop cannot move the cursor); GTK's pane and F1 and the Web UI's page
   (F1 against the browser's, phone, dark mode, RTL) not seen. The other dialogs (Add, Properties,

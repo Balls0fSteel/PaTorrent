@@ -1,6 +1,6 @@
 # The search helper (D51)
 
-For users without a Prowlarr or Jackett of their own: Options > Search Sources offers "Get the Search Helper (Jackett)...". PaTorrent downloads Jackett's own release from GitHub at that click, unpacks it into the profile folder and runs it as a separate program on `127.0.0.1`, only while searching. Its `all` Torznab endpoint becomes an ordinary search source, "Search helper (all)", so the D41 search (`docs/INTEGRATIONS.md` part 2) does everything else. The design is the D51 section of `docs/PROPOSALS.md`, way A. This file describes what was built.
+For users without a Prowlarr or Jackett of their own: Options > Search Sources offers "Get the Search Helper (Jackett)...". PaTorrent downloads Jackett's own release from GitHub at that click, unpacks it into the profile folder and runs it as a separate program on `127.0.0.1`, only while searching. Its `all` Torznab endpoint becomes an ordinary search source, "Search helper (all)", so the D41 search (`docs/INTEGRATIONS.md` part 2) does everything else. The design is the D51 section of `docs/PROPOSALS.md`, way A. This file describes what was built; the user's guide with screenshots is [SEARCH_ON_WINDOWS.md](SEARCH_ON_WINDOWS.md).
 
 ## Licence position (from PROPOSALS.md)
 

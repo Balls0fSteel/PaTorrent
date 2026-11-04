@@ -49,7 +49,7 @@ Website: <https://balls0fsteel.github.io/PaTorrent/>: downloads with how to star
 
 `patorrent-nox` runs headless with its own Web UI and a qBittorrent-compatible API that Sonarr, Radarr and Prowlarr use as a download client. The GTK 4 GUI runs on Linux, BSD and macOS. BitTorrent v2 and hybrid torrents, 34 languages, HTTPS and remote mode are in.
 
-1.1 added a search box for the torrent list and importers for µTorrent and qBittorrent torrents. 1.1.17 adds torrent search through your own Prowlarr or Jackett (Torznab), in all three interfaces, with no search plugins or scrapers of our own. Validation on more machines continues. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
+1.1 added a search box for the torrent list and importers for µTorrent and qBittorrent torrents. 1.1.17 adds torrent search through your own Prowlarr or Jackett (Torznab), in all three interfaces, with no search plugins or scrapers of our own; from 1.1.59 the search helper downloads Jackett for you at a click ([docs/SEARCH_ON_WINDOWS.md](docs/SEARCH_ON_WINDOWS.md), the step-by-step guide with screenshots). Validation on more machines continues. See [PLAN.md](PLAN.md), [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/PORTING.md](docs/PORTING.md).
 
 ## Download
 

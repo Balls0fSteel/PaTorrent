@@ -120,6 +120,8 @@
     <section class="qa" id="search" aria-labelledby="search-h">
       <h2 id="search-h">How do I search for torrents?</h2>
       <p>From 1.1.17, through a Prowlarr or Jackett you run yourself. PaTorrent asks them over Torznab, the search API they share; it has no search plugins or site scrapers of its own, so nothing breaks when a site changes. Search works in the Windows GUI, the GTK GUI and the Web UI.</p>
+      <p><strong>No Prowlarr or Jackett?</strong> From 1.1.59, Manage Sources has a "Get the Search Helper (Jackett)..." button: PaTorrent downloads Jackett's own release for you, keeps it in its own folder, runs it only while you search, and lets you tick the public sites it searches. The step-by-step guide with screenshots: <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/SEARCH_ON_WINDOWS.md">Searching for torrents on Windows</a>.</p>
+      <p>With your own Prowlarr or Jackett:</p>
       <ol>
         <li>Get a Torznab URL and the API key. In Prowlarr, copy an indexer's Torznab feed URL, and the API key from Settings &gt; General. In Jackett, use the <code>all</code> indexer's Torznab URL and Jackett's API key.</li>
         <li>Open Manage Sources from the menu beside the search box (the arrow beside it on Windows; in the Web UI, Find &gt; Manage Sources), add the source and press Test.</li>

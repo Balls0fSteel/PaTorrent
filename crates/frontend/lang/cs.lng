@@ -815,6 +815,7 @@ RssErrNotFeed={url}: není kanál RSS ani Atom
 SearchCue=Hledat v názvech torrentů
 FilesFilterCue=Filtrovat soubory
 FilesFilterCount={shown} z {total} souborů
+FilesFilterClear=Vymazat filtr (Esc)
 MenuImportQbt=Importovat z &qBittorrent...
 MenuImportUt=Importovat z &µTorrent...
 ImportPickFolder=Vyberte složku {client}

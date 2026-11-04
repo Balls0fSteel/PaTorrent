@@ -815,6 +815,7 @@ RssErrNotFeed={url}: nem RSS- vagy Atom-csatorna
 SearchCue=Keresés a torrentek nevében
 FilesFilterCue=Fájlok szűrése
 FilesFilterCount={shown} / {total} fájl
+FilesFilterClear=Szűrő törlése (Esc)
 MenuImportQbt=Importálás a &qBittorrentből...
 MenuImportUt=Importálás a &µTorrentből...
 ImportPickFolder=Válassza ki a(z) {client} mappáját

@@ -815,6 +815,7 @@ RssErrNotFeed={url}: ikke et RSS- eller Atom-feed
 SearchCue=Søg i torrentnavne
 FilesFilterCue=Filtrer filer
 FilesFilterCount={shown} af {total} filer
+FilesFilterClear=Ryd filteret (Esc)
 MenuImportQbt=Importér fra &qBittorrent...
 MenuImportUt=Importér fra &µTorrent...
 ImportPickFolder=Vælg mappen {client}

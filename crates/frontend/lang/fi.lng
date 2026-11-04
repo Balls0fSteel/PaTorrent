@@ -815,6 +815,7 @@ RssErrNotFeed={url}: ei RSS- tai Atom-syöte
 SearchCue=Hae torrenttien nimistä
 FilesFilterCue=Suodata tiedostoja
 FilesFilterCount={shown}/{total} tiedostoa
+FilesFilterClear=Tyhjennä suodatin (Esc)
 MenuImportQbt=Tuo ohjelmasta &qBittorrent...
 MenuImportUt=Tuo ohjelmasta &µTorrent...
 ImportPickFolder=Valitse {client}-kansio

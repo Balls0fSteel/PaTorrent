@@ -140,6 +140,76 @@ pub fn main_class() -> PCWSTR {
         .as_ptr()
 }
 
+/// The class of the hidden window that takes a second start's arguments while a first start's
+/// Setup Guide runs (D53), when there is no main window yet: [`main_class`]'s name with
+/// `.Waiting`, which `instance` in `main.rs` looks for when it finds no main window.
+pub fn waiting_class() -> PCWSTR {
+    static CLASS: std::sync::OnceLock<Vec<u16>> = std::sync::OnceLock::new();
+    CLASS
+        .get_or_init(|| {
+            let p = profile::current();
+            let main = main_class_name(&base_data_dir(), p.is_default() && p.portable_root.is_none());
+            wide(&format!("{main}.Waiting"))
+        })
+        .as_ptr()
+}
+
+/// What second starts handed to the waiting window, added once the main window exists.
+static WAITING_ARGS: Mutex<Vec<String>> = Mutex::new(Vec::new());
+
+unsafe extern "system" fn waiting_proc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: LPARAM) -> LRESULT {
+    if msg == WM_COPYDATA {
+        if lparam != 0 {
+            // SAFETY: a WM_COPYDATA's lparam points at its COPYDATASTRUCT while it is handled
+            if let Some(args) = copydata_args(unsafe { &*(lparam as *const COPYDATASTRUCT) }) {
+                WAITING_ARGS.lock().unwrap_or_else(|e| e.into_inner()).extend(args);
+            }
+        }
+        return 1;
+    }
+    unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
+}
+
+/// Creates the waiting window: hidden, and top level so that `FindWindow` finds it. Null if
+/// it could not be made (a second start then waits for the main window as before).
+unsafe fn waiting_window() -> HWND {
+    unsafe {
+        let instance = GetModuleHandleW(null());
+        let mut wc: WNDCLASSEXW = zeroed();
+        wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
+        wc.lpfnWndProc = Some(waiting_proc);
+        wc.hInstance = instance;
+        wc.lpszClassName = waiting_class();
+        RegisterClassExW(&wc);
+        let hwnd = CreateWindowExW(
+            0,
+            waiting_class(),
+            null(),
+            WS_POPUP,
+            0,
+            0,
+            0,
+            0,
+            null_mut(),
+            null_mut(),
+            instance,
+            null(),
+        );
+        if !hwnd.is_null() {
+            refuse_lower_integrity_copydata(hwnd);
+        }
+        hwnd
+    }
+}
+
+/// Closes the waiting window and returns what it was handed.
+unsafe fn close_waiting_window(hwnd: HWND) -> Vec<String> {
+    if !hwnd.is_null() {
+        unsafe { DestroyWindow(hwnd) };
+    }
+    std::mem::take(&mut *WAITING_ARGS.lock().unwrap_or_else(|e| e.into_inner()))
+}
+
 /// [`DEFAULT_MAIN_CLASS`] for the default folder; for any other, the name with `.` and 16 hex
 /// digits of the FNV-1a 64 hash of the folder in lower case (Windows paths ignore case).
 pub(crate) fn main_class_name(dir: &Path, default: bool) -> String {
@@ -176,6 +246,8 @@ const IDC_SEARCH_MENU: usize = 16;
 /// The Files tab's filter box and the count beside it (D50).
 const IDC_FILES_FILTER: usize = 17;
 const IDC_FILES_COUNT: usize = 18;
+/// The × at the filter box's right end that empties it, shown while it has text.
+const IDC_FILES_CLEAR: usize = 19;
 /// The count's `SS_RIGHT | SS_CENTERIMAGE | SS_NOPREFIX`.
 const FILES_COUNT_STYLE: u32 = 0x2 | 0x200 | 0x80;
 const IDC_PAGE: usize = 20;
@@ -341,6 +413,7 @@ struct App {
     /// The Files tab's filter box at its top right, the "12 of 3,400 files" beside it and
     /// the count's text (D50).
     files_filter: HWND,
+    files_clear: HWND,
     files_count: HWND,
     files_count_text: String,
 
@@ -666,7 +739,11 @@ pub fn run(args: Args) -> i32 {
         }
         opts = Options::load(&prefs, &downloads_folder());
     }
+    // a torrent or link opened while the guide is up waits in a hidden window and is added
+    // once the main window exists, not lost (D53)
+    let mut waiting: HWND = null_mut();
     if first_start {
+        waiting = unsafe { waiting_window() };
         // before the main window and the engine, so nothing downloads before the answers;
         // the setup of an installed copy asked about associations and autostart already
         let (guide_opts, old) = guide_options(&prefs, &downloads_folder());
@@ -775,7 +852,10 @@ pub fn run(args: Args) -> i32 {
         if opts.gui.check_association && local && !args.minimized {
             check_association(hwnd);
         }
-        add_sources(hwnd, &args.sources);
+        // the main window takes second starts from now on
+        let mut sources = args.sources.clone();
+        sources.extend(close_waiting_window(waiting));
+        add_sources(hwnd, &sources);
 
         let accels = [
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'O' as u16, cmd: cmd::ADD },
@@ -1143,6 +1223,9 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         );
         let cue = wide(tr!(FilesFilterCue));
         send(files_filter, EM_SETCUEBANNER, 0, cue.as_ptr() as LPARAM);
+        let files_clear =
+            child(hwnd, w!("BUTTON"), "\u{00d7}", WS_CHILD | BS_PUSHBUTTON as u32, 0, IDC_FILES_CLEAR);
+        crate::help::control_tip(hwnd, files_clear, tr!(FilesFilterClear));
         let files_count = child(hwnd, w!("STATIC"), "", WS_CHILD | FILES_COUNT_STYLE, 0, IDC_FILES_COUNT);
         let status =
             child(hwnd, STATUSCLASSNAMEW, "", WS_CHILD | SBARS_SIZEGRIP | SBARS_TOOLTIPS, 0, IDC_STATUS);
@@ -1218,6 +1301,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             pages,
             piece_list,
             files_filter,
+            files_clear,
             files_count,
             files_count_text: String::new(),
             split_tree: zeroed(),
@@ -1415,7 +1499,8 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
                 std::mem::replace(&mut a.nav_images, nav_images),
             );
             a.net_shown = None;
-            let mut list = vec![a.tree, a.lv, a.tabs, a.status, a.search, a.files_filter, a.files_count];
+            let mut list =
+                vec![a.tree, a.lv, a.tabs, a.status, a.search, a.files_filter, a.files_clear, a.files_count];
             list.extend(a.pages);
             (old, old_states, list, a.toolbar, a.pages[Page::Trackers.index()])
         }) else {
@@ -1540,7 +1625,14 @@ unsafe fn layout(hwnd: HWND) {
                 scale(a.detail_h, a.dpi),
                 a.dpi,
                 a.updates.notice().map(|v| tr!(UpdateNotice, version = v)),
-                (a.search, a.search_menu, a.files_filter, a.files_count),
+                (
+                    a.search,
+                    a.search_menu,
+                    a.files_filter,
+                    a.files_count,
+                    a.files_clear,
+                    a.detail.file_filter.is_on(),
+                ),
             )
         }) else {
             return;
@@ -1561,7 +1653,7 @@ unsafe fn layout(hwnd: HWND) {
             detail_h,
             dpi,
             notice,
-            (search, search_menu, files_filter, files_count),
+            (search, search_menu, files_filter, files_count, files_clear, filtering),
         ) = a;
         let mut files_bar = false;
         let mut rc: RECT = zeroed();
@@ -1617,7 +1709,14 @@ unsafe fn layout(hwnd: HWND) {
                 files_bar = true;
                 let (w, h) = (scale(200, dpi).min((area.right - area.left) / 2), scale(22, dpi));
                 let x = area.right - w;
-                SetWindowPos(files_filter, HWND_TOP, x, area.top, w, h, SWP_SHOWWINDOW);
+                // the × on the box's right while it filters, the box narrower by its width
+                let cx = if filtering { h } else { 0 };
+                SetWindowPos(files_filter, HWND_TOP, x, area.top, w - cx, h, SWP_SHOWWINDOW);
+                if filtering {
+                    SetWindowPos(files_clear, HWND_TOP, x + w - cx, area.top, cx, h, SWP_SHOWWINDOW);
+                } else {
+                    ShowWindow(files_clear, SW_HIDE);
+                }
                 let cw = scale(240, dpi).min((x - area.left - gap).max(0));
                 SetWindowPos(files_count, HWND_TOP, x - gap - cw, area.top, cw, h, SWP_SHOWWINDOW);
                 area.top = (area.top + h + gap / 2).min(area.bottom);
@@ -1643,6 +1742,7 @@ unsafe fn layout(hwnd: HWND) {
         }
         if !files_bar {
             ShowWindow(files_filter, SW_HIDE);
+            ShowWindow(files_clear, SW_HIDE);
             ShowWindow(files_count, SW_HIDE);
         }
         let mut split_tree: RECT = zeroed();
@@ -2302,11 +2402,17 @@ unsafe fn files_filter_key(msg: &MSG) -> bool {
 fn on_files_filter() {
     let Some(filter) = with_app(|a| a.files_filter) else { return };
     let text = unsafe { crate::util::window_text(filter) };
-    let Some((changed, files_lv)) =
-        with_app(|a| (a.detail.set_file_filter(&text), a.pages[Page::Files.index()]))
-    else {
+    let Some((changed, files_lv, hwnd, was_on, on)) = with_app(|a| {
+        let was_on = a.detail.file_filter.is_on();
+        let changed = a.detail.set_file_filter(&text);
+        (changed, a.pages[Page::Files.index()], a.hwnd, was_on, a.detail.file_filter.is_on())
+    }) else {
         return;
     };
+    if was_on != on {
+        // the × comes or goes
+        unsafe { layout(hwnd) };
+    }
     if changed {
         unsafe {
             controls::set_state(files_lv, None, false, false);
@@ -3004,6 +3110,15 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 SetBkColor(wparam as HDC, GetSysColor(color));
                 SetTextColor(wparam as HDC, GetSysColor(COLOR_WINDOWTEXT));
                 GetSysColorBrush(color) as LRESULT
+            }
+            WM_COMMAND if crate::util::loword(wparam) as usize == IDC_FILES_CLEAR => {
+                // empties the box (its EN_CHANGE lists every file again) and leaves the
+                // keyboard there
+                if let Some(filter) = with_app(|a| a.files_filter) {
+                    SetWindowTextW(filter, w!(""));
+                    SetFocus(filter);
+                }
+                0
             }
             WM_COMMAND if crate::util::loword(wparam) as usize == IDC_FILES_FILTER => {
                 if crate::util::hiword(wparam) as u32 == EN_CHANGE {
@@ -5060,6 +5175,17 @@ mod search_tests {
                 Some((Some(0), Some(3)))
             );
 
+            // the × shows while the box filters and empties it (the window itself is hidden,
+            // so the style tells)
+            let clear = with_app(|a| a.files_clear).unwrap();
+            let shown = |h: HWND| GetWindowLongW(h, GWL_STYLE) as u32 & WS_VISIBLE != 0;
+            assert!(shown(clear));
+            SendMessageW(hwnd, WM_COMMAND, IDC_FILES_CLEAR, clear as LPARAM);
+            assert_eq!(crate::util::window_text(filter), "");
+            assert_eq!(send(lv, LVM_GETITEMCOUNT, 0, 0), 3);
+            assert!(!shown(clear));
+            SetWindowTextW(filter, w!("mkv"));
+
             // Ctrl+A in the list selects the two rows shown; Ctrl+F there goes to the box
             SetFocus(lv);
             if GetFocus() == lv {
@@ -5083,6 +5209,31 @@ mod search_tests {
             with_app(|a| a.detail.select(Some(TorrentId::from_raw(99))));
             assert_eq!(with_app(|a| a.detail.file_filter.text().to_owned()).as_deref(), Some("srt"));
             DestroyWindow(hwnd);
+        }
+    }
+
+    #[test]
+    fn the_waiting_window_keeps_a_second_starts_torrents() {
+        unsafe {
+            let waiting = waiting_window();
+            assert!(!waiting.is_null());
+            assert_eq!(FindWindowW(waiting_class(), null()), waiting);
+            // what `instance::forward` sends: NUL-separated, ended by an empty string
+            let mut payload: Vec<u16> = Vec::new();
+            for s in ["C:\\a.torrent", "magnet:?xt=urn:btih:00"] {
+                payload.extend(s.encode_utf16());
+                payload.push(0);
+            }
+            payload.push(0);
+            let cds = COPYDATASTRUCT {
+                dwData: COPYDATA_ARGS,
+                cbData: (payload.len() * 2) as u32,
+                lpData: payload.as_ptr() as *mut _,
+            };
+            assert_eq!(SendMessageW(waiting, WM_COPYDATA, 0, &cds as *const _ as LPARAM), 1);
+            assert_eq!(close_waiting_window(waiting), ["C:\\a.torrent", "magnet:?xt=urn:btih:00"]);
+            assert!(FindWindowW(waiting_class(), null()).is_null());
+            assert!(close_waiting_window(null_mut()).is_empty());
         }
     }
 }

@@ -898,13 +898,14 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   item at run time; GTK's Next, Back, Finish and Skip under Xvfb; the Win32 dialog at 150-200 %
   DPI and in RTL. The translations are unreviewed machine output; mnemonics may clash within the
   guide's buttons (sk, hr, sr).
-- A second start during the first-start guide (a `.torrent` or link handed over) has no main
-  window to reach yet in either GUI: probably lost. Queue them until the window exists.
+- A second start during the first-start guide (a `.torrent` or link handed over): fixed in Win32
+  in 1.1.64 (a hidden `<main class>.Waiting` window takes them, added when the main window
+  exists; unit-tested, not run with two real processes). GTK already queued them in `PENDING`
+  (read in the code, not run).
 - An installed Windows copy hides page 4 at a first start, also for a new named profile the
   setup never asked about; Ctrl+G always shows it. The `GuideRouter` tooltip largely repeats
   the page's own text. The smart-disk box shows ticked only while all four D48 settings are on.
-- The owner confirmed the D53 answers as built (2026-11-04_224953_1793828993) and asked for the
-  handed-over items above to be queued, not lost.
+- The owner confirmed the D53 answers as built (2026-11-04_224953_1793828993).
 
 ## Search helper (D51; built 2026-11-04, 1.1.59)
 
@@ -943,7 +944,9 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
 
 - **D50 Files tab filter** (1.1.56): run the Web UI's box in a browser (layout, Ctrl+F against the
   browser's own, the phone layout); Prioritize by File Order with a filter on in both GUIs; a
-  remote window; Win32 at 150-200 % DPI and under the classic theme.
+  remote window; Win32 at 150-200 % DPI and under the classic theme. The × that empties the box
+  (Win32 1.1.64; GTK's search entry and the Web UI's `type="search"` box have their own, except in
+  Firefox) is unit-tested but not seen on screen.
 - **D55 help text** (1.1.57): the Win32 hover tooltips and the real F1 key were checked only by
   unit tests (the hidden desktop cannot move the cursor); GTK's pane and F1 and the Web UI's page
   (F1 against the browser's, phone, dark mode, RTL) not seen. The other dialogs (Add, Properties,

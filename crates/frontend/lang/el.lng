@@ -815,6 +815,7 @@ RssErrNotFeed={url}: δεν είναι ροή RSS ή Atom
 SearchCue=Αναζήτηση ονομάτων torrent
 FilesFilterCue=Φιλτράρισμα αρχείων
 FilesFilterCount={shown} από {total} αρχεία
+FilesFilterClear=Απαλοιφή φίλτρου (Esc)
 MenuImportQbt=Εισαγωγή από &qBittorrent...
 MenuImportUt=Εισαγωγή από &µTorrent...
 ImportPickFolder=Επιλέξτε τον φάκελο του {client}

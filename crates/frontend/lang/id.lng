@@ -815,6 +815,7 @@ RssErrNotFeed={url}: bukan umpan RSS atau Atom
 SearchCue=Cari nama torrent
 FilesFilterCue=Saring berkas
 FilesFilterCount={shown} dari {total} berkas
+FilesFilterClear=Hapus filter (Esc)
 MenuImportQbt=Impor dari &qBittorrent...
 MenuImportUt=Impor dari &µTorrent...
 ImportPickFolder=Pilih folder {client}

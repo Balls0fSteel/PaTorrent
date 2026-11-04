@@ -1164,6 +1164,8 @@ strings! {
     FilesFilterCue = "Filter files";
     /// Beside the filter box while it filters: {shown} files listed of the torrent's {total}.
     FilesFilterCount = "{shown} of {total} files";
+    /// The tooltip of the × that empties the filter box (Win32; GTK's search entry has its own).
+    FilesFilterClear = "Clear the filter (Esc)";
 
     // ---- File > Import: torrents from another client; {client} is qBittorrent or µTorrent
 

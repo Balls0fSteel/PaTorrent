@@ -815,6 +815,7 @@ RssErrNotFeed={url}: não é um feed RSS nem Atom
 SearchCue=Pesquisar nomes de torrents
 FilesFilterCue=Filtrar ficheiros
 FilesFilterCount={shown} de {total} ficheiros
+FilesFilterClear=Limpar o filtro (Esc)
 MenuImportQbt=Importar do &qBittorrent...
 MenuImportUt=Importar do &µTorrent...
 ImportPickFolder=Selecione a pasta do {client}

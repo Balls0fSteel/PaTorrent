@@ -815,6 +815,7 @@ RssErrNotFeed={url}: RSS나 Atom 피드가 아님
 SearchCue=토렌트 이름 검색
 FilesFilterCue=파일 필터
 FilesFilterCount={total}개 중 {shown}개 파일
+FilesFilterClear=필터 지우기 (Esc)
 MenuImportQbt=qBittorrent에서 가져오기(&Q)...
 MenuImportUt=µTorrent에서 가져오기(&U)...
 ImportPickFolder={client} 폴더를 선택하세요

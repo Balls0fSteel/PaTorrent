@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_230040_1793829640: Version 1.1.64: the Files filter's ×, and torrents opened during the first-start guide kept (D50, D53)
+
+- **Added (owner's D50 answer):** a × at the right of the Win32 Files filter box while it filters; it empties the box and leaves the focus there; tooltip "Clear the filter (Esc)" (`FilesFilterClear`, machine-translated into every table; `help::control_tip`). GTK (Linux and the macOS bundle) already had one: the box is a `gtk::SearchEntry`.
+- **Fixed (owner's D53 answer):** in Win32, a `.torrent` or link opened during a profile's first-start guide was dropped after about 5 s, because there was no main window to hand it to. A hidden top-level window of class `<main class>.Waiting` now takes the second start's `WM_COPYDATA` (lower integrity refused, as for the main window); its items are added once the main window exists. GTK already queued them (`PENDING`).
+- **Checked:** fmt, clippy, frontend, Win32 (101, two new or extended: the × shows, empties and hides; the waiting window keeps a forwarded payload) and nox tests. Not run: two real processes during a real guide; the × on screen; GTK (no code change).
+
 ## 2026-11-04_224953_1793828993: The owner settled the open decisions
 
 - **Decided:** D50-D55's assumed answers confirmed; D46 the Store approved (free MSIX, individual account, settings shared with the setup copy, all markets and 34 languages); D52 the native macOS GUI approved (replaces GTK on macOS, `objc2-app-kit`); D56 web search engines, icon skins and dark mode; D57 Verdigris final; D58 the next release is 1.2.0. Only the Flathub exception text (the owner's own words) stays open.

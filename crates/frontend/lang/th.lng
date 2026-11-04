@@ -815,6 +815,7 @@ RssErrNotFeed={url}: ไม่ใช่ฟีด RSS หรือ Atom
 SearchCue=ค้นหาชื่อทอร์เรนต์
 FilesFilterCue=กรองไฟล์
 FilesFilterCount={shown} จาก {total} ไฟล์
+FilesFilterClear=ล้างตัวกรอง (Esc)
 MenuImportQbt=นำเข้าจาก qBittorrent(&Q)...
 MenuImportUt=นำเข้าจาก µTorrent(&U)...
 ImportPickFolder=เลือกโฟลเดอร์ของ {client}

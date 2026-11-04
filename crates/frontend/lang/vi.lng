@@ -815,6 +815,7 @@ RssErrNotFeed={url}: không phải nguồn tin RSS hay Atom
 SearchCue=Tìm theo tên torrent
 FilesFilterCue=Lọc tệp
 FilesFilterCount={shown} trên {total} tệp
+FilesFilterClear=Xóa bộ lọc (Esc)
 MenuImportQbt=Nhập từ &qBittorrent...
 MenuImportUt=Nhập từ &µTorrent...
 ImportPickFolder=Chọn thư mục của {client}

@@ -815,6 +815,7 @@ RssErrNotFeed={url}: אינו הזנת RSS או Atom
 SearchCue=חיפוש בשמות טורנטים
 FilesFilterCue=סינון קבצים
 FilesFilterCount={shown} מתוך {total} קבצים
+FilesFilterClear=ניקוי המסנן (Esc)
 MenuImportQbt=ייבוא מ-&qBittorrent...
 MenuImportUt=ייבוא מ-&µTorrent...
 ImportPickFolder=בחירת התיקייה של {client}

@@ -815,6 +815,7 @@ RssErrNotFeed={url}: kein RSS- oder Atom-Feed
 SearchCue=Torrent-Namen durchsuchen
 FilesFilterCue=Dateien filtern
 FilesFilterCount={shown} von {total} Dateien
+FilesFilterClear=Filter leeren (Esc)
 MenuImportQbt=Aus &qBittorrent importieren...
 MenuImportUt=Aus &µTorrent importieren...
 ImportPickFolder=Ordner von {client} auswählen

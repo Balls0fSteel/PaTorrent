@@ -815,6 +815,7 @@ RssErrNotFeed={url}: ليس خلاصة RSS أو Atom
 SearchCue=البحث في أسماء التورنتات
 FilesFilterCue=تصفية الملفات
 FilesFilterCount={shown} من {total} ملف
+FilesFilterClear=مسح عامل التصفية (Esc)
 MenuImportQbt=استيراد من &qBittorrent...
 MenuImportUt=استيراد من &µTorrent...
 ImportPickFolder=اختر مجلد {client}

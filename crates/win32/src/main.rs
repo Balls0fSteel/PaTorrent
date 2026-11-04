@@ -109,7 +109,7 @@ mod instance {
         SMTO_ABORTIFHUNG, SendMessageTimeoutW, WM_COPYDATA,
     };
 
-    use crate::app::{COPYDATA_ARGS, EXITING_PROP, data_dir, main_class};
+    use crate::app::{COPYDATA_ARGS, EXITING_PROP, data_dir, main_class, waiting_class};
     use crate::util::wide;
 
     /// Returns true if another instance took the arguments.
@@ -143,7 +143,12 @@ mod instance {
         }
         payload.push(0);
         for _ in 0..50 {
-            let hwnd = unsafe { FindWindowW(main_class(), null()) };
+            let mut hwnd = unsafe { FindWindowW(main_class(), null()) };
+            if hwnd.is_null() {
+                // the first start's Setup Guide is up: its hidden window keeps the arguments
+                // until the main window exists (D53)
+                hwnd = unsafe { FindWindowW(waiting_class(), null()) };
+            }
             if !hwnd.is_null() && exiting(hwnd) {
                 return !take_over(m);
             }

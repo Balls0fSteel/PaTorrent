@@ -815,6 +815,7 @@ RssErrNotFeed={url}: nu este un flux RSS sau Atom
 SearchCue=Caută în numele torentelor
 FilesFilterCue=Filtrează fișierele
 FilesFilterCount={shown} din {total} fișiere
+FilesFilterClear=Golește filtrul (Esc)
 MenuImportQbt=Importă din &qBittorrent...
 MenuImportUt=Importă din &µTorrent...
 ImportPickFolder=Selectați folderul {client}

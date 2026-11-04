@@ -815,6 +815,7 @@ RssErrNotFeed={url}: није RSS ни Atom довод
 SearchCue=Претражи називе торената
 FilesFilterCue=Филтрирај датотеке
 FilesFilterCount={shown} од {total} датотека
+FilesFilterClear=Обриши филтер (Esc)
 MenuImportQbt=Увези из &qBittorrent...
 MenuImportUt=Увези из &µTorrent...
 ImportPickFolder=Изаберите фасциклу програма {client}

@@ -815,6 +815,7 @@ RssErrNotFeed={url}: geen RSS- of Atom-feed
 SearchCue=Zoeken in torrentnamen
 FilesFilterCue=Bestanden filteren
 FilesFilterCount={shown} van {total} bestanden
+FilesFilterClear=Filter wissen (Esc)
 MenuImportQbt=Importeren uit &qBittorrent...
 MenuImportUt=Importeren uit &µTorrent...
 ImportPickFolder=Selecteer de map van {client}

@@ -815,6 +815,7 @@ RssErrNotFeed={url}: nije RSS ni Atom kanal
 SearchCue=Traži po nazivima torrenata
 FilesFilterCue=Filtriraj datoteke
 FilesFilterCount={shown} od {total} datoteka
+FilesFilterClear=Očisti filtar (Esc)
 MenuImportQbt=Uvezi iz &qBittorrenta...
 MenuImportUt=Uvezi iz &µTorrenta...
 ImportPickFolder=Odaberite mapu programa {client}

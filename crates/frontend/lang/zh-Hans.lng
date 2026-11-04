@@ -815,6 +815,7 @@ RssErrNotFeed={url}：不是 RSS 或 Atom 订阅源
 SearchCue=搜索种子名称
 FilesFilterCue=筛选文件
 FilesFilterCount={shown} / {total} 个文件
+FilesFilterClear=清除筛选 (Esc)
 MenuImportQbt=从 qBittorrent 导入(&Q)...
 MenuImportUt=从 µTorrent 导入(&U)...
 ImportPickFolder=选择 {client} 文件夹

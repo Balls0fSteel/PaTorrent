@@ -815,6 +815,7 @@ RssErrNotFeed={url}: خوراک RSS یا Atom نیست
 SearchCue=جست‌وجوی نام تورنت‌ها
 FilesFilterCue=پالایش فایل‌ها
 FilesFilterCount={shown} از {total} فایل
+FilesFilterClear=پاک کردن فیلتر (Esc)
 MenuImportQbt=درون‌ریزی از &qBittorrent...
 MenuImportUt=درون‌ریزی از &µTorrent...
 ImportPickFolder=پوشهٔ {client} را انتخاب کنید

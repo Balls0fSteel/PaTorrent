@@ -134,6 +134,21 @@ impl Tips {
     }
 }
 
+/// A plain tooltip on `ctl`, a child of `owner`, for one of the main window's small controls
+/// (the Files filter's ×). The tooltip goes with `owner`.
+pub unsafe fn control_tip(owner: HWND, ctl: HWND, text: &str) {
+    unsafe {
+        let tip = tooltip(owner);
+        if tip.is_null() || ctl.is_null() {
+            return;
+        }
+        // the tooltip copies the text
+        let mut w = wide(text);
+        let mut ti = info(owner, ctl as usize, TTF_IDISHWND | TTF_SUBCLASS, &mut w);
+        send(tip, TTM_ADDTOOLW, 0, &mut ti as *mut _ as LPARAM);
+    }
+}
+
 unsafe fn tooltip(dlg: HWND) -> HWND {
     unsafe {
         CreateWindowExW(

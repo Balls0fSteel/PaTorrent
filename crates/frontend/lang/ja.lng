@@ -815,6 +815,7 @@ RssErrNotFeed={url}: RSS / Atom フィードではありません
 SearchCue=トレント名を検索
 FilesFilterCue=ファイルを絞り込み
 FilesFilterCount={shown} / {total} ファイル
+FilesFilterClear=フィルターをクリア (Esc)
 MenuImportQbt=qBittorrent からインポート(&Q)...
 MenuImportUt=µTorrent からインポート(&U)...
 ImportPickFolder={client} のフォルダーを選択してください

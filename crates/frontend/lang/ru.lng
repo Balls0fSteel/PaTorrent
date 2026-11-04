@@ -815,6 +815,7 @@ RssErrNotFeed={url}: не лента RSS или Atom
 SearchCue=Поиск по названиям торрентов
 FilesFilterCue=Фильтр файлов
 FilesFilterCount={shown} из {total} файлов
+FilesFilterClear=Очистить фильтр (Esc)
 MenuImportQbt=Импортировать из &qBittorrent...
 MenuImportUt=Импортировать из &µTorrent...
 ImportPickFolder=Выберите папку {client}

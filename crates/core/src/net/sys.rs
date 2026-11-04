@@ -8,7 +8,7 @@
 //! declared here by hand (D4: no libc crate), with the constants of each supported OS.
 
 use std::io;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, UdpSocket};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, UdpSocket};
 #[cfg(unix)]
 pub(crate) use std::os::fd::AsRawFd as RawSock;
 #[cfg(windows)]
@@ -205,6 +205,40 @@ pub(crate) fn tcp_listener(addr: SocketAddr) -> io::Result<TcpListener> {
     Ok(s)
 }
 
+/// A non-blocking TCP connection from `local` (port 0: any) to `remote`, of the same family:
+/// the connect is in progress when it returns (libtorrent `bind_outgoing_socket` before
+/// `async_connect`). std and mio cannot bind before connecting.
+pub(crate) fn tcp_connect_from(local: SocketAddr, remote: SocketAddr) -> io::Result<TcpStream> {
+    if local.is_ipv4() != remote.is_ipv4() {
+        return Err(io::Error::new(io::ErrorKind::AddrNotAvailable, "no local address of this family"));
+    }
+    let s = into_stream(imp::tcp_socket(remote.is_ipv4())?);
+    let (sa, len) = encode_sockaddr(local);
+    imp::bind(&s, &sa, len)?;
+    s.set_nonblocking(true)?;
+    let (ra, rlen) = encode_sockaddr(remote);
+    match imp::connect(&s, &ra, rlen) {
+        Ok(()) => Ok(s),
+        Err(e) if e.kind() == io::ErrorKind::WouldBlock || e.raw_os_error() == EINPROGRESS => Ok(s),
+        Err(e) => Err(e),
+    }
+}
+
+/// A fresh socket made as a listener, as a stream (the same socket type until `listen`).
+#[cfg(unix)]
+fn into_stream(l: TcpListener) -> TcpStream {
+    use std::os::fd::{FromRawFd, IntoRawFd};
+    // SAFETY: the descriptor moves from one owner to the other
+    unsafe { TcpStream::from_raw_fd(l.into_raw_fd()) }
+}
+
+#[cfg(windows)]
+fn into_stream(l: TcpListener) -> TcpStream {
+    use std::os::windows::io::{FromRawSocket, IntoRawSocket};
+    // SAFETY: the socket moves from one owner to the other
+    unsafe { TcpStream::from_raw_socket(l.into_raw_socket()) }
+}
+
 /// Every IP address of every local interface (libtorrent `enum_net_interfaces`).
 pub(crate) fn interfaces() -> io::Result<Vec<IpInterface>> {
     imp::interfaces()
@@ -237,6 +271,8 @@ mod windows_consts {
     pub const IPV6_V6ONLY: i32 = ws::IPV6_V6ONLY;
     /// (option, value when on, value when off)
     pub const DONT_FRAGMENT: Option<(i32, i32, i32)> = Some((ws::IP_DONTFRAGMENT, 1, 0));
+    /// A non-blocking connect under way is `WSAEWOULDBLOCK` (`WouldBlock`) on Windows.
+    pub const EINPROGRESS: Option<i32> = None;
 }
 
 #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -255,6 +291,8 @@ mod unix_consts {
     pub const IFF_MULTICAST: u32 = 0x1000;
     /// `IP_MTU_DISCOVER` with `IP_PMTUDISC_DO` / `IP_PMTUDISC_DONT`
     pub const DONT_FRAGMENT: Option<(i32, i32, i32)> = Some((10, 2, 0));
+    /// A non-blocking connect under way.
+    pub const EINPROGRESS: Option<i32> = Some(115);
 }
 
 #[cfg(any(
@@ -288,6 +326,8 @@ mod unix_consts {
     #[cfg(target_vendor = "apple")]
     pub const SOCK_CLOEXEC: i32 = 0;
     pub const IFF_MULTICAST: u32 = 0x8000;
+    /// A non-blocking connect under way.
+    pub const EINPROGRESS: Option<i32> = Some(36);
     /// `IP_DONTFRAG`
     #[cfg(target_os = "freebsd")]
     pub const DONT_FRAGMENT: Option<(i32, i32, i32)> = Some((67, 1, 0));
@@ -356,6 +396,29 @@ mod imp {
     fn last_error() -> io::Error {
         // SAFETY: no preconditions
         io::Error::from_raw_os_error(unsafe { ws::WSAGetLastError() })
+    }
+
+    /// A NUL-terminated UTF-16 string as a `String` (empty for null).
+    ///
+    /// # Safety
+    /// `p` is null or points to a NUL-terminated UTF-16 string.
+    unsafe fn wide(p: *const u16) -> String {
+        if p.is_null() {
+            return String::new();
+        }
+        let mut n = 0;
+        // SAFETY: the string is NUL-terminated
+        while unsafe { *p.add(n) } != 0 {
+            n += 1;
+        }
+        // SAFETY: `n` readable units before the NUL
+        String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, n) })
+    }
+
+    pub(super) fn connect(s: &impl AsRawSocket, sa: &SockaddrBuf, len: usize) -> io::Result<()> {
+        // SAFETY: `sa` holds a sockaddr of `len` bytes
+        let r = unsafe { ws::connect(s.as_raw_socket() as ws::SOCKET, sa.0.as_ptr().cast(), len as i32) };
+        if r == 0 { Ok(()) } else { Err(last_error()) }
     }
 
     /// std starts Winsock lazily; a socket made here may be the process's first.
@@ -473,6 +536,10 @@ mod imp {
                 // SAFETY: a NUL-terminated string inside `buf`
                 unsafe { std::ffi::CStr::from_ptr(ad.AdapterName.cast()) }.to_string_lossy().into_owned()
             };
+            // SAFETY: NUL-terminated wide strings inside `buf` (or null)
+            let friendly = unsafe { wide(ad.FriendlyName) };
+            // SAFETY: as above
+            let description = unsafe { wide(ad.Description) };
             let up = ad.OperStatus == IfOperStatusUp;
             let loopback = ad.IfType == IF_TYPE_SOFTWARE_LOOPBACK;
             // libtorrent: IF_TYPE_PPP is the point-to-point type
@@ -495,6 +562,9 @@ mod imp {
                         scope_id,
                         index: if addr.is_ipv4() { index4 } else { ad.Ipv6IfIndex },
                         name: name.clone(),
+                        friendly: friendly.clone(),
+                        description: description.clone(),
+                        if_type: ad.IfType,
                         up,
                         loopback,
                         multicast,
@@ -763,6 +833,8 @@ mod imp {
         fn c_socket(domain: c_int, ty: c_int, protocol: c_int) -> c_int;
         #[link_name = "bind"]
         fn c_bind(fd: c_int, addr: *const c_void, len: u32) -> c_int;
+        #[link_name = "connect"]
+        fn c_connect(fd: c_int, addr: *const c_void, len: u32) -> c_int;
         #[link_name = "listen"]
         fn c_listen(fd: c_int, backlog: c_int) -> c_int;
         #[link_name = "setsockopt"]
@@ -832,6 +904,12 @@ mod imp {
         if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
     }
 
+    pub(super) fn connect(s: &impl AsRawFd, sa: &SockaddrBuf, len: usize) -> io::Result<()> {
+        // SAFETY: `sa` holds a sockaddr of `len` bytes
+        let r = unsafe { c_connect(s.as_raw_fd(), sa.0.as_ptr().cast(), len as u32) };
+        if r == 0 { Ok(()) } else { Err(io::Error::last_os_error()) }
+    }
+
     pub fn interfaces() -> io::Result<Vec<IpInterface>> {
         let mut head: *mut IfAddrs = std::ptr::null_mut();
         // SAFETY: `head` is a valid out pointer
@@ -864,6 +942,9 @@ mod imp {
                 netmask,
                 scope_id,
                 index,
+                friendly: name.clone(),
+                description: String::new(),
+                if_type: 0,
                 name,
                 up: ifa.flags & IFF_UP != 0,
                 loopback: ifa.flags & IFF_LOOPBACK != 0,

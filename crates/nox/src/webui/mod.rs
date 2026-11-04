@@ -995,6 +995,8 @@ impl WebUi {
         }
         let stop = Arc::new(AtomicBool::new(false));
         let acceptor = server::spawn(listener, shared.clone(), stop.clone())?;
+        // the adapters for Preferences > Connection (D54)
+        shared.handle.post_network_adapters();
         Ok(WebUi { shared, addr, stop, acceptor: Some(acceptor), temporary_password, https })
     }
 
@@ -1171,6 +1173,10 @@ impl WebUi {
     /// Feeds a batch of alerts popped from the session.
     pub fn on_alerts(&self, alerts: &[Alert]) {
         self.shared.fan_out(alerts);
+        // the adapters and the network status (D54), for the preferences and the status bar
+        for a in alerts {
+            patorrent_frontend::network::on_alert(a);
+        }
         // the search's answers, taken before the State lock (never held together)
         let searched = search::collect(&self.shared);
         search::collect_shim(&self.shared);
@@ -1402,6 +1408,7 @@ fn logged(a: &Alert) -> bool {
         a,
         Alert::StateUpdate(_)
             | Alert::SessionStats(_)
+            | Alert::NetworkAdapters(_)
             | Alert::PeerInfo { .. }
             | Alert::FileList { .. }
             | Alert::FileProgress { .. }

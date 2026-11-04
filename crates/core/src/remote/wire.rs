@@ -26,8 +26,8 @@ use crate::params::{
 use crate::session::Command;
 use crate::settings::{EncLevel, EncPolicy, MixedModeAlgorithm, ProxyType, Settings};
 use crate::status::{
-    AnnounceEntry, BlockState, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource, SessionStats,
-    TorrentState, TorrentStatus, TrackerStatus,
+    AnnounceEntry, BlockState, FileEntry, NetAdapter, NetworkStatus, PartialPiece, PeerFlags, PeerInfo,
+    PeerSource, SessionStats, TorrentState, TorrentStatus, TrackerStatus,
 };
 use crate::types::{InfoHashes, Sha1Hash, Sha256Hash, TorrentId};
 use crate::util::bitfield::Bitfield;
@@ -356,6 +356,7 @@ wire_unit!(EncPolicy { Forced, Enabled, Disabled });
 wire_unit!(EncLevel { Plaintext, Rc4, Both });
 wire_unit!(MixedModeAlgorithm { PreferTcp, PeerProportional });
 wire_unit!(ProxyType { None, Socks4, Socks5, Socks5Pw, Http, HttpPw });
+wire_unit!(NetworkStatus { Any, Bound, Missing, Waiting });
 
 /// Structs travel as the list of their fields.
 macro_rules! wire_struct {
@@ -389,6 +390,7 @@ wire_struct!(TorrentStatus {
     is_seeding,
     super_seeding,
     moving_storage,
+    waiting_for_network,
     progress_ppm,
     queue_position,
     download_rate,
@@ -463,7 +465,11 @@ wire_struct!(SessionStats {
     read_cache_bytes,
     auto_upload_limit,
     auto_download_limit,
+    network,
+    external_v4,
+    external_v6,
 });
+wire_struct!(NetAdapter { id, name, vpn, addresses });
 wire_struct!(PeerInfo {
     ip,
     client,
@@ -497,6 +503,8 @@ wire_struct!(Settings {
     user_agent,
     peer_fingerprint,
     listen_interfaces,
+    network_rule,
+    network_pause_when_missing,
     dht_bootstrap_nodes,
     download_rate_limit,
     upload_rate_limit,
@@ -797,6 +805,7 @@ pub(crate) fn encode_command(c: &Command, e: &mut Enc) -> bool {
         Command::PostWebSeeds(id) => message!(e, "post_web_seeds", id),
         Command::PostTorrentUpdates => message!(e, "post_torrent_updates"),
         Command::PostSessionStats => message!(e, "post_session_stats"),
+        Command::PostNetworkAdapters => message!(e, "post_network_adapters"),
         Command::SaveResumeData => message!(e, "save_resume_data"),
         Command::PostPeerInfo(id) => message!(e, "post_peer_info", id),
         Command::PostFileList(id) => message!(e, "post_file_list", id),
@@ -852,6 +861,7 @@ pub(crate) fn decode_command(frame: &[u8]) -> Option<Command> {
             "post_web_seeds" => Command::PostWebSeeds(f.next()?),
             "post_torrent_updates" => Command::PostTorrentUpdates,
             "post_session_stats" => Command::PostSessionStats,
+            "post_network_adapters" => Command::PostNetworkAdapters,
             "save_resume_data" => Command::SaveResumeData,
             "post_peer_info" => Command::PostPeerInfo(f.next()?),
             "post_file_list" => Command::PostFileList(f.next()?),
@@ -927,6 +937,7 @@ pub(crate) fn encode_alert(a: &Alert, e: &mut Enc) {
         Alert::UrlSeed { id, url, message } => message!(e, "UrlSeed", id, url, message),
         Alert::StateUpdate(v) => message!(e, "StateUpdate", v),
         Alert::SessionStats(s) => message!(e, "SessionStats", s),
+        Alert::NetworkAdapters(a) => message!(e, "NetworkAdapters", a),
         Alert::ResumeDataSaved => message!(e, "ResumeDataSaved"),
         Alert::PeerInfo { id, peers } => message!(e, "PeerInfo", id, peers),
         Alert::FileList { id, files } => message!(e, "FileList", id, files),
@@ -1024,6 +1035,7 @@ pub(crate) fn decode_alert(frame: &[u8]) -> Option<Alert> {
             "UrlSeed" => Alert::UrlSeed { id: f.next()?, url: f.next()?, message: f.next()? },
             "StateUpdate" => Alert::StateUpdate(f.next()?),
             "SessionStats" => Alert::SessionStats(f.next()?),
+            "NetworkAdapters" => Alert::NetworkAdapters(f.next()?),
             "ResumeDataSaved" => Alert::ResumeDataSaved,
             "PeerInfo" => Alert::PeerInfo { id: f.next()?, peers: f.next()? },
             "FileList" => Alert::FileList { id: f.next()?, files: f.next()? },

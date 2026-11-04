@@ -2,7 +2,7 @@
 //! `announce_entry` and session counters. Field names follow libtorrent; "unknown" values that
 //! libtorrent encodes as -1 are `Option`s here.
 
-use std::net::SocketAddr;
+use std::net::{IpAddr, SocketAddr};
 
 use crate::flags::bit_flags;
 use crate::params::{DownloadPriority, TorrentFlags};
@@ -42,6 +42,9 @@ pub struct TorrentStatus {
     /// `torrent_status::super_seeding`).
     pub super_seeding: bool,
     pub moving_storage: bool,
+    /// The torrent would run, but the session holds it until "Use only this network" finds its
+    /// network again (D54, [`NetworkStatus::Waiting`]). Its own flags are untouched.
+    pub waiting_for_network: bool,
 
     /// Progress of the current task (download or check), 0..=1_000_000.
     pub progress_ppm: u32,
@@ -227,6 +230,40 @@ pub struct SessionStats {
     /// (`Settings::auto_rate_limit`); 0 when there is none.
     pub auto_upload_limit: u32,
     pub auto_download_limit: u32,
+    /// "Use only this network" (D54): whether torrent traffic is bound, and to what.
+    pub network: NetworkStatus,
+    /// The addresses trackers, peers and routers say we have (libtorrent
+    /// `external_address()`'s votes), per family; `None` until one is known.
+    pub external_v4: Option<IpAddr>,
+    pub external_v6: Option<IpAddr>,
+}
+
+/// "Use only this network" as it stands (D54, `Settings::network_rule`).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum NetworkStatus {
+    /// No rule: the OS routes as it likes.
+    #[default]
+    Any,
+    /// The rule matched an adapter: every torrent socket is bound to its addresses.
+    Bound,
+    /// The rule matches nothing and `network_pause_when_missing` is off: nothing is bound, so
+    /// nothing moves.
+    Missing,
+    /// The rule matches nothing: running torrents wait for the network.
+    Waiting,
+}
+
+/// One network adapter of the engine's host, for "Use only this network" (D54).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct NetAdapter {
+    /// The stable id an `adapter:` rule names: the GUID on Windows, the device name on Unix.
+    pub id: String,
+    /// What the user knows it by (Windows' friendly name; the device name on Unix).
+    pub name: String,
+    /// It looks like a VPN tunnel ("Any VPN adapter" picks it).
+    pub vpn: bool,
+    /// Its usable addresses (up, not link-local).
+    pub addresses: Vec<IpAddr>,
 }
 
 bit_flags! {

@@ -7,12 +7,14 @@
 //! read back on Apply (only the controls the user changed, so a value set on the Advanced page
 //! that a page shows rounded, such as a rate that is not a whole kB/s, survives).
 
+use std::cell::Cell;
 use std::path::{Path, PathBuf};
-use std::ptr::null;
+use std::ptr::{null, null_mut};
 
 use patorrent_core::{EncPolicy, ProxyType};
 use patorrent_frontend::icons::{UiIcon, page_icon};
 use patorrent_frontend::lang::{self, S};
+use patorrent_frontend::network;
 use patorrent_frontend::options::{self, Options};
 use patorrent_frontend::pref_pages::{PROXY_TYPES, proxy_from_ui, proxy_to_ui};
 use patorrent_frontend::scheduler::{self, Mode};
@@ -36,10 +38,11 @@ use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{EnableWindow, GetFocus, SetFocus};
 use windows_sys::Win32::UI::WindowsAndMessaging::{
     BM_GETCHECK, BM_SETCHECK, BN_CLICKED, BS_AUTOCHECKBOX, BS_AUTORADIOBUTTON, BS_DEFPUSHBUTTON, BS_GROUPBOX,
-    BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_SETCURSEL, CBN_SELCHANGE, CBS_DROPDOWNLIST, DLGTEMPLATE,
-    DialogBoxIndirectParamW, EN_CHANGE, ES_AUTOHSCROLL, ES_NUMBER, ES_PASSWORD, EndDialog, GetDlgItem,
-    GetWindowLongPtrW, IDCANCEL, IDOK, MapDialogRect, SW_HIDE, SW_SHOW, SetWindowLongPtrW, SetWindowTextW,
-    ShowWindow, WM_COMMAND, WM_INITDIALOG, WM_NOTIFY, WS_BORDER, WS_CHILD, WS_GROUP, WS_TABSTOP, WS_VSCROLL,
+    BS_PUSHBUTTON, CB_ADDSTRING, CB_GETCURSEL, CB_RESETCONTENT, CB_SETCURSEL, CBN_SELCHANGE,
+    CBS_DROPDOWNLIST, DLGTEMPLATE, DialogBoxIndirectParamW, EN_CHANGE, ES_AUTOHSCROLL, ES_NUMBER,
+    ES_PASSWORD, EndDialog, GetDlgItem, GetWindowLongPtrW, IDCANCEL, IDOK, MapDialogRect, SW_HIDE, SW_SHOW,
+    SetWindowLongPtrW, SetWindowTextW, ShowWindow, WM_APP, WM_COMMAND, WM_DESTROY, WM_INITDIALOG, WM_NOTIFY,
+    WS_BORDER, WS_CHILD, WS_GROUP, WS_TABSTOP, WS_VSCROLL,
 };
 
 use crate::controls;
@@ -136,6 +139,10 @@ const ID_PROXY_PASS: u16 = id(3, 11);
 const ID_PROXY_NAMES: u16 = id(3, 12);
 const ID_PROXY_PEERS: u16 = id(3, 13);
 const ID_PROXY_TRACKERS: u16 = id(3, 14);
+// Use Only This Network (D54)
+const ID_NET_RULE: u16 = id(3, 15);
+const ID_NET_RANGE: u16 = id(3, 16);
+const ID_NET_PAUSE: u16 = id(3, 17);
 // Bandwidth
 const ID_UL_RATE: u16 = id(4, 1);
 const ID_DL_RATE: u16 = id(4, 2);
@@ -341,6 +348,11 @@ static FIELDS: &[Field] = &[
         set: |o, v| settings::set_listen_port(&mut o.settings, v as u16),
     },
     Field::Check { id: ID_RANDOMIZE, get: |o| o.gui.random_port, set: |o, v| o.gui.random_port = v },
+    Field::Check {
+        id: ID_NET_PAUSE,
+        get: |o| o.settings.network_pause_when_missing,
+        set: |o, v| o.settings.network_pause_when_missing = v,
+    },
     Field::Check { id: ID_UPNP, get: |o| o.settings.enable_upnp, set: |o, v| o.settings.enable_upnp = v },
     Field::Check {
         id: ID_NATPMP,
@@ -663,6 +675,8 @@ struct State<'a> {
     webui: WebView,
     /// The General page's language list: `(ui.language value, text)`.
     languages: Vec<(String, String)>,
+    /// The Connection page's "Network" drop-down: `(rule choice, text)` (`network::rule_choices`).
+    networks: Vec<(String, String)>,
     /// The page tree's symbols ([`patorrent_frontend::icons::UiIcon`] order).
     images: HIMAGELIST,
 }
@@ -702,6 +716,7 @@ impl<'a> State<'a> {
             integration: Status::default(),
             webui: WebView::default(),
             languages: Vec::new(),
+            networks: Vec::new(),
             images: 0,
         }
     }
@@ -851,6 +866,13 @@ fn template() -> Vec<u16> {
     b.ctl(BUTTON, ID_PROXY_NAMES, CHECK, [8, 146, 290, 10], tr!(PrefProxyNames));
     b.ctl(BUTTON, ID_PROXY_PEERS, CHECK, [8, 160, 290, 10], tr!(PrefProxyPeers));
     b.ctl(BUTTON, ID_PROXY_TRACKERS, CHECK, [8, 174, 290, 10], tr!(PrefProxyTrackers));
+    // the range and the pause box grey while the drop-down is off (`update_network_controls`)
+    b.group([0, 208, W, 64], tr!(PrefUseNetwork));
+    b.label([8, 224, 60, 9], tr!(PrefNetworkRule));
+    b.ctl(COMBOBOX, ID_NET_RULE, COMBO, [70, 222, 232, 120], "");
+    b.label([20, 240, 48, 9], tr!(PrefNetworkRange));
+    b.ctl(EDIT, ID_NET_RANGE, LINE, [70, 238, 232, 13], "");
+    b.ctl(BUTTON, ID_NET_PAUSE, CHECK, [8, 256, 290, 10], tr!(PrefNetworkPause));
 
     b.page(4);
     b.group([0, 0, W, 32], tr!(PrefUpLimiting));
@@ -1001,9 +1023,29 @@ unsafe fn set_check(dlg: HWND, id: u16, on: bool) {
     unsafe { send(item(dlg, id), BM_SETCHECK, if on { BST_CHECKED } else { BST_UNCHECKED } as usize, 0) };
 }
 
+/// Sent to the open dialog when the engine reported its adapters: refills the "Network"
+/// drop-down.
+const WM_APP_ADAPTERS: u32 = WM_APP + 1;
+
+thread_local! {
+    /// The dialog while it is open, for [`adapters_changed`].
+    static OPEN: Cell<HWND> = const { Cell::new(null_mut()) };
+}
+
+/// The engine reported its adapters (`Alert::NetworkAdapters`, kept by `network::on_alert`):
+/// an open dialog lists them in its "Network" drop-down, keeping the choice.
+pub fn adapters_changed() {
+    let dlg = OPEN.with(Cell::get);
+    if !dlg.is_null() {
+        // SAFETY: `OPEN` holds the dialog only from WM_INITDIALOG to WM_DESTROY, on this thread.
+        unsafe { send(dlg, WM_APP_ADAPTERS, 0, 0) };
+    }
+}
+
 unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> isize {
     unsafe {
         if msg == WM_INITDIALOG {
+            OPEN.with(|o| o.set(dlg));
             SetWindowLongPtrW(dlg, DWLP_USER, lp);
             init(dlg, &mut *(lp as *mut State<'_>));
             // the pages share the dialog: each fits among its own controls
@@ -1017,6 +1059,17 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
         let st = &mut *st;
         match msg {
             WM_COMMAND => command(dlg, st, loword(wp), hiword(wp) as u32) as isize,
+            WM_APP_ADAPTERS => {
+                let choice = network_choice(dlg, st);
+                fill_networks(dlg, st, &choice);
+                1
+            }
+            WM_DESTROY => {
+                if OPEN.with(Cell::get) == dlg {
+                    OPEN.with(|o| o.set(null_mut()));
+                }
+                0
+            }
             WM_NOTIFY => {
                 let nm = &*(lp as *const NMHDR);
                 if nm.code == NM_CUSTOMDRAW && nm.idFrom == ID_ADV_LIST as usize {
@@ -1183,6 +1236,13 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         st.shown.push((ID_PROXY_TYPE, kind.to_string()));
         set_check(dlg, ID_PROXY_AUTH, auth);
         st.shown.push((ID_PROXY_AUTH, auth.to_string()));
+        // the drop-down's choice, then the range box beside it (D54)
+        let rule = st.opts.settings.network_rule.clone();
+        fill_networks(dlg, st, &rule);
+        st.shown.push((ID_NET_RULE, network::choice_of(&rule)));
+        let range = network::range_of(&rule);
+        set_text(item(dlg, ID_NET_RANGE), &range);
+        st.shown.push((ID_NET_RANGE, range));
         let table = st.opts.gui.schedule.table;
         send(item(dlg, ID_SCHED_GRID), sched_grid::SET, 0, &table as *const _ as LPARAM);
         st.shown.push((ID_SCHED_GRID, st.opts.gui.schedule.table_text()));
@@ -1195,6 +1255,41 @@ unsafe fn write_controls(dlg: HWND, st: &mut State<'_>) {
         update_cache_controls(dlg);
         update_check_rate_controls(dlg);
         update_proxy_controls(dlg);
+    }
+}
+
+/// Fills the "Network" drop-down with the choices for `rule` (the adapters last reported) and
+/// selects `rule`'s, the first ("Any network") when it is not listed.
+unsafe fn fill_networks(dlg: HWND, st: &mut State<'_>, rule: &str) {
+    unsafe {
+        let combo = item(dlg, ID_NET_RULE);
+        send(combo, CB_RESETCONTENT, 0, 0);
+        st.networks = network::rule_choices(rule);
+        for (_, text) in &st.networks {
+            let w = wide(text);
+            send(combo, CB_ADDSTRING, 0, w.as_ptr() as LPARAM);
+        }
+        let choice = network::choice_of(rule);
+        let sel = st.networks.iter().position(|(v, _)| *v == choice).unwrap_or(0);
+        send(combo, CB_SETCURSEL, sel, 0);
+        update_network_controls(dlg);
+    }
+}
+
+/// The "Network" drop-down's choice as selected: a rule, or `network::RANGE`.
+unsafe fn network_choice(dlg: HWND, st: &State<'_>) -> String {
+    let sel = unsafe { send(item(dlg, ID_NET_RULE), CB_GETCURSEL, 0, 0) };
+    usize::try_from(sel).ok().and_then(|i| st.networks.get(i)).map(|(v, _)| v.clone()).unwrap_or_default()
+}
+
+/// The range and "Pause torrents while this network is missing" grey while the drop-down is
+/// "Any network (off)" (`pref_pages`' `needs` for them).
+unsafe fn update_network_controls(dlg: HWND) {
+    unsafe {
+        let on = send(item(dlg, ID_NET_RULE), CB_GETCURSEL, 0, 0) > 0;
+        for id in [ID_NET_RANGE, ID_NET_PAUSE] {
+            EnableWindow(item(dlg, id), on as i32);
+        }
     }
 }
 
@@ -1549,6 +1644,16 @@ unsafe fn read_controls(dlg: HWND, st: &mut State<'_>) -> Result<(), (u16, Strin
                 return Err((ID_PROXY_PORT, tr!(PrefNoProxyPort).to_owned()));
             }
         }
+        // the drop-down first, then the range box (an "Address range" choice keeps a range)
+        let choice = network_choice(dlg, st);
+        let range = window_text(item(dlg, ID_NET_RANGE));
+        if shown(ID_NET_RULE) != Some(choice.as_str()) || shown(ID_NET_RANGE) != Some(range.as_str()) {
+            let rule = network::rule_for_choice(&o.settings.network_rule, &choice);
+            o.settings.network_rule = network::rule_for_range(&rule, &range);
+        }
+        if let Err(e) = network::check_rule(&o.settings.network_rule) {
+            return Err((ID_NET_RANGE, e));
+        }
         if o.gui.download_dir.trim().is_empty() {
             return Err((ID_DL_DIR, tr!(PrefNoDownloadDir).to_owned()));
         }
@@ -1659,6 +1764,7 @@ unsafe fn command(dlg: HWND, st: &mut State<'_>, id: u16, code: u32) -> bool {
             }
             ID_PROXY_TYPE if code == CBN_SELCHANGE => update_proxy_controls(dlg),
             ID_PROXY_AUTH if code == BN_CLICKED => update_proxy_controls(dlg),
+            ID_NET_RULE if code == CBN_SELCHANGE => update_network_controls(dlg),
             ID_AUTOSTART if code == BN_CLICKED => update_autostart_controls(dlg),
             ID_DEFAULT_APPS if code == BN_CLICKED => crate::integration::open_default_apps(dlg),
             ID_MOVE_BROWSE if code == BN_CLICKED => {
@@ -2430,6 +2536,108 @@ mod tests {
         f.set(ID_PROXY_PORT, "3128");
         unsafe { read_controls(f.dlg, &mut f.st) }.unwrap();
         assert_eq!(f.st.opts.settings.proxy_type, ProxyType::Http);
+    }
+
+    /// Apply, after making sure the pages read (a bad value would show a modal error box).
+    fn apply_checked(f: &mut Fixture) {
+        unsafe { read_controls(f.dlg, &mut f.st) }.unwrap();
+        f.click(ID_APPLY);
+    }
+
+    /// The selected "Network" choice's value.
+    fn network_value(f: &Fixture) -> String {
+        unsafe { network_choice(f.dlg, &f.st) }
+    }
+
+    /// Picks the "Network" choice with value `value`, as the user would.
+    fn pick_network(f: &Fixture, value: &str) {
+        let i = f.st.networks.iter().position(|(v, _)| v == value).unwrap_or_else(|| panic!("no {value}"));
+        unsafe {
+            send(item(f.dlg, ID_NET_RULE), CB_SETCURSEL, i, 0);
+            SendMessageW(f.dlg, WM_COMMAND, ID_NET_RULE as usize | (CBN_SELCHANGE as usize) << 16, 0);
+        }
+    }
+
+    /// "Use Only This Network" (D54): the drop-down, then the range box, compose
+    /// `network_rule`; the range and the pause box grey while it is off; a bad range is refused
+    /// on the range box.
+    #[test]
+    fn the_network_box_sets_the_network_rule() {
+        let enabled = |f: &Fixture, id| unsafe { IsWindowEnabled(item(f.dlg, id)) != 0 };
+        let mut f = Fixture::new(defaults());
+        assert_eq!(network_value(&f), "", "off by default");
+        assert_eq!(
+            &f.st.networks[..3].iter().map(|(v, _)| v.as_str()).collect::<Vec<_>>(),
+            &["", "vpn", network::RANGE]
+        );
+        assert_eq!(f.st.networks[0].1, tr!(NetRuleOff));
+        unsafe {
+            assert_eq!(send(item(f.dlg, ID_NET_RULE), CB_GETCOUNT, 0, 0), f.st.networks.len() as isize)
+        };
+        assert!(!enabled(&f, ID_NET_RANGE) && !enabled(&f, ID_NET_PAUSE), "greyed while off");
+        unsafe { assert!(checked(f.dlg, ID_NET_PAUSE), "pausing is the default") };
+
+        // nothing changed: the rule stays as it was
+        unsafe { read_controls(f.dlg, &mut f.st) }.unwrap();
+        assert_eq!(f.st.opts.settings.network_rule, "");
+
+        pick_network(&f, network::RANGE);
+        assert!(enabled(&f, ID_NET_RANGE) && enabled(&f, ID_NET_PAUSE));
+        let e = unsafe { read_controls(f.dlg, &mut f.st) }.unwrap_err();
+        assert_eq!(e.0, ID_NET_RANGE, "an empty range is not one: {}", e.1);
+        f.set(ID_NET_RANGE, "10.2.0.0/33");
+        assert_eq!(unsafe { read_controls(f.dlg, &mut f.st) }.unwrap_err().0, ID_NET_RANGE);
+        f.set(ID_NET_RANGE, " 10.2.0.0/16 ");
+        f.check(ID_NET_PAUSE, false);
+        apply_checked(&mut f);
+        let s = f.last_applied().settings;
+        assert_eq!(s.network_rule, "range:10.2.0.0/16");
+        assert!(!s.network_pause_when_missing);
+
+        // shown back the same way
+        let g = Fixture::new(f.last_applied());
+        assert_eq!(network_value(&g), network::RANGE);
+        assert_eq!(g.text(ID_NET_RANGE), "10.2.0.0/16");
+        assert!(enabled(&g, ID_NET_RANGE));
+        unsafe { assert!(!checked(g.dlg, ID_NET_PAUSE)) };
+
+        // "Any VPN adapter" leaves the range box out of the rule
+        pick_network(&f, "vpn");
+        apply_checked(&mut f);
+        assert_eq!(f.last_applied().settings.network_rule, "vpn");
+        pick_network(&f, "");
+        assert!(!enabled(&f, ID_NET_RANGE) && !enabled(&f, ID_NET_PAUSE));
+        apply_checked(&mut f);
+        assert_eq!(f.last_applied().settings.network_rule, "");
+    }
+
+    /// An adapter the rule names is listed, as not connected while the engine does not report
+    /// it; the adapters arriving while the dialog is open refill the drop-down, keeping the
+    /// choice.
+    #[test]
+    fn the_network_list_follows_the_adapters() {
+        let id = "{d54-test-adapter}";
+        let rule = format!("adapter:{id}");
+        let mut o = defaults();
+        o.settings.network_rule = rule.clone();
+        let f = Fixture::new(o);
+        assert_eq!(network_value(&f), rule);
+        let missing = &f.st.networks.iter().find(|(v, _)| *v == rule).unwrap().1;
+        assert!(missing.contains(id), "{missing}");
+
+        network::set_adapters(vec![patorrent_core::NetAdapter {
+            id: id.to_owned(),
+            name: "D54 Test VPN".to_owned(),
+            vpn: true,
+            addresses: vec!["10.2.0.5".parse().unwrap()],
+        }]);
+        adapters_changed();
+        network::set_adapters(Vec::new());
+        assert_eq!(network_value(&f), rule, "the choice is kept");
+        assert_eq!(f.st.networks.iter().find(|(v, _)| *v == rule).unwrap().1, "D54 Test VPN");
+        unsafe {
+            assert_eq!(send(item(f.dlg, ID_NET_RULE), CB_GETCOUNT, 0, 0), f.st.networks.len() as isize)
+        };
     }
 
     #[test]

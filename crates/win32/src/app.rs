@@ -368,6 +368,8 @@ struct App {
     title_speed: bool,
     title: String,
     status_texts: Vec<String>,
+    /// The network part's tooltip as last set ("Your address as trackers see it", D54).
+    net_tip: String,
     quitting: bool,
     taskbar_created: u32,
     /// Arguments from a second instance, added once its `WM_COPYDATA` has returned.
@@ -1100,6 +1102,8 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         handle.set_alert_notify(move || {
             PostMessageW(target as HWND, WM_APP_ALERTS, 0, 0);
         });
+        // the engine host's adapters, for "Use only this network" (D54), local or remote
+        handle.post_network_adapters();
 
         let save_path = prefs.get("dir.download").map(str::to_owned).unwrap_or_else(downloads_folder);
         let gui = GuiOptions::load(&prefs, &save_path);
@@ -1182,6 +1186,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             title_speed: gui.title_speed,
             title: profile::name_build(),
             status_texts: Vec::new(),
+            net_tip: String::new(),
             quitting: false,
             taskbar_created: RegisterWindowMessageW(w!("TaskbarCreated")),
             pending_args: Vec::new(),
@@ -2448,6 +2453,7 @@ unsafe fn on_alerts(hwnd: HWND) {
     let mut balloons: Vec<String> = Vec::new();
     let mut suspend = None;
     let mut magnet_ready = false;
+    let mut adapters = false;
     let Some((lists_changed, removed_any, repaint_page)) = with_app(|a| {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
@@ -2472,6 +2478,9 @@ unsafe fn on_alerts(hwnd: HWND) {
             }
             magnet_ready |= a.awaiting.on_alert(&alert, &a.handle, &mut a.prefs);
             a.listen.on_alert(&alert);
+            // the adapters and the network status for Preferences, the status bar and the
+            // General tab (D54)
+            patorrent_frontend::network::on_alert(&alert);
             match alert {
                 Alert::StateUpdate(v) => {
                     for st in &v {
@@ -2604,6 +2613,8 @@ unsafe fn on_alerts(hwnd: HWND) {
                 // the mappers' step-by-step chatter (SOAP bodies included) stays out of the
                 // logger; the mapped ports, failures and the external address still show
                 Alert::PortmapLog { .. } => {}
+                // kept by `network::on_alert`; an open Preferences lists them
+                Alert::NetworkAdapters(_) => adapters = true,
                 other => {
                     let name = other.torrent().and_then(|id| a.list.get(id)).map(|st| st.name.clone());
                     let line = match name {
@@ -2627,6 +2638,9 @@ unsafe fn on_alerts(hwnd: HWND) {
         refresh_list();
         update_tree();
         update_status_bar();
+        if adapters {
+            crate::preferences::adapters_changed();
+        }
         if lists_changed || removed_any {
             update_detail_lists();
         }
@@ -2682,7 +2696,7 @@ fn sync_title(a: &mut App) {
 }
 
 unsafe fn update_status_bar() {
-    let Some((status, hwnd, parts, tip, changed, net_icon, first)) = with_app(|a| {
+    let Some((status, hwnd, parts, tip, changed, net_icon, first, net_tip)) = with_app(|a| {
         let s = &a.stats;
         let has = s.has_incoming_connections;
         let net_icon = (a.net_shown != Some(has)).then(|| {
@@ -2698,6 +2712,13 @@ unsafe fn update_status_bar() {
             Some(sched) => format!("{net} | {sched}"),
             None => net,
         };
+        // "Waiting for the network" while "Use only this network" finds none (D54)
+        let net = patorrent_frontend::network::with_status(s, net);
+        let net_tip = patorrent_frontend::network::tooltip(s);
+        let net_tip = (net_tip != a.net_tip).then(|| {
+            a.net_tip.clone_from(&net_tip);
+            net_tip
+        });
         let [down, up] = status::bar_rates(s);
         let parts = [net, tr!(BarDht, count = s.dht_nodes), down, up];
         let tip = tr!(
@@ -2721,13 +2742,17 @@ unsafe fn update_status_bar() {
         }
         // the update notice, when there is one, is the first part
         let first = usize::from(a.updates.notice().is_some());
-        (a.status, a.hwnd, parts, tip, changed, net_icon, first)
+        (a.status, a.hwnd, parts, tip, changed, net_icon, first, net_tip)
     }) else {
         return;
     };
     unsafe {
         if let Some(icon) = net_icon {
             send(status, SB_SETICON, first, icon as LPARAM);
+        }
+        if let Some(t) = net_tip {
+            let w = wide(&t);
+            send(status, SB_SETTIPTEXTW, first, w.as_ptr() as LPARAM);
         }
         for (i, text) in &parts {
             let w = wide(text);
@@ -4083,7 +4108,13 @@ unsafe fn show_preferences(hwnd: HWND) {
 
 /// Preferences at `page` (`preferences::PAGES` index).
 unsafe fn show_preferences_at(hwnd: HWND, page: usize) {
-    let Some(mut opts) = with_app(|a| Options::load(&a.prefs, &a.save_path)) else { return };
+    let Some(mut opts) = with_app(|a| {
+        // the drop-down lists the adapters known now; the answer refills it (D54)
+        a.handle.post_network_adapters();
+        Options::load(&a.prefs, &a.save_path)
+    }) else {
+        return;
+    };
     opts.gui.language = language_choice();
     let dir = data_dir();
     // the dialog runs its own message loop; the hooks borrow the app only while they run
@@ -4873,6 +4904,7 @@ unsafe fn show_update_notice(hwnd: HWND) {
         // every part's text and the network icon are sent again at their new places
         a.status_texts.clear();
         a.net_shown = None;
+        a.net_tip.clear();
         (a.status, a.updates.notice().map(|v| tr!(UpdateNotice, version = v)), a.icon_small)
     }) else {
         return;
@@ -4882,6 +4914,9 @@ unsafe fn show_update_notice(hwnd: HWND) {
         // the tooltip shows a part's text when it does not fit
         let w = wide(notice.as_deref().unwrap_or_default());
         send(status, SB_SETTIPTEXTW, 0, w.as_ptr() as LPARAM);
+        // the network part's tooltip moves with it (`update_status_bar` sets it again)
+        let none = wide("");
+        send(status, SB_SETTIPTEXTW, 1, none.as_ptr() as LPARAM);
         if notice.is_some() {
             send(status, SB_SETTEXTW, 0, w.as_ptr() as LPARAM);
             send(status, SB_SETICON, 0, icon as LPARAM);

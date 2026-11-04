@@ -447,6 +447,15 @@ impl Mock {
                 }
                 self.out.push(Alert::StateUpdate(changed));
             }
+            Command::PostNetworkAdapters => {
+                let adapters = vec![crate::status::NetAdapter {
+                    id: "mock0".into(),
+                    name: "Mock Ethernet".into(),
+                    vpn: false,
+                    addresses: vec![std::net::Ipv4Addr::LOCALHOST.into()],
+                }];
+                self.out.push(Alert::NetworkAdapters(adapters));
+            }
             Command::PostSessionStats => {
                 let mut s = self.stats;
                 s.num_torrents = self.by_hash.len() as u32;

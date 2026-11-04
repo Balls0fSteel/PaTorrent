@@ -1290,6 +1290,8 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Res
                 Ok(Response::json(&awaiting_info(&shared.lock(), hash)?))
             }
             "prefs" => {
+                // the adapter list refreshes for the next time the page asks (D54)
+                shared.handle.post_network_adapters();
                 let st = shared.lock();
                 Ok(Response::json(&prefs::model(shared, &st)))
             }

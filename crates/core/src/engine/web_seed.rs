@@ -679,7 +679,9 @@ impl Engine {
                 }
             }
         }
-        let sock = match TcpStream::connect(connect_to) {
+        // a proxy is reached as configured; a direct connection leaves from the bound network
+        let from = if via.is_some() { Ok(None) } else { self.outgoing_from(connect_to) };
+        let sock = match from.and_then(|from| crate::net::bind::connect_tcp(from, connect_to)) {
             Ok(s) => s,
             Err(e) => {
                 let t = self.torrent(id).expect("exists");

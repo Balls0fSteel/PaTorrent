@@ -20,7 +20,15 @@ pub(crate) struct IpInterface {
     pub scope_id: u32,
     /// The interface index, for multicast membership and the outgoing interface.
     pub index: u32,
+    /// The interface's stable name: the adapter's GUID on Windows (`AdapterName`), the device
+    /// name on Unix.
     pub name: String,
+    /// What the user knows it by: Windows' `FriendlyName` ("Ethernet", "Mullvad"), else the name.
+    pub friendly: String,
+    /// Windows' adapter description ("Wintun Userspace Tunnel"); empty on Unix.
+    pub description: String,
+    /// Windows' `IfType` (IANA ifType: 6 Ethernet, 23 PPP, 53 virtual, 131 tunnel); 0 on Unix.
+    pub if_type: u32,
     pub up: bool,
     pub loopback: bool,
     pub multicast: bool,
@@ -165,6 +173,9 @@ mod tests {
             scope_id: 0,
             index,
             name: String::new(),
+            friendly: String::new(),
+            description: String::new(),
+            if_type: 0,
             up: true,
             loopback: false,
             multicast: true,

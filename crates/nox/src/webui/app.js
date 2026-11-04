@@ -1247,6 +1247,13 @@
 
   // ---- status bar ----------------------------------------------------------------------
   function updateStatus(s) {
+    // "Waiting for the network" while the chosen network is missing; the network parts'
+    // tooltip says where trackers see us (D54)
+    setText("st-net", s.net || "");
+    for (const id of ["st-net", "st-dht"]) {
+      const el = $(id);
+      if (s.net_tip !== undefined && el.title !== s.net_tip) el.title = s.net_tip;
+    }
     setText("st-dht", T("BarDht", { count: s.dht }));
     // the global limit in brackets while one is set
     const limit = (rate, l) => rate + (l ? " [" + l + "]" : "");

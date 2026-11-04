@@ -732,6 +732,7 @@ impl Torrent {
             is_seeding: self.is_seed(),
             super_seeding: self.super_seeding(),
             moving_storage: self.moves_pending > 0,
+            waiting_for_network: false,
             progress_ppm,
             queue_position: self.queue_position,
             download_rate: rates.0,

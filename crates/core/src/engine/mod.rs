@@ -22,6 +22,7 @@ mod listen;
 mod lsd;
 mod metadata;
 mod natpmp;
+mod network_rule;
 mod pe;
 pub(crate) mod peer;
 pub(crate) mod peer_class;
@@ -445,6 +446,8 @@ pub(crate) struct Engine {
     /// Slowing down for a busy disk (D48).
     disk_limit: disk_limit::DiskLimit,
     network: listen::NetworkState,
+    /// "Use only this network" (D54).
+    rules: network_rule::RuleState,
     /// Web seed connections (BEP 19 / BEP 17).
     web: web_seed::WebConns,
     /// The proxy server and its SOCKS5 UDP associate.
@@ -638,6 +641,7 @@ impl Engine {
             auto_limit: None,
             disk_limit: disk_limit::DiskLimit::default(),
             network,
+            rules: network_rule::RuleState::default(),
             web: web_seed::WebConns::default(),
             proxy: proxy::ProxyState::default(),
             label: None,
@@ -873,7 +877,7 @@ impl Engine {
     }
 
     fn is_running(&self, t: &Torrent) -> bool {
-        !t.is_paused() && !self.session_paused && t.error.is_none()
+        !t.is_paused() && !self.session_halted() && t.error.is_none()
     }
 
     fn set_state(&mut self, id: TorrentId, state: TorrentState) {
@@ -933,7 +937,7 @@ impl Engine {
                 }
             };
             // libtorrent: with a proxy, peers are only accepted through it, never directly
-            if self.session_paused || self.proxy.for_peers().is_some() {
+            if self.session_halted() || self.proxy.for_peers().is_some() {
                 continue; // dropped: closes the socket
             }
             if !self.settings.enable_incoming_tcp {
@@ -1040,7 +1044,7 @@ impl Engine {
     /// and are not peers yet.
     fn utp_refusal(&self, addr: SocketAddr, pending: usize) -> Option<Option<crate::alert::BlockReason>> {
         use crate::alert::BlockReason;
-        if self.session_paused {
+        if self.session_halted() {
             Some(None)
         } else if !self.settings.enable_incoming_utp {
             Some(Some(BlockReason::UtpDisabled))
@@ -1618,6 +1622,7 @@ impl Engine {
             Command::PostWebSeeds(id) => self.post_web_seeds(id),
             Command::PostTorrentUpdates => self.post_torrent_updates(),
             Command::PostSessionStats => self.post_session_stats(),
+            Command::PostNetworkAdapters => self.post_network_adapters(),
             Command::SaveResumeData => {
                 self.save_resume(true);
                 self.alert(Alert::ResumeDataSaved);
@@ -1741,6 +1746,7 @@ impl Engine {
         let natpmp_changed = s.enable_natpmp != self.settings.enable_natpmp;
         let upnp_changed = s.enable_upnp != self.settings.enable_upnp;
         let listen_changed = listen::listen_settings_changed(&self.settings, &s);
+        let network_pause_changed = s.network_pause_when_missing != self.settings.network_pause_when_missing;
         let buffers_changed = s.send_socket_buffer_size != self.settings.send_socket_buffer_size
             || s.recv_socket_buffer_size != self.settings.recv_socket_buffer_size;
         let privileged = s.no_connect_privileged_ports;
@@ -1756,6 +1762,9 @@ impl Engine {
         self.update_proxy(Instant::now());
         if let Some(close_all) = listen_changed {
             self.on_listen_settings_changed(close_all);
+        }
+        if network_pause_changed {
+            self.network_pause_setting_changed();
         }
         if queue_changed {
             self.needs_auto_manage = true;
@@ -3630,7 +3639,10 @@ impl Engine {
                 })
                 .map(Transport::Tcp)
         } else {
-            TcpStream::connect(addr).map(Transport::Tcp)
+            // libtorrent `bind_outgoing_socket`: from the network torrent traffic is bound to
+            self.outgoing_from(addr)
+                .and_then(|from| crate::net::bind::connect_tcp(from, addr))
+                .map(Transport::Tcp)
         };
         match transport {
             Ok(tr) => match self.add_peer_conn(tr, addr, true, source, Some(id)) {
@@ -3877,7 +3889,8 @@ impl Engine {
             rates.1 = t.stat().upload_rate();
             rates.2 = t.stat().download_payload.rate();
             rates.3 = t.stat().upload_payload.rate();
-            let st = t.status(peers, seeds, rates, now);
+            let mut st = t.status(peers, seeds, rates, now);
+            st.waiting_for_network = self.rules.hold && !t.is_paused() && t.error.is_none();
             // the bit was taken already: clear the flag without setting it again
             self.slots.slots[i].torrent.as_mut().expect("present").status_dirty = false;
             Some(st)
@@ -3910,6 +3923,9 @@ impl Engine {
             read_cache_bytes: disk.cache_bytes,
             auto_upload_limit: self.auto_caps()[peer_class::UPLOAD],
             auto_download_limit: self.auto_caps()[peer_class::DOWNLOAD],
+            network: self.rules.status,
+            external_v4: self.ip_voter.external_address(true),
+            external_v6: self.ip_voter.external_address(false),
             ..SessionStats::default()
         };
         st.num_torrents = (self.slots.len() - self.free_slots.len()) as u32;

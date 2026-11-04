@@ -13,6 +13,7 @@ use std::collections::HashMap;
 use patorrent_core::{EncPolicy, ProxyType, Settings};
 
 use crate::lang::{self, S};
+use crate::network;
 use crate::options::Options;
 use crate::settings::{self, Entry};
 
@@ -143,6 +144,13 @@ const MAX_KB: i64 = u32::MAX as i64 / KB;
 /// as its user id. Every toolkit's combo is this list, read and written by [`proxy_to_ui`] /
 /// [`proxy_from_ui`].
 pub const PROXY_TYPES: [S; 4] = [S::PrefProxyNone, S::ProxySocks4, S::ProxySocks5, S::ProxyHttp];
+
+/// "Use only this network"'s drop-down (D54): off at "Any network (off)".
+pub const NETWORK_RULE: &str = "net.network_rule";
+/// Its address range box.
+pub const NETWORK_RANGE: &str = "net.network_range";
+/// "Pause torrents while this network is missing".
+pub const NETWORK_PAUSE: &str = "net.pause_when_missing";
 
 /// The proxy type field: off at "(none)", so it can be in [`Field::needs`].
 pub const PROXY_TYPE: &str = "proxy.type";
@@ -642,6 +650,35 @@ pub fn pages(features: Features) -> Vec<Page> {
                     |o, v| o.settings.proxy_tracker_connections = v,
                 )
                 .needs(&[PROXY_TYPE])),
+                // D54: the drop-down, then the range box (a dialog applies them in this order)
+                Group(S::PrefUseNetwork),
+                F(field(
+                    NETWORK_RULE,
+                    Some(S::PrefNetworkRule),
+                    Control::Choice {
+                        choices: |o| network::rule_choices(&o.settings.network_rule),
+                        get: |o| network::choice_of(&o.settings.network_rule),
+                        set: |o, v| {
+                            o.settings.network_rule = network::rule_for_choice(&o.settings.network_rule, &v)
+                        },
+                    },
+                )),
+                F(text(
+                    NETWORK_RANGE,
+                    Some(S::PrefNetworkRange),
+                    TextKind::Plain,
+                    |o| network::range_of(&o.settings.network_rule),
+                    |o, v| o.settings.network_rule = network::rule_for_range(&o.settings.network_rule, &v),
+                )
+                .indent()
+                .needs(&[NETWORK_RULE])),
+                F(checkbox(
+                    NETWORK_PAUSE,
+                    S::PrefNetworkPause,
+                    |o| o.settings.network_pause_when_missing,
+                    |o, v| o.settings.network_pause_when_missing = v,
+                )
+                .needs(&[NETWORK_RULE])),
             ],
         },
         Page {
@@ -1101,6 +1138,9 @@ pub fn check(o: &Options) -> Result<(), (&'static str, String)> {
             return Err(("proxy_port", tr_owned(S::PrefNoProxyPort)));
         }
     }
+    if let Err(e) = network::check_rule(&s.network_rule) {
+        return Err((NETWORK_RANGE, e));
+    }
     let g = &o.gui;
     if g.download_dir.trim().is_empty() {
         return Err(("dir.download", tr_owned(S::PrefNoDownloadDir)));
@@ -1196,7 +1236,8 @@ mod tests {
             assert!(seen.insert(f.key), "{} twice", f.key);
             for k in f.needs {
                 let needed = fields(&pages).find(|g| g.key == *k).unwrap_or_else(|| panic!("{k}"));
-                let switch = matches!(needed.control, Control::Check { .. }) || *k == PROXY_TYPE;
+                let switch =
+                    matches!(needed.control, Control::Check { .. }) || *k == PROXY_TYPE || *k == NETWORK_RULE;
                 assert!(switch, "{k} is not a check box");
             }
             // what a control shows, applied back, changes nothing

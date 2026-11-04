@@ -2,6 +2,7 @@
 //! listen-interface parsing and expansion, network-change notifications, bandwidth buckets, and
 //! the blocking HTTP(S) fetch helper frontends use ([`fetch`]).
 
+pub(crate) mod bind;
 pub(crate) mod enum_net;
 pub mod fetch;
 pub(crate) mod ip_filter;

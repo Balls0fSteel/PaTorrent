@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_083614_1793777774: Version 1.1.55: the GTK GUI's windows as files (`PATORRENT_SNAPSHOTS`)
+
+- **New test aid:** with `PATORRENT_SNAPSHOTS=<folder>`, the GTK GUI draws each of its windows into `window-<n>.png` there every 2 s (GTK renders them itself) and lists their titles and label texts in `windows.txt`, dialogs included. It is for machines whose screen cannot be captured or read over SSH. On the Mac VM it gave the main window, the "folder in use" message and its text. Under Xvfb on Linux it gave the "Create it?" question as a clean picture with its text. On the slow VM the first files come about 15 s after the start. Documented in RELEASING.md.
+- **Correction (2026-11-03_231320_1793744000):** the Mac VM's `screencapture` showing only the menu bar is not the missing GPU. The owner's TightVNC to the VM's Screen Sharing gives a perfect picture. It is macOS hiding window contents from a program without Screen Recording permission (SSH runs as `/usr/libexec/sshd-keygen-wrapper`).
+- Clippy for Linux and macOS clean.
+
 ## 2026-11-03_231320_1793744000: The 1.1.54 hold in the Flatpak
 
 - The Flatpak, rebuilt from 1.1.54 with flatpak-builder on the Xubuntu VM, under headless GNOME 50. A fresh `fp` profile's first window was matched to its own `….profile_fp.desktop` (`Exec=flatpak run --command=patorrent-gtk … --profile fp %U`) and had PaTorrent's badge. Before the hold, a first start was grouped under the default app. Docs only.

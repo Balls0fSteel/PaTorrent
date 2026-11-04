@@ -156,8 +156,11 @@ elevates through UAC and starts from a clean registry):
    builds the files above and opens a **draft** release with them. Download them, try them (the
    Windows zip and setup on a clean machine with [tools/windows-clean](../tools/windows-clean/README.md), the setup as in [Windows installer](#windows-installer), a
    tarball, the AppImages and the Flatpak on a Linux desktop;
-   for macOS, the `macos-gui-start` screenshot, as nobody here has a Mac), compare
+   for macOS, the `macos-gui-start` screenshot or the owner's Intel macOS VM), compare
    `SHA256SUMS`, then publish the draft on GitHub (`gh release edit v1.0.0 --draft=false`).
+   To check the GTK GUI over SSH, where the screen cannot be captured or read, start it with
+   `PATORRENT_SNAPSHOTS=<folder>`: every 2 s it draws its windows into `window-<n>.png` there
+   and lists their titles and label texts in `windows.txt`, dialogs included.
 6. Publishing starts the Pages workflow, which rebuilds the website's download links and
    `update.txt`, the list the GUIs' update check reads (D32, [WEBSITE.md](WEBSITE.md)). A few
    minutes later, <https://balls0fsteel.github.io/PaTorrent/update.txt> names the new version

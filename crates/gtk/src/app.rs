@@ -408,6 +408,8 @@ fn startup(app: &gtk::Application) {
         gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
         crate::icons::setup(&display);
     }
+    // a test aid: the windows drawn into PNGs and their texts listed (`PATORRENT_SNAPSHOTS`)
+    crate::snapshots::start();
     // after GTK's own startup (the signal runs its class handler first), which set its
     // NSApplication delegate and called `finishLaunching`
     #[cfg(target_os = "macos")]

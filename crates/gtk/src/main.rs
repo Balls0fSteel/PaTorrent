@@ -51,6 +51,8 @@ mod shutdown;
 #[cfg(unix)]
 mod sidebar;
 #[cfg(unix)]
+mod snapshots;
+#[cfg(unix)]
 mod table;
 #[cfg(unix)]
 mod tray;

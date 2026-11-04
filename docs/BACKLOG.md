@@ -925,8 +925,8 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   password and Cancel seen in a browser). Open: an install with the real Jackett from the Web
   UI (nox on Windows and Linux) and from a hosted Web UI; the shipped systemd units set
   `MemoryDenyWriteExecute=yes`, which likely stops Jackett (.NET): try it, then decide whether
-  the units drop it or the docs keep the override; the owner to confirm the Web UI size budget
-  of 236 KB (was 220). Screenshots of the new Win32 button row
+  the units drop it or the docs keep the override. The Web UI size budget of 236 KB (was 220)
+  is confirmed by the owner. Screenshots of the new Win32 button row
   (four 84-DLU buttons, long translations may crowd them) and the GTK window.
 - Website: the FAQ paragraph from the agent's report is not on the site yet.
 

@@ -547,7 +547,7 @@ fn static_files_have_their_headers_and_no_inline_code() {
         assert_eq!(t.req("POST", path, &[], Body::Form("")).status, 405, "{path}");
     }
     // 200 KB until the torrent search's panel (2026-10-30), 220 KB until the search helper's
-    // dialogs (D51, 2026-11-04; both to be confirmed by the owner)
+    // dialogs (D51, 2026-11-04); 236 KB confirmed by the owner 2026-11-04
     assert!(total < 236 * 1024, "the three files are {total} bytes; the budget is 236 KB");
     let page = t.req("GET", "/", &[], Body::None);
     let csp = page.header("content-security-policy").expect("a CSP on the page");

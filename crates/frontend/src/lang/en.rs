@@ -1214,4 +1214,54 @@ strings! {
     SearchCueAll = "Search all sources";
     /// The tooltip of the arrow beside the toolbar search box, which opens its drop-down.
     SearchModeTip = "Filter the list or search your sources";
+
+    // The search helper (D51): Jackett, downloaded at the user's click
+
+    /// The search source the search helper adds. Keep "(all)": it searches all its sites.
+    SearchHelperSource = "Search helper (all)";
+    /// The button in Search Sources. Jackett is the program's name: do not translate it.
+    SearchHelperGet = "Get the Search Helper (Jackett)...";
+    SearchHelperChecking = "Looking for the newest search helper...";
+    /// The box before the download. Keep "GPL-2.0" and the address as they are. {version} is
+    /// the release (v0.24.3009), {size} its size (57.0 MB), {folder} where it goes.
+    SearchHelperConfirm = "The search helper is Jackett, a separate program by its own authors under the GPL-2.0 licence, downloaded from github.com/Jackett/Jackett ({version}, {size}).\n\nIt goes into {folder} and runs on this computer only, only while you search. You then pick the public sites it searches.\n\nDownload it now?";
+    /// {version} is the release (v0.24.3009).
+    SearchHelperDownloading = "Downloading the search helper {version}...";
+    /// {error} is the reason, often in English.
+    SearchHelperDownloadFailed = "Could not get the search helper: {error}";
+    SearchHelperNotInstalled = "The search helper is not installed.";
+    /// {error} is the reason, often in English.
+    SearchHelperFailed = "The search helper did not start: {error}";
+    SearchHelperStarting = "Starting the search helper...";
+    /// The button that opens the list of the helper's public sites.
+    SearchHelperSites = "Pick Sites...";
+    SearchHelperSitesTitle = "Search Helper Sites";
+    SearchHelperSitesHint = "Tick the public sites the search helper searches; nothing is ticked for you. For private sites and their logins, open the helper's own page.";
+    /// A column of the sites list: the site's language.
+    SearchHelperColLanguage = "Language";
+    /// A column of the sites list: public, semi-private or private.
+    SearchHelperColType = "Type";
+    /// A column of the sites list: why a site cannot be ticked.
+    SearchHelperColNote = "Note";
+    /// FlareSolverr is a program's name: do not translate it.
+    SearchHelperNeedsFlaresolverr = "Needs FlareSolverr, which the helper does not include";
+    SearchHelperSaving = "Setting up the sites...";
+    /// {errors} lists the sites and their errors, one per line.
+    SearchHelperSitesFailed = "Some sites could not be set up:\n{errors}";
+    /// {count} is a number.
+    SearchHelperSitesDone = "Search helper: {count} sites ticked.";
+    SearchHelperOpenPage = "Open the Helper's Page";
+    /// {password} is the generated password, shown so it can be typed on the page.
+    SearchHelperPagePassword = "The helper's page opens in your browser. It asks for this password (copied to the clipboard):\n\n{password}";
+    SearchHelperUpdate = "Update the Search Helper";
+    /// {version} is the release (v0.24.3009).
+    SearchHelperUpToDate = "The search helper is up to date ({version}).";
+    /// {current} and {version} are releases, {size} the download's size.
+    SearchHelperUpdateConfirm = "Update the search helper from {current} to {version} ({size})?";
+    SearchHelperRemove = "Remove the Search Helper";
+    /// {folder} is the folder deleted.
+    SearchHelperRemoveConfirm = "Remove the search helper and its search source? Its folder is deleted:\n{folder}";
+    /// The status line after an install or update; {version} is the release.
+    SearchHelperInstalled = "Search helper {version} is installed.";
+    SearchHelperRemoved = "The search helper was removed.";
 }

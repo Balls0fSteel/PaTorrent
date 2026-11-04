@@ -59,7 +59,7 @@ Gaps 1 and 2 were fixed in `crates/nox/src/webui/api.rs`, `commands.rs` and `tor
 
 ## Part 2: Torznab search (D41, approved 2026-10-30)
 
-Approved by the owner 2026-10-30: search through the user's Prowlarr or Jackett over Torznab, no Python plugins, no scrapers; a source on a non-public address never goes through the proxy, a public one does. Slice 1 is built (2026-10-30_104340_1793353420), see [Slices](#slices).
+Approved by the owner 2026-10-30: search through the user's Prowlarr or Jackett over Torznab, no Python plugins, no scrapers; a source on a non-public address never goes through the proxy, a public one does. Slice 1 is built (2026-10-30_104340_1793353420), see [Slices](#slices). For users with neither, the search helper (D51, [SEARCH_HELPER.md](SEARCH_HELPER.md)) downloads Jackett at their click and adds it as one more source.
 
 ### Why Torznab
 

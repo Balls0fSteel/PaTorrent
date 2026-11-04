@@ -221,6 +221,35 @@ pub fn clipboard_text(owner: HWND) -> Option<String> {
     }
 }
 
+/// Puts `text` on the clipboard; false when the clipboard is busy.
+pub fn set_clipboard_text(owner: HWND, text: &str) -> bool {
+    use windows_sys::Win32::Foundation::GlobalFree;
+    use windows_sys::Win32::System::DataExchange::{EmptyClipboard, SetClipboardData};
+    use windows_sys::Win32::System::Memory::{GMEM_MOVEABLE, GlobalAlloc};
+    let w = wide(text);
+    unsafe {
+        if OpenClipboard(owner) == 0 {
+            return false;
+        }
+        EmptyClipboard();
+        let h = GlobalAlloc(GMEM_MOVEABLE, w.len() * 2);
+        let mut done = false;
+        if !h.is_null() {
+            let p = GlobalLock(h) as *mut u16;
+            if !p.is_null() {
+                std::ptr::copy_nonoverlapping(w.as_ptr(), p, w.len());
+                GlobalUnlock(h);
+                done = !SetClipboardData(CF_UNICODETEXT as u32, h).is_null();
+            }
+            if !done {
+                GlobalFree(h);
+            }
+        }
+        CloseClipboard();
+        done
+    }
+}
+
 /// The template names its font (`message_font`).
 const DS_SETFONT: u32 = 0x40;
 

@@ -7,7 +7,10 @@
 //!   caps' categories.
 //! - [`worker`]: the merged search over the enabled sources ([`Search`]) and what adding a
 //!   result adds ([`fetch_download`]).
+//! - [`helper`]: the search helper (D51): Jackett downloaded at the user's click and run only
+//!   while searching, as the source "Search helper (all)".
 
+pub mod helper;
 pub mod source;
 pub mod torznab;
 pub mod worker;

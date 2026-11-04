@@ -4,6 +4,10 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_103905_1793785145: Version 1.1.61: the Win32 Preferences help pane clears the Connection page's new group
+
+- Seen on a hidden-desktop screenshot of the merged release build: D54's "Use Only This Network" group (page rows 208-272) ended on the D55 help frame's top line (274). The frame, pane, hint and buttons moved 8 DLU down and the dialog (351 DLU now) and page tree grew to match. The 22 Preferences tests pass; the Connection page screenshot now shows a gap between the group and the pane.
+
 ## 2026-11-04_103245_1793784765: Version 1.1.60: the Win32 crate's non-Windows stub compiles again
 
 - D55 declared `mod help` in `crates/win32/src/main.rs` outside the `cfg(windows)` gate, so `cargo clippy --workspace` on Linux failed on `windows_sys` and `crate::util` (found on the Xubuntu VM after the merges; the agents had only checked the GTK crate there). Gated like the other modules. No behaviour change on Windows.

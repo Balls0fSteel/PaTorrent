@@ -967,7 +967,7 @@ fn template() -> Vec<u16> {
 fn build() -> (Vec<u16>, Vec<(u16, u16)>) {
     // the Scheduler page names the grid's class
     sched_grid::register();
-    let mut b = Builder { t: Template::new(431, 343), page: 0, next_label: 50, labels: Vec::new() };
+    let mut b = Builder { t: Template::new(431, 351), page: 0, next_label: 50, labels: Vec::new() };
     let tree_style = TAB
         | WS_BORDER
         | windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE
@@ -978,7 +978,7 @@ fn build() -> (Vec<u16>, Vec<(u16, u16)>) {
         // a long page name runs to the edge (its tooltip shows it all) rather than scroll
         | TVS_NOHSCROLL
         | TVS_DISABLEDRAGDROP;
-    b.t.item(Class::Name("SysTreeView32"), ID_TREE, tree_style, [7, 7, 100, 309], "");
+    b.t.item(Class::Name("SysTreeView32"), ID_TREE, tree_style, [7, 7, 100, 317], "");
 
     b.page(0);
     b.group([0, 0, W, 34], tr!(PrefLanguage));
@@ -1192,12 +1192,12 @@ fn build() -> (Vec<u16>, Vec<(u16, u16)>) {
     let mut t = b.t;
     let vis = windows_sys::Win32::UI::WindowsAndMessaging::WS_VISIBLE;
     // the help pane under the pages (D55): four lines in a frame, then the hint beside the buttons
-    t.item(BUTTON, ID_HELP_FRAME, C | vis | BS_GROUPBOX as u32, [X0, 274, W, 42], "");
-    t.item(STATIC, ID_HELP_PANE, C | vis | SS_NOPREFIX, [X0 + 6, 282, W - 12, 32], "");
-    t.item(STATIC, ID_HELP_HINT, C | vis | SS_NOPREFIX, [7, 324, 250, 9], tr!(PrefHelpHint));
-    t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 322, 50, 14], tr!(BtnOk));
-    t.item(BUTTON, IDCANCEL as u16, PUSH | vis, [317, 322, 50, 14], tr!(BtnCancel));
-    t.item(BUTTON, ID_APPLY, PUSH | vis, [371, 322, 53, 14], tr!(BtnApply));
+    t.item(BUTTON, ID_HELP_FRAME, C | vis | BS_GROUPBOX as u32, [X0, 282, W, 42], "");
+    t.item(STATIC, ID_HELP_PANE, C | vis | SS_NOPREFIX, [X0 + 6, 290, W - 12, 32], "");
+    t.item(STATIC, ID_HELP_HINT, C | vis | SS_NOPREFIX, [7, 332, 250, 9], tr!(PrefHelpHint));
+    t.item(BUTTON, IDOK as u16, TAB | vis | BS_DEFPUSHBUTTON as u32, [263, 330, 50, 14], tr!(BtnOk));
+    t.item(BUTTON, IDCANCEL as u16, PUSH | vis, [317, 330, 50, 14], tr!(BtnCancel));
+    t.item(BUTTON, ID_APPLY, PUSH | vis, [371, 330, 53, 14], tr!(BtnApply));
     (t.finish(), labels)
 }
 

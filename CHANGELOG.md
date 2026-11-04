@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_231751_1793830671: Version 1.1.65: the help texts checked against the code (D55)
+
+- **Fixed (owner's D55 answer, an Opus 5.5 agent's review, merged here):** 37 of the 302 English help texts misstated the code and were rewritten with file:line evidence. Examples: UDP trackers need a SOCKS5 proxy; the scheduler's Limited rates replace the global limits; `utp_syn_resends` has no effect; DHT blocks run from when they start; Remove deletes the part file. `en.lng` and `docs/HELP_TEXTS.md` were regenerated; the other 265 were found correct.
+- **Found:** a remote peer's `reqq` of 1-3 panicked `Peer::desired_queue` (fixed in 1.1.66); the Hashing threads label still promises "used from the next start" although nothing reads the setting; smaller gaps in BACKLOG "Files tab filter and help text".
+- **Checked:** the agent's fmt, clippy and tests; the frontend tests again on the merge.
+
 ## 2026-11-04_230040_1793829640: Version 1.1.64: the Files filter's ×, and torrents opened during the first-start guide kept (D50, D53)
 
 - **Added (owner's D50 answer):** a × at the right of the Win32 Files filter box while it filters; it empties the box and leaves the focus there; tooltip "Clear the filter (Esc)" (`FilesFilterClear`, machine-translated into every table; `help::control_tip`). GTK (Linux and the macOS bundle) already had one: the box is a `gtk::SearchEntry`.

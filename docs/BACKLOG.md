@@ -954,6 +954,13 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   (F1 against the browser's, phone, dark mode, RTL) not seen. The other dialogs (Add, Properties,
   RSS) and GTK's main-menu items have no help yet; `docs/HELP_TEXTS.md` is for the owner's review
   against the code. Translations of the help texts come with the wiki (fall back to English).
+- **Checked against the code 2026-11-04 (1.1.65):** 37 texts fixed. Left open: the Hashing
+  threads label (a UI string, translated) still promises an effect; the menu texts name Explorer,
+  desktop shortcuts and the Recycle Bin, which `docs/HELP_TEXTS.md` shows for Linux too; the tray's
+  "Hide" restores a minimized window when Minimize to Tray is off (`win32/src/app.rs` ~3282);
+  small omissions in AdvUserAgent (web seeds, the profile's port-mapping name),
+  AdvListenInterfaces (`device:port`, the network rule replaces the list), WebApiKey (characters
+  or bytes), PrefWebUi (user name defaults to admin), PrefDiskWriteQueue (below 4 MB acts as 4 MB).
 - **Found while writing the texts:** `hashing_threads` is read by nothing although its label
   promises "used from the next start"; `tracker_receive_timeout` and `request_timeout` are unused;
   `max_queued_disk_bytes` acts as at least 4 MB, so the 1 MB default means 4 MB;

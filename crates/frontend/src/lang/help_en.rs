@@ -47,11 +47,11 @@ helps! {
     /// frontend: crates/win32/src/integration.rs (magnet URL scheme), crates/frontend/src/integration.rs
     PrefAssocMagnet = "Makes this copy of PaTorrent the program that opens magnet: links clicked in a browser, for your user account only. With profiles, only one profile can hold them.";
     /// frontend: crates/win32/src/app.rs (check_association at start), crates/gtk/src/app.rs; options.rs: off by default
-    PrefCheckAssoc = "At start, asks whether to take over .torrent files and magnet: links when PaTorrent is not the program that opens them. Off by default.";
+    PrefCheckAssoc = "At start, asks whether to take over .torrent files and magnet: links when PaTorrent is not the program that opens them; not when it starts minimized at login. Off by default.";
     /// frontend: crates/win32/src/integration.rs (a Run value per profile), crates/frontend/src/integration.rs (autostart entry, the Background portal in a Flatpak)
-    PrefAutostart = "Starts PaTorrent when you log in to the computer. Each profile has its own entry.";
+    PrefAutostart = "Starts PaTorrent when you log in to the computer. Each profile has its own entry; in a Flatpak only the default profile can start at login.";
     /// frontend: crates/frontend/src/integration.rs (the switch the autostart entry passes), crates/win32/src/app.rs (restore_placement hidden)
-    PrefStartMinimized = "With the automatic start, PaTorrent starts without showing its window, in the tray where there is one.";
+    PrefStartMinimized = "With the automatic start, PaTorrent starts without showing its window: in the tray where there is one, minimized where there is none.";
     /// frontend: crates/win32/src/preferences.rs (ID_DEFAULT_APPS), crates/win32/src/integration.rs (open_default_apps, UserChoice)
     PrefDefaultApps = "Opens Windows Settings at Default apps, on PaTorrent's own page where Windows has one. A program chosen there wins over the boxes above, and only you can change that choice.";
     /// frontend: crates/frontend/src/update.rs (Checker: FIRST_CHECK 10 s, INTERVAL 12 h; nothing installed without asking)
@@ -87,7 +87,7 @@ helps! {
     /// frontend: crates/core/src/move_completed.rs (append_label, label_dir)
     PrefMoveAddLabel = "Moves a finished torrent that has a label into a folder named after the label, inside the folder for completed downloads. The label it has when it finishes counts.";
     /// frontend: crates/core/src/move_completed.rs (only_from = the download folder)
-    PrefMoveOnlyDefault = "Moves only torrents saved in the folder for new downloads; torrents you saved somewhere else stay where they are.";
+    PrefMoveOnlyDefault = "Moves only torrents saved in the folder for new downloads itself; torrents saved somewhere else, even in a folder inside it, stay where they are.";
     /// frontend: crates/frontend/src/torrent_folders.rs (store copies, named after the torrent)
     PrefStoreTorrents = "Keeps a copy of every added .torrent file in the folder below, named after the torrent. A magnet link's copy is stored once its metadata has arrived.";
     /// frontend: crates/frontend/src/torrent_folders.rs (moved on TorrentFinished)
@@ -115,7 +115,7 @@ helps! {
     /// engine: crates/core/src/settings.rs (proxy_port), pref_pages.rs (check: 0 refused with a proxy)
     PrefProxyPort = "The port the proxy server listens on, such as 1080 for many SOCKS servers.";
     /// engine: crates/frontend/src/pref_pages.rs (proxy_from_ui picks Socks5Pw / HttpPw), crates/core/src/settings.rs (ProxyType::Socks4)
-    PrefAuthentication = "Logs in to the proxy with the user name and password below. A SOCKS4 proxy gets only the user name, as its user id.";
+    PrefAuthentication = "Logs in to the proxy with the user name and password below. A SOCKS4 proxy gets only the user name, as its user id, whenever one is filled in, ticked or not.";
     /// engine: crates/core/src/settings.rs (proxy_username; SOCKS4 user id)
     PrefProxyUsername = "The user name for the proxy server. SOCKS4 sends it as its user id.";
     /// engine: crates/core/src/settings.rs (proxy_password, SOCKS5 RFC 1929 or HTTP basic authentication)
@@ -125,19 +125,19 @@ helps! {
     /// engine: crates/core/src/settings.rs (proxy_peer_connections: no listen socket, no LSD or port mapping)
     PrefProxyPeers = "Sends connections to peers and web seeds through the proxy. Incoming connections are then refused and port mapping and Local Peer Discovery stay off; uTP and the DHT need a SOCKS5 proxy.";
     /// engine: crates/core/src/settings.rs (proxy_tracker_connections)
-    PrefProxyTrackers = "Sends tracker announces, HTTP and UDP, through the proxy, so trackers see the proxy's address instead of yours.";
+    PrefProxyTrackers = "Sends tracker announces through the proxy, so trackers see the proxy's address instead of yours. UDP trackers need a SOCKS5 proxy; through another kind they are not reached.";
     /// engine: crates/core/src/net/bind.rs (is_vpn, match_rule), crates/core/src/engine/network_rule.rs (evaluate_network_rule, re-evaluated on every network change), settings.network_rule
     PrefNetworkRule = "Keeps all torrent traffic (peers, DHT, trackers, web seeds) on one network adapter: any adapter that looks like a VPN tunnel, one adapter by name, or whichever adapter has an address in the range below. Checked again at every network change, so a VPN that reconnects under a new address is followed. The Web UI and remote connections are not bound.";
     /// engine: crates/core/src/settings.rs (NetworkRule::Range, parse_cidr), crates/frontend/src/pref_pages.rs (check: PrefBadRange)
-    PrefNetworkRange = "An address range such as 10.2.0.0/16 or fd00::/8, for the \"Address range\" choice above: the adapter holding an address in it carries the torrent traffic. Most VPNs hand out addresses from a fixed range, which outlives renamed and recreated adapters.";
+    PrefNetworkRange = "An address range such as 10.2.0.0/16 or fd00::/8, for the \"Address range\" choice above: the adapter holding an address in it carries the torrent traffic. An IPv4 range leaves IPv6 traffic off, and an IPv6 range IPv4. Most VPNs hand out addresses from a fixed range, which outlives renamed and recreated adapters.";
     /// engine: crates/core/src/engine/network_rule.rs (set_network_hold, session_halted), settings.network_pause_when_missing
     PrefNetworkPause = "While no adapter matches the network rule (the VPN is down), running torrents wait and show \"Waiting for the network\", then carry on by themselves when it is back. Off, nothing is paused, but no torrent traffic can leave either, since every connection needs the matched address.";
 
     // ---- Preferences > Bandwidth
     /// engine: crates/core/src/engine/mod.rs (apply_settings sets the global peer class), settings.upload_rate_limit
-    PrefUpRate = "The most all torrents together upload per second. 0 means unlimited. The scheduler's Limited hours and Keep ping low can lower it for a while.";
+    PrefUpRate = "The most all torrents together upload per second. 0 means unlimited. The scheduler's Limited hours use their own rate in its place, and Keep ping low can lower it for a while.";
     /// engine: crates/core/src/engine/mod.rs (apply_settings sets the global peer class), settings.download_rate_limit
-    PrefDownRate = "The most all torrents together download per second. 0 means unlimited. The scheduler's Limited hours and Keep ping low can lower it for a while.";
+    PrefDownRate = "The most all torrents together download per second. 0 means unlimited. The scheduler's Limited hours use their own rate in its place, and Keep ping low can lower it for a while.";
     /// engine: crates/core/src/engine/peer_class.rs (overhead per packet), settings.rate_limit_ip_overhead
     PrefRateOverhead = "Counts the TCP/IP headers of peer traffic, estimated per packet, against the global limits, so the limits match what the line carries. Off by default.";
     /// engine: crates/core/src/engine/mod.rs (apply_rate_limit_utp), settings.rate_limit_utp
@@ -151,7 +151,7 @@ helps! {
     /// frontend: crates/frontend/src/options.rs (apply_to_new: max_uploads, property_defaults), crates/frontend/src/properties.rs
     PrefSlotsPerTorrent = "How many peers one torrent uploads to at once; 0 means no limit. Applies to torrents added from now on; a torrent's Properties can change its own.";
     /// engine: crates/core/src/engine/mod.rs (run_choker, unchoke checks), settings.unchoke_slots_limit
-    PrefGlobalSlots = "How many peers all torrents together upload to at once, the fastest ones chosen; -1 means no limit. Fewer slots give each peer more speed.";
+    PrefGlobalSlots = "How many peers all torrents together upload to at once, the fastest ones chosen; -1 means no limit and 0 counts as 1. Fewer slots give each peer more speed.";
     /// nox: crates/nox/src/webui/prefs.rs (alt_up_limit), crates/nox/src/webui/commands.rs (in force while alt_enabled; not when hosted)
     PrefAltUpRate = "The global upload limit used instead of the normal one while the alternative rate limits are on. 0 means unlimited.";
     /// nox: crates/nox/src/webui/prefs.rs (alt_dl_limit), crates/nox/src/webui/commands.rs
@@ -173,7 +173,7 @@ helps! {
     /// engine: crates/frontend/src/settings.rs (allow_legacy_incoming: in_enc_policy Enabled or Forced), crates/core/src/engine/wire.rs
     PrefLegacy = "Accepts incoming connections that are not encrypted. Off, only encrypted incoming connections are accepted, which loses peers that cannot encrypt.";
     /// frontend: crates/frontend/src/options.rs (ip_filter_file), crates/core/src/net/ip_filter.rs (formats), settings.apply_filter_to_dht / apply_ip_filter_to_trackers
-    PrefIpFilterEnable = "Blocks peers whose addresses are in the block list below, in eMule ipfilter.dat or PeerGuardian P2P format; an empty path means ipfilter.dat in the settings folder. Loaded at start and on Apply.";
+    PrefIpFilterEnable = "Blocks peers whose addresses are in the block list below, in eMule ipfilter.dat or PeerGuardian P2P format; an empty path means ipfilter.dat in the settings folder. Loaded at start and when Apply changes the box or the path; Reload reads an edited list.";
     /// frontend: crates/win32/src/preferences.rs (reload_ip_filter: needs the box ticked)
     PrefReload = "Loads the block list from the path now, without waiting for Apply, and shows how many rules it holds. The IP filter must be enabled.";
 
@@ -199,7 +199,7 @@ helps! {
     /// frontend: crates/frontend/src/scheduler.rs (Schedule::mode_at: Full speed while off)
     PrefScheduler = "Follows the weekly table below hour by hour, in local time. Off, PaTorrent always runs at full speed with the normal settings.";
     /// frontend: crates/frontend/src/scheduler.rs (Mode, settings_for, Change: pause session, upload mode)
-    PrefSchedTable = "One cell per hour of the week; click or drag to cycle Full speed, Limited, Turn off and Seeding only. Limited uses the rates below, Turn off pauses every torrent, Seeding only uploads but downloads nothing.";
+    PrefSchedTable = "One cell per hour of the week; a click moves a cell on to the next of Full speed, Limited, Turn off and Seeding only, and dragging paints that mode over the cells passed. Limited uses the rates below, Turn off pauses every torrent, Seeding only uploads but downloads nothing.";
     /// frontend: crates/frontend/src/scheduler.rs (settings_for Limited: upload_rate_limit)
     PrefSchedUp = "The global upload limit during the table's Limited hours, in place of the normal one. 0 means unlimited.";
     /// frontend: crates/frontend/src/scheduler.rs (settings_for Limited: download_rate_limit)
@@ -219,7 +219,7 @@ helps! {
     /// frontend: crates/win32/src/webui_host.rs (Setup::port, DEFAULT_PORT 8080, first_free_port)
     PrefWebUiPort = "The port the Web UI listens on. 8080 is proposed, or the next free port when another program or profile holds it.";
     /// frontend: crates/win32/src/webui_host.rs (Setup::addr: 0.0.0.0 or 127.0.0.1), en.rs PrefWebUiNote (firewall)
-    PrefWebUiRemote = "Listens on every network address, so other computers and phones can reach the Web UI, not only this one. They also need a Windows Firewall rule for patorrent.exe.";
+    PrefWebUiRemote = "Listens on every IPv4 address of this computer, so other computers and phones can reach the Web UI, not only this one. They also need a Windows Firewall rule for patorrent.exe.";
     /// frontend: crates/win32/src/webui_host.rs (Setup::https, webui-cert.pem), docs/WEBUI.md (HTTPS)
     PrefWebUiHttps = "Serves the Web UI over HTTPS with a certificate PaTorrent makes itself and keeps in the settings folder. Browsers warn about such a certificate until you accept it.";
     /// frontend: crates/win32/src/preferences.rs (ID_WEBUI_OPEN, enabled while running)
@@ -231,7 +231,7 @@ helps! {
     /// nox: crates/nox/src/webui/mod.rs (auth_subnets), docs/WEBUI.md (never for proxied requests)
     WebAuthSubnets = "Clients in these networks use the Web UI without logging in, with full control. Never applies to requests through a reverse proxy. List only networks you trust as much as the password.";
     /// nox: crates/nox/src/webui/mod.rs (domain_list, * wildcards), crates/nox/src/webui/api.rs (host_allowed)
-    WebDomains = "Host names the Web UI answers to besides IP addresses and localhost, such as this computer's name for an app in Docker; * matches anything. Other names are refused.";
+    WebDomains = "Host names the Web UI answers to besides IP addresses and localhost, such as this computer's name for an app in Docker; * matches anything. While Host header validation is on, other names are refused.";
     /// nox: crates/nox/src/webui/prefs.rs (webui.listen, read-only), crates/nox/src/webui/mod.rs (--webui ADDR:PORT)
     WebListenAddress = "The address and port the Web UI listens on, shown for reference. It is set where the server starts: nox's --webui option, or a desktop window's Web UI page.";
     /// nox: crates/nox/src/webui/mod.rs (is_loopback_bypass), docs/WEBUI.md (never for proxied requests)
@@ -239,7 +239,7 @@ helps! {
     /// nox: crates/nox/src/webui/api.rs (host_allowed, HOST_REFUSED), docs/WEBUI.md (Security)
     WebHostHeader = "Refuses requests addressed to any name but an IP address, localhost or a server domain listed here, which protects against web pages reaching the Web UI under a name of their own. On by default.";
     /// nox: crates/nox/src/webui/api.rs (csrf_ok: Origin or Referer must name the Host; neither passes)
-    WebCsrf = "Refuses changes a browser sends from another web site's page: the Origin or Referer must be the Web UI's own address. Apps that send neither are not affected. On by default.";
+    WebCsrf = "Refuses requests a browser sends from another web site's page: the Origin or Referer must be the Web UI's own address. Apps that send neither are not affected. On by default.";
     /// nox: crates/nox/src/webui/auth.rs (BanList::failed: 0 never bans, IPv6 per /64), crates/nox/src/webui/api.rs
     WebBanAfter = "After this many failed logins in a row, a client is locked out for the time below; IPv6 clients count per /64 network. 0 never bans.";
     /// nox: crates/nox/src/webui/auth.rs (BanList::failed: now + ban)
@@ -283,7 +283,7 @@ helps! {
     /// engine: crates/core/src/disk/smart.rs (Config::set, 1 MB = 1,000,000 bytes), settings.check_rate_limit, check_rate_mb
     PrefCheckRateLimit = "Caps each check's reading speed at the MB/s beside, for a disk that still lags during gentle checks. Off by default.";
     /// engine: crates/core/src/disk/smart.rs (Config::set: below 1 means all eight checking threads), docs/DISKIO.md (part 2)
-    PrefActiveChecking = "How many drives are checked at the same time, one torrent per drive; torrents on the same drive wait their turn. -1 means no limit (eight).";
+    PrefActiveChecking = "How many drives are checked at the same time, one torrent per drive; torrents on the same drive wait their turn. At most eight; on the Advanced page, -1 also means eight.";
     /// engine: docs/DISKIO.md (part 3, implementation status), crates/core/src/settings.rs (tune_for_drive, drive_overrides)
     PrefTuneForDrive = "Detects whether each save folder is on an SSD, a hard disk, a removable drive or a network share, and lets a hard disk or removable drive do two disk jobs at once, a network server four. drive_overrides on the Advanced page corrects a wrong guess.";
     /// engine: docs/DISKIO.md (part 4, implementation status), crates/core/src/engine/disk_limit.rs
@@ -342,7 +342,7 @@ helps! {
     /// engine: crates/core/src/engine/dht.rs (update_dht_announce_interval), default 900
     AdvDhtAnnounceInterval = "Seconds in which every running torrent is announced on the DHT once; the announces are spread evenly over that time. New torrents announce within a few seconds anyway. Default 900 (15 minutes).";
     /// engine: crates/core/src/dht/mod.rs (DhtIo send quota), default 8000
-    AdvDhtUploadRateLimit = "Bytes per second the DHT may spend answering other nodes' queries. Raise it if the DHT seems slow on a fast line; lower it on a very slow upload. Default 8000.";
+    AdvDhtUploadRateLimit = "Bytes per second the DHT may send; once it is used up, other nodes' queries go unanswered until it refills. Raise it if the DHT seems slow on a fast line; lower it on a very slow upload. Default 8000.";
     /// engine: crates/core/src/dht/node.rs (read_only checks), default off
     AdvDhtReadOnly = "When on, the DHT looks up peers but does not answer other nodes' queries, and marks its own queries read-only so others do not add it to their tables. Saves upload; off by default.";
     /// engine: crates/core/src/dht/node.rs (get_peers obfuscated lookup), default off
@@ -370,13 +370,13 @@ helps! {
     /// engine: crates/core/src/dht/node.rs (traversal branch_factor), default 5
     AdvDhtSearchBranching = "How many DHT nodes a lookup queries at the same time. Higher finds peers faster for more traffic; at least 1. Default 5.";
     /// engine: crates/core/src/dht/routing_table.rs (RoutingTable::node_failed), default 20
-    AdvDhtMaxFailCount = "How many unanswered queries in a row before a node leaves the DHT routing table. Default 20; rarely needs changing.";
+    AdvDhtMaxFailCount = "How many unanswered queries in a row before a node leaves the DHT routing table, when no spare node waits to take its place; with a spare, one failure is enough. Default 20; rarely needs changing.";
     /// engine: crates/core/src/dht/storage.rs (announce_peer storage), default 2000
     AdvDhtMaxTorrents = "Most torrents this client stores peer lists for on behalf of other DHT nodes. Default 2000; lower it to save memory.";
     /// engine: crates/core/src/dht/storage.rs (announce_peer storage), default 500
     AdvDhtMaxPeers = "Most peers stored per torrent on behalf of other DHT nodes. Default 500; lower it to save memory.";
     /// engine: crates/core/src/dht/dos_blocker.rs (DosBlocker::incoming), default 300
-    AdvDhtBlockTimeout = "Seconds an IP address that floods the DHT with messages stays ignored after it goes quiet. Default 300 (5 minutes).";
+    AdvDhtBlockTimeout = "Seconds an IP address that floods the DHT with messages stays ignored, counted from when it was blocked. Default 300 (5 minutes).";
     /// engine: crates/core/src/dht/dos_blocker.rs (DosBlocker::incoming), default 5
     AdvDhtBlockRatelimit = "DHT messages per second, averaged over 10 seconds, one IP address may send before it is ignored for the block timeout. Default 5.";
     /// engine: crates/core/src/dht/mod.rs (incoming packet check), dht/node.rs, dht/routing_table.rs, default on
@@ -400,7 +400,7 @@ helps! {
     /// engine: crates/core/src/engine/mod.rs (connect_to_peer), default on
     AdvEnableOutgoingUtp = "Make outgoing peer connections over uTP, the UDP-based protocol that yields to other traffic. On by default.";
     /// engine: crates/core/src/engine/peer_class.rs (update_mixed_mode), default 1
-    AdvMixedModeAlgorithm = "How TCP peers are limited while uTP peers are busy. 1 limits TCP peers to their fair share of the speed so uTP is not crowded out; 0 never limits TCP for uTP's sake. Default 1.";
+    AdvMixedModeAlgorithm = "How TCP peers are limited while uTP peers are busy. 1 limits TCP peers to four times their share of the speed by peer count, so uTP is not crowded out; 0 never limits TCP for uTP's sake. Default 1.";
     /// engine: crates/core/src/utp/mod.rs (UtpSettings::from), utp/socket.rs, default 100
     AdvUtpTargetDelay = "Milliseconds of queueing delay uTP connections aim for before they slow down. Lower keeps ping lower but may reduce speed. While the automatic rate limit is on, at most 25 is used. Default 100.";
     /// engine: crates/core/src/utp/socket.rs (congestion window growth), default 3000
@@ -408,13 +408,13 @@ helps! {
     /// engine: crates/core/src/utp/socket.rs (packet timeout), default 500
     AdvUtpMinTimeout = "Shortest time in milliseconds uTP waits for an acknowledgement before it treats a packet as lost. Default 500; rarely needs changing.";
     /// engine: crates/core/src/utp/socket.rs (resend checks), default 2
-    AdvUtpSynResends = "How many times an outgoing uTP connection request is sent and times out before the attempt is given up. Default 2.";
+    AdvUtpSynResends = "Kept for libtorrent compatibility; it has no effect here. A uTP connection request is sent once and given up after the connect timeout. Default 2.";
     /// engine: crates/core/src/utp/socket.rs (resend checks), default 2
     AdvUtpFinResends = "How many times the closing packet of a uTP connection is sent and times out before the connection is dropped. Default 2.";
     /// engine: crates/core/src/utp/socket.rs (resend checks, timeouts), default 3
     AdvUtpNumResends = "How many times a uTP packet is sent and times out before the connection is dropped. Default 3.";
     /// engine: crates/core/src/utp/socket.rs (connect timeout), default 3000
-    AdvUtpConnectTimeout = "Milliseconds to wait for an answer to the first uTP connection request; the wait doubles after each timeout in a row. Default 3000.";
+    AdvUtpConnectTimeout = "Milliseconds to wait for an answer to a uTP connection request before the attempt is given up. Default 3000.";
     /// engine: crates/core/src/utp/socket.rs (on loss, window cut), default 50
     AdvUtpLossMultiplier = "Percent of the uTP sending window kept when a packet is lost. Lower backs off harder on a lossy line. Default 50.";
     /// engine: crates/core/src/utp/socket.rs (on loss, next_loss), default 100
@@ -427,7 +427,7 @@ helps! {
     /// engine: crates/core/src/engine/wire.rs (Engine::on_handshake), default 1
     AdvInEncPolicy = "Which incoming connections are accepted. 0 forced: only encrypted ones, plain ones are refused. 1 enabled, the default: both. 2 disabled: only plain ones, encrypted ones are refused. Leave at 1 unless you need to refuse one kind.";
     /// engine: crates/core/src/proto/pe_handshake.rs (PeHandshake, level_bits), numbers in frontend level_to_int, default 3
-    AdvAllowedEncLevel = "How much of an encrypted connection is encrypted. 1: only the handshake is hidden and the data then flows plain. 2: everything is RC4 encrypted. 3, the default: either, as the other side prefers. Only matters when encryption is used.";
+    AdvAllowedEncLevel = "How much of an encrypted connection is encrypted. 1: only the handshake is hidden and the data then flows plain. 2: everything is RC4 encrypted. 3, the default: either; on connections PaTorrent makes the other side chooses, on incoming ones only the handshake is hidden unless prefer_rc4 is on. Only matters when encryption is used.";
     /// engine: crates/core/src/proto/pe_handshake.rs (incoming crypto selection), engine/wire.rs (on_handshake), default false
     AdvPreferRc4 = "When an incoming encrypted connection offers both levels, choose full RC4 encryption instead of hiding only the handshake. Off by default, which saves processor time; turn it on if handshake-only encryption is still being throttled.";
     /// engine: crates/core/src/engine/mod.rs (shutdown, Trackers phase), default 5
@@ -461,7 +461,7 @@ helps! {
     /// engine: crates/core/src/engine/wire.rs (request_blocks), engine/web_seed.rs (web_request_blocks), default 500
     AdvMaxOutRequestQueue = "Most 16 KiB block requests outstanding to one peer or web seed at a time, also capped by what the peer allows. Default 500. Rarely needs changing.";
     /// engine: crates/core/src/engine/wire.rs (on_request, extension handshake reqq), default 500
-    AdvMaxAllowedInRequestQueue = "Most block requests from one peer queued for upload at a time; PaTorrent tells peers this number, and requests beyond it are rejected. Default 500. Rarely needs changing.";
+    AdvMaxAllowedInRequestQueue = "Most block requests from one peer queued for upload at a time; PaTorrent tells peers this number, and requests beyond it are rejected, or ignored for peers without the fast extension. Default 500. Rarely needs changing.";
     /// engine: crates/core/src/engine/mod.rs (session tick, run_choker), default 15, minimum 1
     AdvUnchokeInterval = "Seconds between decisions about which peers PaTorrent uploads to. Default 15. Shorter reacts faster to changing peer speeds but swaps peers more often.";
     /// engine: crates/core/src/engine/mod.rs (session tick, run_choker optimistic), default 30, minimum 1
@@ -471,15 +471,15 @@ helps! {
     /// engine: crates/core/src/engine/mod.rs (on_finished), engine/wire.rs (Have, set_peer_pieces), default true
     AdvCloseRedundantConnections = "Disconnects peers that can no longer exchange anything with you, such as other seeds once your download is complete. On by default, which frees connection slots for useful peers.";
     /// engine: crates/core/src/engine/mod.rs (Engine::peer_turnover), default 4
-    AdvPeerTurnover = "Percent of a torrent's peers dropped at each turnover, the least useful first, to make room for possibly better ones; at least one. Default 4. 0 still drops one peer; turnover is off when the connection limit is 5 or less.";
+    AdvPeerTurnover = "Percent of a torrent's peers dropped at each turnover, the least useful first, to make room for possibly better ones; at least one, but no more than it has other peers to try. Default 4. 0 still drops one peer; turnover is off when the connection limit is 5 or less.";
     /// engine: crates/core/src/engine/mod.rs (Engine::peer_turnover), default 90
     AdvPeerTurnoverCutoff = "Percent of the connection limit that must be in use before peer turnover drops any peers. Default 90. Applies to the global limit and to each torrent's own limit.";
     /// engine: crates/core/src/engine/mod.rs (session tick, next_turnover), default 300, minimum 1
     AdvPeerTurnoverInterval = "Seconds between peer turnover runs, which drop a few of the least useful peers when connections are nearly full. Default 300. Rarely needs changing.";
     /// engine: crates/core/src/net/sys.rs (set_socket_buffer_size), engine/mod.rs (update_socket_buffer_size), default 0
-    AdvRecvSocketBufferSize = "Receive buffer size in bytes for peer, listen and UDP tracker sockets. 0, the default, keeps the system's size. Applies to the listen sockets at once and to new peer connections; existing connections keep theirs.";
+    AdvRecvSocketBufferSize = "Receive buffer size in bytes for peer, listen and UDP tracker sockets. 0, the default, keeps the system's size. Applies to the listen sockets at once and to new peer connections; existing connections keep theirs. Going back to 0 takes full effect after a restart.";
     /// engine: crates/core/src/net/sys.rs (set_socket_buffer_size), engine/mod.rs (update_socket_buffer_size), default 0
-    AdvSendSocketBufferSize = "Send buffer size in bytes for peer, listen and UDP tracker sockets. 0, the default, keeps the system's size. Applies to the listen sockets at once and to new peer connections; existing connections keep theirs.";
+    AdvSendSocketBufferSize = "Send buffer size in bytes for peer, listen and UDP tracker sockets. 0, the default, keeps the system's size. Applies to the listen sockets at once and to new peer connections; existing connections keep theirs. Going back to 0 takes full effect after a restart.";
     /// engine: crates/core/src/engine/metadata.rs (on_metadata_message), default 31457280
     AdvMaxMetadataSize = "Largest torrent information, in bytes, accepted from peers when starting from a magnet link. Default 30 MiB. Raise it only for magnet links of torrents with an extremely large number of files.";
     /// engine: crates/core/src/engine/pex.rs (on_pex_message), proto/ut_pex.rs (on_message), default 50
@@ -491,7 +491,7 @@ helps! {
     /// engine: crates/core/src/engine/mod.rs (event loop tick), default 500, minimum 10
     AdvTickInterval = "Milliseconds between the engine's regular housekeeping rounds, which handle timeouts, choking and status. Default 500; values below 10 count as 10. Rarely needs changing.";
     /// engine: crates/core/src/disk/mod.rs (DiskIo::set_read_cache), default -1
-    AdvCacheSize = "Size of the disk read cache in 16 KiB blocks, shared by the disk threads. -1, the default, is automatic: 2048 blocks, 32 MiB. 0 turns the cache off. Raise it to cut disk seeks when seeding many torrents.";
+    AdvCacheSize = "Size of the disk read cache in 16 KiB blocks, shared by the disk threads. -1, the default, is automatic: 2048 blocks, 32 MiB. 0 turns the cache off, and so does a size too small to give each disk thread one read_cache_line_size line. Raise it to cut disk seeks when seeding many torrents.";
     /// engine: crates/core/src/disk/mod.rs (set_read_cache), disk/read_cache.rs, default 32
     AdvReadCacheLineSize = "How many 16 KiB blocks are read from disk at once when a peer asks for one, keeping the rest in the cache. Default 32, 512 KiB. 0 turns the read cache off.";
     /// engine: crates/core/src/disk/read_cache.rs (expiry), disk/mod.rs (set_read_cache), default 300
@@ -503,7 +503,7 @@ helps! {
     /// engine: crates/core/src/engine/web_seed.rs (web_tick), default 20, minimum 1
     AdvUrlseedTimeout = "Seconds a web seed connection may go without sending data before it is closed. Default 20. Raise it for slow web servers.";
     /// engine: crates/core/src/engine/web_seed.rs (retry after failure or IP filter block), default 30
-    AdvUrlseedWaitRetry = "Seconds before a web seed that failed or disconnected is tried again. Default 30.";
+    AdvUrlseedWaitRetry = "Seconds before a web seed that failed, timed out or was blocked is tried again; a Retry-After from the server takes precedence. Default 30.";
     /// engine: crates/core/src/engine/web_seed.rs (web_request_blocks), default 16777216, minimum 16384
     AdvUrlseedMaxRequestBytes = "Largest single HTTP range request sent to a web seed, in bytes. Default 16 MiB; at least 16 KiB is used. Lower it if a web server rejects or stalls on large requests.";
     /// engine: crates/core/src/engine/web_seed.rs (web seed name resolved), default 1800
@@ -521,7 +521,7 @@ helps! {
     /// engine: crates/core/src/engine/proxy.rs (ProxyConfig::from_settings), numbers in frontend proxy_to_int, default 0
     AdvProxyType = "The proxy server type. 0 none, the default. 1 SOCKS4. 2 SOCKS5. 3 SOCKS5 with user name and password. 4 HTTP. 5 HTTP with user name and password. Takes effect at once.";
     /// engine: crates/core/src/engine/proxy.rs (ProxyConfig::resolves_names), default true
-    AdvProxySendHostInConnect = "With an HTTP proxy and proxy host name resolving on, the proxy receives host names and looks them up itself, so they stay off your local DNS. On by default; turn it off if the proxy cannot resolve names.";
+    AdvProxySendHostInConnect = "With an HTTP proxy and proxy host name resolving on, CONNECT requests name the host so the proxy looks it up itself, keeping names off your local DNS. Plain http:// requests always carry the name. On by default; turn it off if the proxy cannot resolve names.";
     /// engine: crates/core/src/engine/proxy.rs (SOCKS5 UDP ASSOCIATE target), default false
     AdvSocks5UdpSendLocalEp = "Tells a SOCKS5 proxy your UDP address and port when setting up UDP, so it can send to you first. Off by default; turn it on only if the proxy needs it and no router translates addresses in between.";
     /// engine: crates/frontend/src/settings.rs (transp_disposition), engine enable_incoming/outgoing_tcp/utp, default 15
@@ -533,7 +533,7 @@ helps! {
     /// win32 app.rs main_menu -> submenu(bar, file, MenuFile)
     MenuFile = "Adds and creates torrents, imports them from other clients, switches profiles, connects to a remote server and quits PaTorrent.";
     /// win32 app.rs main_menu -> submenu(bar, options, MenuOptions)
-    MenuOptions = "Opens Preferences and the RSS Downloader, shows or hides parts of the window, and sets Auto Shutdown and the tray behaviour.";
+    MenuOptions = "Opens Preferences, the Setup Guide and the RSS Downloader, shows or hides parts of the window, and sets Auto Shutdown and the tray behaviour.";
     /// win32 app.rs main_menu -> submenu(bar, help, MenuHelp)
     MenuHelp = "Opens the PaTorrent website, checks for updates, and shows the version and the third-party licence texts.";
 
@@ -559,7 +559,7 @@ helps! {
     /// win32 app.rs cmd::CONNECT_REMOTE -> remote_ui::start_remote_window (patorrent.exe --remote)
     MenuConnectRemote = "Opens another window that connects to a patorrent-nox server on another computer and controls its torrents.";
     /// win32 app.rs cmd::EXIT -> quitting = true, DestroyWindow
-    MenuExit = "Closes the window and quits PaTorrent, stopping all transfers, even when Close to Tray is on.";
+    MenuExit = "Closes the window and quits PaTorrent, stopping all transfers, even when Close to Tray is on. In a remote window, the server's torrents keep running.";
 
     // ---- Menu: Options
     /// win32 app.rs cmd::PREFS -> show_preferences
@@ -575,7 +575,7 @@ helps! {
     /// win32 app.rs cmd::SHOW_TREE -> toggles show_tree, update_visibility
     MenuShowTree = "Shows or hides the category list on the left that filters the torrents by state and label.";
     /// win32 app.rs main_menu, AutoMode::MENU; frontend auto_shutdown
-    MenuAutoShutdown = "Quits PaTorrent or puts the computer on standby, hibernates or shuts it down when the torrents are done. Lasts for this run only.";
+    MenuAutoShutdown = "Quits PaTorrent or puts the computer on standby, hibernates or shuts it down when the torrents are done, once something has run since you chose it. Lasts for this run only.";
     /// win32 app.rs cmd::AUTO_SHUTDOWN_BASE -> auto_shutdown.set_mode(None)
     ShutdownDisabled = "Turns Auto Shutdown off: nothing happens when the torrents are done.";
     /// win32 app.rs cmd::AUTO_SHUTDOWN_BASE -> set_mode(Quit, Downloads); frontend auto_shutdown::is_busy
@@ -633,7 +633,7 @@ helps! {
     /// win32 app.rs cmd::QUEUE_BOTTOM -> torrent_action -> queue_position(QueueMove::Bottom)
     MenuQueueBottom = "Moves the selected torrents to the bottom of the queue, keeping their order, so they run last.";
     /// win32 app.rs cmd::REMOVE -> remove_selected(false) -> RemoveFlags::DELETE_PARTFILE
-    MenuRemove = "Removes the selected torrents from the list, asking first when Preferences says so. The downloaded data stays on disk.";
+    MenuRemove = "Removes the selected torrents from the list, asking first when Preferences says so. The downloaded files stay on disk; only the part file holding pieces of skipped files is deleted.";
     /// win32 app.rs torrent menu -> submenu(menu, remove_and, MenuRemoveAnd)
     MenuRemoveAnd = "Removes the selected torrents from the list and also deletes their downloaded files.";
     /// win32 app.rs cmd::REMOVE_DATA -> remove_selected(true) -> RemoveFlags::DELETE_FILES
@@ -667,9 +667,9 @@ helps! {
     /// win32 app.rs cmd::FILE_OPEN -> open_file(folder = false) -> ShellExecuteW default verb
     MenuOpenFile = "Opens the selected file in its default program, as a double click in Explorer would. A file not on disk yet does nothing.";
     /// win32 app.rs cmd::FILE_BY_ORDER -> detail::by_file_order, set_file_priority
-    MenuPrioritizeByOrder = "Gives the selected files falling priorities in their order in the torrent, so they finish one after another.";
+    MenuPrioritizeByOrder = "Gives the selected files falling priorities in their order in the torrent, so they finish one after another; skipped ones are downloaded again. With the filter on, it orders all the torrent's files.";
     /// win32 app.rs cmd::FILE_RELOCATE -> relocate_file -> dialogs::relocate_file, rename_file
-    MenuRelocate = "Picks a new place for the selected file and moves it there, or, when it is not on disk, looks for it there.";
+    MenuRelocate = "Picks a new place for the selected file and moves it there, or, when it is not on disk, uses the file found there; a Force Re-check counts its pieces.";
 
     // ---- Menu: tray
     /// win32 app.rs cmd::TRAY_TOGGLE -> toggle_window (SW_HIDE)
@@ -689,7 +689,7 @@ helps! {
     /// win32 app.rs TOOLBAR cmd::CREATE -> create_torrent
     ToolCreate = "Makes a new .torrent file from a file or folder on this computer, and can start seeding it at once.";
     /// win32 app.rs TOOLBAR cmd::REMOVE -> remove_selected(false)
-    ToolRemove = "Removes the selected torrents from the list, asking first when Preferences says so. The downloaded data stays on disk.";
+    ToolRemove = "Removes the selected torrents from the list, asking first when Preferences says so. The downloaded files stay on disk; only the part file holding pieces of skipped files is deleted.";
     /// win32 app.rs TOOLBAR cmd::START -> torrent_action -> actions::start
     ToolStart = "Hands the selected torrents to the queue, which runs them as the limits on active torrents allow.";
     /// win32 app.rs TOOLBAR cmd::PAUSE -> torrent_action -> actions::stop, set_paused(true)

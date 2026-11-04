@@ -1691,6 +1691,8 @@
   let detailView = null; // {tab, id, ...} the DOM built for the current subscription
   const tabSort = { trackers: [0, false], peers: [0, false], pieces: [0, false], files: [0, false] };
   const tabSel = { trackers: new Set(), peers: new Set(), pieces: new Set(), files: new Set() };
+  // the Files tab's filter box (D50): kept when the torrent changes, never stored
+  let filesFilter = "";
   const DOWN_COLOR = "#2aa52a";
   const UP_COLOR = "#d23c3c";
 
@@ -1821,6 +1823,53 @@
     el.append(colgroup, thead, tbody);
     const byKey = new Map();
     let rows = [];
+    // Files: the table under a bar with the filter box and "12 of 3,400 files" (D50)
+    const files = tab === "files";
+    let root = el;
+    let count = null;
+    if (files) {
+      root = document.createElement("div");
+      root.className = "files-tab";
+      root.tabIndex = -1; // a click in the list focuses it, for Ctrl+F and Ctrl+A
+      const bar = document.createElement("div");
+      bar.className = "files-bar";
+      count = document.createElement("span");
+      const box = document.createElement("input");
+      box.type = "search";
+      box.autocomplete = "off";
+      box.placeholder = T("FilesFilterCue");
+      box.setAttribute("aria-label", T("FilesFilterCue"));
+      box.value = filesFilter;
+      const list = document.createElement("div");
+      list.className = "files-list";
+      list.appendChild(el);
+      bar.append(count, box);
+      root.append(bar, list);
+      box.addEventListener("input", () => {
+        filesFilter = box.value;
+        render();
+      });
+      root.addEventListener("keydown", (ev) => {
+        const mod = (ev.ctrlKey || ev.metaKey) && !ev.shiftKey && !ev.altKey;
+        const k = ev.key.toLowerCase();
+        if (ev.target === box && ev.key === "Escape") {
+          if (!box.value) return;
+          box.value = "";
+          box.dispatchEvent(new Event("input"));
+        } else if (mod && k === "f") {
+          box.focus();
+          box.select();
+        } else if (mod && k === "a" && ev.target !== box) {
+          // only the files in sight
+          const sel = tabSel[tab];
+          sel.clear();
+          for (const r of tbody.children) if (!r.hidden) sel.add(r.dataset.key);
+          for (const r of tbody.children) r.classList.toggle("sel", sel.has(r.dataset.key));
+        } else return;
+        ev.preventDefault();
+        ev.stopPropagation();
+      });
+    }
     const markSort = () => {
       const [si, desc] = tabSort[tab];
       for (const th of hr.children) {
@@ -1849,6 +1898,9 @@
     const render = () => {
       const list = sorted();
       const keep = new Set();
+      // the Files filter: every word of the box in the path, case-insensitive (FileFilter)
+      const words = files ? filesFilter.toLowerCase().split(/\s+/).filter(Boolean) : [];
+      let shown = 0;
       list.forEach((r, i) => {
         const key = keyOf(r);
         keep.add(key);
@@ -1877,9 +1929,18 @@
             if (j === 0) td.title = text;
           }
         });
+        const path = (r.c[0] || "").toLowerCase();
+        tr.hidden = !words.every((w) => path.includes(w));
+        if (tr.hidden) tabSel[tab].delete(key); // the menu never acts on a file out of sight
+        else shown++;
         tr.classList.toggle("sel", tabSel[tab].has(key));
         if (tbody.children[i] !== tr) tbody.insertBefore(tr, tbody.children[i] || null);
       });
+      if (count) {
+        count.hidden = !words.length;
+        const n = (v) => v.toLocaleString("en-US");
+        setTextIf(count, words.length ? T("FilesFilterCount", { shown: n(shown), total: n(list.length) }) : "");
+      }
       for (const [key, tr] of byKey) {
         if (!keep.has(key)) {
           tr.remove();
@@ -1915,9 +1976,9 @@
         else sel.add(key);
         anchorKey = key;
       } else if (ev.shiftKey && anchorKey !== null) {
-        const keys = [...tbody.children].map((r) => r.dataset.key);
-        const a = keys.indexOf(anchorKey);
+        const keys = [...tbody.children].filter((r) => !r.hidden).map((r) => r.dataset.key);
         const b = keys.indexOf(key);
+        const a = keys.includes(anchorKey) ? keys.indexOf(anchorKey) : b; // the anchor filtered out
         sel.clear();
         for (let i = Math.min(a, b); i <= Math.max(a, b); i++) sel.add(keys[i]);
       } else {
@@ -1945,10 +2006,11 @@
       });
     }
     markSort();
+    if (files) render(); // the count before the first rows
     return {
       tab,
       id,
-      el,
+      el: root,
       update(m) {
         rows = m.rows || [];
         render();

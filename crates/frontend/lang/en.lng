@@ -1183,6 +1183,12 @@ RssErrNotFeed={url}: not an RSS or Atom feed
 
 # The empty search box's grey hint.
 SearchCue=Search torrent names
+
+# The empty filter box's grey hint, at the Files tab's top right.
+FilesFilterCue=Filter files
+
+# Beside the filter box while it filters: {shown} files listed of the torrent's {total}.
+FilesFilterCount={shown} of {total} files
 MenuImportQbt=Import from &qBittorrent...
 MenuImportUt=Import from &µTorrent...
 

@@ -55,7 +55,8 @@ use windows_sys::Win32::System::Time::SystemTimeToFileTime;
 use windows_sys::Win32::UI::Controls::*;
 use windows_sys::Win32::UI::HiDpi::{GetDpiForWindow, SystemParametersInfoForDpi};
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL, VK_DELETE, VK_DOWN, VK_ESCAPE, VK_RETURN,
+    GetFocus, GetKeyState, ReleaseCapture, SetCapture, SetFocus, VK_CONTROL, VK_DELETE, VK_DOWN, VK_ESCAPE,
+    VK_RETURN,
 };
 use windows_sys::Win32::UI::Shell::{
     DragAcceptFiles, DragFinish, DragQueryFileW, FOLDERID_Downloads, HDROP, SHGetKnownFolderPath,
@@ -170,6 +171,11 @@ const IDC_STATUS: usize = 14;
 const IDC_SEARCH: usize = 15;
 /// The arrow beside it that opens its drop-down (filter, or search a source; D41).
 const IDC_SEARCH_MENU: usize = 16;
+/// The Files tab's filter box and the count beside it (D50).
+const IDC_FILES_FILTER: usize = 17;
+const IDC_FILES_COUNT: usize = 18;
+/// The count's `SS_RIGHT | SS_CENTERIMAGE | SS_NOPREFIX`.
+const FILES_COUNT_STYLE: u32 = 0x2 | 0x200 | 0x80;
 const IDC_PAGE: usize = 20;
 /// The pieces list inside the Pieces panel.
 const IDC_PIECE_LIST: usize = 30;
@@ -328,6 +334,11 @@ struct App {
     pages: [HWND; 7],
     /// The Pieces panel's list of pieces being downloaded (a child of the panel).
     piece_list: HWND,
+    /// The Files tab's filter box at its top right, the "12 of 3,400 files" beside it and
+    /// the count's text (D50).
+    files_filter: HWND,
+    files_count: HWND,
+    files_count_text: String,
 
     show_toolbar: bool,
     show_details: bool,
@@ -758,7 +769,7 @@ pub fn run(args: Args) -> i32 {
         let haccel = CreateAcceleratorTableW(accels.as_ptr(), accels.len() as i32);
         let mut msg: MSG = zeroed();
         while GetMessageW(&mut msg, null_mut(), 0, 0) > 0 {
-            if search_key(&msg) {
+            if search_key(&msg) || files_filter_key(&msg) {
                 continue;
             }
             // the modeless Search Results window's Tab, Enter and Esc (and none of the main
@@ -767,10 +778,11 @@ pub fn run(args: Args) -> i32 {
             if !results.is_null() && IsDialogMessageW(results, &msg) != 0 {
                 continue;
             }
-            // typing in the search box: Delete and Ctrl+A edit its text, not the list; Enter
-            // is the list's Properties key, every other control keeps its own Enter
+            // typing in the search box or the Files filter: Delete and Ctrl+A edit its text,
+            // not the list; Enter is the list's Properties key, every other control keeps its own Enter
             let (in_search, in_list) =
-                with_app(|a| (a.search == msg.hwnd, a.lv == msg.hwnd)).unwrap_or((false, false));
+                with_app(|a| ((a.search == msg.hwnd || a.files_filter == msg.hwnd), a.lv == msg.hwnd))
+                    .unwrap_or((false, false));
             let enter = msg.message == WM_KEYDOWN && msg.wParam as u16 == VK_RETURN;
             if in_search || (enter && !in_list) || TranslateAcceleratorW(hwnd, haccel, &msg) == 0 {
                 TranslateMessage(&msg);
@@ -1091,6 +1103,19 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
         }
         let piece_list = controls::create_report(pages[Page::Pieces.index()], IDC_PIECE_LIST, false);
         ShowWindow(piece_list, SW_SHOW);
+        // the Files tab's filter box and its count, over the top of the tab (D50); placed and
+        // shown by `layout` while the Files tab is
+        let files_filter = child(
+            hwnd,
+            w!("EDIT"),
+            "",
+            WS_CHILD | WS_TABSTOP | ES_AUTOHSCROLL as u32,
+            WS_EX_CLIENTEDGE,
+            IDC_FILES_FILTER,
+        );
+        let cue = wide(tr!(FilesFilterCue));
+        send(files_filter, EM_SETCUEBANNER, 0, cue.as_ptr() as LPARAM);
+        let files_count = child(hwnd, w!("STATIC"), "", WS_CHILD | FILES_COUNT_STYLE, 0, IDC_FILES_COUNT);
         let status =
             child(hwnd, STATUSCLASSNAMEW, "", WS_CHILD | SBARS_SIZEGRIP | SBARS_TOOLTIPS, 0, IDC_STATUS);
 
@@ -1162,6 +1187,9 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             status,
             pages,
             piece_list,
+            files_filter,
+            files_count,
+            files_count_text: String::new(),
             split_tree: zeroed(),
             split_details: zeroed(),
             drag: None,
@@ -1356,7 +1384,7 @@ unsafe fn apply_dpi(hwnd: HWND, dpi: u32) {
                 std::mem::replace(&mut a.nav_images, nav_images),
             );
             a.net_shown = None;
-            let mut list = vec![a.tree, a.lv, a.tabs, a.status, a.search];
+            let mut list = vec![a.tree, a.lv, a.tabs, a.status, a.search, a.files_filter, a.files_count];
             list.extend(a.pages);
             (old, old_states, list, a.toolbar, a.pages[Page::Trackers.index()])
         }) else {
@@ -1481,7 +1509,7 @@ unsafe fn layout(hwnd: HWND) {
                 scale(a.detail_h, a.dpi),
                 a.dpi,
                 a.updates.notice().map(|v| tr!(UpdateNotice, version = v)),
-                (a.search, a.search_menu),
+                (a.search, a.search_menu, a.files_filter, a.files_count),
             )
         }) else {
             return;
@@ -1502,8 +1530,9 @@ unsafe fn layout(hwnd: HWND) {
             detail_h,
             dpi,
             notice,
-            (search, search_menu),
+            (search, search_menu, files_filter, files_count),
         ) = a;
+        let mut files_bar = false;
         let mut rc: RECT = zeroed();
         GetClientRect(hwnd, &mut rc);
         let gap = scale(4, dpi);
@@ -1551,6 +1580,17 @@ unsafe fn layout(hwnd: HWND) {
             MoveWindow(tabs, rc.left, dtop, rc.right - rc.left, h, 1);
             let mut area = RECT { left: rc.left, top: dtop, right: rc.right, bottom };
             send(tabs, TCM_ADJUSTRECT, 0, &mut area as *mut _ as LPARAM);
+            if page == Page::Files {
+                // the filter box at the tab's top right, its count on its left, the list under
+                // them (D50)
+                files_bar = true;
+                let (w, h) = (scale(200, dpi).min((area.right - area.left) / 2), scale(22, dpi));
+                let x = area.right - w;
+                SetWindowPos(files_filter, HWND_TOP, x, area.top, w, h, SWP_SHOWWINDOW);
+                let cw = scale(240, dpi).min((x - area.left - gap).max(0));
+                SetWindowPos(files_count, HWND_TOP, x - gap - cw, area.top, cw, h, SWP_SHOWWINDOW);
+                area.top = (area.top + h + gap / 2).min(area.bottom);
+            }
             for p in Page::ALL {
                 let w = pages[p.index()];
                 if p == page {
@@ -1569,6 +1609,10 @@ unsafe fn layout(hwnd: HWND) {
             }
             split_details = RECT { left: rc.left, top: dtop - gap, right: rc.right, bottom: dtop };
             bottom = dtop - gap;
+        }
+        if !files_bar {
+            ShowWindow(files_filter, SW_HIDE);
+            ShowWindow(files_count, SW_HIDE);
         }
         let mut split_tree: RECT = zeroed();
         let mut left = rc.left;
@@ -1976,10 +2020,21 @@ unsafe fn update_detail_lists() {
                 .map(|&p| (a.pages[p.index()], a.detail.rows(p), p == Page::Logger))
                 .collect();
             items.push((a.piece_list, a.detail.rows(Page::Pieces), false));
-            items
+            // the Files filter's count follows the rows (D50)
+            let count = a.detail.file_filter_count();
+            let count = (count != a.files_count_text).then(|| {
+                a.files_count_text = count.clone();
+                (a.files_count, count)
+            });
+            (items, count)
         }) else {
             return;
         };
+        let (items, count) = items;
+        if let Some((w, text)) = count {
+            let text = wide(&text);
+            SetWindowTextW(w, text.as_ptr());
+        }
         place_piece_list();
         for (lv, n, is_log) in items {
             let before = send(lv, LVM_GETITEMCOUNT, 0, 0) as usize;
@@ -2175,6 +2230,71 @@ fn on_search() {
     let text = if filter { unsafe { crate::util::window_text(search) } } else { String::new() };
     with_app(|a| a.list.set_search(&text));
     unsafe { refresh_list() };
+}
+
+// ---- The Files tab's filter (D50) --------------------------------------------------------
+
+/// The Files filter's keys the edit control has no use for: Escape clears it and goes to the
+/// list, Enter goes to the list, Ctrl+A and Ctrl+F select its text. Returns whether `msg` was
+/// one.
+unsafe fn files_filter_key(msg: &MSG) -> bool {
+    unsafe {
+        if msg.message != WM_KEYDOWN {
+            return false;
+        }
+        let Some((filter, files_lv)) = with_app(|a| (a.files_filter, a.pages[Page::Files.index()])) else {
+            return false;
+        };
+        if msg.hwnd != filter {
+            return false;
+        }
+        let ctrl = GetKeyState(VK_CONTROL as i32) < 0;
+        match msg.wParam as u16 {
+            VK_ESCAPE => {
+                SetWindowTextW(filter, w!(""));
+                SetFocus(files_lv);
+            }
+            VK_RETURN => {
+                SetFocus(files_lv);
+            }
+            k if ctrl && (k == b'A' as u16 || k == b'F' as u16) => {
+                send(filter, EM_SETSEL, 0, -1);
+            }
+            _ => return false,
+        }
+        true
+    }
+}
+
+/// The Files filter changed: the Files tab lists the files whose paths have all its words.
+/// The selection is by row, so it is dropped when the rows change.
+fn on_files_filter() {
+    let Some(filter) = with_app(|a| a.files_filter) else { return };
+    let text = unsafe { crate::util::window_text(filter) };
+    let Some((changed, files_lv)) =
+        with_app(|a| (a.detail.set_file_filter(&text), a.pages[Page::Files.index()]))
+    else {
+        return;
+    };
+    if changed {
+        unsafe {
+            controls::set_state(files_lv, None, false, false);
+            update_detail_lists();
+        }
+    }
+}
+
+/// Whether the keyboard focus is in the Files tab (its list or its filter), where Ctrl+F
+/// goes to the filter and Ctrl+A selects files.
+fn focus_in_files() -> bool {
+    let focus = unsafe { GetFocus() };
+    !focus.is_null()
+        && with_app(|a| {
+            a.show_details
+                && a.page == Page::Files
+                && (focus == a.pages[Page::Files.index()] || focus == a.files_filter)
+        })
+        .unwrap_or(false)
 }
 
 // ---- Torrent search (D41) ---------------------------------------------------------------
@@ -2814,6 +2934,20 @@ unsafe extern "system" fn wndproc(hwnd: HWND, msg: u32, wparam: WPARAM, lparam: 
                 }
                 0
             }
+            // the Files filter's count sits on the tab's body: white with visual styles, the
+            // dialog colour without
+            WM_CTLCOLORSTATIC if with_app(|a| a.files_count == lparam as HWND) == Some(true) => {
+                let color = if IsAppThemed() != 0 { COLOR_WINDOW } else { COLOR_BTNFACE };
+                SetBkColor(wparam as HDC, GetSysColor(color));
+                SetTextColor(wparam as HDC, GetSysColor(COLOR_WINDOWTEXT));
+                GetSysColorBrush(color) as LRESULT
+            }
+            WM_COMMAND if crate::util::loword(wparam) as usize == IDC_FILES_FILTER => {
+                if crate::util::hiword(wparam) as u32 == EN_CHANGE {
+                    on_files_filter();
+                }
+                0
+            }
             WM_COMMAND => {
                 on_command(hwnd, crate::util::loword(wparam));
                 0
@@ -3364,6 +3498,8 @@ unsafe fn files_menu(hwnd: HWND, files_lv: HWND, p: POINT) {
             let files: Vec<u32> = rows.iter().filter_map(|&r| a.detail.file_index(r)).collect();
             let set = match prio {
                 Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),
+                // a torrent-wide order: the filter does not narrow it (D50)
+                None if a.detail.file_filter.is_on() => detail::by_file_order(&a.detail.all_files()),
                 None => detail::by_file_order(&files),
             };
             for (f, prio) in set {
@@ -3462,6 +3598,12 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 }
             }
             cmd::CREATE => create_torrent(hwnd),
+            cmd::FIND if focus_in_files() => {
+                if let Some(filter) = with_app(|a| a.files_filter) {
+                    SetFocus(filter);
+                    send(filter, EM_SETSEL, 0, -1);
+                }
+            }
             cmd::FIND => {
                 if let Some(search) = with_app(|a| a.show_toolbar.then_some(a.search)).flatten() {
                     SetFocus(search);
@@ -3552,7 +3694,9 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
             }
             cmd::TRAY_TOGGLE => toggle_window(hwnd),
             cmd::SELECT_ALL => {
-                if let Some(lv) = with_app(|a| a.lv) {
+                // in the Files tab: its files, only those the filter shows (D50)
+                let files = focus_in_files();
+                if let Some(lv) = with_app(|a| if files { a.pages[Page::Files.index()] } else { a.lv }) {
                     controls::set_state(lv, None, true, false);
                 }
             }
@@ -4713,6 +4857,119 @@ mod search_tests {
             assert_eq!(cue(search), "Search torrent names");
             DestroyWindow(dlg);
             assert!(with_app(|a| a.search_window.is_null()).unwrap());
+            DestroyWindow(hwnd);
+        }
+    }
+
+    fn file(path: &str, pad_file: bool) -> patorrent_core::FileEntry {
+        patorrent_core::FileEntry {
+            path: path.into(),
+            size: 1,
+            offset: 0,
+            first_piece: 0,
+            last_piece: 0,
+            pad_file,
+            priority: patorrent_core::DownloadPriority::NORMAL,
+        }
+    }
+
+    /// The Files tab's filter (D50): the list's rows map to the files it shows, the count
+    /// follows, Ctrl+A selects the shown rows, Ctrl+F from the tab goes to the box, Escape
+    /// clears it.
+    #[test]
+    fn the_files_filter_narrows_the_files_tab() {
+        unsafe {
+            let icc = INITCOMMONCONTROLSEX {
+                dwSize: size_of::<INITCOMMONCONTROLSEX>() as u32,
+                dwICC: ICC_WIN95_CLASSES
+                    | ICC_BAR_CLASSES
+                    | ICC_TAB_CLASSES
+                    | ICC_LISTVIEW_CLASSES
+                    | ICC_TREEVIEW_CLASSES,
+            };
+            InitCommonControlsEx(&icc);
+            let instance = GetModuleHandleW(null());
+            let mut wc: WNDCLASSEXW = zeroed();
+            wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
+            wc.lpfnWndProc = Some(wndproc);
+            wc.hInstance = instance;
+            wc.lpszClassName = w!("PaTorrentFilesFilterTestWnd");
+            RegisterClassExW(&wc);
+            wc.lpfnWndProc = Some(panel_proc);
+            wc.lpszClassName = PANEL_CLASS;
+            RegisterClassExW(&wc);
+            let hwnd = CreateWindowExW(
+                0,
+                w!("PaTorrentFilesFilterTestWnd"),
+                w!("PaTorrent files filter test"),
+                WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+                0,
+                0,
+                900,
+                600,
+                null_mut(),
+                null_mut(),
+                instance,
+                null(),
+            );
+            assert!(!hwnd.is_null());
+            let session = Session::start_mock(
+                Settings::default(),
+                MockConfig { initial_torrents: 0, active_fraction: 0.0, ..MockConfig::default() },
+            );
+            let mut prefs = Prefs::default();
+            prefs.set_bool("ui.show_add_dialog", false);
+            prefs.set("dir.download", std::env::temp_dir().to_string_lossy());
+            init(hwnd, session, prefs);
+            select_page(Page::Files);
+            let (filter, count, lv) =
+                with_app(|a| (a.files_filter, a.files_count, a.pages[Page::Files.index()])).unwrap();
+            assert_eq!(cue(filter), "Filter files");
+            assert!(IsWindowVisible(filter) == 0 || with_app(|a| a.show_details) == Some(true));
+            let files: Arc<[patorrent_core::FileEntry]> = Arc::from(vec![
+                file("Show/S01E01.mkv", false),
+                file("Show/.pad/0", true),
+                file("Show/Subs/S01E01.srt", false),
+                file("Show/S01E02.mkv", false),
+            ]);
+            with_app(|a| a.detail.set_files(files));
+            update_detail_lists();
+            assert_eq!(send(lv, LVM_GETITEMCOUNT, 0, 0), 3);
+            assert_eq!(crate::util::window_text(count), "");
+
+            // typing filters the rows; they map to the files shown
+            SetWindowTextW(filter, w!("e01 SUBS"));
+            assert_eq!(send(lv, LVM_GETITEMCOUNT, 0, 0), 1);
+            assert_eq!(with_app(|a| a.detail.file_index(0)), Some(Some(2)));
+            assert_eq!(crate::util::window_text(count), "1 of 3 files");
+            SetWindowTextW(filter, w!("mkv"));
+            assert_eq!(
+                with_app(|a| (a.detail.file_index(0), a.detail.file_index(1))),
+                Some((Some(0), Some(3)))
+            );
+
+            // Ctrl+A in the list selects the two rows shown; Ctrl+F there goes to the box
+            SetFocus(lv);
+            if GetFocus() == lv {
+                on_command(hwnd, cmd::SELECT_ALL);
+                assert_eq!(controls::selected(lv), [0, 1]);
+                on_command(hwnd, cmd::FIND);
+                assert_eq!(GetFocus(), filter);
+                // Escape clears the box and goes back to the list
+                let esc = MSG { hwnd: filter, message: WM_KEYDOWN, wParam: VK_ESCAPE as WPARAM, ..zeroed() };
+                assert!(files_filter_key(&esc));
+                assert_eq!(GetFocus(), lv);
+            } else {
+                SetWindowTextW(filter, w!(""));
+            }
+            assert_eq!(crate::util::window_text(filter), "");
+            assert_eq!(send(lv, LVM_GETITEMCOUNT, 0, 0), 3);
+            assert_eq!(crate::util::window_text(count), "");
+
+            // the text stays with another torrent
+            SetWindowTextW(filter, w!("srt"));
+            with_app(|a| a.detail.select(Some(TorrentId::from_raw(99))));
+            assert_eq!(with_app(|a| a.detail.file_filter.text().to_owned()).as_deref(), Some("srt"));
             DestroyWindow(hwnd);
         }
     }

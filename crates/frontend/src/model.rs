@@ -131,7 +131,7 @@ fn is_active(st: &TorrentStatus) -> bool {
 
 /// Whether `name` contains `needle` (lowercase), ignoring case. An ASCII needle is matched
 /// without allocating, so a keystroke over 100,000 names stays a few milliseconds.
-fn name_matches(name: &str, needle: &str) -> bool {
+pub(crate) fn name_matches(name: &str, needle: &str) -> bool {
     if needle.is_empty() {
         return true;
     }

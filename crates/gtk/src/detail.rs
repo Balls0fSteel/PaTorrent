@@ -62,6 +62,12 @@ pub struct Details {
     trackers: Table,
     peers: Table,
     files: Table,
+    /// The Files tab's quick filter box (D50) at its top right; the window wires its signals.
+    pub files_filter: gtk::SearchEntry,
+    /// "12 of 3,400 files" beside the filter box while a filter is on.
+    files_count: gtk::Label,
+    /// The Files tab's page: the filter bar over the list.
+    files_page: gtk::Box,
     logger: Table,
     logger_scroll: gtk::ScrolledWindow,
     pieces_summary: gtk::Label,
@@ -181,6 +187,27 @@ impl Details {
         speed.set_hexpand(true);
         speed.set_vexpand(true);
 
+        // the Files tab: the filter box and its count at the top right, over the list
+        let files_filter = gtk::SearchEntry::new();
+        files_filter.set_placeholder_text(Some(tr!(FilesFilterCue)));
+        files_filter.set_width_chars(1);
+        files_filter.set_size_request(200, -1);
+        // every keystroke filters, as the torrent filter does (no debounce)
+        files_filter.set_search_delay(0);
+        let files_count = gtk::Label::new(None);
+        files_count.add_css_class("dim-label");
+        files_count.set_visible(false);
+        let files_bar = gtk::Box::new(gtk::Orientation::Horizontal, 8);
+        files_bar.set_halign(gtk::Align::End);
+        files_bar.set_margin_top(4);
+        files_bar.set_margin_bottom(4);
+        files_bar.set_margin_end(4);
+        files_bar.append(&files_count);
+        files_bar.append(&files_filter);
+        let files_page = gtk::Box::new(gtk::Orientation::Vertical, 0);
+        files_page.append(&files_bar);
+        files_page.append(&scrolled(&files.view));
+
         let logger_scroll = scrolled(&logger.view);
         for t in Tab::ALL {
             let page: gtk::Widget = match t {
@@ -188,7 +215,7 @@ impl Details {
                 Tab::Trackers => scrolled(&trackers.view).upcast(),
                 Tab::Peers => scrolled(&peers.view).upcast(),
                 Tab::Pieces => pieces_page.clone().upcast(),
-                Tab::Files => scrolled(&files.view).upcast(),
+                Tab::Files => files_page.clone().upcast(),
                 Tab::Speed => speed.clone().upcast(),
                 Tab::Logger => logger_scroll.clone().upcast(),
             };
@@ -218,6 +245,9 @@ impl Details {
             trackers,
             peers,
             files,
+            files_filter,
+            files_count,
+            files_page,
             logger,
             logger_scroll,
             pieces_summary,
@@ -245,6 +275,37 @@ impl Details {
         self.files.selected()
     }
 
+    /// The Files tab's filter let other rows through: the selection (by row) starts over and
+    /// the list and the count show the new rows.
+    pub fn files_filter_changed(&self) {
+        self.files.unselect_all();
+        self.refresh_files();
+    }
+
+    /// Whether the keyboard is in the Files tab (its list or its filter box).
+    pub fn focus_in_files(&self) -> bool {
+        let page = self.files_page.upcast_ref::<gtk::Widget>();
+        self.files_page.root().and_then(|r| r.focus()).is_some_and(|f| &f == page || f.is_ancestor(page))
+    }
+
+    /// Ctrl+A in the Files list: the rows the filter shows.
+    pub fn select_all_files(&self) {
+        self.files.selection.select_all();
+    }
+
+    /// Gives the Files list the keyboard.
+    pub fn focus_files(&self) {
+        self.files.view.grab_focus();
+    }
+
+    fn refresh_files(&self) {
+        let (n, count) =
+            with(self.peek, |d, _| (d.rows(Tab::Files), d.file_filter_count())).unwrap_or_default();
+        self.files.update(n);
+        set_text(&self.files_count, &count);
+        self.files_count.set_visible(!count.is_empty());
+    }
+
     /// `f` gets the Files tab row the user double-clicked or pressed Enter on.
     pub fn connect_file_activate(&self, f: impl Fn(usize) + 'static) {
         self.files.view.connect_activate(move |_, position| f(position as usize));
@@ -257,7 +318,7 @@ impl Details {
             Tab::General => self.general.refresh(peek),
             Tab::Trackers => self.trackers.update(rows(peek, Tab::Trackers)),
             Tab::Peers => self.peers.update(rows(peek, Tab::Peers)),
-            Tab::Files => self.files.update(rows(peek, Tab::Files)),
+            Tab::Files => self.refresh_files(),
             Tab::Pieces => {
                 let (summary, n) = with(peek, |d, st| {
                     let summary = match (&d.have, st) {

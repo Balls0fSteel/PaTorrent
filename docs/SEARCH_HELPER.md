@@ -1,6 +1,6 @@
 # The search helper (D51)
 
-For users without a Prowlarr or Jackett of their own: Options > Search Sources offers "Get the Search Helper (Jackett)...". PaTorrent downloads Jackett's own release from GitHub at that click, unpacks it into the profile folder and runs it as a separate program on `127.0.0.1`, only while searching. Its `all` Torznab endpoint becomes an ordinary search source, "Search helper (all)", so the D41 search (`docs/INTEGRATIONS.md` part 2) does everything else. The design is the D51 section of `docs/PROPOSALS.md`, way A. This file describes what was built; the user's guide with screenshots is [SEARCH_ON_WINDOWS.md](SEARCH_ON_WINDOWS.md).
+For users without a Prowlarr or Jackett of their own: Options > Search Sources (and the Web UI's Manage Sources) offers "Get the Search Helper (Jackett)...". PaTorrent downloads Jackett's own release from GitHub at that click, unpacks it into the profile folder and runs it as a separate program on `127.0.0.1`, only while searching. Its `all` Torznab endpoint becomes an ordinary search source, "Search helper (all)", so the D41 search (`docs/INTEGRATIONS.md` part 2) does everything else. The design is the D51 section of `docs/PROPOSALS.md`, way A. This file describes what was built; the user's guide with screenshots is [SEARCH_ON_WINDOWS.md](SEARCH_ON_WINDOWS.md).
 
 ## Licence position (from PROPOSALS.md)
 
@@ -14,7 +14,19 @@ Jackett is GPL-2.0, Prowlarr GPL-3.0; PaTorrent is PolyForm Noncommercial (D15),
 - a Flatpak (`FLATPAK_ID` set: a sandbox that downloads and runs programs would not pass Flathub's review), as the update check is;
 - systems with no Jackett build: FreeBSD, and any OS or CPU without an asset below.
 
-There, the Search Sources window shows no helper buttons; "Add" for a Prowlarr or Jackett of the user's own stays. nox and the Web UI get the buttons in a later slice.
+There, the Search Sources window shows no helper buttons; "Add" for a Prowlarr or Jackett of the user's own stays. The Web UI's Manage Sources follows the same rule (below).
+
+## In nox and the Web UI
+
+The Web UI's Manage Sources has the same buttons (Get, Pick Sites..., Open the Helper's Page, Update, Remove) and the same site picker, through `/pa/search/helper...` (`crates/nox/src/webui/helper.rs`; the endpoints in [WEBUI.md](WEBUI.md) "The torrent search"), over the same frontend code:
+
+- **Where:** nox runs the helper on its own host, in its state directory (`<state>/search-helper`: `%APPDATA%\PaTorrent\nox\search-helper`, `~/.local/share/patorrent/nox/search-helper`, `/var/lib/patorrent-nox/search-helper` under the shipped system unit); none with `--no-state`. nox kills it at its exit. Hosted (D40) the Web UI acts on the window's own helper (the window's profile folder, as Options > Search Sources): one process, one helper.
+- **Steps:** each step that waits (the check, the download, a start, the sites configured) is a background task the page polls, with the download's progress and a Cancel that stops the download. The confirm box is the GUIs' text plus the current Web UI password, which the download needs (it makes the server download and run a program; as adding a source does, D41). Only the release the last check found is downloaded.
+- **The helper's page:** it listens on the server's `127.0.0.1`, which a browser on another computer reaches as itself. So "Open the Helper's Page" is offered only to a browser on the server's computer (a loopback request, not through a reverse proxy); there the page shows the password and a link to open (the address and password go to such a request only). Elsewhere a line says the page opens only on the computer PaTorrent runs on. Private sites stay a thing to set up there (or over an SSH tunnel to the helper's port, for those who know how).
+- **Remote windows:** a GUI connected to a remote nox searches in its own profile, as before; the remote protocol carries no helper messages and did not change.
+- **systemd:** the shipped units set `MemoryDenyWriteExecute=yes`, which the helper inherits and a .NET program's JIT cannot run under; a system service that wants the helper needs `MemoryDenyWriteExecute=no` in an override (`systemctl edit patorrent-nox`). Not tried yet.
+
+Tests: `crates/nox/tests/search_helper.rs` (its own binary, `harness = false`) drives the endpoints against a fake GitHub and a stand-in for Jackett's program, which is that test binary itself, started by the frontend's runner with Jackett's arguments: the check, the install behind the password, the progress, the source added, the sites (FlareSolverr marked, nothing ticked, the ticks applied), a search through the running stand-in, the page's address and password for a local request and not through a proxy, Update (up to date; a slow download cancelled, nothing changed), Remove.
 
 ## As built
 

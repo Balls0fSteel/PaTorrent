@@ -3254,7 +3254,7 @@
   findDlg.addEventListener("close", () => layerClosed(closeFind));
   findDlg.addEventListener("cancel", (ev) => {
     ev.preventDefault();
-    if (!srcDlg.open && !srcEditDlg.open) closeFind();
+    if (!srcDlg.open && !srcEditDlg.open && !fhDlg.open && !fsDlg.open) closeFind();
   });
   $("find-close").addEventListener("click", closeFind);
   $("tb-find").addEventListener("click", openFind);
@@ -3371,6 +3371,7 @@
     srcDlg.showModal();
     layerOpened(closeSources);
     srcRender();
+    helperLoad();
   }
   function closeSources() {
     if (srcDlg.open) srcDlg.close();
@@ -3378,7 +3379,7 @@
   srcDlg.addEventListener("close", () => layerClosed(closeSources));
   srcDlg.addEventListener("cancel", (ev) => {
     ev.preventDefault();
-    if (!srcEditDlg.open) closeSources();
+    if (!srcEditDlg.open && !fhDlg.open && !fsDlg.open) closeSources();
   });
   $("find-manage").addEventListener("click", () => findModel && openSources());
   $("find-src-close").addEventListener("click", closeSources);
@@ -3474,6 +3475,276 @@
     closeSrcEdit();
     findLoad();
   });
+
+  // ---- the search helper (D51; pa/search/helper, nox's webui/helper.rs) -------------------
+  // Jackett, downloaded from its own GitHub releases at the user's click and run on the
+  // server's loopback while searching (hosted: the window's own helper). Each step is a task on
+  // the server; the page follows it through GET pa/search/helper. The download takes the
+  // current password. The helper's own page listens on the server alone: offered only to a
+  // browser there (`local`), elsewhere a line says where it opens.
+  const fhDlg = $("find-helper");
+  const fsDlg = $("find-sites");
+  let helperModel = null;
+  let fhResolve = null; // the helper dialog's answer: true for OK, false for Cancel
+  let fhSubmit = null; // its OK's check: an error text keeps it open
+  let fhTask = 0; // the task its progress follows
+  let fsResolve = null;
+
+  async function helperLoad() {
+    try {
+      helperModel = await pa("search/helper");
+    } catch (e) {
+      helperModel = null;
+    }
+    helperRender();
+  }
+  function helperRender() {
+    const m = helperModel;
+    const on = !!(m && m.available);
+    const installed = on && m.installed;
+    $("fh-btns").hidden = !on;
+    $("fh-get").hidden = installed;
+    for (const id of ["fh-sites", "fh-update", "fh-remove"]) $(id).hidden = !installed;
+    $("fh-page").hidden = !installed || !m.local;
+    $("fh-note").hidden = !installed || m.local;
+  }
+  function helperStatus(text) {
+    $("find-src-status").textContent = text || "";
+  }
+
+  /// The helper dialog as a question (`password`: with the password field and `submit`), a
+  /// task's progress, a message, or the helper's page (`page`: its address and password).
+  function fhOpen(o) {
+    $("fh-title").textContent = o.title || "";
+    $("fh-text").textContent = o.text || "";
+    $("fh-text").hidden = !o.text;
+    $("fh-bar").hidden = !o.progress;
+    $("fh-bar").removeAttribute("value"); // moving until a size is known
+    $("fh-prog").hidden = !o.progress;
+    $("fh-prog").textContent = "";
+    $("fh-page-box").hidden = !o.page;
+    if (o.page) {
+      $("fh-pass").textContent = o.page.password;
+      $("fh-link").href = o.page.url;
+    }
+    $("fh-pass-line").hidden = !o.password;
+    $("fh-pass-in").value = "";
+    $("fh-msg").textContent = "";
+    $("fh-ok").hidden = !!o.progress;
+    $("fh-cancel").hidden = !o.progress && !o.password;
+    fhSubmit = o.submit || null;
+    if (!fhDlg.open) {
+      fhDlg.showModal();
+      layerOpened(fhCancel);
+    }
+    if (o.password) $("fh-pass-in").focus();
+    return new Promise((res) => {
+      fhResolve = res;
+    });
+  }
+  function fhClose(answer) {
+    if (fhDlg.open) fhDlg.close();
+    $("fh-pass-in").value = "";
+    const r = fhResolve;
+    fhResolve = null;
+    if (r) r(answer);
+  }
+  function fhCancel() {
+    if (fhTask) pa("search/helper/cancel", { id: fhTask }).catch(() => {});
+    fhTask = 0;
+    fhClose(false);
+  }
+  fhDlg.addEventListener("close", () => {
+    // the event comes a task late: a dialog shown again since (the question after the check's
+    // progress, the download's progress after the question) is not the one that closed
+    if (fhDlg.open) return;
+    layerClosed(fhCancel);
+    if (fhResolve) fhCancel(); // Escape
+  });
+  $("fh-cancel").addEventListener("click", fhCancel);
+  $("fh-form").addEventListener("submit", async (ev) => {
+    ev.preventDefault();
+    if (fhSubmit) {
+      const msg = await fhSubmit($("fh-pass-in").value);
+      if (msg) {
+        $("fh-msg").textContent = msg;
+        return;
+      }
+    }
+    fhClose(true);
+  });
+
+  /// Starts the step `path` (or follows the task `started`) behind the progress dialog; the
+  /// finished task, or null when it failed (its error shown) or was cancelled.
+  async function helperRun(path, body, title, started) {
+    let id = started || 0;
+    if (!id) {
+      try {
+        id = (await pa("search/helper/" + path, body)).id;
+      } catch (e) {
+        helperStatus(e.msg || "");
+        return null;
+      }
+    }
+    fhTask = id;
+    fhOpen({ title, progress: true });
+    let done = null;
+    while (fhDlg.open && fhTask === id) {
+      await new Promise((r) => setTimeout(r, 400));
+      let m;
+      try {
+        m = await pa("search/helper");
+      } catch (e) {
+        break;
+      }
+      helperModel = m;
+      const t = m.task;
+      if (!t || t.id !== id) break;
+      if (t.total) {
+        $("fh-bar").max = t.total;
+        $("fh-bar").value = t.got;
+      }
+      $("fh-prog").textContent = t.progress_text;
+      if (!t.running) {
+        done = t;
+        break;
+      }
+    }
+    if (fhTask === id) {
+      fhTask = 0;
+      fhClose(!!done);
+    }
+    helperRender();
+    if (!done || done.cancelled) return null;
+    if (done.error) {
+      await fhOpen({ title, text: done.error });
+      return null;
+    }
+    return done;
+  }
+
+  /// Get (or Update): the newest release, the question with the password, the download; a
+  /// first install goes on to the site picker.
+  async function helperGet(update) {
+    helperStatus("");
+    const c = await helperRun("check", { update }, T("SearchHelperChecking"));
+    if (!c) return;
+    const title = T(update ? "SearchHelperUpdate" : "SearchHelperGet").replace(/(\.\.\.|…)$/, "");
+    if (c.up_to_date) {
+      await fhOpen({ title, text: c.text });
+      return;
+    }
+    let id = 0;
+    const ok = await fhOpen({
+      title,
+      text: c.question,
+      password: true,
+      submit: async (password) => {
+        if (!password) return T("WebHelperNeedPassword");
+        try {
+          id = (await pa("search/helper/install", { version: c.version, password })).id;
+          return null;
+        } catch (e) {
+          return e.msg || String(e.message || e);
+        }
+      },
+    });
+    if (!ok || !id) return;
+    const t = await helperRun("", null, T("SearchHelperDownloading", { version: c.version }), id);
+    findLoad();
+    await helperLoad();
+    if (!t) return;
+    helperStatus(t.text);
+    if (t.first) await helperSites();
+  }
+
+  /// Pick Sites: the helper's public sites (it is started first), the picker, the ticks applied.
+  async function helperSites() {
+    const t = await helperRun("sites", {}, T("SearchHelperStarting"));
+    if (!t) return;
+    const ticked = await sitesPick(t.sites || []);
+    if (!ticked) return;
+    const a = await helperRun("apply", { ticked }, T("SearchHelperSaving"));
+    if (a) helperStatus(a.text);
+    findLoad();
+  }
+
+  /// The site picker: nothing ticked but what was before; a site that needs FlareSolverr is
+  /// greyed and cannot be ticked. The ticked ids on OK, null on Cancel.
+  function sitesPick(list) {
+    const t = $("fs-list");
+    t.textContent = "";
+    const head = rssEl("tr");
+    for (const key of ["ColName", "SearchHelperColLanguage", "SearchHelperColType", "SearchHelperColNote"]) head.appendChild(rssEl("th", "", T(key)));
+    t.appendChild(rssEl("thead")).appendChild(head);
+    const tb = t.appendChild(rssEl("tbody"));
+    for (const s of list) {
+      const tr = rssEl("tr", s.needs_flaresolverr ? "fs-off" : "");
+      const label = rssEl("label");
+      const c = rssEl("input");
+      c.type = "checkbox";
+      c.value = s.id;
+      c.checked = s.configured && !s.needs_flaresolverr;
+      c.disabled = s.needs_flaresolverr;
+      label.appendChild(c);
+      label.appendChild(document.createTextNode(" " + s.name));
+      tr.appendChild(rssEl("td")).appendChild(label);
+      tr.appendChild(rssEl("td", "", s.language));
+      tr.appendChild(rssEl("td", "", s.type));
+      tr.appendChild(rssEl("td", "", s.needs_flaresolverr ? T("SearchHelperNeedsFlaresolverr") : ""));
+      tb.appendChild(tr);
+    }
+    fsDlg.showModal();
+    layerOpened(fsCancel);
+    return new Promise((res) => {
+      fsResolve = res;
+    });
+  }
+  function fsClose(answer) {
+    if (fsDlg.open) fsDlg.close();
+    const r = fsResolve;
+    fsResolve = null;
+    if (r) r(answer);
+  }
+  function fsCancel() {
+    fsClose(null);
+  }
+  fsDlg.addEventListener("close", () => {
+    if (fsDlg.open) return; // a late event from an earlier opening (see fhDlg's)
+    layerClosed(fsCancel);
+    if (fsResolve) fsCancel();
+  });
+  $("fs-cancel").addEventListener("click", fsCancel);
+  $("fs-form").addEventListener("submit", (ev) => {
+    ev.preventDefault();
+    fsClose([...$("fs-list").querySelectorAll("input:checked:not(:disabled)")].map((c) => c.value));
+  });
+
+  /// Open the Helper's Page: started first; its password, then a link (a tab opened only by
+  /// the user's click, which no pop-up blocker stops).
+  async function helperPage() {
+    const t = await helperRun("page", {}, T("SearchHelperStarting"));
+    if (!t || !t.url) return;
+    if (navigator.clipboard) navigator.clipboard.writeText(t.password).catch(() => {});
+    await fhOpen({ title: T("SearchHelperOpenPage"), text: T("WebHelperPagePassword"), page: { url: t.url, password: t.password } });
+  }
+
+  async function helperRemove() {
+    if (!helperModel || !confirm(T("SearchHelperRemoveConfirm", { folder: helperModel.folder }))) return;
+    try {
+      helperStatus((await pa("search/helper/remove", {})).text);
+    } catch (e) {
+      helperStatus(e.msg || "");
+    }
+    await helperLoad();
+    findLoad();
+  }
+
+  $("fh-get").addEventListener("click", () => helperGet(false));
+  $("fh-update").addEventListener("click", () => helperGet(true));
+  $("fh-sites").addEventListener("click", helperSites);
+  $("fh-page").addEventListener("click", helperPage);
+  $("fh-remove").addEventListener("click", helperRemove);
 
   // ---- Preferences (docs/WEBUI.md slice 6) -------------------------------------------------
   // The dialog is generated from GET pa/prefs: `pages` (the 2.2.1 tree, each page its groups of

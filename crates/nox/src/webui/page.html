@@ -299,8 +299,36 @@
         <button type="button" id="find-src-remove" data-t="RssFeedsRemove">Remove</button>
         <button type="button" id="find-src-test" data-t="SearchTest">Test</button>
       </div>
+      <!-- the search helper (D51; app.js "the search helper"): Get alone, or the rest once installed -->
+      <div class="rss-btns" id="fh-btns" hidden>
+        <button type="button" id="fh-get" data-t="SearchHelperGet">Get the Search Helper (Jackett)...</button>
+        <button type="button" id="fh-sites" data-t="SearchHelperSites">Pick Sites...</button>
+        <button type="button" id="fh-page" data-t="SearchHelperOpenPage">Open the Helper's Page</button>
+        <button type="button" id="fh-update" data-t="SearchHelperUpdate">Update the Search Helper</button>
+        <button type="button" id="fh-remove" data-t="SearchHelperRemove">Remove the Search Helper</button>
+      </div>
+      <p class="find-hint" id="fh-note" hidden data-t="WebHelperPageHostOnly">The helper's own page opens only in a browser on the computer PaTorrent runs on, where the helper listens.</p>
       <div class="rss-ok"><button type="button" id="find-src-close" data-t="BtnClose">Close</button></div>
     </div>
+  </dialog>
+  <dialog id="find-helper" aria-labelledby="fh-title">
+    <form id="fh-form">
+      <h2 id="fh-title"></h2>
+      <p id="fh-text" class="find-pre"></p>
+      <progress id="fh-bar"></progress>
+      <p id="fh-prog" class="find-hint"></p>
+      <p id="fh-page-box"><code id="fh-pass"></code> <a id="fh-link" target="_blank" rel="noopener noreferrer" data-t="SearchHelperOpenPage">Open the Helper's Page</a></p>
+      <label class="rss-line" id="fh-pass-line"><span data-t="WebSearchPassword">Current Web UI password:</span><input id="fh-pass-in" type="password" autocomplete="current-password"></label>
+      <div class="rss-ok"><span id="fh-msg" role="status"></span><button type="submit" id="fh-ok" data-t="BtnOk">OK</button><button type="button" id="fh-cancel" data-t="BtnCancel">Cancel</button></div>
+    </form>
+  </dialog>
+  <dialog id="find-sites" aria-labelledby="fs-title">
+    <form id="fs-form">
+      <h2 id="fs-title" data-t="SearchHelperSitesTitle">Search Helper Sites</h2>
+      <p class="find-hint" data-t="SearchHelperSitesHint">Tick the public sites the search helper searches; nothing is ticked for you. For private sites and their logins, open the helper's own page.</p>
+      <div class="rss-table find-sites-table"><table id="fs-list"></table></div>
+      <div class="rss-ok"><button type="submit" data-t="BtnOk">OK</button><button type="button" id="fs-cancel" data-t="BtnCancel">Cancel</button></div>
+    </form>
   </dialog>
   <dialog id="find-edit" aria-labelledby="find-edit-title">
     <form id="find-edit-form">

@@ -815,10 +815,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         .move_on_complete
         .as_ref()
         .map(|d| std::path::absolute(d).map_or(d.clone(), |p| p.to_string_lossy().into_owned()));
-    let web = match o
-        .webui
-        .map(|addr| start_webui(&o, addr, &h, settings, dirs.config.clone(), &save, &move_dir))
-    {
+    let web = match o.webui.map(|addr| start_webui(&o, addr, &h, settings, &dirs, &save, &move_dir)) {
         Some(Err(e)) if e.kind() == std::io::ErrorKind::AddrInUse => {
             let port = o.webui.map_or(0, |a| a.port());
             eprintln!(
@@ -1036,6 +1033,8 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     println!("* shutting down");
     service.stopping();
     drop(web);
+    // the search helper, when a search started it, ends with us
+    patorrent_frontend::search::helper::shutdown();
     h.clear_alert_notify();
     session.shutdown();
     println!("* stopped");
@@ -1114,7 +1113,7 @@ fn start_webui(
     addr: std::net::SocketAddr,
     h: &patorrent_core::SessionHandle,
     settings: Settings,
-    config_dir: Option<PathBuf>,
+    dirs: &paths::Dirs,
     save: &str,
     move_dir: &Option<String>,
 ) -> std::io::Result<webui::WebUi> {
@@ -1123,7 +1122,9 @@ fn start_webui(
     c.password = o.webui_pass.clone();
     c.save_roots = o.webui_save_roots.clone();
     // webui.json and the default ipfilter.dat live in the config directory (`paths`)
-    c.state_dir = config_dir;
+    c.state_dir = dirs.config.clone();
+    // the search helper (D51), a program of 50 MB and more, is data: the state directory
+    c.helper_dir = dirs.state.clone();
     c.move_completed_dir = move_dir.clone();
     c.ip_filter = o.ip_filter.clone();
     c.https = match (&o.webui_cert, o.webui_https) {

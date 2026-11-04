@@ -656,7 +656,7 @@ div.pg { border: 0; padding: 0 8px; }
 }
 
 /* the torrent search (query bar, status lines, results; Manage Sources and its edit dialog) */
-#find, #find-sources, #find-edit {
+#find, #find-sources, #find-edit, #find-helper, #find-sites {
   padding: 10px 12px;
   border: 1px solid var(--line);
   background: var(--bg);
@@ -666,8 +666,10 @@ div.pg { border: 0; padding: 0 8px; }
 #find { width: min(980px, calc(100vw - 32px)); height: min(620px, calc(100vh - 32px)); }
 #find-sources { width: min(560px, calc(100vw - 32px)); height: min(420px, calc(100vh - 32px)); }
 #find-edit { width: min(520px, calc(100vw - 32px)); }
-#find::backdrop, #find-sources::backdrop, #find-edit::backdrop { background: rgba(0, 0, 0, 0.35); }
-#find h2, #find-sources h2, #find-edit h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
+#find-helper { width: min(520px, calc(100vw - 32px)); }
+#find-sites { width: min(720px, calc(100vw - 32px)); height: min(560px, calc(100vh - 32px)); }
+#find::backdrop, #find-sources::backdrop, #find-edit::backdrop, #find-helper::backdrop, #find-sites::backdrop { background: rgba(0, 0, 0, 0.35); }
+#find h2, #find-sources h2, #find-edit h2, #find-helper h2, #find-sites h2 { font-size: 13px; font-weight: 600; margin: 0 0 8px; }
 #find-body, #find-sources-body { display: flex; flex-direction: column; gap: 8px; height: 100%; }
 #find select, #find input:not([type="checkbox"]) { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 3px; padding: 2px 4px; min-width: 0; }
 .find-bar { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
@@ -686,15 +688,26 @@ div.pg { border: 0; padding: 0 8px; }
 .find-hint { margin: 0; color: var(--muted); overflow-wrap: anywhere; }
 .find-check { line-height: 22px; }
 #find-e-msg { flex: 1; color: var(--err); }
+/* the search helper's dialog (a question, a progress, a message, its page) and site picker */
+#fh-form, #fs-form { display: flex; flex-direction: column; gap: 8px; height: 100%; }
+.find-pre { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; }
+#fh-bar { width: 100%; }
+#fh-page-box { margin: 0; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+#fh-pass { user-select: all; padding: 1px 4px; border: 1px solid var(--line); border-radius: 3px; }
+#fh-msg { flex: 1; color: var(--err); }
+#fh-form [hidden], #fh-btns[hidden], #fh-note[hidden] { display: none; }
+.find-sites-table { flex: 1 1 auto; }
+.find-sites-table tr.fs-off td { color: var(--muted); }
+#fh-btns { margin-top: 2px; }
 @media (max-width: 767px) {
   /* full screen; the results keep Name, Size and Seeds */
-  #find, #find-sources, #find-edit { width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: none; margin: 0; border: 0; padding: 10px; }
+  #find, #find-sources, #find-edit, #find-helper, #find-sites { width: 100vw; max-width: 100vw; height: 100vh; height: 100dvh; max-height: none; margin: 0; border: 0; padding: 10px; }
   .find-table .opt { display: none; }
   .find-table th.c-name { width: auto; }
   .find-table th.c-size { width: 5.5em; }
   .find-table th.c-seeders { width: 4.5em; }
   .find-table td { line-height: 32px; }
-  #find button, #find-sources button, #find-edit button { min-height: 36px; }
+  #find button, #find-sources button, #find-edit button, #find-helper button, #find-sites button { min-height: 36px; }
   #find select, #find input:not([type="checkbox"]) { min-height: 34px; }
   .find-btns { flex-wrap: wrap; }
   #find-msg { flex-basis: 100%; order: -1; white-space: normal; }

@@ -337,6 +337,13 @@ fn proxied(head: &Head) -> bool {
     ["x-forwarded-for", "forwarded", "x-real-ip"].iter().any(|h| head.header(h).is_some())
 }
 
+/// Whether a request comes from a browser on this computer: a loopback peer, not a reverse
+/// proxy passing one on. (A browser here that names the machine's LAN address is not seen as
+/// local.)
+pub(super) fn is_local(head: &Head, peer: IpAddr) -> bool {
+    canonical(peer).is_loopback() && !proxied(head)
+}
+
 /// The client a request is from: its peer, or for a peer on this machine (a reverse proxy)
 /// the last `X-Forwarded-For` address, the one the proxy added. Failed logins then count per
 /// client, not for everyone behind the proxy at once (SEC-03). A local program could name any

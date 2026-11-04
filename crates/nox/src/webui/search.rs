@@ -203,7 +203,7 @@ fn valid_url(url: &str) -> Result<String, CmdError> {
 /// the server fetch its URL (any address: it is the user's) with the stored key, so a stolen
 /// session must not be able to point a source, and its key, somewhere else. A wrong one ends
 /// the session that sent it, as Preferences' security fields do (SEC-03).
-fn check_password(shared: &Shared, body: &Json, session: &str) -> Result<(), CmdError> {
+pub(super) fn check_password(shared: &Shared, body: &Json, session: &str) -> Result<(), CmdError> {
     let mut st = shared.lock();
     let given = text(body, "password");
     if given.is_some_and(|p| st.password.verify(p)) {
@@ -216,7 +216,7 @@ fn check_password(shared: &Shared, body: &Json, session: &str) -> Result<(), Cmd
 }
 
 /// Stores `sources` in the options (sealed keys; hosted, the host gets the journal).
-fn store(shared: &Shared, sources: &[Source]) {
+pub(super) fn store(shared: &Shared, sources: &[Source]) {
     let mut st = shared.lock();
     store_sources(&mut st.options, sources);
     st.search_version += 1;
@@ -261,6 +261,8 @@ fn start(shared: &Shared, body: &Json) -> Result<(), CmdError> {
         return Err(err(409, tr!(SearchNoSources)));
     }
     let proxy = proxy(shared);
+    // the helper's source starts the helper (D51): its folder and proxy, current
+    super::helper::configure(shared);
     shared.search().start(&picked, Query { text: q, categories }, proxy.as_ref());
     changed(shared);
     Ok(())
@@ -323,13 +325,18 @@ fn test(shared: &Shared, body: &Json) -> Result<Json, CmdError> {
 }
 
 /// `/pa/search` and `/pa/search/...` (`endpoint` is the part after `search`, with its slash);
-/// `session` is the requester's.
+/// `session` is the requester's, `local` whether it is on this computer (the search helper's
+/// page, `helper.rs`).
 pub(crate) fn serve(
     shared: &Shared,
     endpoint: &str,
     body: Option<Json>,
     session: &str,
+    local: bool,
 ) -> Result<Response, CmdError> {
+    if let Some(rest) = endpoint.strip_prefix("/helper").filter(|r| r.is_empty() || r.starts_with('/')) {
+        return super::helper::serve(shared, rest, body, session, local);
+    }
     let Some(body) = body else {
         return match endpoint {
             "" => {
@@ -634,6 +641,7 @@ fn shim_start(shared: &Shared, param: &dyn Fn(&str) -> Option<String>) -> Respon
     }
     let (sources, plugins): (Vec<Source>, Vec<String>) = picked.into_iter().unzip();
     let proxy = proxy(shared);
+    super::helper::configure(shared);
     let mut jobs = shared.shim_searches();
     jobs.collect();
     if jobs.jobs.iter().filter(|j| j.search.is_running()).count() >= MAX_RUNNING_JOBS {

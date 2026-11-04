@@ -22,6 +22,7 @@ mod api;
 pub mod auth;
 pub(crate) mod commands;
 mod fetch;
+mod helper;
 pub mod http;
 pub mod https;
 pub mod json;
@@ -42,7 +43,7 @@ use std::collections::{BTreeMap, HashMap, HashSet, VecDeque};
 use std::net::{IpAddr, SocketAddr};
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex, MutexGuard};
+use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -110,6 +111,10 @@ pub struct Config {
     pub save_roots: Vec<PathBuf>,
     /// A desktop client hosting the Web UI over its own engine (D40): see [`Hosted`].
     pub hosted: Option<Hosted>,
+    /// The folder the search helper (D51, `helper.rs`) lives in (`<dir>/search-helper`): nox's
+    /// state directory, or hosted the window's own profile folder, so the pages act on the
+    /// window's helper. `None`: the pages offer no helper.
+    pub helper_dir: Option<PathBuf>,
 }
 
 /// A desktop client that hosts the Web UI over its own engine (D40: the Windows GUI, as
@@ -185,6 +190,7 @@ impl Config {
             https: None,
             save_roots: Vec::new(),
             hosted: None,
+            helper_dir: None,
         }
     }
 }
@@ -561,6 +567,12 @@ pub(crate) struct Shared {
     /// The desktop client hosting the Web UI ([`Config::hosted`]), given the preferences
     /// journal at every [`Shared::save`].
     pub(crate) host: Option<Arc<dyn Host>>,
+    /// [`Config::helper_dir`].
+    pub(crate) helper_dir: Option<PathBuf>,
+    /// The search helper's background steps (`helper.rs`); never held with another lock.
+    pub(crate) helper: Mutex<helper::Tasks>,
+    /// This, for the threads a request starts (the helper's download).
+    pub(crate) this: Weak<Shared>,
 }
 
 /// Hosted, a category is the host's `webui.category.<name>` key (its save folder as the value),
@@ -597,6 +609,10 @@ impl Shared {
 
     pub(crate) fn shim_searches(&self) -> MutexGuard<'_, search::ShimSearches> {
         self.shim_searches.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
+    pub(crate) fn helper(&self) -> MutexGuard<'_, helper::Tasks> {
+        self.helper.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// The desktop client hosting the Web UI, if one does ([`Config::hosted`]).
@@ -900,7 +916,7 @@ impl WebUi {
         let listener = std::net::TcpListener::bind(config.addr)?;
         let addr = listener.local_addr()?;
         let settings_dir = config.state_dir.clone().unwrap_or_else(|| PathBuf::from("."));
-        let shared = Arc::new(Shared {
+        let shared = Arc::new_cyclic(|this| Shared {
             handle,
             state: Mutex::new(State {
                 torrents: HashMap::new(),
@@ -963,7 +979,12 @@ impl WebUi {
             path_policy: path_policy::PathPolicy::new(config.save_roots.clone()),
             remotes: Mutex::new(Vec::new()),
             host: hosted.map(|h| h.host.clone()),
+            helper_dir: config.helper_dir.clone(),
+            helper: Mutex::default(),
+            this: this.clone(),
         });
+        // the helper's source is routed to the running helper from the first search on
+        helper::configure(&shared);
         {
             let mut st = shared.lock();
             if st.hosted {
@@ -1649,6 +1670,9 @@ impl State {
             path_policy: path_policy::PathPolicy::default(),
             remotes: Mutex::new(Vec::new()),
             host: None,
+            helper_dir: None,
+            helper: Mutex::default(),
+            this: Weak::new(),
         }
     }
 

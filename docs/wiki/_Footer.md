@@ -1,0 +1,1 @@
+PaTorrent · [Website](https://balls0fsteel.github.io/PaTorrent/) · [Releases](https://github.com/Balls0fSteel/PaTorrent/releases) · [Report a problem](https://github.com/Balls0fSteel/PaTorrent/issues) · The wiki's source is [docs/wiki](https://github.com/Balls0fSteel/PaTorrent/tree/main/docs/wiki) in the repository.

@@ -4,6 +4,11 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_231941_1793830781: Version 1.1.66: a peer's tiny request queue no longer stops the engine (security)
+
+- **Fixed (remote crash):** `PeerConn::desired_queue` clamped the wanted queue to `4..=min(max_out_request_queue, peer's reqq)`; a peer whose extension handshake sent `reqq` 1-3 (or a local `max_out_request_queue` of 1-3) crossed the bounds and `clamp` panicked, in release builds too, stopping the one-thread engine. Any peer could do it. The ceiling now wins (`4.min(hi)..=hi`). Found by the help-text review. All releases since the extension protocol are affected, 1.1.40 included: worth a release soon. `PEER_ID_PREFIX` kept (no change for well-behaved peers).
+- **Checked:** a new test (`reqq` 1-3, a local queue of 2 and 0); core's 892 tests, clippy.
+
 ## 2026-11-04_231751_1793830671: Version 1.1.65: the help texts checked against the code (D55)
 
 - **Fixed (owner's D55 answer, an Opus 5.5 agent's review, merged here):** 37 of the 302 English help texts misstated the code and were rewritten with file:line evidence. Examples: UDP trackers need a SOCKS5 proxy; the scheduler's Limited rates replace the global limits; `utp_syn_resends` has no effect; DHT blocks run from when they start; Remove deletes the part file. `en.lng` and `docs/HELP_TEXTS.md` were regenerated; the other 265 were found correct.

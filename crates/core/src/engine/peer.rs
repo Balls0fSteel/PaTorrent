@@ -463,7 +463,10 @@ impl PeerConn {
         let rate = self.stat.download_payload.rate() as u64;
         let want = (rate * queue_time as u64 / block as u64) as usize;
         let peer_max = self.ext.as_ref().and_then(|e| e.reqq).map_or(250, |q| q as usize);
-        want.clamp(4, max.min(peer_max).max(1))
+        // a peer's `reqq` or our `max_out_request_queue` of 1-3 is below the floor of 4: the
+        // ceiling wins (`clamp` panics when its bounds cross, which a remote peer could cause)
+        let hi = max.min(peer_max).max(1);
+        want.clamp(4.min(hi), hi)
     }
 }
 
@@ -498,6 +501,26 @@ mod tests {
         let mut got = [0u8; 100];
         remote.read_exact(&mut got).unwrap();
         assert!(got.iter().all(|&b| b == 7));
+    }
+
+    /// A peer's extension handshake with `reqq` 1-3 (or our own `max_out_request_queue` that
+    /// low) made the ceiling cross the floor of 4, and `clamp` panicked: any peer could stop
+    /// the engine. The ceiling wins now.
+    #[test]
+    fn a_tiny_request_queue_is_the_ceiling() {
+        let l = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = l.local_addr().unwrap();
+        let out = std::net::TcpStream::connect(addr).unwrap();
+        let sock = Transport::Tcp(TcpStream::from_std(out));
+        let mut p = PeerConn::new(1, sock, addr, true, PeerSource::TRACKER, Instant::now());
+        assert_eq!(p.desired_queue(3, 500, 16384), 4);
+        for reqq in 1..=3u32 {
+            p.ext = Some(crate::proto::peer_wire::ExtHandshake { reqq: Some(reqq), ..Default::default() });
+            assert_eq!(p.desired_queue(3, 500, 16384), reqq as usize);
+        }
+        p.ext = None;
+        assert_eq!(p.desired_queue(3, 2, 16384), 2);
+        assert_eq!(p.desired_queue(3, 0, 16384), 1);
     }
 
     #[test]

@@ -311,7 +311,8 @@ fn fake_github(name: String, data: Vec<u8>) -> Github {
                     }
                     let head = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\n\r\n", data.len());
                     let _ = s.write_all(head.as_bytes());
-                    for part in data.chunks(16 << 10) {
+                    // twenty pieces at least: the Unix stand-in (a script) is far smaller than 16 KB
+                    for part in data.chunks((data.len() / 20).clamp(1, 16 << 10)) {
                         if s.write_all(part).is_err() {
                             return;
                         }

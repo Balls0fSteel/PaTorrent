@@ -284,6 +284,12 @@ pub fn install(
 ) -> Result<State, String> {
     let layout = layout().ok_or_else(|| tr!(SearchHelperNotInstalled).to_owned())?;
     let data = release::download(release, proxy, progress)?;
+    // a cancel that came with the last bytes (a small archive arrives in one piece) still
+    // stops the install, which has not begun
+    let size = data.len() as u64;
+    if !progress(size, Some(size)) {
+        return Err(format!("{}: cancelled", release.asset.name));
+    }
     stop();
     install_archive(&layout, &release.asset.name, &data, &release.version)?;
     reload();

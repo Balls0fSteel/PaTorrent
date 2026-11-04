@@ -4,6 +4,12 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-04_235726_1793833046: Version 1.1.68: a cancelled helper update no longer installs anyway (D51)
+
+- **Failed:** CI's Linux and macOS test jobs on `45c6c373`: `tests/search_helper.rs` found v9.9.10 installed after its update was cancelled. The cancel was only seen between pieces of the download; the Unix stand-in archive (a script) arrived in one piece, so the install went on although the page said "Cancelled". Windows, fmt, MSRV, FreeBSD and Fuzz passed.
+- **Fixed:** `helper::install` asks once more after the last byte, before stopping the helper and unpacking, so a cancel that came with the end of the download installs nothing (all frontends). The test's slow download now comes in at least twenty pieces, so the cancel lands mid-download on every platform.
+- **Checked:** clippy, the frontend's helper tests and the nox end-to-end test on Windows; the end-to-end test three times on the Xubuntu VM.
+
 ## 2026-11-04_233216_1793831536: Version 1.1.67: the search helper in nox and the Web UI (D51, second slice)
 
 - **Added (owner's D51 answer; an Opus 5.5 agent's branch, reviewed and merged here):** Manage Sources in the Web UI gets Get, Pick Sites, Open the Helper's Page, Update and Remove, and the site picker, through `/pa/search/helper...` (`webui/helper.rs`) on the GUIs' frontend code. nox keeps the helper in its state directory (none with `--no-state`) and kills it at exit; the hosted Web UI acts on the window's own helper. Each step is a background task the page polls (download progress, Cancel, 409 while one runs). Get and Update need the current Web UI password and name only a version; the helper's own page (its address and password) goes only to a browser on the server's computer. Five strings in every table; `docs/WEBUI.md` and `SEARCH_HELPER.md` updated. No remote protocol change.

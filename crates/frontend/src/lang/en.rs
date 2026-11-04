@@ -46,6 +46,9 @@ strings! {
     /// [F] marks a torrent started with Force Start, outside the queue; keep the [F]. {status}
     /// is one of the statuses above.
     StatusForced = "[F] {status}";
+    /// Preferences > Connection > "Use only this network" finds no matching network adapter
+    /// (the VPN is down): the torrent resumes by itself when it comes back.
+    StatusWaitingNetwork = "Waiting for the network";
 
     // ---- The category list
 
@@ -324,6 +327,9 @@ strings! {
     /// Speed tab legend; {rate} is like "12.0 kB/s".
     SpeedDownload = "Download: {rate}";
     SpeedUpload = "Upload: {rate}";
+    /// General tab: the public address trackers report back to us (an IPv4 and an IPv6
+    /// address, or NetExternalUnknown), so the user can see whether a VPN is in use.
+    GenExternal = "Your address as trackers see it:";
 
     // ---- The status bar and the tray
 
@@ -350,6 +356,14 @@ strings! {
     /// a speed like 450 kB/s.
     BarDownAuto = "D: {rate} (auto {cap}) T: {total}";
     BarUpAuto = "U: {rate} (auto {cap}) T: {total}";
+    /// The status bar's network part while "Use only this network" finds no matching network
+    /// adapter (the VPN is down); torrents wait until it comes back.
+    NetWaiting = "Waiting for the network";
+    /// The status bar's network tooltip: {address} is one or two IP addresses, or
+    /// NetExternalUnknown.
+    NetExternal = "Your address as trackers see it: {address}";
+    /// No tracker has told us our public address yet.
+    NetExternalUnknown = "not known yet";
 
     // ---- Logger lines the frontends write ({name} is a torrent's name)
 
@@ -869,6 +883,25 @@ strings! {
     /// The one line at the bottom of Preferences saying where help is (D55): pointing at a
     /// setting shows its help in the box above, F1 on a setting shows it beside the setting.
     PrefHelpHint = "Hover a setting for help, F1 for the guide";
+    /// Preferences > Connection, group title: torrent traffic uses only the network adapter
+    /// chosen below (a VPN, typically) and nothing else.
+    PrefUseNetwork = "Use Only This Network";
+    /// The drop-down of NetRuleOff, NetRuleVpn, NetRuleRange and the computer's network
+    /// adapters by name.
+    PrefNetworkRule = "Network:";
+    /// The text box for an address range such as 10.2.0.0/16, used with NetRuleRange.
+    PrefNetworkRange = "Address range:";
+    PrefNetworkPause = "Pause torrents while this network is missing";
+    /// The drop-down's first choice: no binding, any network may be used.
+    NetRuleOff = "Any network (off)";
+    /// Whatever adapter looks like a VPN tunnel (WireGuard, OpenVPN, the VPN app's own).
+    NetRuleVpn = "Any VPN adapter";
+    /// The addresses in the range typed below, on whatever adapter has them.
+    NetRuleRange = "Address range (below)";
+    /// An adapter the setting names that is not on the computer now; {name} is its name or id.
+    NetAdapterMissing = "{name} (not connected)";
+    /// {range} is what the user typed.
+    PrefBadRange = "\"{range}\" is not an address range such as 10.2.0.0/16 or fd00::/8.";
 
     // ---- RSS Downloader
 

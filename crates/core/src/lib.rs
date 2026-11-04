@@ -63,10 +63,10 @@ pub use params::{
 /// The forgiving XML scanner (libtorrent `xml_parse`), for RSS and Atom feeds.
 pub use proto::xml;
 pub use session::{Session, SessionHandle, SessionParams, TorrentHandle};
-pub use settings::{EncLevel, EncPolicy, MixedModeAlgorithm, ProxyType, Settings};
+pub use settings::{EncLevel, EncPolicy, MixedModeAlgorithm, NetworkRule, ProxyType, Settings, parse_cidr};
 pub use status::{
-    AnnounceEntry, BlockState, FileEntry, PartialPiece, PeerFlags, PeerInfo, PeerSource, SessionStats,
-    TorrentMetadata, TorrentState, TorrentStatus, TrackerStatus,
+    AnnounceEntry, BlockState, FileEntry, NetAdapter, NetworkStatus, PartialPiece, PeerFlags, PeerInfo,
+    PeerSource, SessionStats, TorrentMetadata, TorrentState, TorrentStatus, TrackerStatus,
 };
 pub use types::{InfoHashes, Sha1Hash, Sha256Hash, TorrentId};
 pub use util::bitfield::Bitfield;

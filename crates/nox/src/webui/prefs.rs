@@ -30,6 +30,7 @@ use std::path::{Path, PathBuf};
 use patorrent_core::{IpFilter, IpFilterLoad, ProxyType, Settings, TorrentFlags};
 use patorrent_frontend::help;
 use patorrent_frontend::lang::{self, H, S};
+use patorrent_frontend::network;
 use patorrent_frontend::options::{self, GuiOptions};
 use patorrent_frontend::pref_pages;
 use patorrent_frontend::scheduler;
@@ -60,6 +61,9 @@ pub enum Kind {
     /// The user-interface language (`frontend::lang`): a code, empty for the system's; the
     /// model lists the choices as `[value, text]`.
     Language,
+    /// "Use only this network"'s drop-down (D54, `frontend::network::rule_choices`): the
+    /// engine host's adapters, listed as `[value, text]` like [`Kind::Language`].
+    Network,
 }
 
 impl Kind {
@@ -72,7 +76,7 @@ impl Kind {
             Kind::Enum(_) => "enum",
             Kind::Password => "password",
             Kind::Schedule => "schedule",
-            Kind::Language => "choice",
+            Kind::Language | Kind::Network => "choice",
         }
     }
 }
@@ -353,6 +357,22 @@ pub(crate) static FIELDS: &[Field] = &[
         Kind::Bool,
         |w| Value::Bool(proxy_to_ui(&w.settings).1),
         |w, v| w.settings.proxy_type = proxy_from_ui(proxy_to_ui(&w.settings).0, boolean(&v))
+    ),
+    // Connection > Use Only This Network (D54): the drop-down before the range box (changes
+    // apply in this order), both composing `network_rule`
+    field!(
+        "net.network_choice",
+        Some(S::PrefNetworkRule),
+        Kind::Network,
+        |w| Value::Str(network::choice_of(&w.settings.network_rule)),
+        |w, v| w.settings.network_rule = network::rule_for_choice(&w.settings.network_rule, &string(v))
+    ),
+    field!(
+        "net.network_range",
+        Some(S::PrefNetworkRange),
+        Kind::Text,
+        |w| Value::Str(network::range_of(&w.settings.network_rule)),
+        |w, v| w.settings.network_rule = network::rule_for_range(&w.settings.network_rule, &string(v))
     ),
     // Disk Cache: each box before its number (changes apply in this order)
     field!(
@@ -656,6 +676,7 @@ const LABELS: &[(&str, S)] = &[
     ("proxy_hostnames", S::PrefProxyNames),
     ("proxy_peer_connections", S::PrefProxyPeers),
     ("proxy_tracker_connections", S::PrefProxyTrackers),
+    ("net.pause_when_missing", S::PrefNetworkPause),
     ("upload_rate_limit", S::PrefUpRate),
     ("download_rate_limit", S::PrefDownRate),
     ("rate_limit_ip_overhead", S::PrefRateOverhead),
@@ -814,7 +835,7 @@ impl Def {
                         tr!(SettingNotOneOf, value = t, options = names.join(", "))
                     }),
             },
-            Kind::Text | Kind::Folder | Kind::Password => Ok(Value::Str(text.to_owned())),
+            Kind::Text | Kind::Folder | Kind::Password | Kind::Network => Ok(Value::Str(text.to_owned())),
             Kind::Schedule => match scheduler::parse_table(t) {
                 Some(_) => Ok(Value::Str(t.to_owned())),
                 None => Err(tr!(SettingBadSchedule, count = scheduler::CELLS)),
@@ -1028,6 +1049,14 @@ fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
                         enabled_by(f("proxy_tracker_connections"), "proxy_kind"),
                     ],
                 ),
+                group(
+                    Some(tr!(PrefUseNetwork)),
+                    vec![
+                        f("net.network_choice"),
+                        enabled_by(f("net.network_range"), "net.network_choice"),
+                        enabled_by(f(settings::NETWORK_PAUSE), "net.network_choice"),
+                    ],
+                ),
             ],
         ),
         page("bandwidth", tr!(PageBandwidth), bandwidth),
@@ -1203,6 +1232,11 @@ pub(crate) fn model(shared: &Shared, st: &State) -> Json {
             Kind::Enum(options) => {
                 j.set("options", Json::Arr(options.iter().map(|&o| Json::from(lang::text(o))).collect()));
             }
+            Kind::Network => {
+                let choices = network::rule_choices(&w.settings.network_rule);
+                let options = choices.into_iter().map(|(v, t)| Json::Arr(vec![v.into(), t.into()])).collect();
+                j.set("options", Json::Arr(options));
+            }
             Kind::Language => {
                 let current = w.prefs.language.as_str();
                 let choices = lang::choices(current, &lang::system_languages());
@@ -1295,6 +1329,9 @@ pub(crate) fn validate(w: &Working) -> Result<(), Refusal> {
         if w.settings.proxy_port == 0 {
             return refuse("proxy_port", tr!(PrefNoProxyPort));
         }
+    }
+    if let Err(why) = network::check_rule(&w.settings.network_rule) {
+        return refuse("net.network_range", &why);
     }
     if w.prefs.save_path.trim().is_empty() {
         return refuse("dir.download", tr!(PrefNoDownloadDir));

@@ -26,6 +26,7 @@
 //! * [`update`]: the update check: when, what is newer, the status bar's notice.
 //! * [`import`]: File > Import: torrents from qBittorrent's `BT_backup` or µTorrent's `resume.dat`.
 //! * [`profile`]: profiles and portable mode: which folder this process keeps its files in.
+//! * [`network`]: "Use only this network" (D54): the adapters, the rule's controls, the status.
 
 /// The version a build shows (title bars, About, `--version`): [`patorrent_core::VERSION`] with
 /// `-dev.<commit>` when it is not a tagged release, and `.dirty` from `1_build.bat` when the tree
@@ -51,6 +52,7 @@ pub mod import;
 pub mod integration;
 pub mod lang;
 pub mod model;
+pub mod network;
 pub mod options;
 pub mod pref_pages;
 pub mod prefs;

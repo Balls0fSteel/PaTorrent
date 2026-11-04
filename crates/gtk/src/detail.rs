@@ -459,6 +459,8 @@ impl General {
             pair(&grid, 4, 9 + row, 1);
         }
         pair(&grid, 0, 12, 5);
+        // "Your address as trackers see it" (D54)
+        pair(&grid, 0, 13, 5);
 
         let info =
             gtk::ScrolledWindow::builder().child(&grid).hscrollbar_policy(gtk::PolicyType::Never).build();
@@ -485,9 +487,12 @@ impl General {
         }
         let texts =
             g.transfer.iter().flatten().chain([&g.status]).chain(g.general.iter().flatten()).chain([&g.hash]);
+        let external = patorrent_frontend::network::general_row();
+        let external = (external.0, external.1);
+        let texts = texts.map(|(l, v)| (*l, v.clone())).chain([external]);
         for ((l, v), (label, value)) in self.pairs.iter().zip(texts) {
             set_text(l, label);
-            set_text(v, value);
+            set_text(v, &value);
         }
     }
 }

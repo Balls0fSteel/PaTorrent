@@ -891,6 +891,22 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   in INTEGRATIONS.md); remote-mode automation conflicts; BEP 44 / 51
   / 55.
 
+## Network binding for VPNs (D54; built 2026-11-04, 1.1.58)
+
+- Run against a real VPN on Windows (WireGuard/Wintun, OpenVPN TAP, a vendor app such as
+  Mullvad or ProtonVPN) and Linux (`wg0`, `tun0`): VPN detection, the hold on a tunnel drop and
+  the resume on reconnect, and the external address shown. So far only loopback tests with
+  127.0.0.2 as the tunnel, on Windows and Linux.
+- macOS (`utun*`, the 30 s rescan; the loopback test needs a 127.0.0.2 alias) and FreeBSD were
+  not compiled or run.
+- NAT-PMP through VPNs that support it (ProtonVPN, PIA) for an open port behind the tunnel: out
+  of scope in D54, its own slice.
+- Win32: the status bar's network tooltip needs its own tooltip control to show reliably (the
+  native part only shows one when its text is cut off); the General tab's "Your address as
+  trackers see it" line repaints only with the tab. A stored `adapter:` rule whose adapter is
+  absent shows its GUID in the drop-down; remembering the friendly name would read better.
+- DNS lookups (the system resolver) and keep ping low's probes are not bound: not torrent traffic.
+
 ## Files tab filter and help text (D50, D55; built 2026-11-04)
 
 - **D50 Files tab filter** (1.1.56): run the Web UI's box in a browser (layout, Ctrl+F against the

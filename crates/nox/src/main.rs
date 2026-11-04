@@ -114,6 +114,15 @@ OPTIONS:
                       socks5 or http (USER alone for socks4). Peers, web seeds, trackers and
                       (socks5 only) uTP and the DHT go through it; nothing incoming is accepted.
                       Kept in the Web UI's preferences like its Connection page's proxy box
+    --network RULE    Use only this network (D54): every socket carrying torrent traffic binds
+                      to the addresses the rule picks, followed at every network change: vpn
+                      (any VPN adapter), adapter:ID (a device name; the adapter's GUID on
+                      Windows) or range:CIDR (10.2.0.0/16, fd00::/8); off or empty for none.
+                      Kept in the Web UI's preferences (Connection > Use Only This Network)
+    --no-pause-when-missing
+                      While the rule matches nothing, leave torrents running unbound (nothing
+                      moves) instead of waiting for the network; --pause-when-missing is the
+                      default
     --no-proxy-peers  Connect to peers and web seeds directly (incoming connections, LSD and
                       port mapping stay on); --proxy-peers is the default
     --no-proxy-trackers
@@ -210,6 +219,8 @@ struct Opts {
     exit_when_done: Option<When>,
     port: Option<u16>,
     listen: Option<String>,
+    /// `--network`: the network rule (D54).
+    network: Option<String>,
     dl_limit: u32,
     ul_limit: u32,
     ip_filter: Option<PathBuf>,
@@ -253,6 +264,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
         exit_when_done: None,
         port: None,
         listen: None,
+        network: None,
         dl_limit: 0,
         ul_limit: 0,
         ip_filter: None,
@@ -308,6 +320,11 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             }
             "--port" => o.port = Some(num("--port", value("--port")?)?),
             "--listen" => o.listen = Some(value("--listen")?),
+            "--network" => {
+                let rule = value("--network")?;
+                patorrent_core::NetworkRule::parse(&rule).map_err(|e| format!("--network: {e}"))?;
+                o.network = Some(rule);
+            }
             "--dl-limit" => o.dl_limit = num::<u32>("--dl-limit", value("--dl-limit")?)?.saturating_mul(1024),
             "--ul-limit" => o.ul_limit = num::<u32>("--ul-limit", value("--ul-limit")?)?.saturating_mul(1024),
             "--ip-filter" => o.ip_filter = Some(value("--ip-filter")?.into()),
@@ -362,6 +379,7 @@ fn proxy_switch(arg: &str) -> Option<(&'static str, bool)> {
         "proxy-trackers" => "proxy_tracker_connections",
         "proxy-hostnames" => "proxy_hostnames",
         "socks5-udp-local-ep" => "socks5_udp_send_local_ep",
+        "pause-when-missing" => patorrent_frontend::settings::NETWORK_PAUSE,
         _ => return None,
     };
     Some((row, on))
@@ -378,6 +396,10 @@ fn apply_proxy(s: &mut Settings, o: &Opts) {
         rows.push(("proxy_port", p.port.to_string()));
         rows.push(("proxy_username", p.user.clone()));
         rows.push(("proxy_password", p.pass.clone()));
+    }
+    if let Some(rule) = &o.network {
+        let rule = if rule.trim().eq_ignore_ascii_case("off") { String::new() } else { rule.clone() };
+        rows.push((settings::NETWORK_RULE, rule));
     }
     rows.extend(o.proxy_switches.iter().map(|&(row, on)| (row, on.to_string())));
     for (row, value) in rows {
@@ -685,6 +707,10 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             scope(settings.proxy_tracker_connections, "trackers"),
             scope(settings.proxy_hostnames, "host names resolved"),
         );
+    }
+    if !settings.network_rule.is_empty() {
+        let pause = if settings.network_pause_when_missing { "waiting" } else { "idle" };
+        println!("* network rule: {} (torrents {pause} while it matches nothing)", settings.network_rule);
     }
     if o.verbose {
         // peers' disconnects, with their reasons

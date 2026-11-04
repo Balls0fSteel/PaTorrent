@@ -1213,6 +1213,8 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         }
     });
 
+    // the engine host's network adapters, for Preferences > Connection (D54)
+    handle.post_network_adapters();
     // the engine's alerts: drained on the main loop
     handle.set_alert_notify(|| {
         glib::MainContext::default().invoke(on_alerts);
@@ -1535,6 +1537,8 @@ fn on_alerts() {
         let mut alerts = std::mem::take(&mut a.alerts);
         a.handle.pop_alerts(&mut alerts);
         for alert in alerts.drain(..) {
+            // the adapters and the network status (D54)
+            patorrent_frontend::network::on_alert(&alert);
             let label_of = |id| Some(a.list.extra(id).label.to_owned());
             if let Some((id, dir)) =
                 a.move_completed.as_mut().and_then(|m| m.on_alert(&alert, &a.handle, label_of))
@@ -1643,6 +1647,8 @@ fn on_alerts() {
                 Alert::ScrapeReply { .. } | Alert::ScrapeFailed { .. } => {}
                 // the mappers' step-by-step chatter stays out of the Logger, as in the Win32 one
                 Alert::PortmapLog { .. } => {}
+                // kept by `network::on_alert` for Preferences > Connection
+                Alert::NetworkAdapters(_) => {}
                 other => {
                     let name = other.torrent().and_then(|id| a.list.get(id)).map(|st| st.name.clone());
                     a.detail.push_log(match name {
@@ -1797,13 +1803,14 @@ fn sync_title(a: &App) {
 
 fn update_status() {
     let Some(ui) = ui() else { return };
-    let Some((texts, has_incoming)) = with_app(|a| {
+    let Some((texts, has_incoming, net_tip)) = with_app(|a| {
         let s = &a.stats;
         let net = match a.listen.text() {
             Some(t) => t,
             None if s.has_incoming_connections => tr!(NetOk).to_owned(),
             None => tr!(NetNoIncoming).to_owned(),
         };
+        let net = patorrent_frontend::network::with_status(s, net);
         let [down, up] = status::bar_rates(s);
         let texts = [
             match a.scheduler.status_text() {
@@ -1815,10 +1822,13 @@ fn update_status() {
             up,
         ];
         sync_title(a);
-        (texts, s.has_incoming_connections)
+        (texts, s.has_incoming_connections, patorrent_frontend::network::tooltip(s))
     }) else {
         return;
     };
+    if ui.status[0].tooltip_text().as_deref() != Some(net_tip.as_str()) {
+        ui.status[0].set_tooltip_text(Some(&net_tip));
+    }
     crate::icons::set_state(&ui.net_icon, network_icon(has_incoming));
     if let Some(t) = tray() {
         let tip = with_app(|a| {
@@ -2930,8 +2940,11 @@ fn preferences() {
 
 /// [`preferences`] at the page whose key is `page`.
 fn preferences_at(page: Option<&str>) {
-    let Some((window, mut options)) = with_app(|a| (a.window.clone(), Options::load(&a.prefs, &a.save_path)))
-    else {
+    let Some((window, mut options)) = with_app(|a| {
+        // the list in "Use only this network" refreshes for the next time it opens
+        a.handle.post_network_adapters();
+        (a.window.clone(), Options::load(&a.prefs, &a.save_path))
+    }) else {
         return;
     };
     // as the system has it now

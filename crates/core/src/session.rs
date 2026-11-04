@@ -54,6 +54,7 @@ pub(crate) enum Command {
     PostWebSeeds(TorrentId),
     PostTorrentUpdates,
     PostSessionStats,
+    PostNetworkAdapters,
     SaveResumeData,
     PostPeerInfo(TorrentId),
     PostFileList(TorrentId),
@@ -245,6 +246,12 @@ impl SessionHandle {
     /// Requests an [`Alert::SessionStats`].
     pub fn post_session_stats(&self) {
         self.send(Command::PostSessionStats);
+    }
+
+    /// Requests an [`Alert::NetworkAdapters`]: the engine host's adapters, for "Use only this
+    /// network" (D54).
+    pub fn post_network_adapters(&self) {
+        self.send(Command::PostNetworkAdapters);
     }
 
     /// Writes every torrent's resume data now, as at shutdown, and answers with

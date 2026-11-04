@@ -188,6 +188,10 @@ unsafe fn general(c: &PaintCtx<'_>) {
             y += line;
         }
         pair(c, left, y, right - left, g.hash.0, &g.hash.1);
+        y += line;
+        // the session's address as trackers see it (D54)
+        let (label, value) = patorrent_frontend::network::general_row();
+        pair(c, left, y, right - left, label, &value);
     }
 }
 

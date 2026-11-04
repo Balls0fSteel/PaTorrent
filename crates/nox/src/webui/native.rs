@@ -669,6 +669,10 @@ fn general(e: &Entry, st: &State, user_paused: bool, msg: &mut Json) -> bool {
         pair(tr!(GenHash), s.info_hashes.key_hex().to_uppercase()),
         pair(tr!(GenTrackers), trackers),
         pair(tr!(GenComment), meta.map(|m| m.comment.clone()).unwrap_or_default()),
+        {
+            let (label, value) = patorrent_frontend::network::general_row();
+            pair(label, value)
+        },
     ];
     msg.set("bars", Json::Arr(bars));
     msg.set(
@@ -860,6 +864,9 @@ fn speed_legend(down: u32, up: u32) -> Json {
 fn status_bar(st: &State) -> Json {
     let s = &st.stats;
     Json::obj()
+        // "Waiting for the network" (D54; empty otherwise) and where trackers see us
+        .with("net", patorrent_frontend::network::status_text(s).unwrap_or_default())
+        .with("net_tip", patorrent_frontend::network::tooltip(s))
         .with("dht", s.dht_nodes)
         .with("down", fmt::speed_always(s.download_rate))
         .with("up", fmt::speed_always(s.upload_rate))

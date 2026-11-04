@@ -234,6 +234,20 @@ pub static TABLE: &[Entry] = &[
     entry!(user_agent: str),
     entry!(peer_fingerprint: str),
     entry!(listen_interfaces: str),
+    // "Use only this network" (D54): PaTorrent's own, under µTorrent's `net.` names (2.2.1 has
+    // net.bind_ip and net.outgoing_ip), kept in the preferences file by these names
+    Entry {
+        name: NETWORK_RULE,
+        kind: Kind::Str,
+        get: |s| Value::Str(s.network_rule.clone()),
+        set: |s, v| s.network_rule = string(v).trim().to_owned(),
+    },
+    Entry {
+        name: NETWORK_PAUSE,
+        kind: Kind::Bool,
+        get: |s| Value::Bool(s.network_pause_when_missing),
+        set: |s, v| s.network_pause_when_missing = boolean(v),
+    },
     entry!(dht_bootstrap_nodes: str),
     entry!(download_rate_limit: u32),
     entry!(upload_rate_limit: u32),
@@ -428,6 +442,17 @@ pub static TABLE: &[Entry] = &[
 /// Prefix of the composed µTorrent rows, which are views of other rows.
 const COMPOSED: &str = "bt.";
 
+/// `Settings::network_rule` (D54) by its table and preferences name.
+pub const NETWORK_RULE: &str = "net.network_rule";
+/// `Settings::network_pause_when_missing` by its table and preferences name.
+pub const NETWORK_PAUSE: &str = "net.pause_when_missing";
+
+/// The preferences key of a row: `lt.<name>` for libtorrent's names, the name itself for
+/// PaTorrent's own `net.` rows.
+fn pref_key(name: &str) -> String {
+    if name.contains('.') { name.to_owned() } else { format!("{PREF_PREFIX}{name}") }
+}
+
 pub fn find(name: &str) -> Option<&'static Entry> {
     TABLE.iter().find(|e| e.name == name)
 }
@@ -451,7 +476,7 @@ pub fn load(prefs: &Prefs) -> Settings {
         set_listen_port(&mut s, port as u16);
     }
     for e in TABLE.iter().filter(|e| !e.name.starts_with(COMPOSED)) {
-        if let Some(v) = prefs.get(&format!("{PREF_PREFIX}{}", e.name)) {
+        if let Some(v) = prefs.get(&pref_key(e.name)) {
             let _ = e.set(&mut s, v);
         }
     }
@@ -463,7 +488,7 @@ pub fn load(prefs: &Prefs) -> Settings {
 pub fn store(prefs: &mut Prefs, s: &Settings) {
     prefs.remove("net.port");
     for e in TABLE.iter().filter(|e| !e.name.starts_with(COMPOSED)) {
-        let key = format!("{PREF_PREFIX}{}", e.name);
+        let key = pref_key(e.name);
         if e.is_default(s) {
             prefs.remove(&key);
         } else {
@@ -599,7 +624,13 @@ mod tests {
         let fields = field_names();
         assert!(fields.len() > 100, "{fields:?}");
         for f in &fields {
-            assert!(find(f).is_some(), "Settings::{f} has no row in the settings table");
+            // PaTorrent's own `net.` rows carry µTorrent-style names
+            let name = match f.as_str() {
+                "network_rule" => NETWORK_RULE,
+                "network_pause_when_missing" => NETWORK_PAUSE,
+                n => n,
+            };
+            assert!(find(name).is_some(), "Settings::{f} has no row in the settings table");
         }
         let rows: Vec<&str> = TABLE.iter().map(|e| e.name).filter(|n| !n.starts_with(COMPOSED)).collect();
         assert_eq!(rows.len(), fields.len());

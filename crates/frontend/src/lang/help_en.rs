@@ -126,6 +126,12 @@ helps! {
     PrefProxyPeers = "Sends connections to peers and web seeds through the proxy. Incoming connections are then refused and port mapping and Local Peer Discovery stay off; uTP and the DHT need a SOCKS5 proxy.";
     /// engine: crates/core/src/settings.rs (proxy_tracker_connections)
     PrefProxyTrackers = "Sends tracker announces, HTTP and UDP, through the proxy, so trackers see the proxy's address instead of yours.";
+    /// engine: crates/core/src/net/bind.rs (is_vpn, match_rule), crates/core/src/engine/network_rule.rs (evaluate_network_rule, re-evaluated on every network change), settings.network_rule
+    PrefNetworkRule = "Keeps all torrent traffic (peers, DHT, trackers, web seeds) on one network adapter: any adapter that looks like a VPN tunnel, one adapter by name, or whichever adapter has an address in the range below. Checked again at every network change, so a VPN that reconnects under a new address is followed. The Web UI and remote connections are not bound.";
+    /// engine: crates/core/src/settings.rs (NetworkRule::Range, parse_cidr), crates/frontend/src/pref_pages.rs (check: PrefBadRange)
+    PrefNetworkRange = "An address range such as 10.2.0.0/16 or fd00::/8, for the \"Address range\" choice above: the adapter holding an address in it carries the torrent traffic. Most VPNs hand out addresses from a fixed range, which outlives renamed and recreated adapters.";
+    /// engine: crates/core/src/engine/network_rule.rs (set_network_hold, session_halted), settings.network_pause_when_missing
+    PrefNetworkPause = "While no adapter matches the network rule (the VPN is down), running torrents wait and show \"Waiting for the network\", then carry on by themselves when it is back. Off, nothing is paused, but no torrent traffic can leave either, since every connection needs the matched address.";
 
     // ---- Preferences > Bandwidth
     /// engine: crates/core/src/engine/mod.rs (apply_settings sets the global peer class), settings.upload_rate_limit

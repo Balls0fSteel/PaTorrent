@@ -185,7 +185,9 @@ impl Engine {
         let mut out: Vec<(IpInterface, Option<IpAddr>)> = Vec::new();
         for addr in endpoints {
             let Some(ifc) = ifs.iter().find(|i| i.addr == addr) else { continue };
-            if ifc.loopback || out.iter().any(|(i, _)| i.addr == addr) {
+            // bound to a network (D54), mappings are not asked of a VPN tunnel's gateway
+            let tunnel = self.rules.binding.is_some() && crate::net::bind::is_vpn(ifc);
+            if ifc.loopback || tunnel || out.iter().any(|(i, _)| i.addr == addr) {
                 continue;
             }
             let gateway = routes.as_ref().and_then(|r| get_gateway(ifc, r));

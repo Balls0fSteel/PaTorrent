@@ -103,6 +103,9 @@ pub fn status_text(st: &TorrentStatus, user_paused: bool) -> String {
     if st.moving_storage {
         return tr!(StatusMoving).to_owned();
     }
+    if st.waiting_for_network {
+        return tr!(StatusWaitingNetwork).to_owned();
+    }
     let paused = st.flags.contains(TorrentFlags::PAUSED);
     let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);
     if checking(st) {
@@ -134,14 +137,17 @@ pub fn status_text(st: &TorrentStatus, user_paused: bool) -> String {
 
 /// A short, stable class for the row's state, with the same branches as [`status_text`]: for
 /// frontends that colour or style rows (the Web UI's CSS classes) rather than parse the text.
-/// One of `error`, `moving`, `checking`, `queued`, `paused`, `finished`, `stopped`, `metadata`,
-/// `seeding`, `downloading`.
+/// One of `error`, `moving`, `network` (waiting for the network), `checking`, `queued`,
+/// `paused`, `finished`, `stopped`, `metadata`, `seeding`, `downloading`.
 pub fn status_class(st: &TorrentStatus, user_paused: bool) -> &'static str {
     if !st.error.is_empty() {
         return "error";
     }
     if st.moving_storage {
         return "moving";
+    }
+    if st.waiting_for_network {
+        return "network";
     }
     let paused = st.flags.contains(TorrentFlags::PAUSED);
     let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);
@@ -174,6 +180,10 @@ pub fn status_icon(st: &TorrentStatus, user_paused: bool) -> StateIcon {
     }
     if st.moving_storage {
         return StateIcon::Moving;
+    }
+    // held by the session (D54): shown as queued, which it resembles
+    if st.waiting_for_network {
+        return if st.is_finished { StateIcon::QueuedSeed } else { StateIcon::QueuedDownload };
     }
     let paused = st.flags.contains(TorrentFlags::PAUSED);
     let auto = st.flags.contains(TorrentFlags::AUTO_MANAGED);

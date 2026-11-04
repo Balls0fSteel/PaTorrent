@@ -18,7 +18,7 @@
 use std::collections::HashMap;
 use std::collections::hash_map::Entry as MapEntry;
 use std::io::{self, Read, Write};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::num::NonZeroU32;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -28,6 +28,7 @@ use mio::{Interest, Registry, Token};
 
 use super::Slab;
 use super::proxy::{ProxyConfig, Tunnel};
+use crate::net::bind::{Binding, connect_tcp, outgoing_from};
 use crate::net::ip_filter::IpFilter;
 use crate::net::resolver::{Resolved, Resolver};
 use crate::net::tls::{self, TlsStream};
@@ -459,19 +460,25 @@ pub(crate) struct TrackerManager {
     /// start with `/announce`.
     ssrf_mitigation: bool,
     udp_buf: Vec<u8>,
+    /// "Use only this network" (D54): the addresses requests leave from (`None`: any).
+    bind: Option<Binding>,
+    /// The UDP sockets' buffer sizes, for sockets opened again.
+    buffers: (i32, i32),
+}
+
+/// A UDP tracker socket of a family, from `local` (port 0), registered under `token`.
+fn udp_tracker_socket(local: IpAddr, token: Token, registry: &Registry) -> Option<UdpSocket> {
+    let mut s = UdpSocket::bind(SocketAddr::new(local, 0)).ok()?;
+    registry.register(&mut s, token, Interest::READABLE).ok()?;
+    Some(s)
 }
 
 impl TrackerManager {
     pub fn new(registry: &Registry, user_agent: String) -> TrackerManager {
-        let bind = |addr: &str, token: Token| {
-            let mut s = UdpSocket::bind(addr.parse().expect("valid")).ok()?;
-            registry.register(&mut s, token, Interest::READABLE).ok()?;
-            Some(s)
-        };
         TrackerManager {
             http: Slab::default(),
-            udp4: bind("0.0.0.0:0", UDP4_TOKEN),
-            udp6: bind("[::]:0", UDP6_TOKEN),
+            udp4: udp_tracker_socket(Ipv4Addr::UNSPECIFIED.into(), UDP4_TOKEN, registry),
+            udp6: udp_tracker_socket(Ipv6Addr::UNSPECIFIED.into(), UDP6_TOKEN, registry),
             txns: HashMap::new(),
             connection_ids: HashMap::new(),
             proxy: None,
@@ -487,12 +494,37 @@ impl TrackerManager {
             completion_timeout: Duration::from_secs(30),
             ssrf_mitigation: true,
             udp_buf: vec![0; 64 * 1024],
+            bind: None,
+            buffers: (0, 0),
         }
+    }
+
+    /// "Use only this network" (D54) bound torrent traffic to `bind` (`None`: unbound): HTTP
+    /// requests connect from its addresses, and the UDP sockets are opened again on them. A
+    /// family it has no address of gets no UDP socket.
+    pub fn set_bind(&mut self, bind: Option<Binding>, registry: &Registry) {
+        if self.bind == bind {
+            return;
+        }
+        let (v4, v6) = match &bind {
+            None => (Some(Ipv4Addr::UNSPECIFIED.into()), Some(Ipv6Addr::UNSPECIFIED.into())),
+            Some(b) => (b.v4, b.v6),
+        };
+        for (sock, local, token) in [(&mut self.udp4, v4, UDP4_TOKEN), (&mut self.udp6, v6, UDP6_TOKEN)] {
+            if let Some(mut old) = sock.take() {
+                let _ = registry.deregister(&mut old);
+            }
+            *sock = local.and_then(|l| udp_tracker_socket(l, token, registry));
+        }
+        self.bind = bind;
+        let (send, recv) = self.buffers;
+        self.set_socket_buffer_size(send, recv);
     }
 
     /// The UDP tracker sockets' buffer sizes (libtorrent's tracker traffic shares the listen
     /// socket, which `update_socket_buffer_size` covers).
     pub fn set_socket_buffer_size(&mut self, send: i32, recv: i32) {
+        self.buffers = (send, recv);
         for s in [self.udp4.as_ref(), self.udp6.as_ref()].into_iter().flatten() {
             let _ = crate::net::sys::set_socket_buffer_size(s, send, recv);
         }
@@ -762,7 +794,9 @@ impl TrackerManager {
                     }
                 }
             }
-            if let Ok(mut s) = TcpStream::connect(addr) {
+            // a proxy is reached as configured; a direct request leaves from the bound network
+            let from = if proxy.is_some() { Ok(None) } else { outgoing_from(self.bind.as_ref(), addr) };
+            if let Ok(mut s) = from.and_then(|from| connect_tcp(from, addr)) {
                 if registry
                     .register(&mut s, Token(HTTP_TOKEN_BASE + slot), Interest::READABLE | Interest::WRITABLE)
                     .is_ok()

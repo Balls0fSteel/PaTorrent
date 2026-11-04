@@ -15,7 +15,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use crate::error::Error;
 use crate::flags::bit_flags;
 use crate::status::{
-    AnnounceEntry, FileEntry, PartialPiece, PeerInfo, SessionStats, TorrentState, TorrentStatus,
+    AnnounceEntry, FileEntry, NetAdapter, PartialPiece, PeerInfo, SessionStats, TorrentState, TorrentStatus,
 };
 use crate::types::{InfoHashes, TorrentId};
 use crate::util::bitfield::Bitfield;
@@ -329,6 +329,10 @@ pub enum Alert {
     /// Torrents whose status changed since the previous `post_torrent_updates()`.
     StateUpdate(Vec<TorrentStatus>),
     SessionStats(SessionStats),
+    /// The engine host's network adapters, for "Use only this network" (D54): the reply to
+    /// [`SessionHandle::post_network_adapters`](crate::SessionHandle::post_network_adapters),
+    /// and sent again whenever they change.
+    NetworkAdapters(Vec<NetAdapter>),
     /// Every torrent's resume data has been written (the reply to
     /// [`SessionHandle::save_resume_data`](crate::SessionHandle::save_resume_data); sent also
     /// when the session keeps no state).
@@ -408,6 +412,7 @@ impl Alert {
             | ListenSucceeded { .. }
             | ListenFailed { .. }
             | SessionStats(_)
+            | NetworkAdapters(_)
             | ResumeDataSaved
             | PeerInfo { .. }
             | FileList { .. }
@@ -490,6 +495,7 @@ impl Alert {
             // replies to requests, and the queue's and the remote session's own news
             StateUpdate(_)
             | SessionStats(_)
+            | NetworkAdapters(_)
             | ResumeDataSaved
             | PeerInfo { .. }
             | FileList { .. }
@@ -630,6 +636,7 @@ impl Alert {
             },
             StateUpdate(v) => write!(s, "state update for {} torrents", v.len()),
             SessionStats(_) => write!(s, "session stats"),
+            NetworkAdapters(a) => write!(s, "{} network adapters", a.len()),
             ResumeDataSaved => write!(s, "resume data saved"),
             PeerInfo { peers, .. } => write!(s, "{} peers", peers.len()),
             FileList { files, .. } => write!(s, "{} files", files.len()),

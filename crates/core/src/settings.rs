@@ -68,12 +68,91 @@ impl ProxyType {
     }
 }
 
+/// "Use only this network" (D54): how [`Settings::network_rule`] picks the adapter torrent
+/// traffic is bound to. Its text form is what the setting holds: empty (off),
+/// `adapter:<id>`, `range:<cidr>` or `vpn`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum NetworkRule {
+    /// No binding: the OS routes as it likes.
+    Off,
+    /// One adapter by its stable id: the GUID on Windows, the device name on Unix.
+    Adapter(String),
+    /// The addresses in a range (`10.2.0.0/16`, `fd00::/8`), whatever adapter has them.
+    Range(std::net::IpAddr, u8),
+    /// Any adapter that looks like a VPN tunnel.
+    Vpn,
+}
+
+impl NetworkRule {
+    /// Parses the setting's text; the error says what is wrong with it.
+    pub fn parse(text: &str) -> Result<NetworkRule, String> {
+        let t = text.trim();
+        if t.is_empty() || t.eq_ignore_ascii_case("off") {
+            return Ok(NetworkRule::Off);
+        }
+        if t.eq_ignore_ascii_case("vpn") {
+            return Ok(NetworkRule::Vpn);
+        }
+        if let Some(id) = t.strip_prefix("adapter:") {
+            let id = id.trim();
+            if id.is_empty() {
+                return Err("an adapter rule needs the adapter's id".into());
+            }
+            return Ok(NetworkRule::Adapter(id.to_owned()));
+        }
+        if let Some(r) = t.strip_prefix("range:") {
+            return parse_cidr(r).map(|(a, b)| NetworkRule::Range(a, b));
+        }
+        Err(format!("\"{t}\" is not a network rule (adapter:ID, range:CIDR or vpn)"))
+    }
+}
+
+impl std::fmt::Display for NetworkRule {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            NetworkRule::Off => Ok(()),
+            NetworkRule::Adapter(id) => write!(f, "adapter:{id}"),
+            NetworkRule::Range(a, bits) => write!(f, "range:{a}/{bits}"),
+            NetworkRule::Vpn => f.write_str("vpn"),
+        }
+    }
+}
+
+/// An address range in CIDR form (`10.2.0.0/16`, `fd00::/8`; a bare address is one address).
+pub fn parse_cidr(text: &str) -> Result<(std::net::IpAddr, u8), String> {
+    let t = text.trim();
+    let (addr, bits) = match t.split_once('/') {
+        Some((a, b)) => (a.trim(), Some(b.trim())),
+        None => (t, None),
+    };
+    let bad = || format!("\"{t}\" is not an address range such as 10.2.0.0/16");
+    let addr: std::net::IpAddr =
+        addr.trim_start_matches('[').trim_end_matches(']').parse().map_err(|_| bad())?;
+    let max = if addr.is_ipv4() { 32 } else { 128 };
+    let bits = match bits {
+        None => max,
+        Some(b) => match b.parse::<u8>() {
+            Ok(b) if b <= max => b,
+            _ => return Err(format!("\"{t}\": the prefix length must be 0 to {max}")),
+        },
+    };
+    Ok((addr, bits))
+}
+
 #[derive(Clone, Debug, PartialEq)]
 pub struct Settings {
     pub user_agent: String,
     pub peer_fingerprint: String,
     /// Comma-separated `ip:port` list; `[...]` for IPv6.
     pub listen_interfaces: String,
+    /// "Use only this network" (D54, a PaTorrent extension): the rule ([`NetworkRule`]'s text,
+    /// empty for off) that picks the adapter whose addresses every socket carrying torrent
+    /// traffic binds to, evaluated again at every network change. The port of
+    /// `listen_interfaces` is kept; its addresses are replaced by the matched ones.
+    pub network_rule: String,
+    /// While the rule matches no adapter, running torrents wait for the network (they resume
+    /// by themselves when it comes back). Off, the engine sits idle unbound. Only with a rule.
+    pub network_pause_when_missing: bool,
     pub dht_bootstrap_nodes: String,
 
     /// Bytes per second; 0 = unlimited.
@@ -363,6 +442,8 @@ impl Default for Settings {
             user_agent: crate::USER_AGENT.to_owned(),
             peer_fingerprint: crate::PEER_ID_PREFIX.to_owned(),
             listen_interfaces: "0.0.0.0:6881,[::]:6881".to_owned(),
+            network_rule: String::new(),
+            network_pause_when_missing: true,
             dht_bootstrap_nodes: "dht.libtorrent.org:25401".to_owned(),
             download_rate_limit: 0,
             upload_rate_limit: 0,

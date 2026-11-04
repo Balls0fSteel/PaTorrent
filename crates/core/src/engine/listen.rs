@@ -137,7 +137,7 @@ pub(super) fn listen_settings_changed(old: &Settings, new: &Settings) -> Option<
     };
     if wants(old) != wants(new) {
         Some(true)
-    } else if old.listen_interfaces != new.listen_interfaces {
+    } else if old.listen_interfaces != new.listen_interfaces || old.network_rule != new.network_rule {
         Some(false)
     } else {
         None
@@ -328,7 +328,9 @@ impl Engine {
             || self.settings.enable_incoming_utp
             || self.settings.enable_outgoing_utp;
         let mut err = Vec::new();
-        let ifaces = parse_listen_interfaces(&self.settings.listen_interfaces, &mut err);
+        // "Use only this network" (D54) puts the matched addresses in place of the configured
+        let listen = self.evaluate_network_rule(ifs);
+        let ifaces = parse_listen_interfaces(&listen, &mut err);
         if report_config {
             let message = format!("listen interfaces: {}", print_listen_interfaces(&ifaces));
             self.out.push(Alert::Log { id: None, message });
@@ -423,6 +425,7 @@ impl Engine {
                 self.dht_socket_opened(fam == 0);
             }
         }
+        self.network_rule_applied();
     }
 
     /// libtorrent `setup_listener`: binds the TCP listener and (with `want_udp`) the family's
@@ -715,6 +718,9 @@ mod tests {
             scope_id: if addr.starts_with("fe80") { index } else { 0 },
             index,
             name: name.into(),
+            friendly: String::new(),
+            description: String::new(),
+            if_type: 0,
             up: true,
             loopback: false,
             multicast: true,
@@ -880,6 +886,9 @@ mod session_tests {
             scope_id: 0,
             index,
             name: name.into(),
+            friendly: String::new(),
+            description: String::new(),
+            if_type: 0,
             up: true,
             loopback: false,
             multicast: true,

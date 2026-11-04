@@ -46,6 +46,8 @@ mod sched_grid;
 #[cfg(windows)]
 mod search;
 #[cfg(windows)]
+mod setup_guide;
+#[cfg(windows)]
 mod shortcut;
 #[cfg(windows)]
 mod shutdown;

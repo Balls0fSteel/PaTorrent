@@ -47,6 +47,8 @@ mod sched_grid;
 #[cfg(unix)]
 mod search;
 #[cfg(unix)]
+mod setup_guide;
+#[cfg(unix)]
 mod shutdown;
 #[cfg(unix)]
 mod sidebar;

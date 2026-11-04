@@ -32,6 +32,7 @@ use patorrent_frontend::import;
 use patorrent_frontend::lang::{self, S};
 use patorrent_frontend::model::{Filter, TorrentList};
 use patorrent_frontend::options::{self, GuiOptions, Options};
+use patorrent_frontend::pref_pages::Features;
 use patorrent_frontend::prefs::Prefs;
 use patorrent_frontend::properties::{self, Properties, TorrentProps};
 use patorrent_frontend::rss::view::{self as rss_view, ItemRow};
@@ -40,6 +41,7 @@ use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
 use patorrent_frontend::scrape::Scrapes;
 use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
 use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
+use patorrent_frontend::setup_guide;
 use patorrent_frontend::status::{self, Category, status_icon};
 use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
@@ -241,6 +243,8 @@ mod cmd {
     pub const PROFILE_NEW: u16 = 151;
     pub const PROFILE_SHORTCUT: u16 = 152;
     pub const PROFILE_FOLDER: u16 = 153;
+    /// Options > Setup Guide (D53), Ctrl+G.
+    pub const SETUP_GUIDE: u16 = 154;
     /// File > Profiles' list, by `profile::menu` index (at most 256 entries).
     pub const PROFILE_BASE: u16 = 3700;
     pub const LABEL_BASE: u16 = 1000;
@@ -650,11 +654,31 @@ pub fn run(args: Args) -> i32 {
     }
     let mut opts = Options::load(&prefs, &downloads_folder());
     controls::set_alternate_rows(opts.gui.alternate_rows);
+    // the first start of any profile (a settings file without keys) opens the Setup Guide
+    // (D53), asked before the first keys are written
+    let first_start = local && setup_guide::should_show(&prefs);
     // a new profile or portable folder: a port of its own (and the portable folder's
     // Downloads), kept from now on (D42)
     if local && profile::first_run_settings(&mut prefs, &mut opts.settings) {
+        // with the guide, saved once it closes: quitting it leaves the file empty, to ask again
+        if !first_start {
+            let _ = prefs.save();
+        }
+        opts = Options::load(&prefs, &downloads_folder());
+    }
+    if first_start {
+        // before the main window and the engine, so nothing downloads before the answers;
+        // the setup of an installed copy asked about associations and autostart already
+        let (guide_opts, old) = guide_options(&prefs, &downloads_folder());
+        let features = Features { desktop: updater::installed().is_none(), ..Features::default() };
+        if let Some(new) = crate::setup_guide::show(null_mut(), guide_opts, features) {
+            write_guide_integration(null_mut(), &old, &new.integration);
+            new.store(&mut prefs);
+        }
+        setup_guide::mark_seen(&mut prefs);
         let _ = prefs.save();
         opts = Options::load(&prefs, &downloads_folder());
+        controls::set_alternate_rows(opts.gui.alternate_rows);
     }
     if opts.gui.random_port && local {
         // µTorrent's "Randomize port each start" keeps the new port as the configured one
@@ -758,6 +782,7 @@ pub fn run(args: Args) -> i32 {
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'U' as u16, cmd: cmd::ADD_URL },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'N' as u16, cmd: cmd::CREATE },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'P' as u16, cmd: cmd::PREFS },
+            ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'G' as u16, cmd: cmd::SETUP_GUIDE },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'A' as u16, cmd: cmd::SELECT_ALL },
             ACCEL { fVirt: FCONTROL | FVIRTKEY, key: b'F' as u16, cmd: cmd::FIND },
             ACCEL { fVirt: FVIRTKEY, key: VK_DELETE, cmd: cmd::REMOVE },
@@ -822,6 +847,7 @@ unsafe fn main_menu() -> HMENU {
         append(file, cmd::EXIT, tr!(MenuExit));
         let options = CreatePopupMenu();
         append(options, cmd::PREFS, &shortcut(tr!(MenuPreferences), Hotkey::Ctrl('P')));
+        append(options, cmd::SETUP_GUIDE, &shortcut(tr!(MenuSetupGuide), Hotkey::Ctrl('G')));
         append(options, cmd::RSS, tr!(MenuRss));
         separator(options);
         append(options, cmd::SHOW_TOOLBAR, tr!(MenuShowToolbar));
@@ -3663,6 +3689,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
                 update_menu(hwnd);
             }
             cmd::PREFS => show_preferences(hwnd),
+            cmd::SETUP_GUIDE => show_setup_guide(hwnd),
             cmd::RSS => {
                 let feed = with_app(|a| a.feed_view.flatten()).flatten();
                 show_rss(hwnd, feed);
@@ -4300,6 +4327,39 @@ unsafe fn show_preferences_at(hwnd: HWND, page: usize) {
         }),
     };
     if crate::preferences::show_at(hwnd, opts, &dir, hooks, page) {
+        unsafe { update_menu(hwnd) };
+    }
+}
+
+/// The Setup Guide's options (D53): as stored, with the associations and autostart as the
+/// registry has them.
+fn guide_options(prefs: &Prefs, download_dir: &str) -> (Options, Integration) {
+    let mut opts = Options::load(prefs, download_dir);
+    let set = integration::read(&Keys::user(), &exe_path(), profile::current().name.as_deref()).set;
+    opts.integration = set;
+    (opts, set)
+}
+
+/// Writes the guide's associations and autostart where they changed; a failure is told.
+fn write_guide_integration(owner: HWND, old: &Integration, new: &Integration) {
+    if old.normalized() == new.normalized() {
+        return;
+    }
+    let r = integration::write(&Keys::user(), &exe_path(), profile::current().name.as_deref(), old, new);
+    if let Err(e) = r {
+        dialogs::error(owner, &tr!(ErrIntegration, error = e));
+    }
+}
+
+/// Options → Setup Guide (D53): Finish stores and applies the answers as Preferences' OK does.
+unsafe fn show_setup_guide(hwnd: HWND) {
+    let Some((opts, old)) = with_app(|a| guide_options(&a.prefs, &a.save_path)) else {
+        return;
+    };
+    let features = Features { desktop: !crate::remote_ui::is_remote(), ..Features::default() };
+    if let Some(new) = crate::setup_guide::show(hwnd, opts, features) {
+        write_guide_integration(hwnd, &old, &new.integration);
+        with_app(|a| apply_options(a, &new));
         unsafe { update_menu(hwnd) };
     }
 }

@@ -50,7 +50,7 @@ pub struct Hooks {
 }
 
 /// A field's control.
-enum Ctl {
+pub(crate) enum Ctl {
     Check(gtk::CheckButton),
     Entry(gtk::Entry),
     /// The drop-down and its choices' values.
@@ -58,7 +58,7 @@ enum Ctl {
 }
 
 impl Ctl {
-    fn value(&self) -> String {
+    pub(crate) fn value(&self) -> String {
         match self {
             Ctl::Check(c) => c.is_active().to_string(),
             Ctl::Entry(e) => e.text().to_string(),
@@ -66,7 +66,7 @@ impl Ctl {
         }
     }
 
-    fn set(&self, value: &str) {
+    pub(crate) fn set(&self, value: &str) {
         match self {
             Ctl::Check(c) => c.set_active(value == "true"),
             Ctl::Entry(e) => e.set_text(value),
@@ -76,7 +76,7 @@ impl Ctl {
         }
     }
 
-    fn widget(&self) -> gtk::Widget {
+    pub(crate) fn widget(&self) -> gtk::Widget {
         match self {
             Ctl::Check(c) => c.clone().upcast(),
             Ctl::Entry(e) => e.clone().upcast(),
@@ -735,7 +735,7 @@ fn fix_fields(pages: &mut [Page], keys: &[&str]) {
 }
 
 /// A folder or file picker for `entry`.
-fn pick(window: &gtk::Window, entry: &gtk::Entry, kind: TextKind) {
+pub(crate) fn pick(window: &gtk::Window, entry: &gtk::Entry, kind: TextKind) {
     let (title, folder) = match kind {
         TextKind::Folder(t) => (t, true),
         TextKind::File(t) => (t, false),
@@ -764,14 +764,14 @@ fn pick(window: &gtk::Window, entry: &gtk::Entry, kind: TextKind) {
 
 /// Builds the pages' widgets and collects what the dialog needs from them.
 #[derive(Default)]
-struct Builder {
-    controls: HashMap<&'static str, Ctl>,
-    needs: Vec<(gtk::Widget, &'static [&'static str])>,
+pub(crate) struct Builder {
+    pub(crate) controls: HashMap<&'static str, Ctl>,
+    pub(crate) needs: Vec<(gtk::Widget, &'static [&'static str])>,
     ip_status: Option<gtk::Label>,
     advanced: Option<Advanced>,
     sched: Option<SchedGrid>,
     /// "..." buttons: the button, its field and the picker.
-    browse: Vec<(gtk::Button, &'static str, TextKind)>,
+    pub(crate) browse: Vec<(gtk::Button, &'static str, TextKind)>,
     actions: Vec<(gtk::Button, Action)>,
     /// The row the next `beside` field or button joins.
     last_row: Option<gtk::Box>,
@@ -782,7 +782,7 @@ struct Builder {
 impl Builder {
     /// Gives `widget` the help `h`: its tooltip, and the pane's text while it is hovered or
     /// focused.
-    fn help(&mut self, widget: &impl IsA<gtk::Widget>, h: Option<H>) {
+    pub(crate) fn help(&mut self, widget: &impl IsA<gtk::Widget>, h: Option<H>) {
         let Some(h) = h else { return };
         widget.set_tooltip_text(Some(lang::help(h)));
         self.helps.push((widget.clone().upcast(), h));
@@ -863,7 +863,7 @@ impl Builder {
             .upcast()
     }
 
-    fn field(&mut self, target: &gtk::Box, f: &Field, o: &Options) {
+    pub(crate) fn field(&mut self, target: &gtk::Box, f: &Field, o: &Options) {
         let caption = |text: S| {
             let l = gtk::Label::with_mnemonic(&gtk_mnemonic(lang::text(text)));
             l.set_xalign(0.0);

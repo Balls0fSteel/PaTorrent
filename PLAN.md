@@ -1,8 +1,8 @@
 # PaTorrent plan
 
-Last updated: 2026-11-04_211029_1793823029
+Last updated: 2026-11-04_224953_1793828993
 
-Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D49 and proposed D46](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
+Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D58](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
 ## Vision
 
@@ -28,18 +28,18 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 - Latest hand-test set: `dist/1.0-test-63e3f50/` (gitignored), older than the 2026-10-23 dialog changes. Linux binaries: command-line smoke checks only.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check). macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
-- Verdigris (`01`) is the provisional brand in the application and packaging (`assets/patina-icons/app-icon.txt`, the candidates beside it); the owner's final choice remains open.
+- Verdigris (`01`) is the final brand (D57, 2026-11-04).
 
 ## Next steps
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
 - **C, D.** RSS in hosted mode (1.1.13) and Torznab search (D41, all five slices, 1.1.12-1.1.19): done; hand checks in BACKLOG. Optional: a GTK hosting page. No alternative speed limits in the Win32 GUI (owner, 2026-10-30).
-- **E.** Profiles and portable mode (D42, approved 2026-11-03_115032_1793703032): design in [PROFILES.md](docs/PROFILES.md), the plan with Q1-Q9 answered and each slice's status in [PROFILES_PLAN.md](docs/PROFILES_PLAN.md) (slices 0-8). All slices built (1.1.43-1.1.54) and checked on the three VMs, GNOME, KDE, the Flatpak, AppImages, a macOS runner and a real Mac (gate 8; what is left in [BACKLOG](docs/BACKLOG.md#profiles-and-portable-mode-d42)). Next: the owner's call on 2.0.0 or 1.2.x; the website text waits on the branch `site-profiles`.
-- **F.** Microsoft Store release (2026-11-01_070555_1793513155): planned in [STORE.md](docs/STORE.md), proposed D46 (an MSIX Store flavour without self-update; free or paid). Awaiting the owner's answers to Q1-Q6. No code before approval.
+- **E.** Profiles and portable mode (D42, approved 2026-11-03_115032_1793703032): design in [PROFILES.md](docs/PROFILES.md), the plan with Q1-Q9 answered and each slice's status in [PROFILES_PLAN.md](docs/PROFILES_PLAN.md) (slices 0-8). All slices built (1.1.43-1.1.54) and checked on the three VMs, GNOME, KDE, the Flatpak, AppImages, a macOS runner and a real Mac (gate 8; what is left in [BACKLOG](docs/BACKLOG.md#profiles-and-portable-mode-d42)). Next: release it as **1.2.0** (D58); the website text waits on the branch `site-profiles`.
+- **F.** Microsoft Store release: D46 approved 2026-11-04 (free MSIX, individual account, settings shared with the setup copy, all markets and 34 languages, Verdigris icon); build per [STORE.md](docs/STORE.md).
 - **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): approved and built (D48, [DISKIO.md](docs/DISKIO.md), 1.1.36-1.1.40); real-disk measurements of the busy-disk throttle in BACKLOG "Disk and storage". **Keep ping low** (D49, [LOWPING.md](docs/LOWPING.md)): built in 1.1.29-1.1.31; 1.1.32 passed a bloated-line test (ping ~480 ms to 9 ms at 80-92% of the line). Next: the owner's line with a game, a Mac run; the rest in BACKLOG, including 2.2.1's "Stop transfers on user interaction".
-- **H.** Reviewed 2026-11-02, owner to choose: 2.2.1's web search engines (worth it with an empty default list) and themes (icon skins first, dark mode a separate decision); details in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999).
-- **I.** The owner's six points (2026-11-04), drafted in [PROPOSALS.md](docs/PROPOSALS.md) and built by Opus 5.5 agents on the owner's instruction, each reviewed and merged here with its own version: D50 the Files tab filter (1.1.56), D55 help text (1.1.57), D54 "Use only this network" for VPNs (1.1.58), D51 the search helper, Jackett downloaded at a click (1.1.59), D53 the Setup Guide (1.1.62); 1.1.60-1.1.61 fixed what the merged tree showed (the Linux stub build, the help pane under the Connection page's new group). D52 the native macOS GUI is not built (needs a Mac per slice; decide after gate 8). Decisions D50-D55 in DECISIONS.md record the assumed answers; the owner's answers to the sections' questions are still wanted. The real Jackett checklist passed in full on Windows, the Xubuntu VM and the macOS VM, the frontend path and the Win32 and GTK buttons alike ([SEARCH_HELPER.md](docs/SEARCH_HELPER.md) "Verified"; the Windows helper dies with PaTorrent through a job object since 1.1.63). The user's guide with screenshots: [SEARCH_ON_WINDOWS.md](docs/SEARCH_ON_WINDOWS.md), linked from the README, the website's Docs and FAQ pages, and copied to the [GitHub wiki](https://github.com/Balls0fSteel/PaTorrent/wiki), which now has the full user guide (V2.0 goal 4). **Open:** a real VPN run, a real first start through the guide, the GUI looks (BACKLOG, one section per proposal).
+- **H.** Approved 2026-11-04 (D56): 2.2.1's web search engines (empty default list), icon skins, and dark mode; research in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999), each designed before code.
+- **I.** The owner's six points (2026-11-04), drafted in [PROPOSALS.md](docs/PROPOSALS.md) and built by Opus 5.5 agents on the owner's instruction, each reviewed and merged here with its own version: D50 the Files tab filter (1.1.56), D55 help text (1.1.57), D54 "Use only this network" for VPNs (1.1.58), D51 the search helper, Jackett downloaded at a click (1.1.59), D53 the Setup Guide (1.1.62); 1.1.60-1.1.61 fixed what the merged tree showed (the Linux stub build, the help pane under the Connection page's new group). D52 the native macOS GUI: approved 2026-11-04 (replaces GTK on macOS, `objc2-app-kit`), not started; each slice needs a Mac. The owner confirmed D50-D55's assumed answers 2026-11-04 (DECISIONS.md); follow-ups from those answers: an X clear button in the Files filter (all GUIs), queueing items handed over during the first-start guide, nox / Web UI helper buttons, an agent review of the 302 help texts. The real Jackett checklist passed in full on Windows, the Xubuntu VM and the macOS VM, the frontend path and the Win32 and GTK buttons alike ([SEARCH_HELPER.md](docs/SEARCH_HELPER.md) "Verified"; the Windows helper dies with PaTorrent through a job object since 1.1.63). The user's guide with screenshots: [SEARCH_ON_WINDOWS.md](docs/SEARCH_ON_WINDOWS.md), linked from the README, the website's Docs and FAQ pages, and copied to the [GitHub wiki](https://github.com/Balls0fSteel/PaTorrent/wiki), which now has the full user guide (V2.0 goal 4). **Open:** a real VPN run, a real first start through the guide, the GUI looks (BACKLOG, one section per proposal).
 
 **Owner notes (2026-10-30_192440_1793384680):** all done (D44, D45, D47); hand checks in [BACKLOG](docs/BACKLOG.md#updates-installer-and-website).
 
@@ -82,8 +82,7 @@ Q1-Q15 are resolved; their answers and the original Q10 interop setup are in the
 
 - UI artwork (D27-D30): the bold family passed its revision 6 review (131/131) and is integrated (gate 10); revisions 3-6 and their reviews are in the [changelog archive](docs/archive/README.md). Optional: hand-drawn 20 px globe and pylon, dedicated 48/64 px drawings, and a web-ui globe matching the network globe.
 - Compare Properties > Advanced and `rss.*` settings with the owner's real µTorrent 2.2.1 in `z_exclude_uTorrent/` (gitignored). Its Add dialog was inspected via scripted captures/control dumps; the remaining wording and behavior need comparison. The owner captured all 15 Preferences pages (General through Advanced > Run Program) as `z_exclude_uTorrent/screenshots/*.webp` on 2026-10-26: compare each page of our Preferences against them (Road to 1.0 item 9).
-- Proposed D46: the Microsoft Store release ([STORE.md](docs/STORE.md)), Q1-Q6.
-- Proposed D50-D55: the six drafts in [PROPOSALS.md](docs/PROPOSALS.md) (step I), each with its questions.
+- D46 and D50-D58 were settled 2026-11-04_224953_1793828993; no decision is proposed.
 - Decide the Flathub permission/submission approach (item 7); the recorded exception policy requires the owner's own text.
 
 

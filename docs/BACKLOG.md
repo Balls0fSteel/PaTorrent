@@ -903,8 +903,8 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
 - An installed Windows copy hides page 4 at a first start, also for a new named profile the
   setup never asked about; Ctrl+G always shows it. The `GuideRouter` tooltip largely repeats
   the page's own text. The smart-disk box shows ticked only while all four D48 settings are on.
-- The owner's answers to the D53 questions (pages, the older-router numbers, the default
-  profile) are still wanted; each is a small change.
+- The owner confirmed the D53 answers as built (2026-11-04_224953_1793828993) and asked for the
+  handed-over items above to be queued, not lost.
 
 ## Search helper (D51; built 2026-11-04, 1.1.59)
 

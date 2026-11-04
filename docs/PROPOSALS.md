@@ -2,7 +2,7 @@
 
 Drafted 2026-11-04_091839_1793780319 from the owner's six points. Each section ends with the questions the owner must answer; the numbers D50-D55 were reserved so the sections can be referred to.
 
-**Status 2026-11-04_102555_1793784355:** on the owner's instruction to build the drafts with agents, D50, D55, D54, D51 and D53 were built and merged (1.1.56-1.1.62) under the recommended answers to each section's questions, recorded as [decisions D50, D51, D53, D54 and D55](DECISIONS.md); D52 is not built (it needs a Mac for every slice). The questions below are still the owner's to answer; a different answer is a small change in each case. What was not verified is in [BACKLOG.md](BACKLOG.md) under each proposal's heading.
+**Status 2026-11-04_102555_1793784355:** on the owner's instruction to build the drafts with agents, D50, D55, D54, D51 and D53 were built and merged (1.1.56-1.1.62) under the recommended answers to each section's questions, recorded as [decisions D50, D51, D53, D54 and D55](DECISIONS.md); D52 is not built (it needs a Mac for every slice). **Answered 2026-11-04_224953_1793828993:** the owner confirmed the assumed answers of D50, D51, D53, D54 and D55, with additions (an X clear button in D50's box; nox and Web UI buttons for D51 next; queueing items handed over during D53's first-start guide; an agent review of D55's texts), and approved D52 (replaces GTK on macOS, `objc2-app-kit`). [DECISIONS.md](DECISIONS.md) records each answer; the questions below are kept as drafted. What was not verified is in [BACKLOG.md](BACKLOG.md) under each proposal's heading.
 
 | Proposal | Size | Recommendation |
 |---|---|---|

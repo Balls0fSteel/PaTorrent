@@ -40,6 +40,8 @@ Less work in the app (D45 stays, no package behaviour to check), but it needs th
 
 ## Open questions for the owner
 
+**Answered 2026-11-04_224953_1793828993 (D46 approved):** Q1 free; Q2 MSIX; Q3 an individual account; Q4 the same `%APPDATA%\PaTorrent` as a setup-installed copy; Q5 all markets, the listing in all 34 languages; Q6 Verdigris is final (D57).
+
 - **Q1.** Free or paid in the Store? If paid: price, and whether a free trial is offered (the Store supports time-limited trials for MSIX).
 - **Q2.** MSIX (recommended: free signing, Store payments) or the signed EXE setup?
 - **Q3.** Individual or company account (both free now; a company account shows a company name as the publisher, "DukeCorp1996")?

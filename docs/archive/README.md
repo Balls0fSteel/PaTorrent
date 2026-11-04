@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-11-03_115032_1793703032
+Last updated: 2026-11-04_091839_1793780319
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -39,6 +39,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-11-03 (1.1.45-1.1.46, D42 slices 2-3)](CHANGELOG-2026-11-03--2026-11-03-v1.1.46-d42-slices-2-3.md) | `2026-11-03_123456_1793705696` through `2026-11-03_124252_1793706172` | 2 entries moved verbatim from the root changelog on 2026-11-03_145919_1793714359: ports for profiles (1.1.45), associations and autostart per profile (1.1.46). |
 | [Changelog, 2026-11-03 (1.1.47-1.1.48, D42 slices 4-5)](CHANGELOG-2026-11-03--2026-11-03-v1.1.48-d42-slices-4-5.md) | `2026-11-03_125404_1793706844` through `2026-11-03_130347_1793707427` | 2 entries moved verbatim from the root changelog on 2026-11-03_203047_1793734247: nox services per profile and the installer's checks (1.1.47), File > Profiles (1.1.48). |
 | [Changelog, 2026-11-03 (1.1.49-1.1.50, D42 slices 6-7)](CHANGELOG-2026-11-03--2026-11-03-v1.1.50-d42-slices-6-7.md) | `2026-11-03_131614_1793708174` through `2026-11-03_132148_1793708508` | 2 entries moved verbatim from the root changelog on 2026-11-03_230801_1793743681: portable mode everywhere with relative paths (1.1.49), macOS portable mode (1.1.50). |
+| [Changelog, 2026-11-03 (1.1.51, the D42 checks)](CHANGELOG-2026-11-03--2026-11-03-v1.1.51-d42-checks.md) | `2026-11-03_132346_1793708626` through `2026-11-03_140518_1793711118` | 4 entries moved verbatim from the root changelog on 2026-11-04_091839_1793780319: D42 slice 8's docs and VM scripts, 1.1.51's VM checks with two GTK fixes, the Windows wizard, double-click and Samba-move checks, and the AppImage rule, Create Shortcut and the moved unfinished torrent. |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

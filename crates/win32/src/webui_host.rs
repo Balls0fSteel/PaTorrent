@@ -306,6 +306,9 @@ pub fn start(
         c.https = Some(Certificate::Generated { dir: Some(dir.to_path_buf()), names: default_names(addr) });
     }
     c.hosted = Some(Hosted { host, options: prefs.clone(), rss });
+    // the search helper (D51): the window's own (`Host::helper` in app.rs), so a browser and
+    // Options > Search Sources act on one helper
+    c.helper_dir = Some(crate::app::base_data_dir());
     WebUi::start(handle, c).map_err(|e| start_error(&e, addr.port()))
 }
 

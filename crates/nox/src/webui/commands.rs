@@ -1260,13 +1260,14 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Res
     }
     // the torrent search's (`search.rs`)
     if let Some(rest) = endpoint.strip_prefix("search").filter(|r| r.is_empty() || r.starts_with('/')) {
+        let local = super::api::is_local(&req.head, req.peer);
         if read {
-            return super::search::serve(shared, rest, None, key);
+            return super::search::serve(shared, rest, None, key, local);
         }
         if !csrf_header_ok(&req.head) {
             return Err(err(403, format!("missing X-Requested-With: {CSRF_VALUE} header")));
         }
-        return super::search::serve(shared, rest, Some(json_body(req)?), key);
+        return super::search::serve(shared, rest, Some(json_body(req)?), key, local);
     }
     if read {
         return match endpoint {

@@ -300,6 +300,33 @@ non-public address only on the source's own scheme, host and port.
 | `/pa/search/source-remove` | `{"index"}` | the rest are numbered again |
 | `/pa/search/source-test` | `{"index"}` | asks the source for its caps (`t=caps`) on the request's thread (30 s at most) and answers when it is done: 200 `{"ok":true,"categories":n,"text"}` or `{"ok":false,"error","text"}` |
 
+The search helper (D51, [SEARCH_HELPER.md](SEARCH_HELPER.md)): `webui/helper.rs` drives the
+GUIs' own code (`frontend::search::helper`) for Manage Sources' helper buttons. The helper
+is the process's: nox's in its state directory (`<state>/search-helper`, none with
+`--no-state`), hosted the window's own in its profile folder, so a browser and the window's
+Search Sources act on one helper. Off where the GUIs have it off (`available` false). Every
+step that waits runs as a **task** on a thread of its own: the request answers `{"id"}` at
+once, the page asks `GET /pa/search/helper` until that task's `running` is false. One task
+at a time for the server (409 while one runs, also while a cancelled start is still
+finishing).
+
+| Endpoint | Body | Does |
+|---|---|---|
+| `GET /pa/search/helper` | | `available`, `local` (the request is from this computer: a loopback peer, no `X-Forwarded-For` / `Forwarded` / `X-Real-IP`), `installed`, `version`, `folder`, `running`, `task` (null or `id`, `kind` `check` / `install` / `sites` / `apply` / `page`, `running`, `cancelled`, `got`, `total` (null until known), `progress_text`, `error` and `text` (translated), `version`, `first` (no helper was installed: the page opens the site picker after the install); a check's `question` and `up_to_date`; a finished listing's `sites` (`id`, `name`, `language`, `type`, `configured`, `needs_flaresolverr`; public ones, by name); a page task's `url` and `password`, to a `local` request only) |
+| `/pa/search/helper/check` | `{"update":bool}` | the newest release from GitHub; the task's `question` is the GUIs' confirm text (or `up_to_date`) |
+| `/pa/search/helper/install` | `{"version","password"}` | downloads the release the last check found (409 for another `version`) behind the current password (400 without it; a wrong one ends the session), unpacks it and adds or re-points the "Search helper (all)" source; `got`/`total` move |
+| `/pa/search/helper/sites` | `{}` | starts the helper and lists its public sites |
+| `/pa/search/helper/apply` | `{"ticked":[id]}` | configures the ticked sites of the last listing, removes the unticked configured ones; FlareSolverr sites are never configured |
+| `/pa/search/helper/page` | `{}` | starts the helper for its own page; 403 unless `local` |
+| `/pa/search/helper/cancel` | `{"id"}` (optional) | the task ends as `cancelled` at once; a download stops, a start under way finishes unseen |
+| `/pa/search/helper/remove` | `{}` | stops the helper, deletes its folder, takes its source out; 200 `{"text"}`, 409 while a task runs |
+
+"Open the Helper's Page" is offered to a browser on the server's computer only: the helper
+listens on the server's `127.0.0.1`, which a browser elsewhere reaches as its own machine.
+There the page shows a line saying where the page opens instead. (A browser on the server
+that names its LAN address is not seen as local.) The page shows the password with a link to
+open, rather than opening a tab after the task, which a pop-up blocker would stop.
+
 The shim's `search/*` (D41 slice 5, written from qBittorrent's `searchcontroller.cpp`) run
 their own searches over the same sources, so a qBittorrent remote app's search tab works in
 both modes (hosted: the window's sources and engine). Each source is a **plugin**: `name` is
@@ -405,7 +432,10 @@ password is hashed, so parallel guesses stop at the ban limit.
 
 Search sources (D41; owner may revisit): adding a source, or changing a source's URL or API
 key, needs the current password too (`password` in `/pa/search/source-add` and
-`source-edit`; a wrong one ends the session, as above). A source makes the server fetch its
+`source-edit`; a wrong one ends the session, as above). So does the search helper's download
+(`/pa/search/helper/install`, D51), which makes the server download and run a program: only
+Jackett's release from the address the build names, found by the last check, never one the
+request names. A source makes the server fetch its
 URL wherever it points (the user's own Prowlarr is usually on this machine or network) and
 send the stored key there, so a stolen session must not be able to point an existing source,
 and its key, at a server of its choosing, nor make the server probe the network with

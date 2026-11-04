@@ -1311,6 +1311,16 @@ strings! {
     /// The status line after an install or update; {version} is the release.
     SearchHelperInstalled = "Search helper {version} is installed.";
     SearchHelperRemoved = "The search helper was removed.";
+    // The search helper in the Web UI (D51): it runs on the server, the browser may be elsewhere
+    /// The download makes the server download and run a program: the Web UI asks for its password.
+    WebHelperNeedPassword = "Enter the current Web UI password to download and run the search helper.";
+    /// Manage Sources in a browser on another computer: the helper listens on the server only.
+    WebHelperPageHostOnly = "The helper's own page opens only in a browser on the computer PaTorrent runs on, where the helper listens.";
+    /// After "Open the Helper's Page": a link to the page and the password follow.
+    WebHelperPagePassword = "The search helper runs. Its page asks for this password:";
+    WebHelperBusy = "The search helper is busy with another step; try again when it is done.";
+    /// A download or a step the user cancelled.
+    WebHelperCancelled = "Cancelled.";
     // ---- Options > Setup Guide (D53): a few questions at a profile's first start
     /// The guide's window title.
     GuideTitle = "Setup Guide";

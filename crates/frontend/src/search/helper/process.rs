@@ -86,6 +86,65 @@ pub fn command(l: &Launch) -> Command {
     c
 }
 
+/// The helper dies with us, however we die (a crash, a kill from Task Manager): on Windows every
+/// helper started is put into one job object with "kill on job close", whose only handle is
+/// ours and is closed by the system when our process ends. Elsewhere the normal exit kills it
+/// ([`super::shutdown`]); a crash can leave it running until its next start.
+#[cfg(windows)]
+mod job {
+    use std::os::windows::io::AsRawHandle;
+    use std::process::Child;
+    use std::sync::OnceLock;
+
+    use windows_sys::Win32::Foundation::HANDLE;
+    use windows_sys::Win32::System::JobObjects::{
+        AssignProcessToJobObject, CreateJobObjectW, JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE,
+        JOBOBJECT_EXTENDED_LIMIT_INFORMATION, JobObjectExtendedLimitInformation, SetInformationJobObject,
+    };
+
+    /// The job's handle, never closed (that is what kills the helper).
+    struct Job(HANDLE);
+    // SAFETY: a job handle is used from any thread.
+    unsafe impl Send for Job {}
+    unsafe impl Sync for Job {}
+
+    static JOB: OnceLock<Option<Job>> = OnceLock::new();
+
+    fn job() -> Option<HANDLE> {
+        JOB.get_or_init(|| unsafe {
+            let h = CreateJobObjectW(std::ptr::null(), std::ptr::null());
+            if h.is_null() {
+                return None;
+            }
+            let mut info: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = std::mem::zeroed();
+            info.BasicLimitInformation.LimitFlags = JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE;
+            let ok = SetInformationJobObject(
+                h,
+                JobObjectExtendedLimitInformation,
+                (&raw const info).cast(),
+                size_of::<JOBOBJECT_EXTENDED_LIMIT_INFORMATION>() as u32,
+            );
+            (ok != 0).then_some(Job(h))
+        })
+        .as_ref()
+        .map(|j| j.0)
+    }
+
+    /// Puts `child` into the job; true when it is there (false leaves the helper to the normal
+    /// exit, as on other systems).
+    pub fn assign(child: &Child) -> bool {
+        let Some(job) = job() else { return false };
+        unsafe { AssignProcessToJobObject(job, child.as_raw_handle() as HANDLE) != 0 }
+    }
+}
+
+#[cfg(not(windows))]
+mod job {
+    pub fn assign(_child: &std::process::Child) -> bool {
+        false
+    }
+}
+
 impl Runner {
     pub fn new(launcher: Launcher) -> Runner {
         Runner {
@@ -124,6 +183,7 @@ impl Runner {
         let port = free_port(self.preferred_port)?;
         let launch = (self.launcher)(port)?;
         let mut child = command(&launch).spawn().map_err(|e| format!("{}: {e}", launch.program.display()))?;
+        job::assign(&child);
         let deadline = Instant::now() + self.start_timeout;
         loop {
             if let Ok(Some(status)) = child.try_wait() {

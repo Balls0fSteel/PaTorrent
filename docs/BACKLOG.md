@@ -908,14 +908,16 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
 
 ## Search helper (D51; built 2026-11-04, 1.1.59)
 
-- **The real Jackett run has not happened** (the agent was not allowed to download or run
-  third-party code): the 11-point checklist in [SEARCH_HELPER.md](SEARCH_HELPER.md) on Windows,
-  Linux and macOS. Known risks: a UAC prompt from `--DataFolder` / `--ListenPrivate` on Windows,
-  and Jackett's `%APPDATA%\Jackett` migration relaunching itself elevated when an old Jackett
-  folder exists.
+- **The real Jackett run on Windows passed 2026-11-04** (install, start, sign-in, sites, a
+  search with 100 results, stop, restart, exit: [SEARCH_HELPER.md](SEARCH_HELPER.md) "To verify",
+  the ignored test `crates/frontend/tests/real_jackett.rs`). Still to do there: Linux and macOS
+  (loopback only, Gatekeeper), an add through a `/dl/` link after an idle stop, the ten idle
+  minutes, the proxy, Update and Remove, a second profile, and the GUI's own buttons and dialogs.
+  Jackett's `%APPDATA%\Jackett` migration (an old Jackett folder relaunching it elevated) was not
+  provoked: this PC has none.
 - No automatic "Update" offer when the helper fails to start (the error is shown, the button is
-  beside it). No Windows job object: a PaTorrent crash could leave Jackett running until the
-  next start.
+  beside it). On Linux and macOS a PaTorrent crash can leave `jackett` running until the next
+  start (Windows has the job object since 1.1.63).
 - nox and the Web UI get the buttons in a second slice. Screenshots of the new Win32 button row
   (four 84-DLU buttons, long translations may crowd them) and the GTK window.
 - Website: the FAQ paragraph from the agent's report is not on the site yet.

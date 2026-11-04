@@ -613,6 +613,7 @@ PrefDiskBusy=Als de schijf bezet is
 PrefDiskSlowDownloads=Downloads vertragen (schrijven naar schijf)
 PrefDiskSlowUploads=Uploads vertragen (lezen van schijf)
 PrefDiskIoNote=Wordt het type van een station verkeerd herkend, stel het dan in met drive_overrides op de pagina Geavanceerd.
+PrefHelpHint=Wijs een instelling aan voor hulp, F1 voor de handleiding
 RssTitle=RSS-downloader
 RssAddFeed=RSS-feed toevoegen
 RssEditFeed=RSS-feed bewerken

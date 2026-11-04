@@ -613,6 +613,7 @@ PrefDiskBusy=Saat disk sibuk
 PrefDiskSlowDownloads=Perlambat unduhan (penulisan ke disk)
 PrefDiskSlowUploads=Perlambat unggahan (pembacaan dari disk)
 PrefDiskIoNote=Untuk membetulkan drive yang jenisnya salah terdeteksi, atur di drive_overrides di halaman Lanjutan.
+PrefHelpHint=Arahkan penunjuk ke pengaturan untuk bantuan, F1 untuk panduan
 RssTitle=Pengunduh RSS
 RssAddFeed=Tambah umpan RSS
 RssEditFeed=Sunting umpan RSS

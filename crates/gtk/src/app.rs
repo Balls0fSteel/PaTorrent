@@ -39,7 +39,7 @@ use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
 use patorrent_frontend::status::{self, status_icon};
 use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
 use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
-use patorrent_frontend::{actions, add, create, fmt, profile, settings, tr};
+use patorrent_frontend::{actions, add, create, fmt, help, profile, settings, tr};
 
 use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
@@ -944,28 +944,29 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
 
     let toolbar = gtk::Box::new(gtk::Orientation::Horizontal, 2);
     toolbar.add_css_class("toolbar");
+    // a button's tooltip: its name, then its help (D55)
     for item in [
-        Some((Icon::AddTorrent, "win.add", tr!(ToolAddTorrent))),
-        Some((Icon::AddUrl, "win.add-url", tr!(ToolAddUrl))),
-        Some((Icon::Create, "win.create", tr!(ToolCreate))),
+        Some((Icon::AddTorrent, "win.add", tr!(ToolAddTorrent), help!(ToolAddTorrent))),
+        Some((Icon::AddUrl, "win.add-url", tr!(ToolAddUrl), help!(ToolAddUrl))),
+        Some((Icon::Create, "win.create", tr!(ToolCreate), help!(ToolCreate))),
         None,
-        Some((Icon::Remove, "win.remove", tr!(ToolRemove))),
+        Some((Icon::Remove, "win.remove", tr!(ToolRemove), help!(ToolRemove))),
         None,
-        Some((Icon::Start, "win.start", tr!(ToolStart))),
-        Some((Icon::Pause, "win.pause", tr!(ToolPause))),
-        Some((Icon::Stop, "win.stop", tr!(ToolStop))),
+        Some((Icon::Start, "win.start", tr!(ToolStart), help!(ToolStart))),
+        Some((Icon::Pause, "win.pause", tr!(ToolPause), help!(ToolPause))),
+        Some((Icon::Stop, "win.stop", tr!(ToolStop), help!(ToolStop))),
         None,
-        Some((Icon::Up, "win.queue-up", tr!(ToolQueueUp))),
-        Some((Icon::Down, "win.queue-down", tr!(ToolQueueDown))),
+        Some((Icon::Up, "win.queue-up", tr!(ToolQueueUp), help!(ToolQueueUp))),
+        Some((Icon::Down, "win.queue-down", tr!(ToolQueueDown), help!(ToolQueueDown))),
         None,
-        Some((Icon::Rss, "win.rss", tr!(ToolRss))),
+        Some((Icon::Rss, "win.rss", tr!(ToolRss), help!(ToolRss))),
     ] {
         match item {
-            Some((icon, action, tip)) => {
+            Some((icon, action, name, about)) => {
                 let b = gtk::Button::new();
                 b.set_child(Some(&crate::icons::toolbar_image(icon)));
                 b.set_action_name(Some(action));
-                b.set_tooltip_text(Some(tip));
+                b.set_tooltip_text(Some(&format!("{name}\n{about}")));
                 b.add_css_class("flat");
                 toolbar.append(&b);
             }

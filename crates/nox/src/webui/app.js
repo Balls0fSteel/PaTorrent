@@ -3419,6 +3419,8 @@
   let advFilter = "";
   let advSel = null; // the selected Advanced row's id
   let adv = null; // the Advanced page's elements while it is shown
+  let helpFocusId = null; // the field whose help the pane shows: the focused one (D55)
+  let helpHoverId = null; // ... or the one under the mouse, while it is over a field
   let confirmDelete = true;
 
   function prefField(id) {
@@ -3518,6 +3520,8 @@
     el.textContent = "";
     el.classList.toggle("adv", !!page.advanced);
     adv = null;
+    helpFocusId = helpHoverId = null;
+    showPrefsHelp();
     if (page.advanced) renderAdvanced(el);
     for (const g of page.groups) {
       const box = document.createElement(g.title ? "fieldset" : "div");
@@ -3634,6 +3638,8 @@
     }
     inp.dataset.id = it.f;
     if (it.enabled_by) l.dataset.enabledBy = it.enabled_by;
+    markHelp(l, it.f);
+    if (f.help) inp.title = f.help;
     return l;
   }
   /// A control's value as the server takes it; an int that is not a whole number comes back as
@@ -3669,6 +3675,59 @@
     }
   }
 
+  // Help for the settings (D55): every field's help text comes with the model (`help`, in the
+  // server's language). It is the title of the control and its label, and the pane under the
+  // page shows the help of the field under the mouse, else of the focused one (on the Advanced
+  // page, the selected row's); a tap focuses, so a phone needs nothing more. F1 shows the focused
+  // field's help and opens its wiki page when the model gives one (`wiki`).
+  function markHelp(el, id) {
+    el.dataset.help = id;
+    const help = prefField(id).help;
+    if (help) el.title = help;
+  }
+  /// The field an element of the page belongs to, or null.
+  function helpIdAt(el) {
+    if (!el || !el.closest || !prefsModel) return null;
+    const tr = el.closest("tr[data-id]");
+    if (tr) return tr.dataset.id;
+    if (adv && el.closest(".adv-edit")) return advSel;
+    const h = el.closest("[data-help]");
+    return h && prefField(h.dataset.help) ? h.dataset.help : null;
+  }
+  function showPrefsHelp() {
+    const id = helpHoverId || helpFocusId || (adv && advSel);
+    const f = id && prefsModel ? prefField(id) : null;
+    const pane = $("prefs-help");
+    const text = (f && f.help) || "";
+    if (pane.textContent !== text) {
+      pane.textContent = text;
+      pane.scrollTop = 0;
+    }
+  }
+  prefsDlg.addEventListener("focusin", (ev) => {
+    helpFocusId = helpIdAt(ev.target);
+    showPrefsHelp();
+  });
+  $("prefs-page").addEventListener("pointerover", (ev) => {
+    if (ev.pointerType === "touch") return; // a tap focuses the field instead
+    helpHoverId = helpIdAt(ev.target);
+    showPrefsHelp();
+  });
+  $("prefs-page").addEventListener("pointerleave", () => {
+    helpHoverId = null;
+    showPrefsHelp();
+  });
+  prefsDlg.addEventListener("keydown", (ev) => {
+    if (ev.key !== "F1" || ev.ctrlKey || ev.metaKey || ev.altKey) return;
+    ev.preventDefault();
+    const id = helpIdAt(document.activeElement) || (adv && advSel) || null;
+    helpFocusId = id;
+    helpHoverId = null;
+    showPrefsHelp();
+    const f = id ? prefField(id) : null;
+    if (f && f.wiki) window.open(f.wiki, "_blank", "noopener");
+  });
+
   // The Scheduler table (frontend::scheduler): 7 days x 24 hours, one mode code per hour,
   // Monday 00:00 first. A click (or tap) moves a cell to the next mode, a drag paints that mode.
   const SCHED_DAYS = ["DayMon", "DayTue", "DayWed", "DayThu", "DayFri", "DaySat", "DaySun"].map((k) => T(k));
@@ -3679,6 +3738,7 @@
     const box = document.createElement("div");
     box.className = "sched";
     if (it.enabled_by) box.dataset.enabledBy = it.enabled_by;
+    markHelp(box, id);
     const grid = document.createElement("div");
     grid.className = "sched-grid";
     grid.appendChild(document.createElement("span"));
@@ -3889,6 +3949,7 @@
       const v = document.createElement("td");
       v.textContent = String(prefValue(id));
       tr.append(n, v);
+      if (prefField(id).help) tr.title = prefField(id).help;
       tbody.appendChild(tr);
     }
     if (advSel && !ids.includes(advSel)) advSel = null;
@@ -3910,6 +3971,7 @@
       } else adv.value.value = String(v);
     } else adv.value.value = "";
     for (const c of [adv.value, adv.rTrue, adv.rFalse, adv.set, adv.reset]) c.disabled = !f;
+    showPrefsHelp();
   }
   /// "Set" (or "Reset" to the default) for the selected row.
   function advSet(reset) {

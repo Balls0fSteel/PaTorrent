@@ -613,6 +613,7 @@ PrefDiskBusy=Ha a lemez foglalt
 PrefDiskSlowDownloads=Letöltések lassítása (lemezírások)
 PrefDiskSlowUploads=Feltöltések lassítása (lemezolvasások)
 PrefDiskIoNote=Ha a PaTorrent egy meghajtó típusát hibásan ismeri fel, a helyeset a Haladó oldal drive_overrides beállításában adhatja meg.
+PrefHelpHint=Vigye az egeret egy beállítás fölé a súgóért, F1 az útmutatóért
 RssTitle=RSS letöltő
 RssAddFeed=RSS-csatorna hozzáadása
 RssEditFeed=RSS-csatorna szerkesztése

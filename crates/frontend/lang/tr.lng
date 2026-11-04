@@ -613,6 +613,7 @@ PrefDiskBusy=Disk meşgulken
 PrefDiskSlowDownloads=İndirmeleri yavaşlat (disk yazmaları)
 PrefDiskSlowUploads=Göndermeleri yavaşlat (disk okumaları)
 PrefDiskIoNote=Türü yanlış algılanan bir sürücüyü düzeltmek için Gelişmiş sayfasındaki drive_overrides ayarını kullanın.
+PrefHelpHint=Yardım için bir ayarın üzerine gelin, kılavuz için F1
 RssTitle=RSS indirici
 RssAddFeed=RSS akışı ekle
 RssEditFeed=RSS akışını düzenle

@@ -613,6 +613,7 @@ PrefDiskBusy=Când discul este ocupat
 PrefDiskSlowDownloads=Încetinește descărcările (scrieri pe disc)
 PrefDiskSlowUploads=Încetinește încărcările (citiri de pe disc)
 PrefDiskIoNote=Pentru a corecta o unitate al cărei tip este detectat greșit, setați-l în drive_overrides pe pagina Avansat.
+PrefHelpHint=Țineți cursorul peste o setare pentru ajutor, F1 pentru ghid
 RssTitle=Descărcare RSS
 RssAddFeed=Adaugă flux RSS
 RssEditFeed=Editează fluxul RSS

@@ -613,6 +613,7 @@ PrefDiskBusy=Када је диск заузет
 PrefDiskSlowDownloads=Успори преузимања (уписи на диск)
 PrefDiskSlowUploads=Успори слања (читања са диска)
 PrefDiskIoNote=Ако је врста диска погрешно препозната, исправите је у drive_overrides на страници Напредно.
+PrefHelpHint=Задржите показивач изнад подешавања за помоћ, F1 за водич
 RssTitle=Преузимање RSS
 RssAddFeed=Додај RSS довод
 RssEditFeed=Уреди RSS довод

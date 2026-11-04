@@ -613,6 +613,7 @@ PrefDiskBusy=เมื่อดิสก์ไม่ว่าง
 PrefDiskSlowDownloads=ชะลอการดาวน์โหลด (การเขียนลงดิสก์)
 PrefDiskSlowUploads=ชะลอการอัปโหลด (การอ่านจากดิสก์)
 PrefDiskIoNote=หากตรวจพบชนิดของไดรฟ์ผิด ให้กำหนดชนิดใน drive_overrides ในหน้าขั้นสูง
+PrefHelpHint=ชี้ที่การตั้งค่าเพื่อดูวิธีใช้ กด F1 เพื่อเปิดคู่มือ
 RssTitle=ตัวดาวน์โหลด RSS
 RssAddFeed=เพิ่มฟีด RSS
 RssEditFeed=แก้ไขฟีด RSS

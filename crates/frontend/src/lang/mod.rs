@@ -14,6 +14,11 @@
 //!   [`init`] inflates the chosen one only.
 //! * The language is process-wide, picked once at start by [`init`]; tables are leaked, so
 //!   texts are `&'static str`.
+//! * Help texts (D55) are a second table, [`H`], keyed like the strings: `help!(PrefMaxConnections)`
+//!   is the help for the control labelled `S::PrefMaxConnections`. Their English is in
+//!   `help_en.rs` and goes into `en.lng` as `help.<Key>=` lines after the strings; `build.rs`
+//!   deflates it from there and [`help`] inflates it on first use. A translation's help lines
+//!   are optional (none has them yet): a missing one shows the English text.
 
 use std::fmt::Display;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
@@ -21,8 +26,22 @@ use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 use patorrent_core::util::puff;
 
 mod en;
+mod help_en;
 
 pub use en::S;
+pub use help_en::H;
+
+/// `help!(Key)` is the current language's help text for [`H::Key`](H) (`&'static str`), English
+/// where the language has none.
+#[macro_export]
+macro_rules! help {
+    ($key:ident) => {
+        $crate::lang::help($crate::lang::H::$key)
+    };
+}
+
+/// The prefix of a help text's key in `.lng` files: `help.PrefMaxConnections=...`.
+pub const HELP_PREFIX: &str = "help.";
 
 /// `tr!(Key)` is the current language's text for [`S::Key`](S) (`&'static str`);
 /// `tr!(Key, a = x, b)` fills the text's `{a}` and `{b}` placeholders (a `String`), `b` alone
@@ -61,7 +80,8 @@ pub struct Language {
     /// Written right to left (Arabic, Hebrew, Persian): the GUIs mirror their layouts.
     pub rtl: bool,
     /// Its texts as `build.rs` deflated them: one `.lng`-escaped line per key in [`S::ALL`]
-    /// order, empty where the table has none. Empty for English, whose texts are [`en`].
+    /// order, then one per help key in [`H::ALL`] order, empty where the table has none. Empty
+    /// for English, whose texts are [`en`] and whose help is [`ENGLISH_HELP`].
     deflated: &'static [u8],
 }
 
@@ -78,19 +98,21 @@ impl Language {
         let (bytes, _) = puff::inflate(self.deflated, MAX_TABLE).map_err(|e| e.to_string())?;
         let text = String::from_utf8(bytes).map_err(|e| e.to_string())?;
         let lines: Vec<&str> = text.split('\n').collect();
-        if lines.len() != S::ALL.len() {
-            return Err(format!("{} texts for {} keys", lines.len(), S::ALL.len()));
+        if lines.len() != S::ALL.len() + H::ALL.len() {
+            return Err(format!("{} texts for {} keys", lines.len(), S::ALL.len() + H::ALL.len()));
         }
+        let (strings, helps) = lines.split_at(S::ALL.len());
         let mut problems = Vec::new();
         let texts = S::ALL
             .iter()
-            .zip(lines)
-            .map(|(&s, line)| match line {
+            .zip(strings)
+            .map(|(&s, line)| match *line {
                 "" => None,
                 l => checked(s, unescape(l)).map_err(|e| problems.push(e)).ok(),
             })
             .collect();
-        Ok(Some((Table { code: self.code.to_owned(), texts }, problems)))
+        let help = helps.iter().map(|l| (!l.is_empty()).then(|| unescape(l).into_boxed_str())).collect();
+        Ok(Some((Table { code: self.code.to_owned(), texts, help }, problems)))
     }
 
     /// How many bytes its table adds to a binary.
@@ -476,10 +498,11 @@ fn checked(s: S, text: String) -> Result<Box<str>, String> {
     Ok(text.into_boxed_str())
 }
 
-/// One language's texts by key; `None` falls back to English.
+/// One language's texts and help texts by key; `None` falls back to English.
 pub struct Table {
     code: String,
     texts: Box<[Option<Box<str>>]>,
+    help: Box<[Option<Box<str>>]>,
 }
 
 impl Table {
@@ -487,6 +510,7 @@ impl Table {
     /// placeholders differ from the English text's, are left out and reported.
     pub fn parse(code: &str, lng: &str) -> (Table, Vec<String>) {
         let mut texts: Vec<Option<Box<str>>> = vec![None; S::ALL.len()];
+        let mut help: Vec<Option<Box<str>>> = vec![None; H::ALL.len()];
         let mut problems = Vec::new();
         for (n, line) in lng.lines().enumerate() {
             let line = line.strip_prefix('\u{feff}').unwrap_or(line);
@@ -497,6 +521,13 @@ impl Table {
                 problems.push(format!("line {}: no '='", n + 1));
                 continue;
             };
+            if let Some(name) = key.trim().strip_prefix(HELP_PREFIX) {
+                match H::from_key(name) {
+                    Some(h) => help[h as usize] = Some(unescape(value).into_boxed_str()),
+                    None => problems.push(format!("line {}: unknown key {}", n + 1, key.trim())),
+                }
+                continue;
+            }
             let Some(s) = S::from_key(key.trim()) else {
                 problems.push(format!("line {}: unknown key {}", n + 1, key.trim()));
                 continue;
@@ -506,7 +537,9 @@ impl Table {
                 Err(e) => problems.push(format!("line {}: {e}", n + 1)),
             }
         }
-        (Table { code: code.to_owned(), texts: texts.into_boxed_slice() }, problems)
+        let table =
+            Table { code: code.to_owned(), texts: texts.into_boxed_slice(), help: help.into_boxed_slice() };
+        (table, problems)
     }
 
     /// Pseudo-localised English: accented letters, wrapped in `[` `]` and a third longer, so a
@@ -514,7 +547,8 @@ impl Table {
     /// get cut.
     pub fn pseudo() -> Table {
         let texts = S::ALL.iter().map(|s| Some(pseudo_text(s.english()).into_boxed_str())).collect();
-        Table { code: "pseudo".to_owned(), texts }
+        let help = H::ALL.iter().map(|h| Some(pseudo_text(h.english()).into_boxed_str())).collect();
+        Table { code: "pseudo".to_owned(), texts, help }
     }
 
     pub fn code(&self) -> &str {
@@ -528,6 +562,83 @@ impl Table {
     /// How many keys have their own text.
     pub fn translated(&self) -> usize {
         self.texts.iter().filter(|t| t.is_some()).count()
+    }
+
+    /// The help text for `h`, English where the table has none.
+    pub fn get_help(&self, h: H) -> &str {
+        self.help[h as usize].as_deref().unwrap_or(h.english())
+    }
+
+    /// How many help keys have their own text.
+    pub fn help_translated(&self) -> usize {
+        self.help.iter().filter(|t| t.is_some()).count()
+    }
+}
+
+/// The English help texts, deflated by `build.rs` from `en.lng`'s `help.` lines: one
+/// `.lng`-escaped line per key in [`H::ALL`] order.
+pub const ENGLISH_HELP: &[u8] = include_bytes!(concat!(env!("OUT_DIR"), "/help-en.z"));
+
+/// [`ENGLISH_HELP`] inflated, at the first help text asked for.
+fn english_help() -> &'static [Box<str>] {
+    static TEXTS: std::sync::OnceLock<Box<[Box<str>]>> = std::sync::OnceLock::new();
+    TEXTS.get_or_init(|| {
+        let text = puff::inflate(ENGLISH_HELP, MAX_TABLE)
+            .ok()
+            .and_then(|(bytes, _)| String::from_utf8(bytes).ok())
+            .unwrap_or_default();
+        let mut lines: Vec<Box<str>> = text.split('\n').map(|l| unescape(l).into_boxed_str()).collect();
+        // a build out of step with en.lng shows nothing rather than a wrong text (a test fails)
+        if lines.len() != H::ALL.len() {
+            lines = vec![Box::from(""); H::ALL.len()];
+        }
+        lines.into_boxed_slice()
+    })
+}
+
+/// The current language's help text for `h`, English where it has none.
+pub fn help(h: H) -> &'static str {
+    let t = CURRENT.load(Ordering::Acquire);
+    if !t.is_null() {
+        // as in `text`: only leaked tables are ever stored
+        let t: &'static Table = unsafe { &*t };
+        if let Some(x) = t.help[h as usize].as_deref() {
+            return x;
+        }
+    }
+    h.english()
+}
+
+impl H {
+    /// The key's name, as `.lng` files write it after [`HELP_PREFIX`].
+    pub fn key(self) -> &'static str {
+        help_en::HELP_KEYS[self as usize]
+    }
+
+    pub fn from_key(key: &str) -> Option<H> {
+        help_en::HELP_KEYS.iter().position(|k| *k == key).map(|i| H::ALL[i])
+    }
+
+    /// The help text for the control labelled `s`: the help key of the same name.
+    pub fn for_label(s: S) -> Option<H> {
+        H::from_key(s.key())
+    }
+
+    /// The English text.
+    pub fn english(self) -> &'static str {
+        &english_help()[self as usize]
+    }
+
+    /// The key as a web page anchor: `PrefMaxConnections` is `pref-max-connections`.
+    pub fn anchor(self) -> String {
+        let mut out = String::new();
+        for c in self.key().chars() {
+            if c.is_ascii_uppercase() && !out.is_empty() {
+                out.push('-');
+            }
+            out.push(c.to_ascii_lowercase());
+        }
+        out
     }
 }
 
@@ -645,12 +756,15 @@ fn unescape(s: &str) -> String {
     out
 }
 
+#[cfg(test)]
 fn escape(s: &str) -> String {
     s.replace('\\', "\\\\").replace('\n', "\\n").replace('\t', "\\t")
 }
 
-/// The English table as a `.lng` file, with each key's translator notes as comments.
-pub fn english_lng() -> String {
+/// The English table as a `.lng` file, with each key's translator notes as comments, then the
+/// help texts as `help.<Key>=` lines.
+#[cfg(test)]
+fn english_lng() -> String {
     let mut out = String::from(
         "# PaTorrent string table: English, the source of every translation.\n\
          # Written from crates/frontend/src/lang/en.rs; do not edit by hand.\n\
@@ -671,6 +785,77 @@ pub fn english_lng() -> String {
         out.push('=');
         out.push_str(&escape(s.english()));
         out.push('\n');
+    }
+    out.push_str(
+        "\n# ---- Help texts (D55): tooltips, the Preferences description pane and F1, one to three\n\
+         # sentences each. Optional in a translation: a missing one shows in English.\n",
+    );
+    for (key, text) in help_en::HELP_KEYS.iter().zip(help_en::HELP_ENGLISH) {
+        out.push_str(HELP_PREFIX);
+        out.push_str(key);
+        out.push('=');
+        out.push_str(&escape(text));
+        out.push('\n');
+    }
+    out
+}
+
+/// `docs/HELP_TEXTS.md`: every help text with where its claim was read in the code, for a
+/// review against the code (D55).
+#[cfg(test)]
+pub(crate) fn help_texts_md() -> String {
+    let cell = |s: &str| s.replace('|', "\\|");
+    let menu = |k: &str| k.starts_with("Menu") || k.starts_with("Tool") || k.starts_with("Shutdown");
+    let mut out = String::from(
+        "# Help texts\n\n\
+         Generated from `crates/frontend/src/lang/help_en.rs` by a test \
+         (`PATORRENT_WRITE_LNG=1 cargo test -p patorrent-frontend` rewrites it); do not edit by hand. \
+         Each text is shown as a tooltip, in the Preferences description pane and on F1 (D55). \
+         \"Read in\" names the code the text was written from, for a review against it.\n\n\
+         ## Preferences controls\n\n\
+         The key is the control's label key (`S::PrefDht` has `help.PrefDht`).\n\n\
+         | Key | Text | Read in |\n|---|---|---|\n",
+    );
+    let row = |out: &mut String, h: H| {
+        let i = h as usize;
+        out.push_str(&format!(
+            "| `{}` | {} | {} |\n",
+            h.key(),
+            cell(help_en::HELP_ENGLISH[i]),
+            cell(help_en::HELP_NOTES[i].trim())
+        ));
+    };
+    for &h in H::ALL.iter().filter(|h| !h.key().starts_with("Adv") && !menu(h.key())) {
+        row(&mut out, h);
+    }
+    out.push_str(
+        "\n## The Advanced table\n\n\
+         Every engine setting, in the table's order. A row a Preferences page edits under the same \
+         name shows that page's text (its key starts with `Pref`).\n\n\
+         | Setting | Key | Text | Read in |\n|---|---|---|---|\n",
+    );
+    for e in crate::settings::TABLE {
+        let Some(h) = crate::help::for_setting(e.name) else {
+            out.push_str(&format!("| `{}` | (none) | | |\n", e.name));
+            continue;
+        };
+        let i = h as usize;
+        let note = if h.key().starts_with("Adv") {
+            cell(help_en::HELP_NOTES[i].trim())
+        } else {
+            "(the page's)".into()
+        };
+        out.push_str(&format!(
+            "| `{}` | `{}` | {} | {} |\n",
+            e.name,
+            h.key(),
+            cell(help_en::HELP_ENGLISH[i]),
+            note
+        ));
+    }
+    out.push_str("\n## Menus and toolbar\n\n| Key | Text | Read in |\n|---|---|---|\n");
+    for &h in H::ALL.iter().filter(|h| menu(h.key())) {
+        row(&mut out, h);
     }
     out
 }
@@ -742,6 +927,8 @@ mod tests {
         let (t, problems) = Table::parse("en", &want);
         assert!(problems.is_empty(), "{problems:?}");
         assert!(S::ALL.iter().all(|&s| t.get(s) == s.english()));
+        assert!(H::ALL.iter().all(|&h| t.get_help(h) == help_en::HELP_ENGLISH[h as usize]));
+        assert_eq!(t.help_translated(), H::ALL.len());
     }
 
     #[test]
@@ -912,7 +1099,71 @@ mod tests {
     #[test]
     fn shipped_tables_follow_the_key_order() {
         let keys: Vec<&str> = include_str!(concat!(env!("OUT_DIR"), "/keys.txt")).split('\n').collect();
-        assert_eq!(keys, en::KEYS);
+        let want: Vec<String> = en::KEYS
+            .iter()
+            .map(|k| k.to_string())
+            .chain(help_en::HELP_KEYS.iter().map(|k| format!("{HELP_PREFIX}{k}")))
+            .collect();
+        assert_eq!(keys, want);
+    }
+
+    /// The help table: unique keys, a text for each, and the binaries' deflated English equal
+    /// to `help_en.rs`.
+    #[test]
+    fn help_texts_are_set_and_shipped() {
+        let mut keys: Vec<&str> = help_en::HELP_KEYS.to_vec();
+        keys.sort_unstable();
+        let before = keys.len();
+        keys.dedup();
+        assert_eq!(keys.len(), before, "duplicate help key");
+        assert_eq!(help_en::HELP_ENGLISH.len(), H::ALL.len());
+        for &h in H::ALL {
+            let text = help_en::HELP_ENGLISH[h as usize];
+            assert!(!text.is_empty() && text.trim() == text, "{}", h.key());
+            assert!(placeholders(text).is_empty() && !text.contains('&'), "{}: {text}", h.key());
+            assert_eq!(h.english(), text, "{}: help-en.z is stale (en.lng)", h.key());
+            assert_eq!(H::from_key(h.key()), Some(h));
+            assert!(!help_en::HELP_NOTES[h as usize].trim().is_empty(), "{} has no source note", h.key());
+        }
+        let words: usize = help_en::HELP_ENGLISH.iter().map(|t| t.split_whitespace().count()).sum();
+        let bytes: usize = help_en::HELP_ENGLISH.iter().map(|t| t.len()).sum();
+        println!(
+            "{} help texts, {words} words, {bytes} bytes, {} deflated",
+            H::ALL.len(),
+            ENGLISH_HELP.len()
+        );
+    }
+
+    #[test]
+    fn help_lookup_and_fallback() {
+        assert_eq!(H::for_label(S::PrefMaxConnections), Some(H::PrefMaxConnections));
+        assert_eq!(H::for_label(S::PrefMaxConnections).map(H::key), Some(S::PrefMaxConnections.key()));
+        assert_eq!(H::PrefMaxConnections.anchor(), "pref-max-connections");
+        // no help key for a label that has none
+        assert_eq!(H::for_label(S::StatusPaused), None);
+        // a translation's help line wins; one it lacks shows in English
+        let lng = "MenuFile=&Fichier\nhelp.PrefDht=Le réseau DHT.\nhelp.Nope=x\n";
+        let (t, problems) = Table::parse("fr", lng);
+        assert_eq!(t.get_help(H::PrefDht), "Le réseau DHT.");
+        assert_eq!(t.get_help(H::PrefLsd), H::PrefLsd.english());
+        assert_eq!((t.translated(), t.help_translated()), (1, 1));
+        assert_eq!(problems.len(), 1, "{problems:?}");
+        // the current language (English here) gives the English text
+        assert_eq!(crate::help!(PrefDht), H::PrefDht.english());
+        assert!(Table::pseudo().get_help(H::PrefDht).starts_with('['));
+    }
+
+    /// Help texts are optional in a translation (D55: English compiled in, translations with
+    /// the wiki): the shipped tables carry none yet, and every one still inflates and falls back.
+    #[test]
+    fn translations_need_no_help_texts() {
+        for l in &LANGUAGES[1..] {
+            let (t, _) = l.table().unwrap().unwrap();
+            assert!(H::ALL.iter().all(|&h| !t.get_help(h).is_empty()), "{}", l.code);
+            if t.help_translated() == 0 {
+                assert_eq!(t.get_help(H::PrefDht), H::PrefDht.english());
+            }
+        }
     }
 
     /// The letter after a single `&`.

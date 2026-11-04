@@ -613,6 +613,7 @@ PrefDiskBusy=Når disken er optaget
 PrefDiskSlowDownloads=Sænk downloads (skrivninger til disk)
 PrefDiskSlowUploads=Sænk uploads (læsninger fra disk)
 PrefDiskIoNote=Hvis et drevs type er registreret forkert, kan du rette den i drive_overrides på siden Avanceret.
+PrefHelpHint=Hold musen over en indstilling for hjælp, F1 for vejledningen
 RssTitle=RSS-henter
 RssAddFeed=Tilføj RSS-feed
 RssEditFeed=Rediger RSS-feed

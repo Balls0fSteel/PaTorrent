@@ -28,7 +28,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use patorrent_core::{IpFilter, IpFilterLoad, ProxyType, Settings, TorrentFlags};
-use patorrent_frontend::lang::{self, S};
+use patorrent_frontend::help;
+use patorrent_frontend::lang::{self, H, S};
 use patorrent_frontend::options::{self, GuiOptions};
 use patorrent_frontend::pref_pages;
 use patorrent_frontend::scheduler;
@@ -685,6 +686,26 @@ const LABELS: &[(&str, S)] = &[
 /// text ends in the unit (as `cache.size_mb` beside `cache.override`).
 const UNLABELLED: &[&str] = &["check_rate_mb"];
 
+/// Help texts (D55) a field shows instead of its label's: a field without a label shows its
+/// check box's (as `frontend::pref_pages` gives its label-less fields), and a label two
+/// fields share has a text for each.
+const HELP: &[(&str, H)] = &[
+    ("dir.completed", H::PrefMoveCompleted),
+    ("dir.torrents", H::PrefStoreTorrents),
+    ("dir.finished_torrents", H::PrefMoveTorrents),
+    ("dir.autoload_dir", H::PrefAutoload),
+    ("ipfilter.path", H::PrefIpFilterEnable),
+    ("queue.seed_limit_kib", H::PrefGoalLimit),
+    ("cache.size_mb", H::PrefCacheOverride),
+    ("cache.expiry_s", H::PrefCacheExpire),
+    ("check_rate_mb", H::PrefCheckRateLimit),
+    ("sched.table", H::PrefSchedTable),
+    ("proxy_username", H::PrefProxyUsername),
+    ("proxy_password", H::PrefProxyPassword),
+    ("webui.username", H::PrefWebUiUsername),
+    ("webui.password", H::PrefWebUiPassword),
+];
+
 /// One editable thing: an engine setting row or one of [`FIELDS`].
 #[derive(Clone, Copy)]
 pub(crate) enum Def {
@@ -708,6 +729,23 @@ impl Def {
             }
             Def::Own(f) => f.label.map_or("", lang::text),
         }
+    }
+
+    /// The field's help key (D55): its own ([`HELP`]), else its label's, else for an engine
+    /// row the setting's (`frontend::help::for_setting`).
+    fn help_key(&self) -> Option<H> {
+        let id = self.id();
+        if let Some((_, h)) = HELP.iter().find(|(n, _)| *n == id) {
+            return Some(*h);
+        }
+        let label = match self {
+            Def::Setting(e) => LABELS.iter().find(|(n, _)| *n == e.name).map(|(_, l)| *l),
+            Def::Own(f) => f.label,
+        };
+        label.and_then(H::for_label).or_else(|| match self {
+            Def::Setting(e) => help::for_setting(e.name),
+            Def::Own(_) => None,
+        })
     }
 
     pub fn kind(&self) -> Kind {
@@ -1145,7 +1183,8 @@ fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
 /// with optional `kb`, `min`, `max`, `enabled_by` (space-separated ids), `secret`;
 /// `{"row": [items]}`; `{"stub": label}`; `{"note": text}`; `{"button": label, "action": name}`), `fields` (id to
 /// `label`, `type`, `value`, `default`, `min` / `max` for ints, `options` for enums,
-/// `readonly`) and `advanced` (every engine setting's id, the table's order).
+/// `readonly`, `help`: the current language's help text, `wiki`: its wiki page once there is
+/// one) and `advanced` (every engine setting's id, the table's order).
 pub(crate) fn model(shared: &Shared, st: &State) -> Json {
     let w = Working::from_state(st);
     let d = Working::defaults(st);
@@ -1174,6 +1213,12 @@ pub(crate) fn model(shared: &Shared, st: &State) -> Json {
         }
         if def.readonly() {
             j.set("readonly", true);
+        }
+        if let Some(h) = def.help_key() {
+            j.set("help", lang::help(h));
+            if let Some(url) = help::wiki_url(h) {
+                j.set("wiki", url);
+            }
         }
         fields.set(def.id(), j);
     }
@@ -1708,6 +1753,34 @@ mod tests {
         assert_eq!(find("listen_port").unwrap().get(&w), Value::Int(6881));
         assert_eq!(find("webui.listen").unwrap().get(&w), Value::Str("127.0.0.1:8080".into()));
         assert!(names.contains(&"user_agent") && names.contains(&"bt.transp_disposition"));
+    }
+
+    /// D55: every field of `GET /pa/prefs` carries a help text, so a new field without one
+    /// fails here; a field's own key wins over its label's.
+    #[test]
+    fn every_field_has_help() {
+        let dir = std::env::temp_dir().join(format!("nox-prefs-help-{}", std::process::id()));
+        let session = patorrent_core::Session::start_mock(Settings::default(), Default::default());
+        let shared = State::shared_for_tests(session.handle(), dir);
+        let m = model(&shared, &state());
+        let fields = m.get("fields").unwrap();
+        let mut missing = Vec::new();
+        for def in all() {
+            let f = fields.get(def.id()).unwrap();
+            let help = f.get("help").and_then(Json::as_str).unwrap_or("");
+            if help.trim().is_empty() {
+                missing.push(def.id());
+            }
+            assert_eq!(f.get("wiki").is_some(), help::WIKI_URL.is_some(), "{}", def.id());
+        }
+        assert!(missing.is_empty(), "fields without a help text: {missing:?}");
+        let text = |id: &str| fields.get(id).and_then(|f| f.get("help")).and_then(Json::as_str).unwrap();
+        assert_eq!(text("webui.username"), lang::help(H::PrefWebUiUsername));
+        assert_eq!(text("proxy_password"), lang::help(H::PrefProxyPassword));
+        assert_eq!(text("cache.size_mb"), text("cache.override"));
+        assert_eq!(text("enable_dht"), lang::help(H::PrefDht));
+        assert_eq!(text("connection_speed"), lang::help(H::AdvConnectionSpeed));
+        assert_eq!(text("webui.ban_duration"), lang::help(H::WebBanFor));
     }
 
     #[test]

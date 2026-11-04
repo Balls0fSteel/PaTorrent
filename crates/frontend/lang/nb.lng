@@ -613,6 +613,7 @@ PrefDiskBusy=Når disken er opptatt
 PrefDiskSlowDownloads=Senk nedlastingene (skriving til disk)
 PrefDiskSlowUploads=Senk opplastingene (lesing fra disk)
 PrefDiskIoNote=Hvis typen til en stasjon oppdages feil, kan du rette den i drive_overrides på siden Avansert.
+PrefHelpHint=Hold musen over en innstilling for hjelp, F1 for veiledningen
 RssTitle=RSS-nedlaster
 RssAddFeed=Legg til RSS-strøm
 RssEditFeed=Rediger RSS-strøm

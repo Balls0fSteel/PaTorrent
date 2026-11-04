@@ -7,6 +7,10 @@
 //! The pages and the Advanced table edit one working [`Options`]. The controls are written from
 //! it ([`Form::write`]) and only the ones the user changed are read back ([`Form::read`]), on
 //! Apply, on OK and when the Advanced table opens (it shows what the pages say).
+//!
+//! Help (D55): every control has its help text as a tooltip; the pane under the pages shows the
+//! help of the control under the pointer, else of the focused one (the Advanced table's: the
+//! selected row's); F1 pops the focused control's help up beside it.
 
 use std::cell::RefCell;
 use std::collections::HashMap;
@@ -15,8 +19,9 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
+use patorrent_frontend::help;
 use patorrent_frontend::icons::page_icon;
-use patorrent_frontend::lang::{self, S, gtk_mnemonic};
+use patorrent_frontend::lang::{self, H, S, gtk_mnemonic};
 use patorrent_frontend::options::{self, Options};
 use patorrent_frontend::pref_pages::{
     self, Action, Control, Features, Field, Form, Item, Page, SCHED_ENABLE, TextKind, advanced_name,
@@ -112,6 +117,13 @@ struct Dialog {
     sched_shown: RefCell<[Mode; CELLS]>,
     /// The Advanced table's rows.
     rows: RefCell<Vec<&'static Entry>>,
+    /// The controls with a help text (D55); the Advanced table's is its selected row's.
+    helps: Vec<(gtk::Widget, H)>,
+    /// The help pane's text.
+    pane: gtk::Label,
+    /// The control under the pointer, and the one focused last outside the pane.
+    hovered: RefCell<Option<gtk::Widget>>,
+    focused: RefCell<Option<gtk::Widget>>,
     hooks: Hooks,
 }
 
@@ -204,17 +216,43 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks, pag
     ok.add_css_class("suggested-action");
     let cancel = gtk::Button::with_label(tr!(BtnCancel));
     let apply = gtk::Button::with_mnemonic(&gtk_mnemonic(tr!(BtnApply)));
+    // the hint at the start of the buttons' row
+    let hint = gtk::Label::new(Some(tr!(PrefHelpHint)));
+    hint.set_xalign(0.0);
+    hint.set_hexpand(true);
+    hint.set_ellipsize(gtk::pango::EllipsizeMode::End);
+    hint.add_css_class("dim-label");
     let buttons = gtk::Box::new(gtk::Orientation::Horizontal, 6);
-    buttons.set_halign(gtk::Align::End);
+    buttons.append(&hint);
     buttons.append(&ok);
     buttons.append(&cancel);
     buttons.append(&apply);
+    // the help pane under the pages: about three lines, scrolling when a text is longer
+    let pane = gtk::Label::new(None);
+    pane.set_xalign(0.0);
+    pane.set_yalign(0.0);
+    pane.set_wrap(true);
+    pane.set_wrap_mode(gtk::pango::WrapMode::WordChar);
+    pane.set_selectable(true);
+    pane.set_margin_top(4);
+    pane.set_margin_bottom(4);
+    pane.set_margin_start(6);
+    pane.set_margin_end(6);
+    let line = pane.create_pango_layout(Some("Ag")).pixel_size().1.max(1);
+    let pane_box = gtk::ScrolledWindow::builder()
+        .child(&pane)
+        .hscrollbar_policy(gtk::PolicyType::Never)
+        .min_content_height(line * 3 + 8)
+        .max_content_height(line * 3 + 8)
+        .has_frame(true)
+        .build();
     let body = gtk::Box::new(gtk::Orientation::Vertical, 12);
     body.set_margin_top(12);
     body.set_margin_bottom(12);
     body.set_margin_start(12);
     body.set_margin_end(12);
     body.append(&body_pages);
+    body.append(&pane_box);
     body.append(&buttons);
     window.set_child(Some(&body));
     window.set_default_widget(Some(&ok));
@@ -225,7 +263,7 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks, pag
     ));
     window.add_controller(keys);
 
-    let Builder { controls, needs, ip_status, advanced, sched, browse, actions, .. } = b;
+    let Builder { controls, needs, ip_status, advanced, sched, browse, actions, helps, .. } = b;
     let d = Rc::new(Dialog {
         page: RefCell::new(pages.first().map(|p| p.key.to_owned()).unwrap_or_default()),
         pages,
@@ -239,9 +277,69 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks, pag
         sched,
         sched_shown: RefCell::new([Mode::Full; CELLS]),
         rows: RefCell::default(),
+        helps,
+        pane,
+        hovered: RefCell::default(),
+        focused: RefCell::default(),
         hooks,
     });
     DIALOG.with(|x| *x.borrow_mut() = Some(Rc::downgrade(&d)));
+
+    // help (D55): the pane follows the pointer over the controls and the focus
+    let mut hoverable: Vec<gtk::Widget> = d.helps.iter().map(|(w, _)| w.clone()).collect();
+    if let Some(a) = &d.advanced {
+        hoverable.push(a.table.view.clone().upcast());
+    }
+    for widget in hoverable {
+        let motion = gtk::EventControllerMotion::new();
+        let (w, over) = (Rc::downgrade(&d), widget.downgrade());
+        motion.connect_enter(move |_, _, _| {
+            if let (Some(d), Some(over)) = (w.upgrade(), over.upgrade()) {
+                *d.hovered.borrow_mut() = Some(over);
+                d.show_help();
+            }
+        });
+        let (w, over) = (Rc::downgrade(&d), widget.downgrade());
+        motion.connect_leave(move |_| {
+            let (Some(d), Some(over)) = (w.upgrade(), over.upgrade()) else { return };
+            let left = d.hovered.borrow().as_ref() == Some(&over);
+            if left {
+                *d.hovered.borrow_mut() = None;
+                d.show_help();
+            }
+        });
+        widget.add_controller(motion);
+    }
+    window.connect_focus_widget_notify({
+        let w = Rc::downgrade(&d);
+        move |window| {
+            let Some(d) = w.upgrade() else { return };
+            let focus = GtkWindowExt::focus(window);
+            // selecting text in the pane keeps the text it shows
+            if focus.as_ref().is_some_and(|f| *f == d.pane || f.is_ancestor(&d.pane)) {
+                return;
+            }
+            *d.focused.borrow_mut() = focus;
+            d.show_help();
+        }
+    });
+    // F1: the focused control's help beside it, then its wiki page when there is one
+    let f1 = gtk::ShortcutController::new();
+    f1.add_shortcut(gtk::Shortcut::new(
+        gtk::ShortcutTrigger::parse_string("F1"),
+        Some(gtk::CallbackAction::new({
+            let w = Rc::downgrade(&d);
+            move |widget, _| {
+                let Some(d) = w.upgrade() else { return glib::Propagation::Proceed };
+                let Some(window) = widget.downcast_ref::<gtk::Window>() else {
+                    return glib::Propagation::Proceed;
+                };
+                d.f1(window);
+                glib::Propagation::Stop
+            }
+        })),
+    ));
+    window.add_controller(f1);
 
     // the check boxes and the proxy type grey what depends on them
     for ctl in d.controls.values() {
@@ -289,6 +387,7 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks, pag
         a.table.selection.connect_selection_changed(move |_, _, _| {
             if let Some(d) = w.upgrade() {
                 d.show_value();
+                d.show_help();
             }
         });
         for (button, reset) in [(&a.set, false), (&a.reset, true)] {
@@ -366,6 +465,67 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks, pag
 }
 
 impl Dialog {
+    /// The help of `widget` or the control holding it (an entry's text, a drop-down's button),
+    /// with that control: the Advanced table's is its selected row's.
+    fn help_for(&self, widget: &gtk::Widget) -> Option<(gtk::Widget, H)> {
+        let view = self.advanced.as_ref().map(|a| a.table.view.clone().upcast::<gtk::Widget>());
+        let mut at = Some(widget.clone());
+        while let Some(w) = at {
+            if view.as_ref() == Some(&w) {
+                return self.row_help().map(|h| (w, h));
+            }
+            if let Some((_, h)) = self.helps.iter().find(|(c, _)| *c == w) {
+                return Some((w, *h));
+            }
+            at = w.parent();
+        }
+        None
+    }
+
+    /// The help of the Advanced table's selected row.
+    fn row_help(&self) -> Option<H> {
+        let i = self.selected_row()?;
+        let name = self.rows.borrow().get(i)?.name;
+        help::for_setting(name)
+    }
+
+    /// The pane: the help of the control under the pointer, else of the focused one; and the
+    /// Advanced table's tooltip, its selected row's help.
+    fn show_help(&self) {
+        let of = |w: &RefCell<Option<gtk::Widget>>| w.borrow().as_ref().and_then(|w| self.help_for(w));
+        let h = of(&self.hovered).or_else(|| of(&self.focused)).map(|(_, h)| h);
+        self.pane.set_text(h.map_or("", lang::help));
+        if let Some(a) = &self.advanced {
+            a.table.view.set_tooltip_text(self.row_help().map(lang::help));
+        }
+    }
+
+    /// F1: the focused control's help in the pane and beside the control (GTK shows no tooltip
+    /// on demand), then its wiki page when there is one.
+    fn f1(&self, window: &gtk::Window) {
+        let Some(focus) = GtkWindowExt::focus(window) else { return };
+        let Some((control, h)) = self.help_for(&focus) else { return };
+        *self.hovered.borrow_mut() = None;
+        *self.focused.borrow_mut() = Some(focus);
+        self.show_help();
+        let text = gtk::Label::new(Some(lang::help(h)));
+        text.set_wrap(true);
+        text.set_max_width_chars(60);
+        text.set_xalign(0.0);
+        let popover = gtk::Popover::new();
+        popover.set_child(Some(&text));
+        popover.set_parent(&control);
+        popover.connect_closed(|p| {
+            // unparent once the popover is down
+            let p = p.clone();
+            glib::idle_add_local_once(move || p.unparent());
+        });
+        popover.popup();
+        if let Some(url) = help::wiki_url(h) {
+            gtk::UriLauncher::new(&url).launch(Some(window), None::<&gio::Cancellable>, |_| {});
+        }
+    }
+
     /// The controls from the working options.
     fn write_controls(&self) {
         let values = self.form.borrow_mut().write(&self.pages, &self.opts.borrow());
@@ -615,9 +775,19 @@ struct Builder {
     actions: Vec<(gtk::Button, Action)>,
     /// The row the next `beside` field or button joins.
     last_row: Option<gtk::Box>,
+    /// The controls with a help text, which is also their tooltip.
+    helps: Vec<(gtk::Widget, H)>,
 }
 
 impl Builder {
+    /// Gives `widget` the help `h`: its tooltip, and the pane's text while it is hovered or
+    /// focused.
+    fn help(&mut self, widget: &impl IsA<gtk::Widget>, h: Option<H>) {
+        let Some(h) = h else { return };
+        widget.set_tooltip_text(Some(lang::help(h)));
+        self.helps.push((widget.clone().upcast(), h));
+    }
+
     fn page(&mut self, page: &Page, o: &Options) -> gtk::Widget {
         self.last_row = None;
         let content = gtk::Box::new(gtk::Orientation::Vertical, 12);
@@ -647,6 +817,7 @@ impl Builder {
                 }
                 Item::Button { action, label } => {
                     let b = gtk::Button::with_mnemonic(&gtk_mnemonic(lang::text(*label)));
+                    self.help(&b, pref_pages::item_help(item));
                     match &self.last_row {
                         Some(row) => row.append(&b),
                         None => target.append(&b),
@@ -662,11 +833,19 @@ impl Builder {
                 }
                 Item::AdvancedTable => {
                     let (widget, advanced) = advanced_page();
+                    // the table's own help is its selected row's (Dialog::help_for)
+                    self.help(&advanced.filter, H::for_label(S::PrefFilter));
+                    self.help(&advanced.value, H::for_label(S::PrefValue));
+                    self.help(&advanced.yes, H::for_label(S::PrefTrue));
+                    self.help(&advanced.no, H::for_label(S::PrefFalse));
+                    self.help(&advanced.set, H::for_label(S::PrefSet));
+                    self.help(&advanced.reset, H::for_label(S::PrefReset));
                     target.append(&widget);
                     self.advanced = Some(advanced);
                 }
                 Item::SchedTable => {
                     let grid = SchedGrid::new();
+                    self.help(&grid.widget, pref_pages::item_help(item));
                     target.append(&grid.widget);
                     self.needs.push((grid.widget.clone().upcast(), &[SCHED_ENABLE]));
                     self.sched = Some(grid);
@@ -726,6 +905,8 @@ impl Builder {
             }
         };
         let control = ctl.widget();
+        let h = f.help_key();
+        self.help(&control, h);
         if f.beside {
             if let Some(row) = &self.last_row {
                 row.append(&control);
@@ -745,11 +926,13 @@ impl Builder {
         if let (Some(label), false) = (f.label, matches!(f.control, Control::Check { .. })) {
             let l = caption(label);
             l.set_mnemonic_widget(Some(&control));
+            self.help(&l, h);
             row.append(&l);
         }
         row.append(&control);
         if let Control::Text { kind: kind @ (TextKind::Folder(_) | TextKind::File(_)), .. } = f.control {
             let b = gtk::Button::with_label("...");
+            self.help(&b, h);
             row.append(&b);
             self.browse.push((b, f.key, kind));
         }

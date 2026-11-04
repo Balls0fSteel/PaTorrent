@@ -908,13 +908,14 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
 
 ## Search helper (D51; built 2026-11-04, 1.1.59)
 
-- **The real Jackett run on Windows passed 2026-11-04** (install, start, sign-in, sites, a
-  search with 100 results, stop, restart, exit: [SEARCH_HELPER.md](SEARCH_HELPER.md) "To verify",
-  the ignored test `crates/frontend/tests/real_jackett.rs`). Still to do there: Linux and macOS
-  (loopback only, Gatekeeper), an add through a `/dl/` link after an idle stop, the ten idle
-  minutes, the proxy, Update and Remove, a second profile, and the GUI's own buttons and dialogs.
-  Jackett's `%APPDATA%\Jackett` migration (an old Jackett folder relaunching it elevated) was not
-  provoked: this PC has none.
+- **The real Jackett runs passed 2026-11-04 on Windows, the Xubuntu VM and the macOS VM**, the
+  whole checklist ([SEARCH_HELPER.md](SEARCH_HELPER.md) "Verified"): install, loopback-only
+  listener, sign-in, sites, a search with 100 results, an add through the `/dl/` link before and
+  after the ten-minute idle stop, a proxy, Update, Remove, a second profile, the exit kill, and
+  the GUI buttons and dialogs of Win32 (hidden desktop) and GTK (Xvfb). Not covered: a Windows
+  account without administrator rights, Jackett's `%APPDATA%\Jackett` migration (no old
+  Jackett here), "Open the Helper's Page" in a browser, and the macOS GUI (no GTK build check of
+  the buttons there; the frontend path passed on that VM).
 - No automatic "Update" offer when the helper fails to start (the error is shown, the button is
   beside it). On Linux and macOS a PaTorrent crash can leave `jackett` running until the next
   start (Windows has the job object since 1.1.63).

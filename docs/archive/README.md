@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-11-04_102737_1793784457
+Last updated: 2026-11-04_135001_1793796601
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -41,6 +41,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-11-03 (1.1.49-1.1.50, D42 slices 6-7)](CHANGELOG-2026-11-03--2026-11-03-v1.1.50-d42-slices-6-7.md) | `2026-11-03_131614_1793708174` through `2026-11-03_132148_1793708508` | 2 entries moved verbatim from the root changelog on 2026-11-03_230801_1793743681: portable mode everywhere with relative paths (1.1.49), macOS portable mode (1.1.50). |
 | [Changelog, 2026-11-03 (1.1.51, the D42 checks)](CHANGELOG-2026-11-03--2026-11-03-v1.1.51-d42-checks.md) | `2026-11-03_132346_1793708626` through `2026-11-03_140518_1793711118` | 4 entries moved verbatim from the root changelog on 2026-11-04_091839_1793780319: D42 slice 8's docs and VM scripts, 1.1.51's VM checks with two GTK fixes, the Windows wizard, double-click and Samba-move checks, and the AppImage rule, Create Shortcut and the moved unfinished torrent. |
 | [Changelog, 2026-11-03 (1.1.52-1.1.54, D42 on real desktops, the macOS runner and a Mac)](CHANGELOG-2026-11-03--2026-11-03-v1.1.54-d42-mac-desktops.md) | `2026-11-03_145919_1793714359:` through `2026-11-03_231320_1793744000:` | 7 entries moved verbatim from the root changelog on 2026-11-04_102737_1793784457: D42 on GNOME, KDE, the Flatpak, an AppImage and rc.d as root; 1.1.52's AppImage on Wayland and window classes per profile; 1.1.53's gate 8 on a macOS runner with two portable fixes; the exFAT stick; D42 on a real Mac (the login agents, Open Anyway); 1.1.54's first window waiting for GNOME and its hold in the Flatpak. |
+| [Changelog, 2026-11-04, v1.1.55 and the six proposals](CHANGELOG-2026-11-04--2026-11-04-v1.1.55-proposals.md) | `2026-11-04_083614_1793777774:` through `2026-11-04_091839_1793780319:` | 2 entries moved verbatim from the root changelog on 2026-11-04_135001_1793796601: the GTK windows-as-files test aid (1.1.55) and the D50-D55 proposals drafted for discussion |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
 
 To locate an old event, search before opening the file:

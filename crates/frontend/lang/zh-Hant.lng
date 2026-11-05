@@ -239,6 +239,7 @@ TitleSpeed=下：{down} 上：{up} - {title}
 BarDownAuto=下：{rate}（自動 {cap}） 總：{total}
 BarUpAuto=上：{rate}（自動 {cap}） 總：{total}
 NetWaiting=正在等待網路
+BarRestoring=正在還原種子...
 NetExternal=Tracker 看到的您的位址：{address}
 NetExternalUnknown=尚未得知
 LogAdded={name}：已加入

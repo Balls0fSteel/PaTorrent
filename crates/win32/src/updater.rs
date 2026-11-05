@@ -81,14 +81,30 @@ pub fn setup_args(mode: InstallMode, pid: u32) -> [String; 3] {
     ["/S".to_owned(), mode.switch().to_owned(), format!("/UPDATE={pid}")]
 }
 
-/// Where the setup is downloaded to (`%TEMP%\PaTorrent-update`); what an earlier update left
-/// there goes first.
+/// Where the setup is downloaded to: `%LOCALAPPDATA%\PaTorrent\update`, the user's own folder,
+/// not `%TEMP%`, which another user can share (`TMP=C:\Temp`) and plant files in beside the setup
+/// that an all-users install elevates (docs/SECURITY-REVIEW.md).
+fn update_dir() -> PathBuf {
+    match std::env::var_os("LOCALAPPDATA").filter(|v| !v.is_empty()) {
+        Some(local) => PathBuf::from(local).join("PaTorrent").join("update"),
+        None => std::env::temp_dir().join("PaTorrent-update"),
+    }
+}
+
+/// [`update_dir`], emptied of what an earlier update left there; the `%TEMP%\PaTorrent-update`
+/// that earlier versions used goes too.
 pub fn download_dir() -> PathBuf {
-    let dir = std::env::temp_dir().join("PaTorrent-update");
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for e in entries.flatten() {
-            let _ = std::fs::remove_file(e.path());
+    let dir = update_dir();
+    let old = std::env::temp_dir().join("PaTorrent-update");
+    for d in [&dir, &old] {
+        if let Ok(entries) = std::fs::read_dir(d) {
+            for e in entries.flatten() {
+                let _ = std::fs::remove_file(e.path());
+            }
         }
+    }
+    if old != dir {
+        let _ = std::fs::remove_dir(&old);
     }
     dir
 }
@@ -323,7 +339,10 @@ mod tests {
         assert_eq!(setup_args(InstallMode::AllUsers, 1)[1], "/ALLUSERS");
         // whatever this machine has: the lookup itself must not fail
         let _ = installed();
-        assert!(download_dir().ends_with("PaTorrent-update"));
+        // the user's own folder, not %TEMP% (not download_dir: that would empty the real one)
+        let dir = update_dir();
+        assert!(dir.ends_with("PaTorrent\\update"), "{}", dir.display());
+        assert!(!dir.starts_with(std::env::temp_dir()), "{}", dir.display());
     }
 
     /// The setup runs only with the contents it was checked with, and nobody can change or

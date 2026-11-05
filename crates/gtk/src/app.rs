@@ -1722,9 +1722,6 @@ fn on_alerts() {
                 | Alert::FileProgress { .. }
                 | Alert::PieceInfo { .. }
                 | Alert::TorrentFile { .. } => {}
-                // one per stopped or queued torrent every half hour (`frontend::scrape`); the
-                // counts show in the Seeds and Peers columns
-                Alert::ScrapeReply { .. } | Alert::ScrapeFailed { .. } => {}
                 // the mappers' step-by-step chatter stays out of the Logger, as in the Win32 one
                 Alert::PortmapLog { .. } => {}
                 // kept by `network::on_alert` for Preferences > Connection
@@ -2204,7 +2201,9 @@ fn show_properties() {
         let mut names = Vec::new();
         for id in &ids {
             let Some(st) = a.list.get(*id) else { continue };
-            items.push(TorrentProps::new(st, trackers.get(id).map(Vec::as_slice), &a.prefs));
+            let mut t = TorrentProps::new(st, trackers.get(id).map(Vec::as_slice), &a.prefs);
+            t.private = a.handle.torrent(*id).metadata().is_some_and(|m| m.private);
+            items.push(t);
             names.push(st.name.clone());
         }
         let defaults = GuiOptions::load(&a.prefs, &a.save_path).property_defaults();

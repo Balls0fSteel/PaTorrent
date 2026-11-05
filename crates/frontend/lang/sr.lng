@@ -239,6 +239,7 @@ TitleSpeed=П:{down} С:{up} - {title}
 BarDownAuto=П: {rate} (ауто {cap}) У: {total}
 BarUpAuto=С: {rate} (ауто {cap}) У: {total}
 NetWaiting=Чекање на мрежу
+BarRestoring=Враћање торената...
 NetExternal=Ваша адреса према трекерима: {address}
 NetExternalUnknown=још није позната
 LogAdded={name}: додато

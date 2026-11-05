@@ -239,6 +239,7 @@ TitleSpeed=U:{down} G:{up} - {title}
 BarDownAuto=U: {rate} (otomatis {cap}) T: {total}
 BarUpAuto=G: {rate} (otomatis {cap}) T: {total}
 NetWaiting=Menunggu jaringan
+BarRestoring=Memulihkan torrent...
 NetExternal=Alamat Anda menurut tracker: {address}
 NetExternalUnknown=belum diketahui
 LogAdded={name}: ditambahkan

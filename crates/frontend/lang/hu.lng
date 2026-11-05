@@ -239,6 +239,7 @@ TitleSpeed=L:{down} F:{up} - {title}
 BarDownAuto=L: {rate} (auto {cap}) Ö: {total}
 BarUpAuto=F: {rate} (auto {cap}) Ö: {total}
 NetWaiting=Várakozás a hálózatra
+BarRestoring=Torrentek visszaállítása...
 NetExternal=A címed a trackerek szerint: {address}
 NetExternalUnknown=még nem ismert
 LogAdded={name}: hozzáadva

@@ -239,6 +239,7 @@ TitleSpeed=S:{down} O:{up} - {title}
 BarDownAuto=S: {rate} (auto {cap}) C: {total}
 BarUpAuto=O: {rate} (auto {cap}) C: {total}
 NetWaiting=Čaká sa na sieť
+BarRestoring=Obnovujú sa torrenty...
 NetExternal=Vaša adresa podľa trackerov: {address}
 NetExternalUnknown=zatiaľ neznáma
 LogAdded={name}: pridané

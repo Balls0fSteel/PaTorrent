@@ -239,6 +239,7 @@ TitleSpeed=З:{down} О:{up} - {title}
 BarDownAuto=З: {rate} (авто {cap}) В: {total}
 BarUpAuto=О: {rate} (авто {cap}) В: {total}
 NetWaiting=Ожидание сети
+BarRestoring=Восстановление торрентов...
 NetExternal=Ваш адрес по данным трекеров: {address}
 NetExternalUnknown=пока неизвестен
 LogAdded={name}: добавлен

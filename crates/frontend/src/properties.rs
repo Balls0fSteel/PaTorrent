@@ -40,6 +40,9 @@ pub struct TorrentProps {
     pub is_seed: bool,
     pub dht: bool,
     pub pex: bool,
+    /// BEP 27's private flag: the engine uses no DHT or PEX for it, whatever its flags say.
+    /// [`TorrentProps::new`] leaves it false; the GUI sets it from the torrent's metadata.
+    pub private: bool,
 }
 
 impl TorrentProps {
@@ -55,6 +58,7 @@ impl TorrentProps {
             is_seed: st.is_seeding,
             dht: !st.flags.contains(TorrentFlags::DISABLE_DHT),
             pex: !st.flags.contains(TorrentFlags::DISABLE_PEX),
+            private: false,
         }
     }
 }
@@ -140,6 +144,9 @@ pub struct Properties {
     pub count: usize,
     /// "Initial Seeding" is for seeds only (µTorrent greys it out otherwise).
     pub can_initial_seed: bool,
+    /// DHT and PEX mean nothing for private torrents (µTorrent greys them out when every
+    /// selected torrent is private).
+    pub can_dht_pex: bool,
     defaults: Defaults,
 }
 
@@ -265,6 +272,7 @@ impl Properties {
             fields,
             count: items.len(),
             can_initial_seed: !items.is_empty() && items.iter().all(|t| t.is_seed),
+            can_dht_pex: items.iter().any(|t| !t.private),
             defaults,
         }
     }
@@ -325,8 +333,10 @@ impl Properties {
         if self.can_initial_seed {
             c.super_seeding = switch(f.initial_seeding, l.initial_seeding);
         }
-        c.dht = switch(f.dht, l.dht);
-        c.pex = switch(f.pex, l.pex);
+        if self.can_dht_pex {
+            c.dht = switch(f.dht, l.dht);
+            c.pex = switch(f.pex, l.pex);
+        }
         Ok(c)
     }
 }
@@ -502,11 +512,27 @@ mod tests {
             is_seed: true,
             dht: true,
             pex: true,
+            private: false,
         }
     }
 
     const DEFAULTS: Defaults =
         Defaults { upload_slots: 4, seed_goal: SeedGoal { ratio_pct: 150, minutes: 0 } };
+
+    /// DHT and PEX are greyed out when every selected torrent is private, and not applied.
+    #[test]
+    fn private_torrents_grey_dht_and_pex() {
+        let private = TorrentProps { private: true, ..one() };
+        let mut p = Properties::load(&[private.clone(), private.clone()], DEFAULTS);
+        assert!(!p.can_dht_pex);
+        p.fields.dht = Tri::Off;
+        p.fields.pex = Tri::Off;
+        assert!(p.changes().unwrap().is_empty());
+        let mut p = Properties::load(&[private, one()], DEFAULTS);
+        assert!(p.can_dht_pex, "one is public");
+        p.fields.pex = Tri::Off;
+        assert_eq!(p.changes().unwrap().pex, Some(false));
+    }
 
     #[test]
     fn one_torrent_loads_and_changes() {
@@ -607,6 +633,7 @@ mod tests {
         assert_eq!((f.override_goal, f.goal_ratio.as_str(), f.goal_minutes.as_str()), (Tri::Mixed, "", ""));
         assert_eq!((f.dht, f.pex), (Tri::On, Tri::Mixed));
         assert!(!p.can_initial_seed, "one is not a seed");
+        assert!(p.can_dht_pex);
         assert!(p.changes().unwrap().is_empty());
 
         // only what is touched applies to both

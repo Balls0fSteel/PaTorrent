@@ -239,6 +239,7 @@ TitleSpeed=다운:{down} 업:{up} - {title}
 BarDownAuto=다운: {rate} (자동 {cap}) 합계: {total}
 BarUpAuto=업: {rate} (자동 {cap}) 합계: {total}
 NetWaiting=네트워크 대기 중
+BarRestoring=토렌트 복원 중...
 NetExternal=트래커가 보는 내 주소: {address}
 NetExternalUnknown=아직 알 수 없음
 LogAdded={name}: 추가됨

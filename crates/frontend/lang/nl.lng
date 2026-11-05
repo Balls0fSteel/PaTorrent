@@ -239,6 +239,7 @@ TitleSpeed=D:{down} U:{up} - {title}
 BarDownAuto=D: {rate} (auto {cap}) T: {total}
 BarUpAuto=U: {rate} (auto {cap}) T: {total}
 NetWaiting=Wachten op het netwerk
+BarRestoring=Torrents herstellen...
 NetExternal=Uw adres volgens trackers: {address}
 NetExternalUnknown=nog niet bekend
 LogAdded={name}: toegevoegd

@@ -239,6 +239,7 @@ TitleSpeed=P:{down} S:{up} - {title}
 BarDownAuto=P: {rate} (auto {cap}) U: {total}
 BarUpAuto=S: {rate} (auto {cap}) U: {total}
 NetWaiting=Čekanje na mrežu
+BarRestoring=Vraćanje torrenata...
 NetExternal=Vaša adresa prema trackerima: {address}
 NetExternalUnknown=još nije poznata
 LogAdded={name}: dodano

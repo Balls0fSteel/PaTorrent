@@ -451,6 +451,9 @@ struct App {
     alerts: Vec<Alert>,
     /// Selection is being restored after a re-sort; ignore the change notifications.
     restoring: bool,
+    /// The local session is still restoring its saved torrents: "Restoring torrents..." in the
+    /// status bar until `Alert::TorrentsRestored` (or the store failing to open).
+    restoring_torrents: bool,
     tray_tip: String,
     /// "Show current speed in the title bar" (`ui.title_speed`), and the title last set.
     title_speed: bool,
@@ -831,7 +834,11 @@ pub fn run(args: Args) -> i32 {
             return 1;
         }
         init(hwnd, session, prefs);
-        with_app(|a| a.listen.set_configured(settings::listen_port(&opts.settings)));
+        with_app(|a| {
+            a.listen.set_configured(settings::listen_port(&opts.settings));
+            // a demo has no store, a remote session restored long ago
+            a.restoring_torrents = local;
+        });
         for p in lang_problems {
             log_line(&p);
         }
@@ -1320,6 +1327,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
             downloading: HashSet::new(),
             alerts: Vec::new(),
             restoring: false,
+            restoring_torrents: false,
             tray_tip: String::new(),
             title_speed: gui.title_speed,
             title: profile::name_build(),
@@ -2785,6 +2793,9 @@ unsafe fn on_alerts(hwnd: HWND) {
             }
             magnet_ready |= a.awaiting.on_alert(&alert, &a.handle, &mut a.prefs);
             a.listen.on_alert(&alert);
+            if restore_ended(&alert) {
+                a.restoring_torrents = false;
+            }
             // the adapters and the network status for Preferences, the status bar and the
             // General tab (D54)
             patorrent_frontend::network::on_alert(&alert);
@@ -2914,9 +2925,6 @@ unsafe fn on_alerts(hwnd: HWND) {
                 | Alert::FileProgress { .. }
                 | Alert::PieceInfo { .. }
                 | Alert::TorrentFile { .. } => {}
-                // one per stopped or queued torrent every half hour (`frontend::scrape`); the
-                // counts show in the Seeds and Peers columns
-                Alert::ScrapeReply { .. } | Alert::ScrapeFailed { .. } => {}
                 // the mappers' step-by-step chatter (SOAP bodies included) stays out of the
                 // logger; the mapped ports, failures and the external address still show
                 Alert::PortmapLog { .. } => {}
@@ -3002,6 +3010,16 @@ fn sync_title(a: &mut App) {
     }
 }
 
+/// Whether `alert` ends the start's restore: the torrents are back, or the session store did not
+/// open (the engine's `Log` for that, `engine::start`), when none come.
+fn restore_ended(alert: &Alert) -> bool {
+    match alert {
+        Alert::TorrentsRestored { .. } => true,
+        Alert::Log { id: None, message } => message.starts_with("cannot open the session store"),
+        _ => false,
+    }
+}
+
 unsafe fn update_status_bar() {
     let Some((status, hwnd, parts, tip, changed, net_icon, first, net_tip)) = with_app(|a| {
         let s = &a.stats;
@@ -3021,6 +3039,7 @@ unsafe fn update_status_bar() {
         };
         // "Waiting for the network" while "Use only this network" finds none (D54)
         let net = patorrent_frontend::network::with_status(s, net);
+        let net = if a.restoring_torrents { format!("{} | {net}", tr!(BarRestoring)) } else { net };
         let net_tip = patorrent_frontend::network::tooltip(s);
         let net_tip = (net_tip != a.net_tip).then(|| {
             a.net_tip.clone_from(&net_tip);
@@ -3505,8 +3524,9 @@ unsafe fn popup(hwnd: HWND, menu: HMENU, x: i32, y: i32) -> u16 {
 unsafe fn tray_menu(hwnd: HWND) {
     unsafe {
         let menu = CreatePopupMenu();
-        let visible = IsWindowVisible(hwnd) != 0;
-        append(menu, cmd::TRAY_TOGGLE, if visible { tr!(MenuHide) } else { tr!(MenuShow) });
+        // as `toggle_window` acts: a minimized window is shown, not hidden
+        let shown = IsWindowVisible(hwnd) != 0 && IsIconic(hwnd) == 0;
+        append(menu, cmd::TRAY_TOGGLE, if shown { tr!(MenuHide) } else { tr!(MenuShow) });
         separator(menu);
         append(menu, cmd::ADD, tr!(MenuAddTorrent));
         append(menu, cmd::ADD_URL, tr!(MenuAddUrl));
@@ -4047,7 +4067,9 @@ unsafe fn show_properties(hwnd: HWND) {
             .iter()
             .map(|id| {
                 let st = a.list.get(*id).expect("filtered");
-                TorrentProps::new(st, trackers.get(id).map(Vec::as_slice), &a.prefs)
+                let mut t = TorrentProps::new(st, trackers.get(id).map(Vec::as_slice), &a.prefs);
+                t.private = a.handle.torrent(*id).metadata().is_some_and(|m| m.private);
+                t
             })
             .collect();
         let names: Vec<String> =
@@ -6386,6 +6408,16 @@ mod tests {
 
     fn tuple(r: RECT) -> (i32, i32, i32, i32) {
         (r.left, r.top, r.right, r.bottom)
+    }
+
+    /// "Restoring torrents..." ends when the torrents are back or the store does not open.
+    #[test]
+    fn the_restore_ends_with_its_alert_or_the_store_failing() {
+        assert!(restore_ended(&Alert::TorrentsRestored { count: 0, dir: "state".into() }));
+        let failed = Alert::Log { id: None, message: "cannot open the session store: denied".into() };
+        assert!(restore_ended(&failed));
+        assert!(!restore_ended(&Alert::Log { id: None, message: "poll failed: x".into() }));
+        assert!(!restore_ended(&Alert::DhtBootstrap));
     }
 
     /// A saved window rectangle that lay on an unplugged monitor is moved, and shrunk where it

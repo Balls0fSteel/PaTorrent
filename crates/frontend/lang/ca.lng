@@ -239,6 +239,7 @@ TitleSpeed=B:{down} P:{up} - {title}
 BarDownAuto=B: {rate} (auto {cap}) T: {total}
 BarUpAuto=P: {rate} (auto {cap}) T: {total}
 NetWaiting=Esperant la xarxa
+BarRestoring=S'estan restaurant els torrents...
 NetExternal=La vostra adreça segons els rastrejadors: {address}
 NetExternalUnknown=encara desconeguda
 LogAdded={name}: afegit

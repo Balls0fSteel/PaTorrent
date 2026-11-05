@@ -880,13 +880,22 @@ impl Engine {
         p.stat.received(len, 0);
         t.stat.get_or_insert_with(Box::default).received(len, 0);
         let block = start / BLOCK_SIZE;
-        let pos = (start % BLOCK_SIZE == 0)
-            .then(|| p.requests.iter().position(|r| r.piece == piece && r.block == block))
-            .flatten();
-        let expected = (piece < t.num_pieces)
-            .then(|| (t.piece_size_for_req(piece) as u32).saturating_sub(start).min(BLOCK_SIZE));
-        let Some(pos) = pos.filter(|_| expected == Some(data.len() as u32)) else {
-            // Unrequested, cancelled earlier, or malformed: drop it.
+        // libtorrent `verify_piece`: a block of this torrent, aligned, with the block's own
+        // length. Anything else disconnects (`invalid_piece_size`); before, the request stayed
+        // outstanding until the snub.
+        let size = (piece < t.num_pieces).then(|| t.piece_size_for_req(piece) as u32);
+        let valid = size.is_some_and(|size| {
+            start < size && start % BLOCK_SIZE == 0 && data.len() as u32 == (size - start).min(BLOCK_SIZE)
+        });
+        if !valid && t.has_metadata() {
+            p.close(format!("invalid piece size: piece {piece}, start {start}, length {len}"), true);
+            self.stat.received(len, 0);
+            return;
+        }
+        let pos =
+            valid.then(|| p.requests.iter().position(|r| r.piece == piece && r.block == block)).flatten();
+        let Some(pos) = pos else {
+            // Unrequested or cancelled earlier: drop it.
             t.redundant_bytes += len;
             self.stat.received(len, 0);
             return;

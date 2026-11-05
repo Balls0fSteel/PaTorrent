@@ -370,6 +370,72 @@ fn a_stalled_udp_socket_resumes_when_writable() {
     assert_eq!(got, data);
 }
 
+/// Bug hunt finding 19: a close while the UDP socket was stalled set FIN-SENT without a FIN
+/// (the send returns at once while stalled), and `writable` retries the FIN only for a
+/// connected socket: the peer never saw the end of the stream.
+#[test]
+fn a_close_while_stalled_sends_the_fin_once_writable() {
+    let mut sim = Sim::new();
+    let (sa, sb) = sim.connect();
+    let data = payload(20_000);
+    sim.transfer(addr(A), sa, sb, &data, 1000);
+    // everything acknowledged: the next write is not held in the Nagle packet but sent, and
+    // stalls the socket
+    sim.steps(5);
+    let mut got = Vec::new();
+    sim.read_all(addr(B), sb, &mut got);
+    sim.net.blocked = true;
+    assert_eq!(sim.write(addr(A), sa, b"last words"), 10);
+    sim.detach(addr(A), sa);
+    assert_ne!(sim.a.get(sa).unwrap().state(), State::FinSent, "no FIN went out");
+    sim.net.blocked = false;
+    let now = sim.now;
+    let (a, mut io) = sim.side(addr(A));
+    a.writable(&mut io, now);
+    assert_eq!(sim.a.get(sa).unwrap().state(), State::FinSent);
+    got.clear();
+    let mut eof = false;
+    for _ in 0..50 {
+        sim.step();
+        if matches!(sim.read_all(addr(B), sb, &mut got), ReadOutcome::Eof) {
+            eof = true;
+            break;
+        }
+    }
+    assert_eq!(got, b"last words");
+    assert!(eof, "the FIN goes out once the UDP socket is writable");
+}
+
+/// Bug hunt finding 20: a stalled socket whose deferred ACK the manager sent (and emptied) put
+/// itself back into the manager's deferred-ACK slot, and the next socket deferring an ACK hit
+/// the `Ctx::defer_ack` debug assertion. The stalled socket's ACK waits for `writable` now.
+#[test]
+fn a_stalled_deferred_ack_does_not_block_another_sockets() {
+    let mut sim = Sim::new();
+    let (sa1, sb1) = sim.connect();
+    let (sa2, sb2) = sim.connect();
+    // one data packet for each of B's sockets in flight, then B cannot send: the first
+    // packet's ACK is deferred, sent (and stalled) when the second socket's packet arrives,
+    // and the second socket defers its own
+    assert_eq!(sim.write(addr(A), sa1, b"one"), 3);
+    assert_eq!(sim.write(addr(A), sa2, b"two"), 3);
+    sim.net.blocked = true;
+    sim.step();
+    sim.net.blocked = false;
+    let now = sim.now;
+    let (b, mut io) = sim.side(addr(B));
+    b.writable(&mut io, now);
+    let (mut got1, mut got2) = (Vec::new(), Vec::new());
+    sim.read_all(addr(B), sb1, &mut got1);
+    sim.read_all(addr(B), sb2, &mut got2);
+    assert_eq!((&got1[..], &got2[..]), (&b"one"[..], &b"two"[..]));
+    // both ACKs reach A: nothing is left in flight there
+    sim.steps(3);
+    let before = sim.a.counters().packet_resend;
+    sim.steps(400);
+    assert_eq!(sim.a.counters().packet_resend, before, "both packets were acknowledged");
+}
+
 #[test]
 fn close_handshake_deletes_both_sockets() {
     let mut sim = Sim::new();

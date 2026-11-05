@@ -232,6 +232,10 @@ enum Close {
     Normal,
     /// `failure` or `peer_error`: no reconnect before `urlseed_wait_retry`.
     Failure,
+    /// A failure whose retry time the caller set already: an HTTP error, which waits for the
+    /// server's `Retry-After` when it sent one (libtorrent `retry_web_seed`; its `disconnect`
+    /// then raises a shorter wait to `urlseed_wait_retry`, defeating the header).
+    Retry,
     /// The connect failed: the next attempt uses the next address.
     ConnectFailed,
     /// libtorrent `uninteresting_upload_peer`: the server has nothing we want.
@@ -1157,13 +1161,15 @@ impl Engine {
                     w.have_files.set(f, false);
                 }
             }
-            // libtorrent `retry_web_seed`
+            // libtorrent `retry_web_seed`; at least a second, so a server answering every request
+            // with `Retry-After: 0` is not reconnected to on every tick
             if !w.removed && !w.disabled {
-                w.retry = Some(now + Duration::from_secs(retry_after.unwrap_or(wait) as u64));
+                let secs = retry_after.map_or(wait, |s| s.max(1));
+                w.retry = Some(now + Duration::from_secs(secs as u64));
             }
         }
         self.url_seed_alert(id, &url, format!("{status} {message}"));
-        self.remove_web_conn(slot, &format!("HTTP {status} {message}"), Close::Failure);
+        self.remove_web_conn(slot, &format!("HTTP {status} {message}"), Close::Retry);
     }
 
     /// libtorrent `handle_redirect` (`http_seed_connection`'s for BEP 17): the location
@@ -1318,6 +1324,7 @@ impl Engine {
                     later(&mut w.retry, now + wait);
                 }
                 Close::Failure => later(&mut w.retry, now + wait),
+                Close::Retry => {}
                 // a server without keep-alive closed after its response: reconnect at once
                 Close::Normal => {}
             }

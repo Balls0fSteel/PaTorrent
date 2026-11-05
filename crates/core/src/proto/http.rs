@@ -404,7 +404,14 @@ impl ResponseParser {
 
 // Resolves a `Location` header against the request URL (absolute, or absolute-path).
 pub fn resolve_redirect(base: &Url, location: &str) -> Option<String> {
-    if location.contains("://") {
+    // Absolute only when it starts with a scheme (libtorrent parses it as a URL): a relative
+    // one may carry "://" in its query, as in `/login?return=http://host/x`.
+    let scheme = location.find("://").map(|i| &location[..i]);
+    let is_scheme = |s: &str| {
+        s.chars().next().is_some_and(|c| c.is_ascii_alphabetic())
+            && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '+' | '-' | '.'))
+    };
+    if scheme.is_some_and(is_scheme) {
         return Some(location.to_owned());
     }
     let origin = format!("{}://{}", base.scheme, base.host_header());
@@ -595,5 +602,20 @@ mod tests {
         assert_eq!(resolve_redirect(&base, "https://c.d/e").unwrap(), "https://c.d/e");
         assert_eq!(resolve_redirect(&base, "/other").unwrap(), "http://a.b:81/other");
         assert_eq!(resolve_redirect(&base, "rel?y").unwrap(), "http://a.b:81/dir/rel?y");
+    }
+
+    /// Bug hunt finding 21: a relative `Location` with "://" in its query was taken as absolute.
+    #[test]
+    fn a_relative_redirect_with_a_url_in_its_query_is_resolved() {
+        let base = Url::parse("http://a.b:81/dir/announce?x").unwrap();
+        assert_eq!(
+            resolve_redirect(&base, "/login?return=http://host/x.torrent").unwrap(),
+            "http://a.b:81/login?return=http://host/x.torrent"
+        );
+        assert_eq!(
+            resolve_redirect(&base, "get?u=https://c.d/e").unwrap(),
+            "http://a.b:81/dir/get?u=https://c.d/e"
+        );
+        assert_eq!(resolve_redirect(&base, "HTTPS://c.d/e").unwrap(), "HTTPS://c.d/e");
     }
 }

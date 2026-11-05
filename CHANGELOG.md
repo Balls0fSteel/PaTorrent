@@ -4,6 +4,16 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_102610_1793870770: Version 1.1.74: the bug hunt's engine low findings fixed (18-23, 36, 38)
+
+- **Fixed (18):** a PIECE that is not a valid block of the torrent (range, alignment, length) disconnects the peer, as libtorrent's `verify_piece` does, instead of holding the request until the snub. Wire behaviour change.
+- **Fixed, uTP (19, 20):** a close while the UDP socket is stalled sends its FIN once writable; a stalled socket's deferred ACK no longer takes the manager's single slot (the debug assertion stays).
+- **Fixed (21):** a relative redirect with `://` in its query is resolved against the request.
+- **Fixed (22):** an unmatched NAT-PMP reply no longer cancels the resend timer and leaves the mapper stuck.
+- **Changed (23):** a web seed's `Retry-After` is honoured even when shorter than `urlseed_wait_retry` (at least 1 s, added at merge so `Retry-After: 0` cannot loop). libtorrent 2.0.11 raises it; PORTING.md "Web seed errors" updated.
+- **Fixed (36, 38):** an out-of-range DHT node port in a .torrent is skipped, not truncated; `MerkleTree::add_hashes` on a file of at most half a piece and `load_sparse_tree` on a 0-block tree no longer panic (the third cited panic, `get_piece_layer` for one block, did not reproduce).
+- Each with a test (tests for 18, 19, 20, 23 failed before the fix); clippy and all core tests pass. All 21 low findings are now closed: 20 fixed, 35 ruled out (1.1.73).
+
 ## 2026-11-05_102244_1793870564: Version 1.1.73: the bug hunt's disk and platform low findings (24, 25, 34; 35 ruled out)
 
 - **Fixed (24):** on Windows, renames and cross-volume moves past MAX_PATH no longer fail: `MoveFileExW` and `CopyFileExW` get the `\\?\` / `\\?\UNC\` form as `std::fs` does (`file_pool::wide_path`). Real long-path rename and copy tests fail without it.

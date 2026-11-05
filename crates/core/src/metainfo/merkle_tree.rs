@@ -177,6 +177,11 @@ impl MerkleTree {
         if mask.len() != self.size() {
             return;
         }
+        // a tree without blocks has nothing to load (its empty block range would read as
+        // "every block present", and the root of no hashes is undefined)
+        if self.num_blocks == 0 {
+            return self.clear();
+        }
         let set = |range: std::ops::Range<usize>| range.clone().all(|i| mask.get(i));
         let count = |end: usize| (0..end).filter(|&i| mask.get(i)).count();
 
@@ -411,9 +416,13 @@ impl MerkleTree {
             layer_size /= 2;
         }
 
-        // newly learned piece hashes may validate block hashes received earlier
+        // newly learned piece hashes may validate block hashes received earlier. A file smaller
+        // than half a piece has fewer levels below its one piece (the root) than a piece has:
+        // its blocks are that many levels down, not `base` (which ran past the tree); with no
+        // level at all the piece is its single block, handled above.
         let first_piece_idx = self.piece_layer_start();
         let num_pieces = self.num_pieces();
+        let base = base.min(merkle_num_layers(self.num_leafs()));
         if base != 0 && dest_start_idx >= first_piece_idx && dest_start_idx < first_piece_idx + num_pieces {
             let blocks_in_piece = 1 << base;
             for (i, hash) in hashes.iter().enumerate() {
@@ -1551,5 +1560,50 @@ mod tests {
         t.check_invariant();
         assert!(t.get_hashes(20, 0, 1, 0).is_empty());
         assert!(t.get_hashes(0, 0, 1, 40).is_empty());
+    }
+
+    /// Bug hunt finding 38: on a file of at most half a piece, `add_hashes` of the piece hash
+    /// (the root) looked for its blocks `blocks_per_piece` levels down, past the tree, and
+    /// sliced or hashed out of bounds. The blocks are as many levels down as the tree has.
+    #[test]
+    fn add_hashes_on_a_file_smaller_than_half_a_piece() {
+        for (nb, bpp) in [(1, 2), (1, 4), (2, 4), (2, 8), (3, 8)] {
+            let full = build_tree(nb);
+            let first = merkle_first_leaf(merkle_num_leafs(nb));
+            // the root alone
+            let mut t = MerkleTree::new(nb, bpp, full[0]);
+            let r = t.add_hashes(0, 0, &[full[0]], &[]).expect("the root validates");
+            assert!(r.failed.is_empty(), "{nb} blocks, {bpp} per piece: {r:?}");
+            t.check_invariant();
+            // the blocks first, then the root: the piece passes
+            let mut t = MerkleTree::new(nb, bpp, full[0]);
+            for b in 0..nb {
+                t.set_block(b, &full[first + b]);
+            }
+            let r = t.add_hashes(0, 0, &[full[0]], &[]).expect("the root validates");
+            assert!(r.failed.is_empty(), "{nb} blocks, {bpp} per piece: {r:?}");
+            assert!(t.blocks_verified(0, nb));
+            t.check_invariant();
+        }
+        // a wrong block below an unknown root: still no panic, and the piece is not passed
+        let full = build_tree(3);
+        let mut t = MerkleTree::new(3, 8, full[0]);
+        t.set_block(0, &rand_sha256());
+        t.set_block(1, &full[4]);
+        t.set_block(2, &full[5]);
+        let r = t.add_hashes(0, 0, &[full[0]], &[]).expect("the root validates");
+        assert!(r.passed.is_empty(), "{r:?}");
+        t.check_invariant();
+    }
+
+    /// Bug hunt finding 38: a tree of no blocks took any one-bit mask for a complete block
+    /// layer and took the root of no hashes.
+    #[test]
+    fn load_sparse_tree_of_no_blocks() {
+        for (hashes, bit) in [(vec![], false), (vec![Sha256Hash::default()], true)] {
+            let mut t = MerkleTree::new(0, 4, Sha256Hash::default());
+            t.load_sparse_tree(&hashes, &Bitfield::new(1, bit), &Bitfield::new(0, false));
+            assert!(t.get_piece_layer().is_empty());
+        }
     }
 }

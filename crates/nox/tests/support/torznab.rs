@@ -91,7 +91,13 @@ pub fn start() -> Fake {
     let addr = l.local_addr().unwrap();
     let requests = Arc::new(Mutex::new(Vec::new()));
     let seen = requests.clone();
-    let results = RESULTS.replace("http://localhost:9696", &format!("http://{addr}")).replace("APIKEY", KEY);
+    // the results' info-hashes are those of what their links give here: an add refuses a
+    // download whose info-hash is not its result's
+    let results = RESULTS
+        .replace("http://localhost:9696", &format!("http://{addr}"))
+        .replace("APIKEY", KEY)
+        .replace("58cebaa968651dc2a241c495719f2b6cbec33e32", &torrent("fawlty").1)
+        .replace("97aa3e8bde693b5539da0097e32517e0fdeab50d", &night_magnet().1);
     std::thread::spawn(move || {
         for s in l.incoming() {
             let Ok(mut s) = s else { continue };

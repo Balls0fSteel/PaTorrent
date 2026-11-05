@@ -100,7 +100,11 @@ pub fn fetch_download(
     proxy: Option<&FetchProxy>,
 ) -> Result<Download, String> {
     if !result.magnet.is_empty() {
-        return Ok(Download::Magnet(result.magnet.clone()));
+        let download = Download::Magnet(result.magnet.clone());
+        if names_other_torrent(&result.info_hash, &download) {
+            return Err(tr!(SearchErrHashMismatch, url = ""));
+        }
+        return Ok(download);
     }
     let link = result.link.trim();
     if link.is_empty() {
@@ -115,14 +119,34 @@ pub fn fetch_download(
         ..FetchOptions::default()
     };
     let resp = http_get(link, &opts).map_err(|e| source.redact(&e.to_string()))?;
-    match resp.redirect() {
+    let download = match resp.redirect() {
         Some(m) if m.get(..7).is_some_and(|s| s.eq_ignore_ascii_case("magnet:")) => {
-            Ok(Download::Magnet(m.to_owned()))
+            Download::Magnet(m.to_owned())
         }
-        Some(other) => Err(tr!(RssErrRedirect, url = source.redact(other))),
-        None if resp.body.first() == Some(&b'd') => Ok(Download::Torrent(resp.body)),
-        None => Err(tr!(RssErrNotTorrent, url = source.redact(link))),
+        Some(other) => return Err(tr!(RssErrRedirect, url = source.redact(other))),
+        None if resp.body.first() == Some(&b'd') => Download::Torrent(resp.body),
+        None => return Err(tr!(RssErrNotTorrent, url = source.redact(link))),
+    };
+    if names_other_torrent(&result.info_hash, &download) {
+        return Err(tr!(SearchErrHashMismatch, url = source.redact(link)));
     }
+    Ok(download)
+}
+
+/// True when `download` is known to be another torrent than the info-hash `expected` (a
+/// result's, lowercase hex; empty: no claim). Merged results are keyed by that hash, so a source
+/// whose link leads elsewhere must not add something else under it. A v2-only torrent matches
+/// its truncated v2 hash; a download whose hash cannot be read is left to the engine.
+fn names_other_torrent(expected: &str, download: &Download) -> bool {
+    if expected.is_empty() {
+        return false;
+    }
+    let Some(hashes) = download.info_hashes() else { return false };
+    let found = [hashes.v1, hashes.truncated_v2()];
+    if found.iter().all(Option::is_none) {
+        return false;
+    }
+    !found.iter().flatten().any(|h| h.to_hex().eq_ignore_ascii_case(expected))
 }
 
 /// How a search fetches; the network by default, a fake in tests.
@@ -510,6 +534,36 @@ mod tests {
         r.link = "ftp://localhost/?apikey=SECRETKEY".into();
         let e = fetch_download(&r, &Source { api_key: "SECRETKEY".into(), ..src }, None).unwrap_err();
         assert!(!e.contains("SECRETKEY"), "{e}");
+    }
+
+    /// A merged result's info-hash must be the one of what its link or magnet gives.
+    #[test]
+    fn a_download_with_another_info_hash_is_refused() {
+        use patorrent_core::Sha1Hash;
+        use patorrent_core::metainfo::{CreateFlags, CreateTorrent, FileFlags, FileStorage, TorrentInfo};
+
+        let mut fs = FileStorage::new();
+        fs.add_file("t/a.bin", 20_000, FileFlags::empty(), 0, "", None).unwrap();
+        let mut ct = CreateTorrent::new(fs, 16384, CreateFlags::V1_ONLY).unwrap();
+        for p in 0..ct.num_pieces() {
+            ct.set_hash(p, Sha1Hash([p as u8 + 1; 20])).unwrap();
+        }
+        let bytes = ct.generate_buf().unwrap();
+        let hex = TorrentInfo::from_bytes(&bytes).unwrap().info_hashes().v1.unwrap().to_hex();
+        let file = Download::Torrent(bytes);
+        assert!(!names_other_torrent(&hex, &file));
+        assert!(!names_other_torrent("", &file), "no claim");
+        assert!(names_other_torrent(&"1".repeat(40), &file));
+        assert!(!names_other_torrent(&"1".repeat(40), &Download::Torrent(b"d1:e".to_vec())), "unreadable");
+        let magnet = Download::Magnet(format!("magnet:?xt=urn:btih:{}", hex.to_uppercase()));
+        assert!(!names_other_torrent(&hex, &magnet));
+        assert!(names_other_torrent(&"1".repeat(40), &magnet));
+        // the result's own magnet is checked as well
+        let src = Source { url: "http://localhost:9696/1/api".into(), ..Source::default() };
+        let mut r = res("x", &"1".repeat(40), 1, None);
+        r.magnet = format!("magnet:?xt=urn:btih:{hex}");
+        let e = fetch_download(&r, &src, None).unwrap_err();
+        assert!(e.contains("info-hash"), "{e}");
     }
 
     type Answered = Result<Vec<SearchResult>, SearchError>;

@@ -308,7 +308,8 @@ fn sources_search_and_add() {
     assert_eq!(int(fawlty.get("peers")), 30);
     assert_eq!(int(fawlty.get("size")), 122_170_147);
     assert_eq!(s(fawlty.get("category_text")), "TV");
-    assert_eq!(s(fawlty.get("info_hash")), "58cebaa968651dc2a241c495719f2b6cbec33e32");
+    // the fixture's infohash, replaced by the one of the fake's .torrent
+    assert_eq!(s(fawlty.get("info_hash")), torznab::torrent("fawlty").1);
     assert_eq!(arr(fawlty.get("source_names")), &[Json::from("Prowlarr")]);
     assert!(fawlty.get("link").is_none(), "links carry the indexer's key");
     // what the source was asked

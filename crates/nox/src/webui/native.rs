@@ -1017,6 +1017,7 @@ mod tests {
                 info_hashes: patorrent_core::InfoHashes::v1(patorrent_core::Sha1Hash([i as u8 + 1; 20])),
                 name: format!("t{i}"),
                 total_wanted: 1000 * (i + 1),
+                has_metadata: true,
                 download_payload_rate: 100 * (3 - i as u32),
                 flags: TorrentFlags::AUTO_MANAGED,
                 ..TorrentStatus::default()

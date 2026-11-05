@@ -209,7 +209,7 @@ helps! {
 
     // ---- Preferences > Web UI
     /// frontend: crates/win32/src/webui_host.rs (Setup::enabled, starts with the window, restarted on Apply; WebUiNeedLogin)
-    PrefWebUi = "Serves the Web UI from this window, so a browser can control these torrents while PaTorrent runs. It needs a user name and a password, and restarts when you apply changes.";
+    PrefWebUi = "Serves the Web UI from this window, so a browser can control these torrents while PaTorrent runs. It needs a user name (admin unless you change it) and a password, and restarts when you apply changes.";
     /// frontend: crates/win32/src/webui_host.rs (webui.username), crates/nox/src/webui/prefs.rs (webui.username, needs the current password)
     PrefWebUiUsername = "The user name the Web UI's login asks for. In the browser's Preferences, changing it needs the current password.";
     /// frontend: crates/win32/src/webui_host.rs (stored as a PBKDF2 hash), docs/WEBUI.md (Security: a new password ends the other sessions)
@@ -227,7 +227,7 @@ helps! {
     /// nox: crates/nox/src/webui/mod.rs (Prefs::api_key_enabled), crates/nox/src/webui/api.rs (Bearer check), docs/WEBUI.md (Security)
     WebApiKeyEnabled = "Lets scripts and apps such as Sonarr or Radarr use the Web UI with the key below in an Authorization: Bearer header, without logging in. Off by default.";
     /// nox: crates/nox/src/webui/auth.rs (API_KEY_MIN_LEN 16), docs/WEBUI.md (write-only, hashed, a wrong key counts as a failed login)
-    WebApiKey = "The key apps send, at least 16 characters, stored only as a hash and never shown again. Leave it empty to keep the stored key. A wrong key counts as a failed login.";
+    WebApiKey = "The key apps send, at least 16 characters (not bytes), stored only as a hash and never shown again. Leave it empty to keep the stored key. A wrong key counts as a failed login.";
     /// nox: crates/nox/src/webui/mod.rs (auth_subnets), docs/WEBUI.md (never for proxied requests)
     WebAuthSubnets = "Clients in these networks use the Web UI without logging in, with full control. Never applies to requests through a reverse proxy. List only networks you trust as much as the password.";
     /// nox: crates/nox/src/webui/mod.rs (domain_list, * wildcards), crates/nox/src/webui/api.rs (host_allowed)
@@ -300,11 +300,11 @@ helps! {
     // ======== The Advanced table: network, queue, DHT, transports
 
     /// engine: crates/core/src/engine/tracker.rs (TrackerManager::set_options), engine/upnp.rs, engine/portmap.rs (upnp_settings)
-    AdvUserAgent = "The program name sent to HTTP trackers and to UPnP routers, which also show it as the description of the port mapping. Some private trackers only accept certain clients; otherwise it rarely needs changing.";
+    AdvUserAgent = "The program name sent to HTTP trackers, web seeds and UPnP routers. Routers also show it as the description of the port mapping, except in a named profile, whose mapping is described as PaTorrent (profile name). Some private trackers only accept certain clients; otherwise it rarely needs changing.";
     /// engine: crates/core/src/engine/mod.rs (Engine::new, generate_peer_id), default PEER_ID_PREFIX
     AdvPeerFingerprint = "The prefix of the peer ID that tells other peers and trackers which client this is. A new peer ID is drawn from it at each start, so a change applies at the next start. Rarely needs changing.";
     /// engine: crates/core/src/engine/listen.rs (listen_settings_changed, open_listen_socket), default 0.0.0.0:6881,[::]:6881
-    AdvListenInterfaces = "Comma-separated addresses and ports to accept peers on, written ip:port, with IPv6 addresses in square brackets. 0.0.0.0 and [::] mean every interface. The listen sockets reopen at once when it changes.";
+    AdvListenInterfaces = "Comma-separated addresses and ports to accept peers on, written ip:port, with IPv6 addresses in square brackets, or device:port for a network adapter by name. 0.0.0.0 and [::] mean every interface. While Use Only This Network is on, its adapter's addresses replace the ones listed and only the port is kept. The listen sockets reopen at once when it changes.";
     /// engine: crates/core/src/engine/dht.rs (Engine::start_dht, bootstrap_lookups), default dht.libtorrent.org:25401
     AdvDhtBootstrapNodes = "Comma-separated host:port list of DHT routers used to join the DHT when the routing table is empty. Read when the DHT starts. Through a proxy that cannot resolve names, only entries given as IP addresses are used.";
     /// engine: crates/core/src/engine/auto_limit.rs (Engine::auto_limit step, allowance), default 15
@@ -553,7 +553,7 @@ helps! {
     /// win32 app.rs cmd::PROFILE_NEW -> new_profile -> profile::validate, start_profile
     MenuProfileNew = "Asks for a name, makes a new profile with its own settings and torrents, and starts PaTorrent in it.";
     /// win32 app.rs cmd::PROFILE_SHORTCUT -> profile_shortcut -> shortcut::create
-    MenuProfileShortcut = "Puts a shortcut on the desktop that starts PaTorrent in this window's profile.";
+    MenuProfileShortcut = "Makes a shortcut that starts PaTorrent in this window's profile: on the desktop on Windows, in the applications menu on Linux.";
     /// win32 app.rs cmd::PROFILE_FOLDER -> open_url(base_data_dir)
     MenuProfileFolder = "Opens the folder that holds this profile's settings and torrent data.";
     /// win32 app.rs cmd::CONNECT_REMOTE -> remote_ui::start_remote_window (patorrent.exe --remote)
@@ -613,9 +613,9 @@ helps! {
 
     // ---- Menu: torrent list
     /// win32 app.rs cmd::OPEN_FOLDER -> torrent_action -> open_folder_target, show_in_explorer (also the Files tab's FILE_OPEN_FOLDER -> open_file)
-    MenuOpenFolder = "Opens the folder that holds the selected item in Explorer, with the item selected.";
+    MenuOpenFolder = "Opens the folder that holds the selected item in the file manager, with the item selected where the file manager can.";
     /// win32 app.rs cmd::OPEN_FOLDER -> torrent_action -> open_folder_target, show_in_explorer
-    MenuOpenFolderMany = "Opens the first selected torrent's download folder in Explorer, with its data selected once it exists.";
+    MenuOpenFolderMany = "Opens the first selected torrent's download folder in the file manager, with its data selected once it exists.";
     /// win32 app.rs cmd::FORCE_START -> torrent_action -> actions::force_start
     MenuForceStart = "Starts the selected torrents now, outside the queue: they run even when the queue's limits on active torrents are reached.";
     /// win32 app.rs cmd::START -> torrent_action -> actions::start
@@ -637,7 +637,7 @@ helps! {
     /// win32 app.rs torrent menu -> submenu(menu, remove_and, MenuRemoveAnd)
     MenuRemoveAnd = "Removes the selected torrents from the list and also deletes their downloaded files.";
     /// win32 app.rs cmd::REMOVE_DATA -> remove_selected(true) -> RemoveFlags::DELETE_FILES
-    MenuDeleteData = "Removes the selected torrents and deletes their downloaded files. The files do not go to the Recycle Bin.";
+    MenuDeleteData = "Removes the selected torrents and deletes their downloaded files. The files are deleted for good, not moved to the Recycle Bin or the trash.";
     /// win32 app.rs cmd::RECHECK -> torrent_action -> force_recheck
     MenuRecheck = "Checks the selected torrents' files on disk piece by piece and counts only the pieces that are complete and correct.";
     /// win32 app.rs cmd::REANNOUNCE -> torrent_action -> force_reannounce
@@ -665,7 +665,7 @@ helps! {
 
     // ---- Menu: Files tab
     /// win32 app.rs cmd::FILE_OPEN -> open_file(folder = false) -> ShellExecuteW default verb
-    MenuOpenFile = "Opens the selected file in its default program, as a double click in Explorer would. A file not on disk yet does nothing.";
+    MenuOpenFile = "Opens the selected file in its default program, as a double click in the file manager would. A file not on disk yet does nothing.";
     /// win32 app.rs cmd::FILE_BY_ORDER -> detail::by_file_order, set_file_priority
     MenuPrioritizeByOrder = "Gives the selected files falling priorities in their order in the torrent, so they finish one after another; skipped ones are downloaded again. With the filter on, it orders all the torrent's files.";
     /// win32 app.rs cmd::FILE_RELOCATE -> relocate_file -> dialogs::relocate_file, rename_file

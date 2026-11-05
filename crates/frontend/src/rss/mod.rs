@@ -141,6 +141,9 @@ pub struct RssFeed {
     pub seen: RecentSet,
     /// Episodes the subscription's smart filter has added.
     pub episodes: RecentSet,
+    /// Ids of the items the qBittorrent shim's `rss/markAsRead` marked read (nox's Web API;
+    /// the desktop lists mark new items by `seen` instead).
+    pub read: RecentSet,
     /// The items of the last successful fetch (not persisted).
     pub items: Vec<FeedItem>,
 }
@@ -484,6 +487,7 @@ impl RssDownloader {
         }
         feed.seen.prune(MAX_FEED_HISTORY, &current);
         feed.downloaded.prune(MAX_FEED_HISTORY, &current);
+        feed.read.prune(MAX_FEED_HISTORY, &current);
         feed.episodes.prune(MAX_EPISODES, &HashSet::new());
         feed.items = items;
         out

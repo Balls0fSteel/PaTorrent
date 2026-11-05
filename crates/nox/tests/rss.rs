@@ -344,6 +344,12 @@ fn native_endpoints_and_the_shim_on_one_downloader() {
     let articles =
         arr(t.get_json(&sid, "/api/v2/rss/items?withData=true").get("Shows").unwrap().get("articles"));
     assert!(articles.iter().all(|a| a.get("isRead") == Some(&Json::Bool(true))), "added or marked");
+    // the read mark is kept in rss.dat, the feed's `read` list
+    let dat = t.dir.join("config").join("rss.dat");
+    wait_until("the read mark saved", || {
+        let want = b"4:readl2:e2e";
+        std::fs::read(&dat).is_ok_and(|b| b.windows(want.len()).any(|w| w == want))
+    });
     assert_eq!(t.shim(&sid, "/api/v2/rss/addFolder", "path=x").0, 409);
     let other_feed = format!("http://{feed_addr}/other");
     assert_eq!(t.shim(&sid, "/api/v2/rss/addFeed", &format!("url={}&path=Second", enc(&other_feed))).0, 200);

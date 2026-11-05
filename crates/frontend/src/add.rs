@@ -729,9 +729,13 @@ pub fn save_in_choices(default_dir: &str, recent: &[String]) -> Vec<String> {
     out
 }
 
-/// Folder names compare without case and trailing separators (Windows paths).
+/// Folder names compare without trailing separators, and without case where the file system
+/// usually ignores it (Windows, macOS); `/Data` and `/data` are different folders elsewhere.
 fn same_dir(a: &str, b: &str) -> bool {
-    let t = |s: &str| s.trim().trim_end_matches(['\\', '/']).to_lowercase();
+    let t = |s: &str| {
+        let s = s.trim().trim_end_matches(['\\', '/']);
+        if cfg!(any(windows, target_os = "macos")) { s.to_lowercase() } else { s.to_owned() }
+    };
     t(a) == t(b)
 }
 
@@ -1047,8 +1051,8 @@ mod tests {
         assert!(recent_dirs(&prefs).is_empty());
         remember_dir(&mut prefs, r"C:\a");
         remember_dir(&mut prefs, r"D:\b\");
-        remember_dir(&mut prefs, r"c:\A");
-        assert_eq!(recent_dirs(&prefs), [r"c:\A", r"D:\b\"]);
+        remember_dir(&mut prefs, r"D:\b");
+        assert_eq!(recent_dirs(&prefs), [r"D:\b", r"C:\a"]);
         for i in 0..20 {
             remember_dir(&mut prefs, &format!(r"E:\{i}"));
         }
@@ -1057,6 +1061,20 @@ mod tests {
         assert_eq!(save_in_choices(r"E:\19\", &recent_dirs(&prefs))[..2], [r"E:\19\", r"E:\18"]);
         assert_eq!(size_text(5, 5), "5 B");
         assert_eq!(size_text(2048, 4096), "2.00 kB of 4.00 kB selected");
+    }
+
+    /// Case matters for folder names only where the file system keeps it apart.
+    #[test]
+    fn folder_case_follows_the_platform() {
+        assert!(same_dir("/data/", " /data"));
+        let insensitive = cfg!(any(windows, target_os = "macos"));
+        assert_eq!(same_dir("/Data", "/data"), insensitive);
+        assert_eq!(same_dir(r"C:\a", r"c:\A"), insensitive);
+        let mut prefs = Prefs::default();
+        remember_dir(&mut prefs, "/Data");
+        remember_dir(&mut prefs, "/data");
+        let expected: &[&str] = if insensitive { &["/data"] } else { &["/data", "/Data"] };
+        assert_eq!(recent_dirs(&prefs), expected);
     }
 
     #[test]

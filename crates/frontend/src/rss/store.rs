@@ -9,7 +9,7 @@
 //! next_id
 //! feeds     [ { id, url, alias, enabled, interval (0 = default), subscribe, subscribe_smart,
 //!               title, last_refresh, last_error, etag, last_modified, downloaded [ids],
-//!               seen [ids], episodes [keys] } ]
+//!               seen [ids], episodes [keys], read [ids] } ]
 //! filters   [ { id, name, enabled, pattern, not, save_in, feed (0 = all), quality, episodes,
 //!               label, min_interval, smart, top_priority, paused, last_match, seen_episodes } ]
 //! history   [ { title, url, feed, time } ]
@@ -76,6 +76,7 @@ impl RssDownloader {
                     ("downloaded", strings(f.downloaded.iter())),
                     ("seen", strings(f.seen.iter())),
                     ("episodes", strings(f.episodes.iter())),
+                    ("read", strings(f.read.iter())),
                 ])
             })
             .collect();
@@ -196,6 +197,7 @@ impl RssDownloader {
                 downloaded: set(&f, "downloaded", MAX_FEED_HISTORY * 4),
                 seen: set(&f, "seen", MAX_FEED_HISTORY * 4),
                 episodes: set(&f, "episodes", MAX_EPISODES),
+                read: set(&f, "read", MAX_FEED_HISTORY * 4),
                 items: Vec::new(),
             });
         }
@@ -265,6 +267,17 @@ impl RssDownloader {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The items marked read through the shim's `rss/markAsRead` survive a save and load.
+    #[test]
+    fn read_marks_are_kept() {
+        let mut d = RssDownloader::default();
+        let id = d.add_feed("http://example.org/rss", "");
+        d.feed_mut(id).unwrap().read.insert("item-1");
+        let back = RssDownloader::from_bencode(&d.to_bencode()).unwrap();
+        assert!(back.feed(id).unwrap().read.contains("item-1"));
+        assert_eq!(back.feed(id).unwrap().read.len(), 1);
+    }
 
     /// A portable folder (D42): a filter's save folder inside it is written relative to it.
     #[test]

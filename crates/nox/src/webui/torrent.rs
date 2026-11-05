@@ -53,9 +53,8 @@ pub fn state_str(st: &TorrentStatus) -> &'static str {
     if st.moving_storage {
         return "moving";
     }
-    if st.state == TorrentState::CheckingResumeData {
-        return "checkingResumeData";
-    }
+    // Before the resume-data check: a torrent that never started keeps the engine's initial
+    // CheckingResumeData state, where libtorrent (and so qBittorrent) reports it queued or paused.
     if paused {
         return match (auto, up) {
             (true, true) => "queuedUP",
@@ -65,6 +64,7 @@ pub fn state_str(st: &TorrentStatus) -> &'static str {
         };
     }
     match st.state {
+        TorrentState::CheckingResumeData => "checkingResumeData",
         TorrentState::CheckingFiles => {
             if up {
                 "checkingUP"
@@ -306,6 +306,9 @@ mod tests {
         assert_eq!(state_str(&st(auto, TorrentState::DownloadingMetadata, false)), "metaDL");
         assert_eq!(state_str(&st(auto, TorrentState::CheckingFiles, false)), "checkingDL");
         assert_eq!(state_str(&st(auto, TorrentState::CheckingResumeData, false)), "checkingResumeData");
+        // queued before it ever started: the engine's initial state is CheckingResumeData
+        assert_eq!(state_str(&st(paused | auto, TorrentState::CheckingResumeData, false)), "queuedDL");
+        assert_eq!(state_str(&st(paused, TorrentState::CheckingResumeData, false)), "pausedDL");
         let mut s = st(auto, dl, false);
         s.download_payload_rate = 5;
         assert_eq!(state_str(&s), "downloading");

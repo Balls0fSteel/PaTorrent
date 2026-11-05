@@ -25,12 +25,9 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
 
 - Open from the 1.1.32 review (2026-11-02_220138_1793653298; details and proposals in
   [SECURITY-REVIEW.md](SECURITY-REVIEW.md#open-2)): the self-update's checksum and setup share
-  one origin (sign `SHA256SUMS` or the setup); the all-users setup's elevated re-launch reads
-  the file from `%TEMP%` after our lock ends, and a shared `TEMP` lets another user plant
-  files there (download into `%LOCALAPPDATA%\PaTorrent\update` instead);
-  `PATORRENT_UPDATE_URL` / `_FILES` work in release builds and over plain http; `http_get_to`
-  has no overall deadline; search fetch threads outlive their jobs; a merged search result's
-  info-hash is not checked against the fetched torrent; v2 file trees can make about 210× their
+  one origin (sign `SHA256SUMS` or the setup); `PATORRENT_UPDATE_URL` / `_FILES` still work in
+  release builds (https, or plain http to this machine only); search fetch threads outlive
+  their jobs; v2 file trees can make about 210× their
   size in path strings; fake uTP delays from one host can hold keep ping low's caps at their
   floors when no pings answer (count hosts, not sockets); no fuzz target for the merkle tree
   or hash picker.
@@ -87,9 +84,10 @@ in its title bar. Still open from that round:
 - **Checking progress:** several newly added torrents sat at "Checking 0.0 %" together;
   `active_checking` was 1 then (4 since smart disk I/O, D48), so confirm whether the rest should read "Queued for checking"
   (auto-managed) or whether the checks stall. Not reproduced yet.
-- **GTK:** no alternate row shading (a CSS `nth-child` rule on the column view's rows would
-  do; the UI Settings box is hidden there, `Features::alternate_rows`), and the new
-  Start / Stop / Pause / Enter keys exist on Win32 only. The scheduler colours are shared.
+- **Hand-check on GTK:** alternate row shading (while scrolling, after a folder opens or
+  closes in the Files tab, when sorting, selected and hovered rows, a dark theme, the UI
+  Settings box on and off) and the Ctrl+S / Ctrl+T / Ctrl+Shift+P / Enter keys. The
+  scheduler colours are shared.
 - **Alternate colour:** the shade is the window colour at 15/16 (about `0xF0F0F0` on
   white), not sampled from 2.2.1; compare on the owner's machine.
 - **Build string:** `cargo build` without `PATORRENT_BUILD` reads git at build-script time
@@ -142,8 +140,8 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
   libsecret is open. A new engine setting needs a `settings::TABLE` row.
 - Preferences defaults for peer connections/upload slots apply to future adds,
   not existing torrents; setters now exist if live propagation is wanted. Both
-  defaults are unlimited, unlike 2.2.1's remembered 50 and 4. `aio_threads` and
-  `hashing_threads` are read only at session start. Win32 and shared
+  defaults are unlimited, unlike 2.2.1's remembered 50 and 4. `aio_threads` is
+  read only at session start; `hashing_threads` by nothing. Win32 and shared
   `pref_pages` still have separate field tables and must be kept in sync.
 - Dialog procedures hold `&mut State` across calls that can notify the same
   procedure; a `RefCell` pattern like `app.rs::with_app` would be stricter.
@@ -162,8 +160,7 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
   `seeding goal reached`. A goal's upload cap persists as the torrent's own limit
   after raising the goal; the upload-slot override has no separate stored flag.
   Properties waits up to 2 s for trackers on the GUI thread and leaves a blank
-  unedited tracker box alone on timeout. Private torrents do not grey DHT/PEX
-  controls (the engine ignores them). Shim `addTrackers` gives each URL a new tier.
+  unedited tracker box alone on timeout. Shim `addTrackers` gives each URL a new tier.
 - Windows Integration: check actual HKCU registration, Explorer/browser opens,
   autostart and Start minimized after login, every box and Apply; tests touched
   scratch registry keys only. Check Default Apps on Windows 10. Windows'
@@ -198,11 +195,11 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
 ## GTK desktop checks and limitations
 
 - Hand check of the Files tab menu and label folders (Xubuntu, 2026-11-03_090534_1793693134,
-  all passed). UX notes: after the file chooser's "Replace?" a refused Relocate shows only in the
-  Logger; Prioritize by File Order on three files gives High, High, Low (priorities 7, 5, 3, and
+  all passed). UX notes: after the file chooser's "Replace?" a refused Relocate now shows an
+  error dialog (re-check); Prioritize by File Order on three files gives High, High, Low (priorities 7, 5, 3, and
   5 reads High); a torrent whose data checks complete on add logs "finished downloading" and
   notifies "Download Complete"; the torrent menu is taller than a 620 px window (Label and
-  Properties need scrolling); Ctrl+A does not select all in the Files list. Not checked: the
+  Properties need scrolling); re-check D50's Ctrl+A in the Files list on Linux. Not checked: the
   remote-window case, an empty label, nested labels.
 
 CI builds/tests the GTK client, and the owner found the GUI fine on 2026-10-23.
@@ -212,8 +209,7 @@ That broad check does not establish that every detailed case below was tried.
   space, folder expansion and keyboard navigation, mixed checkboxes, multi-row
   Space, priority readback, thousands of files and scroll position, renamed root,
   Escape/Cancel, a real magnet and a restart while awaiting metadata, and RTL
-  arrows. `add::same_dir` compares without case and can merge `/Data` and `/data`.
-  GTK's `Don't show this again` and pre-add Advanced options remain absent.
+  arrows. GTK's `Don't show this again` and pre-add Advanced options remain absent.
 - Preferences: check long captions, greying, pickers, Random Port, IP filter
   reload/status, Advanced filter/changed rows/Set/Reset/Enter/True/False, invalid
   values and focus/page changes, OK/Cancel/Apply/Escape, the language notice, and
@@ -413,8 +409,8 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   States use documented `pausedDL`/`pausedUP`; change to 5.x `stoppedDL`/`stoppedUP`
   if a client needs it. `sync/maindata` stores roughly 50 field values per torrent
   per logged-in client; consider change counters at large scale/many clients.
-- Restored `torrents/info.isPrivate` stays false until metadata/properties are
-  fetched. Saved Web UI preferences override CLI rate limits and port next start;
+- Restored `torrents/info.isPrivate` fills in at 128 per tick after a large restore.
+  Saved Web UI preferences override CLI rate limits and port next start;
   revisit if surprising. The native page's 100k per-client model still needs
   measurement independently from the older whole-page gate.
 
@@ -423,7 +419,6 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 - Scheduler: click the Win32 grid and verify a real hour boundary for Turn off,
   Seeding only and Limited. Clock polling can apply a mode up to 1 s late; Turn
   off shows per-torrent queued/stopped state rather than a scheduled status.
-  Outstanding download requests survive upload mode (libtorrent clears them).
   nox runs scheduler only with `--webui`; shim scheduler preferences are unmapped.
 - RSS: click Win32 layout at 100/150% DPI, Quality popup, feed tree menus/item
   list, filters/preview/History and a public feed through each GUI. Compare 2.2.1's
@@ -433,7 +428,7 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   without episodes require an empty Episode filter. These choices need comparison.
 - RSS limitations: page feed items live in its dialog rather than the torrent
   list; failed downloads remain in History and engine-refused adds stay marked
-  added. Shim read marks are not persisted, `useRegex` is ignored,
+  added. `useRegex` is ignored (no regex engine),
   `mustContain` uses our wildcard syntax and RSS folders return 409. nox runs RSS
   only with `--webui`, with no persistence under `--no-state`. Feed fetches ignore
   the IP filter, and Atom HTML titles are not decoded twice. Conditional GET (ETag,
@@ -529,19 +524,19 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   before disk completion; errors appear only in nox console.
 - Part files: already-existing skipped data stays in its file rather than
   moving into the part file. After restarting a completed torrent and unskipping
-  a file, a redundant seed disconnect can impose a 60 s reconnect delay; an
-  unskip could reset that timer. Resume tests still missing include torrent-file
+  a file, a redundant seed disconnect can impose a 60 s reconnect delay; libtorrent
+  2.0.11 keeps it too (only leaving upload mode resets it, now ported), so resetting
+  it on unskip would be a deliberate divergence. Resume tests still missing include torrent-file
   round trips and `preserve_*` magnet cases.
 - Magnets: stopping drops partial metadata; `so=` default-don't-download and a
   custom name are lost after a pre-metadata restart. `TorrentSource::Resume`
-  without an embedded info dictionary is rejected. Unknown size displays 0 B
-  rather than an empty cell. Verify real-magnet Add OK/Cancel and restart while
+  without an embedded info dictionary is rejected. Verify real-magnet Add OK/Cancel and restart while
   waiting: changed folder, unchecked files, removed row/part data on Cancel.
   Waiting uses forced upload mode, so it reads `[F] Downloading` with 0 B/s;
   queue-respecting metadata would wait behind active slots. Duplicate magnets
   are refused. Skip hash check cannot apply after metadata's check, but changing
   Save In rechecks there. `STOP_WHEN_READY` differs from libtorrent by stopping
-  after metadata/check rather than when metadata fetching starts; document it.
+  after metadata/check rather than when metadata fetching starts.
 
 ## Engine networking and protocol follow-ups
 
@@ -586,7 +581,7 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   live session.
 - LSD: same-host clients are found on many interfaces; duplicate IDs prevent
   multiple connections but retries continue. A shared-ID/address hint could
-  reduce them. Hybrids announce one hash rather than both. Test another machine
+  reduce them. Test another machine
   on a real Linux/FreeBSD LAN; `lo` may lack multicast flags. Auto-managed seeds
   take announce slots in list order rather than libtorrent `seed_rank`.
 - PEX: three-client interop should confirm our messages (interop disables PEX
@@ -608,7 +603,7 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   checks. UDP loopback can lose tails under load (500 ms stalls); use TCP for
   timing-sensitive tests and measure socket-buffer defaults before increasing
   them. The retransmission-timer-on-ACK-progress rule deliberately differs from
-  libtorrent and belongs in PORTING.md/interop notes.
+  libtorrent.
 - Super-seeding: compare `[S] Seeding` and Advanced-menu contents with 2.2.1.
   Reset Bans/Clear Peer List/Set Destination Name are absent; deprecated
   `strict_super_seeding` is unported. qBittorrent transport/super-seed checks pass;
@@ -624,14 +619,12 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   are not persisted, so restored private torrents use 30 min until announcing.
   At 200 per 30 s, more than about 12k paused torrents exceed a 30 min cycle;
   startup's first pass is slow and HTTP may issue 200 requests at once. Visual
-  Win32 checks remain; nox scrapes only with Web UI, none while scheduled off,
-  and scrape replies/failures are omitted from Logger.
+  Win32 checks remain; nox scrapes only with Web UI, none while scheduled off.
 - At low connection limits, observe real peer turnover (e.g. 20 slots, 5 min).
   A readable peer still consumes remaining quota until the tick; libtorrent
   queues it when the channel runs short. Keep current even-split behavior unless
   measurements show starvation.
-- Web seeds: check displayed URLs/client names in a running GUI; credentials in
-  stored URLs are currently shown verbatim. Partial-file availability/per-file
+- Web seeds: check displayed URLs/client names in a running GUI. Partial-file availability/per-file
   redirects can leave an unaligned boundary piece without a usable seed, as in
   libtorrent.
 
@@ -647,8 +640,7 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
 - Latent until v2 block-hash trees are used: merkle block-pass reporting
   (aa07b2349f, 12b662c938, 50c0450b22, af430f8973), the hash picker's
   `proof_layers` for block requests (b1f7172f5d), block requests with one
-  block per piece (40851bd4b1, 8c0eba3462, 7be6ebc70b). `v2::hash_request_cost`
-  still models the old proof indexing (slightly low for one-hash requests).
+  block per piece (40851bd4b1, 8c0eba3462, 7be6ebc70b).
 - With BEP 44: refuse mutable items whose salt exceeds 64 bytes (2.1.1).
 - Ported in 1.1.21: `natpmp_gateway`, `natpmp_lease_duration`, the 160-bit DH exponent,
   `dont_count_slow_torrents` with 2.0.14's debounce (new `inactive_down_rate`,
@@ -685,9 +677,7 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   divergence, not needed: take a FIN that acks our SYN as a refusal and count the attempt as
   failed at once instead of after 15 s. Not investigated: high loss counters on uTP from
   qBittorrent into us on loopback (824 lost, 8 timeouts) while 38.5 MB still finished in 1.5-12 s.
-- Older queueing gaps seen in the rerun: a queued auto-managed torrent that never started
-  shows `checkingResumeData` in the shim where qBittorrent shows `queuedDL`. `active_checking`
-  is used since smart disk I/O (D48); whether a complete torrent queued behind downloads is
+- Older queueing gap seen in the rerun: `active_checking` is used since smart disk I/O (D48); whether a complete torrent queued behind downloads is
   still checked only when it gets a download slot is unverified.
 
 ## Updates, installer and website
@@ -715,16 +705,14 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   now?" Yes, the old PaTorrent gone within a second, the setup over the same folder for one
   user, the new one started not elevated. Still by hand: an all-users install (the UAC prompt
   is on the secure desktop), a real download from GitHub and through a proxy, and a failed
-  install starting the old one. The downloaded setup stays in `%TEMP%\PaTorrent-update` until
-  the next update clears it. Known limits: the box offers the install only when an Uninstall key names
-  the exe's folder (a copied installed folder counts as portable); the download goes to
-  `%TEMP%`; nothing resumes a broken download; the setup stays unsigned.
+  install starting the old one. The downloaded setup stays in `%LOCALAPPDATA%\PaTorrent\update`
+  until the next update clears it. Known limits: the box offers the install only when an Uninstall key names
+  the exe's folder (a copied installed folder counts as portable); nothing resumes a broken download; the setup stays unsigned.
 - nox's update check (D43, 2026-10-30): unit- and Web UI-tested with fake
   fetchers and a refused local URL only. Not checked: a live `update.txt`, the
   page's status-bar link in a browser, a proxy. Without `--webui` only
   `--no-update-check` turns it off (a stored `update.check` in `webui.json` is
   read only when the Web UI runs); nox has no manual "check now".
-- Serbian's Help menu: MenuAbout and MenuNotices both use the О mnemonic.
 - The new strings (update check, Help items) are machine translations like the
   rest; a native speaker should review them with the tables (Localisation), and
   the installer's own texts in `packaging/windows/strings.nsh`.
@@ -795,8 +783,8 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   returns immediately); the restore runs on `lt-network` without touching data files
   (100,000 torrents listed in 1.16 s), and file checks run one at a time on `lt-hash`,
   each shown as "Checking x%". The list is empty until the restore and the first
-  auto-manage pass finish; a status-bar "Restoring N torrents" until
-  `Alert::TorrentsRestored` (ignored by both GUIs today) would be cheap. Synchronous
+  auto-manage pass finish; the Win32 status bar shows "Restoring torrents..." until
+  `Alert::TorrentsRestored` (GTK does not yet). Synchronous
   GUI-thread I/O at start: the IP filter and `rss.dat` (settings folder, local).
 - **The auto-load folder poll** ran on the GUI thread every timer tick; both GUIs now use
   `torrent_folders::Watcher` (done).
@@ -962,15 +950,8 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   (F1 against the browser's, phone, dark mode, RTL) not seen. The other dialogs (Add, Properties,
   RSS) and GTK's main-menu items have no help yet; `docs/HELP_TEXTS.md` is for the owner's review
   against the code. Translations of the help texts come with the wiki (fall back to English).
-- **Checked against the code 2026-11-04 (1.1.65):** 37 texts fixed. Left open: the Hashing
-  threads label (a UI string, translated) still promises an effect; the menu texts name Explorer,
-  desktop shortcuts and the Recycle Bin, which `docs/HELP_TEXTS.md` shows for Linux too; the tray's
-  "Hide" restores a minimized window when Minimize to Tray is off (`win32/src/app.rs` ~3282);
-  small omissions in AdvUserAgent (web seeds, the profile's port-mapping name),
-  AdvListenInterfaces (`device:port`, the network rule replaces the list), WebApiKey (characters
-  or bytes), PrefWebUi (user name defaults to admin), PrefDiskWriteQueue (below 4 MB acts as 4 MB).
-- **Found while writing the texts:** `hashing_threads` is read by nothing although its label
-  promises "used from the next start"; `tracker_receive_timeout` and `request_timeout` are unused;
+- **Found while writing the texts:** `hashing_threads` is read by nothing (its label and help
+  now say so); `tracker_receive_timeout` and `request_timeout` are unused;
   `max_queued_disk_bytes` acts as at least 4 MB, so the 1 MB default means 4 MB;
   `min_announce_interval` only matters when a tracker asks for less than a minute. Decide whether
   to wire them or drop the rows.

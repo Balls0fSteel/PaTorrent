@@ -885,7 +885,9 @@ PrefDiskQueue=Disk Queue and Files
 PrefDiskWriteQueue=Disk write queue (kB):
 PrefOpenFiles=Maximum number of open files:
 PrefAioThreads=Disk I/O threads (used from the next start):
-PrefHashThreads=Hashing threads (used from the next start):
+
+# Kept for libtorrent compatibility; this version reads it nowhere.
+PrefHashThreads=Hashing threads (not used):
 PrefBadNumber=Please enter a number from {min} to {max}.
 PrefNoProxyHost=Please enter the proxy server's address.
 PrefNoProxyPort=Please enter the proxy server's port.
@@ -1328,6 +1330,10 @@ SearchNoSources=No search sources yet: add your Prowlarr or Jackett under Manage
 
 # A torrent added from the results; {name} is its name.
 SearchAdded=Added: {name}
+
+# Adding a result refused: the .torrent or magnet its link gave has another info-hash than
+# the result; {url} is the link (may be empty).
+SearchErrHashMismatch={url}: not the torrent of this result (its info-hash differs)
 SearchManage=Manage Sources...
 
 # The window listing the search sources.
@@ -1568,7 +1574,7 @@ help.PrefSchedTable=One cell per hour of the week; a click moves a cell on to th
 help.PrefSchedUp=The global upload limit during the table's Limited hours, in place of the normal one. 0 means unlimited.
 help.PrefSchedDown=The global download limit during the table's Limited hours, in place of the normal one. 0 means unlimited.
 help.PrefSchedDht=Also switches the DHT off during the table's Turn off hours, so PaTorrent stays quiet on the network. On by default.
-help.PrefWebUi=Serves the Web UI from this window, so a browser can control these torrents while PaTorrent runs. It needs a user name and a password, and restarts when you apply changes.
+help.PrefWebUi=Serves the Web UI from this window, so a browser can control these torrents while PaTorrent runs. It needs a user name (admin unless you change it) and a password, and restarts when you apply changes.
 help.PrefWebUiUsername=The user name the Web UI's login asks for. In the browser's Preferences, changing it needs the current password.
 help.PrefWebUiPassword=The Web UI's login password, stored only as a hash. Leave it empty to keep the stored one. A new password logs out every other browser.
 help.PrefCurrentPassword=Your present Web UI password, needed to change the login, the API key, the subnets and the other security settings. It is never stored; a wrong one logs this browser out.
@@ -1577,7 +1583,7 @@ help.PrefWebUiRemote=Listens on every IPv4 address of this computer, so other co
 help.PrefWebUiHttps=Serves the Web UI over HTTPS with a certificate PaTorrent makes itself and keeps in the settings folder. Browsers warn about such a certificate until you accept it.
 help.PrefWebUiOpen=Opens the running Web UI in your browser.
 help.WebApiKeyEnabled=Lets scripts and apps such as Sonarr or Radarr use the Web UI with the key below in an Authorization: Bearer header, without logging in. Off by default.
-help.WebApiKey=The key apps send, at least 16 characters, stored only as a hash and never shown again. Leave it empty to keep the stored key. A wrong key counts as a failed login.
+help.WebApiKey=The key apps send, at least 16 characters (not bytes), stored only as a hash and never shown again. Leave it empty to keep the stored key. A wrong key counts as a failed login.
 help.WebAuthSubnets=Clients in these networks use the Web UI without logging in, with full control. Never applies to requests through a reverse proxy. List only networks you trust as much as the password.
 help.WebDomains=Host names the Web UI answers to besides IP addresses and localhost, such as this computer's name for an app in Docker; * matches anything. While Host header validation is on, other names are refused.
 help.WebListenAddress=The address and port the Web UI listens on, shown for reference. It is set where the server starts: nox's --webui option, or a desktop window's Web UI page.
@@ -1608,9 +1614,9 @@ help.PrefDiskSlowDownloads=While a drive answers writes clearly slower than usua
 help.PrefDiskSlowUploads=While a drive answers reads clearly slower than usual, halves the upload rate step by step, never below 50 kB/s, and lets it grow again once the disk is quiet. Seeding then uploads less.
 help.GuideRouter=The older choice lowers the connections to 100 in all, 40 per new torrent and 8 new connection attempts a second, so a small router keeps up. The modern choice keeps the defaults: 200, no limit per torrent and 30 a second.
 help.GuideSmartDisk=Turns on gentle checks, per-drive tuning and the slow-down of downloads and uploads while a disk answers slowly. It shows ticked only while all four are on; unticking it then turns them off.
-help.AdvUserAgent=The program name sent to HTTP trackers and to UPnP routers, which also show it as the description of the port mapping. Some private trackers only accept certain clients; otherwise it rarely needs changing.
+help.AdvUserAgent=The program name sent to HTTP trackers, web seeds and UPnP routers. Routers also show it as the description of the port mapping, except in a named profile, whose mapping is described as PaTorrent (profile name). Some private trackers only accept certain clients; otherwise it rarely needs changing.
 help.AdvPeerFingerprint=The prefix of the peer ID that tells other peers and trackers which client this is. A new peer ID is drawn from it at each start, so a change applies at the next start. Rarely needs changing.
-help.AdvListenInterfaces=Comma-separated addresses and ports to accept peers on, written ip:port, with IPv6 addresses in square brackets. 0.0.0.0 and [::] mean every interface. The listen sockets reopen at once when it changes.
+help.AdvListenInterfaces=Comma-separated addresses and ports to accept peers on, written ip:port, with IPv6 addresses in square brackets, or device:port for a network adapter by name. 0.0.0.0 and [::] mean every interface. While Use Only This Network is on, its adapter's addresses replace the ones listed and only the port is kept. The listen sockets reopen at once when it changes.
 help.AdvDhtBootstrapNodes=Comma-separated host:port list of DHT routers used to join the DHT when the routing table is empty. Read when the DHT starts. Through a proxy that cannot resolve names, only entries given as IP addresses are used.
 help.AdvAutoLimitDelayMs=Milliseconds of extra ping the automatic rate limit allows above the line's idle ping before it lowers the speed caps. Lower keeps games and calls smoother; higher allows more speed. Only used while the automatic limit is on.
 help.AdvAutoLimitProbeHosts=Comma-separated IP addresses the automatic rate limit pings to measure the line's delay when no router past the line answers. Read when the automatic limit is switched on. Rarely needs changing.
@@ -1730,7 +1736,7 @@ help.MenuImportQbt=Adds the torrents of qBittorrent on this computer with their 
 help.MenuImportUt=Adds the torrents listed in µTorrent's resume.dat with their data, statistics, trackers and labels. µTorrent must not be running; the files are checked.
 help.MenuProfiles=Lists the settings profiles; picking one starts PaTorrent in that profile in a window of its own, or brings it to the front.
 help.MenuProfileNew=Asks for a name, makes a new profile with its own settings and torrents, and starts PaTorrent in it.
-help.MenuProfileShortcut=Puts a shortcut on the desktop that starts PaTorrent in this window's profile.
+help.MenuProfileShortcut=Makes a shortcut that starts PaTorrent in this window's profile: on the desktop on Windows, in the applications menu on Linux.
 help.MenuProfileFolder=Opens the folder that holds this profile's settings and torrent data.
 help.MenuConnectRemote=Opens another window that connects to a patorrent-nox server on another computer and controls its torrents.
 help.MenuExit=Closes the window and quits PaTorrent, stopping all transfers, even when Close to Tray is on. In a remote window, the server's torrents keep running.
@@ -1757,8 +1763,8 @@ help.MenuWebsite=Opens the PaTorrent website in your web browser.
 help.MenuCheckUpdates=Asks the PaTorrent website whether a newer version is out and tells you the answer.
 help.MenuAbout=Shows PaTorrent's version, copyright and licence, and where its settings file is.
 help.MenuNotices=Shows the licence texts of the third-party code PaTorrent is built on.
-help.MenuOpenFolder=Opens the folder that holds the selected item in Explorer, with the item selected.
-help.MenuOpenFolderMany=Opens the first selected torrent's download folder in Explorer, with its data selected once it exists.
+help.MenuOpenFolder=Opens the folder that holds the selected item in the file manager, with the item selected where the file manager can.
+help.MenuOpenFolderMany=Opens the first selected torrent's download folder in the file manager, with its data selected once it exists.
 help.MenuForceStart=Starts the selected torrents now, outside the queue: they run even when the queue's limits on active torrents are reached.
 help.MenuStart=Hands the selected torrents to the queue, which runs them as the limits on active torrents allow.
 help.MenuPause=Halts the selected torrents and takes them out of the queue. They show as Paused, also after a restart, until started again.
@@ -1769,7 +1775,7 @@ help.MenuQueueTop=Moves the selected torrents to the top of the queue, keeping t
 help.MenuQueueBottom=Moves the selected torrents to the bottom of the queue, keeping their order, so they run last.
 help.MenuRemove=Removes the selected torrents from the list, asking first when Preferences says so. The downloaded files stay on disk; only the part file holding pieces of skipped files is deleted.
 help.MenuRemoveAnd=Removes the selected torrents from the list and also deletes their downloaded files.
-help.MenuDeleteData=Removes the selected torrents and deletes their downloaded files. The files do not go to the Recycle Bin.
+help.MenuDeleteData=Removes the selected torrents and deletes their downloaded files. The files are deleted for good, not moved to the Recycle Bin or the trash.
 help.MenuRecheck=Checks the selected torrents' files on disk piece by piece and counts only the pieces that are complete and correct.
 help.MenuUpdateTracker=Contacts the selected torrents' trackers now, without waiting for the next announce, to report progress and get more peers.
 help.MenuAdvanced=Moves the selected torrents' files to another folder, or turns Initial Seeding on or off.
@@ -1782,7 +1788,7 @@ help.MenuLabel=Gives the selected torrents a label, which groups them in the cat
 help.MenuNewLabel=Asks for a new label name and gives it to the selected torrents.
 help.MenuRemoveLabel=Takes the label off the selected torrents.
 help.MenuProperties=Opens the Torrent Properties of the selected torrents: trackers, bandwidth, seeding goal and other settings.
-help.MenuOpenFile=Opens the selected file in its default program, as a double click in Explorer would. A file not on disk yet does nothing.
+help.MenuOpenFile=Opens the selected file in its default program, as a double click in the file manager would. A file not on disk yet does nothing.
 help.MenuPrioritizeByOrder=Gives the selected files falling priorities in their order in the torrent, so they finish one after another; skipped ones are downloaded again. With the filter on, it orders all the torrent's files.
 help.MenuRelocate=Picks a new place for the selected file and moves it there, or, when it is not on disk, uses the file found there; a Force Re-check counts its pieces.
 help.MenuHide=Hides the PaTorrent window; the torrents keep running and the tray icon brings the window back.

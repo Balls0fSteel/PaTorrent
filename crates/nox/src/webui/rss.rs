@@ -19,7 +19,6 @@
 //! `WebUi::rss_changed`. The lock order is the same: the RSS lock, then the State lock; the
 //! host's methods only queue and post, so a request thread never waits on the host's thread.
 
-use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::{Arc, MutexGuard};
 
@@ -49,22 +48,20 @@ pub struct Rss {
     pub file: Option<PathBuf>,
     /// The model changed since `rss.dat` was saved (whoever saves it clears this).
     pub dirty: bool,
-    /// Articles the shim's `rss/markAsRead` marked, as (feed, item id); not saved.
-    pub read: HashSet<(FeedId, String)>,
 }
 
 impl Rss {
     /// A host's downloader: its model and its worker (whose `notify` tells the host's thread
     /// to collect). Nothing is saved here.
     pub fn new(d: RssDownloader, worker: Worker) -> Rss {
-        Rss { d, worker, file: None, dirty: false, read: HashSet::new() }
+        Rss { d, worker, file: None, dirty: false }
     }
 
     pub(crate) fn load(file: Option<PathBuf>) -> Rss {
         let d = file.as_deref().map(RssDownloader::load).unwrap_or_default();
         // the tick collects the results; nothing needs waking
         let worker = Worker::with_fetcher(Arc::new(Quiet), || {});
-        Rss { d, worker, file, dirty: false, read: HashSet::new() }
+        Rss { d, worker, file, dirty: false }
     }
 
     fn save(&mut self) -> Option<String> {
@@ -685,7 +682,15 @@ pub(crate) fn shim(shared: &Shared, endpoint: &str, param: &dyn Fn(&str) -> Opti
                             .collect()
                     })
                     .unwrap_or_default();
-            r.read.extend(ids.into_iter().map(|i| (id, i)));
+            // kept in the feed's `read` set, saved in rss.dat with the rest
+            let mut marked = false;
+            if let Some(f) = r.d.feed_mut(id) {
+                for i in &ids {
+                    marked |= !f.read.contains(i);
+                    f.read.insert(i);
+                }
+            }
+            r.dirty |= marked;
             Response::ok()
         }
         "items" => {
@@ -702,8 +707,7 @@ pub(crate) fn shim(shared: &Shared, endpoint: &str, param: &dyn Fn(&str) -> Opti
                         .items
                         .iter()
                         .map(|i| {
-                            let read =
-                                f.downloaded.contains(i.id()) || r.read.contains(&(f.id, i.id().to_owned()));
+                            let read = f.downloaded.contains(i.id()) || f.read.contains(i.id());
                             Json::obj()
                                 .with("id", i.id())
                                 .with(

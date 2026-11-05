@@ -830,7 +830,8 @@ strings! {
     PrefDiskWriteQueue = "Disk write queue (kB):";
     PrefOpenFiles = "Maximum number of open files:";
     PrefAioThreads = "Disk I/O threads (used from the next start):";
-    PrefHashThreads = "Hashing threads (used from the next start):";
+    /// Kept for libtorrent compatibility; this version reads it nowhere.
+    PrefHashThreads = "Hashing threads (not used):";
     PrefBadNumber = "Please enter a number from {min} to {max}.";
     PrefNoProxyHost = "Please enter the proxy server's address.";
     PrefNoProxyPort = "Please enter the proxy server's port.";
@@ -1232,6 +1233,9 @@ strings! {
     SearchNoSources = "No search sources yet: add your Prowlarr or Jackett under Manage Sources.";
     /// A torrent added from the results; {name} is its name.
     SearchAdded = "Added: {name}";
+    /// Adding a result refused: the .torrent or magnet its link gave has another info-hash than
+    /// the result; {url} is the link (may be empty).
+    SearchErrHashMismatch = "{url}: not the torrent of this result (its info-hash differs)";
     SearchManage = "Manage Sources...";
     /// The window listing the search sources.
     SearchSourcesTitle = "Search Sources";

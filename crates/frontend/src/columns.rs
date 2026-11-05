@@ -211,6 +211,9 @@ impl Column {
             Column::QueuePosition => {
                 st.queue_position.map_or_else(|| "*".to_owned(), |q| (q + 1).to_string())
             }
+            // a magnet still fetching its metadata: the size is unknown, an empty cell as in
+            // µTorrent (not "0 B"), like the other unknown values
+            Column::Size | Column::Remaining if !st.has_metadata => String::new(),
             Column::Size => fmt::size(st.total_wanted),
             Column::Done => fmt::percent(st.progress_ppm),
             Column::Status => status_text(st, x.user_paused),
@@ -585,5 +588,19 @@ mod tests {
         st.flags |= patorrent_core::TorrentFlags::PAUSED;
         assert_eq!(Column::DownSpeed.text(&st, x), "");
         assert_eq!(Column::UpSpeed.text(&st, x), "");
+    }
+
+    /// A magnet without its metadata yet has no known size: empty cells, not "0 B".
+    #[test]
+    fn unknown_size_is_an_empty_cell() {
+        let mut st = TorrentStatus::default();
+        let x = RowExtra::default();
+        assert_eq!(Column::Size.text(&st, x), "");
+        assert_eq!(Column::Remaining.text(&st, x), "");
+        st.has_metadata = true;
+        assert_eq!(Column::Size.text(&st, x), "0 B");
+        st.total_wanted = 2048;
+        assert_eq!(Column::Size.text(&st, x), "2.00 kB");
+        assert_eq!(Column::Remaining.text(&st, x), "2.00 kB");
     }
 }

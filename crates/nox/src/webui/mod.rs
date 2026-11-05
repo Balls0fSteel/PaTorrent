@@ -80,6 +80,10 @@ pub const LOG_LINES: usize = 500;
 pub const SPEED_SAMPLES: usize = 600;
 /// A speed ring no client looked at for this many ticks is dropped.
 const SPEED_IDLE_TICKS: u64 = 600;
+/// Restored torrents whose metadata (the private flag) is asked of the engine per status tick:
+/// one blocking engine round trip each, on the thread feeding the alerts (a hosting window's
+/// GUI thread), so few per tick; 100k restored torrents take a quarter of an hour of ticks.
+const META_PER_TICK: usize = 128;
 
 /// How to start the Web UI.
 #[derive(Clone, Debug)]
@@ -483,6 +487,10 @@ pub(crate) struct State {
     /// Torrent hash -> category.
     pub torrent_categories: HashMap<String, String>,
     pub meta: HashMap<String, Meta>,
+    /// Torrents whose metadata arrived (or that were restored with it) without an entry in
+    /// `meta` yet: their private flag is asked of the engine a few per status tick
+    /// ([`META_PER_TICK`]), so a restored torrent's `isPrivate` is right without a Properties visit.
+    pub meta_wanted: VecDeque<TorrentId>,
     /// The stored preferences, as the frontend's preferences keys (what the Win32 client keeps
     /// in `patorrent.ini`): the engine settings that differ from the defaults as `lt.<name>`,
     /// the `GuiOptions` keys, the Web UI's own as `webui.<name>`, and the Add dialog's
@@ -935,6 +943,7 @@ impl WebUi {
                 categories_version: 1,
                 torrent_categories,
                 meta: HashMap::new(),
+                meta_wanted: VecDeque::new(),
                 options,
                 default_save_path: config.save_path.clone(),
                 listen_addr: addr,
@@ -1343,9 +1352,19 @@ impl WebUi {
             }
             found = autoload(&mut st, &self.shared.path_policy, now);
         }
+        let meta_wanted: Vec<TorrentId> = if ticked {
+            let n = st.meta_wanted.len().min(META_PER_TICK);
+            st.meta_wanted.drain(..n).collect()
+        } else {
+            Vec::new()
+        };
         drop(st);
         if replied {
             self.shared.replied.notify_all();
+        }
+        // restored torrents' private flag (`isPrivate`), asked outside the State lock
+        for id in meta_wanted {
+            commands::meta(&self.shared, id);
         }
         for (path, source) in found {
             if let Err(e) = commands::add(&self.shared, source, &commands::AddOptions::default()) {
@@ -1503,6 +1522,10 @@ impl State {
         let hash = torrent::hash_of(&s.info_hashes);
         let key = s.info_hashes.key_hex();
         let active = s.download_payload_rate > 0 || s.upload_payload_rate > 0;
+        let had_metadata = self.torrents.get(&s.id).is_some_and(|e| e.status.has_metadata);
+        if s.has_metadata && !had_metadata && !self.meta.contains_key(&hash) {
+            self.meta_wanted.push_back(s.id);
+        }
         match self.torrents.get_mut(&s.id) {
             Some(e) => {
                 if active {
@@ -1696,6 +1719,7 @@ impl State {
             categories_version: 1,
             torrent_categories: HashMap::new(),
             meta: HashMap::new(),
+            meta_wanted: VecDeque::new(),
             options: patorrent_frontend::prefs::Prefs::default(),
             default_save_path: String::new(),
             listen_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
@@ -1738,6 +1762,24 @@ mod tests {
             name: format!("t{id}"),
             ..TorrentStatus::default()
         }
+    }
+
+    /// A torrent seen with metadata (restored, or its magnet's metadata arrived) is queued once
+    /// for its private flag; one whose metadata the shim already has is not.
+    #[test]
+    fn torrents_with_new_metadata_are_queued_for_their_private_flag() {
+        let mut st = State::for_tests();
+        let (mut a, mut b) = (status(1, 1), status(2, 2));
+        st.update(a.clone(), 0);
+        assert!(st.meta_wanted.is_empty(), "no metadata yet");
+        a.has_metadata = true;
+        st.update(a.clone(), 0);
+        st.update(a, 0);
+        assert_eq!(st.meta_wanted, [TorrentId::from_raw(1)]);
+        b.has_metadata = true;
+        st.meta.insert(torrent::hash_of(&b.info_hashes), Meta::default());
+        st.update(b, 0);
+        assert_eq!(st.meta_wanted.len(), 1, "the shim has its metadata");
     }
 
     /// Hosted: a torrent's first sight takes the host's label and pause mark, `by_key` finds

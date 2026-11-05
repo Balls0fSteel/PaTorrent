@@ -315,8 +315,13 @@ pub fn location(shared: &Shared, ids: &[TorrentId], dir: &str) -> Result<(), Cmd
     Ok(())
 }
 
+/// Folder names compare without trailing separators, and without case only where the file
+/// system usually ignores it (Windows, macOS).
 fn same_dir(a: &str, b: &str) -> bool {
-    let t = |s: &str| s.trim().trim_end_matches(['\\', '/']).to_lowercase();
+    let t = |s: &str| {
+        let s = s.trim().trim_end_matches(['\\', '/']);
+        if cfg!(any(windows, target_os = "macos")) { s.to_lowercase() } else { s.to_owned() }
+    };
     t(a) == t(b)
 }
 

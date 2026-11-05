@@ -3387,7 +3387,8 @@ fn stopped_torrents_get_swarm_counts_from_the_periodic_scrape() {
 /// `torrents/properties` of a torrent the engine restored from its state directory (added in
 /// an earlier run, so the shim never saw its `.torrent`): the private flag from the info
 /// dictionary, the comment, creator and date from the resume data, asked of the engine
-/// (`TorrentHandle::metadata`); the tracker list's DHT / PeX / LSD rows say it is private.
+/// (`TorrentHandle::metadata`) when the torrent first shows up, so the list's `isPrivate` is
+/// right before any Properties visit; the tracker list's DHT / PeX / LSD rows say it is private.
 #[test]
 fn properties_of_a_restored_torrent_come_from_the_engine() {
     let dir = temp_dir("restored-meta");
@@ -3414,10 +3415,11 @@ fn properties_of_a_restored_torrent_come_from_the_engine() {
     let sid = t.login();
     let x = t.wait_for(&sid, &hash, "the restored torrent", |x| s(x.get("name")) == "restored-private");
     assert!(s(x.get("state")).starts_with("paused") || s(x.get("state")).starts_with("stopped"));
-    check(&t, &sid);
-    // asked once, then the list's `isPrivate` field knows it too
+    // the list's `isPrivate` field knows it without a Properties visit: the shim asks the
+    // engine itself once the restored torrent shows up with metadata
     let x = t.wait_for(&sid, &hash, "the private field", |x| x.get("isPrivate") == Some(&Json::Bool(true)));
     assert_eq!(s(x.get("name")), "restored-private");
+    check(&t, &sid);
     let Json::Arr(tr) = t.get(&sid, &format!("/api/v2/torrents/trackers?hash={hash}")).json() else {
         panic!()
     };

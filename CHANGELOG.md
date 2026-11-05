@@ -4,6 +4,14 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_152743_1793888863: Version 1.1.78: search hash check, folder case, Web UI private flag and queue order, RSS read marks, unknown sizes, help texts
+
+- **Fixed:** a merged search result whose fetched torrent has another info-hash is refused (new string `SearchErrHashMismatch`, all tables).
+- **Fixed:** `same_dir` ignores case only on Windows and macOS, so `/Data` and `/data` stay apart on Linux (frontend and nox).
+- **Web UI shim:** restored torrents' `isPrivate` fills in (metadata at up to 128 per tick); `queuedDL` sorts as libtorrent orders it; RSS read marks persist (`useRegex` still ignored); an unknown size is an empty cell, not 0 B.
+- Serbian mnemonic fixed; help texts corrected (Hashing threads says it is not used); PORTING.md rows added.
+- Clippy, frontend (288) and nox tests pass, one thread at Idle priority. BACKLOG drops the items closed in 1.1.75-1.1.78.
+
 ## 2026-11-05_152150_1793888510: Version 1.1.77: update folder, update URL overrides, tray Show, private DHT/PEX, "Restoring torrents...", scrapes logged
 
 - **Fixed:** Win32 self-update downloads its setup into `%LOCALAPPDATA%\PaTorrent\update` instead of a shareable `%TEMP%\PaTorrent-update` (the old folder is emptied and removed).

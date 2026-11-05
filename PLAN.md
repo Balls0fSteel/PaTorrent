@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-05_222944_1793914184
+Last updated: 2026-11-05_225249_1793915569
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D60](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -18,32 +18,30 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
+- **Small Postal Rook studies (2026-11-05_225249_1793915569):** [11 new candidates](docs/art/postal-rook-small-2026-11-05/README.md), with ICOs and actual 16 px comparisons. Review shortlist: 10 Night Courier, 11 Closed Envelope, 09 Compact Courier. Candidate exploration only; D60 and production assets unchanged.
+
 - **Renamed PaTorrent to Rookparcel** (D59, 1.2.2): names, peer ID `-RP1014-`, remote protocol 16, a one-time takeover of PaTorrent's folders, registry, desktop entries and services. **Owner:** rename the GitHub repository and push the wiki ([RELEASING.md](docs/RELEASING.md#the-first-release-as-rookparcel-d59)); wire in the new icon assets. Open: upgrading a real PaTorrent 1.2 install on Windows, Linux and macOS.
 
 - **UI icon studies (2026-11-05_221629_1793913389):** [96 studies across four sheets](docs/art/rookparcel-ui-2026-11-05/README.md), with prompts and review. Next: select candidates, correct state semantics, then redraw and check native 16/20/24 px exports before integration.
 
 - **Rookparcel artwork (2026-11-05_220518_1793912718):** [12 concept sheets and prompts](docs/art/rookparcel-candidates-2026-11-05/README.md) saved; Postal Rook is the owner's preferred direction. All candidates now have cropped multi-size ICO exports; production integration remains open.
 
-- **Releases:**
-  - 1.0.1 (2026-10-27) was the first stable release, with the full 1.0 scope (D19). `v1.0.0` has no release because its build failed (D34). The open Road to 1.0 hand checks continue as 1.0.x validation.
-  - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.
-- 1.1.17 and 1.1.40 (2026-10-30, 2026-11-03): see their [release notes](docs/releases/); 1.1.40 took peer ID `-PA1012-`.
-- **1.2.0** (1.1.41-1.1.78, published 2026-11-05; [notes](docs/releases/1.2.0.md)): selected-files progress for stopped torrents; the closing window's timing and size; profiles and portable mode (D42); D50-D55; the bug hunt and backlog fixes. CHANGELOG and its archive.
-- **Benchmarks** (2026-10-27, [BENCHMARKS.md](docs/BENCHMARKS.md), `tools/bench`, on the site): 10,000 torrents after a restart use 60 MB against qBittorrent's 612 MB; a one-peer download runs at 3,592 MiB/s and 1.04 CPU s/GiB.
+- **Releases:** 1.0.1 (D19, D34) and 1.1.0 (D35) shipped; remaining hand checks are below. 1.1.17/1.1.40 history is in [release notes](docs/releases/). **1.2.0** (published 2026-11-05, [notes](docs/releases/1.2.0.md)) ships profiles (D42), D50-D55 and the bug-hunt/backlog fixes.
+- **Benchmarks:** [2026-10-27 results](docs/BENCHMARKS.md), `tools/bench`: 10,000 torrents after restart use 60 MB (qBittorrent 612 MB); one-peer download 3,592 MiB/s, 1.04 CPU s/GiB.
 - Last recorded CI / FreeBSD / Fuzz and Release runs were green (recorded, not a live check). macOS builds and starts on the runner; real display, association, login and tray behavior still need a Mac.
 - Scale baseline on this development PC (2026-10-23): Win32 lists 100,000 torrents in 1.16 s, GUI-thread idle CPU 0.05-0.10%, working set 232 MB. Name sort 49 ms, Ctrl+A 4.7 ms, add 19 ms, remove one 14 ms. The low-end-machine gate remains open.
 - The app icon is the Postal Rook (D60): drawn marks below 48 px, the generated stamp from 48 px (`assets/rookparcel-icons`).
 
 ## Next steps
 
-**Artwork next (2026-11-05_220518_1793912718):** refine the preferred Postal Rook logo and dedicated small app/tray icons before integration; cropped ICO candidates are available in the artwork folder.
+**Artwork next (2026-11-05_225249_1793915569):** choose among the new small-size Postal Rook candidates, then refine the selected 16/20/24 px drawings before any replacement of D60 assets.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 
 - **C, D.** RSS in hosted mode and Torznab search (D41, 1.1.12-1.1.19): done; hand checks in BACKLOG. No alternative speed limits in the Win32 GUI (owner, 2026-10-30).
-- **E.** Profiles and portable mode (D42, [PROFILES.md](docs/PROFILES.md), [PROFILES_PLAN.md](docs/PROFILES_PLAN.md)): all slices built (1.1.43-1.1.54) and checked on the VMs, GNOME, KDE, Flatpak, AppImages and a real Mac; what is left is in [BACKLOG](docs/BACKLOG.md#profiles-and-portable-mode-d42). Shipped in **1.2.0** (D58); its website text goes out with the release's news entry.
+- **E.** Profiles and portable mode (D42): shipped in **1.2.0** (D58), built and checked on VMs, GNOME, KDE, Flatpak, AppImages and a real Mac. Remaining hand checks: [BACKLOG](docs/BACKLOG.md#profiles-and-portable-mode-d42).
 - **F.** Microsoft Store release: D46 approved 2026-11-04 (free MSIX, individual account, settings shared with the setup copy, all markets and 34 languages, the Postal Rook icon, D60); build per [STORE.md](docs/STORE.md).
-- **G.** Smart disk I/O (owner's idea, 2026-11-02_110639_1793613999): approved and built (D48, [DISKIO.md](docs/DISKIO.md), 1.1.36-1.1.40); real-disk measurements of the busy-disk throttle in BACKLOG "Disk and storage". **Keep ping low** (D49, [LOWPING.md](docs/LOWPING.md)): built in 1.1.29-1.1.31; 1.1.32 passed a bloated-line test (ping ~480 ms to 9 ms at 80-92% of the line). Next: the owner's line with a game, a Mac run; the rest in BACKLOG, including 2.2.1's "Stop transfers on user interaction".
+- **G.** Smart disk I/O (D48, [DISKIO.md](docs/DISKIO.md)) shipped in 1.1.36-1.1.40; real-disk busy-throttle measurements remain in BACKLOG "Disk and storage". **Keep ping low** (D49, [LOWPING.md](docs/LOWPING.md)) shipped in 1.1.29-1.1.31; 1.1.32 passed a bloated-line test (~480 ms to 9 ms at 80-92% line use). Next: the owner's gaming line, a Mac run, and BACKLOG items including 2.2.1's "Stop transfers on user interaction".
 - **H.** Approved 2026-11-04 (D56): 2.2.1's web search engines (empty default list), icon skins, and dark mode; research in [BACKLOG](docs/BACKLOG.md#themes-researched-2026-11-02_110639_1793613999), each designed before code.
 - **I.** The owner's six points (2026-11-04, [PROPOSALS.md](docs/PROPOSALS.md)): D50 Files filter, D51 search helper, D53 Setup Guide, D54 "Use only this network" and D55 help texts shipped in 1.2.0. D52 native macOS GUI is approved, not started; each slice needs a Mac. Completed bug-hunt/backlog fixes and validation are in CHANGELOG and its archive; [BUGHUNT-2026-11-05.md](docs/BUGHUNT-2026-11-05.md) records all 38 findings. 1.2.0 takes peer ID `-PA1013-` for the wire changes (owner, 2026-11-05). **Open:** a real VPN run, a real first start through the guide, the GUI looks; the Win32 test binary's rare heap fault under parallel load (BACKLOG "Validation"; run its tests on one thread meanwhile).
 

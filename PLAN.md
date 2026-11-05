@@ -1,6 +1,6 @@
 # Rookparcel plan
 
-Last updated: 2026-11-05_220414_1793912654
+Last updated: 2026-11-05_222944_1793914184
 
 Read this file for current work. Load only the relevant sections of [detailed follow-ups](docs/BACKLOG.md) or [decisions D1-D59](docs/DECISIONS.md) when needed. Completed phase checklists and old reports are in the [history index](docs/archive/README.md); they are not the active plan.
 
@@ -22,7 +22,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 - **UI icon studies (2026-11-05_221629_1793913389):** [96 studies across four sheets](docs/art/rookparcel-ui-2026-11-05/README.md), with prompts and review. Next: select candidates, correct state semantics, then redraw and check native 16/20/24 px exports before integration.
 
-- **Rookparcel artwork (2026-11-05_220518_1793912718):** [12 concept sheets and prompts](docs/art/rookparcel-candidates-2026-11-05/README.md) saved; identity selection remains open. These are exploration assets, not production icons.
+- **Rookparcel artwork (2026-11-05_220518_1793912718):** [12 concept sheets and prompts](docs/art/rookparcel-candidates-2026-11-05/README.md) saved; Postal Rook is the owner's preferred direction. All candidates now have cropped multi-size ICO exports; production integration remains open.
 
 - **Releases:**
   - 1.0.1 (2026-10-27) was the first stable release, with the full 1.0 scope (D19). `v1.0.0` has no release because its build failed (D34). The open Road to 1.0 hand checks continue as 1.0.x validation.
@@ -36,7 +36,7 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Next steps
 
-**Artwork next (2026-11-05_220518_1793912718):** choose a Rookparcel direction, then refine its logo and small app/tray icons before integration.
+**Artwork next (2026-11-05_220518_1793912718):** refine the preferred Postal Rook logo and dedicated small app/tray icons before integration; cropped ICO candidates are available in the artwork folder.
 
 **Feature order chosen by the owner (2026-10-30_085652_1793347012):**
 

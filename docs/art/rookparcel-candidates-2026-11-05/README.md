@@ -88,3 +88,8 @@ Each call used the common prompt below followed by the candidate ID, ` / `, name
 
 Use case: logo-brand. Create one polished high-resolution landscape brand exploration sheet for the renamed desktop BitTorrent application Rookparcel. This is an original identity candidate, not a collage of unrelated alternatives. Layout: generous airy editorial grid on a clean warm-white background, upper left small candidate number and concept name, large hero symbol on left, carefully typeset horizontal symbol + exact wordmark 'Rookparcel' on right, lower row showing matching light app tile, dark app tile, a small monochrome silhouette and compact favicon-scale interpretation. All elements share the same design. Wordmark spelling exact: R-o-o-k-p-a-r-c-e-l, capital R only. No slogans or filler copy. Strong distinctive visual invention, professional brand designer quality, usable crisp contours and optically balanced proportions. Keep tiny versions deliberately simpler. Do not depict actual software UI or merchandise. Concept: 
 
+
+## Cropped icons
+
+Postal Rook is the owner's preferred direction. [25 multi-size ICO exports and preview](ico/README.md) | [Download all ICOs](rookparcel-ico-candidates.zip).
+

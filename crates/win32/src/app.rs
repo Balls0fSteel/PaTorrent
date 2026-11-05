@@ -1429,7 +1429,7 @@ unsafe fn restore_placement(hwnd: HWND, hidden: bool) {
         GetWindowPlacement(hwnd, &mut wp);
         match rect.as_deref() {
             Some(&[l, t, r, b]) if r - l > 200 && b - t > 150 => {
-                wp.rcNormalPosition = RECT { left: l, top: t, right: r, bottom: b };
+                wp.rcNormalPosition = on_screen(RECT { left: l, top: t, right: r, bottom: b });
             }
             _ => {
                 let r = &mut wp.rcNormalPosition;
@@ -1446,6 +1446,49 @@ unsafe fn restore_placement(hwnd: HWND, hidden: bool) {
         SetWindowPlacement(hwnd, &wp);
         ShowWindow(hwnd, if max { SW_SHOWMAXIMIZED } else { SW_SHOWNORMAL });
     }
+}
+
+/// The saved normal rectangle `r` (workspace coordinates, as `GetWindowPlacement` gave it),
+/// moved onto a monitor when its title bar is on none, e.g. after the monitor it was on was
+/// unplugged: then it is fitted into the work area of the nearest monitor (`fit_rect`).
+unsafe fn on_screen(r: RECT) -> RECT {
+    unsafe {
+        // Workspace coordinates are screen coordinates less the primary work area's offset.
+        let mut mi: MONITORINFO = zeroed();
+        mi.cbSize = size_of::<MONITORINFO>() as u32;
+        let primary = MonitorFromPoint(POINT { x: 0, y: 0 }, MONITOR_DEFAULTTOPRIMARY);
+        let (dx, dy) = if GetMonitorInfoW(primary, &mut mi) != 0 {
+            (mi.rcWork.left - mi.rcMonitor.left, mi.rcWork.top - mi.rcMonitor.top)
+        } else {
+            (0, 0)
+        };
+        let screen = RECT { left: r.left + dx, top: r.top + dy, right: r.right + dx, bottom: r.bottom + dy };
+        if !MonitorFromPoint(title_point(&screen), MONITOR_DEFAULTTONULL).is_null() {
+            return r;
+        }
+        let mut mi: MONITORINFO = zeroed();
+        mi.cbSize = size_of::<MONITORINFO>() as u32;
+        if GetMonitorInfoW(MonitorFromRect(&screen, MONITOR_DEFAULTTONEAREST), &mut mi) == 0 {
+            return r;
+        }
+        let f = fit_rect(screen, mi.rcWork);
+        RECT { left: f.left - dx, top: f.top - dy, right: f.right - dx, bottom: f.bottom - dy }
+    }
+}
+
+/// A point on the title bar of a window with outer rectangle `r`: if no monitor holds it, the
+/// window cannot be grabbed and moved back.
+fn title_point(r: &RECT) -> POINT {
+    POINT { x: r.left + (r.right - r.left) / 2, y: r.top + ((r.bottom - r.top) / 2).min(12) }
+}
+
+/// `r` moved, and shrunk where it is larger, to lie inside `work`.
+fn fit_rect(r: RECT, work: RECT) -> RECT {
+    let w = (r.right - r.left).min(work.right - work.left);
+    let h = (r.bottom - r.top).min(work.bottom - work.top);
+    let left = r.left.min(work.right - w).max(work.left);
+    let top = r.top.min(work.bottom - h).max(work.top);
+    RECT { left, top, right: left + w, bottom: top + h }
 }
 
 unsafe fn save_placement(app: &mut App) {
@@ -6336,6 +6379,37 @@ mod tests {
     use windows_sys::Win32::Foundation::{CloseHandle, ERROR_ACCESS_DENIED, GetLastError, WAIT_OBJECT_0};
 
     use super::*;
+
+    fn rect(left: i32, top: i32, right: i32, bottom: i32) -> RECT {
+        RECT { left, top, right, bottom }
+    }
+
+    fn tuple(r: RECT) -> (i32, i32, i32, i32) {
+        (r.left, r.top, r.right, r.bottom)
+    }
+
+    /// A saved window rectangle that lay on an unplugged monitor is moved, and shrunk where it
+    /// is larger, into the work area of the monitor left; one already inside stays put.
+    #[test]
+    fn saved_rect_fits_into_work_area() {
+        let work = rect(0, 0, 1920, 1040);
+        // Inside: unchanged.
+        assert_eq!(tuple(fit_rect(rect(100, 50, 1000, 700), work)), (100, 50, 1000, 700));
+        // Right of the screen (a second monitor gone): pulled in against the right edge.
+        assert_eq!(tuple(fit_rect(rect(2500, 100, 3400, 720), work)), (1020, 100, 1920, 720));
+        // Above and left of it: pulled to the top left.
+        assert_eq!(tuple(fit_rect(rect(-3000, -900, -2100, -280), work)), (0, 0, 900, 620));
+        // Larger than the work area: shrunk to it.
+        assert_eq!(tuple(fit_rect(rect(-10, -10, 2600, 1500), work)), (0, 0, 1920, 1040));
+        // A work area that does not start at 0 (a taskbar at the top or left).
+        let work = rect(-1280, 40, 0, 1024);
+        assert_eq!(tuple(fit_rect(rect(100, 0, 900, 600), work)), (-800, 40, 0, 640));
+        // The title point is near the top middle, inside even a flat window.
+        let p = title_point(&rect(100, 200, 900, 800));
+        assert_eq!((p.x, p.y), (500, 212));
+        let p = title_point(&rect(0, 0, 400, 10));
+        assert_eq!((p.x, p.y), (200, 5));
+    }
 
     /// Every item of the menu bar, its submenus included, and every toolbar button has a help
     /// text for the status bar (D55), but the profiles File > Profiles lists by name.

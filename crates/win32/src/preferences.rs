@@ -450,7 +450,11 @@ static FIELDS: &[Field] = &[
     Field::Check { id: ID_ADD_STOPPED, get: |o| o.gui.add_stopped, set: |o, v| o.gui.add_stopped = v },
     Field::Check { id: ID_ACTIVATE, get: |o| o.gui.activate_on_add, set: |o, v| o.gui.activate_on_add = v },
     Field::Check { id: ID_SHOW_ADD, get: |o| o.gui.show_add_dialog, set: |o, v| o.gui.show_add_dialog = v },
-    Field::Text { id: ID_DL_DIR, get: |o| o.gui.download_dir.clone(), set: |o, v| o.gui.download_dir = v },
+    Field::Text {
+        id: ID_DL_DIR,
+        get: |o| o.gui.download_dir.clone(),
+        set: |o, v| o.gui.download_dir = v.trim().to_owned(),
+    },
     Field::Check { id: ID_MOVE, get: |o| o.gui.move_completed, set: |o, v| o.gui.move_completed = v },
     Field::Text {
         id: ID_MOVE_DIR,
@@ -2693,7 +2697,8 @@ mod tests {
         f.check(ID_SEED_LIMIT, true);
         f.set(ID_SEED_LIMIT_KIB, "8");
         f.set(ID_DISK_QUEUE, "4096");
-        f.set(ID_DL_DIR, r"D:\Torrents");
+        // trimmed like the other folders (bug hunt 29)
+        f.set(ID_DL_DIR, " D:\\Torrents ");
         f.set(ID_IPF_PATH, r"D:\level1.dat");
         f.check(ID_DHT, false);
         f.check(ID_PEX, false);

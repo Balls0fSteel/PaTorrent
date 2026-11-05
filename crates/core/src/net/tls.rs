@@ -990,6 +990,45 @@ mod tests {
         assert!(start.elapsed() < std::time::Duration::from_secs(5), "{e}");
     }
 
+    /// A ClientHello that reaches the server a few bytes at a time (BUGHUNT 35) still completes
+    /// the handshake, and data then flows both ways.
+    #[test]
+    fn a_client_hello_split_across_reads_completes_the_handshake() {
+        let id = Identity::from_pem(&fixture("ec-cert.pem"), &fixture("ec-pkcs8.pem")).unwrap();
+        let mut c = Session::client("patorrent.example", Verify::Pinned(id.fingerprint()).into()).unwrap();
+        let mut s = Session::server(&id.inner).unwrap();
+        let mut plain = Vec::new();
+        let mut first = true;
+        for _ in 0..50 {
+            if !c.handshaking() && !s.handshaking() {
+                break;
+            }
+            let to_server = std::mem::take(c.outgoing());
+            let chunk = if first { 7 } else { to_server.len().max(1) };
+            first = false;
+            for part in to_server.chunks(chunk) {
+                s.feed(part, &mut plain).unwrap();
+            }
+            let to_client = std::mem::take(s.outgoing());
+            c.feed(&to_client, &mut plain).unwrap();
+        }
+        assert!(!c.handshaking() && !s.handshaking(), "handshake did not finish");
+        assert_eq!(c.peer_fingerprint(), Some(id.fingerprint()));
+        assert!(plain.is_empty());
+        // a TLS 1.3 server's tickets may still be queued for the client
+        let tickets = std::mem::take(s.outgoing());
+        c.feed(&tickets, &mut plain).unwrap();
+        c.encrypt(b"ping").unwrap();
+        let record = std::mem::take(c.outgoing());
+        s.feed(&record, &mut plain).unwrap();
+        assert_eq!(plain, b"ping");
+        plain.clear();
+        s.encrypt(b"pong").unwrap();
+        let record = std::mem::take(s.outgoing());
+        c.feed(&record, &mut plain).unwrap();
+        assert_eq!(plain, b"pong");
+    }
+
     #[test]
     fn fingerprints_print_and_parse() {
         let f = Fingerprint([0xab; 32]);

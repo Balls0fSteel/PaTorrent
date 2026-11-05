@@ -87,7 +87,7 @@ impl FilePool {
     }
 }
 
-fn open_file(path: &Path, writable: bool) -> io::Result<File> {
+pub(crate) fn open_file(path: &Path, writable: bool) -> io::Result<File> {
     if !writable {
         return File::open(path);
     }
@@ -136,16 +136,51 @@ fn set_sparse(file: &File) {
 #[cfg(not(windows))]
 fn set_sparse(_file: &File) {}
 
+/// `path` as a NUL-terminated UTF-16 string for a Win32 file call, in the extended-length form
+/// (`\\?\C:\...`, `\\?\UNC\server\share\...`) once it is too long for the plain one, as
+/// `std::fs` does for its own calls; without it MoveFileExW and CopyFileExW fail past MAX_PATH
+/// unless the process is long-path aware and the OS policy is on.
+#[cfg(windows)]
+pub(crate) fn wide_path(path: &Path) -> io::Result<Vec<u16>> {
+    use std::os::windows::ffi::OsStrExt;
+    // std's limit: MAX_PATH less room for an 8.3 name, which CreateDirectoryW also needs
+    const LIMIT: usize = 248;
+    let mut units: Vec<u16> = path.as_os_str().encode_wide().collect();
+    if units.len() >= LIMIT && !is_verbatim(&units) {
+        // the extended form takes no `/`, `.` or `..`: resolve them first
+        units = verbatim(std::path::absolute(path)?.as_os_str().encode_wide().collect());
+    }
+    units.push(0);
+    Ok(units)
+}
+
+/// `\\?\...`, `\\.\...` or `\??\...`: a form Win32 passes on unchanged.
+#[cfg(windows)]
+fn is_verbatim(path: &[u16]) -> bool {
+    [r"\\?\", r"\\.\", r"\??\"].iter().any(|pre| path.starts_with(&pre.encode_utf16().collect::<Vec<u16>>()))
+}
+
+/// The extended-length form of an absolute, normalized path: `C:\x` → `\\?\C:\x`,
+/// `\\server\share\x` → `\\?\UNC\server\share\x`; one already in that form, or a device path,
+/// is unchanged.
+#[cfg(windows)]
+fn verbatim(abs: Vec<u16>) -> Vec<u16> {
+    if is_verbatim(&abs) {
+        return abs;
+    }
+    let unc = abs.starts_with(&[u16::from(b'\\'); 2]);
+    let (prefix, rest) = if unc { (r"\\?\UNC\", &abs[2..]) } else { (r"\\?\", &abs[..]) };
+    prefix.encode_utf16().chain(rest.iter().copied()).collect()
+}
+
 /// Renames `old` to `new` unless `new` exists, which fails with `AlreadyExists` (libtorrent
 /// 2.0.12 checks first and then renames; this closes the gap where it can). Windows moves
 /// without `MOVEFILE_REPLACE_EXISTING`; elsewhere a hard link plus unlinking the old name,
 /// falling back to a plain rename where links are unsupported (FAT, some network shares).
 #[cfg(windows)]
 pub(crate) fn rename_no_replace(old: &Path, new: &Path) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Storage::FileSystem::MoveFileExW;
-    let wide = |p: &Path| p.as_os_str().encode_wide().chain(Some(0)).collect::<Vec<u16>>();
-    let (old, new) = (wide(old), wide(new));
+    let (old, new) = (wide_path(old)?, wide_path(new)?);
     // SAFETY: both buffers are NUL-terminated UTF-16 strings that outlive the call; flags 0
     // means no replace, no copy across volumes, no delayed move.
     if unsafe { MoveFileExW(old.as_ptr(), new.as_ptr(), 0) } == 0 {
@@ -253,6 +288,60 @@ mod tests {
         pool.release(1);
         assert_eq!(pool.open_count(), 1);
         assert!(pool.open(3, 0, &dir.join("missing"), false).is_err());
+        let _ = std::fs::remove_dir_all(dir);
+    }
+
+    #[cfg(windows)]
+    fn text(units: Vec<u16>) -> String {
+        String::from_utf16(&units).unwrap()
+    }
+
+    /// BUGHUNT 24: the extended-length form for MoveFileExW / CopyFileExW.
+    #[cfg(windows)]
+    #[test]
+    fn long_paths_take_the_extended_form() {
+        let v = |s: &str| text(verbatim(s.encode_utf16().collect()));
+        assert_eq!(v(r"C:\a\b"), r"\\?\C:\a\b");
+        assert_eq!(v(r"\\nas\share\a"), r"\\?\UNC\nas\share\a");
+        assert_eq!(v(r"\\?\C:\a"), r"\\?\C:\a");
+        assert_eq!(v(r"\\?\UNC\nas\share\a"), r"\\?\UNC\nas\share\a");
+        assert_eq!(v(r"\\.\pipe\x"), r"\\.\pipe\x");
+
+        let w = |s: &str| {
+            let mut u = wide_path(Path::new(s)).unwrap();
+            assert_eq!(u.pop(), Some(0), "NUL-terminated");
+            text(u)
+        };
+        // short paths pass unchanged, as std::fs passes them
+        assert_eq!(w(r"C:\a/b\..\c"), r"C:\a/b\..\c");
+        assert_eq!(w(r"rel\x"), r"rel\x");
+        let name = "n".repeat(200);
+        assert_eq!(w(&format!(r"C:\{name}\x/../{name}")), format!(r"\\?\C:\{name}\{name}"));
+        assert_eq!(w(&format!(r"\\nas\share\{name}\{name}")), format!(r"\\?\UNC\nas\share\{name}\{name}"));
+        assert_eq!(w(&format!(r"//nas/share/{name}/{name}")), format!(r"\\?\UNC\nas\share\{name}\{name}"));
+        let already = format!(r"\\?\C:\{name}\..\{name}");
+        assert_eq!(w(&already), already, "an extended path is the caller's as written");
+        let rel = w(&format!(r"{name}\{name}"));
+        let cwd = std::env::current_dir().unwrap();
+        assert!(rel.starts_with(r"\\?\") && rel.ends_with(&format!(r"\{name}\{name}")), "{rel} in {cwd:?}");
+    }
+
+    /// A rename past MAX_PATH, which MoveFileExW fails without the extended form.
+    #[cfg(windows)]
+    #[test]
+    fn renames_work_past_max_path() {
+        let dir = crate::disk::tests::temp_dir("long-rename");
+        let deep = dir.join("d".repeat(120)).join("e".repeat(120));
+        std::fs::create_dir_all(&deep).unwrap();
+        let (old, new) = (deep.join("o".repeat(100)), deep.join("p".repeat(100)));
+        assert!(new.as_os_str().len() > 300);
+        std::fs::write(&old, b"x").unwrap();
+        rename_no_replace(&old, &new).unwrap();
+        assert!(!old.exists());
+        assert_eq!(std::fs::read(&new).unwrap(), b"x");
+        std::fs::write(&old, b"y").unwrap();
+        let e = rename_no_replace(&old, &new).unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::AlreadyExists);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

@@ -1579,15 +1579,59 @@ fn set_file_priority(storage: &Storage, ctx: &Ctx, priorities: &[u8]) -> Result<
     Ok(())
 }
 
-/// Moves file `f`'s blocks out of the part file into the file.
+/// Moves file `f`'s blocks out of the part file into the file. A file not on disk yet is
+/// written under a temporary name and renamed once whole, and the part file frees the blocks
+/// only then: an interrupted export leaves no short file that the next start would take for
+/// the exported one (and free the rest of its blocks); it runs again instead.
 fn export_file(storage: &Storage, ctx: &Ctx, part: &PartFile, f: usize) -> Result<(), (String, Error)> {
     let fs = storage.info.files();
+    let (offset, size) = (fs.file_offset(f), fs.file_size(f));
     let path = storage.file_path(f);
-    part.export_file(fs.file_offset(f), fs.file_size(f), |offset, buf| {
-        let file = ctx.pool.open(storage.id, f as u32, &path, true)?;
-        write_at(&file, buf, offset)
-    })
-    .map_err(|e| io_error(storage, f, e))
+    if path.exists() {
+        return part
+            .export_file(
+                offset,
+                size,
+                |offset, buf| {
+                    let file = ctx.pool.open(storage.id, f as u32, &path, true)?;
+                    write_at(&file, buf, offset)
+                },
+                || Ok(()),
+            )
+            .map_err(|e| io_error(storage, f, e));
+    }
+    let mut tmp = path.clone().into_os_string();
+    tmp.push(".pa-export");
+    let tmp = PathBuf::from(tmp);
+    // what an earlier interrupted export left
+    let _ = std::fs::remove_file(&tmp);
+    let file = std::cell::RefCell::new(None);
+    let r = part.export_file(
+        offset,
+        size,
+        |offset, buf| {
+            let mut file = file.borrow_mut();
+            if file.is_none() {
+                *file = Some(file_pool::open_file(&tmp, true)?);
+            }
+            write_at(file.as_ref().expect("opened above"), buf, offset)
+        },
+        || match file.borrow_mut().take() {
+            Some(file) => {
+                file.sync_data()?;
+                // closed before the rename, which Windows refuses for an open file
+                drop(file);
+                file_pool::rename_no_replace(&tmp, &path)
+            }
+            // nothing was in the part file: no file, as before
+            None => Ok(()),
+        },
+    );
+    if r.is_err() {
+        drop(file.borrow_mut().take());
+        let _ = std::fs::remove_file(&tmp);
+    }
+    r.map_err(|e| io_error(storage, f, e))
 }
 
 /// Frees the part file's pieces that overlap no file kept in it, then flushes the header (which
@@ -1648,7 +1692,6 @@ fn cancelled() -> io::Error {
 /// they go. Once `cancel` is set it stops with [`cancelled`] and leaves no partial copy.
 #[cfg(windows)]
 fn copy_file(from: &Path, to: &Path, cancel: &AtomicBool, progress: &mut dyn FnMut(u64)) -> io::Result<()> {
-    use std::os::windows::ffi::OsStrExt;
     use windows_sys::Win32::Foundation::{ERROR_REQUEST_ABORTED, HANDLE};
     use windows_sys::Win32::Storage::FileSystem::{
         CopyFileExW, LPPROGRESS_ROUTINE_CALLBACK_REASON, PROGRESS_CANCEL, PROGRESS_CONTINUE,
@@ -1680,8 +1723,7 @@ fn copy_file(from: &Path, to: &Path, cancel: &AtomicBool, progress: &mut dyn FnM
         if p.cancel.load(Ordering::Relaxed) { PROGRESS_CANCEL } else { PROGRESS_CONTINUE }
     }
 
-    let wide = |p: &Path| p.as_os_str().encode_wide().chain([0]).collect::<Vec<u16>>();
-    let (src, dst) = (wide(from), wide(to));
+    let (src, dst) = (file_pool::wide_path(from)?, file_pool::wide_path(to)?);
     let mut p = Progress { cancel, progress, reported: 0 };
     // CopyFileExW is what `std::fs::copy` calls: the same attributes, and a share may copy on
     // the server. A cancelled copy deletes its partial file.
@@ -2613,6 +2655,50 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&r.dir);
     }
 
+    /// BUGHUNT 25: an export that fails part way leaves no short file and frees no block, so the
+    /// next start exports the whole file instead of taking the short one and freeing the rest.
+    #[test]
+    fn an_interrupted_export_runs_again_on_the_next_start() {
+        let mut r = rig_with("disk-part-interrupted", SKIP_MIDDLE, BLOCK_SIZE, vec![4, 0, 4]);
+        let info = r.storage.info.clone();
+        let part = r.dir.join(format!(".{}.parts", info.info_hash().to_hex()));
+        r.disk.async_check(&r.storage, CheckMode::Full);
+        checked(&r.rx);
+        let storage = r.storage.clone();
+        write_pieces(&r, &storage, &[2, 5]);
+        r.disk.async_fence(&storage, FenceAction::Release);
+        while !matches!(next(&r.rx), Completion::Fenced { .. }) {}
+        drop(storage);
+
+        // a folder where the export's temporary file goes makes it fail
+        let blocker = r.dir.join("test/b.pa-export");
+        std::fs::create_dir_all(&blocker).unwrap();
+        let s2 = r.disk.new_storage(r.storage.save_path(), info.clone(), vec![4, 4, 4]);
+        r.disk.async_check(&s2, CheckMode::Full);
+        match next(&r.rx) {
+            Completion::Checked { result, .. } => assert!(result.is_err(), "the export failed"),
+            c => panic!("unexpected {c:?}"),
+        }
+        assert!(!r.dir.join("test/b").exists(), "no short file");
+        r.disk.async_fence(&s2, FenceAction::Release);
+        while !matches!(next(&r.rx), Completion::Fenced { .. }) {}
+        drop(s2);
+        assert!(part.exists(), "the blocks stay in the part file");
+
+        std::fs::remove_dir(&blocker).unwrap();
+        let s3 = r.disk.new_storage(r.storage.save_path(), info, vec![4, 4, 4]);
+        r.disk.async_check(&s3, CheckMode::Full);
+        assert_eq!(wanted(&checked(&r.rx).have), [2, 5]);
+        assert!(!part.exists());
+        assert!(!blocker.exists(), "no temporary file is left");
+        let b = std::fs::read(r.dir.join("test/b")).unwrap();
+        let all = torrent_bytes(&r.contents);
+        assert_eq!(b[..49152 - 40_000], all[40_000..49152]);
+        assert_eq!(b[81920 - 40_000..], all[81920..90_000]);
+        drop(r.disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+    }
+
     // test_storage.cpp `setup_torrent`: 0x8000, 0x8000, 0, 0, 0x8000 bytes in 16 KiB pieces.
     const MOVE_FILES: &[(&str, usize)] = &[
         ("test1.tmp", 0x8000),
@@ -2852,6 +2938,21 @@ pub(crate) mod tests {
         assert_eq!(e.kind(), io::ErrorKind::Interrupted);
         assert!(!dst.exists(), "no partial copy");
         assert!(src.exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// BUGHUNT 24: a copy into a path past MAX_PATH (CopyFileExW without the extended form fails).
+    #[test]
+    fn copies_work_past_max_path() {
+        let dir = temp_dir("copy-long");
+        let deep = dir.join("d".repeat(120)).join("e".repeat(120));
+        std::fs::create_dir_all(&deep).unwrap();
+        let (src, dst) = (deep.join("a".repeat(100)), deep.join("b".repeat(100)));
+        std::fs::write(&src, b"long").unwrap();
+        let mut copied = 0;
+        copy_file(&src, &dst, &AtomicBool::new(false), &mut |n| copied += n).unwrap();
+        assert_eq!(std::fs::read(&dst).unwrap(), b"long");
+        assert_eq!(copied, 4);
         let _ = std::fs::remove_dir_all(&dir);
     }
 

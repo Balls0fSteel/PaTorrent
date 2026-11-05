@@ -269,11 +269,15 @@ mod imp {
     unsafe impl Send for IcmpPinger {}
 
     pub(super) fn pinger() -> Option<Box<dyn Pinger>> {
-        // SAFETY: plain calls without arguments; failures return INVALID_HANDLE_VALUE
-        let (v4, v6) = unsafe { (IcmpCreateFile(), Icmp6CreateFile()) };
+        // SAFETY: plain call without arguments; a failure returns INVALID_HANDLE_VALUE
+        let v4 = unsafe { IcmpCreateFile() };
         if v4 == INVALID_HANDLE_VALUE {
             return None;
         }
+        // opened only once the v4 handle exists, so the return above has nothing to close; a
+        // failure stays INVALID_HANDLE_VALUE, which echo reports as lost and Drop skips
+        // SAFETY: as above
+        let v6 = unsafe { Icmp6CreateFile() };
         Some(Box::new(IcmpPinger { v4, v6 }))
     }
 

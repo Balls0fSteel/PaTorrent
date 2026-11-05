@@ -661,6 +661,12 @@ impl UtpSocket {
         debug_assert!(ctx.write_buffer_size() == 0);
         debug_assert!(self.out_eof);
         debug_assert!(self.nagle_packet.is_none());
+        // A stalled socket sends nothing, so the FIN would never go out (libtorrent 2.0.11 sets
+        // FIN-SENT anyway, and `writable` retries only a connected socket). Stay connected:
+        // `writable` sends the FIN once the UDP socket drains.
+        if self.stalled {
+            return;
+        }
         self.send_pkt(ctx, PKT_FIN);
         // unless there was an error, we're now in FIN-SENT state
         if self.error.is_none() {
@@ -703,7 +709,12 @@ impl UtpSocket {
             return;
         }
         self.deferred_ack = true;
-        ctx.defer_ack();
+        // A stalled socket's ACK goes out from `writable`, which checks the flag. Registering it
+        // with the manager too would hold the manager's single deferred-ACK slot (emptied
+        // before `send_deferred_ack` runs) against the next socket that defers an ACK.
+        if !self.stalled {
+            ctx.defer_ack();
+        }
     }
 
     /// Copies `dst.len()` bytes of the application's data into a packet.

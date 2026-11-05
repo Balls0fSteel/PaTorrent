@@ -405,7 +405,9 @@ impl NatPmp {
             self.log.push(format!("received packet from wrong IP: {from}"));
             return;
         }
-        self.resend_at = None;
+        // The resend timer stops only for the reply it waits for (libtorrent cancels it for
+        // any packet, and an unmatched one then left `currently_mapping` set with no timer,
+        // the mapper stuck for the session).
         let resp = match natpmp::parse_response(buf) {
             Ok(r) => r,
             Err(natpmp::Invalid::Size) => {
@@ -428,6 +430,7 @@ impl NatPmp {
                     if self.version == natpmp::VERSION_PCP && self.local.is_ipv4() {
                         self.version = natpmp::VERSION_NATPMP;
                         if let Some(i) = self.currently_mapping {
+                            self.resend_at = None;
                             self.resend_request(i, now);
                         }
                         self.send_get_ip_address_request();
@@ -765,6 +768,31 @@ mod tests {
         n.mappings[0].expires = Some(now + Duration::from_secs(100));
         n.update_expiration_timer(now);
         assert_eq!(n.refresh_at, None, "past the 60 s lease: checked again later");
+    }
+
+    /// Bug hunt finding 22: any reply from the gateway cancelled the resend timer, and one
+    /// that matched no request left `currently_mapping` set with nothing to resend it, so the
+    /// mapper never sent again. Only the awaited reply stops the timer now.
+    #[test]
+    fn an_unmatched_reply_keeps_the_resend_timer() {
+        let mut n = NatPmp::new();
+        n.nat_endpoint = "127.0.0.1:5351".parse().unwrap();
+        let mut now = Instant::now();
+        n.add_mapping(Protocol::Tcp, 6881, 6881, now).unwrap();
+        assert_eq!(n.currently_mapping, Some(0));
+        let from = n.nat_endpoint;
+        // a public address reply, then a map reply for a port nobody asked about
+        n.on_reply(&[0, 128, 0, 0, 0, 0, 0, 7, 203, 0, 113, 9], from, now);
+        let mut other = vec![0, 128 + 2, 0, 0, 0, 0, 0, 7];
+        other.extend_from_slice(&9999u16.to_be_bytes());
+        other.extend_from_slice(&9999u16.to_be_bytes());
+        other.extend_from_slice(&3600u32.to_be_bytes());
+        n.on_reply(&other, from, now);
+        assert_eq!(n.currently_mapping, Some(0), "still waiting for its reply");
+        let at = n.deadline().expect("the resend timer still runs");
+        now = at;
+        n.service(now);
+        assert_eq!(n.retry_count, 2, "the request was sent again");
     }
 
     #[test]

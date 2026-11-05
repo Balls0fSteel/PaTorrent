@@ -315,10 +315,9 @@ impl TorrentInfo {
                 if !n.is_list() || !host.is_string() || !port.is_int() {
                     continue;
                 }
-                ti.nodes.push((
-                    String::from_utf8_lossy(host.string_value()).into_owned(),
-                    port.int_value() as u16,
-                ));
+                // a port outside 0..=65535 is skipped, not truncated (70000 is not 4464)
+                let Ok(port) = u16::try_from(port.int_value()) else { continue };
+                ti.nodes.push((String::from_utf8_lossy(host.string_value()).into_owned(), port));
             }
         }
 
@@ -1628,6 +1627,23 @@ mod tests {
         }))
         .unwrap();
         assert_eq!(ti.name(), "test2..test3.......test4");
+    }
+
+    /// Bug hunt finding 36: a DHT node's port was cast to u16, so 70000 became 4464 and -1
+    /// became 65535. Out-of-range ports are skipped now.
+    #[test]
+    fn dht_nodes_with_an_out_of_range_port_are_skipped() {
+        let buf = single_file_torrent(|t, _| {
+            let node = |h: &str, p: i64| Entry::from(vec![Entry::from(h), Entry::Int(p)]);
+            *t.key("nodes") = Entry::from(vec![
+                node("a.example", 70000),
+                node("b.example", -1),
+                node("c.example", 65535),
+                node("d.example", 0),
+            ]);
+        });
+        let ti = TorrentInfo::from_bytes(&buf).unwrap();
+        assert_eq!(ti.nodes(), [("c.example".to_owned(), 65535), ("d.example".to_owned(), 0)]);
     }
 
     #[test]

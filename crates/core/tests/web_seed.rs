@@ -720,6 +720,31 @@ fn server_busy_with_503_then_serving() {
     finish(w, &f, dir);
 }
 
+/// Bug hunt finding 23: a `Retry-After` shorter than `urlseed_wait_retry` was raised to it by the
+/// failure's own wait, so `503 Retry-After: 1` still waited the full minute here.
+#[test]
+fn a_short_retry_after_is_honoured() {
+    let f = fixture("brief.bin", &[("brief.bin", 100_000)], &[], &[]);
+    let file = f.files[0].1.clone();
+    let srv = server(Mode::Plain, move |r| {
+        if r.seq == 0 {
+            raw(
+                "HTTP/1.1 503 Service Unavailable\r\nRetry-After: 1\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                true,
+            )
+        } else {
+            Reply::File(file.clone())
+        }
+    });
+    let started = Instant::now();
+    let dir = temp_dir("brief");
+    let mut w = Watch::start(Settings { urlseed_wait_retry: 60, ..settings() });
+    let id = w.add(&f, &dir, &[srv.url("/brief.bin")]);
+    w.finished(id, 20);
+    assert!(started.elapsed() < Duration::from_secs(30), "the server's Retry-After, not urlseed_wait_retry");
+    finish(w, &f, dir);
+}
+
 #[test]
 fn bep17_http_seed() {
     let f = fixture("hoffman.bin", &[("hoffman.bin", 300_000)], &[], &[]);

@@ -4,7 +4,8 @@
 //! (libtorrent `files_checked`); a request that refills an empty queue after an idle spell is
 //! not snubbed on the next tick (the request timeout runs from the request, libtorrent
 //! `m_requested`); and a choke keeps and serves the requests accepted under BEP 6 allowed-fast
-//! (libtorrent `send_choke` keeps `m_accept_fast`).
+//! (libtorrent `send_choke` keeps `m_accept_fast`). Finding 18: a block of the wrong length
+//! disconnects the peer (libtorrent `verify_piece`).
 
 use std::collections::VecDeque;
 use std::io::{ErrorKind, Read, Write};
@@ -469,6 +470,54 @@ fn a_choke_keeps_the_allowed_fast_requests_it_accepted() {
             _ => {}
         }
     }
+    drop(c);
+    session.shutdown();
+    let _ = std::fs::remove_dir_all(dir);
+}
+
+/// Bug hunt finding 18: a PIECE of the wrong length was counted redundant and dropped, but its
+/// request stayed outstanding until the snub. libtorrent's `incoming_piece` disconnects on an
+/// invalid piece size (`verify_piece`).
+#[test]
+fn a_block_of_the_wrong_length_disconnects_the_peer() {
+    let f = fixture();
+    let dir = temp_dir("bad-length");
+    let session = start();
+    let mut w = watch(&session);
+    let port = listen_port(&mut w);
+    let id = add_file(&mut w, &f, &dir);
+    status(&mut w, id, "downloading", |s| s.state == TorrentState::Downloading);
+
+    let mut c = connect(&f, port);
+    let mut bits = vec![0u8; (f.num_pieces as usize).div_ceil(8)];
+    bits[0] = 0x80;
+    send_raw(&mut c, BITFIELD, &bits);
+    while next(&mut c)[0] != INTERESTED {}
+    send(&mut c, UNCHOKE, &[]);
+    let req = loop {
+        let msg = next(&mut c);
+        if msg[0] == REQUEST {
+            break msg;
+        }
+    };
+    let (piece, start, len) = (field(&req, 0), field(&req, 1), field(&req, 2));
+    // one byte short
+    let mut payload = piece.to_be_bytes().to_vec();
+    payload.extend_from_slice(&start.to_be_bytes());
+    payload.extend_from_slice(block(&f, piece, start, len - 1));
+    send_raw(&mut c, PIECE_MSG, &payload);
+    // The engine closes the connection: reads end in EOF or a reset, not a timeout.
+    c.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut buf = [0u8; 4096];
+    let closed = loop {
+        match c.read(&mut buf) {
+            Ok(0) => break true,
+            Ok(_) => continue,
+            Err(e) if matches!(e.kind(), ErrorKind::WouldBlock | ErrorKind::TimedOut) => break false,
+            Err(_) => break true,
+        }
+    };
+    assert!(closed, "a block of the wrong length disconnects the peer");
     drop(c);
     session.shutdown();
     let _ = std::fs::remove_dir_all(dir);

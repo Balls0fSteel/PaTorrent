@@ -220,7 +220,9 @@ pub(crate) fn is_global(ip: IpAddr) -> bool {
 
 /// libtorrent `is_idna`: a label starting with `xn--`.
 fn is_idna(host: &str) -> bool {
-    host.split('.').any(|l| l.len() >= 4 && l[..2].eq_ignore_ascii_case("xn") && &l[2..4] == "--")
+    // `get` rather than a slice: a label may hold multi-byte characters (an unencoded IDN),
+    // and a byte index inside one would panic
+    host.split('.').any(|l| l.get(..4).is_some_and(|p| p.eq_ignore_ascii_case("xn--")))
 }
 
 /// How a connection ended (libtorrent's disconnect severities, plus the two causes that
@@ -1591,6 +1593,11 @@ mod tests {
         assert!(is_idna("www.XN--bcher-kva.example"));
         assert!(!is_idna("example.com"));
         assert!(!is_idna("xn-.com"));
+        // unencoded names: no panic on a byte index inside a character
+        assert!(!is_idna("aéb.example"));
+        assert!(!is_idna("é.example"));
+        assert!(!is_idna("bücher.example"));
+        assert!(is_idna("bücher.xn--bcher-kva.example"));
     }
 
     #[test]

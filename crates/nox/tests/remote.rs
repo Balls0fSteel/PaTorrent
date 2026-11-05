@@ -57,6 +57,11 @@ fn settings() -> Settings {
 
 /// A nox: the engine, the Web UI, and the main loop's alert pump.
 fn nox(name: &str, https: bool) -> Nox {
+    nox_with(name, https, false)
+}
+
+/// `save_root`: `--webui-save-root` set to the download folder.
+fn nox_with(name: &str, https: bool, save_root: bool) -> Nox {
     let dir = std::env::temp_dir().join(format!("patorrent-remote-test-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let session =
@@ -67,6 +72,10 @@ fn nox(name: &str, https: bool) -> Nox {
     c.password = Some(PASS.into());
     c.state_dir = Some(dir.join("state"));
     c.pbkdf2_iterations = 2;
+    if save_root {
+        std::fs::create_dir_all(dir.join("dl")).unwrap();
+        c.save_roots = vec![dir.join("dl")];
+    }
     if https {
         c.https = Some(Certificate::Generated { dir: None, names: vec!["localhost".into()] });
     }
@@ -239,6 +248,46 @@ fn a_remote_session_drives_the_nox() {
         c.wait_for(|a| matches!(a, Alert::TorrentRemoved { id: x, .. } if *x == id).then_some(()));
     }
     drop(other);
+    client.shutdown();
+}
+
+/// `--webui-save-root` binds a remote session too: an add or a move naming a path outside the
+/// roots is answered with the failure alert and never reaches the engine.
+#[test]
+fn the_save_roots_bind_remote_sessions() {
+    let n = nox_with("save-roots", false, true);
+    let addr = n.web.local_addr();
+    let (client, hello) = remote::connect(&target(addr, None, PASS), TIMEOUT).unwrap();
+    let h = Client::new(client.handle());
+    let outside = n.dir.join("elsewhere").to_string_lossy().into_owned();
+    let mut p = magnet(0xb1, "outside");
+    p.save_path = outside.clone();
+    h.add_torrent(p);
+    let error = h.wait_for(|a| match a {
+        Alert::AddTorrentFailed { name, error } if name == "outside" => Some(error.to_string()),
+        _ => None,
+    });
+    assert!(error.contains("outside the folders"), "{error}");
+    // inside the root: added; a move outside is refused and the save path stays
+    let mut p = magnet(0xb2, "inside");
+    p.save_path = hello.save_path.clone();
+    h.add_torrent(p);
+    let id = h.wait_for(|a| match a {
+        Alert::TorrentAdded { id, name, .. } if name == "inside" => Some(*id),
+        _ => None,
+    });
+    h.torrent(id).move_storage(outside.clone(), patorrent_core::MoveFlags::default());
+    let (file, error) = h.wait_for(|a| match a {
+        Alert::StorageMovedFailed { id: x, file, error, .. } if *x == id => {
+            Some((file.clone(), error.to_string()))
+        }
+        _ => None,
+    });
+    assert_eq!(file, outside);
+    assert!(error.contains("outside the folders"), "{error}");
+    // the engine never saw the move: the shim shows the torrent where it was added
+    let info = shim_get(addr, "/api/v2/torrents/info");
+    assert!(info.contains("\"save_path\":") && !info.contains("elsewhere"), "{info}");
     client.shutdown();
 }
 

@@ -1172,6 +1172,13 @@ fn a_reverse_proxy_gets_no_bypass_and_per_client_bans() {
             "{forwarded:?}"
         );
     }
+    // the bypass sessions' own names are no cookies: the loopback bypass is in use, so its
+    // session exists, but a proxied request naming it is not logged in
+    for key in ["local", "subnet", "apikey"] {
+        let cookie = format!("SID={key}");
+        let headers = [("Cookie", cookie.as_str()), ("X-Forwarded-For", "203.0.113.9")];
+        assert_eq!(t.req("GET", "/api/v2/app/version", &headers, Body::None).status, 403, "{key}");
+    }
     // five bad logins ban the forwarded client, not everyone behind the proxy
     let login = |xff: &str, pass: &str| {
         t.req(

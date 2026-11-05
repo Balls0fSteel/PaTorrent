@@ -1049,7 +1049,12 @@ fn symlink_path(dict: Node<'_>, ctx: &ExtractCtx<'_>) -> Result<Option<String>, 
     Ok(Some(out))
 }
 
-/// The borrowed name range, if the sanitized path still ends with the original bytes.
+/// The borrowed name range, if the sanitized path's last element is the original bytes: the
+/// path ends with them at an element boundary, so they hold no `/` and start at a character
+/// boundary. libtorrent's plain `ends_with` also passes a name of the form `<tail of the parent
+/// directory>/<240 bytes>` (the sanitizer drops the `/` and cuts at 240 bytes), which would be
+/// stored with its `/`, or as an empty name when it starts inside a character, so that the file's
+/// path is the directory itself.
 fn borrowable(filename: Node<'_>, path: &str, ctx: &ExtractCtx<'_>) -> Option<(u32, u32)> {
     let mut raw = filename.string_value();
     let (mut off, _) = (ctx.span)(filename);
@@ -1057,7 +1062,12 @@ fn borrowable(filename: Node<'_>, path: &str, ctx: &ExtractCtx<'_>) -> Option<(u
         raw = &raw[1..];
         off += 1;
     }
-    (!raw.is_empty() && path.as_bytes().ends_with(raw)).then_some((off, raw.len() as u32))
+    let p = path.as_bytes();
+    let last_element = !raw.is_empty()
+        && p.ends_with(raw)
+        && !raw.contains(&b'/')
+        && (p.len() == raw.len() || p[p.len() - raw.len() - 1] == b'/');
+    last_element.then_some((off, raw.len() as u32))
 }
 
 /// v1 file entry ("files" list item, or the info dict itself for single-file torrents).
@@ -2004,6 +2014,57 @@ mod tests {
             assert_eq!(b.files().file_path(i, ""), expected[i]);
             assert_eq!(b.files().hash(i), hashes[i]);
         }
+    }
+
+    /// A name is borrowed only when it is the sanitized path's whole last element: a raw name
+    /// `<tail of the parent>/<240 bytes>` ends the path too, but holds a `/`, and one starting
+    /// inside a character would be stored as an empty name, with the directory as the file's
+    /// path (bug hunt 2026-11-05, finding 3).
+    #[test]
+    fn borrowed_name_is_the_last_element() {
+        fn leaf(size: i64, root: u8) -> Entry {
+            let mut leaf = Entry::new_dict();
+            *leaf.key("length") = size.into();
+            *leaf.key("pieces root") = Entry::from(vec![root; 32]);
+            let mut file = Entry::new_dict();
+            *file.key("") = leaf;
+            file
+        }
+        fn parse(name: &[u8], key: &[u8]) -> TorrentInfo {
+            let mut tree = Entry::new_dict();
+            *tree.key(key) = leaf(100, 7);
+            *tree.key("b") = leaf(100, 8);
+            let mut info = Entry::new_dict();
+            *info.key("file tree") = tree;
+            *info.key("meta version") = 2.into();
+            *info.key("name") = Entry::from(name.to_vec());
+            *info.key("piece length") = 16384.into();
+            let mut t = Entry::new_dict();
+            *t.key("info") = info;
+            TorrentInfo::from_bytes(&t.bencode()).unwrap()
+        }
+        // the name "é" (C3 A9), a key of A9 '/' and 240 underscores: the sanitized path ends
+        // with the raw bytes, which start inside the "é"
+        let mut key = vec![0xa9, b'/'];
+        key.extend(std::iter::repeat_n(b'_', 240));
+        let ti = parse("é".as_bytes(), &key);
+        let fs = ti.files();
+        let i = (0..fs.num_files()).find(|&i| fs.file_size(i) == 100 && fs.file_name(i) != "b").unwrap();
+        assert_eq!(fs.file_name(i), "_".repeat(240));
+        assert_eq!(fs.file_path(i, "dl"), format!("dl/é/{}", "_".repeat(240)));
+        // the name "a", a key of "a/" and 240 a's: the raw bytes end the path across the "/"
+        let mut key = b"a/".to_vec();
+        key.extend(std::iter::repeat_n(b'a', 240));
+        let ti = parse(b"a", &key);
+        let fs = ti.files();
+        let i = (0..fs.num_files()).find(|&i| fs.file_size(i) == 100 && fs.file_name(i) != "b").unwrap();
+        assert_eq!(fs.file_name(i), "a".repeat(240));
+        assert_eq!(fs.file_path(i, "dl"), format!("dl/a/{}", "a".repeat(240)));
+        // a plain name is still borrowed
+        let ti = parse(b"a", b"c");
+        let fs = ti.files();
+        let i = (0..fs.num_files()).find(|&i| fs.file_name(i) == "c").unwrap();
+        assert_eq!(fs.file_path(i, "dl"), "dl/a/c");
     }
 
     /// libtorrent's resolve_duplicates cases. The torrents are built by hand here (libtorrent

@@ -492,11 +492,12 @@ fn serve(
                 Err(_) => return,
             }
             while let Some(frame) = r.next_frame().unwrap() {
-                match dispatch(&engine, &frame).expect("a command") {
+                match dispatch(&engine, &frame, &|_| Ok(None)).expect("a command") {
                     Request::Forwarded => {}
                     Request::PostTorrentUpdates => engine.post_torrent_updates(),
                     Request::PostSessionStats => engine.post_session_stats(),
                     Request::ApplySettings(st) => engine.apply_settings(*st),
+                    Request::Refused(a) => panic!("refused with every path allowed: {a:?}"),
                 }
             }
             engine.pop_alerts(&mut alerts);

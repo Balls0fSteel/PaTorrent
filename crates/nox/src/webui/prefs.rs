@@ -1556,7 +1556,7 @@ fn commit_read(
         st.sessions.remove(super::api::APIKEY_SESSION);
     }
     if w.prefs.auth_subnets != old.prefs.auth_subnets {
-        st.sessions.remove("subnet");
+        st.sessions.remove(super::api::SUBNET_SESSION);
     }
     if st.hosted {
         // the host stores the login (the hash; a login it hands back is taken as it is)

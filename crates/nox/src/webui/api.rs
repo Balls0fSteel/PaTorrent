@@ -255,6 +255,16 @@ pub fn csrf_ok(head: &Head) -> bool {
 
 /// The session key of requests authenticated by the API key.
 pub(super) const APIKEY_SESSION: &str = "apikey";
+/// The session key of loopback clients under the local-auth bypass.
+pub(super) const LOCAL_SESSION: &str = "local";
+/// The session key of clients in the subnet whitelist.
+pub(super) const SUBNET_SESSION: &str = "subnet";
+
+/// Whether `key` is one of the fixed bypass sessions, which no cookie may name: they live in
+/// the same map as the logins, and a bypass client keeps them fresh.
+fn is_bypass_session(key: &str) -> bool {
+    [APIKEY_SESSION, LOCAL_SESSION, SUBNET_SESSION].contains(&key)
+}
 
 /// The API key a request carries (`Authorization: Bearer <key>`), when keys are accepted and
 /// one is stored.
@@ -298,7 +308,8 @@ fn verify_api_key(shared: &Shared, head: &Head, ip: IpAddr, now: Instant) {
 /// for clients in the subnet whitelist (neither for a proxied request).
 fn authenticate(st: &mut State, head: &Head, ip: IpAddr, now: Instant) -> Option<String> {
     let timeout = Duration::from_secs(st.prefs.session_timeout.max(1));
-    if let Some(sid) = head.header("cookie").and_then(|c| cookie(c, "SID")) {
+    let sid = head.header("cookie").and_then(|c| cookie(c, "SID")).filter(|s| !is_bypass_session(s));
+    if let Some(sid) = sid {
         if let Some(s) = st.sessions.get_mut(sid) {
             if now.duration_since(s.last_used) < timeout {
                 s.last_used = now;
@@ -317,9 +328,9 @@ fn authenticate(st: &mut State, head: &Head, ip: IpAddr, now: Instant) -> Option
     } else if proxied(head) {
         return None;
     } else if st.is_loopback_bypass(ip) {
-        "local"
+        LOCAL_SESSION
     } else if st.is_subnet_bypass(ip) {
-        "subnet"
+        SUBNET_SESSION
     } else {
         return None;
     };

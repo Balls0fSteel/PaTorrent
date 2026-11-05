@@ -896,14 +896,21 @@ struct Worker {
     /// Their jobs, in arrival order.
     parked: Vec<Job>,
     cache: ReadCache,
+    /// The thread's queue; a running check takes from it between pieces (`None` in tests).
+    rx: Option<mpsc::Receiver<Job>>,
+    /// Jobs taken during a check that wait for it to end, in arrival order.
+    deferred: Vec<Job>,
+    /// A shutdown was taken during a check: the thread ends after the check's job.
+    shutdown: bool,
 }
 
 fn disk_thread(rx: mpsc::Receiver<Job>, ctx: Ctx) {
-    let mut w = Worker::default();
+    let mut w = Worker { rx: Some(rx), ..Worker::default() };
     loop {
         // Wake up for the read cache's expiry while it holds lines (an expiry of 0 is never).
         let expiry = ctx.read_cache.expiry();
         let check = if expiry.is_zero() { None } else { w.cache.next_check(expiry) };
+        let rx = w.rx.as_ref().expect("the thread's queue");
         let job = match check {
             Some(at) => match rx.recv_timeout(at.saturating_duration_since(Instant::now())) {
                 Ok(job) => Some(job),
@@ -922,6 +929,9 @@ fn disk_thread(rx: mpsc::Receiver<Job>, ctx: Ctx) {
         }
         if let Some(b) = ctx.stats.cache_bytes.get(ctx.index) {
             b.store(w.cache.bytes(), Ordering::Relaxed);
+        }
+        if w.shutdown {
+            break;
         }
     }
 }
@@ -1049,9 +1059,11 @@ impl Worker {
             }
             Job::Check { storage, mode } => {
                 if !aborted(&storage) {
-                    let result = check_files(&storage, ctx, mode);
+                    let result =
+                        check_files(&storage, ctx, mode, &mut || self.poll_during_check(&storage, ctx));
                     ctx.send(Completion::Checked { storage: storage.id, result });
                 }
+                self.run_deferred(ctx);
             }
             Job::Fence { storage, fence } => {
                 let id = storage.id;
@@ -1118,6 +1130,43 @@ impl Worker {
                 }
             }
             Job::Shutdown => {}
+        }
+    }
+
+    /// Called by a running check between pieces: takes the jobs queued meanwhile. A fence or
+    /// barrier of another storage runs now, so a stop, a move or a priority change does not
+    /// wait for the check, which may take hours (the I/O threads park that storage's writes
+    /// behind the barrier, and the parked bytes would hold the engine's write queue shut until
+    /// the check ended). Everything else waits in `deferred` for the check to end: the checked
+    /// storage's jobs, other checks, unblocks (one would replay a parked check inside this one)
+    /// and a fence or barrier whose storage already has a job waiting, so each storage's jobs
+    /// still run in order.
+    fn poll_during_check(&mut self, checking: &Storage, ctx: &Ctx) {
+        loop {
+            let job = match self.rx.as_ref().map(|rx| rx.try_recv()) {
+                Some(Ok(job)) => job,
+                _ => return,
+            };
+            let id = job.storage_id();
+            let now = matches!(job, Job::Fence { .. } | Job::Barrier { .. })
+                && id != Some(checking.id)
+                && !self.deferred.iter().any(|j| j.storage_id() == id);
+            if now {
+                self.handle(job, ctx);
+            } else {
+                self.deferred.push(job);
+            }
+        }
+    }
+
+    /// Runs the jobs a check held back, in order. A check among them may hold back more, which
+    /// go behind the rest. A shutdown ends the thread as it would have from the queue.
+    fn run_deferred(&mut self, ctx: &Ctx) {
+        while !self.shutdown && !self.deferred.is_empty() {
+            match self.deferred.remove(0) {
+                Job::Shutdown => self.shutdown = true,
+                job => self.handle(job, ctx),
+            }
         }
     }
 }
@@ -1338,7 +1387,14 @@ fn read_into(
     Ok(())
 }
 
-fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckResult, (String, Error)> {
+/// `poll` is called before the pieces are hashed and after each one: the thread's chance to take
+/// the jobs queued meanwhile ([`Worker::poll_during_check`]).
+fn check_files(
+    storage: &Storage,
+    ctx: &Ctx,
+    mode: CheckMode,
+    poll: &mut dyn FnMut(),
+) -> Result<CheckResult, (String, Error)> {
     let fs = storage.info.files();
     let num_pieces = storage.info.num_pieces();
     let mut resume_failed = false;
@@ -1359,6 +1415,7 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
     };
 
     export_unskipped(storage, ctx)?;
+    poll();
 
     // Empty files hold no pieces, so nothing else would ever create them. Skipped ones are not
     // created.
@@ -1444,6 +1501,7 @@ fn check_files(storage: &Storage, ctx: &Ctx, mode: CheckMode) -> Result<CheckRes
             ctx.send(Completion::CheckProgress { storage: storage.id, checked: piece + 1 });
         }
         pause(storage, wait);
+        poll();
     }
     // Checking may open hundreds of files; don't keep them all.
     ctx.pool.release(storage.id);
@@ -2330,6 +2388,39 @@ pub(crate) mod tests {
         let _ = std::fs::remove_dir_all(&dir_b);
     }
 
+    #[test]
+    fn a_barrier_for_another_torrent_does_not_wait_for_a_check() {
+        // T: 2 MB checked at 1 MB/s. A priority change for S, sent while T is being checked, is
+        // answered before T's check ends: the checking thread takes it between two pieces.
+        let r = rig("disk-check-barrier-t", &[("data", 2_000_000)], 64 * 1024);
+        let dir_s = temp_dir("disk-check-barrier-s");
+        let mut disk = r.disk;
+        let t = r.storage.clone();
+        let s = disk.new_storage(dir_s.to_string_lossy().into_owned(), t.info.clone(), Vec::new());
+        std::fs::create_dir_all(r.dir.join("test")).unwrap();
+        std::fs::write(r.dir.join("test/data"), &r.contents[0]).unwrap();
+        disk.set_smart(true, Some(1), 4, true, "", false);
+        disk.async_check(&t, CheckMode::Full);
+        // The check is under way once it reports progress (16 pieces, about a second).
+        match next(&r.rx) {
+            Completion::CheckProgress { .. } => {}
+            c => panic!("unexpected {c:?}"),
+        }
+        disk.async_set_file_priority(&s, vec![4]);
+        let answered = loop {
+            match next(&r.rx) {
+                Completion::CheckProgress { .. } => {}
+                Completion::FilePriority { storage, error: None } => break storage,
+                c => panic!("the priority change waited for the check: {c:?}"),
+            }
+        };
+        assert_eq!(answered, s.id);
+        assert!(checked(&r.rx).have.all_set());
+        drop(disk);
+        let _ = std::fs::remove_dir_all(&r.dir);
+        let _ = std::fs::remove_dir_all(&dir_s);
+    }
+
     fn checked(rx: &mpsc::Receiver<Completion>) -> CheckResult {
         loop {
             if let Completion::Checked { result, .. } = next(rx) {
@@ -2515,11 +2606,11 @@ pub(crate) mod tests {
         let stopped = fresh();
         stopped.abort.store(true, Ordering::Relaxed);
         assert!(!resume_matches_files(&stopped, &all));
-        let res = check_files(&stopped, &ctx, CheckMode::Resume(all.clone())).unwrap();
+        let res = check_files(&stopped, &ctx, CheckMode::Resume(all.clone()), &mut || {}).unwrap();
         assert!(res.have.none_set());
         assert!(!r.dir.join("test/empty").exists(), "the empty file was not made");
 
-        let res = check_files(&fresh(), &ctx, CheckMode::Resume(all.clone())).unwrap();
+        let res = check_files(&fresh(), &ctx, CheckMode::Resume(all.clone()), &mut || {}).unwrap();
         assert!(!res.resume_failed && res.have.all_set());
         assert!(r.dir.join("test/empty").exists());
         ctx.pool.release(78);

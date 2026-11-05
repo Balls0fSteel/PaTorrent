@@ -15,7 +15,10 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
   scenarios and fix directions is [BUGHUNT-2026-11-05.md](BUGHUNT-2026-11-05.md). The five high ones: the
   Web UI's bypass names as `SID` cookies, the `is_idna` panic on a non-ASCII web seed host, a borrowed
   file name collapsing a path to the torrent root, a disk barrier waiting behind other torrents' checks
-  and stalling every peer, and `/pa/remote` skipping the path policy. Fix the high ones before 1.2.0 (D58).
+  and stalling every peer, and `/pa/remote` skipping the path policy: all five fixed in 1.1.69 with tests.
+  Open: findings 6-38 (twelve medium, the rest low), the medium ones first; the alert loss while
+  Properties waits for tracker lists (6), the missing bitfield after a magnet's check (7), the spurious
+  snub (8), the dropped allowed-fast requests (9) and the UPnP spin (10) are the ones users would meet.
 
 ## Security and TLS
 

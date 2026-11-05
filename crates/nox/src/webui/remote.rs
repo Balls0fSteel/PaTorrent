@@ -161,9 +161,18 @@ pub(super) fn run(mut stream: Conn, buf: Vec<u8>, shared: &Shared) {
                 Ok(None) => break,
                 Err(_) => return,
             };
-            match remote::dispatch(&shared.handle, &frame) {
+            // the paths a command names pass the policy, as the Web UI's own requests do; an
+            // empty save path is the default folder, as in an add without one
+            let path = |path: &str| {
+                let given = (!path.trim().is_empty()).then(|| path.to_owned());
+                let path = given.clone().unwrap_or_else(|| shared.lock().prefs.save_path.clone());
+                shared.path_policy.check(&path)?;
+                Ok(given.is_none().then_some(path))
+            };
+            match remote::dispatch(&shared.handle, &frame, &path) {
                 None => return,
                 Some(Request::Forwarded) => {}
+                Some(Request::Refused(a)) => remote::alert_frame(&a, &mut out),
                 Some(Request::PostTorrentUpdates) => {
                     let st = shared.lock();
                     let changed: Vec<_> = st

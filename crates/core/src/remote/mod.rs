@@ -174,15 +174,70 @@ pub enum Request {
     PostSessionStats,
     /// New engine settings: the server applies them its own way (and keeps them).
     ApplySettings(Box<Settings>),
+    /// A command refused by the server's path policy: the alert the engine would have sent
+    /// for the failure, for this client alone.
+    Refused(Alert),
 }
 
 /// Decodes a client's frame and passes the command to `handle`, or returns what the server
-/// must do itself. `None` for a frame that is not a command of this protocol version.
-pub fn dispatch(handle: &SessionHandle, frame: &[u8]) -> Option<Request> {
+/// must do itself. `None` for a frame that is not a command of this protocol version. A path a
+/// command names (an add's save path, a move's target) goes through `path` first, the server's
+/// policy for the folders its logins may use: `Ok(None)` keeps the path, `Ok(Some(p))` replaces
+/// it (an empty save path takes the server's default, as the Web UI's add does), and a refused
+/// command never reaches the engine and is answered with the failure alert the engine would have
+/// sent.
+pub fn dispatch(
+    handle: &SessionHandle,
+    frame: &[u8],
+    path: &dyn Fn(&str) -> Result<Option<String>, &'static str>,
+) -> Option<Request> {
+    let refused = |why: &'static str| crate::Error::Io {
+        kind: io::ErrorKind::PermissionDenied,
+        message: why.to_owned(),
+    };
     Some(match wire::decode_command(frame)? {
         Command::PostTorrentUpdates => Request::PostTorrentUpdates,
         Command::PostSessionStats => Request::PostSessionStats,
         Command::ApplySettings(s) => Request::ApplySettings(s),
+        Command::AddTorrent(mut p) => match path(&p.save_path) {
+            Ok(replaced) => {
+                if let Some(save_path) = replaced {
+                    p.save_path = save_path;
+                }
+                handle.send(Command::AddTorrent(p));
+                Request::Forwarded
+            }
+            Err(why) => {
+                // named as the engine names a failed add: the info's name for a file, the
+                // display name for a magnet
+                use crate::params::TorrentSource;
+                let name = match (&p.name, &p.source) {
+                    (Some(n), _) => n.clone(),
+                    (None, TorrentSource::TorrentFile(bytes)) => {
+                        crate::metainfo::TorrentInfo::from_bytes(bytes)
+                            .map(|t| t.name().to_owned())
+                            .unwrap_or_default()
+                    }
+                    (None, TorrentSource::Magnet(uri)) => {
+                        crate::metainfo::parse_magnet_uri(uri).map(|m| m.name).unwrap_or_default()
+                    }
+                    (None, _) => String::new(),
+                };
+                Request::Refused(Alert::AddTorrentFailed { name, error: refused(why) })
+            }
+        },
+        Command::MoveStorage(id, target, flags) => match path(&target) {
+            Ok(replaced) => {
+                handle.send(Command::MoveStorage(id, replaced.unwrap_or(target), flags));
+                Request::Forwarded
+            }
+            Err(why) => Request::Refused(Alert::StorageMovedFailed {
+                id,
+                error: refused(why),
+                file: target,
+                operation: crate::alert::FileOperation::Unknown,
+            }),
+        },
         cmd => {
             handle.send(cmd);
             Request::Forwarded

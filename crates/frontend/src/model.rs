@@ -9,12 +9,12 @@
 //! the view as it was ([`TorrentList::view_generation`]). Only a new sort column or direction
 //! sorts everything.
 //!
-//! [`Alert::StateUpdate`]: patorrent_core::Alert::StateUpdate
+//! [`Alert::StateUpdate`]: rookparcel_core::Alert::StateUpdate
 
 use std::cmp::Ordering;
 use std::collections::{HashMap, HashSet};
 
-use patorrent_core::{TorrentId, TorrentStatus};
+use rookparcel_core::{TorrentId, TorrentStatus};
 
 use crate::columns::{Column, RowExtra, natural_cmp, natural_key_into};
 use crate::status::{Category, status_text};
@@ -535,7 +535,7 @@ mod tests {
 
     #[test]
     fn user_pause_shows_in_status() {
-        use patorrent_core::TorrentFlags;
+        use rookparcel_core::TorrentFlags;
         let mut l = TorrentList::new();
         let mut s = st(1, "x", 0, false);
         s.flags = TorrentFlags::PAUSED;
@@ -581,7 +581,7 @@ mod tests {
     }
 
     fn random_row(r: &mut Rng, raw: u64) -> TorrentStatus {
-        use patorrent_core::TorrentFlags;
+        use rookparcel_core::TorrentFlags;
         let mut s =
             st(raw, &format!("t{} ep{}", r.next(5), r.next(30)), r.next(4) as u32 * 100, r.next(3) == 0);
         s.total_wanted = r.next(6) * 1000;

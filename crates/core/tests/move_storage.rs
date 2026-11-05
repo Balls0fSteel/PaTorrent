@@ -10,9 +10,9 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     AddTorrentParams, Alert, DownloadPriority, FileOperation, MoveCompleted, MoveFlags, Session,
     SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentState,
     TorrentStatus,
@@ -472,7 +472,7 @@ fn move_completed_moves_a_finished_download() {
 
 #[test]
 fn commands_queued_behind_a_move_see_the_new_path() {
-    use patorrent_core::RemoveFlags;
+    use rookparcel_core::RemoveFlags;
     let f = fixture();
     let dir = temp_dir("queued");
     write_files(&f, &dir);

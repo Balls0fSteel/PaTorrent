@@ -7,8 +7,8 @@ use std::cell::RefCell;
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use patorrent_frontend::lang;
-use patorrent_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode, drag_line, hover_text};
+use rookparcel_frontend::lang;
+use rookparcel_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode, drag_line, hover_text};
 
 use crate::canvas::{self, Canvas, faded, fill, frame, rgb};
 

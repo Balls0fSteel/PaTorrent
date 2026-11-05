@@ -12,7 +12,7 @@
 //! be reached ("minimum" ratio and "minimum" time). "Limit the upload rate to X kB/s [0: stop]"
 //! off, or at 0, stops the torrent; at X it caps the torrent's upload rate instead.
 
-use patorrent_core::{TorrentFlags, TorrentHandle, TorrentState, TorrentStatus};
+use rookparcel_core::{TorrentFlags, TorrentHandle, TorrentState, TorrentStatus};
 
 use crate::prefs::Prefs;
 

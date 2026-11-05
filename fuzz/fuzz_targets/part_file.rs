@@ -5,7 +5,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::PartFileSlotMap as SlotMap;
+use rookparcel_core::fuzzing::PartFileSlotMap as SlotMap;
 
 fn check(m: &SlotMap, pieces: u32, piece_size: u32) {
     assert!(m.is_consistent());

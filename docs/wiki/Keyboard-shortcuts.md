@@ -1,6 +1,6 @@
 # Keyboard shortcuts
 
-This page lists the keyboard shortcuts of the Windows version of PaTorrent, then what differs in the GTK version and in the Web UI. Most of them are also written beside their menu items.
+This page lists the keyboard shortcuts of the Windows version of Rookparcel, then what differs in the GTK version and in the Web UI. Most of them are also written beside their menu items.
 
 ## Main window (Windows)
 
@@ -20,7 +20,7 @@ This page lists the keyboard shortcuts of the Windows version of PaTorrent, then
 | <kbd>Shift</kbd>+<kbd>Del</kbd> | **Remove And > Delete Data**: removes the torrents and deletes their files |
 | <kbd>Enter</kbd> | **Properties** of the selected torrents (in the torrent list) |
 | <kbd>Shift</kbd>+<kbd>F10</kbd> or the menu key | Opens the right-click menu under the focused row |
-| <kbd>Alt</kbd>+<kbd>F4</kbd> | Closes the window. With **Close to tray** on (the default), PaTorrent keeps running in the tray. |
+| <kbd>Alt</kbd>+<kbd>F4</kbd> | Closes the window. With **Close to tray** on (the default), Rookparcel keeps running in the tray. |
 
 With **Confirm when deleting torrents** on in Preferences, <kbd>Del</kbd> and <kbd>Shift</kbd>+<kbd>Del</kbd> ask first. **File > Exit** has no shortcut; see [Tray, notifications and startup](Tray-notifications-and-startup).
 
@@ -83,7 +83,7 @@ The GTK version has these shortcuts:
 | <kbd>Ctrl</kbd>+<kbd>F</kbd> | Moves to the search box |
 | <kbd>Ctrl</kbd>+<kbd>P</kbd> | **Preferences** |
 | <kbd>Ctrl</kbd>+<kbd>G</kbd> | **Setup Guide** |
-| <kbd>Ctrl</kbd>+<kbd>Q</kbd> | **Exit**: quits PaTorrent, also when the window would close to the tray |
+| <kbd>Ctrl</kbd>+<kbd>Q</kbd> | **Exit**: quits Rookparcel, also when the window would close to the tray |
 | <kbd>Delete</kbd> | **Remove** |
 | <kbd>Shift</kbd>+<kbd>Delete</kbd> | Remove and delete the data |
 | <kbd>Ctrl</kbd>+<kbd>A</kbd> | Selects every torrent |

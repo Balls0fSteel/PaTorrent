@@ -27,15 +27,15 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use patorrent_core::{IpFilter, IpFilterLoad, ProxyType, Settings, TorrentFlags};
-use patorrent_frontend::help;
-use patorrent_frontend::lang::{self, H, S};
-use patorrent_frontend::network;
-use patorrent_frontend::options::{self, GuiOptions};
-use patorrent_frontend::pref_pages;
-use patorrent_frontend::scheduler;
-use patorrent_frontend::settings::{self, Entry, Kind as SettingKind, TABLE, Value};
-use patorrent_frontend::tr;
+use rookparcel_core::{IpFilter, IpFilterLoad, ProxyType, Settings, TorrentFlags};
+use rookparcel_frontend::help;
+use rookparcel_frontend::lang::{self, H, S};
+use rookparcel_frontend::network;
+use rookparcel_frontend::options::{self, GuiOptions};
+use rookparcel_frontend::pref_pages;
+use rookparcel_frontend::scheduler;
+use rookparcel_frontend::settings::{self, Entry, Kind as SettingKind, TABLE, Value};
+use rookparcel_frontend::tr;
 
 use super::auth::{self, PasswordHash};
 use super::json::Json;
@@ -175,17 +175,17 @@ fn proxy_from_ui(kind: i64, auth: bool) -> ProxyType {
 
 fn enc_out(s: &Settings) -> i64 {
     match s.out_enc_policy {
-        patorrent_core::EncPolicy::Disabled => 0,
-        patorrent_core::EncPolicy::Enabled => 1,
-        patorrent_core::EncPolicy::Forced => 2,
+        rookparcel_core::EncPolicy::Disabled => 0,
+        rookparcel_core::EncPolicy::Enabled => 1,
+        rookparcel_core::EncPolicy::Forced => 2,
     }
 }
 
-fn enc_policy(i: i64) -> patorrent_core::EncPolicy {
+fn enc_policy(i: i64) -> rookparcel_core::EncPolicy {
     match i {
-        0 => patorrent_core::EncPolicy::Disabled,
-        2 => patorrent_core::EncPolicy::Forced,
-        _ => patorrent_core::EncPolicy::Enabled,
+        0 => rookparcel_core::EncPolicy::Disabled,
+        2 => rookparcel_core::EncPolicy::Forced,
+        _ => rookparcel_core::EncPolicy::Enabled,
     }
 }
 
@@ -923,7 +923,7 @@ fn page(id: &str, title: &str, groups: Vec<Json>) -> Json {
     Json::obj().with("id", id).with("title", title).with("groups", Json::Arr(groups))
 }
 
-/// The tree, in µTorrent 2.2.1's order; Disk Cache and PaTorrent's Disk I/O sit under
+/// The tree, in µTorrent 2.2.1's order; Disk Cache and Rookparcel's Disk I/O sit under
 /// Advanced. `hosted`: without the alternative speed limits (the host has none).
 fn pages(settings_dir: &Path, hosted: bool) -> Vec<Json> {
     let ipf_default = settings_dir.join("ipfilter.dat");
@@ -1666,7 +1666,7 @@ pub(crate) fn read_back(st: &mut State) -> bool {
             }
         }
         // the GuiOptions keys: the stored ones over the current values (the command line's)
-        let mut filled = patorrent_frontend::prefs::Prefs::default();
+        let mut filled = rookparcel_frontend::prefs::Prefs::default();
         st.prefs.gui().store(&mut filled);
         for (k, v) in o.entries() {
             filled.set(k, v);
@@ -1797,7 +1797,7 @@ mod tests {
     #[test]
     fn every_field_has_help() {
         let dir = std::env::temp_dir().join(format!("nox-prefs-help-{}", std::process::id()));
-        let session = patorrent_core::Session::start_mock(Settings::default(), Default::default());
+        let session = rookparcel_core::Session::start_mock(Settings::default(), Default::default());
         let shared = State::shared_for_tests(session.handle(), dir);
         let m = model(&shared, &state());
         let fields = m.get("fields").unwrap();
@@ -1941,9 +1941,9 @@ mod tests {
 
         // composites
         let w = edited(&st, r#"{"enc_out":"Forced","enc_legacy":false}"#).unwrap();
-        assert_eq!(w.settings.out_enc_policy, patorrent_core::EncPolicy::Forced);
-        assert_eq!(w.settings.in_enc_policy, patorrent_core::EncPolicy::Forced);
-        assert_eq!(w.settings.allowed_enc_level, patorrent_core::EncLevel::Rc4);
+        assert_eq!(w.settings.out_enc_policy, rookparcel_core::EncPolicy::Forced);
+        assert_eq!(w.settings.in_enc_policy, rookparcel_core::EncPolicy::Forced);
+        assert_eq!(w.settings.allowed_enc_level, rookparcel_core::EncLevel::Rc4);
         let w = edited(&st, r#"{"utp":false}"#).unwrap();
         assert!(
             !w.settings.enable_outgoing_utp
@@ -2023,7 +2023,7 @@ mod tests {
 
     #[test]
     fn the_scheduler_fields_edit_the_schedule() {
-        use patorrent_frontend::scheduler::{CELLS, Mode};
+        use rookparcel_frontend::scheduler::{CELLS, Mode};
         let st = state();
         let mut table = "0".repeat(CELLS);
         table.replace_range(9..10, "2");
@@ -2072,7 +2072,7 @@ mod tests {
         assert!(general.to_json().contains(r#"{"f":"ui.language"}"#), "{}", general.to_json());
         let mut w = Working::from_state(&st);
         w.prefs.language = "en".to_owned();
-        let mut options = patorrent_frontend::prefs::Prefs::default();
+        let mut options = rookparcel_frontend::prefs::Prefs::default();
         w.prefs.gui().store(&mut options);
         assert_eq!(options.get("ui.language"), Some("en"));
     }
@@ -2085,7 +2085,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         let list = dir.join("list.dat");
         std::fs::write(&list, "1.2.3.0 - 1.2.3.255 , 0 , x\n").unwrap();
-        let session = patorrent_core::Session::start_mock(Settings::default(), Default::default());
+        let session = rookparcel_core::Session::start_mock(Settings::default(), Default::default());
         let shared = State::shared_for_tests(session.handle(), dir.clone());
         *shared.lock() = state();
         let reads = std::cell::Cell::new(0);
@@ -2123,7 +2123,7 @@ mod tests {
     #[test]
     fn append_label_reaches_the_mover() {
         let dir = std::env::temp_dir().join(format!("nox-prefs-add-label-{}", std::process::id()));
-        let session = patorrent_core::Session::start_mock(Settings::default(), Default::default());
+        let session = rookparcel_core::Session::start_mock(Settings::default(), Default::default());
         let shared = State::shared_for_tests(session.handle(), dir.clone());
         *shared.lock() = state();
         let done = dir.join("done");

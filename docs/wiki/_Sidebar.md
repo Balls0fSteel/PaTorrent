@@ -1,11 +1,11 @@
 **[Home](Home)**
 
 **Getting started**
-- [Installing](Installing-PaTorrent)
+- [Installing](Installing-Rookparcel)
 - [First start](First-start-and-the-Setup-Guide)
-- [Where files are kept](Where-PaTorrent-keeps-its-files)
+- [Where files are kept](Where-Rookparcel-keeps-its-files)
 - [Profiles](Profiles)
-- [Updating](Updating-PaTorrent)
+- [Updating](Updating-Rookparcel)
 
 **Everyday use**
 - [Adding torrents](Adding-torrents)
@@ -29,7 +29,7 @@
 **Remote and headless**
 - [Web UI](Web-UI)
 - [Remote control](Remote-control)
-- [patorrent-nox](Running-patorrent-nox)
+- [rookparcel-nox](Running-rookparcel-nox)
 - [Sonarr, Radarr, Prowlarr](Sonarr-Radarr-and-Prowlarr)
 
 **Reference**

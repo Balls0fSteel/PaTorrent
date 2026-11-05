@@ -279,7 +279,7 @@ impl PeerClassSet {
 }
 
 /// The kinds of socket a [`PeerClassTypeFilter`] tells apart (libtorrent
-/// `peer_class_type_filter::socket_type_t`). PaTorrent has no SSL torrents or I2P, so only
+/// `peer_class_type_filter::socket_type_t`). Rookparcel has no SSL torrents or I2P, so only
 /// `Tcp` and `Utp` sockets occur; the others are kept for libtorrent's numbering.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum SocketType {

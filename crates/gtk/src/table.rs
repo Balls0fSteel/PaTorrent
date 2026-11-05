@@ -1,6 +1,6 @@
 //! The detail tabs' tables (Trackers, Peers, Files, Logger and the Pieces list): a
 //! `GtkColumnView` over [`CountModel`], a `GListModel` that is only a row count. Rows are
-//! indices into the frontend's [`Detail`](patorrent_frontend::detail::Detail); the cells
+//! indices into the frontend's [`Detail`](rookparcel_frontend::detail::Detail); the cells
 //! on screen are remembered and redrawn from it, as the torrent list does.
 //!
 //! A count that grows adds rows at the end and one that shrinks drops them there, so the
@@ -15,9 +15,9 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk::{gio, glib};
-use patorrent_frontend::detail::ColumnDef;
-use patorrent_frontend::icons::StateIcon;
-use patorrent_frontend::lang;
+use rookparcel_frontend::detail::ColumnDef;
+use rookparcel_frontend::icons::StateIcon;
+use rookparcel_frontend::lang;
 
 use crate::canvas::Canvas;
 
@@ -34,7 +34,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for CountModel {
-        const NAME: &'static str = "PaTorrentCountModel";
+        const NAME: &'static str = "RookparcelCountModel";
         type Type = super::CountModel;
         type Interfaces = (gio::ListModel,);
     }

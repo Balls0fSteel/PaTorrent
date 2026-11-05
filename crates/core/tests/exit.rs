@@ -3,7 +3,7 @@
 
 use std::time::{Duration, Instant};
 
-use patorrent_core::{ExitPhase, Session, SessionParams, Settings};
+use rookparcel_core::{ExitPhase, Session, SessionParams, Settings};
 
 fn session() -> Session {
     let settings = Settings {

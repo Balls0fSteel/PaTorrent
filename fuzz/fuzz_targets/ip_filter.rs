@@ -5,7 +5,7 @@
 use std::net::IpAddr;
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::IpFilter;
+use rookparcel_core::IpFilter;
 
 fuzz_target!(|data: &[u8]| {
     let l = IpFilter::parse(data);

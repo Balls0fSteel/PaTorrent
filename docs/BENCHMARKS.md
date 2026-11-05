@@ -1,6 +1,6 @@
 # Benchmarks against other clients
 
-PaTorrent's daemon (`patorrent-nox`) measured beside the daemons of qBittorrent, Transmission,
+Rookparcel's daemon (`rookparcel-nox`) measured beside the daemons of qBittorrent, Transmission,
 Deluge and rTorrent, on the same machine with the same torrents. The website shows the results
 ([benchmarks.html](../site/benchmarks.html)); this file is the method, so anyone can run it again.
 The harness is `tools/bench/bench.py` (Python 3, standard library; Deluge's RPC needs
@@ -8,13 +8,13 @@ The harness is `tools/bench/bench.py` (Python 3, standard library; Deluge's RPC 
 
 ## Results, 2026-10-27
 
-Run on the VMware VM described under Limits; raw results in `docs/benchmarks/2026-10-27-ubuntu-vm.jsonl`. Transfer: 2 GiB, 5 runs each, medians with the range; throughput and CPU between 10% and 80% of the payload; *first byte to done* includes the end of the download (rTorrent slows to about 32 MB/s once some 1.7 GiB of memory-mapped pieces wait to be flushed; Transmission holds 62.4 MiB/s from one peer). Many torrents: one run per count; memory and idle CPU after the restart. Right after adding 10,000, PaTorrent used 319 MB (qBittorrent 636, Transmission 328, Deluge 905, rTorrent 2,101): it keeps metadata only for active torrents, which a restart leaves out.
+Run on the VMware VM described under Limits; raw results in `docs/benchmarks/2026-10-27-ubuntu-vm.jsonl`. Transfer: 2 GiB, 5 runs each, medians with the range; throughput and CPU between 10% and 80% of the payload; *first byte to done* includes the end of the download (rTorrent slows to about 32 MB/s once some 1.7 GiB of memory-mapped pieces wait to be flushed; Transmission holds 62.4 MiB/s from one peer). Many torrents: one run per count; memory and idle CPU after the restart. Right after adding 10,000, Rookparcel used 319 MB (qBittorrent 636, Transmission 328, Deluge 905, rTorrent 2,101): it keeps metadata only for active torrents, which a restart leaves out.
 
 ### Transfer
 
 | Client | Version | Runs | Throughput (MiB/s) | range | CPU s per GiB | range | First byte to done (s) |
 |---|---|---|---|---|---|---|---|
-| PaTorrent | patorrent-nox 1.0.1 | 5 of 5 | 3,592 | 2,124–3,605 | 1.04 | 0.94–1.16 | 1.6 |
+| Rookparcel | rookparcel-nox 1.0.1 | 5 of 5 | 3,592 | 2,124–3,605 | 1.04 | 0.94–1.16 | 1.6 |
 | qBittorrent | v5.1.4 | 5 of 5 | 1,471 | 1,380–1,662 | 2.14 | 2.06–2.22 | 2.5 |
 | Transmission | Transmission 4.1.1 (56442e2929) | 5 of 5 | 62.4 | 62.4–62.5 | 2.66 | 2.66–2.72 | 41.2 |
 | Deluge | Deluge 2.2.1.dev0+20250824 (libtorrent 2.0.12.0) | 5 of 5 | 1,566 | 1,217–1,670 | 2.11 | 1.97–2.22 | 2.0 |
@@ -24,7 +24,7 @@ Run on the VMware VM described under Limits; raw results in `docs/benchmarks/202
 
 | Client | Add (s) | Start with all listed (s) | Memory, RSS (MB) | PSS (MB) | Idle CPU (%) | Empty RSS (MB) |
 |---|---|---|---|---|---|---|
-| PaTorrent | 0.1 | 0.07 | 15.1 | 10.9 | 0.05 | 9.5 |
+| Rookparcel | 0.1 | 0.07 | 15.1 | 10.9 | 0.05 | 9.5 |
 | qBittorrent | 0.1 | 0.18 | 105 | 90.1 | 0.07 | 53.6 |
 | Transmission | 0.5 | 0.09 | 52.4 | 40.4 | 0.20 | 20.9 |
 | Deluge | 51.6 | 0.91 | 135 | 120 | 0.22 | 68.5 |
@@ -34,7 +34,7 @@ Run on the VMware VM described under Limits; raw results in `docs/benchmarks/202
 
 | Client | Add (s) | Start with all listed (s) | Memory, RSS (MB) | PSS (MB) | Idle CPU (%) | Empty RSS (MB) |
 |---|---|---|---|---|---|---|
-| PaTorrent | 1.3 | 0.19 | 60.2 | 56.1 | 0.07 | 9.5 |
+| Rookparcel | 1.3 | 0.19 | 60.2 | 56.1 | 0.07 | 9.5 |
 | qBittorrent | 1.2 | 0.86 | 612 | 597 | 0.07 | 53.5 |
 | Transmission | 4.9 | 1.00 | 327 | 315 | 0.77 | 20.8 |
 | Deluge | 517 | 5.76 | 701 | 686 | 0.28 | 68.4 |
@@ -42,11 +42,11 @@ Run on the VMware VM described under Limits; raw results in `docs/benchmarks/202
 
 ## Release check, 1.1.40 (2026-11-03)
 
-The same VM, now with 4 GB of RAM instead of 8, so the transfer was 1 GiB (the 2 GiB one does not fit in tmpfs twice); PaTorrent and qBittorrent only, with the published 1.0.1 binary run beside 1.1.40 the same day as the control. Raw results: `docs/benchmarks/2026-11-03-ubuntu-vm-4gb-1.1.40.jsonl`. The tables above stay the published comparison.
+The same VM, now with 4 GB of RAM instead of 8, so the transfer was 1 GiB (the 2 GiB one does not fit in tmpfs twice); Rookparcel and qBittorrent only, with the published 1.0.1 binary run beside 1.1.40 the same day as the control. Raw results: `docs/benchmarks/2026-11-03-ubuntu-vm-4gb-1.1.40.jsonl`. The tables above stay the published comparison.
 
 - **Transfer, 1 GiB, 10 runs each, alternating:** 1.1.40 2,123 MiB/s and 1.17 CPU s/GiB, 1.0.1 2,099 MiB/s and 1.23: the same. Both are lower than the published 2 GiB run, and so is qBittorrent (1,256 MiB/s, 2.23 s/GiB): the smaller VM and payload.
 - **10,000 torrents, add:** three alternating runs each, 1.0.1 1.37-1.84 s (median 1.68), 1.1.40 1.71-2.16 s (median 1.78): within run-to-run noise. Start with all listed, memory after adding and idle CPU unchanged.
-- **Memory after a restart:** 66 MB at 10,000 torrents (60 for 1.0.1), 21 MB at 1,000 (15), 15.5 MB empty (9.5). The difference is `patorrent-nox`'s update check (since 1.1.17): its one HTTPS request 10-20 s after start adds about 5.5 MB that stays (10.4 MB with `--no-update-check`, measured at 40 s). The smart disk I/O threads add about 0.1 MB.
+- **Memory after a restart:** 66 MB at 10,000 torrents (60 for 1.0.1), 21 MB at 1,000 (15), 15.5 MB empty (9.5). The difference is `rookparcel-nox`'s update check (since 1.1.17): its one HTTPS request 10-20 s after start adds about 5.5 MB that stays (10.4 MB with `--no-update-check`, measured at 40 s). The smart disk I/O threads add about 0.1 MB.
 
 ## What is measured
 
@@ -81,8 +81,8 @@ different client first each round.
 
 - Every client runs from a throwaway profile with DHT, local peer discovery, peer exchange and
   port mapping off (no outside peers), everything else at its defaults: queueing, caches,
-  connection limits and encryption are each client's own. Nothing is tuned for PaTorrent.
-- PaTorrent is the published 1.0.1 release (`patorrent-1.0.1-linux-x86_64.tar.gz`, checked
+  connection limits and encryption are each client's own. Nothing is tuned for Rookparcel.
+- Rookparcel is the published 1.0.1 release (`rookparcel-1.0.1-linux-x86_64.tar.gz`, checked
   against `SHA256SUMS`), not a local build. The other clients are the distribution's packages.
 - Ubuntu confines `transmission-daemon` with an AppArmor profile to its service user's folders,
   so the harness runs it as that user (`debian-transmission`), as the packaged service does,
@@ -99,7 +99,7 @@ different client first each round.
   not be read on its own.
 - Transfers between two processes on one machine show what a client's code costs, not how it
   behaves on the internet: there is no latency, no packet loss and no swarm.
-- Because the seed takes TCP only, clients that try uTP first (PaTorrent, qBittorrent, Deluge,
+- Because the seed takes TCP only, clients that try uTP first (Rookparcel, qBittorrent, Deluge,
   Transmission) wait for that attempt to fail before connecting; the time to the first byte is
   recorded but not compared.
 - The Windows GUI and the GTK GUI are not measured here; `docs/ARCHITECTURE.md` and PLAN.md
@@ -108,7 +108,7 @@ different client first each round.
 ## Running it again
 
 On a Linux machine with the clients installed (Ubuntu: `qbittorrent-nox transmission-daemon
-deluged deluge-console rtorrent`) and PaTorrent's Linux tarball unpacked where `Patorrent.binary`
+deluged deluge-console rtorrent`) and Rookparcel's Linux tarball unpacked where `Rookparcel.binary`
 in `bench.py` points:
 
 ```bash
@@ -122,6 +122,6 @@ python3 -m venv ~/.venv-linux && ~/.venv-linux/bin/pip install deluge-client
 python3 tools/bench/summarize.py results.jsonl
 ```
 
-`--clients patorrent,qbittorrent` picks clients; `--keep` leaves the profiles in `~/bench/work`.
+`--clients rookparcel,qbittorrent` picks clients; `--keep` leaves the profiles in `~/bench/work`.
 Transmission needs root through `sudo -n` (the AppArmor note above). The raw results of each
 published run are in `docs/benchmarks/`.

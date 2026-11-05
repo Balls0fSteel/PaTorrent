@@ -2,7 +2,7 @@
 //! Settings, Seeding Goal and Other Settings, for the selected torrents (the Advanced tab is
 //! not built).
 //!
-//! The fields come from [`patorrent_frontend::properties`]. With several torrents selected the
+//! The fields come from [`rookparcel_frontend::properties`]. With several torrents selected the
 //! check boxes have three states and fields whose values differ start blank or indeterminate;
 //! what the user leaves that way stays as it is on every torrent, as in µTorrent. OK hands
 //! back the [`Changes`] for the caller to apply to each torrent.
@@ -10,8 +10,8 @@
 use std::mem::zeroed;
 use std::ptr::null;
 
-use patorrent_frontend::properties::{Changes, Field, FieldError, Fields, Properties, Tri};
-use patorrent_frontend::tr;
+use rookparcel_frontend::properties::{Changes, Field, FieldError, Fields, Properties, Tri};
+use rookparcel_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
@@ -283,8 +283,8 @@ pub fn title(names: &[String]) -> String {
 mod tests {
     //! The dialog built from its template, hidden and modeless, driven through its messages.
 
-    use patorrent_frontend::properties::{Defaults, GoalChange, TorrentProps};
-    use patorrent_frontend::seeding::SeedGoal;
+    use rookparcel_frontend::properties::{Defaults, GoalChange, TorrentProps};
+    use rookparcel_frontend::seeding::SeedGoal;
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CreateDialogIndirectParamW, DestroyWindow, SendMessageW,

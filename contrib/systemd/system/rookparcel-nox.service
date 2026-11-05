@@ -1,47 +1,48 @@
-# patorrent-nox as a system service, run as the `patorrent` account (docs/DAEMON.md).
+# rookparcel-nox as a system service, run as the `rookparcel` account (docs/DAEMON.md).
+# Replacing a patorrent-nox.service: docs/DAEMON.md, "Coming from PaTorrent".
 #
-#   sudo install -m 755 patorrent-nox /usr/local/bin/
-#   sudo install -D -m 644 patorrent-nox.sysusers /etc/sysusers.d/patorrent-nox.conf
+#   sudo install -m 755 rookparcel-nox /usr/local/bin/
+#   sudo install -D -m 644 rookparcel-nox.sysusers /etc/sysusers.d/rookparcel-nox.conf
 #   sudo systemd-sysusers
-#   sudo install -m 644 patorrent-nox.service /etc/systemd/system/
+#   sudo install -m 644 rookparcel-nox.service /etc/systemd/system/
 #   sudo systemctl daemon-reload
-#   sudo systemctl enable --now patorrent-nox
-#   journalctl -u patorrent-nox     (the Web UI's temporary password on the first start)
+#   sudo systemctl enable --now rookparcel-nox
+#   journalctl -u rookparcel-nox     (the Web UI's temporary password on the first start)
 #
-# Change the command line with `sudo systemctl edit patorrent-nox`:
+# Change the command line with `sudo systemctl edit rookparcel-nox`:
 #
 #   [Service]
 #   ExecStart=
-#   ExecStart=/usr/local/bin/patorrent-nox run --save /srv/torrents --webui 0.0.0.0:8080
+#   ExecStart=/usr/local/bin/rookparcel-nox run --save /srv/torrents --webui 0.0.0.0:8080
 #   ReadWritePaths=/srv/torrents
 #
 # Everything the daemon keeps (resume data, DHT state, webui.json) goes to
-# /var/lib/patorrent-nox ($STATE_DIRECTORY). `systemctl reload` reloads the IP filter.
+# /var/lib/rookparcel-nox ($STATE_DIRECTORY). `systemctl reload` reloads the IP filter.
 
 [Unit]
-Description=PaTorrent BitTorrent daemon (patorrent-nox)
-Documentation=https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md
+Description=Rookparcel BitTorrent daemon (rookparcel-nox)
+Documentation=https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/DAEMON.md
 Wants=network-online.target
 After=network-online.target
 
 [Service]
 Type=notify
 NotifyAccess=main
-User=patorrent
-Group=patorrent
-ExecStart=/usr/local/bin/patorrent-nox run --save /var/lib/patorrent-nox/downloads --webui 127.0.0.1:8080
+User=rookparcel
+Group=rookparcel
+ExecStart=/usr/local/bin/rookparcel-nox run --save /var/lib/rookparcel-nox/downloads --webui 127.0.0.1:8080
 ExecReload=/bin/kill -HUP $MAINPID
 Restart=on-failure
 RestartSec=5
 # saving resume data and deleting the router's port mappings takes a moment
 TimeoutStopSec=60
-StateDirectory=patorrent-nox
+StateDirectory=rookparcel-nox
 StateDirectoryMode=0750
 UMask=0027
 LimitNOFILE=16384
 
-# Sandboxing (systemd.exec(5)); `systemd-analyze security patorrent-nox` rates it.
-# Downloads outside /var/lib/patorrent-nox need a ReadWritePaths= line (see above).
+# Sandboxing (systemd.exec(5)); `systemd-analyze security rookparcel-nox` rates it.
+# Downloads outside /var/lib/rookparcel-nox need a ReadWritePaths= line (see above).
 NoNewPrivileges=yes
 ProtectSystem=strict
 ProtectHome=yes

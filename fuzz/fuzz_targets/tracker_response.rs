@@ -2,8 +2,8 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::Sha1Hash;
-use patorrent_core::fuzzing::{parse_announce_response, parse_compact_peers, parse_scrape_response};
+use rookparcel_core::Sha1Hash;
+use rookparcel_core::fuzzing::{parse_announce_response, parse_compact_peers, parse_scrape_response};
 
 fuzz_target!(|data: &[u8]| {
     let _ = parse_announce_response(data);

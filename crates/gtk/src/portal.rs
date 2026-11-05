@@ -1,6 +1,6 @@
 //! XDG desktop portals, over GDBus as the tray does (no library beyond GIO). Only what a Flatpak
 //! needs from them: autostart through the Background portal (`integration`, Preferences >
-//! General's "Start PaTorrent on system startup").
+//! General's "Start Rookparcel on system startup").
 //!
 //! A portal request answers twice: the method call returns the path of an
 //! `org.freedesktop.portal.Request` object at once, and the outcome arrives later on its
@@ -98,7 +98,7 @@ fn request(
     let Some(unique) = bus.unique_name() else {
         return done(Err("not connected to the session bus".into()));
     };
-    let token = format!("patorrent{}", NEXT_TOKEN.with(|n| n.replace(n.get().wrapping_add(1))));
+    let token = format!("rookparcel{}", NEXT_TOKEN.with(|n| n.replace(n.get().wrapping_add(1))));
     let expected = request_path(&unique, &token);
     let pending =
         Rc::new(Pending { done: RefCell::new(Some(Box::new(done))), subscriptions: RefCell::default() });
@@ -129,7 +129,7 @@ fn request(
     );
 }
 
-/// Asks the Background portal to start PaTorrent at login with `commandline` (the sandbox's
+/// Asks the Background portal to start Rookparcel at login with `commandline` (the sandbox's
 /// command and its arguments), or to stop doing so; `done` gets whether it will now be
 /// autostarted. The desktop may ask the user first (GNOME does once), and nothing can be read
 /// back later: the caller keeps the answer.
@@ -168,8 +168,8 @@ mod tests {
     #[test]
     fn the_request_path_comes_from_the_unique_name() {
         assert_eq!(
-            request_path(":1.42", "patorrent1"),
-            "/org/freedesktop/portal/desktop/request/1_42/patorrent1"
+            request_path(":1.42", "rookparcel1"),
+            "/org/freedesktop/portal/desktop/request/1_42/rookparcel1"
         );
     }
 

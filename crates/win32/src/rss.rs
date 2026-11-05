@@ -1,5 +1,5 @@
 //! The RSS Downloader dialog (µTorrent 2.2.1: Options > RSS Downloader and the toolbar's RSS
-//! button) and its Add RSS Feed dialog, on [`patorrent_frontend::rss`].
+//! button) and its Add RSS Feed dialog, on [`rookparcel_frontend::rss`].
 //!
 //! Left, the Feeds list (All Feeds, then each feed) with Add, Edit, Remove and Update and the
 //! selected feed's state under it. Right, two tabs: Filters (the filter list with check boxes
@@ -12,11 +12,11 @@
 use std::mem::zeroed;
 use std::ptr::{null, null_mut};
 
-use patorrent_frontend::icons::UiIcon;
-pub use patorrent_frontend::rss::view::FeedForm;
-use patorrent_frontend::rss::view::{self, quality_text};
-use patorrent_frontend::rss::{FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter};
-use patorrent_frontend::{lang, tr};
+use rookparcel_frontend::icons::UiIcon;
+pub use rookparcel_frontend::rss::view::FeedForm;
+use rookparcel_frontend::rss::view::{self, quality_text};
+use rookparcel_frontend::rss::{FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter};
+use rookparcel_frontend::{lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::*;
@@ -1083,7 +1083,7 @@ unsafe fn notify(dlg: HWND, st: &mut State<'_>, nm: &NMHDR) {
 mod tests {
     //! The dialog built from its template, hidden and modeless, on a downloader of its own.
 
-    use patorrent_frontend::rss::{Feed, FeedItem};
+    use rookparcel_frontend::rss::{Feed, FeedItem};
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
 
     use super::*;

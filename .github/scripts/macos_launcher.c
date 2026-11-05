@@ -1,12 +1,12 @@
 /*
- * PaTorrent.app's main executable (CFBundleExecutable "PaTorrent"), built by
+ * Rookparcel.app's main executable (CFBundleExecutable "Rookparcel"), built by
  * .github/scripts/macos_bundle.py. GLib and GTK find their data and modules through compiled-in
  * Homebrew paths, which a Mac without Homebrew does not have; this points them at the copies
- * inside the bundle and then becomes patorrent-gtk (exec: same process, so macOS still sees the
+ * inside the bundle and then becomes rookparcel-gtk (exec: same process, so macOS still sees the
  * app). The libraries themselves need nothing: their references were rewritten to
  * @executable_path/../Frameworks.
  *
- * PATORRENT_LAUNCHER_DEBUG=1 prints what it sets.
+ * ROOKPARCEL_LAUNCHER_DEBUG=1 prints what it sets.
  */
 #include <errno.h>
 #include <limits.h>
@@ -17,30 +17,30 @@
 #include <string.h>
 #include <unistd.h>
 
-static char contents[PATH_MAX]; /* .../PaTorrent.app/Contents */
+static char contents[PATH_MAX]; /* .../Rookparcel.app/Contents */
 
 static void set(const char *name, const char *relative) {
     char value[PATH_MAX];
     if (snprintf(value, sizeof value, "%s/%s", contents, relative) >= (int)sizeof value) {
-        fprintf(stderr, "PaTorrent: the bundle's path is too long\n");
+        fprintf(stderr, "Rookparcel: the bundle's path is too long\n");
         exit(127);
     }
     setenv(name, value, 1);
-    if (getenv("PATORRENT_LAUNCHER_DEBUG"))
-        fprintf(stderr, "PaTorrent launcher: %s=%s\n", name, value);
+    if (getenv("ROOKPARCEL_LAUNCHER_DEBUG"))
+        fprintf(stderr, "Rookparcel launcher: %s=%s\n", name, value);
 }
 
 int main(int argc, char **argv) {
     char raw[PATH_MAX], exe[PATH_MAX], gui[PATH_MAX];
     uint32_t size = sizeof raw;
     if (_NSGetExecutablePath(raw, &size) != 0 || realpath(raw, exe) == NULL) {
-        fprintf(stderr, "PaTorrent: cannot find its own path\n");
+        fprintf(stderr, "Rookparcel: cannot find its own path\n");
         return 127;
     }
-    char *slash = strrchr(exe, '/'); /* exe: Contents/MacOS/PaTorrent */
+    char *slash = strrchr(exe, '/'); /* exe: Contents/MacOS/Rookparcel */
     if (!slash) return 127;
     *slash = '\0';
-    snprintf(gui, sizeof gui, "%s/patorrent-gtk", exe);
+    snprintf(gui, sizeof gui, "%s/rookparcel-gtk", exe);
     slash = strrchr(exe, '/'); /* exe: Contents/MacOS */
     if (!slash) return 127;
     *slash = '\0';
@@ -68,6 +68,6 @@ int main(int argc, char **argv) {
         if (strncmp(argv[i], "-psn_", 5) != 0) args[n++] = argv[i];
     args[n] = NULL;
     execv(gui, args);
-    fprintf(stderr, "PaTorrent: cannot start %s: %s\n", gui, strerror(errno));
+    fprintf(stderr, "Rookparcel: cannot start %s: %s\n", gui, strerror(errno));
     return 127;
 }

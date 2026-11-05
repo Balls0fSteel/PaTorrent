@@ -5,7 +5,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{resume_data_round_trip, store_records};
+use rookparcel_core::fuzzing::{resume_data_round_trip, store_records};
 
 fuzz_target!(|data: &[u8]| {
     resume_data_round_trip(data);

@@ -7,8 +7,8 @@ use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::metainfo::{CreateFlags, CreateTorrent, FileStorage, add_files, set_piece_hashes};
-use patorrent_core::{
+use rookparcel_core::metainfo::{CreateFlags, CreateTorrent, FileStorage, add_files, set_piece_hashes};
+use rookparcel_core::{
     AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId,
     TorrentSource,
 };

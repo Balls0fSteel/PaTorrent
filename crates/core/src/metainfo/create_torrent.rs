@@ -8,8 +8,8 @@
 //! Creating `.torrent` files (libtorrent `create_torrent`, `add_files`, `set_piece_hashes`).
 //!
 //! ```no_run
-//! # use patorrent_core::metainfo::create_torrent::*;
-//! # use patorrent_core::metainfo::FileStorage;
+//! # use rookparcel_core::metainfo::create_torrent::*;
+//! # use rookparcel_core::metainfo::FileStorage;
 //! let path = std::path::Path::new("some/dir");
 //! let mut fs = FileStorage::new();
 //! add_files(&mut fs, path, &mut |_| true, CreateFlags::empty()).unwrap();
@@ -1706,7 +1706,7 @@ mod tests {
 
     impl TempDir {
         fn new(name: &str) -> TempDir {
-            let p = std::env::temp_dir().join(format!("patorrent-create-{name}-{}", std::process::id()));
+            let p = std::env::temp_dir().join(format!("rookparcel-create-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&p);
             std::fs::create_dir_all(&p).unwrap();
             TempDir(p)

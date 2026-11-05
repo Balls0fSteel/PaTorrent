@@ -1,13 +1,13 @@
 # Web UI
 
-The Web UI is PaTorrent's main window in a web browser: the torrent list, the categories, the detail tabs, the right-click menu, Add, Preferences and the RSS Downloader. This page covers turning it on in the Windows program and in `patorrent-nox`, logging in, HTTPS, what the page can do, and using it on a phone.
+The Web UI is Rookparcel's main window in a web browser: the torrent list, the categories, the detail tabs, the right-click menu, Add, Preferences and the RSS Downloader. This page covers turning it on in the Windows program and in `rookparcel-nox`, logging in, HTTPS, what the page can do, and using it on a phone.
 
 There are two ways to get it:
 
-- **From the Windows program.** `patorrent.exe` serves the page itself, over the window's own torrents, while it runs (**Options > Preferences > Web UI**).
-- **From `patorrent-nox`**, the headless PaTorrent, started with `--webui` ([Running patorrent-nox](Running-patorrent-nox)). This is the way on Linux, BSD and macOS servers, and on a Windows PC that should keep downloading without a window.
+- **From the Windows program.** `rookparcel.exe` serves the page itself, over the window's own torrents, while it runs (**Options > Preferences > Web UI**).
+- **From `rookparcel-nox`**, the headless Rookparcel, started with `--webui` ([Running rookparcel-nox](Running-rookparcel-nox)). This is the way on Linux, BSD and macOS servers, and on a Windows PC that should keep downloading without a window.
 
-The GTK program (Linux, BSD, macOS) does not serve a Web UI of its own. It can control a `patorrent-nox` through [Remote control](Remote-control) instead.
+The GTK program (Linux, BSD, macOS) does not serve a Web UI of its own. It can control a `rookparcel-nox` through [Remote control](Remote-control) instead.
 
 ## Turning it on in the Windows program
 
@@ -20,14 +20,14 @@ The GTK program (Linux, BSD, macOS) does not serve a Web UI of its own. It can c
 5. Click **Apply** or **OK**. The line at the bottom says "The Web UI is running: ..." with its address.
 6. Click **Open Web UI** to open it in your browser.
 
-The Web UI runs only while PaTorrent runs. Close the window to the tray to keep it up ([Tray, notifications and startup](Tray-notifications-and-startup)). It restarts when you apply changes on this page.
+The Web UI runs only while Rookparcel runs. Close the window to the tray to keep it up ([Tray, notifications and startup](Tray-notifications-and-startup)). It restarts when you apply changes on this page.
 
 The other settings on the page:
 
 | Setting | What it does |
 |---|---|
-| **Allow connections from other computers** | Listens on every network address, so other computers and phones can reach the page, not only this one. They also need a Windows Firewall rule for `patorrent.exe` ([Connection, ports and firewall](Connection-ports-and-firewall)). |
-| **Use HTTPS (self-signed certificate)** | Serves the page over HTTPS with a certificate PaTorrent makes itself and keeps in the settings folder. Browsers warn about such a certificate until you accept it. |
+| **Allow connections from other computers** | Listens on every network address, so other computers and phones can reach the page, not only this one. They also need a Windows Firewall rule for `rookparcel.exe` ([Connection, ports and firewall](Connection-ports-and-firewall)). |
+| **Use HTTPS (self-signed certificate)** | Serves the page over HTTPS with a certificate Rookparcel makes itself and keeps in the settings folder. Browsers warn about such a certificate until you accept it. |
 | **Server domains (separate multiple entries with a semicolon):** | Host names the page answers to besides IP addresses and `localhost`, such as this computer's name. Other names are refused. See [Sonarr, Radarr and Prowlarr](Sonarr-Radarr-and-Prowlarr#host-names-and-docker). |
 | **Accept an API key (Authorization: Bearer)** and **API key (at least 16 characters):** | Lets scripts and apps such as Sonarr or Radarr use the Web UI with this key instead of logging in. Off by default. The key is stored only as a hash and never shown again; leave the field empty to keep it. |
 | **Bypass authentication for clients in these subnets (...)** | Clients in these networks (such as `192.168.1.0/24`) use the Web UI without logging in, with full control. List only networks you trust as much as the password. |
@@ -39,12 +39,12 @@ What is different from nox's page when the window serves it:
 - There are no alternative rate limits.
 - A window that controls a remote nox ([Remote control](Remote-control)) cannot serve the Web UI: "A remote window cannot serve the Web UI; use the local window's Preferences."
 
-## Turning it on in patorrent-nox
+## Turning it on in rookparcel-nox
 
 Start nox with `--webui` and a port:
 
 ```sh
-patorrent-nox run --save ~/Downloads --webui 8080
+rookparcel-nox run --save ~/Downloads --webui 8080
 ```
 
 | `--webui` value | Who can reach the page |
@@ -61,7 +61,7 @@ The login name is `admin` unless you give `--webui-user`. The first start, with 
 
 Log in with it, then set your own in the page's **Preferences > Web UI** (the **Password:** field, with the temporary one as the **Current password:**). `--webui-pass` also sets it, but a password on the command line can be seen by other users of the computer.
 
-A nox running as a service writes the temporary password to its log or the journal: see [Running patorrent-nox](Running-patorrent-nox).
+A nox running as a service writes the temporary password to its log or the journal: see [Running rookparcel-nox](Running-rookparcel-nox).
 
 ## Logging in
 
@@ -70,7 +70,7 @@ Open the address in a browser: `http://127.0.0.1:8080/` on the same computer, or
 - After five wrong logins in a row from one address, that address is locked out for an hour. Both numbers are in **Preferences > Web UI**.
 - A login ends after an hour without a request from that browser (**Session timeout (seconds):**).
 - Setting a new password logs out every other browser and remote window; the one that changed it stays logged in.
-- When the connection to PaTorrent drops, the status bar shows "Disconnected, reconnecting in ... s" and the page connects again by itself.
+- When the connection to Rookparcel drops, the status bar shows "Disconnected, reconnecting in ... s" and the page connects again by itself.
 
 ## HTTPS
 
@@ -116,13 +116,13 @@ For the phone to reach the page, the Web UI must accept connections from other c
 
 ## Security
 
-The Web UI controls your torrents and can write files wherever PaTorrent's account can. Keep these in mind before opening it to a network:
+The Web UI controls your torrents and can write files wherever Rookparcel's account can. Keep these in mind before opening it to a network:
 
 - Use a long password, and turn on HTTPS for anything beyond your own computer.
 - **Enable Host header validation** (on by default) refuses requests addressed to any name but an IP address, `localhost` or a listed server domain. **Enable Cross-Site Request Forgery (CSRF) protection** (on by default) refuses changes sent from another web site's page. Leave both on.
 - **Bypass authentication for clients on localhost** (nox's page; off by default) lets programs on the same computer in without a login. It and the subnet list never apply to requests that come through a reverse proxy.
 - Changing the login, the API key, the subnets or the other security settings in the page needs the **Current password:**. A wrong one logs that browser out.
-- With nox, `--webui-save-root DIR` limits the folders the Web UI may save to, move to and read from ([Running patorrent-nox](Running-patorrent-nox#web-ui)).
+- With nox, `--webui-save-root DIR` limits the folders the Web UI may save to, move to and read from ([Running rookparcel-nox](Running-rookparcel-nox#web-ui)).
 
 Behind a reverse proxy on the same computer, have the proxy set the `X-Forwarded-For` header, so that failed logins lock out the right client and not everyone.
 
@@ -130,4 +130,4 @@ Behind a reverse proxy on the same computer, have the proxy set the `X-Forwarded
 
 - [Remote control](Remote-control): the desktop program's window driving a nox, as an alternative to the page.
 - [Sonarr, Radarr and Prowlarr](Sonarr-Radarr-and-Prowlarr): using the Web UI's qBittorrent-compatible API.
-- The design behind the page: [WEBUI.md](https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/WEBUI.md).
+- The design behind the page: [WEBUI.md](https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/WEBUI.md).

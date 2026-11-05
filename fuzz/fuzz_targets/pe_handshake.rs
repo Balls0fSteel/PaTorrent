@@ -5,13 +5,13 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::EncLevel;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::fuzzing::{PeHandshake, PeStep};
+use rookparcel_core::EncLevel;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::fuzzing::{PeHandshake, PeStep};
 
 const LEVELS: [EncLevel; 3] = [EncLevel::Plaintext, EncLevel::Rc4, EncLevel::Both];
 
-fn handshake(ih: &patorrent_core::Sha1Hash) -> Vec<u8> {
+fn handshake(ih: &rookparcel_core::Sha1Hash) -> Vec<u8> {
     let mut v = vec![19];
     v.extend_from_slice(b"BitTorrent protocol");
     v.extend_from_slice(&[0u8; 8]);
@@ -25,7 +25,7 @@ fn feed_raw(
     hs: &mut PeHandshake,
     data: &[u8],
     chunk: usize,
-    find: &mut dyn FnMut(&patorrent_core::Sha1Hash) -> Option<patorrent_core::Sha1Hash>,
+    find: &mut dyn FnMut(&rookparcel_core::Sha1Hash) -> Option<rookparcel_core::Sha1Hash>,
 ) {
     let mut buf = Vec::new();
     let mut out = Vec::new();
@@ -58,7 +58,7 @@ fn feed_raw(
 
 fuzz_target!(|data: &[u8]| {
     let ih = Sha1::digest(b"fuzz torrent");
-    let mut find = |h: &patorrent_core::Sha1Hash| (*h != patorrent_core::Sha1Hash::default()).then_some(ih);
+    let mut find = |h: &rookparcel_core::Sha1Hash| (*h != rookparcel_core::Sha1Hash::default()).then_some(ih);
     let chunk = data.first().map_or(0, |&b| b as usize);
     let level = LEVELS[data.get(1).map_or(0, |&b| b as usize) % 3];
     let prefer_rc4 = data.get(2).is_some_and(|b| b & 1 != 0);
@@ -79,7 +79,7 @@ fuzz_target!(|data: &[u8]| {
     let (mut to_b, mut to_a) = (std::mem::take(&mut a_out), Vec::new());
     let (mut a_buf, mut b_buf) = (Vec::new(), Vec::new());
     let (mut a_done, mut b_done) = (false, false);
-    let mut exact_find = |h: &patorrent_core::Sha1Hash| {
+    let mut exact_find = |h: &rookparcel_core::Sha1Hash| {
         let mut want = Sha1::new();
         want.update(b"req2").update(&ih.0);
         (want.finalize() == *h).then_some(ih)

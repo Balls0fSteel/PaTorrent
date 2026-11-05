@@ -3,10 +3,10 @@
 //! The Pieces panel paints the piece map and holds a list view of the pieces being downloaded
 //! under it (µTorrent 2.2.1's Pieces list), its Blocks column drawn by [`block_bar`].
 
-use patorrent_core::{PartialPiece, TorrentStatus};
-use patorrent_frontend::detail::{self, BlockKind, PieceShade, SPEED_SAMPLES};
-pub use patorrent_frontend::detail::{Detail, Tab as Page};
-use patorrent_frontend::{columns::RowExtra, fmt, tr};
+use rookparcel_core::{PartialPiece, TorrentStatus};
+use rookparcel_frontend::detail::{self, BlockKind, PieceShade, SPEED_SAMPLES};
+pub use rookparcel_frontend::detail::{Detail, Tab as Page};
+use rookparcel_frontend::{columns::RowExtra, fmt, tr};
 use windows_sys::Win32::Foundation::POINT;
 use windows_sys::Win32::Foundation::{COLORREF, RECT};
 use windows_sys::Win32::Graphics::Gdi::{
@@ -190,7 +190,7 @@ unsafe fn general(c: &PaintCtx<'_>) {
         pair(c, left, y, right - left, g.hash.0, &g.hash.1);
         y += line;
         // the session's address as trackers see it (D54)
-        let (label, value) = patorrent_frontend::network::general_row();
+        let (label, value) = rookparcel_frontend::network::general_row();
         pair(c, left, y, right - left, label, &value);
     }
 }
@@ -435,7 +435,7 @@ unsafe fn speed(c: &PaintCtx<'_>) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::Bitfield;
+    use rookparcel_core::Bitfield;
 
     #[test]
     fn the_piece_map_leaves_the_rest_of_the_page_to_the_list() {

@@ -1,4 +1,4 @@
-//! Remote sessions (`patorrent_core::remote`): a GUI driving this nox's engine over the Web
+//! Remote sessions (`rookparcel_core::remote`): a GUI driving this nox's engine over the Web
 //! UI's port (`GET /pa/remote`, an HTTP upgrade). The client's commands go to the engine as
 //! they are, except the two status requests, which are answered from the cache with what
 //! changed since this client's last one, and settings, which take the Preferences dialog's
@@ -11,8 +11,8 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
 
-use patorrent_core::Alert;
-use patorrent_core::remote::{self, FrameReader, Hello, Request};
+use rookparcel_core::Alert;
+use rookparcel_core::remote::{self, FrameReader, Hello, Request};
 
 use super::api::{BANNED, Login, check_login, host_allowed};
 use super::http::{Head, Response};
@@ -81,7 +81,10 @@ pub(super) fn handshake(shared: &Shared, head: &Head, ip: IpAddr) -> Result<(), 
             return Err(Response::text(403, "Forbidden: origin not allowed"));
         }
     }
-    let upgrade = head.header("upgrade").is_some_and(|u| u.eq_ignore_ascii_case(remote::UPGRADE));
+    // a PaTorrent GUI's token too, so it hears the version answer below (D59)
+    let upgrade = head.header("upgrade").is_some_and(|u| {
+        u.eq_ignore_ascii_case(remote::UPGRADE) || u.eq_ignore_ascii_case(remote::OLD_UPGRADE)
+    });
     let connection = head
         .header("connection")
         .is_some_and(|c| c.split(',').any(|t| t.trim().eq_ignore_ascii_case("upgrade")));
@@ -97,7 +100,7 @@ pub(super) fn handshake(shared: &Shared, head: &Head, ip: IpAddr) -> Result<(), 
     let basic = head
         .header("authorization")
         .and_then(|a| a.strip_prefix("Basic ").or_else(|| a.strip_prefix("basic ")))
-        .and_then(|b| patorrent_core::util::string::base64decode(b.trim().as_bytes()))
+        .and_then(|b| rookparcel_core::util::string::base64decode(b.trim().as_bytes()))
         .and_then(|b| String::from_utf8(b).ok());
     let ok = match basic.as_deref().and_then(|b| b.split_once(':')) {
         Some((user, pass)) => match check_login(shared, user, pass, ip, now) {
@@ -137,7 +140,7 @@ pub(super) fn run(mut stream: Conn, buf: Vec<u8>, shared: &Shared) {
     {
         let st = shared.lock();
         let hello = Hello {
-            server_version: patorrent_core::VERSION.to_owned(),
+            server_version: rookparcel_core::VERSION.to_owned(),
             save_path: st.prefs.save_path.clone(),
             settings: st.settings.clone(),
         };

@@ -110,7 +110,7 @@ pub struct SessionParams {
     /// Directory for `resume.db` and `metadata.pack`; `None` keeps nothing between runs.
     pub state_dir: Option<std::path::PathBuf>,
     /// This session's name in other programs' lists: the UPnP port mappings' description on
-    /// the router (`PaTorrent (work)` for a profile, D42). `None`: `settings.user_agent`, as
+    /// the router (`Rookparcel (work)` for a profile, D42). `None`: `settings.user_agent`, as
     /// libtorrent does.
     pub label: Option<String>,
     /// The portable folder this session runs in (D42): `resume.db` keeps the save paths inside
@@ -338,7 +338,7 @@ impl SessionHandle {
     /// the local class, outside the global limits and the unchoke slots:
     ///
     /// ```
-    /// # use patorrent_core::{IpFilter, PeerClassId};
+    /// # use rookparcel_core::{IpFilter, PeerClassId};
     /// let mut f = IpFilter::new();
     /// let (all, last) = ("0.0.0.0".parse().unwrap(), "255.255.255.255".parse().unwrap());
     /// f.add_rule(all, last, PeerClassId::GLOBAL.mask());

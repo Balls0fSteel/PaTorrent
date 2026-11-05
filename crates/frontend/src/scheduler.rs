@@ -14,7 +14,7 @@
 //! * Seeding only: every torrent goes into libtorrent's upload mode (it uploads but requests
 //!   nothing), finished ones seed as before.
 
-use patorrent_core::{AddTorrentParams, Settings, TorrentFlags};
+use rookparcel_core::{AddTorrentParams, Settings, TorrentFlags};
 
 use crate::lang::S;
 use crate::prefs::Prefs;
@@ -399,7 +399,7 @@ mod tests {
         assert_eq!(sch.update(&s, &base, MONDAY + 3600 + 1800, 0, false), None);
         let c = sch.update(&s, &base, MONDAY + 2 * 3600, 0, false).expect("seeding");
         assert_eq!((c.mode, c.pause_session, c.upload_mode), (Mode::SeedOnly, Some(false), Some(true)));
-        let mut p = AddTorrentParams::new(patorrent_core::TorrentSource::Magnet(String::new()), "");
+        let mut p = AddTorrentParams::new(rookparcel_core::TorrentSource::Magnet(String::new()), "");
         sch.apply_to_new(&mut p);
         assert!(p.flags.contains(TorrentFlags::UPLOAD_MODE));
         let c = sch.update(&s, &base, MONDAY + 3 * 3600, 0, false).expect("limited");

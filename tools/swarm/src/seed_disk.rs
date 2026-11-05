@@ -19,9 +19,9 @@ use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     AddTorrentParams, Alert, Session, SessionParams, SessionStats, TorrentFlags, TorrentSource, TorrentState,
 };
 
@@ -84,7 +84,7 @@ pub fn run(o: &Options) -> ExitCode {
     println!("peers={}", o.peers);
     println!("seconds={}", o.seconds);
     println!("load_threads={}", o.load);
-    let d = patorrent_core::Settings::default();
+    let d = rookparcel_core::Settings::default();
     println!("read_cache_line_size={}", o.line_blocks.unwrap_or(d.read_cache_line_size));
     println!("cache_size={}", o.cache_blocks.unwrap_or(d.cache_size));
     let mut results = Vec::new();
@@ -168,7 +168,7 @@ fn prepare(dir: &Path, size: u64, piece: u64) -> std::io::Result<Vec<u8>> {
 }
 
 fn torrent_matches(bytes: &[u8], size: u64, piece: u64) -> bool {
-    patorrent_core::metainfo::TorrentInfo::from_bytes(bytes)
+    rookparcel_core::metainfo::TorrentInfo::from_bytes(bytes)
         .is_ok_and(|t| t.total_size() == size && u64::from(t.piece_length()) == piece)
 }
 
@@ -307,7 +307,7 @@ fn tag(cache: bool) -> &'static str {
     if cache { "cache_on" } else { "cache_off" }
 }
 
-fn stats(h: &patorrent_core::SessionHandle) -> Option<SessionStats> {
+fn stats(h: &rookparcel_core::SessionHandle) -> Option<SessionStats> {
     h.post_session_stats();
     wait(h, Duration::from_secs(5), |a| match a {
         Alert::SessionStats(s) => Some(*s),

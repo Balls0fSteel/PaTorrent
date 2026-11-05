@@ -1,13 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!-- AppStream metadata of PaTorrent's GTK GUI (packaging/flatpak, docs/RELEASING.md).
+<!-- AppStream metadata of Rookparcel's GTK GUI (packaging/flatpak, docs/RELEASING.md).
      The first <release> is the workspace version in Cargo.toml; the release workflow checks
      that they agree and validates this file with appstreamcli. -->
 <component type="desktop-application">
-  <id>io.github.balls0fsteel.PaTorrent</id>
+  <id>io.github.balls0fsteel.Rookparcel</id>
   <metadata_license>CC0-1.0</metadata_license>
   <project_license>PolyForm-Noncommercial-1.0.0</project_license>
 
-  <name>PaTorrent</name>
+  <name>Rookparcel</name>
   <summary>Lightweight BitTorrent client</summary>
   <developer id="io.github.balls0fsteel">
     <name>DukeCorp1996</name>
@@ -15,7 +15,7 @@
 
   <description>
     <p>
-      PaTorrent (PatinaTorrent) is a lean BitTorrent client in the spirit of µTorrent 2.2.1:
+      Rookparcel is a lean BitTorrent client in the spirit of µTorrent 2.2.1:
       small, fast, native and comfortable with thousands of torrents. Its engine is a Rust port
       of libtorrent-rasterbar.
     </p>
@@ -26,20 +26,20 @@
       <li>A tray icon, desktop notifications and Auto Shutdown</li>
     </ul>
     <p>
-      PaTorrent is pre-alpha: settings and saved state may change between versions. It is
+      Rookparcel is pre-alpha: settings and saved state may change between versions. It is
       source-available under the PolyForm Noncommercial License 1.0.0, so it is free for
       noncommercial use only.
     </p>
   </description>
 
-  <launchable type="desktop-id">io.github.balls0fsteel.PaTorrent.desktop</launchable>
+  <launchable type="desktop-id">io.github.balls0fsteel.Rookparcel.desktop</launchable>
 
-  <url type="homepage">https://github.com/Balls0fSteel/PaTorrent</url>
-  <url type="bugtracker">https://github.com/Balls0fSteel/PaTorrent/issues</url>
-  <url type="vcs-browser">https://github.com/Balls0fSteel/PaTorrent</url>
+  <url type="homepage">https://github.com/Balls0fSteel/Rookparcel</url>
+  <url type="bugtracker">https://github.com/Balls0fSteel/Rookparcel/issues</url>
+  <url type="vcs-browser">https://github.com/Balls0fSteel/Rookparcel</url>
 
   <provides>
-    <binary>patorrent-gtk</binary>
+    <binary>rookparcel-gtk</binary>
     <mediatype>application/x-bittorrent</mediatype>
     <mediatype>x-scheme-handler/magnet</mediatype>
   </provides>
@@ -72,12 +72,12 @@
   <releases>
     <release version="1.2.0" date="2026-11-05" type="stable">
       <description>
-        <p>Profiles run several independent PaTorrents side by side, and portable mode keeps one in a folder that can move between drives and systems. A Setup Guide at the first start, help for every setting, a filter in the Files tab, binding torrent traffic to a VPN, and an optional search helper that fetches Jackett for you are new. A bug hunt fixed 37 problems, among them a Web UI login bypass and a peer message that crashed the engine.</p>
+        <p>Profiles run several independent Rookparcels side by side, and portable mode keeps one in a folder that can move between drives and systems. A Setup Guide at the first start, help for every setting, a filter in the Files tab, binding torrent traffic to a VPN, and an optional search helper that fetches Jackett for you are new. A bug hunt fixed 37 problems, among them a Web UI login bypass and a peer message that crashed the engine.</p>
       </description>
     </release>
     <release version="1.1.40" date="2026-11-03" type="stable">
       <description>
-        <p>A gamer mode keeps your ping low by slowing transfers down when your line starts to queue. Smart disk I/O checks torrents gently, one per drive, tells SSDs, hard disks and network shares apart, and can slow down while a disk is busy. A window shows what PaTorrent is doing while it closes, the Files tab has µTorrent 2.2.1's menu, completed downloads can move into a folder named after their label, and the engine carries the applicable fixes from libtorrent 2.0.12 to 2.1.2.</p>
+        <p>A gamer mode keeps your ping low by slowing transfers down when your line starts to queue. Smart disk I/O checks torrents gently, one per drive, tells SSDs, hard disks and network shares apart, and can slow down while a disk is busy. A window shows what Rookparcel is doing while it closes, the Files tab has µTorrent 2.2.1's menu, completed downloads can move into a folder named after their label, and the engine carries the applicable fixes from libtorrent 2.0.12 to 2.1.2.</p>
       </description>
     </release>
     <release version="1.1.17" date="2026-10-30" type="stable">
@@ -87,7 +87,7 @@
     </release>
     <release version="1.1.7" date="2026-10-30" type="stable">
       <description>
-        <p>Sonarr, Radarr and Prowlarr work with PaTorrent as their download client: seed limits arrive with each grab and Remove Completed removes finished torrents. Idle seeds keep counting their seeding time, adding a torrent brings the window forward, and a torrent added stopped reads Stopped.</p>
+        <p>Sonarr, Radarr and Prowlarr work with Rookparcel as their download client: seed limits arrive with each grab and Remove Completed removes finished torrents. Idle seeds keep counting their seeding time, adding a torrent brings the window forward, and a torrent added stopped reads Stopped.</p>
       </description>
     </release>
     <release version="1.1.2" date="2026-10-28" type="stable">

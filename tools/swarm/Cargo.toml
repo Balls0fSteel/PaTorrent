@@ -1,6 +1,6 @@
 [package]
 name = "lt-swarm"
-description = "Scale, interop and swarm benchmarks for PaTorrent."
+description = "Scale, interop and swarm benchmarks for Rookparcel."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,7 +11,7 @@ publish.workspace = true
 
 [dependencies]
 # `fuzzing` exposes the MSE/PE handshake machine, which the interop readiness probe speaks.
-patorrent-core = { workspace = true, features = ["mock", "fuzzing"] }
+rookparcel-core = { workspace = true, features = ["mock", "fuzzing"] }
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = ["Win32_Foundation", "Win32_System_ProcessStatus", "Win32_System_Threading"] }

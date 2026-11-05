@@ -2,7 +2,7 @@
 
 This page explains the detail tabs under the torrent list (General, Trackers, Peers, Pieces, Files, Speed and Logger), how to choose which files to download and in what order, and the Torrent Properties window with a torrent's trackers, limits and seeding goal.
 
-Select a torrent in the list to fill the tabs. **Options > Show Detailed Info** shows or hides them; drag the border above them to change their height. PaTorrent remembers the open tab.
+Select a torrent in the list to fill the tabs. **Options > Show Detailed Info** shows or hides them; drag the border above them to change their height. Rookparcel remembers the open tab.
 
 ## General
 
@@ -124,7 +124,7 @@ Double-clicking a file, or pressing <kbd>Enter</kbd> on it, opens it like **Open
 
 **Don't Download** is how you skip files after adding a torrent. Choosing a priority again downloads a skipped file. To skip files before the download starts, untick them in the [Add New Torrent window](Adding-torrents#torrent-contents).
 
-After **Relocate...** to a file that was not on disk, run **Force Re-Check** so PaTorrent counts what it found there. Relocate never replaces a file that is already at the new place.
+After **Relocate...** to a file that was not on disk, run **Force Re-Check** so Rookparcel counts what it found there. Relocate never replaces a file that is already at the new place.
 
 ### Filtering the file list
 
@@ -137,7 +137,7 @@ A torrent with thousands of files is easier to handle with the **Filter files** 
 3. Select the files you want and use the right-click menu. <kbd>Ctrl</kbd>+<kbd>A</kbd> selects only the files shown.
 4. <kbd>Esc</kbd> empties the box; <kbd>Enter</kbd> goes to the list.
 
-The text stays when you select another torrent, so you can apply the same filter to several. It is not saved when PaTorrent closes. **Prioritize by File Order** orders all of the torrent's files, even while a filter is on.
+The text stays when you select another torrent, so you can apply the same filter to several. It is not saved when Rookparcel closes. **Prioritize by File Order** orders all of the torrent's files, even while a filter is on.
 
 For example, type `sample` and set the matching files to **Don't Download**, or type `s01 mkv` to find the first season's video files.
 
@@ -147,7 +147,7 @@ A graph of the download (green) and upload (red) speed of all torrents together 
 
 ## Logger
 
-PaTorrent's log for this session, each line with the time. It shows torrents added and finished, moves, scheduler and Auto Shutdown changes, problems with watched folders and the IP filter, RSS downloads, imports and more. It keeps the last 1000 lines.
+Rookparcel's log for this session, each line with the time. It shows torrents added and finished, moves, scheduler and Auto Shutdown changes, problems with watched folders and the IP filter, RSS downloads, imports and more. It keeps the last 1000 lines.
 
 When something does not work as expected, look here first. See also [Troubleshooting and FAQ](Troubleshooting-and-FAQ).
 
@@ -159,7 +159,7 @@ Open it with **Properties** in the right-click menu, <kbd>Enter</kbd> in the tor
 
 **Trackers (a blank line between tiers)**
 
-One tracker address per line. A blank line starts a new tier: PaTorrent tries the trackers of the first tier first and moves to the next tier only when they all fail. Each line must start with `http://`, `https://` or `udp://`; a repeated address is dropped.
+One tracker address per line. A blank line starts a new tier: Rookparcel tries the trackers of the first tier first and moves to the next tier only when they all fail. Each line must start with `http://`, `https://` or `udp://`; a repeated address is dropped.
 
 **Bandwidth Settings**
 

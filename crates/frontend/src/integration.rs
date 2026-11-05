@@ -1,8 +1,8 @@
-//! Desktop integration (Preferences > General): PaTorrent as the program for `.torrent` files
-//! and `magnet:` links, and the "Start PaTorrent on system startup" entry. [`Integration`] is
+//! Desktop integration (Preferences > General): Rookparcel as the program for `.torrent` files
+//! and `magnet:` links, and the "Start Rookparcel on system startup" entry. [`Integration`] is
 //! what the boxes say; each GUI reads and writes it in its system's own places (the Win32
 //! client in the registry, the GTK one in XDG desktop entries and `mimeapps.list`), never in
-//! `patorrent.ini`.
+//! `rookparcel.ini`.
 //!
 //! The rest are the freedesktop.org desktop entries the GTK client writes, as text: [`entry`]
 //! builds one and [`exec_args`] reads its `Exec` line back, so a box is checked only when the
@@ -12,12 +12,16 @@
 use crate::tr;
 
 /// The GTK client's application id: its D-Bus name, desktop entry and icon name.
-pub const APP_ID: &str = "io.github.balls0fsteel.PaTorrent";
+pub const APP_ID: &str = "io.github.balls0fsteel.Rookparcel";
+
+/// The application id under the former name, PaTorrent (D59), whose entries the GTK client takes
+/// over.
+pub const OLD_APP_ID: &str = "io.github.balls0fsteel.PaTorrent";
 
 /// The application's desktop entry as packages install it (AppImage, Flatpak, tarballs):
 /// `contrib/linux/<APP_ID>.desktop`, which a test keeps equal to [`entry`]'s.
 pub fn packaged_entry() -> String {
-    entry(&["patorrent-gtk".to_owned()], APP_ID, EntryKind::App)
+    entry(&["rookparcel-gtk".to_owned()], APP_ID, EntryKind::App)
 }
 
 /// The content type of `.torrent` files and the scheme of `magnet:` links, as XDG names them.
@@ -27,14 +31,14 @@ pub const MIME_MAGNET: &str = "x-scheme-handler/magnet";
 /// The command-line switch the autostart entry passes for "Start minimized".
 pub const MINIMIZED: &str = "--minimized";
 
-/// What PaTorrent is registered for (or is to be).
+/// What Rookparcel is registered for (or is to be).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Integration {
     /// "Associate with .torrent files".
     pub torrent: bool,
     /// "Associate with magnet: links".
     pub magnet: bool,
-    /// "Start PaTorrent on system startup".
+    /// "Start Rookparcel on system startup".
     pub autostart: bool,
     /// "Start minimized" (only with `autostart`: the entry passes [`MINIMIZED`]).
     pub minimized: bool,
@@ -60,7 +64,7 @@ pub enum EntryKind {
 
 /// A desktop entry for `command` (the program and any arguments it always takes, as plain
 /// text) with icon `icon` (a theme name). A command with `--profile <name>` (D42) makes a named
-/// profile's entry: `Name=PaTorrent (name)` and, for its application entry, `NoDisplay=true`
+/// profile's entry: `Name=Rookparcel (name)` and, for its application entry, `NoDisplay=true`
 /// (the desktop matches the profile's windows to it; File > Profiles makes it a menu item).
 pub fn entry(command: &[String], icon: &str, kind: EntryKind) -> String {
     entry_shown(command, icon, kind, false)
@@ -75,7 +79,7 @@ pub fn entry_shown(command: &[String], icon: &str, kind: EntryKind, shown: bool)
         EntryKind::Autostart { minimized: true } => args.push(MINIMIZED.into()),
         EntryKind::Autostart { minimized: false } => {}
     }
-    let name = profile.as_ref().map_or("PaTorrent".to_owned(), |p| format!("PaTorrent ({p})"));
+    let name = profile.as_ref().map_or("Rookparcel".to_owned(), |p| format!("Rookparcel ({p})"));
     let mut s = format!("[Desktop Entry]\nType=Application\nVersion=1.5\nName={}\n", string_value(&name));
     s += "GenericName=BitTorrent Client\n";
     s += &format!("Comment={}\n", string_value(tr!(AboutShort)));
@@ -223,14 +227,14 @@ mod tests {
 
     #[test]
     fn exec_arguments_are_quoted_and_read_back() {
-        assert_eq!(exec_arg("/usr/bin/patorrent-gtk"), "/usr/bin/patorrent-gtk");
+        assert_eq!(exec_arg("/usr/bin/rookparcel-gtk"), "/usr/bin/rookparcel-gtk");
         assert_eq!(exec_arg("/opt/Pa Torrent/run"), "\"/opt/Pa Torrent/run\"");
         assert_eq!(exec_arg("100%"), "100%%");
         // a backslash: escaped inside the quotes, then again as a string value
         assert_eq!(exec_arg("a\\b"), "\"a\\\\\\\\b\"");
         assert_eq!(exec_arg(""), "\"\"");
         for weird in [
-            "/home/x/Apps/PaTorrent x86_64.AppImage",
+            "/home/x/Apps/Rookparcel x86_64.AppImage",
             "/tmp/$HOME/`id`/\"q\"/back\\slash/50%/tab\there",
             "/plain/path",
         ] {
@@ -243,13 +247,13 @@ mod tests {
 
     #[test]
     fn entries_for_the_menu_and_autostart() {
-        let flatpak = cmd(&["flatpak", "run", "io.github.balls0fsteel.PaTorrent"]);
-        let app = entry(&flatpak, "io.github.balls0fsteel.PaTorrent", EntryKind::App);
+        let flatpak = cmd(&["flatpak", "run", "io.github.balls0fsteel.Rookparcel"]);
+        let app = entry(&flatpak, "io.github.balls0fsteel.Rookparcel", EntryKind::App);
         assert!(app.starts_with("[Desktop Entry]\nType=Application\n"));
         assert!(app.contains("\nMimeType=application/x-bittorrent;x-scheme-handler/magnet;\n"));
-        assert!(app.contains("\nExec=flatpak run io.github.balls0fsteel.PaTorrent %U\n"));
+        assert!(app.contains("\nExec=flatpak run io.github.balls0fsteel.Rookparcel %U\n"));
         let auto = entry(&flatpak, "x", EntryKind::Autostart { minimized: true });
-        assert!(auto.contains("\nExec=flatpak run io.github.balls0fsteel.PaTorrent --minimized\n"));
+        assert!(auto.contains("\nExec=flatpak run io.github.balls0fsteel.Rookparcel --minimized\n"));
         assert!(!auto.contains("MimeType"));
         assert!(exec_args(&auto).unwrap().iter().any(|a| a == MINIMIZED));
         let plain = entry(&flatpak, "x", EntryKind::Autostart { minimized: false });
@@ -261,17 +265,17 @@ mod tests {
     /// told apart from the default profile's.
     #[test]
     fn a_profiles_entry() {
-        let work = cmd(&["/usr/bin/patorrent-gtk", "--profile", "work"]);
-        let default = cmd(&["/usr/bin/patorrent-gtk"]);
+        let work = cmd(&["/usr/bin/rookparcel-gtk", "--profile", "work"]);
+        let default = cmd(&["/usr/bin/rookparcel-gtk"]);
         let app = entry(&work, APP_ID, EntryKind::App);
-        assert!(app.contains("\nName=PaTorrent (work)\n") && app.contains("\nNoDisplay=true\n"));
+        assert!(app.contains("\nName=Rookparcel (work)\n") && app.contains("\nNoDisplay=true\n"));
         assert!(!shown(&app) && shown(&entry_shown(&work, APP_ID, EntryKind::App, true)));
-        assert!(app.contains("\nExec=/usr/bin/patorrent-gtk --profile work %U\n"));
+        assert!(app.contains("\nExec=/usr/bin/rookparcel-gtk --profile work %U\n"));
         assert!(starts(&app, &work) && !starts(&app, &default));
         let plain = entry(&default, APP_ID, EntryKind::App);
         assert!(!starts(&plain, &work) && starts(&plain, &default) && shown(&plain));
         let auto = entry(&work, APP_ID, EntryKind::Autostart { minimized: true });
-        assert!(!auto.contains("NoDisplay") && auto.contains("\nName=PaTorrent (work)\n"));
+        assert!(!auto.contains("NoDisplay") && auto.contains("\nName=Rookparcel (work)\n"));
     }
 
     #[test]
@@ -280,13 +284,13 @@ mod tests {
             .join("../../contrib/linux")
             .join(format!("{APP_ID}.desktop"));
         let want = packaged_entry();
-        if std::env::var_os("PATORRENT_WRITE_DESKTOP").is_some() {
+        if std::env::var_os("ROOKPARCEL_WRITE_DESKTOP").is_some() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &want).unwrap();
         }
         let have = std::fs::read_to_string(&path).unwrap_or_default().replace("\r\n", "\n");
-        assert!(have == want, "{} is stale: run the tests with PATORRENT_WRITE_DESKTOP=1", path.display());
-        assert_eq!(exec_args(&have), Some(cmd(&["patorrent-gtk", "%U"])));
+        assert!(have == want, "{} is stale: run the tests with ROOKPARCEL_WRITE_DESKTOP=1", path.display());
+        assert_eq!(exec_args(&have), Some(cmd(&["rookparcel-gtk", "%U"])));
     }
 
     #[test]

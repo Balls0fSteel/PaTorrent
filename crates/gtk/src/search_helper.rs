@@ -2,7 +2,7 @@
 //! Windows GUI has it: "Get the Search Helper (Jackett)..." while it is not installed; "Pick
 //! Sites...", "Open the Helper's Page", "Update the Search Helper" and "Remove the Search
 //! Helper" once it is. Each step runs on GIO's thread pool behind a small progress window
-//! ([`run_job`]), on [`patorrent_frontend::search::helper`]. Not offered in a Flatpak or in a
+//! ([`run_job`]), on [`rookparcel_frontend::search::helper`]. Not offered in a Flatpak or in a
 //! build without the update check ([`helper::available`]).
 
 use std::rc::Rc;
@@ -12,9 +12,9 @@ use std::time::Duration;
 
 use gtk::prelude::*;
 use gtk::{gdk, gio, glib};
-use patorrent_frontend::lang::gtk_mnemonic;
-use patorrent_frontend::search::helper::{self, Indexer};
-use patorrent_frontend::{fmt, tr};
+use rookparcel_frontend::lang::gtk_mnemonic;
+use rookparcel_frontend::search::helper::{self, Indexer};
+use rookparcel_frontend::{fmt, tr};
 
 use super::{Host, Manager, margins};
 

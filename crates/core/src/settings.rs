@@ -2,7 +2,7 @@
 //!
 //! Names and defaults follow libtorrent 2.0.11 `settings_pack.cpp`, except identity strings.
 //! The string-keyed table (get/set by libtorrent name, behind the µTorrent-style "Advanced"
-//! preferences page) is `patorrent_frontend::settings`: a new field needs a row there too.
+//! preferences page) is `rookparcel_frontend::settings`: a new field needs a row there too.
 //! `docs/SETTINGS.md` records every deliberate change.
 
 /// Protocol-encryption policy (libtorrent `settings_pack::enc_policy`).
@@ -145,7 +145,7 @@ pub struct Settings {
     pub peer_fingerprint: String,
     /// Comma-separated `ip:port` list; `[...]` for IPv6.
     pub listen_interfaces: String,
-    /// "Use only this network" (D54, a PaTorrent extension): the rule ([`NetworkRule`]'s text,
+    /// "Use only this network" (D54, a Rookparcel extension): the rule ([`NetworkRule`]'s text,
     /// empty for off) that picks the adapter whose addresses every socket carrying torrent
     /// traffic binds to, evaluated again at every network change. The port of
     /// `listen_interfaces` is kept; its addresses are replaced by the matched ones.
@@ -168,7 +168,7 @@ pub struct Settings {
     /// both on by default). Off, uTP peers join no global class from then on and those already
     /// connected leave it: only uTP's own delay control slows them.
     pub rate_limit_utp: bool,
-    /// Keep ping low (D49, a PaTorrent extension): the engine measures the line's queue (pings
+    /// Keep ping low (D49, a Rookparcel extension): the engine measures the line's queue (pings
     /// to the first router past the home line, `docs/LOWPING.md`) and caps the upload and the
     /// download while it grows; the caps never raise the limits above. While on,
     /// `utp_target_delay` is at most 25 ms.
@@ -367,7 +367,7 @@ pub struct Settings {
     pub cache_size: i32,
     pub read_cache_line_size: i32,
     pub cache_expiry: u32,
-    /// Smart disk I/O (D48, PaTorrent extensions, `docs/DISKIO.md`). Gentle checks: a check
+    /// Smart disk I/O (D48, Rookparcel extensions, `docs/DISKIO.md`). Gentle checks: a check
     /// runs at the system's background I/O priority, leaves other programs' file cache alone and
     /// gives way while its reads are slower than the drive's usual.
     pub check_gently: bool,

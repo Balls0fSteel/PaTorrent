@@ -8,8 +8,8 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use patorrent_core::metainfo::TorrentInfo;
-use patorrent_core::{
+use rookparcel_core::metainfo::TorrentInfo;
+use rookparcel_core::{
     AddTorrentParams, Alert, DownloadPriority, MoveFlags, QueueMove, SessionHandle, TorrentFlags,
     TorrentHandle, TorrentId,
 };
@@ -750,7 +750,7 @@ pub fn size_text(selected: u64, total: u64) -> String {
 
 #[cfg(test)]
 mod tests {
-    use patorrent_core::TorrentSource;
+    use rookparcel_core::TorrentSource;
 
     use super::*;
 
@@ -932,7 +932,7 @@ mod tests {
     fn a_restored_magnet_is_found_in_the_status_updates() {
         // after a restart the engine restores the waiting magnet without a `TorrentAdded`: the
         // dialog's wait finds it by its info-hash in a status update
-        use patorrent_core::{MockConfig, Session, Settings};
+        use rookparcel_core::{MockConfig, Session, Settings};
         use std::time::{Duration, Instant};
         let s =
             Session::start_mock(Settings { tick_interval: 50, ..Settings::default() }, MockConfig::default());
@@ -963,7 +963,7 @@ mod tests {
 
     #[test]
     fn a_magnet_waits_for_its_metadata_then_takes_the_choice() {
-        use patorrent_core::{MockConfig, Session, Settings};
+        use rookparcel_core::{MockConfig, Session, Settings};
         use std::time::{Duration, Instant};
         let s =
             Session::start_mock(Settings { tick_interval: 50, ..Settings::default() }, MockConfig::default());

@@ -13,14 +13,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use patorrent_core::remote::{self, ConnectError, Target};
-use patorrent_core::tls::Verify;
-use patorrent_core::{
+use rookparcel_core::remote::{self, ConnectError, Target};
+use rookparcel_core::tls::Verify;
+use rookparcel_core::{
     AddTorrentParams, Alert, RemoveFlags, Session, SessionHandle, SessionParams, Settings, TorrentFlags,
     TorrentId, TorrentSource, TorrentStatus,
 };
-use patorrent_nox::webui::https::Certificate;
-use patorrent_nox::webui::{Config, WebUi};
+use rookparcel_nox::webui::https::Certificate;
+use rookparcel_nox::webui::{Config, WebUi};
 
 const PASS: &str = "s3cret-pass";
 const TIMEOUT: Duration = Duration::from_secs(10);
@@ -62,7 +62,7 @@ fn nox(name: &str, https: bool) -> Nox {
 
 /// `save_root`: `--webui-save-root` set to the download folder.
 fn nox_with(name: &str, https: bool, save_root: bool) -> Nox {
-    let dir = std::env::temp_dir().join(format!("patorrent-remote-test-{name}-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("rookparcel-remote-test-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&dir);
     let session =
         Session::start(SessionParams { settings: settings(), state_dir: None, ..Default::default() })
@@ -189,7 +189,7 @@ fn a_remote_session_drives_the_nox() {
     let n = nox("drive", false);
     let addr = n.web.local_addr();
     let (client, hello) = remote::connect(&target(addr, None, PASS), TIMEOUT).unwrap();
-    assert_eq!(hello.server_version, patorrent_core::VERSION);
+    assert_eq!(hello.server_version, rookparcel_core::VERSION);
     assert!(hello.save_path.ends_with("dl"), "{}", hello.save_path);
     assert_eq!(hello.settings.listen_interfaces, "127.0.0.1:0");
     let h = Client::new(client.handle());
@@ -276,7 +276,7 @@ fn the_save_roots_bind_remote_sessions() {
         Alert::TorrentAdded { id, name, .. } if name == "inside" => Some(*id),
         _ => None,
     });
-    h.torrent(id).move_storage(outside.clone(), patorrent_core::MoveFlags::default());
+    h.torrent(id).move_storage(outside.clone(), rookparcel_core::MoveFlags::default());
     let (file, error) = h.wait_for(|a| match a {
         Alert::StorageMovedFailed { id: x, file, error, .. } if *x == id => {
             Some((file.clone(), error.to_string()))
@@ -352,7 +352,7 @@ fn the_upgrade_is_checked() {
     let ask = |extra: &str| {
         let mut s = TcpStream::connect(addr).unwrap();
         s.set_read_timeout(Some(TIMEOUT)).unwrap();
-        let auth = patorrent_core::util::string::base64encode(format!("admin:{PASS}").as_bytes());
+        let auth = rookparcel_core::util::string::base64encode(format!("admin:{PASS}").as_bytes());
         write!(
             s,
             "GET {} HTTP/1.1\r\nHost: {addr}\r\nAuthorization: Basic {auth}\r\n{extra}\r\n",

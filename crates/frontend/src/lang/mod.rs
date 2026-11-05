@@ -8,7 +8,7 @@
 //!   they are, GTK through [`gtk_mnemonic`], the Web UI through [`plain`].
 //! * A translated table is a `.lng` text file: `Key=Text` lines, `#` comments, `\n` for a line
 //!   break and `\\` for a backslash. `crates/frontend/lang/en.lng` is the English table written
-//!   out for translators; a test keeps it equal to [`en`] (`PATORRENT_WRITE_LNG=1` rewrites it).
+//!   out for translators; a test keeps it equal to [`en`] (`ROOKPARCEL_WRITE_LNG=1` rewrites it).
 //! * The translations, `crates/frontend/lang/<code>.lng`, are compiled into every binary,
 //!   deflated by `build.rs` (D26) as their texts alone in the English table's key order;
 //!   [`init`] inflates the chosen one only.
@@ -23,7 +23,7 @@
 use std::fmt::Display;
 use std::sync::atomic::{AtomicBool, AtomicPtr, AtomicUsize, Ordering};
 
-use patorrent_core::util::puff;
+use rookparcel_core::util::puff;
 
 mod en;
 mod help_en;
@@ -70,7 +70,7 @@ macro_rules! __tr_arg {
     };
 }
 
-/// A language PaTorrent ships.
+/// A language Rookparcel ships.
 pub struct Language {
     /// A BCP 47 tag: `de`, `pt-BR`, `zh-Hans`; what `ui.language` stores, and the table's file
     /// name (`lang/<code>.lng`).
@@ -139,7 +139,7 @@ macro_rules! translated {
     };
 }
 
-/// The languages PaTorrent ships (D24), English first, then by code. Every `lang/<code>.lng`
+/// The languages Rookparcel ships (D24), English first, then by code. Every `lang/<code>.lng`
 /// but English's is listed here, and every listed table is complete (tests).
 pub const LANGUAGES: &[Language] = &[
     Language { code: "en", name: "English", rtl: false, deflated: &[] },
@@ -306,7 +306,7 @@ fn best_match_in<'a>(preferred: &[String], available: &[&'a str]) -> Option<&'a 
     })
 }
 
-/// An OS locale name as the tag PaTorrent's tables use: `de_AT.UTF-8@euro` is `de-AT`, Chinese
+/// An OS locale name as the tag Rookparcel's tables use: `de_AT.UTF-8@euro` is `de-AT`, Chinese
 /// by script (`zh-Hans`, `zh-Hant`), Portuguese by country (`pt-BR` unless `pt-PT`), Norwegian
 /// as Bokmål (`nb`), the old `iw` / `in` as `he` / `id`. `None` for `C` and `POSIX`.
 fn canonical(name: &str) -> Option<String> {
@@ -685,13 +685,14 @@ fn reset() {
 }
 
 /// Picks the language from `choice`, the frontend's `ui.language` preference, unless the
-/// `PATORRENT_LANG` environment variable overrides it: empty is the system's language
+/// `ROOKPARCEL_LANG` environment variable overrides it: empty is the system's language
 /// ([`system_languages`], [`best_match`]), a code one of [`LANGUAGES`], `pseudo`
 /// pseudo-localised English, and a path to a `.lng` file loads that file (for translators).
 /// Returns what went wrong, if anything; the language is then English, or the table without
 /// its bad lines. Called at start; nox calls it again when the Web UI's choice changes.
 pub fn init(choice: &str) -> Vec<String> {
-    let env = std::env::var("PATORRENT_LANG").ok();
+    // PaTorrent's `PATORRENT_LANG` still works (D59)
+    let env = crate::legacy::env_var("LANG").and_then(|v| v.into_string().ok());
     let choice = resolve(env.as_deref().unwrap_or(choice), &system_languages());
     match choice.as_str() {
         "pseudo" => {
@@ -766,7 +767,7 @@ fn escape(s: &str) -> String {
 #[cfg(test)]
 fn english_lng() -> String {
     let mut out = String::from(
-        "# PaTorrent string table: English, the source of every translation.\n\
+        "# Rookparcel string table: English, the source of every translation.\n\
          # Written from crates/frontend/src/lang/en.rs; do not edit by hand.\n\
          # Key=Text. Keep {placeholders} as they are; & marks the next letter as the keyboard\n\
          # mnemonic (&& is a literal &); \\n is a line break.\n",
@@ -809,7 +810,7 @@ pub(crate) fn help_texts_md() -> String {
     let mut out = String::from(
         "# Help texts\n\n\
          Generated from `crates/frontend/src/lang/help_en.rs` by a test \
-         (`PATORRENT_WRITE_LNG=1 cargo test -p patorrent-frontend` rewrites it); do not edit by hand. \
+         (`ROOKPARCEL_WRITE_LNG=1 cargo test -p rookparcel-frontend` rewrites it); do not edit by hand. \
          Each text is shown as a tooltip, in the Preferences description pane and on F1 (D55). \
          \"Read in\" names the code the text was written from, for a review against it.\n\n\
          ## Preferences controls\n\n\
@@ -917,12 +918,12 @@ mod tests {
     fn the_english_lng_file_matches_the_table() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("lang").join("en.lng");
         let want = english_lng();
-        if std::env::var_os("PATORRENT_WRITE_LNG").is_some() {
+        if std::env::var_os("ROOKPARCEL_WRITE_LNG").is_some() {
             std::fs::create_dir_all(path.parent().unwrap()).unwrap();
             std::fs::write(&path, &want).unwrap();
         }
         let have = std::fs::read_to_string(&path).unwrap_or_default().replace("\r\n", "\n");
-        assert!(have == want, "{} is stale: run the tests with PATORRENT_WRITE_LNG=1", path.display());
+        assert!(have == want, "{} is stale: run the tests with ROOKPARCEL_WRITE_LNG=1", path.display());
         // And it reads back as the English table.
         let (t, problems) = Table::parse("en", &want);
         assert!(problems.is_empty(), "{problems:?}");

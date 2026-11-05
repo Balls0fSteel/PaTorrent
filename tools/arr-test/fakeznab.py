@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""A tiny Torznab indexer for testing PaTorrent with Sonarr, Radarr and Prowlarr.
+"""A tiny Torznab indexer for testing Rookparcel with Sonarr, Radarr and Prowlarr.
 
 Serves synthetic releases: test-pattern videos made with ffmpeg (no real content), each as a
 single-file v1 .torrent. The payload is also placed in the download folder, so the client
@@ -23,7 +23,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 RELEASES = [
     ("tv1", "Fawlty.Towers.S01E01.720p.WEB-DL.x264-PATEST", 5040, "tv", 1500),
     ("mv1", "Night.of.the.Living.Dead.1968.720p.WEB-DL.x264-PATEST", 2040, "movie", 1800),
-    ("pc1", "PaTorrent.Prowlarr.Grab.Test.x264-PATEST", 5040, "other", 120),
+    ("pc1", "Rookparcel.Prowlarr.Grab.Test.x264-PATEST", 5040, "other", 120),
 ]
 PIECE = 256 * 1024
 

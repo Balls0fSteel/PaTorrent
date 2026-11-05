@@ -7,9 +7,9 @@ import os
 import urllib.parse
 import urllib.request
 
-URL = os.environ.get("PATORRENT_URL", "http://127.0.0.1:8080").rstrip("/")
-USER = os.environ.get("PATORRENT_USER", "admin")
-PASS = os.environ.get("PATORRENT_PASS", "arr-test-pass")
+URL = os.environ.get("ROOKPARCEL_URL", "http://127.0.0.1:8080").rstrip("/")
+USER = os.environ.get("ROOKPARCEL_USER", "admin")
+PASS = os.environ.get("ROOKPARCEL_PASS", "arr-test-pass")
 
 jar = http.cookiejar.CookieJar()
 op = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(jar))

@@ -1,4 +1,4 @@
-// PaTorrent's own OS glue, not ported (libtorrent uses OpenSSL through Boost.Asio).
+// Rookparcel's own OS glue, not ported (libtorrent uses OpenSSL through Boost.Asio).
 
 //! TLS sessions on SChannel (SSPI), Windows' TLS library, and server identities kept in CNG.
 //!
@@ -564,7 +564,9 @@ impl Drop for Session {
 // --- Server identities ---------------------------------------------------------------------
 
 /// Persisted keys are named this, then `<process id>.<counter>`.
-const KEY_PREFIX: &str = "PaTorrent TLS ";
+const KEY_PREFIX: &str = "Rookparcel TLS ";
+/// The same under the former name (D59): PaTorrent's leftover keys are swept too.
+const OLD_KEY_PREFIX: &str = "PaTorrent TLS ";
 
 /// A server certificate in a private in-memory store (with its chain, so SChannel can send
 /// it), tied to a persisted CNG key, and the inbound credentials made from them.
@@ -762,8 +764,9 @@ impl Provider {
             let key = unsafe { from_wide((*name).pszName) };
             // SAFETY: allocated by NCryptEnumKeys, freed once.
             unsafe { NCryptFreeBuffer(name.cast()) };
-            let pid =
-                key.strip_prefix(KEY_PREFIX).and_then(|r| r.split('.').next()).and_then(|p| p.parse().ok());
+            let pid = (key.strip_prefix(KEY_PREFIX).or_else(|| key.strip_prefix(OLD_KEY_PREFIX)))
+                .and_then(|r| r.split('.').next())
+                .and_then(|p| p.parse().ok());
             if pid.is_some_and(|pid| pid != own && !process_alive(pid)) {
                 stale.push(wide(&key));
             }

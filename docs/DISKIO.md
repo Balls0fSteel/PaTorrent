@@ -60,7 +60,7 @@ Each save path's drive is classed **SSD, HDD, Network, Removable or Unknown**:
 
 ### 4. Slowing down when the disk is busy
 
-The existing back-pressure lets PaTorrent use all of a disk. This part leaves room for other programs: it lowers PaTorrent's own effective limits when the disk is slow to answer, the way uTP (LEDBAT) treats network delay.
+The existing back-pressure lets Rookparcel use all of a disk. This part leaves room for other programs: it lowers Rookparcel's own effective limits when the disk is slow to answer, the way uTP (LEDBAT) treats network delay.
 
 - **Signal:** the disk threads time every write job and every file read, per drive. A low percentile over the last minutes is the drive's baseline; the last two seconds' 90th percentile is the current delay. Our own timings work on every platform and include a NAS; they cannot tell another program's load from our own, but both mean the disk is busy.
 - **Control:** per drive, when the current delay exceeds the baseline by more than the allowance (proposed: SSD 10 ms, HDD 50 ms, Network 100 ms, Unknown 50 ms), the drive's factor halves; while it is under, the factor grows by 5% a second. The engine applies the lowest factor among the drives a direction uses to the measured throughput: downloads stop being read from peers above it (the same place as `disk_backlogged`), uploads are deferred above it. It never raises a limit the user set.

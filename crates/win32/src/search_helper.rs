@@ -2,7 +2,7 @@
 //! Search Helper (Jackett)..." while it is not installed; "Pick Sites...", "Open the Helper's
 //! Page", "Update the Search Helper" and "Remove the Search Helper" once it is. Each step runs
 //! behind the updater's progress dialog ([`crate::updater::run`]) on a worker thread, on
-//! [`patorrent_frontend::search::helper`].
+//! [`rookparcel_frontend::search::helper`].
 //!
 //! Get: the newest release from GitHub, the box that says what it is (a separate program by
 //! its own authors under the GPL-2.0, from github.com/Jackett/Jackett, its size, where it goes,
@@ -13,8 +13,8 @@
 
 use std::ptr::null;
 
-use patorrent_frontend::search::helper::{self, Indexer};
-use patorrent_frontend::{fmt, tr};
+use rookparcel_frontend::search::helper::{self, Indexer};
+use rookparcel_frontend::{fmt, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{COLOR_GRAYTEXT, GetSysColor};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;

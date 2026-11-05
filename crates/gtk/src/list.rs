@@ -15,9 +15,9 @@ use std::rc::Rc;
 use gtk::prelude::*;
 use gtk::subclass::prelude::*;
 use gtk::{gio, glib};
-use patorrent_core::TorrentId;
-use patorrent_frontend::columns::{Align, Column};
-use patorrent_frontend::icons::StateIcon;
+use rookparcel_core::TorrentId;
+use rookparcel_frontend::columns::{Align, Column};
+use rookparcel_frontend::icons::StateIcon;
 
 mod imp {
     use std::cell::RefCell;
@@ -33,7 +33,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for RowModel {
-        const NAME: &'static str = "PaTorrentRowModel";
+        const NAME: &'static str = "RookparcelRowModel";
         type Type = super::RowModel;
         type Interfaces = (gio::ListModel,);
     }

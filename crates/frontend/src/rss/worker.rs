@@ -13,9 +13,9 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use patorrent_core::fetch::{FetchOptions, FetchProxy, Reach, http_get};
-use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
-use patorrent_core::{AddTorrentParams, InfoHashes, TorrentFlags, TorrentSource};
+use rookparcel_core::fetch::{FetchOptions, FetchProxy, Reach, http_get};
+use rookparcel_core::metainfo::{TorrentInfo, parse_magnet_uri};
+use rookparcel_core::{AddTorrentParams, InfoHashes, TorrentFlags, TorrentSource};
 
 use super::{AddRequest, FeedId, Fetched, RssDownloader, Validators, fetch_feed};
 use crate::tr;

@@ -1,4 +1,4 @@
-// PaTorrent's own code, not ported: libtorrent hands certificate files to OpenSSL as they are.
+// Rookparcel's own code, not ported: libtorrent hands certificate files to OpenSSL as they are.
 
 //! PEM files, and the little DER the TLS layer reads or writes itself: a certificate's validity
 //! period and fingerprint, (for CNG, which imports PKCS #8 only) PKCS #1 and SEC 1 private keys

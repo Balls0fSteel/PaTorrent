@@ -12,8 +12,8 @@
 
 use std::path::{Path, PathBuf};
 
-use patorrent_core::util::private_file;
-use patorrent_core::{ProxyType, Settings};
+use rookparcel_core::util::private_file;
+use rookparcel_core::{ProxyType, Settings};
 
 use super::json::{self, Json};
 use super::sha512::jackett_password_hash;
@@ -124,7 +124,7 @@ pub fn random_token(n: usize) -> String {
     let mut out = String::with_capacity(n);
     let mut buf = [0u8; 64];
     while out.len() < n {
-        patorrent_core::util::random::crypto_random_bytes(&mut buf);
+        rookparcel_core::util::random::crypto_random_bytes(&mut buf);
         // 252 = 7 * 36: no bias
         for b in buf.iter().filter(|&&b| b < 252) {
             if out.len() < n {
@@ -147,7 +147,7 @@ pub struct HelperProxy {
 }
 
 impl HelperProxy {
-    /// The session's proxy whenever one is set, as the fetches use it ([`patorrent_core::fetch::FetchProxy::from_settings`]).
+    /// The session's proxy whenever one is set, as the fetches use it ([`rookparcel_core::fetch::FetchProxy::from_settings`]).
     pub fn from_settings(s: &Settings) -> Option<HelperProxy> {
         let kind = match s.proxy_type {
             ProxyType::None => return None,

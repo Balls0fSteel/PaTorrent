@@ -1,6 +1,6 @@
 //! Options > Setup Guide (D53, Ctrl+G, µTorrent 2.2.1's entry), also shown at the first start of
 //! a profile before the main window and the engine: one page at a time, each a question with a
-//! short text, the controls of [`patorrent_frontend::setup_guide`] and their help texts (D55)
+//! short text, the controls of [`rookparcel_frontend::setup_guide`] and their help texts (D55)
 //! under them and as tooltips. Skip (or Esc) keeps everything as it is; Finish hands back the
 //! options with the answers the user changed.
 //!
@@ -11,11 +11,11 @@
 use std::mem::zeroed;
 use std::ptr::{null, null_mut};
 
-use patorrent_frontend::lang::{self, H, S};
-use patorrent_frontend::options::Options;
-use patorrent_frontend::pref_pages::{Control, Features, Item, TextKind};
-use patorrent_frontend::setup_guide::{self, Answers, Guide};
-use patorrent_frontend::tr;
+use rookparcel_frontend::lang::{self, H, S};
+use rookparcel_frontend::options::Options;
+use rookparcel_frontend::pref_pages::{Control, Features, Item, TextKind};
+use rookparcel_frontend::setup_guide::{self, Answers, Guide};
+use rookparcel_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     COLOR_BTNFACE, COLOR_GRAYTEXT, CreateFontIndirectW, DT_CALCRECT, DT_NOPREFIX, DT_WORDBREAK, DeleteObject,
@@ -653,8 +653,8 @@ unsafe fn finish(dlg: HWND, st: &mut State) {
 mod tests {
     //! The guide built from its template, hidden and modeless, driven through its messages.
 
-    use patorrent_frontend::prefs::Prefs;
-    use patorrent_frontend::setup_guide::{
+    use rookparcel_frontend::prefs::Prefs;
+    use rookparcel_frontend::setup_guide::{
         OLDER, OLDER_CONNECTION_SPEED, OLDER_CONNECTIONS, OLDER_PER_TORRENT, ROUTER, SMART_DISK,
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{

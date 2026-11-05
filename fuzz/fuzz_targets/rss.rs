@@ -4,11 +4,11 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_frontend::rss::{
+use rookparcel_frontend::rss::{
     EpisodeSpec, FeedItem, Quality, RssDownloader, RssFilter, is_repack, parse_date, parse_episode,
     parse_feed, wildcard_match,
 };
-use patorrent_frontend::search;
+use rookparcel_frontend::search;
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(results) = search::parse_results(data) {

@@ -1,4 +1,4 @@
-//! Desktop integration (Preferences > General) on freedesktop.org desktops: PaTorrent as the
+//! Desktop integration (Preferences > General) on freedesktop.org desktops: Rookparcel as the
 //! program for `.torrent` files and `magnet:` links, and the autostart entry.
 //!
 //! What is written, all in the user's own folders (no root needed):
@@ -6,7 +6,7 @@
 //!   item; `MimeType` names both types), when an association is first asked for, and kept;
 //! - the defaults for `application/x-bittorrent` and `x-scheme-handler/magnet`, through GIO,
 //!   which keeps them in `$XDG_CONFIG_HOME/mimeapps.list` (what `xdg-mime default` writes);
-//! - `$XDG_CONFIG_HOME/autostart/<app id>.desktop` for "Start PaTorrent on system startup",
+//! - `$XDG_CONFIG_HOME/autostart/<app id>.desktop` for "Start Rookparcel on system startup",
 //!   with `--minimized` for "Start minimized";
 //! - the icon both entries name (`Icon=<app id>`), as
 //!   `$XDG_DATA_HOME/icons/hicolor/<n>x<n>/apps/<app id>.png`, whenever an entry is written
@@ -14,23 +14,23 @@
 //!   its own entry and icon and writes nothing (see below); an AppImage's entries point at the
 //!   AppImage and the icon is written as here.
 //!
-//! The state is read from those places each time, never stored in `patorrent.ini`: a box is
+//! The state is read from those places each time, never stored in `rookparcel.ini`: a box is
 //! checked when the entry starts this very program ([`command`]), so a moved AppImage shows
 //! unchecked until it registers again. Turning an association off resets the user's choices
 //! for that type (GIO's `reset_type_associations`), which gives it back to the system's
-//! default; it does not restore a program chosen before PaTorrent.
+//! default; it does not restore a program chosen before Rookparcel.
 //!
 //! In a Flatpak ([`packaged`]) the associations are the package's: its exported desktop entry
-//! declares both types, so the desktop offers PaTorrent for them, and the user picks the
+//! declares both types, so the desktop offers Rookparcel for them, and the user picks the
 //! default program in the desktop's own settings. Inside the sandbox GIO's
 //! `set_as_default_for_type` would write the sandbox's own `mimeapps.list`, which the host never
 //! reads. So there the associations read as unset and are never written, Preferences shows
 //! their boxes greyed under a note, and "Check association on startup" never asks.
 //!
 //! Autostart works in a Flatpak too, through the Background portal (`crate::portal`):
-//! `RequestBackground` with `autostart` and the sandbox's command line (`patorrent-gtk`, the
+//! `RequestBackground` with `autostart` and the sandbox's command line (`rookparcel-gtk`, the
 //! manifest's `command`, plus `--minimized` for "Start minimized"), which makes the portal write
-//! the host's autostart entry (`flatpak run --command=patorrent-gtk <app id> ...`); turning it
+//! the host's autostart entry (`flatpak run --command=rookparcel-gtk <app id> ...`); turning it
 //! off is the same request with `autostart` false. The portal answers later, after the desktop
 //! has perhaps asked the user, and has nothing to read back, so what it granted is kept in
 //! `background.ini` in the settings folder (`paths::background_file`) and read from there. The
@@ -45,15 +45,15 @@
 //! default profile can start at login (the portal keeps one autostart per application).
 //!
 //! macOS (`crate::macos`, PLAN.md D23) keeps the same boxes in its own places:
-//! - "Start PaTorrent on system startup" is a LaunchAgent, `~/Library/LaunchAgents/<app id>.plist`
-//!   with `RunAtLoad`, whose `ProgramArguments` are the bundle's executable (PaTorrent.app's
+//! - "Start Rookparcel on system startup" is a LaunchAgent, `~/Library/LaunchAgents/<app id>.plist`
+//!   with `RunAtLoad`, whose `ProgramArguments` are the bundle's executable (Rookparcel.app's
 //!   launcher, which sets up GTK's paths; this executable outside a bundle), plus `--minimized`
 //!   for "Start minimized". It is checked when the plist starts this very program, as above.
 //!   macOS 13 and later list it in System Settings > General > Login Items ("Allow in the
 //!   Background") and announce it in a notification when it is written.
 //! - The defaults for `.torrent` files (the UTI LaunchServices has for the extension,
 //!   `org.bittorrent.torrent`, which the bundle's `Info.plist` imports) and `magnet:` links are
-//!   LaunchServices', set and read by bundle id. Only PaTorrent.app has one: run from a bare
+//!   LaunchServices', set and read by bundle id. Only Rookparcel.app has one: run from a bare
 //!   executable, the two association boxes and "Check association on startup" are greyed
 //!   ([`associations_settable`]). macOS has no way to give a type back to "no default", so
 //!   turning one off is refused with a pointer to Finder's Get Info > Open with.
@@ -62,12 +62,12 @@
 pub const AVAILABLE: bool = true;
 
 /// Whether the `.torrent` and `magnet:` associations can be changed from here: not in a
-/// Flatpak, and on macOS only from PaTorrent.app (LaunchServices names programs by bundle id)
+/// Flatpak, and on macOS only from Rookparcel.app (LaunchServices names programs by bundle id)
 /// in its default profile (LaunchServices opens the bundle, never a profile).
 pub fn associations_settable() -> bool {
     #[cfg(target_os = "macos")]
     {
-        crate::macos::bundle_id().is_some() && patorrent_frontend::profile::current().is_default()
+        crate::macos::bundle_id().is_some() && rookparcel_frontend::profile::current().is_default()
     }
     #[cfg(not(target_os = "macos"))]
     {
@@ -80,7 +80,7 @@ pub fn packaged() -> bool {
     std::env::var_os("FLATPAK_ID").is_some()
 }
 
-pub use imp::{profile_entry, read, show_profile_entry, write};
+pub use imp::{adopt_patorrent, profile_entry, read, show_profile_entry, write};
 
 #[cfg(not(target_os = "macos"))]
 mod imp {
@@ -88,10 +88,10 @@ mod imp {
 
     use gtk::prelude::*;
     use gtk::{gio, glib};
-    use patorrent_frontend::integration::{
+    use rookparcel_frontend::integration::{
         self, EntryKind, Integration, MIME_MAGNET, MIME_TORRENT, MINIMIZED,
     };
-    use patorrent_frontend::profile;
+    use rookparcel_frontend::profile;
 
     use crate::app::APP_ID;
 
@@ -105,7 +105,7 @@ mod imp {
     /// one, else this executable; in a Flatpak (only a named profile's entry asks) `flatpak run`.
     pub fn command() -> Vec<String> {
         let mut c = if super::packaged() {
-            ["flatpak", "run", "--command=patorrent-gtk", APP_ID].map(str::to_owned).to_vec()
+            ["flatpak", "run", "--command=rookparcel-gtk", APP_ID].map(str::to_owned).to_vec()
         } else if let Some(image) = std::env::var_os("APPIMAGE") {
             vec![image.to_string_lossy().into_owned()]
         } else {
@@ -155,7 +155,7 @@ mod imp {
     }
 
     /// File > Profiles > Create Shortcut: the named profile's entry in the applications menu
-    /// (`NoDisplay` dropped), as `PaTorrent (name)`.
+    /// (`NoDisplay` dropped), as `Rookparcel (name)`.
     pub fn show_profile_entry() -> Result<(), String> {
         let command = command();
         if profile::current().is_default() || command.is_empty() {
@@ -170,6 +170,44 @@ mod imp {
 
     fn autostart_path() -> PathBuf {
         glib::user_config_dir().join("autostart").join(desktop_id())
+    }
+
+    /// PaTorrent's entries for this profile (D59): its application entry and autostart entry
+    /// go, and the defaults and autostart they held are set again for Rookparcel. Nothing in a
+    /// Flatpak (the renamed package is another application) or when PaTorrent left nothing.
+    pub fn adopt_patorrent() -> Result<(), String> {
+        if super::packaged() {
+            return Ok(());
+        }
+        let old_id = format!("{}.desktop", profile::current().app_id(integration::OLD_APP_ID));
+        let app = applications_dir().join(&old_id);
+        let start = glib::user_config_dir().join("autostart").join(&old_id);
+        if !app.exists() && !start.exists() {
+            return Ok(());
+        }
+        // before the entry goes, while GIO still knows it
+        let was_default = |t: &str| {
+            gio::AppInfo::default_for_type(t, false)
+                .and_then(|a| a.id())
+                .is_some_and(|i| i == old_id.as_str())
+        };
+        let (torrent, magnet) = (was_default(MIME_TORRENT), was_default(MIME_MAGNET));
+        let autostart = std::fs::read_to_string(&start).ok();
+        let minimized = autostart
+            .as_deref()
+            .and_then(integration::exec_args)
+            .is_some_and(|a| a.iter().any(|x| x == MINIMIZED));
+        for p in [&app, &start] {
+            let _ = std::fs::remove_file(p);
+        }
+        let set = read();
+        let want = Integration {
+            torrent: set.torrent || torrent,
+            magnet: set.magnet || magnet,
+            autostart: set.autostart || autostart.is_some(),
+            minimized: if autostart.is_some() { minimized } else { set.minimized },
+        };
+        write(&set, &want).map(drop)
     }
 
     /// The entry at `path` when it starts this program.
@@ -276,12 +314,12 @@ mod imp {
     mod flatpak {
         use gtk::gio;
         use gtk::prelude::*;
-        use patorrent_frontend::integration::{Integration, MINIMIZED};
-        use patorrent_frontend::prefs::Prefs;
-        use patorrent_frontend::tr;
+        use rookparcel_frontend::integration::{Integration, MINIMIZED};
+        use rookparcel_frontend::prefs::Prefs;
+        use rookparcel_frontend::tr;
 
         /// The manifest's `command`: what the portal's autostart entry runs in the sandbox.
-        const COMMAND: &str = "patorrent-gtk";
+        const COMMAND: &str = "rookparcel-gtk";
 
         fn state() -> Prefs {
             Prefs::load(crate::paths::background_file())
@@ -292,7 +330,7 @@ mod imp {
         pub fn read() -> Integration {
             let s = state();
             let autostart =
-                s.get_bool("autostart", false) && patorrent_frontend::profile::current().is_default();
+                s.get_bool("autostart", false) && rookparcel_frontend::profile::current().is_default();
             Integration {
                 autostart,
                 minimized: autostart && s.get_bool("minimized", false),
@@ -314,7 +352,7 @@ mod imp {
         /// next time; a refusal or failure is reported when it comes.
         pub fn write(old: &Integration, want: &Integration) -> Result<Integration, String> {
             if (want.autostart, want.minimized) != (old.autostart, old.minimized) {
-                if !patorrent_frontend::profile::current().is_default() {
+                if !rookparcel_frontend::profile::current().is_default() {
                     return Err("in the Flatpak only the default profile can start at login: the \
                          Background portal keeps one autostart per application"
                         .into());
@@ -329,7 +367,7 @@ mod imp {
                         s.save()
                             .map_err(|e| format!("{}: {e}", crate::paths::background_file().display()))?;
                         if autostart && !granted {
-                            return Err("the desktop does not allow PaTorrent to start at login".into());
+                            return Err("the desktop does not allow Rookparcel to start at login".into());
                         }
                         Ok(())
                     });
@@ -360,10 +398,10 @@ mod imp {
 
             #[test]
             fn the_portal_runs_the_manifest_command() {
-                assert_eq!(commandline(false), ["patorrent-gtk"]);
-                assert_eq!(commandline(true), ["patorrent-gtk", "--minimized"]);
+                assert_eq!(commandline(false), ["rookparcel-gtk"]);
+                assert_eq!(commandline(true), ["rookparcel-gtk", "--minimized"]);
                 let manifest =
-                    include_str!("../../../packaging/flatpak/io.github.balls0fsteel.PaTorrent.yml");
+                    include_str!("../../../packaging/flatpak/io.github.balls0fsteel.Rookparcel.yml");
                 assert!(manifest.lines().any(|l| l == format!("command: {COMMAND}")));
             }
         }
@@ -375,27 +413,27 @@ mod imp {
     use std::path::PathBuf;
 
     use gtk::glib;
-    use patorrent_frontend::integration::{Integration, MINIMIZED};
+    use rookparcel_frontend::integration::{Integration, MINIMIZED};
 
     use crate::app::APP_ID;
     use crate::macos;
 
-    /// What the LaunchAgent starts: the bundle's own executable inside PaTorrent.app (starting
-    /// `patorrent-gtk` there directly would skip the launcher's paths), else this executable;
+    /// What the LaunchAgent starts: the bundle's own executable inside Rookparcel.app (starting
+    /// `rookparcel-gtk` there directly would skip the launcher's paths), else this executable;
     /// in a named profile with `--profile <name>` (D42).
     pub fn command() -> Vec<String> {
         let Some(program) = macos::bundle_executable().or_else(|| std::env::current_exe().ok()) else {
             return Vec::new();
         };
         let mut c = vec![program.to_string_lossy().into_owned()];
-        c.extend(patorrent_frontend::profile::current().args());
+        c.extend(rookparcel_frontend::profile::current().args());
         c
     }
 
     /// The LaunchAgent's label: the application id, `<APP_ID>.<name>` for a named profile, so
     /// each profile starts at login apart from the others.
     fn agent_label() -> String {
-        match &patorrent_frontend::profile::current().name {
+        match &rookparcel_frontend::profile::current().name {
             Some(n) => format!("{APP_ID}.{n}"),
             None => APP_ID.to_owned(),
         }
@@ -403,6 +441,29 @@ mod imp {
 
     fn agent_path() -> PathBuf {
         glib::home_dir().join("Library").join("LaunchAgents").join(format!("{}.plist", agent_label()))
+    }
+
+    /// PaTorrent's LaunchAgent for this profile (D59) goes, and Rookparcel starts at login in
+    /// its place. Its associations named PaTorrent.app's bundle id, which "Check association on
+    /// startup" offers to replace.
+    pub fn adopt_patorrent() -> Result<(), String> {
+        use rookparcel_frontend::integration::OLD_APP_ID;
+        let label = match &rookparcel_frontend::profile::current().name {
+            Some(n) => format!("{OLD_APP_ID}.{n}"),
+            None => OLD_APP_ID.to_owned(),
+        };
+        let path = glib::home_dir().join("Library").join("LaunchAgents").join(format!("{label}.plist"));
+        let Ok(text) = std::fs::read_to_string(&path) else {
+            return Ok(());
+        };
+        let minimized =
+            macos::launch_agent_arguments(&text).is_some_and(|a| a.iter().any(|x| x == MINIMIZED));
+        std::fs::remove_file(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        let set = read();
+        if set.autostart {
+            return Ok(());
+        }
+        write(&set, &Integration { autostart: true, minimized, ..set }).map(drop)
     }
 
     /// Nothing on macOS: LaunchServices names the bundle, never a profile's entry.
@@ -427,7 +488,7 @@ mod imp {
         handler.is_some_and(|h| h.eq_ignore_ascii_case(id))
     }
 
-    /// What is set for this program now (the associations only for PaTorrent.app).
+    /// What is set for this program now (the associations only for Rookparcel.app).
     pub fn read() -> Integration {
         let args = agent_args(&command());
         let id = macos::bundle_id();
@@ -445,7 +506,7 @@ mod imp {
         let (old, want) = (old.normalized(), want.normalized());
         if (want.torrent && !old.torrent) || (want.magnet && !old.magnet) {
             // the boxes are greyed outside the bundle; "Check association" does not ask there
-            let id = macos::bundle_id().ok_or("only PaTorrent.app can be the default program")?;
+            let id = macos::bundle_id().ok_or("only Rookparcel.app can be the default program")?;
             if want.torrent && !old.torrent {
                 macos::set_default_for_type(&macos::torrent_uti(), &id)?;
             }
@@ -478,7 +539,7 @@ mod imp {
         }
         // LaunchServices keeps a default until another program takes it; there is no reset
         if (!want.torrent && old.torrent) || (!want.magnet && old.magnet) {
-            return Err("macOS keeps PaTorrent as the default program until another one is chosen \
+            return Err("macOS keeps Rookparcel as the default program until another one is chosen \
                  (Finder's Get Info > Open with > Change All for .torrent files, the other \
                  program's own setting for magnet: links)"
                 .into());

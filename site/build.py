@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Builds the PaTorrent website into a folder GitHub Pages can serve (docs/WEBSITE.md).
+"""Builds the Rookparcel website into a folder GitHub Pages can serve (docs/WEBSITE.md).
 
     python3 site/build.py                          # releases from the GitHub API, into _site/
     python3 site/build.py --releases-json FILE     # releases from a saved API answer (offline)
@@ -14,7 +14,7 @@ What it does:
    classified by file name, so a missing file simply has no link) and the checksums. The release
    shown is the highest stable one, else the highest pre-release; without any release, or when
    the API cannot be read, the blocks link to the GitHub releases page instead.
-3. Writes update.txt, the manifest PaTorrent's update check reads (the contract is in
+3. Writes update.txt, the manifest Rookparcel's update check reads (the contract is in
    docs/WEBSITE.md): `stable=` the highest published non-pre-release, `prerelease=` the highest
    published pre-release, each left out when there is none.
 4. Reads the entries of news.html (`<article class="news-entry" id=... data-date=...>`, newest
@@ -48,7 +48,7 @@ from typing import Optional
 
 SITE = Path(__file__).resolve().parent
 ROOT = SITE.parent
-DEFAULT_REPO = "Balls0fSteel/PaTorrent"
+DEFAULT_REPO = "Balls0fSteel/Rookparcel"
 API = "https://api.github.com"
 
 # What the update check accepts as a version (docs/WEBSITE.md): the tag without its leading v.
@@ -142,28 +142,30 @@ class Kind:
 
 
 # Every release file, by file name (docs/RELEASING.md). Order = order on the page.
+# D59: PaTorrent was renamed Rookparcel; releases up to 1.2.0 keep their old file names
+# (patorrent-..., PaTorrent-...), so each pattern takes both prefixes.
 KINDS = [
-    Kind("windows-setup", "windows", r"patorrent-VER-windows-(?P<arch>x64)-setup\.exe",
-         "Installer", "Installs PaTorrent; a newer installer upgrades it in place."),
-    Kind("windows-zip", "windows", r"patorrent-VER-windows-(?P<arch>x64)\.zip",
-         "Portable zip", "<code>patorrent.exe</code> (the GUI) and <code>patorrent-nox.exe</code> "
+    Kind("windows-setup", "windows", r"(?:rookparcel|patorrent)-VER-windows-(?P<arch>x64)-setup\.exe",
+         "Installer", "Installs Rookparcel; a newer installer upgrades it in place."),
+    Kind("windows-zip", "windows", r"(?:rookparcel|patorrent)-VER-windows-(?P<arch>x64)\.zip",
+         "Portable zip", "<code>rookparcel.exe</code> (the GUI) and <code>rookparcel-nox.exe</code> "
          "(the headless daemon); statically linked, nothing to install."),
-    Kind("appimage", "linux", r"PaTorrent-VER-(?P<arch>x86_64|aarch64)\.AppImage",
+    Kind("appimage", "linux", r"(?:Rookparcel|PaTorrent)-VER-(?P<arch>x86_64|aarch64)\.AppImage",
          "AppImage", "The GTK 4 GUI with its libraries bundled. Needs glibc 2.39 or newer "
          "(Ubuntu 24.04, Fedora 40, Debian 13 or later)."),
-    Kind("flatpak", "linux", r"PaTorrent-VER-(?P<arch>x86_64|aarch64)\.flatpak",
+    Kind("flatpak", "linux", r"(?:Rookparcel|PaTorrent)-VER-(?P<arch>x86_64|aarch64)\.flatpak",
          "Flatpak bundle", "The GTK 4 GUI on the GNOME 51 runtime, which comes from Flathub."),
-    Kind("linux-tar", "linux", r"patorrent-VER-linux-(?P<arch>x86_64|aarch64)\.tar\.gz",
-         "Plain binaries", "<code>patorrent-gtk</code>, <code>patorrent-nox</code>, the desktop "
+    Kind("linux-tar", "linux", r"(?:rookparcel|patorrent)-VER-linux-(?P<arch>x86_64|aarch64)\.tar\.gz",
+         "Plain binaries", "<code>rookparcel-gtk</code>, <code>rookparcel-nox</code>, the desktop "
          "entry and the systemd units. They use the system's GTK 4 (4.12 or newer) and "
          "OpenSSL 3, as on Ubuntu 24.04."),
-    Kind("nox-appimage", "linux", r"patorrent-nox-VER-(?P<arch>x86_64|aarch64)\.AppImage",
-         "Headless AppImage", "<code>patorrent-nox</code> with OpenSSL bundled, for servers."),
-    Kind("dmg", "macos", r"PaTorrent-VER-(?P<arch>arm64|x86_64)\.dmg",
-         "Disk image", "<code>PaTorrent.app</code>: the GTK 4 GUI with its libraries bundled "
+    Kind("nox-appimage", "linux", r"(?:rookparcel|patorrent)-nox-VER-(?P<arch>x86_64|aarch64)\.AppImage",
+         "Headless AppImage", "<code>rookparcel-nox</code> with OpenSSL bundled, for servers."),
+    Kind("dmg", "macos", r"(?:Rookparcel|PaTorrent)-VER-(?P<arch>arm64|x86_64)\.dmg",
+         "Disk image", "<code>Rookparcel.app</code>: the GTK 4 GUI with its libraries bundled "
          "(macOS 15 or newer)."),
-    Kind("macos-nox", "macos", r"patorrent-nox-VER-macos-(?P<arch>arm64|x86_64)\.tar\.gz",
-         "Headless", "<code>patorrent-nox</code> (Apple silicon: macOS 11 or newer; Intel: "
+    Kind("macos-nox", "macos", r"(?:rookparcel|patorrent)-nox-VER-macos-(?P<arch>arm64|x86_64)\.tar\.gz",
+         "Headless", "<code>rookparcel-nox</code> (Apple silicon: macOS 11 or newer; Intel: "
          "macOS 10.14 or newer)."),
     Kind("checksums", "checksums", r"SHA256SUMS",
          "Checksums", "The SHA-256 of every file in the release."),
@@ -246,8 +248,8 @@ def pick(releases: list):
 
 def update_manifest(stable: Optional[Release], pre: Optional[Release], repo: str) -> str:
     lines = [
-        f"# PaTorrent update information: the newest releases at https://github.com/{repo}/releases",
-        "# Read by PaTorrent's update check; written by .github/workflows/pages.yml.",
+        f"# Rookparcel update information: the newest releases at https://github.com/{repo}/releases",
+        "# Read by Rookparcel's update check; written by .github/workflows/pages.yml.",
     ]
     if stable:
         lines.append(f"stable={stable.version}")
@@ -275,7 +277,7 @@ def fetch_releases(repo: str, token: Optional[str], attempts: int = 3) -> list:
     headers = {
         "Accept": "application/vnd.github+json",
         "X-GitHub-Api-Version": "2022-11-28",
-        "User-Agent": "PaTorrent-site-build",
+        "User-Agent": "Rookparcel-site-build",
     }
     if token:
         headers["Authorization"] = f"Bearer {token}"
@@ -342,8 +344,20 @@ def commands(*lines: str) -> str:
     return '<pre class="cmd"><code>' + "\n".join(esc(x) for x in lines) + "</code></pre>"
 
 
+def old_names(text: str, name: str) -> str:
+    """text with the program names of before D59 when the file has the old name, as its
+    programs do (patorrent-gtk, PaTorrent.app, io.github.balls0fsteel.PaTorrent)."""
+    if not name.lower().startswith("patorrent"):
+        return text
+    return text.replace("Rookparcel", "PaTorrent").replace("rookparcel", "patorrent")
+
+
 def how_to_start(kind: str, assets: list) -> str:
     """The first-start steps for one kind of file, written with its real file name."""
+    return old_names(_how_to_start(kind, assets), assets[0].name)
+
+
+def _how_to_start(kind: str, assets: list) -> str:
     a = assets[0]
     n = a.name
     alt = ""  # the other architectures' files
@@ -354,7 +368,7 @@ def how_to_start(kind: str, assets: list) -> str:
         return (f"<p>Run <code>{esc(n)}</code>. Running the installer of a newer version later "
                 "upgrades the installed copy in place.</p>")
     if kind == "windows-zip":
-        return (f"<p>Unzip <code>{esc(n)}</code> anywhere and start <code>patorrent.exe</code>.</p>")
+        return (f"<p>Unzip <code>{esc(n)}</code> anywhere and start <code>rookparcel.exe</code>.</p>")
     if kind == "appimage":
         return ("<p>Make it executable and run it:</p>"
                 + commands(f"chmod +x {n}", f"./{n}") + alt
@@ -365,24 +379,24 @@ def how_to_start(kind: str, assets: list) -> str:
                 + commands("flatpak remote-add --if-not-exists --user flathub "
                            "https://dl.flathub.org/repo/flathub.flatpakrepo",
                            f"flatpak install --user {n}",
-                           "flatpak run io.github.balls0fsteel.PaTorrent") + alt)
+                           "flatpak run io.github.balls0fsteel.Rookparcel") + alt)
     if kind == "linux-tar":
         return ("<p>Unpack it and start the GUI:</p>"
-                + commands(f"tar -xzf {n}", f"./{stem(n)}/patorrent-gtk") + alt
-                + "<p>The folder also has <code>patorrent-nox</code>, the desktop entry and the "
+                + commands(f"tar -xzf {n}", f"./{stem(n)}/rookparcel-gtk") + alt
+                + "<p>The folder also has <code>rookparcel-nox</code>, the desktop entry and the "
                 "systemd units (<code>systemd/system</code>, <code>systemd/user</code>).</p>")
     if kind == "nox-appimage":
         return ("<p>A terminal program; this starts it with the Web UI on port 8080:</p>"
                 + commands(f"chmod +x {n}", f"./{n} run --webui 8080 --webui-pass PASS") + alt)
     if kind == "dmg":
-        return (f"<p>Open <code>{esc(n)}</code> and drag <code>PaTorrent.app</code> to "
+        return (f"<p>Open <code>{esc(n)}</code> and drag <code>Rookparcel.app</code> to "
                 "Applications. The first time, right-click (or Control-click) it, choose Open, "
                 'then Open again: see <a href="#gatekeeper">Gatekeeper</a>.</p>')
     if kind == "macos-nox":
         return ("<p>Unpack it and start the daemon with the Web UI on port 8080:</p>"
-                + commands(f"tar -xzf {n}", f"./{stem(n)}/patorrent-nox run --webui 8080 --webui-pass PASS")
+                + commands(f"tar -xzf {n}", f"./{stem(n)}/rookparcel-nox run --webui 8080 --webui-pass PASS")
                 + alt + "<p>If macOS refuses to start it, remove the quarantine flag: "
-                f"<code>xattr -d com.apple.quarantine {esc(stem(n))}/patorrent-nox</code>.</p>")
+                f"<code>xattr -d com.apple.quarantine {esc(stem(n))}/rookparcel-nox</code>.</p>")
     return ""
 
 
@@ -396,7 +410,7 @@ def files_table(platform: str, assets: list) -> str:
         what = ""
         if kind and kind.key not in described:  # once per kind, on its first row
             described.add(kind.key)
-            what = f" — {kind.what}"
+            what = f" — {old_names(kind.what, a.name)}"
         rows.append(
             "<tr>"
             f'<td class="name"><a href="{esc(a.url)}">{esc(a.name)}</a>'
@@ -428,7 +442,7 @@ def platform_block(platform: str, release: Optional[Release], releases_url: str)
                 f'Every file is on the <a href="{esc(releases_url)}">releases page on GitHub</a>.</p>')
     assets = group(release).get(platform, [])
     if not assets:
-        return (f"<p class=\"note\">PaTorrent {esc(release.version)} has no {esc(PLATFORMS[platform])} "
+        return (f"<p class=\"note\">Rookparcel {esc(release.version)} has no {esc(PLATFORMS[platform])} "
                 f'files. Other versions are on the <a href="{esc(releases_url)}">releases page</a>.</p>')
     out = [files_table(platform, assets)]
     if platform in ("windows", "linux", "macos"):
@@ -455,9 +469,9 @@ def checksums_block(release: Optional[Release], releases_url: str) -> str:
     out = []
     if sums:
         out.append(f'<p><a class="btn btn-primary btn-small" href="{esc(sums.url)}">Download SHA256SUMS</a> '
-                   f"for PaTorrent {esc(release.version)}.</p>")
+                   f"for Rookparcel {esc(release.version)}.</p>")
     else:
-        out.append(f"<p>PaTorrent {esc(release.version)} has no <code>SHA256SUMS</code> file.</p>")
+        out.append(f"<p>Rookparcel {esc(release.version)} has no <code>SHA256SUMS</code> file.</p>")
     lines = [f"{a.digest.split(':', 1)[1]}  {a.name}" for a in release.assets
              if a.digest.startswith("sha256:") and a.kind != "checksums"]
     if lines:
@@ -508,7 +522,7 @@ def hero_block(featured: Optional[Release], releases_url: str) -> str:
     if featured.url:
         meta += f' · <a href="{esc(featured.url)}">Release notes</a>'
     return ('<div class="cta"><p class="cta-buttons">'
-            f'<a class="btn btn-primary" href="download.html">Download PaTorrent {esc(featured.version)}</a> '
+            f'<a class="btn btn-primary" href="download.html">Download Rookparcel {esc(featured.version)}</a> '
             '<a class="btn btn-ghost" href="download.html#which">Which file do I need?</a></p>'
             f'<p class="cta-meta">{meta}</p>{direct_links(featured)}</div>')
 
@@ -520,7 +534,7 @@ def release_block(featured: Optional[Release], newer_pre: Optional[Release], rel
                 "GitHub</a>.</p>")
     iso, nice = nice_date(featured.published)
     badge = "badge-pre" if featured.prerelease else "badge-stable"
-    out = [f'<p class="release-line"><strong>PaTorrent {esc(featured.version)}</strong> '
+    out = [f'<p class="release-line"><strong>Rookparcel {esc(featured.version)}</strong> '
            f'<span class="badge {badge}">{esc(featured.label)}</span>']
     if nice:
         out.append(f' published <time datetime="{iso}">{nice}</time>')
@@ -692,8 +706,8 @@ def atom_feed(entries: list, site_url: str) -> str:
     lines = [
         '<?xml version="1.0" encoding="utf-8"?>',
         '<feed xmlns="http://www.w3.org/2005/Atom" xml:lang="en">',
-        "  <title>PaTorrent news</title>",
-        "  <subtitle>What changed in each PaTorrent release, newest first.</subtitle>",
+        "  <title>Rookparcel news</title>",
+        "  <subtitle>What changed in each Rookparcel release, newest first.</subtitle>",
         f"  <id>{x(tag_base)}</id>",
         f'  <link rel="self" type="application/atom+xml" href="{x(site_url + NEWS_FEED)}"/>',
         f'  <link rel="alternate" type="text/html" href="{x(page_url)}"/>',

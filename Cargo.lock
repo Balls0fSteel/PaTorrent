@@ -409,9 +409,9 @@ checksum = "f9f8bd3e56ce4dfc153cf470fffbfa98c7620958b312ca5c3a4b8d5181fd13c6"
 
 [[package]]
 name = "lt-swarm"
-version = "1.2.1"
+version = "1.2.2"
 dependencies = [
- "patorrent-core",
+ "rookparcel-core",
  "windows-sys",
 ]
 
@@ -467,50 +467,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "patorrent"
-version = "1.2.1"
-dependencies = [
- "patorrent-core",
- "patorrent-frontend",
- "patorrent-nox",
- "windows-sys",
-]
-
-[[package]]
-name = "patorrent-core"
-version = "1.2.1"
-dependencies = [
- "mio",
- "windows-sys",
-]
-
-[[package]]
-name = "patorrent-frontend"
-version = "1.2.1"
-dependencies = [
- "patorrent-core",
- "windows-sys",
-]
-
-[[package]]
-name = "patorrent-gtk"
-version = "1.2.1"
-dependencies = [
- "gtk4",
- "patorrent-core",
- "patorrent-frontend",
-]
-
-[[package]]
-name = "patorrent-nox"
-version = "1.2.1"
-dependencies = [
- "patorrent-core",
- "patorrent-frontend",
- "windows-sys",
-]
-
-[[package]]
 name = "pin-project-lite"
 version = "0.2.17"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -547,6 +503,50 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1fbf4db142a473a8d80c26bbf18454ed458bf8d26c8219c331daecfdbd079001"
 dependencies = [
  "proc-macro2",
+]
+
+[[package]]
+name = "rookparcel"
+version = "1.2.2"
+dependencies = [
+ "rookparcel-core",
+ "rookparcel-frontend",
+ "rookparcel-nox",
+ "windows-sys",
+]
+
+[[package]]
+name = "rookparcel-core"
+version = "1.2.2"
+dependencies = [
+ "mio",
+ "windows-sys",
+]
+
+[[package]]
+name = "rookparcel-frontend"
+version = "1.2.2"
+dependencies = [
+ "rookparcel-core",
+ "windows-sys",
+]
+
+[[package]]
+name = "rookparcel-gtk"
+version = "1.2.2"
+dependencies = [
+ "gtk4",
+ "rookparcel-core",
+ "rookparcel-frontend",
+]
+
+[[package]]
+name = "rookparcel-nox"
+version = "1.2.2"
+dependencies = [
+ "rookparcel-core",
+ "rookparcel-frontend",
+ "windows-sys",
 ]
 
 [[package]]

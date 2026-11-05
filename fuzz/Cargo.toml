@@ -2,7 +2,7 @@
 #   cargo +nightly fuzz run <target>
 # Its own workspace, so stable builds of the main workspace never see it.
 [package]
-name = "patorrent-fuzz"
+name = "rookparcel-fuzz"
 version = "0.0.0"
 edition = "2024"
 # the main workspace's MSRV, so clippy holds the targets to the same rules (no let-chains)
@@ -16,9 +16,9 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
-patorrent-core = { path = "../crates/core", features = ["fuzzing"] }
-patorrent-nox = { path = "../crates/nox" }
-patorrent-frontend = { path = "../crates/frontend" }
+rookparcel-core = { path = "../crates/core", features = ["fuzzing"] }
+rookparcel-nox = { path = "../crates/nox" }
+rookparcel-frontend = { path = "../crates/frontend" }
 
 [workspace]
 members = ["."]

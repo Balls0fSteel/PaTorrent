@@ -1,4 +1,4 @@
-//! Paths kept relative to a portable folder (D42): a PaTorrent that runs from a USB stick or a
+//! Paths kept relative to a portable folder (D42): a Rookparcel that runs from a USB stick or a
 //! synced folder stores the paths inside that folder as `./Downloads/...` (`/` separators), so
 //! they still hold once the folder moves to another drive letter, mount point or computer, and
 //! resolves them against wherever the folder is at load. Paths outside it stay absolute. In
@@ -101,9 +101,9 @@ mod tests {
 
     fn root() -> PathBuf {
         if cfg!(windows) {
-            PathBuf::from(r"D:\Stick\PaTorrent")
+            PathBuf::from(r"D:\Stick\Rookparcel")
         } else {
-            PathBuf::from("/media/stick/PaTorrent")
+            PathBuf::from("/media/stick/Rookparcel")
         }
     }
 
@@ -124,9 +124,9 @@ mod tests {
         assert_eq!(resolve(&r, "."), Some(r.clone()));
         // the folder moved: the same text resolves in its new place
         let moved = if cfg!(windows) {
-            PathBuf::from(r"E:\PaTorrent")
+            PathBuf::from(r"E:\Rookparcel")
         } else {
-            PathBuf::from("/run/media/x/PaTorrent")
+            PathBuf::from("/run/media/x/Rookparcel")
         };
         assert_eq!(resolve(&moved, "./Downloads"), Some(moved.join("Downloads")));
         for p in ["Downloads", "Downloads/a b", "."] {
@@ -182,12 +182,12 @@ mod tests {
     fn windows_forms() {
         let r = root();
         // case, and a UNC root
-        assert_eq!(relative_to(&r, r"d:\stick\patorrent\DL"), Some("./DL".into()));
-        let unc = Path::new(r"\\server\share\PaTorrent");
-        assert_eq!(relative_to(unc, r"\\server\share\PaTorrent\Downloads"), Some("./Downloads".into()));
-        assert_eq!(relative_to(unc, r"\\other\share\PaTorrent\Downloads"), None);
+        assert_eq!(relative_to(&r, r"d:\stick\rookparcel\DL"), Some("./DL".into()));
+        let unc = Path::new(r"\\server\share\Rookparcel");
+        assert_eq!(relative_to(unc, r"\\server\share\Rookparcel\Downloads"), Some("./Downloads".into()));
+        assert_eq!(relative_to(unc, r"\\other\share\Rookparcel\Downloads"), None);
         assert_eq!(resolve(unc, "./Downloads"), Some(unc.join("Downloads")));
         // another drive
-        assert_eq!(relative_to(&r, r"E:\Stick\PaTorrent\DL"), None);
+        assert_eq!(relative_to(&r, r"E:\Stick\Rookparcel\DL"), None);
     }
 }

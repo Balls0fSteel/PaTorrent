@@ -7,9 +7,9 @@ use std::ptr::null;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-pub use patorrent_frontend::create::Remembered;
-use patorrent_frontend::create::{self, CreateOptions, Created, FORMATS, PIECE_SIZES, TorrentFormat};
-use patorrent_frontend::{lang, tr};
+pub use rookparcel_frontend::create::Remembered;
+use rookparcel_frontend::create::{self, CreateOptions, Created, FORMATS, PIECE_SIZES, TorrentFormat};
+use rookparcel_frontend::{lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::Com::{
     COINIT_APARTMENTTHREADED, CoInitializeEx, CoTaskMemFree, CoUninitialize,
@@ -522,7 +522,7 @@ mod tests {
 
     use std::time::{Duration, Instant};
 
-    use patorrent_core::metainfo::TorrentInfo;
+    use rookparcel_core::metainfo::TorrentInfo;
     use windows_sys::Win32::UI::Input::KeyboardAndMouse::IsWindowEnabled;
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CB_GETCOUNT, CreateDialogIndirectParamW, DestroyWindow, DispatchMessageW, MSG, PM_REMOVE,
@@ -540,7 +540,7 @@ mod tests {
     impl Fixture {
         fn new(name: &str, remembered: Remembered) -> Fixture {
             let dir =
-                std::env::temp_dir().join(format!("patorrent-win32-create-{name}-{}", std::process::id()));
+                std::env::temp_dir().join(format!("rookparcel-win32-create-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&dir);
             std::fs::create_dir_all(&dir).unwrap();
             let mut st = Box::new(State {

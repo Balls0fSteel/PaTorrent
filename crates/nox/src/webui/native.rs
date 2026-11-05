@@ -13,12 +13,12 @@
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 
-use patorrent_core::{DownloadPriority, PeerFlags, TorrentId};
-use patorrent_frontend::columns::{Align, Column};
-use patorrent_frontend::detail::{self, ColumnDef};
-use patorrent_frontend::model::{Filter, TorrentList};
-use patorrent_frontend::status::{Category, status_class, status_text};
-use patorrent_frontend::{fmt, lang, tr};
+use rookparcel_core::{DownloadPriority, PeerFlags, TorrentId};
+use rookparcel_frontend::columns::{Align, Column};
+use rookparcel_frontend::detail::{self, ColumnDef};
+use rookparcel_frontend::model::{Filter, TorrentList};
+use rookparcel_frontend::status::{Category, status_class, status_text};
+use rookparcel_frontend::{fmt, lang, tr};
 
 use super::json::{self, Json};
 use super::{Entry, Reply, ReplyKind, SPEED_SAMPLES, Shared, State, commands};
@@ -236,7 +236,7 @@ impl Client {
             .with("files", defs(&detail::FILE_COLUMNS));
         let mut hello = Json::obj()
             .with("t", "hello")
-            .with("version", patorrent_frontend::BUILD)
+            .with("version", rookparcel_frontend::BUILD)
             .with("columns", Json::Arr(columns))
             .with("categories", Json::Arr(categories))
             .with("labels", Json::Arr(labels))
@@ -244,7 +244,7 @@ impl Client {
             .with("confirm_delete", st.prefs.confirm_delete)
             // a desktop client hosts the Web UI (docs/WEBUI.md)
             .with("hosted", st.hosted);
-        // a newer PaTorrent nox's update check found (never hosted)
+        // a newer Rookparcel nox's update check found (never hosted)
         if let Some(u) = super::update::json(st) {
             hello.set("update", u);
         }
@@ -535,7 +535,7 @@ impl Client {
             out.set("no_label", no_label);
         }
         out.set("status", status_bar(st));
-        // a newer PaTorrent, every tick while there is one: left out, the page hides its link
+        // a newer Rookparcel, every tick while there is one: left out, the page hides its link
         if let Some(u) = super::update::json(st) {
             out.set("update", u);
         }
@@ -670,7 +670,7 @@ fn general(e: &Entry, st: &State, user_paused: bool, msg: &mut Json) -> bool {
         pair(tr!(GenTrackers), trackers),
         pair(tr!(GenComment), meta.map(|m| m.comment.clone()).unwrap_or_default()),
         {
-            let (label, value) = patorrent_frontend::network::general_row();
+            let (label, value) = rookparcel_frontend::network::general_row();
             pair(label, value)
         },
     ];
@@ -865,8 +865,8 @@ fn status_bar(st: &State) -> Json {
     let s = &st.stats;
     Json::obj()
         // "Waiting for the network" (D54; empty otherwise) and where trackers see us
-        .with("net", patorrent_frontend::network::status_text(s).unwrap_or_default())
-        .with("net_tip", patorrent_frontend::network::tooltip(s))
+        .with("net", rookparcel_frontend::network::status_text(s).unwrap_or_default())
+        .with("net_tip", rookparcel_frontend::network::tooltip(s))
         .with("dht", s.dht_nodes)
         .with("down", fmt::speed_always(s.download_rate))
         .with("up", fmt::speed_always(s.upload_rate))
@@ -927,7 +927,7 @@ fn parse_view(msg: &Json) -> Result<View, &'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::{BlockState, PartialPiece, TorrentFlags, TorrentStatus};
+    use rookparcel_core::{BlockState, PartialPiece, TorrentFlags, TorrentStatus};
 
     /// A partial piece of `blocks` blocks, the first `done` on disk, the next one requested.
     fn partial(piece: u32, blocks: usize, done: usize) -> PartialPiece {
@@ -1014,7 +1014,7 @@ mod tests {
         for i in 0..3u64 {
             let mut s = TorrentStatus {
                 id: TorrentId::from_raw(i + 1),
-                info_hashes: patorrent_core::InfoHashes::v1(patorrent_core::Sha1Hash([i as u8 + 1; 20])),
+                info_hashes: rookparcel_core::InfoHashes::v1(rookparcel_core::Sha1Hash([i as u8 + 1; 20])),
                 name: format!("t{i}"),
                 total_wanted: 1000 * (i + 1),
                 has_metadata: true,
@@ -1040,9 +1040,9 @@ mod tests {
         assert_eq!(rows.get("total"), Some(&Json::from(3i64)));
         let Some(Json::Arr(ids)) = rows.get("ids") else { panic!("{}", rows.to_json()) };
         assert_eq!(ids.len(), 2);
-        let h1 = patorrent_core::Sha1Hash([1; 20]).to_hex();
-        let h2 = patorrent_core::Sha1Hash([2; 20]).to_hex();
-        let h3 = patorrent_core::Sha1Hash([3; 20]).to_hex();
+        let h1 = rookparcel_core::Sha1Hash([1; 20]).to_hex();
+        let h2 = rookparcel_core::Sha1Hash([2; 20]).to_hex();
+        let h3 = rookparcel_core::Sha1Hash([3; 20]).to_hex();
         assert_eq!(ids[0], Json::from(h1.as_str()), "fastest first");
         assert_eq!(ids[1], Json::from(h2.as_str()));
         let cell = rows.get("cells").unwrap().get(&h1).unwrap();
@@ -1148,14 +1148,14 @@ mod tests {
 
     /// A cache with one torrent and every reply the tabs read, built by hand.
     fn detail_state() -> (crate::webui::State, String) {
-        use patorrent_core::{
+        use rookparcel_core::{
             AnnounceEntry, Bitfield, DownloadPriority, FileEntry, PeerInfo, PeerSource, TrackerStatus,
         };
         let mut st = crate::webui::State::for_tests();
         let id = TorrentId::from_raw(7);
         let s = TorrentStatus {
             id,
-            info_hashes: patorrent_core::InfoHashes::v1(patorrent_core::Sha1Hash([0xab; 20])),
+            info_hashes: rookparcel_core::InfoHashes::v1(rookparcel_core::Sha1Hash([0xab; 20])),
             name: "debian.iso".into(),
             save_path: "C:\\dl".into(),
             has_metadata: true,
@@ -1180,7 +1180,7 @@ mod tests {
             ..TorrentStatus::default()
         };
         st.update(s, 1_792_075_700);
-        let hash = patorrent_core::Sha1Hash([0xab; 20]).to_hex();
+        let hash = rookparcel_core::Sha1Hash([0xab; 20]).to_hex();
         st.meta.insert(
             hash.clone(),
             crate::webui::Meta {
@@ -1255,7 +1255,7 @@ mod tests {
             Reply::Peers(vec![PeerInfo {
                 ip: "192.0.2.5:6881".parse().unwrap(),
                 client: "qBittorrent 5.0.2".into(),
-                flags: patorrent_core::PeerFlags::INTERESTING | patorrent_core::PeerFlags::RC4_ENCRYPTED,
+                flags: rookparcel_core::PeerFlags::INTERESTING | rookparcel_core::PeerFlags::RC4_ENCRYPTED,
                 source: PeerSource::DHT,
                 progress_ppm: 500_000,
                 down_speed: 1024,
@@ -1290,12 +1290,12 @@ mod tests {
         let mut st = crate::webui::State::for_tests();
         let mut c = Client::new();
         assert!(c.hello(&st).get("update").is_none(), "nothing found: left out");
-        st.update = patorrent_frontend::update::Version::parse("99.1.0");
+        st.update = rookparcel_frontend::update::Version::parse("99.1.0");
         let u = c.hello(&st).get("update").cloned().unwrap();
         assert_eq!(u.get("version"), Some(&Json::from("99.1.0")));
         assert_eq!(
             u.get("url").and_then(Json::as_str),
-            Some("https://github.com/Balls0fSteel/PaTorrent/releases/tag/v99.1.0")
+            Some("https://github.com/Balls0fSteel/Rookparcel/releases/tag/v99.1.0")
         );
         assert_eq!(c.tick_message(&st).get("update"), Some(&u));
         // a desktop client hosting the Web UI checks for itself
@@ -1475,7 +1475,7 @@ mod tests {
         assert_eq!(rows[0].get("b"), Some(&Json::from("fr--")));
         assert_eq!(rows[1].get("b"), Some(&Json::from("fffr")));
         assert!(c.on_tick(&mut st).is_empty());
-        let mut all = patorrent_core::Bitfield::new(8, true);
+        let mut all = rookparcel_core::Bitfield::new(8, true);
         all.set(7, false);
         st.reply(
             TorrentId::from_raw(7),

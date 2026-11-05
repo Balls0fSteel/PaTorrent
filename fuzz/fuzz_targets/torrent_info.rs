@@ -2,7 +2,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::metainfo::TorrentInfo;
+use rookparcel_core::metainfo::TorrentInfo;
 
 fuzz_target!(|data: &[u8]| {
     let _ = TorrentInfo::from_bytes(data);

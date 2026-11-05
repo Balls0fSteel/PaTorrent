@@ -2,22 +2,22 @@
 //! the Connect to Remote dialog asks for and remembers, where a remote window keeps its own
 //! files, how a server's certificate is checked, and what the user is told when connecting
 //! fails. The dialogs are each GUI's (the Win32 `remote_ui`, the GTK `remote`); the session is
-//! `patorrent_core::remote`.
+//! `rookparcel_core::remote`.
 //!
 //! The connection details and the accepted certificates live in [`FILE_NAME`] beside the local
-//! client's `patorrent.ini`; the password is never stored. A remote window's settings, labels
+//! client's `rookparcel.ini`; the password is never stored. A remote window's settings, labels
 //! and RSS feeds live in a folder of their own per server ([`data_dir`]).
 
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use patorrent_core::remote::{self, ConnectError, Target};
-use patorrent_core::tls::{self, Fingerprint, Verify};
+use rookparcel_core::remote::{self, ConnectError, Target};
+use rookparcel_core::tls::{self, Fingerprint, Verify};
 
 use crate::prefs::Prefs;
 use crate::tr;
 
-/// The connection details and pinned certificates, beside `patorrent.ini`.
+/// The connection details and pinned certificates, beside `rookparcel.ini`.
 pub const FILE_NAME: &str = "remote.ini";
 
 /// How long connecting (and each certificate check) may take before it is given up.
@@ -177,7 +177,7 @@ mod tests {
 
     #[test]
     fn folders_and_labels() {
-        let base = Path::new("/home/u/.config/patorrent/gtk");
+        let base = Path::new("/home/u/.config/rookparcel/gtk");
         assert_eq!(data_dir(base, "nas.lan:8080"), base.join("remote").join("nas.lan_8080"));
         assert_eq!(data_dir(base, "[fe80::1%3]:8443"), base.join("remote").join("_fe80__1_3__8443"));
         assert_eq!(label("::1", 80), "[::1]:80");

@@ -18,7 +18,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use patorrent_core::fetch::{FetchOptions, FetchProxy, Reach, http_get};
+use rookparcel_core::fetch::{FetchOptions, FetchProxy, Reach, http_get};
 
 use super::source::{Source, url_origin};
 use super::torznab::{Category, SearchError, SearchResult, caps_url, parse_caps, parse_results, search_url};
@@ -387,7 +387,7 @@ mod tests {
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::time::{Duration, Instant};
 
-    use patorrent_core::{ProxyType, Settings};
+    use rookparcel_core::{ProxyType, Settings};
 
     use super::*;
 
@@ -500,7 +500,7 @@ mod tests {
             ("http://a:b@[192.168.1.1]@idx.example.org/x", "192.168.1.1"),
             ("http://[127.0.0.1]@localhost:9696/x", "127.0.0.1"),
         ] {
-            let parsed = patorrent_core::util::string::parse_url_components(link).unwrap();
+            let parsed = rookparcel_core::util::string::parse_url_components(link).unwrap();
             assert_eq!(parsed.host, connects_to, "{link}");
             let source = if link.contains("localhost") {
                 "http://localhost:9696/5/api"
@@ -539,8 +539,8 @@ mod tests {
     /// A merged result's info-hash must be the one of what its link or magnet gives.
     #[test]
     fn a_download_with_another_info_hash_is_refused() {
-        use patorrent_core::Sha1Hash;
-        use patorrent_core::metainfo::{CreateFlags, CreateTorrent, FileFlags, FileStorage, TorrentInfo};
+        use rookparcel_core::Sha1Hash;
+        use rookparcel_core::metainfo::{CreateFlags, CreateTorrent, FileFlags, FileStorage, TorrentInfo};
 
         let mut fs = FileStorage::new();
         fs.add_file("t/a.bin", 20_000, FileFlags::empty(), 0, "", None).unwrap();

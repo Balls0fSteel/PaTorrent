@@ -4,7 +4,7 @@
 //! ([`crate::prefs::is_sealed_key`]) and never shown: [`redact`] takes it out of any URL or
 //! message.
 
-use patorrent_core::util::string::parse_url_components;
+use rookparcel_core::util::string::parse_url_components;
 
 use crate::prefs::Prefs;
 
@@ -118,7 +118,7 @@ pub fn redact(text: &str, key: &str) -> String {
     let key = key.trim();
     if !key.is_empty() {
         out = out.replace(key, "***");
-        let enc = patorrent_core::util::string::escape_string(key.as_bytes());
+        let enc = rookparcel_core::util::string::escape_string(key.as_bytes());
         if enc != key {
             out = out.replace(&enc, "***");
         }
@@ -177,7 +177,7 @@ pub fn url_host(url: &str) -> Option<String> {
 /// where two URLs lead: `http://localhost/` and `http://localhost:80/` are one origin,
 /// `http://localhost:8080/` another.
 ///
-/// Read with the parser the fetch connects by (`patorrent_core`'s `parse_url_components`,
+/// Read with the parser the fetch connects by (`rookparcel_core`'s `parse_url_components`,
 /// libtorrent's), so that what this says about a URL is where a request to it goes: a search
 /// result's link reaches this machine and network only when its origin is the source's
 /// ([`super::worker::download_reach`]), and a parser of its own could be told one host while

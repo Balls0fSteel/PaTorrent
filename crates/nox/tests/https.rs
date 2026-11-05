@@ -9,15 +9,15 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use patorrent_core::tls::{self, Fingerprint, Verify};
-use patorrent_core::{Session, SessionParams, Settings};
-use patorrent_nox::webui::https::{self, Certificate};
-use patorrent_nox::webui::{Config, WebUi};
+use rookparcel_core::tls::{self, Fingerprint, Verify};
+use rookparcel_core::{Session, SessionParams, Settings};
+use rookparcel_nox::webui::https::{self, Certificate};
+use rookparcel_nox::webui::{Config, WebUi};
 
 const PASS: &str = "s3cret-pass";
 
 fn temp_dir(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("patorrent-https-test-{name}-{}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("rookparcel-https-test-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -122,7 +122,7 @@ fn the_web_ui_over_https() {
     c.flush().unwrap();
     let page = read_response(&mut c, &mut buf);
     assert_eq!(page.status, 200);
-    assert!(String::from_utf8_lossy(&page.body).contains("<title>PaTorrent</title>"));
+    assert!(String::from_utf8_lossy(&page.body).contains("<title>Rookparcel</title>"));
     assert_eq!(c.peer_fingerprint(), Some(info.fingerprint));
     let form = format!("username=admin&password={PASS}");
     let extra = "Content-Type: application/x-www-form-urlencoded\r\n";

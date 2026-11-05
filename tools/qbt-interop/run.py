@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
-"""patorrent-nox against a current qBittorrent (libtorrent 2.0.15 / 2.1.x) over both WebAPIs.
+"""rookparcel-nox against a current qBittorrent (libtorrent 2.0.15 / 2.1.x) over both WebAPIs.
 
 Release checks for the libtorrent 2.0.12-2.1.2 ports (docs/BACKLOG.md "libtorrent 2.0.12-2.1.2
 follow-ups"): v2-only and hybrid torrents with odd file sizes in both directions, MSE with RC4
 forced in both directions, and the slow-torrent queue (`dont_count_slow_torrents`).
 
-qBittorrent runs in a linuxserver.io container on the host network; patorrent-nox runs here.
+qBittorrent runs in a linuxserver.io container on the host network; rookparcel-nox runs here.
 Everything listens on or connects to 127.0.0.1 only; DHT, LSD, PeX and port mapping are off on
 both sides and no torrent has a tracker. See README.md beside this file.
 
@@ -102,7 +102,7 @@ class Api:
     def req(self, path, data=None, files=None, raw=False, ctype=None, timeout=30):
         url = f"{self.base}/{path}"
         # nox's native endpoints (/pa/) want this header
-        headers = {"X-Requested-With": "PaTorrent"} if path.startswith("pa/") else {}
+        headers = {"X-Requested-With": "Rookparcel"} if path.startswith("pa/") else {}
         body = None
         if files is not None:
             boundary = "----interop%016x" % random.getrandbits(64)
@@ -462,14 +462,14 @@ def transfer(direction, torrent, name, src_parent, files, qbt, nox, limit=600):
 # --- checks ------------------------------------------------------------------------------------
 
 
-def check_versions(kind, args, qbt, nox, piece_sizes, results, creators=("patorrent", "qbittorrent")):
+def check_versions(kind, args, qbt, nox, piece_sizes, results, creators=("rookparcel", "qbittorrent")):
     src_parent = os.path.join(args.work, "src")
     name = "oddsizes"
     make_files(os.path.join(src_parent, name), ODD_FILES, 52)
     for ps in piece_sizes:
         for creator in creators:
             out = os.path.join(args.work, f"{name}-{kind}-{ps // 1024}k-{creator}.torrent")
-            if creator == "patorrent":
+            if creator == "rookparcel":
                 t = nox_create(args.nox, os.path.join(src_parent, name), out, kind, ps)
             else:
                 t = qbt.create_torrent(os.path.join(src_parent, name), kind, ps)
@@ -658,7 +658,7 @@ def main():
     ap.add_argument("--startup", type=int, default=30, help="auto_manage_startup for the queue check")
     ap.add_argument("--inactive-down-rate", type=int, default=20480, help="B/s, for the queue check")
     ap.add_argument("--piece-sizes", default="16,4096,16384", help="KiB")
-    ap.add_argument("--creators", default="patorrent,qbittorrent")
+    ap.add_argument("--creators", default="rookparcel,qbittorrent")
     ap.add_argument("--out", help="write the results as JSON here")
     args = ap.parse_args()
     checks = ["v2", "hybrid", "mse", "queue"] if "all" in args.checks else args.checks

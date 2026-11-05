@@ -6,9 +6,9 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::IpFilter;
-use patorrent_core::bencode::bdecode;
-use patorrent_core::fuzzing::{DhtSettings, DhtState, DhtTracker};
+use rookparcel_core::IpFilter;
+use rookparcel_core::bencode::bdecode;
+use rookparcel_core::fuzzing::{DhtSettings, DhtState, DhtTracker};
 
 fuzz_target!(|data: &[u8]| {
     let mut now = Instant::now();

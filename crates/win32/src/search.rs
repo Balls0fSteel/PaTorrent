@@ -1,5 +1,5 @@
 //! Torrent search through the user's Prowlarr or Jackett (D41, `docs/INTEGRATIONS.md` part 2)
-//! in the Win32 window, on the shared model ([`patorrent_frontend::search`]).
+//! in the Win32 window, on the shared model ([`rookparcel_frontend::search`]).
 //!
 //! - The toolbar search box keeps filtering the list by name (D35); its drop-down
 //!   ([`mode_menu`]) picks what Enter does instead: search one source or all of them
@@ -12,7 +12,7 @@
 //!   ([`fetch_download`]) and hands it to the window's own add path ([`Host::add`]).
 //! - **Search Sources** ([`manage`]): the sources (Name, the URL with the key masked, a check
 //!   box for on and off) with Add, Edit, Remove and Test (`t=caps` on a thread). Edits go to the
-//!   window's preferences at once ([`Host::store_sources`]: `patorrent.ini`, the key sealed),
+//!   window's preferences at once ([`Host::store_sources`]: `rookparcel.ini`, the key sealed),
 //!   and from there to the Web UI the window serves.
 //!
 //! An API key is never shown: the list and every message have it masked ([`redact`]), and the
@@ -24,18 +24,18 @@ use std::mem::zeroed;
 use std::ptr::{null, null_mut};
 use std::sync::Arc;
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_core::util::time::unix_now;
-use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::rss::Download;
-use patorrent_frontend::search::helper::HelperProxy;
-use patorrent_frontend::search::source::url_host;
-use patorrent_frontend::search::worker::Fetcher;
-use patorrent_frontend::search::{
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_core::util::time::unix_now;
+use rookparcel_frontend::prefs::Prefs;
+use rookparcel_frontend::rss::Download;
+use rookparcel_frontend::search::helper::HelperProxy;
+use rookparcel_frontend::search::source::url_host;
+use rookparcel_frontend::search::worker::Fetcher;
+use rookparcel_frontend::search::{
     Category, Query, Search, SearchError, SearchResult, Source, SourceStatus, category_text, fetch_caps,
     fetch_download, main_categories, redact,
 };
-use patorrent_frontend::{fmt, tr};
+use rookparcel_frontend::{fmt, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     GetDC, GetTextExtentPoint32W, HGDIOBJ, InvalidateRect, ReleaseDC, SelectObject,
@@ -67,7 +67,7 @@ const WM_SEARCH_START: u32 = WM_APP + 49;
 /// Longest query taken (as the Web UI's).
 const MAX_QUERY: usize = 512;
 /// Most sources kept.
-pub use patorrent_frontend::search::source::MAX_SOURCES;
+pub use rookparcel_frontend::search::source::MAX_SOURCES;
 
 /// What the windows need of their owner.
 pub trait Host {
@@ -112,7 +112,7 @@ pub enum SearchMode {
 /// else the source's [`source_id`].
 pub const MODE_PREF: &str = "ui.search_source";
 
-/// A source as the mode remembers it: its URL with the key masked (so `patorrent.ini` holds
+/// A source as the mode remembers it: its URL with the key masked (so `rookparcel.ini` holds
 /// no key in the clear; two Prowlarr indexers on one host differ by their path).
 pub fn source_id(s: &Source) -> String {
     redact(s.url.trim(), &s.api_key)
@@ -1188,7 +1188,7 @@ unsafe fn sources_command(dlg: HWND, st: &mut Sources<'_>, id: u16) -> bool {
 unsafe fn add_source(dlg: HWND, st: &mut Sources<'_>, form: &SourceForm) {
     unsafe {
         let mut sources = st.host.sources();
-        if sources.len() >= patorrent_frontend::search::source::MAX_SOURCES {
+        if sources.len() >= rookparcel_frontend::search::source::MAX_SOURCES {
             return;
         }
         let mut s = Source::default();
@@ -1480,7 +1480,7 @@ mod tests {
     /// four after it (an install made by hand: `helper.ini` and the program's file).
     #[test]
     fn the_helper_buttons_follow_the_install() {
-        use patorrent_frontend::search::helper::{self, Layout, State};
+        use rookparcel_frontend::search::helper::{self, Layout, State};
         let mut f = Fixture::new(sources());
         // the dialog itself stays hidden: the buttons' own style bit says what would show
         let visible = |f: &Fixture, id: u16| unsafe {
@@ -1499,7 +1499,7 @@ mod tests {
         if !helper::available() {
             return; // a build without the update check
         }
-        let dir = std::env::temp_dir().join(format!("patorrent-win32-helper-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-win32-helper-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         f.shared.borrow_mut().helper_dir = Some(dir.clone());
         unsafe { helper_ui::show_buttons(f.dlg, f.st().host) };
@@ -1510,7 +1510,7 @@ mod tests {
         std::fs::write(&exe, b"stand-in").unwrap();
         State::generate("v1").save(&layout).unwrap();
         // the frontend reads the state when the folder changes: point it elsewhere and back
-        helper::configure(&std::env::temp_dir().join("patorrent-win32-helper-none"), None);
+        helper::configure(&std::env::temp_dir().join("rookparcel-win32-helper-none"), None);
         unsafe { helper_ui::show_buttons(f.dlg, f.st().host) };
         assert_eq!(shown(&f), [false, true, true, true, true]);
         unsafe { DestroyWindow(f.dlg) };

@@ -1,21 +1,21 @@
-; PaTorrent's Windows installer: NSIS 3, Unicode, Modern UI 2, x64 only, Windows 10 or later.
+; Rookparcel's Windows installer: NSIS 3, Unicode, Modern UI 2, x64 only, Windows 10 or later.
 ; How to build it and what it does: packaging/windows/README.md. The release workflow builds it
 ; from the release executables beside the portable zip (docs/RELEASING.md):
 ;
 ;   makensis /DVERSION=1.0.0-rc.1 /DBINDIR=target\release
 ;     /DICON=assets\patina-icons\exports\app\01-verdigris.ico
-;     /DOUTFILE=patorrent-1.0.0-rc.1-windows-x64-setup.exe packaging\windows\patorrent.nsi
+;     /DOUTFILE=rookparcel-1.0.0-rc.1-windows-x64-setup.exe packaging\windows\rookparcel.nsi
 ;
-; - For one user (the default) it installs into %LOCALAPPDATA%\Programs\PaTorrent without
+; - For one user (the default) it installs into %LOCALAPPDATA%\Programs\Rookparcel without
 ;   elevation, as uTorrent did; for all users into Program Files. MultiUser.nsh cannot raise its
 ;   rights halfway (with RequestExecutionLevel highest every administrator gets a UAC prompt
 ;   even for a per-user install), so this runs as the user and, when all users is chosen,
 ;   starts itself again with ShellExecuteEx "runas" and waits for that copy (RunElevated).
 ; - The mode and folder of an installation are its Uninstall key: HKCU for one user, HKLM for
 ;   all. An upgrade finds that key and installs over it, in the same mode and folder.
-; - The associations are patorrent.exe's own (--associate, --unregister in
+; - The associations are rookparcel.exe's own (--associate, --unregister in
 ;   crates/win32/src/main.rs, written by integration.rs under HKCU), never written here.
-; - Nothing running is killed: PaTorrent's window or a busy patorrent-nox.exe (the PaTorrent
+; - Nothing running is killed: Rookparcel's window or a busy rookparcel-nox.exe (the Rookparcel
 ;   nox service, or a console) gets Retry / Cancel.
 ;
 ; Switches besides NSIS's own /S and /D=<folder> (which must come last):
@@ -23,9 +23,9 @@
 ;                               one user)
 ;   /DESKTOPSHORTCUT            a desktop shortcut (silent installs make none otherwise)
 ;   /ASSOCIATE=torrent,magnet   associate those (silent installs and upgrades leave them)
-;   /UPDATE=<pid>               PaTorrent's own update (D45): wait up to a minute for that
-;                               process (the PaTorrent that downloaded this setup and is
-;                               exiting) before checking the files, and start patorrent.exe
+;   /UPDATE=<pid>               Rookparcel's own update (D45): wait up to a minute for that
+;                               process (the Rookparcel that downloaded this setup and is
+;                               exiting) before checking the files, and start rookparcel.exe
 ;                               again at the end, as the user, whether the install succeeded or
 ;                               not. Meant with /S.
 ; and internal ones, for the elevated copy: /ELEVATED, /CONTINUE, /LANG=<language id>.
@@ -48,18 +48,18 @@ Unicode true
 !if ! /FileExists "${ROOT}\LICENSE.md"
   !error "${ROOT}\LICENSE.md is missing: run makensis /NOCD from the repository (packaging/windows/README.md)"
 !endif
-!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\PaTorrent"
+!define UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\Rookparcel"
 ; Windows wants four numbers: 1.0.0-rc.1 is 1.0.0.0, as in the Windows manifest
 !searchparse "${VERSION}-" "" VERSION_MAJOR "." VERSION_MINOR "." VERSION_PATCH "-"
 !define VERSION_QUAD "${VERSION_MAJOR}.${VERSION_MINOR}.${VERSION_PATCH}.0"
 
-Name "PaTorrent"
+Name "Rookparcel"
 OutFile "${OUTFILE}"
 RequestExecutionLevel user
 SetCompressor /SOLID lzma
 ManifestDPIAware true
 ManifestSupportedOS Win10
-BrandingText "PaTorrent ${VERSION}"
+BrandingText "Rookparcel ${VERSION}"
 
 !include MUI2.nsh
 !include LogicLib.nsh
@@ -85,8 +85,8 @@ Var Upgrade     ; 1: installing over it (its folder, no Directory page)
 Var OptDesktop  ; 1: /DESKTOPSHORTCUT
 Var AssocGiven  ; 1: /ASSOCIATE= was given
 Var OptAssoc
-Var AssocList   ; what the association sections ask patorrent.exe for
-Var UpdatePid   ; /UPDATE=: the exiting PaTorrent to wait for; "" otherwise
+Var AssocList   ; what the association sections ask rookparcel.exe for
+Var UpdatePid   ; /UPDATE=: the exiting Rookparcel to wait for; "" otherwise
 Var UsersMe
 Var UsersAll
 
@@ -163,10 +163,10 @@ Page custom UsersPage UsersPageLeave
 
 VIProductVersion "${VERSION_QUAD}"
 VIFileVersion "${VERSION_QUAD}"
-VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "PaTorrent"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductName" "Rookparcel"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "ProductVersion" "${VERSION}"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "FileVersion" "${VERSION}"
-VIAddVersionKey /LANG=${LANG_ENGLISH} "FileDescription" "PaTorrent Setup"
+VIAddVersionKey /LANG=${LANG_ENGLISH} "FileDescription" "Rookparcel Setup"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "CompanyName" "DukeCorp1996"
 VIAddVersionKey /LANG=${LANG_ENGLISH} "LegalCopyright" "Copyright 2026 DukeCorp1996"
 
@@ -211,19 +211,26 @@ FunctionEnd
 !insertmacro IN_USE ""
 !insertmacro IN_USE "un."
 
-; Before the files are replaced or removed: PaTorrent must not be running (its window, or its
-; executable busy in another session), nor patorrent-nox.exe from this folder (the service, or a
+; Before the files are replaced or removed: Rookparcel must not be running (its window, or its
+; executable busy in another session), nor rookparcel-nox.exe from this folder (the service, or a
 ; console); the uninstaller also wants the service removed first, as it would be left starting
 ; a deleted executable. Retry or Cancel; nothing is killed.
 !macro CHECK_FILES UN
 Function ${UN}CheckFiles
   app:
-    FindWindow $1 "PaTorrentMainWnd"
+    FindWindow $1 "RookparcelMainWnd"
+    ${If} $1 = 0
+      FindWindow $1 "RookparcelRemoteWnd"
+    ${EndIf}
+    ; PaTorrent, the former name (D59), which the setup replaces
+    ${If} $1 = 0
+      FindWindow $1 "PaTorrentMainWnd"
+    ${EndIf}
     ${If} $1 = 0
       FindWindow $1 "PaTorrentRemoteWnd"
     ${EndIf}
     ${If} $1 = 0
-      StrCpy $0 "$INSTDIR\patorrent.exe"
+      StrCpy $0 "$INSTDIR\rookparcel.exe"
       Call ${UN}InUse
     ${EndIf}
     ${If} $1 <> 0
@@ -232,9 +239,9 @@ Function ${UN}CheckFiles
     ${EndIf}
   !if "${UN}" == "un."
   service:
-    ; every profile's service (PaTorrentNox, PaTorrentNox_<profile>, D42) whose program is in
+    ; every profile's service (RookparcelNox, RookparcelNox_<profile>, D42) whose program is in
     ; this folder: `service status` exits 0 when it lists one, 4 when none (nsExec: no console)
-    nsExec::Exec '"$INSTDIR\patorrent-nox.exe" service status --all --in "$INSTDIR"'
+    nsExec::Exec '"$INSTDIR\rookparcel-nox.exe" service status --all --in "$INSTDIR"'
     Pop $1
     ${If} $1 == 0
       MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(PT_NOX_SERVICE)" /SD IDCANCEL IDRETRY service
@@ -242,7 +249,7 @@ Function ${UN}CheckFiles
     ${EndIf}
   !endif
   nox:
-    StrCpy $0 "$INSTDIR\patorrent-nox.exe"
+    StrCpy $0 "$INSTDIR\rookparcel-nox.exe"
     Call ${UN}InUse
     ${If} $1 = 1
       MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(PT_NOX_RUNNING)" /SD IDCANCEL IDRETRY nox
@@ -253,13 +260,45 @@ FunctionEnd
 !insertmacro CHECK_FILES ""
 !insertmacro CHECK_FILES "un."
 
-; A folder with patorrent.ini is someone's portable PaTorrent (D7, D42): the setup refuses it
+; A folder with rookparcel.ini is someone's portable Rookparcel (D7, D42): the setup refuses it
 ; rather than turning it into an installed one.
 Function CheckPortable
-  ${If} ${FileExists} "$INSTDIR\patorrent.ini"
+  ${If} ${FileExists} "$INSTDIR\rookparcel.ini"
     MessageBox MB_ICONSTOP "$(PT_PORTABLE_DIR)" /SD IDOK
     Abort
   ${EndIf}
+FunctionEnd
+
+; An installed PaTorrent, the former name (D59), gives way: its program files, shortcuts and
+; Add/Remove Programs entry go. Its settings stay in %APPDATA%\PaTorrent, which Rookparcel moves
+; to its own folder at its first start, and its associations and autostart entries, which
+; Rookparcel takes over then. A PaTorrent nox still running from there stops the setup.
+!define OLD_UNINST_KEY "Software\Microsoft\Windows\CurrentVersion\Uninstall\PaTorrent"
+Function RemovePaTorrent
+  ReadRegStr $3 SHCTX "${OLD_UNINST_KEY}" "InstallLocation"
+  ${If} $3 == ""
+    Return
+  ${EndIf}
+  nox:
+    StrCpy $0 "$3\patorrent-nox.exe"
+    Call InUse
+    ${If} $1 = 1
+      MessageBox MB_RETRYCANCEL|MB_ICONEXCLAMATION "$(PT_NOX_RUNNING)" /SD IDCANCEL IDRETRY nox
+      Abort
+    ${EndIf}
+  Delete "$3\patorrent.exe"
+  Delete "$3\patorrent-nox.exe"
+  Delete "$3\LICENSE.md"
+  Delete "$3\THIRD-PARTY-NOTICES.md"
+  Delete "$3\uninstall.exe"
+  ; only when nothing else was kept there (the new folder may be the same one)
+  RMDir "$3"
+  Delete "$SMPROGRAMS\PaTorrent.lnk"
+  ${If} ${FileExists} "$DESKTOP\PaTorrent.lnk"
+    Delete "$DESKTOP\PaTorrent.lnk"
+    CreateShortcut "$DESKTOP\Rookparcel.lnk" "$INSTDIR\rookparcel.exe"
+  ${EndIf}
+  DeleteRegKey SHCTX "${OLD_UNINST_KEY}"
 FunctionEnd
 
 ; The Directory page's Next: stays on the page for a portable folder.
@@ -280,30 +319,31 @@ FunctionEnd
 ;--------------------------------
 ; Installer
 
-Section "PaTorrent" SecMain
+Section "Rookparcel" SecMain
   SectionIn RO
   ; a silent install's /D= is not checked by the Directory page
   Call CheckPortable
   Call CheckFiles
   SetOutPath "$INSTDIR"
-  File "${BINDIR}\patorrent.exe"
-  File "${BINDIR}\patorrent-nox.exe"
+  File "${BINDIR}\rookparcel.exe"
+  Call RemovePaTorrent
+  File "${BINDIR}\rookparcel-nox.exe"
   File "${ROOT}\LICENSE.md"
   File "${ROOT}\THIRD-PARTY-NOTICES.md"
   WriteUninstaller "$INSTDIR\uninstall.exe"
-  CreateShortcut "$SMPROGRAMS\PaTorrent.lnk" "$INSTDIR\patorrent.exe"
+  CreateShortcut "$SMPROGRAMS\Rookparcel.lnk" "$INSTDIR\rookparcel.exe"
 
   ; Settings > Apps (Add/Remove Programs); SHCTX is HKCU or HKLM, as SetShellVarContext
-  WriteRegStr SHCTX "${UNINST_KEY}" "DisplayName" "PaTorrent"
+  WriteRegStr SHCTX "${UNINST_KEY}" "DisplayName" "Rookparcel"
   WriteRegStr SHCTX "${UNINST_KEY}" "DisplayVersion" "${VERSION}"
   WriteRegStr SHCTX "${UNINST_KEY}" "Publisher" "DukeCorp1996"
-  WriteRegStr SHCTX "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\patorrent.exe,0"
+  WriteRegStr SHCTX "${UNINST_KEY}" "DisplayIcon" "$INSTDIR\rookparcel.exe,0"
   WriteRegStr SHCTX "${UNINST_KEY}" "InstallLocation" "$INSTDIR"
   WriteRegStr SHCTX "${UNINST_KEY}" "UninstallString" '"$INSTDIR\uninstall.exe"'
   WriteRegStr SHCTX "${UNINST_KEY}" "QuietUninstallString" '"$INSTDIR\uninstall.exe" /S'
-  WriteRegStr SHCTX "${UNINST_KEY}" "URLInfoAbout" "https://balls0fsteel.github.io/PaTorrent/"
-  WriteRegStr SHCTX "${UNINST_KEY}" "HelpLink" "https://github.com/Balls0fSteel/PaTorrent/releases"
-  WriteRegStr SHCTX "${UNINST_KEY}" "URLUpdateInfo" "https://github.com/Balls0fSteel/PaTorrent/releases"
+  WriteRegStr SHCTX "${UNINST_KEY}" "URLInfoAbout" "https://balls0fsteel.github.io/Rookparcel/"
+  WriteRegStr SHCTX "${UNINST_KEY}" "HelpLink" "https://github.com/Balls0fSteel/Rookparcel/releases"
+  WriteRegStr SHCTX "${UNINST_KEY}" "URLUpdateInfo" "https://github.com/Balls0fSteel/Rookparcel/releases"
   WriteRegDWORD SHCTX "${UNINST_KEY}" "NoModify" 1
   WriteRegDWORD SHCTX "${UNINST_KEY}" "NoRepair" 1
   ; the uninstaller speaks the language chosen here
@@ -311,7 +351,7 @@ Section "PaTorrent" SecMain
 SectionEnd
 
 Section "$(PT_DESKTOP)" SecDesktop
-  CreateShortcut "$DESKTOP\PaTorrent.lnk" "$INSTDIR\patorrent.exe"
+  CreateShortcut "$DESKTOP\Rookparcel.lnk" "$INSTDIR\rookparcel.exe"
 SectionEnd
 
 Section "$(PT_ASSOC_TORRENT)" SecTorrent
@@ -330,12 +370,12 @@ Section "-Finish"
   ; unticked on an upgrade: the shortcut the last installation made goes
   ${If} $Upgrade == 1
   ${AndIfNot} ${SectionIsSelected} ${SecDesktop}
-    Delete "$DESKTOP\PaTorrent.lnk"
+    Delete "$DESKTOP\Rookparcel.lnk"
   ${EndIf}
   ; for the user running Setup (HKCU): elevated with another account's password, that account
   ${If} $AssocList != ""
-    ExecWait '"$INSTDIR\patorrent.exe" --associate $AssocList' $0
-    DetailPrint "patorrent.exe --associate $AssocList: $0"
+    ExecWait '"$INSTDIR\rookparcel.exe" --associate $AssocList' $0
+    DetailPrint "rookparcel.exe --associate $AssocList: $0"
   ${EndIf}
   ${GetSize} "$INSTDIR" "/S=0K" $0 $1 $2
   IntFmt $0 "0x%08X" $0
@@ -448,11 +488,11 @@ Function ApplyMode
   ${If} $Mode == all
     SetShellVarContext all
     ReadRegStr $PrevDir HKLM "${UNINST_KEY}" "InstallLocation"
-    StrCpy $0 "$PROGRAMFILES64\PaTorrent"
+    StrCpy $0 "$PROGRAMFILES64\Rookparcel"
   ${Else}
     SetShellVarContext current
     ReadRegStr $PrevDir HKCU "${UNINST_KEY}" "InstallLocation"
-    StrCpy $0 "$LOCALAPPDATA\Programs\PaTorrent"
+    StrCpy $0 "$LOCALAPPDATA\Programs\Rookparcel"
   ${EndIf}
   ${If} $DirGiven == 1
     StrCpy $INSTDIR $GivenDir
@@ -475,7 +515,7 @@ Function PresetSections
   ${If} $OptDesktop == 1
     !insertmacro SelectSection ${SecDesktop}
   ${ElseIf} $Upgrade == 1
-    ${If} ${FileExists} "$DESKTOP\PaTorrent.lnk"
+    ${If} ${FileExists} "$DESKTOP\Rookparcel.lnk"
       !insertmacro SelectSection ${SecDesktop}
     ${Else}
       !insertmacro UnselectSection ${SecDesktop}
@@ -521,7 +561,7 @@ Function Elevate
     ${EndIf}
     HideWindow
     Call RunElevated
-    ; an update starts PaTorrent again from this copy, which runs as the user: the new version
+    ; an update starts Rookparcel again from this copy, which runs as the user: the new version
     ; after a successful install, else the one still there
     ${If} $UpdatePid != ""
       Call LaunchApp
@@ -547,7 +587,7 @@ Function WaitForUpdatePid
   ${EndIf}
 FunctionEnd
 
-; After an update's install (this copy's own, as one user): PaTorrent again. A failed one (the
+; After an update's install (this copy's own, as one user): Rookparcel again. A failed one (the
 ; files still busy, say) leaves the old version in place, so that is what starts.
 Function .onInstSuccess
   ${If} $UpdatePid != ""
@@ -638,13 +678,13 @@ Function UsersPageLeave
   ${EndIf}
 FunctionEnd
 
-; Run PaTorrent from the Finish page (never in a silent install, which has no pages). An
+; Run Rookparcel from the Finish page (never in a silent install, which has no pages). An
 ; elevated installer would start it elevated too; Explorer starts it as the signed-in user.
 Function LaunchApp
   ${If} $IsAdmin == 1
-    Exec '"$WINDIR\explorer.exe" "$INSTDIR\patorrent.exe"'
+    Exec '"$WINDIR\explorer.exe" "$INSTDIR\rookparcel.exe"'
   ${Else}
-    Exec '"$INSTDIR\patorrent.exe"'
+    Exec '"$INSTDIR\rookparcel.exe"'
   ${EndIf}
 FunctionEnd
 
@@ -707,37 +747,37 @@ Function un.onInit
   ${EndIf}
 FunctionEnd
 
-Section "un.PaTorrent" SecUnMain
+Section "un.Rookparcel" SecUnMain
   SectionIn RO
   Call un.CheckFiles
-  ; associations, Default apps and autostart that name this patorrent.exe (integration.rs)
-  ExecWait '"$INSTDIR\patorrent.exe" --unregister' $0
-  DetailPrint "patorrent.exe --unregister: $0"
-  ${UnpinShortcut} "$SMPROGRAMS\PaTorrent.lnk"
-  Delete "$SMPROGRAMS\PaTorrent.lnk"
-  Delete "$DESKTOP\PaTorrent.lnk"
-  Delete "$INSTDIR\patorrent.exe"
-  Delete "$INSTDIR\patorrent-nox.exe"
+  ; associations, Default apps and autostart that name this rookparcel.exe (integration.rs)
+  ExecWait '"$INSTDIR\rookparcel.exe" --unregister' $0
+  DetailPrint "rookparcel.exe --unregister: $0"
+  ${UnpinShortcut} "$SMPROGRAMS\Rookparcel.lnk"
+  Delete "$SMPROGRAMS\Rookparcel.lnk"
+  Delete "$DESKTOP\Rookparcel.lnk"
+  Delete "$INSTDIR\rookparcel.exe"
+  Delete "$INSTDIR\rookparcel-nox.exe"
   Delete "$INSTDIR\LICENSE.md"
   Delete "$INSTDIR\THIRD-PARTY-NOTICES.md"
   Delete "$INSTDIR\uninstall.exe"
-  ; only when empty: a portable patorrent.ini or anything else put here stays
+  ; only when empty: a portable rookparcel.ini or anything else put here stays
   RMDir "$INSTDIR"
   DeleteRegKey SHCTX "${UNINST_KEY}"
 SectionEnd
 
-; Unticked by default, as uTorrent's uninstaller had it. What PaTorrent keeps in
-; %APPDATA%\PaTorrent (the user's who runs this), by name: the GUI's settings, its torrent list
+; Unticked by default, as uTorrent's uninstaller had it. What Rookparcel keeps in
+; %APPDATA%\Rookparcel (the user's who runs this), by name: the GUI's settings, its torrent list
 ; and resume data (state), RSS feeds, remote connections and their windows' folders, the default
 ; IP filter, nox's state when it ran from a console, and the profiles (D42), each a folder like
 ; this one. The folder itself goes only when that leaves it empty, so a download folder someone
 ; put inside it stays.
 Section /o "un.$(PT_UN_DATA)" SecUnData
   SetShellVarContext current
-  StrCpy $0 "$APPDATA\PaTorrent"
-  Delete "$0\patorrent.ini"
-  Delete "$0\patorrent.tmp"
-  Delete "$0\patorrent.lock"
+  StrCpy $0 "$APPDATA\Rookparcel"
+  Delete "$0\rookparcel.ini"
+  Delete "$0\rookparcel.tmp"
+  Delete "$0\rookparcel.lock"
   RMDir /r "$0\profiles"
   Delete "$0\remote.ini"
   Delete "$0\remote.tmp"

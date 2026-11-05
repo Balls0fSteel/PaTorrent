@@ -101,6 +101,6 @@ public static class Wins {
 }
 '@
 function Main-Hwnd($procId) {
-    foreach ($w in [Wins]::Of([uint32]$procId)) { if ($w -match '^([0-9A-F]+) .*\[PaTorrentMainWnd(\.[0-9a-f]{16})?\]') { return [IntPtr][Convert]::ToInt64($matches[1], 16) } }
+    foreach ($w in [Wins]::Of([uint32]$procId)) { if ($w -match '^([0-9A-F]+) .*\[RookparcelMainWnd(\.[0-9a-f]{16})?\]') { return [IntPtr][Convert]::ToInt64($matches[1], 16) } }
     [IntPtr]::Zero
 }

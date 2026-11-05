@@ -9,8 +9,8 @@ import json
 import statistics
 import sys
 
-ORDER = ["patorrent", "qbittorrent", "transmission", "deluge", "rtorrent"]
-NAMES = {"patorrent": "PaTorrent", "qbittorrent": "qBittorrent", "transmission": "Transmission",
+ORDER = ["rookparcel", "qbittorrent", "transmission", "deluge", "rtorrent"]
+NAMES = {"rookparcel": "Rookparcel", "qbittorrent": "qBittorrent", "transmission": "Transmission",
          "deluge": "Deluge", "rtorrent": "rTorrent"}
 
 
@@ -92,13 +92,13 @@ def html(table):
 
 
 def bars(caption, note, values, unit, digits=0):
-    """A bar chart in plain HTML: one bar per client, PaTorrent's in the accent colour."""
+    """A bar chart in plain HTML: one bar per client, Rookparcel's in the accent colour."""
     import html as h
     top = max(v for _, v in values if v is not None)
     items = []
     for c, v in values:
         width = max(100 * v / top, 0.6)
-        cls = ' class="pa"' if c == "patorrent" else ""
+        cls = ' class="pa"' if c == "rookparcel" else ""
         text = f"{v:,.{digits}f} {unit}".strip()
         items.append(f'<li{cls}><span class="who">{NAMES[c]}</span><span class="track">'
                      f'<span class="bar" style="width:{width:.1f}%"></span></span>'

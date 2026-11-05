@@ -12,9 +12,9 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use patorrent_core::{Session, SessionParams, Settings};
-use patorrent_nox::webui::json::{self, Json};
-use patorrent_nox::webui::{Config, STATE_FILE, WebUi};
+use rookparcel_core::{Session, SessionParams, Settings};
+use rookparcel_nox::webui::json::{self, Json};
+use rookparcel_nox::webui::{Config, STATE_FILE, WebUi};
 
 #[path = "support/torznab.rs"]
 mod torznab;
@@ -139,7 +139,7 @@ impl Harness {
         self.req(
             "POST",
             path,
-            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "PaTorrent")],
+            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "Rookparcel")],
             body,
         )
     }
@@ -387,7 +387,7 @@ fn enc(v: &str) -> String {
 /// qBittorrent's `search/*` on the shim: each source a plugin (a stable name, no key), searches
 /// as jobs (start, status, results paged by offset in arrival order, stop, delete, at most
 /// five running), plugins switched off and uninstalled, installing refused, and results added
-/// through their `fileUrl` (a magnet, or the opaque `patorrent-search:` URL the server fetches
+/// through their `fileUrl` (a magnet, or the opaque `rookparcel-search:` URL the server fetches
 /// itself) with `torrents/add` and `search/downloadTorrent`. The key is in no answer.
 #[test]
 fn qbittorrent_search_shim() {
@@ -461,7 +461,7 @@ fn qbittorrent_search_shim() {
     assert_eq!(results.len(), 4);
     let find = |name: &str| results.iter().find(|r| s(r.get("fileName")) == name).expect(name).clone();
     let fawlty = find(FAWLTY);
-    assert!(s(fawlty.get("fileUrl")).starts_with("patorrent-search:1/"), "{}", fawlty.to_json());
+    assert!(s(fawlty.get("fileUrl")).starts_with("rookparcel-search:1/"), "{}", fawlty.to_json());
     assert_eq!(int(fawlty.get("fileSize")), 122_170_147);
     assert_eq!((int(fawlty.get("nbSeeders")), int(fawlty.get("nbLeechers"))), (25, 5));
     assert_eq!(s(fawlty.get("engineName")), prowlarr);
@@ -498,7 +498,7 @@ fn qbittorrent_search_shim() {
     let grab = find(GRAB);
     let form = format!("torrentUrl={}&pluginName={prowlarr}", enc(s(grab.get("fileUrl"))));
     assert_eq!(t.shim(&sid, "/api/v2/search/downloadTorrent", &form).0, 400);
-    let (st, body) = t.shim(&sid, "/api/v2/torrents/add", "urls=patorrent-search%3A99%2Fx");
+    let (st, body) = t.shim(&sid, "/api/v2/torrents/add", "urls=rookparcel-search%3A99%2Fx");
     assert_eq!((st, body.as_str()), (200, "Fails."));
 
     // ---- a named plugin is searched even when switched off; stop; five running at most
@@ -558,20 +558,20 @@ fn a_wrong_password_ends_the_session() {
     assert_eq!(t.get(&sid, "/pa/search").0, 403, "the session is gone");
 }
 
-/// Against a real Prowlarr or Jackett (run by hand, `--ignored`): `PATORRENT_LIVE_TORZNAB` is
-/// a source's Torznab URL, `PATORRENT_LIVE_KEY_FILE` a file holding its key,
-/// `PATORRENT_LIVE_QUERY` the query (default `test`). The engine listens on loopback with DHT,
+/// Against a real Prowlarr or Jackett (run by hand, `--ignored`): `ROOKPARCEL_LIVE_TORZNAB` is
+/// a source's Torznab URL, `ROOKPARCEL_LIVE_KEY_FILE` a file holding its key,
+/// `ROOKPARCEL_LIVE_QUERY` the query (default `test`). The engine listens on loopback with DHT,
 /// LSD, UPnP and NAT-PMP off; one result is added. Nothing printed holds the key.
 #[test]
 #[ignore]
 fn live_torznab_source() {
     let (Ok(url), Ok(file)) =
-        (std::env::var("PATORRENT_LIVE_TORZNAB"), std::env::var("PATORRENT_LIVE_KEY_FILE"))
+        (std::env::var("ROOKPARCEL_LIVE_TORZNAB"), std::env::var("ROOKPARCEL_LIVE_KEY_FILE"))
     else {
-        panic!("set PATORRENT_LIVE_TORZNAB and PATORRENT_LIVE_KEY_FILE");
+        panic!("set ROOKPARCEL_LIVE_TORZNAB and ROOKPARCEL_LIVE_KEY_FILE");
     };
     let key = std::fs::read_to_string(file).unwrap().trim().to_owned();
-    let q = std::env::var("PATORRENT_LIVE_QUERY").unwrap_or_else(|_| "test".into());
+    let q = std::env::var("ROOKPARCEL_LIVE_QUERY").unwrap_or_else(|_| "test".into());
     let t = Harness::start("live");
     let sid = t.login();
     let body = format!(r#"{{"name":"Live","url":"{url}","key":"{key}","password":"{PASS}"}}"#);

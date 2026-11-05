@@ -17,8 +17,8 @@ UP=${UP:-4mbit}
 DOWN=${DOWN:-8mbit}
 UPBUF=${UPBUF:-250kb}
 DOWNBUF=${DOWNBUF:-500kb}
-SRC=${SRC:-$HOME/patorrent-ping}
-export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$HOME/patorrent-sec/target}
+SRC=${SRC:-$HOME/rookparcel-ping}
+export CARGO_TARGET_DIR=${CARGO_TARGET_DIR:-$HOME/rookparcel-sec/target}
 WORK=${WORK:-$HOME/bloated-line}
 NS="lt-home lt-cpe lt-isp lt-net"
 
@@ -49,7 +49,7 @@ up() {
     ns lt-net ip route add default via 203.0.113.1
     ns lt-cpe sysctl -qw net.ipv4.ip_forward=1
     ns lt-isp sysctl -qw net.ipv4.ip_forward=1
-    # PaTorrent pings with ICMP datagram sockets; a new namespace allows them to no group
+    # Rookparcel pings with ICMP datagram sockets; a new namespace allows them to no group
     ns lt-home sysctl -qw net.ipv4.ping_group_range="0 2147483647"
     ns lt-home tc qdisc add dev h0 root netem delay 4ms
     ns lt-cpe tc qdisc add dev c0 root netem delay 4ms
@@ -66,7 +66,7 @@ run() {
     dir=$1
     proto=${2:-tcp}
     phases=${3:-off:60,on:180}
-    (cd "$SRC" && ~/.cargo/bin/cargo test --release -p patorrent-core --test bloated_line --no-run 2>&1 | tail -1)
+    (cd "$SRC" && ~/.cargo/bin/cargo test --release -p rookparcel-core --test bloated_line --no-run 2>&1 | tail -1)
     bin=$(ls -t "$CARGO_TARGET_DIR"/release/deps/bloated_line-* | grep -v '\.d$' | head -1)
     mkdir -p "$WORK"
     tag="$dir-$proto-$(date +%H%M%S)"

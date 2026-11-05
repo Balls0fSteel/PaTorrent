@@ -1,6 +1,6 @@
 # Disk and storage
 
-This page covers where PaTorrent puts downloads and how it moves them, and how it treats your disks: smart disk I/O (gentle checks, tuning per drive type, slowing down while a disk is busy) and the disk read cache.
+This page covers where Rookparcel puts downloads and how it moves them, and how it treats your disks: smart disk I/O (gentle checks, tuning per drive type, slowing down while a disk is busy) and the disk read cache.
 
 ## Where downloads go
 
@@ -36,7 +36,7 @@ If you quit while files are moving, the closing window waits for the moves, with
 
 ## Smart disk I/O
 
-Smart disk I/O keeps the computer responsive while PaTorrent reads and writes. Its settings are on **Options > Preferences > Advanced > Disk I/O** (a page under Advanced in the page list).
+Smart disk I/O keeps the computer responsive while Rookparcel reads and writes. Its settings are on **Options > Preferences > Advanced > Disk I/O** (a page under Advanced in the page list).
 
 The Setup Guide's **Use smart disk I/O** box turns all four parts on or off together. Gentle checks and per-drive tuning are on from the start; the box adds the slow-down while a disk is busy. *The Setup Guide is new in 1.1.62; not in a published release yet. The Disk I/O page itself is in 1.1.40.*
 
@@ -97,7 +97,7 @@ Under **Disk Queue and Files**:
 
 | Setting | Meaning | Default |
 |---|---|---|
-| **Disk write queue (kB):** | How much downloaded data may wait to be written to disk; above it, PaTorrent stops reading from peers until the disk catches up. Values below 4 MB act as 4 MB. | 1024 |
+| **Disk write queue (kB):** | How much downloaded data may wait to be written to disk; above it, Rookparcel stops reading from peers until the disk catches up. Values below 4 MB act as 4 MB. | 1024 |
 | **Maximum number of open files:** | The most files kept open at once; others are closed and opened again when needed. Raise it when many torrents or files are busy at once. | 40 |
 | **Disk I/O threads (used from the next start):** | The threads that read and write torrent data. | 10 |
 | **Hashing threads (used from the next start):** | Kept for compatibility; this version does not use it. Checks run one per drive, set on the Disk I/O page. | |
@@ -105,12 +105,12 @@ Under **Disk Queue and Files**:
 ## In the GTK window and the Web UI
 
 - **GTK window** (Linux, BSD, macOS): the same Directories, Disk Cache and Disk I/O pages. Drive types are detected on Linux, macOS and FreeBSD too, each with the system's own methods.
-- **Web UI**: the same pages under **Preferences**, with **Disk Cache** and **Disk I/O** under **Advanced**. Folders there are folders on the computer running PaTorrent, not on the browser's.
-- **patorrent-nox**: `--save DIR` sets the download folder and `--move-on-complete DIR` moves finished torrents; the other settings are in the Web UI's Preferences.
+- **Web UI**: the same pages under **Preferences**, with **Disk Cache** and **Disk I/O** under **Advanced**. Folders there are folders on the computer running Rookparcel, not on the browser's.
+- **rookparcel-nox**: `--save DIR` sets the download folder and `--move-on-complete DIR` moves finished torrents; the other settings are in the Web UI's Preferences.
 
 ## Related pages
 
 - [Queueing and seeding](Queueing-and-seeding)
-- [Where PaTorrent keeps its files](Where-PaTorrent-keeps-its-files) (settings and torrent state, not downloads)
+- [Where Rookparcel keeps its files](Where-Rookparcel-keeps-its-files) (settings and torrent state, not downloads)
 - [Managing torrents](Managing-torrents)
 - [Preferences reference](Preferences-reference)

@@ -567,6 +567,7 @@ pub fn identify_client(peer_id: &[u8; 20]) -> String {
         (b"pX", "pHoeniX"),
         (b"qB", "qBittorrent"),
         (b"QD", "QQDownload"),
+        (b"RP", "Rookparcel"),
         (b"RS", "Rufus"),
         (b"RT", "Retriever"),
         (b"RZ", "RezTorrent"),
@@ -746,7 +747,7 @@ mod tests {
     fn extension_handshake() {
         let b = encode_ext_handshake(
             &[("ut_metadata", 2), ("ut_pex", 1)],
-            "PaTorrent 0.1.0",
+            "Rookparcel 0.1.0",
             Some(6881),
             500,
             false,
@@ -757,7 +758,7 @@ mod tests {
         assert_eq!(h.metadata_size, Some(31_337));
         assert_eq!(h.message_id("ut_metadata"), Some(2));
         assert_eq!(h.message_id("lt_donthave"), None);
-        assert_eq!(h.client.as_deref(), Some("PaTorrent 0.1.0"));
+        assert_eq!(h.client.as_deref(), Some("Rookparcel 0.1.0"));
         assert_eq!((h.listen_port, h.reqq), (Some(6881), Some(500)));
         assert_eq!(h.your_ip, Some("1.2.3.4".parse().unwrap()));
         assert!(decode_ext_handshake(b"li1ee").is_none());
@@ -769,6 +770,7 @@ mod tests {
         assert_eq!(&id[..8], b"-PA0100-");
         assert!(id[8..].iter().all(|c| c.is_ascii_graphic()));
         assert_eq!(identify_client(&id), "PaTorrent 0.1.0");
+        assert!(identify_client(b"-RP1014-abcdefghijkl").starts_with("Rookparcel 1.0.1"));
         assert_eq!(identify_client(b"-qB4650-abcdefghijkl"), "qBittorrent 4.6.5");
         assert_eq!(identify_client(b"-TR4060-abcdefghijkl"), "Transmission 4.0.6");
         // Transmission's legacy "-TRXYYR-" (libtorrent 05c44cc4ee, d2d1a44c0e)

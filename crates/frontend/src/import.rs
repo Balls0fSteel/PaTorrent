@@ -23,10 +23,10 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use patorrent_core::bencode::{Entry, Node, bdecode};
-use patorrent_core::metainfo::TorrentInfo;
-use patorrent_core::metainfo::sanitize::sanitize_append_path_element;
-use patorrent_core::{AddTorrentParams, InfoHashes, Sha1Hash, TorrentFlags, TorrentSource};
+use rookparcel_core::bencode::{Entry, Node, bdecode};
+use rookparcel_core::metainfo::TorrentInfo;
+use rookparcel_core::metainfo::sanitize::sanitize_append_path_element;
+use rookparcel_core::{AddTorrentParams, InfoHashes, Sha1Hash, TorrentFlags, TorrentSource};
 
 use crate::lang::S;
 use crate::prefs::Prefs;
@@ -58,7 +58,7 @@ impl Client {
         }
     }
 
-    /// Its `--import` value in patorrent-nox.
+    /// Its `--import` value in rookparcel-nox.
     pub fn id(self) -> &'static str {
         match self {
             Client::QBittorrent => "qbittorrent",
@@ -536,7 +536,7 @@ fn record_hashes(root: Node<'_>) -> Option<InfoHashes> {
     let v2 = root.dict_find_string_value("info-hash2").and_then(|b| <[u8; 32]>::try_from(b).ok());
     let hashes = InfoHashes {
         v1: v1.map(Sha1Hash).filter(|h| h.0 != [0; 20]),
-        v2: v2.map(patorrent_core::Sha256Hash).filter(|h| h.0 != [0; 32]),
+        v2: v2.map(rookparcel_core::Sha256Hash).filter(|h| h.0 != [0; 32]),
     };
     (hashes.v1.is_some() || hashes.v2.is_some()).then_some(hashes)
 }
@@ -767,7 +767,7 @@ fn running_processes() -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::metainfo::{CreateFlags, CreateTorrent, FileFlags, FileStorage};
+    use rookparcel_core::metainfo::{CreateFlags, CreateTorrent, FileFlags, FileStorage};
 
     /// A two-file torrent of 3 pieces (16 KiB each): `dir/<name>/a.bin`, `dir/<name>/b.bin`.
     fn torrent(name: &str) -> (Vec<u8>, InfoHashes) {
@@ -786,7 +786,7 @@ mod tests {
     }
 
     fn temp(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("patorrent-import-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("rookparcel-import-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         std::fs::create_dir_all(&d).unwrap();
         d

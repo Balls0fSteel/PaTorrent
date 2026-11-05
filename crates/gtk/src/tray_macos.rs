@@ -8,7 +8,7 @@
 //! - A left click shows the window or hides it into the tray, as the StatusNotifierItem's
 //!   `Activate`; a right click (or a Control-click) opens the menu: the StatusNotifierItem's
 //!   entries, Show / Hide following the window.
-//! - Clicks reach Rust through one Objective-C class of our own (`PaTorrentTrayTarget`) whose
+//! - Clicks reach Rust through one Objective-C class of our own (`RookparcelTrayTarget`) whose
 //!   two action methods look up the tray in a thread-local: AppKit calls them on the main
 //!   thread, the one GDK's loop runs on. What they ask for runs from an idle callback, after
 //!   AppKit's action (and the menu's tracking) has returned, so Exit never removes the item
@@ -23,8 +23,8 @@
 
 use std::ffi::CStr;
 
-use patorrent_frontend::icons::APP_SIZES;
-use patorrent_frontend::lang;
+use rookparcel_frontend::icons::APP_SIZES;
+use rookparcel_frontend::lang;
 
 use crate::tray::{Command, MENU, entry_text};
 
@@ -73,7 +73,7 @@ enum Act {
     Command(Command),
 }
 
-/// Whether PaTorrent becomes the active application after `act`, when the window is on
+/// Whether Rookparcel becomes the active application after `act`, when the window is on
 /// screen then: a status item's click leaves the frontmost application in front, so a window
 /// that was shown (or a dialog over it) would open behind it.
 fn brings_forward(act: Act) -> bool {
@@ -100,11 +100,11 @@ mod names {
     use std::ffi::CStr;
 
     /// Our target class, an `NSObject` with [`CLICK`] and [`ENTRY`].
-    pub const TARGET_CLASS: &CStr = c"PaTorrentTrayTarget";
+    pub const TARGET_CLASS: &CStr = c"RookparcelTrayTarget";
     /// The button's action.
-    pub const CLICK: &CStr = c"patorrentTrayClick:";
+    pub const CLICK: &CStr = c"rookparcelTrayClick:";
     /// The menu entries' action.
-    pub const ENTRY: &CStr = c"patorrentTrayEntry:";
+    pub const ENTRY: &CStr = c"rookparcelTrayEntry:";
     /// Both actions' type encoding: `void (id self, SEL _cmd, id sender)`.
     pub const ACTION_TYPES: &CStr = c"v@:@";
 
@@ -170,7 +170,7 @@ mod sys {
     use std::rc::{Rc, Weak};
 
     use gtk::glib;
-    use patorrent_frontend::icons::app_png;
+    use rookparcel_frontend::icons::app_png;
 
     use super::names::*;
     use super::{
@@ -392,7 +392,7 @@ mod sys {
         }
     }
 
-    /// Makes PaTorrent the active application.
+    /// Makes Rookparcel the active application.
     fn activate_app() {
         // SAFETY: `-respondsToSelector:` takes a SEL and returns BOOL; `-activate` takes
         // nothing, `-activateIgnoringOtherApps:` a BOOL.
@@ -415,7 +415,7 @@ mod sys {
         /// The `NSMenu`, owned; it owns its entries, listed with their commands.
         menu: Id,
         entries: Vec<(Command, Id)>,
-        /// The `PaTorrentTrayTarget` instance, owned (buttons and entries do not retain their
+        /// The `RookparcelTrayTarget` instance, owned (buttons and entries do not retain their
         /// target).
         target: Id,
         tooltip: RefCell<String>,
@@ -485,7 +485,7 @@ mod sys {
                     target,
                     tooltip: RefCell::new(String::new()),
                 });
-                tray.set_tooltip(&patorrent_frontend::profile::name_build());
+                tray.set_tooltip(&rookparcel_frontend::profile::name_build());
                 tray.menu_changed();
                 CURRENT.with(|c| *c.borrow_mut() = Rc::downgrade(&tray));
                 // as the StatusNotifierItem's: after `start` has returned and the owner keeps it
@@ -635,7 +635,7 @@ mod sys {
         #[test]
         fn strings_survive_the_round_trip() {
             let _pool = Pool::new();
-            for text in ["PaTorrent\nD: 1.2 kB/s U: 0 B/s", "", "Показать PaTorrent «µ»"] {
+            for text in ["Rookparcel\nD: 1.2 kB/s U: 0 B/s", "", "Показать Rookparcel «µ»"] {
                 let s = ns_string(text);
                 assert!(!s.is_null());
                 // SAFETY: an NSString; `-UTF8String` returns a C string that lives as long as
@@ -686,7 +686,7 @@ mod tests {
             }
         }
         assert_ne!(menu_title(Command::Toggle, true), menu_title(Command::Toggle, false));
-        assert_eq!(menu_title(Command::Toggle, true), lang::plain(patorrent_frontend::tr!(MenuHide)));
+        assert_eq!(menu_title(Command::Toggle, true), lang::plain(rookparcel_frontend::tr!(MenuHide)));
     }
 
     #[test]
@@ -708,7 +708,7 @@ mod tests {
         assert!(sizes.iter().any(|&s| f64::from(s) >= ICON_POINTS));
         assert!(sizes.iter().any(|&s| f64::from(s) >= 2.0 * ICON_POINTS));
         for s in sizes {
-            assert!(patorrent_frontend::icons::app_png(s).is_some(), "{s}");
+            assert!(rookparcel_frontend::icons::app_png(s).is_some(), "{s}");
         }
     }
 

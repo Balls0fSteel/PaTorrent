@@ -15,16 +15,16 @@ use std::cell::Cell;
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
-use patorrent_core::{EncPolicy, ProxyType};
-use patorrent_frontend::icons::{UiIcon, page_icon};
-use patorrent_frontend::lang::{self, H, S};
-use patorrent_frontend::network;
-use patorrent_frontend::options::{self, Options};
-use patorrent_frontend::pref_pages::{self, Features, PROXY_TYPES, proxy_from_ui, proxy_to_ui};
-use patorrent_frontend::scheduler::{self, Mode};
-use patorrent_frontend::settings::{self, Entry, Kind, Value};
-use patorrent_frontend::tr;
-use patorrent_nox::webui::auth;
+use rookparcel_core::{EncPolicy, ProxyType};
+use rookparcel_frontend::icons::{UiIcon, page_icon};
+use rookparcel_frontend::lang::{self, H, S};
+use rookparcel_frontend::network;
+use rookparcel_frontend::options::{self, Options};
+use rookparcel_frontend::pref_pages::{self, Features, PROXY_TYPES, proxy_from_ui, proxy_to_ui};
+use rookparcel_frontend::scheduler::{self, Mode};
+use rookparcel_frontend::settings::{self, Entry, Kind, Value};
+use rookparcel_frontend::tr;
+use rookparcel_nox::webui::auth;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::{
@@ -56,7 +56,7 @@ use crate::sched_grid;
 use crate::util::{hiword, loword, scale, send, wide, window_text};
 use crate::webui_host::{Edit, Setup as WebSetup, Status as WebStatus, View as WebView};
 
-/// The tree, in µTorrent 2.2.1's order; Disk Cache and PaTorrent's Disk I/O sit under Advanced.
+/// The tree, in µTorrent 2.2.1's order; Disk Cache and Rookparcel's Disk I/O sit under Advanced.
 pub const PAGES: [S; 12] = [
     S::PageGeneral,
     S::PageUi,
@@ -843,7 +843,7 @@ struct State<'a> {
     languages: Vec<(String, String)>,
     /// The Connection page's "Network" drop-down: `(rule choice, text)` (`network::rule_choices`).
     networks: Vec<(String, String)>,
-    /// The page tree's symbols ([`patorrent_frontend::icons::UiIcon`] order).
+    /// The page tree's symbols ([`rookparcel_frontend::icons::UiIcon`] order).
     images: HIMAGELIST,
     /// The help tooltips and the F1 tip (D55).
     tips: Option<crate::help::Tips>,
@@ -1351,7 +1351,7 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
         st.integration = (st.hooks.integration)(None).unwrap_or_default();
         st.webui = (st.hooks.webui)(None);
         write_controls(dlg, st);
-        if !patorrent_frontend::update::AVAILABLE {
+        if !rookparcel_frontend::update::AVAILABLE {
             EnableWindow(item(dlg, ID_CHECK_UPDATES), 0);
             EnableWindow(item(dlg, ID_UPDATE_BETA), 0);
         }
@@ -1374,7 +1374,7 @@ unsafe fn init(dlg: HWND, st: &mut State<'_>) {
 unsafe fn help_of(dlg: HWND, st: &State<'_>, id: u16) -> Option<H> {
     if id == ID_ADV_LIST {
         let row = unsafe { selected_row(dlg) };
-        return row.and_then(|i| st.rows.get(i)).and_then(|e| patorrent_frontend::help::for_setting(e.name));
+        return row.and_then(|i| st.rows.get(i)).and_then(|e| rookparcel_frontend::help::for_setting(e.name));
     }
     st.help.iter().find(|(i, _)| *i == id).map(|&(_, h)| h)
 }
@@ -1445,7 +1445,7 @@ unsafe fn f1(dlg: HWND, st: &mut State<'_>) {
         st.f1_at = Some(std::time::Instant::now());
         st.pane = text.to_owned();
         set_text(item(dlg, ID_HELP_PANE), text);
-        if let Some(url) = patorrent_frontend::help::wiki_url(h) {
+        if let Some(url) = rookparcel_frontend::help::wiki_url(h) {
             crate::app::open_url(dlg, &url);
         }
     }
@@ -1633,7 +1633,7 @@ unsafe fn integration_controls(dlg: HWND) -> Integration {
     }
 }
 
-/// "Start minimized" follows "Start PaTorrent on system startup".
+/// "Start minimized" follows "Start Rookparcel on system startup".
 unsafe fn update_autostart_controls(dlg: HWND) {
     unsafe { EnableWindow(item(dlg, ID_START_MIN), checked(dlg, ID_AUTOSTART) as i32) };
 }
@@ -2210,7 +2210,7 @@ unsafe fn advanced_set(dlg: HWND, st: &mut State<'_>, reset: bool) {
         let Some(i) = selected_row(dlg) else { return };
         let Some(e) = st.rows.get(i).copied() else { return };
         let text = if reset {
-            e.get(&patorrent_core::Settings::default()).to_string()
+            e.get(&rookparcel_core::Settings::default()).to_string()
         } else if e.kind == Kind::Bool {
             checked(dlg, ID_ADV_TRUE).to_string()
         } else {
@@ -2264,8 +2264,8 @@ mod tests {
     use std::cell::RefCell;
     use std::rc::Rc;
 
-    use patorrent_core::{EncLevel, Settings};
-    use patorrent_frontend::prefs::Prefs;
+    use rookparcel_core::{EncLevel, Settings};
+    use rookparcel_frontend::prefs::Prefs;
     use windows_sys::Win32::UI::Controls::{
         ICC_LISTVIEW_CLASSES, ICC_TREEVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx,
         LVM_GETITEMCOUNT, LVM_GETITEMTEXTW,
@@ -2492,12 +2492,12 @@ mod tests {
             f.page(5);
             SetFocus(item(dlg, ID_DHT));
             update_help_pane(dlg, &mut f.st);
-            assert_eq!(f.text(ID_HELP_PANE), patorrent_frontend::help!(PrefDht));
+            assert_eq!(f.text(ID_HELP_PANE), rookparcel_frontend::help!(PrefDht));
             // F1 puts the focused control's help in the pane and beside it
             f.page(3);
             SetFocus(item(dlg, ID_PORT));
             SendMessageW(dlg, WM_HELP, 0, 0);
-            assert_eq!(f.text(ID_HELP_PANE), patorrent_frontend::help!(PrefPort));
+            assert_eq!(f.text(ID_HELP_PANE), rookparcel_frontend::help!(PrefPort));
             assert_eq!(f.st.f1_for, item(dlg, ID_PORT));
             let tips = f.st.tips.as_ref().unwrap();
             use windows_sys::Win32::UI::Controls::TTM_GETTOOLCOUNT;
@@ -2511,7 +2511,7 @@ mod tests {
             f.select_row(row);
             SetFocus(item(dlg, ID_ADV_LIST));
             update_help_pane(dlg, &mut f.st);
-            assert_eq!(f.text(ID_HELP_PANE), patorrent_frontend::help!(AdvConnectionSpeed));
+            assert_eq!(f.text(ID_HELP_PANE), rookparcel_frontend::help!(AdvConnectionSpeed));
             assert!(f.st.f1_for.is_null(), "the F1 tip goes with the focus");
         }
     }
@@ -2573,9 +2573,9 @@ mod tests {
         let kept = |setup: &WebSetup| Some(Edit { setup: setup.clone(), password: None, api_key: None });
         assert_eq!(f.web_edits.borrow().last().cloned(), kept(&want));
         // the server domains (an *arr in Docker names this PC by a host name)
-        f.set(ID_WEBUI_DOMAINS, " patorrent;*.lan ");
+        f.set(ID_WEBUI_DOMAINS, " rookparcel;*.lan ");
         f.click(ID_APPLY);
-        let want = WebSetup { domains: "patorrent;*.lan".into(), ..want };
+        let want = WebSetup { domains: "rookparcel;*.lan".into(), ..want };
         assert_eq!(f.web_edits.borrow().last().cloned(), kept(&want));
 
         // the API key: its field follows its box; on, a key of 16 characters is needed once
@@ -2763,7 +2763,7 @@ mod tests {
         }
         assert_eq!(
             f.text(ID_ASSOC_NOTE),
-            "Windows still opens magnet: links with qBittorrent.Url.Magnet. Choose PaTorrent in Default apps."
+            "Windows still opens magnet: links with qBittorrent.Url.Magnet. Choose Rookparcel in Default apps."
         );
 
         // Apply with nothing changed leaves the registry alone
@@ -2780,7 +2780,7 @@ mod tests {
         let all = Integration { torrent: true, magnet: true, autostart: true, minimized: true };
         let old = Integration { magnet: true, ..Integration::default() };
         assert_eq!(*f.integrations.borrow(), [(old, all)]);
-        assert!(f.last_applied().gui.check_association, "an option, stored in patorrent.ini");
+        assert!(f.last_applied().gui.check_association, "an option, stored in rookparcel.ini");
 
         // "Start minimized" alone means nothing once autostart is off
         f.check(ID_AUTOSTART, false);
@@ -2992,7 +2992,7 @@ mod tests {
         let missing = &f.st.networks.iter().find(|(v, _)| *v == rule).unwrap().1;
         assert!(missing.contains(id), "{missing}");
 
-        network::set_adapters(vec![patorrent_core::NetAdapter {
+        network::set_adapters(vec![rookparcel_core::NetAdapter {
             id: id.to_owned(),
             name: "D54 Test VPN".to_owned(),
             vpn: true,

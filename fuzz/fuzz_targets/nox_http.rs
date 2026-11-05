@@ -4,10 +4,10 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_nox::webui::http::{
+use rookparcel_nox::webui::http::{
     Limits, cookie, multipart_boundary, parse_head, parse_multipart, parse_urlencoded, percent_decode,
 };
-use patorrent_nox::webui::json;
+use rookparcel_nox::webui::json;
 
 fuzz_target!(|data: &[u8]| {
     let limits = Limits { max_head: 4096, max_headers: 32, max_body: 1 << 20, max_message: 64 * 1024 };

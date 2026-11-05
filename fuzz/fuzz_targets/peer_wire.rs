@@ -3,7 +3,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{
+use rookparcel_core::fuzzing::{
     PeerWireMessage, decode, decode_dont_have, decode_ext_handshake, decode_handshake, identify_client,
 };
 

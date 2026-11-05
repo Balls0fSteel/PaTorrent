@@ -1,5 +1,5 @@
 //! Torrent search through the user's Prowlarr or Jackett over Torznab (D41,
-//! `docs/INTEGRATIONS.md` part 2, slice 4), on [`patorrent_frontend::search`] as the Win32
+//! `docs/INTEGRATIONS.md` part 2, slice 4), on [`rookparcel_frontend::search`] as the Win32
 //! client's and the Web UI's.
 //!
 //! The toolbar's search box keeps filtering the torrent list by name; the menu beside it
@@ -28,17 +28,17 @@ use std::rc::{Rc, Weak};
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_core::fetch::FetchProxy;
-use patorrent_frontend::detail::ColumnDef;
-use patorrent_frontend::lang::{S, gtk_mnemonic};
-use patorrent_frontend::rss::Download;
-use patorrent_frontend::search::helper::HelperProxy;
-use patorrent_frontend::search::source::url_host;
-use patorrent_frontend::search::{
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_frontend::detail::ColumnDef;
+use rookparcel_frontend::lang::{S, gtk_mnemonic};
+use rookparcel_frontend::rss::Download;
+use rookparcel_frontend::search::helper::HelperProxy;
+use rookparcel_frontend::search::source::url_host;
+use rookparcel_frontend::search::{
     Query, Search, SearchResult, SearchSource, Source, SourceStatus, category_text, fetch_caps,
     fetch_download, main_categories, redact,
 };
-use patorrent_frontend::{fmt, tr};
+use rookparcel_frontend::{fmt, tr};
 
 use crate::table::Table;
 
@@ -283,7 +283,7 @@ pub fn order(results: &[SearchResult], names: &[String], sort: Option<(usize, bo
 }
 
 /// What keeps a result's row selected while answers come in and the rows move: its
-/// info-hash, else its name and size (as [`patorrent_frontend::search::merge`] de-duplicates).
+/// info-hash, else its name and size (as [`rookparcel_frontend::search::merge`] de-duplicates).
 pub fn result_key(r: &SearchResult) -> String {
     if r.info_hash.is_empty() {
         format!("{}\n{}", r.name.to_lowercase(), r.size.map(|s| s.to_string()).unwrap_or_default())

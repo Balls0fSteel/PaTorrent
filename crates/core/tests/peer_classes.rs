@@ -15,9 +15,9 @@ use std::net::{IpAddr, SocketAddr};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     AddTorrentParams, Alert, IpFilter, MixedModeAlgorithm, PeerClassId, PeerClassInfo, PeerClassTypeFilter,
     PeerFlags, Session, SessionHandle, SessionParams, Settings, SocketType, TorrentFlags, TorrentId,
     TorrentSource, TorrentState, TorrentStatus,
@@ -653,7 +653,7 @@ fn local_class_peers_are_unchoked_outside_the_unchoke_slots() {
 #[test]
 #[ignore = "pings the network"]
 fn keep_ping_low_finds_the_router() {
-    // `cargo test -p patorrent-core --test peer_classes keep_ping_low -- --ignored --nocapture`
+    // `cargo test -p rookparcel-core --test peer_classes keep_ping_low -- --ignored --nocapture`
     let ses = start_with(|s| s.auto_rate_limit = true);
     let mut w = Watch::new(ses.handle());
     let found = wait(&mut w, 20, "the probe target", |a| match a {

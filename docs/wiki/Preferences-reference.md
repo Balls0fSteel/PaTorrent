@@ -22,18 +22,18 @@ The texts below are short versions of that built-in help. Rates on the pages are
 | Setting | What it does |
 |---|---|
 | **User interface:** (Language) | The language of menus, dialogs and the Web UI. The first choice follows the system's language. The desktop windows switch at their next start. |
-| **Associate with .torrent files** | Makes this copy of PaTorrent the program that opens `.torrent` files, for your user account only. A program chosen in the system's own default apps settings wins over this. |
-| **Associate with magnet: links** | Makes this copy of PaTorrent the program that opens `magnet:` links clicked in a browser, for your user account only. With profiles, only one profile can hold them. |
-| **Check association on startup** | At start, asks whether to take over `.torrent` files and `magnet:` links when PaTorrent is not the program that opens them. Off by default. |
-| **Start PaTorrent on system startup** | Starts PaTorrent when you log in. Each profile has its own entry. |
-| **Start minimized** | With the automatic start, PaTorrent starts without showing its window, in the tray where there is one. |
+| **Associate with .torrent files** | Makes this copy of Rookparcel the program that opens `.torrent` files, for your user account only. A program chosen in the system's own default apps settings wins over this. |
+| **Associate with magnet: links** | Makes this copy of Rookparcel the program that opens `magnet:` links clicked in a browser, for your user account only. With profiles, only one profile can hold them. |
+| **Check association on startup** | At start, asks whether to take over `.torrent` files and `magnet:` links when Rookparcel is not the program that opens them. Off by default. |
+| **Start Rookparcel on system startup** | Starts Rookparcel when you log in. Each profile has its own entry. |
+| **Start minimized** | With the automatic start, Rookparcel starts without showing its window, in the tray where there is one. |
 | **Default apps...** (Windows only) | Opens Windows Settings at Default apps. A program chosen there wins over the boxes above, and only you can change that choice. |
 | **Check for updates automatically** (Privacy) | About ten seconds after start and then every 12 hours, asks the project website whether a newer release is out. Nothing is downloaded or installed without asking. **Help > Check for Updates** works either way. |
 | **Update to beta versions** (Privacy) | Also offers pre-release (beta) versions when checking for updates. |
 
 On Windows the integration boxes are under **Windows Integration**; in the GTK version the group is called **Desktop Integration**.
 
-More: [Tray, notifications and startup](Tray-notifications-and-startup), [Adding torrents](Adding-torrents), [Updating PaTorrent](Updating-PaTorrent), [Profiles](Profiles).
+More: [Tray, notifications and startup](Tray-notifications-and-startup), [Adding torrents](Adding-torrents), [Updating Rookparcel](Updating-Rookparcel), [Profiles](Profiles).
 
 ## UI Settings
 
@@ -43,10 +43,10 @@ More: [Tray, notifications and startup](Tray-notifications-and-startup), [Adding
 | **Alternate list background color** | Shades every other row of the lists. |
 | **Show current speed in the title bar** | Puts the current download and upload speeds at the start of the main window's title, which also shows on the taskbar. |
 | **Show balloon notifications in tray** | Shows a notification, with the torrent's name, when a download completes. |
-| **Close to tray** (System Tray) | The window's close button hides PaTorrent in the tray instead of exiting, so transfers go on. Exit from the menu or the tray icon's menu. |
+| **Close to tray** (System Tray) | The window's close button hides Rookparcel in the tray instead of exiting, so transfers go on. Exit from the menu or the tray icon's menu. |
 | **Minimize to tray** (System Tray) | Minimizing hides the window in the tray instead of the taskbar. Click the tray icon to bring it back. |
 | **Don't start the download automatically** (When Adding Torrents) | New torrents are added stopped and outside the queue, so nothing is downloaded until you start them. |
-| **Activate the program window** | Brings the main window to the front when another program, such as a browser, hands PaTorrent a torrent. Off, only the Add New Torrent window comes up. |
+| **Activate the program window** | Brings the main window to the front when another program, such as a browser, hands Rookparcel a torrent. Off, only the Add New Torrent window comes up. |
 | **Show a window that displays the files inside the torrent** | Opens the Add New Torrent window for each torrent you add, to choose the folder and the files first; for a magnet link, once its file list has arrived. Off, torrents are added at once with the defaults. |
 
 More: [Tray, notifications and startup](Tray-notifications-and-startup), [Adding torrents](Adding-torrents), [Managing torrents](Managing-torrents), [The main window](The-main-window).
@@ -148,7 +148,7 @@ More: [Queueing and seeding](Queueing-and-seeding).
 
 | Setting | What it does |
 |---|---|
-| **Enable Scheduler** | Follows the weekly table hour by hour, in local time. Off, PaTorrent always runs at full speed. |
+| **Enable Scheduler** | Follows the weekly table hour by hour, in local time. Off, Rookparcel always runs at full speed. |
 | **Scheduler Table** | One cell per hour of the week; click or drag to cycle **Full speed**, **Limited**, **Turn off** and **Seeding only**. |
 | **Limited upload rate (kB/s)** and **Limited download rate (kB/s)** | The limits during the Limited hours, in place of the normal ones. 0 means unlimited. |
 | **Disable DHT when turning off** | Also switches the DHT off during the Turn off hours. On by default. |
@@ -163,14 +163,14 @@ This page is in the Windows version only. It lets a browser control the torrents
 
 | Setting | What it does |
 |---|---|
-| **Enable Web UI** | Serves the Web UI from this window while PaTorrent runs. It needs a user name and a password. |
+| **Enable Web UI** | Serves the Web UI from this window while Rookparcel runs. It needs a user name and a password. |
 | **Username:** and **Password:** | The login. The password is stored only as a hash; leave it blank to keep the stored one. A new password logs out every other browser. |
 | **Accept an API key (Authorization: Bearer)** | Lets apps such as Sonarr or Radarr use the Web UI with the key below, without logging in. Off by default. |
 | **API key (at least 16 characters):** | The key apps send. Stored only as a hash and never shown again. |
 | **Bypass authentication for clients in these subnets** | Clients in these networks use the Web UI without logging in. List only networks you trust as much as the password. |
 | **Listening port:** | The port the Web UI listens on; 8080 is proposed, or the next free port. |
-| **Allow connections from other computers** | Listens on every network address, so other computers and phones can reach it. They also need a Windows Firewall rule for `patorrent.exe`. |
-| **Use HTTPS (self-signed certificate)** | Serves the Web UI over HTTPS with a certificate PaTorrent makes itself. Browsers warn about it until you accept it. |
+| **Allow connections from other computers** | Listens on every network address, so other computers and phones can reach it. They also need a Windows Firewall rule for `rookparcel.exe`. |
+| **Use HTTPS (self-signed certificate)** | Serves the Web UI over HTTPS with a certificate Rookparcel makes itself. Browsers warn about it until you accept it. |
 | **Server domains** | Host names the Web UI answers to besides IP addresses and localhost, such as this computer's name for an app in Docker. |
 | **Open Web UI** | Opens the running Web UI in your browser. |
 
@@ -207,7 +207,7 @@ Rows that are often worth knowing:
 | `connection_speed` | New outgoing connection attempts per second, shared by all torrents. Higher finds peers faster but can overload weak routers. Default 30. |
 | `announce_to_all_trackers` | On: every tracker in a tier is contacted, not just the first working one. Can find more peers at the cost of more tracker traffic. Off by default. |
 | `upnp_lease_duration` | Seconds a UPnP port mapping is asked for. 0 asks for a permanent mapping, which some routers need. Default 3600. |
-| `stop_tracker_timeout` | Seconds PaTorrent waits on exit for trackers and routers. Default 5. Lower it to exit faster. |
+| `stop_tracker_timeout` | Seconds Rookparcel waits on exit for trackers and routers. Default 5. Lower it to exit faster. |
 | `auto_limit_delay_ms` | Milliseconds of extra ping Keep ping low allows above the line's idle ping. Lower keeps games smoother; higher allows more speed. Default 15. |
 | `drive_overrides` | Corrects drives whose type is detected wrongly, as path=type pairs such as `D:/=hdd, /mnt/nas=network`. |
 | `bt.transp_disposition` | Allowed connection types as bits added together: 1 outgoing TCP, 2 outgoing uTP, 4 incoming TCP, 8 incoming uTP. Default 15 allows all; 5 is TCP only. |
@@ -221,7 +221,7 @@ Each row's full help shows in the pane under the table when you select it.
 | **Enable caching of disk reads** | Keeps recently read pieces in memory, which saves disk seeks when seeding. Writes are left to the system's cache. |
 | **Override the automatic cache size (MB):** | Uses this size instead of the automatic 32 MB for the read cache. A bigger cache can help busy seeding, at the cost of memory. |
 | **Remove blocks unused for more than (seconds):** | Drops cached blocks no peer has asked for in that time. Off, they stay until newer blocks push them out. |
-| **Disk write queue (kB):** | How much downloaded data may wait to be written; above it, PaTorrent stops reading from peers until the disk catches up. Values below 4 MB act as 4 MB. |
+| **Disk write queue (kB):** | How much downloaded data may wait to be written; above it, Rookparcel stops reading from peers until the disk catches up. Values below 4 MB act as 4 MB. |
 | **Maximum number of open files:** | The most files kept open at once. Raise it when many torrents or files are busy at the same time. |
 | **Disk I/O threads (used from the next start):** | The threads that read and write torrent data. |
 | **Hashing threads (used from the next start):** | Kept for compatibility; this version does not use it. Checks run one per drive, set on the Disk I/O page. |
@@ -247,18 +247,18 @@ The GTK version (Linux, BSD, macOS) has the same pages and settings, with these 
 
 - There is no **Web UI** page.
 - **UI Settings** has no **Alternate list background color**. The tray and notification boxes (**Show balloon notifications in tray**, **Close to tray**, **Minimize to tray**) show only while a tray icon is on screen.
-- **General** has **Desktop Integration** instead of Windows Integration, and no **Default apps...** button. In a Flatpak the association boxes are greyed under a note: choose the default program in your desktop's settings. The **Privacy** group is not shown in a Flatpak, which Flathub updates. On macOS the association boxes work only in `PaTorrent.app`.
+- **General** has **Desktop Integration** instead of Windows Integration, and no **Default apps...** button. In a Flatpak the association boxes are greyed under a note: choose the default program in your desktop's settings. The **Privacy** group is not shown in a Flatpak, which Flathub updates. On macOS the association boxes work only in `Rookparcel.app`.
 - <kbd>Escape</kbd> closes the window like **Cancel**.
 
 ## Differences in the Web UI
 
-The Web UI (of `patorrent-nox`, or the one the Windows window serves) has a **Preferences** window with the same pages. Changed values on its Advanced page are shown in bold instead of with a `*`. Other differences:
+The Web UI (of `rookparcel-nox`, or the one the Windows window serves) has a **Preferences** window with the same pages. Changed values on its Advanced page are shown in bold instead of with a `*`. Other differences:
 
-- **General**: the association and autostart boxes are greyed with the note "File associations and autostart belong to the desktop client." `patorrent-nox` has its own **Privacy** group for its update check; the Web UI a Windows window serves does not.
+- **General**: the association and autostart boxes are greyed with the note "File associations and autostart belong to the desktop client." `rookparcel-nox` has its own **Privacy** group for its update check; the Web UI a Windows window serves does not.
 - **UI Settings** has only **Confirm when deleting torrents**, **Don't start the download automatically** and **Show a window that displays the files inside the torrent**.
-- **Bandwidth** in `patorrent-nox` has **Alternative Rate Limits**: **Alternative upload rate**, **Alternative download rate** and **Use the alternative rate limits now**, which apps that toggle qBittorrent's speed limits mode also switch.
+- **Bandwidth** in `rookparcel-nox` has **Alternative Rate Limits**: **Alternative upload rate**, **Alternative download rate** and **Use the alternative rate limits now**, which apps that toggle qBittorrent's speed limits mode also switch.
 - **Queueing** has **Limit the upload rate instead of stopping the torrent** as a box with the rate beside it.
 - **Web UI** adds **Current password:** (needed to change the login and the security settings), **Bypass authentication for clients on localhost**, **Listening address:** (shown for reference), **Enable Host header validation**, **Enable Cross-Site Request Forgery (CSRF) protection**, and a **Security** group with **Ban client after consecutive failures:**, **Ban for (seconds):** and **Session timeout (seconds):**.
 - <kbd>Ctrl</kbd>+<kbd>Enter</kbd> works as **OK**; <kbd>Enter</kbd> in the Advanced value field sets the value.
 
-See [Web UI](Web-UI) and [Running patorrent-nox](Running-patorrent-nox).
+See [Web UI](Web-UI) and [Running rookparcel-nox](Running-rookparcel-nox).

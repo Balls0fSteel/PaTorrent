@@ -14,12 +14,12 @@ use std::collections::HashMap;
 use std::mem::{size_of, zeroed};
 use std::ptr::{null, null_mut};
 
-use patorrent_core::metainfo::TorrentInfo;
-use patorrent_frontend::add::{self, AddChoice, Check, FileTree, Setup};
-use patorrent_frontend::detail::{PRIORITIES, priority_text};
-use patorrent_frontend::icons::{PRIORITY_ICONS, UiIcon};
-use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::{fmt, lang, tr};
+use rookparcel_core::metainfo::TorrentInfo;
+use rookparcel_frontend::add::{self, AddChoice, Check, FileTree, Setup};
+use rookparcel_frontend::detail::{PRIORITIES, priority_text};
+use rookparcel_frontend::icons::{PRIORITY_ICONS, UiIcon};
+use rookparcel_frontend::prefs::Prefs;
+use rookparcel_frontend::{fmt, lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     COLOR_WINDOW, CreateCompatibleBitmap, CreateCompatibleDC, DFC_BUTTON, DFCS_BUTTON3STATE,
@@ -896,7 +896,7 @@ mod tests {
     //! The dialog built from its template, hidden and modeless, driven through its messages
     //! and the list view's own keyboard handling.
 
-    use patorrent_frontend::options::{GuiOptions, Options};
+    use rookparcel_frontend::options::{GuiOptions, Options};
     use windows_sys::Win32::UI::Controls::{
         ICC_LISTVIEW_CLASSES, INITCOMMONCONTROLSEX, InitCommonControlsEx, LVITEMW, LVM_GETITEMCOUNT,
         LVM_GETITEMTEXTW, TTM_GETTOOLCOUNT,
@@ -1234,7 +1234,7 @@ mod tests {
 
     #[test]
     fn a_torrent_in_the_session_cannot_skip_the_check() {
-        let dir = std::env::temp_dir().join(format!("patorrent-win32-add-session-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-win32-add-session-{}", std::process::id()));
         let save = dir.to_string_lossy().into_owned();
         let mut f =
             Fixture::new(&FILES, Setup { in_session: true, save_dirs: vec![save.clone()], ..setup() });
@@ -1254,7 +1254,7 @@ mod tests {
 
     #[test]
     fn ok_hands_over_the_choice() {
-        let dir = std::env::temp_dir().join(format!("patorrent-win32-add-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-win32-add-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         let mut f = Fixture::new(&FILES, setup());
         let save = dir.join("new folder");
@@ -1302,7 +1302,7 @@ mod tests {
 
     #[test]
     fn the_preference_decides_whether_it_is_shown() {
-        // the switch lives in patorrent.ini as ui.show_add_dialog, on by default
+        // the switch lives in rookparcel.ini as ui.show_add_dialog, on by default
         let mut prefs = Prefs::default();
         assert!(GuiOptions::load(&prefs, "x").show_add_dialog);
         let mut o = Options::load(&prefs, "x");

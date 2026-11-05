@@ -1,13 +1,13 @@
-//! Remote mode (PLAN.md Phase 6): the window drives a `patorrent-nox` elsewhere instead of an
-//! engine of its own. `patorrent.exe --remote` (File > Connect to Remote... starts one) asks
+//! Remote mode (PLAN.md Phase 6): the window drives a `rookparcel-nox` elsewhere instead of an
+//! engine of its own. `rookparcel.exe --remote` (File > Connect to Remote... starts one) asks
 //! where to connect, has the user check a self-signed server's certificate, and runs the usual
-//! window on a remote session (`patorrent_core::remote`): the same models, dialogs and
+//! window on a remote session (`rookparcel_core::remote`): the same models, dialogs and
 //! automations, the server's torrents.
 //!
 //! What such a window keeps on disk (its settings, labels, RSS feeds) lives in a folder of its
 //! own per server (`remote\<host>_<port>` in the settings folder), so it never mixes with the
 //! local client's. The connection details and the accepted certificates are in `remote.ini`
-//! beside `patorrent.ini`; the password is not stored. Folders on this computer mean nothing
+//! beside `rookparcel.ini`; the password is not stored. Folders on this computer mean nothing
 //! to the server: the folder pickers for torrents are off, and so are Open Containing Folder,
 //! seeding a torrent just created here, and the local IP filter.
 
@@ -15,12 +15,12 @@ use std::path::PathBuf;
 use std::ptr::{null, null_mut};
 use std::sync::OnceLock;
 
-use patorrent_core::Session;
-use patorrent_core::remote::{self, Hello, Target};
-use patorrent_core::tls::Verify;
-use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::remote::{self as connect, Failure, Form, Probe, TIMEOUT};
-use patorrent_frontend::tr;
+use rookparcel_core::Session;
+use rookparcel_core::remote::{self, Hello, Target};
+use rookparcel_core::tls::Verify;
+use rookparcel_frontend::prefs::Prefs;
+use rookparcel_frontend::remote::{self as connect, Failure, Form, Probe, TIMEOUT};
+use rookparcel_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Input::KeyboardAndMouse::SetFocus;
@@ -222,13 +222,13 @@ unsafe extern "system" fn proc_(dlg: HWND, msg: u32, wp: WPARAM, lp: LPARAM) -> 
     }
 }
 
-/// Starts another PaTorrent window in remote mode (File > Connect to Remote...), in this
+/// Starts another Rookparcel window in remote mode (File > Connect to Remote...), in this
 /// window's profile, whose folder keeps its connections.
 pub fn start_remote_window(owner: HWND) {
-    let profile = patorrent_frontend::profile::current().args();
+    let profile = rookparcel_frontend::profile::current().args();
     if let Err(e) = std::process::Command::new(crate::util::exe_path()).args(profile).arg("--remote").spawn()
     {
-        dialogs::error(owner, &tr!(ErrStartPaTorrent, error = e));
+        dialogs::error(owner, &tr!(ErrStartRookparcel, error = e));
     }
 }
 
@@ -238,7 +238,7 @@ mod tests {
 
     #[test]
     fn folders_and_the_template() {
-        let base = std::path::Path::new(r"C:\PaTorrent");
+        let base = std::path::Path::new(r"C:\Rookparcel");
         assert_eq!(data_dir(base, "nas.lan:8080"), base.join("remote").join("nas.lan_8080"));
         // the template is well formed: its item count is the twelve controls
         let t = template();

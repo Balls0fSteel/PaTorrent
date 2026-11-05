@@ -1,12 +1,12 @@
 # First start and the Setup Guide
 
-This page covers what happens the first time you start PaTorrent: the Setup Guide, a short window with four questions, what each answer sets, and how to open the guide again later.
+This page covers what happens the first time you start Rookparcel: the Setup Guide, a short window with four questions, what each answer sets, and how to open the guide again later.
 
-*New in 1.1.62; not in a published release yet.* In 1.1.40 there is no guide: PaTorrent opens with its default settings, and everything below is set in **Options > Preferences** instead.
+*New in 1.1.62; not in a published release yet.* In 1.1.40 there is no guide: Rookparcel opens with its default settings, and everything below is set in **Options > Preferences** instead.
 
 ## When the guide opens
 
-The Setup Guide opens by itself at the first start of PaTorrent: when its settings file has no settings in it yet. That is a new installation, a new portable folder, and every new [profile](Profiles). It opens before the main window, so nothing starts downloading before you have answered.
+The Setup Guide opens by itself at the first start of Rookparcel: when its settings file has no settings in it yet. That is a new installation, a new portable folder, and every new [profile](Profiles). It opens before the main window, so nothing starts downloading before you have answered.
 
 It does not open by itself for someone who already used an older version: the settings are there. Open it from the menu instead (below).
 
@@ -44,16 +44,16 @@ Every connection to a peer takes a place in your router's connection table. Olde
 
 **Which router do you have?**
 
-- **Modern (bought after about 2015), or not sure:** PaTorrent's normal numbers of connections.
+- **Modern (bought after about 2015), or not sure:** Rookparcel's normal numbers of connections.
 - **Older, or the internet provider's basic box:** fewer connections: 100 in all, 40 per torrent, and 8 new ones a second.
 
 The older answer is a starting point. You can change these numbers later in **Options > Preferences > Bandwidth** and **Advanced**. Answering modern later puts the normal numbers back.
 
-The same page has **Keep ping low (limit speeds automatically)**. Tick it if you play games or make calls while PaTorrent runs: it holds the speeds down while your line is busy. See [Keep ping low](Keep-ping-low).
+The same page has **Keep ping low (limit speeds automatically)**. Tick it if you play games or make calls while Rookparcel runs: it holds the speeds down while your line is busy. See [Keep ping low](Keep-ping-low).
 
 ## Page 3: Your disks
 
-**Use smart disk I/O** keeps the computer responsive while PaTorrent reads and writes:
+**Use smart disk I/O** keeps the computer responsive while Rookparcel reads and writes:
 
 - checks run at the system's background disk priority;
 - each drive is tuned for its type (SSD, hard disk, network share);
@@ -63,20 +63,20 @@ Gentle checks and the tuning per drive are on from the start. The box adds the s
 
 ## Page 4: This computer
 
-PaTorrent can start when you sign in, and open `.torrent` files and `magnet:` links from your browser and file manager.
+Rookparcel can start when you sign in, and open `.torrent` files and `magnet:` links from your browser and file manager.
 
 | Setting | Meaning |
 |---|---|
-| **Start PaTorrent on system startup** | starts PaTorrent when you sign in |
-| **Associate with .torrent files** | double-clicking a `.torrent` file opens it in PaTorrent |
-| **Associate with magnet: links** | clicking a `magnet:` link in the browser opens it in PaTorrent |
+| **Start Rookparcel on system startup** | starts Rookparcel when you sign in |
+| **Associate with .torrent files** | double-clicking a `.torrent` file opens it in Rookparcel |
+| **Associate with magnet: links** | clicking a `magnet:` link in the browser opens it in Rookparcel |
 
 **Options > Preferences > General** changes these later. See [Tray, notifications and startup](Tray-notifications-and-startup).
 
 This page is left out where it does not apply:
 
 - **The Windows installer** already asked about the associations, so an installed copy shows three pages at its first start. The page is there when you open the guide from the menu.
-- **The Flatpak** shows only the startup box: the desktop decides which program opens `.torrent` files and `magnet:` links. So does macOS where PaTorrent cannot set the associations itself (a named profile, or a bare binary outside `PaTorrent.app`).
+- **The Flatpak** shows only the startup box: the desktop decides which program opens `.torrent` files and `magnet:` links. So does macOS where Rookparcel cannot set the associations itself (a named profile, or a bare binary outside `Rookparcel.app`).
 
 ## Opening the guide again
 
@@ -85,7 +85,7 @@ Choose **Options > Setup Guide**, or press <kbd>Ctrl</kbd>+<kbd>G</kbd>. The gui
 ## GTK and the Web UI
 
 - The GTK version (Linux, the BSDs, macOS) has the same guide, with the same pages, at the first start of each profile and under **Options > Setup Guide** (<kbd>Ctrl</kbd>+<kbd>G</kbd>).
-- `patorrent-nox` and the Web UI have no guide. Set them up in the Web UI's Preferences: see [Web UI](Web-UI) and [Running patorrent-nox](Running-patorrent-nox).
+- `rookparcel-nox` and the Web UI have no guide. Set them up in the Web UI's Preferences: see [Web UI](Web-UI) and [Running rookparcel-nox](Running-rookparcel-nox).
 
 ## After the guide
 

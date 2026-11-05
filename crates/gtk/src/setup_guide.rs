@@ -1,6 +1,6 @@
 //! Options > Setup Guide (D53): the first start's few questions, one page at a time, in a modal
 //! window. The pages, what they set and the help texts come from
-//! [`patorrent_frontend::setup_guide`]; the controls are drawn as Preferences draws its fields
+//! [`rookparcel_frontend::setup_guide`]; the controls are drawn as Preferences draws its fields
 //! ([`crate::preferences::Builder`]), a question with two or three answers as option buttons.
 //! Skip (or closing the window) keeps everything as it is; Finish applies what was changed.
 
@@ -10,11 +10,11 @@ use std::rc::Rc;
 
 use gtk::glib;
 use gtk::prelude::*;
-use patorrent_frontend::lang::{self, gtk_mnemonic};
-use patorrent_frontend::options::Options;
-use patorrent_frontend::pref_pages::{self, Features, Item, Page};
-use patorrent_frontend::setup_guide::{self, Answers, Guide};
-use patorrent_frontend::tr;
+use rookparcel_frontend::lang::{self, gtk_mnemonic};
+use rookparcel_frontend::options::Options;
+use rookparcel_frontend::pref_pages::{self, Features, Item, Page};
+use rookparcel_frontend::setup_guide::{self, Answers, Guide};
+use rookparcel_frontend::tr;
 
 use crate::preferences::{Builder, Ctl};
 

@@ -15,11 +15,11 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use patorrent_core::crypto::Sha256;
-use patorrent_core::{Session, SessionParams, Settings};
-use patorrent_frontend::search::helper::{self, release, sha512};
-use patorrent_nox::webui::json::{self, Json};
-use patorrent_nox::webui::{Config, WebUi};
+use rookparcel_core::crypto::Sha256;
+use rookparcel_core::{Session, SessionParams, Settings};
+use rookparcel_frontend::search::helper::{self, release, sha512};
+use rookparcel_nox::webui::json::{self, Json};
+use rookparcel_nox::webui::{Config, WebUi};
 
 const PASS: &str = "helper-pass";
 const RESULTS: &str = include_str!("../../frontend/src/search/fixtures/prowlarr-results.xml");
@@ -384,7 +384,7 @@ impl Web {
 
     fn pa(&self, sid: &str, path: &str, body: &str, extra: &[(&str, &str)]) -> (u16, String) {
         let origin = format!("http://{}", self.addr);
-        let mut h = vec![("Cookie", sid), ("Origin", origin.as_str()), ("X-Requested-With", "PaTorrent")];
+        let mut h = vec![("Cookie", sid), ("Origin", origin.as_str()), ("X-Requested-With", "Rookparcel")];
         h.extend_from_slice(extra);
         self.req("POST", path, &h, body)
     }
@@ -474,7 +474,7 @@ fn the_web_ui_installs_runs_and_removes_the_helper() {
     let (name, data) = release_archive();
     let gh = fake_github(name, data);
     // SAFETY: set before any thread of ours reads the environment (the Web UI's do not)
-    unsafe { std::env::set_var("PATORRENT_HELPER_RELEASES", format!("http://{}/latest", gh.addr)) };
+    unsafe { std::env::set_var("ROOKPARCEL_HELPER_RELEASES", format!("http://{}/latest", gh.addr)) };
 
     // Get: the check, then the install behind the password
     let mut seen = Vec::new();

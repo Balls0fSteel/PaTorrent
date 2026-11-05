@@ -1,15 +1,15 @@
 //! Remote mode (PLAN.md Phase 7 slice 5, as the Win32 client's `remote_ui`): the window drives
-//! a `patorrent-nox` elsewhere instead of an engine of its own. `patorrent-gtk --remote` (File >
+//! a `rookparcel-nox` elsewhere instead of an engine of its own. `rookparcel-gtk --remote` (File >
 //! Connect to Remote... starts one) asks where to connect, has the user check a self-signed
 //! server's certificate, and runs the usual window on a remote session
-//! (`patorrent_core::remote`): the same models, dialogs and automations, the server's torrents.
+//! (`rookparcel_core::remote`): the same models, dialogs and automations, the server's torrents.
 //!
 //! A remote window is a process of its own outside the single instance (`NON_UNIQUE`), so a
 //! second local start still hands its torrents to the local window, and several servers can be
 //! open at once. What it keeps on disk (its settings, labels, RSS feeds) lives in a folder per
 //! server, `remote/<host>_<port>` in the settings folder ([`crate::paths::settings_dir`]); the
 //! connection details and the accepted certificates are in `remote.ini` beside the local
-//! `patorrent.ini`, never the password (`patorrent_frontend::remote`). Folders on this computer
+//! `rookparcel.ini`, never the password (`rookparcel_frontend::remote`). Folders on this computer
 //! mean nothing to the server: the folder pickers for torrents are off (Save In and Set Download
 //! Location are typed), and so are Open Containing Folder, seeding a torrent just created here
 //! and the local IP filter.
@@ -24,13 +24,13 @@ use std::sync::OnceLock;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_core::Session;
-use patorrent_core::remote::{self, ConnectError, Hello, Target};
-use patorrent_core::tls::Verify;
-use patorrent_frontend::lang::gtk_mnemonic;
-use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::remote::{self as connect, Failure, Form, Probe, TIMEOUT};
-use patorrent_frontend::tr;
+use rookparcel_core::Session;
+use rookparcel_core::remote::{self, ConnectError, Hello, Target};
+use rookparcel_core::tls::Verify;
+use rookparcel_frontend::lang::gtk_mnemonic;
+use rookparcel_frontend::prefs::Prefs;
+use rookparcel_frontend::remote::{self as connect, Failure, Form, Probe, TIMEOUT};
+use rookparcel_frontend::tr;
 
 use crate::paths;
 
@@ -345,7 +345,7 @@ impl Dialog {
     }
 }
 
-/// Starts another PaTorrent window in remote mode (File > Connect to Remote...): this executable
+/// Starts another Rookparcel window in remote mode (File > Connect to Remote...): this executable
 /// again (inside a Flatpak's sandbox too), or the AppImage file, whose mount goes away with this
 /// process.
 pub fn start_remote_window(parent: &impl IsA<gtk::Window>) {
@@ -353,7 +353,7 @@ pub fn start_remote_window(parent: &impl IsA<gtk::Window>) {
     let started = match program {
         // in this window's profile, whose folder keeps its connections
         Some(p) => std::process::Command::new(p)
-            .args(patorrent_frontend::profile::current().args())
+            .args(rookparcel_frontend::profile::current().args())
             .arg(SWITCH)
             .spawn(),
         None => Err(std::io::Error::other("the program's path is not known")),
@@ -362,7 +362,7 @@ pub fn start_remote_window(parent: &impl IsA<gtk::Window>) {
         // reaped when it ends, so it leaves no zombie behind
         Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
         Err(e) => gtk::AlertDialog::builder()
-            .message(tr!(ErrStartPaTorrent, error = e))
+            .message(tr!(ErrStartRookparcel, error = e))
             .modal(true)
             .build()
             .show(Some(parent)),

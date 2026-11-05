@@ -16,14 +16,14 @@ use std::net::{SocketAddr, TcpListener};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
 
 /// The indexer's API key.
 pub const KEY: &str = "S3cretK3y0123456789abcdef";
 pub const FAWLTY: &str = "Fawlty.Towers.S01E01.720p.WEB-DL.x264-PATEST";
 pub const NIGHT: &str = "Night.of.the.Living.Dead.1968.720p.WEB-DL.x264-PATEST";
-pub const GRAB: &str = "PaTorrent.Prowlarr.Grab.Test.x264-PATEST";
+pub const GRAB: &str = "Rookparcel.Prowlarr.Grab.Test.x264-PATEST";
 
 const RESULTS: &str = include_str!("../../../frontend/src/search/fixtures/prowlarr-results.xml");
 const CAPS: &str = include_str!("../../../frontend/src/search/fixtures/prowlarr-caps.xml");

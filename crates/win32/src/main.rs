@@ -1,12 +1,12 @@
-//! PaTorrent for Windows: a native Win32 client in the spirit of µTorrent 2.2.1.
+//! Rookparcel for Windows: a native Win32 client in the spirit of µTorrent 2.2.1.
 //!
 //! Phase 3: the µTorrent 2.2.1 main window on the real engine. One instance runs per user;
 //! starting another forwards its arguments (`.torrent` paths, `magnet:` links, URLs) to the
 //! running one, as µTorrent does. `--minimized` starts in the tray (the autostart entry's
 //! "Start minimized"). `--demo N` runs the simulated engine with N synthetic torrents instead
-//! (scale testing). `--remote` drives a patorrent-nox elsewhere (`remote_ui`). `--associate` and
+//! (scale testing). `--remote` drives a rookparcel-nox elsewhere (`remote_ui`). `--associate` and
 //! `--unregister` are the installer's (`setup`). `--profile NAME` runs a profile of its own
-//! (D42, `patorrent_frontend::profile`), with its own folder, window and instance.
+//! (D42, `rookparcel_frontend::profile`), with its own folder, window and instance.
 
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
@@ -65,9 +65,9 @@ mod webui_host;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
     // first: every folder below depends on it (D42); never a source
-    let args = match patorrent_frontend::profile::split_args(&args) {
+    let args = match rookparcel_frontend::profile::split_args(&args) {
         Ok((name, rest)) => {
-            patorrent_frontend::profile::init(name);
+            rookparcel_frontend::profile::init(name);
             rest
         }
         Err(e) => {
@@ -77,6 +77,11 @@ fn main() {
     };
     if let Some(task) = setup::parse(&args) {
         std::process::exit(setup::run(task));
+    }
+    // PaTorrent's folder becomes ours before anything reads it (D59); not in the setup's tasks
+    if let Err(old) = rookparcel_frontend::legacy::migrate() {
+        app::folder_in_use(&old);
+        std::process::exit(1);
     }
     let parsed = app::parse_args(&args);
     // a remote window is not the single local instance, and takes no forwarded torrents
@@ -97,8 +102,8 @@ mod instance {
     use std::path::Path;
     use std::ptr::{null, null_mut};
 
-    use patorrent_frontend::lang;
-    use patorrent_frontend::prefs::Prefs;
+    use rookparcel_frontend::lang;
+    use rookparcel_frontend::prefs::Prefs;
     use windows_sys::Win32::Foundation::{
         ERROR_ACCESS_DENIED, ERROR_ALREADY_EXISTS, GetLastError, HANDLE, HWND, WAIT_ABANDONED, WAIT_OBJECT_0,
     };
@@ -121,7 +126,7 @@ mod instance {
             .chars()
             .map(|c| if c.is_alphanumeric() { c } else { '_' })
             .collect();
-        let name = wide(&format!(r"Local\PaTorrent-{key}"));
+        let name = wide(&format!(r"Local\Rookparcel-{key}"));
         // Leaked on purpose: the mutex lives as long as the process. A new one is owned by
         // this (the main) thread; an existing one is not.
         let m = unsafe { CreateMutexW(null(), 1, name.as_ptr()) };
@@ -184,7 +189,7 @@ mod instance {
                     // the first instance runs as administrator: Windows keeps this one's message
                     // from it (SEC-25); say so rather than drop the torrent silently
                     if outcome == Outcome::Refused && !sources.is_empty() {
-                        let prefs = Prefs::load(data_dir().join("patorrent.ini"));
+                        let prefs = Prefs::load(data_dir().join("rookparcel.ini"));
                         lang::init(prefs.get("ui.language").unwrap_or_default());
                         crate::dialogs::error(null_mut(), lang::text(lang::S::ForwardRefused));
                     }
@@ -257,15 +262,15 @@ mod instance {
 
 #[cfg(windows)]
 mod setup {
-    //! The installer's hidden flags (`packaging/windows/patorrent.nsi`): they change the
+    //! The installer's hidden flags (`packaging/windows/rookparcel.nsi`): they change the
     //! registration as Preferences > General does and exit without a window. `--associate
     //! torrent,magnet` (either or both) makes this executable the program for `.torrent` files
     //! and `magnet:` links; `--unregister` removes what names this executable (associations,
     //! Default apps, autostart) before the uninstaller deletes it. The exit code is 0 when done,
     //! 1 when the registry refused, 2 for a bad argument.
 
-    use patorrent_frontend::lang;
-    use patorrent_frontend::prefs::Prefs;
+    use rookparcel_frontend::lang;
+    use rookparcel_frontend::prefs::Prefs;
 
     use crate::app::base_data_dir;
     use crate::integration::{self, Keys};
@@ -306,7 +311,7 @@ mod setup {
         let done = match task {
             Ok(Task::Associate { torrent, magnet }) => {
                 // the type names it writes in the language chosen in Preferences, if any
-                let prefs = Prefs::load(base_data_dir().join("patorrent.ini"));
+                let prefs = Prefs::load(base_data_dir().join("rookparcel.ini"));
                 lang::init(prefs.get("ui.language").unwrap_or_default());
                 integration::associate(&keys, &exe, torrent, magnet)
             }
@@ -373,6 +378,6 @@ mod tests {
 
 #[cfg(not(windows))]
 fn main() {
-    eprintln!("patorrent is the Windows GUI; use patorrent-nox (or patorrent-gtk) on this platform.");
+    eprintln!("rookparcel is the Windows GUI; use rookparcel-nox (or rookparcel-gtk) on this platform.");
     std::process::exit(1);
 }

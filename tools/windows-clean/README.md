@@ -1,18 +1,18 @@
 # Clean-machine check of the Windows release files
 
-Two scripts for a clean Windows 10 or 11 machine (the test VM, reached over SSH), run on a draft release's files before publishing it ([RELEASING.md](../../docs/RELEASING.md) step 5). They cover what the release job's own install test cannot: a machine that never had PaTorrent, the default folders, an upgrade, and the all-users mode. First run 2026-10-29 on 1.1.2, all passed.
+Two scripts for a clean Windows 10 or 11 machine (the test VM, reached over SSH), run on a draft release's files before publishing it ([RELEASING.md](../../docs/RELEASING.md) step 5). They cover what the release job's own install test cannot: a machine that never had Rookparcel, the default folders, an upgrade, and the all-users mode. First run 2026-10-29 on 1.1.2, all passed.
 
-Copy the draft's `patorrent-<version>-windows-x64.zip` and `-setup.exe` (checked against `SHA256SUMS`), the previous release's setup and the two scripts into one folder on the machine (default `C:\Users\x\patest`), then:
+Copy the draft's `rookparcel-<version>-windows-x64.zip` and `-setup.exe` (checked against `SHA256SUMS`), the previous release's setup and the two scripts into one folder on the machine (default `C:\Users\x\patest`), then:
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File .\zip-test.ps1 -Version 1.1.2
 powershell -NoProfile -ExecutionPolicy Bypass -File .\setup-test.ps1 -Version 1.1.2 -OldVersion 1.1.0
 ```
 
-- `zip-test.ps1` unpacks the zip, prints the file versions and signature state, runs `patorrent-nox --version`, starts nox with its Web UI and logs in, starts the GUI in portable mode with its Web UI and logs in (so it really runs, with no desktop), checks `%APPDATA%` stays untouched and asks Defender for detections.
+- `zip-test.ps1` unpacks the zip, prints the file versions and signature state, runs `rookparcel-nox --version`, starts nox with its Web UI and logs in, starts the GUI in portable mode with its Web UI and logs in (so it really runs, with no desktop), checks `%APPDATA%` stays untouched and asks Defender for detections.
 - `setup-test.ps1` installs the previous release for the user with shortcuts and associations, tries the new setup while the GUI runs (it must refuse, exit 2), upgrades, checks the single Settings > Apps entry, the shortcuts, associations and settings that must stay, starts the installed GUI and nox, uninstalls silently as Settings > Apps does, then installs and uninstalls for all users (needs an administrator; an SSH login of one is elevated). It prints `ok` / `FAIL` per check and the number of failures.
 
-Not covered, since an SSH session has no desktop: SmartScreen (files copied over SSH carry no Mark of the Web), the wizard's pages and UAC prompt, "Run PaTorrent" starting it not elevated, drag and drop, and double-clicking a `.torrent` or opening a `magnet:` link. Those stay hand checks ([RELEASING.md](../../docs/RELEASING.md#windows-installer)).
+Not covered, since an SSH session has no desktop: SmartScreen (files copied over SSH carry no Mark of the Web), the wizard's pages and UAC prompt, "Run Rookparcel" starting it not elevated, drag and drop, and double-clicking a `.torrent` or opening a `magnet:` link. Those stay hand checks ([RELEASING.md](../../docs/RELEASING.md#windows-installer)).
 
 PowerShell variable names ignore case: a parameter must not share a name with a script variable.
 
@@ -32,6 +32,6 @@ P .\in-session.ps1 -Script C:\Users\x\patest\drive-closing.ps1 -ScriptArgs '-Tag
 P .\setup-closing.ps1 -Down
 ```
 
-- `drive-update.ps1` starts the installed PaTorrent with `PATORRENT_UPDATE_URL` and `PATORRENT_UPDATE_FILES` pointing at `serve.ps1` (`-Delay` slows it so Cancel can be pressed), takes "Download and install" and answers "Close and install now?" Yes, then checks that a new PaTorrent starts from the same folder, not elevated, with the Settings > Apps entry at the new version. The box comes once per version: remove `update.seen` from `%APPDATA%\PaTorrent\patorrent.ini` before a repeat run. The setup in `upd` can carry the same executables under a higher `/DVERSION`.
-- `setup-closing.ps1` also writes the GUI's settings: no Add dialog, the Web UI on `127.0.0.1:8080` with this machine let in without a login (`webui.password` needs a hash in `hash.txt`, e.g. the one `patorrent-nox run --webui-pass` stores in `webui.json`). `drive-closing.ps1` moves the torrents through the Web UI's qBittorrent API, posts File > Exit, reads the closing window and its question by window handle (UI Automation does not list them under the desktop) and checks the folders and a restart; `-NoQuit` waits for the moves instead.
+- `drive-update.ps1` starts the installed Rookparcel with `ROOKPARCEL_UPDATE_URL` and `ROOKPARCEL_UPDATE_FILES` pointing at `serve.ps1` (`-Delay` slows it so Cancel can be pressed), takes "Download and install" and answers "Close and install now?" Yes, then checks that a new Rookparcel starts from the same folder, not elevated, with the Settings > Apps entry at the new version. The box comes once per version: remove `update.seen` from `%APPDATA%\Rookparcel\rookparcel.ini` before a repeat run. The setup in `upd` can carry the same executables under a higher `/DVERSION`.
+- `setup-closing.ps1` also writes the GUI's settings: no Add dialog, the Web UI on `127.0.0.1:8080` with this machine let in without a login (`webui.password` needs a hash in `hash.txt`, e.g. the one `rookparcel-nox run --webui-pass` stores in `webui.json`). `drive-closing.ps1` moves the torrents through the Web UI's qBittorrent API, posts File > Exit, reads the closing window and its question by window handle (UI Automation does not list them under the desktop) and checks the folders and a restart; `-NoQuit` waits for the moves instead.
 - Not covered: the all-users update (the UAC prompt is on the secure desktop), a sign-out during a move, and anything that needs eyes on the window's layout.

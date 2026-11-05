@@ -160,7 +160,7 @@ strings! {
     MenuAddTorrent = "&Add Torrent...";
     MenuAddUrl = "Add Torrent from &URL...";
     MenuCreate = "&Create New Torrent...";
-    /// Connect this window to a patorrent-nox on another computer.
+    /// Connect this window to a rookparcel-nox on another computer.
     MenuConnectRemote = "Connect to &Remote...";
     /// File > Profiles (D42): the profiles, each started in a window of its own.
     MenuProfiles = "Pro&files";
@@ -184,15 +184,15 @@ strings! {
     MenuAutoShutdown = "&Auto Shutdown";
     MenuCloseToTray = "Close to Tra&y";
     MenuMinimizeToTray = "&Minimize to Tray";
-    MenuAbout = "&About PaTorrent";
-    /// Help menu: opens a window with the licence texts of the code PaTorrent is built on
+    MenuAbout = "&About Rookparcel";
+    /// Help menu: opens a window with the licence texts of the code Rookparcel is built on
     /// (THIRD-PARTY-NOTICES.md); without the mnemonic it is also the window's title.
     MenuNotices = "Third-Party &Notices";
-    /// Help menu: asks the project website whether a newer PaTorrent is out; without the &
+    /// Help menu: asks the project website whether a newer Rookparcel is out; without the &
     /// it is also the title of the message box that answers.
     MenuCheckUpdates = "Check for &Updates";
     /// Help menu: opens the project website in the browser.
-    MenuWebsite = "PaTorrent &Website";
+    MenuWebsite = "Rookparcel &Website";
     /// The Ctrl key, as menus write shortcuts (Ctrl+O).
     KeyCtrl = "Ctrl";
     /// The Shift key, as menus write shortcuts (Shift+Del).
@@ -201,8 +201,8 @@ strings! {
     KeyDel = "Del";
     /// The Enter key, as menus write shortcuts (Enter).
     KeyEnter = "Enter";
-    MenuHide = "&Hide PaTorrent";
-    MenuShow = "&Show PaTorrent";
+    MenuHide = "&Hide Rookparcel";
+    MenuShow = "&Show Rookparcel";
     MenuStartAll = "S&tart All Torrents";
     MenuStopAll = "St&op All Torrents";
     /// Shown when one finished torrent is selected.
@@ -338,7 +338,7 @@ strings! {
 
     NetOk = "Network OK";
     NetNoIncoming = "No incoming connections";
-    /// The listen port is held by another program (often another PaTorrent profile); a click
+    /// The listen port is held by another program (often another Rookparcel profile); a click
     /// opens Preferences > Connection.
     NetPortInUse = "Port {port} in use";
     BarDht = "DHT: {count} nodes";
@@ -346,14 +346,14 @@ strings! {
     BarDown = "D: {rate} T: {total}";
     /// U = upload, T = total.
     BarUp = "U: {rate} T: {total}";
-    /// The tray icon's tooltip; D = download, U = upload; {version} is PaTorrent's (1.0.0).
-    TrayTip = "PaTorrent {version}\nD: {down} U: {up}";
+    /// The tray icon's tooltip; D = download, U = upload; {version} is Rookparcel's (1.0.0).
+    TrayTip = "Rookparcel {version}\nD: {down} U: {up}";
     BalloonComplete = "Download Complete";
-    /// The window title of a window connected to a patorrent-nox; {label} is host:port.
-    TitleRemote = "PaTorrent {version} - {label} (remote)";
-    TitleDisconnected = "PaTorrent {version} - {label} (disconnected)";
+    /// The window title of a window connected to a rookparcel-nox; {label} is host:port.
+    TitleRemote = "Rookparcel {version} - {label} (remote)";
+    TitleDisconnected = "Rookparcel {version} - {label} (disconnected)";
     /// The main window's title with "Show current speed in the title bar" on: D = download,
-    /// U = upload; {title} is the normal title (PaTorrent 1.0.0).
+    /// U = upload; {title} is the normal title (Rookparcel 1.0.0).
     TitleSpeed = "D:{down} U:{up} - {title}";
     /// BarDown and BarUp while Keep ping low limits the speed: {cap} is the automatic limit,
     /// a speed like 450 kB/s.
@@ -402,8 +402,8 @@ strings! {
     LogIpFilterKept = "IP filter: {path}: {error} (the old rules stay)";
     /// {title} is an RSS item's title.
     LogRssAlreadyInList = "RSS: {title}: already in the torrent list";
-    /// {version} is a newer PaTorrent's version (1.0.1), {url} its download page.
-    LogUpdateAvailable = "PaTorrent {version} is available: {url}";
+    /// {version} is a newer Rookparcel's version (1.0.1), {url} its download page.
+    LogUpdateAvailable = "Rookparcel {version} is available: {url}";
     LogUpdateFailed = "Update check failed: {error}";
     /// {what} is one of the two below.
     LogSeedingGoal = "{name}: seeding goal reached, {what}";
@@ -413,10 +413,10 @@ strings! {
     // ---- Message boxes and errors
 
     ErrEngineStart = "Cannot start the BitTorrent engine:\n{error}";
-    AskAssociate = "PaTorrent is not the program that opens .torrent files and magnet: links.\n\nAssociate them with PaTorrent?\n\n(Preferences > General > \"Check association on startup\" turns this question off.)";
+    AskAssociate = "Rookparcel is not the program that opens .torrent files and magnet: links.\n\nAssociate them with Rookparcel?\n\n(Preferences > General > \"Check association on startup\" turns this question off.)";
     /// {note} says which program Windows still uses.
     AskDefaultApps = "{note}\n\nWindows keeps a program chosen in Windows itself, and only you can change that choice, in Settings > Default apps. Open Default apps now?";
-    ErrAssociate = "Could not associate PaTorrent:\n{error}";
+    ErrAssociate = "Could not associate Rookparcel:\n{error}";
     ErrIntegration = "Could not change the Windows integration:\n{error}";
     ErrDesktopIntegration = "Could not change the desktop integration:\n{error}";
     AssocTorrent = "Windows still opens .torrent files with {program}.";
@@ -424,15 +424,15 @@ strings! {
     AssocBoth = "Windows still opens .torrent files and magnet: links with {program}.";
     AssocEach = "Windows still opens .torrent files with {torrent}, magnet: links with {magnet}.";
     /// {note} is one of the four above.
-    AssocChoose = "{note} Choose PaTorrent in Default apps.";
-    /// Another profile of this PaTorrent owns the associations (D42); `{profile}` is its name
+    AssocChoose = "{note} Choose Rookparcel in Default apps.";
+    /// Another profile of this Rookparcel owns the associations (D42); `{profile}` is its name
     /// (`default` for the default profile).
-    AssocOtherProfile = "The PaTorrent profile \"{profile}\" opens them now; ticking a box makes this profile open them instead.";
+    AssocOtherProfile = "The Rookparcel profile \"{profile}\" opens them now; ticking a box makes this profile open them instead.";
     /// Windows' name for the .torrent file type (Explorer's Type column).
     AssocTorrentType = "Torrent File";
     /// Windows' name for magnet: links.
     AssocMagnetType = "Magnet link";
-    /// PaTorrent's description in Windows' Default apps.
+    /// Rookparcel's description in Windows' Default apps.
     AppDescription = "BitTorrent client";
     ErrAddTorrent = "Could not add {name}:\n{error}";
     /// {label} is host:port, {message} what went wrong.
@@ -461,7 +461,7 @@ strings! {
     CannotDownload = "Could not download {url}";
     /// The Files tab's Relocate (or a rename) refused, for example by a file already there.
     CannotRelocate = "Could not move or rename a file of {name}";
-    ErrNotALink = "Not a link PaTorrent can add";
+    ErrNotALink = "Not a link Rookparcel can add";
     /// Keep the example links as they are.
     UrlPlaceholder = "magnet:?xt=… or https://…/file.torrent";
     /// Remove the torrent and delete its files (one menu item).
@@ -469,26 +469,26 @@ strings! {
     AboutShort = "A BitTorrent client in the spirit of µTorrent 2.2.1, on a Rust port of libtorrent.";
     AskDeleteFeed = "Delete the feed \"{name}\"?";
     ErrNotRunning = "not running";
-    /// In the status bar, until clicked, when a newer PaTorrent is out ({version}, like 1.0.1);
+    /// In the status bar, until clicked, when a newer Rookparcel is out ({version}, like 1.0.1);
     /// clicking it opens the download page.
-    UpdateNotice = "PaTorrent {version} is available - click here to download it";
+    UpdateNotice = "Rookparcel {version} is available - click here to download it";
     /// Help > Check for Updates; {version} is the newer one, {current} the running one.
-    UpdateNewer = "PaTorrent {version} is available. You have {current}.\n\nOpen its download page?";
-    UpdateNewest = "You have the newest version, PaTorrent {version}.";
+    UpdateNewer = "Rookparcel {version} is available. You have {current}.\n\nOpen its download page?";
+    UpdateNewest = "You have the newest version, Rookparcel {version}.";
     UpdateFailed = "Could not check for updates: {error}";
-    /// The same question on Windows for an installed PaTorrent, which can update itself: the
+    /// The same question on Windows for an installed Rookparcel, which can update itself: the
     /// buttons are the two texts below and Cancel.
-    UpdateInstallAsk = "PaTorrent {version} is available. You have {current}.\n\nDownload and install it now?";
+    UpdateInstallAsk = "Rookparcel {version} is available. You have {current}.\n\nDownload and install it now?";
     UpdateInstallBtn = "Download and install";
     UpdateOpenPageBtn = "Open download page";
     /// The title of the small window with the progress bar while the setup downloads.
-    UpdateDownloading = "Downloading PaTorrent {version}...";
+    UpdateDownloading = "Downloading Rookparcel {version}...";
     /// {error} is the download's or the checksum's error, in English.
-    UpdateDownloadFailed = "Could not download PaTorrent {version}: {error}";
-    /// The setup is downloaded and checked; PaTorrent has to close for it to install.
-    UpdateInstallNow = "PaTorrent {version} is downloaded. To install it, PaTorrent closes now and starts again when Setup is done.\n\nClose and install now?";
+    UpdateDownloadFailed = "Could not download Rookparcel {version}: {error}";
+    /// The setup is downloaded and checked; Rookparcel has to close for it to install.
+    UpdateInstallNow = "Rookparcel {version} is downloaded. To install it, Rookparcel closes now and starts again when Setup is done.\n\nClose and install now?";
     /// {version} is like 1.0.0, {path} the settings file. Keep the names and licences as they are.
-    AboutText = "PaTorrent (PatinaTorrent) {version}\n\nA re-creation of µTorrent 2.2.1, built on a Rust port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or run patorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, µTorrent or BitTorrent, Inc.\n\nSettings: {path}";
+    AboutText = "Rookparcel {version}\n\nA re-creation of µTorrent 2.2.1, built on a Rust port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or run rookparcel-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, µTorrent or BitTorrent, Inc.\n\nSettings: {path}";
 
     // ---- Small dialogs: Add Torrent from URL, New Label, folder pickers, file filters
 
@@ -584,53 +584,53 @@ strings! {
     RemoteUser = "&User name:";
     RemotePassword = "Pass&word:";
     RemoteHttps = "Use HTTP&S";
-    RemoteNote = "The Web UI login of a patorrent-nox started with --webui. Its torrents stay on that computer.";
+    RemoteNote = "The Web UI login of a rookparcel-nox started with --webui. Its torrents stay on that computer.";
     RemoteConnect = "Connect";
     RemoteBadAddress = "Enter the server's host name or address, and its port (1 to 65535).";
     /// {name} is host:port, {error} what went wrong.
     RemoteCertChanged = "The certificate of {name} is not the one you accepted before:\n{error}\n\nIf it was replaced on purpose (a new --webui-cert, or webui-cert.pem renewed), connect again to check the new one. Otherwise someone may be in between.";
     RemoteCannotConnect = "Cannot connect to {name}:\n{error}";
-    RemoteHintNotNox = "Is it a patorrent-nox with its Web UI on this port (--webui)?";
+    RemoteHintNotNox = "Is it a rookparcel-nox with its Web UI on this port (--webui)?";
     RemoteHintHttps = "If the server's Web UI uses HTTPS (--webui-https), tick Use HTTPS.";
     RemoteNoHttps = "Cannot reach {name} over HTTPS:\n{error}";
     /// {fingerprint} is a long hexadecimal number.
-    RemoteTrust = "{name} presents a certificate that this computer does not trust (a self-signed one, as patorrent-nox --webui-https makes).\n\nSHA-256 fingerprint:\n{fingerprint}\n\nCompare it with the \"certificate SHA-256\" line patorrent-nox printed when it started. Trust this certificate for {name}?";
+    RemoteTrust = "{name} presents a certificate that this computer does not trust (a self-signed one, as rookparcel-nox --webui-https makes).\n\nSHA-256 fingerprint:\n{fingerprint}\n\nCompare it with the \"certificate SHA-256\" line rookparcel-nox printed when it started. Trust this certificate for {name}?";
     /// Asked before connecting without HTTPS to a host other than this computer.
     RemotePlaintext = "{name} is another computer, and without HTTPS your user name, password and every command cross the network unencrypted: anyone on it can read or change them.\n\nConnect without HTTPS anyway?";
-    ErrStartPaTorrent = "Cannot start PaTorrent: {error}";
+    ErrStartRookparcel = "Cannot start Rookparcel: {error}";
     /// A second copy was started with a torrent while the first runs with administrator rights.
-    ForwardRefused = "PaTorrent is already running as administrator, and Windows does not let this copy hand it what to add. Add it from the running PaTorrent, or start PaTorrent without administrator rights.";
-    /// The folder's `patorrent.lock` is held: another user session, or another computer that
+    ForwardRefused = "Rookparcel is already running as administrator, and Windows does not let this copy hand it what to add. Add it from the running Rookparcel, or start Rookparcel without administrator rights.";
+    /// The folder's `rookparcel.lock` is held: another user session, or another computer that
     /// opened the same folder over a share (D42).
-    FolderInUse = "Another PaTorrent is already using this folder, in another session or on another computer that shares it:\n\n{folder}\n\nClose that PaTorrent first.";
-    /// macOS runs a quarantined PaTorrent.app from a temporary read-only copy (App
-    /// Translocation), where a portable `patorrent.ini` beside it is not seen (D42).
-    MacTranslocated = "macOS is running PaTorrent from a temporary copy, so a patorrent.ini beside PaTorrent.app is not seen. Move PaTorrent.app to the folder you want (or to Applications) with Finder and start it again.";
-    /// Portable mode (a `patorrent.ini` beside the program) in a folder that cannot be written
-    /// (D42): PaTorrent does not fall back to the user's own folder.
-    PortableReadOnly = "This portable PaTorrent cannot write to its folder:\n\n{folder}\n{error}\n\nMove the folder where you can write, or remove patorrent.ini beside the program to keep the settings in your user folder.";
+    FolderInUse = "Another Rookparcel is already using this folder, in another session or on another computer that shares it:\n\n{folder}\n\nClose that Rookparcel first.";
+    /// macOS runs a quarantined Rookparcel.app from a temporary read-only copy (App
+    /// Translocation), where a portable `rookparcel.ini` beside it is not seen (D42).
+    MacTranslocated = "macOS is running Rookparcel from a temporary copy, so a rookparcel.ini beside Rookparcel.app is not seen. Move Rookparcel.app to the folder you want (or to Applications) with Finder and start it again.";
+    /// Portable mode (a `rookparcel.ini` beside the program) in a folder that cannot be written
+    /// (D42): Rookparcel does not fall back to the user's own folder.
+    PortableReadOnly = "This portable Rookparcel cannot write to its folder:\n\n{folder}\n{error}\n\nMove the folder where you can write, or remove rookparcel.ini beside the program to keep the settings in your user folder.";
     /// `--profile` with a name that cannot be used (D42); `{name}` is what was given.
     ProfileBadName = "\"{name}\" cannot be a profile name. A profile name has 1 to 32 characters: letters a-z, digits and hyphens (-), starting with a letter.";
     /// Asked at the first start of a named profile, before its folder is made.
     ProfileCreate = "The profile \"{name}\" does not exist yet. Create it?\n\nIt starts empty, like a new installation, in:\n{folder}";
-    /// Windows lists it beside PaTorrent while it holds up a sign-out or shutdown to save its
+    /// Windows lists it beside Rookparcel while it holds up a sign-out or shutdown to save its
     /// state.
     EndSessionSaving = "Saving the torrent list and progress...";
 
-    // ---- The window shown while PaTorrent closes (after a second, or at a Windows sign-out)
+    // ---- The window shown while Rookparcel closes (after a second, or at a Windows sign-out)
 
-    ExitTitle = "PaTorrent is closing";
+    ExitTitle = "Rookparcel is closing";
     /// {time} is minutes:seconds, like 1:05.
     ExitElapsed = "Closing for {time}";
     ExitStopping = "Stopping the torrents...";
-    ExitMoving = "Waiting for files to finish moving. Closing in the middle could leave a torrent half in one folder and half in another, so PaTorrent waits.";
+    ExitMoving = "Waiting for files to finish moving. Closing in the middle could leave a torrent half in one folder and half in another, so Rookparcel waits.";
     /// The list of moves: a column title, then its cells. {done} and {total} are sizes like
     /// 1.2 GB; a move that has not started yet shows ExitMoveWaiting.
     ExitColMoveTo = "Moving to";
     ExitMoveProgress = "{done} of {total}";
     ExitMoveWaiting = "Waiting";
     ExitSaving = "Saving the torrent list and progress. This step always finishes, so that nothing already downloaded is lost.";
-    ExitTrackers = "Telling the trackers that PaTorrent stopped...";
+    ExitTrackers = "Telling the trackers that Rookparcel stopped...";
     /// {size} is like 3.2 MB.
     ExitWriting = "Writing the last downloaded data to disk and closing files ({size} left)...";
     /// The button; the same & rules as the menus.
@@ -642,7 +642,7 @@ strings! {
     ExitAbortMove = "• \"{name}\" stops moving. Its files stay in {folder}; what was already copied to {dest} is deleted. Move it again later with Set Download Location.";
     /// After two ExitAbortMove lines when more torrents are moving; {count} is 2 or more.
     ExitAbortMoreMoves = "• {count} more torrents stop moving in the same way.";
-    ExitAbortTrackers = "• The trackers are not told that PaTorrent stopped; they forget it by themselves after a while.";
+    ExitAbortTrackers = "• The trackers are not told that Rookparcel stopped; they forget it by themselves after a while.";
     /// {size} is like 3.2 MB.
     ExitAbortWrites = "• {size} that was downloaded but not yet written is downloaded again next time. Nothing already on disk is affected.";
 
@@ -652,7 +652,7 @@ strings! {
     ShutdownDownloadsDone = "All downloads have completed.";
     ShutdownEverythingDone = "All torrents have completed.";
     /// {time} is minutes:seconds, like 0:30.
-    ShutdownWillQuit = "PaTorrent will quit in {time}.";
+    ShutdownWillQuit = "Rookparcel will quit in {time}.";
     ShutdownWillStandby = "The computer will go on standby in {time}.";
     ShutdownWillHibernate = "The computer will hibernate in {time}.";
     ShutdownWillShutDown = "The computer will shut down in {time}.";
@@ -687,10 +687,10 @@ strings! {
     PrefAssocTorrent = "Associate with .torrent files";
     PrefAssocMagnet = "Associate with magnet: links";
     PrefCheckAssoc = "Check association on startup";
-    PrefAutostart = "Start PaTorrent on system startup";
+    PrefAutostart = "Start Rookparcel on system startup";
     PrefStartMinimized = "Start minimized";
     /// Under Desktop Integration when the GTK client runs as a Flatpak (the boxes are greyed).
-    PrefDesktopPackaged = "PaTorrent runs as a Flatpak: the desktop offers it for .torrent files and magnet: links. Choose the default program in your desktop's settings.";
+    PrefDesktopPackaged = "Rookparcel runs as a Flatpak: the desktop offers it for .torrent files and magnet: links. Choose the default program in your desktop's settings.";
     PrefDefaultApps = "Default apps...";
     /// Preferences > General, as in µTorrent 2.2.1: the update check.
     PrefPrivacy = "Privacy";
@@ -799,7 +799,7 @@ strings! {
     SchedHover = "{day} {from}:00 - {to}:00: {mode}";
     PrefWebUi = "Enable Web UI";
     /// Preferences > Web UI (Windows): this window serves the Web UI itself (D40).
-    PrefWebUiNote = "The Web UI shows this window's torrents in a browser while PaTorrent is running (close to the tray to keep it up). Connections from other computers also need a Windows Firewall rule for patorrent.exe. The page's RSS Downloader edits this window's feeds and filters.";
+    PrefWebUiNote = "The Web UI shows this window's torrents in a browser while Rookparcel is running (close to the tray to keep it up). Connections from other computers also need a Windows Firewall rule for rookparcel.exe. The page's RSS Downloader edits this window's feeds and filters.";
     /// Beside the password field: an empty field keeps the stored password.
     PrefWebUiPassKeep = "(blank: unchanged)";
     PrefWebUiConnectivity = "Connectivity";
@@ -814,8 +814,8 @@ strings! {
     /// {error}: why the server could not start (the port is in use, a bad certificate).
     WebUiFailed = "The Web UI could not start: {error}";
     /// `WebUiFailed`'s `{error}` when its port is taken (D42).
-    WebUiPortInUse = "port {port} is in use, perhaps by another PaTorrent profile";
-    /// A window driving a patorrent-nox elsewhere (File > Connect to Remote) has no engine to serve.
+    WebUiPortInUse = "port {port} is in use, perhaps by another Rookparcel profile";
+    /// A window driving a rookparcel-nox elsewhere (File > Connect to Remote) has no engine to serve.
     WebUiRemoteWindow = "A remote window cannot serve the Web UI; use the local window's Preferences.";
     PrefFilter = "Filter:";
     PrefValue = "Value:";
@@ -848,7 +848,7 @@ strings! {
     /// The language list's first entry: the system's language, {language} in its own name.
     LangSystemDefault = "System default ({language})";
     /// After the language was changed in Preferences.
-    LangRestart = "PaTorrent shows the new language from its next start.";
+    LangRestart = "Rookparcel shows the new language from its next start.";
     /// Preferences > Disk Cache: the read cache's group and controls; the two ending in ":"
     /// have a number field beside them.
     PrefReadCache = "Disk Read Cache";
@@ -856,8 +856,8 @@ strings! {
     PrefCacheOverride = "Override the automatic cache size (MB):";
     PrefCacheExpire = "Remove blocks unused for more than (seconds):";
     /// {mb} is the automatic cache size in MB. read_cache_line_size is a setting's name: keep it.
-    PrefReadCacheNote = "PaTorrent caches disk reads: a block a peer asks for is read together with the blocks around it (read_cache_line_size on the Advanced page), which saves disk seeks when seeding. The automatic size is {mb} MB. Writes are left to the system's cache.";
-    /// Preferences > Bandwidth: µTorrent 2.2.1's group and its boxes, then PaTorrent's own.
+    PrefReadCacheNote = "Rookparcel caches disk reads: a block a peer asks for is read together with the blocks around it (read_cache_line_size on the Advanced page), which saves disk seeks when seeding. The automatic size is {mb} MB. Writes are left to the system's cache.";
+    /// Preferences > Bandwidth: µTorrent 2.2.1's group and its boxes, then Rookparcel's own.
     PrefRateOptions = "Global Rate Limit Options";
     PrefRateOverhead = "Apply rate limit to transport overhead";
     PrefRateUtp = "Apply rate limit to uTP connections";
@@ -866,7 +866,7 @@ strings! {
     PrefKeepPingLow = "Keep ping low (limit speeds automatically)";
     /// auto_limit_probe_hosts is a setting's name: keep it. SQM and QoS are router features.
     PrefKeepPingLowNote = "Keep ping low pings the first router past your line, or else the hosts in auto_limit_probe_hosts on the Advanced page, whose operators see those pings. A router with SQM or gaming QoS does this better, for every device.";
-    /// Preferences > Advanced > Disk I/O (a PaTorrent page beside Disk Cache): how checking
+    /// Preferences > Advanced > Disk I/O (a Rookparcel page beside Disk Cache): how checking
     /// (hashing a torrent's files) and the disk threads treat the drives. I/O is input/output.
     PageDiskIo = "Disk I/O";
     /// Group title: checking a torrent's files against their hashes (Force Re-Check).
@@ -958,7 +958,7 @@ strings! {
     RssFeedCount = "Feeds: {count}";
     RssPickSaveDir = "Select the folder to save the downloads in";
 
-    // ---- The Web UI (patorrent-nox): the page, its dialogs and its Preferences
+    // ---- The Web UI (rookparcel-nox): the page, its dialogs and its Preferences
 
     WebUserName = "User name";
     WebPassword = "Password";
@@ -1326,7 +1326,7 @@ strings! {
     /// The download makes the server download and run a program: the Web UI asks for its password.
     WebHelperNeedPassword = "Enter the current Web UI password to download and run the search helper.";
     /// Manage Sources in a browser on another computer: the helper listens on the server only.
-    WebHelperPageHostOnly = "The helper's own page opens only in a browser on the computer PaTorrent runs on, where the helper listens.";
+    WebHelperPageHostOnly = "The helper's own page opens only in a browser on the computer Rookparcel runs on, where the helper listens.";
     /// After "Open the Helper's Page": a link to the page and the password follow.
     WebHelperPagePassword = "The search helper runs. Its page asks for this password:";
     WebHelperBusy = "The search helper is busy with another step; try again when it is done.";
@@ -1356,10 +1356,10 @@ strings! {
     GuideRouterNote = "The older choice lowers the connections to {total} in all, {per_torrent} per torrent and {per_second} new ones a second: a starting point that Preferences > Bandwidth and Advanced change later. For games and calls, Keep ping low holds the speeds down while the line is busy.";
     /// Page 3: smart disk I/O.
     GuidePageDisks = "Your disks";
-    GuideDisksText = "Smart disk I/O keeps the computer responsive while PaTorrent reads and writes: checks run at the system's background priority, each drive is tuned for its type, and transfers slow down while a disk answers slowly. Checks take longer while something else uses the disk.";
+    GuideDisksText = "Smart disk I/O keeps the computer responsive while Rookparcel reads and writes: checks run at the system's background priority, each drive is tuned for its type, and transfers slow down while a disk answers slowly. Checks take longer while something else uses the disk.";
     GuideSmartDisk = "Use smart disk I/O";
     GuideDisksNote = "Gentle checks and per-drive tuning are on from the start; the box adds the slow-down while a disk is busy. Preferences > Advanced > Disk I/O sets each one.";
     /// Page 4: starting with the system and opening .torrent files and magnet: links.
     GuidePageComputer = "This computer";
-    GuideComputerText = "PaTorrent can start when you sign in, and open .torrent files and magnet: links from your browser and file manager. Preferences > General changes this later.";
+    GuideComputerText = "Rookparcel can start when you sign in, and open .torrent files and magnet: links from your browser and file manager. Preferences > General changes this later.";
 }

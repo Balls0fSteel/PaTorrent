@@ -11,8 +11,8 @@ for app in ("sonarr", "radarr"):
         print(app, "queue delete", arr.call(app, "DELETE", f"queue/{r['id']}?removeFromClient=true&blocklist=false")[0])
 EOF
 pkill -f "^python3 fakeznab"
-url=${PATORRENT_URL:-http://127.0.0.1:8080}
-curl -s -c jar -d "username=${PATORRENT_USER:-admin}&password=${PATORRENT_PASS:-arr-test-pass}" "$url/api/v2/auth/login" >/dev/null
+url=${ROOKPARCEL_URL:-http://127.0.0.1:8080}
+curl -s -c jar -d "username=${ROOKPARCEL_USER:-admin}&password=${ROOKPARCEL_PASS:-arr-test-pass}" "$url/api/v2/auth/login" >/dev/null
 curl -s -b jar -d "hashes=all&deleteFiles=false" "$url/api/v2/torrents/delete" -w "client delete %{http_code}\n"
 rm -f jar
 rm -rf /srv/fakeznab/* /srv/media/downloads/*

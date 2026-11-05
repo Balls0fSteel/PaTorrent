@@ -9,14 +9,14 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::sync::{LazyLock, Mutex, PoisonError};
 use std::time::{Duration, Instant};
 
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     DownloadPriority, EncPolicy, PeerFlags, PeerInfo, ProxyType, QueueMove, TorrentFlags, TorrentId,
     TrackerStatus, VERSION,
 };
-use patorrent_frontend::detail::peer_flags;
-use patorrent_frontend::seeding::{GoalAction, SeedGoal};
-use patorrent_frontend::{icons, lang};
+use rookparcel_frontend::detail::peer_flags;
+use rookparcel_frontend::seeding::{GoalAction, SeedGoal};
+use rookparcel_frontend::{icons, lang};
 
 use super::auth::{self, constant_time_eq, random_hex};
 use super::commands::{self, AddOptions, Source};
@@ -559,7 +559,7 @@ fn serve_inner(shared: &Shared, req: &Request) -> Response {
                 .with("zlib", "")
                 .with("bitness", usize::BITS)
                 .with("platform", std::env::consts::OS)
-                .with("app", "PaTorrent")
+                .with("app", "Rookparcel")
                 .with("app_version", VERSION),
         ),
         "app/preferences" => {
@@ -989,7 +989,7 @@ fn kib_or_unlimited(bytes: u32) -> i64 {
     if bytes == 0 { -1 } else { (bytes / 1024) as i64 }
 }
 
-fn listen_port(s: &patorrent_core::Settings) -> i64 {
+fn listen_port(s: &rookparcel_core::Settings) -> i64 {
     s.listen_interfaces
         .split(',')
         .next()
@@ -1136,7 +1136,7 @@ pub(crate) fn apply_preferences(shared: &Shared, st: &mut State, v: &Json, keep:
                     Some(5) => Some(ProxyType::Socks4),
                     _ => None,
                 };
-                one("proxy_type", t.map(|t| Json::from(patorrent_frontend::settings::proxy_to_int(t))))
+                one("proxy_type", t.map(|t| Json::from(rookparcel_frontend::settings::proxy_to_int(t))))
             }
             "proxy_ip" => one("proxy_hostname", Some(val.clone())),
             "proxy_port" => one("proxy_port", Some(val.clone())),
@@ -1783,7 +1783,7 @@ fn add(shared: &Shared, p: &Params) -> Response {
 mod tests {
     use super::*;
 
-    use patorrent_frontend::lang::S;
+    use rookparcel_frontend::lang::S;
 
     /// A web seed's row names it by its URL, as qBittorrent's does; a peer by its address.
     #[test]
@@ -1792,7 +1792,7 @@ mod tests {
             ip: "10.0.0.1:443".parse().unwrap(),
             client: "nginx".into(),
             flags: PeerFlags::empty(),
-            source: patorrent_core::PeerSource::empty(),
+            source: rookparcel_core::PeerSource::empty(),
             progress_ppm: 1_000_000,
             down_speed: 0,
             up_speed: 0,
@@ -1858,7 +1858,7 @@ mod tests {
     fn the_script_names_known_strings() {
         let js = include_str!("app.js");
         const NOT_KEYS: [&str; 8] = [
-            "PaTorrent",
+            "Rookparcel",
             "ArrowUp",
             "ArrowDown",
             "ArrowLeft",

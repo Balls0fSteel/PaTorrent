@@ -1,6 +1,6 @@
 //! The two archive formats the search helper's releases come in: a zip (Windows) and a
 //! gzipped tar (Linux, macOS), unpacked into a folder of ours with the inflater the engine
-//! already has ([`patorrent_core::util::puff`], [`patorrent_core::util::gzip`]).
+//! already has ([`rookparcel_core::util::puff`], [`rookparcel_core::util::gzip`]).
 //!
 //! Both are read whole from memory: the archive was checked against the release's SHA-256
 //! before it gets here, so these readers guard against mistakes and hostile names, not against
@@ -12,8 +12,8 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use patorrent_core::util::gzip::inflate_gzip;
-use patorrent_core::util::puff::inflate;
+use rookparcel_core::util::gzip::inflate_gzip;
+use rookparcel_core::util::puff::inflate;
 
 /// The most an archive may unpack to, all entries together.
 pub const MAX_TOTAL: u64 = 1 << 30;
@@ -361,7 +361,7 @@ pub fn unpack_tar(tar: &[u8], dest: &Path) -> Result<Unpacked, String> {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
-    use patorrent_core::util::deflate::deflate;
+    use rookparcel_core::util::deflate::deflate;
 
     /// A temporary folder removed when dropped.
     pub struct TempDir(pub PathBuf);
@@ -369,9 +369,9 @@ pub(crate) mod tests {
     impl TempDir {
         pub fn new(tag: &str) -> TempDir {
             let p = std::env::temp_dir().join(format!(
-                "patorrent-helper-{tag}-{}-{}",
+                "rookparcel-helper-{tag}-{}-{}",
                 std::process::id(),
-                patorrent_core::util::random::random_u64()
+                rookparcel_core::util::random::random_u64()
             ));
             let _ = std::fs::remove_dir_all(&p);
             std::fs::create_dir_all(&p).unwrap();

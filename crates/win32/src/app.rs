@@ -14,39 +14,39 @@ use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_core::metainfo::TorrentInfo;
-use patorrent_core::util::lockfile;
-use patorrent_core::util::time::{local_utc_offset, unix_now};
-use patorrent_core::{
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_core::metainfo::TorrentInfo;
+use rookparcel_core::util::lockfile;
+use rookparcel_core::util::time::{local_utc_offset, unix_now};
+use rookparcel_core::{
     AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
     SessionHandle, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, same_dir,
 };
-use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
-use patorrent_frontend::columns::Column;
-use patorrent_frontend::detail::{self, PRIORITIES};
-use patorrent_frontend::icons::{
+use rookparcel_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
+use rookparcel_frontend::columns::Column;
+use rookparcel_frontend::detail::{self, PRIORITIES};
+use rookparcel_frontend::icons::{
     PRIORITY_ICONS, UiIcon, category_icon, network_icon, tab_icon, toolbar_size, tracker_icon,
 };
-use patorrent_frontend::import;
-use patorrent_frontend::lang::{self, S};
-use patorrent_frontend::model::{Filter, TorrentList};
-use patorrent_frontend::options::{self, GuiOptions, Options};
-use patorrent_frontend::pref_pages::Features;
-use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::properties::{self, Properties, TorrentProps};
-use patorrent_frontend::rss::view::{self as rss_view, ItemRow};
-use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
-use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
-use patorrent_frontend::scrape::Scrapes;
-use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
-use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
-use patorrent_frontend::setup_guide;
-use patorrent_frontend::status::{self, Category, status_icon};
-use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
-use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
-use patorrent_frontend::{actions, add, create, fmt, profile, settings, tr};
-use patorrent_nox::webui::{Rss, WebUi};
+use rookparcel_frontend::import;
+use rookparcel_frontend::lang::{self, S};
+use rookparcel_frontend::model::{Filter, TorrentList};
+use rookparcel_frontend::options::{self, GuiOptions, Options};
+use rookparcel_frontend::pref_pages::Features;
+use rookparcel_frontend::prefs::Prefs;
+use rookparcel_frontend::properties::{self, Properties, TorrentProps};
+use rookparcel_frontend::rss::view::{self as rss_view, ItemRow};
+use rookparcel_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
+use rookparcel_frontend::scheduler::{Mode, Schedule, Scheduler};
+use rookparcel_frontend::scrape::Scrapes;
+use rookparcel_frontend::search::{Source as SearchSource, load_sources, store_sources};
+use rookparcel_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
+use rookparcel_frontend::setup_guide;
+use rookparcel_frontend::status::{self, Category, status_icon};
+use rookparcel_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
+use rookparcel_frontend::update::{self, Checker, Kind, Manifest, Version};
+use rookparcel_frontend::{actions, add, create, fmt, profile, settings, tr};
+use rookparcel_nox::webui::{Rss, WebUi};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, POINT, RECT, SIZE, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::DataExchange::COPYDATASTRUCT;
@@ -118,14 +118,14 @@ pub(crate) fn copydata_args(cds: &COPYDATASTRUCT) -> Option<Vec<String>> {
 /// Takes `WM_COPYDATA` only from processes of this window's integrity level or above, the
 /// default that `MSGFLT_ALLOW` used to lift (SEC-25): forwarded sources may be added without a
 /// dialog, so a sandboxed (low integrity) process must not send them, nor a standard one to a
-/// PaTorrent running as administrator.
+/// Rookparcel running as administrator.
 pub(crate) unsafe fn refuse_lower_integrity_copydata(hwnd: HWND) {
     unsafe { ChangeWindowMessageFilterEx(hwnd, WM_COPYDATA, MSGFLT_DISALLOW, null_mut()) };
 }
 
-/// The main window's class for the installed copy's folder (`%APPDATA%\PaTorrent`), which the
-/// installer looks for (`FindWindow` in `patorrent.nsi`).
-const DEFAULT_MAIN_CLASS: &str = "PaTorrentMainWnd";
+/// The main window's class for the installed copy's folder (`%APPDATA%\Rookparcel`), which the
+/// installer looks for (`FindWindow` in `rookparcel.nsi`).
+const DEFAULT_MAIN_CLASS: &str = "RookparcelMainWnd";
 
 /// The main window's class, keyed by its settings folder ([`main_class_name`]), so a second
 /// start hands its torrents to the window of its own folder (`instance` in `main.rs`) and
@@ -227,11 +227,11 @@ pub(crate) fn main_class_name(dir: &Path, default: bool) -> String {
 /// Set on the main window while it saves its state and stops the engine: a second instance
 /// then waits for this one to exit and starts in its place (`instance` in `main.rs`), as the
 /// window takes no torrents any more.
-pub const EXITING_PROP: PCWSTR = w!("PaTorrent.Exiting");
+pub const EXITING_PROP: PCWSTR = w!("Rookparcel.Exiting");
 /// A remote window's class: a second local start looks for [`main_class`] only, so it never
 /// hands its torrents to a remote window.
-const REMOTE_CLASS: PCWSTR = w!("PaTorrentRemoteWnd");
-const PANEL_CLASS: PCWSTR = w!("PaTorrentPanel");
+const REMOTE_CLASS: PCWSTR = w!("RookparcelRemoteWnd");
+const PANEL_CLASS: PCWSTR = w!("RookparcelPanel");
 const TIMER_REFRESH: usize = 1;
 
 const IDC_TOOLBAR: usize = 10;
@@ -332,7 +332,7 @@ mod cmd {
     pub const SEARCH_MODE_BASE: u16 = 3400;
 }
 
-use patorrent_frontend::actions::LIMITS;
+use rookparcel_frontend::actions::LIMITS;
 
 const TOOLBAR: [Option<(Icon, u16, S)>; 15] = [
     Some((Icon::AddTorrent, cmd::ADD, S::ToolAddTorrent)),
@@ -486,7 +486,7 @@ struct App {
     /// The periodic scrape that gives stopped and queued torrents their swarm counts (run from
     /// the timer).
     scrapes: Scrapes,
-    /// The RSS Downloader (`rss.dat` beside `patorrent.ini`) with its fetches and whether it
+    /// The RSS Downloader (`rss.dat` beside `rookparcel.ini`) with its fetches and whether it
     /// changed since it was saved (`Rss::dirty`), shared with the Web UI this window serves
     /// (`Hosted::rss`: one model, edited from both sides; see [`rss_lock`]), and its dialog
     /// while that is open.
@@ -539,22 +539,29 @@ pub fn base_data_dir() -> PathBuf {
     profile::within(&app_root(), profile::current().name.as_deref())
 }
 
-/// The application root: beside the exe when `patorrent.ini` is there (portable, like
-/// µTorrent's `settings.dat`; `patorrent_frontend::profile`), else `%APPDATA%\PaTorrent`. The
+/// The application root: beside the exe when `rookparcel.ini` is there (portable, like
+/// µTorrent's `settings.dat`; `rookparcel_frontend::profile`), else `%APPDATA%\Rookparcel`. The
 /// default profile's folder, holding `profiles\` for the others.
 pub fn app_root() -> PathBuf {
     if let Some(root) = &profile::current().portable_root {
         return root.clone();
     }
     let exe_dir = exe_path().parent().map(Path::to_path_buf).unwrap_or_default();
-    std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("PaTorrent")).unwrap_or(exe_dir)
+    std::env::var_os("APPDATA").map(|d| PathBuf::from(d).join("Rookparcel")).unwrap_or(exe_dir)
 }
 
 /// Says that `--profile` was given no usable name, in the default profile's language.
 pub fn bad_profile(e: &profile::NameError) {
-    let prefs = Prefs::load(app_root().join("patorrent.ini"));
+    let prefs = Prefs::load(app_root().join("rookparcel.ini"));
     lang::init(prefs.get("ui.language").unwrap_or_default());
     dialogs::error(null_mut(), &tr!(ProfileBadName, name = e.given()));
+}
+
+/// Says that PaTorrent's folder `old` is still in use and could not become Rookparcel's (D59).
+pub fn folder_in_use(old: &Path) {
+    let prefs = Prefs::load(old.join(rookparcel_frontend::legacy::OLD_INI));
+    lang::init(prefs.get("ui.language").unwrap_or_default());
+    dialogs::error(null_mut(), &tr!(FolderInUse, folder = old.display()));
 }
 
 /// A named profile that has no folder yet is made after a question, so a mistyped name does
@@ -567,7 +574,7 @@ fn create_profile(dir: &Path) -> bool {
     if !dialogs::ask(null_mut(), &tr!(ProfileCreate, name, folder = dir.display())) {
         return false;
     }
-    if let Err(e) = patorrent_core::util::private_file::create_dir_all(dir) {
+    if let Err(e) = rookparcel_core::util::private_file::create_dir_all(dir) {
         dialogs::error(null_mut(), &format!("{}: {e}", dir.display()));
         return false;
     }
@@ -614,7 +621,7 @@ fn now_hms() -> String {
 
 pub struct Args {
     pub demo: Option<usize>,
-    /// Drive a patorrent-nox elsewhere (`remote_ui`) instead of an engine of our own.
+    /// Drive a rookparcel-nox elsewhere (`remote_ui`) instead of an engine of our own.
     pub remote: bool,
     /// Start in the tray, without showing the window.
     pub minimized: bool,
@@ -641,7 +648,7 @@ pub fn parse_args(args: &[String]) -> Args {
     out
 }
 
-/// Picks the language from `patorrent.ini` in [`base_data_dir`] (one language for every
+/// Picks the language from `rookparcel.ini` in [`base_data_dir`] (one language for every
 /// window, remote ones included); what went wrong, for the Logger.
 fn init_language() -> Vec<String> {
     let problems = lang::init(&language_choice());
@@ -653,17 +660,17 @@ fn init_language() -> Vec<String> {
 }
 
 /// Preferences > General's language (`ui.language`), which lives in [`base_data_dir`]'s
-/// `patorrent.ini` even for a remote window (whose other options are in its own folder).
+/// `rookparcel.ini` even for a remote window (whose other options are in its own folder).
 fn language_choice() -> String {
-    Prefs::load(base_data_dir().join("patorrent.ini")).get("ui.language").unwrap_or_default().to_owned()
+    Prefs::load(base_data_dir().join("rookparcel.ini")).get("ui.language").unwrap_or_default().to_owned()
 }
 
-/// `patorrent.lock` in `dir`, held until the process ends; `Err` after telling the user that
+/// `rookparcel.lock` in `dir`, held until the process ends; `Err` after telling the user that
 /// another process has it, or that a portable folder cannot be written (never a fall-back to
 /// `%APPDATA%`, which would split one user's data in two); `None` when it cannot be made
 /// otherwise (a read-only folder fails later, and says so, where the settings are written).
 fn lock_folder(dir: &Path) -> Result<Option<lockfile::Lock>, ()> {
-    let made = patorrent_core::util::private_file::create_dir_all(dir);
+    let made = rookparcel_core::util::private_file::create_dir_all(dir);
     match made.and_then(|()| lockfile::Lock::take(&dir.join(lockfile::FILE_NAME))) {
         Ok(l) => Ok(Some(l)),
         Err(e) if lockfile::is_taken(&e) => {
@@ -698,7 +705,7 @@ pub fn run(args: Args) -> i32 {
     }
     if let Some(name) = &profile::current().name {
         // the taskbar groups and pins each profile's windows apart from the others'
-        let id = wide(&format!("PaTorrent.{name}"));
+        let id = wide(&format!("Rookparcel.{name}"));
         unsafe { windows_sys::Win32::UI::Shell::SetCurrentProcessExplicitAppUserModelID(id.as_ptr()) };
     }
     let remote_session = match args.remote {
@@ -716,7 +723,7 @@ pub fn run(args: Args) -> i32 {
         Some(Err(())) => return 1,
         l => l.and_then(Result::ok).flatten(),
     };
-    let mut prefs = Prefs::load(dir.join("patorrent.ini"));
+    let mut prefs = Prefs::load(dir.join("rookparcel.ini"));
     if let Some(r) = crate::remote_ui::get() {
         // the server's engine settings and default folder are this window's
         let _ = std::fs::create_dir_all(&dir);
@@ -774,7 +781,7 @@ pub fn run(args: Args) -> i32 {
                 initial_torrents: n,
                 active_fraction: 0.02,
                 // to look at the closing window (D47)
-                slow_exit: std::env::var("PATORRENT_DEMO_SLOW_EXIT")
+                slow_exit: std::env::var("ROOKPARCEL_DEMO_SLOW_EXIT")
                     .ok()
                     .and_then(|s| s.parse().ok())
                     .map(std::time::Duration::from_secs),
@@ -786,8 +793,8 @@ pub fn run(args: Args) -> i32 {
             match Session::start(SessionParams {
                 settings,
                 state_dir: Some(dir.join("state")),
-                label: patorrent_frontend::profile::current().engine_label(),
-                portable_root: patorrent_frontend::profile::current().portable_root.clone(),
+                label: rookparcel_frontend::profile::current().engine_label(),
+                portable_root: rookparcel_frontend::profile::current().portable_root.clone(),
             }) {
                 Ok(s) => s,
                 Err(e) => {
@@ -852,6 +859,8 @@ pub fn run(args: Args) -> i32 {
         }
         restore_placement(hwnd, args.minimized);
         if local {
+            // PaTorrent's associations and autostart entries become ours (D59)
+            let _ = integration::adopt_patorrent(&Keys::user(), &exe_path());
             // an association from before `--shell` (SEC-18); failing leaves it as it was
             let _ = integration::upgrade(&Keys::user(), &exe_path(), profile::current().name.as_deref());
         }
@@ -996,11 +1005,11 @@ unsafe fn fill_profiles(menu: HMENU) {
     }
 }
 
-/// Starts another PaTorrent in profile `name` (`None`: the default one); a running one of that
+/// Starts another Rookparcel in profile `name` (`None`: the default one); a running one of that
 /// profile comes to the front instead.
 fn start_profile(hwnd: HWND, name: Option<&str>) {
     if let Err(e) = std::process::Command::new(exe_path()).args(profile::args_for(name)).spawn() {
-        dialogs::error(hwnd, &tr!(ErrStartPaTorrent, error = e));
+        dialogs::error(hwnd, &tr!(ErrStartRookparcel, error = e));
     }
 }
 
@@ -1016,7 +1025,7 @@ fn new_profile(hwnd: HWND) {
         Ok(n) if n == profile::DEFAULT_NAME => start_profile(hwnd, None),
         Ok(n) => {
             let dir = profile::within(&app_root(), Some(&n));
-            match patorrent_core::util::private_file::create_dir_all(&dir) {
+            match rookparcel_core::util::private_file::create_dir_all(&dir) {
                 Ok(()) => start_profile(hwnd, Some(&n)),
                 Err(e) => dialogs::error(hwnd, &format!("{}: {e}", dir.display())),
             }
@@ -1397,7 +1406,7 @@ unsafe fn init(hwnd: HWND, session: Session, prefs: Prefs) {
     }
 }
 
-/// Preferences > General "Check association on startup": asks to make PaTorrent the program
+/// Preferences > General "Check association on startup": asks to make Rookparcel the program
 /// for `.torrent` files and `magnet:` links when it is not.
 fn check_association(hwnd: HWND) {
     let (keys, exe) = (Keys::user(), exe_path());
@@ -1641,7 +1650,7 @@ unsafe fn rebuild_columns() {
             .iter()
             .filter(|(_, w)| *w > 0)
             .map(|&(c, w)| {
-                (c.title(), scale(w, a.dpi), c.align() == patorrent_frontend::columns::Align::Right)
+                (c.title(), scale(w, a.dpi), c.align() == rookparcel_frontend::columns::Align::Right)
             })
             .collect();
         let sort = a.list.sort().and_then(|(c, d)| Some((a.shown.iter().position(|&s| s == c)?, d)));
@@ -2594,7 +2603,7 @@ impl search_ui::Host for WindowSearch {
         with_app(|a| load_sources(&a.prefs)).unwrap_or_default()
     }
 
-    /// Into `patorrent.ini` (the keys sealed) and, through the preferences' journal, into the
+    /// Into `rookparcel.ini` (the keys sealed) and, through the preferences' journal, into the
     /// Web UI this window serves.
     fn store_sources(&mut self, sources: &[SearchSource]) {
         with_app(|a| {
@@ -2630,9 +2639,9 @@ impl search_ui::Host for WindowSearch {
 
     /// The profile's own folder (a remote window's searches run here too) and the session's
     /// proxy, which the search helper is given for its own fetches.
-    fn helper(&mut self) -> Option<(PathBuf, Option<patorrent_frontend::search::helper::HelperProxy>)> {
+    fn helper(&mut self) -> Option<(PathBuf, Option<rookparcel_frontend::search::helper::HelperProxy>)> {
         let proxy = with_app(|a| {
-            patorrent_frontend::search::helper::HelperProxy::from_settings(
+            rookparcel_frontend::search::helper::HelperProxy::from_settings(
                 &Options::load(&a.prefs, &a.save_path).settings,
             )
         })
@@ -2798,7 +2807,7 @@ unsafe fn on_alerts(hwnd: HWND) {
             }
             // the adapters and the network status for Preferences, the status bar and the
             // General tab (D54)
-            patorrent_frontend::network::on_alert(&alert);
+            rookparcel_frontend::network::on_alert(&alert);
             match alert {
                 Alert::StateUpdate(v) => {
                     for st in &v {
@@ -2991,7 +3000,7 @@ unsafe fn on_alerts(hwnd: HWND) {
 }
 
 /// The main window's title: with "Show current speed in the title bar" µTorrent's
-/// `D:… U:… - PaTorrent …`, else the name; set when it changes. A remote window's title names
+/// `D:… U:… - Rookparcel …`, else the name; set when it changes. A remote window's title names
 /// its server (or says it is disconnected) and is left as it is.
 fn sync_title(a: &mut App) {
     if crate::remote_ui::is_remote() {
@@ -3038,9 +3047,9 @@ unsafe fn update_status_bar() {
             None => net,
         };
         // "Waiting for the network" while "Use only this network" finds none (D54)
-        let net = patorrent_frontend::network::with_status(s, net);
+        let net = rookparcel_frontend::network::with_status(s, net);
         let net = if a.restoring_torrents { format!("{} | {net}", tr!(BarRestoring)) } else { net };
-        let net_tip = patorrent_frontend::network::tooltip(s);
+        let net_tip = rookparcel_frontend::network::tooltip(s);
         let net_tip = (net_tip != a.net_tip).then(|| {
             a.net_tip.clone_from(&net_tip);
             net_tip
@@ -3385,7 +3394,7 @@ unsafe fn on_destroy(hwnd: HWND) {
         ShowWindow(hwnd, SW_HIDE);
         tray::remove(hwnd);
         // the search helper (D51) never outlives the window
-        patorrent_frontend::search::helper::shutdown();
+        rookparcel_frontend::search::helper::shutdown();
         close_session(hwnd, false);
         RemovePropW(hwnd, EXITING_PROP);
         PostQuitMessage(0);
@@ -4038,7 +4047,7 @@ unsafe fn on_command(hwnd: HWND, id: u16) {
 
 /// A queued seed that reached its seeding goal (its own, else Preferences > Queueing's) is
 /// stopped or held to the goal's upload rate.
-fn seeding_goal(a: &mut App, st: &patorrent_core::TorrentStatus) {
+fn seeding_goal(a: &mut App, st: &rookparcel_core::TorrentStatus) {
     if !st.is_finished {
         return;
     }
@@ -4141,7 +4150,7 @@ unsafe fn set_download_location(hwnd: HWND) {
 
 /// (every torrent is a seed, every torrent is super seeding), for "Initial Seeding".
 fn super_seed_state(a: &App, ids: &[TorrentId]) -> (bool, bool) {
-    let all = |f: &dyn Fn(&patorrent_core::TorrentStatus) -> bool| {
+    let all = |f: &dyn Fn(&rookparcel_core::TorrentStatus) -> bool| {
         ids.iter().all(|&id| a.list.get(id).is_some_and(f))
     };
     (all(&|s| s.is_seeding), all(&|s| s.super_seeding))
@@ -4347,7 +4356,7 @@ fn add_params(_hwnd: HWND, source: TorrentSource, name: Option<String>) {
 /// ([`add::AwaitingMetadata`], `WM_APP_MAGNET`); otherwise it is added directly.
 fn add_magnet(hwnd: HWND, uri: &str) {
     let show = with_app(|a| GuiOptions::load(&a.prefs, &a.save_path).show_add_dialog).unwrap_or(false);
-    let key = match patorrent_core::metainfo::parse_magnet_uri(uri) {
+    let key = match rookparcel_core::metainfo::parse_magnet_uri(uri) {
         Ok(m) if show => m.info_hashes.key_hex(),
         // the engine reports a broken link
         _ => return add_params(hwnd, TorrentSource::Magnet(uri.to_owned()), None),
@@ -4572,7 +4581,7 @@ fn apply_options_from(a: &mut App, old: &Options, o: &Options) {
         a.detail.push_log(format!("{} {}", now_hms(), tr!(LogPrefsNotSaved, error = e)));
     }
     if crate::remote_ui::is_remote() && o.gui.language != language_choice() {
-        let mut base = Prefs::load(base_data_dir().join("patorrent.ini"));
+        let mut base = Prefs::load(base_data_dir().join("rookparcel.ini"));
         match o.gui.language.trim() {
             "" => base.remove("ui.language"),
             code => base.set("ui.language", code),
@@ -4793,8 +4802,8 @@ fn download_url(hwnd: HWND, url: String) {
 
 /// `GET url`: the body, or the `magnet:` link an indexer redirected to.
 fn fetch_torrent(url: &str, proxy: Option<FetchProxy>) -> Result<UrlBody, String> {
-    let opts = patorrent_core::fetch::FetchOptions { proxy, ..Default::default() };
-    let r = patorrent_core::fetch::http_get(url, &opts).map_err(|e| e.to_string())?;
+    let opts = rookparcel_core::fetch::FetchOptions { proxy, ..Default::default() };
+    let r = rookparcel_core::fetch::http_get(url, &opts).map_err(|e| e.to_string())?;
     match r.redirect() {
         Some(to) if to.trim_start().starts_with("magnet:") => Ok(UrlBody::Magnet(to.trim().to_owned())),
         // a redirect `fetch` does not follow, to something that is neither http(s) nor magnet
@@ -4904,8 +4913,8 @@ mod url_tests {
 
     #[test]
     fn add_torrent_from_url_through_fetch() {
-        // keep rss.dat and the rest out of the real %APPDATA%\PaTorrent
-        let dir = std::env::temp_dir().join(format!("patorrent-url-test-{}", std::process::id()));
+        // keep rss.dat and the rest out of the real %APPDATA%\Rookparcel
+        let dir = std::env::temp_dir().join(format!("rookparcel-url-test-{}", std::process::id()));
         let _ = std::fs::create_dir_all(&dir);
         // SAFETY: no other test of this crate reads APPDATA.
         unsafe { std::env::set_var("APPDATA", &dir) };
@@ -4925,15 +4934,15 @@ mod url_tests {
             wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
             wc.lpfnWndProc = Some(wndproc);
             wc.hInstance = instance;
-            wc.lpszClassName = w!("PaTorrentUrlTestWnd");
+            wc.lpszClassName = w!("RookparcelUrlTestWnd");
             RegisterClassExW(&wc);
             wc.lpfnWndProc = Some(panel_proc);
             wc.lpszClassName = PANEL_CLASS;
             RegisterClassExW(&wc);
             let hwnd = CreateWindowExW(
                 0,
-                w!("PaTorrentUrlTestWnd"),
-                w!("PaTorrent URL test"),
+                w!("RookparcelUrlTestWnd"),
+                w!("Rookparcel URL test"),
                 WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                 0,
                 0,
@@ -4965,7 +4974,7 @@ mod url_tests {
             let second = heads.recv_timeout(Duration::from_secs(5)).unwrap();
             assert!(first.starts_with("GET /t "), "{first}");
             assert!(second.starts_with("GET /file.torrent "), "the redirect was followed: {second}");
-            let ua = format!("\r\nUser-Agent: {}\r\n", patorrent_core::USER_AGENT);
+            let ua = format!("\r\nUser-Agent: {}\r\n", rookparcel_core::USER_AGENT);
             assert!(first.contains(&ua), "{first}");
             URL_ERRORS.with(|e| assert!(e.borrow().is_empty(), "{:?}", e.borrow()));
 
@@ -5006,8 +5015,8 @@ mod url_tests {
 mod search_tests {
     use std::time::{Duration, Instant};
 
-    use patorrent_frontend::search::worker::Fetcher;
-    use patorrent_frontend::search::{Query, SearchError, SearchResult};
+    use rookparcel_frontend::search::worker::Fetcher;
+    use rookparcel_frontend::search::{Query, SearchError, SearchResult};
 
     use super::*;
 
@@ -5073,15 +5082,15 @@ mod search_tests {
             wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
             wc.lpfnWndProc = Some(wndproc);
             wc.hInstance = instance;
-            wc.lpszClassName = w!("PaTorrentSearchTestWnd");
+            wc.lpszClassName = w!("RookparcelSearchTestWnd");
             RegisterClassExW(&wc);
             wc.lpfnWndProc = Some(panel_proc);
             wc.lpszClassName = PANEL_CLASS;
             RegisterClassExW(&wc);
             let hwnd = CreateWindowExW(
                 0,
-                w!("PaTorrentSearchTestWnd"),
-                w!("PaTorrent search test"),
+                w!("RookparcelSearchTestWnd"),
+                w!("Rookparcel search test"),
                 WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                 0,
                 0,
@@ -5153,15 +5162,15 @@ mod search_tests {
         }
     }
 
-    fn file(path: &str, pad_file: bool) -> patorrent_core::FileEntry {
-        patorrent_core::FileEntry {
+    fn file(path: &str, pad_file: bool) -> rookparcel_core::FileEntry {
+        rookparcel_core::FileEntry {
             path: path.into(),
             size: 1,
             offset: 0,
             first_piece: 0,
             last_piece: 0,
             pad_file,
-            priority: patorrent_core::DownloadPriority::NORMAL,
+            priority: rookparcel_core::DownloadPriority::NORMAL,
         }
     }
 
@@ -5185,15 +5194,15 @@ mod search_tests {
             wc.cbSize = size_of::<WNDCLASSEXW>() as u32;
             wc.lpfnWndProc = Some(wndproc);
             wc.hInstance = instance;
-            wc.lpszClassName = w!("PaTorrentFilesFilterTestWnd");
+            wc.lpszClassName = w!("RookparcelFilesFilterTestWnd");
             RegisterClassExW(&wc);
             wc.lpfnWndProc = Some(panel_proc);
             wc.lpszClassName = PANEL_CLASS;
             RegisterClassExW(&wc);
             let hwnd = CreateWindowExW(
                 0,
-                w!("PaTorrentFilesFilterTestWnd"),
-                w!("PaTorrent files filter test"),
+                w!("RookparcelFilesFilterTestWnd"),
+                w!("Rookparcel files filter test"),
                 WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                 0,
                 0,
@@ -5218,7 +5227,7 @@ mod search_tests {
                 with_app(|a| (a.files_filter, a.files_count, a.pages[Page::Files.index()])).unwrap();
             assert_eq!(cue(filter), "Filter files");
             assert!(IsWindowVisible(filter) == 0 || with_app(|a| a.show_details) == Some(true));
-            let files: Arc<[patorrent_core::FileEntry]> = Arc::from(vec![
+            let files: Arc<[rookparcel_core::FileEntry]> = Arc::from(vec![
                 file("Show/S01E01.mkv", false),
                 file("Show/.pad/0", true),
                 file("Show/Subs/S01E01.srt", false),
@@ -5304,7 +5313,7 @@ mod search_tests {
 }
 
 // ---- RSS ------------------------------------------------------------------------------------
-// The RSS Downloader (`patorrent_frontend::rss`): the timer starts the refreshes that are due,
+// The RSS Downloader (`rookparcel_frontend::rss`): the timer starts the refreshes that are due,
 // the fetches run on the worker's threads and post `WM_APP_RSS`, and `rss_collect` takes their
 // results here and adds what the filters chose. The tree's Feeds branch lists the feeds;
 // picking one shows its items in the torrent list (µTorrent's way), where a double-click
@@ -5347,9 +5356,9 @@ unsafe fn on_web_rss() {
     }
 }
 
-/// `rss.dat`, beside `patorrent.ini`.
+/// `rss.dat`, beside `rookparcel.ini`.
 fn rss_file() -> PathBuf {
-    data_dir().join(patorrent_frontend::rss::store::FILE_NAME)
+    data_dir().join(rookparcel_frontend::rss::store::FILE_NAME)
 }
 
 /// The proxy feeds and their downloads go through: the engine's, when it carries HTTP
@@ -5413,7 +5422,7 @@ unsafe fn update_done(hwnd: HWND, result: Result<Manifest, String>) {
     }
 }
 
-/// The box for a newer version `v`: a PaTorrent the setup installed offers to download and
+/// The box for a newer version `v`: a Rookparcel the setup installed offers to download and
 /// install it (D45, `updater`), a portable one to open its download page.
 unsafe fn offer_update(hwnd: HWND, v: &Version) {
     let current = Version::current();
@@ -6077,7 +6086,7 @@ unsafe fn on_notify(hwnd: HWND, nm: *const NMHDR) -> LRESULT {
                 0
             }
             (IDC_STATUS, NM_CLICK) if (*(nm as *const NMMOUSE)).dwItemSpec == 0 => {
-                // the notice has done its job; an installed PaTorrent gets the update offer
+                // the notice has done its job; an installed Rookparcel gets the update offer
                 let version = with_app(|a| {
                     let v = a.updates.notice().cloned();
                     a.updates.dismiss();
@@ -6477,7 +6486,7 @@ mod tests {
         assert!(missing.is_empty(), "no help for {missing:?}");
         assert!(seen > 30, "{seen}");
         for (_, _, s) in TOOLBAR.iter().flatten() {
-            assert!(patorrent_frontend::lang::H::for_label(*s).is_some(), "{s:?} has no help");
+            assert!(rookparcel_frontend::lang::H::for_label(*s).is_some(), "{s:?} has no help");
         }
     }
 
@@ -6485,14 +6494,14 @@ mod tests {
     /// own, the same whatever the case of its path (D42).
     #[test]
     fn main_class_keyed_by_folder() {
-        let appdata = Path::new(r"C:\Users\u\AppData\Roaming\PaTorrent");
-        assert_eq!(main_class_name(appdata, true), "PaTorrentMainWnd");
-        let a = main_class_name(Path::new(r"D:\Portable\PaTorrent"), false);
-        assert!(a.starts_with("PaTorrentMainWnd.") && a.len() == "PaTorrentMainWnd.".len() + 16, "{a}");
-        assert_eq!(a, main_class_name(Path::new(r"d:\portable\patorrent"), false));
-        assert_ne!(a, main_class_name(Path::new(r"E:\Portable\PaTorrent"), false));
+        let appdata = Path::new(r"C:\Users\u\AppData\Roaming\Rookparcel");
+        assert_eq!(main_class_name(appdata, true), "RookparcelMainWnd");
+        let a = main_class_name(Path::new(r"D:\Portable\Rookparcel"), false);
+        assert!(a.starts_with("RookparcelMainWnd.") && a.len() == "RookparcelMainWnd.".len() + 16, "{a}");
+        assert_eq!(a, main_class_name(Path::new(r"d:\portable\rookparcel"), false));
+        assert_ne!(a, main_class_name(Path::new(r"E:\Portable\Rookparcel"), false));
         // FNV-1a 64 of "a"
-        assert_eq!(main_class_name(Path::new("A"), false), "PaTorrentMainWnd.af63dc4c8601ec8c");
+        assert_eq!(main_class_name(Path::new("A"), false), "RookparcelMainWnd.af63dc4c8601ec8c");
     }
 
     /// Open Folder stays inside the save path whatever the torrent's name is (SEC-18).
@@ -6515,7 +6524,7 @@ mod tests {
     #[test]
     #[ignore]
     fn open_folder_shows_the_item_in_explorer() {
-        let save = std::env::temp_dir().join(format!("patorrent-open-folder-{}", std::process::id()));
+        let save = std::env::temp_dir().join(format!("rookparcel-open-folder-{}", std::process::id()));
         std::fs::create_dir_all(save.join("Some Show")).unwrap();
         let save_s = save.to_string_lossy().into_owned();
         for name in ["Some Show", "Not Yet There"] {
@@ -6562,7 +6571,7 @@ mod tests {
     /// A hidden top-level window that counts the `WM_COPYDATA` it gets.
     fn copy_window() -> HWND {
         static CLASS: std::sync::Once = std::sync::Once::new();
-        let class = w!("PaTorrentCopyDataTest");
+        let class = w!("RookparcelCopyDataTest");
         unsafe {
             CLASS.call_once(|| {
                 let wc = WNDCLASSW {

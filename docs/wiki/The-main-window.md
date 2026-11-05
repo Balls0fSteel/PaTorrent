@@ -1,6 +1,6 @@
 # The main window
 
-This page walks through PaTorrent's main window: the menus, the toolbar and its search box, the category list, the torrent list and its columns, the detail tabs and the status bar. It describes the Windows version first, then what differs in the GTK version and the Web UI.
+This page walks through Rookparcel's main window: the menus, the toolbar and its search box, the category list, the torrent list and its columns, the detail tabs and the status bar. It describes the Windows version first, then what differs in the GTK version and the Web UI.
 
 ![The main window with torrents and the General tab](images/main-window.png)
 
@@ -15,17 +15,17 @@ This page walks through PaTorrent's main window: the menus, the toolbar and its 
 | Detail tabs | under the list | the selected torrent's details: General, Trackers, Peers, Pieces, Files, Speed, Logger |
 | Status bar | bottom | the network state, DHT, and the total speeds |
 
-Each part except the menus and the torrent list can be hidden from the **Options** menu: **Show Toolbar**, **Show Detailed Info**, **Show Status Bar** and **Show Category List**. Drag the borders between the category list, the torrent list and the detail tabs to resize them. PaTorrent remembers these choices, the sizes, the columns, the sort order and the open tab.
+Each part except the menus and the torrent list can be hidden from the **Options** menu: **Show Toolbar**, **Show Detailed Info**, **Show Status Bar** and **Show Category List**. Drag the borders between the category list, the torrent list and the detail tabs to resize them. Rookparcel remembers these choices, the sizes, the columns, the sort order and the open tab.
 
 ## The menus
 
 - **File:** **Add Torrent...**, **Add Torrent from URL...**, **Create New Torrent...**, **Import from qBittorrent...**, **Import from µTorrent...**, **Profiles**, **Connect to Remote...** and **Exit**.
 - **Options:** **Preferences**, **Setup Guide**, **RSS Downloader...**, the four **Show** items above, **Auto Shutdown**, **Close to Tray** and **Minimize to Tray**.
-- **Help:** **PaTorrent Website**, **Check for Updates**, **About PaTorrent** and **Third-Party Notices**.
+- **Help:** **Rookparcel Website**, **Check for Updates**, **About Rookparcel** and **Third-Party Notices**.
 
 *File > Profiles is new in 1.1.48 and Options > Setup Guide in 1.1.62; neither is in a published release yet.*
 
-Pages: [Adding torrents](Adding-torrents), [Creating torrents](Creating-torrents), [Importing from µTorrent and qBittorrent](Importing-from-uTorrent-and-qBittorrent), [Profiles](Profiles), [Remote control](Remote-control), [Preferences reference](Preferences-reference), [First start and the Setup Guide](First-start-and-the-Setup-Guide), [RSS Downloader](RSS-Downloader), [Auto Shutdown](Auto-shutdown), [Tray, notifications and startup](Tray-notifications-and-startup), [Updating PaTorrent](Updating-PaTorrent).
+Pages: [Adding torrents](Adding-torrents), [Creating torrents](Creating-torrents), [Importing from µTorrent and qBittorrent](Importing-from-uTorrent-and-qBittorrent), [Profiles](Profiles), [Remote control](Remote-control), [Preferences reference](Preferences-reference), [First start and the Setup Guide](First-start-and-the-Setup-Guide), [RSS Downloader](RSS-Downloader), [Auto Shutdown](Auto-shutdown), [Tray, notifications and startup](Tray-notifications-and-startup), [Updating Rookparcel](Updating-Rookparcel).
 
 ## The toolbar
 
@@ -137,9 +137,9 @@ From left to right:
 
 | Part | Shows |
 |---|---|
-| Update notice | "PaTorrent ... is available - click here to download it", only when a newer version is out. See [Updating PaTorrent](Updating-PaTorrent). |
-| Network | **Network OK** when other peers can connect to you, **No incoming connections** when none has yet. **Port ... in use** means another program, often another PaTorrent profile, holds the listening port; click it to open Preferences > Connection. The scheduler's state follows when it limits the speed, for example "Scheduler: limited". |
-| **DHT: ... nodes** | how many DHT nodes PaTorrent knows |
+| Update notice | "Rookparcel ... is available - click here to download it", only when a newer version is out. See [Updating Rookparcel](Updating-Rookparcel). |
+| Network | **Network OK** when other peers can connect to you, **No incoming connections** when none has yet. **Port ... in use** means another program, often another Rookparcel profile, holds the listening port; click it to open Preferences > Connection. The scheduler's state follows when it limits the speed, for example "Scheduler: limited". |
+| **DHT: ... nodes** | how many DHT nodes Rookparcel knows |
 | **D: ... T: ...** | download speed, and total downloaded this session |
 | **U: ... T: ...** | upload speed, and total uploaded this session |
 
@@ -153,7 +153,7 @@ See [Connection, ports and firewall](Connection-ports-and-firewall), [Speed limi
 
 With **Show current speed in the title bar** on (Preferences > UI Settings), the window title starts with the download and upload speeds, which also show on the taskbar.
 
-PaTorrent puts an icon in the notification area. Hovering it shows the version and the speeds. A click shows or hides the window; a right-click opens a menu with **Hide PaTorrent** or **Show PaTorrent**, **Add Torrent...**, **Add Torrent from URL...**, **Start All Torrents**, **Stop All Torrents** and **Exit**. By default the close button hides the window to the tray and the torrents keep running; **Exit** quits. See [Tray, notifications and startup](Tray-notifications-and-startup).
+Rookparcel puts an icon in the notification area. Hovering it shows the version and the speeds. A click shows or hides the window; a right-click opens a menu with **Hide Rookparcel** or **Show Rookparcel**, **Add Torrent...**, **Add Torrent from URL...**, **Start All Torrents**, **Stop All Torrents** and **Exit**. By default the close button hides the window to the tray and the torrents keep running; **Exit** quits. See [Tray, notifications and startup](Tray-notifications-and-startup).
 
 ## In the GTK version (Linux, BSD, macOS)
 

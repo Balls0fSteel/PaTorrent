@@ -1,6 +1,6 @@
 [package]
-name = "patorrent-nox"
-description = "Headless PaTorrent daemon (in Phase 0: a command-line driver for the engine API)."
+name = "rookparcel-nox"
+description = "Headless Rookparcel daemon (in Phase 0: a command-line driver for the engine API)."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,8 +10,8 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
-patorrent-core = { workspace = true, features = ["mock"] }
-patorrent-frontend.workspace = true
+rookparcel-core = { workspace = true, features = ["mock"] }
+rookparcel-frontend.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [

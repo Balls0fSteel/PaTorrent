@@ -3,11 +3,11 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::InfoHashes;
-use patorrent_core::fuzzing::{MetadataFetch, UtMetadataMessage, decode_ut_metadata};
+use rookparcel_core::InfoHashes;
+use rookparcel_core::fuzzing::{MetadataFetch, UtMetadataMessage, decode_ut_metadata};
 
 fuzz_target!(|data: &[u8]| {
-    let ih = InfoHashes::v1(patorrent_core::crypto::Sha1::digest(b"d4:name1:xe"));
+    let ih = InfoHashes::v1(rookparcel_core::crypto::Sha1::digest(b"d4:name1:xe"));
     let mut fetch = MetadataFetch::new();
     // Messages are split on 0xff bytes, so one input can carry several.
     for (i, chunk) in data.split(|&b| b == 0xff).enumerate() {

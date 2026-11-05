@@ -6,7 +6,7 @@ If work can be parallelized and doing so could improve speed or quality, delegat
 
 - Every change set that alters the programs bumps the patch version (D37): `[workspace.package]
   version` in `Cargo.toml` and `assemblyIdentity version` in
-  `crates/win32/res/patorrent.exe.manifest`, in the same commit. Documentation-only changes
+  `crates/win32/res/rookparcel.exe.manifest`, in the same commit. Documentation-only changes
   need no bump. `PEER_ID_PREFIX` (`crates/core/src/version.rs`) is a separate counter, bumped
   only for an engine change that alters wire behaviour.
 

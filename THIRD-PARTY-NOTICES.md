@@ -1,6 +1,6 @@
 # Third-party notices
 
-PaTorrent's engine is a Rust port of libtorrent-rasterbar 2.0.11. Ported code is a derivative work of the projects below and remains under their terms. This file ships with every PaTorrent binary distribution.
+Rookparcel's engine is a Rust port of libtorrent-rasterbar 2.0.11. Ported code is a derivative work of the projects below and remains under their terms. This file ships with every Rookparcel binary distribution.
 
 Ported so far:
 - `crates/core/src/bencode`, `crypto` (SHA-1, SHA-256, CRC32C, the MSE/PE RC4 and Diffie-Hellman primitives of `pe_crypto`), `util`, `metainfo` (incl. `create_torrent.rs`: `create_torrent` with v2 / hybrid creation, `add_files`, `set_piece_hashes` and `make_magnet_uri(torrent_info)`; `merkle.rs` and `merkle_tree.rs`: libtorrent's `merkle` and `aux::merkle_tree`), and the digest operations in `types.rs`
@@ -14,7 +14,7 @@ Ported so far:
 
 Each source file names its origin in a header comment.
 
-PaTorrent is not affiliated with or endorsed by libtorrent, its authors, or any other project named here. `patorrent-nox --license` prints this file after PaTorrent's own LICENSE.md.
+Rookparcel is not affiliated with or endorsed by libtorrent, its authors, or any other project named here. `rookparcel-nox --license` prints this file after Rookparcel's own LICENSE.md.
 
 ---
 
@@ -56,7 +56,7 @@ POSSIBILITY OF SUCH DAMAGE.
 
 ## puff (inflate)
 
-Ported via libtorrent `src/puff.cpp` / `include/libtorrent/puff.hpp`. PaTorrent's port is an altered version.
+Ported via libtorrent `src/puff.cpp` / `include/libtorrent/puff.hpp`. Rookparcel's port is an altered version.
 
 ```
 Copyright (C) 2002, 2003 Mark Adler, all rights reserved
@@ -84,7 +84,7 @@ Mark Adler    madler@alumni.caltech.edu
 
 ## ed25519
 
-Ported via libtorrent `src/ed25519/`. PaTorrent's port is an altered version.
+Ported via libtorrent `src/ed25519/`. Rookparcel's port is an altered version.
 
 ```
 Copyright (c) 2015 Orson Peters <orsonpeters@gmail.com>
@@ -129,7 +129,7 @@ SHA-256. Adapted from LibTomCrypt. This code is Public Domain
 
 ## Rust crates linked into the binaries
 
-Each is used under the MIT license (where a crate also offers Apache-2.0 or the Unlicense, MIT is the one PaTorrent takes); the license text follows the table, and each crate's copyright notice is in it.
+Each is used under the MIT license (where a crate also offers Apache-2.0 or the Unlicense, MIT is the one Rookparcel takes); the license text follows the table, and each crate's copyright notice is in it.
 
 | Crate | Used by | License | Copyright |
 |---|---|---|---|
@@ -138,7 +138,7 @@ Each is used under the MIT license (where a crate also offers Apache-2.0 or the 
 | `libc` (pulled in by `mio`, `glib`) | same (Unix only), and the GTK GUI | MIT OR Apache-2.0 | (c) The Rust Project Developers |
 | `windows-sys` | engine (sparse files, and mio on Windows), Win32 GUI, `lt-swarm` (Windows only) | MIT OR Apache-2.0 | (c) Microsoft Corporation |
 | `windows-link` (pulled in by `windows-sys`) | same | MIT OR Apache-2.0 | (c) Microsoft Corporation |
-| `gtk4`, `gtk4-sys`, `gdk4`, `gdk4-sys`, `gsk4`, `gsk4-sys`, `glib`, `glib-sys`, `gobject-sys`, `gio`, `gio-sys`, `pango`, `pango-sys`, `cairo-rs`, `cairo-sys-rs`, `gdk-pixbuf`, `gdk-pixbuf-sys`, `graphene-rs`, `graphene-sys` (gtk-rs) | the GTK GUI (`patorrent-gtk`, PLAN.md D11) | MIT | (c) The gtk-rs Project Developers |
+| `gtk4`, `gtk4-sys`, `gdk4`, `gdk4-sys`, `gsk4`, `gsk4-sys`, `glib`, `glib-sys`, `gobject-sys`, `gio`, `gio-sys`, `pango`, `pango-sys`, `cairo-rs`, `cairo-sys-rs`, `gdk-pixbuf`, `gdk-pixbuf-sys`, `graphene-rs`, `graphene-sys` (gtk-rs) | the GTK GUI (`rookparcel-gtk`, PLAN.md D11) | MIT | (c) The gtk-rs Project Developers |
 | `futures-channel`, `futures-core`, `futures-executor`, `futures-io`, `futures-task`, `futures-util` (pulled in by `glib`) | same | MIT OR Apache-2.0 | (c) 2016 Alex Crichton |
 | `bitflags` (pulled in by gtk-rs) | same | MIT OR Apache-2.0 | (c) 2014 The Rust Project Developers |
 | `smallvec` (pulled in by `glib`) | same | MIT OR Apache-2.0 | (c) 2018 The Servo Project Developers |
@@ -174,6 +174,6 @@ THE SOFTWARE.
 
 ## System libraries used at run time
 
-HTTPS trackers use the operating system's TLS library, which is linked dynamically and not shipped with PaTorrent: SChannel (`secur32.dll`) on Windows, Security.framework (Secure Transport) on macOS, and the system OpenSSL (`libssl`, `libcrypto`; Apache-2.0 from 3.0, the OpenSSL/SSLeay license before) or LibreSSL on Linux and BSD.
+HTTPS trackers use the operating system's TLS library, which is linked dynamically and not shipped with Rookparcel: SChannel (`secur32.dll`) on Windows, Security.framework (Secure Transport) on macOS, and the system OpenSSL (`libssl`, `libcrypto`; Apache-2.0 from 3.0, the OpenSSL/SSLeay license before) or LibreSSL on Linux and BSD.
 
-The GTK GUI (`patorrent-gtk`) links the system's GTK 4 and the libraries under it dynamically: GTK, GLib / GIO, Pango and gdk-pixbuf (LGPL-2.1-or-later), Cairo (LGPL-2.1 or MPL-1.1) and Graphene (MIT). The release tarballs do not ship them; a bundle that does (AppImage, Flatpak, the macOS `.app`; PLAN.md D22, D23) must carry their licenses and keep them replaceable, as the LGPL asks.
+The GTK GUI (`rookparcel-gtk`) links the system's GTK 4 and the libraries under it dynamically: GTK, GLib / GIO, Pango and gdk-pixbuf (LGPL-2.1-or-later), Cairo (LGPL-2.1 or MPL-1.1) and Graphene (MIT). The release tarballs do not ship them; a bundle that does (AppImage, Flatpak, the macOS `.app`; PLAN.md D22, D23) must carry their licenses and keep them replaceable, as the LGPL asks.

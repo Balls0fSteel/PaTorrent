@@ -1,4 +1,4 @@
-//! `patorrent-nox`: the headless PaTorrent daemon (PLAN.md Phase 6).
+//! `rookparcel-nox`: the headless Rookparcel daemon (PLAN.md Phase 6).
 //!
 //! Phase 2: a command-line client on the real engine. `add` downloads `.torrent` files and,
 //! with `--seed`, keeps seeding; `run` resumes everything saved in the state directory. State
@@ -24,37 +24,37 @@ use std::process::ExitCode;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 
-use patorrent_core::util::lockfile;
-use patorrent_core::{
+use rookparcel_core::util::lockfile;
+use rookparcel_core::{
     AddTorrentParams, Alert, IpFilter, MockConfig, MoveCompleted, PeerFlags, PeerInfo, PeerSource, ProxyType,
     Session, SessionParams, SessionStats, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentStatus,
 };
-use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Step, When};
-use patorrent_frontend::{fmt, import, status};
-use patorrent_nox::webui;
+use rookparcel_frontend::auto_shutdown::{self, AutoShutdown, Step, When};
+use rookparcel_frontend::{fmt, import, status};
+use rookparcel_nox::webui;
 
-/// PaTorrent's own license and the third-party license texts, built into the binary so a
+/// Rookparcel's own license and the third-party license texts, built into the binary so a
 /// copied-out executable still carries them (PolyForm "Notices", BSD-3-Clause clause 2).
 const LICENSE: &str = include_str!("../../../LICENSE.md");
 const NOTICES: &str = include_str!("../../../THIRD-PARTY-NOTICES.md");
 
 const USAGE: &str = "\
-patorrent-nox: headless PaTorrent
+rookparcel-nox: headless Rookparcel
 
 USAGE:
-    patorrent-nox add <file.torrent>... [--save DIR] [OPTIONS]
-    patorrent-nox run [OPTIONS]
-    patorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]
-    patorrent-nox create <file or dir> [-o OUT] [CREATE OPTIONS]
-    patorrent-nox service install [--account A] [--start TYPE] [OPTIONS] | uninstall | start | stop | status
-    patorrent-nox --version | --help | --license
+    rookparcel-nox add <file.torrent>... [--save DIR] [OPTIONS]
+    rookparcel-nox run [OPTIONS]
+    rookparcel-nox demo [--torrents N] [--active FRACTION] [--seconds N]
+    rookparcel-nox create <file or dir> [-o OUT] [CREATE OPTIONS]
+    rookparcel-nox service install [--account A] [--start TYPE] [OPTIONS] | uninstall | start | stop | status
+    rookparcel-nox --version | --help | --license
 
 COMMANDS:
     add     Add torrents, download them, and exit when they finish (keep seeding with --seed).
     run     Resume every torrent saved in the state directory and keep running.
     demo    Load N synthetic torrents on the simulated engine and print session totals.
     create  Make a .torrent (v1, hybrid or v2) from a file or directory.
-    service The Windows service PaTorrentNox, which runs `run` (see WINDOWS SERVICE).
+    service The Windows service RookparcelNox, which runs `run` (see WINDOWS SERVICE).
 
 CREATE OPTIONS:
     -o, --output FILE     Where to write the torrent (default: <name>.torrent)
@@ -66,7 +66,7 @@ CREATE OPTIONS:
     --piece-size KIB      Piece size in KiB (default: automatic)
     --comment TEXT        Comment
     --source TEXT         info \"source\" (private trackers use it for cross-seeding)
-    --creator TEXT        \"created by\" (default: PaTorrent/<version>; \"\" to leave out)
+    --creator TEXT        \"created by\" (default: Rookparcel/<version>; \"\" to leave out)
     --no-date             Leave out the creation date
     --v1                  A v1-only torrent (default: hybrid, BitTorrent v2 (BEP 52) plus v1)
     --v2                  A v2-only torrent (v1-only clients cannot load it)
@@ -81,16 +81,16 @@ CREATE OPTIONS:
 OPTIONS:
     --save DIR        Download directory (default: current directory)
     --state-dir DIR   Session state directory: resume data, DHT state (default: per-user data
-                      directory: $XDG_DATA_HOME/patorrent/nox or ~/.local/share/patorrent/nox;
-                      %APPDATA%\\PaTorrent\\nox on Windows; ~/Library/Application Support/
-                      PaTorrent/nox on macOS); also the config directory unless --config-dir
+                      directory: $XDG_DATA_HOME/rookparcel/nox or ~/.local/share/rookparcel/nox;
+                      %APPDATA%\\Rookparcel\\nox on Windows; ~/Library/Application Support/
+                      Rookparcel/nox on macOS); also the config directory unless --config-dir
                       is given. --state DIR is the same
     --config-dir DIR  Web UI login and preferences (webui.json), default ipfilter.dat (default:
-                      $XDG_CONFIG_HOME/patorrent/nox or ~/.config/patorrent/nox; the state
+                      $XDG_CONFIG_HOME/rookparcel/nox or ~/.config/rookparcel/nox; the state
                       directory on Windows and macOS)
     --profile NAME    A profile of its own (1-32 letters a-z, digits and hyphens): the default
                       state and config directories get profiles/NAME before nox
-                      (~/.local/share/patorrent/profiles/NAME/nox); --state-dir, --config-dir
+                      (~/.local/share/rookparcel/profiles/NAME/nox); --state-dir, --config-dir
                       and systemd's directories still win. `default` is the default profile
     --no-state        Do not load or save any session state
     --seed            After downloading, keep seeding until stopped
@@ -171,20 +171,20 @@ SERVICE OPTIONS (docs/DAEMON.md):
 
 WINDOWS SERVICE (docs/DAEMON.md; install, uninstall, start and stop need an administrator):
     service install [--account A] [--start TYPE] [--replace] [--now] [OPTIONS]
-                      Register the service PaTorrentNox (\"PaTorrent nox\"), which runs `run`
+                      Register the service RookparcelNox (\"Rookparcel nox\"), which runs `run`
                       with OPTIONS (paths made absolute). The state defaults to
-                      %ProgramData%\\PaTorrent\\nox (created so that only SYSTEM, Administrators
+                      %ProgramData%\\Rookparcel\\nox (created so that only SYSTEM, Administrators
                       and the account can open it), the downloads to its Downloads folder and
                       --log to nox.log there. Restarts after a failure. --webui-pass (with
                       --webui-user) is stored hashed in the state's webui.json, never in the
                       service's command line
         --account A   LocalService (default), NetworkService or LocalSystem
         --start TYPE  delayed (default; automatic, after the boot), auto or manual
-        --replace     Stop and remove an installed PaTorrentNox first (its state stays)
+        --replace     Stop and remove an installed RookparcelNox first (its state stays)
         --now         Start the service once installed
         --profile NAME
-                      The profile's own service PaTorrentNox_NAME (\"PaTorrent nox (NAME)\"),
-                      state in %ProgramData%\\PaTorrent\\profiles\\NAME\\nox
+                      The profile's own service RookparcelNox_NAME (\"Rookparcel nox (NAME)\"),
+                      state in %ProgramData%\\Rookparcel\\profiles\\NAME\\nox
     service uninstall [--profile NAME | --all [--in DIR]]
                       Stop and remove the service (the state directory stays); --all: every
                       profile's service that runs this exe (or one in DIR)
@@ -200,7 +200,7 @@ WINDOWS SERVICE (docs/DAEMON.md; install, uninstall, start and stop need an admi
 Type q and Enter, press Ctrl+C or send SIGTERM to stop cleanly (state is saved on the way
 out; a second Ctrl+C quits at once). SIGHUP reloads the IP filter and reopens the log. Under
 systemd (Type=notify) readiness is reported through NOTIFY_SOCKET. A Windows service stops on
-`sc stop PaTorrentNox` and reloads on `sc control PaTorrentNox paramchange`.
+`sc stop RookparcelNox` and reloads on `sc control RookparcelNox paramchange`.
 ";
 
 struct Opts {
@@ -322,7 +322,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
             "--listen" => o.listen = Some(value("--listen")?),
             "--network" => {
                 let rule = value("--network")?;
-                patorrent_core::NetworkRule::parse(&rule).map_err(|e| format!("--network: {e}"))?;
+                rookparcel_core::NetworkRule::parse(&rule).map_err(|e| format!("--network: {e}"))?;
                 o.network = Some(rule);
             }
             "--dl-limit" => o.dl_limit = num::<u32>("--dl-limit", value("--dl-limit")?)?.saturating_mul(1024),
@@ -360,7 +360,7 @@ fn parse(args: &[String]) -> Result<Opts, String> {
 
 /// `--profile`'s value: `None` for `default`.
 fn profile_name(v: &str) -> Result<Option<String>, String> {
-    use patorrent_frontend::profile;
+    use rookparcel_frontend::profile;
     match profile::validate(v).map_err(|e| e.to_string())? {
         n if n == profile::DEFAULT_NAME => Ok(None),
         n => Ok(Some(n)),
@@ -379,7 +379,7 @@ fn proxy_switch(arg: &str) -> Option<(&'static str, bool)> {
         "proxy-trackers" => "proxy_tracker_connections",
         "proxy-hostnames" => "proxy_hostnames",
         "socks5-udp-local-ep" => "socks5_udp_send_local_ep",
-        "pause-when-missing" => patorrent_frontend::settings::NETWORK_PAUSE,
+        "pause-when-missing" => rookparcel_frontend::settings::NETWORK_PAUSE,
         _ => return None,
     };
     Some((row, on))
@@ -388,7 +388,7 @@ fn proxy_switch(arg: &str) -> Option<(&'static str, bool)> {
 /// Applies `--proxy` and the proxy switches to `s` through the frontend's settings table (the
 /// rows the Web UI's Connection page and Advanced list edit, so they are stored the same way).
 fn apply_proxy(s: &mut Settings, o: &Opts) {
-    use patorrent_frontend::settings;
+    use rookparcel_frontend::settings;
     let mut rows: Vec<(&str, String)> = Vec::new();
     if let Some(p) = &o.proxy {
         rows.push(("proxy_type", settings::proxy_to_int(p.kind).to_string()));
@@ -468,7 +468,7 @@ fn main() -> ExitCode {
             return ExitCode::SUCCESS;
         }
         "-V" | "--version" => {
-            println!("patorrent-nox {}", patorrent_frontend::BUILD);
+            println!("rookparcel-nox {}", rookparcel_frontend::BUILD);
             return ExitCode::SUCCESS;
         }
         "--license" => {
@@ -575,26 +575,26 @@ fn state_dirs(o: &Opts) -> paths::Dirs {
     dirs
 }
 
-/// `patorrent.lock` in the state directory: an error when another process holds it; `None`
+/// `rookparcel.lock` in the state directory: an error when another process holds it; `None`
 /// when it cannot be made (an unwritable folder fails later, where the state is written).
 fn lock_state(dir: &std::path::Path) -> Result<Option<lockfile::Lock>, String> {
-    let _ = patorrent_core::util::private_file::create_dir_all(dir);
+    let _ = rookparcel_core::util::private_file::create_dir_all(dir);
     match lockfile::Lock::take(&dir.join(lockfile::FILE_NAME)) {
         Ok(l) => Ok(Some(l)),
         Err(e) if lockfile::is_taken(&e) => Err(format!(
-            "{} is in use by another patorrent-nox, on this computer or another one sharing the folder",
+            "{} is in use by another rookparcel-nox, on this computer or another one sharing the folder",
             dir.display()
         )),
         // a portable folder never falls back to the user's own (D42)
         Err(e)
-            if patorrent_frontend::profile::current()
+            if rookparcel_frontend::profile::current()
                 .portable_root
                 .as_deref()
                 .is_some_and(|r| dir.starts_with(r)) =>
         {
             Err(format!(
                 "the portable folder cannot be written: {}: {e} (move it where you can write, or remove \
-             patorrent.ini beside the program)",
+             rookparcel.ini beside the program)",
                 dir.display()
             ))
         }
@@ -612,7 +612,7 @@ fn reload(
     o: &Opts,
     service: &mut daemon::Service,
     web: Option<&webui::WebUi>,
-    h: &patorrent_core::SessionHandle,
+    h: &rookparcel_core::SessionHandle,
 ) {
     let log_error = service.reloading();
     println!("* {}: reloading", if cfg!(windows) { "PARAMCHANGE" } else { "SIGHUP" });
@@ -658,7 +658,18 @@ fn stdin_lines() -> mpsc::Receiver<String> {
 }
 
 fn run(mut o: Opts, mode: Mode) -> ExitCode {
-    patorrent_frontend::profile::init(o.profile.clone());
+    rookparcel_frontend::profile::init(o.profile.clone());
+    // PaTorrent's default folders become ours before anything reads them (D59); only a start
+    // that would use them stops while a PaTorrent still holds them
+    let migrated = if o.no_state { Ok(()) } else { rookparcel_frontend::legacy::migrate() };
+    if let Err(old) = migrated {
+        let msg = format!("{} is still in use by PaTorrent: close it, then start again", old.display());
+        if o.state.is_none() && std::env::var_os("STATE_DIRECTORY").is_none() {
+            eprintln!("error: {msg}");
+            return ExitCode::FAILURE;
+        }
+        eprintln!("! {msg}");
+    }
     if o.service.daemon {
         absolutize(&mut o);
     }
@@ -670,8 +681,8 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
             return ExitCode::FAILURE;
         }
     };
-    // the language of the Web UI and of the status lines (PATORRENT_LANG; D20)
-    for p in patorrent_frontend::lang::init("") {
+    // the language of the Web UI and of the status lines (ROOKPARCEL_LANG; D20)
+    for p in rookparcel_frontend::lang::init("") {
         eprintln!("! {p}");
     }
     let (wake_tx, wake_rx) = mpsc::channel::<()>();
@@ -703,9 +714,9 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     // a named profile has a port of its own, the same at every start, so it does not fight
     // the default profile for 6881 (D42); nox keeps no settings file to hold a random one
     if let (None, None, Some(name)) = (o.port, &o.listen, &o.profile) {
-        patorrent_frontend::settings::set_listen_port(
+        rookparcel_frontend::settings::set_listen_port(
             &mut settings,
-            patorrent_frontend::profile::name_port(name),
+            rookparcel_frontend::profile::name_port(name),
         );
     }
     apply_proxy(&mut settings, &o);
@@ -727,7 +738,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     }
     if o.verbose {
         // peers' disconnects, with their reasons
-        settings.alert_mask |= patorrent_core::AlertCategory::CONNECT.bits();
+        settings.alert_mask |= rookparcel_core::AlertCategory::CONNECT.bits();
     }
     let session = if o.mock_library > 0 {
         // the Web UI's scale profile: nothing auto-managed runs, only the --active fraction
@@ -753,8 +764,8 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         match Session::start(SessionParams {
             settings: settings.clone(),
             state_dir: state_dir.clone(),
-            label: patorrent_frontend::profile::current().engine_label(),
-            portable_root: patorrent_frontend::profile::current().portable_root.clone(),
+            label: rookparcel_frontend::profile::current().engine_label(),
+            portable_root: rookparcel_frontend::profile::current().portable_root.clone(),
         }) {
             Ok(s) => s,
             Err(e) => {
@@ -790,7 +801,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     }
     // the update check's worker wakes the loop too; its proxy without the Web UI (D43)
     let update_wake = wake_tx.clone();
-    let cli_proxy = patorrent_core::fetch::FetchProxy::from_settings(&settings);
+    let cli_proxy = rookparcel_core::fetch::FetchProxy::from_settings(&settings);
     h.set_alert_notify(move || {
         let _ = wake_tx.send(());
     });
@@ -832,7 +843,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
         Some(Err(e)) if e.kind() == std::io::ErrorKind::AddrInUse => {
             let port = o.webui.map_or(0, |a| a.port());
             eprintln!(
-                "error: cannot start the Web UI: port {port} is in use, perhaps by another PaTorrent profile"
+                "error: cannot start the Web UI: port {port} is in use, perhaps by another Rookparcel profile"
             );
             return ExitCode::FAILURE;
         }
@@ -1047,7 +1058,7 @@ fn run(mut o: Opts, mode: Mode) -> ExitCode {
     service.stopping();
     drop(web);
     // the search helper, when a search started it, ends with us
-    patorrent_frontend::search::helper::shutdown();
+    rookparcel_frontend::search::helper::shutdown();
     h.clear_alert_notify();
     session.shutdown();
     println!("* stopped");
@@ -1085,17 +1096,17 @@ fn report_update(out: &update_check::Outcome, web: Option<&webui::WebUi>) {
 fn import_torrents(
     client: import::Client,
     dir: Option<&std::path::Path>,
-    h: &patorrent_core::SessionHandle,
+    h: &rookparcel_core::SessionHandle,
     web: Option<&webui::WebUi>,
 ) -> Result<(), String> {
     if client.is_running() {
-        return Err(patorrent_frontend::tr!(ImportRunning, client = client.name()));
+        return Err(rookparcel_frontend::tr!(ImportRunning, client = client.name()));
     }
     let dir = dir.map(std::path::Path::to_owned).or_else(|| client.default_dir()).ok_or_else(|| {
         format!("--import {}: no {} folder found here; name it with --import-dir", client.id(), client.name())
     })?;
     let found = import::read(client, &dir)?;
-    let mut prefs = patorrent_frontend::prefs::Prefs::from_text("");
+    let mut prefs = rookparcel_frontend::prefs::Prefs::from_text("");
     let done = import::finish(client, found, &mut prefs, |_| false);
     let (mut labels, mut paused) = (Vec::new(), Vec::new());
     for (k, v) in prefs.entries() {
@@ -1124,7 +1135,7 @@ fn import_torrents(
 fn start_webui(
     o: &Opts,
     addr: std::net::SocketAddr,
-    h: &patorrent_core::SessionHandle,
+    h: &rookparcel_core::SessionHandle,
     settings: Settings,
     dirs: &paths::Dirs,
     save: &str,
@@ -1154,7 +1165,7 @@ fn start_webui(
     let w = webui::WebUi::start(h.clone(), c)?;
     println!("* Web UI: {}", w.url());
     if let Some(t) = w.https() {
-        let expires = patorrent_frontend::fmt::date_time(t.not_after);
+        let expires = rookparcel_frontend::fmt::date_time(t.not_after);
         match (&t.cert_path, t.generated) {
             (Some(path), true) => println!("* Web UI: new self-signed certificate {}", path.display()),
             (Some(path), false) => println!("* Web UI: certificate {}", path.display()),
@@ -1510,11 +1521,11 @@ mod tests {
         };
         assert_eq!(s, want);
         // stored like the Web UI's preferences: as lt.<name> rows (the defaults left out)
-        let mut prefs = patorrent_frontend::prefs::Prefs::default();
-        patorrent_frontend::settings::store(&mut prefs, &s);
+        let mut prefs = rookparcel_frontend::prefs::Prefs::default();
+        rookparcel_frontend::settings::store(&mut prefs, &s);
         assert_eq!(prefs.get("lt.proxy_peer_connections"), Some("false"));
         assert_eq!(prefs.get("lt.socks5_udp_send_local_ep"), Some("true"));
         assert_eq!(prefs.get("lt.proxy_tracker_connections"), None);
-        assert_eq!(patorrent_frontend::settings::load(&prefs), want);
+        assert_eq!(rookparcel_frontend::settings::load(&prefs), want);
     }
 }

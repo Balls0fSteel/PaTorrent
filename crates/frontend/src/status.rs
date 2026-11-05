@@ -4,7 +4,7 @@
 //! `AUTO_MANAGED`. µTorrent distinguishes them, so frontends track the user's intent
 //! (`user_paused`) and pass it in. It will be persisted with the torrent in `core::store` (Phase 2).
 
-use patorrent_core::{Alert, Protocol, SessionStats, TorrentFlags, TorrentState, TorrentStatus};
+use rookparcel_core::{Alert, Protocol, SessionStats, TorrentFlags, TorrentState, TorrentStatus};
 
 use crate::icons::StateIcon;
 use crate::{fmt, tr};
@@ -66,7 +66,7 @@ impl ListenProblem {
             Alert::ListenFailed {
                 address,
                 protocol: Protocol::Tcp,
-                error: patorrent_core::Error::Io { kind: std::io::ErrorKind::AddrInUse, .. },
+                error: rookparcel_core::Error::Io { kind: std::io::ErrorKind::AddrInUse, .. },
             } => {
                 if let Ok(addr) = address.parse::<std::net::SocketAddr>() {
                     self.in_use.retain(|a| a.ip() != addr.ip());

@@ -1,4 +1,4 @@
-// PaTorrent's own code, not ported: libtorrent's `http_connection` is asynchronous and lives
+// Rookparcel's own code, not ported: libtorrent's `http_connection` is asynchronous and lives
 // inside the session. This is a small blocking client for frontends (Add Torrent from URL, RSS
 // feeds) on top of the same request format, response parser, OS TLS and proxy handshakes the
 // engine's HTTP trackers use.
@@ -45,7 +45,7 @@ pub const MIN_STREAM_RATE: u64 = 1024;
 /// What [`http_get`] does; [`FetchOptions::default`] suits `.torrent` files and feeds.
 #[derive(Clone, Debug)]
 pub struct FetchOptions {
-    /// Sent as `User-Agent` (default `PaTorrent/<version>`, PLAN.md D16).
+    /// Sent as `User-Agent` (default `Rookparcel/<version>`, PLAN.md D16).
     pub user_agent: String,
     /// For the whole exchange, every redirect included (default 30 s).
     pub timeout: Duration,

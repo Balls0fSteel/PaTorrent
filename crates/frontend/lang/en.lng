@@ -1,4 +1,4 @@
-# PaTorrent string table: English, the source of every translation.
+# Rookparcel string table: English, the source of every translation.
 # Written from crates/frontend/src/lang/en.rs; do not edit by hand.
 # Key=Text. Keep {placeholders} as they are; & marks the next letter as the keyboard
 # mnemonic (&& is a literal &); \n is a line break.
@@ -141,7 +141,7 @@ MenuAddTorrent=&Add Torrent...
 MenuAddUrl=Add Torrent from &URL...
 MenuCreate=&Create New Torrent...
 
-# Connect this window to a patorrent-nox on another computer.
+# Connect this window to a rookparcel-nox on another computer.
 MenuConnectRemote=Connect to &Remote...
 
 # File > Profiles (D42): the profiles, each started in a window of its own.
@@ -168,18 +168,18 @@ MenuShowTree=Show &Category List
 MenuAutoShutdown=&Auto Shutdown
 MenuCloseToTray=Close to Tra&y
 MenuMinimizeToTray=&Minimize to Tray
-MenuAbout=&About PaTorrent
+MenuAbout=&About Rookparcel
 
-# Help menu: opens a window with the licence texts of the code PaTorrent is built on
+# Help menu: opens a window with the licence texts of the code Rookparcel is built on
 # (THIRD-PARTY-NOTICES.md); without the mnemonic it is also the window's title.
 MenuNotices=Third-Party &Notices
 
-# Help menu: asks the project website whether a newer PaTorrent is out; without the &
+# Help menu: asks the project website whether a newer Rookparcel is out; without the &
 # it is also the title of the message box that answers.
 MenuCheckUpdates=Check for &Updates
 
 # Help menu: opens the project website in the browser.
-MenuWebsite=PaTorrent &Website
+MenuWebsite=Rookparcel &Website
 
 # The Ctrl key, as menus write shortcuts (Ctrl+O).
 KeyCtrl=Ctrl
@@ -192,8 +192,8 @@ KeyDel=Del
 
 # The Enter key, as menus write shortcuts (Enter).
 KeyEnter=Enter
-MenuHide=&Hide PaTorrent
-MenuShow=&Show PaTorrent
+MenuHide=&Hide Rookparcel
+MenuShow=&Show Rookparcel
 MenuStartAll=S&tart All Torrents
 MenuStopAll=St&op All Torrents
 
@@ -334,7 +334,7 @@ GenExternal=Your address as trackers see it:
 NetOk=Network OK
 NetNoIncoming=No incoming connections
 
-# The listen port is held by another program (often another PaTorrent profile); a click
+# The listen port is held by another program (often another Rookparcel profile); a click
 # opens Preferences > Connection.
 NetPortInUse=Port {port} in use
 BarDht=DHT: {count} nodes
@@ -345,16 +345,16 @@ BarDown=D: {rate} T: {total}
 # U = upload, T = total.
 BarUp=U: {rate} T: {total}
 
-# The tray icon's tooltip; D = download, U = upload; {version} is PaTorrent's (1.0.0).
-TrayTip=PaTorrent {version}\nD: {down} U: {up}
+# The tray icon's tooltip; D = download, U = upload; {version} is Rookparcel's (1.0.0).
+TrayTip=Rookparcel {version}\nD: {down} U: {up}
 BalloonComplete=Download Complete
 
-# The window title of a window connected to a patorrent-nox; {label} is host:port.
-TitleRemote=PaTorrent {version} - {label} (remote)
-TitleDisconnected=PaTorrent {version} - {label} (disconnected)
+# The window title of a window connected to a rookparcel-nox; {label} is host:port.
+TitleRemote=Rookparcel {version} - {label} (remote)
+TitleDisconnected=Rookparcel {version} - {label} (disconnected)
 
 # The main window's title with "Show current speed in the title bar" on: D = download,
-# U = upload; {title} is the normal title (PaTorrent 1.0.0).
+# U = upload; {title} is the normal title (Rookparcel 1.0.0).
 TitleSpeed=D:{down} U:{up} - {title}
 
 # BarDown and BarUp while Keep ping low limits the speed: {cap} is the automatic limit,
@@ -413,8 +413,8 @@ LogIpFilterKept=IP filter: {path}: {error} (the old rules stay)
 # {title} is an RSS item's title.
 LogRssAlreadyInList=RSS: {title}: already in the torrent list
 
-# {version} is a newer PaTorrent's version (1.0.1), {url} its download page.
-LogUpdateAvailable=PaTorrent {version} is available: {url}
+# {version} is a newer Rookparcel's version (1.0.1), {url} its download page.
+LogUpdateAvailable=Rookparcel {version} is available: {url}
 LogUpdateFailed=Update check failed: {error}
 
 # {what} is one of the two below.
@@ -422,11 +422,11 @@ LogSeedingGoal={name}: seeding goal reached, {what}
 SeedingGoalStopped=stopped
 SeedingGoalLimited=upload limited to {rate}
 ErrEngineStart=Cannot start the BitTorrent engine:\n{error}
-AskAssociate=PaTorrent is not the program that opens .torrent files and magnet: links.\n\nAssociate them with PaTorrent?\n\n(Preferences > General > "Check association on startup" turns this question off.)
+AskAssociate=Rookparcel is not the program that opens .torrent files and magnet: links.\n\nAssociate them with Rookparcel?\n\n(Preferences > General > "Check association on startup" turns this question off.)
 
 # {note} says which program Windows still uses.
 AskDefaultApps={note}\n\nWindows keeps a program chosen in Windows itself, and only you can change that choice, in Settings > Default apps. Open Default apps now?
-ErrAssociate=Could not associate PaTorrent:\n{error}
+ErrAssociate=Could not associate Rookparcel:\n{error}
 ErrIntegration=Could not change the Windows integration:\n{error}
 ErrDesktopIntegration=Could not change the desktop integration:\n{error}
 AssocTorrent=Windows still opens .torrent files with {program}.
@@ -435,11 +435,11 @@ AssocBoth=Windows still opens .torrent files and magnet: links with {program}.
 AssocEach=Windows still opens .torrent files with {torrent}, magnet: links with {magnet}.
 
 # {note} is one of the four above.
-AssocChoose={note} Choose PaTorrent in Default apps.
+AssocChoose={note} Choose Rookparcel in Default apps.
 
-# Another profile of this PaTorrent owns the associations (D42); `{profile}` is its name
+# Another profile of this Rookparcel owns the associations (D42); `{profile}` is its name
 # (`default` for the default profile).
-AssocOtherProfile=The PaTorrent profile "{profile}" opens them now; ticking a box makes this profile open them instead.
+AssocOtherProfile=The Rookparcel profile "{profile}" opens them now; ticking a box makes this profile open them instead.
 
 # Windows' name for the .torrent file type (Explorer's Type column).
 AssocTorrentType=Torrent File
@@ -447,7 +447,7 @@ AssocTorrentType=Torrent File
 # Windows' name for magnet: links.
 AssocMagnetType=Magnet link
 
-# PaTorrent's description in Windows' Default apps.
+# Rookparcel's description in Windows' Default apps.
 AppDescription=BitTorrent client
 ErrAddTorrent=Could not add {name}:\n{error}
 
@@ -484,7 +484,7 @@ CannotDownload=Could not download {url}
 
 # The Files tab's Relocate (or a rename) refused, for example by a file already there.
 CannotRelocate=Could not move or rename a file of {name}
-ErrNotALink=Not a link PaTorrent can add
+ErrNotALink=Not a link Rookparcel can add
 
 # Keep the example links as they are.
 UrlPlaceholder=magnet:?xt=… or https://…/file.torrent
@@ -495,32 +495,32 @@ AboutShort=A BitTorrent client in the spirit of µTorrent 2.2.1, on a Rust port 
 AskDeleteFeed=Delete the feed "{name}"?
 ErrNotRunning=not running
 
-# In the status bar, until clicked, when a newer PaTorrent is out ({version}, like 1.0.1);
+# In the status bar, until clicked, when a newer Rookparcel is out ({version}, like 1.0.1);
 # clicking it opens the download page.
-UpdateNotice=PaTorrent {version} is available - click here to download it
+UpdateNotice=Rookparcel {version} is available - click here to download it
 
 # Help > Check for Updates; {version} is the newer one, {current} the running one.
-UpdateNewer=PaTorrent {version} is available. You have {current}.\n\nOpen its download page?
-UpdateNewest=You have the newest version, PaTorrent {version}.
+UpdateNewer=Rookparcel {version} is available. You have {current}.\n\nOpen its download page?
+UpdateNewest=You have the newest version, Rookparcel {version}.
 UpdateFailed=Could not check for updates: {error}
 
-# The same question on Windows for an installed PaTorrent, which can update itself: the
+# The same question on Windows for an installed Rookparcel, which can update itself: the
 # buttons are the two texts below and Cancel.
-UpdateInstallAsk=PaTorrent {version} is available. You have {current}.\n\nDownload and install it now?
+UpdateInstallAsk=Rookparcel {version} is available. You have {current}.\n\nDownload and install it now?
 UpdateInstallBtn=Download and install
 UpdateOpenPageBtn=Open download page
 
 # The title of the small window with the progress bar while the setup downloads.
-UpdateDownloading=Downloading PaTorrent {version}...
+UpdateDownloading=Downloading Rookparcel {version}...
 
 # {error} is the download's or the checksum's error, in English.
-UpdateDownloadFailed=Could not download PaTorrent {version}: {error}
+UpdateDownloadFailed=Could not download Rookparcel {version}: {error}
 
-# The setup is downloaded and checked; PaTorrent has to close for it to install.
-UpdateInstallNow=PaTorrent {version} is downloaded. To install it, PaTorrent closes now and starts again when Setup is done.\n\nClose and install now?
+# The setup is downloaded and checked; Rookparcel has to close for it to install.
+UpdateInstallNow=Rookparcel {version} is downloaded. To install it, Rookparcel closes now and starts again when Setup is done.\n\nClose and install now?
 
 # {version} is like 1.0.0, {path} the settings file. Keep the names and licences as they are.
-AboutText=PaTorrent (PatinaTorrent) {version}\n\nA re-creation of µTorrent 2.2.1, built on a Rust port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or run patorrent-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, µTorrent or BitTorrent, Inc.\n\nSettings: {path}
+AboutText=Rookparcel {version}\n\nA re-creation of µTorrent 2.2.1, built on a Rust port of libtorrent-rasterbar 2.0.11.\n\nCopyright 2026 DukeCorp1996. Free for noncommercial use under the PolyForm Noncommercial License 1.0.0.\n\nPorted libtorrent code: Copyright (c) 2003-2020, Arvid Norberg and contributors, BSD-3-Clause. License texts: LICENSE.md, THIRD-PARTY-NOTICES.md, or run rookparcel-nox --license.\n\nNot affiliated with libtorrent, qBittorrent, µTorrent or BitTorrent, Inc.\n\nSettings: {path}
 BtnOk=OK
 BtnCancel=Cancel
 BtnApply=&Apply
@@ -608,38 +608,38 @@ RemotePort=&Port:
 RemoteUser=&User name:
 RemotePassword=Pass&word:
 RemoteHttps=Use HTTP&S
-RemoteNote=The Web UI login of a patorrent-nox started with --webui. Its torrents stay on that computer.
+RemoteNote=The Web UI login of a rookparcel-nox started with --webui. Its torrents stay on that computer.
 RemoteConnect=Connect
 RemoteBadAddress=Enter the server's host name or address, and its port (1 to 65535).
 
 # {name} is host:port, {error} what went wrong.
 RemoteCertChanged=The certificate of {name} is not the one you accepted before:\n{error}\n\nIf it was replaced on purpose (a new --webui-cert, or webui-cert.pem renewed), connect again to check the new one. Otherwise someone may be in between.
 RemoteCannotConnect=Cannot connect to {name}:\n{error}
-RemoteHintNotNox=Is it a patorrent-nox with its Web UI on this port (--webui)?
+RemoteHintNotNox=Is it a rookparcel-nox with its Web UI on this port (--webui)?
 RemoteHintHttps=If the server's Web UI uses HTTPS (--webui-https), tick Use HTTPS.
 RemoteNoHttps=Cannot reach {name} over HTTPS:\n{error}
 
 # {fingerprint} is a long hexadecimal number.
-RemoteTrust={name} presents a certificate that this computer does not trust (a self-signed one, as patorrent-nox --webui-https makes).\n\nSHA-256 fingerprint:\n{fingerprint}\n\nCompare it with the "certificate SHA-256" line patorrent-nox printed when it started. Trust this certificate for {name}?
+RemoteTrust={name} presents a certificate that this computer does not trust (a self-signed one, as rookparcel-nox --webui-https makes).\n\nSHA-256 fingerprint:\n{fingerprint}\n\nCompare it with the "certificate SHA-256" line rookparcel-nox printed when it started. Trust this certificate for {name}?
 
 # Asked before connecting without HTTPS to a host other than this computer.
 RemotePlaintext={name} is another computer, and without HTTPS your user name, password and every command cross the network unencrypted: anyone on it can read or change them.\n\nConnect without HTTPS anyway?
-ErrStartPaTorrent=Cannot start PaTorrent: {error}
+ErrStartRookparcel=Cannot start Rookparcel: {error}
 
 # A second copy was started with a torrent while the first runs with administrator rights.
-ForwardRefused=PaTorrent is already running as administrator, and Windows does not let this copy hand it what to add. Add it from the running PaTorrent, or start PaTorrent without administrator rights.
+ForwardRefused=Rookparcel is already running as administrator, and Windows does not let this copy hand it what to add. Add it from the running Rookparcel, or start Rookparcel without administrator rights.
 
-# The folder's `patorrent.lock` is held: another user session, or another computer that
+# The folder's `rookparcel.lock` is held: another user session, or another computer that
 # opened the same folder over a share (D42).
-FolderInUse=Another PaTorrent is already using this folder, in another session or on another computer that shares it:\n\n{folder}\n\nClose that PaTorrent first.
+FolderInUse=Another Rookparcel is already using this folder, in another session or on another computer that shares it:\n\n{folder}\n\nClose that Rookparcel first.
 
-# macOS runs a quarantined PaTorrent.app from a temporary read-only copy (App
-# Translocation), where a portable `patorrent.ini` beside it is not seen (D42).
-MacTranslocated=macOS is running PaTorrent from a temporary copy, so a patorrent.ini beside PaTorrent.app is not seen. Move PaTorrent.app to the folder you want (or to Applications) with Finder and start it again.
+# macOS runs a quarantined Rookparcel.app from a temporary read-only copy (App
+# Translocation), where a portable `rookparcel.ini` beside it is not seen (D42).
+MacTranslocated=macOS is running Rookparcel from a temporary copy, so a rookparcel.ini beside Rookparcel.app is not seen. Move Rookparcel.app to the folder you want (or to Applications) with Finder and start it again.
 
-# Portable mode (a `patorrent.ini` beside the program) in a folder that cannot be written
-# (D42): PaTorrent does not fall back to the user's own folder.
-PortableReadOnly=This portable PaTorrent cannot write to its folder:\n\n{folder}\n{error}\n\nMove the folder where you can write, or remove patorrent.ini beside the program to keep the settings in your user folder.
+# Portable mode (a `rookparcel.ini` beside the program) in a folder that cannot be written
+# (D42): Rookparcel does not fall back to the user's own folder.
+PortableReadOnly=This portable Rookparcel cannot write to its folder:\n\n{folder}\n{error}\n\nMove the folder where you can write, or remove rookparcel.ini beside the program to keep the settings in your user folder.
 
 # `--profile` with a name that cannot be used (D42); `{name}` is what was given.
 ProfileBadName="{name}" cannot be a profile name. A profile name has 1 to 32 characters: letters a-z, digits and hyphens (-), starting with a letter.
@@ -647,15 +647,15 @@ ProfileBadName="{name}" cannot be a profile name. A profile name has 1 to 32 cha
 # Asked at the first start of a named profile, before its folder is made.
 ProfileCreate=The profile "{name}" does not exist yet. Create it?\n\nIt starts empty, like a new installation, in:\n{folder}
 
-# Windows lists it beside PaTorrent while it holds up a sign-out or shutdown to save its
+# Windows lists it beside Rookparcel while it holds up a sign-out or shutdown to save its
 # state.
 EndSessionSaving=Saving the torrent list and progress...
-ExitTitle=PaTorrent is closing
+ExitTitle=Rookparcel is closing
 
 # {time} is minutes:seconds, like 1:05.
 ExitElapsed=Closing for {time}
 ExitStopping=Stopping the torrents...
-ExitMoving=Waiting for files to finish moving. Closing in the middle could leave a torrent half in one folder and half in another, so PaTorrent waits.
+ExitMoving=Waiting for files to finish moving. Closing in the middle could leave a torrent half in one folder and half in another, so Rookparcel waits.
 
 # The list of moves: a column title, then its cells. {done} and {total} are sizes like
 # 1.2 GB; a move that has not started yet shows ExitMoveWaiting.
@@ -663,7 +663,7 @@ ExitColMoveTo=Moving to
 ExitMoveProgress={done} of {total}
 ExitMoveWaiting=Waiting
 ExitSaving=Saving the torrent list and progress. This step always finishes, so that nothing already downloaded is lost.
-ExitTrackers=Telling the trackers that PaTorrent stopped...
+ExitTrackers=Telling the trackers that Rookparcel stopped...
 
 # {size} is like 3.2 MB.
 ExitWriting=Writing the last downloaded data to disk and closing files ({size} left)...
@@ -680,7 +680,7 @@ ExitAbortMove=• "{name}" stops moving. Its files stay in {folder}; what was al
 
 # After two ExitAbortMove lines when more torrents are moving; {count} is 2 or more.
 ExitAbortMoreMoves=• {count} more torrents stop moving in the same way.
-ExitAbortTrackers=• The trackers are not told that PaTorrent stopped; they forget it by themselves after a while.
+ExitAbortTrackers=• The trackers are not told that Rookparcel stopped; they forget it by themselves after a while.
 
 # {size} is like 3.2 MB.
 ExitAbortWrites=• {size} that was downloaded but not yet written is downloaded again next time. Nothing already on disk is affected.
@@ -689,7 +689,7 @@ ShutdownDownloadsDone=All downloads have completed.
 ShutdownEverythingDone=All torrents have completed.
 
 # {time} is minutes:seconds, like 0:30.
-ShutdownWillQuit=PaTorrent will quit in {time}.
+ShutdownWillQuit=Rookparcel will quit in {time}.
 ShutdownWillStandby=The computer will go on standby in {time}.
 ShutdownWillHibernate=The computer will hibernate in {time}.
 ShutdownWillShutDown=The computer will shut down in {time}.
@@ -723,11 +723,11 @@ PrefDesktopIntegration=Desktop Integration
 PrefAssocTorrent=Associate with .torrent files
 PrefAssocMagnet=Associate with magnet: links
 PrefCheckAssoc=Check association on startup
-PrefAutostart=Start PaTorrent on system startup
+PrefAutostart=Start Rookparcel on system startup
 PrefStartMinimized=Start minimized
 
 # Under Desktop Integration when the GTK client runs as a Flatpak (the boxes are greyed).
-PrefDesktopPackaged=PaTorrent runs as a Flatpak: the desktop offers it for .torrent files and magnet: links. Choose the default program in your desktop's settings.
+PrefDesktopPackaged=Rookparcel runs as a Flatpak: the desktop offers it for .torrent files and magnet: links. Choose the default program in your desktop's settings.
 PrefDefaultApps=Default apps...
 
 # Preferences > General, as in µTorrent 2.2.1: the update check.
@@ -848,7 +848,7 @@ SchedHover={day} {from}:00 - {to}:00: {mode}
 PrefWebUi=Enable Web UI
 
 # Preferences > Web UI (Windows): this window serves the Web UI itself (D40).
-PrefWebUiNote=The Web UI shows this window's torrents in a browser while PaTorrent is running (close to the tray to keep it up). Connections from other computers also need a Windows Firewall rule for patorrent.exe. The page's RSS Downloader edits this window's feeds and filters.
+PrefWebUiNote=The Web UI shows this window's torrents in a browser while Rookparcel is running (close to the tray to keep it up). Connections from other computers also need a Windows Firewall rule for rookparcel.exe. The page's RSS Downloader edits this window's feeds and filters.
 
 # Beside the password field: an empty field keeps the stored password.
 PrefWebUiPassKeep=(blank: unchanged)
@@ -867,9 +867,9 @@ WebUiNeedLogin=Please enter a user name and a password for the Web UI.
 WebUiFailed=The Web UI could not start: {error}
 
 # `WebUiFailed`'s `{error}` when its port is taken (D42).
-WebUiPortInUse=port {port} is in use, perhaps by another PaTorrent profile
+WebUiPortInUse=port {port} is in use, perhaps by another Rookparcel profile
 
-# A window driving a patorrent-nox elsewhere (File > Connect to Remote) has no engine to serve.
+# A window driving a rookparcel-nox elsewhere (File > Connect to Remote) has no engine to serve.
 WebUiRemoteWindow=A remote window cannot serve the Web UI; use the local window's Preferences.
 PrefFilter=Filter:
 PrefValue=Value:
@@ -906,7 +906,7 @@ PickAutoloadDir=Select the folder to load .torrents from
 LangSystemDefault=System default ({language})
 
 # After the language was changed in Preferences.
-LangRestart=PaTorrent shows the new language from its next start.
+LangRestart=Rookparcel shows the new language from its next start.
 
 # Preferences > Disk Cache: the read cache's group and controls; the two ending in ":"
 # have a number field beside them.
@@ -916,9 +916,9 @@ PrefCacheOverride=Override the automatic cache size (MB):
 PrefCacheExpire=Remove blocks unused for more than (seconds):
 
 # {mb} is the automatic cache size in MB. read_cache_line_size is a setting's name: keep it.
-PrefReadCacheNote=PaTorrent caches disk reads: a block a peer asks for is read together with the blocks around it (read_cache_line_size on the Advanced page), which saves disk seeks when seeding. The automatic size is {mb} MB. Writes are left to the system's cache.
+PrefReadCacheNote=Rookparcel caches disk reads: a block a peer asks for is read together with the blocks around it (read_cache_line_size on the Advanced page), which saves disk seeks when seeding. The automatic size is {mb} MB. Writes are left to the system's cache.
 
-# Preferences > Bandwidth: µTorrent 2.2.1's group and its boxes, then PaTorrent's own.
+# Preferences > Bandwidth: µTorrent 2.2.1's group and its boxes, then Rookparcel's own.
 PrefRateOptions=Global Rate Limit Options
 PrefRateOverhead=Apply rate limit to transport overhead
 PrefRateUtp=Apply rate limit to uTP connections
@@ -930,7 +930,7 @@ PrefKeepPingLow=Keep ping low (limit speeds automatically)
 # auto_limit_probe_hosts is a setting's name: keep it. SQM and QoS are router features.
 PrefKeepPingLowNote=Keep ping low pings the first router past your line, or else the hosts in auto_limit_probe_hosts on the Advanced page, whose operators see those pings. A router with SQM or gaming QoS does this better, for every device.
 
-# Preferences > Advanced > Disk I/O (a PaTorrent page beside Disk Cache): how checking
+# Preferences > Advanced > Disk I/O (a Rookparcel page beside Disk Cache): how checking
 # (hashing a torrent's files) and the disk threads treat the drives. I/O is input/output.
 PageDiskIo=Disk I/O
 
@@ -1449,7 +1449,7 @@ SearchHelperRemoved=The search helper was removed.
 WebHelperNeedPassword=Enter the current Web UI password to download and run the search helper.
 
 # Manage Sources in a browser on another computer: the helper listens on the server only.
-WebHelperPageHostOnly=The helper's own page opens only in a browser on the computer PaTorrent runs on, where the helper listens.
+WebHelperPageHostOnly=The helper's own page opens only in a browser on the computer Rookparcel runs on, where the helper listens.
 
 # After "Open the Helper's Page": a link to the page and the password follow.
 WebHelperPagePassword=The search helper runs. Its page asks for this password:
@@ -1488,33 +1488,33 @@ GuideRouterNote=The older choice lowers the connections to {total} in all, {per_
 
 # Page 3: smart disk I/O.
 GuidePageDisks=Your disks
-GuideDisksText=Smart disk I/O keeps the computer responsive while PaTorrent reads and writes: checks run at the system's background priority, each drive is tuned for its type, and transfers slow down while a disk answers slowly. Checks take longer while something else uses the disk.
+GuideDisksText=Smart disk I/O keeps the computer responsive while Rookparcel reads and writes: checks run at the system's background priority, each drive is tuned for its type, and transfers slow down while a disk answers slowly. Checks take longer while something else uses the disk.
 GuideSmartDisk=Use smart disk I/O
 GuideDisksNote=Gentle checks and per-drive tuning are on from the start; the box adds the slow-down while a disk is busy. Preferences > Advanced > Disk I/O sets each one.
 
 # Page 4: starting with the system and opening .torrent files and magnet: links.
 GuidePageComputer=This computer
-GuideComputerText=PaTorrent can start when you sign in, and open .torrent files and magnet: links from your browser and file manager. Preferences > General changes this later.
+GuideComputerText=Rookparcel can start when you sign in, and open .torrent files and magnet: links from your browser and file manager. Preferences > General changes this later.
 
 # ---- Help texts (D55): tooltips, the Preferences description pane and F1, one to three
 # sentences each. Optional in a translation: a missing one shows in English.
 help.PrefUiLanguage=The language of menus, dialogs and the Web UI. The first choice follows the system's language. The desktop windows switch at their next start.
-help.PrefAssocTorrent=Makes this copy of PaTorrent the program that opens .torrent files, for your user account only. A program chosen in the system's own default apps settings wins over this, and only you can change that there.
-help.PrefAssocMagnet=Makes this copy of PaTorrent the program that opens magnet: links clicked in a browser, for your user account only. With profiles, only one profile can hold them.
-help.PrefCheckAssoc=At start, asks whether to take over .torrent files and magnet: links when PaTorrent is not the program that opens them; not when it starts minimized at login. Off by default.
-help.PrefAutostart=Starts PaTorrent when you log in to the computer. Each profile has its own entry; in a Flatpak only the default profile can start at login.
-help.PrefStartMinimized=With the automatic start, PaTorrent starts without showing its window: in the tray where there is one, minimized where there is none.
-help.PrefDefaultApps=Opens Windows Settings at Default apps, on PaTorrent's own page where Windows has one. A program chosen there wins over the boxes above, and only you can change that choice.
+help.PrefAssocTorrent=Makes this copy of Rookparcel the program that opens .torrent files, for your user account only. A program chosen in the system's own default apps settings wins over this, and only you can change that there.
+help.PrefAssocMagnet=Makes this copy of Rookparcel the program that opens magnet: links clicked in a browser, for your user account only. With profiles, only one profile can hold them.
+help.PrefCheckAssoc=At start, asks whether to take over .torrent files and magnet: links when Rookparcel is not the program that opens them; not when it starts minimized at login. Off by default.
+help.PrefAutostart=Starts Rookparcel when you log in to the computer. Each profile has its own entry; in a Flatpak only the default profile can start at login.
+help.PrefStartMinimized=With the automatic start, Rookparcel starts without showing its window: in the tray where there is one, minimized where there is none.
+help.PrefDefaultApps=Opens Windows Settings at Default apps, on Rookparcel's own page where Windows has one. A program chosen there wins over the boxes above, and only you can change that choice.
 help.PrefCheckUpdates=About ten seconds after start and then every 12 hours, asks the project website whether a newer release is out and tells you. Nothing is downloaded or installed without asking. Help > Check for Updates works either way.
 help.PrefUpdateBeta=Also offers pre-release (beta) versions when checking for updates. A pre-release build always hears of the next pre-release, whatever this says.
 help.PrefConfirmDelete=Asks before removing torrents from the list, saying whether their files are deleted too. Off, Remove acts at once.
 help.PrefAlternateRows=Shades every other row of the lists, so long rows are easier to follow.
 help.PrefTitleSpeed=Puts the current download and upload speeds at the start of the main window's title, which also shows on the taskbar.
 help.PrefBalloons=Shows a notification at the tray icon, with the torrent's name, when a download completes.
-help.PrefCloseToTray=The window's close button hides PaTorrent in the tray instead of exiting, so transfers go on. Exit from the menu or the tray icon's menu.
+help.PrefCloseToTray=The window's close button hides Rookparcel in the tray instead of exiting, so transfers go on. Exit from the menu or the tray icon's menu.
 help.PrefMinimizeToTray=Minimizing hides the window in the tray instead of the taskbar. Click the tray icon to bring it back.
 help.PrefDontStart=New torrents are added stopped and outside the queue, so nothing is downloaded until you start them.
-help.PrefActivateWindow=Brings the main window to the front when another program, such as a browser, hands PaTorrent a torrent. Off, only the Add New Torrent window comes up.
+help.PrefActivateWindow=Brings the main window to the front when another program, such as a browser, hands Rookparcel a torrent. Off, only the Add New Torrent window comes up.
 help.PrefShowAddDialog=Opens the Add New Torrent window for each torrent you add, to choose the folder and the files first; for a magnet link, once its file list has arrived. Off, torrents are added at once with the defaults.
 help.PrefNewDownloadsIn=The folder new torrents are saved in, unless you choose another one when adding them.
 help.PrefMoveCompleted=When a torrent finishes downloading, its files are moved to the folder below and it keeps seeding from there. Applies to torrents that finish from now on.
@@ -1557,7 +1557,7 @@ help.PrefDht=Finds peers through the DHT, a network of BitTorrent clients, witho
 help.PrefLsd=Finds peers for the same torrents on your local network, so they exchange data directly at network speed. Private torrents never use it.
 help.PrefPex=Lets connected peers tell each other about more peers for the same torrent. A change applies to every torrent; private torrents never use it.
 help.PrefUtp=Connects to and accepts peers over uTP, a UDP transport that slows down when the network is busy, as well as over TCP. bt.transp_disposition on the Advanced page sets each direction separately.
-help.PrefOutgoing=How the connections PaTorrent opens are encrypted. Disabled: never. Enabled: plain and encrypted attempts alternate per peer, keeping what worked. Forced: encrypted only, losing peers that cannot encrypt.
+help.PrefOutgoing=How the connections Rookparcel opens are encrypted. Disabled: never. Enabled: plain and encrypted attempts alternate per peer, keeping what worked. Forced: encrypted only, losing peers that cannot encrypt.
 help.PrefLegacy=Accepts incoming connections that are not encrypted. Off, only encrypted incoming connections are accepted, which loses peers that cannot encrypt.
 help.PrefIpFilterEnable=Blocks peers whose addresses are in the block list below, in eMule ipfilter.dat or PeerGuardian P2P format; an empty path means ipfilter.dat in the settings folder. Loaded at start and when Apply changes the box or the path; Reload reads an edited list.
 help.PrefReload=Loads the block list from the path now, without waiting for Apply, and shows how many rules it holds. The IP filter must be enabled.
@@ -1569,18 +1569,18 @@ help.PrefRatio=A queued torrent's goal: upload this percentage of what it downlo
 help.PrefSeedTime=A queued torrent's goal: seed for this many minutes. 0 means no time goal; with a ratio goal too, both must be reached.
 help.PrefGoalLimit=Instead of stopping a torrent that reached its seeding goal, caps its upload rate at this number, so it keeps seeding slowly. 0, or the box off, stops it.
 help.PrefGoalLimitInstead=A torrent that reached its seeding goal keeps seeding at the upload rate below instead of stopping. With a rate of 0 it stops anyway.
-help.PrefScheduler=Follows the weekly table below hour by hour, in local time. Off, PaTorrent always runs at full speed with the normal settings.
+help.PrefScheduler=Follows the weekly table below hour by hour, in local time. Off, Rookparcel always runs at full speed with the normal settings.
 help.PrefSchedTable=One cell per hour of the week; a click moves a cell on to the next of Full speed, Limited, Turn off and Seeding only, and dragging paints that mode over the cells passed. Limited uses the rates below, Turn off pauses every torrent, Seeding only uploads but downloads nothing.
 help.PrefSchedUp=The global upload limit during the table's Limited hours, in place of the normal one. 0 means unlimited.
 help.PrefSchedDown=The global download limit during the table's Limited hours, in place of the normal one. 0 means unlimited.
-help.PrefSchedDht=Also switches the DHT off during the table's Turn off hours, so PaTorrent stays quiet on the network. On by default.
-help.PrefWebUi=Serves the Web UI from this window, so a browser can control these torrents while PaTorrent runs. It needs a user name (admin unless you change it) and a password, and restarts when you apply changes.
+help.PrefSchedDht=Also switches the DHT off during the table's Turn off hours, so Rookparcel stays quiet on the network. On by default.
+help.PrefWebUi=Serves the Web UI from this window, so a browser can control these torrents while Rookparcel runs. It needs a user name (admin unless you change it) and a password, and restarts when you apply changes.
 help.PrefWebUiUsername=The user name the Web UI's login asks for. In the browser's Preferences, changing it needs the current password.
 help.PrefWebUiPassword=The Web UI's login password, stored only as a hash. Leave it empty to keep the stored one. A new password logs out every other browser.
 help.PrefCurrentPassword=Your present Web UI password, needed to change the login, the API key, the subnets and the other security settings. It is never stored; a wrong one logs this browser out.
 help.PrefWebUiPort=The port the Web UI listens on. 8080 is proposed, or the next free port when another program or profile holds it.
-help.PrefWebUiRemote=Listens on every IPv4 address of this computer, so other computers and phones can reach the Web UI, not only this one. They also need a Windows Firewall rule for patorrent.exe.
-help.PrefWebUiHttps=Serves the Web UI over HTTPS with a certificate PaTorrent makes itself and keeps in the settings folder. Browsers warn about such a certificate until you accept it.
+help.PrefWebUiRemote=Listens on every IPv4 address of this computer, so other computers and phones can reach the Web UI, not only this one. They also need a Windows Firewall rule for rookparcel.exe.
+help.PrefWebUiHttps=Serves the Web UI over HTTPS with a certificate Rookparcel makes itself and keeps in the settings folder. Browsers warn about such a certificate until you accept it.
 help.PrefWebUiOpen=Opens the running Web UI in your browser.
 help.WebApiKeyEnabled=Lets scripts and apps such as Sonarr or Radarr use the Web UI with the key below in an Authorization: Bearer header, without logging in. Off by default.
 help.WebApiKey=The key apps send, at least 16 characters (not bytes), stored only as a hash and never shown again. Leave it empty to keep the stored key. A wrong key counts as a failed login.
@@ -1602,9 +1602,9 @@ help.PrefReset=Puts the selected setting back to its default value. It takes eff
 help.PrefReadCacheEnable=Keeps recently read pieces in memory, reading a block peers ask for together with its neighbours, which saves disk seeks when seeding. Writes are left to the system's cache.
 help.PrefCacheOverride=Uses the size beside instead of the automatic 32 MB for the read cache, shared by the disk threads. A bigger cache can help busy seeding, at the cost of memory.
 help.PrefCacheExpire=Drops cached blocks no peer has asked for in the number of seconds beside. Off, they stay until newer blocks push them out.
-help.PrefDiskWriteQueue=How much downloaded data may wait to be written to disk; above it, PaTorrent stops reading from peers until the disk catches up. Values below 4 MB act as 4 MB.
-help.PrefOpenFiles=The most files PaTorrent keeps open at once; others are closed and opened again when needed. Raise it when many torrents or files are busy at the same time.
-help.PrefAioThreads=The threads that read and write torrent data; the read cache is shared among them. Read only when PaTorrent starts.
+help.PrefDiskWriteQueue=How much downloaded data may wait to be written to disk; above it, Rookparcel stops reading from peers until the disk catches up. Values below 4 MB act as 4 MB.
+help.PrefOpenFiles=The most files Rookparcel keeps open at once; others are closed and opened again when needed. Raise it when many torrents or files are busy at the same time.
+help.PrefAioThreads=The threads that read and write torrent data; the read cache is shared among them. Read only when Rookparcel starts.
 help.PrefHashThreads=Kept for libtorrent compatibility; this version does not use it. Checks run one per drive, set by Drives checked at once on the Disk I/O page.
 help.PrefCheckGently=Checks torrents at the system's background disk priority, leaves other programs' cached files alone and pauses while reads are slower than usual, so the computer stays responsive. Checks take longer while the disk is busy.
 help.PrefCheckRateLimit=Caps each check's reading speed at the MB/s beside, for a disk that still lags during gentle checks. Off by default.
@@ -1614,7 +1614,7 @@ help.PrefDiskSlowDownloads=While a drive answers writes clearly slower than usua
 help.PrefDiskSlowUploads=While a drive answers reads clearly slower than usual, halves the upload rate step by step, never below 50 kB/s, and lets it grow again once the disk is quiet. Seeding then uploads less.
 help.GuideRouter=The older choice lowers the connections to 100 in all, 40 per new torrent and 8 new connection attempts a second, so a small router keeps up. The modern choice keeps the defaults: 200, no limit per torrent and 30 a second.
 help.GuideSmartDisk=Turns on gentle checks, per-drive tuning and the slow-down of downloads and uploads while a disk answers slowly. It shows ticked only while all four are on; unticking it then turns them off.
-help.AdvUserAgent=The program name sent to HTTP trackers, web seeds and UPnP routers. Routers also show it as the description of the port mapping, except in a named profile, whose mapping is described as PaTorrent (profile name). Some private trackers only accept certain clients; otherwise it rarely needs changing.
+help.AdvUserAgent=The program name sent to HTTP trackers, web seeds and UPnP routers. Routers also show it as the description of the port mapping, except in a named profile, whose mapping is described as Rookparcel (profile name). Some private trackers only accept certain clients; otherwise it rarely needs changing.
 help.AdvPeerFingerprint=The prefix of the peer ID that tells other peers and trackers which client this is. A new peer ID is drawn from it at each start, so a change applies at the next start. Rarely needs changing.
 help.AdvListenInterfaces=Comma-separated addresses and ports to accept peers on, written ip:port, with IPv6 addresses in square brackets, or device:port for a network adapter by name. 0.0.0.0 and [::] mean every interface. While Use Only This Network is on, its adapter's addresses replace the ones listed and only the port is kept. The listen sockets reopen at once when it changes.
 help.AdvDhtBootstrapNodes=Comma-separated host:port list of DHT routers used to join the DHT when the routing table is empty. Read when the DHT starts. Through a proxy that cannot resolve names, only entries given as IP addresses are used.
@@ -1674,18 +1674,18 @@ help.AdvUtpNumResends=How many times a uTP packet is sent and times out before t
 help.AdvUtpConnectTimeout=Milliseconds to wait for an answer to a uTP connection request before the attempt is given up. Default 3000.
 help.AdvUtpLossMultiplier=Percent of the uTP sending window kept when a packet is lost. Lower backs off harder on a lossy line. Default 50.
 help.AdvUtpCwndReduceTimer=Milliseconds after a cut of the uTP sending window during which further losses do not cut it again. Default 100; rarely needs changing.
-help.AdvOutEncPolicy=Encryption of connections PaTorrent makes. 0 forced: always encrypted. 1 enabled, the default: plain first, encrypted if that fails, remembering what worked for each peer. 2 disabled: never encrypted. Change it if your provider throttles BitTorrent traffic.
+help.AdvOutEncPolicy=Encryption of connections Rookparcel makes. 0 forced: always encrypted. 1 enabled, the default: plain first, encrypted if that fails, remembering what worked for each peer. 2 disabled: never encrypted. Change it if your provider throttles BitTorrent traffic.
 help.AdvInEncPolicy=Which incoming connections are accepted. 0 forced: only encrypted ones, plain ones are refused. 1 enabled, the default: both. 2 disabled: only plain ones, encrypted ones are refused. Leave at 1 unless you need to refuse one kind.
-help.AdvAllowedEncLevel=How much of an encrypted connection is encrypted. 1: only the handshake is hidden and the data then flows plain. 2: everything is RC4 encrypted. 3, the default: either; on connections PaTorrent makes the other side chooses, on incoming ones only the handshake is hidden unless prefer_rc4 is on. Only matters when encryption is used.
+help.AdvAllowedEncLevel=How much of an encrypted connection is encrypted. 1: only the handshake is hidden and the data then flows plain. 2: everything is RC4 encrypted. 3, the default: either; on connections Rookparcel makes the other side chooses, on incoming ones only the handshake is hidden unless prefer_rc4 is on. Only matters when encryption is used.
 help.AdvPreferRc4=When an incoming encrypted connection offers both levels, choose full RC4 encryption instead of hiding only the handshake. Off by default, which saves processor time; turn it on if handshake-only encryption is still being throttled.
-help.AdvStopTrackerTimeout=Seconds PaTorrent waits on exit for trackers to receive the 'stopped' message and for routers to remove port mappings. Default 5. Raise it for slow trackers, lower it to exit faster.
+help.AdvStopTrackerTimeout=Seconds Rookparcel waits on exit for trackers to receive the 'stopped' message and for routers to remove port mappings. Default 5. Raise it for slow trackers, lower it to exit faster.
 help.AdvTrackerCompletionTimeout=Seconds a tracker request, HTTP or UDP, may take in total before it counts as failed. Default 30; values below 1 count as 1. Rarely needs changing.
 help.AdvTrackerReceiveTimeout=Kept for compatibility; this engine does not use it yet. Tracker requests are limited by tracker_completion_timeout instead.
 help.AdvMinAnnounceInterval=Seconds; only affects trackers that ask to be contacted again within less than a minute. Their wait is raised to this value, at most 60, so the default 300 means one minute. Longer tracker intervals are used as given.
 help.AdvNumWant=How many peers each announce asks the tracker for. Default 200. A finished torrent that already has more than 50 peers asks for none. Lower it to reduce connection attempts.
 help.AdvAnnounceToAllTiers=On: one working tracker in every tier of a torrent's tracker list is contacted. Off: only the first tier that has a working tracker. On by default, which finds more peers.
 help.AdvAnnounceToAllTrackers=On: every tracker in a tier is contacted, not just the first working one. Off by default. Turning it on can find more peers at the cost of more tracker traffic.
-help.AdvApplyIpFilterToTrackers=The IP filter also stops PaTorrent from contacting trackers at blocked addresses, for torrents the filter applies to. On by default; turn it off if a needed tracker sits in a blocked range.
+help.AdvApplyIpFilterToTrackers=The IP filter also stops Rookparcel from contacting trackers at blocked addresses, for torrents the filter applies to. On by default; turn it off if a needed tracker sits in a blocked range.
 help.AdvRequestTimeout=Kept for compatibility; this engine does not use it yet. Slow block requests are handled by a fixed timeout.
 help.AdvUseParoleMode=A peer that sent part of a piece that failed its check may then only download whole pieces alone until one passes, so the next bad piece is clearly its fault. On by default; helps catch peers sending bad data.
 help.AdvPeerTimeout=Seconds a connected peer may stay completely silent before it is disconnected. Default 120; normal peers send keep-alives more often than that. Rarely needs changing.
@@ -1693,10 +1693,10 @@ help.AdvPeerConnectTimeout=Seconds an outgoing connection to a peer or web seed 
 help.AdvHandshakeTimeout=Seconds a new connection may take to finish the BitTorrent handshake before it is closed. Default 10. Rarely needs changing.
 help.AdvRequestQueueTime=Seconds of downloading, at a peer's current speed, to keep requested from it in advance; at least 4 blocks. Default 3. Raise it on high-latency links if fast peers do not reach full speed.
 help.AdvMaxOutRequestQueue=Most 16 KiB block requests outstanding to one peer or web seed at a time, also capped by what the peer allows. Default 500. Rarely needs changing.
-help.AdvMaxAllowedInRequestQueue=Most block requests from one peer queued for upload at a time; PaTorrent tells peers this number, and requests beyond it are rejected, or ignored for peers without the fast extension. Default 500. Rarely needs changing.
-help.AdvUnchokeInterval=Seconds between decisions about which peers PaTorrent uploads to. Default 15. Shorter reacts faster to changing peer speeds but swaps peers more often.
+help.AdvMaxAllowedInRequestQueue=Most block requests from one peer queued for upload at a time; Rookparcel tells peers this number, and requests beyond it are rejected, or ignored for peers without the fast extension. Default 500. Rarely needs changing.
+help.AdvUnchokeInterval=Seconds between decisions about which peers Rookparcel uploads to. Default 15. Shorter reacts faster to changing peer speeds but swaps peers more often.
 help.AdvOptimisticUnchokeInterval=Seconds between choosing a new random peer to upload to, giving newcomers a chance. It is checked when the regular unchoke runs, so it rounds up to a multiple of unchoke_interval. Default 30.
-help.AdvSendBufferWatermark=Bytes waiting to be sent to a peer before PaTorrent stops reading more data for it from disk. Default 500 KiB. A peer leaving four times this, at least 4 MiB, unread is disconnected. Raise it for very fast uploads.
+help.AdvSendBufferWatermark=Bytes waiting to be sent to a peer before Rookparcel stops reading more data for it from disk. Default 500 KiB. A peer leaving four times this, at least 4 MiB, unread is disconnected. Raise it for very fast uploads.
 help.AdvCloseRedundantConnections=Disconnects peers that can no longer exchange anything with you, such as other seeds once your download is complete. On by default, which frees connection slots for useful peers.
 help.AdvPeerTurnover=Percent of a torrent's peers dropped at each turnover, the least useful first, to make room for possibly better ones; at least one, but no more than it has other peers to try. Default 4. 0 still drops one peer; turnover is off when the connection limit is 5 or less.
 help.AdvPeerTurnoverCutoff=Percent of the connection limit that must be in use before peer turnover drops any peers. Default 90. Applies to the global limit and to each torrent's own limit.
@@ -1719,50 +1719,50 @@ help.AdvUrlseedMaxRequestBytes=Largest single HTTP range request sent to a web s
 help.AdvWebSeedNameLookupRetry=Seconds before a web seed whose host name could not be looked up is tried again. Default 1800, half an hour.
 help.AdvMaxWebSeedConnections=Web seeds connected at once per downloading torrent; they count toward the connection limits. Default 3; 0 means 100. Raise it for torrents with many web seeds.
 help.AdvBanWebSeeds=A web seed that sends data failing the hash check can be banned like a peer, so it is no longer used. On by default; turn it off to keep using a web seed you trust.
-help.AdvSsrfMitigation=Stops torrents from using PaTorrent to reach your local services: local web seeds may not use query strings, internet web seeds may not redirect to the local network, and trackers on this machine only get /announce requests. On by default; keep it on.
+help.AdvSsrfMitigation=Stops torrents from using Rookparcel to reach your local services: local web seeds may not use query strings, internet web seeds may not redirect to the local network, and trackers on this machine only get /announce requests. On by default; keep it on.
 help.AdvAllowIdna=Allows web seeds whose host names use international characters, the xn-- form. Off by default, since such names can imitate other sites; those web seeds are skipped.
 help.AdvAlwaysSendUserAgent=Sends the User-Agent with every web seed request instead of only the first on each connection. Off by default; turn it on if a web server requires it on every request.
 help.AdvProxyType=The proxy server type. 0 none, the default. 1 SOCKS4. 2 SOCKS5. 3 SOCKS5 with user name and password. 4 HTTP. 5 HTTP with user name and password. Takes effect at once.
 help.AdvProxySendHostInConnect=With an HTTP proxy and proxy host name resolving on, CONNECT requests name the host so the proxy looks it up itself, keeping names off your local DNS. Plain http:// requests always carry the name. On by default; turn it off if the proxy cannot resolve names.
 help.AdvSocks5UdpSendLocalEp=Tells a SOCKS5 proxy your UDP address and port when setting up UDP, so it can send to you first. Off by default; turn it on only if the proxy needs it and no router translates addresses in between.
 help.AdvBtTranspDisposition=Allowed peer connection types as bits added together: 1 outgoing TCP, 2 outgoing uTP, 4 incoming TCP, 8 incoming uTP. Default 15 allows all. Clear a bit to stop that kind, for example 5 for TCP only.
-help.MenuFile=Adds and creates torrents, imports them from other clients, switches profiles, connects to a remote server and quits PaTorrent.
+help.MenuFile=Adds and creates torrents, imports them from other clients, switches profiles, connects to a remote server and quits Rookparcel.
 help.MenuOptions=Opens Preferences, the Setup Guide and the RSS Downloader, shows or hides parts of the window, and sets Auto Shutdown and the tray behaviour.
-help.MenuHelp=Opens the PaTorrent website, checks for updates, and shows the version and the third-party licence texts.
+help.MenuHelp=Opens the Rookparcel website, checks for updates, and shows the version and the third-party licence texts.
 help.MenuAddTorrent=Picks one or more .torrent files and adds them, through the Add New Torrent dialog when Preferences has it turned on.
 help.MenuAddUrl=Asks for a magnet link or an http or https address of a .torrent file and adds it. A link on the clipboard is filled in.
 help.MenuCreate=Makes a new .torrent file from a file or folder on this computer, and can start seeding it at once.
 help.MenuImportQbt=Adds the torrents of qBittorrent on this computer with their data, statistics, trackers and labels. qBittorrent must not be running; the files are checked.
 help.MenuImportUt=Adds the torrents listed in µTorrent's resume.dat with their data, statistics, trackers and labels. µTorrent must not be running; the files are checked.
-help.MenuProfiles=Lists the settings profiles; picking one starts PaTorrent in that profile in a window of its own, or brings it to the front.
-help.MenuProfileNew=Asks for a name, makes a new profile with its own settings and torrents, and starts PaTorrent in it.
-help.MenuProfileShortcut=Makes a shortcut that starts PaTorrent in this window's profile: on the desktop on Windows, in the applications menu on Linux.
+help.MenuProfiles=Lists the settings profiles; picking one starts Rookparcel in that profile in a window of its own, or brings it to the front.
+help.MenuProfileNew=Asks for a name, makes a new profile with its own settings and torrents, and starts Rookparcel in it.
+help.MenuProfileShortcut=Makes a shortcut that starts Rookparcel in this window's profile: on the desktop on Windows, in the applications menu on Linux.
 help.MenuProfileFolder=Opens the folder that holds this profile's settings and torrent data.
-help.MenuConnectRemote=Opens another window that connects to a patorrent-nox server on another computer and controls its torrents.
-help.MenuExit=Closes the window and quits PaTorrent, stopping all transfers, even when Close to Tray is on. In a remote window, the server's torrents keep running.
+help.MenuConnectRemote=Opens another window that connects to a rookparcel-nox server on another computer and controls its torrents.
+help.MenuExit=Closes the window and quits Rookparcel, stopping all transfers, even when Close to Tray is on. In a remote window, the server's torrents keep running.
 help.MenuPreferences=Opens the Preferences window with the settings for connections, bandwidth, queueing, folders and the rest of the program.
 help.MenuRss=Opens the RSS Downloader, where you add feeds and set filters that download matching items automatically.
 help.MenuShowToolbar=Shows or hides the toolbar with its buttons and the search box.
 help.MenuShowDetails=Shows or hides the tabs under the torrent list with the selected torrent's details, files, peers, trackers and speed.
 help.MenuShowStatus=Shows or hides the status bar at the bottom of the window with the transfer rates and totals.
 help.MenuShowTree=Shows or hides the category list on the left that filters the torrents by state and label.
-help.MenuAutoShutdown=Quits PaTorrent or puts the computer on standby, hibernates or shuts it down when the torrents are done, once something has run since you chose it. Lasts for this run only.
+help.MenuAutoShutdown=Quits Rookparcel or puts the computer on standby, hibernates or shuts it down when the torrents are done, once something has run since you chose it. Lasts for this run only.
 help.ShutdownDisabled=Turns Auto Shutdown off: nothing happens when the torrents are done.
-help.ShutdownQuitDownloads=Quits PaTorrent after a 30 second countdown once no started torrent is downloading any more.
-help.ShutdownQuitEverything=Quits PaTorrent after a 30 second countdown once no started torrent is downloading or seeding any more.
+help.ShutdownQuitDownloads=Quits Rookparcel after a 30 second countdown once no started torrent is downloading any more.
+help.ShutdownQuitEverything=Quits Rookparcel after a 30 second countdown once no started torrent is downloading or seeding any more.
 help.ShutdownStandbyDownloads=Puts the computer on standby after a 30 second countdown once no started torrent is downloading any more.
 help.ShutdownStandbyEverything=Puts the computer on standby after a 30 second countdown once no started torrent is downloading or seeding any more.
 help.ShutdownHibernateDownloads=Hibernates the computer after a 30 second countdown once no started torrent is downloading any more.
 help.ShutdownHibernateEverything=Hibernates the computer after a 30 second countdown once no started torrent is downloading or seeding any more.
 help.ShutdownShutDownDownloads=Shuts down the computer after a 30 second countdown once no started torrent is downloading any more.
 help.ShutdownShutDownEverything=Shuts down the computer after a 30 second countdown once no started torrent is downloading or seeding any more.
-help.MenuCloseToTray=When on, closing the window hides PaTorrent to its tray icon and the torrents keep running. Exit still quits.
+help.MenuCloseToTray=When on, closing the window hides Rookparcel to its tray icon and the torrents keep running. Exit still quits.
 help.MenuMinimizeToTray=When on, minimizing the window hides it from the taskbar, leaving only the tray icon.
 help.MenuSetupGuide=Asks again the few questions of the first start: the download folder, the router, smart disk I/O and, where offered, starting with the system and the file associations.
-help.MenuWebsite=Opens the PaTorrent website in your web browser.
-help.MenuCheckUpdates=Asks the PaTorrent website whether a newer version is out and tells you the answer.
-help.MenuAbout=Shows PaTorrent's version, copyright and licence, and where its settings file is.
-help.MenuNotices=Shows the licence texts of the third-party code PaTorrent is built on.
+help.MenuWebsite=Opens the Rookparcel website in your web browser.
+help.MenuCheckUpdates=Asks the Rookparcel website whether a newer version is out and tells you the answer.
+help.MenuAbout=Shows Rookparcel's version, copyright and licence, and where its settings file is.
+help.MenuNotices=Shows the licence texts of the third-party code Rookparcel is built on.
 help.MenuOpenFolder=Opens the folder that holds the selected item in the file manager, with the item selected where the file manager can.
 help.MenuOpenFolderMany=Opens the first selected torrent's download folder in the file manager, with its data selected once it exists.
 help.MenuForceStart=Starts the selected torrents now, outside the queue: they run even when the queue's limits on active torrents are reached.
@@ -1791,8 +1791,8 @@ help.MenuProperties=Opens the Torrent Properties of the selected torrents: track
 help.MenuOpenFile=Opens the selected file in its default program, as a double click in the file manager would. A file not on disk yet does nothing.
 help.MenuPrioritizeByOrder=Gives the selected files falling priorities in their order in the torrent, so they finish one after another; skipped ones are downloaded again. With the filter on, it orders all the torrent's files.
 help.MenuRelocate=Picks a new place for the selected file and moves it there, or, when it is not on disk, uses the file found there; a Force Re-check counts its pieces.
-help.MenuHide=Hides the PaTorrent window; the torrents keep running and the tray icon brings the window back.
-help.MenuShow=Brings the PaTorrent window back on screen and to the front.
+help.MenuHide=Hides the Rookparcel window; the torrents keep running and the tray icon brings the window back.
+help.MenuShow=Brings the Rookparcel window back on screen and to the front.
 help.MenuStartAll=Hands every torrent in the list to the queue, which runs them as the limits on active torrents allow.
 help.MenuStopAll=Stops every torrent in the list and takes them out of the queue until they are started again.
 help.ToolAddTorrent=Picks one or more .torrent files and adds them, through the Add New Torrent dialog when Preferences has it turned on.

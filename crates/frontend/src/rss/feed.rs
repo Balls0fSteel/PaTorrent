@@ -1,5 +1,5 @@
 //! RSS and Atom feed parsing on top of the engine's forgiving XML scanner
-//! ([`patorrent_core::xml`], libtorrent's `xml_parse`).
+//! ([`rookparcel_core::xml`], libtorrent's `xml_parse`).
 //!
 //! Written from the public formats: RSS 2.0 (`channel` / `item`: `title`, `link`, `guid`,
 //! `pubDate`, `description`, `enclosure url= type= length=`), RSS 1.0 (`item` beside the
@@ -12,7 +12,7 @@
 //! document without a single feed element is `None`. Dates become unix time
 //! ([`parse_date`]: RFC 822 / 2822 and RFC 3339).
 
-use patorrent_core::xml::{self, Token};
+use rookparcel_core::xml::{self, Token};
 
 /// Longest text kept for a title, link or other short field; descriptions get [`MAX_DESCRIPTION`].
 const MAX_FIELD: usize = 8 * 1024;
@@ -111,7 +111,7 @@ impl FeedItem {
             let mut m = format!("magnet:?xt=urn:btih:{h}");
             if !self.title.is_empty() {
                 m.push_str("&dn=");
-                m.push_str(&patorrent_core::util::string::escape_string(self.title.as_bytes()));
+                m.push_str(&rookparcel_core::util::string::escape_string(self.title.as_bytes()));
             }
             m
         })

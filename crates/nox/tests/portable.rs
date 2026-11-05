@@ -1,4 +1,4 @@
-//! Portable mode (D7, D42): a `patorrent-nox` with `patorrent.ini` beside it keeps its state in
+//! Portable mode (D7, D42): a `rookparcel-nox` with `rookparcel.ini` beside it keeps its state in
 //! `nox` beside itself, writes the save paths inside its folder relative to it, and finds them
 //! again once the folder has moved. The program is copied into a temporary folder, as a user
 //! unpacks it onto a USB stick.
@@ -13,12 +13,12 @@ fn temp_dir(name: &str) -> PathBuf {
     d
 }
 
-/// A copy of `patorrent-nox` in `root`, with the portable marker beside it.
+/// A copy of `rookparcel-nox` in `root`, with the portable marker beside it.
 fn portable_copy(root: &Path) -> PathBuf {
     std::fs::create_dir_all(root).unwrap();
-    let exe = root.join(Path::new(env!("CARGO_BIN_EXE_patorrent-nox")).file_name().unwrap());
-    std::fs::copy(env!("CARGO_BIN_EXE_patorrent-nox"), &exe).unwrap();
-    std::fs::write(root.join("patorrent.ini"), "").unwrap();
+    let exe = root.join(Path::new(env!("CARGO_BIN_EXE_rookparcel-nox")).file_name().unwrap());
+    std::fs::copy(env!("CARGO_BIN_EXE_rookparcel-nox"), &exe).unwrap();
+    std::fs::write(root.join("rookparcel.ini"), "").unwrap();
     exe
 }
 
@@ -75,7 +75,7 @@ fn a_portable_folder_keeps_its_state_and_moves() {
     let saved = String::from_utf8_lossy(&saved);
     assert!(saved.contains("9:save_path11:./Downloads"), "{saved}");
     assert!(!saved.contains(&*downloads.to_string_lossy()), "{saved}");
-    assert!(state.join("patorrent.lock").is_file());
+    assert!(state.join("rookparcel.lock").is_file());
 
     // the folder moved: the torrent's data is found where the folder is now
     let moved = base.join("Moved");

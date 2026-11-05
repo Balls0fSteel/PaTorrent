@@ -7,7 +7,7 @@
 // Changes: routes name their interface by index, so the "internet route" test compares indices
 // where libtorrent compares device names. An IPv6 address with a `%scope` suffix is taken as a
 // device name (`IpAddr` has no scope id). `remove_duplicates` and `listen_plan` are
-// PaTorrent's: the engine binds wildcard addresses as they are and uses libtorrent's expanded
+// Rookparcel's: the engine binds wildcard addresses as they are and uses libtorrent's expanded
 // list for everything that depends on the interfaces (see engine::listen).
 
 //! `listen_interfaces`: parsing it, and turning it into the endpoints to listen on.

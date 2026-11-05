@@ -1,4 +1,4 @@
-// PaTorrent's own OS glue, not ported: libtorrent wraps sockets in Boost.Asio's ssl::stream on
+// Rookparcel's own OS glue, not ported: libtorrent wraps sockets in Boost.Asio's ssl::stream on
 // top of a bundled or linked OpenSSL. We use the TLS library the OS ships instead (PLAN.md D9):
 // SChannel on Windows, Secure Transport on macOS, the system OpenSSL / LibreSSL on other Unixes.
 
@@ -859,7 +859,7 @@ mod tests {
         assert_eq!(id.info(), info);
         // the name is not checked when pinned
         round_trip(&id, "127.0.0.1");
-        round_trip(&id, "patorrent.example");
+        round_trip(&id, "rookparcel.example");
     }
 
     #[test]
@@ -972,7 +972,7 @@ mod tests {
         let (addr, server) = serve_once(id.clone());
         let sock = std::net::TcpStream::connect(addr).unwrap();
         sock.set_read_timeout(Some(std::time::Duration::from_secs(10))).unwrap();
-        assert_eq!(probe(sock, "patorrent.example").unwrap(), id.fingerprint());
+        assert_eq!(probe(sock, "rookparcel.example").unwrap(), id.fingerprint());
         // the server got through its handshake, then the connection ended without a byte
         assert!(server.join().unwrap().is_err());
     }
@@ -995,7 +995,7 @@ mod tests {
     #[test]
     fn a_client_hello_split_across_reads_completes_the_handshake() {
         let id = Identity::from_pem(&fixture("ec-cert.pem"), &fixture("ec-pkcs8.pem")).unwrap();
-        let mut c = Session::client("patorrent.example", Verify::Pinned(id.fingerprint()).into()).unwrap();
+        let mut c = Session::client("rookparcel.example", Verify::Pinned(id.fingerprint()).into()).unwrap();
         let mut s = Session::server(&id.inner).unwrap();
         let mut plain = Vec::new();
         let mut first = true;

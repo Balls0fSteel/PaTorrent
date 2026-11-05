@@ -1,6 +1,6 @@
-// PaTorrent's own code, not ported: libtorrent has no remote session.
+// Rookparcel's own code, not ported: libtorrent has no remote session.
 
-//! Remote sessions: a [`Session`] whose engine is a `patorrent-nox` elsewhere, for the GUIs'
+//! Remote sessions: a [`Session`] whose engine is a `rookparcel-nox` elsewhere, for the GUIs'
 //! remote mode (PLAN.md Phase 6; docs/WEBUI.md "Remote mode").
 //!
 //! The GUIs are thick clients: they keep their own `frontend` models fed by the engine's
@@ -10,7 +10,7 @@
 //! [`SessionHandle`] like any other.
 //!
 //! The connection is an HTTP/1.1 upgrade on the Web UI's port: `GET /pa/remote` with
-//! `Upgrade: patorrent-remote`, the protocol version in `X-PaTorrent-Remote` and the Web UI
+//! `Upgrade: rookparcel-remote`, the protocol version in `X-Rookparcel-Remote` and the Web UI
 //! login as Basic credentials. TLS (`tls::Stream`) wraps it when the Web UI speaks HTTPS. The
 //! server answers `101 Switching Protocols`, then both sides send frames: a 4-byte big-endian
 //! length and one bencoded message (`wire`). The server's first frame is the [`Hello`].
@@ -40,11 +40,14 @@ use wire::{Enc, Wire};
 /// The upgrade request's path.
 pub const PATH: &str = "/pa/remote";
 /// The `Upgrade` token.
-pub const UPGRADE: &str = "patorrent-remote";
+pub const UPGRADE: &str = "rookparcel-remote";
+/// PaTorrent's `Upgrade` token (D59): the server answers it with its protocol version.
+pub const OLD_UPGRADE: &str = "patorrent-remote";
 /// The request header naming the client's protocol version.
-pub const VERSION_HEADER: &str = "X-PaTorrent-Remote";
-/// The protocol version: both ends must run the same one (messages are positional).
-pub const PROTOCOL: u32 = 15;
+pub const VERSION_HEADER: &str = "X-Rookparcel-Remote";
+/// The protocol version: both ends must run the same one (messages are positional). 16 came
+/// with the rename to Rookparcel (D59), whose token and header names changed.
+pub const PROTOCOL: u32 = 16;
 /// The largest frame either side accepts (a status update of 100,000 torrents is about
 /// 60 MB).
 pub const MAX_FRAME: usize = 256 << 20;
@@ -55,7 +58,7 @@ const PUMP_POLL: Duration = Duration::from_millis(20);
 /// What the server says first.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Hello {
-    /// The server's PaTorrent version.
+    /// The server's Rookparcel version.
     pub server_version: String,
     /// The server's default save path: where a client's new torrents go unless it names a
     /// folder (on the server's disk).
@@ -295,7 +298,7 @@ impl std::fmt::Display for ConnectError {
             ConnectError::Refused { status, message } => {
                 write!(f, "the server refused the connection (HTTP {status}): {message}")
             }
-            ConnectError::Protocol(m) => write!(f, "not a PaTorrent remote session: {m}"),
+            ConnectError::Protocol(m) => write!(f, "not a Rookparcel remote session: {m}"),
             ConnectError::Plaintext => {
                 f.write_str("refusing to send the login unencrypted to another computer; use HTTPS")
             }

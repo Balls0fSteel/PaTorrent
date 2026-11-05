@@ -11,9 +11,9 @@ use std::time::Duration;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_frontend::create::{self, CreateOptions, Created, FORMATS, PIECE_SIZES, Remembered};
-use patorrent_frontend::lang::{self, gtk_mnemonic};
-use patorrent_frontend::tr;
+use rookparcel_frontend::create::{self, CreateOptions, Created, FORMATS, PIECE_SIZES, Remembered};
+use rookparcel_frontend::lang::{self, gtk_mnemonic};
+use rookparcel_frontend::tr;
 
 /// What the worker thread reports.
 #[derive(Default)]

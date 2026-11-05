@@ -13,26 +13,26 @@ Written 2026-11-01_070555_1793513155. A plan, not approved; no code before the o
 
 ## Proposal
 
-Ship an **MSIX** build for the Store, built by `release.yml` beside the zip and the setup, from the same `patorrent.exe` with one build-time switch.
+Ship an **MSIX** build for the Store, built by `release.yml` beside the zip and the setup, from the same `rookparcel.exe` with one build-time switch.
 
-1. **A Store flavour (`PATORRENT_STORE` at build time, like `PATORRENT_NO_UPDATE_CHECK`):**
+1. **A Store flavour (`ROOKPARCEL_STORE` at build time, like `ROOKPARCEL_NO_UPDATE_CHECK`):**
    - The D45 download-and-install path is compiled out; `updater::installed()` returns false.
    - The update check is off (the Store updates the app), and Help > Check for Updates opens the Store page (`ms-windows-store://pdp/?productid=<id>`) instead.
-   - Portable mode (`patorrent.ini` beside the exe) is ignored: the install folder is read-only.
+   - Portable mode (`rookparcel.ini` beside the exe) is ignored: the install folder is read-only.
    - About and the title show "(Microsoft Store)" so bug reports say where a copy came from.
 2. **The package (`packaging/msix/`):**
-   - `AppxManifest.xml`: `runFullTrust`, `internetClient`, `internetClientServer` and `privateNetworkClientServer` capabilities; a `windows.fileTypeAssociation` for `.torrent` and a `windows.protocol` for `magnet`; a `windows.startupTask` for "Start PaTorrent on system startup" (replacing the Run key in this flavour); the Verdigris logos at the Store's sizes (44, 150, 310x150, 310, 50 px plus scales).
+   - `AppxManifest.xml`: `runFullTrust`, `internetClient`, `internetClientServer` and `privateNetworkClientServer` capabilities; a `windows.fileTypeAssociation` for `.torrent` and a `windows.protocol` for `magnet`; a `windows.startupTask` for "Start Rookparcel on system startup" (replacing the Run key in this flavour); the Verdigris logos at the Store's sizes (44, 150, 310x150, 310, 50 px plus scales).
    - Built with `makeappx` from the Windows SDK on the release runner; the upload is the unsigned `.msixupload`, which the Store signs. A locally signed test copy (a self-signed certificate) for hand checks.
 3. **Behaviour to check inside the package:**
-   - `%APPDATA%\PaTorrent`: MSIX redirects AppData writes to the package's private folder unless the manifest opts out. Decide whether the Store build shares settings with a setup-installed copy (opt out of virtualisation) or keeps its own.
+   - `%APPDATA%\Rookparcel`: MSIX redirects AppData writes to the package's private folder unless the manifest opts out. Decide whether the Store build shares settings with a setup-installed copy (opt out of virtualisation) or keeps its own.
    - Associations: Preferences > Windows integration writes the registry; in a package the manifest owns them, so that page shows the Windows default-apps settings instead.
    - The listening port: the Windows Firewall prompt still appears on first listen; check UPnP / NAT-PMP and uTP.
    - Moving completed data to other drives and NAS shares, `--remote`, the hosted Web UI, Auto Shutdown, the tray, `--minimized` at startup.
    - The nox Windows service is not offered (a packaged service needs admin and a different extension); nox stays in the zip.
-4. **The listing:** reserve the name "PaTorrent" in Partner Center; a privacy policy page on the website (the update check and the Torznab, RSS and tracker traffic: nothing identifying is sent); the IARC age-rating questionnaire; screenshots from the demo (`--demo`), with no copyrighted titles; descriptions in the D24 languages, starting with English. Do not use µTorrent's name or logo in the title, icon or screenshots; mention it only for the importer.
+4. **The listing:** reserve the name "Rookparcel" in Partner Center; a privacy policy page on the website (the update check and the Torznab, RSS and tracker traffic: nothing identifying is sent); the IARC age-rating questionnaire; screenshots from the demo (`--demo`), with no copyrighted titles; descriptions in the D24 languages, starting with English. Do not use µTorrent's name or logo in the title, icon or screenshots; mention it only for the importer.
 5. **Release steps:** RELEASING.md gets a "Microsoft Store" step (upload the `.msixupload`, fill the submission's notes, wait for certification, usually 1-3 working days); `update.txt` is unaffected.
 
-**Content policy:** torrent clients are listed in the Store. PaTorrent ships no search sources of its own (D41: the user's Prowlarr or Jackett only), which keeps it clear of "facilitates infringement". Certification may still ask; the submission notes should say so.
+**Content policy:** torrent clients are listed in the Store. Rookparcel ships no search sources of its own (D41: the user's Prowlarr or Jackett only), which keeps it clear of "facilitates infringement". Certification may still ask; the submission notes should say so.
 
 ## Alternative: the existing setup as EXE
 
@@ -40,12 +40,12 @@ Less work in the app (D45 stays, no package behaviour to check), but it needs th
 
 ## Open questions for the owner
 
-**Answered 2026-11-04_224953_1793828993 (D46 approved):** Q1 free; Q2 MSIX; Q3 an individual account; Q4 the same `%APPDATA%\PaTorrent` as a setup-installed copy; Q5 all markets, the listing in all 34 languages; Q6 Verdigris is final (D57).
+**Answered 2026-11-04_224953_1793828993 (D46 approved):** Q1 free; Q2 MSIX; Q3 an individual account; Q4 the same `%APPDATA%\Rookparcel` as a setup-installed copy; Q5 all markets, the listing in all 34 languages; Q6 Verdigris is final (D57).
 
 - **Q1.** Free or paid in the Store? If paid: price, and whether a free trial is offered (the Store supports time-limited trials for MSIX).
 - **Q2.** MSIX (recommended: free signing, Store payments) or the signed EXE setup?
 - **Q3.** Individual or company account (both free now; a company account shows a company name as the publisher, "DukeCorp1996")?
-- **Q4.** Should the Store build share `%APPDATA%\PaTorrent` with a setup-installed copy, or keep its own settings?
+- **Q4.** Should the Store build share `%APPDATA%\Rookparcel` with a setup-installed copy, or keep its own settings?
 - **Q5.** Which markets and languages at launch?
 - **Q6.** Final brand: the provisional Verdigris icon becomes the Store icon, which is awkward to change once the listing has users.
 

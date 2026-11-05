@@ -1,5 +1,5 @@
 //! The search helper (D51, `docs/SEARCH_HELPER.md`): for users without a Prowlarr or Jackett
-//! of their own, PaTorrent downloads Jackett's own release from GitHub at the user's click,
+//! of their own, Rookparcel downloads Jackett's own release from GitHub at the user's click,
 //! unpacks it into the profile folder (`<profile>/search-helper/`) and runs it, as a separate
 //! program over HTTP on `127.0.0.1`, only while searching. Its `all` Torznab endpoint is added
 //! as an ordinary search source ("Search helper (all)", [`helper_source`]) with the API key we
@@ -17,7 +17,7 @@
 //!   public indexers ([`list_sites`], [`apply_sites`]).
 //!
 //! Off where downloading and running a program is not ours to do ([`available`]): builds with
-//! `PATORRENT_NO_UPDATE_CHECK` (a package manager updates them), a Flatpak, and systems with
+//! `ROOKPARCEL_NO_UPDATE_CHECK` (a package manager updates them), a Flatpak, and systems with
 //! no Jackett build (FreeBSD).
 
 pub mod api;
@@ -34,7 +34,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, MutexGuard, Once};
 use std::time::{Duration, Instant};
 
-use patorrent_core::fetch::FetchProxy;
+use rookparcel_core::fetch::FetchProxy;
 
 pub use api::Indexer;
 pub use config::{HelperProxy, Layout, State};
@@ -46,9 +46,11 @@ use process::{Launch, Runner};
 
 /// Whether this build can offer the helper at all: not without the update check (a package
 /// manager's build), and not where Jackett has no build.
-/// The Store flavour (`PATORRENT_STORE` at build time, D46, `docs/STORE.md`) leaves it out too.
-pub const AVAILABLE: bool =
-    crate::update::AVAILABLE && option_env!("PATORRENT_STORE").is_none() && !cfg!(target_os = "freebsd");
+/// The Store flavour (`ROOKPARCEL_STORE` at build time, D46, `docs/STORE.md`) leaves it out too.
+pub const AVAILABLE: bool = crate::update::AVAILABLE
+    && option_env!("ROOKPARCEL_STORE").is_none()
+    && option_env!("PATORRENT_STORE").is_none()
+    && !cfg!(target_os = "freebsd");
 
 /// Whether this process offers the helper: [`AVAILABLE`], an asset for this platform, and not
 /// in a Flatpak (a sandbox that downloads and runs programs would not pass Flathub's review).
@@ -298,7 +300,7 @@ pub fn install(
 
 /// Unpacks `data` (an archive named `name`) as the helper's program and records `version`.
 pub fn install_archive(layout: &Layout, name: &str, data: &[u8], version: &str) -> Result<State, String> {
-    patorrent_core::util::private_file::create_dir_all(&layout.root)
+    rookparcel_core::util::private_file::create_dir_all(&layout.root)
         .map_err(|e| format!("{}: {e}", layout.root.display()))?;
     let fresh = layout.root.join("app.new");
     let _ = std::fs::remove_dir_all(&fresh);

@@ -7,7 +7,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::icmp;
+use rookparcel_core::fuzzing::icmp;
 
 fuzz_target!(|data: &[u8]| {
     let _ = icmp(data);

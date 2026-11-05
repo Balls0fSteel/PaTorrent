@@ -2,14 +2,14 @@
 //! µTorrent 2.2.1. A click moves a cell to the next mode; dragging paints the cells passed over
 //! with that same mode. The legend and the hovered hour's text are drawn below the cells.
 //!
-//! A window class of its own (`PaTorrentSchedGrid`) for the dialog template; the dialog writes
+//! A window class of its own (`RookparcelSchedGrid`) for the dialog template; the dialog writes
 //! and reads the table with [`SET`] and [`GET`].
 
 use std::mem::zeroed;
 use std::ptr::null;
 
-use patorrent_frontend::lang;
-use patorrent_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode, drag_line, hover_text};
+use rookparcel_frontend::lang;
+use rookparcel_frontend::scheduler::{CELLS, DAY_NAMES, DAYS, HOURS, Mode, drag_line, hover_text};
 use windows_sys::Win32::Foundation::{COLORREF, HWND, LPARAM, LRESULT, RECT, WPARAM};
 use windows_sys::Win32::Graphics::Gdi::{
     BeginPaint, BitBlt, COLOR_BTNFACE, COLOR_BTNTEXT, COLOR_GRAYTEXT, CreateCompatibleBitmap,
@@ -28,7 +28,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 
 use crate::util::{point_from_lparam, rtl, send, wide};
 
-pub const CLASS: &str = "PaTorrentSchedGrid";
+pub const CLASS: &str = "RookparcelSchedGrid";
 
 /// `lParam` points to a `[Mode; CELLS]` to show.
 pub const SET: u32 = WM_USER + 1;

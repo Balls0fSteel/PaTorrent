@@ -18,9 +18,9 @@ use std::net::{SocketAddr, TcpListener, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     AddTorrentParams, Alert, BlockReason, EncLevel, EncPolicy, IpFilter, PeerFlags, PeerSource, PortFilter,
     Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentId, TorrentSource, TorrentState,
     TorrentStatus,
@@ -709,7 +709,7 @@ fn a_magnet_in_upload_mode_hands_out_its_torrent_file_and_waits() {
         Alert::TorrentFile { id: i, data } if *i == id => data.clone(),
         _ => None,
     });
-    let ti = patorrent_core::metainfo::TorrentInfo::from_bytes(&data).unwrap();
+    let ti = rookparcel_core::metainfo::TorrentInfo::from_bytes(&data).unwrap();
     assert_eq!(ti.info_hash().as_bytes(), &f.info_hash);
     assert_eq!(ti.trackers().len(), 1, "the magnet's tracker is in the file");
     assert_eq!(ti.trackers()[0].url, "http://127.0.0.1:9/announce");
@@ -744,7 +744,7 @@ fn stop_when_ready_stops_a_torrent_once_it_is_checked() {
         st.flags
     );
     assert_eq!(st.state, TorrentState::Downloading);
-    leech.handle().remove_torrent(id, patorrent_core::RemoveFlags::empty());
+    leech.handle().remove_torrent(id, rookparcel_core::RemoveFlags::empty());
     wait(&mut w, 5, "removed", |a| {
         matches!(a, Alert::TorrentRemoved { id: i, .. } if *i == id).then_some(())
     });
@@ -846,7 +846,7 @@ fn a_torrent_files_dht_nodes_join_the_routing_table() {
     let f = fixture(None);
     let (router, _rw, router_port) = start_dht(None);
     let (leech, mut w, _) = start_dht(None);
-    let d = patorrent_core::bencode::bdecode(&f.torrent[..]).unwrap();
+    let d = rookparcel_core::bencode::bdecode(&f.torrent[..]).unwrap();
     let mut e = Entry::from_node(d.root().unwrap());
     *e.key("nodes") =
         Entry::List(vec![Entry::List(vec!["localhost".into(), Entry::Int(router_port as i64)])]);
@@ -1299,7 +1299,7 @@ fn disconnects_are_posted_with_their_reason_when_the_mask_asks() {
     let dir = temp_dir("disconnect-seed");
     write_files(&f, &dir);
     let (other, mut w, _) = start_with(|s| {
-        s.alert_mask |= patorrent_core::AlertCategory::CONNECT.bits();
+        s.alert_mask |= rookparcel_core::AlertCategory::CONNECT.bits();
         // a refused TCP connect is reported at once; a uTP one would wait for its timeout
         s.enable_outgoing_utp = false;
     });
@@ -1682,7 +1682,7 @@ fn dont_have_peer(f: &Fixture, go: std::sync::mpsc::Receiver<()>) -> (u16, std::
         let id = loop {
             let msg = read_message(&mut c).expect("extension handshake before the close");
             if msg.len() > 2 && msg[0] == 20 && msg[1] == 0 {
-                let doc = patorrent_core::bencode::bdecode(&msg[2..]).unwrap();
+                let doc = rookparcel_core::bencode::bdecode(&msg[2..]).unwrap();
                 let m = doc.root().unwrap().dict_find_dict("m").expect("m");
                 break m.dict_find_int_value("lt_donthave").expect("lt_donthave") as u8;
             }
@@ -1695,7 +1695,7 @@ fn dont_have_peer(f: &Fixture, go: std::sync::mpsc::Receiver<()>) -> (u16, std::
     (port, h)
 }
 
-fn peer_info(w: &mut Watch, id: TorrentId) -> Vec<patorrent_core::PeerInfo> {
+fn peer_info(w: &mut Watch, id: TorrentId) -> Vec<rookparcel_core::PeerInfo> {
     w.h.torrent(id).post_peer_info();
     wait(w, 5, "peer info", |a| match a {
         Alert::PeerInfo { id: i, peers } if *i == id => Some(peers.clone()),
@@ -2104,7 +2104,7 @@ fn trackers_in_a_blocked_range_are_skipped_unless_exempt() {
 /// those files and downloads byte for byte.
 #[test]
 fn a_created_torrent_seeds_and_downloads() {
-    use patorrent_core::metainfo::{
+    use rookparcel_core::metainfo::{
         CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, set_piece_hashes,
     };
 
@@ -2155,7 +2155,7 @@ fn a_created_torrent_seeds_and_downloads() {
 /// showed the whole torrent's size and its share done (5 % for 5 GB of 100 GB) until 1.1.41.
 #[test]
 fn a_stopped_partial_download_counts_only_the_selected_files() {
-    use patorrent_core::DownloadPriority;
+    use rookparcel_core::DownloadPriority;
     let f = fixture(None);
     let (seed, seed_dir, port, _) = seeder(&f);
     let dir = temp_dir("leech-stopped-partial");
@@ -2207,7 +2207,7 @@ fn a_stopped_partial_download_counts_only_the_selected_files() {
 
 #[test]
 fn a_skipped_file_stays_in_the_part_file_until_it_is_unskipped() {
-    use patorrent_core::{DownloadPriority, RemoveFlags};
+    use rookparcel_core::{DownloadPriority, RemoveFlags};
     let f = fixture(None);
     let (seed, seed_dir, port, _) = seeder(&f);
     let dir = temp_dir("leech-skip");

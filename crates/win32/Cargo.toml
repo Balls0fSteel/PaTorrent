@@ -1,6 +1,6 @@
 [package]
-name = "patorrent"
-description = "PaTorrent for Windows: a native Win32 client in the spirit of µTorrent 2.2.1."
+name = "rookparcel"
+description = "Rookparcel for Windows: a native Win32 client in the spirit of µTorrent 2.2.1."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,13 +10,13 @@ authors.workspace = true
 publish.workspace = true
 
 [[bin]]
-name = "patorrent"
+name = "rookparcel"
 path = "src/main.rs"
 
 [dependencies]
-patorrent-core = { workspace = true, features = ["mock"] }
-patorrent-frontend.workspace = true
-patorrent-nox.workspace = true
+rookparcel-core = { workspace = true, features = ["mock"] }
+rookparcel-frontend.workspace = true
+rookparcel-nox.workspace = true
 
 [target.'cfg(windows)'.dependencies]
 windows-sys = { workspace = true, features = [

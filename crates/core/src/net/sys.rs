@@ -1,4 +1,4 @@
-// PaTorrent's own OS glue, not ported (libtorrent gets these through Boost.Asio and its own
+// Rookparcel's own OS glue, not ported (libtorrent gets these through Boost.Asio and its own
 // enum_net.cpp platform code).
 
 //! Socket calls that std and mio do not offer: options set before `bind` (address reuse,
@@ -322,7 +322,7 @@ mod unix_consts {
     pub const SOCK_CLOEXEC: i32 = 0x1000_0000;
     #[cfg(target_os = "openbsd")]
     pub const SOCK_CLOEXEC: i32 = 0x8000;
-    // macOS has no SOCK_CLOEXEC; PaTorrent starts no child processes that could inherit it
+    // macOS has no SOCK_CLOEXEC; Rookparcel starts no child processes that could inherit it
     #[cfg(target_vendor = "apple")]
     pub const SOCK_CLOEXEC: i32 = 0;
     pub const IFF_MULTICAST: u32 = 0x8000;

@@ -1,26 +1,26 @@
-# PaTorrent wiki
+# Rookparcel wiki
 
-PaTorrent is a lean BitTorrent client in the spirit of µTorrent 2.2.1: small, fast and native. This wiki explains how to use it: installing it, adding and managing torrents, the settings, the Web UI and the headless daemon.
+Rookparcel is a lean BitTorrent client in the spirit of µTorrent 2.2.1: small, fast and native. This wiki explains how to use it: installing it, adding and managing torrents, the settings, the Web UI and the headless daemon.
 
-PaTorrent comes as three programs:
+Rookparcel comes as three programs:
 
 | Program | Where | What it is |
 |---|---|---|
-| `patorrent.exe` | Windows 10 and 11 | the Windows window (GUI) |
-| `patorrent-gtk` | Linux, BSD, macOS | the GTK 4 window (GUI): the same main window and dialogs, with a few differences noted on each page |
-| `patorrent-nox` | all of them | runs without a window, controlled from a browser through its Web UI |
+| `rookparcel.exe` | Windows 10 and 11 | the Windows window (GUI) |
+| `rookparcel-gtk` | Linux, BSD, macOS | the GTK 4 window (GUI): the same main window and dialogs, with a few differences noted on each page |
+| `rookparcel-nox` | all of them | runs without a window, controlled from a browser through its Web UI |
 
 Most pages describe the Windows window and then say what differs in the GTK window and the Web UI.
 
-**Version:** the wiki follows the current code (1.1.63). The newest published release is [1.1.40](https://github.com/Balls0fSteel/PaTorrent/releases/latest); features added after it are marked on their pages.
+**Version:** the wiki follows the current code (1.1.63). The newest published release is [1.1.40](https://github.com/Balls0fSteel/Rookparcel/releases/latest); features added after it are marked on their pages.
 
 ## Getting started
 
-- [Installing PaTorrent](Installing-PaTorrent)
+- [Installing Rookparcel](Installing-Rookparcel)
 - [First start and the Setup Guide](First-start-and-the-Setup-Guide)
-- [Where PaTorrent keeps its files](Where-PaTorrent-keeps-its-files) (and portable mode)
-- [Profiles](Profiles): several independent PaTorrents side by side
-- [Updating PaTorrent](Updating-PaTorrent)
+- [Where Rookparcel keeps its files](Where-Rookparcel-keeps-its-files) (and portable mode)
+- [Profiles](Profiles): several independent Rookparcels side by side
+- [Updating Rookparcel](Updating-Rookparcel)
 
 ## Everyday use
 
@@ -45,8 +45,8 @@ Most pages describe the Windows window and then say what differs in the GTK wind
 ## Remote and headless
 
 - [Web UI](Web-UI)
-- [Remote control](Remote-control): a desktop window driving a PaTorrent elsewhere
-- [Running patorrent-nox](Running-patorrent-nox): the headless daemon and services
+- [Remote control](Remote-control): a desktop window driving a Rookparcel elsewhere
+- [Running rookparcel-nox](Running-rookparcel-nox): the headless daemon and services
 - [Sonarr, Radarr and Prowlarr](Sonarr-Radarr-and-Prowlarr)
 
 ## Reference
@@ -58,7 +58,7 @@ Most pages describe the Windows window and then say what differs in the GTK wind
 
 ## More
 
-- [Website](https://balls0fsteel.github.io/PaTorrent/): downloads, news, FAQ, benchmarks
-- [Releases](https://github.com/Balls0fSteel/PaTorrent/releases)
-- [Bug reports and questions](https://github.com/Balls0fSteel/PaTorrent/issues)
-- Developer documentation: the repository's [docs](https://github.com/Balls0fSteel/PaTorrent/tree/main/docs) folder
+- [Website](https://balls0fsteel.github.io/Rookparcel/): downloads, news, FAQ, benchmarks
+- [Releases](https://github.com/Balls0fSteel/Rookparcel/releases)
+- [Bug reports and questions](https://github.com/Balls0fSteel/Rookparcel/issues)
+- Developer documentation: the repository's [docs](https://github.com/Balls0fSteel/Rookparcel/tree/main/docs) folder

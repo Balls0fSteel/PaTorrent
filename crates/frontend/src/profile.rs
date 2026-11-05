@@ -1,16 +1,16 @@
 //! Profiles and portable mode (D42, docs/PROFILES_PLAN.md).
 //!
-//! Portable mode (D7): a `patorrent.ini` file beside the executable (beside the `.AppImage`)
+//! Portable mode (D7): a `rookparcel.ini` file beside the executable (beside the `.AppImage`)
 //! makes its folder the application root, so settings and state travel with the program, as
 //! µTorrent's `settings.dat` beside `uTorrent.exe` did. One test for every frontend:
 //! [`portable_root`]. The paths inside the folder are written relative to it
-//! (`patorrent_core::util::portable`: [`crate::prefs`], `rss.dat`, the engine's `resume.db`),
+//! (`rookparcel_core::util::portable`: [`crate::prefs`], `rss.dat`, the engine's `resume.db`),
 //! so it can move to another drive or computer; the first start there downloads to its
 //! `Downloads` folder ([`first_run_settings`]).
 //!
-//! A **profile** is a whole PaTorrent of its own: `--profile NAME` inserts `profiles/<name>`
+//! A **profile** is a whole Rookparcel of its own: `--profile NAME` inserts `profiles/<name>`
 //! between the application root and the program's folder, so a profile looks exactly like a
-//! fresh install (`%APPDATA%\PaTorrent\profiles\work\`, `~/.config/patorrent/profiles/work/gtk`,
+//! fresh install (`%APPDATA%\Rookparcel\profiles\work\`, `~/.config/rookparcel/profiles/work/gtk`,
 //! `.../profiles/work/nox`). No flag, or `--profile default`, is the default profile: today's
 //! folders, unchanged. The choice is made once at start ([`init`]) and read everywhere through
 //! [`current`].
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use std::sync::OnceLock;
 
 /// The file whose presence beside the executable means portable mode.
-pub const PORTABLE_MARKER: &str = "patorrent.ini";
+pub const PORTABLE_MARKER: &str = "rookparcel.ini";
 
 /// The command-line switch: `--profile NAME` or `--profile=NAME`.
 pub const SWITCH: &str = "--profile";
@@ -47,7 +47,7 @@ pub fn portable_root() -> Option<PathBuf> {
 
 /// Where a portable marker would make this program portable: the executable's folder (Windows,
 /// a Linux or BSD tarball); for an AppImage the folder holding the `.AppImage` file (`$APPIMAGE`'s,
-/// as the executable is inside its read-only mount); on macOS the folder holding `PaTorrent.app`
+/// as the executable is inside its read-only mount); on macOS the folder holding `Rookparcel.app`
 /// ([`app_bundle_parent`]: never inside the bundle, which would break its signature); none in a
 /// Flatpak, whose sandbox cannot see beside itself.
 pub fn portable_candidate(
@@ -84,7 +84,14 @@ pub fn translocated(exe_dir: &Path) -> bool {
 }
 
 /// `dir` when it holds the portable marker as a file (a folder of that name does not count).
+/// PaTorrent's marker `patorrent.ini` counts too, and is renamed when PaTorrent does not run
+/// there (D59, [`crate::legacy`]).
 pub fn portable_root_in(dir: &Path) -> Option<PathBuf> {
+    let old = dir.join(crate::legacy::OLD_INI);
+    if old.is_file() && !dir.join(PORTABLE_MARKER).exists() {
+        crate::legacy::adopt_portable(dir);
+        return Some(dir.to_path_buf());
+    }
     dir.join(PORTABLE_MARKER).is_file().then(|| dir.to_path_buf())
 }
 
@@ -220,10 +227,10 @@ impl Profile {
         self.name.as_ref().map_or(String::new(), |n| format!(" [{n}]"))
     }
 
-    /// `"PaTorrent (work)"`: a name for this profile in other programs' lists (the router's port
-    /// mappings, the autostart list); `"PaTorrent"` for the default one.
+    /// `"Rookparcel (work)"`: a name for this profile in other programs' lists (the router's port
+    /// mappings, the autostart list); `"Rookparcel"` for the default one.
     pub fn label(&self) -> String {
-        self.name.as_ref().map_or("PaTorrent".to_owned(), |n| format!("PaTorrent ({n})"))
+        self.name.as_ref().map_or("Rookparcel".to_owned(), |n| format!("Rookparcel ({n})"))
     }
 
     /// The engine's `SessionParams::label` (the routers' port mapping description): the
@@ -263,9 +270,9 @@ pub fn current() -> &'static Profile {
 
 /// The first start of a named profile or of a portable folder, whose settings file has no keys
 /// yet: a random listen port (10000-60000) goes into `s` and `prefs`, so it does not take the
-/// 6881 another PaTorrent may already listen on (D42). The default profile keeps 6881 (firewall
+/// 6881 another Rookparcel may already listen on (D42). The default profile keeps 6881 (firewall
 /// rules name it). True when it did.
-pub fn first_run_settings(prefs: &mut crate::prefs::Prefs, s: &mut patorrent_core::Settings) -> bool {
+pub fn first_run_settings(prefs: &mut crate::prefs::Prefs, s: &mut rookparcel_core::Settings) -> bool {
     let p = current();
     if (p.is_default() && p.portable_root.is_none()) || prefs.entries().next().is_some() {
         return false;
@@ -279,7 +286,7 @@ pub fn first_run_settings(prefs: &mut crate::prefs::Prefs, s: &mut patorrent_cor
     true
 }
 
-/// The keys of `patorrent.ini` whose values are paths, written relative to a portable folder
+/// The keys of `rookparcel.ini` whose values are paths, written relative to a portable folder
 /// ([`crate::prefs`]): the folders of Preferences > Directories, the IP filter's file, the Add
 /// dialog's recent folders (`|`-separated) and the save folders of magnets awaiting metadata.
 pub fn is_path_key(key: &str) -> bool {
@@ -308,7 +315,7 @@ pub fn version() -> String {
     format!("{}{}", crate::BUILD, current().tag())
 }
 
-/// [`crate::NAME_BUILD`] with the profile's tag: `PaTorrent 2.0.0 [work]`.
+/// [`crate::NAME_BUILD`] with the profile's tag: `Rookparcel 2.0.0 [work]`.
 pub fn name_build() -> String {
     format!("{}{}", crate::NAME_BUILD, current().tag())
 }
@@ -328,7 +335,7 @@ mod tests {
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(portable_root_in(&dir), None);
         std::fs::create_dir(dir.join(PORTABLE_MARKER)).unwrap();
-        assert_eq!(portable_root_in(&dir), None, "a folder named patorrent.ini");
+        assert_eq!(portable_root_in(&dir), None, "a folder named rookparcel.ini");
         std::fs::remove_dir(dir.join(PORTABLE_MARKER)).unwrap();
         std::fs::write(dir.join(PORTABLE_MARKER), "").unwrap();
         assert_eq!(portable_root_in(&dir), Some(dir.clone()));
@@ -338,7 +345,7 @@ mod tests {
             std::fs::create_dir_all(dir.join(FOLDER).join(d)).unwrap();
         }
         std::fs::write(dir.join(FOLDER).join("file"), "").unwrap();
-        // `Upper` is not stored lower case: not one PaTorrent made
+        // `Upper` is not stored lower case: not one Rookparcel made
         assert_eq!(list(&dir), ["b-2", "work"]);
         assert!(list(&dir.join("none")).is_empty());
         std::fs::remove_dir_all(&dir).unwrap();
@@ -390,15 +397,15 @@ mod tests {
         let default = Profile::default();
         assert_eq!(
             (default.tag(), default.label(), default.args()),
-            (String::new(), "PaTorrent".into(), vec![])
+            (String::new(), "Rookparcel".into(), vec![])
         );
-        assert_eq!(default.app_id("io.x.PaTorrent"), "io.x.PaTorrent");
+        assert_eq!(default.app_id("io.x.Rookparcel"), "io.x.Rookparcel");
         let work = Profile { name: Some("my-work".into()), portable_root: None };
         assert_eq!(work.tag(), " [my-work]");
-        assert_eq!(work.label(), "PaTorrent (my-work)");
+        assert_eq!(work.label(), "Rookparcel (my-work)");
         assert_eq!(work.args(), args(&["--profile", "my-work"]));
-        assert_eq!(work.app_id("io.x.PaTorrent"), "io.x.PaTorrent.profile_my_work");
-        assert_eq!(work.engine_label().as_deref(), Some("PaTorrent (my-work)"));
+        assert_eq!(work.app_id("io.x.Rookparcel"), "io.x.Rookparcel.profile_my_work");
+        assert_eq!(work.engine_label().as_deref(), Some("Rookparcel (my-work)"));
         assert_eq!(default.engine_label(), None);
     }
 
@@ -408,15 +415,15 @@ mod tests {
             move |k: &str| vars.iter().find(|(n, _)| *n == k).map(|(_, v)| std::ffi::OsString::from(v))
         };
         // macOS: the folder holding the bundle, never inside it; nothing outside a bundle
-        let in_bundle = Path::new("/Volumes/Stick/PaTorrent.app/Contents/MacOS");
+        let in_bundle = Path::new("/Volumes/Stick/Rookparcel.app/Contents/MacOS");
         assert_eq!(app_bundle_parent(in_bundle), Some(PathBuf::from("/Volumes/Stick")));
         assert_eq!(app_bundle_parent(Path::new("/usr/local/bin")), None);
         assert_eq!(app_bundle_parent(Path::new("/x/Folder/Contents/MacOS")), None);
         assert!(translocated(Path::new(
-            "/private/var/folders/x/T/AppTranslocation/ABC/d/PaTorrent.app/Contents/MacOS"
+            "/private/var/folders/x/T/AppTranslocation/ABC/d/Rookparcel.app/Contents/MacOS"
         )));
         assert!(!translocated(in_bundle));
-        let exe_dir = Path::new("/opt/patorrent");
+        let exe_dir = Path::new("/opt/rookparcel");
         if cfg!(target_os = "macos") {
             assert_eq!(portable_candidate(&env(&[]), in_bundle), Some(PathBuf::from("/Volumes/Stick")));
             assert_eq!(portable_candidate(&env(&[]), exe_dir), Some(exe_dir.to_path_buf()));
@@ -425,7 +432,7 @@ mod tests {
         assert_eq!(portable_candidate(&env(&[]), exe_dir), Some(exe_dir.to_path_buf()));
         // a Flatpak never; an AppImage beside its file, not in its mount
         assert_eq!(portable_candidate(&env(&[("FLATPAK_ID", "io.x")]), exe_dir), None);
-        let image = env(&[("APPIMAGE", "/home/u/Apps/PaTorrent.AppImage")]);
+        let image = env(&[("APPIMAGE", "/home/u/Apps/Rookparcel.AppImage")]);
         let want = if cfg!(windows) { exe_dir.to_path_buf() } else { PathBuf::from("/home/u/Apps") };
         assert_eq!(portable_candidate(&image, exe_dir), Some(want));
     }

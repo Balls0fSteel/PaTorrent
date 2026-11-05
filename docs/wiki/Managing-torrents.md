@@ -33,7 +33,7 @@ The sections below explain each group. Most of these are also on the toolbar; se
 
 ## Start, Pause, Stop and Force Start
 
-PaTorrent keeps a queue, as µTorrent does. How many torrents may run at once is set in **Options > Preferences > Queueing**; see [Queueing and seeding](Queueing-and-seeding).
+Rookparcel keeps a queue, as µTorrent does. How many torrents may run at once is set in **Options > Preferences > Queueing**; see [Queueing and seeding](Queueing-and-seeding).
 
 - **Start** hands the torrent to the queue. If there is room, it runs (**Downloading** or **Seeding**). If not, it waits as **Queued** or **Queued Seed** until a place frees up.
 - **Force Start** runs the torrent at once, even when the queue is full. Its status starts with **[F]**, for example **[F] Seeding**. A forced torrent never reaches a seeding goal, so it seeds until you stop it.
@@ -54,7 +54,7 @@ In the Add New Torrent window, **Add to top of queue** puts a new torrent first.
 - **Remove** (<kbd>Del</kbd>) takes the torrents out of the list. The downloaded data stays on disk.
 - **Remove And > Delete Data** (<kbd>Shift</kbd>+<kbd>Del</kbd>) takes them out and deletes their downloaded files. On Windows the files skip the Recycle Bin and cannot be recovered from it.
 
-With **Confirm when deleting torrents** on (Preferences > UI Settings, on by default), PaTorrent asks first and says whether the files are deleted too. Turned off, Remove acts at once.
+With **Confirm when deleting torrents** on (Preferences > UI Settings, on by default), Rookparcel asks first and says whether the files are deleted too. Turned off, Remove acts at once.
 
 ## Force Re-Check
 
@@ -72,9 +72,9 @@ How gently checks use the disk is set in **Preferences > Advanced > Disk I/O**; 
 2. Choose **Advanced > Set Download Location...**.
 3. Pick the new folder.
 
-PaTorrent moves the files there and keeps seeding or downloading from the new place. The status shows **Moving** meanwhile, and the item is greyed out for a torrent that is already moving. Files of the same name already in the new folder are replaced.
+Rookparcel moves the files there and keeps seeding or downloading from the new place. The status shows **Moving** meanwhile, and the item is greyed out for a torrent that is already moving. Files of the same name already in the new folder are replaced.
 
-If you quit while files are moving, PaTorrent waits for the moves to finish and shows their progress. **Quit Now** stops a move: its files stay in the old folder, and what was already copied is deleted. Move it again later.
+If you quit while files are moving, Rookparcel waits for the moves to finish and shows their progress. **Quit Now** stops a move: its files stay in the old folder, and what was already copied is deleted. Move it again later.
 
 To move finished downloads automatically, see **Move completed downloads to:** on [Disk and storage](Disk-and-storage).
 

@@ -1,4 +1,4 @@
-//! The RSS Downloader in nox: µTorrent 2.2.1's downloader (`patorrent_frontend::rss`) run on
+//! The RSS Downloader in nox: µTorrent 2.2.1's downloader (`rookparcel_frontend::rss`) run on
 //! the status tick, `rss.dat` in the config directory, the native `/pa/rss...` endpoints the
 //! page's RSS Downloader dialog uses, and the qBittorrent shim's `rss/*` endpoints mapped onto
 //! the same model (written from qBittorrent's published WebAPI documentation only, D15).
@@ -22,14 +22,14 @@
 use std::path::PathBuf;
 use std::sync::{Arc, MutexGuard};
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_frontend::rss::view::{self, quality_text};
-use patorrent_frontend::rss::worker::{Fetcher, Net};
-use patorrent_frontend::rss::{
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_frontend::rss::view::{self, quality_text};
+use rookparcel_frontend::rss::worker::{Fetcher, Net};
+use rookparcel_frontend::rss::{
     AddRequest, Download, FeedId, Fetched, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter,
     Validators, Worker, split_cookie,
 };
-use patorrent_frontend::{lang, tr};
+use rookparcel_frontend::{lang, tr};
 
 use super::api::Request;
 use super::commands::{self, AddOptions, CmdError, Source, valid_label};
@@ -261,7 +261,7 @@ fn filter_json(f: &RssFilter) -> Json {
 /// A feed's state line. Hosted, the host's worker keeps a failed fetch's detail (refused,
 /// timed out, an HTTP status), which the host's own window may show but a login must not see
 /// (SEC-05, SEC-26): the page gets nox's one error text instead.
-fn feed_status(f: &patorrent_frontend::rss::RssFeed, updating: bool, hosted: bool) -> String {
+fn feed_status(f: &rookparcel_frontend::rss::RssFeed, updating: bool, hosted: bool) -> String {
     if hosted && !updating && f.enabled && !f.last_error.is_empty() {
         return tr!(RssError, error = format!("could not fetch {}", f.fetch_url().0));
     }
@@ -567,7 +567,7 @@ fn rule_json(d: &RssDownloader, f: &RssFilter) -> Json {
         .with("previouslyMatchedEpisodes", Json::Arr(episodes))
         .with("affectedFeeds", Json::Arr(feeds))
         .with("ignoreDays", (f.min_interval / 86_400) as i64)
-        .with("lastMatch", f.last_match.map(patorrent_frontend::fmt::date_time).unwrap_or_default())
+        .with("lastMatch", f.last_match.map(rookparcel_frontend::fmt::date_time).unwrap_or_default())
         .with("addPaused", f.paused)
         .with("assignedCategory", f.label.as_str())
         .with("savePath", f.save_in.as_str())
@@ -712,7 +712,7 @@ pub(crate) fn shim(shared: &Shared, endpoint: &str, param: &dyn Fn(&str) -> Opti
                                 .with("id", i.id())
                                 .with(
                                     "date",
-                                    i.published.map(patorrent_frontend::fmt::date_time).unwrap_or_default(),
+                                    i.published.map(rookparcel_frontend::fmt::date_time).unwrap_or_default(),
                                 )
                                 .with("title", i.title.as_str())
                                 .with("description", i.description.as_str())
@@ -725,7 +725,7 @@ pub(crate) fn shim(shared: &Shared, endpoint: &str, param: &dyn Fn(&str) -> Opti
                         .with("title", f.title.as_str())
                         .with(
                             "lastBuildDate",
-                            f.last_refresh.map(patorrent_frontend::fmt::date_time).unwrap_or_default(),
+                            f.last_refresh.map(rookparcel_frontend::fmt::date_time).unwrap_or_default(),
                         )
                         .with("isLoading", r.worker.is_busy(f.id))
                         .with("hasError", !f.last_error.is_empty())

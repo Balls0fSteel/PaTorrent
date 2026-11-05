@@ -11,9 +11,9 @@ use std::net::{SocketAddr, TcpStream};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     AddTorrentParams, Alert, PeerFlags, PeerInfo, Session, SessionHandle, SessionParams, Settings,
     TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
@@ -341,7 +341,7 @@ fn offers(c: &mut TcpStream) -> [u32; 2] {
                 have.push(field(&msg, 0));
             }
             20 if msg[1] == 0 => {
-                let doc = patorrent_core::bencode::bdecode(&msg[2..]).unwrap();
+                let doc = rookparcel_core::bencode::bdecode(&msg[2..]).unwrap();
                 let root = doc.root().unwrap();
                 assert_eq!(root.dict_find_int_value("upload_only"), None, "a super seed is not upload-only");
                 ext = true;

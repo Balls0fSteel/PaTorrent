@@ -38,7 +38,7 @@ jobs:
         with:
           components: clippy
       - uses: Swatinem/rust-cache@v2
-      # The engine links the system OpenSSL for HTTPS trackers (PLAN.md D9); patorrent-gtk
+      # The engine links the system OpenSSL for HTTPS trackers (PLAN.md D9); rookparcel-gtk
       # builds against the system GTK 4 (4.12 or later).
       - if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y libssl-dev libgtk-4-dev
@@ -46,7 +46,7 @@ jobs:
       - run: cargo test --workspace
 
   # macOS (PLAN.md D23): the whole workspace on Apple silicon, with Secure Transport for TLS and
-  # Homebrew's GTK 4 for patorrent-gtk. Intel Macs are built (and linked) only, without the GTK
+  # Homebrew's GTK 4 for rookparcel-gtk. Intel Macs are built (and linked) only, without the GTK
   # GUI: Homebrew on this runner has arm64 libraries only.
   macos:
     runs-on: macos-15
@@ -62,7 +62,7 @@ jobs:
       # every test binary runs, so one failure (a flaky one: PLAN Known TODOs "macOS") does not
       # hide the results of the others
       - run: cargo test --workspace --no-fail-fast
-      - run: cargo build --workspace --exclude patorrent-gtk --target x86_64-apple-darwin
+      - run: cargo build --workspace --exclude rookparcel-gtk --target x86_64-apple-darwin
       # a test binary that crashes prints nothing of its own: macOS's crash report says why
       - name: Crash reports
         if: failure()
@@ -92,7 +92,7 @@ jobs:
       - uses: Swatinem/rust-cache@v2
       - run: cargo build --release --workspace
       - name: Slow tests (release)
-        run: cargo test --release -p patorrent-core -- --ignored
+        run: cargo test --release -p rookparcel-core -- --ignored
       - name: Size, dependency and scale report
         shell: pwsh
         run: |
@@ -117,8 +117,8 @@ jobs:
         shell: pwsh
         run: |
           $crate = ((cargo metadata --no-deps --format-version 1 | ConvertFrom-Json).packages |
-            Where-Object name -eq patorrent).version
-          if (-not $crate) { echo "::error::cargo metadata gave no version for patorrent"; exit 1 }
+            Where-Object name -eq rookparcel).version
+          if (-not $crate) { echo "::error::cargo metadata gave no version for rookparcel"; exit 1 }
           "version=$crate-dev.$($env:GITHUB_SHA.Substring(0, 7))" >> $env:GITHUB_OUTPUT
       # The installer steps below are release.yml's, with this job's version.
       - name: NSIS
@@ -152,25 +152,25 @@ jobs:
             exit 1
           }
           & $env:MAKENSIS /NOCD /WX "/DVERSION=$version" "/DBINDIR=target\release" "/DICON=$icon" `
-            "/DOUTFILE=patorrent-$version-windows-x64-setup.exe" packaging\windows\patorrent.nsi
+            "/DOUTFILE=rookparcel-$version-windows-x64-setup.exe" packaging\windows\rookparcel.nsi
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          Get-Item "patorrent-$version-windows-x64-setup.exe" | Format-List Name, Length, VersionInfo
+          Get-Item "rookparcel-$version-windows-x64-setup.exe" | Format-List Name, Length, VersionInfo
       - name: Install and uninstall
         shell: pwsh
-        # a hung setup or patorrent.exe --associate must not hold the job for hours
+        # a hung setup or rookparcel.exe --associate must not hold the job for hours
         timeout-minutes: 10
         run: |
           function Fail($m) { echo "::error::$m"; exit 1 }
           $version = "${{ steps.version.outputs.version }}"
-          $dir = Join-Path $env:RUNNER_TEMP "PaTorrent test"
-          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PaTorrent'
-          $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\PaTorrent.lnk"
-          $desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) PaTorrent.lnk
+          $dir = Join-Path $env:RUNNER_TEMP "Rookparcel test"
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Rookparcel'
+          $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Rookparcel.lnk"
+          $desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) Rookparcel.lnk
           $classes = 'HKCU:\Software\Classes'
-          $p = Start-Process ".\patorrent-$version-windows-x64-setup.exe" -Wait -PassThru `
+          $p = Start-Process ".\rookparcel-$version-windows-x64-setup.exe" -Wait -PassThru `
             -ArgumentList '/S', '/DESKTOPSHORTCUT', '/ASSOCIATE=torrent,magnet', "/D=$dir"
           if ($p.ExitCode -ne 0) { Fail "Setup exited with $($p.ExitCode)" }
-          foreach ($f in 'patorrent.exe', 'patorrent-nox.exe', 'LICENSE.md', 'THIRD-PARTY-NOTICES.md', 'uninstall.exe') {
+          foreach ($f in 'rookparcel.exe', 'rookparcel-nox.exe', 'LICENSE.md', 'THIRD-PARTY-NOTICES.md', 'uninstall.exe') {
             if (-not (Test-Path "$dir\$f")) { Fail "$f was not installed" }
           }
           if (-not (Test-Path $menu)) { Fail "no Start menu shortcut" }
@@ -178,29 +178,29 @@ jobs:
           $u = Get-ItemProperty $key
           $u | Format-List DisplayName, DisplayVersion, Publisher, DisplayIcon, InstallLocation, EstimatedSize, QuietUninstallString
           if ($u.DisplayVersion -ne $version -or $u.InstallLocation -ne $dir) { Fail "the Uninstall key is wrong" }
-          if ((Get-Item "$classes\.torrent").GetValue('') -ne 'PaTorrent.torrent') { Fail ".torrent is not associated" }
+          if ((Get-Item "$classes\.torrent").GetValue('') -ne 'Rookparcel.torrent') { Fail ".torrent is not associated" }
           $open = (Get-Item "$classes\magnet\shell\open\command").GetValue('')
           # SEC-18: the shell passes links through --shell, so nothing after %1 becomes a switch
-          if ($open -ne "`"$dir\patorrent.exe`" --shell `"%1`"") { Fail "magnet: opens '$open'" }
-          & "$dir\patorrent-nox.exe" --version
-          if ($LASTEXITCODE -ne 0) { Fail "the installed patorrent-nox.exe did not run" }
+          if ($open -ne "`"$dir\rookparcel.exe`" --shell `"%1`"") { Fail "magnet: opens '$open'" }
+          & "$dir\rookparcel-nox.exe" --version
+          if ($LASTEXITCODE -ne 0) { Fail "the installed rookparcel-nox.exe did not run" }
 
-          # D45, PaTorrent updating itself: /S /UPDATE=<pid> waits for that process (the
-          # exiting PaTorrent; here a sleep the setup must outwait), installs over the
-          # installation found and starts patorrent.exe again
+          # D45, Rookparcel updating itself: /S /UPDATE=<pid> waits for that process (the
+          # exiting Rookparcel; here a sleep the setup must outwait), installs over the
+          # installation found and starts rookparcel.exe again
           $sleeper = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 8'
           $clock = [Diagnostics.Stopwatch]::StartNew()
-          $p = Start-Process ".\patorrent-$version-windows-x64-setup.exe" -Wait -PassThru `
+          $p = Start-Process ".\rookparcel-$version-windows-x64-setup.exe" -Wait -PassThru `
             -ArgumentList '/S', '/CURRENTUSER', "/UPDATE=$($sleeper.Id)"
           if ($p.ExitCode -ne 0) { Fail "the update setup exited with $($p.ExitCode)" }
           if (-not $sleeper.HasExited -or $clock.Elapsed.TotalSeconds -lt 7) { Fail "the update setup did not wait for /UPDATE's process" }
           $app = $null
-          for ($i = 0; $i -lt 30 -and -not $app; $i++) { Start-Sleep 1; $app = Get-Process patorrent -ErrorAction SilentlyContinue }
-          if (-not $app) { Fail "the update setup did not start PaTorrent again" }
-          if ($app.Path -ne "$dir\patorrent.exe") { Fail "the restarted PaTorrent is $($app.Path)" }
+          for ($i = 0; $i -lt 30 -and -not $app; $i++) { Start-Sleep 1; $app = Get-Process rookparcel -ErrorAction SilentlyContinue }
+          if (-not $app) { Fail "the update setup did not start Rookparcel again" }
+          if ($app.Path -ne "$dir\rookparcel.exe") { Fail "the restarted Rookparcel is $($app.Path)" }
           Stop-Process -Id $app.Id -Force
           Wait-Process -Id $app.Id -ErrorAction SilentlyContinue
-          echo "updated with /UPDATE: waited $([int]$clock.Elapsed.TotalSeconds) s, PaTorrent started again"
+          echo "updated with /UPDATE: waited $([int]$clock.Elapsed.TotalSeconds) s, Rookparcel started again"
 
           $p = Start-Process "$dir\uninstall.exe" -ArgumentList '/S' -Wait -PassThru
           # it goes on from a copy of itself in %TEMP%: wait for that
@@ -208,21 +208,21 @@ jobs:
           if (Test-Path $dir) { Get-ChildItem -Recurse $dir; Fail "the folder is still there" }
           if (Test-Path $key) { Fail "the Uninstall key is still there" }
           if ((Test-Path $menu) -or (Test-Path $desktop)) { Fail "a shortcut is still there" }
-          if ((Test-Path "$classes\PaTorrent.torrent") -or (Test-Path "$classes\PaTorrent.magnet") -or (Test-Path "$classes\magnet")) {
+          if ((Test-Path "$classes\Rookparcel.torrent") -or (Test-Path "$classes\Rookparcel.magnet") -or (Test-Path "$classes\magnet")) {
             Fail "an association is still there"
           }
           if ((Get-Item "$classes\.torrent" -ErrorAction SilentlyContinue)?.GetValue('')) { Fail ".torrent still names a program" }
-          if ((Get-ItemProperty 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue).PaTorrent) {
-            Fail "PaTorrent is still in RegisteredApplications"
+          if ((Get-ItemProperty 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue).Rookparcel) {
+            Fail "Rookparcel is still in RegisteredApplications"
           }
           echo "installed, associated, uninstalled: nothing left"
       - uses: actions/upload-artifact@v7
         with:
-          name: patorrent-windows-x64
+          name: rookparcel-windows-x64
           path: |
-            target/release/patorrent.exe
-            target/release/patorrent-nox.exe
+            target/release/rookparcel.exe
+            target/release/rookparcel-nox.exe
             LICENSE.md
             THIRD-PARTY-NOTICES.md
-            patorrent-*-setup.exe
+            rookparcel-*-setup.exe
           retention-days: 14

@@ -2,25 +2,25 @@
 //! real Jackett"): downloads Jackett's release from GitHub, runs it and searches through it.
 //! Ignored: it needs the network, takes minutes, and runs third-party code. Run by hand:
 //!
-//! `PATORRENT_REAL_JACKETT=<empty folder> cargo test -p patorrent-frontend --test real_jackett -- --ignored --nocapture`
+//! `ROOKPARCEL_REAL_JACKETT=<empty folder> cargo test -p rookparcel-frontend --test real_jackett -- --ignored --nocapture`
 //!
 //! The folder stands in for a profile folder; the helper goes into its `search-helper/`.
 //! Longer checks on request:
 //!
-//! - `PATORRENT_REAL_JACKETT_PAUSE=<seconds>`: sleeps after the first start, for a look at what
+//! - `ROOKPARCEL_REAL_JACKETT_PAUSE=<seconds>`: sleeps after the first start, for a look at what
 //!   the helper listens on (`ss -ltnp`, `netstat -an`) and how it runs;
-//! - `PATORRENT_REAL_JACKETT_IDLE=1`: waits for the ten-minute idle stop, then adds a result
+//! - `ROOKPARCEL_REAL_JACKETT_IDLE=1`: waits for the ten-minute idle stop, then adds a result
 //!   through the helper's download link, which starts it again;
-//! - `PATORRENT_REAL_JACKETT_PROXY=<host>:<port>`: an HTTP proxy the helper is told to use (the
+//! - `ROOKPARCEL_REAL_JACKETT_PROXY=<host>:<port>`: an HTTP proxy the helper is told to use (the
 //!   search must still answer; the proxy's log shows the sites' hosts).
 
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
-use patorrent_frontend::rss::worker::Download;
-use patorrent_frontend::search::helper::config::HelperProxy;
-use patorrent_frontend::search::helper::{self, api};
-use patorrent_frontend::search::{Query, worker};
+use rookparcel_frontend::rss::worker::Download;
+use rookparcel_frontend::search::helper::config::HelperProxy;
+use rookparcel_frontend::search::helper::{self, api};
+use rookparcel_frontend::search::{Query, worker};
 
 /// Public sites that need no FlareSolverr and answer a search for "ubuntu" (general sites
 /// first: a movie or anime site answers it with nothing), tried in this order.
@@ -33,10 +33,10 @@ fn env(name: &str) -> Option<String> {
 /// Adds `r` as the GUI would, through the helper's own download link (the magnet the search
 /// gave is left out, so the link is followed).
 fn add_through_link(
-    r: &patorrent_frontend::search::SearchResult,
-    source: &patorrent_frontend::search::Source,
+    r: &rookparcel_frontend::search::SearchResult,
+    source: &rookparcel_frontend::search::Source,
 ) {
-    let linked = patorrent_frontend::search::SearchResult { magnet: String::new(), ..r.clone() };
+    let linked = rookparcel_frontend::search::SearchResult { magnet: String::new(), ..r.clone() };
     assert!(!linked.link.is_empty(), "the result has a link: {r:?}");
     let t = Instant::now();
     let dl = worker::fetch_download(&linked, source, None).expect("the download through the helper's link");
@@ -53,16 +53,16 @@ fn add_through_link(
 }
 
 #[test]
-#[ignore = "downloads and runs the real Jackett; PATORRENT_REAL_JACKETT=<folder>"]
+#[ignore = "downloads and runs the real Jackett; ROOKPARCEL_REAL_JACKETT=<folder>"]
 fn the_helper_installs_runs_and_searches() {
-    let Some(dir) = std::env::var_os("PATORRENT_REAL_JACKETT") else {
-        eprintln!("PATORRENT_REAL_JACKETT is not set: nothing done");
+    let Some(dir) = std::env::var_os("ROOKPARCEL_REAL_JACKETT") else {
+        eprintln!("ROOKPARCEL_REAL_JACKETT is not set: nothing done");
         return;
     };
     let profile = PathBuf::from(dir);
     std::fs::create_dir_all(&profile).unwrap();
     assert!(helper::available(), "the helper is not available on this platform or build");
-    let proxy = env("PATORRENT_REAL_JACKETT_PROXY").map(|hp| {
+    let proxy = env("ROOKPARCEL_REAL_JACKETT_PROXY").map(|hp| {
         let (host, port) = hp.rsplit_once(':').expect("host:port");
         HelperProxy {
             kind: 0,
@@ -124,7 +124,7 @@ fn the_helper_installs_runs_and_searches() {
         );
         println!("ServerConfig.json carries the proxy {}:{}", p.host, p.port);
     }
-    if let Some(secs) = env("PATORRENT_REAL_JACKETT_PAUSE").and_then(|s| s.parse::<u64>().ok()) {
+    if let Some(secs) = env("ROOKPARCEL_REAL_JACKETT_PAUSE").and_then(|s| s.parse::<u64>().ok()) {
         println!("pausing {secs} s on port {port} (look at the listener now)");
         std::thread::sleep(Duration::from_secs(secs));
     }
@@ -199,7 +199,7 @@ fn the_helper_installs_runs_and_searches() {
     }
 
     // 8b. the idle stop, and an add through the link after it (the helper starts again)
-    if env("PATORRENT_REAL_JACKETT_IDLE").is_some() {
+    if env("ROOKPARCEL_REAL_JACKETT_IDLE").is_some() {
         let t = Instant::now();
         println!("waiting for the idle stop (ten minutes without a search)...");
         let until = t + Duration::from_secs(13 * 60);

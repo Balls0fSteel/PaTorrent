@@ -281,7 +281,7 @@ mod imp {
         Some(Box::new(IcmpPinger { v4, v6 }))
     }
 
-    const PAYLOAD: [u8; 32] = *b"PaTorrent keep-ping-low probe...";
+    const PAYLOAD: [u8; 32] = *b"Rookparcel keep-ping-low probe..";
     /// The reply buffer's size.
     const REPLY_BUFFER: usize = 256;
     // the documentation's minimum, for which the reads below rely on one reply at the buffer's
@@ -396,7 +396,7 @@ mod imp {
 
 /// The Logger's text when this system gives no pings.
 #[cfg(any(target_os = "linux", target_os = "android"))]
-pub(crate) const UNAVAILABLE: &str = "this system does not let PaTorrent ping (its group must be in net.ipv4.ping_group_range); only the uTP peers' delays";
+pub(crate) const UNAVAILABLE: &str = "this system does not let Rookparcel ping (its group must be in net.ipv4.ping_group_range); only the uTP peers' delays";
 #[cfg(not(any(target_os = "linux", target_os = "android")))]
 pub(crate) const UNAVAILABLE: &str = "pings are not available on this system; only the uTP peers' delays";
 
@@ -408,7 +408,7 @@ fn echo_request(v6: bool, id: u16, seq: u16) -> Vec<u8> {
     let mut p = vec![if v6 { 128 } else { 8 }, 0, 0, 0];
     p.extend_from_slice(&id.to_be_bytes());
     p.extend_from_slice(&seq.to_be_bytes());
-    p.extend_from_slice(b"PaTorrent keep-ping-low probe...");
+    p.extend_from_slice(b"Rookparcel keep-ping-low probe..");
     if !v6 {
         let sum = internet_checksum(&p);
         p[2..4].copy_from_slice(&sum.to_be_bytes());
@@ -581,7 +581,7 @@ mod imp {
     const SOCK_DGRAM: c_int = 2;
     #[cfg(not(target_vendor = "apple"))]
     const SOCK_CLOEXEC: c_int = 0x80000;
-    // macOS has no SOCK_CLOEXEC; PaTorrent starts no child processes that could inherit it
+    // macOS has no SOCK_CLOEXEC; Rookparcel starts no child processes that could inherit it
     #[cfg(target_vendor = "apple")]
     const SOCK_CLOEXEC: c_int = 0;
     const IPPROTO_ICMP: c_int = 1;
@@ -1012,7 +1012,7 @@ mod tests {
         assert_eq!(events[1], ProbeEvent::Rtt { target: 0, ms: 5.0 });
     }
 
-    /// This machine's real pings (`cargo test -p patorrent-core --lib probe::tests::real --
+    /// This machine's real pings (`cargo test -p rookparcel-core --lib probe::tests::real --
     /// --ignored --nocapture`): the router found and a few round trips.
     #[test]
     #[ignore = "pings the network"]
@@ -1039,7 +1039,7 @@ mod tests {
         assert!(rtts > 0, "no round trips");
     }
 
-    /// What each hop answers on this machine (`cargo test -p patorrent-core --lib
+    /// What each hop answers on this machine (`cargo test -p rookparcel-core --lib
     /// probe::tests::real_trace -- --ignored --nocapture`).
     #[test]
     #[ignore = "pings the network"]

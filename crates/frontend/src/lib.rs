@@ -1,4 +1,4 @@
-//! UI-agnostic client logic shared by every PaTorrent frontend (Win32, GTK, nox).
+//! UI-agnostic client logic shared by every Rookparcel frontend (Win32, GTK, nox).
 //!
 //! Anything that decides *what* the user sees or *what* a user action means lives here, so the
 //! frontends only decide *how* it is drawn:
@@ -29,15 +29,15 @@
 //! * [`network`]: "Use only this network" (D54): the adapters, the rule's controls, the status.
 //! * [`setup_guide`]: the Setup Guide (D53): the first start's questions and what they set.
 
-/// The version a build shows (title bars, About, `--version`): [`patorrent_core::VERSION`] with
+/// The version a build shows (title bars, About, `--version`): [`rookparcel_core::VERSION`] with
 /// `-dev.<commit>` when it is not a tagged release, and `.dirty` from `1_build.bat` when the tree
 /// had uncommitted changes (`build.rs`, D37). Protocol and update-check code keeps the plain
 /// version; this is for telling builds apart.
-pub const BUILD: &str = env!("PATORRENT_BUILD_VERSION");
+pub const BUILD: &str = env!("ROOKPARCEL_BUILD_VERSION");
 
-/// "PaTorrent <build>", where µTorrent 2.2.1 showed "µTorrent 2.2.1": the main window's title
+/// "Rookparcel <build>", where µTorrent 2.2.1 showed "µTorrent 2.2.1": the main window's title
 /// and the tray icon's tooltip.
-pub const NAME_BUILD: &str = concat!("PaTorrent ", env!("PATORRENT_BUILD_VERSION"));
+pub const NAME_BUILD: &str = concat!("Rookparcel ", env!("ROOKPARCEL_BUILD_VERSION"));
 
 pub mod actions;
 pub mod add;
@@ -52,6 +52,7 @@ pub mod icons;
 pub mod import;
 pub mod integration;
 pub mod lang;
+pub mod legacy;
 pub mod model;
 pub mod network;
 pub mod options;

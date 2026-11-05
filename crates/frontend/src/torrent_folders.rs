@@ -33,8 +33,8 @@ use std::path::{Path, PathBuf};
 use std::sync::mpsc::{Receiver, TryRecvError, sync_channel};
 use std::time::{Duration, Instant, SystemTime};
 
-use patorrent_core::metainfo::{LoadLimits, MetainfoError, TorrentInfo};
-use patorrent_core::{AddTorrentParams, Alert, SessionHandle, TorrentId, TorrentSource};
+use rookparcel_core::metainfo::{LoadLimits, MetainfoError, TorrentInfo};
+use rookparcel_core::{AddTorrentParams, Alert, SessionHandle, TorrentId, TorrentSource};
 
 use crate::prefs::Prefs;
 use crate::tr;
@@ -219,7 +219,7 @@ pub fn move_copy(from: &Path, to: &Path, name: &str, key: &str) -> io::Result<Op
 }
 
 fn same_dir(a: &Path, b: &Path) -> bool {
-    patorrent_core::same_dir(&a.to_string_lossy(), &b.to_string_lossy())
+    rookparcel_core::same_dir(&a.to_string_lossy(), &b.to_string_lossy())
 }
 
 /// Reads and parses a `.torrent` the poller handed out. A file longer than a `.torrent` may be
@@ -254,7 +254,7 @@ fn read_torrent_file(path: &Path) -> io::Result<Vec<u8>> {
 /// one). Returns the new name, `None` when deleted.
 ///
 /// Only the file that was loaded: still a plain file (not a link) holding the torrent whose
-/// info-hash key ([`InfoHashes::key_hex`](patorrent_core::InfoHashes::key_hex)) is `key`. A file
+/// info-hash key ([`InfoHashes::key_hex`](rookparcel_core::InfoHashes::key_hex)) is `key`. A file
 /// that was replaced in the meantime is left as it is (SEC-05).
 pub fn finish_loaded(path: &Path, key: &str, delete: bool) -> io::Result<Option<PathBuf>> {
     if !fs::symlink_metadata(path)?.is_file() {
@@ -495,7 +495,7 @@ impl TorrentFiles {
         let bytes = match &p.source {
             TorrentSource::TorrentFile(bytes) => bytes,
             TorrentSource::Magnet(uri) => {
-                if let Ok(m) = patorrent_core::metainfo::parse_magnet_uri(uri) {
+                if let Ok(m) = rookparcel_core::metainfo::parse_magnet_uri(uri) {
                     self.pending.entry(m.info_hashes.key_hex()).or_default().magnet = true;
                 }
                 return;
@@ -615,13 +615,13 @@ pub fn loaded(name: &str, key: &str, path: &Path, delete: bool) -> String {
 
 #[cfg(test)]
 mod tests {
-    use patorrent_core::{InfoHashes, TorrentStatus};
+    use rookparcel_core::{InfoHashes, TorrentStatus};
 
     use super::*;
 
     /// A unique empty folder under the temp directory.
     fn temp(name: &str) -> PathBuf {
-        let p = std::env::temp_dir().join(format!("patorrent-folders-{name}-{}", std::process::id()));
+        let p = std::env::temp_dir().join(format!("rookparcel-folders-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&p);
         fs::create_dir_all(&p).unwrap();
         p
@@ -915,7 +915,7 @@ mod tests {
         let watch = temp("alerts-watch");
         let mut f = folders(&store, Some(&done));
         let mut files = TorrentFiles::new();
-        let session = patorrent_core::Session::start_mock(Default::default(), Default::default());
+        let session = rookparcel_core::Session::start_mock(Default::default(), Default::default());
         let h = session.handle();
         let bytes = torrent("movie", 0);
         let id = TorrentId::from_raw(7);
@@ -963,7 +963,7 @@ mod tests {
         let failed = Alert::AddTorrentFailed {
             name: "bad".into(),
             info_hashes: Some(ti.info_hashes()),
-            error: patorrent_core::Error::DuplicateTorrent,
+            error: rookparcel_core::Error::DuplicateTorrent,
         };
         let log = files.on_alert(&failed, &f, &h);
         assert!(log[0].contains("not loaded"), "{log:?}");
@@ -1009,9 +1009,9 @@ mod tests {
         let watch = temp("failed-watch");
         let f = folders(&store, None);
         let mut files = TorrentFiles::new();
-        let session = patorrent_core::Session::start_mock(Default::default(), Default::default());
+        let session = rookparcel_core::Session::start_mock(Default::default(), Default::default());
         let h = session.handle();
-        let dup = patorrent_core::Error::DuplicateTorrent;
+        let dup = rookparcel_core::Error::DuplicateTorrent;
 
         // two auto-loaded files whose info names match (the second a changed copy)
         let (first, second) = (torrent("dup", 0), torrent("dup", 1));

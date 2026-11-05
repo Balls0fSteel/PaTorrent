@@ -10,9 +10,9 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     AddTorrentParams, Alert, Session, SessionHandle, SessionParams, Settings, TorrentFlags, TorrentSource,
     TorrentState,
 };
@@ -327,7 +327,7 @@ pub fn load(o: LoadOptions, rss: fn() -> Option<u64>, cpu: fn() -> Option<Durati
 /// Resume data for `torrent` (a `.torrent` file) holding `peers` peers, as a stopped torrent
 /// that ran saves them: compact IPv4 entries, and every fifth one IPv6.
 fn resume_with_peers(torrent: &[u8], save: &Path, i: usize, peers: usize) -> Vec<u8> {
-    let ti = patorrent_core::metainfo::TorrentInfo::from_bytes(torrent).expect("synthetic torrent");
+    let ti = rookparcel_core::metainfo::TorrentInfo::from_bytes(torrent).expect("synthetic torrent");
     let mut e = Entry::new_dict();
     *e.key("file-format") = "libtorrent resume file".into();
     *e.key("file-version") = Entry::Int(1);

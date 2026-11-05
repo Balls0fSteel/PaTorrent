@@ -1,6 +1,6 @@
-# PaTorrent Web UI design
+# Rookparcel Web UI design
 
-Decided 2026-10-17 (PLAN.md D18). This is the design for the Web UI that `patorrent-nox` serves
+Decided 2026-10-17 (PLAN.md D18). This is the design for the Web UI that `rookparcel-nox` serves
 and for the native API behind it. It replaces the "qBittorrent WebAPI subset plus a small page"
 plan of Phase 6 as the *primary* design; the qBittorrent subset stays as a compatibility shim.
 
@@ -18,7 +18,7 @@ translates from the same cache and the same command functions; it never shapes a
 Anything the shim cannot express is simply not in the shim.
 
 What the Web UI is: the µTorrent 2.2.1 main window in a browser, driven by the same
-`patorrent-frontend` model the Win32 window uses, with the things 2.2.1's WebUI lacked: push
+`rookparcel-frontend` model the Win32 window uses, with the things 2.2.1's WebUI lacked: push
 updates, 10,000 torrents without strain, keyboard-driven, and usable on a phone.
 
 What it is not: a copy of qBittorrent's Web UI or of µTorrent's `/gui/?list=1` token API
@@ -44,7 +44,7 @@ What it is not: a copy of qBittorrent's Web UI or of µTorrent's `/gui/?list=1` 
 
 ## Architecture
 
-### The page is a thin terminal of `patorrent-frontend`
+### The page is a thin terminal of `rookparcel-frontend`
 
 `crates/frontend` already holds everything that decides *what* the user sees: `columns` (titles,
 widths, cell text, sort order), `detail` (the Trackers, Peers, Files columns), `fmt` (sizes,
@@ -133,7 +133,7 @@ torrent search's results, status lines or sources changed (the page asks `GET /p
 `GET /pa/search` again) and `"adds": n` when a magnet's Add dialog can open; each is sent
 when it moved since the client's last tick.
 
-When nox's update check (D43, [DAEMON.md](DAEMON.md#the-update-check)) found a newer PaTorrent,
+When nox's update check (D43, [DAEMON.md](DAEMON.md#the-update-check)) found a newer Rookparcel,
 `hello` and every `tick` carry `"update":{"version":"1.2.0","url":"<its release page>"}`; the
 page shows it as a link in the status bar (the `UpdateNotice` text) and hides the link when a
 `tick` comes without it (the newest version again, or the check turned off in Preferences >
@@ -183,7 +183,7 @@ All `POST`, JSON body, `Content-Type: application/json`, CSRF-checked (Origin an
 header), answered `204`, or `4xx` with `{"error":"..."}`.
 
 As built in slice 5 (`webui/commands.rs`): every `POST /pa/...` must carry
-`X-Requested-With: PaTorrent` (403 `{"error":"missing X-Requested-With: PaTorrent header"}`
+`X-Requested-With: Rookparcel` (403 `{"error":"missing X-Requested-With: Rookparcel header"}`
 without it; a browser cannot send a custom header cross-site without a CORS preflight, which
 the server never grants) and pass the shim's `Origin` / `Referer` rule (403
 `{"error":"origin not allowed"}`); a request without an `Origin` (curl) passes on the header
@@ -284,7 +284,7 @@ threads only answer into a channel; every alert batch (and every `GET /pa/search
 them and bumps a version that the `tick` carries as `"search": n`, so an open search window
 asks `GET /pa/search` again. The sources are `search.source.N.name|url|key|enabled` in the
 stored preferences (`options`; the key sealed like the proxy password: DPAPI on Windows);
-hosted they are the window's own `patorrent.ini` keys, reached through the preferences
+hosted they are the window's own `rookparcel.ini` keys, reached through the preferences
 journal, and a change the window makes moves the version too. A source on this machine or
 network never goes through the engine's proxy, a public one does; a result's link may reach a
 non-public address only on the source's own scheme, host and port.
@@ -354,7 +354,7 @@ category searches everything.
   give.
 - **`fileUrl` never holds the indexer's link** (it carries the API key): it is the result's
   magnet, or one made from its info-hash when it has no link, else
-  `patorrent-search:<id>/<result id>`. `torrents/add` (`urls`) and `downloadTorrent`
+  `rookparcel-search:<id>/<result id>`. `torrents/add` (`urls`) and `downloadTorrent`
   (`torrentUrl`; `pluginName` is ignored) take that URL back and fetch the result on the
   request's thread as `/pa/search/add` does (the link on the source's own origin may reach a
   non-public address, the proxy rule included); it works while its search is kept. Other
@@ -475,10 +475,10 @@ current password, and reported read-only by the shim's `app/preferences`:
 The Windows GUI's own Preferences > Web UI > Authentication sets both as well: the key's box,
 a password field for a new key (left empty, the stored key stays; a key is needed once the box
 is on) and the whitelist, checked as above before anything is stored. Hosted, the server
-reads them from the window's `patorrent.ini` keys when Apply restarts it.
+reads them from the window's `rookparcel.ini` keys when Apply restarts it.
 
 HTTPS (`--webui-https`, or `--webui-cert FILE [--webui-key FILE]`): the port serves TLS only,
-through the OS library (SChannel on Windows, OpenSSL on Unix: `patorrent_core::tls`), TLS 1.2
+through the OS library (SChannel on Windows, OpenSSL on Unix: `rookparcel_core::tls`), TLS 1.2
 and 1.3. `--webui-https` alone makes a self-signed certificate on first use (ECDSA P-256, 825
 days, the loopback names, the host name and a specific listen address) and keeps it in the
 config directory as `webui-cert.pem` / `webui-key.pem`, renewed a month before it expires; nox
@@ -505,22 +505,22 @@ the detail tabs, Preferences, the Logger) arrives translated. Tests check that e
 page and the script name exists and that the HTML's English is the table's.
 
 The language is Preferences > General's "User interface" (`ui.language` in `webui.json`, a
-choice of `[value, text]` with "System default" first; `PATORRENT_LANG` over it). Applying a new
+choice of `[value, text]` with "System default" first; `ROOKPARCEL_LANG` over it). Applying a new
 one switches the server's texts at once and rebuilds `lang.js`; the page that applied it
 reloads, other open pages keep their texts until they reload. The compat API's `locale` names
 the language in force.
 
 ## Remote mode
 
-A GUI can drive a nox's engine instead of its own (`patorrent_core::remote`; the server side is
+A GUI can drive a nox's engine instead of its own (`rookparcel_core::remote`; the server side is
 `webui/remote.rs`). The client is a `Session` like a local one: its handles queue the engine's
 own commands, and instead of an engine thread a pump thread sends them to the nox and posts the
 nox's alerts into the client's alert queue. The GUI's models, dialogs and automations run
 unchanged on top.
 
 - **Transport.** An HTTP/1.1 upgrade on the Web UI's port (HTTPS too):
-  `GET /pa/remote` with `Connection: Upgrade`, `Upgrade: patorrent-remote`,
-  `X-PaTorrent-Remote: 7` (the protocol version) and the Web UI login as
+  `GET /pa/remote` with `Connection: Upgrade`, `Upgrade: rookparcel-remote`,
+  `X-Rookparcel-Remote: 7` (the protocol version) and the Web UI login as
   `Authorization: Basic`. The checks are the WebSocket's: ban list, `Host`, `Origin` when there
   is one (only a browser sends it), then the login, whose failures count towards the ban like
   the login form's (a session cookie or the local-auth bypass also do). `101` switches; a wrong
@@ -528,7 +528,7 @@ unchanged on top.
 - **Frames.** A 4-byte big-endian length and one bencoded list: the message name, then the
   fields in declaration order (positional, so both ends must speak the same version; structs
   are lists, options are lists of zero or one, flags integers, addresses text). The server's
-  first frame is `hello`: version, the server's PaTorrent version, its default save path and
+  first frame is `hello`: version, the server's Rookparcel version, its default save path and
   its engine settings.
 - **Client to server**: the engine commands (add with the `.torrent` bytes or the magnet, remove,
   pause, flags, queue, limits, trackers, priorities, move storage, rename, the `post_*` detail
@@ -549,7 +549,7 @@ unchanged on top.
 - **Lost connections** end in an `Alert::RemoteDisconnected`; the client's commands go nowhere
   after it.
 
-The Win32 GUI (`remote_ui.rs`): `patorrent.exe --remote`, or File > Connect to Remote... (which
+The Win32 GUI (`remote_ui.rs`): `rookparcel.exe --remote`, or File > Connect to Remote... (which
 starts such a window beside the local one), asks for the host, port, login and HTTPS (on by
 default). Plain HTTP to a host other than this computer is asked about first, since the login
 and every command would cross the network unencrypted; `remote::connect` refuses it without
@@ -565,31 +565,31 @@ own automations (scheduler, RSS, seeding goal, `.torrent` folders, scrapes) act 
 engine too, beside nox's own. A lost connection is reported once and marks the title
 "(disconnected)"; reconnecting means a new window.
 
-The GTK GUI (`crates/gtk/src/remote.rs`) does the same: `patorrent-gtk --remote`, or File >
+The GTK GUI (`crates/gtk/src/remote.rs`) does the same: `rookparcel-gtk --remote`, or File >
 Connect to Remote... A remote window is a process of its own outside GTK's single instance
 (`G_APPLICATION_NON_UNIQUE`), so a second local start still goes to the local window and
 several servers can be open at once. The certificate check and the connection run on GIO's
 thread pool while the dialog waits greyed with a spinner. Its files are in
-`remote/<host>_<port>` in `~/.config/patorrent/gtk`, `remote.ini` beside the local
-`patorrent.ini`. Set Download Location asks for a folder on the server as text (the Web UI's
+`remote/<host>_<port>` in `~/.config/rookparcel/gtk`, `remote.ini` beside the local
+`rookparcel.ini`. Set Download Location asks for a folder on the server as text (the Web UI's
 question), as the Win32 window now does too, and completion notifications go to
 `org.freedesktop.Notifications` directly (a non-unique application has no bus name for
 `GNotification`). The connect step itself (the form, the pins, the failure texts) is shared in
-`patorrent_frontend::remote`.
+`rookparcel_frontend::remote`.
 
 ### Hosted by a desktop client
 
 The Windows GUI serves the Web UI over its own engine (D40), as µTorrent and qBittorrent do:
-`patorrent_nox::webui::WebUi` started with `Config::hosted` (`Hosted { host, options }`), fed
+`rookparcel_nox::webui::WebUi` started with `Config::hosted` (`Hosted { host, options }`), fed
 every alert batch the GUI pops, exactly as nox's main loop does. The host implements
 `webui::Host`: `options_changed(changes)` (called on a request thread with the Web UI's lock
 held: queue them) and `shutdown()`.
 
-- **The mirror.** The GUI is the application: it owns `patorrent.ini`, the labels
+- **The mirror.** The GUI is the application: it owns `rookparcel.ini`, the labels
   (`torrent.<key>.label`), the pause marks (`torrent.<key>.paused`), the seeding-goal
   overrides, the engine settings (`lt.*`), its options and every automation. The Web UI keeps
   a copy of those preferences (`State::options`, started from `Hosted::options`) and the two
-  sides exchange changes through `patorrent_frontend::prefs::Prefs`' journal: whatever a browser
+  sides exchange changes through `rookparcel_frontend::prefs::Prefs`' journal: whatever a browser
   changes (a label, a pause mark, a Preferences page, the session limits, a seeding goal, the
   login as `webui.username` / `webui.password`, the hash) is written into the mirror as the
   host's keys and handed to `Host::options_changed`; whatever the host changes comes back
@@ -650,7 +650,7 @@ engine, Firefox and Chromium:
 | Page idle CPU, window visible, idle swarm | not measurable above the browser's own idle |
 | Hidden tab | no messages |
 | Server CPU per client per tick | proportional to the window, after one sort per client per tick when the sort key changed; the sort of 10,000 by name or speed is under 2 ms in `frontend::model` |
-| `patorrent-nox` size growth for the whole Web UI | under 300 KB |
+| `rookparcel-nox` size growth for the whole Web UI | under 300 KB |
 
 Measured with slice 3 (CHANGELOG 2026-10-17_220311_1792267391): all within budget in Chrome and
 Firefox. The page measures itself with `#gate` in its URL (a panel and the window title); the

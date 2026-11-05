@@ -1,4 +1,4 @@
-// PaTorrent's Web UI: the µTorrent 2.2.1 main window on the native session protocol
+// Rookparcel's Web UI: the µTorrent 2.2.1 main window on the native session protocol
 // (docs/WEBUI.md). The page holds only the visible window of rows; the server runs the
 // filtered, sorted list and sends formatted cells, and the detail pane's tab content the
 // same way. Commands are POSTs to the native endpoints (pa/...) with JSON bodies; the compat
@@ -158,7 +158,7 @@
       `stages: ${gate.stages.map(([n, ms]) => n + " " + ms.toFixed(0)).join(", ")}`;
     // the window title too, so a script can read the numbers off a browser it cannot see into
     document.title =
-      `PaTorrent gate | paint ${since} | rows ${gate.rowsBytes} B/${ids.length} | tick ${gate.tickBytes} B x${gate.ticks} ` +
+      `Rookparcel gate | paint ${since} | rows ${gate.rowsBytes} B/${ids.length} | tick ${gate.tickBytes} B x${gate.ticks} ` +
       `(changed ${gate.tickChanged}) | hidden ${gate.hiddenMsgs} msgs/${gate.hiddenSecs.toFixed(0)} s | total ${total}`;
   }
 
@@ -166,7 +166,7 @@
   // A JSON POST with the CSRF header; 204 on success, else {"error"} shown in the status bar.
   // `body` may be a FormData (the uploads) instead of an object.
   async function pa(path, body) {
-    const opts = { method: body === undefined ? "GET" : "POST", credentials: "same-origin", headers: { "X-Requested-With": "PaTorrent" } };
+    const opts = { method: body === undefined ? "GET" : "POST", credentials: "same-origin", headers: { "X-Requested-With": "Rookparcel" } };
     if (body instanceof FormData) opts.body = body;
     else if (body !== undefined) {
       opts.headers["Content-Type"] = "application/json";
@@ -424,7 +424,7 @@
   function onHello(m) {
     hello = m;
     // as µTorrent's window title did: the name and the version
-    document.title = "PaTorrent " + m.version;
+    document.title = "Rookparcel " + m.version;
     backoff = 1000;
     setConn("");
     labels = m.labels || [];
@@ -527,7 +527,7 @@
       requestAnimationFrame(() => {
         gate.tPaint = performance.now();
         stage("paint");
-        console.info("PaTorrent: first painted list after", (gate.tPaint - (gate.tLogin || gate.tStart)).toFixed(0), "ms");
+        console.info("Rookparcel: first painted list after", (gate.tPaint - (gate.tLogin || gate.tStart)).toFixed(0), "ms");
         gateRender();
       });
     }
@@ -1263,7 +1263,7 @@
     setText("st-down", bar("BarDown", s.down, s.down_limit, s.down_auto, s.down_total));
     setText("st-up", bar("BarUp", s.up, s.up_limit, s.up_auto, s.up_total));
   }
-  /// nox's update check found a newer PaTorrent ({version, url}; undefined: none, or hosted):
+  /// nox's update check found a newer Rookparcel ({version, url}; undefined: none, or hosted):
   /// a link to its release page in the status bar.
   function updateNotice(u) {
     const show = !!(u && /^https:\/\//.test(u.url));

@@ -1,12 +1,12 @@
 //! Help > Third-Party Notices: THIRD-PARTY-NOTICES.md, built into the program, so the licence
-//! texts of the ported code stay with an executable copied out on its own (`patorrent-nox`
+//! texts of the ported code stay with an executable copied out on its own (`rookparcel-nox`
 //! prints them with `--license`). A resizable dialog: the text read-only with a scroll bar, and
 //! Close (Escape closes too).
 
 use std::mem::zeroed;
 use std::ptr::{null, null_mut};
 
-use patorrent_frontend::{lang, tr};
+use rookparcel_frontend::{lang, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, POINT, RECT, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::UI::Controls::EM_SETSEL;

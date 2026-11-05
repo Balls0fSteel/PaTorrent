@@ -13,7 +13,7 @@ use std::net::SocketAddr;
 use std::time::{Duration, Instant};
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{UtpIo, UtpManager, UtpSendOutcome, UtpSettings};
+use rookparcel_core::fuzzing::{UtpIo, UtpManager, UtpSendOutcome, UtpSettings};
 
 #[derive(Default)]
 struct Sink {

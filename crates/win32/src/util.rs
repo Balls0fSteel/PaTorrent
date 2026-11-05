@@ -14,7 +14,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 /// (`TPM_LAYOUTRTL`) take then. Windows themselves are mirrored once, at start
 /// (`SetProcessDefaultLayout` in `app::run`).
 pub fn rtl(flags: u32) -> u32 {
-    if patorrent_frontend::lang::right_to_left() { flags } else { 0 }
+    if rookparcel_frontend::lang::right_to_left() { flags } else { 0 }
 }
 
 pub fn wide(s: &str) -> Vec<u16> {

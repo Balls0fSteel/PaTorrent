@@ -1,4 +1,4 @@
-//! `patorrent-nox run` as a service. Unix: SIGTERM and SIGINT stop it cleanly, SIGHUP reloads,
+//! `rookparcel-nox run` as a service. Unix: SIGTERM and SIGINT stop it cleanly, SIGHUP reloads,
 //! systemd's `NOTIFY_SOCKET` hears `READY=1`, `RELOADING=1` and `STOPPING=1`, and `--daemon`
 //! with `--pid-file` and `--log` detaches, refuses a second instance, reopens the log on SIGHUP
 //! and cleans up on SIGTERM. Windows: Ctrl+Break stops it cleanly and removes the pid file;
@@ -20,9 +20,9 @@ fn temp_dir(name: &str) -> PathBuf {
     d
 }
 
-/// `patorrent-nox run` with nothing saved, listening on loopback only, without the update check.
+/// `rookparcel-nox run` with nothing saved, listening on loopback only, without the update check.
 fn nox(dir: &Path) -> Command {
-    let mut c = Command::new(env!("CARGO_BIN_EXE_patorrent-nox"));
+    let mut c = Command::new(env!("CARGO_BIN_EXE_rookparcel-nox"));
     c.args(["run", "--no-state", "--no-update-check", "--listen", "127.0.0.1:0"])
         .current_dir(dir)
         .stdin(Stdio::null());
@@ -36,7 +36,7 @@ fn wait_exit(child: &mut Child) -> ExitStatus {
         if let Some(s) = child.try_wait().unwrap() {
             return s;
         }
-        assert!(Instant::now() < deadline, "patorrent-nox did not exit");
+        assert!(Instant::now() < deadline, "rookparcel-nox did not exit");
         std::thread::sleep(Duration::from_millis(50));
     }
 }
@@ -220,7 +220,7 @@ mod windows {
     #[test]
     fn service_debug_reports_the_status_an_scm_would_see() {
         let dir = temp_dir("svc");
-        let mut child = Command::new(env!("CARGO_BIN_EXE_patorrent-nox"))
+        let mut child = Command::new(env!("CARGO_BIN_EXE_rookparcel-nox"))
             .args([
                 "service",
                 "debug",
@@ -276,7 +276,7 @@ mod windows {
     /// `service run` outside the SCM says what to do instead.
     #[test]
     fn service_run_outside_the_scm_fails_with_a_hint() {
-        let out = Command::new(env!("CARGO_BIN_EXE_patorrent-nox"))
+        let out = Command::new(env!("CARGO_BIN_EXE_rookparcel-nox"))
             .args(["service", "run", "--no-state"])
             .stdin(Stdio::null())
             .output()

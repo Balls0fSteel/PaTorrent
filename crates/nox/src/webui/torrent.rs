@@ -3,8 +3,8 @@
 
 use std::path::Path;
 
-use patorrent_core::{InfoHashes, TorrentFlags, TorrentState, TorrentStatus};
-use patorrent_frontend::seeding::SeedGoal;
+use rookparcel_core::{InfoHashes, TorrentFlags, TorrentState, TorrentStatus};
+use rookparcel_frontend::seeding::SeedGoal;
 
 use super::json::Json;
 
@@ -285,7 +285,7 @@ pub fn object(st: &TorrentStatus, x: &Extra<'_>) -> Json {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::Sha1Hash;
+    use rookparcel_core::Sha1Hash;
 
     fn st(flags: TorrentFlags, state: TorrentState, finished: bool) -> TorrentStatus {
         TorrentStatus { flags, state, is_finished: finished, ..TorrentStatus::default() }

@@ -8,15 +8,15 @@
 //! system bus: `Suspend`, `Hibernate`, `PowerOff`, interactive, so polkit may ask). Where logind
 //! is missing (the BSDs, a system without systemd) or says no (`CanSuspend` and the others), the
 //! menu greys them and only Quit is left. With the environment variable
-//! `PATORRENT_POWER_DRY_RUN` set the action reports what it would have done instead.
+//! `ROOKPARCEL_POWER_DRY_RUN` set the action reports what it would have done instead.
 
 use std::cell::{Cell, RefCell};
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_frontend::auto_shutdown::{self, Action, Mode};
-use patorrent_frontend::lang::gtk_mnemonic;
-use patorrent_frontend::tr;
+use rookparcel_frontend::auto_shutdown::{self, Action, Mode};
+use rookparcel_frontend::lang::gtk_mnemonic;
+use rookparcel_frontend::tr;
 
 /// The OS action after a countdown (Quit is the app's own exit).
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -79,7 +79,7 @@ pub fn available(action: Action) -> bool {
         .is_some_and(|(answer,)| answer == "yes" || answer == "challenge")
 }
 
-const DRY_RUN: &str = "PATORRENT_POWER_DRY_RUN";
+const DRY_RUN: &str = "ROOKPARCEL_POWER_DRY_RUN";
 
 /// Puts the computer on standby or into hibernation, or shuts it down. The caller has saved
 /// everything first.

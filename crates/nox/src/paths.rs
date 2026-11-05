@@ -1,4 +1,4 @@
-//! Where `patorrent-nox` keeps its files (PLAN.md Phase 6; D7 on Windows).
+//! Where `rookparcel-nox` keeps its files (PLAN.md Phase 6; D7 on Windows).
 //!
 //! Two directories:
 //!
@@ -13,24 +13,24 @@
 //!
 //! | | default |
 //! |---|---|
-//! | state | `$XDG_DATA_HOME/patorrent/nox`, else `~/.local/share/patorrent/nox` |
-//! | config | `$XDG_CONFIG_HOME/patorrent/nox`, else `~/.config/patorrent/nox` |
+//! | state | `$XDG_DATA_HOME/rookparcel/nox`, else `~/.local/share/rookparcel/nox` |
+//! | config | `$XDG_CONFIG_HOME/rookparcel/nox`, else `~/.config/rookparcel/nox` |
 //!
 //! Nothing is cached, so `$XDG_CACHE_HOME` is not used. Relative or empty XDG variables are
 //! ignored, as the spec says. Under systemd, `StateDirectory=` and `ConfigurationDirectory=`
 //! (`$STATE_DIRECTORY`, `$CONFIGURATION_DIRECTORY`) come before XDG.
 //!
-//! On Windows both are `%APPDATA%\PaTorrent\nox`, or `nox` beside the exe in portable mode
-//! (`patorrent.ini` beside the exe, the GUI's rule: `patorrent_frontend::profile`). Portable
+//! On Windows both are `%APPDATA%\Rookparcel\nox`, or `nox` beside the exe in portable mode
+//! (`rookparcel.ini` beside the exe, the GUI's rule: `rookparcel_frontend::profile`). Portable
 //! mode works the same on Linux and the BSDs (beside the binary, or beside the `.AppImage`),
 //! where `nox` in the portable folder takes the place of the XDG directories.
 //!
-//! On macOS both are `~/Library/Application Support/PaTorrent/nox`, where Apple puts an
+//! On macOS both are `~/Library/Application Support/Rookparcel/nox`, where Apple puts an
 //! application's own files; XDG variables are not read there. A launchd job's
 //! `--state-dir` still wins. Portable mode works there too, beside the binary.
 //!
 //! `--profile NAME` (D42) puts `profiles/<name>` before `nox` in each default:
-//! `~/.local/share/patorrent/profiles/work/nox`, `%APPDATA%\PaTorrent\profiles\work\nox`. The
+//! `~/.local/share/rookparcel/profiles/work/nox`, `%APPDATA%\Rookparcel\profiles\work\nox`. The
 //! flags and systemd's directories still win over it, as they win over XDG.
 //!
 //! `--state-dir` (or `--state`) and `--config-dir` override; a state directory given on the
@@ -43,13 +43,13 @@ use std::ffi::{OsStr, OsString};
 use std::io;
 use std::path::{Path, PathBuf};
 
-use patorrent_frontend::profile::within;
+use rookparcel_frontend::profile::within;
 
-/// The folder below the XDG base directories (and `%APPDATA%\PaTorrent`).
-const APP: [&str; 2] = ["patorrent", "nox"];
+/// The folder below the XDG base directories (and `%APPDATA%\Rookparcel`).
+const APP: [&str; 2] = ["rookparcel", "nox"];
 
 /// The files that moved from the state to the config directory on Unix.
-const MOVED: [&str; 2] = [patorrent_nox::webui::STATE_FILE, "ipfilter.dat"];
+const MOVED: [&str; 2] = [rookparcel_nox::webui::STATE_FILE, "ipfilter.dat"];
 
 /// Where the state and config live; `None` when neither a flag nor the environment names a
 /// place (no `HOME`, no `APPDATA`).
@@ -65,7 +65,7 @@ pub struct Dirs {
 /// The directories for this OS from the command line's choices and the process environment.
 pub fn resolve(state: Option<PathBuf>, config: Option<PathBuf>, profile: Option<&str>) -> Dirs {
     let env = |k: &str| std::env::var_os(k);
-    let portable = patorrent_frontend::profile::current().portable_root.clone();
+    let portable = rookparcel_frontend::profile::current().portable_root.clone();
     if cfg!(windows) {
         resolve_windows(state, config, env, portable, profile)
     } else if let Some(root) = portable {
@@ -95,7 +95,7 @@ pub fn resolve_portable_unix(
     Dirs { state, config, legacy_config: None }
 }
 
-/// Windows: the flags, else portable mode, else `%APPDATA%\PaTorrent\nox` (a profile's
+/// Windows: the flags, else portable mode, else `%APPDATA%\Rookparcel\nox` (a profile's
 /// `profiles\<name>` before `nox`); the config follows the state.
 pub fn resolve_windows(
     state: Option<PathBuf>,
@@ -105,14 +105,14 @@ pub fn resolve_windows(
     profile: Option<&str>,
 ) -> Dirs {
     let root = portable
-        .or_else(|| env("APPDATA").filter(|v| !v.is_empty()).map(|d| PathBuf::from(d).join("PaTorrent")));
+        .or_else(|| env("APPDATA").filter(|v| !v.is_empty()).map(|d| PathBuf::from(d).join("Rookparcel")));
     let default = root.map(|r| within(&r, profile).join(APP[1]));
     let state = state.or(default);
     let config = config.or_else(|| state.clone());
     Dirs { state, config, legacy_config: None }
 }
 
-/// macOS: the flags, else `$HOME/Library/Application Support/PaTorrent/nox` (a profile's
+/// macOS: the flags, else `$HOME/Library/Application Support/Rookparcel/nox` (a profile's
 /// `profiles/<name>` before `nox`); the config follows the state, as on Windows.
 pub fn resolve_macos(
     state: Option<PathBuf>,
@@ -121,7 +121,7 @@ pub fn resolve_macos(
     profile: Option<&str>,
 ) -> Dirs {
     let default = env("HOME").filter(|v| unix_absolute(v)).map(|home| {
-        let root = ["Library", "Application Support", "PaTorrent"]
+        let root = ["Library", "Application Support", "Rookparcel"]
             .iter()
             .fold(PathBuf::from(home), |p, c| p.join(c));
         within(&root, profile).join(APP[1])
@@ -161,7 +161,7 @@ fn unix_absolute(v: &OsStr) -> bool {
     v.as_encoded_bytes().first() == Some(&b'/')
 }
 
-/// `$XDG_*_HOME/patorrent[/profiles/<name>]/nox`, else the same under `$HOME/<fallback>`.
+/// `$XDG_*_HOME/rookparcel[/profiles/<name>]/nox`, else the same under `$HOME/<fallback>`.
 fn xdg_dir(
     env: &impl Fn(&str) -> Option<OsString>,
     var: &str,
@@ -205,7 +205,7 @@ fn migrate_with(
         if !old.is_file() || new.exists() {
             continue;
         }
-        patorrent_core::util::private_file::create_dir_all(to)?;
+        rookparcel_core::util::private_file::create_dir_all(to)?;
         let moved = i == 0;
         if moved {
             // a rename across file systems fails: copy, then remove
@@ -272,19 +272,19 @@ mod tests {
 
     #[test]
     fn portable_on_unix_keeps_everything_beside_the_program() {
-        let root = Path::new("/media/stick/PaTorrent");
+        let root = Path::new("/media/stick/Rookparcel");
         let vars = [("HOME", "/h"), ("XDG_DATA_HOME", "/d")];
         let d = resolve_portable_unix(None, None, env(&vars), root, None);
         assert_eq!(
             d,
             Dirs {
-                state: join("/media/stick/PaTorrent", &["nox"]),
-                config: join("/media/stick/PaTorrent", &["nox"]),
+                state: join("/media/stick/Rookparcel", &["nox"]),
+                config: join("/media/stick/Rookparcel", &["nox"]),
                 legacy_config: None
             }
         );
         let d = resolve_portable_unix(None, None, env(&vars), root, Some("work"));
-        assert_eq!(d.state, join("/media/stick/PaTorrent", &["profiles", "work", "nox"]));
+        assert_eq!(d.state, join("/media/stick/Rookparcel", &["profiles", "work", "nox"]));
         // the flags still win
         let d = resolve_portable_unix(p("/s"), None, env(&vars), root, None);
         assert_eq!((d.state, d.config), (p("/s"), p("/s")));
@@ -294,8 +294,8 @@ mod tests {
     fn a_profile_changes_only_the_defaults() {
         let w = Some("work");
         let d = super::resolve_unix(None, None, env(&[("HOME", "/h")]), w);
-        assert_eq!(d.state, join("/h", &[".local", "share", "patorrent", "profiles", "work", "nox"]));
-        assert_eq!(d.config, join("/h", &[".config", "patorrent", "profiles", "work", "nox"]));
+        assert_eq!(d.state, join("/h", &[".local", "share", "rookparcel", "profiles", "work", "nox"]));
+        assert_eq!(d.config, join("/h", &[".config", "rookparcel", "profiles", "work", "nox"]));
         // systemd and the flags still win
         let d = super::resolve_unix(None, None, env(&[("HOME", "/h"), ("STATE_DIRECTORY", "/var/lib/x")]), w);
         assert_eq!((d.state, d.config), (p("/var/lib/x"), p("/var/lib/x")));
@@ -304,14 +304,14 @@ mod tests {
 
         let appdata = [("APPDATA", r"C:\Users\u\AppData\Roaming")];
         let d = super::resolve_windows(None, None, env(&appdata), None, w);
-        assert_eq!(d.state, join(r"C:\Users\u\AppData\Roaming", &["PaTorrent", "profiles", "work", "nox"]));
+        assert_eq!(d.state, join(r"C:\Users\u\AppData\Roaming", &["Rookparcel", "profiles", "work", "nox"]));
         let d = super::resolve_windows(None, None, env(&appdata), p(r"D:\pa"), w);
         assert_eq!(d.config, join(r"D:\pa", &["profiles", "work", "nox"]));
 
         let d = super::resolve_macos(None, None, env(&[("HOME", "/Users/u")]), w);
         assert_eq!(
             d.state,
-            join("/Users/u", &["Library", "Application Support", "PaTorrent", "profiles", "work", "nox"])
+            join("/Users/u", &["Library", "Application Support", "Rookparcel", "profiles", "work", "nox"])
         );
     }
 
@@ -323,8 +323,8 @@ mod tests {
     fn unix_defaults_follow_xdg() {
         // HOME only: the spec's fallbacks
         let d = resolve_unix(None, None, env(&[("HOME", "/home/u")]));
-        assert_eq!(d.state, join("/home/u", &[".local", "share", "patorrent", "nox"]));
-        assert_eq!(d.config, join("/home/u", &[".config", "patorrent", "nox"]));
+        assert_eq!(d.state, join("/home/u", &[".local", "share", "rookparcel", "nox"]));
+        assert_eq!(d.config, join("/home/u", &[".config", "rookparcel", "nox"]));
         assert_eq!(d.legacy_config, d.state);
 
         // both XDG variables set
@@ -333,9 +333,9 @@ mod tests {
             None,
             env(&[("HOME", "/home/u"), ("XDG_DATA_HOME", "/d"), ("XDG_CONFIG_HOME", "/c")]),
         );
-        assert_eq!(d.state, join("/d", &["patorrent", "nox"]));
-        assert_eq!(d.config, join("/c", &["patorrent", "nox"]));
-        assert_eq!(d.legacy_config, join("/d", &["patorrent", "nox"]));
+        assert_eq!(d.state, join("/d", &["rookparcel", "nox"]));
+        assert_eq!(d.config, join("/c", &["rookparcel", "nox"]));
+        assert_eq!(d.legacy_config, join("/d", &["rookparcel", "nox"]));
 
         // one set, the other falls back; empty and relative values are ignored
         for data in ["", "rel/data"] {
@@ -344,8 +344,8 @@ mod tests {
                 None,
                 env(&[("HOME", "/h"), ("XDG_DATA_HOME", data), ("XDG_CONFIG_HOME", "/c")]),
             );
-            assert_eq!(d.state, join("/h", &[".local", "share", "patorrent", "nox"]), "{data:?}");
-            assert_eq!(d.config, join("/c", &["patorrent", "nox"]));
+            assert_eq!(d.state, join("/h", &[".local", "share", "rookparcel", "nox"]), "{data:?}");
+            assert_eq!(d.config, join("/c", &["rookparcel", "nox"]));
         }
 
         // nothing at all: no directories, as before (the caller warns)
@@ -353,7 +353,7 @@ mod tests {
         assert_eq!(resolve_unix(None, None, env(&[("HOME", "relative")])), Dirs::default());
         // XDG alone works without HOME
         let d = resolve_unix(None, None, env(&[("XDG_CONFIG_HOME", "/c")]));
-        assert_eq!((d.state, d.config), (None, join("/c", &["patorrent", "nox"])));
+        assert_eq!((d.state, d.config), (None, join("/c", &["rookparcel", "nox"])));
     }
 
     #[test]
@@ -366,33 +366,33 @@ mod tests {
         let d = resolve_unix(None, p("/cfg"), env(&base));
         assert_eq!(
             d,
-            Dirs { state: join("/d", &["patorrent", "nox"]), config: p("/cfg"), legacy_config: None }
+            Dirs { state: join("/d", &["rookparcel", "nox"]), config: p("/cfg"), legacy_config: None }
         );
         let d = resolve_unix(p("/s"), p("/cfg"), env(&base));
         assert_eq!(d, Dirs { state: p("/s"), config: p("/cfg"), legacy_config: None });
 
         // systemd's StateDirectory= (several are `:`-separated; the first is ours)
         let mut vars = base.to_vec();
-        vars.push(("STATE_DIRECTORY", "/var/lib/patorrent-nox:/var/lib/other"));
+        vars.push(("STATE_DIRECTORY", "/var/lib/rookparcel-nox:/var/lib/other"));
         let d = resolve_unix(None, None, env(&vars));
-        assert_eq!(d.state, p("/var/lib/patorrent-nox"));
-        assert_eq!(d.config, p("/var/lib/patorrent-nox"));
+        assert_eq!(d.state, p("/var/lib/rookparcel-nox"));
+        assert_eq!(d.config, p("/var/lib/rookparcel-nox"));
         assert_eq!(d.legacy_config, None);
-        vars.push(("CONFIGURATION_DIRECTORY", "/etc/patorrent-nox"));
+        vars.push(("CONFIGURATION_DIRECTORY", "/etc/rookparcel-nox"));
         let d = resolve_unix(None, None, env(&vars));
-        assert_eq!((d.state, d.config), (p("/var/lib/patorrent-nox"), p("/etc/patorrent-nox")));
+        assert_eq!((d.state, d.config), (p("/var/lib/rookparcel-nox"), p("/etc/rookparcel-nox")));
         // the flags still win over systemd
         let d = resolve_unix(p("/s"), None, env(&vars));
-        assert_eq!((d.state, d.config), (p("/s"), p("/etc/patorrent-nox")));
+        assert_eq!((d.state, d.config), (p("/s"), p("/etc/rookparcel-nox")));
         // a relative systemd value is ignored
         let d = resolve_unix(None, None, env(&[("HOME", "/h"), ("STATE_DIRECTORY", "lib/x")]));
-        assert_eq!(d.state, join("/h", &[".local", "share", "patorrent", "nox"]));
+        assert_eq!(d.state, join("/h", &[".local", "share", "rookparcel", "nox"]));
     }
 
     #[test]
     fn windows_appdata_and_portable() {
         let appdata = [("APPDATA", r"C:\Users\u\AppData\Roaming"), ("XDG_CONFIG_HOME", "/c")];
-        let nox = join(r"C:\Users\u\AppData\Roaming", &["PaTorrent", "nox"]);
+        let nox = join(r"C:\Users\u\AppData\Roaming", &["Rookparcel", "nox"]);
         let d = resolve_windows(None, None, env(&appdata), None);
         assert_eq!(d, Dirs { state: nox.clone(), config: nox.clone(), legacy_config: None });
         // portable mode wins over %APPDATA%
@@ -409,7 +409,7 @@ mod tests {
     #[test]
     fn macos_application_support() {
         let vars = [("HOME", "/Users/u"), ("XDG_DATA_HOME", "/d"), ("XDG_CONFIG_HOME", "/c")];
-        let nox = join("/Users/u", &["Library", "Application Support", "PaTorrent", "nox"]);
+        let nox = join("/Users/u", &["Library", "Application Support", "Rookparcel", "nox"]);
         // XDG is not read on macOS; config and state share the folder
         let d = resolve_macos(None, None, env(&vars));
         assert_eq!(d, Dirs { state: nox.clone(), config: nox.clone(), legacy_config: None });

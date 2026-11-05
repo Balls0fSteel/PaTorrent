@@ -1,4 +1,4 @@
-/* PaTorrent Web UI: the 2.2.1 main window. Light by default, dark by prefers-color-scheme.
+/* Rookparcel Web UI: the 2.2.1 main window. Light by default, dark by prefers-color-scheme.
    The shell is flex and grid with custom properties; the only fixed pixel sizes are the row
    height (which app.js reads as ROW_H) and the splitter thickness. */
 :root {

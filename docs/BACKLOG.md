@@ -25,7 +25,7 @@ belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
 
 - Open from the 1.1.32 review (2026-11-02_220138_1793653298; details and proposals in
   [SECURITY-REVIEW.md](SECURITY-REVIEW.md#open-2)): the self-update's checksum and setup share
-  one origin (sign `SHA256SUMS` or the setup); `PATORRENT_UPDATE_URL` / `_FILES` still work in
+  one origin (sign `SHA256SUMS` or the setup); `ROOKPARCEL_UPDATE_URL` / `_FILES` still work in
   release builds (https, or plain http to this machine only); search fetch threads outlive
   their jobs; v2 file trees can make about 210× their
   size in path strings; fake uTP delays from one host can hold keep ping low's caps at their
@@ -90,14 +90,14 @@ in its title bar. Still open from that round:
   scheduler colours are shared.
 - **Alternate colour:** the shade is the window colour at 15/16 (about `0xF0F0F0` on
   white), not sampled from 2.2.1; compare on the owner's machine.
-- **Build string:** `cargo build` without `PATORRENT_BUILD` reads git at build-script time
+- **Build string:** `cargo build` without `ROOKPARCEL_BUILD` reads git at build-script time
   and reruns when HEAD moves, so a plain cargo build in a dirty tree shows its last
   commit without `.dirty`; `1_build.bat` sets the exact suffix every time.
 
 ## UI icon coverage (audit 2026-10-28_090116_1793174476)
 
 Before the audit the GUIs embedded 35 of the 131 bold symbols (11 toolbar, 24 runtime
-states). Now `patorrent_frontend::icons::UiIcon` (67 symbols) also covers the category list,
+states). Now `rookparcel_frontend::icons::UiIcon` (67 symbols) also covers the category list,
 the detail tabs, the Preferences pages and the menus. File-type icons stay the OS's (Win32
 `SHGetFileInfoW`, GTK `content_type_get_icon`).
 
@@ -130,7 +130,7 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
   resizable one-column layout and `Don't show this again`; do not re-add these.
   Check a multi-file torrent, folder deselection, priorities, labels, recent
   Save In folders, the renamed root, resizing and persisted size; confirm skipped
-  files stay off disk. A failed add leaves its chosen label in `patorrent.ini`
+  files stay off disk. A failed add leaves its chosen label in `rookparcel.ini`
   (harmless). Adding an existing torrent refuses it rather than offering to merge
   trackers as 2.2.1 did.
 - Preferences: click every page, OK/Cancel/Apply, Ctrl+P, toolbar, Browse, Reload
@@ -176,7 +176,7 @@ mirror the bitmaps) and the tray menu on screen; the Web UI (`nox`) was not audi
   error; isolated and later full runs passed. If it recurs, capture exit code and
   full output to identify a crashing hidden-dialog test.
 - "Show current speed in the title bar" (`ui.title_speed`, 1.1.22, off by default;
-  `D:x U:y - PaTorrent <version>` as 2.2.1) is tested on the hidden main window and in a
+  `D:x U:y - Rookparcel <version>` as 2.2.1) is tested on the hidden main window and in a
   demo screenshot; check it live in both GUIs. Remote windows keep their own title. The
   Preferences dialog grew 30 dialog units for the Web UI page's new fields (1.1.22): check
   that every page still looks right at 100-200 % DPI.
@@ -221,7 +221,7 @@ That broad check does not establish that every detailed case below was tried.
   unfinished-torrent double-click; Create's big-folder progress, cancel/close
   while hashing, save name/folder and Start seeding; labels/limits, New Label,
   Set Download Location and Initial Seeding greying in context menus.
-- Auto Shutdown: start with `PATORRENT_POWER_DRY_RUN=1`, checking countdown,
+- Auto Shutdown: start with `ROOKPARCEL_POWER_DRY_RUN=1`, checking countdown,
   Cancel, new work cancelling it and Quit; then test real logind suspend. Power
   availability is read once at startup, so policy/battery changes need a restart.
   FreeBSD/OpenBSD/macOS can only Quit through this UI; logind is unavailable.
@@ -292,7 +292,7 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 
 - Native speakers should review the 34 machine-translated tables; automated
   checks establish keys/placeholders/mnemonics, not wording. Edit
-  `crates/frontend/lang/<code>.lng`; `PATORRENT_LANG=<file>.lng` tries a loose table.
+  `crates/frontend/lang/<code>.lng`; `ROOKPARCEL_LANG=<file>.lng` tries a loose table.
   Keep the English table as source/fallback and do not copy 2.2.1 translations.
 - GTK RTL and the Web UI's RTL behavior still need desktop/phone checks. Bidi
   Latin-unit values can appear as `MB 91.6`; translated units could read better.
@@ -303,7 +303,7 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 - GUI language changes apply after restart; nox switches immediately and the
   applying page reloads, while other pages keep their texts until reloaded.
   Win32 remote windows share the base ini's language; GTK has its own ini and
-  nox uses Web UI state. `PATORRENT_LANG` overrides preferences. System selection
+  nox uses Web UI state. `ROOKPARCEL_LANG` overrides preferences. System selection
   uses preferred Windows UI languages, Unix locale variables and macOS CFLocale;
   daemons inherit their service account/environment. Registry descriptions use
   the language when written.
@@ -479,7 +479,7 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
   Since 1.1.9 the Win32 page has a Server domains field (`webui.domain_list`). GTK has no
   hosting page yet; the host side is in
   `crates/win32/src/webui_host.rs` and could move to `frontend`. The
-  `patorrent-nox service` improvements of 1.1.1 (`--replace`, `--now`, the
+  `rookparcel-nox service` improvements of 1.1.1 (`--replace`, `--now`, the
   hashed login) stay for the daemon; its UAC path is still a hand check.
 - FreeBSD rc.d is syntax-checked but not installed/run with root. Daemon state
   directories have no shared lock, so different pid files can open one database.
@@ -489,7 +489,7 @@ extra resource use, probably Windows only. Findings, cheapest first; owner to ch
 
 ## Disk and storage
 
-- Memory: `patorrent-nox`'s update check (1.1.17) leaves about 5.5 MB resident after its one
+- Memory: `rookparcel-nox`'s update check (1.1.17) leaves about 5.5 MB resident after its one
   HTTPS request on Linux (empty session 15.5 MB, 10.4 MB with `--no-update-check`; BENCHMARKS.md
   "Release check, 1.1.40"). Find what stays (OpenSSL's state, allocator arenas of the fetch
   thread) and release it, or fetch in a short-lived thread whose arena is returned.
@@ -684,12 +684,12 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
 
 - The update check (D32) works end to end on Win32: Help > Check for Updates
   read the live `update.txt` over HTTPS ("You have the newest version"), and the
-  notice was hand-checked with `PATORRENT_UPDATE_URL`. Not checked:
+  notice was hand-checked with `ROOKPARCEL_UPDATE_URL`. Not checked:
   clicking the notice (opens the browser), the GTK link button and Help items on
   a desktop (CI compiles them), macOS, a proxy, and a check across sleep/resume.
 - The box once per version and the standing notice (D44, 1.1.23) are unit-tested
   (`update::tests`) and compiled in both GUIs; GTK was linted only. Hand check with
-  `PATORRENT_UPDATE_URL` and a local `update.txt` of `stable=9.9.9`: the box about 10 s
+  `ROOKPARCEL_UPDATE_URL` and a local `update.txt` of `stable=9.9.9`: the box about 10 s
   after the first start (Yes opens the release page), the notice staying and clearing on
   click, `update.seen=9.9.9` in the ini, no box on the second start, a box again for
   `9.9.10`, and Help > Check for Updates still answering in its box. A box 10 s after a
@@ -702,10 +702,10 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   Run end to end on the Windows 11 VM 2026-11-02_221313_1793653993
   (`tools/windows-clean/desktop/drive-update.ps1`, a local "1.1.33" release): the box, the
   progress window ("24.1 % (768 kB / 3.11 MB)"), Cancel (no file left), "Close and install
-  now?" Yes, the old PaTorrent gone within a second, the setup over the same folder for one
+  now?" Yes, the old Rookparcel gone within a second, the setup over the same folder for one
   user, the new one started not elevated. Still by hand: an all-users install (the UAC prompt
   is on the secure desktop), a real download from GitHub and through a proxy, and a failed
-  install starting the old one. The downloaded setup stays in `%LOCALAPPDATA%\PaTorrent\update`
+  install starting the old one. The downloaded setup stays in `%LOCALAPPDATA%\Rookparcel\update`
   until the next update clears it. Known limits: the box offers the install only when an Uninstall key names
   the exe's folder (a copied installed folder counts as portable); nothing resumes a broken download; the setup stays unsigned.
 - nox's update check (D43, 2026-10-30): unit- and Web UI-tested with fake
@@ -721,7 +721,7 @@ What was ported is listed in PORTING.md "Upstream fixes after 2.0.11".
   smoke test passed in dry run 40470860315. Hand-check as RELEASING.md "Windows
   installer" lists: the wizard and language dialog (RTL too), all users through
   UAC (declining it, over-the-shoulder elevation, `/ALLUSERS`), the Finish
-  page's launch, `--associate` on a real registry, a running `PaTorrentNox`
+  page's launch, `--associate` on a real registry, a running `RookparcelNox`
   service, Windows on Arm, SmartScreen on the unsigned setup.
 - Installer follow-ups (`ci.yml`'s `release-windows` builds, installs and
   uninstalls it since 2026-10-30_085840_1793347120 with a copy of
@@ -763,16 +763,16 @@ Profiles and portable mode under Xvfb, the systemd template, the rc.d profile va
   (`gtk4 +quartz -x11`). `macos_bundle.py` cannot bundle MacPorts' SVG pixbuf loader (built
   without `-headerpad_max_install_names`, so `install_name_tool` has no room), and its own
   signing pass on that VM failed with "subcomponent not signed" (the launcher before
-  `patorrent-gtk`); `codesign --deep` afterwards signed it. Releases use Homebrew on Apple
+  `rookparcel-gtk`); `codesign --deep` afterwards signed it. Releases use Homebrew on Apple
   silicon and are not affected; fix both if Intel bundles are ever made from MacPorts.
 - **Left out on purpose:** the Web UI's categories (`webui.json`) stay absolute in portable mode;
   the GTK Preferences page does not name the profile that owns the associations (Windows does);
-  `PT_NOX_RUNNING` still names `sc stop PaTorrentNox` only.
+  `PT_NOX_RUNNING` still names `sc stop RookparcelNox` only.
 - **GNOME's late read of a new entry** (about 5 s; GIO in the program sees it within 1 ms): since
   1.1.54 a profile's first window waits 6 s under GNOME, the owner's choice
   (2026-11-03_230801_1793743681). Checked under headless GNOME 50, natively and in the Flatpak
   rebuilt from 1.1.54 (2026-11-03_231320_1793744000): a profile's first window gets its own entry
-  and PaTorrent's badge.
+  and Rookparcel's badge.
 
 ## Startup and shutdown (investigated 2026-10-30_192440_1793384680)
 
@@ -803,16 +803,16 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   progress...") and `WM_ENDSESSION` (stops the engine there, window left as it is, then
   `DestroyWindow`); a check's stat pass, empty-file creation and part-file export stop at the
   next file once the torrent is stopped; a relaunch during shutdown waits for the first
-  instance to end (the mutex is owned until exit, the window is marked `PaTorrent.Exiting`)
+  instance to end (the mutex is owned until exit, the window is marked `Rookparcel.Exiting`)
   and then starts as the first; both GUIs scan and read the auto-load folder on a thread
-  (`torrent_folders::Watcher`). Hand checks: sign out with PaTorrent visible and in the tray
+  (`torrent_folders::Watcher`). Hand checks: sign out with Rookparcel visible and in the tray
   (resume data saved? the reason listed?), double-click a `.torrent` while a slow exit runs,
   an auto-load folder on an unplugged share. Windows only waits for a visible window; a
-  tray-only PaTorrent still gets the system's few seconds.
+  tray-only Rookparcel still gets the system's few seconds.
 - **Done in 1.1.26 (2026-11-02_085028_1793605828, D47):** the Win32 closing window, shown after a second or at
   once at a sign-out: the step, each move's bytes and destination with a bar, the time, and
   Quit Now with a question listing what it gives up. Moves cancel cleanly (copies deleted,
-  old folder kept); the resume data is always saved first. `PATORRENT_DEMO_SLOW_EXIT=<secs>`
+  old folder kept); the resume data is always saved first. `ROOKPARCEL_DEMO_SLOW_EXIT=<secs>`
   with `--demo N` simulates a slow exit to look at it. Run on the Windows 11 VM
   2026-11-02_221313_1793653993 (`tools/windows-clean/desktop/drive-closing.ps1`, 12 GB and
   4 GB moved to a virtual disk): the window 2-3 s after Exit, "Waiting for files to finish
@@ -821,12 +821,12 @@ The owner asked whether a progress indicator is needed when a start or an exit t
   Now the exit waits for the moves (26 s). Its move list is not visible to UI Automation, so
   its rows were not read. Hand checks left: a real move to a NAS
   closed mid-way (Quit Now, then the old folder intact and the destination clean), a sign-out
-  from the tray during a move (does Windows list PaTorrent and wait?), RTL and long
+  from the tray during a move (does Windows list Rookparcel and wait?), RTL and long
   translations in the window.
 - **1.1.27 (2026-11-02_090224_1793606544):** the moves are a scrollable list (name, done of total or "Waiting",
   destination) that also shows queued moves, not only running ones; the Quit Now question
   names two moves and counts the rest. Seen in the demo with 20 moves in English and
-  Hungarian; the Yes/No buttons of the question follow the Windows language, not PaTorrent's.
+  Hungarian; the Yes/No buttons of the question follow the Windows language, not Rookparcel's.
 - **GTK, 1.1.28 (2026-11-02_092152_1793607712):** the closing window (shared texts in `frontend::closing`), the
   application held until the engine is done, `gtk_application_inhibit` for logout and
   suspend, `register-session` + `query-end` and SIGTERM / SIGINT quitting cleanly. Run on the
@@ -911,7 +911,7 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   Jackett here), "Open the Helper's Page" in a browser, and the macOS GUI (no GTK build check of
   the buttons there; the frontend path passed on that VM).
 - No automatic "Update" offer when the helper fails to start (the error is shown, the button is
-  beside it). On Linux and macOS a PaTorrent crash can leave `jackett` running until the next
+  beside it). On Linux and macOS a Rookparcel crash can leave `jackett` running until the next
   start (Windows has the job object since 1.1.63).
 - nox and the Web UI got the buttons in 1.1.67 (tested against fakes; the question, an empty
   password and Cancel seen in a browser). Open: an install with the real Jackett from the Web
@@ -976,7 +976,7 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   before releases. Not covered yet: 100,000 torrents (the corpus is ~3 GB of metadata, too big
   for the 8 GB VM's libtorrent clients), multi-peer swarms, uTP, seeding CPU, a current rTorrent
   (Ubuntu ships 0.9.8) and the GUIs (Win32 vs µTorrent 2.2.1 and qBittorrent on Windows). The
-  VM keeps `~/bench` (harness, PaTorrent 1.0.1, venv with deluge-client); the two tmpfs mounts
+  VM keeps `~/bench` (harness, Rookparcel 1.0.1, venv with deluge-client); the two tmpfs mounts
   (`/mnt/benchram`, Transmission's downloads) do not survive a reboot.
 - Preserve parser review before each release and ongoing fuzzing. UDP tracker,
   resume-data and remote-wire targets already exist; do not list them as missing.
@@ -1013,7 +1013,7 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
 - The abandoned vcpkg cache (about 2 GB under `%LOCALAPPDATA%/vcpkg`) is an
   optional user cleanup only if no other project needs it.
 - Win32 test binary heap fault (2026-11-05_152150_1793888510), source unknown. Five runs of
-  `cargo test -p patorrent` crashed (1.1.70 and 1.1.76) while several copies and builds ran
+  `cargo test -p rookparcel` crashed (1.1.70 and 1.1.76) while several copies and builds ran
   at once: STATUS_HEAP_CORRUPTION, 0xC000041D (a panic out of a window procedure), and a
   capacity-overflow panic in `to_vec` (a garbage slice length) inside
   `preferences::tests::read_cache_controls_on_disk_cache`. Full page heap (an IFEO key on a

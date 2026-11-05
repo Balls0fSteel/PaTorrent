@@ -1,6 +1,6 @@
 # Speed limits and the scheduler
 
-This page covers how to cap PaTorrent's download and upload speeds: for all torrents together, for single torrents, and by the hour with the weekly scheduler. For limits that follow your line's ping by themselves, see [Keep ping low](Keep-ping-low).
+This page covers how to cap Rookparcel's download and upload speeds: for all torrents together, for single torrents, and by the hour with the weekly scheduler. For limits that follow your line's ping by themselves, see [Keep ping low](Keep-ping-low).
 
 All rates are in kB/s, where 1 kB is 1024 bytes. In every rate box, 0 means unlimited.
 
@@ -15,7 +15,7 @@ The global limits cap all torrents together.
 
 ![Preferences, Bandwidth page](images/prefs-bandwidth.png)
 
-Both are unlimited by default. A limited upload is the usual reason to set one: when PaTorrent uploads as fast as the line allows, web pages, games and calls slow down for everyone in the house.
+Both are unlimited by default. A limited upload is the usual reason to set one: when Rookparcel uploads as fast as the line allows, web pages, games and calls slow down for everyone in the house.
 
 ### Global Rate Limit Options
 
@@ -77,7 +77,7 @@ With **Show current speed in the title bar** on (**Options > Preferences > UI Se
 
 ## The scheduler
 
-The scheduler follows a weekly table, hour by hour, and switches PaTorrent between four modes. It is off by default.
+The scheduler follows a weekly table, hour by hour, and switches Rookparcel between four modes. It is off by default.
 
 1. Open **Options > Preferences > Scheduler**.
 2. Tick **Enable Scheduler**. The table is grey until you do.
@@ -89,11 +89,11 @@ The scheduler follows a weekly table, hour by hour, and switches PaTorrent betwe
 
 The table has one row per day, Monday first, and one column per hour, in your computer's local time. A click cycles **Full speed**, **Limited**, **Turn off** and **Seeding only**. The line under the table names the hour under the pointer and its mode, such as "Mon 09:00 - 10:00: Full speed".
 
-| Mode | Colour | What PaTorrent does in that hour |
+| Mode | Colour | What Rookparcel does in that hour |
 |---|---|---|
 | **Full speed** | dark green | Runs with your normal settings. |
 | **Limited** | light green | Uses the two Limited rates below in place of the global limits. |
-| **Turn off** | white | Pauses every torrent. With **Disable DHT when turning off**, the DHT is switched off too, so PaTorrent stays quiet on the network. |
+| **Turn off** | white | Pauses every torrent. With **Disable DHT when turning off**, the DHT is switched off too, so Rookparcel stays quiet on the network. |
 | **Seeding only** | light red | Uploads, but downloads nothing. Torrents added during these hours wait too. |
 
 | Scheduler setting | Meaning | Default |
@@ -109,11 +109,11 @@ What to expect:
 - Untick **Enable Scheduler** to go back to full speed with your normal settings at once.
 - Keep ping low and the busy-disk slow-down can still lower the speeds during any hour; they never raise them.
 
-## Alternative speed limits (Web UI of patorrent-nox)
+## Alternative speed limits (Web UI of rookparcel-nox)
 
 The Windows and GTK windows have no alternative speed limits; use the scheduler's Limited hours instead.
 
-[patorrent-nox](Running-patorrent-nox)'s Web UI has them, under **Preferences > Bandwidth > Alternative Rate Limits**:
+[rookparcel-nox](Running-rookparcel-nox)'s Web UI has them, under **Preferences > Bandwidth > Alternative Rate Limits**:
 
 | Setting | Meaning | Default |
 |---|---|---|
@@ -129,7 +129,7 @@ When a desktop window serves the Web UI (Preferences > Web UI in the window), th
 
 - **GTK window** (Linux, BSD, macOS): the same Preferences pages, the same **Bandwidth Allocation** submenu in the torrent menu, the same scheduler table, edited the same way.
 - **Web UI**: the same pages under its **Preferences**, and the same **Bandwidth Allocation** submenu. Its status bar shows a global limit in brackets after the rate while one is set, and the automatic cap the same way as the window.
-- **patorrent-nox** without the Web UI: `--dl-limit KIB` and `--ul-limit KIB` set the global limits at start (0 = unlimited). The scheduler, the seeding goal and the alternative limits are set in the Web UI's **Preferences**.
+- **rookparcel-nox** without the Web UI: `--dl-limit KIB` and `--ul-limit KIB` set the global limits at start (0 = unlimited). The scheduler, the seeding goal and the alternative limits are set in the Web UI's **Preferences**.
 
 ## Related pages
 

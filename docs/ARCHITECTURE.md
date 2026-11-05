@@ -1,4 +1,4 @@
-# PaTorrent architecture
+# Rookparcel architecture
 
 Status: **in implementation**. Phases 0-2 are built as described here (one mio network thread, disk thread pool, resolver threads, slab ownership, store); PLAN.md tracks progress and open decisions, and docs/PORTING.md lists where the code departs from libtorrent.
 
@@ -14,7 +14,7 @@ Status: **in implementation**. Phases 0-2 are built as described here (one mio n
 
 ```
  ┌──────────────────┐  ┌──────────────────┐  ┌───────────────────────────┐
- │ patorrent     │  │ patorrent-gtk │  │ patorrent-nox          │
+ │ rookparcel     │  │ rookparcel-gtk │  │ rookparcel-nox          │
  │ Win32 GUI        │  │ GTK GUI          │  │ headless daemon           │
  │ (windows-sys)    │  │ (Linux / BSD)    │  │ HTTP API + Web UI         │
  └────────┬─────────┘  └────────┬─────────┘  └─────────────┬─────────────┘
@@ -39,11 +39,11 @@ Crates are compile-time and test boundaries only. Each executable statically lin
 
 ```
 crates/
-  core/       patorrent-core      engine library (the libtorrent port)
-  frontend/   patorrent-frontend  UI-agnostic client logic shared by all frontends
-  win32/      patorrent           Windows GUI executable
-  nox/        patorrent-nox       headless daemon (starts life as the dev/test CLI)
-  gtk/        patorrent-gtk       Linux/BSD GUI executable
+  core/       rookparcel-core      engine library (the libtorrent port)
+  frontend/   rookparcel-frontend  UI-agnostic client logic shared by all frontends
+  win32/      rookparcel           Windows GUI executable
+  nox/        rookparcel-nox       headless daemon (starts life as the dev/test CLI)
+  gtk/        rookparcel-gtk       Linux/BSD GUI executable
 tools/
   swarm/      loopback swarm, interop and scale benchmarks
 third_party/
@@ -179,8 +179,8 @@ h.pop_alerts(&mut alerts);
   - `dht_state.dat`: DHT node ids and the routing table's nodes (libtorrent `dht_state` format), written by the engine on shutdown and every 30 minutes, read at startup to bootstrap.
 - **Frontend settings:** `settings.ini`, human-editable.
 - **Locations:**
-  - Windows: portable mode when `settings.ini` sits next to the executable (like µTorrent), otherwise `%APPDATA%\PaTorrent`.
-  - Unix: `$XDG_CONFIG_HOME/patorrent` and `$XDG_DATA_HOME/patorrent`.
+  - Windows: portable mode when `settings.ini` sits next to the executable (like µTorrent), otherwise `%APPDATA%\Rookparcel`.
+  - Unix: `$XDG_CONFIG_HOME/rookparcel` and `$XDG_DATA_HOME/rookparcel`.
 
 ## Frontends
 

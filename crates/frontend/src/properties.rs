@@ -15,7 +15,7 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use patorrent_core::{
+use rookparcel_core::{
     Alert, AnnounceEntry, SessionHandle, TorrentFlags, TorrentHandle, TorrentId, TorrentStatus,
 };
 
@@ -469,7 +469,7 @@ pub fn take_alerts(handle: &SessionHandle, saved: &mut Vec<Alert>) -> Vec<Alert>
 
 #[cfg(test)]
 mod tests {
-    use patorrent_core::{InfoHashes, Sha1Hash};
+    use rookparcel_core::{InfoHashes, Sha1Hash};
 
     use super::*;
 
@@ -687,7 +687,7 @@ mod tests {
 
     #[test]
     fn changes_reach_the_engine() {
-        use patorrent_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
+        use rookparcel_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
         use std::time::{Duration, Instant};
 
         let s =
@@ -743,7 +743,7 @@ mod tests {
     /// What a dialog popped while it waited comes first, the engine's own alerts behind it.
     #[test]
     fn saved_alerts_survive_the_next_take() {
-        use patorrent_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
+        use rookparcel_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
         use std::time::{Duration, Instant};
 
         let s =

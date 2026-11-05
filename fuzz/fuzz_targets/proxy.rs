@@ -5,7 +5,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{ProxyHandshake, ProxyStep, ProxyTarget, Socks5Command, udp_unwrap};
+use rookparcel_core::fuzzing::{ProxyHandshake, ProxyStep, ProxyTarget, Socks5Command, udp_unwrap};
 
 fuzz_target!(|data: &[u8]| {
     let Some((&sel, rest)) = data.split_first() else { return };

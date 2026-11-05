@@ -43,17 +43,17 @@ helps! {
     /// frontend: crates/frontend/src/options.rs (GuiOptions::language, used from the next start by lang::init); nox applies it at once (crates/nox/src/webui/prefs.rs)
     PrefUiLanguage = "The language of menus, dialogs and the Web UI. The first choice follows the system's language. The desktop windows switch at their next start.";
     /// frontend: crates/win32/src/integration.rs (HKCU Software\Classes), crates/frontend/src/integration.rs (XDG entries, mimeapps.list), pref_pages.rs (greyed in a Flatpak)
-    PrefAssocTorrent = "Makes this copy of PaTorrent the program that opens .torrent files, for your user account only. A program chosen in the system's own default apps settings wins over this, and only you can change that there.";
+    PrefAssocTorrent = "Makes this copy of Rookparcel the program that opens .torrent files, for your user account only. A program chosen in the system's own default apps settings wins over this, and only you can change that there.";
     /// frontend: crates/win32/src/integration.rs (magnet URL scheme), crates/frontend/src/integration.rs
-    PrefAssocMagnet = "Makes this copy of PaTorrent the program that opens magnet: links clicked in a browser, for your user account only. With profiles, only one profile can hold them.";
+    PrefAssocMagnet = "Makes this copy of Rookparcel the program that opens magnet: links clicked in a browser, for your user account only. With profiles, only one profile can hold them.";
     /// frontend: crates/win32/src/app.rs (check_association at start), crates/gtk/src/app.rs; options.rs: off by default
-    PrefCheckAssoc = "At start, asks whether to take over .torrent files and magnet: links when PaTorrent is not the program that opens them; not when it starts minimized at login. Off by default.";
+    PrefCheckAssoc = "At start, asks whether to take over .torrent files and magnet: links when Rookparcel is not the program that opens them; not when it starts minimized at login. Off by default.";
     /// frontend: crates/win32/src/integration.rs (a Run value per profile), crates/frontend/src/integration.rs (autostart entry, the Background portal in a Flatpak)
-    PrefAutostart = "Starts PaTorrent when you log in to the computer. Each profile has its own entry; in a Flatpak only the default profile can start at login.";
+    PrefAutostart = "Starts Rookparcel when you log in to the computer. Each profile has its own entry; in a Flatpak only the default profile can start at login.";
     /// frontend: crates/frontend/src/integration.rs (the switch the autostart entry passes), crates/win32/src/app.rs (restore_placement hidden)
-    PrefStartMinimized = "With the automatic start, PaTorrent starts without showing its window: in the tray where there is one, minimized where there is none.";
+    PrefStartMinimized = "With the automatic start, Rookparcel starts without showing its window: in the tray where there is one, minimized where there is none.";
     /// frontend: crates/win32/src/preferences.rs (ID_DEFAULT_APPS), crates/win32/src/integration.rs (open_default_apps, UserChoice)
-    PrefDefaultApps = "Opens Windows Settings at Default apps, on PaTorrent's own page where Windows has one. A program chosen there wins over the boxes above, and only you can change that choice.";
+    PrefDefaultApps = "Opens Windows Settings at Default apps, on Rookparcel's own page where Windows has one. A program chosen there wins over the boxes above, and only you can change that choice.";
     /// frontend: crates/frontend/src/update.rs (Checker: FIRST_CHECK 10 s, INTERVAL 12 h; nothing installed without asking)
     PrefCheckUpdates = "About ten seconds after start and then every 12 hours, asks the project website whether a newer release is out and tells you. Nothing is downloaded or installed without asking. Help > Check for Updates works either way.";
     /// frontend: crates/frontend/src/update.rs (pre-releases offered with update.beta or when running one)
@@ -69,13 +69,13 @@ helps! {
     /// frontend: crates/win32/src/app.rs (tray::balloon BalloonComplete after the alerts)
     PrefBalloons = "Shows a notification at the tray icon, with the torrent's name, when a download completes.";
     /// frontend: crates/win32/src/app.rs (WM_CLOSE hides the window), crates/gtk/src/app.rs
-    PrefCloseToTray = "The window's close button hides PaTorrent in the tray instead of exiting, so transfers go on. Exit from the menu or the tray icon's menu.";
+    PrefCloseToTray = "The window's close button hides Rookparcel in the tray instead of exiting, so transfers go on. Exit from the menu or the tray icon's menu.";
     /// frontend: crates/win32/src/app.rs (WM_SIZE SIZE_MINIMIZED hides the window)
     PrefMinimizeToTray = "Minimizing hides the window in the tray instead of the taskbar. Click the tray icon to bring it back.";
     /// frontend: crates/frontend/src/options.rs (apply_to_new: PAUSED, not AUTO_MANAGED)
     PrefDontStart = "New torrents are added stopped and outside the queue, so nothing is downloaded until you start them.";
     /// frontend: crates/win32/src/app.rs (WM_COPYDATA activate_on_add), crates/gtk/src/app.rs
-    PrefActivateWindow = "Brings the main window to the front when another program, such as a browser, hands PaTorrent a torrent. Off, only the Add New Torrent window comes up.";
+    PrefActivateWindow = "Brings the main window to the front when another program, such as a browser, hands Rookparcel a torrent. Off, only the Add New Torrent window comes up.";
     /// frontend: crates/win32/src/app.rs (add_magnet waits for the metadata), crates/win32/src/add.rs
     PrefShowAddDialog = "Opens the Add New Torrent window for each torrent you add, to choose the folder and the files first; for a magnet link, once its file list has arrived. Off, torrents are added at once with the defaults.";
 
@@ -169,7 +169,7 @@ helps! {
     /// engine: crates/core/src/settings.rs (enable_outgoing_utp, enable_incoming_utp), crates/frontend/src/settings.rs (bt.transp_disposition)
     PrefUtp = "Connects to and accepts peers over uTP, a UDP transport that slows down when the network is busy, as well as over TCP. bt.transp_disposition on the Advanced page sets each direction separately.";
     /// engine: crates/core/src/engine/pe.rs (start_outgoing_handshake), crates/frontend/src/settings.rs (set_encryption: Forced is RC4 only)
-    PrefOutgoing = "How the connections PaTorrent opens are encrypted. Disabled: never. Enabled: plain and encrypted attempts alternate per peer, keeping what worked. Forced: encrypted only, losing peers that cannot encrypt.";
+    PrefOutgoing = "How the connections Rookparcel opens are encrypted. Disabled: never. Enabled: plain and encrypted attempts alternate per peer, keeping what worked. Forced: encrypted only, losing peers that cannot encrypt.";
     /// engine: crates/frontend/src/settings.rs (allow_legacy_incoming: in_enc_policy Enabled or Forced), crates/core/src/engine/wire.rs
     PrefLegacy = "Accepts incoming connections that are not encrypted. Off, only encrypted incoming connections are accepted, which loses peers that cannot encrypt.";
     /// frontend: crates/frontend/src/options.rs (ip_filter_file), crates/core/src/net/ip_filter.rs (formats), settings.apply_filter_to_dht / apply_ip_filter_to_trackers
@@ -197,7 +197,7 @@ helps! {
 
     // ---- Preferences > Scheduler
     /// frontend: crates/frontend/src/scheduler.rs (Schedule::mode_at: Full speed while off)
-    PrefScheduler = "Follows the weekly table below hour by hour, in local time. Off, PaTorrent always runs at full speed with the normal settings.";
+    PrefScheduler = "Follows the weekly table below hour by hour, in local time. Off, Rookparcel always runs at full speed with the normal settings.";
     /// frontend: crates/frontend/src/scheduler.rs (Mode, settings_for, Change: pause session, upload mode)
     PrefSchedTable = "One cell per hour of the week; a click moves a cell on to the next of Full speed, Limited, Turn off and Seeding only, and dragging paints that mode over the cells passed. Limited uses the rates below, Turn off pauses every torrent, Seeding only uploads but downloads nothing.";
     /// frontend: crates/frontend/src/scheduler.rs (settings_for Limited: upload_rate_limit)
@@ -205,11 +205,11 @@ helps! {
     /// frontend: crates/frontend/src/scheduler.rs (settings_for Limited: download_rate_limit)
     PrefSchedDown = "The global download limit during the table's Limited hours, in place of the normal one. 0 means unlimited.";
     /// frontend: crates/frontend/src/scheduler.rs (settings_for Off: enable_dht false)
-    PrefSchedDht = "Also switches the DHT off during the table's Turn off hours, so PaTorrent stays quiet on the network. On by default.";
+    PrefSchedDht = "Also switches the DHT off during the table's Turn off hours, so Rookparcel stays quiet on the network. On by default.";
 
     // ---- Preferences > Web UI
     /// frontend: crates/win32/src/webui_host.rs (Setup::enabled, starts with the window, restarted on Apply; WebUiNeedLogin)
-    PrefWebUi = "Serves the Web UI from this window, so a browser can control these torrents while PaTorrent runs. It needs a user name (admin unless you change it) and a password, and restarts when you apply changes.";
+    PrefWebUi = "Serves the Web UI from this window, so a browser can control these torrents while Rookparcel runs. It needs a user name (admin unless you change it) and a password, and restarts when you apply changes.";
     /// frontend: crates/win32/src/webui_host.rs (webui.username), crates/nox/src/webui/prefs.rs (webui.username, needs the current password)
     PrefWebUiUsername = "The user name the Web UI's login asks for. In the browser's Preferences, changing it needs the current password.";
     /// frontend: crates/win32/src/webui_host.rs (stored as a PBKDF2 hash), docs/WEBUI.md (Security: a new password ends the other sessions)
@@ -219,9 +219,9 @@ helps! {
     /// frontend: crates/win32/src/webui_host.rs (Setup::port, DEFAULT_PORT 8080, first_free_port)
     PrefWebUiPort = "The port the Web UI listens on. 8080 is proposed, or the next free port when another program or profile holds it.";
     /// frontend: crates/win32/src/webui_host.rs (Setup::addr: 0.0.0.0 or 127.0.0.1), en.rs PrefWebUiNote (firewall)
-    PrefWebUiRemote = "Listens on every IPv4 address of this computer, so other computers and phones can reach the Web UI, not only this one. They also need a Windows Firewall rule for patorrent.exe.";
+    PrefWebUiRemote = "Listens on every IPv4 address of this computer, so other computers and phones can reach the Web UI, not only this one. They also need a Windows Firewall rule for rookparcel.exe.";
     /// frontend: crates/win32/src/webui_host.rs (Setup::https, webui-cert.pem), docs/WEBUI.md (HTTPS)
-    PrefWebUiHttps = "Serves the Web UI over HTTPS with a certificate PaTorrent makes itself and keeps in the settings folder. Browsers warn about such a certificate until you accept it.";
+    PrefWebUiHttps = "Serves the Web UI over HTTPS with a certificate Rookparcel makes itself and keeps in the settings folder. Browsers warn about such a certificate until you accept it.";
     /// frontend: crates/win32/src/preferences.rs (ID_WEBUI_OPEN, enabled while running)
     PrefWebUiOpen = "Opens the running Web UI in your browser.";
     /// nox: crates/nox/src/webui/mod.rs (Prefs::api_key_enabled), crates/nox/src/webui/api.rs (Bearer check), docs/WEBUI.md (Security)
@@ -269,11 +269,11 @@ helps! {
     /// engine: crates/frontend/src/settings.rs (set_cache_expiry: off is 0), crates/core/src/settings.rs (cache_expiry)
     PrefCacheExpire = "Drops cached blocks no peer has asked for in the number of seconds beside. Off, they stay until newer blocks push them out.";
     /// engine: crates/core/src/engine/mod.rs (disk_backlogged: the larger of the setting and 4 MiB), settings.max_queued_disk_bytes
-    PrefDiskWriteQueue = "How much downloaded data may wait to be written to disk; above it, PaTorrent stops reading from peers until the disk catches up. Values below 4 MB act as 4 MB.";
+    PrefDiskWriteQueue = "How much downloaded data may wait to be written to disk; above it, Rookparcel stops reading from peers until the disk catches up. Values below 4 MB act as 4 MB.";
     /// engine: crates/core/src/disk/mod.rs (set_file_pool_size, applied at once), settings.file_pool_size
-    PrefOpenFiles = "The most files PaTorrent keeps open at once; others are closed and opened again when needed. Raise it when many torrents or files are busy at the same time.";
+    PrefOpenFiles = "The most files Rookparcel keeps open at once; others are closed and opened again when needed. Raise it when many torrents or files are busy at the same time.";
     /// engine: crates/core/src/engine/mod.rs (Engine::new: DiskIo::new with aio_threads, not resized by apply_settings)
-    PrefAioThreads = "The threads that read and write torrent data; the read cache is shared among them. Read only when PaTorrent starts.";
+    PrefAioThreads = "The threads that read and write torrent data; the read cache is shared among them. Read only when Rookparcel starts.";
     /// engine: not read by the engine (crates/core/src/disk/mod.rs checks with lt-check threads, one per drive; create_torrent picks its own threads)
     PrefHashThreads = "Kept for libtorrent compatibility; this version does not use it. Checks run one per drive, set by Drives checked at once on the Disk I/O page.";
 
@@ -300,7 +300,7 @@ helps! {
     // ======== The Advanced table: network, queue, DHT, transports
 
     /// engine: crates/core/src/engine/tracker.rs (TrackerManager::set_options), engine/upnp.rs, engine/portmap.rs (upnp_settings)
-    AdvUserAgent = "The program name sent to HTTP trackers, web seeds and UPnP routers. Routers also show it as the description of the port mapping, except in a named profile, whose mapping is described as PaTorrent (profile name). Some private trackers only accept certain clients; otherwise it rarely needs changing.";
+    AdvUserAgent = "The program name sent to HTTP trackers, web seeds and UPnP routers. Routers also show it as the description of the port mapping, except in a named profile, whose mapping is described as Rookparcel (profile name). Some private trackers only accept certain clients; otherwise it rarely needs changing.";
     /// engine: crates/core/src/engine/mod.rs (Engine::new, generate_peer_id), default PEER_ID_PREFIX
     AdvPeerFingerprint = "The prefix of the peer ID that tells other peers and trackers which client this is. A new peer ID is drawn from it at each start, so a change applies at the next start. Rarely needs changing.";
     /// engine: crates/core/src/engine/listen.rs (listen_settings_changed, open_listen_socket), default 0.0.0.0:6881,[::]:6881
@@ -423,15 +423,15 @@ helps! {
     // ======== The Advanced table: encryption, trackers, peers, disk, web seeds, proxy
 
     /// engine: crates/core/src/engine/pe.rs (Engine::start_outgoing_handshake), numbers in frontend policy_to_int, default 1
-    AdvOutEncPolicy = "Encryption of connections PaTorrent makes. 0 forced: always encrypted. 1 enabled, the default: plain first, encrypted if that fails, remembering what worked for each peer. 2 disabled: never encrypted. Change it if your provider throttles BitTorrent traffic.";
+    AdvOutEncPolicy = "Encryption of connections Rookparcel makes. 0 forced: always encrypted. 1 enabled, the default: plain first, encrypted if that fails, remembering what worked for each peer. 2 disabled: never encrypted. Change it if your provider throttles BitTorrent traffic.";
     /// engine: crates/core/src/engine/wire.rs (Engine::on_handshake), default 1
     AdvInEncPolicy = "Which incoming connections are accepted. 0 forced: only encrypted ones, plain ones are refused. 1 enabled, the default: both. 2 disabled: only plain ones, encrypted ones are refused. Leave at 1 unless you need to refuse one kind.";
     /// engine: crates/core/src/proto/pe_handshake.rs (PeHandshake, level_bits), numbers in frontend level_to_int, default 3
-    AdvAllowedEncLevel = "How much of an encrypted connection is encrypted. 1: only the handshake is hidden and the data then flows plain. 2: everything is RC4 encrypted. 3, the default: either; on connections PaTorrent makes the other side chooses, on incoming ones only the handshake is hidden unless prefer_rc4 is on. Only matters when encryption is used.";
+    AdvAllowedEncLevel = "How much of an encrypted connection is encrypted. 1: only the handshake is hidden and the data then flows plain. 2: everything is RC4 encrypted. 3, the default: either; on connections Rookparcel makes the other side chooses, on incoming ones only the handshake is hidden unless prefer_rc4 is on. Only matters when encryption is used.";
     /// engine: crates/core/src/proto/pe_handshake.rs (incoming crypto selection), engine/wire.rs (on_handshake), default false
     AdvPreferRc4 = "When an incoming encrypted connection offers both levels, choose full RC4 encryption instead of hiding only the handshake. Off by default, which saves processor time; turn it on if handshake-only encryption is still being throttled.";
     /// engine: crates/core/src/engine/mod.rs (shutdown, Trackers phase), default 5
-    AdvStopTrackerTimeout = "Seconds PaTorrent waits on exit for trackers to receive the 'stopped' message and for routers to remove port mappings. Default 5. Raise it for slow trackers, lower it to exit faster.";
+    AdvStopTrackerTimeout = "Seconds Rookparcel waits on exit for trackers to receive the 'stopped' message and for routers to remove port mappings. Default 5. Raise it for slow trackers, lower it to exit faster.";
     /// engine: crates/core/src/engine/tracker.rs (TrackerManager::set_options, request deadline), default 30, minimum 1
     AdvTrackerCompletionTimeout = "Seconds a tracker request, HTTP or UDP, may take in total before it counts as failed. Default 30; values below 1 count as 1. Rarely needs changing.";
     /// engine: none; field only in crates/core/src/settings.rs, stored but never read, default 10
@@ -445,7 +445,7 @@ helps! {
     /// engine: crates/core/src/engine/tracker.rs (trackers_to_announce), default false
     AdvAnnounceToAllTrackers = "On: every tracker in a tier is contacted, not just the first working one. Off by default. Turning it on can find more peers at the cost of more tracker traffic.";
     /// engine: crates/core/src/engine/ip_filter.rs (tracker filter), default true
-    AdvApplyIpFilterToTrackers = "The IP filter also stops PaTorrent from contacting trackers at blocked addresses, for torrents the filter applies to. On by default; turn it off if a needed tracker sits in a blocked range.";
+    AdvApplyIpFilterToTrackers = "The IP filter also stops Rookparcel from contacting trackers at blocked addresses, for torrents the filter applies to. On by default; turn it off if a needed tracker sits in a blocked range.";
     /// engine: none; field only in crates/core/src/settings.rs, stored but never read, default 60
     AdvRequestTimeout = "Kept for compatibility; this engine does not use it yet. Slow block requests are handled by a fixed timeout.";
     /// engine: crates/core/src/engine/smart_ban.rs (Trust::failed), engine/picker.rs (on_parole picking), default true
@@ -461,13 +461,13 @@ helps! {
     /// engine: crates/core/src/engine/wire.rs (request_blocks), engine/web_seed.rs (web_request_blocks), default 500
     AdvMaxOutRequestQueue = "Most 16 KiB block requests outstanding to one peer or web seed at a time, also capped by what the peer allows. Default 500. Rarely needs changing.";
     /// engine: crates/core/src/engine/wire.rs (on_request, extension handshake reqq), default 500
-    AdvMaxAllowedInRequestQueue = "Most block requests from one peer queued for upload at a time; PaTorrent tells peers this number, and requests beyond it are rejected, or ignored for peers without the fast extension. Default 500. Rarely needs changing.";
+    AdvMaxAllowedInRequestQueue = "Most block requests from one peer queued for upload at a time; Rookparcel tells peers this number, and requests beyond it are rejected, or ignored for peers without the fast extension. Default 500. Rarely needs changing.";
     /// engine: crates/core/src/engine/mod.rs (session tick, run_choker), default 15, minimum 1
-    AdvUnchokeInterval = "Seconds between decisions about which peers PaTorrent uploads to. Default 15. Shorter reacts faster to changing peer speeds but swaps peers more often.";
+    AdvUnchokeInterval = "Seconds between decisions about which peers Rookparcel uploads to. Default 15. Shorter reacts faster to changing peer speeds but swaps peers more often.";
     /// engine: crates/core/src/engine/mod.rs (session tick, run_choker optimistic), default 30, minimum 1
     AdvOptimisticUnchokeInterval = "Seconds between choosing a new random peer to upload to, giving newcomers a chance. It is checked when the regular unchoke runs, so it rounds up to a multiple of unchoke_interval. Default 30.";
     /// engine: crates/core/src/engine/wire.rs (pump_uploads, on_request), engine/mod.rs (max_send_buffer), default 512000
-    AdvSendBufferWatermark = "Bytes waiting to be sent to a peer before PaTorrent stops reading more data for it from disk. Default 500 KiB. A peer leaving four times this, at least 4 MiB, unread is disconnected. Raise it for very fast uploads.";
+    AdvSendBufferWatermark = "Bytes waiting to be sent to a peer before Rookparcel stops reading more data for it from disk. Default 500 KiB. A peer leaving four times this, at least 4 MiB, unread is disconnected. Raise it for very fast uploads.";
     /// engine: crates/core/src/engine/mod.rs (on_finished), engine/wire.rs (Have, set_peer_pieces), default true
     AdvCloseRedundantConnections = "Disconnects peers that can no longer exchange anything with you, such as other seeds once your download is complete. On by default, which frees connection slots for useful peers.";
     /// engine: crates/core/src/engine/mod.rs (Engine::peer_turnover), default 4
@@ -513,7 +513,7 @@ helps! {
     /// engine: crates/core/src/engine/web_seed.rs (web_seed_hash_failed), default true
     AdvBanWebSeeds = "A web seed that sends data failing the hash check can be banned like a peer, so it is no longer used. On by default; turn it off to keep using a web seed you trust.";
     /// engine: crates/core/src/engine/web_seed.rs (connect, web_redirect), engine/tracker.rs (loopback /announce path, drop_this_host_peers), default true
-    AdvSsrfMitigation = "Stops torrents from using PaTorrent to reach your local services: local web seeds may not use query strings, internet web seeds may not redirect to the local network, and trackers on this machine only get /announce requests. On by default; keep it on.";
+    AdvSsrfMitigation = "Stops torrents from using Rookparcel to reach your local services: local web seeds may not use query strings, internet web seeds may not redirect to the local network, and trackers on this machine only get /announce requests. On by default; keep it on.";
     /// engine: crates/core/src/engine/web_seed.rs (connect_to_url_seed, is_idna), default false
     AdvAllowIdna = "Allows web seeds whose host names use international characters, the xn-- form. Off by default, since such names can imitate other sites; those web seeds are skipped.";
     /// engine: crates/core/src/proto/web_peer.rs (request, first_request), default false
@@ -531,11 +531,11 @@ helps! {
 
     // ---- Menu: bar
     /// win32 app.rs main_menu -> submenu(bar, file, MenuFile)
-    MenuFile = "Adds and creates torrents, imports them from other clients, switches profiles, connects to a remote server and quits PaTorrent.";
+    MenuFile = "Adds and creates torrents, imports them from other clients, switches profiles, connects to a remote server and quits Rookparcel.";
     /// win32 app.rs main_menu -> submenu(bar, options, MenuOptions)
     MenuOptions = "Opens Preferences, the Setup Guide and the RSS Downloader, shows or hides parts of the window, and sets Auto Shutdown and the tray behaviour.";
     /// win32 app.rs main_menu -> submenu(bar, help, MenuHelp)
-    MenuHelp = "Opens the PaTorrent website, checks for updates, and shows the version and the third-party licence texts.";
+    MenuHelp = "Opens the Rookparcel website, checks for updates, and shows the version and the third-party licence texts.";
 
     // ---- Menu: File
     /// win32 app.rs cmd::ADD -> dialogs::open_torrents, add_sources -> add_torrent_file
@@ -549,17 +549,17 @@ helps! {
     /// win32 app.rs cmd::IMPORT_BASE -> import_from(Client::UTorrent) -> frontend import::begin, import::finish
     MenuImportUt = "Adds the torrents listed in µTorrent's resume.dat with their data, statistics, trackers and labels. µTorrent must not be running; the files are checked.";
     /// win32 app.rs fill_profiles (refilled on open), profile::menu
-    MenuProfiles = "Lists the settings profiles; picking one starts PaTorrent in that profile in a window of its own, or brings it to the front.";
+    MenuProfiles = "Lists the settings profiles; picking one starts Rookparcel in that profile in a window of its own, or brings it to the front.";
     /// win32 app.rs cmd::PROFILE_NEW -> new_profile -> profile::validate, start_profile
-    MenuProfileNew = "Asks for a name, makes a new profile with its own settings and torrents, and starts PaTorrent in it.";
+    MenuProfileNew = "Asks for a name, makes a new profile with its own settings and torrents, and starts Rookparcel in it.";
     /// win32 app.rs cmd::PROFILE_SHORTCUT -> profile_shortcut -> shortcut::create
-    MenuProfileShortcut = "Makes a shortcut that starts PaTorrent in this window's profile: on the desktop on Windows, in the applications menu on Linux.";
+    MenuProfileShortcut = "Makes a shortcut that starts Rookparcel in this window's profile: on the desktop on Windows, in the applications menu on Linux.";
     /// win32 app.rs cmd::PROFILE_FOLDER -> open_url(base_data_dir)
     MenuProfileFolder = "Opens the folder that holds this profile's settings and torrent data.";
-    /// win32 app.rs cmd::CONNECT_REMOTE -> remote_ui::start_remote_window (patorrent.exe --remote)
-    MenuConnectRemote = "Opens another window that connects to a patorrent-nox server on another computer and controls its torrents.";
+    /// win32 app.rs cmd::CONNECT_REMOTE -> remote_ui::start_remote_window (rookparcel.exe --remote)
+    MenuConnectRemote = "Opens another window that connects to a rookparcel-nox server on another computer and controls its torrents.";
     /// win32 app.rs cmd::EXIT -> quitting = true, DestroyWindow
-    MenuExit = "Closes the window and quits PaTorrent, stopping all transfers, even when Close to Tray is on. In a remote window, the server's torrents keep running.";
+    MenuExit = "Closes the window and quits Rookparcel, stopping all transfers, even when Close to Tray is on. In a remote window, the server's torrents keep running.";
 
     // ---- Menu: Options
     /// win32 app.rs cmd::PREFS -> show_preferences
@@ -575,13 +575,13 @@ helps! {
     /// win32 app.rs cmd::SHOW_TREE -> toggles show_tree, update_visibility
     MenuShowTree = "Shows or hides the category list on the left that filters the torrents by state and label.";
     /// win32 app.rs main_menu, AutoMode::MENU; frontend auto_shutdown
-    MenuAutoShutdown = "Quits PaTorrent or puts the computer on standby, hibernates or shuts it down when the torrents are done, once something has run since you chose it. Lasts for this run only.";
+    MenuAutoShutdown = "Quits Rookparcel or puts the computer on standby, hibernates or shuts it down when the torrents are done, once something has run since you chose it. Lasts for this run only.";
     /// win32 app.rs cmd::AUTO_SHUTDOWN_BASE -> auto_shutdown.set_mode(None)
     ShutdownDisabled = "Turns Auto Shutdown off: nothing happens when the torrents are done.";
     /// win32 app.rs cmd::AUTO_SHUTDOWN_BASE -> set_mode(Quit, Downloads); frontend auto_shutdown::is_busy
-    ShutdownQuitDownloads = "Quits PaTorrent after a 30 second countdown once no started torrent is downloading any more.";
+    ShutdownQuitDownloads = "Quits Rookparcel after a 30 second countdown once no started torrent is downloading any more.";
     /// win32 app.rs cmd::AUTO_SHUTDOWN_BASE -> set_mode(Quit, Everything); frontend auto_shutdown::is_busy
-    ShutdownQuitEverything = "Quits PaTorrent after a 30 second countdown once no started torrent is downloading or seeding any more.";
+    ShutdownQuitEverything = "Quits Rookparcel after a 30 second countdown once no started torrent is downloading or seeding any more.";
     /// win32 app.rs cmd::AUTO_SHUTDOWN_BASE -> set_mode(Standby, Downloads); frontend auto_shutdown::is_busy
     ShutdownStandbyDownloads = "Puts the computer on standby after a 30 second countdown once no started torrent is downloading any more.";
     /// win32 app.rs cmd::AUTO_SHUTDOWN_BASE -> set_mode(Standby, Everything); frontend auto_shutdown::is_busy
@@ -595,7 +595,7 @@ helps! {
     /// win32 app.rs cmd::AUTO_SHUTDOWN_BASE -> set_mode(ShutDown, Everything); frontend auto_shutdown::is_busy
     ShutdownShutDownEverything = "Shuts down the computer after a 30 second countdown once no started torrent is downloading or seeding any more.";
     /// win32 app.rs cmd::CLOSE_TO_TRAY -> toggles pref ui.close_to_tray (WM_CLOSE hides to the tray)
-    MenuCloseToTray = "When on, closing the window hides PaTorrent to its tray icon and the torrents keep running. Exit still quits.";
+    MenuCloseToTray = "When on, closing the window hides Rookparcel to its tray icon and the torrents keep running. Exit still quits.";
     /// win32 app.rs cmd::MIN_TO_TRAY -> toggles pref ui.minimize_to_tray
     MenuMinimizeToTray = "When on, minimizing the window hides it from the taskbar, leaving only the tray icon.";
     /// win32 app.rs cmd::SETUP_GUIDE -> show_setup_guide -> setup_guide::show; frontend setup_guide.rs
@@ -603,13 +603,13 @@ helps! {
 
     // ---- Menu: Help
     /// win32 app.rs cmd::WEBSITE -> open_url(update::WEBSITE_URL)
-    MenuWebsite = "Opens the PaTorrent website in your web browser.";
+    MenuWebsite = "Opens the Rookparcel website in your web browser.";
     /// win32 app.rs cmd::CHECK_UPDATES -> updates.start_manual, start_update_check
-    MenuCheckUpdates = "Asks the PaTorrent website whether a newer version is out and tells you the answer.";
+    MenuCheckUpdates = "Asks the Rookparcel website whether a newer version is out and tells you the answer.";
     /// win32 app.rs cmd::ABOUT -> dialogs::about(AboutText)
-    MenuAbout = "Shows PaTorrent's version, copyright and licence, and where its settings file is.";
+    MenuAbout = "Shows Rookparcel's version, copyright and licence, and where its settings file is.";
     /// win32 app.rs cmd::NOTICES -> notices::show
-    MenuNotices = "Shows the licence texts of the third-party code PaTorrent is built on.";
+    MenuNotices = "Shows the licence texts of the third-party code Rookparcel is built on.";
 
     // ---- Menu: torrent list
     /// win32 app.rs cmd::OPEN_FOLDER -> torrent_action -> open_folder_target, show_in_explorer (also the Files tab's FILE_OPEN_FOLDER -> open_file)
@@ -673,9 +673,9 @@ helps! {
 
     // ---- Menu: tray
     /// win32 app.rs cmd::TRAY_TOGGLE -> toggle_window (SW_HIDE)
-    MenuHide = "Hides the PaTorrent window; the torrents keep running and the tray icon brings the window back.";
+    MenuHide = "Hides the Rookparcel window; the torrents keep running and the tray icon brings the window back.";
     /// win32 app.rs cmd::TRAY_TOGGLE -> toggle_window -> show_window
-    MenuShow = "Brings the PaTorrent window back on screen and to the front.";
+    MenuShow = "Brings the Rookparcel window back on screen and to the front.";
     /// win32 app.rs cmd::START_ALL -> actions::start on every torrent, set_paused(false)
     MenuStartAll = "Hands every torrent in the list to the queue, which runs them as the limits on active torrents allow.";
     /// win32 app.rs cmd::STOP_ALL -> actions::stop on every torrent, set_paused(false)

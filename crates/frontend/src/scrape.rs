@@ -29,7 +29,7 @@ use std::collections::HashMap;
 use std::hash::{Hash, Hasher};
 use std::time::{Duration, Instant};
 
-use patorrent_core::{SessionHandle, TorrentFlags, TorrentId, TorrentStatus};
+use rookparcel_core::{SessionHandle, TorrentFlags, TorrentId, TorrentStatus};
 
 /// How often [`Scrapes`] asks, and how much at once.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -265,7 +265,7 @@ mod tests {
     /// Peers columns, a running one and one without trackers are left alone.
     #[test]
     fn the_mock_engine_fills_the_seeds_and_peers_columns() {
-        use patorrent_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
+        use rookparcel_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
 
         // no download slots, so the auto-managed torrent stays queued
         let settings =

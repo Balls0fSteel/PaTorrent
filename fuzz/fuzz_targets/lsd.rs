@@ -2,7 +2,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{parse_lsd, render_lsd};
+use rookparcel_core::fuzzing::{parse_lsd, render_lsd};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(a) = parse_lsd(data) {

@@ -1,4 +1,4 @@
-// PaTorrent's own OS glue (no libtorrent counterpart: qBittorrent-nox does this in Qt).
+// Rookparcel's own OS glue (no libtorrent counterpart: qBittorrent-nox does this in Qt).
 
 //! Signals and console events, turned into requests the alert loop handles (PLAN.md Phase 6).
 //!

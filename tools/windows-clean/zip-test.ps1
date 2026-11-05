@@ -1,7 +1,7 @@
 # Clean-machine check of the Windows zip (run on the VM over SSH, Windows PowerShell 5.1).
 param([string]$Version = '1.1.2', [string]$Root = 'C:\Users\x\patest')
 $ErrorActionPreference = 'Stop'
-$zip = Join-Path $root "patorrent-$Version-windows-x64.zip"
+$zip = Join-Path $root "rookparcel-$Version-windows-x64.zip"
 $dir = Join-Path $root 'zip'
 $pass = 'zip-test-pass'
 
@@ -29,8 +29,8 @@ Step 'unpack'
 Remove-Item -Recurse -Force $dir -ErrorAction SilentlyContinue
 Expand-Archive -Path $zip -DestinationPath $dir
 Get-ChildItem -Recurse $dir | ForEach-Object { "{0} {1}" -f $_.FullName.Substring($dir.Length + 1), $_.Length }
-$gui = (Get-ChildItem -Recurse $dir -Filter patorrent.exe).FullName
-$nox = (Get-ChildItem -Recurse $dir -Filter patorrent-nox.exe).FullName
+$gui = (Get-ChildItem -Recurse $dir -Filter rookparcel.exe).FullName
+$nox = (Get-ChildItem -Recurse $dir -Filter rookparcel-nox.exe).FullName
 foreach ($f in $gui, $nox) {
     $v = (Get-Item $f).VersionInfo
     "{0}: file {1}, product {2}, signed {3}" -f (Split-Path $f -Leaf), $v.FileVersion, $v.ProductVersion, (Get-AuthenticodeSignature $f).Status
@@ -49,7 +49,7 @@ if (WaitPort 8090 $p.Id) { Login 8090 } else { "nox did not listen; exit $($p.Ex
 Stop-Process -Id $p.Id -Force -ErrorAction SilentlyContinue
 
 Step 'GUI, portable, with its Web UI'
-# portable mode: patorrent.ini beside the exe; the login is stored hashed, as Preferences does
+# portable mode: rookparcel.ini beside the exe; the login is stored hashed, as Preferences does
 $salt = New-Object byte[] 16
 [Security.Cryptography.RandomNumberGenerator]::Create().GetBytes($salt)
 $kdf = New-Object Security.Cryptography.Rfc2898DeriveBytes($pass, $salt, 100000, [Security.Cryptography.HashAlgorithmName]::SHA256)
@@ -57,13 +57,13 @@ $hex = { param($b) ($b | ForEach-Object { $_.ToString('x2') }) -join '' }
 $hash = 'pbkdf2-sha256:100000:' + (& $hex $salt) + ':' + (& $hex $kdf.GetBytes(32))
 $guiDir = Split-Path $gui
 @('webui.enabled=1', 'webui.username=admin', "webui.password=$hash", 'webui.listen=127.0.0.1:8091', 'webui.https=0') |
-    Set-Content -Encoding ascii (Join-Path $guiDir 'patorrent.ini')
+    Set-Content -Encoding ascii (Join-Path $guiDir 'rookparcel.ini')
 $g = Start-Process -FilePath $gui -WorkingDirectory $guiDir -PassThru
 if (WaitPort 8091 $g.Id) { Login 8091 } else { "the GUI did not listen; running: $([bool](Get-Process -Id $g.Id -ErrorAction SilentlyContinue)) exit $($g.ExitCode)" }
 Start-Sleep 2
 "GUI still running after start: " + [bool](Get-Process -Id $g.Id -ErrorAction SilentlyContinue)
 "portable files: " + ((Get-ChildItem $guiDir -Name) -join ', ')
-"appdata untouched: " + (-not (Test-Path "$env:APPDATA\PaTorrent"))
+"appdata untouched: " + (-not (Test-Path "$env:APPDATA\Rookparcel"))
 
 Step 'a profile beside it (D42, 1.1.44 and later)'
 # made beforehand, so no question; it runs beside the default profile's window
@@ -72,7 +72,7 @@ $w = Start-Process -FilePath $gui -WorkingDirectory $guiDir -ArgumentList '--pro
 Start-Sleep 5
 "both running: " + [bool](Get-Process -Id $g.Id -ErrorAction SilentlyContinue) + ' ' + [bool](Get-Process -Id $w.Id -ErrorAction SilentlyContinue)
 "profile files: " + ((Get-ChildItem (Join-Path $guiDir 'profiles\work') -Name) -join ', ')
-"profile's first-run settings: " + ((Get-Content (Join-Path $guiDir 'profiles\work\patorrent.ini') -ErrorAction SilentlyContinue | Where-Object { $_ -like 'dir.download=*' -or $_ -like 'lt.listen_interfaces=*' }) -join '; ')
+"profile's first-run settings: " + ((Get-Content (Join-Path $guiDir 'profiles\work\rookparcel.ini') -ErrorAction SilentlyContinue | Where-Object { $_ -like 'dir.download=*' -or $_ -like 'lt.listen_interfaces=*' }) -join '; ')
 Stop-Process -Id $w.Id -Force -ErrorAction SilentlyContinue
 Stop-Process -Id $g.Id -Force -ErrorAction SilentlyContinue
 
@@ -88,5 +88,5 @@ $saved = (Get-ChildItem (Join-Path $guiDir 'nox') -Filter 'resume.*' | ForEach-O
 "resume holds ./Downloads: " + $saved.Contains('9:save_path11:./Downloads')
 
 Step 'Defender'
-$t = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -match 'patorrent' }
+$t = Get-MpThreatDetection -ErrorAction SilentlyContinue | Where-Object { $_.Resources -match 'rookparcel' }
 if ($t) { $t | Format-List } else { 'no detections' }

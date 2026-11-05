@@ -1,11 +1,11 @@
 //! Help > Third-Party Notices: THIRD-PARTY-NOTICES.md, built into the program, so the licence
-//! texts of the ported code stay with a binary copied out on its own (`patorrent-nox` prints
+//! texts of the ported code stay with a binary copied out on its own (`rookparcel-nox` prints
 //! them with `--license`), as in the Win32 client. A resizable window: the text read-only in a
 //! scrolled view, and Close (Escape closes too).
 
 use gtk::prelude::*;
-use patorrent_frontend::lang::{self, gtk_mnemonic};
-use patorrent_frontend::tr;
+use rookparcel_frontend::lang::{self, gtk_mnemonic};
+use rookparcel_frontend::tr;
 
 /// The notices as shipped beside the binaries.
 pub const NOTICES: &str = include_str!("../../../THIRD-PARTY-NOTICES.md");

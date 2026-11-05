@@ -1,6 +1,6 @@
 # D42 wizard checks in user x's console session: the setup refuses a portable folder on its
 # Directory page (-Part setup); the uninstaller's "Remove settings" takes profiles\ and
-# patorrent.lock too (-Part uninstall, after a silent per-user install). From the elevated SSH login:
+# rookparcel.lock too (-Part uninstall, after a silent per-user install). From the elevated SSH login:
 #   in-session.ps1 -Script C:\Users\x\patest\wizard-profiles.ps1 -ScriptArgs "-Part setup"
 # It drives the 1.1.50 setup in C:\Users\x\patest; change the file name for another version.
 param([string]$Part = 'setup')
@@ -18,8 +18,8 @@ function Next($procId, $label = 'Next >') {
 if ($Part -eq 'setup') {
     $target = 'C:\Users\x\patest\portable-wizard'
     New-Item -ItemType Directory -Force $target | Out-Null
-    Set-Content -Encoding ascii "$target\patorrent.ini" ''
-    $p = Start-Process 'C:\Users\x\patest\patorrent-1.1.50-windows-x64-setup.exe' -ArgumentList '/LANG=1033' -PassThru
+    Set-Content -Encoding ascii "$target\rookparcel.ini" ''
+    $p = Start-Process 'C:\Users\x\patest\rookparcel-1.1.50-windows-x64-setup.exe' -ArgumentList '/LANG=1033' -PassThru
     Next $p.Id | Out-Null                 # Welcome
     Next $p.Id 'I Agree' | Out-Null        # License
     Next $p.Id | Out-Null                 # Users
@@ -27,7 +27,7 @@ if ($Part -eq 'setup') {
     # the folder box shows the default folder; on a locked desktop UIA calls it a pane, so its
     # text is set by message
     Add-Type 'using System; using System.Runtime.InteropServices; public static class Txt { [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessage(IntPtr h, uint m, IntPtr w, string l); }'
-    $edit = Find-Named $p.Id "$env:LOCALAPPDATA\Programs\PaTorrent" 20
+    $edit = Find-Named $p.Id "$env:LOCALAPPDATA\Programs\Rookparcel" 20
     if (-not $edit) { Log "FAIL no folder box`n$(Window-Text $p.Id)"; Shot 'wizard-nofolder'; exit 1 }
     [Txt]::SendMessage([IntPtr]$edit.Current.NativeWindowHandle, 0x000C, [IntPtr]::Zero, $target) | Out-Null
     Start-Sleep 1
@@ -39,7 +39,7 @@ if ($Part -eq 'setup') {
     Log "after Next:`n$(Window-Text $p.Id)"
     if ($ok) { Press $ok 1 | Out-Null; Start-Sleep 1 }
     Log "back on the page: $([bool]((Window-Text $p.Id) -match 'Destination Folder'))"
-    Log "installed into it: $(Test-Path "$target\patorrent.exe")"
+    Log "installed into it: $(Test-Path "$target\rookparcel.exe")"
     $c = Find-Named $p.Id 'Cancel' 10
     if ($c) { Press $c 2 | Out-Null; Start-Sleep 1 }
     $y = Find-Named $p.Id 'Yes' 10
@@ -51,13 +51,13 @@ if ($Part -eq 'setup') {
 }
 
 # uninstall: the settings of the default profile and of a profile, then "Remove settings" ticked
-$s = "$env:APPDATA\PaTorrent"
+$s = "$env:APPDATA\Rookparcel"
 New-Item -ItemType Directory -Force "$s\profiles\work\state" | Out-Null
-Set-Content -Encoding ascii "$s\patorrent.ini" 'x=1'
-Set-Content -Encoding ascii "$s\patorrent.lock" ''
-Set-Content -Encoding ascii "$s\profiles\work\patorrent.ini" 'x=1'
+Set-Content -Encoding ascii "$s\rookparcel.ini" 'x=1'
+Set-Content -Encoding ascii "$s\rookparcel.lock" ''
+Set-Content -Encoding ascii "$s\profiles\work\rookparcel.ini" 'x=1'
 Log "before: $((Get-ChildItem -Recurse $s -Name) -join ', ')"
-Start-Process "$env:LOCALAPPDATA\Programs\PaTorrent\uninstall.exe"
+Start-Process "$env:LOCALAPPDATA\Programs\Rookparcel\uninstall.exe"
 $u = 0; for ($i = 0; $i -lt 60 -and -not $u; $i++) { $q = Get-Process -ErrorAction SilentlyContinue | Where-Object { $_.Name -eq 'Un' -or $_.Name -like 'Un_*' -or $_.Name -eq 'Au_' } | Select-Object -First 1; if ($q) { $u = $q.Id } else { Start-Sleep -Milliseconds 500 } }
 Log "uninstaller pid $u"
 Next $u | Out-Null                        # Confirm
@@ -96,5 +96,5 @@ $close = Find-Named $u 'Close' 60
 Shot 'uninstall-2-done'
 if ($close) { Press $close 1 | Out-Null }
 Start-Sleep 3
-Log "after: settings folder $(Test-Path $s), profiles $(Test-Path "$s\profiles"), lock $(Test-Path "$s\patorrent.lock"), program $(Test-Path "$env:LOCALAPPDATA\Programs\PaTorrent")"
+Log "after: settings folder $(Test-Path $s), profiles $(Test-Path "$s\profiles"), lock $(Test-Path "$s\rookparcel.lock"), program $(Test-Path "$env:LOCALAPPDATA\Programs\Rookparcel")"
 exit 0

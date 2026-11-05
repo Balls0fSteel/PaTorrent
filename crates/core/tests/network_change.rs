@@ -6,7 +6,7 @@ use std::collections::VecDeque;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr, TcpStream};
 use std::time::{Duration, Instant};
 
-use patorrent_core::{Alert, Session, SessionHandle, SessionParams, Settings};
+use rookparcel_core::{Alert, Session, SessionHandle, SessionParams, Settings};
 
 fn settings(listen: &str) -> Settings {
     Settings {

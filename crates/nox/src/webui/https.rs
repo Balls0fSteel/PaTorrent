@@ -8,7 +8,7 @@ use std::io::{self, Write};
 use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 
-use patorrent_core::tls::{self, Identity};
+use rookparcel_core::tls::{self, Identity};
 
 /// The generated certificate, in the config directory.
 pub const CERT_FILE: &str = "webui-cert.pem";
@@ -67,7 +67,7 @@ pub fn load(source: &Certificate, now: i64) -> io::Result<Loaded> {
             if !current {
                 let names: Vec<&str> = names.iter().map(String::as_str).collect();
                 let pem = tls::generate_self_signed(&names, GENERATED_DAYS)?;
-                patorrent_core::util::private_file::create_dir_all(dir)?;
+                rookparcel_core::util::private_file::create_dir_all(dir)?;
                 write_file(&key, pem.key_pem.as_bytes(), true)?;
                 write_file(&cert, pem.cert_pem.as_bytes(), false)?;
             }
@@ -94,7 +94,7 @@ fn write_file(path: &Path, data: &[u8], private: bool) -> io::Result<()> {
     #[cfg(unix)]
     if private {
         use std::os::unix::fs::OpenOptionsExt;
-        options.mode(0o600).custom_flags(patorrent_core::util::private_file::O_NOFOLLOW);
+        options.mode(0o600).custom_flags(rookparcel_core::util::private_file::O_NOFOLLOW);
     }
     #[cfg(not(unix))]
     let _ = private;
@@ -160,7 +160,7 @@ mod tests {
     use super::*;
 
     fn scratch(name: &str) -> PathBuf {
-        let d = std::env::temp_dir().join(format!("patorrent-https-{name}-{}", std::process::id()));
+        let d = std::env::temp_dir().join(format!("rookparcel-https-{name}-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&d);
         d
     }

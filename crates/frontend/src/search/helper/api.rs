@@ -71,7 +71,7 @@ pub fn request(
     s.set_write_timeout(Some(timeout)).map_err(|e| e.to_string())?;
     let mut head = format!(
         "{method} {path} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUser-Agent: {}\r\nConnection: close\r\n",
-        patorrent_core::USER_AGENT
+        rookparcel_core::USER_AGENT
     );
     for (k, v) in headers {
         head.push_str(&format!("{k}: {}\r\n", v.replace(['\r', '\n'], " ")));

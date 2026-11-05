@@ -7,12 +7,12 @@ param([string]$Tag = 'closing', [switch]$NoQuit, [int]$Wait = 4)
 $LogFile = "C:\Users\x\patest\$Tag.log"; $ShotDir = 'C:\Users\x\patest\shots'
 . C:\Users\x\patest\uia.ps1
 $root = 'C:\Users\x\patest'
-$exe = "$env:LOCALAPPDATA\Programs\PaTorrent\patorrent.exe"
+$exe = "$env:LOCALAPPDATA\Programs\Rookparcel\rookparcel.exe"
 $api = 'http://127.0.0.1:8080/api/v2'
 # PowerShell 5.1's ConvertFrom-Json gives a JSON array as one object: unroll it
 function Info { (Invoke-WebRequest -UseBasicParsing "$api/torrents/info").Content | ConvertFrom-Json | ForEach-Object { $_ } }
 function Start-Gui {
-    $p = Get-Process patorrent -ErrorAction SilentlyContinue | Select-Object -First 1
+    $p = Get-Process rookparcel -ErrorAction SilentlyContinue | Select-Object -First 1
     if (-not $p) { $p = Start-Process $exe -PassThru }
     for ($i = 0; $i -lt 60; $i++) {
         try { Invoke-WebRequest -UseBasicParsing "$api/app/version" | Out-Null; break } catch { Start-Sleep 1 }
@@ -74,7 +74,7 @@ function Wait-Dialog($title, $except, $secs) {
     }
     $null
 }
-$cw = Wait-Dialog 'PaTorrent is closing' 'none' 20
+$cw = Wait-Dialog 'Rookparcel is closing' 'none' 20
 if (-not $cw) { Log "no closing window; alive $([bool](Get-Process -Id $p.Id -EA SilentlyContinue))" }
 else {
     $ch = Hwnd-Of $cw
@@ -83,7 +83,7 @@ else {
     Log "4 s later:`n$(Text-Of $ch)"
     if (-not $NoQuit) {
         [Tok]::PostMessage($ch, 0x111, [IntPtr]104, [IntPtr]::Zero) | Out-Null
-        $qw = Wait-Dialog 'PaTorrent$' ($cw -split ' ')[0] 10
+        $qw = Wait-Dialog 'Rookparcel$' ($cw -split ' ')[0] 10
         if (-not $qw) { Log 'no Quit Now question' }
         else {
             $qh = Hwnd-Of $qw

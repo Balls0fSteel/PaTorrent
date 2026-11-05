@@ -1,7 +1,7 @@
 //! Embeds the application manifest, the application icon and the version resource with the
 //! MSVC linker (no resource compiler needed).
 //!
-//! The icon is the PatinaTorrent family named in `assets/patina-icons/app-icon.txt` (see
+//! The icon is the Rookparcel family named in `assets/patina-icons/app-icon.txt` (see
 //! `assets/patina-icons/INTEGRATION.md`): its `.ico` from `exports/app/` becomes an RT_GROUP_ICON
 //! (ID 1, [`APP_ICON_ID`], which Explorer shows and `LoadImageW` finds) with one RT_ICON per
 //! frame, written with the VERSIONINFO into a compiled resource file (`.res`, `res/resource.rs`).
@@ -22,7 +22,7 @@ const FLAGS_GROUP: u16 = 0x1030;
 
 fn main() {
     let dir = PathBuf::from(env::var("CARGO_MANIFEST_DIR").unwrap());
-    let manifest = dir.join("res/patorrent.exe.manifest");
+    let manifest = dir.join("res/rookparcel.exe.manifest");
     println!("cargo:rerun-if-changed={}", manifest.display());
     println!("cargo:rerun-if-changed={}", dir.join("res/resource.rs").display());
     let patina = dir.join("../../assets/patina-icons");
@@ -42,8 +42,8 @@ fn main() {
 
         let bytes = fs::read(&ico).unwrap_or_else(|e| panic!("{}: {e}", ico.display()));
         let mut res = icon_res(&bytes).unwrap_or_else(|e| panic!("{}: {e}", ico.display()));
-        version_res(&mut res, "patorrent.exe", "PaTorrent");
-        let out = PathBuf::from(env::var_os("OUT_DIR").expect("cargo sets OUT_DIR")).join("patorrent.res");
+        version_res(&mut res, "rookparcel.exe", "Rookparcel");
+        let out = PathBuf::from(env::var_os("OUT_DIR").expect("cargo sets OUT_DIR")).join("rookparcel.res");
         fs::write(&out, res).unwrap_or_else(|e| panic!("{}: {e}", out.display()));
         println!("cargo:rustc-link-arg-bins={}", out.display());
     }

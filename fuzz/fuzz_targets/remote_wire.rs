@@ -5,7 +5,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::remote_wire;
+use rookparcel_core::fuzzing::remote_wire;
 
 fuzz_target!(|data: &[u8]| {
     let _ = remote_wire(data);

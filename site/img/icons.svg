@@ -1,5 +1,5 @@
 <svg xmlns="http://www.w3.org/2000/svg">
-<!-- PaTorrent's own UI symbols (bold family, revision 6), fitted at 24 px, from
+<!-- Rookparcel's own UI symbols (bold family, revision 6), fitted at 24 px, from
      assets/ui-icon-explorations/svg-size/bold/24. The page sets their colour (currentColor). -->
 <symbol id="i-download" viewBox="0 0 24 24"><path d="M11 3 H14 V14 H20 L12 21 L5 14 H11 Z" fill="currentColor"/></symbol>
 <symbol id="i-help" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" fill="none" stroke="currentColor" stroke-width="3"/><path d="M9.5 9.5 A3 3 0 1 1 13.5 10.5 L12.5 12.5 V13.5" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="butt" stroke-linejoin="miter"/><rect x="11" y="17" width="3" height="3" rx="0" fill="currentColor"/></symbol>

@@ -1,6 +1,6 @@
 # Queueing and seeding
 
-This page covers how PaTorrent decides which torrents run at once (the queue), what happens when a finished torrent has seeded enough (the seeding goal), initial seeding for new torrents, and moving finished downloads to another folder.
+This page covers how Rookparcel decides which torrents run at once (the queue), what happens when a finished torrent has seeded enough (the seeding goal), initial seeding for new torrents, and moving finished downloads to another folder.
 
 The settings are on **Options > Preferences > Queueing**.
 
@@ -76,11 +76,11 @@ Initial seeding (super-seeding) helps you spread a torrent you have just created
 - Right-click a seeding torrent and choose **Advanced > Initial Seeding**. The item is grey unless every selected torrent is seeding; choose it again to turn it off.
 - Or tick **Initial Seeding** under **Other Settings** in the torrent's Properties.
 
-While it is on, the status shows **[S] Seeding**. See [Creating torrents](Creating-torrents) for making a torrent to seed. For patorrent-nox, `--super-seed` does the same for complete torrents.
+While it is on, the status shows **[S] Seeding**. See [Creating torrents](Creating-torrents) for making a torrent to seed. For rookparcel-nox, `--super-seed` does the same for complete torrents.
 
 ## Moving completed downloads
 
-PaTorrent can move a torrent's files to another folder when it finishes downloading, for example from a fast disk to a big one. It keeps seeding from the new place. Set it on **Options > Preferences > Directories**, under **Location of Downloaded Files**:
+Rookparcel can move a torrent's files to another folder when it finishes downloading, for example from a fast disk to a big one. It keeps seeding from the new place. Set it on **Options > Preferences > Directories**, under **Location of Downloaded Files**:
 
 1. Tick **Move completed downloads to:** and choose the folder below it.
 2. Optionally tick **Append the torrent's label**: a torrent with a label goes into a folder named after the label, inside that folder. The label it has when it finishes counts.
@@ -97,7 +97,7 @@ It applies to torrents that finish from now on. More on folders and moving files
 
 - **GTK window**: the same Queueing page, Properties and menus.
 - **Web UI**: the same Queueing page. Its seeding goal box reads **Limit the upload rate instead of stopping the torrent**, with the rate beside it; 0 stops the torrent anyway. The torrent menu has the same queue and Initial Seeding items.
-- **patorrent-nox**: the queue limits and the seeding goal are set in its Web UI's Preferences. `--move-on-complete DIR` moves each torrent that finishes into a folder.
+- **rookparcel-nox**: the queue limits and the seeding goal are set in its Web UI's Preferences. `--move-on-complete DIR` moves each torrent that finishes into a folder.
 
 ## Related pages
 

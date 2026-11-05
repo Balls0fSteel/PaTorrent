@@ -6,7 +6,7 @@ use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpListener, TcpStream};
 use std::sync::{Arc, Mutex};
 
-use patorrent_core::crypto::Sha256;
+use rookparcel_core::crypto::Sha256;
 
 use super::archive::tests::{TempDir, gzip, tar, zip};
 use super::*;

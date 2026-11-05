@@ -4,7 +4,7 @@
 
 use std::path::{Path, PathBuf};
 
-use patorrent_core::{AddTorrentParams, MoveCompleted, Settings, TorrentFlags};
+use rookparcel_core::{AddTorrentParams, MoveCompleted, Settings, TorrentFlags};
 
 use crate::integration::Integration;
 use crate::prefs::Prefs;
@@ -29,7 +29,7 @@ pub struct GuiOptions {
     pub move_only_default: bool,
     /// Move a labelled torrent into its label's folder under `completed_dir`
     /// (`dir.move_add_label`; µTorrent's "Append the torrent's label", off by default as
-    /// there; [`patorrent_core::label_dir`]).
+    /// there; [`rookparcel_core::label_dir`]).
     pub move_add_label: bool,
     /// "Location of .torrents": stored copies, finished jobs, auto-load (`dir.store_torrents`,
     /// `dir.torrents`, `dir.move_torrents`, `dir.finished_torrents`, `dir.autoload`,
@@ -43,7 +43,7 @@ pub struct GuiOptions {
     /// The main window's title starts with the transfer speeds (`ui.title_speed`; µTorrent's
     /// "Show current speed in the title bar", off by default as there).
     pub title_speed: bool,
-    /// Ask at start when PaTorrent does not open `.torrent` files and `magnet:` links
+    /// Ask at start when Rookparcel does not open `.torrent` files and `magnet:` links
     /// (`ui.check_assoc`; µTorrent's "Check association on startup"). Off by default here.
     pub check_association: bool,
     /// Close / minimize to the tray (`ui.close_to_tray`, `ui.minimize_to_tray`).
@@ -283,7 +283,7 @@ pub fn random_port() -> u16 {
 
 #[cfg(test)]
 mod tests {
-    use patorrent_core::TorrentSource;
+    use rookparcel_core::TorrentSource;
 
     use super::*;
 

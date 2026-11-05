@@ -5,8 +5,8 @@
 //! or on to beta versions (`update.beta`). Hosted (D40), the desktop client checks for itself:
 //! nothing is set or sent here.
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_frontend::update::Version;
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_frontend::update::Version;
 
 use super::json::Json;
 use super::{State, WebUi, unix_now};

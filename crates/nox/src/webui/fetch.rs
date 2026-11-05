@@ -1,8 +1,8 @@
 //! Downloads a `.torrent` named by an `http://` or `https://` URL for `torrents/add` and the
-//! native add, through the engine's blocking fetch helper (`patorrent_core::fetch`: redirects,
+//! native add, through the engine's blocking fetch helper (`rookparcel_core::fetch`: redirects,
 //! chunked bodies, OS TLS) and the session's proxy when one is set.
 
-use patorrent_core::fetch::{FetchError, FetchOptions, FetchProxy, http_get};
+use rookparcel_core::fetch::{FetchError, FetchOptions, FetchProxy, http_get};
 
 use super::http::Limits;
 

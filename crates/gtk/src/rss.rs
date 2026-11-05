@@ -1,5 +1,5 @@
 //! The RSS Downloader window (µTorrent 2.2.1: Options > RSS Downloader and the toolbar's RSS
-//! button) and its Add RSS Feed dialog, on [`patorrent_frontend::rss`], as the Win32 client's.
+//! button) and its Add RSS Feed dialog, on [`rookparcel_frontend::rss`], as the Win32 client's.
 //!
 //! Left, the Feeds list (All Feeds, then each feed) with Add, Edit, Remove and Update and the
 //! selected feed's state under it. Right, two tabs: Filters (the filter list with check boxes
@@ -13,10 +13,10 @@ use std::rc::{Rc, Weak};
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_frontend::lang::{self, S, gtk_mnemonic};
-use patorrent_frontend::rss::view::{self, FeedForm, quality_text};
-use patorrent_frontend::rss::{FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter};
-use patorrent_frontend::tr;
+use rookparcel_frontend::lang::{self, S, gtk_mnemonic};
+use rookparcel_frontend::rss::view::{self, FeedForm, quality_text};
+use rookparcel_frontend::rss::{FeedId, FilterId, MIN_INTERVALS, Quality, RssDownloader, RssFilter};
+use rookparcel_frontend::tr;
 
 use crate::table::Table;
 

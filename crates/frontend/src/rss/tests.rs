@@ -407,7 +407,7 @@ fn persistence_round_trip() {
     let id = back.add_feed("https://c/rss", "");
     assert!(d.feeds.iter().all(|f| f.id != id) && d.filters.iter().all(|f| f.id != id));
 
-    let dir = std::env::temp_dir().join(format!("patorrent-rss-test-{}", std::process::id()));
+    let dir = std::env::temp_dir().join(format!("rookparcel-rss-test-{}", std::process::id()));
     let path = dir.join(store::FILE_NAME);
     d.save(&path).unwrap();
     assert_eq!(RssDownloader::load(&path), want);
@@ -590,7 +590,7 @@ fn dates_and_titles_never_panic() {
 fn fetch_feed_over_http() {
     use std::io::{Read, Write};
     let mut gzipped = vec![0x1f, 0x8b, 8, 0, 0, 0, 0, 0, 0, 255];
-    gzipped.extend(patorrent_core::util::deflate::deflate(RSS_SAMPLE.as_bytes()));
+    gzipped.extend(rookparcel_core::util::deflate::deflate(RSS_SAMPLE.as_bytes()));
     gzipped.extend([0; 8]);
     let mut first = format!(
         "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nETag: \"v1\"\r\nLast-Modified: Thu, 29 Oct 2026 10:00:00 GMT\r\nContent-Length: {}\r\n\r\n",
@@ -679,7 +679,7 @@ fn feed_items_stay_off_the_local_network() {
     assert_eq!(server.join().unwrap(), 3, "only the local feeds' items were fetched");
 }
 
-/// Manual check of a real feed: `LT_RSS_FILE=feed.xml cargo test -p patorrent-frontend
+/// Manual check of a real feed: `LT_RSS_FILE=feed.xml cargo test -p rookparcel-frontend
 /// rss::tests::local_feed_file -- --ignored --nocapture` prints what the parser and the
 /// episode / quality detection make of it.
 #[test]

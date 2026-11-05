@@ -3,14 +3,14 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>PaTorrent: a lean BitTorrent client in the spirit of µTorrent 2.2.1</title>
-<meta name="description" content="PaTorrent is a lean BitTorrent client in the spirit of µTorrent 2.2.1: a native Win32 GUI, a GTK 4 GUI for Linux, BSD and macOS, and a headless daemon with its own Web UI.">
+<title>Rookparcel: a lean BitTorrent client in the spirit of µTorrent 2.2.1</title>
+<meta name="description" content="Rookparcel is a lean BitTorrent client in the spirit of µTorrent 2.2.1: a native Win32 GUI, a GTK 4 GUI for Linux, BSD and macOS, and a headless daemon with its own Web UI.">
 <meta name="color-scheme" content="light dark">
 <meta name="theme-color" content="#004540">
 <link rel="icon" type="image/png" sizes="32x32" href="img/icon-32.png">
 <link rel="icon" type="image/png" sizes="16x16" href="img/icon-16.png">
 <link rel="apple-touch-icon" href="img/icon-256.png">
-<link rel="alternate" type="application/atom+xml" title="PaTorrent news" href="news.atom">
+<link rel="alternate" type="application/atom+xml" title="Rookparcel news" href="news.atom">
 <link rel="stylesheet" href="css/style.css">
 <script src="js/site.js" defer></script>
 </head>
@@ -18,7 +18,7 @@
 <a class="skip" href="#main">Skip to content</a>
 <header class="topbar">
   <div class="wrap topbar-in">
-    <a class="brand" href="./"><img src="img/icon-32.png" srcset="img/icon-64.png 2x" width="32" height="32" alt=""> PaTorrent</a>
+    <a class="brand" href="./"><img src="img/icon-32.png" srcset="img/icon-64.png 2x" width="32" height="32" alt=""> Rookparcel</a>
     <nav aria-label="Main">
       <ul class="toolbar">
         <li><a href="download.html"><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-download"/></svg>Download</a></li>
@@ -26,7 +26,7 @@
         <li><a href="faq.html"><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-help"/></svg>FAQ</a></li>
         <li><a href="benchmarks.html"><svg class="ico ico-orange" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-speed"/></svg>Benchmarks</a></li>
         <li><a href="docs.html"><svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Docs</a></li>
-        <li><a class="ext" href="https://github.com/Balls0fSteel/PaTorrent">GitHub</a></li>
+        <li><a class="ext" href="https://github.com/Balls0fSteel/Rookparcel">GitHub</a></li>
       </ul>
     </nav>
   </div>
@@ -37,12 +37,11 @@
     <div class="wrap hero-in">
       <img class="hero-icon" src="img/icon-128.png" srcset="img/icon-256.png 2x" width="112" height="112" alt="">
       <div>
-        <p class="eyebrow">PatinaTorrent: a patina is the good kind of rust</p>
-        <h1 id="title">PaTorrent</h1>
+        <h1 id="title">Rookparcel</h1>
         <p class="lede">A lean BitTorrent client in the spirit of µTorrent 2.2.1: small native programs, low RAM and CPU use, and an interface that stays responsive with tens of thousands of torrents.</p>
-        <p>A native Win32 GUI on Windows, a GTK 4 GUI on Linux, BSD and macOS, and a headless daemon, <code>patorrent-nox</code>, with its own Web UI. The engine is our own Rust port of libtorrent-rasterbar 2.0.11.</p>
+        <p>A native Win32 GUI on Windows, a GTK 4 GUI on Linux, BSD and macOS, and a headless daemon, <code>rookparcel-nox</code>, with its own Web UI. The engine is our own Rust port of libtorrent-rasterbar 2.0.11.</p>
         <!-- build:hero-download -->
-        <div class="cta"><p class="cta-buttons"><a class="btn btn-primary" href="https://github.com/Balls0fSteel/PaTorrent/releases">Download from GitHub</a> <a class="btn btn-ghost" href="download.html#which">Which file do I need?</a></p></div>
+        <div class="cta"><p class="cta-buttons"><a class="btn btn-primary" href="https://github.com/Balls0fSteel/Rookparcel/releases">Download from GitHub</a> <a class="btn btn-ghost" href="download.html#which">Which file do I need?</a></p></div>
         <!-- /build:hero-download -->
       </div>
     </div>
@@ -57,8 +56,8 @@
     <aside class="callout" aria-label="Release candidate">
       <svg class="ico ico-amber" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-warning"/></svg>
       <div>
-        <p><strong>Release candidate: pre-release software.</strong> PaTorrent works for its author but has had no wider testing yet. Settings and saved state may still change between versions, some features are only lightly tested, and nothing is code-signed.</p>
-        <p>Do not use it for torrents you care about, and not on private trackers: its client ID is not whitelisted anywhere yet. Feedback and <a href="https://github.com/Balls0fSteel/PaTorrent/issues">bug reports</a> are welcome.</p>
+        <p><strong>Release candidate: pre-release software.</strong> Rookparcel works for its author but has had no wider testing yet. Settings and saved state may still change between versions, some features are only lightly tested, and nothing is code-signed.</p>
+        <p>Do not use it for torrents you care about, and not on private trackers: its client ID is not whitelisted anywhere yet. Feedback and <a href="https://github.com/Balls0fSteel/Rookparcel/issues">bug reports</a> are welcome.</p>
       </div>
     </aside>
     <!-- /build:if-prerelease -->
@@ -68,8 +67,8 @@
       <p class="lead">The Windows GUI is a faithful recreation of the µTorrent 2.2.1 main window: the category list, the torrent list with every column, the detail tabs, Preferences and the dialogs. It uses none of µTorrent's code or artwork.</p>
       <div class="shots">
         <figure class="shot">
-          <img src="img/screenshot-windows.png" alt="PaTorrent's main window on Windows, laid out like µTorrent 2.2.1: the toolbar, the category list, the torrent list and the detail tabs below it.">
-          <figcaption>The Windows GUI, <code>patorrent.exe</code>.</figcaption>
+          <img src="img/screenshot-windows.png" alt="Rookparcel's main window on Windows, laid out like µTorrent 2.2.1: the toolbar, the category list, the torrent list and the detail tabs below it.">
+          <figcaption>The Windows GUI, <code>rookparcel.exe</code>.</figcaption>
         </figure>
         <div class="shot-pair">
           <figure class="shot">
@@ -87,16 +86,16 @@
 
     <section class="section" aria-labelledby="share">
       <h2 id="share">It shares your PC</h2>
-      <p class="lead">A torrent client should not be the reason a game lags or the whole computer feels slow. PaTorrent can step aside on its own, for your line and for your disks.</p>
+      <p class="lead">A torrent client should not be the reason a game lags or the whole computer feels slow. Rookparcel can step aside on its own, for your line and for your disks.</p>
       <ul class="spotlights">
         <li class="spotlight">
           <h3><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-speed"/></svg>Gamer mode: keep your ping low</h3>
-          <p>Tick <strong>Keep ping low</strong> in Preferences &gt; Bandwidth. PaTorrent finds the first router past your line and watches its ping while it downloads and uploads. As soon as the line starts to queue, it slows itself down, then speeds up again when the queue clears, so games and video calls stay responsive. There is no game list and nothing to set up.</p>
-          <p class="spotlight-fact">On a test line with half a second of buffer, the ping fell from about 480&nbsp;ms to 10&nbsp;ms while PaTorrent kept 80-92&nbsp;% of the line's speed. It works on Windows, Linux and macOS; on BSD it goes by the delays its uTP peers measure.</p>
+          <p>Tick <strong>Keep ping low</strong> in Preferences &gt; Bandwidth. Rookparcel finds the first router past your line and watches its ping while it downloads and uploads. As soon as the line starts to queue, it slows itself down, then speeds up again when the queue clears, so games and video calls stay responsive. There is no game list and nothing to set up.</p>
+          <p class="spotlight-fact">On a test line with half a second of buffer, the ping fell from about 480&nbsp;ms to 10&nbsp;ms while Rookparcel kept 80-92&nbsp;% of the line's speed. It works on Windows, Linux and macOS; on BSD it goes by the delays its uTP peers measure.</p>
         </li>
         <li class="spotlight">
           <h3><svg class="ico ico-teal" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-files"/></svg>Smart disk I/O</h3>
-          <p>Rechecks run gently: at the system's background disk priority, without pushing other programs' files out of memory, and giving way whenever another program needs the disk. PaTorrent tells SSDs, hard disks and network shares apart. It checks one torrent per drive, several drives at once, and gives a hard disk only two jobs at a time so it doesn't spend its time seeking.</p>
+          <p>Rechecks run gently: at the system's background disk priority, without pushing other programs' files out of memory, and giving way whenever another program needs the disk. Rookparcel tells SSDs, hard disks and network shares apart. It checks one torrent per drive, several drives at once, and gives a hard disk only two jobs at a time so it doesn't spend its time seeking.</p>
           <p class="spotlight-fact">If you want it, it also slows downloads or uploads down while a disk is busy, and caps checking at a speed you choose: Preferences &gt; Advanced &gt; Disk I/O.</p>
         </li>
       </ul>
@@ -123,7 +122,7 @@
         </li>
         <li class="feature">
           <h3><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-web-ui"/></svg>Headless, with a Web UI</h3>
-          <p><code>patorrent-nox</code> runs as a daemon with its own Web UI (laid out for phones too), HTTPS, and a qBittorrent-compatible Web API subset so existing tools can talk to it. It runs as a service under systemd, FreeBSD's rc.d or Windows. The Windows GUI serves the same Web UI over its own torrents, RSS Downloader included: Preferences &gt; Web UI.</p>
+          <p><code>rookparcel-nox</code> runs as a daemon with its own Web UI (laid out for phones too), HTTPS, and a qBittorrent-compatible Web API subset so existing tools can talk to it. It runs as a service under systemd, FreeBSD's rc.d or Windows. The Windows GUI serves the same Web UI over its own torrents, RSS Downloader included: Preferences &gt; Web UI.</p>
         </li>
         <li class="feature">
           <h3><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-rss"/></svg>Search and RSS</h3>
@@ -131,11 +130,11 @@
         </li>
         <li class="feature">
           <h3><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-downloading"/></svg>Sonarr, Radarr, Prowlarr</h3>
-          <p>Add PaTorrent to them as a qBittorrent download client, against <code>patorrent-nox</code> or the Windows GUI. Indexer seed goals arrive with each grab and Remove Completed works; an API key and a subnet whitelist are there if you want them.</p>
+          <p>Add Rookparcel to them as a qBittorrent download client, against <code>rookparcel-nox</code> or the Windows GUI. Indexer seed goals arrive with each grab and Remove Completed works; an API key and a subnet whitelist are there if you want them.</p>
         </li>
         <li class="feature">
           <h3><svg class="ico ico-blue" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-remote"/></svg>Remote mode</h3>
-          <p>Either desktop GUI can drive a <code>patorrent-nox</code> on another machine: File &gt; Connect to Remote..., or start it with <code>--remote</code>.</p>
+          <p>Either desktop GUI can drive a <code>rookparcel-nox</code> on another machine: File &gt; Connect to Remote..., or start it with <code>--remote</code>.</p>
         </li>
         <li class="feature">
           <h3><svg class="ico ico-purple" aria-hidden="true" focusable="false"><use href="img/icons.svg#i-language"/></svg>English and 34 more languages</h3>
@@ -169,15 +168,15 @@
         <div class="platform-card">
           <h3>FreeBSD</h3>
           <p>No ready-made files yet: the GTK GUI and the daemon build from source, and an rc.d script is included.</p>
-          <p><a href="https://github.com/Balls0fSteel/PaTorrent#building">Building from source</a></p>
+          <p><a href="https://github.com/Balls0fSteel/Rookparcel#building">Building from source</a></p>
         </div>
       </div>
     </section>
 
     <section class="section" aria-labelledby="free">
       <h2 id="free">Free for noncommercial use</h2>
-      <p>PaTorrent is free for personal use, study, hobby projects, and use by charities, schools, research and public institutions, under the <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/LICENSE.md">PolyForm Noncommercial License 1.0.0</a>. You may share and change it on the same terms. Commercial use needs separate permission. More in the <a href="faq.html#license">FAQ</a>.</p>
-      <p class="note">PaTorrent is an independent project. It recreates the look and behaviour of µTorrent 2.2.1 but is not affiliated with, endorsed by or sponsored by µTorrent or BitTorrent, Inc., and uses none of their code, artwork or trademarks.</p>
+      <p>Rookparcel is free for personal use, study, hobby projects, and use by charities, schools, research and public institutions, under the <a href="https://github.com/Balls0fSteel/Rookparcel/blob/main/LICENSE.md">PolyForm Noncommercial License 1.0.0</a>. You may share and change it on the same terms. Commercial use needs separate permission. More in the <a href="faq.html#license">FAQ</a>.</p>
+      <p class="note">Rookparcel is an independent project. It recreates the look and behaviour of µTorrent 2.2.1 but is not affiliated with, endorsed by or sponsored by µTorrent or BitTorrent, Inc., and uses none of their code, artwork or trademarks.</p>
     </section>
   </div>
 </main>
@@ -185,10 +184,10 @@
 <footer class="statusbar">
   <div class="wrap">
     <ul>
-      <li>Latest: <!-- build:latest-version --><a href="https://github.com/Balls0fSteel/PaTorrent/releases">Releases</a><!-- /build:latest-version --></li>
-      <li><a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/LICENSE.md">PolyForm Noncommercial 1.0.0</a></li>
+      <li>Latest: <!-- build:latest-version --><a href="https://github.com/Balls0fSteel/Rookparcel/releases">Releases</a><!-- /build:latest-version --></li>
+      <li><a href="https://github.com/Balls0fSteel/Rookparcel/blob/main/LICENSE.md">PolyForm Noncommercial 1.0.0</a></li>
       <li>© 2026 <a href="https://dukecorp1996.x35.in/">DukeCorp1996</a></li>
-      <li class="grow"><a href="https://github.com/Balls0fSteel/PaTorrent/issues">Report a problem</a></li>
+      <li class="grow"><a href="https://github.com/Balls0fSteel/Rookparcel/issues">Report a problem</a></li>
     </ul>
     <p>Not affiliated with µTorrent, BitTorrent, Inc., libtorrent or qBittorrent. This site sets no cookies and loads nothing from other sites.</p>
   </div>

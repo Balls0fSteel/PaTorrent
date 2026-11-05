@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use patorrent_core::tls;
+use rookparcel_core::tls;
 
 use super::api::{self, Request, UNAUTHENTICATED_BODY};
 use super::auth::ban_key;
@@ -413,7 +413,7 @@ fn connection(stream: TcpStream, peer: SocketAddr, shared: &Shared) {
         };
         buf.drain(..used);
 
-        if head.path == patorrent_core::remote::PATH {
+        if head.path == rookparcel_core::remote::PATH {
             match super::remote::handshake(shared, &head, peer.ip()) {
                 Ok(()) => {
                     if write_out(&mut stream, &super::remote::switching_protocols()) {

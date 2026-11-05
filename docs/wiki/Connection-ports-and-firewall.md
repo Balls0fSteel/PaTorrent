@@ -1,6 +1,6 @@
 # Connection, ports and firewall
 
-This page covers how other peers reach PaTorrent: the listening port, port forwarding with UPnP and NAT-PMP, the Windows firewall, how to tell whether incoming connections work, keeping torrent traffic on a VPN with "Use only this network", proxies, encryption, the IP filter, and the DHT, Peer Exchange and Local Peer Discovery.
+This page covers how other peers reach Rookparcel: the listening port, port forwarding with UPnP and NAT-PMP, the Windows firewall, how to tell whether incoming connections work, keeping torrent traffic on a VPN with "Use only this network", proxies, encryption, the IP filter, and the DHT, Peer Exchange and Local Peer Discovery.
 
 Most of these settings are on **Options > Preferences > Connection** and **Options > Preferences > BitTorrent**.
 
@@ -8,7 +8,7 @@ Most of these settings are on **Options > Preferences > Connection** and **Optio
 
 ## Why incoming connections matter
 
-PaTorrent connects out to peers, and peers connect in to PaTorrent. Downloads work with outgoing connections alone, but a PaTorrent that others can reach finds more peers, and two peers that both cannot be reached cannot talk to each other at all. For good speeds, and for seeding, let peers in.
+Rookparcel connects out to peers, and peers connect in to Rookparcel. Downloads work with outgoing connections alone, but a Rookparcel that others can reach finds more peers, and two peers that both cannot be reached cannot talk to each other at all. For good speeds, and for seeding, let peers in.
 
 ## The listening port
 
@@ -22,25 +22,25 @@ Under **Listening Port** on the Connection page:
 | **Enable UPnP port mapping** | Asks a UPnP router to forward the port to this computer. On by default. |
 | **Enable NAT-PMP port mapping** | Asks the router to forward the port through NAT-PMP or PCP, which many routers offer besides UPnP or instead of it. On by default. |
 
-The default profile listens on port 6881. A new profile, or a portable copy, picks a random port from 10000 to 60000 at its first start, so it does not collide with another PaTorrent. See [Profiles](Profiles).
+The default profile listens on port 6881. A new profile, or a portable copy, picks a random port from 10000 to 60000 at its first start, so it does not collide with another Rookparcel. See [Profiles](Profiles).
 
-PaTorrent listens on TCP and UDP on the same port: UDP carries uTP peers and the DHT.
+Rookparcel listens on TCP and UDP on the same port: UDP carries uTP peers and the DHT.
 
 ### Forwarding the port in the router
 
-With UPnP or NAT-PMP on and a router that supports them, there is nothing to do: PaTorrent asks the router to forward the port and renews the request. If your router has them switched off, or misbehaves, turn both boxes off and forward the port by hand in the router's own settings: TCP and UDP, to this computer's address. Then leave **Randomize port each start** off, so the port stays the one you forwarded.
+With UPnP or NAT-PMP on and a router that supports them, there is nothing to do: Rookparcel asks the router to forward the port and renews the request. If your router has them switched off, or misbehaves, turn both boxes off and forward the port by hand in the router's own settings: TCP and UDP, to this computer's address. Then leave **Randomize port each start** off, so the port stays the one you forwarded.
 
 ## The Windows firewall
 
-PaTorrent does not add a Windows Firewall rule by itself. Windows normally asks the first time a program listens for incoming connections; allow PaTorrent there.
+Rookparcel does not add a Windows Firewall rule by itself. Windows normally asks the first time a program listens for incoming connections; allow Rookparcel there.
 
 If you dismissed that question, or nothing asked, add a rule for the program from a Command Prompt run as administrator. For a one-user installation:
 
 ```bat
-netsh advfirewall firewall add rule name="PaTorrent" dir=in action=allow program="%LOCALAPPDATA%\Programs\PaTorrent\patorrent.exe"
+netsh advfirewall firewall add rule name="Rookparcel" dir=in action=allow program="%LOCALAPPDATA%\Programs\Rookparcel\rookparcel.exe"
 ```
 
-For an installation for every user, the path is `C:\Program Files\PaTorrent\patorrent.exe`; for the zip, wherever you unpacked `patorrent.exe`. The Web UI's port needs the same rule when other computers should reach it: see [Web UI](Web-UI). For [patorrent-nox](Running-patorrent-nox) running as a service, see its page.
+For an installation for every user, the path is `C:\Program Files\Rookparcel\rookparcel.exe`; for the zip, wherever you unpacked `rookparcel.exe`. The Web UI's port needs the same rule when other computers should reach it: see [Web UI](Web-UI). For [rookparcel-nox](Running-rookparcel-nox) running as a service, see its page.
 
 On Linux and the BSDs, allow the port in your firewall if you run one.
 
@@ -52,17 +52,17 @@ The left part of the status bar tells you:
 |---|---|
 | **Network OK** | At least one peer has connected in. The port works. |
 | **No incoming connections** | No peer has connected in yet. Normal for the first minutes after a start; if it stays, the port is not reachable. |
-| **Port 6881 in use** (with your port number) | Another program, often another PaTorrent profile, holds the port, and PaTorrent listens on a later port where nothing is forwarded. Click it to open Preferences at Connection and choose another port. |
+| **Port 6881 in use** (with your port number) | Another program, often another Rookparcel profile, holds the port, and Rookparcel listens on a later port where nothing is forwarded. Click it to open Preferences at Connection and choose another port. |
 
 *"Port ... in use" is new in 1.1.45; not in a published release yet.*
 
 Hold the pointer over that part to see **Your address as trackers see it:**, the public address trackers report back. The **General** tab shows the same line. *New in 1.1.58; not in a published release yet.*
 
-PaTorrent has no built-in port test. If the status stays at "No incoming connections" with active torrents:
+Rookparcel has no built-in port test. If the status stays at "No incoming connections" with active torrents:
 
-1. Check that the firewall allows PaTorrent (above).
-2. Check that UPnP or NAT-PMP is on in PaTorrent and in the router, or forward the port by hand.
-3. With "Use only this network" set to a VPN, peers can only reach you through the VPN's own port forwarding, if it has one: PaTorrent asks no port mapping of a VPN adapter.
+1. Check that the firewall allows Rookparcel (above).
+2. Check that UPnP or NAT-PMP is on in Rookparcel and in the router, or forward the port by hand.
+3. With "Use only this network" set to a VPN, peers can only reach you through the VPN's own port forwarding, if it has one: Rookparcel asks no port mapping of a VPN adapter.
 
 See also [Troubleshooting and FAQ](Troubleshooting-and-FAQ).
 
@@ -96,10 +96,10 @@ The rule is checked again at every network change, so a VPN that reconnects unde
 
 Good to know:
 
-- If the VPN carries only IPv4, PaTorrent uses no IPv6 for torrents while bound to it, so IPv6 cannot leak around the tunnel.
-- The Web UI and remote connections to PaTorrent are not bound, so you can still reach them over your normal network.
+- If the VPN carries only IPv4, Rookparcel uses no IPv6 for torrents while bound to it, so IPv6 cannot leak around the tunnel.
+- The Web UI and remote connections to Rookparcel are not bound, so you can still reach them over your normal network.
 - Proxy connections are not bound either. The search helper is a separate program and is not bound; see [Searching for torrents on Windows](Searching-for-torrents-on-Windows#good-to-know).
-- In the Web UI, the same group is on **Preferences > Connection**. For patorrent-nox at the command line: `--network vpn`, `--network adapter:ID`, `--network range:10.2.0.0/16`, or `off`; and `--no-pause-when-missing` to leave torrents running unbound.
+- In the Web UI, the same group is on **Preferences > Connection**. For rookparcel-nox at the command line: `--network vpn`, `--network adapter:ID`, `--network range:10.2.0.0/16`, or `off`; and `--no-pause-when-missing` to leave torrents running unbound.
 
 ## Proxy server
 
@@ -122,7 +122,7 @@ On **Options > Preferences > BitTorrent**, under **Protocol Encryption**:
 
 | Setting | Meaning |
 |---|---|
-| **Outgoing:** | How the connections PaTorrent opens are encrypted. **Disabled**: never. **Enabled** (the default): plain and encrypted attempts alternate per peer, keeping what worked. **Forced**: encrypted only, losing peers that cannot encrypt. |
+| **Outgoing:** | How the connections Rookparcel opens are encrypted. **Disabled**: never. **Enabled** (the default): plain and encrypted attempts alternate per peer, keeping what worked. **Forced**: encrypted only, losing peers that cannot encrypt. |
 | **Allow incoming legacy connections** | Accepts incoming connections that are not encrypted. Off, only encrypted ones are accepted, which loses peers that cannot encrypt. On by default. |
 
 Change these if your provider slows BitTorrent traffic down. The Advanced page has the finer settings (`out_enc_policy`, `in_enc_policy`, `allowed_enc_level`, `prefer_rc4`).
@@ -142,16 +142,16 @@ Under **Basic BitTorrent Features** on the BitTorrent page, all on by default:
 
 Private torrents never use the DHT, Peer Exchange or Local Peer Discovery, whatever these boxes say. A torrent's Properties can switch the DHT and Peer Exchange off for that torrent alone (**Enable DHT** and **Peer Exchange** under **Other Settings**).
 
-The status bar shows **DHT: N nodes**, how many DHT nodes PaTorrent knows.
+The status bar shows **DHT: N nodes**, how many DHT nodes Rookparcel knows.
 
 To allow only some connection types, such as TCP only, use `bt.transp_disposition` on the Advanced page: 1 outgoing TCP, 2 outgoing uTP, 4 incoming TCP, 8 incoming uTP, added together; 15 (the default) allows all, 5 is TCP only.
 
 ## IP filter
 
-Under **IP Filter** on the BitTorrent page, PaTorrent can block peers by address, from a block list in eMule `ipfilter.dat` or PeerGuardian P2P format.
+Under **IP Filter** on the BitTorrent page, Rookparcel can block peers by address, from a block list in eMule `ipfilter.dat` or PeerGuardian P2P format.
 
 1. Tick **Enable IP filter**.
-2. Choose the block list file in the box below. Left empty, PaTorrent uses `ipfilter.dat` in its settings folder.
+2. Choose the block list file in the box below. Left empty, Rookparcel uses `ipfilter.dat` in its settings folder.
 3. Click **Reload** to load it now and see how many rules it holds ("N rules loaded."), or click **OK** to load it with the other settings.
 
 The list is loaded at start and on Apply. The Logger writes "IP filter: N rules from ..." or the error. If a new list cannot be read, the rules loaded before stay in force.
@@ -164,11 +164,11 @@ In the Web UI there is no Reload button: the list loads when you apply.
 
 - **GTK window**: the same pages and settings. The status bar's network part says the same things, and a click on "Port ... in use" opens Preferences at Connection.
 - **Web UI**: the same pages under **Preferences**; its status bar shows the network part with the same tooltip.
-- **patorrent-nox**: `--port N` sets the listening port (default 6881), `--listen` sets the listen interfaces in full, `--proxy TYPE://[USER:PASS@]HOST:PORT` sets a proxy, `--ip-filter FILE` loads a block list, and `--network` sets "Use only this network". A service on Windows needs a firewall rule for `patorrent-nox.exe`: see [Running patorrent-nox](Running-patorrent-nox).
+- **rookparcel-nox**: `--port N` sets the listening port (default 6881), `--listen` sets the listen interfaces in full, `--proxy TYPE://[USER:PASS@]HOST:PORT` sets a proxy, `--ip-filter FILE` loads a block list, and `--network` sets "Use only this network". A service on Windows needs a firewall rule for `rookparcel-nox.exe`: see [Running rookparcel-nox](Running-rookparcel-nox).
 
 ## Related pages
 
 - [Speed limits and the scheduler](Speed-limits-and-scheduler)
-- [Profiles](Profiles) (ports for several PaTorrents)
+- [Profiles](Profiles) (ports for several Rookparcels)
 - [Troubleshooting and FAQ](Troubleshooting-and-FAQ)
 - [Preferences reference](Preferences-reference)

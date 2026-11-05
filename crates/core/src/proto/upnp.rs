@@ -726,7 +726,7 @@ NTS:ssdp:alive\r\nLocation:http://10.0.3.169:2869/upnphost/udhisapi.dll?content=
     #[test]
     fn soap_bodies_match_libtorrent() {
         let ns = "urn:schemas-upnp-org:service:WANIPConnection:1";
-        let body = add_port_mapping(ns, 6881, Protocol::Tcp, 6881, "192.168.1.5", "PaTorrent/0.1.0", 3600);
+        let body = add_port_mapping(ns, 6881, Protocol::Tcp, 6881, "192.168.1.5", "Rookparcel/0.1.0", 3600);
         assert_eq!(
             body,
             "<?xml version=\"1.0\"?>\n<s:Envelope xmlns:s=\"http://schemas.xmlsoap.org/soap/envelope/\" \
@@ -734,7 +734,7 @@ s:encodingStyle=\"http://schemas.xmlsoap.org/soap/encoding/\"><s:Body><u:AddPort
 xmlns:u=\"urn:schemas-upnp-org:service:WANIPConnection:1\"><NewRemoteHost></NewRemoteHost>\
 <NewExternalPort>6881</NewExternalPort><NewProtocol>TCP</NewProtocol><NewInternalPort>6881</NewInternalPort>\
 <NewInternalClient>192.168.1.5</NewInternalClient><NewEnabled>1</NewEnabled>\
-<NewPortMappingDescription>PaTorrent/0.1.0</NewPortMappingDescription><NewLeaseDuration>3600</NewLeaseDuration>\
+<NewPortMappingDescription>Rookparcel/0.1.0</NewPortMappingDescription><NewLeaseDuration>3600</NewLeaseDuration>\
 </u:AddPortMapping></s:Body></s:Envelope>"
         );
         let del = delete_port_mapping(ns, 6881, Protocol::Udp);

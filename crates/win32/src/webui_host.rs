@@ -1,8 +1,8 @@
 //! Preferences > Web UI: this window serves the Web UI itself (D40), as µTorrent and
-//! qBittorrent serve theirs: `patorrent_nox::webui::WebUi` over this window's engine, fed this
+//! qBittorrent serve theirs: `rookparcel_nox::webui::WebUi` over this window's engine, fed this
 //! window's alert batches, with this window's preferences mirrored into it (the labels, the
 //! pause marks, the settings) and what a browser changes handed back through [`Host`]. The
-//! page edits the `webui.*` keys of `patorrent.ini`; the server starts with the window when
+//! page edits the `webui.*` keys of `rookparcel.ini`; the server starts with the window when
 //! enabled and is restarted on Apply. A remote window (File > Connect to Remote) has no engine
 //! of its own and serves nothing.
 //!
@@ -18,13 +18,13 @@ use std::net::{Ipv4Addr, SocketAddr};
 use std::path::Path;
 use std::sync::{Arc, Mutex};
 
-use patorrent_core::{SessionHandle, Settings};
-use patorrent_frontend::prefs::{Change, Prefs};
-use patorrent_frontend::rss::AddRequest;
-use patorrent_frontend::tr;
-use patorrent_nox::webui::auth::{DEFAULT_ITERATIONS, PasswordHash};
-use patorrent_nox::webui::https::{Certificate, default_names};
-use patorrent_nox::webui::{self, Config, Host, Hosted, Rss, WebUi};
+use rookparcel_core::{SessionHandle, Settings};
+use rookparcel_frontend::prefs::{Change, Prefs};
+use rookparcel_frontend::rss::AddRequest;
+use rookparcel_frontend::tr;
+use rookparcel_nox::webui::auth::{DEFAULT_ITERATIONS, PasswordHash};
+use rookparcel_nox::webui::https::{Certificate, default_names};
+use rookparcel_nox::webui::{self, Config, Host, Hosted, Rss, WebUi};
 use windows_sys::Win32::Foundation::HWND;
 use windows_sys::Win32::UI::WindowsAndMessaging::PostMessageW;
 
@@ -327,14 +327,14 @@ mod tests {
             port: 8443,
             remote: true,
             https: true,
-            domains: "patorrent;*.lan".into(),
+            domains: "rookparcel;*.lan".into(),
             api_key_enabled: true,
             subnets: "192.168.1.0/24;fd00::/8".into(),
         };
         assert!(!has_api_key(&p));
         s.store(&mut p, Some("s3cret"), Some("0123456789abcdef"));
         assert_eq!(p.get("webui.listen"), Some("0.0.0.0:8443"));
-        assert_eq!(p.get("webui.domain_list"), Some("patorrent;*.lan"));
+        assert_eq!(p.get("webui.domain_list"), Some("rookparcel;*.lan"));
         assert_eq!(p.get("webui.enabled"), Some("1"));
         assert_eq!(p.get("webui.api_key_enabled"), Some("1"));
         assert_eq!(p.get("webui.bypass_auth_subnets"), Some("192.168.1.0/24;fd00::/8"));

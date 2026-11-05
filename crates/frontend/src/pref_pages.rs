@@ -10,7 +10,7 @@
 
 use std::collections::HashMap;
 
-use patorrent_core::{EncPolicy, ProxyType, Settings};
+use rookparcel_core::{EncPolicy, ProxyType, Settings};
 
 use crate::lang::{self, H, S};
 use crate::network;

@@ -1,6 +1,6 @@
 [package]
-name = "patorrent-core"
-description = "PaTorrent's BitTorrent engine: a Rust port of libtorrent-rasterbar 2.0.11."
+name = "rookparcel-core"
+description = "Rookparcel's BitTorrent engine: a Rust port of libtorrent-rasterbar 2.0.11."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true

@@ -10,7 +10,7 @@
 //! Pause and Stop are the same in the engine. The frontend records which one the user chose
 //! (see [`crate::status::status_text`]).
 
-use patorrent_core::{TorrentFlags, TorrentHandle};
+use rookparcel_core::{TorrentFlags, TorrentHandle};
 
 /// The context menu's Bandwidth Allocation presets in kB/s; 0 = unlimited.
 pub const LIMITS: [u32; 10] = [0, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000];
@@ -43,7 +43,7 @@ pub fn stop(t: &TorrentHandle) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
+    use rookparcel_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
     use std::time::{Duration, Instant};
 
     #[test]

@@ -24,14 +24,14 @@
 
 use std::time::{Duration, Instant};
 
-use patorrent_core::{TorrentFlags, TorrentState, TorrentStatus};
+use rookparcel_core::{TorrentFlags, TorrentState, TorrentStatus};
 
 use crate::tr;
 
 /// What to do once the work is done.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Action {
-    /// Quit PaTorrent, as File > Exit.
+    /// Quit Rookparcel, as File > Exit.
     Quit,
     Standby,
     Hibernate,

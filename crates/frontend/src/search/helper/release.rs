@@ -4,13 +4,13 @@
 
 use std::io;
 
-use patorrent_core::Sha256Hash;
-use patorrent_core::crypto::Sha256;
-use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get, http_get_to};
+use rookparcel_core::Sha256Hash;
+use rookparcel_core::crypto::Sha256;
+use rookparcel_core::fetch::{FetchOptions, FetchProxy, http_get, http_get_to};
 
 use super::json;
 
-/// The GitHub API's newest release of Jackett. `PATORRENT_HELPER_RELEASES` at run time names
+/// The GitHub API's newest release of Jackett. `ROOKPARCEL_HELPER_RELEASES` at run time names
 /// another (a local fake, for a hand test).
 pub const RELEASES_URL: &str = "https://api.github.com/repos/Jackett/Jackett/releases/latest";
 /// The project's page, for the confirm box and the documentation.
@@ -81,7 +81,7 @@ pub fn parse_release(text: &str, wanted: &str) -> Result<Release, String> {
 }
 
 fn releases_url() -> String {
-    std::env::var("PATORRENT_HELPER_RELEASES").unwrap_or_else(|_| RELEASES_URL.to_owned())
+    std::env::var("ROOKPARCEL_HELPER_RELEASES").unwrap_or_else(|_| RELEASES_URL.to_owned())
 }
 
 /// Asks GitHub for the newest release and picks this platform's asset (blocking). Through the

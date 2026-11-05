@@ -5,7 +5,7 @@ use std::mem::{size_of, zeroed};
 use std::path::{Path, PathBuf};
 use std::ptr::{null, null_mut};
 
-use patorrent_frontend::tr;
+use rookparcel_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::DataExchange::{CloseClipboard, GetClipboardData, OpenClipboard};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -106,7 +106,7 @@ pub fn error(owner: HWND, text: &str) {
 
 /// Help > About: the text with the application icon.
 pub fn about(owner: HWND, text: &str) {
-    let (t, c) = (wide(text), wide("PaTorrent"));
+    let (t, c) = (wide(text), wide("Rookparcel"));
     unsafe {
         let mut p: MSGBOXPARAMSW = zeroed();
         p.cbSize = size_of::<MSGBOXPARAMSW>() as u32;
@@ -141,7 +141,7 @@ pub fn choose(owner: HWND, text: &str, buttons: &[&str]) -> Option<usize> {
         told(text);
         return None;
     }
-    let (t, c) = (wide(text), wide("PaTorrent"));
+    let (t, c) = (wide(text), wide("Rookparcel"));
     let texts: Vec<Vec<u16>> = buttons.iter().map(|b| wide(b)).collect();
     let buttons: Vec<TASKDIALOG_BUTTON> = texts
         .iter()
@@ -178,7 +178,7 @@ fn message(owner: HWND, text: &str, flags: u32) -> i32 {
         told(text);
         return IDOK;
     }
-    let (t, c) = (wide(text), wide("PaTorrent"));
+    let (t, c) = (wide(text), wide("Rookparcel"));
     unsafe { MessageBoxW(owner, t.as_ptr(), c.as_ptr(), flags | rtl(MB_RTLREADING | MB_RIGHT)) }
 }
 

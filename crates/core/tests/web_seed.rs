@@ -21,9 +21,9 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     AddTorrentParams, Alert, BlockReason, PeerClassId, Session, SessionHandle, SessionParams, Settings,
     SocketType, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
@@ -448,7 +448,7 @@ fn multi_file_torrent_from_its_url_list() {
 /// piece: a run of blocks must not go on into the next file across the padding.
 #[test]
 fn v2_only_torrent_from_its_url_list() {
-    use patorrent_core::metainfo::{CreateFlags, CreateTorrent, FileStorage, add_files, set_piece_hashes};
+    use rookparcel_core::metainfo::{CreateFlags, CreateTorrent, FileStorage, add_files, set_piece_hashes};
     let base = Arc::new(Mutex::new(HashMap::new()));
     let b2 = base.clone();
     let srv = server(Mode::Plain, move |r| match b2.lock().unwrap().get(&r.path) {
@@ -826,7 +826,7 @@ fn web_seeds_show_in_the_peer_list() {
     let (urls, _) = w.web_seeds(id);
     assert_eq!(urls, vec![with_creds.clone()], "the stored URL keeps them");
     assert_eq!(peer.client, "test-seed/1.0");
-    assert!(peer.flags.contains(patorrent_core::PeerFlags::SEED));
+    assert!(peer.flags.contains(rookparcel_core::PeerFlags::SEED));
     let st = w.finished(id, 60);
     assert_eq!(st.total_failed_bytes, 0);
     finish(w, &f, dir);
@@ -868,11 +868,11 @@ fn ip_filter_blocks_a_web_seed() {
     let srv = server(Mode::Plain, move |_| Reply::File(file.clone()));
     let dir = temp_dir("blocked");
     let mut w = Watch::start(settings());
-    let mut filter = patorrent_core::IpFilter::default();
+    let mut filter = rookparcel_core::IpFilter::default();
     filter.add_rule(
         "127.0.0.1".parse().unwrap(),
         "127.0.0.1".parse().unwrap(),
-        patorrent_core::IpFilter::BLOCKED,
+        rookparcel_core::IpFilter::BLOCKED,
     );
     w.h.set_ip_filter(filter);
     let id = w.add(&f, &dir, &[srv.url("/blocked.bin")]);

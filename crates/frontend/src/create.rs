@@ -3,11 +3,11 @@
 
 use std::path::{Path, PathBuf};
 
-use patorrent_core::metainfo::create_torrent::{get_file_attributes, parent_dir};
-use patorrent_core::metainfo::{
+use rookparcel_core::metainfo::create_torrent::{get_file_attributes, parent_dir};
+use rookparcel_core::metainfo::{
     CreateFlags, CreateTorrent, CreateTorrentError, FileStorage, TorrentInfo, add_files, set_piece_hashes,
 };
-use patorrent_core::{AddTorrentParams, Sha1Hash, TorrentFlags, TorrentSource, VERSION};
+use rookparcel_core::{AddTorrentParams, Sha1Hash, TorrentFlags, TorrentSource, VERSION};
 
 use crate::lang::S;
 use crate::prefs::Prefs;
@@ -320,7 +320,7 @@ pub fn build(o: &CreateOptions, progress: &mut dyn FnMut(u32, u32) -> bool) -> R
     }
     t.set_comment(o.comment.trim());
     t.set_priv(o.private);
-    t.set_creator(&format!("PaTorrent/{VERSION}"));
+    t.set_creator(&format!("Rookparcel/{VERSION}"));
 
     let base = parent_dir(&root).map_err(|e| e.to_string())?;
     let total = t.num_pieces();
@@ -378,7 +378,7 @@ mod tests {
 
     impl TempDir {
         fn new(name: &str) -> TempDir {
-            let p = std::env::temp_dir().join(format!("patorrent-fe-create-{name}-{}", std::process::id()));
+            let p = std::env::temp_dir().join(format!("rookparcel-fe-create-{name}-{}", std::process::id()));
             let _ = std::fs::remove_dir_all(&p);
             std::fs::create_dir_all(&p).unwrap();
             TempDir(p)
@@ -499,7 +499,7 @@ mod tests {
         assert_eq!(ti.piece_length(), 32 << 10);
         assert!(ti.is_private());
         assert_eq!(ti.comment(), "hello");
-        assert!(ti.creator().starts_with("PaTorrent/"));
+        assert!(ti.creator().starts_with("Rookparcel/"));
         // loading shuffles each tier (BEP 12)
         let mut trackers: Vec<(String, u8)> = ti.trackers().iter().map(|a| (a.url.clone(), a.tier)).collect();
         trackers.sort_by(|a, b| (a.1, &a.0).cmp(&(b.1, &b.0)));
@@ -612,7 +612,7 @@ mod tests {
     /// added with the folder's parent as save path checks complete and seeds.
     #[test]
     fn created_torrent_seeds_from_the_source_folder() {
-        use patorrent_core::{Alert, Session, SessionParams, Settings, TorrentState};
+        use rookparcel_core::{Alert, Session, SessionParams, Settings, TorrentState};
         use std::time::{Duration, Instant};
 
         let d = TempDir::new("seed");

@@ -7,7 +7,7 @@ use std::collections::VecDeque;
 use std::path::PathBuf;
 use std::sync::Arc;
 
-use patorrent_core::{
+use rookparcel_core::{
     AnnounceEntry, Bitfield, BlockState, DownloadPriority, FileEntry, PartialPiece, PeerFlags, PeerInfo,
     PeerSource, TorrentId, TorrentStatus, TrackerStatus,
 };

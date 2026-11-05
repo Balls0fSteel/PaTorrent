@@ -9,9 +9,9 @@
 use std::sync::mpsc::{self, Receiver, Sender};
 use std::time::Instant;
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_frontend::tr;
-use patorrent_frontend::update::{self, Checker, Manifest, Version};
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_frontend::tr;
+use rookparcel_frontend::update::{self, Checker, Manifest, Version};
 
 /// What fetches `update.txt`: [`update::fetch`], a fake one in the tests.
 pub type Fetch = fn(Option<FetchProxy>) -> Result<Manifest, String>;
@@ -159,7 +159,7 @@ mod tests {
         assert_eq!(out, Outcome::Newer(v("1.0.1")));
         assert_eq!(
             out.line().unwrap(),
-            "PaTorrent 1.0.1 is available: https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.1"
+            "Rookparcel 1.0.1 is available: https://github.com/Balls0fSteel/Rookparcel/releases/tag/v1.0.1"
         );
         assert_eq!(out.shown(), Some(Some(&v("1.0.1"))));
         // quiet until the interval is over, then again (beta on: the release candidate)

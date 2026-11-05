@@ -1,6 +1,6 @@
-//! The GUI updating itself (D45): a PaTorrent that the setup installed (D31) downloads a newer
+//! The GUI updating itself (D45): a Rookparcel that the setup installed (D31) downloads a newer
 //! version's setup from GitHub, checks it against the release's `SHA256SUMS`
-//! (`patorrent_frontend::update::download_setup`, behind a small progress dialog) and starts it
+//! (`rookparcel_frontend::update::download_setup`, behind a small progress dialog) and starts it
 //! silently with `/UPDATE=<its own pid>`, then exits the normal way; the setup waits for it,
 //! installs over the same folder and starts the new version. A portable copy (no Uninstall key
 //! naming this folder) is sent to the release's page as before.
@@ -12,9 +12,9 @@ use std::ptr::null;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_frontend::update::{self, Setup, Version};
-use patorrent_frontend::{fmt, tr};
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_frontend::update::{self, Setup, Version};
+use rookparcel_frontend::{fmt, tr};
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::Storage::FileSystem::FILE_SHARE_READ;
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
@@ -29,11 +29,11 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use crate::dialogs::{self, BUTTON, Class, DWLP_USER, STATIC, Template};
 use crate::util::{exe_path, loword, send, wide};
 
-/// The setup's Add/Remove Programs key (`packaging/windows/patorrent.nsi`): under HKCU for one
+/// The setup's Add/Remove Programs key (`packaging/windows/rookparcel.nsi`): under HKCU for one
 /// user, HKLM for all users; its `InstallLocation` is the folder.
-const UNINST_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\PaTorrent";
+const UNINST_KEY: &str = "Software\\Microsoft\\Windows\\CurrentVersion\\Uninstall\\Rookparcel";
 
-/// How the setup installed this PaTorrent.
+/// How the setup installed this Rookparcel.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InstallMode {
     CurrentUser,
@@ -52,11 +52,11 @@ impl InstallMode {
 
 /// Whether this executable is one the setup installed: the Uninstall key (one user's first,
 /// then all users') whose `InstallLocation` is its folder. A portable copy made inside an
-/// install folder (`patorrent.ini` beside it, D42) is not: it is offered the release page, as
+/// install folder (`rookparcel.ini` beside it, D42) is not: it is offered the release page, as
 /// the setup would refuse its folder.
 pub fn installed() -> Option<InstallMode> {
     let exe = exe_path();
-    if patorrent_frontend::profile::portable_root_in(exe.parent()?).is_some() {
+    if rookparcel_frontend::profile::portable_root_in(exe.parent()?).is_some() {
         return None;
     }
     let dir = exe.parent()?.to_string_lossy().into_owned();
@@ -81,35 +81,41 @@ pub fn setup_args(mode: InstallMode, pid: u32) -> [String; 3] {
     ["/S".to_owned(), mode.switch().to_owned(), format!("/UPDATE={pid}")]
 }
 
-/// Where the setup is downloaded to: `%LOCALAPPDATA%\PaTorrent\update`, the user's own folder,
+/// Where the setup is downloaded to: `%LOCALAPPDATA%\Rookparcel\update`, the user's own folder,
 /// not `%TEMP%`, which another user can share (`TMP=C:\Temp`) and plant files in beside the setup
 /// that an all-users install elevates (docs/SECURITY-REVIEW.md).
 fn update_dir() -> PathBuf {
     match std::env::var_os("LOCALAPPDATA").filter(|v| !v.is_empty()) {
-        Some(local) => PathBuf::from(local).join("PaTorrent").join("update"),
-        None => std::env::temp_dir().join("PaTorrent-update"),
+        Some(local) => PathBuf::from(local).join("Rookparcel").join("update"),
+        None => std::env::temp_dir().join("Rookparcel-update"),
     }
 }
 
-/// [`update_dir`], emptied of what an earlier update left there; the `%TEMP%\PaTorrent-update`
-/// that earlier versions used goes too.
+/// [`update_dir`], emptied of what an earlier update left there; the folders that earlier
+/// versions used go too: `%TEMP%\PaTorrent-update`, and `%LOCALAPPDATA%\PaTorrent\update` from
+/// before the rename (D59).
 pub fn download_dir() -> PathBuf {
     let dir = update_dir();
-    let old = std::env::temp_dir().join("PaTorrent-update");
-    for d in [&dir, &old] {
+    let local = std::env::var_os("LOCALAPPDATA")
+        .filter(|v| !v.is_empty())
+        .map(|l| PathBuf::from(l).join("PaTorrent"));
+    let mut old = vec![std::env::temp_dir().join("PaTorrent-update")];
+    old.extend(local.as_ref().map(|l| l.join("update")));
+    for d in std::iter::once(&dir).chain(&old) {
         if let Ok(entries) = std::fs::read_dir(d) {
             for e in entries.flatten() {
                 let _ = std::fs::remove_file(e.path());
             }
         }
     }
-    if old != dir {
-        let _ = std::fs::remove_dir(&old);
+    for d in old.iter().chain(&local) {
+        // only once empty
+        let _ = std::fs::remove_dir(d);
     }
     dir
 }
 
-/// Starts the setup for the update; it runs on while PaTorrent exits.
+/// Starts the setup for the update; it runs on while Rookparcel exits.
 pub fn run_setup(setup: &Setup, mode: InstallMode) -> io::Result<()> {
     spawn_checked(setup, &setup_args(mode, std::process::id())).map(drop)
 }
@@ -325,11 +331,11 @@ mod tests {
     #[test]
     fn folders_compare_as_windows_does() {
         assert!(same_folder(
-            "C:\\Users\\x\\AppData\\Local\\Programs\\PaTorrent",
-            "c:/users/X/appdata/local/programs/patorrent\\"
+            "C:\\Users\\x\\AppData\\Local\\Programs\\Rookparcel",
+            "c:/users/X/appdata/local/programs/rookparcel\\"
         ));
-        assert!(same_folder("C:\\Program Files\\PaTorrent\\", "C:\\Program Files\\PaTorrent"));
-        assert!(!same_folder("C:\\Program Files\\PaTorrent", "C:\\Program Files\\PaTorrent2"));
+        assert!(same_folder("C:\\Program Files\\Rookparcel\\", "C:\\Program Files\\Rookparcel"));
+        assert!(!same_folder("C:\\Program Files\\Rookparcel", "C:\\Program Files\\Rookparcel2"));
         assert!(!same_folder("", ""), "no InstallLocation is no installation");
     }
 
@@ -341,7 +347,7 @@ mod tests {
         let _ = installed();
         // the user's own folder, not %TEMP% (not download_dir: that would empty the real one)
         let dir = update_dir();
-        assert!(dir.ends_with("PaTorrent\\update"), "{}", dir.display());
+        assert!(dir.ends_with("Rookparcel\\update"), "{}", dir.display());
         assert!(!dir.starts_with(std::env::temp_dir()), "{}", dir.display());
     }
 
@@ -351,7 +357,7 @@ mod tests {
     #[test]
     fn the_setup_runs_only_as_checked() {
         use std::io::Write;
-        let dir = std::env::temp_dir().join(format!("patorrent-updater-test-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-updater-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("setup.exe");

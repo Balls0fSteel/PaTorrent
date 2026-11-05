@@ -16,11 +16,11 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_core::metainfo::TorrentInfo;
-use patorrent_frontend::add::{self, AddChoice, Check, FileTree, Setup};
-use patorrent_frontend::detail::{PRIORITIES, priority_text};
-use patorrent_frontend::lang::{self, gtk_mnemonic};
-use patorrent_frontend::{fmt, tr};
+use rookparcel_core::metainfo::TorrentInfo;
+use rookparcel_frontend::add::{self, AddChoice, Check, FileTree, Setup};
+use rookparcel_frontend::detail::{PRIORITIES, priority_text};
+use rookparcel_frontend::lang::{self, gtk_mnemonic};
+use rookparcel_frontend::{fmt, tr};
 
 use crate::table::CountModel;
 

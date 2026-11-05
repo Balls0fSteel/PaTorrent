@@ -1,4 +1,4 @@
-// PaTorrent's own OS glue, not ported (libtorrent uses OpenSSL through Boost.Asio).
+// Rookparcel's own OS glue, not ported (libtorrent uses OpenSSL through Boost.Asio).
 
 //! TLS sessions on the system's OpenSSL (1.1.1 or later) or LibreSSL.
 //!

@@ -1,4 +1,4 @@
-//! A test aid: with the environment variable `PATORRENT_SNAPSHOTS` naming a folder, every two
+//! A test aid: with the environment variable `ROOKPARCEL_SNAPSHOTS` naming a folder, every two
 //! seconds each window of this process is drawn into `window-<n>.png` there, and `windows.txt`
 //! lists each window's title and the text of every label in it, dialogs included. For checks
 //! on machines whose screen cannot be captured (a macOS VM without Metal, where `screencapture`
@@ -12,7 +12,7 @@ use std::time::Duration;
 use gtk::glib;
 use gtk::prelude::*;
 
-const VARIABLE: &str = "PATORRENT_SNAPSHOTS";
+const VARIABLE: &str = "ROOKPARCEL_SNAPSHOTS";
 
 /// Starts the snapshots when the variable is set (and not empty).
 pub fn start() {

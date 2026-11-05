@@ -88,45 +88,45 @@ dependencies = [
 ]
 
 [[package]]
-name = "patorrent-core"
-version = "1.1.68"
+name = "r-efi"
+version = "6.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
+
+[[package]]
+name = "rookparcel-core"
+version = "1.2.2"
 dependencies = [
  "mio",
  "windows-sys",
 ]
 
 [[package]]
-name = "patorrent-frontend"
-version = "1.1.68"
+name = "rookparcel-frontend"
+version = "1.2.2"
 dependencies = [
- "patorrent-core",
+ "rookparcel-core",
  "windows-sys",
 ]
 
 [[package]]
-name = "patorrent-fuzz"
+name = "rookparcel-fuzz"
 version = "0.0.0"
 dependencies = [
  "libfuzzer-sys",
- "patorrent-core",
- "patorrent-frontend",
- "patorrent-nox",
+ "rookparcel-core",
+ "rookparcel-frontend",
+ "rookparcel-nox",
 ]
 
 [[package]]
-name = "patorrent-nox"
-version = "1.1.68"
+name = "rookparcel-nox"
+version = "1.2.2"
 dependencies = [
- "patorrent-core",
- "patorrent-frontend",
+ "rookparcel-core",
+ "rookparcel-frontend",
  "windows-sys",
 ]
-
-[[package]]
-name = "r-efi"
-version = "6.0.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f8dcc9c7d52a811697d2151c701e0d08956f92b0e24136cf4cf27b57a6a0d9bf"
 
 [[package]]
 name = "shlex"

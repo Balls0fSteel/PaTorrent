@@ -259,15 +259,15 @@ impl Drop for Runner {
 }
 
 /// The stand-in helper the tests start: this test binary itself, run with one test selected
-/// and `PATORRENT_HELPER_STANDIN` naming what to do. It serves `/health` (and the shutdown call)
-/// on the port in `PATORRENT_HELPER_PORT`, so the start, the health check and the stops are
+/// and `ROOKPARCEL_HELPER_STANDIN` naming what to do. It serves `/health` (and the shutdown call)
+/// on the port in `ROOKPARCEL_HELPER_PORT`, so the start, the health check and the stops are
 /// exercised with a real child process and no third-party code.
 #[cfg(test)]
 pub(crate) mod standin {
     use super::*;
 
-    pub const MODE: &str = "PATORRENT_HELPER_STANDIN";
-    pub const PORT: &str = "PATORRENT_HELPER_PORT";
+    pub const MODE: &str = "ROOKPARCEL_HELPER_STANDIN";
+    pub const PORT: &str = "ROOKPARCEL_HELPER_PORT";
 
     /// A launch of the stand-in in `mode`: `serve` answers, `mute` never does, `exit` ends at
     /// once.
@@ -284,7 +284,7 @@ pub(crate) mod standin {
         }
     }
 
-    /// The child's side; a plain test run (no `PATORRENT_HELPER_STANDIN`) passes at once.
+    /// The child's side; a plain test run (no `ROOKPARCEL_HELPER_STANDIN`) passes at once.
     #[test]
     fn child() {
         use std::io::{Read, Write};

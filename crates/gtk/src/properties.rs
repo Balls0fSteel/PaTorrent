@@ -2,7 +2,7 @@
 //! Trackers, Bandwidth Settings, Seeding Goal and Other Settings for the selected torrents (the
 //! Advanced tab is not built).
 //!
-//! The fields come from [`patorrent_frontend::properties`]. With several torrents selected the
+//! The fields come from [`rookparcel_frontend::properties`]. With several torrents selected the
 //! check boxes have three states (a click goes off, on, mixed, as a Win32 three-state box) and
 //! fields whose values differ start blank or mixed; what the user leaves that way stays as it is
 //! on every torrent. OK hands the [`Changes`] to the caller to apply to each torrent.
@@ -12,9 +12,9 @@ use std::rc::Rc;
 
 use gtk::glib;
 use gtk::prelude::*;
-use patorrent_frontend::lang::{self, gtk_mnemonic};
-use patorrent_frontend::properties::{Changes, Field, Fields, Properties, Tri};
-use patorrent_frontend::tr;
+use rookparcel_frontend::lang::{self, gtk_mnemonic};
+use rookparcel_frontend::properties::{Changes, Field, Fields, Properties, Tri};
+use rookparcel_frontend::tr;
 
 /// A check box with the dialog's three states.
 #[derive(Clone)]

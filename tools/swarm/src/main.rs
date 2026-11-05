@@ -25,13 +25,13 @@ mod seed_disk;
 use std::process::ExitCode;
 use std::time::{Duration, Instant};
 
-use patorrent_core::{Alert, MockConfig, Session, Settings};
+use rookparcel_core::{Alert, MockConfig, Session, Settings};
 
 #[global_allocator]
 static HEAP: heap::Counting = heap::Counting;
 
 const USAGE: &str = "\
-lt-swarm: PaTorrent benchmarks
+lt-swarm: Rookparcel benchmarks
 
 USAGE:
     lt-swarm scale [--torrents N] [--active FRACTION] [--seconds N]

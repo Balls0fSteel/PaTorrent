@@ -284,7 +284,7 @@ impl Engine {
             let metadata_size = t.ti.as_ref().filter(|_| !private).map(|ti| ti.info_section().len());
             let ext = peer_wire::encode_ext_handshake(
                 &messages,
-                &format!("PaTorrent {}", crate::VERSION),
+                &format!("Rookparcel {}", crate::VERSION),
                 (listen_port != 0).then_some(listen_port),
                 reqq,
                 // a super seed is not upload-only: the peer would leave after one piece

@@ -1,20 +1,20 @@
 #!/usr/bin/env python3
-"""Builds PaTorrent's macOS bundle and checks Mach-O files for libraries outside it (PLAN.md D23,
+"""Builds Rookparcel's macOS bundle and checks Mach-O files for libraries outside it (PLAN.md D23,
 Road to 1.0 item 8). Run by the `macos` job of .github/workflows/release.yml.
 
-  macos_bundle.py app --binary target/release/patorrent-gtk --prefix "$(brew --prefix)"
-                      --icon-dir DIR --app-id ID --version V --out PaTorrent.app [--extra FILE]...
-      PaTorrent.app: Contents/MacOS/PaTorrent (macos_launcher.c: sets GTK's and GLib's paths,
-      then execs patorrent-gtk), Contents/MacOS/patorrent-gtk, Contents/Frameworks/*.dylib
+  macos_bundle.py app --binary target/release/rookparcel-gtk --prefix "$(brew --prefix)"
+                      --icon-dir DIR --app-id ID --version V --out Rookparcel.app [--extra FILE]...
+      Rookparcel.app: Contents/MacOS/Rookparcel (macos_launcher.c: sets GTK's and GLib's paths,
+      then execs rookparcel-gtk), Contents/MacOS/rookparcel-gtk, Contents/Frameworks/*.dylib
       (every non-system library, found by walking `otool -L` from the binary and the modules,
       rewritten to @executable_path/../Frameworks), Contents/Resources/lib (GdkPixbuf loaders
       with a loaders.cache naming them by @executable_path, GIO modules),
       Contents/Resources/share (compiled GSettings schemas, the Adwaita and hicolor icon
-      themes), Contents/Resources/PaTorrent.icns, Contents/Info.plist. Every Mach-O inside is
+      themes), Contents/Resources/Rookparcel.icns, Contents/Info.plist. Every Mach-O inside is
       ad-hoc signed; the job then signs the whole app.
 
   macos_bundle.py deps --lib-dir DIR --ref REF BINARY...
-      The same library walk for plain binaries (patorrent-nox in a tarball, say): copies what
+      The same library walk for plain binaries (rookparcel-nox in a tarball, say): copies what
       they need into DIR and rewrites the references to REF/<name> (`@executable_path/lib`).
 
   macos_bundle.py check [--exec-dir DIR] PATH...
@@ -430,14 +430,14 @@ ICONSET = [  # (iconutil's name, the PNG's size)
 
 
 def icns(tools, icon_dir, res, staging):
-    iconset = os.path.join(staging, 'PaTorrent.iconset')
+    iconset = os.path.join(staging, 'Rookparcel.iconset')
     os.makedirs(iconset, exist_ok=True)
     for name, size in ICONSET:
         src = os.path.join(icon_dir, '{}.png'.format(size))
         if not os.path.isfile(src):
             raise BundleError('icon {} is missing'.format(src))
         shutil.copy2(src, os.path.join(iconset, name))
-    tools.run(['iconutil', '--convert', 'icns', '--output', os.path.join(res, 'PaTorrent.icns'), iconset])
+    tools.run(['iconutil', '--convert', 'icns', '--output', os.path.join(res, 'Rookparcel.icns'), iconset])
 
 
 def info_plist(app_id, version, minos):
@@ -447,22 +447,22 @@ def info_plist(app_id, version, minos):
     short = numeric.group(0) if numeric else '0.0.0'
     return {
         'CFBundleDevelopmentRegion': 'en',
-        'CFBundleDisplayName': 'PaTorrent',
-        'CFBundleExecutable': 'PaTorrent',
-        'CFBundleIconFile': 'PaTorrent',
+        'CFBundleDisplayName': 'Rookparcel',
+        'CFBundleExecutable': 'Rookparcel',
+        'CFBundleIconFile': 'Rookparcel',
         'CFBundleIdentifier': app_id,
         'CFBundleInfoDictionaryVersion': '6.0',
-        'CFBundleName': 'PaTorrent',
+        'CFBundleName': 'Rookparcel',
         'CFBundlePackageType': 'APPL',
         'CFBundleShortVersionString': short,
         'CFBundleVersion': short,
-        'PaTorrentVersion': version,
+        'RookparcelVersion': version,
         'LSMinimumSystemVersion': minos,
         'LSApplicationCategoryType': 'public.app-category.utilities',
         'NSHighResolutionCapable': True,
         # macOS 15 asks before an app may use the local network (LSD multicast, UPnP, NAT-PMP);
         # the prompt shows this text and the app's name instead of the host's
-        'NSLocalNetworkUsageDescription': 'PaTorrent finds peers on your local network (Local Service Discovery) and asks your router to forward its port.',
+        'NSLocalNetworkUsageDescription': 'Rookparcel finds peers on your local network (Local Service Discovery) and asks your router to forward its port.',
         'NSSupportsAutomaticGraphicsSwitching': True,
         'CFBundleDocumentTypes': [{
             'CFBundleTypeName': 'BitTorrent file',
@@ -470,7 +470,7 @@ def info_plist(app_id, version, minos):
             'LSHandlerRank': 'Default',
             'CFBundleTypeExtensions': ['torrent'],
             'CFBundleTypeMIMETypes': ['application/x-bittorrent'],
-            'CFBundleTypeIconFile': 'PaTorrent',
+            'CFBundleTypeIconFile': 'Rookparcel',
             'LSItemContentTypes': ['org.bittorrent.torrent'],
         }],
         'UTImportedTypeDeclarations': [{
@@ -507,8 +507,8 @@ def make_app(tools, a):
 
     log('== launcher')
     tools.run(['clang', '-O2', '-Wall', '-Wextra', '-Werror', '-mmacosx-version-min=11.0',
-               '-o', os.path.join(macos, 'PaTorrent'), os.path.join(here, 'macos_launcher.c')])
-    gui = os.path.join(macos, 'patorrent-gtk')
+               '-o', os.path.join(macos, 'Rookparcel'), os.path.join(here, 'macos_launcher.c')])
+    gui = os.path.join(macos, 'rookparcel-gtk')
     tools.copy(a.binary, gui)
 
     log('== modules')

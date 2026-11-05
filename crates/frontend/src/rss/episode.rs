@@ -218,7 +218,7 @@ enum Range {
 /// left out for "from here on" and may drop the season (`S01E01-10`, `1x01-10`).
 ///
 /// µTorrent 2.2.1's own syntax is from memory only (`1x1-12` style examples); everything else
-/// here is PaTorrent's.
+/// here is Rookparcel's.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct EpisodeSpec {
     ranges: Vec<Range>,
@@ -349,7 +349,7 @@ impl EpisodeSpec {
 
 /// A set of release qualities as a bit mask (the filter's "Quality" list). The first sixteen
 /// are µTorrent 2.2.1's list as remembered (HDTV through SatRip; its bit values are unknown, so
-/// these are PaTorrent's); the rest are later additions.
+/// these are Rookparcel's); the rest are later additions.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub struct Quality(pub u32);
 

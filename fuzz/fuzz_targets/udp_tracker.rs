@@ -3,7 +3,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{UdpResponse, decode_udp_tracker_response};
+use rookparcel_core::fuzzing::{UdpResponse, decode_udp_tracker_response};
 
 fuzz_target!(|data: &[u8]| {
     for v6 in [false, true] {

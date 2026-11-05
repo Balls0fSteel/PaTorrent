@@ -6,7 +6,7 @@
 //! The protocol on top (`webui/native.rs`) uses text frames only; a binary data frame is
 //! answered with a 1003 close.
 
-use patorrent_core::crypto::Sha1;
+use rookparcel_core::crypto::Sha1;
 
 use super::http::Head;
 

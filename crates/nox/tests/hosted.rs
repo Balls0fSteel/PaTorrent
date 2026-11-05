@@ -14,17 +14,17 @@ use std::sync::{Arc, Mutex};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_core::{MockConfig, Session, Settings};
-use patorrent_frontend::prefs::{Change, Prefs};
-use patorrent_frontend::rss::worker::Fetcher;
-use patorrent_frontend::rss::{
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_core::{MockConfig, Session, Settings};
+use rookparcel_frontend::prefs::{Change, Prefs};
+use rookparcel_frontend::rss::worker::Fetcher;
+use rookparcel_frontend::rss::{
     AddRequest, Download, Feed, FeedItem, Fetched, RssDownloader, Validators, Worker,
 };
-use patorrent_frontend::search::{Source, load_sources, store_sources};
-use patorrent_nox::webui::auth::PasswordHash;
-use patorrent_nox::webui::json::{self, Json};
-use patorrent_nox::webui::{Config, Host, Hosted, Rss, STATE_FILE, WebUi};
+use rookparcel_frontend::search::{Source, load_sources, store_sources};
+use rookparcel_nox::webui::auth::PasswordHash;
+use rookparcel_nox::webui::json::{self, Json};
+use rookparcel_nox::webui::{Config, Host, Hosted, Rss, STATE_FILE, WebUi};
 
 #[path = "support/torznab.rs"]
 mod torznab;
@@ -224,7 +224,7 @@ impl Harness {
         self.req(
             "POST",
             path,
-            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "PaTorrent")],
+            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "Rookparcel")],
             Body::Json(body),
         )
     }
@@ -780,7 +780,7 @@ fn alternative_limits_are_off_and_shutdown_tells_the_host() {
     let general = pages.iter().find(|p| s(p.get("id")) == "general").unwrap().to_json();
     assert!(!general.contains("update.check") && general.contains("ui.language"), "{general}");
     assert!(!t.web.update_options().0);
-    t.web.set_update(patorrent_frontend::update::Version::parse("99.0.0").as_ref());
+    t.web.set_update(rookparcel_frontend::update::Version::parse("99.0.0").as_ref());
     let (_ws, hello) = Ws::connect(&t, &sid);
     assert!(hello.get("update").is_none(), "{}", hello.to_json());
 
@@ -1056,7 +1056,7 @@ fn search_sources_are_the_hosts_and_results_go_to_its_engine() {
     let Some(Json::Arr(results)) = results.get("results") else { panic!() };
     let fawlty = results.iter().find(|r| s(r.get("fileName")) == torznab::FAWLTY).expect("found");
     let url = s(fawlty.get("fileUrl"));
-    assert!(url.starts_with("patorrent-search:"), "{url}");
+    assert!(url.starts_with("rookparcel-search:"), "{url}");
     let r = t.post(
         &sid,
         "/api/v2/torrents/add",

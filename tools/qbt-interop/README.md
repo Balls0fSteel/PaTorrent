@@ -1,6 +1,6 @@
-# patorrent-nox against a current qBittorrent
+# rookparcel-nox against a current qBittorrent
 
-`run.py` drives a release `patorrent-nox` and a qBittorrent 5.x container over their WebAPIs
+`run.py` drives a release `rookparcel-nox` and a qBittorrent 5.x container over their WebAPIs
 (nox's qBittorrent shim and its `/pa/prefs`) on one Linux machine. It covers the release checks
 for the libtorrent 2.0.12-2.1.2 ports ([BACKLOG](../../docs/BACKLOG.md) "libtorrent
 2.0.12-2.1.2 follow-ups"). First run 2026-11-02 on the Xubuntu VM.
@@ -34,11 +34,11 @@ DHT, LSD, PeX and port forwarding off, and the torrents have no trackers.
 ```sh
 docker pull lscr.io/linuxserver/qbittorrent:5.3.0_v2.1.2-ls486    # libtorrent 2.1.2
 docker pull lscr.io/linuxserver/qbittorrent:5.3.0_v2.0.15-ls482    # libtorrent 2.0.15
-python3 run.py all --nox ~/qbt-interop/bin/patorrent-nox \
+python3 run.py all --nox ~/qbt-interop/bin/rookparcel-nox \
     --image lscr.io/linuxserver/qbittorrent:5.3.0_v2.1.2-ls486 --work ~/qbt-interop/work --out results.json
 ```
 
-`--piece-sizes 16,4096` (KiB) and `--creators patorrent` narrow a run. The work directory keeps
+`--piece-sizes 16,4096` (KiB) and `--creators rookparcel` narrow a run. The work directory keeps
 the logs (`nox-<check>.log` with `--verbose` disconnect reasons, `qbt-docker.log`) and the
 generated data; remove it afterwards. Ports 18180/16981 (qBittorrent) and 18190/16991 (nox)
 must be free.

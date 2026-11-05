@@ -1,23 +1,23 @@
-//! Windows integration (Preferences > General): PaTorrent as the program for `.torrent` files
-//! and `magnet:` links, and the "Start PaTorrent on system startup" entry.
+//! Windows integration (Preferences > General): Rookparcel as the program for `.torrent` files
+//! and `magnet:` links, and the "Start Rookparcel on system startup" entry.
 //!
 //! Everything lives under HKEY_CURRENT_USER, so no elevation is needed and a portable copy can
 //! register itself. The state is read from the registry each time, never stored in
-//! `patorrent.ini`: a box is checked when the registration names this very executable, so a
+//! `rookparcel.ini`: a box is checked when the registration names this very executable, so a
 //! moved portable copy shows unchecked until it registers again.
 //!
 //! What is written, under `Software\Classes`:
-//! - the ProgIDs `PaTorrent.torrent` and `PaTorrent.magnet` (`shell\open\command` is
+//! - the ProgIDs `Rookparcel.torrent` and `Rookparcel.magnet` (`shell\open\command` is
 //!   `"<exe>" --shell "%1"`, which a second instance forwards to the running one; a named
 //!   profile's is `"<exe>" --profile <name> --shell "%1"`, D42);
-//! - `.torrent` naming `PaTorrent.torrent` (plus `OpenWithProgids` and the MIME type);
+//! - `.torrent` naming `Rookparcel.torrent` (plus `OpenWithProgids` and the MIME type);
 //! - the `magnet` URL scheme itself (`URL Protocol`), as µTorrent and qBittorrent do;
-//! - `Software\PaTorrent\Capabilities` listed in `Software\RegisteredApplications`, so PaTorrent
+//! - `Software\Rookparcel\Capabilities` listed in `Software\RegisteredApplications`, so Rookparcel
 //!   appears in Settings > Default apps.
 //!
 //! Profiles (D42): only one program, so one profile, opens `.torrent` files and `magnet:` links;
 //! ticking the box in a profile takes them over from another, and the page names the profile
-//! that has them. Autostart is a `Run` value per profile (`PaTorrent`, `PaTorrent (work)`).
+//! that has them. Autostart is a `Run` value per profile (`Rookparcel`, `Rookparcel (work)`).
 //!
 //! Since Windows 8 a choice the user made in Windows itself ("Always use this app", Default
 //! apps) is kept in a hash-protected `UserChoice` key that programs cannot write; it wins over
@@ -28,7 +28,7 @@ use std::io;
 use std::path::Path;
 use std::ptr::{null, null_mut};
 
-use patorrent_frontend::tr;
+use rookparcel_frontend::tr;
 use windows_sys::Win32::Foundation::{ERROR_FILE_NOT_FOUND, ERROR_SUCCESS, HWND, WIN32_ERROR};
 use windows_sys::Win32::System::Registry::{
     HKEY, HKEY_CURRENT_USER, KEY_READ, KEY_WRITE, REG_OPTION_NON_VOLATILE, REG_SZ, RRF_RT_REG_EXPAND_SZ,
@@ -40,20 +40,20 @@ use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
 
 use crate::util::wide;
 
-pub use patorrent_frontend::integration::{Integration, MINIMIZED};
+pub use rookparcel_frontend::integration::{Integration, MINIMIZED};
 
-pub const PROGID_TORRENT: &str = "PaTorrent.torrent";
-pub const PROGID_MAGNET: &str = "PaTorrent.magnet";
+pub const PROGID_TORRENT: &str = "Rookparcel.torrent";
+pub const PROGID_MAGNET: &str = "Rookparcel.magnet";
 /// The `Run` value and the `RegisteredApplications` name.
-const APP: &str = "PaTorrent";
+const APP: &str = "Rookparcel";
 const CLASSES: &str = r"Software\Classes";
 const RUN: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 const TORRENT_CHOICE: &str =
     r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.torrent\UserChoice";
 const MAGNET_CHOICE: &str =
     r"Software\Microsoft\Windows\Shell\Associations\UrlAssociations\magnet\UserChoice";
-const APP_KEY: &str = r"Software\PaTorrent";
-const CAPABILITIES: &str = r"Software\PaTorrent\Capabilities";
+const APP_KEY: &str = r"Software\Rookparcel";
+const CAPABILITIES: &str = r"Software\Rookparcel\Capabilities";
 const REGISTERED: &str = r"Software\RegisteredApplications";
 
 /// The registry as found.
@@ -62,7 +62,7 @@ pub struct Status {
     /// What is registered for this executable and profile.
     pub set: Integration,
     /// The ProgID of another program that Windows' own per-user choice opens `.torrent` files
-    /// with although PaTorrent is registered.
+    /// with although Rookparcel is registered.
     pub torrent_choice: Option<String>,
     /// The same for `magnet:` links.
     pub magnet_choice: Option<String>,
@@ -72,12 +72,12 @@ pub struct Status {
 }
 
 impl Status {
-    /// PaTorrent opens `.torrent` files.
+    /// Rookparcel opens `.torrent` files.
     pub fn opens_torrents(&self) -> bool {
         self.set.torrent && self.torrent_choice.is_none()
     }
 
-    /// PaTorrent opens `magnet:` links.
+    /// Rookparcel opens `magnet:` links.
     pub fn opens_magnets(&self) -> bool {
         self.set.magnet && self.magnet_choice.is_none()
     }
@@ -145,7 +145,7 @@ pub const SHELL: &str = "--shell";
 /// `"<exe>"` and, for a named profile, `--profile <name>` (D42).
 fn start(exe: &Path, profile: Option<&str>) -> String {
     match profile {
-        Some(p) => format!("\"{}\" {} {p}", exe_text(exe), patorrent_frontend::profile::SWITCH),
+        Some(p) => format!("\"{}\" {} {p}", exe_text(exe), rookparcel_frontend::profile::SWITCH),
         None => format!("\"{}\"", exe_text(exe)),
     }
 }
@@ -169,6 +169,72 @@ pub fn upgrade(keys: &Keys, exe: &Path, profile: Option<&str>) -> io::Result<()>
     Ok(())
 }
 
+/// The former name's keys (D59), which [`adopt_patorrent`] takes over.
+const OLD_APP: &str = "PaTorrent";
+const OLD_PROGID_TORRENT: &str = "PaTorrent.torrent";
+const OLD_PROGID_MAGNET: &str = "PaTorrent.magnet";
+const OLD_APP_KEY: &str = r"Software\PaTorrent";
+
+/// Moves PaTorrent's registrations (D59) to `exe` under the new names, each for the profile it
+/// named: `.torrent` files, `magnet:` links and every autostart entry, with Default apps
+/// following. PaTorrent's own keys go; nothing happens when there are none. Whatever PaTorrent
+/// executable they named (Rookparcel replaces it, at a new path).
+pub fn adopt_patorrent(keys: &Keys, exe: &Path) -> io::Result<()> {
+    let command = |progid: &str| get(&keys.class(&format!(r"{progid}\shell\open\command")), None);
+    let ext = keys.class(".torrent");
+    let torrent = get(&ext, None)
+        .is_some_and(|p| p.eq_ignore_ascii_case(OLD_PROGID_TORRENT))
+        .then(|| command(OLD_PROGID_TORRENT).and_then(|c| command_profile(&c)));
+    let magnet = command("magnet")
+        .filter(|c| c.to_lowercase().contains("\\patorrent.exe\""))
+        .map(|c| command_profile(&c));
+    let run = keys.path(RUN);
+    let mut autostart = Vec::new();
+    for (name, command) in values(&run) {
+        if name == OLD_APP || (name.starts_with(&format!("{OLD_APP} (")) && name.ends_with(')')) {
+            autostart.push((command_profile(&command), command.split_whitespace().any(|t| t == MINIMIZED)));
+            delete_value(&run, Some(&name))?;
+        }
+    }
+    let had_keys = get(&keys.class(OLD_PROGID_TORRENT), None).is_some()
+        || get(&keys.class(OLD_PROGID_MAGNET), None).is_some()
+        || get(&keys.path(REGISTERED), Some(OLD_APP)).is_some();
+    if torrent.is_none() && magnet.is_none() && autostart.is_empty() && !had_keys {
+        return Ok(());
+    }
+    if torrent.is_some() {
+        delete_value(&ext, None)?;
+    }
+    delete_value(&format!(r"{ext}\OpenWithProgids"), Some(OLD_PROGID_TORRENT))?;
+    delete_tree(&keys.class(OLD_PROGID_TORRENT))?;
+    delete_tree(&keys.class(OLD_PROGID_MAGNET))?;
+    if magnet.is_some() {
+        delete_tree(&keys.class("magnet"))?;
+    }
+    delete_value(&keys.path(REGISTERED), Some(OLD_APP))?;
+    delete_tree(&keys.path(OLD_APP_KEY))?;
+
+    let add = |profile: Option<String>, f: &dyn Fn(&mut Integration)| -> io::Result<()> {
+        let old = read(keys, exe, profile.as_deref()).set;
+        let mut want = old;
+        f(&mut want);
+        write(keys, exe, profile.as_deref(), &old, &want).map(drop)
+    };
+    if let Some(p) = torrent {
+        add(p, &|i| i.torrent = true)?;
+    }
+    if let Some(p) = magnet {
+        add(p, &|i| i.magnet = true)?;
+    }
+    for (p, minimized) in autostart {
+        add(p, &|i| {
+            i.autostart = true;
+            i.minimized = minimized;
+        })?;
+    }
+    Ok(())
+}
+
 /// The autostart entry's command.
 pub fn run_command(exe: &Path, profile: Option<&str>, minimized: bool) -> String {
     let mut s = start(exe, profile);
@@ -179,7 +245,7 @@ pub fn run_command(exe: &Path, profile: Option<&str>, minimized: bool) -> String
     s
 }
 
-/// The `Run` value of `profile`: `PaTorrent`, `PaTorrent (work)`, so profiles start apart.
+/// The `Run` value of `profile`: `Rookparcel`, `Rookparcel (work)`, so profiles start apart.
 pub fn run_value(profile: Option<&str>) -> String {
     match profile {
         Some(p) => format!("{APP} ({p})"),
@@ -196,7 +262,7 @@ fn runs_exe(command: &str, exe: &Path) -> bool {
 fn command_profile(command: &str) -> Option<String> {
     let mut it = command.split_whitespace();
     while let Some(t) = it.next() {
-        let name = if t.eq_ignore_ascii_case(patorrent_frontend::profile::SWITCH) {
+        let name = if t.eq_ignore_ascii_case(rookparcel_frontend::profile::SWITCH) {
             it.next()
         } else if let Some(v) = t.strip_prefix("--profile=") {
             Some(v)
@@ -206,7 +272,7 @@ fn command_profile(command: &str) -> Option<String> {
             continue;
         };
         let name = name?.trim_matches('"').to_ascii_lowercase();
-        return (name != patorrent_frontend::profile::DEFAULT_NAME).then_some(name);
+        return (name != rookparcel_frontend::profile::DEFAULT_NAME).then_some(name);
     }
     None
 }
@@ -216,8 +282,8 @@ fn runs(command: &str, exe: &Path, profile: Option<&str>) -> bool {
     runs_exe(command, exe) && command_profile(command).as_deref() == profile
 }
 
-/// A ProgID Windows' choice may name that is PaTorrent too: ours, or the "Open with > Choose
-/// another app" entry for our executable (`Applications\patorrent.exe`).
+/// A ProgID Windows' choice may name that is Rookparcel too: ours, or the "Open with > Choose
+/// another app" entry for our executable (`Applications\rookparcel.exe`).
 fn is_ours(progid: &str, ours: &str, exe: &Path) -> bool {
     let name = exe.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
     progid.eq_ignore_ascii_case(ours)
@@ -235,7 +301,7 @@ pub fn read(keys: &Keys, exe: &Path, profile: Option<&str>) -> Status {
     // this executable in another profile
     let other = |progid: &str| {
         command(progid).filter(|c| runs_exe(c, exe) && !runs(c, exe, profile)).map(|c| {
-            command_profile(&c).unwrap_or_else(|| patorrent_frontend::profile::DEFAULT_NAME.to_owned())
+            command_profile(&c).unwrap_or_else(|| rookparcel_frontend::profile::DEFAULT_NAME.to_owned())
         })
     };
     let other_profile =
@@ -253,7 +319,7 @@ pub fn read(keys: &Keys, exe: &Path, profile: Option<&str>) -> Status {
     Status {
         set,
         torrent_choice: if torrent { choice(TORRENT_CHOICE, PROGID_TORRENT) } else { None },
-        // `magnet` itself is the scheme's own key, which now runs PaTorrent
+        // `magnet` itself is the scheme's own key, which now runs Rookparcel
         magnet_choice: if magnet {
             choice(MAGNET_CHOICE, PROGID_MAGNET).filter(|p| !p.eq_ignore_ascii_case("magnet"))
         } else {
@@ -265,7 +331,7 @@ pub fn read(keys: &Keys, exe: &Path, profile: Option<&str>) -> Status {
 
 /// Changes `profile`'s registration from `old` (as [`read`] found it) to `want`, then reads it
 /// back. Only what differs is written; turning an association off removes only what names
-/// PaTorrent in this profile. Turning one on takes it over from another profile.
+/// Rookparcel in this profile. Turning one on takes it over from another profile.
 pub fn write(
     keys: &Keys,
     exe: &Path,
@@ -404,7 +470,7 @@ pub fn unregister(keys: &Keys, exe: &Path) -> io::Result<Status> {
     Ok(read(keys, exe, None))
 }
 
-/// Opens Settings > Default apps, on PaTorrent's own page where Windows has one (Windows 11).
+/// Opens Settings > Default apps, on Rookparcel's own page where Windows has one (Windows 11).
 pub fn open_default_apps(owner: HWND) {
     let target = wide(&format!("ms-settings:defaultapps?registeredAppUser={APP}"));
     let verb = wide("open");
@@ -560,7 +626,7 @@ mod tests {
         fn new() -> Scratch {
             static N: AtomicU32 = AtomicU32::new(0);
             let root = format!(
-                r"Software\PaTorrent-test-{}-{}",
+                r"Software\Rookparcel-test-{}-{}",
                 std::process::id(),
                 N.fetch_add(1, Ordering::Relaxed)
             );
@@ -583,10 +649,46 @@ mod tests {
     }
 
     fn exe() -> PathBuf {
-        PathBuf::from(r"C:\Program Files\PaTorrent\patorrent.exe")
+        PathBuf::from(r"C:\Program Files\Rookparcel\rookparcel.exe")
     }
 
     const ALL: Integration = Integration { torrent: true, magnet: true, autostart: true, minimized: true };
+
+    #[test]
+    fn patorrents_registrations_move_to_rookparcel() {
+        let s = Scratch::new();
+        let old_exe = r#""C:\Program Files\PaTorrent\patorrent.exe""#;
+        s.set(r"Software\Classes\.torrent", None, OLD_PROGID_TORRENT);
+        s.set(r"Software\Classes\.torrent\OpenWithProgids", Some(OLD_PROGID_TORRENT), "");
+        s.set(r"Software\Classes\PaTorrent.torrent", None, "Torrent");
+        let open = format!(r#"{old_exe} --profile work --shell "%1""#);
+        s.set(r"Software\Classes\PaTorrent.torrent\shell\open\command", None, &open);
+        s.set(r"Software\Classes\PaTorrent.magnet", None, "URL:Magnet");
+        s.set(r"Software\Classes\magnet\shell\open\command", None, &format!(r#"{old_exe} --shell "%1""#));
+        s.set(r"Software\PaTorrent\Capabilities", Some("ApplicationName"), OLD_APP);
+        s.set(r"Software\RegisteredApplications", Some(OLD_APP), r"Software\PaTorrent\Capabilities");
+        s.set(RUN, Some("PaTorrent (work)"), &format!("{old_exe} --profile work {MINIMIZED}"));
+        s.set(RUN, Some("OtherApp"), r#""C:\other.exe""#);
+
+        adopt_patorrent(&s.keys, &exe()).unwrap();
+        let work = read(&s.keys, &exe(), Some("work")).set;
+        assert!(work.torrent && work.autostart && work.minimized, "{work:?}");
+        assert!(read(&s.keys, &exe(), None).set.magnet);
+        assert_eq!(s.get(r"Software\Classes\.torrent", None).as_deref(), Some(PROGID_TORRENT));
+        assert_eq!(s.get(r"Software\Classes\PaTorrent.torrent", None), None);
+        assert_eq!(s.get(r"Software\Classes\PaTorrent.magnet", None), None);
+        assert_eq!(s.get(r"Software\Classes\.torrent\OpenWithProgids", Some(OLD_PROGID_TORRENT)), None);
+        assert_eq!(s.get(r"Software\RegisteredApplications", Some(OLD_APP)), None);
+        assert_eq!(s.get(r"Software\PaTorrent\Capabilities", Some("ApplicationName")), None);
+        assert_eq!(s.get(RUN, Some("PaTorrent (work)")), None);
+        assert!(s.get(RUN, Some("Rookparcel (work)")).is_some());
+        assert!(s.get(RUN, Some("OtherApp")).is_some(), "another program's entry stays");
+
+        // a second start finds nothing more to do
+        let before = read(&s.keys, &exe(), Some("work"));
+        adopt_patorrent(&s.keys, &exe()).unwrap();
+        assert_eq!(read(&s.keys, &exe(), Some("work")), before);
+    }
 
     #[test]
     fn nothing_registered_reads_as_off() {
@@ -601,7 +703,7 @@ mod tests {
         assert_eq!(st, Status { set: ALL, ..Status::default() });
         assert!(st.opens_torrents() && st.opens_magnets());
 
-        let open = r#""C:\Program Files\PaTorrent\patorrent.exe" --shell "%1""#;
+        let open = r#""C:\Program Files\Rookparcel\rookparcel.exe" --shell "%1""#;
         assert_eq!(s.get(r"Software\Classes\.torrent", None).as_deref(), Some(PROGID_TORRENT));
         assert_eq!(
             s.get(r"Software\Classes\.torrent", Some("Content Type")).as_deref(),
@@ -612,40 +714,40 @@ mod tests {
             Some("")
         );
         assert_eq!(
-            s.get(r"Software\Classes\PaTorrent.torrent\shell\open\command", None).as_deref(),
+            s.get(r"Software\Classes\Rookparcel.torrent\shell\open\command", None).as_deref(),
             Some(open)
         );
         assert_eq!(s.get(r"Software\Classes\magnet", Some("URL Protocol")).as_deref(), Some(""));
         assert_eq!(s.get(r"Software\Classes\magnet\shell\open\command", None).as_deref(), Some(open));
         assert_eq!(
-            s.get(r"Software\Classes\PaTorrent.magnet\shell\open\command", None).as_deref(),
+            s.get(r"Software\Classes\Rookparcel.magnet\shell\open\command", None).as_deref(),
             Some(open)
         );
         assert_eq!(
-            s.get(r"Software\PaTorrent\Capabilities\FileAssociations", Some(".torrent")).as_deref(),
+            s.get(r"Software\Rookparcel\Capabilities\FileAssociations", Some(".torrent")).as_deref(),
             Some(PROGID_TORRENT)
         );
         assert_eq!(
-            s.get(r"Software\PaTorrent\Capabilities\URLAssociations", Some("magnet")).as_deref(),
+            s.get(r"Software\Rookparcel\Capabilities\URLAssociations", Some("magnet")).as_deref(),
             Some(PROGID_MAGNET)
         );
         assert_eq!(
-            s.get(r"Software\RegisteredApplications", Some("PaTorrent")),
-            Some(format!(r"{}\Software\PaTorrent\Capabilities", s.root))
+            s.get(r"Software\RegisteredApplications", Some("Rookparcel")),
+            Some(format!(r"{}\Software\Rookparcel\Capabilities", s.root))
         );
         assert_eq!(
-            s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("PaTorrent")).as_deref(),
-            Some(r#""C:\Program Files\PaTorrent\patorrent.exe" --minimized"#)
+            s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("Rookparcel")).as_deref(),
+            Some(r#""C:\Program Files\Rookparcel\rookparcel.exe" --minimized"#)
         );
 
         let st = write(&s.keys, &exe(), None, &ALL, &Integration::default()).unwrap();
         assert_eq!(st, Status::default());
         assert_eq!(s.get(r"Software\Classes\.torrent", None), None);
-        assert_eq!(s.get(r"Software\Classes\PaTorrent.torrent", None), None);
+        assert_eq!(s.get(r"Software\Classes\Rookparcel.torrent", None), None);
         assert_eq!(s.get(r"Software\Classes\magnet", None), None);
-        assert_eq!(s.get(r"Software\RegisteredApplications", Some("PaTorrent")), None);
-        assert_eq!(s.get(r"Software\PaTorrent\Capabilities", Some("ApplicationName")), None);
-        assert_eq!(s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("PaTorrent")), None);
+        assert_eq!(s.get(r"Software\RegisteredApplications", Some("Rookparcel")), None);
+        assert_eq!(s.get(r"Software\Rookparcel\Capabilities", Some("ApplicationName")), None);
+        assert_eq!(s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("Rookparcel")), None);
     }
 
     #[test]
@@ -673,8 +775,8 @@ mod tests {
         let st = write(&s.keys, &exe(), None, &Integration::default(), &want).unwrap();
         assert_eq!(st.set, want);
         assert_eq!(
-            s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("PaTorrent")).as_deref(),
-            Some(r#""C:\Program Files\PaTorrent\patorrent.exe""#)
+            s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("Rookparcel")).as_deref(),
+            Some(r#""C:\Program Files\Rookparcel\rookparcel.exe""#)
         );
         let min = Integration { minimized: true, ..want };
         assert_eq!(write(&s.keys, &exe(), None, &want, &min).unwrap().set, min);
@@ -688,7 +790,8 @@ mod tests {
     #[test]
     fn another_copy_is_not_this_one() {
         let s = Scratch::new();
-        write(&s.keys, Path::new(r"D:\portable\patorrent.exe"), None, &Integration::default(), &ALL).unwrap();
+        write(&s.keys, Path::new(r"D:\portable\rookparcel.exe"), None, &Integration::default(), &ALL)
+            .unwrap();
         assert_eq!(read(&s.keys, &exe(), None).set, Integration::default());
         // so unchecking here (nothing to do) and checking again takes them over
         let st = write(&s.keys, &exe(), None, &Integration::default(), &ALL).unwrap();
@@ -697,7 +800,7 @@ mod tests {
         let upper = PathBuf::from(exe().to_string_lossy().to_uppercase());
         assert_eq!(read(&s.keys, &upper, None).set, ALL);
         // turning autostart off in another copy leaves this copy's entry
-        let other = Path::new(r"D:\portable\patorrent.exe");
+        let other = Path::new(r"D:\portable\rookparcel.exe");
         let back = Integration { autostart: false, minimized: false, ..ALL };
         write(&s.keys, other, None, &ALL, &back).unwrap();
         assert!(read(&s.keys, &exe(), None).set.autostart);
@@ -717,8 +820,8 @@ mod tests {
         assert_eq!(st.torrent_choice.as_deref(), Some("qBittorrent.File.Torrent"));
         assert!(!st.opens_torrents() && st.opens_magnets());
         assert_eq!(st.note(), "Windows still opens .torrent files with qBittorrent.File.Torrent.");
-        // our own ProgIDs, the scheme's key and "Open with" on our executable are PaTorrent
-        for ours in [PROGID_TORRENT, r"Applications\patorrent.exe"] {
+        // our own ProgIDs, the scheme's key and "Open with" on our executable are Rookparcel
+        for ours in [PROGID_TORRENT, r"Applications\rookparcel.exe"] {
             s.set(
                 r"Software\Microsoft\Windows\CurrentVersion\Explorer\FileExts\.torrent\UserChoice",
                 Some("ProgId"),
@@ -734,7 +837,7 @@ mod tests {
             );
             assert_eq!(read(&s.keys, &exe(), None).opens_magnets(), ours, "{choice}");
         }
-        // a choice is only reported while PaTorrent is registered
+        // a choice is only reported while Rookparcel is registered
         let st = write(&s.keys, &exe(), None, &ALL, &Integration::default()).unwrap();
         assert_eq!(st, Status::default());
     }
@@ -768,12 +871,12 @@ mod tests {
         );
         assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
         // our ProgIDs, the Default apps entry and autostart are gone ...
-        assert_eq!(s.get(r"Software\Classes\PaTorrent.torrent\shell\open\command", None), None);
-        assert_eq!(s.get(r"Software\Classes\PaTorrent.magnet\shell\open\command", None), None);
+        assert_eq!(s.get(r"Software\Classes\Rookparcel.torrent\shell\open\command", None), None);
+        assert_eq!(s.get(r"Software\Classes\Rookparcel.magnet\shell\open\command", None), None);
         assert_eq!(s.get(r"Software\Classes\.torrent\OpenWithProgids", Some(PROGID_TORRENT)), None);
-        assert_eq!(s.get(r"Software\RegisteredApplications", Some("PaTorrent")), None);
-        assert_eq!(s.get(r"Software\PaTorrent\Capabilities", Some("ApplicationName")), None);
-        assert_eq!(s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("PaTorrent")), None);
+        assert_eq!(s.get(r"Software\RegisteredApplications", Some("Rookparcel")), None);
+        assert_eq!(s.get(r"Software\Rookparcel\Capabilities", Some("ApplicationName")), None);
+        assert_eq!(s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("Rookparcel")), None);
         // ... the other client's are not
         assert_eq!(s.get(r"Software\Classes\.torrent", None).as_deref(), Some("qBittorrent.File.Torrent"));
         assert_eq!(
@@ -787,50 +890,53 @@ mod tests {
     #[test]
     fn unregister_leaves_another_copy() {
         let s = Scratch::new();
-        let other = Path::new(r"D:\portable\patorrent.exe");
+        let other = Path::new(r"D:\portable\rookparcel.exe");
         write(&s.keys, other, None, &Integration::default(), &ALL).unwrap();
         assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
         assert_eq!(read(&s.keys, other, None).set, ALL);
-        assert!(s.get(r"Software\RegisteredApplications", Some("PaTorrent")).is_some());
+        assert!(s.get(r"Software\RegisteredApplications", Some("Rookparcel")).is_some());
     }
 
     /// SEC-18: an association from before `--shell` is rewritten; anyone else's stays.
     #[test]
     fn old_open_commands_are_upgraded() {
         let s = Scratch::new();
-        let old = r#""C:\Program Files\PaTorrent\patorrent.exe" "%1""#;
+        let old = r#""C:\Program Files\Rookparcel\rookparcel.exe" "%1""#;
         let qbt = r#""C:\qbt\qbittorrent.exe" "%1""#;
-        s.set(r"Software\Classes\PaTorrent.torrent\shell\open\command", None, old);
+        s.set(r"Software\Classes\Rookparcel.torrent\shell\open\command", None, old);
         s.set(r"Software\Classes\magnet\shell\open\command", None, qbt);
         upgrade(&s.keys, &exe(), None).unwrap();
         assert_eq!(
-            s.get(r"Software\Classes\PaTorrent.torrent\shell\open\command", None),
+            s.get(r"Software\Classes\Rookparcel.torrent\shell\open\command", None),
             Some(open_command(&exe(), None))
         );
         assert_eq!(s.get(r"Software\Classes\magnet\shell\open\command", None).as_deref(), Some(qbt));
-        assert_eq!(s.get(r"Software\Classes\PaTorrent.magnet\shell\open\command", None), None);
+        assert_eq!(s.get(r"Software\Classes\Rookparcel.magnet\shell\open\command", None), None);
     }
 
     #[test]
     fn commands() {
         assert_eq!(
-            open_command(Path::new(r"\\?\C:\a b\patorrent.exe"), None),
-            r#""C:\a b\patorrent.exe" --shell "%1""#
+            open_command(Path::new(r"\\?\C:\a b\rookparcel.exe"), None),
+            r#""C:\a b\rookparcel.exe" --shell "%1""#
         );
-        assert_eq!(run_command(&exe(), None, false), r#""C:\Program Files\PaTorrent\patorrent.exe""#);
-        assert!(runs(r#""c:\program files\patorrent\PATORRENT.EXE" "%1""#, &exe(), None));
-        assert!(!runs(r#""C:\Program Files\PaTorrent\patorrent.exe.old" "%1""#, &exe(), None));
+        assert_eq!(run_command(&exe(), None, false), r#""C:\Program Files\Rookparcel\rookparcel.exe""#);
+        assert!(runs(r#""c:\program files\rookparcel\ROOKPARCEL.EXE" "%1""#, &exe(), None));
+        assert!(!runs(r#""C:\Program Files\Rookparcel\rookparcel.exe.old" "%1""#, &exe(), None));
         // a profile comes before --shell, after which nothing counts (D42, SEC-18)
         let work = open_command(&exe(), Some("work"));
-        assert_eq!(work, r#""C:\Program Files\PaTorrent\patorrent.exe" --profile work --shell "%1""#);
+        assert_eq!(work, r#""C:\Program Files\Rookparcel\rookparcel.exe" --profile work --shell "%1""#);
         assert!(runs(&work, &exe(), Some("work")) && !runs(&work, &exe(), None));
         assert_eq!(command_profile(r#""x.exe" --shell "--profile" work"#), None);
         assert_eq!(command_profile(r#""x.exe" --profile=Default --shell "%1""#), None);
         assert_eq!(
             run_command(&exe(), Some("vpn"), true),
-            r#""C:\Program Files\PaTorrent\patorrent.exe" --profile vpn --minimized"#
+            r#""C:\Program Files\Rookparcel\rookparcel.exe" --profile vpn --minimized"#
         );
-        assert_eq!((run_value(None), run_value(Some("vpn"))), ("PaTorrent".into(), "PaTorrent (vpn)".into()));
+        assert_eq!(
+            (run_value(None), run_value(Some("vpn"))),
+            ("Rookparcel".into(), "Rookparcel (vpn)".into())
+        );
     }
 
     /// One profile at a time owns the associations; each profile has its own autostart (D42).
@@ -848,8 +954,8 @@ mod tests {
         let st = write(&s.keys, &exe(), work, &Integration::default(), &ALL).unwrap();
         assert_eq!((st.set, st.other_profile), (ALL, None));
         assert_eq!(
-            s.get(r"Software\Classes\PaTorrent.torrent\shell\open\command", None).as_deref(),
-            Some(r#""C:\Program Files\PaTorrent\patorrent.exe" --profile work --shell "%1""#)
+            s.get(r"Software\Classes\Rookparcel.torrent\shell\open\command", None).as_deref(),
+            Some(r#""C:\Program Files\Rookparcel\rookparcel.exe" --profile work --shell "%1""#)
         );
         let default = read(&s.keys, &exe(), None);
         assert_eq!(default.set, Integration { autostart: true, minimized: true, ..Integration::default() });
@@ -860,6 +966,6 @@ mod tests {
         // the uninstaller removes every profile's
         assert_eq!(unregister(&s.keys, &exe()).unwrap(), Status::default());
         assert_eq!(read(&s.keys, &exe(), work), Status::default());
-        assert_eq!(s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("PaTorrent (work)")), None);
+        assert_eq!(s.get(r"Software\Microsoft\Windows\CurrentVersion\Run", Some("Rookparcel (work)")), None);
     }
 }

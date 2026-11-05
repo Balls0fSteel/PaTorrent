@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Drives Sonarr, Radarr and Prowlarr through their APIs for the PaTorrent shim test."""
+"""Drives Sonarr, Radarr and Prowlarr through their APIs for the Rookparcel shim test."""
 
 import json
 import os
@@ -11,9 +11,9 @@ import urllib.request
 APPS = {"sonarr": (8989, "v3"), "radarr": (7878, "v3"), "prowlarr": (9696, "v1")}
 CATEGORY_FIELD = {"sonarr": "tvCategory", "radarr": "movieCategory", "prowlarr": "category"}
 # the client's Web UI as the apps reach it (the host is `client`'s argument); the defaults are nox's
-CLIENT_PORT = int(os.environ.get("PATORRENT_PORT", "8080"))
-CLIENT_USER = os.environ.get("PATORRENT_USER", "admin")
-NOX_PASS = os.environ.get("PATORRENT_PASS", "arr-test-pass")
+CLIENT_PORT = int(os.environ.get("ROOKPARCEL_PORT", "8080"))
+CLIENT_USER = os.environ.get("ROOKPARCEL_USER", "admin")
+NOX_PASS = os.environ.get("ROOKPARCEL_PASS", "arr-test-pass")
 FAKEZNAB = os.environ.get("FAKEZNAB_URL", "http://172.17.0.1:9117")
 
 
@@ -53,7 +53,7 @@ def client(app, host):
     values = {"host": host, "port": CLIENT_PORT, "useSsl": False, "username": CLIENT_USER, "password": NOX_PASS,
               CATEGORY_FIELD[app]: {"sonarr": "tv-sonarr", "radarr": "radarr", "prowlarr": "prowlarr"}[app]}
     s = fill(s, values)
-    s.update(name="PaTorrent", enable=True, priority=1)
+    s.update(name="Rookparcel", enable=True, priority=1)
     if app != "prowlarr":
         s.update(removeCompletedDownloads=True, removeFailedDownloads=True)
     # the previous client first: the Test also checks that the name is unique

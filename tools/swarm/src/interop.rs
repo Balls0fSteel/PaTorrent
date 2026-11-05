@@ -1,10 +1,10 @@
-//! `interop`: PaTorrent downloads a test torrent from other clients (PLAN.md Phase 2 exit
+//! `interop`: Rookparcel downloads a test torrent from other clients (PLAN.md Phase 2 exit
 //! criteria, reverse direction).
 //!
 //! For each client: generate a 3-file torrent with pseudo-random contents, start the client as a
 //! seed of that data with a throwaway configuration (DHT, LSD, PeX and port mapping off, everything
 //! else at its defaults), wait until a BitTorrent handshake shows it has every piece, then let an
-//! in-process PaTorrent session download from it and compare the files byte for byte.
+//! in-process Rookparcel session download from it and compare the files byte for byte.
 //!
 //! * qBittorrent: the installed app with a temporary `--profile` (Windows; elsewhere point
 //!   `--qbittorrent` at `qbittorrent-nox`).
@@ -40,14 +40,14 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, ExitCode, Stdio};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::crypto::mse::Rc4Handler;
-use patorrent_core::fuzzing::{PeHandshake, PeStep};
-use patorrent_core::metainfo::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::crypto::mse::Rc4Handler;
+use rookparcel_core::fuzzing::{PeHandshake, PeStep};
+use rookparcel_core::metainfo::{
     CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, set_piece_hashes,
 };
-use patorrent_core::{
+use rookparcel_core::{
     AddTorrentParams, Alert, AlertCategory, EncLevel, EncPolicy, PeerFlags, PeerInfo, Session, SessionHandle,
     SessionParams, Settings, Sha1Hash, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
@@ -292,7 +292,7 @@ fn created_fixture(
     total: u64,
     version: Version,
 ) -> std::io::Result<Fixture> {
-    let err = |e: patorrent_core::metainfo::CreateTorrentError| std::io::Error::other(e.to_string());
+    let err = |e: rookparcel_core::metainfo::CreateTorrentError| std::io::Error::other(e.to_string());
     let mut fs = FileStorage::new();
     add_files(&mut fs, seed, &mut |_| true, CreateFlags::empty()).map_err(err)?;
     let flags = if version == Version::V2 { CreateFlags::V2_ONLY } else { CreateFlags::empty() };
@@ -1141,9 +1141,9 @@ pub fn run(opts: &Options) -> ExitCode {
     }
     println!();
     if opts.super_seed {
-        println!("PaTorrent super-seeding {} MiB ({} pieces) to:", f.total >> 20, f.num_pieces);
+        println!("Rookparcel super-seeding {} MiB ({} pieces) to:", f.total >> 20, f.num_pieces);
     } else {
-        println!("PaTorrent downloading {} MiB ({} pieces) from:", f.total >> 20, f.num_pieces);
+        println!("Rookparcel downloading {} MiB ({} pieces) from:", f.total >> 20, f.num_pieces);
     }
     for line in &summary {
         println!("  {line}");

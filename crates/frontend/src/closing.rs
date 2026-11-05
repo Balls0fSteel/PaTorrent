@@ -1,10 +1,10 @@
 //! What the GUIs' closing window (D47) says, toolkit-independent: the step the engine is on,
 //! one row per move still to finish, and what Quit Now gives up. The Win32 GUI (`closing.rs`)
-//! and the GTK GUI (`closing.rs`) draw it and drive [`patorrent_core::Exit`] themselves.
+//! and the GTK GUI (`closing.rs`) draw it and drive [`rookparcel_core::Exit`] themselves.
 
 use std::time::{Duration, Instant};
 
-use patorrent_core::{Exit, ExitPhase, ExitStatus};
+use rookparcel_core::{Exit, ExitPhase, ExitStatus};
 
 use crate::{fmt, tr};
 
@@ -122,7 +122,7 @@ pub fn question(lines: &[String]) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use patorrent_core::ExitMove;
+    use rookparcel_core::ExitMove;
 
     use super::*;
 

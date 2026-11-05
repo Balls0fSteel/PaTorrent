@@ -9,7 +9,7 @@
 
 use std::sync::Mutex;
 
-use patorrent_core::{Alert, NetAdapter, NetworkRule, NetworkStatus, SessionStats};
+use rookparcel_core::{Alert, NetAdapter, NetworkRule, NetworkStatus, SessionStats};
 
 use crate::tr;
 

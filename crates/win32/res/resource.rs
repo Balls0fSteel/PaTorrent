@@ -1,8 +1,8 @@
 // A compiled resource file (`.res`) written by hand, so no resource compiler is needed:
 // `link.exe` takes it as an input like an object file. The format is small: a header per
 // resource, then its data, each padded to 4 bytes ("Resource File Formats" in the Win32
-// documentation). Shared by the build scripts of patorrent (crates/win32/build.rs) and
-// patorrent-nox (crates/nox/build.rs), which `include!` this file.
+// documentation). Shared by the build scripts of rookparcel (crates/win32/build.rs) and
+// rookparcel-nox (crates/nox/build.rs), which `include!` this file.
 
 const RT_VERSION: u16 = 16;
 /// MOVEABLE | PURE, as `rc.exe` writes a VERSIONINFO.
@@ -70,7 +70,7 @@ fn version_res(out: &mut Vec<u8>, file_name: &str, description: &str) {
         text("InternalName", file_name.trim_end_matches(".exe")),
         text("LegalCopyright", &format!("Copyright 2026 {}", var("CARGO_PKG_AUTHORS"))),
         text("OriginalFilename", file_name),
-        text("ProductName", "PaTorrent"),
+        text("ProductName", "Rookparcel"),
         text("ProductVersion", &version),
     ];
     // U.S. English (0x0409), Unicode (1200 = 0x04b0)

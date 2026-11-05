@@ -1,10 +1,10 @@
 # Keep ping low (D49)
 
-Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109 and approved the rest as proposed on 2026-11-02_123805_1793619485 (Q1 the slices in this order, Q2 off by default, Q6 the 25 ms uTP target while on). Approved. Slice 1 is in 1.1.29 (2026-11-02_130357_1793621037); what it left out is under "Slice 1 status" below. Slice 2 is in 1.1.30 (2026-11-02_162406_1793633046), under "Slice 2 status"; slice 3 in 1.1.31 (2026-11-02_170156_1793635316), under "Slice 3 status"; the bloated-line test and its fixes in 1.1.32 (2026-11-02_211916_1793650756). The owner asked whether PaTorrent can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
+Written 2026-11-02_111726_1793614646; the owner answered Q3, Q4, Q5 and Q7 on 2026-11-02_112509_1793615109 and approved the rest as proposed on 2026-11-02_123805_1793619485 (Q1 the slices in this order, Q2 off by default, Q6 the 25 ms uTP target while on). Approved. Slice 1 is in 1.1.29 (2026-11-02_130357_1793621037); what it left out is under "Slice 1 status" below. Slice 2 is in 1.1.30 (2026-11-02_162406_1793633046), under "Slice 2 status"; slice 3 in 1.1.31 (2026-11-02_170156_1793635316), under "Slice 3 status"; the bloated-line test and its fixes in 1.1.32 (2026-11-02_211916_1793650756). The owner asked whether Rookparcel can find a safe upload speed by itself so games keep a low ping, and set aside a "gamer mode" driven by a list of game executables. It goes beyond 2.2.1 and is separate from the disk work ([DISKIO.md](DISKIO.md), proposed D48), though both end in the same kind of cap.
 
 ## Why ping rises
 
-The home line's upload is the narrowest link. When PaTorrent sends faster than the line, the packets wait in the modem's or router's queue, and every other packet waits behind them: a game's, a video call's, a DNS query's. A few hundred milliseconds of queue is common (bufferbloat). Sending a little slower than the line keeps the queue empty and the ping at its idle value, whatever program is playing. So the feature does not need to know that a game runs; it needs to notice the queue.
+The home line's upload is the narrowest link. When Rookparcel sends faster than the line, the packets wait in the modem's or router's queue, and every other packet waits behind them: a game's, a video call's, a DNS query's. A few hundred milliseconds of queue is common (bufferbloat). Sending a little slower than the line keeps the queue empty and the ping at its idle value, whatever program is playing. So the feature does not need to know that a game runs; it needs to notice the queue.
 
 The download direction has the same problem at the provider's end of the line. We can only steer it indirectly (by reading more slowly, so the senders' TCP backs off), with a delay.
 
@@ -44,7 +44,7 @@ The probe's delay, minus its lowest value of the last three minutes, is the queu
 
 - **Cut:** when the queue stays above the allowance (15 ms by default; an Advanced setting) for one second *and* our upload is at least half the current cap (so the queue is probably ours), the cap becomes 80% of our upload rate over the last second.
 - **Grow:** while the queue stays under half the allowance and our upload uses at least 75% of the cap, the cap grows 5% a second.
-- **Floors:** never below 10 kB/s or 5% of the highest rate seen on this network, so a noisy Wi-Fi or a busy sibling's upload cannot starve PaTorrent (the Tixati lesson). If the queue is high while we send little, someone else fills the line and the cap does not move.
+- **Floors:** never below 10 kB/s or 5% of the highest rate seen on this network, so a noisy Wi-Fi or a busy sibling's upload cannot starve Rookparcel (the Tixati lesson). If the queue is high while we send little, someone else fills the line and the cap does not move.
 - **Memory:** the cap learned on a network (keyed by the gateway's hardware address where the system reports it, since many homes share `192.168.1.1`) is saved with the session state and is the starting point next time, so a restart does not begin with a burst.
 - **Shared with D48 part 4:** the same baseline-and-cap controller, fed with disk delays there and network delays here; the engine applies the lowest cap of all. D49 is approved first, so it builds the controller and D48 part 4, if approved, reuses it.
 
@@ -82,14 +82,14 @@ Global Rate Limit Options
 
 ## Settings, wire and scale
 
-- New `Settings` fields (PaTorrent extensions, not libtorrent names): `auto_rate_limit` (bool, both directions), `auto_limit_delay_ms` (15), `auto_limit_probe_hosts` (`1.1.1.1,8.8.8.8,9.9.9.9`), the overhead box, and the uTP box as a setting over the existing type filter; "stop on user interaction" is a GUI setting. Remote protocol 12 (shared with D48 if they land together); the Web UI gets the checkbox; the qBittorrent shim has no equivalent and does not expose it.
+- New `Settings` fields (Rookparcel extensions, not libtorrent names): `auto_rate_limit` (bool, both directions), `auto_limit_delay_ms` (15), `auto_limit_probe_hosts` (`1.1.1.1,8.8.8.8,9.9.9.9`), the overhead box, and the uTP box as a setting over the existing type filter; "stop on user interaction" is a GUI setting. Remote protocol 12 (shared with D48 if they land together); the Web UI gets the checkbox; the qBittorrent shim has no equivalent and does not expose it.
 - No new dependencies (`windows-sys` features `Win32_NetworkManagement_IpHelper` and `Win32_Networking_WinSock` are already in core; Unix through `extern "C"` as `net/sys.rs`).
 - Per session, not per torrent: nothing is added to a torrent (D21).
 
 ## Testing
 
 - **Controller:** unit tests against a simulated line (a queue drained at a fixed rate, with a game's ping through it): the cap must settle within 10-20% under the line's rate without oscillating, recover when another program's upload stops, and respect the floors.
-- **Real:** on the Xubuntu VM, `tc` shaping the uplink to a few Mbit/s with a deep `tbf` queue (bufferbloat on purpose), PaTorrent seeding to the lab's clients, a steady ping through the same link: idle ping, ping with the setting off, ping with it on, and the upload rate reached. Then the owner's own line with a game.
+- **Real:** on the Xubuntu VM, `tc` shaping the uplink to a few Mbit/s with a deep `tbf` queue (bufferbloat on purpose), Rookparcel seeding to the lab's clients, a steady ping through the same link: idle ping, ping with the setting off, ping with it on, and the upload rate reached. Then the owner's own line with a game.
 - **Probes:** hop discovery on this PC (Windows), the VM (Linux), behind double NAT and with an ISP that drops TTL-expired answers.
 
 ## Order and size

@@ -306,7 +306,7 @@ mod tests {
 
     #[test]
     fn advice_on_a_real_file_is_harmless() {
-        let dir = std::env::temp_dir().join(format!("patorrent-gentle-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-gentle-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("f.bin");
         std::fs::File::create(&path).unwrap().write_all(&[7u8; 100_000]).unwrap();

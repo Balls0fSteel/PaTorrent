@@ -1,4 +1,4 @@
-// PaTorrent's own code, not ported (D54). The binding itself follows libtorrent 2.0.11's
+// Rookparcel's own code, not ported (D54). The binding itself follows libtorrent 2.0.11's
 // `session_impl::bind_outgoing_socket` (src/session_impl.cpp): an outgoing socket is bound to
 // the address of a listen socket of its family before it connects, and a connection with no
 // such address fails. libtorrent takes the addresses from `outgoing_interfaces`; here a rule

@@ -11,11 +11,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{Session, SessionParams, Settings};
-use patorrent_nox::webui::json::{self, Json};
-use patorrent_nox::webui::{Config, WebUi};
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{Session, SessionParams, Settings};
+use rookparcel_nox::webui::json::{self, Json};
+use rookparcel_nox::webui::{Config, WebUi};
 
 const PASS: &str = "rss-pass";
 
@@ -181,7 +181,7 @@ impl Harness {
         self.req(
             "POST",
             path,
-            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "PaTorrent")],
+            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "Rookparcel")],
             "application/json",
             body,
         )

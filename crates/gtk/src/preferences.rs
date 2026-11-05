@@ -19,17 +19,17 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_frontend::help;
-use patorrent_frontend::icons::page_icon;
-use patorrent_frontend::lang::{self, H, S, gtk_mnemonic};
-use patorrent_frontend::options::{self, Options};
-use patorrent_frontend::pref_pages::{
+use rookparcel_frontend::help;
+use rookparcel_frontend::icons::page_icon;
+use rookparcel_frontend::lang::{self, H, S, gtk_mnemonic};
+use rookparcel_frontend::options::{self, Options};
+use rookparcel_frontend::pref_pages::{
     self, Action, Control, Features, Field, Form, Item, Page, SCHED_ENABLE, TextKind, advanced_name,
     advanced_rows,
 };
-use patorrent_frontend::scheduler::{CELLS, Mode};
-use patorrent_frontend::settings::{Entry, Kind, Value};
-use patorrent_frontend::tr;
+use rookparcel_frontend::scheduler::{CELLS, Mode};
+use rookparcel_frontend::settings::{Entry, Kind, Value};
+use rookparcel_frontend::tr;
 
 use crate::sched_grid::SchedGrid;
 use crate::table::Table;
@@ -142,11 +142,11 @@ pub fn show(parent: &gtk::ApplicationWindow, options: Options, hooks: Hooks, pag
         packaged: crate::integration::packaged(),
         tray: hooks.tray,
         // a Flatpak is updated by Flathub
-        updates: patorrent_frontend::update::AVAILABLE && !crate::integration::packaged(),
+        updates: rookparcel_frontend::update::AVAILABLE && !crate::integration::packaged(),
         alternate_rows: true,
     });
     if !crate::integration::associations_settable() {
-        // macOS outside PaTorrent.app: no bundle id to register, autostart still works
+        // macOS outside Rookparcel.app: no bundle id to register, autostart still works
         fix_fields(&mut pages, &["assoc.torrent", "assoc.magnet", "ui.check_assoc"]);
     }
     let stack = gtk::Stack::new();
@@ -691,7 +691,7 @@ impl Dialog {
         let Some(i) = self.selected_row() else { return };
         let Some(e) = self.rows.borrow().get(i).copied() else { return };
         let text = if reset {
-            e.get(&patorrent_core::Settings::default()).to_string()
+            e.get(&rookparcel_core::Settings::default()).to_string()
         } else if e.kind == Kind::Bool {
             a.yes.is_active().to_string()
         } else {

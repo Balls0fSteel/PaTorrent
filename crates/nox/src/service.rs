@@ -1,13 +1,13 @@
-// PaTorrent's own OS glue (no libtorrent counterpart; qBittorrent-nox has no Windows service).
+// Rookparcel's own OS glue (no libtorrent counterpart; qBittorrent-nox has no Windows service).
 
-//! `patorrent-nox` as a Windows service (PLAN.md Phase 6, docs/DAEMON.md). Windows only.
+//! `rookparcel-nox` as a Windows service (PLAN.md Phase 6, docs/DAEMON.md). Windows only.
 //!
-//! - `service install [--account A] [--start T] [RUN OPTIONS]` registers [`NAME`] ("PaTorrent
+//! - `service install [--account A] [--start T] [RUN OPTIONS]` registers [`NAME`] ("Rookparcel
 //!   nox") with the Service Control Manager. Its image path is this exe, quoted, then `service
 //!   run` and the run options, with relative paths made absolute (a service starts in
 //!   System32). The account is LocalService unless `--account` names NetworkService or
 //!   LocalSystem (built-in accounts need no password). Without `--state-dir` the state goes to
-//!   `%ProgramData%\PaTorrent\nox`, not the account's `%APPDATA%` (hidden under
+//!   `%ProgramData%\Rookparcel\nox`, not the account's `%APPDATA%` (hidden under
 //!   `C:\Windows\ServiceProfiles`); the state directory gets a protected ACL (SYSTEM,
 //!   Administrators and the account only: `webui.json` and the log hold the Web UI login). One
 //!   that exists already is taken only if it, its parents and its contents belong to trusted
@@ -21,7 +21,7 @@
 //!   new one, so one elevated command does what the Windows GUI's Preferences > Web UI asks.
 //! - `service uninstall`, `service start` and `service stop` (waiting for the state change).
 //! - Profiles (D42): `--profile NAME` on each of them names the profile's own service,
-//!   `PaTorrentNox_NAME` ("PaTorrent nox (NAME)", state in `%ProgramData%\PaTorrent\profiles\
+//!   `RookparcelNox_NAME` ("Rookparcel nox (NAME)", state in `%ProgramData%\Rookparcel\profiles\
 //!   NAME\nox`); `service status [--profile NAME | --all [--in DIR]]` lists services and their
 //!   image paths (exit 0 when one or more, 4 when none: the uninstaller's test), and `service
 //!   uninstall --all` removes every profile's that runs this exe.
@@ -85,27 +85,38 @@ use windows_sys::core::PWSTR;
 
 use crate::signals::{self, ServiceControl};
 
-/// The default profile's service name (`sc query PaTorrentNox`).
-pub const NAME: &str = "PaTorrentNox";
-const DISPLAY_NAME: &str = "PaTorrent nox";
+/// The default profile's service name (`sc query RookparcelNox`).
+pub const NAME: &str = "RookparcelNox";
+const DISPLAY_NAME: &str = "Rookparcel nox";
 
-/// The service of `profile` (D42): [`NAME`], or `PaTorrentNox_<name>` for a named profile.
+/// The service of `profile` (D42): [`NAME`], or `RookparcelNox_<name>` for a named profile.
 pub fn service_name(profile: Option<&str>) -> String {
     profile.map_or(NAME.to_owned(), |p| format!("{NAME}_{p}"))
 }
 
-/// Its display name: "PaTorrent nox", "PaTorrent nox (work)".
+/// Its display name: "Rookparcel nox", "Rookparcel nox (work)".
 fn display_name(profile: Option<&str>) -> String {
     profile.map_or(DISPLAY_NAME.to_owned(), |p| format!("{DISPLAY_NAME} ({p})"))
 }
 
-/// Whether `name` is one of ours, in any profile.
+/// The default profile's service name under the former name, PaTorrent (D59).
+const OLD_NAME: &str = "PaTorrentNox";
+
+/// The PaTorrent service of `profile`, which `service install` replaces.
+fn old_service_name(profile: Option<&str>) -> String {
+    profile.map_or(OLD_NAME.to_owned(), |p| format!("{OLD_NAME}_{p}"))
+}
+
+/// Whether `name` is one of ours, in any profile; PaTorrent's count too, so `service status`
+/// and `uninstall --all` see them.
 fn is_ours(name: &str) -> bool {
-    name.eq_ignore_ascii_case(NAME)
-        || name.get(..NAME.len() + 1).is_some_and(|p| p.eq_ignore_ascii_case(&format!("{NAME}_")))
+    [NAME, OLD_NAME].iter().any(|n| {
+        name.eq_ignore_ascii_case(n)
+            || name.get(..n.len() + 1).is_some_and(|p| p.eq_ignore_ascii_case(&format!("{n}_")))
+    })
 }
 const DESCRIPTION: &str =
-    "Headless PaTorrent BitTorrent client (patorrent-nox run), driven through its Web UI.";
+    "Headless Rookparcel BitTorrent client (rookparcel-nox run), driven through its Web UI.";
 /// The log file in the state directory when no `--log` is given.
 const LOG_FILE: &str = "nox.log";
 
@@ -130,7 +141,7 @@ const PATH_OPTIONS: [&str; 12] = [
     "--import-dir",
 ];
 
-const USAGE: &str = "install, uninstall, start, stop, status, run or debug (patorrent-nox --help)";
+const USAGE: &str = "install, uninstall, start, stop, status, run or debug (rookparcel-nox --help)";
 
 /// `service status`'s exit code when no service matched (0: one or more did).
 const EXIT_NONE: u8 = 4;
@@ -166,7 +177,7 @@ fn parse_which(cmd: &str, args: &[String], all_ok: bool) -> Result<Which, String
     }
 }
 
-/// `patorrent-nox service ...`. `Err` is a usage error; failures are printed and give exit 1.
+/// `rookparcel-nox service ...`. `Err` is a usage error; failures are printed and give exit 1.
 pub fn main(args: &[String]) -> Result<ExitCode, String> {
     let (cmd, rest) = args.split_first().ok_or_else(|| format!("service: {USAGE}"))?;
     let one = |w: Which| match w {
@@ -277,7 +288,7 @@ struct Install {
     replace: bool,
     /// `--now`: started once installed.
     now: bool,
-    /// `--profile NAME` (D42): the service is `PaTorrentNox_<name>`; it stays in the image path.
+    /// `--profile NAME` (D42): the service is `RookparcelNox_<name>`; it stays in the image path.
     profile: Option<String>,
 }
 
@@ -370,10 +381,10 @@ fn parse_install(args: &[String], program_data: Option<PathBuf>) -> Result<Insta
     })
 }
 
-/// A service's state directory when none is given: `%ProgramData%\PaTorrent\nox`, a named
-/// profile's `%ProgramData%\PaTorrent\profiles\<name>\nox`.
+/// A service's state directory when none is given: `%ProgramData%\Rookparcel\nox`, a named
+/// profile's `%ProgramData%\Rookparcel\profiles\<name>\nox`.
 fn default_state(program_data: &Path, profile: Option<&str>) -> PathBuf {
-    patorrent_frontend::profile::within(&program_data.join("PaTorrent"), profile).join("nox")
+    rookparcel_frontend::profile::within(&program_data.join("Rookparcel"), profile).join("nox")
 }
 
 /// Stores the Web UI login in the state directory's `webui.json` (merged into what is there),
@@ -401,7 +412,7 @@ fn store_login(state: &Path, username: Option<&str>, password: Option<&str>) -> 
     if let Some(p) = password {
         doc.set("password", PasswordHash::new(p, DEFAULT_ITERATIONS).to_string());
     }
-    patorrent_core::util::private_file::write(&path, doc.to_json().as_bytes())
+    rookparcel_core::util::private_file::write(&path, doc.to_json().as_bytes())
         .map_err(|e| format!("{}: {e}", path.display()))
 }
 
@@ -507,8 +518,8 @@ fn wait_while(s: &Sc, name: &str, pending: u32, timeout: Duration) -> Result<SER
 fn scm_error(what: &str, e: io::Error) -> String {
     let hint = match e.raw_os_error().map(|c| c as u32) {
         Some(ERROR_ACCESS_DENIED) => "; run it from an administrator prompt (\"Run as administrator\")",
-        Some(ERROR_SERVICE_DOES_NOT_EXIST) => "; install it first: patorrent-nox service install [OPTIONS]",
-        Some(ERROR_SERVICE_EXISTS) => "; it is installed already (patorrent-nox service uninstall first)",
+        Some(ERROR_SERVICE_DOES_NOT_EXIST) => "; install it first: rookparcel-nox service install [OPTIONS]",
+        Some(ERROR_SERVICE_EXISTS) => "; it is installed already (rookparcel-nox service uninstall first)",
         Some(ERROR_SERVICE_MARKED_FOR_DELETE) => {
             "; close the Services console (services.msc) and other programs holding it, then try again"
         }
@@ -895,7 +906,7 @@ fn exe_warning(exe: &Path, account: &str, trusted: &dyn Fn(&str) -> bool) -> Opt
     (!found.is_empty()).then(|| {
         format!(
             "{}: whoever can change the exe or put a DLL beside it runs code as {account}; copy the \
-             exe to a folder only administrators can change, e.g. C:\\Program Files\\PaTorrent, and \
+             exe to a folder only administrators can change, e.g. C:\\Program Files\\Rookparcel, and \
              install from there",
             found.join("; ")
         )
@@ -921,6 +932,17 @@ fn install(i: &Install) -> Result<(), String> {
     let (service, display_name) = (service_name(i.profile.as_deref()), display_name(i.profile.as_deref()));
     if i.replace {
         remove(&service, true)?;
+    }
+    // PaTorrent's service of this profile gives way, and its state comes along (D59)
+    if remove(&old_service_name(i.profile.as_deref()), true)? {
+        if let Some(pd) = program_data() {
+            let new = pd.join("Rookparcel");
+            if i.state.starts_with(&new) {
+                rookparcel_frontend::legacy::move_root(&pd.join("PaTorrent"), &new).map_err(|old| {
+                    format!("{} is still in use: stop what uses it, then try again", old.display())
+                })?;
+            }
+        }
     }
 
     let me = current_user().ok();
@@ -1019,7 +1041,7 @@ fn install(i: &Install) -> Result<(), String> {
     if profile.is_some_and(|p| inside(&exe, Path::new(&p))) {
         println!(
             "! {} is in your user profile, which {} cannot open: copy the exe to e.g. \
-             C:\\Program Files\\PaTorrent and install from there",
+             C:\\Program Files\\Rookparcel and install from there",
             exe.display(),
             i.account.name()
         );
@@ -1031,7 +1053,7 @@ fn install(i: &Install) -> Result<(), String> {
         return self::start(&service);
     }
     let profile = i.profile.as_ref().map_or(String::new(), |p| format!(" --profile {p}"));
-    println!("* start it with: patorrent-nox service start{profile} (or sc start {service})");
+    println!("* start it with: rookparcel-nox service start{profile} (or sc start {service})");
     Ok(())
 }
 
@@ -1048,7 +1070,7 @@ fn uninstall(which: &Which) -> Result<(), String> {
             let found = installed().map_err(|e| scm_error("service uninstall", e))?;
             let mine: Vec<_> = found.into_iter().filter(|s| s.runs_from(&dir)).collect();
             if mine.is_empty() {
-                println!("* no PaTorrent nox service runs from {}", dir.display());
+                println!("* no Rookparcel nox service runs from {}", dir.display());
             }
             mine.iter().try_for_each(|s| remove(&s.name, false).map(|_| ()))
         }
@@ -1090,7 +1112,7 @@ fn image_exe(image: &str) -> Option<PathBuf> {
     (!exe.is_empty()).then(|| PathBuf::from(exe))
 }
 
-/// Every installed `PaTorrentNox` and `PaTorrentNox_*` service, with its state and image path.
+/// Every installed `RookparcelNox` and `RookparcelNox_*` service, with its state and image path.
 fn installed() -> io::Result<Vec<Installed>> {
     let m = manager(SC_MANAGER_CONNECT | SC_MANAGER_ENUMERATE_SERVICE)?;
     let mut names = Vec::new();
@@ -1196,7 +1218,7 @@ fn status(which: &Which) -> ExitCode {
         println!("{}: {}: {}", s.name, state_name(s.state), s.image);
     }
     if shown.is_empty() {
-        println!("* no PaTorrent nox service matches");
+        println!("* no Rookparcel nox service matches");
         return ExitCode::from(EXIT_NONE);
     }
     ExitCode::SUCCESS
@@ -1544,9 +1566,9 @@ fn dispatch(args: &[String]) -> ExitCode {
         if e.raw_os_error() == Some(ERROR_FAILED_SERVICE_CONTROLLER_CONNECT as i32) {
             eprintln!(
                 "error: {e}\n\n`service run` is what the Service Control Manager starts. Install the \
-                 service with `patorrent-nox service install [OPTIONS]` and start it with `patorrent-nox \
-                 service start`; to run in this console use `patorrent-nox run [OPTIONS]`, or \
-                 `patorrent-nox service debug [OPTIONS]` to watch the service's status."
+                 service with `rookparcel-nox service install [OPTIONS]` and start it with `rookparcel-nox \
+                 service start`; to run in this console use `rookparcel-nox run [OPTIONS]`, or \
+                 `rookparcel-nox service debug [OPTIONS]` to watch the service's status."
             );
         } else {
             eprintln!("error: StartServiceCtrlDispatcher: {e}");
@@ -1626,7 +1648,7 @@ fn serve(scm: Box<dyn Scm>, args: &[String], service: bool) -> u32 {
 /// service has no console), and the log must open.
 fn prepare(args: &[String], service: bool) -> Result<crate::Opts, (u32, String)> {
     prepare_with(args, service, |name| {
-        patorrent_frontend::profile::init(name);
+        rookparcel_frontend::profile::init(name);
     })
 }
 
@@ -1692,7 +1714,7 @@ mod tests {
 
     #[test]
     fn arguments_survive_the_image_path() {
-        let exe = Path::new(r"C:\Program Files\PaTorrent\patorrent-nox.exe");
+        let exe = Path::new(r"C:\Program Files\Rookparcel\rookparcel-nox.exe");
         let tricky = args(&[
             "service",
             "run",
@@ -1710,7 +1732,9 @@ mod tests {
             r"\",
         ]);
         let line = command_line(exe, &tricky);
-        assert!(line.starts_with(r#""C:\Program Files\PaTorrent\patorrent-nox.exe" service run plain "" "#));
+        assert!(
+            line.starts_with(r#""C:\Program Files\Rookparcel\rookparcel-nox.exe" service run plain "" "#)
+        );
         let back = split(&line);
         assert_eq!(back[0], exe.to_string_lossy());
         assert_eq!(back[1..], tricky[..]);
@@ -1724,7 +1748,7 @@ mod tests {
     fn install_defaults_to_program_data() {
         let pd = Some(PathBuf::from(r"C:\ProgramData"));
         let i = parse_install(&args(&["--webui", "8080"]), pd.clone()).unwrap();
-        let state = PathBuf::from(r"C:\ProgramData\PaTorrent\nox");
+        let state = PathBuf::from(r"C:\ProgramData\Rookparcel\nox");
         assert_eq!(
             i,
             Install {
@@ -1734,9 +1758,9 @@ mod tests {
                     "--webui",
                     "8080",
                     "--state-dir",
-                    r"C:\ProgramData\PaTorrent\nox",
+                    r"C:\ProgramData\Rookparcel\nox",
                     "--save",
-                    r"C:\ProgramData\PaTorrent\nox\Downloads",
+                    r"C:\ProgramData\Rookparcel\nox\Downloads",
                 ]),
                 state: state.clone(),
                 default_save: Some(state.join("Downloads")),
@@ -1751,12 +1775,12 @@ mod tests {
         );
         // a profile's service keeps its own state, and its name in the image path (D42)
         let i = parse_install(&args(&["--profile", "work", "--webui", "8081"]), pd.clone()).unwrap();
-        let work = PathBuf::from(r"C:\ProgramData\PaTorrent\profiles\work\nox");
+        let work = PathBuf::from(r"C:\ProgramData\Rookparcel\profiles\work\nox");
         assert_eq!((i.profile.as_deref(), &i.state), (Some("work"), &work));
         assert_eq!(i.args[..2], args(&["--profile", "work"])[..]);
         assert_eq!(
             (service_name(Some("work")), display_name(Some("work"))),
-            ("PaTorrentNox_work".into(), "PaTorrent nox (work)".into())
+            ("RookparcelNox_work".into(), "Rookparcel nox (work)".into())
         );
         // no %ProgramData%: --state-dir is needed
         let e = parse_install(&[], None).unwrap_err();
@@ -1837,7 +1861,7 @@ mod tests {
         assert!(e.contains("needs a password"), "{e}");
 
         // the image path gives `run` the same options back
-        let exe = Path::new(r"C:\pa\patorrent-nox.exe");
+        let exe = Path::new(r"C:\pa\rookparcel-nox.exe");
         let mut full = args(&["service", "run"]);
         full.extend(i.args.iter().cloned());
         let back = split(&command_line(exe, &full));
@@ -2079,7 +2103,7 @@ mod tests {
         let safe = base.join("safe");
         // an entry only subfolders inherit, CREATOR OWNER
         create_dir_with_acl(&safe, &format!("{admins_only}(A;CIIO;FA;;;AU)(A;OICI;FA;;;CO)")).unwrap();
-        let exe = safe.join("patorrent-nox.exe");
+        let exe = safe.join("rookparcel-nox.exe");
         std::fs::write(&exe, "MZ").unwrap();
         // read and execute for users
         secure_dir(&exe, &format!("{admins_only}(A;;FRFX;;;BU)")).unwrap();
@@ -2089,7 +2113,7 @@ mod tests {
         // a folder where users may add files (C:\ hands this down to folders made in it)
         let open = base.join("open");
         create_dir_with_acl(&open, &format!("{admins_only}(A;OICI;0x1301bf;;;AU)(A;;0x4;;;BU)")).unwrap();
-        let exe = open.join("patorrent-nox.exe");
+        let exe = open.join("rookparcel-nox.exe");
         std::fs::write(&exe, "MZ").unwrap();
         assert_eq!(untrusted_writers(&open, &trusted).unwrap(), ["Authenticated Users", "Users"]);
         assert_eq!(untrusted_writers(&exe, &trusted).unwrap(), ["Authenticated Users"]);
@@ -2099,8 +2123,8 @@ mod tests {
             "{w}"
         );
         // everyone may change the exe: no DACL at all; an owner who is not trusted
-        secure_dir(&safe.join("patorrent-nox.exe"), "D:NO_ACCESS_CONTROL").unwrap();
-        assert_eq!(untrusted_writers(&safe.join("patorrent-nox.exe"), &trusted).unwrap(), ["Everyone"]);
+        secure_dir(&safe.join("rookparcel-nox.exe"), "D:NO_ACCESS_CONTROL").unwrap();
+        assert_eq!(untrusted_writers(&safe.join("rookparcel-nox.exe"), &trusted).unwrap(), ["Everyone"]);
         let owner = owner_of(&safe).unwrap().unwrap();
         let only_system = |sid: &str| sid == "S-1-5-18";
         assert_eq!(untrusted_writers(&safe, &only_system).unwrap()[0], owner);
@@ -2226,19 +2250,22 @@ mod tests {
             assert!(parse_which(cmd, &args(a), all_ok).is_err(), "{cmd} {a:?}");
         }
         // the services and their programs
-        assert!(is_ours("PaTorrentNox") && is_ours("patorrentnox_work") && !is_ours("PaTorrentNoxy"));
+        assert!(is_ours("RookparcelNox") && is_ours("rookparcelnox_work") && !is_ours("RookparcelNoxy"));
+        // PaTorrent's (D59)
+        assert!(is_ours("PaTorrentNox") && is_ours("PaTorrentNox_work") && !is_ours("PaTorrentNoxy"));
+        assert_eq!(old_service_name(Some("work")), "PaTorrentNox_work");
         assert_eq!(
-            image_exe(r#""C:\P T\patorrent-nox.exe" service run"#),
-            Some(PathBuf::from(r"C:\P T\patorrent-nox.exe"))
+            image_exe(r#""C:\P T\rookparcel-nox.exe" service run"#),
+            Some(PathBuf::from(r"C:\P T\rookparcel-nox.exe"))
         );
         assert_eq!(
-            image_exe(r"C:\P\patorrent-nox.exe service run"),
-            Some(PathBuf::from(r"C:\P\patorrent-nox.exe"))
+            image_exe(r"C:\P\rookparcel-nox.exe service run"),
+            Some(PathBuf::from(r"C:\P\rookparcel-nox.exe"))
         );
         let s = Installed {
             name: NAME.into(),
             state: SERVICE_STOPPED,
-            image: r#""C:\P T\patorrent-nox.exe" service run"#.into(),
+            image: r#""C:\P T\rookparcel-nox.exe" service run"#.into(),
         };
         assert!(s.runs_from(Path::new(r"c:\p t")) && s.runs_from(Path::new(r"C:\P T\")));
         assert!(!s.runs_from(Path::new(r"C:\P")) && !s.runs_from(Path::new(r"C:\")));
@@ -2247,7 +2274,7 @@ mod tests {
     #[test]
     fn exit_codes_are_explained() {
         assert_eq!(exit_text(NAME, NO_ERROR, 0), "exit code 0");
-        assert!(exit_text(NAME, ERROR_SERVICE_SPECIFIC_ERROR, EXIT_ARGS).contains("sc qc PaTorrentNox"));
+        assert!(exit_text(NAME, ERROR_SERVICE_SPECIFIC_ERROR, EXIT_ARGS).contains("sc qc RookparcelNox"));
         assert!(exit_text(NAME, ERROR_SERVICE_SPECIFIC_ERROR, EXIT_FAILED).contains("nox.log"));
         assert!(scm_error("service install", io::Error::from_raw_os_error(5)).contains("administrator"));
     }

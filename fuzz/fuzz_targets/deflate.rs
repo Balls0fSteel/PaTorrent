@@ -3,7 +3,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::util::{deflate, puff};
+use rookparcel_core::util::{deflate, puff};
 
 fuzz_target!(|data: &[u8]| {
     let packed = deflate::deflate(data);

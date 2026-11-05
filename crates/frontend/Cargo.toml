@@ -1,6 +1,6 @@
 [package]
-name = "patorrent-frontend"
-description = "UI-agnostic client logic shared by PaTorrent's Win32, GTK and headless frontends."
+name = "rookparcel-frontend"
+description = "UI-agnostic client logic shared by Rookparcel's Win32, GTK and headless frontends."
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -10,7 +10,7 @@ authors.workspace = true
 publish.workspace = true
 
 [dependencies]
-patorrent-core.workspace = true
+rookparcel-core.workspace = true
 
 # the system's user-interface languages (lang::system_languages); DPAPI for the proxy password (secret);
 # the process list (import: is the source client running)
@@ -24,7 +24,7 @@ windows-sys = { workspace = true, features = [
 ] }
 
 [dev-dependencies]
-patorrent-core = { workspace = true, features = ["mock"] }
+rookparcel-core = { workspace = true, features = ["mock"] }
 
 [lints]
 workspace = true

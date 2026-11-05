@@ -12,14 +12,14 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_core::TorrentStatus;
-use patorrent_frontend::detail::{
+use rookparcel_core::TorrentStatus;
+use rookparcel_frontend::detail::{
     self, BlockKind, Detail, PIECE_BLOCKS_COLUMN, PIECE_COLUMNS, PRIORITIES, PieceShade, SPEED_SAMPLES, Tab,
 };
-use patorrent_frontend::fmt;
-use patorrent_frontend::icons::{tab_icon, tracker_icon};
-use patorrent_frontend::lang::{self, gtk_mnemonic};
-use patorrent_frontend::tr;
+use rookparcel_frontend::fmt;
+use rookparcel_frontend::icons::{tab_icon, tracker_icon};
+use rookparcel_frontend::lang::{self, gtk_mnemonic};
+use rookparcel_frontend::tr;
 
 use crate::canvas::{self, Canvas, faded, fill, frame, rgb};
 use crate::table::{ContextMenu, Table};
@@ -487,7 +487,7 @@ impl General {
         }
         let texts =
             g.transfer.iter().flatten().chain([&g.status]).chain(g.general.iter().flatten()).chain([&g.hash]);
-        let external = patorrent_frontend::network::general_row();
+        let external = rookparcel_frontend::network::general_row();
         let external = (external.0, external.1);
         let texts = texts.map(|(l, v)| (*l, v.clone())).chain([external]);
         for ((l, v), (label, value)) in self.pairs.iter().zip(texts) {
@@ -586,7 +586,7 @@ fn block_bar(
     w: &gtk::Widget,
     s: &gtk::Snapshot,
     (x, y, width, height): (f32, f32, f32, f32),
-    p: &patorrent_core::PartialPiece,
+    p: &rookparcel_core::PartialPiece,
 ) {
     let n = p.blocks.len();
     let inner = width - 2.0;

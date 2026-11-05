@@ -95,12 +95,12 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         let dir = crate::disk::tests::temp_dir("private-mode");
-        let sub = dir.join("config").join("patorrent");
+        let sub = dir.join("config").join("rookparcel");
         create_dir_all(&sub).unwrap();
         assert_eq!(mode(&dir.join("config")), 0o700);
         assert_eq!(mode(&sub), 0o700);
         // an existing file, and a stale temporary file, both readable by everyone
-        let path = sub.join("patorrent.ini");
+        let path = sub.join("rookparcel.ini");
         std::fs::write(&path, b"old").unwrap();
         std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
         std::fs::write(tmp_path(&path), b"stale").unwrap();

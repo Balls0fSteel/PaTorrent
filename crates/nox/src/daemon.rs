@@ -1,4 +1,4 @@
-// PaTorrent's own OS glue (no libtorrent counterpart).
+// Rookparcel's own OS glue (no libtorrent counterpart).
 
 //! Running as a service (PLAN.md Phase 6): the pid file, `--log FILE`, `--daemon` and systemd's
 //! readiness notifications.
@@ -64,7 +64,7 @@ impl Service {
             }
             #[cfg(not(unix))]
             return Err(
-                "--daemon is for Unix (on Windows, install a service: patorrent-nox service install)".into(),
+                "--daemon is for Unix (on Windows, install a service: rookparcel-nox service install)".into(),
             );
         }
         if let Some(log) = &s.log {
@@ -165,7 +165,7 @@ impl PidFile {
             // never through a symbolic link: in a shared folder (`/tmp`) another user could
             // point one at a file of ours, which the lock would then truncate
             use std::os::unix::fs::OpenOptionsExt;
-            o.mode(0o644).custom_flags(patorrent_core::util::private_file::O_NOFOLLOW);
+            o.mode(0o644).custom_flags(rookparcel_core::util::private_file::O_NOFOLLOW);
         }
         #[cfg(windows)]
         {
@@ -177,7 +177,7 @@ impl PidFile {
             let pid =
                 std::fs::read_to_string(path).ok().map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
             format!(
-                "--pid-file {}: patorrent-nox is already running{}",
+                "--pid-file {}: rookparcel-nox is already running{}",
                 path.display(),
                 pid.map_or(String::new(), |p| format!(" (pid {p})"))
             )

@@ -1,8 +1,8 @@
-//! The PatinaTorrent icons in GTK, from the PNGs `patorrent_frontend::icons` embeds (GDK
+//! The Rookparcel icons in GTK, from the PNGs `rookparcel_frontend::icons` embeds (GDK
 //! decodes them):
 //!
 //! - the application icon is a themed icon named [`APP_ID`], as the desktop entries name it.
-//!   [`setup`] writes it as a small icon theme folder under `$XDG_CACHE_HOME/patorrent/icons`
+//!   [`setup`] writes it as a small icon theme folder under `$XDG_CACHE_HOME/rookparcel/icons`
 //!   and adds that folder to the display's icon theme, so the windows, the About box and the
 //!   tray (its `IconThemePath`) find it whether or not it is installed; [`install_theme_icons`]
 //!   also puts it into `$XDG_DATA_HOME/icons/hicolor` when desktop integration writes the
@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 
 use gtk::prelude::*;
 use gtk::{gdk, glib};
-use patorrent_frontend::icons::{self, APP_SIZES, Icon, StateIcon, UiIcon};
+use rookparcel_frontend::icons::{self, APP_SIZES, Icon, StateIcon, UiIcon};
 
 use crate::app::APP_ID;
 
@@ -190,7 +190,7 @@ pub fn setup(display: &gdk::Display) {
     follow_theme(&settings);
     settings.connect_gtk_theme_name_notify(follow_theme);
     settings.connect_gtk_application_prefer_dark_theme_notify(follow_theme);
-    let dir = glib::user_cache_dir().join("patorrent").join("icons");
+    let dir = glib::user_cache_dir().join("rookparcel").join("icons");
     if let Err(e) = install_theme_icons(&dir, true) {
         eprintln!("icons: {e}");
     } else {

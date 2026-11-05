@@ -1,20 +1,20 @@
 # Remote control
 
-The desktop program can control a `patorrent-nox` on another computer: a NAS, a home server, a PC in another room. The window looks and works as usual, but the torrents, downloads and engine are on the server. This page covers connecting with **File > Connect to Remote...** or `--remote`, what works in a remote window, and how the connection is protected.
+The desktop program can control a `rookparcel-nox` on another computer: a NAS, a home server, a PC in another room. The window looks and works as usual, but the torrents, downloads and engine are on the server. This page covers connecting with **File > Connect to Remote...** or `--remote`, what works in a remote window, and how the connection is protected.
 
 The alternative is the [Web UI](Web-UI) in a browser, which needs nothing installed. A remote window gives you the full desktop program instead: its dialogs, keyboard shortcuts and detail tabs.
 
 ## What you need
 
-- A `patorrent-nox` running with its Web UI on, for example `patorrent-nox run --webui 0.0.0.0:8443 --webui-https` ([Running patorrent-nox](Running-patorrent-nox)). The remote window uses the Web UI's port and login.
+- A `rookparcel-nox` running with its Web UI on, for example `rookparcel-nox run --webui 0.0.0.0:8443 --webui-https` ([Running rookparcel-nox](Running-rookparcel-nox)). The remote window uses the Web UI's port and login.
 - The Web UI's user name and password.
-- The same PaTorrent version on both sides. A server that speaks another version refuses the connection with "the server refused the connection (HTTP 426): this server speaks remote protocol ...".
+- The same Rookparcel version on both sides. A server that speaks another version refuses the connection with "the server refused the connection (HTTP 426): this server speaks remote protocol ...".
 
-A remote window connects to `patorrent-nox`. The Windows program's own Web UI (**Preferences > Web UI**) is for browsers.
+A remote window connects to `rookparcel-nox`. The Windows program's own Web UI (**Preferences > Web UI**) is for browsers.
 
 ## Connecting
 
-1. In the Windows program choose **File > Connect to Remote...**. A second PaTorrent window starts beside your own and shows the **Connect to Remote** dialog. (Or start `patorrent.exe --remote`, which opens only the remote window.)
+1. In the Windows program choose **File > Connect to Remote...**. A second Rookparcel window starts beside your own and shows the **Connect to Remote** dialog. (Or start `rookparcel.exe --remote`, which opens only the remote window.)
 2. Fill in:
 
    | Field | What to enter |
@@ -28,18 +28,18 @@ A remote window connects to `patorrent-nox`. The Windows program's own Web UI (*
 3. Click **Connect**.
 4. The first time, a server with a self-signed certificate (the one `--webui-https` makes) is shown by its fingerprint:
 
-   > ... presents a certificate that this computer does not trust (a self-signed one, as patorrent-nox --webui-https makes).
+   > ... presents a certificate that this computer does not trust (a self-signed one, as rookparcel-nox --webui-https makes).
 
-   Compare the long number with the `certificate SHA-256` line nox printed when it started (in its terminal, log or journal). If they match, click **Yes**. PaTorrent remembers the certificate for that server and does not ask again.
+   Compare the long number with the `certificate SHA-256` line nox printed when it started (in its terminal, log or journal). If they match, click **Yes**. Rookparcel remembers the certificate for that server and does not ask again.
 5. The window opens with the server's torrents. Its title bar shows the server's `host:port`.
 
 The dialog remembers the host, port, user name and the HTTPS choice for next time. The password is never stored; you type it at each connection.
 
-In the GTK program (Linux, BSD, macOS) it is the same: **File > Connect to Remote...**, or `patorrent-gtk --remote`. Each remote window is a program of its own, so you can have your local window and several servers open at once.
+In the GTK program (Linux, BSD, macOS) it is the same: **File > Connect to Remote...**, or `rookparcel-gtk --remote`. Each remote window is a program of its own, so you can have your local window and several servers open at once.
 
 ## Without HTTPS
 
-If you untick **Use HTTPS** and the host is another computer, PaTorrent asks first:
+If you untick **Use HTTPS** and the host is another computer, Rookparcel asks first:
 
 > ... is another computer, and without HTTPS your user name, password and every command cross the network unencrypted: anyone on it can read or change them.
 
@@ -70,7 +70,7 @@ The server keeps downloading after you close the window.
 
 ## Losing the connection
 
-When the connection drops, PaTorrent says so once:
+When the connection drops, Rookparcel says so once:
 
 > The connection to ... was lost: ... The list shows the torrents as they were. Close this window and use File > Connect to Remote... to connect again.
 
@@ -82,12 +82,12 @@ The title bar then ends in "(disconnected)". Commands go nowhere from then on. C
 |---|---|
 | "Enter the server's host name or address, and its port (1 to 65535)." | The host is empty or the port is not a number in range. |
 | "Cannot connect to ...: wrong user name or password" | The Web UI login. Too many wrong tries lock the address out for a while ([Web UI](Web-UI#logging-in)). |
-| "... Is it a patorrent-nox with its Web UI on this port (--webui)?" | Something else answered on that port. |
+| "... Is it a rookparcel-nox with its Web UI on this port (--webui)?" | Something else answered on that port. |
 | "... If the server's Web UI uses HTTPS (--webui-https), tick Use HTTPS." | The server speaks HTTPS but **Use HTTPS** was off. |
 | "Cannot reach ... over HTTPS: ..." | **Use HTTPS** is on, but the server does not speak HTTPS, or cannot be reached at all. |
 | "The certificate of ... is not the one you accepted before: ..." | The server's certificate changed. If you replaced it, or nox renewed its own, connect again to check the new one. Otherwise someone may be in between: do not go on. |
 | "... (HTTP 400): ..." naming the Host header | The server refuses the host name you typed. Use its IP address, or add the name to the server's **Preferences > Web UI > Server domains** ([Web UI](Web-UI#security)). |
-| "... (HTTP 426): this server speaks remote protocol ..." | The two programs are different versions. Update the older one ([Updating PaTorrent](Updating-PaTorrent)). |
+| "... (HTTP 426): this server speaks remote protocol ..." | The two programs are different versions. Update the older one ([Updating Rookparcel](Updating-Rookparcel)). |
 
 The firewall on the server must let the Web UI's port in.
 
@@ -95,21 +95,21 @@ The firewall on the server must let the Web UI's port in.
 
 | | Windows | GTK (Linux, BSD) |
 |---|---|---|
-| Connection details and accepted certificates | `remote.ini` beside `patorrent.ini` in the settings folder | `remote.ini` in `~/.config/patorrent/gtk` |
-| The window's settings, labels and RSS feeds per server | `remote\<host>_<port>` in the settings folder | `~/.config/patorrent/gtk/remote/<host>_<port>` |
+| Connection details and accepted certificates | `remote.ini` beside `rookparcel.ini` in the settings folder | `remote.ini` in `~/.config/rookparcel/gtk` |
+| The window's settings, labels and RSS feeds per server | `remote\<host>_<port>` in the settings folder | `~/.config/rookparcel/gtk/remote/<host>_<port>` |
 
-These never mix with your local window's settings. See [Where PaTorrent keeps its files](Where-PaTorrent-keeps-its-files).
+These never mix with your local window's settings. See [Where Rookparcel keeps its files](Where-Rookparcel-keeps-its-files).
 
 ## Security
 
 - The remote window logs in with the Web UI's login, so everything on [Web UI security](Web-UI#security) applies: a long password, HTTPS across a network.
 - Wrong passwords count towards the same lock-out as the Web UI's login form.
 - Setting a new Web UI password disconnects every remote window.
-- A certificate that changes after you accepted it is refused with a warning; PaTorrent asks again at the next attempt.
+- A certificate that changes after you accepted it is refused with a warning; Rookparcel asks again at the next attempt.
 - The password is never written to disk on this computer.
 
 ## See also
 
-- [Running patorrent-nox](Running-patorrent-nox): starting the server, HTTPS options and services.
+- [Running rookparcel-nox](Running-rookparcel-nox): starting the server, HTTPS options and services.
 - [Web UI](Web-UI): the same server in a browser.
-- The technical description: [WEBUI.md, Remote mode](https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/WEBUI.md#remote-mode).
+- The technical description: [WEBUI.md, Remote mode](https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/WEBUI.md#remote-mode).

@@ -26,8 +26,8 @@ pub mod worker;
 
 use std::collections::{HashSet, VecDeque};
 
-use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
-use patorrent_core::util::string::parse_url_components;
+use rookparcel_core::fetch::{FetchOptions, FetchProxy, http_get};
+use rookparcel_core::util::string::parse_url_components;
 
 pub use episode::{Episode, EpisodeSpec, Quality, is_repack, parse_episode};
 pub use feed::{Enclosure, Feed, FeedItem, FeedKind, parse_date, parse_feed};

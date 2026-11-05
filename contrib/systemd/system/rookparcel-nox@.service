@@ -1,0 +1,79 @@
+# rookparcel-nox profiles as system services, one instance per profile (D42, docs/DAEMON.md):
+# `rookparcel-nox@work` runs `rookparcel-nox run --profile work` as the `rookparcel` account. The
+# instance name is the profile's: 1-32 letters a-z, digits and hyphens, starting with a letter.
+#
+#   sudo install -m 755 rookparcel-nox /usr/local/bin/
+#   sudo install -D -m 644 rookparcel-nox.sysusers /etc/sysusers.d/rookparcel-nox.conf
+#   sudo systemd-sysusers
+#   sudo install -m 644 rookparcel-nox@.service /etc/systemd/system/
+#   sudo systemctl daemon-reload
+#   sudo systemctl edit rookparcel-nox@work     (the Web UI's port: see below)
+#   sudo systemctl enable --now rookparcel-nox@work
+#   journalctl -u rookparcel-nox@work           (the Web UI's temporary password on the first start)
+#
+# There is no default Web UI port: two instances cannot share one. Give each its own in a
+# drop-in (`sudo systemctl edit rookparcel-nox@work`):
+#
+#   [Service]
+#   ExecStart=
+#   ExecStart=/usr/local/bin/rookparcel-nox run --profile %i --save /var/lib/rookparcel-nox/%i/downloads --webui 127.0.0.1:8081
+#
+# Each instance keeps its state and webui.json in /var/lib/rookparcel-nox/<profile>
+# ($STATE_DIRECTORY) and listens on a BitTorrent port of its own, taken from the profile's name
+# unless --port or --listen says otherwise. `systemctl reload rookparcel-nox@work` reloads its IP
+# filter.
+
+[Unit]
+Description=Rookparcel BitTorrent daemon (rookparcel-nox), profile %i
+Documentation=https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/DAEMON.md
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=main
+User=rookparcel
+Group=rookparcel
+ExecStart=/usr/local/bin/rookparcel-nox run --profile %i --save /var/lib/rookparcel-nox/%i/downloads
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=5
+# saving resume data and deleting the router's port mappings takes a moment
+TimeoutStopSec=60
+StateDirectory=rookparcel-nox/%i
+StateDirectoryMode=0750
+UMask=0027
+LimitNOFILE=16384
+
+# Sandboxing as rookparcel-nox.service's (systemd.exec(5)).
+# Downloads outside /var/lib/rookparcel-nox/%i need a ReadWritePaths= line in the drop-in.
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+PrivateUsers=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+# AF_NETLINK: interface and route lists (port mapping, network changes); AF_UNIX: sd_notify
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RemoveIPC=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+SystemCallErrorNumber=EPERM
+CapabilityBoundingSet=
+AmbientCapabilities=
+
+[Install]
+WantedBy=multi-user.target

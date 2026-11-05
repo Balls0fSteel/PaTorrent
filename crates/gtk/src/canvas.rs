@@ -29,7 +29,7 @@ mod imp {
 
     #[glib::object_subclass]
     impl ObjectSubclass for Canvas {
-        const NAME: &'static str = "PaTorrentCanvas";
+        const NAME: &'static str = "RookparcelCanvas";
         type Type = super::Canvas;
         type ParentType = gtk::Widget;
     }

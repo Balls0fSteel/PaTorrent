@@ -1,10 +1,10 @@
 # Keep ping low
 
-Keep ping low is PaTorrent's "gamer mode": it watches the delay on your internet line and holds PaTorrent's speeds down while the delay grows, so games, video calls and web browsing stay responsive while torrents run. This page explains what it does, how to turn it on and what you see while it works.
+Keep ping low is Rookparcel's "gamer mode": it watches the delay on your internet line and holds Rookparcel's speeds down while the delay grows, so games, video calls and web browsing stay responsive while torrents run. This page explains what it does, how to turn it on and what you see while it works.
 
 ## Why torrents raise your ping
 
-Your line's upload is usually its narrowest part. When PaTorrent sends faster than the line can carry, the packets wait in a queue in the modem or router, and every other packet waits behind them: a game's, a call's, a web page's. That queue is what you notice as lag. Sending a little slower than the line keeps the queue empty and the ping at its idle value. The download direction has the same problem at your provider's end of the line.
+Your line's upload is usually its narrowest part. When Rookparcel sends faster than the line can carry, the packets wait in a queue in the modem or router, and every other packet waits behind them: a game's, a call's, a web page's. That queue is what you notice as lag. Sending a little slower than the line keeps the queue empty and the ping at its idle value. The download direction has the same problem at your provider's end of the line.
 
 Keep ping low does not need to know which game runs. It measures the queue itself, so it works for any game, call or other program.
 
@@ -18,14 +18,14 @@ Keep ping low does not need to know which game runs. It measures the queue itsel
 
 It is off by default. To turn it off again, untick the box: your own limits are back at once.
 
-When you first turn it on, PaTorrent learns your line's idle ping. That takes up to about 20 seconds, during which speeds may start lower.
+When you first turn it on, Rookparcel learns your line's idle ping. That takes up to about 20 seconds, during which speeds may start lower.
 
 ## What it does
 
-- **It measures the delay.** PaTorrent pings the first router past your home line about four times a second (a few hundred bytes a second). If no router past the line answers, it pings the hosts in the Advanced setting `auto_limit_probe_hosts` instead, by default `1.1.1.1,8.8.8.8,9.9.9.9`. Busy uTP peers give a second measurement at no extra traffic.
+- **It measures the delay.** Rookparcel pings the first router past your home line about four times a second (a few hundred bytes a second). If no router past the line answers, it pings the hosts in the Advanced setting `auto_limit_probe_hosts` instead, by default `1.1.1.1,8.8.8.8,9.9.9.9`. Busy uTP peers give a second measurement at no extra traffic.
 - **It caps both directions.** While the delay stays above its idle value by more than the allowance, the upload or download cap is lowered; while the line is quiet again, the cap grows step by step.
 - **It never raises your own limits.** The lower of the automatic cap and your own global limit is used. Your settings are not changed.
-- **It has floors.** The cap does not sink below about 10 kB/s, or below a small share of the highest rate seen, so a busy Wi-Fi or another program's upload cannot starve PaTorrent completely.
+- **It has floors.** The cap does not sink below about 10 kB/s, or below a small share of the highest rate seen, so a busy Wi-Fi or another program's upload cannot starve Rookparcel completely.
 - **uTP gives way sooner.** While it is on, uTP connections aim for at most 25 ms of queueing delay instead of the usual 100 ms.
 
 The note under the box says it too: those pings go to the first router past your line, or else to the fallback hosts, whose operators see them.
@@ -54,7 +54,7 @@ Two settings on **Options > Preferences > Advanced** belong to it. Select the ro
 | System | How it measures |
 |---|---|
 | Windows | Pings, no administrator rights needed, plus the uTP peers. |
-| Linux | Pings through the system's unprivileged ping sockets, plus the uTP peers. If the system does not allow them, the Logger says "this system does not let PaTorrent ping (its group must be in net.ipv4.ping_group_range)" and only the uTP peers are used. |
+| Linux | Pings through the system's unprivileged ping sockets, plus the uTP peers. If the system does not allow them, the Logger says "this system does not let Rookparcel ping (its group must be in net.ipv4.ping_group_range)" and only the uTP peers are used. |
 | macOS | Pings, plus the uTP peers. |
 | FreeBSD and other systems without unprivileged pings | The uTP peers only. The Logger says pings are not available. |
 
@@ -62,7 +62,7 @@ With uTP peers only, it needs at least three busy uTP peers to measure anything;
 
 ## When something else is better
 
-A router with SQM (such as CAKE) or a working gaming QoS does this better, for every device in the house, not only for PaTorrent. If you have one, you can leave Keep ping low off.
+A router with SQM (such as CAKE) or a working gaming QoS does this better, for every device in the house, not only for Rookparcel. If you have one, you can leave Keep ping low off.
 
 ## Related features
 
@@ -72,4 +72,4 @@ A router with SQM (such as CAKE) or a working gaming QoS does this better, for e
 
 ## In the GTK window and the Web UI
 
-The GTK window (Linux, BSD, macOS) has the same box on **Preferences > Bandwidth**, and the Web UI has it on its **Preferences > Bandwidth** page, with the same note. In [patorrent-nox](Running-patorrent-nox) it is the same setting, `auto_rate_limit`, set from the Web UI's Preferences.
+The GTK window (Linux, BSD, macOS) has the same box on **Preferences > Bandwidth**, and the Web UI has it on its **Preferences > Bandwidth** page, with the same note. In [rookparcel-nox](Running-rookparcel-nox) it is the same setting, `auto_rate_limit`, set from the Web UI's Preferences.

@@ -1,0 +1,98 @@
+#!/bin/sh
+#
+# rookparcel-nox for FreeBSD's rc.d (docs/DAEMON.md).
+# Replacing patorrent_nox: docs/DAEMON.md, "Coming from PaTorrent".
+#
+#   pw useradd rookparcel -d /var/db/rookparcel-nox -s /usr/sbin/nologin -c "Rookparcel daemon"
+#   install -m 755 rookparcel-nox /usr/local/bin/
+#   install -m 555 rookparcel_nox /usr/local/etc/rc.d/
+#   sysrc rookparcel_nox_enable=YES
+#   sysrc rookparcel_nox_args="--webui 0.0.0.0:8080"     (more `rookparcel-nox run` options)
+#   service rookparcel_nox start
+#
+# The first start writes the Web UI's temporary password to the log. `service rookparcel_nox
+# reload` (SIGHUP) reloads the IP filter and reopens the log, so newsyslog can rotate it:
+#
+#   /var/log/rookparcel-nox.log  rookparcel:rookparcel  600  7  1000  *  JC  /var/run/rookparcel-nox/rookparcel-nox.pid
+#
+# Use rookparcel_nox_args, not rookparcel_nox_flags: rc.subr puts the flags before `run`.
+#
+# Profiles (D42), rc.subr's usual way: name them, and each runs as `rookparcel-nox run --profile
+# <name>` with its own directory, downloads, log, pid file and arguments (a variable's profile
+# part has `-` as `_`; `default` is the plain variables above):
+#
+#   sysrc rookparcel_nox_profiles="work vpn-1"
+#   sysrc rookparcel_nox_work_args="--webui 127.0.0.1:8081"
+#   sysrc rookparcel_nox_vpn_1_args="--webui 127.0.0.1:8082 --listen tun0:51413"
+#   service rookparcel_nox start          (every profile; `service rookparcel_nox start work` one)
+#
+# Defaults: rookparcel_nox_<p>_dir=/var/db/rookparcel-nox/profiles/<p>, _save=<dir>/downloads,
+# _log=/var/log/rookparcel-nox-<p>.log, _args="" (no Web UI: give each a port of its own).
+
+# PROVIDE: rookparcel_nox
+# REQUIRE: LOGIN NETWORKING
+# KEYWORD: shutdown
+
+. /etc/rc.subr
+
+name="rookparcel_nox"
+rcvar="rookparcel_nox_enable"
+desc="Rookparcel BitTorrent daemon"
+
+load_rc_config "$name"
+
+: ${rookparcel_nox_enable:="NO"}
+: ${rookparcel_nox_user:="rookparcel"}
+: ${rookparcel_nox_group:="rookparcel"}
+: ${rookparcel_nox_dir:="/var/db/rookparcel-nox"}
+: ${rookparcel_nox_save:="${rookparcel_nox_dir}/downloads"}
+: ${rookparcel_nox_log:="/var/log/rookparcel-nox.log"}
+: ${rookparcel_nox_args:="--webui 127.0.0.1:8080"}
+
+pidfile="/var/run/rookparcel-nox/rookparcel-nox.pid"
+profile_arg=""
+
+if [ -n "$2" ]; then
+	profile="$2"
+	if [ -n "${rookparcel_nox_profiles}" ] && [ "${profile}" != "default" ]; then
+		var=$(echo "${profile}" | tr '-' '_')
+		eval rookparcel_nox_dir=\"\${rookparcel_nox_${var}_dir:-/var/db/rookparcel-nox/profiles/${profile}}\"
+		eval rookparcel_nox_save=\"\${rookparcel_nox_${var}_save:-${rookparcel_nox_dir}/downloads}\"
+		eval rookparcel_nox_log=\"\${rookparcel_nox_${var}_log:-/var/log/rookparcel-nox-${profile}.log}\"
+		eval rookparcel_nox_args=\"\${rookparcel_nox_${var}_args:-}\"
+		pidfile="/var/run/rookparcel-nox/rookparcel-nox-${profile}.pid"
+		profile_arg="--profile ${profile}"
+	elif [ -z "${rookparcel_nox_profiles}" ]; then
+		echo "$0: extra argument ignored"
+	fi
+elif [ -n "${rookparcel_nox_profiles}" ] && [ -n "$1" ]; then
+	for profile in ${rookparcel_nox_profiles}; do
+		echo "===> rookparcel_nox profile: ${profile}"
+		/usr/local/etc/rc.d/rookparcel_nox "$1" "${profile}"
+		retcode="$?"
+		if [ "${retcode}" -ne 0 ]; then
+			failed="${profile} (${retcode}) ${failed:-}"
+		else
+			success="${profile} ${success:-}"
+		fi
+	done
+	exit 0
+fi
+
+command="/usr/local/bin/rookparcel-nox"
+command_args="run ${profile_arg} --daemon --pid-file ${pidfile} --log ${rookparcel_nox_log} --state-dir ${rookparcel_nox_dir} --save ${rookparcel_nox_save} ${rookparcel_nox_args}"
+extra_commands="reload"
+start_precmd="rookparcel_nox_prestart"
+
+rookparcel_nox_prestart()
+{
+	install -d -o "${rookparcel_nox_user}" -g "${rookparcel_nox_group}" -m 750 \
+	    "${rookparcel_nox_dir}" "${rookparcel_nox_save}"
+	install -d -o "${rookparcel_nox_user}" -g "${rookparcel_nox_group}" -m 755 "${pidfile%/*}"
+	if [ ! -e "${rookparcel_nox_log}" ]; then
+		install -o "${rookparcel_nox_user}" -g "${rookparcel_nox_group}" -m 600 /dev/null \
+		    "${rookparcel_nox_log}"
+	fi
+}
+
+run_rc_command "$1"

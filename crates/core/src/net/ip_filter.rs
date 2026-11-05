@@ -361,7 +361,7 @@ mod tests {
             164, 2, 149, 23, 231, 231, 166, 42, 20, 37, 230, 165, 167, 90, 153, 234, 153, 233, 153, 235, 89,
             232, 66, 104, 75, 46, 0, 33, 222, 82, 75, 83, 0, 0, 0,
         ];
-        let dir = std::env::temp_dir().join(format!("patorrent-ipfilter-gz-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-ipfilter-gz-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("level1.gz");
         std::fs::write(&path, gz).unwrap();
@@ -382,7 +382,7 @@ mod tests {
     /// refused before it is opened.
     #[test]
     fn a_list_is_a_plain_file_of_limited_size() {
-        let dir = std::env::temp_dir().join(format!("patorrent-ipfilter-size-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-ipfilter-size-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let path = dir.join("list.dat");
         let line = "1.2.3.0 - 1.2.3.255 , 0 , x\n";
@@ -574,7 +574,7 @@ mod tests {
         assert_eq!(pf.access(65535), 0);
     }
 
-    // --- PaTorrent's own tests ---------------------------------------------------------------
+    // --- Rookparcel's own tests ---------------------------------------------------------------
 
     #[test]
     fn edges_of_the_address_space() {

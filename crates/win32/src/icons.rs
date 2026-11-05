@@ -1,6 +1,6 @@
 //! The Windows icons, at the window's DPI: the toolbar images from the artwork PNGs
-//! `patorrent_frontend::icons` embeds (decoded there, for the disabled copies), the application icon from the executable's icon resource
-//! (`build.rs` embeds the PatinaTorrent `.ico`), and the PatinaTorrent state icons from the
+//! `rookparcel_frontend::icons` embeds (decoded there, for the disabled copies), the application icon from the executable's icon resource
+//! (`build.rs` embeds the Rookparcel `.ico`), and the Rookparcel state icons from the
 //! PNGs the frontend embeds (Windows decodes PNG icon images itself), as are the navigation
 //! symbols of the category list, the detail tabs and the Preferences pages.
 
@@ -23,8 +23,8 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
     MIIM_BITMAP, MIIM_DATA, MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_SUBMENU, SetMenuItemInfoW,
 };
 
-pub use patorrent_frontend::icons::Icon;
-use patorrent_frontend::icons::{self, StateIcon, UiIcon};
+pub use rookparcel_frontend::icons::Icon;
+use rookparcel_frontend::icons::{self, StateIcon, UiIcon};
 
 /// The application icon's resource ID (`build.rs`).
 const APP_ICON_ID: u16 = 1;

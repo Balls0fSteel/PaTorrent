@@ -22,10 +22,10 @@ foreach ($t in @(@{n = 'big1'; gb = 12}, @{n = 'big2'; gb = 4})) {
     New-Item -ItemType Directory -Force $d | Out-Null
     if (-not (Test-Path "$d\$($t.n).bin")) { fsutil file createnew "$d\$($t.n).bin" ([int64]$t.gb * 1GB) | Out-Null }
     if (-not (Test-Path "$root\$($t.n).torrent")) {
-        & "$env:LOCALAPPDATA\Programs\PaTorrent\patorrent-nox.exe" create $d -o "$root\$($t.n).torrent" --v1 --piece-size 4096 | Select-Object -Last 1
+        & "$env:LOCALAPPDATA\Programs\Rookparcel\rookparcel-nox.exe" create $d -o "$root\$($t.n).torrent" --v1 --piece-size 4096 | Select-Object -Last 1
     }
 }
-$ini = "$env:APPDATA\PaTorrent\patorrent.ini"
+$ini = "$env:APPDATA\Rookparcel\rookparcel.ini"
 $keep = @(Get-Content $ini -ErrorAction SilentlyContinue | Where-Object { $_ -notmatch '^(ui\.show_add_dialog|dir\.download|webui\.|update\.seen)' })
 $hash = (Get-Content "$root\hash.txt" -Raw).Trim()
 $keep + @('ui.show_add_dialog=0', "dir.download=$root\data", 'webui.enabled=1', 'webui.listen=127.0.0.1:8080',

@@ -1,11 +1,11 @@
-//! The window shown while PaTorrent closes (D47), as in the Windows GUI: the engine stops on its
-//! own thread ([`Session::begin_shutdown`](patorrent_core::Session::begin_shutdown)); when one
+//! The window shown while Rookparcel closes (D47), as in the Windows GUI: the engine stops on its
+//! own thread ([`Session::begin_shutdown`](rookparcel_core::Session::begin_shutdown)); when one
 //! step of that takes more than a second (never the trackers' "stopped" announces,
 //! [`ShowTimer`]), or at once when the desktop session is ending, this window says
 //! what it is waiting for, lists the moves still to finish (the list scrolls) with their
 //! progress and destination, and for how long. Quit Now lists what quitting early gives up and
 //! asks; it is not offered while the torrent list and progress are being saved. The texts and
-//! rules are `patorrent_frontend::closing`'s.
+//! rules are `rookparcel_frontend::closing`'s.
 //!
 //! The application is held until the engine is done, so it outlives the main window; logout
 //! and suspend are inhibited meanwhile (the desktop's session manager, or the portal, shows the
@@ -17,10 +17,10 @@ use std::time::Instant;
 
 use gtk::prelude::*;
 use gtk::{gio, glib, pango};
-use patorrent_core::{Exit, ExitStatus};
-use patorrent_frontend::closing::{self, ShowTimer};
-use patorrent_frontend::lang::{gtk_mnemonic, plain};
-use patorrent_frontend::tr;
+use rookparcel_core::{Exit, ExitStatus};
+use rookparcel_frontend::closing::{self, ShowTimer};
+use rookparcel_frontend::lang::{gtk_mnemonic, plain};
+use rookparcel_frontend::tr;
 
 /// The window's width; its height follows what it shows.
 const WIDTH: i32 = 620;

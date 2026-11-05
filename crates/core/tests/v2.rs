@@ -11,11 +11,11 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::{Entry, bdecode};
-use patorrent_core::metainfo::{
+use rookparcel_core::bencode::{Entry, bdecode};
+use rookparcel_core::metainfo::{
     CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, set_piece_hashes,
 };
-use patorrent_core::{
+use rookparcel_core::{
     AddTorrentParams, Alert, DownloadPriority, Session, SessionHandle, SessionParams, Settings, TorrentFlags,
     TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
@@ -69,7 +69,7 @@ fn assert_files(files: &[(String, Vec<u8>)], dir: &Path) {
     }
 }
 
-/// A torrent for the files in `dir/v2-test`, made the way `patorrent-nox create` does.
+/// A torrent for the files in `dir/v2-test`, made the way `rookparcel-nox create` does.
 fn make_torrent(dir: &Path, flags: CreateFlags) -> Vec<u8> {
     let mut fs = FileStorage::new();
     add_files(&mut fs, &dir.join("v2-test"), &mut |_| true, CreateFlags::empty()).unwrap();
@@ -287,7 +287,7 @@ fn file_tail_requests_are_sized_by_the_v2_piece_size() {
         let (relay, requests) = request_recorder(port);
         let dir = temp_dir(&format!("tail-{name}-leech"));
         let leech = Session::start(SessionParams {
-            settings: Settings { out_enc_policy: patorrent_core::EncPolicy::Disabled, ..settings() },
+            settings: Settings { out_enc_policy: rookparcel_core::EncPolicy::Disabled, ..settings() },
             state_dir: None,
             ..Default::default()
         })
@@ -384,7 +384,7 @@ fn partial_pieces_report_the_v2_piece_size() {
     let relay = piece_dropper(port);
     let dir = temp_dir("partial-leech");
     let leech = Session::start(SessionParams {
-        settings: Settings { out_enc_policy: patorrent_core::EncPolicy::Disabled, ..settings() },
+        settings: Settings { out_enc_policy: rookparcel_core::EncPolicy::Disabled, ..settings() },
         state_dir: None,
         ..Default::default()
     })
@@ -772,7 +772,7 @@ fn hash_msg(root: &[u8], base: i32, index: i32, count: i32, proof_layers: i32) -
 }
 
 fn sha256_pair(l: &[u8], r: &[u8]) -> [u8; 32] {
-    use patorrent_core::crypto::Sha256;
+    use rookparcel_core::crypto::Sha256;
     let mut h = Sha256::new();
     h.update(l).update(r);
     h.finalize().0

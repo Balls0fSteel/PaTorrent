@@ -13,9 +13,9 @@ use std::net::{SocketAddr, TcpListener};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{
     AddTorrentParams, Alert, AnnounceEntry, PeerFlags, PeerInfo, Session, SessionHandle, SessionParams,
     Settings, TorrentFlags, TorrentId, TorrentSource, TorrentState, TorrentStatus,
 };
@@ -461,7 +461,7 @@ fn metadata_summary_survives_a_restart() {
         Alert::TorrentAdded { id, .. } => Some(*id),
         _ => None,
     });
-    let check = |m: Option<patorrent_core::TorrentMetadata>| {
+    let check = |m: Option<rookparcel_core::TorrentMetadata>| {
         let m = m.expect("a summary");
         assert!(m.private);
         assert_eq!((m.comment.as_str(), m.created_by.as_str()), ("kept across restarts", "the test"));

@@ -1,17 +1,17 @@
-//! `patorrent-nox create`: makes a v1 `.torrent` from a file or directory.
+//! `rookparcel-nox create`: makes a v1 `.torrent` from a file or directory.
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use std::time::Instant;
 
-use patorrent_core::VERSION;
-use patorrent_core::metainfo::create_torrent::parent_dir;
-use patorrent_core::metainfo::{
+use rookparcel_core::VERSION;
+use rookparcel_core::metainfo::create_torrent::parent_dir;
+use rookparcel_core::metainfo::{
     CreateFlags, CreateTorrent, FileStorage, TorrentInfo, add_files, make_magnet_uri_from_info,
     set_piece_hashes,
 };
-use patorrent_frontend::fmt;
+use rookparcel_frontend::fmt;
 
 pub struct CreateOpts {
     path: PathBuf,
@@ -144,7 +144,7 @@ fn make(o: &CreateOpts) -> Result<(), String> {
     t.set_priv(o.private);
     t.set_comment(&o.comment);
     t.set_source(&o.source);
-    t.set_creator(o.creator.as_deref().unwrap_or(&format!("PaTorrent/{VERSION}")));
+    t.set_creator(o.creator.as_deref().unwrap_or(&format!("Rookparcel/{VERSION}")));
     if o.no_date {
         t.set_creation_date(0);
     }

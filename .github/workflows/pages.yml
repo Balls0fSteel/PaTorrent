@@ -1,7 +1,7 @@
 name: Pages
 
-# The project website, https://balls0fsteel.github.io/PaTorrent/ (docs/WEBSITE.md): the pages in
-# site/, the newest release's download links, and update.txt, the file PaTorrent's update check
+# The project website, https://balls0fsteel.github.io/Rookparcel/ (docs/WEBSITE.md): the pages in
+# site/, the newest release's download links, and update.txt, the file Rookparcel's update check
 # reads. site/build.py writes all of it from the GitHub releases API, so the site changes when a
 # release does, not only when site/ does.
 #
@@ -51,7 +51,7 @@ jobs:
         run: python3 -m unittest discover -s site -v
       # --require-releases: if the API cannot be read, fail and keep the deployed site rather
       # than replace it with one whose links point at the releases page and whose update.txt
-      # names no version (which would hide updates from every PaTorrent until the next run)
+      # names no version (which would hide updates from every Rookparcel until the next run)
       - name: Build
         env:
           GITHUB_TOKEN: ${{ github.token }}

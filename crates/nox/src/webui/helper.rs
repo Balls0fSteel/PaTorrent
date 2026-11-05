@@ -1,7 +1,7 @@
 //! The search helper (D51, `docs/SEARCH_HELPER.md`) in the Web UI: the `/pa/search/helper...`
 //! endpoints behind Manage Sources' "Get the Search Helper (Jackett)...", "Pick Sites...",
 //! "Open the Helper's Page", "Update" and "Remove", over the GUIs' own code
-//! (`patorrent_frontend::search::helper`). The helper is the process's: nox's in its state
+//! (`rookparcel_frontend::search::helper`). The helper is the process's: nox's in its state
 //! directory ([`Config::helper_dir`](super::Config::helper_dir)), and hosted (D40) the window's
 //! own, in its profile folder, so a browser and the window act on one helper.
 //!
@@ -23,10 +23,10 @@
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_frontend::search::helper::{self, HelperProxy, Indexer, Release};
-use patorrent_frontend::search::load_sources;
-use patorrent_frontend::{fmt, tr};
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_frontend::search::helper::{self, HelperProxy, Indexer, Release};
+use rookparcel_frontend::search::load_sources;
+use rookparcel_frontend::{fmt, tr};
 
 use super::Shared;
 use super::commands::CmdError;

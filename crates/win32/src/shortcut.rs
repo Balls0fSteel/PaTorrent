@@ -141,11 +141,11 @@ pub fn create(link: &Path, target: &Path, args: &str, description: &str) -> io::
     }
 }
 
-/// The shortcut's file name for a profile: `PaTorrent.lnk`, `PaTorrent (work).lnk`.
+/// The shortcut's file name for a profile: `Rookparcel.lnk`, `Rookparcel (work).lnk`.
 pub fn file_name(profile: Option<&str>) -> String {
     format!(
         "{}.lnk",
-        patorrent_frontend::profile::Profile { name: profile.map(str::to_owned), portable_root: None }
+        rookparcel_frontend::profile::Profile { name: profile.map(str::to_owned), portable_root: None }
             .label()
     )
 }
@@ -156,13 +156,13 @@ mod tests {
 
     #[test]
     fn a_shortcut_starts_its_profile() {
-        assert_eq!(file_name(None), "PaTorrent.lnk");
-        assert_eq!(file_name(Some("work")), "PaTorrent (work).lnk");
+        assert_eq!(file_name(None), "Rookparcel.lnk");
+        assert_eq!(file_name(Some("work")), "Rookparcel (work).lnk");
         let dir = std::env::temp_dir().join(format!("pa-lnk-{}", std::process::id()));
         std::fs::create_dir_all(&dir).unwrap();
         let link = dir.join(file_name(Some("work")));
         let target = std::env::current_exe().unwrap();
-        create(&link, &target, "--profile work", "PaTorrent (work)").unwrap();
+        create(&link, &target, "--profile work", "Rookparcel (work)").unwrap();
         let bytes = std::fs::read(&link).unwrap();
         // the Shell Link header (MS-SHLLINK): its size, then CLSID_ShellLink
         assert_eq!(&bytes[..4], &[0x4c, 0, 0, 0]);

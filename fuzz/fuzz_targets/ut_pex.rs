@@ -6,7 +6,7 @@
 use std::time::{Duration, Instant};
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{PeerPex, TorrentPex, encode_ut_pex_full};
+use rookparcel_core::fuzzing::{PeerPex, TorrentPex, encode_ut_pex_full};
 
 fuzz_target!(|data: &[u8]| {
     let t0 = Instant::now();

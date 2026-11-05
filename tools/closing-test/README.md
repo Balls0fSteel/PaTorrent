@@ -25,6 +25,6 @@ DISPLAY=:78 xdotool mousemove 559 330 click 1   # Quit Now (the window has no ti
 ./closing-test.sh cleanup
 ```
 
-`APP` names the `patorrent-gtk` binary (default: a debug build in `~/patorrent-sec/target`).
+`APP` names the `rookparcel-gtk` binary (default: a debug build in `~/rookparcel-sec/target`).
 Afterwards check the destination (no partial copies after Quit Now), the sources, and that a
 restart finds every torrent seeding.

@@ -1,4 +1,4 @@
-/* PaTorrent website. Hand-written, no framework (docs/WEBSITE.md).
+/* Rookparcel website. Hand-written, no framework (docs/WEBSITE.md).
    Colours: the Verdigris app icon (teal medallion, copper rim, cream P) and the app's own
    state-icon colours; the toolbar, list view and status bar nod to the µTorrent 2.2.1 window. */
 
@@ -283,12 +283,6 @@ main { display: block; padding-bottom: 3rem; }
 }
 .hero-icon { width: 112px; height: 112px; filter: drop-shadow(0 4px 10px rgb(0 0 0 / 35%)); }
 .hero h1 { color: var(--hero-text); margin-bottom: .2rem; }
-.hero .eyebrow {
-  margin: 0 0 .4rem;
-  font-size: .9rem;
-  color: var(--hero-muted);
-  letter-spacing: .02em;
-}
 .hero .lede { font-size: clamp(1.1rem, 2.4vw, 1.3rem); line-height: 1.5; max-width: 40em; margin-bottom: .6rem; }
 .hero p { color: var(--hero-muted); max-width: 46em; }
 .hero .lede { color: var(--hero-text); }

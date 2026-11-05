@@ -1,9 +1,9 @@
 # The website
 
-<https://balls0fsteel.github.io/PaTorrent/> is PaTorrent's project site: what it is, the
+<https://balls0fsteel.github.io/Rookparcel/> is Rookparcel's project site: what it is, the
 downloads of the newest release, a short changelog (News, with an Atom feed), questions and answers, and pointers to the documentation, until
 a user guide comes with a later version (PLAN.md, V2.0 goal 4). It also serves `update.txt`, the
-file PaTorrent's update check reads.
+file Rookparcel's update check reads.
 
 The pages are hand-written HTML and CSS in `site/`: no framework, no generator, no external
 fonts, scripts, analytics or trackers, and no cookies. `site/build.py` (Python 3 standard library
@@ -14,7 +14,7 @@ only) copies them to `_site/` and fills in the newest release from the GitHub re
 
 | Path | What |
 |---|---|
-| `site/index.html` | Home: what PaTorrent is, the download button, screenshots, features, platforms |
+| `site/index.html` | Home: what Rookparcel is, the download button, screenshots, features, platforms |
 | `site/news.html` | News: a short entry per release, newest first (below) |
 | `news.atom` (built) | The Atom feed of the news entries, written by the build from `news.html`; linked from `news.html` and the home page |
 | `site/download.html` | Every file of the release on offer, how to start each, SmartScreen and Gatekeeper, the daemon, checksums, updating |
@@ -51,10 +51,10 @@ pre-releases and an unknown file at once, build from the saved answer instead:
 
 ```bash
 python3 site/build.py --releases-json site/testdata/releases.json
-gh api repos/Balls0fSteel/PaTorrent/releases > releases.json   # a current answer to save
+gh api repos/Balls0fSteel/Rookparcel/releases > releases.json   # a current answer to save
 ```
 
-`404.html` links from `/PaTorrent/`, as on Pages; add `--base-path /` to preview it at the root.
+`404.html` links from `/Rookparcel/`, as on Pages; add `--base-path /` to preview it at the root.
 The build prints which release it chose, what `update.txt` says and any broken local link,
 image or `#anchor`; `--strict` makes those fail the build. The tests:
 
@@ -81,7 +81,7 @@ markers is what the raw file shows, and the build replaces it. An unknown name f
 | `release-notes` | docs | a link to the release's notes |
 | `latest-news` | home | a line with the newest `news.html` entry's date, title, first paragraph and links |
 | `if-prerelease` | home, download | its own contents, kept only while the release on offer is a pre-release (or there is none) |
-| `base` | 404 | `<base href="/PaTorrent/">` (`--base-path`) |
+| `base` | 404 | `<base href="/Rookparcel/">` (`--base-path`) |
 
 **Which release.** The published (non-draft) releases whose tag is a version (below), ordered by
 semantic-versioning precedence: the highest stable release, or if there is none, the highest
@@ -94,14 +94,14 @@ release without a file simply has no link to it:
 
 | Pattern (`<v>` the version) | Section, kind |
 |---|---|
-| `patorrent-<v>-windows-x64-setup.exe` | Windows, installer |
-| `patorrent-<v>-windows-x64.zip` | Windows, portable zip |
-| `PaTorrent-<v>-{x86_64,aarch64}.AppImage` | Linux, AppImage |
-| `PaTorrent-<v>-{x86_64,aarch64}.flatpak` | Linux, Flatpak bundle |
-| `patorrent-<v>-linux-{x86_64,aarch64}.tar.gz` | Linux, plain binaries |
-| `patorrent-nox-<v>-{x86_64,aarch64}.AppImage` | Linux, headless AppImage |
-| `PaTorrent-<v>-{arm64,x86_64}.dmg` | macOS, disk image |
-| `patorrent-nox-<v>-macos-{arm64,x86_64}.tar.gz` | macOS, headless |
+| `rookparcel-<v>-windows-x64-setup.exe` | Windows, installer |
+| `rookparcel-<v>-windows-x64.zip` | Windows, portable zip |
+| `Rookparcel-<v>-{x86_64,aarch64}.AppImage` | Linux, AppImage |
+| `Rookparcel-<v>-{x86_64,aarch64}.flatpak` | Linux, Flatpak bundle |
+| `rookparcel-<v>-linux-{x86_64,aarch64}.tar.gz` | Linux, plain binaries |
+| `rookparcel-nox-<v>-{x86_64,aarch64}.AppImage` | Linux, headless AppImage |
+| `Rookparcel-<v>-{arm64,x86_64}.dmg` | macOS, disk image |
+| `rookparcel-nox-<v>-macos-{arm64,x86_64}.tar.gz` | macOS, headless |
 | `SHA256SUMS` | checksums |
 
 A new kind of file needs a `Kind` in `KINDS` in `site/build.py` (pattern, section, title,
@@ -111,24 +111,24 @@ If the releases cannot be read, every block links to the releases page on GitHub
 ## News
 
 `site/news.html` is the short changelog: one entry per published release, newest first, for
-people who want to follow PaTorrent without reading the commit history or the full release
+people who want to follow Rookparcel without reading the commit history or the full release
 notes. The build reads its entries, writes `news.atom` (Atom, RFC 4287) and fills the home page's
 `latest-news` line, so both follow the page. Each entry is:
 
 ```html
 <article class="news-entry" id="v1.2.3" data-date="2026-11-20" aria-labelledby="v1.2.3-h">
-  <h2 id="v1.2.3-h"><a href="#v1.2.3"><time datetime="2026-11-20">Fri 20 Nov 2026</time> — <span class="news-title">PaTorrent 1.2.3</span></a></h2>
+  <h2 id="v1.2.3-h"><a href="#v1.2.3"><time datetime="2026-11-20">Fri 20 Nov 2026</time> — <span class="news-title">Rookparcel 1.2.3</span></a></h2>
   <p class="news-lede">One or two plain sentences: what the release is about.</p>
   <ul class="changes">
     <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>One short, user-facing line.</span></li>
   </ul>
   <p class="news-note">Optional: what to know before updating.</p>
-  <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.2.3">Download 1.2.3 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.2.3.md">Full release notes</a></p>
+  <p class="news-links"><a href="https://github.com/Balls0fSteel/Rookparcel/releases/tag/v1.2.3">Download 1.2.3 on GitHub</a> · <a href="https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/releases/1.2.3.md">Full release notes</a></p>
 </article>
 ```
 
 - `id` is `v` and the version, and never changes: it is the page's anchor and part of the feed
-  entry's id (`tag:balls0fsteel.github.io,2026:PaTorrent/news/v1.2.3`), so a changed id shows up
+  entry's id (`tag:balls0fsteel.github.io,2026:Rookparcel/news/v1.2.3`), so a changed id shows up
   in feed readers as a new entry. `data-date` is the release's publication date, `YYYY-MM-DD`;
   the heading shows it as `Fri 20 Nov 2026`.
 - 5 to 12 bullets, taken from the release notes' "New since" section and nothing beyond them.
@@ -171,9 +171,9 @@ a new release reaches `update.txt` a little after its run.
 
 ## update.txt
 
-The update check of PaTorrent (from 1.0.1 on) reads
-<https://balls0fsteel.github.io/PaTorrent/update.txt> when it starts and every 12 hours, sending
-only the User-Agent `PaTorrent/<version>`; Preferences > General > Privacy turns it off. The
+The update check of Rookparcel (from 1.0.1 on) reads
+<https://balls0fsteel.github.io/Rookparcel/update.txt> when it starts and every 12 hours, sending
+only the User-Agent `Rookparcel/<version>`; Preferences > General > Privacy turns it off. The
 app's parser follows this contract; change both together.
 
 - UTF-8, LF line endings. Lines are `key=value`; a line starting with `#` is a comment. Unknown
@@ -192,8 +192,8 @@ app's parser follows this contract; change both together.
 For example:
 
 ```
-# PaTorrent update information: the newest releases at https://github.com/Balls0fSteel/PaTorrent/releases
-# Read by PaTorrent's update check; written by .github/workflows/pages.yml.
+# Rookparcel update information: the newest releases at https://github.com/Balls0fSteel/Rookparcel/releases
+# Read by Rookparcel's update check; written by .github/workflows/pages.yml.
 stable=1.0.0
 prerelease=1.0.0-rc.2
 ```
@@ -208,7 +208,7 @@ which publishes the repository root through Jekyll, and the `github-pages` envir
    (an administrator's token):
 
    ```bash
-   gh api -X PUT repos/Balls0fSteel/PaTorrent/pages -f build_type=workflow
+   gh api -X PUT repos/Balls0fSteel/Rookparcel/pages -f build_type=workflow
    ```
 
    From then on, pushes to `main` no longer publish the repository root; the site is what this
@@ -219,9 +219,9 @@ which publishes the repository root through Jekyll, and the `github-pages` envir
    github-pages due to environment protection rules"). With the CLI:
 
    ```bash
-   gh api -X POST repos/Balls0fSteel/PaTorrent/environments/github-pages/deployment-branch-policies -f name='v*' -f type=tag
+   gh api -X POST repos/Balls0fSteel/Rookparcel/environments/github-pages/deployment-branch-policies -f name='v*' -f type=tag
    ```
 
 3. Once the workflow is on `main`, run it once by hand (Actions > Pages > Run workflow, or
    `gh workflow run pages.yml`) and check the site and
-   <https://balls0fsteel.github.io/PaTorrent/update.txt>.
+   <https://balls0fsteel.github.io/Rookparcel/update.txt>.

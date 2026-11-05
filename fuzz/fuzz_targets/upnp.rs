@@ -3,7 +3,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::fuzzing::{
+use rookparcel_core::fuzzing::{
     XmlToken, parse_device_description, parse_error_code, parse_external_address, parse_ssdp, parse_xml,
 };
 

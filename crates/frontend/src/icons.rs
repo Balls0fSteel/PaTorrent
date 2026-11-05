@@ -9,14 +9,14 @@
 //!   PNG ([`decode_png`]).
 //! - The navigation symbols ([`UiIcon`]): the category list's, the detail tabs' and the
 //!   Preferences pages', from the same exports.
-//! - The PatinaTorrent application icon's PNG exports ([`app_png`], for the GTK client's window,
+//! - The Rookparcel application icon's PNG exports ([`app_png`], for the GTK client's window,
 //!   tray and desktop entries). The Win32 client embeds the same family's `.ico` as the
 //!   executable's icon resource (`crates/win32/build.rs`). The family in use is named once, in
 //!   `assets/patina-icons/app-icon.txt` (see `assets/patina-icons/INTEGRATION.md`).
 //!
 //! Otherwise the PNGs are decoded by the toolkits (Windows' icon loader, GDK's texture loader).
 
-use patorrent_core::TrackerStatus;
+use rookparcel_core::TrackerStatus;
 
 use crate::detail::Tab;
 use crate::lang::S;
@@ -452,7 +452,7 @@ pub fn decode_png(png: &[u8]) -> Option<(u32, u32, Vec<u8>)> {
     if idat.len() < 2 || idat[0] & 0x0f != 8 || idat[1] & 0x20 != 0 {
         return None;
     }
-    let (raw, _) = patorrent_core::util::puff::inflate(&idat[2..], rows).ok()?;
+    let (raw, _) = rookparcel_core::util::puff::inflate(&idat[2..], rows).ok()?;
     if raw.len() != rows {
         return None;
     }

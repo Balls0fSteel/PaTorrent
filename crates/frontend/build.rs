@@ -10,10 +10,10 @@
 //!
 //! The encoder is core's, included by path: a build script cannot use a crate it builds beside.
 //!
-//! It also reads which PatinaTorrent application icon is in use from
+//! It also reads which Rookparcel application icon is in use from
 //! `assets/patina-icons/app-icon.txt` (one name, such as `01-verdigris`) and passes it to
 //! `icons::app_png` as `PATINA_APP_ICON` (`assets/patina-icons/INTEGRATION.md`), and works out
-//! the version the programs show ([`build_version`], `PATORRENT_BUILD_VERSION`).
+//! the version the programs show ([`build_version`], `ROOKPARCEL_BUILD_VERSION`).
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -24,7 +24,7 @@ use std::{env, fs, thread};
 mod deflate;
 
 fn main() {
-    println!("cargo:rustc-env=PATORRENT_BUILD_VERSION={}", build_version());
+    println!("cargo:rustc-env=ROOKPARCEL_BUILD_VERSION={}", build_version());
     println!("cargo:rerun-if-changed=lang");
     println!("cargo:rerun-if-changed=../core/src/util/deflate.rs");
     println!("cargo:rerun-if-changed=../../assets/patina-icons/app-icon.txt");
@@ -61,14 +61,16 @@ fn main() {
 
 /// The version the programs show in their title bars, About boxes and `--version` (D37): the
 /// crate version, with a suffix for a build that is not a release, so two test builds can be
-/// told apart. `PATORRENT_BUILD` names the suffix when set (`1_build.bat` sets `-dev.<commit>`
+/// told apart. `ROOKPARCEL_BUILD` names the suffix when set (`1_build.bat` sets `-dev.<commit>`
 /// and `.dirty`; an empty value means none). Otherwise git decides: a tag `v<version>` at HEAD
 /// is a release and gets no suffix, anything else gets `-dev.<short commit>`, as the release
 /// workflow names its dry-run artifacts. Without git, the crate version alone.
 fn build_version() -> String {
+    println!("cargo:rerun-if-env-changed=ROOKPARCEL_BUILD");
     println!("cargo:rerun-if-env-changed=PATORRENT_BUILD");
     let version = env::var("CARGO_PKG_VERSION").expect("cargo sets CARGO_PKG_VERSION");
-    if let Ok(suffix) = env::var("PATORRENT_BUILD") {
+    // PaTorrent's name for it still works for packagers (D59)
+    if let Ok(suffix) = env::var("ROOKPARCEL_BUILD").or_else(|_| env::var("PATORRENT_BUILD")) {
         return format!("{version}{}", suffix.trim());
     }
     let git = |args: &[&str]| -> Option<String> {

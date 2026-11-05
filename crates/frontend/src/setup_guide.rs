@@ -19,7 +19,7 @@
 
 use std::collections::HashMap;
 
-use patorrent_core::Settings;
+use rookparcel_core::Settings;
 
 use crate::lang::S;
 use crate::options::{GuiOptions, Options};

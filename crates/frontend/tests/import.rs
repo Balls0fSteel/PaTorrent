@@ -6,16 +6,16 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::metainfo::TorrentInfo;
-use patorrent_core::{Alert, Session, SessionParams, Settings, TorrentState, TorrentStatus};
-use patorrent_frontend::import::{self, Client};
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::metainfo::TorrentInfo;
+use rookparcel_core::{Alert, Session, SessionParams, Settings, TorrentState, TorrentStatus};
+use rookparcel_frontend::import::{self, Client};
 
 const PIECE: usize = 16 * 1024;
 
 fn temp_dir(name: &str) -> PathBuf {
-    let d = std::env::temp_dir().join(format!("patorrent-import-it-{name}-{}", std::process::id()));
+    let d = std::env::temp_dir().join(format!("rookparcel-import-it-{name}-{}", std::process::id()));
     let _ = std::fs::remove_dir_all(&d);
     std::fs::create_dir_all(&d).unwrap();
     d
@@ -92,7 +92,7 @@ fn add_and_settle(s: &Session, t: import::Import) -> (TorrentStatus, TorrentStat
                 Alert::StateUpdate(v) => {
                     for st in v {
                         let Some(f) = &first else {
-                            patorrent_frontend::actions::start(&h.torrent(st.id));
+                            rookparcel_frontend::actions::start(&h.torrent(st.id));
                             first = Some(st);
                             continue;
                         };
@@ -149,11 +149,11 @@ fn utorrent_pieces_are_checked_under_a_renamed_folder() {
     let dir = utorrent_dir("ut", &torrent, &content, &[0, 1, 4]);
     let mut found = import::read(Client::UTorrent, &dir).unwrap();
     assert!(found.skipped.is_empty(), "{:?}", found.skipped);
-    let mut prefs = patorrent_frontend::prefs::Prefs::from_text("");
+    let mut prefs = rookparcel_frontend::prefs::Prefs::from_text("");
     let mut add = import::prepare(&mut found, &mut prefs, |_| false);
     let s = session();
     let (first, st) = add_and_settle(&s, add.remove(0));
-    assert!(first.flags.contains(patorrent_core::TorrentFlags::PAUSED), "µTorrent's Stopped");
+    assert!(first.flags.contains(rookparcel_core::TorrentFlags::PAUSED), "µTorrent's Stopped");
     assert_eq!(st.name, "My Show");
     assert_eq!(st.num_pieces, 5, "every piece, found by a full check");
     assert_eq!(st.all_time_upload, 777);
@@ -179,7 +179,7 @@ fn claimed_pieces_over_other_data_are_not_trusted() {
     }
     let dir = utorrent_dir("ut-other-src", &torrent, &content, &[0, 1, 2, 3, 4]);
     let mut found = import::read(Client::UTorrent, &dir).unwrap();
-    let mut prefs = patorrent_frontend::prefs::Prefs::from_text("");
+    let mut prefs = rookparcel_frontend::prefs::Prefs::from_text("");
     let mut add = import::prepare(&mut found, &mut prefs, |_| false);
     let s = session();
     let (_, st) = add_and_settle(&s, add.remove(0));
@@ -194,7 +194,7 @@ fn missing_files_mean_a_full_check() {
     let data = temp_dir("ut-missing");
     let dir = utorrent_dir("ut-missing-src", &torrent, &data.join("Show"), &[0, 1, 2, 3, 4]);
     let mut found = import::read(Client::UTorrent, &dir).unwrap();
-    let mut prefs = patorrent_frontend::prefs::Prefs::from_text("");
+    let mut prefs = rookparcel_frontend::prefs::Prefs::from_text("");
     let mut add = import::prepare(&mut found, &mut prefs, |_| false);
     let s = session();
     let (first, st) = add_and_settle(&s, add.remove(0));
@@ -230,7 +230,7 @@ fn qbittorrent_record_is_taken_as_it_is() {
     std::fs::write(dir.join(format!("{hex}.fastresume")), rec.bencode()).unwrap();
 
     let mut found = import::read(Client::QBittorrent, &dir).unwrap();
-    let mut prefs = patorrent_frontend::prefs::Prefs::from_text("");
+    let mut prefs = rookparcel_frontend::prefs::Prefs::from_text("");
     let mut add = import::prepare(&mut found, &mut prefs, |_| false);
     assert_eq!(prefs.get(&format!("torrent.{hex}.label")), Some("tv"));
     let s = session();

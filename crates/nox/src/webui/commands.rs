@@ -12,19 +12,19 @@
 
 use std::collections::{BTreeMap, HashMap, HashSet};
 
-use patorrent_core::fetch::FetchProxy;
-use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
-use patorrent_core::{
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_core::metainfo::{TorrentInfo, parse_magnet_uri};
+use rookparcel_core::{
     AddTorrentParams, AnnounceEntry, DownloadPriority, MoveFlags, QueueMove, RemoveFlags, TorrentFlags,
     TorrentId, TorrentSource,
 };
-use patorrent_frontend::actions;
-use patorrent_frontend::add::{self, AddChoice, AwaitingMetadata};
-use patorrent_frontend::fmt;
-use patorrent_frontend::properties::{self, Changes, Field, Fields, Properties, TorrentProps, Tri};
-use patorrent_frontend::scheduler::Mode;
-use patorrent_frontend::seeding::SeedGoal;
-use patorrent_frontend::status::Category;
+use rookparcel_frontend::actions;
+use rookparcel_frontend::add::{self, AddChoice, AwaitingMetadata};
+use rookparcel_frontend::fmt;
+use rookparcel_frontend::properties::{self, Changes, Field, Fields, Properties, TorrentProps, Tri};
+use rookparcel_frontend::scheduler::Mode;
+use rookparcel_frontend::seeding::SeedGoal;
+use rookparcel_frontend::status::Category;
 
 use super::api::Request;
 use super::http::{
@@ -37,9 +37,11 @@ use super::{Entry, Meta, Reply, ReplyKind, Shared, State, fetch, prefs};
 
 /// The header every native command must carry (a browser cannot send a custom header
 /// cross-site without a CORS preflight, which the server never grants): `X-Requested-With:
-/// PaTorrent`. The `Origin` rule of the shim applies too.
+/// Rookparcel`. The `Origin` rule of the shim applies too.
 pub const CSRF_HEADER: &str = "x-requested-with";
-pub const CSRF_VALUE: &str = "PaTorrent";
+pub const CSRF_VALUE: &str = "Rookparcel";
+/// PaTorrent's value (D59), still accepted: scripts written for PaTorrent keep working.
+pub const OLD_CSRF_VALUE: &str = "PaTorrent";
 
 /// A refused command: the HTTP status and the message for `{"error":"..."}`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -586,7 +588,7 @@ pub fn share_limits(shared: &Shared, ids: &[TorrentId], ratio: f64, minutes: i64
 fn file_list(
     shared: &Shared,
     id: TorrentId,
-) -> Result<std::sync::Arc<[patorrent_core::FileEntry]>, CmdError> {
+) -> Result<std::sync::Arc<[rookparcel_core::FileEntry]>, CmdError> {
     match shared.query(id, ReplyKind::Files, |h| h.torrent(id).post_file_list()) {
         Some(Reply::Files(f)) if !f.is_empty() => Ok(f),
         _ => Err(err(409, "torrent metadata hasn't downloaded yet")),
@@ -1178,7 +1180,7 @@ pub fn set_normal_limits(
     let changes: Vec<prefs::Change> = [("download_rate_limit", down), ("upload_rate_limit", up)]
         .into_iter()
         .filter_map(|(id, v)| {
-            Some((prefs::find(id)?, patorrent_frontend::settings::Value::Int(i64::from(v?))))
+            Some((prefs::find(id)?, rookparcel_frontend::settings::Value::Int(i64::from(v?))))
         })
         .collect();
     if changes.is_empty() {
@@ -1200,7 +1202,9 @@ fn no_content() -> Response {
 /// The CSRF rule of the native commands: the custom header, besides the shim's `Origin` check
 /// (which `api.rs` applies to every `/pa/` request).
 pub fn csrf_header_ok(head: &Head) -> bool {
-    head.header(CSRF_HEADER).is_some_and(|v| v.trim().eq_ignore_ascii_case(CSRF_VALUE))
+    head.header(CSRF_HEADER).is_some_and(|v| {
+        v.trim().eq_ignore_ascii_case(CSRF_VALUE) || v.trim().eq_ignore_ascii_case(OLD_CSRF_VALUE)
+    })
 }
 
 /// The JSON body of a native command (an object), or the error response.
@@ -1366,7 +1370,7 @@ fn serve_inner(shared: &Shared, endpoint: &str, req: &Request, key: &str) -> Res
             // a partial object of ids to values; 400 names the first bad field
             let body = json_body(req)?;
             let changes = prefs::parse(&body).map_err(|(field, why)| err(400, format!("{field}: {why}")))?;
-            prefs::commit_request(shared, &changes, key, |f| patorrent_core::IpFilter::load(f))
+            prefs::commit_request(shared, &changes, key, |f| rookparcel_core::IpFilter::load(f))
                 .map_err(|(field, why)| err(400, format!("{field}: {why}")))?;
             Ok(no_content())
         }
@@ -1470,7 +1474,7 @@ pub(crate) type PendingTop = HashSet<String>;
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::{InfoHashes, Sha1Hash, TorrentStatus};
+    use rookparcel_core::{InfoHashes, Sha1Hash, TorrentStatus};
 
     fn state_with(names: &[(&str, &str, Option<u32>, bool)]) -> (State, Vec<String>) {
         let mut st = State::for_tests();
@@ -1633,8 +1637,8 @@ mod tests {
             headers: v.map(|v| (CSRF_HEADER.to_owned(), v.to_owned())).into_iter().collect(),
             ..Head::default()
         };
-        assert!(csrf_header_ok(&head(Some("PaTorrent"))));
-        assert!(csrf_header_ok(&head(Some(" patorrent "))));
+        assert!(csrf_header_ok(&head(Some("Rookparcel"))));
+        assert!(csrf_header_ok(&head(Some(" rookparcel "))));
         assert!(!csrf_header_ok(&head(Some("XMLHttpRequest"))));
         assert!(!csrf_header_ok(&head(None)));
     }

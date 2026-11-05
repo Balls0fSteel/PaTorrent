@@ -47,18 +47,18 @@ use std::sync::{Arc, Condvar, Mutex, MutexGuard, Weak};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use patorrent_core::util::private_file;
-use patorrent_core::util::time::local_utc_offset;
-use patorrent_core::{
+use rookparcel_core::util::private_file;
+use rookparcel_core::util::time::local_utc_offset;
+use rookparcel_core::{
     Alert, AnnounceEntry, Bitfield, FileEntry, MoveCompleted, PartialPiece, PeerInfo, SessionHandle,
     SessionStats, Settings, TorrentFlags, TorrentId, TorrentStatus,
 };
-use patorrent_frontend::options::GuiOptions;
-use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
-use patorrent_frontend::scrape::Scrapes;
-use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
-use patorrent_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
-use patorrent_frontend::{fmt, tr};
+use rookparcel_frontend::options::GuiOptions;
+use rookparcel_frontend::scheduler::{Mode, Schedule, Scheduler};
+use rookparcel_frontend::scrape::Scrapes;
+use rookparcel_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
+use rookparcel_frontend::torrent_folders::{self, Poller, TorrentFiles, TorrentFolders};
+use rookparcel_frontend::{fmt, tr};
 
 use auth::{BanList, PasswordHash};
 use json::Json;
@@ -122,7 +122,7 @@ pub struct Config {
 }
 
 /// A desktop client that hosts the Web UI over its own engine (D40: the Windows GUI, as
-/// µTorrent and qBittorrent serve theirs). It owns the preferences (`patorrent.ini`), the
+/// µTorrent and qBittorrent serve theirs). It owns the preferences (`rookparcel.ini`), the
 /// labels, the pause marks and the automations (scheduler, seeding goal, scrapes, `.torrent`
 /// folders, RSS, moving completed downloads); the Web UI keeps a mirror of its preferences,
 /// shows and drives the same torrents, and reports what a browser changed. The Web UI stores
@@ -133,12 +133,12 @@ pub struct Config {
 /// thread may hold the Web UI's lock while it calls one.
 pub trait Host: Send + Sync {
     /// Preferences keys a request changed (`None`: removed), as the host's own keys
-    /// (`patorrent_frontend::prefs`): a label or a pause mark as `torrent.<key>.label` /
+    /// (`rookparcel_frontend::prefs`): a label or a pause mark as `torrent.<key>.label` /
     /// `torrent.<key>.paused` (`InfoHashes::key_hex`), a Preferences page's `lt.*` and option
     /// keys, a seeding goal, the login as `webui.username` / `webui.password` (the hash).
     /// Called on a request thread with the Web UI's lock held (or from [`WebUi::on_alerts`],
     /// for a removed torrent's keys): queue them for the host's thread and return.
-    fn options_changed(&self, changes: Vec<patorrent_frontend::prefs::Change>);
+    fn options_changed(&self, changes: Vec<rookparcel_frontend::prefs::Change>);
     /// `app/shutdown` (the shim) or `session/shutdown` (the page): the host exits. Called on
     /// a request thread without the lock.
     fn shutdown(&self);
@@ -151,7 +151,7 @@ pub trait Host: Send + Sync {
     /// worker fetches the `.torrent` files; its Add dialog's rules apply). The model has
     /// marked them added and put them in the History already. Called on a request thread
     /// without either lock.
-    fn rss_download(&self, reqs: Vec<patorrent_frontend::rss::AddRequest>);
+    fn rss_download(&self, reqs: Vec<rookparcel_frontend::rss::AddRequest>);
 }
 
 /// How a desktop client hosts the Web UI ([`Config::hosted`]).
@@ -162,7 +162,7 @@ pub struct Hosted {
     /// [`PasswordHash`] string), the labels and pause marks (`torrent.<key>.*`), the engine
     /// settings (`lt.*`) and the options the Preferences pages show. The host hands later
     /// changes to [`WebUi::options_changed`].
-    pub options: patorrent_frontend::prefs::Prefs,
+    pub options: rookparcel_frontend::prefs::Prefs,
     /// The host's RSS Downloader, which the RSS endpoints (`/pa/rss...`, the shim's `rss/*`)
     /// read and edit: one model, the host's, never a second downloader. The host keeps running
     /// its worker, collecting the fetches, adding the torrents and saving `rss.dat`
@@ -276,7 +276,7 @@ pub(crate) struct Prefs {
 impl Prefs {
     /// The defaults for a daemon saving to `save_path` with `settings`' limits.
     pub fn defaults(save_path: &str, settings: &Settings) -> Prefs {
-        let gui = GuiOptions::load(&patorrent_frontend::prefs::Prefs::default(), save_path);
+        let gui = GuiOptions::load(&rookparcel_frontend::prefs::Prefs::default(), save_path);
         let mut p = Prefs {
             save_path: save_path.to_owned(),
             dl_limit: settings.download_rate_limit,
@@ -433,7 +433,7 @@ pub(crate) enum ReplyKind {
 }
 
 /// One Logger line: the alert's time, the torrent it concerns (none for session-wide ones) and
-/// the text, as `patorrent-nox` prints it.
+/// the text, as `rookparcel-nox` prints it.
 pub(crate) struct LogLine {
     pub seq: u64,
     pub time: i64,
@@ -492,11 +492,11 @@ pub(crate) struct State {
     /// ([`META_PER_TICK`]), so a restored torrent's `isPrivate` is right without a Properties visit.
     pub meta_wanted: VecDeque<TorrentId>,
     /// The stored preferences, as the frontend's preferences keys (what the Win32 client keeps
-    /// in `patorrent.ini`): the engine settings that differ from the defaults as `lt.<name>`,
+    /// in `rookparcel.ini`): the engine settings that differ from the defaults as `lt.<name>`,
     /// the `GuiOptions` keys, the Web UI's own as `webui.<name>`, and the Add dialog's
     /// recent folders (`add.recent_dirs`). Saved as the `options` object of the state file and
     /// re-applied on the next start.
-    pub options: patorrent_frontend::prefs::Prefs,
+    pub options: rookparcel_frontend::prefs::Prefs,
     /// The download folder the daemon was started with: the Directories page's default.
     pub default_save_path: String,
     /// The address the server is bound to (the Web UI page shows it).
@@ -540,11 +540,11 @@ pub(crate) struct State {
     pub search_version: u64,
     /// Magnets added through the Add dialog, waiting for their metadata or for the user's
     /// choice (kept in `options`), and a version a `tick` carries as `adds`.
-    pub awaiting: patorrent_frontend::add::AwaitingMetadata,
+    pub awaiting: rookparcel_frontend::add::AwaitingMetadata,
     pub adds_version: u64,
-    /// The newer PaTorrent nox's update check found (`update.rs`), for the page's status bar;
+    /// The newer Rookparcel nox's update check found (`update.rs`), for the page's status bar;
     /// never set hosted (the host checks).
-    pub update: Option<patorrent_frontend::update::Version>,
+    pub update: Option<rookparcel_frontend::update::Version>,
 }
 
 pub(crate) struct Shared {
@@ -562,12 +562,12 @@ pub(crate) struct Shared {
     pub rss: Arc<Mutex<rss::Rss>>,
     /// The torrent search (`search.rs`): one for the server, hosted too; its lock is never
     /// held with the State lock.
-    pub(crate) search: Mutex<patorrent_frontend::search::Search>,
+    pub(crate) search: Mutex<rookparcel_frontend::search::Search>,
     /// The qBittorrent shim's searches (`search/start`); never held with the State lock or
     /// the search's.
     pub(crate) shim_searches: Mutex<search::ShimSearches>,
     /// The certificate when serving HTTPS.
-    pub tls: Option<patorrent_core::tls::Identity>,
+    pub tls: Option<rookparcel_core::tls::Identity>,
     /// The paths requests may name; fixed at start.
     pub path_policy: path_policy::PathPolicy,
     /// The connected remote sessions' alert queues ([`Shared::fan_out`]).
@@ -611,7 +611,7 @@ impl Shared {
         self.rss.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    pub(crate) fn search(&self) -> MutexGuard<'_, patorrent_frontend::search::Search> {
+    pub(crate) fn search(&self) -> MutexGuard<'_, rookparcel_frontend::search::Search> {
         self.search.lock().unwrap_or_else(|e| e.into_inner())
     }
 
@@ -804,7 +804,7 @@ pub struct WebUi {
 /// The certificate an HTTPS Web UI presents, for the start-up message.
 #[derive(Clone, Debug)]
 pub struct HttpsInfo {
-    pub fingerprint: patorrent_core::tls::Fingerprint,
+    pub fingerprint: rookparcel_core::tls::Fingerprint,
     /// Unix seconds.
     pub not_after: i64,
     /// The certificate file (none for an in-memory one).
@@ -881,7 +881,7 @@ impl WebUi {
                 }
                 o
             }
-            None => patorrent_frontend::prefs::Prefs::default(),
+            None => rookparcel_frontend::prefs::Prefs::default(),
         };
         for (k, v) in stored.get("options").map(Json::entries).unwrap_or_default() {
             if let Some(v) = v.as_str() {
@@ -891,13 +891,13 @@ impl WebUi {
         if let Some(Json::Arr(v)) = stored.get("recent_dirs") {
             // most recent first in the file; remember_dir puts each first, so go backwards
             for d in v.iter().rev().filter_map(Json::as_str) {
-                patorrent_frontend::add::remember_dir(&mut options, d);
+                rookparcel_frontend::add::remember_dir(&mut options, d);
             }
         }
         // hosted: the host handles its pending magnets after a restart
         let awaiting = match hosted {
-            Some(_) => patorrent_frontend::add::AwaitingMetadata::default(),
-            None => patorrent_frontend::add::AwaitingMetadata::load(&options),
+            Some(_) => rookparcel_frontend::add::AwaitingMetadata::default(),
+            None => rookparcel_frontend::add::AwaitingMetadata::load(&options),
         };
         let settings = config.settings.clone();
         let mut prefs = Prefs::defaults(&config.save_path, &settings);
@@ -979,7 +979,7 @@ impl WebUi {
             rss: match hosted {
                 Some(h) => h.rss.clone(),
                 None => Arc::new(Mutex::new(rss::Rss::load(
-                    config.state_dir.as_ref().map(|d| d.join(patorrent_frontend::rss::store::FILE_NAME)),
+                    config.state_dir.as_ref().map(|d| d.join(rookparcel_frontend::rss::store::FILE_NAME)),
                 ))),
             },
             search: Mutex::new(search::new_search()),
@@ -1012,8 +1012,8 @@ impl WebUi {
                 // `preferences` object of state files written before slice 6 holds the shim's
                 // keys
                 prefs::restore(&shared, &mut st, config.ip_filter.as_deref());
-                // the Web UI's language (Preferences > General); PATORRENT_LANG over it
-                for p in patorrent_frontend::lang::init(&st.prefs.language) {
+                // the Web UI's language (Preferences > General); ROOKPARCEL_LANG over it
+                for p in rookparcel_frontend::lang::init(&st.prefs.language) {
                     st.push_log(None, p, unix_now());
                 }
                 if let Some(legacy @ Json::Obj(_)) = stored.get("preferences") {
@@ -1133,7 +1133,7 @@ impl WebUi {
     /// (clients see it at the next tick), the login replaces the one in force, settings and
     /// option keys refresh what the Preferences pages show. Nothing goes to the engine: the
     /// host applied it.
-    pub fn options_changed(&self, changes: &[patorrent_frontend::prefs::Change]) {
+    pub fn options_changed(&self, changes: &[rookparcel_frontend::prefs::Change]) {
         let mut st = self.shared.lock();
         if !st.hosted {
             return;
@@ -1205,7 +1205,7 @@ impl WebUi {
         self.shared.fan_out(alerts);
         // the adapters and the network status (D54), for the preferences and the status bar
         for a in alerts {
-            patorrent_frontend::network::on_alert(a);
+            rookparcel_frontend::network::on_alert(a);
         }
         // the search's answers, taken before the State lock (never held together)
         let searched = search::collect(&self.shared);
@@ -1282,7 +1282,7 @@ impl WebUi {
                     }
                     // "Add to top of queue" from the Add dialog, now that the id is known
                     if st.pending_top.remove(&torrent::hash_of(info_hashes)) {
-                        self.shared.handle.torrent(*id).queue_position(patorrent_core::QueueMove::Top);
+                        self.shared.handle.torrent(*id).queue_position(rookparcel_core::QueueMove::Top);
                     }
                 }
                 Alert::TorrentRemoved { id, .. } => {
@@ -1720,7 +1720,7 @@ impl State {
             torrent_categories: HashMap::new(),
             meta: HashMap::new(),
             meta_wanted: VecDeque::new(),
-            options: patorrent_frontend::prefs::Prefs::default(),
+            options: rookparcel_frontend::prefs::Prefs::default(),
             default_save_path: String::new(),
             listen_addr: SocketAddr::from(([127, 0, 0, 1], 8080)),
             gui_version: 1,
@@ -1752,8 +1752,8 @@ impl State {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use patorrent_core::InfoHashes;
-    use patorrent_core::Sha1Hash;
+    use rookparcel_core::InfoHashes;
+    use rookparcel_core::Sha1Hash;
 
     fn status(id: u64, v1: u8) -> TorrentStatus {
         TorrentStatus {

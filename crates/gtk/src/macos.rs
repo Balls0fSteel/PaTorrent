@@ -8,14 +8,14 @@
 //!   has `G_APPLICATION_HANDLES_OPEN`; it has no `application:openURLs:` and installs no `GURL`
 //!   handler, so AppKit drops links. [`install_url_handler`] installs one with the Apple Event
 //!   Manager.
-//! - "Start PaTorrent on system startup": a per-user LaunchAgent,
+//! - "Start Rookparcel on system startup": a per-user LaunchAgent,
 //!   `~/Library/LaunchAgents/<id>.plist` with `RunAtLoad` ([`launch_agent`], read back by
 //!   [`launch_agent_arguments`]); launchd reads that folder at login.
 //! - The `.torrent` and `magnet:` defaults through LaunchServices, which names programs by bundle
-//!   id, so only PaTorrent.app can be registered ([`bundle_id`]).
+//!   id, so only Rookparcel.app can be registered ([`bundle_id`]).
 //!
 //! The plist text is plain Rust, built and tested on every system; the bindings below it are
-//! hand-written against the frameworks (as `patorrent_frontend::lang`'s Core Foundation one).
+//! hand-written against the frameworks (as `rookparcel_frontend::lang`'s Core Foundation one).
 
 #![cfg_attr(not(target_os = "macos"), allow(dead_code))]
 
@@ -28,7 +28,7 @@ pub const MAGNET_SCHEME: &str = "magnet";
 
 /// A LaunchAgent property list that starts `program` (the executable and its arguments) at
 /// login: `RunAtLoad`, in the graphical (Aqua) session only, as an interactive process (no
-/// background throttling), with no `KeepAlive` (quitting PaTorrent is not a crash). launchd
+/// background throttling), with no `KeepAlive` (quitting Rookparcel is not a crash). launchd
 /// reads `~/Library/LaunchAgents` when the user logs in; writing the file starts nothing now.
 pub fn launch_agent(label: &str, program: &[String]) -> String {
     let mut s = String::from(concat!(
@@ -278,8 +278,8 @@ mod sys {
         }
     }
 
-    /// The bundle id of PaTorrent.app when this process runs from it (the launcher execs
-    /// `Contents/MacOS/patorrent-gtk`, so Core Foundation finds the bundle around it); `None`
+    /// The bundle id of Rookparcel.app when this process runs from it (the launcher execs
+    /// `Contents/MacOS/rookparcel-gtk`, so Core Foundation finds the bundle around it); `None`
     /// for a bare executable, which has no `Info.plist`.
     pub fn bundle_id() -> Option<String> {
         // SAFETY: the main bundle and its identifier follow the Get rule (not released).
@@ -292,7 +292,7 @@ mod sys {
         }
     }
 
-    /// The bundle's `CFBundleExecutable` (PaTorrent.app's launcher, which sets up GTK's paths
+    /// The bundle's `CFBundleExecutable` (Rookparcel.app's launcher, which sets up GTK's paths
     /// before it becomes the GUI), when running from a bundle.
     pub fn bundle_executable() -> Option<PathBuf> {
         bundle_id()?;
@@ -312,7 +312,7 @@ mod sys {
     }
 
     /// The UTI LaunchServices has for the `.torrent` extension (`org.bittorrent.torrent` when
-    /// PaTorrent.app or another client declares it), else [`super::TORRENT_UTI`].
+    /// Rookparcel.app or another client declares it), else [`super::TORRENT_UTI`].
     pub fn torrent_uti() -> String {
         let found = (|| {
             let class = Cf::string("public.filename-extension")?;
@@ -427,18 +427,18 @@ mod tests {
 
     #[test]
     fn a_launch_agent_is_read_back() {
-        let program = args(&["/Applications/PaTorrent.app/Contents/MacOS/PaTorrent", "--minimized"]);
-        let text = launch_agent("io.github.balls0fsteel.PaTorrent", &program);
-        assert!(text.contains("<key>Label</key>\n\t<string>io.github.balls0fsteel.PaTorrent</string>"));
+        let program = args(&["/Applications/Rookparcel.app/Contents/MacOS/Rookparcel", "--minimized"]);
+        let text = launch_agent("io.github.balls0fsteel.Rookparcel", &program);
+        assert!(text.contains("<key>Label</key>\n\t<string>io.github.balls0fsteel.Rookparcel</string>"));
         assert!(text.contains("<key>RunAtLoad</key>\n\t<true/>"));
         assert_eq!(launch_agent_arguments(&text), Some(program));
     }
 
     #[test]
     fn odd_characters_survive_the_round_trip() {
-        let program = args(&["/Users/a&b/<PaTorrent> \"x\"/PaTorrent", ""]);
+        let program = args(&["/Users/a&b/<Rookparcel> \"x\"/Rookparcel", ""]);
         let text = launch_agent("l", &program);
-        assert!(text.contains("a&amp;b/&lt;PaTorrent&gt;"));
+        assert!(text.contains("a&amp;b/&lt;Rookparcel&gt;"));
         assert_eq!(launch_agent_arguments(&text), Some(program));
     }
 
@@ -457,11 +457,11 @@ mod tests {
     fn hand_written_agents_are_read() {
         // a `Program` key alone, entities and blanks as other tools write them
         let text = "<plist version=\"1.0\"><dict><key>Label</key><string>x</string>\
-            <key>Program</key>  <string>/Applications/P&#x26;T.app/Contents/MacOS/PaTorrent</string>\
+            <key>Program</key>  <string>/Applications/P&#x26;T.app/Contents/MacOS/Rookparcel</string>\
             <key>RunAtLoad</key> <true/></dict></plist>";
         assert_eq!(
             launch_agent_arguments(text),
-            Some(args(&["/Applications/P&T.app/Contents/MacOS/PaTorrent"]))
+            Some(args(&["/Applications/P&T.app/Contents/MacOS/Rookparcel"]))
         );
         let text = "<dict><key>RunAtLoad</key><true/><key>ProgramArguments</key>\n<array>\n\
             <string>/a</string><string/>\n<string>&#45;&#45;minimized &amp; &quot;more&quot;</string></array></dict>";

@@ -14,13 +14,13 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 # loaded by path: "site" and "build" are also names of installed modules
-_spec = importlib.util.spec_from_file_location("patorrent_site_build", HERE / "build.py")
+_spec = importlib.util.spec_from_file_location("rookparcel_site_build", HERE / "build.py")
 b = importlib.util.module_from_spec(_spec)
 sys.modules[_spec.name] = b  # dataclasses look their module up while the class is made
 _spec.loader.exec_module(b)
 
 SAMPLE = json.loads((HERE / "testdata" / "releases.json").read_text(encoding="utf-8"))
-REPO = "Balls0fSteel/PaTorrent"
+REPO = "Balls0fSteel/Rookparcel"
 
 
 def rel(tag, prerelease=False, draft=False, assets=(), published="2026-11-01T00:00:00Z"):
@@ -86,9 +86,9 @@ class Selection(unittest.TestCase):
 
 
 class Manifest(unittest.TestCase):
-    HEAD = ("# PaTorrent update information: the newest releases at "
-            "https://github.com/Balls0fSteel/PaTorrent/releases\n"
-            "# Read by PaTorrent's update check; written by .github/workflows/pages.yml.\n")
+    HEAD = ("# Rookparcel update information: the newest releases at "
+            "https://github.com/Balls0fSteel/Rookparcel/releases\n"
+            "# Read by Rookparcel's update check; written by .github/workflows/pages.yml.\n")
 
     def manifest(self, data):
         stable, pre = b.pick(b.parse_releases(data))
@@ -119,28 +119,35 @@ class Manifest(unittest.TestCase):
 class Classification(unittest.TestCase):
     def test_release_files(self):
         v = "1.0.0-rc.1"
-        expected = {
-            f"patorrent-{v}-windows-x64-setup.exe": ("windows-setup", "x64"),
-            f"patorrent-{v}-windows-x64.zip": ("windows-zip", "x64"),
-            f"patorrent-{v}-linux-x86_64.tar.gz": ("linux-tar", "x86_64"),
-            f"patorrent-{v}-linux-aarch64.tar.gz": ("linux-tar", "aarch64"),
-            f"PaTorrent-{v}-x86_64.AppImage": ("appimage", "x86_64"),
-            f"PaTorrent-{v}-aarch64.AppImage": ("appimage", "aarch64"),
-            f"patorrent-nox-{v}-x86_64.AppImage": ("nox-appimage", "x86_64"),
-            f"patorrent-nox-{v}-aarch64.AppImage": ("nox-appimage", "aarch64"),
-            f"PaTorrent-{v}-x86_64.flatpak": ("flatpak", "x86_64"),
-            f"PaTorrent-{v}-aarch64.flatpak": ("flatpak", "aarch64"),
-            f"PaTorrent-{v}-arm64.dmg": ("dmg", "arm64"),
-            f"patorrent-nox-{v}-macos-arm64.tar.gz": ("macos-nox", "arm64"),
-            f"patorrent-nox-{v}-macos-x86_64.tar.gz": ("macos-nox", "x86_64"),
+        new = {
+            f"rookparcel-{v}-windows-x64-setup.exe": ("windows-setup", "x64"),
+            f"rookparcel-{v}-windows-x64.zip": ("windows-zip", "x64"),
+            f"rookparcel-{v}-linux-x86_64.tar.gz": ("linux-tar", "x86_64"),
+            f"rookparcel-{v}-linux-aarch64.tar.gz": ("linux-tar", "aarch64"),
+            f"Rookparcel-{v}-x86_64.AppImage": ("appimage", "x86_64"),
+            f"Rookparcel-{v}-aarch64.AppImage": ("appimage", "aarch64"),
+            f"rookparcel-nox-{v}-x86_64.AppImage": ("nox-appimage", "x86_64"),
+            f"rookparcel-nox-{v}-aarch64.AppImage": ("nox-appimage", "aarch64"),
+            f"Rookparcel-{v}-x86_64.flatpak": ("flatpak", "x86_64"),
+            f"Rookparcel-{v}-aarch64.flatpak": ("flatpak", "aarch64"),
+            f"Rookparcel-{v}-arm64.dmg": ("dmg", "arm64"),
+            f"rookparcel-nox-{v}-macos-arm64.tar.gz": ("macos-nox", "arm64"),
+            f"rookparcel-nox-{v}-macos-x86_64.tar.gz": ("macos-nox", "x86_64"),
             "SHA256SUMS": ("checksums", ""),
         }
-        for name, kind in expected.items():
+        # D59: releases up to 1.2.0 were published as PaTorrent, with the old file names
+        old = {n.replace("Rookparcel", "PaTorrent").replace("rookparcel", "patorrent"): k
+               for n, k in new.items()}
+        self.assertEqual(len(old), len(new))
+        for name, kind in {**new, **old}.items():
             self.assertEqual(b.classify(name), kind, name)
-        for name in ["SHA256SUMS.asc", "patorrent-1.0.0-windows-x64.zip.sig", "notes.txt",
-                     "patorrent-1.0.0-windows-x86.zip", "PaTorrent-1.0.0-x86_64.appimage",
-                     "patorrent-1.0.0-x86_64.AppImage", "patorrent-nightly-windows-x64.zip",
-                     "PaTorrent-1.0.0-riscv64.flatpak", "patorrent-nox-1.0.0-macos-arm64.zip"]:
+        for name in ["SHA256SUMS.asc", "rookparcel-1.0.0-windows-x64.zip.sig", "notes.txt",
+                     "rookparcel-1.0.0-windows-x86.zip", "Rookparcel-1.0.0-x86_64.appimage",
+                     "rookparcel-1.0.0-x86_64.AppImage", "rookparcel-nightly-windows-x64.zip",
+                     "Rookparcel-1.0.0-riscv64.flatpak", "rookparcel-nox-1.0.0-macos-arm64.zip",
+                     # the old names keep their old case too
+                     "patorrent-1.0.0-x86_64.AppImage", "PaTorrent-1.0.0-windows-x64.zip",
+                     "Patorrent-1.0.0-arm64.dmg", "rookparcel-1.0.0-arm64.dmg"]:
             self.assertIsNone(b.classify(name), name)
 
     def test_live_release_shape(self):
@@ -166,7 +173,7 @@ class Classification(unittest.TestCase):
         self.assertNotIn("other", groups)
 
     def test_skipped_assets(self):
-        data = [rel("v1.0.0", assets=["patorrent-1.0.0-windows-x64.zip", "SHA256SUMS"])]
+        data = [rel("v1.0.0", assets=["rookparcel-1.0.0-windows-x64.zip", "SHA256SUMS"])]
         data[0]["assets"][0]["state"] = "starter"  # an upload that never finished
         data[0]["assets"][1]["browser_download_url"] = "http://example.com/SHA256SUMS"
         (r,) = b.parse_releases(data)
@@ -183,8 +190,8 @@ class Pages(unittest.TestCase):
         self.assertEqual(blocks["files-other"], "")
 
     def test_prerelease_only(self):
-        blocks = b.blocks_for([rel("v1.0.0-rc.1", True, assets=["patorrent-1.0.0-rc.1-windows-x64.zip"])], REPO)
-        self.assertIn("Download PaTorrent 1.0.0-rc.1", blocks["hero-download"])
+        blocks = b.blocks_for([rel("v1.0.0-rc.1", True, assets=["rookparcel-1.0.0-rc.1-windows-x64.zip"])], REPO)
+        self.assertIn("Download Rookparcel 1.0.0-rc.1", blocks["hero-download"])
         self.assertIn("Release candidate", blocks["hero-download"])
         self.assertIn('data-os="windows"', blocks["hero-download"])
         self.assertNotIn('data-os="macos"', blocks["hero-download"])
@@ -194,17 +201,37 @@ class Pages(unittest.TestCase):
 
     def test_stable_with_newer_prerelease(self):
         blocks = b.blocks_for(SAMPLE, REPO)
-        self.assertIn("Download PaTorrent 1.0.0<", blocks["hero-download"])
+        self.assertIn("Download Rookparcel 1.0.0<", blocks["hero-download"])
         self.assertIn("Stable release", blocks["release"])
         self.assertIn("1.1.0-rc.10", blocks["release"])  # the newer pre-release is pointed at
         self.assertEqual(blocks["if-prerelease"]("notice"), "")
         self.assertIn("patorrent-1.0.0-windows-x64-setup.exe", blocks["files-windows"])
         self.assertIn("notes.txt", blocks["files-other"])
         self.assertIn("./patorrent-1.0.0-linux-x86_64/patorrent-gtk", blocks["files-linux"])
+        self.assertIn("io.github.balls0fsteel.PaTorrent", blocks["files-linux"])
+        self.assertNotIn("rookparcel-", blocks["files-linux"])
         self.assertNotIn("1.2.0", "".join(v for v in blocks.values() if isinstance(v, str)))
 
+    def test_new_names(self):
+        # D59: the first release after the rename has rookparcel-* files; the steps name its programs
+        blocks = b.blocks_for([rel("v1.3.0", assets=[
+            "rookparcel-1.3.0-windows-x64-setup.exe", "rookparcel-1.3.0-windows-x64.zip",
+            "rookparcel-1.3.0-linux-x86_64.tar.gz", "Rookparcel-1.3.0-x86_64.flatpak",
+            "Rookparcel-1.3.0-arm64.dmg", "rookparcel-nox-1.3.0-macos-arm64.tar.gz", "SHA256SUMS"]),
+            rel("v1.2.0", assets=["patorrent-1.2.0-windows-x64.zip"])], REPO)
+        self.assertIn("Download Rookparcel 1.3.0<", blocks["hero-download"])
+        self.assertIn("rookparcel-1.3.0-windows-x64-setup.exe", blocks["files-windows"])
+        self.assertIn("<code>rookparcel.exe</code>", blocks["files-windows"])
+        self.assertIn("./rookparcel-1.3.0-linux-x86_64/rookparcel-gtk", blocks["files-linux"])
+        self.assertIn("io.github.balls0fsteel.Rookparcel", blocks["files-linux"])
+        self.assertIn("Rookparcel.app", blocks["files-macos"])
+        self.assertIn("./rookparcel-nox-1.3.0-macos-arm64/rookparcel-nox", blocks["files-macos"])
+        self.assertEqual(blocks["files-other"], "")
+        for name in ("files-windows", "files-linux", "files-macos"):
+            self.assertNotIn("patorrent", blocks[name].lower(), name)
+
     def test_escaping(self):
-        data = [rel("v1.0.0", assets=['patorrent-1.0.0-windows-x64.zip', '<b>"x"</b>'])]
+        data = [rel("v1.0.0", assets=['rookparcel-1.0.0-windows-x64.zip', '<b>"x"</b>'])]
         blocks = b.blocks_for(data, REPO)
         self.assertNotIn("<b>", blocks["files-other"])
         self.assertIn("&lt;b&gt;&quot;x&quot;&lt;/b&gt;", blocks["files-other"])
@@ -225,14 +252,14 @@ class Pages(unittest.TestCase):
 
 
 def article(eid, date, title=None, lede="Short.", body="<ul><li>x</li></ul>"):
-    title = title if title is not None else f"PaTorrent {eid[1:]}"
+    title = title if title is not None else f"Rookparcel {eid[1:]}"
     return (f'<article class="news-entry" id="{eid}" data-date="{date}">'
             f'<h2><a href="#{eid}"><time>{date}</time> — <span class="news-title">{title}</span></a></h2>'
             f'<p class="news-lede">{lede}</p>{body}</article>')
 
 
 class News(unittest.TestCase):
-    SITE_URL = "https://balls0fsteel.github.io/PaTorrent/"
+    SITE_URL = "https://balls0fsteel.github.io/Rookparcel/"
 
     def test_real_page(self):
         entries = b.parse_news((HERE / "news.html").read_text(encoding="utf-8"))
@@ -240,7 +267,7 @@ class News(unittest.TestCase):
         self.assertEqual(len(ids), len(set(ids)))
         for e in entries:
             self.assertTrue(e.id.startswith("v") and b.version_of(e.id), e.id)
-            self.assertEqual(e.title, f"PaTorrent {e.id[1:]}")
+            self.assertEqual(e.title, f"Rookparcel {e.id[1:]}")
             self.assertTrue(e.lede)
         # newest first, by date and, within a day, by version
         self.assertEqual([e.date for e in entries], sorted((e.date for e in entries), reverse=True))
@@ -251,7 +278,7 @@ class News(unittest.TestCase):
         text = "<main>" + article("v1.1.0", "2026-10-28", lede="A <code>x</code> &amp; y.") \
                + '<article class="other">ignored</article>' + article("v1.0.1", "2026-10-27") + "</main>"
         e1, e2 = b.parse_news(text)
-        self.assertEqual((e1.id, e1.date, e1.title), ("v1.1.0", "2026-10-28", "PaTorrent 1.1.0"))
+        self.assertEqual((e1.id, e1.date, e1.title), ("v1.1.0", "2026-10-28", "Rookparcel 1.1.0"))
         self.assertEqual(e1.lede, "A <code>x</code> &amp; y.")
         self.assertTrue(e1.body.startswith('<p class="news-lede">'))
         self.assertEqual(e2.id, "v1.0.1")
@@ -273,7 +300,7 @@ class News(unittest.TestCase):
 
     def test_feed(self):
         entries = b.parse_news(
-            article("v1.1.0", "2026-10-28", title="PaTorrent 1.1.0 &amp; &lt;more&gt;",
+            article("v1.1.0", "2026-10-28", title="Rookparcel 1.1.0 &amp; &lt;more&gt;",
                     body='<p><a href="faq.html#search">FAQ</a> <a href="#v1.0.1">older</a> '
                          '<a href="https://example.com/x">out</a> <img src="img/a.png" alt=""></p>')
             + article("v1.0.1", "2026-10-27"))
@@ -282,15 +309,15 @@ class News(unittest.TestCase):
         ns = {"a": "http://www.w3.org/2005/Atom"}
         for tag in ("title", "id", "updated", "author/a:name"):
             self.assertIsNotNone(root.find(f"a:{tag}", ns), tag)
-        self.assertEqual(root.find("a:id", ns).text, "tag:balls0fsteel.github.io,2026:PaTorrent/news")
+        self.assertEqual(root.find("a:id", ns).text, "tag:balls0fsteel.github.io,2026:Rookparcel/news")
         self.assertEqual(root.find("a:updated", ns).text, "2026-10-28T00:00:00Z")
         self.assertEqual(root.find("a:link[@rel='self']", ns).get("href"), self.SITE_URL + "news.atom")
         self.assertEqual(root.find("a:link[@rel='alternate']", ns).get("href"), self.SITE_URL + "news.html")
         items = root.findall("a:entry", ns)
         self.assertEqual(len(items), 2)
         first = items[0]
-        self.assertEqual(first.find("a:title", ns).text, "PaTorrent 1.1.0 & <more>")
-        self.assertEqual(first.find("a:id", ns).text, "tag:balls0fsteel.github.io,2026:PaTorrent/news/v1.1.0")
+        self.assertEqual(first.find("a:title", ns).text, "Rookparcel 1.1.0 & <more>")
+        self.assertEqual(first.find("a:id", ns).text, "tag:balls0fsteel.github.io,2026:Rookparcel/news/v1.1.0")
         self.assertEqual(first.find("a:link", ns).get("href"), self.SITE_URL + "news.html#v1.1.0")
         for tag in ("id", "title", "updated", "published", "summary", "content"):
             self.assertIsNotNone(first.find(f"a:{tag}", ns), tag)
@@ -303,10 +330,10 @@ class News(unittest.TestCase):
         self.assertEqual(first.find("a:summary", ns).text, "Short.")
         # ids do not depend on anything but the site and the entry
         again = b.atom_feed(entries[1:], self.SITE_URL)
-        self.assertIn("<id>tag:balls0fsteel.github.io,2026:PaTorrent/news/v1.0.1</id>", again)
+        self.assertIn("<id>tag:balls0fsteel.github.io,2026:Rookparcel/news/v1.0.1</id>", again)
 
     def test_site_url(self):
-        self.assertEqual(b.site_url_for("Balls0fSteel/PaTorrent"), self.SITE_URL)
+        self.assertEqual(b.site_url_for("Balls0fSteel/Rookparcel"), self.SITE_URL)
         root_feed = b.atom_feed(b.parse_news(article("v1.0.0", "2026-10-26")), "https://example.org/")
         self.assertIn("<id>tag:example.org,2026:news</id>", root_feed)
 
@@ -315,7 +342,7 @@ class News(unittest.TestCase):
                                + article("v1.1.7", "2026-10-30"))
         line = b.latest_news_block(entries)
         self.assertIn('href="news.html#v1.1.17"', line)
-        self.assertIn("PaTorrent 1.1.17", line)
+        self.assertIn("Rookparcel 1.1.17", line)
         self.assertIn('<time datetime="2026-10-30">30 October 2026</time>', line)
         self.assertIn("Search <code>x</code>.", line)
         self.assertNotIn("1.1.7<", line)
@@ -325,7 +352,7 @@ class WholeBuild(unittest.TestCase):
     def test_build_from_sample(self):
         with tempfile.TemporaryDirectory() as tmp:
             out = Path(tmp) / "_site"
-            warnings = b.build(out, SAMPLE, REPO, "/PaTorrent/")
+            warnings = b.build(out, SAMPLE, REPO, "/Rookparcel/")
             self.assertEqual((out / "update.txt").read_bytes(), (
                 Manifest.HEAD + "stable=1.0.0\nprerelease=1.1.0-rc.10\n").encode("utf-8"))
             self.assertTrue((out / ".nojekyll").is_file())
@@ -342,7 +369,7 @@ class WholeBuild(unittest.TestCase):
             ns = {"a": "http://www.w3.org/2005/Atom"}
             self.assertEqual(feed.tag, "{http://www.w3.org/2005/Atom}feed")
             ids = [e.find("a:id", ns).text for e in feed.findall("a:entry", ns)]
-            self.assertEqual(ids, [f"tag:balls0fsteel.github.io,2026:PaTorrent/news/{e.id}" for e in news])
+            self.assertEqual(ids, [f"tag:balls0fsteel.github.io,2026:Rookparcel/news/{e.id}" for e in news])
             index = (out / "index.html").read_text(encoding="utf-8")
             self.assertIn(f'<a href="news.html#{news[0].id}">{news[0].title}</a>', index)
             self.assertIn('type="application/atom+xml"', (out / "news.html").read_text(encoding="utf-8"))
@@ -351,12 +378,12 @@ class WholeBuild(unittest.TestCase):
             self.assertFalse((out / "build.py").exists())
             self.assertFalse((out / "testdata").exists())
             self.assertFalse(any(out.glob("test_*.py")))
-            self.assertIn('<base href="/PaTorrent/">', (out / "404.html").read_text(encoding="utf-8"))
+            self.assertIn('<base href="/Rookparcel/">', (out / "404.html").read_text(encoding="utf-8"))
             # the main screenshot is added to site/img separately; nothing else may be missing
             self.assertEqual([w for w in warnings if "screenshot-windows.png" not in w], [])
 
             # a second build replaces the first
-            b.build(out, None, REPO, "/PaTorrent/")
+            b.build(out, None, REPO, "/Rookparcel/")
             self.assertEqual((out / "update.txt").read_text(encoding="utf-8"), Manifest.HEAD)
 
     def test_refuses_foreign_folder(self):
@@ -379,7 +406,7 @@ class WholeBuild(unittest.TestCase):
                 '<a href="https://example.com/x">external</a><a href="#self">self</a>'
                 '<p id="self"></p>', encoding="utf-8")
             (out / "b.html").write_text('<h2 id="there">x</h2>', encoding="utf-8")
-            problems = b.check_links(out, "/PaTorrent/")
+            problems = b.check_links(out, "/Rookparcel/")
             self.assertEqual(len(problems), 3, problems)
             self.assertTrue(any("#gone" in p for p in problems))
             self.assertTrue(any("missing.png" in p for p in problems))

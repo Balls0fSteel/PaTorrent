@@ -3,7 +3,7 @@
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::util::{gzip, puff};
+use rookparcel_core::util::{gzip, puff};
 
 fuzz_target!(|data: &[u8]| {
     if let Ok(out) = gzip::inflate_gzip(data, 1 << 16) {

@@ -6,14 +6,14 @@ name: Release
 # docs/releases/<version>.md, when it exists, is the release's text. Started by hand, it builds
 # the same files as an artifact and makes no release.
 #
-# - Windows x64: a zip of patorrent.exe and patorrent-nox.exe (static CRT, D7) with LICENSE.md
+# - Windows x64: a zip of rookparcel.exe and rookparcel-nox.exe (static CRT, D7) with LICENSE.md
 #   and THIRD-PARTY-NOTICES.md, and an installer of the same files (NSIS, packaging/windows),
 #   which the job installs and uninstalls on the runner.
-# - Linux x86_64 and aarch64: a tarball of patorrent-nox, patorrent-gtk, the desktop entry, the
+# - Linux x86_64 and aarch64: a tarball of rookparcel-nox, rookparcel-gtk, the desktop entry, the
 #   systemd units and the same two texts. They link the system's glibc, OpenSSL 3 and GTK 4 as
 #   Ubuntu 24.04 has them.
-# - Linux x86_64 and aarch64 AppImages: PaTorrent (the GTK GUI with GTK 4 and its libraries)
-#   and patorrent-nox (with OpenSSL), made by linuxdeploy; they need glibc 2.39 (Ubuntu 24.04)
+# - Linux x86_64 and aarch64 AppImages: Rookparcel (the GTK GUI with GTK 4 and its libraries)
+#   and rookparcel-nox (with OpenSSL), made by linuxdeploy; they need glibc 2.39 (Ubuntu 24.04)
 #   or newer.
 # - Linux x86_64 and aarch64 Flatpaks: a single-file bundle of the GTK GUI on the GNOME
 #   runtime, built by flatpak-builder from packaging/flatpak (the manifest Flathub would build)
@@ -66,13 +66,13 @@ jobs:
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
-      - run: cargo build --release --locked -p patorrent -p patorrent-nox
+      - run: cargo build --release --locked -p rookparcel -p rookparcel-nox
       - name: Zip
         shell: pwsh
         run: |
-          $name = "patorrent-${{ needs.version.outputs.version }}-windows-x64"
+          $name = "rookparcel-${{ needs.version.outputs.version }}-windows-x64"
           New-Item -ItemType Directory $name | Out-Null
-          Copy-Item target/release/patorrent.exe, target/release/patorrent-nox.exe, LICENSE.md, THIRD-PARTY-NOTICES.md $name
+          Copy-Item target/release/rookparcel.exe, target/release/rookparcel-nox.exe, LICENSE.md, THIRD-PARTY-NOTICES.md $name
           Compress-Archive -Path $name -DestinationPath "$name.zip"
       # SourceForge redirects to a mirror (hence the retries); NSIS's own installer, silent, into
       # a folder of the job's
@@ -110,30 +110,30 @@ jobs:
             exit 1
           }
           & $env:MAKENSIS /NOCD /WX "/DVERSION=$version" "/DBINDIR=target\release" "/DICON=$icon" `
-            "/DOUTFILE=patorrent-$version-windows-x64-setup.exe" packaging\windows\patorrent.nsi
+            "/DOUTFILE=rookparcel-$version-windows-x64-setup.exe" packaging\windows\rookparcel.nsi
           if ($LASTEXITCODE -ne 0) { exit 1 }
-          Get-Item "patorrent-$version-windows-x64-setup.exe" | Format-List Name, Length, VersionInfo
+          Get-Item "rookparcel-$version-windows-x64-setup.exe" | Format-List Name, Length, VersionInfo
       # The installer on the runner, as a user would run it silently: for this user into a
       # temporary folder, with the desktop shortcut and both associations (a throwaway machine;
       # a test on a developer's PC leaves the associations alone), then the silent uninstall
       # Settings > Apps runs, which must take everything with it: the files and the folder, the
-      # shortcuts, its Uninstall key and, through patorrent.exe --unregister, the associations.
+      # shortcuts, its Uninstall key and, through rookparcel.exe --unregister, the associations.
       - name: Install and uninstall
         shell: pwsh
-        # a hung setup or patorrent.exe --associate must not hold the job for hours
+        # a hung setup or rookparcel.exe --associate must not hold the job for hours
         timeout-minutes: 10
         run: |
           function Fail($m) { echo "::error::$m"; exit 1 }
           $version = "${{ needs.version.outputs.version }}"
-          $dir = Join-Path $env:RUNNER_TEMP "PaTorrent test"
-          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\PaTorrent'
-          $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\PaTorrent.lnk"
-          $desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) PaTorrent.lnk
+          $dir = Join-Path $env:RUNNER_TEMP "Rookparcel test"
+          $key = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\Rookparcel'
+          $menu = "$env:APPDATA\Microsoft\Windows\Start Menu\Programs\Rookparcel.lnk"
+          $desktop = Join-Path ([Environment]::GetFolderPath('Desktop')) Rookparcel.lnk
           $classes = 'HKCU:\Software\Classes'
-          $p = Start-Process ".\patorrent-$version-windows-x64-setup.exe" -Wait -PassThru `
+          $p = Start-Process ".\rookparcel-$version-windows-x64-setup.exe" -Wait -PassThru `
             -ArgumentList '/S', '/DESKTOPSHORTCUT', '/ASSOCIATE=torrent,magnet', "/D=$dir"
           if ($p.ExitCode -ne 0) { Fail "Setup exited with $($p.ExitCode)" }
-          foreach ($f in 'patorrent.exe', 'patorrent-nox.exe', 'LICENSE.md', 'THIRD-PARTY-NOTICES.md', 'uninstall.exe') {
+          foreach ($f in 'rookparcel.exe', 'rookparcel-nox.exe', 'LICENSE.md', 'THIRD-PARTY-NOTICES.md', 'uninstall.exe') {
             if (-not (Test-Path "$dir\$f")) { Fail "$f was not installed" }
           }
           if (-not (Test-Path $menu)) { Fail "no Start menu shortcut" }
@@ -141,29 +141,29 @@ jobs:
           $u = Get-ItemProperty $key
           $u | Format-List DisplayName, DisplayVersion, Publisher, DisplayIcon, InstallLocation, EstimatedSize, QuietUninstallString
           if ($u.DisplayVersion -ne $version -or $u.InstallLocation -ne $dir) { Fail "the Uninstall key is wrong" }
-          if ((Get-Item "$classes\.torrent").GetValue('') -ne 'PaTorrent.torrent') { Fail ".torrent is not associated" }
+          if ((Get-Item "$classes\.torrent").GetValue('') -ne 'Rookparcel.torrent') { Fail ".torrent is not associated" }
           $open = (Get-Item "$classes\magnet\shell\open\command").GetValue('')
           # SEC-18: the shell passes links through --shell, so nothing after %1 becomes a switch
-          if ($open -ne "`"$dir\patorrent.exe`" --shell `"%1`"") { Fail "magnet: opens '$open'" }
-          & "$dir\patorrent-nox.exe" --version
-          if ($LASTEXITCODE -ne 0) { Fail "the installed patorrent-nox.exe did not run" }
+          if ($open -ne "`"$dir\rookparcel.exe`" --shell `"%1`"") { Fail "magnet: opens '$open'" }
+          & "$dir\rookparcel-nox.exe" --version
+          if ($LASTEXITCODE -ne 0) { Fail "the installed rookparcel-nox.exe did not run" }
 
-          # D45, PaTorrent updating itself: /S /UPDATE=<pid> waits for that process (the
-          # exiting PaTorrent; here a sleep the setup must outwait), installs over the
-          # installation found and starts patorrent.exe again
+          # D45, Rookparcel updating itself: /S /UPDATE=<pid> waits for that process (the
+          # exiting Rookparcel; here a sleep the setup must outwait), installs over the
+          # installation found and starts rookparcel.exe again
           $sleeper = Start-Process powershell -PassThru -WindowStyle Hidden -ArgumentList '-NoProfile', '-Command', 'Start-Sleep 8'
           $clock = [Diagnostics.Stopwatch]::StartNew()
-          $p = Start-Process ".\patorrent-$version-windows-x64-setup.exe" -Wait -PassThru `
+          $p = Start-Process ".\rookparcel-$version-windows-x64-setup.exe" -Wait -PassThru `
             -ArgumentList '/S', '/CURRENTUSER', "/UPDATE=$($sleeper.Id)"
           if ($p.ExitCode -ne 0) { Fail "the update setup exited with $($p.ExitCode)" }
           if (-not $sleeper.HasExited -or $clock.Elapsed.TotalSeconds -lt 7) { Fail "the update setup did not wait for /UPDATE's process" }
           $app = $null
-          for ($i = 0; $i -lt 30 -and -not $app; $i++) { Start-Sleep 1; $app = Get-Process patorrent -ErrorAction SilentlyContinue }
-          if (-not $app) { Fail "the update setup did not start PaTorrent again" }
-          if ($app.Path -ne "$dir\patorrent.exe") { Fail "the restarted PaTorrent is $($app.Path)" }
+          for ($i = 0; $i -lt 30 -and -not $app; $i++) { Start-Sleep 1; $app = Get-Process rookparcel -ErrorAction SilentlyContinue }
+          if (-not $app) { Fail "the update setup did not start Rookparcel again" }
+          if ($app.Path -ne "$dir\rookparcel.exe") { Fail "the restarted Rookparcel is $($app.Path)" }
           Stop-Process -Id $app.Id -Force
           Wait-Process -Id $app.Id -ErrorAction SilentlyContinue
-          echo "updated with /UPDATE: waited $([int]$clock.Elapsed.TotalSeconds) s, PaTorrent started again"
+          echo "updated with /UPDATE: waited $([int]$clock.Elapsed.TotalSeconds) s, Rookparcel started again"
 
           $p = Start-Process "$dir\uninstall.exe" -ArgumentList '/S' -Wait -PassThru
           # it goes on from a copy of itself in %TEMP%: wait for that
@@ -171,20 +171,20 @@ jobs:
           if (Test-Path $dir) { Get-ChildItem -Recurse $dir; Fail "the folder is still there" }
           if (Test-Path $key) { Fail "the Uninstall key is still there" }
           if ((Test-Path $menu) -or (Test-Path $desktop)) { Fail "a shortcut is still there" }
-          if ((Test-Path "$classes\PaTorrent.torrent") -or (Test-Path "$classes\PaTorrent.magnet") -or (Test-Path "$classes\magnet")) {
+          if ((Test-Path "$classes\Rookparcel.torrent") -or (Test-Path "$classes\Rookparcel.magnet") -or (Test-Path "$classes\magnet")) {
             Fail "an association is still there"
           }
           if ((Get-Item "$classes\.torrent" -ErrorAction SilentlyContinue)?.GetValue('')) { Fail ".torrent still names a program" }
-          if ((Get-ItemProperty 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue).PaTorrent) {
-            Fail "PaTorrent is still in RegisteredApplications"
+          if ((Get-ItemProperty 'HKCU:\Software\RegisteredApplications' -ErrorAction SilentlyContinue).Rookparcel) {
+            Fail "Rookparcel is still in RegisteredApplications"
           }
           echo "installed, associated, uninstalled: nothing left"
       - uses: actions/upload-artifact@v7
         with:
           name: windows-x64
           path: |
-            patorrent-*.zip
-            patorrent-*-setup.exe
+            rookparcel-*.zip
+            rookparcel-*-setup.exe
 
   linux:
     needs: version
@@ -219,12 +219,12 @@ jobs:
           echo "APP_ICON_DIR=$dir" >> "$GITHUB_ENV"
       - uses: dtolnay/rust-toolchain@stable
       - run: sudo apt-get update && sudo apt-get install -y libssl-dev libgtk-4-dev libgdk-pixbuf2.0-bin librsvg2-common
-      - run: cargo build --release --locked -p patorrent-nox -p patorrent-gtk
+      - run: cargo build --release --locked -p rookparcel-nox -p rookparcel-gtk
       - name: Tarball
         run: |
-          name="patorrent-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}"
+          name="rookparcel-${{ needs.version.outputs.version }}-linux-${{ matrix.arch }}"
           mkdir -p "$name/systemd"
-          install -m 755 target/release/patorrent-nox target/release/patorrent-gtk "$name/"
+          install -m 755 target/release/rookparcel-nox target/release/rookparcel-gtk "$name/"
           install -m 644 LICENSE.md THIRD-PARTY-NOTICES.md contrib/linux/*.desktop "$name/"
           cp -r contrib/systemd/system contrib/systemd/user "$name/systemd/"
           tar -czf "$name.tar.gz" --owner=0 --group=0 "$name"
@@ -239,7 +239,7 @@ jobs:
           curl -fsSL -o "$tools/linuxdeploy-plugin-gtk.sh" "$LINUXDEPLOY_GTK"
           chmod +x "$tools"/*
           export PATH="$tools:$PATH" LINUXDEPLOY_OUTPUT_VERSION="$version"
-          app_id=io.github.balls0fsteel.PaTorrent
+          app_id=io.github.balls0fsteel.Rookparcel
           icons="$RUNNER_TEMP/icons"
           mkdir -p "$icons"
           cp "$APP_ICON_DIR/256.png" "$icons/$app_id.png"
@@ -250,30 +250,30 @@ jobs:
           # and forced X11 needs Xwayland
           DEPLOY_GTK_VERSION=4 linuxdeploy \
             --appdir AppDir-gtk \
-            --executable target/release/patorrent-gtk \
+            --executable target/release/rookparcel-gtk \
             --desktop-file "contrib/linux/$app_id.desktop" \
             --icon-file "$icons/$app_id.png" \
             --plugin gtk
           hook=AppDir-gtk/apprun-hooks/linuxdeploy-plugin-gtk.sh
           grep -q '^export GDK_BACKEND=x11' "$hook"
           sed -i '/^export GDK_BACKEND=x11/d' "$hook"
-          LDAI_OUTPUT="PaTorrent-$version-$arch.AppImage" linuxdeploy --appdir AppDir-gtk --output appimage
+          LDAI_OUTPUT="Rookparcel-$version-$arch.AppImage" linuxdeploy --appdir AppDir-gtk --output appimage
 
           # nox: a terminal program, kept out of the menus; OpenSSL bundled
           cat > "$RUNNER_TEMP/$app_id.Nox.desktop" <<EOF
           [Desktop Entry]
           Type=Application
-          Name=PaTorrent nox
+          Name=Rookparcel nox
           Comment=Headless BitTorrent daemon with a Web UI
-          Exec=patorrent-nox
+          Exec=rookparcel-nox
           Icon=$app_id.Nox
           Terminal=true
           NoDisplay=true
           Categories=Network;FileTransfer;P2P;
           EOF
-          LDAI_OUTPUT="patorrent-nox-$version-$arch.AppImage" linuxdeploy \
+          LDAI_OUTPUT="rookparcel-nox-$version-$arch.AppImage" linuxdeploy \
             --appdir AppDir-nox \
-            --executable target/release/patorrent-nox \
+            --executable target/release/rookparcel-nox \
             --desktop-file "$RUNNER_TEMP/$app_id.Nox.desktop" \
             --icon-file "$icons/$app_id.Nox.png" \
             --output appimage
@@ -281,13 +281,13 @@ jobs:
           # the libraries are inside (the runner has them too, so ldd alone proves nothing),
           # and the nox bundle starts
           ls AppDir-gtk/usr/lib/libgtk-4.so.* AppDir-nox/usr/lib/libssl.so.* AppDir-nox/usr/lib/libcrypto.so.*
-          ./"patorrent-nox-$version-$arch.AppImage" --version
+          ./"rookparcel-nox-$version-$arch.AppImage" --version
           ls -l *.AppImage
       - uses: actions/upload-artifact@v7
         with:
           name: linux-${{ matrix.arch }}
           path: |
-            patorrent-*.tar.gz
+            rookparcel-*.tar.gz
             *.AppImage
 
   flatpak:
@@ -310,7 +310,7 @@ jobs:
       image: ghcr.io/flathub-infra/flatpak-github-actions:gnome-51
       options: --privileged
     env:
-      APP_ID: io.github.balls0fsteel.PaTorrent
+      APP_ID: io.github.balls0fsteel.Rookparcel
       # flatpak-builder-tools' cargo generator, pinned by commit and checksum
       CARGO_GENERATOR: https://raw.githubusercontent.com/flatpak/flatpak-builder-tools/880230d0c74bf532f29dff76521a650c0444bb14/cargo/flatpak-cargo-generator.py
       CARGO_GENERATOR_SHA256: 0a2db6be87d75910facef28ab46d4d6460802e8419ab850d0caa6a364d26b380
@@ -376,20 +376,20 @@ jobs:
       - uses: flatpak/flatpak-github-actions/flatpak-builder@v6
         with:
           manifest-path: packaging/flatpak/${{ env.APP_ID }}.yml
-          bundle: PaTorrent-${{ needs.version.outputs.version }}-${{ matrix.arch }}.flatpak
+          bundle: Rookparcel-${{ needs.version.outputs.version }}-${{ matrix.arch }}.flatpak
           arch: ${{ matrix.arch }}
           cache-key: flatpak-builder-${{ matrix.arch }}-${{ hashFiles('Cargo.lock') }}
           upload-artifact: false
       - name: The bundle
         run: |
-          ls -l "PaTorrent-${{ needs.version.outputs.version }}-${{ matrix.arch }}.flatpak"
+          ls -l "Rookparcel-${{ needs.version.outputs.version }}-${{ matrix.arch }}.flatpak"
       - uses: actions/upload-artifact@v7
         with:
           name: flatpak-${{ matrix.arch }}
-          path: PaTorrent-*.flatpak
+          path: Rookparcel-*.flatpak
 
-  # macOS (PLAN.md D23, Road to 1.0 item 8): PaTorrent.app (the GTK GUI with GTK 4 and its
-  # libraries from Homebrew, ad-hoc signed) in a .dmg, and patorrent-nox tarballs. The GitHub
+  # macOS (PLAN.md D23, Road to 1.0 item 8): Rookparcel.app (the GTK GUI with GTK 4 and its
+  # libraries from Homebrew, ad-hoc signed) in a .dmg, and rookparcel-nox tarballs. The GitHub
   # runner is the only Mac the project has, so every step says what it found.
   # - arm64 (Apple silicon): the .app and nox, both run here with Homebrew moved away.
   # - x86_64 (Intel): nox only, cross-built; the runner's Homebrew is arm64 only, so there is no
@@ -425,49 +425,49 @@ jobs:
       - run: brew install gtk4 adwaita-icon-theme librsvg pkgconf
       - name: Build
         run: |
-          cargo build --release --locked -p patorrent-gtk -p patorrent-nox
-          cargo build --release --locked -p patorrent-nox --target x86_64-apple-darwin
-          for f in target/release/patorrent-gtk target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox; do echo "$f: $(lipo -archs "$f")"; done
-          otool -L target/release/patorrent-gtk target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox
-      - name: PaTorrent.app
+          cargo build --release --locked -p rookparcel-gtk -p rookparcel-nox
+          cargo build --release --locked -p rookparcel-nox --target x86_64-apple-darwin
+          for f in target/release/rookparcel-gtk target/release/rookparcel-nox target/x86_64-apple-darwin/release/rookparcel-nox; do echo "$f: $(lipo -archs "$f")"; done
+          otool -L target/release/rookparcel-gtk target/release/rookparcel-nox target/x86_64-apple-darwin/release/rookparcel-nox
+      - name: Rookparcel.app
         run: |
           # what Homebrew's icon theme dir holds (index.theme was missing on the first run)
           ls -la "$(brew --prefix)/share/icons/Adwaita" | head -20
           ls "$(brew --prefix)"/Cellar/adwaita-icon-theme/*/share/icons/Adwaita | head
           python3 .github/scripts/macos_bundle.py app \
-            --binary target/release/patorrent-gtk \
+            --binary target/release/rookparcel-gtk \
             --prefix "$(brew --prefix)" \
             --icon-dir "$APP_ICON_DIR" \
-            --app-id io.github.balls0fsteel.PaTorrent \
+            --app-id io.github.balls0fsteel.Rookparcel \
             --version "${{ needs.version.outputs.version }}" \
             --extra LICENSE.md --extra THIRD-PARTY-NOTICES.md \
             --minos-file macos-minos.txt \
-            --out PaTorrent.app
-          plutil -lint PaTorrent.app/Contents/Info.plist
-          du -sh PaTorrent.app PaTorrent.app/Contents/*
+            --out Rookparcel.app
+          plutil -lint Rookparcel.app/Contents/Info.plist
+          du -sh Rookparcel.app Rookparcel.app/Contents/*
       # nox links only the system (Secure Transport, D9): no Homebrew library may remain
       - name: nox's libraries
-        run: python3 .github/scripts/macos_bundle.py check target/release/patorrent-nox target/x86_64-apple-darwin/release/patorrent-nox
+        run: python3 .github/scripts/macos_bundle.py check target/release/rookparcel-nox target/x86_64-apple-darwin/release/rookparcel-nox
       - name: Sign
         run: |
-          xattr -cr PaTorrent.app
-          codesign --force --deep --sign - PaTorrent.app
-          codesign --verify --deep --strict --verbose=2 PaTorrent.app
-          codesign --display --verbose=2 PaTorrent.app
+          xattr -cr Rookparcel.app
+          codesign --force --deep --sign - Rookparcel.app
+          codesign --verify --deep --strict --verbose=2 Rookparcel.app
+          codesign --display --verbose=2 Rookparcel.app
       # Homebrew moved away (as on a Mac without it), so what starts uses the bundle only
       - name: Start without Homebrew
         run: |
           prefix="$(brew --prefix)"
           sudo mv "$prefix" "$prefix.away"
           trap 'sudo mv "$prefix.away" "$prefix"' EXIT
-          PATORRENT_LAUNCHER_DEBUG=1 PaTorrent.app/Contents/MacOS/PaTorrent --version
-          target/release/patorrent-nox --version
-          arch -x86_64 target/x86_64-apple-darwin/release/patorrent-nox --version \
+          ROOKPARCEL_LAUNCHER_DEBUG=1 Rookparcel.app/Contents/MacOS/Rookparcel --version
+          target/release/rookparcel-nox --version
+          arch -x86_64 target/x86_64-apple-darwin/release/rookparcel-nox --version \
             || echo "::warning::the x86_64 nox did not run here (no Rosetta on the runner?)"
           # the GUI itself, with a fresh profile: it should still be running after 20 s
           export HOME="$RUNNER_TEMP/gui-home"
           mkdir -p "$HOME"
-          PaTorrent.app/Contents/MacOS/PaTorrent > macos-gui.log 2>&1 &
+          Rookparcel.app/Contents/MacOS/Rookparcel > macos-gui.log 2>&1 &
           pid=$!
           sleep 20
           # (perl's alarm: screencapture must not hang on a permission prompt)
@@ -494,13 +494,13 @@ jobs:
         run: |
           version="${{ needs.version.outputs.version }}"
           mkdir dmg
-          ditto PaTorrent.app dmg/PaTorrent.app
+          ditto Rookparcel.app dmg/Rookparcel.app
           ln -s /Applications dmg/Applications
           cp LICENSE.md THIRD-PARTY-NOTICES.md dmg/
-          dmg="PaTorrent-$version-arm64.dmg"
+          dmg="Rookparcel-$version-arm64.dmg"
           # hdiutil on the runners sometimes fails with "Resource busy": try again
           for i in 1 2 3 4 5; do
-            hdiutil create -volname PaTorrent -srcfolder dmg -ov -format UDZO "$dmg" && break
+            hdiutil create -volname Rookparcel -srcfolder dmg -ov -format UDZO "$dmg" && break
             echo "::warning::hdiutil create failed (try $i)"
             sleep 10
           done
@@ -509,16 +509,16 @@ jobs:
           # the app inside the image still verifies
           mnt="$(mktemp -d)"
           hdiutil attach -nobrowse -readonly -mountpoint "$mnt" "$dmg"
-          codesign --verify --deep --strict --verbose=2 "$mnt/PaTorrent.app"
+          codesign --verify --deep --strict --verbose=2 "$mnt/Rookparcel.app"
           ls -la "$mnt"
           hdiutil detach "$mnt"
 
           for arch in arm64 x86_64; do
-            name="patorrent-nox-$version-macos-$arch"
+            name="rookparcel-nox-$version-macos-$arch"
             if [ "$arch" = x86_64 ]; then
-              bin=target/x86_64-apple-darwin/release/patorrent-nox
+              bin=target/x86_64-apple-darwin/release/rookparcel-nox
             else
-              bin=target/release/patorrent-nox
+              bin=target/release/rookparcel-nox
             fi
             mkdir "$name"
             install -m 755 "$bin" "$name/"
@@ -527,13 +527,13 @@ jobs:
           done
           ls -l *.dmg *.tar.gz
           echo "minimum macOS: $(cat macos-minos.txt)"
-          echo "PaTorrent.app needs macOS $(cat macos-minos.txt) or later (arm64)" >> "$GITHUB_STEP_SUMMARY"
+          echo "Rookparcel.app needs macOS $(cat macos-minos.txt) or later (arm64)" >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v7
         with:
           name: macos
           path: |
-            PaTorrent-*.dmg
-            patorrent-nox-*.tar.gz
+            Rookparcel-*.dmg
+            rookparcel-nox-*.tar.gz
       - name: Crash reports
         if: failure()
         run: python3 .github/scripts/macos_crash_reports.py
@@ -551,13 +551,13 @@ jobs:
         with:
           merge-multiple: true
           path: files
-      - run: cd files && sha256sum patorrent-* PaTorrent-* > SHA256SUMS && cat SHA256SUMS
+      - run: cd files && sha256sum rookparcel-* Rookparcel-* > SHA256SUMS && cat SHA256SUMS
       - name: Draft release
         env:
           GH_TOKEN: ${{ github.token }}
           VERSION: ${{ needs.version.outputs.version }}
         run: |
-          args=(--draft --title "PaTorrent $VERSION")
+          args=(--draft --title "Rookparcel $VERSION")
           case "$VERSION" in *-*) args+=(--prerelease) ;; esac
           if [ -f "docs/releases/$VERSION.md" ]; then
             args+=(--notes-file "docs/releases/$VERSION.md")
@@ -565,4 +565,4 @@ jobs:
             args+=(--notes "Release notes: see CHANGELOG.md. Checksums: SHA256SUMS.")
           fi
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" "${args[@]}" \
-            files/patorrent-* files/PaTorrent-* files/SHA256SUMS
+            files/rookparcel-* files/Rookparcel-* files/SHA256SUMS

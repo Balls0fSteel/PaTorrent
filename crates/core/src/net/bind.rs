@@ -1,4 +1,4 @@
-// PaTorrent's own code, not ported: libtorrent binds to the `outgoing_interfaces` and
+// Rookparcel's own code, not ported: libtorrent binds to the `outgoing_interfaces` and
 // `listen_interfaces` it is given and has no rule that follows a VPN adapter (D54).
 
 //! "Use only this network" (D54): which local addresses a [`NetworkRule`] picks from the

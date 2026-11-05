@@ -7,9 +7,9 @@
 
 use std::fmt;
 
-use patorrent_core::metainfo::parse_magnet_uri;
-use patorrent_core::util::string::{base32decode, escape_string};
-use patorrent_core::xml::{self, Token};
+use rookparcel_core::metainfo::parse_magnet_uri;
+use rookparcel_core::util::string::{base32decode, escape_string};
+use rookparcel_core::xml::{self, Token};
 
 use crate::rss::feed::{FeedItem, decode_entities, parse_feed};
 
@@ -601,7 +601,7 @@ mod tests {
             [
                 "Fawlty.Towers.S01E01.720p.WEB-DL.x264-PATEST",
                 "Night.of.the.Living.Dead.1968.720p.WEB-DL.x264-PATEST",
-                "PaTorrent.Prowlarr.Grab.Test.x264-PATEST"
+                "Rookparcel.Prowlarr.Grab.Test.x264-PATEST"
             ]
         );
         let a = &r[0];

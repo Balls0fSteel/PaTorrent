@@ -18,11 +18,11 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
 
-use patorrent_core::bencode::Entry;
-use patorrent_core::crypto::Sha1;
-use patorrent_core::{MockConfig, Session, SessionParams, Settings};
-use patorrent_nox::webui::json::{self, Json};
-use patorrent_nox::webui::{Config, STATE_FILE, WebUi};
+use rookparcel_core::bencode::Entry;
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::{MockConfig, Session, SessionParams, Settings};
+use rookparcel_nox::webui::json::{self, Json};
+use rookparcel_nox::webui::{Config, STATE_FILE, WebUi};
 
 const PASS: &str = "s3cret-pass";
 
@@ -201,7 +201,7 @@ impl Harness {
                     std::thread::sleep(Duration::from_millis(50));
                     h.pop_alerts(&mut alerts);
                     for a in &alerts {
-                        if let patorrent_core::Alert::ListenSucceeded { address, protocol } = a {
+                        if let rookparcel_core::Alert::ListenSucceeded { address, protocol } = a {
                             if format!("{protocol:?}") == "Tcp" {
                                 listen.lock().unwrap().push(*address);
                             }
@@ -255,7 +255,7 @@ impl Harness {
         self.req(
             "POST",
             path,
-            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "PaTorrent")],
+            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "Rookparcel")],
             Body::Json(body),
         )
     }
@@ -268,7 +268,7 @@ impl Harness {
         self.req(
             "POST",
             path,
-            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "PaTorrent")],
+            &[("Cookie", sid), ("Origin", &origin), ("X-Requested-With", "Rookparcel")],
             Body::Multipart(&body, boundary),
         )
     }
@@ -483,7 +483,7 @@ fn login_logout_and_versions() {
     // the page needs no login (it holds no data)
     let page = t.req("GET", "/", &[], Body::None);
     assert_eq!(page.status, 200);
-    assert!(page.text().contains("<title>PaTorrent</title>"));
+    assert!(page.text().contains("<title>Rookparcel</title>"));
     assert!(page.header("content-security-policy").is_some());
 
     assert_eq!(t.post(&sid, "/api/v2/auth/logout", "").status, 200);
@@ -558,7 +558,7 @@ fn static_files_have_their_headers_and_no_inline_code() {
     }
     // the HTML: no inline script or style anywhere, and only our own files referenced
     let html = page.text();
-    assert!(html.contains("<title>PaTorrent</title>"));
+    assert!(html.contains("<title>Rookparcel</title>"));
     let lower = html.to_ascii_lowercase();
     assert!(!lower.contains("<style"), "an inline <style> element");
     assert!(!lower.contains(" style=\""), "an inline style attribute");
@@ -896,8 +896,8 @@ fn update_check_preferences_and_the_hello() {
 
     let (_, hello) = Ws::connect(&t, &sid);
     assert!(hello.get("update").is_none());
-    t.web.set_update(patorrent_frontend::update::Version::parse("99.0.0").as_ref());
-    t.web.log_line("PaTorrent 99.0.0 is available".into());
+    t.web.set_update(rookparcel_frontend::update::Version::parse("99.0.0").as_ref());
+    t.web.log_line("Rookparcel 99.0.0 is available".into());
     let (_, hello) = Ws::connect(&t, &sid);
     let u = hello.get("update").expect("the newer version");
     assert_eq!(u.get("version").and_then(Json::as_str), Some("99.0.0"));
@@ -2442,7 +2442,7 @@ fn native_commands_against_the_engine() {
         t.req(
             "POST",
             "/pa/torrents/start",
-            &[("Cookie", &sid), ("X-Requested-With", "PaTorrent")],
+            &[("Cookie", &sid), ("X-Requested-With", "Rookparcel")],
             Body::Form("ids=x")
         )
         .status,
@@ -2738,7 +2738,7 @@ fn native_commands_are_csrf_checked() {
     let r = t.req(
         "POST",
         "/pa/torrents/start",
-        &[("Cookie", &sid), ("Origin", "http://evil.example"), ("X-Requested-With", "PaTorrent")],
+        &[("Cookie", &sid), ("Origin", "http://evil.example"), ("X-Requested-With", "Rookparcel")],
         Body::Json(r#"{"all":true}"#),
     );
     assert_eq!(r.status, 403);
@@ -2746,7 +2746,7 @@ fn native_commands_are_csrf_checked() {
     let r = t.req(
         "POST",
         "/pa/torrents/start",
-        &[("Cookie", &sid), ("Origin", "null"), ("X-Requested-With", "PaTorrent")],
+        &[("Cookie", &sid), ("Origin", "null"), ("X-Requested-With", "Rookparcel")],
         Body::Json(r#"{"all":true}"#),
     );
     assert_eq!(r.status, 403);
@@ -2754,7 +2754,7 @@ fn native_commands_are_csrf_checked() {
     let r = t.req(
         "POST",
         "/pa/torrents/start",
-        &[("X-Requested-With", "PaTorrent")],
+        &[("X-Requested-With", "Rookparcel")],
         Body::Json(r#"{"all":true}"#),
     );
     assert_eq!(r.status, 403);
@@ -2764,7 +2764,7 @@ fn native_commands_are_csrf_checked() {
     let r = t.req(
         "POST",
         "/pa/torrents/start",
-        &[("Cookie", &sid), ("Origin", &origin), ("x-requested-with", "patorrent")],
+        &[("Cookie", &sid), ("Origin", &origin), ("x-requested-with", "rookparcel")],
         Body::Json(r#"{"all":true}"#),
     );
     assert_eq!(r.status, 204, "{}", r.text());
@@ -2773,7 +2773,7 @@ fn native_commands_are_csrf_checked() {
         t.req(
             "POST",
             "/pa/torrents/start",
-            &[("Cookie", &sid), ("X-Requested-With", "PaTorrent")],
+            &[("Cookie", &sid), ("X-Requested-With", "Rookparcel")],
             Body::Json(r#"{"all":true}"#)
         )
         .status,
@@ -3515,7 +3515,7 @@ fn url_adds_go_through_the_sessions_proxy() {
     let (bytes, hash) = torrent_named("webui-proxied", None);
     let (port, log) = torrent_proxy(bytes);
     let settings = Settings {
-        proxy_type: patorrent_core::ProxyType::Http,
+        proxy_type: rookparcel_core::ProxyType::Http,
         proxy_hostname: "127.0.0.1".into(),
         proxy_port: port,
         proxy_tracker_connections: false,

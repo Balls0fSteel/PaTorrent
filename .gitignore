@@ -9,8 +9,8 @@
 *.tmp
 __pycache__/
 
-# Settings and state from running PaTorrent portable in the repo folder
-/patorrent.ini
+# Settings and state from running Rookparcel portable in the repo folder
+/rookparcel.ini
 /state
 
 # Fuzzing

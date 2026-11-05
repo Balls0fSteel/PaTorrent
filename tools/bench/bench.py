@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""bench.py: PaTorrent's daemon against other BitTorrent clients on one Linux machine.
+"""bench.py: Rookparcel's daemon against other BitTorrent clients on one Linux machine.
 
 Method and published results: docs/BENCHMARKS.md. Standard library only, except Deluge's RPC
 (`pip install deluge-client`). Linux only: it reads /proc for CPU time and memory.
@@ -44,7 +44,7 @@ import xmlrpc.client
 TICK = os.sysconf("SC_CLK_TCK")
 PAGE = os.sysconf("SC_PAGE_SIZE")
 HOME = os.path.expanduser("~")
-ALL = ["patorrent", "qbittorrent", "transmission", "deluge", "rtorrent"]
+ALL = ["rookparcel", "qbittorrent", "transmission", "deluge", "rtorrent"]
 
 # ------------------------------------------------------------------------------------ bencode
 
@@ -389,7 +389,7 @@ class Client:
 
 
 class QbtApi(Client):
-    """qBittorrent's WebAPI, which qBittorrent and PaTorrent's compatibility layer both speak."""
+    """qBittorrent's WebAPI, which qBittorrent and Rookparcel's compatibility layer both speak."""
     user, password = "admin", "benchpass123"
 
     def _opener(self):
@@ -501,9 +501,9 @@ WebUI\\HostHeaderValidation=false
         self._opener()  # localhost needs no login (WebUI\LocalHostAuth=false)
 
 
-class Patorrent(QbtApi):
-    name = "patorrent"
-    binary = os.path.join(HOME, "bench/pa/patorrent-1.0.1-linux-x86_64/patorrent-nox")
+class Rookparcel(QbtApi):
+    name = "rookparcel"
+    binary = os.path.join(HOME, "bench/pa/rookparcel-1.0.1-linux-x86_64/rookparcel-nox")
 
     def command(self):
         return [self.binary, "run", "--state-dir", os.path.join(self.work, "state"), "--save", self.save,
@@ -767,7 +767,7 @@ system.daemon.set = true
         return f"rTorrent {self.x.system.client_version()} (libtorrent {self.x.system.library_version()})"
 
 
-CLIENTS = {"patorrent": Patorrent, "qbittorrent": Qbittorrent, "transmission": Transmission,
+CLIENTS = {"rookparcel": Rookparcel, "qbittorrent": Qbittorrent, "transmission": Transmission,
            "deluge": Deluge, "rtorrent": Rtorrent}
 
 

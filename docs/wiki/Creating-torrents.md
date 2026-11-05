@@ -46,13 +46,13 @@ When in doubt, keep **Hybrid (v1 + v2)**.
 
 | Option | Meaning |
 |---|---|
-| **Start seeding** | adds the new torrent to your list as soon as it is made, with the folder that holds the source as its download folder. PaTorrent checks the files and then seeds. |
+| **Start seeding** | adds the new torrent to your list as soon as it is made, with the folder that holds the source as its download folder. Rookparcel checks the files and then seeds. |
 | **Private torrent** | marks the torrent private: peers are found only through its trackers, never through the DHT, Peer Exchange or Local Peer Discovery. Private trackers ask for this. |
 | **Preserve file order** | keeps a folder's files in the order Windows lists them instead of sorting them by name. Available only for **v1**: v2 and hybrid torrents always sort their files. |
 
 ## Progress and cancelling
 
-While PaTorrent reads and hashes the files, the progress bar and percentage move and the other controls are greyed out. The **Close** button becomes **Cancel**: click it, press <kbd>Esc</kbd> or close the window to stop. Nothing is saved when you cancel.
+While Rookparcel reads and hashes the files, the progress bar and percentage move and the other controls are greyed out. The **Close** button becomes **Cancel**: click it, press <kbd>Esc</kbd> or close the window to stop. Nothing is saved when you cancel.
 
 If something goes wrong, a message says what. Common ones:
 
@@ -61,13 +61,13 @@ If something goes wrong, a message says what. Common ones:
 | "Please select a file or a directory to create the torrent from." | **Select Source** is empty. |
 | "...: no files to put in the torrent (empty, or all skipped)." | the folder is empty, or **Skip Files** left nothing. |
 
-## What PaTorrent remembers
+## What Rookparcel remembers
 
 The next time you open the window, it has the trackers, piece size, version, **Start seeding**, **Private torrent** and **Preserve file order** you used last. The source, skip patterns, web seeds and comment start empty.
 
 ## Seeding a torrent you made earlier
 
-If you made a torrent without **Start seeding**, add the `.torrent` file like any other ([Adding torrents](Adding-torrents)) and set **Save In** to the folder that holds the source file or folder. PaTorrent checks the files and seeds them.
+If you made a torrent without **Start seeding**, add the `.torrent` file like any other ([Adding torrents](Adding-torrents)) and set **Save In** to the folder that holds the source file or folder. Rookparcel checks the files and seeds them.
 
 To help a brand new torrent spread, you can turn on **Initial Seeding** for it; see [Managing torrents](Managing-torrents#initial-seeding).
 
@@ -75,15 +75,15 @@ To help a brand new torrent spread, you can turn on **Initial Seeding** for it; 
 
 The same window with the same options, under **File > Create New Torrent...** (<kbd>Ctrl</kbd>+<kbd>N</kbd>).
 
-## In the Web UI and patorrent-nox
+## In the Web UI and rookparcel-nox
 
-The Web UI cannot create torrents: the files would have to be on the server. On the server itself, `patorrent-nox create` makes a torrent from the command line:
+The Web UI cannot create torrents: the files would have to be on the server. On the server itself, `rookparcel-nox create` makes a torrent from the command line:
 
 ```
-patorrent-nox create "D:\Share\My folder" -o my-folder.torrent -t udp://tracker.example.org:6969/announce
+rookparcel-nox create "D:\Share\My folder" -o my-folder.torrent -t udp://tracker.example.org:6969/announce
 ```
 
-`--v1`, `--v2` and `--hybrid` pick the version (hybrid by default), `--private` marks it private, `--piece-size` sets the piece size in KiB, `-w` adds a web seed, and `--magnet` also prints the magnet link. `patorrent-nox --help` lists all options. See [Running patorrent-nox](Running-patorrent-nox).
+`--v1`, `--v2` and `--hybrid` pick the version (hybrid by default), `--private` marks it private, `--piece-size` sets the piece size in KiB, `-w` adds a web seed, and `--magnet` also prints the magnet link. `rookparcel-nox --help` lists all options. See [Running rookparcel-nox](Running-rookparcel-nox).
 
 In a window connected with **File > Connect to Remote...**, **Start seeding** is unticked and greyed out: the torrent is made from files on this computer, which the server does not have. See [Remote control](Remote-control).
 

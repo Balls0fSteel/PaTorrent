@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::net::IpAddr;
 use std::time::{Duration, Instant};
 
-use patorrent_core::crypto::Sha256;
-use patorrent_core::util::random::crypto_random_bytes;
+use rookparcel_core::crypto::Sha256;
+use rookparcel_core::util::random::crypto_random_bytes;
 
 /// PBKDF2 iterations for new hashes (OWASP's 2023 figure for PBKDF2-HMAC-SHA256 is 600,000;
 /// this is what a small NAS answers in well under a second).

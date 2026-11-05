@@ -3,7 +3,7 @@
 
 use std::cmp::Ordering;
 
-use patorrent_core::TorrentStatus;
+use rookparcel_core::TorrentStatus;
 
 use crate::status::status_text;
 use crate::{fmt, tr};
@@ -221,12 +221,12 @@ impl Column {
             Column::Peers => swarm(st.num_peers.saturating_sub(st.num_seeds), st.num_incomplete),
             // a stopped or queued torrent transfers nothing: no stale rate from before it
             // stopped, however the engine's average decays
-            Column::DownSpeed if st.flags.contains(patorrent_core::TorrentFlags::PAUSED) => String::new(),
-            Column::UpSpeed if st.flags.contains(patorrent_core::TorrentFlags::PAUSED) => String::new(),
+            Column::DownSpeed if st.flags.contains(rookparcel_core::TorrentFlags::PAUSED) => String::new(),
+            Column::UpSpeed if st.flags.contains(rookparcel_core::TorrentFlags::PAUSED) => String::new(),
             Column::DownSpeed => fmt::speed(st.download_payload_rate),
             Column::UpSpeed => fmt::speed(st.upload_payload_rate),
             Column::Eta => {
-                if st.is_finished || st.flags.contains(patorrent_core::TorrentFlags::PAUSED) {
+                if st.is_finished || st.flags.contains(rookparcel_core::TorrentFlags::PAUSED) {
                     String::new()
                 } else {
                     fmt::eta(st.eta())
@@ -585,7 +585,7 @@ mod tests {
         let x = RowExtra::default();
         assert_ne!(Column::DownSpeed.text(&st, x), "");
         assert_ne!(Column::UpSpeed.text(&st, x), "");
-        st.flags |= patorrent_core::TorrentFlags::PAUSED;
+        st.flags |= rookparcel_core::TorrentFlags::PAUSED;
         assert_eq!(Column::DownSpeed.text(&st, x), "");
         assert_eq!(Column::UpSpeed.text(&st, x), "");
     }

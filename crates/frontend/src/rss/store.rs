@@ -1,6 +1,6 @@
 //! `rss.dat`: the RSS Downloader's feeds, filters, history and per-feed memory as one bencoded
-//! dictionary next to `patorrent.ini` (µTorrent kept its own `rss.dat` there, also bencoded;
-//! this layout is PaTorrent's). Unknown keys are ignored and missing ones take their defaults,
+//! dictionary next to `rookparcel.ini` (µTorrent kept its own `rss.dat` there, also bencoded;
+//! this layout is Rookparcel's). Unknown keys are ignored and missing ones take their defaults,
 //! so a damaged or foreign file loads as far as it makes sense.
 //!
 //! ```text
@@ -18,8 +18,8 @@
 use std::collections::VecDeque;
 use std::path::Path;
 
-use patorrent_core::bencode::{Entry, bdecode_with_limits};
-use patorrent_core::util::portable;
+use rookparcel_core::bencode::{Entry, bdecode_with_limits};
+use rookparcel_core::util::portable;
 
 use super::{
     HistoryEntry, MAX_EPISODES, MAX_FEED_HISTORY, MAX_HISTORY, Quality, RecentSet, RssDownloader, RssFeed,
@@ -256,7 +256,7 @@ impl RssDownloader {
     /// Writes `path` through a temporary file, so a crash never leaves half of it; owner-only
     /// on Unix, as a feed URL can carry a login or a key.
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
-        use patorrent_core::util::private_file;
+        use rookparcel_core::util::private_file;
         if let Some(dir) = path.parent() {
             private_file::create_dir_all(dir)?;
         }

@@ -5,14 +5,14 @@
 //! seconds and offers Cancel.
 //!
 //! The OS calls go through [`perform`]. Test builds record the call instead of making it, and
-//! with the environment variable `PATORRENT_POWER_DRY_RUN` set the release build reports what
+//! with the environment variable `ROOKPARCEL_POWER_DRY_RUN` set the release build reports what
 //! it would have done instead of doing it (for trying the whole path by hand).
 
 use std::cell::{Cell, RefCell};
 use std::ptr::{null, null_mut};
 
-use patorrent_frontend::auto_shutdown::{self, Action, Mode};
-use patorrent_frontend::tr;
+use rookparcel_frontend::auto_shutdown::{self, Action, Mode};
+use rookparcel_frontend::tr;
 use windows_sys::Win32::Foundation::{HWND, LPARAM, WPARAM};
 use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows_sys::Win32::System::Power::{IsPwrHibernateAllowed, IsPwrSuspendAllowed};
@@ -65,7 +65,7 @@ pub fn available(action: Action) -> bool {
     }
 }
 
-const DRY_RUN: &str = "PATORRENT_POWER_DRY_RUN";
+const DRY_RUN: &str = "ROOKPARCEL_POWER_DRY_RUN";
 
 /// Puts the computer on standby or into hibernation (returning after it wakes), or starts the
 /// shutdown. The caller has saved everything first.
@@ -308,7 +308,7 @@ mod tests {
 
     use windows_sys::Win32::UI::WindowsAndMessaging::{CreateDialogIndirectParamW, DestroyWindow};
 
-    use patorrent_frontend::auto_shutdown::When;
+    use rookparcel_frontend::auto_shutdown::When;
 
     use super::*;
     use crate::util::window_text;
@@ -366,7 +366,7 @@ mod tests {
     #[test]
     fn the_timer_ends_the_countdown_when_time_is_up_or_new_work_comes() {
         let f = Fixture::new(Mode::new(Action::Quit, When::Everything), 30);
-        assert_eq!(f.text(), "All torrents have completed.\nPaTorrent will quit in 0:30.");
+        assert_eq!(f.text(), "All torrents have completed.\nRookparcel will quit in 0:30.");
         close(Outcome::TimeUp);
         assert_eq!(f.st.outcome, Outcome::TimeUp);
         drop(f);

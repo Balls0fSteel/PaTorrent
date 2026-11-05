@@ -21,7 +21,7 @@
 //! (`IconName`, with `IconThemePath` the folder `icons::setup` wrote it to) and as pixmaps for
 //! hosts that draw those (`icons::app_pixmaps`).
 
-use patorrent_frontend::tr;
+use rookparcel_frontend::tr;
 
 #[cfg(target_os = "macos")]
 pub use crate::tray_macos::Tray;
@@ -87,7 +87,7 @@ mod sni {
 
     use gtk::prelude::*;
     use gtk::{gio, glib};
-    use patorrent_frontend::lang::{self, gtk_mnemonic};
+    use rookparcel_frontend::lang::{self, gtk_mnemonic};
 
     use super::{Hooks, MENU, entry_text};
 
@@ -229,7 +229,7 @@ mod sni {
                 connection: connection.clone(),
                 flatpak: std::env::var_os("FLATPAK_ID").is_some(),
                 hooks,
-                tooltip: RefCell::new((patorrent_frontend::profile::name_build(), String::new())),
+                tooltip: RefCell::new((rookparcel_frontend::profile::name_build(), String::new())),
                 pixmaps: crate::icons::app_pixmaps(),
                 revision: Cell::new(1),
                 owning: Cell::new(Owning::Pending),
@@ -378,7 +378,7 @@ mod sni {
             match name {
                 "Category" => "ApplicationStatus".to_variant(),
                 "Id" => APP_ID.to_variant(),
-                "Title" => "PaTorrent".to_variant(),
+                "Title" => "Rookparcel".to_variant(),
                 "Status" => "Active".to_variant(),
                 "WindowId" => 0i32.to_variant(),
                 "IconPixmap" => self.pixmaps.to_variant(),

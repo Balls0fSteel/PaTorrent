@@ -8,7 +8,7 @@
 //! that differ from the defaults as `lt.<name>=<value>` lines, so a later build's new defaults
 //! reach everything the user never changed.
 
-use patorrent_core::{EncLevel, EncPolicy, MixedModeAlgorithm, ProxyType, Settings};
+use rookparcel_core::{EncLevel, EncPolicy, MixedModeAlgorithm, ProxyType, Settings};
 
 use crate::prefs::Prefs;
 
@@ -234,7 +234,7 @@ pub static TABLE: &[Entry] = &[
     entry!(user_agent: str),
     entry!(peer_fingerprint: str),
     entry!(listen_interfaces: str),
-    // "Use only this network" (D54): PaTorrent's own, under µTorrent's `net.` names (2.2.1 has
+    // "Use only this network" (D54): Rookparcel's own, under µTorrent's `net.` names (2.2.1 has
     // net.bind_ip and net.outgoing_ip), kept in the preferences file by these names
     Entry {
         name: NETWORK_RULE,
@@ -448,7 +448,7 @@ pub const NETWORK_RULE: &str = "net.network_rule";
 pub const NETWORK_PAUSE: &str = "net.pause_when_missing";
 
 /// The preferences key of a row: `lt.<name>` for libtorrent's names, the name itself for
-/// PaTorrent's own `net.` rows.
+/// Rookparcel's own `net.` rows.
 fn pref_key(name: &str) -> String {
     if name.contains('.') { name.to_owned() } else { format!("{PREF_PREFIX}{name}") }
 }
@@ -624,7 +624,7 @@ mod tests {
         let fields = field_names();
         assert!(fields.len() > 100, "{fields:?}");
         for f in &fields {
-            // PaTorrent's own `net.` rows carry µTorrent-style names
+            // Rookparcel's own `net.` rows carry µTorrent-style names
             let name = match f.as_str() {
                 "network_rule" => NETWORK_RULE,
                 "network_pause_when_missing" => NETWORK_PAUSE,
@@ -683,7 +683,7 @@ mod tests {
         assert_eq!(s.allowed_enc_level, EncLevel::Rc4);
         assert!(set(&mut s, "no_such_setting", "1").is_err());
         assert_eq!(get(&s, "connections_limit"), Some(Value::Int(42)));
-        assert_eq!(get(&s, "user_agent").unwrap().to_string(), patorrent_core::USER_AGENT);
+        assert_eq!(get(&s, "user_agent").unwrap().to_string(), rookparcel_core::USER_AGENT);
     }
 
     #[test]
@@ -740,9 +740,9 @@ mod tests {
 
     #[test]
     fn preferences_round_trip() {
-        let dir = std::env::temp_dir().join(format!("patorrent-settings-ini-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-settings-ini-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join("patorrent.ini");
+        let path = dir.join("rookparcel.ini");
         let mut prefs = Prefs::load(&path);
         prefs.set("net.port", 7777);
         prefs.set("ui.toolbar", "0");
@@ -774,9 +774,9 @@ mod tests {
 
     #[test]
     fn the_proxy_password_round_trips_sealed() {
-        let dir = std::env::temp_dir().join(format!("patorrent-settings-pw-{}", std::process::id()));
+        let dir = std::env::temp_dir().join(format!("rookparcel-settings-pw-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
-        let path = dir.join("patorrent.ini");
+        let path = dir.join("rookparcel.ini");
         let mut prefs = Prefs::load(&path);
         let s = Settings {
             proxy_type: ProxyType::Socks5Pw,

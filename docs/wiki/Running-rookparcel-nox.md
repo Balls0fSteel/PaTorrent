@@ -1,26 +1,26 @@
-# Running patorrent-nox
+# Running rookparcel-nox
 
-`patorrent-nox` is PaTorrent without a window: the same engine, run from a terminal or as a service, and controlled through its [Web UI](Web-UI), from a desktop PaTorrent with [Remote control](Remote-control), or by Sonarr, Radarr and Prowlarr ([Sonarr, Radarr and Prowlarr](Sonarr-Radarr-and-Prowlarr)). This page covers its commands and options, running it as a Windows service, under systemd and on FreeBSD, where it keeps its files, and how to stop it.
+`rookparcel-nox` is Rookparcel without a window: the same engine, run from a terminal or as a service, and controlled through its [Web UI](Web-UI), from a desktop Rookparcel with [Remote control](Remote-control), or by Sonarr, Radarr and Prowlarr ([Sonarr, Radarr and Prowlarr](Sonarr-Radarr-and-Prowlarr)). This page covers its commands and options, running it as a Windows service, under systemd and on FreeBSD, where it keeps its files, and how to stop it.
 
 ## Where to get it
 
-`patorrent-nox` comes with every release ([Installing PaTorrent](Installing-PaTorrent)):
+`rookparcel-nox` comes with every release ([Installing Rookparcel](Installing-Rookparcel)):
 
 | Platform | File |
 |---|---|
-| Windows | `patorrent-nox.exe`, beside `patorrent.exe` in the zip and in the installed folder |
-| Linux | in the `patorrent-<version>-linux-<arch>.tar.gz` archive (with the systemd units), or on its own as `patorrent-nox-<version>-<arch>.AppImage` |
-| macOS | `patorrent-nox-<version>-macos-<arch>.tar.gz` |
+| Windows | `rookparcel-nox.exe`, beside `rookparcel.exe` in the zip and in the installed folder |
+| Linux | in the `rookparcel-<version>-linux-<arch>.tar.gz` archive (with the systemd units), or on its own as `rookparcel-nox-<version>-<arch>.AppImage` |
+| macOS | `rookparcel-nox-<version>-macos-<arch>.tar.gz` |
 
-`patorrent-nox --help` lists every command and option, `patorrent-nox --version` prints the version, and `patorrent-nox --license` prints the licence and the third-party notices.
+`rookparcel-nox --help` lists every command and option, `rookparcel-nox --version` prints the version, and `rookparcel-nox --license` prints the licence and the third-party notices.
 
 ## A first run
 
-1. Open a terminal (on Windows a Command Prompt) in the folder with `patorrent-nox`.
+1. Open a terminal (on Windows a Command Prompt) in the folder with `rookparcel-nox`.
 2. Start it with a download folder and the Web UI:
 
    ```sh
-   patorrent-nox run --save ~/Downloads --webui 8080
+   rookparcel-nox run --save ~/Downloads --webui 8080
    ```
 
 3. It prints a few lines starting with `*`. One of them is the Web UI's address, and, the first time, a line like this:
@@ -40,11 +40,11 @@ To stop it, type `q` and press <kbd>Enter</kbd>, or press <kbd>Ctrl</kbd>+<kbd>C
 
 | Command | What it does |
 |---|---|
-| `patorrent-nox run [OPTIONS]` | Resumes every torrent saved in the state folder and keeps running until it is stopped. This is the daemon. |
-| `patorrent-nox add <file.torrent>... [--save DIR] [OPTIONS]` | Adds the torrents (files or `magnet:` links), downloads them and exits when they are finished. With `--seed` it keeps seeding instead. |
-| `patorrent-nox create <file or folder> [-o OUT] [CREATE OPTIONS]` | Makes a `.torrent` file ([below](#making-a-torrent-file)). |
-| `patorrent-nox service ...` | The Windows service (Windows only, [below](#the-windows-service)). |
-| `patorrent-nox demo [--torrents N] [--active FRACTION] [--seconds N]` | Loads simulated torrents and prints totals; for testing only. |
+| `rookparcel-nox run [OPTIONS]` | Resumes every torrent saved in the state folder and keeps running until it is stopped. This is the daemon. |
+| `rookparcel-nox add <file.torrent>... [--save DIR] [OPTIONS]` | Adds the torrents (files or `magnet:` links), downloads them and exits when they are finished. With `--seed` it keeps seeding instead. |
+| `rookparcel-nox create <file or folder> [-o OUT] [CREATE OPTIONS]` | Makes a `.torrent` file ([below](#making-a-torrent-file)). |
+| `rookparcel-nox service ...` | The Windows service (Windows only, [below](#the-windows-service)). |
+| `rookparcel-nox demo [--torrents N] [--active FRACTION] [--seconds N]` | Loads simulated torrents and prints totals; for testing only. |
 
 `run` also takes `.torrent` files and magnet links after the options; they are added at the start.
 
@@ -115,12 +115,12 @@ A password on the command line is visible to other local users in the process li
 
 ### The update check
 
-`run` asks the project website which releases exist, 10 seconds after the start and every 12 hours. Nothing about your installation is sent and nothing is downloaded. A newer version is one line in the output and a link in the Web UI's status bar. Turn it off with `--no-update-check`, or in the Web UI under **Preferences > General > Privacy**, "Check for updates automatically". "Update to beta versions" there offers pre-releases too. See [Updating PaTorrent](Updating-PaTorrent).
+`run` asks the project website which releases exist, 10 seconds after the start and every 12 hours. Nothing about your installation is sent and nothing is downloaded. A newer version is one line in the output and a link in the Web UI's status bar. Turn it off with `--no-update-check`, or in the Web UI under **Preferences > General > Privacy**, "Check for updates automatically". "Update to beta versions" there offers pre-releases too. See [Updating Rookparcel](Updating-Rookparcel).
 
 ## Making a torrent file
 
 ```sh
-patorrent-nox create ~/Videos/holiday -t udp://tracker.example:1337/announce --magnet
+rookparcel-nox create ~/Videos/holiday -t udp://tracker.example:1337/announce --magnet
 ```
 
 | Option | Meaning |
@@ -144,14 +144,14 @@ The desktop program's window for this is described in [Creating torrents](Creati
 
 | | Linux and BSD | Windows | macOS |
 |---|---|---|---|
-| Torrent list and resume data (`resume.db`, `metadata.pack`, `dht_state.dat`) | `~/.local/share/patorrent/nox` | `%APPDATA%\PaTorrent\nox` | `~/Library/Application Support/PaTorrent/nox` |
-| Settings (`webui.json`, `ipfilter.dat`, the HTTPS certificate) | `~/.config/patorrent/nox` | the same folder | the same folder |
-| The Windows service | | `%ProgramData%\PaTorrent\nox` | |
+| Torrent list and resume data (`resume.db`, `metadata.pack`, `dht_state.dat`) | `~/.local/share/rookparcel/nox` | `%APPDATA%\Rookparcel\nox` | `~/Library/Application Support/Rookparcel/nox` |
+| Settings (`webui.json`, `ipfilter.dat`, the HTTPS certificate) | `~/.config/rookparcel/nox` | the same folder | the same folder |
+| The Windows service | | `%ProgramData%\Rookparcel\nox` | |
 
 - On Linux `$XDG_DATA_HOME` and `$XDG_CONFIG_HOME` are used when they are set.
 - `webui.json` is rewritten by the running nox whenever something changes in the Web UI. Edit it only while nox is stopped.
-- Only one nox can use a folder at a time. A second one stops with "... is in use by another patorrent-nox".
-- **Portable mode:** with a `patorrent.ini` beside the program, both go to a `nox` folder beside it, and download folders inside it are stored relative to it, so the whole folder can be moved. *New in 1.1.49; not in a published release yet.* See [Where PaTorrent keeps its files](Where-PaTorrent-keeps-its-files).
+- Only one nox can use a folder at a time. A second one stops with "... is in use by another rookparcel-nox".
+- **Portable mode:** with a `rookparcel.ini` beside the program, both go to a `nox` folder beside it, and download folders inside it are stored relative to it, so the whole folder can be moved. *New in 1.1.49; not in a published release yet.* See [Where Rookparcel keeps its files](Where-Rookparcel-keeps-its-files).
 
 ## Profiles
 
@@ -159,31 +159,31 @@ The desktop program's window for this is described in [Creating torrents](Creati
 
 | | default profile | `--profile work` |
 |---|---|---|
-| Linux and BSD | `~/.local/share/patorrent/nox` | `~/.local/share/patorrent/profiles/work/nox` (and the same under `~/.config`) |
-| Windows | `%APPDATA%\PaTorrent\nox` | `%APPDATA%\PaTorrent\profiles\work\nox` |
-| macOS | `~/Library/Application Support/PaTorrent/nox` | `.../PaTorrent/profiles/work/nox` |
-| Windows service | `PaTorrentNox` | `PaTorrentNox_work` |
-| systemd | `patorrent-nox.service` | `patorrent-nox@work.service` |
+| Linux and BSD | `~/.local/share/rookparcel/nox` | `~/.local/share/rookparcel/profiles/work/nox` (and the same under `~/.config`) |
+| Windows | `%APPDATA%\Rookparcel\nox` | `%APPDATA%\Rookparcel\profiles\work\nox` |
+| macOS | `~/Library/Application Support/Rookparcel/nox` | `.../Rookparcel/profiles/work/nox` |
+| Windows service | `RookparcelNox` | `RookparcelNox_work` |
+| systemd | `rookparcel-nox.service` | `rookparcel-nox@work.service` |
 
-Each profile's Web UI needs a port of its own, for example `--webui 127.0.0.1:8081`. A port already in use stops nox with "port N is in use, perhaps by another PaTorrent profile". *Profiles are new in 1.1.44; not in a published release yet.* See [Profiles](Profiles).
+Each profile's Web UI needs a port of its own, for example `--webui 127.0.0.1:8081`. A port already in use stops nox with "port N is in use, perhaps by another Rookparcel profile". *Profiles are new in 1.1.44; not in a published release yet.* See [Profiles](Profiles).
 
 ## The Windows service
 
-`patorrent-nox service install` registers nox as a Windows service named **PaTorrentNox** ("PaTorrent nox"). It starts with Windows and runs without anyone logged in.
+`rookparcel-nox service install` registers nox as a Windows service named **RookparcelNox** ("Rookparcel nox"). It starts with Windows and runs without anyone logged in.
 
-This is not the same as **Preferences > Web UI** in `patorrent.exe`: that serves the Web UI from the window, over the window's own torrents, only while the window runs ([Web UI](Web-UI)).
+This is not the same as **Preferences > Web UI** in `rookparcel.exe`: that serves the Web UI from the window, over the window's own torrents, only while the window runs ([Web UI](Web-UI)).
 
 `install`, `uninstall`, `start` and `stop` need an administrator Command Prompt.
 
-1. Put `patorrent-nox.exe` where the service account can read it, such as `C:\Program Files\PaTorrent\`. A copy under your user folder (Downloads, Documents) cannot be opened by the service account; `install` warns about that.
+1. Put `rookparcel-nox.exe` where the service account can read it, such as `C:\Program Files\Rookparcel\`. A copy under your user folder (Downloads, Documents) cannot be opened by the service account; `install` warns about that.
 2. Install it with the `run` options it should start with:
 
    ```bat
-   "C:\Program Files\PaTorrent\patorrent-nox.exe" service install --webui 127.0.0.1:8080
+   "C:\Program Files\Rookparcel\rookparcel-nox.exe" service install --webui 127.0.0.1:8080
    ```
 
-3. Start it with `patorrent-nox service start`, or add `--now` to the install. It starts with Windows from then on.
-4. Read the temporary Web UI password from `%ProgramData%\PaTorrent\nox\nox.log` (from an administrator prompt), open the page and set your own password. Or give `--webui-user` and `--webui-pass` to `install`: the password is stored as a hash in the service's `webui.json`, never in the service's command line.
+3. Start it with `rookparcel-nox service start`, or add `--now` to the install. It starts with Windows from then on.
+4. Read the temporary Web UI password from `%ProgramData%\Rookparcel\nox\nox.log` (from an administrator prompt), open the page and set your own password. Or give `--webui-user` and `--webui-pass` to `install`: the password is stored as a hash in the service's `webui.json`, never in the service's command line.
 
 Options of `install` itself:
 
@@ -191,13 +191,13 @@ Options of `install` itself:
 |---|---|
 | `--account A` | `LocalService` (the default), `NetworkService` or `LocalSystem`. |
 | `--start TYPE` | `delayed` (the default: automatic, after the boot has settled), `auto` or `manual`. |
-| `--replace` | Stops and removes an installed PaTorrentNox first; its state stays. |
+| `--replace` | Stops and removes an installed RookparcelNox first; its state stays. |
 | `--now` | Starts the service once installed. |
-| `--profile NAME` | Installs the profile's own service, `PaTorrentNox_NAME`. |
+| `--profile NAME` | Installs the profile's own service, `RookparcelNox_NAME`. |
 
 What it sets up:
 
-- **State and settings** in `%ProgramData%\PaTorrent\nox` (or `--state-dir`), a folder only SYSTEM, administrators and the service account can open, since it holds the Web UI login.
+- **State and settings** in `%ProgramData%\Rookparcel\nox` (or `--state-dir`), a folder only SYSTEM, administrators and the service account can open, since it holds the Web UI login.
 - **Downloads** in its `Downloads` subfolder unless you give `--save`.
 - **Log** in `nox.log` there unless you give `--log`.
 - **Restarts** after a failure: after 5, 30 and 60 seconds.
@@ -212,48 +212,48 @@ icacls D:\Torrents /grant "NT AUTHORITY\LocalService:(OI)(CI)M"
 Incoming peer connections need a Windows Firewall rule for the program; a service cannot ask for one:
 
 ```bat
-netsh advfirewall firewall add rule name="PaTorrent nox" dir=in action=allow program="C:\Program Files\PaTorrent\patorrent-nox.exe"
+netsh advfirewall firewall add rule name="Rookparcel nox" dir=in action=allow program="C:\Program Files\Rookparcel\rookparcel-nox.exe"
 ```
 
 The other service commands:
 
 | Command | What it does |
 |---|---|
-| `patorrent-nox service start`, `service stop` | Starts or stops it and waits until it has. `sc start PaTorrentNox`, `sc stop PaTorrentNox` and the Services console do the same. |
-| `patorrent-nox service status` | Prints the service's state and command line (no administrator needed). `--all` lists every profile's service. |
-| `patorrent-nox service uninstall` | Stops and removes it. The state folder and log stay. `--all` removes every profile's service that runs this program. |
-| `patorrent-nox service debug [OPTIONS]` | Runs the service's work in this console, to try the options before installing. |
-| `sc control PaTorrentNox paramchange` | Reloads the IP filter and reopens the log. |
+| `rookparcel-nox service start`, `service stop` | Starts or stops it and waits until it has. `sc start RookparcelNox`, `sc stop RookparcelNox` and the Services console do the same. |
+| `rookparcel-nox service status` | Prints the service's state and command line (no administrator needed). `--all` lists every profile's service. |
+| `rookparcel-nox service uninstall` | Stops and removes it. The state folder and log stay. `--all` removes every profile's service that runs this program. |
+| `rookparcel-nox service debug [OPTIONS]` | Runs the service's work in this console, to try the options before installing. |
+| `sc control RookparcelNox paramchange` | Reloads the IP filter and reopens the log. |
 
-To change the options, install again with `--replace`. To delete the torrents' state and the downloads too, delete `%ProgramData%\PaTorrent` after uninstalling.
+To change the options, install again with `--replace`. To delete the torrents' state and the downloads too, delete `%ProgramData%\Rookparcel` after uninstalling.
 
 `start`, `stop`, `status` and `uninstall` take `--profile NAME` for a profile's service. *Services per profile are new in 1.1.47; not in a published release yet.*
 
-**Without the service:** `patorrent-nox run` in a Command Prompt works too and stops cleanly on <kbd>Ctrl</kbd>+<kbd>C</kbd> or when the window is closed. The Task Scheduler is another way: a task "At startup" that runs `patorrent-nox.exe run --save D:\Torrents --webui 8080 --log C:\PaTorrent\nox.log`. `--daemon` does not work on Windows.
+**Without the service:** `rookparcel-nox run` in a Command Prompt works too and stops cleanly on <kbd>Ctrl</kbd>+<kbd>C</kbd> or when the window is closed. The Task Scheduler is another way: a task "At startup" that runs `rookparcel-nox.exe run --save D:\Torrents --webui 8080 --log C:\Rookparcel\nox.log`. `--daemon` does not work on Windows.
 
 ## systemd (Linux)
 
-The Linux archive has ready-made units, also in the repository's [`contrib/systemd`](https://github.com/Balls0fSteel/PaTorrent/tree/main/contrib/systemd) folder.
+The Linux archive has ready-made units, also in the repository's [`contrib/systemd`](https://github.com/Balls0fSteel/Rookparcel/tree/main/contrib/systemd) folder.
 
-**As a system service**, run as a `patorrent` account, with its state in `/var/lib/patorrent-nox`:
+**As a system service**, run as a `rookparcel` account, with its state in `/var/lib/rookparcel-nox`:
 
 ```sh
-sudo install -m 755 patorrent-nox /usr/local/bin/
-sudo install -D -m 644 patorrent-nox.sysusers /etc/sysusers.d/patorrent-nox.conf
+sudo install -m 755 rookparcel-nox /usr/local/bin/
+sudo install -D -m 644 rookparcel-nox.sysusers /etc/sysusers.d/rookparcel-nox.conf
 sudo systemd-sysusers
-sudo install -m 644 patorrent-nox.service /etc/systemd/system/
+sudo install -m 644 rookparcel-nox.service /etc/systemd/system/
 sudo systemctl daemon-reload
-sudo systemctl enable --now patorrent-nox
-journalctl -u patorrent-nox
+sudo systemctl enable --now rookparcel-nox
+journalctl -u rookparcel-nox
 ```
 
-The journal shows the temporary Web UI password on the first start. The unit serves the Web UI on `127.0.0.1:8080` and downloads into `/var/lib/patorrent-nox/downloads`. To change that, and to let it write to another folder:
+The journal shows the temporary Web UI password on the first start. The unit serves the Web UI on `127.0.0.1:8080` and downloads into `/var/lib/rookparcel-nox/downloads`. To change that, and to let it write to another folder:
 
 ```ini
-# sudo systemctl edit patorrent-nox
+# sudo systemctl edit rookparcel-nox
 [Service]
 ExecStart=
-ExecStart=/usr/local/bin/patorrent-nox run --save /srv/torrents --webui 0.0.0.0:8080
+ExecStart=/usr/local/bin/rookparcel-nox run --save /srv/torrents --webui 0.0.0.0:8080
 ReadWritePaths=/srv/torrents
 ```
 
@@ -262,35 +262,35 @@ The service is locked down (it cannot write outside its own folder without `Read
 **As your own user service**, with your files in the folders listed [above](#where-it-keeps-its-files):
 
 ```sh
-install -m 755 patorrent-nox ~/.local/bin/
-install -D -m 644 patorrent-nox.service ~/.config/systemd/user/patorrent-nox.service
+install -m 755 rookparcel-nox ~/.local/bin/
+install -D -m 644 rookparcel-nox.service ~/.config/systemd/user/rookparcel-nox.service
 systemctl --user daemon-reload
-systemctl --user enable --now patorrent-nox
+systemctl --user enable --now rookparcel-nox
 loginctl enable-linger "$USER"
 ```
 
 `loginctl enable-linger` keeps it running after you log out. This unit downloads into `~/Downloads`.
 
-**Profiles** use the template units `patorrent-nox@.service`: `systemctl enable --now patorrent-nox@work` starts the profile `work`. They have no Web UI by default, because two cannot share a port; give each one its own in `systemctl edit patorrent-nox@work`.
+**Profiles** use the template units `rookparcel-nox@.service`: `systemctl enable --now rookparcel-nox@work` starts the profile `work`. They have no Web UI by default, because two cannot share a port; give each one its own in `systemctl edit rookparcel-nox@work`.
 
-`systemctl reload patorrent-nox` reloads the IP filter. Output goes to the journal.
+`systemctl reload rookparcel-nox` reloads the IP filter. Output goes to the journal.
 
 ## FreeBSD
 
-The rc.d script is in the repository's [`contrib/freebsd`](https://github.com/Balls0fSteel/PaTorrent/tree/main/contrib/freebsd) folder:
+The rc.d script is in the repository's [`contrib/freebsd`](https://github.com/Balls0fSteel/Rookparcel/tree/main/contrib/freebsd) folder:
 
 ```sh
-pw useradd patorrent -d /var/db/patorrent-nox -s /usr/sbin/nologin -c "PaTorrent daemon"
-install -m 755 patorrent-nox /usr/local/bin/
-install -m 555 patorrent_nox /usr/local/etc/rc.d/
-sysrc patorrent_nox_enable=YES
-sysrc patorrent_nox_args="--webui 0.0.0.0:8080"
-service patorrent_nox start
+pw useradd rookparcel -d /var/db/rookparcel-nox -s /usr/sbin/nologin -c "Rookparcel daemon"
+install -m 755 rookparcel-nox /usr/local/bin/
+install -m 555 rookparcel_nox /usr/local/etc/rc.d/
+sysrc rookparcel_nox_enable=YES
+sysrc rookparcel_nox_args="--webui 0.0.0.0:8080"
+service rookparcel_nox start
 ```
 
-It runs as `patorrent`, with its state in `/var/db/patorrent-nox` and the log in `/var/log/patorrent-nox.log`, where the first start writes the temporary Web UI password. Settings in `/etc/rc.conf`: `patorrent_nox_args` (more `run` options; default `--webui 127.0.0.1:8080`), `patorrent_nox_user`, `patorrent_nox_dir`, `patorrent_nox_save`, `patorrent_nox_log`. Use `patorrent_nox_args`, not `patorrent_nox_flags`. `service patorrent_nox reload` reloads the IP filter and reopens the log.
+It runs as `rookparcel`, with its state in `/var/db/rookparcel-nox` and the log in `/var/log/rookparcel-nox.log`, where the first start writes the temporary Web UI password. Settings in `/etc/rc.conf`: `rookparcel_nox_args` (more `run` options; default `--webui 127.0.0.1:8080`), `rookparcel_nox_user`, `rookparcel_nox_dir`, `rookparcel_nox_save`, `rookparcel_nox_log`. Use `rookparcel_nox_args`, not `rookparcel_nox_flags`. `service rookparcel_nox reload` reloads the IP filter and reopens the log.
 
-Profiles: `sysrc patorrent_nox_profiles="work"` and `sysrc patorrent_nox_work_args="--webui 127.0.0.1:8081"`; `service patorrent_nox start work` starts one, `service patorrent_nox start` all of them.
+Profiles: `sysrc rookparcel_nox_profiles="work"` and `sysrc rookparcel_nox_work_args="--webui 127.0.0.1:8081"`; `service rookparcel_nox start work` starts one, `service rookparcel_nox start` all of them.
 
 ## Other ways to run it in the background
 
@@ -306,7 +306,7 @@ On other Unix systems:
 |---|---|
 | `q` and <kbd>Enter</kbd>, <kbd>Ctrl</kbd>+<kbd>C</kbd>, `SIGTERM` | A clean stop: torrent state saved, the router's port mappings removed. |
 | A second <kbd>Ctrl</kbd>+<kbd>C</kbd> or `SIGTERM` during that stop | Quits at once, without saving. |
-| `SIGHUP` (Windows service: `sc control PaTorrentNox paramchange`) | Reloads the IP filter's list and reopens the `--log` file. `webui.json` is not re-read. |
+| `SIGHUP` (Windows service: `sc control RookparcelNox paramchange`) | Reloads the IP filter's list and reopens the `--log` file. `webui.json` is not re-read. |
 | Windows: closing the console window, logging off, shutting down | A clean stop. |
 
 ## See also
@@ -314,4 +314,4 @@ On other Unix systems:
 - [Web UI](Web-UI): the page nox serves.
 - [Remote control](Remote-control): driving nox from the desktop program's window.
 - [Sonarr, Radarr and Prowlarr](Sonarr-Radarr-and-Prowlarr): nox as their download client.
-- The full technical description: [DAEMON.md](https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/DAEMON.md).
+- The full technical description: [DAEMON.md](https://github.com/Balls0fSteel/Rookparcel/blob/main/docs/DAEMON.md).

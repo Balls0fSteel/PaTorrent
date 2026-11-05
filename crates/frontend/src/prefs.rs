@@ -5,13 +5,13 @@
 //! The keys [`is_sealed_key`] names (the proxy password, the search sources' API keys) are
 //! secrets: [`Prefs::get`] gives their plain
 //! value, while [`Prefs::entries`] and the file hold them sealed ([`crate::secret`]: DPAPI on
-//! Windows, plain elsewhere). Every frontend's store (the GUIs' `patorrent.ini`, nox's
+//! Windows, plain elsewhere). Every frontend's store (the GUIs' `rookparcel.ini`, nox's
 //! `webui.json` `options`) goes through `set` / `entries`, so each gets the sealed form.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-use patorrent_core::util::private_file;
+use rookparcel_core::util::private_file;
 
 use crate::columns::Column;
 
@@ -85,7 +85,7 @@ impl Prefs {
     fn from_raw(path: Option<PathBuf>, raw: BTreeMap<String, String>, root: Option<&Path>) -> Prefs {
         let mut p = Prefs { path, root: root.map(Path::to_path_buf), ..Prefs::default() };
         for (k, v) in raw {
-            let v = p.path_value(&k, &v, patorrent_core::util::portable::load);
+            let v = p.path_value(&k, &v, rookparcel_core::util::portable::load);
             p.set(&k, v);
         }
         p
@@ -122,9 +122,9 @@ impl Prefs {
     }
 
     pub fn to_text(&self) -> String {
-        let mut s = String::from("# PaTorrent preferences\n");
+        let mut s = String::from("# Rookparcel preferences\n");
         for (k, v) in self.entries() {
-            let v = self.path_value(k, v, patorrent_core::util::portable::store);
+            let v = self.path_value(k, v, rookparcel_core::util::portable::store);
             s.push_str(k);
             s.push('=');
             // Verbatim, so Windows paths stay readable and hand-editable. Line breaks cannot
@@ -321,7 +321,7 @@ mod tests {
     fn paths_inside_a_portable_folder_are_written_relative() {
         let dir = std::env::temp_dir().join(format!("pa-prefs-{}", std::process::id()));
         let root = dir.join("Stick");
-        let path = root.join("patorrent.ini");
+        let path = root.join("rookparcel.ini");
         let inside = |rest: &str| root.join(rest).to_string_lossy().into_owned();
         let outside = std::env::temp_dir().join("other").to_string_lossy().into_owned();
         let mut p = Prefs::load_in(&path, Some(&root));
@@ -340,8 +340,8 @@ mod tests {
         // the folder moved: the paths follow it
         let moved = dir.join("Moved");
         std::fs::create_dir_all(&moved).unwrap();
-        std::fs::rename(&path, moved.join("patorrent.ini")).unwrap();
-        let q = Prefs::load_in(moved.join("patorrent.ini"), Some(&moved));
+        std::fs::rename(&path, moved.join("rookparcel.ini")).unwrap();
+        let q = Prefs::load_in(moved.join("rookparcel.ini"), Some(&moved));
         assert_eq!(q.get("dir.download"), Some(moved.join("Downloads").to_string_lossy().as_ref()));
         assert_eq!(q.get("dir.completed"), Some(outside.as_str()));
         assert_eq!(
@@ -350,7 +350,7 @@ mod tests {
         );
         // not portable: the relative text is kept as it is
         assert_eq!(
-            Prefs::load_in(moved.join("patorrent.ini"), None).get("dir.download"),
+            Prefs::load_in(moved.join("rookparcel.ini"), None).get("dir.download"),
             Some("./Downloads")
         );
         std::fs::remove_dir_all(&dir).unwrap();

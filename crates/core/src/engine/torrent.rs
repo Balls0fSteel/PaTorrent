@@ -505,7 +505,7 @@ impl Torrent {
     ///
     /// Our addition: libtorrent posts no status update for time passing, so an idle seed's
     /// seeding time would stay as it was at its last transfer, and a frontend's time-based
-    /// seeding goal (PaTorrent's, or Sonarr's seed time through the Web API) would never be
+    /// seeding goal (Rookparcel's, or Sonarr's seed time through the Web API) would never be
     /// reached. A status update a minute keeps them current at that granularity, staggered
     /// across torrents by when each started.
     pub fn add_running_time(&mut self, dt: f64) -> bool {

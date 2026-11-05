@@ -7,11 +7,11 @@ for a real server. Made with OpenSSL 3.5:
 ```sh
 openssl ecparam -name prime256v1 -genkey -noout -out ec-sec1.pem
 openssl pkcs8 -topk8 -nocrypt -in ec-sec1.pem -out ec-pkcs8.pem
-openssl req -x509 -key ec-pkcs8.pem -out ec-cert.pem -subj "/CN=PaTorrent test" \
+openssl req -x509 -key ec-pkcs8.pem -out ec-cert.pem -subj "/CN=Rookparcel test" \
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:::1" -addext "extendedKeyUsage=serverAuth" \
     -set_serial 4660 -not_before 20260101000000Z -not_after 20360101000000Z
 openssl genrsa -traditional -out rsa-pkcs1.pem 2048
-openssl req -x509 -key rsa-pkcs1.pem -out rsa-cert.pem -subj "/CN=PaTorrent test RSA" \
+openssl req -x509 -key rsa-pkcs1.pem -out rsa-cert.pem -subj "/CN=Rookparcel test RSA" \
     -addext "subjectAltName=DNS:localhost,IP:127.0.0.1" \
     -set_serial 4661 -not_before 20260101000000Z -not_after 20360101000000Z
 openssl pkcs8 -topk8 -v2 aes-128-cbc -passout pass:x -in ec-pkcs8.pem -out ec-encrypted.pem

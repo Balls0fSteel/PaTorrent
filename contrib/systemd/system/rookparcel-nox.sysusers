@@ -1,0 +1,3 @@
+# The account rookparcel-nox.service runs as (sysusers.d(5)): install as
+# /etc/sysusers.d/rookparcel-nox.conf and run `systemd-sysusers`.
+u rookparcel - "Rookparcel daemon" /var/lib/rookparcel-nox /usr/sbin/nologin

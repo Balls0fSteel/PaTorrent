@@ -1,4 +1,4 @@
-//! The update check (D32, D44): PaTorrent asks the project website which releases exist and,
+//! The update check (D32, D44): Rookparcel asks the project website which releases exist and,
 //! when a newer one is out, asks once in a message box whether to open its download page, and
 //! says so in the status bar until that notice is clicked, linking to the release's page on
 //! GitHub. Nothing is downloaded or installed here: the user fetches the new version (the
@@ -14,17 +14,17 @@
 //! * The box is shown once per version: the newest version it was shown for is kept as
 //!   `update.seen` in the GUI's settings ([`Checker::seen`]), so a later start or a later check
 //!   finding the same version only shows the status bar's notice.
-//! * On Windows, an installed PaTorrent (the setup's, D31) can update itself (D45): the box
+//! * On Windows, an installed Rookparcel (the setup's, D31) can update itself (D45): the box
 //!   offers to download the release's setup, [`download_setup`] fetches it and the release's
 //!   `SHA256SUMS` from GitHub and checks the file against the list, and the GUI starts the
-//!   setup silently (`/S /UPDATE=<pid>`: it waits for the exiting PaTorrent, installs over the
+//!   setup silently (`/S /UPDATE=<pid>`: it waits for the exiting Rookparcel, installs over the
 //!   same folder and starts the new version). A portable copy keeps the download page. For a
-//!   hand test, `PATORRENT_UPDATE_FILES` names a folder URL holding the two files.
+//!   hand test, `ROOKPARCEL_UPDATE_FILES` names a folder URL holding the two files.
 //! * A pre-release is offered when "Update to beta versions" is on, or when the running version
 //!   is a pre-release itself: a release candidate's tester hears of the next candidate.
-//! * A build with `PATORRENT_NO_UPDATE_CHECK` set has no check at all ([`AVAILABLE`]), for
+//! * A build with `ROOKPARCEL_NO_UPDATE_CHECK` set has no check at all ([`AVAILABLE`]), for
 //!   packages that a package manager updates; the GTK GUI also leaves it out in a Flatpak.
-//! * For a hand test, `PATORRENT_UPDATE_URL` at run time names another `update.txt` (a local
+//! * For a hand test, `ROOKPARCEL_UPDATE_URL` at run time names another `update.txt` (a local
 //!   `http://127.0.0.1:8000/update.txt` with `stable=9.9.9`, say). Both variables are honoured
 //!   only for an `https://` URL or plain `http://` to this machine ([`override_allowed`]).
 
@@ -34,22 +34,23 @@ use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use patorrent_core::Sha256Hash;
-use patorrent_core::crypto::Sha256;
-use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get, http_get_to};
+use rookparcel_core::Sha256Hash;
+use rookparcel_core::crypto::Sha256;
+use rookparcel_core::fetch::{FetchOptions, FetchProxy, http_get, http_get_to};
 
 /// Where the releases are listed (the project website, D33).
-pub const MANIFEST_URL: &str = "https://balls0fsteel.github.io/PaTorrent/update.txt";
-/// The project website, for Help > PaTorrent Website.
-pub const WEBSITE_URL: &str = "https://balls0fsteel.github.io/PaTorrent/";
+pub const MANIFEST_URL: &str = "https://balls0fsteel.github.io/Rookparcel/update.txt";
+/// The project website, for Help > Rookparcel Website.
+pub const WEBSITE_URL: &str = "https://balls0fsteel.github.io/Rookparcel/";
 const RELEASES_URL: &str = concat!(env!("CARGO_PKG_REPOSITORY"), "/releases");
 
 /// Whether this build checks for updates at all.
-pub const AVAILABLE: bool = option_env!("PATORRENT_NO_UPDATE_CHECK").is_none();
+pub const AVAILABLE: bool =
+    option_env!("ROOKPARCEL_NO_UPDATE_CHECK").is_none() && option_env!("PATORRENT_NO_UPDATE_CHECK").is_none();
 
 /// The first automatic check after the start, once the session is up.
 pub const FIRST_CHECK: Duration = Duration::from_secs(10);
-/// Between automatic checks, for a PaTorrent left running.
+/// Between automatic checks, for a Rookparcel left running.
 pub const INTERVAL: Duration = Duration::from_secs(12 * 60 * 60);
 
 /// A release's version: `MAJOR.MINOR.PATCH` with an optional `-pre.release` suffix, ordered as
@@ -101,9 +102,9 @@ impl Version {
         Some(Version { text: s.to_owned(), core, pre })
     }
 
-    /// The running PaTorrent's.
+    /// The running Rookparcel's.
     pub fn current() -> Version {
-        Version::parse(patorrent_core::VERSION).expect("the crate version is MAJOR.MINOR.PATCH")
+        Version::parse(rookparcel_core::VERSION).expect("the crate version is MAJOR.MINOR.PATCH")
     }
 
     pub fn is_prerelease(&self) -> bool {
@@ -117,13 +118,13 @@ impl Version {
 
     /// The release's Windows setup, as `.github/workflows/release.yml` names it (D31).
     pub fn setup_name(&self) -> String {
-        format!("patorrent-{}-windows-x64-setup.exe", self.text)
+        format!("rookparcel-{}-windows-x64-setup.exe", self.text)
     }
 
     /// Where the release's file `name` is: the release's files on GitHub, or the folder
-    /// `PATORRENT_UPDATE_FILES` names.
+    /// `ROOKPARCEL_UPDATE_FILES` names.
     pub fn file_url(&self, name: &str) -> String {
-        match test_override("PATORRENT_UPDATE_FILES") {
+        match test_override("ROOKPARCEL_UPDATE_FILES") {
             Some(base) => format!("{}/{name}", base.trim_end_matches('/')),
             None => format!("{RELEASES_URL}/download/v{}/{name}", self.text),
         }
@@ -136,7 +137,7 @@ fn test_override(var: &str) -> Option<String> {
     std::env::var(var).ok().filter(|url| override_allowed(url))
 }
 
-/// Whether a hand test's `PATORRENT_UPDATE_URL` / `PATORRENT_UPDATE_FILES` is honoured: an
+/// Whether a hand test's `ROOKPARCEL_UPDATE_URL` / `ROOKPARCEL_UPDATE_FILES` is honoured: an
 /// `https://` URL, or plain `http://` to this machine only (`localhost`, `127.x.x.x`, `[::1]`).
 /// Plain http to anywhere else would let the network choose the setup an all-users install
 /// elevates.
@@ -364,7 +365,7 @@ impl Manifest {
 /// session's proxy as the RSS feeds go.
 pub fn fetch(proxy: Option<FetchProxy>) -> Result<Manifest, String> {
     let opts = FetchOptions { proxy, max_size: 64 * 1024, no_downgrade: true, ..FetchOptions::default() };
-    let url = test_override("PATORRENT_UPDATE_URL").unwrap_or_else(|| MANIFEST_URL.to_owned());
+    let url = test_override("ROOKPARCEL_UPDATE_URL").unwrap_or_else(|| MANIFEST_URL.to_owned());
     let resp = http_get(&url, &opts).map_err(|e| e.to_string())?;
     if let Some(to) = resp.redirect() {
         return Err(format!("HTTP {} -> {to}", resp.status));
@@ -528,10 +529,10 @@ mod tests {
         assert!(Version::parse(&format!("{long}a")).is_none());
         assert_eq!(Manifest::parse(&format!("prerelease={long}a\n")), Manifest::default());
         let current = Version::current();
-        assert_eq!(current.to_string(), patorrent_core::VERSION);
+        assert_eq!(current.to_string(), rookparcel_core::VERSION);
         assert_eq!(
             v("1.0.0-rc.1").release_url(),
-            "https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.0.0-rc.1"
+            "https://github.com/Balls0fSteel/Rookparcel/releases/tag/v1.0.0-rc.1"
         );
     }
 
@@ -564,7 +565,7 @@ mod tests {
     #[test]
     fn manifest() {
         let m = Manifest::parse(
-            "# PaTorrent update information\r\nstable=1.0.0\r\n prerelease = 1.1.0-rc.2 \r\nfuture=x\r\n\r\nnoise\r\n",
+            "# Rookparcel update information\r\nstable=1.0.0\r\n prerelease = 1.1.0-rc.2 \r\nfuture=x\r\n\r\nnoise\r\n",
         );
         assert_eq!(m, Manifest { stable: Some(v("1.0.0")), prerelease: Some(v("1.1.0-rc.2")) });
         assert_eq!(Manifest::parse("# no releases yet\n"), Manifest::default());
@@ -668,22 +669,22 @@ mod tests {
     #[test]
     fn setup_names_and_the_checksum_list() {
         let v = v("1.2.3");
-        assert_eq!(v.setup_name(), "patorrent-1.2.3-windows-x64-setup.exe");
+        assert_eq!(v.setup_name(), "rookparcel-1.2.3-windows-x64-setup.exe");
         assert_eq!(
             v.file_url("SHA256SUMS"),
-            "https://github.com/Balls0fSteel/PaTorrent/releases/download/v1.2.3/SHA256SUMS"
+            "https://github.com/Balls0fSteel/Rookparcel/releases/download/v1.2.3/SHA256SUMS"
         );
-        let sums = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  patorrent-1.2.3-windows-x64.zip\n\
-                    fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210 *patorrent-1.2.3-windows-x64-setup.exe\r\n\
+        let sums = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef  rookparcel-1.2.3-windows-x64.zip\n\
+                    fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210 *rookparcel-1.2.3-windows-x64-setup.exe\r\n\
                     not-a-hash  other\n";
-        let h = expected_sha256(sums, "patorrent-1.2.3-windows-x64-setup.exe").unwrap();
+        let h = expected_sha256(sums, "rookparcel-1.2.3-windows-x64-setup.exe").unwrap();
         assert_eq!(h.to_hex(), "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210");
-        assert!(expected_sha256(sums, "patorrent-1.2.3-windows-x64.zip").is_some());
+        assert!(expected_sha256(sums, "rookparcel-1.2.3-windows-x64.zip").is_some());
         assert!(expected_sha256(sums, "other").is_none());
-        assert!(expected_sha256(sums, "patorrent-1.2.4-windows-x64-setup.exe").is_none());
+        assert!(expected_sha256(sums, "rookparcel-1.2.4-windows-x64-setup.exe").is_none());
     }
 
-    /// The setup downloads from the folder `PATORRENT_UPDATE_FILES` names, checked against
+    /// The setup downloads from the folder `ROOKPARCEL_UPDATE_FILES` names, checked against
     /// SHA256SUMS; a wrong checksum or a cancel leaves no file.
     #[test]
     fn the_setup_downloads_and_is_checked() {
@@ -715,8 +716,8 @@ mod tests {
             }
         });
         // the env var is process-wide: this is the one test that sets it
-        unsafe { std::env::set_var("PATORRENT_UPDATE_FILES", &base) };
-        let dir = std::env::temp_dir().join(format!("patorrent-update-test-{}", std::process::id()));
+        unsafe { std::env::set_var("ROOKPARCEL_UPDATE_FILES", &base) };
+        let dir = std::env::temp_dir().join(format!("rookparcel-update-test-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         // a link planted as the part file is not written through: its target keeps its bytes
         std::fs::create_dir_all(&dir).unwrap();
@@ -744,7 +745,7 @@ mod tests {
         let e = download_setup(&v("9.9.9"), None, &dir, &mut |_, _| false).unwrap_err();
         assert!(e.contains("cancelled"), "{e}");
         assert!(!dir.join(format!("{name}.part")).exists());
-        unsafe { std::env::remove_var("PATORRENT_UPDATE_FILES") };
+        unsafe { std::env::remove_var("ROOKPARCEL_UPDATE_FILES") };
         let _ = std::fs::remove_dir_all(&dir);
     }
 

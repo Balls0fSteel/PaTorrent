@@ -1,5 +1,5 @@
 #!/bin/sh
-# D47 on Linux: patorrent-gtk closing while torrents move to another (slow) filesystem.
+# D47 on Linux: rookparcel-gtk closing while torrents move to another (slow) filesystem.
 #   closing-test.sh setup     data, torrents, the slow target filesystem, settings
 #   closing-test.sh start     Xvfb :78 and the app in a throttled scope; torrents dropped in the
 #                             watch folder; returns once the moves have started
@@ -10,7 +10,7 @@
 # and memory capped, so the copies cannot come from the page cache and take a while.
 set -eu
 B=$HOME/closing-test
-APP=${APP:-$HOME/patorrent-sec/target/debug/patorrent-gtk}
+APP=${APP:-$HOME/rookparcel-sec/target/debug/rookparcel-gtk}
 MNT=/mnt/ptest
 N=${N:-5}
 SIZE_MB=${SIZE_MB:-120}
@@ -18,7 +18,7 @@ SIZE_MB=${SIZE_MB:-120}
 case "$1" in
 setup)
     rm -rf "$B/run"
-    mkdir -p "$B/run/cfg/patorrent/gtk" "$B/run/data" "$B/run/dl" "$B/run/watch" "$B/run/torrents"
+    mkdir -p "$B/run/cfg/rookparcel/gtk" "$B/run/data" "$B/run/dl" "$B/run/watch" "$B/run/torrents"
     i=1
     while [ "$i" -le "$N" ]; do
         head -c "${SIZE_MB}M" /dev/urandom > "$B/run/dl/disk-image-$i.bin"
@@ -33,7 +33,7 @@ setup)
         sudo chown "$(id -u):$(id -g)" "$MNT"
     fi
     rm -rf "$MNT/done"
-    cat > "$B/run/cfg/patorrent/gtk/patorrent.ini" <<EOF
+    cat > "$B/run/cfg/rookparcel/gtk/rookparcel.ini" <<EOF
 lt.enable_dht=false
 lt.enable_lsd=false
 lt.enable_upnp=false
@@ -71,12 +71,12 @@ shot)
     DISPLAY=:78 import -window root "$B/run/$2.png"
     ;;
 term)
-    pkill -TERM -x patorrent-gtk || true
+    pkill -TERM -x rookparcel-gtk || true
     ;;
 cleanup)
-    pkill -TERM -x patorrent-gtk || true
+    pkill -TERM -x rookparcel-gtk || true
     sleep 2
-    pkill -KILL -x patorrent-gtk || true
+    pkill -KILL -x rookparcel-gtk || true
     [ -f "$B/run/xvfb.pid" ] && kill "$(cat "$B/run/xvfb.pid")" 2>/dev/null || true
     if mountpoint -q "$MNT"; then sudo umount "$MNT"; fi
     sudo rmdir "$MNT" 2>/dev/null || true

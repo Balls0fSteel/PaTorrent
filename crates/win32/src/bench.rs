@@ -1,15 +1,15 @@
-//! `PATORRENT_TIMING=1` and `PATORRENT_BENCH=1`: the torrent list's latency at scale (Road to
+//! `ROOKPARCEL_TIMING=1` and `ROOKPARCEL_BENCH=1`: the torrent list's latency at scale (Road to
 //! 1.0 item 5, D21), measured on the GUI thread itself.
 //!
-//! With `PATORRENT_TIMING=1` the list's hot paths (the alert batch, the list refresh, the tree
-//! counts, the timer) log their wall time and the GUI thread's CPU to stderr. `PATORRENT_BENCH=1`
+//! With `ROOKPARCEL_TIMING=1` the list's hot paths (the alert batch, the list refresh, the tree
+//! counts, the timer) log their wall time and the GUI thread's CPU to stderr. `ROOKPARCEL_BENCH=1`
 //! runs a script once the list has stopped growing, through the messages a user's clicks send:
 //! sorts by Name, Size, Status and Down Speed and their reversals (`LVN_COLUMNCLICK`), the
 //! status updates with a sort active, page scrolls and jumps (`WM_VSCROLL`,
 //! `LVM_ENSUREVISIBLE`), Select All, category switches in the tree, adding a magnet, removing
 //! it and removing 1,000 rows, then 60 s of idle; each step is timed until its rows are painted
 //! (`UpdateWindow`). Then the window closes. The script removes torrents: run it on a copy of a
-//! state folder, with `ui.confirm_delete=0` and `ui.show_add_dialog=0` in `patorrent.ini`.
+//! state folder, with `ui.confirm_delete=0` and `ui.show_add_dialog=0` in `rookparcel.ini`.
 //! Unset, both cost a load of an initialised `OnceLock`.
 
 use std::cell::RefCell;
@@ -31,7 +31,7 @@ use windows_sys::Win32::UI::WindowsAndMessaging::{
 use super::{IDC_LIST, cmd, with_app};
 use crate::controls;
 use crate::util::send;
-use patorrent_frontend::columns::Column;
+use rookparcel_frontend::columns::Column;
 
 /// The bench script's timer on the main window.
 pub(super) const TIMER_BENCH: usize = 2;
@@ -47,8 +47,8 @@ fn mode() -> &'static Mode {
     static MODE: OnceLock<Mode> = OnceLock::new();
     MODE.get_or_init(|| {
         let set = |k| std::env::var_os(k).is_some_and(|v| !v.is_empty() && v != "0");
-        let bench = set("PATORRENT_BENCH");
-        let timing = bench || set("PATORRENT_TIMING");
+        let bench = set("ROOKPARCEL_BENCH");
+        let timing = bench || set("ROOKPARCEL_TIMING");
         Mode { timing, bench, cycles_per_ms: if timing { calibrate() } else { 1.0 } }
     })
 }
@@ -161,7 +161,7 @@ struct Bench {
     added: String,
 }
 
-/// Starts the script if `PATORRENT_BENCH` is set (from the main window's creation).
+/// Starts the script if `ROOKPARCEL_BENCH` is set (from the main window's creation).
 pub(super) fn start(hwnd: HWND) {
     if !mode().bench {
         return;
@@ -172,7 +172,7 @@ pub(super) fn start(hwnd: HWND) {
             step: 0,
             wait: Wait::Rows(0, Instant::now()),
             rows: 0,
-            added: format!("patorrent-bench-{}", std::process::id()),
+            added: format!("rookparcel-bench-{}", std::process::id()),
         })
     });
     // SAFETY: the main window is live.

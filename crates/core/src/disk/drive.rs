@@ -607,10 +607,10 @@ mod imp {
 
         #[test]
         fn unc_paths_are_network_without_touching_them() {
-            let id = super::super::detect(Path::new(r"\\patorrent-no-such-host.invalid\share\x"));
+            let id = super::super::detect(Path::new(r"\\rookparcel-no-such-host.invalid\share\x"));
             assert_eq!(id.kind, DriveKind::Network);
-            assert_eq!(id.key, r"\\patorrent-no-such-host.invalid");
-            assert_eq!(id.describe, r"\\patorrent-no-such-host.invalid (network)");
+            assert_eq!(id.key, r"\\rookparcel-no-such-host.invalid");
+            assert_eq!(id.describe, r"\\rookparcel-no-such-host.invalid (network)");
         }
     }
 }
@@ -1220,7 +1220,7 @@ mod tests {
         let id = detect(&tmp);
         assert!(!id.key.is_empty(), "{id:?}");
         assert!(!id.describe.is_empty(), "{id:?}");
-        let later = detect(&tmp.join("patorrent-no-such-dir").join("sub").join("file.bin"));
+        let later = detect(&tmp.join("rookparcel-no-such-dir").join("sub").join("file.bin"));
         assert_eq!(later, id);
         // A relative path is taken from the current directory.
         assert!(!detect(Path::new("no-such-relative-dir/x")).key.is_empty());

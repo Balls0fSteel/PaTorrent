@@ -2,11 +2,11 @@
 //! `search.source.<n>.key`, [`crate::prefs::is_sealed_key`]).
 //!
 //! On Windows a secret is sealed with DPAPI (`CryptProtectData`, current-user scope, with an
-//! entropy constant) and written as `dpapi:<base64>`, so a copied `patorrent.ini` read under
+//! entropy constant) and written as `dpapi:<base64>`, so a copied `rookparcel.ini` read under
 //! another Windows account (or on another machine) gives an empty password instead of the
 //! user's. Elsewhere there is no DPAPI and secrets stay plain, as µTorrent kept them in
 //! `settings.dat` (libsecret is not used), in a file only its owner may read
-//! (`patorrent_core::util::private_file`). Plain values written before are read on every
+//! (`rookparcel_core::util::private_file`). Plain values written before are read on every
 //! platform and sealed at the next save.
 
 /// The marker in front of a sealed value.
@@ -19,7 +19,7 @@ pub fn seal(plain: &str) -> String {
         return String::new();
     }
     match imp::protect(plain.as_bytes()) {
-        Some(blob) => format!("{MARKER}{}", patorrent_core::util::string::base64encode(&blob)),
+        Some(blob) => format!("{MARKER}{}", rookparcel_core::util::string::base64encode(&blob)),
         None => plain.to_owned(),
     }
 }
@@ -29,7 +29,7 @@ pub fn seal(plain: &str) -> String {
 /// before and is taken as it is.
 pub fn open(stored: &str) -> String {
     let Some(b64) = stored.strip_prefix(MARKER) else { return stored.to_owned() };
-    patorrent_core::util::string::base64decode(b64.trim().as_bytes())
+    rookparcel_core::util::string::base64decode(b64.trim().as_bytes())
         .and_then(|blob| imp::unprotect(&blob))
         .and_then(|bytes| String::from_utf8(bytes).ok())
         .unwrap_or_default()
@@ -48,7 +48,8 @@ mod imp {
     };
 
     /// Mixed into every blob, so another program's plain `CryptUnprotectData` on the same
-    /// account does not open it without knowing it.
+    /// account does not open it without knowing it. It keeps the former name (D59): the saved
+    /// passwords were sealed with it.
     const ENTROPY: &[u8] = b"PaTorrent proxy password v1";
 
     fn blob(data: &[u8]) -> CRYPT_INTEGER_BLOB {
@@ -145,10 +146,10 @@ mod tests {
         assert!(!s.contains("pa ss"));
         assert_eq!(open(&s), "pa ss=wörd");
         // a changed byte in the blob does not open
-        let mut blob = patorrent_core::util::string::base64decode(&s.as_bytes()[MARKER.len()..]).unwrap();
+        let mut blob = rookparcel_core::util::string::base64decode(&s.as_bytes()[MARKER.len()..]).unwrap();
         let n = blob.len();
         blob[n - 5] ^= 0x55;
-        let bad = format!("{MARKER}{}", patorrent_core::util::string::base64encode(&blob));
+        let bad = format!("{MARKER}{}", rookparcel_core::util::string::base64encode(&blob));
         assert_eq!(open(&bad), "");
     }
 

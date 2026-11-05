@@ -54,7 +54,7 @@ impl Default for MockConfig {
             active_fraction: 0.02,
             seed: 0x5eed_1e55,
             max_rate: 4 << 20,
-            save_path: std::env::temp_dir().join("patorrent-mock").to_string_lossy().into_owned(),
+            save_path: std::env::temp_dir().join("rookparcel-mock").to_string_lossy().into_owned(),
             slow_exit: None,
         }
     }
@@ -157,7 +157,7 @@ impl Mock {
             .take(20)
             .map(|t| t.st.name.clone())
             .collect();
-        let to = std::env::temp_dir().join("patorrent-mock-done").to_string_lossy().into_owned();
+        let to = std::env::temp_dir().join("rookparcel-mock-done").to_string_lossy().into_owned();
         let (start, total) = (Instant::now(), 8u64 << 30);
         let each = time.as_secs_f64() / 3.0;
         while start.elapsed() < time && !exit.hurried() {
@@ -1258,7 +1258,7 @@ fn peers_for(t: &Torrent) -> Vec<PeerInfo> {
         "qBittorrent 5.0.2",
         "Deluge 2.1.1",
         "BiglyBT 3.6.0",
-        "PaTorrent 0.1.0",
+        "Rookparcel 0.1.0",
     ];
     let st = &t.st;
     let n = st.num_peers as usize;

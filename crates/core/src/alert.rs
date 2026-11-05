@@ -21,7 +21,7 @@ use crate::types::{InfoHashes, TorrentId};
 use crate::util::bitfield::Bitfield;
 
 bit_flags! {
-    /// libtorrent `alert_category`, the categories PaTorrent's alerts use, at libtorrent's bit
+    /// libtorrent `alert_category`, the categories Rookparcel's alerts use, at libtorrent's bit
     /// positions (so an `alert_mask` means the same in both).
     pub struct AlertCategory: u32 {
         const ERROR = 0;
@@ -43,7 +43,7 @@ bit_flags! {
 
 impl AlertCategory {
     /// `Settings::alert_mask`'s default: everything but [`AlertCategory::CONNECT`]. A deliberate
-    /// difference from libtorrent, whose default is errors only: PaTorrent's frontends read the
+    /// difference from libtorrent, whose default is errors only: Rookparcel's frontends read the
     /// status, tracker, storage and log alerts.
     pub const DEFAULT: AlertCategory =
         AlertCategory(AlertCategory::all().bits() & !AlertCategory::CONNECT.bits());
@@ -115,7 +115,7 @@ pub enum Alert {
     AddTorrentFailed {
         name: String,
         /// The torrent's hashes when the source parsed that far (a duplicate, say); `None`
-        /// for a `.torrent`, resume record or magnet link that did not parse. PaTorrent's
+        /// for a `.torrent`, resume record or magnet link that did not parse. Rookparcel's
         /// own: a watcher keys what it added by hash, not by a name two files can share.
         info_hashes: Option<InfoHashes>,
         error: Error,
@@ -126,7 +126,7 @@ pub enum Alert {
     },
     /// The session store's torrents are back, at start: `count` of them, from `dir`. They post
     /// no [`Alert::TorrentAdded`] each (at 100,000 torrents those flooded the queue); the first
-    /// status update names them all. PaTorrent's own: libtorrent leaves restoring to its client.
+    /// status update names them all. Rookparcel's own: libtorrent leaves restoring to its client.
     TorrentsRestored {
         count: u32,
         dir: String,
@@ -391,7 +391,7 @@ pub enum Alert {
         count: u64,
     },
     /// A remote session ([`crate::remote`]) lost its connection to the server: nothing more
-    /// arrives, and commands go nowhere. PaTorrent's own.
+    /// arrives, and commands go nowhere. Rookparcel's own.
     RemoteDisconnected {
         message: String,
     },
@@ -787,7 +787,7 @@ mod tests {
         assert!(!tracker_error.masked_by(AlertCategory::ERROR));
         assert!(!tracker_error.masked_by(AlertCategory::TRACKER));
         assert!(tracker_error.masked_by(AlertCategory::STATUS));
-        // the default holds back nothing PaTorrent posted before the mask
+        // the default holds back nothing Rookparcel posted before the mask
         assert!(!Alert::TorrentFinished { id: TorrentId::default() }.masked_by(AlertCategory::DEFAULT));
         assert!(!log(1).masked_by(AlertCategory::DEFAULT));
         // a request's reply ignores the mask

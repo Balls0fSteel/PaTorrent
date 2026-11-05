@@ -1,9 +1,9 @@
 //! Torrent search through the user's Prowlarr or Jackett (D41, `docs/INTEGRATIONS.md` part 2):
 //! the native `/pa/search...` endpoints the page's search window uses, over the shared model
-//! (`patorrent_frontend::search`).
+//! (`rookparcel_frontend::search`).
 //!
 //! The sources are `search.source.N.*` in `State::options` (the API keys sealed in the file:
-//! `webui.json` in daemon mode, the host's `patorrent.ini` when hosted, reached through the
+//! `webui.json` in daemon mode, the host's `rookparcel.ini` when hosted, reached through the
 //! preferences journal of [`Shared::save`]). One search runs at a time for the whole server,
 //! like the Win32 window's: every page sees the same results. The worker's threads only
 //! answer into a channel; [`collect`] takes the answers on every alert batch (and on a `GET`)
@@ -27,14 +27,14 @@ use std::collections::hash_map::DefaultHasher;
 use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 
-use patorrent_core::crypto::Sha1;
-use patorrent_core::fetch::FetchProxy;
-use patorrent_frontend::rss::Download;
-use patorrent_frontend::search::{
+use rookparcel_core::crypto::Sha1;
+use rookparcel_core::fetch::FetchProxy;
+use rookparcel_frontend::rss::Download;
+use rookparcel_frontend::search::{
     self, Query, Search, SearchResult, Source, SourceStatus, category_text, fetch_caps, fetch_download,
     load_sources, main_categories, redact, store_sources,
 };
-use patorrent_frontend::{fmt, tr};
+use rookparcel_frontend::{fmt, tr};
 
 use super::commands::{self, AddOptions, CmdError};
 use super::http::Response;
@@ -419,11 +419,13 @@ pub(crate) fn serve(
 const MAX_RUNNING_JOBS: usize = 5;
 /// Searches the shim keeps; a new one past it drops the oldest finished one.
 const MAX_JOBS: usize = 32;
-/// A shim result's `fileUrl` when it has no magnet of its own: `patorrent-search:<job>/<result
+/// A shim result's `fileUrl` when it has no magnet of its own: `rookparcel-search:<job>/<result
 /// id>`. The indexer's link carries its API key, so it never leaves the server; `torrents/add`
 /// and `search/downloadTorrent` take this URL back and fetch the result as `/pa/search/add`
 /// does ([`fetch_download`], the proxy rule included).
-pub const FILE_URL_SCHEME: &str = "patorrent-search:";
+pub const FILE_URL_SCHEME: &str = "rookparcel-search:";
+/// PaTorrent's scheme (D59): a URL that Sonarr or Radarr kept from before the rename still adds.
+const OLD_FILE_URL_SCHEME: &str = "patorrent-search:";
 
 /// qBittorrent's search categories the shim offers (id, qBittorrent's name) and the Newznab
 /// categories each one searches; any other id searches every category.
@@ -529,7 +531,8 @@ fn file_url(job: u32, r: &SearchResult, key: &str) -> String {
 /// What a [`FILE_URL_SCHEME`] URL adds, fetched on the request's thread (no lock held); `None`
 /// for any other URL.
 pub(crate) fn shim_download(shared: &Shared, url: &str) -> Option<Result<commands::Source, CmdError>> {
-    let rest = url.trim().strip_prefix(FILE_URL_SCHEME)?;
+    let url = url.trim();
+    let rest = url.strip_prefix(FILE_URL_SCHEME).or_else(|| url.strip_prefix(OLD_FILE_URL_SCHEME))?;
     Some(resolve(shared, rest))
 }
 
@@ -777,7 +780,7 @@ pub(crate) fn shim(shared: &Shared, endpoint: &str, param: &dyn Fn(&str) -> Opti
         }
         "installPlugin" => Response::text(
             409,
-            "Search plugins are not supported: PaTorrent searches Torznab sources (Prowlarr, Jackett), \
+            "Search plugins are not supported: Rookparcel searches Torznab sources (Prowlarr, Jackett), \
              added in its Web UI's search window",
         ),
         // nothing to update: a source is the user's own server

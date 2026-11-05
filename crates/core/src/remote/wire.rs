@@ -1,4 +1,4 @@
-// PaTorrent's own code, not ported: libtorrent has no remote session.
+// Rookparcel's own code, not ported: libtorrent has no remote session.
 
 //! The remote protocol's encoding: every message is one bencoded list, a variant name first,
 //! then the fields in declaration order (positional: both ends run the same [`PROTOCOL`]

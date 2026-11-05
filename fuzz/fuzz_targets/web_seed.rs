@@ -7,11 +7,11 @@
 use std::collections::HashMap;
 
 use libfuzzer_sys::fuzz_target;
-use patorrent_core::Sha1Hash;
-use patorrent_core::fuzzing::{
+use rookparcel_core::Sha1Hash;
+use rookparcel_core::fuzzing::{
     WebEvent, WebPeer, parse_chunk_header, parse_http_head, resolve_redirect_location, split_url,
 };
-use patorrent_core::metainfo::{FileFlags, FileStorage, WebSeedKind};
+use rookparcel_core::metainfo::{FileFlags, FileStorage, WebSeedKind};
 
 fn storage(single: bool) -> FileStorage {
     let mut fs = FileStorage::new();

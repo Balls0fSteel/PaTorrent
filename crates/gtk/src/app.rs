@@ -14,32 +14,32 @@ use std::rc::Rc;
 
 use gtk::prelude::*;
 use gtk::{gio, glib};
-use patorrent_core::fetch::{FetchOptions, FetchProxy, http_get};
-use patorrent_core::metainfo::{TorrentInfo, parse_magnet_uri};
-use patorrent_core::{
+use rookparcel_core::fetch::{FetchOptions, FetchProxy, http_get};
+use rookparcel_core::metainfo::{TorrentInfo, parse_magnet_uri};
+use rookparcel_core::{
     AddTorrentParams, Alert, IpFilter, MoveCompleted, MoveFlags, QueueMove, RemoveFlags, Session,
     SessionHandle, SessionParams, SessionStats, TorrentFlags, TorrentId, TorrentSource, same_dir,
 };
-use patorrent_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
-use patorrent_frontend::columns::Column;
-use patorrent_frontend::detail::{Detail, PRIORITIES, Tab};
-use patorrent_frontend::icons::{Icon, network_icon};
-use patorrent_frontend::import::{self, Begin, Client};
-use patorrent_frontend::integration::{Integration, MINIMIZED};
-use patorrent_frontend::lang::{self, gtk_mnemonic};
-use patorrent_frontend::model::TorrentList;
-use patorrent_frontend::options::{self, GuiOptions, Options};
-use patorrent_frontend::prefs::Prefs;
-use patorrent_frontend::properties::{self, Properties, TorrentProps};
-use patorrent_frontend::rss::view::{self as rss_view, FeedForm, ItemRow};
-use patorrent_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
-use patorrent_frontend::scheduler::{Mode, Schedule, Scheduler};
-use patorrent_frontend::search::{Source as SearchSource, load_sources, store_sources};
-use patorrent_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
-use patorrent_frontend::status::{self, status_icon};
-use patorrent_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
-use patorrent_frontend::update::{self, Checker, Kind, Manifest, Version};
-use patorrent_frontend::{actions, add, create, fmt, help, profile, settings, setup_guide, tr};
+use rookparcel_frontend::auto_shutdown::{self, AutoShutdown, Mode as AutoMode, Step};
+use rookparcel_frontend::columns::Column;
+use rookparcel_frontend::detail::{Detail, PRIORITIES, Tab};
+use rookparcel_frontend::icons::{Icon, network_icon};
+use rookparcel_frontend::import::{self, Begin, Client};
+use rookparcel_frontend::integration::{Integration, MINIMIZED};
+use rookparcel_frontend::lang::{self, gtk_mnemonic};
+use rookparcel_frontend::model::TorrentList;
+use rookparcel_frontend::options::{self, GuiOptions, Options};
+use rookparcel_frontend::prefs::Prefs;
+use rookparcel_frontend::properties::{self, Properties, TorrentProps};
+use rookparcel_frontend::rss::view::{self as rss_view, FeedForm, ItemRow};
+use rookparcel_frontend::rss::{AddRequest, Download, FeedId, RssDownloader, Worker};
+use rookparcel_frontend::scheduler::{Mode, Schedule, Scheduler};
+use rookparcel_frontend::search::{Source as SearchSource, load_sources, store_sources};
+use rookparcel_frontend::seeding::{GoalAction, SeedGoal, SeedingGoal};
+use rookparcel_frontend::status::{self, status_icon};
+use rookparcel_frontend::torrent_folders::{self, TorrentFiles, TorrentFolders, Watcher};
+use rookparcel_frontend::update::{self, Checker, Kind, Manifest, Version};
+use rookparcel_frontend::{actions, add, create, fmt, help, profile, settings, setup_guide, tr};
 
 use crate::detail::{Details, Visit};
 use crate::list::{Content, List};
@@ -50,7 +50,7 @@ use crate::table::Table;
 use crate::tray::{Command as TrayCommand, Tray};
 
 /// The application id (D-Bus name, desktop file, single instance).
-pub const APP_ID: &str = patorrent_frontend::integration::APP_ID;
+pub const APP_ID: &str = rookparcel_frontend::integration::APP_ID;
 
 /// The engine-side state.
 struct App {
@@ -92,7 +92,7 @@ struct App {
     /// Options > Auto Shutdown, and the standby or hibernation waiting for the resume data.
     auto_shutdown: AutoShutdown,
     suspend_pending: Option<Power>,
-    /// The RSS Downloader (`rss.dat` beside `patorrent.ini`), its fetches, and whether it
+    /// The RSS Downloader (`rss.dat` beside `rookparcel.ini`), its fetches, and whether it
     /// changed since it was saved.
     rss: RssDownloader,
     rss_worker: Worker,
@@ -214,8 +214,10 @@ pub fn run() -> ExitCode {
         }
         Err(e) => Some(e),
     };
+    // PaTorrent's folders become ours before anything reads them (D59)
+    let still_patorrent = rookparcel_frontend::legacy::migrate().err();
     // before the menu bar is built (`startup`); no Logger yet, so problems go to stderr
-    let prefs = Prefs::load(paths::config_dir().join("patorrent.ini"));
+    let prefs = Prefs::load(paths::config_dir().join("rookparcel.ini"));
     if let Ok(now) = glib::DateTime::now_local() {
         fmt::set_utc_offset(now.utc_offset().as_seconds() as i32);
     }
@@ -225,6 +227,9 @@ pub fn run() -> ExitCode {
     if let Some(e) = bad_profile {
         eprintln!("{e}");
         return say_and_quit(tr!(ProfileBadName, name = e.given()));
+    }
+    if let Some(old) = still_patorrent {
+        return say_and_quit(tr!(FolderInUse, folder = old.display()));
     }
     // the raw command line, so links reach us as typed (GIO's file handling would turn a
     // `magnet:` argument into a file); a second start hands it to the first. A remote window
@@ -248,7 +253,7 @@ pub fn run() -> ExitCode {
     // profile's id, not the executable's (`AppRun.wrapped` in an AppImage). Wayland's app id is
     // the application's own.
     glib::set_prgname(Some(id.as_str()));
-    glib::set_application_name("PaTorrent");
+    glib::set_application_name("Rookparcel");
     let app = gtk::Application::builder().application_id(id).flags(flags).build();
     app.connect_startup(startup);
     // A logout asks first (`query-end`, through the session manager or the portal): quit as
@@ -326,7 +331,7 @@ pub fn run() -> ExitCode {
     });
     let code = app.run();
     // the search helper (D51) never outlives the program
-    patorrent_frontend::search::helper::shutdown();
+    rookparcel_frontend::search::helper::shutdown();
     // the tray goes while the toolkit is still there, not with the thread's locals at exit: on
     // macOS its NSStatusItem leaves the menu bar through AppKit
     TRAY.with(|t| t.borrow_mut().take());
@@ -370,11 +375,13 @@ fn create_profile(app: &gtk::Application, then: impl FnOnce() + 'static) {
         .build();
     d.choose(None::<&gtk::Window>, None::<&gio::Cancellable>, move |r| {
         let made = r == Ok(1)
-            && [&config, &data].iter().all(|d| match patorrent_core::util::private_file::create_dir_all(d) {
-                Ok(()) => true,
-                Err(e) => {
-                    eprintln!("cannot create {}: {e}", d.display());
-                    false
+            && [&config, &data].iter().all(|d| {
+                match rookparcel_core::util::private_file::create_dir_all(d) {
+                    Ok(()) => true,
+                    Err(e) => {
+                        eprintln!("cannot create {}: {e}", d.display());
+                        false
+                    }
                 }
             });
         if made {
@@ -445,7 +452,7 @@ fn startup(app: &gtk::Application) {
         gtk::style_context_add_provider_for_display(&display, &css, gtk::STYLE_PROVIDER_PRIORITY_APPLICATION);
         crate::icons::setup(&display);
     }
-    // a test aid: the windows drawn into PNGs and their texts listed (`PATORRENT_SNAPSHOTS`)
+    // a test aid: the windows drawn into PNGs and their texts listed (`ROOKPARCEL_SNAPSHOTS`)
     crate::snapshots::start();
     // after GTK's own startup (the signal runs its class handler first), which set its
     // NSApplication delegate and called `finishLaunching`
@@ -630,7 +637,7 @@ fn fill_profiles(menu: &gio::Menu) {
     menu.append_section(None, &more);
 }
 
-/// Starts another PaTorrent in profile `name` (`None`: the default one): this executable, or the
+/// Starts another Rookparcel in profile `name` (`None`: the default one): this executable, or the
 /// AppImage file; a running one of that profile comes to the front instead.
 fn start_profile(name: Option<&str>) {
     let program = std::env::var_os("APPIMAGE").map(PathBuf::from).or_else(|| std::env::current_exe().ok());
@@ -641,7 +648,7 @@ fn start_profile(name: Option<&str>) {
     match started {
         // reaped when it ends, so it leaves no zombie behind
         Ok(mut child) => drop(std::thread::spawn(move || child.wait())),
-        Err(e) => error(&tr!(ErrStartPaTorrent, error = e), ""),
+        Err(e) => error(&tr!(ErrStartRookparcel, error = e), ""),
     }
 }
 
@@ -656,12 +663,12 @@ fn new_profile() {
             Ok(n) if n == profile::DEFAULT_NAME => start_profile(None),
             Ok(n) => {
                 let dirs = [paths::config_dir_of(Some(&n)), paths::data_dir_of(Some(&n))];
-                match dirs.iter().try_for_each(|d| patorrent_core::util::private_file::create_dir_all(d)) {
+                match dirs.iter().try_for_each(|d| rookparcel_core::util::private_file::create_dir_all(d)) {
                     Ok(()) => {
                         PROFILES_MENU.with(|m| m.borrow().as_ref().map(fill_profiles));
                         start_profile(Some(&n));
                     }
-                    Err(e) => error(&tr!(ErrStartPaTorrent, error = e), ""),
+                    Err(e) => error(&tr!(ErrStartRookparcel, error = e), ""),
                 }
             }
         }
@@ -801,21 +808,21 @@ fn menu_state() -> Option<MenuState> {
 
 /// (every torrent is a seed, every torrent is super seeding), for "Initial Seeding".
 fn super_seed_state(a: &App, ids: &[TorrentId]) -> (bool, bool) {
-    let all = |f: &dyn Fn(&patorrent_core::TorrentStatus) -> bool| {
+    let all = |f: &dyn Fn(&rookparcel_core::TorrentStatus) -> bool| {
         ids.iter().all(|&id| a.list.get(id).is_some_and(f))
     };
     (all(&|s| s.is_seeding), all(&|s| s.super_seeding))
 }
 
-/// `patorrent.lock` in the library's folder, held until the process ends; the message for the
+/// `rookparcel.lock` in the library's folder, held until the process ends; the message for the
 /// user when another process has it. One that cannot be made is let go: an unwritable folder
 /// fails at the engine's start, which says why.
 fn lock_library(dir: &std::path::Path) -> Result<(), String> {
-    use patorrent_core::util::lockfile;
+    use rookparcel_core::util::lockfile;
     thread_local! {
         static LOCK: RefCell<Option<lockfile::Lock>> = const { RefCell::new(None) };
     }
-    let made = patorrent_core::util::private_file::create_dir_all(dir);
+    let made = rookparcel_core::util::private_file::create_dir_all(dir);
     match made.and_then(|()| lockfile::Lock::take(&dir.join(lockfile::FILE_NAME))) {
         Ok(l) => {
             LOCK.with(|k| *k.borrow_mut() = Some(l));
@@ -888,17 +895,17 @@ fn setup_guide_later() {
 fn build(app: &gtk::Application, remote_session: Option<Session>) {
     let config = paths::settings_dir();
     let data = paths::data_dir();
-    let mut prefs = Prefs::load(config.join("patorrent.ini"));
+    let mut prefs = Prefs::load(config.join("rookparcel.ini"));
     let remote = crate::remote::get();
     if let Some(r) = remote {
         // the server's engine settings and default folder are this window's; the language
         // (picked in `run`) is every window's
-        if let Err(e) = patorrent_core::util::private_file::create_dir_all(&config) {
+        if let Err(e) = rookparcel_core::util::private_file::create_dir_all(&config) {
             eprintln!("cannot create {}: {e}", config.display());
         }
         settings::store(&mut prefs, &r.hello.settings);
         prefs.set("dir.download", &r.hello.save_path);
-        match Prefs::load(paths::config_dir().join("patorrent.ini")).get("ui.language") {
+        match Prefs::load(paths::config_dir().join("rookparcel.ini")).get("ui.language") {
             Some(code) => prefs.set("ui.language", code),
             None => prefs.remove("ui.language"),
         }
@@ -912,6 +919,12 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
     // the first start of a profile, the default one included (D53): asked before
     // `first_run_settings` writes the first keys
     let first_start = remote.is_none() && setup_guide::should_show(&prefs);
+    // PaTorrent's desktop and autostart entries become ours (D59)
+    if remote.is_none() {
+        if let Err(e) = crate::integration::adopt_patorrent() {
+            eprintln!("PaTorrent's desktop entries: {e}");
+        }
+    }
     // a named profile's desktop entry, which the desktop matches to its windows (D42)
     let entry_written = remote.is_none()
         && crate::integration::profile_entry().unwrap_or_else(|e| {
@@ -966,8 +979,8 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
             Ok(()) => Session::start(SessionParams {
                 settings: opts.settings.clone(),
                 state_dir: Some(data),
-                label: patorrent_frontend::profile::current().engine_label(),
-                portable_root: patorrent_frontend::profile::current().portable_root.clone(),
+                label: rookparcel_frontend::profile::current().engine_label(),
+                portable_root: rookparcel_frontend::profile::current().portable_root.clone(),
             })
             .map_err(|e| (tr!(CannotStartEngine).to_owned(), e.to_string())),
             // its first paragraph is the dialog's heading, the rest the text below it
@@ -1394,7 +1407,7 @@ fn build(app: &gtk::Application, remote_session: Option<Session>) {
         window.present();
     }
     // macOS runs a quarantined app from a random read-only copy, where a portable marker beside
-    // PaTorrent.app is not seen (D42): say how to get it run from where it is
+    // Rookparcel.app is not seen (D42): say how to get it run from where it is
     #[cfg(target_os = "macos")]
     if std::env::current_exe().ok().and_then(|e| e.parent().map(profile::translocated)) == Some(true) {
         info(tr!(MacTranslocated));
@@ -1567,7 +1580,7 @@ fn notify_completed(names: Vec<String>) {
 fn notify_directly(summary: &str, body: &str) {
     let Ok(bus) = gio::bus_get_sync(gio::BusType::Session, None::<&gio::Cancellable>) else { return };
     let hints = std::collections::HashMap::<String, glib::Variant>::new();
-    let args = ("PaTorrent", 0u32, "", summary, body, Vec::<String>::new(), hints, -1i32).to_variant();
+    let args = ("Rookparcel", 0u32, "", summary, body, Vec::<String>::new(), hints, -1i32).to_variant();
     bus.call(
         Some("org.freedesktop.Notifications"),
         "/org/freedesktop/Notifications",
@@ -1586,7 +1599,7 @@ fn notify_directly(summary: &str, body: &str) {
     );
 }
 
-/// Preferences > General "Check association on startup": asks to make PaTorrent the program
+/// Preferences > General "Check association on startup": asks to make Rookparcel the program
 /// for `.torrent` files and `magnet:` links when it is not.
 fn check_association() {
     let Some(window) = with_app(|a| a.window.clone()) else { return };
@@ -1670,7 +1683,7 @@ fn on_alerts() {
         let mut alerts = properties::take_alerts(&a.handle, &mut a.alerts);
         for alert in alerts.drain(..) {
             // the adapters and the network status (D54)
-            patorrent_frontend::network::on_alert(&alert);
+            rookparcel_frontend::network::on_alert(&alert);
             let label_of = |id| Some(a.list.extra(id).label.to_owned());
             if let Some((id, dir)) =
                 a.move_completed.as_mut().and_then(|m| m.on_alert(&alert, &a.handle, label_of))
@@ -1918,7 +1931,7 @@ pub(crate) fn popup_menu(menu: &gio::Menu, parent: &gtk::Widget, widget: &gtk::W
 }
 
 /// The main window's title: with "Show current speed in the title bar" µTorrent's
-/// `D:… U:… - PaTorrent …`, else the name; set when it changes. A remote window's title names
+/// `D:… U:… - Rookparcel …`, else the name; set when it changes. A remote window's title names
 /// its server (or says it is disconnected) and is left as it is.
 fn sync_title(a: &App) {
     if crate::remote::is_remote() {
@@ -1943,7 +1956,7 @@ fn update_status() {
             None if s.has_incoming_connections => tr!(NetOk).to_owned(),
             None => tr!(NetNoIncoming).to_owned(),
         };
-        let net = patorrent_frontend::network::with_status(s, net);
+        let net = rookparcel_frontend::network::with_status(s, net);
         let [down, up] = status::bar_rates(s);
         let texts = [
             match a.scheduler.status_text() {
@@ -1955,7 +1968,7 @@ fn update_status() {
             up,
         ];
         sync_title(a);
-        (texts, s.has_incoming_connections, patorrent_frontend::network::tooltip(s))
+        (texts, s.has_incoming_connections, rookparcel_frontend::network::tooltip(s))
     }) else {
         return;
     };
@@ -2152,7 +2165,7 @@ fn add_actions(window: &gtk::ApplicationWindow, list: &List) {
                 };
                 let set = match prio {
                     Some(prio) => files.into_iter().map(|f| (f, prio)).collect(),
-                    None => patorrent_frontend::detail::by_file_order(&files),
+                    None => rookparcel_frontend::detail::by_file_order(&files),
                 };
                 for (f, prio) in set {
                     t.set_file_priority(f, prio);
@@ -2907,7 +2920,7 @@ fn run_scheduler(a: &mut App, applied: Option<&Options>) {
 
 /// Preferences > Queueing's seeding goal (or the torrent's own, from Properties) for a finished
 /// torrent.
-fn seeding_goal(a: &mut App, st: &patorrent_core::TorrentStatus) {
+fn seeding_goal(a: &mut App, st: &rookparcel_core::TorrentStatus) {
     if !st.is_finished {
         return;
     }
@@ -3112,7 +3125,7 @@ fn apply_options(a: &mut App, o: &Options) {
     save_prefs(a);
     if crate::remote::is_remote() && o.gui.language != old.gui.language {
         // one language for every window: it lives in the local client's settings
-        let mut base = Prefs::load(paths::config_dir().join("patorrent.ini"));
+        let mut base = Prefs::load(paths::config_dir().join("rookparcel.ini"));
         match o.gui.language.trim() {
             "" => base.remove("ui.language"),
             code => base.set("ui.language", code),
@@ -3176,13 +3189,13 @@ fn log_ip_filter(a: &mut App, path: &std::path::Path, r: &Result<usize, String>)
 }
 
 // ---- RSS ------------------------------------------------------------------------------------
-// The RSS Downloader (`patorrent_frontend::rss`): the timer starts the refreshes that are due,
+// The RSS Downloader (`rookparcel_frontend::rss`): the timer starts the refreshes that are due,
 // the fetches run on the worker's threads and wake the main loop, and `rss_collect` takes their
 // results here and adds what the filters chose.
 
-/// `rss.dat`, beside `patorrent.ini`.
+/// `rss.dat`, beside `rookparcel.ini`.
 fn rss_file() -> PathBuf {
-    paths::settings_dir().join(patorrent_frontend::rss::store::FILE_NAME)
+    paths::settings_dir().join(rookparcel_frontend::rss::store::FILE_NAME)
 }
 
 fn unix_now() -> i64 {
@@ -3251,7 +3264,7 @@ fn update_done(result: Result<Manifest, String>) {
     }
 }
 
-/// "PaTorrent {v} is available. Open its download page?": OK opens the release's page.
+/// "Rookparcel {v} is available. Open its download page?": OK opens the release's page.
 fn ask_open_release(v: &Version, current: &Version) {
     let Some(window) = with_app(|a| a.window.clone()) else { return };
     let d = gtk::AlertDialog::builder()
@@ -3649,9 +3662,9 @@ impl crate::search::Host for SearchHost {
 
     /// The profile's data folder (a program of 100 MB and more is data, not settings) and the
     /// session's proxy, which the search helper is given for its own fetches.
-    fn helper(&self) -> Option<(PathBuf, Option<patorrent_frontend::search::helper::HelperProxy>)> {
+    fn helper(&self) -> Option<(PathBuf, Option<rookparcel_frontend::search::helper::HelperProxy>)> {
         let proxy = with_app(|a| {
-            patorrent_frontend::search::helper::HelperProxy::from_settings(
+            rookparcel_frontend::search::helper::HelperProxy::from_settings(
                 &Options::load(&a.prefs, &a.save_path).settings,
             )
         })
@@ -3688,11 +3701,11 @@ fn about() {
     gtk::AboutDialog::builder()
         .transient_for(&window)
         .modal(true)
-        .program_name("PaTorrent")
+        .program_name("Rookparcel")
         .logo_icon_name(APP_ID)
         .version(profile::version())
         .comments(tr!(AboutShort))
-        .website("https://github.com/Balls0fSteel/PaTorrent")
+        .website("https://github.com/Balls0fSteel/Rookparcel")
         .build()
         .present();
 }

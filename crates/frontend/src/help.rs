@@ -68,16 +68,16 @@ mod tests {
     }
 
     /// `docs/HELP_TEXTS.md`, the reviewable list of every help text with where its claim was
-    /// read, is generated from the table: `PATORRENT_WRITE_LNG=1` rewrites it, as it does
+    /// read, is generated from the table: `ROOKPARCEL_WRITE_LNG=1` rewrites it, as it does
     /// `en.lng`.
     #[test]
     fn the_help_texts_document_is_current() {
         let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../../docs/HELP_TEXTS.md");
         let want = lang::help_texts_md();
-        if std::env::var_os("PATORRENT_WRITE_LNG").is_some() {
+        if std::env::var_os("ROOKPARCEL_WRITE_LNG").is_some() {
             std::fs::write(&path, &want).unwrap();
         }
         let have = std::fs::read_to_string(&path).unwrap_or_default().replace("\r\n", "\n");
-        assert!(have == want, "{} is stale: run the tests with PATORRENT_WRITE_LNG=1", path.display());
+        assert!(have == want, "{} is stale: run the tests with ROOKPARCEL_WRITE_LNG=1", path.display());
     }
 }

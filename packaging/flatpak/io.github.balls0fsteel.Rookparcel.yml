@@ -1,4 +1,4 @@
-# flatpak-builder manifest of PaTorrent's GTK 4 GUI (PLAN.md D22, Road to 1.0 item 7).
+# flatpak-builder manifest of Rookparcel's GTK 4 GUI (PLAN.md D22, Road to 1.0 item 7).
 #
 # Built by the `flatpak` job of .github/workflows/release.yml from this checkout (`type: dir`
 # below); docs/RELEASING.md has how to build it by hand, the sandbox permissions and why, and
@@ -9,13 +9,13 @@
 # Regenerate it whenever Cargo.lock changes (docs/RELEASING.md, "Flatpak"); the release job
 # regenerates it before building and warns when the committed one is stale.
 
-id: io.github.balls0fsteel.PaTorrent
+id: io.github.balls0fsteel.Rookparcel
 runtime: org.gnome.Platform
 runtime-version: '51'
 sdk: org.gnome.Sdk
 sdk-extensions:
   - org.freedesktop.Sdk.Extension.rust-stable
-command: patorrent-gtk
+command: rookparcel-gtk
 
 finish-args:
   - --share=network
@@ -45,20 +45,20 @@ build-options:
   append-path: /usr/lib/sdk/rust-stable/bin
 
 modules:
-  - name: patorrent
+  - name: rookparcel
     buildsystem: simple
     build-options:
       env:
         # where cargo-sources.json puts the vendored crates and their `config`
-        CARGO_HOME: /run/build/patorrent/cargo
+        CARGO_HOME: /run/build/rookparcel/cargo
         CARGO_NET_OFFLINE: 'true'
         # PROVISIONAL: the recommended candidate until the owner picks the icon (Road to 1.0
         # item 10). Must name the family in assets/patina-icons/app-icon.txt (a manifest cannot
         # read a file): the release workflow's flatpak job fails when they differ.
         ICON_DIR: assets/patina-icons/exports/app/01-verdigris
     build-commands:
-      - cargo --offline build --release --locked -p patorrent-gtk
-      - install -Dm755 target/release/patorrent-gtk /app/bin/patorrent-gtk
+      - cargo --offline build --release --locked -p rookparcel-gtk
+      - install -Dm755 target/release/rookparcel-gtk /app/bin/rookparcel-gtk
       # the desktop entry the GUI itself writes (frontend::integration::packaged_entry, kept
       # equal to this file by a test); flatpak exports it and rewrites its Exec line
       - install -Dm644 contrib/linux/${FLATPAK_ID}.desktop /app/share/applications/${FLATPAK_ID}.desktop

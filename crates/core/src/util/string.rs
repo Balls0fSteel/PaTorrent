@@ -321,7 +321,7 @@ pub fn same_origin(a: &str, b: &str) -> bool {
 }
 
 /// `url` for display: the password of a `user:password@` userinfo replaced by `***`, and a
-/// userinfo without a colon (a token, say) replaced whole. PaTorrent's own: web seed URLs may
+/// userinfo without a colon (a token, say) replaced whole. Rookparcel's own: web seed URLs may
 /// carry credentials, which the engine keeps and uses but peer lists and logs must not show.
 /// A URL without userinfo, or text that is not a URL, comes back as it is.
 pub fn redact_url_credentials(url: &str) -> String {
@@ -344,7 +344,7 @@ mod tests {
 
     #[test]
     fn url_credentials_are_redacted_for_display() {
-        // PaTorrent's own
+        // Rookparcel's own
         for (url, shown) in [
             ("http://user:pass@host/", "http://user:***@host/"),
             ("https://u:p@w@[::1]:81/dir?x=a@b", "https://u:***@[::1]:81/dir?x=a@b"),

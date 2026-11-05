@@ -7,11 +7,11 @@ use std::cell::{Cell, RefCell};
 use std::rc::Rc;
 
 use gtk::prelude::*;
-use patorrent_frontend::icons::{UiIcon, category_icon};
-use patorrent_frontend::model::{Filter, TorrentList};
-use patorrent_frontend::rss::FeedId;
-use patorrent_frontend::status::Category;
-use patorrent_frontend::tr;
+use rookparcel_frontend::icons::{UiIcon, category_icon};
+use rookparcel_frontend::model::{Filter, TorrentList};
+use rookparcel_frontend::rss::FeedId;
+use rookparcel_frontend::status::Category;
+use rookparcel_frontend::tr;
 
 /// What a row shows in the main list.
 #[derive(Clone, Debug, PartialEq, Eq)]

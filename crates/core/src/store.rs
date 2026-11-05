@@ -38,7 +38,9 @@ const LOG_MAGIC: &[u8; 4] = b"LTR1";
 const REMOVED: u32 = u32::MAX;
 /// The journal is folded into `resume.db` once it is at least this big and half its size.
 const COMPACT_LOG_MIN: u64 = 4 * 1024 * 1024;
-const DB_FORMAT: &str = "patorrent resume db";
+const DB_FORMAT: &str = "rookparcel resume db";
+/// What PaTorrent wrote (D59); read as [`DB_FORMAT`], which the next save writes.
+const OLD_DB_FORMAT: &str = "patorrent resume db";
 /// Suffix of the pack key that holds a torrent's v2 piece layers.
 const LAYERS_SUFFIX: &str = ".layers";
 /// The journal buffer is freed after a flush when it grew past this.
@@ -486,7 +488,8 @@ pub(crate) fn parse_db<'a>(buf: &'a [u8], records: &mut BTreeMap<String, &'a [u8
     let token_limit = (buf.len() / 2).max(16);
     let doc = bdecode_with_limits(buf, DEFAULT_DEPTH_LIMIT, token_limit)
         .map_err(|e| Error::InvalidResumeData(format!("{RESUME_DB}: {}", e.kind.message())))?;
-    let root = doc.root().filter(|r| r.dict_find_str("file-format") == Some(DB_FORMAT));
+    let root =
+        doc.root().filter(|r| matches!(r.dict_find_str("file-format"), Some(DB_FORMAT | OLD_DB_FORMAT)));
     let root = root.ok_or_else(|| Error::InvalidResumeData(format!("{RESUME_DB}: not a resume database")))?;
     if let Some(t) = root.dict_find_dict("torrents") {
         for (key, rec) in t.dict_iter().nodes() {
@@ -594,6 +597,19 @@ mod tests {
         // resume.db: not ours, and not bencode
         assert!(parse_db(b"d11:file-format3:fooe", &mut BTreeMap::new()).is_err());
         assert!(parse_db(b"d8:torrents", &mut BTreeMap::new()).is_err());
+    }
+
+    /// D59: PaTorrent's `resume.db` loads; the next save writes the new tag.
+    #[test]
+    fn a_patorrent_resume_db_loads() {
+        for (format, ok) in [(OLD_DB_FORMAT, true), (DB_FORMAT, true), ("libretorrent resume db", false)] {
+            let db = format!("d11:file-format{}:{format}8:torrentsd1:ad1:xi1eeee", format.len());
+            let mut records = BTreeMap::new();
+            assert_eq!(parse_db(db.as_bytes(), &mut records).is_ok(), ok, "{format}");
+            if ok {
+                assert_eq!(records.keys().collect::<Vec<_>>(), ["a"], "{format}");
+            }
+        }
     }
 
     /// A portable folder (D42): save paths and absolute mapped files inside it are written

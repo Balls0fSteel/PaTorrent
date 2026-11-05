@@ -1,4 +1,4 @@
-// PaTorrent's own OS glue, not ported (libtorrent uses OpenSSL through Boost.Asio).
+// Rookparcel's own OS glue, not ported (libtorrent uses OpenSSL through Boost.Asio).
 
 //! TLS sessions on Secure Transport, the TLS library of macOS's Security.framework, and server
 //! identities made from PEM files without the keychain.
@@ -677,7 +677,7 @@ fn raw_private_key(key: &pem::Block, cert: &[u8]) -> io::Result<(KeyKind, Vec<u8
 fn signs_for(key: &Cf, cert: &Cf, kind: KeyKind) -> io::Result<bool> {
     // SAFETY: a live certificate; we own its key (null when Security cannot read it).
     let Some(public) = Cf::new(unsafe { SecCertificateCopyKey(cert.0) }) else { return Ok(false) };
-    let message = data(b"PaTorrent checks that the key belongs to the certificate")?;
+    let message = data(b"Rookparcel checks that the key belongs to the certificate")?;
     let algorithm = kind.signature_algorithm();
     let mut err: CFTypeRef = ptr::null();
     // SAFETY: live key and data; we own the signature and any error.

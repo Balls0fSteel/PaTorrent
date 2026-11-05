@@ -1,8 +1,8 @@
 # RSS Downloader
 
-This page explains how to follow RSS feeds in PaTorrent and download from them: adding feeds, downloading items by hand, filters that download matching items automatically, episode and quality matching, and the history. It covers the Windows window first, then the GTK window (Linux, BSD, macOS) and the Web UI.
+This page explains how to follow RSS feeds in Rookparcel and download from them: adding feeds, downloading items by hand, filters that download matching items automatically, episode and quality matching, and the history. It covers the Windows window first, then the GTK window (Linux, BSD, macOS) and the Web UI.
 
-The RSS Downloader works like µTorrent 2.2.1's. Many torrent sites and trackers publish a feed of their new releases; PaTorrent checks your feeds every 15 minutes and adds what your filters ask for.
+The RSS Downloader works like µTorrent 2.2.1's. Many torrent sites and trackers publish a feed of their new releases; Rookparcel checks your feeds every 15 minutes and adds what your filters ask for.
 
 ## Opening the RSS Downloader
 
@@ -53,7 +53,7 @@ Feeds are checked every 15 minutes. Feed downloads and the `.torrent` files they
 
 The main window's category list has a **Feeds** branch with each feed under it. Click a feed (or **Feeds** for all of them) and the torrent list shows the feed's items instead of your torrents, with the columns **Name**, **Episode**, **Format**, **Date**, **Feed** and **URL**.
 
-- **Episode** shows what PaTorrent read from the title: `1x02`, a range such as `1x02-03`, an absolute number such as `12` (anime), or an air date such as `2026-10-19`.
+- **Episode** shows what Rookparcel read from the title: `1x02`, a range such as `1x02-03`, an absolute number such as `12` (anime), or an air date such as `2026-10-19`.
 - **Format** shows the qualities named in the title, such as `720p` or `HDTV`.
 
 To download an item, double-click it, or right-click it and choose **Download**. You can select several items first. An item you download by hand gets the feed's name as its label and goes into the History, as a filter's download would.
@@ -121,7 +121,7 @@ The **Episode number** field takes one or more ranges, separated by `,` or `;`:
 | `1-12`, `100-` | Episodes 1 to 12; episode 100 and later. |
 | `2026.10.19` | The episode that aired on that date (for daily shows). |
 
-PaTorrent reads episodes from titles written as `S01E02` (also `S01E02E03`, `S01E02-E03`), `1x02`, an air date (`2026.10.19`, `2026-10-19`), or an absolute number (`Show - 12`, `Episode 12`). A season pack such as `Show.S01.Complete` names no episode, so a filter with an episode number does not take it. A field PaTorrent cannot read matches nothing.
+Rookparcel reads episodes from titles written as `S01E02` (also `S01E02E03`, `S01E02-E03`), `1x02`, an air date (`2026.10.19`, `2026-10-19`), or an absolute number (`Show - 12`, `Episode 12`). A season pack such as `Show.S01.Complete` names no episode, so a filter with an episode number does not take it. A field Rookparcel cannot read matches nothing.
 
 ### Qualities
 
@@ -159,16 +159,16 @@ Differences:
 
 - **Save in** is a folder on the server, not on the computer with the browser. The **...** button asks for a path; empty means the server's default download folder.
 - Which Web UI you use decides whose feeds you edit:
-  - **`patorrent-nox`** keeps its own feeds and filters (in `rss.dat` beside `webui.json`) and runs them on the server, with no window open. It runs the RSS Downloader only while its Web UI is on. See [Running patorrent-nox](Running-patorrent-nox).
+  - **`rookparcel-nox`** keeps its own feeds and filters (in `rss.dat` beside `webui.json`) and runs them on the server, with no window open. It runs the RSS Downloader only while its Web UI is on. See [Running rookparcel-nox](Running-rookparcel-nox).
   - **The Web UI a Windows window hosts** edits that window's own feeds and filters: there is one RSS Downloader, shown in both places. See [Web UI](Web-UI).
 - The Web UI also answers the RSS part of qBittorrent's Web API, so a qBittorrent remote app can list feeds and set rules. Its rules use the wildcard syntax above; the regular-expression option is ignored, and feed folders are not supported.
 
 ## Remote windows
 
-A window connected to another PaTorrent (File > Connect to Remote, see [Remote control](Remote-control)) has its own feeds and filters, kept on this computer. They are checked from this computer, and what they download is added to the remote server.
+A window connected to another Rookparcel (File > Connect to Remote, see [Remote control](Remote-control)) has its own feeds and filters, kept on this computer. They are checked from this computer, and what they download is added to the remote server.
 
 ## Where feeds are stored
 
-The feeds, filters and history are in `rss.dat` in your settings folder, beside `patorrent.ini` (for a remote window, in its own `remote\<host>_<port>` folder there). See [Where PaTorrent keeps its files](Where-PaTorrent-keeps-its-files).
+The feeds, filters and history are in `rss.dat` in your settings folder, beside `rookparcel.ini` (for a remote window, in its own `remote\<host>_<port>` folder there). See [Where Rookparcel keeps its files](Where-Rookparcel-keeps-its-files).
 
 For one-off searches instead of feeds, see [Searching for torrents](Searching-for-torrents). For Sonarr and Radarr, which do their own feed checking, see [Sonarr, Radarr and Prowlarr](Sonarr-Radarr-and-Prowlarr).

@@ -9,6 +9,14 @@ work and the original wording remain in the [dated plan](archive/PLAN-2026-10-23
 Approved constraints are in [DECISIONS.md](DECISIONS.md); implementation differences
 belong in [PORTING.md](PORTING.md); document deliberate setting-default changes.
 
+## Bug hunt findings (2026-11-05)
+
+- 2026-11-05_082716_1793863636: a read-only review of all five crates found 38 defects, none fixed yet; the list with file:line,
+  scenarios and fix directions is [BUGHUNT-2026-11-05.md](BUGHUNT-2026-11-05.md). The five high ones: the
+  Web UI's bypass names as `SID` cookies, the `is_idna` panic on a non-ASCII web seed host, a borrowed
+  file name collapsing a path to the torrent root, a disk barrier waiting behind other torrents' checks
+  and stalling every peer, and `/pa/remote` skipping the path policy. Fix the high ones before 1.2.0 (D58).
+
 ## Security and TLS
 
 - Open from the 1.1.32 review (2026-11-02_220138_1793653298; details and proposals in

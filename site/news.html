@@ -44,6 +44,25 @@
     <!-- Newest first. site/build.py makes news.atom and the home page's latest-news line from
          these articles: keep the id, data-date, news-title and news-lede (docs/WEBSITE.md). -->
 
+    <article class="news-entry" id="v1.2.0" data-date="2026-11-05" aria-labelledby="v1.2.0-h">
+      <h2 id="v1.2.0-h"><a href="#v1.2.0"><time datetime="2026-11-05">Thu 5 Nov 2026</time> — <span class="news-title">PaTorrent 1.2.0</span></a></h2>
+      <p class="news-lede">Profiles run several independent PaTorrents side by side, and portable mode now works on every platform. A bug hunt fixed a Web UI login bypass and a peer message that crashed the engine, so every user of 1.1.40 should update.</p>
+      <ul class="changes">
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>Profiles: File &gt; Profiles or <code>--profile work</code> starts a separate PaTorrent with its own settings, torrents, ports and window, in both GUIs and <code>patorrent-nox</code>.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>Portable mode on Windows, Linux, BSD and macOS: an empty <code>patorrent.ini</code> keeps everything in the program's folder, with relative paths, so the folder can move without a recheck.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>A Setup Guide at a profile's first start asks about downloads, your router, your disks and starting with the system. Options &gt; Setup Guide opens it again.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>Help for every setting: tooltips, a help pane under each Preferences page, and F1.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>A filter in the Files tab shows the files whose path contains the words you type.</span></li>
+        <li><span class="tag tag-new">New</span><span class="vh">:</span> <span>Use only this network (Preferences &gt; Connection) binds torrent traffic to a VPN adapter, a named adapter or an address range, and waits while it is missing.</span></li>
+        <li><span class="tag tag-area">Search</span><span class="vh">:</span> <span>An optional search helper downloads Jackett at your click, checks it and runs it on this computer only while you search.</span></li>
+        <li><span class="tag tag-plat">GTK</span><span class="vh">:</span> <span>Every other row is shaded, and Ctrl+S, Ctrl+T, Ctrl+Shift+P and Enter work as on Windows.</span></li>
+        <li><span class="tag tag-fix">Fix</span><span class="vh">:</span> <span>A move or priority change no longer stalls every transfer behind another torrent's check; peers that connect during a check are served; UPnP no longer spins after a port change.</span></li>
+        <li><span class="tag tag-sec">Security</span><span class="vh">:</span> <span>A bug hunt found 38 problems and fixed 37 (one was not a problem), among them a Web UI login bypass, two ways a peer or web seed could crash the engine, and a crafted file name that escaped its folder.</span></li>
+      </ul>
+      <p class="news-note">Settings and torrents from 1.1.x carry over unchanged. A GUI and the <code>patorrent-nox</code> it drives remotely must both be 1.2.0. A portable folder written by 1.2.0 needs 1.2.0 or later.</p>
+      <p class="news-links"><a href="https://github.com/Balls0fSteel/PaTorrent/releases/tag/v1.2.0">Download 1.2.0 on GitHub</a> · <a href="https://github.com/Balls0fSteel/PaTorrent/blob/main/docs/releases/1.2.0.md">Full release notes</a></p>
+    </article>
+
     <article class="news-entry" id="v1.1.40" data-date="2026-11-03" aria-labelledby="v1.1.40-h">
       <h2 id="v1.1.40-h"><a href="#v1.1.40"><time datetime="2026-11-03">Tue 3 Nov 2026</time> — <span class="news-title">PaTorrent 1.1.40</span></a></h2>
       <p class="news-lede">A gamer mode that keeps your ping low while PaTorrent downloads, and smart disk I/O that keeps checks and transfers from hogging your disks. The Windows GUI now updates itself, and both GUIs show what they are doing while they close.</p>

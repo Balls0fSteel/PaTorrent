@@ -881,7 +881,9 @@ pub(crate) fn decode_command(frame: &[u8]) -> Option<Command> {
 pub(crate) fn encode_alert(a: &Alert, e: &mut Enc) {
     match a {
         Alert::TorrentAdded { id, info_hashes, name } => message!(e, "TorrentAdded", id, info_hashes, name),
-        Alert::AddTorrentFailed { name, error } => message!(e, "AddTorrentFailed", name, error),
+        Alert::AddTorrentFailed { name, info_hashes, error } => {
+            message!(e, "AddTorrentFailed", name, info_hashes, error)
+        }
         Alert::TorrentRemoved { id, info_hashes } => message!(e, "TorrentRemoved", id, info_hashes),
         Alert::TorrentsRestored { count, dir } => message!(e, "TorrentsRestored", count, dir),
         Alert::TorrentDeleted { id, info_hashes } => message!(e, "TorrentDeleted", id, info_hashes),
@@ -958,7 +960,9 @@ pub(crate) fn decode_alert(frame: &[u8]) -> Option<Alert> {
     decode(frame, |name, f| {
         Some(match name {
             "TorrentAdded" => Alert::TorrentAdded { id: f.next()?, info_hashes: f.next()?, name: f.next()? },
-            "AddTorrentFailed" => Alert::AddTorrentFailed { name: f.next()?, error: f.next()? },
+            "AddTorrentFailed" => {
+                Alert::AddTorrentFailed { name: f.next()?, info_hashes: f.next()?, error: f.next()? }
+            }
             "TorrentRemoved" => Alert::TorrentRemoved { id: f.next()?, info_hashes: f.next()? },
             "TorrentsRestored" => Alert::TorrentsRestored { count: f.next()?, dir: f.next()? },
             "TorrentDeleted" => Alert::TorrentDeleted { id: f.next()?, info_hashes: f.next()? },

@@ -611,8 +611,10 @@ unsafe extern "system" fn results_proc(dlg: HWND, msg: u32, wp: WPARAM, lp: LPAR
                 0
             }
             WM_APP_SEARCH => {
+                // read before collect: its merge re-sorts the results the rows index
+                let keep = selected_keys(dlg, st);
                 if st.search.as_mut().is_some_and(Search::collect) {
-                    refill(dlg, st);
+                    refill_keeping(dlg, st, keep);
                 }
                 1
             }
@@ -793,14 +795,31 @@ unsafe fn sort_by(dlg: HWND, st: &mut Results, col: Col, desc: bool) {
 /// selected results stay selected.
 unsafe fn refill(dlg: HWND, st: &mut Results) {
     unsafe {
-        let lv = item(dlg, ID_LIST);
-        let Some(s) = st.search.as_ref() else { return };
+        let keep = selected_keys(dlg, st);
+        refill_keeping(dlg, st, keep);
+    }
+}
+
+/// The selected results' keys ([`result_key`]), for [`refill_keeping`]. The rows index the
+/// results as the list was filled: read this before `Search::collect` moves them.
+unsafe fn selected_keys(dlg: HWND, st: &Results) -> Vec<(String, Option<u64>)> {
+    unsafe {
+        let Some(s) = st.search.as_ref() else { return Vec::new() };
         let results = s.results();
-        let keep: Vec<(String, Option<u64>)> = controls::selected(lv)
+        controls::selected(item(dlg, ID_LIST))
             .into_iter()
             .filter_map(|row| st.rows.get(row).and_then(|&i| results.get(i)))
             .map(result_key)
-            .collect();
+            .collect()
+    }
+}
+
+/// [`refill`] with the results to select given by their keys.
+unsafe fn refill_keeping(dlg: HWND, st: &mut Results, keep: Vec<(String, Option<u64>)>) {
+    unsafe {
+        let lv = item(dlg, ID_LIST);
+        let Some(s) = st.search.as_ref() else { return };
+        let results = s.results();
         st.names = s.sources().iter().map(|x| x.source.label()).collect();
         st.rows = sorted(results, &st.names, st.sort.0, st.sort.1);
         let lines: Vec<String> = s
@@ -1713,11 +1732,78 @@ mod tests {
     }
 
     fn open_results(shared: &Rc<RefCell<Shared>>, query: &str, pick: Pick) -> HWND {
+        open_results_with(shared, query, pick, Arc::new(Fake))
+    }
+
+    fn open_results_with(
+        shared: &Rc<RefCell<Shared>>,
+        query: &str,
+        pick: Pick,
+        fetcher: Arc<dyn Fetcher>,
+    ) -> HWND {
         init_controls();
-        TEST_FETCHER.with(|f| *f.borrow_mut() = Some(Arc::new(Fake)));
+        TEST_FETCHER.with(|f| *f.borrow_mut() = Some(fetcher));
         let dlg = open(null_mut(), Box::new(TestHost(shared.clone())), query, pick);
         assert!(!dlg.is_null(), "the template does not load");
         dlg
+    }
+
+    /// [`Fake`], except that a source whose URL has `slow` answers with one well-seeded result
+    /// once the gate opens.
+    struct Gated(Arc<std::sync::atomic::AtomicBool>);
+
+    impl Fetcher for Gated {
+        fn search(
+            &self,
+            source: &Source,
+            query: &Query,
+            proxy: Option<&FetchProxy>,
+        ) -> Result<Vec<SearchResult>, SearchError> {
+            if !source.url.contains("slow") {
+                return Fake.search(source, query, proxy);
+            }
+            let start = Instant::now();
+            while !self.0.load(std::sync::atomic::Ordering::Acquire)
+                && start.elapsed() < Duration::from_secs(10)
+            {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            Ok(vec![result(
+                &format!("{} zulu", query.text),
+                Some(500),
+                3_000,
+                "dd".repeat(20).as_str(),
+                unix_now(),
+            )])
+        }
+    }
+
+    /// A source that answers after the user picked a result moves the results (most seeders
+    /// first); the selection follows the result, not its old row.
+    #[test]
+    fn the_selection_follows_a_late_source() {
+        let all = vec![
+            source("Prowlarr", "http://127.0.0.1:9696/1/api", true),
+            source("Slow", "http://127.0.0.1:9696/slow/api", true),
+        ];
+        let shared = Rc::new(RefCell::new(Shared { sources: all, ..Shared::default() }));
+        let gate = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let dlg = open_results_with(&shared, "ubuntu", Pick::All, Arc::new(Gated(gate.clone())));
+        let lv = unsafe { item(dlg, ID_LIST) };
+        assert!(
+            pump_until(|| text(dlg, ID_STATUS).contains("Prowlarr: 3 results")),
+            "{}",
+            text(dlg, ID_STATUS)
+        );
+        let names = |lv| rows(lv).into_iter().map(|r| r[0].clone()).collect::<Vec<_>>();
+        assert_eq!(names(lv), ["ubuntu Bravo", "ubuntu alpha", "ubuntu charlie"]);
+        unsafe { controls::set_state(lv, Some(1), true, true) };
+        assert_eq!(unsafe { controls::selected(lv) }, [1], "alpha is picked");
+        gate.store(true, std::sync::atomic::Ordering::Release);
+        assert!(pump_until(|| !text(dlg, ID_STATUS).contains("searching")), "{}", text(dlg, ID_STATUS));
+        assert_eq!(names(lv), ["ubuntu zulu", "ubuntu Bravo", "ubuntu alpha", "ubuntu charlie"]);
+        assert_eq!(unsafe { controls::selected(lv) }, [2], "alpha is still the one picked");
+        unsafe { DestroyWindow(dlg) };
     }
 
     #[test]

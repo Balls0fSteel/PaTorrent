@@ -595,11 +595,12 @@ fn exchange<S: Read + Write>(
     let mut chunk = [0u8; 16 * 1024];
     // the head, once it is in: (content length or -1, chunked, body offset)
     let mut framing: Option<(i64, bool, usize)> = None;
-    // the head of a body on its way to the sink, and how much of it went there
-    let mut streaming: Option<http_parser::ResponseHead> = None;
+    // the response of a body on its way to the sink (its head, no body), and how much went there
+    let mut streaming: Option<http::Response> = None;
     let mut streamed: u64 = 0;
     let mut deadline = deadline;
-    // keeps its place across reads, so a chunked body is decoded once, not after every read
+    // keeps its place across reads, so a chunked body is decoded once, not after every read;
+    // the head comes from the lenient parser below, this one decodes the body
     let mut parser = http::ResponseParser::new(max);
     let result = loop {
         if streaming.is_some() {
@@ -619,31 +620,47 @@ fn exchange<S: Read + Write>(
                     "the TLS connection ended without close_notify: the response may be cut short",
                 ));
             }
-            if let Some(head) = streaming {
-                if head.content_length >= 0 && streamed < head.content_length as u64 {
+            let Some((len, ..)) = framing else {
+                // the head never came whole (the lenient parser saw every byte of it)
+                break Err(ParseError::Invalid("truncated HTTP header"));
+            };
+            if let Some(resp) = streaming {
+                if len >= 0 && streamed < len as u64 {
                     break Err(ParseError::Incomplete);
                 }
-                break Ok(streamed_response(head));
+                break Ok(resp);
             }
             break parser.parse(&buf, true);
         }
         buf.extend_from_slice(&chunk[..n]);
         if framing.is_none() {
+            // the lenient parser frames the response (it skips interim 1xx heads and reads a
+            // header's bytes as they come), and the response is built from the same parse: the
+            // strict one used to parse the head again and could refuse what this one framed
             match http_parser::parse_head(&buf) {
-                // no body, whatever the head says (RFC 9112 6.3)
-                Ok(Some((head, _))) if matches!(head.status, 204 | 304) => break parser.parse(&buf, false),
                 Ok(Some((head, body))) => {
-                    framing = Some((head.content_length, head.chunked, body));
-                    if sink.is_some() && (200..300).contains(&head.status) && !head.chunked {
-                        streaming = Some(head);
+                    let resp = match head_response(&head) {
+                        Ok(resp) => resp,
+                        Err(e) => break Err(e),
+                    };
+                    let to_sink = sink.is_some() && (200..300).contains(&head.status) && !head.chunked;
+                    let to_sink = to_sink.then(|| resp.clone());
+                    if let Err(e) = parser.start_body(resp, body, head.chunked, head.content_length) {
+                        break Err(e);
                     }
+                    // no body, whatever the head says (RFC 9112 6.3)
+                    if matches!(head.status, 204 | 304) {
+                        break parser.parse(&buf, false);
+                    }
+                    framing = Some((head.content_length, head.chunked, body));
+                    streaming = to_sink;
                 }
                 Ok(None) => {}
                 Err(http_parser::ParseError::Invalid(e)) => return Err(FetchError::Http(e)),
             }
         }
         let Some((len, chunked, body)) = framing else { continue };
-        if let (Some(head), Some(sink)) = (&streaming, sink.as_mut()) {
+        if let (Some(resp), Some(sink)) = (&streaming, sink.as_mut()) {
             // the limit holds before anything reaches the sink: a length over it is refused
             // from the head, and a body only the close frames stops at the limit
             if len > max as i64 {
@@ -663,7 +680,7 @@ fn exchange<S: Read + Write>(
                 buf.truncate(body);
             }
             if len >= 0 && streamed >= len as u64 {
-                break Ok(streamed_response(head.clone()));
+                break Ok(resp.clone());
             }
             continue;
         }
@@ -687,14 +704,23 @@ fn exchange<S: Read + Write>(
     }
 }
 
-/// The response of a body that went to the sink: its head, no body.
-fn streamed_response(head: http_parser::ResponseHead) -> http::Response {
-    http::Response {
-        status: head.status.clamp(0, u16::MAX as i32) as u16,
-        message: head.message,
-        headers: head.headers,
-        body: Vec::new(),
+/// The response of a parsed head, with no body yet. The names come lower-cased; a value loses
+/// its trailing whitespace, and one with a bare CR is refused as the strict parser refuses it:
+/// it would carry into a redirect's request line (SEC-19).
+fn head_response(head: &http_parser::ResponseHead) -> Result<http::Response, ParseError> {
+    let mut headers = Vec::with_capacity(head.headers.len());
+    for (k, v) in &head.headers {
+        if k.contains('\r') || v.contains('\r') {
+            return Err(ParseError::Invalid("invalid HTTP header"));
+        }
+        headers.push((k.clone(), v.trim().to_owned()));
     }
+    Ok(http::Response {
+        status: head.status.clamp(0, u16::MAX as i32) as u16,
+        message: head.message.clone(),
+        headers,
+        body: Vec::new(),
+    })
 }
 
 #[cfg(test)]
@@ -745,6 +771,29 @@ mod tests {
         assert!(head.contains(&format!("\r\nUser-Agent: {}\r\n", crate::USER_AGENT)), "{head}");
         assert!(head.contains("\r\nCookie: uid=1; pass=xEvil: 1\r\n\r\n"), "{head}");
         assert!(!head.contains("\r\nEvil:"));
+    }
+
+    /// The response is built from the lenient parse that framed it: a header's bytes as they
+    /// come (a Latin-1 file name), the interim heads before the final one skipped (a `100
+    /// Continue`, a `103 Early Hints`), and the strict parser's refusal of a bare CR kept.
+    #[test]
+    fn interim_heads_and_latin1_headers() {
+        let (base, _rx) = serve(vec![
+            b"HTTP/1.1 200 OK\r\nContent-Disposition: attachment; filename=\"M\xFCnchen.torrent\"\r\nContent-Length: 5\r\n\r\nhello".to_vec(),
+            b"HTTP/1.1 100 Continue\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello".to_vec(),
+            b"HTTP/1.1 103 Early Hints\r\nLink: </s.css>; rel=preload\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 5\r\n\r\nhello".to_vec(),
+            b"HTTP/1.1 200 OK\r\nLocation: x\ry\r\nContent-Length: 5\r\n\r\nhello".to_vec(),
+        ]);
+        let r = http_get(&base, &opts()).unwrap();
+        assert_eq!((r.status, &r.body[..]), (200, &b"hello"[..]));
+        assert_eq!(r.header("Content-Disposition"), Some("attachment; filename=\"M\u{FC}nchen.torrent\""));
+        for _ in 0..2 {
+            let r = http_get(&base, &opts()).unwrap();
+            assert_eq!((r.status, &r.body[..]), (200, &b"hello"[..]));
+            assert_eq!(r.header("link"), None);
+        }
+        let e = http_get(&base, &opts()).unwrap_err();
+        assert!(matches!(e, FetchError::Http("invalid HTTP header")), "{e}");
     }
 
     /// `http_get_to`: a body with a length goes to the sink as it arrives (with the length),

@@ -1,6 +1,6 @@
 # Planning and changelog history
 
-Last updated: 2026-11-05_082716_1793863636
+Last updated: 2026-11-05_090015_1793865615
 
 Start with [PLAN.md](../../PLAN.md) and [CHANGELOG.md](../../CHANGELOG.md). Active decision rationale is in [DECISIONS.md](../DECISIONS.md); detailed unfinished work is in [BACKLOG.md](../BACKLOG.md).
 
@@ -47,6 +47,7 @@ These are historical snapshots, not current instructions or task lists. Load the
 | [Changelog, 2026-11-04, v1.1.59 to v1.1.62](CHANGELOG-2026-11-04--2026-11-04-v1.1.59-v1.1.62.md) | `2026-11-04_102555_1793784355:` through `2026-11-04_105640_1793786200:` | 4 entries moved verbatim from the root changelog on 2026-11-04_233216_1793831536: the search helper (1.1.59, D51), the Win32 stub and help-pane fixes (1.1.60-1.1.61), the Setup Guide (1.1.62, D53) |
 | [Changelog, 2026-11-04, v1.1.63 and the search guide](CHANGELOG-2026-11-04--2026-11-04-v1.1.63-search-guide.md) | `2026-11-04_113334_1793788414:` through `2026-11-04_153257_1793802777:` | 3 entries moved verbatim from the root changelog on 2026-11-05_082716_1793863636: the real Jackett run and the helper's job object (1.1.63, D51), the real-Jackett checklist on three systems, the Windows search guide |
 | [Plan snapshot, 2026-10-23](PLAN-2026-10-23.md) | Last updated `2026-10-23_155639_1792763799` | The complete original plan, including phase checklists, decisions D1-D26, resolved questions and historical TODO notes. Superseded claims remain as historical evidence. |
+| [Changelog, 2026-11-04, v1.1.64 to v1.1.68](CHANGELOG-2026-11-04--2026-11-04-v1.1.64-v1.1.68.md) | `2026-11-04_211029_1793823029:` through `2026-11-04_235726_1793833046:` | 8 entries moved verbatim from the root changelog on 2026-11-05_090015_1793865615: the user guide on the wiki, the FreeBSD CI skip, the owner's settled decisions, the Files filter's × (1.1.64, D50/D53), the help texts checked (1.1.65, D55), the `reqq` engine fix (1.1.66), the helper in nox and the Web UI (1.1.67, D51), the cancelled helper update (1.1.68) |
 
 To locate an old event, search before opening the file:
 

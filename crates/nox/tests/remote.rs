@@ -264,7 +264,7 @@ fn the_save_roots_bind_remote_sessions() {
     p.save_path = outside.clone();
     h.add_torrent(p);
     let error = h.wait_for(|a| match a {
-        Alert::AddTorrentFailed { name, error } if name == "outside" => Some(error.to_string()),
+        Alert::AddTorrentFailed { name, error, .. } if name == "outside" => Some(error.to_string()),
         _ => None,
     });
     assert!(error.contains("outside the folders"), "{error}");

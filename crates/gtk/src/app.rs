@@ -142,6 +142,9 @@ thread_local! {
     static START_MINIMIZED: Cell<bool> = const { Cell::new(false) };
     /// Quitting: the window closes instead of going into the tray.
     static QUITTING: Cell<bool> = const { Cell::new(false) };
+    /// The main window closed and its session is stopping behind the closing window (D47),
+    /// which ends the application once it is done: a quit meanwhile has nothing more to do.
+    static CLOSING: Cell<bool> = const { Cell::new(false) };
     /// The desktop session is ending (`query-end`): the closing window shows at once.
     static LOGOUT: Cell<bool> = const { Cell::new(false) };
     /// The first window is on its way (after the new profile's question or a remote window's
@@ -1471,6 +1474,11 @@ fn tray_command(c: TrayCommand) {
 /// saves and stops the session on the way.
 fn quit_app() {
     QUITTING.with(|q| q.set(true));
+    if CLOSING.with(Cell::get) {
+        // the tray's Exit, SIGTERM or Ctrl+C after the main window closed: its session is still
+        // saving, and the application ends with that, not before it
+        return;
+    }
     let Some(app) = with_app(|a| a.window.application()).flatten() else {
         // nothing started yet (a start-up question or error is up): nothing to save
         if let Some(app) = gio::Application::default() {
@@ -1590,7 +1598,10 @@ fn shutdown() {
     if let Some(s) = app.session.take() {
         // behind the closing window when it takes long; the application lives until it is done
         match app.window.application() {
-            Some(gtk_app) => crate::closing::start(&gtk_app, s.begin_shutdown(), LOGOUT.with(Cell::get)),
+            Some(gtk_app) => {
+                CLOSING.with(|c| c.set(true));
+                crate::closing::start(&gtk_app, s.begin_shutdown(), LOGOUT.with(Cell::get));
+            }
             None => s.shutdown(),
         }
     }
@@ -1603,8 +1614,8 @@ fn on_alerts() {
     let mut suspend = None;
     let mut completed = Vec::new();
     let done = with_app(|a| {
-        let mut alerts = std::mem::take(&mut a.alerts);
-        a.handle.pop_alerts(&mut alerts);
+        // the alerts a dialog saved while it waited (fetch_trackers) come first
+        let mut alerts = properties::take_alerts(&a.handle, &mut a.alerts);
         for alert in alerts.drain(..) {
             // the adapters and the network status (D54)
             patorrent_frontend::network::on_alert(&alert);
@@ -1659,7 +1670,7 @@ fn on_alerts() {
                     }
                     a.handle.post_torrent_updates();
                 }
-                Alert::AddTorrentFailed { ref name, ref error } => {
+                Alert::AddTorrentFailed { ref name, ref error, .. } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     errors.push((tr!(CannotAdd, name), error.to_string()));
                 }

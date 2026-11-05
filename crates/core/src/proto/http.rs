@@ -185,6 +185,39 @@ impl ResponseParser {
         self.work
     }
 
+    /// Continues after a head the caller parsed (with `http_parser::parse_head`, which skips
+    /// interim 1xx responses and takes a header's bytes as they come): `resp` is that head with
+    /// no body, the body starts at `body_start` of the buffer and is `chunked` or of
+    /// `content_length` bytes (-1: the close ends it). The `parse` calls that follow decode the
+    /// body only, so the two parsers cannot disagree on the head.
+    pub fn start_body(
+        &mut self,
+        resp: Response,
+        body_start: usize,
+        chunked: bool,
+        content_length: i64,
+    ) -> Result<(), ParseError> {
+        let framing = if matches!(resp.status, 204 | 304) {
+            Framing::Eof
+        } else if chunked {
+            Framing::Chunked
+        } else if content_length >= 0 {
+            let len = usize::try_from(content_length)
+                .map_err(|_| ParseError::Invalid("HTTP response too large"))?;
+            if len > self.max {
+                return Err(ParseError::Invalid("HTTP response too large"));
+            }
+            Framing::Length(len)
+        } else {
+            Framing::Eof
+        };
+        self.work += body_start;
+        self.pos = body_start;
+        self.chunk = Chunk::Header { scan: body_start };
+        self.head = Some((resp, body_start, framing));
+        Ok(())
+    }
+
     /// Parses `buf`, the whole response read so far: the bytes passed to the previous calls
     /// followed by any new ones (the buffer only grows; a new connection needs a new parser).
     /// With `eof`, a body without `Content-Length` or chunked framing ends at the end of the

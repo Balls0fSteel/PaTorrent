@@ -102,7 +102,12 @@ fn every_alert() -> Vec<Alert> {
     let addr: SocketAddr = "[2001:db8::1]:6881".parse().unwrap();
     vec![
         Alert::TorrentAdded { id, info_hashes: hashes(), name: "a".into() },
-        Alert::AddTorrentFailed { name: "b".into(), error: Error::DuplicateTorrent },
+        Alert::AddTorrentFailed {
+            name: "b".into(),
+            info_hashes: Some(hashes()),
+            error: Error::DuplicateTorrent,
+        },
+        Alert::AddTorrentFailed { name: String::new(), info_hashes: None, error: Error::MismatchingInfoHash },
         Alert::TorrentRemoved { id, info_hashes: hashes() },
         Alert::TorrentDeleted { id, info_hashes: InfoHashes { v1: None, v2: Some(Sha256Hash([1; 32])) } },
         Alert::TorrentDeleteFailed { id, info_hashes: hashes(), error: err() },

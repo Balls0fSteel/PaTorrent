@@ -115,7 +115,7 @@ const EXIT_ARGS: u32 = 2;
 const EXIT_LOG: u32 = 3;
 
 /// `run` options with a path for a value: made absolute at install.
-const PATH_OPTIONS: [&str; 10] = [
+const PATH_OPTIONS: [&str; 12] = [
     "--save",
     "--state",
     "--state-dir",
@@ -126,6 +126,8 @@ const PATH_OPTIONS: [&str; 10] = [
     "--move-on-complete",
     "--webui-cert",
     "--webui-key",
+    "--webui-save-root",
+    "--import-dir",
 ];
 
 const USAGE: &str = "install, uninstall, start, stop, status, run or debug (patorrent-nox --help)";
@@ -1768,6 +1770,10 @@ mod tests {
                 "me",
                 "--webui-pass",
                 "a b",
+                "--webui-save-root",
+                "roots",
+                "--import-dir",
+                "imp",
                 "--start",
                 "manual",
                 "--replace",
@@ -1798,6 +1804,11 @@ mod tests {
                 "0.0.0.0:8080",
                 "--webui-user",
                 "me",
+                // a service starts in System32: the save roots and the import folder absolute too
+                "--webui-save-root",
+                &abs("roots"),
+                "--import-dir",
+                &abs("imp"),
                 "--seed",
                 "-v",
                 "--no-update-check",

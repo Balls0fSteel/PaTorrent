@@ -44,7 +44,7 @@ pub const UPGRADE: &str = "patorrent-remote";
 /// The request header naming the client's protocol version.
 pub const VERSION_HEADER: &str = "X-PaTorrent-Remote";
 /// The protocol version: both ends must run the same one (messages are positional).
-pub const PROTOCOL: u32 = 14;
+pub const PROTOCOL: u32 = 15;
 /// The largest frame either side accepts (a status update of 100,000 torrents is about
 /// 60 MB).
 pub const MAX_FRAME: usize = 256 << 20;
@@ -209,21 +209,20 @@ pub fn dispatch(
             }
             Err(why) => {
                 // named as the engine names a failed add: the info's name for a file, the
-                // display name for a magnet
+                // display name for a magnet; with the hashes where the source parses, so a
+                // watcher drops the right pending
                 use crate::params::TorrentSource;
-                let name = match (&p.name, &p.source) {
-                    (Some(n), _) => n.clone(),
-                    (None, TorrentSource::TorrentFile(bytes)) => {
-                        crate::metainfo::TorrentInfo::from_bytes(bytes)
-                            .map(|t| t.name().to_owned())
-                            .unwrap_or_default()
-                    }
-                    (None, TorrentSource::Magnet(uri)) => {
-                        crate::metainfo::parse_magnet_uri(uri).map(|m| m.name).unwrap_or_default()
-                    }
-                    (None, _) => String::new(),
+                let (parsed_name, info_hashes) = match &p.source {
+                    TorrentSource::TorrentFile(bytes) => crate::metainfo::TorrentInfo::from_bytes(bytes)
+                        .map(|t| (t.name().to_owned(), Some(t.info_hashes())))
+                        .unwrap_or_default(),
+                    TorrentSource::Magnet(uri) => crate::metainfo::parse_magnet_uri(uri)
+                        .map(|m| (m.name, Some(m.info_hashes)))
+                        .unwrap_or_default(),
+                    _ => (String::new(), None),
                 };
-                Request::Refused(Alert::AddTorrentFailed { name, error: refused(why) })
+                let name = p.name.clone().unwrap_or(parsed_name);
+                Request::Refused(Alert::AddTorrentFailed { name, info_hashes, error: refused(why) })
             }
         },
         Command::MoveStorage(id, target, flags) => match path(&target) {

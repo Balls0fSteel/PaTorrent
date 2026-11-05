@@ -2719,8 +2719,8 @@ unsafe fn on_alerts(hwnd: HWND) {
     let mut magnet_ready = false;
     let mut adapters = false;
     let Some((lists_changed, removed_any, repaint_page)) = with_app(|a| {
-        let mut alerts = std::mem::take(&mut a.alerts);
-        a.handle.pop_alerts(&mut alerts);
+        // the alerts a dialog saved while it waited (fetch_trackers) come first
+        let mut alerts = properties::take_alerts(&a.handle, &mut a.alerts);
         if let Some(w) = &a.web {
             w.on_alerts(&alerts);
         }
@@ -2787,7 +2787,7 @@ unsafe fn on_alerts(hwnd: HWND) {
                     a.handle.post_torrent_updates();
                     lists_changed = true;
                 }
-                Alert::AddTorrentFailed { ref name, ref error } => {
+                Alert::AddTorrentFailed { ref name, ref error, .. } => {
                     a.detail.push_log(format!("{} {}", now_hms(), alert.message()));
                     errors.push(tr!(ErrAddTorrent, name, error));
                     lists_changed = true;

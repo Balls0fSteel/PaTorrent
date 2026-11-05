@@ -441,6 +441,22 @@ pub fn fetch_trackers(
     found
 }
 
+/// The alerts for the frontend's alert loop: the ones a dialog saved while it waited
+/// ([`fetch_trackers`]), then what the engine queued since. `saved` is left empty, for the
+/// loop to hand back as the next buffer. `SessionHandle::pop_alerts` clears the Vec it fills,
+/// so the saved ones cannot be popped into.
+pub fn take_alerts(handle: &SessionHandle, saved: &mut Vec<Alert>) -> Vec<Alert> {
+    let mut alerts = std::mem::take(saved);
+    if alerts.is_empty() {
+        handle.pop_alerts(&mut alerts);
+    } else {
+        let mut popped = Vec::new();
+        handle.pop_alerts(&mut popped);
+        alerts.append(&mut popped);
+    }
+    alerts
+}
+
 #[cfg(test)]
 mod tests {
     use patorrent_core::{InfoHashes, Sha1Hash};
@@ -695,5 +711,30 @@ mod tests {
             }
         }
         assert!(status_ok && trackers_ok, "status {status_ok}, trackers {trackers_ok}");
+    }
+
+    /// What a dialog popped while it waited comes first, the engine's own alerts behind it.
+    #[test]
+    fn saved_alerts_survive_the_next_take() {
+        use patorrent_core::{AddTorrentParams, Alert, MockConfig, Session, Settings, TorrentSource};
+        use std::time::{Duration, Instant};
+
+        let s =
+            Session::start_mock(Settings { tick_interval: 50, ..Settings::default() }, MockConfig::default());
+        let h = s.handle();
+        let magnet = "magnet:?xt=urn:btih:00112233445566778899aabbccddeeff00112233&dn=p".to_owned();
+        h.add_torrent(AddTorrentParams::new(TorrentSource::Magnet(magnet), "/dl"));
+        // as fetch_trackers leaves it: an alert popped during the wait
+        let mut saved = vec![Alert::AlertsDropped { count: 7 }];
+        let mut alerts = Vec::new();
+        let deadline = Instant::now() + Duration::from_secs(10);
+        while !alerts.iter().any(|a| matches!(a, Alert::TorrentAdded { .. })) && Instant::now() < deadline {
+            let mut more = take_alerts(&h, &mut saved);
+            assert!(saved.is_empty(), "the buffer is handed back empty");
+            alerts.append(&mut more);
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        assert!(matches!(alerts.first(), Some(Alert::AlertsDropped { count: 7 })), "{alerts:?}");
+        assert!(alerts.iter().any(|a| matches!(a, Alert::TorrentAdded { .. })), "{alerts:?}");
     }
 }

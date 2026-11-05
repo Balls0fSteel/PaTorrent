@@ -104,8 +104,8 @@ const BANDWIDTH_TICK_FINE: Duration = Duration::from_millis(25);
 const SAVE_INTERVAL: Duration = Duration::from_secs(30);
 /// Adds and removals reach `resume.db` within this delay, so bulk adds rewrite it once.
 const STORE_FLUSH_DELAY: Duration = Duration::from_secs(2);
-/// libtorrent `piece_timeout`: no block from a peer with requests outstanding this long marks
-/// it snubbed.
+/// libtorrent `piece_timeout`: no block from a peer with requests outstanding this long (since
+/// its last block, or the request that refilled its empty queue) marks it snubbed.
 const PIECE_TIMEOUT: Duration = Duration::from_secs(20);
 const KEEPALIVE_INTERVAL: Duration = Duration::from_secs(90);
 const MAX_READS_IN_FLIGHT: usize = 8;
@@ -1835,25 +1835,30 @@ impl Engine {
 
     fn add_torrent(&mut self, p: AddTorrentParams) {
         let fallback_name = p.name.clone().unwrap_or_default();
+        // the hashes go with the failure when the source parsed that far
         let fail =
-            |e: &mut Engine, name: String, error: Error| e.alert(Alert::AddTorrentFailed { name, error });
+            |e: &mut Engine, name: String, info_hashes: Option<crate::types::InfoHashes>, error: Error| {
+                e.alert(Alert::AddTorrentFailed { name, info_hashes, error })
+            };
         let mut resume: Option<ResumeData> = None;
         let (ti, mut trackers) = match &p.source {
             TorrentSource::TorrentFile(bytes) => match TorrentInfo::from_bytes(bytes) {
                 Ok(ti) => (ti, Vec::new()),
-                Err(e) => return fail(self, fallback_name, e.into()),
+                Err(e) => return fail(self, fallback_name, None, e.into()),
             },
             TorrentSource::Resume(bytes) => {
                 let r = match ResumeData::decode(bytes) {
                     Ok(r) => r,
-                    Err(e) => return fail(self, fallback_name, e),
+                    Err(e) => return fail(self, fallback_name, None, e),
                 };
+                let hashes = Some(r.info_hashes);
                 let Some(info) = r.info.clone() else {
-                    return fail(self, r.name, Error::Unsupported("resume data without the info dictionary"));
+                    let e = Error::Unsupported("resume data without the info dictionary");
+                    return fail(self, r.name, hashes, e);
                 };
                 let ti = match TorrentInfo::from_info_section(&info, LoadLimits::default()) {
                     Ok(ti) => ti,
-                    Err(e) => return fail(self, r.name, e.into()),
+                    Err(e) => return fail(self, r.name, hashes, e.into()),
                 };
                 let tr: Vec<(String, u32)> = r
                     .trackers
@@ -1870,7 +1875,7 @@ impl Engine {
         let info_hashes = ti.info_hashes();
         if let Some(&existing) = info_hashes.wire_hashes().find_map(|h| self.by_hash.get(&h)) {
             if p.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR) {
-                return fail(self, ti.name().to_owned(), Error::DuplicateTorrent);
+                return fail(self, ti.name().to_owned(), Some(info_hashes), Error::DuplicateTorrent);
             }
             let name = self.torrent_ref(existing).map(|t| t.name.clone()).unwrap_or_default();
             self.alert(Alert::TorrentAdded { id: existing, info_hashes, name });
@@ -1969,7 +1974,8 @@ impl Engine {
             TorrentSource::Magnet(uri) => match parse_magnet_uri(uri) {
                 Ok(m) => m,
                 Err(e) => {
-                    return self.alert(Alert::AddTorrentFailed { name: fallback_name, error: e.into() });
+                    let (name, info_hashes) = (fallback_name, None);
+                    return self.alert(Alert::AddTorrentFailed { name, info_hashes, error: e.into() });
                 }
             },
             TorrentSource::InfoHash(ih) => MagnetUri { info_hashes: *ih, ..MagnetUri::default() },
@@ -1987,7 +1993,8 @@ impl Engine {
         };
         if let Some(&existing) = info_hashes.wire_hashes().find_map(|h| self.by_hash.get(&h)) {
             if p.flags.contains(TorrentFlags::DUPLICATE_IS_ERROR) {
-                return self.alert(Alert::AddTorrentFailed { name, error: Error::DuplicateTorrent });
+                let (info_hashes, error) = (Some(info_hashes), Error::DuplicateTorrent);
+                return self.alert(Alert::AddTorrentFailed { name, info_hashes, error });
             }
             let name = self.torrent_ref(existing).map(|t| t.name.clone()).unwrap_or_default();
             self.alert(Alert::TorrentAdded { id: existing, info_hashes, name });
@@ -2687,6 +2694,19 @@ impl Engine {
                 let finished = t.is_finished();
                 if finished && t.completed_time == 0 {
                     t.completed_time = now_unix();
+                }
+                // libtorrent `files_checked` re-initialises every connection: the peers that
+                // handshook before the check (a magnet's metadata sources, or while the files
+                // were checked) get our piece set and allowed-fast set now.
+                let slots = t.peers.clone();
+                for slot in slots {
+                    let waiting = self.peers.get(slot).is_some_and(|p| {
+                        p.state == PeerState::Active && p.closing.is_none() && !p.sent_bitfield
+                    });
+                    if waiting {
+                        self.write_bitfield(slot);
+                        self.write_allowed_fast(slot);
+                    }
                 }
                 if res.resume_failed {
                     self.alert(Alert::Log {
@@ -3766,13 +3786,23 @@ impl Engine {
         if choke {
             peer_wire::encode_simple(p.out(), msg::CHOKE);
             p.optimistic = false;
-            // Drop their queued requests (rejecting them when the fast extension allows).
-            let queued: Vec<_> = p.upload_queue.drain(..).chain(p.reads_in_flight.drain()).collect();
+            // Drop their queued requests, rejecting them when the fast extension allows; the
+            // requests for allowed-fast pieces stay and are served (libtorrent `send_choke`
+            // keeps `m_accept_fast`).
+            let fast = p.fast_set.clone();
+            let mut dropped = Vec::new();
+            let mut drop_unless_fast = |r: &(u32, u32, u32)| {
+                let keep = fast.contains(&r.0);
+                if !keep {
+                    dropped.push(*r);
+                }
+                keep
+            };
+            p.upload_queue.retain(&mut drop_unless_fast);
+            p.reads_in_flight.retain(&mut drop_unless_fast);
             if p.supports_fast {
-                for (piece, start, len) in queued {
-                    if !p.fast_set.contains(&piece) {
-                        peer_wire::encode_block_msg(p.out(), msg::REJECT, piece, start, len);
-                    }
+                for (piece, start, len) in dropped {
+                    peer_wire::encode_block_msg(p.out(), msg::REJECT, piece, start, len);
                 }
             }
         } else {

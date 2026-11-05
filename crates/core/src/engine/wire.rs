@@ -261,8 +261,10 @@ impl Engine {
             self.has_incoming = true;
         }
 
-        // Our piece set, then the extension handshake.
+        // Our piece set and allowed-fast set (once the files are checked), then the extension
+        // handshake.
         self.write_bitfield(slot);
+        self.write_allowed_fast(slot);
         let listen_port = self.announce_port();
         let reqq = self.settings.max_allowed_in_request_queue.max(1) as u32;
         let (p, t) = self.peer_and_torrent(slot).expect("exists");
@@ -270,19 +272,6 @@ impl Engine {
         let have = t.picker.as_ref().map(|pk| pk.have().clone()).unwrap_or_default();
         let count = have.count();
         let super_seeding = t.super_seeding();
-        // BEP 6 allowed-fast set for IPv4 peers, limited to pieces we have; none while super
-        // seeding (libtorrent `send_allowed_set`).
-        if p.supports_fast && count > 0 && !super_seeding {
-            if let std::net::IpAddr::V4(ip) = p.addr.ip() {
-                let ih = t.info_hashes.wire_hash(p.protocol_v2);
-                for piece in peer_wire::allowed_fast_set(ip, &ih, t.num_pieces, ALLOWED_FAST_SET_SIZE) {
-                    if have.get(piece as usize) {
-                        peer_wire::encode_u32(p.out(), msg::ALLOWED_FAST, piece);
-                        p.fast_set.push(piece);
-                    }
-                }
-            }
-        }
         if p.supports_extensions {
             // lt_donthave is built in; ut_metadata and ut_pex are left out for private
             // torrents (libtorrent adds no plugins for them).
@@ -565,6 +554,12 @@ impl Engine {
     /// HAVE_NONE (to peers with the fast extension) and two offered pieces instead.
     pub(super) fn write_bitfield(&mut self, slot: usize) {
         let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
+        // Not before the files are checked (libtorrent `ready_for_connections`): `on_checked`
+        // sends it to the peers kept across a magnet's metadata fetch and the check.
+        if t.picker.is_none() || t.checking {
+            return;
+        }
+        p.sent_bitfield = true;
         if t.super_seeding() {
             if p.supports_fast {
                 peer_wire::encode_simple(p.out(), msg::HAVE_NONE);
@@ -588,6 +583,26 @@ impl Engine {
             peer_wire::encode_simple(p.out(), msg::HAVE_NONE);
         } else if count > 0 {
             peer_wire::encode_bitfield(p.out(), have.as_bytes());
+        }
+        self.to_flush.push(slot);
+    }
+
+    /// BEP 6 allowed-fast set for IPv4 peers, limited to pieces we have, each piece once; none
+    /// while super seeding (libtorrent `send_allowed_set`). Follows the piece set, at the
+    /// handshake or when `on_checked` sends it late.
+    pub(super) fn write_allowed_fast(&mut self, slot: usize) {
+        let Some((p, Some(t))) = self.peer_and_torrent(slot) else { return };
+        let Some(have) = t.picker.as_ref().map(|pk| pk.have()) else { return };
+        if !p.supports_fast || t.checking || have.count() == 0 || t.super_seeding() {
+            return;
+        }
+        let std::net::IpAddr::V4(ip) = p.addr.ip() else { return };
+        let ih = t.info_hashes.wire_hash(p.protocol_v2);
+        for piece in peer_wire::allowed_fast_set(ip, &ih, t.num_pieces, ALLOWED_FAST_SET_SIZE) {
+            if have.get(piece as usize) && !p.fast_set.contains(&piece) {
+                peer_wire::encode_u32(p.out(), msg::ALLOWED_FAST, piece);
+                p.fast_set.push(piece);
+            }
         }
         self.to_flush.push(slot);
     }
@@ -667,6 +682,11 @@ impl Engine {
         });
         if picks.is_empty() {
             return;
+        }
+        // The request timeout runs from the request that refills an empty queue (libtorrent
+        // `m_requested`), not from the last block before the idle spell.
+        if p.requests.is_empty() {
+            p.last_piece = Instant::now();
         }
         for (piece, block) in picks {
             let start = block * BLOCK_SIZE;

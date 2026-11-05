@@ -129,9 +129,20 @@ fn atol(s: &str) -> i64 {
     strtoll(s.as_bytes()).0
 }
 
+/// The text of a status message or header value: UTF-8 when it is, else each byte as its
+/// Latin-1 character (RFC 9110 5.5 reads field bytes as ISO-8859-1), so a file name in a
+/// `Content-Disposition` survives either way instead of ending as replacement characters.
+fn text(b: &[u8]) -> String {
+    match std::str::from_utf8(b) {
+        Ok(s) => s.to_owned(),
+        Err(_) => b.iter().map(|&c| c as char).collect(),
+    }
+}
+
 /// Parses a response header (libtorrent `http_parser::incoming` through `read_status` and
 /// `read_header`). Returns `None` until the blank line that ends the header is in `buf`, then
-/// the header and the offset of the body. A `100 Continue` response is skipped.
+/// the header and the offset of the body. Interim responses (`100 Continue`, `103 Early
+/// Hints`: any 1xx) are skipped; the final head follows them.
 pub fn parse_head(buf: &[u8]) -> Result<Option<(ResponseHead, usize)>, ParseError> {
     let mut pos = 0;
     'response: loop {
@@ -167,7 +178,7 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(ResponseHead, usize)>, ParseErro
             return Err(ParseError::Invalid("invalid HTTP status code"));
         }
         head.status = n as i32;
-        head.message = String::from_utf8_lossy(read_until(&mut rest, b'\r')).into_owned();
+        head.message = text(read_until(&mut rest, b'\r'));
         // HTTP 1.0 always closes the connection after each request
         head.connection_close = head.protocol == "HTTP/1.0";
         loop {
@@ -180,21 +191,21 @@ pub fn parse_head(buf: &[u8]) -> Result<Option<(ResponseHead, usize)>, ParseErro
             };
             pos = next;
             let Some(sep) = line.iter().position(|&c| c == b':') else {
-                if head.status == 100 {
-                    // for 100 Continue, we need to read another response header before
-                    // reading the body
+                if (100..200).contains(&head.status) {
+                    // for 100 Continue (libtorrent) and every other interim response, we need
+                    // to read another response header before reading the body
                     continue 'response;
                 }
                 // a blank line (or any line without a colon): the header is finished and the
                 // body starts
                 return Ok(Some((head, pos)));
             };
-            let name = String::from_utf8_lossy(&line[..sep]).to_ascii_lowercase();
+            let name = text(&line[..sep]).to_ascii_lowercase();
             let mut v = sep + 1;
             while v < line.len() && (line[v] == b' ' || line[v] == b'\t') {
                 v += 1;
             }
-            let value = String::from_utf8_lossy(&line[v..]).into_owned();
+            let value = text(&line[v..]);
             match name.as_str() {
                 "content-length" => {
                     let (n, _) = strtoll(value.as_bytes());
@@ -481,6 +492,28 @@ mod tests {
         let (h, body) = head(r).unwrap().unwrap();
         assert_eq!((h.status, h.content_length), (200, 4));
         assert_eq!(&r[body..], "test");
+    }
+
+    /// Any 1xx head is interim: the final head follows it, with its own headers.
+    #[test]
+    fn every_interim_response_is_skipped() {
+        let r = "HTTP/1.1 103 Early Hints\r\nLink: </s.css>; rel=preload\r\n\r\nHTTP/1.1 200 OK\r\nContent-Length: 4\r\n\r\ntest";
+        let (h, body) = head(r).unwrap().unwrap();
+        assert_eq!((h.status, h.content_length, h.header("link")), (200, 4, ""));
+        assert_eq!(&r[body..], "test");
+        assert!(matches!(head("HTTP/1.1 103 Early Hints\r\n\r\nHTTP/1.1"), Ok(None)));
+    }
+
+    #[test]
+    fn header_bytes_outside_utf8_read_as_latin1() {
+        let r =
+            b"HTTP/1.1 200 \xD6K\r\nContent-Disposition: attachment; filename=\"M\xFCnchen.torrent\"\r\n\r\n";
+        let (h, _) = parse_head(r).unwrap().unwrap();
+        assert_eq!(h.message, "\u{D6}K");
+        assert_eq!(h.header("content-disposition"), "attachment; filename=\"M\u{FC}nchen.torrent\"");
+        // UTF-8 stays UTF-8
+        let (h, _) = head("HTTP/1.1 200 OK\r\nX-Name: M\u{FC}nchen\r\n\r\n").unwrap().unwrap();
+        assert_eq!(h.header("x-name"), "M\u{FC}nchen");
     }
 
     #[test]

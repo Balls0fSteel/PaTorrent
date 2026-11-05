@@ -167,30 +167,42 @@ mod instance {
                     cbData: (payload.len() * 2) as u32,
                     lpData: payload.as_ptr() as *mut _,
                 };
-                let mut result = 0usize;
-                let sent = unsafe {
-                    SendMessageTimeoutW(
-                        hwnd,
-                        WM_COPYDATA,
-                        0,
-                        &cds as *const _ as isize,
-                        SMTO_ABORTIFHUNG,
-                        5000,
-                        &mut result,
-                    )
-                };
-                // the first instance runs as administrator: Windows keeps this one's message
-                // from it (SEC-25); say so rather than drop the torrent silently
-                if sent == 0 && unsafe { GetLastError() } == ERROR_ACCESS_DENIED && !sources.is_empty() {
-                    let prefs = Prefs::load(data_dir().join("patorrent.ini"));
-                    lang::init(prefs.get("ui.language").unwrap_or_default());
-                    crate::dialogs::error(null_mut(), lang::text(lang::S::ForwardRefused));
+                loop {
+                    let mut result = 0usize;
+                    let sent = unsafe {
+                        SendMessageTimeoutW(
+                            hwnd,
+                            WM_COPYDATA,
+                            0,
+                            &cds as *const _ as isize,
+                            SMTO_ABORTIFHUNG,
+                            5000,
+                            &mut result,
+                        )
+                    };
+                    let outcome = outcome(sent, unsafe { GetLastError() });
+                    // the first instance runs as administrator: Windows keeps this one's message
+                    // from it (SEC-25); say so rather than drop the torrent silently
+                    if outcome == Outcome::Refused && !sources.is_empty() {
+                        let prefs = Prefs::load(data_dir().join("patorrent.ini"));
+                        lang::init(prefs.get("ui.language").unwrap_or_default());
+                        crate::dialogs::error(null_mut(), lang::text(lang::S::ForwardRefused));
+                    }
+                    // it began to shut down meanwhile
+                    if outcome != Outcome::Taken && (unsafe { IsWindow(hwnd) } == 0 || exiting(hwnd)) {
+                        return !take_over(m);
+                    }
+                    if outcome != Outcome::Unanswered {
+                        return true;
+                    }
+                    // Its thread is busy (reading a .torrent from a slow share, a long batch of
+                    // alerts) or hung: Windows takes back a message that was not picked up, so
+                    // the arguments are sent again, for as long as the window is there. The
+                    // handler only queues the arguments, so a message that was picked up is
+                    // answered within the 5 s; only one picked up at their very end could get
+                    // them added twice, which the engine refuses as a duplicate.
+                    std::thread::sleep(std::time::Duration::from_millis(100));
                 }
-                // it began to shut down meanwhile
-                if sent == 0 && (unsafe { IsWindow(hwnd) } == 0 || exiting(hwnd)) {
-                    return !take_over(m);
-                }
-                return true;
             }
             // The first instance is still starting up, or has closed its window: then the
             // mutex is free once its process has ended.
@@ -199,6 +211,31 @@ mod instance {
             }
         }
         true
+    }
+
+    /// What `SendMessageTimeoutW` made of the arguments.
+    #[derive(Clone, Copy, Debug, PartialEq, Eq)]
+    pub enum Outcome {
+        /// The window took them.
+        Taken,
+        /// Windows kept the message from a window of higher integrity (`ERROR_ACCESS_DENIED`).
+        Refused,
+        /// No answer: the window's thread did not pick the message up in time (a timeout, or
+        /// `SMTO_ABORTIFHUNG` giving up on a hung thread), or the window is gone.
+        Unanswered,
+    }
+
+    /// The outcome of a send that returned `sent` with `error` from `GetLastError`. A failure
+    /// is only a hand-over when Windows refused the message outright: a timeout used to count
+    /// as one, and the second instance's torrents went with it.
+    pub fn outcome(sent: isize, error: u32) -> Outcome {
+        if sent != 0 {
+            Outcome::Taken
+        } else if error == ERROR_ACCESS_DENIED {
+            Outcome::Refused
+        } else {
+            Outcome::Unanswered
+        }
     }
 
     /// The window is saving its state and stopping the engine.
@@ -291,10 +328,25 @@ mod setup {
 
 #[cfg(all(test, windows))]
 mod tests {
+    use super::instance::{Outcome, outcome};
     use super::setup::{Task, parse};
 
     fn args(a: &[&str]) -> Vec<String> {
         a.iter().map(|s| s.to_string()).collect()
+    }
+
+    /// A timeout is not a hand-over: the arguments are sent again, not dropped.
+    #[test]
+    fn a_hand_over_that_timed_out_is_not_taken() {
+        use windows_sys::Win32::Foundation::{
+            ERROR_ACCESS_DENIED, ERROR_INVALID_WINDOW_HANDLE, ERROR_TIMEOUT,
+        };
+        assert_eq!(outcome(1, 0), Outcome::Taken);
+        assert_eq!(outcome(1, ERROR_TIMEOUT), Outcome::Taken, "a stale error code does not matter");
+        assert_eq!(outcome(0, ERROR_ACCESS_DENIED), Outcome::Refused);
+        assert_eq!(outcome(0, ERROR_TIMEOUT), Outcome::Unanswered);
+        assert_eq!(outcome(0, ERROR_INVALID_WINDOW_HANDLE), Outcome::Unanswered, "the window went");
+        assert_eq!(outcome(0, 0), Outcome::Unanswered, "a hung thread with no error code");
     }
 
     #[test]

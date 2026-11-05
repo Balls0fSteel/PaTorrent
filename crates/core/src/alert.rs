@@ -114,6 +114,10 @@ pub enum Alert {
     },
     AddTorrentFailed {
         name: String,
+        /// The torrent's hashes when the source parsed that far (a duplicate, say); `None`
+        /// for a `.torrent`, resume record or magnet link that did not parse. PaTorrent's
+        /// own: a watcher keys what it added by hash, not by a name two files can share.
+        info_hashes: Option<InfoHashes>,
         error: Error,
     },
     TorrentRemoved {
@@ -569,7 +573,7 @@ impl Alert {
         let mut s = String::new();
         let _ = match self {
             TorrentAdded { name, .. } => write!(s, "{name}: added"),
-            AddTorrentFailed { name, error } => write!(s, "{name}: failed to add: {error}"),
+            AddTorrentFailed { name, error, .. } => write!(s, "{name}: failed to add: {error}"),
             TorrentRemoved { info_hashes, .. } => write!(s, "{}: removed", info_hashes.key_hex()),
             TorrentsRestored { count, dir } => write!(s, "restored {count} torrents from {dir}"),
             TorrentDeleted { info_hashes, .. } => write!(s, "{}: files deleted", info_hashes.key_hex()),

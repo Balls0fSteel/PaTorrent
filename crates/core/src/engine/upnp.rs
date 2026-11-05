@@ -187,9 +187,11 @@ impl Upnp {
     }
 
     /// Whether a delete request is still to be sent or answered: the engine waits for these
-    /// at shutdown.
+    /// at shutdown. A disabled device (its request failed) sends nothing more.
     pub fn pending(&self) -> bool {
-        self.devices.iter().any(|d| d.conn.is_some() || d.mapping.iter().any(|m| m.act == Action::Del))
+        self.devices
+            .iter()
+            .any(|d| !d.disabled && (d.conn.is_some() || d.mapping.iter().any(|m| m.act == Action::Del)))
     }
 
     pub fn deadline(&self) -> Option<Instant> {
@@ -924,6 +926,9 @@ impl Upnp {
             Ok(r) => r,
         };
         if self.closing {
+            // `close` marked this mapping Del while its Map was in flight: the slot is handed
+            // on, so the delete goes out and `pending` clears instead of waiting out shutdown
+            self.next(di, mapping, registry, now);
             return;
         }
         if !upnp::is_xml_content_type(resp.header("content-type")) {
@@ -1117,6 +1122,10 @@ impl Upnp {
             for m in 0..self.mappings.len() {
                 let Some(expires) = self.devices[di].mapping.get(m).and_then(|x| x.expires) else { continue };
                 if expires <= now {
+                    // libtorrent resets the expiry first: the refresh's reply sets the next
+                    // one, and a slot that has nothing to refresh (deleted, or its device busy)
+                    // must not re-arm the timer in the past and spin the engine loop
+                    self.devices[di].mapping[m].expires = None;
                     self.devices[di].mapping[m].act = Action::Add;
                     self.update_map(di, m, registry, now);
                 }
@@ -1463,6 +1472,78 @@ Cache-Control:max-age=180\r\nDATE: Fri, 02 Jan 1970 08:10:38 GMT\r\n\r\n"
     #[test]
     fn a_port_conflict_moves_to_a_random_port() {
         run(true);
+    }
+
+    /// What the fake router saw of one SOAP action: the external ports asked, in order.
+    fn seen_ports(seen: &Seen, action: &str) -> Vec<u16> {
+        seen.lock().unwrap().iter().filter(|(a, _)| a == action).map(|(_, p)| *p).collect()
+    }
+
+    /// Bug hunt 10: a deleted slot keeps the pending expiry its DeletePortMapping set. When the
+    /// lease refresh fires, that past expiry must not re-arm the refresh timer in the past (the
+    /// engine's poll deadline was zero: 100 % CPU and a log line per iteration until the slot
+    /// was reused or the mapper closed).
+    #[test]
+    fn a_deleted_mapping_does_not_spin_the_refresh() {
+        let _one_at_a_time = IGD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (seen, _stop) = fake_igd(false);
+        let mut h = Harness::new();
+        let found = h.run_until(8, |h| !h.upnp.router_model().is_empty());
+        h.dump_log();
+        assert!(found, "the fake router was not found");
+        let m1 = h.upnp.add_mapping(Protocol::Tcp, 500, 500, h.poll.registry(), Instant::now()).unwrap();
+        let mapped = h.run_until(10, |h| !h.got.is_empty());
+        h.dump_log();
+        assert!(mapped, "{:?}", h.got);
+        // a listen-port change deletes the mapping; the slot is freed when the router answers
+        h.upnp.delete_mapping(m1, h.poll.registry(), Instant::now());
+        let unmapped = h.run_until(10, |h| h.got.len() >= 2 && !h.upnp.pending());
+        h.dump_log();
+        assert!(unmapped, "{:?}", h.got);
+        assert_eq!(seen_ports(&seen, "DeletePortMapping"), [500]);
+        // the lease refresh fires, long after the delete's pending expiry: the freed slot has
+        // nothing to refresh
+        let refresh = h.upnp.refresh_at.expect("the lease refresh is armed");
+        let later = refresh.max(Instant::now() + PENDING_EXPIRY) + Duration::from_secs(1);
+        h.upnp.service(h.poll.registry(), later);
+        h.dump_log();
+        assert!(
+            h.upnp.refresh_at.is_none_or(|r| r > later),
+            "the refresh timer landed in the past: {:?}",
+            h.upnp.refresh_at.map(|r| r <= later)
+        );
+        assert!(h.upnp.deadline().is_none_or(|d| d > later), "the poll deadline is in the past");
+        // a second pass is quiet, and nothing was mapped again
+        h.upnp.service(h.poll.registry(), later);
+        assert!(h.upnp.log.is_empty(), "{:?}", h.upnp.log);
+        assert_eq!(seen_ports(&seen, "AddPortMapping"), [500]);
+    }
+
+    /// Bug hunt 11: `close` with an AddPortMapping in flight marks the mapping Del; its Map
+    /// reply must still hand the slot on, so the delete goes out and `pending` clears
+    /// (shutdown waited the full stop timeout and the mapping stayed on the router).
+    #[test]
+    fn closing_with_a_map_in_flight_still_deletes_the_mapping() {
+        let _one_at_a_time = IGD_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let (seen, _stop) = fake_igd(false);
+        let mut h = Harness::new();
+        let found = h.run_until(8, |h| !h.upnp.router_model().is_empty());
+        h.dump_log();
+        assert!(found, "the fake router was not found");
+        // the mapping waits for the external IP; the reply to that sends its AddPortMapping
+        h.upnp.add_mapping(Protocol::Tcp, 500, 500, h.poll.registry(), Instant::now()).unwrap();
+        let asked = h.run_until(10, |h| h.upnp.devices[0].external_ip.is_some());
+        h.dump_log();
+        assert!(asked, "no external IP");
+        let in_flight = h.upnp.devices[0].conn.as_ref().map(|c| c.kind);
+        assert_eq!(in_flight, Some(Request::Map(0)), "{:?}", h.got);
+        h.upnp.close(h.poll.registry(), Instant::now());
+        assert!(h.upnp.pending());
+        let deleted = h.run_until(10, |h| !h.upnp.pending());
+        h.dump_log();
+        assert!(deleted, "the delete never went out: {:?}", h.got);
+        assert_eq!(seen_ports(&seen, "AddPortMapping"), [500]);
+        assert_eq!(seen_ports(&seen, "DeletePortMapping"), [500]);
     }
 
     #[test]

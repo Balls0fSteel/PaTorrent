@@ -546,18 +546,17 @@ impl TorrentFiles {
                     log.push(loaded(name, &key, path, folders.autoload_delete));
                 }
             }
-            Alert::AddTorrentFailed { name, error } => {
-                // the engine names a torrent from a file as its info says; files stay as they
-                // are (the poller does not hand them out again until they change)
-                self.pending.retain(|_, p| {
-                    if p.name != *name {
-                        return true;
-                    }
-                    if let Some(path) = &p.loaded_from {
-                        log.push(tr!(FoldersNotLoaded, path = path.display(), error));
-                    }
-                    false
-                });
+            Alert::AddTorrentFailed { info_hashes, error, .. } => {
+                // the failed torrent is the one with these hashes, not every pending with its
+                // name (two files can share an info name, and a magnet's pending has none);
+                // without them the source did not parse, and nothing is pending for it. Files
+                // stay as they are (the poller does not hand them out again until they change)
+                let Some(p) = info_hashes.as_ref().and_then(|h| self.pending.remove(&h.key_hex())) else {
+                    return log;
+                };
+                if let Some(path) = &p.loaded_from {
+                    log.push(tr!(FoldersNotLoaded, path = path.display(), error));
+                }
             }
             Alert::StateUpdate(v) => {
                 for st in v {
@@ -961,8 +960,11 @@ mod tests {
         fs::write(&path, &third).unwrap();
         let (_, ti) = read(&path).unwrap();
         files.loading(&ti, path.clone());
-        let failed =
-            Alert::AddTorrentFailed { name: "bad".into(), error: patorrent_core::Error::DuplicateTorrent };
+        let failed = Alert::AddTorrentFailed {
+            name: "bad".into(),
+            info_hashes: Some(ti.info_hashes()),
+            error: patorrent_core::Error::DuplicateTorrent,
+        };
         let log = files.on_alert(&failed, &f, &h);
         assert!(log[0].contains("not loaded"), "{log:?}");
         assert!(path.exists());
@@ -995,6 +997,68 @@ mod tests {
         assert_eq!(fs::read(store.join("from a magnet.torrent")).unwrap(), meta);
         assert!(files.magnets.is_empty(), "stored once");
         for d in [store, done, watch] {
+            let _ = fs::remove_dir_all(d);
+        }
+    }
+
+    /// A failed add drops the pending entry of its own torrent, by info-hash: not another
+    /// file's with the same info name, and a failed magnet (no name) not every magnet's mark.
+    #[test]
+    fn a_failed_add_drops_its_own_pending_only() {
+        let store = temp("failed-store");
+        let watch = temp("failed-watch");
+        let f = folders(&store, None);
+        let mut files = TorrentFiles::new();
+        let session = patorrent_core::Session::start_mock(Default::default(), Default::default());
+        let h = session.handle();
+        let dup = patorrent_core::Error::DuplicateTorrent;
+
+        // two auto-loaded files whose info names match (the second a changed copy)
+        let (first, second) = (torrent("dup", 0), torrent("dup", 1));
+        let (path1, path2) = (watch.join("dup.torrent"), watch.join("dup (1).torrent"));
+        fs::write(&path1, &first).unwrap();
+        fs::write(&path2, &second).unwrap();
+        let (ti1, ti2) =
+            (TorrentInfo::from_bytes(&first).unwrap(), TorrentInfo::from_bytes(&second).unwrap());
+        files.loading(&ti1, path1.clone());
+        files.loading(&ti2, path2.clone());
+        // two magnets marked for storing
+        let (ih_a, ih_b) = (hashes(&torrent("a", 0)), hashes(&torrent("b", 0)));
+        for ih in [ih_a, ih_b] {
+            let uri = format!("magnet:?xt=urn:btih:{}", ih.key_hex());
+            files.adding(&f, &AddTorrentParams::new(TorrentSource::Magnet(uri), "x"));
+        }
+        assert_eq!(files.pending.len(), 4);
+
+        // the second file fails: the first stays pending and is finished once added
+        let failed = Alert::AddTorrentFailed {
+            name: "dup".into(),
+            info_hashes: Some(ti2.info_hashes()),
+            error: dup.clone(),
+        };
+        let log = files.on_alert(&failed, &f, &h);
+        assert!(log[0].contains("not loaded"), "{log:?}");
+        assert!(path1.exists() && path2.exists());
+        let id = TorrentId::from_raw(1);
+        let added = Alert::TorrentAdded { id, info_hashes: ti1.info_hashes(), name: "dup".into() };
+        assert_eq!(files.on_alert(&added, &f, &h).len(), 1);
+        assert!(watch.join("dup.torrent.loaded").exists() && !path1.exists());
+        assert!(path2.exists(), "the failed file stays as it is");
+
+        // a failed magnet carries no name: the other magnet's mark stays
+        let failed =
+            Alert::AddTorrentFailed { name: String::new(), info_hashes: Some(ih_b), error: dup.clone() };
+        assert!(files.on_alert(&failed, &f, &h).is_empty());
+        // without the hashes (the source did not parse) nothing was pending for it
+        let unparsed = Alert::AddTorrentFailed { name: String::new(), info_hashes: None, error: dup };
+        assert!(files.on_alert(&unparsed, &f, &h).is_empty());
+        assert_eq!(files.pending.len(), 1);
+        let id2 = TorrentId::from_raw(2);
+        let added = Alert::TorrentAdded { id: id2, info_hashes: ih_a, name: "a".into() };
+        files.on_alert(&added, &f, &h);
+        assert!(files.magnets.contains(&id2), "still marked for storing");
+        assert!(files.pending.is_empty());
+        for d in [store, watch] {
             let _ = fs::remove_dir_all(d);
         }
     }

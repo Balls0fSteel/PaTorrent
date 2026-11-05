@@ -130,6 +130,9 @@ pub(crate) struct PeerConn {
     pub allowed_fast: Vec<u32>,
     /// BEP 6: pieces we let the peer request while we choke it.
     pub fast_set: Vec<u32>,
+    /// Our piece set went out (libtorrent `m_sent_bitfield`): not before the files are checked,
+    /// so a peer kept across a magnet's metadata fetch and check gets it from `on_checked`.
+    pub sent_bitfield: bool,
     /// BEP 16: the (up to two) pieces offered while we super seed, newest first (libtorrent
     /// `m_superseed_piece`); `None` while the peer knows our real piece set.
     pub superseed: Option<[Option<u32>; 2]>,
@@ -141,6 +144,9 @@ pub(crate) struct PeerConn {
     pub connected_at: Instant,
     pub last_receive: Instant,
     pub last_sent: Instant,
+    /// The request timeout runs from here: the last block received, or the request that refilled
+    /// an empty queue, or the unchoke (libtorrent `m_requested`), not a block from before an idle
+    /// spell.
     pub last_piece: Instant,
     pub last_unchoked: Option<Instant>,
     pub last_optimistic: Option<Instant>,
@@ -222,6 +228,7 @@ impl PeerConn {
             reads_in_flight: HashSet::new(),
             allowed_fast: Vec::new(),
             fast_set: Vec::new(),
+            sent_bitfield: false,
             superseed: None,
             became_uninterested: now,
             stat: Stat::default(),

@@ -518,9 +518,22 @@ fn absolutize(o: &mut Opts) {
         }
     }
     abs_str(&mut o.save);
-    let dirs =
-        [&mut o.state, &mut o.config_dir, &mut o.ip_filter, &mut o.service.pid_file, &mut o.service.log];
+    let dirs = [
+        &mut o.state,
+        &mut o.config_dir,
+        &mut o.ip_filter,
+        &mut o.service.pid_file,
+        &mut o.service.log,
+        &mut o.webui_cert,
+        &mut o.webui_key,
+        &mut o.import_dir,
+    ];
     for p in dirs.into_iter().flatten() {
+        abs(p);
+    }
+    // the save roots are compared against absolute paths (`PathPolicy::check`): a relative
+    // root would match nothing
+    for p in &mut o.webui_save_roots {
         abs(p);
     }
     if let Some(d) = &mut o.move_on_complete {
@@ -1366,6 +1379,18 @@ mod tests {
             "p",
             "--log",
             "l",
+            "--webui",
+            "8080",
+            "--webui-cert",
+            "c.pem",
+            "--webui-key",
+            "k.pem",
+            "--webui-save-root",
+            "r1",
+            "--webui-save-root",
+            "r2",
+            "--import-dir",
+            "imp",
         ]))
         .unwrap();
         absolutize(&mut o);
@@ -1373,6 +1398,11 @@ mod tests {
         assert_eq!(PathBuf::from(&o.save), cwd.join("dl"));
         assert_eq!(o.service.pid_file, Some(cwd.join("p")));
         assert_eq!(o.service.log, Some(cwd.join("l")));
+        // the Web UI's files and the import folder are opened after the chdir too
+        assert_eq!(o.webui_cert, Some(cwd.join("c.pem")));
+        assert_eq!(o.webui_key, Some(cwd.join("k.pem")));
+        assert_eq!(o.webui_save_roots, [cwd.join("r1"), cwd.join("r2")]);
+        assert_eq!(o.import_dir, Some(cwd.join("imp")));
         assert_eq!(
             o.sources,
             [cwd.join("a.torrent").to_string_lossy().into_owned(), "magnet:?xt=urn:btih:x".into()]

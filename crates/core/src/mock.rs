@@ -553,14 +553,15 @@ impl Mock {
         let parsed = match parsed {
             Ok(x) => x,
             Err(error) => {
-                self.out.push(Alert::AddTorrentFailed { name: display, error });
+                self.out.push(Alert::AddTorrentFailed { name: display, info_hashes: None, error });
                 return;
             }
         };
         let key = parsed.info_hashes.best_v1_compatible();
         if self.by_hash.contains_key(&key) {
             let name = parsed.name.or(p.name).unwrap_or(display);
-            self.out.push(Alert::AddTorrentFailed { name, error: Error::DuplicateTorrent });
+            let info_hashes = Some(parsed.info_hashes);
+            self.out.push(Alert::AddTorrentFailed { name, info_hashes, error: Error::DuplicateTorrent });
             return;
         }
 

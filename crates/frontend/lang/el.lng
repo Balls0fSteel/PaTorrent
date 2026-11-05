@@ -239,6 +239,7 @@ TitleSpeed=Λ:{down} Α:{up} - {title}
 BarDownAuto=Λ: {rate} (αυτ. {cap}) Σ: {total}
 BarUpAuto=Α: {rate} (αυτ. {cap}) Σ: {total}
 NetWaiting=Αναμονή για το δίκτυο
+BarRestoring=Επαναφορά torrent...
 NetExternal=Η διεύθυνσή σας όπως τη βλέπουν οι ιχνηλάτες: {address}
 NetExternalUnknown=άγνωστη ακόμα
 LogAdded={name}: προστέθηκε

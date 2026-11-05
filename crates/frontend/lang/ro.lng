@@ -239,6 +239,7 @@ TitleSpeed=D:{down} Î:{up} - {title}
 BarDownAuto=D: {rate} (auto {cap}) T: {total}
 BarUpAuto=Î: {rate} (auto {cap}) T: {total}
 NetWaiting=Se așteaptă rețeaua
+BarRestoring=Se restaurează torrentele...
 NetExternal=Adresa dvs. văzută de trackere: {address}
 NetExternalUnknown=încă necunoscută
 LogAdded={name}: adăugat

@@ -239,6 +239,7 @@ TitleSpeed=İ:{down} G:{up} - {title}
 BarDownAuto=İ: {rate} (oto {cap}) T: {total}
 BarUpAuto=G: {rate} (oto {cap}) T: {total}
 NetWaiting=Ağ bekleniyor
+BarRestoring=Torrentler geri yükleniyor...
 NetExternal=İzleyicilerin gördüğü adresiniz: {address}
 NetExternalUnknown=henüz bilinmiyor
 LogAdded={name}: eklendi

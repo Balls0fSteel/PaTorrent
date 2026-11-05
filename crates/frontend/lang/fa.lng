@@ -239,6 +239,7 @@ TitleSpeed=بگ:{down} بذ:{up} - {title}
 BarDownAuto=بگ: {rate} (خودکار {cap}) کل: {total}
 BarUpAuto=بذ: {rate} (خودکار {cap}) کل: {total}
 NetWaiting=در انتظار شبکه
+BarRestoring=در حال بازیابی تورنت‌ها...
 NetExternal=نشانی شما از دید ردیاب‌ها: {address}
 NetExternalUnknown=هنوز معلوم نیست
 LogAdded={name}: افزوده شد

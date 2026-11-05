@@ -239,6 +239,7 @@ TitleSpeed=ت:{down} ر:{up} - {title}
 BarDownAuto=ت: {rate} (تلقائي {cap}) م: {total}
 BarUpAuto=ر: {rate} (تلقائي {cap}) م: {total}
 NetWaiting=في انتظار الشبكة
+BarRestoring=جارٍ استعادة التورنتات...
 NetExternal=عنوانك كما تراه المتتبعات: {address}
 NetExternalUnknown=غير معروف بعد
 LogAdded={name}: أُضيف

@@ -239,6 +239,7 @@ TitleSpeed=下:{down} 上:{up} - {title}
 BarDownAuto=下: {rate} (自動 {cap}) 計: {total}
 BarUpAuto=上: {rate} (自動 {cap}) 計: {total}
 NetWaiting=ネットワーク待ち
+BarRestoring=トレントを復元しています...
 NetExternal=トラッカーから見たアドレス: {address}
 NetExternalUnknown=まだ不明
 LogAdded={name}: 追加しました

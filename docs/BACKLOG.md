@@ -1031,3 +1031,20 @@ Implemented 2026-10-27_112013_1793096413 (D35); see the changelog. Open:
   staff need a stable tagged release and may never whitelist a new client.
 - The abandoned vcpkg cache (about 2 GB under `%LOCALAPPDATA%/vcpkg`) is an
   optional user cleanup only if no other project needs it.
+- Win32 test binary heap fault (2026-11-05_152150_1793888510), source unknown. Five runs of
+  `cargo test -p patorrent` crashed (1.1.70 and 1.1.76) while several copies and builds ran
+  at once: STATUS_HEAP_CORRUPTION, 0xC000041D (a panic out of a window procedure), and a
+  capacity-overflow panic in `to_vec` (a garbage slice length) inside
+  `preferences::tests::read_cache_controls_on_disk_cache`. Full page heap (an IFEO key on a
+  renamed copy) caught one verifier stop (0xC0000421) in ~148 runs; none in the next 136
+  with a stack tracer, so no culprit yet. Not seen in 29 runs without page heap and with a
+  test-only red-zone and poisoning allocator. Ruled out: class name clashes, list-view text
+  callbacks, `Rc` hosts, worker result posts, cross-process pointer messages, mmap, the
+  DPAPI copy. Run the Win32 tests with `--test-threads=1` meanwhile. To resume, the
+  allocator and a vectored-handler tracer are easy to rebuild (a `.CRT$XCU` initializer
+  printing the test thread's name and a backtrace); attach a debugger (cdb) to page-heap
+  runs for the stack.
+- Win32 test flakes under parallel load (same date): `search::tests::the_helper_buttons_follow_the_install`
+  races `helper::configure` (process-wide) with `search_helper.rs`; and
+  `webui_host::tests::the_setup_round_trips_through_the_preferences` calls
+  `first_free_port(8080)` twice, so another test or process holding 8080 in between makes it 8081.

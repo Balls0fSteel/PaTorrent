@@ -239,6 +239,7 @@ TitleSpeed=D:{down} U:{up} - {title}
 BarDownAuto=D: {rate} (auto {cap}) I alt: {total}
 BarUpAuto=U: {rate} (auto {cap}) I alt: {total}
 NetWaiting=Venter på netværket
+BarRestoring=Gendanner torrents...
 NetExternal=Din adresse ifølge trackere: {address}
 NetExternalUnknown=endnu ukendt
 LogAdded={name}: tilføjet

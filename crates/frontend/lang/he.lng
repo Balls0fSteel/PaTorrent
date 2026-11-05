@@ -239,6 +239,7 @@ TitleSpeed=ה:{down} ע:{up} - {title}
 BarDownAuto=ה: {rate} (אוטומטי {cap}) סה״כ: {total}
 BarUpAuto=ע: {rate} (אוטומטי {cap}) סה״כ: {total}
 NetWaiting=ממתין לרשת
+BarRestoring=משחזר טורנטים...
 NetExternal=הכתובת שלך כפי שהעוקבים רואים אותה: {address}
 NetExternalUnknown=עדיין לא ידועה
 LogAdded={name}: נוסף

@@ -25,7 +25,8 @@
 //! * A build with `PATORRENT_NO_UPDATE_CHECK` set has no check at all ([`AVAILABLE`]), for
 //!   packages that a package manager updates; the GTK GUI also leaves it out in a Flatpak.
 //! * For a hand test, `PATORRENT_UPDATE_URL` at run time names another `update.txt` (a local
-//!   `http://127.0.0.1:8000/update.txt` with `stable=9.9.9`, say).
+//!   `http://127.0.0.1:8000/update.txt` with `stable=9.9.9`, say). Both variables are honoured
+//!   only for an `https://` URL or plain `http://` to this machine ([`override_allowed`]).
 
 use std::cmp::Ordering;
 use std::fmt;
@@ -122,10 +123,47 @@ impl Version {
     /// Where the release's file `name` is: the release's files on GitHub, or the folder
     /// `PATORRENT_UPDATE_FILES` names.
     pub fn file_url(&self, name: &str) -> String {
-        match std::env::var("PATORRENT_UPDATE_FILES") {
-            Ok(base) => format!("{}/{name}", base.trim_end_matches('/')),
-            Err(_) => format!("{RELEASES_URL}/download/v{}/{name}", self.text),
+        match test_override("PATORRENT_UPDATE_FILES") {
+            Some(base) => format!("{}/{name}", base.trim_end_matches('/')),
+            None => format!("{RELEASES_URL}/download/v{}/{name}", self.text),
         }
+    }
+}
+
+/// A hand test's URL from the environment variable `var`, if it is set and allowed
+/// ([`override_allowed`]).
+fn test_override(var: &str) -> Option<String> {
+    std::env::var(var).ok().filter(|url| override_allowed(url))
+}
+
+/// Whether a hand test's `PATORRENT_UPDATE_URL` / `PATORRENT_UPDATE_FILES` is honoured: an
+/// `https://` URL, or plain `http://` to this machine only (`localhost`, `127.x.x.x`, `[::1]`).
+/// Plain http to anywhere else would let the network choose the setup an all-users install
+/// elevates.
+pub fn override_allowed(url: &str) -> bool {
+    let url = url.trim();
+    let lower = url.to_ascii_lowercase();
+    if lower.starts_with("https://") {
+        return true;
+    }
+    let Some(rest) = lower.strip_prefix("http://") else {
+        return false;
+    };
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or("");
+    if authority.contains('@') {
+        return false;
+    }
+    let host = if let Some(v6) = authority.strip_prefix('[') {
+        match v6.split_once(']') {
+            Some((h, _)) => h,
+            None => return false,
+        }
+    } else {
+        authority.split(':').next().unwrap_or("")
+    };
+    match host.parse::<std::net::IpAddr>() {
+        Ok(ip) => ip.is_loopback(),
+        Err(_) => host == "localhost",
     }
 }
 
@@ -326,7 +364,7 @@ impl Manifest {
 /// session's proxy as the RSS feeds go.
 pub fn fetch(proxy: Option<FetchProxy>) -> Result<Manifest, String> {
     let opts = FetchOptions { proxy, max_size: 64 * 1024, no_downgrade: true, ..FetchOptions::default() };
-    let url = std::env::var("PATORRENT_UPDATE_URL").unwrap_or_else(|_| MANIFEST_URL.to_owned());
+    let url = test_override("PATORRENT_UPDATE_URL").unwrap_or_else(|| MANIFEST_URL.to_owned());
     let resp = http_get(&url, &opts).map_err(|e| e.to_string())?;
     if let Some(to) = resp.redirect() {
         return Err(format!("HTTP {} -> {to}", resp.status));
@@ -708,6 +746,35 @@ mod tests {
         assert!(!dir.join(format!("{name}.part")).exists());
         unsafe { std::env::remove_var("PATORRENT_UPDATE_FILES") };
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A hand test's URL is honoured over https, or over plain http to this machine only.
+    #[test]
+    fn test_urls_are_https_or_loopback() {
+        for ok in [
+            "https://example.org/update.txt",
+            "HTTPS://example.org/",
+            "http://localhost:8765/update.txt",
+            "http://LocalHost/",
+            "http://127.0.0.1:8000/update.txt",
+            "http://127.1.2.3",
+            "http://[::1]:8000/x",
+        ] {
+            assert!(override_allowed(ok), "{ok}");
+        }
+        for bad in [
+            "http://example.org/update.txt",
+            "http://192.168.1.10:8000/",
+            "http://localhost.example.org/",
+            "http://127.0.0.1@evil.example/",
+            "http://[::2]/",
+            "http://[::1",
+            "ftp://127.0.0.1/",
+            "file:///C:/update.txt",
+            "",
+        ] {
+            assert!(!override_allowed(bad), "{bad}");
+        }
     }
 
     #[test]

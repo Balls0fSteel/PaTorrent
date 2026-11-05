@@ -196,6 +196,8 @@ pub fn show(
 
     d.show_fields();
     d.initial_seeding.button.set_sensitive(d.props.borrow().can_initial_seed);
+    d.dht.button.set_sensitive(d.props.borrow().can_dht_pex);
+    d.pex.button.set_sensitive(d.props.borrow().can_dht_pex);
     d.update_sensitivity();
     for c in [&d.override_slots, &d.override_goal] {
         let w = Rc::downgrade(&d);

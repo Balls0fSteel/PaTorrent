@@ -239,6 +239,7 @@ TitleSpeed=X:{down} L:{up} - {title}
 BarDownAuto=X: {rate} (tự động {cap}) T: {total}
 BarUpAuto=L: {rate} (tự động {cap}) T: {total}
 NetWaiting=Đang chờ mạng
+BarRestoring=Đang khôi phục torrent...
 NetExternal=Địa chỉ của bạn theo tracker: {address}
 NetExternalUnknown=chưa biết
 LogAdded={name}: đã thêm

@@ -239,6 +239,7 @@ TitleSpeed=ล:{down} ข:{up} - {title}
 BarDownAuto=ล: {rate} (อัตโนมัติ {cap}) รวม: {total}
 BarUpAuto=ข: {rate} (อัตโนมัติ {cap}) รวม: {total}
 NetWaiting=กำลังรอเครือข่าย
+BarRestoring=กำลังกู้คืนทอร์เรนต์...
 NetExternal=ที่อยู่ของคุณตามที่แทร็กเกอร์เห็น: {address}
 NetExternalUnknown=ยังไม่ทราบ
 LogAdded={name}: เพิ่มแล้ว

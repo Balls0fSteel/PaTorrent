@@ -239,6 +239,7 @@ TitleSpeed=L:{down} Lä:{up} - {title}
 BarDownAuto=L: {rate} (autom. {cap}) Y: {total}
 BarUpAuto=Lä: {rate} (autom. {cap}) Y: {total}
 NetWaiting=Odotetaan verkkoa
+BarRestoring=Palautetaan torrentteja...
 NetExternal=Osoitteesi seurantapalvelimien mukaan: {address}
 NetExternalUnknown=ei vielä tiedossa
 LogAdded={name}: lisätty

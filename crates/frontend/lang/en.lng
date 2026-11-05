@@ -366,6 +366,10 @@ BarUpAuto=U: {rate} (auto {cap}) T: {total}
 # adapter (the VPN is down); torrents wait until it comes back.
 NetWaiting=Waiting for the network
 
+# Before the network part of the status bar at start, until the saved torrents are back in
+# the list (a settings folder on a slow drive can take a while).
+BarRestoring=Restoring torrents...
+
 # The status bar's network tooltip: {address} is one or two IP addresses, or
 # NetExternalUnknown.
 NetExternal=Your address as trackers see it: {address}

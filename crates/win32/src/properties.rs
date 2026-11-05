@@ -165,6 +165,9 @@ unsafe fn init(dlg: HWND, st: &State) {
         send(item(dlg, ID_TABS), TCM_INSERTITEMW, 0, &tab as *const _ as LPARAM);
         show_fields(dlg, &st.props.fields);
         EnableWindow(item(dlg, ID_INITIAL_SEEDING), st.props.can_initial_seed as i32);
+        for id in [ID_DHT, ID_PEX] {
+            EnableWindow(item(dlg, id), st.props.can_dht_pex as i32);
+        }
         update_enabled(dlg);
     }
 }
@@ -374,6 +377,7 @@ mod tests {
             is_seed: false,
             dht: true,
             pex: false,
+            private: false,
         }
     }
 
@@ -387,10 +391,19 @@ mod tests {
         assert_eq!((f.tri(ID_DHT), f.tri(ID_PEX)), (Tri::On, Tri::Off));
         assert!(!f.enabled(ID_SLOTS) && !f.enabled(ID_RATIO), "overrides off: greyed");
         assert!(!f.enabled(ID_INITIAL_SEEDING), "not a seed");
+        assert!(f.enabled(ID_DHT) && f.enabled(ID_PEX), "not private");
         f.click(ID_OVERRIDE_SLOTS);
         assert!(f.enabled(ID_SLOTS));
         f.click(ID_OVERRIDE_SLOTS);
         assert!(!f.enabled(ID_SLOTS));
+    }
+
+    /// A private torrent greys out DHT and PEX (the engine uses neither for it).
+    #[test]
+    fn a_private_torrent_greys_dht_and_pex() {
+        let f = Fixture::new(&[TorrentProps { private: true, ..torrent() }]);
+        assert!(!f.enabled(ID_DHT) && !f.enabled(ID_PEX));
+        assert!(f.enabled(ID_UL));
     }
 
     #[test]

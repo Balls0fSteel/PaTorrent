@@ -18,6 +18,8 @@ Design: [ARCHITECTURE.md](docs/ARCHITECTURE.md), [PORTING.md](docs/PORTING.md), 
 
 ## Current status
 
+- **UI icon studies (2026-11-05_221629_1793913389):** [96 studies across four sheets](docs/art/rookparcel-ui-2026-11-05/README.md), with prompts and review. Next: select candidates, correct state semantics, then redraw and check native 16/20/24 px exports before integration.
+
 - **Releases:**
   - 1.0.1 (2026-10-27) was the first stable release, with the full 1.0 scope (D19). `v1.0.0` has no release because its build failed (D34). The open Road to 1.0 hand checks continue as 1.0.x validation.
   - 1.1.0 (2026-10-28) added V1.1 (D35), the security fixes and the icons. Its peer ID is `-PA1011-`.

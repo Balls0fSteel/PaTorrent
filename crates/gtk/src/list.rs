@@ -163,6 +163,7 @@ impl List {
                     });
                     widget.add_controller(click);
                     item.set_child(Some(&widget));
+                    item.connect_position_notify(crate::table::stripe);
                 });
             }
             {
@@ -179,6 +180,7 @@ impl List {
                         draw(&widget, c);
                     }
                     bound.borrow_mut().push(Bound { widget: widget.downgrade(), column, id });
+                    crate::table::stripe(item);
                 });
             }
             {

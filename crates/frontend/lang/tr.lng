@@ -301,6 +301,7 @@ CannotStartEngine=BitTorrent motoru başlatılamıyor
 CannotAdd={name} eklenemedi
 CannotOpen={path} açılamadı
 CannotDownload={url} indirilemedi
+CannotRelocate={name} içindeki bir dosya taşınamadı veya yeniden adlandırılamadı
 ErrNotALink=PaTorrent'in ekleyebileceği bir bağlantı değil
 UrlPlaceholder=magnet:?xt=… veya https://…/dosya.torrent
 MenuRemoveAndDelete=Kaldır &ve verileri sil

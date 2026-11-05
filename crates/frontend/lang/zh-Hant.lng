@@ -301,6 +301,7 @@ CannotStartEngine=無法啟動 BitTorrent 引擎
 CannotAdd=無法加入 {name}
 CannotOpen=無法開啟 {path}
 CannotDownload=無法下載 {url}
+CannotRelocate=無法移動或重新命名 {name} 中的檔案
 ErrNotALink=不是 PaTorrent 能加入的連結
 UrlPlaceholder=magnet:?xt=… 或 https://…/file.torrent
 MenuRemoveAndDelete=移除並刪除資料(&A)

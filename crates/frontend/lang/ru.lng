@@ -301,6 +301,7 @@ CannotStartEngine=Не удаётся запустить движок BitTorrent
 CannotAdd=Не удалось добавить {name}
 CannotOpen=Не удалось открыть {path}
 CannotDownload=Не удалось загрузить {url}
+CannotRelocate=Не удалось переместить или переименовать файл из {name}
 ErrNotALink=Это не ссылка, которую PaTorrent может добавить
 UrlPlaceholder=magnet:?xt=… или https://…/файл.torrent
 MenuRemoveAndDelete=Удалить &и стереть данные

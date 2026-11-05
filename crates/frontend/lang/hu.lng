@@ -301,6 +301,7 @@ CannotStartEngine=A BitTorrent-motor nem indítható
 CannotAdd={name} nem adható hozzá
 CannotOpen={path} nem nyitható meg
 CannotDownload={url} nem tölthető le
+CannotRelocate=A(z) {name} egyik fájlja nem helyezhető át és nem nevezhető át
 ErrNotALink=Nem olyan hivatkozás, amelyet a PaTorrent hozzá tud adni
 UrlPlaceholder=magnet:?xt=… vagy https://…/fajl.torrent
 MenuRemoveAndDelete=Eltávolítás &és az adatok törlése

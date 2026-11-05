@@ -301,6 +301,7 @@ CannotStartEngine=Не вдається запустити рушій BitTorrent
 CannotAdd=Не вдалося додати {name}
 CannotOpen=Не вдалося відкрити {path}
 CannotDownload=Не вдалося завантажити {url}
+CannotRelocate=Не вдалося перемістити або перейменувати файл із {name}
 ErrNotALink=Це не посилання, яке PaTorrent може додати
 UrlPlaceholder=magnet:?xt=… або https://…/файл.torrent
 MenuRemoveAndDelete=Вилучити &і стерти дані

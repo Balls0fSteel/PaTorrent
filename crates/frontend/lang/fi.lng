@@ -301,6 +301,7 @@ CannotStartEngine=BitTorrent-moottoria ei voi käynnistää
 CannotAdd=Torrentia {name} ei voitu lisätä
 CannotOpen=Tiedostoa {path} ei voitu avata
 CannotDownload=Osoitetta {url} ei voitu ladata
+CannotRelocate=Kohteen {name} tiedostoa ei voitu siirtää tai nimetä uudelleen
 ErrNotALink=Ei linkki, jonka PaTorrent voi lisätä
 UrlPlaceholder=magnet:?xt=… tai https://…/tiedosto.torrent
 MenuRemoveAndDelete=Poista &ja poista tiedot

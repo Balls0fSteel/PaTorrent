@@ -301,6 +301,7 @@ CannotStartEngine=راه‌اندازی موتور BitTorrent ممکن نیست
 CannotAdd=افزودن {name} ممکن نشد
 CannotOpen=باز کردن {path} ممکن نشد
 CannotDownload=بارگیری {url} ممکن نشد
+CannotRelocate=انتقال یا تغییر نام یک پرونده از {name} ممکن نشد
 ErrNotALink=پیوندی نیست که PaTorrent بتواند بیفزاید
 UrlPlaceholder=magnet:?xt=… یا https://…/file.torrent
 MenuRemoveAndDelete=برداشتن &و حذف داده‌ها

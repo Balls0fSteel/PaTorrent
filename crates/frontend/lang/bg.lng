@@ -301,6 +301,7 @@ CannotStartEngine=Двигателят BitTorrent не може да старт�
 CannotAdd={name} не може да се добави
 CannotOpen={path} не може да се отвори
 CannotDownload={url} не може да се изтегли
+CannotRelocate=Файл от {name} не може да бъде преместен или преименуван
 ErrNotALink=Това не е връзка, която PaTorrent може да добави
 UrlPlaceholder=magnet:?xt=… или https://…/файл.torrent
 MenuRemoveAndDelete=Премахни &и изтрий данните

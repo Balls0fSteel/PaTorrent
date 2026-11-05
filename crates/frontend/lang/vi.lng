@@ -301,6 +301,7 @@ CannotStartEngine=Không khởi động được bộ máy BitTorrent
 CannotAdd=Không thêm được {name}
 CannotOpen=Không mở được {path}
 CannotDownload=Không tải được {url}
+CannotRelocate=Không thể di chuyển hoặc đổi tên một tệp của {name}
 ErrNotALink=Không phải liên kết mà PaTorrent có thể thêm
 UrlPlaceholder=magnet:?xt=… hoặc https://…/tep.torrent
 MenuRemoveAndDelete=Gỡ bỏ &và xóa dữ liệu

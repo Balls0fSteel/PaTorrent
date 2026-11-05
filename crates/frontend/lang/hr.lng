@@ -301,6 +301,7 @@ CannotStartEngine=BitTorrent pogon se ne može pokrenuti
 CannotAdd={name} se ne može dodati
 CannotOpen={path} se ne može otvoriti
 CannotDownload={url} se ne može preuzeti
+CannotRelocate=Datoteku iz {name} nije moguće premjestiti ni preimenovati
 ErrNotALink=To nije poveznica koju PaTorrent može dodati
 UrlPlaceholder=magnet:?xt=… ili https://…/datoteka.torrent
 MenuRemoveAndDelete=Ukloni &i izbriši podatke

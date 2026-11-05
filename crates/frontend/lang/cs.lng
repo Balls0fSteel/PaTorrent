@@ -301,6 +301,7 @@ CannotStartEngine=Jádro BitTorrent nelze spustit
 CannotAdd={name} nelze přidat
 CannotOpen={path} nelze otevřít
 CannotDownload={url} nelze stáhnout
+CannotRelocate=Soubor z {name} nelze přesunout ani přejmenovat
 ErrNotALink=Není to odkaz, který PaTorrent umí přidat
 UrlPlaceholder=magnet:?xt=… nebo https://…/soubor.torrent
 MenuRemoveAndDelete=Odebrat &a smazat data

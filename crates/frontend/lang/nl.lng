@@ -301,6 +301,7 @@ CannotStartEngine=Kan de BitTorrent-engine niet starten
 CannotAdd=Kon {name} niet toevoegen
 CannotOpen=Kon {path} niet openen
 CannotDownload=Kon {url} niet downloaden
+CannotRelocate=Kan een bestand van {name} niet verplaatsen of hernoemen
 ErrNotALink=Geen koppeling die PaTorrent kan toevoegen
 UrlPlaceholder=magnet:?xt=… of https://…/bestand.torrent
 MenuRemoveAndDelete=Verwijderen &en gegevens wissen

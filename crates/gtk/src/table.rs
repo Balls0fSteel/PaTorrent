@@ -208,6 +208,7 @@ impl Table {
                         widget.add_controller(click);
                     }
                     item.set_child(Some(&widget));
+                    item.connect_position_notify(stripe);
                 });
             }
             {
@@ -222,6 +223,7 @@ impl Table {
                     let row = *row.borrow::<usize>();
                     bound.borrow_mut().push(Bound { widget: widget.downgrade(), column, row });
                     draw(&widget, &text, icon.as_ref(), row, column);
+                    stripe(item);
                 });
             }
             {
@@ -273,6 +275,23 @@ impl Table {
         if n > 0 {
             self.view.scroll_to(n - 1, None, gtk::ListScrollFlags::NONE, None);
         }
+    }
+}
+
+/// Marks the row holding `item`'s cell `pa-alt` when it is an odd one, for the alternate row
+/// shading (`ui.alternate_rows`, the rule in `app::STRIPES`). Called as the cell is bound and
+/// whenever rows before it come or go; a CSS `nth-child` would count only the rows on screen.
+pub fn stripe(item: &gtk::ListItem) {
+    // the child's parent is its cell, the cell's parent the row
+    let Some(row) = item.child().and_then(|c| c.parent()).and_then(|c| c.parent()) else { return };
+    if row.css_name() != "row" {
+        return;
+    }
+    let pos = item.position();
+    if pos != gtk::INVALID_LIST_POSITION && pos % 2 == 1 {
+        row.add_css_class("pa-alt");
+    } else {
+        row.remove_css_class("pa-alt");
     }
 }
 

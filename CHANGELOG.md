@@ -4,6 +4,20 @@ Recent completed changes, issues and decisions. Timestamps: `YYYY-MM-DD_HHMMSS_<
 
 Earlier history: [archive index](docs/archive/README.md), including all 148 original entries from 2026-10-15 through 2026-10-23. Open archived entries only for a specific historical question. Current work: [PLAN.md](PLAN.md).
 
+## 2026-11-05_220518_1793912718: Rookparcel artwork exploration
+
+- Saved 12 PNG concept sheets covering rook, parcel, bird, monogram and mascot directions, with exact prompts in [the artwork index](docs/art/rookparcel-candidates-2026-11-05/README.md).
+- Exploration only: no identity selected or production icon changed. Verified all 12 PNG files and the prompt index are present; no build or tests needed for these assets. Next: select and refine a candidate.
+
+## 2026-11-05_220414_1793912654: Version 1.2.2: PaTorrent is renamed Rookparcel (D59)
+
+Entries below this one keep the old name PaTorrent.
+
+- **Renamed** everywhere outside history (`docs/archive`, `docs/releases`, older entries here, the icon art): crates `rookparcel-*`, binaries `rookparcel(.exe)`, `rookparcel-nox`, `rookparcel-gtk`, app id `io.github.balls0fsteel.Rookparcel`, packaging and contrib files, wiki page names, `ROOKPARCEL_*` variables, the 35 language files (Korean particles adjusted for a consonant-final name; the About text loses the PatinaTorrent long name). Peer ID `-RP1014-` (`PA` stays in the client table as PaTorrent), User-Agent and BEP 10 `v` `Rookparcel/…`, remote protocol 16, the ping probe still 32 bytes.
+- **Takeover of a PaTorrent install** (`crates/frontend/src/legacy.rs`): the old default roots (`%APPDATA%\PaTorrent`, XDG `patorrent`, Application Support) are renamed once at start, with `patorrent.ini` renamed in every settings folder and paths into the old root rewritten; a portable `patorrent.ini` is taken over in place. A running PaTorrent blocks it: `lockfile` holds `patorrent.lock` too, and the start says the folder is in use. The registry's ProgIDs, Default apps entry and per-profile `Run` values (`integration::adopt_patorrent`), GTK's desktop and autostart entries and macOS's LaunchAgent move to the new names; the setup removes an installed PaTorrent; `service install` replaces a `PaTorrentNox` service and moves `%ProgramData%\PaTorrent`.
+- **Still read:** the `patorrent resume db` tag, `PATORRENT_LANG`/`_BUILD`/`_NO_UPDATE_CHECK`/`_STORE`, `X-Requested-With: PaTorrent`, `patorrent-search:` URLs, a PaTorrent GUI's remote upgrade (answered with the version); the DPAPI entropy keeps its bytes. The site lists old- and new-named release assets. No update bridge (owner): 1.2.x installs are not told.
+- Docs: D59, README, DAEMON.md "Coming from PaTorrent", RELEASING.md's first-release steps (repository rename, wiki push, registering `RP`).
+
 ## 2026-11-05_205340_1793908420: Version 1.2.1: a login banned meanwhile is answered "banned"
 
 - **Fixed:** `check_login` (`crates/nox/src/webui/api.rs`) returns `Login::{Ok, Failed, Banned}`. A login refused because another guess got the address banned meanwhile is answered 403 with the ban text instead of "Fails."; a remote-session login in that case gets 403 instead of 401 (the client already shows 403's text). `login`'s separate ban check before it is gone, so the check and the count happen under one lock.
